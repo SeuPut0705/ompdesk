@@ -5,6 +5,12 @@ import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { exitApp, fixtureOmp } from "./harness";
 
+/** The first transcript row below the viewport top, and its distance from it. */
+interface ReadingAnchor {
+	index: string | null;
+	offset: number;
+}
+
 test("streaming with 50k history preserves the reading anchor, supports five tasks, and recovers a draft after restart", async () => {
 	test.setTimeout(180_000);
 	const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-runtime-"));
@@ -40,7 +46,7 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		await scroll.hover();
 		await page.mouse.wheel(0, -1500);
 		await expect(page.getByRole("button", { name: "Jump to latest", exact: true })).toBeVisible();
-		const readAnchor = () =>
+		const readAnchor = (): Promise<ReadingAnchor | null> =>
 			scroll.evaluate(node => {
 				if (node.scrollHeight - node.scrollTop - node.clientHeight < 100) return null;
 				const top = node.getBoundingClientRect().top;
@@ -51,7 +57,22 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 					? { index: row.getAttribute("data-index"), offset: row.getBoundingClientRect().top - top }
 					: null;
 			});
-		await expect.poll(readAnchor).not.toBeNull();
+		// macOS animates wheel scrolls: the view can still be moving once it leaves
+		// the live edge, so take the anchor only after two reads agree.
+		let settling: ReadingAnchor | null = null;
+		await expect
+			.poll(async () => {
+				const previous = settling;
+				const current = await readAnchor();
+				settling = current;
+				return (
+					previous !== null &&
+					current !== null &&
+					previous.index === current.index &&
+					Math.abs(previous.offset - current.offset) < 1
+				);
+			})
+			.toBe(true);
 		const anchor = await readAnchor();
 		if (!anchor) throw new Error("No visible reading anchor");
 		const progress = async () =>

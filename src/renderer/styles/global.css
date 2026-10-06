@@ -618,6 +618,15 @@ summary,
 	}
 }
 
+/* 800px windows at 200% zoom leave 400 CSS px: a fixed-width sidebar would
+   squeeze the conversation below a usable composer. */
+@media (max-width: 640px) {
+	.omp-session-sidebar {
+		max-width: 40vw;
+		overflow: hidden;
+	}
+}
+
 @media (max-height: 700px) {
 	.omp-empty-canvas {
 		justify-content: flex-start;

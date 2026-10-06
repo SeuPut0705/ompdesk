@@ -209,11 +209,39 @@ function SessionTranscript() {
 		() => findConversationAnchorIndex(conversationAnchors, visibleRowIndex),
 		[conversationAnchors, visibleRowIndex],
 	);
-	const handleVirtualizerChange = useCallback((instance: { range: { startIndex: number } | null }) => {
-		const next = instance.range?.startIndex;
-		if (next == null) return;
-		setVisibleRowIndex(current => (current === next ? current : next));
-	}, []);
+	const viewRef = useRef({ pinned, preCompactionOpen, expandedProcessKeys });
+	viewRef.current = { pinned, preCompactionOpen, expandedProcessKeys };
+
+	// Whether the tail belongs to the follower. An upward gesture is the only thing
+	// that revokes it: `pinned` carries the reader's intent, and the measured edge is
+	// the fallback for a stale unpinned flag from a restored view. Reading only the
+	// measured edge let one frame of lag strand the stream — `scrollToEnd()` targets
+	// the virtualizer's size, which trails a row that is still growing, so the view
+	// fell outside the edge slack and the tail was abandoned for the rest of the run.
+	const followsTail = useCallback(
+		(el: HTMLElement) =>
+			viewRef.current.pinned || (isTranscriptAtLiveEdge(el) && gestureTowardTailRef.current !== false),
+		[],
+	);
+
+	const followedSizeRef = useRef(0);
+	const handleVirtualizerChange = useCallback(
+		(instance: { range: { startIndex: number } | null; getTotalSize: () => number; scrollToEnd: () => void }) => {
+			const next = instance.range?.startIndex;
+			if (next != null) setVisibleRowIndex(current => (current === next ? current : next));
+			// A row measured taller (streamed text): pin in this same frame. The
+			// canvas observer below only sees the growth once React re-renders the
+			// sizer — a frame later, longer on a slow renderer — and meanwhile the
+			// new text is painted below the fold.
+			const size = instance.getTotalSize();
+			if (size === followedSizeRef.current) return;
+			followedSizeRef.current = size;
+			const el = parentRef.current;
+			if (!el || userScrollIntentRef.current || !followsTail(el)) return;
+			instance.scrollToEnd();
+		},
+		[followsTail],
+	);
 
 	const STARTERS = [
 		{ icon: Code2, title: t("chat.starter.understand.title"), prompt: t("chat.starter.understand.prompt") },
@@ -264,8 +292,6 @@ function SessionTranscript() {
 		onChange: handleVirtualizerChange,
 	});
 	const totalSize = virtualizer.getTotalSize();
-	const viewRef = useRef({ pinned, preCompactionOpen, expandedProcessKeys });
-	viewRef.current = { pinned, preCompactionOpen, expandedProcessKeys };
 	useLayoutEffect(
 		() => () => {
 			const scrollOffset = virtualizer.scrollOffset ?? 0;
@@ -291,18 +317,6 @@ function SessionTranscript() {
 		virtualizer.scrollToOffset(offset + restoreView.anchorOffset);
 		restoredAnchor.current = true;
 	}, [restoreView, rowKeys, virtualizer]);
-
-	// Whether the tail belongs to the follower. An upward gesture is the only thing
-	// that revokes it: `pinned` carries the reader's intent, and the measured edge is
-	// the fallback for a stale unpinned flag from a restored view. Reading only the
-	// measured edge let one frame of lag strand the stream — `scrollToEnd()` targets
-	// the virtualizer's size, which trails a row that is still growing, so the view
-	// fell outside the edge slack and the tail was abandoned for the rest of the run.
-	const followsTail = useCallback(
-		(el: HTMLElement) =>
-			viewRef.current.pinned || (isTranscriptAtLiveEdge(el) && gestureTowardTailRef.current !== false),
-		[],
-	);
 
 	// Follow appended rows and same-count tail replacements (notably the
 	// pending -> streaming transition) while the viewport sits at the live edge.

@@ -156,7 +156,10 @@ test("system omp persists settings and sessions and serves every stats route", a
 		const exportWindow = app.waitForEvent("window");
 		await app.evaluate(
 			({ BrowserWindow }, url) => {
-				const win = new BrowserWindow({ width: 1100, height: 800, show: false });
+				// A never-shown window does not paint on Windows, so screenshots hang;
+				// show it inactive like every headless window (transparent, unfocusable).
+				const win = new BrowserWindow({ width: 1100, height: 800, show: false, focusable: false });
+				win.showInactive();
 				void win.loadURL(url);
 			},
 			pathToFileURL(path.join(profile, "audit-export.html")).href,
@@ -182,8 +185,16 @@ test("system omp persists settings and sessions and serves every stats route", a
 			})
 			.not.toBe(original.sessionId);
 		await expect(page.getByText("The originating session was replaced or closed.", { exact: false })).toHaveCount(0);
+		// The seeded reply names a model this credential-less profile cannot
+		// restore, and stock omp fails such a switch closed. Bind the session to
+		// the model omp booted on, as the app's model-restore prompt does.
 		await page.evaluate(async sessionPath => {
-			const result = await window.omp.rpc.switchSession(sessionPath);
+			const state = await window.omp.rpc.getState();
+			const model = state.success ? (state.data as RpcSessionState).model : null;
+			const result = await window.omp.rpc.switchSession(
+				sessionPath,
+				model ? { provider: model.provider, modelId: model.id } : undefined,
+			);
 			if (!result.success) throw new Error(result.error);
 		}, seededSession);
 		await page.reload();

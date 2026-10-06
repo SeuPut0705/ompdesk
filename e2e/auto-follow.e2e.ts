@@ -74,17 +74,22 @@ test("a bottom-pinned transcript rides the stream, and 'jump to latest' re-engag
 			// would otherwise measure the edge moving away faster than the chase closes.
 			await expect.poll(gap, { timeout: 3_000, intervals: [50] }).toBeLessThan(LIVE_EDGE_PX);
 			for (let tick = 0; tick < ticks; tick++) {
-				// One consistent sample one full frame later (layout and resize
-				// observers included): a chunk that lands between two separate reads,
-				// before the app's per-frame pin has run, is a gap no reader ever sees.
+				// Sample what the next frame paints: after its layout and resize
+				// observers, where the app pins the tail. A read in the animation-frame
+				// callback itself precedes that, so it sees whatever text landed since
+				// the previous frame unpinned — on a slow renderer a whole batch of it.
+				// A ResizeObserver created now reports its first observation after every
+				// earlier observer in the same frame.
 				const [distance, measured] = await scroll.evaluate(
 					node =>
 						new Promise<[number, number]>(resolve =>
-							requestAnimationFrame(() =>
-								requestAnimationFrame(() =>
-									resolve([node.scrollHeight - node.scrollTop - node.clientHeight, node.scrollHeight]),
-								),
-							),
+							requestAnimationFrame(() => {
+								const probe = new ResizeObserver(() => {
+									probe.disconnect();
+									resolve([node.scrollHeight - node.scrollTop - node.clientHeight, node.scrollHeight]);
+								});
+								probe.observe(node);
+							}),
 						),
 				);
 				if (previousHeight && measured > previousHeight) growth++;

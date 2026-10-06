@@ -356,6 +356,8 @@ test("narrow windows and 200 percent zoom keep settings and primary actions reac
 		[1280, 800, 1],
 		[1000, 700, 1],
 		[1280, 900, 2],
+		// Minimum window size at 200% zoom: 400×300 CSS px.
+		[800, 600, 2],
 	]) {
 		await app.evaluate(
 			({ BrowserWindow, screen }, dimensions) => {

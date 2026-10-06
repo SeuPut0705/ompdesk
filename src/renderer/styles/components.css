@@ -1124,6 +1124,19 @@
 	}
 }
 
+/* Too narrow for one toolbar row even with labels hidden: wrap, keeping the
+   send cluster right-aligned on its own row. */
+@container omp-workspace (max-width: 400px) {
+	.omp-composer-toolbar {
+		flex-wrap: wrap;
+		row-gap: 0.25rem;
+	}
+
+	.omp-composer-send-cluster {
+		margin-left: auto;
+	}
+}
+
 @media (max-width: 640px) {
 	.omp-dialog-overlay {
 		padding: 0.5rem;

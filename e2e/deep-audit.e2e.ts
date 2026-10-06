@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
+import { formatShortcut } from "../src/renderer/lib/keymap";
 import type { SettingEntry, SettingsSchemaResult } from "../src/shared/rpc-types";
 import { exitApp } from "./harness";
 
@@ -820,7 +821,7 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 		await page.keyboard.press("Escape");
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 		await expect(page.locator('button[data-command-center-entry="true"]').first().locator("kbd")).toContainText(
-			"⌘K / ⌃K",
+			formatShortcut("⌘K / ⌃K", process.platform === "darwin" ? "mac" : "windows"),
 		);
 		await page.locator('button[data-command-center-entry="true"]').first().click();
 		const palette = page.getByRole("dialog");
