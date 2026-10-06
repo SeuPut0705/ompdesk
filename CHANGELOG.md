@@ -31,6 +31,7 @@ First release of omp GUI as its own project. Derived from [nornzach/oh-my-pi-gui
 - A transcript following a streaming reply could paint newly streamed text below the fold for a frame or more on a slow renderer before scrolling to it; the follower now pins in the same frame the row is measured.
 - With omp 18.6.3, opening a session whose saved model is unavailable still failed after choosing a replacement model in the restore prompt: the GUI switched first and set the model afterwards, but omp now refuses that switch. The chosen model is now passed with the switch (older omp still gets it set afterwards).
 - Stats could show "Stats unavailable — This operation was aborted" right after opening on a slow machine (seen on Windows): the GUI gave each stats request 5 s, no more than the stats server's own database lock wait. Requests now get 15 s.
+- Windows: a setting changed in the GUI could silently snap back to its previous value right after another setting was saved: omp's save took its own just-written config.yml for an external edit and dropped the change. The GUI now checks that the change was kept and applies it once more if not.
 
 ### Removed or narrowed compared to the fork-based GUI
 

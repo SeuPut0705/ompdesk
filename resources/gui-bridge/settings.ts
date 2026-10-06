@@ -160,7 +160,16 @@ async function setSetting(env: BridgeEnv, session: AgentSession, id: string, val
 	if (value !== undefined) setting.assertWritable?.(value);
 	setting.set(session.settings, value);
 	const settings = session.settings as unknown as SettingsLike;
+	const intended = settings.overlayLayers && byPath(settings.overlayLayers().global, setting.segments);
 	await settings.flush?.();
+	// Stock's save skips a change it takes for stale after an external config.yml
+	// edit and adopts the file, so the write silently reverts. Its own previous
+	// write has tripped that check on Windows; the user's edit is the newest, so
+	// apply it once more against the file as it now is.
+	if (settings.overlayLayers && !Bun.deepEquals(byPath(settings.overlayLayers().global, setting.segments), intended)) {
+		setting.set(session.settings, value);
+		await settings.flush?.();
+	}
 	env.emit({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
 	const provenance = provenanceReader(settings, globalConfigPath());
 	return {
