@@ -1,6 +1,7 @@
-# Typecheck, lint, unit/component tests, and Playwright e2e on both supported
-# platforms. Windows runs catch path, PATH-lookup, cmd.exe shim, and named-pipe
-# assumptions that a Mac never exercises.
+# Typecheck, lint, unit/component tests on both supported platforms on every
+# push and PR. Windows runs catch path, PATH-lookup, cmd.exe shim, and
+# named-pipe assumptions that a Mac never exercises. Playwright e2e is slow, so
+# it runs only on demand and for published releases.
 name: ci
 
 on:
@@ -8,6 +9,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  release:
+    types: [published]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -31,11 +34,13 @@ jobs:
       - run: bunx vitest run
       - run: bun run build
 
-  # Launches the built app. Most suites drive the fake omp in
-  # e2e/sidecar-fixture.ts; real-core, deep-audit, and the stats route need the
-  # real omp, installed here with no provider credentials (each suite uses an
-  # isolated agent dir).
+  # Launches the built app. macOS runs the full suite: most suites drive the
+  # fake omp in e2e/sidecar-fixture.ts; real-core, deep-audit, and the stats
+  # route need the real omp, installed here with no provider credentials (each
+  # suite uses an isolated agent dir). Windows runs the `@smoke` subset on the
+  # fake omp (launch, named-pipe bridge, new tab, prompt round-trip, settings).
   e2e:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'release'
     strategy:
       fail-fast: false
       matrix:
@@ -49,13 +54,17 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - name: Install omp
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           bun install -g @oh-my-pi/pi-coding-agent
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
-      - run: omp --version
+          "$HOME/.bun/bin/omp" --version
       - run: bun run build
-      - run: bunx playwright test
+      - if: runner.os == 'macOS'
+        run: bunx playwright test
+      - if: runner.os == 'Windows'
+        run: bunx playwright test --grep "@smoke"
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
