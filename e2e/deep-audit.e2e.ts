@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import type { SettingEntry, SettingsSchemaResult } from "../src/shared/rpc-types";
+import { exitApp } from "./harness";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -660,8 +661,8 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 		app = await launchAuditApp(profile, project, desktop, agent);
 		const page = await app.firstWindow();
 		await expect
-			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 90_000 })
-			.toBe("ready");
+			.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 90_000 })
+			.toMatchObject({ status: "ready" });
 		evidence.runtime = await app.evaluate(({ app }) => ({
 			isPackaged: app.isPackaged,
 			appPath: app.getAppPath(),
@@ -926,7 +927,7 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 		await fs.mkdir("test-results/deep-audit", { recursive: true });
 		await fs.writeFile("test-results/deep-audit/evidence.json", JSON.stringify(evidence, null, 2));
 		if (app) {
-			await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
+			await exitApp(app).catch(() => {});
 		}
 		await fs.rm(profile, { recursive: true, force: true }).catch(() => {});
 	}

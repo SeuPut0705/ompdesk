@@ -39,7 +39,7 @@ import { dropSessionNow } from "../../hooks/use-session-switch";
 import { basename, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
-import { compileKeymap, KEYMAP_ACTIONS, onEscape } from "../../lib/keymap";
+import { actionShortcut, compileKeymap, formatChord, KEYMAP_ACTIONS, onEscape } from "../../lib/keymap";
 import { sessionDisplayTitle } from "../../lib/session-title";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { tabSignalPresentation } from "../../lib/tab-signal";
@@ -110,7 +110,7 @@ export function Sidebar() {
 		() =>
 			[...compileKeymap(KEYMAP_ACTIONS, keymapOverrides)]
 				.filter(([, action]) => action === "palette")
-				.map(([chord]) => chord)
+				.map(([chord]) => formatChord(chord))
 				.join(" / "),
 		[keymapOverrides],
 	);
@@ -615,7 +615,7 @@ export function Sidebar() {
 								{
 									id: "agents",
 									icon: Bot,
-									label: t("titlebar.agentHub"),
+									label: t("titlebar.agentHub", { shortcut: actionShortcut("agents.hub") }),
 									onClick: () => useUiStore.getState().openAgentHub(),
 								},
 								{
@@ -639,7 +639,7 @@ export function Sidebar() {
 								{
 									id: "pull-requests",
 									icon: GitPullRequest,
-									label: t("titlebar.prCenter"),
+									label: t("titlebar.prCenter", { shortcut: actionShortcut("pr.center") }),
 									onClick: () => useUiStore.getState().openPrCenter(),
 								},
 								{

@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
+import { exitApp, fixtureOmp } from "./harness";
 
 test("streaming with 50k history preserves the reading anchor, supports five tasks, and recovers a draft after restart", async () => {
 	test.setTimeout(180_000);
@@ -18,7 +19,7 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
-		OMP_GUI_OMP: path.resolve("e2e/sidecar-fixture.ts"),
+		OMP_GUI_OMP: await fixtureOmp(profile),
 		OMP_GUI_TEST_HISTORY: "50000",
 	};
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
@@ -81,7 +82,7 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		}
 		await expect(input).toHaveValue("retained stream draft");
 		for (let index = 1; index < 5; index++) {
-			await page.keyboard.press("Meta+t");
+			await page.keyboard.press("ControlOrMeta+t");
 			await expect(page.locator('[role="tablist"] [role="tab"]')).toHaveCount(index + 1);
 			await expect(page.locator("[data-transcript-kind]").first()).toBeVisible();
 		}
@@ -120,8 +121,7 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		await page.screenshot({ path: "test-results/runtime-recovered.png", scale: "css", animations: "disabled" });
 		expect(errors).toEqual([]);
 	} finally {
-		// Test teardown bypasses the production quit confirmation.
-		await app.evaluate(({ app }) => app.exit(0));
+		await exitApp(app);
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 });

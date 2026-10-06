@@ -1,6 +1,6 @@
-# Typecheck, lint, and unit/component tests on both supported platforms.
-# Windows runs catch path, PATH-lookup, and named-pipe assumptions that a Mac
-# never exercises. E2E stays local: it needs the user's omp and a display.
+# Typecheck, lint, unit/component tests, and Playwright e2e on both supported
+# platforms. Windows runs catch path, PATH-lookup, cmd.exe shim, and named-pipe
+# assumptions that a Mac never exercises.
 name: ci
 
 on:
@@ -30,3 +30,37 @@ jobs:
       - run: bunx biome check src e2e
       - run: bunx vitest run
       - run: bun run build
+
+  # Launches the built app. Most suites drive the fake omp in
+  # e2e/sidecar-fixture.ts; real-core, deep-audit, and the stats route need the
+  # real omp, installed here with no provider credentials (each suite uses an
+  # isolated agent dir).
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Install omp
+        shell: bash
+        run: |
+          bun install -g @oh-my-pi/pi-coding-agent
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+      - run: omp --version
+      - run: bun run build
+      - run: bunx playwright test
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-${{ matrix.os }}
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore

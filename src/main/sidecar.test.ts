@@ -510,6 +510,125 @@ describe("SidecarManager", () => {
 		}
 	}, 15_000);
 
+	it("boots on a catalog model when omp has no usable model, then drops it once ready", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-no-model-"));
+		const logPath = path.join(tempDir, "argv.jsonl");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			[
+				'import * as fs from "node:fs/promises";',
+				"const argv = process.argv.slice(2);",
+				`await fs.appendFile(${JSON.stringify(logPath)}, JSON.stringify(argv) + "\\n");`,
+				'if (!argv.includes("--model")) {',
+				// Red, as stock prints it when color is forced (CI): the parser must see through ANSI codes.
+				'\tprocess.stderr.write("\\x1b[31mNo models available. Use /login or set an API key environment variable. Then use /model to select a model.\\x1b[39m\\n");',
+				"\tprocess.exit(1);",
+				"}",
+				'process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
+				"process.stdin.resume();",
+			].join("\n"),
+		);
+
+		const reportFailure = vi.fn();
+		const bootModel = vi.fn(async () => "catalog/model-a");
+		const statuses: SidecarStatusPayload[] = [];
+		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, reportFailure, bootModel });
+		sidecar.on("status", payload => statuses.push(payload));
+		const launches = async () =>
+			(await fs.readFile(logPath, "utf8"))
+				.split("\n")
+				.filter(Boolean)
+				.map(line => JSON.parse(line) as string[]);
+		try {
+			const ready = waitForReady(sidecar);
+			sidecar.start();
+			await ready;
+			expect(await launches()).toEqual([
+				["--mode", "rpc-ui"],
+				["--mode", "rpc-ui", "--model", "catalog/model-a"],
+			]);
+			expect(bootModel).toHaveBeenCalledTimes(1);
+			// A recoverable boot failure is not a crash: no restart backoff, no crash report.
+			expect(statuses.some(payload => payload.status === "restarting")).toBe(false);
+			expect(reportFailure).not.toHaveBeenCalled();
+
+			// Once booted, a restart (e.g. after the user connects a provider) asks
+			// omp for its own default model again instead of pinning the placeholder.
+			sidecar.restart();
+			await expect
+				.poll(async () => (await launches())[2], { timeout: 5_000, interval: 25 })
+				.toEqual(["--mode", "rpc-ui"]);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
+	// Windows CI: the fake's grandchild never got its write out after the fake
+	// exited (the respawn loop never saw it), so the late-stderr setup only holds on POSIX.
+	it.skipIf(process.platform === "win32")(
+		"diagnoses a boot failure whose stderr lands after the process exited",
+		async () => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-late-stderr-"));
+			const binaryPath = await writeFakeOmp(
+				tempDir,
+				[
+					'if (process.argv.includes("--model")) {',
+					'\tprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
+					"\tprocess.stdin.resume();",
+					"} else {",
+					"\t// A grandchild holding stderr (as under a cmd.exe shim) writes after this process exits;",
+					"\t// the real delay is the point: the write must land after `exit`.",
+					'\tBun.spawn(["bun", "-e", \'await Bun.sleep(300); process.stderr.write("No models available.\\\\n")\'], {',
+					'\t\tstdio: ["ignore", "ignore", "inherit"],',
+					"\t}).unref();",
+					"\tprocess.exit(1);",
+					"}",
+				].join("\n"),
+			);
+
+			const bootModel = vi.fn(async () => "catalog/model-a");
+			const statuses: SidecarStatusPayload[] = [];
+			const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, bootModel });
+			sidecar.on("status", payload => statuses.push(payload));
+			try {
+				const ready = waitForReady(sidecar);
+				sidecar.start();
+				await ready;
+				expect(bootModel).toHaveBeenCalledTimes(1);
+				expect(statuses.some(payload => payload.status === "restarting")).toBe(false);
+			} finally {
+				sidecar.dispose();
+				await fs.rm(tempDir, RM_TEMP);
+			}
+		},
+		15_000,
+	);
+
+	it("falls back to the crash loop when the catalog-model respawn has no model either", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-no-model-loop-"));
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`process.stderr.write("No models available.\\n");\nprocess.exit(1);\n`,
+		);
+
+		const bootModel = vi.fn(async () => "catalog/model-a");
+		const statuses: SidecarStatusPayload[] = [];
+		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, bootModel });
+		sidecar.on("status", payload => statuses.push(payload));
+		try {
+			sidecar.start();
+			await expect
+				.poll(() => statuses.some(payload => payload.status === "restarting"), { timeout: 9_000, interval: 50 })
+				.toBe(true);
+			expect(bootModel).toHaveBeenCalledTimes(1);
+			expect(statuses.find(payload => payload.status === "restarting")?.message).toContain("No models available");
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	}, 15_000);
+
 	it("carries the crashed spawn's stderr into the restart reason and the crash report", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-stderr-"));
 		const binaryPath = await writeFakeOmp(

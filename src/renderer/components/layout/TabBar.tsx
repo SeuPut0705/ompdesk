@@ -31,6 +31,7 @@ import {
 import { useSessionList } from "../../hooks/use-session-list";
 import { basename, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { actionShortcut } from "../../lib/keymap";
 import { sessionHasContent } from "../../lib/session-title";
 import { type LiveTabRuntime, performTabClose, tabNeedsCloseConfirm } from "../../lib/tab-close";
 import { tabSignalPresentation } from "../../lib/tab-signal";
@@ -555,7 +556,7 @@ function NewTabMenu() {
 			<button
 				type="button"
 				aria-label={t("tabs.new.agent")}
-				title={t("tabs.new.agentHint")}
+				title={t("tabs.new.agentHint", { shortcut: actionShortcut("tab.new") })}
 				onClick={() => void openTab()}
 				className={buttonClass}
 			>
@@ -564,7 +565,7 @@ function NewTabMenu() {
 			<button
 				type="button"
 				aria-label={t("tabs.new.chat")}
-				title={t("tabs.new.chatHint")}
+				title={t("tabs.new.chatHint", { shortcut: actionShortcut("tab.newChat") })}
 				onClick={() => void openTab({ kind: "chat" })}
 				className={buttonClass}
 			>
@@ -573,7 +574,7 @@ function NewTabMenu() {
 			<button
 				type="button"
 				aria-label={t("tabs.new.worktree")}
-				title={t("tabs.new.worktreeHint")}
+				title={t("tabs.new.worktreeHint", { shortcut: actionShortcut("tab.newWorktree") })}
 				onClick={() => openWorktreeDialog()}
 				className={buttonClass}
 			>

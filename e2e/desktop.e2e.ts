@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron, type Page } from "playwright";
+import { exitApp, fixtureOmp } from "./harness";
 
 let app: ElectronApplication;
 let page: Page;
@@ -33,8 +34,7 @@ test.beforeAll(async () => {
 	await Promise.all([fs.mkdir(project), fs.mkdir(userData), fs.mkdir(agent)]);
 	record = path.join(profile, "rpc.jsonl");
 	await fs.writeFile(path.join(userData, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
-	const fixture = path.resolve("e2e/sidecar-fixture.ts");
-	await fs.chmod(fixture, 0o755);
+	const fixture = await fixtureOmp(profile);
 	const env = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agent,
@@ -58,8 +58,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-	// Test teardown bypasses the production quit confirmation.
-	if (app) await app.evaluate(({ app }) => app.exit(0));
+	if (app) await exitApp(app);
 	if (record) await fs.copyFile(record, "test-results/desktop-rpc.jsonl").catch(() => {});
 	if (profile) await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
@@ -322,7 +321,7 @@ test("repeated modal and task lifecycles release sidecars and document listeners
 		await expect(page.getByRole("dialog")).toBeVisible();
 		await page.keyboard.press("Escape");
 		await expect(page.getByRole("dialog")).toHaveCount(0);
-		await page.keyboard.press("Meta+t");
+		await page.keyboard.press("ControlOrMeta+t");
 		await expect(page.locator('[role="tablist"] [role="tab"]')).toHaveCount(2);
 		await expect(
 			page.locator('[role="tablist"] [role="tab"]').last().getByRole("img", { name: "Ready", exact: true }),
@@ -359,9 +358,17 @@ test("narrow windows and 200 percent zoom keep settings and primary actions reac
 		[1280, 900, 2],
 	]) {
 		await app.evaluate(
-			({ BrowserWindow }, dimensions) => {
+			({ BrowserWindow, screen }, dimensions) => {
 				const win = BrowserWindow.getAllWindows()[0];
-				win.setSize(dimensions.width, dimensions.height);
+				// CI displays are ~1024×720: a window larger than the work area renders
+				// into a viewport the OS clips, so keep it on screen (and in place).
+				const { workArea } = screen.getPrimaryDisplay();
+				win.setBounds({
+					x: workArea.x,
+					y: workArea.y,
+					width: Math.min(dimensions.width, workArea.width),
+					height: Math.min(dimensions.height, workArea.height),
+				});
 				win.webContents.setZoomFactor(dimensions.zoom);
 			},
 			{ width, height, zoom },
@@ -381,7 +388,20 @@ test("narrow windows and 200 percent zoom keep settings and primary actions reac
 		const input = page.locator("textarea").first();
 		await input.fill("layout draft");
 		await expect(input).toBeEditable();
-		await expect(page.getByRole("button", { name: "Send (Enter)", exact: true })).toBeInViewport();
+		const send = page.getByRole("button", { name: "Send (Enter)", exact: true });
+		// Window/screen geometry in the failure message: a CI display can clamp the requested size.
+		const geometry = await app.evaluate(({ BrowserWindow, screen }) => {
+			const win = BrowserWindow.getAllWindows()[0];
+			return JSON.stringify({
+				bounds: win.getBounds(),
+				content: win.getContentBounds(),
+				workArea: screen.getPrimaryDisplay().workArea,
+			});
+		});
+		const viewport = await send.evaluate(node =>
+			JSON.stringify({ inner: [innerWidth, innerHeight], send: node.getBoundingClientRect() }),
+		);
+		await expect(send, `${geometry} ${viewport}`).toBeInViewport();
 		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 		await input.fill("");
 	}

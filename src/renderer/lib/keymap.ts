@@ -22,6 +22,14 @@
  * meta/super — joined by "+" or "-" ("ctrl+shift+p", "Control-Shift-P").
  * Every chord needs a real modifier (⌃/⌥/⌘): an unmodified key would eat
  * typing app-wide and a shift-only chord would hijack capital letters.
+ *
+ * Platforms: the action table is spelled for macOS. On Windows ⌘ is the Win
+ * key (OS-reserved), so every ⌘ in a default — and in a reserved native chord
+ * — resolves to ⌃, the CmdOrCtrl reading Electron gives the menu accelerators
+ * (`defaultChords` / `reservedChords`); an action whose ⌃ form would collide
+ * carries its own `windowsDefaults`. User overrides are explicit chords and
+ * never remap. Labels go through `formatChord` / `formatShortcut`: glyphs on
+ * macOS, "Ctrl+Shift+T" on Windows.
  */
 
 import { NATIVE_CHORDS } from "../../shared/hotkeys";
@@ -42,12 +50,22 @@ export type HotkeyGroupId = "generation" | "view" | "session";
 /** Owner class of a non-remappable chord: a focused control, or the native layer. */
 export type ReservedChordGroup = "input" | "native";
 
+/** Keyboard convention defaults and labels follow: macOS glyphs/⌘, or Windows Ctrl. */
+export type KeymapPlatform = "mac" | "windows";
+
+/** The renderer's platform, detected once (macOS and Windows are the only shipped
+ *  targets); every platform-taking function below defaults to it. */
+export const PLATFORM: KeymapPlatform =
+	typeof navigator !== "undefined" && /Mac/.test(navigator.platform) ? "mac" : "windows";
+
 export interface KeymapAction {
 	readonly id: string;
 	/** i18n key for the row label in HotkeysDialog. */
 	readonly labelKey: string;
-	/** Canonical default chords (first is the primary display chord). */
+	/** Canonical macOS default chords (first is the primary display chord). */
 	readonly defaults: readonly string[];
+	/** Windows defaults when the ⌘→⌃ mapping of `defaults` would collide. */
+	readonly windowsDefaults?: readonly string[];
 	/**
 	 * True = fires even while an overlay/dialog owns the keyboard or a focused
 	 * control consumed the key — the pre-B3 behavior of the unguarded ⌘ block
@@ -130,12 +148,8 @@ function normalizeBaseKey(raw: string): string | null {
 	return null;
 }
 
-/**
- * Parse a chord string (canonical unicode form or textual alias form) into a
- * Chord. Returns null for anything without a base key or without at least one
- * of ⌃/⌥/⌘ — unmodified and shift-only "chords" are unbindable by design.
- */
-export function parseChord(input: string): Chord | null {
+/** Chord flags + canonical base key, with or without a real modifier. */
+function parseChordParts(input: string): Chord | null {
 	const trimmed = input.trim();
 	if (!trimmed) return null;
 	const flags = { ctrl: false, alt: false, shift: false, meta: false };
@@ -162,13 +176,70 @@ export function parseChord(input: string): Chord | null {
 	}
 	const key = normalizeBaseKey(base.trim());
 	if (!key) return null;
-	if (!flags.ctrl && !flags.alt && !flags.meta) return null;
 	return { ...flags, key };
+}
+
+/**
+ * Parse a chord string (canonical unicode form or textual alias form) into a
+ * Chord. Returns null for anything without a base key or without at least one
+ * of ⌃/⌥/⌘ — unmodified and shift-only "chords" are unbindable by design.
+ */
+export function parseChord(input: string): Chord | null {
+	const chord = parseChordParts(input);
+	if (!chord || (!chord.ctrl && !chord.alt && !chord.meta)) return null;
+	return chord;
 }
 
 /** Canonical chord string: modifiers in ⌥⇧⌃⌘ order + the canonical base key. */
 export function serializeChord(chord: Chord): string {
 	return `${chord.alt ? "⌥" : ""}${chord.shift ? "⇧" : ""}${chord.ctrl ? "⌃" : ""}${chord.meta ? "⌘" : ""}${chord.key}`;
+}
+
+/** A macOS-spelled chord on `platform`: Windows reads ⌘ as ⌃ (Electron's CmdOrCtrl). */
+export function platformChord(chord: string, platform: KeymapPlatform = PLATFORM): string {
+	if (platform === "mac" || !chord.includes("⌘")) return chord;
+	const parsed = parseChordParts(chord);
+	return parsed ? serializeChord({ ...parsed, meta: false, ctrl: true }) : chord;
+}
+
+/** Windows names for the glyph base keys; letters, digits, arrows and punctuation print as-is. */
+const WINDOWS_KEY_NAMES: Record<string, string> = {
+	"↵": "Enter",
+	"⇥": "Tab",
+	"␣": "Space",
+	"⎋": "Esc",
+	"⌫": "Backspace",
+	"⌦": "Delete",
+};
+
+/**
+ * User-visible spelling of one chord exactly as it binds (⌘ is the Win key on
+ * Windows): unchanged glyphs on macOS, "Ctrl+Alt+Shift+T" order on Windows.
+ * Unmodified and shift-only keys ("⇧Tab", "Enter") format too; text that is no
+ * chord at all passes through.
+ */
+export function formatChord(chord: string, platform: KeymapPlatform = PLATFORM): string {
+	if (platform === "mac") return chord;
+	const parsed = parseChordParts(chord);
+	if (!parsed) return chord;
+	const parts: string[] = [];
+	if (parsed.ctrl) parts.push("Ctrl");
+	if (parsed.alt) parts.push("Alt");
+	if (parsed.shift) parts.push("Shift");
+	if (parsed.meta) parts.push("Win");
+	parts.push(WINDOWS_KEY_NAMES[parsed.key] ?? parsed.key);
+	return parts.join("+");
+}
+
+/**
+ * User-visible spelling of a macOS-spelled shortcut label ("⇧⌘T", "⌘K / ⌃K"),
+ * where ⌘ means CmdOrCtrl: on Windows each " / " alternative maps ⌘→⌃,
+ * formats, and dedupes ("⌘K / ⌃K" → "Ctrl+K").
+ */
+export function formatShortcut(label: string, platform: KeymapPlatform = PLATFORM): string {
+	if (platform === "mac") return label;
+	const parts = label.split(" / ").map(part => formatChord(platformChord(part, platform), platform));
+	return [...new Set(parts)].join(" / ");
 }
 
 /** Structural subset of KeyboardEvent that chord extraction reads (test-friendly). */
@@ -280,7 +351,9 @@ export function chordFromEvent(event: KeyEventLike): string | null {
  * renderer sees a keydown.
  * `defaults` for the ⌘ actions include their ⌃ twin: the pre-B3 handler
  * accepted `metaKey || ctrlKey` for that block, and the compiled map fully
- * replaces those chains.
+ * replaces those chains. On Windows the twins collapse into one ⌃ chord
+ * (`platformDefaults`), and the ⌘T tab chords take ⌃T, so thinking.toggle
+ * moves to ⌥⌃T there.
  */
 export const KEYMAP_ACTIONS = [
 	// ⌃P is overlaySafe: its pre-B3 branch lived in the unguarded ⌘/⌃ block and
@@ -320,6 +393,8 @@ export const KEYMAP_ACTIONS = [
 		id: "thinking.toggle",
 		labelKey: "hotkeys.row.thinkingToggle",
 		defaults: ["⌃T"],
+		// Windows: ⌃T is tab.new (⌘T → ⌃T).
+		windowsDefaults: ["⌥⌃T"],
 		overlaySafe: false,
 		hotkeyGroup: "generation",
 	},
@@ -392,7 +467,7 @@ const COMPOSER_CHORDS: readonly ReservedChord[] = [
 	{ id: "composer.editor", labelKey: "hotkeys.row.composerEditor", chord: "⌃G", hotkeyGroup: "input" },
 ];
 
-/** Every chord the GUI already owns that the registry cannot dispatch. */
+/** Every chord the GUI already owns that the registry cannot dispatch (macOS spelling). */
 export const RESERVED_CHORDS: readonly ReservedChord[] = [
 	...COMPOSER_CHORDS,
 	...NATIVE_CHORDS.map(entry => ({
@@ -402,6 +477,24 @@ export const RESERVED_CHORDS: readonly ReservedChord[] = [
 		hotkeyGroup: "native" as const,
 	})),
 ];
+
+/** RESERVED_CHORDS as they bind on `platform` (the native menu registers CmdOrCtrl). */
+export function reservedChords(platform: KeymapPlatform = PLATFORM): readonly ReservedChord[] {
+	if (platform === "mac") return RESERVED_CHORDS;
+	return RESERVED_CHORDS.map(entry => ({ ...entry, chord: platformChord(entry.chord, platform) }));
+}
+
+/** An action's default chords as they bind on `platform` (⌘→⌃ on Windows, deduped). */
+export function platformDefaults(action: KeymapAction, platform: KeymapPlatform = PLATFORM): readonly string[] {
+	if (platform === "mac") return action.defaults;
+	if (action.windowsDefaults) return action.windowsDefaults;
+	return [...new Set(action.defaults.map(chord => platformChord(chord, platform)))];
+}
+
+/** Formatted primary default chord of an action — the hint embedded in labels. */
+export function actionShortcut(id: KeymapActionId, platform: KeymapPlatform = PLATFORM): string {
+	return formatChord(platformDefaults(KEYMAP_ACTION_BY_ID[id], platform)[0] ?? "", platform);
+}
 
 /** Rows the reference dialog files under a group, in registry order. */
 export function keymapActionsForGroup<const Group extends HotkeyGroupId>(
@@ -413,9 +506,12 @@ export function keymapActionsForGroup<const Group extends HotkeyGroupId>(
 	);
 }
 
-/** Non-remappable rows the reference dialog files under a group. */
-export function reservedChordsForGroup(group: ReservedChordGroup): ReservedChord[] {
-	return RESERVED_CHORDS.filter(entry => entry.hotkeyGroup === group);
+/** Non-remappable rows the reference dialog files under a group, as they bind on `platform`. */
+export function reservedChordsForGroup(
+	group: ReservedChordGroup,
+	platform: KeymapPlatform = PLATFORM,
+): ReservedChord[] {
+	return reservedChords(platform).filter(entry => entry.hotkeyGroup === group);
 }
 
 export interface ChordOwner {
@@ -451,11 +547,12 @@ export const KEYMAP_ACTION_BY_ID: Readonly<Record<KeymapActionId, KeymapAction>>
 export function compileKeymap<A extends KeymapAction>(
 	actions: readonly A[],
 	overrides: KeymapOverrides,
+	platform: KeymapPlatform = PLATFORM,
 ): Map<string, A["id"]> {
 	const map = new Map<string, A["id"]>();
 	for (const action of actions) {
 		if (overrides[action.id]?.length) continue; // replaced, not merged
-		for (const raw of action.defaults) {
+		for (const raw of platformDefaults(action, platform)) {
 			const parsed = parseChord(raw);
 			if (parsed) map.set(serializeChord(parsed), action.id);
 		}
@@ -493,12 +590,13 @@ export interface KeymapConflict {
 export function detectConflicts(
 	actions: readonly KeymapAction[],
 	overrides: KeymapOverrides,
-	reserved: readonly ReservedChord[] = RESERVED_CHORDS,
+	platform: KeymapPlatform = PLATFORM,
 ): KeymapConflict[] {
+	const reserved = reservedChords(platform);
 	const defaultChords = new Map<string, Set<string>>();
 	for (const action of actions) {
 		const chords = new Set<string>();
-		for (const raw of action.defaults) {
+		for (const raw of platformDefaults(action, platform)) {
 			const parsed = parseChord(raw);
 			if (parsed) chords.add(serializeChord(parsed));
 		}

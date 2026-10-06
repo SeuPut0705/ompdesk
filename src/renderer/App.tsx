@@ -362,6 +362,7 @@ export function App() {
 	}, [t]);
 	// User keybinding overrides → precompiled chord → actionId lookup (B3,
 	// plan/15 §3.5): keydown dispatch is an O(1) map hit, never a config walk.
+	// Defaults resolve for the renderer's platform (⌘ → ⌃ on Windows).
 	// The memo recomputes only when the overrides object identity changes.
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
 	const keymap = useMemo(() => compileKeymap(KEYMAP_ACTIONS, keymapOverrides), [keymapOverrides]);
@@ -417,12 +418,12 @@ export function App() {
 					ui.toggleToolsExpandAll();
 					return;
 				case "thinking.toggle": {
-					// ⌃T — show/hide thinking blocks (TUI app.thinking.toggle).
+					// ⌃T (⌥⌃T on Windows) — show/hide thinking blocks (TUI app.thinking.toggle).
 					void setDisplayPreference("hideThinkingBlock", !readDisplayPreference("hideThinkingBlock"));
 					return;
 				}
 				case "tab.new":
-					// ⌘T — new agent tab (type chosen at creation, immutable).
+					// ⌘T (⌃T on Windows) — new agent tab (type chosen at creation, immutable).
 					void useTabsStore.getState().openTab();
 					return;
 				case "tab.newChat":
@@ -433,8 +434,8 @@ export function App() {
 					useUiStore.getState().openWorktreeDialog();
 					return;
 				case "tab.close":
-					// ⌘W — close the active tab, arming the chip's inline confirm
-					// while its run is live (⇧⌘W closes the window from the menu).
+					// ⌘W (⌃W on Windows) — close the active tab, arming the chip's inline
+					// confirm while its run is live (⇧⌘W closes the window from the menu).
 					closeActiveTab();
 					return;
 				case "pr.center":

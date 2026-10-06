@@ -17,7 +17,7 @@ import type { StoreApi } from "zustand/vanilla";
 import type { RpcQueuedMessage } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
-import { onEscape } from "../../lib/keymap";
+import { formatShortcut, onEscape } from "../../lib/keymap";
 import { optimisticWrite } from "../../lib/optimistic";
 import { type QueueLane, type QueueStore, useQueuedMessages, useQueueStore } from "../../stores/queue";
 import { type SessionStore, useSessionStore } from "../../stores/session";
@@ -146,7 +146,7 @@ const QueuedRow = memo(function QueuedRow({
 							className="omp-pressable rounded-sm p-1 text-(--omp-accent) hover:bg-(--omp-bg-tertiary) disabled:cursor-not-allowed disabled:opacity-40"
 							disabled={!ready || draft.trim().length === 0}
 							onClick={saveEdit}
-							title={t("queuePanel.saveEditHint")}
+							title={t("queuePanel.saveEditHint", { shortcut: formatShortcut("⌘↵") })}
 							type="button"
 						>
 							<Check size={12} />

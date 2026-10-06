@@ -6,6 +6,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import Store from "electron-store";
 import { parseLaunchProfile, profileToFlags, stripDenylistedFlags } from "../shared/launch-profile";
 import { DEFAULT_ROLE_MODEL_SELECTOR, parseModelRestoreFailure } from "../shared/model-restore";
@@ -34,6 +35,7 @@ import type {
 	SubagentFrame,
 } from "../shared/rpc-types";
 import { BTW_FRAME_TYPES, LIVE_FRAME_TYPES } from "../shared/rpc-types";
+import { isNoModelBootFailure } from "./boot-model";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import type { BridgeConnectResult } from "./bridge-health";
 import { EventBatcher } from "./event-batcher";
@@ -56,6 +58,8 @@ const STDERR_REASON_CHARS = 240;
 const LOCAL_SEND_TIMEOUT_MS = 120_000;
 /** How long `agent_end` (and every frame behind it) may wait for its entry ids. */
 const ENTRY_ID_TIMEOUT_MS = 5_000;
+/** Longest wait after `exit` for the child's stderr to finish draining (a shim's grandchild may hold it open). */
+const STDERR_DRAIN_MS = 1_000;
 
 /** Files inside the gui-bridge directory (resources/gui-bridge). */
 const BRIDGE_ENTRY = "index.ts";
@@ -83,6 +87,19 @@ function stderrExcerpt(lines: string[]): string {
 		return trimmed.length > STDERR_REASON_CHARS ? `${trimmed.slice(0, STDERR_REASON_CHARS - 1)}…` : trimmed;
 	}
 	return "";
+}
+
+/** Resolves once `child`'s stderr has closed, or after STDERR_DRAIN_MS. */
+function stderrDrained(child: ChildProcess): Promise<void> {
+	const stream = child.stderr;
+	if (!stream || stream.closed) return Promise.resolve();
+	const { promise, resolve } = Promise.withResolvers<void>();
+	const timer = setTimeout(resolve, STDERR_DRAIN_MS);
+	stream.once("close", () => {
+		clearTimeout(timer);
+		resolve();
+	});
+	return promise;
 }
 
 /** `ctx.send` over the stock path: resolves with `response.data`, rejects with `response.error`. */
@@ -176,6 +193,11 @@ export interface SidecarOptions {
 	 * Electron's `app`, so the manager must keep working without it.
 	 */
 	reportFailure?: (report: SidecarFailureReport) => void;
+	/**
+	 * A catalog `provider/model` selector for `runtime` (src/main/boot-model.ts).
+	 * Absent: a spawn that exits with "No models available" just crash-loops.
+	 */
+	bootModel?: (runtime: OmpRuntime) => Promise<string>;
 }
 
 /** One crash-loop step, as handed to `reportFailure`. */
@@ -280,6 +302,12 @@ export class SidecarManager extends EventEmitter {
 	 * carries it so the renderer can say so.
 	 */
 	#bootModelFallback: string | null = null;
+	/**
+	 * Catalog model the next spawns pass as `--model` after one exited with "No
+	 * models available" (no credentials yet): booting is what lets the renderer
+	 * open onboarding to connect a provider. Cleared on `ready` and restart().
+	 */
+	#noModelBoot: string | null = null;
 	/** Last session identity `get_state` reported; null when a session change made it unknown. */
 	#session: SidecarSessionIdentity | null = null;
 	/** Newest session entry seen by the `agent_end` entry-id fetch (its `get_entries` cursor). */
@@ -369,7 +397,8 @@ export class SidecarManager extends EventEmitter {
 		const args = ["--mode", "rpc-ui"];
 		if (this.#resumeSessionPath) args.push("--session", this.#resumeSessionPath);
 		else if (this.#freshLaunchPending && bridgeDir) args.push("--config", join(bridgeDir, FRESH_LAUNCH_CONFIG));
-		if (this.#bootModelFallback) args.push("--model", DEFAULT_ROLE_MODEL_SELECTOR);
+		if (this.#noModelBoot) args.push("--model", this.#noModelBoot);
+		else if (this.#bootModelFallback) args.push("--model", DEFAULT_ROLE_MODEL_SELECTOR);
 		if (this.#options.kind === "chat") args.push("--no-tools");
 		const bridgeAddress = bridgeDir ? newBridgeAddress() : null;
 		if (bridgeDir) args.push("-e", join(bridgeDir, BRIDGE_ENTRY));
@@ -446,7 +475,8 @@ export class SidecarManager extends EventEmitter {
 		// tail: a sidecar that dies before it can log anywhere only speaks through
 		// this pipe, so without the ring the crash report is just an exit code.
 		child.stderr?.on("data", (chunk: Buffer) => {
-			const text = chunk.toString("utf-8").trim();
+			// omp colors fatal lines; the tail feeds UI text and the boot-failure parsers.
+			const text = stripVTControlCharacters(chunk.toString("utf-8")).trim();
 			if (text) {
 				console.error(`[sidecar stderr] ${text}`);
 				for (const line of text.split("\n")) {
@@ -461,15 +491,21 @@ export class SidecarManager extends EventEmitter {
 			if (this.#child !== child) return;
 			this.#cleanup();
 			if (this.#disposed) return;
-
 			if (code === 0) {
 				this.#setStatus("exited", "Normal shutdown");
-			} else if (this.#recoverBootModelRestore()) {
-				this.#spawn();
-			} else {
-				const msg = `Exit code ${code}${signal ? ` (signal: ${signal})` : ""}`;
-				this.#attemptRestart(msg);
+				return;
 			}
+			// `exit` can fire before stderr has drained, and the boot-failure
+			// parsers below read it; a restart() meanwhile advances the generation.
+			const generation = this.#generation;
+			void stderrDrained(child).then(() => {
+				if (!this.#isLive(generation)) return;
+				if (this.#recoverBootModelRestore()) {
+					this.#spawn();
+				} else if (!this.#recoverNoModelBoot()) {
+					this.#attemptRestart(`Exit code ${code}${signal ? ` (signal: ${signal})` : ""}`);
+				}
+			});
 		});
 
 		child.on("error", err => {
@@ -685,6 +721,7 @@ export class SidecarManager extends EventEmitter {
 		this.#bootedThisSpawn = true;
 		const modelFallback = this.#bootModelFallback ?? undefined;
 		this.#bootModelFallback = null;
+		this.#noModelBoot = null;
 		// Freshness is a creation contract, not a restart policy. Once the new
 		// tab has booted successfully, later crash/manual restarts may auto-resume
 		// the session it has since created or opened.
@@ -789,6 +826,28 @@ export class SidecarManager extends EventEmitter {
 		return true;
 	}
 
+	/**
+	 * Stock omp exits before `ready` when no model has credentials, and would on
+	 * every retry. Arm one respawn with an explicit catalog model instead
+	 * (outside the crash budget); true when armed. A spawn that already carried
+	 * it falls through to the crash-loop path.
+	 */
+	#recoverNoModelBoot(): boolean {
+		const resolve = this.#options.bootModel;
+		const runtime = this.#runtime;
+		if (!resolve || !runtime || this.#bootedThisSpawn || this.#noModelBoot) return false;
+		if (!isNoModelBootFailure(this.#lastStderr.join("\n"))) return false;
+		// kill()/restart() while the selector resolves advance the generation.
+		const generation = this.#generation;
+		void resolve(runtime).then(selector => {
+			if (!this.#isLive(generation) || this.#child) return;
+			console.warn(`[sidecar] omp has no usable model — booting on ${selector} so onboarding can connect one`);
+			this.#noModelBoot = selector;
+			this.#spawn();
+		});
+		return true;
+	}
+
 	#setStatus(status: SidecarStatus, message?: string, restart?: SidecarRestartProgress, modelFallback?: string): void {
 		this.#status = status;
 		this.#statusDetail = { message, restart, modelFallback };
@@ -847,6 +906,7 @@ export class SidecarManager extends EventEmitter {
 		if (cwd) this.#options = { ...this.#options, cwd };
 		this.#resumeSessionPath = resumeSessionPath ?? null;
 		this.#bootModelFallback = null;
+		this.#noModelBoot = null;
 		this.#restartCount = 0;
 		this.start();
 	}

@@ -19,6 +19,8 @@ First release of omp GUI as its own project. Derived from [nornzach/oh-my-pi-gui
 ### Fixed
 
 - Windows: omp installed under a path with a space (e.g. `C:\Users\First Last\…\omp.cmd`) failed to launch; the shim path is now quoted for every omp spawn.
+- With no provider credentials (and no on-device model), stock omp exits at startup with "No models available", so the GUI crash-looped and the first-run onboarding that connects a provider never opened. The GUI now boots omp once on a model from the installed omp's own catalog so onboarding appears.
+- Windows: new tab, chat tab, and close tab had no working shortcut (their defaults were ⌘-only). Every ⌘ shortcut now uses Ctrl on Windows (new tab Ctrl+T, chat tab Ctrl+Shift+T, close tab Ctrl+W; thinking toggle moves to Ctrl+Alt+T there), and shortcut labels show Windows key names.
 - Opening a tab or switching to a session hydrated the transcript up to three times concurrently; it now loads once per tab and session.
 - Opening a session with a long history re-fetched and re-projected the whole history for every transcript page.
 - A packaged app ignored the project folder passed on the command line.
