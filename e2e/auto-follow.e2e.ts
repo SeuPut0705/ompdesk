@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
+import { fixtureOmp } from "./fixture-omp";
 
 /** Distance from the bottom that still counts as "riding the live edge". Row
  * re-measurement during streaming overshoots a few pixels, so this is deliberately
@@ -23,7 +24,7 @@ test("a bottom-pinned transcript rides the stream, and 'jump to latest' re-engag
 		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
-		OMP_GUI_OMP: path.resolve("e2e/sidecar-fixture.ts"),
+		OMP_GUI_OMP: await fixtureOmp(profile),
 		// Enough history that an abort leaves something to scroll up through, which is
 		// the state a reader is actually in when they send the next message.
 		OMP_GUI_TEST_HISTORY: "300",

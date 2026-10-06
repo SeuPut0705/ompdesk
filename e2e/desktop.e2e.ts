@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron, type Page } from "playwright";
+import { fixtureOmp } from "./fixture-omp";
 
 let app: ElectronApplication;
 let page: Page;
@@ -33,8 +34,7 @@ test.beforeAll(async () => {
 	await Promise.all([fs.mkdir(project), fs.mkdir(userData), fs.mkdir(agent)]);
 	record = path.join(profile, "rpc.jsonl");
 	await fs.writeFile(path.join(userData, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
-	const fixture = path.resolve("e2e/sidecar-fixture.ts");
-	await fs.chmod(fixture, 0o755);
+	const fixture = await fixtureOmp(profile);
 	const env = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agent,
@@ -322,7 +322,7 @@ test("repeated modal and task lifecycles release sidecars and document listeners
 		await expect(page.getByRole("dialog")).toBeVisible();
 		await page.keyboard.press("Escape");
 		await expect(page.getByRole("dialog")).toHaveCount(0);
-		await page.keyboard.press("Meta+t");
+		await page.keyboard.press("ControlOrMeta+t");
 		await expect(page.locator('[role="tablist"] [role="tab"]')).toHaveCount(2);
 		await expect(
 			page.locator('[role="tablist"] [role="tab"]').last().getByRole("img", { name: "Ready", exact: true }),

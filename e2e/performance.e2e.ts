@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
+import { fixtureOmp } from "./fixture-omp";
 
 test("bounded history rendering and input responsiveness across 5k, 20k and 50k messages", async () => {
 	test.skip(process.env.OMP_GUI_PERFORMANCE !== "1", "Explicit local performance audit");
@@ -30,7 +31,7 @@ test("bounded history rendering and input responsiveness across 5k, 20k and 50k 
 					PI_CONFIG_DIR: path.relative(os.homedir(), profile),
 					OMP_PROFILE: "",
 					PI_PROFILE: "",
-					OMP_GUI_OMP: path.resolve("e2e/sidecar-fixture.ts"),
+					OMP_GUI_OMP: await fixtureOmp(profile),
 					OMP_GUI_TEST_HISTORY: String(count),
 				};
 				Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
@@ -69,7 +70,7 @@ test("bounded history rendering and input responsiveness across 5k, 20k and 50k 
 						await input.press("Enter");
 						await expect(page.getByRole("button", { name: "Abort", exact: true })).toBeVisible();
 						for (let index = 1; index < 5; index++) {
-							await page.keyboard.press("Meta+t");
+							await page.keyboard.press("ControlOrMeta+t");
 							await expect(page.locator('[role="tablist"] [role="tab"]')).toHaveCount(index + 1);
 							await expect(page.locator("[data-transcript-kind]").first()).toBeVisible();
 						}
