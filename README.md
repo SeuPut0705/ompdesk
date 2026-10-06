@@ -115,8 +115,9 @@ bun install -g @oh-my-pi/pi-coding-agent
 | `⇧⌘T` | `Ctrl+Shift+T` | 도구 없는 채팅 탭 |
 | `⌥T` | `Alt+T` | 새 Git 워크트리 탭 |
 | `⌘K` | `Ctrl+K` | 명령 팔레트 — 모든 기능을 검색해서 실행 |
-| `⌘P` | `Ctrl+P` | 지난 세션 찾기 |
 | `⌘,` | `Ctrl+,` | 설정 |
+| `⌘B` | `Ctrl+B` | 사이드바 열기/닫기 |
+| `⌘/` | `Ctrl+/` | 전체 단축키 보기 |
 
 ## 자주 묻는 질문
 
