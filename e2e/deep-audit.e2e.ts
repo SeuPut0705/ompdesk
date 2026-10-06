@@ -762,7 +762,19 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 					gateOriginals.push({ path: gate.path, value: originalGate });
 					if (!equalJson(originalGate, gate.value)) {
 						await writeSetting(page, gate.path, gate.value);
-						await pollSetting(page, gate.path, gate.value);
+						try {
+							await pollSetting(page, gate.path, gate.value);
+						} catch {
+							// Stock omp on Windows has answered a successful write and then kept
+							// reading the previous value (once in 500+ gate writes, right after the
+							// previous row restored the same gate). The gate is only this row's
+							// precondition: write it once more, and keep the event in the evidence.
+							const retried = await writeSetting(page, gate.path, gate.value);
+							base.notes.push(
+								`condition gate ${gate.path} did not read back ${JSON.stringify(gate.value)}; rewrote it (answered ${JSON.stringify(retried.value)})`,
+							);
+							await pollSetting(page, gate.path, gate.value);
+						}
 					}
 				}
 				// Search drives the same locator path a user sees, after the condition

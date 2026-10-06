@@ -4,7 +4,10 @@
  */
 
 const DEFAULT_PORT = 0;
-const REQUEST_TIMEOUT_MS = 5000;
+// Above stock omp-stats' 5s SQLite busy_timeout plus the query: a read that
+// waits on the background ingest's lock (the first queries after the server
+// starts, notably on Windows) must not be aborted before the server can answer.
+const REQUEST_TIMEOUT_MS = 15_000;
 
 export const VALID_PATHS: Record<string, true> = {
 	"/api/stats/overview": true,
