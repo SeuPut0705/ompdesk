@@ -4,6 +4,7 @@ import { basename, cx, dirname, headLines } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { CodeBlock } from "../chat/CodeBlock";
+import { unifiedDiffStats } from "./diff-stats";
 import { editArgumentPaths } from "./edit-args";
 import { PathLink } from "./PathLink";
 import { resultBodyText, resultDetails } from "./result";
@@ -58,18 +59,6 @@ function asPerFileResults(value: unknown): EditPerFileResult[] {
 	return out;
 }
 
-/** Added/removed line counts of a unified diff (file headers excluded). */
-function diffStats(diff: string): { added: number; removed: number } {
-	let added = 0;
-	let removed = 0;
-	for (const line of diff.split("\n")) {
-		if (line.startsWith("+++") || line.startsWith("---")) continue;
-		if (line.startsWith("+")) added++;
-		else if (line.startsWith("-")) removed++;
-	}
-	return { added, removed };
-}
-
 /** Synthesize a unified-diff-shaped block from an old/new text pair (args fallback). */
 function oldNewDiff(oldStr: string | null | undefined, newStr: string | null | undefined): string {
 	const lines: string[] = [];
@@ -101,7 +90,7 @@ function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError }
 			: op === "delete"
 				? t("tools.edit.op.delete")
 				: t("tools.edit.op.edit"));
-	const stats = diff ? diffStats(diff) : null;
+	const stats = diff ? unifiedDiffStats(diff) : null;
 	return (
 		<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 			<Icon size={12} className={cx("shrink-0", isError ? "text-[var(--omp-error)]" : "text-[var(--omp-dim)]")} />

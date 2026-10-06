@@ -1,12 +1,10 @@
-import { GUI_DISPLAY_LEGACY_PATHS } from "../../lib/display-preferences";
 /**
  * Settings schema helpers: condition-gated visibility and tab/group
- * bucketing, mirroring the TUI's settings-defs.ts. Extracted verbatim from
- * SettingsWindow.tsx.
+ * bucketing, mirroring the TUI's settings-defs.ts.
  */
 
 import type { SettingEntry } from "../../../shared/rpc-types";
-import { schemaSearchTexts } from "./schema-i18n";
+import { GUI_DISPLAY_LEGACY_PATHS } from "../../lib/display-preferences";
 
 /**
  * Client-evaluable visibility gates, mirroring the TUI's CONDITIONS table
@@ -108,33 +106,4 @@ export function groupSchemaEntries(
 		ungrouped,
 		orderedGroups: ordered.map(name => ({ name, entries: byGroup.get(name) ?? [] })),
 	};
-}
-
-const CAPABILITIES_TAB_ID = "capabilities";
-const RESOURCES_TAB_ID = "resources";
-
-export function resolveSettingsTarget(target: string | null | undefined): {
-	tab: string;
-	resourceTab?: "plugins" | "marketplaces" | "templates" | "memory";
-} {
-	const requested = target || CAPABILITIES_TAB_ID;
-	if (!requested.startsWith(`${RESOURCES_TAB_ID}:`)) return { tab: requested };
-	const resource = requested.slice(RESOURCES_TAB_ID.length + 1);
-	const resourceTab: "plugins" | "marketplaces" | "templates" | "memory" =
-		resource === "marketplaces" || resource === "templates" || resource === "memory" ? resource : "plugins";
-	return { tab: RESOURCES_TAB_ID, resourceTab };
-}
-
-/** Search the displayed translated labels as well as wire paths and English metadata. */
-export function matchesSettingSearch(entry: SettingEntry, query: string): boolean {
-	const haystack = [entry.path, entry.label, entry.description, ...schemaSearchTexts(entry.path)]
-		.join(" ")
-		.normalize("NFKC")
-		.toLowerCase();
-	return query
-		.normalize("NFKC")
-		.toLowerCase()
-		.trim()
-		.split(/\s+/)
-		.every(word => haystack.includes(word));
 }

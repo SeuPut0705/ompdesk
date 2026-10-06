@@ -150,7 +150,7 @@ describe("read preview", () => {
 		);
 
 		expect(container.textContent).toContain("INITIAL_RENDER_ROWS");
-		expect(container.querySelector("button[title='Copy code']")).not.toBeNull();
+		expect(container.querySelector("button[aria-label='Copy code']")).not.toBeNull();
 	});
 });
 

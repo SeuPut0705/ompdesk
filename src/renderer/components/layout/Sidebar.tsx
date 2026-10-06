@@ -1,27 +1,28 @@
 import {
+	AlertTriangle,
 	BarChart3,
 	Bot,
 	BriefcaseBusiness,
 	ChevronDown,
 	ChevronRight,
-	ChevronUp,
+	CircleHelp,
 	Code2,
-	Coins,
 	ExternalLink,
 	Folder,
+	FolderOpen,
+	FolderPlus,
 	GitBranchPlus,
-	GitPullRequest,
+	Info,
 	Keyboard,
 	MessageCircle,
 	MessageSquarePlus,
 	MessageSquareWarning,
 	MoreHorizontal,
-	Palette,
-	PanelRight,
+	PanelLeftClose,
+	PanelLeftOpen,
 	Pencil,
 	Pin,
 	PinOff,
-	Plug,
 	Plus,
 	RefreshCw,
 	Search,
@@ -30,47 +31,57 @@ import {
 	SquarePen,
 	SquareTerminal,
 	Trash2,
+	XCircle,
 } from "lucide-react";
-import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type KeyboardEvent as ReactKeyboardEvent,
+	type ReactNode,
+	type PointerEvent as ReactPointerEvent,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import type { SessionInfo } from "../../../shared/ipc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
-import { dropSessionNow } from "../../hooks/use-session-switch";
-import { basename, cx } from "../../lib/format";
+import { dropSessionNow, requestSessionSwitch } from "../../hooks/use-session-switch";
+import { basename, cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
-import { actionShortcut, compileKeymap, formatChord, KEYMAP_ACTIONS, onEscape } from "../../lib/keymap";
+import { actionKbd, onEscape } from "../../lib/keymap";
 import { sessionDisplayTitle } from "../../lib/session-title";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { tabSignalPresentation } from "../../lib/tab-signal";
+import { pickWorkspaceDirectory } from "../../lib/workspace-dirs";
+import { useComposerStore } from "../../stores/composer";
+import { useMessagesStore } from "../../stores/messages";
+import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
-import { useUiStore } from "../../stores/ui";
-import { Button } from "../common";
+import { type PageDestination, useUiStore } from "../../stores/ui";
+import {
+	Badge,
+	BrandMark,
+	Button,
+	type ContextMenuItem,
+	IconButton,
+	Input,
+	Kbd,
+	ListRow,
+	MenuButton,
+	SearchField,
+	Spinner,
+} from "../common";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
-import { LangSwitcher } from "../common/LangSwitcher";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 
-const STATUS_COLOR: Record<SessionInfo["status"], string> = {
-	complete: "var(--omp-success)",
-	interrupted: "var(--omp-warning)",
-	aborted: "var(--omp-warning)",
-	error: "var(--omp-error)",
-	pending: "var(--omp-dim)",
-	unknown: "var(--omp-dim)",
-};
-
-const STATUS_LABEL_KEY: Record<SessionInfo["status"], string> = {
-	complete: "sidebar.status.complete",
-	interrupted: "sidebar.status.interrupted",
-	aborted: "sidebar.status.aborted",
-	error: "sidebar.status.error",
-	pending: "sidebar.status.pending",
-	unknown: "sidebar.status.unknown",
-};
+/** Docked column, icon rail (side panel open on a mid-width window), or the compact left sheet. */
+export type SidebarVariant = "docked" | "rail" | "sheet";
 
 interface WorkspaceGroup {
 	cwd: string;
@@ -83,48 +94,183 @@ type PendingDelete = { kind: "session"; session: SessionInfo } | { kind: "group"
 
 type SidebarMode = "code" | "work";
 
+const SIDEBAR_MIN = 180;
+const SIDEBAR_MAX = 420;
+const SIDEBAR_DEFAULT = 248;
+/** Recent projects offered directly in the project menu (the rest: "All projects…"). */
+const RECENT_PROJECTS = 5;
+
 function modifiedAt(session: SessionInfo): number {
 	const timestamp = Date.parse(session.modified);
 	return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
-function SidebarRowTitle({ className, title }: { className?: string; title: string }) {
+/**
+ * The focused tab is still the untouched landing surface: no transcript, no
+ * draft, nothing queued or running. Opening a session or a project there
+ * replaces it instead of leaving an empty tab behind.
+ */
+function activeTabUntouched(): boolean {
+	const tabs = useTabsStore.getState();
+	const tab = tabs.tabs.find(entry => entry.id === tabs.activeTabId);
+	if (!tab || tab.worktree || tab.status === "running" || tab.compacting) return false;
+	const session = useSessionStore.getState();
+	const composer = useComposerStore.getState();
+	const queue = useQueueStore.getState();
 	return (
-		<span className={cx("omp-sidebar-title min-w-0 flex-1 truncate", className)} title={title}>
-			{title}
-		</span>
+		!session.isStreaming &&
+		!session.isCompacting &&
+		session.messageCount === 0 &&
+		useMessagesStore.getState().messages.length === 0 &&
+		queue.steering.length === 0 &&
+		queue.followUp.length === 0 &&
+		composer.draft.trim().length === 0 &&
+		composer.images.length === 0
+	);
+}
+
+function focusComposer(): void {
+	requestAnimationFrame(() =>
+		document.querySelector<HTMLTextAreaElement>('.omp-session-pane[data-active="true"] textarea')?.focus(),
+	);
+}
+
+/** Destinations in the sidebar footer (design-spec §2.1): the only three. */
+const DESTINATIONS: { id: PageDestination; labelKey: string; icon: typeof Bot }[] = [
+	{ id: "agents", labelKey: "destination.agents", icon: Bot },
+	{ id: "insights", labelKey: "destination.insights", icon: BarChart3 },
+	{ id: "settings", labelKey: "destination.settings", icon: Settings },
+];
+
+function useHelpItems(): ContextMenuItem[] {
+	const t = useT();
+	const keymapOverrides = useUiStore(s => s.keymapOverrides);
+	return [
+		{
+			id: "help-shortcuts",
+			label: t("help.shortcuts"),
+			icon: Keyboard,
+			shortcut: actionKbd("hotkeys", keymapOverrides),
+			onSelect: () => useUiStore.getState().openSettings("keyboard"),
+		},
+		{
+			id: "help-palette",
+			label: t("help.palette"),
+			icon: Search,
+			shortcut: actionKbd("palette", keymapOverrides),
+			onSelect: () => useUiStore.getState().openCommandPalette(),
+		},
+		{
+			id: "help-features",
+			label: t("help.features"),
+			icon: Sparkles,
+			onSelect: () => useUiStore.getState().openSettings("features"),
+		},
+		{
+			id: "help-feedback",
+			label: t("help.feedback"),
+			icon: MessageSquareWarning,
+			onSelect: () => useUiStore.getState().openFeedback(),
+		},
+		{
+			id: "help-whats-new",
+			label: t("help.whatsNew"),
+			icon: Sparkles,
+			onSelect: () => useUiStore.getState().openChangelog(),
+		},
+		{
+			id: "help-about",
+			label: t("help.about"),
+			icon: Info,
+			onSelect: () => useUiStore.getState().openSettings("updates"),
+		},
+	];
+}
+
+/** Footer: Agents · Insights · Settings and the help menu, always visible. */
+function SidebarFooter({ rail, onNavigate }: { rail: boolean; onNavigate: () => void }) {
+	const t = useT();
+	const destination = useUiStore(s => s.destination);
+	const keymapOverrides = useUiStore(s => s.keymapOverrides);
+	const helpItems = useHelpItems();
+	const shortcutFor = (id: PageDestination) =>
+		id === "agents"
+			? actionKbd("agents.hub", keymapOverrides)
+			: id === "settings"
+				? actionKbd("settings", keymapOverrides)
+				: undefined;
+	const open = (id: PageDestination) => {
+		const ui = useUiStore.getState();
+		if (id === "agents") ui.openAgents();
+		else if (id === "insights") ui.openInsights();
+		else ui.openSettings();
+		onNavigate();
+	};
+	return (
+		<nav
+			aria-label={t("sidebar.destinations")}
+			className={cx(
+				"flex shrink-0 flex-col gap-0.5 border-t border-(--sc-divider)",
+				rail ? "items-center py-2" : "p-2",
+			)}
+			data-sidebar-destinations
+		>
+			{DESTINATIONS.map(({ id, labelKey, icon: Icon }) => {
+				const current = destination === id;
+				const shortcut = shortcutFor(id);
+				return rail ? (
+					<IconButton
+						aria-current={current ? "page" : undefined}
+						className={cx(current && "bg-(--sc-selected) text-(--sc-text)")}
+						icon={<Icon />}
+						key={id}
+						label={t(labelKey)}
+						onClick={() => open(id)}
+						shortcut={shortcut}
+						tooltipSide="right"
+					/>
+				) : (
+					<Button
+						aria-current={current ? "page" : undefined}
+						className={cx(
+							"w-full justify-start gap-2.5 px-2.5",
+							current ? "bg-(--sc-selected) text-(--sc-text)" : "text-(--sc-text-secondary)",
+						)}
+						data-destination={id}
+						icon={<Icon />}
+						key={id}
+						onClick={() => open(id)}
+						variant="ghost"
+					>
+						<span className="min-w-0 flex-1 truncate text-left">{t(labelKey)}</span>
+						{shortcut && <Kbd shortcut={shortcut} />}
+					</Button>
+				);
+			})}
+			<div className={cx(!rail && "flex items-center")}>
+				<MenuButton align="start" icon={<CircleHelp />} items={helpItems} label={t("help.menu")} variant="ghost" />
+			</div>
+		</nav>
 	);
 }
 
 /**
- * Left rail with two agent-capable lanes plus global tool-free chats. Code
- * groups project sessions by workspace; Work uses one GUI-owned default
- * workspace with no folder picker. The main action creates an agent, while the
- * adjacent quick-chat action creates a chat.
+ * Sessions-first sidebar (design-spec §2.1): project switcher, New session,
+ * a filter, sessions grouped by project (newest first, status as text/icon),
+ * and a footer with the three destinations plus help.
  */
-export function Sidebar() {
+export function Sidebar({ variant = "docked", onExpandRail }: { variant?: SidebarVariant; onExpandRail?: () => void }) {
 	const tabRpc = useTabRpc();
 	const t = useT();
 	const keymapOverrides = useUiStore(state => state.keymapOverrides);
-	const paletteShortcut = useMemo(
-		() =>
-			[...compileKeymap(KEYMAP_ACTIONS, keymapOverrides)]
-				.filter(([, action]) => action === "palette")
-				.map(([chord]) => formatChord(chord))
-				.join(" / "),
-		[keymapOverrides],
-	);
+	const closeCompactSidebar = useUiStore(state => state.closeCompactSidebar);
 	const [mode, setMode] = useState<SidebarMode>("code");
-	const [navigationExpanded, setNavigationExpanded] = useState(true);
 	const [defaultWorkspace, setDefaultWorkspace] = useState<string | null>(null);
+	const [filter, setFilter] = useState("");
 	const switchPendingTo = useSessionStore(s => s.switchPending?.toId ?? null);
-	// Resizable left rail (mirrors PanelContainer's right-rail drag, but the
-	// handle sits on the right edge and dragging right grows the sidebar).
-	const SIDEBAR_MIN = 180;
-	const SIDEBAR_MAX = 420;
-	const [sidebarWidth, setSidebarWidth] = useState(236);
-	const sidebarWidthRef = useRef(236);
-	// Layout widths persist like every other chrome pref; restored on mount.
+	// Resizable docked column; the width persists like every other chrome pref.
+	const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
+	const sidebarWidthRef = useRef(SIDEBAR_DEFAULT);
 	useEffect(() => {
 		void window.omp.prefs
 			.get("sidebarWidth")
@@ -162,16 +308,16 @@ export function Sidebar() {
 	// consequence before anything is removed.
 	const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
 	const [renamingSessionPath, setRenamingSessionPath] = useState<string | null>(null);
-	const [workspaceOpen, setWorkspaceOpen] = useState(false);
+	const [workspaceDialog, setWorkspaceDialog] = useState<"switch" | "new-session" | null>(null);
 	const [renameDraft, setRenameDraft] = useState("");
-	// Mode selector, workspace group context menu, session row context menu.
-	const [modeMenu, setModeMenu] = useState<ContextMenuAnchor | null>(null);
 	const [groupMenu, setGroupMenu] = useState<{ anchor: ContextMenuAnchor; group: WorkspaceGroup } | null>(null);
 	const [sessionMenu, setSessionMenu] = useState<{ anchor: ContextMenuAnchor; session: SessionInfo } | null>(null);
-	// Workspace display alias rename (group header inline input).
+	// Project display alias rename (group header inline input).
 	const [renamingGroupCwd, setRenamingGroupCwd] = useState<string | null>(null);
 	const [groupRenameDraft, setGroupRenameDraft] = useState("");
-	const groupRenameRef = useRef<HTMLInputElement>(null);
+	// Roving focus: the session list is one tab stop; arrows move inside it.
+	const [focusKey, setFocusKey] = useState<string | null>(null);
+	const listRef = useRef<HTMLDivElement>(null);
 	const openTab = useTabsStore(s => s.openTab);
 	const tabs = useTabsStore(s => s.tabs);
 	const activeTabId = useTabsStore(s => s.activeTabId);
@@ -183,18 +329,16 @@ export function Sidebar() {
 	const workspaceLastUsed = useSidebarPrefs(s => s.workspaceLastUsed);
 	const sessionLastUsed = useSidebarPrefs(s => s.sessionLastUsed);
 	const touchSession = useSidebarPrefs(s => s.touchSession);
-	const renameRef = useRef<HTMLInputElement>(null);
 	const { sessions, isLoading, error: listError, refresh, deleteSession, renameSession } = useSessionList("global");
 	const sessionId = useSessionStore(s => s.sessionId);
 	const cwd = useSessionStore(s => s.cwd);
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const isCompacting = useSessionStore(s => s.isCompacting);
-	// Sidebar signal-light state for the ATTACHED session: a blocking
-	// confirmation (plan approval / ask / permission) overrides the running
-	// signal — it needs the user, not just time.
+	const destination = useUiStore(s => s.destination);
+	// A blocking confirmation (plan approval / ask / permission) on the
+	// attached session outranks "running": it needs the user, not just time.
 	const awaitingConfirmation = useAwaitingConfirmation();
-	const openThemePicker = useUiStore(s => s.openThemePicker);
-	const openSessionPicker = useUiStore(s => s.openSessionPicker);
+	const afterNavigate = variant === "sheet" ? closeCompactSidebar : () => {};
 
 	useEffect(() => {
 		void window.omp.sidecar
@@ -208,15 +352,32 @@ export function Sidebar() {
 			.catch(() => {});
 	}, []);
 
-	// Opening a session from the global search keeps the lane label honest.
+	// Opening a session from search or the palette keeps the lane honest.
 	useEffect(() => {
 		if (!defaultWorkspace || !cwd) return;
 		setMode(activeTabKind === "chat" ? "code" : cwd === defaultWorkspace ? "work" : "code");
 	}, [activeTabKind, cwd, defaultWorkspace]);
 
+	const query = filter.trim().toLocaleLowerCase();
+	const matchesFilter = useCallback(
+		(session: SessionInfo) =>
+			!query ||
+			sessionDisplayTitle(session, "").toLocaleLowerCase().includes(query) ||
+			session.cwd.toLocaleLowerCase().includes(query),
+		[query],
+	);
 	const recencyForSession = useCallback(
 		(session: SessionInfo) => sessionLastUsed[session.path] ?? modifiedAt(session),
 		[sessionLastUsed],
+	);
+	const byPinThenRecency = useCallback(
+		(a: SessionInfo, b: SessionInfo) => {
+			const aPinned = pinnedSessions.includes(a.path) ? 0 : 1;
+			const bPinned = pinnedSessions.includes(b.path) ? 0 : 1;
+			if (aPinned !== bPinned) return aPinned - bPinned;
+			return recencyForSession(b) - recencyForSession(a);
+		},
+		[pinnedSessions, recencyForSession],
 	);
 	const agentSessions = useMemo(() => sessions.filter(session => session.kind !== "chat"), [sessions]);
 	const codeSessions = useMemo(
@@ -227,30 +388,22 @@ export function Sidebar() {
 		() =>
 			agentSessions
 				.filter(session => defaultWorkspace !== null && session.cwd === defaultWorkspace)
-				.toSorted((a, b) => {
-					const aPinned = pinnedSessions.includes(a.path) ? 0 : 1;
-					const bPinned = pinnedSessions.includes(b.path) ? 0 : 1;
-					if (aPinned !== bPinned) return aPinned - bPinned;
-					return recencyForSession(b) - recencyForSession(a);
-				}),
-		[agentSessions, defaultWorkspace, pinnedSessions, recencyForSession],
+				.filter(matchesFilter)
+				.toSorted(byPinThenRecency),
+		[agentSessions, defaultWorkspace, matchesFilter, byPinThenRecency],
 	);
 	const chatSessions = useMemo(
 		() =>
 			sessions
 				.filter(session => session.kind === "chat")
-				.toSorted((a, b) => {
-					const aPinned = pinnedSessions.includes(a.path) ? 0 : 1;
-					const bPinned = pinnedSessions.includes(b.path) ? 0 : 1;
-					if (aPinned !== bPinned) return aPinned - bPinned;
-					return recencyForSession(b) - recencyForSession(a);
-				}),
-		[sessions, pinnedSessions, recencyForSession],
+				.filter(matchesFilter)
+				.toSorted(byPinThenRecency),
+		[sessions, matchesFilter, byPinThenRecency],
 	);
 
 	// Code sessions stay grouped by project. Pins remain a priority partition,
 	// with MRU inside it.
-	const groups = useMemo<WorkspaceGroup[]>(() => {
+	const allGroups = useMemo<WorkspaceGroup[]>(() => {
 		const byCwd = new Map<string, SessionInfo[]>();
 		for (const session of codeSessions) {
 			const list = byCwd.get(session.cwd) ?? [];
@@ -260,12 +413,7 @@ export function Sidebar() {
 		const result: WorkspaceGroup[] = [...byCwd.entries()].map(([groupCwd, groupSessions]) => ({
 			cwd: groupCwd,
 			name: groupAliases[groupCwd] ?? (basename(groupCwd) || groupCwd),
-			sessions: [...groupSessions].sort((a, b) => {
-				const aPinned = pinnedSessions.includes(a.path) ? 0 : 1;
-				const bPinned = pinnedSessions.includes(b.path) ? 0 : 1;
-				if (aPinned !== bPinned) return aPinned - bPinned;
-				return recencyForSession(b) - recencyForSession(a);
-			}),
+			sessions: groupSessions.toSorted(byPinThenRecency),
 		}));
 		result.sort((a, b) => {
 			const aPinned = pinnedGroups.includes(a.cwd) ? 0 : 1;
@@ -276,14 +424,30 @@ export function Sidebar() {
 			return bRecency - aRecency;
 		});
 		return result;
-	}, [codeSessions, groupAliases, pinnedGroups, pinnedSessions, recencyForSession, workspaceLastUsed]);
-	const totalCount = mode === "work" ? workSessions.length : codeSessions.length + chatSessions.length;
+	}, [codeSessions, groupAliases, pinnedGroups, byPinThenRecency, recencyForSession, workspaceLastUsed]);
+	const groups = useMemo(
+		() =>
+			query
+				? allGroups
+						.map(group => ({
+							...group,
+							sessions: group.name.toLocaleLowerCase().includes(query)
+								? group.sessions
+								: group.sessions.filter(matchesFilter),
+						}))
+						.filter(group => group.sessions.length > 0)
+				: allGroups,
+		[allGroups, matchesFilter, query],
+	);
+	const totalCount = mode === "work" ? workSessions.length : groups.length + chatSessions.length;
 	const visibleGroups = mode === "code" ? groups : [];
-	const chatsCollapsed = collapsed.__chats__ ?? false;
+	const chatsCollapsed = !query && (collapsed.__chats__ ?? false);
 
 	const isCollapsed = (groupCwd: string) => {
+		// A filter shows every match.
+		if (query) return false;
 		if (groupCwd in collapsed) return collapsed[groupCwd];
-		// Default: current workspace expanded, others collapsed (Codex-style).
+		// Default: current project expanded, others collapsed.
 		return groupCwd !== cwd;
 	};
 	const toggleGroup = (groupCwd: string) => {
@@ -304,15 +468,68 @@ export function Sidebar() {
 	};
 
 	const openSession = (session: SessionInfo) => {
+		afterNavigate();
+		useUiStore.getState().closeDestination();
 		if (session.id === sessionId) return;
+		// Already open in a tab: go there. An untouched empty tab is replaced
+		// instead of left behind; anything else keeps its tab and the session
+		// opens next to it.
+		const owner = tabs.find(tab => tab.sessionId === session.id || tab.sessionPath === session.path);
+		if (owner) {
+			void useTabsStore.getState().switchTab(owner.id);
+			return;
+		}
+		if (activeTabUntouched()) {
+			requestSessionSwitch(session);
+			return;
+		}
 		void openTab({ cwd: session.cwd, sessionPath: session.path, kind: session.kind ?? "agent" });
+	};
+	/** Start in `target`: re-root the untouched tab, else open a new one. */
+	const goToProject = async (target: string) => {
+		afterNavigate();
+		useUiStore.getState().closeDestination();
+		if (activeTabUntouched() && activeTab?.kind !== "chat") {
+			if (target === cwd) {
+				focusComposer();
+				return;
+			}
+			try {
+				if (await window.omp.sidecar.setProject(target)) return;
+			} catch {
+				// Fall through to a fresh tab.
+			}
+		}
+		await openTab({ cwd: target, kind: "agent" });
 	};
 	const startNew = () => {
 		if (mode === "work") {
+			afterNavigate();
+			useUiStore.getState().closeDestination();
 			void openTab({ kind: "agent", work: true });
 			return;
 		}
-		setWorkspaceOpen(true);
+		const target = activeTab?.kind === "chat" ? null : cwd;
+		if (!target) {
+			setWorkspaceDialog("new-session");
+			return;
+		}
+		if (activeTabUntouched() && activeTab?.kind !== "chat") {
+			afterNavigate();
+			useUiStore.getState().closeDestination();
+			focusComposer();
+			return;
+		}
+		void goToProject(target);
+	};
+	const startChat = () => {
+		afterNavigate();
+		useUiStore.getState().closeDestination();
+		void openTab({ kind: "chat" });
+	};
+	const openPalette = () => {
+		afterNavigate();
+		useUiStore.getState().openCommandPalette();
 	};
 
 	// Explicit parallel action: open this session in a NEW window with its own
@@ -329,7 +546,6 @@ export function Sidebar() {
 	const startRename = (session: SessionInfo) => {
 		setRenameDraft(session.title || session.firstMessage || "");
 		setRenamingSessionPath(session.path);
-		requestAnimationFrame(() => renameRef.current?.select());
 	};
 	const commitRename = (session: SessionInfo, value = renameDraft) => {
 		setRenamingSessionPath(null);
@@ -371,7 +587,7 @@ export function Sidebar() {
 		}
 		setDeleting(true);
 		try {
-			// Delete every session file in this workspace, then dismiss the group.
+			// Delete every session file in this project, then dismiss the group.
 			for (const session of group.sessions) {
 				// eslint-disable-next-line no-await-in-loop -- sequential, keep FS load bounded
 				if (session.id === sessionId) await dropSessionNow();
@@ -385,365 +601,495 @@ export function Sidebar() {
 		}
 	};
 
+	/** Context-menu position for a keyboard-opened menu: under the focused element. */
+	const anchorBelow = (element: HTMLElement): ContextMenuAnchor => {
+		const rect = element.getBoundingClientRect();
+		return {
+			x: Number.isFinite(rect.left) ? rect.left : 8,
+			y: (Number.isFinite(rect.bottom) ? rect.bottom : 40) + 4,
+		};
+	};
+	const opensMenu = (event: ReactKeyboardEvent) =>
+		event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey);
+
+	// Roving focus: items render with tabIndex -1; the effect below makes the
+	// remembered (else current, else first) item the list's single tab stop.
+	const activeSessionKey = sessionId ? sessions.find(session => session.id === sessionId)?.path : undefined;
+	const onListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+		if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+		const items = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-roving-item]") ?? [])];
+		const index = items.indexOf(document.activeElement as HTMLElement);
+		if (index === -1) return;
+		event.preventDefault();
+		const next =
+			event.key === "Home"
+				? 0
+				: event.key === "End"
+					? items.length - 1
+					: Math.min(items.length - 1, Math.max(0, index + (event.key === "ArrowDown" ? 1 : -1)));
+		items[next]?.focus();
+	};
+	// After render, exactly one roving item is tabbable: the remembered one,
+	// else the current session, else the first row.
+	useEffect(() => {
+		const items = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-roving-item]") ?? [])];
+		if (items.length === 0) return;
+		const preferred =
+			items.find(item => item.dataset.rovingItem === focusKey) ??
+			items.find(item => item.dataset.rovingItem === `session:${activeSessionKey}`) ??
+			items[0];
+		for (const item of items) item.tabIndex = item === preferred ? 0 : -1;
+	});
+
 	const renderSessionRow = (session: SessionInfo, nested = false) => {
-		const active = session.id === sessionId;
+		const key = `session:${session.path}`;
+		const active = session.id === sessionId && destination === "session";
+		const isCurrent = session.id === sessionId;
 		const tabSignal = sessionTabSignal(session);
-		const waiting = active && awaitingConfirmation;
-		const externalRunning = tabSignal === null && isSessionBusy(session);
-		const signalActive = waiting || tabSignal?.active === true || externalRunning;
-		const signalLabel = waiting
-			? t("sidebar.signal.waiting")
-			: tabSignal
-				? t(tabSignal.labelKey)
-				: externalRunning
-					? t("sidebar.signal.running")
-					: t(STATUS_LABEL_KEY[session.status]);
-		const signalColor = waiting
-			? "var(--omp-warning)"
-			: (tabSignal?.color ?? (externalRunning ? "var(--omp-accent)" : STATUS_COLOR[session.status]));
+		const waiting = isCurrent && awaitingConfirmation;
+		const running = !waiting && (tabSignal?.running === true || (tabSignal === null && isSessionBusy(session)));
+		const failed =
+			!waiting &&
+			!running &&
+			(tabSignal ? tabSignal.labelKey === "titlebar.status.error" : session.status === "error");
+		const busy = waiting || running || tabSignal?.active === true;
+		const statusLabel = waiting
+			? t("sidebar.row.needsApproval")
+			: running
+				? t("sidebar.signal.running")
+				: failed
+					? t("sidebar.row.failed")
+					: null;
 		const title = sessionDisplayTitle(session, t("sidebar.untitled"));
-		const hasActions = !signalActive || !active;
-		const actionsOpen = renamingSessionPath === session.path;
-		return (
-			<div
-				key={session.path}
-				role="button"
-				tabIndex={0}
-				onClick={() => void openSession(session)}
-				onContextMenu={event => setSessionMenu({ anchor: anchorFromEvent(event), session })}
-				onKeyDown={event => {
-					// Only the row itself: Enter inside a nested control (rename
-					// input, action buttons) must not also switch the session.
-					if (event.key === "Enter" && event.target === event.currentTarget) void openSession(session);
-				}}
-				data-active={active}
-				data-switch-pending={switchPendingTo === session.id || undefined}
-				data-has-actions={hasActions}
-				data-actions-open={actionsOpen}
-				data-session-kind={session.kind ?? "agent"}
-				className={cx(
-					"omp-sidebar-session-row omp-color-fade group cursor-pointer rounded-md border px-2 py-1",
-					active
-						? "border-[var(--omp-border-accent)] bg-[var(--omp-selected-bg)]"
-						: "border-transparent hover:border-[var(--omp-border-muted)] hover:bg-[var(--omp-sidebar-item-hover)]",
-				)}
-			>
-				<div className="flex min-w-0 items-center">
-					<span
-						role="img"
-						aria-label={signalLabel}
-						title={signalLabel}
-						className={cx("omp-signal-light mr-2", signalActive && "omp-signal-light--active")}
-						style={{ color: signalColor }}
+		const pinned = pinnedSessions.includes(session.path);
+		const tabIndex = -1;
+		if (renamingSessionPath === session.path) {
+			return (
+				<div className={cx("py-0.5 pr-1", nested ? "pl-6" : "pl-1")} key={session.path}>
+					<Input
+						aria-label={t("sidebar.rename")}
+						autoFocus
+						controlSize="sm"
+						onBlur={event => commitRename(session, event.currentTarget.value)}
+						onChange={event => setRenameDraft(event.target.value)}
+						onFocus={event => event.currentTarget.select()}
+						onKeyDown={event => {
+							if (isImeKeyEvent(event)) return;
+							if (event.key === "Enter") commitRename(session, event.currentTarget.value);
+							onEscape(event, () => setRenamingSessionPath(null));
+						}}
+						value={renameDraft}
 					/>
-					{session.kind === "chat" ? (
-						<MessageCircle
-							aria-hidden="true"
-							data-sidebar-session-icon
-							size={14}
-							className="mr-2 shrink-0 text-[var(--omp-dim)]"
-						/>
-					) : nested ? (
-						<span aria-hidden="true" data-sidebar-session-icon className="mr-2 w-3.5 shrink-0" />
-					) : null}
-					{pinnedSessions.includes(session.path) && (
-						<Pin
-							size={10}
-							className="mr-1.5 shrink-0 text-[var(--omp-accent)]"
-							aria-label={t("sidebar.pinned")}
-						/>
-					)}
-					{renamingSessionPath === session.path ? (
-						<input
-							ref={renameRef}
-							value={renameDraft}
-							onChange={event => setRenameDraft(event.target.value)}
-							onBlur={event => commitRename(session, event.currentTarget.value)}
-							onKeyDown={event => {
-								if (isImeKeyEvent(event)) return;
-								if (event.key === "Enter") commitRename(session, event.currentTarget.value);
-								onEscape(event, () => setRenamingSessionPath(null));
-							}}
-							onClick={event => event.stopPropagation()}
-							className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1.5 py-0.5 text-omp-md font-normal text-[var(--omp-muted)] outline-none"
-						/>
-					) : (
-						<SidebarRowTitle
-							className={cx(
-								"text-omp-md font-normal leading-5",
-								active ? "text-[var(--omp-text)]" : "text-[var(--omp-muted)]",
-							)}
-							title={title}
-						/>
-					)}
-					<span
-						className="omp-sidebar-session-actions flex shrink-0 items-center justify-end gap-0.5"
-						onClick={event => event.stopPropagation()}
-					>
-						{!signalActive && renamingSessionPath !== session.path ? (
-							<button
-								type="button"
-								title={t("sidebar.rename")}
-								aria-label={t("sidebar.rename")}
-								onClick={() => startRename(session)}
-								className="omp-sidebar-action order-2 flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
-							>
-								<Pencil size={11} />
-							</button>
-						) : !active ? (
-							<button
-								type="button"
-								title={t("sidebar.menu.openNewTab")}
-								aria-label={t("sidebar.menu.openNewTab")}
-								onClick={() => void openSession(session)}
-								className="omp-sidebar-action flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
-							>
-								<Plus size={11} />
-							</button>
-						) : (
-							<span className="h-5 w-5 shrink-0" />
-						)}
-						{!signalActive ? (
-							<button
-								className="omp-sidebar-action flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-tool-error-bg)] hover:text-[var(--omp-error)]"
-								onClick={() => setPendingDelete({ kind: "session", session })}
-								title={t("sidebar.delete")}
-								type="button"
-								aria-label={t("sidebar.delete")}
-							>
-								<Trash2 size={11} />
-							</button>
-						) : (
-							<span className="order-1 h-5 w-5 shrink-0" />
-						)}
-					</span>
 				</div>
+			);
+		}
+		const leading: ReactNode = waiting ? (
+			<AlertTriangle aria-hidden className="text-(--sc-warning)" />
+		) : running ? (
+			<span aria-hidden className="inline-flex">
+				<Spinner size="sm" />
+			</span>
+		) : failed ? (
+			<XCircle aria-hidden className="text-(--sc-danger)" />
+		) : session.kind === "chat" ? (
+			<MessageCircle aria-hidden data-sidebar-session-icon />
+		) : pinned ? (
+			<Pin aria-label={t("sidebar.pinned")} />
+		) : (
+			<span aria-hidden className="size-(--sc-icon-md)" data-sidebar-session-icon />
+		);
+		return (
+			<ListRow
+				actions={
+					busy ? undefined : (
+						<>
+							<IconButton
+								icon={<Pencil />}
+								label={t("sidebar.rename")}
+								onClick={() => startRename(session)}
+								size="sm"
+								tabIndex={-1}
+							/>
+							<IconButton
+								icon={<Trash2 />}
+								label={t("sidebar.delete")}
+								onClick={() => setPendingDelete({ kind: "session", session })}
+								size="sm"
+								tabIndex={-1}
+							/>
+						</>
+					)
+				}
+				buttonProps={{
+					tabIndex,
+					"data-roving-item": key,
+					onFocus: () => setFocusKey(key),
+					onKeyDown: event => {
+						if (opensMenu(event)) {
+							event.preventDefault();
+							setSessionMenu({ anchor: anchorBelow(event.currentTarget), session });
+						} else if (event.key === "F2" && !busy) {
+							event.preventDefault();
+							startRename(session);
+						} else if (event.key === "Delete" && !busy) {
+							event.preventDefault();
+							setPendingDelete({ kind: "session", session });
+						}
+					},
+				}}
+				className={cx("omp-sidebar-session-row", nested && "pl-6")}
+				key={session.path}
+				leading={leading}
+				meta={
+					waiting ? (
+						<Badge variant="warning">{t("sidebar.row.needsApproval")}</Badge>
+					) : (
+						<time dateTime={session.modified}>{formatTimeAgo(session.modified)}</time>
+					)
+				}
+				onClick={() => openSession(session)}
+				rowProps={{
+					onContextMenu: event => setSessionMenu({ anchor: anchorFromEvent(event), session }),
+					"data-active": active,
+					"data-switch-pending": switchPendingTo === session.id || undefined,
+					"data-session-kind": session.kind ?? "agent",
+					"data-session-path": session.path,
+				}}
+				selected={active}
+				title={
+					<>
+						{title}
+						{statusLabel && <span className="sr-only">, {statusLabel}</span>}
+					</>
+				}
+				titleText={title}
+			/>
+		);
+	};
+
+	const renderGroup = (group: WorkspaceGroup) => {
+		const key = `group:${group.cwd}`;
+		const groupCollapsed = isCollapsed(group.cwd);
+		const isCurrentProject = group.cwd === cwd && activeTabKind !== "chat";
+		const tabIndex = -1;
+		const pinned = pinnedGroups.includes(group.cwd);
+		return (
+			<div className="mt-1 first:mt-0" key={group.cwd}>
+				<div
+					className="group/head relative flex h-8 items-center gap-1 rounded-(--sc-radius-md) pr-1 hover:bg-(--sc-hover)"
+					data-workspace-group={group.cwd}
+					onContextMenu={event => setGroupMenu({ anchor: anchorFromEvent(event), group })}
+				>
+					{renamingGroupCwd === group.cwd ? (
+						<div className="min-w-0 flex-1 pl-1">
+							<Input
+								aria-label={t("sidebar.menu.rename")}
+								autoFocus
+								controlSize="sm"
+								onBlur={() => {
+									useSidebarPrefs.getState().setGroupAlias(group.cwd, groupRenameDraft);
+									setRenamingGroupCwd(null);
+								}}
+								onChange={event => setGroupRenameDraft(event.target.value)}
+								onFocus={event => event.currentTarget.select()}
+								onKeyDown={event => {
+									if (isImeKeyEvent(event)) return;
+									if (event.key === "Enter") {
+										useSidebarPrefs.getState().setGroupAlias(group.cwd, groupRenameDraft);
+										setRenamingGroupCwd(null);
+									}
+									onEscape(event, () => setRenamingGroupCwd(null));
+								}}
+								value={groupRenameDraft}
+							/>
+						</div>
+					) : (
+						<button
+							aria-expanded={!groupCollapsed}
+							className={cx(
+								"flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pl-2 text-left text-sc-sm font-medium outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)",
+								isCurrentProject ? "text-(--sc-text)" : "text-(--sc-text-muted)",
+							)}
+							data-roving-item={key}
+							onClick={() => toggleGroup(group.cwd)}
+							onFocus={() => setFocusKey(key)}
+							onKeyDown={event => {
+								if (opensMenu(event)) {
+									event.preventDefault();
+									setGroupMenu({ anchor: anchorBelow(event.currentTarget), group });
+								} else if (event.key === "ArrowRight" && groupCollapsed) {
+									event.preventDefault();
+									toggleGroup(group.cwd);
+								} else if (event.key === "ArrowLeft" && !groupCollapsed) {
+									event.preventDefault();
+									toggleGroup(group.cwd);
+								}
+							}}
+							tabIndex={tabIndex}
+							title={group.cwd}
+							type="button"
+						>
+							{groupCollapsed ? (
+								<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+							) : (
+								<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+							)}
+							<Folder aria-hidden className="size-(--sc-icon-sm) shrink-0" data-sidebar-workspace-icon />
+							<span className="min-w-0 flex-1 truncate">{group.name}</span>
+							{pinned && <Pin aria-label={t("sidebar.pinned")} className="size-3 shrink-0" />}
+							<span className="shrink-0 text-sc-xs font-normal tabular-nums text-(--sc-text-subtle) group-focus-within/head:hidden group-hover/head:hidden">
+								{group.sessions.length}
+							</span>
+						</button>
+					)}
+					{renamingGroupCwd !== group.cwd && (
+						<span className="flex shrink-0 items-center opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:opacity-100 group-hover/head:opacity-100">
+							<IconButton
+								icon={<Plus />}
+								label={t("sidebar.menu.newAgentHere")}
+								onClick={() => {
+									afterNavigate();
+									useUiStore.getState().closeDestination();
+									void openTab({ cwd: group.cwd });
+								}}
+								size="sm"
+								tabIndex={-1}
+							/>
+							<IconButton
+								icon={<MoreHorizontal />}
+								label={t("sidebar.groupMenu")}
+								onClick={event => setGroupMenu({ anchor: anchorBelow(event.currentTarget), group })}
+								size="sm"
+								tabIndex={-1}
+							/>
+						</span>
+					)}
+				</div>
+				{/* Collapsed groups render nothing: a long-lived install with
+				    hundreds of sessions must not build the full DOM per
+				    debounced refresh just to hide it. */}
+				{!groupCollapsed && (
+					<div className="space-y-px" data-session-group={group.cwd} data-state="expanded">
+						{group.sessions.map(session => renderSessionRow(session, true))}
+					</div>
+				)}
 			</div>
 		);
 	};
 
-	const utilityButton =
-		"omp-pressable flex h-6 w-7 shrink-0 items-center justify-center rounded-md text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]";
+	const currentProjectName =
+		mode === "work"
+			? t("sidebar.mode.work")
+			: activeTabKind !== "chat" && cwd
+				? (groupAliases[cwd] ?? (basename(cwd) || cwd))
+				: t("sidebar.project.none");
+	const projectItems: ContextMenuItem[] = [
+		...allGroups
+			.filter(group => group.cwd !== cwd)
+			.slice(0, RECENT_PROJECTS)
+			.map(group => ({
+				id: `project:${group.cwd}`,
+				label: group.name,
+				description: group.cwd,
+				icon: Folder,
+				onSelect: () => {
+					setMode("code");
+					void goToProject(group.cwd);
+				},
+			})),
+		{
+			id: "project-all",
+			label: t("sidebar.project.all"),
+			icon: FolderOpen,
+			onSelect: () => setWorkspaceDialog("switch"),
+		},
+		{
+			id: "project-open",
+			label: t("sidebar.project.open"),
+			icon: FolderPlus,
+			onSelect: () => {
+				void pickWorkspaceDirectory()
+					.then(picked => {
+						if (!picked) return;
+						setMode("code");
+						return goToProject(picked);
+					})
+					.catch(error =>
+						toast({ variant: "error", title: t("titlebar.openProjectFailed"), message: String(error) }),
+					);
+			},
+		},
+		{
+			id: "mode-code",
+			label: t("sidebar.mode.code"),
+			description: t("sidebar.mode.codeDescription"),
+			icon: Code2,
+			checked: mode === "code",
+			onSelect: () => setMode("code"),
+		},
+		{
+			id: "mode-work",
+			label: t("sidebar.mode.work"),
+			description: t("sidebar.mode.workDescription"),
+			icon: BriefcaseBusiness,
+			checked: mode === "work",
+			onSelect: () => setMode("work"),
+		},
+	];
+
+	if (variant === "rail") {
+		return (
+			<aside
+				aria-label={t("sidebar.label")}
+				className="omp-session-sidebar flex h-full w-14 shrink-0 flex-col items-center border-r border-(--sc-border-subtle) bg-(--sc-surface-1)"
+				data-variant="rail"
+			>
+				<div className="drag-region h-12 w-full shrink-0" />
+				<div className="flex flex-col items-center gap-1">
+					<IconButton
+						icon={<PanelLeftOpen />}
+						label={t("sidebar.expand")}
+						onClick={onExpandRail}
+						tooltipSide="right"
+					/>
+					<IconButton
+						data-sidebar-new-agent
+						icon={<SquarePen />}
+						label={t("sidebar.newSession")}
+						onClick={startNew}
+						tooltipSide="right"
+					/>
+					<IconButton
+						data-command-center-entry
+						icon={<Search />}
+						label={t("help.palette")}
+						onClick={openPalette}
+						shortcut={actionKbd("palette", keymapOverrides)}
+						tooltipSide="right"
+					/>
+				</div>
+				<div className="flex-1" />
+				<SidebarFooter onNavigate={afterNavigate} rail />
+				<WorkspaceDialog
+					intent={workspaceDialog ?? "switch"}
+					onClose={() => setWorkspaceDialog(null)}
+					open={workspaceDialog !== null}
+				/>
+			</aside>
+		);
+	}
 
 	return (
 		<>
 			<aside
-				className="omp-session-sidebar relative flex h-full shrink-0 flex-col border-r border-[var(--omp-border-muted)] bg-[var(--omp-sidebar-bg)]"
-				style={{ width: sidebarWidth }}
+				aria-label={t("sidebar.label")}
+				className={cx(
+					"omp-session-sidebar relative flex h-full min-h-0 flex-col",
+					variant === "docked"
+						? "shrink-0 border-r border-(--sc-border-subtle) bg-(--sc-surface-1)"
+						: "w-full flex-1",
+				)}
+				data-variant={variant}
+				style={variant === "docked" ? { width: sidebarWidth } : undefined}
 			>
-				<div className="drag-region flex h-12 shrink-0 items-center gap-1 border-b border-[var(--omp-border-muted)] px-2.5">
-					<button
-						type="button"
-						onClick={event => {
-							const rect = event.currentTarget.getBoundingClientRect();
-							setModeMenu({
-								x: Number.isFinite(rect.left) ? rect.left : 8,
-								y: (Number.isFinite(rect.bottom) ? rect.bottom : 40) + 6,
-							});
-						}}
-						aria-label={t("sidebar.mode.aria")}
-						aria-expanded={modeMenu !== null}
-						aria-haspopup="menu"
-						className="no-drag omp-pressable flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2 font-display text-omp-lg font-semibold text-[var(--omp-text)] hover:bg-[var(--omp-selected-bg)]"
-					>
-						{mode === "code" ? <Code2 size={15} /> : <BriefcaseBusiness size={15} />}
-						<span>{t(`sidebar.mode.${mode}`)}</span>
-						<ChevronDown size={13} className="text-[var(--omp-dim)]" />
-					</button>
-					<div className="flex-1" />
-					<button
-						type="button"
-						onClick={openSessionPicker}
-						title={t("sidebar.search")}
-						aria-label={t("sidebar.search")}
-						className="no-drag omp-pressable flex h-7 w-7 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-					>
-						<Search size={15} />
-					</button>
-				</div>
-
-				<div className="flex items-center gap-1 px-2 pb-2 pt-2">
-					<button
-						type="button"
-						data-sidebar-new-agent
-						onClick={startNew}
-						className="omp-pressable flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-omp-md font-medium text-[var(--omp-text)] hover:bg-[var(--omp-selected-bg)]"
-					>
-						{mode === "code" ? <SquarePen size={15} /> : <BriefcaseBusiness size={15} />}
-						<span className="min-w-0 flex-1 truncate">
-							{mode === "code" ? t("sidebar.newCode") : t("sidebar.newWork")}
+				{variant === "docked" && (
+					<div className="omp-sidebar-header drag-region flex h-12 shrink-0 items-center gap-1 pr-2 pl-3">
+						<span className="flex min-w-0 flex-1 items-center gap-2 text-sc-md font-semibold text-(--sc-text)">
+							<BrandMark size={18} />
+							<span className="truncate">seucode</span>
 						</span>
-					</button>
-					{mode === "code" && (
-						<button
-							type="button"
-							data-sidebar-new-chat
-							onClick={() => void openTab({ kind: "chat" })}
-							title={t("sidebar.quickChat")}
-							aria-label={t("sidebar.quickChat")}
-							className="omp-pressable flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-						>
-							<MessageSquarePlus size={16} />
-						</button>
-					)}
-				</div>
-
-				<div className="px-2 pb-2" data-sidebar-navigation>
-					<div
-						aria-hidden={!navigationExpanded}
-						className="omp-sidebar-group"
-						data-state={navigationExpanded ? "expanded" : "collapsed"}
-						inert={!navigationExpanded}
-					>
-						<div className="omp-sidebar-group-content space-y-0.5">
-							{[
-								{
-									id: "commands",
-									icon: Search,
-									label: t("titlebar.commands"),
-									shortcut: paletteShortcut,
-									title: t("titlebar.commandsHint", { shortcut: paletteShortcut }),
-									onClick: () => useUiStore.getState().openCommandPalette(),
-								},
-								{
-									id: "capabilities",
-									icon: Sparkles,
-									label: t("settings.capabilities.title"),
-									title: t("settings.capabilities.description"),
-									onClick: () => useUiStore.getState().openSettings("capabilities"),
-								},
-								{
-									id: "agents",
-									icon: Bot,
-									label: t("titlebar.agentHub", { shortcut: actionShortcut("agents.hub") }),
-									onClick: () => useUiStore.getState().openAgentHub(),
-								},
-								{
-									id: "providers",
-									icon: Plug,
-									label: t("titlebar.providers"),
-									onClick: () => useUiStore.getState().openProviders(),
-								},
-								{
-									id: "usage",
-									icon: Coins,
-									label: t("titlebar.usage"),
-									onClick: () => useUiStore.getState().openUsage(),
-								},
-								{
-									id: "stats",
-									icon: BarChart3,
-									label: t("titlebar.stats"),
-									onClick: () => useUiStore.getState().openStatsDashboard(),
-								},
-								{
-									id: "pull-requests",
-									icon: GitPullRequest,
-									label: t("titlebar.prCenter", { shortcut: actionShortcut("pr.center") }),
-									onClick: () => useUiStore.getState().openPrCenter(),
-								},
-								{
-									id: "workspace",
-									icon: PanelRight,
-									label: t("titlebar.workspace"),
-									onClick: () => useUiStore.getState().togglePanel(),
-								},
-								{
-									id: "hotkeys",
-									icon: Keyboard,
-									label: t("titlebar.hotkeys"),
-									onClick: () => useUiStore.getState().openHotkeys(),
-								},
-								{
-									id: "feedback",
-									icon: MessageSquareWarning,
-									label: t("titlebar.feedback"),
-									title: t("titlebar.feedbackHint"),
-									onClick: () => useUiStore.getState().openFeedback(),
-								},
-								{
-									id: "settings",
-									icon: Settings,
-									label: t("titlebar.settings"),
-									onClick: () => useUiStore.getState().openSettings(),
-								},
-							].map(item => {
-								const Icon = item.icon;
-								return (
-									<button
-										key={item.id}
-										type="button"
-										onClick={item.onClick}
-										data-command-center-entry={item.id === "commands" ? true : undefined}
-										title={item.title}
-										className="omp-pressable flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-omp-md text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-									>
-										<Icon aria-hidden="true" className="shrink-0" size={15} />
-										<span className="min-w-0 flex-1 truncate">{item.label}</span>
-										{item.shortcut && (
-											<kbd className="shrink-0 rounded border border-[var(--omp-border-muted)] px-1 text-omp-xxs text-[var(--omp-dim)]">
-												{item.shortcut}
-											</kbd>
-										)}
-									</button>
-								);
-							})}
-						</div>
+						<IconButton
+							className="no-drag"
+							data-command-center-entry
+							icon={<Search />}
+							label={t("help.palette")}
+							onClick={openPalette}
+							shortcut={actionKbd("palette", keymapOverrides)}
+							size="sm"
+						/>
+						<IconButton
+							className="no-drag"
+							icon={<PanelLeftClose />}
+							label={t("sidebar.collapse")}
+							onClick={() => useUiStore.getState().toggleSidebar()}
+							shortcut={actionKbd("sidebar.toggle", keymapOverrides)}
+							size="sm"
+						/>
 					</div>
-					<button
-						type="button"
-						aria-expanded={navigationExpanded}
-						aria-label={t(navigationExpanded ? "sidebar.navigation.collapse" : "sidebar.navigation.expand")}
-						title={t(navigationExpanded ? "sidebar.navigation.collapse" : "sidebar.navigation.expand")}
-						onClick={() => setNavigationExpanded(expanded => !expanded)}
-						className="omp-pressable mt-1 flex h-6 w-full items-center justify-center rounded-lg border border-[var(--omp-border-muted)] text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-muted)]"
+				)}
+
+				<div className="flex shrink-0 flex-col gap-2 px-2 pt-2 pb-2">
+					<MenuButton
+						className="w-full justify-start gap-2 px-2.5 text-(--sc-text)"
+						icon={mode === "work" ? <BriefcaseBusiness /> : <Folder />}
+						items={projectItems}
+						label={t("sidebar.project.menu")}
+						variant="ghost"
 					>
-						{navigationExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-					</button>
-				</div>
-
-				<div className="flex items-center justify-between px-4 pb-1.5">
-					<span className="text-omp-xs font-semibold uppercase tracking-[0.12em] text-[var(--omp-dim)]">
-						{t("sidebar.recent")}
-					</span>
-					{totalCount > 0 && (
-						<span
-							className="rounded-full bg-[var(--omp-bg-tertiary)] px-2 py-0.5 text-omp-xs tabular-nums text-[var(--omp-dim)]" // surface-ok: count pill
-						>
-							{totalCount}
+						<span className="min-w-0 flex-1 truncate text-left" data-sidebar-project>
+							{currentProjectName}
 						</span>
-					)}
+						<ChevronDown aria-hidden className="text-(--sc-text-subtle)" />
+					</MenuButton>
+					<div className="flex items-center gap-1">
+						<Button
+							className="min-w-0 flex-1 justify-start gap-2.5 px-2.5"
+							data-sidebar-new-agent
+							icon={<SquarePen />}
+							onClick={startNew}
+							variant="secondary"
+						>
+							<span className="min-w-0 flex-1 truncate text-left">{t("sidebar.newSession")}</span>
+						</Button>
+						{mode === "code" && (
+							<IconButton
+								data-sidebar-new-chat
+								icon={<MessageSquarePlus />}
+								label={t("sidebar.menu.newChat")}
+								onClick={startChat}
+								variant="secondary"
+							/>
+						)}
+					</div>
+					<SearchField
+						controlSize="sm"
+						label={t("sidebar.filter")}
+						onValueChange={setFilter}
+						placeholder={t("sidebar.filterPlaceholder")}
+						value={filter}
+					/>
 				</div>
 
-				<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 [overflow-anchor:none]">
+				<div
+					aria-label={t("sidebar.sessions")}
+					className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 [overflow-anchor:none]"
+					onKeyDown={onListKeyDown}
+					ref={listRef}
+					role="group"
+				>
 					{listError && sessions.length > 0 && (
-						<p role="alert" className="mx-3 mb-1 break-words text-omp-xs text-[var(--omp-error)]">
+						<p className="mx-2 mb-1 break-words text-sc-xs text-(--sc-danger)" role="alert">
 							{t("sidebar.stale")}: {listError}
 						</p>
 					)}
 					{isLoading && sessions.length === 0 && (
-						<div className="px-3 py-6 text-center text-omp-lg text-[var(--omp-dim)]">{t("sidebar.loading")}</div>
+						<div className="flex justify-center px-3 py-6">
+							<Spinner label={t("sidebar.loading")} />
+						</div>
 					)}
 					{listError && sessions.length === 0 && (
 						<div className="mx-1 mt-2 flex flex-col items-center gap-2 px-4 py-6 text-center">
-							<div className="text-omp-lg font-medium text-[var(--omp-error)]">{t("sidebar.loadFailed")}</div>
-							<div className="break-words text-omp-xs text-[var(--omp-muted)]">{listError}</div>
-							<Button icon={<RefreshCw size={12} />} onClick={() => refresh(true)} size="sm" variant="secondary">
+							<div className="text-sc-md font-medium text-(--sc-danger)">{t("sidebar.loadFailed")}</div>
+							<div className="break-words text-sc-xs text-(--sc-text-muted)">{listError}</div>
+							<Button icon={<RefreshCw />} onClick={() => refresh(true)} size="sm" variant="secondary">
 								{t("common.retry")}
 							</Button>
 						</div>
 					)}
 					{!isLoading && !listError && totalCount === 0 && (
-						<div className="mx-1 mt-2 flex flex-col items-center rounded-xl border border-dashed border-[var(--omp-border-muted)] px-4 py-6 text-center">
-							{mode === "code" ? (
-								<Code2 size={20} className="mb-2 text-[var(--omp-muted)]" />
-							) : (
-								<BriefcaseBusiness size={20} className="mb-2 text-[var(--omp-muted)]" />
-							)}
-							<div className="text-omp-lg font-medium text-[var(--omp-muted)]">
-								{mode === "code" ? t("sidebar.emptyCode") : t("sidebar.emptyWork")}
-							</div>
-						</div>
+						<p className="px-3 py-6 text-center text-sc-sm text-(--sc-text-muted)">
+							{query ? t("sidebar.noMatch") : mode === "code" ? t("sidebar.emptyCode") : t("sidebar.emptyWork")}
+						</p>
 					)}
 					{mode === "work" && workSessions.length > 0 && (
 						<div className="space-y-px" data-work-section>
@@ -753,240 +1099,60 @@ export function Sidebar() {
 					{mode === "code" && chatSessions.length > 0 && (
 						<div className="mb-1" data-chat-section>
 							<button
-								type="button"
-								onClick={() => setCollapsed(prev => ({ ...prev, __chats__: !chatsCollapsed }))}
 								aria-expanded={!chatsCollapsed}
-								className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left text-omp-md font-normal text-[var(--omp-muted)] hover:text-[var(--omp-text)]"
+								className="flex h-8 w-full min-w-0 items-center gap-1.5 rounded-(--sc-radius-md) pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) outline-none hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+								data-roving-item="group:__chats__"
+								onClick={() => setCollapsed(prev => ({ ...prev, __chats__: !chatsCollapsed }))}
+								onFocus={() => setFocusKey("group:__chats__")}
+								tabIndex={-1}
+								type="button"
 							>
 								{chatsCollapsed ? (
-									<ChevronRight size={12} className="shrink-0" />
+									<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 								) : (
-									<ChevronDown size={12} className="shrink-0" />
+									<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 								)}
-								<MessageCircle size={14} className="shrink-0" />
+								<MessageCircle aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 								<span className="min-w-0 flex-1 truncate">{t("sidebar.chats")}</span>
-								<span className="shrink-0 tabular-nums font-normal">{chatSessions.length}</span>
+								<span className="shrink-0 pr-2 text-sc-xs font-normal tabular-nums text-(--sc-text-subtle)">
+									{chatSessions.length}
+								</span>
 							</button>
-							<div
-								className="omp-sidebar-group"
-								data-session-group="__chats__"
-								data-state={chatsCollapsed ? "collapsed" : "expanded"}
-								aria-hidden={chatsCollapsed}
-								inert={chatsCollapsed}
-							>
-								<div className="omp-sidebar-group-content">
-									<div className="space-y-px">{chatSessions.map(session => renderSessionRow(session))}</div>
+							{!chatsCollapsed && (
+								<div className="space-y-px" data-session-group="__chats__" data-state="expanded">
+									{chatSessions.map(session => renderSessionRow(session, true))}
 								</div>
-							</div>
+							)}
 						</div>
 					)}
-					{visibleGroups.map(group => {
-						const groupCollapsed = isCollapsed(group.cwd);
-						const isCurrent = group.cwd === cwd;
-						const groupActionsOpen = renamingGroupCwd === group.cwd;
-						return (
-							<div key={group.cwd} className="mb-0.5">
-								<div
-									data-workspace-group={group.cwd}
-									data-actions-open={groupActionsOpen}
-									onContextMenu={event => setGroupMenu({ anchor: anchorFromEvent(event), group })}
-									className={cx(
-										"omp-sidebar-workspace-row omp-color-fade group flex h-7 w-full items-center gap-1.5 rounded-md px-1.5 pr-8 text-left text-omp-md font-normal",
-										isCurrent
-											? "text-[var(--omp-text)]"
-											: "text-[var(--omp-muted)] hover:text-[var(--omp-text)]",
-									)}
-								>
-									{renamingGroupCwd === group.cwd ? (
-										<>
-											<button
-												type="button"
-												onClick={() => toggleGroup(group.cwd)}
-												aria-expanded={!groupCollapsed}
-												aria-label={group.name}
-												className="flex h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-[var(--omp-bg-tertiary)]"
-											>
-												{groupCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-											</button>
-											<Folder
-												aria-hidden="true"
-												data-sidebar-workspace-icon
-												size={14}
-												className="shrink-0"
-											/>
-											{pinnedGroups.includes(group.cwd) && (
-												<Pin
-													size={10}
-													className="shrink-0 text-[var(--omp-accent)]"
-													aria-label={t("sidebar.pinned")}
-												/>
-											)}
-											<input
-												ref={groupRenameRef}
-												value={groupRenameDraft}
-												onChange={event => setGroupRenameDraft(event.target.value)}
-												onBlur={() => {
-													useSidebarPrefs.getState().setGroupAlias(group.cwd, groupRenameDraft);
-													setRenamingGroupCwd(null);
-												}}
-												onKeyDown={event => {
-													if (isImeKeyEvent(event)) return;
-													if (event.key === "Enter") {
-														useSidebarPrefs.getState().setGroupAlias(group.cwd, groupRenameDraft);
-														setRenamingGroupCwd(null);
-													}
-													onEscape(event, () => setRenamingGroupCwd(null));
-												}}
-												className="min-w-0 flex-1 rounded border border-[var(--omp-input-focus-border)] bg-[var(--omp-input-bg)] px-1 py-0 text-omp-md font-normal text-[var(--omp-text)] outline-none"
-											/>
-											<span className="shrink-0 tabular-nums text-omp-xs font-normal text-[var(--omp-dim)]">
-												{group.sessions.length}
-											</span>
-										</>
-									) : (
-										<button
-											type="button"
-											onClick={() => toggleGroup(group.cwd)}
-											aria-expanded={!groupCollapsed}
-											className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-										>
-											{groupCollapsed ? (
-												<ChevronRight size={12} className="shrink-0" />
-											) : (
-												<ChevronDown size={12} className="shrink-0" />
-											)}
-											<Folder
-												aria-hidden="true"
-												data-sidebar-workspace-icon
-												size={14}
-												className="shrink-0"
-											/>
-											{pinnedGroups.includes(group.cwd) && (
-												<Pin
-													size={10}
-													className="shrink-0 text-[var(--omp-accent)]"
-													aria-label={t("sidebar.pinned")}
-												/>
-											)}
-											<SidebarRowTitle className="text-left" title={group.name} />
-											<span className="shrink-0 tabular-nums text-omp-xs font-normal text-[var(--omp-dim)]">
-												{group.sessions.length}
-											</span>
-										</button>
-									)}
-									<span
-										className="omp-sidebar-workspace-actions flex shrink-0 items-center justify-end gap-0.5"
-										onClick={event => event.stopPropagation()}
-									>
-										<button
-											type="button"
-											title={t("sidebar.menu.newAgentHere")}
-											aria-label={t("sidebar.menu.newAgentHere")}
-											className="omp-sidebar-action flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
-											onClick={event => {
-												event.stopPropagation();
-												void openTab({ cwd: group.cwd });
-											}}
-										>
-											<Plus size={12} strokeWidth={2.5} />
-										</button>
-										<button
-											type="button"
-											title={t("sidebar.groupMenu")}
-											aria-label={t("sidebar.groupMenu")}
-											className="omp-sidebar-action flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
-											onClick={event => {
-												event.stopPropagation();
-												const rect = event.currentTarget.getBoundingClientRect();
-												setGroupMenu({ anchor: { x: rect.left, y: rect.bottom + 4 }, group });
-											}}
-										>
-											<MoreHorizontal size={11} />
-										</button>
-									</span>
-								</div>
-								{/* Collapsed groups render nothing: a long-lived install with
-								    hundreds of sessions must not build the full DOM per
-								    debounced refresh just to hide it. */}
-								{!groupCollapsed && (
-									<div className="omp-sidebar-group" data-session-group={group.cwd} data-state="expanded">
-										<div className="omp-sidebar-group-content">
-											<div className="space-y-px">
-												{group.sessions.map(session => renderSessionRow(session, true))}
-											</div>
-										</div>
-									</div>
-								)}
-							</div>
-						);
-					})}
+					{visibleGroups.map(renderGroup)}
 				</div>
 
-				{/* Bottom utility row: theme + language only — stats/settings live in the
-				    TitleBar, and the files button was a subset of the drawer toggle. */}
-				<div className="flex h-7 shrink-0 items-center gap-0.5 border-t border-[var(--omp-border-muted)] px-2">
-					<button
-						type="button"
-						onClick={openThemePicker}
-						title={t("themePicker.aria")}
-						aria-label={t("themePicker.aria")}
-						className={utilityButton}
-					>
-						<Palette size={13} />
-					</button>
-					<LangSwitcher className="h-6 max-h-6 rounded-md px-1.5 text-omp-sm [&_svg]:size-[14px]" />
-					<div className="flex-1" />
-				</div>
-				<div
-					role="separator"
-					aria-orientation="vertical"
-					onPointerDown={startSidebarDrag}
-					onPointerMove={onSidebarDrag}
-					onPointerUp={endSidebarDrag}
-					className="absolute inset-y-0 right-0 z-10 w-1 translate-x-1/2 cursor-col-resize transition-colors hover:bg-[var(--omp-accent)]/40 active:bg-[var(--omp-accent)] max-[1000px]:hidden"
-				/>
+				<SidebarFooter onNavigate={afterNavigate} rail={false} />
+				{variant === "docked" && (
+					<div
+						aria-hidden
+						className="absolute inset-y-0 right-0 z-(--sc-z-raised) w-1 translate-x-1/2 cursor-col-resize transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-accent-border) active:bg-(--sc-accent)"
+						onPointerDown={startSidebarDrag}
+						onPointerMove={onSidebarDrag}
+						onPointerUp={endSidebarDrag}
+						role="separator"
+					/>
+				)}
 			</aside>
-			<WorkspaceDialog open={workspaceOpen} onClose={() => setWorkspaceOpen(false)} intent="new-session" />
+			<WorkspaceDialog
+				intent={workspaceDialog ?? "switch"}
+				onClose={() => setWorkspaceDialog(null)}
+				open={workspaceDialog !== null}
+			/>
 
-			{/* Code is project-bound; Work is a full agent in the GUI-owned workspace. */}
-			{modeMenu && (
-				<ContextMenu
-					x={modeMenu.x}
-					y={modeMenu.y}
-					onClose={() => setModeMenu(null)}
-					items={[
-						{
-							id: "mode-code",
-							label: t("sidebar.mode.code"),
-							description: t("sidebar.mode.codeDescription"),
-							icon: Code2,
-							hint: mode === "code" ? "✓" : undefined,
-							onSelect: () => {
-								setMode("code");
-								setModeMenu(null);
-							},
-						},
-						{
-							id: "mode-work",
-							label: t("sidebar.mode.work"),
-							description: t("sidebar.mode.workDescription"),
-							icon: BriefcaseBusiness,
-							hint: mode === "work" ? "✓" : undefined,
-							onSelect: () => {
-								setMode("work");
-								setModeMenu(null);
-							},
-						},
-					]}
-				/>
-			)}
-
-			{/* Workspace group menu: new sessions, rename (alias), pin, delete. */}
+			{/* Project menu: rename (alias), new sessions, pin, delete. */}
 			{groupMenu &&
 				(() => {
 					const groupHasBusySession = groupMenu.group.sessions.some(isSessionBusy);
 					return (
 						<ContextMenu
+							ariaLabel={t("sidebar.groupMenu")}
 							x={groupMenu.anchor.x}
 							y={groupMenu.anchor.y}
 							onClose={() => setGroupMenu(null)}
@@ -997,6 +1163,8 @@ export function Sidebar() {
 									icon: SquareTerminal,
 									onSelect: () => {
 										setGroupMenu(null);
+										afterNavigate();
+										useUiStore.getState().closeDestination();
 										void openTab({ cwd: groupMenu.group.cwd });
 									},
 								},
@@ -1017,7 +1185,6 @@ export function Sidebar() {
 										setGroupRenameDraft(groupMenu.group.name);
 										setRenamingGroupCwd(groupMenu.group.cwd);
 										setGroupMenu(null);
-										requestAnimationFrame(() => groupRenameRef.current?.select());
 									},
 								},
 								{
@@ -1048,12 +1215,13 @@ export function Sidebar() {
 					);
 				})()}
 
-			{/* Session row menu: open variants, per-task rename, pin, and delete. */}
+			{/* Session row menu: open variants, rename, pin, and delete. */}
 			{sessionMenu &&
 				(() => {
 					const targetBusy = isSessionBusy(sessionMenu.session);
 					return (
 						<ContextMenu
+							ariaLabel={sessionDisplayTitle(sessionMenu.session, t("sidebar.untitled"))}
 							x={sessionMenu.anchor.x}
 							y={sessionMenu.anchor.y}
 							onClose={() => setSessionMenu(null)}
@@ -1064,7 +1232,7 @@ export function Sidebar() {
 									icon: ChevronRight,
 									onSelect: () => {
 										setSessionMenu(null);
-										void openSession(sessionMenu.session);
+										openSession(sessionMenu.session);
 									},
 								},
 								{
@@ -1073,6 +1241,8 @@ export function Sidebar() {
 									icon: Plus,
 									onSelect: () => {
 										setSessionMenu(null);
+										afterNavigate();
+										useUiStore.getState().closeDestination();
 										void openTab({
 											cwd: sessionMenu.session.cwd,
 											kind: sessionMenu.session.kind ?? "agent",

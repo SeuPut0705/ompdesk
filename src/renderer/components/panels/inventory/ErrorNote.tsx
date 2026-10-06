@@ -1,12 +1,13 @@
 /**
  * Inline error block with a copy button (mutation failures carry detail the
- * user may need to paste into a report). Used by the marketplaces cards and
- * the plugin detail drawer.
+ * user may need to paste into a report). Used by the marketplaces rows and
+ * the plugin detail sheet.
  */
 
 import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 import { copyText, cx } from "../../../lib/format";
+import { IconButton } from "../../common";
 
 export function CopyableError({
 	message,
@@ -26,26 +27,25 @@ export function CopyableError({
 	return (
 		<div
 			className={cx(
-				"flex items-start gap-2 rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-2.5 py-1.5",
+				"flex items-start gap-2 rounded-(--sc-radius-md) border border-[color-mix(in_srgb,var(--sc-danger)_28%,transparent)] bg-(--sc-danger-soft) px-3 py-2",
 				className,
 			)}
+			role="alert"
 		>
-			<span className="min-w-0 flex-1 text-omp-sm break-words whitespace-pre-wrap text-(--omp-error)">
+			<span className="min-w-0 flex-1 py-0.5 text-sc-sm break-words whitespace-pre-wrap text-(--sc-danger)">
 				{message}
 			</span>
-			<button
-				aria-label={copyLabel}
-				className="omp-pressable mt-px shrink-0 rounded p-0.5 text-(--omp-error) hover:brightness-110"
+			<IconButton
+				className={cx("-my-1 -mr-1.5", copied && "text-(--sc-success)")}
+				icon={copied ? <Check /> : <Copy />}
+				label={copyLabel}
 				onClick={() => {
 					void copyText(message).then(ok => {
 						if (ok) setCopied(true);
 					});
 				}}
-				title={copyLabel}
-				type="button"
-			>
-				{copied ? <Check size={11} className="text-(--omp-success)" /> : <Copy size={11} />}
-			</button>
+				size="sm"
+			/>
 		</div>
 	);
 }

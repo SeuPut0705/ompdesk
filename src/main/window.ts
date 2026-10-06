@@ -1,11 +1,11 @@
 /**
- * Multi-window management for the omp GUI.
+ * Multi-window management for seucode.
  * Creates sandboxed BrowserWindows with persisted state via electron-store.
  */
 
 import * as fs from "node:original-fs";
 import { join } from "node:path";
-import { app, BrowserWindow, dialog, Menu, type MessageBoxOptions, screen, shell } from "electron";
+import { app, BrowserWindow, dialog, Menu, type MessageBoxOptions, nativeTheme, screen, shell } from "electron";
 import Store from "electron-store";
 import type { RunProgressState, SessionKind } from "../shared/ipc-types";
 import { quitRisk, requestQuit } from "./app-quit";
@@ -20,6 +20,7 @@ import {
 } from "./renderer-recovery";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { type Rect, restoreWithinDisplays } from "./window-bounds";
+import { windowChromeOptions } from "./window-chrome";
 
 interface WindowState {
 	x?: number;
@@ -121,6 +122,7 @@ export class WindowManager {
 			minHeight: MIN_HEIGHT,
 			show: false,
 			autoHideMenuBar: process.platform === "win32",
+			...windowChromeOptions(process.platform, nativeTheme.shouldUseDarkColors),
 			webPreferences: {
 				contextIsolation: true,
 				nodeIntegration: false,
@@ -271,10 +273,12 @@ export class WindowManager {
 	}
 
 	#loadRenderer(win: BrowserWindow): void {
+		// OMP_GUI_STYLEGUIDE=1 opens the internal design style guide instead of the app.
+		const hash = process.env.OMP_GUI_STYLEGUIDE === "1" ? "/styleguide" : undefined;
 		if (process.env.ELECTRON_RENDERER_URL) {
-			void win.loadURL(process.env.ELECTRON_RENDERER_URL);
+			void win.loadURL(hash ? `${process.env.ELECTRON_RENDERER_URL}#${hash}` : process.env.ELECTRON_RENDERER_URL);
 		} else {
-			void win.loadFile(join(__dirname, "../renderer/index.html"));
+			void win.loadFile(join(__dirname, "../renderer/index.html"), { hash });
 		}
 	}
 

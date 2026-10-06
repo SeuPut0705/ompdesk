@@ -1,8 +1,11 @@
 <div align="center">
 
-<img src="resources/icon.png" alt="omp GUI" width="112" height="112">
-
-# omp GUI
+<h1>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="resources/brand/wordmark-dark.svg">
+  <img src="resources/brand/wordmark-light.svg" alt="seucode" height="64">
+</picture>
+</h1>
 
 **터미널 없이 쓰는 omp 코딩 에이전트**
 
@@ -11,21 +14,21 @@
 
 <br>
 
-<a href="https://github.com/SeuPut0705/omp-gui/releases/latest/download/omp-mac-arm64.dmg"><img src="https://img.shields.io/badge/macOS-Apple%20Silicon-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS Apple Silicon 다운로드" height="40"></a>
+<a href="https://github.com/SeuPut0705/seucode/releases/latest/download/seucode-mac-arm64.dmg"><img src="https://img.shields.io/badge/macOS-Apple%20Silicon-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS Apple Silicon 다운로드" height="40"></a>
 &nbsp;
-<a href="https://github.com/SeuPut0705/omp-gui/releases/latest/download/omp-mac-x64.dmg"><img src="https://img.shields.io/badge/macOS-Intel-555555?style=for-the-badge&logo=apple&logoColor=white" alt="macOS Intel 다운로드" height="40"></a>
+<a href="https://github.com/SeuPut0705/seucode/releases/latest/download/seucode-mac-x64.dmg"><img src="https://img.shields.io/badge/macOS-Intel-555555?style=for-the-badge&logo=apple&logoColor=white" alt="macOS Intel 다운로드" height="40"></a>
 &nbsp;
-<a href="https://github.com/SeuPut0705/omp-gui/releases/latest/download/omp-windows-setup.exe"><img src="https://img.shields.io/badge/Windows-설치%20파일-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 다운로드" height="40"></a>
+<a href="https://github.com/SeuPut0705/seucode/releases/latest/download/seucode-windows-setup.exe"><img src="https://img.shields.io/badge/Windows-설치%20파일-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 다운로드" height="40"></a>
 
 <sub>
-Windows 설치 없이 쓰기: <a href="https://github.com/SeuPut0705/omp-gui/releases/latest/download/omp-windows-portable.exe">포터블 exe</a>
+Windows 설치 없이 쓰기: <a href="https://github.com/SeuPut0705/seucode/releases/latest/download/seucode-windows-portable.exe">포터블 exe</a>
 &nbsp;·&nbsp; 내 Mac이 어떤 칩인지: 왼쪽 위  메뉴 → 이 Mac에 관하여
-&nbsp;·&nbsp; <a href="https://github.com/SeuPut0705/omp-gui/releases">모든 버전</a>
+&nbsp;·&nbsp; <a href="https://github.com/SeuPut0705/seucode/releases">모든 버전</a>
 </sub>
 
 <br><br>
 
-<img src="https://img.shields.io/github/v/release/SeuPut0705/omp-gui?style=flat-square&label=%EC%B5%9C%EC%8B%A0%20%EB%B2%84%EC%A0%84&color=3FB950" alt="최신 버전">
+<img src="https://img.shields.io/github/v/release/SeuPut0705/seucode?style=flat-square&label=%EC%B5%9C%EC%8B%A0%20%EB%B2%84%EC%A0%84&color=3FB950" alt="최신 버전">
 <img src="https://img.shields.io/badge/omp-18.6%2B-8B5CF6?style=flat-square" alt="omp 18.6 이상">
 <img src="https://img.shields.io/badge/%ED%95%9C%EA%B5%AD%EC%96%B4%20%C2%B7%20English%20%C2%B7%20%E4%B8%AD%E6%96%87-UI-F59E0B?style=flat-square" alt="한국어 · English · 中文">
 <img src="https://img.shields.io/badge/license-MIT-BE185D?style=flat-square" alt="MIT">
@@ -35,7 +38,10 @@ Windows 설치 없이 쓰기: <a href="https://github.com/SeuPut0705/omp-gui/rel
 <br>
 
 <p align="center">
-  <img src="docs/screenshots/main.png" alt="omp GUI 메인 화면" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/main-dark.png">
+    <img src="docs/screenshots/main.png" alt="seucode 메인 화면" width="100%">
+  </picture>
 </p>
 
 ## 3단계로 시작하기
@@ -50,7 +56,7 @@ bun install -g @oh-my-pi/pi-coding-agent
 
 | | |
 |---|---|
-| **macOS** | DMG를 열고 **omp**를 응용 프로그램 폴더로 드래그. 처음 실행할 때 "확인되지 않은 개발자" 경고가 뜨면 앱을 **우클릭 → 열기** (한 번만 하면 돼요) |
+| **macOS** | DMG를 열고 **seucode**를 응용 프로그램 폴더로 드래그. 처음 실행할 때 "확인되지 않은 개발자" 경고가 뜨면 앱을 **우클릭 → 열기** (한 번만 하면 돼요) |
 | **Windows** | 설치 파일 실행. SmartScreen 경고가 뜨면 **추가 정보 → 실행** |
 
 **3. 모델 연결** — 처음 실행하면 안내 창이 떠요. **프로바이더 및 로그인**에서 Claude·ChatGPT 등에 로그인하거나 API 키를 넣으면 끝. 터미널 omp에서 이미 로그인했다면 그대로 이어서 쓸 수 있어요.
@@ -159,12 +165,12 @@ GitHub CLI가 필요해요. `gh auth status`로 로그인 상태를 확인하세
 필요: [Bun](https://bun.sh) 1.4+, Git, omp 18.6+
 
 ```bash
-git clone https://github.com/SeuPut0705/omp-gui.git
-cd omp-gui
+git clone https://github.com/SeuPut0705/seucode.git
+cd seucode
 bun install
 
 bun run dev                                    # 개발 모드
-bun run package:mac:arm64 -- --publish never   # → dist/omp-<버전>-arm64.dmg
+bun run package:mac:arm64 -- --publish never   # → dist/seucode-<버전>-arm64.dmg
 bun run package:mac:x64 -- --publish never     # Intel Mac
 bun run package:win -- --publish never         # Windows 설치 파일 + 포터블
 ```

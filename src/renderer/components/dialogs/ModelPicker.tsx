@@ -1,10 +1,13 @@
-import { useTabRpc } from "../../lib/tab-rpc";
 /**
- * Model picker: grouped-by-provider dropdown with search, auth status from
- * login providers, current model highlighted. Selection calls set_model.
+ * Model picker (Picker container): search, models grouped by provider with
+ * connected providers first, current model checked. Picking switches the
+ * session (`set_model`) and saves the pick as the default for new sessions
+ * (`modelRoles.default`), the way omp's own `/model` picker does — without it
+ * every new session falls back to omp's catalog choice, which can be a keyless
+ * on-device model that cannot hold a coding session.
  */
 
-import { Check, Cpu, Search, TriangleAlert } from "lucide-react";
+import { Check, Settings2, TriangleAlert } from "lucide-react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	useCallback,
@@ -16,15 +19,18 @@ import {
 } from "react";
 import type { LoginProvider, ModelInfo } from "../../../shared/rpc-types";
 import { applyModelInfo, hydrateSession } from "../../hooks/use-rpc-events";
-import { formatTokens } from "../../lib/format";
+import { cx, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
+import { useTabRpc } from "../../lib/tab-rpc";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Modal, Spinner } from "../common";
+import { Badge, Button, Kbd, Modal, SearchField, Spinner } from "../common";
+import { persistDefaultModel } from "../onboarding/default-model";
+import { MIN_SERVING_CONTEXT, modelDisplayName } from "../settings/providers/provider-catalog";
 
 export function ModelPicker() {
 	const tabRpc = useTabRpc();
@@ -32,17 +38,18 @@ export function ModelPicker() {
 	const t = useT();
 	const open = useUiStore(state => state.modelPickerOpen);
 	const close = useUiStore(state => state.closeModelPicker);
+	const openProviders = useUiStore(state => state.openProviders);
 	const availableModels = useModelStore(state => state.availableModels);
+	const catalogProviders = useModelStore(state => state.providers);
 	const current = useModelStore(state => state.model);
 	const refreshAvailableModels = useModelStore(state => state.refreshAvailableModels);
-	const openProviders = useUiStore(state => state.openProviders);
 	// Live session usage: models whose window is smaller render with an
 	// over-context warning and compact-first on pick (TUI markOverContext parity).
 	const contextUsage = useSessionStore(state => state.contextUsage);
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
 
 	const [query, setQuery] = useState("");
-	const [providers, setProviders] = useState<LoginProvider[]>([]);
+	const [loginProviders, setLoginProviders] = useState<LoginProvider[]>([]);
 	const [switching, setSwitching] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -50,7 +57,6 @@ export function ModelPicker() {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
 	const listboxId = useId();
-
 	const requestVersion = useRef(0);
 
 	/** Login flows are the picker's own concern, but the model list is shared
@@ -77,7 +83,7 @@ export function ModelPicker() {
 			const providersOk = providersResult.status === "fulfilled" && providersResult.value.success;
 			if (providersOk) {
 				const data = providersResult.value.data as { providers?: LoginProvider[] } | undefined;
-				setProviders(data?.providers ?? []);
+				setLoginProviders(data?.providers ?? []);
 				return;
 			}
 			if (modelsResult.status === "fulfilled") return;
@@ -103,11 +109,23 @@ export function ModelPicker() {
 		};
 	}, [open, load]);
 
-	const authByProvider = useMemo(() => {
-		const map = new Map<string, LoginProvider>();
-		for (const provider of providers) map.set(provider.id, provider);
+	const authByProvider = useMemo(
+		() => new Map(loginProviders.map(provider => [provider.id, provider])),
+		[loginProviders],
+	);
+	const nameByProvider = useMemo(() => {
+		const map = new Map<string, string>();
+		for (const provider of catalogProviders) map.set(provider.id, provider.name);
+		for (const provider of loginProviders) map.set(provider.id, provider.name);
 		return map;
-	}, [providers]);
+	}, [catalogProviders, loginProviders]);
+	const connected = useCallback(
+		(provider: string) =>
+			authByProvider.get(provider)?.authenticated ??
+			catalogProviders.find(row => row.id === provider)?.authenticated ??
+			false,
+		[authByProvider, catalogProviders],
+	);
 
 	const groups = useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -116,17 +134,23 @@ export function ModelPicker() {
 				q.length === 0 ||
 				model.id.toLowerCase().includes(q) ||
 				model.provider.toLowerCase().includes(q) ||
+				(nameByProvider.get(model.provider)?.toLowerCase().includes(q) ?? false) ||
 				model.name?.toLowerCase().includes(q) ||
 				model.description?.toLowerCase().includes(q),
 		);
-		const map = new Map<string, typeof filtered>();
+		const map = new Map<string, ModelInfo[]>();
 		for (const model of filtered) {
 			const list = map.get(model.provider) ?? [];
 			list.push(model);
 			map.set(model.provider, list);
 		}
-		return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-	}, [availableModels, query]);
+		// Connected providers first; within each half, by display name.
+		return [...map.entries()].sort(
+			([a], [b]) =>
+				Number(connected(b)) - Number(connected(a)) ||
+				(nameByProvider.get(a) ?? a).localeCompare(nameByProvider.get(b) ?? b),
+		);
+	}, [availableModels, connected, nameByProvider, query]);
 
 	// Flat row order (group order → in-group order) for keyboard navigation.
 	const flatOptions = useMemo(
@@ -185,6 +209,15 @@ export function ModelPicker() {
 			// context bar reflect the compacted session, not just the new model.
 			if (overContext) await hydrateSession();
 			close();
+			try {
+				await persistDefaultModel(tabRpc, { provider, id: modelId });
+			} catch (cause) {
+				toast({
+					variant: "warning",
+					title: t("modelPicker.defaultFailed"),
+					message: cause instanceof Error ? cause.message : String(cause),
+				});
+			}
 		} catch (cause) {
 			toast({ variant: "error", title: t("modelPicker.failed"), message: String(cause) });
 		} finally {
@@ -220,6 +253,11 @@ export function ModelPicker() {
 		}
 	};
 
+	const manageProviders = () => {
+		close();
+		openProviders();
+	};
+
 	// role="listbox" only when option rows actually render (loading / error /
 	// empty states are plain status blocks, not listbox children).
 	const showOptions = !error && !loading && groups.length > 0;
@@ -235,22 +273,18 @@ export function ModelPicker() {
 			size="picker"
 		>
 			<div className="flex h-full flex-col">
-				<div className="flex items-center gap-2.5 border-b border-(--omp-border-muted) px-3.5 py-2.5">
-					<Search className="shrink-0 text-(--omp-dim)" size={14} />
-					<input
+				<div className="border-b border-(--sc-divider) p-3">
+					<SearchField
 						aria-activedescendant={flatOptions.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
 						aria-controls={listboxId}
-						aria-label={t("modelPicker.searchLabel")}
-						className="min-w-0 flex-1 bg-transparent text-sm text-(--omp-text) placeholder:text-(--omp-dim) focus:outline-none"
-						onChange={event => setQuery(event.target.value)}
+						controlSize="lg"
+						label={t("modelPicker.searchLabel")}
 						onKeyDown={onKeyDown}
+						onValueChange={setQuery}
 						placeholder={t("modelPicker.placeholder")}
 						ref={inputRef}
 						value={query}
 					/>
-					<kbd className="shrink-0 rounded border border-(--omp-border-muted) px-1.5 py-0.5 text-omp-xxs text-(--omp-dim)">
-						esc
-					</kbd>
 				</div>
 				<div
 					className="min-h-0 flex-1 overflow-y-auto p-1.5"
@@ -259,64 +293,55 @@ export function ModelPicker() {
 					role={showOptions ? "listbox" : undefined}
 				>
 					{error ? (
-						<div className="flex flex-col items-center gap-3 py-10">
-							<span className="text-xs text-[var(--omp-error)]">{error}</span>
-							<span className="text-omp-xs text-[var(--omp-dim)]">{t("modelPicker.notRespondingHint")}</span>
-							<button
-								type="button"
-								className="rounded-md border border-[var(--omp-border-muted)] px-3 py-1 text-omp-sm font-medium text-[var(--omp-text)] hover:bg-[var(--omp-selected-bg)]"
-								onClick={() => void load(true, t("modelPicker.stillNotResponding"))}
+						<div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
+							<span className="text-sc-md text-(--sc-danger)">{error}</span>
+							<span className="text-sc-sm text-(--sc-text-muted)">{t("modelPicker.notRespondingHint")}</span>
+							<Button
 								disabled={!sidecarReady}
+								onClick={() => void load(true, t("modelPicker.stillNotResponding"))}
+								size="sm"
 								title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
 							>
 								{t("modelPicker.retry")}
-							</button>
+							</Button>
 						</div>
 					) : loading ? (
-						<div className="flex items-center justify-center gap-2 py-10">
-							<Spinner size="sm" />
-							<span className="text-xs text-(--omp-dim)">{t("modelPicker.loading")}</span>
+						<div className="flex justify-center py-10">
+							<Spinner label={t("modelPicker.loading")} size="sm" />
 						</div>
 					) : availableModels.length === 0 ? (
-						<div className="py-10 text-center text-xs text-(--omp-dim)">{t("modelPicker.empty")}</div>
+						<div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
+							<span className="text-sc-md text-(--sc-text-secondary)">{t("modelPicker.empty")}</span>
+							<Button onClick={manageProviders} size="sm" variant="primary">
+								{t("modelPicker.connectProvider")}
+							</Button>
+						</div>
 					) : groups.length === 0 ? (
-						<div className="py-10 text-center text-xs text-(--omp-dim)">
+						<div className="py-10 text-center text-sc-md text-(--sc-text-muted)">
 							{t("modelPicker.noMatch", { query })}
 						</div>
 					) : (
 						groups.map(([provider, models]) => {
 							const auth = authByProvider.get(provider);
+							const providerName = nameByProvider.get(provider) ?? provider;
 							return (
-								<section aria-label={provider} className="mb-1" key={provider} role="group">
-									<div className="flex items-center gap-2 px-2.5 pt-2 pb-1">
-										<Cpu className="shrink-0 text-(--omp-dim)" size={10} />
-										<span className="text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
-											{provider}
+								<section aria-label={providerName} className="mb-1" key={provider} role="group">
+									<div className="flex min-h-8 items-center gap-2 px-2.5 pt-2 pb-1">
+										<span className="truncate text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
+											{providerName}
 										</span>
-										{auth && (
-											<Badge variant={auth.authenticated ? "success" : auth.available ? "warning" : "muted"}>
-												{auth.authenticated
-													? t("modelPicker.auth.authenticated")
-													: auth.available
-														? t("modelPicker.auth.notSignedIn")
-														: t("modelPicker.auth.unavailable")}
+										{auth && !auth.authenticated && (
+											<Badge variant={auth.available ? "warning" : "muted"}>
+												{auth.available
+													? t("modelPicker.auth.notSignedIn")
+													: t("modelPicker.auth.unavailable")}
 											</Badge>
 										)}
 										{auth?.available && !auth.authenticated && (
-											<button
-												type="button"
-												className="rounded px-1.5 py-0.5 text-omp-xxs font-medium text-(--omp-accent) hover:bg-(--omp-selected-bg)"
-												onClick={() => {
-													close();
-													openProviders();
-												}}
-											>
-												{t("providers.login")}
-											</button>
+											<Button className="ml-auto" onClick={manageProviders} size="sm" variant="ghost">
+												{t("providerList.connect")}
+											</Button>
 										)}
-										<span className="ml-auto text-omp-xxs tabular-nums text-(--omp-dim)">
-											{models.length}
-										</span>
 									</div>
 									{models.map(model => {
 										const isCurrent = current?.provider === provider && current.id === model.id;
@@ -324,66 +349,76 @@ export function ModelPicker() {
 										const optionIndex = indexByKey.get(key) ?? 0;
 										const isActive = optionIndex === activeIndex;
 										const over = !isCurrent && isOverContext(model);
+										const small = model.contextWindow != null && model.contextWindow < MIN_SERVING_CONTEXT;
+										const subtitle = [
+											model.name && model.name !== model.id ? model.id : null,
+											model.description,
+										]
+											.filter(Boolean)
+											.join(" · ");
 										return (
 											<button
 												aria-selected={isCurrent}
-												className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left transition-colors ${
-													isActive ? "bg-(--omp-selected-bg)" : "hover:bg-(--omp-bg-tertiary)"
-												}`}
+												className={cx(
+													"flex min-h-10 w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-1.5 text-left disabled:cursor-not-allowed",
+													isActive ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
+												)}
 												data-option-index={optionIndex}
 												disabled={switching !== null || !sidecarReady}
-												title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
 												id={`${listboxId}-option-${optionIndex}`}
 												key={key}
 												onClick={() => void select(provider, model.id)}
 												onMouseEnter={() => setActiveIndex(optionIndex)}
 												role="option"
+												title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
 												type="button"
 											>
-												<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-													<div className="flex min-w-0 items-center gap-1.5">
+												<span className="flex min-w-0 flex-1 flex-col">
+													<span className="flex min-w-0 items-center gap-1.5">
 														<span
-															className={`truncate text-xs ${isCurrent ? "font-semibold text-(--omp-accent)" : over ? "text-(--omp-dim)" : "text-(--omp-text)"}`}
+															className={cx(
+																"truncate text-sc-md",
+																isCurrent ? "font-medium text-(--sc-text)" : "text-(--sc-text)",
+																over && "text-(--sc-text-muted)",
+															)}
 														>
-															{model.name || model.id}
+															{modelDisplayName(model)}
 														</span>
 														{model.isRecommended && (
-															<Badge className="px-1.5 text-omp-xxs leading-3" variant="success">
-																{t("modelPicker.badge.recommended")}
-															</Badge>
+															<Badge variant="accent">{t("modelPicker.badge.recommended")}</Badge>
 														)}
-														{model.isNew && (
-															<Badge className="px-1.5 text-omp-xxs leading-3" variant="info">
-																{t("modelPicker.badge.new")}
-															</Badge>
-														)}
+														{model.isNew && <Badge variant="info">{t("modelPicker.badge.new")}</Badge>}
 														{model.isBeta && (
-															<Badge className="px-1.5 text-omp-xxs leading-3" variant="warning">
-																{t("modelPicker.badge.beta")}
-															</Badge>
+															<Badge variant="warning">{t("modelPicker.badge.beta")}</Badge>
 														)}
-													</div>
-													{((model.name && model.name !== model.id) || model.description) && (
+													</span>
+													{subtitle && (
 														<span
-															className="truncate font-mono text-omp-xxs text-(--omp-dim)"
+															className="truncate text-sc-xs text-(--sc-text-muted)"
 															title={model.description}
 														>
-															{[
-																model.name && model.name !== model.id ? model.id : null,
-																model.description,
-															]
-																.filter(Boolean)
-																.join(" · ")}
+															{subtitle}
 														</span>
 													)}
-												</div>
+												</span>
+												{model.contextWindow != null && (
+													<span
+														className={cx(
+															"shrink-0 text-sc-xs tabular-nums",
+															small ? "text-(--sc-warning)" : "text-(--sc-text-muted)",
+														)}
+														title={small ? t("modelPicker.smallContextHint") : undefined}
+													>
+														{t("modelPicker.context", { tokens: formatTokens(model.contextWindow) })}
+													</span>
+												)}
 												{model.int != null && Number.isFinite(model.int) && (
-													<span className="shrink-0 font-mono text-omp-xxs text-(--omp-dim)">
+													<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-muted)">
 														{t("modelPicker.intelligence", { value: Math.round(model.int) })}
 													</span>
 												)}
 												{model.tps != null && Number.isFinite(model.tps) && model.tps > 0 && (
-													<span className="shrink-0 font-mono text-omp-xxs text-(--omp-dim)">
+													<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-muted)">
 														{t("modelPicker.speed", {
 															value: model.tps >= 10 ? Math.round(model.tps) : model.tps.toFixed(1),
 														})}
@@ -391,20 +426,23 @@ export function ModelPicker() {
 												)}
 												{over && (
 													<span
-														className="flex shrink-0 items-center gap-1 text-(--omp-warning)"
+														className="flex shrink-0 items-center gap-1 text-sc-xs font-medium text-(--sc-warning)"
 														title={t("modelPicker.overContextHint", {
 															current: formatTokens(contextUsage?.tokens),
 															limit: formatTokens(model.contextWindow),
 														})}
 													>
-														<TriangleAlert size={12} />
-														<span className="text-omp-xxs font-medium">
-															{t("modelPicker.overContext")}
-														</span>
+														<TriangleAlert aria-hidden className="size-(--sc-icon-sm)" />
+														{t("modelPicker.overContext")}
 													</span>
 												)}
 												{switching === key && <Spinner size="sm" />}
-												{isCurrent && <Check className="shrink-0 text-(--omp-accent)" size={13} />}
+												{isCurrent && (
+													<Check
+														aria-label={t("modelPicker.current")}
+														className="size-(--sc-icon-sm) shrink-0 text-(--sc-accent)"
+													/>
+												)}
 											</button>
 										);
 									})}
@@ -412,6 +450,18 @@ export function ModelPicker() {
 							);
 						})
 					)}
+				</div>
+				<div className="flex items-center gap-3 border-t border-(--sc-divider) px-3 py-2 text-sc-xs text-(--sc-text-muted)">
+					<span className="min-w-0 flex-1 truncate">{t("modelPicker.defaultHint")}</span>
+					<span className="flex shrink-0 items-center gap-1.5 max-sm:hidden">
+						<Kbd shortcut="↑↓" />
+						{t("modelPicker.keys.move")}
+						<Kbd shortcut="↩" />
+						{t("modelPicker.keys.pick")}
+					</span>
+					<Button icon={<Settings2 />} onClick={manageProviders} size="sm" variant="ghost">
+						{t("modelPicker.manageProviders")}
+					</Button>
 				</div>
 			</div>
 		</Modal>

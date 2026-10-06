@@ -15,7 +15,7 @@ const errors: string[] = [];
 async function command(text: string) {
 	const composer = page.locator("textarea").first();
 	await composer.fill(text);
-	await page.getByRole("button", { name: "Send (Enter)", exact: true }).click();
+	await page.getByRole("button", { name: "Send", exact: true }).click();
 }
 async function recorded(type: string) {
 	const text = await fs.readFile(record, "utf8").catch(() => "");
@@ -64,7 +64,8 @@ test.afterAll(async () => {
 });
 
 test("initially closed modal receives focus and Escape closes it", async () => {
-	await command("/jobs");
+	// /jobs is a side-panel tab now; /tools is still a modal dialog.
+	await command("/tools");
 	const modal = page.getByRole("dialog");
 	await expect(modal).toBeVisible();
 	await expect.poll(() => modal.evaluate(node => node.contains(document.activeElement))).toBe(true);
@@ -85,16 +86,16 @@ test("opening sharing performs local preview only, upload needs a button click",
 
 test("a running task keeps both send and stop reachable", async () => {
 	await command("fixture running");
-	await expect(page.getByRole("button", { name: "Abort", exact: true })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
 	const composer = page.locator("textarea").first();
 	await composer.fill("queued instruction");
-	await page.getByRole("button", { name: "Send (Enter)", exact: true }).click();
+	await page.getByRole("button", { name: "Send", exact: true }).click();
 	await expect.poll(async () => (await recorded("steer")).length + (await recorded("follow_up")).length).toBe(1);
-	await page.getByRole("button", { name: "Abort", exact: true }).click();
+	await page.getByRole("button", { name: "Stop", exact: true }).click();
 	await expect(composer).toHaveValue("");
 	// The run ends only once agent_end lands (after main stamps its entry ids); until
 	// then a send is a steer, so the next test must start from an idle session.
-	await expect(page.getByRole("button", { name: "Abort", exact: true })).toHaveCount(0);
+	await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
 });
 
 test("long approval remains complete and Enter is neutral", async () => {
@@ -107,18 +108,20 @@ test("long approval remains complete and Enter is neutral", async () => {
 	expect(errors).toEqual([]);
 });
 
-test("settings expose eight groups, translated search and independent display preferences", async () => {
-	await page.getByRole("button", { name: "Settings", exact: true }).click();
-	const settings = page.getByRole("dialog");
-	await expect(settings.locator(".settings-nav-group-label")).toHaveCount(8);
-	await settings.getByRole("button", { name: "Appearance & use", exact: true }).click();
-	await expect(settings).toContainText("Choose GUI theme");
+test("settings page lists its sections, searches across languages, and Escape returns to the session", async () => {
+	await page.keyboard.press("ControlOrMeta+Comma");
+	const settings = page.locator("[data-settings-page]");
+	await expect(settings).toBeVisible();
+	await expect(settings.locator("[data-settings-section]")).toHaveCount(12);
+	await settings.locator('[data-settings-section="appearance"]').click();
+	await expect(settings.getByRole("radiogroup", { name: "Theme" })).toBeVisible();
 	await page.screenshot({ path: "test-results/01-settings.png", scale: "css", animations: "disabled" });
-	const search = settings.getByPlaceholder("Search settings and managed resources…");
+	const search = settings.getByRole("searchbox", { name: "Search settings" });
 	await search.fill("压缩");
-	await expect(settings).toContainText("Auto compaction");
+	await expect(settings.locator("[data-settings-search-results]")).toContainText("Auto compaction");
 	await search.fill("paste.largeMenuThreshold");
-	await expect(settings).toContainText("paste");
+	await expect(settings.locator("[data-settings-search-results]")).toContainText("paste");
+	await search.fill("");
 	await page.keyboard.press("Escape");
 	await expect(settings).toHaveCount(0);
 });
@@ -140,15 +143,19 @@ test("voice and side question require an explicit start", async () => {
 });
 
 test("Escape cancels a settings edit without saving its abandoned value", async () => {
-	await page.getByRole("button", { name: "Settings", exact: true }).click();
-	const settings = page.getByRole("dialog");
-	await settings.getByPlaceholder("Search settings and managed resources…").fill("compaction.reserveTokens");
-	await settings.getByRole("button", { name: "Reserve tokens compaction.reserveTokens", exact: true }).click();
-	const input = settings.locator('input[type="number"]').first();
+	await page.keyboard.press("ControlOrMeta+Comma");
+	const settings = page.locator("[data-settings-page]");
+	await settings.getByRole("searchbox", { name: "Search settings" }).fill("compaction.reserveTokens");
+	await settings.getByRole("button", { name: "Reserve tokens", exact: true }).click();
+	const input = settings.locator('[id="setting-compaction.reserveTokens"] input[type="number"]');
 	await expect(input).toHaveValue("8192");
 	const before = (await recorded("settings_set")).length;
 	await input.fill("12345");
 	await input.press("Escape");
+	// The first Escape discards the edit; the page stays open.
+	await expect(input).toHaveValue("8192");
+	await expect(settings).toBeVisible();
+	await page.keyboard.press("Escape");
 	await expect(settings).toHaveCount(0);
 	expect((await recorded("settings_set")).length).toBe(before);
 	const response = await page.evaluate(() => window.omp.rpc.getSettings(["compaction.reserveTokens"]));
@@ -210,13 +217,13 @@ test("all named themes apply with readable primary text and no stale scheme toke
 	const labels = [
 		"Graphite",
 		"Slate",
-		"Deep Sea",
+		"Deep sea",
 		"Espresso",
 		"Ember",
 		"Porcelain",
 		"Ivory",
 		"Sand",
-		"Rose Quartz",
+		"Rose quartz",
 		"Glacier",
 		"Sage",
 	];
@@ -226,14 +233,14 @@ test("all named themes apply with readable primary text and no stale scheme toke
 		await command("/theme");
 		const picker = page.getByRole("dialog");
 		await picker.getByPlaceholder("Search themes…").fill(label);
-		const option = picker.locator("button[aria-pressed]").filter({ hasText: label });
+		const option = picker.locator("button[aria-pressed]").filter({ hasText: new RegExp(label, "i") });
 		await option.click();
 		await expect(picker).toHaveCount(0);
 		colors[label] = await page.evaluate(() =>
 			getComputedStyle(document.documentElement).getPropertyValue("--omp-bg-primary"),
 		);
 		await page.locator("textarea").first().fill("Theme contrast sample");
-		const send = page.getByRole("button", { name: "Send (Enter)", exact: true });
+		const send = page.getByRole("button", { name: "Send", exact: true });
 		await expect(send).toBeEnabled();
 		await send.click({ trial: true, timeout: 1000 });
 		await send.evaluate(async button => {
@@ -274,18 +281,18 @@ test("uncertain delivery preserves the draft and blocks duplicate sending until 
 	await command("fixture uncertain");
 	const input = page.locator("textarea").first();
 	await expect(input).toHaveValue("fixture uncertain");
-	await expect(page.getByRole("button", { name: "Send (Enter)", exact: true })).toBeDisabled();
+	await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
 	await input.press("Enter");
 	expect(await recorded("prompt")).toHaveLength(before + 1);
 	await page.getByRole("button", { name: "I checked; allow sending", exact: true }).click();
-	await expect(page.getByRole("button", { name: "Send (Enter)", exact: true })).toBeEnabled();
+	await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
 	await input.fill("");
 });
 
 test("security distinguishes unavailable, disabled, unscanned, running, failed and completed scans", async () => {
 	test.setTimeout(90_000);
 	const states = {
-		disabled: "Security disabled",
+		disabled: "Security is off",
 		unscanned: "This project has not been scanned",
 		unavailable: "Scan status unavailable",
 		running: "Scan in progress",
@@ -296,14 +303,14 @@ test("security distinguishes unavailable, disabled, unscanned, running, failed a
 	};
 	for (const [state, expected] of Object.entries(states)) {
 		await page.evaluate(value => window.omp.rpc.bash(`fixture:security:${value}`), state);
-		await page.getByRole("button", { name: "Settings", exact: true }).click();
-		const modal = page.getByRole("dialog");
-		await modal.getByRole("button", { name: "Permissions & security", exact: true }).click();
-		await expect(modal).toContainText(expected);
-		if (state !== "clear") await expect(modal).not.toContainText("No findings in this scan");
+		await page.keyboard.press("ControlOrMeta+Comma");
+		const settings = page.locator("[data-settings-page]");
+		await settings.locator('[data-settings-section="permissions"]').click();
+		await expect(settings).toContainText(expected);
+		if (state !== "clear") await expect(settings).not.toContainText("No findings in this scan");
 		await page.screenshot({ path: `test-results/security-${state}.png`, scale: "css", animations: "disabled" });
 		await page.keyboard.press("Escape");
-		await expect(modal).toHaveCount(0);
+		await expect(settings).toHaveCount(0);
 	}
 });
 
@@ -317,16 +324,19 @@ test("repeated modal and task lifecycles release sidecars and document listeners
 	};
 	const before = await listeners();
 	for (let index = 0; index < 100; index++) {
-		await command("/jobs");
+		await command("/tools");
 		await expect(page.getByRole("dialog")).toBeVisible();
 		await page.keyboard.press("Escape");
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 		await page.keyboard.press("ControlOrMeta+t");
 		await expect(page.locator('[role="tablist"] [role="tab"]')).toHaveCount(2);
-		await expect(
-			page.locator('[role="tablist"] [role="tab"]').last().getByRole("img", { name: "Ready", exact: true }),
-		).toBeVisible();
-		await page.getByRole("button", { name: "Close tab", exact: true }).click();
+		// An idle tab shows no status icon; readiness is the chip's data-status.
+		await expect(page.locator('[role="tablist"] [role="tab"]').last()).toHaveAttribute("data-status", "ready");
+		await page
+			.locator('[role="tablist"] [role="tab"]')
+			.last()
+			.getByRole("button", { name: "Close tab", exact: true })
+			.click();
 		await expect(page.locator('[role="tablist"] [role="tab"]')).toHaveCount(1);
 	}
 	const after = await listeners();
@@ -375,10 +385,10 @@ test("narrow windows and 200 percent zoom keep settings and primary actions reac
 			},
 			{ width, height, zoom },
 		);
-		await page.getByRole("button", { name: "Settings", exact: true }).click();
-		const modal = page.getByRole("dialog");
-		await modal.getByRole("button", { name: "Appearance & use", exact: true }).click();
-		const toggle = modal.getByRole("switch", { name: "Compact conversation spacing", exact: true });
+		await page.keyboard.press("ControlOrMeta+Comma");
+		const settings = page.locator("[data-settings-page]");
+		await settings.locator('[data-settings-section="appearance"]').click();
+		const toggle = settings.locator("#setting-gui-compactDensity").getByRole("switch");
 		await toggle.scrollIntoViewIfNeeded();
 		await toggle.click();
 		const captured = await app.evaluate(async ({ BrowserWindow }) =>
@@ -386,11 +396,11 @@ test("narrow windows and 200 percent zoom keep settings and primary actions reac
 		);
 		await fs.writeFile(`test-results/layout-${width}-${zoom}.png`, Buffer.from(captured, "base64"));
 		await page.keyboard.press("Escape");
-		await expect(page.getByRole("dialog")).toHaveCount(0);
+		await expect(settings).toHaveCount(0);
 		const input = page.locator("textarea").first();
 		await input.fill("layout draft");
 		await expect(input).toBeEditable();
-		const send = page.getByRole("button", { name: "Send (Enter)", exact: true });
+		const send = page.getByRole("button", { name: "Send", exact: true });
 		// Window/screen geometry in the failure message: a CI display can clamp the requested size.
 		const geometry = await app.evaluate(({ BrowserWindow, screen }) => {
 			const win = BrowserWindow.getAllWindows()[0];
@@ -428,9 +438,9 @@ test("model benchmark, tools and debug open without external mutations", async (
 });
 
 test("settings search opens advanced controls and old refreshes cannot undo a saved edit", async () => {
-	await page.getByRole("button", { name: "Settings", exact: true }).click();
-	const settings = page.getByRole("dialog");
-	const search = settings.getByPlaceholder("Search settings and managed resources…");
+	await page.keyboard.press("ControlOrMeta+Comma");
+	const settings = page.locator("[data-settings-page]");
+	const search = settings.getByRole("searchbox", { name: "Search settings" });
 	await search.fill("proxyUrl");
 	await settings.getByRole("button", { name: /^HTTP proxy/ }).click();
 	await expect(page.locator("#setting-gui-proxy input")).toBeEditable();
@@ -438,8 +448,8 @@ test("settings search opens advanced controls and old refreshes cannot undo a sa
 	await settings.getByRole("button", { name: /^Launch profile/ }).click();
 	await expect(settings.getByPlaceholder("Leave empty to use the default system prompt")).toBeEditable();
 	await search.fill("compaction.reserveTokens");
-	await settings.getByRole("button", { name: "Reserve tokens compaction.reserveTokens", exact: true }).click();
-	const input = settings.locator('input[type="number"]').first();
+	await settings.getByRole("button", { name: "Reserve tokens", exact: true }).click();
+	const input = settings.locator('[id="setting-compaction.reserveTokens"] input[type="number"]');
 	await expect(input).toHaveValue("8192");
 	await page.evaluate(() => window.omp.rpc.prompt("fixture hold settings"));
 	const before = (await recorded("settings_get")).length;
@@ -578,13 +588,9 @@ test("failed preference writes retain edits and never allow a premature restart"
 			Reflect.get(globalThis, "auditRestarts").push(payload);
 		});
 	});
-	await page.getByRole("button", { name: "Settings", exact: true }).click();
-	const settings = page.getByRole("dialog");
-	await settings.getByRole("button", { name: "System & advanced", exact: true }).click();
-	await settings
-		.locator(".settings-nav-item")
-		.filter({ hasText: /^Advanced$/ })
-		.click();
+	await page.keyboard.press("ControlOrMeta+Comma");
+	const settings = page.locator("[data-settings-page]");
+	await settings.locator('[data-settings-section="advanced"]').click();
 	const proxy = page.locator("#setting-gui-proxy input");
 	await proxy.fill("http://127.0.0.1:7899");
 	await proxy.press("Enter");
@@ -607,19 +613,15 @@ test("failed preference writes retain edits and never allow a premature restart"
 	await expect(prompt).toBeEditable();
 	await expect(restart).toBeDisabled();
 	expect(await app.evaluate(() => Reflect.get(globalThis, "auditRestarts"))).toEqual([]);
-	await settings.getByPlaceholder("Search settings and managed resources…").fill("codeLineNumbers");
+	await settings.getByRole("searchbox", { name: "Search settings" }).fill("codeLineNumbers");
 	await settings.getByRole("button", { name: /^Line numbers/ }).click();
 	const lineNumbers = page.locator('#setting-gui-lineNumbers [role="switch"]');
 	const checked = await lineNumbers.getAttribute("aria-checked");
 	await lineNumbers.click();
 	await expect(page.getByRole("alert").filter({ hasText: "audit appearance write refused" })).toBeVisible();
 	await expect(lineNumbers).toHaveAttribute("aria-checked", checked ?? "false");
-	await page.keyboard.press("Escape");
-	await page.getByRole("button", { name: "Choose theme", exact: true }).click();
-	const picker = page.getByRole("dialog");
-	await picker.getByPlaceholder("Search themes…").fill("Porcelain");
-	await picker.locator("button[aria-pressed]").filter({ hasText: "Porcelain" }).click();
-	await expect(picker).toHaveCount(0);
+	await settings.getByRole("radiogroup", { name: "Theme" }).getByRole("radio", { name: "Porcelain" }).click();
 	await expect(page.getByRole("alert").filter({ hasText: "audit appearance write refused" })).toBeVisible();
+	await page.keyboard.press("Escape");
 	expect(errors).toEqual([]);
 });

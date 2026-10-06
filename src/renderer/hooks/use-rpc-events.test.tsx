@@ -691,7 +691,9 @@ describe("useRpcEvents awaiting-model marker", () => {
 			});
 			expect(document.body.textContent).toContain(formatClock(now + delayMs));
 			expect(document.body.textContent).not.toContain("172800s");
-			const notification = useToastStore.getState().toasts.find(item => item.message.includes("Weekly quota"));
+			// The toast names the reason in plain words; the raw provider text stays on the status row.
+			const toasts = useToastStore.getState().toasts;
+			const notification = toasts.find(item => item.message.includes("Usage limit reached"));
 			expect(notification?.expiresAt).toBeLessThan(now + 60_000);
 			await act(async () => {
 				clock.mockReturnValue(now + 60_000);
@@ -1048,7 +1050,7 @@ describe("retryPending reset on tab switch", () => {
 		});
 
 		// The restored tab's failure surfaces; the leaked gate would have eaten it.
-		expect(useToastStore.getState().toasts.some(toast => toast.title === "Turn failed")).toBe(true);
+		expect(useToastStore.getState().toasts.some(toast => toast.title === "Response failed")).toBe(true);
 
 		useTabsStore.getState().reset();
 		useToastStore.setState({ toasts: [] });
@@ -1061,8 +1063,11 @@ describe("TurnStatusRow", () => {
 		await mount(<TurnStatusRow />);
 		expect(document.body.textContent).toContain("Waiting for model response");
 		expect(document.body.textContent).toContain("5s");
-		expect(document.body.textContent).toContain("(press Esc to interrupt)");
+		expect(document.querySelector("kbd")?.textContent).toBe("Esc");
+		expect(document.body.textContent).toContain("to stop");
 		expect(document.body.textContent).not.toContain("Slow response");
+		// Recovery buttons wait until the response is actually slow.
+		expect(document.body.textContent).not.toContain("Change model");
 	});
 
 	it("escalates to the slow-response hint after 30s", async () => {
@@ -1070,6 +1075,8 @@ describe("TurnStatusRow", () => {
 		await mount(<TurnStatusRow />);
 		expect(document.body.textContent).toContain("35s");
 		expect(document.body.textContent).toContain("Slow response");
+		const buttons = Array.from(document.querySelectorAll("button")).map(button => button.textContent);
+		expect(buttons).toEqual(["Change model", "Stop response"]);
 	});
 
 	it("escalates to the stalled-connection hint after 90s, replacing the generic interrupt hint", async () => {
@@ -1078,8 +1085,8 @@ describe("TurnStatusRow", () => {
 		expect(document.body.textContent).toContain("95s");
 		// The stalled copy explains the ~5min watchdog + retry and names Esc
 		// itself, so the generic interrupt hint would be redundant noise.
-		expect(document.body.textContent).toContain("auto-times-out");
-		expect(document.body.textContent).not.toContain("(press Esc to interrupt)");
+		expect(document.body.textContent).toContain("times out after about 5 minutes");
+		expect(document.body.textContent).not.toContain("to stop");
 	});
 
 	it("renders the retry countdown with the failure detail", async () => {

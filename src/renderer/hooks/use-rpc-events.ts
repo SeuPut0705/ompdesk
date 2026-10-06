@@ -34,6 +34,7 @@ import {
 import { formatClock } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { normalizeLoopUpdate } from "../lib/loop-mode";
+import { describeTurnError, turnErrorToast } from "../lib/messages";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { useMessagesStore } from "../stores/messages";
@@ -207,18 +208,21 @@ function notifyOnAgentEnd(tabId: string, event: Extract<AgentSessionEvent, { typ
  * request right after a model switch — otherwise looks like a silent no-op.
  * Same guards as notifyOnAgentEnd: deferred mid-run settles and live
  * auto-retries stay quiet (the retry row and its final-failure toast cover
- * those), and aborted turns are user-initiated.
+ * those), and aborted turns are user-initiated. The copy is the humanized
+ * title + guidance shared with the transcript error card, never raw
+ * provider English.
  */
 function toastOnAgentError(tabId: string, event: Extract<AgentSessionEvent, { type: "agent_end" }>): void {
 	if (event.isTerminal === false) return;
 	if (retryPendingTabs.has(tabId)) return;
 	const last = event.messages?.findLast(message => message.role === "assistant");
 	if (last?.stopReason !== "error") return;
-	const detail =
-		typeof last.errorMessage === "string" && last.errorMessage
-			? last.errorMessage.replace(/\s+/g, " ").slice(0, 200)
-			: translate("common.unknownError");
-	useToastStore.getState().push({ variant: "error", title: translate("events.turnFailed"), message: detail });
+	const { kind, title, message } = turnErrorToast(
+		typeof last.errorMessage === "string" ? last.errorMessage : undefined,
+		last.stopReason,
+	);
+	if (kind === "aborted") return;
+	useToastStore.getState().push({ variant: "error", title, message });
 }
 
 /** Goal statuses past which no live goal remains — the composer chip must clear. */
@@ -379,7 +383,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 										max: event.maxAttempts,
 										seconds: Math.round(event.delayMs / 1000),
 										time: formatClock(Date.now() + event.delayMs),
-										error: event.errorMessage,
+										// The reason in the user's words; the raw text stays on the status row.
+										error: translate(describeTurnError(event.errorMessage).titleKey),
 									},
 								),
 							});
@@ -401,11 +406,11 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 									.getState()
 									.push({ variant: "success", message: translate("events.retrySucceeded") });
 							} else {
+								const failure = turnErrorToast(event.finalError);
 								useToastStore.getState().push({
 									variant: "error",
-									message: translate("events.retryFailed", {
-										error: event.finalError ?? translate("common.unknownError"),
-									}),
+									title: translate("turnError.retryFailed"),
+									message: failure.message,
 								});
 							}
 							break;
@@ -458,11 +463,20 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							// mount/unmount notices fire on every model switch and need no action,
 							// flooding the toast stack. Warnings/errors and other sources still toast.
 							if (event.level === "info" && event.source && QUIET_NOTICE_SOURCES.has(event.source)) break;
-							useToastStore.getState().push({
-								variant: event.level === "error" ? "error" : event.level === "warning" ? "warning" : "info",
-								message: event.message,
-								title: event.source,
-							});
+							const variant = event.level === "error" ? "error" : event.level === "warning" ? "warning" : "info";
+							if (event.source === "compaction" && variant !== "info") {
+								// A compaction failure reads like a failed turn: humanized title and
+								// guidance; anything unrecognized keeps its text under a localized title.
+								const failure = turnErrorToast(event.message);
+								const known = failure.kind !== "unknown";
+								useToastStore.getState().push({
+									variant,
+									title: known ? failure.title : translate("events.compactionNotice"),
+									message: known ? failure.message : event.message,
+								});
+								break;
+							}
+							useToastStore.getState().push({ variant, message: event.message, title: event.source });
 							break;
 						}
 						case "ttsr_triggered": {

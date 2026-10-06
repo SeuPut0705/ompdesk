@@ -10,7 +10,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcResponse } from "../../../shared/rpc-types";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { closeHandoffDialog, openHandoffDialog, useForkHandoffStore } from "../../stores/fork-handoff";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
@@ -137,10 +137,10 @@ describe("HandoffDialog", () => {
 		openHandoffDialog();
 		await mount(<HandoffDialog />);
 
-		expect(document.body.textContent).toContain("Handoff to New Session");
+		expect(document.body.textContent).toContain(translate("handoff.title"));
 		expect(document.body.textContent).toContain("handoff document");
 
-		const submit = buttonWithText("Start Handoff");
+		const submit = buttonWithText(translate("handoff.start"));
 		expect(submit).toBeDefined();
 		if (!submit) return;
 		expect(submit.disabled).toBe(false);
@@ -168,7 +168,7 @@ describe("HandoffDialog", () => {
 		await mount(<HandoffDialog />);
 
 		expect(document.body.textContent).toContain("unavailable while the agent is responding");
-		const submit = buttonWithText("Start Handoff");
+		const submit = buttonWithText(translate("handoff.start"));
 		expect(submit).toBeDefined();
 		if (!submit) return;
 		expect(submit.disabled).toBe(true);
@@ -187,7 +187,7 @@ describe("HandoffDialog", () => {
 		await mount(<HandoffDialog />);
 
 		expect(document.body.textContent).toContain("no context to hand off");
-		const submit = buttonWithText("Start Handoff");
+		const submit = buttonWithText(translate("handoff.start"));
 		expect(submit).toBeDefined();
 		if (!submit) return;
 		expect(submit.disabled).toBe(true);
@@ -200,7 +200,7 @@ describe("HandoffDialog", () => {
 		openHandoffDialog();
 		await mount(<HandoffDialog />);
 
-		const submit = buttonWithText("Start Handoff");
+		const submit = buttonWithText(translate("handoff.start"));
 		if (!submit) throw new Error("submit missing");
 		await act(async () => {
 			click(submit);
@@ -224,7 +224,7 @@ describe("HandoffDialog", () => {
 		openHandoffDialog();
 		await mount(<HandoffDialog />);
 		await act(async () => {
-			click(buttonWithText("Start Handoff")!);
+			click(buttonWithText(translate("handoff.start"))!);
 		});
 		await flush();
 		expect(document.body.textContent).toContain("disk full");

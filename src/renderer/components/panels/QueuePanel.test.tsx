@@ -9,7 +9,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcQueuedMessage } from "../../../shared/rpc-types";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
 import { QueuePanel } from "./QueuePanel";
@@ -153,7 +153,9 @@ describe("QueuePanel lane switch", () => {
 		});
 		await flush();
 
-		const switchButtons = buttonsByLabel("Move to Queued");
+		const switchButtons = buttonsByLabel(
+			translate("queuePanel.moveToLane", { lane: translate("queuePanel.lane.followUp") }),
+		);
 		expect(switchButtons).toHaveLength(2);
 		await click(switchButtons[0]!);
 
@@ -166,7 +168,9 @@ describe("QueuePanel lane switch", () => {
 		await mount([queued("s1", "one"), queued("s2", "two")]);
 		queueMove.mockRejectedValueOnce(new Error("sidecar unavailable"));
 
-		await click(buttonsByLabel("Move to Queued")[0]!);
+		await click(
+			buttonsByLabel(translate("queuePanel.moveToLane", { lane: translate("queuePanel.lane.followUp") }))[0]!,
+		);
 
 		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s1", "s2"]);
 		expect(useQueueStore.getState().followUp).toEqual([]);

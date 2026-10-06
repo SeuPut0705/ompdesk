@@ -11,7 +11,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { IpcSpawnTabPayload, IpcTabInfo, IpcTabStatusPayload, SessionInfo } from "../../../shared/ipc-types";
 import type { RpcCommand, RpcResponse } from "../../../shared/rpc-types";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { closeActiveTab } from "../../lib/tab-close";
 import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
@@ -393,7 +393,8 @@ describe("TabBar", () => {
 		expect(rendered[1]?.textContent).toContain("beta");
 		expect(rendered[1]?.getAttribute("aria-selected")).toBe("true");
 		expect(rendered[0]?.getAttribute("aria-selected")).toBe("false");
-		expect(tabWorkspaces()).toEqual(["alpha", "beta"]);
+		// The project subtitle only appears when it differs from the title.
+		expect(tabWorkspaces()).toEqual(["alpha", null]);
 	});
 
 	it("keeps chips fixed-width and only arms hover scrolling for an overflowing title", async () => {
@@ -415,7 +416,7 @@ describe("TabBar", () => {
 		await mount(<TabBar />);
 
 		const [longChip, shortChip] = chips();
-		expect([longChip, shortChip].every(chip => chip?.getAttribute("class")?.split(/\s+/).includes("w-44"))).toBe(
+		expect([longChip, shortChip].every(chip => chip?.getAttribute("class")?.split(/\s+/).includes("max-w-56"))).toBe(
 			true,
 		);
 		const longTitle = longChip?.querySelector("[data-tab-title-wrap]");
@@ -456,11 +457,12 @@ describe("TabBar", () => {
 		expect(container.querySelectorAll('[role="tab"] button').length).toBeGreaterThan(0);
 	});
 
-	it("renders slow vertical signal lights for running and completed tabs", async () => {
+	it("shows a status icon only for running, finished and failed tabs", async () => {
 		useTabsStore.setState({
 			tabs: [
 				{ kind: "agent", id: "t0", cwd: "/alpha", status: "running", unreadDone: false },
 				{ kind: "agent", id: "t1", cwd: "/beta", status: "ready", unreadDone: true },
+				{ kind: "agent", id: "t2", cwd: "/gamma", status: "ready", unreadDone: false },
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -468,13 +470,12 @@ describe("TabBar", () => {
 		await mount(<TabBar />);
 
 		const rendered = chips();
-		expect(rendered.every(chip => chip.querySelector(".omp-tab-signal") !== null)).toBe(true);
-		expect(rendered.every(chip => chip.getAttribute("class")?.includes("overflow-hidden"))).toBe(true);
-		expect(rendered.every(chip => !chip.getAttribute("class")?.includes("rounded"))).toBe(true);
-		expect(rendered[0]?.querySelector(".omp-signal-light--active")).not.toBeNull();
-		expect(rendered[1]?.querySelector(".omp-signal-light--active")).toBeNull();
 		expect(rendered[0]?.querySelector('[aria-label="Working"]')).not.toBeNull();
+		expect(rendered[0]?.getAttribute("data-status")).toBe("running");
 		expect(rendered[1]?.querySelector('[aria-label="Run completed"]')).not.toBeNull();
+		expect(rendered[2]?.querySelector('[role="img"]')).toBeNull();
+		expect(rendered[2]?.getAttribute("data-status")).toBe("ready");
+		expect(rendered.every(chip => chip.querySelector(".omp-signal-light") === null)).toBe(true);
 		expect(rendered.every(chip => chip.getAttribute("draggable") === "true")).toBe(true);
 	});
 
@@ -573,7 +574,7 @@ describe("TabBar", () => {
 		expect(omp.tabs.setActive).toHaveBeenCalledWith("t1");
 		expect(useTabsStore.getState().activeTabId).toBe("t1");
 
-		const plus = container.querySelector('[aria-label="New Agent Tab"]');
+		const plus = container.querySelector('[aria-label="New session tab"]');
 		expect(plus).not.toBeNull();
 		await click(plus!);
 		// One click = agent tab directly (the dominant path).
@@ -589,7 +590,7 @@ describe("TabBar", () => {
 		useSessionStore.setState({ cwd: "/beta" });
 		await mount(<TabBar />);
 
-		const chatButton = container.querySelector('[aria-label="New Chat Tab"]');
+		const chatButton = container.querySelector('[aria-label="New chat tab"]');
 		expect(chatButton).not.toBeNull();
 		await click(chatButton!);
 		expect(omp.tabs.spawn).toHaveBeenCalledWith({ cwd: "/beta", sessionPath: undefined, kind: "chat" });
@@ -605,8 +606,8 @@ describe("TabBar", () => {
 
 		// Discoverability contract: both session types are one visible click away —
 		// nothing behind right-click or a collapsed menu.
-		expect(container.querySelector('[aria-label="New Agent Tab"]')).not.toBeNull();
-		expect(container.querySelector('[aria-label="New Chat Tab"]')).not.toBeNull();
+		expect(container.querySelector('[aria-label="New session tab"]')).not.toBeNull();
+		expect(container.querySelector('[aria-label="New chat tab"]')).not.toBeNull();
 		expect(container.querySelector('[role="menu"]')).toBeNull();
 	});
 
@@ -658,7 +659,7 @@ describe("TabBar close confirm", () => {
 
 		// Armed, not executed: the chip swaps its label for the warning + ✓/✕.
 		expect(omp.tabs.close).not.toHaveBeenCalled();
-		expect(chips()[1]?.textContent).toContain("Close tab? The running task will be aborted");
+		expect(chips()[1]?.textContent).toContain(translate("tabs.confirmClose"));
 		expect(chips()[1]?.querySelector('[aria-label="Close tab"]')).toBeNull();
 
 		await click(chips()[1]!.querySelector('[aria-label="Confirm"]')!);
@@ -672,12 +673,12 @@ describe("TabBar close confirm", () => {
 		await mount(<TabBar />);
 
 		await click(chips()[1]!.querySelector('[aria-label="Close tab"]')!);
-		expect(chips()[1]?.textContent).toContain("Close tab? The running task will be aborted");
+		expect(chips()[1]?.textContent).toContain(translate("tabs.confirmClose"));
 
 		await click(chips()[1]!.querySelector('[aria-label="Cancel"]')!);
 
 		expect(omp.tabs.close).not.toHaveBeenCalled();
-		expect(chips()[1]?.textContent).not.toContain("Close tab? The running task will be aborted");
+		expect(chips()[1]?.textContent).not.toContain(translate("tabs.confirmClose"));
 		expect(chips()[1]?.querySelector('[aria-label="Close tab"]')).not.toBeNull();
 	});
 
@@ -687,7 +688,7 @@ describe("TabBar close confirm", () => {
 		await mount(<TabBar confirmCloseMs={25} />);
 
 		await click(chips()[1]!.querySelector('[aria-label="Close tab"]')!);
-		expect(chips()[1]?.textContent).toContain("Close tab? The running task will be aborted");
+		expect(chips()[1]?.textContent).toContain(translate("tabs.confirmClose"));
 
 		await act(async () => {
 			await sleep(60);
@@ -712,7 +713,7 @@ describe("TabBar close confirm", () => {
 		// t1's sidecar is still booting — closing kills the launch, so it arms.
 		await click(chips()[1]!.querySelector('[aria-label="Close tab"]')!);
 		expect(omp.tabs.close).not.toHaveBeenCalled();
-		expect(chips()[1]?.textContent).toContain("Close tab? The running task will be aborted");
+		expect(chips()[1]?.textContent).toContain(translate("tabs.confirmClose"));
 
 		// The active tab's status push says ready, but the foreground stream is
 		// live — foreground knowledge wins and the close arms.
@@ -720,7 +721,7 @@ describe("TabBar close confirm", () => {
 		await flush();
 		await click(chips()[0]!.querySelector('[aria-label="Close tab"]')!);
 		expect(omp.tabs.close).not.toHaveBeenCalled();
-		expect(chips()[0]?.textContent).toContain("Close tab? The running task will be aborted");
+		expect(chips()[0]?.textContent).toContain(translate("tabs.confirmClose"));
 	});
 
 	it("closing an idle tab is immediate, active tab included", async () => {
@@ -756,7 +757,7 @@ describe("TabBar close confirm", () => {
 		expect(closeActiveTab()).toBe("armed");
 		await flush();
 		expect(chips()[0]?.querySelector('[aria-label="Close tab"]')).toBeNull();
-		expect(chips()[0]?.textContent).toContain("Close tab? The running task will be aborted");
+		expect(chips()[0]?.textContent).toContain(translate("tabs.confirmClose"));
 		expect(useUiStore.getState().armedCloseTab).toEqual({ tabId: "t0" });
 
 		// ✓ on that chip finishes the close.
@@ -812,7 +813,8 @@ describe("TabBar chip labels (F-HYDRATE)", () => {
 		expect(rendered).toHaveLength(3);
 		// First occurrence stays bare; later collisions number from #2.
 		expect(tabTitles()).toEqual(["gui", "gui #2", "gui #3"]);
-		expect(tabWorkspaces()).toEqual(["gui", "gui", "gui"]);
+		// The suffix already disambiguates; the identical project subtitle is dropped.
+		expect(tabWorkspaces()).toEqual([null, null, null]);
 	});
 
 	it("prefers the session title and never suffixes titled tabs", async () => {

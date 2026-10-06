@@ -29,27 +29,19 @@ const ctx: CommandRegistryContext = {
 	availableCommands: [],
 	openModelPicker: () => {},
 	openSettings: () => {},
-	openUsage: () => {},
 	openProviders: () => {},
 	openCommandPalette: () => {},
-	openModelRoles: () => {},
-	openStatsDashboard: () => {},
 	openFeedback: () => {},
 	openRenameDialog: () => {},
 	openSessionPicker: () => {},
 	openBranchPicker: () => {},
 	openSessionTree: () => {},
-	openSessionInfo: () => {},
-	openModelCompare: () => {},
 	openBenchmark: () => {},
 	openHandoffDialog: () => {},
-	openExtensions: () => {},
-	openInventory: () => {},
 	openThemePicker: () => {},
 	openModes: () => {},
-	openAgentHub: () => {},
-	openPrCenter: () => {},
-	openHotkeys: () => {},
+	openAgents: () => {},
+	openInsights: () => {},
 	openImportDialog: () => {},
 	openProviderConfig: () => {},
 	focusDockCard: () => {},
@@ -159,8 +151,6 @@ describe("nativized action wiring", () => {
 	const ok = (data?: unknown) => ({ type: "response" as const, command: "x", success: true as const, data });
 	let rpc: Record<string, Mock>;
 	let openSettings: Mock;
-	let openExtensions: Mock;
-	let openInventory: Mock;
 	let hydrateSession: Mock;
 	let wiredCtx: CommandRegistryContext;
 
@@ -187,25 +177,20 @@ describe("nativized action wiring", () => {
 		};
 		(globalThis as Record<string, unknown>).window = { omp: { rpc } };
 		openSettings = vi.fn();
-		openExtensions = vi.fn();
-		openInventory = vi.fn();
 		hydrateSession = vi.fn(async () => {});
 		wiredCtx = {
 			...ctx,
 			openSettings,
-			openExtensions,
-			openInventory,
 			hydrateSession,
 		};
 		useToastStore.setState({ toasts: [] });
 	});
 
-	it("skills opens the first-class Settings page instead of Extensions", () => {
+	it("skills opens Settings › Extensions › Skills", () => {
 		const affordance = wired("skills");
 		if (affordance.kind !== "window") throw new Error("expected window");
 		affordance.open();
-		expect(openSettings).toHaveBeenCalledWith("skills");
-		expect(openExtensions).not.toHaveBeenCalled();
+		expect(openSettings).toHaveBeenCalledWith("extensions:skills");
 	});
 
 	it("SSH actions open the native host manager, where selection and confirmation happen", () => {
@@ -218,21 +203,22 @@ describe("nativized action wiring", () => {
 	});
 
 	it.each([
-		["hooks", "hooks"],
-		["commands", "commands"],
-		["mcp panel", "mcp"],
-		["marketplace panel", "resources:marketplaces"],
-		["plugins panel", "resources:plugins"],
-		["memory panel", "resources:memory"],
-		["templates", "resources:templates"],
-		["extensions", "skills"],
+		["hooks", "extensions:hooks"],
+		["commands", "extensions:commands"],
+		["mcp panel", "extensions:mcp"],
+		["marketplace panel", "plugins:marketplaces"],
+		["plugins panel", "plugins"],
+		["memory panel", "plugins:memory"],
+		["templates", "plugins:templates"],
+		["extensions", "extensions"],
+		["hotkeys", "keyboard"],
+		["model-roles", "models"],
+		["dirs", "workspace"],
 	] as const)("%s deep-links to Settings route %s", (name, route) => {
 		const affordance = wired(name);
 		if (affordance.kind !== "window") throw new Error("expected window");
 		affordance.open();
 		expect(openSettings).toHaveBeenCalledWith(route);
-		expect(openExtensions).not.toHaveBeenCalled();
-		expect(openInventory).not.toHaveBeenCalled();
 	});
 
 	afterEach(() => {
@@ -253,8 +239,7 @@ describe("nativized action wiring", () => {
 		if (affordance.kind !== "action") throw new Error("expected action");
 		await affordance.run();
 		expect(rpc.mcpAction).not.toHaveBeenCalled();
-		expect(openSettings).toHaveBeenCalledWith("mcp");
-		expect(openExtensions).not.toHaveBeenCalled();
+		expect(openSettings).toHaveBeenCalledWith("extensions:mcp");
 	});
 
 	it("advisor on writes advisor.enabled and reports activation state", async () => {
@@ -277,7 +262,7 @@ describe("nativized action wiring", () => {
 		if (install.kind !== "window") throw new Error("expected window");
 		install.open();
 		expect(rpc.marketplaceAction).not.toHaveBeenCalledWith(expect.objectContaining({ action: "install" }));
-		expect(openSettings).toHaveBeenCalledWith("resources:marketplaces");
+		expect(openSettings).toHaveBeenCalledWith("plugins:marketplaces");
 	});
 
 	it("plugins enable without an id opens the installed-plugins Settings route", async () => {
@@ -285,8 +270,7 @@ describe("nativized action wiring", () => {
 		if (affordance.kind !== "action") throw new Error("expected action");
 		await affordance.run();
 		expect(rpc.setPluginEnabled).not.toHaveBeenCalled();
-		expect(openSettings).toHaveBeenCalledWith("resources:plugins");
-		expect(openInventory).not.toHaveBeenCalled();
+		expect(openSettings).toHaveBeenCalledWith("plugins");
 	});
 
 	it("computer status toasts the current setting value", async () => {

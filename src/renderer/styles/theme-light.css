@@ -1,147 +1,108 @@
-/* omp GUI — Porcelain. Keep in sync with THEMES.light. */
+/* seucode Light — default light palette. Keep in sync with THEMES.light (lib/themes.ts, label "Porcelain"):
+   applyThemeByName() writes that map inline when the theme is picked by name.
+   Only palette primitives live here; scales, derived washes and the --omp-*
+   compatibility aliases are theme-independent (tokens.css). Spec: design-spec.md. */
 
 :root[data-theme="light"] {
 	color-scheme: light;
 
-	--omp-accent: #315f86;
-	--omp-accent-bright: #274f73;
-	--omp-accent-dim: rgba(49, 95, 134, 0.08);
-	--omp-accent-glow: rgba(49, 95, 134, 0.16);
+	/* ── seucode palette (--sc-*) ─────────────────────────────────────── */
+	/* Surfaces */
+	--sc-bg: #ffffff;
+	--sc-surface-1: #f7f7f8;
+	--sc-surface-2: #f3f3f5;
+	--sc-surface-3: #ececef;
+	--sc-elevated: #ffffff;
+	--sc-field: #ffffff;
+	--sc-overlay: rgba(15, 15, 20, 0.32);
+	/* Text */
+	--sc-text: #1b1b1f;
+	--sc-text-secondary: #46464f;
+	--sc-text-muted: #5f5f68;
+	--sc-text-subtle: #6a6a73;
+	/* Lines */
+	--sc-divider: #ebebee;
+	--sc-border-subtle: #dcdce2;
+	--sc-border: #8d8d96;
+	/* Accent */
+	--sc-accent: #5b5bd6;
+	--sc-accent-hover: #4f4fc4;
+	--sc-accent-fg: #ffffff;
+	/* Status */
+	--sc-success: #18794e;
+	--sc-warning: #935f00;
+	--sc-danger: #bf3a3e;
+	--sc-danger-fg: #ffffff;
+	--sc-info: #2f62c4;
+	/* Elevation */
+	--sc-shadow-sm: 0 1px 2px rgba(16, 16, 24, 0.06);
+	--sc-shadow-md: 0 4px 14px rgba(16, 16, 24, 0.08), 0 1px 3px rgba(16, 16, 24, 0.05);
+	--sc-shadow-lg: 0 18px 48px rgba(16, 16, 24, 0.16), 0 2px 8px rgba(16, 16, 24, 0.06);
 
-	--omp-border: #d7dddf;
-	--omp-border-accent: rgba(49, 95, 134, 0.52);
-	--omp-border-muted: #e4e8e9;
-	--omp-border-strong: #a4afb5;
-	--omp-success: #326747;
-	--omp-success-dim: rgba(50, 103, 71, 0.08);
-	--omp-error: #9f4545;
-	--omp-error-dim: rgba(159, 69, 69, 0.08);
-	--omp-warning: #80601e;
-	--omp-warning-dim: rgba(128, 96, 30, 0.08);
-	--omp-info: #315f83;
-	--omp-info-dim: rgba(49, 95, 131, 0.08);
-	--omp-text: #22282d;
-	--omp-text-secondary: #4d585f;
-
-	--omp-bg-primary: #fcfcfb;
-	--omp-bg-secondary: #f3f5f5;
-	--omp-bg-tertiary: #e7ebec;
-	--omp-bg-elevated: #ffffff;
-	--omp-selected-bg: rgba(49, 95, 134, 0.09);
-	--omp-user-msg-bg: #f3f5f5;
-	--omp-user-msg-border: #d7dddf;
-	--omp-custom-msg-bg: #f3f5f5;
-	--omp-code-bg: #f3f5f5;
-
-	--omp-tool-pending-bg: #f3f5f5;
-	--omp-tool-success-bg: rgba(50, 103, 71, 0.045);
-	--omp-tool-error-bg: rgba(159, 69, 69, 0.065);
-	--omp-tool-output: #4d585f;
+	/* ── Domain tokens (transcript, code, status line) ───────────────── */
+	/* Transcript surfaces */
+	--omp-user-msg-bg: var(--sc-surface-2);
+	--omp-user-msg-border: var(--sc-border-subtle);
+	--omp-custom-msg-bg: var(--sc-surface-2);
+	--omp-custom-msg-label: var(--sc-accent);
+	--omp-code-bg: var(--sc-surface-1);
+	/* Tool cards */
+	--omp-tool-pending-bg: var(--sc-surface-2);
+	--omp-tool-success-bg: rgba(24, 121, 78, 0.05);
+	--omp-tool-error-bg: rgba(191, 58, 62, 0.06);
+	--omp-tool-output: var(--sc-text-secondary);
 	--omp-tool-rail-running: var(--omp-accent);
-	--omp-tool-rail-done: #326747;
-	--omp-tool-rail-error: #9f4545;
-
-	--omp-md-heading: #22282d;
-	--omp-md-link: #315f86;
-	--omp-md-link-url: #59646b;
-	--omp-md-code: #944c42;
-	--omp-md-code-block: #22282d;
-	--omp-md-code-block-border: #d7dddf;
-	--omp-md-quote: #4d585f;
-	--omp-md-quote-border: #a4afb5;
-	--omp-md-hr: #d7dddf;
-	--omp-md-list-bullet: #59646b;
-
-	--omp-diff-added: #326747;
-	--omp-diff-added-bg: rgba(50, 103, 71, 0.07);
-	--omp-diff-removed: #9f4545;
-	--omp-diff-removed-bg: rgba(159, 69, 69, 0.07);
-	--omp-diff-context: #59646b;
-
-	--omp-syntax-comment: #5f6a71;
-	--omp-syntax-keyword: #315f83;
-	--omp-syntax-function: #2b655f;
-	--omp-syntax-variable: #22282d;
-	--omp-syntax-string: #805c2e;
-	--omp-syntax-number: #944c42;
-	--omp-syntax-type: #516939;
-	--omp-syntax-operator: #4d585f;
-	--omp-syntax-punctuation: #59646b;
-
-	--omp-thinking-off: #5f6a71;
-	--omp-thinking-minimal: #59646b;
-	--omp-thinking-low: #4d585f;
-	--omp-thinking-medium: #315f86;
-	--omp-thinking-high: #274f73;
-	--omp-thinking-xhigh: #22282d;
-
-	--omp-status-bg: #f0f2f2;
-	--omp-status-model: #4d585f;
-	--omp-status-path: #59646b;
-	--omp-status-git-clean: #326747;
-	--omp-status-git-dirty: #80601e;
-	--omp-status-context: #4d585f;
-	--omp-status-spend: #4d585f;
+	--omp-tool-rail-done: var(--sc-success);
+	--omp-tool-rail-error: var(--sc-danger);
+	/* Markdown */
+	--omp-md-heading: var(--sc-text);
+	--omp-md-link: var(--sc-accent);
+	--omp-md-link-url: var(--sc-text-muted);
+	--omp-md-code: #a3365c;
+	--omp-md-code-block: var(--sc-text);
+	--omp-md-code-block-border: var(--sc-border-subtle);
+	--omp-md-quote: var(--sc-text-secondary);
+	--omp-md-quote-border: #c9c9d1;
+	--omp-md-hr: var(--sc-divider);
+	--omp-md-list-bullet: var(--sc-text-muted);
+	/* Diff */
+	--omp-diff-added: var(--sc-success);
+	--omp-diff-added-bg: rgba(24, 121, 78, 0.07);
+	--omp-diff-removed: var(--sc-danger);
+	--omp-diff-removed-bg: rgba(191, 58, 62, 0.06);
+	--omp-diff-context: var(--sc-text-muted);
+	/* Syntax highlighting */
+	--omp-syntax-comment: var(--sc-text-subtle);
+	--omp-syntax-keyword: #4646c0;
+	--omp-syntax-function: #0f6b75;
+	--omp-syntax-variable: var(--sc-text);
+	--omp-syntax-string: #865100;
+	--omp-syntax-number: #a3365c;
+	--omp-syntax-type: #2b6b3a;
+	--omp-syntax-operator: var(--sc-text-secondary);
+	--omp-syntax-punctuation: var(--sc-text-muted);
+	/* Thinking levels */
+	--omp-thinking-off: var(--sc-text-subtle);
+	--omp-thinking-minimal: var(--sc-text-muted);
+	--omp-thinking-low: var(--sc-text-secondary);
+	--omp-thinking-medium: var(--sc-accent);
+	--omp-thinking-high: var(--sc-accent-hover);
+	--omp-thinking-xhigh: var(--sc-text);
+	/* Status line */
+	--omp-status-model: var(--sc-text-secondary);
+	--omp-status-path: var(--sc-text-muted);
+	--omp-status-git-clean: var(--sc-success);
+	--omp-status-git-dirty: var(--sc-warning);
+	--omp-status-context: var(--sc-text-secondary);
+	--omp-status-spend: var(--sc-text-secondary);
 	--omp-status-subagents: var(--omp-accent);
-	--omp-status-muted: #59646b;
-	--omp-status-dim: #5f6a71;
-	--omp-status-text: #22282d;
-	--omp-status-sep: #d7dddf;
-
-	--omp-muted: #59646b;
-	--omp-dim: #5f6a71;
-	--omp-link: #315f86;
-	--omp-custom-msg-label: #315f86;
-
-	--omp-input-bg: #ffffff;
-	--omp-input-border: #d7dddf;
-	--omp-input-focus-border: var(--omp-accent);
-	--omp-input-glow: rgba(49, 95, 134, 0.1);
-
-	--omp-btn-primary-bg: #22282d;
-	--omp-btn-primary-text: #fcfcfb;
-	--omp-btn-secondary-bg: #e7ebec;
-	--omp-btn-secondary-text: #22282d;
-	--omp-btn-danger-bg: var(--omp-error);
-	--omp-btn-danger-text: #ffffff;
-
-	--omp-badge-bg: #e7ebec;
-	--omp-badge-text: #4d585f;
-	--omp-badge-accent: var(--omp-accent);
-
-	--omp-overlay-bg: rgba(20, 28, 32, 0.28);
-	--omp-modal-bg: #ffffff;
-	--omp-modal-border: #d7dddf;
-
-	--omp-toast-bg: #ffffff;
-	--omp-toast-text: #22282d;
-	--omp-toast-border: #d7dddf;
-
-	--omp-progress-bg: #e7ebec;
-	--omp-progress-fill: var(--omp-accent);
-
-	--omp-sidebar-bg: #f0f2f2;
-	--omp-sidebar-item-hover: #e7ebec;
-	--omp-sidebar-item-active: rgba(49, 95, 134, 0.1);
-
-	--omp-selection-bg: rgba(49, 95, 134, 0.19);
-	--omp-selection-text: #22282d;
-
-	--omp-scrollbar-thumb: #a4afb5;
+	--omp-status-muted: var(--sc-text-muted);
+	--omp-status-dim: var(--sc-text-subtle);
+	--omp-status-text: var(--sc-text);
+	--omp-status-sep: var(--sc-divider);
+	/* Misc */
+	--omp-scrollbar-thumb: #c6c6ce;
 	--omp-scrollbar-track: transparent;
-
 	--omp-streaming-cursor: var(--omp-accent);
-	--omp-streaming-highlight: rgba(49, 95, 134, 0.04);
-
-	--omp-panel-bg: #f0f2f2;
-	--omp-panel-border: #e4e8e9;
-	--omp-panel-header: #59646b;
-
-	--omp-titlebar-bg: #f0f2f2;
-	--omp-titlebar-text: #22282d;
-
-	--omp-shadow-sm: 0 1px 2px rgba(32, 40, 48, 0.035);
-	--omp-shadow-md: 0 6px 18px rgba(32, 40, 48, 0.07);
-	--omp-shadow-lg: 0 16px 48px rgba(32, 40, 48, 0.13);
-	--omp-shadow-glow: 0 0 0 1px var(--omp-border-accent);
+	--omp-streaming-highlight: rgba(91, 91, 214, 0.05);
 }

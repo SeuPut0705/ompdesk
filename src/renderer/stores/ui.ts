@@ -7,7 +7,38 @@ import { useTabsStore } from "./tabs";
 
 export type { ThemeMode };
 
-export type PanelTab = "diff" | "files" | "logs";
+/** Side panel views (design-spec §2.2): Changes · Files · Logs · Queue · Tree · Jobs. */
+export type PanelTab = "diff" | "files" | "logs" | "queue" | "tree" | "jobs";
+/** Side panel views and whether they exist in a tool-free chat tab. */
+export const PANEL_TAB_IN_CHAT: Record<PanelTab, boolean> = {
+	diff: false,
+	files: true,
+	logs: true,
+	queue: true,
+	tree: false,
+	jobs: true,
+};
+/**
+ * What fills the main area: the open session (transcript + composer) or one
+ * of the three destination pages. The sidebar stays visible for all of them.
+ */
+export type Destination = "session" | "agents" | "insights" | "settings";
+export type PageDestination = Exclude<Destination, "session">;
+export type AgentsTab = "live" | "definitions" | "prs";
+export type InsightsTab = "stats" | "usage";
+export type InsightsStatsScope = "session" | "all";
+const AGENTS_TABS: readonly string[] = ["live", "definitions", "prs"] satisfies AgentsTab[];
+const INSIGHTS_TABS: readonly string[] = ["stats", "usage"] satisfies InsightsTab[];
+/** Settings section a cold ⌘, lands on (SettingsPage maps legacy ids). */
+const DEFAULT_SETTINGS_TAB = "general";
+/** Below this width the sidebar and side panel become sheets (design-spec §8). */
+export const COMPACT_SHELL_QUERY = "(max-width: 999px)";
+
+function compactShell(): boolean {
+	return typeof window !== "undefined" && typeof window.matchMedia === "function"
+		? window.matchMedia(COMPACT_SHELL_QUERY).matches
+		: false;
+}
 /** Center-dock card identifiers: todo/plan/agents render as live cards above the composer. */
 export type DockCardId = "todo" | "plan" | "agents";
 export type TranscriptDetail = "compact" | "full";
@@ -26,47 +57,37 @@ export interface GuiDisplayPreferences {
 
 interface UiStore {
 	displayPreferences: GuiDisplayPreferences;
+	/** Docked sidebar (≥ 1000px windows). */
 	sidebarVisible: boolean;
+	/** Sidebar shown as a left Sheet in compact windows (< 1000px). */
+	compactSidebarOpen: boolean;
 	panelVisible: boolean;
 	panelTab: PanelTab;
 	/** Local file currently shown in the Files drawer. */
 	filePreviewPath: string | null;
 	commandPaletteOpen: boolean;
 	modelPickerOpen: boolean;
-	settingsOpen: boolean;
+	/** What the main area shows: the session or a destination page. */
+	destination: Destination;
+	agentsTab: AgentsTab;
+	insightsTab: InsightsTab;
+	insightsStatsScope: InsightsStatsScope;
 	settingsTab: string;
-	usageOpen: boolean;
-	providersOpen: boolean;
-	modelRolesOpen: boolean;
-	statsDashboardOpen: boolean;
-	modelCompareOpen: boolean;
 	benchmarkOpen: boolean;
-	extensionsOpen: boolean;
-	extensionsTab: "hooks" | "mcp" | "commands";
-	inventoryOpen: boolean;
-	inventoryTab: "plugins" | "marketplaces" | "templates" | "memory";
 	themePickerOpen: boolean;
 	modesOpen: boolean;
 	modesTab: "vibe" | "goal" | "loop";
-	agentHubOpen: boolean;
-	agentHubTab: "definitions" | "hub";
-	hotkeysOpen: boolean;
 	importDialogOpen: boolean;
 	copySelectorOpen: boolean;
 	changelogOpen: boolean;
-	contextReportOpen: boolean;
 	activeToolsOpen: boolean;
 	shareSessionOpen: boolean;
-	jobsOpen: boolean;
-	workspaceDirsOpen: boolean;
 	forceToolOpen: boolean;
 	btwRequest: string | null;
 	debugOpen: boolean;
 	liveOpen: boolean;
-	composerEditorOpen: boolean;
-	composerEditorInitial: string | null;
-	providerConfigOpen: boolean;
-	providerConfigEdit: CustomProviderView | null;
+	/** Inline custom-endpoint form in Settings › Models & providers (`edit` null = add). */
+	providerForm: { edit: CustomProviderView | null } | null;
 	renameDialogOpen: boolean;
 	/** Worktree-create dialog (plan/20): non-null opens it; baseCwd pins the
 	 * repo when invoked from a Sidebar group (default = active session cwd). */
@@ -77,12 +98,8 @@ interface UiStore {
 	/** Live tab whose close is armed for confirmation: set by the chip's ×, ⌘W or
 	 * the menu, so all three share one inline confirm (the second commit closes). */
 	armedCloseTab: { tabId: string } | null;
-	/** PR Center fullscreen panel (plan/21). */
-	prCenterOpen: boolean;
 	sessionPickerOpen: boolean;
 	branchPickerOpen: boolean;
-	sessionTreeOpen: boolean;
-	sessionInfoOpen: boolean;
 	/** Session the user tried to open while the attached session was busy
 	 * (streaming/compacting). Non-null shows the SessionSwitchDialog offering
 	 * a parallel new tab (recommended) / new window vs abort-and-switch. */
@@ -112,7 +129,9 @@ interface UiStore {
 	transcriptDetail: TranscriptDetail;
 	/** Expand/collapse-all signal for tool cards (⌃O); `seq` bumps per toggle so cards re-sync their local state. */
 	toolsExpandAll: { expanded: boolean; seq: number };
+	/** Docked sidebar toggle, or the left Sheet in compact windows. */
 	toggleSidebar: () => void;
+	closeCompactSidebar: () => void;
 	togglePanel: () => void;
 	toggleToolsExpandAll: () => void;
 	setPanelTab: (tab: PanelTab) => void;
@@ -128,53 +147,41 @@ interface UiStore {
 	closeCommandPalette: () => void;
 	openModelPicker: () => void;
 	closeModelPicker: () => void;
+	/** Open a destination page; `section` selects its tab/section when valid. */
+	openDestination: (destination: PageDestination, section?: string) => void;
+	/** Back to the session view (Esc on a page, selecting a session). */
+	closeDestination: () => void;
+	openAgents: (tab?: AgentsTab) => void;
+	openInsights: (tab?: InsightsTab, scope?: InsightsStatsScope) => void;
+	/** Settings page; without `tab` a cold open lands on the default section and a re-open keeps the current one. */
 	openSettings: (tab?: string) => void;
-	closeSettings: () => void;
-	openUsage: () => void;
-	closeUsage: () => void;
+	/** Switch the Settings page section (SettingsPage navigation; no destination change). */
+	setSettingsSection: (tab: string) => void;
+	/** Settings › Models & providers. */
 	openProviders: () => void;
-	closeProviders: () => void;
-	openModelRoles: () => void;
-	closeModelRoles: () => void;
-	openStatsDashboard: () => void;
-	closeStatsDashboard: () => void;
 	feedbackOpen: boolean;
 	/** Error text carried in from a crash/error surface; shown read-only in the dialog. */
 	feedbackPrefill: { error?: string; title?: string; description?: string } | null;
 	openFeedback: (prefill?: { error?: string; title?: string; description?: string } | null) => void;
 	closeFeedback: () => void;
-	openModelCompare: () => void;
-	closeModelCompare: () => void;
 	openBenchmark: () => void;
 	closeBenchmark: () => void;
-	openExtensions: (tab?: "hooks" | "mcp" | "commands") => void;
-	closeExtensions: () => void;
-	openInventory: (tab?: "plugins" | "marketplaces" | "templates" | "memory") => void;
-	closeInventory: () => void;
 	openThemePicker: () => void;
 	closeThemePicker: () => void;
 	openModes: (tab?: "vibe" | "goal" | "loop") => void;
 	closeModes: () => void;
-	openAgentHub: (tab?: "definitions" | "hub") => void;
-	closeAgentHub: () => void;
-	openHotkeys: () => void;
-	closeHotkeys: () => void;
 	openImportDialog: () => void;
 	closeImportDialog: () => void;
 	openCopySelector: () => void;
 	closeCopySelector: () => void;
 	openChangelog: () => void;
 	closeChangelog: () => void;
-	openContextReport: () => void;
-	closeContextReport: () => void;
 	openActiveTools: () => void;
 	closeActiveTools: () => void;
 	openShareSession: () => void;
 	closeShareSession: () => void;
+	/** Side panel › Jobs. */
 	openJobs: () => void;
-	closeJobs: () => void;
-	openWorkspaceDirs: () => void;
-	closeWorkspaceDirs: () => void;
 	openForceTool: () => void;
 	closeForceTool: () => void;
 	openBtw: (question: string) => void;
@@ -183,10 +190,9 @@ interface UiStore {
 	closeDebug: () => void;
 	openLive: () => void;
 	closeLive: () => void;
-	openComposerEditor: (initial: string) => void;
-	closeComposerEditor: () => void;
+	/** Settings › Models & providers with the custom-endpoint form open (pre-filled when editing). */
 	openProviderConfig: (editProvider?: CustomProviderView | null) => void;
-	closeProviderConfig: () => void;
+	closeProviderForm: () => void;
 	openRenameDialog: () => void;
 	closeRenameDialog: () => void;
 	openWorktreeDialog: (context?: { baseCwd?: string }) => void;
@@ -195,16 +201,12 @@ interface UiStore {
 	closeWorktreeClosePrompt: () => void;
 	armCloseTab: (tabId: string) => void;
 	cancelCloseTab: () => void;
-	openPrCenter: () => void;
-	closePrCenter: () => void;
 	openSessionPicker: () => void;
 	closeSessionPicker: () => void;
 	openBranchPicker: () => void;
 	closeBranchPicker: () => void;
+	/** Side panel › Tree. */
 	openSessionTree: () => void;
-	closeSessionTree: () => void;
-	openSessionInfo: () => void;
-	closeSessionInfo: () => void;
 	requestSessionSwitch: (session: SessionInfo) => void;
 	closeSessionSwitch: () => void;
 	requestModelRestore: (prompt: { session: SessionInfo; missingModel: string }) => void;
@@ -237,13 +239,17 @@ interface UiStore {
 export const useUiStore = create<UiStore>()((set, get) => ({
 	displayPreferences: {},
 	sidebarVisible: true,
+	compactSidebarOpen: false,
 	panelVisible: false,
 	panelTab: "diff",
 	filePreviewPath: null,
 	commandPaletteOpen: false,
 	modelPickerOpen: false,
-	settingsOpen: false,
-	settingsTab: "capabilities",
+	destination: "session",
+	agentsTab: "live",
+	insightsTab: "stats",
+	insightsStatsScope: "session",
+	settingsTab: DEFAULT_SETTINGS_TAB,
 	theme: readPrepaintThemeMode(),
 	fontSize: 15,
 	compactDensity: false,
@@ -252,15 +258,19 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	notifications: true,
 	thinkingExpanded: false,
 	transcriptDetail: "compact",
-	toggleSidebar: () => set({ sidebarVisible: !get().sidebarVisible }),
+	toggleSidebar: () =>
+		compactShell()
+			? set({ compactSidebarOpen: !get().compactSidebarOpen })
+			: set({ sidebarVisible: !get().sidebarVisible }),
+	closeCompactSidebar: () => set({ compactSidebarOpen: false }),
 	togglePanel: () => set({ panelVisible: !get().panelVisible }),
 	toolsExpandAll: { expanded: false, seq: 0 },
 	toggleToolsExpandAll: () =>
 		set({ toolsExpandAll: { expanded: !get().toolsExpandAll.expanded, seq: get().toolsExpandAll.seq + 1 } }),
 	setPanelTab: tab => {
-		// Chat tabs are tool-free: only files + logs can exist there, so a
-		// force-open of the diff tab is a no-op.
-		if (tab === "diff") {
+		// Chat tabs are tool-free: no diffs and no branch tree exist there, so a
+		// force-open of those views is a no-op.
+		if (!PANEL_TAB_IN_CHAT[tab]) {
 			const activeKind = useTabsStore
 				.getState()
 				.tabs.find(t2 => t2.id === useTabsStore.getState().activeTabId)?.kind;
@@ -285,59 +295,48 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	closeCommandPalette: () => set({ commandPaletteOpen: false }),
 	openModelPicker: () => set({ modelPickerOpen: true }),
 	closeModelPicker: () => set({ modelPickerOpen: false }),
-	// Without an explicit target, a window that is already open stays on its
-	// page: ⌘, pressed again must not bounce the user back to the first tab (and
-	// wipe the search they typed).
+	openDestination: (destination, section) => {
+		if (destination === "settings") get().openSettings(section);
+		else if (destination === "agents")
+			get().openAgents(section && AGENTS_TABS.includes(section) ? (section as AgentsTab) : undefined);
+		else get().openInsights(section && INSIGHTS_TABS.includes(section) ? (section as InsightsTab) : undefined);
+	},
+	closeDestination: () => set({ destination: "session" }),
+	openAgents: tab => set(state => ({ destination: "agents", agentsTab: tab ?? state.agentsTab })),
+	openInsights: (tab, scope) =>
+		set(state => ({
+			destination: "insights",
+			insightsTab: tab ?? state.insightsTab,
+			insightsStatsScope: scope ?? state.insightsStatsScope,
+		})),
+	// Without an explicit target, a page that is already open stays on its
+	// section: ⌘, pressed again must not bounce the user back to the first one
+	// (and wipe the search they typed).
 	openSettings: tab =>
 		set(state => ({
-			settingsOpen: true,
-			settingsTab: tab ?? (state.settingsOpen ? state.settingsTab : "capabilities"),
+			destination: "settings",
+			settingsTab: tab ?? (state.destination === "settings" ? state.settingsTab : DEFAULT_SETTINGS_TAB),
 		})),
-	closeSettings: () => set({ settingsOpen: false }),
-	usageOpen: false,
-	providersOpen: false,
-	openUsage: () => set({ usageOpen: true }),
-	closeUsage: () => set({ usageOpen: false }),
-	openProviders: () => set({ providersOpen: true }),
-	closeProviders: () => set({ providersOpen: false }),
-	modelRolesOpen: false,
-	openModelRoles: () => set({ modelRolesOpen: true }),
-	closeModelRoles: () => set({ modelRolesOpen: false }),
-	statsDashboardOpen: false,
-	openStatsDashboard: () => set({ statsDashboardOpen: true }),
-	closeStatsDashboard: () => set({ statsDashboardOpen: false }),
+	setSettingsSection: tab => set({ settingsTab: tab }),
+	openProviders: () => {
+		set({ providerForm: null });
+		get().openSettings("models");
+	},
 	feedbackOpen: false,
 	feedbackPrefill: null,
 	openFeedback: prefill => set({ feedbackOpen: true, feedbackPrefill: prefill ?? null }),
 	closeFeedback: () => set({ feedbackOpen: false, feedbackPrefill: null }),
-	modelCompareOpen: false,
-	openModelCompare: () => set({ modelCompareOpen: true }),
-	closeModelCompare: () => set({ modelCompareOpen: false }),
 	benchmarkOpen: false,
 	openBenchmark: () => set({ benchmarkOpen: true }),
 	closeBenchmark: () => set({ benchmarkOpen: false }),
-	extensionsOpen: false,
-	extensionsTab: "hooks" as const,
-	inventoryOpen: false,
-	inventoryTab: "plugins" as const,
-	openExtensions: tab => set({ extensionsOpen: true, extensionsTab: tab ?? "hooks" }),
-	closeExtensions: () => set({ extensionsOpen: false }),
-	openInventory: tab => set({ inventoryOpen: true, inventoryTab: tab ?? "plugins" }),
-	closeInventory: () => set({ inventoryOpen: false }),
 	themePickerOpen: false,
 	openThemePicker: () => set({ themePickerOpen: true }),
 	closeThemePicker: () => set({ themePickerOpen: false }),
 	modesOpen: false,
 	modesTab: "vibe" as const,
-	openModes: tab => set({ modesOpen: true, modesTab: tab ?? "vibe" }),
+	// The mode popover lives on the composer: a request from a page returns to the session.
+	openModes: tab => set({ modesOpen: true, modesTab: tab ?? "vibe", destination: "session" }),
 	closeModes: () => set({ modesOpen: false }),
-	agentHubOpen: false,
-	agentHubTab: "definitions" as const,
-	openAgentHub: tab => set({ agentHubOpen: true, agentHubTab: tab ?? "definitions" }),
-	closeAgentHub: () => set({ agentHubOpen: false }),
-	hotkeysOpen: false,
-	openHotkeys: () => set({ hotkeysOpen: true }),
-	closeHotkeys: () => set({ hotkeysOpen: false }),
 	importDialogOpen: false,
 	openImportDialog: () => set({ importDialogOpen: true }),
 	closeImportDialog: () => set({ importDialogOpen: false }),
@@ -347,21 +346,13 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	changelogOpen: false,
 	openChangelog: () => set({ changelogOpen: true }),
 	closeChangelog: () => set({ changelogOpen: false }),
-	contextReportOpen: false,
-	openContextReport: () => set({ contextReportOpen: true }),
-	closeContextReport: () => set({ contextReportOpen: false }),
 	activeToolsOpen: false,
 	openActiveTools: () => set({ activeToolsOpen: true }),
 	closeActiveTools: () => set({ activeToolsOpen: false }),
 	shareSessionOpen: false,
 	openShareSession: () => set({ shareSessionOpen: true }),
 	closeShareSession: () => set({ shareSessionOpen: false }),
-	jobsOpen: false,
-	openJobs: () => set({ jobsOpen: true }),
-	closeJobs: () => set({ jobsOpen: false }),
-	workspaceDirsOpen: false,
-	openWorkspaceDirs: () => set({ workspaceDirsOpen: true }),
-	closeWorkspaceDirs: () => set({ workspaceDirsOpen: false }),
+	openJobs: () => get().setPanelTab("jobs"),
 	forceToolOpen: false,
 	openForceTool: () => set({ forceToolOpen: true }),
 	closeForceTool: () => set({ forceToolOpen: false }),
@@ -374,14 +365,12 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	liveOpen: false,
 	openLive: () => set({ liveOpen: true }),
 	closeLive: () => set({ liveOpen: false }),
-	composerEditorOpen: false,
-	composerEditorInitial: null,
-	openComposerEditor: initial => set({ composerEditorOpen: true, composerEditorInitial: initial }),
-	closeComposerEditor: () => set({ composerEditorOpen: false, composerEditorInitial: null }),
-	providerConfigOpen: false,
-	providerConfigEdit: null as CustomProviderView | null,
-	openProviderConfig: editProvider => set({ providerConfigOpen: true, providerConfigEdit: editProvider ?? null }),
-	closeProviderConfig: () => set({ providerConfigOpen: false, providerConfigEdit: null }),
+	providerForm: null,
+	openProviderConfig: editProvider => {
+		set({ providerForm: { edit: editProvider ?? null } });
+		get().openSettings("models");
+	},
+	closeProviderForm: () => set({ providerForm: null }),
 	renameDialogOpen: false,
 	openRenameDialog: () => set({ renameDialogOpen: true }),
 	closeRenameDialog: () => set({ renameDialogOpen: false }),
@@ -394,21 +383,13 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	armedCloseTab: null,
 	armCloseTab: tabId => set({ armedCloseTab: { tabId } }),
 	cancelCloseTab: () => set({ armedCloseTab: null }),
-	prCenterOpen: false,
-	openPrCenter: () => set({ prCenterOpen: true }),
-	closePrCenter: () => set({ prCenterOpen: false }),
 	sessionPickerOpen: false,
 	openSessionPicker: () => set({ sessionPickerOpen: true }),
 	closeSessionPicker: () => set({ sessionPickerOpen: false }),
 	branchPickerOpen: false,
 	openBranchPicker: () => set({ branchPickerOpen: true }),
 	closeBranchPicker: () => set({ branchPickerOpen: false }),
-	sessionTreeOpen: false,
-	openSessionTree: () => set({ sessionTreeOpen: true }),
-	closeSessionTree: () => set({ sessionTreeOpen: false }),
-	sessionInfoOpen: false,
-	openSessionInfo: () => set({ sessionInfoOpen: true }),
-	closeSessionInfo: () => set({ sessionInfoOpen: false }),
+	openSessionTree: () => get().setPanelTab("tree"),
 	sessionSwitchPrompt: null as SessionInfo | null,
 	requestSessionSwitch: session => set({ sessionSwitchPrompt: session }),
 	closeSessionSwitch: () => set({ sessionSwitchPrompt: null }),
@@ -419,34 +400,22 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 		set({
 			commandPaletteOpen: false,
 			modelPickerOpen: false,
-			settingsOpen: false,
-			extensionsOpen: false,
-			inventoryOpen: false,
 			modesOpen: false,
-			agentHubOpen: false,
 			importDialogOpen: false,
 			copySelectorOpen: false,
-			contextReportOpen: false,
 			activeToolsOpen: false,
 			shareSessionOpen: false,
-			jobsOpen: false,
-			workspaceDirsOpen: false,
 			forceToolOpen: false,
 			btwRequest: null,
 			debugOpen: false,
 			liveOpen: false,
-			composerEditorOpen: false,
-			composerEditorInitial: null,
 			renameDialogOpen: false,
 			worktreeDialog: null,
 			worktreeClosePrompt: null,
 			armedCloseTab: null,
-			prCenterOpen: false,
 			filePreviewPath: null,
 			sessionPickerOpen: false,
 			branchPickerOpen: false,
-			sessionTreeOpen: false,
-			sessionInfoOpen: false,
 			sessionSwitchPrompt: null,
 			modelRestorePrompt: null,
 		}),

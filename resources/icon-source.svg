@@ -1,10 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
-  <!-- macOS-style app icon: rounded ink tile inset with transparent margin,
-       teal π mark centered. The π glyph mirrors the in-app PiLogo mark. -->
-  <rect x="92" y="92" width="840" height="840" rx="190" fill="#21262c"/>
-  <g stroke="#0d9488" stroke-width="88" stroke-linecap="round" fill="none">
-    <path d="M330 350 H694"/>
-    <path d="M445 350 V690"/>
-    <path d="M615 350 V628 C615 668 578 690 538 690"/>
+  <!-- seucode app icon (macOS grid: 824px tile inset 100px, ~22.5% corner).
+       Ink tile with a faint top-lit gradient and hairline; the mark (see
+       brand/mark.svg) at 19x, white upper arc and accent lower arc. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#25252D"/>
+      <stop offset="1" stop-color="#141418"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="183.5" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="3"/>
+  <g transform="translate(512 512) scale(19) translate(-16 -16)">
+    <path d="M20.64 8.29A5.25 5.25 0 1 0 16 16" stroke="#FFFFFF" stroke-width="3.8" stroke-linecap="round"/>
+    <path d="M16 16A5.25 5.25 0 1 1 11.36 23.71" stroke="#8B8DF8" stroke-width="3.8"/>
+    <circle cx="11.36" cy="23.71" r="1.9" fill="#8B8DF8"/>
   </g>
 </svg>

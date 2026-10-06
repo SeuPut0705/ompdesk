@@ -9,8 +9,15 @@ import type { FrustrationData, FrustrationModelRow } from "../../../shared/stats
 import { useStats } from "../../hooks/use-stats";
 import { formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import type { StatsRange } from "./StatsDashboard";
-import { MetricCard, RouteFrame, SectionTitle, type StatColumn, StatTable } from "./shared";
+import {
+	MetricCard,
+	MetricGrid,
+	RouteFrame,
+	SectionTitle,
+	type StatColumn,
+	type StatsRange,
+	StatTable,
+} from "./shared";
 
 function rate(part: number, whole: number): string {
 	return whole > 0 ? formatPercent((part / whole) * 100) : "—";
@@ -35,9 +42,11 @@ export function FrustrationRoute({ range, refreshKey }: { range: StatsRange; ref
 				label: t("stats.col.model"),
 				render: row => (
 					<span>
-						<span className="block font-medium text-(--omp-text)">{row.label}</span>
+						<span className="block font-medium text-(--sc-text)">{row.label}</span>
 						{row.models.length > 1 && (
-							<span className="block font-mono text-omp-xs text-(--omp-dim)">{row.models.join(", ")}</span>
+							<span className="block font-mono text-sc-2xs text-(--sc-text-subtle)">
+								{row.models.join(", ")}
+							</span>
 						)}
 					</span>
 				),
@@ -61,9 +70,9 @@ export function FrustrationRoute({ range, refreshKey }: { range: StatsRange; ref
 				align: "right",
 				render: row =>
 					row.angry > 0 ? (
-						<span className="text-(--omp-warning)">{rate(row.angry, row.messages)}</span>
+						<span className="text-(--sc-warning)">{rate(row.angry, row.messages)}</span>
 					) : (
-						<span className="text-(--omp-dim)">{rate(0, row.messages)}</span>
+						<span className="text-(--sc-text-subtle)">{rate(0, row.messages)}</span>
 					),
 			},
 			{
@@ -86,7 +95,7 @@ export function FrustrationRoute({ range, refreshKey }: { range: StatsRange; ref
 		>
 			{overall && (
 				<>
-					<div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+					<MetricGrid>
 						<MetricCard label={t("stats.col.messages")} tone="accent" value={formatTokens(overall.messages)} />
 						<MetricCard
 							label={t("stats.frustration.annoyed")}
@@ -104,8 +113,8 @@ export function FrustrationRoute({ range, refreshKey }: { range: StatsRange; ref
 							tone={overall.angry > 0 ? "warning" : "default"}
 							value={rate(overall.angry, overall.messages)}
 						/>
-					</div>
-					<p className="mt-2 text-omp-xs text-(--omp-dim)">
+					</MetricGrid>
+					<p className="mt-2 text-sc-2xs text-(--sc-text-subtle)">
 						{t("stats.frustration.judgedNote", {
 							judged: formatTokens(overall.judged),
 							messages: formatTokens(overall.messages),

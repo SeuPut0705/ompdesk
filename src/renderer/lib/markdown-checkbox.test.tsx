@@ -5,9 +5,12 @@
  * model output from becoming interactive controls.
  */
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { I18nProvider } from "./i18n";
-import { MarkdownRenderer } from "./markdown";
+import { MarkdownRenderer, preloadMarkdownPipeline } from "./markdown";
+
+// renderToStaticMarkup never runs effects, so the lazy raw-HTML step must be loaded first.
+beforeAll(() => preloadMarkdownPipeline());
 
 function render(content: string): string {
 	return renderToStaticMarkup(

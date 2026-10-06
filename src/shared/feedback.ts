@@ -9,7 +9,7 @@
 
 import type { RuntimeErrorReport } from "./ipc-types";
 
-export const FEEDBACK_REPO = "https://github.com/SeuPut0705/omp-gui";
+export const FEEDBACK_REPO = "https://github.com/SeuPut0705/seucode";
 
 export type FeedbackKind = "bug" | "feature" | "question";
 
@@ -108,10 +108,10 @@ export function buildIssueBody(input: FeedbackInput): string {
 	if (input.environment) {
 		const env = input.environment;
 		sections.push(
-			`### Environment\n\n- omp GUI: v${env.appVersion}\n- OS: ${env.platform} ${env.arch}\n- Electron ${env.electron} · Chrome ${env.chrome}`,
+			`### Environment\n\n- seucode: v${env.appVersion}\n- OS: ${env.platform} ${env.arch}\n- Electron ${env.electron} · Chrome ${env.chrome}`,
 		);
 	}
-	sections.push("---\n*Reported from the omp GUI feedback dialog.*");
+	sections.push("---\n*Reported from the seucode feedback dialog.*");
 	return sections.join("\n\n");
 }
 

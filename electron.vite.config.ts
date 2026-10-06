@@ -13,21 +13,33 @@ const MAIN_BUNDLED_DEPS = ["chokidar", "electron-store", "electron-updater", "ya
 
 /**
  * Heavy renderer vendor libs split out of the eager main chunk. Patterns match
- * node_modules path segments; each family (and its transitive deps) lands in a
- * named chunk that lazy overlays load on demand instead of up front.
+ * node_modules path segments; the first matching rule names the chunk. Rollup
+ * also pulls a chunk's unassigned static deps into it, so a lazily imported
+ * family must name its own deps explicitly (above any eager rule whose prefix
+ * would match them), or they ride along with an eager chunk.
  */
 const VENDOR_CHUNK_RULES: ReadonlyArray<readonly [RegExp, string]> = [
 	// React core: every chunk depends on it, so shared interop helpers land
 	// here — keeping cross-chunk imports one-way (no circular chunks).
 	[/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/, "react"],
-	// Markdown pipeline: react-markdown + the unified/remark/rehype/mdast/hast ecosystem.
+	// Raw-HTML step of the markdown pipeline (rehype-raw + parse5), imported
+	// lazily by lib/markdown.tsx only for content that contains HTML.
+	[
+		/[\\/]node_modules[\\/](rehype-raw|hast-util-raw|hast-util-from-parse5|hast-util-to-parse5|parse5|entities)[\\/]/,
+		"markdown-html",
+	],
+	// KaTeX + rehype-katex, imported lazily by lib/markdown.tsx only for content with math.
+	[
+		/[\\/]node_modules[\\/](katex|rehype-katex|hast-util-from-html-isomorphic|hast-util-from-dom|hast-util-from-html)[\\/]/,
+		"katex",
+	],
+	// Markdown pipeline (eager: transcripts render on the first screen):
+	// react-markdown + the unified/remark/rehype/mdast/hast ecosystem.
 	[
 		/[\\/]node_modules[\\/](react-markdown|lowlight|remark-|rehype-|mdast-|hast-|hastscript|unist-|unified|micromark|vfile|devlop|trough|bail|extend|zwitch|ccount|comma-separated-tokens|space-separated-tokens|decode-named-character-reference|character-entities|property-information|html-url-attributes|trim-lines|markdown-table|longest-streak|is-plain-obj|estree-util-|estree-walker|stringify-entities|web-namespaces)/,
 		"markdown",
 	],
-	// KaTeX (pulled in by rehype-katex; kept separate so the markdown chunk stays lean).
-	[/[\\/]node_modules[\\/]katex[\\/]/, "katex"],
-	// Mermaid + its rendering stack (lazy-imported).
+	// Mermaid + its rendering stack (lazy-imported by chat/MermaidBlock).
 	[
 		/[\\/]node_modules[\\/](mermaid|@mermaid-js|d3[^\\/]*|dagre[^\\/]*|@dagrejs|elkjs|dompurify|khroma|cytoscape|stylis|ts-dedent|marked|lodash-es|dayjs|uuid|robust-predicates|topojson-client)[\\/]/,
 		"mermaid",
@@ -46,7 +58,17 @@ const VENDOR_CHUNK_RULES: ReadonlyArray<readonly [RegExp, string]> = [
 	[/[\\/]node_modules[\\/]@dnd-kit[\\/]/, "dnd-kit"],
 ];
 
+/**
+ * Rollup helpers every chunk may need (Vite's dynamic-import preload helper,
+ * the CommonJS interop helpers). Left unassigned, Rollup co-locates them with
+ * an arbitrary vendor chunk — once that was mermaid, so the entry statically
+ * imported (and modulepreloaded) all 6 MB of it just to get `__vitePreload`.
+ * Pinned to the always-eager react chunk instead.
+ */
+const RUNTIME_HELPER = /^\0(vite\/preload-helper|commonjsHelpers)/;
+
 function manualChunks(id: string): string | undefined {
+	if (RUNTIME_HELPER.test(id)) return "react";
 	if (!id.includes("node_modules")) return undefined;
 	for (const [pattern, chunk] of VENDOR_CHUNK_RULES) {
 		if (pattern.test(id)) return chunk;
@@ -85,7 +107,20 @@ export default defineConfig({
 		build: {
 			rollupOptions: {
 				input: { index: resolve(__dirname, "src/renderer/index.html") },
-				output: { manualChunks },
+				output: {
+					manualChunks,
+					// Rollup's default (1) merges code-free re-export chunks into an
+					// importer when that looks side-effect-free — which folded the
+					// lib/markdown-katex lazy boundary into the entry and made KaTeX
+					// eager again. Lazy boundaries must stay separate chunks.
+					experimentalMinChunkSize: 0,
+				},
+				// remark-math's unused HTML compiler (micromark-extension-math/lib/html)
+				// imports katex, and katex declares no `sideEffects`, so Rollup kept
+				// that bare import and loaded KaTeX with the eager markdown chunk.
+				// KaTeX has no import-time effects we rely on; it is included only
+				// where its exports are used (rehype-katex, loaded lazily).
+				treeshake: { moduleSideEffects: id => !/[\\/]node_modules[\\/]katex[\\/]/.test(id) },
 			},
 		},
 	},

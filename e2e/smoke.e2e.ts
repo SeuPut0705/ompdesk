@@ -44,17 +44,18 @@ test("@smoke app boots on omp, connects the bridge, opens a tab, answers a promp
 		await page.keyboard.press("ControlOrMeta+t");
 		const tabs = page.locator('[role="tablist"] [role="tab"]');
 		await expect(tabs).toHaveCount(2);
-		await expect(tabs.last().getByRole("img", { name: "Ready", exact: true })).toBeVisible({ timeout: 60_000 });
+		// An idle tab shows no status icon; readiness is the chip's data-status.
+		await expect(tabs.last()).toHaveAttribute("data-status", "ready", { timeout: 60_000 });
 
 		await page.locator("textarea").first().fill("smoke hello");
-		await page.getByRole("button", { name: "Send (Enter)", exact: true }).click();
+		await page.getByRole("button", { name: "Send", exact: true }).click();
 		await expect(page.locator("[data-transcript-kind]").filter({ hasText: "Local fixture reply" })).toHaveCount(1);
 
-		await page.getByRole("button", { name: "Settings", exact: true }).click();
-		const settings = page.getByRole("dialog");
-		await expect(settings.getByRole("button", { name: "Appearance & use", exact: true })).toBeVisible();
+		await page.keyboard.press("ControlOrMeta+Comma");
+		const settings = page.locator("[data-settings-page]");
+		await expect(settings.locator('[data-settings-section="appearance"]')).toBeVisible();
 		await page.keyboard.press("Escape");
-		await expect(page.getByRole("dialog")).toHaveCount(0);
+		await expect(settings).toHaveCount(0);
 		expect(errors).toEqual([]);
 	} finally {
 		await exitApp(app);

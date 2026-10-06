@@ -1,5 +1,5 @@
 /**
- * Theme application for the omp GUI.
+ * Theme application for seucode.
  *
  * Single source of truth for design tokens is the stylesheets
  * `theme-dark.css` (`:root`) and `theme-light.css` (`:root[data-theme="light"]`).
@@ -12,14 +12,14 @@ export type ResolvedTheme = "dark" | "light";
 
 export const THEME_SCHEME_STORAGE_KEY = "omp.themeScheme";
 
-/** Synchronous boot mode mirrored by pre-paint.js before preferences IPC exists. */
+/** Synchronous boot mode mirrored by pre-paint.js before preferences IPC exists; follows the OS until a choice is saved. */
 export function readPrepaintThemeMode(): ThemeMode {
-	if (typeof window === "undefined") return "light";
+	if (typeof window === "undefined") return "system";
 	try {
 		const value = window.localStorage?.getItem(THEME_SCHEME_STORAGE_KEY);
-		return value === "dark" || value === "light" || value === "system" ? value : "light";
+		return value === "dark" || value === "light" || value === "system" ? value : "system";
 	} catch {
-		return "light";
+		return "system";
 	}
 }
 
@@ -34,15 +34,15 @@ export function resolveTheme(mode: ThemeMode): ResolvedTheme {
 }
 
 /**
- * Removes any inline `--omp-*` token overrides from <html> so the stylesheet
- * themes (theme-dark.css / theme-light.css) take over again.
+ * Removes any inline `--omp-*` / `--sc-*` token overrides from <html> so the
+ * stylesheet themes (theme-dark.css / theme-light.css) take over again.
  */
 export function clearInlineThemeTokens(): void {
 	const style = document.documentElement.style;
 	const toRemove: string[] = [];
 	for (let i = 0; i < style.length; i++) {
 		const prop = style[i];
-		if (prop?.startsWith("--omp-")) toRemove.push(prop);
+		if (prop?.startsWith("--omp-") || prop?.startsWith("--sc-")) toRemove.push(prop);
 	}
 	for (const prop of toRemove) style.removeProperty(prop);
 }

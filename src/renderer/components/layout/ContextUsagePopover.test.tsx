@@ -4,7 +4,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcContextReportResult, RpcResponse } from "../../../shared/rpc-types";
 import { OVERLAY_EXIT_MS } from "../../hooks/use-overlay-presence";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 
@@ -121,7 +121,7 @@ describe("ContextUsagePopover", () => {
 		expect(getContextReport).toHaveBeenCalledTimes(1);
 		const dialog = document.querySelector("#omp-context-usage-popover");
 		expect(dialog?.textContent).toContain("Context window");
-		expect(dialog?.textContent).toContain("Conversation messages~8.1k");
+		expect(dialog?.textContent).toContain(`${translate("contextUsage.category.messages")}~8.1k`);
 		// Shares of a window that does not exist would be invented numbers.
 		expect(dialog?.textContent).not.toContain("%");
 		// A bar filled with the used tokens alone reads as "full", so the
@@ -140,7 +140,8 @@ describe("ContextUsagePopover", () => {
 
 		const trigger = container.querySelector("button") as unknown as HTMLButtonElement;
 		expect(trigger.getAttribute("aria-label")).toBe("Show context usage, 16% used");
-		expect(trigger.textContent).toContain("161.9k/1.0M");
+		// The resting control is a ring plus the share; the token counts live in the popover.
+		expect(trigger.textContent).toBe("16%");
 		expect(document.querySelector("#omp-context-usage-popover")).toBeNull();
 
 		await act(async () => trigger.click());
@@ -154,7 +155,7 @@ describe("ContextUsagePopover", () => {
 		expect(dialog?.textContent).toContain("Context remaining838.1k");
 		expect(dialog?.textContent).toContain("System context~1.5k");
 		expect(dialog?.textContent).toContain("Tools~6.4k");
-		expect(dialog?.textContent).toContain("Conversation messages~154.0k");
+		expect(dialog?.textContent).toContain(`${translate("contextUsage.category.messages")}~154.0k`);
 		expect(dialog?.querySelector('[role="progressbar"]')).not.toBeNull();
 	});
 
@@ -246,10 +247,13 @@ describe("ContextUsagePopover", () => {
 		});
 
 		const reportButton = Array.from(document.querySelectorAll("button")).find(button =>
-			button.textContent?.includes("Open full context report"),
+			button.textContent?.includes("See details in Insights"),
 		);
 		expect(reportButton).toBeDefined();
 		await act(async () => reportButton?.click());
-		expect(useUiStore.getState().contextReportOpen).toBe(true);
+		const ui = useUiStore.getState();
+		expect(ui.destination).toBe("insights");
+		expect(ui.insightsTab).toBe("stats");
+		expect(ui.insightsStatsScope).toBe("session");
 	});
 });

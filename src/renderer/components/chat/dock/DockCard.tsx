@@ -12,6 +12,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { type DockCardId, useUiStore } from "../../../stores/ui";
+import { Button } from "../../common";
 import { useWorkspaceDockFocus } from "./WorkspaceDockFocus";
 
 interface DockCardProps {
@@ -70,47 +71,41 @@ export function DockCard({ id, icon: Icon, title, badge, actions, children }: Do
 		<section
 			aria-label={title}
 			className={cx(
-				"omp-fade-up shrink-0 overflow-clip rounded-[18px] border bg-[color-mix(in_srgb,var(--omp-bg-secondary)_72%,transparent)] transition-shadow duration-300",
-				flash
-					? "border-[var(--omp-accent)] shadow-[0_0_0_2px_color-mix(in_srgb,var(--omp-accent)_35%,transparent)]"
-					: "border-[var(--omp-border)]",
+				"omp-fade-up shrink-0 overflow-clip rounded-(--sc-radius-lg) border bg-(--sc-elevated) transition-shadow duration-(--sc-duration-med)",
+				flash ? "border-(--sc-accent) ring-2 ring-(--sc-accent-soft)" : "border-(--sc-border-subtle)",
 				hiddenForFocus && "opacity-75",
 			)}
 			data-dock-focused={focused || undefined}
 		>
-			<div
-				className="sticky top-0 z-10 flex min-h-10 items-center gap-2 bg-[var(--omp-bg-secondary)] px-3 py-2" // surface-ok: dock-card sticky navigation chrome
-			>
+			<div className="sticky top-0 z-10 flex min-h-10 items-center gap-2 bg-(--sc-elevated) px-3 py-1.5">
 				<button
 					aria-expanded={expanded}
 					aria-label={expanded ? t("dock.collapse") : t("dock.expand")}
-					className="omp-pressable flex min-w-0 flex-1 items-center gap-2 rounded-md text-left"
+					className="flex min-w-0 flex-1 items-center gap-2 rounded-(--sc-radius-sm) text-left focus-visible:outline-2 focus-visible:outline-(--sc-accent)"
 					onClick={toggle}
 					type="button"
 				>
-					<Icon className="shrink-0 text-[var(--omp-muted)]" size={15} />
-					<span className="truncate text-omp-lg font-semibold text-[var(--omp-text)]">{title}</span>
-					{badge}
+					<Icon aria-hidden="true" className="shrink-0 text-(--sc-text-muted)" size={16} />
+					<span className="truncate text-sc-md font-medium text-(--sc-text)">{title}</span>
+					{badge && (
+						<span className="flex min-w-0 shrink-0 items-center text-sc-sm text-(--sc-text-muted)">{badge}</span>
+					)}
 					<span className="min-w-1 flex-1" />
 					<ChevronRight
-						className="omp-disclosure-chevron shrink-0 text-[var(--omp-dim)]"
+						aria-hidden="true"
+						className="omp-disclosure-chevron shrink-0 text-(--sc-text-subtle)"
 						size={14}
 						style={{ transform: expanded ? "rotate(90deg)" : undefined }}
 					/>
 				</button>
 				{!hiddenForFocus && focused && (
-					<button
-						className="omp-pressable flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-omp-xs text-[var(--omp-muted)] hover:text-[var(--omp-text)]"
-						onClick={clearFocus}
-						type="button"
-					>
-						<ArrowLeft size={11} />
+					<Button icon={<ArrowLeft />} onClick={clearFocus} size="sm" variant="ghost">
 						{t("dock.backToSummary")}
-					</button>
+					</Button>
 				)}
-				{!hiddenForFocus && actions}
+				{!hiddenForFocus && actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
 			</div>
-			{expanded && <div className="border-t border-[var(--omp-border-muted)]">{children}</div>}
+			{expanded && <div className="border-t border-(--sc-border-subtle)">{children}</div>}
 		</section>
 	);
 }

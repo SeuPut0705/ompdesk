@@ -1,7 +1,9 @@
 /**
- * Contract tests for mode-state visibility: the compact composer Modes entry
- * surfaces the active-mode count and keeps each control reachable in its menu.
- * State comes from the session store (including loop/vibe hydration and loop updates).
+ * Contract tests for the composer mode chip: the chip names the active
+ * session mode(s) in the accent, its popover holds Plan · Goal · Loop · Vibe
+ * as segmented tabs (active ones marked), Plan toggles inline, and the
+ * app-wide `openModes(tab)` request opens the popover on that tab.
+ * State comes from the session store.
  */
 
 import { parseHTML } from "linkedom";
@@ -25,13 +27,13 @@ globals.Node = Node;
 globals.IS_REACT_ACT_ENVIRONMENT = true;
 globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
 
+const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
+if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
+
 interface TestElement {
 	textContent: string | null;
 	remove: () => void;
-	querySelector: (selector: string) => TestElement | null;
-	querySelectorAll: (selector: string) => TestElement[];
 	appendChild: (child: TestElement) => void;
-	title: string;
 	className: string;
 	click: () => void;
 	getAttribute: (name: string) => string | null;
@@ -41,27 +43,19 @@ function success(data: unknown): RpcResponse {
 	return { type: "response", command: "test", success: true, data };
 }
 
-interface MockOmp {
-	rpc: {
-		getSettings: Mock<(keys: string[]) => Promise<RpcResponse>>;
-	};
-	events: {
-		onConfigUpdate: Mock<() => () => void>;
-	};
-}
+let setPlanMode: Mock<(enabled: boolean) => Promise<RpcResponse>>;
 
-/** ComposerModes needs no RPC on render; the mock preserves the window bridge contract. */
-function installMockOmp(preset?: string): MockOmp {
-	const omp: MockOmp = {
+/** The mode configs subscribe to sidecar events while mounted; every subscription is a no-op here. */
+function installMockOmp(): void {
+	setPlanMode = vi.fn(async (enabled: boolean) => success({ enabled }));
+	const events = new Proxy({}, { get: () => vi.fn(() => () => {}) });
+	(window as unknown as { omp: unknown }).omp = {
 		rpc: {
-			getSettings: vi.fn(async () => success({ values: preset ? { "statusLine.preset": preset } : {} })),
+			getSettings: vi.fn(async () => success({ values: {} })),
+			setPlanMode,
 		},
-		events: {
-			onConfigUpdate: vi.fn(() => () => {}),
-		},
+		events,
 	};
-	(window as unknown as { omp: MockOmp }).omp = omp;
-	return omp;
 }
 
 let container: TestElement;
@@ -92,18 +86,24 @@ afterEach(async () => {
 		});
 	}
 	container?.remove();
+	document.body.innerHTML = "";
 	useSessionStore.getState().reset();
 	useUiStore.setState({ modesOpen: false, modesTab: "vibe" });
 });
 
-function buttonByTitle(title: string): TestElement | null {
-	const match = Array.from(document.body.querySelectorAll("button")).find(button => button.title === title);
-	// linkedom's element type and the minimal test facade are structurally equivalent at runtime.
-	return (match ?? null) as unknown as TestElement | null;
+function trigger(): TestElement {
+	const button = document.querySelector("button[data-composer-modes-trigger]") as unknown as TestElement | null;
+	if (!button) throw new Error("mode chip missing");
+	return button;
 }
 
-describe("ComposerModes menu", () => {
-	it("collapses active modes into one highlighted trigger and preserves their detail in the menu", async () => {
+function tab(name: string): TestElement | undefined {
+	const tabs = Array.from(document.querySelectorAll('[role="tab"]')) as unknown as TestElement[];
+	return tabs.find(element => element.textContent?.startsWith(name));
+}
+
+describe("Composer mode chip", () => {
+	it("names every active mode in an accent chip and marks them in the popover", async () => {
 		installMockOmp();
 		useSessionStore.setState({
 			planModeEnabled: true,
@@ -119,61 +119,53 @@ describe("ComposerModes menu", () => {
 		});
 		await mount(<ComposerModes />);
 
-		const trigger = buttonByTitle("Active modes: Plan · Goal · Loop · Vibe");
-		expect(trigger).not.toBeNull();
-		expect(trigger?.className).toContain("bg-[var(--omp-accent-dim)]");
-		expect(trigger?.textContent).toContain("4");
+		expect(trigger().textContent).toBe("Plan mode · Goal mode · Loop mode · Vibe mode");
+		expect(trigger().getAttribute("aria-label")).toBe("Session mode: Plan mode · Goal mode · Loop mode · Vibe mode");
+		expect(trigger().className).toContain("bg-(--sc-accent-soft)");
 
-		await act(async () => {
-			trigger?.click();
-		});
+		await act(async () => trigger().click());
 		await flush();
 
-		for (const title of [
-			"Plan mode — agent drafts a plan before acting",
-			"Goal mode — Ship the activity dock",
-			"Loop mode — 7 of 10 iterations left",
-			"Vibe",
-		]) {
-			const row = buttonByTitle(title);
-			expect(row).not.toBeNull();
-			expect(row?.getAttribute("aria-pressed")).toBe("true");
+		for (const name of ["Plan", "Goal", "Loop", "Vibe"]) {
+			expect(tab(name)?.textContent).toBe(`${name}on`);
 		}
+		// Opens on the first active mode: Plan, whose switch is on.
+		expect(tab("Plan")?.getAttribute("aria-selected")).toBe("true");
+		expect(document.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("true");
 	});
 
-	it("keeps inactive controls inside the menu instead of occupying the primary toolbar", async () => {
+	it("stays a quiet 'Mode' chip with nothing active and toggles plan mode inline", async () => {
 		installMockOmp();
 		await mount(<ComposerModes />);
 
-		const trigger = buttonByTitle("Session modes and coding toggles");
-		expect(trigger).not.toBeNull();
-		expect(trigger?.className).not.toContain("bg-[var(--omp-accent-dim)]");
-		expect(container.textContent).toBe("Modes");
+		expect(trigger().textContent).toBe("Mode");
+		expect(trigger().className).not.toContain("bg-(--sc-accent-soft)");
 
-		await act(async () => {
-			trigger?.click();
-		});
+		await act(async () => trigger().click());
+		await flush();
+		for (const name of ["Plan", "Goal", "Loop", "Vibe"]) expect(tab(name)?.textContent).toBe(name);
+
+		const planSwitch = document.querySelector('[role="switch"]') as unknown as TestElement | null;
+		expect(planSwitch?.getAttribute("aria-checked")).toBe("false");
+		await act(async () => planSwitch?.click());
 		await flush();
 
-		for (const title of ["Plan mode — agent drafts a plan before acting", "Loop mode — open the loop panel"]) {
-			const row = buttonByTitle(title);
-			expect(row).not.toBeNull();
-			expect(row?.getAttribute("aria-pressed")).toBe("false");
-		}
+		expect(setPlanMode).toHaveBeenCalledWith(true);
+		expect(useSessionStore.getState().planModeEnabled).toBe(true);
 	});
 
-	it("opens the Modes window on the selected menu tab", async () => {
+	it("answers openModes(tab) by opening the popover on that mode, and clears the request on close", async () => {
 		installMockOmp();
 		await mount(<ComposerModes />);
 
-		await act(async () => {
-			buttonByTitle("Session modes and coding toggles")?.click();
-		});
+		await act(async () => useUiStore.getState().openModes("loop"));
 		await flush();
-		await act(async () => {
-			buttonByTitle("Loop mode — open the loop panel")?.click();
-		});
-		expect(useUiStore.getState().modesOpen).toBe(true);
-		expect(useUiStore.getState().modesTab).toBe("loop");
+
+		expect(trigger().getAttribute("aria-expanded")).toBe("true");
+		expect(tab("Loop")?.getAttribute("aria-selected")).toBe("true");
+
+		await act(async () => trigger().click());
+		expect(trigger().getAttribute("aria-expanded")).toBe("false");
+		expect(useUiStore.getState().modesOpen).toBe(false);
 	});
 });

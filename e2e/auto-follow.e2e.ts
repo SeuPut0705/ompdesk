@@ -50,12 +50,12 @@ test("a bottom-pinned transcript rides the stream, and 'jump to latest' re-engag
 		const jumpOffered = () => jump.evaluate(node => getComputedStyle(node).pointerEvents !== "none");
 		const send = async (text: string) => {
 			await input.fill(text);
-			await page.getByRole("button", { name: "Send (Enter)", exact: true }).click();
-			await expect(page.getByRole("button", { name: "Abort", exact: true })).toBeVisible();
+			await page.getByRole("button", { name: "Send", exact: true }).click();
+			await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
 		};
 		const abort = async () => {
-			await page.getByRole("button", { name: "Abort", exact: true }).click();
-			await expect(page.getByRole("button", { name: "Abort", exact: true })).toHaveCount(0);
+			await page.getByRole("button", { name: "Stop", exact: true }).click();
+			await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
 		};
 		const scrollUp = async () => {
 			await scroll.hover();

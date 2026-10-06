@@ -1,20 +1,29 @@
 /**
- * Searchable dropdown for string-typed settings whose value references a
- * model or a provider (e.g. providers.webSearchGeminiModel, mnemopi.llmModel).
- * Options are fetched (forced) on every open through the model store, so
- * credential and models.yml changes never leave a process-lifetime cache.
- * Custom values stay allowed: the current value is pinned when it is not in
- * the fetched list, and the search text can be committed verbatim. Commits go
- * through the caller's setSetting flow.
+ * Searchable dropdown for values that reference a model or a provider.
+ *
+ * Two sources of options:
+ * - Fetched (default): string-typed settings such as
+ *   providers.webSearchGeminiModel or mnemopi.llmModel. Options are fetched
+ *   (forced) on every open through the model store, so credential and
+ *   models.yml changes never leave a process-lifetime cache. Custom values
+ *   stay allowed: the current value is pinned when it is not in the fetched
+ *   list, and the search text can be committed verbatim.
+ * - Static `groups`: a caller-owned candidate pool (model roles), grouped
+ *   under headings. No fetch, no free-text entry; a saved value outside the
+ *   pool is still pinned so it stays visible and clearable.
+ *
+ * Models show their display name with the `provider/id` selector beside it.
+ * Commits go through the caller (`""` clears).
  */
 
-import { Check, ChevronDown, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, RefreshCw, Search } from "lucide-react";
+import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AvailableModelsResult, ProvidersResult } from "../../../shared/rpc-types";
+import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { useModelStore } from "../../stores/model";
-import { Spinner } from "../common";
+import { Button, Spinner } from "../common";
 
 export type SettingRefKind = "model" | "provider";
 
@@ -31,10 +40,19 @@ export function settingRefKind(path: string): SettingRefKind | null {
 	return null;
 }
 
-interface SelectOption {
+export interface ModelValueOption {
+	/** Committed value (`provider/id` for models, provider id for providers). */
 	value: string;
+	/** Display name; the value itself is shown when absent. */
+	label?: string;
+	/** Secondary text (the selector under a display name, a provider's name). */
 	detail?: string;
 	disabled?: boolean;
+}
+
+export interface ModelValueGroup {
+	label: string;
+	options: readonly ModelValueOption[];
 }
 
 type FetchState = "idle" | "loading" | "error" | "ready";
@@ -43,20 +61,21 @@ type FetchState = "idle" | "loading" | "error" | "ready";
  * still-fresh cache row, which is exactly the stale provider/model list this
  * dropdown exists to avoid. They read through the model store so the committed
  * catalog and these options can never disagree. */
-async function modelOptions(read: () => Promise<AvailableModelsResult>): Promise<SelectOption[]> {
+async function modelOptions(read: () => Promise<AvailableModelsResult>): Promise<ModelValueOption[]> {
 	const { models } = await read();
 	const seen = new Set<string>();
-	const options: SelectOption[] = [];
+	const options: ModelValueOption[] = [];
 	for (const model of models) {
 		const value = `${model.provider}/${model.id}`;
 		if (seen.has(value)) continue;
 		seen.add(value);
-		options.push({ value, detail: model.provider });
+		const named = typeof model.name === "string" && model.name.length > 0 && model.name !== model.id;
+		options.push(named ? { value, label: model.name, detail: value } : { value });
 	}
 	return options;
 }
 
-async function providerOptions(read: () => Promise<ProvidersResult>): Promise<SelectOption[]> {
+async function providerOptions(read: () => Promise<ProvidersResult>): Promise<ModelValueOption[]> {
 	const { providers } = await read();
 	return providers.map(provider => ({
 		value: provider.id,
@@ -65,37 +84,68 @@ async function providerOptions(read: () => Promise<ProvidersResult>): Promise<Se
 	}));
 }
 
-const PANEL_WIDTH = 288;
-const PANEL_MAX_HEIGHT = 264;
+function matches(option: ModelValueOption, needle: string): boolean {
+	return (
+		option.value.toLowerCase().includes(needle) ||
+		(option.label ?? "").toLowerCase().includes(needle) ||
+		(option.detail ?? "").toLowerCase().includes(needle)
+	);
+}
+
+const PANEL_WIDTH = 320;
+const PANEL_MAX_HEIGHT = 288;
 
 const ROW_CLASS =
-	"flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-(--omp-bg-tertiary)";
+	"flex w-full items-center gap-2 rounded-(--sc-radius-sm) px-2 py-1.5 text-left text-sc-md text-(--sc-text) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) focus-visible:bg-(--sc-hover) disabled:cursor-not-allowed disabled:opacity-50";
+
+const GROUP_LABEL_CLASS =
+	"px-2 pt-2 pb-0.5 text-sc-2xs font-semibold tracking-wide text-(--sc-text-muted) uppercase first:pt-1";
 
 export interface ModelValueSelectProps {
 	kind: SettingRefKind;
 	/** Current committed value; "" means unset. */
 	value: string;
 	disabled?: boolean;
-	/** Commit a new value via the row's setSetting flow ("" clears). */
+	/** Commit a new value via the caller's flow ("" clears). */
 	onCommit: (value: string) => void;
 	/** Trigger text shown while value is "" (defaults to the unset label). */
 	placeholder?: string;
+	/** Caller-owned grouped options; replaces the catalog fetch and free-text entry. */
+	groups?: readonly ModelValueGroup[];
+	/** Accessible name of the trigger when no visible label names it. */
+	ariaLabel?: string;
+	/** Trigger tooltip (e.g. why it is disabled). */
+	title?: string;
+	/** Label of the row that commits "" (defaults to "Clear (use default)"). */
+	clearLabel?: string;
 }
 
-export function ModelValueSelect({ kind, value, disabled, onCommit, placeholder }: ModelValueSelectProps) {
+export function ModelValueSelect({
+	kind,
+	value,
+	disabled,
+	onCommit,
+	placeholder,
+	groups,
+	ariaLabel,
+	title,
+	clearLabel,
+}: ModelValueSelectProps) {
 	const t = useT();
 	const refreshAvailableModels = useModelStore(state => state.refreshAvailableModels);
 	const refreshProviders = useModelStore(state => state.refreshProviders);
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
-	const [options, setOptions] = useState<SelectOption[]>([]);
+	const [fetched, setFetched] = useState<ModelValueOption[]>([]);
 	const [fetchState, setFetchState] = useState<FetchState>("idle");
 	const [fetchError, setFetchError] = useState<string | null>(null);
 	const [placement, setPlacement] = useState<{ top: number; left: number } | null>(null);
 	const rootRef = useRef<HTMLDivElement>(null);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const searchRef = useRef<HTMLInputElement>(null);
+	const listRef = useRef<HTMLDivElement>(null);
 	const requestIdRef = useRef(0);
+	const isStatic = groups !== undefined;
 
 	const fetchOptions = useCallback(() => {
 		const requestId = ++requestIdRef.current;
@@ -105,7 +155,7 @@ export function ModelValueSelect({ kind, value, disabled, onCommit, placeholder 
 		return load
 			.then(result => {
 				if (requestIdRef.current !== requestId) return;
-				setOptions(result);
+				setFetched(result);
 				setFetchState("ready");
 			})
 			.catch((cause: unknown) => {
@@ -118,18 +168,24 @@ export function ModelValueSelect({ kind, value, disabled, onCommit, placeholder 
 	// Fetch on every open. A provider/model edit can happen while this settings
 	// row remains mounted, so retaining a previous "ready" result is stale.
 	useEffect(() => {
-		if (!open) return;
+		if (!open || isStatic) return;
 		void fetchOptions();
 		return () => {
 			requestIdRef.current++;
 		};
-	}, [fetchOptions, open]);
+	}, [fetchOptions, isStatic, open]);
 
 	// Focus the filter input once the panel is up.
 	useEffect(() => {
 		if (!open) return;
 		requestAnimationFrame(() => searchRef.current?.focus());
 	}, [open]);
+
+	// A control that becomes unusable (sidecar dropped) must not keep offering
+	// commits from an already-open panel.
+	useEffect(() => {
+		if (disabled) setOpen(false);
+	}, [disabled]);
 
 	// Close on outside click and on any scroll (the panel is viewport-fixed,
 	// so it would otherwise detach from the trigger inside the scrolling
@@ -141,7 +197,10 @@ export function ModelValueSelect({ kind, value, disabled, onCommit, placeholder 
 				setOpen(false);
 			}
 		};
-		const onScroll = () => setOpen(false);
+		const onScroll = (event: Event) => {
+			if (listRef.current && event.target instanceof Node && listRef.current.contains(event.target)) return;
+			setOpen(false);
+		};
 		document.addEventListener("mousedown", onMouseDown);
 		document.addEventListener("scroll", onScroll, true);
 		return () => {
@@ -160,64 +219,121 @@ export function ModelValueSelect({ kind, value, disabled, onCommit, placeholder 
 				top: openUp ? Math.max(8, rect.top - PANEL_MAX_HEIGHT - 4) : rect.bottom + 4,
 			});
 		}
+		setQuery("");
 		setOpen(true);
+	};
+
+	const closePanel = () => {
+		setOpen(false);
+		triggerRef.current?.focus();
 	};
 
 	const choose = (next: string) => {
 		setOpen(false);
 		setQuery("");
+		triggerRef.current?.focus();
 		if (next !== value) onCommit(next);
 	};
 
+	const allOptions = useMemo(() => (groups ? groups.flatMap(group => group.options) : fetched), [groups, fetched]);
+	const ready = isStatic || fetchState === "ready";
+
 	const trimmedQuery = query.trim();
 	const loweredQuery = trimmedQuery.toLowerCase();
-	const filtered = useMemo(() => {
-		if (loweredQuery.length === 0) return options;
-		return options.filter(
-			option =>
-				option.value.toLowerCase().includes(loweredQuery) ||
-				(option.detail ?? "").toLowerCase().includes(loweredQuery),
-		);
-	}, [options, loweredQuery]);
+	const filteredGroups = useMemo(() => {
+		const source: readonly ModelValueGroup[] = groups ?? [{ label: "", options: fetched }];
+		return source
+			.map(group => ({
+				label: group.label,
+				options: loweredQuery ? group.options.filter(option => matches(option, loweredQuery)) : group.options,
+			}))
+			.filter(group => group.options.length > 0);
+	}, [groups, fetched, loweredQuery]);
+	const filteredCount = filteredGroups.reduce((sum, group) => sum + group.options.length, 0);
 
-	// The current value is pinned as a custom row when the fetched catalog
-	// does not contain it (hand-written overrides stay selectable/clearable).
-	const currentIsCustom = value !== "" && !options.some(option => option.value === value);
-	// The search text doubles as a custom-value entry when it is not an exact
-	// known option.
-	const queryIsCustom = trimmedQuery !== "" && !options.some(option => option.value.toLowerCase() === loweredQuery);
+	// The current value is pinned as a custom row when the options do not
+	// contain it (hand-written overrides stay selectable/clearable).
+	const currentOption = allOptions.find(option => option.value === value);
+	const currentIsCustom = value !== "" && ready && currentOption === undefined;
+	// In fetched mode the search text doubles as a custom-value entry when it is
+	// not an exact known option.
+	const queryIsCustom =
+		!isStatic && trimmedQuery !== "" && !allOptions.some(option => option.value.toLowerCase() === loweredQuery);
 
 	const noun = kind === "model" ? t("modelValue.noun.models") : t("modelValue.noun.providers");
+	const triggerText = value === "" ? (placeholder ?? t("modelValue.unset")) : (currentOption?.label ?? value);
+	const triggerMono = value !== "" && currentOption?.label === undefined;
 
-	const renderOption = (option: SelectOption) => {
+	const moveFocus = (direction: 1 | -1, edge?: "first" | "last") => {
+		const options = listRef.current
+			? Array.from(listRef.current.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)'))
+			: [];
+		if (options.length === 0) return;
+		const index = options.indexOf(document.activeElement as HTMLButtonElement);
+		const next =
+			edge === "first"
+				? 0
+				: edge === "last"
+					? options.length - 1
+					: index < 0
+						? direction > 0
+							? 0
+							: options.length - 1
+						: (index + direction + options.length) % options.length;
+		options[next]?.focus();
+	};
+
+	const onListKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+		if (isImeKeyEvent(event)) return;
+		if (event.key === "ArrowDown") {
+			event.preventDefault();
+			moveFocus(1);
+		} else if (event.key === "ArrowUp") {
+			event.preventDefault();
+			moveFocus(-1);
+		} else if (event.key === "Home" && event.target !== searchRef.current) {
+			event.preventDefault();
+			moveFocus(1, "first");
+		} else if (event.key === "End" && event.target !== searchRef.current) {
+			event.preventDefault();
+			moveFocus(-1, "last");
+		} else if (event.key === "Escape") {
+			event.preventDefault();
+			event.stopPropagation();
+			closePanel();
+		}
+	};
+
+	const renderOption = (option: ModelValueOption) => {
 		const selected = option.value === value;
 		// `disabled` is a recognition label, not a lock: choosing a disabled
 		// provider for a `*Provider` setting only fails when something later
 		// tries to call it.
-		const unavailable = option.disabled === true;
 		return (
 			<button
 				aria-selected={selected}
-				className={`${ROW_CLASS} ${selected ? "bg-(--omp-selected-bg)" : ""} disabled:cursor-not-allowed disabled:opacity-50`}
-				disabled={unavailable}
+				className={cx(ROW_CLASS, selected && "bg-(--sc-selected)")}
+				disabled={option.disabled === true}
 				key={option.value}
 				onClick={() => choose(option.value)}
 				role="option"
+				tabIndex={-1}
 				type="button"
 			>
-				<span
-					className={`min-w-0 flex-1 truncate font-mono text-xs ${
-						selected ? "font-semibold text-(--omp-accent)" : "text-(--omp-text)"
-					}`}
-				>
-					{option.value}
+				<span className={cx("min-w-0 flex-1 truncate", option.label === undefined && "font-mono text-sc-sm")}>
+					{option.label ?? option.value}
 				</span>
-				{option.detail !== undefined && kind === "provider" && (
-					<span className="shrink-0 text-omp-xs text-(--omp-dim)">
+				{option.detail !== undefined && (
+					<span
+						className={cx(
+							"min-w-0 shrink truncate text-sc-xs text-(--sc-text-muted)",
+							option.label !== undefined && "font-mono",
+						)}
+					>
 						{option.disabled ? t("modelValue.providerDisabled", { name: option.detail }) : option.detail}
 					</span>
 				)}
-				{selected && <Check className="shrink-0 text-(--omp-accent)" size={13} />}
+				{selected && <Check aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-accent)" />}
 			</button>
 		);
 	};
@@ -227,93 +343,93 @@ export function ModelValueSelect({ kind, value, disabled, onCommit, placeholder 
 			<button
 				aria-expanded={open}
 				aria-haspopup="listbox"
-				className="flex w-full items-center gap-1.5 rounded-md border border-(--omp-border-muted) bg-(--omp-input-bg) px-2.5 py-1.5 text-left text-xs transition-colors duration-100 focus:border-(--omp-border-accent) focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+				aria-label={ariaLabel}
+				className="flex h-(--sc-control-md) w-full items-center gap-1.5 rounded-(--sc-radius-md) border border-(--sc-border) bg-(--sc-field) px-2.5 text-left text-sc-md transition-colors duration-(--sc-duration-instant) hover:border-(--sc-border-strong) disabled:cursor-not-allowed disabled:opacity-50"
 				disabled={disabled}
 				onClick={() => (open ? setOpen(false) : openPanel())}
 				ref={triggerRef}
+				title={title}
 				type="button"
 			>
 				<span
-					className={`min-w-0 flex-1 truncate font-mono ${value === "" ? "text-(--omp-dim)" : "text-(--omp-text)"}`}
+					className={cx(
+						"min-w-0 flex-1 truncate",
+						triggerMono && "font-mono text-sc-sm",
+						value === "" ? "text-(--sc-text-subtle)" : "text-(--sc-text)",
+					)}
 				>
-					{value === "" ? (placeholder ?? t("modelValue.unset")) : value}
+					{triggerText}
 				</span>
-				<ChevronDown className="shrink-0 text-(--omp-dim)" size={12} />
+				<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 			</button>
 			{open && placement !== null && (
 				<div
-					className="fixed z-50 flex flex-col overflow-hidden rounded-md border border-(--omp-border-muted) bg-(--omp-bg-elevated) shadow-xl shadow-black/40"
+					className="fixed z-(--sc-z-popover) flex flex-col overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-md)"
+					onKeyDown={onListKeyDown}
 					style={{ top: placement.top, left: placement.left, width: PANEL_WIDTH, maxHeight: PANEL_MAX_HEIGHT }}
 				>
-					<div className="flex items-center gap-2 border-b border-(--omp-border-muted) px-2.5 py-2">
-						<Search className="shrink-0 text-(--omp-dim)" size={12} />
+					<div className="flex items-center gap-2 border-b border-(--sc-divider) px-2.5 py-2">
+						<Search aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 						<input
 							aria-label={t("modelValue.searchAria", { noun })}
-							className="min-w-0 flex-1 bg-transparent text-xs text-(--omp-text) placeholder:text-(--omp-dim) focus:outline-none"
+							className="min-w-0 flex-1 bg-transparent text-sc-md text-(--sc-text) outline-none placeholder:text-(--sc-text-subtle)"
 							onChange={event => setQuery(event.target.value)}
-							onKeyDown={event => {
-								if (isImeKeyEvent(event)) return;
-								if (event.key === "Escape") {
-									event.stopPropagation();
-									setOpen(false);
-								}
-							}}
 							placeholder={t("modelValue.searchPlaceholder", { noun })}
 							ref={searchRef}
 							value={query}
 						/>
 					</div>
-					<div className="min-h-0 flex-1 overflow-y-auto p-1" role="listbox">
-						{fetchState === "error" ? (
+					<div className="min-h-0 flex-1 overflow-y-auto p-1" ref={listRef} role="listbox">
+						{!ready && fetchState === "error" ? (
 							<div className="flex flex-col items-center gap-2 py-6">
-								<span className="px-3 text-center text-xs text-(--omp-error)">
+								<span className="px-3 text-center text-sc-sm text-(--sc-danger)">
 									{fetchError ?? t("modelValue.loadFailed", { noun })}
 								</span>
-								<button
-									className="rounded-md border border-(--omp-border-muted) px-2.5 py-1 text-omp-sm font-medium text-(--omp-text) hover:bg-(--omp-bg-tertiary)"
-									onClick={() => void fetchOptions()}
-									type="button"
-								>
+								<Button icon={<RefreshCw />} onClick={() => void fetchOptions()} size="sm" variant="secondary">
 									{t("modelValue.retry")}
-								</button>
+								</Button>
 							</div>
-						) : fetchState !== "ready" ? (
-							<div className="flex items-center justify-center gap-2 py-6">
-								<Spinner size="sm" />
-								<span className="text-xs text-(--omp-dim)">{t("modelValue.loading", { noun })}</span>
+						) : !ready ? (
+							<div className="flex items-center justify-center py-6">
+								<Spinner label={t("modelValue.loading", { noun })} size="sm" />
 							</div>
 						) : (
 							<>
 								{currentIsCustom && (
 									<>
-										<div className="px-2 pt-1 pb-0.5 text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
-											{t("modelValue.currentCustom")}
-										</div>
+										<div className={GROUP_LABEL_CLASS}>{t("modelValue.currentCustom")}</div>
 										{renderOption({ value })}
 									</>
 								)}
-								{filtered.map(renderOption)}
-								{filtered.length === 0 && !queryIsCustom && (
-									<div className="px-2 py-6 text-center text-xs text-(--omp-dim)">
-										{options.length === 0
+								{filteredGroups.map(group => (
+									<div key={group.label || "options"} role="group" aria-label={group.label || undefined}>
+										{group.label && <div className={GROUP_LABEL_CLASS}>{group.label}</div>}
+										{group.options.map(renderOption)}
+									</div>
+								))}
+								{filteredCount === 0 && !queryIsCustom && (
+									<div className="px-2 py-6 text-center text-sc-sm text-(--sc-text-muted)">
+										{allOptions.length === 0
 											? t("modelValue.noneAvailable", { noun })
 											: t("modelValue.noMatch", { noun, query: trimmedQuery })}
 									</div>
 								)}
 								{queryIsCustom && (
 									<button className={ROW_CLASS} onClick={() => choose(trimmedQuery)} type="button">
-										<span className="min-w-0 flex-1 truncate text-xs text-(--omp-text)">
+										<span className="min-w-0 flex-1 truncate">
 											{t("modelValue.useCustom", { query: trimmedQuery })}
 										</span>
 									</button>
 								)}
 								{value !== "" && (
 									<button
-										className={`${ROW_CLASS} mt-0.5 border-t border-(--omp-border-muted) rounded-t-none`}
+										className={cx(ROW_CLASS, "mt-0.5 rounded-t-none border-t border-(--sc-divider)")}
 										onClick={() => choose("")}
 										type="button"
 									>
-										<span className="min-w-0 flex-1 text-xs text-(--omp-dim)">{t("modelValue.clear")}</span>
+										<span className="min-w-0 flex-1 text-(--sc-text-muted)">
+											{clearLabel ?? t("modelValue.clear")}
+										</span>
 									</button>
 								)}
 							</>

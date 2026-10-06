@@ -18,9 +18,9 @@ export interface ProgressBarProps {
 }
 
 function thresholdColor(value: number): string {
-	if (value >= 0.9) return "var(--omp-error)";
-	if (value >= 0.75) return "var(--omp-warning)";
-	return "var(--omp-success)";
+	if (value >= 0.9) return "var(--sc-danger)";
+	if (value >= 0.75) return "var(--sc-warning)";
+	return "var(--sc-success)";
 }
 
 export function ProgressBar({ value, label, valueText, color, height = 6, className }: ProgressBarProps) {
@@ -31,22 +31,24 @@ export function ProgressBar({ value, label, valueText, color, height = 6, classN
 	return (
 		<div className={`flex items-center gap-2 ${className ?? ""}`.trim()}>
 			{label && (
-				<span className="shrink-0 text-omp-xs font-medium tracking-wide text-(--omp-muted) uppercase">{label}</span>
+				<span className="shrink-0 text-sc-2xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
+					{label}
+				</span>
 			)}
 			<div
 				aria-valuemax={1}
 				aria-valuemin={0}
 				aria-valuenow={Number(clamped.toFixed(3))}
-				className="min-w-0 flex-1 overflow-hidden rounded-full bg-(--omp-bg-tertiary)" // surface-ok: progress bar track
+				className="min-w-0 flex-1 overflow-hidden rounded-full bg-(--sc-surface-3)"
 				role="progressbar"
 				style={{ height }}
 			>
 				<div
-					className="h-full rounded-full transition-[width] duration-300 ease-out"
+					className="h-full rounded-full transition-[width] duration-(--sc-duration-med) ease-out"
 					style={{ width: `${clamped * 100}%`, backgroundColor: fill }}
 				/>
 			</div>
-			<span className="shrink-0 text-omp-xs tabular-nums text-(--omp-dim)">{text}</span>
+			<span className="shrink-0 text-sc-2xs tabular-nums text-(--sc-text-muted)">{text}</span>
 		</div>
 	);
 }

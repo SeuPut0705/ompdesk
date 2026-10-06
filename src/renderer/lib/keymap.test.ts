@@ -191,9 +191,9 @@ describe("detectConflicts", () => {
 describe("hotkey reference table", () => {
 	it("files every remappable action in exactly one group", () => {
 		// A second group would render the action twice (two rows, one binding); a
-		// dropped one could never be remapped at all — the dialog is the only
-		// entry point. The required `hotkeyGroup` field makes "none" a type error,
-		// and HotkeysDialog's render test covers "no section for this group".
+		// dropped one could never be remapped at all — Settings › Keyboard is the
+		// only entry point. The required `hotkeyGroup` field makes "none" a type
+		// error, and KeyboardSection's render test covers "no section for this group".
 		const seen = new Set<string>();
 		for (const group of new Set(KEYMAP_ACTIONS.map(action => action.hotkeyGroup))) {
 			for (const action of keymapActionsForGroup(group)) {

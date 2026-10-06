@@ -9,11 +9,23 @@ export interface ExtensionUiSnapshot {
 }
 
 export interface ExtensionUiStore extends ExtensionUiSnapshot {
+	/**
+	 * A provider sign-in rendered inline (providers list, first-run setup) is in
+	 * flight: its `open_url` / `input` requests belong to that surface, so the
+	 * global ExtensionDialog leaves them alone.
+	 */
+	inlineLogin: boolean;
+	setInlineLogin: (active: boolean) => void;
 	pushRequest: (request: ExtensionUIRequest) => void;
 	removeRequest: (id: string) => void;
 	setStatus: (key: string, text: string | undefined) => void;
 	setWidget: (key: string, lines: string[] | undefined) => void;
 	clearAll: () => void;
+}
+
+/** Requests an inline provider sign-in answers itself. */
+export function isInlineLoginRequest(request: ExtensionUIRequest): boolean {
+	return request.method === "open_url" || request.method === "input";
 }
 
 /** Pure request reducer shared by the visible store and parked tab bundles. */
@@ -44,6 +56,8 @@ export const createExtensionUiStore = () =>
 		pendingRequests: [],
 		statusWidgets: {},
 		widgetPanels: {},
+		inlineLogin: false,
+		setInlineLogin: active => set({ inlineLogin: active }),
 		pushRequest: request => set(state => applyExtensionUiRequest(state, request)),
 		removeRequest: id => set({ pendingRequests: get().pendingRequests.filter(r => r.id !== id) }),
 		setStatus: (key, text) => {

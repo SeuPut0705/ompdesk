@@ -1,15 +1,29 @@
 /**
- * Shared context menu: portal-rendered at cursor/trigger coordinates, with
- * full keyboard support (arrows navigate, Enter selects, Escape closes) and
- * outside-press dismissal. Used by the sidebar mode selector, workspace
- * group menus, and session row menus — one implementation, three surfaces.
+ * Menus — a short list of ACTIONS (or toggles) that closes on choice.
+ *
+ * - `ContextMenu`: portal-rendered at cursor/trigger coordinates, with full
+ *   keyboard support (arrows navigate, Enter selects, Escape closes) and
+ *   outside-press dismissal. Right-click surfaces open it at the pointer
+ *   (anchorFromEvent).
+ * - `MenuButton`: a button that opens the same menu under itself (⋯ menus,
+ *   "more actions", overflow toolbars).
+ * - `MenuSurface` / `MenuItemView`: the visuals, for the style guide.
+ *
+ * Rules: ≤ ~10 items, verbs first; destructive items last and `danger`;
+ * shortcuts via `shortcut` (rendered as Kbd), never inside the label; items
+ * that toggle a setting set `checked` (menuitemcheckbox). Choosing a value
+ * from data (models, sessions) is a picker, not a menu; a form value with
+ * few static options is a Select.
  */
 
-import type { LucideIcon } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Check, type LucideIcon } from "lucide-react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../../lib/format";
 import { isImeKeyEvent } from "../../lib/ime";
+import { Button, type ButtonSize, type ButtonVariant } from "./Button";
+import { IconButton } from "./IconButton";
+import { Kbd } from "./Kbd";
 
 export interface ContextMenuItem {
 	/** Stable id for keyboard focus tracking. */
@@ -17,8 +31,12 @@ export interface ContextMenuItem {
 	label: string;
 	description?: string;
 	icon?: LucideIcon;
-	/** Right-aligned hint text (e.g. a chord). */
+	/** Right-aligned plain hint text (a count, a value). */
 	hint?: string;
+	/** macOS-spelled shortcut, rendered as Kbd. */
+	shortcut?: string;
+	/** Toggle item: renders a check and role="menuitemcheckbox". */
+	checked?: boolean;
 	/** Danger styling (destructive actions like delete). */
 	danger?: boolean;
 	/** Disabled items render but never fire. */
@@ -27,15 +45,72 @@ export interface ContextMenuItem {
 	onSelect: () => void;
 }
 
+export type MenuAlign = "start" | "end";
+
 interface ContextMenuProps {
 	items: ContextMenuItem[];
-	/** Viewport coordinates for the menu's top-left corner. */
+	/** Viewport x of the menu's left edge (align "start") or right edge (align "end"). */
 	x: number;
 	y: number;
+	align?: MenuAlign;
+	ariaLabel?: string;
 	onClose: () => void;
 }
 
-export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
+/** Menu panel visuals. */
+export function MenuSurface({ className, children }: { className?: string; children: ReactNode }) {
+	return (
+		<div
+			className={cx(
+				"min-w-48 max-w-80 overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) p-1 shadow-(--sc-shadow-md)",
+				className,
+			)}
+		>
+			{children}
+		</div>
+	);
+}
+
+/** Inner layout of one menu item (icon or check · label + description · hint/shortcut). */
+export function MenuItemView({ item }: { item: Omit<ContextMenuItem, "onSelect" | "id"> }) {
+	const Icon = item.icon;
+	const showCheckColumn = item.checked !== undefined;
+	return (
+		<>
+			{showCheckColumn ? (
+				<Check aria-hidden className={cx("shrink-0 text-(--sc-accent)", !item.checked && "invisible")} size={14} />
+			) : (
+				Icon && (
+					<Icon
+						aria-hidden
+						className={cx("shrink-0", item.danger ? "text-(--sc-danger)" : "text-(--sc-text-muted)")}
+						size={14}
+					/>
+				)
+			)}
+			<span className="min-w-0 flex-1">
+				<span className="block truncate">{item.label}</span>
+				{item.description && (
+					<span className="mt-0.5 block text-sc-xs font-normal text-(--sc-text-muted)">{item.description}</span>
+				)}
+			</span>
+			{item.hint && <span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{item.hint}</span>}
+			{item.shortcut && <Kbd shortcut={item.shortcut} />}
+		</>
+	);
+}
+
+/** Item row classes; `active` is the keyboard/pointer highlight. */
+export function menuItemClasses(item: Pick<ContextMenuItem, "danger" | "disabled">, active: boolean): string {
+	return cx(
+		"flex min-h-8 w-full items-center gap-2.5 rounded-(--sc-radius-sm) px-2 py-1.5 text-left text-sc-md outline-none",
+		item.danger ? "text-(--sc-danger)" : "text-(--sc-text)",
+		active && (item.danger ? "bg-(--sc-danger-soft)" : "bg-(--sc-selected)"),
+		item.disabled && "cursor-not-allowed opacity-50",
+	);
+}
+
+export function ContextMenu({ items, x, y, align = "start", ariaLabel, onClose }: ContextMenuProps) {
 	const menuRef = useRef<HTMLDivElement>(null);
 	const [activeIndex, setActiveIndex] = useState(() => items.findIndex(item => !item.disabled));
 	const [pos, setPos] = useState({ left: x, top: y });
@@ -45,10 +120,10 @@ export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
 		const el = menuRef.current;
 		if (!el) return;
 		const rect = el.getBoundingClientRect();
-		const left = Math.min(x, window.innerWidth - rect.width - 8);
+		const left = Math.min(align === "end" ? x - rect.width : x, window.innerWidth - rect.width - 8);
 		const top = Math.min(y, window.innerHeight - rect.height - 8);
 		setPos({ left: Math.max(8, left), top: Math.max(8, top) });
-	}, [x, y]);
+	}, [x, y, align]);
 
 	const onCloseRef = useRef(onClose);
 	onCloseRef.current = onClose;
@@ -101,9 +176,8 @@ export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
 
 	return createPortal(
 		<div
-			ref={menuRef}
-			role="menu"
-			style={{ left: pos.left, top: pos.top }}
+			aria-label={ariaLabel}
+			className="omp-pop-in fixed z-(--sc-z-popover)"
 			onKeyDown={event => {
 				if (event.key === "Escape") {
 					event.preventDefault();
@@ -123,45 +197,31 @@ export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
 					if (item && !item.disabled) item.onSelect();
 				}
 			}}
-			className="omp-pop-in fixed z-50 min-w-44 overflow-hidden rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] py-1 shadow-xl"
+			ref={menuRef}
+			role="menu"
+			style={{ left: pos.left, top: pos.top }}
 		>
-			{items.map((item, index) => (
-				<button
-					key={item.id}
-					type="button"
-					role="menuitem"
-					data-menu-item
-					disabled={item.disabled}
-					title={item.disabled ? item.disabledReason : item.label}
-					onClick={() => {
-						if (item.disabled) return;
-						item.onSelect();
-					}}
-					onMouseEnter={() => setActiveIndex(index)}
-					className={cx(
-						"flex w-full items-center gap-2 px-3 py-2 text-left text-omp-md hover:bg-[var(--omp-selected-bg)]",
-						item.danger ? "text-[var(--omp-error)]" : "text-[var(--omp-text)]",
-						index === activeIndex && "bg-[var(--omp-selected-bg)]",
-						item.disabled && "cursor-not-allowed opacity-70",
-					)}
-				>
-					{item.icon && (
-						<item.icon
-							size={13}
-							className={cx("shrink-0", item.danger ? "text-[var(--omp-error)]" : "text-[var(--omp-muted)]")}
-						/>
-					)}
-					<span className="min-w-0 flex-1">
-						<span className="block truncate">{item.label}</span>
-						{item.description && (
-							<span className="mt-0.5 block text-omp-xs font-normal text-[var(--omp-dim)]">
-								{item.description}
-							</span>
-						)}
-					</span>
-					{item.hint && <span className="text-omp-xs text-[var(--omp-dim)]">{item.hint}</span>}
-				</button>
-			))}
+			<MenuSurface className={items.some(item => item.description) ? "min-w-64" : undefined}>
+				{items.map((item, index) => (
+					<button
+						aria-checked={item.checked}
+						className={menuItemClasses(item, index === activeIndex)}
+						data-menu-item
+						disabled={item.disabled}
+						key={item.id}
+						onClick={() => {
+							if (item.disabled) return;
+							item.onSelect();
+						}}
+						onMouseEnter={() => setActiveIndex(index)}
+						role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+						title={item.disabled ? item.disabledReason : item.label}
+						type="button"
+					>
+						<MenuItemView item={item} />
+					</button>
+				))}
+			</MenuSurface>
 		</div>,
 		document.body,
 	);
@@ -180,4 +240,86 @@ export function anchorFromEvent(event: {
 }): ContextMenuAnchor {
 	event.preventDefault();
 	return { x: event.clientX, y: event.clientY };
+}
+
+export interface MenuButtonProps {
+	items: ContextMenuItem[];
+	/** Accessible name of the trigger (and the menu). */
+	label: string;
+	/** Icon-only trigger when set without `children`. */
+	icon?: ReactNode;
+	/** Visible trigger text; renders a Button. */
+	children?: ReactNode;
+	variant?: ButtonVariant;
+	size?: ButtonSize;
+	/** Which trigger edge the menu lines up with. */
+	align?: MenuAlign;
+	disabled?: boolean;
+	className?: string;
+}
+
+/**
+ * A trigger that opens a ContextMenu below itself. Selecting an item closes
+ * the menu and returns focus to the trigger.
+ */
+export function MenuButton({
+	items,
+	label,
+	icon,
+	children,
+	variant,
+	size = "md",
+	align = "start",
+	disabled,
+	className,
+}: MenuButtonProps) {
+	const [anchor, setAnchor] = useState<ContextMenuAnchor | null>(null);
+	// A press on the trigger while open closes the menu (outside press); the
+	// click that follows must not reopen it.
+	const swallowClickRef = useRef(false);
+	const open = anchor !== null;
+	const triggerProps = {
+		"aria-expanded": open,
+		"aria-haspopup": "menu" as const,
+		className,
+		disabled,
+		onPointerDown: () => {
+			swallowClickRef.current = open;
+		},
+		onClick: (event: { currentTarget: HTMLElement }) => {
+			if (swallowClickRef.current) {
+				swallowClickRef.current = false;
+				return;
+			}
+			const rect = event.currentTarget.getBoundingClientRect();
+			setAnchor({ x: align === "end" ? rect.right : rect.left, y: rect.bottom + 4 });
+		},
+	};
+	return (
+		<>
+			{children === undefined ? (
+				<IconButton {...triggerProps} icon={icon} label={label} size={size} variant={variant ?? "ghost"} />
+			) : (
+				<Button {...triggerProps} icon={icon} size={size} variant={variant ?? "secondary"}>
+					{children}
+				</Button>
+			)}
+			{anchor && (
+				<ContextMenu
+					align={align}
+					ariaLabel={label}
+					items={items.map(item => ({
+						...item,
+						onSelect: () => {
+							setAnchor(null);
+							item.onSelect();
+						},
+					}))}
+					onClose={() => setAnchor(null)}
+					x={anchor.x}
+					y={anchor.y}
+				/>
+			)}
+		</>
+	);
 }

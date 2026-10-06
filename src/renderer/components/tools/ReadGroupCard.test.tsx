@@ -75,12 +75,20 @@ describe("ReadGroupCard running indicators", () => {
 	it("keeps one group spinner when multiple running reads are expanded", async () => {
 		await mount();
 		expect(container.querySelectorAll(".animate-spin")).toHaveLength(1);
-		expect(container.querySelectorAll(".omp-tool-status-icon")).toHaveLength(2);
+		expect(container.querySelectorAll(".omp-tool-card .omp-tool-status-icon")).toHaveLength(2);
 	});
 
 	it("uses only static indicators when the transcript timeline owns animation", async () => {
 		await mount("dot");
 		expect(container.querySelectorAll(".animate-spin, .animate-pulse")).toHaveLength(0);
-		expect(container.querySelectorAll(".omp-tool-status-icon")).toHaveLength(2);
+		expect(container.querySelectorAll(".omp-tool-card .omp-tool-status-icon")).toHaveLength(2);
+	});
+
+	it("reads as one human step: label, file count and the file names", async () => {
+		await mount("dot");
+		const header = container.querySelector(".omp-read-group-header");
+		expect(header?.textContent).toContain("Read");
+		expect(header?.textContent).toContain("2 files");
+		expect(header?.textContent).toContain("a.ts, b.ts");
 	});
 });

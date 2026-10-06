@@ -1,5 +1,5 @@
 /**
- * omp GUI bridge: an omp extension the GUI loads with `-e` so its main process
+ * seucode's gui-bridge: an omp extension the GUI loads with `-e` so its main process
  * can reach live session state stock RPC does not expose.
  *
  * Transport: the GUI passes a unix socket path (macOS) or named pipe (Windows)

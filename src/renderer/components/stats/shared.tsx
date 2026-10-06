@@ -1,11 +1,16 @@
 /**
- * Shared building blocks for stats routes: frame with loading/error/empty
- * states, metric cards, generic table, chart container.
+ * Shared building blocks for the Insights › Stats (all sessions) sections:
+ * range ids, a frame with loading/error/empty states, metric cards, a data
+ * table, a chart container, and section headings.
  */
 
 import type { ReactNode } from "react";
+import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { AsyncSection } from "../common";
+
+export const STATS_RANGES = ["1h", "24h", "7d", "30d", "90d", "all"] as const;
+export type StatsRange = (typeof STATS_RANGES)[number];
 
 export function RouteFrame({
 	loading,
@@ -41,6 +46,14 @@ export function RouteFrame({
 	);
 }
 
+const TONE_CLASS = {
+	default: "text-(--sc-text)",
+	accent: "text-(--sc-accent)",
+	success: "text-(--sc-success)",
+	warning: "text-(--sc-warning)",
+	error: "text-(--sc-danger)",
+} as const;
+
 export function MetricCard({
 	label,
 	value,
@@ -50,22 +63,20 @@ export function MetricCard({
 	label: string;
 	value: string;
 	sub?: string;
-	tone?: "default" | "accent" | "success" | "warning" | "error";
+	tone?: keyof typeof TONE_CLASS;
 }) {
-	const valueColor = {
-		default: "text-(--omp-text)",
-		accent: "text-(--omp-accent)",
-		success: "text-(--omp-success)",
-		warning: "text-(--omp-warning)",
-		error: "text-(--omp-error)",
-	}[tone];
 	return (
-		<div className="rounded-lg border border-(--omp-border-muted) bg-transparent px-3.5 py-3 transition-colors hover:border-(--omp-border)">
-			<div className="text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">{label}</div>
-			<div className={`mt-1 text-xl font-semibold tabular-nums ${valueColor}`}>{value}</div>
-			{sub && <div className="mt-0.5 text-omp-xs text-(--omp-muted)">{sub}</div>}
+		<div className="flex min-w-0 flex-col gap-1 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-4 py-3">
+			<div className="truncate text-sc-xs text-(--sc-text-muted)">{label}</div>
+			<div className={cx("truncate text-sc-2xl font-semibold tabular-nums", TONE_CLASS[tone])}>{value}</div>
+			{sub && <div className="truncate text-sc-xs text-(--sc-text-muted)">{sub}</div>}
 		</div>
 	);
+}
+
+/** Responsive grid for MetricCards. */
+export function MetricGrid({ children }: { children: ReactNode }) {
+	return <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">{children}</div>;
 }
 
 export interface StatColumn<T> {
@@ -84,20 +95,22 @@ export function StatTable<T>({
 	columns: StatColumn<T>[];
 	rows: T[];
 	keyFor: (row: T) => string;
-	/** Makes rows clickable (e.g. opening a detail drawer). */
+	/** Makes rows clickable (e.g. opening a detail sheet). */
 	onRowClick?: (row: T) => void;
 }) {
 	return (
-		<div className="overflow-x-auto rounded-lg border border-(--omp-border-muted)">
-			<table className="w-full border-collapse text-omp-sm">
+		<div className="overflow-x-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
+			<table className="w-full border-collapse text-sc-sm text-(--sc-text-secondary)">
 				<thead>
-					<tr className="border-b border-(--omp-border-muted) bg-transparent">
+					<tr className="border-b border-(--sc-divider)">
 						{columns.map(column => (
 							<th
-								className={`px-2.5 py-1.5 text-omp-xxs font-semibold tracking-widest whitespace-nowrap text-(--omp-dim) uppercase ${
-									column.align === "right" ? "text-right" : "text-left"
-								}`}
+								className={cx(
+									"px-3 py-2 text-sc-xs font-medium whitespace-nowrap text-(--sc-text-muted)",
+									column.align === "right" ? "text-right" : "text-left",
+								)}
 								key={column.key}
+								scope="col"
 							>
 								{column.label}
 							</th>
@@ -107,7 +120,10 @@ export function StatTable<T>({
 				<tbody>
 					{rows.map(row => (
 						<tr
-							className={`border-b border-(--omp-border-muted) transition-colors last:border-b-0 hover:bg-(--omp-bg-tertiary) ${onRowClick ? "cursor-pointer" : ""}`}
+							className={cx(
+								"border-b border-(--sc-divider) last:border-b-0",
+								onRowClick && "cursor-pointer hover:bg-(--sc-hover)",
+							)}
 							key={keyFor(row)}
 							onClick={onRowClick ? () => onRowClick(row) : undefined}
 							tabIndex={onRowClick ? 0 : undefined}
@@ -124,7 +140,7 @@ export function StatTable<T>({
 						>
 							{columns.map(column => (
 								<td
-									className={`px-2.5 py-1.5 align-top ${column.align === "right" ? "text-right tabular-nums" : ""}`}
+									className={cx("px-3 py-2 align-top", column.align === "right" && "text-right tabular-nums")}
 									key={column.key}
 								>
 									{column.render(row)}
@@ -138,18 +154,17 @@ export function StatTable<T>({
 	);
 }
 
+/** Bordered chart container; `height` is the canvas height in px (charts need a fixed box). */
 export function ChartBox({ height = 260, children }: { height?: number; children: ReactNode }) {
 	return (
-		<div className="rounded-lg border border-(--omp-border-muted) bg-transparent p-3" style={{ height: height + 24 }}>
-			<div className="relative h-full w-full">{children}</div>
+		<div className="rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-4">
+			<div className="relative w-full" style={{ height }}>
+				{children}
+			</div>
 		</div>
 	);
 }
 
 export function SectionTitle({ children }: { children: ReactNode }) {
-	return (
-		<h3 className="mb-2 mt-5 text-omp-xs font-semibold tracking-widest text-(--omp-dim) uppercase first:mt-0">
-			{children}
-		</h3>
-	);
+	return <h3 className="mt-8 mb-3 text-sc-md font-semibold text-(--sc-text) first:mt-0">{children}</h3>;
 }

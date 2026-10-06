@@ -1,0 +1,191 @@
+/* seucode design tokens — theme-independent layer.
+ *
+ * Palettes (the --sc-* color primitives) live in theme-light.css and
+ * theme-dark.css. This file holds everything that does not change per theme:
+ * the type, spacing, radius, control, icon, motion and z-index scales; the
+ * derived color washes (computed from the active palette with color-mix, so
+ * named themes and plugin overlays retint them for free); and the --omp-*
+ * compatibility aliases that keep unmigrated surfaces painting from the new
+ * palette. Usage rules: design-spec.md (Tokens) and the style guide
+ * (OMP_GUI_STYLEGUIDE=1).
+ *
+ * Tailwind: write tokens as `bg-(--sc-surface-2)`, `text-(--sc-text-muted)`,
+ * `border-(--sc-border)`; type steps as `text-sc-md` (global.css @theme).
+ */
+
+:root {
+	/* ── Typography ─────────────────────────────────────────────────────
+	   Latin from Inter; Hangul from the system Korean face (named first so it
+	   is not borrowed from a Chinese font); CJK ideographs for zh via :lang. */
+	--sc-font-sans:
+		"Inter Variable", "Apple SD Gothic Neo", "Pretendard Variable", "Pretendard", "Malgun Gothic", "PingFang SC",
+		"Hiragino Sans GB", "Microsoft YaHei", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+	--sc-font-mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", "D2Coding", ui-monospace, monospace;
+
+	/* Size steps scale with the user font-size preference (--gui-font-size,
+	   default 15px). Pixel values below are at the default. */
+	--sc-font-2xs: calc(var(--gui-font-size, 15px) * 11 / 15); /* 11 — badges, counters (floor) */
+	--sc-font-xs: calc(var(--gui-font-size, 15px) * 12 / 15); /* 12 — captions, meta, kbd */
+	--sc-font-sm: calc(var(--gui-font-size, 15px) * 13 / 15); /* 13 — secondary UI, descriptions */
+	--sc-font-md: calc(var(--gui-font-size, 15px) * 14 / 15); /* 14 — default UI: buttons, fields, rows */
+	--sc-font-lg: var(--gui-font-size, 15px); /* 15 — reading body, dialog body */
+	--sc-font-xl: calc(var(--gui-font-size, 15px) * 17 / 15); /* 17 — dialog and section titles */
+	--sc-font-2xl: calc(var(--gui-font-size, 15px) * 20 / 15); /* 20 — page titles */
+	--sc-font-3xl: calc(var(--gui-font-size, 15px) * 26 / 15); /* 26 — empty-state hero */
+
+	--sc-leading-tight: 1.25; /* titles */
+	--sc-leading-snug: 1.4; /* single-line UI */
+	--sc-leading-normal: 1.55; /* body */
+	--sc-leading-relaxed: 1.7; /* long-form reading, Hangul paragraphs */
+
+	--sc-weight-regular: 400;
+	--sc-weight-medium: 500;
+	--sc-weight-semibold: 600;
+
+	--sc-tracking-tight: -0.011em; /* ≥ xl titles */
+	--sc-tracking-normal: -0.004em;
+
+	/* ── Spacing — 4px base ─────────────────────────────────────────────
+	   Tailwind's spacing unit is the same 4px, so p-2 = --sc-space-2. */
+	--sc-space-0-5: 2px;
+	--sc-space-1: 4px;
+	--sc-space-1-5: 6px;
+	--sc-space-2: 8px;
+	--sc-space-3: 12px;
+	--sc-space-4: 16px;
+	--sc-space-5: 20px;
+	--sc-space-6: 24px;
+	--sc-space-8: 32px;
+	--sc-space-10: 40px;
+	--sc-space-12: 48px;
+	--sc-space-16: 64px;
+
+	/* ── Radii ────────────────────────────────────────────────────────── */
+	--sc-radius-xs: 4px; /* kbd, inline code, checkbox */
+	--sc-radius-sm: 6px; /* small controls (28px), menu items */
+	--sc-radius-md: 8px; /* controls (32px), fields, list rows */
+	--sc-radius-lg: 12px; /* cards, popovers, menus, toasts */
+	--sc-radius-xl: 16px; /* dialogs, sheets, composer */
+	--sc-radius-full: 9999px; /* pills, switches, avatars */
+
+	/* ── Controls & icons ─────────────────────────────────────────────── */
+	--sc-control-sm: 28px; /* also the minimum hit target */
+	--sc-control-md: 32px;
+	--sc-control-lg: 36px;
+	--sc-hit-min: 28px;
+	--sc-icon-sm: 14px;
+	--sc-icon-md: 16px;
+	--sc-icon-lg: 20px;
+
+	/* ── Motion ───────────────────────────────────────────────────────── */
+	--sc-duration-instant: 90ms; /* motion-ok: token definition */
+	--sc-duration-fast: 150ms; /* motion-ok: token definition */
+	--sc-duration-med: 220ms; /* motion-ok: token definition */
+	--sc-duration-slow: 320ms; /* motion-ok: token definition */
+	--sc-ease-standard: cubic-bezier(0.25, 1, 0.35, 1);
+	--sc-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+	--sc-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+	/* ── Layers ─────────────────────────────────────────────────────────
+	   Menus and popovers sit above dialogs: they open from inside them. */
+	--sc-z-raised: 1;
+	--sc-z-sticky: 10;
+	--sc-z-drawer: 30;
+	--sc-z-dialog: 50;
+	--sc-z-popover: 60; /* menus, popovers, select-like dropdowns */
+	--sc-z-toast: 70;
+	--sc-z-tooltip: 80;
+
+	/* ── Focus ────────────────────────────────────────────────────────── */
+	--sc-focus-ring: var(--sc-accent);
+	--sc-focus-width: 2px;
+	--sc-focus-offset: 2px;
+
+	/* ── Derived colors — follow whatever palette is active ───────────── */
+	--sc-hover: color-mix(in srgb, var(--sc-text) 5%, transparent);
+	--sc-pressed: color-mix(in srgb, var(--sc-text) 9%, transparent);
+	--sc-selected: color-mix(in srgb, var(--sc-text) 7%, transparent);
+	--sc-border-strong: color-mix(in srgb, var(--sc-border) 65%, var(--sc-text));
+	--sc-accent-soft: color-mix(in srgb, var(--sc-accent) 12%, transparent);
+	--sc-accent-border: color-mix(in srgb, var(--sc-accent) 55%, transparent);
+	--sc-focus-glow: color-mix(in srgb, var(--sc-accent) 22%, transparent);
+	--sc-selection: color-mix(in srgb, var(--sc-accent) 24%, transparent);
+	--sc-success-soft: color-mix(in srgb, var(--sc-success) 12%, transparent);
+	--sc-warning-soft: color-mix(in srgb, var(--sc-warning) 12%, transparent);
+	--sc-danger-soft: color-mix(in srgb, var(--sc-danger) 12%, transparent);
+	--sc-info-soft: color-mix(in srgb, var(--sc-info) 12%, transparent);
+
+	/* ── --omp-* compatibility aliases ──────────────────────────────────
+	   Unmigrated surfaces keep reading --omp-*; each resolves to its --sc-*
+	   token. Named themes (lib/themes.ts) still write --omp-* inline, which
+	   wins over these, and mirror their palette onto --sc-* (SC_TOKEN_SOURCES). */
+	--omp-accent: var(--sc-accent);
+	--omp-accent-bright: var(--sc-accent-hover);
+	--omp-accent-dim: var(--sc-accent-soft);
+	--omp-accent-glow: var(--sc-focus-glow);
+	--omp-border: var(--sc-border-subtle);
+	--omp-border-accent: var(--sc-accent-border);
+	--omp-border-muted: var(--sc-divider);
+	--omp-border-strong: var(--sc-border);
+	--omp-success: var(--sc-success);
+	--omp-success-dim: var(--sc-success-soft);
+	--omp-error: var(--sc-danger);
+	--omp-error-dim: var(--sc-danger-soft);
+	--omp-warning: var(--sc-warning);
+	--omp-warning-dim: var(--sc-warning-soft);
+	--omp-info: var(--sc-info);
+	--omp-info-dim: var(--sc-info-soft);
+	--omp-text: var(--sc-text);
+	--omp-text-secondary: var(--sc-text-secondary);
+	--omp-bg-primary: var(--sc-bg);
+	--omp-bg-secondary: var(--sc-surface-2);
+	--omp-bg-tertiary: var(--sc-surface-3);
+	--omp-bg-elevated: var(--sc-elevated);
+	--omp-selected-bg: var(--sc-selected);
+	--omp-muted: var(--sc-text-muted);
+	--omp-dim: var(--sc-text-subtle);
+	--omp-link: var(--sc-accent);
+	--omp-input-bg: var(--sc-field);
+	--omp-input-border: var(--sc-border);
+	--omp-input-focus-border: var(--sc-accent);
+	--omp-input-glow: var(--sc-focus-glow);
+	--omp-btn-primary-bg: var(--sc-accent);
+	--omp-btn-primary-text: var(--sc-accent-fg);
+	--omp-btn-secondary-bg: var(--sc-surface-3);
+	--omp-btn-secondary-text: var(--sc-text);
+	--omp-btn-danger-bg: var(--sc-danger);
+	--omp-btn-danger-text: var(--sc-danger-fg);
+	--omp-badge-bg: var(--sc-surface-3);
+	--omp-badge-text: var(--sc-text-secondary);
+	--omp-badge-accent: var(--sc-accent);
+	--omp-overlay-bg: var(--sc-overlay);
+	--omp-modal-bg: var(--sc-elevated);
+	--omp-modal-border: var(--sc-border-subtle);
+	--omp-toast-bg: var(--sc-elevated);
+	--omp-toast-text: var(--sc-text);
+	--omp-toast-border: var(--sc-border-subtle);
+	--omp-progress-bg: var(--sc-surface-3);
+	--omp-progress-fill: var(--sc-accent);
+	--omp-sidebar-bg: var(--sc-surface-1);
+	--omp-sidebar-item-hover: var(--sc-hover);
+	--omp-sidebar-item-active: var(--sc-selected);
+	--omp-selection-bg: var(--sc-selection);
+	--omp-selection-text: var(--sc-text);
+	--omp-panel-bg: var(--sc-surface-1);
+	--omp-panel-border: var(--sc-divider);
+	--omp-panel-header: var(--sc-text-muted);
+	--omp-titlebar-bg: var(--sc-bg);
+	--omp-titlebar-text: var(--sc-text);
+	--omp-status-bg: var(--sc-surface-1);
+	--omp-shadow-sm: var(--sc-shadow-sm);
+	--omp-shadow-md: var(--sc-shadow-md);
+	--omp-shadow-lg: var(--sc-shadow-lg);
+	--omp-shadow-glow: 0 0 0 1px var(--sc-accent-border);
+}
+
+/* Chinese UI: ideographs from the Chinese face, not the Korean one. */
+:root:lang(zh) {
+	--sc-font-sans:
+		"Inter Variable", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Apple SD Gothic Neo", "Malgun Gothic",
+		ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}

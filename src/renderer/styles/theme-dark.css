@@ -1,170 +1,109 @@
-/* omp GUI — Graphite. Keep in sync with THEMES.dark. */
+/* seucode Dark — default dark palette. Keep in sync with THEMES.dark (lib/themes.ts, label "Graphite"):
+   applyThemeByName() writes that map inline when the theme is picked by name.
+   Only palette primitives live here; scales, derived washes and the --omp-*
+   compatibility aliases are theme-independent (tokens.css). Spec: design-spec.md. */
 
-:root {
+:root,
+:root[data-theme="dark"] {
 	color-scheme: dark;
 
-	/* ── Brand ─────────────────────────────────────────────────────────── */
-	--omp-accent: #93b4d5;
-	--omp-accent-bright: #b4cce3;
-	--omp-accent-dim: rgba(147, 180, 213, 0.13);
-	--omp-accent-glow: rgba(147, 180, 213, 0.16);
+	/* ── seucode palette (--sc-*) ─────────────────────────────────────── */
+	/* Surfaces */
+	--sc-bg: #19191c;
+	--sc-surface-1: #141416;
+	--sc-surface-2: #1f1f23;
+	--sc-surface-3: #28282d;
+	--sc-elevated: #232327;
+	--sc-field: #1f1f23;
+	--sc-overlay: rgba(0, 0, 0, 0.6);
+	/* Text */
+	--sc-text: #ededf0;
+	--sc-text-secondary: #c4c4cb;
+	--sc-text-muted: #a1a1aa;
+	--sc-text-subtle: #8f8f99;
+	/* Lines */
+	--sc-divider: #2a2a30;
+	--sc-border-subtle: #3a3a41;
+	--sc-border: #6c6c76;
+	/* Accent */
+	--sc-accent: #8b8df8;
+	--sc-accent-hover: #a1a3fa;
+	--sc-accent-fg: #0b0b1a;
+	/* Status */
+	--sc-success: #5bc98c;
+	--sc-warning: #e2b552;
+	--sc-danger: #f27a7d;
+	--sc-danger-fg: #1c0a0b;
+	--sc-info: #79a6f6;
+	/* Elevation */
+	--sc-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+	--sc-shadow-md: 0 6px 20px rgba(0, 0, 0, 0.38), 0 1px 3px rgba(0, 0, 0, 0.3);
+	--sc-shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
 
-	/* ── Core UI ───────────────────────────────────────────────────────── */
-	--omp-border: #353a42;
-	--omp-border-accent: rgba(147, 180, 213, 0.52);
-	--omp-border-muted: #2b3037;
-	--omp-border-strong: #515965;
-	--omp-success: #9bc7ab;
-	--omp-success-dim: rgba(155, 199, 171, 0.08);
-	--omp-error: #e6a09a;
-	--omp-error-dim: rgba(230, 160, 154, 0.08);
-	--omp-warning: #d7bc88;
-	--omp-warning-dim: rgba(215, 188, 136, 0.08);
-	--omp-info: #a2bfdc;
-	--omp-info-dim: rgba(162, 191, 220, 0.08);
-	--omp-text: #e7e8ea;
-	--omp-text-secondary: #bdc0c5;
-
-	/* ── Surfaces ──────────────────────────────── */
-	--omp-bg-primary: #191b1f;
-	--omp-bg-secondary: #202328;
-	--omp-bg-tertiary: #292d33;
-	--omp-bg-elevated: #2c3036;
-	--omp-selected-bg: rgba(147, 180, 213, 0.12);
-	--omp-user-msg-bg: #202328;
-	--omp-user-msg-border: #353a42;
-	--omp-custom-msg-bg: #202328;
-	--omp-code-bg: #202328;
-
-	/* ── Tool cards ────────────────────────────────────────────────────── */
-	--omp-tool-pending-bg: #202328;
-	--omp-tool-success-bg: rgba(155, 199, 171, 0.045);
-	--omp-tool-error-bg: rgba(230, 160, 154, 0.065);
-	--omp-tool-output: #bdc0c5;
+	/* ── Domain tokens (transcript, code, status line) ───────────────── */
+	/* Transcript surfaces */
+	--omp-user-msg-bg: #222226;
+	--omp-user-msg-border: var(--sc-border-subtle);
+	--omp-custom-msg-bg: var(--sc-surface-2);
+	--omp-custom-msg-label: var(--sc-accent);
+	--omp-code-bg: var(--sc-surface-1);
+	/* Tool cards */
+	--omp-tool-pending-bg: var(--sc-surface-2);
+	--omp-tool-success-bg: rgba(91, 201, 140, 0.06);
+	--omp-tool-error-bg: rgba(242, 122, 125, 0.07);
+	--omp-tool-output: var(--sc-text-secondary);
 	--omp-tool-rail-running: var(--omp-accent);
-	--omp-tool-rail-done: #9bc7ab;
-	--omp-tool-rail-error: #e6a09a;
-
-	/* ── Markdown ──────────────────────────────────────────────────────── */
-	--omp-md-heading: #e7e8ea;
-	--omp-md-link: #93b4d5;
-	--omp-md-link-url: #a7adb6;
-	--omp-md-code: #deb0a1;
-	--omp-md-code-block: #e7e8ea;
-	--omp-md-code-block-border: #353a42;
-	--omp-md-quote: #bdc0c5;
-	--omp-md-quote-border: #515965;
-	--omp-md-hr: #353a42;
-	--omp-md-list-bullet: #a7adb6;
-
-	/* ── Diff ──────────────────────────────────────────────────────────── */
-	--omp-diff-added: #9bc7ab;
-	--omp-diff-added-bg: rgba(155, 199, 171, 0.09);
-	--omp-diff-removed: #e6a09a;
-	--omp-diff-removed-bg: rgba(230, 160, 154, 0.09);
-	--omp-diff-context: #a7adb6;
-
-	/* ── Syntax highlighting ───────────────────────────────────────────── */
-	--omp-syntax-comment: #9aa1ab;
-	--omp-syntax-keyword: #a3bedb;
-	--omp-syntax-function: #91c5bf;
-	--omp-syntax-variable: #e7e8ea;
-	--omp-syntax-string: #d4ba91;
-	--omp-syntax-number: #deb0a1;
-	--omp-syntax-type: #b9cdb1;
-	--omp-syntax-operator: #bdc0c5;
-	--omp-syntax-punctuation: #a7adb6;
-
-	/* ── Thinking levels ───────────────────────────────────────────────── */
-	--omp-thinking-off: #9aa1ab;
-	--omp-thinking-minimal: #a7adb6;
-	--omp-thinking-low: #bdc0c5;
-	--omp-thinking-medium: #93b4d5;
-	--omp-thinking-high: #b4cce3;
-	--omp-thinking-xhigh: #e7e8ea;
-
-	/* ── Status line ───────────────────────────────────────────────────── */
-	--omp-status-bg: #14161a;
-	--omp-status-model: #bdc0c5;
-	--omp-status-path: #a7adb6;
-	--omp-status-git-clean: #9bc7ab;
-	--omp-status-git-dirty: #d7bc88;
-	--omp-status-context: #bdc0c5;
-	--omp-status-spend: #bdc0c5;
+	--omp-tool-rail-done: var(--sc-success);
+	--omp-tool-rail-error: var(--sc-danger);
+	/* Markdown */
+	--omp-md-heading: var(--sc-text);
+	--omp-md-link: var(--sc-accent);
+	--omp-md-link-url: var(--sc-text-muted);
+	--omp-md-code: #f0a1bd;
+	--omp-md-code-block: var(--sc-text);
+	--omp-md-code-block-border: var(--sc-border-subtle);
+	--omp-md-quote: var(--sc-text-secondary);
+	--omp-md-quote-border: #4a4a53;
+	--omp-md-hr: var(--sc-divider);
+	--omp-md-list-bullet: var(--sc-text-muted);
+	/* Diff */
+	--omp-diff-added: var(--sc-success);
+	--omp-diff-added-bg: rgba(91, 201, 140, 0.12);
+	--omp-diff-removed: var(--sc-danger);
+	--omp-diff-removed-bg: rgba(242, 122, 125, 0.12);
+	--omp-diff-context: var(--sc-text-muted);
+	/* Syntax highlighting */
+	--omp-syntax-comment: var(--sc-text-subtle);
+	--omp-syntax-keyword: #a5a7fa;
+	--omp-syntax-function: #6cc7c0;
+	--omp-syntax-variable: var(--sc-text);
+	--omp-syntax-string: #e3b77a;
+	--omp-syntax-number: #f0a1bd;
+	--omp-syntax-type: #9fd39a;
+	--omp-syntax-operator: var(--sc-text-secondary);
+	--omp-syntax-punctuation: var(--sc-text-muted);
+	/* Thinking levels */
+	--omp-thinking-off: var(--sc-text-subtle);
+	--omp-thinking-minimal: var(--sc-text-muted);
+	--omp-thinking-low: var(--sc-text-secondary);
+	--omp-thinking-medium: var(--sc-accent);
+	--omp-thinking-high: var(--sc-accent-hover);
+	--omp-thinking-xhigh: var(--sc-text);
+	/* Status line */
+	--omp-status-model: var(--sc-text-secondary);
+	--omp-status-path: var(--sc-text-muted);
+	--omp-status-git-clean: var(--sc-success);
+	--omp-status-git-dirty: var(--sc-warning);
+	--omp-status-context: var(--sc-text-secondary);
+	--omp-status-spend: var(--sc-text-secondary);
 	--omp-status-subagents: var(--omp-accent);
-	--omp-status-muted: #a7adb6;
-	--omp-status-dim: #9aa1ab;
-	--omp-status-text: #e7e8ea;
-	--omp-status-sep: #353a42;
-
-	/* ── Misc ──────────────────────────────────────────────────────────── */
-	--omp-muted: #a7adb6;
-	--omp-dim: #9aa1ab;
-	--omp-link: #93b4d5;
-	--omp-custom-msg-label: #93b4d5;
-
-	/* ── Input ─────────────────────────────────────────────────────────── */
-	--omp-input-bg: #202328;
-	--omp-input-border: #353a42;
-	--omp-input-focus-border: var(--omp-accent);
-	--omp-input-glow: rgba(147, 180, 213, 0.1);
-
-	/* ── Buttons ───────────────────────────────────────────────────────── */
-	--omp-btn-primary-bg: #e7e8ea;
-	--omp-btn-primary-text: #191b1f;
-	--omp-btn-secondary-bg: #292d33;
-	--omp-btn-secondary-text: #e7e8ea;
-	--omp-btn-danger-bg: var(--omp-error);
-	--omp-btn-danger-text: #191b1f;
-
-	/* ── Badge ─────────────────────────────────────────────────────────── */
-	--omp-badge-bg: #292d33;
-	--omp-badge-text: #bdc0c5;
-	--omp-badge-accent: var(--omp-accent);
-
-	/* ── Modal / Overlay ───────────────────────────────────────────────── */
-	--omp-overlay-bg: rgba(8, 12, 16, 0.62);
-	--omp-modal-bg: #2c3036;
-	--omp-modal-border: #353a42;
-
-	/* ── Toast ─────────────────────────────────────────────────────────── */
-	--omp-toast-bg: #2c3036;
-	--omp-toast-text: #e7e8ea;
-	--omp-toast-border: #353a42;
-
-	/* ── Progress ──────────────────────────────────────────────────────── */
-	--omp-progress-bg: #292d33;
-	--omp-progress-fill: var(--omp-accent);
-
-	/* ── Sidebar ───────────────────────────────────────────────────────── */
-	--omp-sidebar-bg: #14161a;
-	--omp-sidebar-item-hover: #292d33;
-	--omp-sidebar-item-active: rgba(147, 180, 213, 0.13);
-
-	/* ── Selection ─────────────────────────────────────────────────────── */
-	--omp-selection-bg: rgba(147, 180, 213, 0.25);
-	--omp-selection-text: #e7e8ea;
-
-	/* ── Scrollbar ─────────────────────────────────────────────────────── */
-	--omp-scrollbar-thumb: #515965;
+	--omp-status-muted: var(--sc-text-muted);
+	--omp-status-dim: var(--sc-text-subtle);
+	--omp-status-text: var(--sc-text);
+	--omp-status-sep: var(--sc-divider);
+	/* Misc */
+	--omp-scrollbar-thumb: #45454e;
 	--omp-scrollbar-track: transparent;
-
-	/* ── Streaming ─────────────────────────────────────────────────────── */
 	--omp-streaming-cursor: var(--omp-accent);
-	--omp-streaming-highlight: rgba(147, 180, 213, 0.04);
-
-	/* ── Panel ─────────────────────────────────────────────────────────── */
-	--omp-panel-bg: #14161a;
-	--omp-panel-border: #2b3037;
-	--omp-panel-header: #a7adb6;
-
-	/* ── Title bar ─────────────────────────────────────────────────────── */
-	--omp-titlebar-bg: #14161a;
-	--omp-titlebar-text: #e7e8ea;
-
-	/* ── Shadows ───────────────────────────────────────────────────────── */
-	--omp-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.16);
-	--omp-shadow-md: 0 6px 18px rgba(0, 0, 0, 0.22);
-	--omp-shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.32);
-	--omp-shadow-glow: 0 0 0 1px var(--omp-border-accent);
+	--omp-streaming-highlight: rgba(139, 141, 248, 0.06);
 }

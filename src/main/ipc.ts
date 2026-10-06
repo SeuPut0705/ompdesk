@@ -67,6 +67,7 @@ import { setTrayState } from "./tray";
 import { aggregateTrayStatus } from "./tray-labels";
 import { appVersion } from "./updater";
 import type { SpawnWindow, WindowManager } from "./window";
+import { sanitizeChromeColors, TOP_BAR_HEIGHT } from "./window-chrome";
 
 export interface IpcDeps {
 	sidecarPool: SidecarPool;
@@ -442,6 +443,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (winId === undefined) return;
 		progressStates.set(winId, state);
 		windowManager.setRunProgress(aggregateProgress([...progressStates.values()]));
+	});
+
+	// Windows title-bar overlay: the caption buttons repaint in the theme's top-bar colors.
+	ipcMain.on(IPC_EVENTS.WINDOW_CHROME_SET, (event, value: unknown) => {
+		if (process.platform !== "win32") return;
+		const colors = sanitizeChromeColors(value);
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!colors || !win || win.isDestroyed()) return;
+		win.setTitleBarOverlay({ ...colors, height: TOP_BAR_HEIGHT });
 	});
 
 	const dispatchRpcCommand = async (

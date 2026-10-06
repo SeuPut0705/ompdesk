@@ -1,11 +1,11 @@
 {
-  "name": "omp-gui",
+  "name": "seucode",
   "version": "0.1.0",
   "author": "SeuPut <228744781+SeuPut0705@users.noreply.github.com>",
   "private": true,
   "type": "module",
-  "description": "Desktop GUI for the omp coding agent, running on the system-installed omp",
-  "repository": "github:SeuPut0705/omp-gui",
+  "description": "seucode: a desktop app for the omp coding agent, running on the system-installed omp",
+  "repository": "github:SeuPut0705/seucode",
   "license": "MIT",
   "main": "./out/main/index.js",
   "scripts": {
@@ -82,6 +82,7 @@
     "micromark-extension-math": "3.1.0",
     "micromark-util-types": "2.0.2",
     "remark-parse": "11.0.0",
+    "sharp": "0.34.5",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.8.0",
     "unified": "11.0.5",

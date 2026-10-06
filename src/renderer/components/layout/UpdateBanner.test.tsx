@@ -65,7 +65,7 @@ describe("UpdateBanner", () => {
 		});
 		await mount(<UpdateBanner />);
 
-		expect(container.textContent).toContain("drag omp into Applications");
+		expect(container.textContent).toContain("drag seucode into Applications");
 		expect(container.textContent).toContain("Privacy & Security");
 		const openButton = container
 			.querySelectorAll("button")

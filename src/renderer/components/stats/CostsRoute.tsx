@@ -4,16 +4,16 @@
 
 import { useEffect, useMemo } from "react";
 import { Line } from "react-chartjs-2";
-import { baseChartOptions, bucketLabels, CHART_COLORS, formatUsd } from "../../lib/chart";
+import { baseChartOptions, bucketLabels, chartColors, formatUsd, useChartThemeKey, withAlpha } from "../../lib/chart";
 import "../../lib/chart";
 import type { CostsData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
 import { useT } from "../../lib/i18n";
-import type { StatsRange } from "./StatsDashboard";
-import { ChartBox, MetricCard, RouteFrame, SectionTitle } from "./shared";
+import { ChartBox, MetricCard, MetricGrid, RouteFrame, SectionTitle, type StatsRange } from "./shared";
 
 export function CostsRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
 	const t = useT();
+	const themeKey = useChartThemeKey();
 	const params = useMemo(() => ({ range }), [range]);
 	const { data, isLoading, error, refetch } = useStats<CostsData>("/api/stats/costs", params);
 
@@ -23,7 +23,9 @@ export function CostsRoute({ range, refreshKey }: { range: StatsRange; refreshKe
 
 	const stats = data;
 	const series = stats?.costSeries ?? [];
+	// biome-ignore lint/correctness/useExhaustiveDependencies: themeKey repaints the series colors on a theme switch.
 	const { total, chart } = useMemo(() => {
+		const colors = chartColors();
 		const sum = series.reduce((acc, point) => acc + point.cost, 0);
 		const providers = [...new Set(series.map(point => point.provider))].sort();
 		const timestamps = [...new Set(series.map(point => point.timestamp))].sort((a, b) => a - b);
@@ -38,8 +40,8 @@ export function CostsRoute({ range, refreshKey }: { range: StatsRange; refreshKe
 							.filter(point => point.timestamp === ts && point.provider === provider)
 							.reduce((acc, point) => acc + point.cost, 0),
 					),
-					borderColor: CHART_COLORS[index % CHART_COLORS.length],
-					backgroundColor: `${CHART_COLORS[index % CHART_COLORS.length]}26`,
+					borderColor: colors[index % colors.length],
+					backgroundColor: withAlpha(colors[index % colors.length], 0.15),
 					fill: true,
 					stacked: true,
 					tension: 0.3,
@@ -48,8 +50,9 @@ export function CostsRoute({ range, refreshKey }: { range: StatsRange; refreshKe
 				})),
 			},
 		};
-	}, [series]);
+	}, [series, themeKey]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: themeKey re-reads the axis tokens on a theme switch.
 	const options = useMemo(() => {
 		const base = baseChartOptions();
 		return {
@@ -63,7 +66,7 @@ export function CostsRoute({ range, refreshKey }: { range: StatsRange; refreshKe
 				},
 			},
 		};
-	}, []);
+	}, [themeKey]);
 
 	return (
 		<RouteFrame
@@ -73,7 +76,7 @@ export function CostsRoute({ range, refreshKey }: { range: StatsRange; refreshKe
 			loading={isLoading}
 			onRetry={refetch}
 		>
-			<div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+			<MetricGrid>
 				<MetricCard label={t("stats.costs.totalCost")} tone="accent" value={formatUsd(total)} />
 				<MetricCard
 					label={t("stats.col.requests")}
@@ -87,7 +90,7 @@ export function CostsRoute({ range, refreshKey }: { range: StatsRange; refreshKe
 					label={t("stats.costs.cacheCost")}
 					value={formatUsd(series.reduce((acc, point) => acc + point.costCacheRead + point.costCacheWrite, 0))}
 				/>
-			</div>
+			</MetricGrid>
 			<SectionTitle>{t("stats.costs.dailyByProvider")}</SectionTitle>
 			<ChartBox height={280}>
 				<Line data={chart} options={options} />

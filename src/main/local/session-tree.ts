@@ -1,6 +1,6 @@
 /**
  * `get_session_tree` projection: the session's flat entry list (stock
- * `get_entries`) as the GUI SessionTreeDialog's branch graph.
+ * `get_entries`) as the GUI session tree panel's branch graph.
  *
  * Rules (the omp-gui fork's `buildRpcSessionTree`):
  * - Only `message` entries with role user/assistant become nodes; tool results,

@@ -1,27 +1,37 @@
 /**
- * Small status pill with semantic color variants and optional dot indicator.
+ * Badge — a short, non-interactive status or count label (1–2 words).
+ *
+ * Variants carry meaning, not decoration: `success` done/ok, `warning`
+ * needs attention, `error` failed, `info` informational, `accent` the
+ * active mode (Plan, Goal), `default` neutral counts and tags, `muted`
+ * de-emphasised metadata. Use `dot` (+ `pulse` while live) for running
+ * state; the text must still say the state — color is never the only cue.
+ * Not a button: clickable chips are Buttons (size sm) or ListRows.
  */
 
 import type { ReactNode } from "react";
+import { cx } from "../../lib/format";
 
-export type BadgeVariant = "default" | "success" | "warning" | "error" | "info" | "muted";
+export type BadgeVariant = "default" | "accent" | "success" | "warning" | "error" | "info" | "muted";
 
 const VARIANT_CLASSES: Record<BadgeVariant, string> = {
-	default: "border-(--omp-border-muted) bg-transparent text-(--omp-text)",
-	success: "border-[color-mix(in_srgb,var(--omp-success)_35%,transparent)] bg-transparent text-(--omp-success)",
-	warning: "border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent text-(--omp-warning)",
-	error: "border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent text-(--omp-error)",
-	info: "border-[color-mix(in_srgb,var(--omp-link)_35%,transparent)] bg-transparent text-(--omp-link)",
-	muted: "border-transparent bg-transparent text-(--omp-dim)",
+	default: "bg-(--sc-surface-3) text-(--sc-text-secondary)",
+	accent: "bg-(--sc-accent-soft) text-(--sc-accent)",
+	success: "bg-(--sc-success-soft) text-(--sc-success)",
+	warning: "bg-(--sc-warning-soft) text-(--sc-warning)",
+	error: "bg-(--sc-danger-soft) text-(--sc-danger)",
+	info: "bg-(--sc-info-soft) text-(--sc-info)",
+	muted: "bg-transparent text-(--sc-text-muted)",
 };
 
 const DOT_CLASSES: Record<BadgeVariant, string> = {
-	default: "bg-(--omp-muted)",
-	success: "bg-(--omp-success)",
-	warning: "bg-(--omp-warning)",
-	error: "bg-(--omp-error)",
-	info: "bg-(--omp-link)",
-	muted: "bg-(--omp-dim)",
+	default: "bg-(--sc-text-muted)",
+	accent: "bg-(--sc-accent)",
+	success: "bg-(--sc-success)",
+	warning: "bg-(--sc-warning)",
+	error: "bg-(--sc-danger)",
+	info: "bg-(--sc-info)",
+	muted: "bg-(--sc-text-subtle)",
 };
 
 export interface BadgeProps {
@@ -37,14 +47,14 @@ export interface BadgeProps {
 export function Badge({ variant = "default", dot, pulse, className, children }: BadgeProps) {
 	return (
 		<span
-			className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-px text-omp-xs font-medium leading-4 tracking-wide whitespace-nowrap ${VARIANT_CLASSES[variant]} ${className ?? ""}`.trim()}
+			className={cx(
+				"inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full px-2 text-sc-2xs font-medium whitespace-nowrap",
+				VARIANT_CLASSES[variant],
+				className,
+			)}
 		>
 			{dot && (
-				<span aria-hidden className="relative flex size-1.5">
-					<span
-						className={`relative inline-flex size-1.5 rounded-full ${pulse ? "omp-pulse-dot" : ""} ${DOT_CLASSES[variant]}`}
-					/>
-				</span>
+				<span aria-hidden className={cx("size-1.5 rounded-full", pulse && "omp-pulse-dot", DOT_CLASSES[variant])} />
 			)}
 			{children}
 		</span>

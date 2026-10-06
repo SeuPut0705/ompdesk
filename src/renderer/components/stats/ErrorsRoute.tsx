@@ -8,8 +8,7 @@ import { useStatsList } from "../../hooks/use-stats";
 import { compact } from "../../lib/chart";
 import { useT } from "../../lib/i18n";
 import { Badge } from "../common";
-import type { StatsRange } from "./StatsDashboard";
-import { RouteFrame, SectionTitle, type StatColumn, StatTable } from "./shared";
+import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
 
 export function ErrorsRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
 	const t = useT();
@@ -31,7 +30,7 @@ export function ErrorsRoute({ range, refreshKey }: { range: StatsRange; refreshK
 				key: "time",
 				label: t("stats.col.when"),
 				render: row => (
-					<span className="whitespace-nowrap text-(--omp-muted)">
+					<span className="whitespace-nowrap text-(--sc-text-muted)">
 						{new Date(row.timestamp).toLocaleString(undefined, {
 							month: "short",
 							day: "numeric",
@@ -46,8 +45,8 @@ export function ErrorsRoute({ range, refreshKey }: { range: StatsRange; refreshK
 				label: t("stats.col.model"),
 				render: row => (
 					<span>
-						<span className="block font-mono text-(--omp-text)">{row.model}</span>
-						<span className="block text-omp-xs text-(--omp-dim)">{row.provider}</span>
+						<span className="block font-mono text-(--sc-text)">{row.model}</span>
+						<span className="block text-sc-2xs text-(--sc-text-subtle)">{row.provider}</span>
 					</span>
 				),
 			},
@@ -60,7 +59,7 @@ export function ErrorsRoute({ range, refreshKey }: { range: StatsRange; refreshK
 				key: "message",
 				label: t("stats.errors.col.message"),
 				render: row => (
-					<span className="block max-w-[420px] break-words font-mono text-omp-xs leading-snug text-(--omp-error)">
+					<span className="block max-w-[420px] break-words font-mono text-sc-2xs leading-snug text-(--sc-danger)">
 						{row.errorMessage ?? t("stats.errors.noMessage")}
 					</span>
 				),

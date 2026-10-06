@@ -181,11 +181,11 @@ describe("AgentsDockCard", () => {
 		);
 
 		expect(container.querySelectorAll('[role="treeitem"]')).toHaveLength(5);
-		expect(containerText()).toContain("2 more · View all 7 agents");
+		expect(containerText()).toContain("2 more · view all 7 subagents");
 		expect(container.querySelector('[data-testid="other-card-body"]')).not.toBeNull();
 
 		const viewAll = [...container.querySelectorAll("button")].find(button =>
-			button.textContent?.includes("View all 7 agents"),
+			button.textContent?.includes("view all 7 subagents"),
 		);
 		await act(async () => {
 			(viewAll as unknown as { click: () => void }).click();
@@ -195,7 +195,7 @@ describe("AgentsDockCard", () => {
 		expect(containerText()).toContain("Todo");
 		expect(container.querySelector('[data-testid="other-card-body"]')).toBeNull();
 
-		const agentsHeader = container.querySelector('section[aria-label="Agents"] button[aria-label="Collapse"]');
+		const agentsHeader = container.querySelector('section[aria-label="Subagents"] button[aria-label="Collapse"]');
 		const agentsChevron = agentsHeader?.querySelectorAll("svg").item(1);
 		await act(async () => {
 			agentsChevron?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));

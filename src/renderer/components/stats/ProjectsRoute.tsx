@@ -7,26 +7,8 @@ import type { FolderRow } from "../../../shared/stats-types";
 import { useStatsList } from "../../hooks/use-stats";
 import { compact, formatUsd } from "../../lib/chart";
 import { useT } from "../../lib/i18n";
-import type { StatsRange } from "./StatsDashboard";
-import { RouteFrame, SectionTitle, type StatColumn, StatTable } from "./shared";
-
-function ShareBar({ fraction }: { fraction: number }) {
-	return (
-		<span className="flex w-24 items-center gap-1.5">
-			<span
-				className="h-1.5 flex-1 overflow-hidden rounded-full bg-(--omp-bg-tertiary)" /* surface-ok: progress bar track */
-			>
-				<span
-					className="block h-full rounded-full bg-(--omp-accent)"
-					style={{ width: `${Math.min(100, fraction * 100)}%` }}
-				/>
-			</span>
-			<span className="w-8 text-right text-omp-xs tabular-nums text-(--omp-dim)">
-				{(fraction * 100).toFixed(0)}%
-			</span>
-		</span>
-	);
-}
+import { ProgressBar } from "../common";
+import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
 
 export function ProjectsRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
 	const t = useT();
@@ -50,7 +32,7 @@ export function ProjectsRoute({ range, refreshKey }: { range: StatsRange; refres
 				key: "folder",
 				label: t("stats.col.project"),
 				render: row => (
-					<span className="font-mono text-(--omp-text)">{row.folder || t("stats.projects.unknown")}</span>
+					<span className="font-mono text-(--sc-text)">{row.folder || t("stats.projects.unknown")}</span>
 				),
 			},
 			{ key: "requests", label: t("stats.col.requests"), align: "right", render: row => compact(row.totalRequests) },
@@ -67,7 +49,17 @@ export function ProjectsRoute({ range, refreshKey }: { range: StatsRange; refres
 			{
 				key: "share",
 				label: t("stats.projects.col.share"),
-				render: row => <ShareBar fraction={totalCost > 0 ? row.totalCost / totalCost : 0} />,
+				render: row => {
+					const fraction = totalCost > 0 ? row.totalCost / totalCost : 0;
+					return (
+						<ProgressBar
+							className="w-28"
+							color="var(--sc-accent)"
+							value={fraction}
+							valueText={`${(fraction * 100).toFixed(0)}%`}
+						/>
+					);
+				},
 			},
 			{
 				key: "speed",

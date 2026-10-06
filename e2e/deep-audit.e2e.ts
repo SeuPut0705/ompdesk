@@ -3,7 +3,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
-import { formatShortcut } from "../src/renderer/lib/keymap";
 import type { SettingEntry, SettingsSchemaResult } from "../src/shared/rpc-types";
 import { exitApp } from "./harness";
 
@@ -215,11 +214,12 @@ function conditionGate(condition: string | undefined): Array<{ path: string; val
 }
 
 async function clickSearchResult(page: Page, pathName: string): Promise<boolean> {
-	const search = page.getByPlaceholder(/Search settings|搜索设置/);
+	const search = page.locator("[data-settings-page]").getByRole("searchbox", { name: /Search settings|搜索设置/ });
 	await search.fill(pathName);
-	const exact = page.getByText(pathName, { exact: true });
-	if ((await exact.count()) === 0) return false;
-	await exact.last().click();
+	// The Advanced row (last) is the one every schema entry has; curated sections may list it first.
+	const result = page.locator(`[data-search-path="${pathName}"]`);
+	if ((await result.count()) === 0) return false;
+	await result.last().getByRole("button").click();
 	return true;
 }
 
@@ -670,16 +670,16 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 			resourcesPath: process.resourcesPath,
 			sidecarOverride: process.env.OMP_GUI_OMP ?? null,
 		}));
-		// The audit profile has no provider, so first-run onboarding opens once readiness is checked.
-		const welcome = page.getByRole("dialog", { name: "Welcome to omp", exact: true });
-		await expect(welcome).toBeVisible();
-		await welcome.getByRole("button", { name: "Close", exact: true }).click();
-		await expect(welcome).toHaveCount(0);
+		// The audit profile has no provider, so the inline first-run setup takes the empty session.
+		const setup = page.getByRole("region", { name: "Set up seucode", exact: true });
+		await expect(setup).toBeVisible();
+		await setup.getByRole("button", { name: "Set up later", exact: true }).click();
+		await expect(setup).toHaveCount(0);
 
-		await page.getByRole("button", { name: "Settings", exact: true }).click();
-		const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+		await page.keyboard.press("ControlOrMeta+Comma");
+		const settings = page.locator("[data-settings-page]");
 		await expect(settings).toBeVisible();
-		await expect(settings.locator(".settings-nav-group-label").first()).toBeVisible();
+		await expect(settings.locator("[data-settings-section]").first()).toBeVisible();
 		const schemaResponse = await page.evaluate(() => window.omp.rpc.getSettingsSchema());
 		if (!schemaResponse.success) throw new Error(schemaResponse.error);
 		const schema = schemaResponse.data as SettingsSchemaResult;
@@ -695,23 +695,24 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 			tuiOnly: schema.entries.filter(entry => entry.tuiOnly === true).length,
 		};
 
-		// Capture every settings page and every rendered control before mutating values.
-		const groupButtons = settings.locator(".settings-nav-group-label");
-		for (let groupIndex = 0; groupIndex < (await groupButtons.count()); groupIndex++) {
-			await groupButtons.nth(groupIndex).click();
-			const groupName = await groupButtons.nth(groupIndex).innerText();
-			const pages = settings.locator(".settings-nav-item");
-			for (let pageIndex = 0; pageIndex < (await pages.count()); pageIndex++) {
-				const nav = pages.nth(pageIndex);
-				const pageName = await nav.innerText();
-				await nav.click();
-				await expect(settings.locator(".settings-content .animate-spin")).toHaveCount(0, { timeout: 30_000 });
-				evidence.settingsPages.push({
-					group: groupName,
-					page: pageName,
-					controls: await captureSurfaceControls(page, pageName),
-				});
-			}
+		// Capture every settings section, and every Advanced category, before mutating values.
+		const sectionIds = await settings
+			.locator("[data-settings-section]")
+			.evaluateAll(elements => elements.map(element => element.getAttribute("data-settings-section") ?? ""));
+		const capturePage = async (group: string, pageName: string) => {
+			await expect(settings.locator(".settings-content .animate-spin")).toHaveCount(0, { timeout: 30_000 });
+			evidence.settingsPages.push({ group, page: pageName, controls: await captureSurfaceControls(page, pageName) });
+		};
+		for (const id of sectionIds) {
+			await settings.locator(`[data-settings-section="${id}"]`).click();
+			await capturePage("settings", id);
+		}
+		const category = settings.locator("#settings-advanced-category select");
+		for (const value of await category
+			.locator("option")
+			.evaluateAll(options => options.map(option => (option as HTMLOptionElement).value))) {
+			await category.selectOption(value);
+			await capturePage("advanced", value);
 		}
 
 		// Exercise every schema entry that the GUI claims to support. TUI-only and
@@ -748,8 +749,8 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 				notes: [],
 			};
 			if (base.visibility === "filtered-tui-only" || base.visibility === "filtered-terminal-only") {
-				await page.getByPlaceholder(/Search settings|搜索设置/).fill(entry.path);
-				await expect(page.getByText(entry.path, { exact: true })).toHaveCount(0);
+				await clickSearchResult(page, entry.path);
+				await expect(page.locator(`[data-search-path="${entry.path}"]`)).toHaveCount(0);
 				base.notes.push("GUI search absence verified");
 				evidence.settings.push(base);
 				continue;
@@ -808,22 +809,24 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 		// executing it and retain the TUI-only negative contract.
 		// The settings home also exposes the same live palette entry, so the
 		// discoverability action is exercised through its second-level surface.
-		await settings.getByLabel("Close").click();
+		await settings.getByRole("searchbox", { name: /Search settings|搜索设置/ }).fill("");
+		await page.keyboard.press("Escape");
 		await expect(settings).toHaveCount(0);
-		await page.getByRole("button", { name: "Settings", exact: true }).click();
-		const capabilitiesSettings = page.getByRole("dialog", { name: "Settings", exact: true });
-		await expect(capabilitiesSettings).toBeVisible();
-		const settingsCommandCenter = capabilitiesSettings.locator('[data-command-center-entry="true"]');
+		await page.keyboard.press("ControlOrMeta+Comma");
+		await settings.locator('[data-settings-section="features"]').click();
+		const settingsCommandCenter = settings.locator('[data-command-center-entry="true"]');
 		await expect(settingsCommandCenter).toBeVisible();
 		await settingsCommandCenter.click();
 		await expect(settings).toHaveCount(0);
 		await expect(page.getByRole("dialog")).toBeVisible();
 		await page.keyboard.press("Escape");
 		await expect(page.getByRole("dialog")).toHaveCount(0);
-		await expect(page.locator('button[data-command-center-entry="true"]').first().locator("kbd")).toContainText(
-			formatShortcut("⌘K / ⌃K", process.platform === "darwin" ? "mac" : "windows"),
+		// The sidebar header's palette entry is an icon button: its name says what
+		// it opens and the shortcut lives in its tooltip.
+		await expect(page.locator('aside button[data-command-center-entry="true"]').first()).toHaveAccessibleName(
+			/^(Command palette|명령 팔레트|命令面板)$/,
 		);
-		await page.locator('button[data-command-center-entry="true"]').first().click();
+		await page.locator('aside button[data-command-center-entry="true"]').first().click();
 		const palette = page.getByRole("dialog");
 		await expect(palette).toBeVisible();
 		const search = palette.getByRole("textbox").first();

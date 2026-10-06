@@ -1,0 +1,206 @@
+/**
+ * Settings › Models & providers — the provider part. Embedded by the Settings
+ * page (which renders the page heading); no modal, no outer padding.
+ * Search, connected first, inline sign-in (OAuth or API key) and an inline
+ * form for custom endpoints (`ui.providerForm`, opened by `openProviderConfig`).
+ */
+
+import { FileCode2, Plus, RefreshCw } from "lucide-react";
+import { useCallback, useState } from "react";
+import type { CustomProviderView } from "../../../../shared/ipc-types";
+import type { ProviderInfo } from "../../../../shared/rpc-types";
+import { useT } from "../../../lib/i18n";
+import { useTabRpc } from "../../../lib/tab-rpc";
+import { useModelStore } from "../../../stores/model";
+import { toast } from "../../../stores/toast";
+import { useUiStore } from "../../../stores/ui";
+import { Banner, Button, ConfirmDialog, IconButton, Spinner } from "../../common";
+import { CustomProviderForm } from "./CustomProviderForm";
+import { ProviderList, useProviderCatalog } from "./ProviderList";
+import { useProviderLogin } from "./ProviderLogin";
+import { providerDiscoveryErrors } from "./provider-catalog";
+
+export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
+	const t = useT();
+	const tabRpc = useTabRpc();
+	const catalog = useProviderCatalog({ pollMs });
+	const discoveryStates = useModelStore(state => state.discoveryStates);
+	const refreshProviders = useModelStore(state => state.refreshProviders);
+	const providerForm = useUiStore(state => state.providerForm);
+	const openProviderConfig = useUiStore(state => state.openProviderConfig);
+	const closeProviderForm = useUiStore(state => state.closeProviderForm);
+	const [busyProvider, setBusyProvider] = useState<string | null>(null);
+	const [pendingLogout, setPendingLogout] = useState<ProviderInfo | null>(null);
+	const [pendingDelete, setPendingDelete] = useState<CustomProviderView | null>(null);
+	const { providers, load } = catalog;
+
+	const onConnected = useCallback(
+		async (providerId: string) => {
+			await load(true);
+			const name = providers.find(provider => provider.id === providerId)?.name ?? providerId;
+			toast({ variant: "success", message: t("providers.loginSuccess", { provider: name }) });
+		},
+		[load, providers, t],
+	);
+	const login = useProviderLogin(onConnected);
+
+	const logout = async (provider: ProviderInfo) => {
+		setPendingLogout(null);
+		setBusyProvider(provider.id);
+		try {
+			const response = await tabRpc.logout(provider.id);
+			if (!response.success) {
+				toast({ variant: "error", title: t("providers.logoutFailed"), message: response.error });
+				return;
+			}
+			// A non-forced read answers from a still-fresh cache row, which is how
+			// a signed-out provider used to keep showing as connected.
+			const fresh = await load(true);
+			toast({ variant: "success", message: t("providers.logoutSuccess", { provider: provider.name }) });
+			if (fresh?.providers.some(row => row.id === provider.id && row.authenticated)) {
+				toast({ variant: "warning", message: t("providers.logoutKept", { provider: provider.name }) });
+			}
+		} catch (cause) {
+			toast({ variant: "error", title: t("providers.logoutFailed"), message: String(cause) });
+		} finally {
+			setBusyProvider(null);
+		}
+	};
+
+	const deleteConfig = async (config: CustomProviderView) => {
+		setBusyProvider(config.id);
+		try {
+			await window.omp.models.deleteProvider(config.id);
+			try {
+				await refreshProviders(true);
+			} catch (cause) {
+				toast({
+					variant: "warning",
+					title: t("providerCfg.toast.refreshFailed"),
+					message: cause instanceof Error ? cause.message : String(cause),
+				});
+			}
+			toast({ variant: "success", message: t("providerCfg.toast.deleted", { id: config.id }) });
+			setPendingDelete(null);
+			await load();
+		} catch (cause) {
+			toast({
+				variant: "error",
+				title: t("providerCfg.toast.deleteFailed"),
+				message: cause instanceof Error ? cause.message : String(cause),
+			});
+		} finally {
+			setBusyProvider(null);
+		}
+	};
+
+	if (providerForm) {
+		return (
+			<CustomProviderForm
+				editing={providerForm.edit}
+				existing={catalog.customConfigs}
+				key={providerForm.edit?.id ?? "new"}
+				onCancel={closeProviderForm}
+				onSaved={() => {
+					closeProviderForm();
+					void load();
+				}}
+			/>
+		);
+	}
+
+	const discoveryErrors = providerDiscoveryErrors(discoveryStates, t("providers.discoveryUnavailable"));
+
+	return (
+		<div className="flex flex-col gap-3">
+			<div className="flex flex-wrap items-center gap-2">
+				<p className="min-w-0 flex-1 text-sc-sm text-(--sc-text-muted)">{t("providerList.intro")}</p>
+				<Button icon={<Plus />} onClick={() => openProviderConfig()} size="sm" variant="secondary">
+					{t("providerList.addCustom")}
+				</Button>
+				<Button
+					icon={<FileCode2 />}
+					onClick={() => {
+						void window.omp.models.openConfig().catch(cause => {
+							toast({ variant: "error", title: t("providers.editConfig"), message: String(cause) });
+						});
+					}}
+					size="sm"
+					variant="ghost"
+				>
+					{t("providers.editConfig")}
+				</Button>
+				<IconButton
+					disabled={!catalog.sidecarReady || catalog.loading}
+					icon={catalog.loading ? <Spinner inheritColor size="sm" /> : <RefreshCw />}
+					label={catalog.sidecarReady ? t("providers.refresh") : t("providers.notConnected")}
+					onClick={() => void load(true)}
+					size="sm"
+				/>
+			</div>
+
+			{catalog.configError && (
+				<Banner live variant="danger">
+					{catalog.configError}
+				</Banner>
+			)}
+			{catalog.error && (
+				<Banner
+					actions={
+						<Button
+							disabled={!catalog.sidecarReady}
+							onClick={() => void load(true)}
+							size="sm"
+							variant="secondary"
+						>
+							{t("providerCfg.list.retry")}
+						</Button>
+					}
+					live
+					title={providers.length > 0 ? t("providers.stale") : t("providers.loadFailed")}
+					variant="danger"
+				>
+					{catalog.error}
+				</Banner>
+			)}
+			{discoveryErrors.length > 0 && (
+				<Banner variant="warning">{t("providers.discoveryFailed", { details: discoveryErrors.join("; ") })}</Banner>
+			)}
+			{catalog.refreshPending && <Banner variant="info">{t("providers.refreshPending")}</Banner>}
+
+			<ProviderList
+				busyProvider={busyProvider}
+				catalog={catalog}
+				login={login}
+				onAddCustom={() => openProviderConfig()}
+				onDeleteConfig={setPendingDelete}
+				onEditConfig={config => openProviderConfig(config)}
+				onLogout={setPendingLogout}
+			/>
+
+			<ConfirmDialog
+				busy={pendingLogout !== null && busyProvider === pendingLogout.id}
+				confirmLabel={t("providers.logoutConfirm")}
+				message={t("providers.logoutBody", { provider: pendingLogout?.name ?? "" })}
+				onCancel={() => setPendingLogout(null)}
+				onConfirm={() => {
+					if (pendingLogout) void logout(pendingLogout);
+				}}
+				open={pendingLogout !== null}
+				title={t("providers.logoutTitle", { provider: pendingLogout?.name ?? "" })}
+				warning={t("providers.logoutWarning")}
+			/>
+			<ConfirmDialog
+				busy={pendingDelete !== null && busyProvider === pendingDelete.id}
+				confirmLabel={t("providerCfg.delete.confirm")}
+				message={t("providerCfg.delete.body", { id: pendingDelete?.id ?? "" })}
+				onCancel={() => setPendingDelete(null)}
+				onConfirm={() => {
+					if (pendingDelete) void deleteConfig(pendingDelete);
+				}}
+				open={pendingDelete !== null}
+				title={t("providerCfg.delete.title")}
+			/>
+		</div>
+	);
+}

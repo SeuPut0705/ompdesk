@@ -7,38 +7,25 @@ import { BranchPickerDialog } from "./components/dialogs/BranchPickerDialog";
 import { BtwDialog } from "./components/dialogs/BtwDialog";
 import { ChangelogDialog } from "./components/dialogs/ChangelogDialog";
 import { CommandPalette } from "./components/dialogs/CommandPalette";
-import { ComposerEditorDialog } from "./components/dialogs/ComposerEditorDialog";
-import { ContextReportDialog } from "./components/dialogs/ContextReportDialog";
 import { CopySelectorDialog } from "./components/dialogs/CopySelectorDialog";
 import { DebugConsoleDialog } from "./components/dialogs/DebugConsoleDialog";
 import { ExtensionDialog } from "./components/dialogs/ExtensionDialog";
-import { FirstRunOnboardingDialog } from "./components/dialogs/FirstRunOnboardingDialog";
 import { ForceToolDialog } from "./components/dialogs/ForceToolDialog";
 import { HandoffDialog } from "./components/dialogs/HandoffDialog";
-import { HotkeysDialog } from "./components/dialogs/HotkeysDialog";
 import { ImportForeignDialog } from "./components/dialogs/ImportForeignDialog";
-import { JobsDialog } from "./components/dialogs/JobsDialog";
 import { LiveVoiceDialog } from "./components/dialogs/LiveVoiceDialog";
 import { ModelPicker } from "./components/dialogs/ModelPicker";
 import { ModelRestoreDialog } from "./components/dialogs/ModelRestoreDialog";
 import { PlanApprovalDialog } from "./components/dialogs/PlanApprovalDialog";
 import { RenameSessionDialog } from "./components/dialogs/RenameSessionDialog";
-import { SessionInfoDialog } from "./components/dialogs/SessionInfoDialog";
 import { SessionPickerDialog } from "./components/dialogs/SessionPickerDialog";
 import { SessionSwitchDialog } from "./components/dialogs/SessionSwitchDialog";
-import { SessionTreeDialog } from "./components/dialogs/SessionTreeDialog";
 import { ShareSessionDialog } from "./components/dialogs/ShareSessionDialog";
 import { ThemePickerDialog } from "./components/dialogs/ThemePickerDialog";
-import { WorkspaceDirsDialog } from "./components/dialogs/WorkspaceDirsDialog";
 import { WorktreeCloseDialog } from "./components/dialogs/WorktreeCloseDialog";
 import { WorktreeDialog } from "./components/dialogs/WorktreeDialog";
-import { PanelContainer } from "./components/layout/PanelContainer";
-import { Sidebar } from "./components/layout/Sidebar";
-import { SidecarBanner } from "./components/layout/SidecarBanner";
-import { SplitWorkspace } from "./components/layout/SplitWorkspace";
-import { TabBar } from "./components/layout/TabBar";
-import { TitleBar } from "./components/layout/TitleBar";
-import { UpdateBanner } from "./components/layout/UpdateBanner";
+import { AppShell } from "./components/layout/AppShell";
+import { FirstRunGate } from "./components/onboarding/FirstRunGate";
 import { useAwaitingConfirmation } from "./hooks/use-awaiting-confirmation";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { useRpcEvents } from "./hooks/use-rpc-events";
@@ -86,41 +73,11 @@ import { subscribeUpdaterStatus } from "./stores/updater";
 
 // Heavy overlays code-split: they render null while closed, so they download
 // only on first open instead of bloating the eager bundle.
-const SettingsWindow = lazy(() =>
-	import("./components/settings/SettingsWindow").then(m => ({ default: m.SettingsWindow })),
-);
-const StatsDashboard = lazy(() =>
-	import("./components/stats/StatsDashboard").then(m => ({ default: m.StatsDashboard })),
-);
 const FeedbackDialog = lazy(() =>
 	import("./components/dialogs/FeedbackDialog").then(m => ({ default: m.FeedbackDialog })),
 );
-const ModelCompare = lazy(() => import("./components/settings/ModelCompare").then(m => ({ default: m.ModelCompare })));
 const BenchmarkDialog = lazy(() =>
 	import("./components/dialogs/BenchmarkDialog").then(m => ({ default: m.BenchmarkDialog })),
-);
-const ExtensionsPanel = lazy(() =>
-	import("./components/panels/ExtensionsPanel").then(m => ({ default: m.ExtensionsPanel })),
-);
-const InventoryPanel = lazy(() =>
-	import("./components/panels/InventoryPanel").then(m => ({ default: m.InventoryPanel })),
-);
-const ModesPanel = lazy(() => import("./components/panels/ModesPanel").then(m => ({ default: m.ModesPanel })));
-const AgentHubWindow = lazy(() =>
-	import("./components/panels/AgentHubWindow").then(m => ({ default: m.AgentHubWindow })),
-);
-const PrCenterWindow = lazy(() =>
-	import("./components/panels/PrCenterWindow").then(m => ({ default: m.PrCenterWindow })),
-);
-const ProviderConfigDialog = lazy(() =>
-	import("./components/settings/ProviderConfigDialog").then(m => ({ default: m.ProviderConfigDialog })),
-);
-const UsageWindow = lazy(() => import("./components/settings/UsageWindow").then(m => ({ default: m.UsageWindow })));
-const ModelRolesWindow = lazy(() =>
-	import("./components/settings/ModelRolesWindow").then(m => ({ default: m.ModelRolesWindow })),
-);
-const ProvidersWindow = lazy(() =>
-	import("./components/settings/ProvidersWindow").then(m => ({ default: m.ProvidersWindow })),
 );
 
 function FocusedSessionEffects() {
@@ -137,7 +94,7 @@ function FocusedSessionEffects() {
 	const colorBlindMode = useUiStore(s => s.colorBlindMode);
 
 	useEffect(() => {
-		const name = titleSessionName ?? "omp";
+		const name = titleSessionName ?? "seucode";
 		document.title = !titleRunState ? name : titleAwaiting ? `! ${name}` : titleStreaming ? `● ${name}` : `› ${name}`;
 	}, [titleRunState, titleAwaiting, titleStreaming, titleSessionName]);
 	useEffect(() => startVoiceAutoSpeak(), []);
@@ -169,36 +126,13 @@ export function App() {
 	useExtensionUi();
 	// Session tabs: GET_TABS boot reconciliation + TAB_STATUS subscription.
 	useSessionTabs();
-	const sidebarVisible = useUiStore(s => s.sidebarVisible);
-	const panelVisible = useUiStore(s => s.panelVisible);
 	const theme = useUiStore(s => s.theme);
 	const fontSize = useUiStore(s => s.fontSize);
 	const followAgentTheme = useUiStore(s => s.followAgentTheme);
-	const statsDashboardOpen = useUiStore(s => s.statsDashboardOpen);
-	const closeStatsDashboard = useUiStore(s => s.closeStatsDashboard);
 	const feedbackOpen = useUiStore(s => s.feedbackOpen);
-	const modelCompareOpen = useUiStore(s => s.modelCompareOpen);
-	const closeModelCompare = useUiStore(s => s.closeModelCompare);
 	const benchmarkOpen = useUiStore(s => s.benchmarkOpen);
 	const closeBenchmark = useUiStore(s => s.closeBenchmark);
-	const extensionsOpen = useUiStore(s => s.extensionsOpen);
-	const extensionsTab = useUiStore(s => s.extensionsTab);
-	const closeExtensions = useUiStore(s => s.closeExtensions);
-	const inventoryOpen = useUiStore(s => s.inventoryOpen);
-	const inventoryTab = useUiStore(s => s.inventoryTab);
-	const closeInventory = useUiStore(s => s.closeInventory);
-	const modesOpen = useUiStore(s => s.modesOpen);
-	const modesTab = useUiStore(s => s.modesTab);
-	const closeModes = useUiStore(s => s.closeModes);
-	const agentHubOpen = useUiStore(s => s.agentHubOpen);
-	const agentHubTab = useUiStore(s => s.agentHubTab);
-	const closeAgentHub = useUiStore(s => s.closeAgentHub);
-	const hotkeysOpen = useUiStore(s => s.hotkeysOpen);
 	const importDialogOpen = useUiStore(s => s.importDialogOpen);
-	const composerEditorOpen = useUiStore(s => s.composerEditorOpen);
-	const providerConfigOpen = useUiStore(s => s.providerConfigOpen);
-	const providerConfigEdit = useUiStore(s => s.providerConfigEdit);
-	const closeProviderConfig = useUiStore(s => s.closeProviderConfig);
 	const activeTabId = useTabsStore(s => s.activeTabId);
 	const activeTabStatus = useTabsStore(s => s.tabs.find(tab => tab.id === s.activeTabId)?.status);
 	const themeSidecarReady = activeTabStatus === "ready" || activeTabStatus === "running";
@@ -316,19 +250,6 @@ export function App() {
 	useEffect(() => watchSystemTheme(theme, () => applyThemeByName("system", { persist: false })), [theme]);
 	useEffect(() => applyFontSize(fontSize), [fontSize]);
 
-	// Keep the conversation usable at the minimum window size. The inspector
-	// becomes an on-demand overlay instead of permanently squeezing the chat.
-	useEffect(() => {
-		const compact = window.matchMedia("(max-width: 1000px)");
-		const hideInspector = () => {
-			const ui = useUiStore.getState();
-			if (compact.matches && ui.panelVisible) ui.togglePanel();
-		};
-		hideInspector();
-		compact.addEventListener("change", hideInspector);
-		return () => compact.removeEventListener("change", hideInspector);
-	}, []);
-
 	// Handle omp:// deep links (omp://new → new session; omp://session/<id> → switch).
 	useEffect(() => {
 		const handle = async (link: { action: "new-session" } | { action: "switch-session"; sessionId: string }) => {
@@ -439,16 +360,16 @@ export function App() {
 					closeActiveTab();
 					return;
 				case "pr.center":
-					// ⌥P — PR Center panel (plan/21).
-					useUiStore.getState().openPrCenter();
+					// ⌥P — Agents › Pull requests.
+					ui.openAgents("prs");
 					return;
 				case "model.select":
 					// ⌥M — model picker (TUI app.model.select).
 					ui.openModelPicker();
 					return;
 				case "agents.hub":
-					// ⌥A — agent hub (TUI app.agents.hub).
-					ui.openAgentHub("hub");
+					// ⌥A — Agents › Live (TUI app.agents.hub).
+					ui.openAgents("live");
 					return;
 				case "palette":
 					if (ui.commandPaletteOpen) ui.closeCommandPalette();
@@ -464,9 +385,9 @@ export function App() {
 					ui.togglePanel();
 					return;
 				case "hotkeys":
-					// ⌘/ or ⌃/ — keyboard shortcuts panel (/hotkeys parity).
-					if (ui.hotkeysOpen) ui.closeHotkeys();
-					else ui.openHotkeys();
+					// ⌘/ or ⌃/ — Settings › Keyboard (/hotkeys parity); again returns.
+					if (ui.destination === "settings" && ui.settingsTab === "keyboard") ui.closeDestination();
+					else ui.openSettings("keyboard");
 					return;
 			}
 		};
@@ -478,12 +399,10 @@ export function App() {
 			const overlayOpen =
 				ui.commandPaletteOpen ||
 				ui.modelPickerOpen ||
-				ui.settingsOpen ||
-				ui.statsDashboardOpen ||
+				ui.destination !== "session" ||
 				ui.benchmarkOpen ||
 				ui.sessionPickerOpen ||
-				ui.branchPickerOpen ||
-				ui.hotkeysOpen;
+				ui.branchPickerOpen;
 			if (event.key === "Escape") {
 				// Don't abort when an overlay/dropdown already consumed this Escape to
 				// dismiss itself (its handler ran first + preventDefault).
@@ -575,7 +494,7 @@ export function App() {
 				return;
 			}
 			if (action === "open-usage") {
-				ui.openUsage();
+				ui.openInsights("usage");
 				return;
 			}
 			if (action === "open-model-picker") {
@@ -595,7 +514,7 @@ export function App() {
 				return;
 			}
 			if (action === "open-capabilities") {
-				ui.openSettings("capabilities");
+				ui.openSettings("features");
 				return;
 			}
 			if (action === "open-git") {
@@ -616,7 +535,7 @@ export function App() {
 				return;
 			}
 			if (action === "open-context-report") {
-				ui.openContextReport();
+				ui.openInsights("stats", "session");
 				return;
 			}
 			if (action === "open-jobs") {
@@ -624,7 +543,7 @@ export function App() {
 				return;
 			}
 			if (action === "open-stats") {
-				ui.openStatsDashboard();
+				ui.openInsights("stats", "all");
 				return;
 			}
 			if (action === "open-feedback") {
@@ -632,11 +551,11 @@ export function App() {
 				return;
 			}
 			if (action === "open-hotkeys") {
-				ui.openHotkeys();
+				ui.openSettings("keyboard");
 				return;
 			}
 			if (action === "open-session-info") {
-				ui.openSessionInfo();
+				ui.openInsights("stats", "session");
 				return;
 			}
 			if (action === "open-share-session") {
@@ -644,11 +563,11 @@ export function App() {
 				return;
 			}
 			if (action === "open-workspace-dirs") {
-				ui.openWorkspaceDirs();
+				ui.openSettings("workspace");
 				return;
 			}
 			if (action === "open-agent-hub") {
-				ui.openAgentHub();
+				ui.openAgents("definitions");
 				return;
 			}
 			if (action === "open-modes") {
@@ -660,19 +579,19 @@ export function App() {
 				return;
 			}
 			if (action === "open-model-roles") {
-				ui.openModelRoles();
+				ui.openSettings("models");
 				return;
 			}
 			if (action === "open-extensions") {
-				ui.openExtensions();
+				ui.openSettings("extensions");
 				return;
 			}
 			if (action === "open-inventory") {
-				ui.openInventory();
+				ui.openSettings("plugins");
 				return;
 			}
 			if (action === "open-pr-center") {
-				ui.openPrCenter();
+				ui.openAgents("prs");
 				return;
 			}
 			if (action === "open-debug") {
@@ -730,23 +649,13 @@ export function App() {
 
 	const focusedRuntime = activeTabId ? ensureTabRuntime(activeTabId) : null;
 	const surface = (
-		<div className="flex h-screen w-screen overflow-hidden text-[var(--omp-text)]">
+		<div className="flex h-screen w-screen overflow-hidden text-(--sc-text)">
 			{focusedRuntime && <FocusedSessionEffects />}
-			{sidebarVisible && <Sidebar />}
-
-			<main className="omp-workspace-main relative flex min-w-0 flex-1 flex-col">
-				<TitleBar />
-				<TabBar />
-				<SidecarBanner />
-				<UpdateBanner />
-				<SplitWorkspace />
-			</main>
-
-			{panelVisible && <PanelContainer />}
+			<AppShell />
 
 			<CommandPalette />
 			<ExtensionDialog />
-			<FirstRunOnboardingDialog />
+			<FirstRunGate />
 			<ModelPicker />
 			<RenameSessionDialog />
 			<WorktreeDialog />
@@ -759,43 +668,18 @@ export function App() {
 			<DebugConsoleDialog />
 			<LiveVoiceDialog />
 			<CopySelectorDialog />
-			<ContextReportDialog />
 			<ActiveToolsDialog />
 			<ShareSessionDialog />
-			<JobsDialog />
 			<ChangelogDialog />
-			<WorkspaceDirsDialog />
 			<ForceToolDialog />
-			<SessionTreeDialog />
-			<SessionInfoDialog />
 			<HandoffDialog />
 			<Suspense fallback={null}>
-				<SettingsWindow />
-				<UsageWindow />
-				<ProvidersWindow />
-				<ModelRolesWindow />
-				<ModelCompare open={modelCompareOpen} onClose={closeModelCompare} />
 				<BenchmarkDialog open={benchmarkOpen} onClose={closeBenchmark} />
-				<ExtensionsPanel open={extensionsOpen} onClose={closeExtensions} initialTab={extensionsTab} />
-				<InventoryPanel open={inventoryOpen} onClose={closeInventory} initialTab={inventoryTab} />
-				<ModesPanel open={modesOpen} onClose={closeModes} initialTab={modesTab} />
-				<AgentHubWindow open={agentHubOpen} onClose={closeAgentHub} initialTab={agentHubTab} />
-				<PrCenterWindow />
-				<ProviderConfigDialog
-					open={providerConfigOpen}
-					editProvider={providerConfigEdit}
-					onClose={closeProviderConfig}
-				/>
 			</Suspense>
 			<ThemePickerDialog />
 			<PlanApprovalDialog />
-			<HotkeysDialog open={hotkeysOpen} />
 			{importDialogOpen && <ImportForeignDialog />}
-			{composerEditorOpen && <ComposerEditorDialog />}
-			<Suspense fallback={null}>
-				<StatsDashboard open={statsDashboardOpen} onClose={closeStatsDashboard} />
-				{feedbackOpen && <FeedbackDialog />}
-			</Suspense>
+			<Suspense fallback={null}>{feedbackOpen && <FeedbackDialog />}</Suspense>
 			<ToastStack />
 		</div>
 	);

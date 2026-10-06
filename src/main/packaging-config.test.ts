@@ -13,6 +13,8 @@ import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
 interface BuilderConfig {
+	appId?: string;
+	productName?: string;
 	afterPack?: string;
 	extraResources?: { from: string; to: string }[];
 	protocols?: { name: string; schemes?: string[] }[];
@@ -23,7 +25,11 @@ interface BuilderConfig {
 const PACKAGE_ROOT = path.join(__dirname, "..", "..");
 const require = createRequire(import.meta.url);
 
-type AfterPackHook = (context: { electronPlatformName: string; appOutDir: string }) => Promise<void>;
+type AfterPackHook = (context: {
+	electronPlatformName: string;
+	appOutDir: string;
+	packager: { appInfo: { productFilename: string } };
+}) => Promise<void>;
 
 const PRIVACY_KEYS = [
 	"NSMicrophoneUsageDescription",
@@ -85,8 +91,8 @@ describe("mac bundle configs", () => {
 			for (const key of PRIVACY_KEYS) {
 				const value = info[key];
 				// Electron's own default reads "This app needs access to the camera":
-				// a prompt that names no product and claims a capability omp never uses.
-				const namesApp = typeof value === "string" && /\bomp\b/.test(value);
+				// a prompt that names no product and claims a capability seucode never uses.
+				const namesApp = typeof value === "string" && /\bseucode\b/.test(value);
 				expect(namesApp, `${file} → ${key}`).toBe(true);
 			}
 		}
@@ -106,11 +112,11 @@ describe("mac bundle configs", () => {
 	});
 
 	it("restores ATS in the completed bundle after electron-builder enables arbitrary loads", async () => {
-		const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "omp-bundle-policy-"));
-		const plistPath = path.join(directory, "omp.app", "Contents", "Info.plist");
+		const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "seucode-bundle-policy-"));
+		const plistPath = path.join(directory, "seucode.app", "Contents", "Info.plist");
 		const loopback = { NSExceptionAllowsInsecureHTTPLoads: true };
 		const original: PlistObject = {
-			CFBundleIdentifier: "sh.omp.gui",
+			CFBundleIdentifier: "com.seuput.seucode",
 			CFBundleURLTypes: [{ CFBundleURLSchemes: ["omp"] }],
 			NSAppTransportSecurity: {
 				NSAllowsArbitraryLoads: true,
@@ -126,7 +132,11 @@ describe("mac bundle configs", () => {
 				expect(hookPath, `${file} declares no afterPack policy hook`).toBe("scripts/after-pack.cjs");
 				if (!hookPath) continue;
 				const afterPack = require(path.resolve(PACKAGE_ROOT, hookPath)).afterPack as AfterPackHook;
-				await afterPack({ electronPlatformName: "darwin", appOutDir: directory });
+				await afterPack({
+					electronPlatformName: "darwin",
+					appOutDir: directory,
+					packager: { appInfo: { productFilename: config.productName ?? "" } },
+				});
 				expect(await parsePlistFile(plistPath), `${file} leaves arbitrary loads enabled in the bundle`).toEqual({
 					...original,
 					NSAppTransportSecurity: {
@@ -138,6 +148,16 @@ describe("mac bundle configs", () => {
 			}
 		} finally {
 			await fs.promises.rm(directory, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("product identity", () => {
+	it("every package config ships seucode under one bundle id", () => {
+		for (const file of fs.readdirSync(PACKAGE_ROOT).filter(name => /^electron-builder.*\.yml$/.test(name))) {
+			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
+			expect(config.productName, file).toBe("seucode");
+			expect(config.appId, file).toBe("com.seuput.seucode");
 		}
 	});
 });

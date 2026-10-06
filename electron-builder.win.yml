@@ -1,5 +1,5 @@
-appId: com.seuput.omp-gui
-productName: omp
+appId: com.seuput.seucode
+productName: seucode
 afterPack: scripts/after-pack.cjs
 directories:
   buildResources: resources
@@ -34,7 +34,7 @@ nsis:
   deleteAppDataOnUninstall: false
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: omp
+  shortcutName: seucode
   artifactName: ${productName}-${version}-setup.${ext}
 
 portable:
@@ -43,7 +43,7 @@ portable:
 publish:
   provider: github
   owner: SeuPut0705
-  repo: omp-gui
+  repo: seucode
 
 # NO `electronLanguages` here on purpose: electron-builder's option compares the
 # list against Electron's `locales/*.pak` basenames with an EXACT match (after

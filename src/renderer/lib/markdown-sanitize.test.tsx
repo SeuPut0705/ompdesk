@@ -7,9 +7,12 @@
  */
 import { parseHTML } from "linkedom";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { I18nProvider } from "./i18n";
-import { MarkdownRenderer } from "./markdown";
+import { MarkdownRenderer, preloadMarkdownPipeline } from "./markdown";
+
+// renderToStaticMarkup never runs effects, so the lazy raw-HTML step must be loaded first.
+beforeAll(() => preloadMarkdownPipeline());
 
 function render(content: string): string {
 	return renderToStaticMarkup(
@@ -30,7 +33,7 @@ describe("markdown sanitize class lockdown", () => {
 
 	it("keeps fenced code language classes for badge and mermaid routing", () => {
 		const html = render("```ts\nconst x = 1\n```");
-		expect(html).toContain(">typescript</span>");
+		expect(html).toContain(">TypeScript</span>");
 		const mermaid = render("```mermaid\ngraph TD\nA-->B\n```");
 		expect(parseHTML(mermaid).document.documentElement.textContent).toContain("graph TD");
 	});

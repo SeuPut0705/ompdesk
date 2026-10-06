@@ -13,10 +13,8 @@ import { useState } from "react";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { toast } from "../../../stores/toast";
+import { IconButton, Input } from "../../common";
 import { ModelValueSelect } from "../ModelValueSelect";
-
-const INPUT_CLASS =
-	"rounded-md border border-(--omp-input-border) bg-(--omp-input-bg) px-2 py-1 font-mono text-omp-sm text-(--omp-text) outline-none transition-colors focus:border-(--omp-input-focus-border)";
 
 export interface ProviderLimitsEditorProps {
 	value: Record<string, unknown>;
@@ -55,24 +53,27 @@ function LimitInput({
 	};
 
 	return (
-		<input
-			className={`${INPUT_CLASS} w-20 text-right`}
-			disabled={disabled}
-			inputMode="numeric"
-			onBlur={commit}
-			onChange={event => setDraft(event.target.value)}
-			onKeyDown={event => {
-				if (isImeKeyEvent(event)) return;
-				if (event.key === "Enter") event.currentTarget.blur();
-				if (event.key === "Escape") {
-					setDraft(null);
-					event.currentTarget.blur();
-				}
-			}}
-			placeholder={t("settings.editors.limitUnlimited")}
-			spellCheck={false}
-			value={draft ?? String(limit)}
-		/>
+		<div className="w-20 shrink-0">
+			<Input
+				className="text-right tabular-nums"
+				controlSize="sm"
+				disabled={disabled}
+				inputMode="numeric"
+				onBlur={commit}
+				onChange={event => setDraft(event.target.value)}
+				onKeyDown={event => {
+					if (isImeKeyEvent(event)) return;
+					if (event.key === "Enter") event.currentTarget.blur();
+					if (event.key === "Escape") {
+						setDraft(null);
+						event.currentTarget.blur();
+					}
+				}}
+				placeholder={t("settings.editors.limitUnlimited")}
+				spellCheck={false}
+				value={draft ?? String(limit)}
+			/>
+		</div>
 	);
 }
 
@@ -97,20 +98,19 @@ export function ProviderLimitsEditor({ value, onCommit, disabled }: ProviderLimi
 	return (
 		<div className="flex w-full flex-col gap-1">
 			{entries.map(([provider, limit]) => (
-				<div className="flex items-center gap-1.5" key={provider}>
-					<span className="min-w-0 flex-1 truncate font-mono text-omp-sm text-(--omp-text)" title={provider}>
+				<div className="flex items-center gap-2" key={provider}>
+					<span className="min-w-0 flex-1 truncate font-mono text-sc-sm text-(--sc-text)" title={provider}>
 						{provider}
 					</span>
 					<LimitInput disabled={disabled} limit={limit} onCommit={next => setLimit(provider, next)} />
 					{!disabled && (
-						<button
-							aria-label={t("settings.editors.kvRemove")}
-							className="shrink-0 text-(--omp-dim) hover:text-(--omp-error)"
+						<IconButton
+							className="shrink-0"
+							icon={<X />}
+							label={t("settings.editors.kvRemove")}
 							onClick={() => setLimit(provider, null)}
-							type="button"
-						>
-							<X size={13} />
-						</button>
+							size="sm"
+						/>
 					)}
 				</div>
 			))}

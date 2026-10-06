@@ -9,6 +9,10 @@
  */
 
 import { app, Menu, nativeImage, Tray } from "electron";
+import winTray2x from "../../resources/brand/tray@2x.png?inline";
+import winTray from "../../resources/brand/tray.png?inline";
+import macTemplate2x from "../../resources/brand/trayTemplate@2x.png?inline";
+import macTemplate from "../../resources/brand/trayTemplate.png?inline";
 import { IPC_EVENTS, type MenuAction, type MenuActionPayload, type TrayState } from "../shared/ipc-types";
 import { UI_LANGUAGE_NAMES } from "../shared/ui-language";
 import { approvalLabel, formatTokens, menuSignature, type TrayLang, t, trayTooltip } from "./tray-labels";
@@ -21,44 +25,19 @@ let trayState: TrayState | null = null;
 /** Label set the currently installed native menu renders, and whether it is open. */
 let installedSignature: string | null = null;
 let menuIsOpen = false;
-let tooltip = "omp";
+let tooltip = "seucode";
 
 function buildIcon(): Electron.NativeImage {
-	// macOS status items are template images: the system applies the correct
-	// foreground color for light/dark and selected menu-bar states. Render at
-	// 2× so the small π mark remains crisp on Retina displays. The run status is
-	// text (tooltip + menu header); painting it here would turn the app mark
-	// into a large, visually noisy traffic-light dot.
-	const logicalSize = 18;
-	const scaleFactor = 2;
-	const pixelSize = logicalSize * scaleFactor;
-	const canvas = Buffer.alloc(pixelSize * pixelSize * 4, 0);
-	const fillRoundedRect = (left: number, top: number, right: number, bottom: number, radius: number) => {
-		for (let y = top; y < bottom; y++) {
-			for (let x = left; x < right; x++) {
-				const nearestX = Math.max(left + radius, Math.min(x + 0.5, right - radius));
-				const nearestY = Math.max(top + radius, Math.min(y + 0.5, bottom - radius));
-				const dx = x + 0.5 - nearestX;
-				const dy = y + 0.5 - nearestY;
-				if (dx * dx + dy * dy > radius * radius) continue;
-				const index = (y * pixelSize + x) * 4;
-				canvas[index + 3] = 255;
-			}
-		}
-	};
-
-	// A compact filled π: one cap, two stems and a short inward foot.
-	fillRoundedRect(4, 6, 32, 12, 3);
-	fillRoundedRect(9, 9, 15, 31, 3);
-	fillRoundedRect(21, 9, 28, 27, 3);
-	fillRoundedRect(16, 23, 28, 30, 3);
-
-	const image = nativeImage.createFromBuffer(canvas, {
-		width: pixelSize,
-		height: pixelSize,
-		scaleFactor,
-	});
-	image.setTemplateImage(true);
+	// The seucode mark, rasterized by scripts/gen-icons.ts and inlined as data
+	// URLs so the packaged app needs no resource path. macOS status items use
+	// the monochrome template (the system tints it for light/dark and selected
+	// menu-bar states); Windows gets the full-color tile, which stays visible
+	// on light and dark taskbars. The run status is text (tooltip + menu
+	// header); painting it here would turn the mark into a noisy status dot.
+	const mac = process.platform === "darwin";
+	const image = nativeImage.createFromDataURL(mac ? macTemplate : winTray);
+	image.addRepresentation({ scaleFactor: 2, dataURL: mac ? macTemplate2x : winTray2x });
+	if (mac) image.setTemplateImage(true);
 	return image;
 }
 
@@ -252,5 +231,5 @@ export function destroyTray(): void {
 	trayState = null;
 	installedSignature = null;
 	menuIsOpen = false;
-	tooltip = "omp";
+	tooltip = "seucode";
 }

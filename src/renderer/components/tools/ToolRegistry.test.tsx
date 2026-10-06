@@ -277,8 +277,10 @@ describe("device calls routed through write", () => {
 		});
 		await mountCard("file", "write", args);
 
-		expect(bodyText()).toContain("src/app.ts");
-		expect(bodyText()).toContain("1 line");
+		// The row names the file first and its folder after; the diff chip carries the line count.
+		expect(bodyText()).toContain("app.ts");
+		expect(bodyText()).toContain("src");
+		expect(bodyText()).toContain("Lines added: 1");
 	});
 });
 

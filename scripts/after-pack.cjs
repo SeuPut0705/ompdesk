@@ -10,7 +10,8 @@ const plist = require("plist");
 async function afterPack(context) {
 	if (context.electronPlatformName !== "darwin") return;
 
-	const infoPath = path.join(context.appOutDir, "omp.app", "Contents", "Info.plist");
+	const bundle = `${context.packager.appInfo.productFilename}.app`;
+	const infoPath = path.join(context.appOutDir, bundle, "Contents", "Info.plist");
 	const info = plist.parse(await fs.readFile(infoPath, "utf8"));
 	const transport = info.NSAppTransportSecurity;
 	info.NSAppTransportSecurity = {

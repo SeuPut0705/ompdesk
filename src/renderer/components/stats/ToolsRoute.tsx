@@ -5,17 +5,17 @@
 
 import { useEffect, useMemo } from "react";
 import { Bar } from "react-chartjs-2";
-import { baseChartOptions, CHART_COLORS, compact, formatUsd } from "../../lib/chart";
+import { baseChartOptions, chartColors, compact, formatUsd, useChartThemeKey, withAlpha } from "../../lib/chart";
 import "../../lib/chart";
 import type { ToolRow, ToolsData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
 import { useT } from "../../lib/i18n";
 import { Badge } from "../common";
-import type { StatsRange } from "./StatsDashboard";
-import { ChartBox, RouteFrame, SectionTitle, type StatColumn, StatTable } from "./shared";
+import { ChartBox, RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
 
 export function ToolsRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
 	const t = useT();
+	const themeKey = useChartThemeKey();
 	const params = useMemo(() => ({ range }), [range]);
 	const { data, isLoading, error, refetch } = useStats<ToolsData>("/api/stats/tools", params);
 
@@ -30,7 +30,7 @@ export function ToolsRoute({ range, refreshKey }: { range: StatsRange; refreshKe
 			{
 				key: "tool",
 				label: t("stats.tools.col.tool"),
-				render: row => <span className="font-mono font-medium text-(--omp-text)">{row.tool}</span>,
+				render: row => <span className="font-mono font-medium text-(--sc-text)">{row.tool}</span>,
 			},
 			{ key: "calls", label: t("stats.tools.col.calls"), align: "right", render: row => compact(row.calls) },
 			{
@@ -41,7 +41,7 @@ export function ToolsRoute({ range, refreshKey }: { range: StatsRange; refreshKe
 					row.errors > 0 ? (
 						<Badge variant="error">{compact(row.errors)}</Badge>
 					) : (
-						<span className="text-(--omp-dim)">0</span>
+						<span className="text-(--sc-text-subtle)">0</span>
 					),
 			},
 			{ key: "args", label: t("stats.tools.col.args"), align: "right", render: row => compact(row.argsChars) },
@@ -77,7 +77,9 @@ export function ToolsRoute({ range, refreshKey }: { range: StatsRange; refreshKe
 	);
 
 	const byTool = useMemo(() => [...(stats?.byTool ?? [])].sort((a, b) => b.calls - a.calls), [stats]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: themeKey repaints the series colors on a theme switch.
 	const barChart = useMemo(() => {
+		const colors = chartColors();
 		const top = byTool.slice(0, 12);
 		return {
 			labels: top.map(row => row.tool),
@@ -85,26 +87,31 @@ export function ToolsRoute({ range, refreshKey }: { range: StatsRange; refreshKe
 				{
 					label: t("stats.tools.col.calls"),
 					data: top.map(row => row.calls),
-					backgroundColor: top.map((_, index) => `${CHART_COLORS[index % CHART_COLORS.length]}99`),
-					borderColor: top.map((_, index) => CHART_COLORS[index % CHART_COLORS.length]),
+					backgroundColor: top.map((_, index) => withAlpha(colors[index % colors.length], 0.6)),
+					borderColor: top.map((_, index) => colors[index % colors.length]),
 					borderWidth: 1,
 				},
 			],
 		};
-	}, [byTool, t]);
+	}, [byTool, t, themeKey]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: themeKey re-reads the axis tokens on a theme switch.
 	const barOptions = useMemo(() => {
 		const base = baseChartOptions();
+		const mono = getComputedStyle(document.documentElement).getPropertyValue("--sc-font-mono").trim() || "monospace";
 		return {
 			...base,
 			indexAxis: "y" as const,
 			plugins: { ...base.plugins, legend: { display: false } },
 			scales: {
 				x: { ...base.scales.x },
-				y: { ...base.scales.y, ticks: { ...base.scales.y.ticks, font: { size: 9, family: "monospace" } } },
+				y: {
+					...base.scales.y,
+					ticks: { ...base.scales.y.ticks, font: { ...base.scales.y.ticks.font, family: mono } },
+				},
 			},
 		};
-	}, []);
+	}, [themeKey]);
 
 	return (
 		<RouteFrame

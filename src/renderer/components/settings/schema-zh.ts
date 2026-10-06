@@ -31,7 +31,7 @@ export const ZH_GROUP_TITLES: Record<string, string> = {
 	"Startup & Updates": "启动与更新",
 	"Power (macOS)": "电源（macOS）",
 	Power: "电源",
-	Agent: "Agent",
+	Agent: "代理",
 	Git: "Git",
 	General: "常规",
 	Compaction: "压缩",
@@ -79,8 +79,8 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		description: "除 eval、ask、todo、yield、think、checkpoint 和 rewind 外，允许直接调用的工具。",
 	},
 	"update.channel": {
-		label: "Core 更新通道",
-		description: "omp update 与 Core 启动更新检查使用的通道。桌面应用更新在“更新”页面管理。",
+		label: "omp 更新通道",
+		description: "`omp update` 与 omp 启动时的更新检查使用的通道。seucode 更新在“更新”页面管理。",
 	},
 	"edit.autoRepair.enabled": {
 		label: "自动修复解析错误",
@@ -96,14 +96,14 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"commit.cacheTtlDays": { label: "提交分析缓存天数" },
 	"extensionHandlers.toolCallTimeoutMs": {
 		label: "扩展工具调用超时（毫秒）",
-		description: "扩展 tool_call 处理器的有效工作超时；等待 OMP 对话框期间不计时，无效值回退为 30000 毫秒。",
+		description: "扩展 tool_call 处理器的有效工作超时；等待 omp 对话框期间不计时，无效值回退为 30000 毫秒。",
 	},
 	// ── appearance ──────────────────────────────────────────────────────────
-	"theme.dark": { label: "深色主题", description: "TUI 与 GUI 使用深色外观时的主题配色" },
-	"theme.light": { label: "浅色主题", description: "TUI 与 GUI 使用浅色外观时的主题配色" },
+	"theme.dark": { label: "深色主题", description: "终端界面与 seucode 使用深色外观时的主题配色" },
+	"theme.light": { label: "浅色主题", description: "终端界面与 seucode 使用浅色外观时的主题配色" },
 	symbolPreset: { label: "符号预设", description: "图标与符号的字形集（Unicode、Nerd Font 或 ASCII）" },
 	colorBlindMode: { label: "色盲模式", description: "差异新增行使用蓝色而非绿色" },
-	"statusLine.preset": { label: "状态预设", description: "TUI 状态栏与 GUI 底部状态栏共用的布局预设" },
+	"statusLine.preset": { label: "状态预设", description: "终端界面状态栏与 seucode 底部状态栏共用的布局预设" },
 	"statusLine.separator": { label: "状态栏分隔符", description: "各分段之间分隔符的样式" },
 	"statusLine.sessionAccent": { label: "会话强调色", description: "将会话名称的颜色用于编辑器边框和状态栏间隙" },
 	"statusLine.transparent": {
@@ -112,8 +112,8 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 			"状态栏使用终端默认背景而非主题的 `statusLineBg`。Powerline 端帽会被丢弃，因为它们需要对比色填充来过渡到周围的终端区域。",
 	},
 	"statusLine.compactThinkingLevel": {
-		label: "紧凑思考等级",
-		description: "在模型名称上以单个图标显示思考等级，而不是附加独立的 ` · <等级>` 后缀。",
+		label: "紧凑思考强度",
+		description: "在模型名称上以单个图标显示思考强度，而不是附加独立的 ` · <等级>` 后缀。",
 	},
 	"statusLine.showHookStatus": { label: "显示钩子状态", description: "在状态栏下方显示钩子状态消息" },
 	"terminal.showImages": { label: "显示内联图片", description: "在终端中内联渲染图片" },
@@ -121,7 +121,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"images.blockImages": { label: "屏蔽图片", description: "阻止图片发送给 LLM 提供商" },
 	"terminal.showProgress": {
 		label: "原生运行进度",
-		description: "显示原生运行进度：终端使用 OSC 9;4，GUI 使用 Dock 徽标与窗口进度条",
+		description: "显示原生运行进度：终端使用 OSC 9;4，seucode 使用 Dock 徽标与窗口进度条",
 	},
 	"tui.textSizing": {
 		label: "大标题（Kitty）",
@@ -130,11 +130,11 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"tui.renderMermaid": {
 		label: "渲染 Mermaid 图表",
-		description: "允许 Agent 使用 Mermaid 图表：TUI 渲染为 ASCII，GUI 渲染为图形",
+		description: "允许代理使用 Mermaid 图表：终端界面渲染为 ASCII，seucode 渲染为图形",
 	},
 	"tui.reactions": {
-		label: "Agent 表情回应",
-		description: "允许 Agent 在回复气泡上用表情徽章回应你的消息",
+		label: "代理表情回应",
+		description: "允许代理在回复气泡上用表情徽章回应你的消息",
 	},
 	"tui.codexResetFireworks": {
 		label: "Codex 重置烟花",
@@ -142,14 +142,14 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"tui.titleState": {
 		label: "标题运行状态",
-		description: "在终端标题或 GUI 窗口标题中显示 Agent 的工作、等待和轮到用户状态",
+		description: "在终端标题或 seucode 窗口标题中显示代理的工作、等待和轮到用户状态",
 	},
 	"tui.hyperlinks": {
 		label: "终端超链接",
 		description:
 			"将路径和 URL 包裹为 OSC 8 超链接，以便终端原生点击打开（auto：检测支持；off：从不；always：无条件）",
 	},
-	"tui.tight": { label: "紧凑界面密度", description: "压缩 TUI 输出与 GUI 界面间距" },
+	"tui.tight": { label: "紧凑界面密度", description: "压缩终端界面输出与 seucode 界面间距" },
 	"tui.scrollbackRebuild": {
 		label: "重写滚动历史",
 		description:
@@ -173,7 +173,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"task.showResolvedModelBadge": {
 		label: "显示解析后模型徽章",
-		description: "在任务部件状态行中显示每个子代理实际使用的模型 ID",
+		description: "在子代理部件状态行中显示每个子代理实际使用的模型 ID",
 	},
 
 	// ── model ───────────────────────────────────────────────────────────────
@@ -184,17 +184,17 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"prewalk.enabled": {
 		label: "启用 Prewalk",
 		description:
-			"先以当前模型开始，在计划提示的待办列表生成后、首次编辑/写入时切换到快速/便宜的模型（默认 'smol' 角色）——强模型负责规划、提交待办并开始实现，然后交接。可用 --prewalk / --no-prewalk 按会话覆盖。",
+			"先以当前模型开始，在计划提示的待办列表生成后、首次编辑/写入时切换到快速/便宜的模型（默认 'smol' 角色）——强模型负责制定计划、提交待办并开始实现，然后交接。可用 --prewalk / --no-prewalk 按会话覆盖。",
 	},
 	// 17.3.0 移除了全局 advisor.subagents（迁移至 task.agentAdvisor）。
 	"task.agentAdvisor": {
-		label: "子代理顾问（按 agent）",
+		label: "子代理顾问（按代理）",
 		description:
-			'按 agent 名称配置顾问模型（取代已移除的 advisor.subagents），例如 { task: "on" } 表示对 task 子代理启用默认顾问。',
+			'按代理名称配置顾问模型（取代已移除的 advisor.subagents），例如 { task: "on" } 表示对 task 子代理启用默认顾问。',
 	},
 	"advisor.syncBacklog": {
 		label: "顾问同步积压",
-		description: "当顾问落后此轮数时，暂停主 Agent 最多 30 秒。Off 表示禁用追赶延迟。",
+		description: "当顾问落后此轮数时，暂停主代理最多 30 秒。设为关闭表示禁用追赶延迟。",
 	},
 	"advisor.immuneTurns": {
 		label: "顾问免疫轮数",
@@ -221,7 +221,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"images.urls.bindHost": { label: "图片服务监听地址", description: "图片 blob 服务监听的主机地址" },
 	"images.urls.sshTarget": { label: "图片 SSH 目标", description: "建立 SSH 反向转发的 user@host 目标" },
 	"images.urls.sshRemotePort": { label: "图片 SSH 远端端口", description: "SSH 反向转发使用的远端监听端口" },
-	defaultThinkingLevel: { label: "思考等级", description: "支持思考的模型的推理深度" },
+	defaultThinkingLevel: { label: "思考强度", description: "支持思考的模型的推理深度" },
 	hideThinkingBlock: { label: "隐藏思考块", description: "在助手回复中隐藏思考块" },
 	proseOnlyThinking: { label: "仅散文思考", description: "从思考摘要中省略代码块，并以省略号替代" },
 	omitThinking: { label: "省略思考摘要", description: "指示上游提供商在回复中完全省略思考摘要（在支持的情况下）" },
@@ -254,11 +254,11 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	includeModelInPrompt: {
 		label: "在提示词中包含模型",
-		description: "在系统提示词中暴露当前模型标识符，让 Agent 知道自己使用的是哪个模型",
+		description: "在系统提示词中暴露当前模型标识符，让代理知道自己使用的是哪个模型",
 	},
 	includeWorkspaceTree: {
-		label: "包含工作区目录树",
-		description: "在系统提示词中渲染工作区目录树。警告：文件修改时可能破坏跨会话的提示词缓存。",
+		label: "包含项目目录树",
+		description: "在系统提示词中渲染项目目录树。警告：文件修改时可能破坏跨会话的提示词缓存。",
 	},
 	skillful: {
 		label: "在提示词中列出技能",
@@ -290,12 +290,12 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"tier.subagent": {
 		label: "服务等级 — 子代理",
 		description:
-			"派生的 task/eval 子代理的服务等级。Inherit = 跟随主 Agent 当前的按厂商等级（随 /fast 变化）；选择具体值则应用于子代理模型所属的厂商。",
+			"派生的 task/eval 子代理的服务等级。继承：跟随主代理当前的按提供商层级（随 /fast 变化）；选择具体值则应用于子代理模型所属的提供商。",
 	},
 	"tier.advisor": {
 		label: "服务等级 — 顾问",
 		description:
-			"顾问模型的服务等级。None = 标准处理；Inherit = 跟随主 Agent 当前的按厂商等级；选择具体值则应用于顾问模型所属的厂商。",
+			"顾问模型的服务等级。无：标准处理；继承：跟随主代理当前的按提供商层级；选择具体值则应用于顾问模型所属的提供商。",
 	},
 	"retry.maxRetries": { label: "重试次数", description: "API 出错时的最大重试次数" },
 	"retry.maxDelayMs": {
@@ -307,7 +307,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"retry.waitForUsageReset": {
 		label: "等待额度重置",
 		description:
-			"提供商返回明确的额度重置时间时，等待到重置后再重试，即使超过最大重试延迟。可随时中止等待；子任务也会一同等待。",
+			"提供商返回明确的额度重置时间时，等待到重置后再重试，即使超过最大重试延迟。可随时停止等待；子代理也会一同等待。",
 	},
 	"retry.usageAwareFallback": {
 		label: "用量感知回退",
@@ -335,7 +335,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"providers.autoThinkingModel": {
 		label: "自动思考模型",
-		description: "`auto` 思考等级的难度分类器：默认在线（/models 中的 TINY 角色，否则为 smol），或本地端侧模型",
+		description: "`auto` 思考强度的难度分类器：默认在线（/models 中的 TINY 角色，否则为 smol），或本地端侧模型",
 	},
 	"providers.autoThinkingMaxEffort": {
 		label: "自动思考强度上限",
@@ -349,8 +349,11 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		label: "防止睡眠",
 		description: "在活动会话期间防止 macOS 睡眠。每个等级是累积的——它会叠加所有更低等级的标志。",
 	},
-	"git.enabled": { label: "启用 Git 集成", description: "在 TUI 中显示 git 分支、状态和 PR 信息，并监视仓库元数据。" },
-	steeringMode: { label: "引导模式", description: "Agent 工作时如何处理排队的消息" },
+	"git.enabled": {
+		label: "启用 Git 集成",
+		description: "在终端界面中显示 git 分支、状态和 PR 信息，并监视仓库元数据。",
+	},
+	steeringMode: { label: "引导模式", description: "代理工作时如何处理排队的消息" },
 	followUpMode: { label: "跟进模式", description: "一轮结束后如何逐出跟进消息" },
 	interruptMode: { label: "中断模式", description: "引导消息何时中断工具执行" },
 	"loop.mode": { label: "循环模式", description: "/loop 迭代之间、重新提交提示词之前执行什么操作" },
@@ -371,7 +374,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		label: "显示启动画面",
 		description: "正常交互式启动时显示完整的动画设置画面，而不重新运行设置。静默启动仍会抑制它。",
 	},
-	"startup.setupWizard": { label: "设置向导", description: "每个设置版本展示一次新增的入门引导步骤" },
+	"startup.setupWizard": { label: "设置向导", description: "每个设置版本展示一次新增的设置步骤" },
 	"startup.checkUpdate": { label: "检查更新", description: "启动时检查 omp 更新" },
 	"marketplace.autoUpdate": { label: "插件市场自动更新", description: "启动时检查插件更新" },
 	"startup.changelogMode": { label: "启动更新日志", description: "选择更新说明以摘要、完整详情开始，或保持隐藏" },
@@ -391,8 +394,12 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		label: "Workflow 关键词",
 		description: "允许独立的 workflowz 附加其隐藏的 eval 工作流提示",
 	},
-	"completion.notify": { label: "完成通知", description: "Agent 完成一轮时通知" },
-	"error.notify": { label: "错误通知", description: "Agent 因错误停止时通知" },
+	"magicKeywords.jevify": {
+		label: "Jevify 关键词",
+		description: "允许单独的 jevify 附加隐藏的批量评判分类提示。",
+	},
+	"completion.notify": { label: "完成通知", description: "代理完成一轮时通知" },
+	"error.notify": { label: "错误通知", description: "代理因错误停止时通知" },
 	"ask.timeout": { label: "询问超时", description: "经过此秒数后自动选择推荐的询问选项（0 表示禁用）" },
 	"ask.notify": { label: "询问通知", description: "ask 工具等待输入时通知" },
 	"recap.enabled": { label: "空闲回顾", description: "终端空闲一段时间后，生成一段简短的 LLM 回顾说明当前进展" },
@@ -430,7 +437,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"tools.approvalMode": {
 		label: "工具审批",
 		description:
-			"工具调用的默认审批行为。'总是询问' 仅自动批准只读工具；'写入' 自动批准读取和工作区写入工具；'Yolo' 自动批准所有层级，但用户策略仍可提示或阻止。",
+			"工具调用的默认审批行为。'总是询问' 仅自动批准只读工具；'写入' 自动批准读取和项目内写入工具；'Yolo' 自动批准所有层级，但用户策略仍可提示或阻止。",
 	},
 	"features.unexpectedStopDetection": {
 		label: "检测意外停止",
@@ -439,9 +446,9 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 
 	// ── context ─────────────────────────────────────────────────────────────
 	"workspace.additionalDirectories": {
-		label: "额外工作区目录",
+		label: "额外目录",
 		description:
-			"作为额外根目录加入每个会话的工作区目录（多根工作区）。可通过 /add-dir 和 /remove-dir 实时管理。路径相对于 cwd 解析，建议使用绝对路径。Agent 会被告知这些根目录存在，并可对它们 read/grep/glob。",
+			"作为额外根目录加入每个会话的项目目录（多根）。可通过 /add-dir 和 /remove-dir 实时管理。路径相对于 cwd 解析，建议使用绝对路径。代理会被告知这些根目录存在，并可对它们 read/grep/glob。",
 	},
 	"contextPromotion.enabled": {
 		label: "自动提升上下文",
@@ -513,7 +520,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"branchSummary.enabled": { label: "分支摘要", description: "离开分支时提示生成摘要" },
 	"ttsr.enabled": {
 		label: "TTSR",
-		description: "当输出匹配规则模式时中断 Agent 流式输出（时间旅行流规则，Time-Traveling Stream Rules）",
+		description: "当输出匹配规则模式时中断代理流式输出（时间旅行流规则，Time-Traveling Stream Rules）",
 	},
 	"ttsr.contextMode": { label: "TTSR 上下文模式", description: "TTSR 触发时如何处理部分输出" },
 	"ttsr.interruptMode": { label: "TTSR 中断模式", description: "何时在流中直接中断，何时在完成后再注入警告" },
@@ -521,7 +528,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"ttsr.repeatGap": { label: "TTSR 重复间隔", description: "规则再次触发前需要的消息数" },
 	"ttsr.builtinRules": {
 		label: "内置规则",
-		description: "加载 Agent 自带的默认规则（可用 ttsr.disabledRules 单独覆盖）",
+		description: "加载代理自带的默认规则（可用 ttsr.disabledRules 单独覆盖）",
 	},
 	"ttsr.disabledRules": { label: "禁用规则", description: "完全忽略的规则名称（对内置默认规则和你自己的规则都生效）" },
 
@@ -529,6 +536,11 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"memory.backend": {
 		label: "记忆后端",
 		description: "关闭、本地摘要管线、Mnemopi SQLite、Hindsight 远程记忆，或 Sharpshooter 项目决策记忆",
+	},
+	"ttsr.judge": {
+		label: "评判规则",
+		description:
+			"就已完成的回复、推理和工具调用，向 judge 模型角色询问每条 `question` 规则；回答 yes 时将该规则作为警告注入。",
 	},
 	"sharpshooter.model": {
 		label: "Sharpshooter 模型",
@@ -544,13 +556,13 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"autolearn.enabled": {
 		label: "自动学习（实验性）",
-		description: "Agent 停止后，提醒它把经验教训沉淀到记忆，并创建/完善隔离的受管技能",
+		description: "代理停止后，提醒它把经验教训沉淀到记忆，并创建/完善隔离的受管技能",
 	},
 	"autolearn.autoContinue": {
 		label: "停止时自动沉淀",
-		description: "开启时，停止后自动运行一个私密的沉淀轮次（消耗额外 token）。关闭时，仅保留常驻的自动学习引导。",
+		description: "开启时，停止后自动运行一个私密的沉淀轮次（消耗额外 token）。关闭时，仅保留常驻的自动学习提示。",
 	},
-	"mnemopi.dbPath": { label: "Mnemopi 数据库路径", description: "可选的 SQLite 数据库路径。默认为 Agent 记忆目录。" },
+	"mnemopi.dbPath": { label: "Mnemopi 数据库路径", description: "可选的 SQLite 数据库路径。默认为代理记忆目录。" },
 	"mnemopi.bank": {
 		label: "Mnemopi 记忆库",
 		description: "可选的共享记忆库基础名称。按项目模式会由它派生项目本地记忆库。",
@@ -566,7 +578,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 			"本地嵌入模型家族。en = 更强的英文模型；multilingual = 跨语言模型。更改后会在下次启动时重建现有记忆嵌入。",
 	},
 	"mnemopi.autoRecall": { label: "Mnemopi 自动召回", description: "在每个会话的第一轮召回本地记忆" },
-	"mnemopi.autoRetain": { label: "Mnemopi 自动留存", description: "把完成的对话轮次留存到本地 Mnemopi 记忆" },
+	"mnemopi.autoRetain": { label: "Mnemopi 自动留存", description: "把完成的会话轮次留存到本地 Mnemopi 记忆" },
 	"mnemopi.polyphonicRecall": {
 		label: "Mnemopi 多声部召回",
 		description: "启用 4 路召回（向量、图、事实、时序），以倒数排名融合（RRF）合并",
@@ -624,7 +636,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"edit.mode": { label: "编辑模式", description: "选择编辑工具变体（replace、patch、hashline 或 apply_patch）" },
 	"edit.fuzzyMatch": { label: "模糊匹配", description: "对空白差异接受高置信度的模糊匹配" },
 	"edit.fuzzyThreshold": { label: "模糊匹配阈值", description: "接受模糊匹配的相似度阈值（0-1）" },
-	"edit.streamingAbort": { label: "预览失败即中止", description: "补丁预览失败时中止流式编辑工具调用" },
+	"edit.streamingAbort": { label: "预览失败即停止", description: "补丁预览失败时停止流式编辑工具调用" },
 	"edit.recoverInlineEdits": {
 		label: "恢复内联编辑内容",
 		description: "把模型以普通文本输出的编辑内容转换为 edit 工具调用并执行",
@@ -642,7 +654,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		description: "编辑导致 AST 解析失败时，将修改前后源码及调用信息追加到本地诊断日志",
 	},
 	readLineNumbers: { label: "行号", description: "默认在读取工具输出前添加行号" },
-	"read.defaultLimit": { label: "默认读取行数", description: "Agent 调用 read 且不指定行数上限时默认返回的行数" },
+	"read.defaultLimit": { label: "默认读取行数", description: "代理调用 read 且不指定行数上限时默认返回的行数" },
 	"read.renderMarkdown": {
 		label: "Markdown 预览",
 		description: "将 Markdown 读取结果渲染为格式化的终端 Markdown 预览，而非原始源码",
@@ -711,7 +723,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"shellMinimizer.enabled": {
 		label: "Shell 输出压缩",
-		description: "在返回给 Agent 前压缩冗长的 shell 输出（git、npm、cargo 等）",
+		description: "在返回给代理前压缩冗长的 shell 输出（git、npm、cargo 等）",
 	},
 	"shellMinimizer.sourceOutlineLevel": {
 		label: "Shell 压缩源码大纲",
@@ -724,8 +736,8 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		description: "允许 eval 单元格定义可供 task、agent() 和 workpool() 子代理调用的工具",
 	},
 	"eval.workpool.freshAgents": {
-		label: "Workpool 使用全新 Agent",
-		description: "为每个 workpool 项启动新的子代理，不复用 worker 或批量处理排队项",
+		label: "Workpool 使用全新代理",
+		description: "为每个 workpool 项启动新的子代理，不复用工作进程或批量处理排队项",
 	},
 	"eval.rb": { label: "Ruby Eval 后端", description: "允许 eval 工具把 Ruby 单元格派发到持久 Ruby 内核" },
 	"eval.jl": { label: "Julia Eval 后端", description: "允许 eval 工具把 Julia 单元格派发到持久 Julia 内核" },
@@ -768,8 +780,8 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		label: "Artifact 尾部行数",
 		description: "输出溢出为 artifact 时保留内联的最大尾部行数",
 	},
-	"todo.enabled": { label: "待办", description: "启用 todo 工具进行任务跟踪" },
-	"todo.reminders": { label: "待办提醒", description: "提醒 Agent 在停止前完成待办" },
+	"todo.enabled": { label: "待办", description: "启用 todo 工具跟踪待办" },
+	"todo.reminders": { label: "待办提醒", description: "提醒代理在停止前完成待办" },
 	"todo.remindersMax": { label: "待办提醒上限", description: "放弃前的最大待办提醒次数" },
 	"todo.eager": { label: "自动创建待办", description: "首条消息后推动自动创建待办列表的力度" },
 	"glob.enabled": { label: "Glob", description: "启用 glob 工具进行 glob 模式文件查找" },
@@ -824,7 +836,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"web_search.enabled": { label: "网络搜索", description: "启用 web_search 工具获取实时网络结果" },
 	"security.enabled": {
 		label: "安全",
-		description: "启用 OMP 原生安全扫描的规划、执行，以及只读的 security:// 资源命名空间",
+		description: "启用 omp 原生安全扫描的计划、执行，以及只读的 security:// 资源命名空间",
 	},
 	"ask.enabled": { label: "Ask", description: "启用 ask 工具进行交互式用户提问" },
 	"browser.enabled": { label: "浏览器", description: "启用 browser 工具进行脚本化 Chromium 自动化（puppeteer）" },
@@ -844,13 +856,13 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"保存截图的目录。未设置时截图写入临时文件。支持 ~。示例：~/Downloads、~/Desktop、/sdcard/Download（Android）",
 	},
-	"tools.intentTracing": { label: "意图追踪", description: "要求 Agent 在执行每个工具调用前描述其意图" },
+	"tools.intentTracing": { label: "意图追踪", description: "要求代理在执行每个工具调用前描述其意图" },
 	"tools.abortOnFabricatedResult": {
-		label: "捏造工具结果即中止",
+		label: "捏造工具结果即停止",
 		description:
 			"使用带内工具调用时，模型一旦在轮次中开始幻觉编造工具结果便立即停止。禁用则让模型完成生成并丢弃编造的后续内容。",
 	},
-	"tools.maxTimeout": { label: "工具超时上限", description: "Agent 可为任何工具设置的最大超时秒数（0 = 不限制）" },
+	"tools.maxTimeout": { label: "工具超时上限", description: "代理可为任何工具设置的最大超时秒数（0 = 不限制）" },
 	"async.enabled": { label: "异步执行", description: "启用异步 bash 命令和后台任务执行" },
 	"async.pollWaitDuration": {
 		label: "最大轮询时间",
@@ -881,13 +893,17 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		label: "MCP Markdown 结果",
 		description: "把非 JSON 的 MCP 文本结果在转录中渲染为 Markdown",
 	},
-	"mcp.notifications": { label: "MCP 更新注入", description: "把 MCP 资源更新注入 Agent 对话" },
-	"mcp.notificationDebounceMs": { label: "MCP 通知防抖", description: "MCP 资源更新注入对话前的防抖窗口（毫秒）" },
+	"mcp.notifications": { label: "MCP 更新注入", description: "把 MCP 资源更新注入代理会话" },
+	"mcp.notificationDebounceMs": { label: "MCP 通知防抖", description: "MCP 资源更新注入会话前的防抖窗口（毫秒）" },
 	"tasks.todoClearDelay": { label: "待办自动清除延迟", description: "已完成或已放弃的待办从待办部件中移除前的延迟" },
 	"dev.autoqa": {
 		label: "自动 QA",
 		description:
 			"自动工具问题上报（xd://report_issue）。默认开启；首次上报会征求同意，拒绝则停止上报，直到显式重新启用",
+	},
+	"mcp.startupTimeoutMs": {
+		label: "MCP 启动等待",
+		description: "等待初始 MCP 工具发现的毫秒数；0 表示等到连接稳定。",
 	},
 	"dev.autoqaPush.endpoint": {
 		label: "自动 QA 推送端点",
@@ -895,14 +911,14 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	},
 
 	// ── tasks ───────────────────────────────────────────────────────────────
-	"plan.enabled": { label: "计划模式", description: "启用计划模式：执行前先进行只读探索与规划" },
+	"plan.enabled": { label: "计划模式", description: "启用计划模式：执行前先进行只读探索并制定计划" },
 	"plan.defaultOnStartup": { label: "以计划模式启动", description: "每个新会话开始时自动进入计划模式" },
 	"goal.enabled": { label: "目标模式", description: "启用按会话的目标模式和隐藏的 goal 工具" },
 	"goal.statusInFooter": { label: "在底栏显示目标状态", description: "在状态栏的目标指示旁显示 token 预算" },
 	"goal.continuationModes": { label: "目标续行模式", description: "活动目标可在轮次之间自动续行的运行模式" },
 	"title.refreshOnReplan": {
-		label: "重新规划时刷新标题",
-		description: "待办初始化导致重新规划后刷新生成的会话标题，除非标题由用户设置",
+		label: "重新计划时刷新标题",
+		description: "待办初始化导致重新计划后刷新生成的会话标题，除非标题由用户设置",
 	},
 	"task.isolation.enabled": {
 		label: "隔离子代理",
@@ -923,46 +939,46 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"task.isolation.apply": {
 		label: "应用隔离更改",
-		description: "自动把成功的隔离任务更改应用到父检出；禁用则保留 patch 或分支产物",
+		description: "自动把成功的隔离子代理更改应用到父检出；禁用则保留 patch 或分支产物",
 	},
-	"task.isolation.merge": { label: "隔离合并策略", description: "隔离任务更改的整合方式（应用 patch 或合并分支）" },
+	"task.isolation.merge": { label: "隔离合并策略", description: "隔离子代理更改的整合方式（应用 patch 或合并分支）" },
 	"task.isolation.commits": { label: "隔离提交风格", description: "嵌套仓库更改的提交消息风格（通用或 AI 生成）" },
 	"worktree.base": {
 		label: "Worktree 基础目录",
 		description:
-			"Agent 管理的 worktree 的基础目录——任务隔离副本、`github` PR 检出和 `omp worktree` 清理都位于此处。未设置时使用 ~/.omp/wt。必须是绝对路径或 ~ 相对路径；相对路径会被忽略。OMP_WORKTREE_DIR 环境变量可覆盖此项。",
+			"代理管理的 worktree 的基础目录——子代理隔离副本、`github` PR 检出和 `omp worktree` 清理都位于此处。未设置时使用 ~/.omp/wt。必须是绝对路径或 ~ 相对路径；相对路径会被忽略。OMP_WORKTREE_DIR 环境变量可覆盖此项。",
 	},
-	"task.eager": { label: "优先任务委派", description: "推动把工作委派给子代理的力度" },
+	"task.eager": { label: "优先委派子代理", description: "推动把工作委派给子代理的力度" },
 	"task.batch": {
-		label: "批量任务调用",
+		label: "批量子代理调用",
 		description:
-			"把 task 工具切换为批量形态：一次调用携带 { context, tasks[] }——每项一个子代理，可选按项指定 agent（默认为会话派生策略 agent）、按项隔离，并带有一份前置到每个任务的共享上下文。async.enabled=true 时，每个派生作为独立后台 agent 运行，走正常的 idle/parked 生命周期；否则调用阻塞等待合并结果。禁用则恢复扁平的单次派生 schema。",
+			"把 task 工具切换为批量形态：一次调用携带 { context, tasks[] }——每项一个子代理，可选按项指定代理（默认为会话派生策略代理）、按项隔离，并带有一份前置到每个子代理的共享上下文。async.enabled=true 时，每个派生作为独立后台代理运行，走正常的 idle/parked 生命周期；否则调用阻塞等待合并结果。禁用则恢复扁平的单次派生 schema。",
 	},
 	"task.enableEffort": {
-		label: "按任务指定强度",
-		description: "在任务派生上暴露可选的 effort 参数，允许调用方覆盖每个子代理的思考等级",
+		label: "按子代理指定强度",
+		description: "在子代理派生上暴露可选的 effort 参数，允许调用方覆盖每个子代理的思考强度",
 	},
-	"task.maxConcurrency": { label: "最大并发任务数", description: "并发运行的子代理最大数量" },
+	"task.maxConcurrency": { label: "最大并发子代理数", description: "并发运行的子代理最大数量" },
 	"task.enableLsp": {
 		label: "子代理使用 LSP",
 		description:
 			"允许 task 工具派生的子代理使用 lsp 工具。默认关闭以保持子代理低成本；当 LSP 感知的委派值得额外 token 时启用。",
 	},
-	"task.maxRecursionDepth": { label: "任务递归深度上限", description: "子代理可以派生自己子代理的层级深度" },
+	"task.maxRecursionDepth": { label: "子代理递归深度上限", description: "子代理可以派生自己子代理的层级深度" },
 	"task.maxRuntimeMs": {
 		label: "子代理运行时长上限",
 		description:
-			"每个子代理的硬性墙钟时限（毫秒）。0 表示禁用。用于防御逃脱推理层看门狗的提供商侧流式挂起；触发时按“超时”原因正常中止子代理。",
+			"每个子代理的硬性墙钟时限（毫秒）。0 表示禁用。用于防御逃脱推理层看门狗的提供商侧流式挂起；触发时按“超时”原因正常停止子代理。",
 	},
 	"task.agentIdleTtlMs": {
-		label: "Agent 空闲 TTL",
+		label: "代理空闲 TTL",
 		description:
-			"空闲子代理在内存中保持存活的时长，之后被停泊到磁盘（毫秒）。被停泊的 agent 在收到消息或被恢复时自动唤醒。0 表示空闲 agent 保持存活直到退出。",
+			"空闲子代理在内存中保持存活的时长，之后被停泊到磁盘（毫秒）。被停泊的代理在收到消息或被恢复时自动唤醒。0 表示空闲代理保持存活直到退出。",
 	},
 	"task.softRequestBudget": {
 		label: "子代理软请求预算",
 		description:
-			"每个子代理的软请求预算（每次运行的助手请求数）。超过时注入一条收尾引导提示（见 task.softRequestBudgetNotice）；达到预算 1.5 倍时强制停止运行，agent 必须交出部分结论。0 表示禁用该守卫。内置 scout/sonic agent 有更低的内置预算上限，因此低于该上限的值对它们仍然生效。",
+			"每个子代理的软请求预算（每次运行的助手请求数）。超过时注入一条收尾引导提示（见 task.softRequestBudgetNotice）；达到预算 1.5 倍时强制停止运行，代理必须交出部分结论。0 表示禁用该守卫。内置 scout/sonic 代理有更低的内置预算上限，因此低于该上限的值对它们仍然生效。",
 	},
 	"task.softRequestBudgetNotice": {
 		label: "软请求预算提示",
@@ -974,9 +990,9 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 			"task 工具按派生 effort 提示所允许的最大推理强度。较低的值防止调用方把子代理提升到超过此上限；默认值保留模型的完整范围。",
 	},
 	"task.prewalk": {
-		label: "通用任务 Prewalk",
+		label: "通用子代理 Prewalk",
 		description:
-			"为内置的通用 `task` 子代理启用 prewalk：它以解析出的模型启动，规划并开始实现，然后在首次编辑/写入时交接给 'smol' 角色。按 agent 的覆盖（task.agentPrewalk，在 /agents 中按 P 切换）和用户 agent 的 `prewalk` frontmatter 不受此开关影响。",
+			"为内置的通用 `task` 子代理启用 prewalk：它以解析出的模型启动，制定计划并开始实现，然后在首次编辑/写入时交接给 'smol' 角色。按代理的覆盖（task.agentPrewalk，在 /agents 中按 P 切换）和用户代理的 `prewalk` frontmatter 不受此开关影响。",
 	},
 	"skills.enableSkillCommands": { label: "技能命令", description: "把技能注册为 /skill:name 命令" },
 	"commands.enableClaudeUser": { label: "Claude 用户命令", description: "从 ~/.claude/commands/ 加载命令" },
@@ -991,7 +1007,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"providers.maxInFlightRequests": {
 		label: "最大并发请求数",
 		description:
-			'每个提供商 id 的最大并发 LLM 请求数（例如 "openai" 或 "anthropic"），在使用此配置根目录的本地 OMP 进程间共享。未列出的提供商不受限制。',
+			'每个提供商 id 的最大并发 LLM 请求数（例如 "openai" 或 "anthropic"），在使用此配置根目录的本地 omp 进程间共享。未列出的提供商不受限制。',
 	},
 	"secrets.enabled": {
 		label: "隐藏密钥",
@@ -1116,7 +1132,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 
 	// ── advanced（无 ui 元数据，归入 Advanced 选项卡）─────────────────────────
 	// 常规
-	setupVersion: { label: "设置向导版本", description: "记录最近运行过的设置向导版本，用于按版本只展示新增的引导步骤" },
+	setupVersion: { label: "设置向导版本", description: "记录最近运行过的设置向导版本，用于按版本只展示新增的设置步骤" },
 	"auth.broker.url": {
 		label: "认证代理 URL",
 		description: "远程 `omp auth-broker serve` 主机地址，凭据经它代理；通常由 OMP_AUTH_BROKER_URL 环境变量设置",
@@ -1253,7 +1269,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"mnemopi.recallLimit": { label: "Mnemopi 召回条数上限", description: "每次召回返回的记忆条数上限（默认 8）" },
 	"mnemopi.recallContextTurns": {
 		label: "Mnemopi 召回上下文轮数",
-		description: "构造召回查询时纳入的最近对话轮数（默认 3）",
+		description: "构造召回查询时纳入的最近轮数（默认 3）",
 	},
 	"mnemopi.recallMaxQueryChars": {
 		label: "Mnemopi 召回查询长度上限",
@@ -1268,11 +1284,11 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"hindsight.bankIdPrefix": { label: "Hindsight 记忆库 ID 前缀", description: "为自动生成的记忆库 ID 添加此前缀" },
 	"hindsight.bankMission": {
 		label: "Hindsight 反思使命",
-		description: "创建记忆库时写入的反思使命（reflect mission），引导该库的反思方向",
+		description: "创建记忆库时写入的反思使命（reflect mission），指导该库的反思方向",
 	},
 	"hindsight.retainMission": {
 		label: "Hindsight 留存使命",
-		description: "创建记忆库时写入的留存使命（retain mission），引导从转录中提取哪些记忆",
+		description: "创建记忆库时写入的留存使命（retain mission），指导从转录中提取哪些记忆",
 	},
 	"hindsight.retainEveryNTurns": { label: "Hindsight 留存间隔", description: "每隔多少轮留存一次转录（默认 3）" },
 	"hindsight.retainOverlapTurns": {
@@ -1290,7 +1306,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"hindsight.recallContextTurns": {
 		label: "Hindsight 召回上下文轮数",
-		description: "构造召回查询时纳入的最近对话轮数（默认 1）",
+		description: "构造召回查询时纳入的最近轮数（默认 1）",
 	},
 	"hindsight.recallMaxQueryChars": {
 		label: "Hindsight 召回查询长度上限",
@@ -1360,6 +1376,10 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		label: "Eval 自动后台阈值",
 		description: "eval 单元运行超过此毫秒数后自动转入后台（默认 60000）。",
 	},
+	"eval.autoProvision": {
+		label: "Eval 环境自动配置",
+		description: "首次安装时自动创建托管的 JavaScript eval 包环境。",
+	},
 	// 任务
 	"task.disabledAgents": {
 		label: "禁用的子代理",
@@ -1367,7 +1387,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"task.agentModelOverrides": {
 		label: "按子代理的模型覆盖",
-		description: "子代理名称到模型选择器的映射，覆盖各 agent 的默认模型（在 /agents 面板中管理）",
+		description: "子代理名称到模型选择器的映射，覆盖各代理的默认模型（在 /agents 面板中管理）",
 	},
 	"task.agentPrewalk": {
 		label: "按子代理的 Prewalk 覆盖",
@@ -1402,6 +1422,10 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"commit.mapReduceEnabled": {
 		label: "提交分析 Map-Reduce",
 		description: "大 diff 的提交信息生成改用逐文件并行分析再汇总的 map-reduce 流程",
+	},
+	"skills.registryUrl": {
+		label: "技能注册表",
+		description: "`omp skill` 用于安装、搜索和发布技能的 Skillshare 注册表（https://host[:port]）。",
 	},
 	"commit.mapReduceMinFiles": {
 		label: "Map-Reduce 最小文件数",
@@ -1443,19 +1467,19 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	// 思考预算
 	"thinkingBudgets.minimal": {
 		label: "思考预算（minimal）",
-		description: "minimal 思考等级的推理 token 预算（默认 1024）",
+		description: "minimal 思考强度的推理 token 预算（默认 1024）",
 	},
-	"thinkingBudgets.low": { label: "思考预算（low）", description: "low 思考等级的推理 token 预算（默认 2048）" },
+	"thinkingBudgets.low": { label: "思考预算（low）", description: "low 思考强度的推理 token 预算（默认 2048）" },
 	"thinkingBudgets.medium": {
 		label: "思考预算（medium）",
-		description: "medium 思考等级的推理 token 预算（默认 8192）",
+		description: "medium 思考强度的推理 token 预算（默认 8192）",
 	},
-	"thinkingBudgets.high": { label: "思考预算（high）", description: "high 思考等级的推理 token 预算（默认 16384）" },
+	"thinkingBudgets.high": { label: "思考预算（high）", description: "high 思考强度的推理 token 预算（默认 16384）" },
 	"thinkingBudgets.xhigh": {
 		label: "思考预算（xhigh）",
-		description: "xhigh 思考等级的推理 token 预算（默认 32768）",
+		description: "xhigh 思考强度的推理 token 预算（默认 32768）",
 	},
-	"thinkingBudgets.max": { label: "思考预算（max）", description: "max 思考等级的推理 token 预算（默认 32768）" },
+	"thinkingBudgets.max": { label: "思考预算（max）", description: "max 思考强度的推理 token 预算（默认 32768）" },
 	"display.hideToolActivity": {
 		label: "隐藏工具活动",
 		description: "在转录中隐藏模型发起的工具调用及其结果",
@@ -1481,19 +1505,50 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		label: "网络搜索超时",
 		description: "每个提供商的搜索传输硬超时；超时后 web_search 会尝试下一个回退项，单位为秒（最大 300）",
 	},
+	"providers.openaiLiveSteering": {
+		label: "OpenAI 实时引导",
+		description: "GPT-6 响应流式输出时输入的消息通过 Codex WebSocket 直接送入该响应，而不等到下一个工具边界。",
+	},
+	"providers.muse-code.storeResponses": {
+		label: "Muse Code 存储响应",
+		description:
+			"将 Muse Code 结果存储在 Meta 服务器上，连接中断的回合可恢复而无需重跑。存储的运行会在 Meta 侧保留提示词和输出。",
+	},
+	"providers.cacheWarming": {
+		label: "缓存预热",
+		description: "在提示缓存条目过期前不久，以 1 个 token 的输出预算重发上一请求。",
+	},
 	"searxng.safesearch": { label: "SearXNG 安全搜索" },
 	// ── omp 18.2.x 上游新增设置 ─────────────────────────────────────────────
 	"advisor.maxNotesPerUpdate": {
 		label: "Advisor 每次更新最大笔记数",
 		description: "Advisor 单次更新允许写入的笔记上限；较低值更严格、可防刷屏。",
 	},
+	"advisor.reviewMode": {
+		label: "顾问审查模式",
+		description: "无 WATCHDOG.yml 名单时的默认顾问节奏。turn 审查每个主回合；agent-end 仅审查最终 yield。",
+	},
+	"advisor.reviewInterval": {
+		label: "顾问审查间隔",
+		description:
+			"无 WATCHDOG.yml 名单时的默认顾问节奏：每 N 次符合条件的主更新审查一次。1 = 每次更新。跳过的更新随下次审查一并发送。",
+	},
+	"advisor.evictStaleResults": {
+		label: "顾问清理过期结果",
+		description: "每次审查前，将顾问在早先审查中的 read/grep/glob 输出替换为简短占位符。保留最新一次审查。",
+	},
 	"browser.freezeOnTurnEnd": {
 		label: "回合结束时冻结浏览器标签",
-		description: "回合结束时冻结由 OMP 管理的浏览器标签，避免后台标签继续活动。",
+		description: "回合结束时冻结由 omp 管理的浏览器标签，避免后台标签继续活动。",
 	},
 	"browser.idleCloseSec": {
 		label: "浏览器空闲关闭超时",
-		description: "空闲多久后关闭由 OMP 启动的浏览器（秒）；0 表示从不关闭。",
+		description: "空闲多久后关闭由 omp 启动的浏览器（秒）；0 表示从不关闭。",
+	},
+	"browser.tern": {
+		label: "Tern 浏览器",
+		description:
+			"在 Tern 窗格内，以画中画（原生 Web 视图）在 omp 窗格上打开浏览器标签页，而非无头 Chromium；无可用 Tern 窗口时回退到 Chromium。显式应用选项、中继和 Browser CDP URL 优先；headed:false 或 app.tern:false 可让单次打开退出。设置 PI_BROWSER_TERN=0 或 PI_BROWSER_TERN=1 可覆盖。",
 	},
 	"collab.autoStart": {
 		label: "协作自动启动",
@@ -1523,9 +1578,13 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		label: "显示回合耗时",
 		description: "在助手消息的用量行显示从提示到产出的总耗时（含工具调用）。",
 	},
+	"display.subagentLivePreview": {
+		label: "子代理实时预览",
+		description: "在每个固定的子代理行下方显示其当前（或最近）的工具调用。",
+	},
 	"find.enabled": {
 		label: "Find（语义搜索）",
-		description: "启用语义工作区搜索工具，让代理用自然语言定位行为与符号；行为类查找优先于 grep/glob。",
+		description: "启用语义代码搜索工具，让代理用自然语言定位行为与符号；行为类查找优先于 grep/glob。",
 	},
 	"loop.conditionTimeoutMs": {
 		label: "循环条件超时（毫秒）",
@@ -1565,8 +1624,18 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		description: "omp stream 使用的直播服务器地址。",
 	},
 	"task.agentServiceTierOverrides": {
-		label: "子任务服务层级覆盖",
-		description: "按代理/任务覆盖服务层级的键值映射。",
+		label: "子代理服务层级覆盖",
+		description: "按代理覆盖服务层级的键值映射。",
+	},
+	"task.speculativeLaunch": {
+		label: "子代理预启动",
+		description:
+			"每个 tasks[] 项流式输出完毕即启动对应的批量子代理，而不等待整个 task 调用。若完成的调用校验失败、被阻止或参数变化，则停止已启动的代理。需要 task 审批为自动允许且无扩展工具生命周期处理器。",
+	},
+	"task.completionProbe": {
+		label: "子代理完成度探测",
+		description:
+			"通过类似 /btw 的缓存旁路请求，让工作中的子代理估计完成度：在 2、5、10、30 分钟后各询问一次，之后每小时一次。估计值显示在 wait 和 task 视图中子代理旁。仅询问交互式会话主代理创建的子代理；print、RPC、ACP 和 SDK 运行从不探测。",
 	},
 	"tools.speculativeExecution.enabled": {
 		label: "实验性推测执行",
@@ -1575,6 +1644,11 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"tools.speculativeExecution.maxInFlight": {
 		label: "推测执行并发",
 		description: "正常派发前允许并行运行的已验证本地读操作上限。",
+	},
+	"tools.artifactMaxBytes": {
+		label: "产物文件上限（MB）",
+		description:
+			"流式工具输出（bash、python、js eval）保存的产物文件最大大小。超出时保留开头（最多 3 MB）和最近的剩余部分，中间插入截断提示。0 = 不限。",
 	},
 	"tui.mouse": {
 		label: "鼠标点击聚焦",
@@ -1596,5 +1670,70 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"tui.vimModeDisplay": {
 		label: "Vim 模式指示",
 		description: "显示当前 Vim 模式（如 NORMAL / INSERT）。",
+	},
+	"input.bareExitOnEmptySession": {
+		label: "空会话直接退出",
+		description: "在首条消息前仅输入 `exit`、`quit` 或 `q`（不区分大小写）时直接退出，而不发给模型。",
+	},
+	"input.bareSlashCommands": {
+		label: "免斜杠命令",
+		description:
+			"仅输入不带 `/` 的命令名（如 `model`、`compact`）即运行该斜杠命令；会话已有消息时需按两次 Enter 确认。",
+	},
+	expandThinkingBlocks: {
+		label: "展开思考块",
+		description: "回合结束后保持已完成的思考块展开，而不折叠。",
+	},
+	"claudeResets.autoRedeem": {
+		label: "Claude 自动兑换重置",
+		description:
+			"自动使用符合条件的 Claude Cedar 或 Juniper 重置。Cedar 仅用于其覆盖的限额；Juniper 只能恢复单独的 5 小时封锁。unset 在首次使用前询问，yes 直接使用，no 禁用封锁恢复和过期挽救。",
+	},
+	"claudeResets.minBlockedMinutes": {
+		label: "Claude 自动兑换最短封锁",
+		description:
+			"仅当自然解封时间（已耗尽覆盖窗口中最晚的重置）至少还有这么多分钟时才自动兑换。仅 5 小时的重置不会用于每周或模型级封锁。",
+	},
+	"claudeResets.keepCredits": {
+		label: "Claude 自动兑换保留数",
+		description: "至少保留这么多 Claude 重置（0 表示允许自动用掉最后一个）。保留数同样适用于过期挽救。",
+	},
+	"claudeResets.salvageHorizonHours": {
+		label: "Claude 重置挽救窗口",
+		description:
+			"仅当覆盖窗口有值得恢复的用量，且授权允许提前使用或某覆盖窗口已耗尽时，才使用距过期这么多小时内的服务器选定 Cedar 重置（0 禁用挽救）。",
+	},
+	"telemetry.otlpExportEnabled": {
+		label: "OTLP 遥测导出",
+		description: "允许 omp 通过 OTEL_* 端点导出追踪、日志和指标。下次启动生效。",
+	},
+	"ratchet.enabled": {
+		label: "Ratchet",
+		description: "启用 ratchet eval/hillclimb 前导；/ratchet 可为当前会话开启。",
+	},
+	"archive.enabled": {
+		label: "归档",
+		description: "启用只读 archive eval 前导：提示历史、最近项目、过往会话及摘要。",
+	},
+	"ida.enabled": {
+		label: "IDA Pro",
+		description: "在 IDA Pro（idalib）中打开用 `read` 读取的可执行文件，并启用 `ida` 工具；未找到 IDA 安装时不生效。",
+	},
+	"ida.python": {
+		label: "IDA Python",
+		description: "可导入 ida_domain 和 idapro 的 Python 解释器；留空自动检测。",
+	},
+	"ida.installDir": {
+		label: "IDA 安装目录",
+		description: "包含 libidalib 的目录，导出为 IDADIR；留空自动检测（$IDADIR、ida-config.json、标准安装路径）。",
+	},
+	"ida.maxOpen": {
+		label: "IDA 最大打开数据库数",
+		description:
+			"每个项目同时打开的 IDA 数据库（omp ps 中的 omp.ida.* 守护进程）上限；再打开时会保存并关闭最久未用的空闲数据库。",
+	},
+	"ida.idleCloseSec": {
+		label: "IDA 空闲关闭超时",
+		description: "保存并关闭空闲超过该秒数的 IDA 数据库（0 = 从不）；重新打开时 exec 命名空间会重置。",
 	},
 };

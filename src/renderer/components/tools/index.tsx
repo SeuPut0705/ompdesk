@@ -1,3 +1,39 @@
+import {
+	AppWindow,
+	Ban,
+	BookMarked,
+	Bot,
+	Braces,
+	Bug,
+	CheckCheck,
+	Code2,
+	FileCode2,
+	FilePlus2,
+	FileSearch,
+	FileText,
+	Flag,
+	FolderSearch,
+	GitPullRequest,
+	Globe,
+	History,
+	Hourglass,
+	ImagePlus,
+	ListTodo,
+	type LucideIcon,
+	MessageCircleQuestion,
+	MousePointer2,
+	Network,
+	Pencil,
+	Search,
+	SearchCode,
+	ShieldCheck,
+	Sparkles,
+	StickyNote,
+	Target,
+	Terminal,
+	Volume2,
+	Wrench,
+} from "lucide-react";
 import type { ComponentType } from "react";
 import { sanitizeToolText } from "../../lib/format";
 import { decodeXdevPayload, xdevDispatch, xdevInnerResult, xdevWriteTarget } from "../../lib/xdev";
@@ -11,7 +47,7 @@ import { WaitRenderer } from "./CoordinationRenderer";
 import { DebugRenderer } from "./DebugRenderer";
 import { EditRenderer } from "./EditRenderer";
 import { EvalRenderer } from "./EvalRenderer";
-import { editArgumentSummary } from "./edit-args";
+import { editArgumentPaths, editArgumentSummary } from "./edit-args";
 import { FindRenderer } from "./FindRenderer";
 import { GenericRenderer } from "./GenericRenderer";
 import { GithubRenderer } from "./GithubRenderer";
@@ -230,4 +266,138 @@ const FALLBACK_ARG_KEYS = ["path", "file", "name", "pattern", "query", "command"
 export function getToolSummary(name: string, args: Record<string, unknown>): string {
 	const summary = SUMMARIES[name];
 	return clipCardText(summary ? summary(args) : argLine(args, FALLBACK_ARG_KEYS));
+}
+
+/** What a step did, for the work group's "Read 2 files · Ran 1 command" summary. */
+export type ToolActivity = "read" | "edit" | "run" | "search" | "other";
+
+interface ToolMeta {
+	/** `tools.label.<label>` i18n suffix; aliases share one label. */
+	label: string;
+	icon: LucideIcon;
+	activity: ToolActivity;
+}
+
+const MEMORY: Omit<ToolMeta, "label"> = { icon: BookMarked, activity: "other" };
+const TODO: ToolMeta = { label: "todo", icon: ListTodo, activity: "other" };
+const GITHUB: ToolMeta = { label: "github", icon: GitPullRequest, activity: "other" };
+const VIBE: ToolMeta = { label: "vibe", icon: Sparkles, activity: "other" };
+
+/** Human label + kind icon per tool name; unknown tools keep their raw name and a wrench. */
+const TOOL_META: Record<string, ToolMeta> = {
+	read: { label: "read", icon: FileText, activity: "read" },
+	write: { label: "write", icon: FilePlus2, activity: "edit" },
+	edit: { label: "edit", icon: Pencil, activity: "edit" },
+	apply_patch: { label: "apply_patch", icon: Pencil, activity: "edit" },
+	ast_edit: { label: "ast_edit", icon: FileCode2, activity: "edit" },
+	bash: { label: "bash", icon: Terminal, activity: "run" },
+	eval: { label: "eval", icon: Code2, activity: "run" },
+	grep: { label: "grep", icon: Search, activity: "search" },
+	find: { label: "find", icon: FileSearch, activity: "search" },
+	glob: { label: "glob", icon: FolderSearch, activity: "search" },
+	ast_grep: { label: "ast_grep", icon: SearchCode, activity: "search" },
+	web_search: { label: "web_search", icon: Globe, activity: "search" },
+	lsp: { label: "lsp", icon: Braces, activity: "other" },
+	task: { label: "task", icon: Bot, activity: "other" },
+	todo: TODO,
+	todowrite: TODO,
+	todo_write: TODO,
+	set_todos: TODO,
+	browser: { label: "browser", icon: AppWindow, activity: "other" },
+	computer: { label: "computer", icon: MousePointer2, activity: "other" },
+	github: GITHUB,
+	gh: GITHUB,
+	debug: { label: "debug", icon: Bug, activity: "other" },
+	ask: { label: "ask", icon: MessageCircleQuestion, activity: "other" },
+	wait: { label: "wait", icon: Hourglass, activity: "other" },
+	goal: { label: "goal", icon: Target, activity: "other" },
+	hub: { label: "hub", icon: Network, activity: "other" },
+	retain: { label: "retain", ...MEMORY },
+	recall: { label: "recall", ...MEMORY },
+	reflect: { label: "reflect", ...MEMORY },
+	memory_edit: { label: "memory_edit", ...MEMORY },
+	learn: { label: "learn", ...MEMORY },
+	context_notes: { label: "context_notes", icon: StickyNote, activity: "other" },
+	manage_skill: { label: "manage_skill", icon: Wrench, activity: "other" },
+	generate_image: { label: "generate_image", icon: ImagePlus, activity: "other" },
+	tts: { label: "tts", icon: Volume2, activity: "other" },
+	resolve: { label: "resolve", icon: CheckCheck, activity: "other" },
+	reject: { label: "reject", icon: Ban, activity: "other" },
+	checkpoint: { label: "checkpoint", icon: Flag, activity: "other" },
+	rewind: { label: "rewind", icon: History, activity: "other" },
+	security_scan: { label: "security_scan", icon: ShieldCheck, activity: "other" },
+	vibe_spawn: VIBE,
+	vibe_send: VIBE,
+	vibe_wait: VIBE,
+	vibe_kill: VIBE,
+	vibe_list: VIBE,
+};
+
+export interface ToolHeader {
+	/** Tool the row is labelled as — the device for an `xd://` call routed through write. */
+	tool: string;
+	/** `tools.label.*` key, or null for an unknown tool (show `tool` itself). */
+	labelKey: string | null;
+	icon: LucideIcon;
+	activity: ToolActivity;
+	/** Visible target text (command, pattern, query…); for file tools, the full path. */
+	target: string;
+	/** Set when the target is a file path: the row shows the file name first, its folder muted. */
+	path?: string;
+	/** Further files of a multi-file edit. */
+	moreFiles?: number;
+}
+
+const FILE_TARGET_TOOLS: Record<string, true> = { read: true, write: true, edit: true, apply_patch: true };
+
+/**
+ * Everything the collapsed row needs to read as a human step: label key, kind
+ * icon, and the target — a file (name-first), a command, a pattern. Device
+ * calls (`write xd://lsp`) read as the device that ran.
+ */
+export function getToolHeader(name: string, args: Record<string, unknown>): ToolHeader {
+	const device = name === "write" ? xdevWriteTarget(args) : undefined;
+	const tool = device || name;
+	const meta = TOOL_META[tool];
+	const header: ToolHeader = {
+		tool,
+		labelKey: meta ? `tools.label.${meta.label}` : null,
+		icon: meta?.icon ?? Wrench,
+		activity: meta?.activity ?? "other",
+		target: "",
+	};
+	if (device) {
+		const payload = decodeXdevPayload(args.content);
+		header.target = clipCardText(
+			[argLine(payload, DEVICE_VERB_KEYS), argLine(payload, DEVICE_OBJECT_KEYS)].filter(Boolean).join(" "),
+		);
+		return header;
+	}
+	if (FILE_TARGET_TOOLS[name]) {
+		const paths = name === "edit" || name === "apply_patch" ? editArgumentPaths(args) : [];
+		const path = paths[0] ?? argLine(args, ["path", "file", "file_path"]);
+		if (path && !/^[a-z][a-z0-9+.-]*:\/\//i.test(path)) {
+			header.path = clipCardText(path);
+			header.target = header.path;
+			if (paths.length > 1) header.moreFiles = paths.length - 1;
+			return header;
+		}
+	}
+	header.target = getToolSummary(name, args);
+	return header;
+}
+
+/**
+ * What a call did and how many files it touched, for the work group summary
+ * ("Read 2 files · Edited 1 file"). Cheap enough for a store selector: no
+ * summary strings are built.
+ */
+export function getToolActivity(
+	name: string,
+	args: Record<string, unknown>,
+): { activity: ToolActivity; files: number } {
+	const device = name === "write" ? xdevWriteTarget(args) : undefined;
+	const activity = TOOL_META[device || name]?.activity ?? "other";
+	if (device || activity !== "edit") return { activity, files: 1 };
+	return { activity, files: Math.max(1, editArgumentPaths(args).length) };
 }

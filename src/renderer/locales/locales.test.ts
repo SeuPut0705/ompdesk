@@ -78,13 +78,16 @@ const ALLOW_IDENTICAL: Record<string, true> = {
 	"providers.badge.oauth": true, // OAuth — brand name
 	"modelCompare.noRole": true, // "—" — punctuation, no letters
 	"extPanel.tabs.mcp": true, // MCP — protocol acronym
-	"modesPanel.tabs.vibe": true, // Vibe — feature name
+	"input.modes.tab.vibe": true, // Vibe — feature name
+	"input.mode.python.badge": true, // $ Python — prefix symbol + language name
 	"stats.col.ttft": true, // TTFT — latency acronym
 	"stats.col.tps": true, // Tok/s — unit symbol
 	"stats.overview.ttftSub": true, // TTFT {time} — acronym + placeholder
 	"stats.requests.detail.api": true, // API — protocol acronym
 	"chat.exec.python": true, // Python — language name
 	"chat.exec.shell": true, // Shell — universal term in zh dev UIs
+	"tools.label.github": true, // GitHub — brand name
+	"tools.label.vibe": true, // Vibe — feature name
 	"themePicker.theme.nord.label": true, // Nord — theme name
 	"themePicker.theme.solarized.label": true, // Solarized — theme name
 	"themePicker.theme.latte.label": true, // Latte — theme name

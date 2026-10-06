@@ -2,9 +2,10 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
+import { preloadMarkdownPipeline } from "../../lib/markdown";
 import { useToolsStore } from "../../stores/tools";
 
 import { MessageBubble } from "./MessageBubble";
@@ -18,6 +19,9 @@ globals.HTMLElement = HTMLElement;
 globals.Element = Element;
 globals.Node = Node;
 globals.IS_REACT_ACT_ENVIRONMENT = true;
+// renderToStaticMarkup never runs effects: load the lazy KaTeX/raw-HTML steps first so
+// "no KaTeX for literal dollars" is asserted against the real pipeline.
+beforeAll(() => preloadMarkdownPipeline());
 
 const toolCallId = "call_read_package";
 const assistantMessage: AgentMessage = {
@@ -62,7 +66,9 @@ describe("MessageBubble tool messages", () => {
 				<MessageBubble message={assistantMessage} />
 			</I18nProvider>,
 		);
-		expect(callHtml).toContain("read");
+		// A human label and the file name lead the row; the full path rides the tooltip.
+		expect(callHtml).toContain(">Read<");
+		expect(callHtml).toContain(">package.json<");
 		expect(callHtml).toContain("packages/gui/package.json");
 		expect(
 			renderToStaticMarkup(
@@ -407,7 +413,7 @@ describe("MessageBubble noise filtering", () => {
 				<MessageBubble compact message={processMessage} />
 			</I18nProvider>,
 		);
-		expect(html).toContain("read");
+		expect(html).toContain(">Read<");
 		expect(html).not.toContain("Copy message text");
 		expect(html).toContain("py-1.5");
 		expect(html).toContain("omp-assistant-turn--compact");
@@ -427,5 +433,79 @@ describe("MessageBubble noise filtering", () => {
 		);
 		expect(html).toContain('class="omp-transcript-content min-w-0"');
 		expect(html).not.toContain('class="min-w-0 flex-1"');
+	});
+
+	it("renders a user stop as a neutral note, never an error card", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{
+						role: "assistant",
+						content: [{ type: "text", text: "Partial answer" }],
+						stopReason: "error",
+						errorMessage: "Request was aborted",
+						timestamp: at,
+					}}
+				/>
+			</I18nProvider>,
+		);
+		expect(html).toContain("omp-turn-stopped");
+		expect(html).toContain("Stopped");
+		expect(html).not.toContain("omp-message-error");
+		expect(html).not.toContain('role="alert"');
+	});
+
+	it("explains a failure in plain words with recovery actions and keeps the raw text as detail", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{
+						role: "assistant",
+						content: [],
+						stopReason: "error",
+						errorMessage: "Unable to connect. Is the computer able to access the url?",
+						timestamp: at,
+					}}
+				/>
+			</I18nProvider>,
+		);
+		expect(html).toContain("omp-message-error");
+		expect(html).toContain("Can&#x27;t connect");
+		expect(html).toContain("Try again");
+		expect(html).toContain("Open providers");
+		expect(html).toContain("<details");
+		expect(html).toContain("Unable to connect. Is the computer able to access the url?");
+	});
+
+	it("offers compaction for a context overflow", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{
+						role: "assistant",
+						content: [],
+						stopReason: "error",
+						errorMessage: "Prompt is too long: Provided 8,464 tokens, but the maximum allowed is 8,192.",
+						timestamp: at,
+					}}
+				/>
+			</I18nProvider>,
+		);
+		expect(html).toContain("Compact context");
+		expect(html).toContain("Change model");
+	});
+
+	it("keeps an idle user turn exactly its text: no author label, actions overlaid", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{ role: "user", content: [{ type: "text", text: "Fix the build" }], timestamp: at }}
+				/>
+			</I18nProvider>,
+		);
+		expect(html).toContain("omp-user-bubble");
+		expect(html).not.toContain(">You<");
+		expect(html).toContain("omp-user-actions");
+		expect(html).toContain("Copy message text");
 	});
 });

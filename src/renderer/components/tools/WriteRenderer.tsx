@@ -6,27 +6,9 @@ import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { CodeBlock } from "../chat/CodeBlock";
 import { ProtocolWriteRenderer } from "./CoordinationRenderer";
+import { unifiedDiffStats } from "./diff-stats";
 import { PathLink } from "./PathLink";
 import type { ToolRendererProps } from "./ToolCard";
-
-/** Added/removed line counts of a unified diff. Header lines (`+++ b/x`)
- * exist only before their file's first hunk — after that, `--- disabled` and
- * `+++i` are removed/added source lines, not headers to skip. */
-function diffStats(diff: string): { added: number; removed: number } {
-	let added = 0;
-	let removed = 0;
-	let sawHunk = false;
-	for (const line of diff.split("\n")) {
-		if (line.startsWith("@@")) {
-			sawHunk = true;
-			continue;
-		}
-		if (!sawHunk && /^(---|\+\+\+) \S/.test(line)) continue;
-		if (line.startsWith("+")) added++;
-		else if (line.startsWith("-")) removed++;
-	}
-	return { added, removed };
-}
 
 /**
  * File write: path header + collapsible preview. When the write overwrote an
@@ -64,7 +46,7 @@ export function WriteRenderer({ args, result, isError, isPartial, partialResult,
 	const diff = typeof details?.diff === "string" && details.diff ? details.diff : null;
 	const overwritten = details?.overwritten === true;
 	const openPath = typeof details?.resolvedPath === "string" ? details.resolvedPath : path;
-	const stats = diff ? diffStats(diff) : null;
+	const stats = diff ? unifiedDiffStats(diff) : null;
 	// Failed writes must surface the reason (permission/conflict), not a
 	// success-style preview of the requested content.
 	const errorText = isError ? headLines(resultText(result), WRITE_PREVIEW_LINES) : null;

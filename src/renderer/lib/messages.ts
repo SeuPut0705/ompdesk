@@ -8,6 +8,7 @@ import type {
 import { hydrateSession, resetRetryPending } from "../hooks/use-rpc-events";
 import { useMessagesStore } from "../stores/messages";
 import { useSessionStore } from "../stores/session";
+import { withSessionRuntime } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
 import { toast } from "../stores/toast";
 import { translate } from "./i18n";
@@ -61,19 +62,139 @@ function messagePreview(message: AgentMessage): string {
  * Retry the last turn: re-send the most recent user message, interrupting the
  * active turn when streaming (TUI app.retry parity). `onEmpty` fires when the
  * session has no user message to retry; RPC failures throw for the caller to
- * surface.
+ * surface. Pass the pane's `rpc` and `tabId` (an inline error card in a split
+ * view) so the retry reads and targets that session, not the focused one.
  */
-export async function retryLastTurn(onEmpty: () => void): Promise<void> {
-	const { messages } = useMessagesStore.getState();
+export async function retryLastTurn(
+	onEmpty: () => void,
+	rpc: Pick<TabRpc, "prompt" | "abortAndPrompt"> = window.omp.rpc,
+	tabId?: string | null,
+): Promise<void> {
+	const snapshot = () => ({
+		messages: useMessagesStore.getState().messages,
+		streaming: useSessionStore.getState().isStreaming,
+	});
+	const { messages, streaming } = tabId ? withSessionRuntime(tabId, snapshot) : snapshot();
 	const lastUser = [...messages].reverse().find(message => message.role === "user");
 	const text = lastUser ? messageText(lastUser) : "";
 	if (!text) {
 		onEmpty();
 		return;
 	}
-	const streaming = useSessionStore.getState().isStreaming;
-	const response = streaming ? await window.omp.rpc.abortAndPrompt(text) : await window.omp.rpc.prompt(text);
+	const response = streaming ? await rpc.abortAndPrompt(text) : await rpc.prompt(text);
 	if (!response.success) throw new Error(response.error);
+}
+
+export type TurnErrorKind =
+	| "aborted"
+	| "connection"
+	| "contextOverflow"
+	| "auth"
+	| "rateLimit"
+	| "overloaded"
+	| "compaction"
+	| "unknown";
+
+/** Recovery offered next to a failed turn, fixing action first. */
+export type TurnErrorAction = "retry" | "changeModel" | "openProviders" | "compact";
+
+export interface TurnErrorDescription {
+	kind: TurnErrorKind;
+	/** i18n key of the ≤4-word title. */
+	titleKey: string;
+	/** i18n key of the one-sentence guidance (what happened + what to do). */
+	guidanceKey: string;
+	actions: readonly TurnErrorAction[];
+	/** Raw provider text, kept for a collapsible detail; "" when there is none. */
+	detail: string;
+}
+
+const TURN_ERROR_ACTIONS: Record<TurnErrorKind, readonly TurnErrorAction[]> = {
+	aborted: [],
+	connection: ["retry", "openProviders"],
+	contextOverflow: ["compact", "changeModel"],
+	auth: ["openProviders", "changeModel"],
+	rateLimit: ["retry", "changeModel"],
+	overloaded: ["retry", "changeModel"],
+	compaction: ["changeModel", "retry"],
+	unknown: ["retry", "changeModel"],
+};
+
+/** An HTTP status only counts at the start or right after a status/code/HTTP/error word — never inside "8,403 tokens". */
+function statusPattern(codes: string): RegExp {
+	return new RegExp(String.raw`(?:^|\b(?:status|code|http|error)\b\W{0,3}|\()(?:${codes})\b`, "i");
+}
+
+/**
+ * First match wins, so the order resolves overlaps: a compaction failure
+ * mentions "context", and a 429 can mention tokens per minute.
+ */
+const TURN_ERROR_PATTERNS: ReadonlyArray<readonly [Exclude<TurnErrorKind, "unknown">, readonly RegExp[]]> = [
+	["aborted", [/request was aborted|operation was aborted|aborted by (?:the )?user|\babort ?error\b/i]],
+	["compaction", [/compaction freed too little|compaction failed|failed to compact|could not compact/i]],
+	["rateLimit", [statusPattern("429"), /rate[ _-]?limit|too many requests|quota|usage limit|insufficient_quota/i]],
+	[
+		"contextOverflow",
+		[
+			/prompt is too long|context[ _-](?:length|window)|maximum context|too many tokens|context_length_exceeded/i,
+			/input is too long|exceeds? the (?:model'?s? )?(?:context|maximum)/i,
+		],
+	],
+	[
+		"auth",
+		[
+			statusPattern("401|403"),
+			/invalid[ _-]?(?:x-)?api[ _-]?key|unauthori[sz]ed|authentication|\bforbidden\b/i,
+			/no api key|api key (?:is )?(?:missing|not found|invalid)/i,
+			/no models available|no model selected|not logged in|log ?in required|token (?:has )?expired/i,
+		],
+	],
+	[
+		"overloaded",
+		[statusPattern("502|503|529"), /overloaded|service unavailable|temporarily unavailable|over capacity/i],
+	],
+	[
+		"connection",
+		[
+			/unable to connect|econnrefused|econnreset|enotfound|eai_again|etimedout|getaddrinfo|fetch failed/i,
+			/network ?error|socket hang up|timed? ?out|timeout|connection (?:refused|reset|closed|error|failed)/i,
+		],
+	],
+];
+
+/**
+ * Humanize a failed or stopped turn: what kind of failure it was, a localized
+ * title + one-sentence guidance (as i18n keys), and the recovery actions that
+ * apply. Pure — the transcript error card, the turn-failed toast and the
+ * compaction notice all read the same answer. A user abort is `aborted`
+ * (rendered as a neutral "Stopped", never as an error).
+ */
+export function describeTurnError(errorMessage: string | undefined, stopReason?: string): TurnErrorDescription {
+	const detail = (errorMessage ?? "").trim();
+	let kind: TurnErrorKind = stopReason === "aborted" ? "aborted" : "unknown";
+	if (kind === "unknown" && detail) {
+		kind = TURN_ERROR_PATTERNS.find(([, patterns]) => patterns.some(pattern => pattern.test(detail)))?.[0] ?? kind;
+	}
+	return {
+		kind,
+		titleKey: `turnError.${kind}.title`,
+		guidanceKey: `turnError.${kind}.guidance`,
+		actions: TURN_ERROR_ACTIONS[kind],
+		detail,
+	};
+}
+
+/** Toast copy for a failed turn or compaction: humanized title + guidance, never raw provider English alone. */
+export function turnErrorToast(
+	errorMessage: string | undefined,
+	stopReason?: string,
+): { title: string; message: string; kind: TurnErrorKind } {
+	const description = describeTurnError(errorMessage, stopReason);
+	return {
+		kind: description.kind,
+		title: translate(description.titleKey),
+		message: translate(description.guidanceKey),
+	};
 }
 
 /** Abort the active turn and synchronously retire any live retry UI. */

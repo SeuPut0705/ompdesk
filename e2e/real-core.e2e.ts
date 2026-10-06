@@ -87,18 +87,26 @@ test("system omp persists settings and sessions and serves every stats route", a
 	const page = await app.firstWindow();
 	const errors: string[] = [];
 	page.on("pageerror", error => errors.push(error.message));
-	const closeWelcomeIfPresent = async (title: string, closeLabel: string) => {
-		const welcome = page.getByRole("dialog", { name: title, exact: true });
-		if ((await welcome.count()) === 0) return;
-		await expect(welcome).toBeVisible();
-		await welcome.getByRole("button", { name: closeLabel, exact: true }).click();
-		await expect(welcome).toHaveCount(0);
+	// First run is inline in the empty main area (no dialog); it only shows on an
+	// empty session, so it is dismissed where present rather than asserted.
+	const dismissSetupIfPresent = async (title: string, laterLabel: string) => {
+		const setup = page.getByRole("region", { name: title, exact: true });
+		if ((await setup.count()) === 0) return;
+		await setup.getByRole("button", { name: laterLabel, exact: true }).click();
+		await expect(setup).toHaveCount(0);
 	};
 	try {
 		// The whole payload, so a failure prints the sidecar's error message too.
 		await expect
 			.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 60_000 })
 			.toMatchObject({ status: "ready" });
+		// No provider in this profile (Apple's keyless on-device model does not
+		// count), so the inline first-run setup takes the empty session.
+		const setup = page.getByRole("region", { name: "Set up seucode", exact: true });
+		await expect(setup).toBeVisible();
+		await expect(setup.getByRole("searchbox", { name: "Search providers" })).toBeVisible();
+		await setup.getByRole("button", { name: "Set up later", exact: true }).click();
+		await expect(setup).toHaveCount(0);
 		const runtime = await app.evaluate(({ app }) => ({
 			isPackaged: app.isPackaged,
 			appPath: app.getAppPath(),
@@ -172,15 +180,10 @@ test("system omp persists settings and sessions and serves every stats route", a
 		await exportPage.screenshot({ path: "test-results/exported-session.png", scale: "css", animations: "disabled" });
 		await exportPage.close();
 		await page.screenshot({ path: "test-results/04-real-core.png", scale: "css", animations: "disabled" });
-		await expect(page.getByRole("dialog", { name: "Welcome to omp" })).toBeVisible();
-		await page
-			.getByRole("dialog", { name: "Welcome to omp" })
-			.getByRole("button", { name: "Close", exact: true })
-			.click();
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 		const original = evidence.saved.data as RpcSessionState;
 		await page.locator("textarea").first().fill("/new");
-		await page.getByRole("button", { name: "Send (Enter)", exact: true }).click();
+		await page.getByRole("button", { name: "Send", exact: true }).click();
 		await expect
 			.poll(async () => {
 				const state = await page.evaluate(() => window.omp.rpc.getState());
@@ -199,10 +202,13 @@ test("system omp persists settings and sessions and serves every stats route", a
 		}, seededSession);
 		await page.reload();
 		await expect(page.locator("[data-transcript-kind]").filter({ hasText: "arm audit ok" })).toHaveCount(1);
-		await closeWelcomeIfPresent("Welcome to omp", "Close");
-		await page.getByRole("button", { name: "Session stats", exact: true }).click();
-		const stats = page.getByRole("dialog");
+		await dismissSetupIfPresent("Set up seucode", "Set up later");
+		await page.locator('[data-sidebar-destinations] button[data-destination="insights"]').click();
+		const stats = page.locator('section[data-destination="insights"]');
 		await expect(stats).toBeVisible();
+		// The global dashboard sections live under Stats › All sessions (default scope is This session).
+		await stats.getByRole("tab", { name: "Stats", exact: true }).click();
+		await stats.getByRole("tab", { name: "All sessions", exact: true }).click();
 		for (const label of [
 			"Overview",
 			"Models",
@@ -215,7 +221,10 @@ test("system omp persists settings and sessions and serves every stats route", a
 			"Projects",
 			"Requests",
 		]) {
-			await stats.locator("nav").getByRole("button", { name: label, exact: true }).click();
+			await stats
+				.locator('nav[aria-label="Stats sections"]')
+				.getByRole("button", { name: label, exact: true })
+				.click();
 			await expect(stats.getByText("Loading stats…", { exact: true })).toHaveCount(0, { timeout: 30000 });
 			await expect(stats).not.toContainText("Stats unavailable", { timeout: 15000 });
 			await page.screenshot({ path: `test-results/stats-${label}.png`, scale: "css", animations: "disabled" });
@@ -225,46 +234,47 @@ test("system omp persists settings and sessions and serves every stats route", a
 			await window.omp.prefs.set("language", "zh");
 		});
 		await page.reload();
-		await expect(page.getByRole("button", { name: "设置", exact: true })).toBeVisible();
-		// No provider in this profile, so onboarding always opens once readiness is checked.
-		const zhWelcome = page.getByRole("dialog", { name: "欢迎使用 omp" });
-		await expect(zhWelcome).toBeVisible();
-		await zhWelcome.getByRole("button", { name: "关闭", exact: true }).click();
-		await expect(zhWelcome).toHaveCount(0);
-		await page.getByRole("button", { name: "设置", exact: true }).click();
-		await expect(page.getByRole("dialog")).toContainText("权限与安全");
-		await expect(page.getByRole("dialog").locator(".settings-nav-group-label")).toHaveCount(8);
-		const settingsPages: Array<{ group: string; page: string; text: string }> = [];
-		for (let groupIndex = 0; groupIndex < 8; groupIndex++) {
-			const settings = page.getByRole("dialog");
-			const group = settings.locator(".settings-nav-group-label").nth(groupIndex);
-			const groupName = await group.innerText();
-			await group.click();
-			const pages = settings.locator(".settings-nav-item");
-			const count = await pages.count();
-			for (let pageIndex = 0; pageIndex < count; pageIndex++) {
-				const target = pages.nth(pageIndex);
-				const pageName = await target.innerText();
-				await target.click();
-				await expect(settings.locator(".settings-content .animate-spin")).toHaveCount(0, { timeout: 30_000 });
-				const content = settings.locator(".settings-content");
-				await expect(content).not.toContainText("Something went wrong");
-				await expect(content).not.toContainText("Typo Detection (macOS)");
-				await expect(content).not.toContainText("Word Autocomplete (macOS)");
-				await expect(content).not.toContainText("Autocorrect (macOS)");
-				settingsPages.push({ group: groupName, page: pageName, text: await content.innerText() });
-				await page.screenshot({
-					path: `test-results/settings-${groupIndex}-${pageIndex}.png`,
-					scale: "css",
-					animations: "disabled",
-				});
-			}
+		await expect(page.locator('[data-sidebar-destinations] button[data-destination="settings"]')).toContainText(
+			"设置",
+		);
+		await dismissSetupIfPresent("设置 seucode", "稍后设置");
+		await page.keyboard.press("ControlOrMeta+Comma");
+		const settings = page.locator("[data-settings-page]");
+		await expect(settings).toContainText("权限与安全");
+		const sectionIds = await settings
+			.locator("[data-settings-section]")
+			.evaluateAll(elements => elements.map(element => element.getAttribute("data-settings-section") ?? ""));
+		expect(sectionIds).toHaveLength(12);
+		const content = settings.locator(".settings-content");
+		const settingsPages: Array<{ page: string; text: string }> = [];
+		const capture = async (name: string) => {
+			await expect(content.locator(".animate-spin")).toHaveCount(0, { timeout: 30_000 });
+			await expect(content).not.toContainText("Something went wrong");
+			await expect(content).not.toContainText("Typo Detection (macOS)");
+			await expect(content).not.toContainText("Word Autocomplete (macOS)");
+			await expect(content).not.toContainText("Autocorrect (macOS)");
+			settingsPages.push({ page: name, text: await content.innerText() });
+			await page.screenshot({ path: `test-results/settings-${name}.png`, scale: "css", animations: "disabled" });
+		};
+		for (const id of sectionIds) {
+			await settings.locator(`[data-settings-section="${id}"]`).click();
+			await capture(id);
+		}
+		// Advanced keeps every agent schema category reachable.
+		const category = settings.locator("#settings-advanced-category select");
+		const categories = await category
+			.locator("option")
+			.evaluateAll(options => options.map(option => (option as HTMLOptionElement).value));
+		expect(categories.length).toBeGreaterThan(5);
+		for (const value of categories) {
+			await category.selectOption(value);
+			await capture(`advanced-${value}`);
 		}
 		await fs.writeFile("test-results/settings-pages.json", JSON.stringify(settingsPages, null, 2));
-		const settingsSearch = page.getByRole("dialog").getByPlaceholder("搜索设置和管理资源…");
+		const settingsSearch = settings.getByRole("searchbox", { name: "搜索设置" });
 		await settingsSearch.fill("bash.patterns");
-		await page.getByRole("button", { name: /Bash 审批模式 bash.patterns/ }).click();
-		const rules = page.locator('[title="bash.patterns"]').locator("..").locator("..");
+		await settings.getByRole("button", { name: "Bash 审批模式", exact: true }).click();
+		const rules = settings.locator('[id="setting-bash.patterns"]');
 		await expect(rules.locator("textarea")).toHaveValue("[]");
 		const rule = { match: "echo audit-blocked", approval: "deny" };
 		await rules.locator("textarea").fill(JSON.stringify([rule]));
@@ -277,17 +287,14 @@ test("system omp persists settings and sessions and serves every stats route", a
 		await expect
 			.poll(() => page.evaluate(() => window.omp.rpc.getSettings(["bash.patterns"])))
 			.toMatchObject({ success: true, data: { values: { "bash.patterns": [] } } });
-		await page.getByRole("dialog").getByRole("button", { name: "外观与使用", exact: true }).click();
-		await expect(page.getByRole("dialog")).toContainText("选择 GUI 主题");
+		await settings.locator('[data-settings-section="appearance"]').click();
+		const themes = settings.getByRole("radiogroup", { name: "主题" });
+		await expect(themes).toBeVisible();
 		await page.screenshot({ path: "test-results/05-packaged-zh.png", scale: "css", animations: "disabled" });
-		await page.keyboard.press("Escape");
 		const backgrounds: string[] = [];
 		for (const theme of ["瓷白", "石墨"]) {
-			await page.getByRole("button", { name: "选择主题", exact: true }).click();
-			const picker = page.getByRole("dialog", { name: "选择主题", exact: true });
-			await picker.getByPlaceholder("搜索主题…").fill(theme);
-			await picker.locator("button[aria-pressed]").filter({ hasText: theme }).click();
-			await expect(picker).toHaveCount(0);
+			await themes.getByRole("radio", { name: theme }).click();
+			await expect(themes.getByRole("radio", { name: theme })).toHaveAttribute("aria-checked", "true");
 			backgrounds.push(
 				await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--omp-bg-primary")),
 			);
@@ -298,6 +305,7 @@ test("system omp persists settings and sessions and serves every stats route", a
 			});
 		}
 		expect(backgrounds[0]).not.toBe(backgrounds[1]);
+		await page.keyboard.press("Escape");
 		// Delay the real IPC boot snapshot while the user makes a newer choice.
 		const bootPrefs = await page.evaluate(async () => {
 			await window.omp.prefs.set("fontSize", 18);
@@ -316,23 +324,20 @@ test("system omp persists settings and sessions and serves every stats route", a
 		}, bootPrefs);
 		await page.reload();
 		await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "auditPrefsRequested"))).toBe(true);
-		await expect(page.getByRole("button", { name: "选择主题", exact: true })).toBeVisible();
-		await closeWelcomeIfPresent("欢迎使用 omp", "关闭");
-		await page.getByRole("button", { name: "选择主题", exact: true }).click();
-		const freshPicker = page.getByRole("dialog", { name: "选择主题", exact: true });
-		await freshPicker.getByPlaceholder("搜索主题…").fill("瓷白");
-		await freshPicker.locator("button[aria-pressed]").filter({ hasText: "瓷白" }).click();
-		await expect(freshPicker).toHaveCount(0);
+		await dismissSetupIfPresent("设置 seucode", "稍后设置");
+		await page.keyboard.press("ControlOrMeta+Comma");
+		const freshSettings = page.locator("[data-settings-page]");
+		await freshSettings.locator('[data-settings-section="appearance"]').click();
+		const freshThemes = freshSettings.getByRole("radiogroup", { name: "主题" });
+		await freshThemes.getByRole("radio", { name: "瓷白" }).click();
+		await expect(freshThemes.getByRole("radio", { name: "瓷白" })).toHaveAttribute("aria-checked", "true");
 		const chosenBackground = await page.evaluate(() =>
 			getComputedStyle(document.documentElement).getPropertyValue("--omp-bg-primary"),
 		);
-		await page.getByRole("button", { name: "设置", exact: true }).click();
-		await page.getByRole("dialog").getByRole("button", { name: "外观与使用", exact: true }).click();
-		const font = page.locator('#setting-gui-fontSize input[type="number"]');
+		const font = freshSettings.locator("#setting-gui-fontSize select");
 		const chosenFont = await font.inputValue();
-		for (const value of [String(Number(chosenFont) + 1), chosenFont]) {
-			await font.fill(value);
-			await font.press("Enter");
+		for (const value of [chosenFont === "16" ? "17" : "16", chosenFont]) {
+			await font.selectOption(value);
 			await expect
 				.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--gui-font-size")))
 				.toBe(`${value}px`);

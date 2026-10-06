@@ -6,6 +6,7 @@ import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import type { InputHistoryEntry } from "../../stores/input-history";
 import { filterHistory, useInputHistoryStore, workspaceHistory } from "../../stores/input-history";
+import { Tabs } from "../common";
 
 /**
  * Ctrl+R history search overlay (GUI counterpart of the TUI
@@ -30,7 +31,7 @@ function HighlightedPrompt({ text, tokens }: { text: string; tokens: string[] })
 		<>
 			{parts.map((part, index) =>
 				index % 2 === 1 ? (
-					<mark key={index} className="bg-transparent text-[var(--omp-accent)]">
+					<mark key={index} className="bg-transparent font-medium text-(--sc-accent)">
 						{part}
 					</mark>
 				) : (
@@ -115,13 +116,13 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 	return (
 		<div
 			ref={overlayRef}
-			className="absolute bottom-full left-0 right-0 z-20 mb-2 overflow-hidden rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] shadow-[var(--omp-shadow-lg)]"
+			className="omp-pop-in absolute right-0 bottom-full left-0 z-(--sc-z-popover) mb-2 overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-md)"
 			role="dialog"
 			aria-label={t("input.history.title")}
 			aria-modal="false"
 		>
-			<div className="flex items-center gap-2 border-b border-[var(--omp-border-muted)] px-3 py-2">
-				<History size={13} className="shrink-0 text-[var(--omp-accent)]" />
+			<div className="flex items-center gap-2 border-b border-(--sc-divider) px-3 py-2">
+				<History aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 				<input
 					ref={inputRef}
 					autoFocus
@@ -138,26 +139,28 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 						setIndex(0);
 					}}
 					placeholder={t("input.history.placeholder")}
-					className="min-w-0 flex-1 bg-transparent text-omp-lg text-[var(--omp-text)] outline-none placeholder:text-[var(--omp-dim)]"
+					className="min-w-0 flex-1 bg-transparent text-sc-md text-(--sc-text) outline-none placeholder:text-(--sc-text-subtle) focus-visible:outline-none"
 				/>
-				<span className="shrink-0 text-omp-xs font-medium text-[var(--omp-dim)]">{t("input.history.title")}</span>
-			</div>
-			<div className="flex items-center gap-2 border-b border-[var(--omp-border-muted)] px-3 py-1.5">
-				<select
-					aria-label={t("input.history.scope")}
-					className="rounded border border-[var(--omp-border-muted)] bg-[var(--omp-input-bg)] px-2 py-1 text-omp-sm text-[var(--omp-text)]"
-					value={allWorkspaces ? "all" : "workspace"}
-					onChange={event => {
-						setAllWorkspaces(event.target.value === "all");
+				<Tabs
+					activeId={allWorkspaces ? "all" : "workspace"}
+					ariaLabel={t("input.history.scope")}
+					compact
+					onChange={id => {
+						setAllWorkspaces(id === "all");
 						setIndex(0);
 					}}
-				>
-					<option value="workspace">{t("input.history.workspace")}</option>
-					<option value="all">{t("input.history.all")}</option>
-				</select>
-				<span className="min-w-0 truncate text-omp-xs text-[var(--omp-dim)]" title={shortenPath(cwd)}>
-					{allWorkspaces ? t("input.history.includesLegacy") : shortenPath(cwd)}
-				</span>
+					tabs={[
+						{ id: "workspace", label: t("input.history.workspace") },
+						{ id: "all", label: t("input.history.all") },
+					]}
+					variant="segmented"
+				/>
+			</div>
+			<div
+				className="truncate border-b border-(--sc-divider) px-3 py-1.5 text-sc-xs text-(--sc-text-muted)"
+				title={shortenPath(cwd)}
+			>
+				{allWorkspaces ? t("input.history.includesLegacy") : shortenPath(cwd)}
 			</div>
 
 			<div
@@ -168,7 +171,7 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 				aria-label={t("input.history.title")}
 			>
 				{results.length === 0 ? (
-					<div className="px-3 py-2.5 text-omp-md text-[var(--omp-muted)]">
+					<div className="px-3 py-2.5 text-sc-sm text-(--sc-text-muted)">
 						{tokens.length > 0 ? t("input.history.empty") : t("input.history.none")}
 					</div>
 				) : (
@@ -185,25 +188,25 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 							onMouseEnter={() => setIndex(rowIndex)}
 							title={entry.cwd ? shortenPath(entry.cwd) : t("input.history.legacy")}
 							className={cx(
-								"flex w-full items-baseline gap-3 rounded-lg px-3 py-2 text-left",
-								rowIndex === selected ? "bg-[var(--omp-selected-bg)]" : "",
+								"flex w-full items-baseline gap-3 rounded-(--sc-radius-sm) px-2.5 py-1.5 text-left",
+								rowIndex === selected ? "bg-(--sc-selected)" : "",
 							)}
 						>
 							<span
 								className={cx(
-									"min-w-0 flex-1 truncate font-mono text-omp-md",
-									rowIndex === selected ? "text-[var(--omp-text)]" : "text-[var(--omp-muted)]",
+									"min-w-0 flex-1 truncate text-sc-md",
+									rowIndex === selected ? "text-(--sc-text)" : "text-(--sc-text-secondary)",
 								)}
 							>
 								<HighlightedPrompt text={entry.prompt.replace(/\s+/g, " ").trim()} tokens={tokens} />
 								{allWorkspaces && (
-									<span className="block truncate text-omp-xs text-[var(--omp-dim)]">
+									<span className="block truncate font-mono text-sc-xs text-(--sc-text-muted)">
 										{entry.cwd ? shortenPath(entry.cwd) : t("input.history.legacy")}
 									</span>
 								)}
 							</span>
 							{entry.ts > 0 && (
-								<span className="shrink-0 text-omp-xs tabular-nums text-[var(--omp-dim)]">
+								<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-muted)">
 									{formatTimeAgo(new Date(entry.ts).toISOString())}
 								</span>
 							)}
@@ -212,7 +215,7 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 				)}
 			</div>
 
-			<div className="border-t border-[var(--omp-border-muted)] px-3 py-1.5 text-omp-xs text-[var(--omp-dim)]">
+			<div className="border-t border-(--sc-divider) px-3 py-1.5 text-sc-xs text-(--sc-text-muted)">
 				{t("input.history.hint")}
 			</div>
 		</div>

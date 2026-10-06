@@ -11,8 +11,7 @@
  * dropped silently.
  */
 
-import { json } from "@codemirror/lang-json";
-import { EditorView } from "@codemirror/view";
+import type { EditorView } from "@codemirror/view";
 import { Check, ExternalLink } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ExtensionAskDialogResult, ExtensionUIRequest } from "../../../shared/rpc-types";
@@ -20,9 +19,9 @@ import { AnsiText } from "../../lib/ansi";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
-import { useExtensionUiStore } from "../../stores/extension-ui";
+import { isInlineLoginRequest, useExtensionUiStore } from "../../stores/extension-ui";
 import { toast } from "../../stores/toast";
-import { Button, Input, Modal } from "../common";
+import { Button, Input, Modal, Spinner } from "../common";
 import { ApprovalDialog, isApprovalRequest } from "./ApprovalDialog";
 
 /** Requests handled elsewhere (store/router) — never rendered as dialogs. */
@@ -447,50 +446,70 @@ function EditorDialog({
 	const t = useT();
 	const hostRef = useRef<HTMLDivElement>(null);
 	const valueRef = useRef(request.prefill ?? "");
+	const [editorReady, setEditorReady] = useState(false);
 
+	// CodeMirror (~900 KB) is imported on the first editor request, not at app startup.
 	useEffect(() => {
 		const host = hostRef.current;
 		if (!host) return;
 		// The editor view is rebuilt per request — resync the submit ref so text
 		// left over from a previous request can't leak into this one's value.
 		valueRef.current = request.prefill ?? "";
-		const view = new EditorView({
-			doc: request.prefill ?? "",
-			extensions: [
-				EditorView.lineWrapping,
-				...(looksLikeJson(request.prefill ?? "") ? [json()] : []),
-				EditorView.theme({
-					"&": {
-						backgroundColor: "var(--omp-code-bg)",
-						color: "var(--omp-text)",
-						fontSize: "12px",
-						height: "100%",
-					},
-					"&.cm-focused": { outline: "none" },
-					".cm-content": { fontFamily: "var(--font-mono, monospace)", padding: "8px 0" },
-					".cm-line": { padding: "0 10px" },
-					".cm-cursor": { borderLeftColor: "var(--omp-accent)" },
-					".cm-selectionBackground": { backgroundColor: "var(--omp-selected-bg) !important" },
-					".cm-gutters": {
-						backgroundColor: "transparent",
-						borderRight: "1px solid var(--omp-border-muted)",
-						color: "var(--omp-dim)",
-					},
-				}),
-				EditorView.updateListener.of(update => {
-					if (update.docChanged) valueRef.current = update.state.doc.toString();
-				}),
-			],
-			parent: host,
-		});
-		view.focus();
-		return () => view.destroy();
+		let view: EditorView | null = null;
+		let disposed = false;
+		void Promise.all([import("@codemirror/lang-json"), import("@codemirror/view")]).then(
+			([{ json }, { EditorView }]) => {
+				if (disposed) return;
+				view = new EditorView({
+					doc: request.prefill ?? "",
+					extensions: [
+						EditorView.lineWrapping,
+						...(looksLikeJson(request.prefill ?? "") ? [json()] : []),
+						EditorView.theme({
+							"&": {
+								backgroundColor: "var(--omp-code-bg)",
+								color: "var(--omp-text)",
+								fontSize: "12px",
+								height: "100%",
+							},
+							"&.cm-focused": { outline: "none" },
+							".cm-content": { fontFamily: "var(--font-mono, monospace)", padding: "8px 0" },
+							".cm-line": { padding: "0 10px" },
+							".cm-cursor": { borderLeftColor: "var(--omp-accent)" },
+							".cm-selectionBackground": { backgroundColor: "var(--omp-selected-bg) !important" },
+							".cm-gutters": {
+								backgroundColor: "transparent",
+								borderRight: "1px solid var(--omp-border-muted)",
+								color: "var(--omp-dim)",
+							},
+						}),
+						EditorView.updateListener.of(update => {
+							if (update.docChanged) valueRef.current = update.state.doc.toString();
+						}),
+					],
+					parent: host,
+				});
+				setEditorReady(true);
+				view.focus();
+			},
+		);
+		return () => {
+			disposed = true;
+			view?.destroy();
+		};
 	}, [request.prefill]);
 
 	return (
 		<Modal bodyClassName="p-0" onClose={onCancel} open size="lg" title={request.title}>
 			<div className="flex h-[55vh] flex-col">
-				<div className="min-h-0 flex-1 overflow-hidden border-b border-(--omp-border-muted)" ref={hostRef} />
+				<div className="relative min-h-0 flex-1 overflow-hidden border-b border-(--omp-border-muted)">
+					<div className="h-full" ref={hostRef} />
+					{!editorReady && (
+						<div className="absolute inset-0 flex items-center justify-center">
+							<Spinner size="sm" />
+						</div>
+					)}
+				</div>
 				<div className="flex items-center justify-end gap-2 p-3">
 					<Button onClick={onCancel} size="sm" variant="ghost">
 						{t("common.cancel")}
@@ -649,8 +668,14 @@ function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; rem
 export function ExtensionDialog() {
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
+	const inlineLogin = useExtensionUiStore(state => state.inlineLogin);
 
-	const request = useMemo(() => pending.find(req => !NON_DIALOG_METHODS.has(req.method)) ?? null, [pending]);
+	const request = useMemo(
+		() =>
+			pending.find(req => !NON_DIALOG_METHODS.has(req.method) && !(inlineLogin && isInlineLoginRequest(req))) ??
+			null,
+		[pending, inlineLogin],
+	);
 	const remaining = useCountdown(request);
 
 	// Consume non-dialog requests in place. Editor/title mutations must target

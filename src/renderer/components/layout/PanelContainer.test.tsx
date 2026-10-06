@@ -1,8 +1,9 @@
 /**
- * PanelContainer chat filter: a tool-free chat tab renders only the files +
- * logs drawer tabs (diffs can't exist without tools); an agent tab also gets
- * diff. Todo/plan/agents/queue moved to the center dock — they must not
- * appear here. Same linkedom + react-dom harness as mode-visibility.test.tsx.
+ * Side panel (PanelContainer): Changes · Files · Logs · Queue · Tree · Jobs;
+ * a tool-free chat tab drops Changes and Tree (no diffs or branches without
+ * tools). Todo/plan/agents cards stay in the center dock. Docked width
+ * defaults into the spec's 360–460px range and stays resizable.
+ * Same linkedom + react-dom harness as mode-visibility.test.tsx.
  */
 
 import { parseHTML } from "linkedom";
@@ -102,16 +103,15 @@ function FileLinkHarness({ content = "[report](docs/report.md)" }: { content?: s
 }
 
 describe("PanelContainer chat tab filter", () => {
-	it("renders only files + logs tabs in a chat tab", async () => {
+	it("drops Changes and Tree in a chat tab", async () => {
 		seedActiveTab("chat");
 		useUiStore.setState({ panelTab: "files", panelVisible: true });
 		await mount(<PanelContainer />);
 
 		const labels = drawerTabLabels();
-		expect(labels).toContain("Files");
-		expect(labels).toContain("Logs");
-		// Diff is agent-only; todo/plan/agents/queue live in the center dock now.
-		expect(labels).not.toContain("Diff");
+		for (const visible of ["Files", "Logs", "Queue", "Background jobs"]) expect(labels).toContain(visible);
+		expect(labels).not.toContain("Changes");
+		expect(labels).not.toContain("Tree");
 	});
 
 	it("falls back to the files surface when the agent-only diff tab was selected before entering chat", async () => {
@@ -122,27 +122,41 @@ describe("PanelContainer chat tab filter", () => {
 		expect(document.querySelector('button[aria-label="Refresh file tree"]')).not.toBeNull();
 	});
 
-	it("renders all drawer tabs in an agent tab", async () => {
+	it("renders every side panel view in an agent tab, labelled as one region", async () => {
 		seedActiveTab("agent");
 		useUiStore.setState({ panelTab: "files", panelVisible: true });
 		await mount(<PanelContainer />);
 
-		const labels = drawerTabLabels();
-		for (const visible of ["Diff", "Files", "Logs"]) {
-			expect(labels).toContain(visible);
-		}
-		// The drawer's old live-execution tabs moved to the center dock.
-		for (const moved of ["Todo", "Plan", "Agents", "Queue"]) {
-			expect(labels).not.toContain(moved);
-		}
+		expect(drawerTabLabels()).toEqual(
+			expect.arrayContaining(["Changes", "Files", "Logs", "Queue", "Tree", "Background jobs"]),
+		);
+		// The live-execution cards stay in the center dock.
+		for (const moved of ["Todo", "Plan", "Agents"]) expect(drawerTabLabels()).not.toContain(moved);
+		expect(document.querySelector("aside")?.getAttribute("aria-label")).toBe("Side panel");
+		expect(document.querySelector('button[aria-label="Close side panel"]')).not.toBeNull();
 	});
 
-	it("uses the available window width instead of a fixed narrow drawer", async () => {
+	it("opens Queue, Tree and Jobs through the store like the other views", async () => {
+		seedActiveTab("agent");
+		useUiStore.setState({ panelVisible: false });
+		useUiStore.getState().openJobs();
+		expect(useUiStore.getState()).toMatchObject({ panelVisible: true, panelTab: "jobs" });
+		useUiStore.getState().openSessionTree();
+		expect(useUiStore.getState().panelTab).toBe("tree");
+		seedActiveTab("chat");
+		useUiStore.setState({ panelTab: "files" });
+		useUiStore.getState().setPanelTab("tree");
+		expect(useUiStore.getState().panelTab).toBe("files");
+		useUiStore.getState().setPanelTab("queue");
+		expect(useUiStore.getState().panelTab).toBe("queue");
+	});
+
+	it("defaults to the docked 360–460px range on wide windows", async () => {
 		Object.defineProperty(window, "innerWidth", { configurable: true, value: 2400 });
 		seedActiveTab("agent");
 		await mount(<PanelContainer />);
 
-		expect((document.querySelector("aside") as HTMLElement | null)?.style.width).toBe("672px");
+		expect((document.querySelector("aside") as HTMLElement | null)?.style.width).toBe("460px");
 	});
 
 	it("resizes from the window edge in both directions without snapping closed", async () => {

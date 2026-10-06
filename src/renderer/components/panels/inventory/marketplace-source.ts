@@ -1,5 +1,5 @@
 /**
- * Pure helpers behind the inventory window's interactive Marketplaces tab,
+ * Pure helpers behind the Plugins & resources interactive Marketplaces tab,
  * kept DOM-free so the contract tests exercise them directly.
  *
  * classifyMarketplaceSource mirrors the agent-side classifySource

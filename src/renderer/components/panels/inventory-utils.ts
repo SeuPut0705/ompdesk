@@ -1,5 +1,5 @@
 /**
- * Pure filtering/sorting/shortening helpers behind the inventory window's
+ * Pure filtering/sorting/shortening helpers behind the Plugins & resources
  * list tabs, kept separate so they are unit-testable without a DOM.
  */
 

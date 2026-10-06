@@ -1,4 +1,4 @@
-import { LoaderCircle, Pause, Pencil, Play, Target, Trash2 } from "lucide-react";
+import { Pause, Pencil, Play, Target, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTabGuard } from "../../../hooks/use-tab-guard";
 import { useT } from "../../../lib/i18n";
@@ -6,6 +6,7 @@ import { useTabRpc } from "../../../lib/tab-rpc";
 import { useSessionStore } from "../../../stores/session";
 import { toast } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
+import { IconButton, Spinner } from "../../common";
 
 type GoalAction = "pause" | "resume" | "drop";
 
@@ -48,47 +49,44 @@ export function GoalDockBar() {
 	};
 
 	return (
-		<div className="omp-goal-dock flex min-w-0 items-center gap-2 rounded-[14px] border border-[var(--omp-border)] px-3 py-2">
-			<Target aria-hidden="true" className="shrink-0 text-[var(--omp-muted)]" size={16} />
-			<span className="shrink-0 text-omp-lg font-semibold text-[var(--omp-text)]">
+		<div className="flex min-w-0 items-center gap-2 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) py-1.5 pr-1.5 pl-3">
+			<Target aria-hidden="true" className="shrink-0 text-(--sc-text-muted)" size={16} />
+			<span className="shrink-0 text-sc-md font-medium text-(--sc-text)">
 				{paused ? t("dock.goal.paused") : t("dock.goal.active")}
 			</span>
-			<span className="min-w-0 flex-1 truncate text-omp-lg text-[var(--omp-text)]" title={objective}>
+			<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text-secondary)" title={objective}>
 				{objective}
 			</span>
-			<button
-				aria-label={paused ? t("modesPanel.goal.resume") : t("modesPanel.goal.pause")}
-				className="omp-goal-dock-action omp-pressable"
+			<IconButton
 				disabled={busy !== null}
+				icon={
+					busy === "pause" || busy === "resume" ? (
+						<Spinner inheritColor size="sm" />
+					) : paused ? (
+						<Play />
+					) : (
+						<Pause />
+					)
+				}
+				label={paused ? t("modesPanel.goal.resume") : t("modesPanel.goal.pause")}
 				onClick={() => void runAction(paused ? "resume" : "pause")}
-				type="button"
-			>
-				{busy === "pause" || busy === "resume" ? (
-					<LoaderCircle className="animate-spin" size={15} />
-				) : paused ? (
-					<Play size={15} />
-				) : (
-					<Pause size={15} />
-				)}
-			</button>
-			<button
-				aria-label={t("dock.goal.edit")}
-				className="omp-goal-dock-action omp-pressable"
+				size="sm"
+			/>
+			<IconButton
 				disabled={busy !== null}
+				icon={<Pencil />}
+				label={t("dock.goal.edit")}
 				onClick={() => openModes("goal")}
-				type="button"
-			>
-				<Pencil size={15} />
-			</button>
-			<button
-				aria-label={t("modesPanel.goal.drop")}
-				className="omp-goal-dock-action omp-pressable hover:text-[var(--omp-error)]"
+				size="sm"
+			/>
+			<IconButton
+				className="hover:text-(--sc-danger)"
 				disabled={busy !== null}
+				icon={busy === "drop" ? <Spinner inheritColor size="sm" /> : <Trash2 />}
+				label={t("modesPanel.goal.drop")}
 				onClick={() => void runAction("drop")}
-				type="button"
-			>
-				{busy === "drop" ? <LoaderCircle className="animate-spin" size={15} /> : <Trash2 size={15} />}
-			</button>
+				size="sm"
+			/>
 		</div>
 	);
 }

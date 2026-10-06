@@ -99,20 +99,20 @@ export function UsageRow({ message }: { message: UsageSource }) {
 		: "";
 
 	return (
-		<div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-omp-xs tabular-nums text-[var(--omp-dim)]">
+		<div className="omp-usage-row mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sc-xs tabular-nums text-(--sc-text-subtle) [&_svg]:size-(--sc-icon-sm) [&_svg]:shrink-0">
 			{model && <span className="font-mono">{model}</span>}
 			<span
 				className="flex items-center gap-1"
 				title={t("chat.usage.inputTokens", { count: totalInput.toLocaleString() })}
 			>
-				<ArrowUp size={10} />
+				<ArrowUp aria-hidden />
 				{formatTokens(totalInput)}
 			</span>
 			<span
 				className="flex items-center gap-1"
 				title={t("chat.usage.outputTokens", { count: usage.output.toLocaleString() })}
 			>
-				<ArrowDown size={10} />
+				<ArrowDown aria-hidden />
 				{formatTokens(usage.output)}
 			</span>
 			{usage.cacheRead > 0 && (
@@ -122,20 +122,20 @@ export function UsageRow({ message }: { message: UsageSource }) {
 			)}
 			{usage.costTotal !== undefined && (
 				<span className="flex items-center gap-1" title={t("chat.usage.cost")}>
-					<DollarSign size={10} />
+					<DollarSign aria-hidden />
 					{formatCost(usage.costTotal)}
 				</span>
 			)}
 			{durationMs > 0 && (
 				<span className="flex items-center gap-1" title={t("chat.usage.duration")}>
-					<Clock size={10} />
+					<Clock aria-hidden />
 					{formatDuration(durationMs)}
 				</span>
 			)}
 			{ttftMs > 0 && <span title={t("chat.usage.ttft")}>TTFT {formatDuration(ttftMs)}</span>}
 			{tokPerSec > 0 && (
 				<span className="flex items-center gap-1" title={t("chat.usage.throughput")}>
-					<Zap size={10} />
+					<Zap aria-hidden />
 					{tokPerSec.toFixed(1)}/s
 				</span>
 			)}

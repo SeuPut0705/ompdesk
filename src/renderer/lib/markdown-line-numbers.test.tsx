@@ -61,7 +61,7 @@ describe("markdown code line numbers", () => {
 		// showing the mermaid source — exactly one gutter, marked as mermaid.
 		const html = render("```mermaid\ngraph TD\nA-->B\n```", true);
 		expect(parseHTML(html).document.documentElement.textContent).toContain("graph TD");
-		expect(html).toContain(">mermaid</span>");
+		expect(html).toMatch(/>mermaid<\/span>/i);
 	});
 
 	it("strips the fence's trailing newline when counting lines", () => {
@@ -74,8 +74,8 @@ describe("markdown code line numbers", () => {
 
 	it("fences carry the shared chrome: language badge and copy button", () => {
 		const html = render(FENCE, false);
-		// Language badge (uppercased) and the copy affordance share the header.
-		expect(html).toContain(">typescript</span>");
+		// Language label (the language's own name, sentence case) and the copy affordance share the header.
+		expect(html).toContain(">TypeScript</span>");
 		expect(html).toContain("<button");
 	});
 });

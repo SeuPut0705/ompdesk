@@ -83,7 +83,7 @@ describe("FeedbackDialog", () => {
 		await submit();
 		expect(openExternal).toHaveBeenCalledTimes(1);
 		const url = new URL(openExternal.mock.calls[0][0]);
-		expect(`${url.origin}${url.pathname}`).toBe("https://github.com/SeuPut0705/omp-gui/issues/new");
+		expect(`${url.origin}${url.pathname}`).toBe("https://github.com/SeuPut0705/seucode/issues/new");
 		expect(url.searchParams.get("labels")).toBe("gui,bug");
 		const body = url.searchParams.get("body") ?? "";
 		expect(body).toContain("Sync button threw 405");

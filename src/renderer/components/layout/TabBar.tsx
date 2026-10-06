@@ -1,15 +1,17 @@
 /**
  * Session tab strip, mounted between TitleBar and SidecarBanner. One chip per
- * pooled sidecar tab: session title (or cwd basename; identical untitled
- * labels disambiguate with an index suffix), a slow status signal, a muted
- * workspace subtitle, a close × (hidden at the single-tab floor,
- * inline-confirmed while a run is live), and a trailing "+" that opens a
- * fresh session tab in the current cwd. The strip scrolls horizontally on
- * overflow instead of shrinking chips past readability.
+ * pooled sidecar tab: the session title (untitled tabs fall back to the
+ * project name; identical untitled labels disambiguate with an index suffix),
+ * the project as a subtitle only when it differs from the title, a status
+ * icon only when there is something to say (running, done, failed), and a
+ * close button that is visible on hover and keyboard focus (inline-confirmed
+ * while a run is live; absent at the single-tab floor). The strip scrolls
+ * horizontally on overflow instead of shrinking chips past readability.
  */
 
 import {
 	Check,
+	CheckCircle2,
 	Columns2,
 	GitBranch,
 	GitBranchPlus,
@@ -19,6 +21,7 @@ import {
 	Plus,
 	Rows2,
 	X,
+	XCircle,
 } from "lucide-react";
 import {
 	type DragEvent as ReactDragEvent,
@@ -31,7 +34,7 @@ import {
 import { useSessionList } from "../../hooks/use-session-list";
 import { basename, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { actionShortcut } from "../../lib/keymap";
+import { actionKbd } from "../../lib/keymap";
 import { sessionHasContent } from "../../lib/session-title";
 import { type LiveTabRuntime, performTabClose, tabNeedsCloseConfirm } from "../../lib/tab-close";
 import { tabSignalPresentation } from "../../lib/tab-signal";
@@ -47,6 +50,7 @@ import { sessionRuntimeStore } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { type SessionTab, tabDisplayTitle, useTabsStore, visibleTabIds } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
+import { IconButton, Spinner } from "../common";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
 
 /** Auto-cancel window for the armed close confirm (injectable for tests). */
@@ -86,6 +90,10 @@ function TabChip({
 	const activeRuntime = useSessionStore(s => (active ? s.isStreaming || s.isCompacting : false));
 	const signal = tabSignalPresentation(tab, activeRuntime);
 	const signalLabel = t(signal.labelKey);
+	const failed = tab.status === "error" || tab.status === "exited";
+	// The project subtitle earns its line only when it says something the title
+	// does not (untitled tabs already show the project name).
+	const subtitle = workspaceLabel && label.replace(/ #\d+$/, "") !== workspaceLabel ? workspaceLabel : null;
 
 	return (
 		<div
@@ -119,30 +127,47 @@ function TabChip({
 				}
 			}}
 			title={`${label} — ${workspaceLabel}${tab.worktree ? ` — ${tab.worktree.branch}` : ""}`}
+			data-status={signal.running ? "running" : tab.status}
 			className={cx(
-				"no-drag group relative flex h-9 w-44 shrink-0 cursor-pointer items-center gap-2 overflow-hidden px-2.5 text-omp-md select-none",
+				"no-drag group/tab relative flex h-8 max-w-56 min-w-28 shrink-0 cursor-pointer items-center gap-2 rounded-(--sc-radius-md) pr-1 pl-2.5 text-sc-sm select-none",
 				active
-					? "bg-[var(--omp-selected-bg)] font-medium text-[var(--omp-text)]"
+					? "bg-(--sc-selected) font-medium text-(--sc-text)"
 					: visible
-						? "bg-[var(--omp-selected-bg)]/55 text-[var(--omp-text)] ring-1 ring-inset ring-[var(--omp-border-accent)]"
-						: "text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]",
+						? "text-(--sc-text) ring-1 ring-(--sc-accent-border) ring-inset"
+						: "text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text)",
 			)}
 		>
-			<span
-				role="img"
-				aria-label={signalLabel}
-				title={signalLabel}
-				className={cx("omp-signal-light omp-tab-signal", signal.active && "omp-signal-light--active")}
-				style={{ color: signal.color }}
-			/>
+			{signal.active ? (
+				<span aria-label={signalLabel} className="inline-flex shrink-0" role="img">
+					<span aria-hidden className="inline-flex">
+						<Spinner size="sm" />
+					</span>
+				</span>
+			) : failed ? (
+				<XCircle aria-label={signalLabel} className="size-(--sc-icon-sm) shrink-0 text-(--sc-danger)" role="img" />
+			) : tab.unreadDone ? (
+				<CheckCircle2
+					aria-label={signalLabel}
+					className="size-(--sc-icon-sm) shrink-0 text-(--sc-success)"
+					role="img"
+				/>
+			) : null}
 			{tab.worktree && (
-				<GitBranch size={11} className="shrink-0 text-[var(--omp-accent)]" aria-label={t("tabs.kind.worktree")} />
+				<GitBranch
+					aria-label={t("tabs.kind.worktree")}
+					className="size-(--sc-icon-sm) shrink-0 text-(--sc-accent)"
+					role="img"
+				/>
 			)}
 			{tab.kind === "chat" && (
-				<MessageCircle size={11} className="shrink-0 text-[var(--omp-muted)]" aria-label={t("tabs.kind.chat")} />
+				<MessageCircle
+					aria-label={t("tabs.kind.chat")}
+					className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)"
+					role="img"
+				/>
 			)}
 			{confirmingClose ? (
-				<span className="min-w-0 truncate text-[var(--omp-error)]" title={t("tabs.confirmClose")}>
+				<span className="min-w-0 flex-1 truncate text-(--sc-danger)" title={t("tabs.confirmClose")}>
 					{t("tabs.confirmClose")}
 				</span>
 			) : (
@@ -168,44 +193,46 @@ function TabChip({
 							{label}
 						</span>
 					</span>
-					<span className="block truncate text-omp-xxs font-normal text-[var(--omp-dim)]" data-tab-workspace>
-						{workspaceLabel}
-					</span>
+					{subtitle && (
+						<span className="block truncate text-sc-2xs font-normal text-(--sc-text-muted)" data-tab-workspace>
+							{subtitle}
+						</span>
+					)}
 				</span>
 			)}
 			{closable &&
 				(confirmingClose ? (
-					<span className="-mr-1 flex shrink-0 items-center gap-0.5">
-						<button
-							type="button"
-							aria-label={t("common.confirm")}
-							title={t("tabs.confirmClose")}
+					<span className="flex shrink-0 items-center">
+						<IconButton
+							className="text-(--sc-danger)"
+							icon={<Check />}
+							label={t("common.confirm")}
 							onClick={event => {
 								event.stopPropagation();
 								onConfirmClose();
 							}}
-							className="omp-pressable flex h-4 w-4 items-center justify-center rounded bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)] hover:brightness-110"
-						>
-							<Check size={11} strokeWidth={3} />
-						</button>
-						<button
-							type="button"
-							aria-label={t("common.cancel")}
-							title={t("common.cancel")}
+							size="sm"
+						/>
+						<IconButton
+							icon={<X />}
+							label={t("common.cancel")}
 							onClick={event => {
 								event.stopPropagation();
 								onCancelClose();
 							}}
-							className="omp-pressable flex h-4 w-4 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-primary)] hover:text-[var(--omp-text)]"
-						>
-							<X size={11} />
-						</button>
+							size="sm"
+						/>
 					</span>
 				) : (
-					<button
-						type="button"
-						aria-label={t("tabs.close")}
-						title={t("tabs.close")}
+					<IconButton
+						className={cx(
+							"shrink-0 transition-opacity duration-(--sc-duration-fast)",
+							active
+								? "opacity-100"
+								: "opacity-0 group-focus-within/tab:opacity-100 group-hover/tab:opacity-100",
+						)}
+						icon={<X />}
+						label={t("tabs.close")}
 						onClick={event => {
 							event.stopPropagation();
 							// Live tabs arm the inline confirm (the close kills their
@@ -215,13 +242,10 @@ function TabChip({
 							if (closeNeedsConfirm) onArmClose();
 							else onConfirmClose();
 						}}
-						className={cx(
-							"omp-pressable -mr-1 flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] hover:bg-[var(--omp-bg-primary)] hover:text-[var(--omp-text)]",
-							active ? "flex" : "hidden group-hover:flex",
-						)}
-					>
-						<X size={11} />
-					</button>
+						size="sm"
+						tabIndex={active ? 0 : -1}
+						tooltip={false}
+					/>
 				))}
 		</div>
 	);
@@ -364,55 +388,57 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 
 	return (
 		<>
-			<div
-				role="tablist"
-				aria-label={t("tabs.strip")}
-				className="drag-region flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--omp-border-muted)] bg-[var(--omp-titlebar-bg)] px-2"
-			>
-				{tabs.map(tab => {
-					const visible = visibleTabIds({ activeTabId, split }).includes(tab.id);
-					const indexedSession =
-						(tab.sessionPath ? sessionsByPath.get(tab.sessionPath) : undefined) ??
-						(tab.sessionId ? sessionsById.get(tab.sessionId) : undefined);
-					const label = tabDisplayTitle(tab, tabs, indexedSession, t("sidebar.untitled"));
-					const workspaceLabel =
-						tab.kind === "chat" ? t("sidebar.chats") : (groupAliases[tab.cwd] ?? basename(tab.cwd) ?? tab.cwd);
-					return (
-						<TabChip
-							key={tab.id}
-							tab={tab}
-							active={tab.id === activeTabId}
-							visible={visible}
-							label={label}
-							workspaceLabel={workspaceLabel}
-							confirmingClose={armedCloseTab?.tabId === tab.id}
-							closeNeedsConfirm={tabNeedsCloseConfirm(tab, liveRuntime)}
-							onArmClose={() => armCloseTab(tab.id)}
-							onConfirmClose={() => confirmClose(tab.id)}
-							onCancelClose={cancelCloseTab}
-							onContextMenu={event => setTabMenu({ anchor: anchorFromEvent(event), tabId: tab.id })}
-							onKeyboardNavigate={key => {
-								const index = tabOrder.indexOf(tab.id);
-								const targetIndex =
-									key === "Home"
-										? 0
-										: key === "End"
-											? tabOrder.length - 1
-											: (index + (key === "ArrowLeft" ? -1 : 1) + tabOrder.length) % tabOrder.length;
-								const target = tabOrder[targetIndex];
-								if (target) {
-									void useTabsStore.getState().switchTab(target);
-									requestAnimationFrame(() => document.getElementById(`omp-tab-${target}`)?.focus());
-								}
-							}}
-						/>
-					);
-				})}
+			<div className="omp-tabbar drag-region flex h-10 shrink-0 items-center gap-1 border-b border-(--sc-divider) px-2">
+				<div
+					role="tablist"
+					aria-label={t("tabs.strip")}
+					className="flex min-w-0 items-center gap-1 overflow-x-auto"
+				>
+					{tabs.map(tab => {
+						const visible = visibleTabIds({ activeTabId, split }).includes(tab.id);
+						const indexedSession =
+							(tab.sessionPath ? sessionsByPath.get(tab.sessionPath) : undefined) ??
+							(tab.sessionId ? sessionsById.get(tab.sessionId) : undefined);
+						const label = tabDisplayTitle(tab, tabs, indexedSession, t("sidebar.untitled"));
+						const workspaceLabel =
+							tab.kind === "chat" ? t("sidebar.chats") : (groupAliases[tab.cwd] ?? basename(tab.cwd) ?? tab.cwd);
+						return (
+							<TabChip
+								key={tab.id}
+								tab={tab}
+								active={tab.id === activeTabId}
+								visible={visible}
+								label={label}
+								workspaceLabel={workspaceLabel}
+								confirmingClose={armedCloseTab?.tabId === tab.id}
+								closeNeedsConfirm={tabNeedsCloseConfirm(tab, liveRuntime)}
+								onArmClose={() => armCloseTab(tab.id)}
+								onConfirmClose={() => confirmClose(tab.id)}
+								onCancelClose={cancelCloseTab}
+								onContextMenu={event => setTabMenu({ anchor: anchorFromEvent(event), tabId: tab.id })}
+								onKeyboardNavigate={key => {
+									const index = tabOrder.indexOf(tab.id);
+									const targetIndex =
+										key === "Home"
+											? 0
+											: key === "End"
+												? tabOrder.length - 1
+												: (index + (key === "ArrowLeft" ? -1 : 1) + tabOrder.length) % tabOrder.length;
+									const target = tabOrder[targetIndex];
+									if (target) {
+										void useTabsStore.getState().switchTab(target);
+										requestAnimationFrame(() => document.getElementById(`omp-tab-${target}`)?.focus());
+									}
+								}}
+							/>
+						);
+					})}
+				</div>
 				{actionTabId && (
-					<button
-						type="button"
-						aria-label={t("tabs.actions")}
-						title={t("tabs.actions")}
+					<IconButton
+						className="no-drag"
+						icon={<MoreHorizontal />}
+						label={t("tabs.actions")}
 						onClick={event => {
 							const rect = event.currentTarget.getBoundingClientRect();
 							setTabMenu({
@@ -423,10 +449,8 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 								tabId: actionTabId,
 							});
 						}}
-						className="no-drag omp-pressable flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-					>
-						<MoreHorizontal aria-hidden="true" size={14} />
-					</button>
+						size="sm"
+					/>
 				)}
 				<NewTabMenu />
 			</div>
@@ -543,43 +567,35 @@ export function TabBar({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirmCloseMs?:
 }
 
 /**
- * New-tab affordance: agent, tool-free chat, and worktree.
+ * New-tab affordances, each one visible click away: a session tab in the
+ * current project, a tool-free chat tab, and a worktree tab.
  */
 function NewTabMenu() {
 	const t = useT();
-	const openTab = useTabsStore(s => s.openTab);
-	const openWorktreeDialog = useUiStore(s => s.openWorktreeDialog);
-	const buttonClass =
-		"no-drag omp-pressable flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]";
+	const keymapOverrides = useUiStore(s => s.keymapOverrides);
 	return (
-		<>
-			<button
-				type="button"
-				aria-label={t("tabs.new.agent")}
-				title={t("tabs.new.agentHint", { shortcut: actionShortcut("tab.new") })}
-				onClick={() => void openTab()}
-				className={buttonClass}
-			>
-				<Plus size={14} />
-			</button>
-			<button
-				type="button"
-				aria-label={t("tabs.new.chat")}
-				title={t("tabs.new.chatHint", { shortcut: actionShortcut("tab.newChat") })}
-				onClick={() => void openTab({ kind: "chat" })}
-				className={buttonClass}
-			>
-				<MessageCirclePlus size={14} />
-			</button>
-			<button
-				type="button"
-				aria-label={t("tabs.new.worktree")}
-				title={t("tabs.new.worktreeHint", { shortcut: actionShortcut("tab.newWorktree") })}
-				onClick={() => openWorktreeDialog()}
-				className={buttonClass}
-			>
-				<GitBranchPlus size={14} />
-			</button>
-		</>
+		<span className="no-drag flex shrink-0 items-center">
+			<IconButton
+				icon={<Plus />}
+				label={t("tabs.new.agent")}
+				onClick={() => void useTabsStore.getState().openTab()}
+				shortcut={actionKbd("tab.new", keymapOverrides)}
+				size="sm"
+			/>
+			<IconButton
+				icon={<MessageCirclePlus />}
+				label={t("tabs.new.chat")}
+				onClick={() => void useTabsStore.getState().openTab({ kind: "chat" })}
+				shortcut={actionKbd("tab.newChat", keymapOverrides)}
+				size="sm"
+			/>
+			<IconButton
+				icon={<GitBranchPlus />}
+				label={t("tabs.new.worktree")}
+				onClick={() => useUiStore.getState().openWorktreeDialog()}
+				shortcut={actionKbd("tab.newWorktree", keymapOverrides)}
+				size="sm"
+			/>
+		</span>
 	);
 }

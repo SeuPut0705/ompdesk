@@ -90,6 +90,8 @@ export const IPC_EVENTS = {
 	TRAY_STATE_PUSH: "tray:state-push",
 	/** Renderer → main fire-and-forget run-progress state (dock badge + progress bar) */
 	PROGRESS_SET: "progress:set",
+	/** Renderer → main fire-and-forget window-controls colors (Windows title-bar overlay follows the theme). */
+	WINDOW_CHROME_SET: "window-chrome:set",
 	/** Auto-update status machine push (idle/checking/available/downloading/downloaded/not-available/error) */
 	UPDATER_STATUS: "updater:status",
 	/** New gui-bridge compatibility warnings are waiting; the renderer takes them with BRIDGE_HEALTH_TAKE. */
@@ -321,6 +323,14 @@ export interface MenuActionPayload {
 
 /** Run-progress state pushed by the renderer (terminal.showProgress): dock badge + window progress bar. */
 export type RunProgressState = "working" | "waiting" | "idle";
+
+/** Theme colors for the native window controls (Windows title-bar overlay): CSS hex/rgb strings. */
+export interface WindowChromeColors {
+	/** Background behind the caption buttons (the top bar's surface). */
+	color: string;
+	/** Glyph color of minimize / maximize / close. */
+	symbolColor: string;
+}
 
 export type IpcBenchmarkProfile = "mix" | "chat" | "prefill" | "generation";
 
@@ -1239,6 +1249,10 @@ export interface OmpApi {
 	};
 	progress: {
 		set(state: RunProgressState): void;
+	};
+	windowChrome: {
+		/** Windows: recolor the native caption buttons drawn over the title bar. No-op elsewhere. */
+		setColors(colors: WindowChromeColors): void;
 	};
 	models: {
 		listProviders(): Promise<CustomProviderView[]>;

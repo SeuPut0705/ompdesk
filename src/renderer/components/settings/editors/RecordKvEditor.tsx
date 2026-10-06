@@ -9,6 +9,7 @@
 import { Plus, X } from "lucide-react";
 import { Fragment, useState } from "react";
 import { useT } from "../../../lib/i18n";
+import { Button, IconButton, Input, Select } from "../../common";
 import { ModelValueSelect } from "../ModelValueSelect";
 
 type Primitive = string | number | boolean;
@@ -34,9 +35,6 @@ function toPrimitive(input: string): Primitive {
 	if (input.trim() !== "" && Number.isFinite(n)) return n;
 	return input;
 }
-
-const INPUT_CLASS =
-	"rounded-md border border-(--omp-input-border) bg-(--omp-input-bg) px-2 py-1 font-mono text-omp-sm text-(--omp-text) outline-none transition-colors focus:border-(--omp-input-focus-border)";
 
 export function RecordKvEditor({
 	value,
@@ -85,29 +83,35 @@ export function RecordKvEditor({
 				// uncontrolled inputs, so index keys would keep stale DOM values
 				// attached to the wrong record entry after a row deletion.
 				<Fragment key={k}>
-					<div className="flex items-center gap-1.5">
-						<input
-							className={`${INPUT_CLASS} w-[45%]`}
-							disabled={disabled}
-							onBlur={e => {
-								const nk = e.target.value.trim();
-								if (!nk || nk === k) return;
-								if (entries.some(([other], i) => i !== index && other === nk)) {
-									// Writing it would replace that entry's value with
-									// this row's — a silent loss, so refuse instead.
-									setCollision({ row: k, typed: nk });
-									return;
-								}
-								setCollision(null);
-								setEntry(index, nk, v as Primitive);
-							}}
-							onChange={() => {}}
-							defaultValue={k}
-							placeholder={keyPlaceholder ?? t("settings.editors.kvKey")}
-							spellCheck={false}
-						/>
+					<div className="flex items-center gap-2">
+						<div className="w-[45%] shrink-0">
+							<Input
+								aria-label={keyPlaceholder ?? t("settings.editors.kvKey")}
+								controlSize="sm"
+								disabled={disabled}
+								onBlur={e => {
+									const nk = e.target.value.trim();
+									if (!nk || nk === k) return;
+									if (entries.some(([other], i) => i !== index && other === nk)) {
+										// Writing it would replace that entry's value with
+										// this row's — a silent loss, so refuse instead.
+										setCollision({ row: k, typed: nk });
+										return;
+									}
+									setCollision(null);
+									setEntry(index, nk, v as Primitive);
+								}}
+								onChange={() => {}}
+								defaultValue={k}
+								placeholder={keyPlaceholder ?? t("settings.editors.kvKey")}
+								aria-invalid={collision?.row === k || undefined}
+								className={collision?.row === k ? "border-(--sc-danger) focus:border-(--sc-danger)" : undefined}
+								mono
+								spellCheck={false}
+							/>
+						</div>
 						{valueKind === "model" ? (
-							<div className="flex-1">
+							<div className="min-w-0 flex-1">
 								<ModelValueSelect
 									disabled={disabled}
 									kind="model"
@@ -116,59 +120,55 @@ export function RecordKvEditor({
 								/>
 							</div>
 						) : valueOptions ? (
-							<select
-								className={`${INPUT_CLASS} flex-1`}
-								disabled={disabled}
-								onChange={e => setEntry(index, k, e.target.value)}
-								value={typeof v === "string" ? v : String(v)}
-							>
-								{valueOptions.map(option => (
-									<option key={option.value} value={option.value}>
-										{option.label}
-									</option>
-								))}
-							</select>
+							<div className="min-w-0 flex-1">
+								<Select
+									aria-label={valuePlaceholder ?? t("settings.editors.kvValue")}
+									controlSize="sm"
+									disabled={disabled}
+									onChange={e => setEntry(index, k, e.target.value)}
+									options={valueOptions}
+									value={typeof v === "string" ? v : String(v)}
+								/>
+							</div>
 						) : (
-							<input
-								className={`${INPUT_CLASS} flex-1`}
-								defaultValue={typeof v === "string" ? v : String(v)}
-								disabled={disabled}
-								onBlur={e => {
-									const nv = toPrimitive(e.target.value);
-									if (nv !== v) setEntry(index, k, nv);
-								}}
-								onChange={() => {}}
-								placeholder={valuePlaceholder ?? t("settings.editors.kvValue")}
-								spellCheck={false}
-								type={maskValues ? "password" : "text"}
-							/>
+							<div className="min-w-0 flex-1">
+								<Input
+									aria-label={valuePlaceholder ?? t("settings.editors.kvValue")}
+									controlSize="sm"
+									defaultValue={typeof v === "string" ? v : String(v)}
+									disabled={disabled}
+									onBlur={e => {
+										const nv = toPrimitive(e.target.value);
+										if (nv !== v) setEntry(index, k, nv);
+									}}
+									onChange={() => {}}
+									placeholder={valuePlaceholder ?? t("settings.editors.kvValue")}
+									spellCheck={false}
+									type={maskValues ? "password" : "text"}
+								/>
+							</div>
 						)}
 						{!disabled && (
-							<button
-								aria-label={t("settings.editors.kvRemove")}
-								className="shrink-0 text-(--omp-dim) hover:text-(--omp-error)"
+							<IconButton
+								className="shrink-0"
+								icon={<X />}
+								label={t("settings.editors.kvRemove")}
 								onClick={() => removeEntry(index)}
-								type="button"
-							>
-								<X size={13} />
-							</button>
+								size="sm"
+							/>
 						)}
 					</div>
 					{collision?.row === k && (
-						<span className="pl-1 text-omp-xs text-(--omp-error)">
+						<span className="pl-1 text-sc-xs text-(--sc-danger)" role="alert">
 							{t("settings.editors.kvDuplicateKey", { key: collision.typed })}
 						</span>
 					)}
 				</Fragment>
 			))}
 			{!disabled && (
-				<button
-					className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-md border border-(--omp-border-muted) px-2 py-1 text-omp-sm text-(--omp-muted) transition-colors hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
-					onClick={addEntry}
-					type="button"
-				>
-					<Plus size={11} /> {t("settings.editors.kvAdd")}
-				</button>
+				<Button className="w-fit" icon={<Plus />} onClick={addEntry} size="sm" variant="ghost">
+					{t("settings.editors.kvAdd")}
+				</Button>
 			)}
 		</div>
 	);

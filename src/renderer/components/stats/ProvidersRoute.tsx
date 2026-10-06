@@ -5,16 +5,16 @@
 
 import { useEffect, useMemo } from "react";
 import { Bar, Pie } from "react-chartjs-2";
-import { baseChartOptions, CHART_COLORS, compact, formatUsd } from "../../lib/chart";
+import { baseChartOptions, chartColors, compact, formatUsd, useChartThemeKey, withAlpha } from "../../lib/chart";
 import "../../lib/chart";
 import type { ProviderRow, ProvidersData, ProviderWindowsData, WindowInsight } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
 import { useT } from "../../lib/i18n";
-import type { StatsRange } from "./StatsDashboard";
-import { ChartBox, RouteFrame, SectionTitle, type StatColumn, StatTable } from "./shared";
+import { ChartBox, RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
 
 export function ProvidersRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
 	const t = useT();
+	const themeKey = useChartThemeKey();
 	const params = useMemo(() => ({ range }), [range]);
 	const { data, isLoading, error, refetch } = useStats<ProvidersData>("/api/stats/providers", params);
 	const windows = useStats<ProviderWindowsData>("/api/stats/provider-windows", params);
@@ -35,7 +35,7 @@ export function ProvidersRoute({ range, refreshKey }: { range: StatsRange; refre
 			{
 				key: "provider",
 				label: t("stats.col.provider"),
-				render: row => <span className="font-medium text-(--omp-text)">{row.provider}</span>,
+				render: row => <span className="font-medium text-(--sc-text)">{row.provider}</span>,
 			},
 			{ key: "requests", label: t("stats.col.requests"), align: "right", render: row => compact(row.totalRequests) },
 			{ key: "models", label: t("stats.models"), align: "right", render: row => row.models },
@@ -56,7 +56,7 @@ export function ProvidersRoute({ range, refreshKey }: { range: StatsRange; refre
 			{
 				key: "provider",
 				label: t("stats.col.provider"),
-				render: row => <span className="font-medium text-(--omp-text)">{row.provider}</span>,
+				render: row => <span className="font-medium text-(--sc-text)">{row.provider}</span>,
 			},
 			{ key: "window", label: t("stats.providers.col.window"), render: row => row.windowLabel },
 			{ key: "accounts", label: t("stats.providers.col.accounts"), align: "right", render: row => row.accounts },
@@ -79,7 +79,7 @@ export function ProvidersRoute({ range, refreshKey }: { range: StatsRange; refre
 				label: t("stats.providers.col.exhausted"),
 				align: "right",
 				render: row =>
-					row.exhaustedEvents > 0 ? <span className="text-(--omp-error)">{row.exhaustedEvents}</span> : "0",
+					row.exhaustedEvents > 0 ? <span className="text-(--sc-danger)">{row.exhaustedEvents}</span> : "0",
 			},
 		],
 		[t],
@@ -89,21 +89,23 @@ export function ProvidersRoute({ range, refreshKey }: { range: StatsRange; refre
 		() => [...(stats?.providers ?? [])].sort((a, b) => b.totalTokens - a.totalTokens),
 		[stats],
 	);
-	const pie = useMemo(
-		() => ({
+	// biome-ignore lint/correctness/useExhaustiveDependencies: themeKey repaints the series colors on a theme switch.
+	const pie = useMemo(() => {
+		const colors = chartColors();
+		return {
 			labels: providers.map(row => row.provider),
 			datasets: [
 				{
 					data: providers.map(row => row.totalTokens),
-					backgroundColor: providers.map((_, index) => `${CHART_COLORS[index % CHART_COLORS.length]}cc`),
+					backgroundColor: providers.map((_, index) => withAlpha(colors[index % colors.length], 0.8)),
 					borderColor: "transparent",
 					hoverOffset: 6,
 				},
 			],
-		}),
-		[providers],
-	);
+		};
+	}, [providers, themeKey]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: themeKey re-reads the axis tokens on a theme switch.
 	const pieOptions = useMemo(() => {
 		const base = baseChartOptions();
 		return {
@@ -114,9 +116,11 @@ export function ProvidersRoute({ range, refreshKey }: { range: StatsRange; refre
 				tooltip: base.plugins.tooltip,
 			},
 		};
-	}, []);
+	}, [themeKey]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: themeKey repaints the series colors on a theme switch.
 	const hourly = useMemo(() => {
+		const colors = chartColors();
 		const hours = Array.from({ length: 24 }, (_, hour) => hour);
 		const byProvider = new Map<string, number[]>();
 		for (const point of stats?.hourly ?? []) {
@@ -132,13 +136,14 @@ export function ProvidersRoute({ range, refreshKey }: { range: StatsRange; refre
 			datasets: top.map(([provider, series], index) => ({
 				label: provider,
 				data: series,
-				backgroundColor: `${CHART_COLORS[index % CHART_COLORS.length]}88`,
-				borderColor: CHART_COLORS[index % CHART_COLORS.length],
+				backgroundColor: withAlpha(colors[index % colors.length], 0.53),
+				borderColor: colors[index % colors.length],
 				borderWidth: 1,
 			})),
 		};
-	}, [stats]);
+	}, [stats, themeKey]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: themeKey re-reads the axis tokens on a theme switch.
 	const hourlyOptions = useMemo(() => {
 		const base = baseChartOptions();
 		return {
@@ -153,7 +158,7 @@ export function ProvidersRoute({ range, refreshKey }: { range: StatsRange; refre
 				},
 			},
 		};
-	}, []);
+	}, [themeKey]);
 
 	return (
 		<RouteFrame

@@ -2,63 +2,38 @@
  * Queue dock chip: the pending-message queue's center-dock surface. The
  * queued messages themselves already render inline as grey bubbles at the
  * transcript tail (per-item remove included); this chip carries the counts
- * and opens the full manager (lane switch, edit, remove, lane clear) in
- * a modal — the workspace drawer's queue tab after the dock migration.
+ * and opens the full manager (lane switch, edit, remove, lane clear) in the
+ * side panel's queue tab.
  */
 
 import { ListOrdered } from "lucide-react";
-import { useState } from "react";
 import { useT } from "../../../lib/i18n";
 import { useQueuedMessages } from "../../../stores/queue";
-import { Modal } from "../../common";
-import { QueuePanel } from "../../panels/QueuePanel";
+import { useUiStore } from "../../../stores/ui";
+import { Button } from "../../common";
 
 export function QueueDockChip() {
 	const t = useT();
 	const { steering, followUp } = useQueuedMessages();
-	const [open, setOpen] = useState(false);
 
-	const total = steering.length + followUp.length;
-	if (total === 0 && !open) return null;
+	if (steering.length + followUp.length === 0) return null;
+
+	const parts: string[] = [];
+	if (followUp.length > 0) parts.push(`${t("dock.queue.label")} ${followUp.length}`);
+	if (steering.length > 0) parts.push(`${t("dock.queue.steering")} ${steering.length}`);
 
 	return (
-		<>
-			<div className="flex shrink-0 px-2">
-				<button
-					type="button"
-					onClick={() => setOpen(true)}
-					title={t("dock.queue.manage")}
-					className="omp-pressable flex items-center gap-1.5 rounded-full border border-[var(--omp-border)] px-2.5 py-1 text-omp-sm font-medium text-[var(--omp-muted)] hover:border-[var(--omp-border-strong)] hover:text-[var(--omp-text)]"
-				>
-					<ListOrdered aria-hidden="true" size={12} />
-					<span>
-						{t("dock.queue.label")} <span className="tabular-nums text-[var(--omp-text)]">{followUp.length}</span>
-					</span>
-					<span aria-hidden="true" className="text-[var(--omp-dim)]">
-						·
-					</span>
-					<span>
-						{t("dock.queue.steering")}{" "}
-						<span className="tabular-nums text-[var(--omp-text)]">{steering.length}</span>
-					</span>
-				</button>
-			</div>
-			<Modal
-				bodyClassName="p-0"
-				onClose={() => setOpen(false)}
-				open={open}
-				size="lg"
-				title={
-					<span className="flex items-center gap-2">
-						{t("queuePanel.title")}
-						<span className="text-omp-md font-normal tabular-nums text-[var(--omp-dim)]">{total}</span>
-					</span>
-				}
+		<div className="flex shrink-0 px-2">
+			<Button
+				className="rounded-(--sc-radius-full) tabular-nums"
+				icon={<ListOrdered aria-hidden="true" />}
+				onClick={() => useUiStore.getState().setPanelTab("queue")}
+				size="sm"
+				title={t("dock.queue.manage")}
+				variant="secondary"
 			>
-				<div className="max-h-[70vh] overflow-y-auto">
-					<QueuePanel />
-				</div>
-			</Modal>
-		</>
+				{parts.join(" · ")}
+			</Button>
+		</div>
 	);
 }

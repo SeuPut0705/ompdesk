@@ -6,7 +6,7 @@ const env = { appVersion: "0.9.13", platform: "darwin", arch: "arm64", electron:
 describe("buildIssueUrl", () => {
 	it("targets the GUI repo's issue form with kind-derived title and labels", () => {
 		const url = new URL(buildIssueUrl({ kind: "bug", title: "Sync fails", description: "Pressed sync, got a 405." }));
-		expect(`${url.origin}${url.pathname}`).toBe("https://github.com/SeuPut0705/omp-gui/issues/new");
+		expect(`${url.origin}${url.pathname}`).toBe("https://github.com/SeuPut0705/seucode/issues/new");
 		expect(url.searchParams.get("title")).toBe("[Bug] Sync fails");
 		expect(url.searchParams.get("labels")).toBe("gui,bug");
 		expect(url.searchParams.get("body")).toContain("Pressed sync, got a 405.");

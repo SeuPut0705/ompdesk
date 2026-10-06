@@ -1,7 +1,7 @@
 /**
- * InputArea interaction contracts: queue shorthand routing and nested
- * run-settings portals. The latter protects option clicks from the parent
- * menu's outside-dismiss listener.
+ * InputArea interaction contracts: queue shorthand routing, prompt history,
+ * the in-place expanded composer (⌃G), and the toolbar's Run settings / mode
+ * popovers dispatching their choices.
  */
 import { parseHTML } from "linkedom";
 import { act } from "react";
@@ -25,7 +25,6 @@ import {
 import { useSettingsStore } from "../../stores/settings";
 import { createTabRuntime, replaceTabRuntime } from "../../stores/tab-runtime";
 import { useTabsStore } from "../../stores/tabs";
-import { useUiStore } from "../../stores/ui";
 import { InputArea } from "./InputArea";
 
 const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -119,12 +118,6 @@ async function pressEnter(element: TestElement): Promise<void> {
 async function click(element: TestElement): Promise<void> {
 	await act(async () => {
 		element.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
-	});
-}
-
-async function pointerDown(element: TestElement): Promise<void> {
-	await act(async () => {
-		element.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true }));
 	});
 }
 
@@ -243,7 +236,6 @@ afterEach(async () => {
 	useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
 	useSettingsStore.getState().reset();
 	useTabsStore.getState().reset();
-	useUiStore.getState().closeComposerEditor();
 	setWindowWidth(1200);
 	vi.restoreAllMocks();
 });
@@ -533,151 +525,192 @@ describe("InputArea prompt history", () => {
 		expect(useInputHistoryStore.getState().entries).toEqual([]);
 	});
 
-	it("opens history search from the visible composer toolbar", async () => {
+	it("opens history search from the composer's + menu", async () => {
 		await mount();
-		const history = document.querySelector('button[aria-label="History"]') as unknown as TestElement | null;
-		expect(history).not.toBeNull();
-		await click(history as TestElement);
+		await openAddMenuItem("History");
 		expect(document.querySelector('[role="dialog"][aria-label="History"]')).not.toBeNull();
 	});
 });
 
-describe("InputArea draft editor", () => {
-	// ⌃G alone was undiscoverable: the full-screen editor had no visible entry
-	// point, and both entries must hand it the expanded draft — a marker pasted
-	// into the editor would come back as literal "[Paste #1…]" text.
-	function draftEditorButton(): TestElement {
-		const button = document.querySelector("button[data-draft-editor-trigger]") as unknown as TestElement | null;
-		if (!button) throw new Error("draft editor trigger missing");
-		return button;
-	}
+/** Drive the textarea's React onKeyDown with any key chord. */
+async function pressKey(init: Record<string, unknown>): Promise<{ defaultPrevented: boolean }> {
+	const textarea = findTextarea();
+	const propsKey = Object.getOwnPropertyNames(textarea).find(key => key.startsWith("__reactProps$"));
+	const props = propsKey
+		? ((textarea as unknown as Record<string, unknown>)[propsKey] as {
+				onKeyDown?: (event: Record<string, unknown>) => void;
+			})
+		: undefined;
+	if (!props?.onKeyDown) throw new Error("textarea onKeyDown not found");
+	const state = { defaultPrevented: false };
+	await act(async () =>
+		props.onKeyDown?.({
+			shiftKey: false,
+			ctrlKey: false,
+			metaKey: false,
+			altKey: false,
+			nativeEvent: { isComposing: false },
+			preventDefault: () => {
+				state.defaultPrevented = true;
+			},
+			stopPropagation: () => {},
+			...init,
+		}),
+	);
+	return state;
+}
 
-	async function pressCtrlG(): Promise<void> {
-		const textarea = findTextarea();
-		const propsKey = Object.getOwnPropertyNames(textarea).find(key => key.startsWith("__reactProps$"));
-		const props = propsKey
-			? ((textarea as unknown as Record<string, unknown>)[propsKey] as {
-					onKeyDown?: (event: Record<string, unknown>) => void;
-				})
-			: undefined;
-		if (!props?.onKeyDown) throw new Error("textarea onKeyDown not found");
-		await act(async () =>
-			props.onKeyDown?.({
-				key: "g",
-				shiftKey: false,
-				ctrlKey: true,
-				metaKey: false,
-				altKey: false,
-				nativeEvent: { isComposing: false },
-				preventDefault: () => {},
-			}),
-		);
-	}
+/** Open the composer's + menu and pick the item whose label starts with `label`. */
+async function openAddMenuItem(label: string): Promise<void> {
+	const add = document.querySelector('button[aria-label="Attach and more"]') as unknown as TestElement | null;
+	if (!add) throw new Error("+ menu trigger missing");
+	await click(add);
+	const item = (Array.from(document.querySelectorAll("[data-menu-item]")) as unknown as TestElement[]).find(entry =>
+		entry.textContent?.startsWith(label),
+	);
+	if (!item) throw new Error(`+ menu item ${label} missing`);
+	await click(item);
+	await flush();
+}
 
-	it("opens the editor from the toolbar with paste markers resolved", async () => {
+function isExpanded(): boolean {
+	return document.querySelector(".omp-composer-region--expanded") !== null;
+}
+
+describe("InputArea expanded composer", () => {
+	// ⌃G alone was undiscoverable, so the + menu offers it too. Both grow the
+	// same field in place: no second editor, no modal over the session.
+	it("expands in place from the + menu and from ⌃G, and Esc collapses without aborting", async () => {
 		await mount();
-		const blob = storePaste("alpha\nbravo");
-		await typeInto(findTextarea(), `summary ${pasteMarkerText(blob.id, blob.content)}`);
-		await click(draftEditorButton());
+		expect(isExpanded()).toBe(false);
 
-		expect(useUiStore.getState().composerEditorOpen).toBe(true);
-		expect(useUiStore.getState().composerEditorInitial).toBe("summary alpha\nbravo");
+		await openAddMenuItem("Expand composer");
+		expect(isExpanded()).toBe(true);
+
+		await pressKey({ key: "g", ctrlKey: true });
+		expect(isExpanded()).toBe(false);
+		await pressKey({ key: "g", ctrlKey: true });
+		expect(isExpanded()).toBe(true);
+
+		// Escape is claimed (preventDefault) so the app-wide handler never aborts the turn.
+		const escapeKey = await pressKey({ key: "Escape" });
+		expect(escapeKey.defaultPrevented).toBe(true);
+		expect(isExpanded()).toBe(false);
 	});
 
-	it("opens the same expanded draft from the ⌃G chord", async () => {
+	it("treats Enter as a newline while expanded and sends on ⌘↵", async () => {
 		await mount();
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		await pressKey({ key: "g", ctrlKey: true });
+		await typeInto(findTextarea(), "long draft");
+
+		const enter = await pressKey({ key: "Enter" });
+		expect(enter.defaultPrevented).toBe(false);
+		expect(prompt).not.toHaveBeenCalled();
+
+		await pressKey({ key: "Enter", metaKey: true });
+		await flush();
+		expect(prompt).toHaveBeenCalledWith("long draft", []);
+		expect(isExpanded()).toBe(false);
+	});
+
+	it("round-trips the expanded draft through the external editor with paste markers resolved", async () => {
+		await mount();
+		const openExternal = vi.fn(async () => ({ ok: true, unavailable: false, text: "edited outside" }));
+		(window.omp as unknown as Record<string, unknown>).editor = { openExternal };
 		const blob = storePaste("alpha\nbravo");
 		await typeInto(findTextarea(), `summary ${pasteMarkerText(blob.id, blob.content)}`);
-		await pressCtrlG();
+		await pressKey({ key: "g", ctrlKey: true });
 
-		expect(useUiStore.getState().composerEditorOpen).toBe(true);
-		expect(useUiStore.getState().composerEditorInitial).toBe("summary alpha\nbravo");
+		const external = buttonWithText("Open in external editor");
+		if (!external) throw new Error("external editor action missing");
+		await click(external);
+		await flush();
+
+		expect(openExternal).toHaveBeenCalledWith("summary alpha\nbravo");
+		expect(useComposerStore.getState().draft).toBe("edited outside");
 	});
 });
 
-describe("InputArea run settings", () => {
+describe("InputArea run settings and modes", () => {
 	async function openRunSettings(): Promise<void> {
-		const more = document.querySelector(
-			"button[data-run-settings-overflow-trigger]",
-		) as unknown as TestElement | null;
-		if (!more) throw new Error("run settings trigger missing");
-		await click(more);
+		const trigger = document.querySelector("button[data-run-settings-trigger]") as unknown as TestElement | null;
+		if (!trigger) throw new Error("run settings trigger missing");
+		await click(trigger);
 	}
 
-	async function mountCompact(): Promise<void> {
-		setWindowWidth(600);
-		await mount();
+	/** Set a select's value and drive its React onChange contract. */
+	async function choose(selector: string, value: string): Promise<void> {
+		const select = document.querySelector(selector) as unknown as TestElement | null;
+		if (!select) throw new Error(`${selector} missing`);
+		const record = select as unknown as Record<string, unknown>;
+		const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+		const props = propsKey ? (record[propsKey] as { onChange?: (event: object) => void }) : undefined;
+		if (!props?.onChange) throw new Error("select onChange not found");
+		// linkedom's select.value is read-only; the handler reads the event target.
+		await act(async () => props.onChange?.({ target: { value }, currentTarget: { value } }));
 	}
 
-	it("keeps all primary run controls inline when the composer has room", async () => {
+	it("keeps one calm toolbar at every width: model name, mode chip, run settings", async () => {
+		useModelStore.setState({ model: { provider: "acme", id: "acme-opus-5", name: "Acme Opus 5" } });
+		for (const width of [1200, 600, 380]) {
+			setWindowWidth(width);
+			await mount();
+			const model = document.querySelector("button[data-model-chip]") as unknown as TestElement | null;
+			// The chip shows the display name; the id stays in its tooltip.
+			expect(model?.textContent).toBe("Acme Opus 5");
+			expect(document.querySelector("button[data-composer-modes-trigger]")).not.toBeNull();
+			const runSettings = document.querySelector("button[data-run-settings-trigger]");
+			expect(runSettings?.textContent).toContain(translate("input.thinking.name.high"));
+			await act(async () => root.unmount());
+			container.remove();
+		}
 		await mount();
-
-		expect(document.querySelector("[data-run-settings-inline]")).not.toBeNull();
-		expect(document.querySelector("[data-run-settings-overflow-trigger]")).toBeNull();
-		expect(buttonWithText(translate("input.thinking.name.high"))).toBeDefined();
-		expect(buttonWithText("Fast")).toBeDefined();
-		expect(buttonWithText("Full access")).toBeDefined();
-		expect(buttonWithText("Modes")).toBeDefined();
 	});
 
-	it("marks fast mode selected when enabled but unavailable to the active model", async () => {
-		useModelStore.setState({ fastModeEnabled: true, fastModeActive: false });
+	it("names the composer field for assistive tech", async () => {
 		await mount();
-
-		const fast = buttonWithText("Fast");
-		if (!fast) throw new Error("fast mode trigger missing");
-		const button = fast as unknown as HTMLElement;
-		expect(button.getAttribute("aria-pressed")).toBe("true");
-		expect(button.className).toContain("text-[var(--omp-accent)]");
+		expect(findTextarea().getAttribute("aria-label")).toBe("Message");
 	});
 
-	it("lets a nested thinking portal dispatch before the parent menu dismisses", async () => {
-		await mountCompact();
+	it("applies a thinking level picked inside the run settings popover", async () => {
+		await mount();
 		await openRunSettings();
-
-		const thinking = buttonWithText(translate("input.thinking.name.high"));
-		if (!thinking) throw new Error("thinking trigger missing");
-		await click(thinking);
-
-		const max = buttonWithText(translate("input.thinking.name.max"));
-		if (!max) throw new Error("max option missing");
-		// Browser ordering is pointerdown → pointerup → click. The regression
-		// closed the parent on the first event and unmounted this handler before
-		// the final click.
-		await pointerDown(max);
-		await click(max);
+		await choose("select[data-thinking-level]", "max");
 		await flush();
 
 		expect(setThinkingLevel).toHaveBeenCalledWith("max");
 		expect(useModelStore.getState().thinkingConfigured).toBe("max");
 	});
 
-	it("lets the nested approval portal persist its selected mode", async () => {
-		await mountCompact();
+	it("persists a stricter tool approval picked inside the popover", async () => {
+		await mount();
 		await openRunSettings();
-		const approval = buttonWithText("Full access");
-		if (!approval) throw new Error("approval trigger missing");
-		await click(approval);
-
-		const ask = buttonWithText("Ask every time");
-		if (!ask) throw new Error("approval option missing");
-		await pointerDown(ask);
-		await click(ask);
+		await choose("select[data-approval-mode]", "always-ask");
 
 		expect(setSetting).toHaveBeenCalledWith("tools.approvalMode", "always-ask");
 		expect(useSettingsStore.getState().approvalMode).toBe("always-ask");
 	});
 
-	it("lets the nested modes portal dispatch its selected action", async () => {
-		await mountCompact();
+	it("shows fast mode as an on switch when enabled, even if this model cannot use it", async () => {
+		useModelStore.setState({ fastModeEnabled: true, fastModeActive: false });
+		await mount();
 		await openRunSettings();
-		const modes = buttonWithText("Modes");
-		if (!modes) throw new Error("modes trigger missing");
-		await click(modes);
 
-		const plan = buttonWithText("Plan");
-		if (!plan) throw new Error("plan option missing");
-		await pointerDown(plan);
+		const fast = document.querySelector('[data-fast-mode] [role="switch"], [role="switch"][data-fast-mode]');
+		expect(fast?.getAttribute("aria-checked")).toBe("true");
+		expect(document.body.textContent).toContain("Not on this model");
+	});
+
+	it("toggles plan mode from the mode chip, separate from run settings", async () => {
+		await mount();
+		const modes = document.querySelector("button[data-composer-modes-trigger]") as unknown as TestElement | null;
+		if (!modes) throw new Error("mode chip missing");
+		await click(modes);
+		await flush();
+
+		const plan = document.querySelector('[role="switch"]') as unknown as TestElement | null;
+		if (!plan) throw new Error("plan switch missing");
 		await click(plan);
 		await flush();
 

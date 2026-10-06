@@ -19,22 +19,20 @@ globals.IS_REACT_ACT_ENVIRONMENT = true;
 let container: HTMLElement;
 let root: Root;
 
-async function mount(onNavigate: (rowIndex: number) => void): Promise<void> {
+const ANCHORS = [
+	{ key: "one", rowIndex: 3, preview: "First question", timestamp: 100 },
+	{ key: "two", rowIndex: 9, preview: "Second question", timestamp: 200 },
+	{ key: "three", rowIndex: 14, preview: "Third question", timestamp: 300 },
+];
+
+async function mount(onNavigate: (rowIndex: number) => void, anchors = ANCHORS): Promise<void> {
 	container = document.createElement("div");
 	document.body.appendChild(container);
 	root = createRoot(container as unknown as Element);
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<ConversationNavigator
-					activeIndex={1}
-					anchors={[
-						{ key: "one", rowIndex: 3, preview: "First question", timestamp: 100 },
-						{ key: "two", rowIndex: 9, preview: "Second question", timestamp: 200 },
-						{ key: "three", rowIndex: 14, preview: "Third question", timestamp: 300 },
-					]}
-					onNavigate={onNavigate}
-				/>
+				<ConversationNavigator activeIndex={1} anchors={anchors} onNavigate={onNavigate} />
 			</I18nProvider>,
 		);
 	});
@@ -67,5 +65,11 @@ describe("ConversationNavigator", () => {
 		await act(async () => first?.dispatchEvent(new Event("mouseover", { bubbles: true })));
 
 		expect(container.querySelector("[role='tooltip']")?.textContent ?? "").toContain("First question");
+	});
+
+	it("stays out of the gutter until the conversation has three user turns", async () => {
+		await mount(() => {}, ANCHORS.slice(0, 2));
+		expect(container.querySelector(".omp-conversation-nav")).toBeNull();
+		expect(container.querySelectorAll("button")).toHaveLength(0);
 	});
 });

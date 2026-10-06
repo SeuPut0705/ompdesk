@@ -301,7 +301,7 @@ describe("switchSessionNow F-OWN owner guard", () => {
 			planContent: "old plan",
 			options: ["execute"],
 		});
-		useUiStore.getState().openContextReport();
+		useUiStore.getState().openActiveTools();
 		useForkHandoffStore.getState().openHandoffDialog();
 		useSessionStore.setState({
 			goal: { objective: "old goal" },

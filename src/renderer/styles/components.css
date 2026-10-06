@@ -77,7 +77,7 @@
  * Thinking block live state
  * ------------------------------------------------------------------------- */
 .omp-thinking-shimmer {
-	color: var(--omp-muted);
+	color: var(--sc-text-muted);
 	font-weight: 500;
 }
 
@@ -425,11 +425,16 @@
 	inset: -4px;
 }
 
-.omp-workspace-main,
-.settings-main-canvas {
+.omp-workspace-main {
 	--omp-column-pad: clamp(16px, 3vw, 40px);
 	--omp-column-reading: 60rem;
 	--omp-column-workspace: 104rem;
+}
+
+/* Transcript + composer: a ~72ch reading column (design-spec §8), narrower
+   than the settings/management canvas. */
+.omp-workspace-main {
+	--omp-column-reading: 48rem;
 }
 
 .omp-column {
@@ -456,6 +461,9 @@
 .omp-transcript-editorial {
 	--omp-editorial-inset: var(--omp-column-pad);
 	--omp-editorial-edge: var(--omp-column-pad);
+	/* Center of the 14px step icon inside a row's 6px inline padding: where a
+	   step's disclosure rule hangs, so nested detail reads as belonging to it. */
+	--omp-step-rule-inset: calc(var(--sc-space-1-5) + var(--sc-icon-sm) / 2);
 }
 
 .omp-transcript-editorial .omp-transcript-content {
@@ -472,29 +480,50 @@
 	overflow-anchor: none;
 }
 
+/* Conversation navigator: a faint vertical track with one dot per user turn.
+   Quiet at rest, full strength while the pointer or focus is on the rail. */
 .omp-conversation-nav {
 	position: absolute;
-	z-index: 20;
-	top: 14px;
-	bottom: 18px;
-	left: 8px;
+	z-index: var(--sc-z-sticky);
+	top: var(--sc-space-4);
+	bottom: var(--sc-space-5);
+	left: var(--sc-space-2);
 	display: flex;
 	flex-direction: column;
 	justify-content: center;
-	width: 34px;
+	width: var(--sc-hit-min);
+	opacity: 0.6;
 	pointer-events: none;
+	transition: opacity var(--sc-duration-fast) var(--sc-ease-standard);
+}
+
+.omp-conversation-nav:hover,
+.omp-conversation-nav:focus-within {
+	opacity: 1;
 }
 
 .omp-conversation-nav-stack {
+	position: relative;
 	display: flex;
 	flex-direction: column;
-	gap: clamp(5px, 0.8vh, 8px);
+	gap: clamp(4px, 0.8vh, 8px);
 	width: 100%;
 	max-height: 100%;
 }
 
+.omp-conversation-nav-stack::before {
+	content: "";
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 50%;
+	width: 1px;
+	background: var(--sc-divider);
+	transform: translateX(-50%);
+}
+
 .omp-conversation-nav-stack.is-dense {
-	gap: 3px;
+	gap: 2px;
 }
 
 .omp-conversation-nav-stack.is-compact {
@@ -509,13 +538,13 @@
 }
 
 .omp-conversation-nav-stack.is-compact .omp-conversation-nav-slot {
-	flex-basis: 9px;
+	flex-basis: 8px;
 }
 
 .omp-conversation-nav-marker {
 	position: absolute;
 	inset: 0;
-	width: 34px;
+	width: 100%;
 	height: 100%;
 	border: 0;
 	background: transparent;
@@ -527,31 +556,40 @@
 	content: "";
 	position: absolute;
 	top: 50%;
-	left: 8px;
-	width: 8px;
-	height: 2px;
-	border-radius: 999px;
-	background: color-mix(in srgb, var(--omp-muted) 56%, transparent);
-	transform: translateY(-50%);
-	transition: width var(--omp-motion-fast) var(--omp-ease), background-color var(--omp-motion-fast) var(--omp-ease);
+	left: 50%;
+	width: 6px;
+	height: 6px;
+	border-radius: var(--sc-radius-full);
+	background: var(--sc-text-subtle);
+	box-shadow: 0 0 0 2px var(--sc-bg);
+	transform: translate(-50%, -50%);
+	transition:
+		transform var(--sc-duration-fast) var(--sc-ease-standard),
+		background-color var(--sc-duration-fast) var(--sc-ease-standard);
+}
+
+.omp-conversation-nav-stack.is-dense .omp-conversation-nav-marker::after,
+.omp-conversation-nav-stack.is-compact .omp-conversation-nav-marker::after {
+	width: 4px;
+	height: 4px;
 }
 
 .omp-conversation-nav-marker:hover::after,
 .omp-conversation-nav-marker:focus-visible::after {
-	width: 18px;
-	background: var(--omp-muted);
+	background: var(--sc-text-muted);
+	transform: translate(-50%, -50%) scale(1.5);
 }
 
 .omp-conversation-nav-marker.is-active {
-	z-index: 1;
+	z-index: var(--sc-z-raised);
 }
 
 .omp-conversation-nav-marker.is-active::after {
-	width: 28px;
-	height: 3px;
-	background: var(--omp-text);
+	background: var(--sc-text);
+	transform: translate(-50%, -50%) scale(1.5);
 }
 
+/* The ring draws on a pseudo box: the 2px-tall dense slots are too small to outline. */
 .omp-conversation-nav-marker:focus-visible {
 	outline: none;
 }
@@ -559,22 +597,26 @@
 .omp-conversation-nav-marker:focus-visible::before {
 	content: "";
 	position: absolute;
-	inset: 1px -24px 1px -4px;
-	border: 1px solid var(--omp-accent);
-	border-radius: 5px;
+	top: 50%;
+	left: 50%;
+	width: 16px;
+	height: 16px;
+	border: var(--sc-focus-width) solid var(--sc-focus-ring);
+	border-radius: var(--sc-radius-full);
+	transform: translate(-50%, -50%);
 }
 
 .omp-conversation-nav-preview {
 	position: absolute;
-	left: 42px;
+	left: calc(100% + var(--sc-space-2));
 	top: 50%;
 	width: min(360px, calc(100vw - 110px));
 	max-height: 184px;
-	padding: 14px 16px;
-	border: 1px solid var(--omp-border);
-	border-radius: 14px;
-	background: var(--omp-bg-elevated);
-	box-shadow: var(--omp-shadow-lg);
+	padding: var(--sc-space-3) var(--sc-space-4);
+	border: 1px solid var(--sc-border-subtle);
+	border-radius: var(--sc-radius-lg);
+	background: var(--sc-elevated);
+	box-shadow: var(--sc-shadow-md);
 	transform: translateY(-50%);
 	pointer-events: none;
 	overflow: hidden;
@@ -595,36 +637,33 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 12px;
-	margin-bottom: 7px;
-	color: var(--omp-dim);
-	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
-	font-weight: 650;
-	letter-spacing: 0.02em;
+	gap: var(--sc-space-3);
+	margin-bottom: var(--sc-space-1-5);
+	color: var(--sc-text-muted);
+	font-size: var(--sc-font-xs);
+	font-weight: 500;
 }
 
 .omp-conversation-nav-preview-kicker time {
-	font-family: var(--font-mono);
-	font-weight: 500;
+	font-variant-numeric: tabular-nums;
 }
 
 .omp-conversation-nav-preview p {
 	display: -webkit-box;
 	margin: 0;
 	overflow: hidden;
-	color: var(--omp-text);
-	font-size: calc(var(--gui-font-size, 15px) * 14 / 15);
-	font-weight: 580;
-	line-height: 1.55;
+	color: var(--sc-text);
+	font-size: var(--sc-font-md);
+	line-height: var(--sc-leading-normal);
 	-webkit-box-orient: vertical;
 	-webkit-line-clamp: 4;
 }
 
 .omp-conversation-nav-preview-hint {
 	display: block;
-	margin-top: 8px;
-	color: var(--omp-muted);
-	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
+	margin-top: var(--sc-space-2);
+	color: var(--sc-text-muted);
+	font-size: var(--sc-font-xs);
 }
 
 .omp-transcript-editorial .omp-transcript-row {
@@ -639,196 +678,115 @@
 	content: none;
 }
 
+/* User turn: a compact soft bubble on the right; nothing reserves height
+   for its actions, which overlay the empty space left of the bubble. */
 .omp-transcript-editorial .omp-user-turn {
-	justify-content: flex-start;
-	padding: 18px var(--omp-editorial-edge) 12px var(--omp-editorial-inset) !important;
+	justify-content: flex-end;
+	padding: var(--sc-space-6) var(--omp-editorial-edge) var(--sc-space-2) var(--omp-editorial-inset) !important;
 }
 
 .omp-transcript-editorial .omp-user-bubble {
-	border: 0;
-	border-left: 2px solid var(--omp-transcript-user-border);
-	border-radius: 0;
-	background: color-mix(in srgb, var(--omp-transcript-user-bg) 28%, transparent);
-	box-shadow: none !important;
-	padding: 8px 0 8px 12px;
+	max-width: min(85%, 40rem);
 }
 
-.omp-transcript-editorial .omp-user-bubble-layout {
-	display: grid;
-	grid-template-columns: 24px minmax(0, 1fr);
-	align-items: start;
-	gap: 10px;
+.omp-transcript-editorial .omp-user-bubble .markdown-body {
+	font-size: inherit;
+	line-height: var(--sc-leading-normal);
+	color: var(--sc-text);
 }
 
-.omp-transcript-editorial .omp-user-bubble-author {
-	padding-top: 2px;
-	font-size: calc(var(--gui-font-size, 15px) * 12 / 15);
-	font-weight: 650;
-	color: var(--omp-text);
+.omp-transcript-editorial .omp-user-bubble .markdown-body p {
+	margin: 0.5em 0;
 }
 
-.omp-transcript-editorial .omp-user-bubble-content {
-	min-width: 0;
+.omp-transcript-editorial .omp-user-actions {
+	position: absolute;
+	right: calc(100% + var(--sc-space-1));
+	bottom: 0;
 }
 
-.omp-transcript-editorial .omp-user-bubble-content .markdown-body p:first-child,
-.omp-transcript-editorial .omp-user-bubble-content .markdown-body p:last-child {
-	margin-block: 0;
-}
-
-.omp-transcript-editorial .omp-user-bubble-actions {
-	justify-content: flex-end;
-	margin-top: 8px;
+.omp-transcript-editorial .omp-message-actions {
 	opacity: 0;
 	pointer-events: none;
-	transition: opacity var(--omp-motion-fast) var(--omp-ease);
+	transition: opacity var(--sc-duration-fast) var(--sc-ease-standard);
 }
 
-.omp-transcript-editorial .omp-user-bubble:hover .omp-user-bubble-actions,
-.omp-transcript-editorial .omp-user-bubble:focus-within .omp-user-bubble-actions {
+.omp-transcript-editorial .group:hover > .omp-message-actions,
+.omp-transcript-editorial .group:hover > * > .omp-message-actions,
+.omp-transcript-editorial .group:focus-within > .omp-message-actions,
+.omp-transcript-editorial .group:focus-within > * > .omp-message-actions {
 	opacity: 1;
 	pointer-events: auto;
 }
 
+/* Assistant turn: content first, no bubble. Its actions float over the
+   bottom-right of the turn (own padding + the end of the last line) on
+   hover/focus, on a canvas-colored pill so they never garble text. */
 .omp-transcript-editorial .omp-assistant-turn {
-	padding: 8px var(--omp-editorial-edge) 12px var(--omp-editorial-inset) !important;
+	padding: var(--sc-space-2) var(--omp-editorial-edge) var(--sc-space-5) var(--omp-editorial-inset) !important;
+}
+
+.omp-transcript-editorial .omp-assistant-actions {
+	position: absolute;
+	right: var(--omp-editorial-edge);
+	bottom: 0;
+	border-radius: var(--sc-radius-md);
+	background: var(--sc-bg);
 }
 
 .omp-transcript-editorial .omp-assistant-turn--compact {
-	padding: 1px var(--omp-editorial-edge) 1px var(--omp-editorial-inset) !important;
+	padding: var(--sc-space-0-5) var(--omp-editorial-edge) var(--sc-space-0-5) var(--omp-editorial-inset) !important;
 }
 
 .omp-transcript-editorial .omp-process-group {
 	position: relative;
-	padding-block: 1px 3px;
+	padding-block: var(--sc-space-0-5) var(--sc-space-1);
 }
 
+/* Work timeline: one summary row; opening it hangs the steps off a hairline
+   rule aligned with the summary icon. */
 .omp-execution-group {
 	overflow: visible;
-	border: 0;
-	background: transparent;
-}
-
-.omp-execution-group-header {
-	min-height: 24px;
-	border-radius: 7px;
-	padding: 2px 0;
-	transition: color var(--omp-motion-fast) var(--omp-ease), background-color var(--omp-motion-fast) var(--omp-ease);
-}
-
-.omp-execution-group-header:hover {
-	background: color-mix(in srgb, var(--omp-selected-bg) 22%, transparent);
 }
 
 .omp-execution-group-body {
-	margin-top: 0;
-	padding: 0 0 2px 10px;
+	margin: var(--sc-space-0-5) 0 var(--sc-space-1) var(--omp-step-rule-inset);
+	border-left: 1px solid var(--sc-divider);
+	padding-left: var(--sc-space-2);
 }
 
-.omp-transcript-editorial .omp-execution-group-title {
-	display: none;
+/* Steps inside an open group are already inset by the group. */
+.omp-transcript-editorial .omp-execution-group-body .omp-assistant-turn--compact {
+	padding: var(--sc-space-0-5) 0 !important;
 }
 
-.omp-transcript-editorial .omp-execution-group-summary {
-	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
+.omp-transcript-editorial .omp-execution-group-body .omp-read-group {
+	padding-inline: 0;
 }
 
-.omp-goal-dock {
-	background: color-mix(in srgb, var(--omp-bg-secondary) 64%, transparent);
-}
-
-.omp-goal-dock-action {
-	display: flex;
-	height: 28px;
-	width: 28px;
-	flex: none;
-	align-items: center;
-	justify-content: center;
-	border-radius: 8px;
-	color: var(--omp-muted);
-}
-
-.omp-goal-dock-action:hover {
-	background: var(--omp-selected-bg);
-	color: var(--omp-text);
-}
-
-.omp-goal-dock-action:disabled {
-	cursor: wait;
-	opacity: 0.55;
-}
-
-.omp-transcript-editorial .omp-tool-card {
+.omp-tool-card {
 	margin: 0;
-	border: 0;
-	border-radius: 0;
-	background: transparent !important;
-	box-shadow: none !important;
 }
 
-.omp-transcript-editorial .omp-tool-card > span[aria-hidden] {
-	display: none;
-}
-
-.omp-transcript-editorial .omp-tool-status-icon {
-	display: none;
-}
-
-.omp-transcript-editorial .omp-tool-header {
-	min-height: 24px;
-	padding: 2px 0;
-	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
-}
-
-.omp-transcript-editorial .omp-tool-header:hover {
-	background: color-mix(in srgb, var(--omp-selected-bg) 28%, transparent);
-}
-
-.omp-transcript-editorial .omp-tool-name {
-	min-width: 34px;
-	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
-	font-weight: 700;
-	letter-spacing: 0;
-}
-
-.omp-transcript-editorial .omp-tool-summary {
-	font-size: calc(var(--gui-font-size, 15px) * 10 / 15);
-	color: var(--omp-muted);
-}
-
-.omp-transcript-editorial .omp-tool-duration {
-	min-width: 44px;
-	border-radius: 0;
-	background: transparent;
-	padding: 0;
-	text-align: right;
-	font-size: calc(var(--gui-font-size, 15px) * 9.5 / 15);
-	color: var(--omp-muted);
-}
-
-.omp-transcript-editorial .omp-tool-chevron {
-	opacity: 0.58;
-}
-
-.omp-transcript-editorial .omp-tool-header:hover .omp-tool-chevron,
-.omp-transcript-editorial .omp-tool-header:focus-visible .omp-tool-chevron {
-	opacity: 0.95;
-}
-
-.omp-transcript-editorial .omp-tool-body {
-	border-top: 0;
+.omp-tool-body,
+.omp-read-group-body {
 	min-width: 0;
+	margin: var(--sc-space-0-5) 0 var(--sc-space-1-5) var(--omp-step-rule-inset, 13px);
+	border-left: 1px solid var(--sc-divider);
+	padding: var(--sc-space-1) 0 var(--sc-space-1) var(--sc-space-3);
+}
+
+.omp-tool-body {
 	max-height: min(18rem, 34vh);
 	overflow: auto;
 	overscroll-behavior: contain;
-	padding: 4px 0 7px 12px;
 }
 
 .omp-transcript-editorial .omp-execution-turn,
 .omp-transcript-editorial .omp-context-turn,
 .omp-transcript-editorial .omp-custom-turn,
 .omp-transcript-editorial .omp-status-turn {
-	padding: 12px var(--omp-editorial-edge) 16px var(--omp-editorial-inset) !important;
+	padding: var(--sc-space-3) var(--omp-editorial-edge) var(--sc-space-4) var(--omp-editorial-inset) !important;
 }
 
 .omp-transcript-editorial .omp-execution-turn,
@@ -839,30 +797,7 @@
 }
 
 .omp-transcript-editorial .omp-history-expander {
-	margin: 8px var(--omp-editorial-edge) 8px var(--omp-editorial-inset) !important;
-}
-
-.omp-transcript-editorial .omp-read-group {
-	position: relative;
-	padding: 4px var(--omp-editorial-edge) 6px var(--omp-editorial-inset) !important;
-}
-
-.omp-transcript-editorial .omp-read-group-header {
-	min-height: 26px;
-	border: 0 !important;
-	border-radius: 0;
-	background: transparent !important;
-	padding: 3px 0;
-	font-size: calc(var(--gui-font-size, 15px) * 11.5 / 15);
-}
-
-.omp-transcript-editorial .omp-read-group-header:hover {
-	background: transparent !important;
-}
-
-.omp-transcript-editorial .omp-read-group-body {
-	margin-left: 16px;
-	margin-top: 2px;
+	margin: var(--sc-space-2) var(--omp-editorial-edge) var(--sc-space-2) var(--omp-editorial-inset) !important;
 }
 
 .omp-transcript-editorial .omp-streaming-turn > * {
@@ -872,92 +807,66 @@
 	max-width: 100%;
 }
 
+/* Thinking: one quiet row; the open trace is small, muted, scroll-capped,
+   hanging off the same hairline rule as tool detail. */
 .omp-transcript-editorial .omp-thinking-block {
-	margin: 3px 0 9px;
-	border: 0 !important;
-	border-radius: 0;
-	background: transparent !important;
+	margin: var(--sc-space-0-5) 0 var(--sc-space-1-5);
 }
 
-.omp-transcript-editorial .omp-thinking-header {
-	min-height: 24px;
-	padding: 2px 0;
-	font-size: calc(var(--gui-font-size, 15px) * 10.5 / 15);
-	letter-spacing: 0.01em;
+.omp-thinking-body {
+	max-height: min(16rem, 34vh);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	margin: var(--sc-space-0-5) 0 var(--sc-space-1) var(--omp-step-rule-inset, 13px);
+	border-left: 1px solid var(--sc-divider);
+	padding: var(--sc-space-1) 0 var(--sc-space-1) var(--sc-space-3);
+	line-height: var(--sc-leading-normal);
 }
 
-.omp-transcript-editorial .omp-thinking-header:hover {
-	background: transparent;
-}
-
-.omp-transcript-editorial .omp-thinking-body {
-	max-height: min(12rem, 30vh);
-	margin-left: 0;
-	border-left: 0;
-	padding: 4px 0 6px 12px;
-	font-size: calc(var(--gui-font-size, 15px) * 10.5 / 15);
-	line-height: 1.42;
-}
-
-.omp-transcript-editorial .omp-thinking-brain,
-.omp-transcript-editorial .omp-thinking-level,
-.omp-transcript-editorial .omp-thinking-gauge,
-.omp-transcript-editorial .omp-thinking-count,
-.omp-transcript-editorial .omp-thinking-duration {
-	display: none;
-}
-
-.omp-transcript-editorial .omp-thinking-state,
-.omp-transcript-editorial .omp-thinking-fold-state {
-	font-weight: 600;
-}
-
-.omp-transcript-editorial .omp-thinking-hint {
-	display: none;
-}
-
-.omp-transcript-editorial .omp-thinking-fold-state {
-	display: none;
-}
-
-.omp-transcript-editorial .omp-thinking-count {
-	display: inline;
-	margin-left: 4px;
-	font-size: calc(var(--gui-font-size, 15px) * 9.5 / 15);
-	color: var(--omp-dim);
-}
-
-.omp-transcript-editorial .omp-thinking-block--pulse {
-	padding-left: 12px;
-}
-
+/* Reading body: the answer is the most prominent thing on screen. */
 .omp-transcript-editorial .omp-assistant-turn .markdown-body,
-.omp-transcript-editorial .omp-assistant-turn .omp-streaming-tail,
-.omp-transcript-editorial .omp-streaming-turn > .markdown-body {
-	font-size: calc(var(--gui-font-size, 15px) * 13 / 15);
-	line-height: 1.52;
-	color: var(--omp-text);
+.omp-transcript-editorial .omp-assistant-turn .omp-streaming-tail {
+	font-size: var(--sc-font-lg);
+	line-height: var(--sc-leading-normal);
+	color: var(--sc-text);
 }
 
-.omp-transcript-editorial .omp-assistant-turn--compact > .min-w-0 > .markdown-body {
-	font-size: calc(var(--gui-font-size, 15px) * 11.5 / 15);
-	line-height: 1.4;
+/* Hangul paragraphs read better with a little more air. */
+:root:lang(ko) .omp-transcript-editorial .omp-assistant-turn .markdown-body,
+:root:lang(ko) .omp-transcript-editorial .omp-assistant-turn .omp-streaming-tail {
+	line-height: var(--sc-leading-relaxed);
 }
 
-/* Reasoning stays visually subordinate to the assistant response. */
-.omp-transcript-editorial .omp-thinking-body .markdown-body {
-	font-size: calc(var(--gui-font-size, 15px) * 10.5 / 15);
-	line-height: 1.42;
-	color: var(--omp-dim);
+/* Narration between steps inside a work group stays secondary. */
+.omp-transcript-editorial .omp-assistant-turn--compact .markdown-body,
+.omp-transcript-editorial .omp-assistant-turn--compact .omp-streaming-tail {
+	font-size: var(--sc-font-md);
+	line-height: var(--sc-leading-normal);
+	color: var(--sc-text-secondary);
+}
+
+/* Markdown inside tool detail and reasoning is reference material, not the answer. */
+.omp-transcript-editorial .omp-tool-body .markdown-body {
+	font-size: var(--sc-font-sm);
+	line-height: var(--sc-leading-normal);
+	color: var(--sc-text-secondary);
+}
+
+.omp-transcript-editorial .omp-thinking-body .markdown-body,
+.omp-transcript-editorial .omp-thinking-body .omp-streaming-tail {
+	font-size: inherit;
+	line-height: inherit;
+	color: var(--sc-text-muted);
 }
 
 .omp-transcript-editorial .omp-thinking-body .markdown-body :is(h1, h2, h3, h4, h5, h6, strong) {
-	color: var(--omp-dim);
-	font-weight: 400;
+	color: var(--sc-text-secondary);
+	font-size: inherit;
+	font-weight: 500;
 }
 
 .omp-transcript-editorial .omp-thinking-body .markdown-body p {
-	margin: 0.42em 0;
+	margin: 0.4em 0;
 }
 
 .omp-transcript-editorial .omp-thinking-body .markdown-body :is(table, thead, tbody, tr, th, td) {
@@ -970,7 +879,7 @@
 }
 
 .omp-transcript-editorial .markdown-body p {
-	margin: 0.78em 0;
+	margin: 0.75em 0;
 }
 
 .omp-transcript-editorial .markdown-body h1 {
@@ -981,7 +890,7 @@
 
 .omp-transcript-editorial .markdown-body code {
 	border: 0;
-	border-radius: 4px;
+	border-radius: var(--sc-radius-xs);
 	background: color-mix(in srgb, var(--omp-transcript-code-bg) 85%, var(--omp-text) 15%);
 }
 
@@ -993,25 +902,13 @@
 	border-bottom-color: color-mix(in srgb, var(--omp-md-link) 20%, transparent);
 }
 
-.omp-transcript-editorial .omp-message-error {
-	margin-top: 12px;
-	border: 1px solid color-mix(in srgb, var(--omp-error) 24%, transparent);
-	border-radius: 8px;
-	background: transparent;
-	padding: 9px 14px;
-	font-size: calc(var(--gui-font-size, 15px) * 12 / 15);
-}
-
 .omp-transcript-editorial .omp-queued-turn {
-	justify-content: flex-start;
-	padding: 10px var(--omp-editorial-edge) 10px var(--omp-editorial-inset) !important;
+	justify-content: flex-end;
+	padding: var(--sc-space-1-5) var(--omp-editorial-edge) var(--sc-space-1-5) var(--omp-editorial-inset) !important;
 }
 
 .omp-transcript-editorial .omp-queued-bubble {
-	border: 1px dashed var(--omp-transcript-rail);
-	border-radius: 8px;
-	background: transparent;
-	box-shadow: none;
+	max-width: min(85%, 40rem);
 }
 
 /* The virtualizer recycles rows through the viewport, so an entrance keyed on
@@ -1028,7 +925,7 @@
  * row rather than its virtual slot because the slot is positioned with an inline
  * transform the animation would overwrite. */
 .omp-transcript-editorial .omp-row-arrive > .omp-transcript-row {
-	animation: omp-fade-up var(--omp-motion-med) var(--omp-ease-enter) both;
+	animation: omp-fade-up var(--sc-duration-med) var(--sc-ease-enter) both;
 }
 
 
@@ -1059,14 +956,39 @@
 	padding-inline: 0;
 }
 
-@container omp-workspace (max-width: 1200px) {
-	.omp-titlebar-secondary {
+/* ⌃G: the composer expands in place over its session pane (design-spec §2.2
+   "Composer expands in place to the full main area"); the same field keeps
+   completion, history and paste behavior. */
+.omp-composer-region--expanded {
+	position: absolute;
+	inset: 0;
+	z-index: var(--sc-z-sticky);
+	display: flex;
+	flex-direction: column;
+	padding-top: var(--sc-space-4);
+	background: var(--sc-bg);
+}
+
+.omp-composer-region--expanded > .omp-composer-shell,
+.omp-composer-region--expanded .omp-composer-anchor,
+.omp-composer-region--expanded .omp-composer-box {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-height: 0;
+}
+
+/* Narrow main area: the breadcrumb gives up the project before the session,
+   the status trigger keeps its icon, the status keeps its icon. */
+@container omp-workspace (max-width: 720px) {
+	.omp-session-status-cost {
 		display: none;
 	}
 }
 
-@container omp-workspace (max-width: 900px) {
-	.omp-titlebar-command {
+@container omp-workspace (max-width: 600px) {
+	.omp-titlebar-project,
+	.omp-titlebar-project + svg {
 		display: none;
 	}
 }
@@ -1169,9 +1091,5 @@
 
 	.omp-transcript-editorial {
 		--omp-editorial-inset: calc(var(--omp-column-pad) + 24px);
-	}
-	.omp-transcript-editorial .omp-user-bubble-actions {
-		opacity: 1;
-		pointer-events: auto;
 	}
 }

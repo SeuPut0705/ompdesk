@@ -1,17 +1,20 @@
 /**
- * Named theme registry for the omp GUI.
+ * Named theme registry for the seucode GUI.
  *
  * Every theme defines the exact same set of `--omp-*` design tokens (see
- * THEME_TOKEN_KEYS — the canonical 119 keys shared with theme-dark.css and
- * theme-light.css). `dark` and `light` match those stylesheets; transcript
- * and ANSI aliases in global.css follow these tokens in every palette.
- * applyThemeByName() writes the full
- * token map as inline custom properties on <html> (beating the `:root`
- * stylesheet rules), keeps `data-theme` / the color-scheme meta in sync via
- * lib/theme's applyTheme(), and persists the selection under the
- * `themeName` pref (plus the legacy `theme` pref for backwards compat).
- * "system" is a special selection that resolves to dark or light via the OS
- * media query and stays stylesheet-driven.
+ * THEME_TOKEN_KEYS — the canonical 119 keys). `dark` and `light` are the
+ * seucode default palettes and match theme-dark.css / theme-light.css, where
+ * the same values are spelled as `--sc-*` primitives plus `--omp-*` aliases
+ * (tokens.css); styles/tokens.test.ts keeps the two in sync. Transcript and
+ * ANSI aliases in global.css follow these tokens in every palette.
+ * applyThemeByName() writes the full token map as inline custom properties on
+ * <html> (beating the `:root` stylesheet rules), mirrors it onto the `--sc-*`
+ * palette (SC_TOKEN_SOURCES) so migrated surfaces follow named themes too,
+ * keeps `data-theme` / the color-scheme meta in sync via lib/theme's
+ * applyTheme(), and persists the selection under the `themeName` pref (plus
+ * the legacy `theme` pref for backwards compat). "system" — the default — is
+ * a special selection that resolves to dark or light via the OS media query
+ * and stays stylesheet-driven.
  *
  * On top of the named themes sits the agent theme overlay (bottom of this
  * file): the coding-agent's `theme.dark` / `theme.light` settings name TUI
@@ -151,6 +154,42 @@ export const THEME_TOKEN_KEYS = [
 export type ThemeTokenKey = (typeof THEME_TOKEN_KEYS)[number];
 export type ThemeTokens = Record<ThemeTokenKey, string>;
 
+/**
+ * The `--omp-*` token each `--sc-*` palette primitive takes its value from
+ * when a named theme is applied. Derived washes (hover, selected, *-soft,
+ * focus glow — tokens.css) follow from these through color-mix, so they are
+ * not listed. `--sc-accent-fg` is picked for legibility (scTokensFor).
+ */
+export const SC_TOKEN_SOURCES = {
+	"--sc-bg": "--omp-bg-primary",
+	"--sc-surface-1": "--omp-sidebar-bg",
+	"--sc-surface-2": "--omp-bg-secondary",
+	"--sc-surface-3": "--omp-bg-tertiary",
+	"--sc-elevated": "--omp-bg-elevated",
+	"--sc-field": "--omp-input-bg",
+	"--sc-overlay": "--omp-overlay-bg",
+	"--sc-text": "--omp-text",
+	"--sc-text-secondary": "--omp-text-secondary",
+	"--sc-text-muted": "--omp-muted",
+	"--sc-text-subtle": "--omp-dim",
+	"--sc-divider": "--omp-border-muted",
+	"--sc-border-subtle": "--omp-border",
+	"--sc-border": "--omp-border-strong",
+	"--sc-accent": "--omp-accent",
+	"--sc-accent-hover": "--omp-accent-bright",
+	"--sc-accent-fg": "--omp-btn-primary-text",
+	"--sc-success": "--omp-success",
+	"--sc-warning": "--omp-warning",
+	"--sc-danger": "--omp-error",
+	"--sc-danger-fg": "--omp-btn-danger-text",
+	"--sc-info": "--omp-info",
+	"--sc-shadow-sm": "--omp-shadow-sm",
+	"--sc-shadow-md": "--omp-shadow-md",
+	"--sc-shadow-lg": "--omp-shadow-lg",
+} as const satisfies Record<`--sc-${string}`, ThemeTokenKey>;
+
+export type ScTokenKey = keyof typeof SC_TOKEN_SOURCES;
+
 export interface ThemeDefinition {
 	/** Human-readable name shown in the picker. */
 	label: string;
@@ -163,254 +202,254 @@ export interface ThemeDefinition {
 
 const dark: ThemeDefinition = {
 	label: "Graphite",
-	description: "Neutral charcoal, soft silver text, and a quiet blue accent.",
+	description: "The seucode dark default: neutral charcoal and an indigo accent.",
 	scheme: "dark",
 	tokens: {
-		"--omp-accent": "#93b4d5",
-		"--omp-accent-bright": "#b4cce3",
-		"--omp-accent-dim": "rgba(147, 180, 213, 0.13)",
-		"--omp-accent-glow": "rgba(147, 180, 213, 0.16)",
-		"--omp-border": "#353a42",
-		"--omp-border-accent": "rgba(147, 180, 213, 0.52)",
-		"--omp-border-muted": "#2b3037",
-		"--omp-border-strong": "#515965",
-		"--omp-success": "#9bc7ab",
-		"--omp-success-dim": "rgba(155, 199, 171, 0.08)",
-		"--omp-error": "#e6a09a",
-		"--omp-error-dim": "rgba(230, 160, 154, 0.08)",
-		"--omp-warning": "#d7bc88",
-		"--omp-warning-dim": "rgba(215, 188, 136, 0.08)",
-		"--omp-info": "#a2bfdc",
-		"--omp-info-dim": "rgba(162, 191, 220, 0.08)",
-		"--omp-text": "#e7e8ea",
-		"--omp-text-secondary": "#bdc0c5",
-		"--omp-bg-primary": "#191b1f",
-		"--omp-bg-secondary": "#202328",
-		"--omp-bg-tertiary": "#292d33",
-		"--omp-bg-elevated": "#2c3036",
-		"--omp-selected-bg": "rgba(147, 180, 213, 0.12)",
-		"--omp-user-msg-bg": "#202328",
-		"--omp-user-msg-border": "#353a42",
-		"--omp-custom-msg-bg": "#202328",
-		"--omp-code-bg": "#202328",
-		"--omp-tool-pending-bg": "#202328",
-		"--omp-tool-success-bg": "rgba(155, 199, 171, 0.045)",
-		"--omp-tool-error-bg": "rgba(230, 160, 154, 0.065)",
-		"--omp-tool-output": "#bdc0c5",
+		"--omp-accent": "#8b8df8",
+		"--omp-accent-bright": "#a1a3fa",
+		"--omp-accent-dim": "rgba(139, 141, 248, 0.12)",
+		"--omp-accent-glow": "rgba(139, 141, 248, 0.22)",
+		"--omp-border": "#3a3a41",
+		"--omp-border-accent": "rgba(139, 141, 248, 0.55)",
+		"--omp-border-muted": "#2a2a30",
+		"--omp-border-strong": "#6c6c76",
+		"--omp-success": "#5bc98c",
+		"--omp-success-dim": "rgba(91, 201, 140, 0.12)",
+		"--omp-error": "#f27a7d",
+		"--omp-error-dim": "rgba(242, 122, 125, 0.12)",
+		"--omp-warning": "#e2b552",
+		"--omp-warning-dim": "rgba(226, 181, 82, 0.12)",
+		"--omp-info": "#79a6f6",
+		"--omp-info-dim": "rgba(121, 166, 246, 0.12)",
+		"--omp-text": "#ededf0",
+		"--omp-text-secondary": "#c4c4cb",
+		"--omp-bg-primary": "#19191c",
+		"--omp-bg-secondary": "#1f1f23",
+		"--omp-bg-tertiary": "#28282d",
+		"--omp-bg-elevated": "#232327",
+		"--omp-selected-bg": "rgba(237, 237, 240, 0.07)",
+		"--omp-user-msg-bg": "#222226",
+		"--omp-user-msg-border": "#3a3a41",
+		"--omp-custom-msg-bg": "#1f1f23",
+		"--omp-code-bg": "#141416",
+		"--omp-tool-pending-bg": "#1f1f23",
+		"--omp-tool-success-bg": "rgba(91, 201, 140, 0.06)",
+		"--omp-tool-error-bg": "rgba(242, 122, 125, 0.07)",
+		"--omp-tool-output": "#c4c4cb",
 		"--omp-tool-rail-running": "var(--omp-accent)",
-		"--omp-tool-rail-done": "#9bc7ab",
-		"--omp-tool-rail-error": "#e6a09a",
-		"--omp-md-heading": "#e7e8ea",
-		"--omp-md-link": "#93b4d5",
-		"--omp-md-link-url": "#a7adb6",
-		"--omp-md-code": "#deb0a1",
-		"--omp-md-code-block": "#e7e8ea",
-		"--omp-md-code-block-border": "#353a42",
-		"--omp-md-quote": "#bdc0c5",
-		"--omp-md-quote-border": "#515965",
-		"--omp-md-hr": "#353a42",
-		"--omp-md-list-bullet": "#a7adb6",
-		"--omp-diff-added": "#9bc7ab",
-		"--omp-diff-added-bg": "rgba(155, 199, 171, 0.09)",
-		"--omp-diff-removed": "#e6a09a",
-		"--omp-diff-removed-bg": "rgba(230, 160, 154, 0.09)",
-		"--omp-diff-context": "#a7adb6",
-		"--omp-syntax-comment": "#9aa1ab",
-		"--omp-syntax-keyword": "#a3bedb",
-		"--omp-syntax-function": "#91c5bf",
-		"--omp-syntax-variable": "#e7e8ea",
-		"--omp-syntax-string": "#d4ba91",
-		"--omp-syntax-number": "#deb0a1",
-		"--omp-syntax-type": "#b9cdb1",
-		"--omp-syntax-operator": "#bdc0c5",
-		"--omp-syntax-punctuation": "#a7adb6",
-		"--omp-thinking-off": "#9aa1ab",
-		"--omp-thinking-minimal": "#a7adb6",
-		"--omp-thinking-low": "#bdc0c5",
-		"--omp-thinking-medium": "#93b4d5",
-		"--omp-thinking-high": "#b4cce3",
-		"--omp-thinking-xhigh": "#e7e8ea",
-		"--omp-status-bg": "#14161a",
-		"--omp-status-model": "#bdc0c5",
-		"--omp-status-path": "#a7adb6",
-		"--omp-status-git-clean": "#9bc7ab",
-		"--omp-status-git-dirty": "#d7bc88",
-		"--omp-status-context": "#bdc0c5",
-		"--omp-status-spend": "#bdc0c5",
+		"--omp-tool-rail-done": "#5bc98c",
+		"--omp-tool-rail-error": "#f27a7d",
+		"--omp-md-heading": "#ededf0",
+		"--omp-md-link": "#8b8df8",
+		"--omp-md-link-url": "#a1a1aa",
+		"--omp-md-code": "#f0a1bd",
+		"--omp-md-code-block": "#ededf0",
+		"--omp-md-code-block-border": "#3a3a41",
+		"--omp-md-quote": "#c4c4cb",
+		"--omp-md-quote-border": "#4a4a53",
+		"--omp-md-hr": "#2a2a30",
+		"--omp-md-list-bullet": "#a1a1aa",
+		"--omp-diff-added": "#5bc98c",
+		"--omp-diff-added-bg": "rgba(91, 201, 140, 0.12)",
+		"--omp-diff-removed": "#f27a7d",
+		"--omp-diff-removed-bg": "rgba(242, 122, 125, 0.12)",
+		"--omp-diff-context": "#a1a1aa",
+		"--omp-syntax-comment": "#8f8f99",
+		"--omp-syntax-keyword": "#a5a7fa",
+		"--omp-syntax-function": "#6cc7c0",
+		"--omp-syntax-variable": "#ededf0",
+		"--omp-syntax-string": "#e3b77a",
+		"--omp-syntax-number": "#f0a1bd",
+		"--omp-syntax-type": "#9fd39a",
+		"--omp-syntax-operator": "#c4c4cb",
+		"--omp-syntax-punctuation": "#a1a1aa",
+		"--omp-thinking-off": "#8f8f99",
+		"--omp-thinking-minimal": "#a1a1aa",
+		"--omp-thinking-low": "#c4c4cb",
+		"--omp-thinking-medium": "#8b8df8",
+		"--omp-thinking-high": "#a1a3fa",
+		"--omp-thinking-xhigh": "#ededf0",
+		"--omp-status-bg": "#141416",
+		"--omp-status-model": "#c4c4cb",
+		"--omp-status-path": "#a1a1aa",
+		"--omp-status-git-clean": "#5bc98c",
+		"--omp-status-git-dirty": "#e2b552",
+		"--omp-status-context": "#c4c4cb",
+		"--omp-status-spend": "#c4c4cb",
 		"--omp-status-subagents": "var(--omp-accent)",
-		"--omp-status-muted": "#a7adb6",
-		"--omp-status-dim": "#9aa1ab",
-		"--omp-status-text": "#e7e8ea",
-		"--omp-status-sep": "#353a42",
-		"--omp-muted": "#a7adb6",
-		"--omp-dim": "#9aa1ab",
-		"--omp-link": "#93b4d5",
-		"--omp-custom-msg-label": "#93b4d5",
-		"--omp-input-bg": "#202328",
-		"--omp-input-border": "#353a42",
-		"--omp-input-focus-border": "var(--omp-accent)",
-		"--omp-input-glow": "rgba(147, 180, 213, 0.1)",
-		"--omp-btn-primary-bg": "#e7e8ea",
-		"--omp-btn-primary-text": "#191b1f",
-		"--omp-btn-secondary-bg": "#292d33",
-		"--omp-btn-secondary-text": "#e7e8ea",
-		"--omp-btn-danger-bg": "var(--omp-error)",
-		"--omp-btn-danger-text": "#191b1f",
-		"--omp-badge-bg": "#292d33",
-		"--omp-badge-text": "#bdc0c5",
-		"--omp-badge-accent": "var(--omp-accent)",
-		"--omp-overlay-bg": "rgba(8, 12, 16, 0.62)",
-		"--omp-modal-bg": "#2c3036",
-		"--omp-modal-border": "#353a42",
-		"--omp-toast-bg": "#2c3036",
-		"--omp-toast-text": "#e7e8ea",
-		"--omp-toast-border": "#353a42",
-		"--omp-progress-bg": "#292d33",
-		"--omp-progress-fill": "var(--omp-accent)",
-		"--omp-sidebar-bg": "#14161a",
-		"--omp-sidebar-item-hover": "#292d33",
-		"--omp-sidebar-item-active": "rgba(147, 180, 213, 0.13)",
-		"--omp-selection-bg": "rgba(147, 180, 213, 0.25)",
-		"--omp-selection-text": "#e7e8ea",
-		"--omp-scrollbar-thumb": "#515965",
+		"--omp-status-muted": "#a1a1aa",
+		"--omp-status-dim": "#8f8f99",
+		"--omp-status-text": "#ededf0",
+		"--omp-status-sep": "#2a2a30",
+		"--omp-muted": "#a1a1aa",
+		"--omp-dim": "#8f8f99",
+		"--omp-link": "#8b8df8",
+		"--omp-custom-msg-label": "#8b8df8",
+		"--omp-input-bg": "#1f1f23",
+		"--omp-input-border": "#6c6c76",
+		"--omp-input-focus-border": "#8b8df8",
+		"--omp-input-glow": "rgba(139, 141, 248, 0.22)",
+		"--omp-btn-primary-bg": "#8b8df8",
+		"--omp-btn-primary-text": "#0b0b1a",
+		"--omp-btn-secondary-bg": "#28282d",
+		"--omp-btn-secondary-text": "#ededf0",
+		"--omp-btn-danger-bg": "#f27a7d",
+		"--omp-btn-danger-text": "#1c0a0b",
+		"--omp-badge-bg": "#28282d",
+		"--omp-badge-text": "#c4c4cb",
+		"--omp-badge-accent": "#8b8df8",
+		"--omp-overlay-bg": "rgba(0, 0, 0, 0.6)",
+		"--omp-modal-bg": "#232327",
+		"--omp-modal-border": "#3a3a41",
+		"--omp-toast-bg": "#232327",
+		"--omp-toast-text": "#ededf0",
+		"--omp-toast-border": "#3a3a41",
+		"--omp-progress-bg": "#28282d",
+		"--omp-progress-fill": "#8b8df8",
+		"--omp-sidebar-bg": "#141416",
+		"--omp-sidebar-item-hover": "rgba(237, 237, 240, 0.05)",
+		"--omp-sidebar-item-active": "rgba(237, 237, 240, 0.07)",
+		"--omp-selection-bg": "rgba(139, 141, 248, 0.24)",
+		"--omp-selection-text": "#ededf0",
+		"--omp-scrollbar-thumb": "#45454e",
 		"--omp-scrollbar-track": "transparent",
 		"--omp-streaming-cursor": "var(--omp-accent)",
-		"--omp-streaming-highlight": "rgba(147, 180, 213, 0.04)",
-		"--omp-panel-bg": "#14161a",
-		"--omp-panel-border": "#2b3037",
-		"--omp-panel-header": "#a7adb6",
-		"--omp-titlebar-bg": "#14161a",
-		"--omp-titlebar-text": "#e7e8ea",
-		"--omp-shadow-sm": "0 1px 2px rgba(0, 0, 0, 0.16)",
-		"--omp-shadow-md": "0 6px 18px rgba(0, 0, 0, 0.22)",
-		"--omp-shadow-lg": "0 16px 48px rgba(0, 0, 0, 0.32)",
+		"--omp-streaming-highlight": "rgba(139, 141, 248, 0.06)",
+		"--omp-panel-bg": "#141416",
+		"--omp-panel-border": "#2a2a30",
+		"--omp-panel-header": "#a1a1aa",
+		"--omp-titlebar-bg": "#19191c",
+		"--omp-titlebar-text": "#ededf0",
+		"--omp-shadow-sm": "0 1px 2px rgba(0, 0, 0, 0.3)",
+		"--omp-shadow-md": "0 6px 20px rgba(0, 0, 0, 0.38), 0 1px 3px rgba(0, 0, 0, 0.3)",
+		"--omp-shadow-lg": "0 24px 64px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35)",
 		"--omp-shadow-glow": "0 0 0 1px var(--omp-border-accent)",
 	},
 };
 
 const light: ThemeDefinition = {
 	label: "Porcelain",
-	description: "Clean porcelain, ink text, and a restrained blue accent.",
+	description: "The seucode light default: clean white and an indigo accent.",
 	scheme: "light",
 	tokens: {
-		"--omp-accent": "#315f86",
-		"--omp-accent-bright": "#274f73",
-		"--omp-accent-dim": "rgba(49, 95, 134, 0.08)",
-		"--omp-accent-glow": "rgba(49, 95, 134, 0.16)",
-		"--omp-border": "#d7dddf",
-		"--omp-border-accent": "rgba(49, 95, 134, 0.52)",
-		"--omp-border-muted": "#e4e8e9",
-		"--omp-border-strong": "#a4afb5",
-		"--omp-success": "#326747",
-		"--omp-success-dim": "rgba(50, 103, 71, 0.08)",
-		"--omp-error": "#9f4545",
-		"--omp-error-dim": "rgba(159, 69, 69, 0.08)",
-		"--omp-warning": "#80601e",
-		"--omp-warning-dim": "rgba(128, 96, 30, 0.08)",
-		"--omp-info": "#315f83",
-		"--omp-info-dim": "rgba(49, 95, 131, 0.08)",
-		"--omp-text": "#22282d",
-		"--omp-text-secondary": "#4d585f",
-		"--omp-bg-primary": "#fcfcfb",
-		"--omp-bg-secondary": "#f3f5f5",
-		"--omp-bg-tertiary": "#e7ebec",
+		"--omp-accent": "#5b5bd6",
+		"--omp-accent-bright": "#4f4fc4",
+		"--omp-accent-dim": "rgba(91, 91, 214, 0.12)",
+		"--omp-accent-glow": "rgba(91, 91, 214, 0.22)",
+		"--omp-border": "#dcdce2",
+		"--omp-border-accent": "rgba(91, 91, 214, 0.55)",
+		"--omp-border-muted": "#ebebee",
+		"--omp-border-strong": "#8d8d96",
+		"--omp-success": "#18794e",
+		"--omp-success-dim": "rgba(24, 121, 78, 0.12)",
+		"--omp-error": "#bf3a3e",
+		"--omp-error-dim": "rgba(191, 58, 62, 0.12)",
+		"--omp-warning": "#935f00",
+		"--omp-warning-dim": "rgba(147, 95, 0, 0.12)",
+		"--omp-info": "#2f62c4",
+		"--omp-info-dim": "rgba(47, 98, 196, 0.12)",
+		"--omp-text": "#1b1b1f",
+		"--omp-text-secondary": "#46464f",
+		"--omp-bg-primary": "#ffffff",
+		"--omp-bg-secondary": "#f3f3f5",
+		"--omp-bg-tertiary": "#ececef",
 		"--omp-bg-elevated": "#ffffff",
-		"--omp-selected-bg": "rgba(49, 95, 134, 0.09)",
-		"--omp-user-msg-bg": "#f3f5f5",
-		"--omp-user-msg-border": "#d7dddf",
-		"--omp-custom-msg-bg": "#f3f5f5",
-		"--omp-code-bg": "#f3f5f5",
-		"--omp-tool-pending-bg": "#f3f5f5",
-		"--omp-tool-success-bg": "rgba(50, 103, 71, 0.045)",
-		"--omp-tool-error-bg": "rgba(159, 69, 69, 0.065)",
-		"--omp-tool-output": "#4d585f",
+		"--omp-selected-bg": "rgba(27, 27, 31, 0.07)",
+		"--omp-user-msg-bg": "#f3f3f5",
+		"--omp-user-msg-border": "#dcdce2",
+		"--omp-custom-msg-bg": "#f3f3f5",
+		"--omp-code-bg": "#f7f7f8",
+		"--omp-tool-pending-bg": "#f3f3f5",
+		"--omp-tool-success-bg": "rgba(24, 121, 78, 0.05)",
+		"--omp-tool-error-bg": "rgba(191, 58, 62, 0.06)",
+		"--omp-tool-output": "#46464f",
 		"--omp-tool-rail-running": "var(--omp-accent)",
-		"--omp-tool-rail-done": "#326747",
-		"--omp-tool-rail-error": "#9f4545",
-		"--omp-md-heading": "#22282d",
-		"--omp-md-link": "#315f86",
-		"--omp-md-link-url": "#59646b",
-		"--omp-md-code": "#944c42",
-		"--omp-md-code-block": "#22282d",
-		"--omp-md-code-block-border": "#d7dddf",
-		"--omp-md-quote": "#4d585f",
-		"--omp-md-quote-border": "#a4afb5",
-		"--omp-md-hr": "#d7dddf",
-		"--omp-md-list-bullet": "#59646b",
-		"--omp-diff-added": "#326747",
-		"--omp-diff-added-bg": "rgba(50, 103, 71, 0.07)",
-		"--omp-diff-removed": "#9f4545",
-		"--omp-diff-removed-bg": "rgba(159, 69, 69, 0.07)",
-		"--omp-diff-context": "#59646b",
-		"--omp-syntax-comment": "#5f6a71",
-		"--omp-syntax-keyword": "#315f83",
-		"--omp-syntax-function": "#2b655f",
-		"--omp-syntax-variable": "#22282d",
-		"--omp-syntax-string": "#805c2e",
-		"--omp-syntax-number": "#944c42",
-		"--omp-syntax-type": "#516939",
-		"--omp-syntax-operator": "#4d585f",
-		"--omp-syntax-punctuation": "#59646b",
-		"--omp-thinking-off": "#5f6a71",
-		"--omp-thinking-minimal": "#59646b",
-		"--omp-thinking-low": "#4d585f",
-		"--omp-thinking-medium": "#315f86",
-		"--omp-thinking-high": "#274f73",
-		"--omp-thinking-xhigh": "#22282d",
-		"--omp-status-bg": "#f0f2f2",
-		"--omp-status-model": "#4d585f",
-		"--omp-status-path": "#59646b",
-		"--omp-status-git-clean": "#326747",
-		"--omp-status-git-dirty": "#80601e",
-		"--omp-status-context": "#4d585f",
-		"--omp-status-spend": "#4d585f",
+		"--omp-tool-rail-done": "#18794e",
+		"--omp-tool-rail-error": "#bf3a3e",
+		"--omp-md-heading": "#1b1b1f",
+		"--omp-md-link": "#5b5bd6",
+		"--omp-md-link-url": "#5f5f68",
+		"--omp-md-code": "#a3365c",
+		"--omp-md-code-block": "#1b1b1f",
+		"--omp-md-code-block-border": "#dcdce2",
+		"--omp-md-quote": "#46464f",
+		"--omp-md-quote-border": "#c9c9d1",
+		"--omp-md-hr": "#ebebee",
+		"--omp-md-list-bullet": "#5f5f68",
+		"--omp-diff-added": "#18794e",
+		"--omp-diff-added-bg": "rgba(24, 121, 78, 0.07)",
+		"--omp-diff-removed": "#bf3a3e",
+		"--omp-diff-removed-bg": "rgba(191, 58, 62, 0.06)",
+		"--omp-diff-context": "#5f5f68",
+		"--omp-syntax-comment": "#6a6a73",
+		"--omp-syntax-keyword": "#4646c0",
+		"--omp-syntax-function": "#0f6b75",
+		"--omp-syntax-variable": "#1b1b1f",
+		"--omp-syntax-string": "#865100",
+		"--omp-syntax-number": "#a3365c",
+		"--omp-syntax-type": "#2b6b3a",
+		"--omp-syntax-operator": "#46464f",
+		"--omp-syntax-punctuation": "#5f5f68",
+		"--omp-thinking-off": "#6a6a73",
+		"--omp-thinking-minimal": "#5f5f68",
+		"--omp-thinking-low": "#46464f",
+		"--omp-thinking-medium": "#5b5bd6",
+		"--omp-thinking-high": "#4f4fc4",
+		"--omp-thinking-xhigh": "#1b1b1f",
+		"--omp-status-bg": "#f7f7f8",
+		"--omp-status-model": "#46464f",
+		"--omp-status-path": "#5f5f68",
+		"--omp-status-git-clean": "#18794e",
+		"--omp-status-git-dirty": "#935f00",
+		"--omp-status-context": "#46464f",
+		"--omp-status-spend": "#46464f",
 		"--omp-status-subagents": "var(--omp-accent)",
-		"--omp-status-muted": "#59646b",
-		"--omp-status-dim": "#5f6a71",
-		"--omp-status-text": "#22282d",
-		"--omp-status-sep": "#d7dddf",
-		"--omp-muted": "#59646b",
-		"--omp-dim": "#5f6a71",
-		"--omp-link": "#315f86",
-		"--omp-custom-msg-label": "#315f86",
+		"--omp-status-muted": "#5f5f68",
+		"--omp-status-dim": "#6a6a73",
+		"--omp-status-text": "#1b1b1f",
+		"--omp-status-sep": "#ebebee",
+		"--omp-muted": "#5f5f68",
+		"--omp-dim": "#6a6a73",
+		"--omp-link": "#5b5bd6",
+		"--omp-custom-msg-label": "#5b5bd6",
 		"--omp-input-bg": "#ffffff",
-		"--omp-input-border": "#d7dddf",
-		"--omp-input-focus-border": "var(--omp-accent)",
-		"--omp-input-glow": "rgba(49, 95, 134, 0.1)",
-		"--omp-btn-primary-bg": "#22282d",
-		"--omp-btn-primary-text": "#fcfcfb",
-		"--omp-btn-secondary-bg": "#e7ebec",
-		"--omp-btn-secondary-text": "#22282d",
-		"--omp-btn-danger-bg": "var(--omp-error)",
+		"--omp-input-border": "#8d8d96",
+		"--omp-input-focus-border": "#5b5bd6",
+		"--omp-input-glow": "rgba(91, 91, 214, 0.22)",
+		"--omp-btn-primary-bg": "#5b5bd6",
+		"--omp-btn-primary-text": "#ffffff",
+		"--omp-btn-secondary-bg": "#ececef",
+		"--omp-btn-secondary-text": "#1b1b1f",
+		"--omp-btn-danger-bg": "#bf3a3e",
 		"--omp-btn-danger-text": "#ffffff",
-		"--omp-badge-bg": "#e7ebec",
-		"--omp-badge-text": "#4d585f",
-		"--omp-badge-accent": "var(--omp-accent)",
-		"--omp-overlay-bg": "rgba(20, 28, 32, 0.28)",
+		"--omp-badge-bg": "#ececef",
+		"--omp-badge-text": "#46464f",
+		"--omp-badge-accent": "#5b5bd6",
+		"--omp-overlay-bg": "rgba(15, 15, 20, 0.32)",
 		"--omp-modal-bg": "#ffffff",
-		"--omp-modal-border": "#d7dddf",
+		"--omp-modal-border": "#dcdce2",
 		"--omp-toast-bg": "#ffffff",
-		"--omp-toast-text": "#22282d",
-		"--omp-toast-border": "#d7dddf",
-		"--omp-progress-bg": "#e7ebec",
-		"--omp-progress-fill": "var(--omp-accent)",
-		"--omp-sidebar-bg": "#f0f2f2",
-		"--omp-sidebar-item-hover": "#e7ebec",
-		"--omp-sidebar-item-active": "rgba(49, 95, 134, 0.1)",
-		"--omp-selection-bg": "rgba(49, 95, 134, 0.19)",
-		"--omp-selection-text": "#22282d",
-		"--omp-scrollbar-thumb": "#a4afb5",
+		"--omp-toast-text": "#1b1b1f",
+		"--omp-toast-border": "#dcdce2",
+		"--omp-progress-bg": "#ececef",
+		"--omp-progress-fill": "#5b5bd6",
+		"--omp-sidebar-bg": "#f7f7f8",
+		"--omp-sidebar-item-hover": "rgba(27, 27, 31, 0.05)",
+		"--omp-sidebar-item-active": "rgba(27, 27, 31, 0.07)",
+		"--omp-selection-bg": "rgba(91, 91, 214, 0.24)",
+		"--omp-selection-text": "#1b1b1f",
+		"--omp-scrollbar-thumb": "#c6c6ce",
 		"--omp-scrollbar-track": "transparent",
 		"--omp-streaming-cursor": "var(--omp-accent)",
-		"--omp-streaming-highlight": "rgba(49, 95, 134, 0.04)",
-		"--omp-panel-bg": "#f0f2f2",
-		"--omp-panel-border": "#e4e8e9",
-		"--omp-panel-header": "#59646b",
-		"--omp-titlebar-bg": "#f0f2f2",
-		"--omp-titlebar-text": "#22282d",
-		"--omp-shadow-sm": "0 1px 2px rgba(32, 40, 48, 0.035)",
-		"--omp-shadow-md": "0 6px 18px rgba(32, 40, 48, 0.07)",
-		"--omp-shadow-lg": "0 16px 48px rgba(32, 40, 48, 0.13)",
+		"--omp-streaming-highlight": "rgba(91, 91, 214, 0.05)",
+		"--omp-panel-bg": "#f7f7f8",
+		"--omp-panel-border": "#ebebee",
+		"--omp-panel-header": "#5f5f68",
+		"--omp-titlebar-bg": "#ffffff",
+		"--omp-titlebar-text": "#1b1b1f",
+		"--omp-shadow-sm": "0 1px 2px rgba(16, 16, 24, 0.06)",
+		"--omp-shadow-md": "0 4px 14px rgba(16, 16, 24, 0.08), 0 1px 3px rgba(16, 16, 24, 0.05)",
+		"--omp-shadow-lg": "0 18px 48px rgba(16, 16, 24, 0.16), 0 2px 8px rgba(16, 16, 24, 0.06)",
 		"--omp-shadow-glow": "0 0 0 1px var(--omp-border-accent)",
 	},
 };
@@ -1618,6 +1657,7 @@ export function applyThemeByName(selection: ThemeSelection, opts: { persist?: bo
 		applyTheme(theme.scheme);
 		const style = document.documentElement.style;
 		for (const key of THEME_TOKEN_KEYS) style.setProperty(key, theme.tokens[key]);
+		for (const [key, value] of Object.entries(scTokensFor(theme))) style.setProperty(key, value);
 		baseThemeTokens = theme.tokens;
 		markCustomThemeTokens(theme.scheme);
 	} else {
@@ -1639,12 +1679,12 @@ export function applyThemeByName(selection: ThemeSelection, opts: { persist?: bo
 /**
  * Reads the persisted selection: the `themeName` pref first, then the legacy
  * `theme` pref (dark/light/system written by older builds and the settings
- * window), falling back to "light" — the historical store default.
+ * window), falling back to "system" — seucode follows the OS by default.
  */
 export async function getPersistedThemeSelection(prefs?: Readonly<Record<string, unknown>>): Promise<ThemeSelection> {
 	if (prefs) {
 		if (isThemeSelection(prefs.themeName)) return prefs.themeName;
-		return isThemeSelection(prefs.theme) ? prefs.theme : "light";
+		return isThemeSelection(prefs.theme) ? prefs.theme : "system";
 	}
 	try {
 		const named = await window.omp.prefs.get("themeName");
@@ -1654,7 +1694,7 @@ export async function getPersistedThemeSelection(prefs?: Readonly<Record<string,
 	} catch {
 		// prefs IPC unavailable (tests, storybook) — use the default.
 	}
-	return "light";
+	return "system";
 }
 
 /**
@@ -1666,6 +1706,45 @@ export function resolveTokenColor(theme: ThemeDefinition, key: ThemeTokenKey): s
 	const match = /^var\((--omp-[a-z-]+)\)$/.exec(value);
 	if (!match) return value;
 	return theme.tokens[match[1] as ThemeTokenKey] ?? value;
+}
+
+/** WCAG relative luminance of a `#rrggbb` / `#rgb` color; null for anything else. */
+function hexLuminance(color: string): number | null {
+	const raw = color.trim();
+	const hex = /^#[0-9a-f]{3}$/i.test(raw)
+		? `#${raw[1]}${raw[1]}${raw[2]}${raw[2]}${raw[3]}${raw[3]}`
+		: /^#[0-9a-f]{6}$/i.test(raw)
+			? raw
+			: null;
+	if (!hex) return null;
+	return [0.2126, 0.7152, 0.0722].reduce((sum, weight, i) => {
+		const channel = Number.parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+		return sum + weight * (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+	}, 0);
+}
+
+/**
+ * The `--sc-*` palette a named theme implies (SC_TOKEN_SOURCES, one level of
+ * var() resolved). Legacy themes paint primary buttons in ink, so their
+ * `--omp-btn-primary-text` is not guaranteed to read on the accent: the
+ * accent foreground is whichever of the primary-button pair contrasts more
+ * with the accent.
+ */
+export function scTokensFor(theme: ThemeDefinition): Record<ScTokenKey, string> {
+	const tokens = {} as Record<ScTokenKey, string>;
+	for (const [key, source] of Object.entries(SC_TOKEN_SOURCES) as [ScTokenKey, ThemeTokenKey][]) {
+		tokens[key] = resolveTokenColor(theme, source);
+	}
+	const accent = hexLuminance(tokens["--sc-accent"]);
+	const ink = resolveTokenColor(theme, "--omp-btn-primary-text");
+	const paper = resolveTokenColor(theme, "--omp-btn-primary-bg");
+	const inkLum = hexLuminance(ink);
+	const paperLum = hexLuminance(paper);
+	if (accent !== null && inkLum !== null && paperLum !== null) {
+		const ratio = (lum: number) => (Math.max(lum, accent) + 0.05) / (Math.min(lum, accent) + 0.05);
+		tokens["--sc-accent-fg"] = ratio(paperLum) > ratio(inkLum) ? paper : ink;
+	}
+	return tokens;
 }
 
 // ============================================================================

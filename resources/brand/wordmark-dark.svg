@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 178 40" fill="none">
+  <!-- seucode lockup for dark backgrounds: the mark (brand/mark.svg at 1.129x,
+       glyph spanning ascender to baseline) and a monoline geometric wordmark.
+       Letters share one stroke (3.2) and one bowl (r 8.4); the "s" is the
+       mark's two-arc S at x-height. -->
+  <g transform="translate(-7.99 1.94) scale(1.129)">
+    <path d="M20.64 8.29A5.25 5.25 0 1 0 16 16" stroke="#F4F4F6" stroke-width="3.8" stroke-linecap="round"/>
+    <path d="M16 16A5.25 5.25 0 1 1 11.36 23.71" stroke="#8B8DF8" stroke-width="3.8"/>
+    <circle cx="11.36" cy="23.71" r="1.9" fill="#8B8DF8"/>
+  </g>
+  <g transform="translate(27 4)" stroke="#F4F4F6" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9.51 13.83A4.2 4.2 0 1 0 5.8 20A4.2 4.2 0 1 1 2.09 26.17"/>
+    <path d="M16.6 20H33.4A8.4 8.4 0 1 0 31.43 25.4"/>
+    <path d="M40 11.6V20A8.4 8.4 0 0 0 56.8 20M56.8 11.6V28.4"/>
+    <path d="M78.23 14.6A8.4 8.4 0 1 0 78.23 25.4"/>
+    <circle cx="91.8" cy="20" r="8.4"/>
+    <circle cx="115.2" cy="20" r="8.4"/>
+    <path d="M123.6 3.6V28.4"/>
+    <path d="M130.2 20H147A8.4 8.4 0 1 0 145.03 25.4"/>
+  </g>
+</svg>

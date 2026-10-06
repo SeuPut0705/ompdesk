@@ -8,7 +8,7 @@ import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { CUSTOM_PROVIDER_APIS, type CustomProviderModelInput } from "../../../../shared/ipc-types";
 import { useT } from "../../../lib/i18n";
-import { Button } from "../../common";
+import { Button, IconButton, Input, Select } from "../../common";
 
 /** Protocols accepted by models.yml (re-export from shared types). */
 const PROVIDER_PROTOCOLS = CUSTOM_PROVIDER_APIS;
@@ -50,9 +50,6 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove 
 		});
 	};
 
-	const INPUT_CLASS =
-		"w-full rounded-md border border-(--omp-input-border) bg-(--omp-input-bg) px-2.5 py-1.5 text-omp-sm text-(--omp-text) outline-none transition-colors placeholder:text-(--omp-dim) hover:border-(--omp-border-strong) focus:border-(--omp-input-focus-border) disabled:cursor-not-allowed disabled:opacity-60";
-
 	const updateCost = (field: CostField, value: string) => {
 		const num = Number.parseFloat(value);
 		const cost = {
@@ -87,123 +84,112 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove 
 	};
 
 	return (
-		<div className="rounded-lg border border-(--omp-border-muted) bg-transparent">
+		<div className="rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
 			<div className="flex items-center gap-2 px-3 py-2">
-				<input
-					type="text"
-					value={model.id}
-					onChange={e => onUpdate(model.key, { id: e.target.value })}
-					placeholder={t("providerCfg.form.modelIdPlaceholder")}
-					className={`${INPUT_CLASS} flex-1 font-mono`}
-					disabled={readonly || disabled}
-				/>
-				<input
-					type="text"
-					value={model.name ?? ""}
-					onChange={e => onUpdate(model.key, { name: e.target.value || undefined })}
-					placeholder={t("providerCfg.form.modelNamePlaceholder")}
-					className={`${INPUT_CLASS} flex-1`}
-					disabled={readonly || disabled}
-				/>
-				<Button
+				<div className="flex-1">
+					<Input
+						controlSize="sm"
+						mono
+						aria-label={t("providerCfg.form.modelId")}
+						value={model.id}
+						onChange={e => onUpdate(model.key, { id: e.target.value })}
+						placeholder={t("providerCfg.form.modelIdPlaceholder")}
+						disabled={readonly || disabled}
+					/>
+				</div>
+				<div className="flex-1">
+					<Input
+						controlSize="sm"
+						aria-label={t("providerCfg.form.modelName")}
+						value={model.name ?? ""}
+						onChange={e => onUpdate(model.key, { name: e.target.value || undefined })}
+						placeholder={t("providerCfg.form.modelNamePlaceholder")}
+						disabled={readonly || disabled}
+					/>
+				</div>
+				<IconButton
 					size="sm"
-					variant="ghost"
-					icon={expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+					icon={expanded ? <ChevronDown /> : <ChevronRight />}
 					onClick={() => setExpanded(!expanded)}
-					aria-label={expanded ? t("providerCfg.form.modelCollapse") : t("providerCfg.form.modelExpand")}
+					label={expanded ? t("providerCfg.form.modelCollapse") : t("providerCfg.form.modelExpand")}
 					disabled={disabled}
 				/>
 				{canRemove && (
-					<Button
+					<IconButton
 						size="sm"
-						variant="ghost"
-						icon={<Trash2 size={14} />}
+						icon={<Trash2 />}
 						onClick={() => onRemove(model.key)}
-						aria-label={t("providerCfg.form.modelRemove")}
+						label={t("providerCfg.form.modelRemove")}
 						disabled={readonly || disabled}
 					/>
 				)}
 			</div>
 
 			{expanded && (
-				<div className="space-y-3 border-t border-(--omp-border-muted) px-3 py-3">
+				<div className="space-y-4 border-t border-(--sc-border-subtle) px-3 py-3">
 					<div className="grid grid-cols-2 gap-3">
-						<label className="flex flex-col gap-1">
-							<span className="text-omp-sm font-medium text-(--omp-text)">{t("providerCfg.form.modelApi")}</span>
-							<select
-								value={model.api ?? ""}
-								onChange={e =>
-									onUpdate(model.key, {
-										api: (e.target.value || undefined) as CustomProviderModelInput["api"],
-									})
-								}
-								className={INPUT_CLASS}
-								disabled={readonly || disabled}
-							>
-								<option value="">{t("providerCfg.form.modelApiInherit")}</option>
-								{PROVIDER_PROTOCOLS.map(protocol => (
-									<option key={protocol} value={protocol}>
-										{protocol}
-									</option>
-								))}
-							</select>
-							<span className="text-omp-xs text-(--omp-dim)">{t("providerCfg.form.modelApiHint")}</span>
-						</label>
+						<Select
+							controlSize="sm"
+							label={t("providerCfg.form.modelApi")}
+							hint={t("providerCfg.form.modelApiHint")}
+							value={model.api ?? ""}
+							onChange={e =>
+								onUpdate(model.key, {
+									api: (e.target.value || undefined) as CustomProviderModelInput["api"],
+								})
+							}
+							disabled={readonly || disabled}
+						>
+							<option value="">{t("providerCfg.form.modelApiInherit")}</option>
+							{PROVIDER_PROTOCOLS.map(protocol => (
+								<option key={protocol} value={protocol}>
+									{t(`providerCfg.protocol.${protocol}`)}
+								</option>
+							))}
+						</Select>
 
-						<label className="flex flex-col gap-1">
-							<span className="text-omp-sm font-medium text-(--omp-text)">
-								{t("providerCfg.form.modelBaseUrl")}
-							</span>
-							<input
-								type="text"
-								value={model.baseUrl ?? ""}
-								onChange={e => onUpdate(model.key, { baseUrl: e.target.value || undefined })}
-								placeholder={t("providerCfg.form.modelBaseUrlPlaceholder")}
-								className={`${INPUT_CLASS} font-mono`}
-								disabled={readonly || disabled}
-							/>
-							<span className="text-omp-xs text-(--omp-dim)">{t("providerCfg.form.modelBaseUrlHint")}</span>
-						</label>
+						<Input
+							controlSize="sm"
+							mono
+							label={t("providerCfg.form.modelBaseUrl")}
+							hint={t("providerCfg.form.modelBaseUrlHint")}
+							value={model.baseUrl ?? ""}
+							onChange={e => onUpdate(model.key, { baseUrl: e.target.value || undefined })}
+							placeholder={t("providerCfg.form.modelBaseUrlPlaceholder")}
+							disabled={readonly || disabled}
+						/>
 					</div>
 
 					<div className="grid grid-cols-2 gap-3">
-						<label className="flex flex-col gap-1">
-							<span className="text-omp-sm font-medium text-(--omp-text)">
-								{t("providerCfg.form.contextWindow")}
-							</span>
-							<input
-								type="number"
-								value={model.contextWindow ?? ""}
-								onChange={e =>
-									onUpdate(model.key, {
-										contextWindow: e.target.value ? Number.parseInt(e.target.value, 10) : undefined,
-									})
-								}
-								placeholder="128000"
-								min="0"
-								className={INPUT_CLASS}
-								disabled={readonly || disabled}
-							/>
-						</label>
+						<Input
+							controlSize="sm"
+							type="number"
+							label={t("providerCfg.form.contextWindow")}
+							value={model.contextWindow ?? ""}
+							onChange={e =>
+								onUpdate(model.key, {
+									contextWindow: e.target.value ? Number.parseInt(e.target.value, 10) : undefined,
+								})
+							}
+							placeholder="128000"
+							min="0"
+							disabled={readonly || disabled}
+						/>
 
-						<label className="flex flex-col gap-1">
-							<span className="text-omp-sm font-medium text-(--omp-text)">
-								{t("providerCfg.form.maxTokens")}
-							</span>
-							<input
-								type="number"
-								value={model.maxTokens ?? ""}
-								onChange={e =>
-									onUpdate(model.key, {
-										maxTokens: e.target.value ? Number.parseInt(e.target.value, 10) : undefined,
-									})
-								}
-								placeholder="8192"
-								min="0"
-								className={INPUT_CLASS}
-								disabled={readonly || disabled}
-							/>
-						</label>
+						<Input
+							controlSize="sm"
+							type="number"
+							label={t("providerCfg.form.maxTokens")}
+							value={model.maxTokens ?? ""}
+							onChange={e =>
+								onUpdate(model.key, {
+									maxTokens: e.target.value ? Number.parseInt(e.target.value, 10) : undefined,
+								})
+							}
+							placeholder="8192"
+							min="0"
+							disabled={readonly || disabled}
+						/>
 					</div>
 
 					<div className="flex flex-wrap items-center gap-4">
@@ -213,36 +199,34 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove 
 								checked={model.reasoning === true}
 								onChange={e => onUpdate(model.key, { reasoning: e.target.checked || undefined })}
 								disabled={readonly || disabled}
-								className="h-4 w-4 rounded border-(--omp-input-border)"
+								className="size-4 accent-(--sc-accent)"
 							/>
-							<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.reasoning")}</span>
+							<span className="text-sc-sm text-(--sc-text)">{t("providerCfg.form.reasoning")}</span>
 						</label>
-
 						<label className="flex items-center gap-2">
 							<input
 								type="checkbox"
 								checked={model.supportsTools === true}
 								onChange={e => onUpdate(model.key, { supportsTools: e.target.checked || undefined })}
 								disabled={readonly || disabled}
-								className="h-4 w-4 rounded border-(--omp-input-border)"
+								className="size-4 accent-(--sc-accent)"
 							/>
-							<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.supportsTools")}</span>
+							<span className="text-sc-sm text-(--sc-text)">{t("providerCfg.form.supportsTools")}</span>
 						</label>
-
 						<label className="flex items-center gap-2">
 							<input
 								type="checkbox"
 								checked={model.omitMaxOutputTokens === true}
 								onChange={e => onUpdate(model.key, { omitMaxOutputTokens: e.target.checked || undefined })}
 								disabled={readonly || disabled}
-								className="h-4 w-4 rounded border-(--omp-input-border)"
+								className="size-4 accent-(--sc-accent)"
 							/>
-							<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.omitMaxTokens")}</span>
+							<span className="text-sc-sm text-(--sc-text)">{t("providerCfg.form.omitMaxTokens")}</span>
 						</label>
 					</div>
 
 					<div className="space-y-2">
-						<span className="text-omp-sm font-medium text-(--omp-text)">
+						<span className="block text-sc-xs font-medium uppercase tracking-wide text-(--sc-text-muted)">
 							{t("providerCfg.form.inputModalities")}
 						</span>
 						<div className="flex gap-3">
@@ -252,9 +236,9 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove 
 									checked={model.input?.includes("text") ?? false}
 									onChange={() => toggleInput("text")}
 									disabled={readonly || disabled}
-									className="h-4 w-4 rounded border-(--omp-input-border)"
+									className="size-4 accent-(--sc-accent)"
 								/>
-								<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.inputText")}</span>
+								<span className="text-sc-sm text-(--sc-text)">{t("providerCfg.form.inputText")}</span>
 							</label>
 							<label className="flex items-center gap-2">
 								<input
@@ -262,18 +246,18 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove 
 									checked={model.input?.includes("image") ?? false}
 									onChange={() => toggleInput("image")}
 									disabled={readonly || disabled}
-									className="h-4 w-4 rounded border-(--omp-input-border)"
+									className="size-4 accent-(--sc-accent)"
 								/>
-								<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.inputImage")}</span>
+								<span className="text-sc-sm text-(--sc-text)">{t("providerCfg.form.inputImage")}</span>
 							</label>
 						</div>
 					</div>
 
 					<div className="space-y-2">
-						<span className="text-omp-sm font-medium text-(--omp-text)">
+						<span className="block text-sc-xs font-medium uppercase tracking-wide text-(--sc-text-muted)">
 							{t("providerCfg.form.thinkingConfig")}
 						</span>
-						<div className="flex items-center gap-2">
+						<label className="flex items-center gap-2">
 							<input
 								type="checkbox"
 								checked={!!model.thinking}
@@ -285,54 +269,52 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove 
 									}
 								}}
 								disabled={readonly || disabled}
-								className="h-4 w-4 rounded border-(--omp-input-border)"
+								className="size-4 accent-(--sc-accent)"
 							/>
-							<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.thinkingEnabled")}</span>
-						</div>
+							<span className="text-sc-sm text-(--sc-text)">{t("providerCfg.form.thinkingEnabled")}</span>
+						</label>
 						{model.thinking && (
-							<div className="ml-6 space-y-2">
-								<label className="flex flex-col gap-1">
-									<span className="text-omp-sm text-(--omp-text)">{t("providerCfg.form.thinkingMode")}</span>
-									<select
-										value={model.thinking.mode}
-										onChange={e =>
-											onUpdate(model.key, {
-												thinking: {
-													...model.thinking!,
-													mode: e.target.value as NonNullable<ModelRow["thinking"]>["mode"],
-												},
-											})
-										}
-										className={INPUT_CLASS}
-										disabled={readonly || disabled}
-									>
-										<option value="effort">{t("providerCfg.form.thinkingModeEffort")}</option>
-										<option value="budget">{t("providerCfg.form.thinkingModeBudget")}</option>
-										<option value="google-level">{t("providerCfg.form.thinkingModeGoogle")}</option>
-										<option value="anthropic-adaptive">
-											{t("providerCfg.form.thinkingModeAnthropicAdaptive")}
-										</option>
-										<option value="anthropic-budget-effort">
-											{t("providerCfg.form.thinkingModeAnthropicBudgetEffort")}
-										</option>
-									</select>
-								</label>
+							<div className="ml-6 space-y-3">
+								<Select
+									controlSize="sm"
+									label={t("providerCfg.form.thinkingMode")}
+									value={model.thinking.mode}
+									onChange={e =>
+										onUpdate(model.key, {
+											thinking: {
+												...model.thinking!,
+												mode: e.target.value as NonNullable<ModelRow["thinking"]>["mode"],
+											},
+										})
+									}
+									disabled={readonly || disabled}
+								>
+									<option value="effort">{t("providerCfg.form.thinkingModeEffort")}</option>
+									<option value="budget">{t("providerCfg.form.thinkingModeBudget")}</option>
+									<option value="google-level">{t("providerCfg.form.thinkingModeGoogle")}</option>
+									<option value="anthropic-adaptive">
+										{t("providerCfg.form.thinkingModeAnthropicAdaptive")}
+									</option>
+									<option value="anthropic-budget-effort">
+										{t("providerCfg.form.thinkingModeAnthropicBudgetEffort")}
+									</option>
+								</Select>
 
-								<div className="space-y-1">
-									<span className="text-omp-sm text-(--omp-text)">
+								<div className="space-y-1.5">
+									<span className="block text-sc-sm font-medium text-(--sc-text-secondary)">
 										{t("providerCfg.form.thinkingEfforts")}
 									</span>
-									<div className="flex flex-wrap gap-2">
+									<div className="flex flex-wrap gap-3">
 										{(["minimal", "low", "medium", "high", "xhigh", "max"] as const).map(effort => (
-											<label key={effort} className="flex items-center gap-1.5">
+											<label key={effort} className="flex items-center gap-2">
 												<input
 													type="checkbox"
 													checked={model.thinking!.efforts.includes(effort)}
 													onChange={e => updateThinkingEfforts(effort, e.target.checked)}
 													disabled={readonly || disabled}
-													className="h-3.5 w-3.5 rounded border-(--omp-input-border)"
+													className="size-4 accent-(--sc-accent)"
 												/>
-												<span className="text-omp-xs text-(--omp-text)">{effort}</span>
+												<span className="text-sc-xs text-(--sc-text)">{effort}</span>
 											</label>
 										))}
 									</div>
@@ -348,119 +330,120 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove 
 											})
 										}
 										disabled={readonly || disabled}
-										className="h-4 w-4 rounded border-(--omp-input-border)"
+										className="size-4 accent-(--sc-accent)"
 									/>
-									<span className="text-omp-sm text-(--omp-text)">
-										{t("providerCfg.form.thinkingDisplay")}
-									</span>
+									<span className="text-sc-sm text-(--sc-text)">{t("providerCfg.form.thinkingDisplay")}</span>
 								</label>
 							</div>
 						)}
 					</div>
 
 					<div className="space-y-2">
-						<span className="text-omp-sm font-medium text-(--omp-text)">{t("providerCfg.form.costTitle")}</span>
-						<span className="block text-omp-xs text-(--omp-dim)">{t("providerCfg.form.costHint")}</span>
+						<span className="block text-sc-xs font-medium uppercase tracking-wide text-(--sc-text-muted)">
+							{t("providerCfg.form.costTitle")}
+						</span>
+						<span className="block text-sc-xs text-(--sc-text-muted)">{t("providerCfg.form.costHint")}</span>
 						<div className="grid grid-cols-2 gap-2">
 							{COST_FIELDS.map(field => (
-								<label key={field} className="flex flex-col gap-1">
-									<span className="text-omp-xs text-(--omp-text)">{t(`providerCfg.form.cost.${field}`)}</span>
-									<input
-										type="number"
-										value={costDrafts[field]}
-										onChange={e => {
-											setCostDrafts(current => ({ ...current, [field]: e.target.value }));
-											updateCost(field, e.target.value);
-										}}
-										placeholder="0.00"
-										step="any"
-										min="0"
-										className={INPUT_CLASS}
-										disabled={readonly || disabled}
-									/>
-								</label>
+								<Input
+									key={field}
+									controlSize="sm"
+									type="number"
+									label={t(`providerCfg.form.cost.${field}`)}
+									value={costDrafts[field]}
+									onChange={e => {
+										setCostDrafts(current => ({ ...current, [field]: e.target.value }));
+										updateCost(field, e.target.value);
+									}}
+									placeholder="0.00"
+									step="any"
+									min="0"
+									disabled={readonly || disabled}
+								/>
 							))}
 						</div>
 					</div>
 
 					<div className="space-y-2">
-						<span className="text-omp-sm font-medium text-(--omp-text)">
+						<span className="block text-sc-xs font-medium uppercase tracking-wide text-(--sc-text-muted)">
 							{t("providerCfg.form.modelHeaders")}
 						</span>
-						<div className="flex flex-col gap-1.5">
+						<div className="flex flex-col gap-2">
 							{headerRows.map(([name, value], index) => (
 								<div key={index} className="flex items-center gap-2">
-									<input
-										type="text"
-										value={name}
-										onChange={e => {
-											const next = headerRows.map((row, i) =>
-												i === index ? ([e.target.value, value] as [string, string]) : row,
-											);
-											commitHeaders(next);
-										}}
-										placeholder={t("providerCfg.form.headerName")}
-										className={`${INPUT_CLASS} flex-1 font-mono`}
-										disabled={readonly || disabled}
-									/>
-									<input
-										type="text"
-										value={value}
-										onChange={e => {
-											const next = headerRows.map((row, i) =>
-												i === index ? ([name, e.target.value] as [string, string]) : row,
-											);
-											commitHeaders(next);
-										}}
-										placeholder={t("providerCfg.form.headerValue")}
-										className={`${INPUT_CLASS} flex-1 font-mono`}
-										disabled={readonly || disabled}
-									/>
-									<button
-										type="button"
-										aria-label={t("providerCfg.form.headerRemove")}
+									<div className="flex-1">
+										<Input
+											controlSize="sm"
+											mono
+											aria-label={t("providerCfg.form.headerName")}
+											value={name}
+											onChange={e => {
+												const next = headerRows.map((row, i) =>
+													i === index ? ([e.target.value, value] as [string, string]) : row,
+												);
+												commitHeaders(next);
+											}}
+											placeholder={t("providerCfg.form.headerName")}
+											disabled={readonly || disabled}
+										/>
+									</div>
+									<div className="flex-1">
+										<Input
+											controlSize="sm"
+											mono
+											aria-label={t("providerCfg.form.headerValue")}
+											value={value}
+											onChange={e => {
+												const next = headerRows.map((row, i) =>
+													i === index ? ([name, e.target.value] as [string, string]) : row,
+												);
+												commitHeaders(next);
+											}}
+											placeholder={t("providerCfg.form.headerValue")}
+											disabled={readonly || disabled}
+										/>
+									</div>
+									<IconButton
+										size="sm"
+										icon={<Trash2 />}
+										label={t("providerCfg.form.headerRemove")}
 										disabled={readonly || disabled}
 										onClick={() => commitHeaders(headerRows.filter((_, i) => i !== index))}
-										className="shrink-0 text-(--omp-dim) transition-colors hover:text-(--omp-error) disabled:opacity-50"
-									>
-										<Trash2 size={13} />
-									</button>
+									/>
 								</div>
 							))}
 							{!readonly && (
-								<Button
-									size="sm"
-									variant="ghost"
-									icon={<Plus size={12} />}
-									disabled={disabled}
-									onClick={() => commitHeaders([...headerRows, ["", ""]])}
-								>
-									{t("providerCfg.form.headerAdd")}
-								</Button>
+								<div>
+									<Button
+										size="sm"
+										variant="ghost"
+										icon={<Plus />}
+										disabled={disabled}
+										onClick={() => commitHeaders([...headerRows, ["", ""]])}
+									>
+										{t("providerCfg.form.headerAdd")}
+									</Button>
+								</div>
 							)}
 						</div>
 					</div>
 
-					<label className="flex flex-col gap-1">
-						<span className="text-omp-sm font-medium text-(--omp-text)">
-							{t("providerCfg.form.premiumMultiplier")}
-						</span>
-						<input
-							type="number"
-							value={model.premiumMultiplier ?? ""}
-							onChange={e =>
-								onUpdate(model.key, {
-									premiumMultiplier: e.target.value ? Number.parseFloat(e.target.value) : undefined,
-								})
-							}
-							placeholder="1.0"
-							step="0.1"
-							min="0"
-							className={INPUT_CLASS}
-							disabled={readonly || disabled}
-						/>
-						<span className="text-omp-xs text-(--omp-dim)">{t("providerCfg.form.premiumMultiplierHint")}</span>
-					</label>
+					<Input
+						controlSize="sm"
+						type="number"
+						label={t("providerCfg.form.premiumMultiplier")}
+						hint={t("providerCfg.form.premiumMultiplierHint")}
+						value={model.premiumMultiplier ?? ""}
+						onChange={e =>
+							onUpdate(model.key, {
+								premiumMultiplier: e.target.value ? Number.parseFloat(e.target.value) : undefined,
+							})
+						}
+						placeholder="1.0"
+						step="0.1"
+						min="0"
+						disabled={readonly || disabled}
+					/>
 				</div>
 			)}
 		</div>

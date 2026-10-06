@@ -1,9 +1,17 @@
 /**
- * Horizontal tab bar with an animated active indicator and roving
- * arrow-key keyboard navigation.
+ * Tabs — switch between sibling views of ONE surface, with roving
+ * arrow-key navigation (←/→, Home/End).
+ *
+ * - `underline` (default): section tabs at the top of a page, panel or
+ *   dialog (Agents: Definitions · Live · PRs; inspector: Changes · Files · Logs).
+ * - `segmented`: a compact mode switch inside a toolbar (Plan · Goal · Loop,
+ *   This session · All sessions). 2–4 short options.
+ * Tabs never navigate away and never trigger actions; destinations live in
+ * the sidebar. Pass `ariaLabel`, and label the panels with the tab ids.
  */
 
 import { type KeyboardEvent, useRef } from "react";
+import { cx } from "../../lib/format";
 
 export interface TabItem {
 	id: string;
@@ -13,18 +21,22 @@ export interface TabItem {
 	disabled?: boolean;
 }
 
+export type TabsVariant = "underline" | "segmented";
+
 export interface TabsProps {
 	tabs: TabItem[];
 	activeId: string;
 	onChange: (id: string) => void;
-	/** Compact reduces padding/size for panel headers. */
+	variant?: TabsVariant;
+	/** Compact reduces height and type size for panel headers. */
 	compact?: boolean;
 	className?: string;
 	ariaLabel?: string;
 }
 
-export function Tabs({ tabs, activeId, onChange, compact, className, ariaLabel }: TabsProps) {
+export function Tabs({ tabs, activeId, onChange, variant = "underline", compact, className, ariaLabel }: TabsProps) {
 	const listRef = useRef<HTMLDivElement>(null);
+	const segmented = variant === "segmented";
 
 	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
 		if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") {
@@ -48,7 +60,12 @@ export function Tabs({ tabs, activeId, onChange, compact, className, ariaLabel }
 	return (
 		<div
 			aria-label={ariaLabel}
-			className={`flex items-center gap-0.5 border-b border-(--omp-border-muted) ${className ?? ""}`.trim()}
+			className={cx(
+				segmented
+					? "inline-flex items-center gap-0.5 rounded-(--sc-radius-md) bg-(--sc-surface-3) p-0.5"
+					: "flex items-center gap-1 border-b border-(--sc-divider)",
+				className,
+			)}
 			onKeyDown={onKeyDown}
 			ref={listRef}
 			role="tablist"
@@ -58,13 +75,24 @@ export function Tabs({ tabs, activeId, onChange, compact, className, ariaLabel }
 				return (
 					<button
 						aria-selected={active}
-						className={`relative -mb-px shrink-0 border-b-2 font-medium whitespace-nowrap transition-colors duration-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--omp-border-accent) disabled:cursor-not-allowed disabled:opacity-70 ${
-							compact ? "px-2 py-1 text-omp-sm" : "px-3 py-1.5 text-xs"
-						} ${
-							active
-								? "border-(--omp-accent) text-(--omp-text)"
-								: "border-transparent text-(--omp-muted) hover:text-(--omp-text)"
-						}`.trim()}
+						className={cx(
+							"relative inline-flex shrink-0 items-center font-medium whitespace-nowrap transition-colors duration-(--sc-duration-fast) disabled:cursor-not-allowed disabled:opacity-50",
+							compact ? "text-sc-sm" : "text-sc-md",
+							segmented
+								? cx(
+										"h-(--sc-hit-min) rounded-(--sc-radius-sm) px-2.5",
+										active
+											? "bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-sm)"
+											: "text-(--sc-text-muted) hover:text-(--sc-text)",
+									)
+								: cx(
+										"-mb-px border-b-2 px-2",
+										compact ? "h-8" : "h-9",
+										active
+											? "border-(--sc-accent) text-(--sc-text)"
+											: "border-transparent text-(--sc-text-muted) hover:text-(--sc-text)",
+									),
+						)}
 						data-tab-id={tab.id}
 						disabled={tab.disabled}
 						key={tab.id}
@@ -75,7 +103,7 @@ export function Tabs({ tabs, activeId, onChange, compact, className, ariaLabel }
 					>
 						{tab.label}
 						{tab.badge !== undefined && (
-							<span className="ml-1.5 rounded-full border border-(--omp-border-muted) bg-transparent px-1.5 py-px text-omp-xxs tabular-nums text-(--omp-muted)">
+							<span className="ml-1.5 rounded-(--sc-radius-full) bg-(--sc-surface-3) px-1.5 text-sc-2xs tabular-nums text-(--sc-text-muted)">
 								{tab.badge}
 							</span>
 						)}

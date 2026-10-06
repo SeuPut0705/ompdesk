@@ -1,4 +1,4 @@
-import { CircleGauge, LoaderCircle, RotateCw } from "lucide-react";
+import { RotateCw } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { RpcContextReportResult } from "../../../shared/rpc-types";
@@ -9,7 +9,7 @@ import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Button } from "../common";
+import { Button, Spinner } from "../common";
 
 interface AnchorPosition {
 	bottom?: number;
@@ -43,7 +43,6 @@ export function ContextUsagePopover() {
 	const contextUsage = useSessionStore(state => state.contextUsage);
 	const sessionId = useSessionStore(state => state.sessionId);
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
-	const openContextReport = useUiStore(state => state.openContextReport);
 	const [open, setOpen] = useState(false);
 	const [pinned, setPinned] = useState(false);
 	const [anchor, setAnchor] = useState<AnchorPosition | null>(null);
@@ -165,12 +164,12 @@ export function ContextUsagePopover() {
 		if (!breakdown) return [];
 		return [
 			{
-				color: "var(--omp-dim)",
+				color: "var(--sc-text-subtle)",
 				key: "system",
 				tokens: breakdown.systemPromptTokens + breakdown.systemContextTokens + breakdown.skillsTokens,
 			},
-			{ color: "var(--omp-status-model)", key: "tools", tokens: breakdown.systemToolsTokens },
-			{ color: "var(--omp-status-context)", key: "messages", tokens: breakdown.messagesTokens },
+			{ color: "var(--sc-info)", key: "tools", tokens: breakdown.systemToolsTokens },
+			{ color: "var(--sc-accent)", key: "messages", tokens: breakdown.messagesTokens },
 		].filter(category => category.tokens > 0) as UsageCategory[];
 	}, [breakdown]);
 
@@ -190,11 +189,12 @@ export function ContextUsagePopover() {
 				aria-controls="omp-context-usage-popover"
 				aria-expanded={open}
 				aria-label={triggerLabel}
-				className={`omp-context-usage-trigger omp-pressable flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-1.5 ${
+				className={cx(
+					"omp-context-usage-trigger inline-flex h-(--sc-control-sm) min-w-0 items-center gap-1.5 rounded-(--sc-radius-sm) px-1.5 text-sc-xs font-medium tabular-nums transition-colors duration-(--sc-duration-instant)",
 					open
-						? "text-[var(--omp-link)] ring-1 ring-[var(--omp-link)]"
-						: "text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-muted)]"
-				}`}
+						? "bg-(--sc-selected) text-(--sc-text)"
+						: "text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text)",
+				)}
 				onBlur={scheduleClose}
 				onClick={() => {
 					if (open && pinned) {
@@ -206,15 +206,10 @@ export function ContextUsagePopover() {
 				}}
 				onFocus={reveal}
 				ref={buttonRef}
-				title={
-					capacityKnown
-						? t("input.contextTooltip", { percent: Math.round(percent) })
-						: t("contextUsage.windowUnknown")
-				}
 				type="button"
 			>
-				<CircleGauge aria-hidden="true" size={14} strokeWidth={2} />
-				<span className="font-mono text-omp-xs tabular-nums">{formatContextUsage(view)}</span>
+				<ContextRing percent={capacityKnown ? percent : null} />
+				<span>{capacityKnown ? `${Math.round(percent)}%` : formatContextUsage(view)}</span>
 			</button>
 
 			{mounted &&
@@ -224,7 +219,7 @@ export function ContextUsagePopover() {
 						aria-hidden={closing || undefined}
 						aria-label={t("contextUsage.title")}
 						className={cx(
-							"fixed z-[80] rounded-[18px] border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-4 shadow-[var(--omp-shadow-lg)]",
+							"fixed z-(--sc-z-popover) rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) p-4 text-(--sc-text) shadow-(--sc-shadow-md)",
 							closing ? "omp-scale-out pointer-events-none" : "omp-pop-in",
 						)}
 						id="omp-context-usage-popover"
@@ -236,13 +231,13 @@ export function ContextUsagePopover() {
 						style={popoverStyle}
 					>
 						<div className="flex items-baseline justify-between gap-4">
-							<span className="text-omp-lg text-[var(--omp-muted)]">
+							<span className="text-sc-md text-(--sc-text-secondary)">
 								{t("contextUsage.used")}{" "}
 								{capacityKnown && (
-									<strong className="ml-1 font-semibold text-[var(--omp-text)]">{`${Math.round(percent)}%`}</strong>
+									<strong className="ml-1 font-semibold text-(--sc-text)">{`${Math.round(percent)}%`}</strong>
 								)}
 							</span>
-							<span className="shrink-0 font-mono text-omp-lg font-semibold tabular-nums text-[var(--omp-text)]">
+							<span className="shrink-0 text-sc-md font-semibold tabular-nums">
 								{capacityKnown
 									? `${approximateTokens(usedTokens)} / ${formatTokens(contextWindow)}`
 									: approximateTokens(usedTokens)}
@@ -256,7 +251,7 @@ export function ContextUsagePopover() {
 								aria-valuemin={0}
 								aria-valuenow={Math.round(percent)}
 								aria-valuetext={`${formatTokens(usedTokens)} ${t("contextUsage.used")}, ${formatTokens(remainingTokens)} ${t("contextUsage.remaining")}`}
-								className="mt-3 flex h-1.5 overflow-hidden rounded-full bg-[var(--omp-progress-bg)]"
+								className="mt-3 flex h-1.5 overflow-hidden rounded-(--sc-radius-full) bg-(--sc-surface-3)"
 								role="progressbar"
 							>
 								{categories.length > 0 ? (
@@ -271,50 +266,40 @@ export function ContextUsagePopover() {
 										/>
 									))
 								) : (
-									<span
-										aria-hidden="true"
-										className="bg-[var(--omp-status-context)]"
-										style={{ width: `${percent}%` }}
-									/>
+									<span aria-hidden="true" className="bg-(--sc-accent)" style={{ width: `${percent}%` }} />
 								)}
 							</div>
 						)}
 
 						{capacityKnown ? (
-							<div className="mt-3 grid grid-cols-2 gap-2">
-								<div className="rounded-lg border border-[var(--omp-border-muted)] px-2.5 py-2">
-									<span className="block text-omp-xs text-[var(--omp-dim)]">{t("contextUsage.used")}</span>
-									<span className="font-mono text-omp-lg font-semibold tabular-nums text-[var(--omp-text)]">
-										{formatTokens(usedTokens)}
-									</span>
+							<dl className="mt-3 grid grid-cols-2 gap-2">
+								<div className="rounded-(--sc-radius-md) bg-(--sc-surface-2) px-2.5 py-2">
+									<dt className="text-sc-xs text-(--sc-text-muted)">{t("contextUsage.used")}</dt>
+									<dd className="text-sc-md font-semibold tabular-nums">{formatTokens(usedTokens)}</dd>
 								</div>
-								<div className="rounded-lg border border-[var(--omp-border-muted)] px-2.5 py-2">
-									<span className="block text-omp-xs text-[var(--omp-dim)]">
-										{t("contextUsage.remaining")}
-									</span>
-									<span className="font-mono text-omp-lg font-semibold tabular-nums text-[var(--omp-text)]">
-										{formatTokens(remainingTokens)}
-									</span>
+								<div className="rounded-(--sc-radius-md) bg-(--sc-surface-2) px-2.5 py-2">
+									<dt className="text-sc-xs text-(--sc-text-muted)">{t("contextUsage.remaining")}</dt>
+									<dd className="text-sc-md font-semibold tabular-nums">{formatTokens(remainingTokens)}</dd>
 								</div>
-							</div>
+							</dl>
 						) : (
-							<div className="mt-3 rounded-lg border border-[var(--omp-border-muted)] px-2.5 py-2 text-omp-md text-[var(--omp-dim)]">
+							<div className="mt-3 rounded-(--sc-radius-md) bg-(--sc-surface-2) px-2.5 py-2 text-sc-sm text-(--sc-text-muted)">
 								{t("contextUsage.windowUnknown")}
 							</div>
 						)}
 
 						{loading && categories.length === 0 ? (
-							<div className="flex items-center gap-2 py-5 text-omp-md text-[var(--omp-dim)]">
-								<LoaderCircle aria-hidden="true" className="animate-spin" size={14} />
+							<div className="flex items-center gap-2 py-5 text-sc-sm text-(--sc-text-muted)">
+								<Spinner size="sm" />
 								{t("contextUsage.loading")}
 							</div>
 						) : error && categories.length === 0 ? (
 							<div className="flex flex-col items-start gap-2 py-4">
-								<p role="alert" className="text-omp-md text-[var(--omp-dim)]">
+								<p role="alert" className="text-sc-sm text-(--sc-text-muted)">
 									{t("contextUsage.unavailable")}
 								</p>
 								<Button
-									icon={<RotateCw size={12} />}
+									icon={<RotateCw aria-hidden />}
 									onClick={() => setAttempt(count => count + 1)}
 									size="sm"
 									variant="secondary"
@@ -323,29 +308,30 @@ export function ContextUsagePopover() {
 								</Button>
 							</div>
 						) : (
-							<div className="mt-3 space-y-2.5">
+							<div className="mt-3 space-y-2">
 								{categories.map(category => (
 									<div className="flex items-center gap-2.5" key={category.key}>
 										<span
 											aria-hidden="true"
-											className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
+											className="size-2.5 shrink-0 rounded-(--sc-radius-xs)"
 											style={{ backgroundColor: category.color }}
 										/>
-										<span className="min-w-0 flex-1 truncate text-omp-lg text-[var(--omp-muted)]">
+										<span className="min-w-0 flex-1 truncate text-sc-sm text-(--sc-text-secondary)">
 											{t(`contextUsage.category.${category.key}`)}
 										</span>
-										<span className="shrink-0 font-mono text-omp-lg tabular-nums text-[var(--omp-text)]">
+										<span className="shrink-0 text-sc-sm tabular-nums">
 											{approximateTokens(category.tokens)}
 										</span>
 									</div>
 								))}
 							</div>
 						)}
+						<p className="mt-3 text-sc-xs text-(--sc-text-muted)">{t("contextUsage.baselineHint")}</p>
 						<Button
-							className="mt-3 w-full"
+							className="mt-2 w-full"
 							onClick={() => {
 								dismiss();
-								openContextReport();
+								useUiStore.getState().openInsights("stats", "session");
 							}}
 							size="sm"
 							variant="ghost"
@@ -356,5 +342,39 @@ export function ContextUsagePopover() {
 					document.body,
 				)}
 		</div>
+	);
+}
+
+/**
+ * The composer's context meter glyph: a ring that fills with the share of the
+ * context window in use, turning warning near the limit and danger at it. No
+ * known capacity draws the empty track only — a share would be invented.
+ */
+function ContextRing({ percent }: { percent: number | null }) {
+	const radius = 5.5;
+	const circumference = 2 * Math.PI * radius;
+	const filled = percent === null ? 0 : (Math.min(100, Math.max(0, percent)) / 100) * circumference;
+	const tone =
+		percent === null
+			? "text-(--sc-text-muted)"
+			: percent >= 95
+				? "text-(--sc-danger)"
+				: percent >= 80
+					? "text-(--sc-warning)"
+					: "text-(--sc-text-secondary)";
+	return (
+		<svg aria-hidden className={cx("size-(--sc-icon-sm) shrink-0 -rotate-90", tone)} viewBox="0 0 14 14">
+			<circle cx="7" cy="7" fill="none" r={radius} stroke="var(--sc-border-subtle)" strokeWidth="2" />
+			<circle
+				cx="7"
+				cy="7"
+				fill="none"
+				r={radius}
+				stroke="currentColor"
+				strokeDasharray={`${filled} ${circumference}`}
+				strokeLinecap="round"
+				strokeWidth="2"
+			/>
+		</svg>
 	);
 }

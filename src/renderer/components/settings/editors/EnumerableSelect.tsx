@@ -11,6 +11,7 @@ import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, us
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
+import { fieldStateClasses } from "../../common/Input";
 
 export interface EnumerableOption {
 	value: string;
@@ -56,8 +57,18 @@ function fetchOnce(fetcher: OptionsFetcher): Promise<EnumerableOption[]> {
 	return request;
 }
 
-const TRIGGER_CLASS =
-	"flex w-full items-center justify-between gap-2 rounded-md border border-(--omp-input-border) bg-(--omp-input-bg) px-2.5 py-1.5 text-left text-xs text-(--omp-text) transition-colors hover:border-(--omp-input-focus-border) disabled:opacity-50";
+/** Same box as a md `Select`/`Input`, so the combobox lines up with them. */
+const TRIGGER_CLASS = cx(
+	"flex h-(--sc-control-md) w-full items-center justify-between gap-2 rounded-(--sc-radius-md) border bg-(--sc-field) px-3 text-left text-sc-md text-(--sc-text) transition-[border-color,box-shadow] duration-(--sc-duration-fast) focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
+	fieldStateClasses(false),
+);
+
+const optionClass = (active: boolean, extra?: string): string =>
+	cx(
+		"flex min-h-(--sc-control-sm) w-full items-center justify-between gap-2 rounded-(--sc-radius-sm) px-2 text-left text-sc-sm text-(--sc-text)",
+		active ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
+		extra,
+	);
 
 /** One selectable row in the dropdown, in render/tab order. */
 type EnumerableItem =
@@ -243,43 +254,27 @@ export function EnumerableSelect({
 		switch (item.kind) {
 			case "clear":
 				return (
-					<button
-						{...rowProps}
-						className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-xs ${isActive ? "bg-(--omp-selected-bg)" : "hover:bg-(--omp-bg-tertiary)"}`}
-						key="__clear__"
-					>
-						<span className="text-(--omp-dim)">{t("settings.editors.clear")}</span>
+					<button {...rowProps} className={optionClass(isActive)} key="__clear__">
+						<span className="text-(--sc-text-subtle)">{t("settings.editors.clear")}</span>
 					</button>
 				);
 			case "current":
 				return (
-					<button
-						{...rowProps}
-						className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left font-mono text-xs ${isActive ? "bg-(--omp-selected-bg)" : "hover:bg-(--omp-bg-tertiary)"}`}
-						key="__current__"
-					>
+					<button {...rowProps} className={optionClass(isActive, "font-mono")} key="__current__">
 						<span>{item.value}</span>
-						<Check size={12} className="text-(--omp-accent)" />
+						<Check size={14} className="shrink-0 text-(--sc-accent)" />
 					</button>
 				);
 			case "option":
 				return (
-					<button
-						{...rowProps}
-						className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left font-mono text-xs ${isActive ? "bg-(--omp-selected-bg)" : "hover:bg-(--omp-bg-tertiary)"}`}
-						key={item.option.value}
-					>
+					<button {...rowProps} className={optionClass(isActive, "font-mono")} key={item.option.value}>
 						<span className="min-w-0 flex-1 truncate">{item.option.label ?? item.option.value}</span>
-						{item.option.value === value && <Check size={12} className="shrink-0 text-(--omp-accent)" />}
+						{item.option.value === value && <Check size={14} className="shrink-0 text-(--sc-accent)" />}
 					</button>
 				);
 			case "custom":
 				return (
-					<button
-						{...rowProps}
-						className={`w-full rounded px-2 py-1.5 text-left font-mono text-xs text-(--omp-accent) ${isActive ? "bg-(--omp-selected-bg)" : "hover:bg-(--omp-bg-tertiary)"}`}
-						key="__custom__"
-					>
+					<button {...rowProps} className={optionClass(isActive, "font-mono text-(--sc-accent)")} key="__custom__">
 						{t("settings.editors.useCustom", { value: item.value })}
 					</button>
 				);
@@ -297,19 +292,19 @@ export function EnumerableSelect({
 				onClick={() => setOpen(o => !o)}
 				type="button"
 			>
-				<span className={cx("truncate font-mono", value === "" && "text-(--omp-dim)")}>
+				<span className={cx("truncate font-mono", value === "" && "text-(--sc-text-subtle)")}>
 					{value === "" ? t("settings.editors.unset") : value}
 				</span>
-				<ChevronDown size={13} className="shrink-0 text-(--omp-dim)" />
+				<ChevronDown aria-hidden size={14} className="shrink-0 text-(--sc-text-muted)" />
 			</button>
 			{open && (
-				<div className="absolute right-0 z-40 mt-1 w-72 overflow-hidden rounded-lg border border-(--omp-modal-border) bg-(--omp-modal-bg) shadow-(--omp-shadow-lg)">
-					<div className="border-b border-(--omp-border-muted) px-2 py-1.5">
+				<div className="absolute right-0 z-(--sc-z-popover) mt-1 w-72 overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-md)">
+					<div className="border-b border-(--sc-divider) px-3">
 						<input
 							aria-activedescendant={items.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
 							aria-controls={listboxId}
 							aria-label={t("settings.editors.search")}
-							className="w-full bg-transparent text-xs text-(--omp-text) outline-none placeholder:text-(--omp-dim)"
+							className="h-(--sc-control-md) w-full bg-transparent text-sc-sm text-(--sc-text) outline-none placeholder:text-(--sc-text-subtle) focus-visible:outline-none"
 							onChange={e => setQuery(e.target.value)}
 							onKeyDown={onSearchKeyDown}
 							placeholder={t("settings.editors.search")}
@@ -319,13 +314,13 @@ export function EnumerableSelect({
 						/>
 					</div>
 					{options === null && !error && (
-						<div className="px-2 py-2 text-xs text-(--omp-dim)">
+						<div className="px-3 py-2 text-sc-sm text-(--sc-text-muted)">
 							{t("settings.editors.loading", { noun: noun ?? t("settings.editors.options") })}
 						</div>
 					)}
 					{error && (
 						<button
-							className="w-full rounded px-2 py-1.5 text-left text-xs text-(--omp-error) hover:bg-(--omp-bg-tertiary)"
+							className="min-h-(--sc-control-sm) w-full px-3 text-left text-sc-sm text-(--sc-danger) hover:bg-(--sc-hover)"
 							onClick={() => {
 								setOptions(null);
 								setError(false);
@@ -349,7 +344,9 @@ export function EnumerableSelect({
 								{items.map(renderItem)}
 							</div>
 							{filtered.length === 0 && trimmedQuery !== "" && !allowCustom && (
-								<div className="px-2 py-2 text-xs text-(--omp-dim)">{t("settings.editors.noMatch")}</div>
+								<div className="px-3 py-2 text-sc-sm text-(--sc-text-muted)">
+									{t("settings.editors.noMatch")}
+								</div>
 							)}
 						</>
 					)}

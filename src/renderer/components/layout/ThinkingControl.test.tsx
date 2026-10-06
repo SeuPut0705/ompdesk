@@ -1,9 +1,10 @@
 /**
- * Contract tests for the composer thinking-level picker (Codex-style):
- * the menu must offer exactly the selectors the active model supports — off,
- * auto, and the model's own ladder — with the current selector checked, and
- * a click must send that explicit value (never an unspecified "next" one).
- * Unsupported models get an honest note instead of a dead cycler.
+ * Contract tests for the Run settings thinking-level field: it must offer
+ * exactly the selectors the active model supports — off, auto, and the
+ * model's own ladder — with the current selector chosen, and a change must
+ * send that explicit value (never an unspecified "next" one). The receipt is
+ * authoritative, but only for the tab that asked. Unsupported models get an
+ * honest note instead of a dead control.
  * Rendered with react-dom/client into a linkedom document.
  */
 
@@ -16,7 +17,7 @@ import { I18nProvider, translate } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
-import { ThinkingControl } from "./ThinkingControl";
+import { ThinkingLevelField } from "./ThinkingControl";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 
@@ -29,26 +30,12 @@ globals.Node = Node;
 globals.IS_REACT_ACT_ENVIRONMENT = true;
 globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
 
-const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
-if (typeof elementPrototype.scrollIntoView !== "function") elementPrototype.scrollIntoView = () => {};
-elementPrototype.getBoundingClientRect = () => ({
-	bottom: 0,
-	height: 0,
-	left: 0,
-	right: 0,
-	top: 0,
-	width: 0,
-	x: 0,
-	y: 0,
-	toJSON: () => ({}),
-});
-Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
-
 interface TestElement {
 	textContent: string | null;
+	value: string;
 	remove: () => void;
 	appendChild: (child: TestElement) => void;
-	dispatchEvent: (event: object) => boolean;
+	querySelectorAll: (selector: string) => TestElement[];
 }
 
 let setThinkingLevelMock: Mock<(level: string) => Promise<RpcResponse>>;
@@ -88,18 +75,24 @@ async function mount(element: ReactElement): Promise<void> {
 	await flush();
 }
 
-function click(element: TestElement): void {
-	element.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+function field(): TestElement | null {
+	return document.querySelector("select[data-thinking-level]") as unknown as TestElement | null;
 }
 
-function buttonWithMono(text: string): TestElement | undefined {
-	const buttons = Array.from(document.querySelectorAll("button")) as unknown as TestElement[];
-	return buttons.find(button => button.textContent?.includes(text));
+function options(): string[] {
+	return Array.from(field()?.querySelectorAll("option") ?? []).map(option => option.value);
 }
 
-/** The control renders localized level names, not the raw wire enum. */
-function labelFor(level: string): string {
-	return translate(`input.thinking.name.${level}`);
+/** Pick a value and drive the select's React onChange contract. */
+async function choose(value: string): Promise<void> {
+	const select = field();
+	if (!select) throw new Error("thinking level field missing");
+	const record = select as unknown as Record<string, unknown>;
+	const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+	const props = propsKey ? (record[propsKey] as { onChange?: (event: object) => void }) : undefined;
+	if (!props?.onChange) throw new Error("select onChange not found");
+	// linkedom's select.value is read-only; the handler reads the event target.
+	await act(async () => props.onChange?.({ target: { value }, currentTarget: { value } }));
 }
 
 afterEach(async () => {
@@ -109,36 +102,27 @@ afterEach(async () => {
 		});
 	}
 	container?.remove();
-	// The menu portals to document.body — sweep any leftovers between tests.
 	document.body.innerHTML = "";
 	useModelStore.getState().reset();
 	useSessionStore.getState().reset();
 	useTabsStore.getState().reset();
 });
 
-describe("ThinkingControl", () => {
-	it("lists off, auto, and exactly the model-supported ladder with the current selector checked", async () => {
+describe("ThinkingLevelField", () => {
+	it("offers off, auto, and exactly the model-supported ladder with the current selector chosen", async () => {
 		installMockOmp();
 		useModelStore.setState({
 			thinkingLevel: "medium",
 			thinkingConfigured: "medium",
 			availableThinkingLevels: ["low", "medium", "high", "xhigh", "max"],
 		});
-		await mount(<ThinkingControl />);
+		await mount(<ThinkingLevelField />);
 
-		const trigger = buttonWithMono(labelFor("medium"));
-		expect(trigger).toBeDefined();
-		if (!trigger) return;
-		await act(async () => {
-			click(trigger);
-		});
-
-		const body = document.body.textContent ?? "";
-		for (const option of ["off", "auto", "low", "medium", "high", "xhigh", "max"]) {
-			expect(body).toContain(labelFor(option));
-		}
-		// Unsupported levels must not be offered.
-		expect(body).not.toContain("minimal");
+		expect(options()).toEqual(["off", "auto", "low", "medium", "high", "xhigh", "max"]);
+		expect(field()?.value).toBe("medium");
+		// Localized names, and the chosen level's description as the hint.
+		expect(container.textContent).toContain(translate("input.thinking.name.xhigh"));
+		expect(container.textContent).toContain(translate("input.thinking.level.medium"));
 	});
 
 	it("sends the explicitly picked value and applies the authoritative receipt", async () => {
@@ -148,19 +132,9 @@ describe("ThinkingControl", () => {
 			thinkingConfigured: "medium",
 			availableThinkingLevels: ["low", "medium", "high"],
 		});
-		await mount(<ThinkingControl />);
+		await mount(<ThinkingLevelField />);
 
-		const trigger = buttonWithMono(labelFor("medium"));
-		if (!trigger) throw new Error("trigger missing");
-		await act(async () => {
-			click(trigger);
-		});
-		const high = buttonWithMono(labelFor("high"));
-		expect(high).toBeDefined();
-		if (!high) return;
-		await act(async () => {
-			click(high);
-		});
+		await choose("high");
 		await flush();
 
 		expect(setThinkingLevelMock).toHaveBeenCalledWith("high");
@@ -181,14 +155,9 @@ describe("ThinkingControl", () => {
 			thinkingConfigured: "medium",
 			availableThinkingLevels: ["low", "medium", "high", "xhigh", "max"],
 		});
-		await mount(<ThinkingControl />);
+		await mount(<ThinkingLevelField />);
 
-		const trigger = buttonWithMono(labelFor("medium"));
-		if (!trigger) throw new Error("trigger missing");
-		await act(async () => click(trigger));
-		const max = buttonWithMono(labelFor("max"));
-		if (!max) throw new Error("max option missing");
-		await act(async () => click(max));
+		await choose("max");
 		await flush();
 
 		expect(setThinkingLevelMock).toHaveBeenCalledWith("max");
@@ -214,14 +183,9 @@ describe("ThinkingControl", () => {
 			thinkingConfigured: "medium",
 			availableThinkingLevels: ["medium", "high"],
 		});
-		await mount(<ThinkingControl />);
+		await mount(<ThinkingLevelField />);
 
-		const trigger = buttonWithMono(labelFor("medium"));
-		if (!trigger) throw new Error("trigger missing");
-		await act(async () => click(trigger));
-		const high = buttonWithMono(labelFor("high"));
-		if (!high) throw new Error("high option missing");
-		await act(async () => click(high));
+		await choose("high");
 
 		await act(async () => {
 			useTabsStore.setState({ activeTabId: "t1" });
@@ -247,19 +211,9 @@ describe("ThinkingControl", () => {
 			thinkingConfigured: "high",
 			availableThinkingLevels: ["low", "medium", "high"],
 		});
-		await mount(<ThinkingControl />);
+		await mount(<ThinkingLevelField />);
 
-		const trigger = buttonWithMono(labelFor("high"));
-		if (!trigger) throw new Error("trigger missing");
-		await act(async () => {
-			click(trigger);
-		});
-		const auto = buttonWithMono(labelFor("auto"));
-		expect(auto).toBeDefined();
-		if (!auto) return;
-		await act(async () => {
-			click(auto);
-		});
+		await choose("auto");
 		await flush();
 
 		expect(setThinkingLevelMock).toHaveBeenCalledWith("auto");
@@ -267,16 +221,12 @@ describe("ThinkingControl", () => {
 		expect(useModelStore.getState().thinkingLevel).toBe("medium");
 	});
 
-	it("shows an honest note when the model does not reason", async () => {
+	it("shows an honest note instead of a control when the model does not reason", async () => {
 		installMockOmp();
 		useModelStore.setState({ thinkingLevel: undefined, thinkingConfigured: undefined, availableThinkingLevels: [] });
-		await mount(<ThinkingControl />);
+		await mount(<ThinkingLevelField />);
 
-		const trigger = buttonWithMono(labelFor("off"));
-		if (!trigger) throw new Error("trigger missing");
-		await act(async () => {
-			click(trigger);
-		});
-		expect(document.body.textContent).toContain("does not support reasoning");
+		expect(field()).toBeNull();
+		expect(container.textContent).toContain("does not support reasoning");
 	});
 });

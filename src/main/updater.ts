@@ -35,7 +35,7 @@ import {
 const { autoUpdater } = pkg;
 
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
-const RELEASE_DOWNLOAD_BASE = "https://github.com/SeuPut0705/omp-gui/releases/download/";
+const RELEASE_DOWNLOAD_BASE = "https://github.com/SeuPut0705/seucode/releases/download/";
 const PROGRESS_INTERVAL_MS = 100;
 
 /**

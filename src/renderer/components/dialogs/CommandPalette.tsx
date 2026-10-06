@@ -1,12 +1,36 @@
 import { type TabRpc, useTabRpc } from "../../lib/tab-rpc";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 /**
- * Cmd+K command palette: fuzzy-searches the declarative command registry
+ * Cmd+K command palette: ranks the declarative command registry (exact >
+ * prefix > word-prefix > substring > fuzzy, Hangul-aware, recents boosted)
  * and executes typed UI affordances (RPC actions, toggles, pickers, windows,
  * submenus, prompts) instead of injecting "/command" text into the composer.
+ * Turn-starting and destructive commands never run from Enter on a partial
+ * match: they need an exact query, an arrow-key selection, or a second Enter.
  */
 
-import { Check, ChevronRight, CornerDownLeft, History, Search, Slash, X } from "lucide-react";
+import {
+	Bot,
+	ChartColumn,
+	Check,
+	ChevronRight,
+	CircleHelp,
+	Cpu,
+	Folder,
+	Layers,
+	type LucideIcon,
+	MessageSquare,
+	PanelRight,
+	Plug,
+	Puzzle,
+	Route,
+	Search,
+	Settings,
+	Terminal,
+	TriangleAlert,
+	Wrench,
+	X,
+} from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AvailableCommand } from "../../../shared/rpc-types";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
@@ -14,15 +38,18 @@ import { newSessionNow } from "../../hooks/use-session-switch";
 import {
 	buildCommandMenu,
 	type CommandAffordance,
+	type CommandCategory,
 	type CommandMenuItem,
 	commandArgPrefill,
+	commandGuard,
 	forkSessionFromGui,
 	groupByCategory,
 	prefillComposer,
 } from "../../lib/command-registry";
+import { enterNeedsConfirm, matchCommand, rankCommands } from "../../lib/command-search";
+import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
-import { formatShortcut } from "../../lib/keymap";
 import { retryLastTurn as retryLastTurnShared } from "../../lib/messages";
 import { openHandoffDialog } from "../../stores/fork-handoff";
 import { useModelStore } from "../../stores/model";
@@ -31,7 +58,7 @@ import { useSettingsStore } from "../../stores/settings";
 import { useActiveTabKind } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Spinner } from "../common";
+import { Kbd, Spinner } from "../common";
 import { isTopmostDialog, registerDialogLayer } from "../common/dialog-layer";
 
 const RECENT_KEY = "omp.palette.recent";
@@ -62,28 +89,23 @@ function saveRecent(names: string[]) {
 	}
 }
 
-/** Subsequence fuzzy score; null = no match. Earlier + denser wins. */
-function fuzzyScore(query: string, target: string): number | null {
-	const q = query.toLowerCase();
-	const t = target.toLowerCase();
-	if (q.length === 0) return 0;
-	let qi = 0;
-	let score = 0;
-	let last = -2;
-	for (let ti = 0; ti < t.length && qi < q.length; ti++) {
-		if (t[ti] === q[qi]) {
-			score += ti === last + 1 ? 2 : 1;
-			last = ti;
-			qi++;
-		}
-	}
-	return qi === q.length ? score : null;
-}
-
-interface ScoredItem {
-	item: CommandMenuItem;
-	score: number;
-}
+/** One icon per palette section, so a row's kind reads before its label. */
+const CATEGORY_ICON: Record<CommandCategory, LucideIcon> = {
+	session: MessageSquare,
+	agents: Bot,
+	insights: ChartColumn,
+	model: Cpu,
+	providers: Plug,
+	context: Layers,
+	modes: Route,
+	tools: Wrench,
+	panel: PanelRight,
+	workspace: Folder,
+	extensions: Puzzle,
+	settings: Settings,
+	help: CircleHelp,
+	other: Terminal,
+};
 
 /** Execute an affordance, closing the palette and surfacing errors. */
 async function runAffordance(
@@ -141,25 +163,17 @@ export function CommandPalette() {
 	const close = useUiStore(state => state.closeCommandPalette);
 	const openModelPicker = useUiStore(state => state.openModelPicker);
 	const openSettings = useUiStore(state => state.openSettings);
-	const openUsage = useUiStore(state => state.openUsage);
 	const openProviders = useUiStore(state => state.openProviders);
-	const openModelRoles = useUiStore(state => state.openModelRoles);
-	const openStatsDashboard = useUiStore(state => state.openStatsDashboard);
 	const openFeedback = useUiStore(state => state.openFeedback);
 	const openRenameDialog = useUiStore(state => state.openRenameDialog);
 	const openSessionPicker = useUiStore(state => state.openSessionPicker);
 	const openBranchPicker = useUiStore(state => state.openBranchPicker);
 	const openSessionTree = useUiStore(state => state.openSessionTree);
-	const openSessionInfo = useUiStore(state => state.openSessionInfo);
-	const openModelCompare = useUiStore(state => state.openModelCompare);
 	const openBenchmark = useUiStore(state => state.openBenchmark);
-	const openExtensions = useUiStore(state => state.openExtensions);
-	const openInventory = useUiStore(state => state.openInventory);
 	const openThemePicker = useUiStore(state => state.openThemePicker);
 	const openModes = useUiStore(state => state.openModes);
-	const openAgentHub = useUiStore(state => state.openAgentHub);
-	const openPrCenter = useUiStore(state => state.openPrCenter);
-	const openHotkeys = useUiStore(state => state.openHotkeys);
+	const openAgents = useUiStore(state => state.openAgents);
+	const openInsights = useUiStore(state => state.openInsights);
 	const openImportDialog = useUiStore(state => state.openImportDialog);
 	const openProviderConfig = useUiStore(state => state.openProviderConfig);
 	const focusDockCard = useUiStore(state => state.focusDockCard);
@@ -183,6 +197,10 @@ export function CommandPalette() {
 	const [commandsError, setCommandsError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [activeIndex, setActiveIndex] = useState(0);
+	/** The user moved the selection with the arrow keys (vs. the auto-selected top hit). */
+	const [explicitSelection, setExplicitSelection] = useState(false);
+	/** Guarded command awaiting its confirming second Enter. */
+	const [armed, setArmed] = useState<string | null>(null);
 	const [recent, setRecent] = useState<string[]>(loadRecent);
 	/** When set, the palette is drilled into a submenu's items. */
 	const [submenu, setSubmenu] = useState<CommandMenuItem | null>(null);
@@ -230,6 +248,8 @@ export function CommandPalette() {
 		const restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 		setQuery("");
 		setActiveIndex(0);
+		setExplicitSelection(false);
+		setArmed(null);
 		setSubmenu(null);
 		requestAnimationFrame(() => inputRef.current?.focus());
 		const onKey = (event: KeyboardEvent) => {
@@ -307,28 +327,20 @@ export function CommandPalette() {
 				availableCommands,
 				openModelPicker,
 				openSettings,
-				openUsage,
 				openProviders,
-				openModelRoles,
-				openStatsDashboard,
 				openFeedback,
 				openRenameDialog,
 				openSessionPicker,
 				openBranchPicker,
 				openSessionTree,
-				openSessionInfo,
-				openModelCompare,
 				openBenchmark,
 				openHandoffDialog,
 				forkSession: forkSessionFromGui,
 				hydrateSession: () => (tabId ? hydrateTabSession(tabId) : hydrateSession()),
-				openExtensions,
-				openInventory,
 				openThemePicker,
 				openModes,
-				openAgentHub,
-				openPrCenter,
-				openHotkeys,
+				openAgents,
+				openInsights,
 				openImportDialog,
 				openProviderConfig,
 				focusDockCard,
@@ -369,30 +381,22 @@ export function CommandPalette() {
 			availableCommands,
 			openModelPicker,
 			openSettings,
-			openUsage,
 			openProviders,
-			openModelRoles,
-			openStatsDashboard,
 			openFeedback,
 			openRenameDialog,
 			openSessionPicker,
 			openBranchPicker,
 			openSessionTree,
-			openSessionInfo,
 			retryLastTurn,
 			retryTurn,
 			openModes,
 			openProviderConfig,
 			focusDockCard,
-			openModelCompare,
 			openBenchmark,
-			openAgentHub,
-			openPrCenter,
-			openHotkeys,
+			openAgents,
+			openInsights,
 			openImportDialog,
 			openThemePicker,
-			openInventory,
-			openExtensions,
 			tabRpc.setPrewalk,
 			tabRpc.setSteeringMode,
 			tabRpc.setSessionName,
@@ -418,20 +422,7 @@ export function CommandPalette() {
 		[submenu, menuItems],
 	);
 
-	const results = useMemo<ScoredItem[]>(() => {
-		const q = query.trim();
-		const scored: ScoredItem[] = [];
-		for (const item of workingItems) {
-			const targets = [item.name, item.label, item.description ?? "", ...(item.aliases ?? [])];
-			let best: number | null = null;
-			for (const target of targets) {
-				const score = fuzzyScore(q, target);
-				if (score !== null && (best === null || score > best)) best = score;
-			}
-			if (best !== null) scored.push({ item, score: best });
-		}
-		return scored.sort((a, b) => b.score - a.score || a.item.name.localeCompare(b.item.name));
-	}, [workingItems, query]);
+	const results = useMemo(() => rankCommands(workingItems, query, recent), [workingItems, query, recent]);
 
 	// When not searching the top level, group by category for readability.
 	const grouped = useMemo(() => {
@@ -465,6 +456,13 @@ export function CommandPalette() {
 		[recent],
 	);
 
+	/** Back to the top hit, auto-selected (not explicit), nothing armed. */
+	const resetSelection = useCallback(() => {
+		setActiveIndex(0);
+		setExplicitSelection(false);
+		setArmed(null);
+	}, []);
+
 	const execute = useCallback(
 		(item: CommandMenuItem) => {
 			if (item.affordance.kind === "unavailable") {
@@ -478,7 +476,7 @@ export function CommandPalette() {
 			if (item.affordance.kind === "submenu") {
 				setSubmenu(item);
 				setQuery("");
-				setActiveIndex(0);
+				resetSelection();
 				requestAnimationFrame(() => inputRef.current?.focus());
 				return;
 			}
@@ -494,12 +492,14 @@ export function CommandPalette() {
 			recordRecent(item.name);
 			void runAffordance(item.affordance, close, t, tabRpc);
 		},
-		[recordRecent, close, sidecarReady, t, tabRpc],
+		[recordRecent, close, sidecarReady, t, tabRpc, resetSelection],
 	);
 
-	/** Move the selection by `delta`, skipping disabled rows. */
+	/** Move the selection by `delta`, skipping disabled rows. An arrow-key pick is explicit. */
 	const step = useCallback(
 		(delta: number) => {
+			setExplicitSelection(true);
+			setArmed(null);
 			setActiveIndex(current => {
 				for (let i = current + delta; i >= 0 && i < flatList.length; i += delta) {
 					if (!sidecarBlocked(flatList[i], sidecarReady)) return i;
@@ -509,6 +509,12 @@ export function CommandPalette() {
 		},
 		[flatList, sidecarReady],
 	);
+
+	const leaveSubmenu = () => {
+		setSubmenu(null);
+		setQuery("");
+		resetSelection();
+	};
 
 	// Bound to the dialog panel, not the input: after clicking a row, focus sits
 	// on that button, and Escape/arrow keys held only by the input stop working.
@@ -524,10 +530,9 @@ export function CommandPalette() {
 				step(-1);
 				break;
 			case "ArrowLeft":
-				if (submenu) {
+				if (submenu && query.length === 0) {
 					event.preventDefault();
-					setSubmenu(null);
-					setActiveIndex(0);
+					leaveSubmenu();
 				}
 				break;
 			case "Enter": {
@@ -536,12 +541,22 @@ export function CommandPalette() {
 				if (event.target !== inputRef.current) break;
 				event.preventDefault();
 				const item = flatList[activeIndex];
-				if (item) execute(item);
+				if (!item) break;
+				// A turn-starting/destructive command never runs off the auto-selected
+				// top hit of a partial query: the first Enter arms it, the second runs.
+				if (
+					armed !== item.name &&
+					enterNeedsConfirm(commandGuard(item), matchCommand(query, item), explicitSelection)
+				) {
+					setArmed(item.name);
+					break;
+				}
+				execute(item);
 				break;
 			}
 			case "Escape":
 				event.preventDefault();
-				if (submenu) setSubmenu(null);
+				if (submenu) leaveSubmenu();
 				else close();
 				break;
 		}
@@ -570,8 +585,15 @@ export function CommandPalette() {
 	if (!open) return null;
 
 	let flatIndex = -1;
+	const activeItem = flatList[activeIndex];
+	const armedMessage =
+		armed && activeItem?.name === armed
+			? t(commandGuard(activeItem) === "destructive" ? "palette.confirmDestructive" : "palette.confirmTurn")
+			: "";
+	const sectionHeaderClass =
+		"px-2.5 pt-2 pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase select-none";
 
-	const renderItem = (item: CommandMenuItem, options?: { categoryLabel?: string; recent?: boolean }) => {
+	const renderItem = (item: CommandMenuItem, options?: { categoryLabel?: string }) => {
 		flatIndex++;
 		const index = flatIndex;
 		const isActive = index === activeIndex;
@@ -579,13 +601,19 @@ export function CommandPalette() {
 		const disabled = item.affordance.kind === "unavailable" || blocked;
 		const isSubmenu = item.affordance.kind === "submenu";
 		const toggleOn = item.affordance.kind === "toggle" ? item.affordance.get() : null;
+		const isArmed = isActive && armed === item.name;
+		// Submenu rows carry a placeholder category: show their parent's icon.
+		const Icon = CATEGORY_ICON[submenu?.category ?? item.category];
 
 		return (
 			<button
 				aria-disabled={disabled}
-				className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left transition-colors ${
-					isActive ? "bg-(--omp-selected-bg)" : "hover:bg-(--omp-bg-tertiary)"
-				} ${disabled ? "opacity-45" : ""}`}
+				className={cx(
+					"flex w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-1.5 text-left",
+					isActive ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
+					disabled && "opacity-50",
+				)}
+				data-active={isActive ? "true" : undefined}
 				data-palette-index={index}
 				data-command-name={item.name}
 				data-command-aliases={JSON.stringify(item.aliases ?? [])}
@@ -593,54 +621,65 @@ export function CommandPalette() {
 				disabled={disabled}
 				key={item.name}
 				onClick={() => execute(item)}
-				onMouseEnter={() => setActiveIndex(index)}
+				onMouseEnter={() => {
+					if (index === activeIndex) return;
+					// Hover moves the highlight but is not an explicit pick for Enter.
+					setActiveIndex(index);
+					setExplicitSelection(false);
+					setArmed(null);
+				}}
 				type="button"
 			>
-				{options?.recent ? (
-					<History className="shrink-0 text-(--omp-accent)" size={12} />
-				) : (
-					<Slash className="shrink-0 text-(--omp-accent)" size={12} />
-				)}
+				<Icon
+					aria-hidden
+					className={cx("size-(--sc-icon-sm) shrink-0", isActive ? "text-(--sc-text)" : "text-(--sc-text-muted)")}
+				/>
 				<span className="min-w-0 flex-1">
 					<span className="flex items-center gap-1.5">
-						<span className="truncate text-xs font-medium text-(--omp-text)">{item.label}</span>
+						<span className="truncate text-sc-md font-medium text-(--sc-text)">{item.label}</span>
 						{toggleOn !== null && (
 							<span
-								className={`rounded px-1 text-omp-xxs font-semibold uppercase ${
-									toggleOn ? "text-(--omp-success)" : "text-(--omp-dim)"
-								}`}
+								className={cx(
+									"shrink-0 text-sc-2xs font-medium",
+									toggleOn ? "text-(--sc-success)" : "text-(--sc-text-subtle)",
+								)}
 							>
 								{toggleOn ? t("palette.on") : t("palette.off")}
 							</span>
 						)}
-						{item.shortcut && (
-							<kbd className="rounded border border-(--omp-border-muted) px-1 text-omp-xxs text-(--omp-dim)">
-								{formatShortcut(item.shortcut)}
-							</kbd>
-						)}
 					</span>
-					<span className="block truncate text-omp-xs text-(--omp-muted)">
-						{disabled
-							? item.affordance.kind === "unavailable"
-								? item.affordance.reason
-								: t("common.notConnected")
-							: item.description}
+					<span
+						className={cx(
+							"block truncate text-sc-sm",
+							isArmed ? "text-(--sc-warning)" : "text-(--sc-text-muted)",
+						)}
+					>
+						{isArmed
+							? armedMessage
+							: disabled
+								? item.affordance.kind === "unavailable"
+									? item.affordance.reason
+									: t("common.notConnected")
+								: item.description}
 					</span>
 				</span>
+				{isArmed && <TriangleAlert aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-warning)" />}
 				{options?.categoryLabel && (
-					<span className="shrink-0 text-omp-xxs tracking-wide text-(--omp-dim) uppercase">
-						{options.categoryLabel}
-					</span>
+					<span className="shrink-0 text-sc-xs text-(--sc-text-subtle)">{options.categoryLabel}</span>
 				)}
+				{item.shortcut && <Kbd shortcut={item.shortcut} />}
 				{isSubmenu ? (
-					<ChevronRight className="shrink-0 text-(--omp-dim)" size={12} />
+					<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 				) : (
 					toggleOn !== null && (
-						<Check className={`shrink-0 ${toggleOn ? "text-(--omp-success)" : "text-transparent"}`} size={12} />
+						<Check
+							aria-hidden
+							className={cx(
+								"size-(--sc-icon-sm) shrink-0",
+								toggleOn ? "text-(--sc-success)" : "text-transparent",
+							)}
+						/>
 					)
-				)}
-				{isActive && !isSubmenu && toggleOn === null && (
-					<CornerDownLeft className="shrink-0 text-(--omp-dim)" size={11} />
 				)}
 			</button>
 		);
@@ -648,7 +687,7 @@ export function CommandPalette() {
 
 	return (
 		<div
-			className="omp-dialog-overlay omp-fade-in fixed inset-0 z-50 flex items-start justify-center bg-[var(--omp-overlay-bg)] p-4 pt-[12dvh] backdrop-blur-[2px]"
+			className="omp-dialog-overlay omp-fade-in fixed inset-0 z-(--sc-z-dialog) flex items-start justify-center bg-(--sc-overlay) p-4 pt-[12dvh]"
 			onMouseDown={event => {
 				if (event.target === event.currentTarget) close();
 			}}
@@ -657,47 +696,49 @@ export function CommandPalette() {
 			<div
 				aria-label={t("palette.searchLabel")}
 				aria-modal="true"
-				className="omp-dialog-panel omp-dialog-size-picker overflow-hidden rounded-[14px] border border-(--omp-modal-border) bg-(--omp-modal-bg) shadow-(--omp-shadow-lg)"
+				className="omp-dialog-panel omp-dialog-size-picker flex flex-col overflow-hidden rounded-(--sc-radius-xl) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-lg)"
 				onKeyDown={onKeyDown}
 				ref={dialogRef}
 				role="dialog"
 			>
-				<div className="flex items-center gap-2.5 border-b border-(--omp-border-muted) px-3.5 py-2.5">
+				<div className="flex items-center gap-2.5 border-b border-(--sc-divider) px-3.5 py-2.5">
 					{submenu && (
 						<button
+							aria-label={`${t("palette.hintBack")}: ${submenu.label}`}
+							className="flex shrink-0 items-center gap-1 rounded-(--sc-radius-sm) px-1.5 py-0.5 text-sc-sm font-medium text-(--sc-accent) hover:bg-(--sc-hover)"
+							onClick={leaveSubmenu}
 							type="button"
-							onClick={() => setSubmenu(null)}
-							className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-omp-sm font-medium text-(--omp-accent) hover:bg-(--omp-bg-tertiary)"
 						>
-							<X size={11} />
+							<X aria-hidden className="size-(--sc-icon-sm)" />
 							{submenu.label}
 						</button>
 					)}
-					<Search className="shrink-0 text-(--omp-dim)" size={14} />
+					<Search aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
 					<input
 						aria-label={t("palette.searchLabel")}
-						className="min-w-0 flex-1 bg-transparent text-sm text-(--omp-text) placeholder:text-(--omp-dim) focus:outline-none"
-						onChange={event => setQuery(event.target.value)}
+						className="min-w-0 flex-1 bg-transparent text-sc-lg text-(--sc-text) placeholder:text-(--sc-text-subtle) focus:outline-none"
+						onChange={event => {
+							setQuery(event.target.value);
+							resetSelection();
+						}}
 						placeholder={submenu ? t("palette.searchSubmenu", { name: submenu.label }) : t("palette.search")}
 						ref={inputRef}
+						type="text"
 						value={query}
 					/>
 					{loading && <Spinner size="sm" />}
-					<kbd className="shrink-0 rounded border border-(--omp-border-muted) px-1.5 py-0.5 text-omp-xxs text-(--omp-dim)">
-						esc
-					</kbd>
 				</div>
 				{commandsError !== null && (
-					<div className="flex items-center gap-2 border-b border-(--omp-border-muted) px-3 py-1.5">
+					<div className="flex items-center gap-2 border-b border-(--sc-divider) px-3.5 py-1.5">
 						<span
-							className="min-w-0 flex-1 truncate text-omp-xs text-(--omp-error)"
+							className="min-w-0 flex-1 truncate text-sc-sm text-(--sc-danger)"
 							role="alert"
 							title={commandsError || undefined}
 						>
 							{t("palette.commandsFailed")}
 						</span>
 						<button
-							className="shrink-0 rounded border border-(--omp-border-muted) px-1.5 py-0.5 text-omp-xs text-(--omp-text) hover:bg-(--omp-bg-tertiary)"
+							className="shrink-0 rounded-(--sc-radius-sm) border border-(--sc-border-subtle) px-2 py-0.5 text-sc-sm text-(--sc-text) hover:bg-(--sc-hover)"
 							onClick={refreshCommands}
 							type="button"
 						>
@@ -705,9 +746,9 @@ export function CommandPalette() {
 						</button>
 					</div>
 				)}
-				<div className="omp-command-list overflow-y-auto p-1.5" ref={listRef}>
+				<div className="omp-command-list min-h-0 flex-1 overflow-y-auto p-1.5" ref={listRef}>
 					{flatList.length === 0 && !loading && (
-						<div className="px-3 py-8 text-center text-xs text-(--omp-dim)">
+						<div className="px-3 py-8 text-center text-sc-sm text-(--sc-text-muted)">
 							{workingItems.length === 0 ? t("palette.noCommands") : t("palette.noMatch")}
 						</div>
 					)}
@@ -715,16 +756,16 @@ export function CommandPalette() {
 					{grouped ? (
 						<>
 							{recentItems.length > 0 && (
-								<div className="mb-1">
-									<div className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
+								<div aria-label={t("palette.recent")} className="mb-1" role="group">
+									<div aria-hidden className={sectionHeaderClass}>
 										{t("palette.recent")}
 									</div>
-									{recentItems.map(item => renderItem(item, { recent: true }))}
+									{recentItems.map(item => renderItem(item))}
 								</div>
 							)}
 							{Array.from(grouped.entries()).map(([category, items]) => (
-								<div key={category} className="mb-1">
-									<div className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-omp-xxs font-semibold tracking-widest text-(--omp-dim) uppercase">
+								<div aria-label={t(`category.${category}`)} className="mb-1" key={category} role="group">
+									<div aria-hidden className={sectionHeaderClass}>
 										{t(`category.${category}`)}
 									</div>
 									{items.map(item => renderItem(item))}
@@ -732,8 +773,34 @@ export function CommandPalette() {
 							))}
 						</>
 					) : (
-						flatList.map(item => renderItem(item))
+						flatList.map(item =>
+							renderItem(item, submenu ? undefined : { categoryLabel: t(`category.${item.category}`) }),
+						)
 					)}
+				</div>
+				<div className="flex items-center gap-4 border-t border-(--sc-divider) px-3.5 py-2 text-sc-xs text-(--sc-text-muted)">
+					<span className="flex items-center gap-1.5">
+						<Kbd shortcut="↑" />
+						<Kbd shortcut="↓" />
+						{t("palette.hintMove")}
+					</span>
+					<span className="flex items-center gap-1.5">
+						<Kbd shortcut="↵" />
+						{t("palette.hintRun")}
+					</span>
+					{submenu && (
+						<span className="flex items-center gap-1.5">
+							<Kbd shortcut="←" />
+							{t("palette.hintBack")}
+						</span>
+					)}
+					<span className="ml-auto flex items-center gap-1.5">
+						<Kbd shortcut="⎋" />
+						{t("palette.hintClose")}
+					</span>
+				</div>
+				<div aria-live="polite" className="sr-only" role="status">
+					{armedMessage}
 				</div>
 			</div>
 		</div>

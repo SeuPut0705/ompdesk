@@ -32,8 +32,8 @@ const MODEL_LINE_RE = /^([+-])(\d+)(?::\d+)?[: ](.*)$/;
 const SKIP_GROUP_PREFIXES = ["Staged as a proposal", "Limit reached", "Safety cap reached", "Parse issues"];
 
 /** Split the result text into blank-line-separated groups, then parse each
- * group into header / + / - / context rows. */
-function parseChangeGroups(text: string): ChangeGroup[] {
+ * group into header / + / - / context rows. Shared with the collapsed row's diff stat. */
+export function parseChangeGroups(text: string): ChangeGroup[] {
 	if (!text.trim()) return [];
 	const rawGroups: string[][] = [];
 	let current: string[] = [];

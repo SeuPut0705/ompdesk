@@ -13,7 +13,7 @@ import { Check, Copy, X } from "lucide-react";
 import { useState } from "react";
 import { copyText, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { Spinner } from "../../common";
+import { Button, IconButton, Spinner } from "../../common";
 
 /** Tool names rendered before the "+N more" remainder kicks in. */
 export const MCP_TEST_SHOWN_LIMIT = 10;
@@ -41,13 +41,9 @@ export function CopyButton({ text, className }: { text: string; className?: stri
 	const t = useT();
 	const [copied, setCopied] = useState(false);
 	return (
-		<button
-			aria-label={copied ? t("mcp.card.copied") : t("mcp.card.copy")}
-			className={cx(
-				"inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-omp-xs transition-colors",
-				copied ? "text-(--omp-success)" : "text-(--omp-dim) hover:text-(--omp-text)",
-				className,
-			)}
+		<Button
+			className={cx(copied && "text-(--sc-success)", className)}
+			icon={copied ? <Check /> : <Copy />}
 			onClick={() => {
 				void copyText(text).then(ok => {
 					if (!ok) return;
@@ -55,32 +51,29 @@ export function CopyButton({ text, className }: { text: string; className?: stri
 					window.setTimeout(() => setCopied(false), 1400);
 				});
 			}}
-			title={copied ? t("mcp.card.copied") : t("mcp.card.copy")}
-			type="button"
+			size="sm"
+			variant="ghost"
 		>
-			{copied ? <Check size={11} /> : <Copy size={11} />}
 			{copied ? t("mcp.card.copied") : t("mcp.card.copy")}
-		</button>
+		</Button>
 	);
 }
 
-/** Red error box whose message can be copied verbatim (server-side errors). */
+const DANGER_BOX =
+	"rounded-(--sc-radius-md) border border-[color-mix(in_srgb,var(--sc-danger)_28%,transparent)] bg-(--sc-danger-soft) px-3 py-2";
+
+/** Danger box whose message can be copied verbatim (server-side errors). */
 export function CopyableError({ title, text, className }: { title?: string; text: string; className?: string }) {
 	return (
-		<div
-			className={cx(
-				"rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-2.5 py-1.5",
-				className,
-			)}
-		>
+		<div className={cx(DANGER_BOX, className)} role="alert">
 			<div className="flex items-start gap-2">
 				<div className="min-w-0 flex-1">
-					{title && <span className="mb-0.5 block text-omp-sm font-medium text-(--omp-error)">{title}</span>}
-					<span className="block whitespace-pre-wrap break-all font-mono text-omp-xs text-(--omp-error)">
+					{title && <span className="mb-0.5 block text-sc-sm font-medium text-(--sc-danger)">{title}</span>}
+					<span className="block font-mono text-sc-xs break-all whitespace-pre-wrap text-(--sc-text-secondary)">
 						{text}
 					</span>
 				</div>
-				<CopyButton text={text} />
+				<CopyButton className="-my-1" text={text} />
 			</div>
 		</div>
 	);
@@ -105,80 +98,56 @@ export function McpTestResultView({
 	const t = useT();
 	if (testing) {
 		return (
-			<div
-				className={cx(
-					"flex items-center gap-2 rounded-md border border-(--omp-border-muted) bg-transparent px-2.5 py-1.5",
-					className,
-				)}
-			>
+			<div className={cx("flex items-center gap-2 py-1", className)}>
 				<Spinner size="sm" />
-				<span className="text-omp-sm text-(--omp-muted)">{t("mcp.wizard.testing")}</span>
+				<span className="text-sc-sm text-(--sc-text-muted)">{t("mcp.wizard.testing")}</span>
 			</div>
 		);
 	}
 	if (!view) return null;
+	const dismiss = onDismiss ? (
+		<IconButton className="-my-1 -mr-1.5" icon={<X />} label={t("mcp.test.dismiss")} onClick={onDismiss} size="sm" />
+	) : null;
 	if (view.kind === "error") {
 		return (
-			<div
-				className={cx(
-					"rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-2.5 py-1.5",
-					className,
-				)}
-			>
+			<div className={cx(DANGER_BOX, className)}>
 				<div className="flex items-start gap-2">
 					<div className="min-w-0 flex-1">
-						<span className="mb-0.5 block text-omp-sm font-medium text-(--omp-error)">
-							{t("mcp.test.failed")}
-						</span>
-						<span className="block whitespace-pre-wrap break-all font-mono text-omp-xs text-(--omp-error)">
+						<span className="mb-0.5 block text-sc-sm font-medium text-(--sc-danger)">{t("mcp.test.failed")}</span>
+						<span className="block font-mono text-sc-xs break-all whitespace-pre-wrap text-(--sc-text-secondary)">
 							{view.error || t("mcp.test.unknownError")}
 						</span>
 					</div>
-					{onDismiss && (
-						<button
-							aria-label={t("mcp.test.dismiss")}
-							className="shrink-0 text-(--omp-dim) transition-colors hover:text-(--omp-text)"
-							onClick={onDismiss}
-							title={t("mcp.test.dismiss")}
-							type="button"
-						>
-							<X size={11} />
-						</button>
-					)}
+					{dismiss}
 				</div>
 			</div>
 		);
 	}
 	return (
-		<div className={cx("rounded-md bg-(--omp-tool-success-bg) px-2.5 py-1.5", className)}>
+		<div
+			className={cx(
+				"rounded-(--sc-radius-md) border border-[color-mix(in_srgb,var(--sc-success)_28%,transparent)] bg-(--sc-success-soft) px-3 py-2",
+				className,
+			)}
+		>
 			<div className="flex items-center gap-2">
-				<span className="min-w-0 flex-1 text-omp-sm font-medium text-(--omp-success)">
+				<span className="min-w-0 flex-1 text-sc-sm font-medium text-(--sc-success)">
 					{view.toolCount > 0 ? t("mcp.test.ok", { count: view.toolCount }) : t("mcp.test.okNoTools")}
 				</span>
-				{onDismiss && (
-					<button
-						aria-label={t("mcp.test.dismiss")}
-						className="shrink-0 text-(--omp-dim) transition-colors hover:text-(--omp-text)"
-						onClick={onDismiss}
-						title={t("mcp.test.dismiss")}
-						type="button"
-					>
-						<X size={11} />
-					</button>
-				)}
+				{dismiss}
 			</div>
 			{view.shown.length > 0 && (
 				<div className="mt-1 flex flex-wrap items-center gap-1">
 					{view.shown.map(name => (
 						<code
-							className="rounded bg-(--omp-code-bg) px-1.5 py-px font-mono text-omp-xs text-(--omp-muted)"
+							className="rounded-(--sc-radius-xs) bg-(--sc-surface-3) px-1.5 py-px font-mono text-sc-xs text-(--sc-text-secondary)"
 							key={name}
 						>
 							{name}
 						</code>
 					))}
 					{view.extra > 0 && (
-						<span className="text-omp-xs text-(--omp-dim)">{t("mcp.test.more", { count: view.extra })}</span>
+						<span className="text-sc-xs text-(--sc-text-muted)">{t("mcp.test.more", { count: view.extra })}</span>
 					)}
 				</div>
 			)}

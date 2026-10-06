@@ -7,16 +7,14 @@ import {
 	type ReactNode,
 	useContext,
 	useEffect,
+	useMemo,
 	useState,
 	useSyncExternalStore,
 } from "react";
 import ReactMarkdown, { type Components, defaultUrlTransform, type Options } from "react-markdown";
-import rehypeKatex from "rehype-katex";
-import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
-import "katex/dist/katex.min.css";
 import { CodeBlock as SharedCodeBlock } from "../components/chat/CodeBlock";
 import { MermaidBlock } from "../components/chat/MermaidBlock";
 import { useRuntimeTabId } from "../stores/session-runtime-context";
@@ -143,7 +141,72 @@ const SANITIZE_SCHEMA: SanitizeSchema = {
 // (same lazy hljs path as the tool cards), which also owns the language badge,
 // copy button, and line-number gutter — one code chrome across the whole GUI.
 // Code `language-*` classes survive sanitize for that detection.
-const REHYPE_PLUGINS: Options["rehypePlugins"] = [rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA], rehypeKatex];
+type RehypePlugin = NonNullable<Options["rehypePlugins"]>[number];
+
+const SANITIZE_STEP: RehypePlugin = [rehypeSanitize, SANITIZE_SCHEMA];
+
+/**
+ * Pipeline steps too heavy for startup (rehype-raw pulls parse5; KaTeX is
+ * ~500 KB plus its stylesheet): fetched the first time some content looks like
+ * it needs them. Until the chunk arrives that content renders without the step
+ * — sanitize drops the raw HTML, math shows as its TeX source — and re-renders
+ * once it lands. `hint` may over-match (a stray `$` just loads KaTeX early) but
+ * must never under-match.
+ */
+interface LazyRehypeStep {
+	hint: RegExp;
+	load: () => Promise<RehypePlugin>;
+	plugin?: RehypePlugin;
+	pending?: Promise<RehypePlugin>;
+}
+
+const RAW_HTML_STEP: LazyRehypeStep = {
+	hint: /<[A-Za-z!/?]/,
+	load: () => import("rehype-raw").then(mod => mod.default),
+};
+// `$`/`$$` (remark-math), `\(`/`\[` (remarkLatexMath), ```math fences (rehype-katex).
+const KATEX_STEP: LazyRehypeStep = {
+	hint: /\$|\\[([]|(?:`{3,}|~{3,})[ \t]*math/,
+	load: () => import("./markdown-katex").then(mod => mod.default),
+};
+
+function loadRehypeStep(step: LazyRehypeStep): Promise<RehypePlugin> {
+	step.pending ??= step.load().then(
+		plugin => {
+			step.plugin = plugin;
+			return plugin;
+		},
+		(error: unknown) => {
+			step.pending = undefined; // let the next renderer that needs it retry
+			throw error;
+		},
+	);
+	return step.pending;
+}
+
+/** The step's plugin once loaded; starts the load when `content` needs it. */
+function useLazyRehypeStep(step: LazyRehypeStep, content: string): RehypePlugin | undefined {
+	const needed = step.plugin === undefined && step.hint.test(content);
+	const [, setLoaded] = useState(false);
+	useEffect(() => {
+		if (!needed) return;
+		let live = true;
+		loadRehypeStep(step).then(
+			() => live && setLoaded(true),
+			// A failed chunk load keeps the readable fallback (TeX source / no HTML).
+			() => {},
+		);
+		return () => {
+			live = false;
+		};
+	}, [needed, step]);
+	return step.plugin;
+}
+
+/** Load every lazy pipeline step now — for callers that render synchronously (SSR/tests). */
+export function preloadMarkdownPipeline(): Promise<unknown> {
+	return Promise.all([loadRehypeStep(RAW_HTML_STEP), loadRehypeStep(KATEX_STEP)]);
+}
 
 // react-markdown's defaultUrlTransform blanks data:/file: URLs even when the
 // sanitize schema allows them. Images need both (inline base64, local files
@@ -525,19 +588,26 @@ const COMPONENTS: Components = {
 
 /**
  * Renders markdown content with GFM, a sanitized raw-HTML subset, KaTeX math,
- * and syntax highlighting. Memoized: re-parses only when `content` changes.
+ * and syntax highlighting. Memoized: re-parses only when `content` changes
+ * (or a lazy pipeline step it needs finishes loading).
  */
 export const MarkdownRenderer = memo(function MarkdownRenderer({
 	content,
 	codeLineNumbers,
 	singleDollarTextMath = true,
 }: MarkdownRendererProps) {
+	const rawHtml = useLazyRehypeStep(RAW_HTML_STEP, content);
+	const katex = useLazyRehypeStep(KATEX_STEP, content);
+	const rehypePlugins = useMemo(
+		() => [...(rawHtml ? [rawHtml] : []), SANITIZE_STEP, ...(katex ? [katex] : [])],
+		[rawHtml, katex],
+	);
 	return (
 		<div className="markdown-body text-[1em] leading-[1.5]">
 			<CodeLineNumbersOverride.Provider value={codeLineNumbers}>
 				<ReactMarkdown
 					remarkPlugins={singleDollarTextMath ? REMARK_PLUGINS : REMARK_PLUGINS_LITERAL_SINGLE_DOLLAR}
-					rehypePlugins={REHYPE_PLUGINS}
+					rehypePlugins={rehypePlugins}
 					components={COMPONENTS}
 					urlTransform={URL_TRANSFORM}
 				>

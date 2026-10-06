@@ -33,8 +33,9 @@ import { useSettingsStore } from "../stores/settings";
 import { activeTabKind, useTabsStore } from "../stores/tabs";
 import { toast } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
-import { type DockCardId, useUiStore } from "../stores/ui";
+import { type AgentsTab, type DockCardId, type InsightsStatsScope, type InsightsTab, useUiStore } from "../stores/ui";
 import { isCommandAvailable } from "./command-availability";
+import type { CommandGuard } from "./command-search";
 import { exportSessionHtml } from "./export-session";
 import { copyText } from "./format";
 import { translate } from "./i18n";
@@ -69,19 +70,41 @@ export interface CommandMenuItem {
 	affordance: CommandAffordance;
 	shortcut?: string;
 	aliases?: string[];
+	/**
+	 * Starts a turn or destroys state. The palette never runs it from Enter on
+	 * a partial match (see `commandGuard` / `enterNeedsConfirm`).
+	 */
+	guard?: CommandGuard;
 }
 
-export type CommandCategory =
-	| "session"
-	| "model"
-	| "context"
-	| "tools"
-	| "providers"
-	| "extensions"
-	| "modes"
-	| "view"
-	| "workspace"
-	| "other";
+/** Palette sections, in display order (design spec §2 IA). */
+export const COMMAND_CATEGORIES = [
+	"session",
+	"agents",
+	"insights",
+	"model",
+	"providers",
+	"context",
+	"modes",
+	"tools",
+	"panel",
+	"workspace",
+	"extensions",
+	"settings",
+	"help",
+	"other",
+] as const;
+
+export type CommandCategory = (typeof COMMAND_CATEGORIES)[number];
+
+/**
+ * Effective Enter guard: the item's own, else a dispatched prompt (no
+ * argument to fill in) is turn-starting — it sends text to the agent.
+ */
+export function commandGuard(item: CommandMenuItem): CommandGuard | undefined {
+	if (item.guard) return item.guard;
+	return item.affordance.kind === "prompt" && !item.affordance.argUsage ? "turn" : undefined;
+}
 
 export interface CommandRegistryContext {
 	/**
@@ -107,27 +130,21 @@ export interface CommandRegistryContext {
 	availableCommands: AvailableCommand[];
 	openModelPicker: () => void;
 	openSettings: (tab?: string) => void;
-	openUsage: () => void;
 	openProviders: () => void;
 	openCommandPalette: () => void;
-	openModelRoles: () => void;
-	openStatsDashboard: () => void;
 	openFeedback: () => void;
 	openRenameDialog: () => void;
 	openSessionPicker: () => void;
 	openBranchPicker: () => void;
 	openSessionTree: () => void;
-	openSessionInfo: () => void;
-	openModelCompare: () => void;
 	openBenchmark: () => void;
 	openHandoffDialog: () => void;
-	openExtensions: (tab?: "hooks" | "mcp" | "commands") => void;
-	openInventory: (tab?: "plugins" | "marketplaces" | "templates" | "memory") => void;
 	openThemePicker: () => void;
 	openModes: (tab?: "vibe" | "goal" | "loop") => void;
-	openAgentHub: (tab?: "definitions" | "hub") => void;
-	openPrCenter: () => void;
-	openHotkeys: () => void;
+	/** Agents page (Live · Definitions · Pull requests). */
+	openAgents: (tab?: AgentsTab) => void;
+	/** Insights page (Stats with a This session / All sessions scope · Usage). */
+	openInsights: (tab?: InsightsTab, scope?: InsightsStatsScope) => void;
 	openImportDialog: () => void;
 	openProviderConfig: () => void;
 	/** Deep-link a center-dock card (todo/plan/agents): expand + flash. */
@@ -314,7 +331,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 	const runMcpAction = async (verb: "enable" | "disable" | "reconnect" | "remove", args?: string): Promise<void> => {
 		const name = args?.trim();
 		if (!name) {
-			ctx.openSettings("mcp");
+			ctx.openSettings("extensions:mcp");
 			return;
 		}
 		const res = await boundRpc.mcpAction(name, verb);
@@ -333,7 +350,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 	): Promise<void> => {
 		const input = args?.trim() ?? "";
 		if (!input && verb !== "update") {
-			ctx.openSettings(verb === "uninstall" ? "resources:plugins" : "resources:marketplaces");
+			ctx.openSettings(verb === "uninstall" ? "plugins" : "plugins:marketplaces");
 			return;
 		}
 		const origin = verb === "uninstall" || verb === "upgrade" ? capturePluginActivationOrigin() : null;
@@ -373,7 +390,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 	const runPluginEnabled = async (enabled: boolean, args?: string): Promise<void> => {
 		const id = args?.trim();
 		if (!id) {
-			ctx.openSettings("resources:plugins");
+			ctx.openSettings("plugins");
 			return;
 		}
 		const origin = capturePluginActivationOrigin();
@@ -436,6 +453,8 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		category: "session",
 		shortcut: "⌘N",
 		affordance: { kind: "action", run: () => newSessionGuarded() },
+		// Replacing the session mid-run would abort it; idle it's harmless.
+		guard: ctx.isStreaming ? "destructive" : undefined,
 	});
 	add({
 		name: "new-tab",
@@ -459,6 +478,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: t("cmd.clear.desc"),
 		category: "session",
 		affordance: { kind: "action", run: () => clearContextGuarded() },
+		guard: "destructive",
 	});
 	add({
 		name: "resume",
@@ -486,10 +506,10 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 					name: "session info",
 					label: t("cmd.session.info"),
 					category: "extensions",
-					affordance: { kind: "window", open: ctx.openSessionInfo },
+					affordance: { kind: "window", open: () => ctx.openInsights("stats", "session") },
 				},
 				// /session delete + /session pin stay forwarded — need dedicated RPC (P1).
-				sub("session delete", "/session delete"),
+				{ ...sub("session delete", "/session delete"), guard: "destructive" },
 				sub("session pin", "/session pin ", "[account]"),
 			],
 		},
@@ -557,6 +577,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: t("cmd.drop.desc"),
 		category: "session",
 		affordance: { kind: "action", run: dropSessionFromGui },
+		guard: "destructive",
 	});
 	add({
 		name: "close",
@@ -564,6 +585,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: t("cmd.close.desc"),
 		category: "session",
 		affordance: { kind: "action", run: () => window.close() },
+		guard: "destructive",
 	});
 	add({
 		name: "restart",
@@ -571,6 +593,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: t("cmd.restart.desc"),
 		category: "other",
 		affordance: { kind: "action", run: restartSidecar },
+		guard: "destructive",
 	});
 	add({
 		// `window.close()` used to hide behind this name, which left every other
@@ -579,8 +602,9 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		aliases: ["exit"],
 		label: t("cmd.quit"),
 		description: t("cmd.quit.desc"),
-		category: "session",
+		category: "other",
 		affordance: { kind: "action", run: () => window.omp.app.quit() },
+		guard: "destructive",
 	});
 	add({
 		name: "retry",
@@ -589,6 +613,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		category: "session",
 		shortcut: "⌥R",
 		affordance: { kind: "action", run: () => ctx.retryTurn() },
+		guard: "turn",
 	});
 	add({
 		name: "resend",
@@ -596,6 +621,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: t("cmd.resend.desc"),
 		category: "session",
 		affordance: { kind: "action", run: () => ctx.retryLastTurn() },
+		guard: "turn",
 	});
 	// /queue focuses the composer prefilled with the yield-queue shorthand
 	// ("-> ") via the same omp:fill-composer channel the starter cards and the
@@ -693,7 +719,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.modelRoles"),
 		description: t("cmd.modelRoles.desc"),
 		category: "model",
-		affordance: { kind: "window", open: ctx.openModelRoles },
+		affordance: { kind: "window", open: () => ctx.openSettings("models") },
 	});
 	add({
 		name: "model-compare",
@@ -701,7 +727,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: t("cmd.modelCompare.desc"),
 		category: "model",
 		aliases: ["compare"],
-		affordance: { kind: "window", open: ctx.openModelCompare },
+		affordance: { kind: "window", open: () => ctx.openSettings("models:compare") },
 	});
 	add({
 		name: "benchmark",
@@ -729,6 +755,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 				toast({ variant: "success", title: t("command.compactedTitle"), message: t("command.compactedMessage") });
 			},
 		},
+		guard: "destructive",
 	});
 	add({
 		name: "shake",
@@ -743,18 +770,21 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 					label: t("cmd.shake.elide"),
 					category: "extensions",
 					affordance: { kind: "action", run: () => shakeContextFromGui("elide") },
+					guard: "destructive",
 				},
 				{
 					name: "shake images",
 					label: t("cmd.shake.images"),
 					category: "extensions",
 					affordance: { kind: "action", run: () => shakeContextFromGui("images") },
+					guard: "destructive",
 				},
 				{
 					name: "shake thinking",
 					label: t("cmd.shake.thinking"),
 					category: "extensions",
 					affordance: { kind: "action", run: () => shakeContextFromGui("thinking") },
+					guard: "destructive",
 				},
 			],
 		},
@@ -763,8 +793,8 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		name: "context",
 		label: t("cmd.context"),
 		description: t("cmd.context.desc"),
-		category: "context",
-		affordance: { kind: "window", open: () => useUiStore.getState().openContextReport() },
+		category: "insights",
+		affordance: { kind: "window", open: () => ctx.openInsights("stats", "session") },
 	});
 	add({
 		name: "auto-compact",
@@ -804,6 +834,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: t("cmd.fresh.desc"),
 		category: "context",
 		affordance: { kind: "action", run: () => freshGuarded() },
+		guard: "destructive",
 	});
 
 	// ═══════════════════════════════════════════════════════════════════
@@ -906,8 +937,8 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		name: "usage",
 		label: t("cmd.usage"),
 		description: t("cmd.usage.desc"),
-		category: "providers",
-		affordance: { kind: "window", open: ctx.openUsage },
+		category: "insights",
+		affordance: { kind: "window", open: () => ctx.openInsights("usage") },
 	});
 	add({
 		name: "login",
@@ -932,21 +963,21 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.skills"),
 		description: t("cmd.skills.desc"),
 		category: "extensions",
-		affordance: { kind: "window", open: () => ctx.openSettings("skills") },
+		affordance: { kind: "window", open: () => ctx.openSettings("extensions:skills") },
 	});
 	add({
 		name: "hooks",
 		label: t("cmd.hooks"),
 		description: t("cmd.hooks.desc"),
 		category: "extensions",
-		affordance: { kind: "window", open: () => ctx.openSettings("hooks") },
+		affordance: { kind: "window", open: () => ctx.openSettings("extensions:hooks") },
 	});
 	add({
 		name: "commands",
 		label: t("cmd.commands"),
 		description: t("cmd.commands.desc"),
 		category: "extensions",
-		affordance: { kind: "window", open: () => ctx.openSettings("commands") },
+		affordance: { kind: "window", open: () => ctx.openSettings("extensions:commands") },
 	});
 	add({
 		name: "mcp",
@@ -961,22 +992,22 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 					label: t("cmd.mcp.panel"),
 					description: t("cmd.mcp.panel.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openSettings("mcp") },
+					affordance: { kind: "window", open: () => ctx.openSettings("extensions:mcp") },
 				},
 				{
 					name: "mcp list",
 					label: t("cmd.mcp.list"),
 					description: t("cmd.mcp.list.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openSettings("mcp") },
+					affordance: { kind: "window", open: () => ctx.openSettings("extensions:mcp") },
 				},
 				// add/test/reauth are covered natively by the MCP tab (wizard + cards).
-				subWindow("mcp add", () => ctx.openSettings("mcp")),
+				subWindow("mcp add", () => ctx.openSettings("extensions:mcp")),
 				subAction("mcp remove", args => runMcpAction("remove", args)),
-				subWindow("mcp test", () => ctx.openSettings("mcp")),
+				subWindow("mcp test", () => ctx.openSettings("extensions:mcp")),
 				subAction("mcp enable", args => runMcpAction("enable", args)),
 				subAction("mcp disable", args => runMcpAction("disable", args)),
-				subWindow("mcp reauth", () => ctx.openSettings("mcp")),
+				subWindow("mcp reauth", () => ctx.openSettings("extensions:mcp")),
 				sub("mcp unauth", "/mcp unauth ", "<name>"),
 				subAction("mcp reconnect", args => runMcpAction("reconnect", args)),
 				sub("mcp reload", "/mcp reload"),
@@ -1003,27 +1034,27 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 					label: t("cmd.marketplace.panel"),
 					description: t("cmd.marketplace.panel.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openSettings("resources:marketplaces") },
+					affordance: { kind: "window", open: () => ctx.openSettings("plugins:marketplaces") },
 				},
 				{
 					name: "marketplace list",
 					label: t("cmd.marketplace.list"),
 					description: t("cmd.marketplace.list.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openSettings("resources:marketplaces") },
+					affordance: { kind: "window", open: () => ctx.openSettings("plugins:marketplaces") },
 				},
 				subAction("marketplace add", args => runMarketplaceAction("add", args)),
 				subAction("marketplace remove", args => runMarketplaceAction("remove", args)),
 				subAction("marketplace update", args => runMarketplaceAction("update", args)),
-				subWindow("marketplace discover", () => ctx.openSettings("resources:marketplaces")),
-				subWindow("marketplace install", () => ctx.openSettings("resources:marketplaces")),
+				subWindow("marketplace discover", () => ctx.openSettings("plugins:marketplaces")),
+				subWindow("marketplace install", () => ctx.openSettings("plugins:marketplaces")),
 				subAction("marketplace uninstall", args => runMarketplaceAction("uninstall", args)),
 				{
 					name: "marketplace installed",
 					label: t("cmd.marketplace.installed"),
 					description: t("cmd.marketplace.installed.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openSettings("resources:plugins") },
+					affordance: { kind: "window", open: () => ctx.openSettings("plugins") },
 				},
 				subAction("marketplace upgrade", args => runMarketplaceAction("upgrade", args)),
 				sub("marketplace help", "/marketplace help"),
@@ -1043,7 +1074,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 					label: t("cmd.plugins.panel"),
 					description: t("cmd.plugins.panel.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openSettings("resources:plugins") },
+					affordance: { kind: "window", open: () => ctx.openSettings("plugins") },
 				},
 				sub("plugins list", "/plugins list"),
 				subAction("plugins enable", args => runPluginEnabled(true, args)),
@@ -1071,13 +1102,13 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 					label: t("cmd.memory.panel"),
 					description: t("cmd.memory.panel.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openSettings("resources:memory") },
+					affordance: { kind: "window", open: () => ctx.openSettings("plugins:memory") },
 				},
-				// The Inventory memory tab covers view/stats/diagnose natively.
-				subWindow("memory view", () => ctx.openSettings("resources:memory")),
-				subWindow("memory stats", () => ctx.openSettings("resources:memory")),
-				subWindow("memory diagnose", () => ctx.openSettings("resources:memory")),
-				sub("memory clear", "/memory clear"),
+				// Settings › Plugins & resources › Memory covers view/stats/diagnose natively.
+				subWindow("memory view", () => ctx.openSettings("plugins:memory")),
+				subWindow("memory stats", () => ctx.openSettings("plugins:memory")),
+				subWindow("memory diagnose", () => ctx.openSettings("plugins:memory")),
+				{ ...sub("memory clear", "/memory clear"), guard: "destructive" },
 				sub("memory enqueue", "/memory enqueue"),
 			],
 		},
@@ -1110,7 +1141,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: t("cmd.templates.desc"),
 		category: "extensions",
 		aliases: ["prompt-templates"],
-		affordance: { kind: "window", open: () => ctx.openSettings("resources:templates") },
+		affordance: { kind: "window", open: () => ctx.openSettings("plugins:templates") },
 	});
 	add({
 		name: "ssh",
@@ -1223,20 +1254,20 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.removeDir"),
 		description: t("cmd.removeDir.desc"),
 		category: "workspace",
-		affordance: { kind: "window", open: () => useUiStore.getState().openWorkspaceDirs() },
+		affordance: { kind: "window", open: () => ctx.openSettings("workspace") },
 	});
 	add({
 		name: "dirs",
 		label: t("cmd.dirs"),
 		description: t("cmd.dirs.desc"),
 		category: "workspace",
-		affordance: { kind: "window", open: () => useUiStore.getState().openWorkspaceDirs() },
+		affordance: { kind: "window", open: () => ctx.openSettings("workspace") },
 	});
 	add({
 		name: "git",
 		label: t("cmd.git"),
 		description: t("cmd.git.desc"),
-		category: "workspace",
+		category: "panel",
 		affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab("diff") },
 	});
 
@@ -1247,87 +1278,87 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		name: "theme",
 		label: t("cmd.theme"),
 		description: t("cmd.theme.desc"),
-		category: "view",
+		category: "settings",
 		affordance: { kind: "picker", open: ctx.openThemePicker },
 	});
 	add({
 		name: "settings",
 		label: t("cmd.settings"),
 		description: t("cmd.settings.desc"),
-		category: "view",
+		category: "settings",
 		shortcut: "⌘,",
-		affordance: { kind: "window", open: ctx.openSettings },
+		affordance: { kind: "window", open: () => ctx.openSettings() },
 	});
 	add({
 		name: "stats",
 		label: t("cmd.stats"),
 		description: t("cmd.stats.desc"),
-		category: "view",
-		affordance: { kind: "window", open: ctx.openStatsDashboard },
+		category: "insights",
+		affordance: { kind: "window", open: () => ctx.openInsights("stats", "all") },
 	});
 	add({
 		name: "feedback",
 		label: t("cmd.feedback"),
 		description: t("cmd.feedback.desc"),
-		category: "view",
+		category: "help",
 		affordance: { kind: "window", open: ctx.openFeedback },
 	});
 	add({
 		name: "jobs",
 		label: t("cmd.jobs"),
 		description: t("cmd.jobs.desc"),
-		category: "view",
+		category: "panel",
 		affordance: { kind: "window", open: () => useUiStore.getState().openJobs() },
 	});
 	add({
 		name: "changelog",
 		label: t("cmd.changelog"),
 		description: t("cmd.changelog.desc"),
-		category: "view",
+		category: "help",
 		affordance: { kind: "window", open: () => useUiStore.getState().openChangelog() },
 	});
 	add({
 		name: "copy",
 		label: t("cmd.copy"),
 		description: t("cmd.copy.desc"),
-		category: "view",
+		category: "session",
 		affordance: { kind: "action", run: args => copyFromChat(args) },
 	});
 	add({
 		name: "hotkeys",
 		label: t("cmd.hotkeys"),
 		description: t("cmd.hotkeys.desc"),
-		category: "view",
-		affordance: { kind: "window", open: () => ctx.openHotkeys() },
+		category: "help",
+		affordance: { kind: "window", open: () => ctx.openSettings("keyboard") },
 	});
 	add({
 		name: "extensions",
 		label: t("cmd.extensions"),
 		description: t("cmd.extensions.desc"),
-		category: "view",
+		category: "settings",
 		aliases: ["status"],
-		affordance: { kind: "window", open: () => ctx.openSettings("skills") },
+		affordance: { kind: "window", open: () => ctx.openSettings("extensions") },
 	});
 	add({
 		name: "agents",
 		label: t("cmd.agents"),
 		description: t("cmd.agents.desc"),
-		category: "view",
-		affordance: { kind: "window", open: () => ctx.openAgentHub() },
+		category: "agents",
+		affordance: { kind: "window", open: () => ctx.openAgents("definitions") },
 	});
 	add({
 		name: "hub",
 		label: t("cmd.hub"),
 		description: t("cmd.hub.desc"),
-		category: "view",
-		affordance: { kind: "window", open: () => ctx.openAgentHub("hub") },
+		category: "agents",
+		affordance: { kind: "window", open: () => ctx.openAgents("live") },
 	});
 	add({
 		name: "prs",
 		label: t("cmd.prCenter"),
 		description: t("cmd.prCenter.desc"),
-		category: "view",
-		affordance: { kind: "window", open: () => ctx.openPrCenter() },
+		category: "agents",
+		affordance: { kind: "window", open: () => ctx.openAgents("prs") },
 	});
 
 	// ═══════════════════════════════════════════════════════════════════
@@ -1337,7 +1368,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		name: "btw",
 		label: t("cmd.btw"),
 		description: t("cmd.btw.desc"),
-		category: "other",
+		category: "session",
 		affordance: {
 			kind: "action",
 			argUsage: "<question>",
@@ -1355,7 +1386,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		name: "tan",
 		label: t("cmd.tan"),
 		description: t("cmd.tan.desc"),
-		category: "other",
+		category: "agents",
 		affordance: { kind: "action", argUsage: "<work>", run: work => dispatchTan(work) },
 	});
 	add({
@@ -1383,7 +1414,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		name: "pause",
 		label: t("cmd.pause"),
 		description: t("cmd.pause.desc"),
-		category: "other",
+		category: "agents",
 		affordance: {
 			kind: "toggle",
 			get: () => useSessionStore.getState().agentsPaused,
@@ -1399,7 +1430,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		name: "plan-review",
 		label: t("cmd.planReview"),
 		description: t("cmd.planReview.desc"),
-		category: "other",
+		category: "modes",
 		affordance: {
 			kind: "action",
 			run: () => {
@@ -1416,7 +1447,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		name: "guided-goal",
 		label: t("cmd.guidedGoal"),
 		description: t("cmd.guidedGoal.desc"),
-		category: "other",
+		category: "modes",
 		affordance: {
 			kind: "action",
 			run: async initial => {
@@ -1424,6 +1455,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 				if (!response.success) throw new Error(response.error);
 			},
 		},
+		guard: "turn",
 	});
 
 	// Merge sidecar-advertised commands not already covered. A name claimed by
@@ -1677,27 +1709,19 @@ export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): 
 		availableCommands,
 		openModelPicker: ui.openModelPicker,
 		openSettings: ui.openSettings,
-		openUsage: ui.openUsage,
 		openProviders: ui.openProviders,
 		openCommandPalette: ui.openCommandPalette,
-		openModelRoles: ui.openModelRoles,
-		openStatsDashboard: ui.openStatsDashboard,
 		openFeedback: ui.openFeedback,
 		openRenameDialog: ui.openRenameDialog,
 		openSessionPicker: ui.openSessionPicker,
 		openBranchPicker: ui.openBranchPicker,
 		openSessionTree: ui.openSessionTree,
-		openSessionInfo: ui.openSessionInfo,
-		openModelCompare: ui.openModelCompare,
 		openBenchmark: ui.openBenchmark,
 		openHandoffDialog,
-		openExtensions: ui.openExtensions,
-		openInventory: ui.openInventory,
 		openThemePicker: ui.openThemePicker,
 		openModes: ui.openModes,
-		openAgentHub: ui.openAgentHub,
-		openPrCenter: ui.openPrCenter,
-		openHotkeys: ui.openHotkeys,
+		openAgents: ui.openAgents,
+		openInsights: ui.openInsights,
 		openImportDialog: ui.openImportDialog,
 		openProviderConfig: ui.openProviderConfig,
 		focusDockCard: ui.focusDockCard,
@@ -1760,12 +1784,10 @@ export function withGuiCommands(stock: AvailableCommand[]): AvailableCommand[] {
 	return [...stock, ...gui];
 }
 
+/** Group items into palette sections, in `COMMAND_CATEGORIES` order (empty sections omitted). */
 export function groupByCategory(items: CommandMenuItem[]): Map<CommandCategory, CommandMenuItem[]> {
-	const groups = new Map<CommandCategory, CommandMenuItem[]>();
-	for (const item of items) {
-		const list = groups.get(item.category) ?? [];
-		list.push(item);
-		groups.set(item.category, list);
-	}
+	const groups = new Map<CommandCategory, CommandMenuItem[]>(COMMAND_CATEGORIES.map(category => [category, []]));
+	for (const item of items) groups.get(item.category)?.push(item);
+	for (const [category, list] of groups) if (list.length === 0) groups.delete(category);
 	return groups;
 }

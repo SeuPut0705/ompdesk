@@ -1,12 +1,16 @@
 import { type TabRpc, useTabRpc } from "../../lib/tab-rpc";
 /**
- * SchemaSettingRow: one schema-driven setting row with inline editors.
- * Handles booleans (toggle), enums (dropdown), strings (input/dropdown),
- * numbers (input), arrays/records (JSON/structured editors).
+ * SchemaSettingRow: one agent-schema setting as a Settings row. Booleans are
+ * a switch row; enums a Select; numbers/strings a field; arrays and records
+ * a structured editor (JSON as the fallback) under the label. Writes go
+ * through set_setting and apply immediately.
+ *
+ * `label`/`description` override the schema text (curated rows); `showSource`
+ * (Advanced only) reveals where a configured value comes from.
  */
 
 import { Check, Eye, EyeOff } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import type { SettingEntry, SettingProvenance } from "../../../shared/rpc-types";
 import { useLang, useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -18,13 +22,13 @@ import {
 	type ThemeName,
 } from "../../lib/themes";
 import { toast } from "../../stores/toast";
-import { Button, Input, TextArea } from "../common";
+import { Badge, Button, IconButton, Input, Select, Spinner, TextArea } from "../common";
 import { ArrayChipEditor } from "./editors/ArrayChipEditor";
 import { type EnumerableOption, EnumerableSelect } from "./editors/EnumerableSelect";
 import { ProviderLimitsEditor } from "./editors/ProviderLimitsEditor";
 import { RecordKvEditor } from "./editors/RecordKvEditor";
-import { Toggle } from "./editors/Toggle";
 import { ModelValueSelect, settingRefKind } from "./ModelValueSelect";
+import { SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
 import { schemaOptionText, schemaSettingText } from "./schema-i18n";
 
 let themePreviewActive = false;
@@ -70,23 +74,15 @@ function shellOptions(): Promise<EnumerableOption[]> {
 
 function SettingStatus({ dirty, saving, saved }: { dirty: boolean; saving: boolean; saved: boolean }) {
 	const t = useT();
-	if (saving) return <span className="shrink-0 text-omp-xs text-(--omp-muted)">{t("common.saving")}</span>;
-	if (dirty) {
+	if (saving) return <Spinner label={t("common.saving")} size="sm" />;
+	if (dirty) return <Badge variant="warning">{t("common.unsaved")}</Badge>;
+	if (saved)
 		return (
-			<span className="flex shrink-0 items-center gap-1 text-omp-xs text-(--omp-warning)">
-				<span className="size-1.5 rounded-full bg-(--omp-warning)" />
-				{t("common.unsaved")}
-			</span>
-		);
-	}
-	if (saved) {
-		return (
-			<span className="flex shrink-0 items-center gap-0.5 text-omp-xs text-(--omp-success)">
-				<Check size={10} />
+			<span className="flex shrink-0 items-center gap-0.5 text-sc-xs text-(--sc-success)">
+				<Check aria-hidden className="size-(--sc-icon-sm)" />
 				{t("common.saved")}
 			</span>
 		);
-	}
 	return null;
 }
 
@@ -97,17 +93,25 @@ function draftFor(entry: SettingEntry, value: unknown): string {
 	return value === undefined || value === null ? "" : String(value);
 }
 
-const SELECT_CLASS =
-	"w-full rounded-md border border-(--omp-border-muted) bg-(--omp-input-bg) px-2.5 py-1.5 text-xs text-(--omp-text) transition-colors duration-100 focus:border-(--omp-border-accent) focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
-
 function SchemaSettingRow({
 	entry,
 	value,
 	onCommitted,
+	label: labelOverride,
+	description: descriptionOverride,
+	showSource = false,
+	action,
 }: {
 	entry: SettingEntry;
 	value: unknown;
 	onCommitted: (path: string, value: unknown) => void;
+	/** Curated copy replacing the schema label. */
+	label?: string;
+	description?: string;
+	/** Advanced view: show which config layer a configured value comes from. */
+	showSource?: boolean;
+	/** A follow-up link under the row ("Configure rules"). */
+	action?: ReactNode;
 }) {
 	const tabRpc = useTabRpc();
 	const [draft, setDraft] = useState<string | null>(null);
@@ -147,14 +151,9 @@ function SchemaSettingRow({
 
 	const { lang } = useLang();
 	const localized = schemaSettingText(lang, entry.path);
-	const label =
-		entry.path === "tui.renderMermaid"
-			? t("settings.gui.allowMermaid")
-			: (localized?.label ?? entry.label ?? entry.path);
-	const description =
-		entry.path === "tui.renderMermaid"
-			? t("settings.gui.allowMermaidDesc")
-			: (localized?.description ?? entry.description);
+	const label = labelOverride ?? localized?.label ?? entry.label ?? entry.path;
+	const description = descriptionOverride ?? localized?.description ?? entry.description;
+	const controlId = useId();
 	const baseDraft = draftFor(entry, value);
 	const dirty = draft !== null && draft !== baseDraft;
 
@@ -201,7 +200,13 @@ function SchemaSettingRow({
 		[entry.path, entry.type, onCommitted, t, tabRpc],
 	);
 
+	// Escape discards the draft; the blur that follows must not commit it.
+	const discardOnBlur = useRef(false);
 	const commitText = useCallback(() => {
+		if (discardOnBlur.current) {
+			discardOnBlur.current = false;
+			return;
+		}
 		if (draft === null || draft === baseDraft) {
 			setDraft(null);
 			setError(null);
@@ -243,7 +248,11 @@ function SchemaSettingRow({
 	const onTextKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
 		if (isImeKeyEvent(event)) return;
 		if (event.key === "Enter") event.currentTarget.blur();
-		if (event.key === "Escape") {
+		if (event.key === "Escape" && draft !== null) {
+			// A pending edit claims this Escape; the next one leaves the page.
+			event.preventDefault();
+			event.stopPropagation();
+			discardOnBlur.current = true;
 			setDraft(null);
 			setError(null);
 			event.currentTarget.blur();
@@ -252,347 +261,342 @@ function SchemaSettingRow({
 
 	const status = <SettingStatus dirty={dirty} saving={saving} saved={saved} />;
 	// Values cached at session construction need a restart in every client.
-	const restartBadge =
-		entry.restartRequired === true ? (
-			<span
-				title={t("settings.restartRequired.hint")}
-				className="shrink-0 rounded border border-[var(--omp-warning)]/40 px-1 py-px text-omp-xxs font-medium uppercase tracking-wide text-[var(--omp-warning)]"
-			>
-				{t("settings.restartRequired.badge")}
-			</span>
-		) : null;
-
-	const renderControl = () => {
-		// Boolean settings render as one full-row switch and write immediately.
-		// The switch position is the success feedback; transient "Saved" text would
-		// compete with the control's hit target and obscure its actual state.
-		if (entry.type === "boolean") {
-			return (
-				<Toggle
-					badge={restartBadge}
-					checked={value === true}
-					description={description}
-					disabled={saving}
-					label={label}
-					onChange={next => void commit(next)}
-				/>
-			);
-		}
-
-		// Array/record settings get a full-width JSON editor below the label.
-		if (entry.type === "array" || entry.type === "record") {
-			const masked = entry.secret === true && !revealed;
-			// Structured editors for the common shapes; JSON stays the fallback.
-			const stringArray =
-				entry.type === "array" &&
-				// Empty rule lists still contain objects; the current value cannot
-				// determine their editor until the first rule exists.
-				entry.path !== "bash.patterns" &&
-				entry.path !== "bashInterceptor.patterns" &&
-				Array.isArray(value) &&
-				(value as unknown[]).every(item => typeof item === "string");
-			const nestedRecord = entry.path === "images.urls.options" || entry.path === "images.urls.credentials";
-			const flatRecord =
-				entry.type === "record" &&
-				!nestedRecord &&
-				value !== null &&
-				typeof value === "object" &&
-				!Array.isArray(value) &&
-				Object.values(value as Record<string, unknown>).every(
-					item => item === null || ["string", "number", "boolean"].includes(typeof item),
-				);
-			const approvalOptions =
-				entry.path === "tools.approval"
-					? [
-							{ value: "allow", label: t("settings.editors.approval.allow") },
-							{ value: "prompt", label: t("settings.editors.approval.prompt") },
-							{ value: "deny", label: t("settings.editors.approval.deny") },
-						]
-					: undefined;
-			// Model-valued records (modelRoles) get a model dropdown per value cell.
-			const modelValued = entry.path === "modelRoles";
-			// Per-provider concurrency caps get the dedicated provider+number editor.
-			const providerLimits =
-				entry.path === "providers.maxInFlightRequests" &&
-				value !== null &&
-				typeof value === "object" &&
-				!Array.isArray(value);
-			return (
-				<div className="rounded-md px-2 py-2 transition-colors hover:bg-(--omp-bg-tertiary)">
-					<div className="flex items-center gap-2">
-						<span className="text-xs font-medium text-(--omp-text)" title={entry.path}>
-							{label}
-						</span>
-
-						{restartBadge}
-						{status}
-					</div>
-					{description && (
-						<span className="mt-0.5 block text-omp-sm leading-snug text-(--omp-muted)">{description}</span>
-					)}
-					{masked ? (
-						<div className="mt-2 flex items-center justify-between rounded-md border border-(--omp-border-muted) px-2.5 py-2">
-							<span className="text-xs text-(--omp-muted)">••••••••</span>
-							<Button onClick={() => setRevealed(true)} size="sm" type="button" variant="ghost">
-								<Eye size={12} className="mr-1 inline" />
-								{t("common.reveal")}
-							</Button>
-						</div>
-					) : stringArray ? (
-						<div className="mt-2">
-							<ArrayChipEditor
-								disabled={saving}
-								onCommit={next => void commit(next)}
-								ordered={entry.ordered === true}
-								options={entry.options?.map(option => ({
-									value: option.value,
-									label: schemaOptionText(lang, option.label),
-								}))}
-								values={value as string[]}
-							/>
-						</div>
-					) : providerLimits ? (
-						<div className="mt-2">
-							<ProviderLimitsEditor
-								disabled={saving}
-								onCommit={next => void commit(next)}
-								value={value as Record<string, unknown>}
-							/>
-						</div>
-					) : flatRecord ? (
-						<div className="mt-2">
-							<RecordKvEditor
-								disabled={saving}
-								onCommit={next => void commit(next)}
-								value={value as Record<string, unknown>}
-								valueKind={modelValued ? "model" : undefined}
-								valueOptions={approvalOptions}
-							/>
-						</div>
-					) : (
-						<>
-							<TextArea
-								autoGrow
-								className="mt-2"
-								disabled={saving}
-								error={error ?? undefined}
-								mono
-								onChange={event => {
-									setDraft(event.target.value);
-									setError(null);
-								}}
-								rows={3}
-								spellCheck={false}
-								value={draft ?? baseDraft}
-							/>
-							<div className="mt-1.5 flex items-center justify-end gap-1.5">
-								{entry.secret === true && (
-									<Button onClick={() => setRevealed(false)} size="sm" type="button" variant="ghost">
-										<EyeOff size={12} className="mr-1 inline" />
-										{t("common.hide")}
-									</Button>
-								)}
-								{dirty && (
-									<Button
-										onClick={() => {
-											setDraft(null);
-											setError(null);
-										}}
-										size="sm"
-										type="button"
-										variant="ghost"
-									>
-										{t("common.reset")}
-									</Button>
-								)}
-								<Button
-									disabled={!dirty || saving}
-									loading={saving}
-									onClick={commitJson}
-									size="sm"
-									type="button"
-									variant="secondary"
-								>
-									{t("common.apply")}
-								</Button>
-							</div>
-						</>
-					)}
-				</div>
-			);
-		}
-
-		// enum / number / string share a label-left, control-right row.
-		let control: React.ReactNode;
-		if (entry.type === "enum") {
-			const options = entry.options ?? [];
-			const current = typeof value === "string" ? value : undefined;
-			const hasCurrent = current !== undefined && options.some(option => option.value === current);
-			if (options.length === 0) {
-				control = (
-					<Input
-						disabled={saving}
-						onBlur={commitText}
-						onChange={event => setDraft(event.target.value)}
-						onKeyDown={onTextKeyDown}
-						value={draft ?? baseDraft}
-					/>
-				);
-			} else {
-				control = (
-					<select
-						className={SELECT_CLASS}
-						disabled={saving}
-						onChange={event => {
-							if (event.target.value !== "") void commit(event.target.value);
-						}}
-						value={current ?? ""}
-					>
-						{current === undefined && <option value="">{t("common.unset")}</option>}
-						{!hasCurrent && current !== undefined && <option value={current}>{current}</option>}
-						{options.map(option => (
-							<option
-								key={option.value}
-								title={option.description && schemaOptionText(lang, option.description)}
-								value={option.value}
-							>
-								{schemaOptionText(lang, option.label)}
-							</option>
-						))}
-					</select>
-				);
-			}
-		} else if (entry.type === "number") {
-			control = (
-				<Input
-					disabled={saving}
-					error={error ?? undefined}
-					onBlur={commitText}
-					onChange={event => {
-						setDraft(event.target.value);
-						setError(null);
-					}}
-					onKeyDown={onTextKeyDown}
-					type="number"
-					value={draft ?? baseDraft}
-				/>
-			);
-		} else {
-			const masked = entry.secret === true && !revealed;
-			// Enumerable string settings get dropdowns (never hand-typed); then
-			// model/provider references get searchable dropdowns; secrets stay text.
-			const refKind = entry.secret === true ? null : settingRefKind(entry.path);
-			const themeSetting = entry.secret !== true && /^theme\.(dark|light)$/.test(entry.path);
-			const shellSetting = entry.secret !== true && entry.path === "shellPath";
-			if (themeSetting) {
-				control = (
-					<EnumerableSelect
-						allowCustom
-						disabled={saving}
-						fetchOptions={fetchThemeOptions}
-						noun={t("settings.editors.themes")}
-						onCommit={next => void commit(next)}
-						onPreview={previewAgentTheme}
-						value={typeof value === "string" ? value : ""}
-					/>
-				);
-			} else if (shellSetting) {
-				control = (
-					<EnumerableSelect
-						allowCustom
-						disabled={saving}
-						fetchOptions={shellOptions}
-						noun={t("settings.editors.shells")}
-						onCommit={next => void commit(next)}
-						value={typeof value === "string" ? value : ""}
-					/>
-				);
-			} else if (refKind !== null) {
-				control = (
-					<ModelValueSelect
-						disabled={saving}
-						kind={refKind}
-						onCommit={next => void commit(next)}
-						value={typeof value === "string" ? value : ""}
-					/>
-				);
-			} else {
-				control = (
-					<div className="relative">
-						<Input
-							disabled={saving}
-							onBlur={commitText}
-							onChange={event => setDraft(event.target.value)}
-							onKeyDown={onTextKeyDown}
-							type={masked ? "password" : "text"}
-							value={draft ?? baseDraft}
-						/>
-						{entry.secret === true && (
-							<button
-								aria-label={masked ? t("common.revealValue") : t("common.hideValue")}
-								className="absolute top-1/2 right-2 -translate-y-1/2 text-(--omp-dim) hover:text-(--omp-text)"
-								onClick={() => setRevealed(!revealed)}
-								type="button"
-							>
-								{masked ? <Eye size={13} /> : <EyeOff size={13} />}
-							</button>
-						)}
-					</div>
-				);
-			}
-		}
-
-		return (
-			<div className="settings-field-row rounded-md px-2 py-2 transition-colors hover:bg-(--omp-bg-tertiary)">
-				<div className="min-w-0 flex-1">
-					<div className="flex items-center gap-2">
-						<span className="text-xs font-medium text-(--omp-text)" title={entry.path}>
-							{label}
-						</span>
-
-						{restartBadge}
-						{status}
-					</div>
-					{description && (
-						<span className="mt-0.5 block text-omp-sm leading-snug text-(--omp-muted)">{description}</span>
-					)}
-				</div>
-				<div className="settings-field-control">{control}</div>
-			</div>
-		);
-	};
+	const badge = (
+		<>
+			{entry.restartRequired === true && (
+				<span title={t("settings.restartRequired.hint")}>
+					<Badge variant="warning">{t("settings.restartRequired.badge")}</Badge>
+				</span>
+			)}
+			{status}
+		</>
+	);
 	const provenance = savedProvenance ?? entry.provenance;
-	return (
-		<div>
-			{renderControl()}
+	// The source disclosure is an Advanced detail, and only meaningful once some layer configures the value.
+	const footer = (
+		<>
+			{action && <div className="mt-1.5">{action}</div>}
 			{entry.default === undefined && value !== undefined && (
-				<div className="px-2 pb-2">
+				<div className="mt-1">
 					<Button disabled={saving} onClick={() => void commit(undefined)} size="sm" variant="ghost">
 						{t("settings.restoreUnset")}
 					</Button>
 				</div>
 			)}
 			{error && (
-				<p role="alert" className="px-2 pb-2 text-omp-xs text-(--omp-error)">
+				<p className="mt-1 text-sc-xs text-(--sc-danger)" role="alert">
 					{error}
 				</p>
 			)}
-			{provenance && (
-				<details className="px-2 pb-2 text-omp-xs text-(--omp-dim)">
-					<summary className="cursor-pointer">
+			{showSource && provenance && provenance.layers.length > 0 && (
+				<details className="mt-1 text-sc-xs text-(--sc-text-muted)">
+					<summary className="cursor-pointer select-none">
 						{t("settings.source.label")}:{" "}
-						{provenance.layers.length
-							? provenance.layers.map(layer => t(`settings.source.${layer}`)).join(" → ")
-							: t("settings.source.default")}
+						{provenance.layers.map(layer => t(`settings.source.${layer}`)).join(" → ")}
 					</summary>
 					<p className="mt-1">{t("settings.source.saveGlobal")}</p>
-					<code className="block break-words whitespace-pre-wrap">
+					<code className="mt-1 block font-mono break-words whitespace-pre-wrap">
 						{entry.secret ? "••••••" : (JSON.stringify(provenance.globalValue) ?? t("settings.source.default"))}
 					</code>
-					{provenance.globalPath && <p className="break-all">{provenance.globalPath}</p>}
+					{provenance.globalPath && <p className="mt-1 break-all font-mono">{provenance.globalPath}</p>}
 				</details>
 			)}
-		</div>
+		</>
+	);
+	const rowId = `setting-${entry.path}`;
+
+	// Boolean settings write immediately; the switch position is the feedback.
+	if (entry.type === "boolean") {
+		return (
+			<SettingsSwitchRow
+				badge={badge}
+				checked={value === true}
+				description={description}
+				disabled={saving}
+				footer={footer}
+				id={rowId}
+				label={<span title={entry.path}>{label}</span>}
+				onCheckedChange={next => void commit(next)}
+			/>
+		);
+	}
+
+	// Arrays and records get a full-width editor under the label.
+	if (entry.type === "array" || entry.type === "record") {
+		const masked = entry.secret === true && !revealed;
+		// Structured editors for the common shapes; JSON stays the fallback.
+		const stringArray =
+			entry.type === "array" &&
+			// Empty rule lists still contain objects; the current value cannot
+			// determine their editor until the first rule exists.
+			entry.path !== "bash.patterns" &&
+			entry.path !== "bashInterceptor.patterns" &&
+			Array.isArray(value) &&
+			(value as unknown[]).every(item => typeof item === "string");
+		const nestedRecord = entry.path === "images.urls.options" || entry.path === "images.urls.credentials";
+		const flatRecord =
+			entry.type === "record" &&
+			!nestedRecord &&
+			value !== null &&
+			typeof value === "object" &&
+			!Array.isArray(value) &&
+			Object.values(value as Record<string, unknown>).every(
+				item => item === null || ["string", "number", "boolean"].includes(typeof item),
+			);
+		const approvalOptions =
+			entry.path === "tools.approval"
+				? [
+						{ value: "allow", label: t("settings.editors.approval.allow") },
+						{ value: "prompt", label: t("settings.editors.approval.prompt") },
+						{ value: "deny", label: t("settings.editors.approval.deny") },
+					]
+				: undefined;
+		// Model-valued records (modelRoles) get a model dropdown per value cell.
+		const modelValued = entry.path === "modelRoles";
+		// Per-provider concurrency caps get the dedicated provider+number editor.
+		const providerLimits =
+			entry.path === "providers.maxInFlightRequests" &&
+			value !== null &&
+			typeof value === "object" &&
+			!Array.isArray(value);
+		let editor: ReactNode;
+		if (masked) {
+			editor = (
+				<div className="flex items-center justify-between rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2">
+					<span className="text-sc-sm text-(--sc-text-muted)">••••••••</span>
+					<Button icon={<Eye />} onClick={() => setRevealed(true)} size="sm" type="button" variant="ghost">
+						{t("common.reveal")}
+					</Button>
+				</div>
+			);
+		} else if (stringArray) {
+			editor = (
+				<ArrayChipEditor
+					disabled={saving}
+					onCommit={next => void commit(next)}
+					ordered={entry.ordered === true}
+					options={entry.options?.map(option => ({
+						value: option.value,
+						label: schemaOptionText(lang, option.label),
+					}))}
+					values={value as string[]}
+				/>
+			);
+		} else if (providerLimits) {
+			editor = (
+				<ProviderLimitsEditor
+					disabled={saving}
+					onCommit={next => void commit(next)}
+					value={value as Record<string, unknown>}
+				/>
+			);
+		} else if (flatRecord) {
+			editor = (
+				<RecordKvEditor
+					disabled={saving}
+					onCommit={next => void commit(next)}
+					value={value as Record<string, unknown>}
+					valueKind={modelValued ? "model" : undefined}
+					valueOptions={approvalOptions}
+				/>
+			);
+		} else {
+			editor = (
+				<>
+					<TextArea
+						aria-label={label}
+						autoGrow
+						disabled={saving}
+						error={error ?? undefined}
+						mono
+						onChange={event => {
+							setDraft(event.target.value);
+							setError(null);
+						}}
+						rows={3}
+						spellCheck={false}
+						value={draft ?? baseDraft}
+					/>
+					<div className="mt-2 flex items-center justify-end gap-2">
+						{entry.secret === true && (
+							<Button
+								icon={<EyeOff />}
+								onClick={() => setRevealed(false)}
+								size="sm"
+								type="button"
+								variant="ghost"
+							>
+								{t("common.hide")}
+							</Button>
+						)}
+						{dirty && (
+							<Button
+								onClick={() => {
+									setDraft(null);
+									setError(null);
+								}}
+								size="sm"
+								type="button"
+								variant="ghost"
+							>
+								{t("common.reset")}
+							</Button>
+						)}
+						<Button
+							disabled={!dirty || saving}
+							loading={saving}
+							onClick={commitJson}
+							size="sm"
+							type="button"
+							variant="secondary"
+						>
+							{t("common.apply")}
+						</Button>
+					</div>
+				</>
+			);
+		}
+		return (
+			<SettingsRow
+				badge={badge}
+				description={description}
+				footer={footer}
+				id={rowId}
+				label={<span title={entry.path}>{label}</span>}
+			>
+				{editor}
+			</SettingsRow>
+		);
+	}
+
+	// enum / number / string: label left, control in the right column.
+	let control: ReactNode;
+	if (entry.type === "enum") {
+		const options = entry.options ?? [];
+		const current = typeof value === "string" ? value : undefined;
+		const hasCurrent = current !== undefined && options.some(option => option.value === current);
+		control =
+			options.length === 0 ? (
+				<Input
+					disabled={saving}
+					id={controlId}
+					onBlur={commitText}
+					onChange={event => setDraft(event.target.value)}
+					onKeyDown={onTextKeyDown}
+					value={draft ?? baseDraft}
+				/>
+			) : (
+				<Select
+					disabled={saving}
+					id={controlId}
+					onChange={event => {
+						if (event.target.value !== "") void commit(event.target.value);
+					}}
+					value={current ?? ""}
+				>
+					{current === undefined && <option value="">{t("common.unset")}</option>}
+					{!hasCurrent && current !== undefined && <option value={current}>{current}</option>}
+					{options.map(option => (
+						<option
+							key={option.value}
+							title={option.description && schemaOptionText(lang, option.description)}
+							value={option.value}
+						>
+							{schemaOptionText(lang, option.label)}
+						</option>
+					))}
+				</Select>
+			);
+	} else if (entry.type === "number") {
+		control = (
+			<Input
+				disabled={saving}
+				error={error ?? undefined}
+				id={controlId}
+				onBlur={commitText}
+				onChange={event => {
+					setDraft(event.target.value);
+					setError(null);
+				}}
+				onKeyDown={onTextKeyDown}
+				type="number"
+				value={draft ?? baseDraft}
+			/>
+		);
+	} else {
+		const masked = entry.secret === true && !revealed;
+		// Enumerable string settings get dropdowns (never hand-typed); then
+		// model/provider references get searchable dropdowns; secrets stay text.
+		const refKind = entry.secret === true ? null : settingRefKind(entry.path);
+		const themeSetting = entry.secret !== true && /^theme\.(dark|light)$/.test(entry.path);
+		const shellSetting = entry.secret !== true && entry.path === "shellPath";
+		if (themeSetting) {
+			control = (
+				<EnumerableSelect
+					allowCustom
+					disabled={saving}
+					fetchOptions={fetchThemeOptions}
+					noun={t("settings.editors.themes")}
+					onCommit={next => void commit(next)}
+					onPreview={previewAgentTheme}
+					value={typeof value === "string" ? value : ""}
+				/>
+			);
+		} else if (shellSetting) {
+			control = (
+				<EnumerableSelect
+					allowCustom
+					disabled={saving}
+					fetchOptions={shellOptions}
+					noun={t("settings.editors.shells")}
+					onCommit={next => void commit(next)}
+					value={typeof value === "string" ? value : ""}
+				/>
+			);
+		} else if (refKind !== null) {
+			control = (
+				<ModelValueSelect
+					disabled={saving}
+					kind={refKind}
+					onCommit={next => void commit(next)}
+					value={typeof value === "string" ? value : ""}
+				/>
+			);
+		} else {
+			control = (
+				<Input
+					disabled={saving}
+					id={controlId}
+					onBlur={commitText}
+					onChange={event => setDraft(event.target.value)}
+					onKeyDown={onTextKeyDown}
+					trailing={
+						entry.secret === true ? (
+							<IconButton
+								icon={masked ? <Eye /> : <EyeOff />}
+								label={masked ? t("common.revealValue") : t("common.hideValue")}
+								onClick={() => setRevealed(!revealed)}
+								size="sm"
+							/>
+						) : undefined
+					}
+					type={masked ? "password" : "text"}
+					value={draft ?? baseDraft}
+				/>
+			);
+		}
+	}
+
+	return (
+		<SettingsRow
+			badge={badge}
+			control={control}
+			description={description}
+			footer={footer}
+			htmlFor={controlId}
+			id={rowId}
+			label={<span title={entry.path}>{label}</span>}
+		/>
 	);
 }
 

@@ -1,5 +1,5 @@
 /**
- * RPC protocol types for the omp GUI sidecar connection.
+ * RPC protocol types for seucode's sidecar connection.
  * Hand-written from verified source (rpc-types.ts, rpc-mode.ts).
  * These are the wire types — no runtime dependency on @oh-my-pi/*.
  */

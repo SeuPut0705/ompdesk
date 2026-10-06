@@ -9,11 +9,19 @@ interface ConversationNavigatorProps {
 	onNavigate: (rowIndex: number) => void;
 }
 
+/** Below this many user turns the transcript is short enough to scroll; a rail would be noise. */
+const MIN_ANCHORS = 3;
+
+/**
+ * Navigation rail in the transcript's left gutter: one dot per user turn on a
+ * faint track, the current turn emphasized. Hovering or focusing a dot
+ * previews that prompt; arrows/Home/End move between dots (roving tabindex).
+ */
 export function ConversationNavigator({ activeIndex, anchors, onNavigate }: ConversationNavigatorProps) {
 	const t = useT();
 	const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 	const buttonsRef = useRef<Array<HTMLButtonElement | null>>([]);
-	if (anchors.length < 2) return null;
+	if (anchors.length < MIN_ANCHORS) return null;
 
 	const density = anchors.length > 64 ? "is-compact" : anchors.length > 32 ? "is-dense" : undefined;
 	const focusMarker = (index: number) => {

@@ -1,8 +1,10 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, CircleCheck, CircleX } from "lucide-react";
 import type { ReactNode } from "react";
-import { cx } from "../../lib/format";
+import { cx, formatDuration } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useToolsStore } from "../../stores/tools";
+import { Spinner } from "../common";
+import { getToolActivity, type ToolActivity } from "../tools/index";
 
 interface ExecutionGroupProps {
 	children: ReactNode;
@@ -15,10 +17,17 @@ interface ExecutionGroupProps {
 	toolCallIds: readonly string[];
 }
 
+/** Order of the human summary: reads, edits, commands, searches, then the rest. */
+const ACTIVITY_ORDER: readonly ToolActivity[] = ["read", "edit", "run", "search", "other"];
+
+/** English plural suffix per activity key ("1 file" / "2 files", "1 search" / "2 searches"). */
+const PLURAL_SUFFIX: Record<ToolActivity, string> = { read: "s", edit: "s", run: "s", search: "es", other: "s" };
+
 /**
- * One quiet disclosure for a reasoning/tool phase. Its open state is owned by
- * ChatStream so streaming updates and live-to-final row replacement cannot
- * override the user's choice.
+ * One quiet disclosure for a reasoning/tool phase, summarized the way a person
+ * would say it ("Read 2 files · Edited 1 file · Ran 1 command · 16s"). Its
+ * open state is owned by ChatStream so streaming updates and live-to-final row
+ * replacement cannot override the user's choice.
  */
 export function ExecutionGroup({
 	children,
@@ -31,66 +40,87 @@ export function ExecutionGroup({
 	toolCallIds,
 }: ExecutionGroupProps) {
 	const t = useT();
-	// Primitive selector: encode (running, failed) so unrelated tool events —
-	// partial results on cards outside this group — never re-render the group.
+	// Primitive selector: encode (running, failed, per-activity counts, span)
+	// so unrelated tool events — partial results on cards outside this group —
+	// never re-render the group.
 	const encoded = useToolsStore(s => {
 		let running = 0;
 		let failed = 0;
+		let start = Number.POSITIVE_INFINITY;
+		let end = 0;
+		const counts: Record<ToolActivity, number> = { read: 0, edit: 0, run: 0, search: 0, other: 0 };
 		for (const id of toolCallIds) {
 			const entry = s.activeTools.get(id);
-			if (entry?.status === "pending" || entry?.status === "running") running++;
-			else if (entry?.status === "error" || entry?.isError) failed++;
+			if (!entry) continue;
+			if (entry.status === "pending" || entry.status === "running") running++;
+			else if (entry.status === "error" || entry.isError) failed++;
+			const { activity, files } = getToolActivity(entry.toolName, entry.args);
+			counts[activity] += activity === "edit" ? files : 1;
+			start = Math.min(start, entry.startTime);
+			end = Math.max(end, entry.endTime ?? 0);
 		}
-		return `${running}:${failed}`;
+		const span = Number.isFinite(start) && end > start ? end - start : 0;
+		return [running, failed, span, ...ACTIVITY_ORDER.map(activity => counts[activity])].join(":");
 	});
-	const [running, toolFailures] = encoded.split(":").map(Number);
+	const [running = 0, toolFailures = 0, spanMs = 0, ...activityCounts] = encoded.split(":").map(Number);
 	const failed = toolFailures + failureCount;
 
 	const active = live || running > 0;
 	const state = active ? "running" : failed > 0 ? "failed" : "complete";
 
+	const activities = ACTIVITY_ORDER.flatMap((activity, index) => {
+		const count = activityCounts[index] ?? 0;
+		return count > 0
+			? [t(`chat.process.kind.${activity}`, { count, plural: count === 1 ? "" : PLURAL_SUFFIX[activity] })]
+			: [];
+	});
 	const summary =
-		failed > 0
+		state === "failed"
 			? t("chat.process.statusFailed", { failed, total: stepCount })
-			: running > 0 || live
+			: state === "running"
 				? t("chat.process.statusRunning", { running: Math.max(1, running), total: stepCount })
-				: t("chat.process.statusComplete", { total: stepCount });
+				: activities.length > 0
+					? activities.join(" · ")
+					: t("chat.process.statusComplete", { total: stepCount });
+	const duration = state !== "running" && spanMs > 0 ? formatDuration(spanMs) : null;
 
 	return (
 		<section className={cx("omp-execution-group", className)} data-state={state}>
 			<button
 				aria-expanded={expanded}
-				className="omp-execution-group-header omp-pressable flex w-full min-w-0 items-center gap-2 text-left"
+				className={cx(
+					"omp-execution-group-header flex min-h-7 w-full min-w-0 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-left text-sc-sm transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover)",
+					state === "failed" ? "text-(--sc-danger)" : "text-(--sc-text-muted) hover:text-(--sc-text)",
+				)}
 				onClick={() => onExpandedChange(!expanded)}
 				type="button"
 				aria-label={`${t("chat.process.title")}: ${summary}`}
 			>
-				{active && (
-					<span
-						aria-hidden="true"
-						className="omp-execution-group-live-dot h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--omp-accent)]"
-					/>
-				)}
-				<span className="omp-execution-group-title shrink-0 text-omp-sm font-medium text-[var(--omp-text)]">
-					{t("chat.process.title")}
+				<span
+					aria-hidden
+					className="flex size-(--sc-icon-sm) shrink-0 items-center justify-center [&>svg]:size-(--sc-icon-sm)"
+				>
+					{state === "running" ? <Spinner size="sm" /> : state === "failed" ? <CircleX /> : <CircleCheck />}
 				</span>
 				<span
 					aria-atomic="true"
 					aria-live="polite"
-					className={cx(
-						"omp-execution-group-summary min-w-0 flex-1 truncate text-omp-xs",
-						state === "running" && "text-[var(--omp-accent)]",
-						state === "failed" && "text-[var(--omp-error)]",
-						state === "complete" && "text-[var(--omp-muted)]",
-					)}
+					className="omp-execution-group-summary min-w-0 truncate font-medium"
 					role="status"
 				>
 					{summary}
 				</span>
+				{duration ? (
+					<span className="omp-execution-group-duration shrink-0 tabular-nums text-(--sc-text-subtle)">
+						· {duration}
+					</span>
+				) : null}
 				<ChevronRight
 					aria-hidden="true"
-					className={cx("omp-disclosure-chevron shrink-0 text-[var(--omp-dim)]", expanded && "rotate-90")}
-					size={14}
+					className={cx(
+						"omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
+						expanded && "rotate-90",
+					)}
 				/>
 			</button>
 			{expanded && <div className="omp-execution-group-body">{children}</div>}

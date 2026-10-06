@@ -40,8 +40,8 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		await expect(page.locator("[data-transcript-kind]").first()).toBeVisible({ timeout: 60_000 });
 		const input = page.locator("textarea").first();
 		await input.fill("fixture stream");
-		await page.getByRole("button", { name: "Send (Enter)", exact: true }).click();
-		await expect(page.getByRole("button", { name: "Abort", exact: true })).toBeVisible();
+		await page.getByRole("button", { name: "Send", exact: true }).click();
+		await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
 		const scroll = page.locator(".omp-transcript-scroll");
 		await scroll.hover();
 		await page.mouse.wheel(0, -1500);
@@ -129,8 +129,8 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		}
 		await page.locator('[role="tablist"] [role="tab"]').first().click();
 		await expect(input).toHaveValue("retained stream draft");
-		await page.getByRole("button", { name: "Abort", exact: true }).click();
-		await expect(page.getByRole("button", { name: "Abort", exact: true })).toHaveCount(0);
+		await page.getByRole("button", { name: "Stop", exact: true }).click();
+		await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
 		await page.evaluate(() => window.omp.sidecar.restart());
 		await expect.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status).toBe("ready");
 		await expect(input).toHaveValue("retained stream draft");

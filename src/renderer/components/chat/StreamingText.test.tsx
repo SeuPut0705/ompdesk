@@ -1,8 +1,9 @@
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
+import { preloadMarkdownPipeline } from "../../lib/markdown";
 import { useMessagesStore } from "../../stores/messages";
 import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
@@ -12,6 +13,8 @@ import { StreamingText } from "./StreamingText";
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
 Object.assign(globals, { document, window, Event, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true });
+// KaTeX is a lazy pipeline step; load it up front so typesetting is synchronous here.
+beforeAll(() => preloadMarkdownPipeline());
 
 interface TestElement {
 	textContent: string | null;

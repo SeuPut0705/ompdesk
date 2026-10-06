@@ -35,17 +35,24 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
 	const t = useT();
 	return (
-		<Modal bodyClassName="p-4" onClose={onCancel} open={open} size="sm" title={title}>
-			<div className="text-omp-md leading-relaxed break-words whitespace-pre-wrap text-(--omp-muted)">{message}</div>
-			{warning && <div className="mt-2 text-omp-sm leading-snug text-(--omp-warning)">{warning}</div>}
-			<div className="mt-4 flex items-center justify-end gap-2">
-				<Button autoFocus onClick={onCancel} size="sm" variant="ghost">
-					{cancelLabel ?? t("common.cancel")}
-				</Button>
-				<Button disabled={busy} onClick={onConfirm} size="sm" variant="danger">
-					{confirmLabel ?? t("common.delete")}
-				</Button>
-			</div>
+		<Modal
+			footer={
+				<>
+					<Button autoFocus onClick={onCancel} variant="ghost">
+						{cancelLabel ?? t("common.cancel")}
+					</Button>
+					<Button disabled={busy} onClick={onConfirm} variant="danger">
+						{confirmLabel ?? t("common.delete")}
+					</Button>
+				</>
+			}
+			onClose={onCancel}
+			open={open}
+			size="sm"
+			title={title}
+		>
+			<div className="text-sc-md break-words whitespace-pre-wrap text-(--sc-text-secondary)">{message}</div>
+			{warning && <div className="mt-2 text-sc-sm text-(--sc-warning)">{warning}</div>}
 		</Modal>
 	);
 }

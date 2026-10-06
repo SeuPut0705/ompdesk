@@ -1,8 +1,10 @@
 /**
- * Sidebar integration contracts: Code/Work modes, first-class global chats,
- * workspace group context menu (5 items), session row
- * context menu (6 items), pinned-first ordering, per-task busy gates, and
- * tab-first opening.
+ * Sidebar integration contracts: sessions-first layout (project switcher,
+ * New session, filter, sessions by project, Agents/Insights/Settings + help
+ * footer), Code/Work lanes, first-class global chats, project group context
+ * menu (5 items), session row context menu (6 items), pinned-first ordering,
+ * per-session busy gates, status as icon + text, and tab-first opening (an
+ * untouched empty tab is replaced instead of left behind).
  * Same linkedom + react-dom harness as TabBar.test.tsx.
  */
 
@@ -12,7 +14,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { SessionInfo } from "../../../shared/ipc-types";
 import { useSidebarRecency } from "../../hooks/use-sidebar-recency";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
+import { useComposerStore } from "../../stores/composer";
+import { useMessagesStore } from "../../stores/messages";
+import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useTabsStore } from "../../stores/tabs";
@@ -193,14 +198,15 @@ afterEach(async () => {
 	document.body.innerHTML = "";
 	useSessionStore.getState().reset();
 	useTabsStore.getState().reset();
+	useComposerStore.getState().reset();
+	useMessagesStore.getState().reset();
+	useQueueStore.setState({ steering: [], followUp: [] });
 	useSidebarPrefs.getState().reset();
 	useUiStore.setState({
 		panelVisible: false,
 		sessionPickerOpen: false,
-		hotkeysOpen: false,
-		usageOpen: false,
-		providersOpen: false,
-		statsDashboardOpen: false,
+		commandPaletteOpen: false,
+		destination: "session",
 	});
 });
 
@@ -224,54 +230,115 @@ function SidebarWithRecency() {
 	return <Sidebar />;
 }
 
+/** The row element (ListRow root) whose title contains `text`. */
+function rowFor(text: string): Element {
+	const row = [...document.querySelectorAll(".omp-sidebar-session-row")].find(element =>
+		(element.textContent ?? "").includes(text),
+	);
+	if (!row) throw new Error(`row not found: ${text}`);
+	return row;
+}
+
+/** The row's main button (the click target that opens the session). */
+function rowButton(text: string): Element {
+	return rowFor(text).querySelector("button") as Element;
+}
+
+function groupToggle(cwd: string): Element {
+	return container.querySelector(`[data-workspace-group="${cwd}"] button[aria-expanded]`) as unknown as Element;
+}
+
 describe("Sidebar menus and pinned ordering", () => {
-	it("lists the former titlebar actions below New session and collapses them as one menu", async () => {
+	it("ends with the three destinations and a help menu instead of a utility list", async () => {
 		installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
 
-		const navigation = container.querySelector("[data-sidebar-navigation]");
-		for (const label of [
-			"Commands",
-			"Start with what makes OMP different",
-			"Agent Hub",
-			"Providers & login",
-			"Usage & quotas",
-			"Session stats",
-			"PR Center",
-			"Open workspace",
-			"Keyboard shortcuts",
-			"Settings",
-		]) {
-			expect(navigation?.textContent).toContain(label);
-		}
-		const capabilities = [...navigation!.querySelectorAll("button")].find(button =>
-			(button.textContent ?? "").includes("Start with what makes OMP different"),
+		expect(container.querySelector("[data-sidebar-navigation]")).toBeNull();
+		const footer = container.querySelector("[data-sidebar-destinations]");
+		const destinations = [...(footer?.querySelectorAll("button[data-destination]") ?? [])].map(button =>
+			(button.textContent ?? "").trim(),
 		);
-		if (!capabilities) throw new Error("Capabilities navigation item missing");
-		await fire(capabilities, "onClick");
-		expect(useUiStore.getState().settingsOpen).toBe(true);
-		expect(useUiStore.getState().settingsTab).toBe("capabilities");
-		const commandCenter = navigation?.querySelector('button[data-command-center-entry="true"]');
-		expect(commandCenter?.textContent).toContain("⌘K / ⌃K");
-		await act(async () => useUiStore.setState({ keymapOverrides: { palette: ["⌘⇧K"] } }));
-		expect(commandCenter?.textContent).toContain("⇧⌘K");
-		expect(commandCenter?.textContent).not.toContain("⌃K");
-		await act(async () => useUiStore.setState({ keymapOverrides: {} }));
+		expect(destinations.map(label => label.replace(/[⌥⌘,A]+$/, ""))).toEqual(["Agents", "Insights", "Settings"]);
+		expect(footer?.textContent).toContain("⌥A");
+		expect(footer?.textContent).toContain("⌘,");
 
-		const hotkeys = [...navigation!.querySelectorAll("button")].find(button =>
+		await fire(footer?.querySelector('[data-destination="insights"]') ?? null, "onClick");
+		expect(useUiStore.getState().destination).toBe("insights");
+		expect(footer?.querySelector('[data-destination="insights"]')?.getAttribute("aria-current")).toBe("page");
+		await fire(footer?.querySelector('[data-destination="settings"]') ?? null, "onClick");
+		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "general" });
+		await fire(footer?.querySelector('[data-destination="agents"]') ?? null, "onClick");
+		expect(useUiStore.getState().destination).toBe("agents");
+
+		// Help: shortcuts, palette, features, feedback, what's new, about.
+		await fire(footer?.querySelector('[aria-label="Help"]') ?? null, "onClick");
+		expect(menuItemLabels().map(label => label.replace(/⌘.*$/, ""))).toEqual([
+			"Keyboard shortcuts",
+			"Command palette",
+			"What seucode adds",
+			"Send feedback",
+			"What's new",
+			"About seucode",
+		]);
+		const shortcuts = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
 			(button.textContent ?? "").includes("Keyboard shortcuts"),
 		);
-		if (!hotkeys) throw new Error("Keyboard shortcuts navigation item missing");
-		await fire(hotkeys, "onClick");
-		expect(useUiStore.getState().hotkeysOpen).toBe(true);
+		await fire(shortcuts as Element, "onClick");
+		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "keyboard" });
+	});
 
-		const collapse = navigation!.querySelector('[aria-label="Collapse navigation"]');
-		expect(collapse?.getAttribute("title")).toBe("Collapse navigation");
-		await fire(collapse, "onClick");
-		expect((navigation!.querySelector(".omp-sidebar-group") as unknown as Element).getAttribute("aria-hidden")).toBe(
-			"true",
-		);
+	it("opens the command palette from the header and selecting a session returns from a page", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		useSessionStore.setState({ isStreaming: true });
+		await mount(<Sidebar />);
+
+		await fire(container.querySelector('button[data-command-center-entry="true"]'), "onClick");
+		expect(useUiStore.getState().commandPaletteOpen).toBe(true);
+
+		await act(async () => useUiStore.getState().openInsights("usage"));
+		await fire(rowButton("Session /work/alpha/one"), "onClick");
+		expect(useUiStore.getState().destination).toBe("session");
+		expect(omp.tabs.spawn).toHaveBeenCalled();
+	});
+
+	it("filters the session list inline by title or project", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		await mount(<Sidebar />);
+
+		const field = container.querySelector('input[aria-label="Filter sessions"]') as unknown as Element;
+		const record = field as unknown as Record<string, unknown>;
+		const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+		const props = record[propsKey as string] as { onChange: (event: { target: { value: string } }) => void };
+		await act(async () => props.onChange({ target: { value: "three" } }));
+		await flush();
+
+		// The match lives in a collapsed (non-current) project: a filter shows it anyway.
+		const rows = [...document.querySelectorAll(".omp-sidebar-session-row")].map(row => row.textContent ?? "");
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toContain("Session /work/beta/three");
+
+		await act(async () => props.onChange({ target: { value: "nothing-matches" } }));
+		await flush();
+		expect(container.textContent).toContain("No matching sessions");
+	});
+
+	it("replaces an untouched empty tab instead of opening a second one", async () => {
+		const omp = installMockOmp(LIST);
+		useSessionStore.setState({ sessionId: "empty", cwd: "/work/alpha", isStreaming: false, messageCount: 0 });
+		useTabsStore.setState({
+			tabs: [{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false }],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		await mount(<Sidebar />);
+
+		await fire(rowButton("Session /work/alpha/one"), "onClick");
+		await flush();
+		expect(omp.tabs.spawn).not.toHaveBeenCalled();
+		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/work/alpha/one.jsonl");
 	});
 
 	it("moves the most recently used session and its workspace to the front immediately", async () => {
@@ -286,10 +353,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		await mount(<SidebarWithRecency />);
 		// Non-active workspaces start collapsed and render no rows; expand alpha
 		// so its session order is inspectable.
-		const alphaToggle = [...container.querySelectorAll("button")].find(button =>
-			(button.textContent ?? "").includes("alpha"),
-		);
-		await fire(alphaToggle as unknown as TestElement, "onClick");
+		await fire(groupToggle("/work/alpha"), "onClick");
 
 		const workspaceOrder = () =>
 			[...container.querySelectorAll("[data-workspace-group]")].map(element =>
@@ -338,16 +402,18 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 		await mount(<Sidebar />);
 
-		const modeButton = container.querySelector('[aria-label="Choose workspace mode"], [aria-label="选择工作模式"]');
-		await fire(modeButton, "onClick");
+		const projectMenu = (container.querySelector("[data-sidebar-project]") as unknown as Element | null)
+			?.parentNode as unknown as Element;
+		await fire(projectMenu, "onClick");
 
 		const labels = menuItemLabels();
 		expect(labels.some(label => label.includes("Build, debug, and ship in a project"))).toBe(true);
-		expect(labels.some(label => label.includes("Full agent in your default workspace"))).toBe(true);
-		expect(labels).toHaveLength(2);
+		expect(labels.some(label => label.includes(translate("sidebar.mode.workDescription")))).toBe(true);
+		expect(labels.some(label => label.includes("Open project…"))).toBe(true);
+		expect(labels.some(label => label.includes("All projects…"))).toBe(true);
 
 		const workItem = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
-			(button.textContent ?? "").includes("Full agent in your default workspace"),
+			(button.textContent ?? "").includes(translate("sidebar.mode.workDescription")),
 		);
 		await fire(workItem as Element, "onClick");
 		expect(container.querySelector("[data-sidebar-new-chat]")).toBeNull();
@@ -378,7 +444,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		await mount(<Sidebar />);
 
 		await fire(container.querySelector("[data-sidebar-new-agent]"), "onClick");
-		const currentWorkspace = [...document.body.querySelectorAll("button")].find(button =>
+		const currentWorkspace = [...document.body.querySelectorAll('[role="dialog"] button')].find(button =>
 			(button.textContent ?? "").includes("/work/alpha"),
 		);
 		await fire(currentWorkspace as Element, "onClick");
@@ -392,26 +458,17 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(omp.sidecar.setProject).not.toHaveBeenCalled();
 	});
 
-	it("opens the existing global session picker from the header", async () => {
+	it("shows status as an icon plus text only when there is something to say", async () => {
 		installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
 
-		await fire(container.querySelector('[aria-label="Search sessions"], [aria-label="搜索会话"]'), "onClick");
-
-		expect(useUiStore.getState().sessionPickerOpen).toBe(true);
-	});
-
-	it("uses visible vertical signal lights for session state", async () => {
-		installMockOmp(LIST);
-		seedStores();
-		await mount(<Sidebar />);
-
-		const rows = container.querySelectorAll(".omp-sidebar-session-row");
+		const rows = [...document.querySelectorAll(".omp-sidebar-session-row")];
 		expect(rows.length).toBeGreaterThan(0);
-		expect(rows.every(row => row.querySelector(".omp-signal-light") !== null)).toBe(true);
-		expect(rows.every(row => row.querySelector(".omp-signal-light--active") === null)).toBe(true);
-		expect(rows[0]?.querySelector('[aria-label="Completed"]')).not.toBeNull();
+		// Completed sessions carry a relative time, no colored bar and no status noise.
+		expect(rows.every(row => row.querySelector(".omp-signal-light") === null)).toBe(true);
+		expect(rows.every(row => row.querySelector("time") !== null)).toBe(true);
+		expect(rows.every(row => !(row.textContent ?? "").includes("Running"))).toBe(true);
 	});
 
 	it("uses the open tab's live status instead of the session file's stale completion status", async () => {
@@ -432,15 +489,14 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 		await mount(<Sidebar />);
 
-		const signal = () => container.querySelector('[data-active="true"] .omp-signal-light') as unknown as Element;
-		expect(signal().getAttribute("aria-label")).toBe("Ready");
-		expect(signal().getAttribute("style")).toContain("--omp-dim");
+		const activeRow = () => container.querySelector('[data-active="true"]') as unknown as Element;
+		expect(activeRow().textContent).not.toContain("Running");
 
 		await act(async () => {
 			useTabsStore.setState({ tabs: [{ ...useTabsStore.getState().tabs[0]!, status: "running" }] });
 		});
-		expect(signal().getAttribute("aria-label")).toBe("Working");
-		expect(signal().className).toContain("omp-signal-light--active");
+		expect(activeRow().textContent).toContain("Running");
+		expect(activeRow().querySelector('[aria-label="Delete session"]')).toBeNull();
 	});
 
 	it("aligns workspace and session titles with folder, chat, and reserved icon slots", async () => {
@@ -479,11 +535,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		seedStores();
 		await mount(<Sidebar />);
 
-		const row = [...document.querySelectorAll('div[role="button"]')].find(el =>
-			(el.textContent ?? "").includes("Session /work/alpha/one"),
-		);
-		expect(row).not.toBeUndefined();
-		await fire(row as Element, "onContextMenu");
+		await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
 
 		const labels = menuItemLabels();
 		for (const expected of ["Open", "Open in new tab", "Open in new window", "Rename", "Pin to top", "Delete"]) {
@@ -509,10 +561,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		await mount(<Sidebar />);
 
 		// The attached running task stays protected.
-		const attachedRow = [...document.querySelectorAll('div[role="button"]')].find(el =>
-			(el.textContent ?? "").includes("Session /work/alpha/mine"),
-		);
-		await fire(attachedRow as Element, "onContextMenu");
+		await fire(rowFor("Session /work/alpha/mine"), "onContextMenu");
 		const renameItem = [...document.body.querySelectorAll('[role="menu"] button')].find(b =>
 			(b.textContent ?? "").includes("Rename"),
 		);
@@ -520,10 +569,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		await fire(document.body.querySelector('[role="menu"] button') as Element, "onClick");
 
 		// An idle sibling remains editable and deletable despite the active run.
-		const foreignRow = [...document.querySelectorAll('div[role="button"]')].find(el =>
-			(el.textContent ?? "").includes("Session /work/alpha/one"),
-		);
-		await fire(foreignRow as Element, "onContextMenu");
+		await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
 		const foreignMenu = [...document.body.querySelectorAll('[role="menu"] button')];
 		const idleRename = foreignMenu.find(b => (b.textContent ?? "").includes("Rename"));
 		const idleDelete = foreignMenu.find(b => (b.textContent ?? "").includes("Delete"));
@@ -559,10 +605,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		useSessionStore.setState({ isStreaming: true });
 		await mount(<Sidebar />);
 
-		const row = [...document.querySelectorAll('div[role="button"]')].find(el =>
-			(el.textContent ?? "").includes("Session /work/alpha/one"),
-		);
-		await fire(row as unknown as Element, "onClick");
+		await fire(rowButton("Session /work/alpha/one"), "onClick");
 
 		expect(omp.tabs.spawn).toHaveBeenCalledWith({
 			cwd: "/work/alpha",
@@ -585,10 +628,10 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(workspace?.textContent).toContain("Session /work/alpha/agent");
 		expect(workspace?.textContent).not.toContain("Session /work/alpha/chat");
 		expect(chats?.textContent).toContain("Session /work/alpha/chat");
-		const chatRow = [...chats!.querySelectorAll('div[role="button"]')].find(element =>
+		const chatRow = [...chats!.querySelectorAll(".omp-sidebar-session-row")].find(element =>
 			(element.textContent ?? "").includes("Session /work/alpha/chat"),
 		);
-		await fire(chatRow as unknown as Element, "onClick");
+		await fire(chatRow?.querySelector("button") as unknown as Element, "onClick");
 		expect(omp.tabs.spawn).toHaveBeenLastCalledWith({
 			cwd: "/work/alpha",
 			kind: "chat",
@@ -617,9 +660,8 @@ describe("Sidebar menus and pinned ordering", () => {
 		await mount(<Sidebar />);
 
 		expect(container.querySelector("[data-chat-section]")).not.toBeNull();
-		expect(
-			container.querySelector('[aria-label="Choose workspace mode"], [aria-label="选择工作模式"]')?.textContent,
-		).toContain("Code");
+		expect(container.querySelector("[data-sidebar-project]")?.textContent).not.toBe("Work");
+		expect(container.querySelector("[data-sidebar-new-chat]")).not.toBeNull();
 	});
 
 	it("keeps the active task protected while it is compacting", async () => {
@@ -629,10 +671,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		useSessionStore.setState({ isCompacting: true });
 		await mount(<Sidebar />);
 
-		const row = [...document.querySelectorAll('div[role="button"]')].find(el =>
-			(el.textContent ?? "").includes("Session /work/alpha/mine"),
-		);
-		await fire(row as Element, "onContextMenu");
+		await fire(rowFor("Session /work/alpha/mine"), "onContextMenu");
 		const items = [...document.body.querySelectorAll('[role="menu"] button')];
 		expect((items.find(item => (item.textContent ?? "").includes("Rename")) as HTMLButtonElement).disabled).toBe(
 			true,
@@ -664,9 +703,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		seedStores();
 		await mount(<Sidebar />);
 
-		const alphaHeader = [...container.querySelectorAll("button")].find(button =>
-			(button.textContent ?? "").includes("alpha"),
-		);
+		const alphaHeader = groupToggle("/work/alpha");
 		// Active workspace expanded; other groups render nothing at all — a
 		// long-lived install must not build hundreds of hidden rows per refresh.
 		const alphaContent = () =>
@@ -691,12 +728,12 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 		await mount(<Sidebar />);
 
-		const headers = [...container.querySelectorAll("button")]
-			.filter(b => (b.textContent ?? "").match(/alpha|beta/i))
-			.map(b => (b.textContent ?? "").trim());
+		const headers = [...container.querySelectorAll("[data-workspace-group]")].map(element =>
+			(element.textContent ?? "").trim(),
+		);
 		expect(headers[0]).toContain("alpha");
 
-		const rows = [...document.querySelectorAll('div[role="button"]')].map(el => (el.textContent ?? "").trim());
+		const rows = [...document.querySelectorAll(".omp-sidebar-session-row")].map(el => (el.textContent ?? "").trim());
 		const oneIndex = rows.findIndex(text => text.includes("Session /work/alpha/one"));
 		const twoIndex = rows.findIndex(text => text.includes("Session /work/alpha/two"));
 		expect(twoIndex).toBeGreaterThanOrEqual(0);
@@ -704,22 +741,20 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(twoIndex).toBeLessThan(oneIndex);
 	});
 
-	it("session titles truncate in place and hover actions do not claim row width", async () => {
+	it("session titles truncate in place and row actions are revealed, not laid out", async () => {
 		installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
 
-		const row = [...document.querySelectorAll(".omp-sidebar-session-row")].find(el =>
-			(el.textContent ?? "").includes("Session /work/alpha/one"),
-		);
-		expect(row).toBeDefined();
-		const title = row?.querySelector(".omp-sidebar-title");
-		const actions = row?.querySelector(".omp-sidebar-session-actions");
-		expect(title).not.toBeNull();
+		const row = rowFor("Session /work/alpha/one");
+		const title = row.querySelector("button");
 		expect(title?.className).toContain("truncate");
-		expect(actions).not.toBeNull();
-		expect(actions?.className).not.toMatch(/\bw-\d|\bwidth/);
-		expect(row?.querySelector("[data-overflow]")).toBeNull();
+		const rename = row.querySelector('[aria-label="Rename session"]');
+		expect(rename).not.toBeNull();
+		// Hover/focus reveal by opacity, never display:none, so keyboard users keep them.
+		const actionsClass = (rename?.parentNode as unknown as Element | null)?.className ?? "";
+		expect(actionsClass).toContain("opacity-0");
+		expect(actionsClass).toContain("group-focus-within/row:opacity-100");
 	});
 
 	it("asks before removing a session transcript, and only deletes once confirmed", async () => {
@@ -727,9 +762,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		seedStores();
 		await mount(<Sidebar />);
 
-		const row = [...document.querySelectorAll(".omp-sidebar-session-row")].find(el =>
-			(el.textContent ?? "").includes("Session /work/alpha/one"),
-		) as unknown as Element;
+		const row = rowFor("Session /work/alpha/one");
 		await fire(row.querySelector('[aria-label="Delete session"]') as Element, "onClick");
 
 		// Queued, not executed: the trash click must never reach the hard delete.
@@ -791,7 +824,7 @@ describe("Sidebar session-list failures", () => {
 		// A read that never answered is not a read that found nothing: the dashed
 		// "No code sessions yet" card is a false all-clear about the user's history.
 		const text = document.body.textContent ?? "";
-		expect(text).toContain("Could not load your sessions.");
+		expect(text).toContain(translate("sidebar.loadFailed"));
 		expect(text).toContain("session index unreadable");
 		expect(text).not.toContain("No code sessions yet");
 

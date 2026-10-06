@@ -3,7 +3,8 @@
  * cannot run in this tab kind renders disabled (and is never the keyboard
  * selection), a row that needs an argument hands its slash form to the composer
  * instead of being dispatched without it, Escape closes the panel wherever
- * focus sits inside it, and a failed sidecar command fetch says so with a retry.
+ * focus sits inside it, a failed sidecar command fetch says so with a retry,
+ * and Enter never runs a turn-starting command off a partial match.
  */
 import { parseHTML } from "linkedom";
 import { act } from "react";
@@ -31,6 +32,10 @@ globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0
 const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
 if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
 if (typeof elementPrototype.scrollIntoView !== "function") elementPrototype.scrollIntoView = () => {};
+// React-DOM's input-event polyfill (taken because it loads before these
+// globals exist) hooks the legacy propertychange API; typing works without it.
+if (typeof elementPrototype.attachEvent !== "function") elementPrototype.attachEvent = () => {};
+if (typeof elementPrototype.detachEvent !== "function") elementPrototype.detachEvent = () => {};
 
 interface TestElement {
 	textContent: string | null;
@@ -92,6 +97,34 @@ async function keyDown(element: TestElement, key: string): Promise<void> {
 	await dispatch(element, event);
 }
 
+/** Type into the search field the way React sees it (native setter + input event). */
+async function typeQuery(text: string): Promise<void> {
+	const input = container.querySelector("input");
+	if (!input) throw new Error("search input not found");
+	// React-DOM loads before this file installs the linkedom globals, so it
+	// takes its input-event polyfill: it watches the focused field (focusin) and
+	// diffs its value on keyup. Set `value` through the prototype accessor so the
+	// instance-level tracker sees a change.
+	await dispatch(input, new Event("focusin", { bubbles: true }));
+	let proto: object | null = Object.getPrototypeOf(input);
+	let setter: ((value: string) => void) | undefined;
+	while (proto && !setter) {
+		setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+		proto = Object.getPrototypeOf(proto);
+	}
+	if (setter) setter.call(input, text);
+	else Reflect.set(input, "value", text);
+	await dispatch(input, new Event("input", { bubbles: true }));
+	await dispatch(input, new Event("keyup", { bubbles: true }));
+}
+
+/** Press a key in the search field (the input owns Enter). */
+async function pressInInput(key: string): Promise<void> {
+	const input = container.querySelector("input");
+	if (!input) throw new Error("search input not found");
+	await keyDown(input, key);
+}
+
 function seedTab(kind: SessionKind): void {
 	useTabsStore.setState({
 		tabs: [{ id: `t-${kind}`, cwd: "/tmp", status: "ready", kind, unreadDone: false }],
@@ -126,7 +159,7 @@ function rowByLabel(label: string): TestElement {
 
 /** Index of the highlighted row, or -1 when none is. */
 function selectedIndex(): number {
-	return rows().findIndex(row => row.className.includes("omp-selected"));
+	return rows().findIndex(row => row.getAttribute("data-active") === "true");
 }
 
 beforeEach(() => {
@@ -219,6 +252,56 @@ describe("row execution", () => {
 		expect(useUiStore.getState().commandPaletteOpen).toBe(true);
 		// The top level is replaced by the submenu's own rows.
 		expect(rows().some(row => row.textContent?.includes(translate("cmd.plan")))).toBe(false);
+	});
+});
+
+describe("Enter guard for turn-starting commands", () => {
+	it("arms a partially matched prompt on the first Enter and runs it on the second", async () => {
+		sidecarCommands = [HELLO];
+		seedTab("agent");
+		await mount();
+		await typeQuery("hell");
+		expect(rows()[selectedIndex()]?.getAttribute("data-command-name")).toBe("hello");
+
+		await pressInInput("Enter");
+		expect(rpc.prompt).not.toHaveBeenCalled();
+		expect(useUiStore.getState().commandPaletteOpen).toBe(true);
+		expect(rows()[selectedIndex()]?.textContent).toContain(translate("palette.confirmTurn"));
+
+		await pressInInput("Enter");
+		expect(rpc.prompt).toHaveBeenCalledWith("/hello");
+	});
+
+	it("runs it on the first Enter when the query names it exactly", async () => {
+		sidecarCommands = [HELLO];
+		seedTab("agent");
+		await mount();
+		await typeQuery("/hello");
+		await pressInInput("Enter");
+		expect(rpc.prompt).toHaveBeenCalledWith("/hello");
+	});
+
+	it("runs it on the first Enter after an explicit arrow-key selection", async () => {
+		sidecarCommands = [HELLO];
+		seedTab("agent");
+		await mount();
+		await typeQuery("hell");
+		await pressInInput("ArrowDown");
+		await pressInInput("ArrowUp");
+		expect(rows()[selectedIndex()]?.getAttribute("data-command-name")).toBe("hello");
+		await pressInInput("Enter");
+		expect(rpc.prompt).toHaveBeenCalledWith("/hello");
+	});
+
+	it("disarms when the query changes", async () => {
+		sidecarCommands = [HELLO];
+		seedTab("agent");
+		await mount();
+		await typeQuery("hell");
+		await pressInInput("Enter");
+		await typeQuery("hel");
+		await pressInInput("Enter");
+		expect(rpc.prompt).not.toHaveBeenCalled();
 	});
 });
 

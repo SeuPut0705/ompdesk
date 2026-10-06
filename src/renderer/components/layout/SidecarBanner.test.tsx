@@ -8,7 +8,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 import { SidecarBanner } from "./SidecarBanner";
@@ -71,12 +71,12 @@ describe("SidecarBanner", () => {
 		});
 		await mount(<SidecarBanner />);
 
-		expect(container.textContent).toContain("Agent restarting");
+		expect(container.textContent).toContain(translate("sidecar.restartingTitle"));
 		expect(container.textContent).toContain("Restart attempt 2/3");
 		expect(container.textContent).toContain("Exit code 3 — dyld: Library not loaded");
-		// Progress is not a failure: amber, and not the "Agent unavailable" error card.
+		// Progress is not a failure: amber, and not the "omp unavailable" error card.
 		expect(bannerDiv().className).toContain("--omp-warning");
-		expect(container.textContent).not.toContain("Agent unavailable");
+		expect(container.textContent).not.toContain(translate("sidecar.title"));
 	});
 
 	it("marks an exhausted crash loop as a failure with the last reason", async () => {
@@ -87,7 +87,7 @@ describe("SidecarBanner", () => {
 		});
 		await mount(<SidecarBanner />);
 
-		expect(container.textContent).toContain("Agent unavailable");
+		expect(container.textContent).toContain(translate("sidecar.title"));
 		expect(container.textContent).toContain("Gave up after 3 restart attempts");
 		expect(container.textContent).toContain("omp: command not found");
 		expect(bannerDiv().className).toContain("--omp-error");
@@ -97,7 +97,7 @@ describe("SidecarBanner", () => {
 		useSessionStore.getState().setStatus("error", "/tmp/project");
 		useUiStore.getState().setSidecarError("Exit code 1", null);
 		await mount(<SidecarBanner />);
-		expect(container.textContent).toContain("Agent unavailable");
+		expect(container.textContent).toContain(translate("sidecar.title"));
 
 		// Close is the second button (the first is Restart).
 		await click(1);

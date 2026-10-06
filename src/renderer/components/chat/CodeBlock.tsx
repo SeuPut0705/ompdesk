@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { copyText, cx, escapeHtml, escapeRegExp } from "../../lib/format";
 import { getLoadedHljs, HIGHLIGHT_CHAR_CAP, loadHljs } from "../../lib/highlight";
 import { useT } from "../../lib/i18n";
+import { IconButton } from "../common";
 import { LineNumberGutter } from "./LineNumberGutter";
 
 export interface CodeBlockProps {
@@ -49,6 +50,32 @@ function normalizeLanguage(lang: string | undefined): string {
 	if (!lang) return "plaintext";
 	const lower = lang.toLowerCase();
 	return LANGUAGE_ALIASES[lower] ?? lower;
+}
+
+/** Names whose spelling isn't the id with a capital first letter. */
+const LANGUAGE_NAMES: Record<string, string> = {
+	typescript: "TypeScript",
+	javascript: "JavaScript",
+	json: "JSON",
+	jsonc: "JSON",
+	html: "HTML",
+	xml: "XML",
+	css: "CSS",
+	scss: "SCSS",
+	sql: "SQL",
+	yaml: "YAML",
+	toml: "TOML",
+	cpp: "C++",
+	csharp: "C#",
+	php: "PHP",
+	graphql: "GraphQL",
+	powershell: "PowerShell",
+	objectivec: "Objective-C",
+};
+
+/** Header label: the language's own name in sentence case ("TypeScript", "Bash"), never shouting caps. */
+function languageLabel(lang: string): string {
+	return LANGUAGE_NAMES[lang] ?? `${lang.charAt(0).toUpperCase()}${lang.slice(1)}`;
 }
 
 export function CodeBlock({
@@ -136,26 +163,25 @@ export function CodeBlock({
 	return (
 		<div
 			className={cx(
-				"group/code relative overflow-hidden rounded-lg border border-[color:var(--omp-md-code-block-border,var(--omp-border))] bg-[var(--omp-code-bg)]",
+				"group/code relative overflow-hidden rounded-(--sc-radius-md) border border-[color:var(--omp-md-code-block-border,var(--sc-border-subtle))] bg-[var(--omp-code-bg)]",
 				className,
 			)}
 		>
 			{(showLanguage || showCopy) && (
-				<div className="flex h-7 items-center justify-end gap-2 border-b border-[var(--omp-border-muted)]/60 px-2.5">
+				<div className="flex h-8 items-center gap-2 border-b border-(--sc-divider) ps-3 pe-1">
 					{showLanguage && (
-						<span className="font-mono text-omp-xs font-medium uppercase tracking-[0.08em] text-[var(--omp-dim)]">
-							{lang}
+						<span className="min-w-0 truncate text-sc-xs text-(--sc-text-muted)">
+							{lang === "plaintext" ? t("codeblock.plainText") : languageLabel(lang)}
 						</span>
 					)}
 					{showCopy && (
-						<button
-							type="button"
+						<IconButton
+							className="ms-auto"
+							icon={copied ? <Check className="text-(--sc-success)" /> : <Copy />}
+							label={t("chat.copyCode")}
 							onClick={handleCopy}
-							title={t("chat.copyCode")}
-							className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--omp-dim)] opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] focus:opacity-100 group-hover/code:opacity-100"
-						>
-							{copied ? <Check size={12} className="text-[var(--omp-success)]" /> : <Copy size={12} />}
-						</button>
+							size="sm"
+						/>
 					)}
 				</div>
 			)}

@@ -1,5 +1,5 @@
 /**
- * Main process entry point for the omp GUI.
+ * Main process entry point for seucode.
  * App lifecycle: ready → window, sidecar, session index, IPC, tray, menu, deep links, updater.
  */
 
@@ -85,7 +85,8 @@ const devResourcesDir = join(__dirname, "..", "..", "resources");
 
 // App identity: the dev run shows "Electron" + the default atom icon in the
 // dock otherwise. Packaged builds get both from the bundle via electron-builder.
-app.setName("omp");
+// The name also picks the userData directory (~/Library/Application Support/seucode).
+app.setName("seucode");
 {
 	const dockIcon = join(devResourcesDir, "icon.png");
 	if (process.platform === "darwin" && existsSync(dockIcon)) {
@@ -112,7 +113,7 @@ function prefsStore(): Store<MainPrefs> {
 
 function resolveExplicitStartupCwd(): string | undefined {
 	// `electron <main.js> <dir>` (dev, e2e) carries the script path; a packaged
-	// app (`omp.app/…/omp <dir>`) does not. Flags (`--user-data-dir=…`) are skipped.
+	// app (`seucode.app/…/seucode <dir>`) does not. Flags (`--user-data-dir=…`) are skipped.
 	const explicitCwd = process.argv.slice(process.defaultApp ? 2 : 1).find(arg => !arg.startsWith("-"));
 	return explicitCwd && existsSync(explicitCwd) ? explicitCwd : undefined;
 }

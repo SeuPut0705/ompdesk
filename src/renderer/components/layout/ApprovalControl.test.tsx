@@ -1,7 +1,9 @@
 /**
- * Tests for the composer approval-mode control: escalating to full access is a
- * permission change that takes effect on a possibly running session, so it must
- * be confirmed, while stepping down to a stricter mode stays one click.
+ * Tests for the tool-approval field in the composer's Run settings popover:
+ * escalating to full access is a permission change that takes effect on a
+ * possibly running session, so it must be confirmed — in a Dialog that
+ * replaces the popover, never one stacked on it — while stepping down to a
+ * stricter mode stays one change.
  */
 
 import { parseHTML } from "linkedom";
@@ -12,7 +14,7 @@ import type { RpcCommand, RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settings";
 import { useToastStore } from "../../stores/toast";
-import { ApprovalControl } from "./ApprovalControl";
+import { RunSettings } from "./RunSettings";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -25,8 +27,11 @@ Object.assign(globalThis as Record<string, unknown>, {
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
 (globalThis as Record<string, unknown>).requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
-// The portal menu is positioned off the viewport box, which linkedom leaves unset.
+// The popover is positioned off the viewport box, which linkedom leaves unset.
 (window as unknown as Record<string, unknown>).innerHeight = 900;
+(window as unknown as Record<string, unknown>).innerWidth = 1200;
+const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
+if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
 
 const command = vi.fn(
 	async (req: RpcCommand): Promise<RpcResponse> =>
@@ -46,37 +51,41 @@ const roots: Root[] = [];
 
 async function mountControl(mode: "yolo" | "write" | "always-ask"): Promise<void> {
 	useSettingsStore.setState({ approvalMode: mode });
-	const root = createRoot(document.body as unknown as Element);
+	const host = document.createElement("div");
+	document.body.appendChild(host);
+	const root = createRoot(host as unknown as Element);
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<ApprovalControl />
+				<RunSettings isChat={false} />
 			</I18nProvider>,
 		);
 	});
 	roots.push(root);
-}
-
-function buttons(): HTMLButtonElement[] {
-	return Array.from(document.body.querySelectorAll("button")) as HTMLButtonElement[];
-}
-
-function trigger(): HTMLButtonElement | undefined {
-	return buttons()[0];
-}
-
-/** Menu rows carry both the mode name and its description; the chip does not. */
-function modeRow(mode: "yolo" | "write" | "always-ask"): HTMLButtonElement | undefined {
-	return buttons().find(button => {
-		const text = button.textContent ?? "";
-		return (
-			text.includes(translate(`input.approval.${mode}`)) && text.includes(translate(`input.approval.${mode}.desc`))
-		);
+	await act(async () => {
+		(document.body.querySelector("button[data-run-settings-trigger]") as HTMLButtonElement | null)?.click();
 	});
 }
 
+function approvalField(): HTMLSelectElement | null {
+	return document.body.querySelector("select[data-approval-mode]") as HTMLSelectElement | null;
+}
+
+/** Pick a mode and drive the select's React onChange contract. */
+async function chooseMode(mode: "yolo" | "write" | "always-ask"): Promise<void> {
+	const select = approvalField();
+	if (!select) throw new Error("approval field missing");
+	const record = select as unknown as Record<string, unknown>;
+	const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+	const props = propsKey ? (record[propsKey] as { onChange?: (event: object) => void }) : undefined;
+	if (!props?.onChange) throw new Error("select onChange not found");
+	// linkedom's select.value is read-only; the handler reads the event target.
+	await act(async () => props.onChange?.({ target: { value: mode }, currentTarget: { value: mode } }));
+}
+
 function buttonWithLabel(label: string): HTMLButtonElement | undefined {
-	return buttons().find(button => (button.textContent ?? "").trim() === label);
+	const buttons = Array.from(document.body.querySelectorAll("button")) as HTMLButtonElement[];
+	return buttons.find(button => (button.textContent ?? "").trim() === label);
 }
 
 function writes(): RpcCommand[] {
@@ -95,18 +104,16 @@ afterEach(async () => {
 	command.mockClear();
 });
 
-describe("ApprovalControl", () => {
-	it("confirms before granting full access", async () => {
+describe("Run settings tool approval", () => {
+	it("confirms before granting full access, closing the popover first", async () => {
 		await mountControl("write");
+		expect(approvalField()?.value).toBe("write");
 
-		await act(async () => {
-			trigger()?.click();
-		});
-		await act(async () => {
-			modeRow("yolo")?.click();
-		});
+		await chooseMode("yolo");
 
 		expect(writes()).toEqual([]);
+		// The popover gave way to the confirmation; nothing stacks on it.
+		expect(approvalField()).toBeNull();
 		expect(document.body.textContent ?? "").toContain(translate("input.approval.yoloConfirmTitle"));
 
 		await act(async () => {
@@ -116,16 +123,12 @@ describe("ApprovalControl", () => {
 		expect(writes()).toEqual([{ type: "set_setting", path: "tools.approvalMode", value: "yolo" }]);
 	});
 
-	it("steps down to a stricter mode in one click", async () => {
+	it("steps down to a stricter mode in one change", async () => {
 		await mountControl("yolo");
 
-		await act(async () => {
-			trigger()?.click();
-		});
-		await act(async () => {
-			modeRow("always-ask")?.click();
-		});
+		await chooseMode("always-ask");
 
 		expect(writes()).toEqual([{ type: "set_setting", path: "tools.approvalMode", value: "always-ask" }]);
+		expect(document.body.textContent ?? "").not.toContain(translate("input.approval.yoloConfirmTitle"));
 	});
 });

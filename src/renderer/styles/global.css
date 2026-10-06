@@ -5,26 +5,45 @@
 @import "@fontsource/jetbrains-mono/600.css";
 
 /* ============================================================================
-   Typography — Inter for latin, PingFang/YaHei for CJK, JetBrains Mono for code
+   Typography — font stacks and size steps come from tokens.css (--sc-font-*);
+   @theme only exposes them as Tailwind utilities.
    ============================================================================ */
 
 @theme {
-	--font-display: "Inter Variable", "SF Pro Display", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
-	--font-body: "Inter Variable", "SF Pro Text", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-	--font-mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", ui-monospace, monospace;
+	--font-display: var(--sc-font-sans);
+	--font-body: var(--sc-font-sans);
+	--font-mono: var(--sc-font-mono);
 
-	/* Unified type scale — UI text uses these steps (text-omp-*), never raw
-	   pixel classes; lint-surfaces.mjs enforces it. Weight conventions: 400
-	   body, 500 labels/rows, 600 section/page titles. */
+	/* seucode type scale — `text-sc-*` sets size and its paired line-height.
+	   New and migrated surfaces use these steps; see design-spec.md. */
+	--text-sc-2xs: var(--sc-font-2xs);
+	--text-sc-2xs--line-height: var(--sc-leading-snug);
+	--text-sc-xs: var(--sc-font-xs);
+	--text-sc-xs--line-height: var(--sc-leading-snug);
+	--text-sc-sm: var(--sc-font-sm);
+	--text-sc-sm--line-height: var(--sc-leading-snug);
+	--text-sc-md: var(--sc-font-md);
+	--text-sc-md--line-height: var(--sc-leading-snug);
+	--text-sc-lg: var(--sc-font-lg);
+	--text-sc-lg--line-height: var(--sc-leading-normal);
+	--text-sc-xl: var(--sc-font-xl);
+	--text-sc-xl--line-height: var(--sc-leading-tight);
+	--text-sc-2xl: var(--sc-font-2xl);
+	--text-sc-2xl--line-height: var(--sc-leading-tight);
+	--text-sc-3xl: var(--sc-font-3xl);
+	--text-sc-3xl--line-height: var(--sc-leading-tight);
+
+	/* Legacy steps (text-omp-*) — same sizes as their sc equivalents; never
+	   raw pixel classes (lint-surfaces.mjs). xxs and xl have no sc twin and
+	   retire as surfaces migrate. */
 	--text-omp-xxs: calc(var(--gui-font-size, 15px) * 10 / 15);
-	--text-omp-xs: calc(var(--gui-font-size, 15px) * 11 / 15);
-	--text-omp-sm: calc(var(--gui-font-size, 15px) * 12 / 15);
-	--text-omp-md: calc(var(--gui-font-size, 15px) * 13 / 15);
-	--text-omp-lg: calc(var(--gui-font-size, 15px) * 14 / 15);
+	--text-omp-xs: var(--sc-font-2xs);
+	--text-omp-sm: var(--sc-font-xs);
+	--text-omp-md: var(--sc-font-sm);
+	--text-omp-lg: var(--sc-font-md);
 	--text-omp-xl: calc(var(--gui-font-size, 15px) * 15.5 / 15);
 
-	/* Modern geometry — one step rounder than the Tailwind defaults, so every
-	   rounded-* call site picks up the softer language from a single place. */
+	/* Tailwind rounded-* steps (legacy geometry; --sc-radius-* is the spec). */
 	--radius-sm: 0.375rem;
 	--radius-md: 0.5rem;
 	--radius-lg: 0.625rem;
@@ -75,13 +94,19 @@ body,
 	overflow: hidden;
 }
 
+/* Paint the canvas on <html> too: a dark theme must not show a light frame
+   behind the body while the window resizes or before React mounts. */
+:root {
+	background: var(--sc-bg);
+}
+
 body {
 	font-family: var(--font-body);
-	font-size: 14.5px;
-	line-height: 1.62;
-	letter-spacing: -0.006em;
-	color: var(--omp-text);
-	background: var(--omp-bg-primary);
+	font-size: var(--gui-font-size, 15px);
+	line-height: var(--sc-leading-normal);
+	letter-spacing: var(--sc-tracking-normal);
+	color: var(--sc-text);
+	background: var(--sc-bg);
 	-webkit-font-smoothing: antialiased;
 	text-rendering: optimizeLegibility;
 	font-feature-settings: "cv02", "cv03", "cv04", "cv11";
@@ -91,12 +116,16 @@ body {
 	font-family: var(--font-display);
 }
 
-code,
-pre,
-kbd,
-.font-mono {
-	font-family: var(--font-mono);
-	font-feature-settings: "liga" 1, "calt" 1;
+/* Base layer, so a component's own font utility (Kbd uses the sans face for
+   ⌘⇧⌥ glyphs) wins over the element default. */
+@layer base {
+	code,
+	pre,
+	kbd,
+	.font-mono {
+		font-family: var(--font-mono);
+		font-feature-settings: "liga" 1, "calt" 1;
+	}
 }
 
 /* ============================================================================
@@ -117,8 +146,7 @@ kbd,
                     tertiary fills on content surfaces are lint errors.
    ============================================================================ */
 
-.omp-workspace-main,
-.settings-main-canvas {
+.omp-workspace-main {
 	background: var(--omp-bg-primary);
 }
 
@@ -158,14 +186,18 @@ kbd,
    ============================================================================ */
 
 ::selection {
-	background: var(--omp-selection-bg);
-	color: var(--omp-selection-text);
+	background: var(--sc-selection);
+	color: var(--sc-text);
 }
 
-:focus-visible {
-	outline: 2px solid var(--omp-accent);
-	outline-offset: 1px;
-	border-radius: 4px;
+/* One focus ring for every control. Layered (base) so a primitive's own
+   focus-visible utility wins; no forced radius — the outline follows the
+   element's own border-radius, so pills get round rings. */
+@layer base {
+	:focus-visible {
+		outline: var(--sc-focus-width) solid var(--sc-focus-ring);
+		outline-offset: var(--sc-focus-offset);
+	}
 }
 
 /* ============================================================================
@@ -180,18 +212,60 @@ kbd,
 	-webkit-app-region: no-drag;
 }
 
+/* Frameless chrome (src/main/window-chrome.ts): the OS draws its window
+   controls over the 48px top bars, so the bar that sits under them makes
+   room. macOS traffic lights sit top-left (over the sidebar header, or over
+   the title bar when the sidebar is hidden / a 56px rail); the Windows
+   caption buttons sit top-right (over the side panel header when docked,
+   else over the main top bar) — their width comes from the Window Controls
+   Overlay env() variables. */
+:root {
+	--sc-traffic-lights: 0px;
+	--sc-caption-buttons: 0px;
+}
+
+html[data-platform="darwin"] {
+	--sc-traffic-lights: 80px;
+}
+
+html[data-platform="win32"] {
+	--sc-caption-buttons: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+}
+
+.omp-sidebar-header {
+	padding-left: max(var(--sc-space-3), var(--sc-traffic-lights));
+}
+
+.omp-sheet-header[data-side="left"] {
+	padding-left: max(var(--sc-space-5), var(--sc-traffic-lights));
+}
+
+.omp-shell[data-sidebar="hidden"] .omp-topbar {
+	padding-left: max(var(--sc-space-2), var(--sc-traffic-lights));
+}
+
+.omp-shell[data-sidebar="rail"] .omp-topbar {
+	padding-left: max(var(--sc-space-2), calc(var(--sc-traffic-lights) - 56px));
+}
+
+.omp-shell:not(:has(> .omp-inspector)) .omp-topbar,
+.omp-panel-topbar {
+	padding-right: calc(var(--sc-space-2) + var(--sc-caption-buttons));
+}
+
 /* ============================================================================
    Motion system — spring-flavored entrances, instant-feeling state changes,
    no layout animation on rows
    ============================================================================ */
 
+/* Legacy motion names, now resolving to the --sc-duration-* / --sc-ease-* scale. */
 :root {
-	--omp-motion-instant: 90ms; /* motion-ok: token definition */
-	--omp-motion-fast: 150ms;
-	--omp-motion-med: 240ms;
-	--omp-motion-slow: 380ms; /* motion-ok: token definition */
-	--omp-ease: cubic-bezier(0.25, 1, 0.35, 1);
-	--omp-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+	--omp-motion-instant: var(--sc-duration-instant);
+	--omp-motion-fast: var(--sc-duration-fast);
+	--omp-motion-med: var(--sc-duration-med);
+	--omp-motion-slow: var(--sc-duration-slow);
+	--omp-ease: var(--sc-ease-standard);
+	--omp-ease-enter: var(--sc-ease-enter);
 	--omp-ease-spring: cubic-bezier(0.34, 1.42, 0.64, 1);
 }
 
@@ -280,17 +354,6 @@ kbd,
 	}
 }
 
-@keyframes omp-signal-light {
-	0%,
-	100% {
-		opacity: 0.58;
-		box-shadow: 0 0 0 transparent;
-	}
-	50% {
-		opacity: 1;
-		box-shadow: 0 0 7px currentColor;
-	}
-}
 
 @keyframes omp-tab-title-scroll {
 	0%,
@@ -350,6 +413,21 @@ kbd,
 	animation: omp-slide-in-right var(--omp-motion-med) var(--omp-ease-enter) both;
 }
 
+.omp-slide-in-left {
+	animation: omp-slide-in-left var(--omp-motion-med) var(--omp-ease-enter) both;
+}
+
+@keyframes omp-slide-in-left {
+	from {
+		opacity: 0;
+		transform: translateX(-28px);
+	}
+	to {
+		opacity: 1;
+		transform: translateX(0);
+	}
+}
+
 /* The exit half of the enter utilities above. Keyframes alone are not a class:
  * an overlay that swaps to `omp-scale-out` gets `animation: none` unless the
  * utility exists, which is why every exit silently snapped instead of fading. */
@@ -395,27 +473,6 @@ kbd,
 
 .omp-pulse-dot {
 	animation: omp-pulse-dot 1.6s ease-in-out infinite; /* motion-ok: waiting signal */
-}
-
-.omp-signal-light {
-	display: inline-block;
-	width: 4px;
-	height: 18px;
-	flex: 0 0 4px;
-	border-radius: 9999px;
-	background: currentColor;
-	opacity: 0.72;
-}
-
-.omp-signal-light--active {
-	animation: omp-signal-light 2.8s ease-in-out infinite; /* motion-ok: slow semantic status signal */
-}
-
-.omp-signal-light.omp-tab-signal {
-	position: absolute;
-	inset: 0 auto 0 0;
-	height: 100%;
-	border-radius: 0;
 }
 
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
@@ -464,20 +521,22 @@ kbd,
    forgot a transition utility — a tab, a menu item, a settings row — which reads
    as a flicker rather than a response. Covering the interactive elements once
    beats a `transition-colors` class at thirty callsites, and stays subordinate:
-   a callsite's own `transition-*` utility is a class selector, so it outranks this
-   rule and keeps its own properties and timing. */
-button,
-a[href],
-summary,
-[role="button"],
-[role="menuitem"],
-[role="menuitemcheckbox"],
-[role="option"],
-[role="tab"] {
-	transition:
-		background-color var(--omp-motion-fast) var(--omp-ease),
-		border-color var(--omp-motion-fast) var(--omp-ease),
-		color var(--omp-motion-fast) var(--omp-ease);
+   it sits in the base layer, so a callsite's own `transition-*` utility wins and
+   keeps its own properties and timing. */
+@layer base {
+	button,
+	a[href],
+	summary,
+	[role="button"],
+	[role="menuitem"],
+	[role="menuitemcheckbox"],
+	[role="option"],
+	[role="tab"] {
+		transition:
+			background-color var(--omp-motion-fast) var(--omp-ease),
+			border-color var(--omp-motion-fast) var(--omp-ease),
+			color var(--omp-motion-fast) var(--omp-ease);
+	}
 }
 
 .omp-color-fade {
@@ -487,79 +546,11 @@ summary,
 		color var(--omp-motion-fast) var(--omp-ease);
 }
 
-/* Hover actions overlay the row. Title width never changes. */
-.omp-sidebar-action {
-	opacity: 1;
-}
-
-.omp-sidebar-session-row,
-.omp-sidebar-workspace-row {
-	position: relative;
-}
-
+/* A sidebar row whose session is being switched to (the transcript still shows the outgoing one). */
 .omp-sidebar-session-row[data-switch-pending="true"] {
-	box-shadow: inset 2px 0 0 var(--omp-accent);
+	box-shadow: inset 2px 0 0 var(--sc-accent);
 }
 
-.omp-sidebar-session-actions,
-.omp-sidebar-workspace-actions {
-	position: absolute;
-	top: 50%;
-	right: 4px;
-	z-index: 1;
-	display: flex;
-	visibility: hidden;
-	pointer-events: none;
-	opacity: 0;
-	padding-left: 10px;
-	transform: translateY(-50%);
-	background: linear-gradient(to right, transparent, var(--omp-sidebar-bg) 10px);
-	transition:
-		opacity var(--omp-motion-fast) var(--omp-ease),
-		visibility 0s linear var(--omp-motion-fast);
-}
-
-.omp-sidebar-session-row[data-has-actions="true"]:hover .omp-sidebar-session-actions,
-.omp-sidebar-session-row[data-has-actions="true"]:focus-within .omp-sidebar-session-actions,
-.omp-sidebar-session-row[data-actions-open="true"] .omp-sidebar-session-actions,
-.omp-sidebar-workspace-row:hover .omp-sidebar-workspace-actions,
-.omp-sidebar-workspace-row:focus-within .omp-sidebar-workspace-actions,
-.omp-sidebar-workspace-row[data-actions-open="true"] .omp-sidebar-workspace-actions {
-	visibility: visible;
-	pointer-events: auto;
-	opacity: 1;
-	transition-delay: 0s;
-}
-
-.omp-sidebar-session-row[data-has-actions="true"]:hover .omp-sidebar-session-actions,
-.omp-sidebar-session-row[data-has-actions="true"]:focus-within .omp-sidebar-session-actions,
-.omp-sidebar-session-row[data-actions-open="true"] .omp-sidebar-session-actions {
-	background: linear-gradient(to right, transparent, var(--omp-sidebar-item-hover) 10px);
-}
-
-.omp-sidebar-session-row[data-active="true"]:hover .omp-sidebar-session-actions,
-.omp-sidebar-session-row[data-active="true"]:focus-within .omp-sidebar-session-actions,
-.omp-sidebar-session-row[data-active="true"][data-actions-open="true"] .omp-sidebar-session-actions {
-	background: linear-gradient(to right, transparent, var(--omp-selected-bg) 10px);
-}
-
-.omp-sidebar-group {
-	display: grid;
-	grid-template-rows: 1fr;
-	opacity: 1;
-}
-
-.omp-sidebar-group[data-state="collapsed"] {
-	grid-template-rows: 0fr;
-	opacity: 0;
-	pointer-events: none;
-}
-
-.omp-sidebar-group-content {
-	min-height: 0;
-	overflow: hidden;
-	contain: paint;
-}
 
 .omp-lift {
 	transition:
@@ -612,20 +603,7 @@ summary,
 	animation-delay: calc(var(--omp-motion-fast) * 1.4);
 }
 
-@media (min-width: 1120px) {
-	.omp-session-sidebar {
-		width: 248px;
-	}
-}
-
-/* 800px windows at 200% zoom leave 400 CSS px: a fixed-width sidebar would
-   squeeze the conversation below a usable composer. */
-@media (max-width: 640px) {
-	.omp-session-sidebar {
-		max-width: 40vw;
-		overflow: hidden;
-	}
-}
+/* Sidebar widths live in Sidebar.tsx (248px docked, resizable; 56px rail). */
 
 @media (max-height: 700px) {
 	.omp-empty-canvas {
@@ -653,68 +631,80 @@ summary,
 	}
 }
 
-/* Compact windows: keep the conversation wide and present the inspector as
-   an explicit overlay when the user opens it. */
+/* Docked side panel. Below 1000px it is a right Sheet instead (PanelContainer). */
 .omp-inspector {
 	container: omp-inspector / inline-size;
-	box-shadow: none;
 	animation: omp-slide-in-right var(--omp-motion-med) var(--omp-ease-enter) both;
 }
 
-.omp-inspector-tab-label {
-	display: inline;
-}
-
-@media (max-width: 1000px) {
-	.omp-inspector {
-		position: absolute;
-		inset-block: 0;
-		right: 0;
-		z-index: 30;
-		width: min(460px, calc(100vw - 56px)) !important;
-		box-shadow: -8px 0 24px rgba(24, 28, 33, 0.08);
-	}
-}
-
 /* ============================================================================
-   Settings workspace — container-driven reflow across every page archetype
+   Settings page — sub-nav + one centered column; rows align their controls
+   in one right column and stack in narrow containers
    ============================================================================ */
 
-.settings-sidebar {
-	width: 14rem;
+.settings-nav {
+	width: 15rem;
 }
 
 .settings-content {
 	container: settings-content / inline-size;
 }
 
-.settings-capability-grid {
-	display: grid;
-	grid-template-columns: repeat(4, minmax(0, 1fr));
-	gap: 0.75rem;
+.settings-column {
+	max-width: 56rem;
+	margin-inline: auto;
+	padding: var(--sc-space-8) var(--sc-space-10) var(--sc-space-16);
 }
 
-.settings-capability-featured {
-	grid-column: 1 / -1;
+.settings-section + .settings-section,
+.settings-sections > * + .settings-section {
+	margin-top: var(--sc-space-10);
 }
 
-.settings-capability-featured > div {
-	max-width: 72rem;
+/* Rows inside a section are separated by hairlines, never boxes. */
+.settings-section-body > [data-setting-row] + [data-setting-row] {
+	border-top: 1px solid var(--sc-divider);
 }
 
 .settings-field-row {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) minmax(13rem, 16rem);
-	align-items: start;
-	gap: 1rem;
-	/* Cap the row so the description and its control stay visually paired
-	   instead of stretching apart across wide windows. */
-	max-width: 56rem;
+	grid-template-columns: minmax(0, 1fr) minmax(12rem, 16rem);
+	align-items: center;
+	gap: var(--sc-space-4);
+}
+
+.settings-field-row-compact {
+	grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .settings-field-control {
 	min-width: 0;
 	width: 100%;
+}
+
+.settings-theme-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+	gap: var(--sc-space-2);
+}
+
+@container settings-content (max-width: 720px) {
+	.settings-column {
+		padding-inline: var(--sc-space-6);
+	}
+}
+
+@container settings-content (max-width: 560px) {
+	.settings-field-row:not(.settings-field-row-compact) {
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--sc-space-2);
+	}
+}
+
+@media (max-width: 1000px) {
+	.settings-nav {
+		width: 12.5rem;
+	}
 }
 
 .settings-embedded-panel {
@@ -770,41 +760,6 @@ summary,
 	grid-template-columns: minmax(0, 1.4fr) minmax(13.75rem, 1fr);
 }
 
-.updates-row {
-	display: grid;
-	grid-template-columns: 2rem minmax(0, 1fr) 6.875rem 6.875rem auto;
-}
-
-@container settings-content (max-width: 1600px) {
-	.settings-capability-grid {
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-	}
-}
-
-@container settings-content (max-width: 1100px) {
-	.settings-capability-grid {
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-	}
-}
-
-@media (max-width: 960px) {
-	.settings-sidebar {
-		width: 11rem;
-	}
-
-	.settings-sidebar > :last-child {
-		padding-inline: 0.5rem;
-	}
-
-	.settings-nav-group {
-		margin-top: 0.5rem;
-	}
-
-	.settings-nav-item {
-		padding-inline: 0.5rem;
-	}
-}
-
 @container settings-content (max-width: 1040px) {
 	.ssh-master-detail {
 		grid-template-columns: minmax(0, 1fr);
@@ -850,39 +805,9 @@ summary,
 }
 
 @container settings-content (max-width: 700px) {
-	.settings-capability-grid {
-		grid-template-columns: minmax(0, 1fr);
-	}
-
-	.settings-field-row,
 	.security-revision-grid,
 	.security-finding-detail {
 		grid-template-columns: minmax(0, 1fr);
-	}
-
-	.updates-row {
-		grid-template-columns: 2rem minmax(0, 1fr);
-		align-items: start;
-	}
-
-	.updates-icon {
-		grid-column: 1;
-		grid-row: 1;
-	}
-
-	.updates-copy,
-	.updates-current,
-	.updates-latest,
-	.updates-action {
-		grid-column: 2;
-	}
-
-	.updates-action {
-		justify-self: start;
-	}
-
-	.settings-management-toolbar {
-		flex-wrap: wrap;
 	}
 }
 
@@ -899,9 +824,6 @@ summary,
 		transition-duration: 0.01ms !important;
 	}
 
-	.omp-sidebar-action {
-		transition-delay: 0ms !important;
-	}
 
 	.omp-indeterminate-progress {
 		width: 100%;
@@ -926,8 +848,15 @@ summary,
 
 /* GUI color-blind mode — Okabe-Ito color-blind-safe palette for the
    semantic tokens. !important is required: named themes also set these vars
-   inline on <html>, and a stylesheet rule only wins with !important. */
+   inline on <html>, and a stylesheet rule only wins with !important. Both the
+   --sc-* palette and the legacy --omp-* names are pinned. */
 :root[data-colorblind="true"] {
+	--sc-accent: #0072b2 !important;
+	--sc-accent-hover: #005f93 !important;
+	--sc-accent-fg: #ffffff !important;
+	--sc-success: #009e73 !important;
+	--sc-warning: #e69f00 !important;
+	--sc-danger: #d55e00 !important;
 	--omp-accent: #0072b2 !important;
 	--omp-success: #009e73 !important;
 	--omp-warning: #e69f00 !important;

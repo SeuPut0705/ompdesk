@@ -2,7 +2,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
 import { useToolsStore } from "../../stores/tools";
@@ -112,13 +112,32 @@ describe("TitleBar", () => {
 		await mount();
 		await act(async () => Promise.resolve());
 
-		expect(container.textContent).toContain("1.5k");
-		expect(container.textContent).toContain("$0.1234");
-		expect(container.textContent).toContain("50%");
-		expect(container.textContent).toContain("5.0s");
-		expect(container.querySelectorAll(".omp-signal-light")).toHaveLength(1);
-		expect(container.querySelectorAll(".omp-signal-light--active")).toHaveLength(0);
+		// The bar shows a status in words and one compact cost figure; the rest
+		// lives in the Session status popover.
+		expect(container.textContent).toContain("Ready");
+		expect(container.textContent).toContain("$0.12");
+		expect(container.textContent).not.toContain("1.5k");
+		const trigger = (container.querySelectorAll("button") as unknown as TestButton[]).find(button =>
+			(button as unknown as Element).getAttribute("aria-label")?.startsWith("Session status"),
+		);
+		expect(trigger).toBeDefined();
+		await act(async () => trigger?.click());
+		const popover = document.querySelector('[role="dialog"][aria-label="Session status"]');
+		expect(popover?.textContent).toContain("1.5k");
+		expect(popover?.textContent).toContain("$0.1234");
+		expect(popover?.textContent).toContain("50%");
+		expect(popover?.textContent).toContain("5.0s");
+		const insights = Array.from(popover?.querySelectorAll("button") ?? []).find(button =>
+			button.textContent?.includes("Open in Insights"),
+		) as unknown as TestButton | undefined;
+		await act(async () => insights?.click());
+		expect(useUiStore.getState()).toMatchObject({
+			destination: "insights",
+			insightsTab: "stats",
+			insightsStatsScope: "session",
+		});
 		expect(getSessionStats).toHaveBeenCalledTimes(1);
+		useUiStore.getState().closeDestination();
 	});
 
 	it("picks up spend that landed without a transcript entry", async () => {
@@ -195,22 +214,25 @@ describe("TitleBar", () => {
 		}
 	});
 
-	it("opens the command center and session actions from visible toolbar buttons", async () => {
+	it("opens session actions and the side panel from visible toolbar buttons", async () => {
 		useSessionStore.setState({ status: "ready", sessionId: "session-1", cwd: "/tmp/project" });
 		await mount();
 
-		const buttons = container.querySelectorAll("button");
-		const commands = buttons.find(button => button.title === "Commands");
-		expect(commands).toBeDefined();
-		await act(async () => commands?.click());
-		expect(useUiStore.getState().commandPaletteOpen).toBe(true);
-		useUiStore.getState().closeCommandPalette();
+		const named = (label: string) =>
+			(container.querySelectorAll("button") as unknown as TestButton[]).find(
+				button => (button as unknown as Element).getAttribute("aria-label") === label,
+			);
+		const panel = named("Side panel");
+		expect(panel).toBeDefined();
+		await act(async () => panel?.click());
+		expect(useUiStore.getState().panelVisible).toBe(true);
+		useUiStore.setState({ panelVisible: false });
 
-		const actions = buttons.find(button => button.title === "Session actions");
+		const actions = named("Session actions");
 		expect(actions).toBeDefined();
 		await act(async () => actions?.click());
 		const importItem = Array.from(document.querySelectorAll("[data-menu-item]")).find(item =>
-			item.textContent?.includes("Import External Session"),
+			item.textContent?.includes(translate("cmd.import")),
 		) as unknown as TestButton | undefined;
 		expect(importItem).toBeDefined();
 		await act(async () => importItem?.click());

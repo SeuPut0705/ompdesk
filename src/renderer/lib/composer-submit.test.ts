@@ -85,7 +85,7 @@ afterEach(() => {
 	delete (globalThis as Record<string, unknown>).window;
 	useToastStore.setState({ toasts: [] });
 	useUiStore.setState({
-		settingsOpen: false,
+		destination: "session",
 		copySelectorOpen: false,
 		btwRequest: null,
 		shareSessionOpen: false,
@@ -265,7 +265,7 @@ describe("planComposerSubmit GUI-only routing", () => {
 			commands: [guiOnly("settings")],
 		});
 		expect(submit.kind).toBe("handled");
-		expect(useUiStore.getState().settingsOpen).toBe(true);
+		expect(useUiStore.getState().destination).toBe("settings");
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();
 	});
 

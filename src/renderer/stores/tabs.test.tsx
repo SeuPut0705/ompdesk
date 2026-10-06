@@ -230,7 +230,7 @@ function resetAll(): void {
 	usePlanApprovalStore.getState().clearProposal();
 	useExtensionUiStore.getState().clearAll();
 	useUiStore.getState().closeSessionOverlays();
-	useUiStore.getState().closeStatsDashboard();
+	useUiStore.getState().closeDestination();
 	useForkHandoffStore.getState().closeHandoffDialog();
 }
 
@@ -447,21 +447,20 @@ describe("tabs store switch", () => {
 		expect(setActiveOrder!).toBeLessThan(getStateOrder!);
 	});
 
-	it("closes outgoing session overlays while keeping global windows open", async () => {
+	it("closes outgoing session overlays while keeping the open destination page", async () => {
 		seedTabs();
-		useUiStore.getState().openSettings();
-		useUiStore.getState().openContextReport();
+		useUiStore.getState().openActiveTools();
 		useUiStore.getState().openModes("goal");
-		useUiStore.getState().openStatsDashboard();
+		useUiStore.getState().openInsights("usage");
 		useForkHandoffStore.getState().openHandoffDialog();
 
 		await useTabsStore.getState().switchTab("t1");
 
-		expect(useUiStore.getState().settingsOpen).toBe(false);
-		expect(useUiStore.getState().contextReportOpen).toBe(false);
+		expect(useUiStore.getState().activeToolsOpen).toBe(false);
 		expect(useUiStore.getState().modesOpen).toBe(false);
 		expect(useForkHandoffStore.getState().handoffDialogOpen).toBe(false);
-		expect(useUiStore.getState().statsDashboardOpen).toBe(true);
+		expect(useUiStore.getState().destination).toBe("insights");
+		expect(useUiStore.getState().insightsTab).toBe("usage");
 	});
 
 	it("serializes rapid switches and hydrates only the latest visible tab", async () => {
@@ -646,7 +645,7 @@ describe("tabs store switch", () => {
 		await useTabsStore.getState().switchTab("t1");
 
 		// Surfaced, not swallowed…
-		expect(useToastStore.getState().toasts.some(toast => toast.title === "Could not switch tab")).toBe(true);
+		expect(useToastStore.getState().toasts.some(toast => toast.title === "Couldn't switch tab")).toBe(true);
 		// …re-converged from GET_TABS — reconcile retries SET_ACTIVE_TAB for the
 		// renderer's pick, so a transient failure re-points routing here…
 		expect(omp.tabs.list).toHaveBeenCalled();
@@ -664,7 +663,7 @@ describe("tabs store switch", () => {
 
 		await useTabsStore.getState().switchTab("t1");
 
-		expect(useToastStore.getState().toasts.some(toast => toast.title === "Could not switch tab")).toBe(true);
+		expect(useToastStore.getState().toasts.some(toast => toast.title === "Couldn't switch tab")).toBe(true);
 		expect(omp.rpc.getTranscript).toHaveBeenCalledTimes(1);
 	});
 

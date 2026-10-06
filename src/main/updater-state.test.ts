@@ -17,7 +17,7 @@ describe("update check terminal state", () => {
 	it("does not leave a completed manual check spinning forever", () => {
 		expect(settleIncompleteUpdateCheck({ state: "checking" }, true)).toEqual({
 			state: "error",
-			message: "Update check completed without a result.",
+			message: "Couldn't finish the update check. Try again later.",
 		});
 	});
 
@@ -30,20 +30,20 @@ describe("update check terminal state", () => {
 
 describe("manual macOS installer selection", () => {
 	const files = [
-		{ url: "omp-0.8.4-arm64-mac.zip", sha512: "arm-zip" },
-		{ url: "omp-0.8.4-arm64.dmg", sha512: "arm-dmg", size: 120 },
-		{ url: "https://example.test/omp-0.8.4-mac.zip", sha512: "x64-zip" },
-		{ url: "https://example.test/omp-0.8.4.dmg", sha512: "x64-dmg", size: 140 },
+		{ url: "seucode-0.8.4-arm64-mac.zip", sha512: "arm-zip" },
+		{ url: "seucode-0.8.4-arm64.dmg", sha512: "arm-dmg", size: 120 },
+		{ url: "https://example.test/seucode-0.8.4-mac.zip", sha512: "x64-zip" },
+		{ url: "https://example.test/seucode-0.8.4.dmg", sha512: "x64-dmg", size: 140 },
 	];
 
 	it("selects the exact DMG for each supported architecture", () => {
 		expect(selectMacInstaller(files, "0.8.4", "arm64")).toEqual({
-			name: "omp-0.8.4-arm64.dmg",
+			name: "seucode-0.8.4-arm64.dmg",
 			sha512: "arm-dmg",
 			size: 120,
 		});
 		expect(selectMacInstaller(files, "0.8.4", "x64")).toEqual({
-			name: "omp-0.8.4.dmg",
+			name: "seucode-0.8.4.dmg",
 			sha512: "x64-dmg",
 			size: 140,
 		});
@@ -109,19 +109,19 @@ describe("manual installer transfer", () => {
 
 describe("installer debris sweep", () => {
 	const ENTRIES = [
-		"omp-0.9.7.dmg.download-4242",
-		"omp-0.9.8.dmg.download-99",
-		"omp-0.9.8.dmg.partial",
-		"omp-0.9.7 (1).dmg.partial",
+		"seucode-0.9.7.dmg.download-4242",
+		"seucode-0.9.8.dmg.download-99",
+		"seucode-0.9.8.dmg.partial",
+		"seucode-0.9.7 (1).dmg.partial",
 		"holiday.dmg.partial",
 		"notes.partial",
-		"install-omp.dmg.download-1",
-		"omp-0.9.9-arm64.dmg",
+		"install-seucode.dmg.download-1",
+		"seucode-0.9.9-arm64.dmg",
 	];
 	let dir: string;
 
 	beforeEach(() => {
-		dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-downloads-"));
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "seucode-downloads-"));
 		for (const name of ENTRIES) fs.writeFileSync(path.join(dir, name), "x");
 	});
 
@@ -131,38 +131,38 @@ describe("installer debris sweep", () => {
 
 	it("clears PID-keyed orphans that no restart could ever continue", async () => {
 		expect((await sweepInstallerPartials(dir)).sort()).toEqual([
-			"omp-0.9.7.dmg.download-4242",
-			"omp-0.9.8.dmg.download-99",
+			"seucode-0.9.7.dmg.download-4242",
+			"seucode-0.9.8.dmg.download-99",
 		]);
 	});
 
 	it("keeps every current-name partial while nothing is downloading", async () => {
 		await sweepInstallerPartials(dir);
-		expect(fs.existsSync(path.join(dir, "omp-0.9.8.dmg.partial"))).toBe(true);
+		expect(fs.existsSync(path.join(dir, "seucode-0.9.8.dmg.partial"))).toBe(true);
 	});
 
 	it("drops a superseded release's partial once the current download names its own", async () => {
-		const active = installerPartialPath(path.join(dir, "omp-0.9.9-arm64.dmg"));
+		const active = installerPartialPath(path.join(dir, "seucode-0.9.9-arm64.dmg"));
 		fs.writeFileSync(active, "x");
 		const removed = await sweepInstallerPartials(dir, active);
 		expect(removed.sort()).toEqual([
-			"omp-0.9.7 (1).dmg.partial",
-			"omp-0.9.7.dmg.download-4242",
-			"omp-0.9.8.dmg.download-99",
-			"omp-0.9.8.dmg.partial",
+			"seucode-0.9.7 (1).dmg.partial",
+			"seucode-0.9.7.dmg.download-4242",
+			"seucode-0.9.8.dmg.download-99",
+			"seucode-0.9.8.dmg.partial",
 		]);
 		expect(fs.existsSync(active)).toBe(true);
 	});
 
 	it("leaves files the updater never wrote where they are", async () => {
-		const active = installerPartialPath(path.join(dir, "omp-0.9.9-arm64.dmg"));
+		const active = installerPartialPath(path.join(dir, "seucode-0.9.9-arm64.dmg"));
 		await sweepInstallerPartials(dir, active);
 		await sweepInstallerPartials(dir);
 		for (const name of [
 			"holiday.dmg.partial",
 			"notes.partial",
-			"install-omp.dmg.download-1",
-			"omp-0.9.9-arm64.dmg",
+			"install-seucode.dmg.download-1",
+			"seucode-0.9.9-arm64.dmg",
 		]) {
 			expect(fs.existsSync(path.join(dir, name)), name).toBe(true);
 		}

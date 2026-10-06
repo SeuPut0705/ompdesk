@@ -1,4 +1,4 @@
-import { Columns2, Rows2, X } from "lucide-react";
+import { Columns2, Rows2, X, XCircle } from "lucide-react";
 import {
 	type CSSProperties,
 	type DragEvent,
@@ -17,6 +17,7 @@ import { ensureTabRuntime } from "../../stores/tab-runtime";
 import { type SplitAxis, type SplitPlacement, tabDisplayTitle, useTabsStore } from "../../stores/tabs";
 import { ChatStream } from "../chat/ChatStream";
 import { WorkspaceDock } from "../chat/dock/WorkspaceDock";
+import { IconButton, Spinner } from "../common";
 import { InputArea } from "./InputArea";
 
 const DIVIDER_SIZE = 5;
@@ -38,16 +39,16 @@ function SplitDropOverlay({ placement }: { placement: SplitPlacement }) {
 		{ placement: "bottom", className: "col-start-2 row-start-3" },
 	];
 	return (
-		<div className="pointer-events-none absolute inset-0 z-50 grid grid-cols-3 grid-rows-3 gap-3 bg-[var(--omp-overlay-bg)] p-6 backdrop-blur-[2px]">
+		<div className="pointer-events-none absolute inset-0 z-(--sc-z-drawer) grid grid-cols-3 grid-rows-3 gap-3 bg-(--sc-overlay) p-6">
 			{zones.map(zone => (
 				<div
 					key={zone.placement}
 					className={cx(
 						zone.className,
-						"flex items-center justify-center rounded-xl border text-omp-sm font-medium transition-colors",
+						"flex items-center justify-center rounded-(--sc-radius-lg) border text-sc-sm font-medium transition-colors duration-(--sc-duration-fast)",
 						zone.placement === placement
-							? "border-[var(--omp-accent)] bg-[var(--omp-accent-dim)] text-[var(--omp-accent)]"
-							: "border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] text-[var(--omp-dim)]",
+							? "border-(--sc-accent) bg-(--sc-elevated) text-(--sc-accent)"
+							: "border-(--sc-border-subtle) bg-(--sc-elevated) text-(--sc-text-muted)",
 					)}
 				>
 					{t(`tabs.menu.split${zone.placement[0]?.toUpperCase()}${zone.placement.slice(1)}`)}
@@ -65,17 +66,9 @@ function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; l
 	const switchTab = useTabsStore(state => state.switchTab);
 	const unsplit = useTabsStore(state => state.unsplit);
 	if (!tab) return null;
-	const running = tab.status === "running" || tab.compacting === true;
-	const signalActive = running || tab.status === "starting" || tab.status === "restarting";
-	const signalColor = running
-		? "var(--omp-accent)"
-		: tab.unreadDone
-			? "var(--omp-success)"
-			: tab.status === "ready" || tab.status === "asleep"
-				? "var(--omp-dim)"
-				: tab.status === "error" || tab.status === "exited"
-					? "var(--omp-error)"
-					: "var(--omp-warning)";
+	const busy =
+		tab.status === "running" || tab.compacting === true || tab.status === "starting" || tab.status === "restarting";
+	const failed = tab.status === "error" || tab.status === "exited";
 
 	return (
 		<SessionRuntimeProvider runtime={runtime}>
@@ -91,23 +84,24 @@ function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; l
 				)}
 			>
 				{split && (
-					<header className="relative flex h-8 shrink-0 items-center gap-2 border-b border-[var(--omp-border-muted)] pr-3 pl-5 text-omp-sm">
-						<span
-							aria-hidden
-							className={cx("omp-signal-light omp-tab-signal", signalActive && "omp-signal-light--active")}
-							style={{ color: signalColor, left: "0.5rem" }}
-						/>
-						<span className="min-w-0 flex-1 truncate font-medium text-[var(--omp-text)]">{label}</span>
-						<span className="omp-session-pane-cwd max-w-[45%] truncate text-[var(--omp-dim)]">{tab.cwd}</span>
-						<button
-							type="button"
+					<header className="relative flex h-9 shrink-0 items-center gap-2 border-b border-(--sc-divider) pr-1 pl-3 text-sc-sm">
+						{busy ? (
+							<span aria-hidden className="inline-flex">
+								<Spinner size="sm" />
+							</span>
+						) : failed ? (
+							<XCircle aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-danger)" />
+						) : null}
+						<span className="min-w-0 flex-1 truncate font-medium text-(--sc-text)">{label}</span>
+						<span className="omp-session-pane-cwd max-w-[45%] truncate font-mono text-sc-xs text-(--sc-text-muted)">
+							{tab.cwd}
+						</span>
+						<IconButton
+							icon={<X />}
+							label={t("split.removePane")}
 							onClick={() => void unsplit(tabId)}
-							aria-label={t("split.removePane")}
-							title={t("split.removePane")}
-							className="omp-pressable flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-						>
-							<X size={13} />
-						</button>
+							size="sm"
+						/>
 					</header>
 				)}
 				<div className="relative flex min-h-0 flex-1 flex-col">
@@ -268,12 +262,16 @@ export function SplitWorkspace() {
 				onPointerUp={finishDrag}
 				onPointerCancel={finishDrag}
 				className={cx(
-					"omp-split-divider group relative z-20 touch-none bg-[var(--omp-border-muted)] focus-visible:bg-[var(--omp-accent)]",
+					"omp-split-divider group relative z-(--sc-z-raised) touch-none bg-(--sc-divider) focus-visible:bg-(--sc-accent)",
 					split.axis === "columns" ? "cursor-col-resize" : "cursor-row-resize",
 				)}
 			>
-				<span className="pointer-events-none absolute inset-0 m-auto flex h-5 w-5 items-center justify-center rounded-full bg-[var(--omp-bg-elevated)] text-[var(--omp-dim)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-					{split.axis === "columns" ? <Columns2 size={12} /> : <Rows2 size={12} />}
+				<span className="pointer-events-none absolute inset-0 m-auto flex size-5 items-center justify-center rounded-full bg-(--sc-elevated) text-(--sc-text-muted) opacity-0 shadow-(--sc-shadow-sm) transition-opacity duration-(--sc-duration-fast) group-hover:opacity-100 group-focus-visible:opacity-100">
+					{split.axis === "columns" ? (
+						<Columns2 className="size-3" aria-hidden />
+					) : (
+						<Rows2 className="size-3" aria-hidden />
+					)}
 				</span>
 			</div>
 			{pane(split.secondTabId, true)}

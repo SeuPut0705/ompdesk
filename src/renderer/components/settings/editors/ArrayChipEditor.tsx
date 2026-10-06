@@ -13,6 +13,7 @@ import { ChevronDown, ChevronUp, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
+import { IconButton, Input, Select } from "../../common";
 
 export interface ArrayChipEditorProps {
 	values: string[];
@@ -65,92 +66,89 @@ export function ArrayChipEditor({ values, onCommit, disabled, placeholder, order
 	};
 
 	return (
-		<div
-			className="flex min-h-[38px] w-full flex-wrap items-center gap-1 rounded-md border border-(--omp-input-border) bg-(--omp-input-bg) px-2 py-1.5 transition-colors focus-within:border-(--omp-input-focus-border)"
-			onClick={() => inputRef.current?.focus()}
-		>
+		<div className="flex w-full flex-wrap items-center gap-1.5" onClick={() => inputRef.current?.focus()}>
 			{values.map((value, index) => (
 				<span
-					className="inline-flex items-center gap-1 rounded bg-(--omp-badge-bg) px-1.5 py-0.5 font-mono text-omp-sm text-(--omp-badge-text)"
+					className="inline-flex h-(--sc-control-sm) items-center gap-1 rounded-(--sc-radius-xs) bg-(--sc-surface-3) pl-2 text-sc-sm data-[disabled]:pr-2 text-(--sc-text-secondary)"
+					data-disabled={disabled || undefined}
 					key={`${value}-${index}`}
 				>
-					{ordered && <span className="text-(--omp-dim)">{index + 1}.</span>}
-					{options?.find(option => option.value === value)?.label ?? value}
+					{ordered && <span className="text-(--sc-text-subtle) tabular-nums">{index + 1}.</span>}
+					{options?.find(option => option.value === value)?.label ?? <span className="font-mono">{value}</span>}
 					{ordered && !disabled && (
-						<span className="inline-flex flex-col">
-							<button
-								aria-label={t("settings.editors.chipMoveUp", { value })}
-								className="text-(--omp-dim) hover:text-(--omp-text) disabled:opacity-30"
+						<>
+							<IconButton
 								disabled={index === 0}
+								icon={<ChevronUp />}
+								label={t("settings.editors.chipMoveUp", { value })}
 								onClick={e => {
 									e.stopPropagation();
 									move(index, -1);
 								}}
-								type="button"
-							>
-								<ChevronUp size={9} />
-							</button>
-							<button
-								aria-label={t("settings.editors.chipMoveDown", { value })}
-								className="text-(--omp-dim) hover:text-(--omp-text) disabled:opacity-30"
+								size="sm"
+							/>
+							<IconButton
 								disabled={index === values.length - 1}
+								icon={<ChevronDown />}
+								label={t("settings.editors.chipMoveDown", { value })}
 								onClick={e => {
 									e.stopPropagation();
 									move(index, 1);
 								}}
-								type="button"
-							>
-								<ChevronDown size={9} />
-							</button>
-						</span>
+								size="sm"
+							/>
+						</>
 					)}
 					{!disabled && (
-						<button
-							aria-label={t("settings.editors.chipRemove", { value })}
-							className="text-(--omp-dim) hover:text-(--omp-error)"
+						<IconButton
+							icon={<X />}
+							label={t("settings.editors.chipRemove", { value })}
 							onClick={e => {
 								e.stopPropagation();
 								removeAt(index);
 							}}
-							type="button"
-						>
-							<X size={11} />
-						</button>
+							size="sm"
+						/>
 					)}
 				</span>
 			))}
 			{!disabled && availableOptions ? (
-				<select
-					aria-label={placeholder ?? t("settings.editors.chipPlaceholder")}
-					className="min-w-[130px] flex-1 bg-transparent text-omp-sm text-(--omp-text) outline-none"
-					disabled={availableOptions.length === 0}
-					onChange={event => add(event.target.value)}
-					ref={element => {
-						inputRef.current = element;
-					}}
-					value=""
-				>
-					<option value="">{placeholder ?? t("settings.editors.chipPlaceholder")}</option>
-					{availableOptions.map(option => (
-						<option key={option.value} value={option.value}>
-							{option.label}
-						</option>
-					))}
-				</select>
+				<div className="min-w-[160px] flex-1">
+					<Select
+						aria-label={placeholder ?? t("settings.editors.chipPlaceholder")}
+						controlSize="sm"
+						disabled={availableOptions.length === 0}
+						onChange={event => add(event.target.value)}
+						ref={element => {
+							inputRef.current = element;
+						}}
+						value=""
+					>
+						<option value="">{placeholder ?? t("settings.editors.chipPlaceholder")}</option>
+						{availableOptions.map(option => (
+							<option key={option.value} value={option.value}>
+								{option.label}
+							</option>
+						))}
+					</Select>
+				</div>
 			) : !disabled ? (
-				<input
-					className="min-w-[70px] flex-1 bg-transparent font-mono text-omp-sm text-(--omp-text) outline-none placeholder:text-(--omp-dim)"
-					disabled={disabled}
-					onBlur={() => add(draft)}
-					onChange={e => setDraft(e.target.value)}
-					onKeyDown={onKeyDown}
-					placeholder={values.length === 0 ? (placeholder ?? t("settings.editors.chipPlaceholder")) : ""}
-					ref={element => {
-						inputRef.current = element;
-					}}
-					spellCheck={false}
-					value={draft}
-				/>
+				<div className="min-w-[120px] flex-1">
+					<Input
+						aria-label={placeholder ?? t("settings.editors.chipPlaceholder")}
+						controlSize="sm"
+						mono
+						onBlur={() => add(draft)}
+						onChange={e => setDraft(e.target.value)}
+						onKeyDown={onKeyDown}
+						placeholder={values.length === 0 ? (placeholder ?? t("settings.editors.chipPlaceholder")) : ""}
+						ref={element => {
+							inputRef.current = element;
+						}}
+						spellCheck={false}
+						value={draft}
+					/>
+				</div>
 			) : null}
 		</div>
 	);

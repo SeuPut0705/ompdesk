@@ -308,6 +308,10 @@ const api: OmpApi = {
 		set: (state: RunProgressState) => ipcRenderer.send(IPC_EVENTS.PROGRESS_SET, state),
 	},
 
+	windowChrome: {
+		setColors: colors => ipcRenderer.send(IPC_EVENTS.WINDOW_CHROME_SET, colors),
+	},
+
 	models: {
 		listProviders: () => ipcRenderer.invoke(IPC_COMMANDS.MODELS_PROVIDERS_LIST) as Promise<CustomProviderView[]>,
 		upsertProvider: (input: CustomProviderInput) =>

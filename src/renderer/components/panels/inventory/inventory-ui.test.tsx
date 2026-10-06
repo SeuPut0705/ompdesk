@@ -6,7 +6,7 @@
  *   owner/repo submits marketplace_action add and refetches.
  * - MarketplaceCard: lazy list_available on expand, installed-flag row
  *   actions, install → refetch of both the plugin list and the card.
- * - PluginDetailDrawer: masked keys are write-only (stored secret never
+ * - PluginDetailBody (plugin detail sheet content): masked keys are write-only (stored secret never
  *   echoed), staged settings save sends assembled values, server validation
  *   errors render under the field and keep the user's input, feature
  *   checkboxes save via set_plugin_features.
@@ -22,7 +22,7 @@ import { resetTabRoute } from "../../../lib/tab-routing";
 import { useSessionStore } from "../../../stores/session";
 import { useTabsStore } from "../../../stores/tabs";
 import { AddMarketplaceForm, MarketplaceCard } from "./MarketplacesSection";
-import { PluginDetailDrawer } from "./PluginDetailDrawer";
+import { PluginDetailBody } from "./PluginDetailSheet";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -339,7 +339,7 @@ describe("MarketplaceCard", () => {
 	});
 });
 
-describe("PluginDetailDrawer", () => {
+describe("PluginDetailBody", () => {
 	const plugin: RpcPluginInfo = { name: "demo", marketplace: "npm", enabled: true, version: "1.0.0", id: "demo" };
 	const detail: RpcPluginDetail = {
 		id: "demo",
@@ -356,7 +356,7 @@ describe("PluginDetailDrawer", () => {
 
 	it("renders a configured secret as write-only without receiving its value", async () => {
 		const omp = installOmpMock({ getPluginDetail: vi.fn(async () => ok(detail)) });
-		await mount(<PluginDetailDrawer onChanged={vi.fn(async () => {})} onClose={() => {}} plugin={plugin} />);
+		await mount(<PluginDetailBody onChanged={vi.fn(async () => {})} plugin={plugin} />);
 		await flush();
 		expect(omp.getPluginDetail).toHaveBeenCalledWith("demo");
 		const secretInput = queryAll('input[type="password"]')[0] as unknown as { value: string; placeholder: string };
@@ -373,7 +373,7 @@ describe("PluginDetailDrawer", () => {
 				.mockResolvedValueOnce(ok(detail))
 				.mockResolvedValue({ type: "response", command: "x", success: false, error: "sidecar went away" }),
 		});
-		await mount(<PluginDetailDrawer onChanged={vi.fn(async () => {})} onClose={() => {}} plugin={plugin} />);
+		await mount(<PluginDetailBody onChanged={vi.fn(async () => {})} plugin={plugin} />);
 		await flush();
 
 		// Saving re-reads the detail. The re-read fails while the panel is full of
@@ -393,7 +393,7 @@ describe("PluginDetailDrawer", () => {
 
 	it("saves staged settings with assembled values and refetches the detail", async () => {
 		const omp = installOmpMock({ getPluginDetail: vi.fn(async () => ok(detail)) });
-		await mount(<PluginDetailDrawer onChanged={vi.fn(async () => {})} onClose={() => {}} plugin={plugin} />);
+		await mount(<PluginDetailBody onChanged={vi.fn(async () => {})} plugin={plugin} />);
 		await flush();
 		await typeInto(queryAll('input[type="number"]')[0], "5");
 		// Boolean switch stages like every other kind.
@@ -413,7 +413,7 @@ describe("PluginDetailDrawer", () => {
 			values: { verbose: false },
 		};
 		const omp = installOmpMock({ getPluginDetail: vi.fn(async () => ok(booleanOnly)) });
-		await mount(<PluginDetailDrawer onChanged={vi.fn(async () => {})} onClose={() => {}} plugin={plugin} />);
+		await mount(<PluginDetailBody onChanged={vi.fn(async () => {})} plugin={plugin} />);
 		await flush();
 
 		const toggle = queryAll('button[aria-label="verbose"]')[0];
@@ -435,7 +435,7 @@ describe("PluginDetailDrawer", () => {
 			configuredKeys: [],
 		};
 		const omp = installOmpMock({ getPluginDetail: vi.fn(async () => ok(defaulted)) });
-		await mount(<PluginDetailDrawer onChanged={vi.fn(async () => {})} onClose={() => {}} plugin={plugin} />);
+		await mount(<PluginDetailBody onChanged={vi.fn(async () => {})} plugin={plugin} />);
 		await flush();
 
 		const toggle = queryAll('button[aria-label="verbose"]')[0];
@@ -453,7 +453,7 @@ describe("PluginDetailDrawer", () => {
 			getPluginDetail: vi.fn(async () => ok(detail)),
 			setPluginSetting: vi.fn(async () => ok({ ok: false, error: "must be >= 1" })),
 		});
-		await mount(<PluginDetailDrawer onChanged={vi.fn(async () => {})} onClose={() => {}} plugin={plugin} />);
+		await mount(<PluginDetailBody onChanged={vi.fn(async () => {})} plugin={plugin} />);
 		await flush();
 		await typeInto(queryAll('input[type="number"]')[0], "0");
 		await click(byText("button", "Save settings"));
@@ -465,7 +465,7 @@ describe("PluginDetailDrawer", () => {
 
 	it("saves feature checkbox selections via set_plugin_features", async () => {
 		const omp = installOmpMock({ getPluginDetail: vi.fn(async () => ok(detail)) });
-		await mount(<PluginDetailDrawer onChanged={vi.fn(async () => {})} onClose={() => {}} plugin={plugin} />);
+		await mount(<PluginDetailBody onChanged={vi.fn(async () => {})} plugin={plugin} />);
 		await flush();
 		const checkbox = queryAll('input[type="checkbox"]')[0];
 		(checkbox as unknown as { checked: boolean }).checked = true;

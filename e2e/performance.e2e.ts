@@ -68,7 +68,7 @@ test("bounded history rendering and input responsiveness across 5k, 20k and 50k 
 					if (count === 5000 && run === 0) {
 						await input.fill("fixture stream");
 						await input.press("Enter");
-						await expect(page.getByRole("button", { name: "Abort", exact: true })).toBeVisible();
+						await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
 						for (let index = 1; index < 5; index++) {
 							await page.keyboard.press("ControlOrMeta+t");
 							await expect(page.locator('[role="tablist"] [role="tab"]')).toHaveCount(index + 1);

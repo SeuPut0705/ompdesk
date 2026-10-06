@@ -5,10 +5,10 @@
 import type { ReactNode } from "react";
 
 export function FieldLabel({ children }: { children: ReactNode }) {
-	return <span className="mb-1 block text-omp-sm font-medium tracking-wide text-(--omp-muted)">{children}</span>;
+	return <span className="mb-1.5 block text-sc-sm font-medium text-(--sc-text-secondary)">{children}</span>;
 }
 
 export function FieldError({ message }: { message?: string }) {
 	if (!message) return null;
-	return <span className="mt-1 block text-omp-sm text-(--omp-error)">{message}</span>;
+	return <span className="mt-1.5 block text-sc-sm text-(--sc-danger)">{message}</span>;
 }

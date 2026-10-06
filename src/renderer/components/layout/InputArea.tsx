@@ -1,9 +1,21 @@
-import { ArrowUp, ChevronDown, History, Mic, MoreHorizontal, Paperclip, Square, SquarePen, X, Zap } from "lucide-react";
-import type { ClipboardEvent, KeyboardEvent } from "react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import {
+	ArrowUp,
+	ChevronDown,
+	CornerDownRight,
+	ExternalLink,
+	History,
+	ListPlus,
+	Maximize2,
+	Mic,
+	Minimize2,
+	Paperclip,
+	Plus,
+	Square,
+	X,
+} from "lucide-react";
+import type { ClipboardEvent, DragEvent, KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AvailableCommand, ImageContent } from "../../../shared/rpc-types";
-import { useOverlayPresence } from "../../hooks/use-overlay-presence";
 import { withGuiCommands } from "../../lib/command-registry";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { tryEmojiInlineReplace } from "../../lib/emoji";
@@ -11,7 +23,7 @@ import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { parseComposerMode } from "../../lib/input-modes";
-import { onEscape } from "../../lib/keymap";
+import { formatShortcut } from "../../lib/keymap";
 import { abortActiveTurn } from "../../lib/messages";
 import {
 	dropReferencedPastes,
@@ -32,7 +44,9 @@ import {
 	stopVoiceRecording,
 } from "../../lib/voice";
 import { useComposerStore } from "../../stores/composer";
+import { useFirstRunStore } from "../../stores/first-run";
 import { useInputHistoryStore } from "../../stores/input-history";
+import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
@@ -40,12 +54,12 @@ import { useSettingsStore } from "../../stores/settings";
 import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { ApprovalControl } from "./ApprovalControl";
+import { Badge, Banner, Button, IconButton, MenuButton, Spinner, Tooltip } from "../common";
 import { ComposerModes } from "./ComposerModes";
 import { ContextUsagePopover } from "./ContextUsagePopover";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-utils";
-import { ThinkingControl } from "./ThinkingControl";
+import { RunSettings } from "./RunSettings";
 import { type CompletionItem, type CompletionMenu, useCompletionMenu } from "./use-completion-menu";
 import { useComposerSubmit } from "./use-composer-submit";
 
@@ -73,9 +87,8 @@ export function InputArea() {
 	const sessionId = useSessionStore(s => s.sessionId);
 	const queuedMessageCount = useSessionStore(s => s.queuedMessageCount);
 	const cwd = useSessionStore(s => s.cwd);
-	const steeringMode = useSettingsStore(s => s.steeringMode);
 	const model = useModelStore(s => s.model);
-	const fastModeActive = useModelStore(s => s.fastModeActive);
+	const settingUp = useFirstRunStore(s => s.phase !== "idle");
 	const openModelPicker = useUiStore(s => s.openModelPicker);
 	/** Agent `stt.enabled` setting: microphone dictation button in the composer. */
 	const sttEnabled = useSettingsStore(s => s.sttEnabled);
@@ -104,78 +117,25 @@ export function InputArea() {
 	/** Pending large-paste choice: the paste already happened, this picks the form. */
 	const [pasteMenu, setPasteMenu] = useState<{ content: string; lineCount: number } | null>(null);
 	const pasteMenuRef = useRef<HTMLDivElement>(null);
-	const [runSettingsOpen, setRunSettingsOpen] = useState(false);
-	const { mounted: runSettingsMounted, closing: runSettingsClosing } = useOverlayPresence(runSettingsOpen);
-	const [runSettingsPos, setRunSettingsPos] = useState<{ left: number; bottom: number } | null>(null);
-	const runSettingsTriggerRef = useRef<HTMLButtonElement>(null);
-	const runSettingsMenuRef = useRef<HTMLDivElement>(null);
-	const composerToolbarRef = useRef<HTMLDivElement>(null);
-	const [compactRunSettings, setCompactRunSettings] = useState(false);
-	const approvalMode = useSettingsStore(s => s.approvalMode);
-	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
-	const runSettingsActive = fastModeActive || planModeEnabled || approvalMode !== "yolo";
-
-	useLayoutEffect(() => {
-		const toolbar = composerToolbarRef.current;
-		if (!toolbar) return;
-		const inlineMinWidth = isChat ? 560 : 820;
-		const measure = () => {
-			const measured = toolbar.getBoundingClientRect().width;
-			const width = Number.isFinite(measured) && measured > 0 ? measured : window.innerWidth;
-			const compact = width < inlineMinWidth;
-			setCompactRunSettings(current => (current === compact ? current : compact));
-			if (!compact) setRunSettingsOpen(false);
-		};
-		measure();
-		const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-		observer?.observe(toolbar);
-		window.addEventListener("resize", measure);
-		return () => {
-			observer?.disconnect();
-			window.removeEventListener("resize", measure);
-		};
-	}, [isChat]);
-
-	useLayoutEffect(() => {
-		if (!runSettingsOpen || !runSettingsTriggerRef.current) return;
-		const place = () => {
-			const trigger = runSettingsTriggerRef.current;
-			if (!trigger) return;
-			const rect = trigger.getBoundingClientRect();
-			const menuWidth = runSettingsMenuRef.current?.offsetWidth || 240;
-			const left = Math.min(Math.max(12, rect.left), window.innerWidth - menuWidth - 12);
-			setRunSettingsPos({ left, bottom: window.innerHeight - rect.top + 6 });
-		};
-		place();
-		window.addEventListener("resize", place);
-		return () => window.removeEventListener("resize", place);
-	}, [runSettingsOpen]);
-
-	useEffect(() => {
-		if (!runSettingsOpen) return;
-		const onDown = (event: PointerEvent) => {
-			const target = event.target as Node;
-			if (runSettingsTriggerRef.current?.contains(target) || runSettingsMenuRef.current?.contains(target)) return;
-			setRunSettingsOpen(false);
-		};
-		const onKey = (event: globalThis.KeyboardEvent) => {
-			onEscape(event, () => setRunSettingsOpen(false));
-		};
-		// Close on click rather than pointerdown. The controls inside this menu
-		// open their own body-level portals; closing on the nested option's
-		// pointerdown unmounted its React handler before the following click could
-		// dispatch the selected value.
-		document.addEventListener("click", onDown);
-		document.addEventListener("keydown", onKey);
-		return () => {
-			document.removeEventListener("click", onDown);
-			document.removeEventListener("keydown", onKey);
-		};
-	}, [runSettingsOpen]);
+	/** ⌃G: the composer expands in place to fill the session pane (design-spec §2.2). */
+	const [expanded, setExpanded] = useState(false);
+	const [externalBusy, setExternalBusy] = useState(false);
+	const [dragActive, setDragActive] = useState(false);
+	const isEmptySession = useMessagesStore(s => s.messages.length === 0);
+	const focusedPane = contextTabId === null || contextTabId === activeTabId;
 
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const mountedRef = useRef(true);
+
+	// New and empty sessions start with the caret in the composer, unless
+	// something else (a dialog, another field) already holds focus.
+	useEffect(() => {
+		if (!routeReady || !focusedPane || !isEmptySession || !sessionId) return;
+		const active = document.activeElement;
+		if (active && active !== document.body) return;
+		textareaRef.current?.focus();
+	}, [routeReady, focusedPane, isEmptySession, sessionId]);
 
 	// A large-paste choice stays reversible until the user explicitly chooses a
 	// representation. Outside click cancels it instead of silently inserting
@@ -205,16 +165,10 @@ export function InputArea() {
 		void useInputHistoryStore.getState().hydrate();
 	}, []);
 
-	// `!` → bash / `$` → python composer mode (TUI parity): drives the border badge
-	// and reroutes sending. Detected from the prefix alone so the badge appears
-	// while the user is still typing.
+	// `!` → bash / `$` → python composer mode (TUI parity): drives the toolbar
+	// badge and reroutes sending. Detected from the prefix alone so the badge
+	// appears while the user is still typing.
 	const composerMode = useMemo(() => parseComposerMode(text), [text]);
-	const modeColor =
-		composerMode?.mode === "bash"
-			? "var(--omp-info)"
-			: composerMode?.mode === "python"
-				? "var(--omp-warning)"
-				: undefined;
 
 	// `->` / `=>` yield-queue shorthand (TUI queue-input.ts parity). The badge
 	// preview and the send-path dispatch share this one parser so the "splits
@@ -283,15 +237,20 @@ export function InputArea() {
 		};
 	}, [status, sessionId, runtimeTabId, rpc]);
 
-	// Auto-grow the textarea to fit its content (up to ~40% of the viewport).
+	// Auto-grow the textarea to fit its content (up to ~40% of the pane). The
+	// expanded composer fills the pane instead (CSS owns its height).
 	useEffect(() => {
 		const el = textareaRef.current;
 		if (!el) return;
+		if (expanded) {
+			el.style.height = "";
+			return;
+		}
 		el.style.height = "0px";
 		const paneHeight = el.closest<HTMLElement>(".omp-session-pane")?.clientHeight ?? window.innerHeight;
 		const maxHeight = text.length === 0 ? 24 : paneHeight * 0.4;
 		el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
-	}, [text]);
+	}, [text, expanded]);
 
 	useCompletionMenu({
 		text,
@@ -563,12 +522,40 @@ export function InputArea() {
 	}, [recording, send, t, setText]);
 
 	/**
-	 * Fullscreen editor dialog (TUI app.editor.external parity, GUI-native form).
-	 * Opens with the EXPANDED draft (paste markers resolved). Reached by ⌃G and
-	 * by the toolbar button — the chord is genuinely undiscoverable otherwise.
+	 * Expanded composer (TUI app.editor.external parity, GUI-native form): ⌃G
+	 * or the + menu grows the composer in place to fill the session pane for
+	 * long drafts — the same field, so completion, paste markers, IME and
+	 * history keep working. Enter adds a line there; ⌘↵ sends; Esc collapses.
 	 */
-	const openDraftEditor = () => {
-		useUiStore.getState().openComposerEditor(expandPasteMarkers(text));
+	const toggleExpanded = (next?: boolean) => {
+		setExpanded(current => next ?? !current);
+		requestAnimationFrame(() => textareaRef.current?.focus());
+	};
+
+	/** Round-trip the draft (paste markers resolved) through the user's $VISUAL/$EDITOR. */
+	const openExternalEditor = async () => {
+		if (externalBusy) return;
+		setExternalBusy(true);
+		const draft = text;
+		try {
+			const response = await window.omp.editor.openExternal(expandPasteMarkers(draft));
+			if (!mountedRef.current) return;
+			if (!response.ok) {
+				toast({
+					variant: "error",
+					title: t("editor.externalFailed"),
+					message: response.error || t("common.unknownError"),
+				});
+				return;
+			}
+			// null text = the editor exited non-zero; keep the draft as it was.
+			if (response.text === null) return;
+			// The written-back text is fully inline: consume the draft's paste blobs.
+			dropReferencedPastes(draft);
+			setText(response.text);
+		} finally {
+			if (mountedRef.current) setExternalBusy(false);
+		}
 	};
 
 	const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -618,15 +605,29 @@ export function InputArea() {
 			setHistorySearchOpen(open => !open);
 			return;
 		}
-		// ⌃G: fullscreen editor dialog.
+		// ⌃G: expand / collapse the composer in place.
 		if (e.key === "g" && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
 			e.preventDefault();
-			openDraftEditor();
+			toggleExpanded();
+			return;
+		}
+		if (expanded && e.key === "Escape") {
+			// Claim the key: the app-wide Escape would abort a running turn.
+			e.preventDefault();
+			e.stopPropagation();
+			toggleExpanded(false);
 			return;
 		}
 		// Up/Down prompt-history recall: Up from the first line cycles to older
 		// entries, Down from the last line cycles back to the stashed draft.
-		if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+		if (
+			!expanded &&
+			(e.key === "ArrowUp" || e.key === "ArrowDown") &&
+			!e.ctrlKey &&
+			!e.metaKey &&
+			!e.altKey &&
+			!e.shiftKey
+		) {
 			const el = textareaRef.current;
 			if (el) {
 				const caretStart = el.selectionStart ?? 0;
@@ -651,7 +652,10 @@ export function InputArea() {
 			}
 		}
 		if (e.key === "Enter" && !e.shiftKey) {
+			// Expanded: plain Enter is a newline; ⌘↵ sends and collapses.
+			if (expanded && !e.metaKey && !e.ctrlKey) return;
 			e.preventDefault();
+			if (expanded) setExpanded(false);
 			// ⌃Enter — send as follow-up, queueing behind the current yield (TUI
 			// app.message.followUp). Idle sessions start immediately either way.
 			send(undefined, e.ctrlKey && !e.metaKey && !e.altKey ? "followUp" : undefined);
@@ -685,40 +689,73 @@ export function InputArea() {
 		insertPasteBlob(content);
 	};
 
-	const modeLabel = isStreaming
-		? mode === "followUp"
-			? t("input.followUp")
-			: t("input.steer")
-		: t("input.sendLabel");
-	const modeTitle = isStreaming ? t("input.streamingTitle", { mode: steeringMode }) : t("input.sendPrompt");
+	const modeLabel = mode === "followUp" ? t("input.followUp") : t("input.steer");
+
+	const addImageFiles = (files: readonly File[]) => {
+		const imageFiles = files.filter(file => file.type.startsWith("image/"));
+		if (imageFiles.length === 0) return;
+		void Promise.all(imageFiles.map(fileToImage)).then(added => setImages(previous => [...previous, ...added]));
+	};
+
+	// Image files dropped on the composer attach like a paste; anything else
+	// keeps the browser default (text drops insert into the field).
+	const draggingFiles = (event: DragEvent<HTMLElement>) => Array.from(event.dataTransfer.types).includes("Files");
+	const dropProps = {
+		onDragEnter: (event: DragEvent<HTMLDivElement>) => {
+			if (draggingFiles(event)) setDragActive(true);
+		},
+		onDragOver: (event: DragEvent<HTMLDivElement>) => {
+			if (!draggingFiles(event)) return;
+			event.preventDefault();
+			event.dataTransfer.dropEffect = "copy";
+		},
+		onDragLeave: (event: DragEvent<HTMLDivElement>) => {
+			if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragActive(false);
+		},
+		onDrop: (event: DragEvent<HTMLDivElement>) => {
+			setDragActive(false);
+			if (!draggingFiles(event)) return;
+			event.preventDefault();
+			addImageFiles(Array.from(event.dataTransfer.files));
+		},
+	};
+
+	const sendDisabled =
+		!routeReady || status !== "ready" || sending || submissionUncertain || (!text.trim() && images.length === 0);
+	// While first-run setup runs, the live model is whatever omp fell back to
+	// (e.g. a tiny on-device model); show the neutral prompt instead.
+	const modelLabel = model && !settingUp ? model.name || model.id : t("input.chooseModel");
+	const placeholder =
+		status !== "ready"
+			? t("input.placeholder.connecting")
+			: isStreaming
+				? t("input.placeholder.streaming")
+				: isChat
+					? t("input.placeholder.chat")
+					: t("input.placeholder.idle");
 
 	return (
-		<div className="omp-composer-region relative shrink-0 bg-transparent pb-1">
+		<div
+			className={cx(
+				"omp-composer-region relative shrink-0 bg-transparent pb-3",
+				expanded && "omp-composer-region--expanded",
+			)}
+		>
 			<div className="omp-composer-shell relative w-full">
-				{queueBody !== undefined && (
-					<div
-						className="absolute -top-2 right-5 z-10 flex items-center gap-1.5 rounded-full border border-[var(--omp-warning)] px-2 py-0.5 text-omp-xs font-semibold text-[var(--omp-warning)]"
-						style={{ backgroundColor: "var(--omp-bg-primary)" }}
-						title={t("input.queue.title")}
-					>
-						➤ {t("input.queue.badge")}
-					</div>
-				)}
-
 				{pasteMenu && (
 					<div
 						ref={pasteMenuRef}
 						role="dialog"
 						aria-label={t("input.paste.title", { lines: pasteMenu.lineCount, chars: pasteMenu.content.length })}
-						className="omp-pop-in absolute bottom-full left-0 right-0 z-20 mb-2 rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-3 shadow-[var(--omp-shadow-lg)]"
+						className="omp-pop-in absolute right-0 bottom-full left-0 z-(--sc-z-popover) mb-2 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) p-3 shadow-(--sc-shadow-md)"
 					>
 						<div className="flex items-baseline justify-between gap-3">
-							<span className="text-omp-md font-medium text-[var(--omp-text)]">
+							<span className="text-sc-md font-medium text-(--sc-text)">
 								{t("input.paste.title", { lines: pasteMenu.lineCount, chars: pasteMenu.content.length })}
 							</span>
-							<span className="shrink-0 text-omp-sm text-[var(--omp-dim)]">{t("input.paste.hint")}</span>
+							<span className="shrink-0 text-sc-sm text-(--sc-text-muted)">{t("input.paste.hint")}</span>
 						</div>
-						<pre className="mt-2 max-h-32 overflow-hidden rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)] px-2.5 py-2 font-mono text-omp-sm leading-[1.5] whitespace-pre-wrap break-all text-[var(--omp-muted)]">
+						<pre className="mt-2 max-h-32 overflow-hidden rounded-(--sc-radius-md) border border-(--sc-divider) bg-(--sc-surface-1) px-2.5 py-2 font-mono text-sc-sm break-all whitespace-pre-wrap text-(--sc-text-secondary)">
 							{(() => {
 								const lines = pasteMenu.content.split("\n");
 								if (lines.length <= 6) return pasteMenu.content;
@@ -727,76 +764,57 @@ export function InputArea() {
 								return `${head}\n${t("input.paste.moreLines", { count: lines.length - 5 })}\n${tail}`;
 							})()}
 						</pre>
-						<div className="mt-2.5 flex gap-2">
-							<button
-								type="button"
-								onClick={choosePasteInline}
-								className="omp-pressable rounded-lg bg-[var(--omp-btn-primary-bg)] px-3 py-1.5 text-omp-md font-medium text-[var(--omp-btn-primary-text)] hover:brightness-110"
-							>
+						<div className="mt-3 flex flex-wrap gap-2">
+							<Button onClick={choosePasteInline} size="sm" variant="primary">
 								{t("input.paste.inline")}
-							</button>
-							<button
-								type="button"
-								onClick={choosePasteWrapped}
-								className="omp-pressable rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-							>
+							</Button>
+							<Button onClick={choosePasteWrapped} size="sm">
 								{t("input.paste.wrap")}
-							</button>
-							<button
-								type="button"
-								onClick={choosePasteSaveFile}
-								className="omp-pressable rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-							>
+							</Button>
+							<Button onClick={choosePasteSaveFile} size="sm">
 								{t("input.paste.saveFile")}
-							</button>
-							<button
-								type="button"
-								onClick={() => setPasteMenu(null)}
-								className="omp-pressable rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-							>
+							</Button>
+							<Button onClick={() => setPasteMenu(null)} size="sm" variant="ghost">
 								{t("input.paste.cancel")}
-							</button>
+							</Button>
 						</div>
-					</div>
-				)}
-
-				{composerMode && modeColor && (
-					<div
-						className="absolute -top-2 left-5 z-10 flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-omp-xs font-semibold"
-						style={{ borderColor: modeColor, color: modeColor, backgroundColor: "var(--omp-bg-primary)" }}
-						title={composerMode.mode === "bash" ? t("input.mode.bash.title") : t("input.mode.python.title")}
-					>
-						<span className="font-mono text-omp-sm leading-none">{composerMode.mode === "bash" ? "!" : "$"}</span>
-						{composerMode.mode}
 					</div>
 				)}
 
 				{/* Anchoring context for completion/history overlays: they sit directly
 				    above the input box instead of the surrounding composer region. */}
-				<div className="relative">
+				<div className="omp-composer-anchor relative">
 					{menu && (
-						<div className="absolute bottom-full left-0 z-10 mb-2 max-h-[60vh] w-[420px] max-w-full overflow-y-auto rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-1 shadow-[var(--omp-shadow-lg)]">
+						<div
+							aria-label={t("input.completion.label")}
+							className="absolute bottom-full left-0 z-(--sc-z-popover) mb-2 max-h-[60vh] w-[min(440px,100%)] overflow-y-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) p-1 shadow-(--sc-shadow-md)"
+							role="listbox"
+						>
 							{menu.items.map((item, index) => (
 								<button
+									aria-selected={index === menu.index}
 									key={`${menu.source}:${item.label}`}
 									type="button"
+									role="option"
 									onMouseDown={event => {
 										event.preventDefault();
 										insertCompletion(item);
 									}}
 									className={cx(
-										"flex w-full items-baseline gap-3 rounded-lg px-3 py-2.5 text-left",
-										index === menu.index ? "bg-[var(--omp-selected-bg)]" : "",
+										"flex min-h-(--sc-control-md) w-full items-baseline gap-3 rounded-(--sc-radius-sm) px-2.5 py-1.5 text-left",
+										index === menu.index ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
 									)}
 								>
-									<span className="font-mono text-omp-lg font-medium text-[var(--omp-accent)]">
+									<span className="shrink-0 font-mono text-sc-md font-medium text-(--sc-text)">
 										{item.label}
 									</span>
 									{item.description && (
-										<span className="truncate text-omp-md text-[var(--omp-muted)]">{item.description}</span>
+										<span className="min-w-0 truncate text-sc-sm text-(--sc-text-muted)">
+											{item.description}
+										</span>
 									)}
 									{item.hint && (
-										<span className="ml-auto shrink-0 font-mono text-omp-xs text-[var(--omp-dim)]">
+										<span className="ml-auto shrink-0 font-mono text-sc-xs text-(--sc-text-subtle)">
 											{item.hint}
 										</span>
 									)}
@@ -825,50 +843,81 @@ export function InputArea() {
 						/>
 					)}
 					<div
-						className="overflow-hidden rounded-xl border border-[var(--omp-input-border)] bg-[var(--omp-input-bg)] transition-[border-color,box-shadow] duration-150 focus-within:border-[var(--omp-input-focus-border)] focus-within:shadow-[var(--omp-shadow-glow)]"
-						style={modeColor ? { borderColor: modeColor } : undefined}
+						className={cx(
+							"omp-composer-box flex flex-col rounded-(--sc-radius-xl) border bg-(--sc-field) shadow-(--sc-shadow-sm) transition-[border-color,box-shadow] duration-(--sc-duration-fast)",
+							"border-(--sc-border-subtle) focus-within:border-(--sc-accent-border) focus-within:ring-3 focus-within:ring-(--sc-focus-glow)",
+							dragActive && "border-(--sc-accent) ring-3 ring-(--sc-focus-glow)",
+						)}
+						data-composer-mode={composerMode?.mode}
+						{...dropProps}
 					>
-						<div className="px-3.5 pb-1.5 pt-2.5">
-							{submissionUncertain && (
-								<div
-									role="alert"
-									className="mb-2 flex flex-wrap items-center gap-2 rounded border border-(--omp-warning) p-2 text-omp-sm text-(--omp-warning)"
+						{expanded && (
+							<div className="flex items-center gap-2 border-b border-(--sc-divider) py-1.5 pr-2 pl-4">
+								<span className="min-w-0 flex-1 truncate text-sc-sm font-medium text-(--sc-text-secondary)">
+									{t("editor.title")}
+								</span>
+								<span className="text-sc-xs text-(--sc-text-muted) max-sm:hidden">
+									{t("input.expanded.hint", { send: formatShortcut("⌘↵") })}
+								</span>
+								<Button
+									disabled={externalBusy}
+									icon={externalBusy ? <Spinner inheritColor size="sm" /> : <ExternalLink aria-hidden />}
+									onClick={() => void openExternalEditor()}
+									size="sm"
+									variant="ghost"
 								>
-									<p className="min-w-0 flex-1">{t("input.deliveryUnknown")}</p>
-									<button
-										type="button"
-										className="rounded border border-(--omp-border-muted) px-2 py-1"
-										onClick={() => setSubmissionUncertain(false)}
-									>
+									{externalBusy ? t("editor.externalBusy") : t("editor.external")}
+								</Button>
+								<IconButton
+									icon={<Minimize2 />}
+									label={t("input.expanded.collapse")}
+									onClick={() => toggleExpanded(false)}
+									shortcut="⌃G"
+									size="sm"
+								/>
+							</div>
+						)}
+						{submissionUncertain && (
+							<Banner
+								actions={
+									<Button onClick={() => setSubmissionUncertain(false)} size="sm">
 										{t("input.allowResend")}
-									</button>
-								</div>
-							)}
-							{images.length > 0 && (
-								<div className="mb-3 flex flex-wrap gap-2">
-									{images.map((image, index) => (
-										<div key={index} className="group relative">
-											<img
-												src={image.preview}
-												alt={t("input.attachmentAlt", { index: index + 1 })}
-												className="h-16 w-16 rounded-lg border border-[var(--omp-border-muted)] object-cover"
-											/>
-											<button
-												type="button"
-												title={t("input.removeAttachment")}
-												onClick={() =>
-													setImages(previous => previous.filter((_, itemIndex) => itemIndex !== index))
-												}
-												className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--omp-error)] text-[var(--omp-btn-danger-text)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
-											>
-												<X size={11} />
-											</button>
-										</div>
-									))}
-								</div>
-							)}
+									</Button>
+								}
+								className="m-2 mb-0"
+								live
+								variant="warning"
+							>
+								{t("input.deliveryUnknown")}
+							</Banner>
+						)}
+						{images.length > 0 && (
+							<div className="flex flex-wrap gap-2 px-3 pt-3">
+								{images.map((image, index) => (
+									<div key={index} className="group/attachment relative">
+										<img
+											src={image.preview}
+											alt={t("input.attachmentAlt", { index: index + 1 })}
+											className="size-16 rounded-(--sc-radius-md) border border-(--sc-border-subtle) object-cover"
+										/>
+										<IconButton
+											className="absolute -top-2 -right-2 rounded-(--sc-radius-full) border-(--sc-border-subtle) bg-(--sc-elevated) opacity-0 shadow-(--sc-shadow-sm) group-hover/attachment:opacity-100 focus-visible:opacity-100 group-focus-within/attachment:opacity-100"
+											icon={<X />}
+											label={t("input.removeAttachment")}
+											onClick={() =>
+												setImages(previous => previous.filter((_, itemIndex) => itemIndex !== index))
+											}
+											size="sm"
+											variant="secondary"
+										/>
+									</div>
+								))}
+							</div>
+						)}
+						<div className={cx("px-4 pt-3 pb-1", expanded && "flex min-h-0 flex-1 flex-col")}>
 							<textarea
 								ref={textareaRef}
+								aria-label={t("input.ariaLabel")}
 								autoCapitalize="sentences"
 								autoCorrect="on"
 								spellCheck
@@ -912,38 +961,55 @@ export function InputArea() {
 								onKeyDown={handleKeyDown}
 								onClick={() => setMenu(null)}
 								onPaste={handlePaste}
-								rows={2}
-								placeholder={
-									status !== "ready"
-										? t("input.placeholder.connecting")
-										: isStreaming
-											? t("input.placeholder.streaming")
-											: isChat
-												? t("input.placeholder.chat")
-												: t("input.placeholder.idle")
-								}
-								className="max-h-[40vh] min-h-[44px] w-full resize-none bg-transparent text-omp-xl leading-[1.5] text-[var(--omp-text)] outline-none placeholder:text-[var(--omp-dim)]"
+								rows={expanded ? undefined : 2}
+								placeholder={placeholder}
+								className={cx(
+									"w-full resize-none bg-transparent text-sc-lg text-(--sc-text) outline-none placeholder:text-(--sc-text-subtle) focus-visible:outline-none",
+									expanded ? "min-h-0 flex-1" : "max-h-[40vh] min-h-6",
+									composerMode && "font-mono",
+								)}
 							/>
 						</div>
 
 						{argHint && (
-							<div className="px-3.5 pb-1 font-mono text-omp-sm text-[var(--omp-dim)]">💡 {argHint}</div>
+							<div className="truncate px-4 pb-1 font-mono text-sc-xs text-(--sc-text-muted)">{argHint}</div>
 						)}
 
 						<div
-							ref={composerToolbarRef}
 							aria-busy={!routeReady}
-							className="omp-composer-toolbar flex min-h-10 flex-wrap items-center gap-1 border-t border-[var(--omp-border-muted)] px-2 py-1.5"
+							aria-label={t("input.toolbar")}
+							className="omp-composer-toolbar flex min-h-11 flex-wrap items-center gap-1 px-2 pb-2"
 							inert={!routeReady}
+							role="toolbar"
 						>
-							<button
-								type="button"
-								onClick={() => fileInputRef.current?.click()}
-								title={t("input.attach")}
-								className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-							>
-								<Paperclip size={16} />
-							</button>
+							<MenuButton
+								icon={<Plus />}
+								items={[
+									{
+										id: "attach",
+										label: t("input.attach"),
+										icon: Paperclip,
+										onSelect: () => fileInputRef.current?.click(),
+									},
+									{
+										id: "history",
+										label: t("input.history.title"),
+										description: t("input.history.menuDesc"),
+										icon: History,
+										shortcut: "⌃R",
+										onSelect: () => setHistorySearchOpen(true),
+									},
+									{
+										id: "expand",
+										label: expanded ? t("input.expanded.collapse") : t("input.expanded.open"),
+										icon: expanded ? Minimize2 : Maximize2,
+										shortcut: "⌃G",
+										onSelect: () => toggleExpanded(),
+									},
+								]}
+								label={t("input.addMenu")}
+								size="sm"
+							/>
 							<input
 								ref={fileInputRef}
 								type="file"
@@ -951,211 +1017,114 @@ export function InputArea() {
 								multiple
 								className="hidden"
 								onChange={event => {
-									const files = Array.from(event.target.files ?? []);
-									if (files.length > 0) {
-										void Promise.all(files.map(fileToImage)).then(pasted =>
-											setImages(previous => [...previous, ...pasted]),
-										);
-									}
+									addImageFiles(Array.from(event.target.files ?? []));
 									event.target.value = "";
 								}}
 							/>
 
-							<button
-								type="button"
-								data-draft-editor-trigger
-								onClick={openDraftEditor}
-								title={t("editor.title")}
-								className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-							>
-								<SquarePen size={16} />
-							</button>
-							<button
-								type="button"
-								aria-label={t("input.history.title")}
-								title={t("input.history.title")}
-								onClick={() => setHistorySearchOpen(true)}
-								className="omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-							>
-								<History aria-hidden="true" size={16} />
-							</button>
+							{!isChat && <ComposerModes />}
+							<RunSettings isChat={isChat} />
 
-							{sttEnabled && (
-								<button
-									type="button"
-									onClick={handleMicClick}
-									title={recording ? t("voice.mic.stop") : t("voice.mic.start")}
-									className={cx(
-										"omp-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
-										recording
-											? "bg-[var(--omp-error-dim)] text-[var(--omp-error)]"
-											: "text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]",
-									)}
+							{composerMode && (
+								<Tooltip
+									content={
+										composerMode.mode === "bash" ? t("input.mode.bash.title") : t("input.mode.python.title")
+									}
 								>
-									{recording ? (
-										<Square size={12} fill="currentColor" className="omp-pulse-dot" />
-									) : (
-										<Mic size={16} />
-									)}
-								</button>
+									<span className="inline-flex">
+										<Badge variant={composerMode.mode === "bash" ? "info" : "warning"}>
+											{composerMode.mode === "bash"
+												? t("input.mode.bash.badge")
+												: t("input.mode.python.badge")}
+										</Badge>
+									</span>
+								</Tooltip>
 							)}
-
-							<button
-								type="button"
-								onClick={openModelPicker}
-								title={t("input.model")}
-								className="omp-pressable flex h-8 min-w-0 max-w-52 items-center gap-2 rounded-lg px-2.5 text-omp-md font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-							>
-								<span className="h-2 w-2 shrink-0 rounded-full bg-[var(--omp-status-model)]" />
-								<span className="omp-composer-model-label truncate">{model?.id ?? t("input.chooseModel")}</span>
-								<ChevronDown size={13} className="shrink-0 text-[var(--omp-dim)]" />
-							</button>
-
-							{compactRunSettings ? (
-								<div className="relative">
-									<button
-										ref={runSettingsTriggerRef}
-										type="button"
-										aria-expanded={runSettingsOpen}
-										aria-haspopup="menu"
-										data-run-settings-overflow-trigger
-										title={t("input.moreModes")}
-										aria-label={t("input.moreModes")}
-										onClick={() => setRunSettingsOpen(open => !open)}
-										className="omp-pressable relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-									>
-										<MoreHorizontal size={16} />
-										{runSettingsActive && (
-											<span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[var(--omp-accent)]" />
-										)}
-									</button>
-									{runSettingsMounted &&
-										runSettingsPos &&
-										createPortal(
-											<div
-												ref={runSettingsMenuRef}
-												role="menu"
-												data-run-settings-menu
-												aria-hidden={runSettingsClosing || undefined}
-												inert={runSettingsClosing}
-												style={{ left: runSettingsPos.left, bottom: runSettingsPos.bottom }}
-												className={`fixed z-[100] flex min-w-56 flex-col gap-1 rounded-xl border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] p-1.5 shadow-[var(--omp-shadow-md)] ${
-													runSettingsClosing ? "omp-scale-out pointer-events-none" : "omp-pop-in"
-												}`}
-											>
-												<ThinkingControl />
-												<FastModeControl menuItem />
-												{!isChat && <ApprovalControl />}
-												{!isChat && <ComposerModes />}
-											</div>,
-											document.body,
-										)}
-								</div>
-							) : (
-								<div data-run-settings-inline className="flex shrink-0 items-center gap-0.5">
-									<ThinkingControl />
-									<FastModeControl />
-									{!isChat && <ApprovalControl />}
-									{!isChat && <ComposerModes />}
-								</div>
+							{queueBody !== undefined && (
+								<Tooltip content={t("input.queue.title")}>
+									<span className="inline-flex">
+										<Badge variant="warning">
+											{queueSplitCount > 1
+												? t("input.queue.badgeSplit", { count: queueSplitCount })
+												: t("input.queue.badge")}
+										</Badge>
+									</span>
+								</Tooltip>
 							)}
 
 							<div className="flex-1" />
 
-							{queueSplitCount > 1 && (
-								<span className="mr-1 shrink-0 rounded-md border border-[var(--omp-warning)] px-2 py-1 text-omp-sm font-medium text-[var(--omp-warning)]">
-									{t("input.queue.split", { count: queueSplitCount })}
-								</span>
-							)}
-
-							<div className="omp-composer-send-cluster ml-1 flex shrink-0 items-center gap-2.5">
-								<ContextUsagePopover />
-
-								{isStreaming ? (
-									<div className="flex shrink-0 items-center gap-1.5">
-										<button
-											type="button"
-											disabled={!routeReady}
-											onClick={() => setMode(current => (current === "followUp" ? "steer" : "followUp"))}
-											title={modeTitle}
-											className="omp-pressable h-7 rounded-md border border-[var(--omp-border)] px-2.5 text-omp-sm font-medium text-[var(--omp-muted)] hover:border-[var(--omp-border-strong)] hover:text-[var(--omp-text)]"
-										>
-											{modeLabel}
-										</button>
-										<button
-											type="button"
-											onClick={() => send()}
-											disabled={
-												!routeReady ||
-												status !== "ready" ||
-												sending ||
-												submissionUncertain ||
-												(!text.trim() && images.length === 0)
-											}
-											aria-label={t("input.send")}
-											title={t("input.send")}
-											className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] disabled:opacity-40"
-										>
-											<ArrowUp size={14} />
-										</button>
-										<button
-											type="button"
-											disabled={!routeReady}
-											onClick={() => void abortActiveTurn(rpc, runtimeTabId)}
-											aria-label={t("input.abort")}
-											title={t("input.abort")}
-											className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md bg-[var(--omp-error-dim)] text-[var(--omp-error)] hover:bg-[var(--omp-error)] hover:text-[var(--omp-btn-danger-text)]"
-										>
-											<Square size={10} fill="currentColor" />
-										</button>
-									</div>
-								) : (
-									<button
-										type="button"
-										onClick={() => send()}
-										disabled={
-											!routeReady ||
-											status !== "ready" ||
-											sending ||
-											submissionUncertain ||
-											(!text.trim() && images.length === 0)
-										}
-										aria-label={t("input.send")}
-										title={t("input.send")}
-										className="omp-pressable flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)] shadow-[var(--omp-shadow-sm)] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none disabled:hover:brightness-100"
+							<div className="omp-composer-send-cluster flex shrink-0 items-center gap-1">
+								<Tooltip content={model ? t("input.modelTooltip", { id: model.id }) : t("input.model")}>
+									<Button
+										aria-label={t("input.modelLabel", { model: modelLabel })}
+										className="omp-composer-chip min-w-0 max-w-56"
+										data-model-chip
+										onClick={openModelPicker}
+										size="sm"
+										trailingIcon={<ChevronDown aria-hidden className="text-(--sc-text-subtle)" />}
+										variant="ghost"
 									>
-										<ArrowUp size={14} strokeWidth={2.4} />
-									</button>
+										<span className="omp-composer-model-label truncate">{modelLabel}</span>
+									</Button>
+								</Tooltip>
+								{!settingUp && <ContextUsagePopover />}
+								{sttEnabled && (
+									<IconButton
+										className={cx(
+											recording && "bg-(--sc-danger-soft) text-(--sc-danger) hover:text-(--sc-danger)",
+										)}
+										icon={recording ? <Square className="omp-pulse-dot" fill="currentColor" /> : <Mic />}
+										label={recording ? t("voice.mic.stop") : t("voice.mic.start")}
+										onClick={handleMicClick}
+										pressed={recording}
+										size="sm"
+									/>
 								)}
+								{isStreaming && (
+									<Tooltip content={t("input.sendModeHint")}>
+										<Button
+											aria-label={t("input.sendModeLabel", { mode: modeLabel })}
+											className="omp-composer-chip"
+											data-send-mode={mode === "followUp" ? "followUp" : "steer"}
+											disabled={!routeReady}
+											icon={mode === "followUp" ? <ListPlus aria-hidden /> : <CornerDownRight aria-hidden />}
+											onClick={() => setMode(current => (current === "followUp" ? "steer" : "followUp"))}
+											size="sm"
+											variant="ghost"
+										>
+											<span className="omp-composer-control-label">{modeLabel}</span>
+										</Button>
+									</Tooltip>
+								)}
+								{isStreaming && (
+									<IconButton
+										disabled={!routeReady}
+										icon={<Square fill="currentColor" />}
+										label={t("input.abort")}
+										onClick={() => void abortActiveTurn(rpc, runtimeTabId)}
+										shortcut="Esc"
+										size="sm"
+										variant="secondary"
+									/>
+								)}
+								<IconButton
+									className="rounded-(--sc-radius-full)"
+									disabled={sendDisabled}
+									icon={<ArrowUp strokeWidth={2.4} />}
+									label={t("input.send")}
+									onClick={() => {
+										if (expanded) setExpanded(false);
+										send();
+									}}
+									size="sm"
+									variant="primary"
+								/>
 							</div>
 						</div>
 					</div>
 				</div>
 			</div>
 		</div>
-	);
-}
-
-function FastModeControl({ menuItem = false }: { menuItem?: boolean }) {
-	const t = useT();
-	const enabled = useModelStore(s => s.fastModeEnabled);
-	const active = useModelStore(s => s.fastModeActive);
-	const toggleFastMode = useModelStore(s => s.toggleFastMode);
-	return (
-		<button
-			type="button"
-			role={menuItem ? "menuitem" : undefined}
-			aria-pressed={enabled}
-			onClick={() => void toggleFastMode()}
-			title={`${enabled ? t("input.fast.on") : t("input.fast.off")}${active ? t("input.fast.active") : ""}`}
-			className={cx(
-				"omp-pressable flex h-8 items-center gap-1.5 rounded-lg px-2 text-omp-md font-medium hover:bg-[var(--omp-selected-bg)]",
-				menuItem && "w-full",
-				enabled ? "text-[var(--omp-accent)]" : "text-[var(--omp-muted)]",
-			)}
-		>
-			<Zap size={14} fill={active ? "currentColor" : "none"} />
-			<span>{t("input.fast.label")}</span>
-		</button>
 	);
 }

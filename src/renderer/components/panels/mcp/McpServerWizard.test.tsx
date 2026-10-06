@@ -252,16 +252,10 @@ describe("McpServerCard SSR", () => {
 			<I18nProvider>
 				<McpServerCard
 					busy={false}
-					confirmingRemove={false}
 					disabled={false}
 					enabled={fixture.enabled}
-					menuOpen={false}
-					onCancelRemove={() => {}}
-					onConfirmRemove={() => {}}
 					onDismissTest={() => {}}
 					onMenuAction={() => {}}
-					onMenuClose={() => {}}
-					onMenuToggle={() => {}}
 					onReauthCancel={() => {}}
 					reauth={reauth}
 					server={fixture}

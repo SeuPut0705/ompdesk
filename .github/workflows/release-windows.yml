@@ -37,9 +37,9 @@ jobs:
         shell: bash
         run: |
           V="${TAG#v}"
-          cp "dist/omp-$V-setup.exe" dist/omp-windows-setup.exe
-          cp "dist/omp-$V-portable.exe" dist/omp-windows-portable.exe
+          cp "dist/seucode-$V-setup.exe" dist/seucode-windows-setup.exe
+          cp "dist/seucode-$V-portable.exe" dist/seucode-windows-portable.exe
           gh release upload "$TAG" \
-            "dist/omp-$V-setup.exe" "dist/omp-$V-portable.exe" \
-            dist/omp-windows-setup.exe dist/omp-windows-portable.exe \
+            "dist/seucode-$V-setup.exe" "dist/seucode-$V-portable.exe" \
+            dist/seucode-windows-setup.exe dist/seucode-windows-portable.exe \
             dist/latest.yml --clobber

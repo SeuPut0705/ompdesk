@@ -33,6 +33,8 @@ const { createRoot } = await import("react-dom/client");
 const { TodoDockCard } = await import("./TodoDockCard");
 const { WorkspaceDock } = await import("./WorkspaceDock");
 const { WorkspaceDockFocusProvider } = await import("./WorkspaceDockFocus");
+// The task list is a lazy chunk (it carries @dnd-kit): load it so the first act() can resolve it.
+await import("./TodoSortableList");
 
 let container: HTMLElement;
 let root: Root;
@@ -76,7 +78,7 @@ describe("TodoDockCard", () => {
 		]);
 		await mount();
 
-		expect(container.textContent).toContain("Tasks1 running · 1 pending");
+		expect(container.textContent).toContain("Todos1 running · 1 pending");
 		expect(container.textContent).toContain("Refine compact renderer");
 		expect(container.textContent).toContain("Run visual QA");
 		expect(container.textContent).not.toContain("Implementation");
@@ -91,8 +93,8 @@ describe("TodoDockCard", () => {
 		]);
 		await mount();
 
-		const header = container.querySelector('section[aria-label="Tasks"] button[aria-label="Collapse"]');
-		const title = [...(header?.querySelectorAll("span") ?? [])].find(node => node.textContent === "Tasks");
+		const header = container.querySelector('section[aria-label="Todos"] button[aria-label="Collapse"]');
+		const title = [...(header?.querySelectorAll("span") ?? [])].find(node => node.textContent === "Todos");
 		await act(async () => {
 			title?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
 		});
@@ -119,7 +121,7 @@ describe("TodoDockCard", () => {
 
 		expect(container.querySelector('[title="Restored task 1"]')).toBeNull();
 		const viewAll = [...container.querySelectorAll("button")].find(button =>
-			button.textContent?.includes("View all 12 todos"),
+			button.textContent?.includes("view all 12 todos"),
 		);
 		await act(async () => {
 			(viewAll as unknown as { click: () => void }).click();
@@ -162,7 +164,7 @@ describe("TodoDockCard", () => {
 		await mount(<WorkspaceDock />);
 
 		const viewAll = [...container.querySelectorAll("button")].find(button =>
-			button.textContent?.includes("View all 30"),
+			button.textContent?.includes("view all 30"),
 		);
 		await act(async () => (viewAll as unknown as { click: () => void }).click());
 

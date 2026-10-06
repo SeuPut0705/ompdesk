@@ -5,6 +5,7 @@ import {
 	Bug,
 	ChevronRight,
 	Code2,
+	History,
 	Languages,
 	Lightbulb,
 	ListTodo,
@@ -19,7 +20,7 @@ import type { RpcQueuedMessage } from "../../../shared/rpc-types";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { cx, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { isRenderableMessageText } from "../../lib/messages";
+import { abortActiveTurn, describeTurnError, isRenderableMessageText } from "../../lib/messages";
 import { collapsibleReadTarget, groupReadRows, type ReadGroupEntry } from "../../lib/read-group";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
@@ -31,7 +32,8 @@ import { toast } from "../../stores/toast";
 import { type TodoSnapshot, useTodoStore } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
-import { PiLogo } from "../common";
+import { BrandMark, Button, IconButton, Kbd, Spinner } from "../common";
+import { FirstRunSetup, useFirstRunActive } from "../onboarding/FirstRunSetup";
 import { ReadGroupCard } from "../tools/ReadGroupCard";
 import { ToolCard } from "../tools/ToolCard";
 import { ConversationNavigator } from "./ConversationNavigator";
@@ -258,6 +260,8 @@ function SessionTranscript() {
 	/** Chat tabs get a conversation-oriented empty state (agent starters imply tools). */
 	const isChat = useActiveTabKind() === "chat";
 	const starters = isChat ? CHAT_STARTERS : STARTERS;
+	/** No provider yet: the inline first-run setup takes the empty state's place. */
+	const firstRunActive = useFirstRunActive();
 
 	const virtualizer = useVirtualizer({
 		count: rows.length,
@@ -550,11 +554,12 @@ function SessionTranscript() {
 							<Loader2 size={16} className="animate-spin text-[var(--omp-muted)]" />
 						</div>
 					)}
-					{status !== "starting" && rows.length === 0 && !isStreaming && !switchPending && (
+					{status !== "starting" && rows.length === 0 && !isStreaming && !switchPending && firstRunActive && (
+						<FirstRunSetup />
+					)}
+					{status !== "starting" && rows.length === 0 && !isStreaming && !switchPending && !firstRunActive && (
 						<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
-							<div className="omp-empty-logo mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--omp-btn-primary-bg)] text-[var(--omp-btn-primary-text)]">
-								<PiLogo size={22} />
-							</div>
+							<BrandMark size={40} className="omp-empty-logo mb-6 text-[var(--omp-text)]" />
 							<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
 								{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
 							</h1>
@@ -632,13 +637,15 @@ function SessionTranscript() {
 										) : row.kind === "todoSnapshot" ? (
 											<TodoSnapshotCard entry={row.entry} />
 										) : row.kind === "expander" ? (
-											<button
-												type="button"
+											<Button
+												className="omp-history-expander"
+												icon={<History />}
 												onClick={() => setPreCompactionOpen(true)}
-												className="omp-history-expander omp-pressable ml-(--omp-editorial-inset) mr-(--omp-editorial-edge) my-2 flex items-center gap-2 rounded-lg border border-[var(--omp-border)] px-3 py-1.5 text-omp-sm font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-bg-tertiary)] hover:text-[var(--omp-text)]"
+												size="sm"
+												variant="secondary"
 											>
 												{t("chat.compaction.showEarlier", { count: row.count })}
-											</button>
+											</Button>
 										) : (
 											<TurnStatusRow />
 										)}
@@ -880,20 +887,24 @@ const STALLED_RESPONSE_HINT_SECONDS = 90;
  * Live status row for the windows where the agent is busy but the transcript
  * has nothing to show yet — the GUI counterpart of the TUI's loader line:
  *
- * - retry: `Retrying (a/b) in Ns…` warning spinner for the auto-retry
- *   delay/attempt window, plus the failure detail. Enhancement over the TUI:
- *   N counts down live instead of freezing at the initial delay.
- * - compaction: `{reason}{action}…` accent spinner for auto-maintenance,
- *   same reason/action vocabulary as the TUI loader.
+ * - retry: `Retrying (a/b) in Ns…` for the auto-retry delay/attempt window,
+ *   with the humanized reason ("Can't connect") and the raw failure detail.
+ *   Enhancement over the TUI: N counts down live instead of freezing at the
+ *   initial delay.
+ * - compaction: `{reason}{action}…` for auto-maintenance, same
+ *   reason/action vocabulary as the TUI loader.
  * - waiting: between turn_start and the first streamed event, with live
  *   elapsed seconds; past 30s a slow-response hint appears so a stalled
  *   provider reads as "slow but alive" rather than dead air.
  *
  * All variants carry the Esc interrupt hint (App routes Esc → rpc.abort),
- * matching the TUI's `[esc]` / `(esc to cancel)` suffixes.
+ * matching the TUI's `[esc]` / `(esc to cancel)` suffixes. A retrying or slow
+ * wait also offers recovery: change model, or stop the response.
  */
 export function TurnStatusRow() {
 	const t = useT();
+	const rpc = useTabRpc();
+	const tabId = useRuntimeTabId();
 	const retryInfo = useSessionStore(s => s.retryInfo);
 	const compactionInfo = useSessionStore(s => s.compactionInfo);
 	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
@@ -905,8 +916,8 @@ export function TurnStatusRow() {
 		return () => clearInterval(interval);
 	}, []);
 
-	let iconClass = "";
 	let text: string;
+	let reason: string | null = null;
 	let detail: string | null = null;
 	let announcement: string;
 	let slow = false;
@@ -914,7 +925,6 @@ export function TurnStatusRow() {
 
 	if (retryInfo) {
 		const remainingSeconds = Math.max(0, Math.ceil((retryInfo.startedAt + retryInfo.delayMs - now) / 1000));
-		iconClass = "text-[var(--omp-warning)]";
 		text =
 			remainingSeconds >= 60
 				? t("chat.retry.scheduled", {
@@ -929,10 +939,13 @@ export function TurnStatusRow() {
 							seconds: remainingSeconds,
 						})
 					: t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts });
+		const cause = describeTurnError(retryInfo.errorMessage);
+		reason = cause.kind === "unknown" ? null : t(cause.titleKey);
 		detail = retryInfo.errorMessage || null;
 		announcement = t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts });
 	} else if (compactionInfo) {
-		const reason = compactionInfo.reason === "threshold" ? "" : t(`chat.compaction.reason.${compactionInfo.reason}`);
+		const compactionReason =
+			compactionInfo.reason === "threshold" ? "" : t(`chat.compaction.reason.${compactionInfo.reason}`);
 		const actionKey =
 			compactionInfo.action === "handoff"
 				? "chat.compaction.action.handoff"
@@ -941,8 +954,7 @@ export function TurnStatusRow() {
 					: compactionInfo.action === "snapcompact"
 						? "chat.compaction.action.snapcompact"
 						: "chat.compaction.action.default";
-		iconClass = "text-[var(--omp-accent)]";
-		text = `${reason}${t(actionKey)}…`;
+		text = `${compactionReason}${t(actionKey)}…`;
 		announcement = text;
 	} else if (awaitingModelSince != null) {
 		const elapsedSeconds = Math.max(0, Math.floor((now - awaitingModelSince) / 1000));
@@ -953,29 +965,46 @@ export function TurnStatusRow() {
 	} else {
 		return null;
 	}
+	const offerRecovery = retryInfo != null || slow;
 
 	return (
-		<div className="omp-status-turn omp-fade-in flex flex-col gap-1 ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-4 text-omp-lg text-[var(--omp-muted)]">
+		<div className="omp-status-turn flex flex-col gap-1.5 ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-4 text-sc-md text-(--sc-text-muted)">
 			<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
 				{announcement}
 			</span>
-			<div className="flex items-center gap-2.5">
-				<Loader2 size={14} className={cx("animate-spin shrink-0", iconClass)} />
-				<span>{text}</span>
+			<div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+				<span aria-hidden className="flex size-(--sc-icon-sm) shrink-0 items-center justify-center">
+					<Spinner size="sm" />
+				</span>
+				<span className="text-(--sc-text-secondary)">{text}</span>
+				{reason ? <span>· {reason}</span> : null}
 				{stalled ? (
 					// The stalled hint already names Esc — drop the generic interrupt
 					// hint so the line stays readable.
-					<span className="text-[var(--omp-warning)]">{t("chat.awaitingModel.stalled")}</span>
+					<span className="text-(--sc-warning)">{t("chat.awaitingModel.stalled")}</span>
 				) : (
 					<>
-						<span className="text-[var(--omp-dim)]">{t("chat.interruptHint")}</span>
-						{slow ? <span className="text-[var(--omp-warning)]">{t("chat.awaitingModel.slow")}</span> : null}
+						{slow ? <span className="text-(--sc-warning)">{t("chat.awaitingModel.slow")}</span> : null}
+						<span className="flex items-center gap-1.5 text-sc-sm text-(--sc-text-subtle)">
+							<Kbd shortcut="Esc" />
+							{t("chat.interruptHint")}
+						</span>
 					</>
 				)}
 			</div>
 			{detail ? (
-				<div className="max-w-full truncate pl-[26px] text-omp-sm text-[var(--omp-dim)]" title={detail}>
+				<div className="max-w-full truncate ps-6 text-sc-xs text-(--sc-text-subtle)" title={detail}>
 					{detail}
+				</div>
+			) : null}
+			{offerRecovery ? (
+				<div className="flex flex-wrap items-center gap-2 ps-6">
+					<Button onClick={() => useUiStore.getState().openModelPicker()} size="sm" variant="secondary">
+						{t("turnError.action.changeModel")}
+					</Button>
+					<Button onClick={() => void abortActiveTurn(rpc, tabId)} size="sm" variant="ghost">
+						{t("chat.status.stop")}
+					</Button>
 				</div>
 			) : null}
 		</div>
@@ -983,12 +1012,12 @@ export function TurnStatusRow() {
 }
 
 /**
- * Grey pending bubble for one queued steer/follow-up message (queue_update
- * data source), rendered at the message-stream tail in delivery order —
- * steering (mid-run interrupt) first, then follow-ups. The × deletes the
- * entry via queue_remove; the queue_update frame the removal emits confirms
- * success. Failed responses and rejected transport calls re-enable the action,
- * toast the error, and attempt an authoritative refresh.
+ * Pending bubble for one queued steer/follow-up message (queue_update data
+ * source), rendered at the message-stream tail in delivery order — steering
+ * (mid-run interrupt) first, then follow-ups. The × deletes the entry via
+ * queue_remove; the queue_update frame the removal emits confirms success.
+ * Failed responses and rejected transport calls re-enable the action, toast
+ * the error, and attempt an authoritative refresh.
  */
 function QueuedMessageBubble({ item, lane }: { item: RpcQueuedMessage; lane: QueueLane }) {
 	const t = useT();
@@ -1013,24 +1042,22 @@ function QueuedMessageBubble({ item, lane }: { item: RpcQueuedMessage; lane: Que
 
 	return (
 		<div className="omp-queued-turn group flex justify-end ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-1.5">
-			<div className="omp-transcript-content omp-queued-bubble flex items-start gap-2 rounded-xl border border-dashed border-[var(--omp-border)] px-3.5 py-2.5">
-				<div className="min-w-0 flex-1">
-					<div className="mb-0.5 text-omp-xs font-semibold tracking-wide text-[var(--omp-dim)] uppercase">
+			<div className="omp-queued-bubble flex min-w-0 items-start gap-1 rounded-(--sc-radius-lg) border border-dashed border-(--sc-border-subtle) py-1.5 ps-4 pe-1">
+				<div className="min-w-0 flex-1 py-1">
+					<div className="mb-0.5 text-sc-xs font-medium text-(--sc-text-muted)">
 						{t(lane === "steering" ? "pendingBubble.steering" : "pendingBubble.followUp")}
 					</div>
-					<div className="whitespace-pre-wrap break-words text-omp-lg leading-snug text-[var(--omp-muted)]">
+					<div className="text-sc-lg break-words whitespace-pre-wrap text-(--sc-text-secondary)">
 						{item.text || "…"}
 					</div>
 				</div>
-				<button
-					type="button"
-					onClick={() => void remove()}
+				<IconButton
 					disabled={removing}
-					title={t("pendingBubble.remove")}
-					className="omp-pressable -mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-error)] disabled:opacity-50"
-				>
-					<X size={13} />
-				</button>
+					icon={<X />}
+					label={t("pendingBubble.remove")}
+					onClick={() => void remove()}
+					size="sm"
+				/>
 			</div>
 		</div>
 	);
@@ -1053,60 +1080,61 @@ function TodoSnapshotCard({ entry }: { entry: TodoSnapshot }) {
 	const cleared = total === 0;
 
 	return (
-		<div className="ml-(--omp-editorial-inset) mr-(--omp-editorial-edge) my-1.5">
+		<div className="ml-(--omp-editorial-inset) mr-(--omp-editorial-edge) my-1">
 			<button
 				aria-expanded={expanded}
-				className="omp-pressable flex items-center gap-1.5 rounded-lg border border-[var(--omp-border-muted)] px-2.5 py-1 text-omp-sm text-[var(--omp-muted)] hover:text-[var(--omp-text)]"
+				className="flex min-h-7 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text) disabled:hover:bg-transparent"
 				disabled={cleared}
 				onClick={() => setExpanded(value => !value)}
 				type="button"
 			>
-				<ChevronRight
-					className="omp-disclosure-chevron shrink-0 text-[var(--omp-dim)]"
-					size={11}
-					style={{ transform: expanded ? "rotate(90deg)" : undefined }}
-				/>
-				<ListTodo className="shrink-0 text-[var(--omp-dim)]" size={12} />
+				<ListTodo aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 				<span className="font-medium">{cleared ? t("todoSnapshot.cleared") : t("todoSnapshot.title")}</span>
 				{!cleared && (
-					<span className="tabular-nums text-[var(--omp-dim)]">{t("todoSnapshot.progress", { done, total })}</span>
+					<span className="tabular-nums text-(--sc-text-subtle)">
+						{t("todoSnapshot.progress", { done, total })}
+					</span>
+				)}
+				{!cleared && (
+					<ChevronRight
+						aria-hidden
+						className={cx(
+							"omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
+							expanded && "rotate-90",
+						)}
+					/>
 				)}
 			</button>
 			{expanded && !cleared && (
-				<div className="mt-1 ml-1 space-y-1 border-l border-[var(--omp-border-muted)] pl-3">
+				<div className="mt-0.5 mb-1 ml-(--omp-step-rule-inset) space-y-0.5 border-l border-(--sc-divider) pl-3">
 					{entry.phases.map((phase, phaseIndex) => (
 						<div key={`${phase.name}-${phaseIndex}`}>
 							{entry.phases.length > 1 && (
-								<div className="py-0.5 text-omp-xs font-semibold tracking-wide text-[var(--omp-dim)] uppercase">
-									{phase.name}
-								</div>
+								<div className="py-0.5 text-sc-xs font-medium text-(--sc-text-muted)">{phase.name}</div>
 							)}
 							{phase.tasks.map((task, taskIndex) => (
-								<div
-									key={`${task.content}-${taskIndex}`}
-									className="flex items-center gap-1.5 py-0.5 text-omp-sm"
-								>
+								<div key={`${task.content}-${taskIndex}`} className="flex items-center gap-2 py-0.5 text-sc-sm">
 									<span
 										aria-hidden
 										className={cx(
-											"h-1.5 w-1.5 shrink-0 rounded-full",
+											"size-1.5 shrink-0 rounded-full",
 											task.status === "completed"
-												? "bg-[var(--omp-success)]"
+												? "bg-(--sc-success)"
 												: task.status === "in_progress"
-													? "bg-[var(--omp-link)]"
+													? "bg-(--sc-accent)"
 													: task.status === "abandoned"
-														? "bg-[var(--omp-error)]"
+														? "bg-(--sc-danger)"
 														: task.status === "blocked"
-															? "bg-[var(--omp-warning)]"
-															: "bg-[var(--omp-border)]",
+															? "bg-(--sc-warning)"
+															: "bg-(--sc-border)",
 										)}
 									/>
 									<span
 										className={cx(
 											"min-w-0 flex-1 truncate",
 											task.status === "completed" || task.status === "abandoned"
-												? "text-[var(--omp-dim)] line-through"
-												: "text-[var(--omp-muted)]",
+												? "text-(--sc-text-subtle) line-through"
+												: "text-(--sc-text-secondary)",
 										)}
 										title={task.content}
 									>

@@ -1,4 +1,4 @@
-import { Archive, Bot, Check, Copy, FileText, GitBranch, Terminal } from "lucide-react";
+import { Archive, Check, Copy, FileText, GitBranch, Terminal } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useState } from "react";
 import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from "../../../shared/rpc-types";
@@ -14,9 +14,11 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
+import { Badge, Button, IconButton } from "../common";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
 import { ThinkingBlock } from "./ThinkingBlock";
+import { TurnErrorNotice } from "./TurnErrorNotice";
 import { UsageRow } from "./UsageRow";
 
 export interface MessageBubbleProps {
@@ -44,7 +46,7 @@ function InlineImage({ image }: { image: ImageContent }) {
 		<img
 			src={src}
 			alt={t("chat.attachedImage")}
-			className="my-1 max-h-48 max-w-64 rounded-md border border-[var(--omp-border-muted)] object-contain"
+			className="my-1 max-h-48 max-w-64 rounded-(--sc-radius-md) border border-(--sc-border-subtle) object-contain"
 		/>
 	);
 }
@@ -62,6 +64,10 @@ function ToolCardWithResult({ call, runningIndicator }: { call: ToolCallContent;
 }
 
 const FILE_PREVIEW_CHARS = 12_000;
+
+/** Calm hairline card shared by `!`/`$` executions and context summaries. */
+const CONTEXT_CARD_CLASS =
+	"omp-transcript-content min-w-0 overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)";
 
 function ExecutionBubble({ message }: { message: AgentMessage }) {
 	const t = useT();
@@ -83,50 +89,41 @@ function ExecutionBubble({ message }: { message: AgentMessage }) {
 	const failed = !running && (message.cancelled || (message.exitCode != null && message.exitCode !== 0));
 
 	return (
-		<div className="omp-execution-turn omp-fade-up px-6 py-4">
-			<div className="omp-transcript-content overflow-hidden rounded-[10px] border border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)] shadow-[var(--omp-shadow-sm)]">
-				<div className="flex items-center gap-2 border-b border-[var(--omp-border-muted)] px-3.5 py-2">
-					<Terminal className="text-[var(--omp-status-path)]" size={13} />
-					<span className="text-omp-sm font-semibold text-[var(--omp-text)]">
+		<div className="omp-execution-turn px-6 py-4">
+			<div className={CONTEXT_CARD_CLASS}>
+				<div className="flex min-h-10 items-center gap-2 border-b border-(--sc-divider) px-3 py-1.5">
+					<Terminal aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+					<span className="text-sc-sm font-medium text-(--sc-text)">
 						{python ? t("chat.exec.python") : t("chat.exec.shell")}
 					</span>
-					<span
-						className="ml-auto rounded-full px-2 py-0.5 font-mono text-omp-xxs font-medium tracking-wide"
-						style={{
-							background: running
-								? "var(--omp-info-dim)"
-								: failed
-									? "var(--omp-error-dim)"
-									: "var(--omp-success-dim)",
-							color: running ? "var(--omp-info)" : failed ? "var(--omp-error)" : "var(--omp-success)",
-						}}
-					>
-						{status}
+					<span className="ml-auto flex items-center gap-2">
+						<Badge dot={running} pulse={running} variant={running ? "info" : failed ? "error" : "success"}>
+							{status}
+						</Badge>
+						{running && (
+							<Button
+								disabled={abortSent}
+								onClick={() => {
+									setAbortSent(true);
+									void rpc.abortEval();
+								}}
+								size="sm"
+								variant="ghost"
+							>
+								{t("common.cancel")}
+							</Button>
+						)}
 					</span>
-					{running && (
-						<button
-							type="button"
-							disabled={abortSent}
-							title={t("common.cancel")}
-							onClick={() => {
-								setAbortSent(true);
-								void rpc.abortEval();
-							}}
-							className="omp-pressable flex items-center rounded-full px-2 py-0.5 text-omp-xxs font-medium tracking-wide text-[var(--omp-error)] hover:bg-[var(--omp-error-dim)] disabled:opacity-50"
-						>
-							{t("common.cancel")}
-						</button>
-					)}
 				</div>
 				{input && (
-					<pre className="border-b border-[var(--omp-border-muted)] px-3.5 py-2.5 font-mono text-omp-sm leading-[1.6] break-words whitespace-pre-wrap text-[var(--omp-status-path)]">
+					<pre className="border-b border-(--sc-divider) bg-(--sc-surface-1) px-3 py-2.5 font-mono text-sc-sm break-words whitespace-pre-wrap text-(--sc-text)">
 						{python ? input : `$ ${input}`}
 					</pre>
 				)}
 				{!running && (
 					<pre
 						className={cx(
-							"px-3.5 py-2.5 font-mono text-omp-sm leading-[1.6] break-words whitespace-pre-wrap text-[var(--omp-tool-output)]",
+							"px-3 py-2.5 font-mono text-sc-sm break-words whitespace-pre-wrap text-(--sc-text-secondary)",
 							PREVIEW_SCROLL_LG,
 						)}
 					>
@@ -169,28 +166,33 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 			: message.role === "branchSummary"
 				? t("chat.context.branchSummary")
 				: t("chat.context.referencedFiles");
+	const Icon = isFiles ? FileText : Archive;
 
 	return (
-		<div className="omp-context-turn omp-fade-up px-6 py-3">
-			<div className="omp-transcript-content rounded-[10px] border border-[var(--omp-border-muted)] px-3.5 py-3">
-				<div className="mb-2 flex items-center gap-1.5 text-omp-xs font-bold tracking-[0.12em] text-[var(--omp-status-context)] uppercase">
-					{isFiles ? <FileText size={12} /> : <Archive size={12} />}
+		<div className="omp-context-turn px-6 py-3">
+			<div className={cx(CONTEXT_CARD_CLASS, "px-3.5 py-3")}>
+				<div className="mb-2 flex items-center gap-1.5 text-sc-sm font-medium text-(--sc-text-muted)">
+					<Icon aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 					{label}
 				</div>
 				{isFiles ? (
 					<div className="space-y-1.5">
 						{(message.files ?? []).map(file => (
 							<details
-								className="overflow-hidden rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)]"
+								className="overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-1)"
 								key={file.path}
 							>
-								<summary className="cursor-pointer px-3 py-2 font-mono text-omp-sm text-[var(--omp-status-path)]">
+								<summary className="cursor-pointer px-3 py-2 font-mono text-sc-sm text-(--sc-text)">
 									{file.path}
-									{file.skippedReason ? ` — ${file.skippedReason}` : ""}
+									{file.skippedReason ? (
+										<span className="font-(family-name:--sc-font-sans) text-(--sc-text-muted)">
+											{` — ${file.skippedReason}`}
+										</span>
+									) : null}
 								</summary>
 								<pre
 									className={cx(
-										"border-t border-[var(--omp-border-muted)] px-3 py-2.5 font-mono text-omp-xs leading-[1.6] break-words whitespace-pre-wrap text-[var(--omp-tool-output)]",
+										"border-t border-(--sc-divider) px-3 py-2.5 font-mono text-sc-xs break-words whitespace-pre-wrap text-(--sc-text-secondary)",
 										PREVIEW_SCROLL_LG,
 									)}
 								>
@@ -204,12 +206,12 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 					<>
 						{message.shortSummary && <MarkdownRenderer content={message.shortSummary} />}
 						{typeof message.warning === "string" && (
-							<p role="status" className="text-omp-md text-(--omp-warning)">
+							<p role="status" className="text-sc-md text-(--sc-warning)">
 								{message.warning}
 							</p>
 						)}
 						<details onToggle={event => setExpanded(event.currentTarget.open)}>
-							<summary className="cursor-pointer py-2 text-omp-md text-(--omp-muted)">
+							<summary className="cursor-pointer py-1.5 text-sc-sm text-(--sc-text-muted) hover:text-(--sc-text)">
 								{t("chat.context.details")}
 							</summary>
 							{expanded && (
@@ -226,9 +228,54 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 }
 
 /**
- * One finalized message. User messages sit right-aligned; assistant messages
- * render text, thinking, images, and tool cards. Standalone toolResult messages
- * are folded into their matching card through the tools store.
+ * Hover/focus-revealed message actions (time, copy, branch). Positioned over
+ * the turn's own padding by CSS (`.omp-message-actions`) so an idle message is
+ * exactly as tall as its content; opacity + :focus-within, never display:none.
+ */
+function MessageActions({
+	className,
+	copied,
+	onBranch,
+	onCopy,
+	branchDisabled,
+	timestamp,
+}: {
+	className: string;
+	copied: boolean;
+	onBranch?: () => void;
+	onCopy: () => void;
+	branchDisabled: boolean;
+	timestamp: string;
+}) {
+	const t = useT();
+	return (
+		<div className={cx("omp-message-actions flex items-center gap-0.5", className)}>
+			{timestamp && <time className="px-1 text-sc-xs tabular-nums text-(--sc-text-subtle)">{timestamp}</time>}
+			<IconButton
+				icon={copied ? <Check className="text-(--sc-success)" /> : <Copy />}
+				label={t("chat.copyMessage")}
+				onClick={onCopy}
+				size="sm"
+			/>
+			{onBranch && (
+				<IconButton
+					className="disabled:cursor-wait"
+					disabled={branchDisabled}
+					icon={<GitBranch />}
+					label={t("chat.branchFromHere")}
+					onClick={onBranch}
+					size="sm"
+				/>
+			)}
+		</div>
+	);
+}
+
+/**
+ * One finalized message. User messages are a compact soft bubble on the
+ * right; assistant messages are content-first (no bubble) and render text,
+ * thinking, images, and tool rows. Standalone toolResult messages are folded
+ * into their matching row through the tools store.
  */
 export const MessageBubble = memo(function MessageBubble({
 	message,
@@ -266,6 +313,7 @@ export const MessageBubble = memo(function MessageBubble({
 	const isUser = message.role === "user";
 	const isAssistant = message.role === "assistant";
 	const isSteering = Boolean(message.steering);
+	const stopped = isAssistant && message.stopReason === "aborted";
 	const timestamp = formatClock(message.timestamp);
 	// User delegations (`^provider/model`, persisted as <model …/> tags) render
 	// as atomic chips; the raw tags/selectors are stripped from the body text.
@@ -314,80 +362,50 @@ export const MessageBubble = memo(function MessageBubble({
 	if (isUser) {
 		return (
 			<div className="omp-user-turn group flex justify-end px-6 py-2.5">
-				<div
-					className="omp-transcript-content omp-user-bubble omp-fade-up relative rounded-xl border border-[var(--omp-user-msg-border)] bg-[var(--omp-user-msg-bg)] px-3.5 py-3"
-					style={{ boxShadow: "var(--omp-shadow-sm)" }}
-				>
+				<div className="omp-user-bubble relative min-w-0 rounded-(--sc-radius-lg) bg-(--sc-surface-2) px-4 py-2.5 text-sc-lg text-(--sc-text)">
 					{reaction ? (
 						<span
 							aria-label={reaction}
-							className="absolute -top-2 right-3 z-10 flex h-7 min-w-7 items-center justify-center rounded-full border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] px-1 text-omp-lg shadow-[var(--omp-shadow-sm)]"
+							className="omp-user-reaction absolute -top-3 -left-3 flex size-7 items-center justify-center rounded-full border border-(--sc-border-subtle) bg-(--sc-elevated) text-sc-md shadow-(--sc-shadow-sm)"
 							role="img"
 						>
 							{reaction}
 						</span>
 					) : null}
-					<div className="omp-user-bubble-layout">
-						<span className="omp-user-bubble-author">{t("live.you")}</span>
-						<div className="omp-user-bubble-content">
-							{isSteering && (
-								<div className="mb-1.5 flex items-center gap-1.5 text-omp-xs font-bold uppercase tracking-[0.12em] text-[var(--omp-custom-msg-label)]">
-									<span className="h-1 w-1 rounded-full bg-current" />
-									{t("chat.steering")}
-								</div>
-							)}
-							{userMentions.chips.length > 0 && (
-								<div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-									{userMentions.chips.map((chip, chipIndex) => (
-										<span
-											key={chipIndex}
-											title={t("chat.delegatedTo", {
-												name: chip.name ?? chip.selector ?? (chip.agent ? `@${chip.agent}` : ""),
-											})}
-											className="inline-flex items-center gap-1 rounded-full border border-[var(--omp-border-muted)] bg-[var(--omp-selected-bg)] px-2 py-0.5 font-mono text-omp-xxs font-medium text-[var(--omp-accent)]"
-										>
-											<Bot size={10} />
-											{chip.name ?? chip.selector ?? (chip.agent ? `@${chip.agent}` : "")}
-										</span>
-									))}
-								</div>
-							)}
-							{userMentions.blocks.map((block, i) => {
-								if (block.type === "text") {
-									return (
-										<div key={i} className="text-omp-xl leading-[1.6] text-[var(--omp-text)]">
-											<MarkdownRenderer content={block.text} singleDollarTextMath={false} />
-										</div>
-									);
-								}
-								if (block.type === "image") {
-									return <InlineImage key={i} image={block} />;
-								}
-								return null;
+					{(isSteering || userMentions.chips.length > 0) && (
+						<div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+							{isSteering && <Badge variant="info">{t("chat.steering")}</Badge>}
+							{userMentions.chips.map((chip, chipIndex) => {
+								const name = chip.name ?? chip.selector ?? (chip.agent ? `@${chip.agent}` : "");
+								return (
+									<span key={chipIndex} title={t("chat.delegatedTo", { name })}>
+										<Badge variant="accent">{name}</Badge>
+									</span>
+								);
 							})}
 						</div>
-					</div>
-					<div className="omp-user-bubble-actions flex items-center gap-1.5 text-omp-xs tabular-nums text-[var(--omp-dim)]">
-						{timestamp && <span className="font-mono">{timestamp}</span>}
-						<button
-							type="button"
-							onClick={handleCopy}
-							title={t("chat.copyMessage")}
-							className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-						>
-							{copied ? <Check size={13} className="text-[var(--omp-success)]" /> : <Copy size={13} />}
-						</button>
-						<button
-							type="button"
-							onClick={() => void handleBranch()}
-							disabled={branching || switchPending}
-							aria-label={t("chat.branchFromHere")}
-							title={t("chat.branchFromHere")}
-							className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] disabled:cursor-wait disabled:opacity-50"
-						>
-							<GitBranch size={13} />
-						</button>
-					</div>
+					)}
+					{userMentions.blocks.map((block, i) => {
+						if (block.type === "text") {
+							return (
+								<div key={i} className="omp-user-text">
+									<MarkdownRenderer content={block.text} singleDollarTextMath={false} />
+								</div>
+							);
+						}
+						if (block.type === "image") {
+							return <InlineImage key={i} image={block} />;
+						}
+						return null;
+					})}
+					<MessageActions
+						branchDisabled={branching || switchPending}
+						className="omp-user-actions"
+						copied={copied}
+						onBranch={() => void handleBranch()}
+						onCopy={handleCopy}
+						timestamp={timestamp}
+					/>
 				</div>
 			</div>
 		);
@@ -426,68 +444,44 @@ export const MessageBubble = memo(function MessageBubble({
 		}
 	}
 
-	if (blocks.length === 0 && !message.errorMessage && !customLabel && !isSteering) return null;
+	const failure = Boolean(message.errorMessage) || stopped;
+	if (blocks.length === 0 && !failure && !customLabel && !isSteering) return null;
 
 	// Tool-only messages and messages nested inside an expanded Process group
-	// don't need the 28px hover footer plus py-3 padding. Tool-only copy would
-	// be empty; the Process disclosure owns the grouped chrome and branch point.
-	const compactChrome = compact || (!sawNonToolBlock && !message.errorMessage && !customLabel && !isSteering);
+	// carry no message actions: tool-only copy would be empty, and the Process
+	// disclosure owns the grouped chrome and branch point.
+	const compactChrome = compact || (!sawNonToolBlock && !failure && !customLabel && !isSteering);
 
 	return (
 		<div
 			className={cx(
-				"group flex px-6",
-				!compact && "omp-fade-up",
+				"group relative flex px-6",
 				!compactChrome && "omp-assistant-turn",
 				compactChrome && "omp-assistant-turn--compact",
 				compactChrome ? "py-1.5" : "py-3",
 			)}
 		>
 			<div className="omp-transcript-content min-w-0">
-				{customLabel && (
-					<div className="mb-2 text-omp-sm font-bold tracking-[0.1em] text-[var(--omp-status-context)] uppercase">
-						{customLabel}
-					</div>
-				)}
+				{customLabel && <div className="mb-1.5 text-sc-xs font-medium text-(--sc-text-muted)">{customLabel}</div>}
 				{isSteering && (
-					<div className="mb-2 flex items-center gap-1.5 text-omp-sm font-bold uppercase tracking-[0.1em] text-[var(--omp-custom-msg-label)]">
-						<span className="h-1.5 w-1.5 rounded-full bg-current" />
-						{t("chat.steeringResponse")}
+					<div className="mb-2">
+						<Badge variant="info">{t("chat.steeringResponse")}</Badge>
 					</div>
 				)}
 				{blocks}
-				{message.errorMessage && (
-					<div className="omp-message-error mt-2 rounded-lg border border-[var(--omp-error)]/35 bg-[var(--omp-error-dim)] px-3.5 py-2.5 text-omp-lg leading-relaxed break-words text-[var(--omp-error)]">
-						{message.errorMessage}
-					</div>
-				)}
+				{failure && <TurnErrorNotice errorMessage={message.errorMessage} stopReason={message.stopReason} />}
 				<UsageRow message={message} />
-				{!compactChrome && (
-					<div className="mt-2 flex items-center gap-1.5 text-omp-xs tabular-nums text-[var(--omp-dim)] opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-						{timestamp && <span className="font-mono">{timestamp}</span>}
-						<button
-							type="button"
-							onClick={handleCopy}
-							title={t("chat.copyMessage")}
-							className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-						>
-							{copied ? <Check size={13} className="text-[var(--omp-success)]" /> : <Copy size={13} />}
-						</button>
-						{isAssistant && (
-							<button
-								type="button"
-								onClick={() => void handleBranch()}
-								disabled={branching || switchPending}
-								aria-label={t("chat.branchFromHere")}
-								title={t("chat.branchFromHere")}
-								className="omp-pressable flex h-7 w-7 items-center justify-center rounded-md text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] disabled:cursor-wait disabled:opacity-50"
-							>
-								<GitBranch size={13} />
-							</button>
-						)}
-					</div>
-				)}
 			</div>
+			{!compactChrome && (
+				<MessageActions
+					branchDisabled={branching || switchPending}
+					className="omp-assistant-actions"
+					copied={copied}
+					onBranch={isAssistant ? () => void handleBranch() : undefined}
+					onCopy={handleCopy}
+					timestamp={timestamp}
+				/>
+			)}
 		</div>
 	);
 });

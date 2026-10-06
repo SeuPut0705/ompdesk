@@ -5,16 +5,34 @@
 
 import { useEffect, useMemo } from "react";
 import { Line } from "react-chartjs-2";
-import { baseChartOptions, bucketLabels, chartTheme, compact, formatMs, formatUsd } from "../../lib/chart";
+import {
+	baseChartOptions,
+	bucketLabels,
+	chartTheme,
+	compact,
+	formatMs,
+	formatUsd,
+	useChartThemeKey,
+	withAlpha,
+} from "../../lib/chart";
 import "../../lib/chart";
 import type { AgentTypeRow, OverviewData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
 import { useT } from "../../lib/i18n";
-import type { StatsRange } from "./StatsDashboard";
-import { ChartBox, MetricCard, RouteFrame, SectionTitle, type StatColumn, StatTable } from "./shared";
+import {
+	ChartBox,
+	MetricCard,
+	MetricGrid,
+	RouteFrame,
+	SectionTitle,
+	type StatColumn,
+	type StatsRange,
+	StatTable,
+} from "./shared";
 
 export function OverviewRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
 	const t = useT();
+	const themeKey = useChartThemeKey();
 	const params = useMemo(() => ({ range }), [range]);
 	const { data, isLoading, error, refetch } = useStats<OverviewData>("/api/stats/overview", params);
 
@@ -25,14 +43,44 @@ export function OverviewRoute({ range, refreshKey }: { range: StatsRange; refres
 	const stats = data;
 	const overall = stats?.overall;
 	const series = stats?.timeSeries ?? [];
-	const theme = chartTheme();
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: themeKey repaints the series colors on a theme switch.
+	const activityChart = useMemo(() => {
+		const theme = chartTheme();
+		return {
+			labels: bucketLabels(series.map(point => point.timestamp)),
+			datasets: [
+				{
+					label: t("stats.col.requests"),
+					data: series.map(point => point.requests),
+					borderColor: theme.accent,
+					backgroundColor: withAlpha(theme.accent, 0.13),
+					fill: true,
+					tension: 0.3,
+					pointRadius: 0,
+					borderWidth: 1.5,
+				},
+				{
+					label: t("stats.col.errors"),
+					data: series.map(point => point.errors),
+					borderColor: theme.error,
+					backgroundColor: "transparent",
+					tension: 0.3,
+					pointRadius: 0,
+					borderWidth: 1.5,
+				},
+			],
+		};
+	}, [series, t, themeKey]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: themeKey re-reads the axis tokens on a theme switch.
+	const chartOptions = useMemo(() => baseChartOptions(), [themeKey]);
 
 	const agentColumns: StatColumn<AgentTypeRow>[] = useMemo(
 		() => [
 			{
 				key: "type",
 				label: t("stats.overview.col.agentType"),
-				render: row => <span className="font-medium text-(--omp-text)">{row.agentType}</span>,
+				render: row => <span className="font-medium text-(--sc-text)">{row.agentType}</span>,
 			},
 			{ key: "requests", label: t("stats.col.requests"), align: "right", render: row => compact(row.totalRequests) },
 			{
@@ -59,7 +107,7 @@ export function OverviewRoute({ range, refreshKey }: { range: StatsRange; refres
 		>
 			{overall && (
 				<>
-					<div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-6">
+					<MetricGrid>
 						<MetricCard
 							label={t("stats.col.requests")}
 							sub={t("stats.overview.failedSub", { count: overall.failedRequests })}
@@ -90,37 +138,11 @@ export function OverviewRoute({ range, refreshKey }: { range: StatsRange; refres
 								overall.avgTokensPerSecond !== null ? `${Math.round(overall.avgTokensPerSecond)} tok/s` : "—"
 							}
 						/>
-					</div>
+					</MetricGrid>
 
 					<SectionTitle>{t("stats.overview.activity")}</SectionTitle>
 					<ChartBox height={240}>
-						<Line
-							data={{
-								labels: bucketLabels(series.map(point => point.timestamp)),
-								datasets: [
-									{
-										label: t("stats.col.requests"),
-										data: series.map(point => point.requests),
-										borderColor: theme.accent,
-										backgroundColor: `${theme.accent}22`,
-										fill: true,
-										tension: 0.3,
-										pointRadius: 0,
-										borderWidth: 1.5,
-									},
-									{
-										label: t("stats.col.errors"),
-										data: series.map(point => point.errors),
-										borderColor: theme.error,
-										backgroundColor: "transparent",
-										tension: 0.3,
-										pointRadius: 0,
-										borderWidth: 1.5,
-									},
-								],
-							}}
-							options={baseChartOptions()}
-						/>
+						<Line data={activityChart} options={chartOptions} />
 					</ChartBox>
 
 					<SectionTitle>{t("stats.overview.byAgentType")}</SectionTitle>

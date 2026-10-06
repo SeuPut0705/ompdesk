@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- seucode mark: one S drawn as two arcs. The upper arc (ink) is you, the
+       lower arc (accent) is the agent; the stroke is handed over at the center.
+       Geometry is mirrored by src/shared/brand-mark.ts (brand-mark.test.ts). -->
+  <path d="M20.64 8.29A5.25 5.25 0 1 0 16 16" stroke="#17171C" stroke-width="3.8" stroke-linecap="round"/>
+  <path d="M16 16A5.25 5.25 0 1 1 11.36 23.71" stroke="#5B5BD6" stroke-width="3.8"/>
+  <circle cx="11.36" cy="23.71" r="1.9" fill="#5B5BD6"/>
+</svg>

@@ -60,7 +60,7 @@ export const PLATFORM: KeymapPlatform =
 
 export interface KeymapAction {
 	readonly id: string;
-	/** i18n key for the row label in HotkeysDialog. */
+	/** i18n key for the row label in Settings › Keyboard (KeyboardSection). */
 	readonly labelKey: string;
 	/** Canonical macOS default chords (first is the primary display chord). */
 	readonly defaults: readonly string[];
@@ -219,7 +219,8 @@ const WINDOWS_KEY_NAMES: Record<string, string> = {
  * chord at all passes through.
  */
 export function formatChord(chord: string, platform: KeymapPlatform = PLATFORM): string {
-	if (platform === "mac") return chord;
+	// ⎋ reads as a reload arrow in the UI font; Esc is unambiguous.
+	if (platform === "mac") return chord.replaceAll("⎋", "Esc");
 	const parsed = parseChordParts(chord);
 	if (!parsed) return chord;
 	const parts: string[] = [];
@@ -237,7 +238,7 @@ export function formatChord(chord: string, platform: KeymapPlatform = PLATFORM):
  * formats, and dedupes ("⌘K / ⌃K" → "Ctrl+K").
  */
 export function formatShortcut(label: string, platform: KeymapPlatform = PLATFORM): string {
-	if (platform === "mac") return label;
+	if (platform === "mac") return label.replaceAll("⎋", "Esc");
 	const parts = label.split(" / ").map(part => formatChord(platformChord(part, platform), platform));
 	return [...new Set(parts)].join(" / ");
 }
@@ -346,7 +347,7 @@ export function chordFromEvent(event: KeyEventLike): string | null {
 
 /**
  * GUI-remappable actions (TUI app.* naming, plan/17 §6.2). Single source for
- * App.tsx's dispatch and HotkeysDialog's rows; the native menu keeps its own
+ * App.tsx's dispatch and KeyboardSection's rows; the native menu keeps its own
  * chords in shared/hotkeys.ts because Electron resolves those before the
  * renderer sees a keydown.
  * `defaults` for the ⌘ actions include their ⌃ twin: the pre-B3 handler
@@ -494,6 +495,15 @@ export function platformDefaults(action: KeymapAction, platform: KeymapPlatform 
 /** Formatted primary default chord of an action — the hint embedded in labels. */
 export function actionShortcut(id: KeymapActionId, platform: KeymapPlatform = PLATFORM): string {
 	return formatChord(platformDefaults(KEYMAP_ACTION_BY_ID[id], platform)[0] ?? "", platform);
+}
+
+/**
+ * An action's primary chord in macOS spelling — the input `Kbd`, `Tooltip`
+ * and `IconButton shortcut` expect (they format it for the platform). A user
+ * override wins over the default.
+ */
+export function actionKbd(id: KeymapActionId, overrides?: KeymapOverrides): string {
+	return overrides?.[id]?.[0] ?? KEYMAP_ACTION_BY_ID[id].defaults[0] ?? "";
 }
 
 /** Rows the reference dialog files under a group, in registry order. */

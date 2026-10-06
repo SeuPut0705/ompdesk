@@ -23,7 +23,7 @@ export function selectMacInstaller(
 	version: string,
 	architecture: MacInstallerArchitecture,
 ): MacInstallerAsset | undefined {
-	const expectedName = architecture === "arm64" ? `omp-${version}-arm64.dmg` : `omp-${version}.dmg`;
+	const expectedName = architecture === "arm64" ? `seucode-${version}-arm64.dmg` : `seucode-${version}.dmg`;
 	for (const file of files) {
 		let name = file.url;
 		try {
@@ -53,7 +53,7 @@ export function hasStableMacSigningIdentity(codesignDetails: string): boolean {
 export function settleIncompleteUpdateCheck(
 	status: UpdateStatus,
 	manual: boolean,
-	noResultMessage = "Update check completed without a result.",
+	noResultMessage = "Couldn't finish the update check. Try again later.",
 ): UpdateStatus {
 	if (status.state !== "checking") return status;
 	return manual ? { state: "error", message: noResultMessage } : { state: "idle" };
@@ -63,11 +63,11 @@ export function settleIncompleteUpdateCheck(
 
 const PARTIAL_SUFFIX = ".partial";
 /**
- * Only names the updater itself could have written: `omp-<version>[-arm64][ (n)].dmg`
+ * Only names the updater itself could have written: `seucode-<version>[-arm64][ (n)].dmg`
  * plus a partial suffix. Downloads is the user's directory, so anything else —
  * including a lookalike like `holiday.dmg.partial` — must survive the sweep.
  */
-const INSTALLER_DEBRIS = /^omp-[\d.]+(?:-arm64)?(?: \(\d+\))?\.dmg(?:\.partial|\.download-\d+)$/;
+const INSTALLER_DEBRIS = /^seucode-[\d.]+(?:-arm64)?(?: \(\d+\))?\.dmg(?:\.partial|\.download-\d+)$/;
 const HASH_CHUNK_BYTES = 1024 * 1024;
 
 /**

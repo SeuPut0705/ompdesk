@@ -27,7 +27,7 @@ import { type TabRpc, useTabRpc } from "../../../lib/tab-rpc";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { toast } from "../../../stores/toast";
-import { Badge, Button, Spinner, Tabs, TextArea } from "../../common";
+import { Badge, Button, IconButton, Spinner, Switch, Tabs, TextArea } from "../../common";
 import { DockCard } from "./DockCard";
 
 const POLL_STREAMING_MS = 3000;
@@ -331,53 +331,31 @@ export function PlanDockCard() {
 	return (
 		<DockCard
 			actions={
-				<span className="flex shrink-0 items-center gap-1.5">
-					<button
-						aria-label={t("planPanel.refresh")}
-						className={cx(
-							"omp-pressable text-(--omp-dim) transition-colors hover:text-(--omp-text)",
-							loading && "animate-spin",
-						)}
+				<>
+					<IconButton
+						className={cx(loading && "[&>svg]:animate-spin")}
 						disabled={loading}
+						icon={<RefreshCw />}
+						label={t("planPanel.refresh")}
 						onClick={() => void load()}
-						title={t("planPanel.refreshHint")}
-						type="button"
-					>
-						<RefreshCw size={12} />
-					</button>
-					<button
-						aria-checked={planModeEnabled}
-						aria-label={t("planPanel.toggle")}
-						className={cx(
-							"relative h-4 w-7 shrink-0 rounded-full border transition-colors duration-150",
-							planModeEnabled
-								? "border-transparent bg-(--omp-accent)"
-								: "border-(--omp-border-muted) bg-(--omp-bg-primary)", // surface-ok: toggle switch track (unchecked state)
-							toggling && "opacity-50",
-						)}
+						size="sm"
+					/>
+					<Switch
+						checked={planModeEnabled}
 						disabled={toggling}
-						onClick={() => void togglePlanMode()}
-						role="switch"
+						label={t("planPanel.toggle")}
+						onCheckedChange={() => void togglePlanMode()}
+						size="sm"
 						title={t("planPanel.exit")}
-						type="button"
-					>
-						<span
-							className={cx(
-								"absolute top-1/2 left-0.5 size-3 -translate-y-1/2 rounded-full transition-transform duration-150",
-								planModeEnabled ? "translate-x-3 bg-white" : "translate-x-0 bg-(--omp-muted)",
-							)}
-						/>
-					</button>
-				</span>
+					/>
+				</>
 			}
 			badge={
 				<span className="flex shrink-0 items-center gap-1.5">
 					{stepCount > 0 && (
-						<span className="text-omp-xs tabular-nums text-[var(--omp-dim)]">
-							{hasChecklist ? `${doneCount}/${stepCount}` : stepCount}
-						</span>
+						<span className="tabular-nums">{hasChecklist ? `${doneCount}/${stepCount}` : stepCount}</span>
 					)}
-					<Badge dot pulse={isStreaming} variant="success">
+					<Badge dot pulse={isStreaming} variant="accent">
 						{t("planPanel.badge.on")}
 					</Badge>
 				</span>
@@ -392,23 +370,22 @@ export function PlanDockCard() {
 				</div>
 			) : error ? (
 				<div className="flex flex-col items-center justify-center gap-2 px-6 py-4 text-center">
-					<FileWarning className="text-(--omp-warning)" size={20} />
-					<div className="text-omp-sm leading-snug text-(--omp-muted)">{error}</div>
+					<FileWarning aria-hidden="true" className="text-(--sc-warning)" size={20} />
+					<div className="text-sc-sm leading-snug text-(--sc-text-muted)">{error}</div>
 					<Button onClick={() => void load()} size="sm">
 						{t("planPanel.retry")}
 					</Button>
 				</div>
 			) : content == null ? (
 				<div className="flex flex-col items-center justify-center gap-2 px-6 py-4 text-center">
-					<ClipboardList className="text-(--omp-dim)" size={20} />
-					<div className="text-xs text-(--omp-muted)">{t("planPanel.emptyTitle")}</div>
-					<div className="text-omp-sm leading-snug text-(--omp-dim)">
-						{t("planPanel.emptyDescPre")}
-						<span className="font-mono">local://&lt;slug&gt;-plan.md</span>
-						{t("planPanel.emptyDescPost")}
-					</div>
+					<ClipboardList aria-hidden="true" className="text-(--sc-text-subtle)" size={20} />
+					<div className="text-sc-md font-medium text-(--sc-text)">{t("planPanel.emptyTitle")}</div>
+					<div className="text-sc-sm leading-snug text-(--sc-text-muted)">{t("planPanel.emptyDesc")}</div>
 					{displayPath && (
-						<div className="max-w-full truncate font-mono text-omp-xs text-(--omp-dim)" title={displayPath}>
+						<div
+							className="max-w-full truncate font-mono text-sc-2xs text-(--sc-text-subtle)"
+							title={displayPath}
+						>
 							{displayPath}
 						</div>
 					)}
@@ -428,65 +405,63 @@ export function PlanDockCard() {
 					/>
 					<div className="px-2 py-1.5">
 						{tab === "raw" ? (
-							<pre className="font-mono text-omp-sm leading-relaxed whitespace-pre-wrap text-(--omp-text)">
+							<pre className="font-mono text-sc-sm leading-relaxed whitespace-pre-wrap text-(--sc-text)">
 								{content}
 							</pre>
 						) : sections.length === 0 ? (
-							<div className="px-2 py-4 text-center text-omp-sm text-(--omp-dim)">
+							<div className="px-2 py-4 text-center text-sc-sm text-(--sc-text-muted)">
 								{content.trim().length === 0 ? t("planPanel.emptySoFar") : t("planPanel.noSteps")}
 							</div>
 						) : (
 							<>
 								{hasChecklist && (
-									<div className="px-1 pb-1 text-omp-xs tabular-nums text-(--omp-dim)">
+									<div className="px-1 pb-1 text-sc-2xs tabular-nums text-(--sc-text-muted)">
 										{t("planPanel.checked", { done: doneCount, total: stepCount })}
 									</div>
 								)}
 								{sections.map((section, sectionIndex) => (
 									<section className="mb-1.5" key={sectionIndex}>
 										{section.heading && (
-											<div className="truncate px-1 py-1 text-omp-sm font-semibold tracking-wide text-(--omp-accent) uppercase">
+											<div className="truncate px-1 py-1 text-sc-sm font-medium text-(--sc-text-secondary)">
 												{section.heading}
 											</div>
 										)}
-										<div className="ml-1 border-l border-(--omp-border-muted) pl-2">
+										<div className="ml-1 border-l border-(--sc-border-subtle) pl-2">
 											{section.steps.map(step => (
 												<div key={step.index}>
-													<div className="group flex items-start gap-1.5 rounded-sm py-1 pr-1 hover:bg-(--omp-bg-tertiary)">
+													<div className="group flex items-start gap-1.5 rounded-(--sc-radius-sm) py-1 pr-1 hover:bg-(--sc-hover)">
 														{step.checkbox ? (
 															step.done ? (
 																<CheckCircle2
-																	className="mt-px shrink-0 text-(--omp-success)"
-																	size={13}
+																	className="mt-0.5 shrink-0 text-(--sc-success)"
+																	size={14}
 																/>
 															) : (
-																<Circle className="mt-px shrink-0 text-(--omp-dim)" size={13} />
+																<Circle className="mt-0.5 shrink-0 text-(--sc-text-subtle)" size={14} />
 															)
 														) : (
-															<span className="w-4 shrink-0 pt-px text-right text-omp-xs tabular-nums text-(--omp-dim)">
+															<span className="w-4 shrink-0 pt-px text-right text-sc-2xs tabular-nums text-(--sc-text-muted)">
 																{step.index}
 															</span>
 														)}
 														<span
 															className={cx(
-																"min-w-0 flex-1 text-xs leading-snug",
-																step.done ? "text-(--omp-muted) line-through" : "text-(--omp-text)",
+																"min-w-0 flex-1 text-sc-md leading-snug",
+																step.done ? "text-(--sc-text-muted) line-through" : "text-(--sc-text)",
 															)}
 														>
 															{step.text}
 														</span>
-														<button
-															aria-label={t("planPanel.stepFeedbackAria", { index: step.index })}
-															className="mt-px shrink-0 text-(--omp-dim) opacity-0 transition-opacity group-hover:opacity-100 hover:text-(--omp-text)"
+														<IconButton
+															className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+															icon={<MessageSquare />}
+															label={t("planPanel.stepFeedbackAria", { index: step.index })}
 															onClick={() => setStepFeedback({ step, draft: "", sending: false })}
-															title={t("planPanel.stepFeedbackHint")}
-															type="button"
-														>
-															<MessageSquare size={11} />
-														</button>
+															size="sm"
+														/>
 													</div>
 													{stepFeedback?.step.index === step.index && (
-														<div className="mb-1 rounded border border-(--omp-border-muted) bg-transparent p-1.5">
+														<div className="mb-1 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-transparent p-1.5">
 															<TextArea
 																autoFocus
 																onChange={event =>
@@ -501,11 +476,11 @@ export function PlanDockCard() {
 															<div className="mt-1 flex gap-1">
 																<Button
 																	disabled={!stepFeedback.draft.trim()}
-																	icon={<Send size={11} />}
+																	icon={<Send />}
 																	loading={stepFeedback.sending}
 																	onClick={() => void submitStepFeedback()}
 																	size="sm"
-																	variant="primary"
+																	variant="secondary"
 																>
 																	{t("planPanel.send")}
 																</Button>
@@ -525,7 +500,7 @@ export function PlanDockCard() {
 					</div>
 
 					{/* Review footer: approve / request changes, all as chat messages. */}
-					<div className="shrink-0 border-t border-(--omp-border-muted) p-2">
+					<div className="shrink-0 border-t border-(--sc-border-subtle) p-2">
 						<TextArea
 							disabled={!reviewable}
 							onChange={event => setPlanFeedback(event.target.value)}
@@ -536,7 +511,7 @@ export function PlanDockCard() {
 						<div className="mt-1.5 flex items-center gap-1.5">
 							<Button
 								disabled={!reviewable}
-								icon={<CheckCircle2 size={12} />}
+								icon={<CheckCircle2 />}
 								loading={approving}
 								onClick={() => void approve()}
 								size="sm"
@@ -553,7 +528,9 @@ export function PlanDockCard() {
 								{t("planPanel.requestChanges")}
 							</Button>
 						</div>
-						<div className="mt-1.5 text-omp-xs leading-snug text-(--omp-dim)">{t("planPanel.footerNote")}</div>
+						<div className="mt-1.5 text-sc-2xs leading-snug text-(--sc-text-muted)">
+							{t("planPanel.footerNote")}
+						</div>
 					</div>
 				</>
 			)}

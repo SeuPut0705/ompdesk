@@ -1,6 +1,6 @@
 /**
  * Workspace-directory flows (TUI /dirs /add-dir /remove-dir /move parity)
- * shared by the WorkspaceDirsDialog and the command-registry picker/window
+ * shared by Settings › Project folders (WorkspaceSection) and the command-registry picker/window
  * affordances. Every mutation toasts the server truth: refusals (primary
  * removal, missing path, busy while streaming) surface the agent's error
  * message, successes confirm and — for move, which re-scopes the whole

@@ -1,10 +1,11 @@
-# omp GUI — Development Rules
+# seucode — Development Rules
 
 Read this before any edit in this repository.
 
 ## Repository identity
 
-- Product repo: [`SeuPut0705/omp-gui`](https://github.com/SeuPut0705/omp-gui) (`origin`). All code, tags, and releases live here.
+- Product: **seucode** (lowercase), a desktop app for the omp agent; bundle id `com.seuput.seucode`, userData `~/Library/Application Support/seucode` (`%APPDATA%\seucode`). Say "omp" only for the agent/CLI (`omp update`, "omp 18.6+"). Brand sources are hand-written SVGs in `resources/icon-source.svg` and `resources/brand/`; `bun run gen:icons` regenerates `icon.png`/`icon.icns`/`icon.ico` and the tray PNGs, and the in-app mark is `components/common/BrandMark.tsx` (geometry in `src/shared/brand-mark.ts`, kept in sync with the SVGs by `brand-mark.test.ts`).
+- Product repo: [`SeuPut0705/seucode`](https://github.com/SeuPut0705/seucode) (`origin`). All code, tags, and releases live here.
 - Originally derived from [`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui) (MIT). It is not tracked as a remote; this repo evolves independently.
 - The agent is **stock omp** ([`can1357/oh-my-pi`](https://github.com/can1357/oh-my-pi)) installed on the user's machine. It is never built, vendored, or forked here. Users get agent updates with `omp update`.
 - Platforms: **macOS and Windows only.**
@@ -57,17 +58,17 @@ When an omp update breaks a bridge method, fix the method against the new intern
 3. `bunx vitest run && bun run check:types && bun run build && bunx playwright test`.
 4. Commit, tag, push: `git commit -am "release: vX.Y.Z" && git tag vX.Y.Z && git push origin main vX.Y.Z`.
 5. Package macOS: `bun run package:mac -- --publish never` (dmg + zip, arm64 + x64). Windows installers are built by `.github/workflows/release-windows.yml` on a Windows runner (NSIS's `makensis` is x86-only and fails on Apple Silicon with error -86); locally, `bun run package:win:dir` checks the unpacked Windows app.
-6. Inspect: `codesign --verify --deep --strict "<dmg mount>/omp.app"`; `Contents/Resources/gui-bridge` exists; launch with omp installed (reaches Ready) and with omp absent from `PATH` (install error shown).
+6. Inspect: `codesign --verify --deep --strict "<dmg mount>/seucode.app"`; `Contents/Resources/gui-bridge` exists; launch with omp installed (reaches Ready) and with omp absent from `PATH` (install error shown).
 7. Publish a GitHub Release on the tag with both DMGs, both ZIPs, and `latest-mac.yml` (it must cover both architectures; the updater resolves DMGs from it), plus version-free DMG copies for the README download buttons (`releases/latest/download/<name>`; the updater keeps using the versioned names):
    ```bash
    V=X.Y.Z
-   cp dist/omp-$V-arm64.dmg dist/omp-mac-arm64.dmg
-   cp dist/omp-$V.dmg dist/omp-mac-x64.dmg
+   cp dist/seucode-$V-arm64.dmg dist/seucode-mac-arm64.dmg
+   cp dist/seucode-$V.dmg dist/seucode-mac-x64.dmg
    gh release create v$V --title "v$V" --notes-file <changelog section> \
-     dist/omp-$V-arm64.dmg dist/omp-$V.dmg dist/omp-$V-arm64-mac.zip dist/omp-$V-mac.zip dist/latest-mac.yml \
-     dist/omp-mac-arm64.dmg dist/omp-mac-x64.dmg
+     dist/seucode-$V-arm64.dmg dist/seucode-$V.dmg dist/seucode-$V-arm64-mac.zip dist/seucode-$V-mac.zip dist/latest-mac.yml \
+     dist/seucode-mac-arm64.dmg dist/seucode-mac-x64.dmg
    ```
-   Publishing triggers the Windows workflow, which uploads the setup and portable exe (versioned and `omp-windows-*.exe`) plus `latest.yml`. Release body = changelog section + minimum omp version.
+   Publishing triggers the Windows workflow, which uploads the setup and portable exe (versioned and `seucode-windows-*.exe`) plus `latest.yml`. Release body = changelog section + minimum omp version.
 
 macOS builds are ad-hoc signed and not notarized; locally built apps run without Gatekeeper prompts, downloaded ones need right-click → Open once.
 

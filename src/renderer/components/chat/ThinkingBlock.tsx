@@ -1,6 +1,5 @@
-import { Brain, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ThinkingLevel } from "../../../shared/rpc-types";
 import { STREAM_FORMAT_FLUSH_MS, useThrottledText } from "../../hooks/use-throttled-text";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { cx, durationBetween, formatTokens } from "../../lib/format";
@@ -9,7 +8,6 @@ import { MarkdownRenderer } from "../../lib/markdown";
 import {
 	formatThinkingForDisplay,
 	hasDisplayableThinking,
-	SPEED_MAX,
 	SpeedTracker,
 	THINKING_GLYPH_FRAMES,
 	thinkingGlyphFrameDelay,
@@ -23,29 +21,17 @@ export interface ThinkingBlockProps {
 	text?: string;
 	/** Render the live streamingThinking buffer instead of `text`. */
 	live?: boolean;
-	/** Start/end (epoch ms or ISO) for the duration badge. */
+	/** Start/end (epoch ms or ISO) for the duration meta. */
 	startTime?: number | string;
 	endTime?: number | string;
-	/** Override the accent level; defaults to the model store's thinkingLevel. */
-	level?: ThinkingLevel;
 }
-
-const LEVEL_LABEL: Record<ThinkingLevel, string> = {
-	inherit: "inherit",
-	off: "off",
-	minimal: "minimal",
-	low: "low",
-	medium: "medium",
-	high: "high",
-	xhigh: "xhigh",
-	max: "max",
-};
 
 /** Decay/refresh cadence (ms) for the live speed gauge while streaming. */
 const GAUGE_TICK_MS = 500;
 
 /**
- * Collapsible reasoning trace (TUI parity):
+ * Collapsible reasoning trace, kept quiet so the answer stays the most
+ * prominent thing in the turn (TUI parity for the content rules):
  * - `proseOnlyThinking` elides fenced code to a `...` placeholder and drops
  *   empty `<!-- -->` summary sentinels (formatThinkingForDisplay port).
  * - `hideThinkingBlock` suppresses the block entirely; while reasoning is
@@ -55,17 +41,16 @@ const GAUGE_TICK_MS = 500;
  *   and a windowed tok/s rate observed from buffer growth, falling back to
  *   the model store's tokensPerSecond before the first observation.
  *
- * GUI extras kept: collapsed by default, word/line counts, duration badge,
- * thinking-level accent (--omp-thinking-*). Settings arrive via get_settings
- * (settings store) and re-render live on config_update.
+ * Collapsed it is one muted row: chevron, "Thought", and the duration (or a
+ * word count when no timing is known). Open state follows the
+ * `thinkingExpanded` preference (settings store) until the user toggles it.
  */
-export function ThinkingBlock({ text, live = false, startTime, endTime, level }: ThinkingBlockProps) {
+export function ThinkingBlock({ text, live = false, startTime, endTime }: ThinkingBlockProps) {
 	const t = useT();
 	// Finalized blocks must not subscribe to the live buffer: every thinking
 	// delta would re-render every mounted history block in the window.
 	const streamingThinking = useMessagesStore(s => (live ? s.streamingThinking : ""));
 	const streamingTextStarted = useMessagesStore(s => s.streamingText.length > 0);
-	const storeLevel = useModelStore(s => s.thinkingLevel);
 	const tokensPerSecond = useModelStore(s => s.tokensPerSecond);
 	const hideThinkingBlock = useDisplayPreference("hideThinkingBlock");
 	const proseOnly = useDisplayPreference("proseOnlyThinking");
@@ -77,16 +62,12 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 
 	const content = live ? streamingThinking : (text ?? "");
 	const isLive = live && content.length > 0;
-	// Raw length still drives the live speed gauge, but formatting, word/line
+	// Raw length still drives the live speed gauge, but formatting, word
 	// counts, and Markdown parse share the same bounded cadence as reply text.
 	// Previously a long reasoning stream reprocessed its entire growing prefix
 	// on every 16 ms event batch, even while the block was collapsed.
 	const displayContent = useThrottledText(content, live ? STREAM_FORMAT_FLUSH_MS : 0);
 	const formatted = useMemo(() => formatThinkingForDisplay(displayContent, proseOnly), [displayContent, proseOnly]);
-
-	const resolvedLevel: ThinkingLevel = level ?? storeLevel ?? "medium";
-	// Theme tokens only go up to xhigh; "max" shares its color.
-	const tokenLevel = resolvedLevel === "max" ? "xhigh" : resolvedLevel;
 	const duration = durationBetween(startTime, endTime);
 
 	// The hidden pulse mirrors the TUI: only while this block is still
@@ -126,10 +107,11 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 	const observedRate = isLive ? (trackerRef.current?.getSpeed() ?? 0) : 0;
 	const rate = observedRate >= 0.05 ? observedRate : isLive && tokensPerSecond !== null ? tokensPerSecond : 0;
 	const showGauge = isLive && rate >= 0.05;
-	// Gray at rest, brightening toward the level accent as tok/s climbs (sqrt
-	// ease so mid-stream rates already read accent-tinted) — TUI badge lerp.
-	const ratePct = Math.round(100 * Math.sqrt(Math.min(rate, SPEED_MAX) / SPEED_MAX));
-	const rateColor = `color-mix(in srgb, var(--omp-thinking-${tokenLevel}) ${ratePct}%, var(--omp-dim))`;
+	const gauge = showGauge ? (
+		<span className="omp-thinking-gauge tabular-nums text-(--sc-text-subtle)">
+			{formatTokens(content.length)} · {t("chat.thinking.speed", { rate: rate.toFixed(1) })}
+		</span>
+	) : null;
 
 	// ── Hidden-thinking glyph pulse ─────────────────────────────────────────
 	const [glyphFrame, setGlyphFrame] = useState(0);
@@ -150,26 +132,12 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 		if (!showPulse) return null;
 		const glyph = THINKING_GLYPH_FRAMES[glyphFrame % THINKING_GLYPH_FRAMES.length] ?? "…";
 		return (
-			<div
-				className="omp-thinking-block omp-thinking-block--pulse mb-2 flex items-center gap-1.5 overflow-hidden rounded-md border-l-2 px-2 py-1 text-omp-sm"
-				style={{ borderLeftColor: `var(--omp-thinking-${tokenLevel})` }}
-			>
-				<span
-					aria-hidden
-					className="inline-block w-3.5 text-center"
-					style={{ color: `var(--omp-thinking-${tokenLevel})` }}
-				>
+			<div className="omp-thinking-block omp-thinking-block--pulse flex min-h-7 items-center gap-2 px-1.5 text-sc-sm text-(--sc-text-muted)">
+				<span aria-hidden className="inline-block w-(--sc-icon-sm) text-center">
 					{glyph}
 				</span>
-				<span className="font-medium text-[var(--omp-muted)]">{t("chat.thinking.live")}</span>
-				{showGauge && (
-					<>
-						<span className="tabular-nums text-[var(--omp-dim)]">{formatTokens(content.length)}</span>
-						<span className="tabular-nums" style={{ color: rateColor }}>
-							{t("chat.thinking.speed", { rate: rate.toFixed(1) })}
-						</span>
-					</>
-				)}
+				<span className="omp-thinking-state omp-thinking-shimmer">{t("chat.thinking.live")}</span>
+				{gauge}
 			</div>
 		);
 	}
@@ -178,50 +146,34 @@ export function ThinkingBlock({ text, live = false, startTime, endTime, level }:
 
 	const trimmed = formatted.trim();
 	const words = trimmed ? trimmed.split(/\s+/).length : 0;
-	const lines = formatted.split("\n").length;
-	const countLabel = `${t("chat.thinking.words", { count: words.toLocaleString(), plural: words === 1 ? "" : "s" })} · ${t("chat.thinking.lines", { count: lines.toLocaleString(), plural: lines === 1 ? "" : "s" })}`;
+	const meta = isLive
+		? null
+		: (duration ?? t("chat.thinking.words", { count: words.toLocaleString(), plural: words === 1 ? "" : "s" }));
 
 	return (
-		<div
-			className="omp-thinking-block mb-2 overflow-hidden rounded-md border-l-2 transition-colors"
-			style={{ borderLeftColor: `var(--omp-thinking-${tokenLevel})` }}
-		>
+		<div className="omp-thinking-block min-w-0">
 			<button
 				type="button"
 				aria-expanded={open}
 				aria-label={t(open ? "chat.thinking.hide" : "chat.thinking.show")}
 				onClick={() => setOpen(v => !v)}
-				className="omp-thinking-header flex w-full items-center gap-1.5 px-2 py-1 text-left text-omp-sm text-[var(--omp-muted)] transition-colors hover:bg-[var(--omp-bg-tertiary)]"
+				className="omp-thinking-header flex min-h-7 w-full min-w-0 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-left text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary)"
 			>
 				<ChevronRight
 					aria-hidden
-					className={cx("omp-thinking-chevron omp-disclosure-chevron", open && "rotate-90")}
-					size={12}
+					className={cx(
+						"omp-thinking-chevron omp-disclosure-chevron size-(--sc-icon-sm) shrink-0",
+						open && "rotate-90",
+					)}
 				/>
-				<Brain size={12} className="omp-thinking-brain" style={{ color: `var(--omp-thinking-${tokenLevel})` }} />
-				{isLive ? (
-					<span className="omp-thinking-state omp-thinking-shimmer font-medium">{t("chat.thinking.live")}</span>
-				) : (
-					<span className="omp-thinking-state font-medium" style={{ color: `var(--omp-thinking-${tokenLevel})` }}>
-						{t("chat.thinking.done")}
-					</span>
-				)}
-				<span className="omp-thinking-level text-[var(--omp-dim)]">{LEVEL_LABEL[resolvedLevel]}</span>
-				{showGauge && (
-					<span className="omp-thinking-gauge contents">
-						<span className="tabular-nums text-[var(--omp-dim)]">{formatTokens(content.length)}</span>
-						<span className="tabular-nums" style={{ color: rateColor }}>
-							{t("chat.thinking.speed", { rate: rate.toFixed(1) })}
-						</span>
-					</span>
-				)}
-				<span className="omp-thinking-count tabular-nums text-[var(--omp-dim)]">{countLabel}</span>
-				{duration && (
-					<span className="omp-thinking-duration ml-auto tabular-nums text-[var(--omp-dim)]">{duration}</span>
-				)}
+				<span className={cx("omp-thinking-state font-medium", isLive && "omp-thinking-shimmer")}>
+					{t(isLive ? "chat.thinking.live" : "chat.thinking.done")}
+				</span>
+				{gauge}
+				{meta ? <span className="omp-thinking-meta tabular-nums text-(--sc-text-subtle)">{meta}</span> : null}
 			</button>
 			{open ? (
-				<div className="omp-thinking-body max-h-64 overflow-y-auto px-3 pb-2 font-mono text-omp-sm leading-[1.45] text-[var(--omp-muted)]">
+				<div className="omp-thinking-body text-sc-sm text-(--sc-text-muted)">
 					{isLive ? (
 						<div className="omp-streaming-tail">
 							{formatted}

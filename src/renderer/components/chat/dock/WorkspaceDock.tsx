@@ -109,7 +109,7 @@ function WorkspaceDockContent() {
 						<div
 							aria-label={t("dock.resizeHeight")}
 							aria-orientation="horizontal"
-							className="mx-auto h-1.5 w-16 cursor-row-resize touch-none rounded-full bg-[var(--omp-border)] hover:bg-[var(--omp-border-strong)]"
+							className="mx-auto h-1.5 w-16 cursor-row-resize touch-none rounded-(--sc-radius-full) bg-(--sc-border) hover:bg-(--sc-border-strong) focus-visible:outline-2 focus-visible:outline-(--sc-accent)"
 							data-testid="workspace-dock-resize"
 							onKeyDown={onHandleKeyDown}
 							onPointerDown={onHandleDown}

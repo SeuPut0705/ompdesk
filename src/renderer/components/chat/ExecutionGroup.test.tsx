@@ -171,6 +171,30 @@ describe("ExecutionGroup", () => {
 
 		expect(container.querySelectorAll(".animate-spin, .animate-pulse")).toHaveLength(1);
 		expect(container.querySelectorAll(".omp-tool-status-icon")).toHaveLength(2);
-		expect(container.querySelector('[role="status"]')?.textContent).toContain("2 running");
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toContain("2 running");
+	});
+
+	it("summarizes finished work by what it did, with the elapsed time", async () => {
+		const done = (toolName: string, args: Record<string, unknown>, startTime: number, endTime: number) => ({
+			...toolEntry("running"),
+			toolName,
+			args,
+			status: "done" as const,
+			startTime,
+			endTime,
+		});
+		useToolsStore.setState({
+			activeTools: new Map([
+				["read-1", done("read", { path: "src/a.ts" }, 1_000, 2_000)],
+				["read-2", done("read", { path: "src/b.ts" }, 2_000, 3_000)],
+				["edit-1", done("edit", { path: "src/a.ts" }, 3_000, 5_000)],
+				["bash-1", done("bash", { command: "bun test" }, 5_000, 17_000)],
+			]),
+		});
+		await mount(["read-1", "read-2", "edit-1", "bash-1"]);
+
+		expect(container.textContent).toContain("Read 2 files · Edited 1 file · Ran 1 command");
+		expect(container.textContent).toContain("16.0s");
+		expect(container.querySelector('[data-state="complete"]')).not.toBeNull();
 	});
 });
