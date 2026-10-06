@@ -1,0 +1,143 @@
+/** `get_git_status`, `get_git_changes`, `get_git_diff` over the git CLI (port of fork rpc-git-diff.ts / buildRpcGitStatus). */
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import type { RpcGitChanges, RpcGitDiff, RpcGitStatus } from "../../../shared/rpc-types";
+import { git, gitRaw } from "./exec";
+import {
+	isInside,
+	isProbablyBinaryHeader,
+	isSafeRelativePath,
+	newFileDiff,
+	parseGitStatus,
+	parseStatusV2,
+} from "./parse";
+
+const MAX_FILES = 1000;
+const MAX_DIFF_BYTES = 4 * 1024 * 1024;
+const MAX_DIFF_CHARS = 200_000;
+const BINARY_SNIFF_BYTES = 8192;
+
+/** Worktree top-level for `cwd`, or null outside a repository. */
+export async function repoRoot(cwd: string): Promise<string | null> {
+	const result = await gitRaw(cwd, ["rev-parse", "--show-toplevel"]);
+	if (result.code !== 0) return null;
+	const root = result.stdout.toString("utf8").trim();
+	return root ? path.resolve(root) : null;
+}
+
+/** Main checkout root shared by every linked worktree (`--git-common-dir`'s parent). */
+export async function primaryRoot(cwd: string): Promise<string> {
+	const common = (await git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
+	return path.basename(common) === ".git" ? path.dirname(common) : common;
+}
+
+async function headSha(cwd: string): Promise<string | null> {
+	const result = await gitRaw(cwd, ["rev-parse", "--verify", "--quiet", "HEAD"]);
+	return result.code === 0 ? result.stdout.toString("utf8").trim() || null : null;
+}
+
+export async function getGitStatus(cwd: string): Promise<RpcGitStatus> {
+	const result = await gitRaw(cwd, ["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"]);
+	if (result.code !== 0) return { isRepo: false, branch: null, staged: 0, unstaged: 0, untracked: 0 };
+	return { isRepo: true, ...parseStatusV2(result.stdout.toString("utf8")) };
+}
+
+export async function getGitChanges(cwd: string): Promise<RpcGitChanges> {
+	const root = await repoRoot(cwd);
+	if (!root) return { isRepo: false, root: null, base: null, files: [], truncated: false };
+	const base = await headSha(root);
+	const [status, changed] = await Promise.all([
+		git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+		base ? git(root, ["diff", "--name-only", "-z", "--no-renames", base]) : Promise.resolve(null),
+	]);
+	// Net change vs HEAD: a file staged then reverted in the worktree shows in status but not here.
+	const net = changed === null ? null : new Set(changed.split("\0").filter(Boolean));
+	const files = parseGitStatus(status)
+		.filter(
+			entry =>
+				entry.index === "?" ||
+				entry.oldPath !== undefined ||
+				(net
+					? net.has(entry.path) || (entry.oldPath !== undefined && net.has(entry.oldPath))
+					: entry.worktree !== "D"),
+		)
+		.map(entry => ({ path: entry.path, oldPath: entry.oldPath, status: `${entry.index}${entry.worktree}` }));
+	return {
+		isRepo: true,
+		root,
+		base,
+		files: files.slice(0, MAX_FILES),
+		truncated: files.length > MAX_FILES,
+	};
+}
+
+async function readHeader(file: string): Promise<Uint8Array> {
+	const handle = await fs.open(file, "r");
+	try {
+		const buffer = Buffer.alloc(BINARY_SNIFF_BYTES);
+		const { bytesRead } = await handle.read(buffer, 0, BINARY_SNIFF_BYTES, 0);
+		return buffer.subarray(0, bytesRead);
+	} finally {
+		await handle.close();
+	}
+}
+
+/** Read one authorized changed path; never follow a symlink out of the checkout. */
+export async function getGitDiff(cwd: string, filePath: string): Promise<RpcGitDiff> {
+	if (!isSafeRelativePath(filePath)) throw new Error("Invalid repository-relative path");
+	const changes = await getGitChanges(cwd);
+	const entry = changes.files.find(file => file.path === filePath);
+	if (!changes.root || !entry)
+		throw new Error("This file is no longer in the changed file list. Refresh to continue.");
+	const root = changes.root;
+	const result: RpcGitDiff = { path: filePath, diff: "", kind: "text", truncated: false };
+	const absolute = path.join(root, filePath);
+	let exists = true;
+	try {
+		const stat = await fs.lstat(absolute);
+		if (stat.isSymbolicLink()) return { ...result, kind: "symlink" };
+		if (stat.isDirectory()) return { ...result, kind: "directory" };
+		const resolved = await fs.realpath(absolute);
+		if (!isInside(await fs.realpath(root), resolved)) throw new Error("File resolves outside this checkout");
+		if (stat.size > MAX_DIFF_BYTES) return { ...result, kind: "large", truncated: true };
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		exists = false;
+	}
+	if (exists && isProbablyBinaryHeader(await readHeader(absolute))) return { ...result, kind: "binary" };
+	const isNew = !changes.base || entry.status === "??" || entry.status[0] === "A";
+	if (!isNew && changes.base) {
+		const spec = `${changes.base}:${entry.oldPath ?? filePath}`;
+		const size = await gitRaw(root, ["cat-file", "-s", spec]);
+		if (size.code === 0) {
+			if (Number(size.stdout.toString("utf8").trim()) > MAX_DIFF_BYTES)
+				return { ...result, kind: "large", truncated: true };
+			const old = await gitRaw(root, ["cat-file", "blob", spec], { maxBytes: BINARY_SNIFF_BYTES });
+			if (isProbablyBinaryHeader(old.stdout.subarray(0, BINARY_SNIFF_BYTES))) return { ...result, kind: "binary" };
+		}
+	}
+	let diff: string;
+	if (isNew) {
+		diff = newFileDiff(exists ? await fs.readFile(absolute, "utf8") : "");
+	} else {
+		const raw = await gitRaw(
+			root,
+			[
+				"diff",
+				"--no-color",
+				"--no-ext-diff",
+				"--find-renames",
+				"-U3",
+				changes.base!,
+				"--",
+				...[filePath, ...(entry.oldPath ? [entry.oldPath] : [])].map(file => `:(literal)${file}`),
+			],
+			{ maxBytes: MAX_DIFF_BYTES },
+		);
+		if (raw.code !== 0) throw new Error(raw.stderr.trim() || "git diff failed");
+		diff = raw.stdout.toString("utf8");
+	}
+	// Content-identical renames produce an empty diff. Preserve the status metadata.
+	if (!diff && entry.oldPath) diff = `rename from ${entry.oldPath}\nrename to ${filePath}`;
+	return { ...result, diff: diff.slice(0, MAX_DIFF_CHARS), truncated: diff.length > MAX_DIFF_CHARS };
+}

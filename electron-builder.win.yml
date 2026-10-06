@@ -1,0 +1,58 @@
+appId: com.seuput.omp-gui
+productName: omp
+afterPack: scripts/after-pack.cjs
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - out/**/*
+  - "!node_modules/**/*"
+extraResources:
+  - from: resources/gui-bridge
+    to: gui-bridge
+protocols:
+  - name: omp
+    schemes:
+      - omp
+asar: true
+compression: maximum
+
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  # Windows packages are currently unsigned; electron-updater must not require
+  # a stable certificate identity for an update check.
+  verifyUpdateCodeSignature: false
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: omp
+  artifactName: ${productName}-${version}-setup.${ext}
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
+
+publish:
+  provider: github
+  owner: SeuPut0705
+  repo: omp-gui
+
+# NO `electronLanguages` here on purpose: electron-builder's option compares the
+# list against Electron's `locales/*.pak` basenames with an EXACT match (after
+# lowercasing), so `electronLanguages: [en]` — which this repo had — matched
+# nothing (Electron ships `en-US.pak`/`en-GB.pak`, never `en.pak`) and deleted
+# ALL 55 paks. Chromium then aborts the renderer at startup: `en-US.pak` is its
+# hardcoded fallback locale file, and without it the window renders for an
+# instant and stays blank forever — issue #12's Windows blank screen, reproduced
+# on the shipped 0.9.14 payloads (empty `locales/` → crash, same binaries with
+# paks → renders). Keeping Electron's stock locale set intact is both the
+# correct and the maintenance-free option; trimming languages here breaks
+# Chinese users' Chromium UI strings too.

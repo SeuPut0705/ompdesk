@@ -1,0 +1,139 @@
+import * as path from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+	extractDraftJson,
+	guiWorktreeCandidate,
+	hashPath,
+	isInside,
+	isSafeRelativePath,
+	newFileDiff,
+	parseGitStatus,
+	parsePrUnifiedDiff,
+	parseStatusV2,
+	renderPrompt,
+	worktreeSlug,
+	worktreesDir,
+} from "./parse";
+import { parseWorktreeList } from "./pr";
+
+describe("parseGitStatus", () => {
+	it("keeps spaces in paths and pairs renames with their origin", () => {
+		const text = " M a file.ts\0R  new.ts\0old.ts\0?? dir/x y\0";
+		expect(parseGitStatus(text)).toEqual([
+			{ path: "a file.ts", oldPath: undefined, index: " ", worktree: "M" },
+			{ path: "new.ts", oldPath: "old.ts", index: "R", worktree: " " },
+			{ path: "dir/x y", oldPath: undefined, index: "?", worktree: "?" },
+		]);
+	});
+});
+
+describe("parseStatusV2", () => {
+	it("counts staged, unstaged, untracked and skips rename origins", () => {
+		const text = [
+			"# branch.oid abc",
+			"# branch.head feature/x",
+			"1 M. N... 100644 100644 100644 a b staged.ts",
+			"1 .M N... 100644 100644 100644 a b unstaged.ts",
+			"1 MM N... 100644 100644 100644 a b both.ts",
+			"2 R. N... 100644 100644 100644 a b R100 new.ts",
+			"? old-looking-like-record.ts",
+			"u UU N... 1 2 3 4 a b c conflict.ts",
+			"? untracked.ts",
+		].join("\0");
+		// The record after the `2` entry is its origin path, not an untracked file.
+		expect(parseStatusV2(text)).toEqual({ branch: "feature/x", staged: 3, unstaged: 3, untracked: 1 });
+	});
+	it("reports detached HEAD as null branch", () => {
+		expect(parseStatusV2("# branch.head (detached)\0").branch).toBeNull();
+	});
+});
+
+describe("path guards", () => {
+	it("rejects absolute, NUL and traversal paths", () => {
+		for (const bad of ["", "/etc/passwd", "C:\\x", "a/../b", "..\\x", "a\0b"])
+			expect(isSafeRelativePath(bad)).toBe(false);
+		expect(isSafeRelativePath("src/a..b.ts")).toBe(true);
+	});
+	it("isInside is strict", () => {
+		expect(isInside("/r", "/r/a")).toBe(true);
+		expect(isInside("/r", "/r")).toBe(false);
+		expect(isInside("/r", "/rx/a")).toBe(false);
+	});
+	it("newFileDiff synthesizes an all-added hunk", () => {
+		expect(newFileDiff("a\nb\n")).toBe("@@ -0,0 +1,2 @@\n+a\n+b");
+		expect(newFileDiff("")).toBe("");
+	});
+});
+
+describe("worktree naming", () => {
+	it("slugifies and rejects disallowed characters", () => {
+		expect(worktreeSlug("  My Feature  ")).toBe("my-feature");
+		expect(worktreeSlug("fix_bug")).toBeNull();
+		expect(worktreeSlug("---")).toBeNull();
+		expect(worktreeSlug("a".repeat(42))).toBeNull();
+	});
+	it("builds suffixed branch and hashed path", () => {
+		const hash = hashPath("/repo");
+		expect(hash).toMatch(/^[0-9a-f]{7}$/);
+		expect(guiWorktreeCandidate("x", "/repo", 1, "/wt")).toEqual({
+			name: "x",
+			branch: "omp/gui/x",
+			path: path.join("/wt", `gui-x-${hash}`),
+		});
+		expect(guiWorktreeCandidate("x", "/repo", 3, "/wt").branch).toBe("omp/gui/x-3");
+	});
+	it("honors OMP_WORKTREE_DIR", () => {
+		expect(worktreesDir({}, "/home/u")).toBe(path.join("/home/u", ".omp", "wt"));
+		expect(worktreesDir({ OMP_WORKTREE_DIR: "~/w" }, "/home/u")).toBe(path.resolve("/home/u/w"));
+	});
+	it("parses git worktree list --porcelain", () => {
+		const text = "worktree /r\nHEAD abc\nbranch refs/heads/main\n\nworktree /wt/1\nHEAD def\ndetached\n";
+		expect(parseWorktreeList(text)).toEqual([
+			{ path: "/r", branch: "refs/heads/main" },
+			{ path: "/wt/1", branch: null },
+		]);
+	});
+});
+
+describe("parsePrUnifiedDiff", () => {
+	it("indexes files incl. renames, deletions and quoted paths", () => {
+		const text = [
+			"diff --git a/a.ts b/a.ts",
+			"--- a/a.ts",
+			"+++ b/a.ts",
+			"@@ -1 +1 @@",
+			"-x",
+			"+y",
+			"diff --git a/old.ts b/new.ts",
+			"similarity index 100%",
+			"rename from old.ts",
+			"rename to new.ts",
+			"diff --git a/gone.ts b/gone.ts",
+			"deleted file mode 100644",
+			'diff --git "a/sp ace\\303\\251.ts" "b/sp ace\\303\\251.ts"',
+			"",
+		].join("\n");
+		const files = parsePrUnifiedDiff(text);
+		expect(files.map(f => [f.path, f.oldPath])).toEqual([
+			["a.ts", undefined],
+			["new.ts", "old.ts"],
+			["gone.ts", undefined],
+			["sp aceé.ts", undefined],
+		]);
+		expect(text.slice(files[0]!.startOffset, files[0]!.endOffset)).toMatch(/^diff --git a\/a.ts[\s\S]*\+y\n$/);
+	});
+});
+
+describe("pr draft helpers", () => {
+	it("renders vars and conditional blocks", () => {
+		expect(renderPrompt("{{a}}{{#if b}}[{{b}}]{{/if}}", { a: "x", b: "" })).toBe("x");
+		expect(renderPrompt("{{a}}{{#if b}}[{{b}}]{{/if}}", { a: "x", b: "y" })).toBe("x[y]");
+	});
+	it("extracts the draft JSON around noise", () => {
+		expect(extractDraftJson('Working...\n```json\n{"title":"t {x}","body":"## S\\n- a"}\n```')).toEqual({
+			title: "t {x}",
+			body: "## S\n- a",
+		});
+		expect(extractDraftJson("{bad} nothing")).toBeNull();
+	});
+});

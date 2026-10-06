@@ -1,0 +1,293 @@
+/**
+ * Composer / session-action state stock RPC does not expose: user eval and
+ * excluded bash, in-place context reset, the pending forced tool, prewalk
+ * disarm, report data (/context, /tools, /jobs, /share) and the get_state
+ * extras. Each method reads the same AgentSession surface the TUI command
+ * drives; modules beyond the session are imported lazily so one moved internal
+ * fails its own method, not the whole bridge.
+ */
+import { createHash } from "node:crypto";
+import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import type { BridgeMethods } from "./types";
+
+type Session = AgentSession & Record<string, unknown>;
+
+function record(params: unknown): Record<string, unknown> {
+	return typeof params === "object" && params !== null ? (params as Record<string, unknown>) : {};
+}
+
+function requireMethod(session: Session, name: string): void {
+	if (typeof session[name] !== "function") throw new Error(`This omp has no AgentSession.${name}`);
+}
+
+// ── Forced tool ──────────────────────────────────────────────────────────────
+// Stock `setForcedToolChoice` keeps no readable record of the tool it forced, so
+// the GUI's force (it never routes /force through the prompt) pushes the same
+// [forced, "none"] sequence itself and tracks the name until the forced call is
+// served or dropped — the fork's getForcedToolChoice/clearForcedToolChoice.
+const USER_FORCE_LABEL = "user-force";
+const pendingForce = new WeakMap<object, string>();
+
+function forcedTool(session: Session): string | null {
+	const tool = pendingForce.get(session);
+	if (tool === undefined) return null;
+	const labels: readonly string[] = session.toolChoiceQueue?.inspect?.() ?? [];
+	if (labels.some(label => label.startsWith(USER_FORCE_LABEL))) return tool;
+	// Served or dropped through a path that skipped our callbacks.
+	pendingForce.delete(session);
+	return null;
+}
+
+async function setForcedTool(session: Session, tool: string): Promise<{ tool: string | null }> {
+	requireMethod(session, "getActiveToolNames");
+	const queue = session.toolChoiceQueue;
+	if (typeof queue?.pushSequence !== "function") throw new Error("This omp has no tool-choice queue");
+	if (!session.getActiveToolNames().includes(tool)) throw new Error(`Tool "${tool}" is not currently active.`);
+	const { buildNamedToolChoice } = await import("@oh-my-pi/pi-coding-agent/utils/tool-choice");
+	const forced = buildNamedToolChoice(tool, session.model);
+	if (!forced || typeof forced === "string") throw new Error("Current model does not support forcing a specific tool.");
+	const settle = (choice: unknown) => {
+		if (choice === forced && pendingForce.get(session) === tool) pendingForce.delete(session);
+	};
+	pendingForce.set(session, tool);
+	queue.pushSequence([forced, "none"], {
+		label: USER_FORCE_LABEL,
+		// The forced call ran: the force is spent (the trailing "none" is bookkeeping).
+		onResolved: info => settle(info.choice),
+		// Explicit removals drop the force; aborted/errored turns replay it.
+		onRejected: info => {
+			if (info.reason === "unavailable" || info.reason === "removed" || info.reason === "cleared") {
+				settle(info.choice);
+				return "drop_sequence";
+			}
+			return "requeue";
+		},
+	});
+	return { tool: forcedTool(session) };
+}
+
+function clearForcedTool(session: Session): { tool: null } {
+	pendingForce.delete(session);
+	const queue = session.toolChoiceQueue;
+	if (typeof queue?.removeByLabel !== "function") throw new Error("This omp has no tool-choice queue");
+	// Removing an in-flight force requeues it under the `-requeued` label first.
+	queue.removeByLabel(USER_FORCE_LABEL);
+	queue.removeByLabel(`${USER_FORCE_LABEL}-requeued`);
+	return { tool: null };
+}
+
+// ── Prewalk ──────────────────────────────────────────────────────────────────
+// Stock has no public disarm; the coordinator drops a pending hand-off when the
+// `prewalk.enabled` setting turns false (a coalesced, microtask-deferred
+// listener), so flip a runtime override across a macrotask boundary.
+const settleListeners = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+
+async function disarmPrewalk(session: Session): Promise<void> {
+	requireMethod(session, "getPrewalkState");
+	if (session.getPrewalkState() === undefined) return;
+	const { cfgPrewalkEnabled } = await import("@oh-my-pi/pi-coding-agent/session/settings");
+	const settings = session.settings;
+	if (cfgPrewalkEnabled.get(settings)) {
+		// Clearing the override afterwards would re-arm, so it stays for this process.
+		cfgPrewalkEnabled.override(settings, false);
+		await settleListeners();
+	} else {
+		cfgPrewalkEnabled.override(settings, true);
+		await settleListeners();
+		cfgPrewalkEnabled.override(settings, false);
+		await settleListeners();
+		cfgPrewalkEnabled.clearOverride(settings);
+	}
+	if (session.getPrewalkState() !== undefined) throw new Error("Prewalk could not be disarmed");
+}
+
+// ── Share ────────────────────────────────────────────────────────────────────
+async function shareContext(session: Session) {
+	const share = await import("@oh-my-pi/pi-coding-agent/export/share");
+	const { cfgShareServerUrl, cfgShareStore, cfgShareRedactSecrets } = await import(
+		"@oh-my-pi/pi-coding-agent/commands/settings"
+	);
+	const redactionEnabled = cfgShareRedactSecrets.get(session.settings) === true;
+	const options = {
+		serverUrl: cfgShareServerUrl.get(session.settings),
+		store: cfgShareStore.get(session.settings),
+		state: session.state,
+		obfuscator: redactionEnabled ? session.obfuscator : undefined,
+	};
+	return { share, options, redactionEnabled };
+}
+
+/** Local-only preview; the digest binds the snapshot and its upload destination. */
+async function sharePreview(session: Session) {
+	const { share, options, redactionEnabled } = await shareContext(session);
+	const data = share.buildShareSnapshot(session.sessionManager, options);
+	const preview = JSON.stringify(data, null, 2);
+	const serverUrl = share.normalizeShareServerUrl(options.serverUrl);
+	const store = options.store ?? "blob";
+	const snapshotId = createHash("sha256")
+		.update(JSON.stringify({ preview, serverUrl, store, redactionEnabled }))
+		.digest("hex");
+	// Stock trims at seal time; a throwaway seal tells whether the server budget will.
+	let truncated = false;
+	if (store === "blob" && typeof share.sealToFit === "function") {
+		const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+		truncated = (await share.sealToFit(key, data, share.SERVER_MAX_SEALED_BYTES)).truncated;
+	}
+	return {
+		snapshotId,
+		preview,
+		serverUrl,
+		store,
+		redactionEnabled,
+		...(truncated ? { truncated: true } : {}),
+	};
+}
+
+// ── Methods ──────────────────────────────────────────────────────────────────
+export const methods: BridgeMethods = {
+	/** The get_state fields stock omits. */
+	"composer.state": async (_params, env) => {
+		const session = env.session() as Session;
+		const { agentPauseGate } = await import("@oh-my-pi/pi-agent-core");
+		return {
+			cwd: session.sessionManager.getCwd(),
+			autoRetryEnabled: session.autoRetryEnabled,
+			thinkingLevel: session.thinkingLevel,
+			thinkingConfigured: session.configuredThinkingLevel?.() ?? session.thinkingLevel,
+			planModeEnabled: session.getPlanModeState?.()?.enabled ?? false,
+			prewalkArmed: session.getPrewalkState?.() !== undefined,
+			agentsPaused: agentPauseGate?.paused === true,
+			agentsPausedAt: agentPauseGate?.pausedAt,
+		};
+	},
+
+	"composer.eval": async (params, env) => {
+		const session = env.session() as Session;
+		requireMethod(session, "executePython");
+		const { code, excluded } = record(params);
+		if (typeof code !== "string") throw new Error("eval requires code");
+		const result = await session.executePython(code, undefined, { excludeFromContext: excluded === true });
+		return { output: result.output, exitCode: result.exitCode, cancelled: result.cancelled, truncated: result.truncated };
+	},
+
+	"composer.abort_eval": async (_params, env) => {
+		const session = env.session() as Session;
+		requireMethod(session, "abortEval");
+		session.abortEval();
+		return null;
+	},
+
+	/** Bash whose output stays out of model context (`!!`). */
+	"composer.bash_excluded": async (params, env) => {
+		const session = env.session() as Session;
+		requireMethod(session, "executeBash");
+		const { command } = record(params);
+		if (typeof command !== "string") throw new Error("bash requires command");
+		return session.executeBash(command, undefined, { excludeFromContext: true });
+	},
+
+	/** Null while streaming or a foreground bash/eval runs (the caller maps it to `busy`). */
+	"composer.clear_context": async (_params, env) => {
+		const session = env.session() as Session;
+		requireMethod(session, "resetSessionContext");
+		const result = await session.resetSessionContext();
+		return result ? { droppedCount: result.droppedCount } : null;
+	},
+
+	"composer.get_force_tool": async (_params, env) => ({ tool: forcedTool(env.session() as Session) }),
+
+	"composer.set_force_tool": async (params, env) => {
+		const session = env.session() as Session;
+		const { tool, clear } = record(params);
+		if (clear === true) return clearForcedTool(session);
+		if (typeof tool !== "string" || !tool.trim()) throw new Error("set_force_tool takes exactly one of tool or clear.");
+		return setForcedTool(session, tool.trim());
+	},
+
+	"composer.disarm_prewalk": async (_params, env) => {
+		await disarmPrewalk(env.session() as Session);
+		return { enabled: false };
+	},
+
+	"composer.prewalk_armed": async (_params, env) => {
+		const session = env.session() as Session;
+		requireMethod(session, "getPrewalkState");
+		return { armed: session.getPrewalkState() !== undefined };
+	},
+
+	/** `/tools` parity: active tools, then xd:// mounted entries, with provenance. */
+	"composer.active_tools": async (_params, env) => {
+		const session = env.session() as Session;
+		const source = (name: string) =>
+			name.startsWith("mcp__")
+				? "mcp"
+				: typeof session.hasBuiltInTool === "function" && session.hasBuiltInTool(name)
+					? "builtin"
+					: "extension";
+		const tools = session.agent.state.tools.map(tool => ({
+			name: tool.name,
+			description: tool.description,
+			source: source(tool.name),
+		}));
+		const mounted: Array<{ name: string; summary: string }> =
+			typeof session.getXdevToolEntries === "function" ? session.getXdevToolEntries() : [];
+		for (const entry of mounted) tools.push({ name: entry.name, description: entry.summary, source: source(entry.name) });
+		return { tools };
+	},
+
+	/** `/context` parity. */
+	"composer.context_report": async (_params, env) => {
+		const session = env.session() as Session;
+		requireMethod(session, "getContextBreakdown");
+		const breakdown = session.getContextBreakdown();
+		return {
+			breakdown,
+			contextWindow: breakdown?.contextWindow ?? session.model?.contextWindow ?? 0,
+			model: session.model?.id ?? "",
+		};
+	},
+
+	/** `/jobs` parity: running, then the 5 most recent. */
+	"composer.jobs": async (_params, env) => {
+		const session = env.session() as Session;
+		requireMethod(session, "getAsyncJobSnapshot");
+		const snapshot = session.getAsyncJobSnapshot({ recentLimit: 5 });
+		return snapshot ? [...snapshot.running, ...snapshot.recent] : [];
+	},
+
+	"composer.share_preview": async (_params, env) => sharePreview(env.session() as Session),
+
+	"composer.share": async (params, env) => {
+		const session = env.session() as Session;
+		const { snapshotId } = record(params);
+		const prepared = await sharePreview(session);
+		if (snapshotId !== undefined && snapshotId !== prepared.snapshotId) {
+			throw new Error("Session or sharing settings changed. Refresh the local preview before uploading.");
+		}
+		const { share, options } = await shareContext(session);
+		const result = await share.shareSession(session.sessionManager, options);
+		return result.truncated || prepared.truncated ? { url: result.url, truncated: true } : { url: result.url };
+	},
+
+	/** Stock RPC `cycle_model` only goes forward; the session method takes a direction. */
+	"composer.cycle_model": async (params, env) => {
+		const session = env.session() as Session;
+		requireMethod(session, "cycleModel");
+		const { direction } = record(params);
+		return (await session.cycleModel(direction === "backward" ? "backward" : "forward")) ?? null;
+	},
+
+	"composer.skill_count": async (_params, env) => ({ skills: (env.session() as Session).skills?.length ?? 0 }),
+
+	/** Pop the newest user-queued message back to the composer (TUI dequeue). */
+	"composer.dequeue": async (_params, env) => {
+		const session = env.session() as Session;
+		if (typeof session.popLastQueuedMessage !== "function") throw new Error("omp has no popLastQueuedMessage");
+		const before = session.getQueuedMessages();
+		const popped = session.popLastQueuedMessage();
+		if (!popped) return null;
+		const after = session.getQueuedMessages();
+		const mode = after.steering.length < before.steering.length ? "steer" : "followUp";
+		return { text: popped.text, images: popped.images, mode };
+	},
+};

@@ -1,0 +1,1164 @@
+/**
+ * Component-level styles: streaming caret, pattern highlights, thinking
+ * shimmer, highlight.js token mapping, and markdown body typography.
+ */
+
+/* ---------------------------------------------------------------------------
+ * Streaming caret
+ * ------------------------------------------------------------------------- */
+.omp-caret {
+	display: inline-block;
+	width: 7px;
+	height: 1.05em;
+	margin-left: 2px;
+	vertical-align: text-bottom;
+	border-radius: 2px;
+	background: var(--omp-streaming-cursor);
+	transform-origin: center bottom;
+	animation: omp-caret-breathe 0.92s ease-in-out infinite; /* motion-ok: caret loop */
+}
+
+@keyframes omp-caret-breathe {
+	0%, 100% {
+		opacity: 0.95;
+		transform: scaleY(1);
+	}
+	50% {
+		opacity: 0.42;
+		transform: scaleY(0.88);
+	}
+}
+
+/* Typography MUST match .markdown-body (14.5px/1.7): the tail is promoted
+ * into a markdown block at every paragraph boundary, and a size mismatch
+ * reads as a visible jump mid-stream. Promotion must carry no entrance motion
+ * either — those characters were already on screen, so fading them in from
+ * transparent blinks the paragraph out and back. */
+.omp-streaming-tail {
+	min-height: 1.5em;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-size: calc(var(--gui-font-size, 15px) * 14.5 / 15);
+	line-height: 1.7;
+}
+
+/* A commit appends one chunk and only flips the class on the previous one, so
+ * revealed text never loses its node mid-motion. Transitions (not animations)
+ * because the stream's commit cadence must be able to interrupt a fade without
+ * restarting it, which is what made the old per-frame re-keyed reveal strobe. */
+.omp-streaming-chunk {
+	transition:
+		opacity var(--omp-motion-fast) var(--omp-ease),
+		filter var(--omp-motion-fast) var(--omp-ease);
+}
+
+.omp-streaming-reveal {
+	opacity: 0.8;
+	filter: blur(0.3px);
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Pattern highlight (grep matches, code search hits)
+ * ------------------------------------------------------------------------- */
+.omp-hl {
+	background: var(--omp-accent-dim);
+	color: var(--omp-accent-bright);
+	border-radius: 3px;
+	padding: 0 2px;
+	font-weight: 600;
+}
+
+:root[data-theme="light"] .omp-hl {
+	color: var(--omp-accent-bright);
+}
+
+/* ---------------------------------------------------------------------------
+ * Thinking block live state
+ * ------------------------------------------------------------------------- */
+.omp-thinking-shimmer {
+	color: var(--omp-muted);
+	font-weight: 500;
+}
+
+/* ---------------------------------------------------------------------------
+ * highlight.js tokens → design tokens
+ * ------------------------------------------------------------------------- */
+.hljs-comment,
+.hljs-quote {
+	color: var(--omp-syntax-comment);
+	font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-meta,
+.hljs-name,
+.hljs-tag {
+	color: var(--omp-syntax-keyword);
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-section {
+	color: var(--omp-syntax-function);
+}
+.hljs-variable,
+.hljs-template-variable,
+.hljs-attr,
+.hljs-attribute {
+	color: var(--omp-syntax-variable);
+}
+.hljs-string,
+.hljs-regexp {
+	color: var(--omp-syntax-string);
+}
+.hljs-number,
+.hljs-literal {
+	color: var(--omp-syntax-number);
+}
+.hljs-type,
+.hljs-title.class_,
+.hljs-built_in {
+	color: var(--omp-syntax-type);
+}
+.hljs-operator {
+	color: var(--omp-syntax-operator);
+}
+/* Live thinking tail inherits the thinking body's typography — the reply
+   tail's 14.5px would visibly outweigh promoted paragraphs inside the
+   12px thinking block. */
+.omp-thinking-body .omp-streaming-tail {
+	font-size: inherit;
+	line-height: inherit;
+}
+
+/* Plugin themes may retint punctuation separately (gui.theme
+   syntaxPunctuation); falls back to the operator color when unset. */
+.hljs-punctuation {
+	color: var(--omp-syntax-punctuation, var(--omp-syntax-operator));
+}
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+	color: var(--omp-md-link);
+}
+.hljs-emphasis {
+	font-style: italic;
+}
+.hljs-strong {
+	font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+ * Markdown body typography — strong hierarchy, readable measure
+ * ------------------------------------------------------------------------- */
+.markdown-body {
+	font-size: calc(var(--gui-font-size, 15px) * 14.5 / 15);
+	line-height: 1.7;
+	color: var(--omp-text);
+	word-break: break-word;
+}
+.markdown-body > :first-child {
+	margin-top: 0;
+}
+.markdown-body > :last-child {
+	margin-bottom: 0;
+}
+.markdown-body p {
+	margin: 0.65em 0;
+}
+.markdown-body .katex-display {
+	max-width: 100%;
+	overflow: auto hidden;
+	padding-block: 0.2em;
+}
+.markdown-body .katex-display > .katex {
+	width: max-content;
+	min-width: 100%;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+	font-family: var(--font-display);
+	font-weight: 650;
+	color: var(--omp-md-heading);
+	margin: 1.25em 0 0.5em;
+	line-height: 1.3;
+	letter-spacing: -0.015em;
+}
+.markdown-body h1 {
+	font-size: 1.32em;
+	letter-spacing: -0.02em;
+	padding-bottom: 0.3em;
+	border-bottom: 1px solid var(--omp-border-muted);
+}
+.markdown-body h2 {
+	font-size: 1.18em;
+}
+.markdown-body h3 {
+	font-size: 1.06em;
+}
+.markdown-body h4 {
+	font-size: 1em;
+	color: var(--omp-text-secondary);
+}
+.markdown-body h5 {
+	font-size: 0.95em;
+	color: var(--omp-text-secondary);
+}
+.markdown-body h6 {
+	font-size: 0.9em;
+	font-weight: 600;
+	color: var(--omp-muted);
+}
+.markdown-body ul {
+	margin: 0.5em 0;
+	padding-left: 1.5em;
+	list-style: disc;
+}
+.markdown-body ol {
+	margin: 0.5em 0;
+	padding-left: 1.5em;
+	list-style: decimal;
+}
+.markdown-body li {
+	margin: 0.25em 0;
+}
+.markdown-body li > ul,
+.markdown-body li > ol {
+	margin: 0.25em 0;
+}
+.markdown-body li::marker {
+	color: var(--omp-md-list-bullet);
+	font-weight: 600;
+}
+.markdown-body blockquote {
+	margin: 0.85em 0;
+	padding: 0.25em 0 0.25em 1.1em;
+	border-left: 3px solid var(--omp-md-quote-border);
+	border-radius: 2px;
+	color: var(--omp-md-quote);
+}
+.markdown-body hr {
+	margin: 1.5em 0;
+	border: none;
+	height: 1px;
+	background: var(--omp-md-hr);
+}
+/* Fenced code blocks render through the shared CodeBlock component (badge,
+   copy, gutter), so no raw <pre> box styling lives here. This rule only guards
+   against the inline-code chip leaking into a block. */
+.markdown-body pre code {
+	background: none;
+	border: none;
+	padding: 0;
+	font-size: inherit;
+	color: var(--omp-md-code-block);
+}
+.markdown-body code {
+	font-family: var(--font-mono);
+	font-size: 0.85em;
+	background: var(--omp-code-bg);
+	border: 1px solid var(--omp-border-muted);
+	border-radius: 6px;
+	padding: 0.14em 0.42em;
+	color: var(--omp-md-code);
+}
+.markdown-body table {
+	border-collapse: collapse;
+	margin: 0.9em 0;
+	font-size: calc(var(--gui-font-size, 15px) * 13 / 15);
+	width: auto;
+	max-width: 100%;
+	display: block;
+	overflow-x: auto;
+}
+.markdown-body th,
+.markdown-body td {
+	border: 1px solid var(--omp-border-muted);
+	padding: 0.45em 0.75em;
+	text-align: left;
+}
+.markdown-body th {
+	background: transparent;
+	font-weight: 600;
+	color: var(--omp-text-secondary);
+	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+.markdown-body img {
+	max-width: 100%;
+	border-radius: 12px;
+	border: 1px solid var(--omp-border-muted);
+}
+.markdown-body a {
+	color: var(--omp-md-link);
+	text-decoration: none;
+	border-bottom: 1px solid color-mix(in srgb, var(--omp-md-link) 30%, transparent);
+	transition: border-color var(--omp-motion-fast) var(--omp-ease);
+}
+.markdown-body a:hover {
+	border-bottom-color: var(--omp-md-link);
+}
+.markdown-body strong {
+	font-weight: 650;
+	color: var(--omp-text);
+}
+.markdown-body del {
+	color: var(--omp-dim);
+}
+
+/* ---------------------------------------------------------------------------
+ * Diff lines
+ * ------------------------------------------------------------------------- */
+.omp-diff-add {
+	background: var(--omp-diff-added-bg);
+	color: var(--omp-diff-added);
+}
+.omp-diff-del {
+	background: var(--omp-diff-removed-bg);
+	color: var(--omp-diff-removed);
+}
+.omp-diff-ctx {
+	color: var(--omp-diff-context);
+}
+
+/* ---------------------------------------------------------------------------
+ * Reduced motion
+ * ------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+	.omp-thinking-shimmer {
+		animation: none;
+	}
+	.omp-caret {
+		animation: none;
+	}
+	/* With transitions flattened, the reveal dim would itself strobe at the
+	 * commit cadence: dim for one frame, full for the next. */
+	.omp-streaming-reveal {
+		opacity: 1;
+		filter: none;
+	}
+}
+
+/* ---------------------------------------------------------------------------
+ * Dialog geometry — scale with the window while keeping each dialog archetype
+ * readable. `dvh` prevents controls from falling below the visible desktop
+ * area when the macOS title bar or a compact window reduces usable height.
+ * ------------------------------------------------------------------------- */
+.omp-dialog-panel {
+	min-width: 0;
+	max-width: calc(100vw - 2rem);
+	max-height: calc(100dvh - 2rem);
+}
+
+.omp-dialog-size-sm {
+	width: min(clamp(26rem, 32vw, 30rem), calc(100vw - 2rem));
+	max-height: min(86dvh, 50rem);
+}
+
+.omp-dialog-size-md {
+	width: min(clamp(36rem, 42vw, 46rem), calc(100vw - 2rem));
+	max-height: min(88dvh, 56rem);
+}
+
+.omp-dialog-size-lg {
+	width: min(clamp(48rem, 64vw, 72rem), calc(100vw - 2rem));
+	max-height: min(90dvh, 64rem);
+}
+
+.omp-dialog-size-picker {
+	width: min(clamp(40rem, 48vw, 54rem), calc(100vw - 2rem));
+	max-height: min(76dvh, 56rem);
+}
+
+.omp-dialog-size-full {
+	width: calc(100vw - 2rem);
+	height: calc(100dvh - 2rem);
+}
+
+.omp-command-list {
+	max-height: min(60dvh, 44rem);
+}
+
+.omp-detail-drawer {
+	width: min(clamp(36rem, 40vw, 64rem), calc(100vw - 2rem));
+}
+
+/* ---------------------------------------------------------------------------
+ * Editorial transcript — an open reading rail for long agent sessions.
+ * The existing component chrome remains available outside this scope; this
+ * layer changes only the transcript surface so tool renderers stay intact.
+ * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * Unified content column — every reading surface (transcript, composer,
+ * settings, management pages) shares one centered, viewport-adaptive column
+ * instead of each page inventing its own width/alignment. The reading column
+ * caps prose surfaces; the workspace column gives management/detail pages
+ * more room. Both center at large sizes and go full-bleed with a fluid
+ * gutter at small sizes.
+ * ------------------------------------------------------------------------- */
+.omp-workspace-main {
+	container: omp-workspace / inline-size;
+	min-width: 0;
+	overflow-x: clip;
+}
+
+.omp-session-pane {
+	container: omp-workspace / inline-size;
+}
+
+.omp-session-pane--active {
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--omp-accent) 62%, transparent);
+}
+
+.omp-split-workspace > .omp-session-pane {
+	animation: omp-fade-in var(--omp-motion-fast) var(--omp-ease) both;
+}
+
+.omp-split-divider::before {
+	content: "";
+	position: absolute;
+	inset: -4px;
+}
+
+.omp-workspace-main,
+.settings-main-canvas {
+	--omp-column-pad: clamp(16px, 3vw, 40px);
+	--omp-column-reading: 60rem;
+	--omp-column-workspace: 104rem;
+}
+
+.omp-column {
+	width: 100%;
+	margin-inline: auto;
+	padding-inline: var(--omp-column-pad);
+}
+
+.omp-column-reading {
+	max-width: calc(var(--omp-column-reading) + 2 * var(--omp-column-pad));
+}
+
+.omp-column-workspace {
+	max-width: calc(var(--omp-column-workspace) + 2 * var(--omp-column-pad));
+}
+
+/* Surface policy card: the single content-card recipe (hairline, no fill). */
+.omp-card {
+	border: 1px solid var(--omp-border-muted);
+	border-radius: 0.75rem;
+	background: transparent;
+}
+
+.omp-transcript-editorial {
+	--omp-editorial-inset: var(--omp-column-pad);
+	--omp-editorial-edge: var(--omp-column-pad);
+}
+
+.omp-transcript-editorial .omp-transcript-content {
+	flex: 1 1 0;
+	width: 100%;
+	min-width: 0;
+	max-width: 100%;
+}
+
+.omp-transcript-editorial .omp-transcript-scroll {
+	scrollbar-gutter: stable;
+	/* TanStack Virtual owns transcript anchoring. Native browser anchoring can
+	   otherwise move the viewport a second time as the live row grows/swaps. */
+	overflow-anchor: none;
+}
+
+.omp-conversation-nav {
+	position: absolute;
+	z-index: 20;
+	top: 14px;
+	bottom: 18px;
+	left: 8px;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	width: 34px;
+	pointer-events: none;
+}
+
+.omp-conversation-nav-stack {
+	display: flex;
+	flex-direction: column;
+	gap: clamp(5px, 0.8vh, 8px);
+	width: 100%;
+	max-height: 100%;
+}
+
+.omp-conversation-nav-stack.is-dense {
+	gap: 3px;
+}
+
+.omp-conversation-nav-stack.is-compact {
+	gap: 0;
+}
+
+.omp-conversation-nav-slot {
+	position: relative;
+	flex: 0 1 12px;
+	min-height: 2px;
+	width: 100%;
+}
+
+.omp-conversation-nav-stack.is-compact .omp-conversation-nav-slot {
+	flex-basis: 9px;
+}
+
+.omp-conversation-nav-marker {
+	position: absolute;
+	inset: 0;
+	width: 34px;
+	height: 100%;
+	border: 0;
+	background: transparent;
+	pointer-events: auto;
+	cursor: pointer;
+}
+
+.omp-conversation-nav-marker::after {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 8px;
+	width: 8px;
+	height: 2px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--omp-muted) 56%, transparent);
+	transform: translateY(-50%);
+	transition: width var(--omp-motion-fast) var(--omp-ease), background-color var(--omp-motion-fast) var(--omp-ease);
+}
+
+.omp-conversation-nav-marker:hover::after,
+.omp-conversation-nav-marker:focus-visible::after {
+	width: 18px;
+	background: var(--omp-muted);
+}
+
+.omp-conversation-nav-marker.is-active {
+	z-index: 1;
+}
+
+.omp-conversation-nav-marker.is-active::after {
+	width: 28px;
+	height: 3px;
+	background: var(--omp-text);
+}
+
+.omp-conversation-nav-marker:focus-visible {
+	outline: none;
+}
+
+.omp-conversation-nav-marker:focus-visible::before {
+	content: "";
+	position: absolute;
+	inset: 1px -24px 1px -4px;
+	border: 1px solid var(--omp-accent);
+	border-radius: 5px;
+}
+
+.omp-conversation-nav-preview {
+	position: absolute;
+	left: 42px;
+	top: 50%;
+	width: min(360px, calc(100vw - 110px));
+	max-height: 184px;
+	padding: 14px 16px;
+	border: 1px solid var(--omp-border);
+	border-radius: 14px;
+	background: var(--omp-bg-elevated);
+	box-shadow: var(--omp-shadow-lg);
+	transform: translateY(-50%);
+	pointer-events: none;
+	overflow: hidden;
+}
+
+.omp-conversation-nav-slot:nth-child(-n + 5):not(:nth-last-child(-n + 5)) .omp-conversation-nav-preview {
+	top: 0;
+	transform: none;
+}
+
+.omp-conversation-nav-slot:nth-last-child(-n + 5):not(:nth-child(-n + 5)) .omp-conversation-nav-preview {
+	top: auto;
+	bottom: 0;
+	transform: none;
+}
+
+.omp-conversation-nav-preview-kicker {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 7px;
+	color: var(--omp-dim);
+	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
+	font-weight: 650;
+	letter-spacing: 0.02em;
+}
+
+.omp-conversation-nav-preview-kicker time {
+	font-family: var(--font-mono);
+	font-weight: 500;
+}
+
+.omp-conversation-nav-preview p {
+	display: -webkit-box;
+	margin: 0;
+	overflow: hidden;
+	color: var(--omp-text);
+	font-size: calc(var(--gui-font-size, 15px) * 14 / 15);
+	font-weight: 580;
+	line-height: 1.55;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 4;
+}
+
+.omp-conversation-nav-preview-hint {
+	display: block;
+	margin-top: 8px;
+	color: var(--omp-muted);
+	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
+}
+
+.omp-transcript-editorial .omp-transcript-row {
+	position: relative;
+	width: 100%;
+	min-width: 0;
+	max-width: min(100%, calc(var(--omp-column-reading) + 2 * var(--omp-column-pad)));
+	margin-inline: auto;
+}
+
+.omp-transcript-editorial [data-transcript-kind] > .omp-transcript-row::before {
+	content: none;
+}
+
+.omp-transcript-editorial .omp-user-turn {
+	justify-content: flex-start;
+	padding: 18px var(--omp-editorial-edge) 12px var(--omp-editorial-inset) !important;
+}
+
+.omp-transcript-editorial .omp-user-bubble {
+	border: 0;
+	border-left: 2px solid var(--omp-transcript-user-border);
+	border-radius: 0;
+	background: color-mix(in srgb, var(--omp-transcript-user-bg) 28%, transparent);
+	box-shadow: none !important;
+	padding: 8px 0 8px 12px;
+}
+
+.omp-transcript-editorial .omp-user-bubble-layout {
+	display: grid;
+	grid-template-columns: 24px minmax(0, 1fr);
+	align-items: start;
+	gap: 10px;
+}
+
+.omp-transcript-editorial .omp-user-bubble-author {
+	padding-top: 2px;
+	font-size: calc(var(--gui-font-size, 15px) * 12 / 15);
+	font-weight: 650;
+	color: var(--omp-text);
+}
+
+.omp-transcript-editorial .omp-user-bubble-content {
+	min-width: 0;
+}
+
+.omp-transcript-editorial .omp-user-bubble-content .markdown-body p:first-child,
+.omp-transcript-editorial .omp-user-bubble-content .markdown-body p:last-child {
+	margin-block: 0;
+}
+
+.omp-transcript-editorial .omp-user-bubble-actions {
+	justify-content: flex-end;
+	margin-top: 8px;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity var(--omp-motion-fast) var(--omp-ease);
+}
+
+.omp-transcript-editorial .omp-user-bubble:hover .omp-user-bubble-actions,
+.omp-transcript-editorial .omp-user-bubble:focus-within .omp-user-bubble-actions {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.omp-transcript-editorial .omp-assistant-turn {
+	padding: 8px var(--omp-editorial-edge) 12px var(--omp-editorial-inset) !important;
+}
+
+.omp-transcript-editorial .omp-assistant-turn--compact {
+	padding: 1px var(--omp-editorial-edge) 1px var(--omp-editorial-inset) !important;
+}
+
+.omp-transcript-editorial .omp-process-group {
+	position: relative;
+	padding-block: 1px 3px;
+}
+
+.omp-execution-group {
+	overflow: visible;
+	border: 0;
+	background: transparent;
+}
+
+.omp-execution-group-header {
+	min-height: 24px;
+	border-radius: 7px;
+	padding: 2px 0;
+	transition: color var(--omp-motion-fast) var(--omp-ease), background-color var(--omp-motion-fast) var(--omp-ease);
+}
+
+.omp-execution-group-header:hover {
+	background: color-mix(in srgb, var(--omp-selected-bg) 22%, transparent);
+}
+
+.omp-execution-group-body {
+	margin-top: 0;
+	padding: 0 0 2px 10px;
+}
+
+.omp-transcript-editorial .omp-execution-group-title {
+	display: none;
+}
+
+.omp-transcript-editorial .omp-execution-group-summary {
+	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
+}
+
+.omp-goal-dock {
+	background: color-mix(in srgb, var(--omp-bg-secondary) 64%, transparent);
+}
+
+.omp-goal-dock-action {
+	display: flex;
+	height: 28px;
+	width: 28px;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	border-radius: 8px;
+	color: var(--omp-muted);
+}
+
+.omp-goal-dock-action:hover {
+	background: var(--omp-selected-bg);
+	color: var(--omp-text);
+}
+
+.omp-goal-dock-action:disabled {
+	cursor: wait;
+	opacity: 0.55;
+}
+
+.omp-transcript-editorial .omp-tool-card {
+	margin: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent !important;
+	box-shadow: none !important;
+}
+
+.omp-transcript-editorial .omp-tool-card > span[aria-hidden] {
+	display: none;
+}
+
+.omp-transcript-editorial .omp-tool-status-icon {
+	display: none;
+}
+
+.omp-transcript-editorial .omp-tool-header {
+	min-height: 24px;
+	padding: 2px 0;
+	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
+}
+
+.omp-transcript-editorial .omp-tool-header:hover {
+	background: color-mix(in srgb, var(--omp-selected-bg) 28%, transparent);
+}
+
+.omp-transcript-editorial .omp-tool-name {
+	min-width: 34px;
+	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
+	font-weight: 700;
+	letter-spacing: 0;
+}
+
+.omp-transcript-editorial .omp-tool-summary {
+	font-size: calc(var(--gui-font-size, 15px) * 10 / 15);
+	color: var(--omp-muted);
+}
+
+.omp-transcript-editorial .omp-tool-duration {
+	min-width: 44px;
+	border-radius: 0;
+	background: transparent;
+	padding: 0;
+	text-align: right;
+	font-size: calc(var(--gui-font-size, 15px) * 9.5 / 15);
+	color: var(--omp-muted);
+}
+
+.omp-transcript-editorial .omp-tool-chevron {
+	opacity: 0.58;
+}
+
+.omp-transcript-editorial .omp-tool-header:hover .omp-tool-chevron,
+.omp-transcript-editorial .omp-tool-header:focus-visible .omp-tool-chevron {
+	opacity: 0.95;
+}
+
+.omp-transcript-editorial .omp-tool-body {
+	border-top: 0;
+	min-width: 0;
+	max-height: min(18rem, 34vh);
+	overflow: auto;
+	overscroll-behavior: contain;
+	padding: 4px 0 7px 12px;
+}
+
+.omp-transcript-editorial .omp-execution-turn,
+.omp-transcript-editorial .omp-context-turn,
+.omp-transcript-editorial .omp-custom-turn,
+.omp-transcript-editorial .omp-status-turn {
+	padding: 12px var(--omp-editorial-edge) 16px var(--omp-editorial-inset) !important;
+}
+
+.omp-transcript-editorial .omp-execution-turn,
+.omp-transcript-editorial .omp-context-turn,
+.omp-transcript-editorial .omp-custom-turn {
+	display: flex;
+	justify-content: flex-start;
+}
+
+.omp-transcript-editorial .omp-history-expander {
+	margin: 8px var(--omp-editorial-edge) 8px var(--omp-editorial-inset) !important;
+}
+
+.omp-transcript-editorial .omp-read-group {
+	position: relative;
+	padding: 4px var(--omp-editorial-edge) 6px var(--omp-editorial-inset) !important;
+}
+
+.omp-transcript-editorial .omp-read-group-header {
+	min-height: 26px;
+	border: 0 !important;
+	border-radius: 0;
+	background: transparent !important;
+	padding: 3px 0;
+	font-size: calc(var(--gui-font-size, 15px) * 11.5 / 15);
+}
+
+.omp-transcript-editorial .omp-read-group-header:hover {
+	background: transparent !important;
+}
+
+.omp-transcript-editorial .omp-read-group-body {
+	margin-left: 16px;
+	margin-top: 2px;
+}
+
+.omp-transcript-editorial .omp-streaming-turn > * {
+	flex: 0 0 auto;
+	width: 100%;
+	min-width: 0;
+	max-width: 100%;
+}
+
+.omp-transcript-editorial .omp-thinking-block {
+	margin: 3px 0 9px;
+	border: 0 !important;
+	border-radius: 0;
+	background: transparent !important;
+}
+
+.omp-transcript-editorial .omp-thinking-header {
+	min-height: 24px;
+	padding: 2px 0;
+	font-size: calc(var(--gui-font-size, 15px) * 10.5 / 15);
+	letter-spacing: 0.01em;
+}
+
+.omp-transcript-editorial .omp-thinking-header:hover {
+	background: transparent;
+}
+
+.omp-transcript-editorial .omp-thinking-body {
+	max-height: min(12rem, 30vh);
+	margin-left: 0;
+	border-left: 0;
+	padding: 4px 0 6px 12px;
+	font-size: calc(var(--gui-font-size, 15px) * 10.5 / 15);
+	line-height: 1.42;
+}
+
+.omp-transcript-editorial .omp-thinking-brain,
+.omp-transcript-editorial .omp-thinking-level,
+.omp-transcript-editorial .omp-thinking-gauge,
+.omp-transcript-editorial .omp-thinking-count,
+.omp-transcript-editorial .omp-thinking-duration {
+	display: none;
+}
+
+.omp-transcript-editorial .omp-thinking-state,
+.omp-transcript-editorial .omp-thinking-fold-state {
+	font-weight: 600;
+}
+
+.omp-transcript-editorial .omp-thinking-hint {
+	display: none;
+}
+
+.omp-transcript-editorial .omp-thinking-fold-state {
+	display: none;
+}
+
+.omp-transcript-editorial .omp-thinking-count {
+	display: inline;
+	margin-left: 4px;
+	font-size: calc(var(--gui-font-size, 15px) * 9.5 / 15);
+	color: var(--omp-dim);
+}
+
+.omp-transcript-editorial .omp-thinking-block--pulse {
+	padding-left: 12px;
+}
+
+.omp-transcript-editorial .omp-assistant-turn .markdown-body,
+.omp-transcript-editorial .omp-assistant-turn .omp-streaming-tail,
+.omp-transcript-editorial .omp-streaming-turn > .markdown-body {
+	font-size: calc(var(--gui-font-size, 15px) * 13 / 15);
+	line-height: 1.52;
+	color: var(--omp-text);
+}
+
+.omp-transcript-editorial .omp-assistant-turn--compact > .min-w-0 > .markdown-body {
+	font-size: calc(var(--gui-font-size, 15px) * 11.5 / 15);
+	line-height: 1.4;
+}
+
+/* Reasoning stays visually subordinate to the assistant response. */
+.omp-transcript-editorial .omp-thinking-body .markdown-body {
+	font-size: calc(var(--gui-font-size, 15px) * 10.5 / 15);
+	line-height: 1.42;
+	color: var(--omp-dim);
+}
+
+.omp-transcript-editorial .omp-thinking-body .markdown-body :is(h1, h2, h3, h4, h5, h6, strong) {
+	color: var(--omp-dim);
+	font-weight: 400;
+}
+
+.omp-transcript-editorial .omp-thinking-body .markdown-body p {
+	margin: 0.42em 0;
+}
+
+.omp-transcript-editorial .omp-thinking-body .markdown-body :is(table, thead, tbody, tr, th, td) {
+	border: 0;
+	background: transparent;
+}
+
+.omp-transcript-editorial .omp-thinking-body .markdown-body :is(th, td) {
+	padding: 0.2em 0.45em;
+}
+
+.omp-transcript-editorial .markdown-body p {
+	margin: 0.78em 0;
+}
+
+.omp-transcript-editorial .markdown-body h1 {
+	padding-bottom: 0;
+	border-bottom: 0;
+	font-size: 1.28em;
+}
+
+.omp-transcript-editorial .markdown-body code {
+	border: 0;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--omp-transcript-code-bg) 85%, var(--omp-text) 15%);
+}
+
+.omp-transcript-editorial .markdown-body pre code {
+	background: transparent;
+}
+
+.omp-transcript-editorial .markdown-body a {
+	border-bottom-color: color-mix(in srgb, var(--omp-md-link) 20%, transparent);
+}
+
+.omp-transcript-editorial .omp-message-error {
+	margin-top: 12px;
+	border: 1px solid color-mix(in srgb, var(--omp-error) 24%, transparent);
+	border-radius: 8px;
+	background: transparent;
+	padding: 9px 14px;
+	font-size: calc(var(--gui-font-size, 15px) * 12 / 15);
+}
+
+.omp-transcript-editorial .omp-queued-turn {
+	justify-content: flex-start;
+	padding: 10px var(--omp-editorial-edge) 10px var(--omp-editorial-inset) !important;
+}
+
+.omp-transcript-editorial .omp-queued-bubble {
+	border: 1px dashed var(--omp-transcript-rail);
+	border-radius: 8px;
+	background: transparent;
+	box-shadow: none;
+}
+
+/* The virtualizer recycles rows through the viewport, so an entrance keyed on
+ * mounting would replay on every scroll. Per-row utilities stay off, and
+ * ChatStream instead marks the rows whose content genuinely arrives. */
+.omp-transcript-editorial .omp-fade-up,
+.omp-transcript-editorial .omp-fade-in {
+	animation: none;
+	opacity: 1;
+	transform: none;
+}
+
+/* Marked once per row key, so this never interrupts itself. The motion is on the
+ * row rather than its virtual slot because the slot is positioned with an inline
+ * transform the animation would overwrite. */
+.omp-transcript-editorial .omp-row-arrive > .omp-transcript-row {
+	animation: omp-fade-up var(--omp-motion-med) var(--omp-ease-enter) both;
+}
+
+
+
+.omp-empty-canvas,
+.omp-composer-shell {
+	width: min(100%, calc(var(--omp-column-reading) + 2 * var(--omp-column-pad)));
+	min-width: 0;
+	max-width: 100%;
+	margin-inline: auto;
+	padding-inline: var(--omp-column-pad);
+}
+
+.omp-starter-grid {
+	width: 100%;
+	min-width: 0;
+}
+
+.omp-starter-grid > *,
+.omp-composer-shell > * {
+	min-width: 0;
+	max-width: 100%;
+}
+
+.omp-composer-region {
+	min-width: 0;
+	max-width: 100%;
+	padding-inline: 0;
+}
+
+@container omp-workspace (max-width: 1200px) {
+	.omp-titlebar-secondary {
+		display: none;
+	}
+}
+
+@container omp-workspace (max-width: 900px) {
+	.omp-titlebar-command {
+		display: none;
+	}
+}
+
+@container omp-workspace (max-width: 520px) {
+	.omp-titlebar-status {
+		margin-inline: 0;
+		padding-inline: 0.5rem;
+	}
+
+	.omp-titlebar-status-label {
+		display: none;
+	}
+}
+
+@container omp-workspace (min-width: 1900px) {
+	.omp-starter-grid {
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+	}
+}
+
+@container omp-workspace (max-width: 900px) {
+	.omp-transcript-editorial {
+		--omp-editorial-inset: calc(var(--omp-column-pad) + 30px);
+	}
+
+	.omp-conversation-nav {
+		left: 4px;
+	}
+}
+
+@container omp-workspace (max-width: 680px) {
+	.omp-session-pane-cwd {
+		display: none;
+	}
+
+	.omp-starter-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.omp-composer-toolbar {
+		flex-wrap: nowrap;
+		gap: 0.125rem;
+	}
+
+	.omp-composer-model-label {
+		max-width: 7rem;
+	}
+}
+
+@container omp-workspace (max-width: 520px) {
+	.omp-composer-model-label,
+	.omp-composer-control-label {
+		display: none !important;
+	}
+}
+
+@media (max-width: 640px) {
+	.omp-dialog-overlay {
+		padding: 0.5rem;
+		padding-top: min(8dvh, 3rem);
+	}
+
+	.omp-dialog-size-sm,
+	.omp-dialog-size-md,
+	.omp-dialog-size-lg,
+	.omp-dialog-size-picker,
+	.omp-dialog-size-full {
+		width: calc(100vw - 1rem);
+		max-width: calc(100vw - 1rem);
+		max-height: calc(100dvh - 1rem);
+	}
+
+	.omp-dialog-size-full {
+		height: calc(100dvh - 1rem);
+	}
+
+	.omp-detail-drawer {
+		width: calc(100vw - 1.5rem);
+	}
+}
+
+@media (max-width: 720px) {
+	.omp-conversation-nav {
+		display: none;
+	}
+
+	.omp-transcript-editorial {
+		--omp-editorial-inset: calc(var(--omp-column-pad) + 24px);
+	}
+	.omp-transcript-editorial .omp-user-bubble-actions {
+		opacity: 1;
+		pointer-events: auto;
+	}
+}

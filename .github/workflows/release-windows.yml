@@ -1,0 +1,45 @@
+# Windows installers. NSIS (makensis) is x86-only, so Apple Silicon Macs cannot
+# build them without Rosetta; a Windows runner builds them natively instead.
+# Runs when a release is published, or on demand for an existing tag.
+name: release-windows
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (vX.Y.Z)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run package:win -- --publish never
+      - name: Check package layout
+        shell: bash
+        run: test -f dist/win-unpacked/resources/gui-bridge/index.ts
+      - name: Upload installers
+        shell: bash
+        run: |
+          V="${TAG#v}"
+          cp "dist/omp-$V-setup.exe" dist/omp-windows-setup.exe
+          cp "dist/omp-$V-portable.exe" dist/omp-windows-portable.exe
+          gh release upload "$TAG" \
+            "dist/omp-$V-setup.exe" "dist/omp-$V-portable.exe" \
+            dist/omp-windows-setup.exe dist/omp-windows-portable.exe \
+            dist/latest.yml --clobber

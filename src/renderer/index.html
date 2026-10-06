@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; worker-src 'self' blob:"
+		/>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<link
+			rel="icon"
+			type="image/svg+xml"
+			href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='104' fill='%2321262c'/%3E%3Cg stroke='%230d9488' stroke-width='52' stroke-linecap='round' fill='none'%3E%3Cpath d='M118 156 H394'/%3E%3Cpath d='M190 156 V392'/%3E%3Cpath d='M322 156 V326 C322 366 286 392 246 392'/%3E%3C/g%3E%3C/svg%3E"
+		/>
+		<title>omp</title>
+		<script src="./pre-paint.js"></script>
+		<style>
+			/* Fallback for first launch. pre-paint.js writes the saved scheme inline
+			   before this style is parsed; inline wins until applyTheme clears it. */
+			html {
+				background: #fcfcfb;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="root"></div>
+		<script type="module" src="./main.tsx"></script>
+	</body>
+</html>

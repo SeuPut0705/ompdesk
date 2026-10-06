@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
+  <!-- macOS-style app icon: rounded ink tile inset with transparent margin,
+       teal π mark centered. The π glyph mirrors the in-app PiLogo mark. -->
+  <rect x="92" y="92" width="840" height="840" rx="190" fill="#21262c"/>
+  <g stroke="#0d9488" stroke-width="88" stroke-linecap="round" fill="none">
+    <path d="M330 350 H694"/>
+    <path d="M445 350 V690"/>
+    <path d="M615 350 V628 C615 668 578 690 538 690"/>
+  </g>
+</svg>

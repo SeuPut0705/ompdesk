@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+*.tsbuildinfo
+
+# Logs & OS cruft
+*.log
+.DS_Store
+tmp/
+
+# electron-builder trial/override configs
+electron-builder.trial.yml
+dev-app-update.yml
+
+# Playwright artifacts
+playwright-report/
+test-results/

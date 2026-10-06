@@ -1,0 +1,933 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
+
+/* ============================================================================
+   Typography — Inter for latin, PingFang/YaHei for CJK, JetBrains Mono for code
+   ============================================================================ */
+
+@theme {
+	--font-display: "Inter Variable", "SF Pro Display", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+	--font-body: "Inter Variable", "SF Pro Text", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+	--font-mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", ui-monospace, monospace;
+
+	/* Unified type scale — UI text uses these steps (text-omp-*), never raw
+	   pixel classes; lint-surfaces.mjs enforces it. Weight conventions: 400
+	   body, 500 labels/rows, 600 section/page titles. */
+	--text-omp-xxs: calc(var(--gui-font-size, 15px) * 10 / 15);
+	--text-omp-xs: calc(var(--gui-font-size, 15px) * 11 / 15);
+	--text-omp-sm: calc(var(--gui-font-size, 15px) * 12 / 15);
+	--text-omp-md: calc(var(--gui-font-size, 15px) * 13 / 15);
+	--text-omp-lg: calc(var(--gui-font-size, 15px) * 14 / 15);
+	--text-omp-xl: calc(var(--gui-font-size, 15px) * 15.5 / 15);
+
+	/* Modern geometry — one step rounder than the Tailwind defaults, so every
+	   rounded-* call site picks up the softer language from a single place. */
+	--radius-sm: 0.375rem;
+	--radius-md: 0.5rem;
+	--radius-lg: 0.625rem;
+	--radius-xl: 0.875rem;
+	--radius-2xl: 1.125rem;
+	--radius-3xl: 1.5rem;
+}
+
+/* Shared semantic aliases follow every named theme and system mode. Keeping
+   literal colors here would leak the default palette into custom transcripts. */
+:root {
+	--omp-transcript-rail: var(--omp-border);
+	--omp-transcript-rule: var(--omp-border-muted);
+	--omp-transcript-event: var(--omp-dim);
+	--omp-transcript-event-live: var(--omp-accent);
+	--omp-transcript-launch: var(--omp-accent);
+	--omp-transcript-user-bg: var(--omp-user-msg-bg);
+	--omp-transcript-user-border: var(--omp-user-msg-border);
+	--omp-transcript-code-bg: var(--omp-code-bg);
+	--omp-ansi-black: var(--omp-dim);
+	--omp-ansi-red: var(--omp-error);
+	--omp-ansi-green: var(--omp-success);
+	--omp-ansi-yellow: var(--omp-warning);
+	--omp-ansi-blue: var(--omp-syntax-keyword);
+	--omp-ansi-magenta: var(--omp-syntax-number);
+	--omp-ansi-cyan: var(--omp-syntax-function);
+	--omp-ansi-white: var(--omp-text-secondary);
+	--omp-ansi-bright-black: var(--omp-muted);
+	--omp-ansi-bright-red: var(--omp-error);
+	--omp-ansi-bright-green: var(--omp-success);
+	--omp-ansi-bright-yellow: var(--omp-warning);
+	--omp-ansi-bright-blue: var(--omp-syntax-keyword);
+	--omp-ansi-bright-magenta: var(--omp-syntax-number);
+	--omp-ansi-bright-cyan: var(--omp-syntax-function);
+	--omp-ansi-bright-white: var(--omp-text);
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+	height: 100%;
+	overflow: hidden;
+}
+
+body {
+	font-family: var(--font-body);
+	font-size: 14.5px;
+	line-height: 1.62;
+	letter-spacing: -0.006em;
+	color: var(--omp-text);
+	background: var(--omp-bg-primary);
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+	font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+.font-display {
+	font-family: var(--font-display);
+}
+
+code,
+pre,
+kbd,
+.font-mono {
+	font-family: var(--font-mono);
+	font-feature-settings: "liga" 1, "calt" 1;
+}
+
+/* ============================================================================
+   App surface — keep the workspace flat; depth belongs to actual overlays
+
+   SURFACE POLICY (enforced by scripts/lint-surfaces.mjs):
+   1. Canvas      — this section only: body, workspace main, settings canvas.
+   2. Chrome      — navigation frame tokens (--omp-sidebar-bg, --omp-titlebar-bg).
+   3. Floating    — real overlays: --omp-modal-bg / --omp-overlay-bg /
+                    --omp-toast-bg, dropdown menus (--omp-bg-elevated).
+   4. States      — hover/focus/selected washes and semantic fills (error,
+                    success, warning, info, diff, tool, user/custom message,
+                    badges, buttons), code blocks (--omp-code-bg), and form
+                    fields (--omp-input-bg) keep their paint.
+   5. Content     — COLORLESS. Cards, rows, chips, panels, and page sections
+                    render transparent over the canvas and separate with
+                    hairline borders (.omp-card). Static bg-primary/secondary/
+                    tertiary fills on content surfaces are lint errors.
+   ============================================================================ */
+
+.omp-workspace-main,
+.settings-main-canvas {
+	background: var(--omp-bg-primary);
+}
+
+
+
+/* ============================================================================
+   Scrollbars
+   ============================================================================ */
+
+::-webkit-scrollbar {
+	width: 9px;
+	height: 9px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background-color: var(--omp-scrollbar-thumb);
+	border-radius: 99px;
+	border: 2px solid transparent;
+	background-clip: content-box;
+	transition: background-color var(--omp-motion-fast) var(--omp-ease);
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background-color: var(--omp-muted);
+}
+
+::-webkit-scrollbar-corner {
+	background: transparent;
+}
+
+/* ============================================================================
+   Selection & focus
+   ============================================================================ */
+
+::selection {
+	background: var(--omp-selection-bg);
+	color: var(--omp-selection-text);
+}
+
+:focus-visible {
+	outline: 2px solid var(--omp-accent);
+	outline-offset: 1px;
+	border-radius: 4px;
+}
+
+/* ============================================================================
+   Window drag regions
+   ============================================================================ */
+
+.drag-region {
+	-webkit-app-region: drag;
+}
+
+.no-drag {
+	-webkit-app-region: no-drag;
+}
+
+/* ============================================================================
+   Motion system — spring-flavored entrances, instant-feeling state changes,
+   no layout animation on rows
+   ============================================================================ */
+
+:root {
+	--omp-motion-instant: 90ms; /* motion-ok: token definition */
+	--omp-motion-fast: 150ms;
+	--omp-motion-med: 240ms;
+	--omp-motion-slow: 380ms; /* motion-ok: token definition */
+	--omp-ease: cubic-bezier(0.25, 1, 0.35, 1);
+	--omp-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+	--omp-ease-spring: cubic-bezier(0.34, 1.42, 0.64, 1);
+}
+
+@keyframes omp-fade-up {
+	from {
+		opacity: 0;
+		transform: translateY(10px) scale(0.995);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+@keyframes omp-fade-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes omp-scale-in {
+	from {
+		opacity: 0;
+		transform: scale(0.93) translateY(10px);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1) translateY(0);
+	}
+}
+
+@keyframes omp-toast-in {
+	from {
+		opacity: 0;
+		transform: translateY(14px) scale(0.95);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+@keyframes omp-pop-in {
+	from {
+		opacity: 0;
+		transform: scale(0.95) translateY(-6px);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1) translateY(0);
+	}
+}
+
+@keyframes omp-slide-in-right {
+	from {
+		opacity: 0;
+		transform: translateX(28px);
+	}
+	to {
+		opacity: 1;
+		transform: translateX(0);
+	}
+}
+
+@keyframes omp-shimmer {
+	from {
+		background-position: 200% 0;
+	}
+	to {
+		background-position: -200% 0;
+	}
+}
+
+@keyframes omp-pulse-dot {
+	0%,
+	100% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	50% {
+		opacity: 0.4;
+		transform: scale(0.82);
+	}
+}
+
+@keyframes omp-signal-light {
+	0%,
+	100% {
+		opacity: 0.58;
+		box-shadow: 0 0 0 transparent;
+	}
+	50% {
+		opacity: 1;
+		box-shadow: 0 0 7px currentColor;
+	}
+}
+
+@keyframes omp-tab-title-scroll {
+	0%,
+	15% {
+		transform: translateX(0);
+	}
+	85%,
+	100% {
+		transform: translateX(calc(-1 * var(--omp-tab-title-overflow, 0px)));
+	}
+}
+
+@keyframes omp-indeterminate-progress {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(334%);
+	}
+}
+
+.omp-fade-up {
+	animation: omp-fade-up var(--omp-motion-med) var(--omp-ease-enter) both;
+}
+
+.omp-fade-in {
+	animation: omp-fade-in var(--omp-motion-fast) var(--omp-ease) both;
+}
+
+.omp-scale-in {
+	animation: omp-scale-in var(--omp-motion-med) var(--omp-ease-spring) both;
+}
+
+.omp-toast-in {
+	animation: omp-toast-in var(--omp-motion-med) var(--omp-ease-spring) both;
+}
+@keyframes omp-toast-out {
+	from {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+	to {
+		opacity: 0;
+		transform: translateY(8px) scale(0.96);
+	}
+}
+
+.omp-toast-out {
+	animation: omp-toast-out var(--omp-motion-fast) var(--omp-ease) both;
+}
+
+.omp-pop-in {
+	animation: omp-pop-in var(--omp-motion-fast) var(--omp-ease-spring) both;
+}
+
+.omp-slide-in-right {
+	animation: omp-slide-in-right var(--omp-motion-med) var(--omp-ease-enter) both;
+}
+
+/* The exit half of the enter utilities above. Keyframes alone are not a class:
+ * an overlay that swaps to `omp-scale-out` gets `animation: none` unless the
+ * utility exists, which is why every exit silently snapped instead of fading. */
+.omp-fade-out {
+	animation: omp-fade-out var(--omp-motion-fast) var(--omp-ease) both;
+}
+
+.omp-scale-out {
+	animation: omp-scale-out var(--omp-motion-fast) var(--omp-ease) both;
+}
+
+@keyframes omp-fade-out {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+	}
+}
+
+@keyframes omp-scale-out {
+	from {
+		opacity: 1;
+		transform: scale(1);
+	}
+	to {
+		opacity: 0;
+		transform: scale(0.96) translateY(6px);
+	}
+}
+
+.omp-skeleton {
+	border-radius: var(--radius-md);
+	background: linear-gradient(
+		100deg,
+		var(--omp-bg-tertiary) 40%,
+		var(--omp-bg-elevated) 50%,
+		var(--omp-bg-tertiary) 60%
+	);
+	background-size: 200% 100%;
+	animation: omp-shimmer 1.4s linear infinite; /* motion-ok: loading placeholder sweep */
+}
+
+.omp-pulse-dot {
+	animation: omp-pulse-dot 1.6s ease-in-out infinite; /* motion-ok: waiting signal */
+}
+
+.omp-signal-light {
+	display: inline-block;
+	width: 4px;
+	height: 18px;
+	flex: 0 0 4px;
+	border-radius: 9999px;
+	background: currentColor;
+	opacity: 0.72;
+}
+
+.omp-signal-light--active {
+	animation: omp-signal-light 2.8s ease-in-out infinite; /* motion-ok: slow semantic status signal */
+}
+
+.omp-signal-light.omp-tab-signal {
+	position: absolute;
+	inset: 0 auto 0 0;
+	height: 100%;
+	border-radius: 0;
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+	[data-tab-title-wrap][data-overflowing="true"]:hover [data-tab-title] {
+		visibility: hidden;
+	}
+
+	[data-tab-title-wrap][data-overflowing="true"]:hover .omp-tab-title-scroll {
+		visibility: visible;
+		animation: omp-tab-title-scroll 5s ease-in-out infinite alternate; /* motion-ok: user-triggered title reveal */
+	}
+}
+
+.omp-indeterminate-progress {
+	width: 30%;
+	animation: omp-indeterminate-progress 1.1s cubic-bezier(0.65, 0, 0.35, 1) infinite; /* motion-ok: switching progress */
+}
+
+.omp-progress-width {
+	transition: width var(--omp-motion-med) var(--omp-ease);
+}
+
+.omp-disclosure-chevron {
+	transition: transform var(--omp-motion-fast) var(--omp-ease-spring);
+}
+
+/* ============================================================================
+   Interactive micro-interactions
+   ============================================================================ */
+
+.omp-pressable {
+	transition:
+		background-color var(--omp-motion-fast) var(--omp-ease),
+		border-color var(--omp-motion-fast) var(--omp-ease),
+		color var(--omp-motion-fast) var(--omp-ease),
+		box-shadow var(--omp-motion-fast) var(--omp-ease),
+		opacity var(--omp-motion-fast) var(--omp-ease),
+		transform var(--omp-motion-fast) var(--omp-ease);
+}
+
+.omp-pressable:active {
+	opacity: 0.72;
+}
+
+/* Hover, focus and selection color changes were instant on every control that
+   forgot a transition utility — a tab, a menu item, a settings row — which reads
+   as a flicker rather than a response. Covering the interactive elements once
+   beats a `transition-colors` class at thirty callsites, and stays subordinate:
+   a callsite's own `transition-*` utility is a class selector, so it outranks this
+   rule and keeps its own properties and timing. */
+button,
+a[href],
+summary,
+[role="button"],
+[role="menuitem"],
+[role="menuitemcheckbox"],
+[role="option"],
+[role="tab"] {
+	transition:
+		background-color var(--omp-motion-fast) var(--omp-ease),
+		border-color var(--omp-motion-fast) var(--omp-ease),
+		color var(--omp-motion-fast) var(--omp-ease);
+}
+
+.omp-color-fade {
+	transition:
+		background-color var(--omp-motion-fast) var(--omp-ease),
+		border-color var(--omp-motion-fast) var(--omp-ease),
+		color var(--omp-motion-fast) var(--omp-ease);
+}
+
+/* Hover actions overlay the row. Title width never changes. */
+.omp-sidebar-action {
+	opacity: 1;
+}
+
+.omp-sidebar-session-row,
+.omp-sidebar-workspace-row {
+	position: relative;
+}
+
+.omp-sidebar-session-row[data-switch-pending="true"] {
+	box-shadow: inset 2px 0 0 var(--omp-accent);
+}
+
+.omp-sidebar-session-actions,
+.omp-sidebar-workspace-actions {
+	position: absolute;
+	top: 50%;
+	right: 4px;
+	z-index: 1;
+	display: flex;
+	visibility: hidden;
+	pointer-events: none;
+	opacity: 0;
+	padding-left: 10px;
+	transform: translateY(-50%);
+	background: linear-gradient(to right, transparent, var(--omp-sidebar-bg) 10px);
+	transition:
+		opacity var(--omp-motion-fast) var(--omp-ease),
+		visibility 0s linear var(--omp-motion-fast);
+}
+
+.omp-sidebar-session-row[data-has-actions="true"]:hover .omp-sidebar-session-actions,
+.omp-sidebar-session-row[data-has-actions="true"]:focus-within .omp-sidebar-session-actions,
+.omp-sidebar-session-row[data-actions-open="true"] .omp-sidebar-session-actions,
+.omp-sidebar-workspace-row:hover .omp-sidebar-workspace-actions,
+.omp-sidebar-workspace-row:focus-within .omp-sidebar-workspace-actions,
+.omp-sidebar-workspace-row[data-actions-open="true"] .omp-sidebar-workspace-actions {
+	visibility: visible;
+	pointer-events: auto;
+	opacity: 1;
+	transition-delay: 0s;
+}
+
+.omp-sidebar-session-row[data-has-actions="true"]:hover .omp-sidebar-session-actions,
+.omp-sidebar-session-row[data-has-actions="true"]:focus-within .omp-sidebar-session-actions,
+.omp-sidebar-session-row[data-actions-open="true"] .omp-sidebar-session-actions {
+	background: linear-gradient(to right, transparent, var(--omp-sidebar-item-hover) 10px);
+}
+
+.omp-sidebar-session-row[data-active="true"]:hover .omp-sidebar-session-actions,
+.omp-sidebar-session-row[data-active="true"]:focus-within .omp-sidebar-session-actions,
+.omp-sidebar-session-row[data-active="true"][data-actions-open="true"] .omp-sidebar-session-actions {
+	background: linear-gradient(to right, transparent, var(--omp-selected-bg) 10px);
+}
+
+.omp-sidebar-group {
+	display: grid;
+	grid-template-rows: 1fr;
+	opacity: 1;
+}
+
+.omp-sidebar-group[data-state="collapsed"] {
+	grid-template-rows: 0fr;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.omp-sidebar-group-content {
+	min-height: 0;
+	overflow: hidden;
+	contain: paint;
+}
+
+.omp-lift {
+	transition:
+		border-color var(--omp-motion-fast) var(--omp-ease),
+		background-color var(--omp-motion-fast) var(--omp-ease),
+		box-shadow var(--omp-motion-fast) var(--omp-ease),
+		transform var(--omp-motion-fast) var(--omp-ease);
+}
+
+.omp-lift:hover {
+	border-color: var(--omp-border-strong);
+	box-shadow: var(--omp-shadow-md);
+	transform: translateY(-2px);
+}
+
+.omp-lift:active {
+	transform: translateY(0) scale(0.99);
+}
+
+/* Empty-state entrance — logo, title, subtitle and starter cards cascade in. */
+.omp-empty-canvas > * {
+	animation: omp-fade-up var(--omp-motion-med) var(--omp-ease-enter) both;
+}
+
+.omp-empty-canvas > *:nth-child(2) {
+	animation-delay: calc(var(--omp-motion-fast) * 0.35);
+}
+
+.omp-empty-canvas > *:nth-child(3) {
+	animation-delay: calc(var(--omp-motion-fast) * 0.7);
+}
+
+.omp-empty-canvas > *:nth-child(4) {
+	animation-delay: calc(var(--omp-motion-fast) * 1.05);
+}
+
+.omp-starter-grid > * {
+	animation: omp-fade-up var(--omp-motion-med) var(--omp-ease-enter) both;
+}
+
+.omp-starter-grid > *:nth-child(2) {
+	animation-delay: calc(var(--omp-motion-fast) * 0.9);
+}
+
+.omp-starter-grid > *:nth-child(3) {
+	animation-delay: calc(var(--omp-motion-fast) * 1.15);
+}
+
+.omp-starter-grid > *:nth-child(4) {
+	animation-delay: calc(var(--omp-motion-fast) * 1.4);
+}
+
+@media (min-width: 1120px) {
+	.omp-session-sidebar {
+		width: 248px;
+	}
+}
+
+@media (max-height: 700px) {
+	.omp-empty-canvas {
+		justify-content: flex-start;
+		padding-top: 1rem;
+		padding-bottom: 1rem;
+	}
+
+	.omp-empty-logo {
+		display: none;
+	}
+
+	.omp-starter-grid {
+		margin-top: 1rem;
+	}
+
+	.omp-starter-card {
+		min-height: 0;
+		padding: 0.75rem;
+	}
+
+	.omp-starter-icon {
+		width: 2rem;
+		height: 2rem;
+	}
+}
+
+/* Compact windows: keep the conversation wide and present the inspector as
+   an explicit overlay when the user opens it. */
+.omp-inspector {
+	container: omp-inspector / inline-size;
+	box-shadow: none;
+	animation: omp-slide-in-right var(--omp-motion-med) var(--omp-ease-enter) both;
+}
+
+.omp-inspector-tab-label {
+	display: inline;
+}
+
+@media (max-width: 1000px) {
+	.omp-inspector {
+		position: absolute;
+		inset-block: 0;
+		right: 0;
+		z-index: 30;
+		width: min(460px, calc(100vw - 56px)) !important;
+		box-shadow: -8px 0 24px rgba(24, 28, 33, 0.08);
+	}
+}
+
+/* ============================================================================
+   Settings workspace — container-driven reflow across every page archetype
+   ============================================================================ */
+
+.settings-sidebar {
+	width: 14rem;
+}
+
+.settings-content {
+	container: settings-content / inline-size;
+}
+
+.settings-capability-grid {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 0.75rem;
+}
+
+.settings-capability-featured {
+	grid-column: 1 / -1;
+}
+
+.settings-capability-featured > div {
+	max-width: 72rem;
+}
+
+.settings-field-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(13rem, 16rem);
+	align-items: start;
+	gap: 1rem;
+	/* Cap the row so the description and its control stay visually paired
+	   instead of stretching apart across wide windows. */
+	max-width: 56rem;
+}
+
+.settings-field-control {
+	min-width: 0;
+	width: 100%;
+}
+
+.settings-embedded-panel {
+	min-height: 0;
+}
+
+.skills-master-detail {
+	display: grid;
+	grid-template-columns: minmax(13.75rem, 17.5rem) minmax(0, 1fr);
+	/* Consume the available settings viewport. The previous 52rem ceiling
+	   left most of high-resolution windows blank, especially below 100% GUI
+	   scale, and made the skill document look like a cropped preview. */
+	height: max(28rem, calc(100dvh - 11.5rem));
+	background: transparent;
+}
+
+.skills-preview-pane {
+	background: transparent;
+}
+
+.skills-list-pane,
+.skills-detail-pane,
+.ssh-list-pane,
+.ssh-detail-pane,
+.security-findings-pane,
+.security-insights-pane {
+	min-height: 0;
+}
+
+.skills-list-pane,
+.ssh-list-pane,
+.security-findings-pane {
+	border-right: 1px solid var(--omp-border-muted);
+}
+
+.ssh-master-detail {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(20rem, 22.5rem);
+	height: clamp(26rem, calc(100dvh - 13rem), 47.5rem);
+}
+
+.security-revision-grid {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.security-master-detail {
+	display: grid;
+	grid-template-columns: minmax(0, 2fr) minmax(14.375rem, 1fr);
+	min-height: 24.375rem;
+}
+
+.security-finding-detail {
+	grid-template-columns: minmax(0, 1.4fr) minmax(13.75rem, 1fr);
+}
+
+.updates-row {
+	display: grid;
+	grid-template-columns: 2rem minmax(0, 1fr) 6.875rem 6.875rem auto;
+}
+
+@container settings-content (max-width: 1600px) {
+	.settings-capability-grid {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+}
+
+@container settings-content (max-width: 1100px) {
+	.settings-capability-grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@media (max-width: 960px) {
+	.settings-sidebar {
+		width: 11rem;
+	}
+
+	.settings-sidebar > :last-child {
+		padding-inline: 0.5rem;
+	}
+
+	.settings-nav-group {
+		margin-top: 0.5rem;
+	}
+
+	.settings-nav-item {
+		padding-inline: 0.5rem;
+	}
+}
+
+@container settings-content (max-width: 1040px) {
+	.ssh-master-detail {
+		grid-template-columns: minmax(0, 1fr);
+		height: auto;
+	}
+
+	.ssh-list-pane {
+		min-height: 16rem;
+		border-right: 0;
+		border-bottom: 1px solid var(--omp-border-muted);
+	}
+
+	.ssh-detail-pane {
+		max-height: none;
+	}
+}
+
+@container settings-content (max-width: 840px) {
+	.skills-master-detail,
+	.security-master-detail {
+		grid-template-columns: minmax(0, 1fr);
+		height: auto;
+	}
+
+	.skills-list-pane {
+		height: min(17rem, 42dvh);
+		border-right: 0;
+		border-bottom: 1px solid var(--omp-border-muted);
+	}
+
+	.skills-detail-pane {
+		min-height: 24rem;
+	}
+
+	.security-findings-pane {
+		border-right: 0;
+		border-bottom: 1px solid var(--omp-border-muted);
+	}
+
+	.security-insights-pane {
+		min-height: 12rem;
+	}
+}
+
+@container settings-content (max-width: 700px) {
+	.settings-capability-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.settings-field-row,
+	.security-revision-grid,
+	.security-finding-detail {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.updates-row {
+		grid-template-columns: 2rem minmax(0, 1fr);
+		align-items: start;
+	}
+
+	.updates-icon {
+		grid-column: 1;
+		grid-row: 1;
+	}
+
+	.updates-copy,
+	.updates-current,
+	.updates-latest,
+	.updates-action {
+		grid-column: 2;
+	}
+
+	.updates-action {
+		justify-self: start;
+	}
+
+	.settings-management-toolbar {
+		flex-wrap: wrap;
+	}
+}
+
+/* ============================================================================
+   Reduced motion
+   ============================================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+
+	.omp-sidebar-action {
+		transition-delay: 0ms !important;
+	}
+
+	.omp-indeterminate-progress {
+		width: 100%;
+		transform: none;
+		opacity: 0.55;
+	}
+}
+
+/* GUI density changes conversation spacing without scaling text or scroll coordinates. */
+[data-density="tight"] .omp-transcript-editorial .omp-user-turn {
+	padding-block: 12px 8px !important;
+}
+[data-density="tight"] .omp-transcript-editorial .omp-user-bubble {
+	padding: 8px 12px;
+}
+[data-density="tight"] .omp-transcript-editorial .omp-assistant-turn {
+	padding-block: 8px !important;
+}
+[data-density="tight"] .settings-field-row {
+	gap: 0.625rem;
+}
+
+/* GUI color-blind mode — Okabe-Ito color-blind-safe palette for the
+   semantic tokens. !important is required: named themes also set these vars
+   inline on <html>, and a stylesheet rule only wins with !important. */
+:root[data-colorblind="true"] {
+	--omp-accent: #0072b2 !important;
+	--omp-success: #009e73 !important;
+	--omp-warning: #e69f00 !important;
+	--omp-error: #d55e00 !important;
+	--omp-accent-dim: color-mix(in srgb, #0072b2 12%, transparent) !important;
+	--omp-success-dim: color-mix(in srgb, #009e73 12%, transparent) !important;
+	--omp-error-dim: color-mix(in srgb, #d55e00 10%, transparent) !important;
+}
+
+.settings-embedded-panel.settings-plugin-detail-open {
+	min-height: min(65dvh, 640px);
+}

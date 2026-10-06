@@ -1,0 +1,4 @@
+# `--config` overlay for a freshly created GUI tab: a new tab must open a new
+# session even when the user enabled `autoResume` for the terminal CLI. Overlays
+# rank above the user and project config for this one omp process.
+autoResume: false

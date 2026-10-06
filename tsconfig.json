@@ -1,0 +1,23 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"strict": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"noEmit": true,
+		"jsx": "react-jsx",
+		"lib": ["ES2024", "DOM", "DOM.Iterable"],
+		"types": ["node"],
+		"paths": {
+			"@shared/*": ["./src/shared/*"],
+			"@renderer/*": ["./src/renderer/*"]
+		}
+	},
+	"include": ["src/**/*.ts", "src/**/*.tsx", "e2e/**/*.ts"],
+	"exclude": ["node_modules", "out", "dist"]
+}
