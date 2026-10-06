@@ -8,6 +8,7 @@
  */
 import type { BtwHistoryRecord, BtwHistoryStore, BtwHistoryTurn } from "@oh-my-pi/pi-coding-agent/session/btw-history";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { guard } from "../health";
 import type { BridgeMethods } from "../types";
 import { attach, emit, errorMessage, ompPrompt, onSessionSwitch, record } from "./shared";
 
@@ -255,7 +256,7 @@ onSessionSwitch(() => {
 	cancel();
 });
 
-export const methods: BridgeMethods = {
+export const methods: BridgeMethods = guard("btw", {
 	"modes.btw": async (params, env) => {
 		const { question, recordId } = record(params);
 		if (typeof question !== "string") throw new Error("btw requires a non-empty question");
@@ -268,4 +269,4 @@ export const methods: BridgeMethods = {
 		return { cancelled: cancel(typeof recordId === "string" ? recordId : undefined) };
 	},
 	"modes.get_btw_history": async (_params, env) => ({ records: await historyRecords(attach(env)) }),
-};
+});

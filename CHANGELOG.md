@@ -14,6 +14,16 @@ First release of omp GUI as its own project. Derived from [nornzach/oh-my-pi-gui
 ### Added
 
 - Korean UI: renderer, settings, menus, tray, dialogs. The language switcher cycles EN → 中文 → 한국어; with no saved choice the UI follows the OS locale.
+- omp compatibility self-check: when a sidecar's `gui-bridge` connects, the GUI asks once per omp version which bridge features this omp's internals can no longer serve (plan mode, MCP, settings, …) and shows a dismissible warning naming them, with an `omp update` / report-an-issue hint. A bridge that fails to connect at all gets the same warning instead of only a log line. The affected commands fail with a coded `unsupported_omp` (or `bridge_unavailable`) error naming the feature instead of a raw TypeError, and one broken bridge module no longer takes the others down.
+
+### Fixed
+
+- Windows: omp installed under a path with a space (e.g. `C:\Users\First Last\…\omp.cmd`) failed to launch; the shim path is now quoted for every omp spawn.
+- Opening a tab or switching to a session hydrated the transcript up to three times concurrently; it now loads once per tab and session.
+- Opening a session with a long history re-fetched and re-projected the whole history for every transcript page.
+- A packaged app ignored the project folder passed on the command line.
+- A missing or too-old omp left the window at "Connecting…" with no explanation; the reason and the install/update command now show in the UI language.
+- "Remove global override" in settings failed for settings without a default.
 
 ### Removed or narrowed compared to the fork-based GUI
 

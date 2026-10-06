@@ -369,6 +369,7 @@ if (process.argv[2] === "stats") {
 	/** A handler returning `undefined` replies itself (deferred, or ahead of the events it pushes). */
 	const bridgeMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
 		ping: () => ({ version: "18.6.1" }),
+		capabilities: () => ({ ompVersion: "18.6.1", unavailable: [] }),
 		"composer.state": () => ({
 			cwd: process.cwd(),
 			autoRetryEnabled: true,

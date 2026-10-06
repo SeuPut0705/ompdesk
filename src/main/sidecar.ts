@@ -35,12 +35,13 @@ import type {
 } from "../shared/rpc-types";
 import { BTW_FRAME_TYPES, LIVE_FRAME_TYPES } from "../shared/rpc-types";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import type { BridgeConnectResult } from "./bridge-health";
 import { EventBatcher } from "./event-batcher";
 import { localHandlerFor, runLocalCommand } from "./local";
 import { projectQueueUpdate } from "./local/queue";
 import { attachEntryIds, fetchEntries } from "./local/sessions";
 import type { LocalCommandContext, OmpRuntime } from "./local/types";
-import { type OmpResolution, ompNeedsShell, ompPathEnv, ompSpawnArgs } from "./omp-runtime";
+import { type OmpResolution, ompNeedsShell, ompPathEnv, ompSpawnArgs, ompSpawnCommand } from "./omp-runtime";
 import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
 import { RpcClient } from "./rpc-client";
 
@@ -228,6 +229,8 @@ export interface SidecarEvents {
 	frame: (frame: OutboundFrame) => void;
 	/** The live session's id/file changed (observed through `get_state`). */
 	session: (identity: SidecarSessionIdentity) => void;
+	/** The gui-bridge connect settled for this spawn (bridge-health.ts checks it). */
+	bridge: (result: BridgeConnectResult) => void;
 }
 
 export class SidecarManager extends EventEmitter {
@@ -382,7 +385,7 @@ export class SidecarManager extends EventEmitter {
 
 		let child: ChildProcess;
 		try {
-			child = spawn(bin, ompSpawnArgs(bin, args), {
+			child = spawn(ompSpawnCommand(bin), ompSpawnArgs(bin, args), {
 				stdio: ["pipe", "pipe", "pipe"],
 				env: {
 					...process.env,
@@ -696,11 +699,19 @@ export class SidecarManager extends EventEmitter {
 		// The extension listens before omp prints `ready`; connecting first means
 		// GUI-side commands can use the bridge from the first renderer request.
 		const bridge = this.#bridge;
+		const ompVersion = this.#runtime?.version ?? "unknown";
 		const bridgeReady =
 			this.#options.bridgeDir && bridge
-				? bridge.connect().catch((err: unknown) => {
-						console.warn(`[sidecar] gui-bridge unavailable: ${err instanceof Error ? err.message : String(err)}`);
-					})
+				? bridge.connect().then(
+						() => {
+							if (this.#isLive(generation)) this.emit("bridge", { connected: true, ompVersion, bridge });
+						},
+						(err: unknown) => {
+							const error = err instanceof Error ? err.message : String(err);
+							console.warn(`[sidecar] gui-bridge unavailable: ${error}`);
+							if (this.#isLive(generation)) this.emit("bridge", { connected: false, ompVersion, error });
+						},
+					)
 				: Promise.resolve();
 		const announceReady = (): void => {
 			void bridgeReady.then(() => {

@@ -5,6 +5,7 @@
  */
 import * as path from "node:path";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { guard } from "../health";
 import type { BridgeEnv, BridgeMethods } from "../types";
 import { attach, ompPrompt, record } from "./shared";
 
@@ -147,22 +148,28 @@ async function runOmfg(
 }
 
 export const methods: BridgeMethods = {
-	"modes.tan": async (params, env) => {
-		const { work } = record(params);
-		const trimmed = typeof work === "string" ? work.trim() : "";
-		if (!trimmed) throw new Error("Usage: /tan <work>");
-		return startTan(attach(env), trimmed);
-	},
-	"modes.omfg": async (params, env) => {
-		const { complaint } = record(params);
-		return runOmfg(attach(env), env, typeof complaint === "string" ? complaint : "");
-	},
-	"modes.set_agents_paused": async (params, _env) => {
-		const { agentPauseGate } = await import("@oh-my-pi/pi-agent-core");
-		if (record(params).enabled === true) {
-			agentPauseGate.pause();
-			return { paused: true, pausedAt: agentPauseGate.pausedAt };
-		}
-		return { paused: false, heldMs: agentPauseGate.resume() };
-	},
+	...guard("tan", {
+		"modes.tan": async (params, env) => {
+			const { work } = record(params);
+			const trimmed = typeof work === "string" ? work.trim() : "";
+			if (!trimmed) throw new Error("Usage: /tan <work>");
+			return startTan(attach(env), trimmed);
+		},
+	}),
+	...guard("omfg", {
+		"modes.omfg": async (params, env) => {
+			const { complaint } = record(params);
+			return runOmfg(attach(env), env, typeof complaint === "string" ? complaint : "");
+		},
+	}),
+	...guard("agentPause", {
+		"modes.set_agents_paused": async (params, _env) => {
+			const { agentPauseGate } = await import("@oh-my-pi/pi-agent-core");
+			if (record(params).enabled === true) {
+				agentPauseGate.pause();
+				return { paused: true, pausedAt: agentPauseGate.pausedAt };
+			}
+			return { paused: false, heldMs: agentPauseGate.resume() };
+		},
+	}),
 };

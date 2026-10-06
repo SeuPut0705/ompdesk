@@ -26,7 +26,7 @@ import type {
 	TabStatus,
 } from "../../shared/ipc-types";
 import type { ExtensionUIRequest, RpcSessionState } from "../../shared/rpc-types";
-import { hydrateTabSession } from "../hooks/use-rpc-events";
+import { attachTabSession, hydrateTabSession } from "../hooks/use-rpc-events";
 import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { sessionDisplayTitle } from "../lib/session-title";
@@ -461,7 +461,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			toast({ variant: "error", title: translate("tabs.switchFailed"), message: String(error) });
 			const converged = await get().reconcileTabs();
 			if (version !== switchVersion) return;
-			if (converged && get().activeTabId === id) await hydrateTabSession(id);
+			if (converged && get().activeTabId === id) await attachTabSession(id);
 			return;
 		}
 		if (version !== switchVersion) return;
@@ -474,7 +474,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		const routedTab = get().tabs.find(tab => tab.id === id);
 		if (routedTab?.status === "ready" || routedTab?.status === "running") {
 			sessionRuntimeStore<SessionStore>(id, "session")?.getState().setStatus("ready", routedTab.cwd);
-			await hydrateTabSession(id);
+			await attachTabSession(id);
 		}
 	},
 
@@ -520,7 +520,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		if (version !== switchVersion) return;
 		settleTabRoute(id);
 		const tab = get().tabs.find(entry => entry.id === id);
-		if (tab?.status === "ready" || tab?.status === "running") await hydrateTabSession(id);
+		if (tab?.status === "ready" || tab?.status === "running") await attachTabSession(id);
 	},
 
 	unsplit: async keepTabId => {
@@ -654,7 +654,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		});
 		const session = sessionRuntimeStore<SessionStore>(payload.tabId, "session");
 		if (sessionChanged && (payload.status === "ready" || payload.status === "running")) {
-			void hydrateTabSession(payload.tabId);
+			void attachTabSession(payload.tabId);
 		}
 		if (session) {
 			session.getState().setStatus(payload.status === "running" ? "ready" : payload.status, payload.cwd);
@@ -810,7 +810,7 @@ export function useSessionTabs(): void {
 						}
 						if (tab.status !== "ready" && tab.status !== "running") continue;
 						session.getState().setStatus("ready", tab.cwd);
-						void hydrateTabSession(tabId);
+						void attachTabSession(tabId);
 					}
 				}, 0);
 			});
@@ -833,7 +833,7 @@ export function useSessionTabs(): void {
 					// do not need another transcript fetch.
 					setTimeout(() => {
 						if (!visibleTabIds(useTabsStore.getState()).includes(payload.tabId)) return;
-						void hydrateTabSession(payload.tabId);
+						void attachTabSession(payload.tabId);
 					}, 0);
 				}
 			}
@@ -864,6 +864,7 @@ export function useSessionTabs(): void {
 						return;
 					}
 				}
+				// The sidecar may just have switched sessions: never join a fetch started before it.
 				await hydrateTabSession(tab.id);
 			})();
 		});

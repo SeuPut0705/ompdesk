@@ -70,15 +70,14 @@ export function resetLoginShellEnvCache(): void {
 	cached = undefined;
 }
 
-/** Probe `$SHELL -ilc 'env'` once and cache; on failure every field is empty. */
-export function resolveLoginShellEnv(): Promise<LoginShellEnv> {
+/**
+ * Probe `$SHELL -ilc 'env'` once and cache; on failure every field is empty.
+ * Windows has no login-shell probe: the inherited environment is complete
+ * there, and spawnPath() adds the well-known per-user tool directories.
+ */
+export function resolveLoginShellEnv(platform: NodeJS.Platform = process.platform): Promise<LoginShellEnv> {
+	if (platform === "win32") return Promise.resolve(PROBE_FAILED);
 	if (cached) return Promise.resolve(cached);
-	// Windows has no login-shell probe. Keep the inherited environment and add
-	// the well-known per-user tool directories through fallbackBinDirs().
-	if (process.platform === "win32") {
-		cached = PROBE_FAILED;
-		return Promise.resolve(PROBE_FAILED);
-	}
 	const { promise, resolve } = Promise.withResolvers<LoginShellEnv>();
 	const finish = (env: LoginShellEnv) => {
 		cached = env;
@@ -121,9 +120,9 @@ function compareVersionDirs(a: string, b: string): number {
 }
 
 /** Existing well-known user bin dirs, used when the shell probe fails. */
-function fallbackBinDirs(): string[] {
+function fallbackBinDirs(platform: NodeJS.Platform): string[] {
 	const home = homedir();
-	if (process.platform === "win32") {
+	if (platform === "win32") {
 		const local = process.env.LOCALAPPDATA || join(home, "AppData", "Local");
 		const roaming = process.env.APPDATA || join(home, "AppData", "Roaming");
 		return [
@@ -162,10 +161,10 @@ function fallbackBinDirs(): string[] {
  * Merge inherited PATH entries (explicit launch env wins order) with the
  * probed login-shell PATH, or the static fallback when probing failed.
  */
-export async function spawnPath(): Promise<string> {
+export async function spawnPath(platform: NodeJS.Platform = process.platform): Promise<string> {
 	const inherited = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
-	const probed = await resolveLoginShellEnv();
-	const extra = probed.path !== null ? probed.path.split(delimiter).filter(Boolean) : fallbackBinDirs();
+	const probed = await resolveLoginShellEnv(platform);
+	const extra = probed.path !== null ? probed.path.split(delimiter).filter(Boolean) : fallbackBinDirs(platform);
 	return [...new Set([...inherited, ...extra])].join(delimiter);
 }
 
@@ -174,22 +173,22 @@ export async function spawnPath(): Promise<string> {
  * (API keys, locale, tool config) plus the merged PATH. Keys the launch env
  * already defines win — an exported terminal env always beats rc files.
  */
-export async function shellSpawnEnv(): Promise<Record<string, string>> {
-	const probed = await resolveLoginShellEnv();
+export async function shellSpawnEnv(platform: NodeJS.Platform = process.platform): Promise<Record<string, string>> {
+	const probed = await resolveLoginShellEnv(platform);
 	const overlay: Record<string, string> = {};
 	for (const [key, value] of Object.entries(probed.env)) {
 		if (OVERLAY_DENYLIST.has(key) || key === "PATH" || key in process.env) continue;
 		overlay[key] = value;
 	}
-	overlay.PATH = await spawnPath();
+	overlay.PATH = await spawnPath(platform);
 	return overlay;
 }
 
 /** Editor command from process env, falling back to the login shell's $VISUAL/$EDITOR. */
-export async function resolveEditorCommand(): Promise<string | undefined> {
+export async function resolveEditorCommand(platform: NodeJS.Platform = process.platform): Promise<string | undefined> {
 	const configured = process.env.VISUAL?.trim() || process.env.EDITOR?.trim();
 	if (configured) return configured;
-	if (process.platform === "win32") return "notepad";
-	const probed = await resolveLoginShellEnv();
+	if (platform === "win32") return "notepad";
+	const probed = await resolveLoginShellEnv(platform);
 	return probed.editor ?? undefined;
 }

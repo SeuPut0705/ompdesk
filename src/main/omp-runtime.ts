@@ -48,16 +48,25 @@ export function compareVersions(a: string, b: string): number {
 }
 
 /** Windows `.cmd`/`.bat` shims only run through cmd.exe. */
-export function ompNeedsShell(bin: string): boolean {
-	return process.platform === "win32" && /\.(cmd|bat)$/i.test(bin);
+export function ompNeedsShell(bin: string, platform: NodeJS.Platform = process.platform): boolean {
+	return platform === "win32" && /\.(cmd|bat)$/i.test(bin);
+}
+
+/**
+ * The spawn command for `bin`. A shell spawn joins command and argv into one
+ * cmd.exe line unquoted, so a shim under `C:\Users\First Last\...` would split
+ * at the space; quote it there.
+ */
+export function ompSpawnCommand(bin: string, platform: NodeJS.Platform = process.platform): string {
+	return ompNeedsShell(bin, platform) ? `"${bin}"` : bin;
 }
 
 /**
  * cmd.exe re-parses a shell spawn's command line, so each argument is quoted
  * there. Node passes argv verbatim everywhere else.
  */
-export function ompSpawnArgs(bin: string, args: string[]): string[] {
-	return ompNeedsShell(bin) ? args.map(arg => `"${arg.replace(/"/g, '""')}"`) : args;
+export function ompSpawnArgs(bin: string, args: string[], platform: NodeJS.Platform = process.platform): string[] {
+	return ompNeedsShell(bin, platform) ? args.map(arg => `"${arg.replace(/"/g, '""')}"`) : args;
 }
 
 /** `basePath` plus the omp directory and `~/.bun/bin`, so the CLI's `env bun` shebang resolves. */
@@ -131,7 +140,7 @@ function runOmp(
 	basePath: string,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
 	const { promise, resolve, reject } = Promise.withResolvers<{ code: number; stdout: string; stderr: string }>();
-	const child = spawn(bin, ompSpawnArgs(bin, args), {
+	const child = spawn(ompSpawnCommand(bin), ompSpawnArgs(bin, args), {
 		cwd: opts.cwd,
 		env: { ...process.env, ...opts.env, PATH: ompPathEnv(bin, opts.env?.PATH ?? basePath) },
 		shell: ompNeedsShell(bin),

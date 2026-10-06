@@ -9,6 +9,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { normalizeWorkspaceDirectory } from "@oh-my-pi/pi-coding-agent/session/session-workspace";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { guard } from "./health";
 import type { BridgeMethods } from "./types";
 
 interface WorkspaceDirectory {
@@ -18,9 +19,6 @@ interface WorkspaceDirectory {
 
 function directories(session: AgentSession): { directories: WorkspaceDirectory[] } {
 	const manager = session.sessionManager;
-	if (typeof manager.getAdditionalDirectories !== "function") {
-		throw new Error("This omp does not support workspace directories");
-	}
 	return {
 		directories: [
 			{ path: path.resolve(manager.getCwd()), primary: true },
@@ -50,7 +48,7 @@ async function requireExistingDirectory(resolved: string): Promise<void> {
 	if (!stat.isDirectory()) throw new Error(`Not a directory: ${resolved}`);
 }
 
-export const methods: BridgeMethods = {
+export const methods: BridgeMethods = guard("workspace", {
 	"workspace.directories": async (_params, env) => directories(env.session()),
 
 	/** Already-present paths are a no-op success; the cwd itself is refused by SessionManager. */
@@ -78,4 +76,4 @@ export const methods: BridgeMethods = {
 		if (removed !== null) await session.refreshBaseSystemPrompt();
 		return directories(session);
 	},
-};
+});

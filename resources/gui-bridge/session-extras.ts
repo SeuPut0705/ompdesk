@@ -22,6 +22,8 @@ import {
 } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-completions";
 import { BUILTIN_SLASH_COMMANDS_INTERNAL } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
 import { directoryExists, getMCPConfigPath, isEexist, withFileLock } from "@oh-my-pi/pi-utils";
+import { requireFn } from "./capabilities";
+import { guard } from "./health";
 import type { BridgeMethods } from "./types";
 
 /** One field of the GUI's untyped params object. */
@@ -138,51 +140,53 @@ async function argCompletions(cwd: string, commandName: string, prefix: string):
 }
 
 export const methods: BridgeMethods = {
-	/** `{source}` → stock ForeignSessionStore listing, newest first, in the RpcForeignSessionInfo wire shape. */
-	"sessions.foreign_list": async params => {
-		const sessions = await createForeignSessionStore(foreignSource(params)).list();
-		return { sessions: sessions.map(foreignToWire) };
-	},
+	...guard("sessionImport", {
+		/** `{source}` → stock ForeignSessionStore listing, newest first, in the RpcForeignSessionInfo wire shape. */
+		"sessions.foreign_list": async params => {
+			const sessions = await createForeignSessionStore(foreignSource(params)).list();
+			return { sessions: sessions.map(foreignToWire) };
+		},
 
-	/**
-	 * `{source, foreignId}` → convert one foreign transcript into a new omp session file
-	 * (source data untouched). The destination name is a digest of the source identity,
-	 * so a retry or a second import of the unchanged source reuses the earlier copy.
-	 */
-	"sessions.foreign_import": async (params, env) => {
-		const source = foreignSource(params);
-		const foreignId = param(params, "foreignId");
-		if (typeof foreignId !== "string" || !foreignId) throw new Error("import requires a foreignId");
-		const store = createForeignSessionStore(source);
-		const info = (await store.list()).find(candidate => candidate.id === foreignId || candidate.path === foreignId);
-		if (!info) throw new Error(`Foreign session not found: ${foreignId}`);
-		const cwd = (await directoryExists(info.cwd)) ? info.cwd : env.session().sessionManager.getCwd();
-		const sessionDir = SessionManager.getDefaultSessionDir(cwd);
-		const digest = new Bun.CryptoHasher("sha256")
-			.update(JSON.stringify([source, info.path, info.id, info.modified.toISOString()]))
-			.digest("hex");
-		const destination = path.join(sessionDir, `import_${digest}.jsonl`);
-		await fs.mkdir(sessionDir, { recursive: true });
-		return withFileLock(destination, async () => {
-			if (await Bun.file(destination).exists()) {
-				const header = (await loadSessionFile(destination)).entries.find(entry => entry.type === "session");
-				if (header?.type !== "session") {
-					throw new Error("The existing imported session cannot be read. Inspect it before retrying.");
+		/**
+		 * `{source, foreignId}` → convert one foreign transcript into a new omp session file
+		 * (source data untouched). The destination name is a digest of the source identity,
+		 * so a retry or a second import of the unchanged source reuses the earlier copy.
+		 */
+		"sessions.foreign_import": async (params, env) => {
+			const source = foreignSource(params);
+			const foreignId = param(params, "foreignId");
+			if (typeof foreignId !== "string" || !foreignId) throw new Error("import requires a foreignId");
+			const store = createForeignSessionStore(source);
+			const info = (await store.list()).find(candidate => candidate.id === foreignId || candidate.path === foreignId);
+			if (!info) throw new Error(`Foreign session not found: ${foreignId}`);
+			const cwd = (await directoryExists(info.cwd)) ? info.cwd : env.session().sessionManager.getCwd();
+			const sessionDir = SessionManager.getDefaultSessionDir(cwd);
+			const digest = new Bun.CryptoHasher("sha256")
+				.update(JSON.stringify([source, info.path, info.id, info.modified.toISOString()]))
+				.digest("hex");
+			const destination = path.join(sessionDir, `import_${digest}.jsonl`);
+			await fs.mkdir(sessionDir, { recursive: true });
+			return withFileLock(destination, async () => {
+				if (await Bun.file(destination).exists()) {
+					const header = (await loadSessionFile(destination)).entries.find(entry => entry.type === "session");
+					if (header?.type !== "session") {
+						throw new Error("The existing imported session cannot be read. Inspect it before retrying.");
+					}
+					return { sessionPath: destination, sessionId: header.id, cwd: header.cwd, reused: true };
 				}
-				return { sessionPath: destination, sessionId: header.id, cwd: header.cwd, reused: true };
-			}
-			// Stock persistCopy picks its own file name; move it to the stable destination.
-			const imported = await persistForeignSession(store, info, {
-				fallbackCwd: cwd,
-				sessionDir,
-				suppressBreadcrumb: true,
+				// Stock persistCopy picks its own file name; move it to the stable destination.
+				const imported = await persistForeignSession(store, info, {
+					fallbackCwd: cwd,
+					sessionDir,
+					suppressBreadcrumb: true,
+				});
+				const written = imported.getSessionFile();
+				if (!written) throw new Error("Import did not produce a session file");
+				await fs.rename(written, destination);
+				return { sessionPath: destination, sessionId: imported.getSessionId(), cwd: imported.getCwd() };
 			});
-			const written = imported.getSessionFile();
-			if (!written) throw new Error("Import did not produce a session file");
-			await fs.rename(written, destination);
-			return { sessionPath: destination, sessionId: imported.getSessionId(), cwd: imported.getCwd() };
-		});
-	},
+		},
+	}),
 
 	/**
 	 * `{content}` → write a large paste into the live session's local:// store (the read
@@ -211,7 +215,7 @@ export const methods: BridgeMethods = {
 	/** Usage totals across the whole live journal (pre-compaction history and sibling branches included). */
 	"sessions.usage_history": async (_params, env) => {
 		const manager = env.session().sessionManager;
-		if (typeof manager.getUsageStatistics !== "function") throw new Error("omp does not expose usage statistics");
+		requireFn(manager, "getUsageStatistics", "usage", "SessionManager");
 		return { ...manager.getUsageStatistics(), sampledAt: Date.now() };
 	},
 

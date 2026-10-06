@@ -92,6 +92,8 @@ export const IPC_EVENTS = {
 	PROGRESS_SET: "progress:set",
 	/** Auto-update status machine push (idle/checking/available/downloading/downloaded/not-available/error) */
 	UPDATER_STATUS: "updater:status",
+	/** New gui-bridge compatibility warnings are waiting; the renderer takes them with BRIDGE_HEALTH_TAKE. */
+	BRIDGE_HEALTH: "bridge-health:changed",
 } as const;
 
 // ============================================================================
@@ -203,6 +205,8 @@ export const IPC_COMMANDS = {
 	UPDATER_GET_STATUS: "updater:getStatus",
 	/** Current app version (settings → updates row) */
 	UPDATER_VERSION: "updater:version",
+	/** Pending gui-bridge compatibility warnings, handed to exactly one caller */
+	BRIDGE_HEALTH_TAKE: "bridge-health:take",
 } as const;
 
 export type RuntimeErrorSource =
@@ -255,6 +259,14 @@ export type UpdateStatus =
 	| { state: "downloaded"; version: string; mode: UpdateInstallMode }
 	| { state: "not-available"; version: string }
 	| { state: "error"; message: string; showInBanner?: boolean };
+
+/**
+ * A gui-bridge compatibility problem found at sidecar startup (src/main/bridge-health.ts).
+ * `features` are the bridge's feature ids (resources/gui-bridge/capabilities.ts `FEATURES`).
+ */
+export type BridgeHealthWarning =
+	| { kind: "unsupported"; ompVersion: string; features: string[] }
+	| { kind: "unavailable"; ompVersion: string; reason: string };
 
 export type MenuAction =
 	| "new-session"
@@ -1137,6 +1149,8 @@ export interface OmpApi {
 		onMenuAction(callback: (action: MenuAction, payload?: MenuActionPayload) => void): () => void;
 		onDeepLink(callback: (link: DeepLinkPayload) => void): () => void;
 		onUpdaterStatus(callback: (status: UpdateStatus) => void): () => void;
+		/** Fires when gui-bridge compatibility warnings are pending; take them with `bridgeHealth.take()`. */
+		onBridgeHealth(callback: () => void): () => void;
 	};
 	updater: {
 		check(): Promise<UpdateStatus>;
@@ -1144,6 +1158,10 @@ export interface OmpApi {
 		apply(): Promise<void>;
 		getStatus(): Promise<UpdateStatus>;
 		version(): Promise<string>;
+	};
+	bridgeHealth: {
+		/** Pending warnings; each is handed to one window only. */
+		take(): Promise<BridgeHealthWarning[]>;
 	};
 	ui: {
 		respondExtensionUi(response: ExtensionUIResponse): void;

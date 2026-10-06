@@ -9,7 +9,7 @@ import { copySessionArtifacts, SessionManager } from "@oh-my-pi/pi-coding-agent/
 import { loadPinnedSessionIds } from "@oh-my-pi/pi-coding-agent/session/session-pins";
 import { replaceFileAtomically } from "@oh-my-pi/pi-coding-agent/utils/atomic-file";
 import { getAgentDir, withFileLock } from "@oh-my-pi/pi-utils";
-import { methods as extras } from "./session-extras";
+import { guard } from "./health";
 import type { BridgeMethods } from "./types";
 
 /** omp's pins file (session/session-pins.ts): a JSON array of session ids. */
@@ -30,15 +30,12 @@ function optionalString(params: unknown, key: string): string | undefined {
 	return typeof value === "string" ? value : undefined;
 }
 
-export const methods: BridgeMethods = {
-	...extras,
-
+export const methods: BridgeMethods = guard("sessionTree", {
 	/** Set (non-empty `label`) or clear a label on any entry; TUI tree-selector Shift+L. */
 	"sessions.set_entry_label": async (params, env) => {
 		const entryId = entryIdParam(params);
 		const label = optionalString(params, "label")?.trim() || undefined;
 		const manager = env.session().sessionManager;
-		if (typeof manager.appendLabelChange !== "function") throw new Error("This omp cannot label entries");
 		manager.appendLabelChange(entryId, label);
 		return null;
 	},
@@ -47,7 +44,6 @@ export const methods: BridgeMethods = {
 	"sessions.switch_leaf": async (params, env) => {
 		const entryId = entryIdParam(params);
 		const session = env.session();
-		if (typeof session.navigateTree !== "function") throw new Error("This omp cannot navigate the session tree");
 		if (session.isStreaming) throw new Error("Session is busy (streaming)");
 		const result = await session.navigateTree(entryId, {
 			summarize: param(params, "summarize") === true,
@@ -128,4 +124,4 @@ export const methods: BridgeMethods = {
 			return { pinned };
 		});
 	},
-};
+});

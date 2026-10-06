@@ -16,6 +16,7 @@ import { PluginManager, validateSetting } from "@oh-my-pi/pi-coding-agent/extens
 import { classifySource, parsePluginId } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/marketplace";
 import type { InstalledPlugin } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/types";
 import { pathIsWithin } from "@oh-my-pi/pi-utils";
+import { guard } from "../health";
 import type { BridgeMethods } from "../types";
 import {
 	classifyPluginActivation,
@@ -80,7 +81,7 @@ async function pluginMutation(run: () => Promise<Record<string, unknown>>): Prom
 	}
 }
 
-export const methods: BridgeMethods = {
+export const methods: BridgeMethods = guard("plugins", {
 	/** Both install channels, like `/plugins list`: npm packages and marketplace installs. */
 	get_plugins: async (_params, env) => {
 		const cwd = env.session().sessionManager.getCwd();
@@ -352,4 +353,4 @@ export const methods: BridgeMethods = {
 		if (result.ok) await reloadPluginState(session);
 		return result;
 	},
-};
+});

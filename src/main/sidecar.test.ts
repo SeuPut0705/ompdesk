@@ -13,6 +13,7 @@ import type {
 } from "../shared/rpc-types";
 import type { OmpResolution } from "./omp-runtime";
 import { type SidecarFailureReport, SidecarManager } from "./sidecar";
+import { RM_TEMP, writeFakeOmp } from "./test-fake-omp";
 
 /** A resolved "system omp" that is really the test's fake sidecar script. */
 function ompAt(bin: string): () => Promise<OmpResolution> {
@@ -39,13 +40,11 @@ describe("SidecarManager", () => {
 	it("passes the active session path on a manual restart", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-"));
 		const logPath = path.join(tempDir, "argv.json");
-		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
 		const sessionPath = path.join(tempDir, "session.jsonl");
-		await fs.writeFile(
-			binaryPath,
-			`#!/usr/bin/env bun\nimport * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
 		);
-		await fs.chmod(binaryPath, 0o755);
 
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
 		try {
@@ -61,19 +60,17 @@ describe("SidecarManager", () => {
 			expect(launch).toEqual(["--mode", "rpc-ui", "--session", sessionPath]);
 		} finally {
 			sidecar.dispose();
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
 
 	it("configures v2 sidecars with the GUI event filter", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-filter-"));
 		const commandLog = path.join(tempDir, "commands.json");
-		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
-		await fs.writeFile(
-			binaryPath,
-			`#!/usr/bin/env bun\nimport * as fs from "node:fs";\nimport { createInterface } from "node:readline";\nconst commands: unknown[] = [];\nconst rl = createInterface({ input: process.stdin });\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 2, supportedProtocolVersions: [1, 2], maxFrameBytes: 1048576, maxReassembledFrameBytes: 67108864 }) + "\\n");\nrl.on("line", line => {\n\tconst command = JSON.parse(line) as { id?: string; type: string; events?: string[] | null };\n\tcommands.push(command);\n\tfs.writeFileSync(${JSON.stringify(commandLog)}, JSON.stringify(commands));\n\tprocess.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: {} }) + "\\n");\n});\n`,
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs";\nimport { createInterface } from "node:readline";\nconst commands: unknown[] = [];\nconst rl = createInterface({ input: process.stdin });\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 2, supportedProtocolVersions: [1, 2], maxFrameBytes: 1048576, maxReassembledFrameBytes: 67108864 }) + "\\n");\nrl.on("line", line => {\n\tconst command = JSON.parse(line) as { id?: string; type: string; events?: string[] | null };\n\tcommands.push(command);\n\tfs.writeFileSync(${JSON.stringify(commandLog)}, JSON.stringify(commands));\n\tprocess.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: {} }) + "\\n");\n});\n`,
 		);
-		await fs.chmod(binaryPath, 0o755);
 
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
 		try {
@@ -108,19 +105,17 @@ describe("SidecarManager", () => {
 			expect(commands[1]?.events).toContain("message_update");
 		} finally {
 			sidecar.dispose();
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
 
 	it("spawns a chat sidecar with stock --no-tools in the code-controlled argv", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-chat-"));
 		const logPath = path.join(tempDir, "argv.json");
-		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
-		await fs.writeFile(
-			binaryPath,
-			`#!/usr/bin/env bun\nimport * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
 		);
-		await fs.chmod(binaryPath, 0o755);
 
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, kind: "chat" });
 		try {
@@ -132,19 +127,17 @@ describe("SidecarManager", () => {
 			expect(launch).toEqual(["--mode", "rpc-ui", "--no-tools"]);
 		} finally {
 			sidecar.dispose();
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
 
 	it("pins autoResume off for a freshly created tab, and only for its first boot", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-fresh-"));
 		const logPath = path.join(tempDir, "argv.json");
-		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
-		await fs.writeFile(
-			binaryPath,
-			`#!/usr/bin/env bun\nimport * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
 		);
-		await fs.chmod(binaryPath, 0o755);
 
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, fresh: true, bridgeDir: tempDir });
 		try {
@@ -170,18 +163,16 @@ describe("SidecarManager", () => {
 			expect(restartLaunch).toEqual(["--mode", "rpc-ui", "-e", bridgeEntry]);
 		} finally {
 			sidecar.dispose();
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
 
 	it("routes prompt results, settled state, and text-mode command output as dedicated frames", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-output-"));
-		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
-		await fs.writeFile(
-			binaryPath,
-			`#!/usr/bin/env bun\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "prompt_result", id: "local-command", agentInvoked: false }) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "session_settled" }) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "command_output", text: "Enabled models" }) + "\\n");\nprocess.stdin.resume();\n`,
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "prompt_result", id: "local-command", agentInvoked: false }) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "session_settled" }) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "command_output", text: "Enabled models" }) + "\\n");\nprocess.stdin.resume();\n`,
 		);
-		await fs.chmod(binaryPath, 0o755);
 
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
 		const received = Promise.withResolvers<CommandOutputFrame>();
@@ -199,16 +190,14 @@ describe("SidecarManager", () => {
 			]);
 		} finally {
 			sidecar.dispose();
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
 
 	it("answers GUI-side commands in-process and stamps agent_end entry ids without reordering frames", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-local-"));
-		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
 		const commandLog = path.join(tempDir, "commands.json");
 		const script = [
-			"#!/usr/bin/env bun",
 			'import * as fs from "node:fs";',
 			'import { createInterface } from "node:readline";',
 			"const out = (frame: unknown) => process.stdout.write(JSON.stringify(frame) + '\\n');",
@@ -229,8 +218,7 @@ describe("SidecarManager", () => {
 			"\t}",
 			"});",
 		].join("\n");
-		await fs.writeFile(binaryPath, script);
-		await fs.chmod(binaryPath, 0o755);
+		const binaryPath = await writeFakeOmp(tempDir, script);
 
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
 		const frames: Array<{ type: string; messages?: Array<{ entryId?: string }> }> = [];
@@ -259,7 +247,7 @@ describe("SidecarManager", () => {
 			expect(commands).toEqual(["get_state", "get_entries", "prompt", "get_entries"]);
 		} finally {
 			sidecar.dispose();
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
 
@@ -270,19 +258,19 @@ describe("SidecarManager", () => {
 		await fs.mkdir(fakeHome, { recursive: true });
 		await fs.mkdir(workspaceCwd, { recursive: true });
 		const logPath = path.join(tempDir, "argv.json");
-		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
-		await fs.writeFile(
-			binaryPath,
-			`#!/usr/bin/env bun\nimport * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
 		);
-		await fs.chmod(binaryPath, 0o755);
 
 		// electron-store/conf resolves its prefs path from os.homedir() per
-		// construction, so a redirected HOME lands the store inside tempDir.
-		// Discover the exact path through the same stack rather than hardcoding
-		// conf internals, then seed the workspace profile into it.
+		// construction (%APPDATA% on Windows), so a redirected HOME lands the
+		// store inside tempDir. Discover the exact path through the same stack
+		// rather than hardcoding conf internals, then seed the workspace profile.
 		const originalHome = process.env.HOME;
+		const originalAppData = process.env.APPDATA;
 		process.env.HOME = fakeHome;
+		if (process.platform === "win32") process.env.APPDATA = fakeHome;
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: workspaceCwd });
 		try {
 			// Same options as the loader; a variable sidesteps the excess-property
@@ -326,8 +314,9 @@ describe("SidecarManager", () => {
 			]);
 		} finally {
 			process.env.HOME = originalHome;
+			if (process.platform === "win32") process.env.APPDATA = originalAppData;
 			sidecar.dispose();
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
 
@@ -336,12 +325,10 @@ describe("SidecarManager", () => {
 		// realpath: the spawned process's process.cwd() resolves /var symlinks.
 		const adoptedCwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-adopted-")));
 		const logPath = path.join(tempDir, "spawn.json");
-		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
-		await fs.writeFile(
-			binaryPath,
-			`#!/usr/bin/env bun\nimport * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
 		);
-		await fs.chmod(binaryPath, 0o755);
 
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
 		try {
@@ -360,22 +347,20 @@ describe("SidecarManager", () => {
 			expect(spawn.cwd).toBe(adoptedCwd);
 		} finally {
 			sidecar.dispose();
-			await fs.rm(tempDir, { recursive: true, force: true });
-			await fs.rm(adoptedCwd, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
+			await fs.rm(adoptedCwd, RM_TEMP);
 		}
 	});
 
 	it("keeps a boot-crashing sidecar in the restart loop instead of a false ready", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-boot-crash-"));
-		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
 		// Advertises protocol v2 and never answers `negotiate_protocol`, then dies:
 		// teardown rejects the pending negotiation on a generation that is already
 		// gone, which is what used to report "ready" and zero the restart counter.
-		await fs.writeFile(
-			binaryPath,
-			`#!/usr/bin/env bun\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 2, supportedProtocolVersions: [2], maxFrameBytes: 1048576, maxReassembledFrameBytes: 67108864 }) + "\\n");\nsetTimeout(() => process.exit(3), 120);\n`,
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 2, supportedProtocolVersions: [2], maxFrameBytes: 1048576, maxReassembledFrameBytes: 67108864 }) + "\\n");\nsetTimeout(() => process.exit(3), 120);\n`,
 		);
-		await fs.chmod(binaryPath, 0o755);
 
 		const statuses: SidecarStatusPayload[] = [];
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
@@ -395,19 +380,17 @@ describe("SidecarManager", () => {
 			expect(statuses.filter(payload => payload.status === "ready")).toEqual([]);
 		} finally {
 			sidecar.dispose();
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	}, 15_000);
 
 	it("drops a spawn whose env resolution was superseded by a restart", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-superseded-"));
 		const pidPath = path.join(tempDir, "pids.txt");
-		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
-		await fs.writeFile(
-			binaryPath,
-			`#!/usr/bin/env bun\nimport * as fs from "node:fs/promises";\nawait fs.appendFile(${JSON.stringify(pidPath)}, String(process.pid) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.appendFile(${JSON.stringify(pidPath)}, String(process.pid) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
 		);
-		await fs.chmod(binaryPath, 0o755);
 
 		const sidecar = new SidecarManager({
 			omp: ompAt(binaryPath),
@@ -437,7 +420,7 @@ describe("SidecarManager", () => {
 			expect(await readPids()).toHaveLength(1);
 		} finally {
 			sidecar.dispose();
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	}, 15_000);
 
@@ -454,19 +437,17 @@ describe("SidecarManager", () => {
 			expect(statuses.at(-1)?.message).toBe(error);
 		} finally {
 			sidecar.dispose();
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
 
 	it("resumes on the default model when the saved session model cannot be restored at boot", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-model-"));
 		const logPath = path.join(tempDir, "argv.json");
-		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
 		const sessionPath = path.join(tempDir, "session.jsonl");
-		await fs.writeFile(
-			binaryPath,
+		const binaryPath = await writeFakeOmp(
+			tempDir,
 			[
-				"#!/usr/bin/env bun",
 				'import * as fs from "node:fs/promises";',
 				"const argv = process.argv.slice(2);",
 				'if (!argv.includes("--model")) {',
@@ -478,7 +459,6 @@ describe("SidecarManager", () => {
 				"process.stdin.resume();",
 			].join("\n"),
 		);
-		await fs.chmod(binaryPath, 0o755);
 
 		const reportFailure = vi.fn();
 		const statuses: SidecarStatusPayload[] = [];
@@ -502,18 +482,16 @@ describe("SidecarManager", () => {
 			expect(reportFailure).not.toHaveBeenCalled();
 		} finally {
 			sidecar.dispose();
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
 
 	it("falls back to the crash loop when the default-model respawn fails the same way", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-model-loop-"));
-		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
-		await fs.writeFile(
-			binaryPath,
-			`#!/usr/bin/env bun\nprocess.stderr.write("error: Could not restore model gone/model-x\\n");\nprocess.exit(1);\n`,
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`process.stderr.write("error: Could not restore model gone/model-x\\n");\nprocess.exit(1);\n`,
 		);
-		await fs.chmod(binaryPath, 0o755);
 
 		const statuses: SidecarStatusPayload[] = [];
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
@@ -528,18 +506,16 @@ describe("SidecarManager", () => {
 			);
 		} finally {
 			sidecar.dispose();
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	}, 15_000);
 
 	it("carries the crashed spawn's stderr into the restart reason and the crash report", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-stderr-"));
-		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
-		await fs.writeFile(
-			binaryPath,
-			`#!/usr/bin/env bun\nprocess.stderr.write("dyld: Library not loaded: pi_natives\\n  Referenced by: omp\\n");\nsetTimeout(() => process.exit(4), 120);\n`,
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`process.stderr.write("dyld: Library not loaded: pi_natives\\n  Referenced by: omp\\n");\nsetTimeout(() => process.exit(4), 120);\n`,
 		);
-		await fs.chmod(binaryPath, 0o755);
 
 		const reportFailure = vi.fn();
 		const statuses: SidecarStatusPayload[] = [];
@@ -562,7 +538,7 @@ describe("SidecarManager", () => {
 			expect(report.stderr).toEqual(["dyld: Library not loaded: pi_natives", "  Referenced by: omp"]);
 		} finally {
 			sidecar.dispose();
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	}, 15_000);
 });

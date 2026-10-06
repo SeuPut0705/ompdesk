@@ -11,16 +11,15 @@ afterEach(() => vi.restoreAllMocks());
 
 test("a live listener is never respawned by a demand-driven revive", async () => {
 	const directory = await fs.mkdtemp(path.join(os.tmpdir(), "omp-stats-revive-"));
-	const binary = path.join(directory, "stats-live.ts");
+	const script = path.join(directory, "stats-live.ts");
 	await fs.writeFile(
-		binary,
-		`#!/usr/bin/env bun
-process.stdout.write("Dashboard available at: http://127.0.0.1:55123\\n");
+		script,
+		`process.stdout.write("Dashboard available at: http://127.0.0.1:55123\\n");
 await Bun.sleep(5000);
 `,
 	);
-	await fs.chmod(binary, 0o755);
-	const server = new StatsServerManager({ command: binary, args: [] });
+	// Launched like the app launches stats-host.ts: `bun <script>` (no shebang exec on Windows).
+	const server = new StatsServerManager({ command: "bun", args: [script] });
 	try {
 		server.start();
 		await expect.poll(() => server.port, { timeout: 5000 }).toBe(55123);
@@ -44,19 +43,17 @@ test("stats does not contact an unrelated default server before its own listener
 
 test("split numeric loopback readiness selects the bundled listener and resets after exit", async () => {
 	const directory = await fs.mkdtemp(path.join(os.tmpdir(), "omp-stats-ready-"));
-	const binary = path.join(directory, "stats.ts");
+	const script = path.join(directory, "stats.ts");
 	await fs.writeFile(
-		binary,
-		`#!/usr/bin/env bun
-process.stdout.write("\\x1b[32mDashboard available at: http://127.0.0.1:54");
+		script,
+		`process.stdout.write("\\x1b[32mDashboard available at: http://127.0.0.1:54");
 await Bun.sleep(30);
 process.stdout.write("321\\x1b[39m\\n");
 await Bun.sleep(100);
 process.exit(1);
 `,
 	);
-	await fs.chmod(binary, 0o755);
-	const server = new StatsServerManager({ command: binary, args: [] });
+	const server = new StatsServerManager({ command: "bun", args: [script] });
 	const ports: number[] = [];
 	const exits: number[] = [];
 	server.on("ready", port => ports.push(port));

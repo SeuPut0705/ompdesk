@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { z } from "zod";
 import type { IpcBenchmarkRunOptions, IpcBenchmarkRunResult, IpcBenchmarkSummary } from "../shared/ipc-types";
-import { ompNeedsShell, ompPathEnv, ompSpawnArgs } from "./omp-runtime";
+import { ompNeedsShell, ompPathEnv, ompSpawnArgs, ompSpawnCommand } from "./omp-runtime";
 
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 const BENCHMARK_TIMEOUT_MS = 15 * 60 * 1000;
@@ -119,7 +119,7 @@ export class BenchmarkRunner {
 			return { success: false, error: error instanceof Error ? error.message : String(error) };
 		}
 		this.#terminationReason = null;
-		const child = spawn(ompBin, ompSpawnArgs(ompBin, args), {
+		const child = spawn(ompSpawnCommand(ompBin), ompSpawnArgs(ompBin, args), {
 			cwd,
 			env: { ...env, PATH: ompPathEnv(ompBin, env.PATH ?? "") },
 			shell: ompNeedsShell(ompBin),

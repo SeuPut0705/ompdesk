@@ -42,6 +42,7 @@ import { cfgMcpEnableProjectConfig } from "@oh-my-pi/pi-coding-agent/mcp/setting
 import type { MCPServerConfig, MCPServerConnection } from "@oh-my-pi/pi-coding-agent/mcp/types";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { getMCPConfigPath, Snowflake } from "@oh-my-pi/pi-utils";
+import { guard } from "../health";
 import type { BridgeEnv, BridgeMethods } from "../types";
 import { errorMessage, optScope, optString, paramsOf, requireString } from "./shared";
 
@@ -616,7 +617,7 @@ async function runReauth(session: AgentSession, env: BridgeEnv, name: string, si
 	await reloadMcpServers(session);
 }
 
-export const methods: BridgeMethods = {
+export const methods: BridgeMethods = guard("mcp", {
 	get_mcp_servers: async (_params, env) => ({ servers: await listMcpServers(env.session()) }),
 
 	mcp_action: async (params, env) => {
@@ -702,4 +703,4 @@ export const methods: BridgeMethods = {
 		activeReauth.abort.abort("Reauthorization cancelled by user");
 		return { cancelled: true };
 	},
-};
+});

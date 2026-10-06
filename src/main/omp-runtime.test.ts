@@ -6,11 +6,15 @@ import {
 	compareVersions,
 	MIN_OMP_VERSION,
 	ompCandidates,
+	ompNeedsShell,
 	ompPackageRoot,
 	ompPathEnv,
+	ompSpawnArgs,
+	ompSpawnCommand,
 	parseOmpVersion,
 	resolveOmp,
 } from "./omp-runtime";
+import { RM_TEMP, writeFakeOmp } from "./test-fake-omp";
 
 const originalOverride = process.env.OMP_GUI_OMP;
 
@@ -21,9 +25,7 @@ afterEach(() => {
 
 async function fakeOmp(versionLine: string): Promise<{ bin: string; dir: string }> {
 	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-runtime-"));
-	const bin = path.join(dir, "omp");
-	await fs.writeFile(bin, `#!/bin/sh\necho '${versionLine}'\n`);
-	await fs.chmod(bin, 0o755);
+	const bin = await writeFakeOmp(dir, `console.log(${JSON.stringify(versionLine)});\n`);
 	return { bin, dir };
 }
 
@@ -59,6 +61,24 @@ describe("omp lookup", () => {
 		expect(entries).toContain(path.join(os.homedir(), ".bun", "bin"));
 	});
 
+	it("runs Windows .cmd shims through cmd.exe with the shim path and every argument quoted", () => {
+		const shim = "C:\\Users\\First Last\\AppData\\Roaming\\npm\\omp.cmd";
+		expect(ompNeedsShell(shim, "win32")).toBe(true);
+		expect(ompSpawnCommand(shim, "win32")).toBe(`"${shim}"`);
+		expect(ompSpawnArgs(shim, ["--append-system-prompt", 'say "hi"'], "win32")).toEqual([
+			'"--append-system-prompt"',
+			'"say ""hi"""',
+		]);
+		// A real executable (bun's omp.exe shim) and every macOS bin spawn directly, argv verbatim.
+		const exe = "C:\\Users\\First Last\\.bun\\bin\\omp.exe";
+		expect(ompNeedsShell(exe, "win32")).toBe(false);
+		expect(ompSpawnCommand(exe, "win32")).toBe(exe);
+		expect(ompSpawnArgs(exe, ['say "hi"'], "win32")).toEqual(['say "hi"']);
+		expect(ompNeedsShell("/opt/tools/omp.cmd", "darwin")).toBe(false);
+		expect(ompSpawnCommand("/opt/tools/omp.cmd", "darwin")).toBe("/opt/tools/omp.cmd");
+	});
+
+	// Creating the symlink needs Developer Mode or admin rights on Windows.
 	it.skipIf(process.platform === "win32")(
 		"finds the omp package behind a symlinked bin and a bun shim dir",
 		async () => {
@@ -87,7 +107,7 @@ describe("omp lookup", () => {
 });
 
 describe("resolveOmp", () => {
-	it.skipIf(process.platform === "win32")("accepts a supported omp and runs subcommands through it", async () => {
+	it("accepts a supported omp and runs subcommands through it", async () => {
 		const { bin, dir } = await fakeOmp("omp/18.6.1");
 		process.env.OMP_GUI_OMP = bin;
 		try {
@@ -96,11 +116,11 @@ describe("resolveOmp", () => {
 			expect(resolution.runtime).toMatchObject({ bin, version: "18.6.1" });
 			await expect(resolution.runtime.run(["anything"])).resolves.toMatchObject({ code: 0, stdout: "omp/18.6.1\n" });
 		} finally {
-			await fs.rm(dir, { recursive: true, force: true });
+			await fs.rm(dir, RM_TEMP);
 		}
 	});
 
-	it.skipIf(process.platform === "win32")("refuses an omp older than the minimum with an update hint", async () => {
+	it("refuses an omp older than the minimum with an update hint", async () => {
 		const { bin, dir } = await fakeOmp("omp/18.5.9");
 		process.env.OMP_GUI_OMP = bin;
 		try {
@@ -111,7 +131,7 @@ describe("resolveOmp", () => {
 				reason: { kind: "too-old", version: "18.5.9", minimum: MIN_OMP_VERSION },
 			});
 		} finally {
-			await fs.rm(dir, { recursive: true, force: true });
+			await fs.rm(dir, RM_TEMP);
 		}
 	});
 

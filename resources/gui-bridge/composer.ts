@@ -8,16 +8,14 @@
  */
 import { createHash } from "node:crypto";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { requireFn } from "./capabilities";
+import { guard } from "./health";
 import type { BridgeMethods } from "./types";
 
 type Session = AgentSession & Record<string, unknown>;
 
 function record(params: unknown): Record<string, unknown> {
 	return typeof params === "object" && params !== null ? (params as Record<string, unknown>) : {};
-}
-
-function requireMethod(session: Session, name: string): void {
-	if (typeof session[name] !== "function") throw new Error(`This omp has no AgentSession.${name}`);
 }
 
 // ── Forced tool ──────────────────────────────────────────────────────────────
@@ -39,12 +37,13 @@ function forcedTool(session: Session): string | null {
 }
 
 async function setForcedTool(session: Session, tool: string): Promise<{ tool: string | null }> {
-	requireMethod(session, "getActiveToolNames");
+	requireFn(session, "getActiveToolNames", "composer");
+	requireFn(session, "toolChoiceQueue.pushSequence", "composer");
 	const queue = session.toolChoiceQueue;
-	if (typeof queue?.pushSequence !== "function") throw new Error("This omp has no tool-choice queue");
 	if (!session.getActiveToolNames().includes(tool)) throw new Error(`Tool "${tool}" is not currently active.`);
-	const { buildNamedToolChoice } = await import("@oh-my-pi/pi-coding-agent/utils/tool-choice");
-	const forced = buildNamedToolChoice(tool, session.model);
+	const toolChoice = await import("@oh-my-pi/pi-coding-agent/utils/tool-choice");
+	requireFn(toolChoice, "buildNamedToolChoice", "composer", "utils/tool-choice");
+	const forced = toolChoice.buildNamedToolChoice(tool, session.model);
 	if (!forced || typeof forced === "string") throw new Error("Current model does not support forcing a specific tool.");
 	const settle = (choice: unknown) => {
 		if (choice === forced && pendingForce.get(session) === tool) pendingForce.delete(session);
@@ -68,8 +67,8 @@ async function setForcedTool(session: Session, tool: string): Promise<{ tool: st
 
 function clearForcedTool(session: Session): { tool: null } {
 	pendingForce.delete(session);
+	requireFn(session, "toolChoiceQueue.removeByLabel", "composer");
 	const queue = session.toolChoiceQueue;
-	if (typeof queue?.removeByLabel !== "function") throw new Error("This omp has no tool-choice queue");
 	// Removing an in-flight force requeues it under the `-requeued` label first.
 	queue.removeByLabel(USER_FORCE_LABEL);
 	queue.removeByLabel(`${USER_FORCE_LABEL}-requeued`);
@@ -83,9 +82,10 @@ function clearForcedTool(session: Session): { tool: null } {
 const settleListeners = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 
 async function disarmPrewalk(session: Session): Promise<void> {
-	requireMethod(session, "getPrewalkState");
+	requireFn(session, "getPrewalkState", "composer");
 	if (session.getPrewalkState() === undefined) return;
 	const { cfgPrewalkEnabled } = await import("@oh-my-pi/pi-coding-agent/session/settings");
+	requireFn(cfgPrewalkEnabled, "override", "composer", "session/settings.cfgPrewalkEnabled");
 	const settings = session.settings;
 	if (cfgPrewalkEnabled.get(settings)) {
 		// Clearing the override afterwards would re-arm, so it stays for this process.
@@ -163,7 +163,7 @@ export const methods: BridgeMethods = {
 
 	"composer.eval": async (params, env) => {
 		const session = env.session() as Session;
-		requireMethod(session, "executePython");
+		requireFn(session, "executePython", "composer");
 		const { code, excluded } = record(params);
 		if (typeof code !== "string") throw new Error("eval requires code");
 		const result = await session.executePython(code, undefined, { excludeFromContext: excluded === true });
@@ -172,7 +172,7 @@ export const methods: BridgeMethods = {
 
 	"composer.abort_eval": async (_params, env) => {
 		const session = env.session() as Session;
-		requireMethod(session, "abortEval");
+		requireFn(session, "abortEval", "composer");
 		session.abortEval();
 		return null;
 	},
@@ -180,7 +180,7 @@ export const methods: BridgeMethods = {
 	/** Bash whose output stays out of model context (`!!`). */
 	"composer.bash_excluded": async (params, env) => {
 		const session = env.session() as Session;
-		requireMethod(session, "executeBash");
+		requireFn(session, "executeBash", "composer");
 		const { command } = record(params);
 		if (typeof command !== "string") throw new Error("bash requires command");
 		return session.executeBash(command, undefined, { excludeFromContext: true });
@@ -189,7 +189,7 @@ export const methods: BridgeMethods = {
 	/** Null while streaming or a foreground bash/eval runs (the caller maps it to `busy`). */
 	"composer.clear_context": async (_params, env) => {
 		const session = env.session() as Session;
-		requireMethod(session, "resetSessionContext");
+		requireFn(session, "resetSessionContext", "composer");
 		const result = await session.resetSessionContext();
 		return result ? { droppedCount: result.droppedCount } : null;
 	},
@@ -211,7 +211,7 @@ export const methods: BridgeMethods = {
 
 	"composer.prewalk_armed": async (_params, env) => {
 		const session = env.session() as Session;
-		requireMethod(session, "getPrewalkState");
+		requireFn(session, "getPrewalkState", "composer");
 		return { armed: session.getPrewalkState() !== undefined };
 	},
 
@@ -238,7 +238,7 @@ export const methods: BridgeMethods = {
 	/** `/context` parity. */
 	"composer.context_report": async (_params, env) => {
 		const session = env.session() as Session;
-		requireMethod(session, "getContextBreakdown");
+		requireFn(session, "getContextBreakdown", "composer");
 		const breakdown = session.getContextBreakdown();
 		return {
 			breakdown,
@@ -250,29 +250,31 @@ export const methods: BridgeMethods = {
 	/** `/jobs` parity: running, then the 5 most recent. */
 	"composer.jobs": async (_params, env) => {
 		const session = env.session() as Session;
-		requireMethod(session, "getAsyncJobSnapshot");
+		requireFn(session, "getAsyncJobSnapshot", "composer");
 		const snapshot = session.getAsyncJobSnapshot({ recentLimit: 5 });
 		return snapshot ? [...snapshot.running, ...snapshot.recent] : [];
 	},
 
-	"composer.share_preview": async (_params, env) => sharePreview(env.session() as Session),
+	...guard("share", {
+		"composer.share_preview": async (_params, env) => sharePreview(env.session() as Session),
 
-	"composer.share": async (params, env) => {
-		const session = env.session() as Session;
-		const { snapshotId } = record(params);
-		const prepared = await sharePreview(session);
-		if (snapshotId !== undefined && snapshotId !== prepared.snapshotId) {
-			throw new Error("Session or sharing settings changed. Refresh the local preview before uploading.");
-		}
-		const { share, options } = await shareContext(session);
-		const result = await share.shareSession(session.sessionManager, options);
-		return result.truncated || prepared.truncated ? { url: result.url, truncated: true } : { url: result.url };
-	},
+		"composer.share": async (params, env) => {
+			const session = env.session() as Session;
+			const { snapshotId } = record(params);
+			const prepared = await sharePreview(session);
+			if (snapshotId !== undefined && snapshotId !== prepared.snapshotId) {
+				throw new Error("Session or sharing settings changed. Refresh the local preview before uploading.");
+			}
+			const { share, options } = await shareContext(session);
+			const result = await share.shareSession(session.sessionManager, options);
+			return result.truncated || prepared.truncated ? { url: result.url, truncated: true } : { url: result.url };
+		},
+	}),
 
 	/** Stock RPC `cycle_model` only goes forward; the session method takes a direction. */
 	"composer.cycle_model": async (params, env) => {
 		const session = env.session() as Session;
-		requireMethod(session, "cycleModel");
+		requireFn(session, "cycleModel", "composer");
 		const { direction } = record(params);
 		return (await session.cycleModel(direction === "backward" ? "backward" : "forward")) ?? null;
 	},
@@ -282,7 +284,8 @@ export const methods: BridgeMethods = {
 	/** Pop the newest user-queued message back to the composer (TUI dequeue). */
 	"composer.dequeue": async (_params, env) => {
 		const session = env.session() as Session;
-		if (typeof session.popLastQueuedMessage !== "function") throw new Error("omp has no popLastQueuedMessage");
+		requireFn(session, "popLastQueuedMessage", "composer");
+		requireFn(session, "getQueuedMessages", "composer");
 		const before = session.getQueuedMessages();
 		const popped = session.popLastQueuedMessage();
 		if (!popped) return null;

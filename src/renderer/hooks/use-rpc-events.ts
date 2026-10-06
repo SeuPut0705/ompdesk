@@ -2,6 +2,7 @@ import {
 	applyModelInfo,
 	applySessionState,
 	applyUsageSnapshot,
+	attachTabSession,
 	hydrateLegacySession,
 	hydrateSession,
 	hydrateTabSession,
@@ -612,7 +613,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 						} else {
 							if (isFocused()) useUiStore.getState().clearSidecarError();
 							if (runtime) {
-								void hydrateTabSession(statusTabId);
+								// A pending open just switched sessions: never join a fetch started before it.
+								void (pending ? hydrateTabSession(statusTabId) : attachTabSession(statusTabId));
 							} else {
 								const wire = res.data as RpcSessionState;
 								applySessionState(wire);

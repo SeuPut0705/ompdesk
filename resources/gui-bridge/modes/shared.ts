@@ -57,19 +57,22 @@ export async function submitTurn(session: AgentSession, text: string, synthetic:
 const promptCache = new Map<string, string>();
 
 /**
- * An omp prompt template by its path under `src/prompts` (e.g. `system/btw-user.md`).
- * omp bundles its prompts into `dist/cli.js`, where the extension shim cannot
- * reach them, but the published package also ships `src/`, next to the `dist/`
- * the CLI runs from.
+ * Where omp keeps a prompt template, by its path under `src/prompts` (e.g.
+ * `system/btw-user.md`). omp bundles its prompts into `dist/cli.js`, where the
+ * extension shim cannot reach them, but the published package also ships
+ * `src/`, next to the `dist/` the CLI runs from.
  */
+export function ompPromptPath(relative: string): string {
+	return path.join(path.dirname(path.dirname(fs.realpathSync(Bun.main))), "src", "prompts", relative);
+}
+
+/** An omp prompt template (see `ompPromptPath`). */
 export function ompPrompt(relative: string): string {
 	const cached = promptCache.get(relative);
 	if (cached !== undefined) return cached;
-	const root = path.dirname(path.dirname(fs.realpathSync(Bun.main)));
-	const file = path.join(root, "src", "prompts", relative);
 	let text: string;
 	try {
-		text = fs.readFileSync(file, "utf8");
+		text = fs.readFileSync(ompPromptPath(relative), "utf8");
 	} catch (error) {
 		throw new Error(`This omp install has no prompt ${relative} (${errorMessage(error)})`);
 	}

@@ -7,6 +7,7 @@
  */
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import type { VibeOwnerScope, VibeParentSession } from "@oh-my-pi/pi-coding-agent/vibe/runtime";
+import { guard } from "../health";
 import type { BridgeMethods } from "../types";
 import { assertToolSession, attach, record } from "./shared";
 
@@ -64,7 +65,7 @@ async function exit(session: AgentSession): Promise<{ enabled: boolean; killedWo
 	return { enabled: false, killedWorkers: killed };
 }
 
-export const methods: BridgeMethods = {
+export const methods: BridgeMethods = guard("vibeMode", {
 	"modes.get_vibe_mode": async (_params, env) => ({
 		enabled: attach(env).getVibeModeState()?.enabled === true,
 	}),
@@ -74,4 +75,4 @@ export const methods: BridgeMethods = {
 		if (enabled === (session.getVibeModeState()?.enabled === true)) return { enabled };
 		return enabled ? enter(session) : exit(session);
 	},
-};
+});

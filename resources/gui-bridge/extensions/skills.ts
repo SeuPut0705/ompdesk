@@ -14,6 +14,7 @@ import { templateUsesInlineArgPlaceholders } from "@oh-my-pi/pi-coding-agent/con
 import { loadSkills } from "@oh-my-pi/pi-coding-agent/extensibility/skills";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { parseFrontmatter } from "@oh-my-pi/pi-utils";
+import { guard } from "../health";
 import type { BridgeMethods } from "../types";
 import { optString, paramsOf, readSetting, requireString, setExtensionDisabled } from "./shared";
 
@@ -82,7 +83,7 @@ async function findSkill(session: AgentSession, rawName: string): Promise<SkillI
 
 const hookKey = (hook: Hook) => `${hook.type}:${hook.tool}:${hook.name}`;
 
-export const methods: BridgeMethods = {
+export const methods: BridgeMethods = guard("skills", {
 	get_skills: async (_params, env) => ({ skills: await listSkills(env.session()) }),
 
 	/** Read a discovered skill by name, so the GUI can never name an arbitrary path. */
@@ -179,4 +180,4 @@ export const methods: BridgeMethods = {
 			argumentHint: templateUsesInlineArgPlaceholders(template.content) ? "[arguments]" : undefined,
 		})),
 	}),
-};
+});

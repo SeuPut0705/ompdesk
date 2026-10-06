@@ -6,6 +6,7 @@
  * and the TUI's guided-goal interview (`handleGuidedGoalCommand`).
  */
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { guard } from "../health";
 import type { BridgeMethods } from "../types";
 import { assertToolSession, attach, emit, errorMessage, ompPrompt, record, submitTurn } from "./shared";
 
@@ -45,7 +46,7 @@ async function guidedGoal(session: AgentSession, initial: string | undefined): P
 	return { started: true };
 }
 
-export const methods: BridgeMethods = {
+export const methods: BridgeMethods = guard("goalMode", {
 	"modes.guided_goal": async (params, env) => {
 		const initial = record(params).initial;
 		return guidedGoal(attach(env), typeof initial === "string" ? initial : undefined);
@@ -77,4 +78,4 @@ export const methods: BridgeMethods = {
 		const next = session.getGoalModeState() ?? null;
 		return { goal: next?.goal ?? null, state: next };
 	},
-};
+});

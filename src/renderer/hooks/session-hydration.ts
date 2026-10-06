@@ -290,10 +290,62 @@ export async function hydrateSession(fallbackName?: string): Promise<void> {
 	return hydrateTabSession(tabId, fallbackName);
 }
 
-/** Reload every renderer store belonging to one visible tab. */
-export async function hydrateTabSession(tabId: string, fallbackName?: string): Promise<void> {
-	if (isTabClosed(tabId)) return;
+/** The session a tab hydration was started for; undefined fields are not yet known. */
+interface HydrationTarget {
+	sessionId?: string;
+	sessionPath?: string;
+}
+
+const inFlightHydrations = new WeakMap<SessionRuntime, { target: HydrationTarget; promise: Promise<void> }>();
+
+function hydrationTarget(tabId: string): HydrationTarget {
+	const tab = useTabsStore.getState().tabs.find(entry => entry.id === tabId);
+	return { sessionId: tab?.sessionId, sessionPath: tab?.sessionPath };
+}
+
+/**
+ * Hydrate a tab whose sidecar just became visible or ready, joining a
+ * hydration of the same tab and session that is already in flight. Boot,
+ * ⌘T, and tab switches raise several such signals at once (TAB_STATUS ready,
+ * the full status channel, the GET_TABS fallback, the post-route check); each
+ * would otherwise page the whole transcript again. Callers that just changed
+ * the session's content (prompt, fork, tree navigation, compaction) must use
+ * `hydrateTabSession`, whose fetch starts after their change.
+ */
+export function attachTabSession(tabId: string): Promise<void> {
+	if (isTabClosed(tabId)) return Promise.resolve();
+	const inFlight = inFlightHydrations.get(ensureTabRuntime(tabId));
+	const target = hydrationTarget(tabId);
+	// Same rule as `applyTabStatus`: a field only proves a session change once both sides know it.
+	const sameSession =
+		inFlight !== undefined &&
+		(inFlight.target.sessionId === undefined ||
+			target.sessionId === undefined ||
+			inFlight.target.sessionId === target.sessionId) &&
+		(inFlight.target.sessionPath === undefined ||
+			target.sessionPath === undefined ||
+			inFlight.target.sessionPath === target.sessionPath);
+	return sameSession ? inFlight.promise : hydrateTabSession(tabId);
+}
+
+/**
+ * Reload every renderer store belonging to one visible tab. Always starts a
+ * fresh fetch, superseding any in-flight one; concurrent `attachTabSession`
+ * calls join it.
+ */
+export function hydrateTabSession(tabId: string, fallbackName?: string): Promise<void> {
+	if (isTabClosed(tabId)) return Promise.resolve();
 	const runtime = ensureTabRuntime(tabId);
+	const entry = { target: hydrationTarget(tabId), promise: loadTabSession(tabId, runtime, fallbackName) };
+	inFlightHydrations.set(runtime, entry);
+	const release = () => {
+		if (inFlightHydrations.get(runtime) === entry) inFlightHydrations.delete(runtime);
+	};
+	entry.promise.then(release, release);
+	return entry.promise;
+}
+
+async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackName?: string): Promise<void> {
 	const version = (hydrationVersions.get(runtime) ?? 0) + 1;
 	hydrationVersions.set(runtime, version);
 	const isCurrent = (): boolean => hydrationVersions.get(runtime) === version && sessionRuntime(tabId) === runtime;

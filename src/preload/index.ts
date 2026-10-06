@@ -194,6 +194,7 @@ const api: OmpApi = {
 			subscribe<DeepLinkPayload>(IPC_EVENTS.DEEP_LINK, callback),
 		onUpdaterStatus: (callback: (status: UpdateStatus) => void) =>
 			subscribe<UpdateStatus>(IPC_EVENTS.UPDATER_STATUS, callback),
+		onBridgeHealth: (callback: () => void) => subscribe<undefined>(IPC_EVENTS.BRIDGE_HEALTH, () => callback()),
 	},
 
 	updater: {
@@ -202,6 +203,10 @@ const api: OmpApi = {
 		apply: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_APPLY),
 		getStatus: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_GET_STATUS),
 		version: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_VERSION),
+	},
+
+	bridgeHealth: {
+		take: () => ipcRenderer.invoke(IPC_COMMANDS.BRIDGE_HEALTH_TAKE),
 	},
 
 	ui: {

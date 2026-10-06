@@ -39,7 +39,7 @@ import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
-import { hydrateSession, hydrateTabSession, useRpcEvents } from "./use-rpc-events";
+import { attachTabSession, hydrateSession, hydrateTabSession, useRpcEvents } from "./use-rpc-events";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 
@@ -1242,6 +1242,50 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 
 		expect(sessionRuntimeStore<MessagesStore>("t-page", "messages")?.getState().messages).toEqual([hydrated]);
 		expect(commandForTab.mock.calls.some(call => call[1]?.type === "get_transcript_page")).toBe(true);
+	});
+
+	it("shares one in-flight tab hydration per session and refetches after a session change or reload", async () => {
+		const { commandForTab } = installTabRoutedMockOmp();
+		seedReadyTab("t-once");
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab => (tab.id === "t-once" ? { ...tab, sessionId: "s1" } : tab)),
+		}));
+		const hydrated: AgentMessage = { role: "assistant", content: [{ type: "text", text: "once" }], timestamp: 3 };
+		const pages: Array<PromiseWithResolvers<RpcResponse>> = [];
+		const original = commandForTab.getMockImplementation()!;
+		commandForTab.mockImplementation(async (tabId, command) => {
+			if (command.type !== "get_transcript_page") return original(tabId, command);
+			const page = Promise.withResolvers<RpcResponse>();
+			pages.push(page);
+			return page.promise;
+		});
+		const settle = async (expected: number) => {
+			await flush();
+			expect(pages).toHaveLength(expected);
+			for (const page of pages) page.resolve(success({ messages: [hydrated], totalMessages: 1 }));
+		};
+
+		// TAB_STATUS ready, the full status channel, and the boot fallback land together.
+		const joined = [attachTabSession("t-once"), attachTabSession("t-once"), attachTabSession("t-once")];
+		expect(new Set(joined).size).toBe(1);
+		await settle(1);
+		await Promise.all(joined);
+		expect(sessionRuntimeStore<MessagesStore>("t-once", "messages")?.getState().messages).toEqual([hydrated]);
+
+		// Settled hydrations are not cached: the next attach fetches again.
+		const later = attachTabSession("t-once");
+		// An explicit reload never joins a fetch that started before it...
+		const reload = hydrateTabSession("t-once");
+		// ...but a following attach joins the reload.
+		expect(attachTabSession("t-once")).toBe(reload);
+		// A new session id on the same runtime starts its own fetch.
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab => (tab.id === "t-once" ? { ...tab, sessionId: "s2" } : tab)),
+		}));
+		const switched = attachTabSession("t-once");
+		expect(switched).not.toBe(reload);
+		await settle(4);
+		await Promise.all([later, reload, switched]);
 	});
 
 	it("clears the stale streaming bubble when the hydrated tab has settled", async () => {

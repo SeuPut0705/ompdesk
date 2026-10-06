@@ -16,6 +16,7 @@
 import type { LoopConditionConfig, LoopLimitRuntime } from "@oh-my-pi/pi-tui/status-line/loop";
 import type { LoopConditionVerdict } from "@oh-my-pi/pi-coding-agent/modes/loop-condition";
 import type { AgentSession, AgentSessionEvent } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { guard } from "../health";
 import type { BridgeMethods } from "../types";
 import {
 	assertToolSession,
@@ -257,7 +258,7 @@ async function enable(session: AgentSession, args: string): Promise<void> {
 	}
 }
 
-export const methods: BridgeMethods = {
+export const methods: BridgeMethods = guard("loopMode", {
 	"modes.get_loop_mode": async (_params, env) => {
 		attach(env);
 		return loopState();
@@ -269,4 +270,4 @@ export const methods: BridgeMethods = {
 		else if (!enabled) await enable(session, typeof args === "string" ? args : "");
 		return loopState();
 	},
-};
+});

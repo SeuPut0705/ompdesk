@@ -10,7 +10,7 @@ import { rmSync } from "node:fs";
 import * as net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { BridgeClient } from "./local/types";
+import { type BridgeClient, LocalCommandError } from "./local/types";
 
 type BridgeEvent = { type: string; [k: string]: unknown };
 
@@ -91,7 +91,7 @@ export class GuiBridgeClient implements BridgeClient {
 	async request<T = unknown>(method: string, params?: unknown): Promise<T> {
 		if (this.#connecting) await this.#connecting;
 		const socket = this.#socket;
-		if (!socket || socket.destroyed) throw new Error("GUI bridge is not connected");
+		if (!socket || socket.destroyed) throw new LocalCommandError("GUI bridge is not connected", "bridge_unavailable");
 		const id = ++this.#nextId;
 		const { promise, resolve, reject } = Promise.withResolvers<unknown>();
 		this.#pending.set(id, { resolve, reject });
@@ -142,15 +142,21 @@ export class GuiBridgeClient implements BridgeClient {
 		const pending = this.#pending.get(frame.id);
 		if (!pending) return;
 		this.#pending.delete(frame.id);
-		if ("ok" in frame && frame.ok === true) pending.resolve("result" in frame ? frame.result : undefined);
-		else
-			pending.reject(
-				new Error("error" in frame && typeof frame.error === "string" ? frame.error : "GUI bridge error"),
-			);
+		if ("ok" in frame && frame.ok === true) {
+			pending.resolve("result" in frame ? frame.result : undefined);
+			return;
+		}
+		const message = "error" in frame && typeof frame.error === "string" ? frame.error : "GUI bridge error";
+		// The bridge codes failures the GUI can explain (`unsupported_omp`: a missing omp internal).
+		pending.reject(
+			"code" in frame && typeof frame.code === "string"
+				? new LocalCommandError(message, frame.code)
+				: new Error(message),
+		);
 	}
 
 	#rejectAll(reason: string): void {
-		for (const pending of this.#pending.values()) pending.reject(new Error(reason));
+		for (const pending of this.#pending.values()) pending.reject(new LocalCommandError(reason, "bridge_unavailable"));
 		this.#pending.clear();
 	}
 }

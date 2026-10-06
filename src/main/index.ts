@@ -6,11 +6,12 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { app, BrowserWindow, globalShortcut, nativeImage, session } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, nativeImage, session } from "electron";
 import Store from "electron-store";
 import { nativeAccelerator } from "../shared/hotkeys";
-import type { SessionKind } from "../shared/ipc-types";
+import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
 import { installQuitGuard, requestQuit } from "./app-quit";
+import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { applyGpuFallbackIfNeeded, handleGpuProcessGone } from "./gpu-fallback";
@@ -306,6 +307,11 @@ app.whenReady().then(() => {
 	const explicitStartupCwd = resolveExplicitStartupCwd();
 	const bridgeDir = app.isPackaged ? join(process.resourcesPath, "gui-bridge") : join(devResourcesDir, "gui-bridge");
 	const sessionKinds = new SessionKindStore(join(app.getPath("userData"), "session-kinds.json"));
+	// gui-bridge compatibility warnings: once per omp version per launch, taken by whichever window asks first.
+	const bridgeHealth = new BridgeHealth(() => {
+		for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC_EVENTS.BRIDGE_HEALTH);
+	});
+	ipcMain.handle(IPC_COMMANDS.BRIDGE_HEALTH_TAKE, () => bridgeHealth.take());
 	sidecarPool = new SidecarPool((cwd, kind, fresh) => {
 		const sc = new SidecarManager({
 			// The status banner shows this text; localize it in the UI language.
@@ -349,6 +355,7 @@ app.whenReady().then(() => {
 					sc.markUnhealthy(`Health check timed out: ${err instanceof Error ? err.message : String(err)}`);
 				});
 		});
+		sc.on("bridge", (result: BridgeConnectResult) => void bridgeHealth.observe(result));
 		// omp has no session kind; remember which sessions chat tabs created.
 		if (kind === "chat") sc.on("session", ({ sessionId }) => sessionId && sessionKinds.markChat(sessionId));
 		return sc;

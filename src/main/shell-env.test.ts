@@ -11,6 +11,7 @@ import {
 	spawnPath,
 } from "./shell-env";
 import { SidecarManager } from "./sidecar";
+import { RM_TEMP, writeFakeOmp } from "./test-fake-omp";
 
 /**
  * shell-env contract: GUI-spawned processes must see the user's login-shell
@@ -34,6 +35,9 @@ function deleteEnv(key: string): void {
 	if (!savedEnv.has(key)) savedEnv.set(key, process.env[key]);
 	delete process.env[key];
 }
+
+/** Login-shell probing is POSIX-only by design; Windows behavior is pinned by the `win32`-injected tests below. */
+const itProbes = it.skipIf(process.platform === "win32");
 
 async function writeFakeShell(dir: string, body: string): Promise<string> {
 	const fakeShell = path.join(dir, "fake-shell");
@@ -69,7 +73,7 @@ afterEach(() => {
 });
 
 describe("resolveLoginShellEnv", () => {
-	it("extracts the env dump between markers even when the rc file prints noise", async () => {
+	itProbes("extracts the env dump between markers even when the rc file prints noise", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-shell-env-"));
 		try {
 			const fakeShell = await writeFakeShell(
@@ -90,10 +94,20 @@ describe("resolveLoginShellEnv", () => {
 		setEnv("SHELL", path.join(os.tmpdir(), "omp-no-such-shell"));
 		await expect(resolveLoginShellEnv()).resolves.toEqual({ env: {}, path: null, editor: null });
 	});
+
+	it("never runs the login shell on Windows", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-shell-env-"));
+		try {
+			setEnv("SHELL", await writeFakeShell(tempDir, envDumpBody({ PATH: "/probed/bin" }, false)));
+			await expect(resolveLoginShellEnv("win32")).resolves.toEqual({ env: {}, path: null, editor: null });
+		} finally {
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
 });
 
 describe("spawnPath", () => {
-	it("puts inherited PATH entries first and appends the probed shell PATH", async () => {
+	itProbes("puts inherited PATH entries first and appends the probed shell PATH", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-shell-env-"));
 		try {
 			const fakeShell = await writeFakeShell(tempDir, envDumpBody({ PATH: "/probed/bin" }, false));
@@ -108,28 +122,54 @@ describe("spawnPath", () => {
 	});
 
 	it("falls back to existing well-known user bin dirs when the probe fails", async () => {
-		// homedir() differs across runners: node honors the stubbed $HOME while
-		// Bun's compat resolves the real home. Stub first, then anchor the
-		// assertion on the same homedir() the module calls, and mkdir -p
-		// whichever it returns (a no-op when the dir already exists).
+		// homedir() differs across runners: node honors the stubbed $HOME
+		// (%USERPROFILE% on Windows) while Bun's compat resolves the real home.
+		// Stub first, then anchor the assertion on the same homedir() the module
+		// calls, and mkdir -p whichever it returns (a no-op when it exists).
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-shell-env-home-"));
 		setEnv("SHELL", path.join(os.tmpdir(), "omp-no-such-shell"));
 		setEnv("HOME", tempDir);
+		setEnv("USERPROFILE", tempDir);
 		setEnv("PATH", "/usr/bin");
 		const homeBin = path.join(homedir(), ".local", "bin");
 		await fs.mkdir(homeBin, { recursive: true });
 		try {
-			const entries = (await spawnPath()).split(":");
+			const entries = (await spawnPath()).split(path.delimiter);
 			expect(entries).toContain(homeBin);
 			expect(entries[0]).toBe("/usr/bin");
 		} finally {
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
+	it("appends the Windows per-user tool dirs, never a probed shell PATH, on Windows", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-shell-env-win-"));
+		setEnv("SHELL", await writeFakeShell(tempDir, envDumpBody({ PATH: "/probed/bin" }, false)));
+		setEnv("HOME", tempDir);
+		setEnv("USERPROFILE", tempDir);
+		setEnv("LOCALAPPDATA", path.join(tempDir, "Local"));
+		setEnv("APPDATA", path.join(tempDir, "Roaming"));
+		setEnv("PATH", ["/inherited/bin", "/usr/bin"].join(path.delimiter));
+		const bunBin = path.join(homedir(), ".bun", "bin");
+		const npmBin = path.join(tempDir, "Roaming", "npm");
+		await fs.mkdir(bunBin, { recursive: true });
+		await fs.mkdir(npmBin, { recursive: true });
+		try {
+			const entries = (await spawnPath("win32")).split(path.delimiter);
+			expect(entries.slice(0, 2)).toEqual(["/inherited/bin", "/usr/bin"]);
+			expect(entries).toContain(bunBin);
+			expect(entries).toContain(npmBin);
+			// Missing dirs stay off the PATH.
+			expect(entries).not.toContain(path.join(tempDir, "Local", "Programs", "bun"));
+			expect(entries).not.toContain("/probed/bin");
+		} finally {
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
 });
 
 describe("shellSpawnEnv", () => {
-	it("overlays shell-only keys (rc-exported API keys) but never keys the launch env defines", async () => {
+	itProbes("overlays shell-only keys (rc-exported API keys) but never keys the launch env defines", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-shell-env-"));
 		try {
 			const fakeShell = await writeFakeShell(
@@ -153,9 +193,22 @@ describe("shellSpawnEnv", () => {
 			expect(overlay.LAUNCH_WINS_KEY).toBeUndefined();
 			expect(overlay.HTTPS_PROXY).toBeUndefined();
 			expect(overlay.PWD).toBeUndefined();
-			expect(overlay.PATH.split(":")).toContain("/probed/bin");
+			expect(overlay.PATH.split(path.delimiter)).toContain("/probed/bin");
 		} finally {
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
+	it("overlays only the merged PATH on Windows", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-shell-env-"));
+		try {
+			setEnv("SHELL", await writeFakeShell(tempDir, envDumpBody({ SHELL_ONLY_API_KEY: "from-rc" }, false)));
+			deleteEnv("SHELL_ONLY_API_KEY");
+			const overlay = await shellSpawnEnv("win32");
+			expect(Object.keys(overlay)).toEqual(["PATH"]);
+			expect(overlay.PATH).toBe(await spawnPath("win32"));
+		} finally {
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
 });
@@ -165,18 +218,23 @@ describe("resolveEditorCommand", () => {
 		setEnv("VISUAL", "explicit-editor");
 		await expect(resolveEditorCommand()).resolves.toBe("explicit-editor");
 	});
+
+	it("falls back to notepad on Windows", async () => {
+		deleteEnv("VISUAL");
+		deleteEnv("EDITOR");
+		await expect(resolveEditorCommand("win32")).resolves.toBe("notepad");
+	});
 });
 
 describe("SidecarManager spawn env", () => {
 	it("injects the shellEnv overlay into the spawned process", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-env-"));
 		const envPath = path.join(tempDir, "env.json");
-		const binaryPath = path.join(tempDir, "fake-sidecar.ts");
-		await fs.writeFile(
-			binaryPath,
-			`#!/usr/bin/env bun\nimport * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, JSON.stringify({ PATH: process.env.PATH, KEY: process.env.PROBED_SHELL_KEY ?? null }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, JSON.stringify({ PATH: process.env.PATH, KEY: process.env.PROBED_SHELL_KEY ?? null }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
 		);
-		await fs.chmod(binaryPath, 0o755);
+		const shellProbed = path.join(tempDir, "shell-probed");
 
 		const sidecar = new SidecarManager({
 			omp: async () => ({
@@ -184,7 +242,11 @@ describe("SidecarManager spawn env", () => {
 				runtime: { bin: binaryPath, version: "18.6.1", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
 			}),
 			cwd: tempDir,
-			shellEnv: () => Promise.resolve({ PATH: `/shell-probed:${process.env.PATH}`, PROBED_SHELL_KEY: "present" }),
+			shellEnv: () =>
+				Promise.resolve({
+					PATH: [shellProbed, process.env.PATH].join(path.delimiter),
+					PROBED_SHELL_KEY: "present",
+				}),
 		});
 		const ready = Promise.withResolvers<void>();
 		sidecar.on("status", ({ status }) => {
@@ -194,11 +256,11 @@ describe("SidecarManager spawn env", () => {
 			sidecar.start();
 			await ready.promise;
 			const env = JSON.parse(await fs.readFile(envPath, "utf8")) as { PATH: string; KEY: string | null };
-			expect(env.PATH.startsWith("/shell-probed:")).toBe(true);
+			expect(env.PATH.split(path.delimiter)[0]).toBe(shellProbed);
 			expect(env.KEY).toBe("present");
 		} finally {
 			sidecar.dispose();
-			await fs.rm(tempDir, { recursive: true, force: true });
+			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
 });

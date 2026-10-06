@@ -15,6 +15,7 @@ import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { SETTING_TABS, TAB_GROUPS, TAB_METADATA } from "@oh-my-pi/pi-tui/overlays/settings-defs";
 import { getAgentDir, MAIN_CONFIG_FILENAMES } from "@oh-my-pi/pi-utils";
+import { guard } from "./health";
 import type { BridgeEnv, BridgeMethods } from "./types";
 
 type Rec = Record<string, unknown>;
@@ -389,41 +390,51 @@ const str = (params: unknown, key: string): string => {
 };
 
 export const methods: BridgeMethods = {
-	settings_schema: async (_params, env) => settingsSchema(env.session()),
-	settings_get: async (params, env) => {
-		const paths = asRecord(params).paths;
-		return getSettings(
-			env.session(),
-			Array.isArray(paths) ? paths.filter((path): path is string => typeof path === "string") : undefined,
-		);
-	},
-	settings_set: async (params, env) => setSetting(env, env.session(), str(params, "path"), asRecord(params).value),
-	models_catalog: async (params, env) =>
-		refreshCatalog(env, env.session(), asRecord(params).forceRefresh === true),
-	providers: async (params, env) => {
-		const session = env.session();
-		const catalog = await refreshCatalog(env, session, asRecord(params).forceRefresh === true);
-		return { providers: buildProviders(session), ...catalog };
-	},
-	provider_logout: async (params, env) => {
-		const session = env.session();
-		const providerId = str(params, "providerId");
-		await session.modelRegistry.authStorage.credentials.remove(providerId);
-		// Recompose without an authenticated network call so auth filtering updates immediately.
-		await session.modelRegistry.refreshProvider(providerId, "offline");
-		emitCatalogUpdate(env, session);
-		return { providerId };
-	},
-	usage: async (_params, env) => usage(env.session()),
-	model_roles: async (_params, env) => ({ roles: modelRoles(env.session()) }),
-	model_role_metadata: async (_params, env) => ({ roles: roleMetadata(env.session()) }),
-	model_role_set: async (params, env) => {
-		const session = env.session();
-		const role = str(params, "role");
-		const modelId = asRecord(params).modelId;
-		session.settings.setModelRole(role, typeof modelId === "string" && modelId ? modelId : undefined);
-		await session.settings.flush();
-		env.emit({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
-		return { role, modelId: typeof modelId === "string" ? modelId : null };
-	},
+	...guard("settings", {
+		settings_schema: async (_params, env) => settingsSchema(env.session()),
+		settings_get: async (params, env) => {
+			const paths = asRecord(params).paths;
+			return getSettings(
+				env.session(),
+				Array.isArray(paths) ? paths.filter((path): path is string => typeof path === "string") : undefined,
+			);
+		},
+		settings_set: async (params, env) => setSetting(env, env.session(), str(params, "path"), asRecord(params).value),
+	}),
+	...guard("models", {
+		models_catalog: async (params, env) =>
+			refreshCatalog(env, env.session(), asRecord(params).forceRefresh === true),
+	}),
+	...guard(["models", "providers"], {
+		providers: async (params, env) => {
+			const session = env.session();
+			const catalog = await refreshCatalog(env, session, asRecord(params).forceRefresh === true);
+			return { providers: buildProviders(session), ...catalog };
+		},
+		provider_logout: async (params, env) => {
+			const session = env.session();
+			const providerId = str(params, "providerId");
+			await session.modelRegistry.authStorage.credentials.remove(providerId);
+			// Recompose without an authenticated network call so auth filtering updates immediately.
+			await session.modelRegistry.refreshProvider(providerId, "offline");
+			emitCatalogUpdate(env, session);
+			return { providerId };
+		},
+	}),
+	...guard("usage", {
+		usage: async (_params, env) => usage(env.session()),
+	}),
+	...guard("modelRoles", {
+		model_roles: async (_params, env) => ({ roles: modelRoles(env.session()) }),
+		model_role_metadata: async (_params, env) => ({ roles: roleMetadata(env.session()) }),
+		model_role_set: async (params, env) => {
+			const session = env.session();
+			const role = str(params, "role");
+			const modelId = asRecord(params).modelId;
+			session.settings.setModelRole(role, typeof modelId === "string" && modelId ? modelId : undefined);
+			await session.settings.flush();
+			env.emit({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
+			return { role, modelId: typeof modelId === "string" ? modelId : null };
+		},
+	}),
 };

@@ -45,6 +45,7 @@ import { useRpcEvents } from "./hooks/use-rpc-events";
 import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch";
 import { useSidebarRecency } from "./hooks/use-sidebar-recency";
 import { useTraySync } from "./hooks/use-tray-sync";
+import { subscribeBridgeHealth } from "./lib/bridge-health";
 import { restartSidecarFromGui, retryFailedTurn, runSessionCommand } from "./lib/command-registry";
 import {
 	hydrateDisplayPreferences,
@@ -538,6 +539,8 @@ export function App() {
 
 	// Updater status: main-process push + boot replay, unsubscribed on unmount.
 	useEffect(() => subscribeUpdaterStatus(), []);
+	// gui-bridge compatibility warnings: main-process signal + boot drain.
+	useEffect(() => subscribeBridgeHealth(), []);
 
 	useEffect(() => {
 		const run = async (action: MenuAction, payload?: MenuActionPayload) => {

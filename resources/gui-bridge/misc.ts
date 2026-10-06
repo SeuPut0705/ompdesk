@@ -38,6 +38,7 @@ import { ttsClient } from "@oh-my-pi/pi-coding-agent/tts/tts-client";
 import { resolveLocalSpeechModelId } from "@oh-my-pi/pi-coding-agent/tts/vocalizer";
 import { encodeWav } from "@oh-my-pi/pi-coding-agent/tts/wav";
 import { $which, getSSHConfigPath } from "@oh-my-pi/pi-utils";
+import { guard } from "./health";
 import type { BridgeMethods } from "./types";
 
 type Rec = Record<string, unknown>;
@@ -427,39 +428,51 @@ async function testSshHost(params: unknown) {
 // ============================================================================
 
 export const methods: BridgeMethods = {
-	transcribe_audio: async (params, env) => transcribe(env.session(), str(params, "audioBase64")),
-	synthesize_speech: async (params, env) => {
-		const text = asRecord(params).text;
-		return synthesize(env.session(), typeof text === "string" ? text : "");
-	},
-	debug: async (params, env) => {
-		const session = env.session();
-		const toolSession = { cwd: session.sessionManager.getCwd(), hasUI: true, settings: session.settings } as ToolSession;
-		const result = await new DebugTool(toolSession).execute(
-			`gui-debug-${Date.now()}`,
-			asRecord(asRecord(params).params) as DebugParams,
-		);
-		return { content: result.content, details: result.details };
-	},
-	security_dashboard: async (_params, env) => securityDashboard(env.session()),
-	security_scan: async (params, env) => securityScan(env.session(), str(params, "scanId")),
-	security_start: async (params, env) => {
-		const coordinator = securityCoordinator(env.session());
-		const plan = await coordinator.preflight({ target: asRecord(params).target as SecurityTargetRequest });
-		return projectOperation(await coordinator.start({ planId: plan.id }));
-	},
-	security_cancel: async (params, env) => ({
-		cancelled: await securityCoordinator(env.session()).cancel(str(params, "operationId")),
+	...guard("voice", {
+		transcribe_audio: async (params, env) => transcribe(env.session(), str(params, "audioBase64")),
+		synthesize_speech: async (params, env) => {
+			const text = asRecord(params).text;
+			return synthesize(env.session(), typeof text === "string" ? text : "");
+		},
 	}),
-	security_set_disposition: async (params, env) => setDisposition(env.session(), params),
-	security_validation_prompt: async (params, env) => {
-		const scanId = str(params, "scanId");
-		const findingId = str(params, "findingId");
-		const store = await SecurityStore.openForCwd(env.session().sessionManager.getCwd());
-		if (!(await store.getFinding(scanId, findingId))) throw new Error(`Unknown security finding: ${findingId}`);
-		return { prompt: validationPrompt(scanId, findingId) };
-	},
-	ssh_hosts: async (_params, env) => sshHosts(env.session()),
-	ssh_manage: async (params, env) => manageSshHost(env.session(), params),
-	ssh_test: async params => testSshHost(params),
+	...guard("debug", {
+		debug: async (params, env) => {
+			const session = env.session();
+			const toolSession = {
+				cwd: session.sessionManager.getCwd(),
+				hasUI: true,
+				settings: session.settings,
+			} as ToolSession;
+			const result = await new DebugTool(toolSession).execute(
+				`gui-debug-${Date.now()}`,
+				asRecord(asRecord(params).params) as DebugParams,
+			);
+			return { content: result.content, details: result.details };
+		},
+	}),
+	...guard("security", {
+		security_dashboard: async (_params, env) => securityDashboard(env.session()),
+		security_scan: async (params, env) => securityScan(env.session(), str(params, "scanId")),
+		security_start: async (params, env) => {
+			const coordinator = securityCoordinator(env.session());
+			const plan = await coordinator.preflight({ target: asRecord(params).target as SecurityTargetRequest });
+			return projectOperation(await coordinator.start({ planId: plan.id }));
+		},
+		security_cancel: async (params, env) => ({
+			cancelled: await securityCoordinator(env.session()).cancel(str(params, "operationId")),
+		}),
+		security_set_disposition: async (params, env) => setDisposition(env.session(), params),
+		security_validation_prompt: async (params, env) => {
+			const scanId = str(params, "scanId");
+			const findingId = str(params, "findingId");
+			const store = await SecurityStore.openForCwd(env.session().sessionManager.getCwd());
+			if (!(await store.getFinding(scanId, findingId))) throw new Error(`Unknown security finding: ${findingId}`);
+			return { prompt: validationPrompt(scanId, findingId) };
+		},
+	}),
+	...guard("ssh", {
+		ssh_hosts: async (_params, env) => sshHosts(env.session()),
+		ssh_manage: async (params, env) => manageSshHost(env.session(), params),
+		ssh_test: async params => testSshHost(params),
+	}),
 };

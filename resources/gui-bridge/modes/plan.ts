@@ -13,6 +13,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { AgentSession, AgentSessionEvent } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import type { PlanProposalHandler } from "@oh-my-pi/pi-coding-agent/tools/resolve";
+import { guard } from "../health";
 import type { BridgeMethods } from "../types";
 import {
 	assertToolSession,
@@ -248,7 +249,7 @@ async function approve(session: AgentSession, params: Record<string, unknown>): 
 	return { approved: true, dispatched: true };
 }
 
-export const methods: BridgeMethods = {
+export const methods: BridgeMethods = guard("planMode", {
 	"modes.get_plan_mode": async (_params, env) => {
 		const session = attach(env);
 		// A resumed or switched-to session may already carry plan mode.
@@ -269,4 +270,4 @@ export const methods: BridgeMethods = {
 	"modes.plan_approval": async (params, env) => {
 		return approve(attach(env), record(params));
 	},
-};
+});
