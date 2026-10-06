@@ -196,18 +196,24 @@ export function useCompletionMenu({
 		const cmdMatch = /(^|\s)\/([a-z-]*)$/i.exec(before);
 		if (cmdMatch) {
 			const query = (cmdMatch[2] ?? "").toLowerCase();
+			// Exact name/alias first, then prefix, then substring: typing `/plan` +
+			// Enter must pick /plan, not an earlier-listed `/skill:…-plan`.
+			const rank = (command: AvailableCommand): number => {
+				const names = [command.name, ...(command.aliases ?? [])].map(name => name.toLowerCase());
+				if (!query) return 0;
+				if (names.includes(query)) return 0;
+				if (names.some(name => name.startsWith(query))) return 1;
+				if (names.some(name => name.includes(query))) return 2;
+				return -1;
+			};
 			const items = commands
-				.filter(
-					command =>
-						// Every surface shares one availability rule: never offer a command
-						// that does nothing in this tab kind.
-						isCommandAvailable(tabKind, command.name) &&
-						(!query ||
-							command.name.toLowerCase().includes(query) ||
-							command.aliases?.some(alias => alias.toLowerCase().includes(query))),
-				)
+				// Every surface shares one availability rule: never offer a command
+				// that does nothing in this tab kind.
+				.filter(command => isCommandAvailable(tabKind, command.name) && rank(command) >= 0)
+				.map((command, index) => ({ command, index, rank: rank(command) }))
+				.sort((a, b) => a.rank - b.rank || a.index - b.index)
 				.slice(0, MAX_MENU_ITEMS)
-				.map(command => ({
+				.map(({ command }) => ({
 					value: `/${command.name} `,
 					label: `/${command.name}`,
 					description: command.description,

@@ -24,6 +24,7 @@ First release of omp GUI as its own project. Derived from [nornzach/oh-my-pi-gui
 - A packaged app ignored the project folder passed on the command line.
 - A missing or too-old omp left the window at "Connecting…" with no explanation; the reason and the install/update command now show in the UI language.
 - "Remove global override" in settings failed for settings without a default.
+- Typed GUI commands stock omp does not advertise (`/plan`, `/loop`, `/goal`, `/vibe`, `/tan`, `/omfg`, `/pause`, `/settings`, …) were sent to the model as text, and slash completion offered a skill instead (`/plan` + Enter → `/skill:…-plan`). They are now listed in completion and run natively; completion ranks exact, then prefix, then substring matches.
 
 ### Removed or narrowed compared to the fork-based GUI
 

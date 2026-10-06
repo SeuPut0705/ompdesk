@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from "react-dom";
 import type { AvailableCommand, ImageContent } from "../../../shared/rpc-types";
 import { useOverlayPresence } from "../../hooks/use-overlay-presence";
+import { withGuiCommands } from "../../lib/command-registry";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { tryEmojiInlineReplace } from "../../lib/emoji";
 import { cx } from "../../lib/format";
@@ -256,7 +257,7 @@ export function InputArea() {
 	useEffect(() => {
 		let cancelled = false;
 		const applyCommands = (next: AvailableCommand[], tabId: string | null) => {
-			if (!cancelled && tabId === runtimeTabId) setCommands(next);
+			if (!cancelled && tabId === runtimeTabId) setCommands(withGuiCommands(next));
 		};
 		const unsubscribe =
 			typeof window.omp.events.onTabCommandsUpdate === "function"
@@ -272,7 +273,7 @@ export function InputArea() {
 				)
 					return;
 				const data = res.data as { commands?: AvailableCommand[] } | undefined;
-				setCommands(data?.commands ?? []);
+				setCommands(withGuiCommands(data?.commands ?? []));
 			});
 		};
 		load();

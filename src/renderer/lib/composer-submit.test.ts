@@ -13,6 +13,7 @@ import type { AvailableCommand, RpcResponse } from "../../shared/rpc-types";
 import { useSessionStore } from "../stores/session";
 import { useToastStore } from "../stores/toast";
 import { useUiStore } from "../stores/ui";
+import { withGuiCommands } from "./command-registry";
 import { planComposerSubmit, settleComposerResponse } from "./composer-submit";
 
 function success(data: unknown): RpcResponse {
@@ -28,6 +29,7 @@ interface MockOmp {
 		dropSession: Mock<() => Promise<RpcResponse>>;
 		guidedGoal: Mock<(initial?: string) => Promise<RpcResponse>>;
 		setAgentsPaused: Mock<(enabled: boolean) => Promise<RpcResponse>>;
+		setPlanMode: Mock<(enabled: boolean) => Promise<RpcResponse>>;
 		tan: Mock<(work: string) => Promise<RpcResponse>>;
 		omfg: Mock<(complaint: string) => Promise<RpcResponse>>;
 		getState: Mock<() => Promise<RpcResponse>>;
@@ -49,6 +51,7 @@ function installMockOmp(): MockOmp {
 			dropSession: vi.fn(async () => success({ cancelled: false })),
 			guidedGoal: vi.fn(async () => success({ started: true })),
 			setAgentsPaused: vi.fn(async enabled => success({ paused: enabled, pausedAt: enabled ? 123 : undefined })),
+			setPlanMode: vi.fn(async enabled => success({ enabled })),
 			tan: vi.fn(async () => success({ jobId: "job-1" })),
 			omfg: vi.fn(async () => success({ state: "saved", savedPath: "/tmp/rule.md" })),
 			getState: vi.fn(async () =>
@@ -318,6 +321,36 @@ describe("planComposerSubmit GUI-only routing", () => {
 		expect(omp.rpc.setAgentsPaused).toHaveBeenCalledWith(true);
 		expect(useSessionStore.getState().agentsPaused).toBe(true);
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+	});
+
+	it("serves /plan natively even though stock omp does not advertise it", async () => {
+		const omp = installMockOmp();
+		const submit = planComposerSubmit({
+			message: "/plan",
+			images: [],
+			isStreaming: false,
+			mode: "prompt",
+			// Stock lists its own builtins but not /plan; the composer merges GUI commands in.
+			commands: withGuiCommands([{ name: "compact", source: "builtin", description: "compact" }]),
+		});
+		await Promise.resolve();
+
+		expect(submit.kind).toBe("handled");
+		expect(omp.rpc.setPlanMode).toHaveBeenCalledWith(true);
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+	});
+
+	it("still sends an unknown slash command to the agent", () => {
+		const omp = installMockOmp();
+		const submit = planComposerSubmit({
+			message: "/definitely-not-a-command hi",
+			images: [],
+			isStreaming: false,
+			mode: "prompt",
+			commands: withGuiCommands([{ name: "compact", source: "builtin", description: "compact" }]),
+		});
+		expect(submit.kind).toBe("send");
+		expect(omp.rpc.setPlanMode).not.toHaveBeenCalled();
 	});
 
 	it("opens the native copy selector for typed /copy", () => {

@@ -1735,6 +1735,31 @@ export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): 
 	});
 }
 
+/**
+ * Stock omp's `get_available_commands` lists only its own builtins, not the
+ * modes and windows the GUI serves itself (/plan, /loop, /goal, /btw, /tan,
+ * /settings, …). Append those as GUI-only builtins so slash completion offers
+ * them and composer submit runs their affordance instead of sending the text
+ * to the model.
+ */
+export function withGuiCommands(stock: AvailableCommand[]): AvailableCommand[] {
+	const advertised = new Set(stock.flatMap(command => [command.name, ...(command.aliases ?? [])]));
+	const gui: AvailableCommand[] = [];
+	for (const item of buildCurrentCommandMenu(stock)) {
+		const kind = item.affordance.kind;
+		if (kind !== "action" && kind !== "toggle" && kind !== "picker" && kind !== "window") continue;
+		if (advertised.has(item.name) || item.aliases?.some(alias => advertised.has(alias))) continue;
+		gui.push({
+			name: item.name,
+			aliases: item.aliases,
+			description: item.description ?? item.label,
+			source: "builtin",
+			textModeExecutable: false,
+		});
+	}
+	return [...stock, ...gui];
+}
+
 export function groupByCategory(items: CommandMenuItem[]): Map<CommandCategory, CommandMenuItem[]> {
 	const groups = new Map<CommandCategory, CommandMenuItem[]>();
 	for (const item of items) {
