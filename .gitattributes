@@ -1,0 +1,6 @@
+# LF everywhere: biome checks formatting byte-for-byte, and Windows checkouts
+# would otherwise convert to CRLF.
+* text=auto eol=lf
+*.png binary
+*.icns binary
+*.ico binary
