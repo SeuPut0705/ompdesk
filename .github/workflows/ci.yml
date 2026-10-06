@@ -1,0 +1,31 @@
+# Typecheck, lint, and unit/component tests on both supported platforms.
+# Windows runs catch path, PATH-lookup, and named-pipe assumptions that a Mac
+# never exercises. E2E stays local: it needs the user's omp and a display.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run check:types
+      - run: bunx biome check src e2e
+      - run: bunx vitest run
+      - run: bun run build
