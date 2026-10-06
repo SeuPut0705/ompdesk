@@ -91,9 +91,10 @@ test("system omp persists settings and sessions and serves every stats route", a
 		await expect(welcome).toHaveCount(0);
 	};
 	try {
+		// The whole payload, so a failure prints the sidecar's error message too.
 		await expect
-			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
-			.toBe("ready");
+			.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 60_000 })
+			.toMatchObject({ status: "ready" });
 		const runtime = await app.evaluate(({ app }) => ({
 			isPackaged: app.isPackaged,
 			appPath: app.getAppPath(),

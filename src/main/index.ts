@@ -11,6 +11,7 @@ import Store from "electron-store";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
 import { installQuitGuard, requestQuit } from "./app-quit";
+import { bootModelSelector } from "./boot-model";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
@@ -56,8 +57,13 @@ if (!gotLock) {
 // Test runs (OMP_GUI_HEADLESS=1, set by playwright.config.ts) must not cover
 // or take focus from the desktop. Hidden windows would stop rendering
 // (Chromium pauses animation frames), so windows stay "shown" but transparent,
-// click-through, off the Dock/taskbar, and unable to grab focus.
+// click-through, off the Dock/taskbar, and unable to grab focus. A transparent
+// window — or any window on a locked/headless CI display — also counts as
+// occluded, which throttles timers and frames just the same; opt out of that.
 if (process.env.OMP_GUI_HEADLESS === "1") {
+	app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+	app.commandLine.appendSwitch("disable-renderer-backgrounding");
+	app.commandLine.appendSwitch("disable-background-timer-throttling");
 	if (process.platform === "darwin") app.setActivationPolicy("accessory");
 	app.on("browser-window-created", (_event, win) => {
 		win.setOpacity(0);
@@ -327,6 +333,7 @@ app.whenReady().then(() => {
 			fresh,
 			proxyEnv: resolveProxyEnvForSpawn,
 			shellEnv: shellSpawnEnv,
+			bootModel: runtime => bootModelSelector(runtime, bridgeDir),
 			// Finder-launched omp has no terminal, and a sidecar that dies before
 			// it can write its own log only speaks through stderr — land the tail
 			// in gui-runtime.jsonl so it is readable after the fact.

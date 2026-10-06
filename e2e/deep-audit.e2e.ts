@@ -660,8 +660,8 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 		app = await launchAuditApp(profile, project, desktop, agent);
 		const page = await app.firstWindow();
 		await expect
-			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 90_000 })
-			.toBe("ready");
+			.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 90_000 })
+			.toMatchObject({ status: "ready" });
 		evidence.runtime = await app.evaluate(({ app }) => ({
 			isPackaged: app.isPackaged,
 			appPath: app.getAppPath(),

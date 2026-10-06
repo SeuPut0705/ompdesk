@@ -34,6 +34,7 @@ import type {
 	SubagentFrame,
 } from "../shared/rpc-types";
 import { BTW_FRAME_TYPES, LIVE_FRAME_TYPES } from "../shared/rpc-types";
+import { isNoModelBootFailure } from "./boot-model";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import type { BridgeConnectResult } from "./bridge-health";
 import { EventBatcher } from "./event-batcher";
@@ -176,6 +177,11 @@ export interface SidecarOptions {
 	 * Electron's `app`, so the manager must keep working without it.
 	 */
 	reportFailure?: (report: SidecarFailureReport) => void;
+	/**
+	 * A catalog `provider/model` selector for `runtime` (src/main/boot-model.ts).
+	 * Absent: a spawn that exits with "No models available" just crash-loops.
+	 */
+	bootModel?: (runtime: OmpRuntime) => Promise<string>;
 }
 
 /** One crash-loop step, as handed to `reportFailure`. */
@@ -280,6 +286,12 @@ export class SidecarManager extends EventEmitter {
 	 * carries it so the renderer can say so.
 	 */
 	#bootModelFallback: string | null = null;
+	/**
+	 * Catalog model the next spawns pass as `--model` after one exited with "No
+	 * models available" (no credentials yet): booting is what lets the renderer
+	 * open onboarding to connect a provider. Cleared on `ready` and restart().
+	 */
+	#noModelBoot: string | null = null;
 	/** Last session identity `get_state` reported; null when a session change made it unknown. */
 	#session: SidecarSessionIdentity | null = null;
 	/** Newest session entry seen by the `agent_end` entry-id fetch (its `get_entries` cursor). */
@@ -369,7 +381,8 @@ export class SidecarManager extends EventEmitter {
 		const args = ["--mode", "rpc-ui"];
 		if (this.#resumeSessionPath) args.push("--session", this.#resumeSessionPath);
 		else if (this.#freshLaunchPending && bridgeDir) args.push("--config", join(bridgeDir, FRESH_LAUNCH_CONFIG));
-		if (this.#bootModelFallback) args.push("--model", DEFAULT_ROLE_MODEL_SELECTOR);
+		if (this.#noModelBoot) args.push("--model", this.#noModelBoot);
+		else if (this.#bootModelFallback) args.push("--model", DEFAULT_ROLE_MODEL_SELECTOR);
 		if (this.#options.kind === "chat") args.push("--no-tools");
 		const bridgeAddress = bridgeDir ? newBridgeAddress() : null;
 		if (bridgeDir) args.push("-e", join(bridgeDir, BRIDGE_ENTRY));
@@ -466,6 +479,8 @@ export class SidecarManager extends EventEmitter {
 				this.#setStatus("exited", "Normal shutdown");
 			} else if (this.#recoverBootModelRestore()) {
 				this.#spawn();
+			} else if (this.#recoverNoModelBoot()) {
+				// Respawns once the catalog selector resolves.
 			} else {
 				const msg = `Exit code ${code}${signal ? ` (signal: ${signal})` : ""}`;
 				this.#attemptRestart(msg);
@@ -685,6 +700,7 @@ export class SidecarManager extends EventEmitter {
 		this.#bootedThisSpawn = true;
 		const modelFallback = this.#bootModelFallback ?? undefined;
 		this.#bootModelFallback = null;
+		this.#noModelBoot = null;
 		// Freshness is a creation contract, not a restart policy. Once the new
 		// tab has booted successfully, later crash/manual restarts may auto-resume
 		// the session it has since created or opened.
@@ -789,6 +805,28 @@ export class SidecarManager extends EventEmitter {
 		return true;
 	}
 
+	/**
+	 * Stock omp exits before `ready` when no model has credentials, and would on
+	 * every retry. Arm one respawn with an explicit catalog model instead
+	 * (outside the crash budget); true when armed. A spawn that already carried
+	 * it falls through to the crash-loop path.
+	 */
+	#recoverNoModelBoot(): boolean {
+		const resolve = this.#options.bootModel;
+		const runtime = this.#runtime;
+		if (!resolve || !runtime || this.#bootedThisSpawn || this.#noModelBoot) return false;
+		if (!isNoModelBootFailure(this.#lastStderr.join("\n"))) return false;
+		// kill()/restart() while the selector resolves advance the generation.
+		const generation = this.#generation;
+		void resolve(runtime).then(selector => {
+			if (!this.#isLive(generation) || this.#child) return;
+			console.warn(`[sidecar] omp has no usable model — booting on ${selector} so onboarding can connect one`);
+			this.#noModelBoot = selector;
+			this.#spawn();
+		});
+		return true;
+	}
+
 	#setStatus(status: SidecarStatus, message?: string, restart?: SidecarRestartProgress, modelFallback?: string): void {
 		this.#status = status;
 		this.#statusDetail = { message, restart, modelFallback };
@@ -847,6 +885,7 @@ export class SidecarManager extends EventEmitter {
 		if (cwd) this.#options = { ...this.#options, cwd };
 		this.#resumeSessionPath = resumeSessionPath ?? null;
 		this.#bootModelFallback = null;
+		this.#noModelBoot = null;
 		this.#restartCount = 0;
 		this.start();
 	}
