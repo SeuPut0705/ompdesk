@@ -199,16 +199,23 @@ describe("ProvidersSection", () => {
 	});
 
 	it("re-reads while discovery is still running and drops the waiting banner once it lands", async () => {
+		// Hold the re-read until the waiting banner is asserted: on a slow runner
+		// the 25ms poll would otherwise land before the first check.
+		const discoveryDone = Promise.withResolvers<void>();
 		getProviders
 			.mockResolvedValueOnce(
 				providersResponse(snapshot([row("my-proxy", { name: "My Proxy" })], { refreshPending: true })),
 			)
-			.mockResolvedValue(
-				providersResponse(snapshot([row("my-proxy", { name: "My Proxy", modelCount: 12 })], { generation: 2 })),
-			);
+			.mockImplementation(async () => {
+				await discoveryDone.promise;
+				return providersResponse(
+					snapshot([row("my-proxy", { name: "My Proxy", modelCount: 12 })], { generation: 2 }),
+				);
+			});
 		useSessionStore.setState({ status: "ready" });
 		await mount(<ProvidersSection pollMs={25} />);
 		expect(text()).toContain(translate("providers.refreshPending"));
+		discoveryDone.resolve();
 
 		const deadline = Date.now() + 10_000;
 		const landed = translate("providers.models", { count: 12 });
