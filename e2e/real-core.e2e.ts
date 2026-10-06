@@ -24,45 +24,48 @@ test("system omp persists settings and sessions and serves every stats route", a
 		}),
 	);
 	await fs.writeFile(path.join(project, "README.md"), "# Local ARM audit\n");
-	// A persisted session for the restore-from-disk path. Stock omp writes a
-	// session file only after a model reply, which this credential-less profile
-	// cannot produce, so seed one in the stock JSONL format.
+	// A persisted session for the restore-from-disk path, in the stock JSONL
+	// format. It holds a user turn and a `!` bash run, as this credential-less
+	// profile can produce: an assistant reply would name a model, and omp ≥ 18.6.3
+	// refuses to open a session whose saved model it cannot restore. Written once
+	// omp reports its cwd: stock refuses a session recorded elsewhere, and Windows
+	// temp paths come back long-named where os.tmpdir() spells them 8.3.
 	const seededSession = path.join(agent, "sessions", "seeded", "seeded-session.jsonl");
-	await fs.mkdir(path.dirname(seededSession), { recursive: true });
-	const at = new Date().toISOString();
-	const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
-	await fs.writeFile(
-		seededSession,
-		[
-			{ type: "session", version: 3, id: "01a11000-0000-7000-8000-00000000seed", timestamp: at, cwd: project },
-			{
-				type: "message",
-				id: "seed0001",
-				parentId: null,
-				timestamp: at,
-				message: { role: "user", content: [{ type: "text", text: "run the audit" }], timestamp: Date.now() },
-			},
-			{
-				type: "message",
-				id: "seed0002",
-				parentId: "seed0001",
-				timestamp: at,
-				message: {
-					role: "assistant",
-					content: [{ type: "text", text: "arm audit ok" }],
-					api: "anthropic-messages",
-					provider: "anthropic",
-					model: "claude-opus-5-5",
-					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: zero },
-					stopReason: "stop",
-					timestamp: Date.now(),
+	const seedSession = async (cwd: string) => {
+		await fs.mkdir(path.dirname(seededSession), { recursive: true });
+		const at = new Date().toISOString();
+		await fs.writeFile(
+			seededSession,
+			[
+				{ type: "session", version: 3, id: "01a11000-0000-7000-8000-00000000seed", timestamp: at, cwd },
+				{
+					type: "message",
+					id: "seed0001",
+					parentId: null,
+					timestamp: at,
+					message: { role: "user", content: [{ type: "text", text: "run the audit" }], timestamp: Date.now() },
 				},
-			},
-		]
-			.map(entry => JSON.stringify(entry))
-			.join("\n")
-			.concat("\n"),
-	);
+				{
+					type: "message",
+					id: "seed0002",
+					parentId: "seed0001",
+					timestamp: at,
+					message: {
+						role: "bashExecution",
+						command: "printf 'arm audit ok'",
+						output: "arm audit ok",
+						exitCode: 0,
+						cancelled: false,
+						truncated: false,
+						timestamp: Date.now(),
+					},
+				},
+			]
+				.map(entry => JSON.stringify(entry))
+				.join("\n")
+				.concat("\n"),
+		);
+	};
 	const env = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agent,
@@ -185,17 +188,14 @@ test("system omp persists settings and sessions and serves every stats route", a
 			})
 			.not.toBe(original.sessionId);
 		await expect(page.getByText("The originating session was replaced or closed.", { exact: false })).toHaveCount(0);
-		// The seeded reply names a model this credential-less profile cannot
-		// restore, and stock omp fails such a switch closed. Bind the session to
-		// the model omp booted on, as the app's model-restore prompt does.
+		await seedSession(original.cwd);
 		await page.evaluate(async sessionPath => {
-			const state = await window.omp.rpc.getState();
-			const model = state.success ? (state.data as RpcSessionState).model : null;
-			const result = await window.omp.rpc.switchSession(
-				sessionPath,
-				model ? { provider: model.provider, modelId: model.id } : undefined,
-			);
+			const result = await window.omp.rpc.switchSession(sessionPath);
 			if (!result.success) throw new Error(result.error);
+			const { data } = result;
+			if (data && typeof data === "object" && "cancelled" in data && data.cancelled === true) {
+				throw new Error("switch_session was cancelled");
+			}
 		}, seededSession);
 		await page.reload();
 		await expect(page.locator("[data-transcript-kind]").filter({ hasText: "arm audit ok" })).toHaveCount(1);

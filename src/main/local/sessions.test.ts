@@ -186,3 +186,38 @@ describe("get_transcript_page", () => {
 		expect(fetches).toBeLessThanOrEqual(3);
 	});
 });
+
+describe("switch_session", () => {
+	const switchWith = async (version: string) => {
+		const sent: Record<string, unknown>[] = [];
+		const ctx: LocalCommandContext = {
+			cwd: "/tmp",
+			omp: { bin: "omp", version, run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+			bridge: new GuiBridgeClient(""),
+			emit: () => {},
+			send: async <T>(command: { type: string }) => {
+				sent.push(command);
+				return { cancelled: false } as T;
+			},
+		};
+		const switchSession = handlers.switch_session as (
+			command: { type: string; sessionPath: string; provider?: string; modelId?: string },
+			ctx: LocalCommandContext,
+		) => Promise<{ cancelled: boolean }>;
+		await switchSession({ type: "switch_session", sessionPath: "/s.jsonl", provider: "p", modelId: "m" }, ctx);
+		return sent;
+	};
+
+	it("binds an explicit model in the switch on omp that refuses unrestorable sessions", async () => {
+		expect(await switchWith("18.6.3")).toEqual([
+			{ type: "switch_session", sessionPath: "/s.jsonl", provider: "p", modelId: "m" },
+		]);
+	});
+
+	it("sets the explicit model after the switch on older omp", async () => {
+		expect(await switchWith("18.6.1")).toEqual([
+			{ type: "switch_session", sessionPath: "/s.jsonl", provider: "p", modelId: "m" },
+			{ type: "set_model", provider: "p", modelId: "m" },
+		]);
+	});
+});
