@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { fixtureOmp } from "./fixture-omp";
+import { exitApp, fixtureOmp } from "./harness";
 
 test("streaming with 50k history preserves the reading anchor, supports five tasks, and recovers a draft after restart", async () => {
 	test.setTimeout(180_000);
@@ -121,8 +121,7 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		await page.screenshot({ path: "test-results/runtime-recovered.png", scale: "css", animations: "disabled" });
 		expect(errors).toEqual([]);
 	} finally {
-		// Test teardown bypasses the production quit confirmation.
-		await app.evaluate(({ app }) => app.exit(0));
+		await exitApp(app);
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 });

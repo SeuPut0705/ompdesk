@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { fixtureOmp } from "./fixture-omp";
+import { exitApp, fixtureOmp } from "./harness";
 
 test("bounded history rendering and input responsiveness across 5k, 20k and 50k messages", async () => {
 	test.skip(process.env.OMP_GUI_PERFORMANCE !== "1", "Explicit local performance audit");
@@ -96,8 +96,7 @@ test("bounded history rendering and input responsiveness across 5k, 20k and 50k 
 					await fs.writeFile("test-results/performance.json", JSON.stringify(results, null, 2));
 					expect(errors).toEqual([]);
 				} finally {
-					// Test teardown bypasses the production quit latch (src/main/app-quit.ts), which `app.close()` waits on.
-					await app.evaluate(({ app }) => app.exit(0));
+					await exitApp(app);
 					await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 				}
 			}

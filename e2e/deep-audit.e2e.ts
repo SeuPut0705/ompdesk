@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import type { SettingEntry, SettingsSchemaResult } from "../src/shared/rpc-types";
+import { exitApp } from "./harness";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -926,7 +927,7 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 		await fs.mkdir("test-results/deep-audit", { recursive: true });
 		await fs.writeFile("test-results/deep-audit/evidence.json", JSON.stringify(evidence, null, 2));
 		if (app) {
-			await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
+			await exitApp(app).catch(() => {});
 		}
 		await fs.rm(profile, { recursive: true, force: true }).catch(() => {});
 	}

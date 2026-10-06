@@ -13,7 +13,7 @@ export interface NativeChord {
 	readonly id: string;
 	/** Renderer i18n key for the reference row. */
 	readonly labelKey: string;
-	/** Canonical chord as the shortcuts dialog displays it (⌥⇧⌃⌘ order). */
+	/** Canonical macOS chord (⌥⇧⌃⌘ order); on Windows the renderer reads ⌘ as ⌃, like CmdOrCtrl. */
 	readonly chord: string;
 	/** Electron accelerator spelling for the same keys. */
 	readonly accelerator: string;

@@ -13,13 +13,18 @@
 import { describe, expect, it } from "vitest";
 import { NATIVE_CHORDS } from "../../shared/hotkeys";
 import {
+	actionShortcut,
 	chordFromEvent,
 	compileKeymap,
 	detectConflicts,
+	formatChord,
+	formatShortcut,
 	KEYMAP_ACTIONS,
 	keymapActionsForGroup,
 	parseChord,
+	platformDefaults,
 	RESERVED_CHORDS,
+	reservedChords,
 	reservedChordsForGroup,
 	sanitizeOverrides,
 	serializeChord,
@@ -223,6 +228,88 @@ describe("hotkey reference table", () => {
 		for (const entry of NATIVE_CHORDS) {
 			expect(acceleratorToChord(entry.accelerator), entry.id).toBe(entry.chord);
 		}
+	});
+});
+
+describe("platform defaults", () => {
+	it("keeps every macOS default exactly as the action table spells it", () => {
+		for (const action of KEYMAP_ACTIONS) {
+			expect(platformDefaults(action, "mac"), action.id).toBe(action.defaults);
+		}
+		expect(reservedChords("mac")).toBe(RESERVED_CHORDS);
+		const map = compileKeymap(KEYMAP_ACTIONS, {}, "mac");
+		expect(map.get("⌘T")).toBe("tab.new");
+		expect(map.get("⇧⌘T")).toBe("tab.newChat");
+		expect(map.get("⌘W")).toBe("tab.close");
+		expect(map.get("⌃T")).toBe("thinking.toggle");
+	});
+
+	it("compiles Windows defaults without ⌘ (the Win key) and with one claimant per chord", () => {
+		// ⌘ is OS-reserved on Windows; a duplicate is a dead binding, and one
+		// landing on a CmdOrCtrl menu accelerator never reaches the renderer.
+		const claims = [
+			...KEYMAP_ACTIONS.flatMap(action =>
+				platformDefaults(action, "windows").map(chord => ({ id: action.id, chord })),
+			),
+			...reservedChords("windows").map(entry => ({ id: entry.id, chord: entry.chord })),
+		];
+		for (const claim of claims) {
+			expect(canonical(claim.chord), `${claim.id} "${claim.chord}"`).toBe(claim.chord);
+			expect(claim.chord, claim.id).not.toContain("⌘");
+		}
+		const chords = claims.map(claim => claim.chord);
+		expect(new Set(chords).size).toBe(chords.length);
+	});
+
+	it("binds the tab chords to Ctrl on Windows and moves thinking.toggle off ⌃T", () => {
+		const map = compileKeymap(KEYMAP_ACTIONS, {}, "windows");
+		expect(map.get("⌃T")).toBe("tab.new");
+		expect(map.get("⇧⌃T")).toBe("tab.newChat");
+		expect(map.get("⌃W")).toBe("tab.close");
+		expect(map.get("⌥⌃T")).toBe("thinking.toggle");
+		expect(map.get("⌃K")).toBe("palette");
+		expect([...map.keys()].filter(chord => chord.includes("⌘"))).toEqual([]);
+		expect(chordFromEvent({ key: "t", code: "KeyT", ...NO_MODS, ctrlKey: true })).toBe("⌃T");
+	});
+
+	it("conflict-checks against the Windows reading of the native chords", () => {
+		expect(detectConflicts(KEYMAP_ACTIONS, { retry: ["⌃N"] }, "windows")).toEqual([
+			{ kind: "error", chord: "⌃N", actionIds: ["retry", "session.new"] },
+		]);
+		expect(detectConflicts(KEYMAP_ACTIONS, { retry: ["⌃T"] }, "windows")).toEqual([
+			{ kind: "warning", chord: "⌃T", actionIds: ["retry", "tab.new"] },
+		]);
+		expect(reservedChordsForGroup("native", "windows").map(entry => entry.chord)).toEqual([
+			"⇧⌃O",
+			"⌃N",
+			"⌃E",
+			"⇧⌃N",
+			"⇧⌃W",
+		]);
+	});
+});
+
+describe("shortcut labels", () => {
+	it("spells chords with glyphs on macOS and Ctrl/Alt/Shift on Windows", () => {
+		expect(formatChord("⇧⌘T", "mac")).toBe("⇧⌘T");
+		expect(formatChord("⇧⌃T", "windows")).toBe("Ctrl+Shift+T");
+		expect(formatChord("⌥⌃T", "windows")).toBe("Ctrl+Alt+T");
+		expect(formatChord("⌥T", "windows")).toBe("Alt+T");
+		expect(formatChord("⌃↵", "windows")).toBe("Ctrl+Enter");
+		expect(formatChord("⇧Tab", "windows")).toBe("Shift+Tab");
+		// A user override is an explicit chord: ⌘ stays the Win key.
+		expect(formatChord("⌘J", "windows")).toBe("Win+J");
+	});
+
+	it("reads ⌘ in macOS-spelled labels as CmdOrCtrl on Windows", () => {
+		expect(formatShortcut("⇧⌘T", "windows")).toBe("Ctrl+Shift+T");
+		expect(formatShortcut("⌘↵", "windows")).toBe("Ctrl+Enter");
+		expect(formatShortcut("⌘K / ⌃K", "windows")).toBe("Ctrl+K");
+		expect(formatShortcut("-> / =>", "windows")).toBe("-> / =>");
+		expect(formatShortcut("⇧⌘T", "mac")).toBe("⇧⌘T");
+		expect(actionShortcut("tab.newChat", "windows")).toBe("Ctrl+Shift+T");
+		expect(actionShortcut("thinking.toggle", "windows")).toBe("Ctrl+Alt+T");
+		expect(actionShortcut("tab.newChat", "mac")).toBe("⇧⌘T");
 	});
 });
 

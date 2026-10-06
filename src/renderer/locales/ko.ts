@@ -65,8 +65,8 @@ export const ko: Record<string, string> = {
 	"titlebar.contextTooltip": "사용한 컨텍스트 창",
 	"titlebar.usage": "사용량 및 할당량",
 	"titlebar.providers": "프로바이더 및 로그인",
-	"titlebar.prCenter": "PR 센터 (⌥P)",
-	"titlebar.agentHub": "에이전트 허브 (⌥A)",
+	"titlebar.prCenter": "PR 센터 ({shortcut})",
+	"titlebar.agentHub": "에이전트 허브 ({shortcut})",
 	"titlebar.metric.tokens": "활성 컨텍스트 토큰",
 	"titlebar.metric.cost": "활성 컨텍스트 비용",
 	"titlebar.metric.cacheHit": "캐시 적중률",
@@ -90,12 +90,12 @@ export const ko: Record<string, string> = {
 	"tabs.strip": "세션 탭",
 	"tabs.new": "새 탭",
 	"tabs.newHint": "새 탭",
-	"tabs.new.agentHint": "새 에이전트 탭 (⌘T)",
-	"tabs.new.chatHint": "새 채팅 탭 — 도구 없는 대화 (⇧⌘T)",
+	"tabs.new.agentHint": "새 에이전트 탭 ({shortcut})",
+	"tabs.new.chatHint": "새 채팅 탭 — 도구 없는 대화 ({shortcut})",
 	"tabs.new.agent": "새 에이전트 탭",
 	"tabs.new.chat": "새 채팅 탭",
 	"tabs.new.worktree": "새 워크트리 탭",
-	"tabs.new.worktreeHint": "새 git 워크트리에서 새 에이전트 탭 열기 (⌥T)",
+	"tabs.new.worktreeHint": "새 git 워크트리에서 새 에이전트 탭 열기 ({shortcut})",
 	"tabs.kind.worktree": "워크트리 탭",
 	"tabs.kindMismatch":
 		"이 세션은 유형이 달라요. 에이전트 세션과 채팅 세션은 서로 변환할 수 없으니 세션 목록에서 여세요.",
@@ -732,7 +732,7 @@ export const ko: Record<string, string> = {
 	"onboarding.provider.title": "프로바이더 연결",
 	"onboarding.provider.description":
 		"Anthropic, OpenAI, DeepSeek, OpenRouter 등 지원되는 프로바이더에 로그인하거나 API 키를 입력하세요.",
-	"onboarding.provider.location": "나중에 명령(⌘K) → 프로바이더 및 로그인에서 찾을 수 있어요.",
+	"onboarding.provider.location": "나중에 명령({shortcut}) → 프로바이더 및 로그인에서 찾을 수 있어요.",
 	"onboarding.provider.action": "프로바이더 및 로그인 열기",
 	"onboarding.custom.title": "커스텀 프로바이더 및 모델",
 	"onboarding.custom.description":
@@ -1216,7 +1216,7 @@ export const ko: Record<string, string> = {
 
 	// Composer editor dialog (Ctrl+G)
 	"editor.title": "초안 편집",
-	"editor.save": "되돌려 쓰기 (⌘↵)",
+	"editor.save": "되돌려 쓰기 ({shortcut})",
 	"editor.cancel": "취소",
 	"editor.external": "외부 편집기에서 열기",
 	"editor.externalBusy": "편집기를 기다리는 중…",
@@ -2899,7 +2899,7 @@ export const ko: Record<string, string> = {
 	"queuePanel.edit": "편집",
 	"queuePanel.editInput": "대기 중인 메시지 내용",
 	"queuePanel.saveEdit": "저장",
-	"queuePanel.saveEditHint": "저장 (⌘/Ctrl+Enter)",
+	"queuePanel.saveEditHint": "저장 ({shortcut})",
 	"queuePanel.cancelEdit": "취소",
 	"queuePanel.moveToLane": "{lane}(으)로 이동",
 	"queuePanel.removeFailed": "대기 중인 메시지를 제거하지 못했어요",

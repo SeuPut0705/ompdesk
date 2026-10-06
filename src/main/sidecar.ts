@@ -57,6 +57,8 @@ const STDERR_REASON_CHARS = 240;
 const LOCAL_SEND_TIMEOUT_MS = 120_000;
 /** How long `agent_end` (and every frame behind it) may wait for its entry ids. */
 const ENTRY_ID_TIMEOUT_MS = 5_000;
+/** Longest wait after `exit` for the child's stderr to finish draining (a shim's grandchild may hold it open). */
+const STDERR_DRAIN_MS = 1_000;
 
 /** Files inside the gui-bridge directory (resources/gui-bridge). */
 const BRIDGE_ENTRY = "index.ts";
@@ -84,6 +86,19 @@ function stderrExcerpt(lines: string[]): string {
 		return trimmed.length > STDERR_REASON_CHARS ? `${trimmed.slice(0, STDERR_REASON_CHARS - 1)}…` : trimmed;
 	}
 	return "";
+}
+
+/** Resolves once `child`'s stderr has closed, or after STDERR_DRAIN_MS. */
+function stderrDrained(child: ChildProcess): Promise<void> {
+	const stream = child.stderr;
+	if (!stream || stream.closed) return Promise.resolve();
+	const { promise, resolve } = Promise.withResolvers<void>();
+	const timer = setTimeout(resolve, STDERR_DRAIN_MS);
+	stream.once("close", () => {
+		clearTimeout(timer);
+		resolve();
+	});
+	return promise;
 }
 
 /** `ctx.send` over the stock path: resolves with `response.data`, rejects with `response.error`. */
@@ -474,17 +489,21 @@ export class SidecarManager extends EventEmitter {
 			if (this.#child !== child) return;
 			this.#cleanup();
 			if (this.#disposed) return;
-
 			if (code === 0) {
 				this.#setStatus("exited", "Normal shutdown");
-			} else if (this.#recoverBootModelRestore()) {
-				this.#spawn();
-			} else if (this.#recoverNoModelBoot()) {
-				// Respawns once the catalog selector resolves.
-			} else {
-				const msg = `Exit code ${code}${signal ? ` (signal: ${signal})` : ""}`;
-				this.#attemptRestart(msg);
+				return;
 			}
+			// `exit` can fire before stderr has drained, and the boot-failure
+			// parsers below read it; a restart() meanwhile advances the generation.
+			const generation = this.#generation;
+			void stderrDrained(child).then(() => {
+				if (!this.#isLive(generation)) return;
+				if (this.#recoverBootModelRestore()) {
+					this.#spawn();
+				} else if (!this.#recoverNoModelBoot()) {
+					this.#attemptRestart(`Exit code ${code}${signal ? ` (signal: ${signal})` : ""}`);
+				}
+			});
 		});
 
 		child.on("error", err => {

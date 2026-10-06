@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron, type Page } from "playwright";
-import { fixtureOmp } from "./fixture-omp";
+import { exitApp, fixtureOmp } from "./harness";
 
 let app: ElectronApplication;
 let page: Page;
@@ -58,8 +58,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-	// Test teardown bypasses the production quit confirmation.
-	if (app) await app.evaluate(({ app }) => app.exit(0));
+	if (app) await exitApp(app);
 	if (record) await fs.copyFile(record, "test-results/desktop-rpc.jsonl").catch(() => {});
 	if (profile) await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
@@ -381,7 +380,20 @@ test("narrow windows and 200 percent zoom keep settings and primary actions reac
 		const input = page.locator("textarea").first();
 		await input.fill("layout draft");
 		await expect(input).toBeEditable();
-		await expect(page.getByRole("button", { name: "Send (Enter)", exact: true })).toBeInViewport();
+		const send = page.getByRole("button", { name: "Send (Enter)", exact: true });
+		// Window/screen geometry in the failure message: a CI display can clamp the requested size.
+		const geometry = await app.evaluate(({ BrowserWindow, screen }) => {
+			const win = BrowserWindow.getAllWindows()[0];
+			return JSON.stringify({
+				bounds: win.getBounds(),
+				content: win.getContentBounds(),
+				workArea: screen.getPrimaryDisplay().workArea,
+			});
+		});
+		const viewport = await send.evaluate(node =>
+			JSON.stringify({ inner: [innerWidth, innerHeight], send: node.getBoundingClientRect() }),
+		);
+		await expect(send, `${geometry} ${viewport}`).toBeInViewport();
 		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 		await input.fill("");
 	}

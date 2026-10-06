@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import type { RpcSessionState } from "../src/shared/rpc-types";
+import { exitApp } from "./harness";
 
 test("system omp persists settings and sessions and serves every stats route", async () => {
 	test.setTimeout(180_000);
@@ -342,13 +343,7 @@ test("system omp persists settings and sessions and serves every stats route", a
 		expect(errors).toEqual([]);
 	} finally {
 		await fs.writeFile("test-results/main-process.log", mainOutput.join(""));
-		// The production quit guard intentionally blocks `app.quit()` while a
-		// sidecar is active; test teardown must bypass that user confirmation,
-		// and wait for exit so Chromium stops writing the profile before rm.
-		const { promise: exited, resolve: onExit } = Promise.withResolvers<void>();
-		app.process().once("exit", () => onExit());
-		await app.evaluate(({ app }) => app.exit(0));
-		await exited;
+		await exitApp(app);
 		await fs.rm(profile, { recursive: true, force: true });
 	}
 });

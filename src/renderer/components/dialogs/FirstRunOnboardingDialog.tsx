@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CustomProviderView } from "../../../shared/ipc-types";
 import type { ProviderInfo } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
+import { actionShortcut } from "../../lib/keymap";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
@@ -165,7 +166,7 @@ export function FirstRunOnboardingDialog() {
 							{t("onboarding.provider.description")}
 						</p>
 						<p className="mb-4 text-omp-sm leading-relaxed text-(--omp-dim)">
-							{t("onboarding.provider.location")}
+							{t("onboarding.provider.location", { shortcut: actionShortcut("palette") })}
 						</p>
 						<Button
 							className="mt-auto w-full"

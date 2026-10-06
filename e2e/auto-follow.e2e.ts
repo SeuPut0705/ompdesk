@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { fixtureOmp } from "./fixture-omp";
+import { exitApp, fixtureOmp } from "./harness";
 
 /** Distance from the bottom that still counts as "riding the live edge". Row
  * re-measurement during streaming overshoots a few pixels, so this is deliberately
@@ -74,10 +74,21 @@ test("a bottom-pinned transcript rides the stream, and 'jump to latest' re-engag
 			// would otherwise measure the edge moving away faster than the chase closes.
 			await expect.poll(gap, { timeout: 3_000, intervals: [50] }).toBeLessThan(LIVE_EDGE_PX);
 			for (let tick = 0; tick < ticks; tick++) {
-				const measured = await height();
+				// One consistent sample one full frame later (layout and resize
+				// observers included): a chunk that lands between two separate reads,
+				// before the app's per-frame pin has run, is a gap no reader ever sees.
+				const [distance, measured] = await scroll.evaluate(
+					node =>
+						new Promise<[number, number]>(resolve =>
+							requestAnimationFrame(() =>
+								requestAnimationFrame(() =>
+									resolve([node.scrollHeight - node.scrollTop - node.clientHeight, node.scrollHeight]),
+								),
+							),
+						),
+				);
 				if (previousHeight && measured > previousHeight) growth++;
 				previousHeight = measured;
-				const distance = await gap();
 				trace.push(`${distance}@${measured}`);
 				expect(distance, `gap@height trace ${trace.join(" → ")}`).toBeLessThan(LIVE_EDGE_PX);
 				await page.waitForTimeout(120);
@@ -137,8 +148,7 @@ test("a bottom-pinned transcript rides the stream, and 'jump to latest' re-engag
 		await page.screenshot({ path: "test-results/auto-follow.png", scale: "css", animations: "disabled" });
 		expect(errors).toEqual([]);
 	} finally {
-		// Test teardown bypasses the production quit confirmation.
-		await app.evaluate(({ app }) => app.exit(0));
+		await exitApp(app);
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 });

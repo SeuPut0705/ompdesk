@@ -66,8 +66,8 @@ export const en: Record<string, string> = {
 	"titlebar.contextTooltip": "Context window used",
 	"titlebar.usage": "Usage & quotas",
 	"titlebar.providers": "Providers & login",
-	"titlebar.prCenter": "PR Center (⌥P)",
-	"titlebar.agentHub": "Agent Hub (⌥A)",
+	"titlebar.prCenter": "PR Center ({shortcut})",
+	"titlebar.agentHub": "Agent Hub ({shortcut})",
 	"titlebar.metric.tokens": "Active context tokens",
 	"titlebar.metric.cost": "Active context cost",
 	"titlebar.metric.cacheHit": "Cache hit rate",
@@ -91,12 +91,12 @@ export const en: Record<string, string> = {
 	"tabs.strip": "Session tabs",
 	"tabs.new": "New tab",
 	"tabs.newHint": "New tab",
-	"tabs.new.agentHint": "New agent tab (⌘T)",
-	"tabs.new.chatHint": "New chat tab — tool-free conversation (⇧⌘T)",
+	"tabs.new.agentHint": "New agent tab ({shortcut})",
+	"tabs.new.chatHint": "New chat tab — tool-free conversation ({shortcut})",
 	"tabs.new.agent": "New Agent Tab",
 	"tabs.new.chat": "New Chat Tab",
 	"tabs.new.worktree": "New Worktree Tab",
-	"tabs.new.worktreeHint": "New agent tab in a fresh git worktree (⌥T)",
+	"tabs.new.worktreeHint": "New agent tab in a fresh git worktree ({shortcut})",
 	"tabs.kind.worktree": "Worktree tab",
 	"tabs.kindMismatch":
 		"That session has a different type. Agent and chat sessions can't be converted — open it from the session list instead.",
@@ -736,7 +736,7 @@ export const en: Record<string, string> = {
 	"onboarding.provider.title": "Connect a provider",
 	"onboarding.provider.description":
 		"Sign in or enter an API key for a supported provider such as Anthropic, OpenAI, DeepSeek, or OpenRouter.",
-	"onboarding.provider.location": "Find this later under Command (⌘K) → Providers & Login.",
+	"onboarding.provider.location": "Find this later under Command ({shortcut}) → Providers & Login.",
 	"onboarding.provider.action": "Open Providers & Login",
 	"onboarding.custom.title": "Custom provider and model",
 	"onboarding.custom.description":
@@ -1222,7 +1222,7 @@ export const en: Record<string, string> = {
 
 	// Composer editor dialog (Ctrl+G)
 	"editor.title": "Edit Draft",
-	"editor.save": "Write Back (⌘↵)",
+	"editor.save": "Write Back ({shortcut})",
 	"editor.cancel": "Cancel",
 	"editor.external": "Open in External Editor",
 	"editor.externalBusy": "Waiting for editor…",
@@ -2904,7 +2904,7 @@ export const en: Record<string, string> = {
 	"queuePanel.edit": "Edit",
 	"queuePanel.editInput": "Queued message text",
 	"queuePanel.saveEdit": "Save",
-	"queuePanel.saveEditHint": "Save (⌘/Ctrl+Enter)",
+	"queuePanel.saveEditHint": "Save ({shortcut})",
 	"queuePanel.cancelEdit": "Cancel",
 	"queuePanel.moveToLane": "Move to {lane}",
 	"queuePanel.removeFailed": "Failed to remove queued message",

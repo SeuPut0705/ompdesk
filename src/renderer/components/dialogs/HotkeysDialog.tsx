@@ -5,12 +5,15 @@ import {
 	chordFromEvent,
 	chordOwner,
 	detectConflicts,
+	formatChord,
+	formatShortcut,
 	type HotkeyGroupId,
 	KEYMAP_ACTION_BY_ID,
 	KEYMAP_ACTIONS,
 	type KeymapActionId,
 	type KeymapConflict,
 	keymapActionsForGroup,
+	platformDefaults,
 	type ReservedChordGroup,
 	reservedChordsForGroup,
 } from "../../lib/keymap";
@@ -19,6 +22,7 @@ import { useUiStore } from "../../stores/ui";
 import { Button, Input, Modal } from "../common";
 
 interface StaticHotkeyRow {
+	/** macOS spelling (⌘ = CmdOrCtrl); formatted for the platform on display. */
 	keys: string;
 	labelKey: string;
 }
@@ -164,11 +168,11 @@ export function HotkeysDialog({ open }: { open: boolean }) {
 				const action = KEYMAP_ACTION_BY_ID[row.actionId];
 				return {
 					label: t(action.labelKey),
-					keys: (overrides[action.id] ?? action.defaults).join(" / "),
+					keys: (overrides[action.id] ?? platformDefaults(action)).map(chord => formatChord(chord)).join(" / "),
 					actionId: row.actionId,
 				};
 			}
-			return { label: t(row.labelKey), keys: row.keys, actionId: null };
+			return { label: t(row.labelKey), keys: formatShortcut(row.keys), actionId: null };
 		};
 		const q = query.trim().toLowerCase();
 		return HOTKEY_GROUPS.map(group => ({
@@ -184,7 +188,7 @@ export function HotkeysDialog({ open }: { open: boolean }) {
 		setKeymapOverride(capture.actionId, [capture.chord]);
 		toast({
 			variant: "success",
-			message: t("hotkeys.remap.saved", { action: t(captureAction.labelKey), chord: capture.chord }),
+			message: t("hotkeys.remap.saved", { action: t(captureAction.labelKey), chord: formatChord(capture.chord) }),
 		});
 		setCapture(null);
 	};
@@ -251,7 +255,7 @@ export function HotkeysDialog({ open }: { open: boolean }) {
 							{t("hotkeys.remap.rebinding", { action: t(captureAction.labelKey) })}
 						</span>
 						<kbd className="shrink-0 rounded-md border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] px-2 py-0.5 font-mono text-omp-sm text-[var(--omp-muted)]">
-							{capture.chord ?? t("hotkeys.remap.pressChord")}
+							{capture.chord ? formatChord(capture.chord) : t("hotkeys.remap.pressChord")}
 						</kbd>
 						<Button
 							size="sm"
