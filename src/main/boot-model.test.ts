@@ -34,6 +34,8 @@ test("recognizes both stock no-model boot failures", () => {
 	expect(isNoModelBootFailure("No models available. Use /login or set an API key environment variable.")).toBe(true);
 	expect(isNoModelBootFailure("No model available matching enabledModels (x/y) with usable credentials.")).toBe(true);
 	expect(isNoModelBootFailure("error: Could not restore model gone/model-x")).toBe(false);
+	// omp writes it in red when the terminal (or CI) asks for color.
+	expect(isNoModelBootFailure("\x1b[31mNo models available. Use /login\x1b[39m")).toBe(true);
 });
 
 test("picks the boot model from the installed omp's catalog defaults", async () => {

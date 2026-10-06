@@ -358,9 +358,17 @@ test("narrow windows and 200 percent zoom keep settings and primary actions reac
 		[1280, 900, 2],
 	]) {
 		await app.evaluate(
-			({ BrowserWindow }, dimensions) => {
+			({ BrowserWindow, screen }, dimensions) => {
 				const win = BrowserWindow.getAllWindows()[0];
-				win.setSize(dimensions.width, dimensions.height);
+				// CI displays are ~1024×720: a window larger than the work area renders
+				// into a viewport the OS clips, so keep it on screen (and in place).
+				const { workArea } = screen.getPrimaryDisplay();
+				win.setBounds({
+					x: workArea.x,
+					y: workArea.y,
+					width: Math.min(dimensions.width, workArea.width),
+					height: Math.min(dimensions.height, workArea.height),
+				});
 				win.webContents.setZoomFactor(dimensions.zoom);
 			},
 			{ width, height, zoom },

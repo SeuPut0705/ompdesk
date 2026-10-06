@@ -17,9 +17,13 @@ export const FALLBACK_BOOT_MODEL = "anthropic/claude-sonnet-4-5";
 const RESOLVE_TIMEOUT_MS = 15_000;
 const SELECTOR_RE = /^[\w.-]+\/\S+$/;
 
-/** Covers both stock spellings: "No models available." and "No model available matching enabledModels …". */
+/**
+ * Covers both stock spellings: "No models available." and "No model available
+ * matching enabledModels …". No leading `\b`: omp colors the line, and the
+ * ANSI code ends in a letter (`\x1b[31mNo models…`).
+ */
 export function isNoModelBootFailure(stderr: string): boolean {
-	return /\bNo models? available\b/.test(stderr);
+	return /No models? available\b/.test(stderr);
 }
 
 function runBootModelScript(script: string, packageRoot: string, path: string): Promise<string> {

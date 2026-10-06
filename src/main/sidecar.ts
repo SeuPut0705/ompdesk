@@ -6,6 +6,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import Store from "electron-store";
 import { parseLaunchProfile, profileToFlags, stripDenylistedFlags } from "../shared/launch-profile";
 import { DEFAULT_ROLE_MODEL_SELECTOR, parseModelRestoreFailure } from "../shared/model-restore";
@@ -474,7 +475,8 @@ export class SidecarManager extends EventEmitter {
 		// tail: a sidecar that dies before it can log anywhere only speaks through
 		// this pipe, so without the ring the crash report is just an exit code.
 		child.stderr?.on("data", (chunk: Buffer) => {
-			const text = chunk.toString("utf-8").trim();
+			// omp colors fatal lines; the tail feeds UI text and the boot-failure parsers.
+			const text = stripVTControlCharacters(chunk.toString("utf-8")).trim();
 			if (text) {
 				console.error(`[sidecar stderr] ${text}`);
 				for (const line of text.split("\n")) {
