@@ -42,6 +42,10 @@ function compactShell(): boolean {
 /** Center-dock card identifiers: todo/plan/agents render as live cards above the composer. */
 export type DockCardId = "todo" | "plan" | "agents";
 export type TranscriptDetail = "compact" | "full";
+/** Composer Modes popover tabs a request can open (`openModes`). */
+export type ModesTab = "vibe" | "goal" | "loop" | "pool";
+/** What a model-picker pick does: switch the session model, or add a model-pool member. */
+export type ModelPickerPurpose = "session" | "pool";
 
 export interface GuiDisplayPreferences {
 	hideThinkingBlock?: boolean | null;
@@ -67,6 +71,8 @@ interface UiStore {
 	filePreviewPath: string | null;
 	commandPaletteOpen: boolean;
 	modelPickerOpen: boolean;
+	/** "pool" adds the picked model to the session's model pool instead of switching to it. */
+	modelPickerPurpose: ModelPickerPurpose;
 	/** What the main area shows: the session or a destination page. */
 	destination: Destination;
 	agentsTab: AgentsTab;
@@ -76,7 +82,7 @@ interface UiStore {
 	benchmarkOpen: boolean;
 	themePickerOpen: boolean;
 	modesOpen: boolean;
-	modesTab: "vibe" | "goal" | "loop";
+	modesTab: ModesTab;
 	importDialogOpen: boolean;
 	copySelectorOpen: boolean;
 	changelogOpen: boolean;
@@ -145,7 +151,8 @@ interface UiStore {
 	focusDockCard: (id: DockCardId) => void;
 	openCommandPalette: () => void;
 	closeCommandPalette: () => void;
-	openModelPicker: () => void;
+	/** Open the model picker; `"pool"` picks a model-pool member (anything else switches the session model). */
+	openModelPicker: (purpose?: ModelPickerPurpose) => void;
 	closeModelPicker: () => void;
 	/** Open a destination page; `section` selects its tab/section when valid. */
 	openDestination: (destination: PageDestination, section?: string) => void;
@@ -168,7 +175,7 @@ interface UiStore {
 	closeBenchmark: () => void;
 	openThemePicker: () => void;
 	closeThemePicker: () => void;
-	openModes: (tab?: "vibe" | "goal" | "loop") => void;
+	openModes: (tab?: ModesTab) => void;
 	closeModes: () => void;
 	openImportDialog: () => void;
 	closeImportDialog: () => void;
@@ -245,6 +252,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	filePreviewPath: null,
 	commandPaletteOpen: false,
 	modelPickerOpen: false,
+	modelPickerPurpose: "session",
 	destination: "session",
 	agentsTab: "live",
 	insightsTab: "stats",
@@ -293,7 +301,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 		}),
 	openCommandPalette: () => set({ commandPaletteOpen: true }),
 	closeCommandPalette: () => set({ commandPaletteOpen: false }),
-	openModelPicker: () => set({ modelPickerOpen: true }),
+	openModelPicker: purpose => set({ modelPickerOpen: true, modelPickerPurpose: purpose ?? "session" }),
 	closeModelPicker: () => set({ modelPickerOpen: false }),
 	openDestination: (destination, section) => {
 		if (destination === "settings") get().openSettings(section);

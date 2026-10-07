@@ -168,6 +168,8 @@ export type RpcCommand =
 	  }
 	| { id?: string; type: "get_loop_mode" }
 	| { id?: string; type: "set_loop_mode"; enabled: boolean; args?: string }
+	| { id?: string; type: "get_model_pool" }
+	| { id?: string; type: "set_model_pool"; enabled: boolean; members: RpcModelPoolMember[] }
 
 	// Domain actions (mutating)
 	| { id?: string; type: "set_skill_enabled"; name: string; enabled: boolean }
@@ -1028,6 +1030,18 @@ export interface RpcLoopModeState {
 	prompt?: string;
 	limit?: RpcLoopLimit;
 }
+/** One model of a session's model pool (`resources/gui-bridge/modes/pool-core.ts` `PoolMember`). */
+export interface RpcModelPoolMember {
+	/** `provider/model` selector the main agent passes as the task item's `model`. */
+	selector: string;
+	name: string;
+	/** Preset role id (`src/shared/model-pool.ts` `POOL_ROLES`) or a free-form hint. */
+	role: string;
+}
+export interface RpcModelPoolState {
+	enabled: boolean;
+	members: RpcModelPoolMember[];
+}
 
 // ============================================================================
 // Ready Frame
@@ -1393,6 +1407,9 @@ export interface RpcAgentDefinitionInfo {
 	blocking?: boolean;
 	readSummarize?: boolean;
 	prewalk?: boolean | string;
+	advisor?: boolean | string;
+	/** Set when the file lives directly in the user or project agents directory (editable there); absent for bundled and extension agents. */
+	scope?: AgentFileScope;
 	defaultPatterns: string[];
 	defaultResolved?: string;
 	effectivePatterns: string[];
@@ -1402,23 +1419,6 @@ export interface RpcAgentDefinitionInfo {
 	prewalkResolved?: string;
 }
 
-export interface RpcAgentDefinitionsResult {
-	agents: RpcAgentDefinitionInfo[];
-}
-
-export interface AgentProgress {
-	advisor?: boolean | string;
-	/** Set when the file lives directly in the user or project agents directory (editable there); absent for bundled and extension agents. */
-	scope?: AgentFileScope;
-	index: number;
-	id: string;
-	agent: string;
-	agentSource: AgentSource;
-	status: "pending" | "running" | "completed" | "failed" | "aborted";
-	task: string;
-	assignment?: string;
-	description?: string;
-	lastIntent?: string;
 /** The two directories seucode writes agent definitions to. */
 export type AgentFileScope = "user" | "project";
 
@@ -1451,6 +1451,20 @@ export interface RpcAgentTemplatesInstallResult {
 	skipped: string[];
 }
 
+export interface RpcAgentDefinitionsResult {
+	agents: RpcAgentDefinitionInfo[];
+}
+
+export interface AgentProgress {
+	index: number;
+	id: string;
+	agent: string;
+	agentSource: AgentSource;
+	status: "pending" | "running" | "completed" | "failed" | "aborted";
+	task: string;
+	assignment?: string;
+	description?: string;
+	lastIntent?: string;
 	currentTool?: string;
 	currentToolArgs?: string;
 	currentToolStartMs?: number;
@@ -2101,6 +2115,7 @@ export type AgentSessionEvent =
 			options: string[];
 	  }
 	| { type: "loop_mode_update"; state: RpcLoopModeState }
+	| { type: "model_pool_update"; state: RpcModelPoolState }
 	// Authoritative queue snapshot after every queue mutation (enqueue,
 	// drain/consume, remove, move, clear, dequeue restore). The queue store
 	// treats this as the update channel; get_queue is only a hydrate fallback.

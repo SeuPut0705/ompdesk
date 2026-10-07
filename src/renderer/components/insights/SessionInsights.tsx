@@ -19,6 +19,7 @@ import { useUiStore } from "../../stores/ui";
 import { Button, EmptyState, IconButton, Spinner } from "../common";
 import { MetricCard, MetricGrid, SectionTitle } from "../stats/shared";
 import { ContextBreakdown } from "./ContextBreakdown";
+import { ModelUsage } from "./ModelUsage";
 
 interface Fact {
 	label: string;
@@ -203,6 +204,8 @@ export function SessionInsights() {
 				</MetricGrid>
 			</div>
 			{history && <p className="mt-3 text-sc-xs text-(--sc-text-muted)">{t("sessionInfo.scope")}</p>}
+
+			<ModelUsage stats={stats} />
 
 			<SectionTitle>{t("sessionInfo.contextWindow")}</SectionTitle>
 			<ContextBreakdown refreshKey={refreshKey} />

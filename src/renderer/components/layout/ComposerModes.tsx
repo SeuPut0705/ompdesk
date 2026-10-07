@@ -1,16 +1,17 @@
 /**
  * Composer mode chip (design-spec §2.2): the one place for session MODES —
- * Plan, Goal, Loop and Vibe — each with its inline config in a Popover.
- * Run behavior (thinking, approval, toggles) lives in `RunSettings`; model
- * roles in Settings › Models.
+ * Plan, Goal, Loop, Vibe and the model pool — each with its inline config in a
+ * Popover. Run behavior (thinking, approval, toggles) lives in `RunSettings`;
+ * model roles in Settings › Models.
  *
  * The chip names the active mode(s) in the accent (accent = "active mode"),
  * or reads "모드" when none is on. `useUiStore.openModes(tab)` — palette
- * commands, the goal dock, Settings › Features — opens this popover on that
- * mode in the focused pane; closing it clears the request.
+ * commands, the goal dock, Settings › Features, a model-pool pick returning
+ * from the picker — opens this popover on that mode in the focused pane;
+ * closing it clears the request.
  */
 
-import { Layers, ListChecks, Repeat, Rocket, Target } from "lucide-react";
+import { Boxes, Layers, ListChecks, Repeat, Rocket, Target } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { cx } from "../../lib/format";
@@ -23,14 +24,16 @@ import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, Popover, SwitchField, Tabs, Tooltip } from "../common";
 import { GoalModeConfig, LoopModeConfig, VibeModeConfig } from "../modes/ModeConfig";
+import { ModelPoolConfig } from "../modes/ModelPoolConfig";
 
-export type ComposerModeId = "plan" | "goal" | "loop" | "vibe";
+export type ComposerModeId = "plan" | "goal" | "loop" | "vibe" | "pool";
 
 const MODE_ICONS: Record<ComposerModeId, ReactNode> = {
 	plan: <ListChecks aria-hidden />,
 	goal: <Target aria-hidden />,
 	loop: <Repeat aria-hidden />,
 	vibe: <Rocket aria-hidden />,
+	pool: <Boxes aria-hidden />,
 };
 
 export function ComposerModes() {
@@ -42,11 +45,13 @@ export function ComposerModes() {
 	const requested = useUiStore(s => s.modesOpen) && focusedPane;
 	const requestedTab = useUiStore(s => s.modesTab);
 	const closeModes = useUiStore(s => s.closeModes);
+	const openModelPicker = useUiStore(s => s.openModelPicker);
 
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
 	const goalActive = useSessionStore(s => s.goalState?.status === "active" || !!s.goal);
 	const loopActive = useSessionStore(s => s.loopMode?.enabled === true);
 	const vibeModeEnabled = useSessionStore(s => s.vibeModeEnabled);
+	const poolActive = useSessionStore(s => s.modelPool?.enabled === true && s.modelPool.members.length >= 2);
 	const goalStatusInFooter = useDisplayPreference("goalStatusInFooter");
 
 	const active: Record<ComposerModeId, boolean> = {
@@ -54,6 +59,7 @@ export function ComposerModes() {
 		goal: goalActive,
 		loop: loopActive,
 		vibe: vibeModeEnabled,
+		pool: poolActive,
 	};
 	const shown = (Object.keys(active) as ComposerModeId[]).filter(
 		mode => active[mode] && (mode !== "goal" || goalStatusInFooter),
@@ -110,7 +116,7 @@ export function ComposerModes() {
 			<Popover
 				anchorRef={triggerRef}
 				ariaLabel={t("input.modes.label")}
-				className="max-h-[calc(100dvh-var(--sc-space-4))] w-90 overflow-y-auto"
+				className="max-h-[calc(100dvh-var(--sc-space-4))] w-96 overflow-y-auto"
 				onClose={close}
 				open={open}
 				placement="top-start"
@@ -121,7 +127,7 @@ export function ComposerModes() {
 						ariaLabel={t("input.modes.label")}
 						compact
 						onChange={id => setTab(id as ComposerModeId)}
-						tabs={(["plan", "goal", "loop", "vibe"] as const).map(mode => ({
+						tabs={(["plan", "goal", "loop", "vibe", "pool"] as const).map(mode => ({
 							id: mode,
 							label: t(`input.modes.tab.${mode}`),
 							badge: active[mode] ? t("modesPanel.on") : undefined,
@@ -133,6 +139,15 @@ export function ComposerModes() {
 						{tab === "goal" && <GoalModeConfig />}
 						{tab === "loop" && <LoopModeConfig />}
 						{tab === "vibe" && <VibeModeConfig />}
+						{tab === "pool" && (
+							<ModelPoolConfig
+								onAddModel={() => {
+									// One overlay at a time: the picker replaces this popover and returns here.
+									close();
+									openModelPicker("pool");
+								}}
+							/>
+						)}
 					</div>
 					<p className="text-sc-xs text-(--sc-text-muted)">{t("modesPanel.footerNote")}</p>
 				</div>

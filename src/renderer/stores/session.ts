@@ -1,6 +1,12 @@
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { createStore } from "zustand/vanilla";
-import type { ContextUsage, RpcLoopModeState, RpcSessionState, SidecarStatus } from "../../shared/rpc-types";
+import type {
+	ContextUsage,
+	RpcLoopModeState,
+	RpcModelPoolState,
+	RpcSessionState,
+	SidecarStatus,
+} from "../../shared/rpc-types";
 import { createScopedStoreHook } from "./session-runtime-context";
 
 export interface TranscriptView {
@@ -64,6 +70,9 @@ export interface SessionStore {
 	/** Vibe mode emits no event — hydrated via get_vibe_mode and mirrored when
 	 * the Modes window toggles it. */
 	vibeModeEnabled: boolean;
+	/** The session's model pool: model_pool_update frames, hydrated via get_model_pool
+	 * (the pool lives in the session journal). null = not yet fetched; chips treat as off. */
+	modelPool: RpcModelPoolState | null;
 	setFromState: (state: RpcSessionState) => void;
 	setStatus: (status: SidecarStatus, cwd: string) => void;
 	reset: () => void;
@@ -96,6 +105,7 @@ const initialState = {
 	goalState: null,
 	loopMode: null,
 	vibeModeEnabled: false,
+	modelPool: null,
 };
 
 export const createSessionStore = () =>

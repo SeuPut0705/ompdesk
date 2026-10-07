@@ -502,6 +502,11 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							if (next) useSessionStore.setState({ loopMode: next });
 							break;
 						}
+						case "model_pool_update": {
+							// The composer chip, the Modes popover and Agents › Live read the pool here.
+							useSessionStore.setState({ modelPool: event.state });
+							break;
+						}
 						case "queue_update": {
 							// Authoritative queue snapshot — fires on every queue mutation
 							// (enqueue, drain/consume, remove, move, clear), so the strip,

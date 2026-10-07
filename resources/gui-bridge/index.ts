@@ -24,7 +24,8 @@ interface Area {
 	name: string;
 	/** Everything the module serves; unavailable as a whole when it fails to load. */
 	features: readonly FeatureId[];
-	load(): Promise<{ methods: BridgeMethods }>;
+	/** `install`, when exported, registers the module's extension hooks once the module loads. */
+	load(): Promise<{ methods: BridgeMethods; install?: (pi: ExtensionAPI) => void }>;
 }
 
 // Dynamic on purpose: a static import of an area whose omp export vanished
@@ -53,6 +54,7 @@ const AREAS: readonly Area[] = [
 	{ name: "modes/goal", features: ["goalMode"], load: () => import("./modes/goal") },
 	{ name: "modes/loop", features: ["loopMode"], load: () => import("./modes/loop") },
 	{ name: "modes/btw", features: ["btw"], load: () => import("./modes/btw") },
+	{ name: "modes/pool", features: ["modelPool"], load: () => import("./modes/pool") },
 	{ name: "modes/actions", features: ["tan", "omfg", "agentPause"], load: () => import("./modes/actions") },
 ];
 
@@ -84,6 +86,7 @@ async function loadMethods(pi: ExtensionAPI): Promise<LoadedMethods> {
 		const area = AREAS[index];
 		if (result.status === "fulfilled") {
 			tables[area.name] = result.value.methods;
+			result.value.install?.(pi);
 			return;
 		}
 		const error = result.reason instanceof Error ? result.reason.message : String(result.reason);

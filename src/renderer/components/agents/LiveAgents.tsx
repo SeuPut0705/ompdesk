@@ -1,17 +1,20 @@
 /**
  * Agents › Live: the session's subagents (running, parked, finished) from the
  * subagents store (get_subagents hydration + lifecycle frames), with status,
- * elapsed time, model and the latest progress note. Each row opens the
- * agent's transcript in a Sheet; row actions stop (inline-confirmed
- * abort_subagent) or revive (revive_subagent) one agent. Toolbar: pause /
- * resume every agent, and stop the whole turn while something runs.
+ * elapsed time, model and the latest progress note. While the session's model
+ * pool is on, a subagent that ran on a pool model names that member and its
+ * role instead of the bare selector. Each row opens the agent's transcript in
+ * a Sheet; row actions stop (inline-confirmed abort_subagent) or revive
+ * (revive_subagent) one agent. Toolbar: pause / resume every agent, and stop
+ * the whole turn while something runs.
  */
 
 import { Bot, Check, MessageSquare, Pause, Play, RefreshCw, RotateCcw, Square, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import type { SubagentSnapshot } from "../../../shared/rpc-types";
+import type { RpcModelPoolMember, SubagentSnapshot } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { abortActiveTurn } from "../../lib/messages";
+import { isPresetRole, poolMemberFor } from "../../lib/model-pool";
 import { useNowTick } from "../../lib/now-tick";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
@@ -54,6 +57,7 @@ const AgentRow = memo(function AgentRow({
 	agent,
 	now,
 	actionState,
+	poolMember,
 	ready,
 	onView,
 	onAbort,
@@ -64,6 +68,8 @@ const AgentRow = memo(function AgentRow({
 	agent: SubagentSnapshot;
 	now: number;
 	actionState: RowActionState;
+	/** The model-pool member this agent ran on (pool on and its model listed). */
+	poolMember: RpcModelPoolMember | undefined;
 	ready: boolean;
 	onView: () => void;
 	onAbort: () => void;
@@ -84,7 +90,12 @@ const AgentRow = memo(function AgentRow({
 		agent.agent,
 		agent.agentSource ? agentSourceLabel(t, agent.agentSource) : undefined,
 		agent.kind === "advisor" ? t("agentHub.hub.readOnly") : t("agentHub.hub.kind.sub"),
-		agent.progress?.resolvedModel,
+		poolMember
+			? t("modelPool.liveLabel", {
+					name: poolMember.name,
+					role: isPresetRole(poolMember.role) ? t(`modelPool.role.${poolMember.role}`) : poolMember.role,
+				})
+			: agent.progress?.resolvedModel,
 		agent.progress?.description,
 	]
 		.filter(Boolean)
@@ -152,6 +163,7 @@ export function LiveAgents() {
 	const ready = useSessionStore(s => s.status) === "ready";
 	const agentsPaused = useSessionStore(s => s.agentsPaused);
 	const subagents = useSubagentsStore(s => s.subagents);
+	const pool = useSessionStore(s => s.modelPool);
 	const loadError = useSubagentsStore(s => s.error);
 	const openAgents = useUiStore(s => s.openAgents);
 	const [pausePending, setPausePending] = useState(false);
@@ -257,6 +269,9 @@ export function LiveAgents() {
 						</Badge>
 					);
 				})}
+				{pool?.enabled && (
+					<Badge variant="accent">{t("modelPool.liveActive", { count: pool.members.length })}</Badge>
+				)}
 				<div className="ml-auto flex items-center gap-2">
 					<Button
 						aria-pressed={agentsPaused}
@@ -331,6 +346,7 @@ export function LiveAgents() {
 							onAbortConfirm={() => void runRowAction(agent.id, "abort")}
 							onRevive={() => void runRowAction(agent.id, "revive")}
 							onView={() => setViewingId(agent.id)}
+							poolMember={poolMemberFor(pool, agent.progress?.resolvedModel)}
 							ready={ready}
 						/>
 					))}

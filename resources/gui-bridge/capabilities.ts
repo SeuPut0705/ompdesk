@@ -26,6 +26,7 @@ export const FEATURES = {
 	tan: "/tan background tangents",
 	omfg: "/omfg rule forging",
 	agentPause: "Agent pause",
+	modelPool: "Model pool",
 	mcp: "MCP servers",
 	plugins: "Plugins & marketplaces",
 	skills: "Skills, hooks & prompt templates",
@@ -303,6 +304,13 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			["@oh-my-pi/pi-agent-core"]: ["agentPauseGate.pause()", "agentPauseGate.resume()", "agentPauseGate.pausedAt"],
 		},
 	},
+	modelPool: {
+		session: [
+			"getEnabledToolNames()",
+			"sessionManager.getBranch()",
+			"sessionManager.appendCustomEntry()",
+		],
+	},
 	mcp: {
 		session: [
 			"setMCPPromptCommands()",
@@ -431,6 +439,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"sessionManager.getCwd()",
 		],
 		modules: {
+			[`${AGENT}/config`]: ["getConfigDirs()", "findAllNearestProjectConfigDirs()"],
 			[`${AGENT}/config/model-resolver`]: [
 				"formatModelString()",
 				"resolveAgentModelPatterns()",
@@ -439,11 +448,11 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			],
 			[`${AGENT}/config/registry`]: ["lookup()"],
 			[`${AGENT}/memory-backend/resolve`]: ["resolveMemoryBackend()"],
-			[`${AGENT}/config`]: ["getConfigDirs()", "findAllNearestProjectConfigDirs()"],
 			[`${AGENT}/registry/agent-lifecycle`]: ["AgentLifecycleManager.global()"],
 			[`${AGENT}/registry/agent-registry`]: ["AgentRegistry.global()", "MAIN_AGENT_ID"],
 			[`${AGENT}/task/discovery`]: ["discoverAgents()"],
 			[`${AGENT}/task/prewalk`]: ["resolveAgentPrewalkDefault()"],
+			[`${AGENT}/tools/builtin-names`]: ["BUILTIN_TOOL_NAMES", "HIDDEN_TOOL_NAMES"],
 		},
 	},
 	themes: {
@@ -452,7 +461,6 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		},
 	},
 	settings: {
-			[`${AGENT}/tools/builtin-names`]: ["BUILTIN_TOOL_NAMES", "HIDDEN_TOOL_NAMES"],
 		session: ["settings", "model", "thinkingLevel"],
 		modules: {
 			[`${AGENT}/config/all-settings`]: ["orderedSettings()"],

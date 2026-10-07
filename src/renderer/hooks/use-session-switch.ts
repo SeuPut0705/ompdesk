@@ -75,6 +75,7 @@ export function resetSessionSurface(closeOverlays = true): void {
 		goalState: null,
 		loopMode: null,
 		vibeModeEnabled: false,
+		modelPool: null,
 	});
 }
 

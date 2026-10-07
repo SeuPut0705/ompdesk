@@ -5,6 +5,11 @@
  * (`modelRoles.default`), the way omp's own `/model` picker does — without it
  * every new session falls back to omp's catalog choice, which can be a keyless
  * on-device model that cannot hold a coding session.
+ *
+ * Opened with purpose "pool" (from the Modes popover's model-pool tab, which
+ * closes first: no overlay opens another), a pick adds the model to the
+ * session's model pool instead, checks mark pool members, and closing returns
+ * to that tab.
  */
 
 import { Check, Settings2, TriangleAlert } from "lucide-react";
@@ -17,15 +22,16 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { LoginProvider, ModelInfo } from "../../../shared/rpc-types";
+import type { LoginProvider, ModelInfo, RpcModelPoolState } from "../../../shared/rpc-types";
 import { applyModelInfo, hydrateSession } from "../../hooks/use-rpc-events";
 import { cx, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
+import { addPoolMember, EMPTY_MODEL_POOL, modelSelector } from "../../lib/model-pool";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useModelStore } from "../../stores/model";
-import { useSessionStore } from "../../stores/session";
-import { useRuntimeTabId } from "../../stores/session-runtime-context";
+import { type SessionStore, useSessionStore } from "../../stores/session";
+import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, Kbd, Modal, SearchField, Spinner } from "../common";
@@ -38,6 +44,10 @@ export function ModelPicker() {
 	const t = useT();
 	const open = useUiStore(state => state.modelPickerOpen);
 	const close = useUiStore(state => state.closeModelPicker);
+	const purpose = useUiStore(state => state.modelPickerPurpose);
+	const openModes = useUiStore(state => state.openModes);
+	const pool = useSessionStore(state => state.modelPool);
+	const forPool = purpose === "pool";
 	const openProviders = useUiStore(state => state.openProviders);
 	const availableModels = useModelStore(state => state.availableModels);
 	const catalogProviders = useModelStore(state => state.providers);
@@ -172,9 +182,35 @@ export function ModelPicker() {
 	}, [activeIndex]);
 
 	const isOverContext = (model: ModelInfo): boolean => {
+		// Pool members run as fresh subagents: the main context never moves to them.
+		if (forPool) return false;
 		const tokens = contextUsage?.tokens ?? 0;
 		const contextWindow = model.contextWindow ?? 0;
 		return tokens > 0 && contextWindow > 0 && tokens > contextWindow;
+	};
+
+	/** Close; a pool pick returns to the Modes popover's pool tab it came from. */
+	const dismiss = () => {
+		close();
+		if (forPool) openModes("pool");
+	};
+
+	const addToPool = async (model: ModelInfo) => {
+		const current = pool ?? EMPTY_MODEL_POOL;
+		const next = addPoolMember(current, { selector: modelSelector(model), name: modelDisplayName(model) });
+		if (next === current) {
+			dismiss();
+			return;
+		}
+		const response = await tabRpc.setModelPool(next);
+		if (!response.success) {
+			toast({ variant: "error", title: t("modelPool.updateFailed"), message: response.error });
+			return;
+		}
+		(sessionRuntimeStore<SessionStore>(tabId, "session") ?? useSessionStore).setState({
+			modelPool: response.data as RpcModelPoolState,
+		});
+		dismiss();
 	};
 
 	const select = async (provider: string, modelId: string) => {
@@ -182,10 +218,14 @@ export function ModelPicker() {
 		const key = `${provider}/${modelId}`;
 		setSwitching(key);
 		try {
+			const target = availableModels.find(m => m.provider === provider && m.id === modelId);
+			if (forPool) {
+				if (target) await addToPool(target);
+				return;
+			}
 			// TUI parity: picking a model whose context window is smaller than the
 			// live session usage compacts with the CURRENT model first, then
 			// switches. The row carries the over-context warning before the pick.
-			const target = availableModels.find(m => m.provider === provider && m.id === modelId);
 			const overContext = target !== undefined && isOverContext(target);
 			if (overContext) {
 				const compactRes = await tabRpc.compact();
@@ -267,7 +307,7 @@ export function ModelPicker() {
 			ariaLabel={t("modelPicker.searchLabel")}
 			bodyClassName="p-0"
 			chromeless
-			onClose={close}
+			onClose={dismiss}
 			open={open}
 			placement="top"
 			size="picker"
@@ -344,8 +384,10 @@ export function ModelPicker() {
 										)}
 									</div>
 									{models.map(model => {
-										const isCurrent = current?.provider === provider && current.id === model.id;
 										const key = `${provider}/${model.id}`;
+										const isCurrent = forPool
+											? (pool?.members.some(member => member.selector === key) ?? false)
+											: current?.provider === provider && current.id === model.id;
 										const optionIndex = indexByKey.get(key) ?? 0;
 										const isActive = optionIndex === activeIndex;
 										const over = !isCurrent && isOverContext(model);
@@ -439,7 +481,7 @@ export function ModelPicker() {
 												{switching === key && <Spinner size="sm" />}
 												{isCurrent && (
 													<Check
-														aria-label={t("modelPicker.current")}
+														aria-label={forPool ? t("modelPool.inPool") : t("modelPicker.current")}
 														className="size-(--sc-icon-sm) shrink-0 text-(--sc-accent)"
 													/>
 												)}
@@ -452,7 +494,9 @@ export function ModelPicker() {
 					)}
 				</div>
 				<div className="flex items-center gap-3 border-t border-(--sc-divider) px-3 py-2 text-sc-xs text-(--sc-text-muted)">
-					<span className="min-w-0 flex-1 truncate">{t("modelPicker.defaultHint")}</span>
+					<span className="min-w-0 flex-1 truncate">
+						{forPool ? t("modelPool.pickerHint") : t("modelPicker.defaultHint")}
+					</span>
 					<span className="flex shrink-0 items-center gap-1.5 max-sm:hidden">
 						<Kbd shortcut="↑↓" />
 						{t("modelPicker.keys.move")}

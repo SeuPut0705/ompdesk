@@ -27,6 +27,7 @@ import type {
 	RpcDebugParams,
 	RpcLiveFrame,
 	RpcMcpServerInput,
+	RpcModelPoolState,
 	RpcResponse,
 	RpcSecurityDispositionStatus,
 	RpcSecurityTargetInput,
@@ -142,9 +143,9 @@ export const IPC_COMMANDS = {
 	SYSTEM_OPEN_EXTERNAL: "system:open-external",
 	/** Open a file path in the system editor (relative resolves against the workspace) */
 	SYSTEM_OPEN_PATH: "system:open-path",
-	/** Show save dialog */
 	/** Reveal an absolute file path in the file manager (Finder / Explorer) */
 	SYSTEM_REVEAL_PATH: "system:reveal-path",
+	/** Show save dialog */
 	SYSTEM_SAVE_DIALOG: "system:save-dialog",
 	/** Show open dialog */
 	SYSTEM_OPEN_DIALOG: "system:open-dialog",
@@ -1072,7 +1073,6 @@ export interface OmpApi {
 		getSkills(): Promise<RpcResponse>;
 		getSkillDetail(name: string): Promise<RpcResponse>;
 		getAgentDefinitions(): Promise<RpcResponse>;
-		getHooks(): Promise<RpcResponse>;
 		getAgentDefinition(name: string): Promise<RpcResponse>;
 		getAgentAuthoring(): Promise<RpcResponse>;
 		readAgentFile(filePath: string): Promise<RpcResponse>;
@@ -1084,6 +1084,7 @@ export interface OmpApi {
 		}): Promise<RpcResponse>;
 		deleteAgentFile(filePath: string): Promise<RpcResponse>;
 		installAgentTemplates(scope: AgentFileScope, names?: string[]): Promise<RpcResponse>;
+		getHooks(): Promise<RpcResponse>;
 		getMcpServers(): Promise<RpcResponse>;
 		getGuiThemes(): Promise<RpcResponse>;
 		getPlugins(): Promise<RpcResponse>;
@@ -1144,6 +1145,8 @@ export interface OmpApi {
 		omfg(complaint: string): Promise<RpcResponse>;
 		getLoopMode(): Promise<RpcResponse>;
 		setLoopMode(enabled: boolean, args?: string): Promise<RpcResponse>;
+		getModelPool(): Promise<RpcResponse>;
+		setModelPool(state: RpcModelPoolState): Promise<RpcResponse>;
 		setSkillEnabled(name: string, enabled: boolean): Promise<RpcResponse>;
 		manageSkill(args: {
 			action: "create" | "update" | "delete";
@@ -1271,11 +1274,11 @@ export interface OmpApi {
 		openExternal(url: string): Promise<void>;
 		/** Open a file in the system editor; relative paths resolve against the workspace. */
 		openPath(path: string): Promise<IpcOpenPathResult>;
+		/** Reveal an absolute path in the file manager; fails when the file is missing. */
+		revealPath(path: string): Promise<IpcOpenPathResult>;
 		showSaveDialog(defaultPath?: string, filters?: { name: string; extensions: string[] }[]): Promise<string | null>;
 		showOpenDialog(
 			filters?: { name: string; extensions: string[] }[],
-		/** Reveal an absolute path in the file manager; fails when the file is missing. */
-		revealPath(path: string): Promise<IpcOpenPathResult>;
 			options?: { directory?: boolean },
 		): Promise<string[] | null>;
 		clipboardRead(): Promise<string>;

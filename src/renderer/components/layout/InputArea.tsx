@@ -1060,7 +1060,7 @@ export function InputArea() {
 										aria-label={t("input.modelLabel", { model: modelLabel })}
 										className="omp-composer-chip min-w-0 max-w-56"
 										data-model-chip
-										onClick={openModelPicker}
+										onClick={() => openModelPicker()}
 										size="sm"
 										trailingIcon={<ChevronDown aria-hidden className="text-(--sc-text-subtle)" />}
 										variant="ghost"

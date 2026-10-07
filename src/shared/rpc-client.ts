@@ -7,6 +7,7 @@ import type {
 	RpcCommand,
 	RpcDebugParams,
 	RpcMcpServerInput,
+	RpcModelPoolState,
 	RpcResponse,
 	RpcSecurityDispositionStatus,
 	RpcSecurityTargetInput,
@@ -225,7 +226,6 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getSkills: () => rpcCommand({ type: "get_skills" }),
 		getSkillDetail: (name: string) => rpcCommand({ type: "get_skill_detail", name }),
 		getAgentDefinitions: () => rpcCommand({ type: "get_agent_definitions" }),
-		getHooks: () => rpcCommand({ type: "get_hooks" }),
 		getAgentDefinition: (name: string) => rpcCommand({ type: "get_agent_definition", name }),
 		getAgentAuthoring: () => rpcCommand({ type: "get_agent_authoring" }),
 		readAgentFile: (filePath: string) => rpcCommand({ type: "read_agent_file", filePath }),
@@ -234,6 +234,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		deleteAgentFile: (filePath: string) => rpcCommand({ type: "delete_agent_file", filePath }),
 		installAgentTemplates: (scope: AgentFileScope, names?: string[]) =>
 			rpcCommand({ type: "install_agent_templates", scope, names }),
+		getHooks: () => rpcCommand({ type: "get_hooks" }),
 		getMcpServers: () => rpcCommand({ type: "get_mcp_servers" }),
 		getGuiThemes: () => rpcCommand({ type: "get_gui_themes" }),
 		getPlugins: () => rpcCommand({ type: "get_plugins" }),
@@ -296,6 +297,8 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		omfg: (complaint: string) => rpcCommand({ type: "omfg", complaint }),
 		getLoopMode: () => rpcCommand({ type: "get_loop_mode" }),
 		setLoopMode: (enabled: boolean, args?: string) => rpcCommand({ type: "set_loop_mode", enabled, args }),
+		getModelPool: () => rpcCommand({ type: "get_model_pool" }),
+		setModelPool: (state: RpcModelPoolState) => rpcCommand({ type: "set_model_pool", ...state }),
 		setSkillEnabled: (name: string, enabled: boolean) => rpcCommand({ type: "set_skill_enabled", name, enabled }),
 		manageSkill: (args: {
 			action: "create" | "update" | "delete";

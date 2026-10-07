@@ -142,6 +142,7 @@ const AGENT_EVENT_TYPES: Record<string, true> = {
 	thinking_level_changed: true,
 	goal_updated: true,
 	loop_mode_update: true,
+	model_pool_update: true,
 	plan_proposal: true,
 	queue_update: true,
 };

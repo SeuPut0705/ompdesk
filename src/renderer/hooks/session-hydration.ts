@@ -4,6 +4,7 @@ import type {
 	ModelInfo,
 	RpcGoalState,
 	RpcLoopModeState,
+	RpcModelPoolState,
 	RpcResponse,
 	RpcSessionState,
 	RpcVibeModeState,
@@ -196,6 +197,21 @@ export async function syncLoopMode(tabId: string, command: TabCommand, isCurrent
 	}
 }
 
+/** Fetch the session's model pool (get_model_pool) into the session store; model_pool_update frames follow. */
+export async function syncModelPool(tabId: string, command: TabCommand, isCurrent: HydrationGuard): Promise<void> {
+	const before = withSessionRuntime(tabId, () => useSessionStore.getState().modelPool);
+	try {
+		const res = await command({ type: "get_model_pool" });
+		if (!isCurrent() || !res.success) return;
+		if (withSessionRuntime(tabId, () => useSessionStore.getState().modelPool) !== before) return;
+		withSessionRuntime(tabId, () => {
+			useSessionStore.setState({ modelPool: (res.data as RpcModelPoolState | undefined) ?? null });
+		});
+	} catch {
+		// Transient — the next model_pool_update event or hydration retries.
+	}
+}
+
 /** Fetch the live vibe-mode state (get_vibe_mode) into the session store; no event exists. */
 export async function syncVibeMode(tabId: string, command: TabCommand, isCurrent: HydrationGuard): Promise<void> {
 	try {
@@ -370,10 +386,12 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 		// composer chip reflects an active goal after boot/session switches,
 		// not only on goal_updated events.
 		syncGoal(tabId, runtime.command, isCurrent),
-		// Loop and vibe mode likewise: loop_mode_update frames keep loop fresh
-		// afterwards; vibe emits nothing, so the Modes window mirrors toggles.
+		// Loop, vibe and the model pool likewise: loop_mode_update / model_pool_update
+		// frames keep them fresh afterwards; vibe emits nothing, so the Modes window
+		// mirrors toggles.
 		syncLoopMode(tabId, runtime.command, isCurrent),
 		syncVibeMode(tabId, runtime.command, isCurrent),
+		syncModelPool(tabId, runtime.command, isCurrent),
 		// Queue snapshot: queue_update frames keep it fresh afterwards;
 		// get_queue is only the hydrate fallback (boot/reconnect/session
 		// switch all land here). refresh() swallows its own failures.
