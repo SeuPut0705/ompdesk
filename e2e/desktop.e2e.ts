@@ -329,15 +329,10 @@ test("repeated modal and task lifecycles release sidecars and document listeners
 		await page.keyboard.press("Escape");
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 		await page.keyboard.press("ControlOrMeta+t");
-		await expect(page.locator('[role="tablist"] [role="tab"][data-status]')).toHaveCount(2);
-		// An idle tab shows no status icon; readiness is the chip's data-status.
-		await expect(page.locator('[role="tablist"] [role="tab"][data-status]').last()).toHaveAttribute("data-status", "ready");
-		await page
-			.locator('[role="tablist"] [role="tab"][data-status]')
-			.last()
-			.getByRole("button", { name: "Close tab", exact: true })
-			.click();
-		await expect(page.locator('[role="tablist"] [role="tab"][data-status]')).toHaveCount(1);
+		await expect.poll(() => page.evaluate(() => window.omp.tabs.list())).toHaveLength(2);
+		await expect.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).at(-1)?.status).toBe("ready");
+		await page.keyboard.press("ControlOrMeta+w");
+		await expect.poll(() => page.evaluate(() => window.omp.tabs.list())).toHaveLength(1);
 	}
 	const after = await listeners();
 	expect(after).toBeLessThanOrEqual(before);

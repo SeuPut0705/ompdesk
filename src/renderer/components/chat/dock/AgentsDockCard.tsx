@@ -36,7 +36,7 @@ import {
 	useSubagentGraphStore,
 } from "../../panels/subagent-graph";
 import { DockCard } from "./DockCard";
-import { buildAgentDockSummary } from "./dock-summary";
+import { buildAgentDockPeek, buildAgentDockSummary } from "./dock-summary";
 import { useWorkspaceDockFocus } from "./WorkspaceDockFocus";
 
 type PanelView = "list" | "graph";
@@ -197,6 +197,16 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 		[agents, rootToolCallIds, toolCallOwners],
 	);
 	const summary = useMemo(() => buildAgentDockSummary(rows), [rows]);
+	const peek = useMemo(() => buildAgentDockPeek(agents), [agents]);
+	const peekCounts = [
+		peek.running > 0 && t("dock.agents.running", { count: peek.running }),
+		peek.done > 0 && t("dock.agents.done", { count: peek.done }),
+		peek.failed > 0 && t("dock.agents.failed", { count: peek.failed }),
+	].filter(Boolean);
+	const latestTitle = peek.latest ? subagentPrimaryLabel(peek.latest) : undefined;
+	// The primary label falls back to the agent type; don't print it twice.
+	const latestLabel =
+		peek.latest && latestTitle !== peek.latest.agent ? `${peek.latest.agent} · ${latestTitle}` : latestTitle;
 	const displayedRows = showFull ? rows : summary.rows;
 
 	const toggle = useCallback((id: string) => {
@@ -239,6 +249,16 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 			}
 			icon={Bot}
 			id="agents"
+			peek={
+				<>
+					{peekCounts.length > 0 && <span className="shrink-0 tabular-nums">{peekCounts.join(" · ")}</span>}
+					{latestLabel && (
+						<span className="min-w-0 truncate text-(--sc-text-secondary)" title={latestLabel}>
+							{latestLabel}
+						</span>
+					)}
+				</>
+			}
 			title={t("dock.agents")}
 		>
 			{view === "graph" ? (

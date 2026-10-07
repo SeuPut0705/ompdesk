@@ -259,7 +259,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		const destinations = [...(footer?.querySelectorAll("button[data-destination]") ?? [])].map(button =>
 			(button.textContent ?? "").trim(),
 		);
-		expect(destinations.map(label => label.replace(/[⌥⌘,A]+$/, ""))).toEqual(["Agents", "Insights", "Settings"]);
+		expect(destinations.map(label => label.replace(/[⌥⌘,A]+$/, ""))).toEqual(["Agents", "Stats", "Settings"]);
 		expect(footer?.textContent).toContain("⌥A");
 		expect(footer?.textContent).toContain("⌘,");
 
@@ -651,7 +651,9 @@ describe("Sidebar menus and pinned ordering", () => {
 		await mount(<Sidebar />);
 
 		expect(container.querySelector("[data-chat-section]")).not.toBeNull();
-		expect(container.querySelector("[data-sidebar-project]")?.textContent).not.toBe("Work");
+		expect(container.querySelector('[role="tablist"] [data-tab-id="code"]')?.getAttribute("aria-selected")).toBe(
+			"true",
+		);
 		expect(container.querySelector("[data-sidebar-new-chat]")).not.toBeNull();
 	});
 

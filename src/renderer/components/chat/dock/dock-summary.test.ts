@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import type { UiTodoPhase, UiTodoTask } from "../../../stores/todo";
 import type { SubagentListRow } from "../../panels/subagent-graph";
-import { buildAgentDockSummary, buildTodoDockSummary } from "./dock-summary";
+import { buildAgentDockPeek, buildAgentDockSummary, buildTodoDockPeek, buildTodoDockSummary } from "./dock-summary";
 
 function task(id: string, status: UiTodoTask["status"]): UiTodoTask {
 	return { id, content: id, status };
@@ -62,5 +62,35 @@ describe("dock summaries", () => {
 		const summary = buildAgentDockSummary(rows);
 		expect(summary.rows.map(row => row.agent.id)).toEqual(["a1", "a2", "a3", "a4", "a8"]);
 		expect(summary).toMatchObject({ totalCount: 8, hiddenCount: 3 });
+	});
+
+	it("peeks todo progress without abandoned work and names the task being worked", () => {
+		const phase = (tasks: UiTodoTask[]): UiTodoPhase[] => [{ id: "phase-1", name: "work", tasks }];
+		expect(
+			buildTodoDockPeek(
+				phase([
+					task("done", "completed"),
+					task("next", "pending"),
+					task("running", "in_progress"),
+					task("dropped", "abandoned"),
+				]),
+			),
+		).toMatchObject({ done: 1, total: 3, current: { id: "running" } });
+		// Nothing in progress: the next open task (blocked counts) stands in.
+		expect(buildTodoDockPeek(phase([task("done", "completed"), task("stuck", "blocked")])).current?.id).toBe("stuck");
+		expect(buildTodoDockPeek(phase([task("done", "completed")]))).toEqual({ done: 1, total: 1, current: undefined });
+	});
+
+	it("peeks agent status counts and the most recently active agent", () => {
+		const agents = [
+			agent("a1", "running", 5),
+			agent("a2", "parked", 9),
+			agent("a3", "completed", 20),
+			agent("a4", "failed", 3),
+			agent("a5", "cancelled", 4),
+		];
+		expect(buildAgentDockPeek(agents)).toMatchObject({ running: 2, done: 1, failed: 1, latest: { id: "a2" } });
+		// Nothing live: the most recently updated agent of any status.
+		expect(buildAgentDockPeek([agent("a1", "completed", 1), agent("a2", "failed", 2)]).latest?.id).toBe("a2");
 	});
 });

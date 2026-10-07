@@ -28,7 +28,7 @@ import { PanelContainer } from "./PanelContainer";
 import { Sidebar } from "./Sidebar";
 import { SidecarBanner } from "./SidecarBanner";
 import { SplitWorkspace } from "./SplitWorkspace";
-import { TabBar } from "./TabBar";
+import { TabHousekeeping } from "./TabHousekeeping";
 import { TitleBar } from "./TitleBar";
 import { UpdateBanner } from "./UpdateBanner";
 
@@ -133,7 +133,7 @@ export function AppShell() {
 			<main aria-label={t("shell.main")} className="omp-workspace-main relative flex min-w-0 flex-1 flex-col">
 				<div className={onPage ? "hidden" : "flex min-h-0 flex-1 flex-col"} data-session-view>
 					<TitleBar />
-					<TabBar />
+					<TabHousekeeping />
 					<SidecarBanner />
 					<UpdateBanner />
 					<SplitWorkspace />

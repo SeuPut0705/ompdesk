@@ -42,10 +42,10 @@ test("@smoke app boots on omp, connects the bridge, opens a tab, answers a promp
 			.toMatchObject({ success: true });
 
 		await page.keyboard.press("ControlOrMeta+t");
-		const tabs = page.locator('[role="tablist"] [role="tab"][data-status]');
-		await expect(tabs).toHaveCount(2);
-		// An idle tab shows no status icon; readiness is the chip's data-status.
-		await expect(tabs.last()).toHaveAttribute("data-status", "ready", { timeout: 60_000 });
+		await expect.poll(() => page.evaluate(() => window.omp.tabs.list())).toHaveLength(2);
+		await expect
+			.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).at(-1)?.status, { timeout: 60_000 })
+			.toBe("ready");
 
 		await page.locator("textarea").first().fill("smoke hello");
 		await page.getByRole("button", { name: "Send", exact: true }).click();

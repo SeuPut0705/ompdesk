@@ -207,7 +207,7 @@ test("system omp persists settings and sessions and serves every stats route", a
 		const stats = page.locator('section[data-destination="insights"]');
 		await expect(stats).toBeVisible();
 		// The global dashboard sections live under Stats › All sessions (default scope is This session).
-		await stats.getByRole("tab", { name: "Stats", exact: true }).click();
+		await stats.getByRole("tab", { name: "Overview", exact: true }).click();
 		await stats.getByRole("tab", { name: "All sessions", exact: true }).click();
 		for (const label of [
 			"Overview",

@@ -128,7 +128,7 @@ describe("TitleBar", () => {
 		expect(popover?.textContent).toContain("50%");
 		expect(popover?.textContent).toContain("5.0s");
 		const insights = Array.from(popover?.querySelectorAll("button") ?? []).find(button =>
-			button.textContent?.includes("Open in Insights"),
+			button.textContent?.includes("Open in Stats"),
 		) as unknown as TestButton | undefined;
 		await act(async () => insights?.click());
 		expect(useUiStore.getState()).toMatchObject({

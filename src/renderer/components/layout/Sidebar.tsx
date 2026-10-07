@@ -2,14 +2,12 @@ import {
 	AlertTriangle,
 	BarChart3,
 	Bot,
-	BriefcaseBusiness,
 	ChevronDown,
 	ChevronRight,
 	CircleHelp,
+	Columns2,
 	ExternalLink,
 	Folder,
-	FolderOpen,
-	FolderPlus,
 	GitBranchPlus,
 	Info,
 	Keyboard,
@@ -23,12 +21,14 @@ import {
 	PinOff,
 	Plus,
 	RefreshCw,
+	Rows2,
 	Search,
 	Settings,
 	Sparkles,
 	SquarePen,
 	SquareTerminal,
 	Trash2,
+	X,
 	XCircle,
 } from "lucide-react";
 import {
@@ -50,9 +50,9 @@ import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { actionKbd, onEscape } from "../../lib/keymap";
 import { sessionDisplayTitle } from "../../lib/session-title";
+import { performTabClose } from "../../lib/tab-close";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { tabSignalPresentation } from "../../lib/tab-signal";
-import { pickWorkspaceDirectory } from "../../lib/workspace-dirs";
 import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
 import { useQueueStore } from "../../stores/queue";
@@ -94,8 +94,6 @@ type SidebarMode = "code" | "work";
 const SIDEBAR_MIN = 220;
 const SIDEBAR_MAX = 420;
 const SIDEBAR_DEFAULT = 248;
-/** Recent projects offered directly in the project menu (the rest: "All projects…"). */
-const RECENT_PROJECTS = 5;
 
 function modifiedAt(session: SessionInfo): number {
 	const timestamp = Date.parse(session.modified);
@@ -666,8 +664,13 @@ export function Sidebar() {
 		) : pinned ? (
 			<Pin aria-label={t("sidebar.pinned")} />
 		) : (
-			<span aria-hidden className="size-(--sc-icon-md)" data-sidebar-session-icon />
+			<span aria-hidden className="flex size-(--sc-icon-md) items-center justify-center" data-sidebar-session-icon>
+				{tabForSession(session) && !isCurrent && (
+					<span className="size-1.5 rounded-(--sc-radius-full) bg-(--sc-text-subtle)" data-sidebar-open-tab />
+				)}
+			</span>
 		);
+		const openTabId = tabForSession(session)?.id;
 		return (
 			<ListRow
 				actions={
@@ -719,6 +722,13 @@ export function Sidebar() {
 				}
 				onClick={() => openSession(session)}
 				rowProps={{
+					draggable: openTabId !== undefined && !isCurrent,
+					onDragStart: event => {
+						if (!openTabId) return;
+						event.dataTransfer.effectAllowed = "move";
+						window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: openTabId } }));
+					},
+					onDragEnd: () => window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: null } })),
 					onContextMenu: event => setSessionMenu({ anchor: anchorFromEvent(event), session }),
 					"data-active": active,
 					"data-switch-pending": switchPendingTo === session.id || undefined,
@@ -846,50 +856,6 @@ export function Sidebar() {
 		);
 	};
 
-	const currentProjectName =
-		mode === "work"
-			? t("sidebar.mode.work")
-			: activeTabKind !== "chat" && cwd
-				? (groupAliases[cwd] ?? (basename(cwd) || cwd))
-				: t("sidebar.project.none");
-	const projectItems: ContextMenuItem[] = [
-		...allGroups
-			.filter(group => group.cwd !== cwd)
-			.slice(0, RECENT_PROJECTS)
-			.map(group => ({
-				id: `project:${group.cwd}`,
-				label: group.name,
-				description: group.cwd,
-				icon: Folder,
-				onSelect: () => {
-					setMode("code");
-					void goToProject(group.cwd);
-				},
-			})),
-		{
-			id: "project-all",
-			label: t("sidebar.project.all"),
-			icon: FolderOpen,
-			onSelect: () => setWorkspaceDialog("switch"),
-		},
-		{
-			id: "project-open",
-			label: t("sidebar.project.open"),
-			icon: FolderPlus,
-			onSelect: () => {
-				void pickWorkspaceDirectory()
-					.then(picked => {
-						if (!picked) return;
-						setMode("code");
-						return goToProject(picked);
-					})
-					.catch(error =>
-						toast({ variant: "error", title: t("titlebar.openProjectFailed"), message: String(error) }),
-					);
-			},
-		},
-	];
-
 	return (
 		<>
 			<aside
@@ -934,18 +900,6 @@ export function Sidebar() {
 						]}
 						variant="segmented"
 					/>
-					<MenuButton
-						className="w-full justify-start gap-2 px-2.5 text-(--sc-text)"
-						icon={mode === "work" ? <BriefcaseBusiness /> : <Folder />}
-						items={projectItems}
-						label={t("sidebar.project.menu")}
-						variant="ghost"
-					>
-						<span className="min-w-0 flex-1 truncate text-left" data-sidebar-project>
-							{currentProjectName}
-						</span>
-						<ChevronDown aria-hidden className="text-(--sc-text-subtle)" />
-					</MenuButton>
 					<div className="flex items-center gap-1">
 						<Button
 							className="min-w-0 flex-1 justify-start gap-2.5 px-2.5"
@@ -977,7 +931,7 @@ export function Sidebar() {
 
 				<div
 					aria-label={t("sidebar.sessions")}
-					className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 [overflow-anchor:none]"
+					className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 pb-2 [overflow-anchor:none]"
 					onKeyDown={onListKeyDown}
 					ref={listRef}
 					role="group"
@@ -1131,6 +1085,54 @@ export function Sidebar() {
 			{sessionMenu &&
 				(() => {
 					const targetBusy = isSessionBusy(sessionMenu.session);
+					const targetTab = tabForSession(sessionMenu.session);
+					const { split } = useTabsStore.getState();
+					const inSplit =
+						targetTab && split && (split.firstTabId === targetTab.id || split.secondTabId === targetTab.id);
+					const tabItems: ContextMenuItem[] = !targetTab
+						? []
+						: [
+								...(targetTab.id !== activeTabId && !inSplit
+									? (["right", "bottom"] as const).map(placement => ({
+											id: `session-split-${placement}`,
+											label: t(placement === "right" ? "tabs.menu.splitRight" : "tabs.menu.splitBottom"),
+											icon: placement === "right" ? Columns2 : Rows2,
+											onSelect: () => {
+												setSessionMenu(null);
+												useUiStore.getState().closeDestination();
+												void useTabsStore.getState().splitTab(targetTab.id, placement);
+											},
+										}))
+									: []),
+								...(split
+									? [
+											{
+												id: "session-unsplit",
+												label: t("tabs.menu.removeSplit"),
+												icon: XCircle,
+												onSelect: () => {
+													setSessionMenu(null);
+													void useTabsStore.getState().unsplit(targetTab.id);
+												},
+											},
+										]
+									: []),
+								...(tabs.length > 1
+									? [
+											{
+												id: "session-close-tab",
+												label: t("tabs.close"),
+												icon: X,
+												disabled: targetBusy,
+												disabledReason: t("sidebar.menu.taskRunning"),
+												onSelect: () => {
+													setSessionMenu(null);
+													performTabClose(targetTab);
+												},
+											},
+										]
+									: []),
+							];
 					return (
 						<ContextMenu
 							ariaLabel={sessionDisplayTitle(sessionMenu.session, t("sidebar.untitled"))}
@@ -1170,6 +1172,7 @@ export function Sidebar() {
 										void openSessionInNewWindow(sessionMenu.session);
 									},
 								},
+								...tabItems,
 								{
 									id: "session-rename",
 									label: t("sidebar.rename"),

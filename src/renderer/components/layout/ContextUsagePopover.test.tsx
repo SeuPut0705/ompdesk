@@ -247,7 +247,7 @@ describe("ContextUsagePopover", () => {
 		});
 
 		const reportButton = Array.from(document.querySelectorAll("button")).find(button =>
-			button.textContent?.includes("See details in Insights"),
+			button.textContent?.includes("See details in Stats"),
 		);
 		expect(reportButton).toBeDefined();
 		await act(async () => reportButton?.click());

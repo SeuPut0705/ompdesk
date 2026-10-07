@@ -57,6 +57,7 @@ import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Banner, Button, IconButton, MenuButton, Spinner, Tooltip } from "../common";
+import { AskDockSlot } from "../dialogs/ask-dock";
 import { ComposerModes } from "./ComposerModes";
 import { ContextUsagePopover } from "./ContextUsagePopover";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
@@ -764,6 +765,7 @@ export function InputArea() {
 			)}
 		>
 			<div className="omp-composer-shell relative w-full">
+				<AskDockSlot />
 				{pasteMenu && (
 					<div
 						ref={pasteMenuRef}

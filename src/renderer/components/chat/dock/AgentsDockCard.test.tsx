@@ -9,7 +9,7 @@ import { parseHTML } from "linkedom";
 import { ListTodo } from "lucide-react";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
-import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { AgentProgress, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
 import { resetTabRoute } from "../../../lib/tab-routing";
@@ -106,6 +106,12 @@ async function mount(element: ReactElement): Promise<void> {
 	await flush();
 }
 
+// Dock cards start collapsed; roster tests open them the way a click would. The
+// collapsed default and its peek line have their own test below.
+beforeEach(() => {
+	useUiStore.setState({ dockCollapsed: { todo: false, agents: false }, dockFocus: null });
+});
+
 afterEach(async () => {
 	if (root) {
 		await act(async () => {
@@ -129,6 +135,32 @@ describe("AgentsDockCard", () => {
 	it("renders nothing when the roster is empty", async () => {
 		await mount(<AgentsDockCard />);
 		expect(containerText()).toBe("");
+	});
+
+	it("starts collapsed, peeking status counts and the latest active agent", async () => {
+		useUiStore.setState({ dockCollapsed: {} });
+		useSubagentsStore
+			.getState()
+			.setSnapshots([
+				snap({ id: "a1", index: 1, status: "running", lastUpdate: 10, description: "Audit the parser" }),
+				snap({ id: "a2", index: 2, status: "running", lastUpdate: 20, description: "Trace the scroll pin" }),
+				snap({ id: "a3", index: 3, status: "completed", lastUpdate: 30 }),
+				snap({ id: "a4", index: 4, status: "failed", lastUpdate: 5 }),
+			]);
+		await mount(<AgentsDockCard />);
+
+		const toggle = container.querySelector<HTMLButtonElement>(
+			'section[aria-label="Subagents"] button[aria-expanded]',
+		);
+		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+		expect(container.querySelector('[role="tree"]')).toBeNull();
+		expect(container.querySelector('[data-testid="dock-peek-agents"]')?.textContent).toBe(
+			"2 running · 1 done · 1 failedscout · Trace the scroll pin",
+		);
+
+		await act(async () => toggle?.click());
+		expect(container.querySelectorAll('[role="treeitem"]')).toHaveLength(4);
+		expect(container.querySelector('[data-testid="dock-peek-agents"]')).toBeNull();
 	});
 
 	it("lists every known agent with the live/total count badge", async () => {

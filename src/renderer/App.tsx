@@ -359,6 +359,15 @@ export function App() {
 					// confirm while its run is live (⇧⌘W closes the window from the menu).
 					closeActiveTab();
 					return;
+				case "tab.next":
+				case "tab.prev": {
+					const { tabs, activeTabId, switchTab } = useTabsStore.getState();
+					if (tabs.length < 2) return;
+					const index = tabs.findIndex(tab => tab.id === activeTabId);
+					const step = actionId === "tab.next" ? 1 : -1;
+					void switchTab(tabs[(index + step + tabs.length) % tabs.length].id);
+					return;
+				}
 				case "pr.center":
 					// ⌥P — Agents › Pull requests.
 					ui.openAgents("prs");

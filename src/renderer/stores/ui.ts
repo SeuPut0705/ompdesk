@@ -36,6 +36,17 @@ export const COMPACT_SHELL_QUERY = "(max-width: 999px)";
 
 /** Center-dock card identifiers: todo/plan/agents render as live cards above the composer. */
 export type DockCardId = "todo" | "plan" | "agents";
+
+/** Todo and subagent cards start collapsed: their header peek (progress, current
+ * task, agent counts) is the at-a-glance view, and the full list is one click away.
+ * The plan card starts open because a proposed plan is there to be read. */
+const DOCK_CARD_DEFAULT_COLLAPSED: Record<DockCardId, boolean> = { todo: true, agents: true, plan: false };
+
+/** Whether a center-dock card is collapsed: the user's override, else the card's default. */
+export function isDockCardCollapsed(overrides: Partial<Record<DockCardId, boolean>>, id: DockCardId): boolean {
+	return overrides[id] ?? DOCK_CARD_DEFAULT_COLLAPSED[id];
+}
+
 export type TranscriptDetail = "compact" | "full";
 /** Composer Modes popover tabs a request can open (`openModes`). */
 export type ModesTab = "vibe" | "goal" | "loop" | "pool";
@@ -134,7 +145,7 @@ interface UiStore {
 	setPanelTab: (tab: PanelTab) => void;
 	openFilePreview: (path: string) => void;
 	closeFilePreview: () => void;
-	/** Per-card collapse overrides for the center dock (absent = expanded). */
+	/** Per-card collapse overrides for the center dock (absent = the card's default, see `isDockCardCollapsed`). */
 	dockCollapsed: Partial<Record<DockCardId, boolean>>;
 	toggleDockCard: (id: DockCardId) => void;
 	/** Focus signal: bumps seq so the target card expands and flashes (command-palette deep links). */
@@ -277,7 +288,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	dockCollapsed: {},
 	toggleDockCard: id =>
 		set({
-			dockCollapsed: { ...get().dockCollapsed, [id]: !(get().dockCollapsed[id] ?? false) },
+			dockCollapsed: { ...get().dockCollapsed, [id]: !isDockCardCollapsed(get().dockCollapsed, id) },
 		}),
 	dockFocus: null,
 	focusDockCard: id =>

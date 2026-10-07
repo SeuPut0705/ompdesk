@@ -104,7 +104,7 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		await expect(input).toHaveValue("retained stream draft");
 		for (let index = 1; index < 5; index++) {
 			await page.keyboard.press("ControlOrMeta+t");
-			await expect(page.locator('[role="tablist"] [role="tab"][data-status]')).toHaveCount(index + 1);
+			await expect.poll(() => page.evaluate(() => window.omp.tabs.list())).toHaveLength(index + 1);
 			await expect(page.locator("[data-transcript-kind]").first()).toBeVisible();
 		}
 		const switchMs: number[] = [];
@@ -115,10 +115,7 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		}
 		for (let index = 0; index < 20; index++) {
 			const started = performance.now();
-			await page
-				.locator('[role="tablist"] [role="tab"][data-status]')
-				.nth(index % 5)
-				.click();
+			await page.keyboard.press("Control+Tab");
 			await expect(input).toBeEditable();
 			switchMs.push(performance.now() - started);
 		}
@@ -127,7 +124,8 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 			await fs.writeFile("test-results/switch.cpuprofile", JSON.stringify(captured.profile));
 			await profiler.detach();
 		}
-		await page.locator('[role="tablist"] [role="tab"][data-status]').first().click();
+		// 20 cycles over 5 tabs land back on the last one; one more reaches the first.
+		await page.keyboard.press("Control+Tab");
 		await expect(input).toHaveValue("retained stream draft");
 		await page.getByRole("button", { name: "Stop", exact: true }).click();
 		await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);

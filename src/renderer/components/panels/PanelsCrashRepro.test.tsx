@@ -11,6 +11,7 @@ import { I18nProvider } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
 import { useSubagentsStore } from "../../stores/subagents";
 import { useToolsStore } from "../../stores/tools";
+import { useUiStore } from "../../stores/ui";
 import { AgentsDockCard } from "../chat/dock/AgentsDockCard";
 import { DiffPanel } from "./DiffPanel";
 
@@ -68,6 +69,7 @@ afterEach(async () => {
 	useToolsStore.getState().reset();
 	useSubagentsStore.getState().reset();
 	useMessagesStore.getState().reset();
+	useUiStore.setState({ dockCollapsed: {} });
 	getSubagentMessages.mockClear();
 	getSubagentMessages.mockResolvedValue({
 		type: "response",
@@ -178,6 +180,8 @@ describe("panels under running state", () => {
 				messages: [{ role: "assistant", content: "Transcript loaded" }],
 			},
 		});
+		// The card starts collapsed; open it the way a header click would.
+		useUiStore.setState({ dockCollapsed: { agents: false } });
 		useSubagentsStore.getState().setSnapshots([snapshot]);
 		await mount(<AgentsDockCard />);
 		expect(document.body.textContent).toContain("Read-only research");

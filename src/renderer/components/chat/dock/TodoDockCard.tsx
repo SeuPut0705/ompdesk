@@ -19,7 +19,7 @@ import { toast } from "../../../stores/toast";
 import { type TodoStore, type UiTodoPhase, type UiTodoTask, useTodoStore } from "../../../stores/todo";
 import { Button, IconButton } from "../../common";
 import { DockCard } from "./DockCard";
-import { buildTodoDockSummary } from "./dock-summary";
+import { buildTodoDockPeek, buildTodoDockSummary } from "./dock-summary";
 import { useWorkspaceDockFocus } from "./WorkspaceDockFocus";
 
 function todoPayload(phases: UiTodoPhase[]): TodoPhase[] {
@@ -114,6 +114,7 @@ export function TodoDockCard() {
 					? t("dock.todo.pending", taskCounts)
 					: t("dock.todo.completed", taskCounts);
 	const summary = useMemo(() => buildTodoDockSummary(phases), [phases]);
+	const peek = useMemo(() => buildTodoDockPeek(phases), [phases]);
 	const displayedPhases = showFull ? phases : summary.phases;
 
 	useEffect(() => {
@@ -127,6 +128,31 @@ export function TodoDockCard() {
 			badge={<span className="min-w-0 truncate tabular-nums">{taskSummary}</span>}
 			icon={ListTodo}
 			id="todo"
+			peek={
+				peek.total > 0 ? (
+					<>
+						<span
+							aria-hidden="true"
+							className="relative h-1 w-12 shrink-0 overflow-hidden rounded-(--sc-radius-full) bg-(--sc-border-subtle)"
+						>
+							<span
+								className="absolute inset-y-0 left-0 rounded-(--sc-radius-full) bg-(--sc-accent)"
+								style={{ width: `${(peek.done / peek.total) * 100}%` }}
+							/>
+						</span>
+						<span className="shrink-0 tabular-nums">
+							{peek.done}/{peek.total}
+						</span>
+						{peek.current && (
+							<span className="min-w-0 truncate text-(--sc-text-secondary)" title={peek.current.content}>
+								{peek.current.status === "in_progress"
+									? peek.current.content
+									: t("dock.todo.next", { task: peek.current.content })}
+							</span>
+						)}
+					</>
+				) : undefined
+			}
 			title={t("dock.todo")}
 		>
 			<div className="px-2 py-1.5">

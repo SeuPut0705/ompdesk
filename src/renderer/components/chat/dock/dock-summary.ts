@@ -1,4 +1,5 @@
-import type { UiTodoPhase } from "../../../stores/todo";
+import type { SubagentSnapshot } from "../../../../shared/rpc-types";
+import type { UiTodoPhase, UiTodoTask } from "../../../stores/todo";
 import { isLiveSubagentStatus, type SubagentListRow } from "../../panels/subagent-graph";
 
 export const TODO_SUMMARY_THRESHOLD = 10;
@@ -35,6 +36,55 @@ export function buildTodoDockSummary(phases: UiTodoPhase[]): TodoDockSummary {
 		phases: summaryPhases,
 		hiddenCount: tasks.length - visibleIds.size,
 		totalCount: tasks.length,
+	};
+}
+
+export interface TodoDockPeek {
+	done: number;
+	/** Abandoned tasks never complete, so they stay out of the denominator. */
+	total: number;
+	/** The task being worked, else the next open one; absent once nothing is left. */
+	current?: UiTodoTask;
+}
+
+/** What the collapsed todo card shows at a glance: progress and the current task. */
+export function buildTodoDockPeek(phases: UiTodoPhase[]): TodoDockPeek {
+	const tasks = phases.flatMap(phase => phase.tasks).filter(task => task.status !== "abandoned");
+	return {
+		done: tasks.filter(task => task.status === "completed").length,
+		total: tasks.length,
+		current:
+			tasks.find(task => task.status === "in_progress") ??
+			tasks.find(task => task.status === "pending" || task.status === "blocked"),
+	};
+}
+
+export interface AgentDockPeek {
+	running: number;
+	done: number;
+	failed: number;
+	/** The most recently updated live agent, else the most recently updated one. */
+	latest?: SubagentSnapshot;
+}
+
+/** What the collapsed subagents card shows at a glance: status counts and the latest agent. */
+export function buildAgentDockPeek(agents: SubagentSnapshot[]): AgentDockPeek {
+	const live = agents.filter(agent => isLiveSubagentStatus(agent.status));
+	const newest = (pool: SubagentSnapshot[]) =>
+		pool.reduce<SubagentSnapshot | undefined>(
+			(best, agent) =>
+				!best ||
+				agent.lastUpdate > best.lastUpdate ||
+				(agent.lastUpdate === best.lastUpdate && agent.index > best.index)
+					? agent
+					: best,
+			undefined,
+		);
+	return {
+		running: live.length,
+		done: agents.filter(agent => agent.status === "completed").length,
+		failed: agents.filter(agent => agent.status === "failed").length,
+		latest: newest(live) ?? newest(agents),
 	};
 }
 

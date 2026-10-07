@@ -221,8 +221,8 @@ function SessionTranscript() {
 	// the virtualizer's size, which trails a row that is still growing, so the view
 	// fell outside the edge slack and the tail was abandoned for the rest of the run.
 	const followsTail = useCallback(
-		(el: HTMLElement) =>
-			viewRef.current.pinned || (isTranscriptAtLiveEdge(el) && gestureTowardTailRef.current !== false),
+		(metrics: Parameters<typeof isTranscriptAtLiveEdge>[0]) =>
+			viewRef.current.pinned || (isTranscriptAtLiveEdge(metrics) && gestureTowardTailRef.current !== false),
 		[],
 	);
 
@@ -341,16 +341,32 @@ function SessionTranscript() {
 
 	// Row measurements, fonts and images move the live edge after React has
 	// committed the new rows. Observe the canvas sizer — the scroll container's
-	// own box is `h-full` and never changes when content is appended.
+	// own box is `h-full` and never changes when content is appended. The
+	// container itself resizes when the layout around it does — workspace dock
+	// cards appearing, expanding or collapsing, the composer growing — and that
+	// moves the live edge too: a shrink keeps scrollTop, so without a re-pin the
+	// tail sits hidden under the new height until more text happens to arrive.
 	useEffect(() => {
 		const el = parentRef.current;
 		const canvas = canvasRef.current;
 		if (!el || !canvas || typeof ResizeObserver === "undefined") return;
+		let viewportHeight = el.clientHeight;
 		const observer = new ResizeObserver(() => {
+			const previousHeight = viewportHeight;
+			viewportHeight = el.clientHeight;
 			if (userScrollIntentRef.current) return;
-			if (followsTail(el)) virtualizer.scrollToEnd();
+			// Judge the edge against the taller of the two viewports: a shrink pushes the
+			// tail out of a view that was riding it by exactly the height the layout
+			// took, and that is not the reader leaving the live edge.
+			const metrics = {
+				scrollHeight: el.scrollHeight,
+				scrollTop: el.scrollTop,
+				clientHeight: Math.max(previousHeight, viewportHeight),
+			};
+			if (followsTail(metrics)) virtualizer.scrollToEnd();
 		});
 		observer.observe(canvas);
+		observer.observe(el);
 		return () => observer.disconnect();
 	}, [virtualizer, followsTail]);
 

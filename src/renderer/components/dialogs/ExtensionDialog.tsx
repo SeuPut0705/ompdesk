@@ -1,8 +1,9 @@
 /**
  * Extension UI dispatcher: renders the oldest pending extension_ui_request
- * as the right surface (select / confirm / input / editor / open_url),
- * routes tool-approval selects to ApprovalDialog, turns `notify` into a
- * toast, and enforces request timeouts with a visible countdown.
+ * as the right surface (select / confirm / input / editor / open_url as
+ * modals, `ask` as a non-modal card docked above the composer), routes
+ * tool-approval selects to ApprovalDialog, turns `notify` into a toast, and
+ * enforces request timeouts with a visible countdown.
  *
  * `setStatus` / `setWidget` are captured by the extension-ui store and
  * surfaced here as floating status segments / widget panels.
@@ -13,17 +14,20 @@
 
 import type { EditorView } from "@codemirror/view";
 import { Check, ExternalLink } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ExtensionAskDialogResult, ExtensionUIRequest } from "../../../shared/rpc-types";
 import { AnsiText } from "../../lib/ansi";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { isImeKeyEvent } from "../../lib/ime";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
 import { isInlineLoginRequest, useExtensionUiStore } from "../../stores/extension-ui";
 import { toast } from "../../stores/toast";
 import { Button, Input, Modal, Spinner } from "../common";
 import { ApprovalDialog, isApprovalRequest } from "./ApprovalDialog";
+import { useAskDock } from "./ask-dock";
 
 /** Requests handled elsewhere (store/router) — never rendered as dialogs. */
 const NON_DIALOG_METHODS = new Set(["notify", "setStatus", "setWidget", "setTitle", "set_editor_text", "cancel"]);
@@ -223,6 +227,25 @@ function InputDialog({
 	);
 }
 
+const FOCUSABLE =
+	'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Places the ask card in the composer dock of the current session (in flow,
+ * directly above the composer, same width). Without a mounted composer — e.g.
+ * Settings is open — it floats at the bottom of the window at composer width.
+ * Either way there is no scrim: the transcript stays visible and interactive.
+ */
+function AskDock({ children }: { children: ReactNode }) {
+	const dock = useAskDock();
+	if (dock) return createPortal(children, dock);
+	return (
+		<div className="pointer-events-none fixed inset-x-0 bottom-3 z-(--sc-z-popover)">
+			<div className="omp-composer-shell pointer-events-auto">{children}</div>
+		</div>
+	);
+}
+
 interface AskAnswerState {
 	selected: Set<string>;
 	custom: string;
@@ -230,10 +253,12 @@ interface AskAnswerState {
 }
 
 /**
- * Multi-question ask dialog: each question renders its options as checkboxes
+ * Multi-question ask card: each question renders its options as checkboxes
  * (multi) or radio rows (single), plus an optional custom-answer input and an
  * optional note input. Single-select mirrors the TUI: picking an option
  * replaces the custom answer, typing one clears the option selection.
+ * Non-modal: docked above the composer, focus moves in on open and returns on
+ * close; Escape inside the card cancels.
  */
 function AskDialog({
 	request,
@@ -247,6 +272,18 @@ function AskDialog({
 	onCancel: () => void;
 }) {
 	const t = useT();
+	const cardRef = useRef<HTMLElement>(null);
+
+	useEffect(() => {
+		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+		const card = cardRef.current;
+		(card?.querySelector<HTMLElement>(FOCUSABLE) ?? card)?.focus();
+		return () => {
+			// Return focus (normally the composer) only if it was still in the card.
+			const active = document.activeElement;
+			if (!active || active === document.body || card?.contains(active)) opener?.focus();
+		};
+	}, []);
 	const [answers, setAnswers] = useState<AskAnswerState[]>(() =>
 		request.questions.map(() => ({ selected: new Set<string>(), custom: "", note: "" })),
 	);
@@ -312,122 +349,140 @@ function AskDialog({
 	};
 
 	return (
-		<Modal onClose={onCancel} open size="lg" title={t("extDialog.ask.title")}>
-			<form
-				className="space-y-5"
-				onSubmit={event => {
+		<AskDock>
+			<section
+				aria-label={t("extDialog.ask.title")}
+				className="omp-pop-in mb-2 flex max-h-[50vh] flex-col overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-md)"
+				onKeyDown={event => {
+					if (event.key !== "Escape" || isImeKeyEvent(event.nativeEvent)) return;
 					event.preventDefault();
-					submit();
+					event.stopPropagation();
+					onCancel();
 				}}
+				ref={cardRef}
+				tabIndex={-1}
 			>
-				{request.questions.map((question, questionIndex) => {
-					const answer = answers[questionIndex];
-					return (
-						<div className="space-y-2" key={question.id}>
-							{question.header && (
-								<div className="text-omp-xxs font-medium tracking-widest text-(--omp-dim) uppercase">
-									{question.header}
-								</div>
-							)}
-							<p className="text-xs leading-relaxed font-medium break-words whitespace-pre-wrap text-(--omp-text)">
-								{request.questions.length > 1 ? `${questionIndex + 1}. ` : ""}
-								{question.question}
-							</p>
-							<div className="space-y-1">
-								{question.options.map((option, optionIndex) => {
-									const checked = answer?.selected.has(option.label) ?? false;
-									return (
-										<button
-											className={cx(
-												"flex w-full items-start gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-(--omp-border-accent)",
-												checked
-													? "border-(--omp-border-accent) bg-(--omp-selected-bg)"
-													: "border-(--omp-border-muted) hover:border-(--omp-border-accent) hover:bg-(--omp-selected-bg)",
-											)}
-											key={option.label}
-											onClick={() => toggleOption(questionIndex, option.label)}
-											type="button"
-										>
-											<span
-												className={cx(
-													"mt-px flex h-3.5 w-3.5 shrink-0 items-center justify-center border transition-colors",
-													question.multi ? "rounded-[3px]" : "rounded-full",
-													checked
-														? "border-(--omp-accent) text-(--omp-accent)"
-														: "border-(--omp-border-strong) text-transparent",
-												)}
-											>
-												{question.multi ? (
-													<Check size={10} strokeWidth={3} />
-												) : (
-													<span className="h-1.5 w-1.5 rounded-full bg-current" />
-												)}
-											</span>
-											<span className="min-w-0 flex-1">
-												<span className="flex items-center gap-1.5 text-xs text-(--omp-text)">
-													<span className="min-w-0 break-words">{option.label}</span>
-													{question.recommended === optionIndex && (
-														<span className="shrink-0 rounded border border-(--omp-border-accent) px-1 py-px text-omp-xxs font-medium text-(--omp-accent)">
-															{t("extDialog.ask.recommended")}
-														</span>
+				<form
+					className="flex min-h-0 flex-1 flex-col"
+					onSubmit={event => {
+						event.preventDefault();
+						submit();
+					}}
+				>
+					<div className="shrink-0 px-4 pt-3 pb-2 text-xs font-semibold text-(--omp-text)">
+						{t("extDialog.ask.title")}
+					</div>
+					<div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-3">
+						{request.questions.map((question, questionIndex) => {
+							const answer = answers[questionIndex];
+							return (
+								<div className="space-y-2" key={question.id}>
+									{question.header && (
+										<div className="text-omp-xxs font-medium tracking-widest text-(--omp-dim) uppercase">
+											{question.header}
+										</div>
+									)}
+									<p className="text-xs leading-relaxed font-medium break-words whitespace-pre-wrap text-(--omp-text)">
+										{request.questions.length > 1 ? `${questionIndex + 1}. ` : ""}
+										{question.question}
+									</p>
+									<div className="space-y-1">
+										{question.options.map((option, optionIndex) => {
+											const checked = answer?.selected.has(option.label) ?? false;
+											return (
+												<button
+													className={cx(
+														"flex w-full items-start gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-(--omp-border-accent)",
+														checked
+															? "border-(--omp-border-accent) bg-(--omp-selected-bg)"
+															: "border-(--omp-border-muted) hover:border-(--omp-border-accent) hover:bg-(--omp-selected-bg)",
 													)}
-												</span>
-												{option.description && (
-													<span className="mt-0.5 block text-omp-xs leading-snug break-words text-(--omp-dim)">
-														{option.description}
+													key={option.label}
+													onClick={() => toggleOption(questionIndex, option.label)}
+													type="button"
+												>
+													<span
+														className={cx(
+															"mt-px flex h-3.5 w-3.5 shrink-0 items-center justify-center border transition-colors",
+															question.multi ? "rounded-[3px]" : "rounded-full",
+															checked
+																? "border-(--omp-accent) text-(--omp-accent)"
+																: "border-(--omp-border-strong) text-transparent",
+														)}
+													>
+														{question.multi ? (
+															<Check size={10} strokeWidth={3} />
+														) : (
+															<span className="h-1.5 w-1.5 rounded-full bg-current" />
+														)}
 													</span>
-												)}
-											</span>
-										</button>
-									);
-								})}
-							</div>
-							{question.options
-								.filter(option => answer?.selected.has(option.label) && option.preview)
-								.map(option => (
-									<div
-										className="rounded-md border border-(--omp-border-muted) bg-(--omp-code-bg) px-2.5 py-2 text-omp-sm"
-										key={`preview:${option.label}`}
-									>
-										<MarkdownRenderer content={option.preview!} />
+													<span className="min-w-0 flex-1">
+														<span className="flex items-center gap-1.5 text-xs text-(--omp-text)">
+															<span className="min-w-0 break-words">{option.label}</span>
+															{question.recommended === optionIndex && (
+																<span className="shrink-0 rounded border border-(--omp-border-accent) px-1 py-px text-omp-xxs font-medium text-(--omp-accent)">
+																	{t("extDialog.ask.recommended")}
+																</span>
+															)}
+														</span>
+														{option.description && (
+															<span className="mt-0.5 block text-omp-xs leading-snug break-words text-(--omp-dim)">
+																{option.description}
+															</span>
+														)}
+													</span>
+												</button>
+											);
+										})}
 									</div>
-								))}
-							<Input
-								onChange={event => setCustom(questionIndex, event.target.value)}
-								placeholder={t("extDialog.ask.customPlaceholder")}
-								value={answer?.custom ?? ""}
-							/>
-							<Input
-								onChange={event => setNote(questionIndex, event.target.value)}
-								placeholder={t("extDialog.ask.notePlaceholder")}
-								value={answer?.note ?? ""}
-							/>
+									{question.options
+										.filter(option => answer?.selected.has(option.label) && option.preview)
+										.map(option => (
+											<div
+												className="rounded-md border border-(--omp-border-muted) bg-(--omp-code-bg) px-2.5 py-2 text-omp-sm"
+												key={`preview:${option.label}`}
+											>
+												<MarkdownRenderer content={option.preview!} />
+											</div>
+										))}
+									<Input
+										onChange={event => setCustom(questionIndex, event.target.value)}
+										placeholder={t("extDialog.ask.customPlaceholder")}
+										value={answer?.custom ?? ""}
+									/>
+									<Input
+										onChange={event => setNote(questionIndex, event.target.value)}
+										placeholder={t("extDialog.ask.notePlaceholder")}
+										value={answer?.note ?? ""}
+									/>
+								</div>
+							);
+						})}
+					</div>
+					<div className="flex shrink-0 items-center justify-between gap-2 border-t border-(--omp-border-muted) px-4 py-2.5">
+						<div className="flex items-center gap-2">
+							<TimeoutFooter remaining={remaining} />
+							{unansweredCount > 0 && (
+								<span className="text-omp-xs text-(--omp-warning)">
+									{t("extDialog.ask.unanswered", { count: unansweredCount })}
+								</span>
+							)}
 						</div>
-					);
-				})}
-				<div className="flex items-center justify-between gap-2 border-t border-(--omp-border-muted) pt-3">
-					<div className="flex items-center gap-2">
-						<TimeoutFooter remaining={remaining} />
-						{unansweredCount > 0 && (
-							<span className="text-omp-xs text-(--omp-warning)">
-								{t("extDialog.ask.unanswered", { count: unansweredCount })}
-							</span>
-						)}
+						<div className="flex gap-2">
+							<Button onClick={onCancel} size="sm" type="button" variant="ghost">
+								{t("common.cancel")}
+							</Button>
+							<Button onClick={() => onSubmit({ kind: "chat" })} size="sm" type="button" variant="secondary">
+								{t("extDialog.ask.chat")}
+							</Button>
+							<Button size="sm" type="submit" variant="primary">
+								{t("extDialog.submit")}
+							</Button>
+						</div>
 					</div>
-					<div className="flex gap-2">
-						<Button onClick={onCancel} size="sm" type="button" variant="ghost">
-							{t("common.cancel")}
-						</Button>
-						<Button onClick={() => onSubmit({ kind: "chat" })} size="sm" type="button" variant="secondary">
-							{t("extDialog.ask.chat")}
-						</Button>
-						<Button size="sm" type="submit" variant="primary">
-							{t("extDialog.submit")}
-						</Button>
-					</div>
-				</div>
-			</form>
-		</Modal>
+				</form>
+			</section>
+		</AskDock>
 	);
 }
 

@@ -438,6 +438,21 @@ export const KEYMAP_ACTIONS = [
 		hotkeyGroup: "session",
 	},
 	{
+		// No tab strip: ⌃⇥ / ⌃⇧⇥ cycle the open session tabs.
+		id: "tab.next",
+		labelKey: "hotkeys.row.tabNext",
+		defaults: ["⌃⇥"],
+		overlaySafe: false,
+		hotkeyGroup: "session",
+	},
+	{
+		id: "tab.prev",
+		labelKey: "hotkeys.row.tabPrev",
+		defaults: ["⇧⌃⇥"],
+		overlaySafe: false,
+		hotkeyGroup: "session",
+	},
+	{
 		id: "settings",
 		labelKey: "hotkeys.row.settings",
 		defaults: ["⌘,", "⌃,"],

@@ -242,6 +242,7 @@ if (process.argv[2] === "stats") {
 	let securityMode = "disabled";
 	let streamTimer: Timer | undefined;
 	let streamChunks = 0;
+	let streamTick: (() => void) | undefined;
 	let holdSettings = false;
 	let releaseSettings: (() => void) | undefined;
 	const values: Record<string, unknown> = {
@@ -584,8 +585,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			const answer: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
 			write({ type: "message_start", message: answer });
 			streamChunks = 0;
-			clearInterval(streamTimer);
-			streamTimer = setInterval(() => {
+			streamTick = () => {
 				streamChunks++;
 				write({
 					type: "message_update",
@@ -597,7 +597,9 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						partial: answer,
 					},
 				});
-			}, 16);
+			};
+			clearInterval(streamTimer);
+			streamTimer = setInterval(streamTick, 16);
 		} else if (message === "fixture approval") {
 			write({
 				type: "extension_ui_request",
@@ -722,6 +724,40 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				const line = text("command");
 				if (line === "fixture:progress") {
 					ok({ chunks: streamChunks });
+					break;
+				}
+				// Hold the stream still (a tool running, the model thinking) so a
+				// layout change can be observed without new text masking it.
+				if (line === "fixture:pause") {
+					clearInterval(streamTimer);
+					ok();
+					break;
+				}
+				if (line === "fixture:resume") {
+					clearInterval(streamTimer);
+					if (streamTick) streamTimer = setInterval(streamTick, 16);
+					ok();
+					break;
+				}
+				// A todo tool call settling mid-run: the workspace dock appears above
+				// the composer and takes height from the transcript viewport.
+				if (line === "fixture:todo") {
+					const tool = { toolCallId: `todo-${Date.now()}`, toolName: "todo" };
+					const tasks = Array.from({ length: 6 }, (_, index) => ({
+						content: `Fixture task ${index + 1}`,
+						status: index === 0 ? "in_progress" : "pending",
+					}));
+					write({ type: "tool_execution_start", ...tool, args: {} });
+					write({
+						type: "tool_execution_end",
+						...tool,
+						result: {
+							content: [{ type: "text", text: "todo updated" }],
+							details: { phases: [{ name: "Fixture", tasks }] },
+						},
+						isError: false,
+					});
+					ok();
 					break;
 				}
 				if (line === "fixture:large-tool") {

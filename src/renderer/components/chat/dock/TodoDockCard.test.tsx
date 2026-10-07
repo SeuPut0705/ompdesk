@@ -1,7 +1,7 @@
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
-import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcResponse } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useToastStore } from "../../../stores/toast";
@@ -56,6 +56,12 @@ function statusCycleButton(): { click(): void; dispatchEvent(event: Event): void
 	return cycle;
 }
 
+// The card starts collapsed; tests of the task list open it the way a click would.
+// The collapsed default and its peek line have their own tests below.
+beforeEach(() => {
+	useUiStore.setState({ dockCollapsed: { todo: false }, dockFocus: null });
+});
+
 afterEach(async () => {
 	await act(async () => root?.unmount());
 	container?.remove();
@@ -66,6 +72,51 @@ afterEach(async () => {
 });
 
 describe("TodoDockCard", () => {
+	it("starts collapsed, peeking progress and the task being worked", async () => {
+		useUiStore.setState({ dockCollapsed: {} });
+		useTodoStore.getState().setPhases([
+			{
+				name: "Implementation",
+				tasks: [
+					{ content: "Sketch the peek", status: "completed" },
+					{ content: "Wire the peek into the header", status: "in_progress" },
+					{ content: "Run visual QA", status: "pending" },
+					{ content: "Dropped idea", status: "abandoned" },
+				],
+			},
+		]);
+		await mount();
+
+		const toggle = container.querySelector<HTMLButtonElement>('section[aria-label="Todos"] button[aria-expanded]');
+		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+		expect(toggle?.getAttribute("aria-label")).toBe("Expand");
+		expect(container.textContent).not.toContain("Run visual QA");
+		const peek = container.querySelector('[data-testid="dock-peek-todo"]');
+		expect(peek?.textContent).toBe("1/3Wire the peek into the header");
+		expect(toggle?.getAttribute("aria-describedby")).toBe(peek?.getAttribute("id"));
+
+		await act(async () => toggle?.click());
+		expect(container.textContent).toContain("Run visual QA");
+		expect(container.querySelector('[data-testid="dock-peek-todo"]')).toBeNull();
+		expect(useUiStore.getState().dockCollapsed.todo).toBe(false);
+	});
+
+	it("peeks the next open task once nothing is in progress", async () => {
+		useUiStore.setState({ dockCollapsed: {} });
+		useTodoStore.getState().setPhases([
+			{
+				name: "Implementation",
+				tasks: [
+					{ content: "Sketch the peek", status: "completed" },
+					{ content: "Run visual QA", status: "pending" },
+				],
+			},
+		]);
+		await mount();
+
+		expect(container.querySelector('[data-testid="dock-peek-todo"]')?.textContent).toBe("1/2Next: Run visual QA");
+	});
+
 	it("renders a single phase as a flat compact task list with live counts", async () => {
 		useTodoStore.getState().setPhases([
 			{

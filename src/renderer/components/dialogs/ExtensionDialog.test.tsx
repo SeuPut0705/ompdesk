@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { ExtensionUIResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useExtensionUiStore } from "../../stores/extension-ui";
+import { AskDockSlot } from "./ask-dock";
 import { ExtensionDialog } from "./ExtensionDialog";
 
 const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -39,7 +40,7 @@ async function flush(): Promise<void> {
 	});
 }
 
-async function mount(): Promise<void> {
+async function mount({ withComposerDock = false }: { withComposerDock?: boolean } = {}): Promise<void> {
 	respondExtensionUi = vi.fn();
 	const ompWindow = window as unknown as { omp: { ui: { respondExtensionUi: typeof respondExtensionUi } } };
 	ompWindow.omp = { ui: { respondExtensionUi } };
@@ -49,6 +50,7 @@ async function mount(): Promise<void> {
 	await act(async () => {
 		root.render(
 			<I18nProvider>
+				{withComposerDock && <AskDockSlot />}
 				<ExtensionDialog />
 			</I18nProvider>,
 		);
@@ -156,6 +158,31 @@ describe("ExtensionDialog ask", () => {
 		const chat = buttonWithText("Chat about this");
 		if (!chat) throw new Error("missing Chat about this button");
 		await click(chat);
+
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "ask-1",
+			cancelled: true,
+		});
+	});
+
+	it("docks above the composer as a non-modal card: no scrim, no dialog role, Escape cancels", async () => {
+		await mount({ withComposerDock: true });
+		await act(async () => showAskDialog());
+
+		const dock = document.querySelector(".omp-ask-dock");
+		const card = dock?.querySelector("section");
+		if (!card) throw new Error("ask card not rendered inside the composer dock");
+		expect(card.querySelector("form")).not.toBeNull();
+		expect(document.querySelector(".omp-dialog-overlay")).toBeNull();
+		expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+		const keydown = new Event("keydown", { bubbles: true, cancelable: true });
+		Object.assign(keydown, { key: "Escape" });
+		await act(async () => {
+			(card as unknown as TestElement).dispatchEvent(keydown);
+		});
+		await flush();
 
 		expect(respondExtensionUi).toHaveBeenCalledWith({
 			type: "extension_ui_response",

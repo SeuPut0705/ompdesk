@@ -105,7 +105,7 @@ export const zh: Record<string, string> = {
 	"tabs.newFailed": "无法打开标签页",
 	"tabs.parallelCap": "已达并行上限（10 个）。请先关闭一个标签页或窗口。",
 	"tabs.switchFailed": "无法切换标签页",
-	"tabs.confirmClose": "关闭标签页？正在运行的回合将被停止。",
+	"tabs.confirmClose": "该会话正在运行。再按一次将停止当前回合并关闭。",
 
 	// Worktree create dialog (tab × worktree, plan/20)
 	"worktree.baseScope": "新工作树基于已提交版本创建，不会复制当前未提交的改动。",
@@ -326,7 +326,7 @@ export const zh: Record<string, string> = {
 	"contextUsage.windowUnknown": "上下文窗口未知",
 	"contextUsage.progress": "上下文已使用 {percent}%",
 	"contextUsage.loading": "正在加载明细…",
-	"contextUsage.fullReport": "在洞察中查看详情",
+	"contextUsage.fullReport": "在统计中查看详情",
 	"contextUsage.unavailable": "暂时无法获取详细分类。",
 	"contextUsage.category.system": "系统上下文",
 	"contextUsage.category.tools": "工具",
@@ -445,7 +445,7 @@ export const zh: Record<string, string> = {
 	// Command categories
 	"category.session": "会话",
 	"category.agents": "代理",
-	"category.insights": "洞察",
+	"category.insights": "统计",
 	"category.model": "模型",
 	"category.context": "上下文",
 	"category.tools": "工具",
@@ -681,7 +681,7 @@ export const zh: Record<string, string> = {
 	"cmd.settings": "设置",
 	"cmd.settings.desc": "打开设置",
 	"cmd.stats": "所有会话统计",
-	"cmd.stats.desc": "洞察：所有会话的用量、成本与活动",
+	"cmd.stats.desc": "统计：所有会话的用量、成本与活动",
 	"cmd.feedback": "发送反馈",
 	"cmd.feedback.desc": "在 GitHub 上反馈问题或提出功能建议",
 	"cmd.jobs": "后台任务",
@@ -1718,7 +1718,7 @@ export const zh: Record<string, string> = {
 	// /ssh（暂无原生面板）
 	"ssh.noSurface": "seucode 暂不管理 SSH 主机。主机配置保存在 ssh.json 文件中，请使用 omp CLI 管理。",
 
-	// 上下文明细（洞察 › 统计 › 本会话；/context）
+	// 上下文明细（统计 › 统计 › 本会话；/context）
 	"contextReport.loading": "正在加载上下文报告…",
 	"contextReport.error": "无法加载上下文报告",
 	"contextReport.unavailable": "上下文用量不可用：此会话尚未选择模型。",
@@ -2268,6 +2268,8 @@ export const zh: Record<string, string> = {
 	"hotkeys.row.tabNewChat": "新建聊天标签页",
 	"hotkeys.row.tabNewWorktree": "新建工作树标签页",
 	"hotkeys.row.tabClose": "关闭标签页",
+	"hotkeys.row.tabNext": "下一个会话标签页",
+	"hotkeys.row.tabPrev": "上一个会话标签页",
 	"hotkeys.row.prCenter": "拉取请求",
 	"hotkeys.row.settings": "设置",
 	"hotkeys.row.sidebar": "切换侧栏",
@@ -2707,9 +2709,9 @@ export const zh: Record<string, string> = {
 	"agentStudio.gallery.addFailed": "无法添加模板",
 	"agentStudio.gallery.exists": "已安装 · {source}",
 	"agentStudio.gallery.toolCount": "{count} 个工具",
-	"insights.title": "洞察",
+	"insights.title": "统计",
 	"insights.description": "查看本会话或所有会话的用量、成本与活动。",
-	"insights.tabs.stats": "统计",
+	"insights.tabs.stats": "概览",
 	"insights.tabs.usage": "用量",
 	"insights.scope.label": "范围",
 	"insights.scope.session": "本会话",
@@ -2883,7 +2885,7 @@ export const zh: Record<string, string> = {
 	"shell.main": "主区域",
 	"shell.backToSession": "返回会话",
 	"destination.agents": "代理",
-	"destination.insights": "洞察",
+	"destination.insights": "统计",
 	"destination.settings": "设置",
 	"help.menu": "帮助",
 	"help.shortcuts": "快捷键",
@@ -2915,7 +2917,7 @@ export const zh: Record<string, string> = {
 	"sessionStatus.cache": "缓存命中率",
 	"sessionStatus.duration": "工作时长",
 	"sessionStatus.unavailable": "会话就绪后显示。",
-	"sessionStatus.openInsights": "在洞察中查看",
+	"sessionStatus.openInsights": "在统计中查看",
 
 	// Center dock (above the composer)
 	"dock.collapse": "折叠",
@@ -2928,8 +2930,12 @@ export const zh: Record<string, string> = {
 	"dock.todo.running": "{running} 进行中",
 	"dock.todo.pending": "{pending} 待处理",
 	"dock.todo.completed": "{completed} 已完成",
+	"dock.todo.next": "下一项：{task}",
 	"dock.plan": "计划",
 	"dock.agents": "子代理",
+	"dock.agents.running": "{count} 运行中",
+	"dock.agents.done": "{count} 已完成",
+	"dock.agents.failed": "{count} 失败",
 	"dock.goal.active": "进行中的目标",
 	"dock.goal.paused": "已暂停的目标",
 	"dock.goal.edit": "编辑目标",
