@@ -58,7 +58,7 @@ import { useSettingsStore } from "../../stores/settings";
 import { useActiveTabKind } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Kbd, Spinner } from "../common";
+import { Button, EmptyState, Kbd, Spinner } from "../common";
 import { isTopmostDialog, registerDialogLayer } from "../common/dialog-layer";
 
 const RECENT_KEY = "omp.palette.recent";
@@ -590,8 +590,7 @@ export function CommandPalette() {
 		armed && activeItem?.name === armed
 			? t(commandGuard(activeItem) === "destructive" ? "palette.confirmDestructive" : "palette.confirmTurn")
 			: "";
-	const sectionHeaderClass =
-		"px-2.5 pt-2 pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase select-none";
+	const sectionHeaderClass = "px-2.5 pt-3 pb-1 text-sc-xs font-medium text-(--sc-text-muted) select-none";
 
 	const renderItem = (item: CommandMenuItem, options?: { categoryLabel?: string }) => {
 		flatIndex++;
@@ -605,11 +604,19 @@ export function CommandPalette() {
 		// Submenu rows carry a placeholder category: show their parent's icon.
 		const Icon = CATEGORY_ICON[submenu?.category ?? item.category];
 
+		const detail = isArmed
+			? armedMessage
+			: disabled
+				? item.affordance.kind === "unavailable"
+					? item.affordance.reason
+					: t("common.notConnected")
+				: item.description;
+
 		return (
 			<button
 				aria-disabled={disabled}
 				className={cx(
-					"flex w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-1.5 text-left",
+					"flex min-h-9 w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-1.5 text-left",
 					isActive ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
 					disabled && "opacity-50",
 				)}
@@ -632,36 +639,37 @@ export function CommandPalette() {
 			>
 				<Icon
 					aria-hidden
-					className={cx("size-(--sc-icon-sm) shrink-0", isActive ? "text-(--sc-text)" : "text-(--sc-text-muted)")}
+					className={cx(
+						"size-(--sc-icon-sm) shrink-0",
+						isActive ? "text-(--sc-accent)" : "text-(--sc-text-muted)",
+					)}
 				/>
-				<span className="min-w-0 flex-1">
-					<span className="flex items-center gap-1.5">
-						<span className="truncate text-sc-md font-medium text-(--sc-text)">{item.label}</span>
-						{toggleOn !== null && (
-							<span
-								className={cx(
-									"shrink-0 text-sc-2xs font-medium",
-									toggleOn ? "text-(--sc-success)" : "text-(--sc-text-subtle)",
-								)}
-							>
-								{toggleOn ? t("palette.on") : t("palette.off")}
-							</span>
-						)}
+				{/* One line per command — label, then its description in the muted tone — so
+				    twice as many fit; an armed warning wraps instead of truncating. */}
+				<span className={cx("flex min-w-0 flex-1 items-baseline gap-x-2", isArmed && "flex-wrap")}>
+					<span className="max-w-full shrink-0 truncate text-sc-md font-medium text-(--sc-text)">
+						{item.label}
 					</span>
-					<span
-						className={cx(
-							"block truncate text-sc-sm",
-							isArmed ? "text-(--sc-warning)" : "text-(--sc-text-muted)",
-						)}
-					>
-						{isArmed
-							? armedMessage
-							: disabled
-								? item.affordance.kind === "unavailable"
-									? item.affordance.reason
-									: t("common.notConnected")
-								: item.description}
-					</span>
+					{toggleOn !== null && (
+						<span
+							className={cx(
+								"shrink-0 text-sc-2xs font-medium",
+								toggleOn ? "text-(--sc-success)" : "text-(--sc-text-subtle)",
+							)}
+						>
+							{toggleOn ? t("palette.on") : t("palette.off")}
+						</span>
+					)}
+					{detail && (
+						<span
+							className={cx(
+								"min-w-0 text-sc-sm",
+								isArmed ? "basis-full text-(--sc-warning)" : "flex-1 truncate text-(--sc-text-muted)",
+							)}
+						>
+							{detail}
+						</span>
+					)}
 				</span>
 				{isArmed && <TriangleAlert aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-warning)" />}
 				{options?.categoryLabel && (
@@ -687,7 +695,7 @@ export function CommandPalette() {
 
 	return (
 		<div
-			className="omp-dialog-overlay omp-fade-in fixed inset-0 z-(--sc-z-dialog) flex items-start justify-center bg-(--sc-overlay) p-4 pt-[12dvh]"
+			className="omp-dialog-overlay omp-fade-in fixed inset-0 z-(--sc-z-dialog) flex items-start justify-center bg-(--sc-overlay) p-4 pt-[12dvh] backdrop-blur-[2px]"
 			onMouseDown={event => {
 				if (event.target === event.currentTarget) close();
 			}}
@@ -737,21 +745,24 @@ export function CommandPalette() {
 						>
 							{t("palette.commandsFailed")}
 						</span>
-						<button
-							className="shrink-0 rounded-(--sc-radius-sm) border border-(--sc-border-subtle) px-2 py-0.5 text-sc-sm text-(--sc-text) hover:bg-(--sc-hover)"
-							onClick={refreshCommands}
-							type="button"
-						>
+						<Button onClick={refreshCommands} size="sm" variant="secondary">
 							{t("common.retry")}
-						</button>
+						</Button>
 					</div>
 				)}
 				<div className="omp-command-list min-h-0 flex-1 overflow-y-auto p-1.5" ref={listRef}>
-					{flatList.length === 0 && !loading && (
-						<div className="px-3 py-8 text-center text-sc-sm text-(--sc-text-muted)">
-							{workingItems.length === 0 ? t("palette.noCommands") : t("palette.noMatch")}
-						</div>
-					)}
+					{flatList.length === 0 &&
+						!loading &&
+						(workingItems.length === 0 ? (
+							<EmptyState icon={<Search />} size="sm" title={t("palette.noCommands")} />
+						) : (
+							<EmptyState
+								description={t("palette.noMatchHint")}
+								icon={<Search />}
+								size="sm"
+								title={t("palette.noMatch")}
+							/>
+						))}
 
 					{grouped ? (
 						<>

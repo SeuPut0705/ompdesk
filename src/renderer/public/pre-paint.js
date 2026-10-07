@@ -3,7 +3,7 @@
  * module. The prefs IPC that resolves the real theme is async, so without
  * this every cold start painted a default first: a flash of the wrong
  * scheme. Mirrors the scheme written by lib/themes.ts (applyThemeByName →
- * localStorage "omp.themeScheme"); with nothing saved, seucode follows the OS.
+ * localStorage "omp.themeScheme"); with nothing saved, ompdesk follows the OS.
  * Background colors are --sc-bg from theme-dark.css / theme-light.css.
  */
 (function () {

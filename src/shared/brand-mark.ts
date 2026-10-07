@@ -1,5 +1,5 @@
 /**
- * Geometry of the seucode mark, the interlaced knot: two congruent open loops
+ * Geometry of the ompdesk mark, the interlaced knot: two congruent open loops
  * on a 512-unit grid centred at the origin. The upper loop (ink) is the person,
  * the lower loop (accent) is the agent; it is the same strand rotated 180°. The
  * loops cross twice and the weave alternates (each strand passes over at one

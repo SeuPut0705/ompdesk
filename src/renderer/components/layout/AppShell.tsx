@@ -23,7 +23,7 @@ import { markChromePlatform, syncWindowControls } from "../../lib/window-chrome"
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { COMPACT_SHELL_QUERY, type PageDestination, useUiStore } from "../../stores/ui";
-import { Button, IconButton, Spinner } from "../common";
+import { Button, IconButton, Spinner, Tooltip } from "../common";
 import { PanelContainer } from "./PanelContainer";
 import { Sidebar } from "./Sidebar";
 import { SidecarBanner } from "./SidecarBanner";
@@ -64,9 +64,17 @@ function PageTopBar({ showSidebarToggle }: { showSidebarToggle: boolean }) {
 					shortcut={actionShortcut("sidebar.toggle")}
 				/>
 			)}
-			<Button className="no-drag" icon={<ArrowLeft />} onClick={closeDestination} size="sm" variant="ghost">
-				{t("shell.backToSession")}
-			</Button>
+			<Tooltip content={t("shell.backToSession")} describe={false} shortcut="⎋" side="bottom">
+				<Button
+					className="no-drag font-normal text-(--sc-text-secondary) hover:text-(--sc-text)"
+					icon={<ArrowLeft />}
+					onClick={closeDestination}
+					size="sm"
+					variant="ghost"
+				>
+					{t("shell.backToSession")}
+				</Button>
+			</Tooltip>
 		</div>
 	);
 }

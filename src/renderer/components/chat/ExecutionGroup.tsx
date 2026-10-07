@@ -5,6 +5,8 @@ import { useT } from "../../lib/i18n";
 import { useToolsStore } from "../../stores/tools";
 import { Spinner } from "../common";
 import { getToolActivity, type ToolActivity } from "../tools/index";
+import { LiveStepPeek } from "./LiveStepPeek";
+import { LiveTurnMeter, OutputMeter } from "./TurnOutputMeter";
 
 interface ExecutionGroupProps {
 	children: ReactNode;
@@ -12,9 +14,13 @@ interface ExecutionGroupProps {
 	expanded: boolean;
 	failureCount?: number;
 	live?: boolean;
+	/** Output figures for finished work (provider usage of the group's messages). */
+	output?: { tokens: number; rate: number };
 	onExpandedChange: (expanded: boolean) => void;
 	stepCount: number;
 	toolCallIds: readonly string[];
+	/** The group's reasoning is streaming right now (live step preview). */
+	thinkingLive?: boolean;
 }
 
 /** Order of the human summary: reads, edits, commands, searches, then the rest. */
@@ -27,7 +33,9 @@ const PLURAL_SUFFIX: Record<ToolActivity, string> = { read: "s", edit: "s", run:
  * One quiet disclosure for a reasoning/tool phase, summarized the way a person
  * would say it ("Read 2 files · Edited 1 file · Ran 1 command · 16s"). Its
  * open state is owned by ChatStream so streaming updates and live-to-final row
- * replacement cannot override the user's choice.
+ * replacement cannot override the user's choice. While running and collapsed
+ * it previews the current step underneath and carries the turn's live output
+ * meter; finished, it shows the group's output total and average rate.
  */
 export function ExecutionGroup({
 	children,
@@ -35,9 +43,11 @@ export function ExecutionGroup({
 	expanded,
 	failureCount = 0,
 	live = false,
+	output,
 	onExpandedChange,
 	stepCount,
 	toolCallIds,
+	thinkingLive = false,
 }: ExecutionGroupProps) {
 	const t = useT();
 	// Primitive selector: encode (running, failed, per-activity counts, span)
@@ -89,8 +99,10 @@ export function ExecutionGroup({
 			<button
 				aria-expanded={expanded}
 				className={cx(
-					"omp-execution-group-header flex min-h-7 w-full min-w-0 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-left text-sc-sm transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover)",
-					state === "failed" ? "text-(--sc-danger)" : "text-(--sc-text-muted) hover:text-(--sc-text)",
+					"omp-execution-group-header flex min-h-7 w-fit max-w-full min-w-0 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-left text-sc-sm transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover)",
+					state === "failed"
+						? "text-(--sc-danger)"
+						: "text-(--sc-text-muted) hover:text-(--sc-text) aria-expanded:text-(--sc-text-secondary)",
 				)}
 				onClick={() => onExpandedChange(!expanded)}
 				type="button"
@@ -105,7 +117,10 @@ export function ExecutionGroup({
 				<span
 					aria-atomic="true"
 					aria-live="polite"
-					className="omp-execution-group-summary min-w-0 truncate font-medium"
+					className={cx(
+						"omp-execution-group-summary min-w-0 truncate font-medium",
+						state === "running" && "omp-thinking-shimmer",
+					)}
 					role="status"
 				>
 					{summary}
@@ -115,6 +130,11 @@ export function ExecutionGroup({
 						· {duration}
 					</span>
 				) : null}
+				{state === "running" ? (
+					<LiveTurnMeter />
+				) : output ? (
+					<OutputMeter average estimated={false} rate={output.rate} tokens={output.tokens} />
+				) : null}
 				<ChevronRight
 					aria-hidden="true"
 					className={cx(
@@ -123,7 +143,11 @@ export function ExecutionGroup({
 					)}
 				/>
 			</button>
-			{expanded && <div className="omp-execution-group-body">{children}</div>}
+			{expanded ? (
+				<div className="omp-execution-group-body">{children}</div>
+			) : state === "running" ? (
+				<LiveStepPeek thinkingLive={thinkingLive} toolCallIds={toolCallIds} />
+			) : null}
 		</section>
 	);
 }

@@ -122,22 +122,22 @@ jobs:
         run: |
           set -euo pipefail
           MNT=$(mktemp -d)
-          hdiutil attach -nobrowse -readonly -mountpoint "$MNT" "dist/seucode-$V-arm64.dmg"
+          hdiutil attach -nobrowse -readonly -mountpoint "$MNT" "dist/ompdesk-$V-arm64.dmg"
           trap 'hdiutil detach "$MNT" -quiet || true' EXIT
-          APP="$MNT/seucode.app"
+          APP="$MNT/ompdesk.app"
           codesign --verify --deep --strict --verbose=2 "$APP"
           test -f "$APP/Contents/Resources/gui-bridge/index.ts"
-          lipo -archs "$APP/Contents/MacOS/seucode" | grep -qx arm64
+          lipo -archs "$APP/Contents/MacOS/ompdesk" | grep -qx arm64
       - name: Stage assets
         run: |
           set -euo pipefail
           mkdir release
-          cp "dist/seucode-$V-arm64.dmg" "dist/seucode-$V-arm64-mac.zip" dist/*.blockmap dist/latest-mac.yml release/
-          cp "dist/seucode-$V-arm64.dmg" release/seucode-mac-arm64.dmg
+          cp "dist/ompdesk-$V-arm64.dmg" "dist/ompdesk-$V-arm64-mac.zip" dist/*.blockmap dist/latest-mac.yml release/
+          cp "dist/ompdesk-$V-arm64.dmg" release/ompdesk-mac-arm64.dmg
           ls -l release
       - uses: actions/upload-artifact@v4
         with:
-          name: seucode-mac
+          name: ompdesk-mac
           path: release/
           if-no-files-found: error
           compression-level: 0
@@ -164,13 +164,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir release
-          cp "dist/seucode-$V-setup.exe" "dist/seucode-$V-portable.exe" dist/*.blockmap dist/latest.yml release/
-          cp "dist/seucode-$V-setup.exe" release/seucode-windows-setup.exe
-          cp "dist/seucode-$V-portable.exe" release/seucode-windows-portable.exe
+          cp "dist/ompdesk-$V-setup.exe" "dist/ompdesk-$V-portable.exe" dist/*.blockmap dist/latest.yml release/
+          cp "dist/ompdesk-$V-setup.exe" release/ompdesk-windows-setup.exe
+          cp "dist/ompdesk-$V-portable.exe" release/ompdesk-windows-portable.exe
           ls -l release
       - uses: actions/upload-artifact@v4
         with:
-          name: seucode-win
+          name: ompdesk-win
           path: release/
           if-no-files-found: error
           compression-level: 0
@@ -189,7 +189,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v5
         with:
-          pattern: seucode-*
+          pattern: ompdesk-*
           path: dist
           merge-multiple: true
       - uses: actions/download-artifact@v5

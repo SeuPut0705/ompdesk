@@ -3,7 +3,7 @@
  * two directories omp discovers task agents from — the user directory
  * (`~/.omp/agent/agents`) and the nearest project `.omp/agents`. The bridge
  * reports both paths (`get_agent_authoring`, computed with omp's own
- * `getConfigDirs` / `findAllNearestProjectConfigDirs`), so seucode writes
+ * `getConfigDirs` / `findAllNearestProjectConfigDirs`), so ompdesk writes
  * exactly where discovery reads.
  *
  * Every path from the renderer is checked to be a direct `*.md` child of one

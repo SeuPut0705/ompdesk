@@ -1,6 +1,6 @@
 /**
  * Settings › Updates: one honest overview (checking / up to date / update
- * available / could not verify) over the seucode desktop app, the GitHub
+ * available / could not verify) over the ompdesk desktop app, the GitHub
  * login its private release feed needs, and the system omp CLI — each with
  * its current state and its action.
  */

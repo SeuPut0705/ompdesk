@@ -13,8 +13,8 @@
  */
 
 import type { EditorView } from "@codemirror/view";
-import { Check, ExternalLink } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Check, ExternalLink, MessageCircleQuestion } from "lucide-react";
+import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ExtensionAskDialogResult, ExtensionUIRequest } from "../../../shared/rpc-types";
 import { AnsiText } from "../../lib/ansi";
@@ -25,7 +25,7 @@ import { MarkdownRenderer } from "../../lib/markdown";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
 import { isInlineLoginRequest, useExtensionUiStore } from "../../stores/extension-ui";
 import { toast } from "../../stores/toast";
-import { Button, Input, Modal, Spinner } from "../common";
+import { Badge, Button, Input, Modal, Spinner } from "../common";
 import { ApprovalDialog, isApprovalRequest } from "./ApprovalDialog";
 import { useAskDock } from "./ask-dock";
 
@@ -348,11 +348,27 @@ function AskDialog({
 		});
 	};
 
+	/* Arrow keys move between a question's options (WAI-ARIA radio group);
+	   single-select also selects, like a native radio group. */
+	const onOptionKeyDown = (event: KeyboardEvent<HTMLButtonElement>, questionIndex: number) => {
+		const forward = event.key === "ArrowDown" || event.key === "ArrowRight";
+		if (!forward && event.key !== "ArrowUp" && event.key !== "ArrowLeft") return;
+		const group = event.currentTarget.closest<HTMLElement>("[data-ask-options]");
+		const options = Array.from(group?.querySelectorAll<HTMLButtonElement>("[data-ask-option]") ?? []);
+		const index = options.indexOf(event.currentTarget);
+		if (index < 0 || options.length === 0) return;
+		event.preventDefault();
+		const next = options[(index + (forward ? 1 : -1) + options.length) % options.length];
+		next?.focus();
+		const label = next?.dataset.askOption;
+		if (label !== undefined && !request.questions[questionIndex]?.multi) toggleOption(questionIndex, label);
+	};
+
 	return (
 		<AskDock>
 			<section
 				aria-label={t("extDialog.ask.title")}
-				className="omp-pop-in mb-2 flex max-h-[50vh] flex-col overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-md)"
+				className="omp-pop-in mb-2 flex max-h-[min(50vh,36rem)] flex-col overflow-hidden rounded-(--sc-radius-xl) border border-(--sc-border-subtle) bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-md)"
 				onKeyDown={event => {
 					if (event.key !== "Escape" || isImeKeyEvent(event.nativeEvent)) return;
 					event.preventDefault();
@@ -369,64 +385,92 @@ function AskDialog({
 						submit();
 					}}
 				>
-					<div className="shrink-0 px-4 pt-3 pb-2 text-xs font-semibold text-(--omp-text)">
-						{t("extDialog.ask.title")}
+					<div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-2">
+						<MessageCircleQuestion aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-accent)" />
+						<span className="min-w-0 flex-1 truncate text-sc-md font-semibold">{t("extDialog.ask.title")}</span>
+						{request.questions.length > 1 && (
+							<span className="shrink-0 text-sc-xs text-(--sc-text-muted) tabular-nums">
+								{t("extDialog.ask.count", { count: request.questions.length })}
+							</span>
+						)}
 					</div>
-					<div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-3">
+					<div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pt-1 pb-4">
 						{request.questions.map((question, questionIndex) => {
 							const answer = answers[questionIndex];
+							const multi = question.multi ?? false;
+							const questionId = `${request.id}-q${questionIndex}`;
+							const hasSelection = (answer?.selected.size ?? 0) > 0;
 							return (
-								<div className="space-y-2" key={question.id}>
-									{question.header && (
-										<div className="text-omp-xxs font-medium tracking-widest text-(--omp-dim) uppercase">
-											{question.header}
-										</div>
-									)}
-									<p className="text-xs leading-relaxed font-medium break-words whitespace-pre-wrap text-(--omp-text)">
-										{request.questions.length > 1 ? `${questionIndex + 1}. ` : ""}
-										{question.question}
-									</p>
+								<div className="space-y-2.5" key={question.id}>
 									<div className="space-y-1">
+										{question.header && (
+											<div className="text-sc-xs font-medium text-(--sc-text-muted)">{question.header}</div>
+										)}
+										<p
+											className="text-sc-md leading-(--sc-leading-normal) font-medium break-keep break-words whitespace-pre-wrap"
+											id={questionId}
+										>
+											{request.questions.length > 1 ? `${questionIndex + 1}. ` : ""}
+											{question.question}
+										</p>
+										{multi && (
+											<p className="text-sc-xs text-(--sc-text-muted)">{t("extDialog.ask.multiHint")}</p>
+										)}
+									</div>
+									<div
+										aria-labelledby={questionId}
+										className="space-y-1.5"
+										data-ask-options
+										role={multi ? "group" : "radiogroup"}
+									>
 										{question.options.map((option, optionIndex) => {
 											const checked = answer?.selected.has(option.label) ?? false;
+											// Single-select is one tab stop (the checked option, else the first).
+											const tabStop = multi || checked || (!hasSelection && optionIndex === 0);
 											return (
 												<button
+													aria-checked={checked}
 													className={cx(
-														"flex w-full items-start gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-(--omp-border-accent)",
+														"flex w-full items-start gap-2.5 rounded-(--sc-radius-md) border px-3 py-2 text-left transition-colors duration-(--sc-duration-fast)",
 														checked
-															? "border-(--omp-border-accent) bg-(--omp-selected-bg)"
-															: "border-(--omp-border-muted) hover:border-(--omp-border-accent) hover:bg-(--omp-selected-bg)",
+															? "border-(--sc-accent-border) bg-(--sc-accent-soft)"
+															: "border-(--sc-border-subtle) hover:border-(--sc-border) hover:bg-(--sc-hover)",
 													)}
+													data-ask-option={option.label}
 													key={option.label}
 													onClick={() => toggleOption(questionIndex, option.label)}
+													onKeyDown={event => onOptionKeyDown(event, questionIndex)}
+													role={multi ? "checkbox" : "radio"}
+													tabIndex={tabStop ? 0 : -1}
 													type="button"
 												>
 													<span
+														aria-hidden
 														className={cx(
-															"mt-px flex h-3.5 w-3.5 shrink-0 items-center justify-center border transition-colors",
-															question.multi ? "rounded-[3px]" : "rounded-full",
+															"mt-0.5 flex size-4 shrink-0 items-center justify-center border transition-colors duration-(--sc-duration-fast)",
+															multi ? "rounded-(--sc-radius-xs)" : "rounded-(--sc-radius-full)",
 															checked
-																? "border-(--omp-accent) text-(--omp-accent)"
-																: "border-(--omp-border-strong) text-transparent",
+																? multi
+																	? "border-(--sc-accent) bg-(--sc-accent) text-(--sc-accent-fg)"
+																	: "border-(--sc-accent) text-(--sc-accent)"
+																: "border-(--sc-border-strong) text-transparent",
 														)}
 													>
-														{question.multi ? (
-															<Check size={10} strokeWidth={3} />
+														{multi ? (
+															<Check size={12} strokeWidth={3} />
 														) : (
-															<span className="h-1.5 w-1.5 rounded-full bg-current" />
+															<span className="size-2 rounded-(--sc-radius-full) bg-current" />
 														)}
 													</span>
 													<span className="min-w-0 flex-1">
-														<span className="flex items-center gap-1.5 text-xs text-(--omp-text)">
-															<span className="min-w-0 break-words">{option.label}</span>
+														<span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sc-md">
+															<span className="min-w-0 break-keep break-words">{option.label}</span>
 															{question.recommended === optionIndex && (
-																<span className="shrink-0 rounded border border-(--omp-border-accent) px-1 py-px text-omp-xxs font-medium text-(--omp-accent)">
-																	{t("extDialog.ask.recommended")}
-																</span>
+																<Badge variant="accent">{t("extDialog.ask.recommended")}</Badge>
 															)}
 														</span>
 														{option.description && (
-															<span className="mt-0.5 block text-omp-xs leading-snug break-words text-(--omp-dim)">
+															<span className="mt-0.5 block text-sc-sm break-keep break-words text-(--sc-text-muted)">
 																{option.description}
 															</span>
 														)}
@@ -439,18 +483,21 @@ function AskDialog({
 										.filter(option => answer?.selected.has(option.label) && option.preview)
 										.map(option => (
 											<div
-												className="rounded-md border border-(--omp-border-muted) bg-(--omp-code-bg) px-2.5 py-2 text-omp-sm"
+												className="rounded-(--sc-radius-md) border border-(--sc-divider) bg-(--sc-surface-1) px-3 py-2 text-sc-sm"
 												key={`preview:${option.label}`}
 											>
 												<MarkdownRenderer content={option.preview!} />
 											</div>
 										))}
 									<Input
+										aria-label={t("extDialog.ask.customPlaceholder")}
 										onChange={event => setCustom(questionIndex, event.target.value)}
 										placeholder={t("extDialog.ask.customPlaceholder")}
 										value={answer?.custom ?? ""}
 									/>
 									<Input
+										aria-label={t("extDialog.ask.notePlaceholder")}
+										controlSize="sm"
 										onChange={event => setNote(questionIndex, event.target.value)}
 										placeholder={t("extDialog.ask.notePlaceholder")}
 										value={answer?.note ?? ""}
@@ -459,16 +506,16 @@ function AskDialog({
 							);
 						})}
 					</div>
-					<div className="flex shrink-0 items-center justify-between gap-2 border-t border-(--omp-border-muted) px-4 py-2.5">
-						<div className="flex items-center gap-2">
+					<div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-(--sc-divider) px-4 py-2.5">
+						<div className="flex min-w-0 items-center gap-2">
 							<TimeoutFooter remaining={remaining} />
 							{unansweredCount > 0 && (
-								<span className="text-omp-xs text-(--omp-warning)">
+								<span className="text-sc-xs text-(--sc-text-muted)">
 									{t("extDialog.ask.unanswered", { count: unansweredCount })}
 								</span>
 							)}
 						</div>
-						<div className="flex gap-2">
+						<div className="ml-auto flex gap-2">
 							<Button onClick={onCancel} size="sm" type="button" variant="ghost">
 								{t("common.cancel")}
 							</Button>

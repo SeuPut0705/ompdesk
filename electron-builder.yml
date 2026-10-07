@@ -1,5 +1,5 @@
-appId: com.seuput.seucode
-productName: seucode
+appId: com.seuput.ompdesk
+productName: ompdesk
 afterPack: scripts/after-pack.cjs
 directories:
   buildResources: resources
@@ -36,12 +36,12 @@ mac:
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
   extendInfo:
-    NSMicrophoneUsageDescription: seucode uses the microphone for voice dictation in the composer.
+    NSMicrophoneUsageDescription: ompdesk uses the microphone for voice dictation in the composer.
     # Electron's stock bundle asks for camera and Bluetooth with text that names no
-    # app; seucode never calls either API, so the prompt a user might see stays honest.
-    NSCameraUsageDescription: seucode does not use the camera.
-    NSBluetoothAlwaysUsageDescription: seucode does not use Bluetooth.
-    NSBluetoothPeripheralUsageDescription: seucode does not use Bluetooth.
+    # app; ompdesk never calls either API, so the prompt a user might see stays honest.
+    NSCameraUsageDescription: ompdesk does not use the camera.
+    NSBluetoothAlwaysUsageDescription: ompdesk does not use Bluetooth.
+    NSBluetoothPeripheralUsageDescription: ompdesk does not use Bluetooth.
     # Two origins only: the loopback stats server and GitHub releases over TLS.
     # Declaring that is stricter than the default, so an accidental remote
     # cleartext request cannot start working because some build set
@@ -77,7 +77,7 @@ nsis:
 publish:
   provider: github
   owner: SeuPut0705
-  repo: seucode
+  repo: ompdesk
 
 # NO `electronLanguages` here on purpose — see the note in
 # electron-builder.win.yml: exact-basename matching deleted every `locales/*.pak`,

@@ -103,7 +103,7 @@ export function RunSettings({ isChat }: { isChat: boolean }) {
 					onClick={() => setOpen(value => !value)}
 					ref={triggerRef}
 					size="sm"
-					trailingIcon={<ChevronDown aria-hidden className="text-(--sc-text-subtle)" />}
+					trailingIcon={<ChevronDown aria-hidden className="omp-composer-chevron text-(--sc-text-subtle)" />}
 					variant="ghost"
 				>
 					<span className="omp-composer-control-label">{thinkingName}</span>

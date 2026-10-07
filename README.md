@@ -3,7 +3,7 @@
 <h1>
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="resources/brand/wordmark-dark.svg">
-  <img src="resources/brand/wordmark-light.svg" alt="seucode" height="64">
+  <img src="resources/brand/wordmark-light.svg" alt="ompdesk" height="64">
 </picture>
 </h1>
 
@@ -27,7 +27,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/main-dark.png">
-    <img src="docs/screenshots/main.png" alt="seucode 메인 화면" width="100%">
+    <img src="docs/screenshots/main.png" alt="ompdesk 메인 화면" width="100%">
   </picture>
 </p>
 
@@ -39,15 +39,15 @@
 bun install -g @oh-my-pi/pi-coding-agent
 ```
 
-**2. 앱 설치** — seucode는 비공개 저장소에서 초대받은 사람에게만 배포돼요.
+**2. 앱 설치** — ompdesk는 비공개 저장소에서 초대받은 사람에게만 배포돼요.
 
 1. 이메일이나 GitHub 알림으로 온 **저장소 초대를 수락**하세요. (초대가 없다면 저장소 주인에게 요청하세요)
-2. GitHub에 로그인한 상태로 [Releases 페이지](https://github.com/SeuPut0705/seucode/releases)를 열고, 가장 위의 최신 버전에서 내 컴퓨터에 맞는 파일을 받으세요.
+2. GitHub에 로그인한 상태로 [Releases 페이지](https://github.com/SeuPut0705/ompdesk/releases)를 열고, 가장 위의 최신 버전에서 내 컴퓨터에 맞는 파일을 받으세요.
 
 | | 받을 파일 | 설치 방법 |
 |---|---|---|
-| **macOS** | `seucode-mac-arm64.dmg` | DMG를 열고 **seucode**를 응용 프로그램 폴더로 드래그. 처음 실행할 때 "확인되지 않은 개발자" 경고가 뜨면 앱을 **우클릭 → 열기** (한 번만 하면 돼요) |
-| **Windows** | `seucode-windows-setup.exe` (설치 없이 쓰려면 `seucode-windows-portable.exe`) | 실행 파일을 열고, SmartScreen 경고가 뜨면 **추가 정보 → 실행** |
+| **macOS** | `ompdesk-mac-arm64.dmg` | DMG를 열고 **ompdesk**를 응용 프로그램 폴더로 드래그. 처음 실행할 때 "확인되지 않은 개발자" 경고가 뜨면 앱을 **우클릭 → 열기** (한 번만 하면 돼요) |
+| **Windows** | `ompdesk-windows-setup.exe` (설치 없이 쓰려면 `ompdesk-windows-portable.exe`) | 실행 파일을 열고, SmartScreen 경고가 뜨면 **추가 정보 → 실행** |
 
 로그아웃 상태에서는 Releases 페이지와 다운로드 링크가 404로 보여요. 그럴 땐 GitHub 로그인과 초대 수락 여부를 확인하세요.
 
@@ -182,12 +182,12 @@ GitHub CLI가 필요해요. `gh auth status`로 로그인 상태를 확인하세
 필요: [Bun](https://bun.sh) 1.4+, Git, omp 18.6+
 
 ```bash
-git clone https://github.com/SeuPut0705/seucode.git
-cd seucode
+git clone https://github.com/SeuPut0705/ompdesk.git
+cd ompdesk
 bun install
 
 bun run dev                                    # 개발 모드
-bun run package:mac -- --publish never        # → dist/seucode-<버전>-arm64.dmg (Apple Silicon)
+bun run package:mac -- --publish never        # → dist/ompdesk-<버전>-arm64.dmg (Apple Silicon)
 bun run package:win -- --publish never         # Windows 설치 파일 + 포터블
 ```
 

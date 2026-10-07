@@ -1,5 +1,5 @@
 /**
- * seucode token contract.
+ * ompdesk token contract.
  *
  * 1. The stylesheet palettes (theme-*.css + the aliases and derived colors in
  *    tokens.css) and the named-theme maps THEMES.light / THEMES.dark resolve
@@ -79,7 +79,7 @@ function contrast(a: string, b: string): number {
 	return (hi + 0.05) / (lo + 0.05);
 }
 
-describe.each(["light", "dark"] as const)("seucode %s palette", scheme => {
+describe.each(["light", "dark"] as const)("ompdesk %s palette", scheme => {
 	const sc = (token: string) => cssValue(scheme, `--sc-${token}`);
 
 	it("named theme map matches the stylesheet for every --omp-* token", () => {

@@ -1,50 +1,19 @@
-import { type TabRpc, useTabRpc } from "../../lib/tab-rpc";
 /**
  * Queue panel: the agent's pending message queue as two lanes — 引导
  * (steering, delivered mid-run) and 排队 (follow-up, delivered after the
- * run). The lane-switch rides queue_move with toLane (appended to the target
- * lane's end), edit rides queue_edit (omp re-queues the new text at the end
- * of its lane), per-item delete rides queue_remove, per-lane clear rides
- * queue_clear. omp cannot reorder within a lane. Mutations apply
- * optimistically, then resync from get_queue on settle so the server stays
- * the single source of truth.
+ * run). Mutations (edit, lane switch, remove, lane clear) come from
+ * useQueueActions, shared with the composer's queued-message tray.
  */
 
 import { ArrowLeftRight, Check, ListX, Pencil, X } from "lucide-react";
-import { memo, useCallback, useEffect, useState } from "react";
-import { useStore } from "zustand";
-import type { StoreApi } from "zustand/vanilla";
+import { memo, useEffect, useState } from "react";
 import type { RpcQueuedMessage } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { formatShortcut, onEscape } from "../../lib/keymap";
-import { optimisticWrite } from "../../lib/optimistic";
-import { type QueueLane, type QueueStore, useQueuedMessages, useQueueStore } from "../../stores/queue";
-import { type SessionStore, useSessionStore } from "../../stores/session";
-import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
-import { toast } from "../../stores/toast";
+import { type QueueLane, useQueuedMessages } from "../../stores/queue";
 import { Badge } from "../common";
-
-/** Apply a lane-local mutation optimistically. Failed responses and rejected
- *  transport calls roll back this mutation unless a newer snapshot superseded
- *  it, then attempt an authoritative refresh. */
-async function applyLaneMutation(
-	queueStore: StoreApi<QueueStore>,
-	lane: QueueLane,
-	optimistic: (items: RpcQueuedMessage[]) => RpcQueuedMessage[],
-	persist: () => Promise<{ success: boolean; error?: string }>,
-	failureKey: string,
-	t: (key: string) => string,
-): Promise<void> {
-	await optimisticWrite({
-		store: queueStore,
-		mutate: state =>
-			lane === "steering" ? { steering: optimistic(state.steering) } : { followUp: optimistic(state.followUp) },
-		persist,
-		onFailure: message => toast({ variant: "error", title: t(failureKey), message }),
-		resync: () => queueStore.getState().refresh(),
-	});
-}
+import { useQueueActions } from "./use-queue-actions";
 
 interface QueuedRowProps {
 	item: RpcQueuedMessage;
@@ -54,33 +23,6 @@ interface QueuedRowProps {
 	onRemove: (lane: QueueLane, id: string) => void;
 	removeLabel: string;
 	ready: boolean;
-}
-
-/** Optimistically move an entry to the END of the other lane (queue_move with
- *  toLane). Failed responses and rejected transport calls roll back unless a
- *  newer snapshot superseded this mutation, then attempt a refresh. */
-async function applyCrossLaneMove(
-	queueStore: StoreApi<QueueStore>,
-	rpc: TabRpc,
-	lane: QueueLane,
-	id: string,
-	t: (key: string) => string,
-): Promise<void> {
-	const target: QueueLane = lane === "steering" ? "followUp" : "steering";
-	await optimisticWrite({
-		store: queueStore,
-		mutate: state => {
-			const item = state[lane].find(entry => entry.id === id);
-			if (!item) return {};
-			const without = state[lane].filter(entry => entry.id !== id);
-			return lane === "steering"
-				? { steering: without, followUp: [...state.followUp, item] }
-				: { steering: [...state.steering, item], followUp: without };
-		},
-		persist: () => rpc.queueMove(id, Number.MAX_SAFE_INTEGER, target),
-		onFailure: message => toast({ variant: "error", title: t("queuePanel.moveFailed"), message }),
-		resync: () => queueStore.getState().refresh(),
-	});
 }
 
 const QueuedRow = memo(function QueuedRow({
@@ -261,81 +203,10 @@ function LaneSection({
 }
 
 export function QueuePanel() {
-	const tabRpc = useTabRpc();
-	const tabId = useRuntimeTabId();
-	const queueStore = sessionRuntimeStore<QueueStore>(tabId, "queue") ?? useQueueStore;
 	const t = useT();
-	const sessionStore = sessionRuntimeStore<SessionStore>(tabId, "session");
-	const sidecarReady = useStore(sessionStore ?? useSessionStore, state => state.status) === "ready";
 	const { steering, followUp } = useQueuedMessages();
 	const total = steering.length + followUp.length;
-
-	const removeItem = useCallback(
-		(lane: QueueLane, id: string) => {
-			if (!sidecarReady) return;
-			void applyLaneMutation(
-				queueStore,
-				lane,
-				items => items.filter(item => item.id !== id),
-				() => tabRpc.queueRemove(id),
-				"queuePanel.removeFailed",
-				t,
-			);
-		},
-		[sidecarReady, t, tabRpc.queueRemove, queueStore],
-	);
-
-	const editItem = useCallback(
-		(lane: QueueLane, id: string, text: string) => {
-			if (!sidecarReady) return;
-			void applyLaneMutation(
-				queueStore,
-				lane,
-				items => {
-					// omp re-queues edited text at the end of its lane.
-					const edited = items.find(item => item.id === id);
-					return edited ? [...items.filter(item => item.id !== id), { ...edited, text }] : items;
-				},
-				async () => {
-					const response = await tabRpc.queueEdit(id, text);
-					return response.success
-						? { success: true as const }
-						: { success: false as const, error: response.error };
-				},
-				"queuePanel.editFailed",
-				t,
-			);
-		},
-		[sidecarReady, t, tabRpc.queueEdit, queueStore],
-	);
-
-	const moveToLane = useCallback(
-		(lane: QueueLane, id: string) => {
-			if (!sidecarReady) return;
-			void applyCrossLaneMove(queueStore, tabRpc, lane, id, t);
-		},
-		[sidecarReady, t, tabRpc, queueStore],
-	);
-
-	const clearLane = useCallback(
-		(lane: QueueLane) => {
-			if (!sidecarReady) return;
-			void applyLaneMutation(
-				queueStore,
-				lane,
-				() => [],
-				async () => {
-					const response = await tabRpc.queueClear(lane);
-					return response.success
-						? { success: true as const }
-						: { success: false as const, error: response.error };
-				},
-				"queuePanel.clearFailed",
-				t,
-			);
-		},
-		[sidecarReady, t, tabRpc.queueClear, queueStore],
-	);
+	const { ready: sidecarReady, remove: removeItem, edit: editItem, moveToLane, clearLane } = useQueueActions();
 
 	return (
 		<div className="flex h-full flex-col">

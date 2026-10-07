@@ -6,7 +6,8 @@
  * produced is visible at a glance. Renders nothing until a subagent has run.
  */
 import type { SessionStats } from "../../../shared/rpc-types";
-import { formatCost, formatTokens } from "../../lib/format";
+import { formatUsd } from "../../lib/chart";
+import { formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isPresetRole, modelSelector, usageByModel } from "../../lib/model-pool";
 import { useModelStore } from "../../stores/model";
@@ -65,7 +66,7 @@ export function ModelUsage({ stats }: { stats: SessionStats }) {
 								</span>
 								<span className="shrink-0 tabular-nums text-(--sc-text)">{formatTokens(row.tokens)}</span>
 								<span className="w-16 shrink-0 text-right tabular-nums text-(--sc-text-muted)">
-									{formatCost(row.cost)}
+									{formatUsd(row.cost)}
 								</span>
 							</div>
 							<span className="truncate text-sc-xs text-(--sc-text-muted)">{detail}</span>

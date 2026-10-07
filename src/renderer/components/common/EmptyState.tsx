@@ -35,16 +35,23 @@ export function EmptyState({ icon, title, description, actions, size = "md", cla
 					aria-hidden
 					className={cx(
 						"flex items-center justify-center rounded-(--sc-radius-lg) bg-(--sc-surface-3) text-(--sc-text-muted)",
-						small ? "size-8 [&>svg]:size-(--sc-icon-md)" : "mb-1 size-10 [&>svg]:size-(--sc-icon-lg)",
+						small ? "size-8 [&>svg]:size-(--sc-icon-md)" : "size-10 [&>svg]:size-(--sc-icon-lg)",
 					)}
 				>
 					{icon}
 				</span>
 			)}
-			<div className={cx("font-semibold text-(--sc-text)", small ? "text-sc-md" : "text-sc-lg")}>{title}</div>
-			{description && (
-				<p className={cx("max-w-sm text-(--sc-text-muted)", small ? "text-sc-sm" : "text-sc-md")}>{description}</p>
-			)}
+			{/* Title and sentence read as one unit; the icon and the action keep their distance. */}
+			<div className="flex max-w-md flex-col items-center gap-1 break-keep">
+				<div className={cx("font-semibold text-balance text-(--sc-text)", small ? "text-sc-md" : "text-sc-lg")}>
+					{title}
+				</div>
+				{description && (
+					<p className={cx("text-pretty text-(--sc-text-muted)", small ? "text-sc-sm" : "text-sc-md")}>
+						{description}
+					</p>
+				)}
+			</div>
 			{actions && <div className="mt-1 flex flex-wrap items-center justify-center gap-2">{actions}</div>}
 		</div>
 	);

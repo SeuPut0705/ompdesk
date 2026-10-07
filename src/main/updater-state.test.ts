@@ -33,14 +33,14 @@ describe("update check terminal state", () => {
 
 describe("manual macOS installer selection", () => {
 	const files = [
-		{ url: "seucode-0.8.4-arm64-mac.zip", sha512: "arm-zip" },
-		{ url: "seucode-0.8.4-arm64.dmg", sha512: "arm-dmg", size: 120 },
-		{ url: "https://example.test/seucode-0.8.4.dmg", sha512: "other-dmg", size: 140 },
+		{ url: "ompdesk-0.8.4-arm64-mac.zip", sha512: "arm-zip" },
+		{ url: "ompdesk-0.8.4-arm64.dmg", sha512: "arm-dmg", size: 120 },
+		{ url: "https://example.test/ompdesk-0.8.4.dmg", sha512: "other-dmg", size: 140 },
 	];
 
 	it("selects the exact Apple Silicon DMG", () => {
 		expect(selectMacInstaller(files, "0.8.4")).toEqual({
-			name: "seucode-0.8.4-arm64.dmg",
+			name: "ompdesk-0.8.4-arm64.dmg",
 			sha512: "arm-dmg",
 			size: 120,
 		});
@@ -105,19 +105,19 @@ describe("manual installer transfer", () => {
 
 describe("installer debris sweep", () => {
 	const ENTRIES = [
-		"seucode-0.9.7.dmg.download-4242",
-		"seucode-0.9.8.dmg.download-99",
-		"seucode-0.9.8.dmg.partial",
-		"seucode-0.9.7 (1).dmg.partial",
+		"ompdesk-0.9.7.dmg.download-4242",
+		"ompdesk-0.9.8.dmg.download-99",
+		"ompdesk-0.9.8.dmg.partial",
+		"ompdesk-0.9.7 (1).dmg.partial",
 		"holiday.dmg.partial",
 		"notes.partial",
-		"install-seucode.dmg.download-1",
-		"seucode-0.9.9-arm64.dmg",
+		"install-ompdesk.dmg.download-1",
+		"ompdesk-0.9.9-arm64.dmg",
 	];
 	let dir: string;
 
 	beforeEach(() => {
-		dir = fs.mkdtempSync(path.join(os.tmpdir(), "seucode-downloads-"));
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-downloads-"));
 		for (const name of ENTRIES) fs.writeFileSync(path.join(dir, name), "x");
 	});
 
@@ -127,38 +127,38 @@ describe("installer debris sweep", () => {
 
 	it("clears PID-keyed orphans that no restart could ever continue", async () => {
 		expect((await sweepInstallerPartials(dir)).sort()).toEqual([
-			"seucode-0.9.7.dmg.download-4242",
-			"seucode-0.9.8.dmg.download-99",
+			"ompdesk-0.9.7.dmg.download-4242",
+			"ompdesk-0.9.8.dmg.download-99",
 		]);
 	});
 
 	it("keeps every current-name partial while nothing is downloading", async () => {
 		await sweepInstallerPartials(dir);
-		expect(fs.existsSync(path.join(dir, "seucode-0.9.8.dmg.partial"))).toBe(true);
+		expect(fs.existsSync(path.join(dir, "ompdesk-0.9.8.dmg.partial"))).toBe(true);
 	});
 
 	it("drops a superseded release's partial once the current download names its own", async () => {
-		const active = installerPartialPath(path.join(dir, "seucode-0.9.9-arm64.dmg"));
+		const active = installerPartialPath(path.join(dir, "ompdesk-0.9.9-arm64.dmg"));
 		fs.writeFileSync(active, "x");
 		const removed = await sweepInstallerPartials(dir, active);
 		expect(removed.sort()).toEqual([
-			"seucode-0.9.7 (1).dmg.partial",
-			"seucode-0.9.7.dmg.download-4242",
-			"seucode-0.9.8.dmg.download-99",
-			"seucode-0.9.8.dmg.partial",
+			"ompdesk-0.9.7 (1).dmg.partial",
+			"ompdesk-0.9.7.dmg.download-4242",
+			"ompdesk-0.9.8.dmg.download-99",
+			"ompdesk-0.9.8.dmg.partial",
 		]);
 		expect(fs.existsSync(active)).toBe(true);
 	});
 
 	it("leaves files the updater never wrote where they are", async () => {
-		const active = installerPartialPath(path.join(dir, "seucode-0.9.9-arm64.dmg"));
+		const active = installerPartialPath(path.join(dir, "ompdesk-0.9.9-arm64.dmg"));
 		await sweepInstallerPartials(dir, active);
 		await sweepInstallerPartials(dir);
 		for (const name of [
 			"holiday.dmg.partial",
 			"notes.partial",
-			"install-seucode.dmg.download-1",
-			"seucode-0.9.9-arm64.dmg",
+			"install-ompdesk.dmg.download-1",
+			"ompdesk-0.9.9-arm64.dmg",
 		]) {
 			expect(fs.existsSync(path.join(dir, name)), name).toBe(true);
 		}

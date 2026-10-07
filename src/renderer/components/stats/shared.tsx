@@ -54,6 +54,9 @@ const TONE_CLASS = {
 	error: "text-(--sc-danger)",
 } as const;
 
+/** "0", "$0", "0%", "—": a figure with nothing in it yet reads quieter than a real one. */
+const EMPTY_FIGURE = /^(?:—|\$?0(?:\.0+)?%?)$/;
+
 export function MetricCard({
 	label,
 	value,
@@ -65,11 +68,26 @@ export function MetricCard({
 	sub?: string;
 	tone?: keyof typeof TONE_CLASS;
 }) {
+	const empty = EMPTY_FIGURE.test(value);
 	return (
 		<div className="flex min-w-0 flex-col gap-1 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-4 py-3">
-			<div className="truncate text-sc-xs text-(--sc-text-muted)">{label}</div>
-			<div className={cx("truncate text-sc-2xl font-semibold tabular-nums", TONE_CLASS[tone])}>{value}</div>
-			{sub && <div className="truncate text-sc-xs text-(--sc-text-muted)">{sub}</div>}
+			<div className="truncate text-sc-xs text-(--sc-text-muted)" title={label}>
+				{label}
+			</div>
+			<div
+				className={cx(
+					"truncate text-sc-2xl font-semibold tracking-(--sc-tracking-tight) tabular-nums",
+					empty ? "text-(--sc-text-subtle)" : TONE_CLASS[tone],
+				)}
+				title={value}
+			>
+				{value}
+			</div>
+			{sub && (
+				<div className="truncate text-sc-xs text-(--sc-text-muted)" title={sub}>
+					{sub}
+				</div>
+			)}
 		</div>
 	);
 }

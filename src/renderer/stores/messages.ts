@@ -1,6 +1,7 @@
 import { createStore } from "zustand/vanilla";
 import type { AgentMessage, AgentSessionEvent, MessagesPage } from "../../shared/rpc-types";
 import { messageIdentity, sameMessageContent } from "../lib/message-identity";
+import { applyTurnMeterEvent, EMPTY_TURN_METER, type TurnMeter } from "../lib/turn-meter";
 import { createScopedStoreHook } from "./session-runtime-context";
 
 /**
@@ -19,6 +20,7 @@ export interface MessagesSnapshot {
 	totalMessages: number;
 	nextCursor: string | undefined;
 	isLoadingPage: boolean;
+	turnMeter: TurnMeter;
 }
 
 export interface MessagesStore {
@@ -38,6 +40,8 @@ export interface MessagesStore {
 	totalMessages: number;
 	nextCursor: string | undefined;
 	isLoadingPage: boolean;
+	/** Output-token meter for the running (or last) agent run; lib/turn-meter. */
+	turnMeter: TurnMeter;
 	applyEvents: (events: AgentSessionEvent[]) => void;
 	loadPage: (page: MessagesPage) => void;
 	appendMessage: (message: AgentMessage) => void;
@@ -70,6 +74,7 @@ const initialState = {
 	totalMessages: 0,
 	nextCursor: undefined as string | undefined,
 	isLoadingPage: false,
+	turnMeter: EMPTY_TURN_METER,
 };
 
 function isOptimisticUser(message: AgentMessage): boolean {
@@ -159,8 +164,10 @@ export const createMessagesStore = () =>
 		...initialState,
 		applyEvents: events => {
 			const state = get();
-			let { messages, liveMessages, streamingMessage, streamingText, streamingThinking } = state;
+			let { messages, liveMessages, streamingMessage, streamingText, streamingThinking, turnMeter } = state;
+			const now = Date.now();
 			for (const event of events) {
+				turnMeter = applyTurnMeterEvent(turnMeter, event, now);
 				switch (event.type) {
 					case "message_start":
 						// Only assistant messages stream. Other deliveries are atomic.
@@ -207,7 +214,8 @@ export const createMessagesStore = () =>
 				liveMessages === state.liveMessages &&
 				streamingMessage === state.streamingMessage &&
 				streamingText === state.streamingText &&
-				streamingThinking === state.streamingThinking
+				streamingThinking === state.streamingThinking &&
+				turnMeter === state.turnMeter
 			)
 				return;
 			// Preserve wire order above; publish only once per presentation frame.
@@ -218,6 +226,7 @@ export const createMessagesStore = () =>
 				streamingMessage,
 				streamingText,
 				streamingThinking,
+				turnMeter,
 				...(messages !== state.messages ? { totalMessages: messages.length } : {}),
 				...(appended.length > 0 ? { lastAppended: appended } : {}),
 			});
@@ -294,6 +303,7 @@ export const createMessagesStore = () =>
 				totalMessages: state.totalMessages,
 				nextCursor: state.nextCursor,
 				isLoadingPage: state.isLoadingPage,
+				turnMeter: state.turnMeter,
 			};
 		},
 		restoreSnapshot: snapshot => {
@@ -311,6 +321,7 @@ export const createMessagesStore = () =>
 				totalMessages: snapshot.totalMessages,
 				nextCursor: snapshot.nextCursor,
 				isLoadingPage: snapshot.isLoadingPage,
+				turnMeter: snapshot.turnMeter,
 			});
 		},
 		reset: () => set(initialState),

@@ -13,26 +13,23 @@ import {
 	PenLine,
 	SearchCode,
 	Sparkles,
-	X,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { RpcQueuedMessage } from "../../../shared/rpc-types";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { cx, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { abortActiveTurn, describeTurnError, isRenderableMessageText } from "../../lib/messages";
 import { collapsibleReadTarget, groupReadRows, type ReadGroupEntry } from "../../lib/read-group";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { summarizeMessagesOutput } from "../../lib/turn-meter";
 import { useMessagesStore } from "../../stores/messages";
-import { type QueueLane, useQueuedMessages, useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useActiveTabKind } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
 import { type TodoSnapshot, useTodoStore } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
-import { BrandMark, Button, IconButton, Kbd, Spinner } from "../common";
+import { BrandMark, Button, Kbd, Spinner } from "../common";
 import { FirstRunSetup, useFirstRunActive } from "../onboarding/FirstRunSetup";
 import { ReadGroupCard } from "../tools/ReadGroupCard";
 import { ToolCard } from "../tools/ToolCard";
@@ -163,11 +160,6 @@ function SessionTranscript() {
 	const showStatusRow =
 		retryInfo != null || compactionInfo != null || (isStreaming && awaitingModelSince != null && !hasStreamedContent);
 
-	// Pending queue bubbles tail the stream in delivery order (steering
-	// interrupts first, follow-ups after) — the future user turns, deletable
-	// in place via queue_remove.
-	const queued = useQueuedMessages();
-
 	// Streaming deltas rerender this component for the live row, but they do not
 	// change finalized history. Keep the O(history) row/key projection stable so
 	// a long transcript does not get rebuilt for every token.
@@ -183,25 +175,11 @@ function SessionTranscript() {
 		if (showStatusRow) {
 			nextRows.push({ kind: "pending" });
 		}
-		for (const item of queued.steering) {
-			nextRows.push({ kind: "queued", item, lane: "steering" });
-		}
-		for (const item of queued.followUp) {
-			nextRows.push({ kind: "queued", item, lane: "followUp" });
-		}
 		return {
 			rows: nextRows,
 			rowKeys: buildTranscriptRowKeys(nextRows),
 		};
-	}, [
-		hiddenCount,
-		historyRows,
-		hasStreamedContent,
-		showStatusRow,
-		queued.steering,
-		queued.followUp,
-		streamingMessage,
-	]);
+	}, [hiddenCount, historyRows, hasStreamedContent, showStatusRow, streamingMessage]);
 
 	const parentRef = useRef<HTMLDivElement>(null);
 	const canvasRef = useRef<HTMLDivElement>(null);
@@ -287,7 +265,7 @@ function SessionTranscript() {
 		estimateSize: i => {
 			const kind = rows[i]?.kind;
 			if (kind === "streaming") return 80;
-			if (kind === "pending" || kind === "queued") return 56;
+			if (kind === "pending") return 56;
 			if (kind === "expander" || kind === "process" || kind === "todoSnapshot") return 48;
 			if (kind === "message") return 72;
 			return 160;
@@ -544,152 +522,148 @@ function SessionTranscript() {
 	// no separate fetch here (that would double-download the transcript).
 
 	return (
-		<>
-			<div className="omp-transcript-editorial relative min-h-0 flex-1 bg-transparent">
-				<div
-					ref={parentRef}
-					aria-label={t("chat.transcript.label")}
-					onScroll={handleScroll}
-					onWheel={handleWheel}
-					onTouchMove={releaseTailPin}
-					onTouchEnd={endScrollGesture}
-					onPointerDown={handleScrollPointerDown}
-					onPointerUp={endScrollGesture}
-					onPointerCancel={endScrollGesture}
-					onKeyDown={handleScrollKeyDown}
-					tabIndex={0}
-					className="omp-transcript-scroll h-full overflow-y-auto overscroll-contain"
-				>
-					{switchPending && (
-						<div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px overflow-hidden">
-							<div className="omp-indeterminate-progress h-full bg-[var(--omp-accent)]" />
-						</div>
-					)}
-					{status === "starting" && rows.length === 0 && !switchPending && (
-						<div className="flex justify-center py-3">
-							<Loader2 size={16} className="animate-spin text-[var(--omp-muted)]" />
-						</div>
-					)}
-					{status !== "starting" && rows.length === 0 && !isStreaming && !switchPending && firstRunActive && (
-						<FirstRunSetup />
-					)}
-					{status !== "starting" && rows.length === 0 && !isStreaming && !switchPending && !firstRunActive && (
-						<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
-							<BrandMark size={40} className="omp-empty-logo mb-6 text-[var(--omp-text)]" />
-							<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
-								{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
-							</h1>
-							<p className="mt-2 max-w-2xl text-omp-xl leading-relaxed text-[var(--omp-muted)]">
-								{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
-							</p>
-							<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
-								{starters.map(({ icon: Icon, title, prompt }) => (
-									<button
-										key={title}
-										type="button"
-										onClick={() =>
-											window.dispatchEvent(
-												new CustomEvent("omp:fill-composer", { detail: { text: prompt, tabId } }),
-											)
-										}
-										className="omp-starter-card omp-lift group flex min-h-20 items-start gap-3 rounded-2xl border border-[var(--omp-border)] p-4 text-left shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border-accent)] hover:bg-[var(--omp-bg-secondary)]"
-									>
-										<span className="omp-starter-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--omp-selected-bg)] text-[var(--omp-accent)]">
-											<Icon size={17} />
-										</span>
-										<span>
-											<span className="block text-omp-lg font-semibold text-[var(--omp-text)]">{title}</span>
-											<span className="mt-1 block text-omp-lg leading-snug text-[var(--omp-muted)]">
-												{prompt}
-											</span>
-										</span>
-									</button>
-								))}
-							</div>
-						</div>
-					)}
-					<div
-						ref={canvasRef}
-						className="omp-transcript-canvas"
-						style={{ height: totalSize, position: "relative", width: "100%" }}
-					>
-						{virtualizer.getVirtualItems().map(item => {
-							const row = rows[item.index];
-							if (!row) return null;
-							const rowKey = rowKeys[item.index] ?? String(item.key);
-							return (
-								<div
-									key={item.key}
-									data-index={item.index}
-									data-row-key={rowKey}
-									data-transcript-kind={row.kind}
-									ref={virtualizer.measureElement}
-									style={{
-										position: "absolute",
-										top: 0,
-										left: 0,
-										width: "100%",
-										transform: `translateY(${item.start}px)`,
-									}}
-								>
-									<div className="omp-transcript-row w-full">
-										{row.kind === "message" ? (
-											<MessageBubble message={row.message} reaction={row.reaction} runningIndicator="dot" />
-										) : row.kind === "readGroup" ? (
-											<ReadGroupCard entries={row.entries} runningIndicator="dot" usage={row.usage} />
-										) : row.kind === "process" ? (
-											<ProcessGroup
-												expanded={expandedProcessKeys.has(rowKey)}
-												onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
-												row={row}
-											/>
-										) : row.kind === "streaming" ? (
-											<StreamingRows
-												expanded={expandedProcessKeys.has(rowKey)}
-												onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
-											/>
-										) : row.kind === "queued" ? (
-											<QueuedMessageBubble item={row.item} lane={row.lane} />
-										) : row.kind === "todoSnapshot" ? (
-											<TodoSnapshotCard entry={row.entry} />
-										) : row.kind === "expander" ? (
-											<Button
-												className="omp-history-expander"
-												icon={<History />}
-												onClick={() => setPreCompactionOpen(true)}
-												size="sm"
-												variant="secondary"
-											>
-												{t("chat.compaction.showEarlier", { count: row.count })}
-											</Button>
-										) : (
-											<TurnStatusRow />
-										)}
-									</div>
-								</div>
-							);
-						})}
+		<div className="omp-transcript-editorial relative min-h-0 flex-1 bg-transparent">
+			<div
+				ref={parentRef}
+				aria-label={t("chat.transcript.label")}
+				onScroll={handleScroll}
+				onWheel={handleWheel}
+				onTouchMove={releaseTailPin}
+				onTouchEnd={endScrollGesture}
+				onPointerDown={handleScrollPointerDown}
+				onPointerUp={endScrollGesture}
+				onPointerCancel={endScrollGesture}
+				onKeyDown={handleScrollKeyDown}
+				tabIndex={0}
+				className="omp-transcript-scroll h-full overflow-y-auto overscroll-contain"
+			>
+				{switchPending && (
+					<div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px overflow-hidden">
+						<div className="omp-indeterminate-progress h-full bg-[var(--omp-accent)]" />
 					</div>
-				</div>
-				<button
-					type="button"
-					onClick={jumpToLatest}
-					aria-label={t("chat.jumpToLatest")}
-					className={cx(
-						"absolute bottom-5 left-1/2 flex h-9 -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] px-4 text-omp-md font-medium text-[var(--omp-text)] shadow-[var(--omp-shadow-md)] transition-all hover:bg-[var(--omp-selected-bg)]",
-						pinned ? "pointer-events-none translate-y-12 opacity-0" : "translate-y-0 opacity-100",
-					)}
+				)}
+				{status === "starting" && rows.length === 0 && !switchPending && (
+					<div className="flex justify-center py-3">
+						<Loader2 size={16} className="animate-spin text-[var(--omp-muted)]" />
+					</div>
+				)}
+				{status !== "starting" && rows.length === 0 && !isStreaming && !switchPending && firstRunActive && (
+					<FirstRunSetup />
+				)}
+				{status !== "starting" && rows.length === 0 && !isStreaming && !switchPending && !firstRunActive && (
+					<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
+						<BrandMark size={40} className="omp-empty-logo mb-6 text-[var(--omp-text)]" />
+						<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
+							{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
+						</h1>
+						<p className="mt-2 max-w-2xl text-omp-xl leading-relaxed text-[var(--omp-muted)]">
+							{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
+						</p>
+						<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+							{starters.map(({ icon: Icon, title, prompt }) => (
+								<button
+									key={title}
+									type="button"
+									onClick={() =>
+										window.dispatchEvent(
+											new CustomEvent("omp:fill-composer", { detail: { text: prompt, tabId } }),
+										)
+									}
+									className="omp-starter-card omp-lift group flex min-h-20 items-start gap-3 rounded-2xl border border-[var(--omp-border)] p-4 text-left shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border-accent)] hover:bg-[var(--omp-bg-secondary)]"
+								>
+									<span className="omp-starter-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--omp-selected-bg)] text-[var(--omp-accent)]">
+										<Icon size={17} />
+									</span>
+									<span>
+										<span className="block text-omp-lg font-semibold text-[var(--omp-text)]">{title}</span>
+										<span className="mt-1 block text-omp-lg leading-snug text-[var(--omp-muted)]">
+											{prompt}
+										</span>
+									</span>
+								</button>
+							))}
+						</div>
+					</div>
+				)}
+				<div
+					ref={canvasRef}
+					className="omp-transcript-canvas"
+					style={{ height: totalSize, position: "relative", width: "100%" }}
 				>
-					<ArrowDown size={14} />
-					{t("chat.jumpToLatest")}
-				</button>
+					{virtualizer.getVirtualItems().map(item => {
+						const row = rows[item.index];
+						if (!row) return null;
+						const rowKey = rowKeys[item.index] ?? String(item.key);
+						return (
+							<div
+								key={item.key}
+								data-index={item.index}
+								data-row-key={rowKey}
+								data-transcript-kind={row.kind}
+								ref={virtualizer.measureElement}
+								style={{
+									position: "absolute",
+									top: 0,
+									left: 0,
+									width: "100%",
+									transform: `translateY(${item.start}px)`,
+								}}
+							>
+								<div className="omp-transcript-row w-full">
+									{row.kind === "message" ? (
+										<MessageBubble message={row.message} reaction={row.reaction} runningIndicator="dot" />
+									) : row.kind === "readGroup" ? (
+										<ReadGroupCard entries={row.entries} runningIndicator="dot" usage={row.usage} />
+									) : row.kind === "process" ? (
+										<ProcessGroup
+											expanded={expandedProcessKeys.has(rowKey)}
+											onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
+											row={row}
+										/>
+									) : row.kind === "streaming" ? (
+										<StreamingRows
+											expanded={expandedProcessKeys.has(rowKey)}
+											onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
+										/>
+									) : row.kind === "todoSnapshot" ? (
+										<TodoSnapshotCard entry={row.entry} />
+									) : row.kind === "expander" ? (
+										<Button
+											className="omp-history-expander"
+											icon={<History />}
+											onClick={() => setPreCompactionOpen(true)}
+											size="sm"
+											variant="secondary"
+										>
+											{t("chat.compaction.showEarlier", { count: row.count })}
+										</Button>
+									) : (
+										<TurnStatusRow />
+									)}
+								</div>
+							</div>
+						);
+					})}
+				</div>
 			</div>
+			<button
+				type="button"
+				onClick={jumpToLatest}
+				aria-label={t("chat.jumpToLatest")}
+				className={cx(
+					"absolute bottom-5 left-1/2 flex h-9 -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] px-4 text-omp-md font-medium text-[var(--omp-text)] shadow-[var(--omp-shadow-md)] transition-all hover:bg-[var(--omp-selected-bg)]",
+					pinned ? "pointer-events-none translate-y-12 opacity-0" : "translate-y-0 opacity-100",
+				)}
+			>
+				<ArrowDown size={14} />
+				{t("chat.jumpToLatest")}
+			</button>
 			<ConversationNavigator
 				activeIndex={activeConversationIndex}
 				anchors={conversationAnchors}
 				onNavigate={jumpToConversation}
 			/>
-		</>
+		</div>
 	);
 }
 
@@ -702,12 +676,14 @@ function ProcessGroup({
 	onExpandedChange: (expanded: boolean) => void;
 	row: Extract<HistoryRow, { kind: "process" }>;
 }) {
+	const output = useMemo(() => summarizeMessagesOutput(row.messages), [row.messages]);
 	return (
-		<div className="ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
+		<div className="omp-process-turn ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) pt-(--omp-prompt-gap) pb-0.5">
 			<ExecutionGroup
 				expanded={expanded}
 				failureCount={row.failedEvents}
 				onExpandedChange={onExpandedChange}
+				output={output}
 				stepCount={row.stepCount}
 				toolCallIds={row.toolCallIds}
 			>
@@ -873,6 +849,7 @@ export function StreamingRows({
 						live
 						onExpandedChange={onExpandedChange}
 						stepCount={toolCalls.length + liveTools.length + (hasThinking ? 1 : 0)}
+						thinkingLive={hasThinking && !hasText}
 						toolCallIds={allCards.map(card => card.id)}
 					>
 						<div className="omp-process-group omp-process-group--live">
@@ -1028,58 +1005,6 @@ export function TurnStatusRow() {
 }
 
 /**
- * Pending bubble for one queued steer/follow-up message (queue_update data
- * source), rendered at the message-stream tail in delivery order — steering
- * (mid-run interrupt) first, then follow-ups. The × deletes the entry via
- * queue_remove; the queue_update frame the removal emits confirms success.
- * Failed responses and rejected transport calls re-enable the action, toast
- * the error, and attempt an authoritative refresh.
- */
-function QueuedMessageBubble({ item, lane }: { item: RpcQueuedMessage; lane: QueueLane }) {
-	const t = useT();
-	const rpc = useTabRpc();
-	const refreshQueue = useQueueStore(state => state.refresh);
-	const [removing, setRemoving] = useState(false);
-
-	const remove = async () => {
-		setRemoving(true);
-		let failure: string | undefined;
-		try {
-			const response = await rpc.queueRemove(item.id);
-			if (response.success) return;
-			failure = response.error;
-		} catch (cause) {
-			failure = cause instanceof Error ? cause.message : String(cause);
-		}
-		setRemoving(false);
-		toast({ variant: "error", title: t("pendingBubble.removeFailed"), message: failure });
-		await refreshQueue();
-	};
-
-	return (
-		<div className="omp-queued-turn group flex justify-end ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-1.5">
-			<div className="omp-queued-bubble flex min-w-0 items-start gap-1 rounded-(--sc-radius-lg) border border-dashed border-(--sc-border-subtle) py-1.5 ps-4 pe-1">
-				<div className="min-w-0 flex-1 py-1">
-					<div className="mb-0.5 text-sc-xs font-medium text-(--sc-text-muted)">
-						{t(lane === "steering" ? "pendingBubble.steering" : "pendingBubble.followUp")}
-					</div>
-					<div className="text-sc-lg break-words whitespace-pre-wrap text-(--sc-text-secondary)">
-						{item.text || "…"}
-					</div>
-				</div>
-				<IconButton
-					disabled={removing}
-					icon={<X />}
-					label={t("pendingBubble.remove")}
-					onClick={() => void remove()}
-					size="sm"
-				/>
-			</div>
-		</div>
-	);
-}
-
-/**
  * Archived todo state rendered inline in the transcript where the change
  * happened (todo store history). Collapses to a one-line summary; expanding
  * shows the phase/task state at that time, read-only — the live dock card
@@ -1096,21 +1021,17 @@ function TodoSnapshotCard({ entry }: { entry: TodoSnapshot }) {
 	const cleared = total === 0;
 
 	return (
-		<div className="ml-(--omp-editorial-inset) mr-(--omp-editorial-edge) my-1">
+		<div className="ml-(--omp-editorial-inset) mr-(--omp-editorial-edge) my-0.5">
 			<button
 				aria-expanded={expanded}
-				className="flex min-h-7 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text) disabled:hover:bg-transparent"
+				className="flex min-h-7 w-fit max-w-full min-w-0 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-sc-sm text-(--sc-text-subtle) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary) aria-expanded:text-(--sc-text-secondary) disabled:hover:bg-transparent disabled:hover:text-(--sc-text-subtle)"
 				disabled={cleared}
 				onClick={() => setExpanded(value => !value)}
 				type="button"
 			>
 				<ListTodo aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-				<span className="font-medium">{cleared ? t("todoSnapshot.cleared") : t("todoSnapshot.title")}</span>
-				{!cleared && (
-					<span className="tabular-nums text-(--sc-text-subtle)">
-						{t("todoSnapshot.progress", { done, total })}
-					</span>
-				)}
+				<span className="truncate">{cleared ? t("todoSnapshot.cleared") : t("todoSnapshot.title")}</span>
+				{!cleared && <span className="shrink-0 tabular-nums">{t("todoSnapshot.progress", { done, total })}</span>}
 				{!cleared && (
 					<ChevronRight
 						aria-hidden

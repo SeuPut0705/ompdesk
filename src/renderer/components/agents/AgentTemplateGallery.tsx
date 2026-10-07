@@ -1,6 +1,6 @@
 /**
  * Agents › Definitions › template gallery (Sheet md): the curated specialist
- * agents bundled with seucode (`shared/agent-templates.ts`). "Customize"
+ * agents bundled with ompdesk (`shared/agent-templates.ts`). "Customize"
  * opens one prefilled in the agent editor; "Add all" writes every template
  * whose file does not exist yet into the chosen scope — existing files are
  * never replaced.

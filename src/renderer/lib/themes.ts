@@ -1,9 +1,9 @@
 /**
- * Named theme registry for the seucode GUI.
+ * Named theme registry for the ompdesk GUI.
  *
  * Every theme defines the exact same set of `--omp-*` design tokens (see
  * THEME_TOKEN_KEYS — the canonical 119 keys). `dark` and `light` are the
- * seucode default palettes and match theme-dark.css / theme-light.css, where
+ * ompdesk default palettes and match theme-dark.css / theme-light.css, where
  * the same values are spelled as `--sc-*` primitives plus `--omp-*` aliases
  * (tokens.css); styles/tokens.test.ts keeps the two in sync. Transcript and
  * ANSI aliases in global.css follow these tokens in every palette.
@@ -202,7 +202,7 @@ export interface ThemeDefinition {
 
 const dark: ThemeDefinition = {
 	label: "Graphite",
-	description: "The seucode dark default: neutral charcoal and an indigo accent.",
+	description: "The ompdesk dark default: neutral charcoal and an indigo accent.",
 	scheme: "dark",
 	tokens: {
 		"--omp-accent": "#8b8df8",
@@ -329,7 +329,7 @@ const dark: ThemeDefinition = {
 
 const light: ThemeDefinition = {
 	label: "Porcelain",
-	description: "The seucode light default: clean white and an indigo accent.",
+	description: "The ompdesk light default: clean white and an indigo accent.",
 	scheme: "light",
 	tokens: {
 		"--omp-accent": "#5b5bd6",
@@ -1679,7 +1679,7 @@ export function applyThemeByName(selection: ThemeSelection, opts: { persist?: bo
 /**
  * Reads the persisted selection: the `themeName` pref first, then the legacy
  * `theme` pref (dark/light/system written by older builds and the settings
- * window), falling back to "system" — seucode follows the OS by default.
+ * window), falling back to "system" — ompdesk follows the OS by default.
  */
 export async function getPersistedThemeSelection(prefs?: Readonly<Record<string, unknown>>): Promise<ThemeSelection> {
 	if (prefs) {

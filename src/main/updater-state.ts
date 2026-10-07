@@ -15,9 +15,9 @@ interface ReleaseFile {
 	size?: number;
 }
 
-/** Select the Apple Silicon DMG for this release (the only macOS build seucode ships). */
+/** Select the Apple Silicon DMG for this release (the only macOS build ompdesk ships). */
 export function selectMacInstaller(files: readonly ReleaseFile[], version: string): MacInstallerAsset | undefined {
-	const expectedName = `seucode-${version}-arm64.dmg`;
+	const expectedName = `ompdesk-${version}-arm64.dmg`;
 	for (const file of files) {
 		let name = file.url;
 		try {
@@ -107,11 +107,11 @@ export function settleFailedUpdateCheck(
 
 const PARTIAL_SUFFIX = ".partial";
 /**
- * Only names the updater itself could have written: `seucode-<version>[-arm64][ (n)].dmg`
+ * Only names the updater itself could have written: `ompdesk-<version>[-arm64][ (n)].dmg`
  * plus a partial suffix. Downloads is the user's directory, so anything else —
  * including a lookalike like `holiday.dmg.partial` — must survive the sweep.
  */
-const INSTALLER_DEBRIS = /^seucode-[\d.]+(?:-arm64)?(?: \(\d+\))?\.dmg(?:\.partial|\.download-\d+)$/;
+const INSTALLER_DEBRIS = /^ompdesk-[\d.]+(?:-arm64)?(?: \(\d+\))?\.dmg(?:\.partial|\.download-\d+)$/;
 const HASH_CHUNK_BYTES = 1024 * 1024;
 
 /**

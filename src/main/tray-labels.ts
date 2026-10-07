@@ -82,8 +82,8 @@ export function formatTokens(n: number): string {
 
 /** Hover text: the icon itself stays a static template mark by design. */
 export function trayTooltip(state: TrayState | null): string {
-	if (!state) return "seucode";
-	return `seucode — ${state.projectName} · ${statusLabel(state.language, state.status)}`;
+	if (!state) return "ompdesk";
+	return `ompdesk — ${state.projectName} · ${statusLabel(state.language, state.status)}`;
 }
 
 /**

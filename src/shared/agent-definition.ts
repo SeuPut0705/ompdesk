@@ -7,7 +7,7 @@
  * implied by any explicit tool list, `main` / `sub` are reserved.
  *
  * Serialization edits the original frontmatter document in place (the `yaml`
- * Document API), so keys seucode does not know and YAML comments survive a
+ * Document API), so keys ompdesk does not know and YAML comments survive a
  * round trip; an existing key keeps the spelling the file already used
  * (`thinking` vs `thinking-level`).
  */
@@ -18,7 +18,7 @@ import type { AgentFileScope } from "./rpc-types";
 /** Rule names omp reserves for the top-level session and anonymous subagents. */
 export const RESERVED_AGENT_NAMES: readonly string[] = ["main", "sub"];
 
-/** Names seucode writes: they double as the file name, so no separators, dots first or spaces. */
+/** Names ompdesk writes: they double as the file name, so no separators, dots first or spaces. */
 export const AGENT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 
 /** omp's configured thinking selectors (`auto` plus `parseThinkingLevel`'s levels). */
@@ -249,7 +249,7 @@ export function serializeAgentMarkdown(draft: AgentDraft, original?: string): st
 	return `---\n${yaml}---\n\n${body}\n`;
 }
 
-/** The file name seucode gives an agent. */
+/** The file name ompdesk gives an agent. */
 export function agentFileName(name: string): string {
 	return `${name.trim()}.md`;
 }

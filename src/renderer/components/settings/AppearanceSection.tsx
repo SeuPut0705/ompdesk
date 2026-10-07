@@ -149,7 +149,7 @@ function ThemeSwatches() {
 
 /**
  * A display preference that, until changed here, follows the omp setting of
- * the same name; once set in seucode a reset returns it to following omp.
+ * the same name; once set in ompdesk a reset returns it to following omp.
  */
 function DisplayPreferenceRow({ field }: { field: (typeof GUI_DISPLAY_BOOL_FIELDS)[number] }) {
 	const t = useT();

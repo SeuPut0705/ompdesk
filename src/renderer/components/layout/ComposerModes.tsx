@@ -11,7 +11,7 @@
  * closing it clears the request.
  */
 
-import { Boxes, Layers, ListChecks, Repeat, Rocket, Target } from "lucide-react";
+import { Boxes, ChevronDown, Layers, ListChecks, Repeat, Rocket, Target } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { cx } from "../../lib/format";
@@ -108,9 +108,10 @@ export function ComposerModes() {
 					}}
 					ref={triggerRef}
 					size="sm"
+					trailingIcon={<ChevronDown aria-hidden className="omp-composer-chevron text-(--sc-text-subtle)" />}
 					variant="ghost"
 				>
-					<span className="omp-composer-control-label max-w-48 truncate">{label}</span>
+					<span className="omp-composer-control-label omp-composer-label-early max-w-48 truncate">{label}</span>
 				</Button>
 			</Tooltip>
 			<Popover

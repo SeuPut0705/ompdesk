@@ -4,11 +4,10 @@
  * ChatStream.tsx so the renderer keeps only its UI and state wiring.
  */
 
-import type { AgentMessage, MessageContent, RpcQueuedMessage } from "../../../shared/rpc-types";
+import type { AgentMessage, MessageContent } from "../../../shared/rpc-types";
 import { messageIdentity } from "../../lib/message-identity";
 import { isRenderableMessageText, messageText, splitReaction } from "../../lib/messages";
 import type { ReadGroupEntry, ReadGroupUsage } from "../../lib/read-group";
-import type { QueueLane } from "../../stores/queue";
 import type { TodoSnapshot } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey } from "../../stores/tools";
 import type { TranscriptDetail } from "../../stores/ui";
@@ -148,8 +147,7 @@ export type Row =
 	| HistoryRow
 	| { kind: "streaming"; message: AgentMessage }
 	| { kind: "pending" }
-	| { kind: "expander"; count: number }
-	| { kind: "queued"; item: RpcQueuedMessage; lane: QueueLane };
+	| { kind: "expander"; count: number };
 function messageKey(message: AgentMessage): string {
 	const identity = messageIdentity(message);
 	if (identity) return identity;
@@ -160,8 +158,6 @@ function messageKey(message: AgentMessage): string {
 
 function transcriptRowBaseKey(row: Row): string {
 	switch (row.kind) {
-		case "queued":
-			return `queued-${row.item.id}`;
 		case "message":
 			return `message-${messageKey(row.message)}`;
 		case "process":

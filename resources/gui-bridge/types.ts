@@ -1,5 +1,5 @@
 /**
- * Shared types for seucode's gui-bridge extension.
+ * Shared types for ompdesk's gui-bridge extension.
  *
  * The GUI loads `index.ts` into the user's installed omp with
  * `omp --mode rpc-ui -e <resources>/gui-bridge/index.ts`. The installed CLI is

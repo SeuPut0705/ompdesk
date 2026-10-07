@@ -6,26 +6,29 @@
 /* ---------------------------------------------------------------------------
  * Streaming caret
  * ------------------------------------------------------------------------- */
+/* A soft breathing dot at the end of the live text: present enough to say
+ * "still writing", quiet enough not to read as a glyph or a cursor block. */
 .omp-caret {
+	position: relative;
+	top: -0.12em;
 	display: inline-block;
-	width: 7px;
-	height: 1.05em;
-	margin-left: 2px;
-	vertical-align: text-bottom;
-	border-radius: 2px;
+	width: 0.55em;
+	height: 0.55em;
+	margin-left: 0.2em;
+	vertical-align: baseline;
+	border-radius: var(--sc-radius-full);
 	background: var(--omp-streaming-cursor);
-	transform-origin: center bottom;
-	animation: omp-caret-breathe 0.92s ease-in-out infinite; /* motion-ok: caret loop */
+	animation: omp-caret-breathe 1.2s var(--sc-ease-standard) infinite; /* motion-ok: caret loop */
 }
 
 @keyframes omp-caret-breathe {
 	0%, 100% {
-		opacity: 0.95;
-		transform: scaleY(1);
+		opacity: 0.9;
+		transform: scale(1);
 	}
 	50% {
-		opacity: 0.42;
-		transform: scaleY(0.88);
+		opacity: 0.35;
+		transform: scale(0.7);
 	}
 }
 
@@ -47,14 +50,12 @@
  * because the stream's commit cadence must be able to interrupt a fade without
  * restarting it, which is what made the old per-frame re-keyed reveal strobe. */
 .omp-streaming-chunk {
-	transition:
-		opacity var(--omp-motion-fast) var(--omp-ease),
-		filter var(--omp-motion-fast) var(--omp-ease);
+	transition: opacity var(--sc-duration-med) var(--sc-ease-standard);
 }
 
+/* Only an opacity step: a blur made freshly revealed lines look out of focus. */
 .omp-streaming-reveal {
-	opacity: 0.8;
-	filter: blur(0.3px);
+	opacity: 0.72;
 }
 
 
@@ -76,9 +77,31 @@
 /* ---------------------------------------------------------------------------
  * Thinking block live state
  * ------------------------------------------------------------------------- */
+/* Live labels ("Thinking…") carry a slow highlight sweep across the muted
+ * text instead of a spinner; reduced motion falls back to flat muted text. */
 .omp-thinking-shimmer {
 	color: var(--sc-text-muted);
 	font-weight: 500;
+	background: linear-gradient(
+			100deg,
+			var(--sc-text-muted) 35%,
+			var(--sc-text) 50%,
+			var(--sc-text-muted) 65%
+		)
+		0 0 / 250% 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	-webkit-text-fill-color: transparent;
+	animation: omp-text-shimmer 2.4s linear infinite; /* motion-ok: live-work signal */
+}
+
+@keyframes omp-text-shimmer {
+	from {
+		background-position: 100% 0;
+	}
+	to {
+		background-position: 0 0;
+	}
 }
 
 /* ---------------------------------------------------------------------------
@@ -332,6 +355,8 @@
 @media (prefers-reduced-motion: reduce) {
 	.omp-thinking-shimmer {
 		animation: none;
+		background: none;
+		-webkit-text-fill-color: currentColor;
 	}
 	.omp-caret {
 		animation: none;
@@ -340,7 +365,6 @@
 	 * commit cadence: dim for one frame, full for the next. */
 	.omp-streaming-reveal {
 		opacity: 1;
-		filter: none;
 	}
 }
 
@@ -464,6 +488,15 @@
 	/* Center of the 14px step icon inside a row's 6px inline padding: where a
 	   step's disclosure rule hangs, so nested detail reads as belonging to it. */
 	--omp-step-rule-inset: calc(var(--sc-space-1-5) + var(--sc-icon-sm) / 2);
+	/* Transcript rhythm (4px grid). A turn boundary — reply end to the next
+	   prompt — is reply-pad-bottom + turn-gap (36px); a prompt sits
+	   prompt-gap + reply-pad-top (16px) above its reply; steps stack tight.
+	   global.css [data-density="tight"] retunes these. */
+	--omp-turn-gap: var(--sc-space-5);
+	--omp-prompt-gap: var(--sc-space-2);
+	--omp-reply-pad-top: var(--sc-space-2);
+	--omp-reply-pad-bottom: var(--sc-space-4);
+	--omp-event-pad: var(--sc-space-2);
 }
 
 .omp-transcript-editorial .omp-transcript-content {
@@ -480,19 +513,28 @@
 	overflow-anchor: none;
 }
 
-/* Conversation navigator: a faint vertical track with one dot per user turn.
-   Quiet at rest, full strength while the pointer or focus is on the rail. */
+/* Conversation navigator: one short tick per user turn, hung in the reading
+   column's left gutter (its right edge sits a step left of the text edge), so
+   it reads as part of the transcript rather than a detached window control.
+   Ticks lengthen toward the text on hover/focus and for the current turn.
+   Hidden when the gutter is too narrow to hold it (container query below). */
 .omp-conversation-nav {
 	position: absolute;
 	z-index: var(--sc-z-sticky);
-	top: var(--sc-space-4);
-	bottom: var(--sc-space-5);
-	left: var(--sc-space-2);
+	top: var(--sc-space-6);
+	bottom: var(--sc-space-6);
+	left: max(
+		var(--sc-space-2),
+		calc(
+			(100% - var(--omp-scrollbar-size) - var(--omp-column-reading)) / 2 - var(--sc-space-3) -
+				var(--sc-hit-min)
+		)
+	);
 	display: flex;
 	flex-direction: column;
 	justify-content: center;
 	width: var(--sc-hit-min);
-	opacity: 0.6;
+	opacity: 0.75;
 	pointer-events: none;
 	transition: opacity var(--sc-duration-fast) var(--sc-ease-standard);
 }
@@ -506,24 +548,13 @@
 	position: relative;
 	display: flex;
 	flex-direction: column;
-	gap: clamp(4px, 0.8vh, 8px);
+	gap: clamp(2px, 0.6vh, 6px);
 	width: 100%;
 	max-height: 100%;
 }
 
-.omp-conversation-nav-stack::before {
-	content: "";
-	position: absolute;
-	top: 0;
-	bottom: 0;
-	left: 50%;
-	width: 1px;
-	background: var(--sc-divider);
-	transform: translateX(-50%);
-}
-
 .omp-conversation-nav-stack.is-dense {
-	gap: 2px;
+	gap: 1px;
 }
 
 .omp-conversation-nav-stack.is-compact {
@@ -532,13 +563,13 @@
 
 .omp-conversation-nav-slot {
 	position: relative;
-	flex: 0 1 12px;
-	min-height: 2px;
+	flex: 0 1 10px;
+	min-height: 3px;
 	width: 100%;
 }
 
 .omp-conversation-nav-stack.is-compact .omp-conversation-nav-slot {
-	flex-basis: 8px;
+	flex-basis: 6px;
 }
 
 .omp-conversation-nav-marker {
@@ -556,28 +587,21 @@
 	content: "";
 	position: absolute;
 	top: 50%;
-	left: 50%;
-	width: 6px;
-	height: 6px;
+	right: var(--sc-space-1);
+	width: 8px;
+	height: 2px;
 	border-radius: var(--sc-radius-full);
 	background: var(--sc-text-subtle);
-	box-shadow: 0 0 0 2px var(--sc-bg);
-	transform: translate(-50%, -50%);
+	transform: translateY(-50%);
 	transition:
-		transform var(--sc-duration-fast) var(--sc-ease-standard),
+		width var(--sc-duration-fast) var(--sc-ease-standard),
 		background-color var(--sc-duration-fast) var(--sc-ease-standard);
-}
-
-.omp-conversation-nav-stack.is-dense .omp-conversation-nav-marker::after,
-.omp-conversation-nav-stack.is-compact .omp-conversation-nav-marker::after {
-	width: 4px;
-	height: 4px;
 }
 
 .omp-conversation-nav-marker:hover::after,
 .omp-conversation-nav-marker:focus-visible::after {
+	width: 14px;
 	background: var(--sc-text-muted);
-	transform: translate(-50%, -50%) scale(1.5);
 }
 
 .omp-conversation-nav-marker.is-active {
@@ -585,11 +609,11 @@
 }
 
 .omp-conversation-nav-marker.is-active::after {
+	width: 16px;
 	background: var(--sc-text);
-	transform: translate(-50%, -50%) scale(1.5);
 }
 
-/* The ring draws on a pseudo box: the 2px-tall dense slots are too small to outline. */
+/* The ring draws on a pseudo box: the 3px-tall dense slots are too small to outline. */
 .omp-conversation-nav-marker:focus-visible {
 	outline: none;
 }
@@ -598,19 +622,25 @@
 	content: "";
 	position: absolute;
 	top: 50%;
-	left: 50%;
-	width: 16px;
-	height: 16px;
+	right: 0;
+	width: 24px;
+	height: 12px;
 	border: var(--sc-focus-width) solid var(--sc-focus-ring);
-	border-radius: var(--sc-radius-full);
-	transform: translate(-50%, -50%);
+	border-radius: var(--sc-radius-xs);
+	transform: translateY(-50%);
+}
+
+@container omp-workspace (max-width: 959px) {
+	.omp-conversation-nav {
+		display: none;
+	}
 }
 
 .omp-conversation-nav-preview {
 	position: absolute;
 	left: calc(100% + var(--sc-space-2));
 	top: 50%;
-	width: min(360px, calc(100vw - 110px));
+	width: min(22.5rem, var(--omp-column-reading));
 	max-height: 184px;
 	padding: var(--sc-space-3) var(--sc-space-4);
 	border: 1px solid var(--sc-border-subtle);
@@ -620,6 +650,7 @@
 	transform: translateY(-50%);
 	pointer-events: none;
 	overflow: hidden;
+	animation: omp-fade-in var(--sc-duration-fast) var(--sc-ease-standard) both;
 }
 
 .omp-conversation-nav-slot:nth-child(-n + 5):not(:nth-last-child(-n + 5)) .omp-conversation-nav-preview {
@@ -679,10 +710,11 @@
 }
 
 /* User turn: a compact soft bubble on the right; nothing reserves height
-   for its actions, which overlay the empty space left of the bubble. */
+   for its actions, which overlay the empty space left of the bubble. Its top
+   padding is the turn boundary. */
 .omp-transcript-editorial .omp-user-turn {
 	justify-content: flex-end;
-	padding: var(--sc-space-6) var(--omp-editorial-edge) var(--sc-space-2) var(--omp-editorial-inset) !important;
+	padding: var(--omp-turn-gap) var(--omp-editorial-edge) var(--omp-prompt-gap) var(--omp-editorial-inset) !important;
 }
 
 .omp-transcript-editorial .omp-user-bubble {
@@ -723,13 +755,14 @@
    bottom-right of the turn (own padding + the end of the last line) on
    hover/focus, on a canvas-colored pill so they never garble text. */
 .omp-transcript-editorial .omp-assistant-turn {
-	padding: var(--sc-space-2) var(--omp-editorial-edge) var(--sc-space-5) var(--omp-editorial-inset) !important;
+	padding: var(--omp-reply-pad-top) var(--omp-editorial-edge) var(--omp-reply-pad-bottom) var(--omp-editorial-inset) !important;
 }
 
 .omp-transcript-editorial .omp-assistant-actions {
 	position: absolute;
 	right: var(--omp-editorial-edge);
 	bottom: 0;
+	padding-inline-start: var(--sc-space-1);
 	border-radius: var(--sc-radius-md);
 	background: var(--sc-bg);
 }
@@ -782,11 +815,76 @@
 	overscroll-behavior: contain;
 }
 
+/* Step rows (work summary, tool, read group, thinking): hover and the open
+   state firm up the disclosure chevron, so the row reads as one control. */
+.omp-transcript-editorial
+	:is(.omp-execution-group-header, .omp-tool-header, .omp-thinking-header):is(:hover, [aria-expanded="true"])
+	.omp-disclosure-chevron {
+	color: var(--sc-text-muted);
+}
+
+/* Live step under a collapsed running work summary: indented to the summary
+   text, one line (plus a running command's last output lines), fading in each
+   time the step changes. Reduced motion flattens the fade (global.css). */
+.omp-live-step {
+	min-width: 0;
+	margin-inline-start: calc(var(--sc-space-1-5) + var(--sc-icon-sm) + var(--sc-space-2));
+	padding-bottom: var(--sc-space-1);
+	animation: omp-live-step-in var(--sc-duration-med) var(--sc-ease-enter) both;
+}
+
+.omp-live-step-line {
+	display: flex;
+	align-items: center;
+	gap: var(--sc-space-2);
+	min-width: 0;
+	min-height: var(--sc-space-6);
+	color: var(--sc-text-muted);
+	font-size: var(--sc-font-sm);
+}
+
+.omp-live-step-icon {
+	flex-shrink: 0;
+	width: var(--sc-icon-sm);
+	height: var(--sc-icon-sm);
+	color: var(--sc-text-subtle);
+}
+
+.omp-live-step-snippet {
+	color: var(--sc-text-subtle);
+}
+
+/* Two output lines are always reserved for a running command, so output
+   arriving does not grow the row line by line. */
+.omp-live-step-output {
+	min-height: calc(2lh);
+	margin-inline-start: calc(var(--sc-icon-sm) + var(--sc-space-2));
+	color: var(--sc-text-subtle);
+	font-family: var(--font-mono);
+	font-size: var(--sc-font-xs);
+	line-height: var(--sc-leading-normal);
+}
+
+.omp-live-step-output > * {
+	white-space: pre;
+}
+
+@keyframes omp-live-step-in {
+	from {
+		opacity: 0;
+		transform: translateY(3px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
 .omp-transcript-editorial .omp-execution-turn,
 .omp-transcript-editorial .omp-context-turn,
 .omp-transcript-editorial .omp-custom-turn,
 .omp-transcript-editorial .omp-status-turn {
-	padding: var(--sc-space-3) var(--omp-editorial-edge) var(--sc-space-4) var(--omp-editorial-inset) !important;
+	padding: var(--omp-event-pad) var(--omp-editorial-edge) var(--omp-event-pad) var(--omp-editorial-inset) !important;
 }
 
 .omp-transcript-editorial .omp-execution-turn,
@@ -882,6 +980,113 @@
 	margin: 0.75em 0;
 }
 
+/* A reply's outer edges carry no paragraph margin — the turn padding owns the
+   rhythm (the rule above otherwise outranks `.markdown-body > :first-child`).
+   The first streaming block follows suit so promotion never shifts text. */
+.omp-transcript-editorial .omp-transcript-content > .markdown-body:first-child > :first-child,
+.omp-transcript-editorial .omp-streaming > .omp-streaming-block:first-child > .markdown-body > :first-child,
+.omp-transcript-editorial :is(.omp-user-bubble, .omp-tool-body, .omp-thinking-body) .markdown-body > :first-child {
+	margin-top: 0;
+}
+
+.omp-transcript-editorial .omp-transcript-content > .markdown-body:last-child > :last-child,
+.omp-transcript-editorial :is(.omp-user-bubble, .omp-tool-body, .omp-thinking-body) .markdown-body > :last-child {
+	margin-bottom: 0;
+}
+
+/* Hangul wraps at word boundaries; overlong tokens (paths, URLs) still break. */
+:root:lang(ko) .omp-transcript-editorial :is(.omp-assistant-turn .markdown-body, .omp-user-bubble .markdown-body) {
+	word-break: keep-all;
+	overflow-wrap: anywhere;
+}
+
+.omp-transcript-editorial .markdown-body :is(h1, h2, h3, h4, h5, h6) {
+	margin: 1.4em 0 0.5em;
+}
+
+.omp-transcript-editorial .markdown-body :is(ul, ol) {
+	margin: 0.6em 0;
+	padding-left: 1.4em;
+}
+
+.omp-transcript-editorial .markdown-body li {
+	margin: 0.3em 0;
+	padding-left: 0.15em;
+}
+
+.omp-transcript-editorial .markdown-body blockquote {
+	padding: 0.1em 0 0.1em 1em;
+	border-left-width: 2px;
+	border-radius: 0;
+	color: var(--sc-text-secondary);
+	font-style: normal;
+}
+
+.omp-transcript-editorial .markdown-body hr {
+	margin: 1.75em 0;
+	background: var(--sc-divider);
+}
+
+/* Tables: hairline rows, no cell grid, header in body case (uppercase does
+   nothing for Hangul and shouts in Latin). */
+.omp-transcript-editorial .markdown-body table {
+	margin: 0.75em 0;
+	font-size: var(--sc-font-md);
+	line-height: var(--sc-leading-normal);
+	border-collapse: separate;
+	border-spacing: 0;
+}
+
+.omp-transcript-editorial .markdown-body :is(th, td) {
+	padding: 0.5em 0.9em 0.5em 0;
+	border: 0;
+	border-bottom: 1px solid var(--sc-divider);
+	vertical-align: top;
+}
+
+.omp-transcript-editorial .markdown-body th {
+	border-bottom-color: var(--sc-border-subtle);
+	color: var(--sc-text);
+	font-size: inherit;
+	font-weight: 600;
+	letter-spacing: 0;
+	text-transform: none;
+	white-space: nowrap;
+}
+
+.omp-transcript-editorial .markdown-body tr:last-child > td {
+	border-bottom: 0;
+}
+
+/* Wide math and tables scroll sideways inside the column. Instead of a raw
+   scrollbar track, an edge shade appears only on the side with more content
+   (the canvas-colored covers scroll with the content and hide the shade at
+   either end); the bar itself stays thin. */
+.omp-transcript-editorial :is(.omp-assistant-turn, .omp-thinking-body) .markdown-body :is(.katex-display, table) {
+	--omp-scroll-cover: var(--sc-bg);
+	--omp-scroll-shade: color-mix(in srgb, var(--sc-text) 14%, transparent);
+	overflow-x: auto;
+	overflow-y: hidden;
+	background:
+		linear-gradient(to right, var(--omp-scroll-cover) 30%, transparent) left center / 2.5rem 100% no-repeat local,
+		linear-gradient(to left, var(--omp-scroll-cover) 30%, transparent) right center / 2.5rem 100% no-repeat local,
+		linear-gradient(to right, var(--omp-scroll-shade), transparent) left center / 0.75rem 100% no-repeat scroll,
+		linear-gradient(to left, var(--omp-scroll-shade), transparent) right center / 0.75rem 100% no-repeat scroll;
+}
+
+.omp-transcript-editorial .markdown-body :is(.katex-display, table)::-webkit-scrollbar {
+	height: 5px;
+}
+
+.omp-transcript-editorial .markdown-body :is(.katex-display, table)::-webkit-scrollbar-thumb {
+	border: 0;
+	background-color: transparent;
+}
+
+.omp-transcript-editorial .markdown-body :is(.katex-display, table):hover::-webkit-scrollbar-thumb {
+	background-color: var(--omp-scrollbar-thumb);
+}
+
 .omp-transcript-editorial .markdown-body h1 {
 	padding-bottom: 0;
 	border-bottom: 0;
@@ -900,15 +1105,6 @@
 
 .omp-transcript-editorial .markdown-body a {
 	border-bottom-color: color-mix(in srgb, var(--omp-md-link) 20%, transparent);
-}
-
-.omp-transcript-editorial .omp-queued-turn {
-	justify-content: flex-end;
-	padding: var(--sc-space-1-5) var(--omp-editorial-edge) var(--sc-space-1-5) var(--omp-editorial-inset) !important;
-}
-
-.omp-transcript-editorial .omp-queued-bubble {
-	max-width: min(85%, 40rem);
 }
 
 /* The virtualizer recycles rows through the viewport, so an entrance keyed on
@@ -950,10 +1146,13 @@
 	max-width: 100%;
 }
 
+/* The transcript above keeps a stable scrollbar gutter; reserving the same
+   gutter here centers the composer on the transcript's reading column, so
+   both share one left edge and the prompt bubbles end on its right edge. */
 .omp-composer-region {
 	min-width: 0;
 	max-width: 100%;
-	padding-inline: 0;
+	padding-inline: 0 var(--omp-scrollbar-size);
 }
 
 /* ⌃G: the composer expands in place over its session pane (design-spec §2.2
@@ -978,8 +1177,9 @@
 	min-height: 0;
 }
 
-/* Narrow main area: the breadcrumb gives up the project before the session,
-   the status trigger keeps its icon, the status keeps its icon. */
+/* Narrow main area: the breadcrumb truncates the project before the session
+   and gives it up only when the session name itself runs out of room; the
+   status trigger keeps its icon, the status keeps its icon. */
 @container omp-workspace (max-width: 720px) {
 	.omp-session-status-cost {
 		display: none;
@@ -987,8 +1187,14 @@
 }
 
 @container omp-workspace (max-width: 600px) {
+	.omp-titlebar-project {
+		max-width: 7rem;
+	}
+}
+
+@container omp-workspace (max-width: 440px) {
 	.omp-titlebar-project,
-	.omp-titlebar-project + svg {
+	.omp-titlebar-crumb-sep {
 		display: none;
 	}
 }
@@ -1010,16 +1216,6 @@
 	}
 }
 
-@container omp-workspace (max-width: 900px) {
-	.omp-transcript-editorial {
-		--omp-editorial-inset: calc(var(--omp-column-pad) + 30px);
-	}
-
-	.omp-conversation-nav {
-		left: 4px;
-	}
-}
-
 @container omp-workspace (max-width: 680px) {
 	.omp-session-pane-cwd {
 		display: none;
@@ -1029,21 +1225,39 @@
 		grid-template-columns: minmax(0, 1fr);
 	}
 
+	.omp-composer-model-label {
+		max-width: 8rem;
+	}
+}
+
+/* Composer toolbar at narrow widths (design-spec §2.2): one row that never
+   overflows. Labels give way in order of how much the icon alone still says —
+   send mode and modes first (icon + tooltip + accent stay), then the thinking
+   level, context percent and model name; the send cluster keeps every action. */
+@container omp-workspace (max-width: 760px) {
 	.omp-composer-toolbar {
 		flex-wrap: nowrap;
 		gap: 0.125rem;
 	}
 
-	.omp-composer-model-label {
-		max-width: 7rem;
+	.omp-composer-label-early {
+		display: none !important;
 	}
 }
 
-@container omp-workspace (max-width: 520px) {
+@container omp-workspace (max-width: 560px) {
 	.omp-composer-model-label,
-	.omp-composer-control-label {
+	.omp-composer-control-label,
+	.omp-composer-chevron,
+	.omp-context-usage-label {
 		display: none !important;
 	}
+}
+
+/* Toolbar controls sit inside the composer's own focus treatment: a ring
+   flush with the control reads as one focus, not a ring inside a ring. */
+.omp-composer-toolbar :focus-visible {
+	outline-offset: 0;
 }
 
 /* Too narrow for one toolbar row even with labels hidden: wrap, keeping the
@@ -1081,15 +1295,5 @@
 
 	.omp-detail-drawer {
 		width: calc(100vw - 1.5rem);
-	}
-}
-
-@media (max-width: 720px) {
-	.omp-conversation-nav {
-		display: none;
-	}
-
-	.omp-transcript-editorial {
-		--omp-editorial-inset: calc(var(--omp-column-pad) + 24px);
 	}
 }

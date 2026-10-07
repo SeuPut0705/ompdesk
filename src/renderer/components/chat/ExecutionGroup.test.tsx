@@ -197,4 +197,37 @@ describe("ExecutionGroup", () => {
 		expect(container.textContent).toContain("16.0s");
 		expect(container.querySelector('[data-state="complete"]')).not.toBeNull();
 	});
+
+	it("previews the running step under a collapsed live group, then drops it when the work finishes", async () => {
+		useToolsStore.setState({
+			activeTools: new Map<string, ToolEntry>([
+				["read-1", { ...toolEntry("running"), toolName: "read", args: { path: "src/a.ts" }, status: "done" }],
+				[
+					"bash-1",
+					{
+						...toolEntry("running"),
+						args: { command: "bun run check" },
+						startTime: 5,
+						partialResult: { content: [{ type: "text", text: "step one\nstep two\n\nstep three\n" }] },
+					},
+				],
+			]),
+		});
+		await mount(["read-1", "bash-1"]);
+
+		const peek = container.querySelector(".omp-live-step");
+		expect(peek?.textContent).toContain("bun run check");
+		const output = Array.from(container.querySelectorAll(".omp-live-step-output > *")).map(line => line.textContent);
+		expect(output).toEqual(["step two", "step three"]);
+
+		await act(async () => {
+			useToolsStore.setState({
+				activeTools: new Map<string, ToolEntry>([
+					["read-1", { ...toolEntry("running"), toolName: "read", args: { path: "src/a.ts" }, status: "done" }],
+					["bash-1", { ...toolEntry("running"), args: { command: "bun run check" }, status: "done", endTime: 9 }],
+				]),
+			});
+		});
+		expect(container.querySelector(".omp-live-step")).toBeNull();
+	});
 });

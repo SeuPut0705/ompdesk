@@ -19,7 +19,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { SessionStats } from "../../../shared/rpc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
-import { basename, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
+import { basename, cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { actionKbd, onEscape } from "../../lib/keymap";
@@ -32,7 +32,17 @@ import { useActiveTabKind } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
-import { Button, type ContextMenuItem, IconButton, Input, MenuButton, Popover, Spinner } from "../common";
+import {
+	Badge,
+	Button,
+	type ContextMenuItem,
+	IconButton,
+	Input,
+	MenuButton,
+	Popover,
+	Spinner,
+	Tooltip,
+} from "../common";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 import { sessionCacheHitPercent, sessionExecutionDurationMs } from "./session-metrics";
 
@@ -48,6 +58,33 @@ function StatusIcon({ tone }: { tone: StatusTone }) {
 	if (tone === "attention") return <AlertTriangle aria-hidden className="size-(--sc-icon-sm) text-(--sc-warning)" />;
 	if (tone === "error") return <XCircle aria-hidden className="size-(--sc-icon-sm) text-(--sc-danger)" />;
 	return <Circle aria-hidden className="size-2 fill-current text-(--sc-success)" />;
+}
+
+/**
+ * The session's state beside its name, spelled like the sidebar row: needs
+ * approval and failures are the same warning/danger badges the row shows;
+ * working keeps the row's spinner; ready stays quiet (dot + muted word).
+ */
+function StatusPill({ tone, label }: { tone: StatusTone; label: string }) {
+	if (tone === "attention" || tone === "error") {
+		return (
+			<Badge className="omp-titlebar-status-badge gap-1" variant={tone === "attention" ? "warning" : "error"}>
+				<StatusIcon tone={tone} />
+				<span className="omp-titlebar-status-label">{label}</span>
+			</Badge>
+		);
+	}
+	return (
+		<span
+			className={cx(
+				"flex items-center gap-1.5 text-sc-sm",
+				tone === "busy" ? "text-(--sc-text-secondary)" : "text-(--sc-text-muted)",
+			)}
+		>
+			<StatusIcon tone={tone} />
+			<span className="omp-titlebar-status-label">{label}</span>
+		</span>
+	);
 }
 
 function StatRow({ label, hint, value }: { label: string; hint?: string; value: ReactNode }) {
@@ -266,17 +303,26 @@ export function TitleBar() {
 			)}
 
 			<nav aria-label={t("titlebar.breadcrumb")} className="omp-titlebar-identity no-drag flex min-w-0 items-center">
-				<Button
-					className="omp-titlebar-project min-w-12 max-w-48 shrink-[4]! px-2 text-(--sc-text-muted)"
-					disabled={isStreaming}
-					onClick={() => setWorkspaceOpen(true)}
-					size="sm"
-					title={isStreaming ? t("titlebar.abortHint") : t("titlebar.switchProject")}
-					variant="ghost"
+				<Tooltip
+					content={cwd && !isChat ? `${t("titlebar.switchProject")} · ${cwd}` : t("titlebar.switchProject")}
+					describe={false}
+					side="bottom"
 				>
-					<span className="truncate">{projectName}</span>
-				</Button>
-				<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)" />
+					<Button
+						className="omp-titlebar-project min-w-12 max-w-48 shrink-[4]! px-2 font-normal text-(--sc-text-muted) hover:text-(--sc-text)"
+						disabled={isStreaming}
+						onClick={() => setWorkspaceOpen(true)}
+						size="sm"
+						title={isStreaming ? t("titlebar.abortHint") : undefined}
+						variant="ghost"
+					>
+						<span className="truncate">{projectName}</span>
+					</Button>
+				</Tooltip>
+				<ChevronRight
+					aria-hidden
+					className="omp-titlebar-crumb-sep size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)"
+				/>
 				{editingName ? (
 					<div className="w-72 min-w-0">
 						<Input
@@ -294,26 +340,27 @@ export function TitleBar() {
 						/>
 					</div>
 				) : (
-					<Button
-						className="min-w-0 max-w-96 shrink! px-2 font-semibold text-(--sc-text)"
-						onClick={startRename}
-						size="sm"
-						title={t("titlebar.rename")}
-						variant="ghost"
-					>
-						<span className="truncate text-sc-md">{displayName}</span>
-					</Button>
+					<Tooltip content={`${displayName} · ${t("titlebar.rename")}`} describe={false} side="bottom">
+						<Button
+							className="min-w-0 max-w-96 shrink! px-2 font-semibold text-(--sc-text)"
+							data-titlebar-session-name=""
+							onClick={startRename}
+							size="sm"
+							variant="ghost"
+						>
+							<span className="truncate text-sc-md">{displayName}</span>
+						</Button>
+					</Tooltip>
 				)}
 			</nav>
 
 			<div
 				aria-live="polite"
-				className="omp-titlebar-status no-drag flex shrink-0 items-center gap-1.5 px-1.5 text-sc-sm text-(--sc-text-muted)"
+				className="omp-titlebar-status no-drag flex min-w-0 shrink-0 items-center px-1.5"
 				data-tone={tone}
 				role="status"
 			>
-				<StatusIcon tone={tone} />
-				<span className="omp-titlebar-status-label">{statusLabel}</span>
+				<StatusPill label={statusLabel} tone={tone} />
 			</div>
 
 			<div className="flex-1" />
@@ -323,14 +370,15 @@ export function TitleBar() {
 					aria-expanded={statusOpen}
 					aria-haspopup="dialog"
 					aria-label={t("sessionStatus.trigger", { cost: formatCost(cost, 2) })}
-					className="omp-session-status-trigger gap-1.5 px-2 text-(--sc-text-muted) tabular-nums"
+					className="omp-session-status-trigger gap-1.5 px-2 font-normal text-(--sc-text-muted) tabular-nums hover:text-(--sc-text)"
 					icon={<Info />}
 					onClick={() => setStatusOpen(open => !open)}
 					ref={statusAnchorRef}
 					size="sm"
 					variant="ghost"
 				>
-					<span className="omp-session-status-cost">{formatCost(cost, 2)}</span>
+					{/* A zero or unknown spend is noise in the bar; the popover still spells it out. */}
+					{cost ? <span className="omp-session-status-cost">{formatCost(cost, 2)}</span> : null}
 				</Button>
 				<MenuButton align="end" icon={<MoreHorizontal />} items={sessionMenuItems} label={t("titlebar.actions")} />
 				<IconButton

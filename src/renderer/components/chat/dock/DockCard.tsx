@@ -2,11 +2,12 @@
  * DockCard: shared chrome for the center-dock live cards (todo/plan/agents)
  * mounted between the transcript and the composer. Collapse state lives in
  * the ui store so it survives card unmounts (tab switches, content-driven
- * hide/show); todo and agents start collapsed, showing their `peek` line
- * (progress, current item) under the header. `focusDockCard(id)` deep links
- * expand the card and flash a ring — that is how command-palette entries
- * (todo edit, plan-review) land here now that the workspace drawer no longer
- * carries these surfaces.
+ * hide/show); todo and agents start collapsed to ONE header line: title, then
+ * the `peek` (progress, current item) in place of the count badge, so a
+ * collapsed card costs a single row above the composer. `focusDockCard(id)`
+ * deep links expand the card and flash a ring — that is how command-palette
+ * entries (todo edit, plan-review) land here now that the workspace drawer no
+ * longer carries these surfaces.
  */
 
 import { ArrowLeft, ChevronRight, type LucideIcon } from "lucide-react";
@@ -25,7 +26,7 @@ interface DockCardProps {
 	badge?: ReactNode;
 	/** Right-side header controls (view toggles, refresh buttons). */
 	actions?: ReactNode;
-	/** At-a-glance line under the header while collapsed (progress, current item). */
+	/** At-a-glance summary that replaces the badge while collapsed (progress, current item). */
 	peek?: ReactNode;
 	/** Body content; WorkspaceDock owns vertical scrolling for every card. */
 	children: ReactNode;
@@ -83,40 +84,39 @@ export function DockCard({ id, icon: Icon, title, badge, actions, peek, children
 			)}
 			data-dock-focused={focused || undefined}
 		>
-			<div className="sticky top-0 z-10 flex min-h-10 items-center gap-2 bg-(--sc-elevated) px-3 py-1.5">
+			<div className="sticky top-0 z-10 flex min-h-10 items-center gap-2 bg-(--sc-elevated) px-3 py-1">
 				<button
 					aria-describedby={showPeek ? peekId : undefined}
 					aria-expanded={expanded}
 					aria-label={expanded ? t("dock.collapse") : t("dock.expand")}
-					className="flex min-w-0 flex-1 flex-col gap-1 rounded-(--sc-radius-sm) text-left focus-visible:outline-2 focus-visible:outline-(--sc-accent)"
+					className="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-(--sc-radius-sm) text-left focus-visible:outline-2 focus-visible:outline-(--sc-accent)"
 					onClick={toggle}
 					type="button"
 				>
-					<span className="flex w-full min-w-0 items-center gap-2">
-						<Icon aria-hidden="true" className="shrink-0 text-(--sc-text-muted)" size={16} />
-						<span className="truncate text-sc-md font-medium text-(--sc-text)">{title}</span>
-						{badge && (
-							<span className="flex min-w-0 shrink-0 items-center text-sc-sm text-(--sc-text-muted)">
-								{badge}
-							</span>
-						)}
-						<span className="min-w-1 flex-1" />
-						<ChevronRight
-							aria-hidden="true"
-							className="omp-disclosure-chevron shrink-0 text-(--sc-text-subtle)"
-							size={14}
-							style={{ transform: expanded ? "rotate(90deg)" : undefined }}
-						/>
-					</span>
-					{showPeek && (
+					<Icon aria-hidden="true" className="shrink-0 text-(--sc-text-muted)" size={16} />
+					<span className="shrink-0 text-sc-md font-medium whitespace-nowrap text-(--sc-text)">{title}</span>
+					{showPeek ? (
 						<span
-							className="flex w-full min-w-0 items-center gap-2 text-sc-sm text-(--sc-text-muted)"
+							className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-sc-sm text-(--sc-text-muted)"
 							data-testid={`dock-peek-${id}`}
 							id={peekId}
 						>
 							{peek}
 						</span>
+					) : (
+						<>
+							{badge && (
+								<span className="flex min-w-0 items-center text-sc-sm text-(--sc-text-muted)">{badge}</span>
+							)}
+							<span className="min-w-1 flex-1" />
+						</>
 					)}
+					<ChevronRight
+						aria-hidden="true"
+						className="omp-disclosure-chevron shrink-0 text-(--sc-text-subtle)"
+						size={14}
+						style={{ transform: expanded ? "rotate(90deg)" : undefined }}
+					/>
 				</button>
 				{!hiddenForFocus && focused && (
 					<Button icon={<ArrowLeft />} onClick={clearFocus} size="sm" variant="ghost">

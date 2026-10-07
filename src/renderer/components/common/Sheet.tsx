@@ -102,7 +102,7 @@ export function Sheet({ open, onClose, size = "md", side = "right", ...surface }
 	return createPortal(
 		<div
 			className={cx(
-				"fixed inset-0 z-(--sc-z-dialog) flex bg-(--sc-overlay)",
+				"fixed inset-0 z-(--sc-z-dialog) flex bg-(--sc-overlay) backdrop-blur-[2px]",
 				side === "right" ? "justify-end" : "justify-start",
 				closing ? "omp-fade-out" : "omp-fade-in",
 			)}

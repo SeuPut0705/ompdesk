@@ -178,6 +178,36 @@ describe("TitleBar", () => {
 		expect(getSessionStats).toHaveBeenCalledTimes(2);
 	});
 
+	it("keeps a zero spend out of the bar but in the trigger's name", async () => {
+		getSessionStats.mockImplementation(async () => ({
+			type: "response" as const,
+			command: "get_session_stats" as const,
+			success: true as const,
+			data: {
+				sessionId: "session-1",
+				userMessages: 0,
+				assistantMessages: 0,
+				toolCalls: 0,
+				toolResults: 0,
+				totalMessages: 0,
+				tokens: { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				premiumRequests: 0,
+				cost: 0,
+			},
+		}));
+		useSessionStore.setState({ status: "ready", sessionId: "session-1", cwd: "/tmp/project" });
+		await mount();
+		await act(async () => Promise.resolve());
+
+		expect(container.textContent).not.toContain("$0.00");
+		const trigger = (container.querySelectorAll("button") as unknown as TestButton[]).find(button =>
+			(button as unknown as Element).getAttribute("aria-label")?.startsWith("Session status"),
+		);
+		expect((trigger as unknown as Element | undefined)?.getAttribute("aria-label")).toBe(
+			"Session status, cost $0.00",
+		);
+	});
+
 	it("claims the Escape that cancels a rename, so the same keystroke cannot abort the turn", async () => {
 		useSessionStore.setState({
 			status: "ready",
@@ -188,8 +218,8 @@ describe("TitleBar", () => {
 		await mount();
 		await act(async () => Promise.resolve());
 
-		const rename = (container.querySelectorAll("button") as unknown as TestButton[]).find(
-			b => b.title === "Rename session",
+		const rename = (container.querySelectorAll("button") as unknown as TestButton[]).find(b =>
+			(b as unknown as Element).hasAttribute("data-titlebar-session-name"),
 		);
 		expect(rename).toBeDefined();
 		// linkedom ships no HTMLInputElement.select(); the field autofocuses through it.

@@ -41,7 +41,7 @@ export function ToastCard({ variant, title, message, count = 1, onDismiss, class
 	return (
 		<div
 			className={cx(
-				"flex items-start gap-2.5 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) py-2.5 pr-2 pl-3 shadow-(--sc-shadow-lg)",
+				"flex items-start gap-2.5 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) py-3 pr-2 pl-3 shadow-(--sc-shadow-md)",
 				className,
 			)}
 			role={variant === "error" ? "alert" : "status"}
@@ -49,7 +49,7 @@ export function ToastCard({ variant, title, message, count = 1, onDismiss, class
 			<Icon aria-hidden className={cx("mt-0.5 shrink-0", style.icon)} size={16} />
 			<div className="min-w-0 flex-1 py-px">
 				{title && <div className="mb-0.5 text-sc-sm font-semibold text-(--sc-text)">{title}</div>}
-				<div className="text-sc-sm break-words text-(--sc-text-secondary)">{message}</div>
+				<div className="text-sc-sm break-words break-keep text-(--sc-text-secondary)">{message}</div>
 			</div>
 			{count > 1 && (
 				<span

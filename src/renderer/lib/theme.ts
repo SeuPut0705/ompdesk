@@ -1,5 +1,5 @@
 /**
- * Theme application for seucode.
+ * Theme application for ompdesk.
  *
  * Single source of truth for design tokens is the stylesheets
  * `theme-dark.css` (`:root`) and `theme-light.css` (`:root[data-theme="light"]`).

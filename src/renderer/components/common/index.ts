@@ -1,5 +1,5 @@
 /**
- * Common UI primitives barrel — the seucode design system. Usage rules live
+ * Common UI primitives barrel — the ompdesk design system. Usage rules live
  * in each file's header and in design-spec.md; every primitive renders in
  * the internal style guide (OMP_GUI_STYLEGUIDE=1).
  */

@@ -209,7 +209,9 @@ export function ContextUsagePopover() {
 				type="button"
 			>
 				<ContextRing percent={capacityKnown ? percent : null} />
-				<span>{capacityKnown ? `${Math.round(percent)}%` : formatContextUsage(view)}</span>
+				<span className="omp-context-usage-label">
+					{capacityKnown ? `${Math.round(percent)}%` : formatContextUsage(view)}
+				</span>
 			</button>
 
 			{mounted &&
@@ -364,7 +366,9 @@ function ContextRing({ percent }: { percent: number | null }) {
 					: "text-(--sc-text-secondary)";
 	return (
 		<svg aria-hidden className={cx("size-(--sc-icon-sm) shrink-0 -rotate-90", tone)} viewBox="0 0 14 14">
-			<circle cx="7" cy="7" fill="none" r={radius} stroke="var(--sc-border-subtle)" strokeWidth="2" />
+			{/* The track must read as a gauge, not a loading spinner: a solid ring
+			    under the fill, at full border contrast. */}
+			<circle cx="7" cy="7" fill="none" r={radius} stroke="var(--sc-border)" strokeWidth="2" />
 			<circle
 				cx="7"
 				cy="7"

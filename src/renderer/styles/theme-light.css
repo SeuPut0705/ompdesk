@@ -1,4 +1,4 @@
-/* seucode Light — default light palette. Keep in sync with THEMES.light (lib/themes.ts, label "Porcelain"):
+/* ompdesk Light — default light palette. Keep in sync with THEMES.light (lib/themes.ts, label "Porcelain"):
    applyThemeByName() writes that map inline when the theme is picked by name.
    Only palette primitives live here; scales, derived washes and the --omp-*
    compatibility aliases are theme-independent (tokens.css). Spec: design-spec.md. */
@@ -6,7 +6,7 @@
 :root[data-theme="light"] {
 	color-scheme: light;
 
-	/* ── seucode palette (--sc-*) ─────────────────────────────────────── */
+	/* ── ompdesk palette (--sc-*) ─────────────────────────────────────── */
 	/* Surfaces */
 	--sc-bg: #ffffff;
 	--sc-surface-1: #f7f7f8;

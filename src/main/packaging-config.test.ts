@@ -91,8 +91,8 @@ describe("mac bundle configs", () => {
 			for (const key of PRIVACY_KEYS) {
 				const value = info[key];
 				// Electron's own default reads "This app needs access to the camera":
-				// a prompt that names no product and claims a capability seucode never uses.
-				const namesApp = typeof value === "string" && /\bseucode\b/.test(value);
+				// a prompt that names no product and claims a capability ompdesk never uses.
+				const namesApp = typeof value === "string" && /\bompdesk\b/.test(value);
 				expect(namesApp, `${file} → ${key}`).toBe(true);
 			}
 		}
@@ -112,11 +112,11 @@ describe("mac bundle configs", () => {
 	});
 
 	it("restores ATS in the completed bundle after electron-builder enables arbitrary loads", async () => {
-		const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "seucode-bundle-policy-"));
-		const plistPath = path.join(directory, "seucode.app", "Contents", "Info.plist");
+		const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-bundle-policy-"));
+		const plistPath = path.join(directory, "ompdesk.app", "Contents", "Info.plist");
 		const loopback = { NSExceptionAllowsInsecureHTTPLoads: true };
 		const original: PlistObject = {
-			CFBundleIdentifier: "com.seuput.seucode",
+			CFBundleIdentifier: "com.seuput.ompdesk",
 			CFBundleURLTypes: [{ CFBundleURLSchemes: ["omp"] }],
 			NSAppTransportSecurity: {
 				NSAllowsArbitraryLoads: true,
@@ -153,11 +153,11 @@ describe("mac bundle configs", () => {
 });
 
 describe("product identity", () => {
-	it("every package config ships seucode under one bundle id", () => {
+	it("every package config ships ompdesk under one bundle id", () => {
 		for (const file of fs.readdirSync(PACKAGE_ROOT).filter(name => /^electron-builder.*\.yml$/.test(name))) {
 			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
-			expect(config.productName, file).toBe("seucode");
-			expect(config.appId, file).toBe("com.seuput.seucode");
+			expect(config.productName, file).toBe("ompdesk");
+			expect(config.appId, file).toBe("com.seuput.ompdesk");
 		}
 	});
 });

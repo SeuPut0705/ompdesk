@@ -1,5 +1,5 @@
 /**
- * Curated specialist agents seucode ships as templates: the Definitions
+ * Curated specialist agents ompdesk ships as templates: the Definitions
  * gallery opens one prefilled in the editor, and "Add all"
  * (`installAgentTemplates`, main process) writes every missing one.
  * Frontmatter text (description, instructions) is what the model reads, so

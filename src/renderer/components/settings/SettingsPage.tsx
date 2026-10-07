@@ -28,6 +28,7 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SettingEntry, SidecarStatus } from "../../../shared/rpc-types";
 import { useLang, useT } from "../../lib/i18n";
+import { PLATFORM } from "../../lib/keymap";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 import { Banner, Button, EmptyState, ListRow, SearchField } from "../common";
@@ -136,9 +137,20 @@ export function SettingsPage() {
 		setFocusRowId(rowId ?? null);
 	}, []);
 
-	// Keyboard-first: the page opens with the search field focused.
+	// The search waits for ⌘F (Ctrl+F) rather than grabbing focus on open: an
+	// autofocused field greeted every visit, mouse ones included, with a lit
+	// focus ring. `code`, not `key`: a Korean layout reports ⌘ㄹ.
 	useEffect(() => {
-		searchRef.current?.focus({ preventScroll: true });
+		const onKey = (event: KeyboardEvent) => {
+			if (event.code !== "KeyF" || event.altKey || event.shiftKey || event.isComposing) return;
+			const mod = PLATFORM === "mac" ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+			if (!mod || document.querySelector('[role="dialog"]')) return;
+			event.preventDefault();
+			searchRef.current?.focus();
+			searchRef.current?.select();
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
 	}, []);
 
 	// Each section starts at its top.
@@ -239,9 +251,12 @@ export function SettingsPage() {
 				>
 					<nav
 						aria-labelledby="settings-page-title"
-						className="settings-nav flex shrink-0 flex-col gap-3 overflow-y-auto border-r border-(--sc-divider) px-3 py-5"
+						className="settings-nav flex shrink-0 flex-col gap-3 overflow-y-auto border-r border-(--sc-divider) px-3 pt-6 pb-5"
 					>
-						<h1 className="px-2 text-sc-xl font-semibold text-(--sc-text)" id="settings-page-title">
+						<h1
+							className="px-2 text-sc-xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
+							id="settings-page-title"
+						>
 							{t("settings.title")}
 						</h1>
 						<SearchField
@@ -253,6 +268,7 @@ export function SettingsPage() {
 									: t("settings.searchPlaceholder")
 							}
 							ref={searchRef}
+							shortcut="⌘F"
 							spellCheck={false}
 							value={query}
 						/>
@@ -283,10 +299,13 @@ export function SettingsPage() {
 					<div className="settings-content min-h-0 min-w-0 flex-1 overflow-y-auto" ref={contentRef}>
 						<main aria-labelledby="settings-section-title" className="settings-column">
 							<header className="mb-6">
-								<h2 className="text-sc-2xl font-semibold text-(--sc-text)" id="settings-section-title">
+								<h2
+									className="text-sc-2xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
+									id="settings-section-title"
+								>
 									{results ? t("settings.search.title") : sectionTitle}
 								</h2>
-								<p className="mt-1 text-sc-sm text-(--sc-text-muted)">
+								<p className="mt-1 text-sc-sm break-keep text-(--sc-text-muted)">
 									{results
 										? t("settings.search.count", { count: results.length })
 										: t(`settings.section.${section}.desc`)}

@@ -157,12 +157,12 @@ export function ThinkingBlock({ text, live = false, startTime, endTime }: Thinki
 				aria-expanded={open}
 				aria-label={t(open ? "chat.thinking.hide" : "chat.thinking.show")}
 				onClick={() => setOpen(v => !v)}
-				className="omp-thinking-header flex min-h-7 w-full min-w-0 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-left text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary)"
+				className="omp-thinking-header flex min-h-7 w-fit max-w-full min-w-0 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-left text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary) aria-expanded:text-(--sc-text-secondary)"
 			>
 				<ChevronRight
 					aria-hidden
 					className={cx(
-						"omp-thinking-chevron omp-disclosure-chevron size-(--sc-icon-sm) shrink-0",
+						"omp-thinking-chevron omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
 						open && "rotate-90",
 					)}
 				/>

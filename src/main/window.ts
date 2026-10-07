@@ -1,5 +1,5 @@
 /**
- * Multi-window management for seucode.
+ * Multi-window management for ompdesk.
  * Creates sandboxed BrowserWindows with persisted state via electron-store.
  */
 

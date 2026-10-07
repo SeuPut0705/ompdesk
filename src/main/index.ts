@@ -1,5 +1,5 @@
 /**
- * Main process entry point for seucode.
+ * Main process entry point for ompdesk.
  * App lifecycle: ready → window, sidecar, session index, IPC, tray, menu, deep links, updater.
  */
 
@@ -19,6 +19,7 @@ import { applyGpuFallbackIfNeeded, handleGpuProcessGone } from "./gpu-fallback";
 import { ompFailureText } from "./i18n";
 import { firstUsableCwd } from "./initial-cwd";
 import { registerIpcHandlers } from "./ipc";
+import { migrateLegacyUserData } from "./legacy-user-data";
 import { LogWatcher } from "./log-watcher";
 import { createMenu } from "./menu";
 import { ompPackageRoot, ompPathEnv, systemOmp } from "./omp-runtime";
@@ -36,12 +37,32 @@ import { setupUpdater } from "./updater";
 import { WindowManager } from "./window";
 import { resolveWindowSpawnTarget } from "./window-spawn-target";
 
+// App identity: the dev run shows "Electron" in the dock otherwise; packaged
+// builds get the name from the bundle via electron-builder. The name also picks
+// the userData directory (~/Library/Application Support/ompdesk), so it is set
+// before anything resolves that path.
+app.setName("ompdesk");
+
 // Honor Electron's explicit profile before acquiring its instance lock.
 const userDataDirectory = app.commandLine.getSwitchValue("user-data-dir");
 if (userDataDirectory) {
 	const directory = resolve(userDataDirectory);
 	mkdirSync(directory, { recursive: true });
 	app.setPath("userData", directory);
+} else {
+	// The pre-rename profile (a sibling of userData) moves in before the GPU
+	// marker, the instance lock, prefs or window state read userData.
+	try {
+		const migration = migrateLegacyUserData(app.getPath("userData"));
+		if (migration !== "skipped") {
+			writeRuntimeLog({ source: "user-data-migration", message: `Legacy profile ${migration} into userData` });
+		}
+	} catch (error) {
+		writeRuntimeLog({
+			source: "user-data-migration",
+			message: `Legacy profile migration failed: ${error instanceof Error ? error.message : String(error)}`,
+		});
+	}
 }
 
 // Software-rendering escape hatch (must precede whenReady): a crashed GPU
@@ -83,10 +104,7 @@ if (process.env.OMP_GUI_HEADLESS === "1") {
  */
 const devResourcesDir = join(__dirname, "..", "..", "resources");
 
-// App identity: the dev run shows "Electron" + the default atom icon in the
-// dock otherwise. Packaged builds get both from the bundle via electron-builder.
-// The name also picks the userData directory (~/Library/Application Support/seucode).
-app.setName("seucode");
+// Packaged builds get the dock icon from the bundle; the dev run shows the default atom icon otherwise.
 {
 	const dockIcon = join(devResourcesDir, "icon.png");
 	if (process.platform === "darwin" && existsSync(dockIcon)) {
@@ -113,7 +131,7 @@ function prefsStore(): Store<MainPrefs> {
 
 function resolveExplicitStartupCwd(): string | undefined {
 	// `electron <main.js> <dir>` (dev, e2e) carries the script path; a packaged
-	// app (`seucode.app/…/seucode <dir>`) does not. Flags (`--user-data-dir=…`) are skipped.
+	// app (`ompdesk.app/…/ompdesk <dir>`) does not. Flags (`--user-data-dir=…`) are skipped.
 	const explicitCwd = process.argv.slice(process.defaultApp ? 2 : 1).find(arg => !arg.startsWith("-"));
 	return explicitCwd && existsSync(explicitCwd) ? explicitCwd : undefined;
 }

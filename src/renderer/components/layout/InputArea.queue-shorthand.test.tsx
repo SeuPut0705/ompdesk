@@ -593,10 +593,15 @@ describe("InputArea next-prompt suggestion", () => {
 		await act(async () => useSessionStore.setState({ isStreaming: false }));
 		await showSuggestion();
 		expect(findTextarea().getAttribute("placeholder")).toBe("ompdesk로 가자");
+		// A Tab chip announces the accept key; the field is described by it.
+		const hintId = findTextarea().getAttribute("aria-describedby");
+		expect(hintId).toBeTruthy();
+		expect(document.getElementById(hintId ?? "")?.textContent).toBe("Tabto accept");
 
 		expect((await pressKey({ key: "Tab" })).defaultPrevented).toBe(true);
 		expect(useComposerStore.getState().draft).toBe("ompdesk로 가자");
 		expect(useExtensionUiStore.getState().widgetPanels["next-prompt"]).toBeUndefined();
+		expect(findTextarea().getAttribute("aria-describedby")).toBeNull();
 	});
 
 	it("leaves Tab alone once the user has typed", async () => {
@@ -614,6 +619,15 @@ describe("InputArea next-prompt suggestion", () => {
 		await mount();
 		await showSuggestion();
 		expect(findTextarea().getAttribute("placeholder")).not.toBe("ompdesk로 가자");
+	});
+
+	it("puts Stop in the send slot while a turn streams with nothing typed", async () => {
+		await mount();
+		expect(document.querySelector('button[aria-label="Send"]')).toBeNull();
+		expect(document.querySelector('button[aria-label="Stop"]')).not.toBeNull();
+		await typeInto(findTextarea(), "steer this");
+		expect(document.querySelector('button[aria-label="Send"]')).not.toBeNull();
+		expect(document.querySelector('button[aria-label="Stop"]')).not.toBeNull();
 	});
 });
 

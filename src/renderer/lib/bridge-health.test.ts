@@ -13,7 +13,7 @@ describe("bridgeHealthToast", () => {
 		expect(input.title).toBe(translate("bridgeHealth.unsupportedTitle"));
 		// Unknown ids (a newer bridge than these locales) fall back to the raw id.
 		expect(input.message).toBe(
-			"omp 19.0.0 is missing internals seucode needs for: Plan mode, MCP servers, futureFeature. Run `omp update` or update seucode. If it persists, report an issue.",
+			"omp 19.0.0 is missing internals ompdesk needs for: Plan mode, MCP servers, futureFeature. Run `omp update` or update ompdesk. If it persists, report an issue.",
 		);
 	});
 
@@ -22,7 +22,7 @@ describe("bridgeHealthToast", () => {
 			{ kind: "unavailable", ompVersion: "19.0.0", reason: "GUI bridge did not accept a connection within 3000ms" },
 			translate,
 		);
-		expect(input.title).toBe("seucode features unavailable");
+		expect(input.title).toBe("ompdesk features unavailable");
 		expect(input.message).toContain("(omp 19.0.0): GUI bridge did not accept a connection within 3000ms.");
 		expect(input.message).toContain("omp update");
 	});

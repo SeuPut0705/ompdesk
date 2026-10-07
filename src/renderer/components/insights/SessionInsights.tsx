@@ -10,7 +10,8 @@
 import { MessageSquare, RefreshCw } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { SessionStats } from "../../../shared/rpc-types";
-import { basename, formatCost, formatTokens } from "../../lib/format";
+import { formatUsd } from "../../lib/chart";
+import { basename, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
@@ -161,7 +162,12 @@ export function SessionInsights() {
 				<h2 className="min-w-0 truncate text-sc-xl font-semibold text-(--sc-text)">
 					{sessionName || t("insights.session.untitled")}
 				</h2>
-				<span className="shrink-0 font-mono text-sc-xs text-(--sc-text-muted)">#{stats.sessionId.slice(0, 8)}</span>
+				<span
+					className="shrink-0 rounded-(--sc-radius-xs) bg-(--sc-surface-3) px-1.5 py-0.5 font-mono text-sc-2xs text-(--sc-text-muted)"
+					title={stats.sessionId}
+				>
+					#{stats.sessionId.slice(0, 8)}
+				</span>
 				<IconButton
 					className="ml-auto"
 					disabled={loading}
@@ -186,7 +192,7 @@ export function SessionInsights() {
 						})}
 						value={formatTokens(totalTokens)}
 					/>
-					<MetricCard label={t("usage.cost")} value={formatCost(history?.cost ?? stats.cost)} />
+					<MetricCard label={t("usage.cost")} value={formatUsd(history?.cost ?? stats.cost)} />
 					<MetricCard
 						label={t("sessionInfo.section.messages")}
 						sub={t("insights.session.turns", { user: stats.userMessages, assistant: stats.assistantMessages })}
@@ -233,7 +239,7 @@ export function SessionInsights() {
 						<FactList
 							facts={[
 								{ label: t("sessionInfo.premiumRequests"), value: String(stats.premiumRequests) },
-								{ label: t("sessionInfo.cost"), value: formatCost(stats.cost) },
+								{ label: t("sessionInfo.cost"), value: formatUsd(stats.cost) },
 								{ label: t("sessionInfo.toolResults"), value: String(stats.toolResults) },
 								...(stats.credits
 									? [

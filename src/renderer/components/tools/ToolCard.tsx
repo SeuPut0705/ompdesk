@@ -34,9 +34,10 @@ export interface ToolCardProps {
 
 export type RunningIndicator = "spinner" | "dot";
 
-/** Row chrome shared by every work step (tool rows, grouped reads) so they read as one list. */
+/** Row chrome shared by every work step (tool rows, grouped reads) so they read as one list.
+ * The hover wash hugs the row's content instead of spanning the whole column. */
 export const TOOL_ROW_CLASS =
-	"omp-tool-header flex min-h-7 w-full min-w-0 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-left text-sc-sm transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover)";
+	"omp-tool-header flex min-h-7 w-fit max-w-full min-w-0 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-left text-sc-sm transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover)";
 
 /** The one status/kind icon slot of a step row: live, failed, stopped, or the kind icon when done. */
 export function ToolStatusIcon({
@@ -78,7 +79,7 @@ export function ToolPathTarget({ path, moreFiles, suffix }: { path: string; more
 	const folder = dirname(path);
 	const more = moreFiles ? ` +${moreFiles}` : "";
 	return (
-		<span className="omp-tool-summary min-w-0 flex-1 truncate font-mono" title={`${path}${suffix ?? ""}${more}`}>
+		<span className="omp-tool-summary min-w-0 truncate font-mono" title={`${path}${suffix ?? ""}${more}`}>
 			<span className="text-(--sc-text)">
 				{basename(path)}
 				{suffix}
@@ -90,7 +91,7 @@ export function ToolPathTarget({ path, moreFiles, suffix }: { path: string; more
 }
 
 /** `+N −M` on a collapsed file-changing row; numbers carry the meaning, color only reinforces it. */
-function DiffStatChip({ stats }: { stats: DiffStats }) {
+export function DiffStatChip({ stats }: { stats: DiffStats }) {
 	const t = useT();
 	return (
 		<span className="omp-tool-diffstat flex shrink-0 items-center gap-1 font-mono text-sc-xs tabular-nums">
@@ -168,18 +169,16 @@ export function ToolCard({ toolCallId, toolName, args, runningIndicator = "spinn
 					<ToolPathTarget moreFiles={header.moreFiles} path={header.path} />
 				) : header.target ? (
 					<span
-						className="omp-tool-summary min-w-0 flex-1 truncate font-mono text-(--sc-text-muted)"
+						className="omp-tool-summary min-w-0 truncate font-mono text-(--sc-text-muted)"
 						title={header.target}
 					>
 						{header.target}
 					</span>
 				) : streamingSummary ? (
-					<span className="omp-tool-summary min-w-0 flex-1 truncate font-mono text-(--sc-text-subtle)">
+					<span className="omp-tool-summary min-w-0 truncate font-mono text-(--sc-text-subtle)">
 						{streamingSummary}…
 					</span>
-				) : (
-					<span className="flex-1" />
-				)}
+				) : null}
 				{diffStats && (diffStats.added > 0 || diffStats.removed > 0) ? <DiffStatChip stats={diffStats} /> : null}
 				{failed ? (
 					<span className="omp-tool-state shrink-0 text-sc-xs font-medium text-(--sc-danger)">

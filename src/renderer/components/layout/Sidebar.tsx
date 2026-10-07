@@ -8,6 +8,7 @@ import {
 	Columns2,
 	ExternalLink,
 	Folder,
+	FolderOpen,
 	GitBranchPlus,
 	Info,
 	Keyboard,
@@ -23,6 +24,7 @@ import {
 	RefreshCw,
 	Rows2,
 	Search,
+	SearchX,
 	Settings,
 	Sparkles,
 	SquarePen,
@@ -66,6 +68,7 @@ import {
 	BrandMark,
 	Button,
 	type ContextMenuItem,
+	EmptyState,
 	IconButton,
 	Input,
 	Kbd,
@@ -79,14 +82,23 @@ import { ConfirmDialog } from "../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 
+/**
+ * A sidebar row: an indexed session, or one synthesized from an open tab the
+ * global index has not listed yet (a brand-new or still-empty session). The
+ * sidebar is the only session navigator, so every open tab keeps a row.
+ * Live-only rows (`liveTabId` set) have no transcript file yet: nothing to
+ * rename, pin, or delete.
+ */
+type SidebarSession = SessionInfo & { liveTabId?: string };
+
 interface WorkspaceGroup {
 	cwd: string;
 	name: string;
-	sessions: SessionInfo[];
+	sessions: SidebarSession[];
 }
 
 /** A delete the row or context menu queued, awaiting the confirmation dialog. */
-type PendingDelete = { kind: "session"; session: SessionInfo } | { kind: "group"; group: WorkspaceGroup };
+type PendingDelete = { kind: "session"; session: SidebarSession } | { kind: "group"; group: WorkspaceGroup };
 
 type SidebarMode = "code" | "work";
 
@@ -182,7 +194,7 @@ function useHelpItems(): ContextMenuItem[] {
 	];
 }
 
-/** Footer: Agents · Insights · Settings and the help menu, always visible. */
+/** Footer: Agents · Stats · Settings, with the help menu closing the Settings row. */
 function SidebarFooter() {
 	const t = useT();
 	const destination = useUiStore(s => s.destination);
@@ -203,17 +215,17 @@ function SidebarFooter() {
 	return (
 		<nav
 			aria-label={t("sidebar.destinations")}
-			className="flex shrink-0 flex-col gap-0.5 border-t border-(--sc-divider) p-2"
+			className="flex shrink-0 flex-col gap-px border-t border-(--sc-divider) p-2"
 			data-sidebar-destinations
 		>
 			{DESTINATIONS.map(({ id, labelKey, icon: Icon }) => {
 				const current = destination === id;
 				const shortcut = shortcutFor(id);
-				return (
+				const row = (
 					<Button
 						aria-current={current ? "page" : undefined}
 						className={cx(
-							"w-full justify-start gap-2.5 px-2.5",
+							"omp-sidebar-destination w-full min-w-0 justify-start gap-2.5 px-2.5",
 							current ? "bg-(--sc-selected) text-(--sc-text)" : "text-(--sc-text-secondary)",
 						)}
 						data-destination={id}
@@ -223,20 +235,33 @@ function SidebarFooter() {
 						variant="ghost"
 					>
 						<span className="min-w-0 flex-1 truncate text-left">{t(labelKey)}</span>
-						{shortcut && <Kbd shortcut={shortcut} />}
+						{shortcut && <Kbd className="omp-sidebar-kbd" shortcut={shortcut} />}
 					</Button>
 				);
+				if (id !== "settings") return row;
+				// Help closes the last row: one footer, no orphaned icon underneath.
+				return (
+					<div className="flex min-w-0 items-center gap-1" key={id}>
+						<div className="flex min-w-0 flex-1">{row}</div>
+						<MenuButton
+							align="end"
+							className="text-(--sc-text-secondary)"
+							icon={<CircleHelp />}
+							items={helpItems}
+							label={t("help.menu")}
+							variant="ghost"
+						/>
+					</div>
+				);
 			})}
-			<div className="flex items-center">
-				<MenuButton align="start" icon={<CircleHelp />} items={helpItems} label={t("help.menu")} variant="ghost" />
-			</div>
 		</nav>
 	);
 }
 
 /**
- * Sessions-first sidebar (design-spec §2.1): project switcher, New session,
- * a filter, sessions grouped by project (newest first, status as text/icon),
+ * Sessions-first sidebar (design-spec §2.1) and the app's only session
+ * navigator: Code/Work lanes, New session, a filter, sessions grouped by
+ * project (newest first, status as icon + text; every open tab keeps a row),
  * and a footer with the three destinations plus help.
  */
 export function Sidebar() {
@@ -290,7 +315,7 @@ export function Sidebar() {
 	const [workspaceDialog, setWorkspaceDialog] = useState<"switch" | "new-session" | null>(null);
 	const [renameDraft, setRenameDraft] = useState("");
 	const [groupMenu, setGroupMenu] = useState<{ anchor: ContextMenuAnchor; group: WorkspaceGroup } | null>(null);
-	const [sessionMenu, setSessionMenu] = useState<{ anchor: ContextMenuAnchor; session: SessionInfo } | null>(null);
+	const [sessionMenu, setSessionMenu] = useState<{ anchor: ContextMenuAnchor; session: SidebarSession } | null>(null);
 	// Project display alias rename (group header inline input).
 	const [renamingGroupCwd, setRenamingGroupCwd] = useState<string | null>(null);
 	const [groupRenameDraft, setGroupRenameDraft] = useState("");
@@ -310,6 +335,8 @@ export function Sidebar() {
 	const touchSession = useSidebarPrefs(s => s.touchSession);
 	const { sessions, isLoading, error: listError, refresh, deleteSession, renameSession } = useSessionList("global");
 	const sessionId = useSessionStore(s => s.sessionId);
+	const sessionName = useSessionStore(s => s.sessionName);
+	const sessionFile = useSessionStore(s => s.sessionFile);
 	const cwd = useSessionStore(s => s.cwd);
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const isCompacting = useSessionStore(s => s.isCompacting);
@@ -357,7 +384,41 @@ export function Sidebar() {
 		},
 		[pinnedSessions, recencyForSession],
 	);
-	const agentSessions = useMemo(() => sessions.filter(session => session.kind !== "chat"), [sessions]);
+	// Every open tab keeps a row even before the index lists its session (a
+	// brand-new session has no file yet): synthesize it from the tab and, for
+	// the focused tab, the attached session's live identity.
+	const liveSessions = useMemo<SidebarSession[]>(() => {
+		const listedIds = new Set(sessions.map(session => session.id));
+		const listedPaths = new Set(sessions.map(session => session.path));
+		const now = new Date().toISOString();
+		const rows: SidebarSession[] = [];
+		for (const tab of tabs) {
+			const focused = tab.id === activeTabId;
+			const id = (focused ? sessionId : "") || tab.sessionId || "";
+			const path = (focused ? sessionFile : null) ?? tab.sessionPath ?? "";
+			if ((id && listedIds.has(id)) || (path && listedPaths.has(path))) continue;
+			rows.push({
+				path: path || `tab:${tab.id}`,
+				id: id || `tab:${tab.id}`,
+				title: tab.title ?? (focused ? sessionName : null),
+				cwd: tab.cwd || (focused ? cwd : ""),
+				created: now,
+				modified: now,
+				messageCount: 0,
+				size: 0,
+				status: "unknown",
+				...(tab.kind === "chat" ? { kind: "chat" as const } : {}),
+				firstMessage: "",
+				liveTabId: tab.id,
+			});
+		}
+		return rows;
+	}, [sessions, tabs, activeTabId, sessionId, sessionFile, sessionName, cwd]);
+	const allSessions = useMemo<SidebarSession[]>(
+		() => (liveSessions.length === 0 ? sessions : [...sessions, ...liveSessions]),
+		[sessions, liveSessions],
+	);
+	const agentSessions = useMemo(() => allSessions.filter(session => session.kind !== "chat"), [allSessions]);
 	const codeSessions = useMemo(
 		() => agentSessions.filter(session => !defaultWorkspace || session.cwd !== defaultWorkspace),
 		[agentSessions, defaultWorkspace],
@@ -372,17 +433,17 @@ export function Sidebar() {
 	);
 	const chatSessions = useMemo(
 		() =>
-			sessions
+			allSessions
 				.filter(session => session.kind === "chat")
 				.filter(matchesFilter)
 				.toSorted(byPinThenRecency),
-		[sessions, matchesFilter, byPinThenRecency],
+		[allSessions, matchesFilter, byPinThenRecency],
 	);
 
 	// Code sessions stay grouped by project. Pins remain a priority partition,
 	// with MRU inside it.
 	const allGroups = useMemo<WorkspaceGroup[]>(() => {
-		const byCwd = new Map<string, SessionInfo[]>();
+		const byCwd = new Map<string, SidebarSession[]>();
 		for (const session of codeSessions) {
 			const list = byCwd.get(session.cwd) ?? [];
 			list.push(session);
@@ -420,38 +481,46 @@ export function Sidebar() {
 	const totalCount = mode === "work" ? workSessions.length : groups.length + chatSessions.length;
 	const visibleGroups = mode === "code" ? groups : [];
 	const chatsCollapsed = !query && (collapsed.__chats__ ?? false);
+	// Projects with an open tab start expanded so every open session is in view.
+	const openTabCwds = useMemo(() => new Set(tabs.filter(tab => tab.kind !== "chat").map(tab => tab.cwd)), [tabs]);
 
 	const isCollapsed = (groupCwd: string) => {
 		// A filter shows every match.
 		if (query) return false;
 		if (groupCwd in collapsed) return collapsed[groupCwd];
-		// Default: current project expanded, others collapsed.
-		return groupCwd !== cwd;
+		// Default: the current project and projects with open tabs expanded, others collapsed.
+		return groupCwd !== cwd && !openTabCwds.has(groupCwd);
 	};
 	const toggleGroup = (groupCwd: string) => {
 		setCollapsed(prev => ({ ...prev, [groupCwd]: !isCollapsed(groupCwd) }));
 	};
-	const tabForSession = (session: SessionInfo) =>
-		tabs.find(tab => tab.sessionId === session.id) ?? (session.id === sessionId ? activeTab : undefined);
-	const sessionTabSignal = (session: SessionInfo) => {
+	const isCurrentSession = (session: SidebarSession) =>
+		session.id === sessionId || (session.liveTabId !== undefined && session.liveTabId === activeTabId);
+	const tabForSession = (session: SidebarSession) =>
+		(session.liveTabId ? tabs.find(tab => tab.id === session.liveTabId) : undefined) ??
+		tabs.find(tab => tab.sessionId === session.id) ??
+		(isCurrentSession(session) ? activeTab : undefined);
+	const sessionTabSignal = (session: SidebarSession) => {
 		const tab = tabForSession(session);
-		return tab ? tabSignalPresentation(tab, session.id === sessionId && (isStreaming || isCompacting)) : null;
+		return tab ? tabSignalPresentation(tab, isCurrentSession(session) && (isStreaming || isCompacting)) : null;
 	};
-	const isSessionBusy = (session: SessionInfo) => {
-		if (session.id === sessionId && awaitingConfirmation) return true;
+	const isSessionBusy = (session: SidebarSession) => {
+		if (isCurrentSession(session) && awaitingConfirmation) return true;
 		const signal = sessionTabSignal(session);
 		if (signal) return signal.active;
-		if (session.id === sessionId && (isStreaming || isCompacting)) return true;
+		if (isCurrentSession(session) && (isStreaming || isCompacting)) return true;
 		return session.status === "pending";
 	};
 
-	const openSession = (session: SessionInfo) => {
+	const openSession = (session: SidebarSession) => {
 		useUiStore.getState().closeDestination();
-		if (session.id === sessionId) return;
+		if (isCurrentSession(session)) return;
 		// Already open in a tab: go there. An untouched empty tab is replaced
 		// instead of left behind; anything else keeps its tab and the session
 		// opens next to it.
-		const owner = tabs.find(tab => tab.sessionId === session.id || tab.sessionPath === session.path);
+		const owner = tabs.find(
+			tab => tab.id === session.liveTabId || tab.sessionId === session.id || tab.sessionPath === session.path,
+		);
 		if (owner) {
 			void useTabsStore.getState().switchTab(owner.id);
 			return;
@@ -556,7 +625,8 @@ export function Sidebar() {
 		setDeleting(true);
 		try {
 			// Delete every session file in this project, then dismiss the group.
-			for (const session of group.sessions) {
+			// Live-only rows have no file to delete.
+			for (const session of group.sessions.filter(entry => entry.liveTabId === undefined)) {
 				// eslint-disable-next-line no-await-in-loop -- sequential, keep FS load bounded
 				if (session.id === sessionId) await dropSessionNow();
 				else await deleteSession(session.path);
@@ -582,7 +652,7 @@ export function Sidebar() {
 
 	// Roving focus: items render with tabIndex -1; the effect below makes the
 	// remembered (else current, else first) item the list's single tab stop.
-	const activeSessionKey = sessionId ? sessions.find(session => session.id === sessionId)?.path : undefined;
+	const activeSessionKey = allSessions.find(isCurrentSession)?.path;
 	const onListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
 		if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
 		const items = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-roving-item]") ?? [])];
@@ -609,10 +679,12 @@ export function Sidebar() {
 		for (const item of items) item.tabIndex = item === preferred ? 0 : -1;
 	});
 
-	const renderSessionRow = (session: SessionInfo, nested = false) => {
+	const renderSessionRow = (session: SidebarSession, nested = false) => {
 		const key = `session:${session.path}`;
-		const active = session.id === sessionId && destination === "session";
-		const isCurrent = session.id === sessionId;
+		const isCurrent = isCurrentSession(session);
+		const active = isCurrent && destination === "session";
+		const indexed = session.liveTabId === undefined;
+		const tab = tabForSession(session);
 		const tabSignal = sessionTabSignal(session);
 		const waiting = isCurrent && awaitingConfirmation;
 		const running = !waiting && (tabSignal?.running === true || (tabSignal === null && isSessionBusy(session)));
@@ -620,6 +692,8 @@ export function Sidebar() {
 			!waiting &&
 			!running &&
 			(tabSignal ? tabSignal.labelKey === "titlebar.status.error" : session.status === "error");
+		const done = !waiting && !running && !failed && tabSignal?.labelKey === "tabs.done";
+		const openElsewhere = tab !== undefined && !isCurrent;
 		const busy = waiting || running || tabSignal?.active === true;
 		const statusLabel = waiting
 			? t("sidebar.row.needsApproval")
@@ -627,13 +701,18 @@ export function Sidebar() {
 				? t("sidebar.signal.running")
 				: failed
 					? t("sidebar.row.failed")
-					: null;
-		const title = sessionDisplayTitle(session, t("sidebar.untitled"));
+					: done
+						? t("tabs.done")
+						: openElsewhere
+							? t("sidebar.row.open")
+							: null;
+		const title = sessionDisplayTitle(session, indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
 		const pinned = pinnedSessions.includes(session.path);
+		const editable = indexed && !busy;
 		const tabIndex = -1;
 		if (renamingSessionPath === session.path) {
 			return (
-				<div className={cx("py-0.5 pr-1", nested ? "pl-6" : "pl-1")} key={session.path}>
+				<div className={cx("py-0.5 pr-1", nested ? "pl-5.5" : "pl-1")} key={session.path}>
 					<Input
 						aria-label={t("sidebar.rename")}
 						autoFocus
@@ -659,22 +738,26 @@ export function Sidebar() {
 			</span>
 		) : failed ? (
 			<XCircle aria-hidden className="text-(--sc-danger)" />
-		) : session.kind === "chat" ? (
+		) : session.kind === "chat" && !done ? (
 			<MessageCircle aria-hidden data-sidebar-session-icon />
-		) : pinned ? (
+		) : pinned && !done ? (
 			<Pin aria-label={t("sidebar.pinned")} />
 		) : (
 			<span aria-hidden className="flex size-(--sc-icon-md) items-center justify-center" data-sidebar-session-icon>
-				{tabForSession(session) && !isCurrent && (
-					<span className="size-1.5 rounded-(--sc-radius-full) bg-(--sc-text-subtle)" data-sidebar-open-tab />
+				{done ? (
+					<span className="size-2 rounded-(--sc-radius-full) bg-(--sc-success)" data-sidebar-done />
+				) : (
+					openElsewhere && (
+						<span className="size-1.5 rounded-(--sc-radius-full) bg-(--sc-text-subtle)" data-sidebar-open-tab />
+					)
 				)}
 			</span>
 		);
-		const openTabId = tabForSession(session)?.id;
+		const openTabId = tab?.id;
 		return (
 			<ListRow
 				actions={
-					busy ? undefined : (
+					editable ? (
 						<>
 							<IconButton
 								icon={<Pencil />}
@@ -691,7 +774,7 @@ export function Sidebar() {
 								tabIndex={-1}
 							/>
 						</>
-					)
+					) : undefined
 				}
 				buttonProps={{
 					tabIndex,
@@ -701,24 +784,26 @@ export function Sidebar() {
 						if (opensMenu(event)) {
 							event.preventDefault();
 							setSessionMenu({ anchor: anchorBelow(event.currentTarget), session });
-						} else if (event.key === "F2" && !busy) {
+						} else if (event.key === "F2" && editable) {
 							event.preventDefault();
 							startRename(session);
-						} else if (event.key === "Delete" && !busy) {
+						} else if (event.key === "Delete" && editable) {
 							event.preventDefault();
 							setPendingDelete({ kind: "session", session });
 						}
 					},
 				}}
-				className={cx("omp-sidebar-session-row", nested && "pl-6")}
+				className={cx("omp-sidebar-session-row", nested && "pl-5.5")}
 				key={session.path}
 				leading={leading}
 				meta={
 					waiting ? (
 						<Badge variant="warning">{t("sidebar.row.needsApproval")}</Badge>
-					) : (
-						<time dateTime={session.modified}>{formatTimeAgo(session.modified)}</time>
-					)
+					) : indexed ? (
+						<time className="text-(--sc-text-subtle)" dateTime={session.modified}>
+							{formatTimeAgo(session.modified)}
+						</time>
+					) : undefined
 				}
 				onClick={() => openSession(session)}
 				rowProps={{
@@ -731,6 +816,8 @@ export function Sidebar() {
 					onDragEnd: () => window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: null } })),
 					onContextMenu: event => setSessionMenu({ anchor: anchorFromEvent(event), session }),
 					"data-active": active,
+					"data-current": isCurrent || undefined,
+					"data-live": indexed ? undefined : true,
 					"data-switch-pending": switchPendingTo === session.id || undefined,
 					"data-session-kind": session.kind ?? "agent",
 					"data-session-path": session.path,
@@ -753,10 +840,13 @@ export function Sidebar() {
 		const isCurrentProject = group.cwd === cwd && activeTabKind !== "chat";
 		const tabIndex = -1;
 		const pinned = pinnedGroups.includes(group.cwd);
+		// A collapsed project still says when something inside it is working.
+		const groupBusy = groupCollapsed && group.sessions.some(isSessionBusy);
+		const FolderIcon = groupCollapsed ? Folder : FolderOpen;
 		return (
-			<div className="mt-1 first:mt-0" key={group.cwd}>
+			<div className="mt-2 first:mt-0" key={group.cwd}>
 				<div
-					className="group/head relative flex h-8 items-center gap-1 rounded-(--sc-radius-md) pr-1 hover:bg-(--sc-hover)"
+					className="group/head relative flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
 					data-workspace-group={group.cwd}
 					onContextMenu={event => setGroupMenu({ anchor: anchorFromEvent(event), group })}
 				>
@@ -787,7 +877,9 @@ export function Sidebar() {
 						<button
 							aria-expanded={!groupCollapsed}
 							className={cx(
-								"flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pl-2 text-left text-sc-sm font-medium outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)",
+								"flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-2 pl-2 text-left text-sc-sm font-medium outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)",
+								// Hover actions overlay the right edge; make room only while they show.
+								"group-focus-within/head:pr-16 group-hover/head:pr-16",
 								isCurrentProject ? "text-(--sc-text)" : "text-(--sc-text-muted)",
 							)}
 							data-roving-item={key}
@@ -814,16 +906,25 @@ export function Sidebar() {
 							) : (
 								<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 							)}
-							<Folder aria-hidden className="size-(--sc-icon-sm) shrink-0" data-sidebar-workspace-icon />
+							<FolderIcon aria-hidden className="size-(--sc-icon-sm) shrink-0" data-sidebar-workspace-icon />
 							<span className="min-w-0 flex-1 truncate">{group.name}</span>
 							{pinned && <Pin aria-label={t("sidebar.pinned")} className="size-3 shrink-0" />}
-							<span className="shrink-0 text-sc-xs font-normal tabular-nums text-(--sc-text-subtle) group-focus-within/head:hidden group-hover/head:hidden">
-								{group.sessions.length}
+							<span className="flex shrink-0 items-center text-sc-xs font-normal tabular-nums text-(--sc-text-subtle) group-focus-within/head:hidden group-hover/head:hidden">
+								{groupBusy ? (
+									<>
+										<span aria-hidden className="inline-flex">
+											<Spinner size="sm" />
+										</span>
+										<span className="sr-only">, {t("sidebar.signal.running")}</span>
+									</>
+								) : (
+									group.sessions.length
+								)}
 							</span>
 						</button>
 					)}
 					{renamingGroupCwd !== group.cwd && (
-						<span className="flex shrink-0 items-center opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:opacity-100 group-hover/head:opacity-100">
+						<span className="pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100">
 							<IconButton
 								icon={<Plus />}
 								label={t("sidebar.menu.newAgentHere")}
@@ -863,13 +964,16 @@ export function Sidebar() {
 				className="omp-session-sidebar relative flex h-full min-h-0 shrink-0 flex-col border-r border-(--sc-border-subtle) bg-(--sc-surface-1)"
 				style={{ width: sidebarWidth }}
 			>
-				<div className="omp-sidebar-header drag-region flex h-12 shrink-0 items-center gap-1 pr-2 pl-3">
-					<span className="flex min-w-0 flex-1 items-center gap-2 text-sc-md font-semibold text-(--sc-text)">
+				{/* Traffic-light safe (global.css): on macOS the brand yields its
+				    slot to the window controls and the collapse toggle follows
+				    them; elsewhere the brand leads and the toggle closes the row. */}
+				<div className="omp-sidebar-header drag-region flex h-12 shrink-0 items-center gap-1 pr-2">
+					<span className="omp-sidebar-brand flex min-w-0 flex-1 items-center gap-2 pl-1.5 text-sc-md font-semibold text-(--sc-text)">
 						<BrandMark size={18} />
-						<span className="truncate">seucode</span>
+						<span className="truncate">ompdesk</span>
 					</span>
 					<IconButton
-						className="no-drag"
+						className="omp-sidebar-search no-drag"
 						data-command-center-entry
 						icon={<Search />}
 						label={t("help.palette")}
@@ -878,7 +982,7 @@ export function Sidebar() {
 						size="sm"
 					/>
 					<IconButton
-						className="no-drag"
+						className="omp-sidebar-collapse no-drag"
 						icon={<PanelLeftClose />}
 						label={t("sidebar.collapse")}
 						onClick={() => useUiStore.getState().toggleSidebar()}
@@ -887,7 +991,7 @@ export function Sidebar() {
 					/>
 				</div>
 
-				<div className="flex shrink-0 flex-col gap-2 px-2 pt-2 pb-2">
+				<div className="flex shrink-0 flex-col gap-2 px-2 pt-1 pb-2">
 					<Tabs
 						activeId={mode}
 						ariaLabel={t("sidebar.mode.aria")}
@@ -936,37 +1040,103 @@ export function Sidebar() {
 					ref={listRef}
 					role="group"
 				>
-					{listError && sessions.length > 0 && (
-						<p className="mx-2 mb-1 break-words text-sc-xs text-(--sc-danger)" role="alert">
-							{t("sidebar.stale")}: {listError}
-						</p>
-					)}
-					{isLoading && sessions.length === 0 && (
-						<div className="flex justify-center px-3 py-6">
-							<Spinner label={t("sidebar.loading")} />
+					{listError &&
+						(allSessions.length > 0 ? (
+							<div
+								className="mx-1 mb-2 flex flex-col items-start gap-1.5 rounded-(--sc-radius-md) bg-(--sc-danger-soft) px-2.5 py-2 text-sc-xs"
+								role="alert"
+							>
+								<p className="flex items-center gap-1.5 font-medium text-(--sc-text)">
+									<AlertTriangle aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-danger)" />
+									{sessions.length > 0 ? t("sidebar.stale") : t("sidebar.loadFailed")}
+								</p>
+								<p className="break-words text-(--sc-text-muted)">{listError}</p>
+								<Button icon={<RefreshCw />} onClick={() => refresh(true)} size="sm" variant="ghost">
+									{t("common.retry")}
+								</Button>
+							</div>
+						) : (
+							<EmptyState
+								actions={
+									<Button icon={<RefreshCw />} onClick={() => refresh(true)} size="sm" variant="secondary">
+										{t("common.retry")}
+									</Button>
+								}
+								className="omp-sidebar-empty"
+								description={<span className="break-words">{listError}</span>}
+								icon={<AlertTriangle />}
+								size="sm"
+								title={t("sidebar.loadFailed")}
+							/>
+						))}
+					{isLoading && !listError && allSessions.length === 0 && (
+						<div aria-label={t("sidebar.loading")} className="space-y-px" role="status">
+							{[72, 54, 64, 46].map(width => (
+								<div aria-hidden className="flex h-8 items-center gap-2.5 px-2.5" key={width}>
+									<span className="size-3.5 shrink-0 rounded-(--sc-radius-xs) bg-(--sc-surface-3) motion-safe:animate-pulse" />
+									<span
+										className="h-2.5 rounded-(--sc-radius-full) bg-(--sc-surface-3) motion-safe:animate-pulse"
+										style={{ width: `${width}%` }}
+									/>
+								</div>
+							))}
 						</div>
 					)}
-					{listError && sessions.length === 0 && (
-						<div className="mx-1 mt-2 flex flex-col items-center gap-2 px-4 py-6 text-center">
-							<div className="text-sc-md font-medium text-(--sc-danger)">{t("sidebar.loadFailed")}</div>
-							<div className="break-words text-sc-xs text-(--sc-text-muted)">{listError}</div>
-							<Button icon={<RefreshCw />} onClick={() => refresh(true)} size="sm" variant="secondary">
-								{t("common.retry")}
-							</Button>
-						</div>
-					)}
-					{!isLoading && !listError && totalCount === 0 && (
-						<p className="px-3 py-6 text-center text-sc-sm text-(--sc-text-muted)">
-							{query ? t("sidebar.noMatch") : mode === "code" ? t("sidebar.emptyCode") : t("sidebar.emptyWork")}
-						</p>
-					)}
+					{!isLoading &&
+						!listError &&
+						totalCount === 0 &&
+						(query ? (
+							<EmptyState
+								actions={
+									<Button onClick={() => setFilter("")} size="sm" variant="ghost">
+										{t("sidebar.clearFilter")}
+									</Button>
+								}
+								className="omp-sidebar-empty"
+								description={t("sidebar.noMatchHint")}
+								icon={<SearchX />}
+								size="sm"
+								title={t("sidebar.noMatch")}
+							/>
+						) : mode === "code" ? (
+							<EmptyState
+								actions={
+									<Button
+										icon={<FolderOpen />}
+										onClick={() => setWorkspaceDialog("new-session")}
+										size="sm"
+										variant="secondary"
+									>
+										{t("sidebar.project.open")}
+									</Button>
+								}
+								className="omp-sidebar-empty"
+								description={t("sidebar.emptyCodeHint")}
+								icon={<SquareTerminal />}
+								size="sm"
+								title={t("sidebar.emptyCode")}
+							/>
+						) : (
+							<EmptyState
+								actions={
+									<Button icon={<SquarePen />} onClick={startNew} size="sm" variant="secondary">
+										{t("sidebar.newSession")}
+									</Button>
+								}
+								className="omp-sidebar-empty"
+								description={t("sidebar.emptyWorkHint")}
+								icon={<SquarePen />}
+								size="sm"
+								title={t("sidebar.emptyWork")}
+							/>
+						))}
 					{mode === "work" && workSessions.length > 0 && (
 						<div className="space-y-px" data-work-section>
 							{workSessions.map(session => renderSessionRow(session))}
 						</div>
 					)}
 					{mode === "code" && chatSessions.length > 0 && (
-						<div className="mb-1" data-chat-section>
+						<div data-chat-section>
 							<button
 								aria-expanded={!chatsCollapsed}
 								className="flex h-8 w-full min-w-0 items-center gap-1.5 rounded-(--sc-radius-md) pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) outline-none hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
@@ -1069,8 +1239,10 @@ export function Sidebar() {
 									label: t("common.delete"),
 									icon: Trash2,
 									danger: true,
-									disabled: groupHasBusySession,
-									disabledReason: t("sidebar.deleteGroupStreaming"),
+									disabled:
+										groupHasBusySession ||
+										groupMenu.group.sessions.every(session => session.liveTabId !== undefined),
+									disabledReason: groupHasBusySession ? t("sidebar.deleteGroupStreaming") : t("sidebar.empty"),
 									onSelect: () => {
 										setPendingDelete({ kind: "group", group: groupMenu.group });
 										setGroupMenu(null);
@@ -1149,70 +1321,79 @@ export function Sidebar() {
 										openSession(sessionMenu.session);
 									},
 								},
-								{
-									id: "session-open-tab",
-									label: t("sidebar.menu.openNewTab"),
-									icon: Plus,
-									onSelect: () => {
-										setSessionMenu(null);
-										useUiStore.getState().closeDestination();
-										void openTab({
-											cwd: sessionMenu.session.cwd,
-											kind: sessionMenu.session.kind ?? "agent",
-											sessionPath: sessionMenu.session.path,
-										});
-									},
-								},
-								{
-									id: "session-open-window",
-									label: t("sidebar.openInNewWindow"),
-									icon: ExternalLink,
-									onSelect: () => {
-										setSessionMenu(null);
-										void openSessionInNewWindow(sessionMenu.session);
-									},
-								},
+								// File actions need a transcript on disk; live-only rows have none yet.
+								...(sessionMenu.session.liveTabId === undefined
+									? [
+											{
+												id: "session-open-tab",
+												label: t("sidebar.menu.openNewTab"),
+												icon: Plus,
+												onSelect: () => {
+													setSessionMenu(null);
+													useUiStore.getState().closeDestination();
+													void openTab({
+														cwd: sessionMenu.session.cwd,
+														kind: sessionMenu.session.kind ?? "agent",
+														sessionPath: sessionMenu.session.path,
+													});
+												},
+											},
+											{
+												id: "session-open-window",
+												label: t("sidebar.openInNewWindow"),
+												icon: ExternalLink,
+												onSelect: () => {
+													setSessionMenu(null);
+													void openSessionInNewWindow(sessionMenu.session);
+												},
+											},
+										]
+									: []),
 								...tabItems,
-								{
-									id: "session-rename",
-									label: t("sidebar.rename"),
-									icon: Pencil,
-									disabled: targetBusy,
-									disabledReason: t("sidebar.menu.taskRunning"),
-									onSelect: () => {
-										setSessionMenu(null);
-										startRename(sessionMenu.session);
-									},
-								},
-								{
-									id: "session-pin",
-									label: pinnedSessions.includes(sessionMenu.session.path)
-										? t("sidebar.menu.unpin")
-										: t("sidebar.menu.pin"),
-									icon: pinnedSessions.includes(sessionMenu.session.path) ? PinOff : Pin,
-									onSelect: () => {
-										const pinned = !pinnedSessions.includes(sessionMenu.session.path);
-										useSidebarPrefs.getState().toggleSessionPin(sessionMenu.session.path);
-										setSessionMenu(null);
-										void tabRpc.setSessionPinned(sessionMenu.session.id, pinned).then(response => {
-											if (!response.success) {
-												toast({ variant: "warning", message: t("sidebar.pinSyncFailed") });
-											}
-										});
-									},
-								},
-								{
-									id: "session-delete",
-									label: t("common.delete"),
-									icon: Trash2,
-									danger: true,
-									disabled: targetBusy,
-									disabledReason: t("sidebar.menu.taskRunning"),
-									onSelect: () => {
-										setPendingDelete({ kind: "session", session: sessionMenu.session });
-										setSessionMenu(null);
-									},
-								},
+								...(sessionMenu.session.liveTabId === undefined
+									? [
+											{
+												id: "session-rename",
+												label: t("sidebar.rename"),
+												icon: Pencil,
+												disabled: targetBusy,
+												disabledReason: t("sidebar.menu.taskRunning"),
+												onSelect: () => {
+													setSessionMenu(null);
+													startRename(sessionMenu.session);
+												},
+											},
+											{
+												id: "session-pin",
+												label: pinnedSessions.includes(sessionMenu.session.path)
+													? t("sidebar.menu.unpin")
+													: t("sidebar.menu.pin"),
+												icon: pinnedSessions.includes(sessionMenu.session.path) ? PinOff : Pin,
+												onSelect: () => {
+													const pinned = !pinnedSessions.includes(sessionMenu.session.path);
+													useSidebarPrefs.getState().toggleSessionPin(sessionMenu.session.path);
+													setSessionMenu(null);
+													void tabRpc.setSessionPinned(sessionMenu.session.id, pinned).then(response => {
+														if (!response.success) {
+															toast({ variant: "warning", message: t("sidebar.pinSyncFailed") });
+														}
+													});
+												},
+											},
+											{
+												id: "session-delete",
+												label: t("common.delete"),
+												icon: Trash2,
+												danger: true,
+												disabled: targetBusy,
+												disabledReason: t("sidebar.menu.taskRunning"),
+												onSelect: () => {
+													setPendingDelete({ kind: "session", session: sessionMenu.session });
+													setSessionMenu(null);
+												},
+											},
+										]
+									: []),
 							]}
 						/>
 					);
@@ -1225,7 +1406,7 @@ export function Sidebar() {
 					pendingDelete?.kind === "group"
 						? t("sidebar.deleteGroupMessage", {
 								name: pendingDelete.group.name,
-								count: pendingDelete.group.sessions.length,
+								count: pendingDelete.group.sessions.filter(session => session.liveTabId === undefined).length,
 							})
 						: pendingDelete?.kind === "session"
 							? t("sidebar.deleteMessage", {

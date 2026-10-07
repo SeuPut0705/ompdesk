@@ -5,8 +5,8 @@
  * remove, move, clear, dequeue restore) and lands here via setFromFrame from
  * the onBatch handler. get_queue survives only as the hydrate fallback
  * (mount, sidecar reconnect) since no snapshot predates the subscription.
- * Shared by the QueueDockChip manager modal and the pending bubbles at the
- * message-stream tail.
+ * Shared by the composer's queue tray (ComposerQueue) and the side panel's
+ * queue tab (QueuePanel).
  */
 import { useEffect } from "react";
 import { createStore } from "zustand/vanilla";

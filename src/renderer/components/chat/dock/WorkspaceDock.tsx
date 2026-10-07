@@ -1,23 +1,22 @@
 /**
  * Workspace dock: the live execution-state region mounted between the
  * transcript and the composer, replacing the workspace drawer's
- * todo/plan/agents/queue tabs with always-current center cards. Large
- * todo/agent collections render a compact summary and temporarily focus one
- * card for full-list inspection. Each card self-gates its visibility (no
- * todos, no subagents, plan mode off, empty
- * queue → nothing rendered), so the region collapses to zero height on an
- * idle session. The surrounding conversation owns vertical scrolling; a
- * focused card expands naturally instead of adding a nested scrollbar. Chat
- * tabs are tool-free — none of these surfaces can exist there. Every card
- * sits behind its own error boundary: a card crash must never take down the
- * composer.
+ * todo/plan/agents tabs with always-current center cards. Large todo/agent
+ * collections render a compact summary and temporarily focus one card for
+ * full-list inspection. Each card self-gates its visibility (no todos, no
+ * subagents, plan mode off → nothing rendered), so the region collapses to
+ * zero height on an idle session. Queued messages are not a dock card: they
+ * live in the composer's own queue tray (ComposerQueue), which every tab kind
+ * mounts. The stack scrolls within a capped height so the composer is never
+ * pushed off-screen. Chat tabs are tool-free — none of these surfaces can
+ * exist there. Every card sits behind its own error boundary: a card crash
+ * must never take down the composer.
  */
 
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { useQueuedMessages } from "../../../stores/queue";
 import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useActiveTabKind } from "../../../stores/tabs";
@@ -26,7 +25,6 @@ import { PanelErrorBoundary } from "../../common";
 import { AgentsDockCard } from "./AgentsDockCard";
 import { GoalDockBar } from "./GoalDockBar";
 import { PlanDockCard } from "./PlanDockCard";
-import { QueueDockChip } from "./QueueDockChip";
 import { TodoDockCard } from "./TodoDockCard";
 import { useWorkspaceDockFocus, WorkspaceDockFocusProvider } from "./WorkspaceDockFocus";
 
@@ -41,9 +39,7 @@ function WorkspaceDockContent() {
 	const goalVisible = useSessionStore(state => state.goal !== null);
 	const todoVisible = useTodoStore(state => state.phases.length > 0 || state.reminderVisible);
 	const agentsVisible = useSubagentsStore(state => state.subagents.size > 0);
-	const queued = useQueuedMessages();
-	const cardsVisible =
-		planModeEnabled || todoVisible || agentsVisible || queued.steering.length > 0 || queued.followUp.length > 0;
+	const cardsVisible = planModeEnabled || todoVisible || agentsVisible;
 
 	// Focused-card height: user-resizable via the drag handle above the stack,
 	// persisted across launches. null = fall back to the viewport-derived cap.
@@ -102,7 +98,7 @@ function WorkspaceDockContent() {
 	if (!cardsVisible && !goalVisible) return null;
 
 	return (
-		<div className="flex flex-col gap-1.5 pb-1.5" data-focused-card={focusedCard ?? undefined}>
+		<div className="flex flex-col gap-2 pb-2" data-focused-card={focusedCard ?? undefined}>
 			{cardsVisible && (
 				<>
 					{focusedCard && (
@@ -122,7 +118,9 @@ function WorkspaceDockContent() {
 					)}
 					<div
 						className={cx(
-							"flex flex-col gap-1.5 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]",
+							// No stable scrollbar gutter: it would inset the cards from
+							// the composer's edges. Overlay scrollbars need none.
+							"flex flex-col gap-2 overflow-y-auto overscroll-contain",
 							// Summary state stays compact. A FOCUSED card renders the full
 							// list; its cap is an INLINE style — arbitrary-value classes
 							// cannot express `calc(100dvh - 240px)` (the bare dash makes
@@ -142,9 +140,6 @@ function WorkspaceDockContent() {
 						</PanelErrorBoundary>
 						<PanelErrorBoundary>
 							<AgentsDockCard />
-						</PanelErrorBoundary>
-						<PanelErrorBoundary>
-							<QueueDockChip />
 						</PanelErrorBoundary>
 					</div>
 				</>

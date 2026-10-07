@@ -14,7 +14,7 @@
  *   public `before_agent_start` extension hook, every prompt, from the pool the
  *   hooked session's own branch records. Subagent sessions have no pool entry,
  *   so they never receive it and do not re-distribute.
- * - The pool is a custom journal entry (`seucode.model-pool`; not LLM context),
+ * - The pool is a custom journal entry (`ompdesk.model-pool`; not LLM context),
  *   so it survives tab switches and restarts, follows branch navigation, and is
  *   restored on resume without any GUI-side bookkeeping.
  */

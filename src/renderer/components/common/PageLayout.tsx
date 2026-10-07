@@ -4,8 +4,10 @@
  * page actions), optional Tabs row, then the body. Gutters follow the spec
  * (24px, 40px from 1280px window width).
  *
- * - `body="scroll"` (default): the body scrolls inside the page and centers
- *   its content at a readable max width.
+ * - `body="scroll"` (default): the body scrolls inside the page; its content
+ *   keeps a readable max width and starts on the same gutter as the title
+ *   and tabs, so the page reads down one left edge. (Centering it left the
+ *   content a few pixels off the title at every width.)
  * - `body="fill"`: the body is a full-height flex column for split views
  *   (list + detail) that manage their own scrolling.
  * The shell renders the back affordance; pages don't add one.
@@ -46,7 +48,9 @@ export function PageLayout({
 				<div className="flex flex-wrap items-end gap-x-6 gap-y-3">
 					<div className="min-w-0 flex-1">
 						<h1 className="text-sc-2xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">{title}</h1>
-						{description && <p className="mt-1 text-sc-sm text-(--sc-text-muted)">{description}</p>}
+						{description && (
+							<p className="mt-1 max-w-3xl text-sc-sm break-keep text-(--sc-text-muted)">{description}</p>
+						)}
 					</div>
 					{actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
 				</div>
@@ -57,11 +61,7 @@ export function PageLayout({
 				className={cx("min-h-0 flex-1", body === "scroll" ? "overflow-y-auto" : "flex flex-col")}
 				role={panelLabel ? "tabpanel" : undefined}
 			>
-				{body === "scroll" ? (
-					<div className={cx("mx-auto w-full max-w-6xl py-6", GUTTER)}>{children}</div>
-				) : (
-					children
-				)}
+				{body === "scroll" ? <div className={cx("w-full max-w-6xl py-6", GUTTER)}>{children}</div> : children}
 			</div>
 		</div>
 	);

@@ -3,7 +3,7 @@
  * Every stats route imports this module for its side effects before rendering
  * react-chartjs-2 charts.
  *
- * Colors come from the seucode tokens (`--sc-*`), read when a chart renders,
+ * Colors come from the ompdesk tokens (`--sc-*`), read when a chart renders,
  * so light/dark and the named themes all apply. Canvas charts don't follow CSS
  * changes on their own: `useChartThemeKey()` changes whenever the root theme
  * changes (data-theme, inline token map, font size), and chart views key on it

@@ -45,7 +45,7 @@ describe("tier order", () => {
 	it("matches the command name and aliases, and ignores a leading slash", () => {
 		const list: SearchableCommand[] = [
 			{ name: "model-roles", label: "Model roles" },
-			{ name: "quit", label: "Quit seucode", aliases: ["exit"] },
+			{ name: "quit", label: "Quit ompdesk", aliases: ["exit"] },
 		];
 		expect(names("/exit", list)).toEqual(["quit"]);
 		expect(matchCommand("/quit", list[1])?.tier).toBe(MatchTier.exact);

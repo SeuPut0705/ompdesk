@@ -21,7 +21,7 @@ let root: string;
 let dirs: AgentDirs;
 
 beforeEach(async () => {
-	root = await mkdtemp(path.join(tmpdir(), "seucode-agent-files-"));
+	root = await mkdtemp(path.join(tmpdir(), "ompdesk-agent-files-"));
 	dirs = {
 		user: path.join(root, "home", ".omp", "agent", "agents"),
 		project: path.join(root, "repo", ".omp", "agents"),

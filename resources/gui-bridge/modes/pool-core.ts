@@ -11,7 +11,7 @@
  */
 
 /** `customType` of the journal entry recording the session's pool; the latest one on the branch wins. */
-export const POOL_ENTRY_TYPE = "seucode.model-pool";
+export const POOL_ENTRY_TYPE = "ompdesk.model-pool";
 
 /** Preset role ids; any other non-empty string is a free-form hint. Keep in sync with src/shared/model-pool.ts. */
 export const POOL_ROLE_HINTS: Readonly<Record<string, string>> = {

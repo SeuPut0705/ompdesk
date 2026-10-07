@@ -80,7 +80,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"update.channel": {
 		label: "omp 更新通道",
-		description: "`omp update` 与 omp 启动时的更新检查使用的通道。seucode 更新在“更新”页面管理。",
+		description: "`omp update` 与 omp 启动时的更新检查使用的通道。ompdesk 更新在“更新”页面管理。",
 	},
 	"edit.autoRepair.enabled": {
 		label: "自动修复解析错误",
@@ -99,11 +99,11 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 		description: "扩展 tool_call 处理器的有效工作超时；等待 omp 对话框期间不计时，无效值回退为 30000 毫秒。",
 	},
 	// ── appearance ──────────────────────────────────────────────────────────
-	"theme.dark": { label: "深色主题", description: "终端界面与 seucode 使用深色外观时的主题配色" },
-	"theme.light": { label: "浅色主题", description: "终端界面与 seucode 使用浅色外观时的主题配色" },
+	"theme.dark": { label: "深色主题", description: "终端界面与 ompdesk 使用深色外观时的主题配色" },
+	"theme.light": { label: "浅色主题", description: "终端界面与 ompdesk 使用浅色外观时的主题配色" },
 	symbolPreset: { label: "符号预设", description: "图标与符号的字形集（Unicode、Nerd Font 或 ASCII）" },
 	colorBlindMode: { label: "色盲模式", description: "差异新增行使用蓝色而非绿色" },
-	"statusLine.preset": { label: "状态预设", description: "终端界面状态栏与 seucode 底部状态栏共用的布局预设" },
+	"statusLine.preset": { label: "状态预设", description: "终端界面状态栏与 ompdesk 底部状态栏共用的布局预设" },
 	"statusLine.separator": { label: "状态栏分隔符", description: "各分段之间分隔符的样式" },
 	"statusLine.sessionAccent": { label: "会话强调色", description: "将会话名称的颜色用于编辑器边框和状态栏间隙" },
 	"statusLine.transparent": {
@@ -121,7 +121,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"images.blockImages": { label: "屏蔽图片", description: "阻止图片发送给 LLM 提供商" },
 	"terminal.showProgress": {
 		label: "原生运行进度",
-		description: "显示原生运行进度：终端使用 OSC 9;4，seucode 使用 Dock 徽标与窗口进度条",
+		description: "显示原生运行进度：终端使用 OSC 9;4，ompdesk 使用 Dock 徽标与窗口进度条",
 	},
 	"tui.textSizing": {
 		label: "大标题（Kitty）",
@@ -130,7 +130,7 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"tui.renderMermaid": {
 		label: "渲染 Mermaid 图表",
-		description: "允许代理使用 Mermaid 图表：终端界面渲染为 ASCII，seucode 渲染为图形",
+		description: "允许代理使用 Mermaid 图表：终端界面渲染为 ASCII，ompdesk 渲染为图形",
 	},
 	"tui.reactions": {
 		label: "代理表情回应",
@@ -142,14 +142,14 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"tui.titleState": {
 		label: "标题运行状态",
-		description: "在终端标题或 seucode 窗口标题中显示代理的工作、等待和轮到用户状态",
+		description: "在终端标题或 ompdesk 窗口标题中显示代理的工作、等待和轮到用户状态",
 	},
 	"tui.hyperlinks": {
 		label: "终端超链接",
 		description:
 			"将路径和 URL 包裹为 OSC 8 超链接，以便终端原生点击打开（auto：检测支持；off：从不；always：无条件）",
 	},
-	"tui.tight": { label: "紧凑界面密度", description: "压缩终端界面输出与 seucode 界面间距" },
+	"tui.tight": { label: "紧凑界面密度", description: "压缩终端界面输出与 ompdesk 界面间距" },
 	"tui.scrollbackRebuild": {
 		label: "重写滚动历史",
 		description:

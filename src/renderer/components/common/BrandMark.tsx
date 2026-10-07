@@ -1,5 +1,5 @@
 /**
- * The seucode mark, the interlaced knot — the only in-app rendering of the logo
+ * The ompdesk mark, the interlaced knot — the only in-app rendering of the logo
  * (geometry in src/shared/brand-mark.ts, the same paths as the app icon and tray).
  * Sizes ≤ BRAND_MARK.smallMaxPx draw the simplified knot (heavier strands, no
  * ring); larger sizes draw the full emblem.

@@ -133,10 +133,10 @@ export function TodoDockCard() {
 					<>
 						<span
 							aria-hidden="true"
-							className="relative h-1 w-12 shrink-0 overflow-hidden rounded-(--sc-radius-full) bg-(--sc-border-subtle)"
+							className="relative h-1.5 w-16 shrink-0 overflow-hidden rounded-(--sc-radius-full) bg-(--sc-border)"
 						>
 							<span
-								className="absolute inset-y-0 left-0 rounded-(--sc-radius-full) bg-(--sc-accent)"
+								className="absolute inset-y-0 left-0 rounded-(--sc-radius-full) bg-(--sc-accent) transition-[width] duration-(--sc-duration-med)"
 								style={{ width: `${(peek.done / peek.total) * 100}%` }}
 							/>
 						</span>

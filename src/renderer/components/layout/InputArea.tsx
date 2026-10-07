@@ -14,7 +14,7 @@ import {
 	X,
 } from "lucide-react";
 import type { ClipboardEvent, DragEvent, KeyboardEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { AvailableCommand, ImageContent } from "../../../shared/rpc-types";
 import { withGuiCommands } from "../../lib/command-registry";
 import { useDisplayPreference } from "../../lib/display-preferences";
@@ -56,9 +56,10 @@ import { useSettingsStore } from "../../stores/settings";
 import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Banner, Button, IconButton, MenuButton, Spinner, Tooltip } from "../common";
+import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Spinner, Tooltip } from "../common";
 import { AskDockSlot } from "../dialogs/ask-dock";
 import { ComposerModes } from "./ComposerModes";
+import { ComposerQueue } from "./ComposerQueue";
 import { ContextUsagePopover } from "./ContextUsagePopover";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-utils";
@@ -752,10 +753,17 @@ export function InputArea() {
 			: nextPrompt !== undefined
 				? nextPrompt
 				: isStreaming
-					? t("input.placeholder.streaming")
+					? mode === "followUp"
+						? t("input.placeholder.followUp")
+						: t("input.placeholder.streaming")
 					: isChat
 						? t("input.placeholder.chat")
 						: t("input.placeholder.idle");
+	/** Tab-accept hint chip: only while the suggestion is the visible placeholder. */
+	const showSuggestionHint = nextPrompt !== undefined && text === "";
+	const suggestionHintId = useId();
+	/** Streaming with nothing to send: Stop takes the send slot instead of a dead Send. */
+	const showSend = !isStreaming || text.trim() !== "" || images.length > 0;
 
 	return (
 		<div
@@ -804,6 +812,7 @@ export function InputArea() {
 						</div>
 					</div>
 				)}
+				<ComposerQueue />
 
 				{/* Anchoring context for completion/history overlays: they sit directly
 				    above the input box instead of the surrounding composer region. */}
@@ -869,7 +878,9 @@ export function InputArea() {
 					<div
 						className={cx(
 							"omp-composer-box flex flex-col rounded-(--sc-radius-xl) border bg-(--sc-field) shadow-(--sc-shadow-sm) transition-[border-color,box-shadow] duration-(--sc-duration-fast)",
-							"border-(--sc-border-subtle) focus-within:border-(--sc-accent-border) focus-within:ring-3 focus-within:ring-(--sc-focus-glow)",
+							// The field ring follows the TEXT field, not any focused descendant:
+							// a focused toolbar control draws its own ring, never a ring in a ring.
+							"border-(--sc-border-subtle) has-[textarea:focus]:border-(--sc-accent-border) has-[textarea:focus]:ring-3 has-[textarea:focus]:ring-(--sc-focus-glow)",
 							dragActive && "border-(--sc-accent) ring-3 ring-(--sc-focus-glow)",
 						)}
 						data-composer-mode={composerMode?.mode}
@@ -938,9 +949,10 @@ export function InputArea() {
 								))}
 							</div>
 						)}
-						<div className={cx("px-4 pt-3 pb-1", expanded && "flex min-h-0 flex-1 flex-col")}>
+						<div className={cx("relative px-4 pt-3 pb-1", expanded && "flex min-h-0 flex-1 flex-col")}>
 							<textarea
 								ref={textareaRef}
+								aria-describedby={showSuggestionHint ? suggestionHintId : undefined}
 								aria-label={t("input.ariaLabel")}
 								autoCapitalize="sentences"
 								autoCorrect="on"
@@ -991,11 +1003,21 @@ export function InputArea() {
 								rows={expanded ? undefined : 2}
 								placeholder={placeholder}
 								className={cx(
-									"w-full resize-none bg-transparent text-sc-lg text-(--sc-text) outline-none placeholder:text-(--sc-text-subtle) focus-visible:outline-none",
+									"w-full resize-none bg-transparent text-sc-lg break-keep text-(--sc-text) outline-none placeholder:text-(--sc-text-subtle) focus-visible:outline-none",
 									expanded ? "min-h-0 flex-1" : "max-h-[40vh] min-h-6",
 									composerMode && "font-mono",
+									showSuggestionHint && "pr-24",
 								)}
 							/>
+							{showSuggestionHint && (
+								<span
+									className="pointer-events-none absolute top-3 right-4 flex h-6 items-center gap-1.5 text-sc-xs text-(--sc-text-subtle)"
+									id={suggestionHintId}
+								>
+									<Kbd shortcut="Tab" />
+									{t("input.suggestion.accept")}
+								</span>
+							)}
 						</div>
 
 						{argHint && (
@@ -1089,7 +1111,9 @@ export function InputArea() {
 										data-model-chip
 										onClick={() => openModelPicker()}
 										size="sm"
-										trailingIcon={<ChevronDown aria-hidden className="text-(--sc-text-subtle)" />}
+										trailingIcon={
+											<ChevronDown aria-hidden className="omp-composer-chevron text-(--sc-text-subtle)" />
+										}
 										variant="ghost"
 									>
 										<span className="omp-composer-model-label truncate">{modelLabel}</span>
@@ -1120,7 +1144,9 @@ export function InputArea() {
 											size="sm"
 											variant="ghost"
 										>
-											<span className="omp-composer-control-label">{modeLabel}</span>
+											<span className="omp-composer-control-label omp-composer-label-early">
+												{modeLabel}
+											</span>
 										</Button>
 									</Tooltip>
 								)}
@@ -1132,21 +1158,22 @@ export function InputArea() {
 										onClick={() => void abortActiveTurn(rpc, runtimeTabId)}
 										shortcut="Esc"
 										size="sm"
-										variant="secondary"
+										variant={showSend ? "secondary" : "primary"}
 									/>
 								)}
-								<IconButton
-									className="rounded-(--sc-radius-full)"
-									disabled={sendDisabled}
-									icon={<ArrowUp strokeWidth={2.4} />}
-									label={t("input.send")}
-									onClick={() => {
-										if (expanded) setExpanded(false);
-										send();
-									}}
-									size="sm"
-									variant="primary"
-								/>
+								{showSend && (
+									<IconButton
+										disabled={sendDisabled}
+										icon={<ArrowUp strokeWidth={2.4} />}
+										label={t("input.send")}
+										onClick={() => {
+											if (expanded) setExpanded(false);
+											send();
+										}}
+										size="sm"
+										variant="primary"
+									/>
+								)}
 							</div>
 						</div>
 					</div>

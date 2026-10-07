@@ -276,10 +276,10 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(menuItemLabels().map(label => label.replace(/⌘.*$/, ""))).toEqual([
 			"Keyboard shortcuts",
 			"Command palette",
-			"What seucode adds",
+			"What ompdesk adds",
 			"Send feedback",
 			"What's new",
-			"About seucode",
+			"About ompdesk",
 		]);
 		const shortcuts = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
 			(button.textContent ?? "").includes("Keyboard shortcuts"),
@@ -455,11 +455,88 @@ describe("Sidebar menus and pinned ordering", () => {
 		await mount(<Sidebar />);
 
 		const rows = [...document.querySelectorAll(".omp-sidebar-session-row")];
-		expect(rows.length).toBeGreaterThan(0);
+		const indexedRows = rows.filter(row => row.getAttribute("data-live") === null);
+		expect(indexedRows.length).toBeGreaterThan(0);
 		// Completed sessions carry a relative time, no colored bar and no status noise.
 		expect(rows.every(row => row.querySelector(".omp-signal-light") === null)).toBe(true);
-		expect(rows.every(row => row.querySelector("time") !== null)).toBe(true);
+		expect(indexedRows.every(row => row.querySelector("time") !== null)).toBe(true);
 		expect(rows.every(row => !(row.textContent ?? "").includes("Running"))).toBe(true);
+	});
+
+	it("keeps the current session and every open tab's session listed before the index has them", async () => {
+		installMockOmp(LIST);
+		useSessionStore.setState({
+			sessionId: "fresh-id",
+			sessionName: "Audit session",
+			cwd: "/work/gamma",
+			isStreaming: false,
+		});
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/gamma", status: "ready", kind: "agent", unreadDone: false },
+				{
+					id: "t1",
+					cwd: "/work/beta",
+					status: "running",
+					kind: "agent",
+					sessionId: "bg-id",
+					sessionPath: "/work/beta/bg.jsonl",
+					title: "Background run",
+					unreadDone: false,
+				},
+				{ id: "t2", cwd: "/work/delta", status: "ready", kind: "agent", title: "Finished run", unreadDone: true },
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		await mount(<Sidebar />);
+
+		expect(container.textContent).not.toContain("No code sessions yet");
+		const current = rowFor("Audit session");
+		expect(current.getAttribute("data-active")).toBe("true");
+		expect(current.getAttribute("data-live")).toBe("true");
+		// No transcript on disk yet: nothing to rename or delete.
+		expect(current.querySelector('[aria-label="Delete session"]')).toBeNull();
+
+		// Open tabs in other projects keep their project expanded and say what they're doing.
+		expect(rowFor("Background run").textContent).toContain("Running");
+		expect(container.querySelector('[data-session-group="/work/beta"]')?.textContent).toContain(
+			"Session /work/beta/three",
+		);
+		const finished = rowFor("Finished run");
+		expect(finished.querySelector("[data-sidebar-done]")).not.toBeNull();
+		expect(finished.textContent).toContain("Run completed");
+
+		// Live-only rows navigate; file actions stay out of their menu.
+		await fire(current, "onContextMenu");
+		const labels = menuItemLabels();
+		expect(labels[0]).toContain("Open");
+		for (const fileAction of ["Open in new window", "Rename", "Pin to top", "Delete"]) {
+			expect(labels.some(label => label.includes(fileAction))).toBe(false);
+		}
+	});
+
+	it("offers a way out of an empty filter and keeps help in the footer's last row", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		await mount(<Sidebar />);
+
+		const field = container.querySelector('input[aria-label="Filter sessions"]') as unknown as Element;
+		const record = field as unknown as Record<string, unknown>;
+		const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+		const props = record[propsKey as string] as { onChange: (event: { target: { value: string } }) => void };
+		await act(async () => props.onChange({ target: { value: "nothing-matches" } }));
+		await flush();
+		const clear = [...container.querySelectorAll("button")].find(
+			button => (button.textContent ?? "").trim() === "Clear filter",
+		);
+		await fire(clear as unknown as Element, "onClick");
+		expect(document.querySelectorAll(".omp-sidebar-session-row").length).toBeGreaterThan(0);
+
+		const settings = container.querySelector('[data-sidebar-destinations] [data-destination="settings"]');
+		const settingsRow = (settings as unknown as Element | null)?.parentNode
+			?.parentNode as unknown as TestElement | null;
+		expect(settingsRow?.querySelector('[aria-label="Help"]')).not.toBeNull();
 	});
 
 	it("uses the open tab's live status instead of the session file's stale completion status", async () => {

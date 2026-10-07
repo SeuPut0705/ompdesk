@@ -1,5 +1,5 @@
 /**
- * Internal seucode style guide — every token and primitive on one page, in
+ * Internal ompdesk style guide — every token and primitive on one page, in
  * the active theme, for design review. Not part of the product: reachable
  * only with OMP_GUI_STYLEGUIDE=1 (src/main/window.ts) or the #/styleguide
  * hash, so its copy is English-only and bypasses the locale files.
@@ -306,7 +306,7 @@ export default function StyleGuide() {
 			node?.style.setProperty("overflow", "visible");
 			node?.style.setProperty("height", "auto");
 		}
-		document.title = "seucode — style guide";
+		document.title = "ompdesk — style guide";
 	}, []);
 
 	useEffect(() => {
@@ -346,7 +346,7 @@ export default function StyleGuide() {
 			<header className="sticky top-0 z-(--sc-z-sticky) border-b border-(--sc-divider) bg-(--sc-bg)/90 backdrop-blur">
 				<div className="mx-auto flex max-w-[1180px] items-center gap-3 px-10 py-3">
 					<BrandMark size={22} />
-					<span className="text-sc-lg font-semibold tracking-(--sc-tracking-tight)">seucode</span>
+					<span className="text-sc-lg font-semibold tracking-(--sc-tracking-tight)">ompdesk</span>
 					<span className="text-sc-md text-(--sc-text-muted)">Design system · internal style guide</span>
 					<div className="ml-auto">
 						<Tabs
@@ -366,7 +366,7 @@ export default function StyleGuide() {
 
 			<main className="mx-auto max-w-[1180px] px-10 pb-24">
 				<div className="py-12">
-					<h1 className="text-sc-3xl font-semibold tracking-(--sc-tracking-tight)">seucode</h1>
+					<h1 className="text-sc-3xl font-semibold tracking-(--sc-tracking-tight)">ompdesk</h1>
 					<p className="mt-2 max-w-2xl text-sc-lg text-(--sc-text-secondary)">
 						Calm, content-first, one confident accent. Tokens are CSS custom properties (--sc-*) in
 						src/renderer/styles; primitives live in components/common. Rules: design-spec.md.
@@ -751,7 +751,7 @@ export default function StyleGuide() {
 							The agent process exited. Your session is saved.
 						</Banner>
 						<Banner onDismiss={() => {}} title="Update ready" variant="info">
-							seucode 0.2.0 installs on restart.
+							ompdesk 0.2.0 installs on restart.
 						</Banner>
 						<Banner variant="warning">omp 18.6 or newer is required. Run omp update.</Banner>
 						<Banner onDismiss={() => {}} variant="success">

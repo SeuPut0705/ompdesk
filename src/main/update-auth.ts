@@ -14,7 +14,7 @@ import type { UpdateAccess, UpdateAuthInfo, UpdateTokenSource } from "../shared/
 import { resolveLoginShellEnv, spawnPath } from "./shell-env";
 import { classifyRepoAccess, firstUpdateToken, type ResolvedUpdateToken } from "./updater-state";
 
-export const RELEASE_REPO = { owner: "SeuPut0705", repo: "seucode" } as const;
+export const RELEASE_REPO = { owner: "SeuPut0705", repo: "ompdesk" } as const;
 export const GITHUB_API_REPO = `https://api.github.com/repos/${RELEASE_REPO.owner}/${RELEASE_REPO.repo}`;
 
 const GH_TIMEOUT_MS = 5_000;

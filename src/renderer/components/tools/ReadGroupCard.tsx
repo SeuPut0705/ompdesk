@@ -75,7 +75,7 @@ export function ReadGroupCard({
 					<ToolPathTarget path={single.path} suffix={single.selector ? `:${single.selector}` : undefined} />
 				) : (
 					<span
-						className="omp-tool-summary min-w-0 flex-1 truncate text-(--sc-text-muted)"
+						className="omp-tool-summary min-w-0 truncate text-(--sc-text-muted)"
 						title={rows.map(row => row.path).join("\n")}
 					>
 						{t("readGroup.files", { count: rows.length })}

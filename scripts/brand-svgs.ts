@@ -65,21 +65,26 @@ const appIcon = (k: KnotGeometry, comment: string) => {
 	);
 };
 
-/** Monoline wordmark letters (stroke 3.2, bowl r 8.4) beside the full knot at 36 units. */
+/**
+ * Monoline wordmark letters (stroke 3.2, bowl r 8.4, x-height 11.6–28.4, 6.6
+ * between letters) beside the full knot at 36 units: o m p d e s k. The m
+ * arches are r 5.6; the p descender stops at 34.4 so its cap meets the frame.
+ */
 const WORDMARK_LETTERS = [
-	`<path d="M9.51 13.83A4.2 4.2 0 1 0 5.8 20A4.2 4.2 0 1 1 2.09 26.17"/>`,
-	`<path d="M16.6 20H33.4A8.4 8.4 0 1 0 31.43 25.4"/>`,
-	`<path d="M40 11.6V20A8.4 8.4 0 0 0 56.8 20M56.8 11.6V28.4"/>`,
-	`<path d="M78.23 14.6A8.4 8.4 0 1 0 78.23 25.4"/>`,
-	`<circle cx="91.8" cy="20" r="8.4"/>`,
-	`<circle cx="115.2" cy="20" r="8.4"/>`,
-	`<path d="M123.6 3.6V28.4"/>`,
-	`<path d="M130.2 20H147A8.4 8.4 0 1 0 145.03 25.4"/>`,
+	`<circle cx="10" cy="20" r="8.4"/>`,
+	`<path d="M25 11.6V28.4M25 17.2A5.6 5.6 0 0 1 36.2 17.2V28.4M36.2 17.2A5.6 5.6 0 0 1 47.4 17.2V28.4"/>`,
+	`<path d="M54 11.6V34.4"/>`,
+	`<circle cx="62.4" cy="20" r="8.4"/>`,
+	`<circle cx="85.8" cy="20" r="8.4"/>`,
+	`<path d="M94.2 3.6V28.4"/>`,
+	`<path d="M100.8 20H117.6A8.4 8.4 0 1 0 115.63 25.4"/>`,
+	`<path d="M132.11 13.83A4.2 4.2 0 1 0 128.4 20A4.2 4.2 0 1 1 124.69 26.17"/>`,
+	`<path d="M139.2 3.6V28.4M149.2 11.6L139.2 21.6M142.8 18L149.6 28.4"/>`,
 ];
 const wordmark = (p: Paint, background: string) =>
 	svg(
-		"0 0 202 40",
-		`seucode lockup for ${background} backgrounds: the full knot (36 units, centred on the cap height) and a monoline geometric wordmark.`,
+		"0 0 205 40",
+		`ompdesk lockup for ${background} backgrounds: the full knot (36 units, centred on the cap height) and a monoline geometric wordmark.`,
 		`  <g transform="translate(19 20) scale(${Math.round((36 / 512) * 100000) / 100000})">\n${knot(BRAND_MARK.full, p)}  </g>\n  <g transform="translate(46 4)" stroke="${p.ink}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">\n${WORDMARK_LETTERS.map(l => `    ${l}\n`).join("")}  </g>\n`,
 	);
 
@@ -87,33 +92,33 @@ const wordmark = (p: Paint, background: string) =>
 export const BRAND_SVGS: Record<string, string> = {
 	"icon-source.svg": appIcon(
 		BRAND_MARK.full,
-		"seucode app icon (> 48px): the full knot in platinum + gold on the ink tile.",
+		"ompdesk app icon (> 48px): the full knot in platinum + gold on the ink tile.",
 	),
 	"icon-source-small.svg": appIcon(
 		BRAND_MARK.small,
-		"seucode app icon (≤ 48px): the simplified knot in platinum + gold on the ink tile.",
+		"ompdesk app icon (≤ 48px): the simplified knot in platinum + gold on the ink tile.",
 	),
-	"brand/mark.svg": mark(BRAND_MARK.full, LIGHT, "seucode mark, full knot, for light backgrounds."),
-	"brand/mark-dark.svg": mark(BRAND_MARK.full, DARK, "seucode mark, full knot, for dark backgrounds."),
+	"brand/mark.svg": mark(BRAND_MARK.full, LIGHT, "ompdesk mark, full knot, for light backgrounds."),
+	"brand/mark-dark.svg": mark(BRAND_MARK.full, DARK, "ompdesk mark, full knot, for dark backgrounds."),
 	"brand/mark-small.svg": mark(
 		BRAND_MARK.small,
 		LIGHT,
-		"seucode mark, simplified knot (≤ 48px), for light backgrounds.",
+		"ompdesk mark, simplified knot (≤ 48px), for light backgrounds.",
 	),
 	"brand/mark-small-dark.svg": mark(
 		BRAND_MARK.small,
 		DARK,
-		"seucode mark, simplified knot (≤ 48px), for dark backgrounds.",
+		"ompdesk mark, simplified knot (≤ 48px), for dark backgrounds.",
 	),
 	"brand/mark-mono.svg": mark(
 		BRAND_MARK.small,
 		MONO,
-		"seucode mark, simplified knot in one color: the macOS menu-bar template source (only alpha matters).",
+		"ompdesk mark, simplified knot in one color: the macOS menu-bar template source (only alpha matters).",
 	),
-	"brand/mark-tile.svg": tileSvg(BRAND_MARK.full, "seucode full-bleed tile (> 48px): Windows .ico frames."),
+	"brand/mark-tile.svg": tileSvg(BRAND_MARK.full, "ompdesk full-bleed tile (> 48px): Windows .ico frames."),
 	"brand/mark-tile-small.svg": tileSvg(
 		BRAND_MARK.small,
-		"seucode full-bleed tile (≤ 48px): Windows .ico frames and tray.",
+		"ompdesk full-bleed tile (≤ 48px): Windows .ico frames and tray.",
 	),
 	"brand/wordmark-light.svg": wordmark(LIGHT, "light"),
 	"brand/wordmark-dark.svg": wordmark(DARK, "dark"),

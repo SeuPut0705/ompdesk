@@ -14,7 +14,7 @@
 	--font-body: var(--sc-font-sans);
 	--font-mono: var(--sc-font-mono);
 
-	/* seucode type scale — `text-sc-*` sets size and its paired line-height.
+	/* ompdesk type scale — `text-sc-*` sets size and its paired line-height.
 	   New and migrated surfaces use these steps; see design-spec.md. */
 	--text-sc-2xs: var(--sc-font-2xs);
 	--text-sc-2xs--line-height: var(--sc-leading-snug);
@@ -155,6 +155,13 @@ body {
 /* ============================================================================
    Scrollbars
    ============================================================================ */
+
+/* Mirrors the scrollbar width below (pseudo-element sizes stay literal) so
+   surfaces beside a `scrollbar-gutter: stable` scroller — the composer under
+   the transcript — can reserve the same gutter and share one column edge. */
+:root {
+	--omp-scrollbar-size: 9px;
+}
 
 ::-webkit-scrollbar {
 	width: 9px;
@@ -542,11 +549,62 @@ html[data-platform="win32"] {
 		color var(--omp-motion-fast) var(--omp-ease);
 }
 
+/* ============================================================================
+   Session sidebar (Sidebar.tsx) — header, rows, empty states, footer chips
+   ============================================================================ */
+
+.omp-session-sidebar {
+	/* The current session must read apart from a hovered row (5% wash). */
+	--sc-sidebar-row-selected: color-mix(in srgb, var(--sc-text) 9%, transparent);
+}
+
+/* macOS: the traffic lights own the header's leading edge (padding above), so
+   the brand yields its slot, the collapse toggle follows the lights, and
+   search closes the row — the Claude/Codex arrangement. */
+html[data-platform="darwin"] .omp-sidebar-brand {
+	display: none;
+}
+
+html[data-platform="darwin"] .omp-sidebar-collapse {
+	order: -1;
+}
+
+html[data-platform="darwin"] .omp-sidebar-search {
+	margin-left: auto;
+}
+
+/* Rows rest one step quieter; hover and the current session lift to full text. */
+.omp-sidebar-session-row button[data-roving-item] {
+	color: var(--sc-text-secondary);
+}
+
+.omp-sidebar-session-row:hover button[data-roving-item],
+.omp-sidebar-session-row[data-active="true"] button[data-roving-item] {
+	color: var(--sc-text);
+}
+
+.omp-sidebar-session-row[data-active="true"] {
+	background-color: var(--sc-sidebar-row-selected);
+}
+
 /* A sidebar row whose session is being switched to (the transcript still shows the outgoing one). */
 .omp-sidebar-session-row[data-switch-pending="true"] {
 	box-shadow: inset 2px 0 0 var(--sc-accent);
 }
 
+/* Korean copy wraps at word boundaries; long paths/errors still break. */
+.omp-sidebar-empty {
+	word-break: keep-all;
+	overflow-wrap: anywhere;
+}
+
+/* Footer shortcut hints: quiet text, not chips. */
+.omp-sidebar-kbd kbd {
+	border-color: transparent;
+	background-color: transparent;
+	padding-inline: 2px;
+	color: var(--sc-text-subtle);
+}
 
 .omp-lift {
 	transition:
@@ -635,7 +693,9 @@ html[data-platform="win32"] {
 
 /* ============================================================================
    Settings page — sub-nav + one centered column; rows align their controls
-   in one right column and stack in narrow containers
+   in one right column and stack in narrow containers. The nav title and the
+   section title share the 24px top inset every destination page header uses
+   (PageLayout pt-6), so the two headings start on one line.
    ============================================================================ */
 
 .settings-nav {
@@ -649,7 +709,7 @@ html[data-platform="win32"] {
 .settings-column {
 	max-width: 56rem;
 	margin-inline: auto;
-	padding: var(--sc-space-8) var(--sc-space-10) var(--sc-space-16);
+	padding: var(--sc-space-6) var(--sc-space-10) var(--sc-space-16);
 }
 
 .settings-section + .settings-section,
@@ -828,15 +888,17 @@ html[data-platform="win32"] {
 	}
 }
 
-/* GUI density changes conversation spacing without scaling text or scroll coordinates. */
-[data-density="tight"] .omp-transcript-editorial .omp-user-turn {
-	padding-block: 12px 8px !important;
+/* GUI density changes conversation spacing without scaling text or scroll
+   coordinates: it retunes the transcript spacing scale (components.css). */
+[data-density="tight"] .omp-transcript-editorial {
+	--omp-turn-gap: var(--sc-space-3);
+	--omp-prompt-gap: var(--sc-space-1);
+	--omp-reply-pad-top: var(--sc-space-1);
+	--omp-reply-pad-bottom: var(--sc-space-2);
+	--omp-event-pad: var(--sc-space-1);
 }
 [data-density="tight"] .omp-transcript-editorial .omp-user-bubble {
 	padding: 8px 12px;
-}
-[data-density="tight"] .omp-transcript-editorial .omp-assistant-turn {
-	padding-block: 8px !important;
 }
 [data-density="tight"] .settings-field-row {
 	gap: 0.625rem;

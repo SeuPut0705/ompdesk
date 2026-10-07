@@ -1,5 +1,5 @@
 /**
- * RPC protocol types for seucode's sidecar connection.
+ * RPC protocol types for ompdesk's sidecar connection.
  * Hand-written from verified source (rpc-types.ts, rpc-mode.ts).
  * These are the wire types — no runtime dependency on @oh-my-pi/*.
  */
@@ -1419,7 +1419,7 @@ export interface RpcAgentDefinitionInfo {
 	prewalkResolved?: string;
 }
 
-/** The two directories seucode writes agent definitions to. */
+/** The two directories ompdesk writes agent definitions to. */
 export type AgentFileScope = "user" | "project";
 
 /** `get_agent_authoring`: where agent files live and which tools omp offers. */

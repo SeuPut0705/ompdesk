@@ -1,5 +1,5 @@
 /**
- * Native application menu for seucode.
+ * Native application menu for ompdesk.
  */
 import { app, Menu, type MenuItemConstructorOptions, shell } from "electron";
 import { nativeAccelerator } from "../shared/hotkeys";
@@ -299,7 +299,7 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 				},
 				{
 					label: mainT("menu.documentation", language),
-					click: () => void shell.openExternal("https://github.com/SeuPut0705/seucode"),
+					click: () => void shell.openExternal("https://github.com/SeuPut0705/ompdesk"),
 				},
 			],
 		},

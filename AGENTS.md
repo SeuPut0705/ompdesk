@@ -1,11 +1,11 @@
-# seucode — Development Rules
+# ompdesk — Development Rules
 
 Read this before any edit in this repository.
 
 ## Repository identity
 
-- Product: **seucode** (lowercase), a desktop app for the omp agent; bundle id `com.seuput.seucode`, userData `~/Library/Application Support/seucode` (`%APPDATA%\seucode`). Say "omp" only for the agent/CLI (`omp update`, "omp 18.6+"). The mark (an interlaced knot, full and ≤48px simplified forms) is defined once in `src/shared/brand-mark.ts`; `bun run gen:icons` writes the SVGs in `resources/icon-source*.svg` and `resources/brand/` from it (`scripts/brand-svgs.ts`; never hand-edit them, `brand-mark.test.ts` fails on drift) and regenerates `icon.png`/`icon.icns`/`icon.ico` and the tray PNGs. The in-app mark is `components/common/BrandMark.tsx`.
-- Product repo: [`SeuPut0705/seucode`](https://github.com/SeuPut0705/seucode) (`origin`). All code, tags, and releases live here.
+- Product: **ompdesk** (lowercase), an unofficial desktop app for the omp agent; bundle id `com.seuput.ompdesk`, userData `~/Library/Application Support/ompdesk` (`%APPDATA%\ompdesk`). The first launch moves the pre-rename profile from its sibling directory into userData before anything reads it (`src/main/legacy-user-data.ts`, skipped under `--user-data-dir`). Say "omp" only for the agent/CLI (`omp update`, "omp 18.6+"). The mark (an interlaced knot, full and ≤48px simplified forms) is defined once in `src/shared/brand-mark.ts`; `bun run gen:icons` writes the SVGs in `resources/icon-source*.svg` and `resources/brand/` from it (`scripts/brand-svgs.ts`; never hand-edit them, `brand-mark.test.ts` fails on drift) and regenerates `icon.png`/`icon.icns`/`icon.ico` and the tray PNGs. The in-app mark is `components/common/BrandMark.tsx`.
+- Product repo: [`SeuPut0705/ompdesk`](https://github.com/SeuPut0705/ompdesk) (`origin`). All code, tags, and releases live here.
 - Originally derived from [`nornzach/oh-my-pi-gui`](https://github.com/nornzach/oh-my-pi-gui) (MIT). It is not tracked as a remote; this repo evolves independently.
 - The agent is **stock omp** ([`can1357/oh-my-pi`](https://github.com/can1357/oh-my-pi)) installed on the user's machine. It is never built, vendored, or forked here. Users get agent updates with `omp update`.
 - Platforms: **macOS and Windows only.**
@@ -55,7 +55,7 @@ When an omp update breaks a bridge method, fix the method against the new intern
 - Version `X.Y.Z` semver; tag `vX.Y.Z`; release commit `release: vX.Y.Z`. Commit messages carry no AI attribution trailers.
 1. Bump `package.json` `version`, add a dated `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md` (it becomes the release notes), update README version mentions. Confirm `MIN_OMP_VERSION` is current.
 2. `git commit -am "release: vX.Y.Z" && git push origin main`. Do not tag.
-3. `.github/workflows/release.yml` does the rest: runs ci.yml (checks on both platforms, macOS e2e, Windows `@smoke`), packages macOS arm64 (dmg + zip, ad-hoc signed, codesign + `gui-bridge` verified) and Windows x64 (NSIS setup + portable; `makensis` cannot run on Apple Silicon), and only if everything passed creates tag `vX.Y.Z` and the GitHub Release: notes = changelog section + minimum omp version; assets = versioned dmg/zip/exe, `*.blockmap`, `latest-mac.yml`, `latest.yml`, and the version-free copies `seucode-mac-arm64.dmg`, `seucode-windows-setup.exe`, `seucode-windows-portable.exe`. An existing tag or an `Unreleased` heading makes the run a no-op.
+3. `.github/workflows/release.yml` does the rest: runs ci.yml (checks on both platforms, macOS e2e, Windows `@smoke`), packages macOS arm64 (dmg + zip, ad-hoc signed, codesign + `gui-bridge` verified) and Windows x64 (NSIS setup + portable; `makensis` cannot run on Apple Silicon), and only if everything passed creates tag `vX.Y.Z` and the GitHub Release: notes = changelog section + minimum omp version; assets = versioned dmg/zip/exe, `*.blockmap`, `latest-mac.yml`, `latest.yml`, and the version-free copies `ompdesk-mac-arm64.dmg`, `ompdesk-windows-setup.exe`, `ompdesk-windows-portable.exe`. An existing tag or an `Unreleased` heading makes the run a no-op.
 4. Re-run after a failure: `gh workflow run release.yml` (on main). Rehearse without releasing from any branch: `gh workflow run release.yml --ref <branch> -f dry_run=true` (packages land as run artifacts).
 
 Manual fallback: `bun run package:mac -- --publish never` on a Mac, `bun run package:win -- --publish never` on Windows, then `gh release create vX.Y.Z --target main --notes-file <section> <assets above>`.
