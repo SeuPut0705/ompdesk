@@ -39,6 +39,57 @@ interface SettingLike {
 	get(scope: unknown): unknown;
 	set(scope: unknown, value: unknown): void;
 	assertWritable?(value: unknown): void;
+	/** Runtime-only layer (not persisted); stock 18.7+. */
+	override?(scope: unknown, value: unknown): void;
+	clearOverride?(scope: unknown): void;
+	/** Whether the environment or any settings layer sets this value. */
+	isConfigured?(scope: unknown): boolean;
+}
+
+// ============================================================================
+// Image generation: on whenever a connected account can make images
+// ============================================================================
+
+const IMAGE_SETTING = "generate_image.enabled";
+/** Settings instances whose image-tool switch this bridge holds as a runtime override. */
+const autoImageOverrides = new WeakSet<object>();
+
+/**
+ * Stock ships `generate_image` off. While the user has not decided either way
+ * (no layer configures the setting) and an image model is reachable with the
+ * user's credentials (e.g. a ChatGPT login brings `openai-codex/gpt-image-2`),
+ * hold it on as a runtime override: never written to config.yml, dropped again
+ * when the last image model goes away, and released the moment the user sets it
+ * in Settings. Stock's tool-gate listener adds or removes the tool live.
+ */
+export function syncImageGeneration(session: AgentSession): void {
+	const setting = lookup(IMAGE_SETTING) as unknown as SettingLike | undefined;
+	if (
+		!setting ||
+		typeof setting.override !== "function" ||
+		typeof setting.clearOverride !== "function" ||
+		typeof setting.isConfigured !== "function"
+	)
+		return;
+	const scope = session.settings as unknown as object;
+	const reachable = roleCandidatePool("image", session.settings, session.modelRegistry).length > 0;
+	if (autoImageOverrides.has(scope)) {
+		if (reachable) return;
+		setting.clearOverride(scope);
+		autoImageOverrides.delete(scope);
+		return;
+	}
+	if (!reachable || setting.isConfigured(scope)) return;
+	setting.override(scope, true);
+	autoImageOverrides.add(scope);
+}
+
+/** The user's own write replaces the automatic choice instead of hiding under it. */
+function releaseAutoOverride(session: AgentSession, setting: SettingLike): void {
+	const scope = session.settings as unknown as object;
+	if (setting.id !== IMAGE_SETTING || !autoImageOverrides.has(scope)) return;
+	setting.clearOverride?.(scope);
+	autoImageOverrides.delete(scope);
 }
 
 interface SettingsLike {
@@ -158,6 +209,7 @@ async function setSetting(env: BridgeEnv, session: AgentSession, id: string, val
 	// `undefined` removes the global override (stock `Setting.set` unsets it); stock
 	// `assertWritable` rejects it as a value, so only a real value is validated.
 	if (value !== undefined) setting.assertWritable?.(value);
+	releaseAutoOverride(session, setting);
 	setting.set(session.settings, value);
 	const settings = session.settings as unknown as SettingsLike;
 	const intended = settings.overlayLayers && byPath(settings.overlayLayers().global, setting.segments);
@@ -265,6 +317,8 @@ function buildProviders(session: AgentSession) {
 }
 
 function emitCatalogUpdate(env: BridgeEnv, session: AgentSession): void {
+	// Logins, logouts and settled refreshes all land here: the image tool follows.
+	syncImageGeneration(session);
 	env.emit({ type: "model_catalog_update", ...catalogSnapshot(session, false), providers: buildProviders(session) });
 }
 
@@ -302,6 +356,7 @@ async function refreshCatalog(env: BridgeEnv, session: AgentSession, forceRefres
 		timeout.promise,
 	]).finally(() => clearTimeout(timer));
 	if (!completed) watchRefresh(env, session, refresh);
+	syncImageGeneration(session);
 	return catalogSnapshot(session, !completed);
 }
 
@@ -409,6 +464,11 @@ export const methods: BridgeMethods = {
 			);
 		},
 		settings_set: async (params, env) => setSetting(env, env.session(), str(params, "path"), asRecord(params).value),
+		/** Main calls this once the bridge connects on every spawn. */
+		image_generation_sync: async (_params, env) => {
+			syncImageGeneration(env.session());
+			return {};
+		},
 	}),
 	...guard("models", {
 		models_catalog: async (params, env) =>

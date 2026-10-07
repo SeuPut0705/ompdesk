@@ -437,10 +437,13 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		},
 	},
 	settings: {
-		session: ["settings", "model", "thinkingLevel"],
+		// modelRegistry + roleCandidatePool: the automatic image-tool switch
+		// (settings.ts syncImageGeneration; the Setting override methods are feature-detected).
+		session: ["settings", "model", "thinkingLevel", "modelRegistry"],
 		modules: {
 			[`${AGENT}/config/all-settings`]: ["orderedSettings()"],
 			[`${AGENT}/config/registry`]: ["lookup()"],
+			[`${AGENT}/config/model-roles`]: ["roleCandidatePool()"],
 			["@oh-my-pi/pi-tui/overlays/settings-defs"]: ["SETTING_TABS", "TAB_GROUPS", "TAB_METADATA"],
 			[UTILS]: ["getAgentDir()", "MAIN_CONFIG_FILENAMES"],
 		},

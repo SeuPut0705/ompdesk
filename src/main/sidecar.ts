@@ -767,7 +767,11 @@ export class SidecarManager extends EventEmitter {
 			this.#options.bridgeDir && bridge
 				? bridge.connect().then(
 						() => {
-							if (this.#isLive(generation)) this.emit("bridge", { connected: true, ompVersion, bridge });
+							if (!this.#isLive(generation)) return;
+							this.emit("bridge", { connected: true, ompVersion, bridge });
+							// generate_image is off in stock; the bridge turns it on while the user
+							// hasn't decided and a connected account can make images.
+							void bridge.request("image_generation_sync").catch(() => {});
 						},
 						(err: unknown) => {
 							const error = err instanceof Error ? err.message : String(err);

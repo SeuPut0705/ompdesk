@@ -482,6 +482,7 @@ if (process.argv[2] === "stats") {
 			sampledAt: Date.now(),
 		}),
 		"workspace.directories": () => ({ directories: [] }),
+		image_generation_sync: () => ({}),
 		"modes.get_plan_mode": () => ({ enabled: planModeEnabled, proposal: planProposal }),
 		"modes.set_plan_mode": params => {
 			planModeEnabled = params.enabled === true;
