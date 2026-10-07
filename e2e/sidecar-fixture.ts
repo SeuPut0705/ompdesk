@@ -663,6 +663,61 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				}, 400);
 			};
 			step(0);
+		} else if (message === "fixture edits") {
+			// Commands with output lines alternating with file edits, whose diff
+			// stats carry an `sr-only` label, so the live log fills well past its
+			// window; the last command is left running and the turn never ends.
+			const step = (index: number) => {
+				const id = `edit-step-${Date.now()}-${index}`;
+				const toolName = index % 2 === 1 ? "edit" : "bash";
+				const args =
+					toolName === "edit"
+						? { path: `src/module-${index}.ts`, edits: [{ old_text: "a", new_text: "b\nc" }] }
+						: { command: `run step ${index + 1}` };
+				const call: AgentMessage = {
+					role: "assistant",
+					content: [{ type: "toolCall", id, name: toolName, arguments: args }],
+					timestamp: Date.now(),
+					provider: model.provider,
+					model: model.id,
+					stopReason: "toolUse",
+				};
+				write({ type: "turn_start" });
+				write({ type: "message_start", message: { role: "assistant", content: [], timestamp: call.timestamp } });
+				appendMessage(call);
+				write({ type: "message_end", message: call });
+				write({ type: "tool_execution_start", toolCallId: id, toolName, args });
+				const output = Array.from({ length: 8 }, (_, line) => `step ${index + 1} output ${line + 1}`).join("\n");
+				if (index === 6) {
+					write({
+						type: "tool_execution_update",
+						toolCallId: id,
+						toolName,
+						args,
+						partialResult: { content: [{ type: "text", text: output }] },
+					});
+					return;
+				}
+				const content: AgentMessage["content"] = [{ type: "text", text: toolName === "edit" ? "edited" : output }];
+				const result =
+					toolName === "edit" ? { content, details: { diff: "@@ -1 +1,2 @@\n-a\n+b\n+c" } } : { content };
+				setTimeout(() => {
+					write({ type: "tool_execution_end", toolCallId: id, toolName, result, isError: false });
+					const toolResult: AgentMessage = {
+						role: "toolResult",
+						toolCallId: id,
+						toolName,
+						content: result.content,
+						isError: false,
+						timestamp: Date.now(),
+					};
+					appendMessage(toolResult);
+					write({ type: "message_end", message: toolResult });
+					write({ type: "turn_end", message: call, toolResults: [toolResult] });
+					setTimeout(() => step(index + 1), 80);
+				}, 80);
+			};
+			step(0);
 		} else if (message === "fixture approval") {
 			write({
 				type: "extension_ui_request",

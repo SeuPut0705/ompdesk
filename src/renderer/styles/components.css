@@ -851,8 +851,14 @@
 
 /* The scroller carries the top fade so the panel's border stays crisp; the
    fade appears only while lines are scrolled out above (data-clipped), so a
-   short log's first row is never dimmed. */
+   short log's first row is never dimmed. It is positioned so it contains the
+   log's absolutely positioned descendants (the `sr-only` labels of diff stats
+   and running steps): without that their containing block is the transcript
+   row, so they escape this scroller's clipping, sit at their unscrolled place
+   in the whole log below the panel, and stretch the transcript's scroll
+   height — an empty band under the live work row that grew with the log. */
 .omp-live-step-scroll {
+	position: relative;
 	height: 100%;
 	min-width: 0;
 	overflow-x: hidden;
