@@ -593,15 +593,24 @@ describe("InputArea next-prompt suggestion", () => {
 		await act(async () => useSessionStore.setState({ isStreaming: false }));
 		await showSuggestion();
 		expect(findTextarea().getAttribute("placeholder")).toBe("ompdesk로 가자");
-		// A Tab chip announces the accept key; the field is described by it.
+		// Tab / → chips announce the accept keys; the field is described by them.
 		const hintId = findTextarea().getAttribute("aria-describedby");
 		expect(hintId).toBeTruthy();
-		expect(document.getElementById(hintId ?? "")?.textContent).toBe("Tabto accept");
+		expect(document.getElementById(hintId ?? "")?.textContent).toBe("Tab→to accept");
 
 		expect((await pressKey({ key: "Tab" })).defaultPrevented).toBe(true);
 		expect(useComposerStore.getState().draft).toBe("ompdesk로 가자");
 		expect(useExtensionUiStore.getState().widgetPanels["next-prompt"]).toBeUndefined();
 		expect(findTextarea().getAttribute("aria-describedby")).toBeNull();
+	});
+
+	it("→ on an empty composer fills the suggestion in too", async () => {
+		await mount();
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		await showSuggestion();
+
+		expect((await pressKey({ key: "ArrowRight" })).defaultPrevented).toBe(true);
+		expect(useComposerStore.getState().draft).toBe("ompdesk로 가자");
 	});
 
 	it("leaves Tab alone once the user has typed", async () => {

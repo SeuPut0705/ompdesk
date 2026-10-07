@@ -582,11 +582,12 @@ export function InputArea() {
 		if (
 			nextPrompt !== undefined &&
 			text === "" &&
-			e.key === "Tab" &&
+			(e.key === "Tab" || e.key === "ArrowRight") &&
 			!e.shiftKey &&
 			!e.ctrlKey &&
 			!e.metaKey &&
-			!e.altKey
+			!e.altKey &&
+			!isImeKeyEvent(e)
 		) {
 			e.preventDefault();
 			setExtensionWidget(NEXT_PROMPT_WIDGET, undefined);
@@ -1015,6 +1016,7 @@ export function InputArea() {
 									id={suggestionHintId}
 								>
 									<Kbd shortcut="Tab" />
+									<Kbd shortcut="→" />
 									{t("input.suggestion.accept")}
 								</span>
 							)}
