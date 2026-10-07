@@ -700,29 +700,35 @@ describe("SidecarManager", () => {
 		}
 	});
 
-	it("survives writes to a child that stopped reading stdin (EPIPE)", async () => {
-		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-epipe-"));
-		const binaryPath = await writeFakeOmp(
-			tempDir,
-			`import * as fs from "node:fs";\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nfs.closeSync(0);\nsetInterval(() => {}, 1000);\n`,
-		);
-		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
-		const uncaught: unknown[] = [];
-		const onUncaught = (error: unknown) => uncaught.push(error);
-		process.on("uncaughtException", onUncaught);
-		try {
-			const ready = waitForReady(sidecar);
-			sidecar.start();
-			await ready;
-			// Every write after the read end closed fails on the stream, not the call.
-			for (let index = 0; index < 50; index++)
-				sidecar.sendSideChannel({ type: "extension_ui_response", id: `${index}` });
-			await delay(200);
-			expect(uncaught).toEqual([]);
-		} finally {
-			process.off("uncaughtException", onUncaught);
-			sidecar.dispose();
-			await fs.rm(tempDir, RM_TEMP);
-		}
-	});
+	// POSIX only: the fake child closes fd 0 to break the pipe, which the Windows
+	// .cmd shim and named-pipe semantics don't reproduce (the spawn never gets
+	// ready). The stdin error handler under test is platform-independent.
+	it.skipIf(process.platform === "win32")(
+		"survives writes to a child that stopped reading stdin (EPIPE)",
+		async () => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-epipe-"));
+			const binaryPath = await writeFakeOmp(
+				tempDir,
+				`import * as fs from "node:fs";\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nfs.closeSync(0);\nsetInterval(() => {}, 1000);\n`,
+			);
+			const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
+			const uncaught: unknown[] = [];
+			const onUncaught = (error: unknown) => uncaught.push(error);
+			process.on("uncaughtException", onUncaught);
+			try {
+				const ready = waitForReady(sidecar);
+				sidecar.start();
+				await ready;
+				// Every write after the read end closed fails on the stream, not the call.
+				for (let index = 0; index < 50; index++)
+					sidecar.sendSideChannel({ type: "extension_ui_response", id: `${index}` });
+				await delay(200);
+				expect(uncaught).toEqual([]);
+			} finally {
+				process.off("uncaughtException", onUncaught);
+				sidecar.dispose();
+				await fs.rm(tempDir, RM_TEMP);
+			}
+		},
+	);
 });

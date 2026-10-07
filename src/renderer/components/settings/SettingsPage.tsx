@@ -169,9 +169,19 @@ export function SettingsPage() {
 			if (!target) return;
 			target.scrollIntoView({ block: focusRowId ? "center" : "start" });
 			if (focusRowId) {
-				target
-					.querySelector<HTMLElement>("button:not([disabled]), input, select, textarea, [tabindex='0']")
-					?.focus({ preventScroll: true });
+				// The focus lands a frame later; if the user already started typing
+				// somewhere (a new search), taking focus would send their keystrokes
+				// into this row's field instead.
+				const active = document.activeElement;
+				const typingElsewhere =
+					active instanceof HTMLElement &&
+					!target.contains(active) &&
+					active.matches("input, textarea, select, [contenteditable='true']");
+				if (!typingElsewhere) {
+					target
+						.querySelector<HTMLElement>("button:not([disabled]), input, select, textarea, [tabindex='0']")
+						?.focus({ preventScroll: true });
+				}
 				target.animate?.([{ backgroundColor: "var(--sc-selected)" }, { backgroundColor: "transparent" }], {
 					duration: 1600,
 				});
