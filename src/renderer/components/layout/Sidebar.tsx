@@ -9,6 +9,7 @@ import {
 	ExternalLink,
 	Folder,
 	FolderOpen,
+	FolderPlus,
 	GitBranchPlus,
 	Info,
 	Keyboard,
@@ -55,6 +56,7 @@ import { sessionDisplayTitle } from "../../lib/session-title";
 import { performTabClose } from "../../lib/tab-close";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { tabSignalPresentation } from "../../lib/tab-signal";
+import { pickWorkspaceDirectory } from "../../lib/workspace-dirs";
 import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
 import { useQueueStore } from "../../stores/queue";
@@ -569,6 +571,20 @@ export function Sidebar() {
 		useUiStore.getState().closeDestination();
 		void openTab({ kind: "chat" });
 	};
+	/** Pick an existing folder or make one in the native panel ("New Folder"), then start a session there. */
+	const openProjectFolder = async () => {
+		try {
+			const picked = await pickWorkspaceDirectory({
+				title: t("sidebar.project.newFolderTitle"),
+				buttonLabel: t("sidebar.project.newFolderButton"),
+			});
+			if (!picked) return;
+			setMode("code");
+			await goToProject(picked);
+		} catch (error) {
+			toast({ variant: "error", title: t("titlebar.openProjectFailed"), message: String(error) });
+		}
+	};
 	// Explicit parallel action: open this session in a NEW window with its own
 	// sidecar, leaving the current window's running session untouched.
 	const openSessionInNewWindow = async (session: SessionInfo) => {
@@ -1015,13 +1031,22 @@ export function Sidebar() {
 							<span className="min-w-0 flex-1 truncate text-left">{t("sidebar.newSession")}</span>
 						</Button>
 						{mode === "code" && (
-							<IconButton
-								data-sidebar-new-chat
-								icon={<MessageSquarePlus />}
-								label={t("sidebar.menu.newChat")}
-								onClick={startChat}
-								variant="secondary"
-							/>
+							<>
+								<IconButton
+									data-sidebar-open-project
+									icon={<FolderPlus />}
+									label={t("sidebar.project.newFolder")}
+									onClick={() => void openProjectFolder()}
+									variant="secondary"
+								/>
+								<IconButton
+									data-sidebar-new-chat
+									icon={<MessageSquarePlus />}
+									label={t("sidebar.menu.newChat")}
+									onClick={startChat}
+									variant="secondary"
+								/>
+							</>
 						)}
 					</div>
 					<SearchField

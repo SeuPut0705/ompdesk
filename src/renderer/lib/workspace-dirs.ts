@@ -13,9 +13,12 @@ import { translate } from "./i18n";
 
 export type { RpcWorkspaceDirectory };
 
-/** Native directory picker (Electron openDirectory); undefined when cancelled. */
-export async function pickWorkspaceDirectory(): Promise<string | undefined> {
-	const paths = await window.omp.system.showOpenDialog(undefined, { directory: true });
+/** Native directory picker (Electron openDirectory + New Folder); undefined when cancelled. */
+export async function pickWorkspaceDirectory(labels?: {
+	title: string;
+	buttonLabel: string;
+}): Promise<string | undefined> {
+	const paths = await window.omp.system.showOpenDialog(undefined, { directory: true, ...labels });
 	return paths?.[0];
 }
 

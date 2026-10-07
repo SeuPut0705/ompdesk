@@ -73,6 +73,9 @@ interface MockOmp {
 		get: Mock<(key: string) => Promise<unknown>>;
 		set: Mock<(key: string, value: unknown) => Promise<void>>;
 	};
+	system: {
+		showOpenDialog: Mock<(filters?: unknown, options?: unknown) => Promise<string[] | null>>;
+	};
 	rpc: Record<string, Mock<(...args: unknown[]) => Promise<unknown>>>;
 }
 
@@ -108,6 +111,9 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 		prefs: {
 			get: vi.fn(async () => null),
 			set: vi.fn(async () => {}),
+		},
+		system: {
+			showOpenDialog: vi.fn(async () => null),
 		},
 		rpc: new Proxy({} as MockOmp["rpc"], {
 			get: (target, prop) => {
@@ -682,6 +688,29 @@ describe("Sidebar menus and pinned ordering", () => {
 			worktree: undefined,
 		});
 		expect(omp.sessions.openInNewWindow).not.toHaveBeenCalled();
+	});
+
+	it("the folder button next to New session starts in a picked or newly created project folder", async () => {
+		const omp = installMockOmp([]);
+		seedStores();
+		await mount(<Sidebar />);
+
+		// Cancelled picker: nothing moves.
+		await fire(container.querySelector("[data-sidebar-open-project]"), "onClick");
+		expect(omp.system.showOpenDialog).toHaveBeenLastCalledWith(
+			undefined,
+			expect.objectContaining({ directory: true, buttonLabel: translate("sidebar.project.newFolderButton") }),
+		);
+		expect(omp.sidecar.setProject).not.toHaveBeenCalled();
+		expect(omp.tabs.spawn).not.toHaveBeenCalled();
+
+		omp.system.showOpenDialog.mockResolvedValueOnce(["/work/new-app"]);
+		await fire(container.querySelector("[data-sidebar-open-project]"), "onClick");
+		await act(async () => {});
+		const spawnedCwds = omp.tabs.spawn.mock.calls.map(([payload]) =>
+			payload && typeof payload === "object" && "cwd" in payload ? payload.cwd : undefined,
+		);
+		expect([...omp.sidecar.setProject.mock.calls.map(([cwd]) => cwd), ...spawnedCwds]).toEqual(["/work/new-app"]);
 	});
 
 	it("keeps chats visible in their global section and creates one from the adjacent quick action", async () => {

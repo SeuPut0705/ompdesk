@@ -37,6 +37,8 @@ First release of **ompdesk** (developed as seucode, formerly omp GUI) as its own
 - The sidebar never folds on its own: it keeps its width (minimum 220px, drag-resizable up to 420px) at every window size and only hides when you collapse it. The icon rail and the narrow-window sidebar sheet are gone; below 1000px only the side panel becomes a sheet.
 - Code / Work is a segmented toggle at the top of the sidebar instead of two items at the bottom of the project menu.
 - The todo and subagent cards above the composer start collapsed and show a one-line glance: todo progress (a thin bar and done/total) with the task in progress (or the next one), and subagent counts (running · done · failed) with the most recently active agent. Click the card header to expand it as before.
+- A folder button next to **New session** opens the native folder picker (with its New Folder button) to open or create a project folder and start a session there.
+- Waiting on the model no longer prints a "Waiting for model response… Ns · Esc to stop" line: the turn's last work row keeps its spinner (reading "Working · N steps" between steps), or a bare spinner stands where the reply will appear. Past 30s the slow/stalled hints and recovery buttons still show.
 
 ### Fixed
 

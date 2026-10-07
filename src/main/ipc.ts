@@ -890,12 +890,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	ipcMain.handle(
 		IPC_COMMANDS.SYSTEM_OPEN_DIALOG,
-		async (event, filters?: { name: string; extensions: string[] }[], options?: { directory?: boolean }) => {
+		async (
+			event,
+			filters?: { name: string; extensions: string[] }[],
+			options?: { directory?: boolean; title?: string; buttonLabel?: string },
+		) => {
 			const win = BrowserWindow.fromWebContents(event.sender);
 			if (!win) return null;
 			const result = await dialog.showOpenDialog(win, {
 				properties: options?.directory ? ["openDirectory", "createDirectory"] : ["openFile", "multiSelections"],
 				filters: filters ?? [],
+				title: options?.title,
+				buttonLabel: options?.buttonLabel,
+				// macOS sheet header; the panel's own "New Folder" button creates the project folder.
+				message: options?.title,
 			});
 			return result.canceled ? null : result.filePaths;
 		},

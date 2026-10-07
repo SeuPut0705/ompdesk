@@ -284,8 +284,10 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_REVEAL_PATH, path) as Promise<IpcOpenPathResult>,
 		showSaveDialog: (defaultPath?: string, filters?: { name: string; extensions: string[] }[]) =>
 			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_SAVE_DIALOG, defaultPath, filters),
-		showOpenDialog: (filters?: { name: string; extensions: string[] }[], options?: { directory?: boolean }) =>
-			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_OPEN_DIALOG, filters, options),
+		showOpenDialog: (
+			filters?: { name: string; extensions: string[] }[],
+			options?: { directory?: boolean; title?: string; buttonLabel?: string },
+		) => ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_OPEN_DIALOG, filters, options),
 		clipboardRead: () => ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_CLIPBOARD_READ),
 		notify: (title: string, body?: string) => {
 			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_NOTIFY, { title, body });

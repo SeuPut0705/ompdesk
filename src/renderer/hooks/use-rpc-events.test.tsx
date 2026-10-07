@@ -1058,15 +1058,11 @@ describe("retryPending reset on tab switch", () => {
 });
 
 describe("TurnStatusRow", () => {
-	it("renders the waiting label with elapsed seconds and the interrupt hint", async () => {
+	it("a normal wait shows no label, interrupt hint or recovery buttons", async () => {
 		useSessionStore.setState({ awaitingModelSince: Date.now() - 5000 });
 		await mount(<TurnStatusRow />);
-		expect(document.body.textContent).toContain("Waiting for model response");
-		expect(document.body.textContent).toContain("5s");
-		expect(document.querySelector("kbd")?.textContent).toBe("Esc");
-		expect(document.body.textContent).toContain("to stop");
-		expect(document.body.textContent).not.toContain("Slow response");
-		// Recovery buttons wait until the response is actually slow.
+		expect(document.querySelector("kbd")).toBeNull();
+		expect(document.body.textContent).not.toContain("5s");
 		expect(document.body.textContent).not.toContain("Change model");
 	});
 

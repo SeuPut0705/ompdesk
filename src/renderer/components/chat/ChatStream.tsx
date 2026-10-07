@@ -159,6 +159,17 @@ function SessionTranscript() {
 	// loader; tool-execution windows show running tool cards instead.
 	const showStatusRow =
 		retryInfo != null || compactionInfo != null || (isStreaming && awaitingModelSince != null && !hasStreamedContent);
+	// Waiting on the model between steps: the turn's last work row keeps its
+	// spinner instead of a separate "waiting…" line (the status row still
+	// escalates to the slow/stalled hints on its own clock).
+	const lastHistoryRow = historyRows.at(-1);
+	const spinnerOnTail =
+		isStreaming &&
+		!hasStreamedContent &&
+		retryInfo == null &&
+		compactionInfo == null &&
+		lastHistoryRow?.kind === "process";
+	const tailRowIndex = spinnerOnTail ? (hiddenCount > 0 ? 1 : 0) + historyRows.length - 1 : -1;
 
 	// Streaming deltas rerender this component for the live row, but they do not
 	// change finalized history. Keep the O(history) row/key projection stable so
@@ -617,6 +628,7 @@ function SessionTranscript() {
 									) : row.kind === "process" ? (
 										<ProcessGroup
 											expanded={expandedProcessKeys.has(rowKey)}
+											live={item.index === tailRowIndex}
 											onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
 											row={row}
 										/>
@@ -638,7 +650,7 @@ function SessionTranscript() {
 											{t("chat.compaction.showEarlier", { count: row.count })}
 										</Button>
 									) : (
-										<TurnStatusRow />
+										<TurnStatusRow attached={spinnerOnTail} />
 									)}
 								</div>
 							</div>
@@ -669,10 +681,13 @@ function SessionTranscript() {
 
 function ProcessGroup({
 	expanded,
+	live = false,
 	onExpandedChange,
 	row,
 }: {
 	expanded: boolean;
+	/** Last work row of the running turn while the model prepares the next step. */
+	live?: boolean;
 	onExpandedChange: (expanded: boolean) => void;
 	row: Extract<HistoryRow, { kind: "process" }>;
 }) {
@@ -682,6 +697,7 @@ function ProcessGroup({
 			<ExecutionGroup
 				expanded={expanded}
 				failureCount={row.failedEvents}
+				live={live}
 				onExpandedChange={onExpandedChange}
 				output={output}
 				stepCount={row.stepCount}
@@ -886,15 +902,18 @@ const STALLED_RESPONSE_HINT_SECONDS = 90;
  *   initial delay.
  * - compaction: `{reason}{action}…` for auto-maintenance, same
  *   reason/action vocabulary as the TUI loader.
- * - waiting: between turn_start and the first streamed event, with live
- *   elapsed seconds; past 30s a slow-response hint appears so a stalled
- *   provider reads as "slow but alive" rather than dead air.
+ * - waiting: between turn_start and the first streamed event. A normal wait
+ *   is only a spinner — on the turn's last work row when there is one
+ *   (`attached`, so this row renders nothing), else in place of the reply
+ *   about to stream. Past 30s the slow-response hint and elapsed seconds
+ *   appear so a stalled provider reads as "slow but alive" rather than dead
+ *   air.
  *
- * All variants carry the Esc interrupt hint (App routes Esc → rpc.abort),
- * matching the TUI's `[esc]` / `(esc to cancel)` suffixes. A retrying or slow
- * wait also offers recovery: change model, or stop the response.
+ * Retry, compaction and slow waits carry the Esc interrupt hint (App routes
+ * Esc → rpc.abort), matching the TUI's `[esc]` / `(esc to cancel)` suffixes,
+ * and offer recovery: change model, or stop the response.
  */
-export function TurnStatusRow() {
+export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 	const t = useT();
 	const rpc = useTabRpc();
 	const tabId = useRuntimeTabId();
@@ -953,8 +972,25 @@ export function TurnStatusRow() {
 		const elapsedSeconds = Math.max(0, Math.floor((now - awaitingModelSince) / 1000));
 		slow = elapsedSeconds >= SLOW_RESPONSE_HINT_SECONDS;
 		stalled = elapsedSeconds >= STALLED_RESPONSE_HINT_SECONDS;
-		text = t("chat.awaitingModel", { seconds: elapsedSeconds });
 		announcement = t("chat.awaitingModel.announcement");
+		if (!slow) {
+			if (attached) return null;
+			return (
+				<div className="omp-status-turn ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
+					<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
+						{announcement}
+					</span>
+					<span
+						aria-hidden
+						className="flex size-7 items-center justify-center px-1.5 text-(--sc-text-muted)"
+						data-awaiting-spinner
+					>
+						<Spinner size="sm" />
+					</span>
+				</div>
+			);
+		}
+		text = t("chat.awaitingModel", { seconds: elapsedSeconds });
 	} else {
 		return null;
 	}

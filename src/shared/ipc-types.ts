@@ -1279,7 +1279,7 @@ export interface OmpApi {
 		showSaveDialog(defaultPath?: string, filters?: { name: string; extensions: string[] }[]): Promise<string | null>;
 		showOpenDialog(
 			filters?: { name: string; extensions: string[] }[],
-			options?: { directory?: boolean },
+			options?: { directory?: boolean; title?: string; buttonLabel?: string },
 		): Promise<string[] | null>;
 		clipboardRead(): Promise<string>;
 		notify(title: string, body?: string): void;

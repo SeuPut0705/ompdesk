@@ -22,14 +22,14 @@ const { TurnStatusRow } = await import("./ChatStream");
 let container: HTMLElement;
 let root: Root;
 
-async function mount(): Promise<void> {
+async function mount(attached = false): Promise<void> {
 	container = document.createElement("div") as unknown as HTMLElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<TurnStatusRow />
+				<TurnStatusRow attached={attached} />
 			</I18nProvider>,
 		);
 	});
@@ -42,13 +42,26 @@ afterEach(async () => {
 });
 
 describe("TurnStatusRow", () => {
-	it("announces a stable waiting state without repeating the elapsed clock", async () => {
+	it("a normal wait is only a spinner, announced once for screen readers", async () => {
 		useSessionStore.setState({ awaitingModelSince: Date.now() - 5_000 });
 		await mount();
 
 		const status = container.querySelector('[role="status"]');
 		expect(status?.textContent).toBe("Waiting for model response…");
-		expect(container.textContent).toMatch(/Waiting for model response… \d+s/);
+		expect(container.textContent).toBe("Waiting for model response…");
 		expect(container.querySelectorAll(".animate-spin")).toHaveLength(1);
+	});
+
+	it("renders nothing when the spinner rides on the turn's last work row", async () => {
+		useSessionStore.setState({ awaitingModelSince: Date.now() - 5_000 });
+		await mount(true);
+		expect(container.childElementCount).toBe(0);
+	});
+
+	it("a slow wait surfaces elapsed time and recovery even when attached", async () => {
+		useSessionStore.setState({ awaitingModelSince: Date.now() - 45_000 });
+		await mount(true);
+		expect(container.textContent).toMatch(/Waiting for model response… \d+s/);
+		expect(container.textContent).toContain("Stop");
 	});
 });

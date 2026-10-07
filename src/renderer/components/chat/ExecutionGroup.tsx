@@ -84,14 +84,18 @@ export function ExecutionGroup({
 			? [t(`chat.process.kind.${activity}`, { count, plural: count === 1 ? "" : PLURAL_SUFFIX[activity] })]
 			: [];
 	});
+	// `live` with nothing executing = the model is preparing the next step:
+	// keep the spinner, but don't claim a tool is running.
 	const summary =
 		state === "failed"
 			? t("chat.process.statusFailed", { failed, total: stepCount })
-			: state === "running"
-				? t("chat.process.statusRunning", { running: Math.max(1, running), total: stepCount })
+			: state === "running" && running > 0
+				? t("chat.process.statusRunning", { running, total: stepCount })
 				: activities.length > 0
 					? activities.join(" · ")
-					: t("chat.process.statusComplete", { total: stepCount });
+					: state === "running"
+						? t("chat.process.statusWorking", { total: stepCount })
+						: t("chat.process.statusComplete", { total: stepCount });
 	const duration = state !== "running" && spanMs > 0 ? formatDuration(spanMs) : null;
 
 	return (
