@@ -908,8 +908,13 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(omp.sessions.delete).toHaveBeenCalledWith("/work/alpha/one.jsonl");
 	});
 
-	it("names the whole workspace and its session count before a group delete", async () => {
+	it("closes the project's tabs and deletes its sessions so the project leaves the list", async () => {
 		const omp = installMockOmp(LIST);
+		const deleted = new Set<string>();
+		omp.sessions.delete.mockImplementation(async (path: string) => {
+			deleted.add(path);
+		});
+		omp.sessions.list.mockImplementation(async () => LIST.filter(entry => !deleted.has(entry.path)));
 		seedStores();
 		await mount(<Sidebar />);
 
@@ -935,6 +940,12 @@ describe("Sidebar menus and pinned ordering", () => {
 			"/work/alpha/one.jsonl",
 			"/work/alpha/two.jsonl",
 		]);
+		// t0 was the window's only tab and sat in alpha: a tab opens in the next
+		// project before t0 closes, so no live row keeps alpha in the list.
+		expect(omp.tabs.spawn).toHaveBeenCalledWith(expect.objectContaining({ cwd: "/work/beta" }));
+		expect(omp.tabs.close).toHaveBeenCalledWith("t0");
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t-new"]);
+		expect(container.querySelector('[data-workspace-group="/work/alpha"]')).toBeNull();
 	});
 });
 

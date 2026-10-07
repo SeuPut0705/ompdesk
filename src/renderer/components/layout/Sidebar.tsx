@@ -709,12 +709,31 @@ export function Sidebar() {
 		}
 		setDeleting(true);
 		try {
-			// Delete every session file in this project, then dismiss the group.
-			// Live-only rows have no file to delete.
+			// Close the project's open tabs first: a tab keeps a row (and so the
+			// project) in the list, and closing it releases its session file.
+			const paths = new Set(group.sessions.map(session => session.path));
+			const ids = new Set(group.sessions.map(session => session.id));
+			const tabsStore = useTabsStore.getState();
+			const projectTabs = tabsStore.tabs.filter(
+				tab =>
+					tab.kind !== "chat" &&
+					(tab.cwd === group.cwd ||
+						(tab.sessionPath !== undefined && paths.has(tab.sessionPath)) ||
+						(tab.sessionId !== undefined && ids.has(tab.sessionId))),
+			);
+			// The window keeps at least one tab: give it a home outside this project.
+			if (projectTabs.length > 0 && projectTabs.length === tabsStore.tabs.length) {
+				const fallback = allGroups.find(item => item.cwd !== group.cwd)?.cwd;
+				if (!(await tabsStore.openTab(fallback ? { cwd: fallback } : { work: true }))) return;
+			}
+			for (const tab of projectTabs) {
+				// eslint-disable-next-line no-await-in-loop -- each close switches the active tab
+				await useTabsStore.getState().closeTab(tab.id);
+			}
+			// Then delete every session file in the project. Live-only rows have no file.
 			for (const session of group.sessions.filter(entry => entry.liveTabId === undefined)) {
 				// eslint-disable-next-line no-await-in-loop -- sequential, keep FS load bounded
-				if (session.id === sessionId) await dropSessionNow();
-				else await deleteSession(session.path);
+				await deleteSession(session.path);
 			}
 			setPendingDelete(null);
 		} catch (error) {
@@ -1394,10 +1413,8 @@ export function Sidebar() {
 									label: t("common.delete"),
 									icon: Trash2,
 									danger: true,
-									disabled:
-										groupHasBusySession ||
-										groupMenu.group.sessions.every(session => session.liveTabId !== undefined),
-									disabledReason: groupHasBusySession ? t("sidebar.deleteGroupStreaming") : t("sidebar.empty"),
+									disabled: groupHasBusySession,
+									disabledReason: t("sidebar.deleteGroupStreaming"),
 									onSelect: () => {
 										setPendingDelete({ kind: "group", group: groupMenu.group });
 										setGroupMenu(null);
