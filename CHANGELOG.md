@@ -15,6 +15,8 @@ First release of **seucode** (formerly omp GUI) as its own project. Derived from
 - GUI features stock omp's RPC does not cover run in the Electron main process (git/gh, files, `~/.omp` config, `omp` CLI) or through `gui-bridge`, an omp extension the GUI loads with `-e` for live-session state. No omp fork, no bundled agent binary.
 - Stats run the user's omp-stats server without opening a browser and add the paginated request list the Requests page needs.
 - macOS on Apple Silicon and Windows only; Intel Macs and Linux are not supported.
+- Distributed privately: releases live in the private `SeuPut0705/seucode` repository for invited collaborators. In-app updates (Settings › Updates) authenticate as the user — `GH_TOKEN`/`GITHUB_TOKEN`, then the GitHub CLI login (`gh auth token`), then a token pasted in Settings › Updates › GitHub access (encrypted on the device with the OS keychain, with Test access and Remove) — never a bundled token. Update checks, `latest*.yml` reads and installer downloads (the macOS DMG through the authenticated GitHub API asset endpoint, still SHA-512 verified) all carry it. No token or no access shows a localized "sign in with gh or paste a token" state instead of a raw 404, and never a banner from the background check.
+- Releases are built by CI: pushing a version bump to `main` with a dated changelog section runs the checks, the macOS e2e suite and the Windows smoke tests, packages macOS and Windows, and publishes the tagged release only if all of it passed.
 
 ### Added
 

@@ -9,6 +9,11 @@
  * Downloads remain user-initiated and report progress through one shared
  * renderer state machine. An interrupted transfer keeps its `.partial` and
  * continues from that offset on the next attempt.
+ *
+ * Releases live in a private repo, so every request — release lookup, the
+ * latest*.yml feed, and asset downloads — carries the user's own GitHub token
+ * (src/main/update-auth.ts). Without one, or without access, the state is
+ * `auth-required` instead of a raw 404.
  */
 
 import { spawnSync } from "node:child_process";
@@ -17,15 +22,26 @@ import * as path from "node:path";
 import { app, BrowserWindow, ipcMain, net, shell } from "electron";
 import type { UpdateInfo } from "electron-updater";
 import pkg from "electron-updater";
-import type { UpdateInstallMode, UpdateStatus } from "../shared/ipc-types";
+import type { UpdateAuthTestResult, UpdateInstallMode, UpdateStatus } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import { mainT } from "./i18n";
+import {
+	checkRepoAccess,
+	clearUpdateToken,
+	GITHUB_API_REPO,
+	githubApiHeaders,
+	RELEASE_REPO,
+	resolveUpdateToken,
+	storeUpdateToken,
+	updateAuthInfo,
+} from "./update-auth";
 import {
 	hasStableMacSigningIdentity,
 	installerPartialPath,
 	type MacInstallerAsset,
 	planInstallerTransfer,
 	selectMacInstaller,
+	settleFailedUpdateCheck,
 	settleIncompleteUpdateCheck,
 	sha512FileBase64,
 	sweepInstallerPartials,
@@ -34,7 +50,6 @@ import {
 const { autoUpdater } = pkg;
 
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
-const RELEASE_DOWNLOAD_BASE = "https://github.com/SeuPut0705/seucode/releases/download/";
 const PROGRESS_INTERVAL_MS = 100;
 
 /**
@@ -62,6 +77,10 @@ let installMode: UpdateInstallMode = "automatic";
 let activeUpdate: UpdateInfo | undefined;
 let manualInstaller: MacInstallerAsset | undefined;
 let downloadedInstallerPath: string | undefined;
+/** Token the last check authenticated with; the manual installer download reuses it. */
+let updateToken: string | undefined;
+/** A check's failure is classified by runCheck, so the updater's own error event stays quiet. */
+let checkInFlight = false;
 
 function detectInstallMode(): UpdateInstallMode {
 	if (process.platform !== "darwin") return "automatic";
@@ -104,10 +123,44 @@ async function openManualInstaller(filePath: string): Promise<void> {
 	if (openError) throw new Error(mainT("updates.openInstallerFailed"));
 }
 
-async function downloadManualInstaller(version: string, asset: MacInstallerAsset): Promise<void> {
+/**
+ * Signed CDN URL for a release asset. Private repos 404 on
+ * `releases/download/...`; the API asset endpoint answers an authenticated
+ * `application/octet-stream` request with a redirect to a short-lived signed
+ * URL. The redirect is taken by hand because Chromium would forward the
+ * Authorization header to the CDN, which rejects a second auth mechanism.
+ */
+async function signedAssetUrl(version: string, assetName: string, token: string): Promise<string> {
+	const release = await net.fetch(`${GITHUB_API_REPO}/releases/tags/v${encodeURIComponent(version)}`, {
+		headers: githubApiHeaders(token),
+	});
+	if (!release.ok) throw new Error(`${mainT("updates.downloadFailed")} (${release.status})`);
+	const { assets } = (await release.json()) as { assets?: { id: number; name: string }[] };
+	const asset = assets?.find(candidate => candidate.name === assetName);
+	if (!asset) throw new Error(mainT("updates.installerMissing"));
+
+	const { promise, resolve, reject } = Promise.withResolvers<string>();
+	const request = net.request({ url: `${GITHUB_API_REPO}/releases/assets/${asset.id}`, redirect: "manual" });
+	for (const [name, value] of Object.entries(githubApiHeaders(token, "application/octet-stream"))) {
+		request.setHeader(name, value);
+	}
+	request.on("redirect", (_status, _method, redirectUrl) => {
+		resolve(redirectUrl);
+		request.abort();
+	});
+	request.on("response", response => {
+		reject(new Error(`${mainT("updates.downloadFailed")} (${response.statusCode})`));
+		request.abort();
+	});
+	request.on("error", reject);
+	request.end();
+	return promise;
+}
+
+async function downloadManualInstaller(version: string, asset: MacInstallerAsset, token: string): Promise<void> {
 	const destinationPath = availableDownloadPath(asset.name);
 	const partialPath = installerPartialPath(destinationPath);
-	const assetUrl = `${RELEASE_DOWNLOAD_BASE}v${encodeURIComponent(version)}/${encodeURIComponent(asset.name)}`;
+	const assetUrl = await signedAssetUrl(version, asset.name, token);
 	// Partials of releases this one superseded can never be continued.
 	await sweepInstallerPartials(path.dirname(partialPath), partialPath);
 
@@ -174,7 +227,8 @@ async function downloadManualInstaller(version: string, asset: MacInstallerAsset
 
 	await fs.promises.rename(partialPath, destinationPath);
 	downloadedInstallerPath = destinationPath;
-	await openManualInstaller(destinationPath);
+	// e2e/headless runs verify the download but never put Finder on screen.
+	if (process.env.OMP_GUI_HEADLESS !== "1") await openManualInstaller(destinationPath);
 	broadcast({ state: "downloaded", version, mode: "manual" });
 }
 
@@ -194,6 +248,43 @@ function notesOf(info: { releaseNotes?: unknown }): string | undefined {
 		return first?.note?.slice(0, 500);
 	}
 	return undefined;
+}
+
+/**
+ * One update check, authenticated as the user. `manual` checks surface
+ * failures in the banner; background polls only update Settings.
+ */
+async function runCheck(manual: boolean): Promise<void> {
+	const resolved = await resolveUpdateToken();
+	if (!resolved) {
+		updateToken = undefined;
+		broadcast({ state: "auth-required", reason: "missing" });
+		return;
+	}
+	updateToken = resolved.token;
+	// A pre-release only exists for the updater test harness; never in a release bundle.
+	autoUpdater.allowPrerelease = !app.isPackaged && process.env.OMP_DEV_UPDATE_PRERELEASE === "1";
+	autoUpdater.setFeedURL({ provider: "github", ...RELEASE_REPO, private: true, token: resolved.token });
+	checkInFlight = true;
+	try {
+		await autoUpdater.checkForUpdates();
+		const settled = settleIncompleteUpdateCheck(current, manual, mainT("updates.noResult"));
+		if (settled !== current) broadcast(settled);
+	} catch (error) {
+		const access = await checkRepoAccess(resolved.token);
+		const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined;
+		const message = error instanceof Error ? error.message : String(error);
+		broadcast(settleFailedUpdateCheck(access, code, message, appVersion(), manual));
+	} finally {
+		checkInFlight = false;
+	}
+}
+
+async function testAuth(token: string | undefined): Promise<UpdateAuthTestResult> {
+	if (token?.trim()) return { access: await checkRepoAccess(token.trim()), source: null };
+	const resolved = await resolveUpdateToken();
+	if (!resolved) return { access: "missing", source: null };
+	return { access: await checkRepoAccess(resolved.token), source: resolved.source };
 }
 
 export function setupUpdater(): void {
@@ -244,24 +335,15 @@ export function setupUpdater(): void {
 		broadcast({ state: "downloaded", version: info.version, mode: "automatic" }),
 	);
 	autoUpdater.on("error", error => {
-		// Passive poll failures remain unobtrusive. Explicit IPC actions catch
-		// and rebroadcast the same failure as user-visible.
+		if (checkInFlight) return;
+		// Passive failures remain unobtrusive. Explicit IPC actions catch and
+		// rebroadcast the same failure as user-visible.
 		broadcast({ state: "error", message: error.message, showInBanner: false });
 	});
 
 	ipcMain.handle(IPC_COMMANDS.UPDATER_CHECK, async () => {
 		broadcast({ state: "checking" });
-		try {
-			await autoUpdater.checkForUpdates();
-			const settled = settleIncompleteUpdateCheck(current, true, mainT("updates.noResult"));
-			if (settled !== current) broadcast(settled);
-		} catch (error) {
-			broadcast({
-				state: "error",
-				message: error instanceof Error ? error.message : String(error),
-				showInBanner: true,
-			});
-		}
+		await runCheck(true);
 		return current;
 	});
 	ipcMain.handle(IPC_COMMANDS.UPDATER_DOWNLOAD, async () => {
@@ -269,6 +351,10 @@ export function setupUpdater(): void {
 		try {
 			if (current.mode === "manual") {
 				if (!manualInstaller) throw new Error(mainT("updates.installerMissing"));
+				if (!updateToken) {
+					broadcast({ state: "auth-required", reason: "missing" });
+					return current;
+				}
 				broadcast({
 					state: "downloading",
 					version: current.version,
@@ -278,7 +364,7 @@ export function setupUpdater(): void {
 					transferred: 0,
 					total: manualInstaller.size ?? 0,
 				});
-				await downloadManualInstaller(activeUpdate?.version ?? current.version, manualInstaller);
+				await downloadManualInstaller(activeUpdate?.version ?? current.version, manualInstaller, updateToken);
 			} else {
 				await autoUpdater.downloadUpdate();
 			}
@@ -313,24 +399,26 @@ export function setupUpdater(): void {
 	});
 	ipcMain.handle(IPC_COMMANDS.UPDATER_GET_STATUS, () => current);
 	ipcMain.handle(IPC_COMMANDS.UPDATER_VERSION, () => appVersion());
+	ipcMain.handle(IPC_COMMANDS.UPDATER_AUTH_INFO, () => updateAuthInfo());
+	ipcMain.handle(IPC_COMMANDS.UPDATER_AUTH_TEST, (_event, token?: string) => testAuth(token));
+	ipcMain.handle(IPC_COMMANDS.UPDATER_AUTH_SAVE, async (_event, token: string): Promise<UpdateAuthTestResult> => {
+		const trimmed = token.trim();
+		if (!trimmed) return { access: "missing", source: null };
+		const access = await checkRepoAccess(trimmed);
+		if (access === "ok") await storeUpdateToken(trimmed);
+		return { access, source: access === "ok" ? "stored" : null };
+	});
+	ipcMain.handle(IPC_COMMANDS.UPDATER_AUTH_CLEAR, async () => {
+		await clearUpdateToken();
+		return updateAuthInfo();
+	});
 
-	// First check once the app settles; then every 4h.
-	setTimeout(() => {
-		autoUpdater
-			.checkForUpdates()
-			.then(() => {
-				const settled = settleIncompleteUpdateCheck(current, false);
-				if (settled !== current) broadcast(settled);
-			})
-			.catch(() => broadcast({ state: "idle" }));
-	}, 3000);
-	setInterval(() => {
-		autoUpdater
-			.checkForUpdates()
-			.then(() => {
-				const settled = settleIncompleteUpdateCheck(current, false);
-				if (settled !== current) broadcast(settled);
-			})
-			.catch(() => {});
-	}, CHECK_INTERVAL_MS);
+	// First check once the app settles; then every 4h. A downloaded or
+	// in-flight update is never replaced by a background re-check.
+	const backgroundCheck = () => {
+		if (current.state === "downloading" || current.state === "downloaded") return;
+		void runCheck(false);
+	};
+	setTimeout(backgroundCheck, 3000);
+	setInterval(backgroundCheck, CHECK_INTERVAL_MS);
 }

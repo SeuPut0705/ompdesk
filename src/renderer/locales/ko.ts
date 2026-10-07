@@ -3087,6 +3087,28 @@ export const ko: Record<string, string> = {
 	"updates.checking": "확인 중…",
 	"updates.checkFailed": "확인에 실패했어요",
 	"updates.upToDate": "최신 상태",
+	"updates.authRequired": "로그인 필요",
+	"updates.auth.label": "GitHub 접근",
+	"updates.auth.description":
+		"seucode는 비공개 저장소 SeuPut0705/seucode에서 배포돼서, 업데이트는 내 GitHub 로그인으로 받아요: GH_TOKEN, GitHub CLI(`gh auth login`), 또는 여기에 저장한 토큰(이 기기에 암호화해서 보관).",
+	"updates.auth.source.env": "환경 변수의 GH_TOKEN을 사용 중이에요",
+	"updates.auth.source.gh": "GitHub CLI(gh) 로그인을 사용 중이에요",
+	"updates.auth.source.stored": "저장한 토큰을 사용 중이에요",
+	"updates.auth.source.none": "GitHub 로그인을 찾지 못했어요",
+	"updates.auth.missing": "gh로 로그인하거나 SeuPut0705/seucode에 접근할 수 있는 GitHub 토큰을 붙여 넣으세요.",
+	"updates.auth.denied":
+		"이 GitHub 계정으로는 SeuPut0705/seucode를 볼 수 없어요. 저장소 초대를 수락하거나 접근 권한이 있는 계정의 토큰을 사용하세요.",
+	"updates.auth.invalid":
+		"GitHub가 토큰을 거부했어요(만료 또는 취소됨). `gh auth login`을 다시 실행하거나 새 토큰을 붙여 넣으세요.",
+	"updates.auth.network": "GitHub에 연결하지 못했어요. 연결을 확인하고 다시 시도하세요.",
+	"updates.auth.ok": "SeuPut0705/seucode 접근을 확인했어요.",
+	"updates.auth.placeholder": "GitHub 토큰 붙여 넣기",
+	"updates.auth.tokenLabel": "GitHub 토큰",
+	"updates.auth.save": "토큰 저장",
+	"updates.auth.test": "접근 확인",
+	"updates.auth.clear": "저장한 토큰 삭제",
+	"updates.auth.cannotStore":
+		"이 시스템에서는 비밀 정보를 암호화할 수 없어 토큰을 저장할 수 없어요. `gh auth login`이나 GH_TOKEN을 사용하세요.",
 
 	// Cross-surface text completed by the GUI i18n audit
 	"app.actionFailed": "요청을 처리하지 못했어요",

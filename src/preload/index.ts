@@ -203,6 +203,10 @@ const api: OmpApi = {
 		apply: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_APPLY),
 		getStatus: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_GET_STATUS),
 		version: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_VERSION),
+		authInfo: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_AUTH_INFO),
+		testAuth: (token?: string) => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_AUTH_TEST, token),
+		saveAuth: (token: string) => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_AUTH_SAVE, token),
+		clearAuth: () => ipcRenderer.invoke(IPC_COMMANDS.UPDATER_AUTH_CLEAR),
 	},
 
 	bridgeHealth: {

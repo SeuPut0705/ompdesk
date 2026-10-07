@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { UpdateStatus } from "../shared/ipc-types";
+import type { UpdateAccess, UpdateStatus, UpdateTokenSource } from "../shared/ipc-types";
 
 export interface MacInstallerAsset {
 	name: string;
@@ -51,6 +51,56 @@ export function settleIncompleteUpdateCheck(
 ): UpdateStatus {
 	if (status.state !== "checking") return status;
 	return manual ? { state: "error", message: noResultMessage } : { state: "idle" };
+}
+
+/* ------------------------------------------------ private-repo authentication */
+
+export interface ResolvedUpdateToken {
+	token: string;
+	source: UpdateTokenSource;
+}
+
+/**
+ * First usable token in precedence order (env → gh → stored). Lookups run
+ * lazily so a token found in the environment never spawns `gh`.
+ */
+export async function firstUpdateToken(
+	lookups: readonly (readonly [UpdateTokenSource, () => Promise<string | undefined> | string | undefined])[],
+): Promise<ResolvedUpdateToken | undefined> {
+	for (const [source, lookup] of lookups) {
+		const token = (await lookup())?.trim();
+		if (token) return { token, source };
+	}
+	return undefined;
+}
+
+/**
+ * `GET /repos/{owner}/{repo}` status → access. GitHub answers 404 (not 403)
+ * for a private repo the token cannot see, so both mean "no access".
+ */
+export function classifyRepoAccess(status: number): UpdateAccess {
+	if (status >= 200 && status < 300) return "ok";
+	if (status === 401) return "invalid";
+	if (status === 403 || status === 404) return "denied";
+	return "network";
+}
+
+/** Status for a failed check once repo access is known. */
+export function settleFailedUpdateCheck(
+	access: UpdateAccess,
+	errorCode: string | undefined,
+	message: string,
+	currentVersion: string,
+	manual: boolean,
+): UpdateStatus {
+	if (access === "invalid" || access === "denied" || access === "missing") {
+		return { state: "auth-required", reason: access };
+	}
+	// Access is fine and GitHub has no release yet: nothing newer exists.
+	if (access === "ok" && errorCode === "ERR_UPDATER_LATEST_VERSION_NOT_FOUND") {
+		return { state: "not-available", version: currentVersion };
+	}
+	return { state: "error", message, showInBanner: manual };
 }
 
 /* -------------------------------------------- macOS manual installer transfer */

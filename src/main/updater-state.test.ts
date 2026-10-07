@@ -4,10 +4,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	classifyRepoAccess,
+	firstUpdateToken,
 	hasStableMacSigningIdentity,
 	installerPartialPath,
 	planInstallerTransfer,
 	selectMacInstaller,
+	settleFailedUpdateCheck,
 	settleIncompleteUpdateCheck,
 	sha512FileBase64,
 	sweepInstallerPartials,
@@ -163,5 +166,57 @@ describe("installer debris sweep", () => {
 
 	it("says nothing when the downloads directory doesn't exist yet", async () => {
 		expect(await sweepInstallerPartials(path.join(dir, "absent"))).toEqual([]);
+	});
+});
+
+describe("private release repo authentication", () => {
+	it("takes the first token in precedence order and never runs later lookups", async () => {
+		const calls: string[] = [];
+		const lookup = (name: string, value: string | undefined) => () => {
+			calls.push(name);
+			return value;
+		};
+		expect(
+			await firstUpdateToken([
+				["env", lookup("env", "  ")],
+				["gh", lookup("gh", "gho_abc\n")],
+				["stored", lookup("stored", "stored-token")],
+			]),
+		).toEqual({ token: "gho_abc", source: "gh" });
+		expect(calls).toEqual(["env", "gh"]);
+		expect(await firstUpdateToken([["env", () => undefined]])).toBeUndefined();
+	});
+
+	it("treats GitHub's 404 for an invisible private repo as no access", () => {
+		expect(classifyRepoAccess(200)).toBe("ok");
+		expect(classifyRepoAccess(401)).toBe("invalid");
+		expect(classifyRepoAccess(403)).toBe("denied");
+		expect(classifyRepoAccess(404)).toBe("denied");
+		expect(classifyRepoAccess(502)).toBe("network");
+	});
+
+	it("turns a failed check into sign-in guidance, up to date, or a quiet background error", () => {
+		expect(settleFailedUpdateCheck("denied", "ERR_UPDATER_LATEST_VERSION_NOT_FOUND", "404", "0.1.0", false)).toEqual({
+			state: "auth-required",
+			reason: "denied",
+		});
+		expect(settleFailedUpdateCheck("invalid", undefined, "401", "0.1.0", true)).toEqual({
+			state: "auth-required",
+			reason: "invalid",
+		});
+		expect(settleFailedUpdateCheck("ok", "ERR_UPDATER_LATEST_VERSION_NOT_FOUND", "404", "0.1.0", true)).toEqual({
+			state: "not-available",
+			version: "0.1.0",
+		});
+		expect(settleFailedUpdateCheck("network", undefined, "offline", "0.1.0", false)).toEqual({
+			state: "error",
+			message: "offline",
+			showInBanner: false,
+		});
+		expect(settleFailedUpdateCheck("ok", "ERR_X", "boom", "0.1.0", true)).toEqual({
+			state: "error",
+			message: "boom",
+			showInBanner: true,
+		});
 	});
 });

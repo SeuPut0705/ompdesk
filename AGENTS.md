@@ -60,6 +60,8 @@ When an omp update breaks a bridge method, fix the method against the new intern
 
 Manual fallback: `bun run package:mac -- --publish never` on a Mac, `bun run package:win -- --publish never` on Windows, then `gh release create vX.Y.Z --target main --notes-file <section> <assets above>`.
 
+The repo is private, so the in-app updater authenticates as the user (`src/main/update-auth.ts`: `GH_TOKEN`/`GITHUB_TOKEN` → `gh auth token` → a safeStorage-encrypted token from Settings › Updates) and feeds electron-updater a `private: true` GitHub provider; the ad-hoc macOS DMG is fetched through the API asset endpoint. Never bundle a token. Exercise it unpackaged with `OMP_DEV_UPDATE_CHECK=1 OMP_DEV_UPDATE_MODE=manual` (plus `OMP_DEV_UPDATE_PRERELEASE=1` to accept a throwaway pre-release), launching Electron on the repo root so the version is `package.json`'s.
+
 macOS builds are ad-hoc signed and not notarized; locally built apps run without Gatekeeper prompts, downloaded ones need right-click → Open once.
 
 ## Code conventions

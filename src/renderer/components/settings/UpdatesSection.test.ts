@@ -39,6 +39,12 @@ describe("updates overview state", () => {
 		).toBe("attention");
 	});
 
+	it("asks for GitHub access instead of reporting healthy or failed", () => {
+		expect(updateOverviewState({ state: "auth-required", reason: "missing" }, CURRENT_CORE, undefined, false)).toBe(
+			"attention",
+		);
+	});
+
 	it("reports healthy only after both checks explicitly succeed", () => {
 		expect(updateOverviewState({ state: "not-available", version: "0.7.1" }, CURRENT_CORE, undefined, false)).toBe(
 			"healthy",

@@ -12,21 +12,10 @@
 대화하고, 변경 사항을 검토하고, 여러 작업을 동시에 맡기세요.<br>
 설치된 omp를 그대로 쓰기 때문에 `omp update` 한 번이면 앱도 늘 최신이에요.
 
-<br>
-
-<a href="https://github.com/SeuPut0705/seucode/releases/latest/download/seucode-mac-arm64.dmg"><img src="https://img.shields.io/badge/macOS-Apple%20Silicon-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS Apple Silicon 다운로드" height="40"></a>
-&nbsp;
-<a href="https://github.com/SeuPut0705/seucode/releases/latest/download/seucode-windows-setup.exe"><img src="https://img.shields.io/badge/Windows-설치%20파일-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 다운로드" height="40"></a>
-
-<sub>
-Windows 설치 없이 쓰기: <a href="https://github.com/SeuPut0705/seucode/releases/latest/download/seucode-windows-portable.exe">포터블 exe</a>
-&nbsp;·&nbsp; macOS는 Apple Silicon(M1 이상) 전용
-&nbsp;·&nbsp; <a href="https://github.com/SeuPut0705/seucode/releases">모든 버전</a>
-</sub>
+<sub>macOS는 Apple Silicon(M1 이상) 전용 &nbsp;·&nbsp; Windows 10/11 (x64)</sub>
 
 <br><br>
 
-<img src="https://img.shields.io/github/v/release/SeuPut0705/seucode?style=flat-square&label=%EC%B5%9C%EC%8B%A0%20%EB%B2%84%EC%A0%84&color=3FB950" alt="최신 버전">
 <img src="https://img.shields.io/badge/omp-18.6%2B-8B5CF6?style=flat-square" alt="omp 18.6 이상">
 <img src="https://img.shields.io/badge/%ED%95%9C%EA%B5%AD%EC%96%B4%20%C2%B7%20English%20%C2%B7%20%E4%B8%AD%E6%96%87-UI-F59E0B?style=flat-square" alt="한국어 · English · 中文">
 <img src="https://img.shields.io/badge/license-MIT-BE185D?style=flat-square" alt="MIT">
@@ -50,12 +39,17 @@ Windows 설치 없이 쓰기: <a href="https://github.com/SeuPut0705/seucode/rel
 bun install -g @oh-my-pi/pi-coding-agent
 ```
 
-**2. 앱 설치** — 위 버튼으로 받은 파일을 여세요.
+**2. 앱 설치** — seucode는 비공개 저장소에서 초대받은 사람에게만 배포돼요.
 
-| | |
-|---|---|
-| **macOS** | DMG를 열고 **seucode**를 응용 프로그램 폴더로 드래그. 처음 실행할 때 "확인되지 않은 개발자" 경고가 뜨면 앱을 **우클릭 → 열기** (한 번만 하면 돼요) |
-| **Windows** | 설치 파일 실행. SmartScreen 경고가 뜨면 **추가 정보 → 실행** |
+1. 이메일이나 GitHub 알림으로 온 **저장소 초대를 수락**하세요. (초대가 없다면 저장소 주인에게 요청하세요)
+2. GitHub에 로그인한 상태로 [Releases 페이지](https://github.com/SeuPut0705/seucode/releases)를 열고, 가장 위의 최신 버전에서 내 컴퓨터에 맞는 파일을 받으세요.
+
+| | 받을 파일 | 설치 방법 |
+|---|---|---|
+| **macOS** | `seucode-mac-arm64.dmg` | DMG를 열고 **seucode**를 응용 프로그램 폴더로 드래그. 처음 실행할 때 "확인되지 않은 개발자" 경고가 뜨면 앱을 **우클릭 → 열기** (한 번만 하면 돼요) |
+| **Windows** | `seucode-windows-setup.exe` (설치 없이 쓰려면 `seucode-windows-portable.exe`) | 실행 파일을 열고, SmartScreen 경고가 뜨면 **추가 정보 → 실행** |
+
+로그아웃 상태에서는 Releases 페이지와 다운로드 링크가 404로 보여요. 그럴 땐 GitHub 로그인과 초대 수락 여부를 확인하세요.
 
 **3. 모델 연결** — 처음 실행하면 안내 창이 떠요. **프로바이더 및 로그인**에서 Claude·ChatGPT 등에 로그인하거나 API 키를 넣으면 끝. 터미널 omp에서 이미 로그인했다면 그대로 이어서 쓸 수 있어요.
 
@@ -135,6 +129,17 @@ bun install -g @oh-my-pi/pi-coding-agent
 <summary><b>omp가 업데이트되면 앱도 다시 받아야 하나요?</b></summary>
 
 아니요. 앱은 설치된 omp를 그대로 실행하기 때문에 `omp update`만 하면 돼요. 앱 자체의 새 버전은 설정의 업데이트 메뉴에서 알려 줘요.
+</details>
+
+<details>
+<summary><b>앱 업데이트는 어떻게 받나요?</b></summary>
+
+저장소가 비공개라서 앱이 **내 GitHub 계정**으로 새 버전을 확인해요. 아래 중 하나만 해 두면 **설정 › 업데이트**에서 새 버전을 알려 주고 바로 받을 수 있어요.
+
+- **GitHub CLI 로그인 (추천)** — 터미널에서 `gh auth login`을 한 번 실행하면 앱이 그 로그인을 그대로 써요.
+- **토큰 붙여 넣기** — `gh`를 쓰지 않는다면 GitHub에서 [토큰을 만들고](https://github.com/settings/tokens) (classic 토큰은 `repo` 권한, fine-grained 토큰은 이 저장소의 Contents 읽기 권한) **설정 › 업데이트 › GitHub 접근**에 붙여 넣고 **토큰 저장**을 누르세요. 토큰은 이 컴퓨터에 암호화해서 보관돼요.
+
+"로그인 필요"가 보이면 위 둘 중 하나가 빠졌거나, 아직 저장소 초대를 수락하지 않은 거예요. **접근 확인** 버튼으로 바로 점검할 수 있어요.
 </details>
 
 <details>

@@ -3095,6 +3095,28 @@ export const en: Record<string, string> = {
 	"updates.checking": "Checking…",
 	"updates.checkFailed": "Check failed",
 	"updates.upToDate": "Up to date",
+	"updates.authRequired": "Sign-in needed",
+	"updates.auth.label": "GitHub access",
+	"updates.auth.description":
+		"seucode ships from the private SeuPut0705/seucode repository, so updates use your own GitHub login: GH_TOKEN, the GitHub CLI (`gh auth login`), or a token saved here, encrypted on this device.",
+	"updates.auth.source.env": "Using GH_TOKEN from your environment",
+	"updates.auth.source.gh": "Using your GitHub CLI (gh) login",
+	"updates.auth.source.stored": "Using the saved token",
+	"updates.auth.source.none": "No GitHub login found",
+	"updates.auth.missing": "Sign in with gh or paste a GitHub token with access to SeuPut0705/seucode.",
+	"updates.auth.denied":
+		"This GitHub account can't see SeuPut0705/seucode. Accept the repository invite, or use a token from an account that has access.",
+	"updates.auth.invalid":
+		"GitHub rejected the token (expired or revoked). Run `gh auth login` again or paste a new token.",
+	"updates.auth.network": "Couldn't reach GitHub. Check your connection and try again.",
+	"updates.auth.ok": "Access to SeuPut0705/seucode confirmed.",
+	"updates.auth.placeholder": "Paste a GitHub token",
+	"updates.auth.tokenLabel": "GitHub token",
+	"updates.auth.save": "Save token",
+	"updates.auth.test": "Test access",
+	"updates.auth.clear": "Remove saved token",
+	"updates.auth.cannotStore":
+		"This system can't encrypt secrets, so a token can't be saved here. Use `gh auth login` or GH_TOKEN instead.",
 
 	// Cross-surface text completed by the GUI i18n audit
 	"app.actionFailed": "Action failed",

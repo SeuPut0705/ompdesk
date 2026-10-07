@@ -1,18 +1,19 @@
 /**
  * Settings › Updates: one honest overview (checking / up to date / update
- * available / could not verify) over two rows — the seucode desktop app and
- * the system omp CLI — each with its current/latest version and its action.
+ * available / could not verify) over the seucode desktop app, the GitHub
+ * login its private release feed needs, and the system omp CLI — each with
+ * its current state and its action.
  */
 import { Download, FolderOpen, RefreshCw, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import type { UpdateStatus } from "../../../shared/ipc-types";
+import type { UpdateAccess, UpdateAuthInfo, UpdateStatus } from "../../../shared/ipc-types";
 import type { RpcOmpUpdateResult, RpcOmpUpdateRunResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { useUpdaterStore } from "../../stores/updater";
-import { Badge, Banner, type BannerVariant, Button, Spinner } from "../common";
+import { Badge, Banner, type BannerVariant, Button, Input, Spinner } from "../common";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 export type UpdateOverviewState = "checking" | "healthy" | "attention" | "error";
@@ -31,6 +32,14 @@ const OVERVIEW_TITLE: Record<UpdateOverviewState, string> = {
 	error: "updates.systemError",
 };
 
+const ACCESS_MESSAGE: Record<UpdateAccess, string> = {
+	ok: "updates.auth.ok",
+	missing: "updates.auth.missing",
+	invalid: "updates.auth.invalid",
+	denied: "updates.auth.denied",
+	network: "updates.auth.network",
+};
+
 function appUpdateAvailable(status: UpdateStatus): boolean {
 	return status.state === "available" || status.state === "downloading" || status.state === "downloaded";
 }
@@ -45,7 +54,7 @@ export function updateOverviewState(
 	if (checking || status.state === "idle" || status.state === "checking") return "checking";
 	if (status.state === "error" || coreError) return "error";
 	if (!core) return "checking";
-	if (appUpdateAvailable(status) || core.updateAvailable) return "attention";
+	if (status.state === "auth-required" || appUpdateAvailable(status) || core.updateAvailable) return "attention";
 	return "healthy";
 }
 
@@ -129,7 +138,11 @@ export function UpdatesSection() {
 			}
 		>
 			<Banner className="my-3" live title={t(OVERVIEW_TITLE[overview])} variant={OVERVIEW_BANNER[overview]}>
-				{overview === "error" && errorMessage ? errorMessage : t("updates.deliveryNote")}
+				{overview === "error" && errorMessage
+					? errorMessage
+					: status.state === "auth-required"
+						? t(ACCESS_MESSAGE[status.reason])
+						: t("updates.deliveryNote")}
 			</Banner>
 
 			<SettingsRow
@@ -156,6 +169,8 @@ export function UpdatesSection() {
 						</Button>
 					) : status.state === "error" ? (
 						<Badge variant="error">{t("updates.checkFailed")}</Badge>
+					) : status.state === "auth-required" ? (
+						<Badge variant="warning">{t("updates.authRequired")}</Badge>
 					) : status.state === "not-available" ? (
 						<Badge variant="success">{t("updates.upToDate")}</Badge>
 					) : (
@@ -180,6 +195,8 @@ export function UpdatesSection() {
 				}
 				label={t("updates.gui.name")}
 			/>
+
+			<UpdateAuthRow onChanged={check} />
 
 			<SettingsRow
 				control={
@@ -213,5 +230,110 @@ export function UpdatesSection() {
 				label={t("updates.core.name")}
 			/>
 		</SettingsSection>
+	);
+}
+
+/**
+ * GitHub login for the private release feed: which source the updater uses
+ * (env → gh → saved token), a masked field to save a token (encrypted by the
+ * main process), a test, and removal of the saved token.
+ */
+function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> }) {
+	const t = useT();
+	const [info, setInfo] = useState<UpdateAuthInfo>();
+	const [draft, setDraft] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [result, setResult] = useState<UpdateAccess>();
+
+	useEffect(() => {
+		void window.omp.updater.authInfo().then(setInfo);
+	}, []);
+
+	const run = useCallback(
+		async (action: "test" | "save" | "clear") => {
+			setBusy(true);
+			setResult(undefined);
+			try {
+				if (action === "clear") {
+					setInfo(await window.omp.updater.clearAuth());
+				} else {
+					const pasted = draft.trim();
+					const outcome =
+						action === "save"
+							? await window.omp.updater.saveAuth(pasted)
+							: await window.omp.updater.testAuth(pasted || undefined);
+					setResult(outcome.access);
+					if (action === "save" && outcome.access === "ok") setDraft("");
+					setInfo(await window.omp.updater.authInfo());
+				}
+				if (action !== "test") await onChanged();
+			} finally {
+				setBusy(false);
+			}
+		},
+		[draft, onChanged],
+	);
+
+	const source = info?.source ?? "none";
+	return (
+		<SettingsRow
+			control={
+				info === undefined ? (
+					<Spinner label={t("updates.checking")} size="sm" />
+				) : (
+					<Badge variant={info.source ? "success" : "warning"}>{t(`updates.auth.source.${source}`)}</Badge>
+				)
+			}
+			description={t("updates.auth.description")}
+			footer={
+				<div className="mt-2 flex flex-col gap-2">
+					{info?.canStore === false ? (
+						<p className="text-sc-xs text-(--sc-text-muted)">{t("updates.auth.cannotStore")}</p>
+					) : (
+						<div className="flex flex-wrap items-center gap-2">
+							<Input
+								aria-label={t("updates.auth.tokenLabel")}
+								autoComplete="off"
+								className="min-w-60 flex-1"
+								disabled={busy}
+								mono
+								onChange={event => setDraft(event.target.value)}
+								placeholder={t("updates.auth.placeholder")}
+								spellCheck={false}
+								type="password"
+								value={draft}
+							/>
+							<Button
+								disabled={busy || draft.trim().length === 0}
+								onClick={() => void run("save")}
+								size="sm"
+								variant="primary"
+							>
+								{t("updates.auth.save")}
+							</Button>
+						</div>
+					)}
+					<div className="flex flex-wrap items-center gap-2">
+						<Button disabled={busy} loading={busy} onClick={() => void run("test")} size="sm">
+							{t("updates.auth.test")}
+						</Button>
+						{info?.hasStoredToken && (
+							<Button disabled={busy} onClick={() => void run("clear")} size="sm" variant="ghost">
+								{t("updates.auth.clear")}
+							</Button>
+						)}
+					</div>
+					{result && (
+						<p
+							className={`text-sc-xs ${result === "ok" ? "text-(--sc-text-muted)" : "text-(--sc-danger)"}`}
+							role="status"
+						>
+							{t(ACCESS_MESSAGE[result])}
+						</p>
+					)}
+				</div>
+			}
+			label={t("updates.auth.label")}
+		/>
 	);
 }

@@ -207,6 +207,14 @@ export const IPC_COMMANDS = {
 	UPDATER_GET_STATUS: "updater:getStatus",
 	/** Current app version (settings → updates row) */
 	UPDATER_VERSION: "updater:version",
+	/** Which GitHub token the updater would use for the private release repo */
+	UPDATER_AUTH_INFO: "updater:authInfo",
+	/** Probe release-repo access with a pasted token, or the resolved one when omitted */
+	UPDATER_AUTH_TEST: "updater:authTest",
+	/** Test a pasted token and store it (safeStorage-encrypted) only when it has access */
+	UPDATER_AUTH_SAVE: "updater:authSave",
+	/** Forget the stored token */
+	UPDATER_AUTH_CLEAR: "updater:authClear",
 	/** Pending gui-bridge compatibility warnings, handed to exactly one caller */
 	BRIDGE_HEALTH_TAKE: "bridge-health:take",
 } as const;
@@ -260,7 +268,28 @@ export type UpdateStatus =
 	  }
 	| { state: "downloaded"; version: string; mode: UpdateInstallMode }
 	| { state: "not-available"; version: string }
-	| { state: "error"; message: string; showInBanner?: boolean };
+	| { state: "error"; message: string; showInBanner?: boolean }
+	/** No GitHub token, or the token cannot read the private release repo. Settings-only, never a banner. */
+	| { state: "auth-required"; reason: "missing" | "invalid" | "denied" };
+
+/** Where the updater's GitHub token came from, in precedence order. */
+export type UpdateTokenSource = "env" | "gh" | "stored";
+
+/** Result of probing the release repo with a token. */
+export type UpdateAccess = "ok" | "missing" | "invalid" | "denied" | "network";
+
+export interface UpdateAuthInfo {
+	/** Source of the token the next check will use; null when none resolves. */
+	source: UpdateTokenSource | null;
+	hasStoredToken: boolean;
+	/** False when the OS cannot encrypt secrets (safeStorage unavailable): pasting is disabled. */
+	canStore: boolean;
+}
+
+export interface UpdateAuthTestResult {
+	access: UpdateAccess;
+	source: UpdateTokenSource | null;
+}
 
 /**
  * A gui-bridge compatibility problem found at sidecar startup (src/main/bridge-health.ts).
@@ -1168,6 +1197,10 @@ export interface OmpApi {
 		apply(): Promise<void>;
 		getStatus(): Promise<UpdateStatus>;
 		version(): Promise<string>;
+		authInfo(): Promise<UpdateAuthInfo>;
+		testAuth(token?: string): Promise<UpdateAuthTestResult>;
+		saveAuth(token: string): Promise<UpdateAuthTestResult>;
+		clearAuth(): Promise<UpdateAuthInfo>;
 	};
 	bridgeHealth: {
 		/** Pending warnings; each is handed to one window only. */
