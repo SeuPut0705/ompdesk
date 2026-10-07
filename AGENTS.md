@@ -49,16 +49,25 @@ When an omp update breaks a bridge method, fix the method against the new intern
 - CI (`.github/workflows/ci.yml`): `check` (types, biome, vitest, build) on macOS and Windows for every push/PR. `e2e` runs only on `workflow_dispatch` and inside the release workflow (`workflow_call` with `e2e: true`), against the latest published omp: the full suite on macOS, the `@smoke` subset (`e2e/smoke.e2e.ts`, `--grep @smoke`, fake omp) on Windows. Ad hoc: `gh workflow run ci.yml --ref <branch>`.
 - Never drive the app with synthetic OS input (osascript keystrokes etc.); use Playwright.
 - Dev: `bun run dev` (HMR against the system omp; opens a visible window).
-- Reinstalling the local app (you may be running *inside* ompdesk): `bun run package:mac -- --publish never && bash scripts/reinstall-mac.sh`. The script detaches, swaps `/Applications/ompdesk.app` once, and reopens it; the current app and this agent session quit, the session resumes on reopen. **Never** schedule a swap with `launchctl submit` (launchd keeps submitted jobs alive and reruns them, so the app quits and relaunches forever) or any `KeepAlive` job. Don't bump `package.json` `version` to test locally: a version bump on `main` publishes a release.
+- Never reinstall `/Applications/ompdesk.app` from inside the app (you may be running *inside* ompdesk; quitting it kills this session). `scripts/reinstall-mac.sh` (`bun run package:mac -- --publish never && bash scripts/reinstall-mac.sh`) runs **only when the user explicitly asks for a local reinstall**. **Never** schedule a swap with `launchctl submit` (launchd keeps submitted jobs alive and reruns them, so the app quits and relaunches forever) or any `KeepAlive` job.
 - Child processes the app spawns must not outlive it: they get an open stdin pipe and exit when it closes (see `resources/gui-bridge/stats-host.ts`), because a crash or force-kill skips the quit handlers.
+
+## Change workflow
+
+Every change ends the same way, and stops there:
+
+1. `bun run check:types`, `bunx biome check src e2e`, `bunx vitest run` — all green.
+2. Commit and push to `main`.
+
+Do not bump `package.json` `version` (a version bump on `main` publishes a release) and do not reinstall the local app unless the user asks. Changes accumulate on `main` until the user says "릴리스해" (release), which runs the Release steps below.
 
 ## Release
 
-- Version `X.Y.Z` semver; tag `vX.Y.Z`; release commit `release: vX.Y.Z`. Commit messages carry no AI attribution trailers.
-1. Bump `package.json` `version`, add a dated `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md` (it becomes the release notes), update README version mentions. Confirm `MIN_OMP_VERSION` is current.
+- Version `X.Y.Z` semver; tag `vX.Y.Z`; release commit `release: vX.Y.Z`. Commit messages carry no AI attribution trailers. Only on the user's explicit release request.
+1. Pick the version from the commits since the last release tag (features → minor, fixes only → patch). Bump `package.json` `version`, add a dated `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md` with a Korean summary (it becomes the release notes), update README version mentions. Confirm `MIN_OMP_VERSION` is current.
 2. `git commit -am "release: vX.Y.Z" && git push origin main`. Do not tag.
 3. `.github/workflows/release.yml` does the rest: runs ci.yml (checks on both platforms, macOS e2e, Windows `@smoke`), packages macOS arm64 (dmg + zip, ad-hoc signed, codesign + `gui-bridge` verified) and Windows x64 (NSIS setup + portable; `makensis` cannot run on Apple Silicon), and only if everything passed creates tag `vX.Y.Z` and the GitHub Release: notes = changelog section + minimum omp version; assets = versioned dmg/zip/exe, `*.blockmap`, `latest-mac.yml`, `latest.yml`, and the version-free copies `ompdesk-mac-arm64.dmg`, `ompdesk-windows-setup.exe`, `ompdesk-windows-portable.exe`. An existing tag or an `Unreleased` heading makes the run a no-op.
-4. Re-run after a failure: `gh workflow run release.yml` (on main). Rehearse without releasing from any branch: `gh workflow run release.yml --ref <branch> -f dry_run=true` (packages land as run artifacts).
+4. Watch it to the end: `gh run watch <run-id> --exit-status`. On failure, fix the cause on `main` and re-run with `gh workflow run release.yml` (on main). Rehearse without releasing from any branch: `gh workflow run release.yml --ref <branch> -f dry_run=true` (packages land as run artifacts).
 
 Manual fallback: `bun run package:mac -- --publish never` on a Mac, `bun run package:win -- --publish never` on Windows, then `gh release create vX.Y.Z --target main --notes-file <section> <assets above>`.
 

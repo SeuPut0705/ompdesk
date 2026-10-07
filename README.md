@@ -201,6 +201,16 @@ bunx playwright test     # E2E (창을 띄우지 않는 백그라운드 모드)
 </details>
 
 <details>
+<summary><b>수정과 배포 흐름</b></summary>
+
+1. **평소 수정**: 고친 뒤 `bun run check:types`, `bunx biome check src e2e`, `bunx vitest run`을 통과시키고 `main`에 커밋·푸시까지만 해요. `package.json` 버전은 올리지 않고, 설치된 앱도 다시 설치하지 않아요.
+2. **릴리스**: "릴리스해"라고 할 때만 버전을 올려요. 마지막 릴리스 이후 커밋을 보고 버전을 정하고(기능 추가는 minor, 수정만 있으면 patch), `CHANGELOG.md`에 날짜가 붙은 항목을 쓴 뒤 푸시하면 `release` 워크플로가 검사·패키징·GitHub 릴리스까지 해요.
+3. **로컬 재설치**: `scripts/reinstall-mac.sh`는 직접 요청할 때만 써요. 앱 안에서 돌아가는 에이전트가 `/Applications/ompdesk.app`을 스스로 바꾸지 않아요.
+
+자세한 규칙은 [AGENTS.md](./AGENTS.md)의 Change workflow와 Release를 보세요.
+</details>
+
+<details>
 <summary><b>구조</b></summary>
 
 ```
