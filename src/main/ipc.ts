@@ -542,6 +542,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					}
 				}
 			}
+			// A login or logout writes the shared credential store; every tab's omp
+			// re-reads it so a newly connected account's image model turns on everywhere.
+			if (response.success && (cmd.type === "login" || cmd.type === "logout")) {
+				for (const other of sidecarPool.allSidecars()) other.syncImageGeneration();
+			}
 			return response;
 		} catch (err) {
 			return {

@@ -437,9 +437,16 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		},
 	},
 	settings: {
-		// modelRegistry + roleCandidatePool: the automatic image-tool switch
-		// (settings.ts syncImageGeneration; the Setting override methods are feature-detected).
-		session: ["settings", "model", "thinkingLevel", "modelRegistry"],
+		// modelRegistry + roleCandidatePool + credentials: the automatic image-tool
+		// switch (settings.ts; Setting override methods and onGeneration are feature-detected).
+		session: [
+			"settings",
+			"model",
+			"thinkingLevel",
+			"modelRegistry.refreshInBackground()",
+			"modelRegistry.awaitBackgroundRefresh()",
+			"modelRegistry.authStorage.credentials.reload()",
+		],
 		modules: {
 			[`${AGENT}/config/all-settings`]: ["orderedSettings()"],
 			[`${AGENT}/config/registry`]: ["lookup()"],

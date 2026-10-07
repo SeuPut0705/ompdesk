@@ -546,6 +546,11 @@ export class SidecarPool {
 		return undefined;
 	}
 
+	/** Every live sidecar, across windows (account changes reach all tabs). */
+	allSidecars(): SidecarManager[] {
+		return [...this.#entries].map(entry => entry.sidecar);
+	}
+
 	/** Resolves via the ACTIVE tab, so every existing ipc.ts handler keeps working unchanged. */
 	sidecarForWindow(win: BrowserWindow): SidecarManager | null {
 		return this.entryForWindow(win)?.sidecar ?? null;

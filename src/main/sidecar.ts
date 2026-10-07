@@ -771,7 +771,7 @@ export class SidecarManager extends EventEmitter {
 							this.emit("bridge", { connected: true, ompVersion, bridge });
 							// generate_image is off in stock; the bridge turns it on while the user
 							// hasn't decided and a connected account can make images.
-							void bridge.request("image_generation_sync").catch(() => {});
+							this.syncImageGeneration();
 						},
 						(err: unknown) => {
 							const error = err instanceof Error ? err.message : String(err);
@@ -904,6 +904,15 @@ export class SidecarManager extends EventEmitter {
 		if (this.#bridgeAddress) removeBridgeAddress(this.#bridgeAddress);
 		this.#bridgeAddress = null;
 		this.#child = null;
+	}
+
+	/**
+	 * Ask this omp to re-read credentials and switch its image tool to match
+	 * (gui-bridge `image_generation_sync`). Fire-and-forget: a tab without a
+	 * connected bridge simply catches up on its next connect.
+	 */
+	syncImageGeneration(): void {
+		void this.#bridge?.request("image_generation_sync").catch(() => {});
 	}
 
 	/** Send a side-channel frame (bypasses command queue). */

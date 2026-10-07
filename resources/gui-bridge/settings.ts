@@ -92,6 +92,43 @@ function releaseAutoOverride(session: AgentSession, setting: SettingLike): void 
 	autoImageOverrides.delete(scope);
 }
 
+interface CredentialsLike {
+	generation: number;
+	reload(): Promise<void>;
+	onGeneration?(listener: (generation: number) => void): () => void;
+}
+
+/** Credential stores already watched (one listener per process, whatever the session). */
+const watchedCredentials = new WeakSet<object>();
+
+/** Re-read the catalog after a login/logout, then follow it. */
+async function followCredentials(session: AgentSession): Promise<void> {
+	const registry = session.modelRegistry;
+	registry.refreshInBackground("online-if-uncached");
+	await registry.awaitBackgroundRefresh();
+	syncImageGeneration(session);
+}
+
+/**
+ * Connecting an account turns image generation on without a restart, wherever
+ * the login happened: a login in this omp (`/login`, Settings in this tab) bumps
+ * the credential generation, which we watch; a login in another tab's omp is
+ * only on disk, so main asks every tab to re-read (`image_generation_sync`).
+ */
+export async function refreshImageGeneration(session: AgentSession): Promise<void> {
+	const credentials = session.modelRegistry.authStorage.credentials as unknown as CredentialsLike;
+	if (!watchedCredentials.has(credentials) && typeof credentials.onGeneration === "function") {
+		watchedCredentials.add(credentials);
+		credentials.onGeneration(() => {
+			void followCredentials(session).catch(() => {});
+		});
+	}
+	const before = credentials.generation;
+	await credentials.reload();
+	// reload() bumps the generation when the store changed, and the watcher follows.
+	if (credentials.generation === before) syncImageGeneration(session);
+}
+
 interface SettingsLike {
 	getProvenance?(setting: unknown): string;
 	overlayLayers?(): { global: Rec; overrides: Rec };
@@ -464,9 +501,9 @@ export const methods: BridgeMethods = {
 			);
 		},
 		settings_set: async (params, env) => setSetting(env, env.session(), str(params, "path"), asRecord(params).value),
-		/** Main calls this once the bridge connects on every spawn. */
+		/** Main calls this when the bridge connects and after any tab's login or logout. */
 		image_generation_sync: async (_params, env) => {
-			syncImageGeneration(env.session());
+			await refreshImageGeneration(env.session());
 			return {};
 		},
 	}),
