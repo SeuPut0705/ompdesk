@@ -15,9 +15,16 @@ interface ReleaseFile {
 	size?: number;
 }
 
-/** Select the Apple Silicon DMG for this release (the only macOS build ompdesk ships). */
-export function selectMacInstaller(files: readonly ReleaseFile[], version: string): MacInstallerAsset | undefined {
-	const expectedName = `ompdesk-${version}-arm64.dmg`;
+/**
+ * The Apple Silicon asset for this release (the only macOS build ompdesk
+ * ships): the DMG for the Finder fallback, the ZIP for the in-place swap.
+ */
+export function selectMacAsset(
+	files: readonly ReleaseFile[],
+	version: string,
+	kind: "dmg" | "zip",
+): MacInstallerAsset | undefined {
+	const expectedName = kind === "dmg" ? `ompdesk-${version}-arm64.dmg` : `ompdesk-${version}-arm64-mac.zip`;
 	for (const file of files) {
 		let name = file.url;
 		try {
@@ -28,6 +35,52 @@ export function selectMacInstaller(files: readonly ReleaseFile[], version: strin
 	}
 	return undefined;
 }
+
+/** `/Applications/ompdesk.app` from `/Applications/ompdesk.app/Contents/MacOS/ompdesk`; undefined outside a bundle. */
+export function macBundlePath(execPath: string): string | undefined {
+	const bundle = path.resolve(execPath, "..", "..", "..");
+	return bundle.endsWith(".app") && path.basename(path.dirname(execPath)) === "MacOS" ? bundle : undefined;
+}
+
+/**
+ * A bundle the app may replace itself: not on a mounted disk image (read-only)
+ * and not App Translocation's randomized read-only copy of a quarantined app.
+ * Writability is checked separately against the real filesystem.
+ */
+export function isSwappableBundleLocation(bundlePath: string): boolean {
+	return !bundlePath.startsWith("/Volumes/") && !bundlePath.includes("/AppTranslocation/");
+}
+
+/**
+ * Detached swap run after the app exits (`bash -c SWAP_SCRIPT swap <pid>
+ * <staged.app> <dest.app> <relaunch 0|1> <log> [relaunch args…]`): wait for
+ * the old process, copy the verified staged bundle next to the destination,
+ * then exchange them with a rollback if the final move fails. Runs once and
+ * exits; never a launchd job.
+ */
+export const SWAP_SCRIPT = `
+pid="$1" src="$2" dest="$3" relaunch="$4" log="$5"
+shift 5
+exec >>"$log" 2>&1
+echo "swap $(date): $src -> $dest"
+for _ in $(seq 1 150); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
+if kill -0 "$pid" 2>/dev/null; then echo "app still running; swap skipped"; exit 1; fi
+[ -d "$src" ] || { echo "staged app missing"; exit 1; }
+staging="$dest.updating" old="$dest.previous"
+rm -rf "$staging" "$old"
+ditto "$src" "$staging" || { rm -rf "$staging"; echo "copy failed"; exit 1; }
+xattr -dr com.apple.quarantine "$staging" 2>/dev/null
+if [ -e "$dest" ]; then mv "$dest" "$old" || { rm -rf "$staging"; echo "cannot move old app"; exit 1; }; fi
+if ! mv "$staging" "$dest"; then
+  [ -e "$old" ] && mv "$old" "$dest"
+  echo "install failed; previous app restored"; exit 1
+fi
+rm -rf "$old" "$src"
+echo "installed"
+if [ "$relaunch" = "1" ]; then
+  if [ "$#" -gt 0 ]; then open -n "$dest" --args "$@"; else open -n "$dest"; fi
+fi
+`;
 
 /**
  * A certificate-backed signature has both an authority chain and a team.

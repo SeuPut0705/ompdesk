@@ -1,7 +1,8 @@
 /**
- * Update banner for both staged automatic updates and verified manual macOS
- * installers. Manual mode keeps the DMG replacement steps visible after the
- * installer opens in Finder.
+ * Update banner. Background modes (automatic, relaunch) stay silent until the
+ * update is ready, then offer one "Restart & install" (quitting applies it
+ * too). Manual macOS installers keep the click-to-download flow and the DMG
+ * replacement steps after the installer opens in Finder.
  */
 import { AlertTriangle, Download, FolderOpen, RefreshCw, X } from "lucide-react";
 import { useT } from "../../lib/i18n";
@@ -21,8 +22,9 @@ export function UpdateBanner() {
 	const dismiss = useUpdaterStore(s => s.dismiss);
 	const dismissError = useUpdaterStore(s => s.dismissError);
 
+	// Background modes start downloading on their own; only the manual installer asks first.
 	if (status.state === "available") {
-		if (dismissed.version === status.version) return null;
+		if (status.mode !== "manual" || dismissed.version === status.version) return null;
 		return (
 			<div className="flex items-center gap-2 border-b border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-omp-md">
 				<Download size={13} className="shrink-0 text-(--omp-accent)" />
@@ -30,7 +32,7 @@ export function UpdateBanner() {
 					{t("updater.available", { version: status.version })}
 				</span>
 				<Button size="sm" onClick={() => void window.omp.updater.download()}>
-					{status.mode === "manual" ? t("updater.downloadInstaller") : t("updater.download")}
+					{t("updater.downloadInstaller")}
 				</Button>
 				<button
 					type="button"
@@ -44,13 +46,13 @@ export function UpdateBanner() {
 		);
 	}
 
-	if (status.state === "downloading") {
+	if (status.state === "downloading" && status.mode === "manual") {
 		return (
 			<div className="flex items-center gap-2 border-b border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-omp-md">
 				<Download size={13} className="shrink-0 text-(--omp-accent)" />
 				<div className="min-w-0 flex-1">
 					<div className="mb-1 flex justify-between text-(--omp-text)">
-						<span>{status.mode === "manual" ? t("updater.downloadingInstaller") : t("updater.downloading")}</span>
+						<span>{t("updater.downloadingInstaller")}</span>
 						<span className="tabular-nums text-(--omp-dim)">
 							{status.percent}% · {formatBytes(status.transferred)}/{formatBytes(status.total)}
 						</span>

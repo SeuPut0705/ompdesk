@@ -73,6 +73,8 @@ Manual fallback: `bun run package:mac -- --publish never` on a Mac, `bun run pac
 
 The repo is private, so the in-app updater authenticates as the user (`src/main/update-auth.ts`: `GH_TOKEN`/`GITHUB_TOKEN` → `gh auth token` → a safeStorage-encrypted token from Settings › Updates) and feeds electron-updater a `private: true` GitHub provider; the ad-hoc macOS DMG is fetched through the API asset endpoint. Never bundle a token. Exercise it unpackaged with `OMP_DEV_UPDATE_CHECK=1 OMP_DEV_UPDATE_MODE=manual` (plus `OMP_DEV_UPDATE_PRERELEASE=1` to accept a throwaway pre-release), launching Electron on the repo root so the version is `package.json`'s.
 
+Install modes (`src/main/updater.ts`): Windows and certificate-signed macOS builds use electron-updater (background download, applied on restart or quit). Ad-hoc macOS builds can't use Squirrel (it needs a stable signing identity), so when the bundle sits in a writable location they run **relaunch** mode: download the release's `ompdesk-X.Y.Z-arm64-mac.zip` in the background into `<userData>/updates/`, verify its SHA-512, extract it with `ditto`, check the bundle's `codesign --verify --deep --strict`, bundle id and version, then on "Restart & install" (or any approved quit) a detached `/bin/bash` helper (`SWAP_SCRIPT` in `updater-state.ts`) waits for the app to exit, swaps the bundle with rollback, and reopens it on restart. Read-only locations (DMG, App Translocation) fall back to the Finder DMG (**manual** mode). The release must keep shipping the ZIP and `latest-mac.yml`.
+
 macOS builds are ad-hoc signed and not notarized; locally built apps run without Gatekeeper prompts, downloaded ones need right-click → Open once.
 
 ## Code conventions

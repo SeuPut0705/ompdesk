@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -8,8 +9,11 @@ import {
 	firstUpdateToken,
 	hasStableMacSigningIdentity,
 	installerPartialPath,
+	isSwappableBundleLocation,
+	macBundlePath,
 	planInstallerTransfer,
-	selectMacInstaller,
+	SWAP_SCRIPT,
+	selectMacAsset,
 	settleFailedUpdateCheck,
 	settleIncompleteUpdateCheck,
 	sha512FileBase64,
@@ -31,29 +35,100 @@ describe("update check terminal state", () => {
 	});
 });
 
-describe("manual macOS installer selection", () => {
+describe("macOS release asset selection", () => {
 	const files = [
-		{ url: "ompdesk-0.8.4-arm64-mac.zip", sha512: "arm-zip" },
+		{ url: "ompdesk-0.8.4-arm64-mac.zip", sha512: "arm-zip", size: 110 },
 		{ url: "ompdesk-0.8.4-arm64.dmg", sha512: "arm-dmg", size: 120 },
 		{ url: "https://example.test/ompdesk-0.8.4.dmg", sha512: "other-dmg", size: 140 },
 	];
 
-	it("selects the exact Apple Silicon DMG", () => {
-		expect(selectMacInstaller(files, "0.8.4")).toEqual({
+	it("selects the exact Apple Silicon DMG or ZIP for the asked kind", () => {
+		expect(selectMacAsset(files, "0.8.4", "dmg")).toEqual({
 			name: "ompdesk-0.8.4-arm64.dmg",
 			sha512: "arm-dmg",
 			size: 120,
 		});
+		expect(selectMacAsset(files, "0.8.4", "zip")).toEqual({
+			name: "ompdesk-0.8.4-arm64-mac.zip",
+			sha512: "arm-zip",
+			size: 110,
+		});
 	});
 
-	it("rejects ZIPs, other DMG names, and installers for a different release", () => {
-		expect(selectMacInstaller(files, "0.8.5")).toBeUndefined();
+	it("rejects other names and assets for a different release", () => {
+		expect(selectMacAsset(files, "0.8.5", "dmg")).toBeUndefined();
+		expect(selectMacAsset(files, "0.8.5", "zip")).toBeUndefined();
 		expect(
-			selectMacInstaller(
+			selectMacAsset(
 				files.filter(file => !file.url.endsWith("arm64.dmg")),
 				"0.8.4",
+				"dmg",
 			),
 		).toBeUndefined();
+	});
+});
+
+describe("in-place macOS swap", () => {
+	it("finds the bundle only from its own Contents/MacOS executable", () => {
+		expect(macBundlePath("/Applications/ompdesk.app/Contents/MacOS/ompdesk")).toBe("/Applications/ompdesk.app");
+		expect(macBundlePath("/usr/local/bin/ompdesk")).toBeUndefined();
+	});
+
+	it("refuses read-only disk images and translocated copies", () => {
+		expect(isSwappableBundleLocation("/Applications/ompdesk.app")).toBe(true);
+		expect(isSwappableBundleLocation("/Users/me/Applications/ompdesk.app")).toBe(true);
+		expect(isSwappableBundleLocation("/Volumes/ompdesk 0.2.1/ompdesk.app")).toBe(false);
+		expect(isSwappableBundleLocation("/private/var/folders/x/AppTranslocation/ABC/d/ompdesk.app")).toBe(false);
+	});
+
+	describe.runIf(process.platform === "darwin")("swap script", () => {
+		let dir: string;
+		const makeApp = (appPath: string, marker: string) => {
+			fs.mkdirSync(path.join(appPath, "Contents", "MacOS"), { recursive: true });
+			fs.writeFileSync(path.join(appPath, "Contents", "marker"), marker);
+		};
+		// Async: the test's own event loop must stay free to reap the fake app
+		// process, or it lingers as a zombie that still answers `kill -0`.
+		const runSwap = (pid: number, src: string, dest: string) => {
+			const { promise, resolve } = Promise.withResolvers<number | null>();
+			spawn("/bin/bash", ["-c", SWAP_SCRIPT, "swap", String(pid), src, dest, "0", path.join(dir, "swap.log")]).on(
+				"exit",
+				resolve,
+			);
+			return promise;
+		};
+
+		beforeEach(() => {
+			dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-swap-"));
+		});
+		afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+		it("waits for the app to exit, then replaces it and leaves no debris", async () => {
+			const dest = path.join(dir, "Applications", "ompdesk.app");
+			const src = path.join(dir, "updates", "0.2.2", "ompdesk.app");
+			makeApp(dest, "old");
+			makeApp(src, "new");
+			const app = spawn("/bin/sleep", ["0.6"]);
+			const startedAt = Date.now();
+			const status = await runSwap(app.pid ?? 0, src, dest);
+
+			expect(status).toBe(0);
+			expect(Date.now() - startedAt).toBeGreaterThanOrEqual(400);
+			expect(fs.readFileSync(path.join(dest, "Contents", "marker"), "utf8")).toBe("new");
+			expect(fs.readdirSync(path.dirname(dest))).toEqual(["ompdesk.app"]);
+			expect(fs.existsSync(src)).toBe(false);
+			expect(fs.readFileSync(path.join(dir, "swap.log"), "utf8")).toContain("installed");
+		});
+
+		it("leaves the installed app untouched when the staged bundle is gone", async () => {
+			const dest = path.join(dir, "ompdesk.app");
+			makeApp(dest, "old");
+			const status = await runSwap(999_999, path.join(dir, "missing", "ompdesk.app"), dest);
+
+			expect(status).toBe(1);
+			expect(fs.readFileSync(path.join(dest, "Contents", "marker"), "utf8")).toBe("old");
+			expect(fs.readdirSync(dir).sort()).toEqual(["ompdesk.app", "swap.log"]);
+		});
 	});
 });
 

@@ -28,6 +28,40 @@ export function quitRisk(): QuitRisk {
 }
 
 /**
+ * Ask before a quit that would stop running work. True when nothing is
+ * running or the user chose to quit anyway; false when they keep working or a
+ * prompt is already open (⌘Q pressed again must not queue a second modal).
+ */
+export async function confirmQuit(): Promise<boolean> {
+	const risk = quitRisk();
+	if (!quitNeedsConfirmation(risk)) return true;
+	if (asking) return false;
+	asking = true;
+	const language = getMainLanguage();
+	const owner = BrowserWindow.getFocusedWindow();
+	const options: MessageBoxOptions = {
+		type: "warning",
+		buttons: [mainT("quit.quitAnyway", language), mainT("quit.keepWorking", language)],
+		defaultId: 1,
+		cancelId: 1,
+		message: mainT("quit.workingTitle", language),
+		detail: mainT("quit.workingBody", language, {
+			working: risk.workingTabs,
+			total: risk.totalTabs,
+			windows: risk.workingWindows,
+		}),
+	};
+	try {
+		const result = await (owner ? dialog.showMessageBox(owner, options) : dialog.showMessageBox(options));
+		return result.response === 0;
+	} catch {
+		return false;
+	} finally {
+		asking = false;
+	}
+}
+
+/**
  * Register the `before-quit` gate. `tabInventory` reports what the sidecars are
  * doing, `teardown` runs exactly once per approved quit.
  */
@@ -41,36 +75,8 @@ export function installQuitGuard(tabInventory: () => WindowTabFact[], teardown: 
 			return;
 		}
 		event.preventDefault();
-		// ⌘Q pressed again while the dialog is open: the app must not queue a
-		// second modal, and it must not quit.
-		if (asking) return;
-		const risk = quitRisk();
-		if (!quitNeedsConfirmation(risk)) {
-			requestQuit();
-			return;
-		}
-		asking = true;
-		const language = getMainLanguage();
-		const owner = BrowserWindow.getFocusedWindow();
-		const options: MessageBoxOptions = {
-			type: "warning",
-			buttons: [mainT("quit.quitAnyway", language), mainT("quit.keepWorking", language)],
-			defaultId: 1,
-			cancelId: 1,
-			message: mainT("quit.workingTitle", language),
-			detail: mainT("quit.workingBody", language, {
-				working: risk.workingTabs,
-				total: risk.totalTabs,
-				windows: risk.workingWindows,
-			}),
-		};
-		void (owner ? dialog.showMessageBox(owner, options) : dialog.showMessageBox(options))
-			.then(result => {
-				asking = false;
-				if (result.response === 0) requestQuit();
-			})
-			.catch(() => {
-				asking = false;
-			});
+		void confirmQuit().then(ok => {
+			if (ok) requestQuit();
+		});
 	});
 }

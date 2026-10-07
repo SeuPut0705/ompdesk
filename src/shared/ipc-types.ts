@@ -255,7 +255,14 @@ export interface RuntimeErrorReport {
 // Update status machine (electron-updater/manual macOS installer → renderer)
 // ============================================================================
 
-export type UpdateInstallMode = "automatic" | "manual";
+/**
+ * `automatic`: electron-updater/Squirrel (signed macOS, Windows NSIS).
+ * `relaunch`: ad-hoc macOS build in a writable location — the verified ZIP is
+ * staged in the background and swapped in place on restart or quit.
+ * `manual`: ad-hoc build the app cannot replace itself (read-only location) —
+ * the verified DMG opens in Finder.
+ */
+export type UpdateInstallMode = "automatic" | "relaunch" | "manual";
 
 export type UpdateStatus =
 	| { state: "idle" }

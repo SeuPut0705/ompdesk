@@ -77,6 +77,41 @@ describe("UpdateBanner", () => {
 		expect(apply).toHaveBeenCalledOnce();
 	});
 
+	it("stays silent while a background update downloads, then offers one restart", async () => {
+		useUpdaterStore.setState({
+			status: { state: "available", version: "0.8.5", mode: "relaunch" },
+			dismissed: {},
+		});
+		await mount(<UpdateBanner />);
+		expect(container.textContent).toBe("");
+
+		await act(async () => {
+			useUpdaterStore.setState({
+				status: {
+					state: "downloading",
+					version: "0.8.5",
+					mode: "relaunch",
+					percent: 40,
+					bytesPerSecond: 1,
+					transferred: 40,
+					total: 100,
+				},
+			});
+		});
+		expect(container.textContent).toBe("");
+
+		await act(async () => {
+			useUpdaterStore.setState({ status: { state: "downloaded", version: "0.8.5", mode: "relaunch" } });
+		});
+		const restart = container.querySelectorAll("button").find(button => button.textContent?.includes("Restart"));
+		expect(container.textContent).toContain("installs when you quit");
+		await act(async () => {
+			restart?.click();
+		});
+		expect(apply).toHaveBeenCalledOnce();
+		expect(download).not.toHaveBeenCalled();
+	});
+
 	it("retains restart-and-install for certificate-backed automatic updates", async () => {
 		useUpdaterStore.setState({
 			status: { state: "downloaded", version: "0.8.5", mode: "automatic" },
