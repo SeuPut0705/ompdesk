@@ -167,7 +167,7 @@ describe("SidecarPool session kind", () => {
 	});
 });
 
-describe("SidecarPool cwd spelling", () => {
+describe.skipIf(process.platform === "win32")("SidecarPool cwd spelling", () => {
 	it("spawns every tab on the resolved path, so a symlinked spelling can't split a project", () => {
 		const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-cwd-")));
 		try {
