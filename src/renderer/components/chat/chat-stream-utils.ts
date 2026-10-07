@@ -68,6 +68,21 @@ export function shouldRePinTranscript(gestureTowardTail: GestureTowardTail, atLi
 	return atLiveEdge && gestureTowardTail === true;
 }
 
+/** Puts the transcript at its live edge with one offset write — the only way the
+ * follower may move the viewport. Never `scrollToEnd()`: TanStack runs it as an index
+ * scroll whose reconcile loop re-targets the bottom on every frame the content grows,
+ * for up to five seconds, and no reader gesture cancels it. Mid-stream the tail grows
+ * every frame, so the loop is nearly always live, and a wheel-up landing inside it was
+ * dragged straight back to the bottom by the next chunk. An offset scroll's reconcile
+ * keeps its first target and only settles sub-pixel rounding, so after this write the
+ * gesture-vetoed follow paths in ChatStream are the only thing that chases the tail. */
+export function scrollTranscriptToTail(
+	virtualizer: { scrollToOffset(offset: number): void },
+	viewport: { scrollHeight: number; clientHeight: number },
+): void {
+	virtualizer.scrollToOffset(viewport.scrollHeight - viewport.clientHeight);
+}
+
 /**
  * How far from the end of the transcript a live commit can hand over rows, and
  * the largest growth that still reads as one turn. A wider jump is a hydrate or

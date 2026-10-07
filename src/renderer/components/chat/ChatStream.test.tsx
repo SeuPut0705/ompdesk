@@ -1,3 +1,4 @@
+import { elementScroll, Virtualizer } from "@tanstack/react-virtual";
 import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import type { TodoSnapshot } from "../../stores/todo";
@@ -15,6 +16,7 @@ import {
 	LIVE_EDGE_SLACK_PX,
 	mergeTodoSnapshots,
 	ROW_ENTRANCE_TAIL_ROWS,
+	scrollTranscriptToTail,
 	shouldRePinTranscript,
 } from "./ChatStream";
 
@@ -288,6 +290,61 @@ describe("virtual transcript identity", () => {
 		// Toward the tail is not yet on it.
 		expect(shouldRePinTranscript(true, false)).toBe(false);
 		expect(shouldRePinTranscript(false, false)).toBe(false);
+	});
+
+	it("never drags a reader who scrolled up back to the tail after a follow write", () => {
+		// A real virtualizer over a fake scroll element: frames run only when flushed,
+		// so a wheel can land between the follow write and its reconcile pass.
+		const frames: FrameRequestCallback[] = [];
+		const flushFrame = () => {
+			for (const frame of frames.splice(0)) frame(0);
+		};
+		let reportOffset: (offset: number, isScrolling: boolean) => void = () => {};
+		const transcript = {
+			ownerDocument: {
+				defaultView: {
+					requestAnimationFrame: (frame: FrameRequestCallback) => frames.push(frame),
+					cancelAnimationFrame: () => {},
+				},
+			},
+			scrollHeight: 1000,
+			clientHeight: 200,
+			scrollTop: 800,
+			scrollTo({ top = 0 }: ScrollToOptions) {
+				transcript.scrollTop = Math.min(top, transcript.scrollHeight - transcript.clientHeight);
+				reportOffset(transcript.scrollTop, false);
+			},
+		};
+		// The fake only implements what the virtualizer reads from its scroll element.
+		const scrollElement = transcript as unknown as HTMLElement;
+		const virtualizer = new Virtualizer<HTMLElement, Element>({
+			count: 1,
+			estimateSize: () => 1000,
+			getScrollElement: () => scrollElement,
+			scrollToFn: elementScroll,
+			observeElementRect: (_instance, report) => {
+				report({ width: 800, height: transcript.clientHeight });
+			},
+			observeElementOffset: (_instance, report) => {
+				reportOffset = report;
+				report(transcript.scrollTop, false);
+			},
+		});
+		virtualizer._willUpdate();
+
+		// The streaming row grows and the follower takes the tail.
+		transcript.scrollHeight = 1100;
+		scrollTranscriptToTail(virtualizer, transcript);
+		expect(transcript.scrollTop).toBe(900);
+
+		// The reader wheels up before the next frame, and the stream keeps growing.
+		transcript.scrollTop = 300;
+		reportOffset(300, true);
+		for (let chunk = 0; chunk < 4; chunk++) {
+			transcript.scrollHeight += 100;
+			flushFrame();
+		}
+		expect(transcript.scrollTop).toBe(300);
 	});
 
 	it("keeps an empty wire message anchored when a tool call finalizes it", () => {

@@ -50,6 +50,7 @@ import {
 	mergeTodoSnapshots,
 	messageTimestampMs,
 	type Row,
+	scrollTranscriptToTail,
 	shouldRePinTranscript,
 } from "./chat-stream-utils";
 import { ExecutionGroup } from "./ExecutionGroup";
@@ -206,9 +207,10 @@ function SessionTranscript() {
 	// Whether the tail belongs to the follower. An upward gesture is the only thing
 	// that revokes it: `pinned` carries the reader's intent, and the measured edge is
 	// the fallback for a stale unpinned flag from a restored view. Reading only the
-	// measured edge let one frame of lag strand the stream — `scrollToEnd()` targets
-	// the virtualizer's size, which trails a row that is still growing, so the view
-	// fell outside the edge slack and the tail was abandoned for the rest of the run.
+	// measured edge let one frame of lag strand the stream — a follow write lands on
+	// the edge of the layout it was issued against, which trails a row that is still
+	// growing, so the view fell outside the edge slack and the tail was abandoned for
+	// the rest of the run.
 	const followsTail = useCallback(
 		(metrics: Parameters<typeof isTranscriptAtLiveEdge>[0]) =>
 			viewRef.current.pinned || (isTranscriptAtLiveEdge(metrics) && gestureTowardTailRef.current !== false),
@@ -217,7 +219,11 @@ function SessionTranscript() {
 
 	const followedSizeRef = useRef(0);
 	const handleVirtualizerChange = useCallback(
-		(instance: { range: { startIndex: number } | null; getTotalSize: () => number; scrollToEnd: () => void }) => {
+		(instance: {
+			range: { startIndex: number } | null;
+			getTotalSize: () => number;
+			scrollToOffset: (offset: number) => void;
+		}) => {
 			const next = instance.range?.startIndex;
 			if (next != null) setVisibleRowIndex(current => (current === next ? current : next));
 			// A row measured taller (streamed text): pin in this same frame. The
@@ -229,7 +235,7 @@ function SessionTranscript() {
 			followedSizeRef.current = size;
 			const el = parentRef.current;
 			if (!el || userScrollIntentRef.current || !followsTail(el)) return;
-			instance.scrollToEnd();
+			scrollTranscriptToTail(instance, el);
 		},
 		[followsTail],
 	);
@@ -323,7 +329,7 @@ function SessionTranscript() {
 			if (!followsTail(el)) return;
 			// A wheel gesture can arrive before React cleans up this queued frame.
 			if (userScrollIntentRef.current) return;
-			virtualizer.scrollToEnd();
+			scrollTranscriptToTail(virtualizer, el);
 		});
 		return () => cancelAnimationFrame(frame);
 	}, [virtualizer, followsTail, rows.length, tailRowKey, sessionId, totalSize]);
@@ -352,7 +358,7 @@ function SessionTranscript() {
 				scrollTop: el.scrollTop,
 				clientHeight: Math.max(previousHeight, viewportHeight),
 			};
-			if (followsTail(metrics)) virtualizer.scrollToEnd();
+			if (followsTail(metrics)) scrollTranscriptToTail(virtualizer, el);
 		});
 		observer.observe(canvas);
 		observer.observe(el);
@@ -495,7 +501,8 @@ function SessionTranscript() {
 		gestureAnchorRef.current = null;
 		gestureTowardTailRef.current = true;
 		setPinned(true);
-		virtualizer.scrollToEnd();
+		const el = parentRef.current;
+		if (el) scrollTranscriptToTail(virtualizer, el);
 	}, [virtualizer]);
 
 	// A send reclaims the live edge even when the user had scrolled up. Mounted
@@ -515,7 +522,11 @@ function SessionTranscript() {
 			gestureAnchorRef.current = null;
 			gestureTowardTailRef.current = null;
 			setPinned(false);
-			virtualizer.scrollToIndex(rowIndex, { align: "start" });
+			// One offset scroll, not scrollToIndex: its reconcile loop keeps re-aiming at
+			// the row for ~5s while rows above it are measured, and would drag back a
+			// reader who scrolls on in the meantime (same trap as scrollToEnd).
+			const offset = virtualizer.getOffsetForIndex(rowIndex, "start")?.[0];
+			if (offset !== undefined) virtualizer.scrollToOffset(offset);
 		},
 		[virtualizer],
 	);
@@ -1193,5 +1204,6 @@ export {
 	LIVE_EDGE_SLACK_PX,
 	mergeTodoSnapshots,
 	ROW_ENTRANCE_TAIL_ROWS,
+	scrollTranscriptToTail,
 	shouldRePinTranscript,
 } from "./chat-stream-utils";
