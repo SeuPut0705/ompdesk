@@ -1,9 +1,10 @@
 /**
  * Stock `omp --mode rpc-ui` exits before `ready` when no model has credentials
- * ("No models available…"), so a first-run user would never reach the
- * onboarding dialog that connects a provider. An explicit `--model` boots it
- * unauthenticated. The selector comes from the installed omp's catalog
- * (resources/gui-bridge/boot-model.ts), once per omp install and version.
+ * ("No default model selected…" since 18.7, "No models available…" before), so
+ * a first-run user would never reach the onboarding dialog that connects a
+ * provider. An explicit `--model` boots it unauthenticated. The selector comes
+ * from the installed omp's catalog (resources/gui-bridge/boot-model.ts), once
+ * per omp install and version.
  */
 import { spawn } from "node:child_process";
 import { join } from "node:path";
@@ -18,12 +19,16 @@ const RESOLVE_TIMEOUT_MS = 15_000;
 const SELECTOR_RE = /^[\w.-]+\/\S+$/;
 
 /**
- * Covers both stock spellings: "No models available." and "No model available
- * matching enabledModels …". No leading `\b`: omp colors the line, and the
- * ANSI code ends in a letter (`\x1b[31mNo models…`).
+ * Stock omp has no exit code or flag for "no usable model": its non-interactive
+ * startup prints a headline and exits 1. Matches every headline spelling —
+ * "No default model selected." (18.7+), "No models available." (18.6), "No
+ * model available matching enabledModels …" — plus the API-key footer that
+ * stock appends to all of them, so a reworded headline still recovers. No
+ * leading `\b`: omp colors the lines, and the ANSI code ends in a letter
+ * (`\x1b[31mNo models…`).
  */
 export function isNoModelBootFailure(stderr: string): boolean {
-	return /No models? available\b/.test(stderr);
+	return /No models? available\b|No default model selected\b|Set an API key environment variable:/.test(stderr);
 }
 
 function runBootModelScript(script: string, packageRoot: string, path: string): Promise<string> {

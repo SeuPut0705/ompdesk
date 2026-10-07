@@ -30,12 +30,22 @@ async function fakeInstall(dir: string, defaults: Record<string, string>): Promi
 	return bin;
 }
 
-test("recognizes both stock no-model boot failures", () => {
+test("recognizes every stock no-model boot failure", () => {
+	expect(
+		isNoModelBootFailure(
+			"No default model selected. Use /login, set an API key environment variable, or select a local model with /model or --model.",
+		),
+	).toBe(true);
 	expect(isNoModelBootFailure("No models available. Use /login or set an API key environment variable.")).toBe(true);
 	expect(isNoModelBootFailure("No model available matching enabledModels (x/y) with usable credentials.")).toBe(true);
+	// The API-key footer stock appends to every headline: a reworded headline still recovers.
+	expect(isNoModelBootFailure("Something new.\n\nSet an API key environment variable:\n  ANTHROPIC_API_KEY")).toBe(
+		true,
+	);
 	expect(isNoModelBootFailure("error: Could not restore model gone/model-x")).toBe(false);
 	// omp writes it in red when the terminal (or CI) asks for color.
 	expect(isNoModelBootFailure("\x1b[31mNo models available. Use /login\x1b[39m")).toBe(true);
+	expect(isNoModelBootFailure("\x1b[31mNo default model selected. Use /login\x1b[39m")).toBe(true);
 });
 
 test("picks the boot model from the installed omp's catalog defaults", async () => {

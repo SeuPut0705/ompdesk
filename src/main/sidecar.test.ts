@@ -510,59 +510,71 @@ describe("SidecarManager", () => {
 		}
 	}, 15_000);
 
-	it("boots on a catalog model when omp has no usable model, then drops it once ready", async () => {
-		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-no-model-"));
-		const logPath = path.join(tempDir, "argv.jsonl");
-		const binaryPath = await writeFakeOmp(
-			tempDir,
-			[
-				'import * as fs from "node:fs/promises";',
-				"const argv = process.argv.slice(2);",
-				`await fs.appendFile(${JSON.stringify(logPath)}, JSON.stringify(argv) + "\\n");`,
-				'if (!argv.includes("--model")) {',
-				// Red, as stock prints it when color is forced (CI): the parser must see through ANSI codes.
-				'\tprocess.stderr.write("\\x1b[31mNo models available. Use /login or set an API key environment variable. Then use /model to select a model.\\x1b[39m\\n");',
-				"\tprocess.exit(1);",
-				"}",
-				'process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
-				"process.stdin.resume();",
-			].join("\n"),
-		);
+	// Red/yellow, as stock prints them when color is forced (CI): the parser must see through ANSI codes.
+	it.each([
+		[
+			"18.6",
+			"\\x1b[31mNo models available. Use /login or set an API key environment variable. Then use /model to select a model.\\x1b[39m\\n",
+		],
+		[
+			"18.7",
+			"\\x1b[31mNo default model selected. Use /login, set an API key environment variable, or select a local model with /model or --model.\\x1b[39m\\n\\x1b[33m\\nSet an API key environment variable:\\x1b[39m\\n  ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, etc.\\n",
+		],
+	])(
+		"boots on a catalog model when omp %s has no usable model, then drops it once ready",
+		async (_version, stderr) => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-no-model-"));
+			const logPath = path.join(tempDir, "argv.jsonl");
+			const binaryPath = await writeFakeOmp(
+				tempDir,
+				[
+					'import * as fs from "node:fs/promises";',
+					"const argv = process.argv.slice(2);",
+					`await fs.appendFile(${JSON.stringify(logPath)}, JSON.stringify(argv) + "\\n");`,
+					'if (!argv.includes("--model")) {',
+					`\tprocess.stderr.write("${stderr}");`,
+					"\tprocess.exit(1);",
+					"}",
+					'process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
+					"process.stdin.resume();",
+				].join("\n"),
+			);
 
-		const reportFailure = vi.fn();
-		const bootModel = vi.fn(async () => "catalog/model-a");
-		const statuses: SidecarStatusPayload[] = [];
-		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, reportFailure, bootModel });
-		sidecar.on("status", payload => statuses.push(payload));
-		const launches = async () =>
-			(await fs.readFile(logPath, "utf8"))
-				.split("\n")
-				.filter(Boolean)
-				.map(line => JSON.parse(line) as string[]);
-		try {
-			const ready = waitForReady(sidecar);
-			sidecar.start();
-			await ready;
-			expect(await launches()).toEqual([
-				["--mode", "rpc-ui"],
-				["--mode", "rpc-ui", "--model", "catalog/model-a"],
-			]);
-			expect(bootModel).toHaveBeenCalledTimes(1);
-			// A recoverable boot failure is not a crash: no restart backoff, no crash report.
-			expect(statuses.some(payload => payload.status === "restarting")).toBe(false);
-			expect(reportFailure).not.toHaveBeenCalled();
+			const reportFailure = vi.fn();
+			const bootModel = vi.fn(async () => "catalog/model-a");
+			const statuses: SidecarStatusPayload[] = [];
+			const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, reportFailure, bootModel });
+			sidecar.on("status", payload => statuses.push(payload));
+			const launches = async () =>
+				(await fs.readFile(logPath, "utf8"))
+					.split("\n")
+					.filter(Boolean)
+					.map(line => JSON.parse(line) as string[]);
+			try {
+				const ready = waitForReady(sidecar);
+				sidecar.start();
+				await ready;
+				expect(await launches()).toEqual([
+					["--mode", "rpc-ui"],
+					["--mode", "rpc-ui", "--model", "catalog/model-a"],
+				]);
+				expect(bootModel).toHaveBeenCalledTimes(1);
+				// A recoverable boot failure is not a crash: no restart backoff, no crash report.
+				expect(statuses.some(payload => payload.status === "restarting")).toBe(false);
+				expect(reportFailure).not.toHaveBeenCalled();
 
-			// Once booted, a restart (e.g. after the user connects a provider) asks
-			// omp for its own default model again instead of pinning the placeholder.
-			sidecar.restart();
-			await expect
-				.poll(async () => (await launches())[2], { timeout: 5_000, interval: 25 })
-				.toEqual(["--mode", "rpc-ui"]);
-		} finally {
-			sidecar.dispose();
-			await fs.rm(tempDir, RM_TEMP);
-		}
-	});
+				// Once booted, a restart (e.g. after the user connects a provider) asks
+				// omp for its own default model again instead of pinning the placeholder.
+				sidecar.restart();
+				await expect
+					.poll(async () => (await launches())[2], { timeout: 5_000, interval: 25 })
+					.toEqual(["--mode", "rpc-ui"]);
+			} finally {
+				sidecar.dispose();
+				await fs.rm(tempDir, RM_TEMP);
+			}
+		},
+	);
 
 	// Windows CI: the fake's grandchild never got its write out after the fake
 	// exited (the respawn loop never saw it), so the late-stderr setup only holds on POSIX.

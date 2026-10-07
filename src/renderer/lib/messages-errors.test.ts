@@ -32,6 +32,7 @@ describe("describeTurnError", () => {
 		["Invalid API key provided", "auth"],
 		["No API key found for anthropic", "auth"],
 		["No models available. Use /login or set an API key environment variable.", "auth"],
+		["No default model selected. Use /login, set an API key environment variable, or select a local model.", "auth"],
 		["No model selected", "auth"],
 		["429 Too Many Requests", "rateLimit"],
 		["Rate limit reached for requests per minute", "rateLimit"],

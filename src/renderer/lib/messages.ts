@@ -146,7 +146,7 @@ const TURN_ERROR_PATTERNS: ReadonlyArray<readonly [Exclude<TurnErrorKind, "unkno
 			statusPattern("401|403"),
 			/invalid[ _-]?(?:x-)?api[ _-]?key|unauthori[sz]ed|authentication|\bforbidden\b/i,
 			/no api key|api key (?:is )?(?:missing|not found|invalid)/i,
-			/no models available|no model selected|not logged in|log ?in required|token (?:has )?expired/i,
+			/no models available|no (?:default )?model selected|not logged in|log ?in required|token (?:has )?expired/i,
 		],
 	],
 	[

@@ -195,7 +195,7 @@ export interface SidecarOptions {
 	reportFailure?: (report: SidecarFailureReport) => void;
 	/**
 	 * A catalog `provider/model` selector for `runtime` (src/main/boot-model.ts).
-	 * Absent: a spawn that exits with "No models available" just crash-loops.
+	 * Absent: a spawn that exits for lack of a usable model just crash-loops.
 	 */
 	bootModel?: (runtime: OmpRuntime) => Promise<string>;
 }
@@ -303,8 +303,8 @@ export class SidecarManager extends EventEmitter {
 	 */
 	#bootModelFallback: string | null = null;
 	/**
-	 * Catalog model the next spawns pass as `--model` after one exited with "No
-	 * models available" (no credentials yet): booting is what lets the renderer
+	 * Catalog model the next spawns pass as `--model` after one exited for lack
+	 * of a usable model (no credentials yet): booting is what lets the renderer
 	 * open onboarding to connect a provider. Cleared on `ready` and restart().
 	 */
 	#noModelBoot: string | null = null;

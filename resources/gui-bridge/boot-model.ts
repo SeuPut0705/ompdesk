@@ -4,9 +4,10 @@
  *
  *   OMP_PACKAGE_ROOT=<…/@oh-my-pi/pi-coding-agent> bun boot-model.ts
  *
- * Stock `--mode rpc-ui` exits with "No models available" when nothing is
- * authenticated, and `omp models` lists authenticated models only, so the pick
- * comes from the catalog's per-provider defaults in whichever omp is installed.
+ * Stock `--mode rpc-ui` exits ("No default model selected" / "No models
+ * available") when nothing is authenticated, and `omp models` lists
+ * authenticated models only, so the pick comes from the catalog's per-provider
+ * defaults in whichever omp is installed.
  */
 import * as path from "node:path";
 
