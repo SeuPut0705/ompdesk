@@ -86,6 +86,20 @@ export type RpcCommand =
 	| { id?: string; type: "get_skills" }
 	| { id?: string; type: "get_skill_detail"; name: string }
 	| { id?: string; type: "get_agent_definitions" }
+	| { id?: string; type: "get_agent_definition"; name: string }
+	| { id?: string; type: "get_agent_authoring" }
+	// Agent definition files (main process; user / project agents directories only)
+	| { id?: string; type: "read_agent_file"; filePath: string }
+	| {
+			id?: string;
+			type: "write_agent_file";
+			scope: AgentFileScope;
+			name: string;
+			content: string;
+			replacePath?: string;
+	  }
+	| { id?: string; type: "delete_agent_file"; filePath: string }
+	| { id?: string; type: "install_agent_templates"; scope: AgentFileScope; names?: string[] }
 	| { id?: string; type: "get_hooks" }
 	| { id?: string; type: "get_mcp_servers" }
 	| { id?: string; type: "get_gui_themes" }
@@ -1393,6 +1407,9 @@ export interface RpcAgentDefinitionsResult {
 }
 
 export interface AgentProgress {
+	advisor?: boolean | string;
+	/** Set when the file lives directly in the user or project agents directory (editable there); absent for bundled and extension agents. */
+	scope?: AgentFileScope;
 	index: number;
 	id: string;
 	agent: string;
@@ -1402,6 +1419,38 @@ export interface AgentProgress {
 	assignment?: string;
 	description?: string;
 	lastIntent?: string;
+/** The two directories seucode writes agent definitions to. */
+export type AgentFileScope = "user" | "project";
+
+/** `get_agent_authoring`: where agent files live and which tools omp offers. */
+export interface RpcAgentAuthoringInfo {
+	dirs: Record<AgentFileScope, string>;
+	/** omp's built-in tool names, in omp's order. */
+	builtinTools: string[];
+	/** Every tool registered in the live session (built-ins plus MCP/extension tools). */
+	registeredTools: string[];
+}
+
+/** `get_agent_definition`: one discovered definition with its instructions (system prompt). */
+export interface RpcAgentDefinitionDetail
+	extends Omit<RpcAgentDefinitionInfo, "defaultPatterns" | "effectivePatterns"> {
+	systemPrompt: string;
+}
+
+/** `read_agent_file`. */
+export interface RpcAgentFileContent {
+	filePath: string;
+	scope: AgentFileScope;
+	content: string;
+}
+
+/** `install_agent_templates`: names written and names left alone because a file already existed. */
+export interface RpcAgentTemplatesInstallResult {
+	dir: string;
+	installed: string[];
+	skipped: string[];
+}
+
 	currentTool?: string;
 	currentToolArgs?: string;
 	currentToolStartMs?: number;

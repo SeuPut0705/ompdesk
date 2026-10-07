@@ -3,6 +3,8 @@
  * Ported from the omp-gui fork's rpc-agents / rpc-domains / rpc-mode theme
  * cases onto stock omp internals.
  */
+import path from "node:path";
+import { findAllNearestProjectConfigDirs, getConfigDirs } from "@oh-my-pi/pi-coding-agent/config";
 import {
 	formatModelString,
 	resolveAgentModelPatterns,
@@ -14,21 +16,39 @@ import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-
 import { AgentRegistry, MAIN_AGENT_ID } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import { discoverAgents } from "@oh-my-pi/pi-coding-agent/task/discovery";
 import { resolveAgentPrewalkDefault } from "@oh-my-pi/pi-coding-agent/task/prewalk";
+import { BUILTIN_TOOL_NAMES, HIDDEN_TOOL_NAMES } from "@oh-my-pi/pi-coding-agent/tools/builtin-names";
+import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { getAvailableThemesWithPaths, getResolvedThemeColors } from "@oh-my-pi/pi-tui/theme";
 import { guard } from "../health";
 import type { BridgeMethods } from "../types";
 import { errorMessage, paramsOf, readSetting, requireString } from "./shared";
+
+/** Where omp's discovery reads `.omp` task agents for this session: the user dir and the nearest project dir (or where it would be). */
+function agentDirs(session: AgentSession): { user: string; project: string } {
+	const cwd = path.resolve(session.sessionManager.getCwd());
+	const user = getConfigDirs("agents", { project: false }).find(entry => entry.source === ".omp")?.path;
+	if (!user) throw new Error("omp reports no user agents directory");
+	const nearest = findAllNearestProjectConfigDirs("agents", cwd).find(entry => entry.source === ".omp")?.path;
+	return { user: path.resolve(user), project: path.resolve(nearest ?? path.join(cwd, ".omp", "agents")) };
+}
+
+async function discover(session: AgentSession) {
+	const { agents } = await discoverAgents(session.sessionManager.getCwd(), undefined, session.effectiveExtensionRoots);
+	return agents;
+}
 
 export const methods: BridgeMethods = {
 	...guard("agents", {
 		/** Workspace-visible definitions plus the TUI control center's model/prewalk projection. */
 		get_agent_definitions: async (_params, env) => {
 			const session = env.session();
-			const { agents } = await discoverAgents(
-				session.sessionManager.getCwd(),
-				undefined,
-				session.effectiveExtensionRoots,
-			);
+			const agents = await discover(session);
+			const dirs = agentDirs(session);
+			const scopeOf = (filePath: string | undefined) => {
+				if (!filePath) return undefined;
+				const parent = path.dirname(path.resolve(filePath));
+				return parent === dirs.project ? "project" : parent === dirs.user ? "user" : undefined;
+			};
 			const activeModelPattern = session.model ? formatModelString(session.model) : undefined;
 			const fallbackModelPattern = session.settings.getModelRole("default");
 			const modelOverrides = readSetting<Record<string, string>>(session, "task.agentModelOverrides") ?? {};
@@ -73,6 +93,8 @@ export const methods: BridgeMethods = {
 						blocking: agent.blocking,
 						readSummarize: agent.readSummarize,
 						prewalk: agent.prewalk,
+						advisor: agent.advisor,
+						scope: agent.source === "bundled" ? undefined : scopeOf(agent.filePath),
 						defaultPatterns,
 						defaultResolved: resolve(defaultPatterns).model,
 						effectivePatterns,
@@ -82,6 +104,42 @@ export const methods: BridgeMethods = {
 						prewalkResolved: prewalkPattern ? resolve([prewalkPattern]).model : undefined,
 					};
 				}),
+			};
+		},
+
+		/** One discovered definition with its system prompt (the editor's Duplicate of bundled/extension agents). */
+		get_agent_definition: async (params, env) => {
+			const name = requireString(paramsOf(params), "name");
+			const agent = (await discover(env.session())).find(entry => entry.name === name);
+			if (!agent) throw new Error(`Unknown agent "${name}"`);
+			return {
+				name: agent.name,
+				description: agent.description,
+				source: agent.source,
+				filePath: agent.filePath,
+				systemPrompt: agent.systemPrompt,
+				model: agent.model,
+				thinkingLevel: agent.thinkingLevel,
+				tools: agent.tools,
+				spawns: agent.spawns,
+				autoloadSkills: agent.autoloadSkills,
+				output: agent.output,
+				blocking: agent.blocking,
+				readSummarize: agent.readSummarize,
+				prewalk: agent.prewalk,
+				advisor: agent.advisor,
+			};
+		},
+
+		/** Agent directories discovery reads, plus omp's tool names for the editor's tool picker. */
+		get_agent_authoring: async (_params, env) => {
+			const session = env.session();
+			const hidden = new Set<string>(HIDDEN_TOOL_NAMES);
+			const registered = typeof session.getAllToolNames === "function" ? session.getAllToolNames() : [];
+			return {
+				dirs: agentDirs(session),
+				builtinTools: [...BUILTIN_TOOL_NAMES],
+				registeredTools: registered.filter(name => !hidden.has(name)),
 			};
 		},
 

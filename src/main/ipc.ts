@@ -863,6 +863,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return { ok: true, resolvedPath: resolved };
 	});
 
+	// "Show in Finder" for an absolute path the renderer already knows (agent definition files).
+	ipcMain.handle(IPC_COMMANDS.SYSTEM_REVEAL_PATH, async (_event, target: string): Promise<IpcOpenPathResult> => {
+		if (typeof target !== "string" || !path.isAbsolute(target)) return { ok: false, error: "Not an absolute path" };
+		try {
+			await fsp.access(target);
+		} catch {
+			return { ok: false, error: "File not found" };
+		}
+		shell.showItemInFolder(target);
+		return { ok: true, resolvedPath: target };
+	});
+
 	ipcMain.handle(
 		IPC_COMMANDS.SYSTEM_SAVE_DIALOG,
 		async (event, defaultPath?: string, filters?: { name: string; extensions: string[] }[]) => {

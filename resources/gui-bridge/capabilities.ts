@@ -439,6 +439,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			],
 			[`${AGENT}/config/registry`]: ["lookup()"],
 			[`${AGENT}/memory-backend/resolve`]: ["resolveMemoryBackend()"],
+			[`${AGENT}/config`]: ["getConfigDirs()", "findAllNearestProjectConfigDirs()"],
 			[`${AGENT}/registry/agent-lifecycle`]: ["AgentLifecycleManager.global()"],
 			[`${AGENT}/registry/agent-registry`]: ["AgentRegistry.global()", "MAIN_AGENT_ID"],
 			[`${AGENT}/task/discovery`]: ["discoverAgents()"],
@@ -451,6 +452,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		},
 	},
 	settings: {
+			[`${AGENT}/tools/builtin-names`]: ["BUILTIN_TOOL_NAMES", "HIDDEN_TOOL_NAMES"],
 		session: ["settings", "model", "thinkingLevel"],
 		modules: {
 			[`${AGENT}/config/all-settings`]: ["orderedSettings()"],

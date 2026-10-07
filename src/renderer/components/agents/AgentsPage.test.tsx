@@ -1,7 +1,9 @@
 /**
  * Agents page: the store-driven tabs (⌥A / ⌥P / palette deep links land on
  * `agentsTab`), the Definitions settings writes (enable switch, prewalk
- * select), and the Pull requests empty state offering the fixing action.
+ * select), the per-row authoring menu (edit/delete only for files in the
+ * agent folders) with delete, and the Pull requests empty state offering the
+ * fixing action.
  */
 import { parseHTML } from "linkedom";
 import { act } from "react";
@@ -183,5 +185,44 @@ describe("AgentsPage", () => {
 		expect(document.body.textContent).toContain("GitHub CLI (gh) is not installed");
 		await fire(byText("button", "Install GitHub CLI")!, "click");
 		expect(omp.openExternal).toHaveBeenCalledWith("https://cli.github.com");
+	});
+
+	it("offers edit and delete only for files in the agent folders, and deletes through the main process", async () => {
+		const omp = installOmp();
+		omp.getAgentDefinitions.mockImplementation(async () =>
+			ok("get_agent_definitions", {
+				agents: [
+					{ name: "mine", description: "Mine", source: "user", scope: "user", filePath: "/u/agents/mine.md" },
+					{ name: "plug", description: "Plugin", source: "user", filePath: "/plugins/p/agents/plug.md" },
+					{ name: "scout", description: "Explorer", source: "bundled", filePath: "embedded:scout.md" },
+				],
+			}),
+		);
+		const deleteAgentFile = vi.fn(async (filePath: string) => ok("delete_agent_file", { deleted: filePath }));
+		Object.assign(window.omp.rpc, { deleteAgentFile });
+		useSessionStore.getState().setStatus("ready", "/repo");
+		useUiStore.getState().openAgents("definitions");
+		await mount();
+
+		const trigger = (name: string) =>
+			queryAll("button").find(button => button.getAttribute("aria-label") === `Actions for ${name}`)!;
+		const menuLabels = async (name: string) => {
+			await fire(trigger(name), "click");
+			return queryAll(`[role="menu"][aria-label="Actions for ${name}"] [role="menuitem"]`).map(item =>
+				item.textContent?.trim(),
+			);
+		};
+		expect(await menuLabels("scout")).toEqual(["Customize a copy"]);
+		expect(await menuLabels("plug")).toEqual(["Customize a copy", "Open in editor", "Show in folder"]);
+		expect(await menuLabels("mine")).toEqual(["Edit", "Duplicate", "Open in editor", "Show in folder", "Delete"]);
+
+		await fire(queryAll("button").find(button => button.getAttribute("aria-label") === "Actions for mine")!, "click");
+		await fire(queryAll('[role="menuitem"]').find(item => item.textContent?.trim() === "Delete")!, "click");
+		expect(document.body.textContent).toContain("Delete mine?");
+		const loadsBefore = omp.getAgentDefinitions.mock.calls.length;
+		const confirm = queryAll('[role="dialog"] button').filter(button => button.textContent?.trim() === "Delete");
+		await fire(confirm.at(-1)!, "click");
+		expect(deleteAgentFile).toHaveBeenCalledWith("/u/agents/mine.md");
+		expect(omp.getAgentDefinitions.mock.calls.length).toBeGreaterThan(loadsBefore);
 	});
 });

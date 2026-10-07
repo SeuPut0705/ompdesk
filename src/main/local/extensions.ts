@@ -40,6 +40,8 @@ const BRIDGED = [
 	"delete_plugin_setting",
 	"get_memory_report",
 	"get_agent_definitions",
+	"get_agent_definition",
+	"get_agent_authoring",
 	"revive_subagent",
 	"get_themes",
 	"get_theme_colors",

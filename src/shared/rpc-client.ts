@@ -1,6 +1,7 @@
 import type { OmpApi } from "./ipc-types";
 import type { SessionModelOverride } from "./model-restore";
 import type {
+	AgentFileScope,
 	ImageContent,
 	MessagesPage,
 	RpcCommand,
@@ -225,6 +226,14 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getSkillDetail: (name: string) => rpcCommand({ type: "get_skill_detail", name }),
 		getAgentDefinitions: () => rpcCommand({ type: "get_agent_definitions" }),
 		getHooks: () => rpcCommand({ type: "get_hooks" }),
+		getAgentDefinition: (name: string) => rpcCommand({ type: "get_agent_definition", name }),
+		getAgentAuthoring: () => rpcCommand({ type: "get_agent_authoring" }),
+		readAgentFile: (filePath: string) => rpcCommand({ type: "read_agent_file", filePath }),
+		writeAgentFile: (params: { scope: AgentFileScope; name: string; content: string; replacePath?: string }) =>
+			rpcCommand({ type: "write_agent_file", ...params }),
+		deleteAgentFile: (filePath: string) => rpcCommand({ type: "delete_agent_file", filePath }),
+		installAgentTemplates: (scope: AgentFileScope, names?: string[]) =>
+			rpcCommand({ type: "install_agent_templates", scope, names }),
 		getMcpServers: () => rpcCommand({ type: "get_mcp_servers" }),
 		getGuiThemes: () => rpcCommand({ type: "get_gui_themes" }),
 		getPlugins: () => rpcCommand({ type: "get_plugins" }),

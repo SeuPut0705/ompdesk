@@ -5,18 +5,66 @@
  * task.agentPrewalk settings the TUI agent dashboard writes). Names that only
  * survive in settings or in the live roster stay listed so their overrides
  * can still be cleared.
+ *
+ * Authoring: New agent / Templates open the agent editor and the template
+ * gallery; each row's menu edits, duplicates (a bundled or plugin agent
+ * becomes an overriding user/project copy), opens, reveals or deletes the
+ * definition file. Only files directly in the user or project agents
+ * directory are editable.
  */
 
-import { RefreshCw, Users } from "lucide-react";
+import {
+	Copy,
+	ExternalLink,
+	FolderOpen,
+	LayoutTemplate,
+	MoreHorizontal,
+	Pencil,
+	Plus,
+	RefreshCw,
+	Trash2,
+	Users,
+} from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import type { RpcAgentDefinitionInfo } from "../../../shared/rpc-types";
+import {
+	type AgentDraft,
+	draftFromFields,
+	emptyAgentDraft,
+	parseAgentMarkdown,
+} from "../../../shared/agent-definition";
+import { type AgentTemplate, templateDraft } from "../../../shared/agent-templates";
+import type {
+	AgentFileScope,
+	RpcAgentDefinitionDetail,
+	RpcAgentDefinitionInfo,
+	RpcAgentFileContent,
+} from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSubagentsStore } from "../../stores/subagents";
-import { Badge, Button, EmptyState, IconButton, Input, SearchField, Select, Spinner, Switch, Tabs } from "../common";
+import { toast } from "../../stores/toast";
+import {
+	Badge,
+	Button,
+	ConfirmDialog,
+	type ContextMenuItem,
+	EmptyState,
+	IconButton,
+	Input,
+	MenuButton,
+	SearchField,
+	Select,
+	Spinner,
+	Switch,
+	Tabs,
+} from "../common";
+import { AgentEditorSheet, type AgentEditorTarget, revealAgentFile } from "./AgentEditorSheet";
+import { AgentTemplateGallery } from "./AgentTemplateGallery";
 import { type AgentSettingsState, agentSourceLabel, useAgentSettings } from "./agent-settings";
+
+type DefinitionAction = "edit" | "duplicate" | "open" | "reveal" | "delete";
 
 interface DefinitionEntry extends Partial<RpcAgentDefinitionInfo> {
 	name: string;
@@ -103,6 +151,57 @@ function DefinitionDetails({
 	);
 }
 
+/** The row's ⋯ menu: only files in the user/project agents directory are editable; anything discovered can be copied. */
+function DefinitionMenu({
+	entry,
+	onAction,
+}: {
+	entry: DefinitionEntry;
+	onAction: (action: DefinitionAction, entry: DefinitionEntry) => void;
+}) {
+	const t = useT();
+	if (!entry.source) return null;
+	const editable = Boolean(entry.scope && entry.filePath);
+	const onDisk = Boolean(entry.filePath && !entry.filePath.startsWith("embedded:") && entry.source !== "bundled");
+	const item = (id: DefinitionAction, label: string, icon: ContextMenuItem["icon"], danger?: boolean) => ({
+		id,
+		label,
+		icon,
+		danger,
+		onSelect: () => onAction(id, entry),
+	});
+	const items: ContextMenuItem[] = [
+		...(editable ? [item("edit", t("agentStudio.row.edit"), Pencil)] : []),
+		item("duplicate", entry.scope ? t("agentStudio.row.duplicate") : t("agentStudio.row.customizeCopy"), Copy),
+		...(onDisk
+			? [
+					item("open", t("agentStudio.file.open"), ExternalLink),
+					item("reveal", t("agentStudio.file.reveal"), FolderOpen),
+				]
+			: []),
+		...(editable ? [item("delete", t("agentStudio.row.delete"), Trash2, true)] : []),
+	];
+	return (
+		<MenuButton
+			align="end"
+			icon={<MoreHorizontal />}
+			items={items}
+			label={t("agentStudio.row.menu", { name: entry.name })}
+			size="sm"
+			variant="ghost"
+		/>
+	);
+}
+
+/** `<name>-copy`, `<name>-copy-2`, … — the first name no discovered agent uses. */
+function copyName(name: string, taken: readonly string[]): string {
+	const used = new Set(taken.map(entry => entry.toLowerCase()));
+	for (let index = 1; ; index++) {
+		const candidate = index === 1 ? `${name}-copy` : `${name}-copy-${index}`;
+		if (!used.has(candidate.toLowerCase())) return candidate;
+	}
+}
+
 const DefinitionRow = memo(function DefinitionRow({
 	entry,
 	state,
@@ -113,6 +212,7 @@ const DefinitionRow = memo(function DefinitionRow({
 	onCancelModelEdit,
 	onSaveModel,
 	onSetPrewalk,
+	onAction,
 }: {
 	entry: DefinitionEntry;
 	state: AgentSettingsState;
@@ -123,6 +223,7 @@ const DefinitionRow = memo(function DefinitionRow({
 	onCancelModelEdit: () => void;
 	onSaveModel: (name: string, raw: string) => void;
 	onSetPrewalk: (name: string, next: PrewalkState) => void;
+	onAction: (action: DefinitionAction, entry: DefinitionEntry) => void;
 }) {
 	const t = useT();
 	const [draft, setDraft] = useState("");
@@ -161,6 +262,7 @@ const DefinitionRow = memo(function DefinitionRow({
 					label={t("agents.defs.enableAgent", { name: entry.name })}
 					onCheckedChange={enabled => onToggle(entry.name, !enabled)}
 				/>
+				<DefinitionMenu entry={entry} onAction={onAction} />
 			</div>
 			<div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sc-sm">
 				<div className="flex min-w-0 items-center gap-2">
@@ -323,6 +425,111 @@ export function AgentDefinitions() {
 		[rpc, tabRpc.setSetting],
 	);
 
+	const [editorTarget, setEditorTarget] = useState<AgentEditorTarget | null>(null);
+	const [galleryOpen, setGalleryOpen] = useState(false);
+	const [deleting, setDeleting] = useState<DefinitionEntry | null>(null);
+	const [deleteBusy, setDeleteBusy] = useState(false);
+	const definitions = rpc.state?.definitions ?? [];
+
+	const failed = useCallback(
+		(message: string) => toast({ variant: "error", title: t("agentHub.actionFailed"), message }),
+		[t],
+	);
+
+	const readFile = useCallback(
+		async (filePath: string): Promise<RpcAgentFileContent | null> => {
+			const response = await tabRpc.readAgentFile(filePath);
+			if (!response.success) {
+				failed(response.error);
+				return null;
+			}
+			return response.data as RpcAgentFileContent;
+		},
+		[tabRpc, failed],
+	);
+
+	const onAction = useCallback(
+		async (action: DefinitionAction, entry: DefinitionEntry) => {
+			const filePath = entry.filePath;
+			if (action === "open" || action === "reveal") {
+				if (filePath) await revealAgentFile(filePath, action, t("agentStudio.file.openFailed"));
+				return;
+			}
+			if (action === "delete") {
+				setDeleting(entry);
+				return;
+			}
+			if (action === "edit" && filePath) {
+				const file = await readFile(filePath);
+				if (!file) return;
+				const parsed = parseAgentMarkdown(file.content);
+				setEditorTarget({
+					mode: "edit",
+					draft: parsed.draft,
+					scope: file.scope,
+					original: file.content,
+					filePath: file.filePath,
+					parseError: parsed.error,
+				});
+				return;
+			}
+			if (action !== "duplicate") return;
+			const taken = (rpc.state?.definitions ?? []).map(definition => definition.name);
+			if (entry.scope && filePath) {
+				// A copy of an editable file keeps its unknown keys and comments.
+				const file = await readFile(filePath);
+				if (!file) return;
+				const { draft } = parseAgentMarkdown(file.content);
+				setEditorTarget({
+					mode: "create",
+					draft: { ...draft, name: copyName(draft.name || entry.name, taken) },
+					scope: file.scope,
+					original: file.content,
+				});
+				return;
+			}
+			// Bundled and plugin agents: same name, so the copy overrides the original.
+			const response = await tabRpc.getAgentDefinition(entry.name);
+			if (!response.success) {
+				failed(response.error);
+				return;
+			}
+			const detail = response.data as RpcAgentDefinitionDetail;
+			const { systemPrompt, ...fields } = detail;
+			setEditorTarget({ mode: "create", draft: draftFromFields(fields, systemPrompt), scope: "user" });
+		},
+		[readFile, rpc.state, tabRpc, failed, t],
+	);
+
+	const openNew = (draft: AgentDraft = emptyAgentDraft(), scope: AgentFileScope = "user") =>
+		setEditorTarget({ mode: "create", draft, scope });
+
+	const onSaved = (saved: { name: string; filePath: string }) => {
+		setEditorTarget(null);
+		toast({ variant: "success", title: t("agentStudio.save.saved", { name: saved.name }), message: saved.filePath });
+		rpc.refresh();
+	};
+
+	const confirmDelete = async () => {
+		const filePath = deleting?.filePath;
+		if (!deleting || !filePath) return;
+		setDeleteBusy(true);
+		try {
+			const response = await tabRpc.deleteAgentFile(filePath);
+			if (!response.success) failed(response.error);
+			else
+				toast({
+					variant: "success",
+					title: t("agentStudio.delete.done", { name: deleting.name }),
+					message: filePath,
+				});
+			setDeleting(null);
+			rpc.refresh();
+		} finally {
+			setDeleteBusy(false);
+		}
+	};
+
 	const loadedState = rpc.state;
 	const notConnected = !rpc.ready ? t("agentHub.notConnected") : undefined;
 
@@ -354,6 +561,24 @@ export function AgentDefinitions() {
 					label={notConnected ?? t("agentHub.refresh")}
 					onClick={rpc.refresh}
 				/>
+				<Button
+					disabled={!rpc.ready}
+					icon={<LayoutTemplate />}
+					onClick={() => setGalleryOpen(true)}
+					title={notConnected}
+					variant="secondary"
+				>
+					{t("agentStudio.templates")}
+				</Button>
+				<Button
+					disabled={!rpc.ready}
+					icon={<Plus />}
+					onClick={() => openNew()}
+					title={notConnected}
+					variant="primary"
+				>
+					{t("agentStudio.newAgent")}
+				</Button>
 			</div>
 
 			{!loadedState ? (
@@ -408,6 +633,7 @@ export function AgentDefinitions() {
 							editing={editingName === entry.name}
 							entry={entry}
 							key={entry.name}
+							onAction={onAction}
 							onBeginModelEdit={setEditingName}
 							onCancelModelEdit={() => setEditingName(null)}
 							onSaveModel={saveModel}
@@ -418,6 +644,33 @@ export function AgentDefinitions() {
 					))}
 				</ul>
 			)}
+
+			<AgentEditorSheet
+				definitions={definitions}
+				onClose={() => setEditorTarget(null)}
+				onSaved={onSaved}
+				target={editorTarget}
+			/>
+			<AgentTemplateGallery
+				definitions={definitions}
+				onClose={() => setGalleryOpen(false)}
+				onCustomize={(template: AgentTemplate, scope) => {
+					setGalleryOpen(false);
+					openNew(templateDraft(template), scope);
+				}}
+				onInstalled={rpc.refresh}
+				open={galleryOpen}
+			/>
+			<ConfirmDialog
+				busy={deleteBusy}
+				confirmLabel={t("agentStudio.row.delete")}
+				message={deleting?.filePath ?? ""}
+				onCancel={() => setDeleting(null)}
+				onConfirm={() => void confirmDelete()}
+				open={deleting !== null}
+				title={t("agentStudio.delete.title", { name: deleting?.name ?? "" })}
+				warning={t("agentStudio.delete.warning")}
+			/>
 		</div>
 	);
 }

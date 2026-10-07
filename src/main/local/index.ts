@@ -4,6 +4,7 @@
  * forwarding; a hit is answered here and never reaches omp.
  */
 import type { RpcResponse } from "../../shared/rpc-types";
+import { handlers as agentFiles } from "./agent-files";
 import { handlers as composer } from "./composer";
 import { handlers as extensions } from "./extensions";
 import { handlers as git } from "./git";
@@ -36,6 +37,7 @@ const LOCAL_HANDLERS = mergeHandlers({
 	workspace,
 	extensions,
 	settings,
+	agentFiles,
 	misc,
 });
 

@@ -6,6 +6,7 @@
 import type { LaunchProfile } from "./launch-profile";
 import type { SessionModelOverride } from "./model-restore";
 import type {
+	AgentFileScope,
 	AgentSessionEvent,
 	AvailableCommand,
 	CommandOutputFrame,
@@ -142,6 +143,8 @@ export const IPC_COMMANDS = {
 	/** Open a file path in the system editor (relative resolves against the workspace) */
 	SYSTEM_OPEN_PATH: "system:open-path",
 	/** Show save dialog */
+	/** Reveal an absolute file path in the file manager (Finder / Explorer) */
+	SYSTEM_REVEAL_PATH: "system:reveal-path",
 	SYSTEM_SAVE_DIALOG: "system:save-dialog",
 	/** Show open dialog */
 	SYSTEM_OPEN_DIALOG: "system:open-dialog",
@@ -1070,6 +1073,17 @@ export interface OmpApi {
 		getSkillDetail(name: string): Promise<RpcResponse>;
 		getAgentDefinitions(): Promise<RpcResponse>;
 		getHooks(): Promise<RpcResponse>;
+		getAgentDefinition(name: string): Promise<RpcResponse>;
+		getAgentAuthoring(): Promise<RpcResponse>;
+		readAgentFile(filePath: string): Promise<RpcResponse>;
+		writeAgentFile(params: {
+			scope: AgentFileScope;
+			name: string;
+			content: string;
+			replacePath?: string;
+		}): Promise<RpcResponse>;
+		deleteAgentFile(filePath: string): Promise<RpcResponse>;
+		installAgentTemplates(scope: AgentFileScope, names?: string[]): Promise<RpcResponse>;
 		getMcpServers(): Promise<RpcResponse>;
 		getGuiThemes(): Promise<RpcResponse>;
 		getPlugins(): Promise<RpcResponse>;
@@ -1260,6 +1274,8 @@ export interface OmpApi {
 		showSaveDialog(defaultPath?: string, filters?: { name: string; extensions: string[] }[]): Promise<string | null>;
 		showOpenDialog(
 			filters?: { name: string; extensions: string[] }[],
+		/** Reveal an absolute path in the file manager; fails when the file is missing. */
+		revealPath(path: string): Promise<IpcOpenPathResult>;
 			options?: { directory?: boolean },
 		): Promise<string[] | null>;
 		clipboardRead(): Promise<string>;
