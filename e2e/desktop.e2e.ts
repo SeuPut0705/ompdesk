@@ -100,11 +100,47 @@ test("a running task keeps both send and stop reachable", async () => {
 
 test("long approval remains complete and Enter is neutral", async () => {
 	await command("fixture approval");
-	const modal = page.getByRole("dialog");
+	const modal = page.locator("[data-prompt-card]");
 	await expect(modal.locator("pre")).toContainText("critical final argument");
 	await expect.poll(() => page.evaluate(() => document.activeElement?.textContent)).not.toBe("Approve");
 	await page.keyboard.press("Escape");
 	await expect(modal).toHaveCount(0);
+	expect(errors).toEqual([]);
+});
+
+test("ask walks one question at a time with numbered keys and submits every answer", async () => {
+	await command("fixture ask");
+	const card = page.getByRole("region", { name: "Question" });
+	await expect(card).toContainText("Where should this deploy?");
+	await expect(card).not.toContainText("Which checks should run first?");
+	await expect(card).toContainText("1 of 3");
+	await page.screenshot({ path: "test-results/ask-step-1.png", scale: "css", animations: "disabled" });
+	// "2" picks Production and moves on.
+	await page.keyboard.press("2");
+	await expect(card).toContainText("Which checks should run first?");
+	await expect(card).toContainText("2 of 3");
+	// Multi-select stays put: pick two, then Next.
+	await page.keyboard.press("1");
+	await page.keyboard.press("3");
+	await card.getByRole("button", { name: "Next", exact: true }).click();
+	await expect(card).toContainText("Tell the team when it lands?");
+	await page.screenshot({ path: "test-results/ask-step-3.png", scale: "css", animations: "disabled" });
+	await page.keyboard.press("1");
+	await card.getByRole("button", { name: "Submit", exact: true }).click();
+	await expect(card).toHaveCount(0);
+	await expect
+		.poll(async () => (await recorded("extension_ui_response")).filter(entry => entry.id === "fixture-ask"))
+		.toEqual([
+			expect.objectContaining({
+				type: "extension_ui_response",
+				id: "fixture-ask",
+				answers: [
+					{ id: "env", selectedOptions: ["Production"] },
+					{ id: "checks", selectedOptions: ["Unit tests", "Lint"] },
+					{ id: "notify", selectedOptions: ["Yes"] },
+				],
+			}),
+		]);
 	expect(errors).toEqual([]);
 });
 

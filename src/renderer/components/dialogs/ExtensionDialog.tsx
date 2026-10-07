@@ -13,21 +13,19 @@
  */
 
 import type { EditorView } from "@codemirror/view";
-import { Check, ExternalLink, MessageCircleQuestion } from "lucide-react";
-import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { Check, ChevronLeft, ExternalLink, ListChecks, MessageCircleQuestion, ShieldQuestion } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ExtensionAskDialogResult, ExtensionUIRequest } from "../../../shared/rpc-types";
 import { AnsiText } from "../../lib/ansi";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { isImeKeyEvent } from "../../lib/ime";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
 import { isInlineLoginRequest, useExtensionUiStore } from "../../stores/extension-ui";
 import { toast } from "../../stores/toast";
 import { Badge, Button, Input, Modal, Spinner } from "../common";
 import { ApprovalDialog, isApprovalRequest } from "./ApprovalDialog";
-import { useAskDock } from "./ask-dock";
+import { ChoiceList, PromptCard } from "./PromptCard";
 
 /** Requests handled elsewhere (store/router) — never rendered as dialogs. */
 const NON_DIALOG_METHODS = new Set(["notify", "setStatus", "setWidget", "setTitle", "set_editor_text", "cancel"]);
@@ -108,6 +106,12 @@ function TimeoutFooter({ remaining }: { remaining: number | null }) {
 	);
 }
 
+/** First line names the prompt; any following lines are its body. */
+function splitTitle(title: string): { label: string; body: string } {
+	const [first = "", ...rest] = title.split("\n");
+	return { label: first.trim(), body: rest.join("\n").trim() };
+}
+
 function SelectDialog({
 	request,
 	remaining,
@@ -120,36 +124,35 @@ function SelectDialog({
 	onCancel: () => void;
 }) {
 	const t = useT();
+	const { label, body } = splitTitle(request.title);
 	return (
-		<Modal onClose={onCancel} open size="sm" title={request.title}>
-			<div className="space-y-1">
-				{request.options.map((option, index) => (
-					<button
-						autoFocus={index === 0}
-						className="flex w-full items-center gap-2 rounded-md border border-(--omp-border-muted) px-3 py-2 text-left text-xs text-(--omp-text) transition-colors hover:border-(--omp-border-accent) hover:bg-(--omp-selected-bg) focus-visible:outline-2 focus-visible:outline-(--omp-border-accent)"
-						key={option}
-						onClick={() => onValue(option)}
-						type="button"
-					>
-						<span className="w-4 shrink-0 text-omp-xs text-(--omp-dim)">{index + 1}</span>
-						<span className="min-w-0 break-words">
-							<span className="block">{option}</span>
-							{request.optionDetails?.[index]?.description && (
-								<span className="mt-1 block text-omp-xs whitespace-pre-wrap text-(--omp-muted)">
-									{request.optionDetails[index].description}
-								</span>
-							)}
-						</span>
-					</button>
-				))}
-				<div className="flex items-center justify-between pt-2">
+		<PromptCard
+			footer={
+				<>
 					<TimeoutFooter remaining={remaining} />
-					<Button onClick={onCancel} size="sm" variant="ghost">
+					<Button className="ml-auto" onClick={onCancel} size="sm" variant="ghost">
 						{t("common.cancel")}
 					</Button>
-				</div>
-			</div>
-		</Modal>
+				</>
+			}
+			icon={ListChecks}
+			label={label}
+			onCancel={onCancel}
+			onDigit={n => {
+				const option = request.options[n - 1];
+				if (option !== undefined) onValue(option);
+			}}
+		>
+			{body && <p className="mb-2 text-sc-sm break-words whitespace-pre-wrap text-(--sc-text-muted)">{body}</p>}
+			<ChoiceList
+				choices={request.options.map((option, index) => ({
+					key: option,
+					label: option,
+					description: request.optionDetails?.[index]?.description,
+				}))}
+				onChoose={onValue}
+			/>
+		</PromptCard>
 	);
 }
 
@@ -166,20 +169,29 @@ function ConfirmDialog({
 }) {
 	const t = useT();
 	return (
-		<Modal onClose={onCancel} open size="sm" title={request.title}>
-			<p className="text-xs leading-relaxed break-words whitespace-pre-wrap text-(--omp-muted)">{request.message}</p>
-			<div className="mt-4 flex items-center justify-between gap-2">
-				<TimeoutFooter remaining={remaining} />
-				<div className="flex gap-2">
-					<Button onClick={() => onConfirm(false)} size="sm" variant="ghost">
-						{t("approval.deny")}
-					</Button>
-					<Button autoFocus onClick={() => onConfirm(true)} size="sm" variant="primary">
-						{t("approval.approve")}
-					</Button>
-				</div>
-			</div>
-		</Modal>
+		<PromptCard
+			footer={remaining !== null ? <TimeoutFooter remaining={remaining} /> : undefined}
+			icon={ShieldQuestion}
+			label={request.title}
+			onCancel={onCancel}
+			onDigit={n => {
+				if (n === 1) onConfirm(true);
+				else if (n === 2) onConfirm(false);
+			}}
+		>
+			{request.message && (
+				<p className="mb-2 text-sc-sm leading-(--sc-leading-normal) break-words whitespace-pre-wrap text-(--sc-text-secondary)">
+					{request.message}
+				</p>
+			)}
+			<ChoiceList
+				choices={[
+					{ key: "approve", label: t("approval.approve") },
+					{ key: "deny", label: t("approval.deny"), tone: "danger" },
+				]}
+				onChoose={key => onConfirm(key === "approve")}
+			/>
+		</PromptCard>
 	);
 }
 
@@ -227,25 +239,6 @@ function InputDialog({
 	);
 }
 
-const FOCUSABLE =
-	'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-/**
- * Places the ask card in the composer dock of the current session (in flow,
- * directly above the composer, same width). Without a mounted composer — e.g.
- * Settings is open — it floats at the bottom of the window at composer width.
- * Either way there is no scrim: the transcript stays visible and interactive.
- */
-function AskDock({ children }: { children: ReactNode }) {
-	const dock = useAskDock();
-	if (dock) return createPortal(children, dock);
-	return (
-		<div className="pointer-events-none fixed inset-x-0 bottom-3 z-(--sc-z-popover)">
-			<div className="omp-composer-shell pointer-events-auto">{children}</div>
-		</div>
-	);
-}
-
 interface AskAnswerState {
 	selected: Set<string>;
 	custom: string;
@@ -253,12 +246,13 @@ interface AskAnswerState {
 }
 
 /**
- * Multi-question ask card: each question renders its options as checkboxes
- * (multi) or radio rows (single), plus an optional custom-answer input and an
- * optional note input. Single-select mirrors the TUI: picking an option
- * replaces the custom answer, typing one clears the option selection.
- * Non-modal: docked above the composer, focus moves in on open and returns on
- * close; Escape inside the card cancels.
+ * The ask card, one question at a time like the Claude app: a step strip on
+ * top (✓ once answered, click to revisit), numbered options (1–9 pick), a
+ * free-text "other" answer and an optional note under each question. Picking
+ * a single-select option moves straight to the next question; the last step
+ * submits. Single-select mirrors the TUI: picking an option replaces the
+ * custom answer, typing one clears the option selection. Non-modal: docked
+ * above the composer; Escape inside the card cancels.
  */
 function AskDialog({
 	request,
@@ -272,264 +266,217 @@ function AskDialog({
 	onCancel: () => void;
 }) {
 	const t = useT();
-	const cardRef = useRef<HTMLElement>(null);
-
-	useEffect(() => {
-		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-		const card = cardRef.current;
-		(card?.querySelector<HTMLElement>(FOCUSABLE) ?? card)?.focus();
-		return () => {
-			// Return focus (normally the composer) only if it was still in the card.
-			const active = document.activeElement;
-			if (!active || active === document.body || card?.contains(active)) opener?.focus();
-		};
-	}, []);
+	const formId = useId();
+	const bodyRef = useRef<HTMLDivElement>(null);
+	const questions = request.questions;
+	const total = questions.length;
+	const [step, setStep] = useState(0);
 	const [answers, setAnswers] = useState<AskAnswerState[]>(() =>
-		request.questions.map(() => ({ selected: new Set<string>(), custom: "", note: "" })),
+		questions.map(() => ({ selected: new Set<string>(), custom: "", note: "" })),
 	);
+	const [noteOpen, setNoteOpen] = useState<ReadonlySet<number>>(() => new Set());
+	const question = questions[step];
+	const answer = answers[step];
+	const multi = question?.multi ?? false;
+	const last = step === total - 1;
+	const isAnswered = (index: number) => {
+		const entry = answers[index];
+		return entry !== undefined && (entry.selected.size > 0 || entry.custom.trim() !== "");
+	};
+	const unansweredCount = questions.filter((_question, index) => !isAnswered(index)).length;
 
-	const toggleOption = (questionIndex: number, label: string) => {
-		setAnswers(prev =>
-			prev.map((answer, index) => {
-				if (index !== questionIndex) return answer;
-				if (request.questions[questionIndex]?.multi) {
-					const selected = new Set(answer.selected);
-					if (selected.has(label)) selected.delete(label);
-					else selected.add(label);
-					return { ...answer, selected };
-				}
-				// Single-select: picking an option replaces any custom answer.
-				return { ...answer, selected: new Set([label]), custom: "" };
-			}),
+	// Each step opens on its first option, so 1–9 and ↑/↓ work right away.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a step change moves focus.
+	useEffect(() => {
+		bodyRef.current?.querySelector<HTMLElement>("[data-choice]")?.focus();
+	}, [step]);
+
+	const update = (index: number, change: (entry: AskAnswerState) => AskAnswerState) =>
+		setAnswers(prev => prev.map((entry, at) => (at === index ? change(entry) : entry)));
+
+	const choose = (label: string) => {
+		if (multi) {
+			update(step, entry => {
+				const selected = new Set(entry.selected);
+				if (selected.has(label)) selected.delete(label);
+				else selected.add(label);
+				return { ...entry, selected };
+			});
+			return;
+		}
+		// Single-select: picking an option replaces any custom answer, then moves on.
+		update(step, entry => ({ ...entry, selected: new Set([label]), custom: "" }));
+		if (!last) setStep(step + 1);
+	};
+
+	const setCustom = (custom: string) =>
+		update(step, entry =>
+			!multi && custom.trim() !== "" ? { ...entry, custom, selected: new Set<string>() } : { ...entry, custom },
 		);
-	};
-
-	const setCustom = (questionIndex: number, custom: string) => {
-		setAnswers(prev =>
-			prev.map((answer, index) => {
-				if (index !== questionIndex) return answer;
-				// Single-select: typing a custom answer clears the option selection.
-				if (!request.questions[questionIndex]?.multi && custom.trim() !== "") {
-					return { ...answer, custom, selected: new Set<string>() };
-				}
-				return { ...answer, custom };
-			}),
-		);
-	};
-
-	const setNote = (questionIndex: number, note: string) => {
-		setAnswers(prev => prev.map((answer, index) => (index === questionIndex ? { ...answer, note } : answer)));
-	};
-
-	const unansweredCount = request.questions.reduce((count, _question, index) => {
-		const answer = answers[index];
-		return answer && answer.selected.size === 0 && answer.custom.trim() === "" ? count + 1 : count;
-	}, 0);
 
 	const submit = () => {
 		onSubmit({
 			kind: "submit",
-			results: request.questions.map((question, index) => {
-				const answer = answers[index];
-				const custom = answer?.custom.trim() ?? "";
-				const note = answer?.note.trim() ?? "";
+			results: questions.map((item, index) => {
+				const entry = answers[index];
+				const custom = entry?.custom.trim() ?? "";
+				const note = entry?.note.trim() ?? "";
 				return {
-					id: question.id,
-					question: question.question,
-					options: question.options.map(option => option.label),
-					multi: question.multi ?? false,
-					selectedOptions: question.options
-						.map(option => option.label)
-						.filter(label => answer?.selected.has(label)),
-					...(custom !== "" ? { customInput: answer?.custom ?? "" } : {}),
-					...(note !== "" ? { note: answer?.note ?? "" } : {}),
+					id: item.id,
+					question: item.question,
+					options: item.options.map(option => option.label),
+					multi: item.multi ?? false,
+					selectedOptions: item.options.map(option => option.label).filter(label => entry?.selected.has(label)),
+					...(custom !== "" ? { customInput: entry?.custom ?? "" } : {}),
+					...(note !== "" ? { note: entry?.note ?? "" } : {}),
 				};
 			}),
 		});
 	};
 
-	/* Arrow keys move between a question's options (WAI-ARIA radio group);
-	   single-select also selects, like a native radio group. */
-	const onOptionKeyDown = (event: KeyboardEvent<HTMLButtonElement>, questionIndex: number) => {
-		const forward = event.key === "ArrowDown" || event.key === "ArrowRight";
-		if (!forward && event.key !== "ArrowUp" && event.key !== "ArrowLeft") return;
-		const group = event.currentTarget.closest<HTMLElement>("[data-ask-options]");
-		const options = Array.from(group?.querySelectorAll<HTMLButtonElement>("[data-ask-option]") ?? []);
-		const index = options.indexOf(event.currentTarget);
-		if (index < 0 || options.length === 0) return;
-		event.preventDefault();
-		const next = options[(index + (forward ? 1 : -1) + options.length) % options.length];
-		next?.focus();
-		const label = next?.dataset.askOption;
-		if (label !== undefined && !request.questions[questionIndex]?.multi) toggleOption(questionIndex, label);
-	};
+	if (!question || !answer) return null;
+	const questionId = `${request.id}-q${step}`;
+	const showNote = noteOpen.has(step) || answer.note !== "";
 
 	return (
-		<AskDock>
-			<section
-				aria-label={t("extDialog.ask.title")}
-				className="omp-pop-in mb-2 flex max-h-[min(50vh,36rem)] flex-col overflow-hidden rounded-(--sc-radius-xl) border border-(--sc-border-subtle) bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-md)"
-				onKeyDown={event => {
-					if (event.key !== "Escape" || isImeKeyEvent(event.nativeEvent)) return;
-					event.preventDefault();
-					event.stopPropagation();
-					onCancel();
-				}}
-				ref={cardRef}
-				tabIndex={-1}
-			>
-				<form
-					className="flex min-h-0 flex-1 flex-col"
-					onSubmit={event => {
-						event.preventDefault();
-						submit();
-					}}
-				>
-					<div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-2">
-						<MessageCircleQuestion aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-accent)" />
-						<span className="min-w-0 flex-1 truncate text-sc-md font-semibold">{t("extDialog.ask.title")}</span>
-						{request.questions.length > 1 && (
-							<span className="shrink-0 text-sc-xs text-(--sc-text-muted) tabular-nums">
-								{t("extDialog.ask.count", { count: request.questions.length })}
+		<PromptCard
+			footer={
+				<>
+					<div className="flex min-w-0 items-center gap-2">
+						<TimeoutFooter remaining={remaining} />
+						{last && unansweredCount > 0 && (
+							<span className="text-sc-xs text-(--sc-text-muted)">
+								{t("extDialog.ask.unanswered", { count: unansweredCount })}
 							</span>
 						)}
 					</div>
-					<div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pt-1 pb-4">
-						{request.questions.map((question, questionIndex) => {
-							const answer = answers[questionIndex];
-							const multi = question.multi ?? false;
-							const questionId = `${request.id}-q${questionIndex}`;
-							const hasSelection = (answer?.selected.size ?? 0) > 0;
-							return (
-								<div className="space-y-2.5" key={question.id}>
-									<div className="space-y-1">
-										{question.header && (
-											<div className="text-sc-xs font-medium text-(--sc-text-muted)">{question.header}</div>
-										)}
-										<p
-											className="text-sc-md leading-(--sc-leading-normal) font-medium break-keep break-words whitespace-pre-wrap"
-											id={questionId}
-										>
-											{request.questions.length > 1 ? `${questionIndex + 1}. ` : ""}
-											{question.question}
-										</p>
-										{multi && (
-											<p className="text-sc-xs text-(--sc-text-muted)">{t("extDialog.ask.multiHint")}</p>
-										)}
-									</div>
-									<div
-										aria-labelledby={questionId}
-										className="space-y-1.5"
-										data-ask-options
-										role={multi ? "group" : "radiogroup"}
-									>
-										{question.options.map((option, optionIndex) => {
-											const checked = answer?.selected.has(option.label) ?? false;
-											// Single-select is one tab stop (the checked option, else the first).
-											const tabStop = multi || checked || (!hasSelection && optionIndex === 0);
-											return (
-												<button
-													aria-checked={checked}
-													className={cx(
-														"flex w-full items-start gap-2.5 rounded-(--sc-radius-md) border px-3 py-2 text-left transition-colors duration-(--sc-duration-fast)",
-														checked
-															? "border-(--sc-accent-border) bg-(--sc-accent-soft)"
-															: "border-(--sc-border-subtle) hover:border-(--sc-border) hover:bg-(--sc-hover)",
-													)}
-													data-ask-option={option.label}
-													key={option.label}
-													onClick={() => toggleOption(questionIndex, option.label)}
-													onKeyDown={event => onOptionKeyDown(event, questionIndex)}
-													role={multi ? "checkbox" : "radio"}
-													tabIndex={tabStop ? 0 : -1}
-													type="button"
-												>
-													<span
-														aria-hidden
-														className={cx(
-															"mt-0.5 flex size-4 shrink-0 items-center justify-center border transition-colors duration-(--sc-duration-fast)",
-															multi ? "rounded-(--sc-radius-xs)" : "rounded-(--sc-radius-full)",
-															checked
-																? multi
-																	? "border-(--sc-accent) bg-(--sc-accent) text-(--sc-accent-fg)"
-																	: "border-(--sc-accent) text-(--sc-accent)"
-																: "border-(--sc-border-strong) text-transparent",
-														)}
-													>
-														{multi ? (
-															<Check size={12} strokeWidth={3} />
-														) : (
-															<span className="size-2 rounded-(--sc-radius-full) bg-current" />
-														)}
-													</span>
-													<span className="min-w-0 flex-1">
-														<span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sc-md">
-															<span className="min-w-0 break-keep break-words">{option.label}</span>
-															{question.recommended === optionIndex && (
-																<Badge variant="accent">{t("extDialog.ask.recommended")}</Badge>
-															)}
-														</span>
-														{option.description && (
-															<span className="mt-0.5 block text-sc-sm break-keep break-words text-(--sc-text-muted)">
-																{option.description}
-															</span>
-														)}
-													</span>
-												</button>
-											);
-										})}
-									</div>
-									{question.options
-										.filter(option => answer?.selected.has(option.label) && option.preview)
-										.map(option => (
-											<div
-												className="rounded-(--sc-radius-md) border border-(--sc-divider) bg-(--sc-surface-1) px-3 py-2 text-sc-sm"
-												key={`preview:${option.label}`}
-											>
-												<MarkdownRenderer content={option.preview!} />
-											</div>
-										))}
-									<Input
-										aria-label={t("extDialog.ask.customPlaceholder")}
-										onChange={event => setCustom(questionIndex, event.target.value)}
-										placeholder={t("extDialog.ask.customPlaceholder")}
-										value={answer?.custom ?? ""}
-									/>
-									<Input
-										aria-label={t("extDialog.ask.notePlaceholder")}
-										controlSize="sm"
-										onChange={event => setNote(questionIndex, event.target.value)}
-										placeholder={t("extDialog.ask.notePlaceholder")}
-										value={answer?.note ?? ""}
-									/>
-								</div>
-							);
-						})}
+					<div className="ml-auto flex flex-wrap gap-2">
+						<Button onClick={() => onSubmit({ kind: "chat" })} size="sm" type="button" variant="ghost">
+							{t("extDialog.ask.chat")}
+						</Button>
+						{step > 0 && (
+							<Button icon={<ChevronLeft />} onClick={() => setStep(step - 1)} size="sm" variant="secondary">
+								{t("extDialog.ask.back")}
+							</Button>
+						)}
+						<Button form={formId} size="sm" type="submit" variant="primary">
+							{last ? t("extDialog.submit") : t("extDialog.ask.next")}
+						</Button>
 					</div>
-					<div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-(--sc-divider) px-4 py-2.5">
-						<div className="flex min-w-0 items-center gap-2">
-							<TimeoutFooter remaining={remaining} />
-							{unansweredCount > 0 && (
-								<span className="text-sc-xs text-(--sc-text-muted)">
-									{t("extDialog.ask.unanswered", { count: unansweredCount })}
-								</span>
-							)}
-						</div>
-						<div className="ml-auto flex gap-2">
-							<Button onClick={onCancel} size="sm" type="button" variant="ghost">
-								{t("common.cancel")}
-							</Button>
-							<Button onClick={() => onSubmit({ kind: "chat" })} size="sm" type="button" variant="secondary">
-								{t("extDialog.ask.chat")}
-							</Button>
-							<Button size="sm" type="submit" variant="primary">
-								{t("extDialog.submit")}
-							</Button>
-						</div>
+				</>
+			}
+			headerAside={
+				total > 1 ? (
+					<span className="shrink-0 text-sc-xs text-(--sc-text-muted) tabular-nums">
+						{t("extDialog.ask.step", { current: step + 1, total })}
+					</span>
+				) : undefined
+			}
+			icon={MessageCircleQuestion}
+			label={t("extDialog.ask.title")}
+			onCancel={onCancel}
+			onDigit={n => {
+				const option = question.options[n - 1];
+				if (option) choose(option.label);
+			}}
+		>
+			<form
+				id={formId}
+				onSubmit={event => {
+					event.preventDefault();
+					if (last) submit();
+					else setStep(step + 1);
+				}}
+			>
+				{total > 1 && (
+					<div className="mb-3 flex gap-1 overflow-x-auto" data-ask-steps role="tablist">
+						{questions.map((item, index) => (
+							<button
+								aria-selected={index === step}
+								className={cx(
+									"flex shrink-0 items-center gap-1 rounded-(--sc-radius-full) border px-2.5 py-0.5 text-sc-xs transition-colors duration-(--sc-duration-fast)",
+									index === step
+										? "border-(--sc-accent-border) bg-(--sc-accent-soft) text-(--sc-text)"
+										: "border-(--sc-border-subtle) text-(--sc-text-muted) hover:bg-(--sc-hover)",
+								)}
+								data-ask-step={index}
+								key={item.id}
+								onClick={() => setStep(index)}
+								role="tab"
+								tabIndex={-1}
+								type="button"
+							>
+								{isAnswered(index) && <Check aria-hidden className="size-3 text-(--sc-success)" />}
+								<span className="max-w-32 truncate">{item.header || index + 1}</span>
+							</button>
+						))}
 					</div>
-				</form>
-			</section>
-		</AskDock>
+				)}
+				<div className="space-y-2.5" key={question.id} ref={bodyRef}>
+					<div className="space-y-1">
+						{question.header && total === 1 && (
+							<div className="text-sc-xs font-medium text-(--sc-text-muted)">{question.header}</div>
+						)}
+						<p
+							className="text-sc-md leading-(--sc-leading-normal) font-medium break-keep break-words whitespace-pre-wrap"
+							id={questionId}
+						>
+							{question.question}
+						</p>
+						{multi && <p className="text-sc-xs text-(--sc-text-muted)">{t("extDialog.ask.multiHint")}</p>}
+					</div>
+					<ChoiceList
+						choices={question.options.map((option, index) => ({
+							key: option.label,
+							label: option.label,
+							description: option.description,
+							aside:
+								question.recommended === index ? (
+									<Badge variant="accent">{t("extDialog.ask.recommended")}</Badge>
+								) : undefined,
+						}))}
+						labelledBy={questionId}
+						mode={multi ? "multi" : "single"}
+						onChoose={choose}
+						selected={answer.selected}
+					/>
+					{question.options
+						.filter(option => answer.selected.has(option.label) && option.preview)
+						.map(option => (
+							<div
+								className="rounded-(--sc-radius-md) border border-(--sc-divider) bg-(--sc-surface-1) px-3 py-2 text-sc-sm"
+								key={`preview:${option.label}`}
+							>
+								<MarkdownRenderer content={option.preview ?? ""} />
+							</div>
+						))}
+					<Input
+						aria-label={t("extDialog.ask.customPlaceholder")}
+						onChange={event => setCustom(event.target.value)}
+						placeholder={t("extDialog.ask.customPlaceholder")}
+						value={answer.custom}
+					/>
+					{showNote ? (
+						<Input
+							aria-label={t("extDialog.ask.notePlaceholder")}
+							autoFocus={answer.note === ""}
+							controlSize="sm"
+							onChange={event => update(step, entry => ({ ...entry, note: event.target.value }))}
+							placeholder={t("extDialog.ask.notePlaceholder")}
+							value={answer.note}
+						/>
+					) : (
+						<button
+							className="text-sc-xs text-(--sc-text-muted) underline-offset-2 hover:text-(--sc-text) hover:underline"
+							onClick={() => setNoteOpen(prev => new Set(prev).add(step))}
+							type="button"
+						>
+							{t("extDialog.ask.addNote")}
+						</button>
+					)}
+				</div>
+			</form>
+		</PromptCard>
 	);
 }
 

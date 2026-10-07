@@ -1,4 +1,8 @@
 export const en: Record<string, string> = {
+	"extDialog.ask.step": "{current} of {total}",
+	"extDialog.ask.next": "Next",
+	"extDialog.ask.back": "Back",
+	"extDialog.ask.addNote": "Add a note",
 	"settings.savedUnverified":
 		"Saved globally, but the effective value couldn't be confirmed. Refresh before editing again.",
 	"settings.source.label": "Set in",
@@ -1664,7 +1668,6 @@ export const en: Record<string, string> = {
 	"extDialog.ask.notePlaceholder": "Add a note (optional)",
 	"extDialog.ask.chat": "Chat about this",
 	"extDialog.ask.unanswered": "{count} unanswered",
-	"extDialog.ask.count": "{count} questions",
 	"extDialog.ask.multiHint": "Select all that apply",
 	"extDialog.openUrl.title": "Open in browser",
 	"extDialog.openUrl.open": "Open in browser",

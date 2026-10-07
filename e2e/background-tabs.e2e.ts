@@ -157,7 +157,7 @@ test("a background tab's confirm flags its sidebar row, shows on switch, and the
 	await expect(page.getByRole("dialog")).toHaveCount(0);
 
 	await switchTo(background);
-	const dialog = page.getByRole("dialog", { name: "Deploy to staging?" });
+	const dialog = page.getByRole("region", { name: "Deploy to staging?" });
 	await expect(dialog).toContainText("The agent wants to run the staging deploy script.");
 	await dialog.getByRole("button", { name: "Approve", exact: true }).click();
 	await expect(dialog).toHaveCount(0);

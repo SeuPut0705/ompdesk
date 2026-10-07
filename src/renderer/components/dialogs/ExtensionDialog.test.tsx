@@ -190,6 +190,116 @@ describe("ExtensionDialog ask", () => {
 			cancelled: true,
 		});
 	});
+
+	it("walks one question at a time: picking moves on, digits pick, the last step submits every answer", async () => {
+		await mount({ withComposerDock: true });
+		await act(async () =>
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "ask-steps",
+				method: "ask",
+				questions: [
+					{
+						id: "env",
+						header: "Target",
+						question: "Where should this deploy?",
+						options: [{ label: "Staging" }, { label: "Production" }],
+					},
+					{ id: "tests", question: "Run the tests first?", options: [{ label: "Yes" }, { label: "No" }] },
+				],
+			}),
+		);
+		const card = () => document.querySelector("[data-prompt-card]") as unknown as TestElement & Element;
+		// Only the current question is on screen.
+		expect(card().textContent).toContain("Where should this deploy?");
+		expect(card().textContent).not.toContain("Run the tests first?");
+		expect(buttonWithText("Submit")).toBeUndefined();
+
+		const production = buttonWithText("Production");
+		if (!production) throw new Error("missing Production option");
+		await click(production);
+		expect(card().textContent).toContain("Run the tests first?");
+		expect(card().querySelector('[data-ask-step="0"] svg')).not.toBeNull();
+
+		// "2" picks the second option of the current question.
+		const two = new Event("keydown", { bubbles: true, cancelable: true });
+		Object.assign(two, { key: "2" });
+		await act(async () => {
+			card().dispatchEvent(two);
+		});
+		await flush();
+		expect(respondExtensionUi).not.toHaveBeenCalled();
+
+		const submit = buttonWithText("Submit");
+		if (!submit) throw new Error("the last step offers Submit");
+		const form = card().querySelector("form") as unknown as TestElement;
+		await act(async () => {
+			form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+		});
+		await flush();
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "ask-steps",
+			answers: [
+				{ id: "env", selectedOptions: ["Production"], customInput: undefined },
+				{ id: "tests", selectedOptions: ["No"], customInput: undefined },
+			],
+		});
+	});
+});
+
+describe("ExtensionDialog docked prompts", () => {
+	it("shows a confirm above the composer with numbered choices; 1 approves", async () => {
+		await mount({ withComposerDock: true });
+		await act(async () =>
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "confirm-1",
+				method: "confirm",
+				title: "Deploy to staging?",
+				message: "The agent wants to run the deploy script.",
+			}),
+		);
+		const card = document.querySelector(".omp-ask-dock [data-prompt-card]") as unknown as TestElement | null;
+		if (!card) throw new Error("confirm is not docked above the composer");
+		expect(document.querySelector(".omp-dialog-overlay")).toBeNull();
+		const one = new Event("keydown", { bubbles: true, cancelable: true });
+		Object.assign(one, { key: "1" });
+		await act(async () => {
+			card.dispatchEvent(one);
+		});
+		await flush();
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "confirm-1",
+			confirmed: true,
+		});
+	});
+
+	it("keeps the full approval operation visible, never focuses Approve, and Escape denies", async () => {
+		await mount({ withComposerDock: true });
+		const operation = `${"x".repeat(2200)}\ncritical final argument`;
+		await act(async () =>
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "approval",
+				method: "select",
+				title: `Allow tool: bash\n${operation}`,
+				options: ["Approve", "Deny"],
+			}),
+		);
+		const card = document.querySelector(".omp-ask-dock [data-prompt-card]") as unknown as TestElement | null;
+		if (!card) throw new Error("approval is not docked above the composer");
+		expect(document.querySelector("pre")?.textContent).toBe(operation);
+		expect((document.activeElement as unknown as TestElement | null)?.textContent ?? "").not.toBe("Approve");
+		const escapeKey = new Event("keydown", { bubbles: true, cancelable: true });
+		Object.assign(escapeKey, { key: "Escape" });
+		await act(async () => {
+			card.dispatchEvent(escapeKey);
+		});
+		await flush();
+		expect(respondExtensionUi).toHaveBeenCalledWith({ type: "extension_ui_response", id: "approval", value: "Deny" });
+	});
 });
 
 describe("ExtensionDialog non-dialog mutations", () => {

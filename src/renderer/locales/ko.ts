@@ -1,4 +1,8 @@
 export const ko: Record<string, string> = {
+	"extDialog.ask.step": "{current}/{total}",
+	"extDialog.ask.next": "다음",
+	"extDialog.ask.back": "이전",
+	"extDialog.ask.addNote": "메모 추가",
 	"settings.savedUnverified": "전역으로 저장했지만 적용된 값을 확인할 수 없어요. 다시 편집하기 전에 새로고침하세요.",
 	"settings.source.label": "설정 위치",
 	"settings.source.global": "전역",
@@ -1655,7 +1659,6 @@ export const ko: Record<string, string> = {
 	"extDialog.ask.notePlaceholder": "메모 추가 (선택)",
 	"extDialog.ask.chat": "이에 대해 채팅하기",
 	"extDialog.ask.unanswered": "{count}개 미응답",
-	"extDialog.ask.count": "질문 {count}개",
 	"extDialog.ask.multiHint": "해당하는 항목을 모두 고르세요",
 	"extDialog.openUrl.title": "브라우저에서 열기",
 	"extDialog.openUrl.open": "브라우저에서 열기",

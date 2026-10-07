@@ -715,6 +715,37 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				title: `Allow tool: bash\n${"x".repeat(2200)}\ncritical final argument`,
 				options: ["Approve", "Deny"],
 			});
+		} else if (message === "fixture ask") {
+			write({
+				type: "extension_ui_request",
+				id: "fixture-ask",
+				method: "ask",
+				questions: [
+					{
+						id: "env",
+						header: "Target",
+						question: "Where should this deploy?",
+						options: [
+							{ label: "Staging", description: "Safe environment for checks" },
+							{ label: "Production", description: "Every user sees it" },
+						],
+						recommended: 0,
+					},
+					{
+						id: "checks",
+						header: "Checks",
+						question: "Which checks should run first?",
+						multi: true,
+						options: [{ label: "Unit tests" }, { label: "E2E" }, { label: "Lint" }],
+					},
+					{
+						id: "notify",
+						header: "Notify",
+						question: "Tell the team when it lands?",
+						options: [{ label: "Yes" }, { label: "No" }],
+					},
+				],
+			});
 		} else if (message !== "fixture running") {
 			const answer: AgentMessage = {
 				role: "assistant",
