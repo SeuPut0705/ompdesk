@@ -190,7 +190,8 @@ export function ModelRolesSection() {
 
 	return (
 		<div className="flex flex-col gap-4 py-3">
-			<div className="flex justify-end">{refresh}</div>
+			{/* The banners below carry their own retry; a second refresh above them is noise. */}
+			{sidecarReady && error === null && <div className="flex justify-end">{refresh}</div>}
 			{!sidecarReady && (
 				<Banner live title={t("modelRoles.notConnected")} variant="warning">
 					{hasRows ? t("modelRoles.stale") : t("modelRoles.notConnectedHint")}

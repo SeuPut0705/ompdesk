@@ -775,11 +775,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			// server ends in an error instead of an endless "loading".
 			const revive = deps.statsRestart();
 			return {
-				error:
-					revive === "exhausted"
-						? "The bundled stats server is not running."
-						: "The bundled stats server is not ready. Please retry shortly.",
+				error: mainT(revive === "exhausted" ? "stats.notRunning" : "stats.notReady"),
 				unavailable: revive !== "exhausted",
+				// Dead for good (no revive left): the renderer shows a calm page-level state, not this text.
+				stopped: revive === "exhausted",
 			};
 		}
 		try {

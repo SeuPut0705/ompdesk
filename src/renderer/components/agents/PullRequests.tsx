@@ -13,7 +13,7 @@ import { cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { usePrCenterStore } from "../../stores/pr-center";
 import { toast } from "../../stores/toast";
-import { Button, EmptyState, IconButton, Spinner, Tabs } from "../common";
+import { Banner, Button, EmptyState, IconButton, Spinner, Tabs } from "../common";
 import { PrCreateDialog } from "./pr/PrCreateDialog";
 import { PrDetail } from "./pr/PrDetail";
 
@@ -192,25 +192,29 @@ export function PullRequests() {
 					aria-label={t("prCenter.listLabel")}
 					className="flex w-80 shrink-0 flex-col overflow-y-auto border-r border-(--sc-divider) p-2 min-[1280px]:w-96"
 				>
-					{error && (
-						<p
-							className="mb-2 rounded-(--sc-radius-md) bg-(--sc-danger-soft) px-3 py-2 text-sc-sm text-(--sc-danger)"
-							role="alert"
-						>
+					{error && list.length > 0 && (
+						<Banner className="mb-2" live title={t("prCenter.loadFailed")} variant="warning">
 							{error}
-						</p>
+						</Banner>
 					)}
 					{error && list.length === 0 ? (
-						<div className="flex flex-1 items-center justify-center">
-							<Button
-								icon={<RefreshCw />}
-								onClick={() => void usePrCenterStore.getState().refresh()}
-								size="sm"
-								variant="secondary"
-							>
-								{t("common.retry")}
-							</Button>
-						</div>
+						<EmptyState
+							actions={
+								<Button
+									icon={<RefreshCw />}
+									onClick={() => void usePrCenterStore.getState().refresh()}
+									size="sm"
+									variant="secondary"
+								>
+									{t("common.retry")}
+								</Button>
+							}
+							className="flex-1"
+							description={<span role="alert">{error}</span>}
+							icon={<GitPullRequest />}
+							size="sm"
+							title={t("prCenter.loadFailed")}
+						/>
 					) : listLoading && list.length === 0 ? (
 						<div className="flex flex-1 items-center justify-center">
 							<Spinner label={t("prCenter.loading")} />

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentProgress, SubagentSnapshot } from "../../../shared/rpc-types";
-import { buildSubagentList, subagentElapsedMs, subagentPrimaryLabel } from "./subagent-graph";
+import { subagentElapsedMs, subagentPrimaryLabel } from "./subagent-graph";
 
 function progress(durationMs: number): AgentProgress {
 	return {
@@ -59,26 +59,7 @@ describe("subagent elapsed time", () => {
 	});
 });
 
-describe("subagent list projection", () => {
-	it("renders nested spawns directly after their parent with an explicit depth", () => {
-		const root = { ...snapshot("running", 1), id: "root", index: 0, assignment: "Audit renderer" };
-		const sibling = { ...snapshot("running", 1), id: "sibling", index: 1, assignment: "Audit IPC" };
-		const child = {
-			...snapshot("running", 1),
-			id: "child",
-			index: 2,
-			parentSubagentId: "root",
-			assignment: "Trace virtualizer",
-		};
-
-		const rows = buildSubagentList([root, sibling, child], new Set(), new Map());
-		expect(rows.map(row => [row.agent.id, row.depth])).toEqual([
-			["root", 0],
-			["child", 1],
-			["sibling", 0],
-		]);
-	});
-
+describe("subagent labels", () => {
 	it("uses the generated UI description ahead of the full delegated assignment", () => {
 		const agent = {
 			...snapshot("running", 1),

@@ -54,6 +54,8 @@ describe("runStatsSync", () => {
 			kind: "error",
 			message: "Stats API error: 500",
 		});
+		const stopped = server({ error: "not running", unavailable: false, stopped: true }, []);
+		expect(await runStatsSync(stopped.fetchStats, instant)).toEqual({ kind: "stopped" });
 	});
 
 	it("gives up waiting after the timeout while the sync keeps running", async () => {

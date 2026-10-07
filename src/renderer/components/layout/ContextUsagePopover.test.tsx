@@ -150,7 +150,7 @@ describe("ContextUsagePopover", () => {
 		// non-overlay-safe chord (⌘N, ⌘W, ⇧Tab) while [role=dialog] is in the tree.
 		expect(document.querySelector('[role="dialog"]')).toBeNull();
 		const dialog = document.querySelector("#omp-context-usage-popover");
-		expect(dialog?.textContent).toContain("Context used 16%");
+		expect(dialog?.textContent).toContain("Context usage 16%");
 		expect(dialog?.textContent).toContain("~161.9k / 1.0M");
 		expect(dialog?.textContent).toContain("Context remaining838.1k");
 		expect(dialog?.textContent).toContain("System context~1.5k");
@@ -229,7 +229,7 @@ describe("ContextUsagePopover", () => {
 
 		await act(async () => (container.querySelector("button") as unknown as HTMLButtonElement).click());
 		const dialog = document.querySelector("#omp-context-usage-popover");
-		expect(dialog?.textContent).toContain("Context used 64%");
+		expect(dialog?.textContent).toContain("Context usage 64%");
 		expect(dialog?.textContent).toContain("~173.7k / 272.0k");
 		expect(dialog?.textContent).toContain("The detailed breakdown is temporarily unavailable.");
 	});

@@ -563,14 +563,14 @@ function SessionTranscript() {
 				)}
 				{status !== "starting" && rows.length === 0 && !isStreaming && !switchPending && !firstRunActive && (
 					<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
-						<BrandMark size={40} className="omp-empty-logo mb-6 text-[var(--omp-text)]" />
-						<h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.025em] text-[var(--omp-text)]">
+						<BrandMark size={36} className="omp-empty-logo mb-5 text-(--sc-text)" />
+						<h1 className="font-display text-sc-3xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">
 							{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
 						</h1>
-						<p className="mt-2 max-w-2xl text-omp-xl leading-relaxed text-[var(--omp-muted)]">
+						<p className="mt-2 max-w-xl text-sc-lg text-(--sc-text-muted)">
 							{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
 						</p>
-						<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+						<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
 							{starters.map(({ icon: Icon, title, prompt }) => (
 								<button
 									key={title}
@@ -580,14 +580,14 @@ function SessionTranscript() {
 											new CustomEvent("omp:fill-composer", { detail: { text: prompt, tabId } }),
 										)
 									}
-									className="omp-starter-card omp-lift group flex min-h-20 items-start gap-3 rounded-2xl border border-[var(--omp-border)] p-4 text-left shadow-[var(--omp-shadow-sm)] hover:border-[var(--omp-border-accent)] hover:bg-[var(--omp-bg-secondary)]"
+									className="omp-starter-card group flex items-start gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-3.5 text-left transition-colors duration-(--sc-duration-fast) hover:border-(--sc-border) hover:bg-(--sc-hover) active:bg-(--sc-pressed)"
 								>
-									<span className="omp-starter-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--omp-selected-bg)] text-[var(--omp-accent)]">
-										<Icon size={17} />
+									<span className="omp-starter-icon flex size-8 shrink-0 items-center justify-center rounded-(--sc-radius-md) bg-(--sc-accent-soft) text-(--sc-accent)">
+										<Icon aria-hidden className="size-(--sc-icon-md)" />
 									</span>
-									<span>
-										<span className="block text-omp-lg font-semibold text-[var(--omp-text)]">{title}</span>
-										<span className="mt-1 block text-omp-lg leading-snug text-[var(--omp-muted)]">
+									<span className="min-w-0">
+										<span className="block text-sc-md font-medium text-(--sc-text)">{title}</span>
+										<span className="mt-0.5 line-clamp-2 block text-sc-sm text-(--sc-text-muted)">
 											{prompt}
 										</span>
 									</span>

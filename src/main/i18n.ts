@@ -5,7 +5,7 @@ import type { OmpFailure } from "./omp-runtime";
 
 export type MainLanguage = UiLanguage;
 
-type MainTextKey =
+export type MainTextKey =
 	| "dialog.openProject"
 	| "menu.about"
 	| "menu.addToDictionary"
@@ -69,7 +69,11 @@ type MainTextKey =
 	| "restart.later"
 	| "restart.now"
 	| "restart.title"
+	| "stats.notReady"
+	| "stats.notRunning"
+	| "updates.checkFailed"
 	| "updates.downloadFailed"
+	| "updates.failed"
 	| "updates.hashMismatch"
 	| "updates.installerMissing"
 	| "updates.noResult"
@@ -168,6 +172,22 @@ const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 	"restart.later": { en: "Later", zh: "稍后再说", ko: "나중에" },
 	"restart.now": { en: "Restart now", zh: "立即重启", ko: "지금 재시작" },
 	"restart.title": { en: "Restart to finish updating", zh: "重启以完成更新", ko: "업데이트를 마치려면 재시작하세요" },
+	// Stats bridge failures that reach the renderer (toasts, the stats page).
+	"stats.notReady": {
+		en: "The stats server is still starting. Try again in a moment.",
+		zh: "统计服务仍在启动中，请稍后再试。",
+		ko: "통계 서버가 아직 시작 중이에요. 잠시 후 다시 시도하세요.",
+	},
+	"stats.notRunning": {
+		en: "The stats server isn't running. Restart ompdesk to bring it back.",
+		zh: "统计服务未运行。请重启 ompdesk 以恢复。",
+		ko: "통계 서버가 실행되고 있지 않아요. ompdesk를 다시 시작하면 복구돼요.",
+	},
+	"updates.checkFailed": {
+		en: "Couldn't check for updates. Check your connection and try again.",
+		zh: "无法检查更新。请检查网络连接后重试。",
+		ko: "업데이트를 확인하지 못했어요. 연결을 확인하고 다시 시도하세요.",
+	},
 	"updates.downloadFailed": {
 		en: "The installer download failed. Check your connection and try again.",
 		zh: "安装程序下载失败。请检查网络连接后重试。",
@@ -182,6 +202,11 @@ const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 		en: "This release does not include the required installer for this Mac.",
 		zh: "此版本不包含当前 Mac 所需的安装程序。",
 		ko: "이 릴리스에는 이 Mac에 필요한 설치 프로그램이 없어요.",
+	},
+	"updates.failed": {
+		en: "Couldn't finish the update. Try again later.",
+		zh: "未能完成更新。请稍后重试。",
+		ko: "업데이트를 마치지 못했어요. 잠시 후 다시 시도하세요.",
 	},
 	"updates.noResult": {
 		en: "Couldn't finish the update check. Try again later.",

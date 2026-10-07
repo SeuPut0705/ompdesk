@@ -16,7 +16,13 @@ import { type OptimisticTarget, optimisticWrite } from "../../../lib/optimistic"
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { toast } from "../../../stores/toast";
-import { type TodoStore, type UiTodoPhase, type UiTodoTask, useTodoStore } from "../../../stores/todo";
+import {
+	selectTodoCardVisible,
+	type TodoStore,
+	type UiTodoPhase,
+	type UiTodoTask,
+	useTodoStore,
+} from "../../../stores/todo";
 import { Button, IconButton } from "../../common";
 import { DockCard } from "./DockCard";
 import { buildTodoDockPeek, buildTodoDockSummary } from "./dock-summary";
@@ -40,6 +46,7 @@ export function TodoDockCard() {
 	const focused = focusedCard === "todo";
 	const showFull = !managed || focused;
 	const phases = useTodoStore(state => state.phases) ?? [];
+	const visible = useTodoStore(selectTodoCardVisible);
 	const reminderVisible = useTodoStore(state => state.reminderVisible) ?? false;
 	const reminderTodos = useTodoStore(state => state.reminderTodos) ?? [];
 	const clearReminder = useTodoStore(state => state.clearReminder);
@@ -118,10 +125,10 @@ export function TodoDockCard() {
 	const displayedPhases = showFull ? phases : summary.phases;
 
 	useEffect(() => {
-		if (focused && phases.length === 0 && !reminderVisible) clearFocus();
-	}, [clearFocus, focused, phases.length, reminderVisible]);
+		if (focused && !visible) clearFocus();
+	}, [clearFocus, focused, visible]);
 
-	if (phases.length === 0 && !reminderVisible) return null;
+	if (!visible) return null;
 
 	return (
 		<DockCard

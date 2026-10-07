@@ -1,4 +1,3 @@
-import { Terminal } from "lucide-react";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { cx, extractImageDataUrls, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -164,45 +163,48 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult }
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<div className="flex items-start gap-1.5 rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45]">
-				<Terminal size={12} className="mt-0.5 shrink-0 text-[var(--omp-success)]" />
-				<span className="min-w-0 flex-1 whitespace-pre-wrap break-all text-[var(--omp-text)]">$ {command}</span>
-				{parsed.exitCode != null && (
-					<span
+			{/* One terminal surface: the command line, then its output under a hairline. */}
+			<div className="omp-bash-terminal overflow-hidden rounded-(--sc-radius-md) bg-(--omp-code-bg) font-mono text-sc-sm">
+				<div className="flex items-start gap-2 px-2.5 py-1.5 leading-normal">
+					<span aria-hidden className="shrink-0 select-none text-(--sc-text-subtle)">
+						$
+					</span>
+					<span className="min-w-0 flex-1 whitespace-pre-wrap break-all text-(--sc-text)">{command}</span>
+					{parsed.exitCode != null && (
+						<span
+							className={cx(
+								"shrink-0 rounded-(--sc-radius-xs) px-1 text-sc-2xs font-medium tabular-nums",
+								parsed.exitCode === 0 && !isError
+									? "bg-(--sc-success)/15 text-(--sc-success)"
+									: "bg-(--sc-danger)/15 text-(--sc-danger)",
+							)}
+						>
+							{t("tools.bash.exit", { code: parsed.exitCode })}
+						</span>
+					)}
+					{isPartial && parsed.exitCode == null && (
+						<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("tools.bash.running")}</span>
+					)}
+				</div>
+				{hasOutput && (
+					<div
 						className={cx(
-							"ml-1 shrink-0 rounded px-1 py-px text-omp-xxs font-semibold tabular-nums",
-							parsed.exitCode === 0 && !isError
-								? "bg-[var(--omp-success)]/15 text-[var(--omp-success)]"
-								: "bg-[var(--omp-error)]/15 text-[var(--omp-error)]",
+							"border-t border-(--sc-divider) px-2.5 py-1.5 leading-normal text-(--omp-tool-output)",
+							PREVIEW_SCROLL_MD,
 						)}
 					>
-						{t("tools.bash.exit", { code: parsed.exitCode })}
-					</span>
-				)}
-				{isPartial && parsed.exitCode == null && (
-					<span className="ml-1 shrink-0 text-omp-xs text-[var(--omp-accent)]">{t("tools.bash.running")}</span>
+						<div className="whitespace-pre-wrap">
+							{hasAnsi(parsed.output) ? <AnsiText text={parsed.output} /> : parsed.output}
+						</div>
+					</div>
 				)}
 			</div>
-			{hasOutput && (
-				<div
-					className={cx(
-						"rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.5]",
-						PREVIEW_SCROLL_MD,
-					)}
-				>
-					<div className="whitespace-pre-wrap text-[var(--omp-tool-output)]">
-						{hasAnsi(parsed.output) ? <AnsiText text={parsed.output} /> : parsed.output}
-					</div>
-				</div>
-			)}
 			<ResultImages images={images} />
 			{parsed.stats.length > 0 && (
-				<div className="font-mono text-omp-xs text-[var(--omp-dim)]">[{parsed.stats.join(" | ")}]</div>
+				<div className="font-mono text-sc-xs text-(--sc-text-subtle)">[{parsed.stats.join(" | ")}]</div>
 			)}
-			{parsed.truncation && (
-				<div className="font-mono text-omp-xs text-[var(--omp-warning)]">[{parsed.truncation}]</div>
-			)}
-			{isError && !hasOutput && <div className="text-omp-sm text-[var(--omp-error)]">{t("tools.bash.failed")}</div>}
+			{parsed.truncation && <div className="font-mono text-sc-xs text-(--sc-warning)">[{parsed.truncation}]</div>}
+			{isError && !hasOutput && <div className="text-sc-sm text-(--sc-danger)">{t("tools.bash.failed")}</div>}
 		</div>
 	);
 }

@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { BrowserWindow } from "electron";
 import { describe, expect, it } from "vitest";
 import { IPC_EVENTS, type IpcTabStatusPayload } from "../shared/ipc-types";
@@ -161,6 +164,28 @@ describe("SidecarPool session kind", () => {
 
 		// GET_TABS exposes the immutable kind for every tab.
 		expect(pool.tabsForWindow(fw.win).map(tab => tab.kind)).toEqual(["agent", "chat"]);
+	});
+});
+
+describe("SidecarPool cwd spelling", () => {
+	it("spawns every tab on the resolved path, so a symlinked spelling can't split a project", () => {
+		const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-cwd-")));
+		try {
+			const real = path.join(root, "project");
+			const link = path.join(root, "link");
+			fs.mkdirSync(real);
+			fs.symlinkSync(real, link);
+			const { pool } = fakePool();
+			const fw = fakeWindow(1);
+
+			pool.acquire(link, fw.win, "tab-link");
+			pool.acquire(real, fw.win, "tab-real");
+			pool.acquire("/no/such/dir", fw.win, "tab-missing");
+
+			expect(pool.tabsForWindow(fw.win).map(tab => tab.cwd)).toEqual([real, real, "/no/such/dir"]);
+		} finally {
+			fs.rmSync(root, { recursive: true, force: true });
+		}
 	});
 });
 

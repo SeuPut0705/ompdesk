@@ -1,6 +1,6 @@
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
 
-export type WorkspaceDockFocusCard = "todo" | "agents";
+export type WorkspaceDockFocusCard = "todo";
 
 interface WorkspaceDockFocusValue {
 	managed: boolean;

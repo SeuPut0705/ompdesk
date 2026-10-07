@@ -130,7 +130,7 @@ export function ExecutionGroup({
 					{summary}
 				</span>
 				{duration ? (
-					<span className="omp-execution-group-duration shrink-0 tabular-nums text-(--sc-text-subtle)">
+					<span className="omp-execution-group-duration -ms-1 shrink-0 tabular-nums text-(--sc-text-subtle)">
 						· {duration}
 					</span>
 				) : null}

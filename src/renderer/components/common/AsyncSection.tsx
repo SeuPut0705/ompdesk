@@ -16,7 +16,9 @@ import { AlertTriangle, Inbox, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { Banner } from "./Banner";
 import { Button } from "./Button";
+import { EmptyState } from "./EmptyState";
 import { Spinner } from "./Spinner";
 
 export interface AsyncSectionProps {
@@ -39,7 +41,7 @@ export interface AsyncSectionProps {
 	children: ReactNode;
 }
 
-const PLAIN_STATE_CLASS = "flex flex-col items-center justify-center gap-2 px-4 py-6 text-center";
+const PLAIN_STATE_CLASS = "flex flex-col items-center justify-center gap-2.5 px-4 py-6 text-center";
 
 export function AsyncSection({
 	loading,
@@ -59,54 +61,40 @@ export function AsyncSection({
 	const box = className ?? "h-64";
 	const retry = retryLabel ?? t("common.retry");
 	const retryButton = onRetry && (
-		<Button icon={<RefreshCw size={12} />} onClick={onRetry} size="sm" variant="secondary">
+		<Button icon={<RefreshCw />} onClick={onRetry} size="sm" variant="secondary">
 			{retry}
 		</Button>
 	);
 
 	if (loading && !hasData) {
 		return (
-			<div className={cx(PLAIN_STATE_CLASS, "gap-2.5", box)}>
+			<div aria-busy className={cx(PLAIN_STATE_CLASS, box)}>
 				<Spinner size="md" />
-				{loadingLabel && <span className="text-xs text-(--omp-dim)">{loadingLabel}</span>}
+				{loadingLabel && <span className="text-sc-sm text-(--sc-text-muted)">{loadingLabel}</span>}
 			</div>
 		);
 	}
 	if (error && !hasData) {
 		return (
-			<div className={cx(PLAIN_STATE_CLASS, "gap-3", box)}>
-				<AlertTriangle className="text-(--omp-warning)" size={20} />
-				<div className="max-w-sm text-xs leading-relaxed text-(--omp-muted)">
-					{errorTitle && (
-						<>
-							<span className="font-semibold text-(--omp-text)">{errorTitle}</span>
-							<br />
-						</>
-					)}
-					{error}
-				</div>
-				{retryButton}
-			</div>
+			<EmptyState
+				actions={retryButton}
+				className={box}
+				description={errorTitle ? <span role="alert">{error}</span> : undefined}
+				icon={<AlertTriangle />}
+				size="sm"
+				title={errorTitle ? errorTitle : <span role="alert">{error}</span>}
+			/>
 		);
 	}
 	if (empty && !error) {
-		return (
-			<div className={cx(PLAIN_STATE_CLASS, box)}>
-				<Inbox className="text-(--omp-dim)" size={20} />
-				{emptyLabel && <span className="text-xs text-(--omp-dim)">{emptyLabel}</span>}
-			</div>
-		);
+		return <EmptyState className={box} icon={<Inbox />} size="sm" title={emptyLabel ?? ""} />;
 	}
 	return (
 		<>
 			{error && (
-				<div
-					role="alert"
-					className="m-3 flex items-center gap-3 rounded border border-(--omp-border-muted) p-3 text-omp-sm text-[var(--omp-warning)]"
-				>
-					<span className="flex-1">{staleLabel ? `${staleLabel}: ${error}` : error}</span>
-					{retryButton}
-				</div>
+				<Banner actions={retryButton} className="mb-3" live title={staleLabel} variant="warning">
+					{error}
+				</Banner>
 			)}
 			{children}
 		</>

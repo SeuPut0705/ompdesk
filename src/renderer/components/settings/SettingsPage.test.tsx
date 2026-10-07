@@ -11,6 +11,7 @@ import type { SettingEntry } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useUiStore } from "../../stores/ui";
 import { SchemaTabSettings } from "./AdvancedSection";
+import { GeneralSection } from "./GeneralSection";
 import { SchemaSettingRow } from "./SchemaSettingRow";
 import { SettingsConnectionBanner } from "./SettingsPage";
 import { resolveSettingsTarget } from "./settings-catalog";
@@ -310,6 +311,15 @@ describe("SchemaSettingRow", () => {
 		expect(render({ ...configured, provenance: { layers: [], globalValue: undefined } }, true)).not.toContain(
 			"<details",
 		);
+	});
+});
+
+describe("GeneralSection", () => {
+	it("gives compaction its own heading and drops a heading whose rows this omp lacks", () => {
+		const html = renderToStaticMarkup(withData([entry({ path: "compaction.enabled" })], {}, <GeneralSection />));
+		expect(html).toContain(`>${translate("settings.general.context")}</h3>`);
+		expect(html).toContain('id="setting-compaction.enabled"');
+		expect(html).not.toContain(translate("settings.general.messages"));
 	});
 });
 

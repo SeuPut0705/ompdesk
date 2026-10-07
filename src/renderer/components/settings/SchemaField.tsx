@@ -9,9 +9,36 @@
 import type { ReactNode } from "react";
 import { useT } from "../../lib/i18n";
 import { SchemaSettingRow } from "./SchemaSettingRow";
-import { SettingsRow } from "./SettingsLayout";
+import { SettingsRow, SettingsSection, type SettingsSectionProps } from "./SettingsLayout";
 import { useSettingsData } from "./settings-data";
 import { isSettingVisibleInGui } from "./settings-schema-utils";
+
+/**
+ * A Settings section made only of curated schema rows: renders each path as a
+ * `SchemaField` and drops the whole section (heading included) once the schema
+ * has loaded and none of its rows apply to this omp, so no heading sits empty.
+ */
+export function SchemaSection({
+	paths,
+	...section
+}: Omit<SettingsSectionProps, "children"> & { paths: readonly string[] }) {
+	const { schema, values, loadState, sidecarReady } = useSettingsData();
+	if (sidecarReady && loadState === "error") return null;
+	if (sidecarReady && loadState === "ready" && schema) {
+		const visible = paths.some(path => {
+			const entry = schema.entries.find(candidate => candidate.path === path);
+			return entry !== undefined && isSettingVisibleInGui(entry, values);
+		});
+		if (!visible) return null;
+	}
+	return (
+		<SettingsSection {...section}>
+			{paths.map(path => (
+				<SchemaField key={path} path={path} />
+			))}
+		</SettingsSection>
+	);
+}
 
 export function SchemaField({ path, action }: { path: string; action?: ReactNode }) {
 	const t = useT();

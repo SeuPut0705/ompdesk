@@ -12,7 +12,6 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import {
 	Bot,
 	ChartColumn,
-	Check,
 	ChevronRight,
 	CircleHelp,
 	Cpu,
@@ -46,7 +45,7 @@ import {
 	groupByCategory,
 	prefillComposer,
 } from "../../lib/command-registry";
-import { enterNeedsConfirm, matchCommand, rankCommands } from "../../lib/command-search";
+import { enterNeedsConfirm, matchCommand, normalizeQuery, rankCommands } from "../../lib/command-search";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -106,6 +105,21 @@ const CATEGORY_ICON: Record<CommandCategory, LucideIcon> = {
 	help: CircleHelp,
 	other: Terminal,
 };
+
+/** The label with the typed query's first literal occurrence in the accent tone (fuzzy/초성 hits stay plain). */
+function HighlightedLabel({ label, query }: { label: string; query: string }) {
+	const needle = normalizeQuery(query).toLowerCase();
+	const start = needle ? label.toLowerCase().indexOf(needle) : -1;
+	if (start < 0) return label;
+	const end = start + needle.length;
+	return (
+		<>
+			{label.slice(0, start)}
+			<mark className="bg-transparent text-(--sc-accent)">{label.slice(start, end)}</mark>
+			{label.slice(end)}
+		</>
+	);
+}
 
 /** Execute an affordance, closing the palette and surfacing errors. */
 async function runAffordance(
@@ -648,7 +662,7 @@ export function CommandPalette() {
 				    twice as many fit; an armed warning wraps instead of truncating. */}
 				<span className={cx("flex min-w-0 flex-1 items-baseline gap-x-2", isArmed && "flex-wrap")}>
 					<span className="max-w-full shrink-0 truncate text-sc-md font-medium text-(--sc-text)">
-						{item.label}
+						<HighlightedLabel label={item.label} query={query} />
 					</span>
 					{toggleOn !== null && (
 						<span
@@ -676,19 +690,7 @@ export function CommandPalette() {
 					<span className="shrink-0 text-sc-xs text-(--sc-text-subtle)">{options.categoryLabel}</span>
 				)}
 				{item.shortcut && <Kbd shortcut={item.shortcut} />}
-				{isSubmenu ? (
-					<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-				) : (
-					toggleOn !== null && (
-						<Check
-							aria-hidden
-							className={cx(
-								"size-(--sc-icon-sm) shrink-0",
-								toggleOn ? "text-(--sc-success)" : "text-transparent",
-							)}
-						/>
-					)
-				)}
+				{isSubmenu && <ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />}
 			</button>
 		);
 	};

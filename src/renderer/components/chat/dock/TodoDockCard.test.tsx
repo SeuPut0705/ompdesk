@@ -142,6 +142,7 @@ describe("TodoDockCard", () => {
 				tasks: [{ content: "Update model compatibility", status: "completed" }],
 			},
 		]);
+		useTodoStore.getState().revealClosed();
 		await mount();
 
 		const header = container.querySelector('section[aria-label="Todos"] button[aria-label="Collapse"]');
@@ -164,6 +165,8 @@ describe("TodoDockCard", () => {
 				})),
 			},
 		]);
+		// A restored finished list stays off the dock until the user asks for it.
+		useTodoStore.getState().revealClosed();
 		await mount(
 			<WorkspaceDockFocusProvider>
 				<TodoDockCard />
@@ -180,6 +183,22 @@ describe("TodoDockCard", () => {
 
 		expect(container.querySelector('[title="Restored task 1"]')).not.toBeNull();
 		expect(container.querySelector('[title="Restored task 12"]')).not.toBeNull();
+	});
+
+	it("leaves the dock once the turn that finished every task ends", async () => {
+		useTodoStore.getState().setTurnActive(true);
+		useTodoStore.getState().setPhases([{ name: "Live", tasks: [{ content: "Finish me", status: "in_progress" }] }]);
+		await mount(<WorkspaceDock />);
+		expect(container.textContent).toContain("Finish me");
+
+		await act(async () => {
+			useTodoStore.getState().setPhases([{ name: "Live", tasks: [{ content: "Finish me", status: "completed" }] }]);
+		});
+		expect(container.textContent).toContain("Finish me");
+
+		await act(async () => useTodoStore.getState().setTurnActive(false));
+		expect(container.textContent).not.toContain("Finish me");
+		expect(container.querySelector('section[aria-label="Todos"]')).toBeNull();
 	});
 
 	it("keeps the dock internally scrollable and bounded so the composer is never clipped", async () => {
@@ -212,6 +231,7 @@ describe("TodoDockCard", () => {
 				})),
 			},
 		]);
+		useTodoStore.getState().revealClosed();
 		await mount(<WorkspaceDock />);
 
 		const viewAll = [...container.querySelectorAll("button")].find(button =>
@@ -314,6 +334,7 @@ describe("TodoDockCard", () => {
 				tasks: [{ content: "Shipped work", status: "completed" }],
 			},
 		]);
+		useTodoStore.getState().revealClosed();
 		await mount();
 
 		await act(async () => statusCycleButton().click());

@@ -497,15 +497,30 @@ export function SkillsTab({ query }: { query: string }) {
 				</Button>
 			</div>
 
-			<div className="skills-master-detail overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
-				<aside className="skills-list-pane min-h-0">{listBody}</aside>
-				<section
-					aria-label={selected?.name ?? t("settings.skills.title")}
-					className="skills-detail-pane min-w-0 overflow-y-auto p-5"
-				>
-					{detailBody}
-				</section>
-			</div>
+			{!error && !loading && skills.length === 0 && !editor ? (
+				// Nothing installed: one empty state, not an empty list beside an empty preview.
+				<EmptyState
+					actions={
+						<Button disabled={!sidecarReady || !routeReady} icon={<Plus />} onClick={startCreate} size="sm">
+							{t("settings.skills.new")}
+						</Button>
+					}
+					className="rounded-(--sc-radius-lg) border border-(--sc-border-subtle)"
+					description={t("settings.skills.noneDesc")}
+					icon={<BookOpen />}
+					title={t("settings.skills.none")}
+				/>
+			) : (
+				<div className="skills-master-detail overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
+					<aside className="skills-list-pane min-h-0">{listBody}</aside>
+					<section
+						aria-label={selected?.name ?? t("settings.skills.title")}
+						className="skills-detail-pane min-w-0 overflow-y-auto p-5"
+					>
+						{detailBody}
+					</section>
+				</div>
+			)}
 
 			<ConfirmDialog
 				busy={busyName !== null}

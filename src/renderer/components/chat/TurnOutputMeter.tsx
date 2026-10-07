@@ -1,4 +1,3 @@
-import { ArrowDown } from "lucide-react";
 import { formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
@@ -6,9 +5,10 @@ import { isTurnMeterEstimate, throughputTokensPerSecond, turnMeterTokens } from 
 import { useMessagesStore } from "../../stores/messages";
 
 /**
- * Quiet output-token figure for a work-summary row: "↓ 12.4k · 86 tok/s" live,
- * "↓ 12.4k · avg 80 tok/s" once finished. An estimated count is marked "~"
- * (the tooltip says where the number comes from). Renders nothing without tokens.
+ * Quiet output-token figure for a work-summary row, in words rather than
+ * glyphs: "12.4k tokens · 86/s" live, "12.4k tokens · avg 80/s" once
+ * finished. An estimated count reads "~12.4k tokens" (the tooltip says where
+ * the number comes from). Renders nothing without tokens.
  */
 export function OutputMeter({
 	average = false,
@@ -24,21 +24,23 @@ export function OutputMeter({
 	const t = useT();
 	if (!(tokens > 0)) return null;
 	const rateText =
-		rate > 0
-			? t(average ? "chat.meter.average" : "chat.meter.rate", {
-					rate: rate < 10 ? rate.toFixed(1) : String(Math.round(rate)),
-				})
-			: null;
+		rate > 0 ? t(average ? "chat.meter.average" : "chat.meter.rate", { rate: formatTokenRate(rate) }) : null;
+	const count = formatTokens(tokens);
 	return (
 		<span
-			className="omp-output-meter flex shrink-0 items-center gap-1 text-sc-xs tabular-nums text-(--sc-text-subtle)"
+			className="omp-output-meter -ms-1 shrink-0 tabular-nums text-(--sc-text-subtle)"
 			title={t(estimated ? "chat.meter.estimatedTitle" : "chat.meter.reportedTitle")}
 		>
-			<ArrowDown aria-hidden className="size-3 shrink-0" />
-			{`${estimated ? "~" : ""}${formatTokens(tokens)}`}
-			{rateText ? <span>· {rateText}</span> : null}
+			{"· "}
+			{t(estimated ? "chat.meter.tokensEstimated" : "chat.meter.tokens", { tokens: count })}
+			{rateText ? ` · ${rateText}` : null}
 		</span>
 	);
+}
+
+/** One decimal below 10 tokens/s ("4.7"), whole numbers above ("63"). */
+export function formatTokenRate(rate: number): string {
+	return rate < 10 ? rate.toFixed(1) : String(Math.round(rate));
 }
 
 /** The running agent turn's meter (messages store `turnMeter`); hidden once the run ends. */

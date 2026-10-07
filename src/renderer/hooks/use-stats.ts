@@ -82,7 +82,8 @@ function useStatsResource<T>(path: string, params: Record<string, string> | unde
 				unavailableSince = null;
 				if (active) setState({ key, data: result as T, isLoading: false, error: null, updatedAt: Date.now() });
 			} catch (cause) {
-				if (active) setState(previous => ({ ...previous, isLoading: false, error: String(cause) }));
+				const message = cause instanceof Error ? cause.message : String(cause);
+				if (active) setState(previous => ({ ...previous, isLoading: false, error: message }));
 			} finally {
 				inFlight = false;
 			}

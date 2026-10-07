@@ -12,6 +12,8 @@ export interface Toast {
 	variant: ToastVariant;
 	title?: string;
 	message: string;
+	/** Raw technical cause (error text), shown as a quiet secondary line. */
+	detail?: string;
 	expiresAt: number;
 	count: number;
 	/** Set when dismissal began; the entry lingers for the exit animation. */
@@ -22,6 +24,8 @@ export interface ToastInput {
 	variant?: ToastVariant;
 	title?: string;
 	message: string;
+	/** Raw technical cause, kept available under the localized message (see lib/error-detail). */
+	detail?: string;
 	/** Auto-dismiss delay in ms (default 5000). */
 	durationMs?: number;
 }
@@ -53,7 +57,8 @@ export const useToastStore = create<ToastStore>()(set => ({
 					entry.expiresAt > now &&
 					entry.variant === variant &&
 					entry.title === toast.title &&
-					entry.message === toast.message,
+					entry.message === toast.message &&
+					entry.detail === toast.detail,
 			);
 			if (duplicateIndex >= 0) {
 				const duplicate = state.toasts[duplicateIndex];
@@ -68,6 +73,7 @@ export const useToastStore = create<ToastStore>()(set => ({
 				variant,
 				title: toast.title,
 				message: toast.message,
+				...(toast.detail ? { detail: toast.detail } : {}),
 				expiresAt,
 				count: 1,
 			};

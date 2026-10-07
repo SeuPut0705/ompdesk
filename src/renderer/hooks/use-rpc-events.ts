@@ -291,6 +291,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 					switch (event.type) {
 						case "agent_start": {
 							useSessionStore.setState({ isStreaming: true, awaitingModelSince: Date.now() });
+							useTodoStore.getState().setTurnActive(true);
 							// Server-side mode changes (plan_approval accept exits plan
 							// mode, then dispatches the execution turn) carry no event —
 							// re-sync state-derived stores at turn start so the composer
@@ -331,6 +332,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 						}
 						case "agent_end": {
 							useSessionStore.setState({ isStreaming: false, awaitingModelSince: null });
+							// Releases a todo list this turn finished — the dock card goes away.
+							useTodoStore.getState().setTurnActive(false);
 							notifyOnAgentEnd(tabId, event);
 							toastOnAgentError(tabId, event);
 							// Re-fetch state so agent-side todo updates mid-turn reach the panel.

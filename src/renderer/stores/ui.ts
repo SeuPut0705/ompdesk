@@ -34,13 +34,13 @@ const DEFAULT_SETTINGS_TAB = "general";
 /** Below this width the side panel becomes a sheet (design-spec §8); the sidebar never folds on its own. */
 export const COMPACT_SHELL_QUERY = "(max-width: 999px)";
 
-/** Center-dock card identifiers: todo/plan/agents render as live cards above the composer. */
-export type DockCardId = "todo" | "plan" | "agents";
+/** Center-dock card identifiers: todo/plan render as live cards above the composer. */
+export type DockCardId = "todo" | "plan";
 
-/** Todo and subagent cards start collapsed: their header peek (progress, current
- * task, agent counts) is the at-a-glance view, and the full list is one click away.
- * The plan card starts open because a proposed plan is there to be read. */
-const DOCK_CARD_DEFAULT_COLLAPSED: Record<DockCardId, boolean> = { todo: true, agents: true, plan: false };
+/** The todo card starts collapsed: its header peek (progress, current task) is
+ * the at-a-glance view, and the full list is one click away. The plan card
+ * starts open because a proposed plan is there to be read. */
+const DOCK_CARD_DEFAULT_COLLAPSED: Record<DockCardId, boolean> = { todo: true, plan: false };
 
 /** Whether a center-dock card is collapsed: the user's override, else the card's default. */
 export function isDockCardCollapsed(overrides: Partial<Record<DockCardId, boolean>>, id: DockCardId): boolean {

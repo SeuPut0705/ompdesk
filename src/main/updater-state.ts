@@ -142,13 +142,18 @@ export function classifyRepoAccess(status: number): UpdateAccess {
 	return "network";
 }
 
-/** Status for a failed check once repo access is known. */
+/**
+ * Status for a failed check once repo access is known. `message` is the
+ * user-facing copy; `detail` (the raw updater error) rides along for the
+ * banner's tooltip and Settings.
+ */
 export function settleFailedUpdateCheck(
 	access: UpdateAccess,
 	errorCode: string | undefined,
 	message: string,
 	currentVersion: string,
 	manual: boolean,
+	detail?: string,
 ): UpdateStatus {
 	if (access === "invalid" || access === "denied" || access === "missing") {
 		return { state: "auth-required", reason: access };
@@ -157,7 +162,9 @@ export function settleFailedUpdateCheck(
 	if (access === "ok" && errorCode === "ERR_UPDATER_LATEST_VERSION_NOT_FOUND") {
 		return { state: "not-available", version: currentVersion };
 	}
-	return { state: "error", message, showInBanner: manual };
+	return detail && detail !== message
+		? { state: "error", message, detail, showInBanner: manual }
+		: { state: "error", message, showInBanner: manual };
 }
 
 /* -------------------------------------------- macOS manual installer transfer */

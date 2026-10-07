@@ -97,7 +97,7 @@ async function click(element: TestElement): Promise<void> {
 }
 
 function refreshButton(): TestElement {
-	const match = queryAll("button").find(button => button.getAttribute("title") === "Refresh");
+	const match = queryAll("button").find(button => button.getAttribute("aria-label") === "Refresh");
 	if (!match) throw new Error("refresh button not found");
 	return match;
 }

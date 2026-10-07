@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext } from "react";
+import { createContext, type ReactNode, useContext, useSyncExternalStore } from "react";
 import { type UseBoundStore, useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
 import type { RpcCommand, RpcResponse } from "../../shared/rpc-types";
@@ -78,8 +78,22 @@ const focusedListeners = new Set<() => void>();
 let focusedTabId: string | null = null;
 let executionTabId: string | null = null;
 
+const registryListeners = new Set<() => void>();
+let registryNotifyQueued = false;
+
+/** Runtimes are created mid-render (App, SplitWorkspace): notify after the current task, never synchronously. */
+function notifyRegistryChange(): void {
+	if (registryNotifyQueued || registryListeners.size === 0) return;
+	registryNotifyQueued = true;
+	queueMicrotask(() => {
+		registryNotifyQueued = false;
+		for (const listener of registryListeners) listener();
+	});
+}
+
 export function registerSessionRuntime(runtime: SessionRuntime): SessionRuntime {
 	runtimes.set(runtime.tabId, runtime);
+	notifyRegistryChange();
 	return runtime;
 }
 
@@ -93,7 +107,22 @@ export function sessionRuntimeStore<T>(tabId: string | null, key: RuntimeStoreKe
 
 export function deleteSessionRuntime(tabId: string): void {
 	runtimes.delete(tabId);
+	notifyRegistryChange();
 	if (focusedTabId === tabId) setFocusedSessionRuntime(null);
+}
+
+function onSessionRuntimesChange(listener: () => void): () => void {
+	registryListeners.add(listener);
+	return () => registryListeners.delete(listener);
+}
+
+/**
+ * Another tab's runtime (not the nearest provider's), re-rendering when that
+ * tab's runtime is created, replaced by a session change, or closed.
+ */
+export function useTabSessionRuntime(tabId: string | null): SessionRuntime | null {
+	const getSnapshot = () => sessionRuntime(tabId);
+	return useSyncExternalStore(onSessionRuntimesChange, getSnapshot, getSnapshot);
 }
 
 export function setFocusedSessionRuntime(tabId: string | null): void {

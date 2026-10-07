@@ -14,6 +14,8 @@ export type StatsSyncOutcome =
 	| { kind: "done"; processed: number; files: number }
 	| { kind: "error"; message: string }
 	| { kind: "unavailable"; message: string }
+	/** The bundled stats server is gone for good this run (no revive left). */
+	| { kind: "stopped" }
 	| { kind: "timeout" };
 
 export interface StatsSyncOptions {
@@ -29,12 +31,18 @@ function defaultSleep(ms: number): Promise<void> {
 	return promise;
 }
 
-/** The stats:fetch bridge resolves failures as `{ error, unavailable }` instead of rejecting. */
+/** The stats:fetch bridge resolves failures as `{ error, unavailable, stopped? }` instead of rejecting. */
 function bridgeFailure(reply: unknown): StatsSyncOutcome | null {
 	if (!reply || typeof reply !== "object" || !("error" in reply)) return null;
+	if (isStatsServerStopped(reply)) return { kind: "stopped" };
 	const { error, unavailable } = reply as { error?: unknown; unavailable?: unknown };
 	const message = typeof error === "string" ? error : "";
 	return unavailable === true ? { kind: "unavailable", message } : { kind: "error", message };
+}
+
+/** A stats:fetch reply saying the bundled server is down with no revive left. */
+export function isStatsServerStopped(reply: unknown): boolean {
+	return !!reply && typeof reply === "object" && "stopped" in reply && reply.stopped === true;
 }
 
 function liveSync(reply: unknown): LiveSyncStatus | null {

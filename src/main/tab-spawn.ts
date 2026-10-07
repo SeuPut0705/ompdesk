@@ -9,8 +9,10 @@
  *   stamped kind (I3: reject, never degrade). When the payload omits `kind`,
  *   the file's kind wins instead of refusing.
  */
+
 import type { BrowserWindow } from "electron";
 import type { IpcSpawnTabPayload, IpcSpawnTabResult, SessionKind } from "../shared/ipc-types";
+import { canonicalCwd } from "./canonical-cwd";
 import type { SessionIndex } from "./session-index";
 import type { SidecarPool } from "./sidecar-pool";
 import { nextSnowflake } from "./snowflake";
@@ -45,11 +47,13 @@ export async function spawnTabForWindow(
 		kind = fileKind;
 	}
 	if (deps.sidecarPool.atCap) return null;
-	const cwd = payload.defaultWorkspace
-		? deps.defaultWorkspace()
-		: typeof payload?.cwd === "string" && payload.cwd.length > 0
-			? payload.cwd
-			: deps.fallbackCwd();
+	const cwd = canonicalCwd(
+		payload.defaultWorkspace
+			? deps.defaultWorkspace()
+			: typeof payload?.cwd === "string" && payload.cwd.length > 0
+				? payload.cwd
+				: deps.fallbackCwd(),
+	);
 	const tabId = nextSnowflake();
 	// A no-path tab is an explicit New Tab action. It must start empty even
 	// when the CLI's persistent autoResume setting is enabled for the project.

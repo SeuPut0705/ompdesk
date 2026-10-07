@@ -3,10 +3,12 @@
  * hydration (never a change), later identical re-applies (every agent_end
  * re-pulls state) dedupe by semantic fingerprint, and only real edits append
  * transcript snapshots — capped so the archive keeps the newest entries.
+ * Dock card visibility: open work shows; a finished list lingers only until
+ * the turn that finished it ends.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import type { TodoPhase } from "../../shared/rpc-types";
-import { useTodoStore } from "./todo";
+import { selectTodoCardVisible, useTodoStore } from "./todo";
 
 function phase(name: string, ...tasks: Array<[string, string]>): TodoPhase {
 	return {
@@ -75,5 +77,88 @@ describe("todo snapshot archive", () => {
 		useTodoStore.getState().reset();
 		expect(useTodoStore.getState().history).toEqual([]);
 		expect(useTodoStore.getState().historyHydrated).toBe(false);
+	});
+});
+
+describe("todo dock card visibility", () => {
+	const visible = () => selectTodoCardVisible(useTodoStore.getState());
+
+	it("shows while any task is pending, in progress, or blocked", () => {
+		for (const status of ["pending", "in_progress", "blocked"]) {
+			useTodoStore.getState().reset();
+			useTodoStore.getState().setPhases([phase("Build", ["done", "completed"], ["open", status])]);
+			expect(visible()).toBe(true);
+		}
+	});
+
+	it("hides a cleared list and a list without tasks", () => {
+		useTodoStore.getState().setPhases([phase("Build", ["scaffold", "pending"])]);
+		useTodoStore.getState().setPhases([]);
+		expect(visible()).toBe(false);
+		useTodoStore.getState().setPhases([phase("Empty")]);
+		expect(visible()).toBe(false);
+	});
+
+	it("holds a list the running turn finished until that turn ends", () => {
+		useTodoStore.getState().setTurnActive(true);
+		useTodoStore.getState().setPhases([phase("Build", ["scaffold", "in_progress"])]);
+		useTodoStore.getState().setPhases([phase("Build", ["scaffold", "completed"], ["idea", "abandoned"])]);
+		expect(visible()).toBe(true);
+		useTodoStore.getState().setTurnActive(false);
+		expect(visible()).toBe(false);
+		// agent_end re-pulls the same finished list — it stays gone.
+		useTodoStore.getState().setPhases([phase("Build", ["scaffold", "completed"], ["idea", "abandoned"])]);
+		expect(visible()).toBe(false);
+	});
+
+	it("hides immediately when an idle edit closes the last open task", () => {
+		useTodoStore.getState().setPhases([phase("Build", ["scaffold", "pending"])]);
+		useTodoStore.getState().setPhases([phase("Build", ["scaffold", "completed"])]);
+		expect(visible()).toBe(false);
+	});
+
+	it("does not hold a finished list a new turn merely re-hydrates", () => {
+		useTodoStore.getState().setPhases([phase("Build", ["scaffold", "completed"])]);
+		useTodoStore.getState().setTurnActive(true);
+		useTodoStore.getState().setPhases([phase("Build", ["scaffold", "completed"])]);
+		expect(visible()).toBe(false);
+	});
+
+	it("reveals a finished list on request until the next turn ends", () => {
+		useTodoStore.getState().setPhases([phase("Build", ["scaffold", "completed"])]);
+		useTodoStore.getState().revealClosed();
+		expect(visible()).toBe(true);
+		// Idle state snapshots do not take it away again.
+		useTodoStore.getState().setTurnActive(false);
+		expect(visible()).toBe(true);
+		useTodoStore.getState().setTurnActive(true);
+		useTodoStore.getState().setTurnActive(false);
+		expect(visible()).toBe(false);
+	});
+
+	it("clears the reminder once the list progresses or has no open work", () => {
+		const open = phase("Build", ["scaffold", "pending"], ["wire", "pending"]);
+		useTodoStore.getState().setPhases([open]);
+		useTodoStore.getState().showReminder(open.tasks);
+		// Re-pulling the unchanged list keeps the reminder up.
+		useTodoStore.getState().setPhases([open]);
+		expect(useTodoStore.getState().reminderVisible).toBe(true);
+		useTodoStore.getState().setPhases([phase("Build", ["scaffold", "completed"], ["wire", "pending"])]);
+		expect(useTodoStore.getState()).toMatchObject({ reminderVisible: false, reminderTodos: [] });
+
+		useTodoStore.getState().showReminder(open.tasks);
+		useTodoStore.getState().setPhases([]);
+		expect(useTodoStore.getState().reminderVisible).toBe(false);
+		expect(visible()).toBe(false);
+	});
+
+	it("drops the turn and any held list on reset", () => {
+		useTodoStore.getState().setTurnActive(true);
+		useTodoStore.getState().setPhases([phase("Build", ["scaffold", "pending"])]);
+		useTodoStore.getState().setPhases([phase("Build", ["scaffold", "completed"])]);
+		useTodoStore.getState().reset();
+		expect(useTodoStore.getState()).toMatchObject({ turnActive: false, keepClosedVisible: false });
+		useTodoStore.getState().setPhases([phase("Build", ["scaffold", "completed"])]);
+		expect(visible()).toBe(false);
 	});
 });

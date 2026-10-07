@@ -3,12 +3,14 @@
  * with search filtering, level filter, and pin-aware auto-scroll.
  */
 
-import { ArrowDown, RotateCw, Search, X } from "lucide-react";
+import { ArrowDown, Copy, Download, RotateCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LogBatch } from "../../../shared/ipc-types";
+import { errorDetail } from "../../lib/error-detail";
 import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { Button } from "../common";
+import { toast } from "../../stores/toast";
+import { Button, IconButton, SearchField, Tabs } from "../common";
 
 const MAX_LINES = 1000;
 
@@ -50,6 +52,7 @@ export function LogPanel() {
 	const [pinned, setPinned] = useState(true);
 	const scrollRef = useRef<HTMLDivElement>(null);
 
+	/** Snapshot load failure (raw detail); a failed copy is a toast, never this. */
 	const [error, setError] = useState<string | null>(null);
 
 	const applyBatch = useCallback((batch: LogBatch): void => {
@@ -68,7 +71,7 @@ export function LogPanel() {
 		void window.omp.runtime
 			.logSnapshot()
 			.then(applyBatch)
-			.catch(cause => setError(String(cause)));
+			.catch(cause => setError(errorDetail(cause)));
 	}, [applyBatch]);
 
 	useEffect(() => {
@@ -117,73 +120,50 @@ export function LogPanel() {
 
 	return (
 		<div className="flex h-full flex-col">
-			{error && (
-				<p role="alert" className="px-3 text-omp-sm text-(--omp-error)">
-					{error}
-				</p>
-			)}
-			<div className="flex items-center gap-1.5 px-3 pt-2.5 pb-1.5">
-				<span className="text-omp-xs font-medium tracking-widest text-(--omp-dim) uppercase">
-					{t("logPanel.title")}
-				</span>
-				<span className="text-omp-xs tabular-nums text-(--omp-dim)">{filtered.length}</span>
-				<div className="ml-auto flex items-center gap-0.5">
-					{(["all", "info", "warn", "error"] as const).map(level => (
-						<button
-							className={`rounded px-1.5 py-0.5 text-omp-xs transition-colors ${
-								levelFilter === level
-									? "bg-(--omp-selected-bg) text-(--omp-text)"
-									: "text-(--omp-dim) hover:text-(--omp-text)"
-							}`}
-							aria-pressed={levelFilter === level}
-							key={level}
-							onClick={() => setLevelFilter(level)}
-							type="button"
-						>
-							{t(LEVEL_LABEL_KEY[level])}
-						</button>
-					))}
+			{/* The side-panel tab already says "Logs": the header holds the filters and actions. */}
+			<div className="flex items-center gap-1.5 px-3 pt-2.5 pb-2">
+				<Tabs
+					activeId={levelFilter}
+					ariaLabel={t("logPanel.title")}
+					compact
+					onChange={level => setLevelFilter(level as "all" | LogLevel)}
+					tabs={(["all", "info", "warn", "error"] as const).map(level => ({
+						id: level,
+						label: t(LEVEL_LABEL_KEY[level]),
+					}))}
+					variant="segmented"
+				/>
+				<span className="text-sc-xs tabular-nums text-(--sc-text-subtle)">{filtered.length}</span>
+				<div className="ml-auto flex shrink-0 items-center gap-0.5">
+					<IconButton
+						disabled={filtered.length === 0}
+						icon={<Copy />}
+						label={t("logPanel.copy")}
+						onClick={() =>
+							void copyText(filtered.map(line => line.text).join("\n")).then(ok => {
+								if (!ok) toast({ variant: "error", message: t("copySelector.failed") });
+							})
+						}
+						size="sm"
+					/>
+					<IconButton
+						disabled={filtered.length === 0}
+						icon={<Download />}
+						label={t("logPanel.export")}
+						onClick={exportLogs}
+						size="sm"
+					/>
 				</div>
 			</div>
-			<div className="flex flex-wrap gap-2 px-3 pb-2 text-omp-xs">
-				<button
-					type="button"
-					disabled={filtered.length === 0}
-					onClick={() =>
-						void copyText(filtered.map(line => line.text).join("\n")).then(ok => {
-							if (!ok) setError(t("copySelector.failed"));
-						})
-					}
-				>
-					{t("logPanel.copy")}
-				</button>
-				<button type="button" disabled={filtered.length === 0} onClick={exportLogs}>
-					{t("logPanel.export")}
-				</button>
-				<span className="text-(--omp-dim)">{t("logPanel.scope")}</span>
-			</div>
-			<div className="relative px-3 pb-1.5">
-				<Search
-					className="pointer-events-none absolute top-1/2 left-5.5 -translate-y-1/2 text-(--omp-dim)"
-					size={11}
-				/>
-				<input
-					aria-label={t("logPanel.searchLabel")}
-					className="w-full rounded-md border border-(--omp-border-muted) bg-(--omp-input-bg) py-1 pr-7 pl-6.5 text-omp-sm text-(--omp-text) placeholder:text-(--omp-dim) focus:border-(--omp-border-accent) focus:outline-none"
-					onChange={event => setQuery(event.target.value)}
+			<div className="px-3 pb-1.5">
+				<SearchField
+					controlSize="sm"
+					label={t("logPanel.searchLabel")}
+					onValueChange={setQuery}
 					placeholder={t("logPanel.placeholder")}
 					value={query}
 				/>
-				{query && (
-					<button
-						aria-label={t("logPanel.clearSearch")}
-						className="absolute top-1/2 right-5 -translate-y-1/2 text-(--omp-dim) hover:text-(--omp-text)"
-						onClick={() => setQuery("")}
-						type="button"
-					>
-						<X size={11} />
-					</button>
-				)}
+				<p className="mt-1.5 text-sc-xs text-(--sc-text-subtle)">{t("logPanel.scope")}</p>
 			</div>
 			<div className="relative min-h-0 flex-1">
 				<div
@@ -192,11 +172,10 @@ export function LogPanel() {
 					ref={scrollRef}
 				>
 					{error ? (
-						<div className="flex flex-col items-center gap-2 py-8 text-center font-sans">
-							<p role="alert" className="text-omp-sm text-(--omp-error)">
-								{error}
-							</p>
-							<Button icon={<RotateCw size={12} />} onClick={reload} size="sm" variant="secondary">
+						<div className="flex flex-col items-center gap-2 py-8 text-center font-sans" role="alert">
+							<p className="text-sc-sm font-medium text-(--sc-text)">{t("logPanel.loadFailed")}</p>
+							<p className="max-w-full font-mono text-sc-xs break-words text-(--sc-text-muted)">{error}</p>
+							<Button icon={<RotateCw />} onClick={reload} size="sm" variant="secondary">
 								{t("common.retry")}
 							</Button>
 						</div>

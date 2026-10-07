@@ -21,8 +21,9 @@ import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, EmptyState, IconButton, ListRow, Sheet } from "../common";
-import { SubagentTranscript } from "../panels/SubagentTranscript";
+import { Badge, Button, EmptyState, IconButton, ListRow } from "../common";
+import { SubagentTranscriptSheet } from "../panels/SubagentTranscriptSheet";
+import { runSubagentAction } from "../panels/subagent-actions";
 import {
 	formatElapsed,
 	isLiveSubagentStatus,
@@ -43,13 +44,6 @@ function statusOrder(status: string): number {
 	if (status === "cancelled" || status === "aborted") return 2;
 	return 3;
 }
-
-const REASON_KEY: Record<string, string> = {
-	advisor_readonly: "agentHub.hub.reason.advisorReadonly",
-	main_agent: "agentHub.hub.reason.mainAgent",
-	not_found: "agentHub.hub.reason.notFound",
-	not_parked: "agentHub.hub.reason.notParked",
-};
 
 type RowActionState = "idle" | "confirming" | "working";
 
@@ -232,74 +226,67 @@ export function LiveAgents() {
 	const runRowAction = useCallback(
 		async (id: string, action: "abort" | "revive") => {
 			if (!ready) return;
-			const failTitle = action === "abort" ? t("agentHub.hub.abortAgentFailed") : t("agentHub.hub.reviveFailed");
 			setRowAction({ id, state: "working" });
 			try {
-				const res = action === "abort" ? await tabRpc.abortSubagent(id) : await tabRpc.reviveSubagent(id);
-				if (!res.success) {
-					toast({ variant: "error", title: failTitle, message: res.error });
-					return;
-				}
-				const data = res.data as { ok?: boolean; reason?: string } | undefined;
-				if (!data?.ok) {
-					const reasonKey = (data?.reason && REASON_KEY[data.reason]) || "agentHub.hub.reason.abortFailed";
-					toast({ variant: "error", title: failTitle, message: t(reasonKey) });
-					return;
-				}
-				await refresh();
-			} catch (cause) {
-				toast({ variant: "error", title: failTitle, message: String(cause) });
+				if (await runSubagentAction(tabRpc, id, action, t)) await refresh();
 			} finally {
 				setRowAction(null);
 			}
 		},
-		[ready, t, refresh, tabRpc.abortSubagent, tabRpc.reviveSubagent],
+		[ready, t, refresh, tabRpc],
 	);
 
 	const notConnected = !ready ? t("agentHub.notConnected") : undefined;
+	// Nothing to pause until an agent exists; a standing pause still offers resume.
+	const showPause = sorted.length > 0 || agentsPaused;
+	const showToolbar = showPause || pool?.enabled === true;
 
 	return (
 		<div className="flex flex-col gap-4">
-			<div className="flex flex-wrap items-center gap-2">
-				{[...counts].map(([status, count]) => {
-					const meta = statusMeta(status);
-					return (
-						<Badge dot key={status} pulse={meta.live} variant={meta.variant}>
-							{t(meta.labelKey)} {count}
-						</Badge>
-					);
-				})}
-				{pool?.enabled && (
-					<Badge variant="accent">{t("modelPool.liveActive", { count: pool.members.length })}</Badge>
-				)}
-				<div className="ml-auto flex items-center gap-2">
-					<Button
-						aria-pressed={agentsPaused}
-						disabled={!ready}
-						icon={agentsPaused ? <Play /> : <Pause />}
-						loading={pausePending}
-						onClick={() => void togglePaused()}
-						size="sm"
-						title={notConnected ?? (agentsPaused ? t("agentHub.hub.resumeAgents") : t("cmd.pause.desc"))}
-						variant="secondary"
-					>
-						{agentsPaused ? t("agentHub.hub.resumeAgents") : t("agentHub.hub.pauseAgents")}
-					</Button>
-					{hasRunning && (
-						<Button
-							disabled={!ready}
-							icon={<Square />}
-							loading={stopping}
-							onClick={() => void stopTurn()}
-							size="sm"
-							title={notConnected}
-							variant="secondary"
-						>
-							{t("agentHub.hub.abortTurn")}
-						</Button>
+			{showToolbar && (
+				<div className="flex flex-wrap items-center gap-2">
+					{[...counts].map(([status, count]) => {
+						const meta = statusMeta(status);
+						return (
+							<Badge dot key={status} pulse={meta.live} variant={meta.variant}>
+								{t(meta.labelKey)} {count}
+							</Badge>
+						);
+					})}
+					{pool?.enabled && (
+						<Badge variant="accent">{t("modelPool.liveActive", { count: pool.members.length })}</Badge>
 					)}
+					<div className="ml-auto flex items-center gap-2">
+						{showPause && (
+							<Button
+								aria-pressed={agentsPaused}
+								disabled={!ready}
+								icon={agentsPaused ? <Play /> : <Pause />}
+								loading={pausePending}
+								onClick={() => void togglePaused()}
+								size="sm"
+								title={notConnected ?? (agentsPaused ? t("agentHub.hub.resumeAgents") : t("cmd.pause.desc"))}
+								variant="secondary"
+							>
+								{agentsPaused ? t("agentHub.hub.resumeAgents") : t("agentHub.hub.pauseAgents")}
+							</Button>
+						)}
+						{hasRunning && (
+							<Button
+								disabled={!ready}
+								icon={<Square />}
+								loading={stopping}
+								onClick={() => void stopTurn()}
+								size="sm"
+								title={notConnected}
+								variant="secondary"
+							>
+								{t("agentHub.hub.abortTurn")}
+							</Button>
+						)}
+					</div>
 				</div>
-			</div>
+			)}
 
 			{sorted.length === 0 ? (
 				// A roster that never loaded is a different claim from none spawned.
@@ -353,15 +340,7 @@ export function LiveAgents() {
 				</div>
 			)}
 
-			<Sheet
-				description={viewing ? `${viewing.agent} · ${t(statusMeta(viewing.status).labelKey)}` : undefined}
-				onClose={() => setViewingId(null)}
-				open={viewing !== null}
-				size="lg"
-				title={viewing ? subagentPrimaryLabel(viewing) : ""}
-			>
-				{viewing && <SubagentTranscript agent={viewing} />}
-			</Sheet>
+			<SubagentTranscriptSheet agent={viewing} onClose={() => setViewingId(null)} />
 		</div>
 	);
 }

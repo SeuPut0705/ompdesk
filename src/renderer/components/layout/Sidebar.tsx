@@ -6,6 +6,7 @@ import {
 	ChevronRight,
 	CircleHelp,
 	Columns2,
+	Compass,
 	ExternalLink,
 	Folder,
 	FolderOpen,
@@ -18,6 +19,7 @@ import {
 	MessageSquareWarning,
 	MoreHorizontal,
 	PanelLeftClose,
+	PanelRightClose,
 	Pencil,
 	Pin,
 	PinOff,
@@ -35,6 +37,7 @@ import {
 	XCircle,
 } from "lucide-react";
 import {
+	Fragment,
 	type KeyboardEvent as ReactKeyboardEvent,
 	type ReactNode,
 	type PointerEvent as ReactPointerEvent,
@@ -48,6 +51,7 @@ import type { SessionInfo } from "../../../shared/ipc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
 import { dropSessionNow, requestSessionSwitch } from "../../hooks/use-session-switch";
+import { errorDetail } from "../../lib/error-detail";
 import { basename, cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -83,6 +87,7 @@ import {
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
+import { SidebarSubagents } from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
 
 /**
@@ -173,20 +178,22 @@ function useHelpItems(): ContextMenuItem[] {
 		{
 			id: "help-features",
 			label: t("help.features"),
-			icon: Sparkles,
+			icon: Compass,
+			separatorBefore: true,
 			onSelect: () => useUiStore.getState().openSettings("features"),
-		},
-		{
-			id: "help-feedback",
-			label: t("help.feedback"),
-			icon: MessageSquareWarning,
-			onSelect: () => useUiStore.getState().openFeedback(),
 		},
 		{
 			id: "help-whats-new",
 			label: t("help.whatsNew"),
 			icon: Sparkles,
 			onSelect: () => useUiStore.getState().openChangelog(),
+		},
+		{
+			id: "help-feedback",
+			label: t("help.feedback"),
+			icon: MessageSquareWarning,
+			separatorBefore: true,
+			onSelect: () => useUiStore.getState().openFeedback(),
 		},
 		{
 			id: "help-about",
@@ -482,6 +489,10 @@ export function Sidebar() {
 		[allGroups, matchesFilter, query],
 	);
 	const totalCount = mode === "work" ? workSessions.length : groups.length + chatSessions.length;
+	// An empty lane must not read as "no sessions at all" while the other lane
+	// holds some (e.g. the open code session while 업무 is selected).
+	const workTotal = agentSessions.length - codeSessions.length;
+	const otherModeCount = mode === "work" ? allSessions.length - workTotal : workTotal;
 	const visibleGroups = mode === "code" ? groups : [];
 	const chatsCollapsed = !query && (collapsed.__chats__ ?? false);
 	// Projects with an open tab start expanded so every open session is in view.
@@ -583,7 +594,12 @@ export function Sidebar() {
 			setMode("code");
 			await goToProject(picked);
 		} catch (error) {
-			toast({ variant: "error", title: t("titlebar.openProjectFailed"), message: String(error) });
+			toast({
+				variant: "error",
+				title: t("titlebar.openProjectFailed"),
+				message: t("toast.failedRetry"),
+				detail: errorDetail(error),
+			});
 		}
 	};
 	// Explicit parallel action: open this session in a NEW window with its own
@@ -609,7 +625,14 @@ export function Sidebar() {
 			.then(() => {
 				if (session.id === sessionId) useSessionStore.setState({ sessionName: name });
 			})
-			.catch(error => toast({ variant: "error", title: t("sidebar.renameFailed"), message: String(error) }));
+			.catch(error =>
+				toast({
+					variant: "error",
+					title: t("sidebar.renameFailed"),
+					message: t("toast.failedRetry"),
+					detail: errorDetail(error),
+				}),
+			);
 	};
 
 	const confirmDeleteSession = async (session: SessionInfo) => {
@@ -627,7 +650,12 @@ export function Sidebar() {
 			}
 			setPendingDelete(null);
 		} catch (error) {
-			toast({ variant: "error", title: t("sidebar.deleteFailed"), message: String(error) });
+			toast({
+				variant: "error",
+				title: t("sidebar.deleteFailed"),
+				message: t("toast.failedRetry"),
+				detail: errorDetail(error),
+			});
 		} finally {
 			setDeleting(false);
 		}
@@ -650,7 +678,12 @@ export function Sidebar() {
 			}
 			setPendingDelete(null);
 		} catch (error) {
-			toast({ variant: "error", title: t("sidebar.deleteFailed"), message: String(error) });
+			toast({
+				variant: "error",
+				title: t("sidebar.deleteFailed"),
+				message: t("toast.failedRetry"),
+				detail: errorDetail(error),
+			});
 		} finally {
 			setDeleting(false);
 		}
@@ -772,82 +805,84 @@ export function Sidebar() {
 		);
 		const openTabId = tab?.id;
 		return (
-			<ListRow
-				actions={
-					editable ? (
+			<Fragment key={session.path}>
+				<ListRow
+					actions={
+						editable ? (
+							<>
+								<IconButton
+									icon={<Pencil />}
+									label={t("sidebar.rename")}
+									onClick={() => startRename(session)}
+									size="sm"
+									tabIndex={-1}
+								/>
+								<IconButton
+									icon={<Trash2 />}
+									label={t("sidebar.delete")}
+									onClick={() => setPendingDelete({ kind: "session", session })}
+									size="sm"
+									tabIndex={-1}
+								/>
+							</>
+						) : undefined
+					}
+					buttonProps={{
+						tabIndex,
+						"data-roving-item": key,
+						onFocus: () => setFocusKey(key),
+						onKeyDown: event => {
+							if (opensMenu(event)) {
+								event.preventDefault();
+								setSessionMenu({ anchor: anchorBelow(event.currentTarget), session });
+							} else if (event.key === "F2" && editable) {
+								event.preventDefault();
+								startRename(session);
+							} else if (event.key === "Delete" && editable) {
+								event.preventDefault();
+								setPendingDelete({ kind: "session", session });
+							}
+						},
+					}}
+					className={cx("omp-sidebar-session-row", nested && "pl-5.5")}
+					leading={leading}
+					meta={
+						waiting ? (
+							<Badge variant="warning">{t("sidebar.row.needsApproval")}</Badge>
+						) : indexed ? (
+							<time className="text-(--sc-text-subtle)" dateTime={session.modified}>
+								{formatTimeAgo(session.modified)}
+							</time>
+						) : undefined
+					}
+					onClick={() => openSession(session)}
+					rowProps={{
+						draggable: openTabId !== undefined && !isCurrent,
+						onDragStart: event => {
+							if (!openTabId) return;
+							event.dataTransfer.effectAllowed = "move";
+							window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: openTabId } }));
+						},
+						onDragEnd: () => window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: null } })),
+						onContextMenu: event => setSessionMenu({ anchor: anchorFromEvent(event), session }),
+						"data-active": active,
+						"data-current": isCurrent || undefined,
+						"data-live": indexed ? undefined : true,
+						"data-switch-pending": switchPendingTo === session.id || undefined,
+						"data-session-kind": session.kind ?? "agent",
+						"data-session-path": session.path,
+					}}
+					selected={active}
+					title={
 						<>
-							<IconButton
-								icon={<Pencil />}
-								label={t("sidebar.rename")}
-								onClick={() => startRename(session)}
-								size="sm"
-								tabIndex={-1}
-							/>
-							<IconButton
-								icon={<Trash2 />}
-								label={t("sidebar.delete")}
-								onClick={() => setPendingDelete({ kind: "session", session })}
-								size="sm"
-								tabIndex={-1}
-							/>
+							{title}
+							{statusLabel && <span className="sr-only">, {statusLabel}</span>}
 						</>
-					) : undefined
-				}
-				buttonProps={{
-					tabIndex,
-					"data-roving-item": key,
-					onFocus: () => setFocusKey(key),
-					onKeyDown: event => {
-						if (opensMenu(event)) {
-							event.preventDefault();
-							setSessionMenu({ anchor: anchorBelow(event.currentTarget), session });
-						} else if (event.key === "F2" && editable) {
-							event.preventDefault();
-							startRename(session);
-						} else if (event.key === "Delete" && editable) {
-							event.preventDefault();
-							setPendingDelete({ kind: "session", session });
-						}
-					},
-				}}
-				className={cx("omp-sidebar-session-row", nested && "pl-5.5")}
-				key={session.path}
-				leading={leading}
-				meta={
-					waiting ? (
-						<Badge variant="warning">{t("sidebar.row.needsApproval")}</Badge>
-					) : indexed ? (
-						<time className="text-(--sc-text-subtle)" dateTime={session.modified}>
-							{formatTimeAgo(session.modified)}
-						</time>
-					) : undefined
-				}
-				onClick={() => openSession(session)}
-				rowProps={{
-					draggable: openTabId !== undefined && !isCurrent,
-					onDragStart: event => {
-						if (!openTabId) return;
-						event.dataTransfer.effectAllowed = "move";
-						window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: openTabId } }));
-					},
-					onDragEnd: () => window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: null } })),
-					onContextMenu: event => setSessionMenu({ anchor: anchorFromEvent(event), session }),
-					"data-active": active,
-					"data-current": isCurrent || undefined,
-					"data-live": indexed ? undefined : true,
-					"data-switch-pending": switchPendingTo === session.id || undefined,
-					"data-session-kind": session.kind ?? "agent",
-					"data-session-path": session.path,
-				}}
-				selected={active}
-				title={
-					<>
-						{title}
-						{statusLabel && <span className="sr-only">, {statusLabel}</span>}
-					</>
-				}
-				titleText={title}
-			/>
+					}
+					titleText={title}
+				/>
+				{openTabId && <SidebarSubagents nested={nested} sessionKey={session.path} tabId={openTabId} />}
+			</Fragment>
 		);
 	};
 
@@ -1127,17 +1162,37 @@ export function Sidebar() {
 						) : mode === "code" ? (
 							<EmptyState
 								actions={
-									<Button
-										icon={<FolderOpen />}
-										onClick={() => setWorkspaceDialog("new-session")}
-										size="sm"
-										variant="secondary"
-									>
-										{t("sidebar.project.open")}
-									</Button>
+									<>
+										<Button
+											icon={<FolderOpen />}
+											onClick={() => setWorkspaceDialog("new-session")}
+											size="sm"
+											variant="secondary"
+										>
+											{t("sidebar.project.open")}
+										</Button>
+										{otherModeCount > 0 && (
+											<Button
+												data-sidebar-other-mode
+												onClick={() => setMode("work")}
+												size="sm"
+												variant="ghost"
+											>
+												{t("sidebar.otherMode.showWork")}
+											</Button>
+										)}
+									</>
 								}
 								className="omp-sidebar-empty"
-								description={t("sidebar.emptyCodeHint")}
+								description={
+									otherModeCount > 0 ? (
+										<>
+											{t("sidebar.emptyCodeHint")} {t("sidebar.otherMode.work", { count: otherModeCount })}
+										</>
+									) : (
+										t("sidebar.emptyCodeHint")
+									)
+								}
 								icon={<SquareTerminal />}
 								size="sm"
 								title={t("sidebar.emptyCode")}
@@ -1145,12 +1200,32 @@ export function Sidebar() {
 						) : (
 							<EmptyState
 								actions={
-									<Button icon={<SquarePen />} onClick={startNew} size="sm" variant="secondary">
-										{t("sidebar.newSession")}
-									</Button>
+									<>
+										<Button icon={<SquarePen />} onClick={startNew} size="sm" variant="secondary">
+											{t("sidebar.newSession")}
+										</Button>
+										{otherModeCount > 0 && (
+											<Button
+												data-sidebar-other-mode
+												onClick={() => setMode("code")}
+												size="sm"
+												variant="ghost"
+											>
+												{t("sidebar.otherMode.showCode")}
+											</Button>
+										)}
+									</>
 								}
 								className="omp-sidebar-empty"
-								description={t("sidebar.emptyWorkHint")}
+								description={
+									otherModeCount > 0 ? (
+										<>
+											{t("sidebar.emptyWorkHint")} {t("sidebar.otherMode.code", { count: otherModeCount })}
+										</>
+									) : (
+										t("sidebar.emptyWorkHint")
+									)
+								}
 								icon={<SquarePen />}
 								size="sm"
 								title={t("sidebar.emptyWork")}
@@ -1242,6 +1317,7 @@ export function Sidebar() {
 								},
 								{
 									id: "group-rename",
+									separatorBefore: true,
 									label: t("sidebar.menu.rename"),
 									icon: Pencil,
 									onSelect: () => {
@@ -1263,6 +1339,7 @@ export function Sidebar() {
 								},
 								{
 									id: "group-delete",
+									separatorBefore: true,
 									label: t("common.delete"),
 									icon: Trash2,
 									danger: true,
@@ -1280,7 +1357,7 @@ export function Sidebar() {
 					);
 				})()}
 
-			{/* Session row menu: open variants, rename, pin, and delete. */}
+			{/* Session row menu, grouped: open variants · view (split, close) · rename, pin · delete. */}
 			{sessionMenu &&
 				(() => {
 					const targetBusy = isSessionBusy(sessionMenu.session);
@@ -1288,7 +1365,7 @@ export function Sidebar() {
 					const { split } = useTabsStore.getState();
 					const inSplit =
 						targetTab && split && (split.firstTabId === targetTab.id || split.secondTabId === targetTab.id);
-					const tabItems: ContextMenuItem[] = !targetTab
+					const viewItems: ContextMenuItem[] = !targetTab
 						? []
 						: [
 								...(targetTab.id !== activeTabId && !inSplit
@@ -1308,7 +1385,7 @@ export function Sidebar() {
 											{
 												id: "session-unsplit",
 												label: t("tabs.menu.removeSplit"),
-												icon: XCircle,
+												icon: PanelRightClose,
 												onSelect: () => {
 													setSessionMenu(null);
 													void useTabsStore.getState().unsplit(targetTab.id);
@@ -1320,7 +1397,7 @@ export function Sidebar() {
 									? [
 											{
 												id: "session-close-tab",
-												label: t("tabs.close"),
+												label: t("sidebar.menu.closeSession"),
 												icon: X,
 												disabled: targetBusy,
 												disabledReason: t("sidebar.menu.taskRunning"),
@@ -1332,6 +1409,9 @@ export function Sidebar() {
 										]
 									: []),
 							];
+					const tabItems = viewItems.map((item, index) =>
+						index === 0 ? { ...item, separatorBefore: true } : item,
+					);
 					return (
 						<ContextMenu
 							ariaLabel={sessionDisplayTitle(sessionMenu.session, t("sidebar.untitled"))}
@@ -1381,6 +1461,7 @@ export function Sidebar() {
 									? [
 											{
 												id: "session-rename",
+												separatorBefore: true,
 												label: t("sidebar.rename"),
 												icon: Pencil,
 												disabled: targetBusy,
@@ -1409,6 +1490,7 @@ export function Sidebar() {
 											},
 											{
 												id: "session-delete",
+												separatorBefore: true,
 												label: t("common.delete"),
 												icon: Trash2,
 												danger: true,

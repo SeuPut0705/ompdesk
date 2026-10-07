@@ -37,7 +37,7 @@ import { useSubagentsStore } from "../stores/subagents";
 import { ensureTabRuntime } from "../stores/tab-runtime";
 import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
-import { useTodoStore } from "../stores/todo";
+import { selectTodoCardVisible, useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
 import { attachTabSession, hydrateSession, hydrateTabSession, useRpcEvents } from "./use-rpc-events";
 
@@ -831,6 +831,95 @@ describe("useRpcEvents todo lifecycle", () => {
 		expect(state.reminderTodos).toEqual([]);
 		expect(state.history).toHaveLength(1);
 		expect(state.history[0]?.phases[0]?.tasks[0]?.status).toBe("completed");
+	});
+
+	function todoResult(toolCallId: string, phases: TodoPhase[]): AgentSessionEvent {
+		return {
+			type: "tool_execution_end",
+			toolCallId,
+			toolName: "todo",
+			result: { content: [{ type: "text", text: "Todo list updated" }], details: { op: "update", phases } },
+			isError: false,
+		};
+	}
+
+	it("keeps a finished list through its turn and hides it once the turn ends", async () => {
+		const { omp, emitBatch } = installMockOmp();
+		const open: TodoPhase[] = [{ name: "Build", tasks: [{ content: "scaffold", status: "in_progress" }] }];
+		const done: TodoPhase[] = [
+			{
+				name: "Build",
+				tasks: [
+					{ content: "scaffold", status: "completed" },
+					{ content: "dropped", status: "abandoned" },
+				],
+			},
+		];
+		// The server keeps reporting the finished list: every agent_end re-pulls it.
+		let server = { isStreaming: false, todoPhases: [] as TodoPhase[] };
+		omp.rpc.getState.mockImplementation(async () => settledState(server));
+		await mount(<RpcEventsProbe />);
+		await flush();
+		const visible = () => selectTodoCardVisible(useTodoStore.getState());
+
+		server = { isStreaming: true, todoPhases: open };
+		await act(async () => emitBatch([{ type: "agent_start" }, todoResult("todo-1", open)]));
+		await flush();
+		expect(visible()).toBe(true);
+
+		server = { isStreaming: true, todoPhases: done };
+		await act(async () => emitBatch([todoResult("todo-2", done)]));
+		await flush();
+		// The turn that finished the list is still running — the card stays.
+		expect(visible()).toBe(true);
+
+		server = { isStreaming: false, todoPhases: done };
+		await act(async () => emitBatch([{ type: "agent_end" }]));
+		await flush();
+		expect(visible()).toBe(false);
+		// Only the live card goes away; the transcript snapshot keeps the finished list.
+		expect(useTodoStore.getState().history.at(-1)?.phases).toEqual(done);
+
+		// A later turn that starts with the finished list does not bring it back…
+		server = { isStreaming: true, todoPhases: done };
+		await act(async () => emitBatch([{ type: "agent_start" }]));
+		await flush();
+		expect(visible()).toBe(false);
+
+		// …but a todo update with open work does.
+		const next: TodoPhase[] = [{ name: "Ship", tasks: [{ content: "release", status: "pending" }] }];
+		server = { isStreaming: true, todoPhases: next };
+		await act(async () => emitBatch([todoResult("todo-3", next)]));
+		expect(visible()).toBe(true);
+	});
+
+	it("does not resurface a finished list restored from session history", async () => {
+		const { omp } = installMockOmp();
+		const done: TodoPhase[] = [{ name: "Build", tasks: [{ content: "scaffold", status: "completed" }] }];
+		omp.rpc.getState.mockImplementation(async () => settledState({ todoPhases: done }));
+		await mount(<RpcEventsProbe />);
+		await flush();
+
+		expect(useTodoStore.getState().phases[0]?.tasks[0]?.status).toBe("completed");
+		expect(selectTodoCardVisible(useTodoStore.getState())).toBe(false);
+	});
+
+	it("restores a list with open work as a visible card", async () => {
+		const { omp } = installMockOmp();
+		const open: TodoPhase[] = [
+			{
+				name: "Build",
+				tasks: [
+					{ content: "scaffold", status: "completed" },
+					{ content: "wire", status: "blocked" },
+				],
+			},
+		];
+		omp.rpc.getState.mockImplementation(async () => settledState({ todoPhases: open }));
+		await mount(<RpcEventsProbe />);
+		await flush();
+
+		expect(selectTodoCardVisible(useTodoStore.getState())).toBe(true);
 	});
 });
 

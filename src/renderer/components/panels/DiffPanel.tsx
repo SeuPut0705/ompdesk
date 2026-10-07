@@ -19,6 +19,7 @@ import { useT } from "../../lib/i18n";
 import { PREVIEW_TEXT_CHARS } from "../../lib/preview";
 import { useSessionStore } from "../../stores/session";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
+import { EmptyState, IconButton, Tabs } from "../common";
 import { RepositoryChanges } from "./RepositoryChanges";
 
 const DIFF_TOOLS = new Set(["edit", "apply_patch", "ast_edit", "write"]);
@@ -485,59 +486,50 @@ export function DiffPanel() {
 
 	return (
 		<div className="flex h-full flex-col">
-			<div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-2.5 pb-1.5">
-				<span className="text-omp-xs font-medium tracking-widest text-(--omp-dim) uppercase">
-					{t("diffPanel.title")}
-				</span>
-				<div className="flex items-center gap-1">
-					<div className="flex items-center gap-0.5 rounded-md border border-(--omp-border-muted) p-0.5">
-						{(["repository", "current", "timeline", "artifacts"] as const).map(value => (
-							<button
-								aria-label={t(`diffPanel.mode.${value}`)}
-								aria-pressed={mode === value}
-								className={`rounded px-1.5 py-0.5 text-omp-xxs font-medium tracking-wide uppercase transition-colors ${mode === value ? "bg-(--omp-selected-bg) text-(--omp-text)" : "text-(--omp-dim) hover:text-(--omp-text)"}`}
-								key={value}
-								onClick={() => setMode(value)}
-								type="button"
-							>
-								{t(`diffPanel.mode.${value}`)}
-							</button>
-						))}
+			{/* The side-panel tab already says "Changes": the header is just the view switch. */}
+			<div className="flex items-center gap-2 px-3 pt-2.5 pb-2">
+				<Tabs
+					activeId={mode}
+					ariaLabel={t("diffPanel.title")}
+					className="min-w-0 overflow-x-auto"
+					compact
+					onChange={value => setMode(value as typeof mode)}
+					tabs={(["repository", "current", "timeline", "artifacts"] as const).map(value => ({
+						id: value,
+						label: t(`diffPanel.mode.${value}`),
+					}))}
+					variant="segmented"
+				/>
+				{mode === "current" && (
+					<div className="ml-auto flex shrink-0 items-center gap-0.5">
+						<IconButton
+							icon={<Rows3 />}
+							label={t("diffPanel.unified")}
+							onClick={() => setSplit(false)}
+							pressed={!split}
+							size="sm"
+						/>
+						<IconButton
+							icon={<Columns2 />}
+							label={t("diffPanel.split")}
+							onClick={() => setSplit(true)}
+							pressed={split}
+							size="sm"
+						/>
 					</div>
-					{mode === "current" && (
-						<div className="flex items-center gap-0.5 rounded-md border border-(--omp-border-muted) p-0.5">
-							<button
-								aria-label={t("diffPanel.unified")}
-								aria-pressed={!split}
-								className={`rounded p-1 transition-colors ${!split ? "bg-(--omp-selected-bg) text-(--omp-text)" : "text-(--omp-dim) hover:text-(--omp-text)"}`}
-								onClick={() => setSplit(false)}
-								type="button"
-							>
-								<Rows3 size={12} />
-							</button>
-							<button
-								aria-label={t("diffPanel.split")}
-								aria-pressed={split}
-								className={`rounded p-1 transition-colors ${split ? "bg-(--omp-selected-bg) text-(--omp-text)" : "text-(--omp-dim) hover:text-(--omp-text)"}`}
-								onClick={() => setSplit(true)}
-								type="button"
-							>
-								<Columns2 size={12} />
-							</button>
-						</div>
-					)}
-				</div>
+				)}
 			</div>
 
 			{mode === "repository" ? (
 				<RepositoryChanges key={sessionId} />
 			) : candidates.length === 0 ? (
 				<div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-					<div className="px-3 py-8 text-center text-omp-sm leading-relaxed text-(--omp-dim)">
-						{t("diffPanel.empty")}
-						<br />
-						{t("diffPanel.emptyHint")}
-					</div>
+					<EmptyState
+						description={t("diffPanel.emptyHint")}
+						icon={<FileCode2 />}
+						size="sm"
+						title={t("diffPanel.empty")}
+					/>
 				</div>
 			) : mode === "timeline" || mode === "artifacts" ? (
 				<DiffTimeline candidates={candidates} />

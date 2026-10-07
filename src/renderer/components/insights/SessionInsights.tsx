@@ -17,7 +17,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Button, EmptyState, IconButton, Spinner } from "../common";
+import { Banner, Button, EmptyState, IconButton, Spinner } from "../common";
 import { MetricCard, MetricGrid, SectionTitle } from "../stats/shared";
 import { ContextBreakdown } from "./ContextBreakdown";
 import { ModelUsage } from "./ModelUsage";
@@ -177,9 +177,9 @@ export function SessionInsights() {
 				/>
 			</div>
 			{error && (
-				<p className="mt-2 text-sc-sm text-(--sc-danger)" role="alert">
+				<Banner className="mt-3" live title={t("insights.session.loadFailed")} variant="warning">
 					{error}
-				</p>
+				</Banner>
 			)}
 
 			<div className="mt-4">

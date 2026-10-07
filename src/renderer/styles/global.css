@@ -494,10 +494,6 @@ html[data-platform="win32"] {
 	animation: omp-indeterminate-progress 1.1s cubic-bezier(0.65, 0, 0.35, 1) infinite; /* motion-ok: switching progress */
 }
 
-.omp-progress-width {
-	transition: width var(--omp-motion-med) var(--omp-ease);
-}
-
 .omp-disclosure-chevron {
 	transition: transform var(--omp-motion-fast) var(--omp-ease-spring);
 }

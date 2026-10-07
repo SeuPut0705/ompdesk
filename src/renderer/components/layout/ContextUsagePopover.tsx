@@ -1,4 +1,4 @@
-import { RotateCw } from "lucide-react";
+import { ArrowUpRight, BarChart3, RotateCw } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { RpcContextReportResult } from "../../../shared/rpc-types";
@@ -221,7 +221,7 @@ export function ContextUsagePopover() {
 						aria-hidden={closing || undefined}
 						aria-label={t("contextUsage.title")}
 						className={cx(
-							"fixed z-(--sc-z-popover) rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) p-4 text-(--sc-text) shadow-(--sc-shadow-md)",
+							"fixed z-(--sc-z-popover) rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) px-4 pt-4 pb-2 break-keep text-(--sc-text) shadow-(--sc-shadow-md)",
 							closing ? "omp-scale-out pointer-events-none" : "omp-pop-in",
 						)}
 						id="omp-context-usage-popover"
@@ -233,8 +233,8 @@ export function ContextUsagePopover() {
 						style={popoverStyle}
 					>
 						<div className="flex items-baseline justify-between gap-4">
-							<span className="text-sc-md text-(--sc-text-secondary)">
-								{t("contextUsage.used")}{" "}
+							<span className="text-sc-md font-medium text-(--sc-text)">
+								{t("contextUsage.title")}{" "}
 								{capacityKnown && (
 									<strong className="ml-1 font-semibold text-(--sc-text)">{`${Math.round(percent)}%`}</strong>
 								)}
@@ -329,17 +329,21 @@ export function ContextUsagePopover() {
 							</div>
 						)}
 						<p className="mt-3 text-sc-xs text-(--sc-text-muted)">{t("contextUsage.baselineHint")}</p>
-						<Button
-							className="mt-2 w-full"
-							onClick={() => {
-								dismiss();
-								useUiStore.getState().openInsights("stats", "session");
-							}}
-							size="sm"
-							variant="ghost"
-						>
-							{t("contextUsage.fullReport")}
-						</Button>
+						<div className="-mx-4 mt-3 border-t border-(--sc-divider) px-2 pt-2">
+							<Button
+								className="w-full justify-start"
+								icon={<BarChart3 aria-hidden className="text-(--sc-text-muted)" />}
+								onClick={() => {
+									dismiss();
+									useUiStore.getState().openInsights("stats", "session");
+								}}
+								size="sm"
+								trailingIcon={<ArrowUpRight aria-hidden className="ml-auto text-(--sc-text-subtle)" />}
+								variant="ghost"
+							>
+								{t("contextUsage.fullReport")}
+							</Button>
+						</div>
 					</div>,
 					document.body,
 				)}

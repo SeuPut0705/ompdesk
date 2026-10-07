@@ -53,7 +53,7 @@ function SidePanelViews() {
 			<Tabs
 				ariaLabel={t("panel.title")}
 				activeId={visiblePanelTab}
-				className="shrink-0 overflow-x-auto px-3"
+				className="shrink-0 overflow-x-auto px-3 [scrollbar-width:none]"
 				compact
 				onChange={id => setPanelTab(id as PanelTab)}
 				tabs={visibleTabs.map(({ id, labelKey }) => ({

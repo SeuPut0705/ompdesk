@@ -23,7 +23,7 @@ import { useSessionStore } from "../stores/session";
 import { useSubagentsStore } from "../stores/subagents";
 import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
-import { useTodoStore } from "../stores/todo";
+import { selectTodoCardVisible, useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
 import { useUiStore } from "../stores/ui";
 import { dropSessionNow, newSessionNow, switchSessionNow } from "./use-session-switch";
@@ -255,6 +255,24 @@ describe("switchSessionNow F-OWN owner guard", () => {
 		// The existing flow hydrated after the switch.
 		expect(omp.rpc.getState).toHaveBeenCalled();
 		expect(omp.tabs.setActive).not.toHaveBeenCalled();
+	});
+
+	it("does not carry a held or finished todo card into the switched-to session", async () => {
+		seedTabs();
+		omp.tabs.getSessionOwner.mockResolvedValue(null);
+		// Outgoing session: its running turn just finished the list, so the card is held.
+		useTodoStore.getState().setTurnActive(true);
+		useTodoStore.getState().setPhases([{ name: "Old", tasks: [{ content: "old task", status: "pending" }] }]);
+		useTodoStore.getState().setPhases([{ name: "Old", tasks: [{ content: "old task", status: "completed" }] }]);
+		expect(selectTodoCardVisible(useTodoStore.getState())).toBe(true);
+		// Incoming session restores its own long-finished list.
+		const restored = [{ name: "Done", tasks: [{ content: "shipped", status: "completed" as const }] }];
+		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "next", todoPhases: restored })));
+
+		expect(await switchSessionNow(session("/sessions/x.jsonl"))).toBe(true);
+
+		expect(useTodoStore.getState().phases.map(phase => phase.name)).toEqual(["Done"]);
+		expect(selectTodoCardVisible(useTodoStore.getState())).toBe(false);
 	});
 
 	it("keeps the outgoing transcript painted until hydrate commits the next session", async () => {

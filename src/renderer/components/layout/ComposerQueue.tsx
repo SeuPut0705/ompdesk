@@ -154,10 +154,13 @@ export function ComposerQueue() {
 		if (followUp.length > 0) actions.clearLane("followUp");
 	};
 
+	// The tray sits behind the composer's top edge: it runs down under the
+	// composer's rounded corners (negative margin, matching padding), so tray and
+	// composer read as one stacked unit with no gap at the corners.
 	return (
 		<section
 			aria-label={t("composerQueue.title")}
-			className="omp-composer-queue omp-fade-up mx-3 overflow-hidden rounded-t-(--sc-radius-lg) border border-b-0 border-(--sc-border-subtle) bg-(--sc-surface-1)"
+			className="omp-composer-queue omp-fade-up mx-3 -mb-(--sc-radius-xl) overflow-hidden rounded-t-(--sc-radius-lg) border border-b-0 border-(--sc-border-subtle) bg-(--sc-surface-1) pb-(--sc-radius-xl)"
 		>
 			<div className="flex h-8 items-center gap-1.5 pr-1 pl-3 text-sc-xs text-(--sc-text-muted)">
 				<ListOrdered aria-hidden className="size-(--sc-icon-sm) shrink-0" />

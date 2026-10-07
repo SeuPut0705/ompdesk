@@ -109,7 +109,7 @@ describe("PanelContainer chat tab filter", () => {
 		await mount(<PanelContainer />);
 
 		const labels = drawerTabLabels();
-		for (const visible of ["Files", "Logs", "Queue", "Background jobs"]) expect(labels).toContain(visible);
+		for (const visible of ["Files", "Logs", "Queue", "Jobs"]) expect(labels).toContain(visible);
 		expect(labels).not.toContain("Changes");
 		expect(labels).not.toContain("Tree");
 	});
@@ -127,9 +127,7 @@ describe("PanelContainer chat tab filter", () => {
 		useUiStore.setState({ panelTab: "files", panelVisible: true });
 		await mount(<PanelContainer />);
 
-		expect(drawerTabLabels()).toEqual(
-			expect.arrayContaining(["Changes", "Files", "Logs", "Queue", "Tree", "Background jobs"]),
-		);
+		expect(drawerTabLabels()).toEqual(expect.arrayContaining(["Changes", "Files", "Logs", "Queue", "Tree", "Jobs"]));
 		// The live-execution cards stay in the center dock.
 		for (const moved of ["Todo", "Plan", "Agents"]) expect(drawerTabLabels()).not.toContain(moved);
 		expect(document.querySelector("aside")?.getAttribute("aria-label")).toBe("Side panel");

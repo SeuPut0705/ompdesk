@@ -37,12 +37,14 @@ function rememberLog(key: string, log: LiveLog): void {
 /**
  * A small fixed-height window under a collapsed running work summary where
  * the turn's activity flows like a log: each step's label (kind icon, label,
- * target, +/− lines), a command's output lines and live reasoning append at
- * the bottom, older lines scroll up under a fade. Its height never changes
- * while the turn runs, so the transcript around it does not jump. It sticks
- * to the newest line unless the user scrolls up inside it. aria-hidden: the
- * summary row's status carries the announcement, the full steps are one
- * disclosure away.
+ * target, +/− lines), a command's output lines and live reasoning append
+ * below the previous ones. A short log reads top-down from the first row;
+ * once it fills the window it follows the newest line and older lines scroll
+ * up under a fade (shown only while something is scrolled out above). Its
+ * height never changes while the turn runs, so the transcript around it does
+ * not jump. It sticks to the newest line unless the user scrolls up inside
+ * it. aria-hidden: the summary row's status carries the announcement, the
+ * full steps are one disclosure away.
  */
 export function LiveStepPeek({ thinkingLive, toolCallIds }: { thinkingLive: boolean; toolCallIds: readonly string[] }) {
 	// Primitive selector: the log re-renders when the chosen step changes, not
@@ -94,6 +96,8 @@ export function LiveStepPeek({ thinkingLive, toolCallIds }: { thinkingLive: bool
 				onScroll={event => {
 					const element = event.currentTarget;
 					stickRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= STICK_THRESHOLD_PX;
+					// Pinning moves scrollTop too, so this also tracks the fade over clipped lines.
+					element.toggleAttribute("data-clipped", element.scrollTop > 0);
 				}}
 				ref={scrollRef}
 			>

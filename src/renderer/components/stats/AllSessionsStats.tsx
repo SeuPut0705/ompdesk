@@ -2,16 +2,19 @@
  * Insights › Stats › All sessions: the global omp stats across every project
  * and session on this machine (the stats HTTP API through the stats:fetch
  * IPC bridge). Left sub-nav for the ten sections, a range switch and a sync
- * action above the active section. A quiet sync runs on mount.
+ * action above the active section. A quiet sync runs on mount; when the
+ * bundled stats server is down for good the page shows one calm state with a
+ * retry instead of ten failing sections.
  */
 
-import { RefreshCw } from "lucide-react";
+import { BarChart3, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { errorDetail } from "../../lib/error-detail";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { runStatsSync } from "../../lib/stats-sync";
 import { toast } from "../../stores/toast";
-import { Button, Tabs } from "../common";
+import { Button, EmptyState, Tabs } from "../common";
 import { CostsRoute } from "./CostsRoute";
 import { ErrorsRoute } from "./ErrorsRoute";
 import { FrustrationRoute } from "./FrustrationRoute";
@@ -45,12 +48,19 @@ export function AllSessionsStats() {
 	const [range, setRange] = useState<StatsRange>("24h");
 	const [refreshKey, setRefreshKey] = useState(0);
 	const [syncing, setSyncing] = useState(false);
+	const [stopped, setStopped] = useState(false);
 
 	const sync = useCallback(
 		async (opts?: { quiet?: boolean }) => {
 			setSyncing(true);
 			try {
 				const outcome = await runStatsSync(path => window.omp.stats.fetch(path));
+				if (outcome.kind === "stopped") {
+					// The page itself says so; a toast would repeat it in raw form.
+					setStopped(true);
+					return;
+				}
+				setStopped(false);
 				if (outcome.kind === "unavailable") {
 					// Server still booting: the sections show a loading state and recover on
 					// their own, so the quiet auto-sync must not alarm the user.
@@ -60,11 +70,14 @@ export function AllSessionsStats() {
 					return;
 				}
 				if (outcome.kind === "error") {
-					toast({
-						variant: "error",
-						title: t("stats.syncFailed"),
-						message: outcome.message || t("stats.unavailable"),
-					});
+					// The quiet mount sync stays silent: the section below shows its own error state.
+					if (!opts?.quiet) {
+						toast({
+							variant: "error",
+							message: t("stats.syncFailed"),
+							...(outcome.message ? { detail: outcome.message } : {}),
+						});
+					}
 					return;
 				}
 				if (!opts?.quiet) {
@@ -80,11 +93,9 @@ export function AllSessionsStats() {
 				}
 				setRefreshKey(key => key + 1);
 			} catch (error) {
-				toast({
-					variant: "error",
-					title: t("stats.syncFailed"),
-					message: error instanceof Error ? error.message : String(error),
-				});
+				if (!opts?.quiet) {
+					toast({ variant: "error", message: t("stats.syncFailed"), detail: errorDetail(error) });
+				}
 			} finally {
 				setSyncing(false);
 			}
@@ -100,6 +111,20 @@ export function AllSessionsStats() {
 
 	const active = ROUTES.find(item => item.id === route) ?? ROUTES[0];
 	const View = active.View;
+	if (stopped) {
+		return (
+			<EmptyState
+				actions={
+					<Button icon={<RefreshCw />} loading={syncing} onClick={() => void sync()} size="sm" variant="secondary">
+						{t("stats.retry")}
+					</Button>
+				}
+				description={t("stats.stopped.desc")}
+				icon={<BarChart3 />}
+				title={t("stats.stopped.title")}
+			/>
+		);
+	}
 
 	return (
 		<div className="flex gap-8">

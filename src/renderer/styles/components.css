@@ -489,10 +489,10 @@
 	   step's disclosure rule hangs, so nested detail reads as belonging to it. */
 	--omp-step-rule-inset: calc(var(--sc-space-1-5) + var(--sc-icon-sm) / 2);
 	/* Transcript rhythm (4px grid). A turn boundary — reply end to the next
-	   prompt — is reply-pad-bottom + turn-gap (36px); a prompt sits
+	   prompt — is reply-pad-bottom + turn-gap (28px); a prompt sits
 	   prompt-gap + reply-pad-top (16px) above its reply; steps stack tight.
 	   global.css [data-density="tight"] retunes these. */
-	--omp-turn-gap: var(--sc-space-5);
+	--omp-turn-gap: var(--sc-space-3);
 	--omp-prompt-gap: var(--sc-space-2);
 	--omp-reply-pad-top: var(--sc-space-2);
 	--omp-reply-pad-bottom: var(--sc-space-4);
@@ -825,10 +825,11 @@
 
 /* Live step window under a collapsed running work summary: a fixed-height
    panel (five rows at every width) where step labels, command output and
-   reasoning flow like a log, newest at the bottom, older lines scrolling up
-   under a top fade. The height is reserved from the first running frame, so
-   switching steps never shifts the transcript. Reduced motion flattens the
-   one fade-in (global.css). */
+   reasoning flow like a log. A short log reads top-down from the first row;
+   once full it follows the newest line, older lines scrolling up under a top
+   fade. The height is reserved from the first running frame, so switching
+   steps never shifts the transcript. Reduced motion flattens the one fade-in
+   (global.css). */
 .omp-live-step {
 	--omp-live-step-row: calc(var(--sc-font-sm) * var(--sc-leading-normal));
 	box-sizing: border-box;
@@ -848,16 +849,19 @@
 	animation: none;
 }
 
-/* The scroller carries the top fade so the panel's border stays crisp. */
+/* The scroller carries the top fade so the panel's border stays crisp; the
+   fade appears only while lines are scrolled out above (data-clipped), so a
+   short log's first row is never dimmed. */
 .omp-live-step-scroll {
-	display: flex;
-	flex-direction: column;
 	height: 100%;
 	min-width: 0;
 	overflow-x: hidden;
 	overflow-y: auto;
 	overscroll-behavior: contain;
 	scrollbar-width: none;
+}
+
+.omp-live-step-scroll[data-clipped] {
 	mask-image: linear-gradient(to bottom, transparent, #000 var(--omp-live-step-row));
 }
 
@@ -865,10 +869,7 @@
 	display: none;
 }
 
-/* Auto top margin keeps a short log against the bottom edge; once it
-   overflows the margin resolves to zero and the window scrolls. */
 .omp-live-step-log {
-	margin-top: auto;
 	min-width: 0;
 }
 

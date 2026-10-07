@@ -59,6 +59,7 @@ import {
 	type SidecarStatusPayload,
 	type SubagentFrame,
 } from "../shared/rpc-types";
+import { canonicalCwd } from "./canonical-cwd";
 import type { WindowTabFact } from "./quit-guard";
 import type { SidecarManager } from "./sidecar";
 import { nextSnowflake } from "./snowflake";
@@ -205,7 +206,8 @@ export class SidecarPool {
 		if (this.atCap) return null;
 		this.#reserved++;
 		try {
-			const sidecar = this.#factory(cwd, kind, fresh);
+			// One spelling per directory: the sidecar reports its realpath'd cwd.
+			const sidecar = this.#factory(canonicalCwd(cwd), kind, fresh);
 			const entry: PoolEntry = {
 				sidecar,
 				tabId,

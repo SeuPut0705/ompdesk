@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import type { UiTodoPhase, UiTodoTask } from "../../../stores/todo";
-import type { SubagentListRow } from "../../panels/subagent-graph";
-import { buildAgentDockPeek, buildAgentDockSummary, buildTodoDockPeek, buildTodoDockSummary } from "./dock-summary";
+import { buildAgentDockPeek, buildTodoDockPeek, buildTodoDockSummary } from "./dock-summary";
 
 function task(id: string, status: UiTodoTask["status"]): UiTodoTask {
 	return { id, content: id, status };
@@ -45,23 +44,6 @@ describe("dock summaries", () => {
 		const ids = summary.phases.flatMap(phase => phase.tasks.map(item => item.id));
 		expect(ids).toEqual(["pending", "running", "blocked", "done-4", "done-5", "done-6"]);
 		expect(summary).toMatchObject({ totalCount: 11, hiddenCount: 5 });
-	});
-
-	it("keeps urgent agents, preserves their ancestors, and fills the preview with recent completions", () => {
-		const rows: SubagentListRow[] = [
-			{ agent: agent("a1", "completed", 1), depth: 0 },
-			{ agent: agent("a2", "running", 2, "a1"), depth: 1 },
-			{ agent: agent("a3", "waiting", 3), depth: 0 },
-			{ agent: agent("a4", "failed", 4), depth: 0 },
-			{ agent: agent("a5", "completed", 5), depth: 0 },
-			{ agent: agent("a6", "completed", 6), depth: 0 },
-			{ agent: agent("a7", "completed", 7), depth: 0 },
-			{ agent: agent("a8", "completed", 8), depth: 0 },
-		];
-
-		const summary = buildAgentDockSummary(rows);
-		expect(summary.rows.map(row => row.agent.id)).toEqual(["a1", "a2", "a3", "a4", "a8"]);
-		expect(summary).toMatchObject({ totalCount: 8, hiddenCount: 3 });
 	});
 
 	it("peeks todo progress without abandoned work and names the task being worked", () => {

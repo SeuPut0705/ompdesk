@@ -1,10 +1,11 @@
 /**
  * Workspace dock: the live execution-state region mounted between the
  * transcript and the composer, replacing the workspace drawer's
- * todo/plan/agents tabs with always-current center cards. Large todo/agent
- * collections render a compact summary and temporarily focus one card for
- * full-list inspection. Each card self-gates its visibility (no todos, no
- * subagents, plan mode off → nothing rendered), so the region collapses to
+ * todo/plan/agents tabs with always-current center cards. Large todo
+ * collections render a compact summary and temporarily focus the card for
+ * full-list inspection; running subagents get one summary line (the roster
+ * lives in the sidebar). Each card self-gates its visibility (no todos, no
+ * live subagents, plan mode off → nothing rendered), so the region collapses to
  * zero height on an idle session. Queued messages are not a dock card: they
  * live in the composer's own queue tray (ComposerQueue), which every tab kind
  * mounts. The stack scrolls within a capped height so the composer is never
@@ -20,8 +21,9 @@ import { useT } from "../../../lib/i18n";
 import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useActiveTabKind } from "../../../stores/tabs";
-import { useTodoStore } from "../../../stores/todo";
+import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
 import { PanelErrorBoundary } from "../../common";
+import { isLiveSubagentStatus } from "../../panels/subagent-graph";
 import { AgentsDockCard } from "./AgentsDockCard";
 import { GoalDockBar } from "./GoalDockBar";
 import { PlanDockCard } from "./PlanDockCard";
@@ -37,8 +39,10 @@ function WorkspaceDockContent() {
 	const t = useT();
 	const planModeEnabled = useSessionStore(state => state.planModeEnabled);
 	const goalVisible = useSessionStore(state => state.goal !== null);
-	const todoVisible = useTodoStore(state => state.phases.length > 0 || state.reminderVisible);
-	const agentsVisible = useSubagentsStore(state => state.subagents.size > 0);
+	const todoVisible = useTodoStore(selectTodoCardVisible);
+	const agentsVisible = useSubagentsStore(state =>
+		[...state.subagents.values()].some(agent => isLiveSubagentStatus(agent.status)),
+	);
 	const cardsVisible = planModeEnabled || todoVisible || agentsVisible;
 
 	// Focused-card height: user-resizable via the drag handle above the stack,

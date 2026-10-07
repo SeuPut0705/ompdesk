@@ -19,7 +19,10 @@ import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
 import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
+import { sessionRuntimeStore } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
+import type { SubagentsStore } from "../../stores/subagents";
+import { ensureTabRuntime } from "../../stores/tab-runtime";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { Sidebar } from "./Sidebar";
@@ -283,8 +286,8 @@ describe("Sidebar menus and pinned ordering", () => {
 			"Keyboard shortcuts",
 			"Command palette",
 			"What ompdesk adds",
-			"Send feedback",
 			"What's new",
+			"Send feedback",
 			"About ompdesk",
 		]);
 		const shortcuts = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
@@ -933,5 +936,48 @@ describe("Sidebar session-list failures", () => {
 		await fire(retry as unknown as Element, "onClick");
 		await flush();
 		expect(omp.sessions.list.mock.calls.length).toBeGreaterThan(callsBeforeRetry);
+	});
+});
+
+describe("Sidebar subagents", () => {
+	it("lists an open session's subagents directly under that session's row only", async () => {
+		installMockOmp(LIST);
+		useSessionStore.setState({ sessionId: "attached-id", cwd: "/work/alpha", isStreaming: false });
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false },
+				{
+					id: "t1",
+					cwd: "/work/alpha",
+					status: "running",
+					kind: "agent",
+					unreadDone: false,
+					sessionId: "/work/alpha/two.jsonl",
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		ensureTabRuntime("t1");
+		sessionRuntimeStore<SubagentsStore>("t1", "subagents")!
+			.getState()
+			.setSnapshots([
+				{
+					id: "sa",
+					index: 1,
+					agent: "scout",
+					description: "map the repo",
+					status: "running",
+					lastUpdate: Date.now(),
+				},
+			]);
+		await mount(<Sidebar />);
+
+		const groups = [...container.querySelectorAll("[data-sidebar-subagents]")];
+		expect(groups.map(group => group.getAttribute("data-sidebar-subagents"))).toEqual(["/work/alpha/two.jsonl"]);
+		// The group renders as the next sibling of its session row.
+		const next = rowFor("Session /work/alpha/two").nextElementSibling;
+		expect(next?.getAttribute("data-sidebar-subagents")).toBe("/work/alpha/two.jsonl");
+		expect(next?.textContent).toContain("map the repo");
 	});
 });

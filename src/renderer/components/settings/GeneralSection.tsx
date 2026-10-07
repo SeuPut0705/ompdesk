@@ -1,4 +1,4 @@
-/** Settings › General: language, notifications, side panel default, and how messages sent mid-turn behave. */
+/** Settings › General: language, notifications, side panel default, messages sent mid-turn, and long-session compaction. */
 
 import { useId } from "react";
 import { isUiLanguage, UI_LANGUAGE_NAMES, UI_LANGUAGES } from "../../../shared/ui-language";
@@ -6,10 +6,12 @@ import { saveGuiPreference } from "../../lib/display-preferences";
 import { useLang, useT } from "../../lib/i18n";
 import { type PanelTab, useUiStore } from "../../stores/ui";
 import { Select } from "../common";
-import { SchemaField } from "./SchemaField";
+import { SchemaSection } from "./SchemaField";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
 const PANEL_DEFAULTS: readonly PanelTab[] = ["diff", "files", "logs"];
+const MESSAGE_PATHS = ["steeringMode", "followUpMode", "interruptMode"] as const;
+const CONTEXT_PATHS = ["compaction.enabled"] as const;
 
 export function GeneralSection() {
 	const t = useT();
@@ -64,12 +66,16 @@ export function GeneralSection() {
 					label={t("settings.gui.panelDefault")}
 				/>
 			</SettingsSection>
-			<SettingsSection description={t("settings.general.messagesDesc")} title={t("settings.general.messages")}>
-				<SchemaField path="steeringMode" />
-				<SchemaField path="followUpMode" />
-				<SchemaField path="interruptMode" />
-				<SchemaField path="compaction.enabled" />
-			</SettingsSection>
+			<SchemaSection
+				description={t("settings.general.messagesDesc")}
+				paths={MESSAGE_PATHS}
+				title={t("settings.general.messages")}
+			/>
+			<SchemaSection
+				description={t("settings.general.contextDesc")}
+				paths={CONTEXT_PATHS}
+				title={t("settings.general.context")}
+			/>
 		</>
 	);
 }

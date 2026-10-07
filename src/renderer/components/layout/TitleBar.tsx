@@ -19,6 +19,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { SessionStats } from "../../../shared/rpc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
+import { errorDetail } from "../../lib/error-detail";
 import { basename, cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -217,11 +218,17 @@ export function TitleBar() {
 			.then(response => {
 				if (response.success) {
 					if (originSession.getState().sessionId === originId) originSession.setState({ sessionName: name });
-				} else toast({ variant: "error", title: t("titlebar.renameFailed"), message: response.error });
+				} else renameFailed(response.error);
 			})
-			.catch(error => {
-				toast({ variant: "error", title: t("titlebar.renameFailed"), message: String(error) });
-			});
+			.catch(renameFailed);
+	};
+	const renameFailed = (cause: unknown) => {
+		toast({
+			variant: "error",
+			title: t("titlebar.renameFailed"),
+			message: t("toast.failedRetry"),
+			detail: errorDetail(cause),
+		});
 	};
 	const startRename = () => {
 		setDraft(sessionName ?? current?.title ?? "");

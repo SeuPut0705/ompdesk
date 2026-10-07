@@ -1,10 +1,9 @@
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import type { UiTodoPhase, UiTodoTask } from "../../../stores/todo";
-import { isLiveSubagentStatus, type SubagentListRow } from "../../panels/subagent-graph";
+import { isLiveSubagentStatus } from "../../panels/subagent-graph";
 
 export const TODO_SUMMARY_THRESHOLD = 10;
 export const TODO_COMPLETED_PREVIEW = 3;
-export const AGENT_SUMMARY_LIMIT = 5;
 
 export interface TodoDockSummary {
 	phases: UiTodoPhase[];
@@ -85,56 +84,5 @@ export function buildAgentDockPeek(agents: SubagentSnapshot[]): AgentDockPeek {
 		done: agents.filter(agent => agent.status === "completed").length,
 		failed: agents.filter(agent => agent.status === "failed").length,
 		latest: newest(live) ?? newest(agents),
-	};
-}
-
-export interface AgentDockSummary {
-	rows: SubagentListRow[];
-	hiddenCount: number;
-	totalCount: number;
-}
-
-/**
- * Keep every live/failed agent, then fill a five-row preview with the most
- * recently updated terminal agents. Ancestors are retained so the tree never
- * shows an indented orphan.
- */
-export function buildAgentDockSummary(rows: SubagentListRow[]): AgentDockSummary {
-	if (rows.length <= AGENT_SUMMARY_LIMIT) {
-		return { rows, hiddenCount: 0, totalCount: rows.length };
-	}
-
-	const agentById = new Map(rows.map(row => [row.agent.id, row.agent]));
-	const visibleIds = new Set<string>();
-	const addWithAncestors = (id: string): void => {
-		let current = agentById.get(id);
-		const seen = new Set<string>();
-		while (current && !seen.has(current.id)) {
-			visibleIds.add(current.id);
-			seen.add(current.id);
-			current = current.parentSubagentId ? agentById.get(current.parentSubagentId) : undefined;
-		}
-	};
-
-	for (const { agent } of rows) {
-		if (isLiveSubagentStatus(agent.status) || agent.status === "waiting" || agent.status === "failed") {
-			addWithAncestors(agent.id);
-		}
-	}
-
-	const recentTerminal = rows
-		.filter(
-			({ agent }) => !isLiveSubagentStatus(agent.status) && agent.status !== "waiting" && agent.status !== "failed",
-		)
-		.toSorted((a, b) => b.agent.lastUpdate - a.agent.lastUpdate || b.agent.index - a.agent.index);
-	for (const { agent } of recentTerminal) {
-		if (visibleIds.size >= AGENT_SUMMARY_LIMIT) break;
-		addWithAncestors(agent.id);
-	}
-
-	return {
-		rows: rows.filter(({ agent }) => visibleIds.has(agent.id)),
-		hiddenCount: rows.length - visibleIds.size,
-		totalCount: rows.length,
 	};
 }

@@ -127,7 +127,7 @@ export function UpdatesSection() {
 	}, [check, t, tabRpc.ompUpdate]);
 
 	const overview = updateOverviewState(status, core, coreError, checking);
-	const errorMessage = [status.state === "error" ? status.message : undefined, coreError].filter(Boolean).join(" · ");
+	const appError = status.state === "error" ? status.message : null;
 
 	return (
 		<SettingsSection
@@ -138,11 +138,21 @@ export function UpdatesSection() {
 			}
 		>
 			<Banner className="my-3" live title={t(OVERVIEW_TITLE[overview])} variant={OVERVIEW_BANNER[overview]}>
-				{overview === "error" && errorMessage
-					? errorMessage
-					: status.state === "auth-required"
-						? t(ACCESS_MESSAGE[status.reason])
-						: t("updates.deliveryNote")}
+				{overview === "error" && (appError || coreError) ? (
+					// One line per component: the app's message, then omp's own (often raw CLI) error, quieter.
+					<>
+						{appError && <span className="block">{appError}</span>}
+						{coreError && (
+							<span className="mt-0.5 block text-sc-sm break-words text-(--sc-text-muted)">
+								omp: {coreError}
+							</span>
+						)}
+					</>
+				) : status.state === "auth-required" ? (
+					t(ACCESS_MESSAGE[status.reason])
+				) : (
+					t("updates.deliveryNote")
+				)}
 			</Banner>
 
 			<SettingsRow

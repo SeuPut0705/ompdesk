@@ -1,12 +1,15 @@
 /**
- * Update failure banner above the session. Available, downloading and ready
+ * Update failure notice above the session. Available, downloading and ready
  * updates live in the sidebar's update card (SidebarUpdateCard); only a
- * failure the user should act on (retry) shows here.
+ * failure the user should act on (retry) shows here — as a calm, compact
+ * notice, not an alarm: the app keeps working on the installed version.
+ * `message` is localized by main; the raw cause (`detail`) stays in the
+ * tooltip.
  */
-import { AlertTriangle, X } from "lucide-react";
+import { AlertCircle, RefreshCw, X } from "lucide-react";
 import { useT } from "../../lib/i18n";
 import { useUpdaterStore } from "../../stores/updater";
-import { Button } from "../common";
+import { Button, IconButton } from "../common";
 
 export function UpdateBanner() {
 	const t = useT();
@@ -17,21 +20,19 @@ export function UpdateBanner() {
 	// A dismissed failure stays hidden until a check actually succeeds again, so
 	// the four-hourly poll can't resurrect a banner the user already closed.
 	if (status.state !== "error" || status.showInBanner === false || dismissed.error) return null;
+	const tooltip = status.detail ? `${status.message}\n${status.detail}` : status.message;
 	return (
-		<div className="flex items-center gap-2 border-b border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-omp-md">
-			<AlertTriangle size={13} className="shrink-0 text-(--omp-error)" />
-			<span className="min-w-0 flex-1 text-(--omp-error)">{status.message}</span>
-			<Button size="sm" onClick={() => void window.omp.updater.check()}>
-				{t("updater.retry")}
-			</Button>
-			<button
-				type="button"
-				aria-label={t("updater.dismissFailure")}
-				className="shrink-0 text-(--omp-dim) hover:text-(--omp-text)"
-				onClick={dismissError}
-			>
-				<X size={13} />
-			</button>
+		<div className="shrink-0 px-(--omp-column-pad) pt-2" data-update-notice role="status">
+			<div className="mx-auto flex max-w-(--omp-column-reading) items-center gap-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-2) py-1 pr-1 pl-2.5 text-sc-sm">
+				<AlertCircle aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-warning)" />
+				<span className="min-w-0 flex-1 truncate text-(--sc-text-secondary)" title={tooltip}>
+					{status.message}
+				</span>
+				<Button icon={<RefreshCw />} onClick={() => void window.omp.updater.check()} size="sm" variant="ghost">
+					{t("updater.retry")}
+				</Button>
+				<IconButton icon={<X />} label={t("updater.dismissFailure")} onClick={dismissError} size="sm" />
+			</div>
 		</div>
 	);
 }

@@ -367,7 +367,7 @@ export function ModelPicker() {
 							return (
 								<section aria-label={providerName} className="mb-1" key={provider} role="group">
 									<div className="flex min-h-8 items-center gap-2 px-2.5 pt-2 pb-1">
-										<span className="truncate text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
+										<span className="truncate text-sc-xs font-medium text-(--sc-text-muted)">
 											{providerName}
 										</span>
 										{auth && !auth.authenticated && (
@@ -493,14 +493,17 @@ export function ModelPicker() {
 						})
 					)}
 				</div>
-				<div className="flex items-center gap-3 border-t border-(--sc-divider) px-3 py-2 text-sc-xs text-(--sc-text-muted)">
+				<div className="flex items-center gap-4 border-t border-(--sc-divider) py-2 pr-2 pl-3.5 text-sc-xs text-(--sc-text-muted)">
 					<span className="min-w-0 flex-1 truncate">
 						{forPool ? t("modelPool.pickerHint") : t("modelPicker.defaultHint")}
 					</span>
 					<span className="flex shrink-0 items-center gap-1.5 max-sm:hidden">
-						<Kbd shortcut="↑↓" />
+						<Kbd shortcut="↑" />
+						<Kbd shortcut="↓" />
 						{t("modelPicker.keys.move")}
-						<Kbd shortcut="↩" />
+					</span>
+					<span className="flex shrink-0 items-center gap-1.5 max-sm:hidden">
+						<Kbd shortcut="↵" />
 						{t("modelPicker.keys.pick")}
 					</span>
 					<Button icon={<Settings2 />} onClick={manageProviders} size="sm" variant="ghost">

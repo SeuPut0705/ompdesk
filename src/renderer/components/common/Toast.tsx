@@ -5,7 +5,8 @@
  * controls, and auto-dismiss via a single pruning interval.
  *
  * Rules: title ≤ 4 words in the user's language, message one sentence,
- * never raw error text from the agent alone — map it (lib/runtime-errors).
+ * never raw error text as the message — localize it and pass the raw cause
+ * as `detail` (lib/error-detail), shown as a quiet, selectable second line.
  * Anything the user must act on to continue is a Banner or a Dialog.
  * `ToastCard` is the visual, shared with the style guide.
  */
@@ -28,13 +29,15 @@ export interface ToastCardProps {
 	variant: ToastVariant;
 	title?: ReactNode;
 	message: ReactNode;
+	/** Raw technical cause (error text) under the message: small, muted, selectable. */
+	detail?: string;
 	/** Repeat count; shown as ×N above 1. */
 	count?: number;
 	onDismiss?: () => void;
 	className?: string;
 }
 
-export function ToastCard({ variant, title, message, count = 1, onDismiss, className }: ToastCardProps) {
+export function ToastCard({ variant, title, message, detail, count = 1, onDismiss, className }: ToastCardProps) {
 	const t = useT();
 	const style = VARIANT_STYLES[variant];
 	const Icon = style.Icon;
@@ -50,6 +53,15 @@ export function ToastCard({ variant, title, message, count = 1, onDismiss, class
 			<div className="min-w-0 flex-1 py-px">
 				{title && <div className="mb-0.5 text-sc-sm font-semibold text-(--sc-text)">{title}</div>}
 				<div className="text-sc-sm break-words break-keep text-(--sc-text-secondary)">{message}</div>
+				{detail && (
+					<div
+						className="mt-1 line-clamp-3 font-mono text-sc-xs break-all text-(--sc-text-subtle) select-text"
+						data-toast-detail
+						title={detail}
+					>
+						{detail}
+					</div>
+				)}
 			</div>
 			{count > 1 && (
 				<span
@@ -97,6 +109,7 @@ export function ToastStack() {
 						entry.exitingAt != null ? "pointer-events-none omp-toast-out" : "pointer-events-auto omp-toast-in"
 					}
 					count={entry.count}
+					detail={entry.detail}
 					key={entry.id}
 					message={entry.message}
 					onDismiss={() => dismiss(entry.id)}

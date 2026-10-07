@@ -279,7 +279,9 @@ export type UpdateStatus =
 	  }
 	| { state: "downloaded"; version: string; mode: UpdateInstallMode }
 	| { state: "not-available"; version: string }
-	| { state: "error"; message: string; showInBanner?: boolean }
+	/** `message` is user-facing copy in the UI language; `detail` keeps the raw
+	 * technical cause (network/updater error text) for a secondary line or tooltip. */
+	| { state: "error"; message: string; detail?: string; showInBanner?: boolean }
 	/** No GitHub token, or the token cannot read the private release repo. Settings-only, never a banner. */
 	| { state: "auth-required"; reason: "missing" | "invalid" | "denied" };
 

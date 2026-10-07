@@ -122,10 +122,11 @@ export function ComposerModes() {
 				open={open}
 				placement="top-start"
 			>
-				<div className="flex flex-col gap-3">
+				<div className="flex flex-col gap-3 break-keep">
 					<Tabs
 						activeId={tab}
 						ariaLabel={t("input.modes.label")}
+						className="w-full *:flex-1 *:justify-center"
 						compact
 						onChange={id => setTab(id as ComposerModeId)}
 						tabs={(["plan", "goal", "loop", "vibe", "pool"] as const).map(mode => ({
@@ -150,7 +151,9 @@ export function ComposerModes() {
 							/>
 						)}
 					</div>
-					<p className="text-sc-xs text-(--sc-text-muted)">{t("modesPanel.footerNote")}</p>
+					<p className="-mx-3 -mb-1 border-t border-(--sc-divider) px-3 pt-2.5 text-sc-xs text-(--sc-text-muted)">
+						{t("modesPanel.footerNote")}
+					</p>
 				</div>
 			</Popover>
 		</>

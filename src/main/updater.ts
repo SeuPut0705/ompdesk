@@ -31,7 +31,7 @@ import pkg from "electron-updater";
 import type { UpdateAuthTestResult, UpdateInstallMode, UpdateStatus } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import { confirmQuit, requestQuit } from "./app-quit";
-import { mainT } from "./i18n";
+import { type MainTextKey, mainT } from "./i18n";
 import {
 	checkRepoAccess,
 	clearUpdateToken,
@@ -366,11 +366,7 @@ async function prepareRelaunchUpdate(version: string): Promise<void> {
 	try {
 		await downloadMacAsset(version, macAsset, updateToken, "relaunch");
 	} catch (error) {
-		broadcast({
-			state: "error",
-			message: error instanceof Error ? error.message : String(error),
-			showInBanner: false,
-		});
+		broadcast(failureStatus(error, "updates.downloadFailed", false));
 	}
 }
 
@@ -379,6 +375,25 @@ function broadcast(status: UpdateStatus): void {
 	for (const win of BrowserWindow.getAllWindows()) {
 		win.webContents.send(IPC_EVENTS.UPDATER_STATUS, status);
 	}
+}
+
+/** Failure copy this module already localized when it threw (installer download/verify/open). */
+const OWN_FAILURE_KEYS: readonly MainTextKey[] = [
+	"updates.downloadFailed",
+	"updates.hashMismatch",
+	"updates.installerMissing",
+	"updates.openInstallerFailed",
+];
+
+/**
+ * Error status for an updater failure. Our own throws already carry localized
+ * copy; anything else (electron-updater, network stack) becomes the localized
+ * `fallback` headline with the raw text kept as `detail`.
+ */
+function failureStatus(error: unknown, fallback: MainTextKey, showInBanner: boolean): UpdateStatus {
+	const raw = error instanceof Error ? error.message : String(error);
+	if (OWN_FAILURE_KEYS.some(key => raw.startsWith(mainT(key)))) return { state: "error", message: raw, showInBanner };
+	return { state: "error", message: mainT(fallback), detail: raw, showInBanner };
 }
 
 /** Release-notes excerpt for the banner; updater carries HTML/markdown-ish notes. */
@@ -415,8 +430,8 @@ async function runCheck(manual: boolean): Promise<void> {
 	} catch (error) {
 		const access = await checkRepoAccess(resolved.token);
 		const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined;
-		const message = error instanceof Error ? error.message : String(error);
-		broadcast(settleFailedUpdateCheck(access, code, message, appVersion(), manual));
+		const detail = error instanceof Error ? error.message : String(error);
+		broadcast(settleFailedUpdateCheck(access, code, mainT("updates.checkFailed"), appVersion(), manual, detail));
 	} finally {
 		checkInFlight = false;
 	}
@@ -496,7 +511,7 @@ export function setupUpdater(): void {
 		if (checkInFlight) return;
 		// Passive failures remain unobtrusive. Explicit IPC actions catch and
 		// rebroadcast the same failure as user-visible.
-		broadcast({ state: "error", message: error.message, showInBanner: false });
+		broadcast(failureStatus(error, "updates.failed", false));
 	});
 
 	ipcMain.handle(IPC_COMMANDS.UPDATER_CHECK, async () => {
@@ -527,11 +542,7 @@ export function setupUpdater(): void {
 				await autoUpdater.downloadUpdate();
 			}
 		} catch (error) {
-			broadcast({
-				state: "error",
-				message: error instanceof Error ? error.message : String(error),
-				showInBanner: true,
-			});
+			broadcast(failureStatus(error, "updates.downloadFailed", true));
 		}
 		return current;
 	});
@@ -545,11 +556,7 @@ export function setupUpdater(): void {
 			try {
 				await openManualInstaller(downloadedInstallerPath);
 			} catch (error) {
-				broadcast({
-					state: "error",
-					message: error instanceof Error ? error.message : String(error),
-					showInBanner: true,
-				});
+				broadcast(failureStatus(error, "updates.openInstallerFailed", true));
 			}
 			return;
 		}

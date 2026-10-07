@@ -145,7 +145,7 @@ describe("AgentsPage", () => {
 		useUiStore.getState().openAgents("live");
 		await mount();
 		expect(byText('[role="tab"]', "Live")?.getAttribute("aria-selected")).toBe("true");
-		expect(document.body.textContent).toContain("No subagents spawned yet.");
+		expect(document.body.textContent).toContain("No subagents yet");
 
 		await fire(byText('[role="tab"]', "Definitions")!, "click");
 		expect(useUiStore.getState().agentsTab).toBe("definitions");

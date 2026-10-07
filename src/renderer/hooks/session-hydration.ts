@@ -63,6 +63,8 @@ export function applySessionState(state: RpcSessionState, fallbackName?: string)
 		useSessionStore.setState({ sessionName: fallbackName });
 	}
 	useSettingsStore.getState().setFromState(state);
+	// Turn first: a mid-run attach missed agent_start, and setPhases reads it.
+	useTodoStore.getState().setTurnActive(state.isStreaming);
 	useTodoStore.getState().setPhases(state.todoPhases);
 }
 

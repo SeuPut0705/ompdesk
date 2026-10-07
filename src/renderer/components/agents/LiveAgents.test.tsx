@@ -155,9 +155,17 @@ function bodyText(): string {
 }
 
 describe("LiveAgents", () => {
+	it("hides pause-all while there are no agents to pause", async () => {
+		installOmpMock();
+		useSessionStore.getState().setStatus("ready", "/repo");
+		await mount(<LiveAgents />);
+
+		expect(queryAll('button[title="Freeze all agents until resumed"]')).toHaveLength(0);
+	});
 	it("pauses and resumes all agents from the hub header", async () => {
 		const omp = installOmpMock();
 		useSessionStore.getState().setStatus("ready", "/repo");
+		seedHub();
 		await mount(<LiveAgents />);
 
 		const pause = queryAll('button[title="Freeze all agents until resumed"]')[0];
@@ -231,7 +239,7 @@ describe("LiveAgents", () => {
 		const text = document.body.textContent ?? "";
 		expect(text).toContain(translate("subagent.loadFailed"));
 		expect(text).toContain("sidecar went away");
-		expect(text).not.toContain("No subagents spawned yet.");
+		expect(text).not.toContain(translate("subagent.empty"));
 	});
 
 	it("view messages opens the transcript in a sheet and close dismisses it", async () => {

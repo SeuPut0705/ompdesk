@@ -5,8 +5,10 @@ import { useUiStore } from "../../stores/ui";
 import { ModelCompareSection } from "./ModelCompareSection";
 import { ModelRolesSection } from "./ModelRolesSection";
 import { ProvidersSection } from "./providers/ProvidersSection";
-import { SchemaField } from "./SchemaField";
+import { SchemaSection } from "./SchemaField";
 import { SettingsSection } from "./SettingsLayout";
+
+const DEFAULT_PATHS = ["defaultThinkingLevel", "retry.modelFallback", "retry.maxRetries"] as const;
 
 export function ModelsSection() {
 	const t = useT();
@@ -15,11 +17,7 @@ export function ModelsSection() {
 			<SettingsSection id="settings-models-providers" title={t("settings.models.providers")}>
 				<ProvidersSection />
 			</SettingsSection>
-			<SettingsSection id="settings-models-defaults" title={t("settings.models.defaults")}>
-				<SchemaField path="defaultThinkingLevel" />
-				<SchemaField path="retry.modelFallback" />
-				<SchemaField path="retry.maxRetries" />
-			</SettingsSection>
+			<SchemaSection id="settings-models-defaults" paths={DEFAULT_PATHS} title={t("settings.models.defaults")} />
 			<SettingsSection
 				description={t("settings.models.rolesDesc")}
 				id="settings-models-roles"

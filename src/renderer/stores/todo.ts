@@ -35,7 +35,16 @@ export interface TodoStore {
 	history: TodoSnapshot[];
 	/** False until the first post-reset setPhases — that one is hydration, not a change. */
 	historyHydrated: boolean;
+	/** Mirrors the session's agent run (agent_start → agent_end, or a get_state snapshot). */
+	turnActive: boolean;
+	/**
+	 * Keep an all-closed list on the dock: set when the running turn finishes it
+	 * (released when that turn ends) or when the user reopens it explicitly.
+	 */
+	keepClosedVisible: boolean;
 	setPhases: (phases: TodoPhase[]) => void;
+	setTurnActive: (active: boolean) => void;
+	revealClosed: () => void;
 	autoClearCompleted: () => void;
 	showReminder: (todos: TodoTask[]) => void;
 	clearReminder: () => void;
@@ -48,6 +57,8 @@ const initialState = {
 	reminderTodos: [] as TodoTask[],
 	history: [] as TodoSnapshot[],
 	historyHydrated: false,
+	turnActive: false,
+	keepClosedVisible: false,
 };
 
 function normalizePhases(phases: TodoPhase[]): UiTodoPhase[] {
@@ -77,14 +88,32 @@ function fingerprintTodo(phases: readonly { name: string; tasks: readonly { cont
 	return JSON.stringify(phases.map(phase => [phase.name, phase.tasks.map(task => task.content)]));
 }
 
+/** Pending, running, or blocked work keeps the dock card up; completed/abandoned tasks are closed. */
+function hasOpenTask(phases: readonly { tasks: readonly { status: TodoTask["status"] }[] }[]): boolean {
+	return phases.some(phase =>
+		phase.tasks.some(task => task.status === "pending" || task.status === "in_progress" || task.status === "blocked"),
+	);
+}
+
 export const createTodoStore = () =>
 	createStore<TodoStore>()((set, get) => ({
 		...initialState,
 		setPhases: phases => {
 			const state = get();
 			const next = normalizePhases(phases);
-			if (!state.historyHydrated || fingerprintPhases(next) === fingerprintPhases(state.phases)) {
-				set({ phases: next, historyHydrated: true });
+			const changed = state.historyHydrated && fingerprintPhases(next) !== fingerprintPhases(state.phases);
+			const live = {
+				phases: next,
+				historyHydrated: true,
+				// A list the running turn just finished stays up until that turn ends;
+				// hydrating an already-finished list (restore, turn start) does not.
+				keepClosedVisible:
+					next.some(phase => phase.tasks.length > 0) && (state.keepClosedVisible || (state.turnActive && changed)),
+				// Progress answers the reminder, and a list without open work has nothing left to remind about.
+				...(changed || !hasOpenTask(next) ? { reminderVisible: false, reminderTodos: [] } : {}),
+			};
+			if (!changed) {
+				set(live);
 				return;
 			}
 			const archivedPhases = next.map(phase => ({
@@ -103,11 +132,19 @@ export const createTodoStore = () =>
 			const history =
 				previous?.id === snapshot.id ? [...state.history.slice(0, -1), snapshot] : [...state.history, snapshot];
 			if (history.length > HISTORY_LIMIT) history.shift();
-			set({ phases: next, history, historyHydrated: true });
+			set({ ...live, history });
 		},
+		setTurnActive: active =>
+			set(state => ({
+				turnActive: active,
+				// The end of a turn releases the finished list it held; an idle reveal survives idle re-syncs.
+				keepClosedVisible: state.keepClosedVisible && (active || !state.turnActive),
+			})),
+		revealClosed: () => set(state => ({ keepClosedVisible: state.phases.some(phase => phase.tasks.length > 0) })),
 		autoClearCompleted: () =>
 			set({
 				phases: [],
+				keepClosedVisible: false,
 				reminderVisible: false,
 				reminderTodos: [],
 				historyHydrated: true,
@@ -116,6 +153,11 @@ export const createTodoStore = () =>
 		clearReminder: () => set({ reminderVisible: false, reminderTodos: [] }),
 		reset: () => set(initialState),
 	}));
+
+/** Whether the dock shows the todo card: open work, a list the running turn just finished, or a reminder. */
+export function selectTodoCardVisible(state: TodoStore): boolean {
+	return state.reminderVisible || state.keepClosedVisible || hasOpenTask(state.phases);
+}
 
 const defaultTodoStore = createTodoStore();
 export const useTodoStore = createScopedStoreHook("todo", defaultTodoStore);

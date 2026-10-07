@@ -10,7 +10,7 @@ import { ArrowUpCircle, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useT } from "../../lib/i18n";
 import { useUpdaterStore } from "../../stores/updater";
-import { Button, IconButton } from "../common";
+import { Button, IconButton, ProgressBar } from "../common";
 
 export function SidebarUpdateCard() {
 	const t = useT();
@@ -85,9 +85,7 @@ export function SidebarUpdateCard() {
 				/>
 			</div>
 			{progress !== null ? (
-				<div className="mt-2 h-1 overflow-hidden rounded-(--sc-radius-full) bg-(--sc-surface-2)">
-					<div className="omp-progress-width h-full bg-(--sc-accent)" style={{ width: `${progress}%` }} />
-				</div>
+				<ProgressBar className="mt-2" color="var(--sc-accent)" height={4} value={progress / 100} />
 			) : null}
 			{action ? <div className="mt-2.5">{action}</div> : null}
 		</section>

@@ -13,7 +13,7 @@
  * first and then confirms in a Dialog.
  */
 
-import { Brain, ChevronDown, ChevronRight, ShieldCheck, Zap } from "lucide-react";
+import { ArrowUpRight, Brain, ChevronDown, ChevronRight, ShieldCheck, SlidersHorizontal, Zap } from "lucide-react";
 import { useRef, useState } from "react";
 import type { RpcResponse, RpcSessionState } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
@@ -160,26 +160,33 @@ function RunSettingsPanel({
 		!autoCompaction || !autoRetry || prewalkArmed || steeringMode === "all" || interruptMode === "immediate";
 	const [advancedOpen, setAdvancedOpen] = useState(advancedChanged);
 
+	/** Advanced toggles are secondary: body-size, regular-weight labels. */
+	const advancedLabel = (key: string) => <span className="text-sc-sm font-normal">{t(key)}</span>;
+
 	return (
-		<div aria-busy={pending} className="flex flex-col gap-3">
-			<h2 className="text-sc-sm font-semibold text-(--sc-text)">{t("input.runSettings.title")}</h2>
-			<ThinkingLevelField />
-			<SwitchField
-				badge={
-					fastEnabled && !fastActive ? <Badge variant="muted">{t("input.runSettings.fastInactive")}</Badge> : null
-				}
-				checked={fastEnabled}
-				className="-mx-2"
-				data-fast-mode
-				description={t("input.runSettings.fastDesc")}
-				label={t("input.runSettings.fast")}
-				onCheckedChange={() => void toggleFastMode()}
-				size="sm"
-			/>
+		<div aria-busy={pending} className="flex flex-col break-keep">
+			<h2 className="pb-3 text-sc-sm font-semibold text-(--sc-text)">{t("input.runSettings.title")}</h2>
+			<div className="flex flex-col gap-3">
+				<ThinkingLevelField />
+				<SwitchField
+					badge={
+						fastEnabled && !fastActive ? (
+							<Badge variant="muted">{t("input.runSettings.fastInactive")}</Badge>
+						) : null
+					}
+					checked={fastEnabled}
+					className="-mx-2"
+					data-fast-mode
+					description={t("input.runSettings.fastDesc")}
+					label={t("input.runSettings.fast")}
+					onCheckedChange={() => void toggleFastMode()}
+					size="sm"
+				/>
+				{!isChat && <ApprovalModeField onRequestFullAccess={onRequestFullAccess} />}
+			</div>
 			{!isChat && (
 				<>
-					<ApprovalModeField onRequestFullAccess={onRequestFullAccess} />
-					<div className="-mx-2 border-t border-(--sc-divider) pt-2">
+					<div className="-mx-3 mt-3 border-t border-(--sc-divider) px-1 pt-1">
 						<Button
 							aria-expanded={advancedOpen}
 							className="w-full justify-start"
@@ -187,7 +194,7 @@ function RunSettingsPanel({
 								<ChevronRight
 									aria-hidden
 									className={cx(
-										"text-(--sc-text-muted) transition-transform duration-(--sc-duration-fast)",
+										"text-(--sc-text-muted) transition-transform duration-(--sc-duration-fast) motion-reduce:transition-none",
 										advancedOpen && "rotate-90",
 									)}
 								/>
@@ -199,18 +206,18 @@ function RunSettingsPanel({
 							{t("input.runSettings.advanced")}
 						</Button>
 						{advancedOpen && (
-							<div className="mt-1 flex flex-col">
+							<div className="flex flex-col pb-1">
 								<SwitchField
 									checked={autoCompaction}
 									disabled={pending}
-									label={t("input.more.autoCompact")}
+									label={advancedLabel("input.more.autoCompact")}
 									onCheckedChange={next => void run(() => rpc.setAutoCompaction(next))}
 									size="sm"
 								/>
 								<SwitchField
 									checked={autoRetry}
 									disabled={pending}
-									label={t("input.more.autoRetry")}
+									label={advancedLabel("input.more.autoRetry")}
 									onCheckedChange={next => void run(() => rpc.setAutoRetry(next))}
 									size="sm"
 								/>
@@ -218,38 +225,42 @@ function RunSettingsPanel({
 									checked={prewalkArmed}
 									description={t("cmd.prewalk.desc")}
 									disabled={pending}
-									label={t("cmd.prewalk")}
+									label={advancedLabel("cmd.prewalk")}
 									onCheckedChange={next => void run(() => rpc.setPrewalk(next), "prewalk")}
 									size="sm"
 								/>
 								<SwitchField
 									checked={steeringMode === "all"}
 									disabled={pending}
-									label={t("input.more.steeringAll")}
+									label={advancedLabel("input.more.steeringAll")}
 									onCheckedChange={next => void run(() => rpc.setSteeringMode(next ? "all" : "one-at-a-time"))}
 									size="sm"
 								/>
 								<SwitchField
 									checked={interruptMode === "immediate"}
 									disabled={pending}
-									label={t("input.more.interruptImmediate")}
+									label={advancedLabel("input.more.interruptImmediate")}
 									onCheckedChange={next => void run(() => rpc.setInterruptMode(next ? "immediate" : "wait"))}
 									size="sm"
 								/>
 							</div>
 						)}
 					</div>
-					<Button
-						className="self-start"
-						onClick={() => {
-							onClose();
-							useUiStore.getState().openSettings("models");
-						}}
-						size="sm"
-						variant="ghost"
-					>
-						{t("input.runSettings.modelRoles")}
-					</Button>
+					<div className="-mx-3 -mb-1 border-t border-(--sc-divider) px-1 pt-1">
+						<Button
+							className="w-full justify-start"
+							icon={<SlidersHorizontal aria-hidden className="text-(--sc-text-muted)" />}
+							onClick={() => {
+								onClose();
+								useUiStore.getState().openSettings("models");
+							}}
+							size="sm"
+							trailingIcon={<ArrowUpRight aria-hidden className="ml-auto text-(--sc-text-subtle)" />}
+							variant="ghost"
+						>
+							{t("input.runSettings.modelRoles")}
+						</Button>
+					</div>
 				</>
 			)}
 		</div>

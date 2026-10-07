@@ -17,7 +17,7 @@
  */
 
 import { Check, type LucideIcon } from "lucide-react";
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../../lib/format";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -42,6 +42,8 @@ export interface ContextMenuItem {
 	/** Disabled items render but never fire. */
 	disabled?: boolean;
 	disabledReason?: string;
+	/** Starts a new group: a divider renders above this item (ignored on the first). */
+	separatorBefore?: boolean;
 	onSelect: () => void;
 }
 
@@ -203,23 +205,27 @@ export function ContextMenu({ items, x, y, align = "start", ariaLabel, onClose }
 		>
 			<MenuSurface className={items.some(item => item.description) ? "min-w-64" : undefined}>
 				{items.map((item, index) => (
-					<button
-						aria-checked={item.checked}
-						className={menuItemClasses(item, index === activeIndex)}
-						data-menu-item
-						disabled={item.disabled}
-						key={item.id}
-						onClick={() => {
-							if (item.disabled) return;
-							item.onSelect();
-						}}
-						onMouseEnter={() => setActiveIndex(index)}
-						role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
-						title={item.disabled ? item.disabledReason : item.label}
-						type="button"
-					>
-						<MenuItemView item={item} />
-					</button>
+					<Fragment key={item.id}>
+						{item.separatorBefore && index > 0 && (
+							<div className="mx-1 my-1 h-px bg-(--sc-border-subtle)" role="separator" />
+						)}
+						<button
+							aria-checked={item.checked}
+							className={menuItemClasses(item, index === activeIndex)}
+							data-menu-item
+							disabled={item.disabled}
+							onClick={() => {
+								if (item.disabled) return;
+								item.onSelect();
+							}}
+							onMouseEnter={() => setActiveIndex(index)}
+							role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+							title={item.disabled ? item.disabledReason : item.label}
+							type="button"
+						>
+							<MenuItemView item={item} />
+						</button>
+					</Fragment>
 				))}
 			</MenuSurface>
 		</div>,

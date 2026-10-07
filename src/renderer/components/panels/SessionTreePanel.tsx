@@ -36,6 +36,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcSwitchLeafResult } from "../../../shared/rpc-types";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
 import { routeToSessionOwner } from "../../hooks/use-session-switch";
+import { errorDetail } from "../../lib/error-detail";
 import { cx, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -313,6 +314,18 @@ function useSessionTreeController(onNavigated: () => void): SessionTreeControlle
 		setOffsetsState({});
 	};
 
+	/** Localized failure toast; the raw sidecar/IPC cause stays as the quiet detail line. */
+	const failureToast = (
+		titleKey:
+			| "sessionTree.branchFailed"
+			| "sessionTree.switchFailed"
+			| "sessionTree.forkFailed"
+			| "sessionTree.labelFailed",
+		cause: unknown,
+	) => {
+		toast({ variant: "error", title: t(titleKey), message: t("toast.failedRetry"), detail: errorDetail(cause) });
+	};
+
 	const branchFrom = async (entryId: string) => {
 		if (!sidecarReady || branching !== null) return;
 		// The sidecar only branches from USER entries — refuse anything else
@@ -328,7 +341,7 @@ function useSessionTreeController(onNavigated: () => void): SessionTreeControlle
 			}
 			onNavigated();
 		} catch (cause) {
-			toast({ variant: "error", title: t("sessionTree.branchFailed"), message: String(cause) });
+			failureToast("sessionTree.branchFailed", cause);
 		} finally {
 			setBranching(null);
 		}
@@ -359,7 +372,7 @@ function useSessionTreeController(onNavigated: () => void): SessionTreeControlle
 		try {
 			const response = await tabRpc.switchLeaf(entryId, summarize ? { summarize: true } : undefined);
 			if (!response.success) {
-				toast({ variant: "error", title: t("sessionTree.switchFailed"), message: response.error });
+				failureToast("sessionTree.switchFailed", response.error);
 				return;
 			}
 			const data = response.data as RpcSwitchLeafResult | undefined;
@@ -377,7 +390,7 @@ function useSessionTreeController(onNavigated: () => void): SessionTreeControlle
 			else await hydrateSession();
 			onNavigated();
 		} catch (cause) {
-			toast({ variant: "error", title: t("sessionTree.switchFailed"), message: String(cause) });
+			failureToast("sessionTree.switchFailed", cause);
 		} finally {
 			setBranching(null);
 		}
@@ -392,7 +405,7 @@ function useSessionTreeController(onNavigated: () => void): SessionTreeControlle
 		try {
 			const response = await tabRpc.forkFrom(entryId);
 			if (!response.success) {
-				toast({ variant: "error", title: t("sessionTree.forkFailed"), message: response.error });
+				failureToast("sessionTree.forkFailed", response.error);
 				return;
 			}
 			const data = response.data as { sessionPath?: string } | undefined;
@@ -404,7 +417,7 @@ function useSessionTreeController(onNavigated: () => void): SessionTreeControlle
 			}
 			toast({ variant: "success", message: t("sessionTree.forkedOpened") });
 		} catch (cause) {
-			toast({ variant: "error", title: t("sessionTree.forkFailed"), message: String(cause) });
+			failureToast("sessionTree.forkFailed", cause);
 		} finally {
 			setBranching(null);
 		}
@@ -450,11 +463,7 @@ function useSessionTreeController(onNavigated: () => void): SessionTreeControlle
 			if (!response.success) throw new Error(response.error);
 		} catch (cause) {
 			applyLabel(previous);
-			toast({
-				variant: "error",
-				title: t("sessionTree.labelFailed"),
-				message: cause instanceof Error ? cause.message : String(cause),
-			});
+			failureToast("sessionTree.labelFailed", cause);
 		} finally {
 			setSavingLabel(false);
 		}

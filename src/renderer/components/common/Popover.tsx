@@ -83,7 +83,14 @@ export function Popover({
 		};
 		place();
 		window.addEventListener("resize", place);
-		return () => window.removeEventListener("resize", place);
+		// Content that grows or shrinks while open (an expanding section) re-places
+		// the panel, so it never spills past the window edge or over its trigger.
+		const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(place);
+		if (panelRef.current) observer?.observe(panelRef.current);
+		return () => {
+			window.removeEventListener("resize", place);
+			observer?.disconnect();
+		};
 	}, [open, placement, anchorRef]);
 
 	useEffect(() => {

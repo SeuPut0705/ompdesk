@@ -905,6 +905,8 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 						toast({ variant: "info", message: translate("todoPanel.empty") });
 						return;
 					}
+					// A finished list has left the dock; editing it is an explicit ask to bring it back.
+					useTodoStore.getState().revealClosed();
 					ctx.focusDockCard("todo");
 				}),
 				subAction("todo copy", () => copyTodosToClipboard()),

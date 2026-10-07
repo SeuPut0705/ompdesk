@@ -15,6 +15,7 @@ import {
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
 import { useUiStore } from "../../stores/ui";
+import { formatTokenRate } from "./TurnOutputMeter";
 
 export interface ThinkingBlockProps {
 	/** Finalized thinking text (from a completed message). */
@@ -107,9 +108,12 @@ export function ThinkingBlock({ text, live = false, startTime, endTime }: Thinki
 	const observedRate = isLive ? (trackerRef.current?.getSpeed() ?? 0) : 0;
 	const rate = observedRate >= 0.05 ? observedRate : isLive && tokensPerSecond !== null ? tokensPerSecond : 0;
 	const showGauge = isLive && rate >= 0.05;
+	// Same words as the work-summary meter; the count is an estimate (buffer growth), hence "~".
 	const gauge = showGauge ? (
-		<span className="omp-thinking-gauge tabular-nums text-(--sc-text-subtle)">
-			{formatTokens(content.length)} · {t("chat.thinking.speed", { rate: rate.toFixed(1) })}
+		<span className="omp-thinking-gauge -ms-1 shrink-0 tabular-nums text-(--sc-text-subtle)">
+			{"· "}
+			{t("chat.meter.tokensEstimated", { tokens: formatTokens(content.length) })}
+			{` · ${t("chat.meter.rate", { rate: formatTokenRate(rate) })}`}
 		</span>
 	) : null;
 
@@ -170,7 +174,9 @@ export function ThinkingBlock({ text, live = false, startTime, endTime }: Thinki
 					{t(isLive ? "chat.thinking.live" : "chat.thinking.done")}
 				</span>
 				{gauge}
-				{meta ? <span className="omp-thinking-meta tabular-nums text-(--sc-text-subtle)">{meta}</span> : null}
+				{meta ? (
+					<span className="omp-thinking-meta -ms-1 shrink-0 tabular-nums text-(--sc-text-subtle)">· {meta}</span>
+				) : null}
 			</button>
 			{open ? (
 				<div className="omp-thinking-body text-sc-sm text-(--sc-text-muted)">

@@ -6,12 +6,12 @@ import { useRuntimeTabId, withSessionRuntime } from "../../stores/session-runtim
  * ownership registry so nested spawn edges resolve progressively.
  */
 
-import { RefreshCw } from "lucide-react";
+import { FileWarning, RefreshCw } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
+import { errorDetail } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
-import { toast } from "../../stores/toast";
-import { Button, Spinner } from "../common";
+import { Banner, Button, EmptyState, Spinner } from "../common";
 import { registerTranscriptToolCalls } from "./subagent-graph";
 
 function messageText(message: AgentMessage): string {
@@ -63,8 +63,8 @@ export const SubagentTranscript = memo(function SubagentTranscript({ agent }: { 
 				const response = await rpc.getSubagentMessages(agent.id, agent.sessionFile, fromByte);
 				if (version !== generation.current) return;
 				if (!response.success) {
+					// Shown inline only: the sheet is what the user is looking at.
 					setError(response.error);
-					toast({ variant: "error", title: t("subagent.transcriptFailed"), message: response.error });
 					setState(prev => ({ ...prev, loading: false, hasMore: false }));
 					return;
 				}
@@ -93,7 +93,7 @@ export const SubagentTranscript = memo(function SubagentTranscript({ agent }: { 
 				if (version === generation.current) loadingRef.current = false;
 			}
 		},
-		[agent.id, agent.sessionFile, t, rpc.getSubagentMessages, tabId],
+		[agent.id, agent.sessionFile, rpc.getSubagentMessages, tabId],
 	);
 
 	useEffect(() => {
@@ -119,19 +119,22 @@ export const SubagentTranscript = memo(function SubagentTranscript({ agent }: { 
 		<div className="space-y-1.5 px-2 py-2">
 			{error &&
 				(state.messages.length === 0 ? (
-					<div className="flex flex-col items-start gap-2">
-						<p role="alert" className="text-omp-sm text-(--omp-error)">
-							{error}
-						</p>
-						<Button icon={<RefreshCw size={12} />} onClick={() => void load(0)} size="sm" variant="secondary">
-							{t("common.retry")}
-						</Button>
-					</div>
+					<EmptyState
+						actions={
+							<Button icon={<RefreshCw />} onClick={() => void load(0)} size="sm" variant="secondary">
+								{t("common.retry")}
+							</Button>
+						}
+						description={<span className="font-mono text-sc-xs select-text">{errorDetail(error)}</span>}
+						icon={<FileWarning />}
+						size="sm"
+						title={t("subagent.transcriptFailed")}
+					/>
 				) : (
 					/* Rows from the last good page stay on screen under the failure. */
-					<p role="alert" className="text-omp-sm text-(--omp-error)">
-						{error}
-					</p>
+					<Banner live title={t("subagent.transcriptFailed")} variant="warning">
+						<span className="font-mono text-sc-xs select-text">{errorDetail(error)}</span>
+					</Banner>
 				))}
 			{!error && state.messages.length === 0 && (
 				<div className="text-omp-sm text-(--omp-dim) italic">{t("subagent.noEntries")}</div>
