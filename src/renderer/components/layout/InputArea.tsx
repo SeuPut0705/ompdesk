@@ -1171,6 +1171,10 @@ export function InputArea() {
 										onClick={() => {
 											if (expanded) setExpanded(false);
 											send();
+											// The button disables itself once the draft clears; a disabled
+											// focused control swallows keystrokes (⌘, and friends), so keep
+											// typing focus in the composer like Enter does.
+											textareaRef.current?.focus();
 										}}
 										size="sm"
 										variant="primary"

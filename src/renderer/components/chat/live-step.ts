@@ -42,3 +42,54 @@ export function tailLines(text: string, count: number): string[] {
 	}
 	return lines;
 }
+
+/**
+ * One row of the live step log. `tool` rows carry the toolCallId and render
+ * the step's current label; `thinking` is the reasoning label; `text` is a
+ * line of reasoning; `output` is a line of command output.
+ */
+export interface LiveLogLine {
+	kind: "tool" | "thinking" | "text" | "output";
+	text: string;
+}
+
+/** Lines contributed by one step (a tool call or a reasoning episode). */
+export interface LiveLogSegment {
+	key: string;
+	lines: readonly LiveLogLine[];
+}
+
+export type LiveLog = readonly LiveLogSegment[];
+
+function sameLines(a: readonly LiveLogLine[], b: readonly LiveLogLine[]): boolean {
+	if (a.length !== b.length) return false;
+	for (let index = 0; index < a.length; index++) {
+		if (a[index].kind !== b[index].kind || a[index].text !== b[index].text) return false;
+	}
+	return true;
+}
+
+/**
+ * Record the current step's lines in the live log. A step re-rendering with
+ * the same lines returns `log` unchanged (same reference); a step whose lines
+ * changed is replaced and moved to the bottom, so the newest activity is
+ * always last; a new step is appended. The log keeps at most `max` lines,
+ * dropping the oldest from the top.
+ */
+export function appendLiveLog(log: LiveLog, segment: LiveLogSegment, max: number): LiveLog {
+	const lines = segment.lines.length > max ? segment.lines.slice(-max) : segment.lines;
+	const index = log.findIndex(entry => entry.key === segment.key);
+	if (index === log.length - 1 && index >= 0 && sameLines(log[index].lines, lines)) return log;
+	const next = index < 0 ? [...log] : [...log.slice(0, index), ...log.slice(index + 1)];
+	next.push({ key: segment.key, lines });
+	let total = 0;
+	for (const entry of next) total += entry.lines.length;
+	while (total > max) {
+		const first = next[0];
+		const drop = Math.min(first.lines.length, total - max);
+		total -= drop;
+		if (drop === first.lines.length) next.shift();
+		else next[0] = { key: first.key, lines: first.lines.slice(drop) };
+	}
+	return next;
+}

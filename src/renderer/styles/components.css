@@ -823,14 +823,48 @@
 	color: var(--sc-text-muted);
 }
 
-/* Live step under a collapsed running work summary: indented to the summary
-   text, one line (plus a running command's last output lines), fading in each
-   time the step changes. Reduced motion flattens the fade (global.css). */
+/* Live step window under a collapsed running work summary: a fixed-height
+   panel (five rows at every width) where step labels, command output and
+   reasoning flow like a log, newest at the bottom, older lines scrolling up
+   under a top fade. The height is reserved from the first running frame, so
+   switching steps never shifts the transcript. Reduced motion flattens the
+   one fade-in (global.css). */
 .omp-live-step {
+	--omp-live-step-row: calc(var(--sc-font-sm) * var(--sc-leading-normal));
+	box-sizing: border-box;
 	min-width: 0;
-	margin-inline-start: calc(var(--sc-space-1-5) + var(--sc-icon-sm) + var(--sc-space-2));
-	padding-bottom: var(--sc-space-1);
+	height: calc(var(--omp-live-step-row) * 5 + var(--sc-space-1-5) * 2 + 2px);
+	margin: var(--sc-space-0-5) 0 var(--sc-space-1-5)
+		calc(var(--sc-space-1-5) + var(--sc-icon-sm) + var(--sc-space-2));
+	border: 1px solid var(--sc-divider);
+	border-radius: var(--sc-radius-md);
+	background: var(--sc-surface-1);
+	padding: var(--sc-space-1-5) var(--sc-space-3);
 	animation: omp-live-step-in var(--sc-duration-med) var(--sc-ease-enter) both;
+}
+
+/* The scroller carries the top fade so the panel's border stays crisp. */
+.omp-live-step-scroll {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-width: 0;
+	overflow-x: hidden;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	scrollbar-width: none;
+	mask-image: linear-gradient(to bottom, transparent, #000 var(--omp-live-step-row));
+}
+
+.omp-live-step-scroll::-webkit-scrollbar {
+	display: none;
+}
+
+/* Auto top margin keeps a short log against the bottom edge; once it
+   overflows the margin resolves to zero and the window scrolls. */
+.omp-live-step-log {
+	margin-top: auto;
+	min-width: 0;
 }
 
 .omp-live-step-line {
@@ -838,9 +872,10 @@
 	align-items: center;
 	gap: var(--sc-space-2);
 	min-width: 0;
-	min-height: var(--sc-space-6);
+	min-height: var(--omp-live-step-row);
 	color: var(--sc-text-muted);
 	font-size: var(--sc-font-sm);
+	line-height: var(--omp-live-step-row);
 }
 
 .omp-live-step-icon {
@@ -850,22 +885,23 @@
 	color: var(--sc-text-subtle);
 }
 
-.omp-live-step-snippet {
+/* Reasoning wraps inside the window; it is prose, not a terminal. */
+.omp-live-step-text {
+	margin-inline-start: calc(var(--sc-icon-sm) + var(--sc-space-2));
 	color: var(--sc-text-subtle);
+	font-size: var(--sc-font-sm);
+	line-height: var(--omp-live-step-row);
+	overflow-wrap: anywhere;
 }
 
-/* Two output lines are always reserved for a running command, so output
-   arriving does not grow the row line by line. */
 .omp-live-step-output {
-	min-height: calc(2lh);
 	margin-inline-start: calc(var(--sc-icon-sm) + var(--sc-space-2));
+	overflow: hidden;
 	color: var(--sc-text-subtle);
 	font-family: var(--font-mono);
 	font-size: var(--sc-font-xs);
-	line-height: var(--sc-leading-normal);
-}
-
-.omp-live-step-output > * {
+	line-height: var(--omp-live-step-row);
+	text-overflow: ellipsis;
 	white-space: pre;
 }
 

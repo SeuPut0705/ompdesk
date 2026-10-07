@@ -198,29 +198,80 @@ describe("ExecutionGroup", () => {
 		expect(container.querySelector('[data-state="complete"]')).not.toBeNull();
 	});
 
-	it("previews the running step under a collapsed live group, then drops it when the work finishes", async () => {
+	it("flows the running work through a fixed window under a collapsed live group, then drops it once finished", async () => {
 		useToolsStore.setState({
 			activeTools: new Map<string, ToolEntry>([
 				["read-1", { ...toolEntry("running"), toolName: "read", args: { path: "src/a.ts" }, status: "done" }],
-				[
-					"bash-1",
-					{
-						...toolEntry("running"),
-						args: { command: "bun run check" },
-						startTime: 5,
-						partialResult: { content: [{ type: "text", text: "step one\nstep two\n\nstep three\n" }] },
-					},
-				],
 			]),
 		});
-		await mount(["read-1", "bash-1"]);
+		await mount(["read-1", "bash-1"], true);
 
-		const peek = container.querySelector(".omp-live-step");
-		expect(peek?.textContent).toContain("bun run check");
-		const output = Array.from(container.querySelectorAll(".omp-live-step-output > *")).map(line => line.textContent);
-		expect(output).toEqual(["step two", "step three"]);
+		const panel = container.querySelector(".omp-live-step");
+		expect(panel).not.toBeNull();
+		expect(panel?.getAttribute("aria-hidden")).toBe("true");
+		expect(panel?.querySelector(".omp-live-step-scroll")).not.toBeNull();
+		expect(panel?.textContent).toContain("a.ts");
 
 		await act(async () => {
+			useToolsStore.setState({
+				activeTools: new Map<string, ToolEntry>([
+					["read-1", { ...toolEntry("running"), toolName: "read", args: { path: "src/a.ts" }, status: "done" }],
+					[
+						"bash-1",
+						{
+							...toolEntry("running"),
+							args: { command: "bun run check" },
+							startTime: 5,
+							partialResult: { content: [{ type: "text", text: "step one\nstep two\n\nstep three\n" }] },
+						},
+					],
+				]),
+			});
+		});
+
+		// Same window, earlier step still above, the command and its output appended below.
+		expect(container.querySelector(".omp-live-step")).toBe(panel);
+		expect(panel?.textContent).toContain("a.ts");
+		expect(panel?.textContent).toContain("bun run check");
+		expect(Array.from(panel?.querySelectorAll(".omp-live-step-output") ?? []).map(line => line.textContent)).toEqual([
+			"step one",
+			"step two",
+			"step three",
+		]);
+
+		await act(async () => {
+			useToolsStore.setState({
+				activeTools: new Map<string, ToolEntry>([
+					["read-1", { ...toolEntry("running"), toolName: "read", args: { path: "src/a.ts" }, status: "done" }],
+					[
+						"bash-1",
+						{
+							...toolEntry("running"),
+							args: { command: "bun run check" },
+							startTime: 5,
+							partialResult: {
+								content: [{ type: "text", text: "step one\nstep two\n\nstep three\nstep four\n" }],
+							},
+						},
+					],
+				]),
+			});
+		});
+		expect(Array.from(panel?.querySelectorAll(".omp-live-step-output") ?? []).map(line => line.textContent)).toEqual([
+			"step one",
+			"step two",
+			"step three",
+			"step four",
+		]);
+
+		await act(async () => {
+			root.render(
+				<I18nProvider>
+					<StatefulExecutionGroup failureCount={0} live={false} toolCallIds={["read-1", "bash-1"]}>
+						<div data-testid="details">tool details</div>
+					</StatefulExecutionGroup>
+				</I18nProvider>,
+			);
 			useToolsStore.setState({
 				activeTools: new Map<string, ToolEntry>([
 					["read-1", { ...toolEntry("running"), toolName: "read", args: { path: "src/a.ts" }, status: "done" }],
@@ -229,5 +280,6 @@ describe("ExecutionGroup", () => {
 			});
 		});
 		expect(container.querySelector(".omp-live-step")).toBeNull();
+		expect(container.querySelector('[data-state="complete"]')).not.toBeNull();
 	});
 });

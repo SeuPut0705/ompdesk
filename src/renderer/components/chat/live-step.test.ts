@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ToolEntry } from "../../stores/tools";
-import { selectLiveStep, tailLines } from "./live-step";
+import { appendLiveLog, type LiveLog, type LiveLogLine, selectLiveStep, tailLines } from "./live-step";
 
 type Entry = Pick<ToolEntry, "status" | "startTime">;
 const tools = (entries: Record<string, Entry>) => new Map(Object.entries(entries));
@@ -52,5 +52,46 @@ describe("tailLines", () => {
 		expect(tailLines("only", 2)).toEqual(["only"]);
 		expect(tailLines("", 2)).toEqual([]);
 		expect(tailLines("\n\n  \n", 2)).toEqual([]);
+	});
+});
+
+describe("appendLiveLog", () => {
+	const out = (...texts: string[]): LiveLogLine[] => texts.map(text => ({ kind: "output", text }));
+	const flat = (log: LiveLog) => log.flatMap(segment => segment.lines.map(line => line.text));
+
+	it("appends new steps in order", () => {
+		let log: LiveLog = [];
+		log = appendLiveLog(log, { key: "tool:a", lines: [{ kind: "tool", text: "a" }] }, 50);
+		log = appendLiveLog(log, { key: "tool:b", lines: [{ kind: "tool", text: "b" }, ...out("one")] }, 50);
+		expect(log.map(segment => segment.key)).toEqual(["tool:a", "tool:b"]);
+		expect(flat(log)).toEqual(["a", "b", "one"]);
+	});
+
+	it("returns the same log when a step re-renders with identical lines", () => {
+		const log = appendLiveLog([], { key: "tool:a", lines: [{ kind: "tool", text: "a" }, ...out("x")] }, 50);
+		expect(appendLiveLog(log, { key: "tool:a", lines: [{ kind: "tool", text: "a" }, ...out("x")] }, 50)).toBe(log);
+	});
+
+	it("replaces a step's lines as its output grows instead of repeating them", () => {
+		let log = appendLiveLog([], { key: "tool:a", lines: out("one") }, 50);
+		log = appendLiveLog(log, { key: "tool:a", lines: out("one", "two") }, 50);
+		expect(flat(log)).toEqual(["one", "two"]);
+	});
+
+	it("moves a step that becomes current again to the bottom", () => {
+		let log = appendLiveLog([], { key: "tool:a", lines: out("a1") }, 50);
+		log = appendLiveLog(log, { key: "tool:b", lines: out("b1") }, 50);
+		log = appendLiveLog(log, { key: "tool:a", lines: out("a1", "a2") }, 50);
+		expect(flat(log)).toEqual(["b1", "a1", "a2"]);
+	});
+
+	it("keeps at most `max` lines, dropping the oldest", () => {
+		let log = appendLiveLog([], { key: "tool:a", lines: out("a1", "a2") }, 3);
+		log = appendLiveLog(log, { key: "tool:b", lines: out("b1", "b2") }, 3);
+		expect(flat(log)).toEqual(["a2", "b1", "b2"]);
+		log = appendLiveLog(log, { key: "tool:c", lines: out("c1", "c2", "c3", "c4") }, 3);
+		expect(log.map(segment => segment.key)).toEqual(["tool:c"]);
+		expect(flat(log)).toEqual(["c2", "c3", "c4"]);
+		expect(appendLiveLog(log, { key: "tool:c", lines: out("c1", "c2", "c3", "c4") }, 3)).toBe(log);
 	});
 });
