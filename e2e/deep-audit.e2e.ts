@@ -671,7 +671,7 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 			sidecarOverride: process.env.OMP_GUI_OMP ?? null,
 		}));
 		// The audit profile has no provider, so the inline first-run setup takes the empty session.
-		const setup = page.getByRole("region", { name: "Set up ompdesk", exact: true });
+		const setup = page.getByRole("region", { name: "Set up OMPdesk", exact: true });
 		await expect(setup).toBeVisible();
 		await setup.getByRole("button", { name: "Set up later", exact: true }).click();
 		await expect(setup).toHaveCount(0);

@@ -39,9 +39,11 @@ import { resolveWindowSpawnTarget } from "./window-spawn-target";
 
 // App identity: the dev run shows "Electron" in the dock otherwise; packaged
 // builds get the name from the bundle via electron-builder. The name also picks
-// the userData directory (~/Library/Application Support/ompdesk), so it is set
-// before anything resolves that path.
+// the userData directory (~/Library/Application Support/ompdesk) and the
+// "ompdesk Safe Storage" keychain item, so it stays lowercase and is set before
+// anything resolves that path. People see the display name, OMPdesk.
 app.setName("ompdesk");
+app.setAboutPanelOptions({ applicationName: "OMPdesk" });
 
 // Honor Electron's explicit profile before acquiring its instance lock.
 const userDataDirectory = app.commandLine.getSwitchValue("user-data-dir");

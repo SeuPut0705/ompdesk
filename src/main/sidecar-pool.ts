@@ -491,13 +491,25 @@ export class SidecarPool {
 		return entry && entry.win === win ? entry.sidecar : null;
 	}
 
-	/** Send a command to the idle tab attached to `sessionPath`. */
+	/**
+	 * Send a command to the ready tab attached to `sessionPath`, mid-run or not —
+	 * for mutations stock applies safely during a run (rename). Null until the
+	 * owner's process is ready.
+	 */
+	async commandForSession(sessionPath: string, command: RpcCommand): Promise<RpcResponse | null> {
+		const owner = this.#sessionOwners.get(sessionPath);
+		const entry = owner ? this.#byTabId.get(owner.tabId) : undefined;
+		if (entry?.status !== "ready") return null;
+		const client = entry.sidecar.rpcClient;
+		return client ? await client.command(command) : null;
+	}
+
+	/** Send a command to the idle tab attached to `sessionPath`; null while a run or compaction is in flight. */
 	async commandForIdleSession(sessionPath: string, command: RpcCommand): Promise<RpcResponse | null> {
 		const owner = this.#sessionOwners.get(sessionPath);
 		const entry = owner ? this.#byTabId.get(owner.tabId) : undefined;
-		if (!entry || entry.running || entry.compacting === true || entry.status !== "ready") return null;
-		const client = entry.sidecar.rpcClient;
-		return client ? await client.command(command) : null;
+		if (!entry || entry.running || entry.compacting === true) return null;
+		return this.commandForSession(sessionPath, command);
 	}
 
 	/** Make `tabId` the window's active tab (moves full event forwarding). False when unknown/foreign. */
@@ -561,8 +573,8 @@ export class SidecarPool {
 	 * in memory. `asleep` (restored but never shown), `exited` and `error` have
 	 * no process at all, so the file on disk is the entire session: a delete or
 	 * rename must go to the filesystem instead of a `drop_session` /
-	 * `set_session_name` with nobody to answer it — which `commandForIdleSession`
-	 * would refuse as if a run were in flight. `starting` counts as live: that
+	 * `set_session_name` with nobody to answer it — which `commandForSession`
+	 * would refuse as if the process were still starting. `starting` counts as live: that
 	 * spawn is about to read the file.
 	 */
 	sessionOwnerIsLive(sessionPath: string): boolean {

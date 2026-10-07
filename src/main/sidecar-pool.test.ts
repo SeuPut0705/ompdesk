@@ -703,28 +703,30 @@ describe("SidecarPool tabs", () => {
 });
 
 describe("SidecarPool session ownership (F-OWN)", () => {
-	it("routes session mutations only to an idle attached tab", async () => {
+	it("routes deletes only to an idle attached tab, renames even mid-run", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a", "/sessions/s.jsonl");
 		const [sidecar] = sidecars;
-		sidecar?.emitStatus("ready");
+		const rename = { type: "set_session_name", name: "Renamed", sessionPath: "/sessions/s.jsonl" } as const;
 
-		const response = await pool.commandForIdleSession("/sessions/s.jsonl", {
-			type: "set_session_name",
-			name: "Renamed",
-			sessionPath: "/sessions/s.jsonl",
-		});
-		expect(response?.success).toBe(true);
-		expect(sidecar?.rpcCommands).toEqual([
-			{ type: "set_session_name", name: "Renamed", sessionPath: "/sessions/s.jsonl" },
-		]);
+		// A spawn in flight has nobody to answer yet.
+		expect(await pool.commandForSession("/sessions/s.jsonl", rename)).toBeNull();
+		sidecar?.emitStatus("ready");
 
 		sidecar?.emitAgentEvents(["agent_start"]);
 		expect(await pool.commandForIdleSession("/sessions/s.jsonl", { type: "drop_session" })).toBeNull();
+		expect((await pool.commandForSession("/sessions/s.jsonl", rename))?.success).toBe(true);
+		expect(sidecar?.rpcCommands).toEqual([rename]);
+
+		sidecar?.emitAgentEvents(["agent_end"]);
+		expect(await pool.commandForIdleSession("/sessions/s.jsonl", { type: "drop_session" })).toMatchObject({
+			success: true,
+		});
+		expect(await pool.commandForSession("/sessions/other.jsonl", rename)).toBeNull();
 	});
 
-	it("blocks session mutations while automatic compaction is in flight", async () => {
+	it("blocks deletes, not renames, while automatic compaction is in flight", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a", "/sessions/s.jsonl");
@@ -734,6 +736,15 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 
 		expect(pool.tabsForWindow(fw.win)[0]?.compacting).toBe(true);
 		expect(await pool.commandForIdleSession("/sessions/s.jsonl", { type: "drop_session" })).toBeNull();
+		expect(
+			(
+				await pool.commandForSession("/sessions/s.jsonl", {
+					type: "set_session_name",
+					name: "Renamed",
+					sessionPath: "/sessions/s.jsonl",
+				})
+			)?.success,
+		).toBe(true);
 
 		sidecar?.emitAgentEvents(["auto_compaction_end"]);
 		expect(pool.tabsForWindow(fw.win)[0]?.compacting).toBe(false);
@@ -759,8 +770,7 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 
 		// Unowned paths are never live, and neither is an asleep owner — ipc.ts
 		// deletes or renames those straight on disk instead of asking a
-		// drop_session that has nobody to answer, rather than refusing with
-		// "Session is currently running".
+		// drop_session that has nobody to answer, rather than refusing it.
 		expect(pool.sessionOwnerIsLive("/sessions/other.jsonl")).toBe(false);
 		expect(pool.sessionOwnerIsLive("/sessions/s.jsonl")).toBe(false);
 

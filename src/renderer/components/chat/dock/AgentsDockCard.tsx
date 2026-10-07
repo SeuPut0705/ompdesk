@@ -1,9 +1,11 @@
 /**
- * Agents dock line: while subagents run, ONE compact row above the composer —
- * status counts and the latest active agent. The roster itself lives in the
- * sidebar, nested under its session; clicking the line reveals that group
- * there (Agents › Live when the pane has no tab). Finished-only rosters take no
- * dock space: the line disappears once nothing is live.
+ * Agents dock chip: while subagents run, a compact count chip beside the todo
+ * card (alone and left-aligned when there is none) — icon, running count,
+ * spinner; the full running/done/failed breakdown rides on the tooltip and
+ * accessible name. The roster itself lives in the sidebar, nested under its
+ * session; clicking the chip reveals that group there (Agents › Live when the
+ * pane has no tab). Finished-only rosters take no dock space: the chip
+ * disappears once nothing is live.
  *
  * Owns stream-time polling of get_subagents: lifecycle/progress frames keep
  * the store fresh while agents run, but parked/idle transitions ride the
@@ -11,7 +13,7 @@
  * agent would show "running" until the next session hydration.
  */
 
-import { Bot, ChevronRight } from "lucide-react";
+import { Bot } from "lucide-react";
 import { useEffect, useMemo } from "react";
 import { useTabGuard } from "../../../hooks/use-tab-guard";
 import { useT } from "../../../lib/i18n";
@@ -20,7 +22,7 @@ import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { revealSidebarSubagents } from "../../../stores/sidebar-subagents";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useUiStore } from "../../../stores/ui";
-import { subagentPrimaryLabel } from "../../panels/subagent-graph";
+import { Spinner } from "../../common";
 import { buildAgentDockPeek } from "./dock-summary";
 
 /** Poll cadence while a turn streams (covers frame-less parked/idle transitions). */
@@ -57,10 +59,7 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 	]
 		.filter(Boolean)
 		.join(" · ");
-	const latestTitle = peek.latest ? subagentPrimaryLabel(peek.latest) : undefined;
-	// The primary label falls back to the agent type; don't print it twice.
-	const latestLabel =
-		peek.latest && latestTitle !== peek.latest.agent ? `${peek.latest.agent} · ${latestTitle}` : latestTitle;
+	const summary = `${t("dock.agents")}: ${counts}`;
 
 	const reveal = () => {
 		if (tabId) revealSidebarSubagents(tabId);
@@ -69,18 +68,17 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 
 	return (
 		<button
-			aria-label={`${t("dock.agents")}: ${counts}. ${t("dock.agents.show")}`}
-			className="omp-fade-up flex min-h-10 w-full shrink-0 items-center gap-2 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) px-3 py-1 text-left transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:outline-(--sc-accent)"
-			data-testid="agents-dock-line"
+			aria-label={`${summary}. ${t("dock.agents.show")}`}
+			className="omp-fade-up sticky top-0 flex h-10.5 shrink-0 items-center gap-1.5 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) px-3 transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:outline-(--sc-accent)"
+			data-testid="agents-dock-chip"
 			onClick={reveal}
-			title={t("dock.agents.show")}
+			title={`${summary} — ${t("dock.agents.show")}`}
 			type="button"
 		>
 			<Bot aria-hidden="true" className="shrink-0 text-(--sc-text-muted)" size={16} />
-			<span className="shrink-0 text-sc-md font-medium whitespace-nowrap text-(--sc-text)">{t("dock.agents")}</span>
-			<span className="shrink-0 text-sc-sm tabular-nums text-(--sc-text-muted)">{counts}</span>
-			<span className="min-w-0 flex-1 truncate text-sc-sm text-(--sc-text-secondary)">{latestLabel}</span>
-			<ChevronRight aria-hidden="true" className="shrink-0 text-(--sc-text-subtle)" size={14} />
+			<span className="text-sc-md font-medium whitespace-nowrap text-(--sc-text)">{t("dock.agents")}</span>
+			<span className="text-sc-sm font-medium tabular-nums text-(--sc-text-muted)">{peek.running}</span>
+			<Spinner className="inline-flex shrink-0" size="sm" />
 		</button>
 	);
 }

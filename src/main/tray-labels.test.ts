@@ -35,15 +35,15 @@ function state(overrides: Partial<TrayState> = {}): TrayState {
 
 describe("tray status surface", () => {
 	it("names the run state in the hover text, in the language the renderer reports", () => {
-		expect(trayTooltip(state({ status: "streaming" }))).toBe("ompdesk — alpha · Working");
-		expect(trayTooltip(state({ status: "waiting", language: "zh" }))).toBe("ompdesk — alpha · 需要输入");
-		expect(trayTooltip(state({ status: "streaming", language: "ko" }))).toBe("ompdesk — alpha · 작업 중");
+		expect(trayTooltip(state({ status: "streaming" }))).toBe("OMPdesk — alpha · Working");
+		expect(trayTooltip(state({ status: "waiting", language: "zh" }))).toBe("OMPdesk — alpha · 需要输入");
+		expect(trayTooltip(state({ status: "streaming", language: "ko" }))).toBe("OMPdesk — alpha · 작업 중");
 		expect(trayTooltip(state({ status: "error" }))).toContain("Error");
 		expect(trayTooltip(state({ status: "idle" }))).toContain("Ready");
 	});
 
 	it("labels the project before any renderer state arrives", () => {
-		expect(trayTooltip(null)).toBe("ompdesk");
+		expect(trayTooltip(null)).toBe("OMPdesk");
 	});
 });
 

@@ -3,8 +3,8 @@
  * transcript and the composer, replacing the workspace drawer's
  * todo/plan/agents tabs with always-current center cards. Large todo
  * collections render a compact summary and temporarily focus the card for
- * full-list inspection; running subagents get one summary line (the roster
- * lives in the sidebar). Each card self-gates its visibility (no todos, no
+ * full-list inspection; running subagents get a compact count chip beside the
+ * todo card (the roster lives in the sidebar). Each card self-gates its visibility (no todos, no
  * live subagents, plan mode off → nothing rendered), so the region collapses to
  * zero height on an idle session. Queued messages are not a dock card: they
  * live in the composer's own queue tray (ComposerQueue), which every tab kind
@@ -139,12 +139,22 @@ function WorkspaceDockContent() {
 						<PanelErrorBoundary>
 							<PlanDockCard />
 						</PanelErrorBoundary>
-						<PanelErrorBoundary>
-							<TodoDockCard />
-						</PanelErrorBoundary>
-						<PanelErrorBoundary>
-							<AgentsDockCard />
-						</PanelErrorBoundary>
+						{(todoVisible || agentsVisible) && (
+							// Todo card fills the row; the agents chip keeps its natural
+							// width beside it (alone and left-aligned without todos).
+							<div className="flex items-start gap-2">
+								{todoVisible && (
+									<div className="min-w-0 flex-1">
+										<PanelErrorBoundary>
+											<TodoDockCard />
+										</PanelErrorBoundary>
+									</div>
+								)}
+								<PanelErrorBoundary>
+									<AgentsDockCard />
+								</PanelErrorBoundary>
+							</div>
+						)}
 					</div>
 				</>
 			)}

@@ -18,8 +18,15 @@ interface BuilderConfig {
 	afterPack?: string;
 	extraResources?: { from: string; to: string }[];
 	protocols?: { name: string; schemes?: string[] }[];
-	mac?: { extendInfo?: Record<string, unknown>; target?: { target?: string; arch?: string[] }[] };
+	mac?: {
+		artifactName?: string;
+		extendInfo?: Record<string, unknown>;
+		target?: { target?: string; arch?: string[] }[];
+	};
+	dmg?: { artifactName?: string };
 	win?: { target?: { target?: string; arch?: string[] }[] };
+	nsis?: { artifactName?: string };
+	portable?: { artifactName?: string };
 }
 
 const PACKAGE_ROOT = path.join(__dirname, "..", "..");
@@ -91,8 +98,8 @@ describe("mac bundle configs", () => {
 			for (const key of PRIVACY_KEYS) {
 				const value = info[key];
 				// Electron's own default reads "This app needs access to the camera":
-				// a prompt that names no product and claims a capability ompdesk never uses.
-				const namesApp = typeof value === "string" && /\bompdesk\b/.test(value);
+				// a prompt that names no product and claims a capability OMPdesk never uses.
+				const namesApp = typeof value === "string" && /\bOMPdesk\b/.test(value);
 				expect(namesApp, `${file} → ${key}`).toBe(true);
 			}
 		}
@@ -113,7 +120,7 @@ describe("mac bundle configs", () => {
 
 	it("restores ATS in the completed bundle after electron-builder enables arbitrary loads", async () => {
 		const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-bundle-policy-"));
-		const plistPath = path.join(directory, "ompdesk.app", "Contents", "Info.plist");
+		const plistPath = path.join(directory, "OMPdesk.app", "Contents", "Info.plist");
 		const loopback = { NSExceptionAllowsInsecureHTTPLoads: true };
 		const original: PlistObject = {
 			CFBundleIdentifier: "com.seuput.ompdesk",
@@ -153,12 +160,22 @@ describe("mac bundle configs", () => {
 });
 
 describe("product identity", () => {
-	it("every package config ships ompdesk under one bundle id", () => {
+	it("every package config ships OMPdesk under one bundle id", () => {
 		for (const file of fs.readdirSync(PACKAGE_ROOT).filter(name => /^electron-builder.*\.yml$/.test(name))) {
 			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
-			expect(config.productName, file).toBe("ompdesk");
+			expect(config.productName, file).toBe("OMPdesk");
 			expect(config.appId, file).toBe("com.seuput.ompdesk");
 		}
+	});
+
+	it("keeps the lowercase release asset names installed updaters fetch by exact name", () => {
+		const mac = parse(fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.yml"), "utf8")) as BuilderConfig;
+		// electron-builder macros (`${version}`) matched literally; selectMacAsset needs these exact names.
+		expect(mac.mac?.artifactName).toMatch(/^ompdesk-\$\{version\}-\$\{arch\}-mac\.\$\{ext\}$/);
+		expect(mac.dmg?.artifactName).toMatch(/^ompdesk-\$\{version\}-\$\{arch\}\.\$\{ext\}$/);
+		const win = parse(fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.win.yml"), "utf8")) as BuilderConfig;
+		expect(win.nsis?.artifactName).toMatch(/^ompdesk-\$\{version\}-setup\.\$\{ext\}$/);
+		expect(win.portable?.artifactName).toMatch(/^ompdesk-\$\{version\}-portable\.\$\{ext\}$/);
 	});
 });
 

@@ -34,7 +34,12 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 					{
 						label: app.name,
 						submenu: [
-							{ role: "about" as const },
+							{ role: "about" as const, label: mainT("menu.about", language) },
+							{
+								label: mainT("menu.checkUpdates", language),
+								click: () => sendMenuAction(windowManager, spawnWindow, "check-updates"),
+							},
+							{ type: "separator" as const },
 							{
 								label: mainT("menu.settings", language),
 								// No accelerator: ⌘, (and its ⌃, twin) belong to the renderer
@@ -42,13 +47,13 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 								click: () => sendMenuAction(windowManager, spawnWindow, "open-settings"),
 							},
 							{ type: "separator" as const },
-							{ role: "services" as const },
+							{ role: "services" as const, label: mainT("menu.services", language) },
 							{ type: "separator" as const },
-							{ role: "hide" as const },
-							{ role: "hideOthers" as const },
-							{ role: "unhide" as const },
+							{ role: "hide" as const, label: mainT("menu.hide", language) },
+							{ role: "hideOthers" as const, label: mainT("menu.hideOthers", language) },
+							{ role: "unhide" as const, label: mainT("menu.showAll", language) },
 							{ type: "separator" as const },
-							{ role: "quit" as const },
+							{ role: "quit" as const, label: mainT("menu.quit", language) },
 						],
 					},
 				]
@@ -293,6 +298,15 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 					label: mainT("menu.about", language),
 					click: () => app.showAboutPanel(),
 				},
+				// macOS has it in the app menu; Windows has no app menu.
+				...(process.platform === "darwin"
+					? []
+					: [
+							{
+								label: mainT("menu.checkUpdates", language),
+								click: () => sendMenuAction(windowManager, spawnWindow, "check-updates"),
+							},
+						]),
 				{
 					label: mainT("menu.reportIssue", language),
 					click: () => sendMenuAction(windowManager, spawnWindow, "open-feedback"),

@@ -3,7 +3,7 @@
 <h1>
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="resources/brand/wordmark-dark.svg">
-  <img src="resources/brand/wordmark-light.svg" alt="ompdesk" height="64">
+  <img src="resources/brand/wordmark-light.svg" alt="OMPdesk" height="64">
 </picture>
 </h1>
 
@@ -27,7 +27,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/main-dark.png">
-    <img src="docs/screenshots/main.png" alt="ompdesk 메인 화면" width="100%">
+    <img src="docs/screenshots/main.png" alt="OMPdesk 메인 화면" width="100%">
   </picture>
 </p>
 
@@ -39,14 +39,14 @@
 bun install -g @oh-my-pi/pi-coding-agent
 ```
 
-**2. 앱 설치** — ompdesk는 비공개 저장소에서 초대받은 사람에게만 배포돼요.
+**2. 앱 설치** — OMPdesk는 비공개 저장소에서 초대받은 사람에게만 배포돼요.
 
 1. 이메일이나 GitHub 알림으로 온 **저장소 초대를 수락**하세요. (초대가 없다면 저장소 주인에게 요청하세요)
 2. GitHub에 로그인한 상태로 [Releases 페이지](https://github.com/SeuPut0705/ompdesk/releases)를 열고, 가장 위의 최신 버전에서 내 컴퓨터에 맞는 파일을 받으세요.
 
 | | 받을 파일 | 설치 방법 |
 |---|---|---|
-| **macOS** | `ompdesk-mac-arm64.dmg` | DMG를 열고 **ompdesk**를 응용 프로그램 폴더로 드래그. 처음 실행할 때 "확인되지 않은 개발자" 경고가 뜨면 앱을 **우클릭 → 열기** (한 번만 하면 돼요) |
+| **macOS** | `ompdesk-mac-arm64.dmg` | DMG를 열고 **OMPdesk**를 응용 프로그램 폴더로 드래그. 처음 실행할 때 "확인되지 않은 개발자" 경고가 뜨면 앱을 **우클릭 → 열기** (한 번만 하면 돼요) |
 | **Windows** | `ompdesk-windows-setup.exe` (설치 없이 쓰려면 `ompdesk-windows-portable.exe`) | 실행 파일을 열고, SmartScreen 경고가 뜨면 **추가 정보 → 실행** |
 
 로그아웃 상태에서는 Releases 페이지와 다운로드 링크가 404로 보여요. 그럴 땐 GitHub 로그인과 초대 수락 여부를 확인하세요.
@@ -205,7 +205,7 @@ bunx playwright test     # E2E (창을 띄우지 않는 백그라운드 모드)
 
 1. **수정할 때마다 배포**: 고친 뒤 `bun run check:types`, `bunx biome check src e2e`, `bunx vitest run`을 통과시키고, 바로 버전을 올려 릴리스해요. 기능 추가는 minor, 수정만 있으면 patch로 올리고, `CHANGELOG.md`에 날짜가 붙은 한국어 항목을 쓴 뒤 `release: vX.Y.Z`로 커밋·푸시하면 `release` 워크플로가 검사·패키징·GitHub 릴리스까지 해요. 끝나면 앱의 업데이트 카드에서 바로 받을 수 있어요.
 2. **함께 요청한 수정**은 릴리스 하나로 묶어요. `main`에 `Unreleased` 항목을 남겨 두지 않아요.
-3. **로컬 재설치**: `scripts/reinstall-mac.sh`는 직접 요청할 때만 써요. 앱 안에서 돌아가는 에이전트가 `/Applications/ompdesk.app`을 스스로 바꾸지 않아요.
+3. **로컬 재설치**: `scripts/reinstall-mac.sh`는 직접 요청할 때만 써요. 앱 안에서 돌아가는 에이전트가 `/Applications/OMPdesk.app`을 스스로 바꾸지 않아요.
 
 자세한 규칙은 [AGENTS.md](./AGENTS.md)의 Change workflow와 Release를 보세요.
 </details>

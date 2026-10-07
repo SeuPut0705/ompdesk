@@ -517,18 +517,6 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							useQueueStore.getState().setFromFrame({ steering: event.steering, followUp: event.followUp });
 							break;
 						}
-						case "irc_message": {
-							// IRC messages are rendered in the subagent/notification feed
-							useToastStore.getState().push({
-								variant: "info",
-								message:
-									typeof event.message === "object" && event.message !== null && "content" in event.message
-										? String((event.message as { content: unknown }).content)
-										: "IRC message received",
-								durationMs: 4000,
-							});
-							break;
-						}
 						default:
 							break;
 					}

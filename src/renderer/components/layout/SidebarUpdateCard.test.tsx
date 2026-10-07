@@ -73,7 +73,7 @@ describe("SidebarUpdateCard", () => {
 		await act(async () => {
 			useUpdaterStore.setState({ status: { state: "downloaded", version: "0.8.5", mode: "relaunch" } });
 		});
-		expect(container.textContent).toContain("ompdesk 0.8.5 is ready");
+		expect(container.textContent).toContain("OMPdesk 0.8.5 is ready");
 		expect(container.textContent).toContain("installs the next time you quit");
 		await act(async () => button("Restart to update")?.click());
 		expect(apply).toHaveBeenCalledOnce();
@@ -96,7 +96,7 @@ describe("SidebarUpdateCard", () => {
 		await act(async () => {
 			useUpdaterStore.setState({ status: { state: "downloaded", version: "0.8.5", mode: "manual" } });
 		});
-		expect(container.textContent).toContain("drag ompdesk into Applications");
+		expect(container.textContent).toContain("drag OMPdesk into Applications");
 		expect(button("Restart to update")).toBeUndefined();
 		await act(async () => button("Open installer")?.click());
 		expect(apply).toHaveBeenCalledOnce();
@@ -111,6 +111,6 @@ describe("SidebarUpdateCard", () => {
 		await act(async () => {
 			useUpdaterStore.setState({ status: { state: "downloaded", version: "0.8.6", mode: "relaunch" } });
 		});
-		expect(container.textContent).toContain("ompdesk 0.8.6 is ready");
+		expect(container.textContent).toContain("OMPdesk 0.8.6 is ready");
 	});
 });

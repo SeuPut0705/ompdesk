@@ -55,7 +55,7 @@ export function useTraySync(): void {
 			status: trayStatus,
 			language: lang,
 			cwd: cwd || null,
-			projectName: cwd ? basename(cwd) || cwd : "ompdesk",
+			projectName: cwd ? basename(cwd) || cwd : "OMPdesk",
 			modelId: model?.id ?? null,
 			thinkingLevel: thinkingLevel ?? "off",
 			fastMode,

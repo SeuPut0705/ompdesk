@@ -8,6 +8,12 @@ export type MainLanguage = UiLanguage;
 export type MainTextKey =
 	| "dialog.openProject"
 	| "menu.about"
+	| "menu.checkUpdates"
+	| "menu.services"
+	| "menu.hide"
+	| "menu.hideOthers"
+	| "menu.showAll"
+	| "menu.quit"
 	| "menu.addToDictionary"
 	| "menu.closeTab"
 	| "menu.closeWindow"
@@ -82,7 +88,13 @@ export type MainTextKey =
 
 const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 	"dialog.openProject": { en: "Open project", zh: "打开项目", ko: "프로젝트 열기" },
-	"menu.about": { en: "About ompdesk", zh: "关于 ompdesk", ko: "ompdesk 정보" },
+	"menu.about": { en: "About OMPdesk", zh: "关于 OMPdesk", ko: "OMPdesk 정보" },
+	"menu.checkUpdates": { en: "Check for Updates…", zh: "检查更新…", ko: "업데이트 확인…" },
+	"menu.services": { en: "Services", zh: "服务", ko: "서비스" },
+	"menu.hide": { en: "Hide OMPdesk", zh: "隐藏 OMPdesk", ko: "OMPdesk 가리기" },
+	"menu.hideOthers": { en: "Hide Others", zh: "隐藏其他", ko: "기타 가리기" },
+	"menu.showAll": { en: "Show All", zh: "全部显示", ko: "모두 보기" },
+	"menu.quit": { en: "Quit OMPdesk", zh: "退出 OMPdesk", ko: "OMPdesk 종료" },
 	"menu.addToDictionary": { en: "Add to dictionary", zh: "添加到词典", ko: "사전에 추가" },
 	"menu.closeTab": { en: "Close Tab", zh: "关闭标签页", ko: "탭 닫기" },
 	"menu.closeWindow": { en: "Close Window", zh: "关闭窗口", ko: "창 닫기" },
@@ -116,7 +128,7 @@ const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 		ko: "이 창의 렌더러가 반복해서 충돌해 스스로 복구할 수 없어요. 실패 내용은 런타임 로그({logPath})에 기록했어요. 재시작하면 해결될 수 있고, 도움말 → 문제 신고로 로그를 보내 주시면 수정에 도움이 돼요.",
 	},
 	"crash.close": { en: "Close", zh: "关闭", ko: "닫기" },
-	"crash.title": { en: "ompdesk window crashed", zh: "ompdesk 窗口崩溃", ko: "ompdesk 창이 충돌했어요" },
+	"crash.title": { en: "OMPdesk window crashed", zh: "OMPdesk 窗口崩溃", ko: "OMPdesk 창이 충돌했어요" },
 	"menu.newChatTab": { en: "New Chat Tab", zh: "新建聊天标签页", ko: "새 채팅 탭" },
 	"menu.newSession": { en: "New Session", zh: "新建会话", ko: "새 세션" },
 	"menu.newTab": { en: "New Tab", zh: "新建标签页", ko: "새 탭" },
@@ -165,9 +177,9 @@ const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 	},
 	"quit.workingTitle": { en: "Sessions are still running", zh: "仍有会话在运行", ko: "아직 실행 중인 세션이 있어요" },
 	"restart.body": {
-		en: "ompdesk's installed files were replaced while it was running, so this window can no longer load them reliably. {working} of {total} sessions are still working.",
-		zh: "ompdesk 运行期间安装文件已被替换，窗口无法可靠地加载它们。仍有 {working}/{total} 个会话正在工作。",
-		ko: "ompdesk 실행 중에 설치 파일이 교체되어 이 창에서 더 이상 안정적으로 불러올 수 없어요. 세션 {total}개 중 {working}개가 아직 실행 중이에요.",
+		en: "OMPdesk's installed files were replaced while it was running, so this window can no longer load them reliably. {working} of {total} sessions are still working.",
+		zh: "OMPdesk 运行期间安装文件已被替换，窗口无法可靠地加载它们。仍有 {working}/{total} 个会话正在工作。",
+		ko: "OMPdesk 실행 중에 설치 파일이 교체되어 이 창에서 더 이상 안정적으로 불러올 수 없어요. 세션 {total}개 중 {working}개가 아직 실행 중이에요.",
 	},
 	"restart.later": { en: "Later", zh: "稍后再说", ko: "나중에" },
 	"restart.now": { en: "Restart now", zh: "立即重启", ko: "지금 재시작" },
@@ -179,9 +191,9 @@ const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 		ko: "통계 서버가 아직 시작 중이에요. 잠시 후 다시 시도하세요.",
 	},
 	"stats.notRunning": {
-		en: "The stats server isn't running. Restart ompdesk to bring it back.",
-		zh: "统计服务未运行。请重启 ompdesk 以恢复。",
-		ko: "통계 서버가 실행되고 있지 않아요. ompdesk를 다시 시작하면 복구돼요.",
+		en: "The stats server isn't running. Restart OMPdesk to bring it back.",
+		zh: "统计服务未运行。请重启 OMPdesk 以恢复。",
+		ko: "통계 서버가 실행되고 있지 않아요. OMPdesk를 다시 시작하면 복구돼요.",
 	},
 	"updates.checkFailed": {
 		en: "Couldn't check for updates. Check your connection and try again.",

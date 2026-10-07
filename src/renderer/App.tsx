@@ -94,7 +94,7 @@ function FocusedSessionEffects() {
 	const colorBlindMode = useUiStore(s => s.colorBlindMode);
 
 	useEffect(() => {
-		const name = titleSessionName ?? "ompdesk";
+		const name = titleSessionName ?? "OMPdesk";
 		document.title = !titleRunState ? name : titleAwaiting ? `! ${name}` : titleStreaming ? `● ${name}` : `› ${name}`;
 	}, [titleRunState, titleAwaiting, titleStreaming, titleSessionName]);
 	useEffect(() => startVoiceAutoSpeak(), []);
@@ -500,6 +500,13 @@ export function App() {
 			// usable while the agent is starting, asleep, or recovering.
 			if (action === "open-settings") {
 				ui.openSettings();
+				return;
+			}
+			if (action === "check-updates") {
+				// Settings › Updates checks when it mounts; already open, re-check in place.
+				const alreadyOpen = ui.destination === "settings" && ui.settingsTab === "updates";
+				ui.openSettings("updates");
+				if (alreadyOpen) void window.omp.updater.check();
 				return;
 			}
 			if (action === "open-usage") {

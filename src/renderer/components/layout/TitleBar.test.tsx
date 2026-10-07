@@ -48,11 +48,20 @@ const getSessionStats = vi.fn(async () => ({
 		cost: 0.1234,
 	},
 }));
+const setSessionName = vi.fn(async (_name: string) => ({
+	type: "response" as const,
+	command: "set_session_name",
+	success: true as const,
+}));
 (
 	window as unknown as {
-		omp: { sessions: typeof sessions; events: typeof events; rpc: { getSessionStats: typeof getSessionStats } };
+		omp: {
+			sessions: typeof sessions;
+			events: typeof events;
+			rpc: { getSessionStats: typeof getSessionStats; setSessionName: typeof setSessionName };
+		};
 	}
-).omp = { sessions, events, rpc: { getSessionStats } };
+).omp = { sessions, events, rpc: { getSessionStats, setSessionName } };
 
 let container: TestElement;
 let root: Root;
@@ -241,6 +250,47 @@ describe("TitleBar", () => {
 			expect(container.textContent).toContain("demo-run");
 		} finally {
 			delete (HTMLElement.prototype as unknown as { select?: () => void }).select;
+		}
+	});
+
+	it("renames a session while it is running and shows the new title at once", async () => {
+		useSessionStore.setState({
+			status: "ready",
+			sessionId: "session-1",
+			cwd: "/tmp/project",
+			sessionName: "demo-run",
+			isStreaming: true,
+		});
+		await mount();
+		await act(async () => Promise.resolve());
+
+		// A linkedom node standing in for the button: only click() is used.
+		const rename = document.querySelector("[data-titlebar-session-name]") as unknown as TestButton | null;
+		if (!rename) throw new Error("title rename button missing while running");
+		// linkedom ships no HTMLInputElement.select(); the field autofocuses through it.
+		const proto = HTMLElement.prototype as unknown as { select: () => void };
+		proto.select = () => {};
+		try {
+			await act(async () => rename.click());
+			// Handlers close over the draft, so read them fresh after every render.
+			const inputHandler = (name: "onChange" | "onKeyDown"): ((event: unknown) => void) => {
+				const input = document.querySelector("input");
+				if (!input) throw new Error("rename input missing while running");
+				const propsKey = Object.getOwnPropertyNames(input).find(key => key.startsWith("__reactProps$"));
+				const props: unknown = propsKey ? Reflect.get(input, propsKey) : undefined;
+				const handler = props && typeof props === "object" && name in props ? Reflect.get(props, name) : undefined;
+				if (typeof handler !== "function") throw new Error(`rename input ${name} missing`);
+				return handler;
+			};
+			await act(async () => inputHandler("onChange")({ target: { value: "Mid-run title" } }));
+			await act(async () => inputHandler("onKeyDown")({ key: "Enter", nativeEvent: { isComposing: false } }));
+			await act(async () => Promise.resolve());
+
+			expect(setSessionName).toHaveBeenCalledWith("Mid-run title");
+			expect(useSessionStore.getState().sessionName).toBe("Mid-run title");
+			expect(container.textContent).toContain("Mid-run title");
+		} finally {
+			Reflect.deleteProperty(HTMLElement.prototype, "select");
 		}
 	});
 

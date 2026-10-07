@@ -1,5 +1,9 @@
 appId: com.seuput.ompdesk
-productName: ompdesk
+# Display name: the bundle (OMPdesk.app), menu bar and Dock read it. Identifiers
+# stay lowercase: appId, userData and the keychain item (app.setName in
+# src/main/index.ts), and the release asset names below, which installed
+# updaters look up by exact name (selectMacAsset in src/main/updater-state.ts).
+productName: OMPdesk
 afterPack: scripts/after-pack.cjs
 directories:
   buildResources: resources
@@ -23,6 +27,7 @@ compression: maximum
 mac:
   category: public.app-category.developer-tools
   icon: resources/icon.icns
+  artifactName: ompdesk-${version}-${arch}-mac.${ext}
   # Seal the complete bundle even when no Developer ID certificate is available.
   # This preserves macOS's user-override flow instead of presenting the app as damaged.
   identity: "-"
@@ -36,12 +41,12 @@ mac:
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
   extendInfo:
-    NSMicrophoneUsageDescription: ompdesk uses the microphone for voice dictation in the composer.
+    NSMicrophoneUsageDescription: OMPdesk uses the microphone for voice dictation in the composer.
     # Electron's stock bundle asks for camera and Bluetooth with text that names no
-    # app; ompdesk never calls either API, so the prompt a user might see stays honest.
-    NSCameraUsageDescription: ompdesk does not use the camera.
-    NSBluetoothAlwaysUsageDescription: ompdesk does not use Bluetooth.
-    NSBluetoothPeripheralUsageDescription: ompdesk does not use Bluetooth.
+    # app; OMPdesk never calls either API, so the prompt a user might see stays honest.
+    NSCameraUsageDescription: OMPdesk does not use the camera.
+    NSBluetoothAlwaysUsageDescription: OMPdesk does not use Bluetooth.
+    NSBluetoothPeripheralUsageDescription: OMPdesk does not use Bluetooth.
     # Two origins only: the loopback stats server and GitHub releases over TLS.
     # Declaring that is stricter than the default, so an accidental remote
     # cleartext request cannot start working because some build set
@@ -52,6 +57,7 @@ mac:
   notarize: false
 
 dmg:
+  artifactName: ompdesk-${version}-${arch}.${ext}
   contents:
     - x: 130
       y: 220

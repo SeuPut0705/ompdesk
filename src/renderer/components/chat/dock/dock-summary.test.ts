@@ -63,7 +63,7 @@ describe("dock summaries", () => {
 		expect(buildTodoDockPeek(phase([task("done", "completed")]))).toEqual({ done: 1, total: 1, current: undefined });
 	});
 
-	it("peeks agent status counts and the most recently active agent", () => {
+	it("peeks agent status counts", () => {
 		const agents = [
 			agent("a1", "running", 5),
 			agent("a2", "parked", 9),
@@ -71,8 +71,6 @@ describe("dock summaries", () => {
 			agent("a4", "failed", 3),
 			agent("a5", "cancelled", 4),
 		];
-		expect(buildAgentDockPeek(agents)).toMatchObject({ running: 2, done: 1, failed: 1, latest: { id: "a2" } });
-		// Nothing live: the most recently updated agent of any status.
-		expect(buildAgentDockPeek([agent("a1", "completed", 1), agent("a2", "failed", 2)]).latest?.id).toBe("a2");
+		expect(buildAgentDockPeek(agents)).toEqual({ running: 2, done: 1, failed: 1 });
 	});
 });

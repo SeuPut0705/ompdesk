@@ -102,7 +102,7 @@ test("system omp persists settings and sessions and serves every stats route", a
 			.toMatchObject({ status: "ready" });
 		// No provider in this profile (Apple's keyless on-device model does not
 		// count), so the inline first-run setup takes the empty session.
-		const setup = page.getByRole("region", { name: "Set up ompdesk", exact: true });
+		const setup = page.getByRole("region", { name: "Set up OMPdesk", exact: true });
 		await expect(setup).toBeVisible();
 		await expect(setup.getByRole("searchbox", { name: "Search providers" })).toBeVisible();
 		await setup.getByRole("button", { name: "Set up later", exact: true }).click();
@@ -202,7 +202,7 @@ test("system omp persists settings and sessions and serves every stats route", a
 		}, seededSession);
 		await page.reload();
 		await expect(page.locator("[data-transcript-kind]").filter({ hasText: "arm audit ok" })).toHaveCount(1);
-		await dismissSetupIfPresent("Set up ompdesk", "Set up later");
+		await dismissSetupIfPresent("Set up OMPdesk", "Set up later");
 		await page.locator('[data-sidebar-destinations] button[data-destination="insights"]').click();
 		const stats = page.locator('section[data-destination="insights"]');
 		await expect(stats).toBeVisible();
@@ -237,7 +237,7 @@ test("system omp persists settings and sessions and serves every stats route", a
 		await expect(page.locator('[data-sidebar-destinations] button[data-destination="settings"]')).toContainText(
 			"设置",
 		);
-		await dismissSetupIfPresent("设置 ompdesk", "稍后设置");
+		await dismissSetupIfPresent("设置 OMPdesk", "稍后设置");
 		await page.keyboard.press("ControlOrMeta+Comma");
 		const settings = page.locator("[data-settings-page]");
 		await expect(settings).toContainText("权限与安全");
@@ -324,7 +324,7 @@ test("system omp persists settings and sessions and serves every stats route", a
 		}, bootPrefs);
 		await page.reload();
 		await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "auditPrefsRequested"))).toBe(true);
-		await dismissSetupIfPresent("设置 ompdesk", "稍后设置");
+		await dismissSetupIfPresent("设置 OMPdesk", "稍后设置");
 		await page.keyboard.press("ControlOrMeta+Comma");
 		const freshSettings = page.locator("[data-settings-page]");
 		await freshSettings.locator('[data-settings-section="appearance"]').click();

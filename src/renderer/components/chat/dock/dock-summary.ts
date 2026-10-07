@@ -62,27 +62,13 @@ export interface AgentDockPeek {
 	running: number;
 	done: number;
 	failed: number;
-	/** The most recently updated live agent, else the most recently updated one. */
-	latest?: SubagentSnapshot;
 }
 
-/** What the collapsed subagents card shows at a glance: status counts and the latest agent. */
+/** What the subagents dock chip shows: status counts. */
 export function buildAgentDockPeek(agents: SubagentSnapshot[]): AgentDockPeek {
-	const live = agents.filter(agent => isLiveSubagentStatus(agent.status));
-	const newest = (pool: SubagentSnapshot[]) =>
-		pool.reduce<SubagentSnapshot | undefined>(
-			(best, agent) =>
-				!best ||
-				agent.lastUpdate > best.lastUpdate ||
-				(agent.lastUpdate === best.lastUpdate && agent.index > best.index)
-					? agent
-					: best,
-			undefined,
-		);
 	return {
-		running: live.length,
+		running: agents.filter(agent => isLiveSubagentStatus(agent.status)).length,
 		done: agents.filter(agent => agent.status === "completed").length,
 		failed: agents.filter(agent => agent.status === "failed").length,
-		latest: newest(live) ?? newest(agents),
 	};
 }

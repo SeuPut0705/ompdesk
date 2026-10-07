@@ -1,5 +1,5 @@
 #!/bin/bash
-# Swap /Applications/ompdesk.app for the freshly packaged build and reopen it, once.
+# Swap /Applications/OMPdesk.app for the freshly packaged build and reopen it, once.
 #
 # Safe to run from an agent inside ompdesk itself: the swap detaches from the
 # app's process tree (nohup + background), so quitting the app does not kill it,
@@ -10,7 +10,7 @@
 # Usage: bun run package:mac -- --publish never && bash scripts/reinstall-mac.sh
 set -euo pipefail
 
-APP_NAME="ompdesk"
+APP_NAME="OMPdesk"
 SRC="$(cd "$(dirname "$0")/.." && pwd)/dist/mac-arm64/${APP_NAME}.app"
 DEST="/Applications/${APP_NAME}.app"
 LOG="${TMPDIR:-/tmp}/${APP_NAME}-reinstall.log"

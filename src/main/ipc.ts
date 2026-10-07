@@ -636,10 +636,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const name = typeof payload.name === "string" ? payload.name.trim() : "";
 		if (!name) throw new Error("Session name cannot be empty");
 		if (sidecarPool.sessionOwner(payload.sessionPath) && sidecarPool.sessionOwnerIsLive(payload.sessionPath)) {
-			// The owner's in-memory title must change with the file.
+			// The owner's in-memory title must change with the file. Stock renames
+			// mid-run (a user title also locks out the pending auto-title), so
+			// unlike delete this does not wait for the tab to go idle.
 			const command: RpcCommand = { type: "set_session_name", name, sessionPath: payload.sessionPath };
-			const response = await sidecarPool.commandForIdleSession(payload.sessionPath, command);
-			if (!response) throw new Error("Session is currently running");
+			const response = await sidecarPool.commandForSession(payload.sessionPath, command);
+			if (!response) throw new Error("Session is still starting");
 			if (!response.success) throw new Error(response.error);
 			return;
 		}

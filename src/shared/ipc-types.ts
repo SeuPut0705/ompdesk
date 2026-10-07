@@ -321,6 +321,7 @@ export type MenuAction =
 	| "toggle-sidebar"
 	| "toggle-panel"
 	| "open-settings"
+	| "check-updates"
 	| "open-usage"
 	| "open-command-center"
 	| "open-context-report"

@@ -1,7 +1,7 @@
 /**
  * Agents › Definitions authoring against the real system omp (isolated
  * profile, no credentials): template gallery, editor create / edit /
- * duplicate-to-override / delete, and "Add all". Every file ompdesk writes is
+ * duplicate-to-override / delete, and "Add all". Every file OMPdesk writes is
  * checked on disk and through omp's own discovery (`get_agent_definitions`).
  *
  * Set OMPDESK_SHOTS_DIR to also save light/dark screenshots (English and
@@ -47,7 +47,7 @@ async function definitions(page: Page): Promise<RpcAgentDefinitionInfo[]> {
 }
 
 const LEGACY = `---
-# Hand-written; ompdesk must keep this comment.
+# Hand-written; OMPdesk must keep this comment.
 name: legacy
 x-owner: platform-team # unknown key, kept
 description: Legacy helper
@@ -102,7 +102,7 @@ test("agent editor and template gallery write definitions omp discovers", async 
 		await expect
 			.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 60_000 })
 			.toMatchObject({ status: "ready" });
-		const setup = page.getByRole("region", { name: "Set up ompdesk", exact: true });
+		const setup = page.getByRole("region", { name: "Set up OMPdesk", exact: true });
 		if (await setup.isVisible().catch(() => false)) {
 			await setup.getByRole("button", { name: "Set up later", exact: true }).click();
 		}
@@ -187,7 +187,7 @@ test("agent editor and template gallery write definitions omp discovers", async 
 		await edit.getByRole("button", { name: "Save", exact: true }).click();
 		await expect(edit).toHaveCount(0);
 		const legacy = await fs.readFile(path.join(userAgents, "legacy.md"), "utf8");
-		expect(legacy).toContain("# Hand-written; ompdesk must keep this comment.");
+		expect(legacy).toContain("# Hand-written; OMPdesk must keep this comment.");
 		expect(legacy).toContain("x-owner: platform-team # unknown key, kept");
 		expect(legacy).toContain("thinking: high");
 		expect(legacy).toContain("description: Legacy helper, revised");

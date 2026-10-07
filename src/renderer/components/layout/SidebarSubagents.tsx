@@ -1,25 +1,24 @@
 /**
- * Subagents nested under a sidebar session row. Only a session open in a tab
- * has a roster (its runtime's subagents store); closed sessions render
- * nothing. Each group subscribes to its own tab's stores, so a progress frame
- * re-renders that group — never the whole sidebar.
+ * Live subagents as child rows directly under their sidebar session row. Only
+ * a session open in a tab has a roster (its runtime's subagents store);
+ * closed sessions render nothing. Each group subscribes to its own tab's
+ * stores, so a progress frame re-renders that group — never the whole sidebar.
  *
- * Disclosure "Subagents N" follows liveness (open while any child runs)
- * until the user toggles it; the choice is remembered per session. Rows are
- * part of the sidebar's roving list (arrow keys) and open the subagent's
- * transcript in the same sheet as Agents › Live; right-click (or the menu
- * key) offers Stop for live ones. With more than FINISHED_COLLAPSE_AT rows,
- * fully finished spawn trees fold into a quiet "Done N" summary.
+ * Only live subagents (running, pending, parked/idle) are listed: a row
+ * disappears as soon as its subagent reaches a terminal state. Rows share the
+ * session row's look (ListRow), are part of the sidebar's roving list (arrow
+ * keys) and open the subagent's live transcript against the owning tab — not
+ * a second sidecar, since the parent's omp is still writing that session
+ * file. Right-click (or the menu key) offers Stop.
  */
 
-import { Ban, Check, ChevronRight, CircleDashed, Pause, X } from "lucide-react";
+import { Pause } from "lucide-react";
 import {
 	memo,
 	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
 	useCallback,
 	useEffect,
-	useId,
 	useMemo,
 	useRef,
 	useState,
@@ -38,7 +37,7 @@ import {
 import { useSidebarSubagentsStore } from "../../stores/sidebar-subagents";
 import { useSubagentGraphStore } from "../../stores/subagent-graph";
 import { type SubagentsStore, useSubagentsStore } from "../../stores/subagents";
-import { anchorFromEvent, ContextMenu, type ContextMenuAnchor, Spinner } from "../common";
+import { anchorFromEvent, ContextMenu, type ContextMenuAnchor, ListRow, Spinner } from "../common";
 import { SubagentTranscriptSheet } from "../panels/SubagentTranscriptSheet";
 import { runSubagentAction } from "../panels/subagent-actions";
 import {
@@ -50,36 +49,34 @@ import {
 	subagentPrimaryLabel,
 } from "../panels/subagent-graph";
 
-/** Above this many rows, finished spawn trees fold into the "Done N" summary. */
-const FINISHED_COLLAPSE_AT = 5;
-
 interface SubagentRowModel {
 	agent: SubagentSnapshot;
 	/** 0 = spawned by the session, 1 = spawned by a subagent (deeper clamps to 1). */
 	depth: 0 | 1;
-	/** Every agent in this row's top-level spawn tree is terminal. */
-	finishedTree: boolean;
 }
 
 /**
- * Pre-order spawn tree in spawn order. Parent: the explicit wire link, else
- * the subagent whose transcript owns the spawning `task` call; anything
- * unresolved (or cyclic) is a top-level spawn of the session.
+ * Live subagents as a pre-order spawn tree in spawn order. Parent: the
+ * explicit wire link, else the subagent whose transcript owns the spawning
+ * `task` call; a parent that is finished (hence not listed), unresolved or
+ * cyclic makes the agent a top-level spawn of the session.
  */
 export function buildSidebarSubagentRows(
 	subagents: ReadonlyMap<string, SubagentSnapshot>,
 	toolCallOwners: ReadonlyMap<string, string>,
 ): SubagentRowModel[] {
-	const agents = [...subagents.values()].sort((a, b) => a.index - b.index);
+	const live = new Map<string, SubagentSnapshot>();
+	for (const agent of subagents.values()) if (isLiveSubagentStatus(agent.status)) live.set(agent.id, agent);
+	const agents = [...live.values()].sort((a, b) => a.index - b.index);
 	const children = new Map<string, SubagentSnapshot[]>();
 	const roots: SubagentSnapshot[] = [];
 	for (const agent of agents) {
 		const linked = parentSubagentIdOf(agent);
 		const owner = agent.parentToolCallId ? toolCallOwners.get(agent.parentToolCallId) : undefined;
 		const parentId =
-			linked && linked !== agent.id && subagents.has(linked)
+			linked && linked !== agent.id && live.has(linked)
 				? linked
-				: owner && owner !== agent.id && subagents.has(owner)
+				: owner && owner !== agent.id && live.has(owner)
 					? owner
 					: undefined;
 		if (!parentId) {
@@ -93,22 +90,15 @@ export function buildSidebarSubagentRows(
 
 	const rows: SubagentRowModel[] = [];
 	const visited = new Set<string>();
-	const visitTree = (root: SubagentSnapshot) => {
-		const start = rows.length;
-		let finished = true;
-		const visit = (agent: SubagentSnapshot, level: number) => {
-			if (visited.has(agent.id)) return;
-			visited.add(agent.id);
-			if (isLiveSubagentStatus(agent.status)) finished = false;
-			rows.push({ agent, depth: level === 0 ? 0 : 1, finishedTree: false });
-			for (const child of children.get(agent.id) ?? []) visit(child, level + 1);
-		};
-		visit(root, 0);
-		for (let i = start; i < rows.length; i++) rows[i]!.finishedTree = finished;
+	const visit = (agent: SubagentSnapshot, level: number) => {
+		if (visited.has(agent.id)) return;
+		visited.add(agent.id);
+		rows.push({ agent, depth: level === 0 ? 0 : 1 });
+		for (const child of children.get(agent.id) ?? []) visit(child, level + 1);
 	};
-	for (const root of roots) visitTree(root);
+	for (const root of roots) visit(root, 0);
 	// A parent cycle leaves members unreached from any root: show them flat.
-	for (const agent of agents) if (!visited.has(agent.id)) visitTree(agent);
+	for (const agent of agents) visit(agent, 0);
 	return rows;
 }
 
@@ -117,26 +107,27 @@ const WAITING_STATUSES: Record<string, true> = { parked: true, idle: true };
 
 function StatusGlyph({ status }: { status: string }) {
 	if (WAITING_STATUSES[status]) return <Pause aria-hidden className="text-(--sc-text-subtle)" />;
-	if (isLiveSubagentStatus(status)) return <Spinner size="sm" />;
-	if (status === "completed") return <Check aria-hidden className="text-(--sc-success)" />;
-	if (status === "failed") return <X aria-hidden className="text-(--sc-danger)" />;
-	if (status === "cancelled" || status === "aborted") return <Ban aria-hidden className="text-(--sc-text-subtle)" />;
-	return <CircleDashed aria-hidden className="text-(--sc-text-subtle)" />;
+	return (
+		<span aria-hidden className="inline-flex size-(--sc-icon-md) items-center justify-center">
+			<Spinner size="sm" />
+		</span>
+	);
 }
 
-/** Session rows indent nested sessions to pl-5.5; children sit one level in, grandchildren two. */
+/**
+ * Child rows line their glyph up under the session title (session rows sit at
+ * pl-2.5, nested sessions at pl-5.5); sub-subagents go one step further in.
+ */
 const INDENT = {
-	top: ["pl-6", "pl-10"],
-	nested: ["pl-9", "pl-13"],
+	top: ["pl-9", "pl-13"],
+	nested: ["pl-12", "pl-16"],
 } as const;
-
-const ROW_CLASS =
-	"relative flex w-full min-w-0 items-center gap-2 rounded-(--sc-radius-md) pr-2 text-left outline-none hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)";
 
 const SubagentRow = memo(function SubagentRow({
 	agent,
 	depth,
 	nested,
+	selected,
 	rovingKey,
 	onOpen,
 	onMenu,
@@ -144,18 +135,18 @@ const SubagentRow = memo(function SubagentRow({
 	agent: SubagentSnapshot;
 	depth: 0 | 1;
 	nested: boolean;
+	selected: boolean;
 	rovingKey: string;
 	onOpen: (id: string) => void;
 	onMenu: (id: string, anchor: ContextMenuAnchor) => void;
 }) {
 	const t = useT();
-	const live = isLiveSubagentStatus(agent.status);
-	const now = useNowTick(live);
-	const elapsed = live ? subagentElapsedMs(agent, now) : null;
+	const now = useNowTick(true);
+	const elapsed = subagentElapsedMs(agent, now);
 	const statusLabel = t(statusMeta(agent.status).labelKey);
 	const primary = subagentPrimaryLabel(agent);
 	const showRole = primary !== agent.agent;
-	const note = live ? (agent.progress?.lastIntent ?? agent.progress?.currentTool) : undefined;
+	const note = agent.progress?.lastIntent ?? agent.progress?.currentTool;
 	const tooltip = [
 		showRole ? `${agent.agent} · ${subagentPrimaryLabel(agent, Number.POSITIVE_INFINITY)}` : agent.agent,
 		statusLabel,
@@ -164,67 +155,61 @@ const SubagentRow = memo(function SubagentRow({
 		.filter(Boolean)
 		.join("\n");
 	return (
-		<button
-			className={cx(ROW_CLASS, "min-h-7 py-1", INDENT[nested ? "nested" : "top"][depth])}
-			data-roving-item={rovingKey}
-			data-sidebar-subagent={agent.id}
-			data-status={agent.status}
+		<ListRow
+			buttonProps={{
+				tabIndex: -1,
+				"data-roving-item": rovingKey,
+				onKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+					if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) return;
+					event.preventDefault();
+					const rect = event.currentTarget.getBoundingClientRect();
+					onMenu(agent.id, {
+						x: Number.isFinite(rect.left) ? rect.left : 8,
+						y: (Number.isFinite(rect.bottom) ? rect.bottom : 40) + 4,
+					});
+				},
+			}}
+			className={cx("omp-sidebar-session-row", INDENT[nested ? "nested" : "top"][depth])}
+			description={note}
+			leading={<StatusGlyph status={agent.status} />}
+			meta={elapsed !== null ? formatElapsed(elapsed) : undefined}
 			onClick={() => onOpen(agent.id)}
-			onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => {
-				event.preventDefault();
-				onMenu(agent.id, anchorFromEvent(event));
+			rowProps={{
+				onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => {
+					event.preventDefault();
+					onMenu(agent.id, anchorFromEvent(event));
+				},
+				"data-active": selected,
+				"data-sidebar-subagent": agent.id,
+				"data-status": agent.status,
 			}}
-			onKeyDown={(event: ReactKeyboardEvent<HTMLButtonElement>) => {
-				if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) return;
-				event.preventDefault();
-				const rect = event.currentTarget.getBoundingClientRect();
-				onMenu(agent.id, {
-					x: Number.isFinite(rect.left) ? rect.left : 8,
-					y: (Number.isFinite(rect.bottom) ? rect.bottom : 40) + 4,
-				});
-			}}
-			tabIndex={-1}
-			title={tooltip}
-			type="button"
-		>
-			<span className="flex size-(--sc-icon-sm) shrink-0 items-center justify-center self-start pt-0.5 [&>svg]:size-(--sc-icon-sm)">
-				<StatusGlyph status={agent.status} />
-			</span>
-			<span className="min-w-0 flex-1">
-				<span className="block truncate text-sc-sm text-(--sc-text-muted)">
+			selected={selected}
+			title={
+				<>
 					{showRole && <span className="text-(--sc-text-subtle)">{agent.agent} · </span>}
 					{primary}
 					<span className="sr-only">, {statusLabel}</span>
-				</span>
-				{note && <span className="block truncate text-sc-xs text-(--sc-text-subtle)">{note}</span>}
-			</span>
-			{elapsed !== null && (
-				<span className="shrink-0 self-start pt-0.5 text-sc-xs tabular-nums text-(--sc-text-subtle)">
-					{formatElapsed(elapsed)}
-				</span>
-			)}
-		</button>
+				</>
+			}
+			titleText={tooltip}
+		/>
 	);
 });
 
 function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKey: string; nested: boolean }) {
 	const t = useT();
 	const rpc = useTabRpc();
-	const groupId = useId();
 	const ready = useSessionStore(s => s.status) === "ready";
 	const subagents = useSubagentsStore(s => s.subagents);
 	const toolCallOwners = useSubagentGraphStore(s => s.toolCallOwners);
 	const rows = useMemo(() => buildSidebarSubagentRows(subagents, toolCallOwners), [subagents, toolCallOwners]);
-	const liveCount = useMemo(() => rows.filter(row => isLiveSubagentStatus(row.agent.status)).length, [rows]);
-	const explicit = useSidebarSubagentsStore(s => s.expanded[sessionKey]);
 	const reveal = useSidebarSubagentsStore(s => s.reveal);
-	const open = explicit ?? liveCount > 0;
-	const [showFinished, setShowFinished] = useState(false);
 	const [viewingId, setViewingId] = useState<string | null>(null);
 	const [menu, setMenu] = useState<{ id: string; anchor: ContextMenuAnchor } | null>(null);
-	const toggleRef = useRef<HTMLButtonElement>(null);
+	const groupRef = useRef<HTMLDivElement>(null);
 
-	// The transcript sheet / menu close when their agent leaves the roster.
+	// The transcript stays open when its agent finishes (the row goes away);
+	// sheet and menu close only when the agent leaves the roster.
 	const viewing = viewingId !== null ? (subagents.get(viewingId) ?? null) : null;
 	const menuAgent = menu ? (subagents.get(menu.id) ?? null) : null;
 	useEffect(() => {
@@ -233,56 +218,28 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 
 	useEffect(() => {
 		if (!reveal || reveal.tabId !== tabId) return;
-		useSidebarSubagentsStore.getState().setExpanded(sessionKey, true);
 		useSidebarSubagentsStore.getState().consumeReveal(reveal.seq);
-		toggleRef.current?.scrollIntoView?.({ block: "nearest" });
-		toggleRef.current?.focus();
-	}, [reveal, tabId, sessionKey]);
+		const first = groupRef.current?.querySelector<HTMLElement>("[data-roving-item]");
+		first?.scrollIntoView?.({ block: "nearest" });
+		first?.focus();
+	}, [reveal, tabId]);
 
 	const openAgent = useCallback((id: string) => setViewingId(id), []);
 	const openMenu = useCallback((id: string, anchor: ContextMenuAnchor) => setMenu({ id, anchor }), []);
 
-	if (rows.length === 0) return null;
-
-	const foldFinished = rows.length > FINISHED_COLLAPSE_AT;
-	const finishedCount = foldFinished ? rows.filter(row => row.finishedTree).length : 0;
-	const visibleRows = foldFinished && !showFinished ? rows.filter(row => !row.finishedTree) : rows;
-	const indent = INDENT[nested ? "nested" : "top"][0];
-	const stoppable =
-		menuAgent !== null &&
-		(isLiveSubagentStatus(menuAgent.status) || menuAgent.status === "stale") &&
-		menuAgent.kind !== "advisor";
+	const stoppable = menuAgent !== null && isLiveSubagentStatus(menuAgent.status) && menuAgent.kind !== "advisor";
 
 	return (
-		<div data-sidebar-subagents={sessionKey}>
-			<button
-				aria-controls={groupId}
-				aria-expanded={open}
-				className={cx(ROW_CLASS, "h-6 text-sc-xs text-(--sc-text-subtle)", indent)}
-				data-roving-item={`subagents:${sessionKey}`}
-				onClick={() => useSidebarSubagentsStore.getState().setExpanded(sessionKey, !open)}
-				ref={toggleRef}
-				tabIndex={-1}
-				type="button"
-			>
-				<ChevronRight
-					aria-hidden
-					className={cx(
-						"size-(--sc-icon-sm) shrink-0 transition-transform duration-(--sc-duration-fast)",
-						open && "rotate-90",
-					)}
-				/>
-				<span className="truncate">{t("sidebar.subagents.toggle", { count: rows.length })}</span>
-				{!open && liveCount > 0 && (
-					<span className="ml-auto flex shrink-0 items-center gap-1">
-						<Spinner size="sm" />
-						{t("sidebar.subagents.running", { count: liveCount })}
-					</span>
-				)}
-			</button>
-			{open && (
-				<div aria-label={t("sidebar.subagents.group")} className="space-y-px" id={groupId} role="group">
-					{visibleRows.map(row => (
+		<>
+			{rows.length > 0 && (
+				<div
+					aria-label={t("sidebar.subagents.group")}
+					className="space-y-px"
+					data-sidebar-subagents={sessionKey}
+					ref={groupRef}
+					role="group"
+				>
+					{rows.map(row => (
 						<SubagentRow
 							agent={row.agent}
 							depth={row.depth}
@@ -291,21 +248,9 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 							onMenu={openMenu}
 							onOpen={openAgent}
 							rovingKey={`subagent:${tabId}:${row.agent.id}`}
+							selected={row.agent.id === viewingId}
 						/>
 					))}
-					{finishedCount > 0 && (
-						<button
-							aria-expanded={showFinished}
-							className={cx(ROW_CLASS, "h-6 text-sc-xs text-(--sc-text-subtle)", indent)}
-							data-roving-item={`subagents-done:${sessionKey}`}
-							onClick={() => setShowFinished(value => !value)}
-							tabIndex={-1}
-							type="button"
-						>
-							<Check aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-							<span className="truncate">{t("sidebar.subagents.finished", { count: finishedCount })}</span>
-						</button>
-					)}
 				</div>
 			)}
 			<SubagentTranscriptSheet agent={viewing} onClose={() => setViewingId(null)} />
@@ -340,7 +285,7 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 					y={menu.anchor.y}
 				/>
 			)}
-		</div>
+		</>
 	);
 }
 

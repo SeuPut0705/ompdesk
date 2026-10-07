@@ -1,5 +1,6 @@
 appId: com.seuput.ompdesk
-productName: ompdesk
+# Display name (exe, shortcuts, Apps list); asset names stay lowercase for the updater.
+productName: OMPdesk
 afterPack: scripts/after-pack.cjs
 directories:
   buildResources: resources
@@ -34,11 +35,11 @@ nsis:
   deleteAppDataOnUninstall: false
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: ompdesk
-  artifactName: ${productName}-${version}-setup.${ext}
+  shortcutName: OMPdesk
+  artifactName: ompdesk-${version}-setup.${ext}
 
 portable:
-  artifactName: ${productName}-${version}-portable.${ext}
+  artifactName: ompdesk-${version}-portable.${ext}
 
 publish:
   provider: github

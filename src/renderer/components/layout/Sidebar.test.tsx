@@ -197,6 +197,40 @@ function menuItemLabels(): string[] {
 	return [...document.body.querySelectorAll('[role="menu"] button')].map(b => (b.textContent ?? "").trim());
 }
 
+/** The open context menu's item whose label contains `label`. */
+function menuItem(label: string): Element {
+	const item = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
+		(button.textContent ?? "").includes(label),
+	);
+	if (!item) throw new Error(`menu item "${label}" missing`);
+	return item;
+}
+
+/** The React props of a rendered element, to drive handlers `fire` does not cover. */
+function reactProps<T>(element: Element | TestElement): T {
+	const record = element as unknown as Record<string, unknown>;
+	const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+	if (!propsKey) throw new Error("reactProps: React props missing");
+	return record[propsKey] as T;
+}
+
+/** Type `name` into the open rename input (prefilled with `current`) and commit it on blur. */
+async function commitRenameInput(current: string, name: string): Promise<void> {
+	const input = container.querySelector(`input[value="${current}"]`);
+	if (!input) throw new Error(`rename input for "${current}" missing`);
+	const props = reactProps<{
+		onChange: (event: { target: { value: string } }) => void;
+		onBlur: (event: { currentTarget: { value: string } }) => void;
+	}>(input);
+	await act(async () => {
+		props.onChange({ target: { value: name } });
+	});
+	await act(async () => {
+		props.onBlur({ currentTarget: { value: name } });
+	});
+	await flush();
+}
+
 afterEach(async () => {
 	if (root) {
 		await act(async () => {
@@ -285,10 +319,10 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(menuItemLabels().map(label => label.replace(/⌘.*$/, ""))).toEqual([
 			"Keyboard shortcuts",
 			"Command palette",
-			"What ompdesk adds",
+			"What OMPdesk adds",
 			"What's new",
 			"Send feedback",
-			"About ompdesk",
+			"About OMPdesk",
 		]);
 		const shortcuts = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
 			(button.textContent ?? "").includes("Keyboard shortcuts"),
@@ -648,50 +682,65 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(omp.rpc.setSessionPinned).toHaveBeenCalledWith("/work/alpha/one.jsonl", true);
 	});
 
-	it("rename and delete stay enabled for idle tasks while another task runs", async () => {
+	it("a running task can be renamed but not deleted; idle siblings stay fully editable", async () => {
 		const attached = session("/work/alpha/mine.jsonl", "/work/alpha", { id: "attached-id" });
-		const omp = installMockOmp([attached, ...LIST]);
+		const list = [attached, ...LIST.map(entry => ({ ...entry }))];
+		const omp = installMockOmp(list);
+		// The index reports what was written, so the post-rename refresh keeps the new title.
+		omp.sessions.rename.mockImplementation(async (path, name) => {
+			const renamed = list.find(entry => entry.path === path);
+			if (renamed) renamed.title = name;
+		});
 		seedStores();
 		useSessionStore.setState({ isStreaming: true });
 		await mount(<Sidebar />);
 
-		// The attached running task stays protected.
-		await fire(rowFor("Session /work/alpha/mine"), "onContextMenu");
-		const renameItem = [...document.body.querySelectorAll('[role="menu"] button')].find(b =>
-			(b.textContent ?? "").includes("Rename"),
+		// The attached running task: rename stays available, delete stays protected.
+		const runningRow = rowFor("Session /work/alpha/mine");
+		expect(runningRow.querySelector('[aria-label="Rename session"]')).not.toBeNull();
+		expect(runningRow.querySelector('[aria-label="Delete session"]')).toBeNull();
+		await fire(runningRow, "onContextMenu");
+		expect(menuItem("Rename").hasAttribute("disabled")).toBe(false);
+		expect(menuItem("Delete").hasAttribute("disabled")).toBe(true);
+		await fire(menuItem("Rename"), "onClick");
+		await commitRenameInput("Session /work/alpha/mine.jsonl", "Renamed running task");
+		expect(omp.sessions.rename).toHaveBeenCalledWith("/work/alpha/mine.jsonl", "Renamed running task");
+		// The attached session's own title follows at once, mid-run.
+		expect(useSessionStore.getState().sessionName).toBe("Renamed running task");
+		expect(rowFor("Renamed running task")).not.toBeNull();
+
+		// F2 on the running row opens the rename input too; Delete does nothing.
+		const runningButton = rowButton("Renamed running task");
+		const buttonProps = reactProps<{ onKeyDown: (event: { key: string; preventDefault: () => void }) => void }>(
+			runningButton,
 		);
-		expect((renameItem as HTMLButtonElement | undefined)?.disabled).toBe(true);
-		await fire(document.body.querySelector('[role="menu"] button') as Element, "onClick");
+		await act(async () => {
+			buttonProps.onKeyDown({ key: "Delete", preventDefault: () => {} });
+		});
+		expect(document.body.textContent).not.toContain("Delete this session permanently?");
+		await act(async () => {
+			buttonProps.onKeyDown({ key: "F2", preventDefault: () => {} });
+		});
+		expect(container.querySelector('input[value="Renamed running task"]')).not.toBeNull();
+		await commitRenameInput("Renamed running task", "Renamed running task");
 
 		// An idle sibling remains editable and deletable despite the active run.
 		await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
-		const foreignMenu = [...document.body.querySelectorAll('[role="menu"] button')];
-		const idleRename = foreignMenu.find(b => (b.textContent ?? "").includes("Rename"));
-		const idleDelete = foreignMenu.find(b => (b.textContent ?? "").includes("Delete"));
-		expect((idleRename as HTMLButtonElement | undefined)?.disabled).toBe(false);
-		expect((idleDelete as HTMLButtonElement | undefined)?.disabled).toBe(false);
-		await fire(idleRename as Element, "onClick");
-		const input = container.querySelector(
-			'input[value="Session /work/alpha/one.jsonl"]',
-		) as unknown as HTMLInputElement;
-		expect(input).not.toBeNull();
-		const inputRecord = input as unknown as Record<string, unknown>;
-		const propsKey = Object.getOwnPropertyNames(inputRecord).find(key => key.startsWith("__reactProps$"));
-		const inputProps = propsKey
-			? (inputRecord[propsKey] as {
-					onChange: (event: { target: { value: string } }) => void;
-					onBlur: (event: { currentTarget: { value: string } }) => void;
-				})
-			: undefined;
-		if (!inputProps) throw new Error("rename input React props missing");
-		await act(async () => {
-			inputProps.onChange({ target: { value: "Renamed idle task" } });
-		});
-		await act(async () => {
-			inputProps.onBlur({ currentTarget: { value: "Renamed idle task" } });
-		});
-		await flush();
+		expect(menuItem("Rename").hasAttribute("disabled")).toBe(false);
+		expect(menuItem("Delete").hasAttribute("disabled")).toBe(false);
+		await fire(menuItem("Rename"), "onClick");
+		await commitRenameInput("Session /work/alpha/one.jsonl", "Renamed idle task");
 		expect(omp.sessions.rename).toHaveBeenCalledWith("/work/alpha/one.jsonl", "Renamed idle task");
+		// A sibling's rename never retitles the attached session.
+		expect(useSessionStore.getState().sessionName).toBe("Renamed running task");
+		// The same Delete key that the running row ignored asks to delete an idle one.
+		await act(async () => {
+			reactProps<typeof buttonProps>(rowButton("Renamed idle task")).onKeyDown({
+				key: "Delete",
+				preventDefault: () => {},
+			});
+		});
+		expect(document.body.textContent).toContain("Delete this session permanently?");
 	});
 
 	it("clicking an idle task opens it in a new tab by default", async () => {
@@ -783,7 +832,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(container.querySelector('[data-workspace-group="/default/work"]')).toBeNull();
 	});
 
-	it("keeps the active task protected while it is compacting", async () => {
+	it("keeps the active task protected from deletion, not renaming, while it is compacting", async () => {
 		const attached = session("/work/alpha/mine.jsonl", "/work/alpha", { id: "attached-id" });
 		installMockOmp([attached]);
 		seedStores();
@@ -791,13 +840,8 @@ describe("Sidebar menus and pinned ordering", () => {
 		await mount(<Sidebar />);
 
 		await fire(rowFor("Session /work/alpha/mine"), "onContextMenu");
-		const items = [...document.body.querySelectorAll('[role="menu"] button')];
-		expect((items.find(item => (item.textContent ?? "").includes("Rename")) as HTMLButtonElement).disabled).toBe(
-			true,
-		);
-		expect((items.find(item => (item.textContent ?? "").includes("Delete")) as HTMLButtonElement).disabled).toBe(
-			true,
-		);
+		expect(menuItem("Rename").hasAttribute("disabled")).toBe(false);
+		expect(menuItem("Delete").hasAttribute("disabled")).toBe(true);
 	});
 
 	it("workspace rows expose a hover action that creates an agent tab in that workspace", async () => {
@@ -968,7 +1012,7 @@ describe("Sidebar session-list failures", () => {
 });
 
 describe("Sidebar subagents", () => {
-	it("lists an open session's subagents directly under that session's row only", async () => {
+	it("lists an open session's live subagents as child rows directly under that session's row only", async () => {
 		installMockOmp(LIST);
 		useSessionStore.setState({ sessionId: "attached-id", cwd: "/work/alpha", isStreaming: false });
 		useTabsStore.setState({
@@ -998,6 +1042,14 @@ describe("Sidebar subagents", () => {
 					status: "running",
 					lastUpdate: Date.now(),
 				},
+				{
+					id: "done",
+					index: 2,
+					agent: "task",
+					description: "already finished",
+					status: "completed",
+					lastUpdate: Date.now(),
+				},
 			]);
 		await mount(<Sidebar />);
 
@@ -1007,5 +1059,13 @@ describe("Sidebar subagents", () => {
 		const next = rowFor("Session /work/alpha/two").nextElementSibling;
 		expect(next?.getAttribute("data-sidebar-subagents")).toBe("/work/alpha/two.jsonl");
 		expect(next?.textContent).toContain("map the repo");
+		expect(next?.textContent).not.toContain("already finished");
+		// The child row joins the sidebar's roving (arrow-key) list right after its session.
+		const roving = [...container.querySelectorAll("[data-roving-item]")].map(item =>
+			item.getAttribute("data-roving-item"),
+		);
+		const sessionIndex = roving.indexOf("session:/work/alpha/two.jsonl");
+		expect(sessionIndex).toBeGreaterThanOrEqual(0);
+		expect(roving[sessionIndex + 1]).toBe("subagent:t1:sa");
 	});
 });

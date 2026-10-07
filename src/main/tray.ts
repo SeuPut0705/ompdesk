@@ -25,10 +25,10 @@ let trayState: TrayState | null = null;
 /** Label set the currently installed native menu renders, and whether it is open. */
 let installedSignature: string | null = null;
 let menuIsOpen = false;
-let tooltip = "ompdesk";
+let tooltip = "OMPdesk";
 
 function buildIcon(): Electron.NativeImage {
-	// The ompdesk mark, rasterized by scripts/gen-icons.ts and inlined as data
+	// The OMPdesk mark, rasterized by scripts/gen-icons.ts and inlined as data
 	// URLs so the packaged app needs no resource path. macOS status items use
 	// the monochrome template (the system tints it for light/dark and selected
 	// menu-bar states); Windows gets the full-color tile, which stays visible
@@ -231,5 +231,5 @@ export function destroyTray(): void {
 	trayState = null;
 	installedSignature = null;
 	menuIsOpen = false;
-	tooltip = "ompdesk";
+	tooltip = "OMPdesk";
 }

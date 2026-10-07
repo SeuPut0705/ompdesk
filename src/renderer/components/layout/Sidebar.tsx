@@ -70,7 +70,8 @@ import { pickWorkspaceDirectory } from "../../lib/workspace-dirs";
 import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
 import { useQueueStore } from "../../stores/queue";
-import { useSessionStore } from "../../stores/session";
+import { type SessionStore, useSessionStore } from "../../stores/session";
+import { sessionRuntimeStore } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
@@ -657,7 +658,13 @@ export function Sidebar() {
 		if (!name || name === session.title) return;
 		void renameSession(session.path, name)
 			.then(() => {
-				if (session.id === sessionId) useSessionStore.setState({ sessionName: name });
+				// The owning tab's store — a split pane or the focused one — so a
+				// running session's own title bar follows without waiting for a refresh.
+				const tabId = tabForSession(session)?.id ?? null;
+				const store =
+					sessionRuntimeStore<SessionStore>(tabId, "session") ??
+					(session.id === sessionId ? useSessionStore : null);
+				if (store?.getState().sessionId === session.id) store.setState({ sessionName: name });
 			})
 			.catch(error =>
 				toast({
@@ -811,7 +818,8 @@ export function Sidebar() {
 							: null;
 		const title = sessionDisplayTitle(session, indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
 		const pinned = pinnedSessions.includes(session.path);
-		const editable = indexed && !busy;
+		// Renaming is safe mid-run (stock applies it live); deleting is not.
+		const deletable = indexed && !busy;
 		const tabIndex = -1;
 		if (renamingSessionPath === session.path) {
 			return (
@@ -861,7 +869,7 @@ export function Sidebar() {
 			<Fragment key={session.path}>
 				<ListRow
 					actions={
-						editable ? (
+						indexed ? (
 							<>
 								<IconButton
 									icon={<Pencil />}
@@ -870,13 +878,15 @@ export function Sidebar() {
 									size="sm"
 									tabIndex={-1}
 								/>
-								<IconButton
-									icon={<Trash2 />}
-									label={t("sidebar.delete")}
-									onClick={() => setPendingDelete({ kind: "session", session })}
-									size="sm"
-									tabIndex={-1}
-								/>
+								{deletable && (
+									<IconButton
+										icon={<Trash2 />}
+										label={t("sidebar.delete")}
+										onClick={() => setPendingDelete({ kind: "session", session })}
+										size="sm"
+										tabIndex={-1}
+									/>
+								)}
 							</>
 						) : undefined
 					}
@@ -888,10 +898,10 @@ export function Sidebar() {
 							if (opensMenu(event)) {
 								event.preventDefault();
 								setSessionMenu({ anchor: anchorBelow(event.currentTarget), session });
-							} else if (event.key === "F2" && editable) {
+							} else if (event.key === "F2" && indexed) {
 								event.preventDefault();
 								startRename(session);
-							} else if (event.key === "Delete" && editable) {
+							} else if (event.key === "Delete" && deletable) {
 								event.preventDefault();
 								setPendingDelete({ kind: "session", session });
 							}
@@ -1082,7 +1092,7 @@ export function Sidebar() {
 				<div className="omp-sidebar-header drag-region flex h-12 shrink-0 items-center gap-1 pr-2">
 					<span className="omp-sidebar-brand flex min-w-0 flex-1 items-center gap-2 pl-1.5 text-sc-md font-semibold text-(--sc-text)">
 						<BrandMark size={18} />
-						<span className="truncate">ompdesk</span>
+						<span className="truncate">OMPdesk</span>
 					</span>
 					<IconButton
 						className="omp-sidebar-search no-drag"
@@ -1526,8 +1536,6 @@ export function Sidebar() {
 												separatorBefore: true,
 												label: t("sidebar.rename"),
 												icon: Pencil,
-												disabled: targetBusy,
-												disabledReason: t("sidebar.menu.taskRunning"),
 												onSelect: () => {
 													setSessionMenu(null);
 													startRename(sessionMenu.session);

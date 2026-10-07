@@ -124,10 +124,10 @@ jobs:
           MNT=$(mktemp -d)
           hdiutil attach -nobrowse -readonly -mountpoint "$MNT" "dist/ompdesk-$V-arm64.dmg"
           trap 'hdiutil detach "$MNT" -quiet || true' EXIT
-          APP="$MNT/ompdesk.app"
+          APP="$MNT/OMPdesk.app"
           codesign --verify --deep --strict --verbose=2 "$APP"
           test -f "$APP/Contents/Resources/gui-bridge/index.ts"
-          lipo -archs "$APP/Contents/MacOS/ompdesk" | grep -qx arm64
+          lipo -archs "$APP/Contents/MacOS/OMPdesk" | grep -qx arm64
       - name: Stage assets
         run: |
           set -euo pipefail

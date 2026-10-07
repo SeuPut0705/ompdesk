@@ -1,10 +1,11 @@
 /**
- * AgentsDockCard: the one-line subagent summary above the composer. Renders
+ * AgentsDockCard: the compact subagent count chip above the composer. Renders
  * nothing unless an agent is live (finished-only rosters stay in the
- * sidebar), shows status counts and the latest active agent, reveals the
- * session's subagent group in the sidebar on click (Agents › Live without a
- * pane tab), and polls get_subagents while a turn streams (parked/idle
- * transitions emit no wire frame, so the store goes stale mid-run without it).
+ * sidebar), shows the running count with the status breakdown in its
+ * accessible name, reveals the session's subagent group in the sidebar on
+ * click (Agents › Live without a pane tab), and polls get_subagents while a
+ * turn streams (parked/idle transitions emit no wire frame, so the store goes
+ * stale mid-run without it).
  */
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
@@ -98,8 +99,8 @@ afterEach(async () => {
 	useUiStore.setState({ destination: "session" });
 });
 
-function line(): HTMLButtonElement | null {
-	return container.querySelector<HTMLButtonElement>('[data-testid="agents-dock-line"]');
+function chip(): HTMLButtonElement | null {
+	return container.querySelector<HTMLButtonElement>('[data-testid="agents-dock-chip"]');
 }
 
 describe("AgentsDockCard", () => {
@@ -112,10 +113,10 @@ describe("AgentsDockCard", () => {
 				.getState()
 				.setSnapshots([snap({ id: "a1", status: "completed" }), snap({ id: "a2", index: 2, status: "failed" })]);
 		});
-		expect(line()).toBeNull();
+		expect(chip()).toBeNull();
 	});
 
-	it("shows one line with status counts and the latest active agent", async () => {
+	it("shows a compact running-count chip with the status breakdown in its label", async () => {
 		useSubagentsStore
 			.getState()
 			.setSnapshots([
@@ -126,7 +127,10 @@ describe("AgentsDockCard", () => {
 			]);
 		await mount(<AgentsDockCard />);
 
-		expect(line()?.textContent).toBe("Subagents2 running · 1 done · 1 failedscout · Trace the scroll pin");
+		expect(chip()?.textContent).toBe("Subagents2");
+		expect(chip()?.querySelector(".animate-spin")).not.toBeNull();
+		expect(chip()?.getAttribute("aria-label")).toBe("Subagents: 2 running · 1 done · 1 failed. Show in sidebar");
+		expect(chip()?.getAttribute("title")).toBe("Subagents: 2 running · 1 done · 1 failed — Show in sidebar");
 		expect(container.querySelector('[role="tree"]')).toBeNull();
 	});
 
@@ -135,7 +139,7 @@ describe("AgentsDockCard", () => {
 		setFocusedSessionRuntime("t1");
 		await mount(<AgentsDockCard />);
 
-		await act(async () => line()?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true })));
+		await act(async () => chip()?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true })));
 		expect(useSidebarSubagentsStore.getState().reveal?.tabId).toBe("t1");
 		expect(useUiStore.getState().destination).toBe("session");
 	});
@@ -144,7 +148,7 @@ describe("AgentsDockCard", () => {
 		useSubagentsStore.getState().setSnapshots([snap({ id: "a1", status: "running" })]);
 		await mount(<AgentsDockCard />);
 
-		await act(async () => line()?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true })));
+		await act(async () => chip()?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true })));
 		expect(useSidebarSubagentsStore.getState().reveal).toBeNull();
 		expect(useUiStore.getState()).toMatchObject({ destination: "agents", agentsTab: "live" });
 	});
