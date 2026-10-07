@@ -107,7 +107,12 @@ describe("closeActiveTab", () => {
 
 	it("routes a worktree tab's close to the cleanup prompt instead of dropping the checkout", async () => {
 		useTabsStore.setState({
-			tabs: [tab("a", { worktree: { name: "fix", branch: "omp/gui/fix", baseCwd: "/work/base" } }), tab("b")],
+			tabs: [
+				tab("a", {
+					worktree: { name: "fix", branch: "omp/gui/fix", baseCwd: "/work/base", path: "/wt/gui-fix-1234567" },
+				}),
+				tab("b"),
+			],
 			activeTabId: "a",
 		});
 

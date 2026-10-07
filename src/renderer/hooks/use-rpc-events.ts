@@ -8,6 +8,7 @@ import {
 	hydrateTabSession,
 	refreshModelState,
 	refreshSessionState,
+	retryPendingTabs,
 	syncGoal,
 	syncLoopMode,
 	syncVibeMode,
@@ -111,15 +112,6 @@ function todoPhasesFromToolResult(result: unknown): TodoPhase[] | undefined {
 type NotifyKind = keyof typeof NOTIFY_DEFAULTS;
 
 /**
- * True while an auto-retry is outstanding. `AgentSession` defers/coalesces the
- * wire-level `agent_end` while a prompt is in flight, so a whole retry saga
- * usually settles with ONE `agent_end` — but any that do arrive mid-saga are
- * intermediate attempts, not the final outcome (mirrors the TUI's gate in
- * event-controller.ts).
- */
-const retryPendingTabs = new Set<string>();
-
-/**
  * Late frames for a tab the user already closed must be dropped: its runtime
  * is gone, and withSessionRuntime would otherwise fall back to the FOCUSED
  * runtime — polluting a live session's transcript, or (a closed tab's
@@ -128,16 +120,6 @@ const retryPendingTabs = new Set<string>();
  */
 function closedTabFrame(tabId: string): boolean {
 	return tabId !== "" && isTabClosed(tabId);
-}
-
-/**
- * Clear the auto-retry gate. Gates are per-tab: with no explicit target, clear
- * the FOCUSED tab's gate (the tab abortActiveTurn just acted on) — never every
- * tab's, or an Escape in one pane would re-enable error toasts/notifications
- * for a retry saga still running in the other pane.
- */
-export function resetRetryPending(tabId?: string): void {
-	retryPendingTabs.delete(tabId ?? useTabsStore.getState().activeTabId ?? "");
 }
 
 /**
@@ -168,37 +150,51 @@ async function maybeNotify(
 	}
 }
 
+/** Notification title for one tab: its own title (never the focused tab's), then the app name. */
+function notificationTitle(tabId: string): string {
+	return (
+		useTabsStore.getState().tabs.find(tab => tab.id === tabId)?.title ||
+		sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionName ||
+		"OMPdesk"
+	);
+}
+
 /**
- * Notify on a settled turn, reading the outcome from the event's own messages
- * (the mutable stores can already have raced ahead — the TUI reads
- * `agent_end.messages` for the same reason). Completion and error are mutually
- * exclusive for one settled turn.
+ * Notify a finished run: completion or error, mutually exclusive for one
+ * settled run. Aborted runs are user-initiated and stay quiet, as do the
+ * intermediate settles of a live auto-retry saga.
  */
-function notifyOnAgentEnd(tabId: string, event: Extract<AgentSessionEvent, { type: "agent_end" }>): void {
-	// `isTerminal === false` marks a deferred mid-run settle, not the final one.
-	if (event.isTerminal === false) return;
+export function notifyRunEnd(tabId: string, outcome: { stopReason?: string; errorMessage?: unknown }): void {
 	if (retryPendingTabs.has(tabId)) return;
-	const last = event.messages?.findLast(message => message.role === "assistant");
-	if (last?.stopReason === "aborted") return;
+	if (outcome.stopReason === "aborted") return;
 	// A settle arriving after the tab closed has no runtime to query settings
 	// with — skip rather than resurrect a ghost runtime and notify a dead tab.
 	const runtime = sessionRuntime(tabId);
 	if (!runtime) return;
-	const sessionName =
-		sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionName ||
-		useSessionStore.getState().sessionName ||
-		"Oh My Pi";
-	if (last?.stopReason === "error") {
+	const title = notificationTitle(tabId);
+	if (outcome.stopReason === "error") {
 		const message =
-			typeof last.errorMessage === "string" && last.errorMessage
+			typeof outcome.errorMessage === "string" && outcome.errorMessage
 				? translate("events.notificationErrorDetail", {
-						error: last.errorMessage.replace(/\s+/g, " ").slice(0, 120),
+						error: outcome.errorMessage.replace(/\s+/g, " ").slice(0, 120),
 					})
 				: translate("events.notificationError");
-		void maybeNotify("error", sessionName, message, runtime.command);
+		void maybeNotify("error", title, message, runtime.command);
 		return;
 	}
-	void maybeNotify("completion", sessionName, translate("events.notificationComplete"), runtime.command);
+	void maybeNotify("completion", title, translate("events.notificationComplete"), runtime.command);
+}
+
+/**
+ * Notify on a settled turn, reading the outcome from the event's own messages
+ * (the mutable stores can already have raced ahead — the TUI reads
+ * `agent_end.messages` for the same reason).
+ */
+function notifyOnAgentEnd(tabId: string, event: Extract<AgentSessionEvent, { type: "agent_end" }>): void {
+	// `isTerminal === false` marks a deferred mid-run settle, not the final one.
+	if (event.isTerminal === false) return;
+	const last = event.messages?.findLast(message => message.role === "assistant");
+	notifyRunEnd(tabId, { stopReason: last?.stopReason, errorMessage: last?.errorMessage });
 }
 
 /**
@@ -779,17 +775,16 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 				: window.omp.events.onExtensionError(handleExtensionError);
 
 		// Ask/extension-UI requests that block for input (ask tool, approvals,
-		// confirms, …) — notify when the window is unfocused.
+		// confirms, …) from any tab, background ones included — notify when the
+		// window is unfocused.
 		const unsubExtensionUi = window.omp.events.onExtensionUi((request, sourceTabId) => {
 			if (!BLOCKING_UI_METHODS[request.method]) return;
 			const tabId = sourceTabId ?? focusedTabId();
-			const tab = useTabsStore.getState().tabs.find(item => item.id === tabId);
-			const sessionName = tab?.title || "Oh My Pi";
 			const body =
 				"title" in request && typeof request.title === "string" && request.title
 					? request.title
-					: "Waiting for input";
-			void maybeNotify("ask", sessionName, body, sessionRuntime(tabId)?.command ?? activeTabCommand);
+					: translate("events.notificationAsk");
+			void maybeNotify("ask", notificationTitle(tabId), body, sessionRuntime(tabId)?.command ?? activeTabCommand);
 		});
 
 		return () => {

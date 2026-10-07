@@ -75,32 +75,6 @@ function clearForcedTool(session: Session): { tool: null } {
 	return { tool: null };
 }
 
-// ── Prewalk ──────────────────────────────────────────────────────────────────
-// Stock has no public disarm; the coordinator drops a pending hand-off when the
-// `prewalk.enabled` setting turns false (a coalesced, microtask-deferred
-// listener), so flip a runtime override across a macrotask boundary.
-const settleListeners = () => new Promise<void>(resolve => setTimeout(resolve, 0));
-
-async function disarmPrewalk(session: Session): Promise<void> {
-	requireFn(session, "getPrewalkState", "composer");
-	if (session.getPrewalkState() === undefined) return;
-	const { cfgPrewalkEnabled } = await import("@oh-my-pi/pi-coding-agent/session/settings");
-	requireFn(cfgPrewalkEnabled, "override", "composer", "session/settings.cfgPrewalkEnabled");
-	const settings = session.settings;
-	if (cfgPrewalkEnabled.get(settings)) {
-		// Clearing the override afterwards would re-arm, so it stays for this process.
-		cfgPrewalkEnabled.override(settings, false);
-		await settleListeners();
-	} else {
-		cfgPrewalkEnabled.override(settings, true);
-		await settleListeners();
-		cfgPrewalkEnabled.override(settings, false);
-		await settleListeners();
-		cfgPrewalkEnabled.clearOverride(settings);
-	}
-	if (session.getPrewalkState() !== undefined) throw new Error("Prewalk could not be disarmed");
-}
-
 // ── Share ────────────────────────────────────────────────────────────────────
 async function shareContext(session: Session) {
 	const share = await import("@oh-my-pi/pi-coding-agent/export/share");
@@ -205,7 +179,10 @@ export const methods: BridgeMethods = {
 	},
 
 	"composer.disarm_prewalk": async (_params, env) => {
-		await disarmPrewalk(env.session() as Session);
+		const session = env.session() as Session;
+		// Stock `/prewalk off`: drops only this session's pending hand-off, settings untouched.
+		requireFn(session, "disarmPrewalk", "composer");
+		session.disarmPrewalk();
 		return { enabled: false };
 	},
 

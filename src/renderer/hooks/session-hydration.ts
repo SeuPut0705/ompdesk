@@ -11,6 +11,7 @@ import type {
 } from "../../shared/rpc-types";
 import { type MessagesStore, mergeFetchedTranscript, useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
+import type { PendingPlanProposal, PlanApprovalStore } from "../stores/plan-approval";
 import { type QueueStore, useQueueStore } from "../stores/queue";
 import { type SessionStore, useSessionStore } from "../stores/session";
 import {
@@ -29,6 +30,27 @@ import { ensureTabRuntime } from "../stores/tab-runtime";
 import { isTabClosed, useTabsStore } from "../stores/tabs";
 import { useTodoStore } from "../stores/todo";
 import { type ToolsStore, useToolsStore } from "../stores/tools";
+
+/**
+ * Tabs with an auto-retry outstanding. `AgentSession` defers/coalesces the
+ * wire-level `agent_end` while a prompt is in flight, so a whole retry saga
+ * usually settles with ONE `agent_end` — but any that do arrive mid-saga are
+ * intermediate attempts, not the final outcome (mirrors the TUI's gate in
+ * event-controller.ts). Set by auto_retry_start, cleared by auto_retry_end and
+ * by any proof the tab is idle (TAB_STATUS, an idle get_state on hydrate),
+ * since a background tab never sees the end event.
+ */
+export const retryPendingTabs = new Set<string>();
+
+/**
+ * Clear the auto-retry gate. Gates are per-tab: with no explicit target, clear
+ * the FOCUSED tab's gate (the tab abortActiveTurn just acted on) — never every
+ * tab's, or an Escape in one pane would re-enable error toasts/notifications
+ * for a retry saga still running in the other pane.
+ */
+export function resetRetryPending(tabId?: string): void {
+	retryPendingTabs.delete(tabId ?? useTabsStore.getState().activeTabId ?? "");
+}
 
 /** Apply the usage half of a snapshot; caller must already be runtime-scoped. */
 function writeUsage(state: RpcSessionState): void {
@@ -228,6 +250,42 @@ export async function syncVibeMode(tabId: string, command: TabCommand, isCurrent
 	}
 }
 
+function isPlanProposal(value: unknown): value is PendingPlanProposal {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"planFilePath" in value &&
+		typeof value.planFilePath === "string" &&
+		"planContent" in value &&
+		typeof value.planContent === "string" &&
+		"options" in value &&
+		Array.isArray(value.options) &&
+		value.options.every(option => typeof option === "string")
+	);
+}
+
+/**
+ * Re-show the plan proposal the bridge holds awaiting approval
+ * (get_plan_mode → `proposal`). Its `plan_proposal` frame only reaches a tab
+ * whose event stream is forwarded, so a proposal made while the tab sat in the
+ * background would otherwise be lost while the agent waits on it. A proposal
+ * already on screen is left alone, keeping its feedback and submit state.
+ */
+export async function syncPlanProposal(tabId: string, command: TabCommand, isCurrent: HydrationGuard): Promise<void> {
+	try {
+		const res = await command({ type: "get_plan_mode" });
+		if (!isCurrent() || !res.success) return;
+		const proposal = (res.data as { proposal?: unknown } | undefined)?.proposal;
+		const plan = sessionRuntimeStore<PlanApprovalStore>(tabId, "planApproval");
+		if (!plan || !isPlanProposal(proposal)) return;
+		const shown = plan.getState().pending;
+		if (shown?.planFilePath === proposal.planFilePath && shown.planContent === proposal.planContent) return;
+		plan.getState().showProposal(proposal);
+	} catch {
+		// Transient — the next hydration retries.
+	}
+}
+
 const hydrationVersions = new WeakMap<SessionRuntime, number>();
 let legacyHydrationVersion = 0;
 
@@ -241,6 +299,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	const beforeMessages = useMessagesStore.getState().messages;
 	const beforeLiveMessages = useMessagesStore.getState().liveMessages;
 	const beforeEventVersion = useSessionStore.getState().eventVersion;
+	const beforeTools = useToolsStore.getState().activeTools;
 	const core = Promise.allSettled([
 		initialState ? Promise.resolve(initialState) : activeTabCommand({ type: "get_state" }),
 		createSessionRpcClient(activeTabCommand).getTranscript(),
@@ -292,10 +351,12 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 		if (eventsUnchanged && stateIsIdle && useMessagesStore.getState().liveMessages === beforeLiveMessages) {
 			useMessagesStore.getState().clearDeliveredLiveMessages();
 		}
-		if (eventsUnchanged)
-			useToolsStore
-				.getState()
-				.hydrateMessages(useMessagesStore.getState().messages, { turnIsLive: stateIsStreaming });
+		// Always rebuild, or cards whose end events were missed spin forever;
+		// entries live events wrote during the fetch survive it.
+		useToolsStore.getState().hydrateMessages(useMessagesStore.getState().messages, {
+			turnIsLive: eventsUnchanged ? stateIsStreaming : useSessionStore.getState().isStreaming,
+			keepChangedSince: beforeTools,
+		});
 	}
 	await subagents;
 	await secondary;
@@ -373,6 +434,7 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 	const beforeMessages = initialMessagesStore?.messages ?? [];
 	const beforeLiveMessages = initialMessagesStore?.liveMessages ?? [];
 	const beforeEventVersion = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion;
+	const beforeTools = sessionRuntimeStore<ToolsStore>(tabId, "tools")?.getState().activeTools;
 
 	const coreResult = Promise.allSettled([
 		runtime.command({ type: "get_state" }),
@@ -441,6 +503,8 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 			session.setState({ awaitingModelSince: Date.now() });
 		}
 		if (!wire.isStreaming) {
+			// An idle session has no retry outstanding, whatever end event was missed.
+			retryPendingTabs.delete(tabId);
 			// Zombie settle: the run finished while this tab sat in the
 			// background, so its message_end/agent_end never forwarded and the
 			// restored bundle still paints partial assistant content. Clear only
@@ -467,12 +531,25 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 		if (eventsUnchanged && stateIsIdle && messages?.getState().liveMessages === beforeLiveMessages) {
 			messages.getState().clearDeliveredLiveMessages();
 		}
-		if (eventsUnchanged)
-			tools?.getState().hydrateMessages(messages?.getState().messages ?? [], { turnIsLive: stateIsStreaming });
+		// Always rebuild: a tab that returns mid-run has live events flowing,
+		// but cards whose end events it missed in the background would spin
+		// forever. Entries live events wrote during the fetch survive it.
+		tools?.getState().hydrateMessages(messages?.getState().messages ?? [], {
+			turnIsLive: eventsUnchanged
+				? stateIsStreaming
+				: sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().isStreaming === true,
+			keepChangedSince: beforeTools,
+		});
 	}
 
 	// Subagents and secondary chips do not hold the transcript hostage. Their
 	// requests still begin in parallel, but the core session can paint first.
+	// A proposal can only be pending while plan mode is on.
+	const wireState =
+		stateResult.status === "fulfilled" && stateResult.value.success
+			? (stateResult.value.data as RpcSessionState | null)
+			: null;
+	if (wireState?.planModeEnabled) await syncPlanProposal(tabId, runtime.command, isCurrent);
 	await subagentsResult;
 	await secondaryResult;
 }

@@ -40,6 +40,18 @@ const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
 	get_transcript: 30_000,
 	get_messages: 30_000,
 	get_transcript_page: 30_000,
+	// Git/gh commands main runs itself: at least main's own answer budget
+	// (src/main/local/git/{worktree,pr}.ts), or the renderer reports a failure
+	// while the worktree, checkout, or PR still lands.
+	worktree_create: 660_000,
+	worktree_remove: 360_000,
+	pr_repo: 120_000,
+	pr_list: 180_000,
+	pr_get: 180_000,
+	pr_diff: 180_000,
+	pr_draft: 650_000,
+	pr_create: 230_000,
+	pr_checkout: 770_000,
 };
 
 export function timeoutForCommand(cmd: RpcCommand): number | undefined {
@@ -163,22 +175,20 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getGitStatus: () => rpcCommand({ type: "get_git_status" }),
 		getGitChanges: () => rpcCommand({ type: "get_git_changes" }),
 		getGitDiff: path => rpcCommand({ type: "get_git_diff", path }),
-		// Worktree mutations are background RPC commands — generous timeouts for
-		// large repos (git worktree add copies the index, remove walks the tree).
+		// Worktree and PR commands run in main; RPC_COMMAND_TIMEOUTS holds their budgets.
 		worktreeCreate: (name: string, options?: { baseCwd?: string; baseRef?: "HEAD" | "default" }) =>
-			rpcCommand({ type: "worktree_create", name, baseCwd: options?.baseCwd, baseRef: options?.baseRef }, 120_000),
-		worktreeRemove: (path: string, force?: boolean) => rpcCommand({ type: "worktree_remove", path, force }, 60_000),
-		// PR Center (plan/21): all network ops, background dispatched sidecar-side.
+			rpcCommand({ type: "worktree_create", name, baseCwd: options?.baseCwd, baseRef: options?.baseRef }),
+		worktreeRemove: (path: string, force?: boolean) => rpcCommand({ type: "worktree_remove", path, force }),
 		prRepo: () => rpcCommand({ type: "pr_repo" }),
 		prList: (state?: "open" | "closed" | "merged" | "all", limit?: number) =>
-			rpcCommand({ type: "pr_list", state, limit }, 60_000),
-		prGet: (number: number) => rpcCommand({ type: "pr_get", number }, 60_000),
-		prDiff: (number: number, path: string) => rpcCommand({ type: "pr_diff", number, path }, 60_000),
+			rpcCommand({ type: "pr_list", state, limit }),
+		prGet: (number: number) => rpcCommand({ type: "pr_get", number }),
+		prDiff: (number: number, path: string) => rpcCommand({ type: "pr_diff", number, path }),
 		prDraft: (options?: { base?: string; head?: string }) =>
-			rpcCommand({ type: "pr_draft", base: options?.base, head: options?.head }, 180_000),
+			rpcCommand({ type: "pr_draft", base: options?.base, head: options?.head }),
 		prCreate: (input: { title: string; body: string; base?: string; head?: string; draft?: boolean }) =>
-			rpcCommand({ type: "pr_create", ...input }, 120_000),
-		prCheckout: (number: number) => rpcCommand({ type: "pr_checkout", number }, 180_000),
+			rpcCommand({ type: "pr_create", ...input }),
+		prCheckout: (number: number) => rpcCommand({ type: "pr_checkout", number }),
 		liveStart: (options?: { voice?: string; instructions?: string }) =>
 			rpcCommand({ type: "live_start", ...options }, 60_000),
 		liveMute: (muted?: boolean) => rpcCommand({ type: "live_mute", muted }),

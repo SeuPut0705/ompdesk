@@ -1,5 +1,4 @@
-import { BLOCKING_UI_METHODS } from "../../shared/rpc-types";
-import { isInlineLoginRequest, useExtensionUiStore } from "../stores/extension-ui";
+import { awaitsUserInput, useExtensionUiStore } from "../stores/extension-ui";
 import { usePlanApprovalStore } from "../stores/plan-approval";
 
 /**
@@ -9,12 +8,6 @@ import { usePlanApprovalStore } from "../stores/plan-approval";
  */
 export function useAwaitingConfirmation(): boolean {
 	const planApprovalPending = usePlanApprovalStore(s => s.pending != null);
-	// A provider sign-in answered inline is the user's own action, not the
-	// session waiting on them.
-	const extensionInputPending = useExtensionUiStore(s =>
-		s.pendingRequests.some(
-			request => BLOCKING_UI_METHODS[request.method] === true && !(s.inlineLogin && isInlineLoginRequest(request)),
-		),
-	);
+	const extensionInputPending = useExtensionUiStore(awaitsUserInput);
 	return planApprovalPending || extensionInputPending;
 }

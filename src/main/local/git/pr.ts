@@ -16,10 +16,11 @@ import type {
 import type { OmpRuntime } from "../types";
 import { LocalCommandError } from "../types";
 import { primaryRoot, repoRoot } from "./changes";
-import { gh, git, gitRaw, resolveBin, withRepoLock } from "./exec";
+import { DEFAULT_TIMEOUT_MS, gh, git, gitRaw, resolveBin, withRepoLock } from "./exec";
 import { extractDraftJson, hashPath, parsePrUnifiedDiff, renderPrompt, rollupCounts, worktreesDir } from "./parse";
 import prDraftSystemPrompt from "./pr-draft-system.md?raw";
 import prDraftUserPrompt from "./pr-draft-user.md?raw";
+import { WORKTREE_ADD_TIMEOUT_MS } from "./worktree";
 
 interface GhPrListRow {
 	number?: number;
@@ -48,6 +49,26 @@ const PR_DETAIL_FIELDS =
 	"number,title,url,isDraft,author,body,baseRefName,headRefName,mergeStateStatus,additions,deletions,reviewDecision,files,statusCheckRollup";
 const WORKTREE_MAX_SUFFIX = 100;
 const DRAFT_TIMEOUT_MS = 170_000;
+const PR_CREATE_TIMEOUT_MS = 110_000;
+const PR_CHECKOUT_TIMEOUT_MS = 170_000;
+
+/**
+ * Longest each command runs before main answers, counting every git/gh step on
+ * its slowest path at that step's timeout (`requireGithubRepo` is two: repo
+ * root and `gh repo view`). The renderer's RPC timeouts (shared/rpc-client.ts)
+ * must not be shorter, or it reports a failure while the work still lands.
+ */
+export const PR_COMMAND_BUDGETS_MS = {
+	pr_repo: 2 * DEFAULT_TIMEOUT_MS,
+	pr_list: 3 * DEFAULT_TIMEOUT_MS,
+	pr_get: 3 * DEFAULT_TIMEOUT_MS,
+	pr_diff: 3 * DEFAULT_TIMEOUT_MS,
+	// + current branch, two revisions at up to two rev-parses each, then log/diff in parallel.
+	pr_draft: 8 * DEFAULT_TIMEOUT_MS + DRAFT_TIMEOUT_MS,
+	pr_create: 2 * DEFAULT_TIMEOUT_MS + PR_CREATE_TIMEOUT_MS,
+	// + primary root and `worktree list`, `worktree add`, `gh pr checkout`, and the rollback remove when that fails.
+	pr_checkout: 5 * DEFAULT_TIMEOUT_MS + WORKTREE_ADD_TIMEOUT_MS + PR_CHECKOUT_TIMEOUT_MS,
+} as const;
 
 interface GithubRepo {
 	ghBin: string;
@@ -234,7 +255,7 @@ export async function prCreate(
 		if (input.base) args.push("--base", input.base);
 		if (input.head) args.push("--head", input.head);
 		if (input.draft) args.push("--draft");
-		const output = await gh(root, ghBin, args, { timeoutMs: 110_000 });
+		const output = await gh(root, ghBin, args, { timeoutMs: PR_CREATE_TIMEOUT_MS });
 		const url = output.match(/https:\/\/\S+\/pull\/\d+/)?.[0];
 		const number = url ? Number(url.split("/").pop()) : Number.NaN;
 		if (!url || !Number.isFinite(number)) {
@@ -277,7 +298,7 @@ export async function prCheckout(cwd: string, input: { number: number }): Promis
 			const existing = worktrees.find(entry => entry.branch === `refs/heads/${branch}`);
 			if (existing) {
 				await gh(existing.path, ghBin, ["pr", "checkout", String(number), "--repo", repo, "--branch", branch], {
-					timeoutMs: 170_000,
+					timeoutMs: PR_CHECKOUT_TIMEOUT_MS,
 				});
 				return { path: existing.path, branch };
 			}
@@ -294,11 +315,11 @@ export async function prCheckout(cwd: string, input: { number: number }): Promis
 			}
 			if (!target) throw new Error(`could not find an unused worktree path under ${basePath}`);
 			await fs.mkdir(path.dirname(target), { recursive: true });
-			await git(primary, ["worktree", "add", "--detach", target, "HEAD"], { timeoutMs: 300_000 });
+			await git(primary, ["worktree", "add", "--detach", target, "HEAD"], { timeoutMs: WORKTREE_ADD_TIMEOUT_MS });
 			try {
 				// gh wires fork remotes + upstream tracking for cross-repository PRs.
 				await gh(target, ghBin, ["pr", "checkout", String(number), "--repo", repo, "--branch", branch], {
-					timeoutMs: 170_000,
+					timeoutMs: PR_CHECKOUT_TIMEOUT_MS,
 				});
 			} catch (error) {
 				await gitRaw(primary, ["worktree", "remove", "--force", target]).catch(() => undefined);

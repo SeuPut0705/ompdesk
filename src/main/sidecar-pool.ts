@@ -10,15 +10,17 @@
  *
  * Event routing: the full event channels (events batch, status, subagent,
  * live, commands, config, prompt result, command output, session info,
- * extension ui/error, host tool/uri) forward from at most two VISIBLE tabs.
+ * extension error, host tool/uri) forward from at most two VISIBLE tabs.
  * One of them is focused for untargeted commands. Every tab (visible or
  * background) additionally pushes the light TAB_STATUS channel, so background
- * tabs report status flips and session title/id changes.
+ * tabs report status flips, run outcomes, and session title/id changes, and
+ * forwards its extension UI requests (a background ask still needs an answer).
  *
  * F-OWN (double-attach guard): `#sessionOwners` maps a session file to the
  * tab/window attached to it, registered at acquire (spawn-with-sessionPath),
- * from the RPC passthrough (switch_session success / get_state — the only
- * main-observable carriers of the file path), and dropped on release or when
+ * from the RPC passthrough (switch_session success) and from every get_state
+ * the sidecar answers (its `session` event — the only main-observable
+ * carriers of the file path), and dropped on release or when
  * session_info_update reports a sessionId change (the cached file is stale;
  * the renderer's hydrate re-registers the current one).
  *
@@ -34,10 +36,12 @@ import {
 	type IpcSessionOwner,
 	type IpcSetTabViewPayload,
 	type IpcTabInfo,
+	type IpcTabRunOutcome,
 	type IpcTabStatusPayload,
 	type IpcTabWorktree,
 } from "../shared/ipc-types";
 import {
+	type AgentMessage,
 	type AgentSessionEvent,
 	type AvailableCommand,
 	BLOCKING_UI_METHODS,
@@ -61,7 +65,7 @@ import {
 } from "../shared/rpc-types";
 import { canonicalCwd } from "./canonical-cwd";
 import type { WindowTabFact } from "./quit-guard";
-import type { SidecarManager } from "./sidecar";
+import type { SidecarManager, SidecarSessionIdentity } from "./sidecar";
 import { nextSnowflake } from "./snowflake";
 import { type PersistedTabDescriptor, type PersistedTabLayout, TAB_LAYOUT_VERSION } from "./tab-layout";
 
@@ -95,7 +99,12 @@ interface PoolEntry {
 	awaitingSessionSettled: boolean;
 	/** Automatic transcript compaction state once observed — true blocks session mutation. */
 	compacting?: boolean;
-	/** Session meta cached from session_info_update (TAB_STATUS / GET_TABS). */
+	/**
+	 * Session id, cached from session_info_update and from every `get_state`
+	 * the sidecar answers (an in-tab switch_session emits no session_info_update
+	 * until much later, and a stale id here would make that later frame look like
+	 * a session change).
+	 */
 	sessionId?: string;
 	/**
 	 * Session meta cached from session_info_update — or, for a tab restored from
@@ -109,6 +118,14 @@ interface PoolEntry {
 	 * noteSessionFile; the reverse key of #sessionOwners.
 	 */
 	sessionFile?: string;
+	/** An auto-retry is outstanding (auto_retry_start seen, auto_retry_end not yet). */
+	retrying: boolean;
+	/** The saga's coalesced agent_end arrived while the retry was still outstanding. */
+	endedWhileRetrying: boolean;
+	/** How the last finished run ended; cleared when the next run starts. */
+	lastRun?: IpcTabRunOutcome;
+	/** The window "closed" listener registered at acquire, removed on release. */
+	onWindowClosed: () => void;
 	/**
 	 * Detaches the full-channel forwarders. Null while the tab is background
 	 * (nothing wired); set exactly once per active stint so switches move
@@ -219,6 +236,11 @@ export class SidecarPool {
 				status: sidecar.status,
 				running: false,
 				awaitingSessionSettled: false,
+				retrying: false,
+				endedWhileRetrying: false,
+				onWindowClosed: () => {
+					this.#releaseEntry(entry);
+				},
 				detachFull: null,
 			};
 			if (title) entry.title = title;
@@ -236,9 +258,7 @@ export class SidecarPool {
 				this.#syncFullWiring(entry.winId);
 			}
 
-			win.once("closed", () => {
-				this.#releaseEntry(entry);
-			});
+			win.once("closed", entry.onWindowClosed);
 
 			if (!deferStart) this.#ensureStarted(entry);
 			this.#notifyWindowTabsChanged(win);
@@ -277,6 +297,8 @@ export class SidecarPool {
 				entry.running = false;
 				entry.awaitingSessionSettled = false;
 				entry.compacting = undefined;
+				entry.retrying = false;
+				entry.endedWhileRetrying = false;
 			}
 			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 		});
@@ -295,6 +317,34 @@ export class SidecarPool {
 			// Session meta changes ride the light channel too, so a background
 			// tab's title/id updates without waiting for a status flip.
 			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		});
+		// Every get_state the sidecar answers (hydrate, health check, heartbeat)
+		// reports the live session. An in-tab switch_session emits no
+		// session_info_update until much later, so this is what keeps the cached
+		// id and file current — in ONE push, so the renderer sees one session
+		// change, not an id change followed by a path change.
+		sidecar.on("session", (identity: SidecarSessionIdentity) => {
+			const previousId = entry.sessionId;
+			const previousFile = entry.sessionFile;
+			if (identity.sessionId) entry.sessionId = identity.sessionId;
+			if (identity.sessionFile) this.#registerSessionFile(entry, identity.sessionFile);
+			else this.#unregisterSessionFile(entry);
+			if (entry.sessionId === previousId && entry.sessionFile === previousFile) return;
+			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			if (entry.sessionFile !== previousFile) this.#notifyWindowTabsChanged(win);
+		});
+		// Extension UI rides the light channel: a background agent's ask/confirm
+		// blocks until answered, so it must reach that tab's runtime (the renderer
+		// parks it there until the tab is shown), and widgets/status/notify set
+		// while hidden must be current when the tab comes back.
+		sidecar.on("extensionUi", (request: ExtensionUIRequest) => {
+			// Only response-bearing requests need an origin route. Fire-and-forget
+			// UI updates never reply, so retaining them here leaks the owning tab.
+			if (BLOCKING_UI_METHODS[request.method]) this.#requestOwners.set(request.id, entry);
+			// omp withdrew the request (timeout, abort): no response will follow.
+			else if (request.method === "cancel" && this.#requestOwners.get(request.targetId) === entry)
+				this.#requestOwners.delete(request.targetId);
+			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request });
 		});
 		const setRunning = (running: boolean): void => {
 			const wasBusy = entry.running || entry.compacting === true;
@@ -320,8 +370,24 @@ export class SidecarPool {
 				if (event.type === "agent_start") {
 					entry.running = true;
 					entry.placeholder = false;
+					entry.lastRun = undefined;
 				} else if (event.type === "agent_end") {
-					if (!entry.awaitingSessionSettled) entry.running = false;
+					// The retry saga's coalesced agent_end can arrive before its
+					// auto_retry_end; only that end event says whether the run is over.
+					if (entry.retrying) entry.endedWhileRetrying = true;
+					else {
+						if (event.isTerminal !== false) entry.lastRun = runOutcome(event.messages);
+						if (!entry.awaitingSessionSettled) entry.running = false;
+					}
+				} else if (event.type === "auto_retry_start") {
+					entry.retrying = true;
+				} else if (event.type === "auto_retry_end") {
+					entry.retrying = false;
+					if (!event.success && entry.endedWhileRetrying) {
+						entry.lastRun = { stopReason: "error", errorMessage: event.finalError };
+						if (!entry.awaitingSessionSettled) entry.running = false;
+					}
+					entry.endedWhileRetrying = false;
 				} else if (event.type === "auto_compaction_start") entry.compacting = true;
 				else if (event.type === "auto_compaction_end") entry.compacting = false;
 			}
@@ -360,12 +426,6 @@ export class SidecarPool {
 		});
 		wire("status", (payload: SidecarStatusPayload) => {
 			forwardActive(IPC_EVENTS.SIDECAR_STATUS, { ...payload, cwd: sidecar.cwd });
-		});
-		wire("extensionUi", (request: ExtensionUIRequest) => {
-			// Only response-bearing requests need an origin route. Fire-and-forget
-			// UI updates never reply, so retaining them here leaks the owning tab.
-			if (BLOCKING_UI_METHODS[request.method]) this.#requestOwners.set(request.id, entry);
-			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request });
 		});
 		wire("hostToolCall", (request: HostToolCallRequest) => {
 			// Answered-inline tools never reach the renderer, so only forwarded
@@ -438,6 +498,8 @@ export class SidecarPool {
 		for (const [id, owner] of this.#requestOwners) {
 			if (owner === entry) this.#requestOwners.delete(id);
 		}
+		// A destroyed window already dropped its one-shot "closed" listener.
+		if (!entry.win.isDestroyed()) entry.win.removeListener("closed", entry.onWindowClosed);
 		entry.sidecar.removeAllListeners();
 		entry.sidecar.dispose();
 		const visible = this.#visibleByWindow.get(entry.winId);
@@ -575,12 +637,15 @@ export class SidecarPool {
 	 * rename must go to the filesystem instead of a `drop_session` /
 	 * `set_session_name` with nobody to answer it — which `commandForSession`
 	 * would refuse as if the process were still starting. `starting` counts as live: that
-	 * spawn is about to read the file.
+	 * spawn is about to read the file. A child that is still running always
+	 * counts, whatever the status says: a failed health check reports `error`
+	 * over a live process that still holds the file.
 	 */
 	sessionOwnerIsLive(sessionPath: string): boolean {
 		const owner = this.#sessionOwners.get(sessionPath);
 		const entry = owner ? this.#byTabId.get(owner.tabId) : undefined;
 		if (!entry) return false;
+		if (entry.sidecar.processAlive) return true;
 		return entry.status !== "asleep" && entry.status !== "exited" && entry.status !== "error";
 	}
 
@@ -822,5 +887,15 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	if (entry.sessionId !== undefined) payload.sessionId = entry.sessionId;
 	if (entry.title !== undefined) payload.title = entry.title;
 	if (entry.worktree !== undefined) payload.worktree = entry.worktree;
+	if (entry.lastRun !== undefined) payload.lastRun = entry.lastRun;
 	return payload;
+}
+
+/** A finished run's outcome, read from agent_end's own messages (the last assistant reply). */
+function runOutcome(messages: AgentMessage[] | undefined): IpcTabRunOutcome {
+	const last = messages?.findLast(message => message.role === "assistant");
+	const stopReason = typeof last?.stopReason === "string" ? last.stopReason : "stop";
+	return typeof last?.errorMessage === "string" && last.errorMessage
+		? { stopReason, errorMessage: last.errorMessage }
+		: { stopReason };
 }

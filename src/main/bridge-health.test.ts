@@ -38,7 +38,7 @@ describe("BridgeHealth", () => {
 			ompVersion: "19.0.0",
 			unavailable: [
 				{ feature: "planMode", missing: ["AgentSession.setPlanModeState"] },
-				{ feature: "btw", missing: ["@oh-my-pi/pi-coding-agent/session/btw-history"] },
+				{ feature: "loopMode", missing: ["@oh-my-pi/pi-coding-agent/modes/loop-limit"] },
 			],
 		}));
 
@@ -48,7 +48,9 @@ describe("BridgeHealth", () => {
 		expect(broken.request).toHaveBeenCalledTimes(1);
 		expect(broken.request).toHaveBeenCalledWith("capabilities");
 		expect(notify).toHaveBeenCalledTimes(1);
-		expect(health.take()).toEqual([{ kind: "unsupported", ompVersion: "19.0.0", features: ["planMode", "btw"] }]);
+		expect(health.take()).toEqual([
+			{ kind: "unsupported", ompVersion: "19.0.0", features: ["planMode", "loopMode"] },
+		]);
 		expect(health.take()).toEqual([]);
 
 		// A different omp (after `omp update` + restart) is checked again.

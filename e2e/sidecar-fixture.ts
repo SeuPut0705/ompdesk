@@ -10,7 +10,7 @@ import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from 
 // address in `OMP_GUI_BRIDGE`) answering the bridge methods the e2e suites
 // reach. No provider credentials, external network, or user session files.
 if (process.argv.includes("--version")) {
-	console.log("omp/18.6.1");
+	console.log("omp/18.8.0");
 	process.exit(0);
 }
 if (process.argv[2] === "stats") {
@@ -213,6 +213,8 @@ if (process.argv[2] === "stats") {
 	const lanes: Record<"steering" | "followUp", string[]> = { steering: [], followUp: [] };
 	let isStreaming = false;
 	let planModeEnabled = false;
+	/** Stock `/btw` history, newest first. */
+	const btwRecords: object[] = [];
 	const sessionId = `fixture-${process.pid}`;
 	// Stock `get_state`: cwd, plan mode and the pause gate come from the bridge's `composer.state`.
 	const state = () => ({
@@ -306,9 +308,6 @@ if (process.argv[2] === "stats") {
 	type Params = Record<string, unknown>;
 	type Reply = (result: unknown) => void;
 	const bridgeClients = new Set<net.Socket>();
-	const emitBridge = (event: { type: string; [key: string]: unknown }) => {
-		for (const socket of bridgeClients) if (!socket.destroyed) socket.write(`${JSON.stringify({ event })}\n`);
-	};
 	const securityDashboard = (): RpcSecurityDashboardResult => {
 		if (securityMode === "unavailable") throw new Error("Isolated dashboard unavailable");
 		const dashboard: RpcSecurityDashboardResult = {
@@ -371,8 +370,8 @@ if (process.argv[2] === "stats") {
 	const SCHEMA_TABS = ["context", "model", "providers", "tasks", "files", "shell", "tools", "memory", "interaction"];
 	/** A handler returning `undefined` replies itself (deferred, or ahead of the events it pushes). */
 	const bridgeMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
-		ping: () => ({ version: "18.6.1" }),
-		capabilities: () => ({ ompVersion: "18.6.1", unavailable: [] }),
+		ping: () => ({ version: "18.8.0" }),
+		capabilities: () => ({ ompVersion: "18.8.0", unavailable: [] }),
 		"composer.state": () => ({
 			cwd: process.cwd(),
 			autoRetryEnabled: true,
@@ -484,24 +483,6 @@ if (process.argv[2] === "stats") {
 		},
 		"modes.get_loop_mode": () => ({ enabled: false, state: "off" }),
 		"modes.get_vibe_mode": () => ({ enabled: false }),
-		"modes.btw": (params, reply) => {
-			const now = Date.now();
-			const btw = {
-				id: "fixture-btw",
-				leafId: null,
-				question: params.question,
-				answer: "",
-				status: "running",
-				createdAt: now,
-				updatedAt: now,
-			};
-			emitBridge({ type: "btw_record", record: btw });
-			reply({ record: btw });
-			emitBridge({ type: "btw_delta", recordId: btw.id, delta: "Local side answer" });
-			emitBridge({ type: "btw_record", record: { ...btw, answer: "Local side answer", status: "complete" } });
-			return undefined;
-		},
-		"modes.btw_cancel": () => ({ cancelled: false }),
 		get_gui_themes: () => ({ themes: [] }),
 		get_themes: () => ({ themes: [] }),
 		get_plugins: () => ({ plugins: [] }),
@@ -793,6 +774,31 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				break;
 			case "get_login_providers":
 				ok({ providers: [] });
+				break;
+			case "btw": {
+				const now = Date.now();
+				const btw = {
+					id: `fixture-btw-${btwRecords.length + 1}`,
+					leafId: null,
+					question: text("question"),
+					answer: "",
+					status: "running",
+					createdAt: now,
+					updatedAt: now,
+				};
+				write({ type: "btw_record", record: btw });
+				ok({ record: btw });
+				const done = { ...btw, answer: "Local side answer", status: "complete", updatedAt: Date.now() };
+				btwRecords.unshift(done);
+				write({ type: "btw_delta", recordId: btw.id, delta: done.answer });
+				write({ type: "btw_record", record: done });
+				break;
+			}
+			case "btw_cancel":
+				ok({ cancelled: false });
+				break;
+			case "get_btw_history":
+				ok({ records: btwRecords });
 				break;
 			case "goal":
 				ok({ goal: null, state: null });

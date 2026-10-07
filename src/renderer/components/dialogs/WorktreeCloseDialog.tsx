@@ -66,11 +66,13 @@ export function WorktreeCloseDialog() {
 		if (!sidecarReady || busy) return;
 		setBusy(true);
 		try {
-			const response = await window.omp.rpc.commandForTab(
-				prompt.tabId,
-				{ type: "worktree_remove", path: tab.cwd, force },
-				60_000,
-			);
+			// The tab's own checkout, never `tab.cwd`: that follows session switches
+			// and could name a different directory by now.
+			const response = await window.omp.rpc.commandForTab(prompt.tabId, {
+				type: "worktree_remove",
+				path: worktree.path,
+				force,
+			});
 			if (!response.success) {
 				toast({ variant: "error", title: t("worktreeClose.removeFailed"), message: response.error });
 				return;
@@ -107,8 +109,8 @@ export function WorktreeCloseDialog() {
 					) : (
 						<p className="text-omp-lg leading-relaxed text-(--omp-muted)">{t("worktreeClose.cleanBody")}</p>
 					)}
-					<p className="truncate font-mono text-omp-sm text-(--omp-dim)" title={tab.cwd}>
-						{worktree.branch} — {tab.cwd}
+					<p className="truncate font-mono text-omp-sm text-(--omp-dim)" title={worktree.path}>
+						{worktree.branch} — {worktree.path}
 					</p>
 					<div className="flex flex-col gap-2">
 						{query.phase === "ready" && (

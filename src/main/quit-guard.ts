@@ -1,10 +1,11 @@
 /**
- * The "sessions are still working" inventory behind the ⌘Q confirmation.
+ * The "sessions are still working" inventory behind the ⌘Q confirmation, and
+ * the approval latch every quit passes.
  *
  * Deliberately electron-free: the main process can only be unit-tested through
  * pure modules like this one, so the risk assessment (what counts as in-flight
- * work, which windows to name in the message) lives here while `app-quit.ts`
- * keeps just the dialog and the event latch.
+ * work, which windows to name in the message) and the latch live here while
+ * `app-quit.ts` keeps just the dialog and the event wiring.
  */
 
 export interface WindowTabFact {
@@ -35,4 +36,41 @@ export function assessQuitRisk(facts: readonly WindowTabFact[]): QuitRisk {
 /** Idle tabs die quietly; live agent runs always ask first. */
 export function quitNeedsConfirmation(risk: QuitRisk): boolean {
 	return risk.workingTabs > 0;
+}
+
+/**
+ * The approval behind `before-quit`: refused until a confirmation (or a
+ * restart prompt) approves it, then the app's teardown runs exactly once.
+ */
+export class QuitLatch {
+	#approved = false;
+	#tornDown = false;
+
+	get approved(): boolean {
+		return this.#approved;
+	}
+
+	approve(): void {
+		this.#approved = true;
+	}
+
+	/** `before-quit`: false while unapproved (veto it and ask); otherwise tears down once and lets it through. */
+	proceed(teardown: () => void): boolean {
+		if (!this.#approved) return false;
+		if (!this.#tornDown) {
+			this.#tornDown = true;
+			teardown();
+		}
+		return true;
+	}
+
+	/**
+	 * `before-quit-for-update`: the updater confirmed before `quitAndInstall()`,
+	 * which closes every window before `before-quit` fires. Tearing down here
+	 * runs ⌘Q's teardown while the windows and their tabs are still alive.
+	 */
+	proceedForUpdate(teardown: () => void): void {
+		this.approve();
+		this.proceed(teardown);
+	}
 }

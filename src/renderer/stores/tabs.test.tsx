@@ -27,6 +27,7 @@ import type {
 	SubagentSnapshot,
 	TodoPhase,
 } from "../../shared/rpc-types";
+import { translate } from "../lib/i18n";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { useComposerStore } from "./composer";
 import { useExtensionUiStore } from "./extension-ui";
@@ -35,8 +36,8 @@ import { useMessagesStore } from "./messages";
 import { useModelStore } from "./model";
 import { usePlanApprovalStore } from "./plan-approval";
 import { useQueueStore } from "./queue";
-import { useSessionStore } from "./session";
-import { sessionRuntime, setFocusedSessionRuntime } from "./session-runtime-context";
+import { type SessionStore, useSessionStore } from "./session";
+import { sessionRuntime, sessionRuntimeStore, setFocusedSessionRuntime } from "./session-runtime-context";
 import { useSubagentsStore } from "./subagents";
 import { ensureTabRuntime } from "./tab-runtime";
 import {
@@ -831,6 +832,88 @@ describe("tabs store applyTabStatus", () => {
 		expect(useComposerStore.getState().draft).toBe("");
 		expect(useMessagesStore.getState().messages).toEqual([]);
 		expect(usePlanApprovalStore.getState().pending).toBeNull();
+	});
+});
+
+describe("tabs store background tab signals", () => {
+	const tabOf = (id: string) => useTabsStore.getState().tabs.find(tab => tab.id === id);
+
+	it("clears retry and compaction rows once main reports the run is over", () => {
+		seedTabs();
+		const session = sessionRuntimeStore<SessionStore>("t1", "session")!;
+		session.setState({
+			retryInfo: { attempt: 1, maxAttempts: 3, delayMs: 1000, errorMessage: "529", startedAt: 1 },
+			compactionInfo: { reason: "threshold", action: "compacting" },
+		});
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
+		expect(session.getState().retryInfo).not.toBeNull();
+		expect(session.getState().compactionInfo).toBeNull();
+
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
+		expect(session.getState().retryInfo).toBeNull();
+	});
+
+	it("notifies when a background run ends, telling a failure from a success", async () => {
+		seedTabs();
+		const notify = vi.fn();
+		const rpc = window.omp.rpc as unknown as Record<string, unknown>;
+		rpc.commandForTab = vi.fn(async () => ok({ values: { "error.notify": "on", "completion.notify": "on" } }));
+		(window.omp as unknown as Record<string, unknown>).system = { notify };
+		const doc = document as unknown as { hasFocus?: () => boolean };
+		const previousFocus = doc.hasFocus;
+		doc.hasFocus = () => false;
+		try {
+			const status = (payload: Partial<IpcTabStatusPayload>) =>
+				useTabsStore
+					.getState()
+					.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready", ...payload });
+			status({ status: "running", title: "Beta job" });
+			status({ lastRun: { stopReason: "error", errorMessage: "boom" } });
+			await vi.waitFor(() => expect(notify).toHaveBeenCalledTimes(1));
+			expect(notify).toHaveBeenCalledWith(
+				"Beta job",
+				translate("events.notificationErrorDetail", { error: "boom" }),
+			);
+
+			status({ status: "running" });
+			status({ lastRun: { stopReason: "stop" } });
+			await vi.waitFor(() => expect(notify).toHaveBeenCalledTimes(2));
+			expect(notify).toHaveBeenLastCalledWith("Beta job", translate("events.notificationComplete"));
+
+			// A run the user aborted stays quiet.
+			status({ status: "running" });
+			status({ lastRun: { stopReason: "aborted" } });
+			const tick = Promise.withResolvers<void>();
+			setTimeout(tick.resolve, 0);
+			await tick.promise;
+			expect(notify).toHaveBeenCalledTimes(2);
+		} finally {
+			doc.hasFocus = previousFocus;
+		}
+	});
+
+	it("flags a background tab blocked on the user until omp withdraws the request", () => {
+		seedTabs();
+		pushTabExtensionUiRequest("t1", {
+			type: "extension_ui_request",
+			id: "confirm-bg",
+			method: "confirm",
+			title: "Proceed?",
+			message: "ok?",
+		});
+		expect(tabOf("t1")?.awaitingInput).toBe(true);
+		expect(tabOf("t0")?.awaitingInput).not.toBe(true);
+		// Status pushes rebuild the entry; the flag survives them.
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
+		expect(tabOf("t1")?.awaitingInput).toBe(true);
+
+		pushTabExtensionUiRequest("t1", {
+			type: "extension_ui_request",
+			id: "cancel-bg",
+			method: "cancel",
+			targetId: "confirm-bg",
+		});
+		expect(tabOf("t1")?.awaitingInput).toBe(false);
 	});
 });
 

@@ -25,7 +25,7 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { parseComposerMode } from "../../lib/input-modes";
 import { formatShortcut } from "../../lib/keymap";
 import { abortActiveTurn } from "../../lib/messages";
-import { NEXT_PROMPT_WIDGET, parseNextPrompt } from "../../lib/next-prompt";
+import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
 import {
 	dropReferencedPastes,
 	expandPasteMarkers,
@@ -44,12 +44,13 @@ import {
 	recordAndTranscribe,
 	stopVoiceRecording,
 } from "../../lib/voice";
-import { useComposerStore } from "../../stores/composer";
+import { type ComposerStore, useComposerStore } from "../../stores/composer";
 import { useExtensionUiStore } from "../../stores/extension-ui";
 import { useFirstRunStore } from "../../stores/first-run";
 import { useInputHistoryStore } from "../../stores/input-history";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
+import { useNextPromptStore } from "../../stores/next-prompt";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useSettingsStore } from "../../stores/settings";
@@ -100,10 +101,20 @@ export function InputArea() {
 	const pasteMenuThreshold = useDisplayPreference("pasteMenuThreshold");
 	/** Agent `emojiAutocomplete` setting: emoji popup/inline/submit expansion. */
 	const emojiAutocomplete = useDisplayPreference("emojiAutocomplete");
-	/** `next-prompt` extension suggestion: gray placeholder, Tab on an empty composer accepts it. */
+	/** `next-prompt` extension suggestion: gray placeholder, Tab on an empty composer
+	 * accepts it. Remembered per session (stores/next-prompt.ts) so a deleted draft or a
+	 * session switch brings it back until a submit or a new run makes it stale. */
 	const nextPromptLines = useExtensionUiStore(s => s.widgetPanels[NEXT_PROMPT_WIDGET]);
-	const setExtensionWidget = useExtensionUiStore(s => s.setWidget);
-	const nextPrompt = status === "ready" && !isStreaming ? parseNextPrompt(nextPromptLines) : undefined;
+	const sessionFile = useSessionStore(s => s.sessionFile);
+	const nextPromptKey = sessionFile || sessionId || undefined;
+	const storedNextPrompt = useNextPromptStore(s => (nextPromptKey ? s.suggestions[nextPromptKey] : undefined));
+	const nextPrompt = status === "ready" && !isStreaming ? storedNextPrompt : undefined;
+	useEffect(() => {
+		if (nextPromptKey) useNextPromptStore.getState().recordWidget(nextPromptKey, nextPromptLines);
+	}, [nextPromptKey, nextPromptLines]);
+	useEffect(() => {
+		if (isStreaming) useNextPromptStore.getState().clear(nextPromptKey);
+	}, [isStreaming, nextPromptKey]);
 
 	// Draft lives in the composer store (not local state) so session-tab
 	// switches snapshot/restore it per tab. Value + updater-form setter are
@@ -465,7 +476,7 @@ export function InputArea() {
 		})();
 	}, [insertPasteBlob, pasteMenu, text, t, setText, runtimeTabId, rpc]);
 
-	const send = useComposerSubmit({
+	const dispatchSend = useComposerSubmit({
 		text,
 		images,
 		sending,
@@ -481,6 +492,18 @@ export function InputArea() {
 		setMenu,
 		setSending,
 	});
+	/** A submit that went out (the draft emptied) makes this session's suggestion stale. */
+	const send = useCallback(
+		(overrideText?: string, forceMode?: SendMode) => {
+			const composer = sessionRuntimeStore<ComposerStore>(runtimeTabId, "composer") ?? useComposerStore;
+			const hadContent = (overrideText ?? composer.getState().draft).trim() !== "" || images.length > 0;
+			dispatchSend(overrideText, forceMode);
+			const after = composer.getState();
+			if (hadContent && after.draft === "" && after.images.length === 0)
+				useNextPromptStore.getState().clear(nextPromptKey);
+		},
+		[dispatchSend, runtimeTabId, images.length, nextPromptKey],
+	);
 
 	// Mic dictation (stt.enabled): click starts capture, click again stops and
 	// transcribes; the transcript inserts at the textarea caret. The
@@ -590,7 +613,6 @@ export function InputArea() {
 			!isImeKeyEvent(e)
 		) {
 			e.preventDefault();
-			setExtensionWidget(NEXT_PROMPT_WIDGET, undefined);
 			setText(nextPrompt);
 			return;
 		}
@@ -968,9 +990,6 @@ export function InputArea() {
 										setText(`${value}\n`);
 										return;
 									}
-									// TUI parity: typing anything drops the suggestion.
-									if (nextPrompt !== undefined && value !== "")
-										setExtensionWidget(NEXT_PROMPT_WIDGET, undefined);
 									setText(value);
 									// Emoji inline replace (TUI parity): `:name:` fires on the closing
 									// colon, emoticons fire on a trailing space/tab/newline.

@@ -125,6 +125,10 @@ export const createSessionStore = () =>
 				cwd: state.cwd,
 				isStreaming: state.isStreaming,
 				isCompacting: state.isCompacting,
+				// The end events that clear these rows can be missed (the tab was
+				// in the background); an idle snapshot proves the window closed.
+				...(state.isStreaming ? {} : { retryInfo: null }),
+				...(state.isCompacting ? {} : { compactionInfo: null }),
 				contextUsage: state.contextUsage ?? null,
 				messageCount: state.messageCount,
 				queuedMessageCount: state.queuedMessageCount,

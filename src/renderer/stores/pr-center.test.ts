@@ -126,7 +126,7 @@ describe("pr-center store", () => {
 			cwd: "/wt/42-deadbeef",
 			sessionPath: undefined,
 			kind: "agent",
-			worktree: { name: "pr-42", branch: "pr-42", baseCwd: "acme/widgets" },
+			worktree: { name: "pr-42", branch: "pr-42", baseCwd: "acme/widgets", path: "/wt/42-deadbeef" },
 		});
 	});
 

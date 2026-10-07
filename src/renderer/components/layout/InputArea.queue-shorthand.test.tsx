@@ -8,6 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { AgentMessage, RpcResponse } from "../../../shared/rpc-types";
+import { resetSessionSurface } from "../../hooks/use-session-switch";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { pasteMarkerText, storePaste } from "../../lib/paste-blobs";
 import { useComposerStore } from "../../stores/composer";
@@ -15,6 +16,7 @@ import { useExtensionUiStore } from "../../stores/extension-ui";
 import { useInputHistoryStore } from "../../stores/input-history";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
+import { useNextPromptStore } from "../../stores/next-prompt";
 import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
 import {
@@ -25,7 +27,7 @@ import {
 } from "../../stores/session-runtime-context";
 import { useSettingsStore } from "../../stores/settings";
 import { createTabRuntime, replaceTabRuntime } from "../../stores/tab-runtime";
-import { useTabsStore } from "../../stores/tabs";
+import { pushTabExtensionUiRequest, useTabsStore } from "../../stores/tabs";
 import { InputArea } from "./InputArea";
 
 const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -580,54 +582,185 @@ function isExpanded(): boolean {
 
 describe("InputArea next-prompt suggestion", () => {
 	// The `next-prompt` extension can't see Tab over RPC, so the composer owns
-	// its widget: gray placeholder, Tab on an empty composer takes it.
-	const showSuggestion = () =>
-		act(async () =>
-			useExtensionUiStore.getState().setWidget("next-prompt", ["\x1b[2m↹ Tab  ompdesk로 가자\x1b[22m"]),
-		);
+	// its widget: gray placeholder, Tab on an empty composer takes it. The GUI
+	// remembers it per session until a submit or a new run makes it stale.
+	const SUGGESTION = "ompdesk로 가자";
+	const showSuggestion = (text = SUGGESTION) =>
+		act(async () => useExtensionUiStore.getState().setWidget("next-prompt", [`\x1b[2m↹ Tab  ${text}\x1b[22m`]));
+	/** The extension clears its widget on input, agent_start and session_start. */
+	const extensionClears = () => act(async () => useExtensionUiStore.getState().setWidget("next-prompt", undefined));
+	const placeholder = () => findTextarea().getAttribute("placeholder");
+	const hintText = () =>
+		document.getElementById(findTextarea().getAttribute("aria-describedby") ?? "")?.textContent ?? null;
+	const idle = () => act(async () => useSessionStore.setState({ isStreaming: false }));
 
-	afterEach(() => useExtensionUiStore.getState().clearAll());
+	afterEach(async () => {
+		await act(async () => {
+			useExtensionUiStore.getState().clearAll();
+			useNextPromptStore.getState().reset();
+		});
+	});
 
 	it("shows the suggestion as the placeholder and Tab fills it in", async () => {
 		await mount();
-		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		await idle();
 		await showSuggestion();
-		expect(findTextarea().getAttribute("placeholder")).toBe("ompdesk로 가자");
+		expect(placeholder()).toBe(SUGGESTION);
 		// Tab / → chips announce the accept keys; the field is described by them.
-		const hintId = findTextarea().getAttribute("aria-describedby");
-		expect(hintId).toBeTruthy();
-		expect(document.getElementById(hintId ?? "")?.textContent).toBe("Tab→to accept");
+		expect(hintText()).toBe("Tab→to accept");
 
 		expect((await pressKey({ key: "Tab" })).defaultPrevented).toBe(true);
-		expect(useComposerStore.getState().draft).toBe("ompdesk로 가자");
-		expect(useExtensionUiStore.getState().widgetPanels["next-prompt"]).toBeUndefined();
+		expect(useComposerStore.getState().draft).toBe(SUGGESTION);
 		expect(findTextarea().getAttribute("aria-describedby")).toBeNull();
 	});
 
 	it("→ on an empty composer fills the suggestion in too", async () => {
 		await mount();
-		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		await idle();
 		await showSuggestion();
 
 		expect((await pressKey({ key: "ArrowRight" })).defaultPrevented).toBe(true);
-		expect(useComposerStore.getState().draft).toBe("ompdesk로 가자");
+		expect(useComposerStore.getState().draft).toBe(SUGGESTION);
 	});
 
-	it("leaves Tab alone once the user has typed", async () => {
+	it("brings the suggestion back when the accepted text is deleted", async () => {
 		await mount();
-		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		await idle();
+		await showSuggestion();
+		await pressKey({ key: "Tab" });
+		await extensionClears();
+
+		await typeInto(findTextarea(), "");
+		expect(placeholder()).toBe(SUGGESTION);
+		expect(hintText()).toBe("Tab→to accept");
+		expect((await pressKey({ key: "Tab" })).defaultPrevented).toBe(true);
+		expect(useComposerStore.getState().draft).toBe(SUGGESTION);
+	});
+
+	it("leaves Tab alone while the user has typed, and returns once the draft is empty", async () => {
+		await mount();
+		await idle();
 		await showSuggestion();
 		await typeInto(findTextarea(), "직접 입력");
+		await extensionClears();
 
 		expect((await pressKey({ key: "Tab" })).defaultPrevented).toBe(false);
 		expect(useComposerStore.getState().draft).toBe("직접 입력");
-		expect(useExtensionUiStore.getState().widgetPanels["next-prompt"]).toBeUndefined();
+
+		await typeInto(findTextarea(), "");
+		expect(placeholder()).toBe(SUGGESTION);
+		expect(hintText()).toBe("Tab→to accept");
+	});
+
+	it("restores a session's suggestion after switching away and back", async () => {
+		await mount();
+		await act(async () => useSessionStore.setState({ isStreaming: false, sessionFile: "/sessions/a.jsonl" }));
+		await showSuggestion();
+
+		await act(async () => {
+			resetSessionSurface();
+			useSessionStore.setState({ status: "ready", sessionId: "s2", sessionFile: "/sessions/b.jsonl" });
+		});
+		expect(placeholder()).not.toBe(SUGGESTION);
+
+		await act(async () => {
+			resetSessionSurface();
+			useSessionStore.setState({ status: "ready", sessionId: "s1", sessionFile: "/sessions/a.jsonl" });
+		});
+		await extensionClears();
+		expect(placeholder()).toBe(SUGGESTION);
+		expect(hintText()).toBe("Tab→to accept");
+	});
+
+	it("shows a suggestion a background tab published while hidden once that tab is shown", async () => {
+		await mount(true);
+		const background = createTabRuntime("t1");
+		withSessionRuntime("t1", () =>
+			useSessionStore.setState({
+				status: "ready",
+				sessionId: "bg",
+				sessionFile: "/sessions/bg.jsonl",
+				cwd: "/other",
+			}),
+		);
+		// Main forwards every tab's extension UI; the frame parks in t1's runtime.
+		await act(async () =>
+			pushTabExtensionUiRequest("t1", {
+				type: "extension_ui_request",
+				id: "widget-bg",
+				method: "setWidget",
+				widgetKey: "next-prompt",
+				widgetLines: [`\x1b[2m↹ Tab  ${SUGGESTION}\x1b[22m`],
+			}),
+		);
+		expect(placeholder()).not.toBe(SUGGESTION);
+
+		// Switching to t1 renders its composer from its own runtime.
+		await act(async () => {
+			root.render(
+				<I18nProvider>
+					<SessionRuntimeProvider runtime={background}>
+						<InputArea />
+					</SessionRuntimeProvider>
+				</I18nProvider>,
+			);
+		});
+		await flush();
+		expect(placeholder()).toBe(SUGGESTION);
+	});
+
+	it("drops the suggestion once the user submits in that session", async () => {
+		await mount();
+		await idle();
+		await showSuggestion();
+		await pressKey({ key: "Tab" });
+		await pressEnter(findTextarea());
+		await flush();
+		expect(prompt).toHaveBeenCalledWith(SUGGESTION, []);
+		await act(async () => useComposerStore.getState().setSending(false));
+
+		expect(useComposerStore.getState().draft).toBe("");
+		expect(placeholder()).not.toBe(SUGGESTION);
+		expect(findTextarea().getAttribute("aria-describedby")).toBeNull();
+	});
+
+	it("drops the suggestion when a new run starts in that session", async () => {
+		await mount();
+		await idle();
+		await showSuggestion();
+		await act(async () => useSessionStore.setState({ isStreaming: true }));
+		await idle();
+		expect(placeholder()).not.toBe(SUGGESTION);
+	});
+
+	it("drops the suggestion when a run starts in that session's background tab", async () => {
+		await mount();
+		await act(async () => useSessionStore.setState({ isStreaming: false, sessionFile: "/sessions/a.jsonl" }));
+		await showSuggestion();
+		await act(async () =>
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab =>
+					tab.id === "t0" ? { ...tab, status: "running", sessionPath: "/sessions/a.jsonl" } : tab,
+				),
+			})),
+		);
+		expect(placeholder()).not.toBe(SUGGESTION);
+	});
+
+	it("replaces the suggestion when a new one arrives", async () => {
+		await mount();
+		await idle();
+		await showSuggestion();
+		await showSuggestion("테스트 돌려줘");
+		expect(placeholder()).toBe("테스트 돌려줘");
+		await pressKey({ key: "Tab" });
+		expect(useComposerStore.getState().draft).toBe("테스트 돌려줘");
 	});
 
 	it("hides the suggestion while a turn streams", async () => {
 		await mount();
 		await showSuggestion();
-		expect(findTextarea().getAttribute("placeholder")).not.toBe("ompdesk로 가자");
+		expect(placeholder()).not.toBe(SUGGESTION);
 	});
 
 	it("puts Stop in the send slot while a turn streams with nothing typed", async () => {

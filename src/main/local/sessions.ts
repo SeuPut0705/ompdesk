@@ -10,15 +10,10 @@
 import { resolve } from "node:path";
 import { z } from "zod";
 import type { AgentMessage, MessagesPage, RpcSessionTreeResult, RpcSwitchLeafResult } from "../../shared/rpc-types";
-import { compareVersions } from "../omp-runtime";
 import { handlers as extraHandlers } from "./session-extras";
 import { deleteSessionFiles, renameStoredSession } from "./session-files";
 import { projectSessionTree } from "./session-tree";
 import { type BridgeClient, type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
-
-/** First omp whose `switch_session` binds an explicit `provider`/`modelId`; it
- *  also fails closed on a session whose saved model cannot be restored. */
-const SWITCH_SESSION_MODEL_VERSION = "18.6.3";
 
 /** One persisted session-tree entry as `get_entries` returns it. */
 export interface SessionEntry {
@@ -332,19 +327,14 @@ export const handlers: Record<string, LocalHandler> = {
 
 	/**
 	 * Stock `switch_session` with the explicit model a model-restore recovery asked
-	 * for. omp ≥ 18.6.3 binds it in the switch, which otherwise refuses a session
-	 * whose saved model cannot be restored; older omp ignores the pair and falls
-	 * back silently, so the model is set afterwards there.
+	 * for; stock binds it in the switch, which otherwise refuses a session whose
+	 * saved model cannot be restored.
 	 */
 	switch_session: async (command, ctx) => {
 		const sessionPath = requiredString(command, "sessionPath", "Session path");
 		const { provider, modelId } = command;
 		const model = typeof provider === "string" && typeof modelId === "string" ? { provider, modelId } : undefined;
-		const result = await ctx.send<{ cancelled: boolean }>({ type: "switch_session", sessionPath, ...model });
-		if (!result.cancelled && model && compareVersions(ctx.omp.version, SWITCH_SESSION_MODEL_VERSION) < 0) {
-			await ctx.send({ type: "set_model", ...model });
-		}
-		return result;
+		return ctx.send<{ cancelled: boolean }>({ type: "switch_session", sessionPath, ...model });
 	},
 
 	/** The live session renames through stock; any other stored session through a short-lived omp. */

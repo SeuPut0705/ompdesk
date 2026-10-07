@@ -89,12 +89,18 @@ function parseKind(value: unknown): SessionKind | null {
 	return value === "agent" || value === "chat" ? value : null;
 }
 
+/**
+ * Bindings saved before `path` existed are dropped: the tab's saved cwd follows
+ * session switches, so it cannot stand in for the checkout the close prompt
+ * would remove with `--force`. The worktree itself stays on disk.
+ */
 function parseWorktree(value: unknown): IpcTabWorktree | undefined {
 	if (!isRecord(value)) return undefined;
 	const name = nonEmptyString(value.name);
 	const branch = nonEmptyString(value.branch);
 	const baseCwd = nonEmptyString(value.baseCwd);
-	return name && branch && baseCwd ? { name, branch, baseCwd } : undefined;
+	const path = nonEmptyString(value.path);
+	return name && branch && baseCwd && path ? { name, branch, baseCwd, path } : undefined;
 }
 
 /**

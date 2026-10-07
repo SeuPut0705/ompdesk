@@ -5,8 +5,8 @@
  * quit for every idle window).
  */
 
-import { describe, expect, it } from "vitest";
-import { assessQuitRisk, quitNeedsConfirmation, type WindowTabFact } from "./quit-guard";
+import { describe, expect, it, vi } from "vitest";
+import { assessQuitRisk, QuitLatch, quitNeedsConfirmation, type WindowTabFact } from "./quit-guard";
 
 function fact(windowId: number, tabId: string, inFlight: boolean): WindowTabFact {
 	return { windowId, tabId, inFlight };
@@ -27,5 +27,39 @@ describe("quit guard risk assessment", () => {
 		expect(quitNeedsConfirmation(assessQuitRisk([]))).toBe(false);
 		expect(quitNeedsConfirmation(assessQuitRisk([fact(1, "a", false)]))).toBe(false);
 		expect(quitNeedsConfirmation(assessQuitRisk([fact(1, "a", true)]))).toBe(true);
+	});
+});
+
+describe("quit latch", () => {
+	it("refuses an unapproved quit without tearing anything down", () => {
+		const teardown = vi.fn();
+		const latch = new QuitLatch();
+
+		expect(latch.proceed(teardown)).toBe(false);
+		expect(latch.approved).toBe(false);
+		expect(teardown).not.toHaveBeenCalled();
+	});
+
+	it("tears down once per approved quit", () => {
+		const teardown = vi.fn();
+		const latch = new QuitLatch();
+		latch.approve();
+
+		expect(latch.proceed(teardown)).toBe(true);
+		expect(latch.proceed(teardown)).toBe(true);
+		expect(teardown).toHaveBeenCalledTimes(1);
+	});
+
+	it("runs the ⌘Q teardown when an update quits, before its windows close", () => {
+		const teardown = vi.fn();
+		const latch = new QuitLatch();
+
+		// quitAndInstall() emits before-quit-for-update, then closes every window,
+		// then emits before-quit: the teardown must already have run, and the
+		// later before-quit must neither ask again nor tear down twice.
+		latch.proceedForUpdate(teardown);
+		expect(teardown).toHaveBeenCalledTimes(1);
+		expect(latch.proceed(teardown)).toBe(true);
+		expect(teardown).toHaveBeenCalledTimes(1);
 	});
 });

@@ -83,7 +83,7 @@ export function WorktreeDialog() {
 			}
 			const tabId = await useTabsStore.getState().openTab({
 				cwd: result.path,
-				worktree: { name: slug, branch: result.branch, baseCwd: result.baseCwd },
+				worktree: { name: slug, branch: result.branch, baseCwd: result.baseCwd, path: result.path },
 			});
 			if (tabId) close();
 			else setError(t("worktree.openFailed", { path: result.path }));

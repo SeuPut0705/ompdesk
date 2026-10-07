@@ -18,6 +18,7 @@ import type {
 	AgentSessionEvent,
 	CommandOutputFrame,
 	ExtensionErrorFrame,
+	ExtensionUIRequest,
 	ModelCatalogUpdateFrame,
 	PromptResultFrame,
 	RpcCommand,
@@ -27,9 +28,10 @@ import type {
 } from "../../shared/rpc-types";
 import { TurnStatusRow } from "../components/chat/ChatStream";
 import { formatClock } from "../lib/format";
-import { I18nProvider } from "../lib/i18n";
+import { I18nProvider, translate } from "../lib/i18n";
 import { type MessagesStore, useMessagesStore } from "../stores/messages";
 import { type ModelStore, useModelStore } from "../stores/model";
+import type { PlanApprovalStore } from "../stores/plan-approval";
 import { type SessionStore, useSessionStore } from "../stores/session";
 import { sessionRuntime, sessionRuntimeStore, setFocusedSessionRuntime } from "../stores/session-runtime-context";
 import { useSettingsStore } from "../stores/settings";
@@ -38,7 +40,7 @@ import { ensureTabRuntime } from "../stores/tab-runtime";
 import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { selectTodoCardVisible, useTodoStore } from "../stores/todo";
-import { useToolsStore } from "../stores/tools";
+import { type ToolsStore, useToolsStore } from "../stores/tools";
 import { attachTabSession, hydrateSession, hydrateTabSession, useRpcEvents } from "./use-rpc-events";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -1589,5 +1591,169 @@ describe("useRpcEvents tab-scoped routing guards", () => {
 		// Without the tombstone gate this frame falls through to the focused
 		// runtime and resets its stores wholesale.
 		expect(sessionRuntimeStore<MessagesStore>("t-live", "messages")?.getState().messages).toContain(kept);
+	});
+});
+
+describe("useRpcEvents background tabs", () => {
+	function seedTabs(): void {
+		useTabsStore.setState({
+			tabs: [
+				{ kind: "agent", id: "t-front", cwd: "/alpha", status: "ready", unreadDone: false, title: "Front task" },
+				{ kind: "agent", id: "t-back", cwd: "/beta", status: "running", unreadDone: false, title: "Back task" },
+			],
+			activeTabId: "t-front",
+		});
+		ensureTabRuntime("t-front");
+		ensureTabRuntime("t-back");
+		setFocusedSessionRuntime("t-front");
+		sessionRuntimeStore<SessionStore>("t-front", "session")?.setState({ sessionName: "Front task" });
+	}
+
+	/** Desktop notifications only fire while the window is unfocused. */
+	function blurWindow(): () => void {
+		const doc = document as unknown as { hasFocus?: () => boolean };
+		const previous = doc.hasFocus;
+		doc.hasFocus = () => false;
+		return () => {
+			doc.hasFocus = previous;
+		};
+	}
+
+	it("titles a run-end notification after the tab that finished, not the focused one", async () => {
+		const { emitTabBatch, notify } = installTabRoutedMockOmp();
+		seedTabs();
+		const restoreFocus = blurWindow();
+		try {
+			await mount(<RpcEventsProbe />);
+			const finish = () =>
+				act(async () => {
+					emitTabBatch(
+						[
+							{
+								type: "agent_end",
+								isTerminal: true,
+								messages: [{ role: "assistant", content: [], stopReason: "stop" }],
+							},
+						],
+						"t-back",
+					);
+				});
+			await finish();
+			await flush();
+			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationComplete"));
+
+			// No title of its own: the app name, never the focused tab's session.
+			notify.mockClear();
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab => (tab.id === "t-back" ? { ...tab, title: undefined } : tab)),
+			}));
+			await finish();
+			await flush();
+			expect(notify).toHaveBeenCalledWith("OMPdesk", translate("events.notificationComplete"));
+		} finally {
+			restoreFocus();
+		}
+	});
+
+	it("names the tab and localizes the body of an ask notification", async () => {
+		installTabRoutedMockOmp();
+		let onExtensionUi: (request: ExtensionUIRequest, tabId: string) => void = () => {};
+		(window.omp.events as unknown as Record<string, unknown>).onExtensionUi = vi.fn(
+			(callback: typeof onExtensionUi) => {
+				onExtensionUi = callback;
+				return () => {};
+			},
+		);
+		const { notify } = window.omp.system as unknown as { notify: Mock<(title: string, body: string) => void> };
+		seedTabs();
+		const restoreFocus = blurWindow();
+		try {
+			await mount(<RpcEventsProbe />);
+			await act(async () => {
+				onExtensionUi({ type: "extension_ui_request", id: "ask-1", method: "ask", questions: [] }, "t-back");
+			});
+			await flush();
+			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationAsk"));
+		} finally {
+			restoreFocus();
+		}
+	});
+
+	it("settles tool cards whose end events were missed even while live events flow during the fetch", async () => {
+		const { emitTabBatch, commandForTab } = installTabRoutedMockOmp();
+		seedTabs();
+		await mount(<RpcEventsProbe />);
+		const tools = sessionRuntimeStore<ToolsStore>("t-back", "tools")!;
+		// Seen running before the tab went to the background; its end never arrived.
+		tools.getState().applyEvents([{ type: "tool_execution_start", toolCallId: "stale", toolName: "read", args: {} }]);
+
+		const transcript = Promise.withResolvers<RpcResponse>();
+		const original = commandForTab.getMockImplementation()!;
+		commandForTab.mockImplementation((tabId, command) =>
+			command.type === "get_transcript" ? transcript.promise : original(tabId, command),
+		);
+		const hydrated = hydrateTabSession("t-back");
+		// The run is live, so events keep landing while the transcript is fetched.
+		await act(async () => {
+			emitTabBatch([{ type: "tool_execution_start", toolCallId: "fresh", toolName: "read", args: {} }], "t-back");
+		});
+		const staleCall: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "toolCall", id: "stale", name: "read", arguments: {} }],
+			timestamp: 1,
+		};
+		const staleResult: AgentMessage = {
+			role: "toolResult",
+			toolCallId: "stale",
+			toolName: "read",
+			content: [{ type: "text", text: "ok" }],
+			isError: false,
+			timestamp: 2,
+		};
+		transcript.resolve(success({ messages: [staleCall, staleResult] }));
+		await act(async () => {
+			await hydrated;
+		});
+
+		expect(tools.getState().activeTools.get("stale")?.status).toBe("done");
+		expect(tools.getState().activeTools.get("fresh")?.status).toBe("running");
+	});
+
+	it("drops a stale retry row when the hydrated session is idle", async () => {
+		installTabRoutedMockOmp();
+		seedTabs();
+		await mount(<RpcEventsProbe />);
+		const session = sessionRuntimeStore<SessionStore>("t-back", "session")!;
+		session.setState({
+			retryInfo: { attempt: 1, maxAttempts: 3, delayMs: 1000, errorMessage: "529", startedAt: 1 },
+			compactionInfo: { reason: "threshold", action: "compacting" },
+		});
+		await act(async () => {
+			await hydrateTabSession("t-back");
+		});
+		expect(session.getState()).toMatchObject({ retryInfo: null, compactionInfo: null });
+	});
+
+	it("re-shows a plan proposal made while the tab was in the background", async () => {
+		const { commandForTab } = installTabRoutedMockOmp();
+		const proposal = {
+			planFilePath: "local://PLAN.md",
+			title: "Refactor",
+			suggestedFileName: "REFACTOR.md",
+			planContent: "# Plan",
+			options: ["execute", "refine"],
+		};
+		const original = commandForTab.getMockImplementation()!;
+		commandForTab.mockImplementation(async (tabId, command) => {
+			if (command.type === "get_state") return settledState({ planModeEnabled: true });
+			if (command.type === "get_plan_mode") return success({ enabled: true, proposal });
+			return original(tabId, command);
+		});
+		seedTabs();
+		await mount(<RpcEventsProbe />);
+		await act(async () => {
+			await hydrateTabSession("t-back");
+		});
+		expect(sessionRuntimeStore<PlanApprovalStore>("t-back", "planApproval")?.getState().pending).toEqual(proposal);
 	});
 });

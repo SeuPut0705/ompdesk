@@ -2,10 +2,11 @@
  * Session modes answered GUI-side. Goal create/pause/resume/drop/get translate
  * to stock's `goal` command; everything else stock RPC lacks (plan mode and
  * approval, vibe, guided goal, goal objective/budget edits, loop mode, the model
- * pool, `/btw`, `/tan`, `/omfg`, the agent pause gate) runs in the gui-bridge, next
- * to the live session (`resources/gui-bridge/modes/*`), which also pushes the
- * `plan_proposal`, `loop_mode_update`, `model_pool_update`, `btw_delta` and
- * `btw_record` frames.
+ * pool, `/tan`, `/omfg`, the agent pause gate) runs in the gui-bridge, next to
+ * the live session (`resources/gui-bridge/modes/*`), which also pushes the
+ * `plan_proposal`, `loop_mode_update` and `model_pool_update` frames. `/btw`
+ * (`btw`, `btw_cancel`, `get_btw_history` and the `btw_delta` / `btw_record`
+ * frames) is stock RPC and has no handler here.
  */
 import type { RpcGoalState } from "../../shared/rpc-types";
 import type { LocalCommandContext, LocalHandler } from "./types";
@@ -98,9 +99,6 @@ export const handlers: Record<string, LocalHandler> = {
 	get_model_pool: viaBridge,
 	set_model_pool: viaBridge,
 	set_agents_paused: viaBridge,
-	btw: viaBridge,
-	btw_cancel: viaBridge,
-	get_btw_history: viaBridge,
 	tan: viaBridge,
 	omfg: viaBridge,
 };

@@ -58,7 +58,7 @@ const promptCache = new Map<string, string>();
 
 /**
  * Where omp keeps a prompt template, by its path under `src/prompts` (e.g.
- * `system/btw-user.md`). omp bundles its prompts into `dist/cli.js`, where the
+ * `system/omfg-user.md`). omp bundles its prompts into `dist/cli.js`, where the
  * extension shim cannot reach them, but the published package also ships
  * `src/`, next to the `dist/` the CLI runs from.
  */

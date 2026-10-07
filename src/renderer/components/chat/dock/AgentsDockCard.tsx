@@ -75,9 +75,9 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 			title={`${summary} — ${t("dock.agents.show")}`}
 			type="button"
 		>
+			{/* Icon + count only; the label lives in aria-label/title. */}
 			<Bot aria-hidden="true" className="shrink-0 text-(--sc-text-muted)" size={16} />
-			<span className="text-sc-md font-medium whitespace-nowrap text-(--sc-text)">{t("dock.agents")}</span>
-			<span className="text-sc-sm font-medium tabular-nums text-(--sc-text-muted)">{peek.running}</span>
+			<span className="text-sc-md font-medium tabular-nums text-(--sc-text)">{peek.running}</span>
 			<Spinner className="inline-flex shrink-0" size="sm" />
 		</button>
 	);

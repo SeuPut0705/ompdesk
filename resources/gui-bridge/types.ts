@@ -6,7 +6,7 @@
  * a single bundled `dist/cli.js`; omp transpiles extension files itself, so
  * these stay plain TypeScript and are never built by the GUI.
  *
- * Import style (verified against omp 18.6.1):
+ * Import style (verified against omp 18.8.0):
  * - Live singletons: reach them through `env.pi.pi`, the package index omp hands
  *   every extension (`AgentRegistry`, `MAIN_AGENT_ID`, `settings`, `VERSION`, …).
  *   It is the running process's own module graph.

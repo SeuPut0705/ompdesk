@@ -25,12 +25,35 @@ describe("persisted tab layout", () => {
 				{
 					cwd: "/b",
 					kind: "chat",
-					worktree: { name: "feature", branch: "omp/gui/feature", baseCwd: "/repo" },
+					worktree: {
+						name: "feature",
+						branch: "omp/gui/feature",
+						baseCwd: "/repo",
+						path: "/wt/gui-feature-1234567",
+					},
 				},
 			],
 		};
 
 		expect(sanitizePersistedTabLayout(value, pathChecks(["/a", "/b"], ["/sessions/a.jsonl"]))).toEqual(value);
+	});
+
+	it("drops a worktree binding saved without its checkout path", () => {
+		const layout = sanitizePersistedTabLayout(
+			{
+				version: 1,
+				activeIndex: 0,
+				tabs: [
+					{ cwd: "/b", kind: "agent", worktree: { name: "feature", branch: "omp/gui/feature", baseCwd: "/repo" } },
+				],
+			},
+			pathChecks(["/b"], []),
+		);
+
+		// The saved cwd follows session switches; it must never become the
+		// directory the close prompt force-removes.
+		expect(layout?.tabs[0]?.cwd).toBe("/b");
+		expect(layout?.tabs[0]?.worktree).toBeUndefined();
 	});
 
 	it("carries a saved title and bounds the one read back from prefs", () => {

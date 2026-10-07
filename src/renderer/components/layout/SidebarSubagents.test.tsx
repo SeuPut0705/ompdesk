@@ -1,9 +1,11 @@
 /**
  * Sidebar subagent child rows: a session open in a tab lists only its live
- * subagents as session-style rows nested by spawn parent (max two levels);
- * a subagent's row disappears once it finishes; closed sessions and sessions
- * without live subagents render nothing; clicking a row opens the live
- * transcript against the owning tab; reveal focuses the first row.
+ * subagents as session-style rows nested by spawn parent (max two levels),
+ * collapsed behind a live-count disclosure until expanded; a subagent's row
+ * disappears once it finishes and the expanded state goes with the last one;
+ * closed sessions and sessions without live subagents render nothing;
+ * clicking a row opens the live transcript against the owning tab; reveal
+ * expands the rows and focuses the first one.
  */
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
@@ -34,7 +36,7 @@ globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0
 // Deferred until after the globals above: react-dom computes DOM support
 // flags at evaluation time.
 const { createRoot } = await import("react-dom/client");
-const { SidebarSubagents } = await import("./SidebarSubagents");
+const { SidebarSubagents, SidebarSubagentsToggle, formatCompactElapsed } = await import("./SidebarSubagents");
 
 const TAB = "t1";
 const SESSION = "/work/alpha/one.jsonl";
@@ -43,6 +45,7 @@ interface TestElement {
 	dispatchEvent: (event: object) => boolean;
 	textContent: string | null;
 	className: string;
+	parentElement: TestElement | null;
 	getAttribute: (name: string) => string | null;
 	querySelector: (selector: string) => TestElement | null;
 	remove: () => void;
@@ -108,6 +111,29 @@ function row(id: string): TestElement {
 	return found;
 }
 
+/** Tree depth of a child row (0 = spawned by the session). */
+function depth(id: string): string | null | undefined {
+	return row(id).parentElement?.getAttribute("data-subagent-depth");
+}
+
+function toggle(): TestElement | null {
+	return document.querySelector(`[data-sidebar-subagents-toggle="${SESSION}"]`) as unknown as TestElement | null;
+}
+
+/** Disclosure + rows, the way the sidebar mounts them for one session row. */
+function Session({ sessionKey = SESSION, tabId = TAB }: { sessionKey?: string; tabId?: string }) {
+	return (
+		<>
+			<SidebarSubagentsToggle sessionKey={sessionKey} tabId={tabId} />
+			<SidebarSubagents sessionKey={sessionKey} tabId={tabId} />
+		</>
+	);
+}
+
+function expand(): void {
+	act(() => useSidebarSubagentsStore.getState().setExpanded(SESSION, true));
+}
+
 beforeEach(() => {
 	commandForTab = vi.fn(async (_tabId: string, command: RpcCommand) => ({
 		type: "response",
@@ -129,11 +155,36 @@ afterEach(async () => {
 	container?.remove();
 	document.body.innerHTML = "";
 	deleteSessionRuntime(TAB);
-	useSidebarSubagentsStore.setState({ reveal: null });
+	useSidebarSubagentsStore.setState({ expanded: new Set(), reveal: null });
 	useUiStore.setState({ sidebarVisible: true });
 });
 
 describe("SidebarSubagents", () => {
+	it("starts collapsed behind a live-count disclosure that toggles the rows", async () => {
+		seed([
+			snap({ id: "r1", index: 1, status: "running" }),
+			snap({ id: "r2", index: 2, status: "parked" }),
+			snap({ id: "r3", index: 3, status: "pending" }),
+			snap({ id: "old", index: 4, status: "completed" }),
+		]);
+		await mount(<Session />);
+
+		expect(rowIds()).toEqual([]);
+		expect(document.querySelector("[data-sidebar-subagents]")).toBeNull();
+		expect(toggle()?.textContent).toBe("3");
+		expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+		expect(toggle()?.getAttribute("aria-label")).toBe("Show subagents (3)");
+
+		await click(toggle());
+		expect(rowIds()).toEqual(["r1", "r2", "r3"]);
+		expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+		expect(toggle()?.getAttribute("aria-label")).toBe("Hide subagents (3)");
+
+		await click(toggle());
+		expect(rowIds()).toEqual([]);
+		expect(useSidebarSubagentsStore.getState().expanded.size).toBe(0);
+	});
+
 	it("renders live subagents as session-style child rows nested by spawner; closed sessions show nothing", async () => {
 		seed(
 			[
@@ -145,40 +196,58 @@ describe("SidebarSubagents", () => {
 			],
 			{ "call-x": "r2" },
 		);
+		expand();
 		await mount(
 			<>
-				<SidebarSubagents sessionKey={SESSION} tabId={TAB} />
-				<SidebarSubagents sessionKey="/work/alpha/closed.jsonl" tabId="t-closed" />
+				<Session />
+				<Session sessionKey="/work/alpha/closed.jsonl" tabId="t-closed" />
 			</>,
 		);
 
 		expect(rowIds()).toEqual(["r1", "c1", "g1", "r2", "c2"]);
 		expect(document.querySelectorAll("[data-sidebar-subagents]").length).toBe(1);
-		// No section heading: the group holds only the subagent rows themselves.
-		expect(document.querySelectorAll("[aria-expanded]").length).toBe(0);
-		// Same row component as sessions; top-level spawns indent one step, grandchildren clamp to two.
+		expect(document.querySelectorAll("[data-sidebar-subagents-toggle]").length).toBe(1);
+		// Same row component as sessions; top-level spawns sit one step in, grandchildren clamp to two.
 		expect(row("r1").className).toContain("omp-sidebar-session-row");
-		expect(row("r1").className).toContain("pl-9");
-		expect(row("c1").className).toContain("pl-13");
-		expect(row("g1").className).toContain("pl-13");
-		expect(row("c2").className).toContain("pl-13");
+		expect([depth("r1"), depth("c1"), depth("g1"), depth("r2"), depth("c2")]).toEqual(["0", "1", "1", "0", "1"]);
+		// Tree connectors: one down the group from the session icon, one per sub-subagent row.
+		const group = document.querySelector("[data-sidebar-subagents]") as unknown as TestElement;
+		expect(group.querySelector('[data-sidebar-subagents-connector="0"]')).not.toBeNull();
+		expect(row("c1").parentElement?.querySelector('[data-sidebar-subagents-connector="1"]')).not.toBeNull();
+		expect(row("r1").parentElement?.querySelector("[data-sidebar-subagents-connector]")).toBeNull();
 		// Status signal: spinner while working, pause while parked.
 		expect(row("r1").querySelector(".animate-spin")).not.toBeNull();
 		expect(row("r2").querySelector(".lucide-pause")).not.toBeNull();
 		// Focusable row button in the sidebar's roving list.
 		expect(row("r1").querySelector("button")?.getAttribute("data-roving-item")).toBe(`subagent:${TAB}:r1`);
-		// Role + short label, full text in the tooltip.
-		expect(row("r1").textContent).toContain("scout · map the repo");
+		// Role before the short label, full text in the tooltip.
+		expect(row("r1").textContent).toContain("scout ·");
+		expect(row("r1").textContent).toContain("map the repo");
 		expect(row("r1").querySelector("button")?.getAttribute("title")).toContain("scout · map the repo");
 	});
 
-	it("drops a subagent's row once it finishes and renders nothing without live subagents", async () => {
+	it("shows compact elapsed time and keeps the full value in the tooltip", async () => {
+		// No progress sample yet: elapsed counts from the last update, 10m 35s ago.
+		seed([snap({ id: "r1", status: "running", lastUpdate: Date.now() - 635_000 })]);
+		expand();
+		await mount(<Session />);
+		expect(row("r1").textContent).toContain("10m");
+		expect(row("r1").textContent).not.toContain("10m 35s");
+		expect(row("r1").querySelector("button")?.getAttribute("title")).toContain("10m 35s");
+
+		expect(formatCompactElapsed(12_000)).toBe("12s");
+		expect(formatCompactElapsed(635_000)).toBe("10m");
+		expect(formatCompactElapsed(2 * 3_600_000 + 60_000)).toBe("2h");
+	});
+
+	it("drops a subagent's row once it finishes, and the expanded state with the last one", async () => {
 		seed([
 			snap({ id: "r1", index: 1, status: "running" }),
 			snap({ id: "r2", index: 2, status: "running" }),
 			snap({ id: "old", index: 3, status: "completed" }),
 		]);
-		await mount(<SidebarSubagents sessionKey={SESSION} tabId={TAB} />);
+		expand();
+		await mount(<Session />);
 		expect(rowIds()).toEqual(["r1", "r2"]);
 
 		seed([
@@ -188,6 +257,7 @@ describe("SidebarSubagents", () => {
 		]);
 		await flush();
 		expect(rowIds()).toEqual(["r2"]);
+		expect(toggle()?.textContent).toBe("1");
 
 		seed([
 			snap({ id: "r1", index: 1, status: "failed" }),
@@ -197,6 +267,14 @@ describe("SidebarSubagents", () => {
 		await flush();
 		expect(rowIds()).toEqual([]);
 		expect(document.querySelector("[data-sidebar-subagents]")).toBeNull();
+		expect(toggle()).toBeNull();
+		expect(useSidebarSubagentsStore.getState().expanded.size).toBe(0);
+
+		// The next fan-out starts collapsed.
+		seed([snap({ id: "r3", index: 4, status: "running" })]);
+		await flush();
+		expect(rowIds()).toEqual([]);
+		expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
 	});
 
 	it("promotes a live child to the top level once its parent finishes", async () => {
@@ -204,14 +282,16 @@ describe("SidebarSubagents", () => {
 			snap({ id: "p", index: 1, status: "completed" }),
 			snap({ id: "c", index: 2, status: "running", parentSubagentId: "p" }),
 		]);
-		await mount(<SidebarSubagents sessionKey={SESSION} tabId={TAB} />);
+		expand();
+		await mount(<Session />);
 		expect(rowIds()).toEqual(["c"]);
-		expect(row("c").className).toContain("pl-9");
+		expect(depth("c")).toBe("0");
 	});
 
 	it("opens the subagent's live transcript against its own tab on click", async () => {
 		seed([snap({ id: "r1", description: "map the repo", sessionFile: "/tmp/r1.jsonl" })]);
-		await mount(<SidebarSubagents sessionKey={SESSION} tabId={TAB} />);
+		expand();
+		await mount(<Session />);
 		await click(row("r1").querySelector("button"));
 
 		const dialogs = Array.from(document.querySelectorAll('[role="dialog"]')) as unknown as TestElement[];
@@ -226,15 +306,24 @@ describe("SidebarSubagents", () => {
 		expect(row("r1").querySelector("button")?.getAttribute("aria-current")).toBe("true");
 	});
 
-	it("reveal shows the sidebar and consumes the request", async () => {
-		seed([snap({ id: "r1", status: "running" })]);
+	it("reveal shows the sidebar, expands the collapsed rows and focuses the first one", async () => {
+		seed([snap({ id: "r1", index: 1, status: "running" }), snap({ id: "r2", index: 2, status: "running" })]);
 		useUiStore.setState({ sidebarVisible: false });
-		await mount(<SidebarSubagents sessionKey={SESSION} tabId={TAB} />);
+		await mount(<Session />);
+		expect(rowIds()).toEqual([]);
 
-		act(() => revealSidebarSubagents(TAB));
-		await flush();
-		expect(useUiStore.getState().sidebarVisible).toBe(true);
-		expect(rowIds()).toEqual(["r1"]);
-		expect(useSidebarSubagentsStore.getState().reveal).toBeNull();
+		const focus = vi.spyOn(HTMLElement.prototype, "focus");
+		try {
+			act(() => revealSidebarSubagents(TAB));
+			await flush();
+			expect(useUiStore.getState().sidebarVisible).toBe(true);
+			expect(rowIds()).toEqual(["r1", "r2"]);
+			expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+			expect(focus).toHaveBeenCalledTimes(1);
+			expect(focus.mock.contexts[0]).toBe(row("r1").querySelector("button"));
+			expect(useSidebarSubagentsStore.getState().reveal).toBeNull();
+		} finally {
+			focus.mockRestore();
+		}
 	});
 });

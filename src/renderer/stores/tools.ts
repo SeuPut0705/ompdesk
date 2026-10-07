@@ -26,9 +26,16 @@ export interface ToolsStore {
 	/**
 	 * Rebuild the map from a transcript. `turnIsLive` marks the trailing
 	 * unanswered calls of the streaming turn as still running; every other
-	 * unanswered call is terminal `aborted`.
+	 * unanswered call is terminal `aborted`. `keepChangedSince` is the map as it
+	 * was when the transcript fetch began, and marks the rebuild as racing live
+	 * events: entries live events wrote after that, and in-flight calls the
+	 * transcript does not contain yet, survive the rebuild with their execution
+	 * routing. Everything else is rebuilt from the transcript.
 	 */
-	hydrateMessages: (messages: AgentMessage[], options?: { turnIsLive?: boolean }) => void;
+	hydrateMessages: (
+		messages: AgentMessage[],
+		options?: { turnIsLive?: boolean; keepChangedSince?: ReadonlyMap<string, ToolEntry> },
+	) => void;
 	applyEvents: (events: AgentSessionEvent[]) => void;
 	reset: () => void;
 }
@@ -64,6 +71,8 @@ export const createToolsStore = () => {
 	let nextOccurrenceByCallId = new Map<string, number>();
 	let latestEntryKeyByCallId = new Map<string, string>();
 	let streamEntryKeysByIndex = new Map<number, string>();
+	/** Timestamp of the assistant message `streamEntryKeysByIndex` belongs to. */
+	let streamMessageTimestamp: AgentMessage["timestamp"] | undefined;
 	let queuedExecutionKeysByCallId = new Map<string, string[]>();
 	let runningEntryKeyByCallId = new Map<string, string>();
 
@@ -71,6 +80,7 @@ export const createToolsStore = () => {
 		nextOccurrenceByCallId = new Map();
 		latestEntryKeyByCallId = new Map();
 		streamEntryKeysByIndex = new Map();
+		streamMessageTimestamp = undefined;
 		queuedExecutionKeysByCallId = new Map();
 		runningEntryKeyByCallId = new Map();
 	};
@@ -114,6 +124,12 @@ export const createToolsStore = () => {
 		activeTools: new Map(),
 		hydrateMessages: (messages, options) => {
 			const now = Date.now();
+			const since = options?.keepChangedSince;
+			const previous = get().activeTools;
+			const previousRunning = runningEntryKeyByCallId;
+			const previousQueued = queuedExecutionKeysByCallId;
+			const previousStreaming = streamEntryKeysByIndex;
+			const previousStreamTimestamp = streamMessageTimestamp;
 			resetEntryKeyTracking();
 
 			// Pair repeated raw ids by occurrence, not with a last-write-wins map.
@@ -170,6 +186,29 @@ export const createToolsStore = () => {
 					if (entry) tools.set(key, { ...entry, status: "running" });
 				}
 			}
+			if (since) {
+				const kept = new Set<string>();
+				for (const [key, entry] of previous) {
+					const changed = since.get(key) !== entry;
+					const inFlightOnly = !tools.has(key) && (entry.status === "pending" || entry.status === "running");
+					if (!changed && !inFlightOnly) continue;
+					kept.add(key);
+					tools.set(key, entry);
+				}
+				for (const [callId, key] of previousRunning) {
+					if (!kept.has(key)) continue;
+					runningEntryKeyByCallId.set(callId, key);
+					latestEntryKeyByCallId.set(callId, key);
+				}
+				for (const [callId, keys] of previousQueued) {
+					for (const key of keys) if (kept.has(key)) queueExecutionKey(callId, key);
+				}
+				const streaming = [...previousStreaming].filter(([, key]) => kept.has(key));
+				if (streaming.length > 0) {
+					streamEntryKeysByIndex = new Map(streaming);
+					streamMessageTimestamp = previousStreamTimestamp;
+				}
+			}
 			set({ activeTools: tools });
 		},
 		applyEvents: events => {
@@ -182,9 +221,18 @@ export const createToolsStore = () => {
 				switch (event.type) {
 					case "message_start": {
 						streamEntryKeysByIndex.clear();
+						streamMessageTimestamp = event.message.timestamp;
 						break;
 					}
 					case "message_update": {
+						// A tab that sat in the background missed this message's
+						// message_start (and maybe the previous one's message_end), so
+						// the index → key map can still hold the last message's calls.
+						// Same new-message test as the messages store: the timestamp.
+						if (streamMessageTimestamp !== event.message.timestamp) {
+							streamEntryKeysByIndex.clear();
+							streamMessageTimestamp = event.message.timestamp;
+						}
 						const ame = event.assistantMessageEvent;
 						if (ame.type === "toolcall_delta") {
 							// The wire shape is `{contentIndex, delta, partial}` (pi-ai):

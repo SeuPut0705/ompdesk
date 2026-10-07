@@ -9,7 +9,8 @@ import { existsSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { spawnPath } from "../../shell-env";
 
-const DEFAULT_TIMEOUT_MS = 60_000;
+/** Timeout for a `git`/`gh` call that names none; commands' answer budgets count in it. */
+export const DEFAULT_TIMEOUT_MS = 60_000;
 /** Hard cap on captured stdout; matches gh's 8 MiB output ceiling. */
 const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
 

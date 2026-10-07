@@ -15,6 +15,9 @@
  *
  * Transfers report progress through one shared renderer state machine; an
  * interrupted transfer keeps its `.partial` and continues from that offset.
+ * Only one macOS transfer runs at a time (a check or download request meanwhile
+ * just returns its status), and one that receives nothing for
+ * DOWNLOAD_IDLE_TIMEOUT_MS fails as retryable.
  *
  * Releases live in a private repo, so every request — release lookup, the
  * latest*.yml feed, and asset downloads — carries the user's own GitHub token
@@ -43,18 +46,21 @@ import {
 	updateAuthInfo,
 } from "./update-auth";
 import {
+	DOWNLOAD_IDLE_TIMEOUT_MS,
 	hasStableMacSigningIdentity,
 	installerPartialPath,
 	isSwappableBundleLocation,
 	type MacInstallerAsset,
 	macBundlePath,
 	planInstallerTransfer,
+	SingleTransfer,
 	SWAP_SCRIPT,
 	selectMacAsset,
 	settleFailedUpdateCheck,
 	settleIncompleteUpdateCheck,
 	sha512FileBase64,
 	sweepInstallerPartials,
+	withinIdle,
 } from "./updater-state";
 
 const { autoUpdater } = pkg;
@@ -98,6 +104,8 @@ let relaunchAfterSwap = false;
 let updateToken: string | undefined;
 /** A check's failure is classified by runCheck, so the updater's own error event stays quiet. */
 let checkInFlight = false;
+/** The macOS asset download (manual DMG or relaunch ZIP); a second one would append to the same `.partial`. */
+const macTransfer = new SingleTransfer();
 
 function isWritable(target: string): boolean {
 	try {
@@ -218,9 +226,10 @@ async function openManualInstaller(filePath: string): Promise<void> {
  * URL. The redirect is taken by hand because Chromium would forward the
  * Authorization header to the CDN, which rejects a second auth mechanism.
  */
-async function signedAssetUrl(version: string, assetName: string, token: string): Promise<string> {
+async function signedAssetUrl(version: string, assetName: string, token: string, signal: AbortSignal): Promise<string> {
 	const release = await net.fetch(`${GITHUB_API_REPO}/releases/tags/v${encodeURIComponent(version)}`, {
 		headers: githubApiHeaders(token),
+		signal,
 	});
 	if (!release.ok) throw new Error(`${mainT("updates.downloadFailed")} (${release.status})`);
 	const { assets } = (await release.json()) as { assets?: { id: number; name: string }[] };
@@ -241,6 +250,7 @@ async function signedAssetUrl(version: string, assetName: string, token: string)
 		request.abort();
 	});
 	request.on("error", reject);
+	signal.addEventListener("abort", () => request.abort(), { once: true });
 	request.end();
 	return promise;
 }
@@ -256,7 +266,15 @@ async function downloadMacAsset(
 	const destinationPath =
 		mode === "manual" ? availableDownloadPath(asset.name) : path.join(updatesDirectory(), asset.name);
 	const partialPath = installerPartialPath(destinationPath);
-	const assetUrl = await signedAssetUrl(version, asset.name, token);
+	// Every network step gets the idle timeout: a stalled transfer fails as
+	// retryable instead of sitting in `downloading` forever.
+	const controller = new AbortController();
+	const abort = () => controller.abort();
+	const assetUrl = await withinIdle(
+		signedAssetUrl(version, asset.name, token, controller.signal),
+		DOWNLOAD_IDLE_TIMEOUT_MS,
+		abort,
+	);
 	// Partials of releases this one superseded can never be continued.
 	if (mode === "manual") await sweepInstallerPartials(path.dirname(partialPath), partialPath);
 	else await sweepUpdatesDirectory(asset.name);
@@ -266,7 +284,14 @@ async function downloadMacAsset(
 		await fs.promises.rm(partialPath, { force: true });
 		existing = 0;
 	}
-	const response = await net.fetch(assetUrl, existing > 0 ? { headers: { range: `bytes=${existing}-` } } : undefined);
+	const response = await withinIdle(
+		net.fetch(assetUrl, {
+			signal: controller.signal,
+			...(existing > 0 ? { headers: { range: `bytes=${existing}-` } } : {}),
+		}),
+		DOWNLOAD_IDLE_TIMEOUT_MS,
+		abort,
+	);
 	const plan = planInstallerTransfer(existing, {
 		status: response.status,
 		contentRange: response.headers.get("content-range") ?? undefined,
@@ -288,7 +313,7 @@ async function downloadMacAsset(
 	try {
 		const reader = response.body.getReader();
 		for (;;) {
-			const { done, value } = await reader.read();
+			const { done, value } = await withinIdle(reader.read(), DOWNLOAD_IDLE_TIMEOUT_MS, abort);
 			if (done) break;
 			let offset = 0;
 			while (offset < value.byteLength) {
@@ -354,20 +379,32 @@ async function sweepUpdatesDirectory(keepAsset: string): Promise<void> {
 /** Background download for relaunch mode; failures stay out of the banner like any passive check. */
 async function prepareRelaunchUpdate(version: string): Promise<void> {
 	if (!macAsset || !updateToken) return;
-	broadcast({
-		state: "downloading",
-		version,
-		mode: "relaunch",
-		percent: 0,
-		bytesPerSecond: 0,
-		transferred: 0,
-		total: macAsset.size ?? 0,
-	});
 	try {
-		await downloadMacAsset(version, macAsset, updateToken, "relaunch");
+		await startMacDownload(version, macAsset, updateToken, "relaunch");
 	} catch (error) {
 		broadcast(failureStatus(error, "updates.downloadFailed", false));
 	}
+}
+
+/** The one macOS asset download; callers return early while `macTransfer.running`. */
+function startMacDownload(
+	version: string,
+	asset: MacInstallerAsset,
+	token: string,
+	mode: "manual" | "relaunch",
+): Promise<void> {
+	return macTransfer.start(() => {
+		broadcast({
+			state: "downloading",
+			version,
+			mode,
+			percent: 0,
+			bytesPerSecond: 0,
+			transferred: 0,
+			total: asset.size ?? 0,
+		});
+		return downloadMacAsset(version, asset, token, mode);
+	});
 }
 
 function broadcast(status: UpdateStatus): void {
@@ -467,6 +504,9 @@ export function setupUpdater(): void {
 
 	autoUpdater.on("checking-for-update", () => broadcast({ state: "checking" }));
 	autoUpdater.on("update-available", info => {
+		// The transfer in flight keeps its asset and version; restarting it would
+		// append a second stream to the same partial.
+		if (macTransfer.running) return;
 		activeUpdate = info;
 		// A manual re-check of the release already staged must not fetch it again.
 		if (installMode === "relaunch" && stagedApp && path.basename(path.dirname(stagedApp)) === info.version) {
@@ -515,12 +555,13 @@ export function setupUpdater(): void {
 	});
 
 	ipcMain.handle(IPC_COMMANDS.UPDATER_CHECK, async () => {
+		if (macTransfer.running) return current;
 		broadcast({ state: "checking" });
 		await runCheck(true);
 		return current;
 	});
 	ipcMain.handle(IPC_COMMANDS.UPDATER_DOWNLOAD, async () => {
-		if (current.state !== "available") return current;
+		if (current.state !== "available" || macTransfer.running) return current;
 		try {
 			if (current.mode === "manual" || current.mode === "relaunch") {
 				if (!macAsset) throw new Error(mainT("updates.installerMissing"));
@@ -528,16 +569,7 @@ export function setupUpdater(): void {
 					broadcast({ state: "auth-required", reason: "missing" });
 					return current;
 				}
-				broadcast({
-					state: "downloading",
-					version: current.version,
-					mode: current.mode,
-					percent: 0,
-					bytesPerSecond: 0,
-					transferred: 0,
-					total: macAsset.size ?? 0,
-				});
-				await downloadMacAsset(activeUpdate?.version ?? current.version, macAsset, updateToken, current.mode);
+				await startMacDownload(activeUpdate?.version ?? current.version, macAsset, updateToken, current.mode);
 			} else {
 				await autoUpdater.downloadUpdate();
 			}
@@ -571,6 +603,9 @@ export function setupUpdater(): void {
 			requestQuit();
 			return;
 		}
+		// Same prompt as ⌘Q; once approved, quitAndInstall() emits
+		// before-quit-for-update and the quit guard runs ⌘Q's teardown.
+		if (!(await confirmQuit())) return;
 		autoUpdater.quitAndInstall();
 	});
 	ipcMain.handle(IPC_COMMANDS.UPDATER_GET_STATUS, () => current);

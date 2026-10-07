@@ -210,6 +210,58 @@ export function planInstallerTransfer(
 	return Number(match?.[1]) === existingBytes ? { offset: existingBytes, append: true } : { offset: 0, append: false };
 }
 
+/**
+ * A transfer that delivers nothing for this long is abandoned with a retryable
+ * error; its partial stays, so the retry resumes from there.
+ */
+export const DOWNLOAD_IDLE_TIMEOUT_MS = 30_000;
+
+export class TransferStalledError extends Error {
+	constructor(idleMs: number) {
+		super(`No data received for ${Math.round(idleMs / 1000)} s`);
+		this.name = "TransferStalledError";
+	}
+}
+
+/**
+ * `pending`, or a TransferStalledError once `idleMs` passes before it settles;
+ * `onStall` then aborts the transfer. Await one step at a time (the response,
+ * then each chunk) so the clock restarts whenever bytes arrive.
+ */
+export async function withinIdle<T>(pending: Promise<T>, idleMs: number, onStall: () => void): Promise<T> {
+	const { promise: stalled, reject } = Promise.withResolvers<never>();
+	const timer = setTimeout(() => {
+		// Settle first: an abort that rejects `pending` synchronously must not win the race.
+		reject(new TransferStalledError(idleMs));
+		onStall();
+	}, idleMs);
+	try {
+		return await Promise.race([pending, stalled]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/**
+ * At most one installer transfer at a time: a second one would append to the
+ * same `.partial` and fail the SHA-512 check. `start` hands back the transfer
+ * already running instead of starting another.
+ */
+export class SingleTransfer {
+	#running: Promise<void> | undefined;
+
+	get running(): boolean {
+		return this.#running !== undefined;
+	}
+
+	start(transfer: () => Promise<void>): Promise<void> {
+		this.#running ??= transfer().finally(() => {
+			this.#running = undefined;
+		});
+		return this.#running;
+	}
+}
+
 /** Stream a finished installer through SHA-512 without holding a DMG in memory. */
 export async function sha512FileBase64(filePath: string): Promise<string> {
 	const hash = createHash("sha512");

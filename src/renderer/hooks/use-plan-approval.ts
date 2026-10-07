@@ -4,7 +4,9 @@
  * a proposal when the agent submits a plan (a `write` to `xd://propose` while
  * plan mode is active), silently stops the proposal turn, and waits for the
  * host's `plan_approval` answer. Rapid successive proposals replace each
- * other — only the latest is kept.
+ * other — only the latest is kept. Frames only reach visible tabs; a proposal
+ * made while its tab was in the background is re-shown by the tab's hydrate
+ * (`syncPlanProposal`, from the bridge's get_plan_mode).
  */
 
 import { useEffect } from "react";

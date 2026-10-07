@@ -19,7 +19,6 @@ export const FEATURES = {
 	composer: "Composer extras (eval, forced tool, prewalk, context, jobs, dequeue)",
 	share: "Session sharing",
 	planMode: "Plan mode",
-	btw: "/btw side questions",
 	loopMode: "Loop mode",
 	vibeMode: "Vibe mode",
 	goalMode: "Goal mode",
@@ -77,6 +76,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"toolChoiceQueue.pushSequence()",
 			"toolChoiceQueue.removeByLabel()",
 			"getPrewalkState()",
+			"disarmPrewalk()",
+			"autoRetryEnabled",
+			"thinkingLevel",
+			"configuredThinkingLevel()",
 			"executePython()",
 			"abortEval()",
 			"executeBash()",
@@ -94,11 +97,6 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		],
 		modules: {
 			[`${AGENT}/utils/tool-choice`]: ["buildNamedToolChoice()"],
-			[`${AGENT}/session/settings`]: [
-				"cfgPrewalkEnabled.get()",
-				"cfgPrewalkEnabled.override()",
-				"cfgPrewalkEnabled.clearOverride()",
-			],
 			[`${AGENT}/internal-urls/local-protocol`]: ["resolveLocalRoot()"],
 			[`${AGENT}/slash-commands/builtin-completions`]: [
 				"buildArgumentCompletions()",
@@ -162,28 +160,6 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[UTILS]: ["prompt.render()"],
 		},
 		prompts: ["system/plan-mode-compact-instructions.md", "system/plan-mode-approved.md"],
-	},
-	btw: {
-		session: [
-			"subscribe()",
-			"runEphemeralTurn()",
-			"model",
-			"sessionManager.getArtifactsDir()",
-			"sessionManager.getSessionId()",
-			"sessionManager.getLeafId()",
-			"sessionManager.ensureOnDisk()",
-		],
-		modules: {
-			[`${AGENT}/session/btw-history`]: [
-				"BtwHistoryStore.open()",
-				"BtwHistoryStore.prototype.upsert()",
-				"BtwHistoryStore.prototype.retry()",
-				"getBtwLatestTurn()",
-				"getBtwTurns()",
-			],
-			[UTILS]: ["prompt.render()", "Snowflake.next()"],
-		},
-		prompts: ["system/btw-user.md"],
 	},
 	loopMode: {
 		session: [

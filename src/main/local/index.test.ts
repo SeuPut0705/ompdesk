@@ -27,6 +27,10 @@ describe("local command table", () => {
 		expect(localHandlerFor("constructor")).toBeUndefined();
 	});
 
+	it("forwards the /btw side-question commands to stock omp", () => {
+		for (const type of ["btw", "btw_cancel", "get_btw_history"]) expect(localHandlerFor(type), type).toBeUndefined();
+	});
+
 	it("shapes handler outcomes as the response frame the renderer expects", async () => {
 		await expect(runLocalCommand(async () => ({ ok: 1 }), { type: "x", id: "gui-1" }, ctx)).resolves.toEqual({
 			id: "gui-1",

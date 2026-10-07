@@ -140,6 +140,7 @@ export const usePrCenterStore = create<PrCenterStore>()((set, get) => ({
 					name: `pr-${number}`,
 					branch: result.branch,
 					baseCwd: repo?.available ? repo.repo : "",
+					path: result.path,
 				},
 			});
 			if (tabId)

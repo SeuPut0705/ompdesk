@@ -26,7 +26,7 @@ const HIDDEN = parseHidden(process.env.OMP_GUI_BRIDGE_PROBE_HIDE);
  * Loaders for every module REQUIREMENTS names. Literal specifiers on purpose:
  * omp rewrites `@oh-my-pi/*` imports onto its bundled singletons only when the
  * specifier is a literal; `import(variable)` reaches a separate on-disk copy
- * (verified on omp 18.6.1). src/main/bridge-capabilities.test.ts keeps the keys
+ * (verified on omp 18.8.0). src/main/bridge-capabilities.test.ts keeps the keys
  * in sync with the table.
  */
 const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
@@ -87,7 +87,6 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 		import("@oh-my-pi/pi-coding-agent/registry/agent-registry"),
 	"@oh-my-pi/pi-coding-agent/security/coordinator": () => import("@oh-my-pi/pi-coding-agent/security/coordinator"),
 	"@oh-my-pi/pi-coding-agent/security/store": () => import("@oh-my-pi/pi-coding-agent/security/store"),
-	"@oh-my-pi/pi-coding-agent/session/btw-history": () => import("@oh-my-pi/pi-coding-agent/session/btw-history"),
 	"@oh-my-pi/pi-coding-agent/session/foreign-session-import": () =>
 		import("@oh-my-pi/pi-coding-agent/session/foreign-session-import"),
 	"@oh-my-pi/pi-coding-agent/session/session-loader": () => import("@oh-my-pi/pi-coding-agent/session/session-loader"),
@@ -96,7 +95,6 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/session/session-pins": () => import("@oh-my-pi/pi-coding-agent/session/session-pins"),
 	"@oh-my-pi/pi-coding-agent/session/session-workspace": () =>
 		import("@oh-my-pi/pi-coding-agent/session/session-workspace"),
-	"@oh-my-pi/pi-coding-agent/session/settings": () => import("@oh-my-pi/pi-coding-agent/session/settings"),
 	"@oh-my-pi/pi-coding-agent/session/ttsr-outputs": () => import("@oh-my-pi/pi-coding-agent/session/ttsr-outputs"),
 	"@oh-my-pi/pi-coding-agent/slash-commands/builtin-completions": () =>
 		import("@oh-my-pi/pi-coding-agent/slash-commands/builtin-completions"),

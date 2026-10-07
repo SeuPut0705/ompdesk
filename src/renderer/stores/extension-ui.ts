@@ -1,5 +1,5 @@
 import { createStore } from "zustand/vanilla";
-import type { ExtensionUIRequest } from "../../shared/rpc-types";
+import { BLOCKING_UI_METHODS, type ExtensionUIRequest } from "../../shared/rpc-types";
 import { createScopedStoreHook } from "./session-runtime-context";
 
 export interface ExtensionUiSnapshot {
@@ -26,6 +26,17 @@ export interface ExtensionUiStore extends ExtensionUiSnapshot {
 /** Requests an inline provider sign-in answers itself. */
 export function isInlineLoginRequest(request: ExtensionUIRequest): boolean {
 	return request.method === "open_url" || request.method === "input";
+}
+
+/**
+ * The session blocks on the user: a response-bearing request is pending. A
+ * provider sign-in answered inline is the user's own action, not the session
+ * waiting on them.
+ */
+export function awaitsUserInput(state: Pick<ExtensionUiStore, "pendingRequests" | "inlineLogin">): boolean {
+	return state.pendingRequests.some(
+		request => BLOCKING_UI_METHODS[request.method] === true && !(state.inlineLogin && isInlineLoginRequest(request)),
+	);
 }
 
 /** Pure request reducer shared by the visible store and parked tab bundles. */

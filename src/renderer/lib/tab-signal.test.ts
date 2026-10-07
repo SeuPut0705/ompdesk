@@ -35,4 +35,12 @@ describe("tabSignalPresentation", () => {
 	it("keeps a finished background run readable over the idle state", () => {
 		expect(tabSignalPresentation(tab({ status: "ready", unreadDone: true })).labelKey).toBe("tabs.done");
 	});
+
+	it("flags a tab waiting on the user over its run, without hiding that it is still running", () => {
+		const waiting = tabSignalPresentation(tab({ status: "running", awaitingInput: true }));
+		expect(waiting.labelKey).toBe("sidebar.row.needsApproval");
+		// ⌘W's confirm reads `running`: a blocked run is still a run.
+		expect(waiting.running).toBe(true);
+		expect(tabSignalPresentation(tab({ status: "ready", awaitingInput: true })).active).toBe(true);
+	});
 });

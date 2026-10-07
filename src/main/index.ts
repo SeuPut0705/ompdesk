@@ -370,6 +370,8 @@ app.whenReady().then(() => {
 			},
 		});
 		// Ready-health-check applies to every pooled sidecar, not just the first.
+		// A failure marks the live child `error` without killing it; the manager
+		// re-probes and returns it to `ready` once a command succeeds again.
 		sc.on("status", ({ status }) => {
 			if (status !== "ready") return;
 			const client = sc.rpcClient;

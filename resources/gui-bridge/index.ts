@@ -29,7 +29,7 @@ interface Area {
 }
 
 // Dynamic on purpose: a static import of an area whose omp export vanished
-// fails the whole extension at link time (verified on omp 18.6.1).
+// fails the whole extension at link time (verified on omp 18.8.0).
 const AREAS: readonly Area[] = [
 	{ name: "composer", features: ["composer", "share"], load: () => import("./composer") },
 	{ name: "sessions", features: ["sessionTree"], load: () => import("./sessions") },
@@ -53,7 +53,6 @@ const AREAS: readonly Area[] = [
 	{ name: "modes/vibe", features: ["vibeMode"], load: () => import("./modes/vibe") },
 	{ name: "modes/goal", features: ["goalMode"], load: () => import("./modes/goal") },
 	{ name: "modes/loop", features: ["loopMode"], load: () => import("./modes/loop") },
-	{ name: "modes/btw", features: ["btw"], load: () => import("./modes/btw") },
 	{ name: "modes/pool", features: ["modelPool"], load: () => import("./modes/pool") },
 	{ name: "modes/actions", features: ["tan", "omfg", "agentPause"], load: () => import("./modes/actions") },
 ];

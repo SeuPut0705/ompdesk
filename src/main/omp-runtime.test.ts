@@ -37,7 +37,7 @@ describe("omp version parsing", () => {
 
 	it("compares numerically, not lexically", () => {
 		expect(compareVersions("18.10.0", "18.6.0")).toBeGreaterThan(0);
-		expect(compareVersions("18.6.0", MIN_OMP_VERSION)).toBe(0);
+		expect(compareVersions("18.6.0", "18.6.0")).toBe(0);
 		expect(compareVersions("17.99.99", "18.0.0")).toBeLessThan(0);
 	});
 });
@@ -108,27 +108,28 @@ describe("omp lookup", () => {
 
 describe("resolveOmp", () => {
 	it("accepts a supported omp and runs subcommands through it", async () => {
-		const { bin, dir } = await fakeOmp("omp/18.6.1");
+		const { bin, dir } = await fakeOmp("omp/18.7.0");
 		process.env.OMP_GUI_OMP = bin;
 		try {
 			const resolution = await resolveOmp();
 			if (!resolution.ok) throw new Error(resolution.error);
-			expect(resolution.runtime).toMatchObject({ bin, version: "18.6.1" });
-			await expect(resolution.runtime.run(["anything"])).resolves.toMatchObject({ code: 0, stdout: "omp/18.6.1\n" });
+			expect(resolution.runtime).toMatchObject({ bin, version: "18.7.0" });
+			await expect(resolution.runtime.run(["anything"])).resolves.toMatchObject({ code: 0, stdout: "omp/18.7.0\n" });
 		} finally {
 			await fs.rm(dir, RM_TEMP);
 		}
 	});
 
 	it("refuses an omp older than the minimum with an update hint", async () => {
-		const { bin, dir } = await fakeOmp("omp/18.5.9");
+		// 18.6.3: the last omp without `AgentSession.disarmPrewalk`.
+		const { bin, dir } = await fakeOmp("omp/18.6.3");
 		process.env.OMP_GUI_OMP = bin;
 		try {
 			const resolution = await resolveOmp();
 			expect(resolution).toMatchObject({
 				ok: false,
 				error: expect.stringContaining("omp update"),
-				reason: { kind: "too-old", version: "18.5.9", minimum: MIN_OMP_VERSION },
+				reason: { kind: "too-old", version: "18.6.3", minimum: MIN_OMP_VERSION },
 			});
 		} finally {
 			await fs.rm(dir, RM_TEMP);

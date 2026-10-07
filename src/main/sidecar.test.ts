@@ -672,4 +672,57 @@ describe("SidecarManager", () => {
 			await fs.rm(tempDir, RM_TEMP);
 		}
 	}, 15_000);
+
+	it("returns a live sidecar to ready once it answers again after a failed health check", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-health-"));
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import { createInterface } from "node:readline";\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\ncreateInterface({ input: process.stdin }).on("line", line => {\n\tconst command = JSON.parse(line) as { id?: string; type: string };\n\tprocess.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: { sessionId: "s1" } }) + "\\n");\n});\n`,
+		);
+		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, healthRecoveryProbeMs: 20 });
+		try {
+			const ready = waitForReady(sidecar);
+			sidecar.start();
+			await ready;
+			const statuses: SidecarStatus[] = [];
+			sidecar.on("status", ({ status }: SidecarStatusPayload) => statuses.push(status));
+
+			const recovered = waitForReady(sidecar);
+			sidecar.markUnhealthy("Health check timed out");
+			// The child is still there and still holds its session.
+			expect(sidecar.status).toBe("error");
+			expect(sidecar.processAlive).toBe(true);
+			await recovered;
+			expect(statuses).toEqual(["error", "ready"]);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
+	it("survives writes to a child that stopped reading stdin (EPIPE)", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-epipe-"));
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs";\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nfs.closeSync(0);\nsetInterval(() => {}, 1000);\n`,
+		);
+		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
+		const uncaught: unknown[] = [];
+		const onUncaught = (error: unknown) => uncaught.push(error);
+		process.on("uncaughtException", onUncaught);
+		try {
+			const ready = waitForReady(sidecar);
+			sidecar.start();
+			await ready;
+			// Every write after the read end closed fails on the stream, not the call.
+			for (let index = 0; index < 50; index++)
+				sidecar.sendSideChannel({ type: "extension_ui_response", id: `${index}` });
+			await delay(200);
+			expect(uncaught).toEqual([]);
+		} finally {
+			process.off("uncaughtException", onUncaught);
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
 });

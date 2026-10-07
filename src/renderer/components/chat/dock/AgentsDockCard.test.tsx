@@ -127,7 +127,8 @@ describe("AgentsDockCard", () => {
 			]);
 		await mount(<AgentsDockCard />);
 
-		expect(chip()?.textContent).toBe("Subagents2");
+		// Icon + count only; the word "Subagents" lives in the accessible name.
+		expect(chip()?.textContent).toBe("2");
 		expect(chip()?.querySelector(".animate-spin")).not.toBeNull();
 		expect(chip()?.getAttribute("aria-label")).toBe("Subagents: 2 running · 1 done · 1 failed. Show in sidebar");
 		expect(chip()?.getAttribute("title")).toBe("Subagents: 2 running · 1 done · 1 failed — Show in sidebar");

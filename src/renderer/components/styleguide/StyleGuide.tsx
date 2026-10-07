@@ -753,7 +753,7 @@ export default function StyleGuide() {
 						<Banner onDismiss={() => {}} title="Update ready" variant="info">
 							OMPdesk 0.2.0 installs on restart.
 						</Banner>
-						<Banner variant="warning">omp 18.6 or newer is required. Run omp update.</Banner>
+						<Banner variant="warning">omp 18.7 or newer is required. Run omp update.</Banner>
 						<Banner onDismiss={() => {}} variant="success">
 							Provider connected.
 						</Banner>

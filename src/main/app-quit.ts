@@ -1,24 +1,24 @@
 /**
- * The quit latch: everything that ends the process goes through `requestQuit()`,
- * and `before-quit` refuses unless the run is already approved. Without this,
- * ⌘Q SIGTERMs every in-flight agent run with no word to the user.
+ * The quit latch: everything that ends the process goes through `requestQuit()`
+ * (or, for an update, a confirmed `quitAndInstall()`), and `before-quit`
+ * refuses unless the run is already approved. Without this, ⌘Q SIGTERMs every
+ * in-flight agent run with no word to the user.
  */
-import { app, BrowserWindow, dialog, type MessageBoxOptions } from "electron";
+import { app, autoUpdater, BrowserWindow, dialog, type MessageBoxOptions } from "electron";
 import { getMainLanguage, mainT } from "./i18n";
-import { assessQuitRisk, type QuitRisk, quitNeedsConfirmation, type WindowTabFact } from "./quit-guard";
+import { assessQuitRisk, QuitLatch, type QuitRisk, quitNeedsConfirmation, type WindowTabFact } from "./quit-guard";
 
-let approved = false;
+const latch = new QuitLatch();
 let asking = false;
-let cleanedUp = false;
 let inventory: () => WindowTabFact[] = () => [];
 
 /** True after the user (or a restart prompt) approved the quit. */
 export function isQuitting(): boolean {
-	return approved;
+	return latch.approved;
 }
 
 export function requestQuit(): void {
-	approved = true;
+	latch.approve();
 	app.quit();
 }
 
@@ -63,20 +63,21 @@ export async function confirmQuit(): Promise<boolean> {
 
 /**
  * Register the `before-quit` gate. `tabInventory` reports what the sidecars are
- * doing, `teardown` runs exactly once per approved quit.
+ * doing, `teardown` runs exactly once per approved quit — ⌘Q and an update's
+ * `quitAndInstall()` alike.
  */
 export function installQuitGuard(tabInventory: () => WindowTabFact[], teardown: () => void): void {
 	inventory = tabInventory;
 	app.on("before-quit", event => {
-		if (approved) {
-			if (cleanedUp) return;
-			cleanedUp = true;
-			teardown();
-			return;
-		}
+		if (latch.proceed(teardown)) return;
 		event.preventDefault();
 		void confirmQuit().then(ok => {
 			if (ok) requestQuit();
 		});
 	});
+	// electron-updater emits this from `quitAndInstall()` (Squirrel natively,
+	// NSIS once its installer started), only after updater.ts confirmed.
+	// Squirrel then closes every window before `before-quit`, and a closing
+	// window takes its tabs and their saved layout with it.
+	autoUpdater.on("before-quit-for-update", () => latch.proceedForUpdate(teardown));
 }

@@ -60,6 +60,8 @@ const LOCAL_SEND_TIMEOUT_MS = 120_000;
 const ENTRY_ID_TIMEOUT_MS = 5_000;
 /** Longest wait after `exit` for the child's stderr to finish draining (a shim's grandchild may hold it open). */
 const STDERR_DRAIN_MS = 1_000;
+/** Pause between re-probes while a failed health check holds a live child in `error`. */
+const HEALTH_RECOVERY_PROBE_MS = 5_000;
 
 /** Files inside the gui-bridge directory (resources/gui-bridge). */
 const BRIDGE_ENTRY = "index.ts";
@@ -199,6 +201,8 @@ export interface SidecarOptions {
 	 * Absent: a spawn that exits for lack of a usable model just crash-loops.
 	 */
 	bootModel?: (runtime: OmpRuntime) => Promise<string>;
+	/** Re-probe interval after a failed health check (tests shorten it). */
+	healthRecoveryProbeMs?: number;
 }
 
 /** One crash-loop step, as handed to `reportFailure`. */
@@ -265,6 +269,12 @@ export class SidecarManager extends EventEmitter {
 	#detachParser: (() => void) | null = null;
 	#restartCount = 0;
 	#restartTimer: NodeJS.Timeout | null = null;
+	/**
+	 * A failed health check marked this live child `error`. Re-probed until a
+	 * command succeeds, which sets it `ready` again (see markUnhealthy).
+	 */
+	#unhealthy = false;
+	#recoveryTimer: NodeJS.Timeout | null = null;
 	/**
 	 * Spawn-cycle counter, bumped whenever a cycle is torn down or started.
 	 * Every continuation that outlives the synchronous spawn (protocol
@@ -346,6 +356,11 @@ export class SidecarManager extends EventEmitter {
 
 	get rpcClient(): RpcClient | null {
 		return this.#rpcClient;
+	}
+
+	/** A child process is running (whatever `status` says — a failed health check reports `error` over a live child). */
+	get processAlive(): boolean {
+		return this.#child !== null;
 	}
 
 	start(): void {
@@ -446,7 +461,13 @@ export class SidecarManager extends EventEmitter {
 		bridge.onEvent(event => this.#routeFrame(event));
 		this.#bridge = bridge;
 
-		// Set up RPC client with stdin writer
+		// Set up RPC client with stdin writer. A write racing the child's death
+		// fails with EPIPE on the stream, not the write() call; without a listener
+		// that `error` is an uncaught exception in main. The child's own `exit`
+		// already drives the restart.
+		child.stdin?.on("error", err => {
+			console.warn(`[sidecar] stdin: ${err.message}`);
+		});
 		const send = (frame: object) => {
 			if (child.stdin?.writable) {
 				child.stdin.write(`${JSON.stringify(frame)}\n`);
@@ -458,7 +479,11 @@ export class SidecarManager extends EventEmitter {
 				if (!handler) return undefined;
 				return this.#localContext(rpcClient, runtime, bridge).then(ctx => runLocalCommand(handler, command, ctx));
 			},
-			observe: (command, response) => this.#observeResponse(command, response),
+			observe: (command, response) => {
+				this.#observeResponse(command, response);
+				// Any successful answer proves the command loop is alive again.
+				if (response.success) this.#recoverHealth();
+			},
 		});
 		this.#rpcClient = rpcClient;
 
@@ -859,6 +884,9 @@ export class SidecarManager extends EventEmitter {
 		// Any async continuation of the current cycle (pending negotiation) is
 		// stale from here on, even before the replacement spawns.
 		this.#generation++;
+		this.#unhealthy = false;
+		clearTimeout(this.#recoveryTimer ?? undefined);
+		this.#recoveryTimer = null;
 		this.#detachParser?.();
 		this.#detachParser = null;
 		this.#releaseHeld();
@@ -881,9 +909,43 @@ export class SidecarManager extends EventEmitter {
 		}
 	}
 
-	/** Mark the sidecar as unhealthy (e.g. health check failed after ready). */
+	/**
+	 * Mark the sidecar unhealthy: a health check failed after ready. The child
+	 * may be wedged or merely busy (a slow discovery await on the serial
+	 * command queue), so it is neither killed nor restarted — that would throw
+	 * away a live session. Instead it reports `error` and is re-probed with a
+	 * `get_state` every few seconds; the first successful command (the probe or
+	 * anything else) sets it `ready` again. A verdict that lands after the child
+	 * already crashed or restarted is stale and ignored.
+	 */
 	markUnhealthy(reason: string): void {
+		if (this.#status !== "ready" || !this.#child) return;
+		this.#unhealthy = true;
 		this.#setStatus("error", reason);
+		this.#scheduleRecoveryProbe();
+	}
+
+	#scheduleRecoveryProbe(): void {
+		const generation = this.#generation;
+		this.#recoveryTimer = setTimeout(() => {
+			this.#recoveryTimer = null;
+			const client = this.#rpcClient;
+			if (!this.#unhealthy || !this.#isLive(generation) || !client) return;
+			const retry = () => {
+				if (this.#unhealthy && this.#isLive(generation)) this.#scheduleRecoveryProbe();
+			};
+			client.stock({ type: "get_state" }).then(response => {
+				if (!response.success) retry();
+			}, retry);
+		}, this.#options.healthRecoveryProbeMs ?? HEALTH_RECOVERY_PROBE_MS);
+	}
+
+	#recoverHealth(): void {
+		if (!this.#unhealthy) return;
+		this.#unhealthy = false;
+		clearTimeout(this.#recoveryTimer ?? undefined);
+		this.#recoveryTimer = null;
+		this.#setStatus("ready");
 	}
 
 	/**

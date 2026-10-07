@@ -134,11 +134,11 @@ test("voice and side question require an explicit start", async () => {
 	expect(await recorded("live_start")).toHaveLength(voiceBefore);
 	await page.screenshot({ path: "test-results/02-voice.png", scale: "css", animations: "disabled" });
 	await page.keyboard.press("Escape");
-	const before = (await recorded("modes.btw")).length;
+	const before = (await recorded("btw")).length;
 	await command("/btw explain the current approach");
 	modal = page.getByRole("dialog");
 	await expect(modal).toBeVisible();
-	expect(await recorded("modes.btw")).toHaveLength(before);
+	expect(await recorded("btw")).toHaveLength(before);
 	await page.keyboard.press("Escape");
 });
 

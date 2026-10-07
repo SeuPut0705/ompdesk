@@ -3,10 +3,11 @@
  * providers, plugins, search results.
  *
  * Anatomy: leading (icon/avatar/status dot) · title + optional description
- * · meta (right-aligned quiet text: time, count, Kbd) · actions (IconButtons
+ * · meta (right-aligned quiet text: time, count, Kbd) · trailing (an
+ * always-visible control such as a disclosure) · actions (IconButtons
  * revealed on hover and keyboard focus — never display:none, so they stay
  * in the tab order). The whole row is one click target (`onClick`); actions
- * sit above it and stop nothing. `selected` marks the current item
+ * and trailing sit above it and stop nothing. `selected` marks the current item
  * (aria-current). Min height 32px (compact) / 40px (with description).
  * Rows are colorless at rest; hover and selection are neutral washes.
  * `rowProps` / `buttonProps` pass extra attributes to the row and its
@@ -27,6 +28,8 @@ export interface ListRowProps {
 	meta?: ReactNode;
 	/** Row actions (IconButton size sm); shown on hover / focus-within / selected. */
 	actions?: ReactNode;
+	/** Always-visible control at the right edge (e.g. a disclosure); actions show to its left. */
+	trailing?: ReactNode;
 	selected?: boolean;
 	disabled?: boolean;
 	onClick?: () => void;
@@ -49,6 +52,7 @@ export function ListRow({
 	leading,
 	meta,
 	actions,
+	trailing,
 	selected,
 	disabled,
 	onClick,
@@ -57,6 +61,19 @@ export function ListRow({
 	rowProps,
 	buttonProps,
 }: ListRowProps) {
+	// Overlaid on the right edge (left of `trailing`) so hidden actions never
+	// reserve the width the title needs at rest.
+	const actionsOverlay = actions && (
+		<span
+			className={cx(
+				"absolute inset-y-0 z-(--sc-z-raised) flex items-center gap-0.5 opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/row:opacity-100 group-hover/row:opacity-100",
+				trailing ? "right-full pr-0.5" : "right-1.5",
+				selected && "opacity-100",
+			)}
+		>
+			{actions}
+		</span>
+	);
 	return (
 		<div
 			{...rowProps}
@@ -112,17 +129,13 @@ export function ListRow({
 					{meta}
 				</span>
 			)}
-			{actions && (
-				// Overlaid on the right edge so hidden actions never reserve the
-				// width the title needs at rest.
-				<span
-					className={cx(
-						"absolute inset-y-0 right-1.5 z-(--sc-z-raised) flex items-center gap-0.5 opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/row:opacity-100 group-hover/row:opacity-100",
-						selected && "opacity-100",
-					)}
-				>
-					{actions}
+			{trailing ? (
+				<span className="relative z-(--sc-z-raised) flex shrink-0 items-center">
+					{actionsOverlay}
+					{trailing}
 				</span>
+			) : (
+				actionsOverlay
 			)}
 		</div>
 	);

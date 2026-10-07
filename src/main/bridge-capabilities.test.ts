@@ -107,10 +107,10 @@ describe("deriveUnavailable", () => {
 	it("groups missing internals by feature, in the order asked, omitting satisfied features", () => {
 		const requirements = {
 			planMode: { session: ["setPlanModeState()", "getPlanModeState()"] },
-			btw: { modules: { "mod/btw": ["BtwHistoryStore.open()"] } },
+			loopMode: { modules: { "mod/btw": ["BtwHistoryStore.open()"] } },
 			workspace: { session: ["sessionManager.addWorkspaceDirectory()"] },
 		};
-		expect(deriveUnavailable(["workspace", "btw", "planMode"], sources(), requirements)).toEqual([
+		expect(deriveUnavailable(["workspace", "loopMode", "planMode"], sources(), requirements)).toEqual([
 			{ feature: "workspace", missing: ["AgentSession.sessionManager.addWorkspaceDirectory"] },
 			{ feature: "planMode", missing: ["AgentSession.getPlanModeState"] },
 		]);
@@ -119,6 +119,29 @@ describe("deriveUnavailable", () => {
 	it("covers every feature with a requirement and a renderer label", () => {
 		expect(Object.keys(REQUIREMENTS).sort()).toEqual([...ALL_FEATURES].sort());
 		for (const feature of ALL_FEATURES) expect(en[`bridgeHealth.feature.${feature}`], feature).toBeTruthy();
+	});
+
+	it("reports composer unavailable on an omp without the session members its methods read", () => {
+		const members = [
+			"AgentSession.disarmPrewalk",
+			"AgentSession.autoRetryEnabled",
+			"AgentSession.thinkingLevel",
+			"AgentSession.configuredThinkingLevel",
+		];
+		const composer = { session: REQUIREMENTS.composer.session };
+		expect(missingFor(composer, sources({ session: {} }))).toEqual(expect.arrayContaining(members));
+		const current = {
+			disarmPrewalk() {},
+			get autoRetryEnabled() {
+				return true;
+			},
+			get thinkingLevel() {
+				return undefined;
+			},
+			configuredThinkingLevel() {},
+		};
+		const missing = missingFor(composer, sources({ session: current }));
+		for (const member of members) expect(missing).not.toContain(member);
 	});
 });
 

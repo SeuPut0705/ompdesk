@@ -33,9 +33,24 @@ const PLAN_PROPOSAL_OPTIONS = ["execute", "compact", "keep_context", "save", "re
 
 type ApprovalOption = "execute" | "compact" | "keep_context" | "save";
 
+interface ProposalFrame {
+	planFilePath: string;
+	title: string;
+	suggestedFileName: string;
+	planContent: string;
+	options: string[];
+}
+
 interface PendingProposal {
 	planFilePath: string;
 	title: string;
+	/**
+	 * The `plan_proposal` frame once emitted, i.e. the proposal is awaiting the
+	 * host's answer. The frame is a one-shot event the GUI only receives for a
+	 * tab it is showing, so `get_plan_mode` returns it too: a tab that was in
+	 * the background when the agent proposed re-shows it on hydrate.
+	 */
+	frame?: ProposalFrame;
 }
 
 let pending: PendingProposal | undefined;
@@ -134,14 +149,15 @@ async function onProposalWritten(event: AgentSessionEvent, session: AgentSession
 	const dispatch = writeDeviceDispatch(event.toolName, event.result);
 	if (dispatch?.tool !== PROPOSE_DEVICE_NAME || dispatch.mode !== "execute") return;
 	const suggestedFileName: string = ompPackage().planSaveFileName?.(proposal.title) ?? "PLAN.md";
-	emit({
-		type: "plan_proposal",
+	const frame: ProposalFrame = {
 		planFilePath: proposal.planFilePath,
 		title: proposal.title,
 		suggestedFileName,
 		planContent: (await readPlan(session, proposal.planFilePath)) ?? "",
 		options: [...PLAN_PROPOSAL_OPTIONS],
-	});
+	};
+	proposal.frame = frame;
+	emit({ type: "plan_proposal", ...frame });
 	session.markPlanInternalAbortPending();
 	try {
 		await session.abort();
@@ -254,7 +270,8 @@ export const methods: BridgeMethods = guard("planMode", {
 		const session = attach(env);
 		// A resumed or switched-to session may already carry plan mode.
 		if (session.getPlanModeState()?.enabled) arm(session);
-		return planState(session);
+		// `proposal`: the emitted proposal still awaiting `plan_approval`, if any.
+		return { ...planState(session), proposal: pending?.frame };
 	},
 	"modes.set_plan_mode": async (params, env) => {
 		const session = attach(env);

@@ -794,12 +794,15 @@ export type SessionKind = "agent" | "chat";
  * A tab's git-worktree binding (tab × worktree, plan/20). Immutable, set at
  * spawn like `kind`; main-held so it survives renderer reloads. `name` is the
  * user-facing slug (chip label for untitled tabs), `branch` the created
- * omp/gui/<name> ref, `baseCwd` the repo checkout the worktree forked from.
+ * omp/gui/<name> ref, `baseCwd` the repo checkout the worktree forked from,
+ * `path` the checkout itself — the one directory the close prompt may remove
+ * (the tab's cwd follows session switches).
  */
 export interface IpcTabWorktree {
 	name: string;
 	branch: string;
 	baseCwd: string;
+	path: string;
 }
 
 /** One tab of a window: its sidecar's cwd, last status, and cached session meta. */
@@ -828,6 +831,20 @@ export interface IpcTabInfo {
 	sessionId?: string;
 	/** Null explicitly clears the previous session's cached title. */
 	title?: string | null;
+	/** How the tab's last finished run ended; absent while a run is in flight or before the first one ends. */
+	lastRun?: IpcTabRunOutcome;
+}
+
+/**
+ * Outcome of a finished agent run, from its terminal agent_end (or the failed
+ * auto_retry_end closing a retry saga). Rides TAB_STATUS so a background tab,
+ * whose full event stream is not forwarded, can still be told apart: done,
+ * failed, or aborted.
+ */
+export interface IpcTabRunOutcome {
+	/** The last assistant message's stop reason ("stop", "error", "aborted", …). */
+	stopReason: string;
+	errorMessage?: string;
 }
 
 /** TAB_STATUS push payload — a full tab snapshot from any tab, active or background. */

@@ -73,6 +73,7 @@ import { useQueueStore } from "../../stores/queue";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
+import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../stores/sidebar-subagents";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { type PageDestination, useUiStore } from "../../stores/ui";
@@ -94,7 +95,7 @@ import {
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
-import { SidebarSubagents } from "./SidebarSubagents";
+import { SidebarSubagents, SidebarSubagentsToggle, sidebarSubagentCount } from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
 
 /**
@@ -799,7 +800,8 @@ export function Sidebar() {
 		const indexed = session.liveTabId === undefined;
 		const tab = tabForSession(session);
 		const tabSignal = sessionTabSignal(session);
-		const waiting = isCurrent && awaitingConfirmation;
+		// Background tabs park their dialogs in their own runtime; the tab entry carries the flag.
+		const waiting = (isCurrent && awaitingConfirmation) || tab?.awaitingInput === true;
 		const running = !waiting && (tabSignal?.running === true || (tabSignal === null && isSessionBusy(session)));
 		const failed =
 			!waiting &&
@@ -907,6 +909,16 @@ export function Sidebar() {
 							} else if (event.key === "Delete" && deletable) {
 								event.preventDefault();
 								setPendingDelete({ kind: "session", session });
+							} else if (
+								(event.key === "ArrowRight" || event.key === "ArrowLeft") &&
+								openTabId &&
+								sidebarSubagentCount(openTabId) > 0
+							) {
+								const open = event.key === "ArrowRight";
+								const subagents = useSidebarSubagentsStore.getState();
+								if (open === subagents.expanded.has(session.path)) return;
+								event.preventDefault();
+								subagents.setExpanded(session.path, open);
 							}
 						},
 					}}
@@ -921,7 +933,11 @@ export function Sidebar() {
 							</time>
 						) : undefined
 					}
-					onClick={() => openSession(session)}
+					onClick={() => {
+						// Clicking the session already in view folds/unfolds its subagent rows.
+						if (active && openTabId && sidebarSubagentCount(openTabId) > 0) toggleSidebarSubagents(session.path);
+						openSession(session);
+					}}
 					rowProps={{
 						draggable: openTabId !== undefined && !isCurrent,
 						onDragStart: event => {
@@ -946,6 +962,7 @@ export function Sidebar() {
 						</>
 					}
 					titleText={title}
+					trailing={openTabId ? <SidebarSubagentsToggle sessionKey={session.path} tabId={openTabId} /> : undefined}
 				/>
 				{openTabId && <SidebarSubagents nested={nested} sessionKey={session.path} tabId={openTabId} />}
 			</Fragment>

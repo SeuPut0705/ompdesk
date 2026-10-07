@@ -26,13 +26,13 @@ import type {
 	TabStatus,
 } from "../../shared/ipc-types";
 import type { ExtensionUIRequest, RpcSessionState } from "../../shared/rpc-types";
-import { attachTabSession, hydrateTabSession } from "../hooks/use-rpc-events";
+import { attachTabSession, hydrateTabSession, notifyRunEnd, resetRetryPending } from "../hooks/use-rpc-events";
 import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { sessionDisplayTitle } from "../lib/session-title";
 import { beginTabRoute, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
 import { type ComposerImage, type ComposerStore, useComposerStore } from "./composer";
-import type { ExtensionUiStore } from "./extension-ui";
+import { awaitsUserInput, type ExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
 import {
 	type PendingPlanProposal,
@@ -44,6 +44,8 @@ import { type SessionStore, useSessionStore } from "./session";
 import {
 	deleteSessionRuntime,
 	focusedRuntimeTabId,
+	type SessionRuntime,
+	sessionRuntime,
 	sessionRuntimeStore,
 	setFocusedSessionRuntime,
 	useRuntimeTabId,
@@ -79,6 +81,8 @@ export interface SessionTab {
 	 * open-session-in-new-tab flow — the sidecar starts on a fresh session and
 	 * must be switched over before its transcript hydrates). */
 	pendingSessionPath?: string;
+	/** The tab's session blocks on the user: a pending ask/confirm/… or plan proposal. */
+	awaitingInput?: boolean;
 }
 
 export type SplitAxis = "columns" | "rows";
@@ -288,6 +292,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					sessionId: info.sessionId ?? existing?.sessionId,
 					unreadDone: sessionChanged ? false : (existing?.unreadDone ?? false),
 					pendingSessionPath: existing?.pendingSessionPath,
+					awaitingInput: sessionChanged ? undefined : existing?.awaitingInput,
 				};
 			});
 			// Entries the reply doesn't know (a spawn reply raced this reconcile)
@@ -322,6 +327,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					: null);
 			return { tabs, activeTabId, split };
 		});
+		for (const tab of get().tabs) watchTabAwaitingInput(tab.id);
 		const activeTabId = get().activeTabId;
 		setFocusedSessionRuntime(activeTabId);
 		if (activeTabId) {
@@ -621,13 +627,12 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			replaceTabRuntime(payload.tabId);
 			if (active) setFocusedSessionRuntime(payload.tabId);
 		}
+		// A background tab's run settled → done badge until the user visits, and
+		// the run-end notification its unforwarded agent_end would have raised.
+		const completedInBackground =
+			!visibleTabIds(state).includes(payload.tabId) && previous?.status === "running" && payload.status === "ready";
 		set(current => {
 			const index = current.tabs.findIndex(tab => tab.id === payload.tabId);
-			// A background tab's run settled → done badge until the user visits.
-			const completedInBackground =
-				!visibleTabIds(current).includes(payload.tabId) &&
-				previous?.status === "running" &&
-				payload.status === "ready";
 			const next: SessionTab = {
 				id: payload.tabId,
 				cwd: payload.cwd || previous?.cwd || "",
@@ -646,26 +651,39 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				sessionId: payload.sessionId ?? previous?.sessionId,
 				unreadDone: sessionChanged ? false : completedInBackground ? true : (previous?.unreadDone ?? false),
 				pendingSessionPath: previous?.pendingSessionPath,
+				awaitingInput: sessionChanged ? undefined : previous?.awaitingInput,
 			};
 			if (index === -1) return { tabs: [...current.tabs, next] };
 			const tabs = [...current.tabs];
 			tabs[index] = next;
 			return { tabs };
 		});
+		watchTabAwaitingInput(payload.tabId);
 		const session = sessionRuntimeStore<SessionStore>(payload.tabId, "session");
 		if (sessionChanged && (payload.status === "ready" || payload.status === "running")) {
 			void attachTabSession(payload.tabId);
 		}
+		// The end events that clear the retry/compaction rows and the retry gate
+		// only reach a visible tab; main's view of the run is authoritative.
+		const running = payload.status === "running";
+		const compacting = payload.compacting === true;
+		if (!running) resetRetryPending(payload.tabId);
+		const settled = {
+			...(running ? {} : { retryInfo: null }),
+			...(compacting ? {} : { compactionInfo: null }),
+		};
 		if (session) {
 			session.getState().setStatus(payload.status === "running" ? "ready" : payload.status, payload.cwd);
 			session.setState({
-				isStreaming: payload.status === "running",
+				isStreaming: running,
 				isCompacting: payload.compacting ?? session.getState().isCompacting,
+				...settled,
 			});
 		} else if (active) {
 			useSessionStore.getState().setStatus(payload.status === "running" ? "ready" : payload.status, payload.cwd);
-			useSessionStore.setState({ isStreaming: payload.status === "running" });
+			useSessionStore.setState({ isStreaming: running, ...settled });
 		}
+		if (completedInBackground && payload.lastRun) notifyRunEnd(payload.tabId, payload.lastRun);
 	},
 
 	reset: () => {
@@ -690,6 +708,40 @@ export function pushTabExtensionUiRequest(tabId: string, request: ExtensionUIReq
 	if (isTabClosed(tabId)) return;
 	ensureTabRuntime(tabId);
 	sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi")?.getState().pushRequest(request);
+	watchTabAwaitingInput(tabId);
+}
+
+/** Runtimes whose extension-UI and plan stores already feed their tab's `awaitingInput`. */
+const watchedRuntimes = new WeakSet<SessionRuntime>();
+
+/**
+ * Mirror "this tab's session blocks on the user" (a response-bearing extension
+ * request or a plan proposal) onto its tab entry, so the sidebar and tab
+ * signals flag background tabs too, whose dialogs are parked in their own
+ * runtime until shown. Subscribes once per runtime (a replaced runtime is
+ * watched afresh) and re-syncs on every call, since the tab entry can appear
+ * after its runtime did.
+ */
+function watchTabAwaitingInput(tabId: string): void {
+	const runtime = sessionRuntime(tabId);
+	const extensionUi = sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi");
+	const plan = sessionRuntimeStore<PlanApprovalStore>(tabId, "planApproval");
+	if (!runtime || !extensionUi || !plan) return;
+	const sync = () => {
+		if (sessionRuntime(tabId) !== runtime) return;
+		const awaiting = awaitsUserInput(extensionUi.getState()) || plan.getState().pending !== null;
+		useTabsStore.setState(state => {
+			const tab = state.tabs.find(entry => entry.id === tabId);
+			if (!tab || (tab.awaitingInput === true) === awaiting) return state;
+			return { tabs: state.tabs.map(entry => (entry.id === tabId ? { ...entry, awaitingInput: awaiting } : entry)) };
+		});
+	};
+	if (!watchedRuntimes.has(runtime)) {
+		watchedRuntimes.add(runtime);
+		extensionUi.subscribe(sync);
+		plan.subscribe(sync);
+	}
+	sync();
 }
 
 /** Restore a failed submit to the tab that issued it, even when that tab is now

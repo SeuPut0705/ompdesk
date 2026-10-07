@@ -34,6 +34,8 @@ class FakeSidecar extends EventEmitter {
 	 * `starting`, exactly like SidecarManager.
 	 */
 	currentStatus: SidecarStatus = "asleep";
+	/** Whether a child process is running (a failed health check reports `error` over a live one). */
+	processAlive = false;
 	readonly rpcClient = {
 		command: async (command: RpcCommand): Promise<RpcResponse> => {
 			this.rpcCommands.push(command);
@@ -93,6 +95,15 @@ class FakeSidecar extends EventEmitter {
 	emitHostUriRequest(id: string): void {
 		this.emit("hostUriRequest", { type: "host_uri_request", id, operation: "read", uri: "https://example.com" });
 	}
+	emitUiRequest(request: Record<string, unknown>): void {
+		this.emit("extensionUi", { type: "extension_ui_request", ...request });
+	}
+	emitSessionIdentity(identity: { sessionId?: string; sessionFile?: string }): void {
+		this.emit("session", identity);
+	}
+	emitEvents(events: Array<Record<string, unknown>>): void {
+		this.emit("events", events);
+	}
 }
 
 interface FakeWindow {
@@ -116,6 +127,8 @@ function fakeWindow(id: number): FakeWindow {
 		},
 		isDestroyed: () => destroyed,
 		once: (event: string, listener: () => void) => emitter.once(event, listener),
+		removeListener: (event: string, listener: () => void) => emitter.removeListener(event, listener),
+		listenerCount: (event: string) => emitter.listenerCount(event),
 	} as unknown as BrowserWindow;
 	return {
 		win,
@@ -310,7 +323,15 @@ describe("SidecarPool tabs", () => {
 		fw.sent.length = 0;
 		b?.emitAgentEvents(["agent_end"]);
 		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).map(s => s.data)).toEqual([
-			{ kind: "agent", tabId: "tab-b", cwd: "/b", status: "ready", placeholder: false, sessionPath: null },
+			{
+				kind: "agent",
+				tabId: "tab-b",
+				cwd: "/b",
+				status: "ready",
+				placeholder: false,
+				sessionPath: null,
+				lastRun: { stopReason: "stop" },
+			},
 		]);
 
 		// A restart mid-run clears the flag: no stale "running" after recovery.
@@ -790,6 +811,11 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(pool.sessionOwnerIsLive("/sessions/s.jsonl")).toBe(false);
 		sidecar?.emitStatus("error");
 		expect(pool.sessionOwnerIsLive("/sessions/s.jsonl")).toBe(false);
+
+		// …but a failed health check reports `error` over a process that still
+		// holds the file: a delete must go through it, never straight to disk.
+		if (sidecar) sidecar.processAlive = true;
+		expect(pool.sessionOwnerIsLive("/sessions/s.jsonl")).toBe(true);
 	});
 
 	it("registers the owner at acquire-with-sessionPath and unregisters on release", () => {
@@ -1081,5 +1107,135 @@ describe("SidecarPool quit inventory", () => {
 		b?.emitAgentEvents(["agent_end"]);
 		expect(pool.releaseTab("tab-b")).toBe(true);
 		expect(pool.tabInventory().map(entry => entry.tabId)).toEqual(["tab-a", "tab-c"]);
+	});
+});
+
+describe("SidecarPool background tabs", () => {
+	it("forwards a background tab's extension UI to its tab and routes the answer back", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		const [a, b] = sidecars;
+
+		// tab-b was never shown, yet its agent blocks on an ask and publishes a widget.
+		b?.emitUiRequest({ id: "ask-b", method: "ask", title: "Which one?", questions: [] });
+		b?.emitUiRequest({ id: "widget-b", method: "setWidget", widgetKey: "next-prompt", widgetLines: ["hi"] });
+		expect(fw.sentTo(IPC_EVENTS.EXTENSION_UI).map(item => item.data)).toMatchObject([
+			{ tabId: "tab-b", request: { id: "ask-b", method: "ask" } },
+			{ tabId: "tab-b", request: { id: "widget-b", method: "setWidget" } },
+		]);
+
+		const response = { type: "extension_ui_response", id: "ask-b", cancelled: true };
+		expect(pool.routeSideChannel("ask-b", response, true)).toBe(true);
+		expect(b?.sentFrames).toEqual([response]);
+		expect(a?.sentFrames).toEqual([]);
+	});
+
+	it("forgets a request omp cancelled and forwards the cancel to the tab", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		const b = sidecars[1];
+
+		b?.emitUiRequest({ id: "confirm-b", method: "confirm", title: "Go?", message: "?" });
+		b?.emitUiRequest({ id: "cancel-1", method: "cancel", targetId: "confirm-b" });
+		expect(fw.sentTo(IPC_EVENTS.EXTENSION_UI).at(-1)?.data).toMatchObject({
+			tabId: "tab-b",
+			request: { method: "cancel", targetId: "confirm-b" },
+		});
+		// A late answer no longer has a live request to reach.
+		expect(pool.routeSideChannel("confirm-b", { type: "extension_ui_response", id: "confirm-b" }, true)).toBe(false);
+		expect(b?.sentFrames).toEqual([]);
+	});
+
+	it("reports how a background run ended so the renderer can tell failure from success", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		const b = sidecars[1];
+		b?.emitStatus("ready");
+		const lastFor = () => fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data as IpcTabStatusPayload;
+
+		b?.emitEvents([{ type: "agent_start" }]);
+		expect(lastFor()).toMatchObject({ tabId: "tab-b", status: "running" });
+		expect(lastFor().lastRun).toBeUndefined();
+		b?.emitEvents([
+			{
+				type: "agent_end",
+				messages: [{ role: "assistant", content: [], stopReason: "error", errorMessage: "rate limited" }],
+			},
+		]);
+		expect(lastFor()).toMatchObject({
+			tabId: "tab-b",
+			status: "ready",
+			lastRun: { stopReason: "error", errorMessage: "rate limited" },
+		});
+
+		// A new run clears the previous outcome; a clean finish reports "stop".
+		b?.emitEvents([{ type: "agent_start" }]);
+		expect(lastFor().lastRun).toBeUndefined();
+		b?.emitEvents([{ type: "agent_end", messages: [{ role: "assistant", content: [], stopReason: "stop" }] }]);
+		expect(lastFor()).toMatchObject({ status: "ready", lastRun: { stopReason: "stop" } });
+	});
+
+	it("keeps a retry saga running until its auto_retry_end decides the outcome", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		const a = sidecars[0];
+		a?.emitStatus("ready");
+		const lastFor = () => fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data as IpcTabStatusPayload;
+
+		a?.emitEvents([{ type: "agent_start" }]);
+		a?.emitEvents([{ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 10, errorMessage: "529" }]);
+		// The saga's coalesced agent_end is not the end of the run yet.
+		a?.emitEvents([{ type: "agent_end", messages: [{ role: "assistant", content: [], stopReason: "error" }] }]);
+		expect(lastFor().status).toBe("running");
+
+		a?.emitEvents([{ type: "auto_retry_end", success: false, attempt: 3, finalError: "overloaded" }]);
+		expect(lastFor()).toMatchObject({
+			status: "ready",
+			lastRun: { stopReason: "error", errorMessage: "overloaded" },
+		});
+	});
+
+	it("tracks the session a get_state reports in one push, so a later session_info_update is no change", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/one.jsonl");
+		const a = sidecars[0];
+		a?.emitSessionInfo({ sessionId: "one" });
+		const pushes = fw.sentTo(IPC_EVENTS.TAB_STATUS).length;
+
+		// An in-tab switch_session: the hydrate's get_state reports the new session.
+		a?.emitSessionIdentity({ sessionId: "two", sessionFile: "/sessions/two.jsonl" });
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS)).toHaveLength(pushes + 1);
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({
+			tabId: "tab-a",
+			sessionId: "two",
+			sessionPath: "/sessions/two.jsonl",
+		});
+		expect(pool.sessionOwner("/sessions/one.jsonl")).toBeNull();
+
+		// omp's own session_info_update for that session arrives much later: the
+		// file stays owned, and the id it carries is the one already reported.
+		a?.emitSessionInfo({ sessionId: "two", title: "Second" });
+		expect(pool.sessionOwner("/sessions/two.jsonl")).toEqual({ tabId: "tab-a", winId: 1 });
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ sessionId: "two", title: "Second" });
+	});
+
+	it("removes the window-closed listener when a tab is released", () => {
+		const { pool } = fakePool();
+		const fw = fakeWindow(1);
+		const before = fw.win.listenerCount("closed");
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		expect(fw.win.listenerCount("closed")).toBe(before + 2);
+
+		expect(pool.releaseTab("tab-b")).toBe(true);
+		expect(fw.win.listenerCount("closed")).toBe(before + 1);
 	});
 });

@@ -3,22 +3,92 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	classifyRepoAccess,
+	DOWNLOAD_IDLE_TIMEOUT_MS,
 	firstUpdateToken,
 	hasStableMacSigningIdentity,
 	installerPartialPath,
 	isSwappableBundleLocation,
 	macBundlePath,
 	planInstallerTransfer,
+	SingleTransfer,
 	SWAP_SCRIPT,
 	selectMacAsset,
 	settleFailedUpdateCheck,
 	settleIncompleteUpdateCheck,
 	sha512FileBase64,
 	sweepInstallerPartials,
+	TransferStalledError,
+	withinIdle,
 } from "./updater-state";
+
+describe("installer transfer concurrency", () => {
+	it("never runs a second transfer while one is in flight", async () => {
+		const transfers = new SingleTransfer();
+		const { promise: gate, resolve: finish } = Promise.withResolvers<void>();
+		const transfer = vi.fn(() => gate);
+
+		const first = transfers.start(transfer);
+		const second = transfers.start(transfer);
+		expect(transfers.running).toBe(true);
+		expect(transfer).toHaveBeenCalledTimes(1);
+		expect(second).toBe(first);
+
+		finish();
+		await first;
+		expect(transfers.running).toBe(false);
+	});
+
+	it("lets a retry start once the previous transfer failed", async () => {
+		const transfers = new SingleTransfer();
+		await expect(transfers.start(async () => Promise.reject(new Error("offline")))).rejects.toThrow();
+		expect(transfers.running).toBe(false);
+
+		const retry = vi.fn(async () => {});
+		await transfers.start(retry);
+		expect(retry).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("installer transfer idle timeout", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("aborts a step that delivers nothing and fails with a stall", async () => {
+		vi.useFakeTimers();
+		const abort = vi.fn();
+		const stalled = withinIdle(new Promise<never>(() => {}), DOWNLOAD_IDLE_TIMEOUT_MS, abort);
+		const outcome = expect(stalled).rejects.toBeInstanceOf(TransferStalledError);
+
+		await vi.advanceTimersByTimeAsync(DOWNLOAD_IDLE_TIMEOUT_MS);
+		await outcome;
+		expect(abort).toHaveBeenCalledTimes(1);
+	});
+
+	it("reports the stall even when the abort rejects the step synchronously", async () => {
+		vi.useFakeTimers();
+		const { promise: step, reject } = Promise.withResolvers<never>();
+		const outcome = expect(
+			withinIdle(step, DOWNLOAD_IDLE_TIMEOUT_MS, () => reject(new Error("aborted"))),
+		).rejects.toBeInstanceOf(TransferStalledError);
+
+		await vi.advanceTimersByTimeAsync(DOWNLOAD_IDLE_TIMEOUT_MS);
+		await outcome;
+	});
+
+	it("passes a step that arrives in time through and never aborts it", async () => {
+		vi.useFakeTimers();
+		const abort = vi.fn();
+		const chunk = withinIdle(Promise.resolve("bytes"), DOWNLOAD_IDLE_TIMEOUT_MS, abort);
+
+		await expect(chunk).resolves.toBe("bytes");
+		await vi.advanceTimersByTimeAsync(DOWNLOAD_IDLE_TIMEOUT_MS * 2);
+		expect(abort).not.toHaveBeenCalled();
+	});
+});
 
 describe("update check terminal state", () => {
 	it("does not leave a completed manual check spinning forever", () => {

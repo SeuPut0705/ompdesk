@@ -90,3 +90,64 @@ describe("tools store history rebuild", () => {
 		expect(store.getState().activeTools.get("read:0")).toMatchObject({ status: "done" });
 	});
 });
+
+describe("tools store across a hidden stretch", () => {
+	const toolcallDelta = (id: string, timestamp: number): AgentSessionEvent => {
+		const partial: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "toolCall", id, name: id, arguments: {} }],
+			timestamp,
+		};
+		return {
+			type: "message_update",
+			message: partial,
+			assistantMessageEvent: { type: "toolcall_delta", contentIndex: 0, delta: "{", partial },
+		};
+	};
+
+	it("opens a new card for the next message's call when its message_start was missed", () => {
+		const store = createToolsStore();
+		store
+			.getState()
+			.applyEvents([
+				{ type: "message_start", message: { role: "assistant", content: [], timestamp: 1 } },
+				toolcallDelta("first", 1),
+			]);
+		// The tab went to the background: message_end of the first message and
+		// message_start of the next never arrived. The next call streams at the
+		// same content index.
+		store.getState().applyEvents([toolcallDelta("second", 2)]);
+
+		const names = [...store.getState().activeTools.values()].map(entry => entry.toolName);
+		expect(names).toEqual(["first", "second"]);
+	});
+
+	it("rebuilds stale cards from the transcript while keeping calls that changed during the fetch", () => {
+		const store = createToolsStore();
+		// Seen live before the tab was hidden; its end event was missed.
+		store.getState().applyEvents([start("stale")]);
+		const beforeFetch = store.getState().activeTools;
+		// Live again while the transcript fetch is in flight.
+		store.getState().applyEvents([start("fresh")]);
+
+		store.getState().hydrateMessages([call("stale"), result("stale")], {
+			turnIsLive: true,
+			keepChangedSince: beforeFetch,
+		});
+		expect(store.getState().activeTools.get("stale")).toMatchObject({ status: "done" });
+		expect(store.getState().activeTools.get("fresh")).toMatchObject({ status: "running" });
+
+		// The kept call still resolves through its live route.
+		store.getState().applyEvents([
+			{
+				type: "tool_execution_end",
+				toolCallId: "fresh",
+				toolName: "read",
+				result: { content: [] },
+				isError: false,
+			},
+		]);
+		expect(store.getState().activeTools.get("fresh")).toMatchObject({ status: "done" });
+		expect(store.getState().activeTools.size).toBe(2);
+	});
+});

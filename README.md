@@ -16,7 +16,7 @@
 
 <br><br>
 
-<img src="https://img.shields.io/badge/omp-18.6%2B-8B5CF6?style=flat-square" alt="omp 18.6 이상">
+<img src="https://img.shields.io/badge/omp-18.7%2B-8B5CF6?style=flat-square" alt="omp 18.7 이상">
 <img src="https://img.shields.io/badge/%ED%95%9C%EA%B5%AD%EC%96%B4%20%C2%B7%20English-UI-F59E0B?style=flat-square" alt="한국어 · English">
 <img src="https://img.shields.io/badge/license-MIT-BE185D?style=flat-square" alt="MIT">
 
@@ -159,7 +159,7 @@ bun install -g @oh-my-pi/pi-coding-agent
 <details>
 <summary><b>"omp를 찾을 수 없음"이라고 나와요</b></summary>
 
-터미널에서 `omp --version`이 동작하는지 확인하세요. 안 되면 위의 설치 명령을 실행하고, 버전이 18.6 미만이면 `omp update` 후 앱을 다시 켜세요. omp를 특이한 위치에 설치했다면 `OMP_GUI_OMP=/경로/omp` 환경 변수로 지정할 수 있어요.
+터미널에서 `omp --version`이 동작하는지 확인하세요. 안 되면 위의 설치 명령을 실행하고, 버전이 18.7 미만이면 `omp update` 후 앱을 다시 켜세요. omp를 특이한 위치에 설치했다면 `OMP_GUI_OMP=/경로/omp` 환경 변수로 지정할 수 있어요.
 </details>
 
 <details>
@@ -179,7 +179,7 @@ GitHub CLI가 필요해요. `gh auth status`로 로그인 상태를 확인하세
 <details>
 <summary><b>소스에서 빌드하기</b></summary>
 
-필요: [Bun](https://bun.sh) 1.4+, Git, omp 18.6+
+필요: [Bun](https://bun.sh) 1.4+, Git, omp 18.7+
 
 ```bash
 git clone https://github.com/SeuPut0705/ompdesk.git

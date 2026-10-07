@@ -19,8 +19,9 @@ import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
 import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
-import { sessionRuntimeStore } from "../../stores/session-runtime-context";
+import { deleteSessionRuntime, sessionRuntimeStore } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
+import { useSidebarSubagentsStore } from "../../stores/sidebar-subagents";
 import type { SubagentsStore } from "../../stores/subagents";
 import { ensureTabRuntime } from "../../stores/tab-runtime";
 import { useTabsStore } from "../../stores/tabs";
@@ -1038,60 +1039,137 @@ describe("Sidebar session-list failures", () => {
 });
 
 describe("Sidebar subagents", () => {
-	it("lists an open session's live subagents as child rows directly under that session's row only", async () => {
-		installMockOmp(LIST);
-		useSessionStore.setState({ sessionId: "attached-id", cwd: "/work/alpha", isStreaming: false });
+	afterEach(async () => {
+		// The runtime registry notifies on a microtask: settle it inside act.
+		await act(async () => {
+			deleteSessionRuntime("t1");
+			useSidebarSubagentsStore.setState({ expanded: new Set(), reveal: null });
+		});
+	});
+
+	const TWO = "/work/alpha/two.jsonl";
+
+	/** Session two open in tab t1 with one live and one finished subagent; `current` makes t1 the active tab. */
+	function seedSubagentTab(current: boolean): void {
+		useSessionStore.setState({ sessionId: current ? TWO : "attached-id", cwd: "/work/alpha", isStreaming: false });
 		useTabsStore.setState({
 			tabs: [
 				{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false },
-				{
-					id: "t1",
-					cwd: "/work/alpha",
-					status: "running",
-					kind: "agent",
-					unreadDone: false,
-					sessionId: "/work/alpha/two.jsonl",
-				},
+				{ id: "t1", cwd: "/work/alpha", status: "running", kind: "agent", unreadDone: false, sessionId: TWO },
 			],
-			activeTabId: "t0",
+			activeTabId: current ? "t1" : "t0",
 			bundles: new Map(),
 		});
 		ensureTabRuntime("t1");
-		sessionRuntimeStore<SubagentsStore>("t1", "subagents")!
-			.getState()
-			.setSnapshots([
-				{
-					id: "sa",
-					index: 1,
-					agent: "scout",
-					description: "map the repo",
-					status: "running",
-					lastUpdate: Date.now(),
-				},
-				{
-					id: "done",
-					index: 2,
-					agent: "task",
-					description: "already finished",
-					status: "completed",
-					lastUpdate: Date.now(),
-				},
-			]);
+		setSubagentStatus("running");
+	}
+
+	function setSubagentStatus(status: "running" | "completed"): void {
+		act(() => {
+			sessionRuntimeStore<SubagentsStore>("t1", "subagents")!
+				.getState()
+				.setSnapshots([
+					{ id: "sa", index: 1, agent: "scout", description: "map the repo", status, lastUpdate: Date.now() },
+					{
+						id: "done",
+						index: 2,
+						agent: "task",
+						description: "already finished",
+						status: "completed",
+						lastUpdate: Date.now(),
+					},
+				]);
+		});
+	}
+
+	const disclosure = () => container.querySelector(`[data-sidebar-subagents-toggle="${TWO}"]`);
+	const subagentGroup = () => container.querySelector(`[data-sidebar-subagents="${TWO}"]`);
+
+	async function key(text: string, value: string): Promise<void> {
+		const props = reactProps<{ onKeyDown: (event: unknown) => void }>(rowButton(text));
+		await act(async () => props.onKeyDown({ key: value, shiftKey: false, preventDefault: () => {} }));
+		await flush();
+	}
+
+	it("starts collapsed with a live-count disclosure on the session row that toggles the child rows", async () => {
+		installMockOmp(LIST);
+		seedSubagentTab(false);
 		await mount(<Sidebar />);
 
-		const groups = [...container.querySelectorAll("[data-sidebar-subagents]")];
-		expect(groups.map(group => group.getAttribute("data-sidebar-subagents"))).toEqual(["/work/alpha/two.jsonl"]);
-		// The group renders as the next sibling of its session row.
+		// Collapsed by default: no child rows, only the count on the session's own row.
+		expect(container.querySelectorAll("[data-sidebar-subagents]").length).toBe(0);
+		expect(container.querySelectorAll("[data-sidebar-subagent]").length).toBe(0);
+		const toggle = disclosure();
+		expect(rowFor("Session /work/alpha/two").contains(toggle as unknown as Node)).toBe(true);
+		expect(toggle?.textContent).toBe("1");
+		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+		expect(toggle?.getAttribute("aria-label")).toBe(translate("sidebar.subagents.show", { count: 1 }));
+		expect(container.querySelectorAll("[data-sidebar-subagents-toggle]").length).toBe(1);
+
+		// The disclosure expands without navigating away from the current session.
+		await fire(toggle, "onClick");
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		expect(disclosure()?.getAttribute("aria-expanded")).toBe("true");
 		const next = rowFor("Session /work/alpha/two").nextElementSibling;
-		expect(next?.getAttribute("data-sidebar-subagents")).toBe("/work/alpha/two.jsonl");
+		expect(next?.getAttribute("data-sidebar-subagents")).toBe(TWO);
 		expect(next?.textContent).toContain("map the repo");
 		expect(next?.textContent).not.toContain("already finished");
+		// A tree connector hangs the rows off the session.
+		expect(next?.querySelector("[data-sidebar-subagents-connector]")).not.toBeNull();
 		// The child row joins the sidebar's roving (arrow-key) list right after its session.
 		const roving = [...container.querySelectorAll("[data-roving-item]")].map(item =>
 			item.getAttribute("data-roving-item"),
 		);
-		const sessionIndex = roving.indexOf("session:/work/alpha/two.jsonl");
+		const sessionIndex = roving.indexOf(`session:${TWO}`);
 		expect(sessionIndex).toBeGreaterThanOrEqual(0);
 		expect(roving[sessionIndex + 1]).toBe("subagent:t1:sa");
+
+		await fire(disclosure(), "onClick");
+		expect(subagentGroup()).toBeNull();
+	});
+
+	it("clicking the current session row folds and unfolds its subagent rows", async () => {
+		installMockOmp(LIST);
+		seedSubagentTab(true);
+		await mount(<Sidebar />);
+		expect(subagentGroup()).toBeNull();
+
+		await fire(rowButton("Session /work/alpha/two"), "onClick");
+		expect(subagentGroup()).not.toBeNull();
+		await fire(rowButton("Session /work/alpha/two"), "onClick");
+		expect(subagentGroup()).toBeNull();
+	});
+
+	it("ArrowRight expands and ArrowLeft collapses on a session row with subagents", async () => {
+		installMockOmp(LIST);
+		seedSubagentTab(false);
+		await mount(<Sidebar />);
+
+		await key("Session /work/alpha/two", "ArrowRight");
+		expect(subagentGroup()).not.toBeNull();
+		expect(disclosure()?.getAttribute("aria-expanded")).toBe("true");
+		await key("Session /work/alpha/two", "ArrowLeft");
+		expect(subagentGroup()).toBeNull();
+		expect(useSidebarSubagentsStore.getState().expanded.size).toBe(0);
+	});
+
+	it("drops the expanded state once the last subagent finishes", async () => {
+		installMockOmp(LIST);
+		seedSubagentTab(false);
+		await mount(<Sidebar />);
+		await fire(disclosure(), "onClick");
+		expect([...useSidebarSubagentsStore.getState().expanded]).toEqual([TWO]);
+
+		setSubagentStatus("completed");
+		await flush();
+		expect(subagentGroup()).toBeNull();
+		expect(disclosure()).toBeNull();
+		expect(useSidebarSubagentsStore.getState().expanded.size).toBe(0);
+
+		// The next fan-out starts collapsed again.
+		setSubagentStatus("running");
+		await flush();
+		expect(disclosure()?.getAttribute("aria-expanded")).toBe("false");
+		expect(subagentGroup()).toBeNull();
 	});
 });
