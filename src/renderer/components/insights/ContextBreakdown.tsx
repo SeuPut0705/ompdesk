@@ -16,7 +16,7 @@ import { contextUsageView } from "../../lib/context-usage";
 import { formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { Banner, Spinner } from "../common";
+import { Banner, ErrorDetail, Spinner } from "../common";
 
 interface CategoryRow {
 	key: string;
@@ -74,7 +74,7 @@ export function ContextBreakdown({ refreshKey = 0 }: { refreshKey?: number }) {
 	if (error) {
 		return (
 			<Banner live title={t("contextReport.error")} variant="warning">
-				{error}
+				<ErrorDetail error={error} />
 			</Banner>
 		);
 	}

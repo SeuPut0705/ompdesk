@@ -150,7 +150,7 @@ describe("subagents store refresh", () => {
 
 	it("records why the roster could not be read and clears it on the next good fetch", async () => {
 		// An empty roster after a failed read is not the same claim as "nothing
-		// spawned": the hub and the DAG can only tell those apart from the store.
+		// spawned": the agents page can only tell those apart from the store.
 		getSubagents.mockResolvedValueOnce({
 			type: "response",
 			command: "get_subagents",
@@ -178,5 +178,23 @@ describe("subagents store refresh", () => {
 		getSubagents.mockRejectedValue(new Error("sidecar gone"));
 		await useSubagentsStore.getState().refresh();
 		expect(useSubagentsStore.getState().subagents.has("live")).toBe(true);
+	});
+
+	it("an unchanged roster poll does not notify subscribers", async () => {
+		const row = snap({ id: "a1", status: "running", lastUpdate: 5 });
+		useSubagentsStore.getState().setSnapshots([row]);
+		const listener = vi.fn();
+		const unsubscribe = useSubagentsStore.subscribe(listener);
+		getSubagents.mockResolvedValue(ok([{ ...row }]));
+		await useSubagentsStore.getState().refresh();
+		await useSubagentsStore.getState().refresh();
+		expect(listener).not.toHaveBeenCalled();
+		expect(useSubagentsStore.getState().subagents.get("a1")).toBe(row);
+
+		getSubagents.mockResolvedValue(ok([{ ...row, status: "completed" }]));
+		await useSubagentsStore.getState().refresh();
+		expect(listener).toHaveBeenCalledTimes(1);
+		expect(useSubagentsStore.getState().subagents.get("a1")?.status).toBe("completed");
+		unsubscribe();
 	});
 });

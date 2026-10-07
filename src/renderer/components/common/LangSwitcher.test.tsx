@@ -1,6 +1,6 @@
 /**
  * DOM test for the language switcher: it must show the current language
- * autonym and toggle the shared i18n context on click (EN → 中文 → 한국어).
+ * autonym and toggle the shared i18n context on click (EN → 한국어 → EN).
  * Harness mirrors ForkHandoffDialogs.test.tsx (linkedom + react-dom/client).
  */
 

@@ -32,6 +32,7 @@ import {
 	type SubagentFrame,
 	type TodoPhase,
 } from "../../shared/rpc-types";
+import { errorDetail } from "../lib/error-detail";
 import { formatClock } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { normalizeLoopUpdate } from "../lib/loop-mode";
@@ -53,7 +54,7 @@ import {
 import { useSettingsStore } from "../stores/settings";
 import { useSubagentsStore } from "../stores/subagents";
 import { isTabClosed, useTabsStore } from "../stores/tabs";
-import { useToastStore } from "../stores/toast";
+import { toastError, useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
 import { useUiStore } from "../stores/ui";
@@ -282,8 +283,16 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 				useMessagesStore.getState().applyEvents(events);
 				useToolsStore.getState().applyEvents(events);
 
+				// eventVersion lets an async snapshot (get_state, hydrate) tell whether
+				// events landed after it was taken. One bump per batch covers every
+				// snapshot started before it; a snapshot started by an event inside
+				// the batch needs one more bump if any event follows it.
+				let bumpVersion = true;
 				for (const event of events) {
-					useSessionStore.setState(state => ({ eventVersion: state.eventVersion + 1 }));
+					if (bumpVersion) {
+						useSessionStore.setState(state => ({ eventVersion: state.eventVersion + 1 }));
+						bumpVersion = false;
+					}
 					switch (event.type) {
 						case "agent_start": {
 							useSessionStore.setState({ isStreaming: true, awaitingModelSince: Date.now() });
@@ -293,6 +302,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							// re-sync state-derived stores at turn start so the composer
 							// chip / titlebar reflect the server.
 							void refreshSessionState(tabId);
+							bumpVersion = true;
 							break;
 						}
 						case "turn_start": {
@@ -334,6 +344,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							toastOnAgentError(tabId, event);
 							// Re-fetch state so agent-side todo updates mid-turn reach the panel.
 							void refreshSessionState(tabId);
+							bumpVersion = true;
 							break;
 						}
 						case "auto_compaction_start": {
@@ -350,6 +361,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							useSessionStore.setState({ isCompacting: false, compactionInfo: null });
 							if (!event.aborted) {
 								void (tabId && sessionRuntime(tabId) ? hydrateTabSession(tabId) : hydrateSession());
+								bumpVersion = true;
 							}
 							if (event.aborted) {
 								useToastStore
@@ -410,6 +422,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 									variant: "error",
 									title: translate("turnError.retryFailed"),
 									message: failure.message,
+									detail: errorDetail(event.finalError),
 								});
 							}
 							break;
@@ -471,7 +484,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 								useToastStore.getState().push({
 									variant,
 									title: known ? failure.title : translate("events.compactionNotice"),
-									message: known ? failure.message : event.message,
+									message: known ? failure.message : translate("toast.failedRetry"),
+									detail: errorDetail(event.message),
 								});
 								break;
 							}
@@ -605,12 +619,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 						const pending = isFocused() ? await window.omp.sessions.consumePendingOpen() : null;
 						if (pending) {
 							const sw = await command({ type: "switch_session", sessionPath: pending });
-							if (!sw.success) {
-								useToastStore.getState().push({
-									variant: "error",
-									message: translate("events.sessionOpenFailed", { error: sw.error }),
-								});
-							}
+							if (!sw.success) toastError({ title: translate("events.sessionOpenFailed"), error: sw });
 						}
 						const res = await command({ type: "get_state" });
 						if (runtime && sessionRuntime(statusTabId) !== runtime) return;
@@ -637,7 +646,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 									useSettingsStore.getState().syncApproval(),
 								]);
 							}
-							void command({ type: "set_subagent_subscription", level: "events" });
+							void command({ type: "set_subagent_subscription", level: "progress" });
 						}
 					} catch {
 						if (isFocused()) useUiStore.getState().setSidecarError(translate("events.sidecarHealthFailed"));
@@ -766,7 +775,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			useToastStore.getState().push({
 				variant: "error",
 				title: translate("events.extensionError"),
-				message: `${frame.extensionPath} (${frame.event}): ${frame.error}`,
+				message: `${frame.extensionPath} (${frame.event})`,
+				detail: errorDetail(frame.error),
 			});
 		};
 		const unsubExtensionError =

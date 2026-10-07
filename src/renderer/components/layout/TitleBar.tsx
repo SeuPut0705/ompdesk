@@ -19,7 +19,6 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { SessionStats } from "../../../shared/rpc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
-import { errorDetail } from "../../lib/error-detail";
 import { basename, cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -30,7 +29,7 @@ import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useActiveTabKind } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
 import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import {
@@ -101,6 +100,44 @@ function StatRow({ label, hint, value }: { label: string; hint?: string; value: 
 }
 
 /**
+ * Execution time of the session. Mounted only while the status popover is
+ * open (Popover unmounts closed content), so the bar itself never subscribes
+ * to the tools map or re-runs the range merge on every tool event.
+ */
+function ExecutionDurationRow() {
+	const t = useT();
+	const isStreaming = useSessionStore(s => s.isStreaming);
+	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
+	const messages = useMessagesStore(s => s.messages);
+	const streamingMessage = useMessagesStore(s => s.streamingMessage);
+	const tools = useToolsStore(s => s.activeTools);
+	const [now, setNow] = useState(() => Date.now());
+	// History-aborted calls never end: they must not keep the clock alive.
+	const hasRunningTool = [...tools.values()].some(tool => tool.endTime === null && tool.status !== "aborted");
+	const ticking = isStreaming || hasRunningTool;
+	useEffect(() => {
+		setNow(Date.now());
+		if (!ticking) return;
+		const timer = window.setInterval(() => setNow(Date.now()), 1000);
+		return () => window.clearInterval(timer);
+	}, [ticking]);
+	const executionDuration = sessionExecutionDurationMs({
+		messages,
+		streamingMessage,
+		tools,
+		awaitingModelSince,
+		isStreaming,
+		now,
+	});
+	return (
+		<StatRow
+			label={t("sessionStatus.duration")}
+			value={executionDuration > 0 ? formatDuration(executionDuration) : t("time.secondsShort", { count: 0 })}
+		/>
+	);
+}
+
+/**
  * Title bar of the session view (design-spec §2.3): sidebar toggle (when the
  * sidebar is hidden) · project / session breadcrumb with inline rename ·
  * status as text · Session status popover · session menu · side panel toggle.
@@ -118,17 +155,17 @@ export function TitleBar() {
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const isCompacting = useSessionStore(s => s.isCompacting);
 	const statsPulse = useSessionStore(s => s.statsPulse);
-	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
 	const awaiting = useAwaitingConfirmation();
 	const isChat = useActiveTabKind() === "chat";
-	const messages = useMessagesStore(s => s.messages);
-	const streamingMessage = useMessagesStore(s => s.streamingMessage);
-	const tools = useToolsStore(s => s.activeTools);
+	const statsMessageCount = useMessagesStore(s => s.messages.length);
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
 	const panelVisible = useUiStore(s => s.panelVisible);
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
-	const { sessions } = useSessionList("local");
+	// Global, not "local": the row is found by id either way, and sharing the
+	// sidebar's feed saves a second sessions.list per change. "local" filters by
+	// the focused tab's cwd, which a split pane in another project doesn't share.
+	const { sessions } = useSessionList("global");
 	const projectName = !isChat && cwd ? (groupAliases[cwd] ?? basename(cwd)) : t("sidebar.chats");
 
 	const [editingName, setEditingName] = useState(false);
@@ -136,10 +173,8 @@ export function TitleBar() {
 	const [statusOpen, setStatusOpen] = useState(false);
 	const [draft, setDraft] = useState("");
 	const [stats, setStats] = useState<SessionStats | null>(null);
-	const [now, setNow] = useState(() => Date.now());
 	const nameInputRef = useRef<HTMLInputElement>(null);
 	const statusAnchorRef = useRef<HTMLButtonElement>(null);
-	const statsMessageCount = messages.length;
 	// A settled transcript append and a fresh sidecar snapshot are the two things
 	// that can move these figures. Mid-run appends come several times a turn, so
 	// only the pulse may re-queue a stats command there — the serial command queue
@@ -182,14 +217,6 @@ export function TitleBar() {
 		};
 	}, [sessionId, statsTrigger, status, tabRpc.getSessionStats, tabId, isCompacting]);
 
-	const hasRunningTool = [...tools.values()].some(tool => tool.endTime === null);
-	useEffect(() => {
-		setNow(Date.now());
-		if (!statusOpen || (!isStreaming && !hasRunningTool)) return;
-		const timer = window.setInterval(() => setNow(Date.now()), 1000);
-		return () => window.clearInterval(timer);
-	}, [hasRunningTool, isStreaming, statusOpen]);
-
 	const current = sessions.find(s => s.id === sessionId);
 	// `||` everywhere: empty-string titles (never-generated auto-title slot)
 	// fall through like null, ending at the "New session" placeholder.
@@ -198,14 +225,6 @@ export function TitleBar() {
 	const cost = visibleStats ? (visibleStats.history?.cost ?? visibleStats.cost) : null;
 	const tokens = visibleStats ? (visibleStats.history?.totalTokens ?? visibleStats.tokens.total) : null;
 	const cacheHit = sessionCacheHitPercent(visibleStats);
-	const executionDuration = sessionExecutionDurationMs({
-		messages,
-		streamingMessage,
-		tools,
-		awaitingModelSince,
-		isStreaming,
-		now,
-	});
 
 	const commitName = () => {
 		const name = draft.trim();
@@ -223,12 +242,7 @@ export function TitleBar() {
 			.catch(renameFailed);
 	};
 	const renameFailed = (cause: unknown) => {
-		toast({
-			variant: "error",
-			title: t("titlebar.renameFailed"),
-			message: t("toast.failedRetry"),
-			detail: errorDetail(cause),
-		});
+		toastError({ title: t("titlebar.renameFailed"), error: cause });
 	};
 	const startRename = () => {
 		setDraft(sessionName ?? current?.title ?? "");
@@ -418,12 +432,7 @@ export function TitleBar() {
 						/>
 						<StatRow label={t("sessionStatus.cost")} value={formatCost(cost, 4)} />
 						<StatRow label={t("sessionStatus.cache")} value={formatPercent(cacheHit, 0)} />
-						<StatRow
-							label={t("sessionStatus.duration")}
-							value={
-								executionDuration > 0 ? formatDuration(executionDuration) : t("time.secondsShort", { count: 0 })
-							}
-						/>
+						<ExecutionDurationRow />
 					</dl>
 				) : (
 					<p className="border-y border-(--sc-divider) py-3 text-sc-sm text-(--sc-text-muted)">

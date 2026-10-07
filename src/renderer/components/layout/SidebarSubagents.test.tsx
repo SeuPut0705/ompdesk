@@ -12,7 +12,7 @@ import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcCommand, SubagentSnapshot } from "../../../shared/rpc-types";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import type { SessionStore } from "../../stores/session";
 import { deleteSessionRuntime, sessionRuntimeStore } from "../../stores/session-runtime-context";
 import { revealSidebarSubagents, useSidebarSubagentsStore } from "../../stores/sidebar-subagents";
@@ -173,12 +173,12 @@ describe("SidebarSubagents", () => {
 		expect(document.querySelector("[data-sidebar-subagents]")).toBeNull();
 		expect(toggle()?.textContent).toBe("3");
 		expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
-		expect(toggle()?.getAttribute("aria-label")).toBe("Show subagents (3)");
+		expect(toggle()?.getAttribute("aria-label")).toBe(translate("sidebar.subagents.show", { count: 3 }));
 
 		await click(toggle());
 		expect(rowIds()).toEqual(["r1", "r2", "r3"]);
 		expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
-		expect(toggle()?.getAttribute("aria-label")).toBe("Hide subagents (3)");
+		expect(toggle()?.getAttribute("aria-label")).toBe(translate("sidebar.subagents.hide", { count: 3 }));
 
 		await click(toggle());
 		expect(rowIds()).toEqual([]);

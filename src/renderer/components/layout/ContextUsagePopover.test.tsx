@@ -114,7 +114,7 @@ describe("ContextUsagePopover", () => {
 
 		const trigger = container.querySelector("button") as unknown as HTMLButtonElement;
 		expect(trigger.textContent).toBe("16.0k");
-		expect(trigger.getAttribute("aria-label")).toBe("Context window unknown");
+		expect(trigger.getAttribute("aria-label")).toBe(translate("contextUsage.windowUnknown"));
 		expect(container.textContent).not.toContain("0%");
 
 		await act(async () => trigger.click());
@@ -127,7 +127,7 @@ describe("ContextUsagePopover", () => {
 		// A bar filled with the used tokens alone reads as "full", so the
 		// capacity-relative gauge is withheld rather than repurposed.
 		expect(dialog?.querySelector('[role="progressbar"], [role="img"]')).toBeNull();
-		expect(dialog?.textContent).toContain("Context window unknown");
+		expect(dialog?.textContent).toContain(translate("contextUsage.windowUnknown"));
 	});
 
 	it("keeps context usage to one control and reveals the native three-category breakdown", async () => {
@@ -139,7 +139,7 @@ describe("ContextUsagePopover", () => {
 		await mount();
 
 		const trigger = container.querySelector("button") as unknown as HTMLButtonElement;
-		expect(trigger.getAttribute("aria-label")).toBe("Show context usage, 16% used");
+		expect(trigger.getAttribute("aria-label")).toBe(translate("contextUsage.open", { percent: 16 }));
 		// The resting control is a ring plus the share; the token counts live in the popover.
 		expect(trigger.textContent).toBe("16%");
 		expect(document.querySelector("#omp-context-usage-popover")).toBeNull();

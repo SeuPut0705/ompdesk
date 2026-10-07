@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { RpcActiveTool, RpcActiveToolsResult, RpcForceToolState } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, Input, Modal, Spinner } from "../common";
 
@@ -83,15 +83,11 @@ export function ForceToolDialog() {
 			if (message) {
 				const promptResponse = await tabRpc.prompt(message);
 				if (!promptResponse.success) {
-					toast({ variant: "error", title: t("cmd.force"), message: promptResponse.error });
+					toastError({ title: t("cmd.force"), error: promptResponse });
 				}
 			}
 		} catch (cause) {
-			toast({
-				variant: "error",
-				title: t("cmd.force"),
-				message: cause instanceof Error ? cause.message : String(cause),
-			});
+			toastError({ title: t("cmd.force"), error: cause });
 		} finally {
 			setBusy(false);
 		}
@@ -106,11 +102,7 @@ export function ForceToolDialog() {
 			setCurrent(null);
 			toast({ variant: "success", message: t("forceTool.cleared") });
 		} catch (cause) {
-			toast({
-				variant: "error",
-				title: t("cmd.force"),
-				message: cause instanceof Error ? cause.message : String(cause),
-			});
+			toastError({ title: t("cmd.force"), error: cause });
 		} finally {
 			setBusy(false);
 		}

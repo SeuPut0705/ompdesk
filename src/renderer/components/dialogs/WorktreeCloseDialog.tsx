@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import type { RpcGitStatus } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useTabsStore } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, Modal, Spinner } from "../common";
 
@@ -74,12 +74,12 @@ export function WorktreeCloseDialog() {
 				force,
 			});
 			if (!response.success) {
-				toast({ variant: "error", title: t("worktreeClose.removeFailed"), message: response.error });
+				toastError({ title: t("worktreeClose.removeFailed"), error: response });
 				return;
 			}
 			finish();
 		} catch (error) {
-			toast({ variant: "error", title: t("worktreeClose.removeFailed"), message: String(error) });
+			toastError({ title: t("worktreeClose.removeFailed"), error });
 		} finally {
 			setBusy(false);
 		}

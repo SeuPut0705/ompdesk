@@ -9,10 +9,11 @@ import { FileCode2, Plus, RefreshCw } from "lucide-react";
 import { useCallback, useState } from "react";
 import type { CustomProviderView } from "../../../../shared/ipc-types";
 import type { ProviderInfo } from "../../../../shared/rpc-types";
+import { errorDetail } from "../../../lib/error-detail";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { useModelStore } from "../../../stores/model";
-import { toast } from "../../../stores/toast";
+import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { Banner, Button, ConfirmDialog, IconButton, Spinner } from "../../common";
 import { CustomProviderForm } from "./CustomProviderForm";
@@ -50,7 +51,7 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 		try {
 			const response = await tabRpc.logout(provider.id);
 			if (!response.success) {
-				toast({ variant: "error", title: t("providers.logoutFailed"), message: response.error });
+				toastError({ title: t("providers.logoutFailed"), error: response });
 				return;
 			}
 			// A non-forced read answers from a still-fresh cache row, which is how
@@ -61,7 +62,7 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 				toast({ variant: "warning", message: t("providers.logoutKept", { provider: provider.name }) });
 			}
 		} catch (cause) {
-			toast({ variant: "error", title: t("providers.logoutFailed"), message: String(cause) });
+			toastError({ title: t("providers.logoutFailed"), error: cause });
 		} finally {
 			setBusyProvider(null);
 		}
@@ -74,21 +75,13 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 			try {
 				await refreshProviders(true);
 			} catch (cause) {
-				toast({
-					variant: "warning",
-					title: t("providerCfg.toast.refreshFailed"),
-					message: cause instanceof Error ? cause.message : String(cause),
-				});
+				toast({ variant: "warning", message: t("providerCfg.toast.refreshFailed"), detail: errorDetail(cause) });
 			}
 			toast({ variant: "success", message: t("providerCfg.toast.deleted", { id: config.id }) });
 			setPendingDelete(null);
 			await load();
 		} catch (cause) {
-			toast({
-				variant: "error",
-				title: t("providerCfg.toast.deleteFailed"),
-				message: cause instanceof Error ? cause.message : String(cause),
-			});
+			toastError({ title: t("providerCfg.toast.deleteFailed"), error: cause });
 		} finally {
 			setBusyProvider(null);
 		}
@@ -122,7 +115,7 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 					icon={<FileCode2 />}
 					onClick={() => {
 						void window.omp.models.openConfig().catch(cause => {
-							toast({ variant: "error", title: t("providers.editConfig"), message: String(cause) });
+							toastError({ title: t("providers.editConfig"), error: cause });
 						});
 					}}
 					size="sm"

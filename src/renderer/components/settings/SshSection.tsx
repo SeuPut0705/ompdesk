@@ -16,6 +16,7 @@ import {
 	Button,
 	ConfirmDialog,
 	EmptyState,
+	ErrorDetail,
 	IconButton,
 	Input,
 	ListRow,
@@ -299,14 +300,15 @@ export function SshSection() {
 								</Button>
 							}
 							live
+							title={t("ssh.loadFailed")}
 							variant="danger"
 						>
-							{loadError}
+							<ErrorDetail error={loadError} />
 						</Banner>
 					)}
 					{error && (
-						<Banner live variant="danger">
-							{error}
+						<Banner live title={t("ssh.actionFailed")} variant="danger">
+							<ErrorDetail error={error} />
 						</Banner>
 					)}
 

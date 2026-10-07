@@ -29,7 +29,7 @@ import {
 	isPluginActivationOriginActive,
 } from "../../../lib/plugin-activation";
 import { useSessionStore } from "../../../stores/session";
-import { toast } from "../../../stores/toast";
+import { toast, toastError } from "../../../stores/toast";
 import { Badge, Banner, Button, IconButton, Input, Sheet, Spinner, SwitchField, TextArea } from "../../common";
 import { ArrayChipEditor } from "../../settings/editors/ArrayChipEditor";
 import { EnumerableSelect } from "../../settings/editors/EnumerableSelect";
@@ -403,7 +403,7 @@ export function PluginDetailBody({
 			const res = await tabRpc.setPluginEnabled(pluginId, next, plugin.scope);
 			if (!res.success) {
 				if (isPluginActivationOriginActive(origin)) {
-					toast({ variant: "error", title: t("invPanel.pluginToggleFailed"), message: res.error });
+					toastError({ title: t("invPanel.pluginToggleFailed"), error: res });
 				}
 				return;
 			}
@@ -414,7 +414,7 @@ export function PluginDetailBody({
 			await onChanged();
 		} catch (cause) {
 			if (isPluginActivationOriginActive(origin)) {
-				toast({ variant: "error", title: t("invPanel.pluginToggleFailed"), message: String(cause) });
+				toastError({ title: t("invPanel.pluginToggleFailed"), error: cause });
 			}
 		} finally {
 			setEnabledBusy(false);

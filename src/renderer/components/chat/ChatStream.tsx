@@ -990,12 +990,24 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 	const compactionInfo = useSessionStore(s => s.compactionInfo);
 	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
 	const now = Date.now();
-	// 1s ticking clock shared by the countdown/elapsed variants.
+	// Clock for the countdown/elapsed variants. It runs only while a variant
+	// shows time: every second for a retry countdown or a slow wait, once at
+	// the slow threshold for a fresh wait, never for compaction or when idle
+	// (the row renders nothing then, and it is mounted for the whole session).
 	const [, setNowTick] = useState(0);
+	const untilSlowMs = awaitingModelSince == null ? 0 : awaitingModelSince + SLOW_RESPONSE_HINT_SECONDS * 1000 - now;
+	const tickMs = retryInfo
+		? 1000
+		: compactionInfo || awaitingModelSince == null
+			? null
+			: untilSlowMs > 0
+				? untilSlowMs
+				: 1000;
 	useEffect(() => {
-		const interval = setInterval(() => setNowTick(tick => tick + 1), 1000);
-		return () => clearInterval(interval);
-	}, []);
+		if (tickMs === null) return;
+		const timer = setTimeout(() => setNowTick(tick => tick + 1), tickMs);
+		return () => clearTimeout(timer);
+	});
 
 	let text: string;
 	let reason: string | null = null;

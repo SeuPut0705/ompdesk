@@ -23,6 +23,7 @@ import {
 	Button,
 	ConfirmDialog,
 	EmptyState,
+	ErrorDetail,
 	IconButton,
 	Input,
 	ListRow,
@@ -338,7 +339,7 @@ export function SecuritySection() {
 					title={t("security.empty.unavailable")}
 					variant="danger"
 				>
-					{error}
+					<ErrorDetail error={error} />
 				</Banner>
 			</div>
 		);
@@ -425,8 +426,8 @@ export function SecuritySection() {
 				</div>
 
 				{error && (
-					<Banner live variant="danger">
-						{error}
+					<Banner live title={t("security.actionFailed")} variant="danger">
+						<ErrorDetail error={error} />
 					</Banner>
 				)}
 

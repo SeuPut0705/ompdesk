@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { toast } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
 
 /**
  * A file path rendered as an editor-open link. Reads as plain monospace text
@@ -18,15 +18,9 @@ export function PathLink({ path, children, className }: { path: string; children
 	const open = async () => {
 		try {
 			const result = await window.omp.system.openPath(path);
-			if (!result?.ok) {
-				toast({ variant: "error", title: t("tools.path.openFailed"), message: result?.error || path });
-			}
+			if (!result?.ok) toastError({ title: t("tools.path.openFailed"), error: result?.error ? result : path });
 		} catch (cause) {
-			toast({
-				variant: "error",
-				title: t("tools.path.openFailed"),
-				message: cause instanceof Error ? cause.message : String(cause),
-			});
+			toastError({ title: t("tools.path.openFailed"), error: cause });
 		}
 	};
 

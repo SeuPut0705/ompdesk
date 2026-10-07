@@ -8,7 +8,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
-import { toast } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, Input, Modal } from "../common";
 
@@ -41,13 +41,13 @@ export function RenameSessionDialog() {
 		try {
 			const response = await tabRpc.setSessionName(trimmed);
 			if (!response.success) {
-				toast({ variant: "error", title: t("rename.failed"), message: response.error });
+				toastError({ title: t("rename.failed"), error: response });
 				return;
 			}
 			useSessionStore.setState({ sessionName: trimmed });
 			close();
 		} catch (error) {
-			toast({ variant: "error", title: t("rename.failed"), message: String(error) });
+			toastError({ title: t("rename.failed"), error });
 		} finally {
 			setSaving(false);
 		}

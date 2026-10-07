@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RpcAgentDefinitionInfo, RpcResponse } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
-import { toast } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
 
 /** Known definition sources; anything else renders raw (e.g. future extension sources). */
 const KNOWN_SOURCES: Record<string, true> = { project: true, user: true, bundled: true };
@@ -152,12 +152,12 @@ export function useAgentSettings(): AgentSettingsRpc {
 				const res = await action();
 				if (!res.success) {
 					setBoth(prev);
-					toast({ variant: "error", title: t("agentHub.actionFailed"), message: res.error });
+					toastError({ title: t("agentHub.actionFailed"), error: res });
 					void load(true);
 				}
 			} catch (cause) {
 				setBoth(prev);
-				toast({ variant: "error", title: t("agentHub.actionFailed"), message: String(cause) });
+				toastError({ title: t("agentHub.actionFailed"), error: cause });
 				void load(true);
 			} finally {
 				setBusy(false);

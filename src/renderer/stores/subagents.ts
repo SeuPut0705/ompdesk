@@ -62,14 +62,34 @@ function mergeFetchedSnapshot(fresh: SubagentNode, prev: SubagentNode): Subagent
 	};
 }
 
+/**
+ * Structural equality over JSON-shaped wire rows (primitives, arrays, plain
+ * objects). A key holding `undefined` equals a missing key: the merge spells
+ * out every optional field, while frames and fetches omit absent ones.
+ */
+function sameValue(a: unknown, b: unknown): boolean {
+	if (a === b) return true;
+	if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+	if (Array.isArray(a)) {
+		if (!Array.isArray(b) || a.length !== b.length) return false;
+		return a.every((item, index) => sameValue(item, b[index]));
+	}
+	if (Array.isArray(b)) return false;
+	const left = a as Record<string, unknown>;
+	const right = b as Record<string, unknown>;
+	for (const key of Object.keys(left)) if (!sameValue(left[key], right[key])) return false;
+	for (const key of Object.keys(right)) if (!(key in left) && right[key] !== undefined) return false;
+	return true;
+}
+
 export const createSubagentsStore = (command: TabCommand = activeTabCommand) => {
 	let refreshVersion = 0;
 	return createStore<SubagentsStore>()((set, get) => ({
 		subagents: new Map(),
 		error: null,
 		applyFrame: frame => {
-			// Copy-on-first-write: frames that match no known subagent leave the
-			// map untouched and must not trigger a re-render.
+			// Copy-on-first-write: a progress frame without an id leaves the map
+			// untouched and must not trigger a re-render.
 			let subagents: Map<string, SubagentNode> | null = null;
 
 			switch (frame.type) {
@@ -121,15 +141,6 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 					});
 					break;
 				}
-				case "subagent_event": {
-					const id = frame.payload.id;
-					const existing = get().subagents.get(id);
-					if (existing) {
-						subagents = new Map(get().subagents);
-						subagents.set(id, { ...existing });
-					}
-					break;
-				}
 			}
 
 			if (subagents) set({ subagents });
@@ -153,35 +164,44 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 				// the new session's store.
 				if (version !== refreshVersion || (options?.expect && !options.expect())) return;
 				if (!res.success) {
-					set({ error: res.error });
+					if (get().error !== res.error) set({ error: res.error });
 					return;
 				}
 				const data = res.data as { subagents?: SubagentNode[] } | undefined;
 				if (!data?.subagents) {
-					set({ error: null });
+					if (get().error !== null) set({ error: null });
 					return;
 				}
 				const current = get().subagents;
 				const fetched = new Set<string>();
 				const subagents = new Map<string, SubagentNode>();
+				let changed = false;
 				for (const snap of data.subagents) {
 					const normalized = normalizeSnapshot(snap);
 					fetched.add(normalized.id);
 					const prev = current.get(normalized.id);
-					subagents.set(
-						normalized.id,
-						prev && prev !== before.get(normalized.id)
-							? prev
-							: prev
-								? mergeFetchedSnapshot(normalized, prev)
-								: normalized,
-					);
+					let next = normalized;
+					if (prev && prev !== before.get(normalized.id)) next = prev;
+					else if (prev) {
+						const merged = mergeFetchedSnapshot(normalized, prev);
+						// An idle poll returns the same rows: keep identity so selectors
+						// and memoized rows don't re-render every 3s.
+						next = sameValue(merged, prev) ? prev : merged;
+					}
+					if (next !== prev) changed = true;
+					subagents.set(normalized.id, next);
 				}
 				// Terminal rows the server has forgotten survive the merge — see the
 				// refresh docstring (RPC registry deletes completed/failed agents).
 				for (const [id, node] of current) {
 					if (!fetched.has(id) && (!LIVE_STATUSES[node.status] || node !== before.get(id)))
 						subagents.set(id, node);
+				}
+				if (!changed && subagents.size === current.size) {
+					// Same ids, same objects (every surviving current row was re-set
+					// or carried over): only the error may need clearing.
+					if (get().error !== null) set({ error: null });
+					return;
 				}
 				set({ subagents, error: null });
 			} catch (cause) {

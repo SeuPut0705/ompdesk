@@ -56,7 +56,6 @@ import type { SessionInfo } from "../../../shared/ipc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
 import { dropSessionNow, requestSessionSwitch } from "../../hooks/use-session-switch";
-import { errorDetail } from "../../lib/error-detail";
 import { basename, cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -75,7 +74,7 @@ import { sessionRuntimeStore } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../stores/sidebar-subagents";
 import { useTabsStore } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { type PageDestination, useUiStore } from "../../stores/ui";
 import {
 	Badge,
@@ -634,12 +633,7 @@ export function Sidebar() {
 			setMode("code");
 			await goToProject(picked);
 		} catch (error) {
-			toast({
-				variant: "error",
-				title: t("titlebar.openProjectFailed"),
-				message: t("toast.failedRetry"),
-				detail: errorDetail(error),
-			});
+			toastError({ title: t("titlebar.openProjectFailed"), error });
 		}
 	};
 	// Explicit parallel action: open this session in a NEW window with its own
@@ -670,14 +664,7 @@ export function Sidebar() {
 					(session.id === sessionId ? useSessionStore : null);
 				if (store?.getState().sessionId === session.id) store.setState({ sessionName: name });
 			})
-			.catch(error =>
-				toast({
-					variant: "error",
-					title: t("sidebar.renameFailed"),
-					message: t("toast.failedRetry"),
-					detail: errorDetail(error),
-				}),
-			);
+			.catch(error => toastError({ title: t("sidebar.renameFailed"), error }));
 	};
 
 	const confirmDeleteSession = async (session: SessionInfo) => {
@@ -695,12 +682,7 @@ export function Sidebar() {
 			}
 			setPendingDelete(null);
 		} catch (error) {
-			toast({
-				variant: "error",
-				title: t("sidebar.deleteFailed"),
-				message: t("toast.failedRetry"),
-				detail: errorDetail(error),
-			});
+			toastError({ title: t("sidebar.deleteFailed"), error });
 		} finally {
 			setDeleting(false);
 		}
@@ -742,12 +724,7 @@ export function Sidebar() {
 			}
 			setPendingDelete(null);
 		} catch (error) {
-			toast({
-				variant: "error",
-				title: t("sidebar.deleteFailed"),
-				message: t("toast.failedRetry"),
-				detail: errorDetail(error),
-			});
+			toastError({ title: t("sidebar.deleteFailed"), error });
 		} finally {
 			setDeleting(false);
 		}

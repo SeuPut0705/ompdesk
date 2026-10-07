@@ -40,6 +40,7 @@ export function AddMarketplaceForm({ onAdded, ready = true }: { onAdded: () => P
 	const [source, setSource] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [invalid, setInvalid] = useState(false);
 	const hintId = useId();
 
 	const submit = async (): Promise<void> => {
@@ -48,11 +49,12 @@ export function AddMarketplaceForm({ onAdded, ready = true }: { onAdded: () => P
 		// Client-side parity with the agent's classifySource: a bare name is
 		// rejected inline before the RPC fires (same rule order, same verdict).
 		if (classifyMarketplaceSource(trimmed) === null) {
-			setError(t("marketplace.sourceInvalid"));
+			setInvalid(true);
 			return;
 		}
 		setBusy(true);
 		setError(null);
+		setInvalid(false);
 		try {
 			const res = await tabRpc.marketplaceAction({ action: "add", source: trimmed });
 			const failure = mutationError(res, t("marketplace.unknownError"));
@@ -82,6 +84,7 @@ export function AddMarketplaceForm({ onAdded, ready = true }: { onAdded: () => P
 						onChange={event => {
 							setSource(event.target.value);
 							setError(null);
+							setInvalid(false);
 						}}
 						onKeyDown={event => {
 							if (isImeKeyEvent(event)) return;
@@ -106,7 +109,10 @@ export function AddMarketplaceForm({ onAdded, ready = true }: { onAdded: () => P
 			<p className="text-sc-sm text-(--sc-text-muted)" id={hintId}>
 				{t("marketplace.sourceHint")}
 			</p>
-			{error && <CopyableError copyLabel={t("marketplace.copyError")} message={error} />}
+			{invalid && <CopyableError copyLabel={t("marketplace.copyError")} message={t("marketplace.sourceInvalid")} />}
+			{error && (
+				<CopyableError copyLabel={t("marketplace.copyError")} message={error} title={t("marketplace.addFailed")} />
+			)}
 		</div>
 	);
 }
@@ -463,7 +469,14 @@ export function MarketplaceCard({
 					/>
 				)}
 			</div>
-			{cardError && <CopyableError className="mb-2" copyLabel={t("marketplace.copyError")} message={cardError} />}
+			{cardError && (
+				<CopyableError
+					className="mb-2"
+					copyLabel={t("marketplace.copyError")}
+					message={cardError}
+					title={t("marketplace.actionFailed")}
+				/>
+			)}
 			{expanded && (
 				<div className="mb-2 ml-9 flex flex-col gap-2">
 					{available === null && listLoading ? (
@@ -472,7 +485,11 @@ export function MarketplaceCard({
 						</div>
 					) : available === null && listError !== null ? (
 						<>
-							<CopyableError copyLabel={t("marketplace.copyError")} message={listError} />
+							<CopyableError
+								copyLabel={t("marketplace.copyError")}
+								message={listError}
+								title={t("marketplace.listFailed")}
+							/>
 							<div>
 								<Button
 									disabled={!ready}
@@ -506,13 +523,20 @@ export function MarketplaceCard({
 												className="mb-2.5"
 												copyLabel={t("marketplace.copyError")}
 												message={pluginErrors[plugin.name]}
+												title={t("marketplace.actionFailed")}
 											/>
 										)}
 									</div>
 								))}
 							</div>
 							{listLoading && <Spinner label={t("common.loading")} size="sm" />}
-							{listError && <CopyableError copyLabel={t("marketplace.copyError")} message={listError} />}
+							{listError && (
+								<CopyableError
+									copyLabel={t("marketplace.copyError")}
+									message={listError}
+									title={t("marketplace.listFailed")}
+								/>
+							)}
 						</>
 					)}
 				</div>

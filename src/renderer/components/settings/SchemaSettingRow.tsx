@@ -21,7 +21,7 @@ import {
 	THEMES,
 	type ThemeName,
 } from "../../lib/themes";
-import { toast } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
 import { Badge, Button, IconButton, Input, Select, Spinner, TextArea } from "../common";
 import { ArrayChipEditor } from "./editors/ArrayChipEditor";
 import { type EnumerableOption, EnumerableSelect } from "./editors/EnumerableSelect";
@@ -186,13 +186,14 @@ function SchemaSettingRow({
 						savedTimer.current = window.setTimeout(() => setSaved(false), 2000);
 					}
 				} else {
-					setError(res.error);
-					toast({ variant: "error", title: t("settings.saveFailed"), message: res.error });
+					// The toast carries the raw cause; the inline line stays localized.
+					setError(t("settings.saveFailed"));
+					toastError({ title: t("settings.saveFailed"), error: res });
 				}
 			} catch (err) {
 				if (generation.current !== requestGeneration) return;
-				setError(String(err));
-				toast({ variant: "error", title: t("settings.saveFailed"), message: String(err) });
+				setError(t("settings.saveFailed"));
+				toastError({ title: t("settings.saveFailed"), error: err });
 			} finally {
 				if (generation.current === requestGeneration) setSaving(false);
 			}

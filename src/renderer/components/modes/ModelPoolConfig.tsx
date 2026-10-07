@@ -26,8 +26,8 @@ import { type PoolModelCheck, useModelPoolChecks } from "../../stores/model-pool
 import { useModelPoolPresets } from "../../stores/model-pool-presets";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
-import { toast } from "../../stores/toast";
-import { Button, IconButton, Input, ListRow, Select, SwitchField } from "../common";
+import { toastError } from "../../stores/toast";
+import { Button, ErrorDetail, IconButton, Input, ListRow, Select, SwitchField } from "../common";
 
 const CUSTOM_ROLE = "custom";
 
@@ -257,7 +257,7 @@ export function ModelPoolConfig({ onAddModel }: { onAddModel: () => void }) {
 		} catch (cause) {
 			const message = cause instanceof Error ? cause.message : String(cause);
 			setError(message);
-			toast({ variant: "error", title: t("modelPool.updateFailed"), message });
+			toastError({ title: t("modelPool.updateFailed"), error: message });
 		} finally {
 			setPending(false);
 		}
@@ -314,7 +314,12 @@ export function ModelPoolConfig({ onAddModel }: { onAddModel: () => void }) {
 				members={pool.members}
 				onApply={members => void update({ enabled: pool.enabled && members.length >= 2, members })}
 			/>
-			{error && <p className="text-sc-xs break-all text-(--sc-danger)">{error}</p>}
+			{error && (
+				<div className="text-sc-xs" role="alert">
+					<p className="text-(--sc-danger)">{t("modelPool.updateFailed")}</p>
+					<ErrorDetail error={error} />
+				</div>
+			)}
 		</div>
 	);
 }

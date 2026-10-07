@@ -16,10 +16,11 @@ import type {
 	CustomProviderView,
 } from "../../../../shared/ipc-types";
 import { CUSTOM_PROVIDER_APIS } from "../../../../shared/ipc-types";
+import { errorDetail } from "../../../lib/error-detail";
 import { useT } from "../../../lib/i18n";
 import { useModelStore } from "../../../stores/model";
 import { toast } from "../../../stores/toast";
-import { Banner, Button, IconButton, Input, Select, TextArea } from "../../common";
+import { Banner, Button, ErrorDetail, IconButton, Input, Select, TextArea } from "../../common";
 import { FieldError, FieldLabel } from "./FormFields";
 import { ModelEditor, type ModelRow } from "./ModelEditor";
 
@@ -255,16 +256,12 @@ export function CustomProviderForm({ editing, existing, onSaved, onCancel }: Cus
 				if (discoveryError) {
 					toast({
 						variant: "warning",
-						title: t("providerCfg.toast.refreshFailed"),
-						message: discoveryError.error ?? t("providers.discoveryUnavailable"),
+						message: t("providerCfg.toast.refreshFailed"),
+						detail: errorDetail(discoveryError.error),
 					});
 				}
 			} catch (cause) {
-				toast({
-					variant: "warning",
-					title: t("providerCfg.toast.refreshFailed"),
-					message: cause instanceof Error ? cause.message : String(cause),
-				});
+				toast({ variant: "warning", message: t("providerCfg.toast.refreshFailed"), detail: errorDetail(cause) });
 			}
 			toast({ variant: "success", message: t("providerCfg.toast.saved", { id: input.id }) });
 			onSaved(input.id);
@@ -597,7 +594,7 @@ export function CustomProviderForm({ editing, existing, onSaved, onCancel }: Cus
 
 			{submitError && (
 				<Banner live title={t("providerCfg.toast.saveFailed")} variant="danger">
-					{submitError}
+					<ErrorDetail error={submitError} />
 				</Banner>
 			)}
 

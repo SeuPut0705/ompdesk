@@ -28,8 +28,18 @@ import { acceptsActiveTabEvents } from "../../lib/tab-routing";
 import { type TabRpc, useTabRpc } from "../../lib/tab-rpc";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
-import { toast } from "../../stores/toast";
-import { Badge, type BadgeVariant, Button, Input, ProgressBar, Spinner, SwitchField, TextArea } from "../common";
+import { toastError } from "../../stores/toast";
+import {
+	Badge,
+	type BadgeVariant,
+	Button,
+	ErrorDetail,
+	Input,
+	ProgressBar,
+	Spinner,
+	SwitchField,
+	TextArea,
+} from "../common";
 
 // ---------------------------------------------------------------------------
 // Data loading
@@ -159,7 +169,7 @@ function useModeRpc<T>(
 			} catch (cause) {
 				if (version !== generation.current) return;
 				setError(String(cause));
-				toast({ variant: "error", title: t("modesPanel.actionFailed"), message: String(cause) });
+				toastError({ title: t("modesPanel.actionFailed"), error: cause });
 			} finally {
 				if (version === generation.current) setBusy(false);
 			}
@@ -238,7 +248,7 @@ function ModeFrame<T>({ rpc, children }: { rpc: ModeRpc<T>; children: (state: T)
 	return (
 		<div className="flex flex-col items-start gap-2 py-1" role="alert">
 			<span className="text-sc-sm font-medium text-(--sc-danger)">{t("modesPanel.loadFailed")}</span>
-			<span className="text-sc-xs break-all text-(--sc-text-muted)">{rpc.error}</span>
+			<ErrorDetail error={rpc.error} />
 			<Button
 				disabled={!rpc.ready}
 				icon={<RefreshCw />}
@@ -263,8 +273,14 @@ function FieldLabel({ children }: { children: ReactNode }) {
 
 /** Inline error of a failed mutation while a confirmed state is shown. */
 function MutationError({ error }: { error: string | null }) {
+	const t = useT();
 	if (!error) return null;
-	return <p className="text-sc-xs break-all text-(--sc-danger)">{error}</p>;
+	return (
+		<div className="text-sc-xs" role="alert">
+			<p className="text-(--sc-danger)">{t("modesPanel.actionFailed")}</p>
+			<ErrorDetail error={error} />
+		</div>
+	);
 }
 
 // ---------------------------------------------------------------------------

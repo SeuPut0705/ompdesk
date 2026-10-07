@@ -1,9 +1,9 @@
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useRuntimeTabId, withSessionRuntime } from "../../stores/session-runtime-context";
 /**
- * Lazily loaded subagent transcript (byte pagination), shared by the list
- * rows and the DAG detail pane. Loaded pages also feed the graph's tool-call
- * ownership registry so nested spawn edges resolve progressively.
+ * Lazily loaded subagent transcript (byte pagination), shown in the
+ * transcript sheet. Loaded pages also feed the tool-call ownership registry
+ * so nested spawn edges resolve progressively.
  */
 
 import { FileWarning, RefreshCw } from "lucide-react";

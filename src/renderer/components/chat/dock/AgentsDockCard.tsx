@@ -10,7 +10,9 @@
  * Owns stream-time polling of get_subagents: lifecycle/progress frames keep
  * the store fresh while agents run, but parked/idle transitions ride the
  * AgentRegistry and emit NO wire frame — without polling, a watchdog-parked
- * agent would show "running" until the next session hydration.
+ * agent would show "running" until the next session hydration. The poll runs
+ * only while the roster holds a live agent: a new spawn arrives as a
+ * lifecycle frame, so an empty or finished roster has nothing to catch up on.
  */
 
 import { Bot } from "lucide-react";
@@ -36,8 +38,11 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const refresh = useSubagentsStore(state => state.refresh);
 
+	const peek = useMemo(() => buildAgentDockPeek([...subagents.values()]), [subagents]);
+	const polling = isStreaming && peek.running > 0;
+
 	useEffect(() => {
-		if (!isStreaming) return;
+		if (!polling) return;
 		const timer = setInterval(() => {
 			// A poll resolving after a tab/session switch must not paint this
 			// tab's agents over the new foreground session — the guard is
@@ -47,9 +52,8 @@ export function AgentsDockCard({ pollMs = STREAM_POLL_MS }: { pollMs?: number })
 			void refresh({ expect: () => isActive(origin) });
 		}, pollMs);
 		return () => clearInterval(timer);
-	}, [capture, isActive, isStreaming, pollMs, refresh]);
+	}, [capture, isActive, polling, pollMs, refresh]);
 
-	const peek = useMemo(() => buildAgentDockPeek([...subagents.values()]), [subagents]);
 	if (peek.running === 0) return null;
 
 	const counts = [

@@ -1,7 +1,7 @@
 import { type PluginActivationTarget, usePluginActivationStore } from "../stores/plugin-activation";
 import { useSessionStore } from "../stores/session";
 import { useTabsStore } from "../stores/tabs";
-import { toast } from "../stores/toast";
+import { toast, toastError } from "../stores/toast";
 import { useUiStore } from "../stores/ui";
 import { translate } from "./i18n";
 import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "./tab-routing";
@@ -43,7 +43,7 @@ export async function restartForActivation(
 	try {
 		await window.omp.sidecar.restart({ tabId: origin.tabId, sessionPath: sessionFile ?? undefined });
 	} catch (cause) {
-		toast({ variant: "error", message: translate("pluginActivation.restartFailed", { message: String(cause) }) });
+		toastError({ title: translate("pluginActivation.restartFailed"), error: cause });
 		return undefined;
 	}
 

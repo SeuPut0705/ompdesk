@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from "electron";
 import Store from "electron-store";
+import { codedError } from "../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
 	FsTreeEntry,
@@ -462,7 +463,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	) => {
 		const client = sidecar?.rpcClient;
 		if (!client || !sidecar) {
-			return { id: payload.command.id, type: "response", success: false, error: "Sidecar not connected" };
+			return {
+				id: payload.command.id,
+				type: "response",
+				success: false,
+				error: "Sidecar not connected",
+				code: "sidecar_not_connected",
+			};
 		}
 		if (sidecar.status !== "ready") {
 			return {
@@ -470,6 +477,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				type: "response",
 				success: false,
 				error: `Sidecar not ready (${sidecar.status})`,
+				code: "sidecar_not_ready",
 			};
 		}
 		const { id: _id, ...cmd } = payload.command;
@@ -608,15 +616,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	ipcMain.handle(IPC_COMMANDS.SESSIONS_DELETE, async (_event, payload: IpcSessionsDeletePayload) => {
 		if (typeof payload.sessionPath !== "string" || !payload.sessionPath.endsWith(".jsonl")) {
-			throw new Error("Invalid session path");
+			throw codedError("invalid_session_path", "Invalid session path");
 		}
 		const owner = sidecarPool.sessionOwner(payload.sessionPath);
 		if (owner && sidecarPool.sessionOwnerIsLive(payload.sessionPath)) {
 			const response = await sidecarPool.commandForIdleSession(payload.sessionPath, { type: "drop_session" });
-			if (!response) throw new Error("Session is currently running");
+			if (!response) throw codedError("session_running", "Session is currently running");
 			if (!response.success) throw new Error(response.error);
 			const cancelled = (response.data as { cancelled?: boolean } | undefined)?.cancelled ?? false;
-			if (cancelled) throw new Error("Session deletion was cancelled");
+			if (cancelled) throw codedError("session_delete_cancelled", "Session deletion was cancelled");
 			// The owner moved on to a fresh, not-yet-saved session.
 			sidecarPool.noteSessionFile(owner.tabId, null);
 			return;
@@ -631,17 +639,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	ipcMain.handle(IPC_COMMANDS.SESSIONS_RENAME, async (_event, payload: IpcSessionsRenamePayload) => {
 		if (typeof payload.sessionPath !== "string" || !payload.sessionPath.endsWith(".jsonl")) {
-			throw new Error("Invalid session path");
+			throw codedError("invalid_session_path", "Invalid session path");
 		}
 		const name = typeof payload.name === "string" ? payload.name.trim() : "";
-		if (!name) throw new Error("Session name cannot be empty");
+		if (!name) throw codedError("session_name_empty", "Session name cannot be empty");
 		if (sidecarPool.sessionOwner(payload.sessionPath) && sidecarPool.sessionOwnerIsLive(payload.sessionPath)) {
 			// The owner's in-memory title must change with the file. Stock renames
 			// mid-run (a user title also locks out the pending auto-title), so
 			// unlike delete this does not wait for the tab to go idle.
 			const command: RpcCommand = { type: "set_session_name", name, sessionPath: payload.sessionPath };
 			const response = await sidecarPool.commandForSession(payload.sessionPath, command);
-			if (!response) throw new Error("Session is still starting");
+			if (!response) throw codedError("session_starting", "Session is still starting");
 			if (!response.success) throw new Error(response.error);
 			return;
 		}
@@ -845,9 +853,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		let resolved = target.startsWith("~/") ? path.join(os.homedir(), target.slice(2)) : target;
 		if (!path.isAbsolute(resolved)) {
 			const rootAbs = cwdFor(deps, event);
-			if (!rootAbs) return { ok: false, error: "No workspace" };
+			if (!rootAbs) return { ok: false, error: "No workspace", code: "no_workspace" };
 			const within = resolveWithin(rootAbs, resolved);
-			if (!within) return { ok: false, error: "Path escapes the workspace" };
+			if (!within) return { ok: false, error: "Path escapes the workspace", code: "path_escapes_workspace" };
 			resolved = within;
 		}
 		// A stale tool card can reference a file that no longer exists (or never
@@ -856,7 +864,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		try {
 			await fsp.access(resolved);
 		} catch {
-			return { ok: false, error: "File not found" };
+			return { ok: false, error: "File not found", code: "file_not_found" };
 		}
 		const openError = await shell.openPath(resolved);
 		if (!openError) return { ok: true, resolvedPath: resolved };
@@ -870,7 +878,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		try {
 			await fsp.access(target);
 		} catch {
-			return { ok: false, error: "File not found" };
+			return { ok: false, error: "File not found", code: "file_not_found" };
 		}
 		shell.showItemInFolder(target);
 		return { ok: true, resolvedPath: target };
@@ -1055,14 +1063,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// without a live sidecar session and never throws (renderer reads ok/error).
 	ipcMain.handle(IPC_COMMANDS.FS_LIST, async (event, payload: IpcFsListPayload) => {
 		const rootAbs = cwdFor(deps, event, payload.tabId);
-		if (!rootAbs) return { ok: false, entries: [], truncated: false, error: "No workspace" };
+		if (!rootAbs) return { ok: false, entries: [], truncated: false, error: "No workspace", code: "no_workspace" };
 		const prefix = (typeof payload.path === "string" ? payload.path : "")
 			.replace(/\\/g, "/")
 			.replace(/^\.\//, "")
 			.replace(/^\/+|\/+$/g, "");
 		const dirAbs = resolveWithin(rootAbs, prefix);
 		if (!dirAbs) {
-			return { ok: false, entries: [], truncated: false, error: "Path escapes the workspace" };
+			return {
+				ok: false,
+				entries: [],
+				truncated: false,
+				error: "Path escapes the workspace",
+				code: "path_escapes_workspace",
+			};
 		}
 		const state: WalkState = {
 			rules: await loadIgnoreRules(rootAbs),
@@ -1074,7 +1088,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		try {
 			const stat = await fsp.stat(dirAbs);
 			if (!stat.isDirectory()) {
-				return { ok: false, entries: [], truncated: false, error: "Not a directory" };
+				return { ok: false, entries: [], truncated: false, error: "Not a directory", code: "not_a_directory" };
 			}
 			const entries = await walkWorkspace(dirAbs, prefix, 0, state);
 			return { ok: true, entries, truncated: state.truncated };

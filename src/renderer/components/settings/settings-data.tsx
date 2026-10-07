@@ -13,7 +13,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
 import { focusedSessionRuntime } from "../../stores/session-runtime-context";
-import { toast } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 
 export type LoadState = "loading" | "error" | "ready";
@@ -84,9 +84,7 @@ export function useSettingsDataLoader(): SettingsData {
 		const sessionFile = useSessionStore.getState().sessionFile;
 		void window.omp.sidecar
 			.restart({ tabId: runtime?.tabId, sessionPath: sessionFile ?? undefined })
-			.catch(error =>
-				toast({ variant: "error", title: t("settings.connection.restartFailed"), message: String(error) }),
-			);
+			.catch(error => toastError({ title: t("settings.connection.restartFailed"), error }));
 	}, [sidecarBusy, sidecarStatus, t]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken is the explicit retry trigger.

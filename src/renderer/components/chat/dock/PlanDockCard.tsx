@@ -26,8 +26,8 @@ import { useT } from "../../../lib/i18n";
 import { type TabRpc, useTabRpc } from "../../../lib/tab-rpc";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
-import { toast } from "../../../stores/toast";
-import { Badge, Button, IconButton, Spinner, Switch, Tabs, TextArea } from "../../common";
+import { toast, toastError } from "../../../stores/toast";
+import { Badge, Button, ErrorDetail, IconButton, Spinner, Switch, Tabs, TextArea } from "../../common";
 import { DockCard } from "./DockCard";
 
 const POLL_STREAMING_MS = 3000;
@@ -116,7 +116,7 @@ async function sendPlanMessage(
 ): Promise<boolean> {
 	const response = streaming ? await rpc.steer(message) : await rpc.prompt(message);
 	if (!response.success) {
-		toast({ variant: "error", title: t("planPanel.feedbackFailed"), message: response.error });
+		toastError({ title: t("planPanel.feedbackFailed"), error: response });
 		return false;
 	}
 	return true;
@@ -142,7 +142,8 @@ export function PlanDockCard() {
 	const [content, setContent] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [loaded, setLoaded] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	/** Localized sentence, plus the raw cause when a read failed. */
+	const [error, setError] = useState<{ message: string; detail?: unknown } | null>(null);
 	const [toggling, setToggling] = useState(false);
 	const [tab, setTab] = useState<"steps" | "raw">("steps");
 	const [approving, setApproving] = useState(false);
@@ -161,7 +162,7 @@ export function PlanDockCard() {
 				const modeResponse = await rpc.getPlanMode();
 				if (!isActive(origin)) return;
 				if (!modeResponse.success) {
-					if (!quiet) setError(modeResponse.error);
+					if (!quiet) setError({ message: t("planPanel.readFailed"), detail: modeResponse });
 					return;
 				}
 				const mode = modeResponse.data as PlanModeState | undefined;
@@ -179,7 +180,7 @@ export function PlanDockCard() {
 					setPlanFile(null);
 					setLocalRoot(null);
 					setContent(null);
-					if (!quiet) setError(t("planPanel.noFsPath"));
+					if (!quiet) setError({ message: t("planPanel.noFsPath") });
 					return;
 				}
 				const response = await window.omp.fs.readPlan({
@@ -190,7 +191,7 @@ export function PlanDockCard() {
 				if (!isActive(origin)) return;
 				setLocalRoot(resolved.localRoot);
 				if (!response.ok) {
-					if (!quiet) setError(response.error ?? "Plan read failed");
+					if (!quiet) setError({ message: t("planPanel.readFailed"), detail: response });
 					return;
 				}
 				if (response.path == null || response.content == null) {
@@ -201,7 +202,7 @@ export function PlanDockCard() {
 				setPlanFile(response.path);
 				setContent(response.content);
 			} catch (cause) {
-				if (isActive(origin) && !quiet) setError(cause instanceof Error ? cause.message : String(cause));
+				if (isActive(origin) && !quiet) setError({ message: t("planPanel.readFailed"), detail: cause });
 			} finally {
 				if (isActive(origin)) {
 					setLoading(false);
@@ -251,7 +252,7 @@ export function PlanDockCard() {
 			const response = await rpc.setPlanMode(next);
 			if (!isActive(origin)) return; // switched tabs/sessions mid-request: never write A's result into B
 			if (!response.success) {
-				toast({ variant: "error", title: t("planPanel.toggleFailed"), message: response.error });
+				toastError({ title: t("planPanel.toggleFailed"), error: response });
 				return;
 			}
 			const mode = response.data as PlanModeState | undefined;
@@ -371,7 +372,8 @@ export function PlanDockCard() {
 			) : error ? (
 				<div className="flex flex-col items-center justify-center gap-2 px-6 py-4 text-center">
 					<FileWarning aria-hidden="true" className="text-(--sc-warning)" size={20} />
-					<div className="text-sc-sm leading-snug text-(--sc-text-muted)">{error}</div>
+					<div className="text-sc-sm leading-snug text-(--sc-text-muted)">{error.message}</div>
+					<ErrorDetail error={error.detail} />
 					<Button onClick={() => void load()} size="sm">
 						{t("planPanel.retry")}
 					</Button>

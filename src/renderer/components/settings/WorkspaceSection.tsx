@@ -20,7 +20,7 @@ import {
 	removeWorkspaceDirectory,
 } from "../../lib/workspace-dirs";
 import { useSessionStore } from "../../stores/session";
-import { Badge, Banner, Button, ConfirmDialog, EmptyState, IconButton, ListRow, Spinner } from "../common";
+import { Badge, Banner, Button, ConfirmDialog, EmptyState, ErrorDetail, IconButton, ListRow, Spinner } from "../common";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 export function WorkspaceSection() {
@@ -129,9 +129,10 @@ export function WorkspaceSection() {
 					}
 					className="my-3"
 					live
+					title={t("workspaceDirs.loadFailed")}
 					variant="danger"
 				>
-					{error}
+					<ErrorDetail error={error} />
 				</Banner>
 			)}
 			{loading && directories.length === 0 ? (

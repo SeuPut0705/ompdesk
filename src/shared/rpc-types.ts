@@ -2121,10 +2121,16 @@ export type AgentSessionEvent =
 	// treats this as the update channel; get_queue is only a hydrate fallback.
 	| { type: "queue_update"; steering: RpcQueuedMessage[]; followUp: RpcQueuedMessage[] };
 
+/**
+ * Streaming increment of a `message_update`. omp sends `partial` (the whole
+ * message so far) on every delta; main's message-update slimmer
+ * (src/main/message-update-slim.ts) drops it after the first update of each
+ * message, keeping only the toolCall block a `toolcall_delta` streams into.
+ */
 export type AssistantMessageEvent =
-	| { type: "text_delta"; contentIndex: number; delta: string; partial: AgentMessage }
-	| { type: "thinking_delta"; contentIndex: number; delta: string; partial: AgentMessage }
-	| { type: "toolcall_delta"; contentIndex: number; delta: string; partial: AgentMessage };
+	| { type: "text_delta"; contentIndex: number; delta: string; partial?: AgentMessage }
+	| { type: "thinking_delta"; contentIndex: number; delta: string; partial?: AgentMessage }
+	| { type: "toolcall_delta"; contentIndex: number; delta: string; partial?: AgentMessage };
 
 // ============================================================================
 // Sidecar Status

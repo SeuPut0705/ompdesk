@@ -4,9 +4,9 @@
  * links, roles, timestamps, active-branch + leaf markers) and otherwise falls
  * back to the flat `get_branch_messages` lineage adapted into a single chain.
  *
- * Layout is a hand-rolled layered tidy tree (see session-tree-layout.ts,
- * ported from the subagent DAG): depth rows top→bottom, parents centered on
- * children, HTML cards over an SVG edge layer, no graph dependency.
+ * Layout is a hand-rolled layered tidy tree (see session-tree-layout.ts):
+ * depth rows top→bottom, parents centered on children, HTML cards over an
+ * SVG edge layer, no graph dependency.
  *
  * The panel renders the tree inline; the toolbar's "open wide view" shows the
  * same tree in a large Sheet. Both views share one data controller (model,
@@ -36,7 +36,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcSwitchLeafResult } from "../../../shared/rpc-types";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
 import { routeToSessionOwner } from "../../hooks/use-session-switch";
-import { errorDetail } from "../../lib/error-detail";
 import { cx, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -45,8 +44,8 @@ import { type TabRpc, useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
-import { Badge, Button, EmptyState, IconButton, Input, Sheet, Spinner, Tabs } from "../common";
+import { toast, toastError } from "../../stores/toast";
+import { Badge, Button, EmptyState, ErrorDetail, IconButton, Input, Sheet, Spinner, Tabs } from "../common";
 import { RoleGlyph, roleMeta, SessionRootNode, SessionTreeNodeCard } from "./SessionTreeNodeCard";
 import {
 	buildSessionTreeLayout,
@@ -323,7 +322,7 @@ function useSessionTreeController(onNavigated: () => void): SessionTreeControlle
 			| "sessionTree.labelFailed",
 		cause: unknown,
 	) => {
-		toast({ variant: "error", title: t(titleKey), message: t("toast.failedRetry"), detail: errorDetail(cause) });
+		toastError({ title: t(titleKey), error: cause });
 	};
 
 	const branchFrom = async (entryId: string) => {
@@ -875,9 +874,10 @@ function SessionTreeView({
 			</div>
 			{tree.error ? (
 				<div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
-					<p className="text-sc-sm text-(--sc-danger)" role="alert">
-						{tree.error}
-					</p>
+					<div role="alert">
+						<p className="text-sc-sm text-(--sc-danger)">{t("sessionTree.loadFailed")}</p>
+						<ErrorDetail className="mt-1" error={tree.error} />
+					</div>
 					<Button
 						disabled={!sidecarReady}
 						icon={<RotateCw />}

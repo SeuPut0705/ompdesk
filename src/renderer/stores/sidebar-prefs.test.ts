@@ -1,8 +1,8 @@
 /**
- * sidebar-prefs store contract: pin toggles, MRU access times, workspace
- * aliases, persistence payloads, and hydrate-from-blob. A rejected prefs write
- * must undo the optimistic toggle (the sidebar would otherwise show a pin that
- * disappears on the next launch).
+ * sidebar-prefs store contract: pin toggles, the workspace MRU clock,
+ * workspace aliases, persistence payloads, and hydrate-from-blob. A rejected
+ * prefs write must undo the optimistic toggle (the sidebar would otherwise
+ * show a pin that disappears on the next launch).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { translate } from "../lib/i18n";
@@ -59,12 +59,13 @@ describe("sidebar-prefs store", () => {
 		);
 	});
 
-	it("hydrates from the persisted blob once and tolerates missing prefs", async () => {
+	it("hydrates from the persisted blob once, drops retired keys, and tolerates missing prefs", async () => {
 		get.mockResolvedValueOnce({
 			pinnedGroups: ["/work/pinned"],
 			pinnedSessions: ["/s/p.jsonl"],
 			groupAliases: { "/work/a": "Alias" },
 			workspaceLastUsed: { "/work/a": 100, bad: "yesterday" },
+			// Retired pref: read past, never written back.
 			sessionLastUsed: { "/s/p.jsonl": 200 },
 		});
 		await useSidebarPrefs.getState().hydrate();
@@ -77,6 +78,11 @@ describe("sidebar-prefs store", () => {
 		const calls = get.mock.calls.length;
 		await useSidebarPrefs.getState().hydrate();
 		expect(get.mock.calls.length).toBe(calls);
+
+		useSidebarPrefs.getState().touchWorkspace("/work/b");
+		const written = set.mock.calls.at(-1)?.[1];
+		expect(written).toEqual(expect.objectContaining({ pinnedSessions: ["/s/p.jsonl"] }));
+		expect(written).not.toHaveProperty("sessionLastUsed");
 
 		// Unreadable prefs degrade to empty defaults, never a throw.
 		useSidebarPrefs.getState().reset();
@@ -95,7 +101,12 @@ describe("sidebar-prefs store", () => {
 		expect(set).toHaveBeenCalledWith("sidebar", expect.objectContaining({ pinnedGroups: ["/work/kept", "/work/a"] }));
 		expect(useSidebarPrefs.getState().pinnedGroups).toEqual(["/work/kept"]);
 		expect(useToastStore.getState().toasts).toContainEqual(
-			expect.objectContaining({ variant: "error", title: translate("sidebar.pinFailed"), message: "disk full" }),
+			expect.objectContaining({
+				variant: "error",
+				title: translate("sidebar.pinFailed"),
+				message: translate("toast.failedRetry"),
+				detail: "disk full",
+			}),
 		);
 	});
 
@@ -108,7 +119,12 @@ describe("sidebar-prefs store", () => {
 		expect(useSidebarPrefs.getState().groupAliases).toEqual({ "/work/a": "Frontend" });
 		expect(useSidebarPrefs.getState().pinnedSessions).toEqual(["/s/kept.jsonl"]);
 		expect(useToastStore.getState().toasts).toContainEqual(
-			expect.objectContaining({ variant: "error", title: translate("sidebar.renameFailed"), message: "EPERM" }),
+			expect.objectContaining({
+				variant: "error",
+				title: translate("sidebar.renameFailed"),
+				message: translate("toast.failedRetry"),
+				detail: "EPERM",
+			}),
 		);
 	});
 });

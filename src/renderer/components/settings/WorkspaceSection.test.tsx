@@ -289,7 +289,7 @@ describe("WorkspaceSection", () => {
 		await click(findButton(REMOVE_LABEL));
 		await flush();
 		const toasts = useToastStore.getState().toasts;
-		expect(toasts.some(toast => toast.variant === "error" && (toast.message ?? "").includes("/move"))).toBe(true);
+		expect(toasts.some(toast => toast.variant === "error" && (toast.detail ?? "").includes("/move"))).toBe(true);
 		expect(document.body.textContent ?? "").toContain(EXTRA);
 	});
 });

@@ -18,7 +18,7 @@ import { type ModelStore, useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
 import { Select } from "../common";
 
 export type ThinkingSelector = ThinkingLevel | "auto";
@@ -62,7 +62,7 @@ export function ThinkingLevelField() {
 			.setThinkingLevel(level)
 			.then(res => {
 				if (!res.success) {
-					toast({ variant: "error", title: t("input.thinking.failed"), message: res.error });
+					toastError({ title: t("input.thinking.failed"), error: res });
 					return;
 				}
 				// The receipt is authoritative after model support / session-ceiling
@@ -82,7 +82,7 @@ export function ThinkingLevelField() {
 				});
 			})
 			.catch(error => {
-				toast({ variant: "error", title: t("input.thinking.failed"), message: String(error) });
+				toastError({ title: t("input.thinking.failed"), error });
 			});
 	};
 

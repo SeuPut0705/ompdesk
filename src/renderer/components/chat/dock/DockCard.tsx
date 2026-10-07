@@ -1,8 +1,8 @@
 /**
- * DockCard: shared chrome for the center-dock live cards (todo/plan/agents)
+ * DockCard: shared chrome for the center-dock live cards (todo/plan)
  * mounted between the transcript and the composer. Collapse state lives in
  * the ui store so it survives card unmounts (tab switches, content-driven
- * hide/show); todo and agents start collapsed to ONE header line: title, then
+ * hide/show); the todo card starts collapsed to ONE header line: title, then
  * the `peek` (progress, current item) in place of the count badge, so a
  * collapsed card costs a single row above the composer. `focusDockCard(id)`
  * deep links expand the card and flash a ring — that is how command-palette

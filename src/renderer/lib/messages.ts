@@ -10,7 +10,7 @@ import { useMessagesStore } from "../stores/messages";
 import { useSessionStore } from "../stores/session";
 import { withSessionRuntime } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
-import { toast } from "../stores/toast";
+import { toast, toastError } from "../stores/toast";
 import { translate } from "./i18n";
 import type { TabRpc } from "./tab-rpc";
 
@@ -340,7 +340,7 @@ export async function clearSessionContext(
 ): Promise<boolean> {
 	const response = await rpc.clearContext();
 	if (!response.success) {
-		toast({ variant: "warning", message: response.error });
+		toastError({ title: translate("cmd.clear"), error: response, variant: "warning" });
 		return false;
 	}
 	const data = response.data as { droppedCount?: number } | undefined;

@@ -1422,7 +1422,7 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 		// The finalized content arrives via the transcript merge, not the bubble.
 		expect(messages.messages).toEqual([finalized]);
 		// Hydrate re-asserts the per-tab subagent subscription (switch-in path).
-		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledWith("events");
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledWith("progress");
 	});
 
 	it("does not clear live deliveries that arrived after an idle hydration began", async () => {
@@ -1470,7 +1470,7 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 		expect(messages.streamingMessage).toBe(assistantMessage);
 		expect(messages.streamingText).toBe("partial reply");
 		expect(messages.streamingThinking).toBe("partial thinking");
-		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledWith("events");
+		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledWith("progress");
 	});
 });
 

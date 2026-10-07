@@ -295,7 +295,8 @@ describe("TodoDockCard", () => {
 			expect.objectContaining({
 				variant: "error",
 				title: translate("todoPanel.updateFailed"),
-				message: "session is read-only",
+				message: translate("toast.failedRetry"),
+				detail: "session is read-only",
 			}),
 		);
 	});

@@ -11,7 +11,7 @@ import type {
 } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
 import { activeTabCommand, createScopedStoreHook, type TabCommand } from "./session-runtime-context";
-import { toast } from "./toast";
+import { toastError } from "./toast";
 
 export interface ModelStore {
 	model: ModelInfo | null;
@@ -156,7 +156,7 @@ export const createModelStore = (command: TabCommand = activeTabCommand) =>
 					const data = res.data as { enabled?: boolean; active?: boolean } | undefined;
 					set({ fastModeEnabled: data?.enabled ?? false, fastModeActive: data?.active ?? false });
 				} else {
-					toast({ variant: "error", title: translate("model.fastMode"), message: res.error });
+					toastError({ title: translate("model.fastMode"), error: res });
 				}
 			},
 			reset: () => set(initialState),

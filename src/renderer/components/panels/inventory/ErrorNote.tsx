@@ -1,19 +1,24 @@
 /**
  * Inline error block with a copy button (mutation failures carry detail the
  * user may need to paste into a report). Used by the marketplaces rows and
- * the plugin detail sheet.
+ * the plugin detail sheet. With a `title`, the title is the localized
+ * sentence and `message` the raw cause under it; without one, `message` must
+ * already be a localized sentence.
  */
 
 import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
+import { errorDetail } from "../../../lib/error-detail";
 import { copyText, cx } from "../../../lib/format";
-import { IconButton } from "../../common";
+import { ErrorDetail, IconButton } from "../../common";
 
 export function CopyableError({
+	title,
 	message,
 	copyLabel,
 	className,
 }: {
+	title?: string;
 	message: string;
 	copyLabel: string;
 	className?: string;
@@ -33,14 +38,15 @@ export function CopyableError({
 			role="alert"
 		>
 			<span className="min-w-0 flex-1 py-0.5 text-sc-sm break-words whitespace-pre-wrap text-(--sc-danger)">
-				{message}
+				{title ?? message}
+				{title && <ErrorDetail className="mt-0.5" error={message} />}
 			</span>
 			<IconButton
 				className={cx("-my-1 -mr-1.5", copied && "text-(--sc-success)")}
 				icon={copied ? <Check /> : <Copy />}
 				label={copyLabel}
 				onClick={() => {
-					void copyText(message).then(ok => {
+					void copyText(title ? errorDetail(message) : message).then(ok => {
 						if (ok) setCopied(true);
 					});
 				}}

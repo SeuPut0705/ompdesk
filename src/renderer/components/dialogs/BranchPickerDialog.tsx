@@ -11,7 +11,7 @@ import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { branchSessionFromEntry } from "../../lib/messages";
 import { useSessionStore } from "../../stores/session";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, Modal, Spinner } from "../common";
 
@@ -105,7 +105,7 @@ export function BranchPickerDialog() {
 			}
 			close();
 		} catch (cause) {
-			toast({ variant: "error", title: t("branchPicker.failed"), message: String(cause) });
+			toastError({ title: t("branchPicker.failed"), error: cause });
 		} finally {
 			setBranching(null);
 		}

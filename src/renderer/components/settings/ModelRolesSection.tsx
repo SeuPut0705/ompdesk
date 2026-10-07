@@ -14,8 +14,8 @@ import type { ModelRoleCandidate, ModelRoleEntry, ModelRolesResult } from "../..
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
-import { toast } from "../../stores/toast";
-import { Badge, type BadgeVariant, Banner, Button, EmptyState, Spinner } from "../common";
+import { toast, toastError } from "../../stores/toast";
+import { Badge, type BadgeVariant, Banner, Button, EmptyState, ErrorDetail, Spinner } from "../common";
 import { type ModelValueGroup, ModelValueSelect } from "./ModelValueSelect";
 import { SettingsRow } from "./SettingsLayout";
 
@@ -160,10 +160,10 @@ export function ModelRolesSection() {
 				});
 				await load();
 			} else {
-				toast({ variant: "error", title: t("modelRoles.failed"), message: res.error });
+				toastError({ title: t("modelRoles.failed"), error: res });
 			}
 		} catch (cause) {
-			toast({ variant: "error", title: t("modelRoles.failed"), message: String(cause) });
+			toastError({ title: t("modelRoles.failed"), error: cause });
 		} finally {
 			setBusyRole(null);
 		}
@@ -199,7 +199,8 @@ export function ModelRolesSection() {
 			)}
 			{sidecarReady && error !== null && (
 				<Banner actions={retry} live title={t("modelRoles.loadFailed")} variant="danger">
-					{hasRows ? `${t("modelRoles.stale")} ${error}` : error}
+					{hasRows && <span className="block">{t("modelRoles.stale")}</span>}
+					<ErrorDetail error={error} />
 				</Banner>
 			)}
 			{loading && !hasRows && (

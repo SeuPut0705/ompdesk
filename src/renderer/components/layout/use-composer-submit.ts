@@ -9,6 +9,7 @@ import type { AgentMessage, AvailableCommand } from "../../../shared/rpc-types";
 import { hydrateTabSession } from "../../hooks/use-rpc-events";
 import { isGuiOnlyBuiltinCommand, planComposerSubmit, settleComposerResponse } from "../../lib/composer-submit";
 import { expandEmoticons } from "../../lib/emoji";
+import { errorDetail } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { parseComposerMode } from "../../lib/input-modes";
 import { clearSessionContext } from "../../lib/messages";
@@ -21,7 +22,7 @@ import { type MessagesStore, useMessagesStore } from "../../stores/messages";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { restoreTabComposer, useTabsStore } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 
 type SendMode = "prompt" | "steer" | "followUp";
 
@@ -96,8 +97,15 @@ export function useComposerSubmit({
 				);
 
 			let uncertain = false;
-			const showSendError = (title: string, message: string) =>
-				toast({ variant: "error", title: uncertain ? t("input.deliveryUnknownTitle") : title, message });
+			const showSendError = (title: string, error: unknown) =>
+				uncertain
+					? toast({
+							variant: "error",
+							title: t("input.deliveryUnknownTitle"),
+							message: t("input.deliveryUnknown"),
+							detail: errorDetail(error),
+						})
+					: toastError({ title, error });
 			const markUncertain = () => {
 				uncertain = true;
 				if (!originStillActive()) return;
@@ -142,7 +150,7 @@ export function useComposerSubmit({
 						if (!response.success) {
 							if (response.code === "rpc_delivery_unknown") markUncertain();
 							restoreDraft(message, previousImages);
-							showSendError(t("input.bashFailed"), response.error);
+							showSendError(t("input.bashFailed"), response);
 							return;
 						}
 						accepted = true;
@@ -153,13 +161,13 @@ export function useComposerSubmit({
 					})
 					.catch(error => {
 						if (accepted) {
-							toast({ variant: "error", message: String(error) });
+							toastError({ title: t("input.refreshFailed"), error });
 							return;
 						}
 						markUncertain();
 						if (originStillActive()) originMessages?.getState().removeMessage(pending);
 						restoreDraft(message, previousImages);
-						showSendError(t("input.bashFailed"), String(error));
+						showSendError(t("input.bashFailed"), error);
 					})
 					.finally(() => {
 						if (originStillActive()) setSending(false);
@@ -192,7 +200,7 @@ export function useComposerSubmit({
 						if (!response.success) {
 							if (response.code === "rpc_delivery_unknown") markUncertain();
 							restoreDraft(message, previousImages);
-							showSendError(t("input.evalFailed"), response.error);
+							showSendError(t("input.evalFailed"), response);
 							return;
 						}
 						accepted = true;
@@ -203,13 +211,13 @@ export function useComposerSubmit({
 					})
 					.catch(error => {
 						if (accepted) {
-							toast({ variant: "error", message: String(error) });
+							toastError({ title: t("input.refreshFailed"), error });
 							return;
 						}
 						markUncertain();
 						if (originStillActive()) originMessages?.getState().removeMessage(pending);
 						restoreDraft(message, previousImages);
-						showSendError(t("input.evalFailed"), String(error));
+						showSendError(t("input.evalFailed"), error);
 					})
 					.finally(() => {
 						if (originStillActive()) setSending(false);
@@ -386,7 +394,7 @@ export function useComposerSubmit({
 							if (response.code === "rpc_delivery_unknown") markUncertain();
 							if (optimisticMessage) originMessages.getState().removeLiveMessage(optimisticMessage);
 							restoreDraft(message, previousImages);
-							showSendError(t("input.sendFailed"), response.error);
+							showSendError(t("input.sendFailed"), response);
 							return;
 						}
 						accepted = true;
@@ -397,13 +405,13 @@ export function useComposerSubmit({
 					})
 					.catch(error => {
 						if (accepted) {
-							toast({ variant: "error", message: String(error) });
+							toastError({ title: t("input.refreshFailed"), error });
 							return;
 						}
 						markUncertain();
 						if (optimisticMessage) originMessages.getState().removeLiveMessage(optimisticMessage);
 						restoreDraft(message, previousImages);
-						showSendError(t("input.sendFailed"), String(error));
+						showSendError(t("input.sendFailed"), error);
 					})
 					.finally(() => {
 						if (originStillActive()) setSending(false);

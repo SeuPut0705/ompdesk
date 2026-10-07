@@ -4,7 +4,7 @@ import { useTabGuard } from "../../../hooks/use-tab-guard";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { useSessionStore } from "../../../stores/session";
-import { toast } from "../../../stores/toast";
+import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { IconButton, Spinner } from "../../common";
 
@@ -35,14 +35,14 @@ export function GoalDockBar() {
 			const response = await rpc.setGoal({ action });
 			if (!isActive(origin)) return;
 			if (!response.success) {
-				toast({ variant: "error", title: t("dock.goal.actionFailed"), message: response.error });
+				toastError({ title: t("dock.goal.actionFailed"), error: response });
 				return;
 			}
 			if (action === "drop") useSessionStore.setState({ goal: null, goalState: null });
 			else useSessionStore.setState({ goalState: { status: action === "pause" ? "paused" : "active" } });
 		} catch (cause) {
 			if (!isActive(origin)) return;
-			toast({ variant: "error", title: t("dock.goal.actionFailed"), message: String(cause) });
+			toastError({ title: t("dock.goal.actionFailed"), error: cause });
 		} finally {
 			setBusy(null);
 		}

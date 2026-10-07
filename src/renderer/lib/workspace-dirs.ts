@@ -8,7 +8,7 @@
  */
 import type { RpcResponse, RpcWorkspaceDirectoriesResult, RpcWorkspaceDirectory } from "../../shared/rpc-types";
 import { hydrateSession } from "../hooks/use-rpc-events";
-import { toast } from "../stores/toast";
+import { toast, toastError } from "../stores/toast";
 import { translate } from "./i18n";
 
 export type { RpcWorkspaceDirectory };
@@ -31,7 +31,7 @@ function directoriesOf(response: RpcResponse): RpcWorkspaceDirectory[] {
 export async function addWorkspaceDirectory(path: string): Promise<RpcWorkspaceDirectory[] | null> {
 	const response = await window.omp.rpc.addDirectory(path);
 	if (!response.success) {
-		toast({ variant: "error", title: translate("workspaceDirs.add"), message: response.error });
+		toastError({ title: translate("workspaceDirs.add"), error: response });
 		return null;
 	}
 	toast({ variant: "success", message: translate("workspaceDirs.added", { path }) });
@@ -42,7 +42,7 @@ export async function addWorkspaceDirectory(path: string): Promise<RpcWorkspaceD
 export async function removeWorkspaceDirectory(path: string): Promise<RpcWorkspaceDirectory[] | null> {
 	const response = await window.omp.rpc.removeDirectory(path);
 	if (!response.success) {
-		toast({ variant: "error", title: translate("workspaceDirs.remove"), message: response.error });
+		toastError({ title: translate("workspaceDirs.remove"), error: response });
 		return null;
 	}
 	toast({ variant: "success", message: translate("workspaceDirs.removed", { path }) });
@@ -57,7 +57,7 @@ export async function removeWorkspaceDirectory(path: string): Promise<RpcWorkspa
 export async function moveSessionTo(path: string): Promise<boolean> {
 	const response = await window.omp.rpc.moveSession(path);
 	if (!response.success) {
-		toast({ variant: "error", title: translate("workspaceDirs.move"), message: response.error });
+		toastError({ title: translate("workspaceDirs.move"), error: response });
 		return false;
 	}
 	const cwd = (response.data as { cwd?: string } | undefined)?.cwd ?? path;

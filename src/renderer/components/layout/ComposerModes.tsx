@@ -20,7 +20,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, Popover, SwitchField, Tabs, Tooltip } from "../common";
 import { GoalModeConfig, LoopModeConfig, VibeModeConfig } from "../modes/ModeConfig";
@@ -181,7 +181,7 @@ function PlanModeConfig() {
 				session.setState({ planModeEnabled: data.enabled });
 			}
 		} catch (cause) {
-			toast({ variant: "error", title: t("modesPanel.actionFailed"), message: String(cause) });
+			toastError({ title: t("modesPanel.actionFailed"), error: cause });
 		} finally {
 			setPending(false);
 		}

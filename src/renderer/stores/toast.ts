@@ -4,6 +4,7 @@
  */
 
 import { create } from "zustand";
+import { errorDetail, errorMessage } from "../lib/error-detail";
 
 export type ToastVariant = "info" | "success" | "warning" | "error";
 
@@ -116,4 +117,21 @@ export const useToastStore = create<ToastStore>()(set => ({
 /** Convenience helper for fire-and-forget call sites. */
 export function toast(input: ToastInput): number {
 	return useToastStore.getState().push(input);
+}
+
+export interface ToastErrorInput {
+	/** Localized, ≤ 4 words: what failed ("Rename failed"). */
+	title: string;
+	/** The thrown value or the failed result (`{ error, code? }`); its raw text becomes the detail line. */
+	error: unknown;
+	variant?: "error" | "warning";
+	durationMs?: number;
+}
+
+/**
+ * Failure toast: localized title, localized one-sentence message (main's
+ * coded failures get their own, see lib/error-detail), raw cause as `detail`.
+ */
+export function toastError({ title, error, variant = "error", durationMs }: ToastErrorInput): number {
+	return toast({ variant, title, message: errorMessage(error), detail: errorDetail(error), durationMs });
 }

@@ -23,8 +23,10 @@
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("../src/renderer", import.meta.url).pathname;
+// fileURLToPath, not URL.pathname: the latter is "/D:/…" on Windows runners.
+const ROOT = fileURLToPath(new URL("../src/renderer", import.meta.url));
 const STYLES = join(ROOT, "styles");
 const EXTENSIONS = new Set([".ts", ".tsx"]);
 const BARE_MS = /(?<!var\(--omp-motion-(?:fast|med)\))(?<![-\w])(\d+(?:\.\d+)?)ms\b/g;

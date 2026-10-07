@@ -298,11 +298,6 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		setAgentsPaused: (enabled: boolean) => rpcCommand({ type: "set_agents_paused", enabled }),
 		setGoal: (args: { objective?: string; tokenBudget?: number | null; action?: "pause" | "resume" | "drop" }) =>
 			rpcCommand({ type: "set_goal", ...args }),
-		btw: (question: string, recordId?: string) =>
-			rpcCommand({ type: "btw", question, ...(recordId === undefined ? {} : { recordId }) }),
-		cancelBtw: (recordId?: string) =>
-			rpcCommand({ type: "btw_cancel", ...(recordId === undefined ? {} : { recordId }) }),
-		getBtwHistory: () => rpcCommand({ type: "get_btw_history" }),
 		tan: (work: string) => rpcCommand({ type: "tan", work }),
 		omfg: (complaint: string) => rpcCommand({ type: "omfg", complaint }),
 		getLoopMode: () => rpcCommand({ type: "get_loop_mode" }),

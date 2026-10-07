@@ -8,12 +8,13 @@ import { Download, FolderOpen, RefreshCw, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { UpdateAccess, UpdateAuthInfo, UpdateStatus } from "../../../shared/ipc-types";
 import type { RpcOmpUpdateResult, RpcOmpUpdateRunResult } from "../../../shared/rpc-types";
+import { errorDetail } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { useUpdaterStore } from "../../stores/updater";
-import { Badge, Banner, type BannerVariant, Button, Input, Spinner } from "../common";
+import { Badge, Banner, type BannerVariant, Button, ErrorDetail, Input, Spinner } from "../common";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 export type UpdateOverviewState = "checking" | "healthy" | "attention" | "error";
@@ -113,14 +114,14 @@ export function UpdatesSection() {
 		try {
 			const response = await tabRpc.ompUpdate();
 			if (!response.success) {
-				toast({ variant: "error", title: t("updates.core.updateFailed"), message: response.error });
+				toastError({ title: t("updates.core.updateFailed"), error: response });
 				return;
 			}
 			const { version } = response.data as RpcOmpUpdateRunResult;
 			toast({ variant: "success", message: t("updates.core.updated", { version }) });
 			await check();
 		} catch (cause) {
-			toast({ variant: "error", title: t("updates.core.updateFailed"), message: String(cause) });
+			toastError({ title: t("updates.core.updateFailed"), error: cause });
 		} finally {
 			setCoreUpdating(false);
 		}
@@ -141,12 +142,8 @@ export function UpdatesSection() {
 				{overview === "error" && (appError || coreError) ? (
 					// One line per component: the app's message, then omp's own (often raw CLI) error, quieter.
 					<>
-						{appError && <span className="block">{appError}</span>}
-						{coreError && (
-							<span className="mt-0.5 block text-sc-sm break-words text-(--sc-text-muted)">
-								omp: {coreError}
-							</span>
-						)}
+						{appError && <ErrorDetail error={appError} />}
+						{coreError && <ErrorDetail className="mt-0.5" error={`omp: ${errorDetail(coreError)}`} />}
 					</>
 				) : status.state === "auth-required" ? (
 					t(ACCESS_MESSAGE[status.reason])

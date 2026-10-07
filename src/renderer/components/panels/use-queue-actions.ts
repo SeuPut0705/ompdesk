@@ -19,7 +19,7 @@ import { type TabRpc, useTabRpc } from "../../lib/tab-rpc";
 import { type QueueLane, type QueueStore, useQueueStore } from "../../stores/queue";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
-import { toast } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
 
 async function applyLaneMutation(
 	queueStore: StoreApi<QueueStore>,
@@ -34,7 +34,7 @@ async function applyLaneMutation(
 		mutate: state =>
 			lane === "steering" ? { steering: optimistic(state.steering) } : { followUp: optimistic(state.followUp) },
 		persist,
-		onFailure: message => toast({ variant: "error", title: t(failureKey), message }),
+		onFailure: message => toastError({ title: t(failureKey), error: message }),
 		resync: () => queueStore.getState().refresh(),
 	});
 }
@@ -58,7 +58,7 @@ async function applyCrossLaneMove(
 				: { steering: [...state.steering, item], followUp: without };
 		},
 		persist: () => rpc.queueMove(id, Number.MAX_SAFE_INTEGER, target),
-		onFailure: message => toast({ variant: "error", title: t("queuePanel.moveFailed"), message }),
+		onFailure: message => toastError({ title: t("queuePanel.moveFailed"), error: message }),
 		resync: () => queueStore.getState().refresh(),
 	});
 }

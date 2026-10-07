@@ -3,8 +3,8 @@ import { useSessionStore } from "../stores/session";
 import { useSidebarPrefs } from "../stores/sidebar-prefs";
 import { useTabsStore } from "../stores/tabs";
 
-/** Persist the workspace most recently attached by the user (the workspace picker's order). */
-export function useSidebarRecency(): void {
+/** Persist the workspace most recently attached by the user (the workspace picker's MRU order). */
+export function useWorkspaceRecency(): void {
 	const tabs = useTabsStore(state => state.tabs);
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const sessionCwd = useSessionStore(state => state.cwd);

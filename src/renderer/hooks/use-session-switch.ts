@@ -33,7 +33,7 @@ import { useQueueStore } from "../stores/queue";
 import { useSessionStore } from "../stores/session";
 import { useSubagentsStore } from "../stores/subagents";
 import { useTabsStore } from "../stores/tabs";
-import { toast } from "../stores/toast";
+import { toast, toastError } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
 import { useUiStore } from "../stores/ui";
@@ -210,7 +210,7 @@ export async function switchSessionNow(session: SessionInfo, model?: SessionMode
 					return await routeToSessionOwner({ tabId: data.ownerTabId, winId: data.ownerWinId }, session.path);
 				}
 			}
-			toast({ variant: "error", title: translate("sidebar.openFailed"), message: response.error });
+			toastError({ title: translate("sidebar.openFailed"), error: response });
 			return false;
 		}
 		// Hook veto: success:true with cancelled:true — stay on the current session.
@@ -234,7 +234,7 @@ export async function switchSessionNow(session: SessionInfo, model?: SessionMode
 		return true;
 	} catch (error) {
 		clearPending();
-		toast({ variant: "error", title: translate("sidebar.openFailed"), message: String(error) });
+		toastError({ title: translate("sidebar.openFailed"), error });
 		return false;
 	}
 }

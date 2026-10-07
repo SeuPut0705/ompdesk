@@ -42,11 +42,11 @@ When an omp update breaks a bridge method, fix the method against the new intern
 
 ## Build, test
 
-- Typecheck: `bun run check:types`. Lint/format: `bunx biome check src e2e`.
+- Typecheck: `bun run check:types`. Lint/format: `bunx biome check src e2e`. Surface policy (the SURFACE POLICY block in `src/renderer/styles/global.css`): `node scripts/lint-surfaces.mjs`.
 - Unit/component tests: `bunx vitest run` (full suite must stay green; `vitest.setup.ts` pins `navigator.language` to en-US and `navigator.platform` to MacIntel, so keymap defaults and shortcut labels are the macOS ones on every runner — Windows behavior is tested by passing `"windows"` to the `lib/keymap.ts` functions).
 - Build: `bun run build` (electron-vite → `out/`).
 - E2E: `bunx playwright test`. `playwright.config.ts` sets `OMP_GUI_HEADLESS=1`: windows are transparent, click-through, off the Dock/taskbar, and never focused, so tests never cover the user's screen. Set `OMP_GUI_HEADLESS=0` only when you must watch. `e2e/real-core.e2e.ts` and `e2e/deep-audit.e2e.ts` run against the real system omp (isolated agent dir, no credentials); the other suites use the fake omp in `e2e/sidecar-fixture.ts`, installed per test by `fixtureOmp()` (`e2e/harness.ts`: an `omp.cmd` shim on Windows) and passed as `OMP_GUI_OMP`; it speaks stock `--mode rpc-ui` and serves the gui-bridge methods those suites reach on `OMP_GUI_BRIDGE`. Tear apps down with `exitApp()` (same file); shortcuts in tests use `ControlOrMeta`. `e2e/performance.e2e.ts` only runs with `OMP_GUI_PERFORMANCE=1` (optional `OMP_GUI_BASELINE_DIR` compares another built checkout).
-- CI (`.github/workflows/ci.yml`): `check` (types, biome, vitest, build) on macOS and Windows for every push/PR. `e2e` runs only on `workflow_dispatch` and inside the release workflow (`workflow_call` with `e2e: true`), against the latest published omp: the full suite on macOS, the `@smoke` subset (`e2e/smoke.e2e.ts`, `--grep @smoke`, fake omp) on Windows. Ad hoc: `gh workflow run ci.yml --ref <branch>`.
+- CI (`.github/workflows/ci.yml`): `check` (types, biome, surface policy, vitest, build) on macOS and Windows for every push/PR. `e2e` runs only on `workflow_dispatch` and inside the release workflow (`workflow_call` with `e2e: true`), against the latest published omp: the full suite on macOS, the `@smoke` subset (`e2e/smoke.e2e.ts`, `--grep @smoke`, fake omp) on Windows. Ad hoc: `gh workflow run ci.yml --ref <branch>`.
 - Never drive the app with synthetic OS input (osascript keystrokes etc.); use Playwright.
 - Dev: `bun run dev` (HMR against the system omp; opens a visible window).
 - Never reinstall `/Applications/OMPdesk.app` from inside the app (you may be running *inside* OMPdesk; quitting it kills this session). `scripts/reinstall-mac.sh` (`bun run package:mac -- --publish never && bash scripts/reinstall-mac.sh`) runs **only when the user explicitly asks for a local reinstall**. **Never** schedule a swap with `launchctl submit` (launchd keeps submitted jobs alive and reruns them, so the app quits and relaunches forever) or any `KeepAlive` job.
@@ -56,7 +56,7 @@ When an omp update breaks a bridge method, fix the method against the new intern
 
 Every change ships, so the user can update right away from the app:
 
-1. `bun run check:types`, `bunx biome check src e2e`, `bunx vitest run` — all green.
+1. `bun run check:types`, `bunx biome check src e2e`, `node scripts/lint-surfaces.mjs`, `bunx vitest run` — all green.
 2. Release it with the steps below: bump the version, add the dated Korean `CHANGELOG.md` section, commit `release: vX.Y.Z`, push to `main`, and watch the release run to the end.
 
 Several changes requested together go out as one release. Never leave an `Unreleased` section behind on `main`. Do not reinstall the local app unless the user asks — the in-app updater picks the release up.

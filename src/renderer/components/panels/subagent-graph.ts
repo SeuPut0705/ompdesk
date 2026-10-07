@@ -1,6 +1,7 @@
 /**
  * Shared subagent model: status metadata, elapsed-time helpers, labels, and
- * the tool-call ownership registry used to recover parent→child spawn edges.
+ * registration of transcript tool calls into the ownership registry
+ * (`stores/subagent-graph`) used to recover parent→child spawn edges.
  *
  * The wire carries an explicit parent link for nested spawns
  * (`parentSubagentId`); frames that predate it fall back to attributing the
@@ -9,11 +10,8 @@
  * registry (filled in as transcripts load) for nested ones.
  */
 
-import { useSubagentGraphStore } from "../../stores/subagent-graph";
-
-export * from "../../stores/subagent-graph";
-
 import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
+import { useSubagentGraphStore } from "../../stores/subagent-graph";
 import type { BadgeVariant } from "../common";
 
 /**
@@ -25,28 +23,29 @@ import type { BadgeVariant } from "../common";
  * undefined). Always go through statusMeta()/isLiveSubagentStatus().
  */
 export interface StatusMeta {
-	label: string;
 	variant: BadgeVariant;
 	live: boolean;
 	labelKey: string;
 }
 
 const STATUS_META: Record<string, StatusMeta> = {
-	started: { label: "running", variant: "info", live: true, labelKey: "subagent.status.started" },
-	running: { label: "running", variant: "info", live: true, labelKey: "subagent.status.started" },
-	pending: { label: "pending", variant: "muted", live: true, labelKey: "subagent.status.pending" },
-	idle: { label: "idle", variant: "muted", live: true, labelKey: "subagent.status.idle" },
-	parked: { label: "parked", variant: "muted", live: true, labelKey: "subagent.status.parked" },
-	stale: { label: "stale", variant: "warning", live: false, labelKey: "subagent.status.stale" },
-	completed: { label: "completed", variant: "success", live: false, labelKey: "subagent.status.completed" },
-	failed: { label: "failed", variant: "error", live: false, labelKey: "subagent.status.failed" },
-	aborted: { label: "cancelled", variant: "muted", live: false, labelKey: "subagent.status.cancelled" },
-	cancelled: { label: "cancelled", variant: "muted", live: false, labelKey: "subagent.status.cancelled" },
+	started: { variant: "info", live: true, labelKey: "subagent.status.started" },
+	running: { variant: "info", live: true, labelKey: "subagent.status.started" },
+	pending: { variant: "muted", live: true, labelKey: "subagent.status.pending" },
+	idle: { variant: "muted", live: true, labelKey: "subagent.status.idle" },
+	parked: { variant: "muted", live: true, labelKey: "subagent.status.parked" },
+	stale: { variant: "warning", live: false, labelKey: "subagent.status.stale" },
+	completed: { variant: "success", live: false, labelKey: "subagent.status.completed" },
+	failed: { variant: "error", live: false, labelKey: "subagent.status.failed" },
+	aborted: { variant: "muted", live: false, labelKey: "subagent.status.cancelled" },
+	cancelled: { variant: "muted", live: false, labelKey: "subagent.status.cancelled" },
 };
 
-/** Total lookup — unknown/future statuses degrade to a muted badge with the raw status text. */
+const UNKNOWN_STATUS_META: StatusMeta = { variant: "muted", live: false, labelKey: "subagent.status.unknown" };
+
+/** Total lookup — unknown/future statuses degrade to a muted "unknown" badge. */
 export function statusMeta(status: string): StatusMeta {
-	return STATUS_META[status] ?? { label: status, variant: "muted", live: false, labelKey: "subagent.status.unknown" };
+	return STATUS_META[status] ?? UNKNOWN_STATUS_META;
 }
 
 /** True for non-terminal statuses (drives elapsed timers, pulse dots, running counts). */
@@ -84,7 +83,7 @@ export function formatElapsed(ms: number): string {
 }
 
 /** Ids of `task` tool calls found in a message list (main session or a subagent transcript). */
-export function extractTaskToolCallIds(messages: AgentMessage[]): string[] {
+function extractTaskToolCallIds(messages: AgentMessage[]): string[] {
 	const ids: string[] = [];
 	for (const message of messages) {
 		if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
@@ -101,12 +100,7 @@ export function registerTranscriptToolCalls(agentId: string, messages: AgentMess
 	if (ids.length > 0) useSubagentGraphStore.getState().registerToolCallOwners(agentId, ids);
 }
 
-/** The spawning subagent id, absent for root spawns from the main session. */
-export function parentSubagentIdOf(agent: SubagentSnapshot): string | undefined {
-	return agent.parentSubagentId;
-}
-
-/** Human task label used consistently by list, graph, and hub surfaces. */
+/** Human task label used consistently by the sidebar rows, the agents page, and the transcript sheet. */
 export function subagentPrimaryLabel(agent: SubagentSnapshot, maxLength = 60): string {
 	// `description` is the sidecar's tiny-model UI label. `assignment` is the
 	// complete delegated prompt and may include markdown/system scaffolding, so

@@ -23,7 +23,7 @@ import type { AgentFileScope, RpcAgentDefinitionInfo } from "../../../shared/rpc
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { toast } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
 import {
 	Banner,
 	Button,
@@ -76,7 +76,7 @@ export function joinAgentPath(dir: string, file: string): string {
 export async function revealAgentFile(filePath: string, action: "open" | "reveal", failedTitle: string) {
 	const result =
 		action === "open" ? await window.omp.system.openPath(filePath) : await window.omp.system.revealPath(filePath);
-	if (!result.ok) toast({ variant: "error", title: failedTitle, message: result.error ?? filePath });
+	if (!result.ok) toastError({ title: failedTitle, error: result.error ? result : filePath });
 }
 
 export function AgentEditorSheet({ target, definitions, onClose, onSaved }: AgentEditorSheetProps) {

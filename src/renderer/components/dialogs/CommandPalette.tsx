@@ -55,7 +55,7 @@ import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { useActiveTabKind } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, EmptyState, Kbd, Spinner } from "../common";
 import { isTopmostDialog, registerDialogLayer } from "../common/dialog-layer";
@@ -134,7 +134,7 @@ async function runAffordance(
 			try {
 				await affordance.run();
 			} catch (error) {
-				toast({ variant: "error", title: t("palette.failed"), message: String(error) });
+				toastError({ title: t("palette.failed"), error });
 			}
 			return;
 		case "toggle":
@@ -142,7 +142,7 @@ async function runAffordance(
 			try {
 				await affordance.set(!affordance.get());
 			} catch (error) {
-				toast({ variant: "error", title: t("palette.failed"), message: String(error) });
+				toastError({ title: t("palette.failed"), error });
 			}
 			return;
 		case "picker":
@@ -159,7 +159,7 @@ async function runAffordance(
 				const response = await rpc.prompt(affordance.text.trim());
 				if (!response.success) throw new Error(response.error);
 			} catch (error) {
-				toast({ variant: "error", title: t("palette.failed"), message: String(error) });
+				toastError({ title: t("palette.failed"), error });
 			}
 			return;
 		case "submenu":
@@ -315,7 +315,7 @@ export function CommandPalette() {
 		}
 		const response = await tabRpc.retry();
 		if (!response.success) {
-			toast({ variant: "error", title: t("palette.failed"), message: response.error });
+			toastError({ title: t("palette.failed"), error: response });
 			return;
 		}
 		const data = response.data as { retried?: boolean } | undefined;

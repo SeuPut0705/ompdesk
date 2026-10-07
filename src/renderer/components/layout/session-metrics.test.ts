@@ -17,8 +17,8 @@ describe("session metrics", () => {
 			{ role: "assistant", timestamp: 7_000, duration: 1_000 },
 		] as AgentMessage[];
 		const tools = new Map([
-			["a", { startTime: 3_000, endTime: 7_000 }],
-			["b", { startTime: 4_000, endTime: 6_000 }],
+			["a", { status: "done" as const, startTime: 3_000, endTime: 7_000 }],
+			["b", { status: "done" as const, startTime: 4_000, endTime: 6_000 }],
 		]);
 		expect(
 			sessionExecutionDurationMs({
@@ -43,5 +43,24 @@ describe("session metrics", () => {
 				now: 10_000,
 			}),
 		).toBe(2_000);
+	});
+
+	it("does not count history calls left aborted without an end time as running", () => {
+		// A rebuilt transcript marks unanswered calls `aborted` with endTime null.
+		// Counting them to "now" turned a call from hours ago into hours of execution.
+		const tools = new Map([
+			["stale", { status: "aborted" as const, startTime: 1_000, endTime: null }],
+			["live", { status: "running" as const, startTime: 3_600_000, endTime: null }],
+		]);
+		expect(
+			sessionExecutionDurationMs({
+				messages: [],
+				streamingMessage: null,
+				tools,
+				awaitingModelSince: null,
+				isStreaming: true,
+				now: 3_605_000,
+			}),
+		).toBe(5_000);
 	});
 });

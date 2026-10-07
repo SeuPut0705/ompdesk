@@ -36,7 +36,7 @@ export function sessionExecutionDurationMs({
 }: {
 	messages: AgentMessage[];
 	streamingMessage: AgentMessage | null;
-	tools: ReadonlyMap<string, Pick<ToolEntry, "startTime" | "endTime">>;
+	tools: ReadonlyMap<string, Pick<ToolEntry, "status" | "startTime" | "endTime">>;
 	awaitingModelSince: number | null;
 	isStreaming: boolean;
 	now: number;
@@ -49,6 +49,10 @@ export function sessionExecutionDurationMs({
 		addRange(ranges, start, start === null ? null : start + Math.max(0, duration));
 	}
 	for (const tool of tools.values()) {
+		// History rebuilds leave unanswered calls `aborted` with no end time. Their
+		// real end is unknown, so they are not countable: running them to "now"
+		// turned hours-old calls into hours of execution.
+		if (tool.status === "aborted" && tool.endTime === null) continue;
 		addRange(ranges, tool.startTime, tool.endTime ?? (isStreaming ? now : null));
 	}
 	if (isStreaming) {

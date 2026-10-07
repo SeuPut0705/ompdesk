@@ -14,7 +14,7 @@ import { pickWorkspaceDirectory } from "../../lib/workspace-dirs";
 import { useSessionStore } from "../../stores/session";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useTabsStore } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { Modal } from "../common";
 
 interface WorkspaceRow {
@@ -102,7 +102,7 @@ export function WorkspaceDialog({
 			}
 			onClose();
 		} catch (error) {
-			toast({ variant: "error", title: t("workspaces.switchFailed"), message: String(error) });
+			toastError({ title: t("workspaces.switchFailed"), error });
 		}
 	};
 
@@ -116,7 +116,7 @@ export function WorkspaceDialog({
 			}
 			if (await window.omp.sidecar.selectProject()) onClose();
 		} catch (error) {
-			toast({ variant: "error", title: t("titlebar.openProjectFailed"), message: String(error) });
+			toastError({ title: t("titlebar.openProjectFailed"), error });
 		}
 	};
 

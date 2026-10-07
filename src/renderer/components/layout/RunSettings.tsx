@@ -23,7 +23,7 @@ import { useModelStore } from "../../stores/model";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { type SettingsStore, useSettingsStore } from "../../stores/settings";
-import { toast } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, Popover, SwitchField, Tooltip } from "../common";
 import { ApprovalModeField, FullAccessConfirmDialog } from "./ApprovalControl";
@@ -62,7 +62,7 @@ function useSessionToggle() {
 			settings.getState().setFromState(state);
 			session.setState({ planModeEnabled: state.planModeEnabled });
 		} catch (cause) {
-			toast({ variant: "error", title: t("input.runSettings.failed"), message: String(cause) });
+			toastError({ title: t("input.runSettings.failed"), error: cause });
 		} finally {
 			setPending(false);
 		}

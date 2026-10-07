@@ -7,12 +7,14 @@
 
 import { ArrowLeft, AtSign, ExternalLink as ExternalLinkIcon, File, Folder, FolderOpen, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ipcErrorCode } from "../../../shared/ipc-error-codes";
 import type { FsTreeEntry } from "../../../shared/ipc-types";
+import { errorMessage } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useUiStore } from "../../stores/ui";
-import { Button, Spinner } from "../common";
+import { Button, ErrorDetail, Spinner } from "../common";
 import { type TreeNode, TreeView } from "../common/TreeView";
 import { PathLink } from "../tools/PathLink";
 
@@ -60,7 +62,8 @@ export function FilesPanel() {
 	const [tree, setTree] = useState<FsTreeEntry[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [truncated, setTruncated] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	/** The failed list result or thrown cause; null when the tree loaded. */
+	const [error, setError] = useState<unknown>(null);
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 	const [preview, setPreview] = useState<PreviewState | null>(null);
 
@@ -74,7 +77,7 @@ export function FilesPanel() {
 				: await window.omp.fs.list(undefined, MAX_DEPTH, MAX_FILES);
 			if (version !== listVersion.current) return;
 			if (!result.ok) {
-				setError(result.error ?? t("filesPanel.unavailable"));
+				setError(result);
 				setTree([]);
 				setTruncated(false);
 				return;
@@ -83,13 +86,13 @@ export function FilesPanel() {
 			setTruncated(result.truncated);
 		} catch (err) {
 			if (version !== listVersion.current) return;
-			setError(err instanceof Error ? err.message : String(err));
+			setError(err);
 			setTree([]);
 			setTruncated(false);
 		} finally {
 			if (version === listVersion.current) setLoading(false);
 		}
-	}, [t, tabId]);
+	}, [tabId]);
 
 	useEffect(() => {
 		setTree([]);
@@ -298,9 +301,8 @@ export function FilesPanel() {
 					</div>
 				) : error !== null ? (
 					<div className="px-4 py-8 text-center text-omp-sm leading-relaxed text-(--omp-dim)">
-						{t("filesPanel.unavailable")}
-						<br />
-						<span className="break-words">{error}</span>
+						{ipcErrorCode(error) ? errorMessage(error) : t("filesPanel.unavailable")}
+						<ErrorDetail className="mt-1" error={error} />
 						<div className="mt-2">
 							<Button onClick={() => void load()} size="sm" variant="ghost">
 								{t("filesPanel.retry")}

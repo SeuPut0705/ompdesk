@@ -19,6 +19,7 @@ import { useT } from "../../lib/i18n";
 import { Banner } from "./Banner";
 import { Button } from "./Button";
 import { EmptyState } from "./EmptyState";
+import { ErrorDetail } from "./ErrorDetail";
 import { Spinner } from "./Spinner";
 
 export interface AsyncSectionProps {
@@ -79,10 +80,10 @@ export function AsyncSection({
 			<EmptyState
 				actions={retryButton}
 				className={box}
-				description={errorTitle ? <span role="alert">{error}</span> : undefined}
+				description={<ErrorDetail error={error} />}
 				icon={<AlertTriangle />}
 				size="sm"
-				title={errorTitle ? errorTitle : <span role="alert">{error}</span>}
+				title={<span role="alert">{errorTitle ?? t("common.loadFailed")}</span>}
 			/>
 		);
 	}
@@ -92,8 +93,14 @@ export function AsyncSection({
 	return (
 		<>
 			{error && (
-				<Banner actions={retryButton} className="mb-3" live title={staleLabel} variant="warning">
-					{error}
+				<Banner
+					actions={retryButton}
+					className="mb-3"
+					live
+					title={staleLabel ?? t("common.loadFailed")}
+					variant="warning"
+				>
+					<ErrorDetail error={error} />
 				</Banner>
 			)}
 			{children}

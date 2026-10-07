@@ -32,7 +32,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { useModelStore } from "../../stores/model";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, Kbd, Modal, SearchField, Spinner } from "../common";
 import { persistDefaultModel } from "../onboarding/default-model";
@@ -204,7 +204,7 @@ export function ModelPicker() {
 		}
 		const response = await tabRpc.setModelPool(next);
 		if (!response.success) {
-			toast({ variant: "error", title: t("modelPool.updateFailed"), message: response.error });
+			toastError({ title: t("modelPool.updateFailed"), error: response });
 			return;
 		}
 		(sessionRuntimeStore<SessionStore>(tabId, "session") ?? useSessionStore).setState({
@@ -230,14 +230,14 @@ export function ModelPicker() {
 			if (overContext) {
 				const compactRes = await tabRpc.compact();
 				if (!compactRes.success) {
-					toast({ variant: "error", title: t("modelPicker.compactFailed"), message: compactRes.error });
+					toastError({ title: t("modelPicker.compactFailed"), error: compactRes });
 					return;
 				}
 				toast({ variant: "info", message: t("modelPicker.compactedSwitching") });
 			}
 			const response = await tabRpc.setModel(provider, modelId);
 			if (!response.success) {
-				toast({ variant: "error", title: t("modelPicker.failed"), message: response.error });
+				toastError({ title: t("modelPicker.failed"), error: response });
 				return;
 			}
 			// The response carries the sidecar's live model. Applying it here covers
@@ -252,14 +252,10 @@ export function ModelPicker() {
 			try {
 				await persistDefaultModel(tabRpc, { provider, id: modelId });
 			} catch (cause) {
-				toast({
-					variant: "warning",
-					title: t("modelPicker.defaultFailed"),
-					message: cause instanceof Error ? cause.message : String(cause),
-				});
+				toastError({ title: t("modelPicker.defaultFailed"), error: cause, variant: "warning" });
 			}
 		} catch (cause) {
-			toast({ variant: "error", title: t("modelPicker.failed"), message: String(cause) });
+			toastError({ title: t("modelPicker.failed"), error: cause });
 		} finally {
 			setSwitching(null);
 		}

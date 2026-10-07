@@ -15,7 +15,7 @@ import { useT } from "../../../lib/i18n";
 import { type OptimisticTarget, optimisticWrite } from "../../../lib/optimistic";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
-import { toast } from "../../../stores/toast";
+import { toastError } from "../../../stores/toast";
 import {
 	selectTodoCardVisible,
 	type TodoStore,
@@ -74,7 +74,7 @@ export function TodoDockCard() {
 				store: writes,
 				mutate: () => ({ phases: next }),
 				persist: () => rpc.setTodos(todoPayload(next)),
-				onFailure: message => toast({ variant: "error", title: t("todoPanel.updateFailed"), message }),
+				onFailure: message => toastError({ title: t("todoPanel.updateFailed"), error: message }),
 			});
 		},
 		[rpc, t, writes],

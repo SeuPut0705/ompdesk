@@ -12,7 +12,7 @@ import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
-import { I18nProvider } from "../../../lib/i18n";
+import { I18nProvider, translate } from "../../../lib/i18n";
 import { resetTabRoute } from "../../../lib/tab-routing";
 import { useSessionStore } from "../../../stores/session";
 import { setFocusedSessionRuntime } from "../../../stores/session-runtime-context";
@@ -129,9 +129,14 @@ describe("AgentsDockCard", () => {
 
 		// Icon + count only; the word "Subagents" lives in the accessible name.
 		expect(chip()?.textContent).toBe("2");
-		expect(chip()?.querySelector(".animate-spin")).not.toBeNull();
-		expect(chip()?.getAttribute("aria-label")).toBe("Subagents: 2 running · 1 done · 1 failed. Show in sidebar");
-		expect(chip()?.getAttribute("title")).toBe("Subagents: 2 running · 1 done · 1 failed — Show in sidebar");
+		expect(chip()?.querySelector('[role="status"]')).not.toBeNull();
+		const summary = `${translate("dock.agents")}: ${[
+			translate("dock.agents.running", { count: 2 }),
+			translate("dock.agents.done", { count: 1 }),
+			translate("dock.agents.failed", { count: 1 }),
+		].join(" · ")}`;
+		expect(chip()?.getAttribute("aria-label")).toBe(`${summary}. ${translate("dock.agents.show")}`);
+		expect(chip()?.getAttribute("title")).toBe(`${summary} — ${translate("dock.agents.show")}`);
 		expect(container.querySelector('[role="tree"]')).toBeNull();
 	});
 
@@ -191,5 +196,32 @@ describe("AgentsDockCard", () => {
 			await sleep(60);
 		});
 		expect(getSubagents.mock.calls.length).toBe(callsAtStop);
+	});
+
+	it("does not poll while streaming when no agent is live", async () => {
+		const sleep = (ms: number) => {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			setTimeout(resolve, ms);
+			return promise;
+		};
+		useSubagentsStore.getState().setSnapshots([snap({ id: "a1", status: "completed" })]);
+		activateTab();
+		useSessionStore.setState({ isStreaming: true });
+		await mount(<AgentsDockCard pollMs={25} />);
+		await act(async () => {
+			await sleep(60);
+		});
+		// A finished roster has nothing frame-less to catch up on; a new spawn
+		// arrives as a lifecycle frame and starts the poll.
+		expect(getSubagents).not.toHaveBeenCalled();
+
+		await act(async () => {
+			useSubagentsStore.getState().applyFrame({
+				type: "subagent_lifecycle",
+				payload: { id: "a2", index: 2, agent: "scout", agentSource: "bundled", status: "started" },
+			});
+			await sleep(60);
+		});
+		expect(getSubagents.mock.calls.length).toBeGreaterThanOrEqual(1);
 	});
 });

@@ -3,7 +3,7 @@
 import * as fs from "node:fs";
 import * as net from "node:net";
 import { createInterface } from "node:readline";
-import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from "../src/shared/rpc-types";
+import type { AgentMessage, RpcSecurityDashboardResult } from "../src/shared/rpc-types";
 
 // A local stand-in for the system omp the GUI drives: stock `--mode rpc-ui` on
 // stdin/stdout, plus the gui-bridge extension's socket (loaded with `-e`,
@@ -245,8 +245,6 @@ if (process.argv[2] === "stats") {
 	let streamTimer: Timer | undefined;
 	let streamChunks = 0;
 	let streamTick: (() => void) | undefined;
-	/** get_subagents roster; `fixture:subagents` fills it (running, finished, nested). */
-	let subagentRoster: SubagentSnapshot[] = [];
 	let holdSettings = false;
 	let releaseSettings: (() => void) | undefined;
 	const values: Record<string, unknown> = {
@@ -764,7 +762,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				ok({ messages: entries.flatMap(entry => (entry.type === "message" ? [entry.message] : [])) });
 				break;
 			case "get_subagents":
-				ok({ subagents: subagentRoster });
+				ok({ subagents: [] });
 				break;
 			case "get_available_models":
 				ok({ models: [model] });
@@ -860,41 +858,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				if (line === "fixture:resume") {
 					clearInterval(streamTimer);
 					if (streamTick) streamTimer = setInterval(streamTick, 16);
-					ok();
-					break;
-				}
-				// A subagent roster for the sidebar groups and the dock line.
-				if (line === "fixture:subagents") {
-					const now = Date.now();
-					subagentRoster = [
-						{
-							id: "sa-explore",
-							index: 0,
-							agent: "explore",
-							description: "Map the settings code",
-							status: "running",
-							live: true,
-							lastUpdate: now,
-						},
-						{
-							id: "sa-review",
-							index: 1,
-							agent: "reviewer",
-							description: "Review the sidebar diff",
-							status: "completed",
-							lastUpdate: now - 5000,
-						},
-						{
-							id: "sa-nested",
-							index: 2,
-							agent: "task",
-							description: "Read locale files",
-							status: "running",
-							live: true,
-							parentSubagentId: "sa-explore",
-							lastUpdate: now,
-						},
-					];
 					ok();
 					break;
 				}

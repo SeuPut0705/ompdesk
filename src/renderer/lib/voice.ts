@@ -20,7 +20,7 @@ import type { SynthesizeSpeechResult, TranscribeAudioResult } from "../../shared
 import { useMessagesStore } from "../stores/messages";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
-import { toast } from "../stores/toast";
+import { toastError } from "../stores/toast";
 import { translate } from "./i18n";
 import { messageText } from "./messages";
 
@@ -235,7 +235,7 @@ export function speakText(text: string): void {
 		try {
 			const response = await window.omp.rpc.synthesizeSpeech(trimmed);
 			if (!response.success) {
-				toast({ variant: "error", title: translate("voice.speak.failed"), message: response.error });
+				toastError({ title: translate("voice.speak.failed"), error: response });
 				return;
 			}
 			const data = response.data as SynthesizeSpeechResult | undefined;
@@ -255,7 +255,7 @@ export function speakText(text: string): void {
 			audio.play().catch(finish);
 			await playback.promise;
 		} catch (cause) {
-			toast({ variant: "error", title: translate("voice.speak.failed"), message: String(cause) });
+			toastError({ title: translate("voice.speak.failed"), error: cause });
 		} finally {
 			speaking = false;
 		}

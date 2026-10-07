@@ -18,7 +18,7 @@ import { useLang, useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { useSessionStore } from "../../stores/session";
 import { focusedSessionRuntime, sessionRuntime, withSessionRuntime } from "../../stores/session-runtime-context";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { CodeBlock } from "../chat/CodeBlock";
 import { Banner, Button, EmptyState, Input, Select, TextArea } from "../common";
 import { ArrayChipEditor } from "./editors/ArrayChipEditor";
@@ -89,7 +89,7 @@ function ProxyRow() {
 				message: t(restarted ? "settings.gui.proxyApplied" : "settings.gui.proxySavedPending"),
 			});
 		} catch (error) {
-			toast({ variant: "error", message: t("pluginActivation.restartFailed", { message: String(error) }) });
+			toastError({ title: t("pluginActivation.restartFailed"), error });
 		} finally {
 			pending.current = false;
 			setSaving(false);
@@ -174,7 +174,7 @@ function LaunchProfileSection() {
 					setProfile(next);
 					return true;
 				} catch (error) {
-					toast({ variant: "error", title: t("settings.saveFailed"), message: String(error) });
+					toastError({ title: t("settings.saveFailed"), error });
 					return false;
 				}
 			})();
@@ -223,9 +223,7 @@ function LaunchProfileSection() {
 		void window.omp.sidecar
 			.restart({ tabId: origin?.tabId, sessionPath: sessionFile ?? undefined })
 			.then(() => toast({ variant: "info", message: t("settings.launch.restarting") }))
-			.catch(error =>
-				toast({ variant: "error", message: t("pluginActivation.restartFailed", { message: String(error) }) }),
-			)
+			.catch(error => toastError({ title: t("pluginActivation.restartFailed"), error }))
 			.finally(() => setRestarting(false));
 	};
 

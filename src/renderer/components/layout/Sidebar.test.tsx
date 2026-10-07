@@ -13,7 +13,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { SessionInfo } from "../../../shared/ipc-types";
-import { useSidebarRecency } from "../../hooks/use-sidebar-recency";
+import { useWorkspaceRecency } from "../../hooks/use-workspace-recency";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
@@ -269,8 +269,8 @@ function seedStores(): void {
 	});
 }
 
-function SidebarWithRecency() {
-	useSidebarRecency();
+function SidebarWithWorkspaceRecency() {
+	useWorkspaceRecency();
 	return <Sidebar />;
 }
 
@@ -394,7 +394,7 @@ describe("Sidebar menus and pinned ordering", () => {
 			bundles: new Map(),
 		});
 		useSidebarPrefs.setState({ hydrated: true });
-		await mount(<SidebarWithRecency />);
+		await mount(<SidebarWithWorkspaceRecency />);
 		// A chat tab opens the Chat lane; projects live in Code.
 		await fire(container.querySelector('[role="tablist"] [data-tab-id="code"]'), "onClick");
 		// Non-active workspaces start collapsed and render no rows; expand alpha

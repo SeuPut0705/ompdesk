@@ -1,9 +1,8 @@
 /**
  * Session tree layout: hand-rolled layered tidy-tree (depth rows top→bottom,
- * parents centered horizontally on their children), ported from the subagent
- * DAG layout (panels/subagent-graph.ts) with the axes swapped — no graph
- * dependency. Pure data + geometry only: the panel applies cosmetic drag
- * offsets, viewport culling, and pan/zoom at render time.
+ * parents centered horizontally on their children) — no graph dependency.
+ * Pure data + geometry only: the panel applies cosmetic drag offsets,
+ * viewport culling, and pan/zoom at render time.
  *
  * Data source is the `get_session_tree` RPC (nodes carry parentId, role,
  * timestamp, active-branch and leaf markers). A flat `get_branch_messages`

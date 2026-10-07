@@ -11,7 +11,7 @@ import { AGENT_TEMPLATES, type AgentTemplate } from "../../../shared/agent-templ
 import type { AgentFileScope, RpcAgentDefinitionInfo, RpcAgentTemplatesInstallResult } from "../../../shared/rpc-types";
 import { useLang, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { Badge, Button, Select, Sheet } from "../common";
 import { agentSourceLabel } from "./agent-settings";
 
@@ -43,7 +43,7 @@ export function AgentTemplateGallery({
 		try {
 			const response = await rpc.installAgentTemplates(scope);
 			if (!response.success) {
-				toast({ variant: "error", title: t("agentStudio.gallery.addFailed"), message: response.error });
+				toastError({ title: t("agentStudio.gallery.addFailed"), error: response });
 				return;
 			}
 			const result = response.data as RpcAgentTemplatesInstallResult;
@@ -58,7 +58,7 @@ export function AgentTemplateGallery({
 			onInstalled();
 			onClose();
 		} catch (cause) {
-			toast({ variant: "error", title: t("agentStudio.gallery.addFailed"), message: String(cause) });
+			toastError({ title: t("agentStudio.gallery.addFailed"), error: cause });
 		} finally {
 			setInstalling(false);
 		}

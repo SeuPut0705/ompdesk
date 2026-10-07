@@ -33,7 +33,7 @@ import { useT } from "../../lib/i18n";
 import { type TabRpc as SessionRpc, useTabRpc as useSessionRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import {
 	Badge,
 	type BadgeVariant,
@@ -41,6 +41,7 @@ import {
 	Button,
 	ConfirmDialog,
 	EmptyState,
+	ErrorDetail,
 	IconButton,
 	Spinner,
 	type TabItem,
@@ -249,7 +250,7 @@ function useRowMutation(refresh: () => Promise<void>, ready = true): RowMutation
 				const res = await action();
 				if (!res.success) {
 					clearOverride();
-					toast({ variant: "error", title: errorTitle, message: res.error });
+					toastError({ title: errorTitle, error: res });
 					return;
 				}
 				// Fresh server state replaces the optimistic overlay.
@@ -257,7 +258,7 @@ function useRowMutation(refresh: () => Promise<void>, ready = true): RowMutation
 				clearOverride();
 			} catch (cause) {
 				clearOverride();
-				toast({ variant: "error", title: errorTitle, message: String(cause) });
+				toastError({ title: errorTitle, error: cause });
 			} finally {
 				setBusyKey(null);
 			}
@@ -322,7 +323,7 @@ function ListFrame({ tabId, rpc, query, visible, actions, emptyAction, children 
 		} else if (rpc.error) {
 			body = (
 				<Banner actions={retry} title={t("extPanel.loadFailed")} variant="danger">
-					<span className="break-all">{rpc.error}</span>
+					<ErrorDetail error={rpc.error} />
 				</Banner>
 			);
 		}
@@ -353,8 +354,8 @@ function ListFrame({ tabId, rpc, query, visible, actions, emptyAction, children 
 				</div>
 			</div>
 			{loaded && rpc.error && (
-				<Banner actions={retry} variant="danger">
-					<span className="break-all">{rpc.error}</span>
+				<Banner actions={retry} title={t("extPanel.loadFailed")} variant="danger">
+					<ErrorDetail error={rpc.error} />
 				</Banner>
 			)}
 			{body}
@@ -528,14 +529,14 @@ function McpTab({ rpc, query }: { rpc: LazyRpc<RpcMcpServerInfo[]>; query: strin
 				if (res.code === "oauth_busy") {
 					toast({ variant: "info", message: t("mcp.reauth.busy") });
 				} else {
-					toast({ variant: "error", title: t("mcp.reauth.failed"), message: res.error });
+					toastError({ title: t("mcp.reauth.failed"), error: res });
 				}
 				return;
 			}
 			const data = res.data as { ok?: boolean; error?: string } | undefined;
 			if (data?.ok === false) {
 				if (!cancelling) {
-					toast({ variant: "error", title: t("mcp.reauth.failed"), message: data.error ?? "" });
+					toastError({ title: t("mcp.reauth.failed"), error: data });
 				}
 				return;
 			}
@@ -544,7 +545,7 @@ function McpTab({ rpc, query }: { rpc: LazyRpc<RpcMcpServerInfo[]>; query: strin
 			await rpc.refresh();
 		} catch (cause) {
 			if (reauthPhaseRef.current[server.name] !== "cancelling") {
-				toast({ variant: "error", title: t("mcp.reauth.failed"), message: String(cause) });
+				toastError({ title: t("mcp.reauth.failed"), error: cause });
 			}
 		} finally {
 			setReauthPhase(server.name, null);
@@ -562,11 +563,11 @@ function McpTab({ rpc, query }: { rpc: LazyRpc<RpcMcpServerInfo[]>; query: strin
 			const res = await tabRpc.mcpReauthCancel(server.name);
 			// On success the pending mcpReauth settles and runReauth clears the phase.
 			if (!res.success) {
-				toast({ variant: "error", title: t("mcp.reauth.cancelFailed"), message: res.error });
+				toastError({ title: t("mcp.reauth.cancelFailed"), error: res });
 				restore();
 			}
 		} catch (cause) {
-			toast({ variant: "error", title: t("mcp.reauth.cancelFailed"), message: String(cause) });
+			toastError({ title: t("mcp.reauth.cancelFailed"), error: cause });
 			restore();
 		}
 	};

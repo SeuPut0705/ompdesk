@@ -54,41 +54,101 @@ function deriveFile(args: Record<string, unknown>, diff: string, details: Record
 	return header?.[1] ?? "edit";
 }
 
+/**
+ * Parsed candidates per finished tool entry. The tools store replaces an
+ * entry whenever it changes, so an identity hit (same map key) is always
+ * current and a finished edit is parsed once, not on every tool event.
+ */
+const candidatesByEntry = new WeakMap<ToolEntry, { id: string; candidates: DiffCandidate[] }>();
+
+function entryCandidates(id: string, entry: ToolEntry): DiffCandidate[] {
+	const cached = candidatesByEntry.get(entry);
+	if (cached?.id === id) return cached.candidates;
+	const candidates: DiffCandidate[] = [];
+	const details = resultDetails(entry.result);
+	const files = Array.isArray(details?.perFileResults) ? details.perFileResults : [details ?? {}];
+	for (const [index, raw] of files.entries()) {
+		if (!raw || typeof raw !== "object") continue;
+		const fileResult = raw as Record<string, unknown>;
+		const isError = fileResult.error != null || fileResult.isError === true || (entry.isError && files.length === 1);
+		const actualDiff = asString(fileResult.diff);
+		const isContent = isError || !actualDiff;
+		const diff = isError
+			? (asString(fileResult.error) ?? resultText(entry.result))
+			: (actualDiff ?? (entry.toolName === "write" ? asString(entry.args.content) : null));
+		if (diff === null) continue;
+		const file = asString(fileResult.path) ?? deriveFile(entry.args, diff, details);
+		let adds = 0;
+		let removes = 0;
+		if (!isContent) {
+			for (const row of parseDiff(diff)) {
+				if (row.type === "add") adds++;
+				else if (row.type === "remove") removes++;
+			}
+		}
+		candidates.push({
+			id: `${id}:${index}`,
+			toolName: entry.toolName,
+			file,
+			diff,
+			timestamp: entry.endTime ?? entry.startTime,
+			adds,
+			removes,
+			isError,
+			isContent,
+			isVirtual: /^[a-z][a-z0-9+.-]*:\/\//i.test(file) && !file.startsWith("file://"),
+		});
+	}
+	candidatesByEntry.set(entry, { id, candidates });
+	return candidates;
+}
+
+/** Edit/write entries with a result: the only ones the panel shows. */
+function isFinishedDiff(entry: ToolEntry): boolean {
+	return DIFF_TOOLS.has(entry.toolName) && (entry.status === "done" || entry.status === "error");
+}
+
 /** Keep multi-file results distinct; failed or pending writes are never counted as applied changes. */
 export function buildEditCandidates(activeTools: ReadonlyMap<string, ToolEntry>): DiffCandidate[] {
 	const out: DiffCandidate[] = [];
-	for (const [id, entry] of activeTools) {
-		if (!DIFF_TOOLS.has(entry.toolName) || (entry.status !== "done" && entry.status !== "error")) continue;
-		const details = resultDetails(entry.result);
-		const files = Array.isArray(details?.perFileResults) ? details.perFileResults : [details ?? {}];
-		for (const [index, raw] of files.entries()) {
-			if (!raw || typeof raw !== "object") continue;
-			const fileResult = raw as Record<string, unknown>;
-			const isError =
-				fileResult.error != null || fileResult.isError === true || (entry.isError && files.length === 1);
-			const actualDiff = asString(fileResult.diff);
-			const isContent = isError || !actualDiff;
-			const diff = isError
-				? (asString(fileResult.error) ?? resultText(entry.result))
-				: (actualDiff ?? (entry.toolName === "write" ? asString(entry.args.content) : null));
-			if (diff === null) continue;
-			const file = asString(fileResult.path) ?? deriveFile(entry.args, diff, details);
-			const rows = isContent ? [] : parseDiff(diff);
-			out.push({
-				id: `${id}:${index}`,
-				toolName: entry.toolName,
-				file,
-				diff,
-				timestamp: entry.endTime ?? entry.startTime,
-				adds: rows.filter(row => row.type === "add").length,
-				removes: rows.filter(row => row.type === "remove").length,
-				isError,
-				isContent,
-				isVirtual: /^[a-z][a-z0-9+.-]*:\/\//i.test(file) && !file.startsWith("file://"),
-			});
-		}
-	}
+	for (const [id, entry] of activeTools) if (isFinishedDiff(entry)) out.push(...entryCandidates(id, entry));
 	return out.sort((a, b) => b.timestamp - a.timestamp);
+}
+
+interface CandidatesSnapshot {
+	ids: string[];
+	entries: ToolEntry[];
+	candidates: DiffCandidate[];
+}
+
+/**
+ * Edit candidates that change only when a finished edit/write entry does.
+ * The tools map is replaced on every tool event (streamed args, partial
+ * results); the selector re-checks finished diff entries by identity — no
+ * parsing — and returns the previous array when none changed, so unrelated
+ * tool traffic never re-renders the panel.
+ */
+function useEditCandidates(): DiffCandidate[] {
+	const snapshot = useRef<CandidatesSnapshot | null>(null);
+	return useToolsStore(state => {
+		const previous = snapshot.current;
+		let same = previous !== null;
+		let count = 0;
+		for (const [id, entry] of state.activeTools) {
+			if (!isFinishedDiff(entry)) continue;
+			if (same && (previous?.entries[count] !== entry || previous.ids[count] !== id)) same = false;
+			count++;
+		}
+		if (same && previous && count === previous.entries.length) return previous.candidates;
+		const next: CandidatesSnapshot = { ids: [], entries: [], candidates: buildEditCandidates(state.activeTools) };
+		for (const [id, entry] of state.activeTools) {
+			if (!isFinishedDiff(entry)) continue;
+			next.ids.push(id);
+			next.entries.push(entry);
+		}
+		snapshot.current = next;
+		return next.candidates;
+	});
 }
 
 function EditPreview({ entry }: { entry: DiffCandidate }) {
@@ -471,12 +531,11 @@ function DiffTimeline({ candidates }: { candidates: DiffCandidate[] }) {
 
 export function DiffPanel() {
 	const t = useT();
-	const activeTools = useToolsStore(state => state.activeTools);
+	const allCandidates = useEditCandidates();
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [split, setSplit] = useState(false);
 	const [mode, setMode] = useState<"repository" | "current" | "timeline" | "artifacts">("repository");
 	const sessionId = useSessionStore(state => state.sessionId);
-	const allCandidates = useMemo(() => buildEditCandidates(activeTools), [activeTools]);
 	const candidates = useMemo(
 		() => allCandidates.filter(entry => (mode === "artifacts" ? entry.isVirtual : !entry.isVirtual)),
 		[allCandidates, mode],

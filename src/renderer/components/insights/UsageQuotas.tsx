@@ -16,7 +16,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Banner, Button, EmptyState, ProgressBar, Spinner } from "../common";
+import { Badge, Banner, Button, EmptyState, ErrorDetail, ProgressBar, Spinner } from "../common";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -172,8 +172,8 @@ export function UsageQuotas() {
 			</div>
 
 			{error && (
-				<Banner live variant="danger">
-					{error}
+				<Banner live title={t("usage.loadFailed")} variant="danger">
+					<ErrorDetail error={error} />
 				</Banner>
 			)}
 			{loading && reports === null && (

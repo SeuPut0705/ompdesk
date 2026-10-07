@@ -44,7 +44,7 @@ import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSubagentsStore } from "../../stores/subagents";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import {
 	Badge,
 	Button,
@@ -432,7 +432,7 @@ export function AgentDefinitions() {
 	const definitions = rpc.state?.definitions ?? [];
 
 	const failed = useCallback(
-		(message: string) => toast({ variant: "error", title: t("agentHub.actionFailed"), message }),
+		(message: string) => toastError({ title: t("agentHub.actionFailed"), error: message }),
 		[t],
 	);
 

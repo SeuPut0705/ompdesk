@@ -42,6 +42,36 @@ it("separates multi-file edits, failed results, write snapshots and virtual arti
 	expect(rows[3].isVirtual).toBe(true);
 });
 
+it("parses a finished edit once and reuses its candidates while the entry is unchanged", () => {
+	const edit: ToolEntry = {
+		toolName: "edit",
+		args: { path: "a.ts" },
+		status: "done",
+		partialResult: null,
+		streamingArgs: "",
+		result: { details: { diff: "@@ -1 +1 @@\n-a\n+b" } },
+		isError: false,
+		startTime: 1,
+		endTime: 2,
+	};
+	const running: ToolEntry = { ...edit, toolName: "bash", status: "running", endTime: null };
+	const [first] = buildEditCandidates(new Map([["e1", edit]]));
+	// Another tool's event replaces the map, not the finished entry.
+	const [again] = buildEditCandidates(
+		new Map([
+			["e1", edit],
+			["b1", { ...running, partialResult: "out" }],
+		]),
+	);
+	expect(again).toBe(first);
+	// A replaced entry (new result) is parsed afresh.
+	const [edited] = buildEditCandidates(
+		new Map([["e1", { ...edit, result: { details: { diff: "@@ -1 +1,2 @@\n-a\n+b\n+c" } } }]]),
+	);
+	expect(edited).not.toBe(first);
+	expect(edited).toMatchObject({ adds: 2, removes: 1 });
+});
+
 describe("loaded workspace search", () => {
 	it("finds matching paths across collapsed directories without returning their siblings", () => {
 		const matches = searchFiles(

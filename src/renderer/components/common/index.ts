@@ -20,6 +20,7 @@ export {
 	type MenuButtonProps,
 } from "./ContextMenu";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
+export { ErrorDetail } from "./ErrorDetail";
 export { IconButton, type IconButtonProps, type IconButtonSize } from "./IconButton";
 export {
 	type FieldSize,

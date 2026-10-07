@@ -12,6 +12,7 @@
 import { open, readdir, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { type FSWatcher, watch } from "chokidar";
+import { codedError } from "../shared/ipc-error-codes";
 import type { SessionInfo, SessionKind } from "../shared/ipc-types";
 import { agentDir } from "./agent-paths";
 import { deleteSessionFiles } from "./local/session-files";
@@ -130,7 +131,9 @@ export class SessionIndex {
 	async deleteSession(sessionPath: string): Promise<void> {
 		const target = resolve(sessionPath);
 		const root = `${resolve(this.#sessionsDir)}${sep}`;
-		if (!target.startsWith(root) || !target.endsWith(".jsonl")) throw new Error("Invalid session path");
+		if (!target.startsWith(root) || !target.endsWith(".jsonl")) {
+			throw codedError("invalid_session_path", "Invalid session path");
+		}
 		await deleteSessionFiles(target);
 		this.#parseCache.delete(target);
 		this.#textCache.delete(target);

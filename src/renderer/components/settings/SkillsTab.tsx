@@ -17,13 +17,14 @@ import { MarkdownRenderer } from "../../lib/markdown";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import {
 	Badge,
 	Banner,
 	Button,
 	ConfirmDialog,
 	EmptyState,
+	ErrorDetail,
 	IconButton,
 	Input,
 	ListRow,
@@ -184,7 +185,7 @@ export function SkillsTab({ query }: { query: string }) {
 			setSkills(current =>
 				current.map(item => (item.name === skill.name ? { ...item, enabled: skill.enabled } : item)),
 			);
-			toast({ variant: "error", message: cause instanceof Error ? cause.message : String(cause) });
+			toastError({ title: t("settings.skills.toggleFailed"), error: cause });
 		} finally {
 			setBusyName(null);
 		}
@@ -208,7 +209,7 @@ export function SkillsTab({ query }: { query: string }) {
 			toast({ variant: "success", message: t(`settings.skills.${editor.mode}Success`) });
 		} catch (cause) {
 			if (mutationRoute !== routeRef.current) return;
-			toast({ variant: "error", message: cause instanceof Error ? cause.message : String(cause) });
+			toastError({ title: t("settings.skills.saveFailed"), error: cause });
 		} finally {
 			setBusyName(null);
 		}
@@ -228,7 +229,7 @@ export function SkillsTab({ query }: { query: string }) {
 			toast({ variant: "success", message: t("settings.skills.deleteSuccess") });
 		} catch (cause) {
 			if (mutationRoute !== routeRef.current) return;
-			toast({ variant: "error", message: cause instanceof Error ? cause.message : String(cause) });
+			toastError({ title: t("settings.skills.deleteFailed"), error: cause });
 		} finally {
 			setBusyName(null);
 		}
@@ -257,9 +258,10 @@ export function SkillsTab({ query }: { query: string }) {
 							{t("common.retry")}
 						</Button>
 					}
+					title={t("settings.skills.loadFailed")}
 					variant="danger"
 				>
-					{error}
+					<ErrorDetail error={error} />
 				</Banner>
 			</div>
 		);
@@ -447,9 +449,10 @@ export function SkillsTab({ query }: { query: string }) {
 									{t("common.retry")}
 								</Button>
 							}
+							title={t("settings.skills.detailFailed")}
 							variant="danger"
 						>
-							{detailError}
+							<ErrorDetail error={detailError} />
 						</Banner>
 					) : detail ? (
 						<div className="skills-preview-pane min-h-0 flex-1 overflow-y-auto border-t border-(--sc-divider) pt-3 text-sc-md">

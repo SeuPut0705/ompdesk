@@ -4,7 +4,7 @@
  */
 
 import type { TabRpc } from "../../lib/tab-rpc";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 
 const REASON_KEY: Record<string, string> = {
 	advisor_readonly: "agentHub.hub.reason.advisorReadonly",
@@ -28,7 +28,7 @@ export async function runSubagentAction(
 	try {
 		const res = action === "abort" ? await rpc.abortSubagent(id) : await rpc.reviveSubagent(id);
 		if (!res.success) {
-			toast({ variant: "error", title: failTitle, message: res.error });
+			toastError({ title: failTitle, error: res });
 			return false;
 		}
 		const data = res.data as { ok?: boolean; reason?: string } | undefined;
@@ -39,7 +39,7 @@ export async function runSubagentAction(
 		}
 		return true;
 	} catch (cause) {
-		toast({ variant: "error", title: failTitle, message: String(cause) });
+		toastError({ title: failTitle, error: cause });
 		return false;
 	}
 }

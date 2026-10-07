@@ -30,8 +30,8 @@ import { useAwaitingConfirmation } from "./hooks/use-awaiting-confirmation";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { useRpcEvents } from "./hooks/use-rpc-events";
 import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch";
-import { useSidebarRecency } from "./hooks/use-sidebar-recency";
 import { useTraySync } from "./hooks/use-tray-sync";
+import { useWorkspaceRecency } from "./hooks/use-workspace-recency";
 import { subscribeBridgeHealth } from "./lib/bridge-health";
 import { restartSidecarFromGui, retryFailedTurn, runSessionCommand } from "./lib/command-registry";
 import {
@@ -67,7 +67,7 @@ import { SessionRuntimeProvider } from "./stores/session-runtime-context";
 import { useSettingsStore } from "./stores/settings";
 import { ensureTabRuntime } from "./stores/tab-runtime";
 import { useSessionTabs, useTabsStore } from "./stores/tabs";
-import { toast } from "./stores/toast";
+import { toast, toastError } from "./stores/toast";
 import { type PanelTab, useUiStore } from "./stores/ui";
 import { subscribeUpdaterStatus } from "./stores/updater";
 
@@ -82,7 +82,7 @@ const BenchmarkDialog = lazy(() =>
 
 function FocusedSessionEffects() {
 	useTraySync();
-	useSidebarRecency();
+	useWorkspaceRecency();
 	const titleRunState = useDisplayPreference("titleState");
 	const titleStreaming = useSessionStore(s => s.isStreaming);
 	const titleSessionName = useSessionStore(s => s.sessionName);
@@ -261,7 +261,7 @@ export function App() {
 				try {
 					await newSessionNow();
 				} catch (error) {
-					toast({ variant: "error", title: t("sidebar.openFailed"), message: String(error) });
+					toastError({ title: t("sidebar.openFailed"), error });
 				}
 				return;
 			}
@@ -276,7 +276,7 @@ export function App() {
 				// idle sessions switch straight through.
 				requestSessionSwitch(target);
 			} catch (error) {
-				toast({ variant: "error", title: t("sidebar.openFailed"), message: String(error) });
+				toastError({ title: t("sidebar.openFailed"), error });
 			}
 		};
 		return window.omp.events.onDeepLink(link => void handle(link));
@@ -313,15 +313,13 @@ export function App() {
 					// ⌥R — retry the last failed turn (TUI app.retry) via the retry RPC.
 					// Distinct from the palette's re-send-last-message action: this knows
 					// what "failed turn" means server-side.
-					void retryFailedTurn().catch(error =>
-						toast({ variant: "error", title: t("palette.failed"), message: String(error) }),
-					);
+					void retryFailedTurn().catch(error => toastError({ title: t("palette.failed"), error }));
 					return;
 				case "dequeue":
 					// ⌥↑ — restore queued messages to the composer (TUI app.message.dequeue):
 					// newest queued steer/follow-up back into the composer, rest re-queued.
 					void restoreQueuedMessages(() => toast({ variant: "info", message: t("input.dequeueEmpty") })).catch(
-						error => toast({ variant: "error", title: t("palette.failed"), message: String(error) }),
+						error => toastError({ title: t("palette.failed"), error }),
 					);
 					return;
 				case "plan.toggle": {
@@ -657,7 +655,7 @@ export function App() {
 					openHandoffDialog();
 				}
 			} catch (error) {
-				toast({ variant: "error", title: t("app.actionFailed"), message: String(error) });
+				toastError({ title: t("app.actionFailed"), error });
 			}
 		};
 		return window.omp.events.onMenuAction((action, payload) => void run(action, payload));

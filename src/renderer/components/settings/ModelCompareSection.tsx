@@ -37,13 +37,14 @@ import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import {
 	Badge,
 	type BadgeVariant,
 	Banner,
 	Button,
 	EmptyState,
+	ErrorDetail,
 	ProgressBar,
 	SearchField,
 	Select,
@@ -395,10 +396,10 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 				if (res.success) {
 					toast({ variant: "success", message: t("modelCompare.setSuccess", { model }) });
 				} else {
-					toast({ variant: "error", title: t("modelCompare.setFailed"), message: res.error });
+					toastError({ title: t("modelCompare.setFailed"), error: res });
 				}
 			} catch (cause) {
-				toast({ variant: "error", title: t("modelCompare.setFailed"), message: String(cause) });
+				toastError({ title: t("modelCompare.setFailed"), error: cause });
 			} finally {
 				setBusyKey(null);
 			}
@@ -430,10 +431,10 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 					});
 					await reloadRoles();
 				} else {
-					toast({ variant: "error", title: t("modelCompare.roleFailed"), message: res.error });
+					toastError({ title: t("modelCompare.roleFailed"), error: res });
 				}
 			} catch (cause) {
-				toast({ variant: "error", title: t("modelCompare.roleFailed"), message: String(cause) });
+				toastError({ title: t("modelCompare.roleFailed"), error: cause });
 			} finally {
 				setBusyKey(null);
 			}
@@ -692,7 +693,7 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 					title={t("modelCompare.modelsFailed")}
 					variant="danger"
 				>
-					{fatalError}
+					<ErrorDetail error={fatalError} />
 				</Banner>
 			)}
 			{failedSections.length > 0 && (

@@ -47,7 +47,6 @@ import { runSubagentAction } from "../panels/subagent-actions";
 import {
 	formatElapsed,
 	isLiveSubagentStatus,
-	parentSubagentIdOf,
 	statusMeta,
 	subagentElapsedMs,
 	subagentPrimaryLabel,
@@ -65,7 +64,7 @@ interface SubagentRowModel {
  * `task` call; a parent that is finished (hence not listed), unresolved or
  * cyclic makes the agent a top-level spawn of the session.
  */
-export function buildSidebarSubagentRows(
+function buildSidebarSubagentRows(
 	subagents: ReadonlyMap<string, SubagentSnapshot>,
 	toolCallOwners: ReadonlyMap<string, string>,
 ): SubagentRowModel[] {
@@ -75,7 +74,7 @@ export function buildSidebarSubagentRows(
 	const children = new Map<string, SubagentSnapshot[]>();
 	const roots: SubagentSnapshot[] = [];
 	for (const agent of agents) {
-		const linked = parentSubagentIdOf(agent);
+		const linked = agent.parentSubagentId;
 		const owner = agent.parentToolCallId ? toolCallOwners.get(agent.parentToolCallId) : undefined;
 		const parentId =
 			linked && linked !== agent.id && live.has(linked)
@@ -119,7 +118,7 @@ function StatusGlyph({ status }: { status: string }) {
 }
 
 /** Live subagents in a roster (the disclosure's count). */
-export function countLiveSubagents(subagents: ReadonlyMap<string, SubagentSnapshot>): number {
+function countLiveSubagents(subagents: ReadonlyMap<string, SubagentSnapshot>): number {
 	let count = 0;
 	for (const agent of subagents.values()) if (isLiveSubagentStatus(agent.status)) count++;
 	return count;

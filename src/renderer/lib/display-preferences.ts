@@ -1,5 +1,5 @@
 import { type SettingsStore, useSettingsStore } from "../stores/settings";
-import { toast } from "../stores/toast";
+import { toastError } from "../stores/toast";
 import { type GuiDisplayPreferences, useUiStore } from "../stores/ui";
 import { translate } from "./i18n";
 
@@ -58,7 +58,7 @@ export async function saveGuiPreference(key: string, value: unknown, apply: () =
 		apply();
 		return true;
 	} catch (error) {
-		toast({ variant: "error", title: translate("settings.saveFailed"), message: String(error) });
+		toastError({ title: translate("settings.saveFailed"), error });
 		return false;
 	}
 }

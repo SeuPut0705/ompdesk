@@ -19,7 +19,7 @@ import { useNowTick } from "../../lib/now-tick";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";
-import { toast } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, EmptyState, IconButton, ListRow } from "../common";
 import { SubagentTranscriptSheet } from "../panels/SubagentTranscriptSheet";
@@ -189,9 +189,9 @@ export function LiveAgents() {
 		setStopping(true);
 		try {
 			const res = await abortActiveTurn();
-			if (!res.success) toast({ variant: "error", title: t("agentHub.hub.abortFailed"), message: res.error });
+			if (!res.success) toastError({ title: t("agentHub.hub.abortFailed"), error: res });
 		} catch (cause) {
-			toast({ variant: "error", title: t("agentHub.hub.abortFailed"), message: String(cause) });
+			toastError({ title: t("agentHub.hub.abortFailed"), error: cause });
 		} finally {
 			setStopping(false);
 		}
@@ -210,7 +210,7 @@ export function LiveAgents() {
 				agentsPausedAt: paused ? (data?.pausedAt ?? Date.now()) : null,
 			});
 		} catch (cause) {
-			toast({ variant: "error", title: t("agentHub.hub.pauseFailed"), message: String(cause) });
+			toastError({ title: t("agentHub.hub.pauseFailed"), error: cause });
 		} finally {
 			setPausePending(false);
 		}

@@ -5,7 +5,7 @@ import { useT } from "../../lib/i18n";
 import { describeTurnError, retryLastTurn, type TurnErrorAction } from "../../lib/messages";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { sessionRuntime, useRuntimeTabId } from "../../stores/session-runtime-context";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Banner, Button } from "../common";
 
@@ -61,10 +61,9 @@ export function TurnErrorNotice({ errorMessage, stopReason }: { errorMessage?: s
 			await (tabId && sessionRuntime(tabId) ? hydrateTabSession(tabId) : hydrateSession());
 			toast({ variant: "success", title: t("command.compactedTitle"), message: t("command.compactedMessage") });
 		} catch (cause) {
-			toast({
-				variant: "error",
+			toastError({
 				title: t(action === "retry" ? "turnError.retryFailed" : "modelPicker.compactFailed"),
-				message: cause instanceof Error ? cause.message : String(cause),
+				error: cause,
 			});
 		} finally {
 			setPending(null);

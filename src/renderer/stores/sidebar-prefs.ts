@@ -1,15 +1,16 @@
 /**
- * Sidebar presentation prefs: pinned workspaces/sessions, explicit MRU access
- * times, and workspace display aliases (rename). Persisted as one JSON blob
- * under the "sidebar" prefs key via window.omp.prefs (electron-store in main);
- * hydrate once at App mount. Recency bookkeeping writes fire-and-forget; the
- * pins and aliases the user can SEE are optimistic writes that roll back when
- * the persist rejects, so a row never stays pinned across a restart.
+ * Sidebar presentation prefs: pinned workspaces/sessions, workspace display
+ * aliases (rename), the dragged project order, and the workspace MRU clock
+ * the workspace picker sorts by. Persisted as one JSON blob under the
+ * "sidebar" prefs key via window.omp.prefs (electron-store in main); hydrate
+ * once at App mount. Recency bookkeeping writes fire-and-forget; the pins and
+ * aliases the user can SEE are optimistic writes that roll back when the
+ * persist rejects, so a row never stays pinned across a restart.
  */
 import { create } from "zustand";
 import { translate } from "../lib/i18n";
 import { optimisticWrite } from "../lib/optimistic";
-import { toast } from "./toast";
+import { toastError } from "./toast";
 
 const PREFS_KEY = "sidebar";
 
@@ -128,7 +129,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 					: [...state.pinnedGroups, cwd],
 			}),
 			persist: () => writePrefs(get),
-			onFailure: message => toast({ variant: "error", title: translate("sidebar.pinFailed"), message }),
+			onFailure: message => toastError({ title: translate("sidebar.pinFailed"), error: message }),
 		}),
 
 	toggleSessionPin: path =>
@@ -140,7 +141,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 					: [...state.pinnedSessions, path],
 			}),
 			persist: () => writePrefs(get),
-			onFailure: message => toast({ variant: "error", title: translate("sidebar.pinFailed"), message }),
+			onFailure: message => toastError({ title: translate("sidebar.pinFailed"), error: message }),
 		}),
 
 	setGroupAlias: (cwd, alias) =>
@@ -153,7 +154,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 				return { groupAliases };
 			},
 			persist: () => writePrefs(get),
-			onFailure: message => toast({ variant: "error", title: translate("sidebar.renameFailed"), message }),
+			onFailure: message => toastError({ title: translate("sidebar.renameFailed"), error: message }),
 		}),
 
 	setGroupOrder: order =>
@@ -161,7 +162,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 			store: { getState: get, setState: set },
 			mutate: () => ({ groupOrder: [...new Set(order)] }),
 			persist: () => writePrefs(get),
-			onFailure: message => toast({ variant: "error", title: translate("sidebar.reorderFailed"), message }),
+			onFailure: message => toastError({ title: translate("sidebar.reorderFailed"), error: message }),
 		}),
 
 	touchWorkspace: cwd => {

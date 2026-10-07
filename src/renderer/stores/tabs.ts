@@ -51,7 +51,7 @@ import {
 	useRuntimeTabId,
 } from "./session-runtime-context";
 import { ensureTabRuntime, replaceTabRuntime } from "./tab-runtime";
-import { toast } from "./toast";
+import { toast, toastError } from "./toast";
 import { useUiStore } from "./ui";
 
 export interface SessionTab {
@@ -359,7 +359,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				worktree: args?.worktree,
 			});
 		} catch (error) {
-			toast({ variant: "error", title: translate("tabs.newFailed"), message: String(error) });
+			toastError({ title: translate("tabs.newFailed"), error });
 			return null;
 		}
 		if (!result) {
@@ -451,7 +451,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			if (stopLive) {
 				const stopped = await stopLive;
 				if (!stopped.success) {
-					toast({ variant: "error", title: translate("tabs.switchFailed"), message: stopped.error });
+					toastError({ title: translate("tabs.switchFailed"), error: stopped });
 				}
 			}
 			const routed = await routeTabView(id, split ? [split.firstTabId, split.secondTabId] : [id], split);
@@ -464,7 +464,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			// from GET_TABS — reconcile also retries SET_ACTIVE_TAB for the
 			// renderer's pick, re-pointing routing when the failure was
 			// transient — instead of silently diverging.
-			toast({ variant: "error", title: translate("tabs.switchFailed"), message: String(error) });
+			toastError({ title: translate("tabs.switchFailed"), error });
 			const converged = await get().reconcileTabs();
 			if (version !== switchVersion) return;
 			if (converged && get().activeTabId === id) await attachTabSession(id);
@@ -512,14 +512,14 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			if (stopLive) {
 				const stopped = await stopLive;
 				if (!stopped.success) {
-					toast({ variant: "error", title: translate("tabs.switchFailed"), message: stopped.error });
+					toastError({ title: translate("tabs.switchFailed"), error: stopped });
 				}
 			}
 			const routed = await routeTabView(id, [split.firstTabId, split.secondTabId], split);
 			if (!routed) throw new Error(`Tab ${id} is no longer available`);
 		} catch (error) {
 			if (version !== switchVersion) return;
-			toast({ variant: "error", title: translate("tabs.switchFailed"), message: String(error) });
+			toastError({ title: translate("tabs.switchFailed"), error });
 			await get().reconcileTabs();
 			return;
 		}
@@ -544,7 +544,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			if (state.activeTabId !== tabId) settleTabRoute(tabId);
 		} catch (error) {
 			if (version !== switchVersion) return;
-			toast({ variant: "error", title: translate("tabs.switchFailed"), message: String(error) });
+			toastError({ title: translate("tabs.switchFailed"), error });
 			await get().reconcileTabs();
 		}
 	},
@@ -876,7 +876,7 @@ export function useSessionTabs(): void {
 			const tab = state.tabs.find(entry => entry.id === payload.tabId);
 			if (visibleTabIds(state).includes(payload.tabId)) {
 				const runtime = ensureTabRuntime(payload.tabId);
-				void runtime.command({ type: "set_subagent_subscription", level: "events" });
+				void runtime.command({ type: "set_subagent_subscription", level: "progress" });
 				if (!tab?.pendingSessionPath && previousStatus !== "ready" && previousStatus !== "running") {
 					// Light TAB_STATUS is registered before the full active-tab channel.
 					// If ready raced SET_ACTIVE_TAB, the full ready event was already
@@ -912,7 +912,7 @@ export function useSessionTabs(): void {
 				if (currentFile !== sessionPath) {
 					const response = await runtime.command({ type: "switch_session", sessionPath });
 					if (!response.success) {
-						toast({ variant: "error", title: translate("sidebar.openFailed"), message: response.error });
+						toastError({ title: translate("sidebar.openFailed"), error: response });
 						return;
 					}
 				}

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { errorDetail } from "./error-detail";
+import { codedError } from "../../shared/ipc-error-codes";
+import { errorDetail, errorMessage } from "./error-detail";
+import { translate } from "./i18n";
 
 describe("errorDetail", () => {
 	it("strips the Electron IPC wrapper and the error-class prefix", () => {
@@ -13,5 +15,17 @@ describe("errorDetail", () => {
 		expect(errorDetail(new Error("git status failed"))).toBe("git status failed");
 		expect(errorDetail(undefined)).toBe("");
 		expect(errorDetail(null)).toBe("");
+	});
+
+	it("maps main's coded failures to their own localized sentence and keeps the English as detail", () => {
+		const thrown = new Error(
+			`Error invoking remote method 'sessions:delete': Error: ${codedError("session_running", "Session is currently running").message}`,
+		);
+		expect(errorMessage(thrown)).toBe(translate("ipcError.session_running"));
+		expect(errorDetail(thrown)).toBe("Session is currently running");
+		const response = { success: false, error: "Sidecar not connected", code: "sidecar_not_connected" };
+		expect(errorMessage(response)).toBe(translate("ipcError.sidecar_not_connected"));
+		expect(errorDetail(response)).toBe("Sidecar not connected");
+		expect(errorMessage(new Error("boom"))).toBe(translate("toast.failedRetry"));
 	});
 });

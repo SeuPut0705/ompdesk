@@ -15,7 +15,7 @@ import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { usePrCenterStore } from "../../../stores/pr-center";
 import { useSessionStore } from "../../../stores/session";
-import { toast } from "../../../stores/toast";
+import { toast, toastError } from "../../../stores/toast";
 import { Button, Input, Modal, TextArea } from "../../common";
 
 export function PrCreateDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -49,7 +49,7 @@ export function PrCreateDialog({ open, onClose }: { open: boolean; onClose: () =
 		try {
 			const response = await tabRpc.prDraft({ base, head });
 			if (!response.success) {
-				toast({ variant: "error", title: t("prCenter.draftFailed"), message: response.error });
+				toastError({ title: t("prCenter.draftFailed"), error: response });
 				return;
 			}
 			// pr_draft success arm carries RpcPrDraftResult — one named assertion home.
@@ -59,7 +59,7 @@ export function PrCreateDialog({ open, onClose }: { open: boolean; onClose: () =
 				setBody(result.body);
 			}
 		} catch (error) {
-			toast({ variant: "error", title: t("prCenter.draftFailed"), message: String(error) });
+			toastError({ title: t("prCenter.draftFailed"), error });
 		} finally {
 			setDrafting(false);
 		}
@@ -71,7 +71,7 @@ export function PrCreateDialog({ open, onClose }: { open: boolean; onClose: () =
 		try {
 			const response = await tabRpc.prCreate({ title: title.trim(), body, base, head, draft });
 			if (!response.success) {
-				toast({ variant: "error", title: t("prCenter.createFailed"), message: response.error });
+				toastError({ title: t("prCenter.createFailed"), error: response });
 				return;
 			}
 			const result = response.data as RpcPrCreateResult | undefined;
@@ -82,7 +82,7 @@ export function PrCreateDialog({ open, onClose }: { open: boolean; onClose: () =
 			void usePrCenterStore.getState().refresh();
 			onClose();
 		} catch (error) {
-			toast({ variant: "error", title: t("prCenter.createFailed"), message: String(error) });
+			toastError({ title: t("prCenter.createFailed"), error });
 		} finally {
 			setCreating(false);
 		}

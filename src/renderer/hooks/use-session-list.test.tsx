@@ -162,4 +162,81 @@ describe("useSessionList silent refresh", () => {
 		expect(probeText('[data-testid="count"]')).toBe("1");
 		expect(probeText('[data-testid="error"]')).toBe("");
 	});
+
+	it("shares one read per change across every consumer and keeps unchanged rows", async () => {
+		listResult = [session("/s/one.jsonl"), session("/s/two.jsonl")];
+		const omp = installMockOmp();
+		const seen: SessionInfo[][] = [];
+		function Recorder() {
+			const { sessions } = useSessionList("global");
+			seen.push(sessions);
+			return null;
+		}
+		container = document.createElement("div") as never;
+		document.body.appendChild(container as never);
+		root = createRoot(container as unknown as Element);
+
+		await act(async () => {
+			root.render(
+				<>
+					<Probe />
+					<Recorder />
+					<Recorder />
+				</>,
+			);
+		});
+		await flush();
+		expect(omp.sessions.list).toHaveBeenCalledTimes(1);
+		expect(omp.events.onSessionsChanged).toHaveBeenCalledTimes(1);
+		const loaded = seen.at(-1);
+		expect(loaded).toHaveLength(2);
+
+		// A burst of appends to another session: one debounced read for everyone.
+		// Same path/modified/size/title → the list keeps its rows and its array.
+		listResult = [session("/s/one.jsonl"), session("/s/two.jsonl")];
+		await act(async () => {
+			onSessionsChanged?.();
+			onSessionsChanged?.();
+		});
+		await flush(400);
+		expect(omp.sessions.list).toHaveBeenCalledTimes(2);
+		expect(seen.at(-1)).toBe(loaded);
+
+		// One row grows: only that row is replaced.
+		listResult = [session("/s/one.jsonl"), { ...session("/s/two.jsonl"), size: 99 }];
+		await act(async () => {
+			onSessionsChanged?.();
+		});
+		await flush(400);
+		const next = seen.at(-1);
+		expect(next).not.toBe(loaded);
+		expect(next?.[0]).toBe(loaded?.[0]);
+		expect(next?.[1]?.size).toBe(99);
+	});
+
+	it("keeps a single read in flight and runs one more for changes during it", async () => {
+		listResult = [session("/s/one.jsonl")];
+		const omp = installMockOmp();
+		container = document.createElement("div") as never;
+		document.body.appendChild(container as never);
+		root = createRoot(container as unknown as Element);
+		const pending = Promise.withResolvers<SessionInfo[]>();
+		omp.sessions.list.mockReturnValueOnce(pending.promise);
+		await act(async () => {
+			root.render(<Probe />);
+		});
+		listResult = [session("/s/one.jsonl"), session("/s/two.jsonl")];
+		await act(async () => {
+			onSessionsChanged?.();
+		});
+		await flush(400);
+		// The debounced refresh waits behind the in-flight first read.
+		expect(omp.sessions.list).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			pending.resolve([session("/s/one.jsonl")]);
+		});
+		await flush();
+		expect(omp.sessions.list).toHaveBeenCalledTimes(2);
+		expect(probeText('[data-testid="count"]')).toBe("2");
+	});
 });

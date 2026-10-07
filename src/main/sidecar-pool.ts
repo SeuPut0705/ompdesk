@@ -64,6 +64,7 @@ import {
 	type SubagentFrame,
 } from "../shared/rpc-types";
 import { canonicalCwd } from "./canonical-cwd";
+import { createMessageUpdateSlimmer } from "./message-update-slim";
 import type { WindowTabFact } from "./quit-guard";
 import type { SidecarManager, SidecarSessionIdentity } from "./sidecar";
 import { nextSnowflake } from "./snowflake";
@@ -421,8 +422,11 @@ export class SidecarPool {
 				sidecar.off(event, listener);
 			});
 		};
+		// A fresh slimmer per attachment: the first update of each message after
+		// the tab becomes visible keeps its full snapshot (it missed message_start).
+		const slimMessageUpdates = createMessageUpdateSlimmer();
 		wire("events", (events: AgentSessionEvent[]) => {
-			forwardActive(IPC_EVENTS.EVENTS_BATCH, events);
+			forwardActive(IPC_EVENTS.EVENTS_BATCH, slimMessageUpdates(events));
 		});
 		wire("status", (payload: SidecarStatusPayload) => {
 			forwardActive(IPC_EVENTS.SIDECAR_STATUS, { ...payload, cwd: sidecar.cwd });

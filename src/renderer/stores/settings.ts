@@ -2,7 +2,7 @@ import { createStore } from "zustand/vanilla";
 import type { RpcSessionState, SettingProvenance } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
 import { activeTabCommand, createScopedStoreHook, type TabCommand } from "./session-runtime-context";
-import { toast } from "./toast";
+import { toastError } from "./toast";
 
 export type ApprovalMode = "always-ask" | "write" | "yolo";
 const APPROVAL_MODES = new Set<string>(["always-ask", "write", "yolo"]);
@@ -219,8 +219,7 @@ export const createSettingsStore = (command: TabCommand = activeTabCommand) => {
 						set({ approvalMode: data.value as ApprovalMode });
 					else await syncApproval();
 				} catch (error) {
-					if (version === approvalSyncVersion)
-						toast({ variant: "error", title: translate("settings.saveFailed"), message: String(error) });
+					if (version === approvalSyncVersion) toastError({ title: translate("settings.saveFailed"), error });
 				}
 			},
 			syncDisplaySettings: syncDisplay,

@@ -12,7 +12,7 @@ import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
 import { Badge, Button, IconButton } from "../common";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
@@ -353,7 +353,7 @@ export const MessageBubble = memo(function MessageBubble({
 			const result = await forkSessionFromMessageInNewTab(message, rpc, tabId);
 			if (result === "saved") toast({ variant: "warning", message: t("chat.branchSaved") });
 		} catch (cause) {
-			toast({ variant: "error", title: t("sessionTree.forkFailed"), message: String(cause) });
+			toastError({ title: t("sessionTree.forkFailed"), error: cause });
 		} finally {
 			setBranching(false);
 		}

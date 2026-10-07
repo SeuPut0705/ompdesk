@@ -10,7 +10,7 @@ import type { RpcModelPoolMember } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
 import { MAX_POOL_MEMBERS } from "../lib/model-pool";
 import { optimisticWrite } from "../lib/optimistic";
-import { toast } from "./toast";
+import { toastError } from "./toast";
 
 export const MODEL_POOL_PREFS_KEY = "modelPool";
 const MAX_PRESETS = 20;
@@ -106,7 +106,7 @@ export const useModelPoolPresets = create<ModelPoolPresetsStore>()((set, get) =>
 				return { presets };
 			},
 			persist: () => writePresets(get().presets),
-			onFailure: message => toast({ variant: "error", title: translate("modelPool.presetSaveFailed"), message }),
+			onFailure: message => toastError({ title: translate("modelPool.presetSaveFailed"), error: message }),
 		});
 	},
 
@@ -115,7 +115,7 @@ export const useModelPoolPresets = create<ModelPoolPresetsStore>()((set, get) =>
 			store: { getState: get, setState: set },
 			mutate: state => ({ presets: state.presets.filter(preset => preset.id !== id) }),
 			persist: () => writePresets(get().presets),
-			onFailure: message => toast({ variant: "error", title: translate("modelPool.presetSaveFailed"), message }),
+			onFailure: message => toastError({ title: translate("modelPool.presetSaveFailed"), error: message }),
 		}),
 
 	reset: () => set({ presets: [], hydrated: false }),

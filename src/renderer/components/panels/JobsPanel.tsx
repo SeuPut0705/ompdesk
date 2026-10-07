@@ -13,7 +13,7 @@ import { formatClock, formatDuration } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { Badge, type BadgeVariant, Banner, Button, EmptyState, Spinner } from "../common";
+import { Badge, type BadgeVariant, Banner, Button, EmptyState, ErrorDetail, Spinner } from "../common";
 
 const STATUS_VARIANT: Record<RpcAsyncJobItem["status"], BadgeVariant> = {
 	running: "success",
@@ -150,7 +150,7 @@ export function JobsPanel() {
 					title={t("jobs.error")}
 					variant="danger"
 				>
-					{error}
+					<ErrorDetail error={error} />
 				</Banner>
 			)}
 			{loading ? (

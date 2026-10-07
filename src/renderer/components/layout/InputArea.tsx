@@ -55,7 +55,7 @@ import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useSettingsStore } from "../../stores/settings";
 import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Spinner, Tooltip } from "../common";
 import { AskDockSlot } from "../dialogs/ask-dock";
@@ -466,11 +466,7 @@ export function InputArea() {
 				// inline fallback would splice clipboard content into whichever
 				// composer is now foreground.
 				if (!stillOrigin()) return;
-				toast({
-					variant: "error",
-					title: t("input.paste.saveFailed"),
-					message: cause instanceof Error ? cause.message : String(cause),
-				});
+				toastError({ title: t("input.paste.saveFailed"), error: cause });
 				insertPasteBlob(pendingPaste.content);
 			}
 		})();
@@ -518,7 +514,7 @@ export function InputArea() {
 			if (!mountedRef.current) return;
 			setRecording(false);
 			if ("error" in result) {
-				if (result.error) toast({ variant: "error", title: t("voice.mic.failed"), message: result.error });
+				if (result.error) toastError({ title: t("voice.mic.failed"), error: result });
 				return;
 			}
 			const utterance = result.text.trim();
@@ -572,11 +568,8 @@ export function InputArea() {
 			const response = await window.omp.editor.openExternal(expandPasteMarkers(draft));
 			if (!mountedRef.current) return;
 			if (!response.ok) {
-				toast({
-					variant: "error",
-					title: t("editor.externalFailed"),
-					message: response.error || t("common.unknownError"),
-				});
+				if (response.unavailable) toast({ variant: "info", message: t("editor.externalUnavailable") });
+				else toastError({ title: t("editor.externalFailed"), error: response });
 				return;
 			}
 			// null text = the editor exited non-zero; keep the draft as it was.

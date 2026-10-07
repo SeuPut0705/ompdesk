@@ -75,7 +75,8 @@ describe("model-pool presets store", () => {
 		expect(useModelPoolPresets.getState().presets).toEqual([]);
 		expect(useToastStore.getState().toasts.at(-1)).toMatchObject({
 			title: translate("modelPool.presetSaveFailed"),
-			message: "disk full",
+			message: translate("toast.failedRetry"),
+			detail: "disk full",
 		});
 	});
 });

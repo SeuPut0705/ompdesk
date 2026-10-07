@@ -37,8 +37,20 @@ import {
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
-import { Badge, Banner, Button, EmptyState, IconButton, ListRow, Spinner, Switch, type TabItem, Tabs } from "../common";
+import { toast, toastError } from "../../stores/toast";
+import {
+	Badge,
+	Banner,
+	Button,
+	EmptyState,
+	ErrorDetail,
+	IconButton,
+	ListRow,
+	Spinner,
+	Switch,
+	type TabItem,
+	Tabs,
+} from "../common";
 import { AddMarketplaceForm, MarketplaceCard } from "../panels/inventory/MarketplacesSection";
 import { PluginDetailSheet } from "../panels/inventory/PluginDetailSheet";
 import { filterMarketplaces, filterPlugins, filterTemplates } from "../panels/inventory-utils";
@@ -225,8 +237,8 @@ function ResourceGate<T>({ resource, children }: { resource: RpcResource<T>; chi
 		}
 		if (resource.error) {
 			return (
-				<Banner actions={retry} variant="danger">
-					<span className="break-words">{resource.error}</span>
+				<Banner actions={retry} title={t("common.loadFailed")} variant="danger">
+					<ErrorDetail error={resource.error} />
 				</Banner>
 			);
 		}
@@ -235,8 +247,8 @@ function ResourceGate<T>({ resource, children }: { resource: RpcResource<T>; chi
 	return (
 		<>
 			{resource.error && (
-				<Banner actions={retry} variant="danger">
-					<span className="break-words">{resource.error}</span>
+				<Banner actions={retry} title={t("common.loadFailed")} variant="danger">
+					<ErrorDetail error={resource.error} />
 				</Banner>
 			)}
 			{children(resource.data)}
@@ -295,7 +307,7 @@ function PluginsTab({
 			if (!res.success) {
 				clearOverride();
 				if (isPluginActivationOriginActive(origin)) {
-					toast({ variant: "error", title: t("invPanel.pluginToggleFailed"), message: res.error });
+					toastError({ title: t("invPanel.pluginToggleFailed"), error: res });
 				}
 				return;
 			}
@@ -310,7 +322,7 @@ function PluginsTab({
 		} catch (cause) {
 			clearOverride();
 			if (isPluginActivationOriginActive(origin)) {
-				toast({ variant: "error", title: t("invPanel.pluginToggleFailed"), message: String(cause) });
+				toastError({ title: t("invPanel.pluginToggleFailed"), error: cause });
 			}
 		} finally {
 			setBusyKey(null);
@@ -590,8 +602,8 @@ function MemoryStatus({ report }: { report: RpcMemoryReport }) {
 				</dl>
 			)}
 			{status.error && (
-				<Banner variant="danger">
-					<span className="break-words">{status.error}</span>
+				<Banner title={t("invPanel.memory.statusError")} variant="danger">
+					<ErrorDetail error={status.error} />
 				</Banner>
 			)}
 		</div>

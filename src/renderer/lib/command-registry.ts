@@ -31,7 +31,7 @@ import { useModelStore } from "../stores/model";
 import { type SessionStore, useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
 import { activeTabKind, useTabsStore } from "../stores/tabs";
-import { toast } from "../stores/toast";
+import { toast, toastError } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { type AgentsTab, type DockCardId, type InsightsStatsScope, type InsightsTab, useUiStore } from "../stores/ui";
 import { isCommandAvailable } from "./command-availability";
@@ -147,7 +147,7 @@ export interface CommandRegistryContext {
 	openInsights: (tab?: InsightsTab, scope?: InsightsStatsScope) => void;
 	openImportDialog: () => void;
 	openProviderConfig: () => void;
-	/** Deep-link a center-dock card (todo/plan/agents): expand + flash. */
+	/** Deep-link a center-dock card (todo/plan): expand + flash. */
 	focusDockCard: (id: DockCardId) => void;
 	/** Retry the last failed turn server-side (retry RPC). */
 	retryTurn: () => Promise<unknown>;
@@ -209,7 +209,7 @@ export async function runSessionCommand(
 	try {
 		const res = await promise;
 		if (!res.success) {
-			toast({ variant: "error", title, message: res.error });
+			toastError({ title, error: res });
 			return;
 		}
 		if (!apply) return;
@@ -222,7 +222,7 @@ export async function runSessionCommand(
 			withSessionRuntime(runtime.tabId, () => apply(res.data));
 		} else if (useSessionStore.getState().sessionId === sessionId) apply(res.data);
 	} catch (cause) {
-		toast({ variant: "error", title, message: String(cause) });
+		toastError({ title, error: cause });
 	}
 }
 
@@ -240,7 +240,7 @@ export async function restartSidecarFromGui(): Promise<void> {
 		await window.omp.sidecar.restart({ tabId: runtime?.tabId, sessionPath: session?.sessionFile ?? undefined });
 		toast({ variant: "info", message: translate("settings.launch.restarting") });
 	} catch (cause) {
-		toast({ variant: "error", title: translate("app.actionFailed"), message: String(cause) });
+		toastError({ title: translate("app.actionFailed"), error: cause });
 	}
 }
 
@@ -1523,7 +1523,7 @@ async function shakeContextFromGui(mode: "elide" | "images" | "thinking"): Promi
 	if (!window.confirm(translate(confirmKey))) return;
 	const response = await rpc.shakeContext(mode);
 	if (!response.success) {
-		toast({ variant: "error", title: translate("cmd.shake"), message: response.error });
+		toastError({ title: translate("cmd.shake"), error: response });
 		return;
 	}
 	const removed = (response.data as { removed?: string } | undefined)?.removed;
@@ -1537,7 +1537,7 @@ async function freshProviderStateFromGui(): Promise<void> {
 	const rpc = runtime ? createTabRpc(runtime.command) : window.omp.rpc;
 	const response = await rpc.fresh();
 	if (!response.success) {
-		toast({ variant: "warning", message: response.error });
+		toastError({ title: translate("cmd.fresh"), error: response, variant: "warning" });
 		return;
 	}
 	toast({ variant: "success", message: translate("fresh.success") });
@@ -1550,7 +1550,7 @@ async function reloadPluginsFromGui(hydrate: () => Promise<void>): Promise<void>
 	const rpc = runtime ? createTabRpc(runtime.command) : window.omp.rpc;
 	const response = await rpc.reloadPlugins();
 	if (!response.success) {
-		toast({ variant: "error", title: translate("cmd.reloadPlugins"), message: response.error });
+		toastError({ title: translate("cmd.reloadPlugins"), error: response });
 		return;
 	}
 	const counts = (response.data as { plugins?: number; skills?: number; commands?: number } | undefined) ?? {};

@@ -342,7 +342,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 			useSessionStore.setState({ awaitingModelSince: Date.now() });
 		}
 		if (!wire.isStreaming) useMessagesStore.getState().clearStreaming();
-		void activeTabCommand({ type: "set_subagent_subscription", level: "events" });
+		void activeTabCommand({ type: "set_subagent_subscription", level: "progress" });
 	}
 	if (focusUnchanged && messagesResult.status === "fulfilled" && messagesResult.value.success) {
 		const fetched = (messagesResult.value.data as { messages?: AgentMessage[] } | undefined)?.messages ?? [];
@@ -518,7 +518,7 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 		// status handlers — this covers tabs that booted or settled in the
 		// background, whose frames would otherwise stay silent on return.
 		// Idempotent server-side.
-		void runtime.command({ type: "set_subagent_subscription", level: "events" });
+		void runtime.command({ type: "set_subagent_subscription", level: "progress" });
 	}
 
 	if (messagesResult.status === "fulfilled" && messagesResult.value.success) {

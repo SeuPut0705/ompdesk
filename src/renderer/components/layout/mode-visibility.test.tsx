@@ -11,7 +11,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcResponse } from "../../../shared/rpc-types";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 import { ComposerModes } from "./ComposerModes";
@@ -119,8 +119,11 @@ describe("Composer mode chip", () => {
 		});
 		await mount(<ComposerModes />);
 
-		expect(trigger().textContent).toBe("Plan mode · Goal mode · Loop mode · Vibe mode");
-		expect(trigger().getAttribute("aria-label")).toBe("Session mode: Plan mode · Goal mode · Loop mode · Vibe mode");
+		const modes = (["plan", "goal", "loop", "vibe"] as const)
+			.map(mode => translate(`input.modes.name.${mode}`))
+			.join(" · ");
+		expect(trigger().textContent).toBe(modes);
+		expect(trigger().getAttribute("aria-label")).toBe(translate("input.modes.activeTitle", { modes }));
 		expect(trigger().className).toContain("bg-(--sc-accent-soft)");
 
 		await act(async () => trigger().click());

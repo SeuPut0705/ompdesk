@@ -10,7 +10,7 @@
 
 import type { AvailableCommand, ImageContent, RpcResponse } from "../../shared/rpc-types";
 import { hydrateSession } from "../hooks/use-rpc-events";
-import { toast } from "../stores/toast";
+import { toast, toastError } from "../stores/toast";
 import { buildCurrentCommandMenu, type CommandAffordance } from "./command-registry";
 import { translate } from "./i18n";
 import type { TabRpc } from "./tab-rpc";
@@ -36,7 +36,7 @@ export type ComposerSubmit =
 
 function runGuiAffordance(affordance: CommandAffordance, args?: string): boolean {
 	const reportFailure = (cause: unknown): void => {
-		toast({ variant: "error", title: translate("palette.failed"), message: String(cause) });
+		toastError({ title: translate("palette.failed"), error: cause });
 	};
 	switch (affordance.kind) {
 		case "action":

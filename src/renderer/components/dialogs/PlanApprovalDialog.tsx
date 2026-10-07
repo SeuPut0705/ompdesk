@@ -30,7 +30,7 @@ import {
 } from "../../stores/plan-approval";
 import { useSessionStore } from "../../stores/session";
 import { settleTabPlanApproval, useTabsStore } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { Button, Modal, TextArea } from "../common";
 
 type SubmitKind = PlanApprovalSubmitState["kind"];
@@ -117,7 +117,7 @@ export function PlanApprovalDialog() {
 						: await tabRpc.planApproval(false);
 			if (!response.success) {
 				settleTabPlanApproval(originTabId, originSessionId, target, { submitting: null });
-				toast({ variant: "error", title: t("planApproval.failed"), message: response.error });
+				toastError({ title: t("planApproval.failed"), error: response });
 				return;
 			}
 			const result = response.data as PlanApprovalResult | null | undefined;
@@ -166,7 +166,7 @@ export function PlanApprovalDialog() {
 			});
 		} catch (cause) {
 			settleTabPlanApproval(originTabId, originSessionId, target, { submitting: null });
-			toast({ variant: "error", title: t("planApproval.failed"), message: String(cause) });
+			toastError({ title: t("planApproval.failed"), error: cause });
 		}
 	};
 

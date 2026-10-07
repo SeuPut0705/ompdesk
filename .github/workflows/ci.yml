@@ -37,6 +37,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check:types
       - run: bunx biome check src e2e
+      - run: node scripts/lint-surfaces.mjs
       - run: bunx vitest run
       - run: bun run build
 

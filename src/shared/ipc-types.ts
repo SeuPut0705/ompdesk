@@ -3,6 +3,7 @@
  * Type-safe contract for the contextBridge API.
  */
 
+import type { IpcErrorCode } from "./ipc-error-codes";
 import type { LaunchProfile } from "./launch-profile";
 import type { SessionModelOverride } from "./model-restore";
 import type {
@@ -693,6 +694,8 @@ export interface IpcFsListResult {
 	/** True when the file cap stopped the walk early. */
 	truncated: boolean;
 	error?: string;
+	/** Stable failure code for the renderer's localized message (shared/ipc-error-codes). */
+	code?: IpcErrorCode;
 }
 
 export interface IpcFsReadPayload {
@@ -721,6 +724,8 @@ export interface IpcOpenPathResult {
 	/** The absolute path that was opened/revealed, when successful. */
 	resolvedPath?: string;
 	error?: string;
+	/** Stable failure code for the renderer's localized message (shared/ipc-error-codes). */
+	code?: IpcErrorCode;
 }
 
 export interface IpcFsReadPlanPayload {
@@ -1165,9 +1170,6 @@ export interface OmpApi {
 			tokenBudget?: number | null;
 			action?: "pause" | "resume" | "drop";
 		}): Promise<RpcResponse>;
-		btw(question: string, recordId?: string): Promise<RpcResponse>;
-		cancelBtw(recordId?: string): Promise<RpcResponse>;
-		getBtwHistory(): Promise<RpcResponse>;
 		tan(work: string): Promise<RpcResponse>;
 		omfg(complaint: string): Promise<RpcResponse>;
 		getLoopMode(): Promise<RpcResponse>;

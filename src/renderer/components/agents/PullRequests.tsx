@@ -12,7 +12,7 @@ import type { RpcPrListItem } from "../../../shared/rpc-types";
 import { cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { usePrCenterStore } from "../../stores/pr-center";
-import { toast } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
 import { Banner, Button, EmptyState, IconButton, Spinner, Tabs } from "../common";
 import { PrCreateDialog } from "./pr/PrCreateDialog";
 import { PrDetail } from "./pr/PrDetail";
@@ -100,7 +100,7 @@ export function PullRequests() {
 		try {
 			if (await window.omp.sidecar.selectProject()) await probe();
 		} catch (cause) {
-			toast({ variant: "error", title: t("titlebar.openProjectFailed"), message: String(cause) });
+			toastError({ title: t("titlebar.openProjectFailed"), error: cause });
 		}
 	};
 
