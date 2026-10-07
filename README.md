@@ -16,13 +16,11 @@
 
 <a href="https://github.com/SeuPut0705/seucode/releases/latest/download/seucode-mac-arm64.dmg"><img src="https://img.shields.io/badge/macOS-Apple%20Silicon-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS Apple Silicon 다운로드" height="40"></a>
 &nbsp;
-<a href="https://github.com/SeuPut0705/seucode/releases/latest/download/seucode-mac-x64.dmg"><img src="https://img.shields.io/badge/macOS-Intel-555555?style=for-the-badge&logo=apple&logoColor=white" alt="macOS Intel 다운로드" height="40"></a>
-&nbsp;
 <a href="https://github.com/SeuPut0705/seucode/releases/latest/download/seucode-windows-setup.exe"><img src="https://img.shields.io/badge/Windows-설치%20파일-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 다운로드" height="40"></a>
 
 <sub>
 Windows 설치 없이 쓰기: <a href="https://github.com/SeuPut0705/seucode/releases/latest/download/seucode-windows-portable.exe">포터블 exe</a>
-&nbsp;·&nbsp; 내 Mac이 어떤 칩인지: 왼쪽 위  메뉴 → 이 Mac에 관하여
+&nbsp;·&nbsp; macOS는 Apple Silicon(M1 이상) 전용
 &nbsp;·&nbsp; <a href="https://github.com/SeuPut0705/seucode/releases">모든 버전</a>
 </sub>
 
@@ -170,8 +168,7 @@ cd seucode
 bun install
 
 bun run dev                                    # 개발 모드
-bun run package:mac:arm64 -- --publish never   # → dist/seucode-<버전>-arm64.dmg
-bun run package:mac:x64 -- --publish never     # Intel Mac
+bun run package:mac -- --publish never        # → dist/seucode-<버전>-arm64.dmg (Apple Silicon)
 bun run package:win -- --publish never         # Windows 설치 파일 + 포터블
 ```
 

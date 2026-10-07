@@ -65,11 +65,11 @@ describe("mac bundle configs", () => {
 		).toBe("electron-builder.yml");
 	});
 
-	it("builds both mac architectures from the single main config", () => {
+	it("builds only Apple Silicon for macOS", () => {
 		const main = configs.find(entry => entry.file === "electron-builder.yml")?.config;
 		for (const target of ["dmg", "zip"]) {
 			const arch = main?.mac?.target?.find(entry => entry.target === target)?.arch ?? [];
-			expect(arch, `mac ${target} arch`).toEqual(expect.arrayContaining(["arm64", "x64"]));
+			expect(arch, `mac ${target} arch`).toEqual(["arm64"]);
 		}
 	});
 

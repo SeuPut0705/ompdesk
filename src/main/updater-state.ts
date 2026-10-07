@@ -15,15 +15,9 @@ interface ReleaseFile {
 	size?: number;
 }
 
-export type MacInstallerArchitecture = "arm64" | "x64";
-
-/** Select only the exact DMG produced for the running Mac architecture. */
-export function selectMacInstaller(
-	files: readonly ReleaseFile[],
-	version: string,
-	architecture: MacInstallerArchitecture,
-): MacInstallerAsset | undefined {
-	const expectedName = architecture === "arm64" ? `seucode-${version}-arm64.dmg` : `seucode-${version}.dmg`;
+/** Select the Apple Silicon DMG for this release (the only macOS build seucode ships). */
+export function selectMacInstaller(files: readonly ReleaseFile[], version: string): MacInstallerAsset | undefined {
+	const expectedName = `seucode-${version}-arm64.dmg`;
 	for (const file of files) {
 		let name = file.url;
 		try {

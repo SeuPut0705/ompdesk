@@ -23,7 +23,6 @@ import { mainT } from "./i18n";
 import {
 	hasStableMacSigningIdentity,
 	installerPartialPath,
-	type MacInstallerArchitecture,
 	type MacInstallerAsset,
 	planInstallerTransfer,
 	selectMacInstaller,
@@ -215,13 +214,12 @@ export function setupUpdater(): void {
 		manualInstaller = undefined;
 		downloadedInstallerPath = undefined;
 		if (installMode === "manual") {
-			const architecture: MacInstallerArchitecture | undefined =
-				process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "x64" : undefined;
-			if (!architecture) {
+			// Only Apple Silicon builds ship; an Intel Mac has no installer to fetch.
+			if (process.arch !== "arm64") {
 				broadcast({ state: "error", message: mainT("updates.unsupportedArchitecture") });
 				return;
 			}
-			manualInstaller = selectMacInstaller(info.files, info.version, architecture);
+			manualInstaller = selectMacInstaller(info.files, info.version);
 			if (!manualInstaller) {
 				broadcast({ state: "error", message: mainT("updates.installerMissing") });
 				return;

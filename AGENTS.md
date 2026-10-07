@@ -57,16 +57,15 @@ When an omp update breaks a bridge method, fix the method against the new intern
 2. Bump `package.json` `version`, write the `CHANGELOG.md` section, update README version mentions.
 3. `bunx vitest run && bun run check:types && bun run build && bunx playwright test`.
 4. Commit, tag, push: `git commit -am "release: vX.Y.Z" && git tag vX.Y.Z && git push origin main vX.Y.Z`.
-5. Package macOS: `bun run package:mac -- --publish never` (dmg + zip, arm64 + x64). Windows installers are built by `.github/workflows/release-windows.yml` on a Windows runner (NSIS's `makensis` is x86-only and fails on Apple Silicon with error -86); locally, `bun run package:win:dir` checks the unpacked Windows app.
+5. Package macOS: `bun run package:mac -- --publish never` (dmg + zip, Apple Silicon only; Intel Macs are not supported). Windows installers are built by `.github/workflows/release-windows.yml` on a Windows runner (NSIS's `makensis` is x86-only and fails on Apple Silicon with error -86); locally, `bun run package:win:dir` checks the unpacked Windows app.
 6. Inspect: `codesign --verify --deep --strict "<dmg mount>/seucode.app"`; `Contents/Resources/gui-bridge` exists; launch with omp installed (reaches Ready) and with omp absent from `PATH` (install error shown).
-7. Publish a GitHub Release on the tag with both DMGs, both ZIPs, and `latest-mac.yml` (it must cover both architectures; the updater resolves DMGs from it), plus version-free DMG copies for the README download buttons (`releases/latest/download/<name>`; the updater keeps using the versioned names):
+7. Publish a GitHub Release on the tag with the DMG, the ZIP, and `latest-mac.yml` (the updater resolves the DMG from it), plus a version-free DMG copy for the README download button (`releases/latest/download/<name>`; the updater keeps using the versioned name):
    ```bash
    V=X.Y.Z
    cp dist/seucode-$V-arm64.dmg dist/seucode-mac-arm64.dmg
-   cp dist/seucode-$V.dmg dist/seucode-mac-x64.dmg
    gh release create v$V --title "v$V" --notes-file <changelog section> \
-     dist/seucode-$V-arm64.dmg dist/seucode-$V.dmg dist/seucode-$V-arm64-mac.zip dist/seucode-$V-mac.zip dist/latest-mac.yml \
-     dist/seucode-mac-arm64.dmg dist/seucode-mac-x64.dmg
+     dist/seucode-$V-arm64.dmg dist/seucode-$V-arm64-mac.zip dist/latest-mac.yml \
+     dist/seucode-mac-arm64.dmg
    ```
    Publishing triggers the Windows workflow, which uploads the setup and portable exe (versioned and `seucode-windows-*.exe`) plus `latest.yml`. Release body = changelog section + minimum omp version.
 

@@ -6,7 +6,7 @@ First release of **seucode** (formerly omp GUI) as its own project. Derived from
 
 ### Identity
 
-- New name and mark: the app is **seucode** (bundle id `com.seuput.seucode`, installers `seucode-<version>-…`, stable download names `seucode-mac-arm64.dmg`, `seucode-mac-x64.dmg`, `seucode-windows-setup.exe`, `seucode-windows-portable.exe`). The agent it drives is still omp. One S-shaped mark (an ink arc handing over to an accent arc) renders the app icon, the menu-bar/tray icon and the in-app logo.
+- New name and mark: the app is **seucode** (bundle id `com.seuput.seucode`, installers `seucode-<version>-…`, stable download names `seucode-mac-arm64.dmg`, `seucode-windows-setup.exe`, `seucode-windows-portable.exe`). The agent it drives is still omp. One S-shaped mark (an ink arc handing over to an accent arc) renders the app icon, the menu-bar/tray icon and the in-app logo.
 - The app's data directory follows the new name (`~/Library/Application Support/seucode`, `%APPDATA%\seucode`), so window layout and GUI preferences start fresh; omp's own settings, logins and sessions in `~/.omp` are unaffected.
 
 ### Runtime
@@ -14,7 +14,7 @@ First release of **seucode** (formerly omp GUI) as its own project. Derived from
 - Drives the **system-installed omp** (`omp --mode rpc-ui`); `omp update` updates the agent the GUI uses. Requires omp **18.6.0** or newer; a missing or outdated omp shows an install/update hint.
 - GUI features stock omp's RPC does not cover run in the Electron main process (git/gh, files, `~/.omp` config, `omp` CLI) or through `gui-bridge`, an omp extension the GUI loads with `-e` for live-session state. No omp fork, no bundled agent binary.
 - Stats run the user's omp-stats server without opening a browser and add the paginated request list the Requests page needs.
-- macOS (arm64 + x64 from one config) and Windows only; Linux packaging removed.
+- macOS on Apple Silicon and Windows only; Intel Macs and Linux are not supported.
 
 ### Added
 

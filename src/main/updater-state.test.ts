@@ -32,30 +32,23 @@ describe("manual macOS installer selection", () => {
 	const files = [
 		{ url: "seucode-0.8.4-arm64-mac.zip", sha512: "arm-zip" },
 		{ url: "seucode-0.8.4-arm64.dmg", sha512: "arm-dmg", size: 120 },
-		{ url: "https://example.test/seucode-0.8.4-mac.zip", sha512: "x64-zip" },
-		{ url: "https://example.test/seucode-0.8.4.dmg", sha512: "x64-dmg", size: 140 },
+		{ url: "https://example.test/seucode-0.8.4.dmg", sha512: "other-dmg", size: 140 },
 	];
 
-	it("selects the exact DMG for each supported architecture", () => {
-		expect(selectMacInstaller(files, "0.8.4", "arm64")).toEqual({
+	it("selects the exact Apple Silicon DMG", () => {
+		expect(selectMacInstaller(files, "0.8.4")).toEqual({
 			name: "seucode-0.8.4-arm64.dmg",
 			sha512: "arm-dmg",
 			size: 120,
 		});
-		expect(selectMacInstaller(files, "0.8.4", "x64")).toEqual({
-			name: "seucode-0.8.4.dmg",
-			sha512: "x64-dmg",
-			size: 140,
-		});
 	});
 
-	it("rejects ZIPs and installers for a different release", () => {
-		expect(selectMacInstaller(files, "0.8.5", "arm64")).toBeUndefined();
+	it("rejects ZIPs, other DMG names, and installers for a different release", () => {
+		expect(selectMacInstaller(files, "0.8.5")).toBeUndefined();
 		expect(
 			selectMacInstaller(
-				files.filter(file => file.url.endsWith(".zip")),
+				files.filter(file => !file.url.endsWith("arm64.dmg")),
 				"0.8.4",
-				"x64",
 			),
 		).toBeUndefined();
 	});
