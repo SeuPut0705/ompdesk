@@ -26,11 +26,15 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import * as fs from "node:fs";
 import * as path from "node:path";
 import { app, BrowserWindow, ipcMain, net, shell } from "electron";
 import type { UpdateInfo } from "electron-updater";
 import pkg from "electron-updater";
+// Not node:fs: Electron's fs treats `app.asar` as a directory, so a recursive rm
+// of a staged bundle fails with ENOTEMPTY and leaves the archive behind; every
+// later download then died sweeping that leftover (a skipped update could never
+// be skipped). Nothing here reads inside an archive.
+import * as fs from "original-fs";
 import type { UpdateAuthTestResult, UpdateInstallMode, UpdateStatus } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import { confirmQuit, requestQuit } from "./app-quit";
@@ -371,7 +375,8 @@ async function sweepUpdatesDirectory(keepAsset: string): Promise<void> {
 	} catch {
 		return;
 	}
-	await Promise.all(
+	// One stubborn leftover must never block the download that replaces it.
+	await Promise.allSettled(
 		entries
 			.filter(entry => !keep.has(entry))
 			.map(entry => fs.promises.rm(path.join(updatesDirectory(), entry), { recursive: true, force: true })),
