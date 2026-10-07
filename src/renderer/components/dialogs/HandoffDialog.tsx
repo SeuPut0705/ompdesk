@@ -11,11 +11,12 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { Handshake } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
+import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { useForkHandoffStore } from "../../stores/fork-handoff";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
-import { Button, Modal, Spinner, TextArea } from "../common";
+import { Button, ErrorDetail, Modal, Spinner, TextArea } from "../common";
 
 interface HandoffResult {
 	savedPath?: string;
@@ -38,7 +39,7 @@ export function HandoffDialog() {
 	const [stage, setStage] = useState<"summary" | "fork">("summary");
 	const [instructions, setInstructions] = useState("");
 	const [running, setRunning] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<InlineFailure | null>(null);
 	const textRef = useRef<HTMLTextAreaElement>(null);
 
 	useEffect(() => {
@@ -72,7 +73,7 @@ export function HandoffDialog() {
 				setStage("summary");
 				const response = await tabRpc.handoff(trimmed.length > 0 ? trimmed : undefined);
 				if (!response.success) {
-					setError(response.error);
+					setError(inlineFailure(response, t("handoff.failed")));
 					return;
 				}
 				const handoffResult = response.data as HandoffResult | null | undefined;
@@ -87,7 +88,10 @@ export function HandoffDialog() {
 			}
 			if (result.forkAttempted) {
 				const current = await tabRpc.getState();
-				if (!current.success) throw new Error(current.error);
+				if (!current.success) {
+					setError(inlineFailure(current, t("handoff.forkFailed")));
+					return;
+				}
 				if ((current.data as { sessionId?: string }).sessionId !== result.sessionId) {
 					if (originTabId) await hydrateTabSession(originTabId);
 					else await hydrateSession();
@@ -100,8 +104,14 @@ export function HandoffDialog() {
 			setPrepared({ ...result, forkAttempted: true });
 			setStage("fork");
 			const fork = await tabRpc.fork();
-			if (!fork.success) throw new Error(fork.error);
-			if ((fork.data as { cancelled?: boolean } | undefined)?.cancelled) throw new Error(t("handoff.cancelled"));
+			if (!fork.success) {
+				setError(inlineFailure(fork, t("handoff.forkFailed")));
+				return;
+			}
+			if ((fork.data as { cancelled?: boolean } | undefined)?.cancelled) {
+				setError({ message: t("handoff.cancelled") });
+				return;
+			}
 			if (originTabId) await hydrateTabSession(originTabId);
 			else await hydrateSession();
 			setPrepared(null);
@@ -112,7 +122,7 @@ export function HandoffDialog() {
 				message: result.savedPath ? t("handoff.successSaved", { path: result.savedPath }) : t("handoff.success"),
 			});
 		} catch (cause) {
-			setError(String(cause));
+			setError(inlineFailure(cause, t("handoff.failed")));
 		} finally {
 			setRunning(false);
 		}
@@ -144,7 +154,8 @@ export function HandoffDialog() {
 				)}
 				{error !== null && (
 					<div className="rounded-md border border-[var(--omp-error)] bg-transparent px-3 py-2 text-omp-sm text-[var(--omp-error)]">
-						{error}
+						{error.message}
+						<ErrorDetail className="mt-0.5" error={error.cause} />
 					</div>
 				)}
 				{running && (

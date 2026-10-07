@@ -23,13 +23,14 @@ import {
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { SessionInfo } from "../../../shared/ipc-types";
 import { requestSessionSwitch, switchSessionNow } from "../../hooks/use-session-switch";
+import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { basename, cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { mergeContentMatches, rankSessions, type SessionSortMode } from "../../lib/session-search";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, Modal, Spinner } from "../common";
+import { Badge, Button, ErrorDetail, Modal, Spinner } from "../common";
 
 type SessionScope = "local" | "global";
 
@@ -52,7 +53,7 @@ export function SessionPickerDialog() {
 	const [showPath, setShowPath] = useState<boolean | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [switching, setSwitching] = useState<string | null>(null);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<InlineFailure | null>(null);
 	const [activeIndex, setActiveIndex] = useState(0);
 	const [contentPaths, setContentPaths] = useState<ReadonlySet<string>>(new Set());
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -92,7 +93,7 @@ export function SessionPickerDialog() {
 				setSessions(global);
 				setScope("global");
 			} catch (cause) {
-				if (!cancelled) setError(String(cause));
+				if (!cancelled) setError(inlineFailure(cause, t("sessionPicker.loadFailed")));
 			} finally {
 				if (!cancelled) setLoading(false);
 			}
@@ -113,7 +114,7 @@ export function SessionPickerDialog() {
 			setSessions(list);
 			setScope(target);
 		} catch (cause) {
-			setError(String(cause));
+			setError(inlineFailure(cause, t("sessionPicker.loadFailed")));
 		} finally {
 			setLoading(false);
 		}
@@ -278,7 +279,8 @@ export function SessionPickerDialog() {
 					{error ? (
 						<div className="flex flex-col items-center gap-2 py-10 text-center">
 							<p role="alert" className="text-xs text-[var(--omp-error)]">
-								{error}
+								{error.message}
+								<ErrorDetail className="mt-0.5" error={error.cause} />
 							</p>
 							<Button
 								icon={<RotateCw size={12} />}

@@ -232,11 +232,9 @@ const SubagentRow = memo(function SubagentRow({
 				}}
 				selected={selected}
 				title={
-					// Quieter than the session row; the role gives way first when space runs out.
+					// Quieter than the session row. The role stays in the tooltip: in a
+					// sidebar-width row it only ever truncated to a stub ("ta…").
 					<span className="flex min-w-0 text-sc-sm text-(--sc-text-muted)">
-						{showRole && (
-							<span className="mr-1 min-w-0 shrink-[3] truncate text-(--sc-text-subtle)">{agent.agent} ·</span>
-						)}
 						<span className="min-w-0 truncate">{primary}</span>
 						<span className="sr-only">, {statusLabel}</span>
 					</span>

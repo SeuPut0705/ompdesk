@@ -6,15 +6,34 @@
  * details — never the raw JSON of the envelope itself.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
 	extractImageDataUrl,
 	extractImageDataUrls,
 	formatShortClock,
+	formatTimeAgo,
 	resultDetails,
 	resultText,
 	sanitizeToolText,
+	uiLocale,
 } from "./format";
+
+describe("UI-language dates", () => {
+	const realLocalStorage = (globalThis as Record<string, unknown>).localStorage;
+	afterEach(() => {
+		(globalThis as Record<string, unknown>).localStorage = realLocalStorage;
+	});
+
+	it("formats dates in Korean when the UI is Korean and the OS locale is English", () => {
+		expect(navigator.language).toBe("en-US");
+		(globalThis as Record<string, unknown>).localStorage = {
+			getItem: (key: string) => (key === "omp.lang" ? "ko" : null),
+			setItem: () => {},
+		};
+		expect(uiLocale()).toBe("ko-KR");
+		expect(formatTimeAgo("2026-08-08T12:00:00Z")).toBe("8월 8일");
+	});
+});
 
 describe("formatShortClock", () => {
 	it("keeps timeline labels to hour and minute", () => {

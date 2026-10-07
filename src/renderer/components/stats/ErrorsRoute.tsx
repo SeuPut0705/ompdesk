@@ -6,6 +6,7 @@ import { useEffect, useMemo } from "react";
 import type { ErrorRow } from "../../../shared/stats-types";
 import { useStatsList } from "../../hooks/use-stats";
 import { compact } from "../../lib/chart";
+import { uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { Badge } from "../common";
 import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
@@ -31,7 +32,7 @@ export function ErrorsRoute({ range, refreshKey }: { range: StatsRange; refreshK
 				label: t("stats.col.when"),
 				render: row => (
 					<span className="whitespace-nowrap text-(--sc-text-muted)">
-						{new Date(row.timestamp).toLocaleString(undefined, {
+						{new Date(row.timestamp).toLocaleString(uiLocale(), {
 							month: "short",
 							day: "numeric",
 							hour: "2-digit",

@@ -11,7 +11,7 @@ import { MessageSquare, RefreshCw } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { SessionStats } from "../../../shared/rpc-types";
 import { formatUsd } from "../../lib/chart";
-import { basename, formatTokens } from "../../lib/format";
+import { basename, formatTokens, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
@@ -55,7 +55,7 @@ function Columns({ children }: { children: ReactNode }) {
 }
 
 function formatCredit(value: number): string {
-	return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
+	return value.toLocaleString(uiLocale(), { maximumFractionDigits: 4 });
 }
 
 export function SessionInsights() {
@@ -278,7 +278,7 @@ export function SessionInsights() {
 									? [
 											{
 												label: t("sessionInfo.sampledAt"),
-												value: new Date(history.sampledAt).toLocaleTimeString(),
+												value: new Date(history.sampledAt).toLocaleTimeString(uiLocale()),
 											},
 										]
 									: []),

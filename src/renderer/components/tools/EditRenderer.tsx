@@ -4,6 +4,7 @@ import { basename, cx, dirname, headLines } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { CodeBlock } from "../chat/CodeBlock";
+import { ErrorDetail } from "../common";
 import { unifiedDiffStats } from "./diff-stats";
 import { editArgumentPaths } from "./edit-args";
 import { PathLink } from "./PathLink";
@@ -139,8 +140,9 @@ function PerFileEditBlock({ file }: { file: EditPerFileResult }) {
 		return (
 			<div className="flex flex-col gap-1.5">
 				<EditHeader op={file.op} path={displayPath} moveTo={file.move} isError />
-				<div className="whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 text-omp-sm text-[var(--omp-error)]">
-					{file.displayErrorText ?? file.errorText ?? t("tools.edit.failed")}
+				<div className="rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 text-omp-sm text-[var(--omp-error)]">
+					{t("tools.edit.failed")}
+					<ErrorDetail className="mt-1 whitespace-pre-wrap" error={file.displayErrorText ?? file.errorText} />
 				</div>
 			</div>
 		);
@@ -233,12 +235,13 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 		const rawError = asString(details?.displayErrorText) ?? asString(details?.errorText) ?? bodyText;
 		// Hashline-mismatch errors embed source context; a single minified line
 		// can be enormous — cap before it enters the DOM.
-		const { head: cappedError, omitted } = headLines(rawError || t("tools.edit.failed"), EDIT_ERROR_LINES);
+		const { head: cappedError, omitted } = headLines(rawError, EDIT_ERROR_LINES);
 		return (
 			<div className="flex flex-col gap-1.5">
 				<EditHeader op={op} path={rawPath} moveTo={rename} isError />
-				<div className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 text-omp-sm text-[var(--omp-error)]">
-					{cappedError}
+				<div className="max-h-72 overflow-y-auto rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 text-omp-sm text-[var(--omp-error)]">
+					{t("tools.edit.failed")}
+					<ErrorDetail className="mt-1 whitespace-pre-wrap" error={cappedError} />
 					{omitted > 0 && (
 						<div className="mt-1 text-omp-xs opacity-70">
 							{t("tools.read.more", { count: omitted, plural: omitted === 1 ? "" : "s" })}

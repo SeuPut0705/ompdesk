@@ -1,6 +1,6 @@
 /**
- * Queue panel: the agent's pending message queue as two lanes — 引导
- * (steering, delivered mid-run) and 排队 (follow-up, delivered after the
+ * Queue panel: the agent's pending message queue as two lanes — Steer
+ * (delivered mid-run) and Follow-up (delivered after the
  * run). Mutations (edit, lane switch, remove, lane clear) come from
  * useQueueActions, shared with the composer's queued-message tray.
  */

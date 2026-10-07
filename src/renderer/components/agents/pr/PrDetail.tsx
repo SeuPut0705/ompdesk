@@ -22,7 +22,7 @@ import { DiffView } from "../../../lib/diff";
 import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
 import { usePrCenterStore } from "../../../stores/pr-center";
-import { Badge, Button, EmptyState, Spinner } from "../../common";
+import { Badge, Button, EmptyState, ErrorDetail, Spinner } from "../../common";
 
 const BODY_COLLAPSE_LINES = 12;
 
@@ -128,7 +128,11 @@ export function PrDetail({ onCreateOpen }: { onCreateOpen: () => void }) {
 					</Button>
 				}
 				className="h-full"
-				description={<span role="alert">{error}</span>}
+				description={
+					<span role="alert">
+						<ErrorDetail error={error} />
+					</span>
+				}
 				title={t("prCenter.detailFailed")}
 			/>
 		);

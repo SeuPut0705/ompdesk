@@ -46,6 +46,7 @@ import {
 	prefillComposer,
 } from "../../lib/command-registry";
 import { enterNeedsConfirm, matchCommand, normalizeQuery, rankCommands } from "../../lib/command-search";
+import { errorDetail, type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -57,7 +58,7 @@ import { useSettingsStore } from "../../stores/settings";
 import { useActiveTabKind } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, EmptyState, Kbd, Spinner } from "../common";
+import { Button, EmptyState, ErrorDetail, Kbd, Spinner } from "../common";
 import { isTopmostDialog, registerDialogLayer } from "../common/dialog-layer";
 
 const RECENT_KEY = "omp.palette.recent";
@@ -208,7 +209,7 @@ export function CommandPalette() {
 	const [availableCommands, setAvailableCommands] = useState<AvailableCommand[]>([]);
 	/** Set when the sidecar command fetch failed; the list stays usable (native
 	 *  rows only) but says so and offers a retry instead of going silent. */
-	const [commandsError, setCommandsError] = useState<string | null>(null);
+	const [commandsError, setCommandsError] = useState<InlineFailure | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [activeIndex, setActiveIndex] = useState(0);
 	/** The user moved the selection with the arrow keys (vs. the auto-selected top hit). */
@@ -227,7 +228,7 @@ export function CommandPalette() {
 		const seq = ++fetchSeq.current;
 		if (!sidecarReady) {
 			setAvailableCommands([]);
-			setCommandsError(t("common.notConnected"));
+			setCommandsError({ message: t("common.notConnected") });
 			setLoading(false);
 			return;
 		}
@@ -238,7 +239,7 @@ export function CommandPalette() {
 			.then(response => {
 				if (seq !== fetchSeq.current) return;
 				if (!response.success) {
-					setCommandsError(response.error ?? "");
+					setCommandsError(inlineFailure(response, t("palette.commandsFailed")));
 					return;
 				}
 				const data = response.data as { commands?: AvailableCommand[] } | undefined;
@@ -246,7 +247,7 @@ export function CommandPalette() {
 			})
 			.catch((error: unknown) => {
 				if (seq !== fetchSeq.current) return;
-				setCommandsError(String(error));
+				setCommandsError(inlineFailure(error, t("palette.commandsFailed")));
 			})
 			.finally(() => {
 				if (seq === fetchSeq.current) setLoading(false);
@@ -740,13 +741,10 @@ export function CommandPalette() {
 				</div>
 				{commandsError !== null && (
 					<div className="flex items-center gap-2 border-b border-(--sc-divider) px-3.5 py-1.5">
-						<span
-							className="min-w-0 flex-1 truncate text-sc-sm text-(--sc-danger)"
-							role="alert"
-							title={commandsError || undefined}
-						>
-							{t("palette.commandsFailed")}
-						</span>
+						<div className="min-w-0 flex-1" role="alert" title={errorDetail(commandsError.cause) || undefined}>
+							<span className="block truncate text-sc-sm text-(--sc-danger)">{commandsError.message}</span>
+							<ErrorDetail className="truncate" error={commandsError.cause} />
+						</div>
 						<Button onClick={refreshCommands} size="sm" variant="secondary">
 							{t("common.retry")}
 						</Button>

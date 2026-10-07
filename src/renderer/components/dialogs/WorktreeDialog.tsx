@@ -10,11 +10,12 @@ import { useTabRpc } from "../../lib/tab-rpc";
 
 import { useEffect, useRef, useState } from "react";
 import type { RpcWorktreeCreateResult } from "../../../shared/rpc-types";
+import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { Button, Input, Modal } from "../common";
+import { Button, ErrorDetail, Input, Modal } from "../common";
 
 /** Renderer-side mirror of the agent's slugify (rpc-worktree.ts). */
 function slugify(name: string): string {
@@ -39,7 +40,7 @@ export function WorktreeDialog() {
 	const [baseRef, setBaseRef] = useState<"HEAD" | "default">("HEAD");
 	const [creating, setCreating] = useState(false);
 	const [created, setCreated] = useState<RpcWorktreeCreateResult | null>(null);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<InlineFailure | null>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
@@ -69,13 +70,13 @@ export function WorktreeDialog() {
 					baseRef,
 				});
 				if (!response.success) {
-					const key =
+					setError(
 						response.code === "not_a_repo"
-							? "worktree.notARepo"
+							? { message: t("worktree.notARepo"), cause: response }
 							: response.code === "invalid_name"
-								? "worktree.invalidName"
-								: "worktree.failed";
-					setError(`${t(key)}: ${response.error}`);
+								? { message: t("worktree.invalidName"), cause: response }
+								: inlineFailure(response, t("worktree.failed")),
+					);
 					return;
 				}
 				result = response.data as RpcWorktreeCreateResult;
@@ -86,9 +87,9 @@ export function WorktreeDialog() {
 				worktree: { name: slug, branch: result.branch, baseCwd: result.baseCwd, path: result.path },
 			});
 			if (tabId) close();
-			else setError(t("worktree.openFailed", { path: result.path }));
-		} catch (error) {
-			setError(String(error));
+			else setError({ message: t("worktree.openFailed", { path: result.path }) });
+		} catch (cause) {
+			setError(inlineFailure(cause, t("worktree.failed")));
 		} finally {
 			setCreating(false);
 		}
@@ -126,7 +127,8 @@ export function WorktreeDialog() {
 				)}
 				{error && (
 					<p role="alert" className="break-words text-omp-sm text-(--omp-error)">
-						{error}
+						{error.message}
+						<ErrorDetail className="mt-0.5" error={error.cause} />
 					</p>
 				)}
 				<fieldset disabled={creating || created !== null} className="flex flex-col gap-1.5">

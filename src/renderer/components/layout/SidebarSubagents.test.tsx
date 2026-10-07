@@ -220,9 +220,9 @@ describe("SidebarSubagents", () => {
 		expect(row("r2").querySelector(".lucide-pause")).not.toBeNull();
 		// Focusable row button in the sidebar's roving list.
 		expect(row("r1").querySelector("button")?.getAttribute("data-roving-item")).toBe(`subagent:${TAB}:r1`);
-		// Role before the short label, full text in the tooltip.
-		expect(row("r1").textContent).toContain("scout ·");
+		// The row spends its width on the task; the role is in the tooltip.
 		expect(row("r1").textContent).toContain("map the repo");
+		expect(row("r1").textContent).not.toContain("scout ·");
 		expect(row("r1").querySelector("button")?.getAttribute("title")).toContain("scout · map the repo");
 	});
 

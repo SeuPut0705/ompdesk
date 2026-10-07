@@ -209,7 +209,9 @@ describe("HandoffDialog", () => {
 
 		expect(rpc.handoff).toHaveBeenCalledTimes(1);
 		expect(useForkHandoffStore.getState().handoffDialogOpen).toBe(true);
-		expect(document.body.textContent).toContain("handoff exploded");
+		// Localized headline, raw cause as the detail line under it.
+		expect(document.body.textContent).toContain(translate("handoff.failed"));
+		expect(document.querySelector("[data-error-detail]")?.textContent).toBe("handoff exploded");
 		expect(useToastStore.getState().toasts.some(toastItem => toastItem.variant === "success")).toBe(false);
 	});
 	it("retries opening the continuation after a failed fork without generating another summary", async () => {
@@ -227,6 +229,7 @@ describe("HandoffDialog", () => {
 			click(buttonWithText(translate("handoff.start"))!);
 		});
 		await flush();
+		expect(document.body.textContent).toContain(translate("handoff.forkFailed"));
 		expect(document.body.textContent).toContain("disk full");
 		expect(useForkHandoffStore.getState().handoffDialogOpen).toBe(true);
 		const retry = Array.from(document.querySelectorAll("button")).find(button =>

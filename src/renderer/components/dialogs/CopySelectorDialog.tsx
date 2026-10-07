@@ -2,6 +2,7 @@ import { Check, ClipboardCopy } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { CopyTarget } from "../../../shared/rpc-types";
 import { flattenCopyTargets } from "../../lib/copy-targets";
+import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -9,7 +10,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, Modal, Spinner } from "../common";
+import { Button, ErrorDetail, Modal, Spinner } from "../common";
 
 export function CopySelectorDialog() {
 	const tabRpc = useTabRpc();
@@ -21,7 +22,7 @@ export function CopySelectorDialog() {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [copied, setCopied] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<InlineFailure | null>(null);
 	const listRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
@@ -32,7 +33,7 @@ export function CopySelectorDialog() {
 		setCopied(false);
 		setError(null);
 		if (!sidecarReady) {
-			setError(t("common.notConnected"));
+			setError({ message: t("common.notConnected") });
 			setLoading(false);
 			return;
 		}
@@ -42,7 +43,7 @@ export function CopySelectorDialog() {
 			.then(response => {
 				if (cancelled) return;
 				if (!response.success) {
-					setError(response.error);
+					setError(inlineFailure(response, t("copySelector.loadFailed")));
 					return;
 				}
 				const data = response.data as { targets?: CopyTarget[] } | undefined;
@@ -51,7 +52,7 @@ export function CopySelectorDialog() {
 				setSelectedId(flattenCopyTargets(next)[0]?.target.id ?? null);
 			})
 			.catch(cause => {
-				if (!cancelled) setError(String(cause));
+				if (!cancelled) setError(inlineFailure(cause, t("copySelector.loadFailed")));
 			})
 			.finally(() => {
 				if (!cancelled) setLoading(false);
@@ -103,7 +104,10 @@ export function CopySelectorDialog() {
 			<div className="grid h-[62vh] min-h-0 grid-cols-[minmax(220px,0.9fr)_minmax(0,1.3fr)]" onKeyDown={onKeyDown}>
 				<div className="min-h-0 overflow-y-auto border-r border-(--omp-border-muted) p-2" ref={listRef}>
 					{error ? (
-						<div className="p-4 text-xs text-[var(--omp-error)]">{error}</div>
+						<div className="p-4 text-xs text-[var(--omp-error)]" role="alert">
+							{error.message}
+							<ErrorDetail className="mt-0.5" error={error.cause} />
+						</div>
 					) : loading ? (
 						<div className="flex items-center justify-center gap-2 p-8 text-xs text-(--omp-dim)">
 							<Spinner size="sm" /> {t("copySelector.loading")}

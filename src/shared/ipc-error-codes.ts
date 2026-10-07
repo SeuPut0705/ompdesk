@@ -24,11 +24,28 @@ export const IPC_ERROR_CODES = [
 	"path_escapes_workspace",
 	"file_not_found",
 	"not_a_directory",
+	"empty_path",
+	"not_absolute_path",
+	"not_a_file",
+	"image_too_large",
+	"unsupported_image",
+	"path_escapes_roots",
+	"unknown_tab",
 	// LocalCommandError codes (src/main/local) that reach toasts unchanged.
 	"busy",
 	"gh_missing",
 	"no_github_remote",
 	"not_a_repo",
+	"exists",
+	"invalid_name",
+	"not_a_worktree",
+	"path_outside",
+	"worktree_create_failed",
+	"pr_not_found",
+	"pr_draft_failed",
+	"pr_create_failed",
+	"pr_checkout_failed",
+	"unsupported",
 ] as const;
 
 export type IpcErrorCode = (typeof IPC_ERROR_CODES)[number];

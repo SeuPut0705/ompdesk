@@ -8,8 +8,9 @@ import { useEffect, useMemo, useState } from "react";
 import type { RequestDetail, RequestPage, RequestRow } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
 import { compact, formatMs, formatUsd } from "../../lib/chart";
+import { uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { Badge, Button, Sheet, Spinner } from "../common";
+import { Badge, Button, ErrorDetail, Sheet, Spinner } from "../common";
 import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
 
 const PAGE_SIZE = 25;
@@ -20,7 +21,7 @@ function RequestDetailSheet({ row, onClose }: { row: RequestRow | null; onClose:
 	if (row && row !== shown) setShown(row);
 	return (
 		<Sheet
-			description={shown ? new Date(shown.timestamp).toLocaleString() : undefined}
+			description={shown ? new Date(shown.timestamp).toLocaleString(uiLocale()) : undefined}
 			onClose={onClose}
 			open={row !== null}
 			side="right"
@@ -97,7 +98,10 @@ function RequestDetailBody({ row }: { row: RequestRow }) {
 					<span className="text-sc-xs text-(--sc-text-subtle)">{t("stats.requests.loadingDetail")}</span>
 				</div>
 			) : error ? (
-				<div className="text-sc-xs text-(--sc-danger)">{error}</div>
+				<div className="text-sc-xs text-(--sc-danger)" role="alert">
+					{t("stats.requests.detailFailed")}
+					<ErrorDetail className="mt-0.5" error={error} />
+				</div>
 			) : (
 				<pre className="max-h-[45vh] overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-1) p-3 font-mono text-sc-xs break-words whitespace-pre-wrap text-(--sc-text-muted)">
 					{JSON.stringify({ messages: detail?.messages, output: detail?.output }, null, 2)?.slice(0, 40_000) ??
@@ -129,7 +133,7 @@ export function RequestsRoute({ range, refreshKey }: { range: StatsRange; refres
 				label: t("stats.col.when"),
 				render: row => (
 					<span className="whitespace-nowrap text-(--sc-text-muted)">
-						{new Date(row.timestamp).toLocaleString(undefined, {
+						{new Date(row.timestamp).toLocaleString(uiLocale(), {
 							month: "short",
 							day: "numeric",
 							hour: "2-digit",

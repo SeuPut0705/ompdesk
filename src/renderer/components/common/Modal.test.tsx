@@ -188,7 +188,7 @@ describe("Modal", () => {
 		const onClose = vi.fn();
 		await mount(
 			<Modal open onClose={onClose} title="Dialog">
-				<input defaultValue="输入" />
+				<input defaultValue="입력" />
 			</Modal>,
 		);
 

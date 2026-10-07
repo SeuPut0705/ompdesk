@@ -41,7 +41,6 @@ const TRANSLATED_NAMESPACES = [
 	"modelPicker.",
 	"palette.",
 	"stats.",
-	"statsPop.",
 	"chat.",
 	"tools.",
 	"todoPanel.",
@@ -49,9 +48,7 @@ const TRANSLATED_NAMESPACES = [
 	"filesPanel.",
 	"planPanel.",
 	"subagent.",
-	"subagentPanel.",
 	"agentHub.",
-	"dag.",
 	"diffPanel.",
 	"sidecar.",
 	"panel.",
@@ -75,7 +72,6 @@ const TRANSLATED_NAMESPACES = [
 const ALLOW_IDENTICAL: Record<string, true> = {
 	"providers.badge.oauth": true, // OAuth — brand name
 	"modelCompare.noRole": true, // "—" — punctuation, no letters
-	"extPanel.tabs.mcp": true, // MCP — protocol acronym
 	"input.modes.tab.vibe": true, // Vibe — feature name
 	"input.mode.python.badge": true, // $ Python — prefix symbol + language name
 	"stats.col.ttft": true, // TTFT — latency acronym

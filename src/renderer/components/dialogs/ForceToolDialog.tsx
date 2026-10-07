@@ -10,11 +10,12 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { Wrench, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { RpcActiveTool, RpcActiveToolsResult, RpcForceToolState } from "../../../shared/rpc-types";
+import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, Input, Modal, Spinner } from "../common";
+import { Badge, Button, ErrorDetail, Input, Modal, Spinner } from "../common";
 
 export function ForceToolDialog() {
 	const tabRpc = useTabRpc();
@@ -25,7 +26,7 @@ export function ForceToolDialog() {
 	const [tools, setTools] = useState<RpcActiveTool[]>([]);
 	const [current, setCurrent] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
-	const [loadError, setLoadError] = useState<string | null>(null);
+	const [loadError, setLoadError] = useState<InlineFailure | null>(null);
 	const [selected, setSelected] = useState<string | null>(null);
 	const [promptText, setPromptText] = useState("");
 	const [filter, setFilter] = useState("");
@@ -33,19 +34,25 @@ export function ForceToolDialog() {
 
 	const refresh = useCallback(async () => {
 		if (!sidecarReady) {
-			setLoadError(t("modelPicker.notConnected"));
+			setLoadError({ message: t("modelPicker.notConnected") });
 			return;
 		}
 		setLoading(true);
 		setLoadError(null);
 		try {
 			const [forceResponse, toolsResponse] = await Promise.all([tabRpc.getForceTool(), tabRpc.getActiveTools()]);
-			if (!forceResponse.success) throw new Error(forceResponse.error);
-			if (!toolsResponse.success) throw new Error(toolsResponse.error);
+			if (!forceResponse.success) {
+				setLoadError(inlineFailure(forceResponse, t("forceTool.loadFailed")));
+				return;
+			}
+			if (!toolsResponse.success) {
+				setLoadError(inlineFailure(toolsResponse, t("forceTool.loadFailed")));
+				return;
+			}
 			setCurrent((forceResponse.data as RpcForceToolState | undefined)?.tool ?? null);
 			setTools((toolsResponse.data as RpcActiveToolsResult | undefined)?.tools ?? []);
 		} catch (cause) {
-			setLoadError(cause instanceof Error ? cause.message : String(cause));
+			setLoadError(inlineFailure(cause, t("forceTool.loadFailed")));
 		} finally {
 			setLoading(false);
 		}
@@ -146,7 +153,10 @@ export function ForceToolDialog() {
 							<Spinner />
 						</div>
 					) : loadError ? (
-						<div className="p-3 text-sm text-(--omp-error)">{loadError}</div>
+						<div className="p-3 text-sm text-(--omp-error)">
+							{loadError.message}
+							<ErrorDetail className="mt-0.5" error={loadError.cause} />
+						</div>
 					) : filtered.length === 0 ? (
 						<div className="p-3 text-sm text-(--omp-muted)">{t("forceTool.empty")}</div>
 					) : (

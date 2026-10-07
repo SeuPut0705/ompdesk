@@ -17,6 +17,7 @@ import {
 import "../../lib/chart";
 import type { ModelRow, ModelsData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
+import { uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { ChartBox, RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
 
@@ -25,6 +26,7 @@ const tokenCountFormatter = new Intl.NumberFormat("en-US");
 export function ModelsRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
 	const t = useT();
 	const themeKey = useChartThemeKey();
+	const locale = uiLocale();
 	const params = useMemo(() => ({ range }), [range]);
 	const { data, isLoading, error, refetch } = useStats<ModelsData>("/api/stats/model-dashboard", params);
 
@@ -128,7 +130,7 @@ export function ModelsRoute({ range, refreshKey }: { range: StatsRange; refreshK
 		const topModels = byModel.slice(0, 5).map(row => row.model);
 		const timestamps = [...new Set(points.map(point => point.timestamp))].sort((a, b) => a - b);
 		return {
-			labels: bucketLabels(timestamps),
+			labels: bucketLabels(timestamps, locale),
 			datasets: topModels.map((model, index) => ({
 				label: model,
 				data: timestamps.map(ts => {
@@ -143,7 +145,7 @@ export function ModelsRoute({ range, refreshKey }: { range: StatsRange; refreshK
 				spanGaps: true,
 			})),
 		};
-	}, [stats, byModel, themeKey]);
+	}, [stats, byModel, locale, themeKey]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: themeKey re-reads the axis tokens on a theme switch.
 	const { usageOptions, perfOptions } = useMemo(() => {

@@ -282,14 +282,18 @@ export function formatMs(value: number | null): string {
 	return `${(value / 1000).toFixed(1)}s`;
 }
 
-/** Bucket timestamps → short labels (HH:mm for ≤24h ranges, MMM d otherwise). */
-export function bucketLabels(timestamps: number[]): string[] {
+/**
+ * Bucket timestamps → short labels (HH:mm for ≤24h ranges, MMM d otherwise) in
+ * `locale`, the UI language's Intl tag; callers pass it so memoized charts
+ * re-label on a language switch.
+ */
+export function bucketLabels(timestamps: number[], locale: string): string[] {
 	const span = timestamps.length > 1 ? timestamps[timestamps.length - 1] - timestamps[0] : 0;
 	const short = span <= 26 * 3600_000;
 	return timestamps.map(ts => {
 		const date = new Date(ts);
 		return short
-			? date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
-			: date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+			? date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })
+			: date.toLocaleDateString(locale, { month: "short", day: "numeric" });
 	});
 }

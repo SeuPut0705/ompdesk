@@ -7,13 +7,14 @@ import { useTabRpc } from "../../lib/tab-rpc";
 
 import { GitBranch, RotateCw, Search } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { branchSessionFromEntry } from "../../lib/messages";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, Modal, Spinner } from "../common";
+import { Button, ErrorDetail, Modal, Spinner } from "../common";
 
 interface BranchEntry {
 	entryId: string;
@@ -31,7 +32,7 @@ export function BranchPickerDialog() {
 	const [entries, setEntries] = useState<BranchEntry[]>([]);
 	const [loading, setLoading] = useState(false);
 	const [branching, setBranching] = useState<string | null>(null);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<InlineFailure | null>(null);
 	const [activeIndex, setActiveIndex] = useState(0);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
@@ -49,7 +50,7 @@ export function BranchPickerDialog() {
 		setError(null);
 		setBranching(null);
 		if (!sidecarReady) {
-			setError(t("modelPicker.notConnected"));
+			setError({ message: t("modelPicker.notConnected") });
 			setLoading(false);
 			return;
 		}
@@ -64,11 +65,11 @@ export function BranchPickerDialog() {
 					const data = response.data as { messages?: BranchEntry[] } | undefined;
 					setEntries(data?.messages ?? []);
 				} else {
-					setError(response.error);
+					setError(inlineFailure(response, t("branchPicker.loadFailed")));
 				}
 			})
 			.catch(cause => {
-				if (!cancelled) setError(String(cause));
+				if (!cancelled) setError(inlineFailure(cause, t("branchPicker.loadFailed")));
 			})
 			.finally(() => {
 				if (!cancelled) setLoading(false);
@@ -180,7 +181,8 @@ export function BranchPickerDialog() {
 					{error ? (
 						<div className="flex flex-col items-center gap-2 py-10 text-center">
 							<p role="alert" className="text-xs text-[var(--omp-error)]">
-								{error}
+								{error.message}
+								<ErrorDetail className="mt-0.5" error={error.cause} />
 							</p>
 							<Button
 								icon={<RotateCw size={12} />}

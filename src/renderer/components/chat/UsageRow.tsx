@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp, Clock, DollarSign, Zap } from "lucide-react";
 import { useDisplayPreference } from "../../lib/display-preferences";
-import { formatDuration, formatTokens } from "../../lib/format";
+import { formatDuration, formatTokens, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 
 /** Below this the rate is nonsense (cached/instant responses yield absurd tok/s). */
@@ -103,20 +103,20 @@ export function UsageRow({ message }: { message: UsageSource }) {
 			{model && <span className="font-mono">{model}</span>}
 			<span
 				className="flex items-center gap-1"
-				title={t("chat.usage.inputTokens", { count: totalInput.toLocaleString() })}
+				title={t("chat.usage.inputTokens", { count: totalInput.toLocaleString(uiLocale()) })}
 			>
 				<ArrowUp aria-hidden />
 				{formatTokens(totalInput)}
 			</span>
 			<span
 				className="flex items-center gap-1"
-				title={t("chat.usage.outputTokens", { count: usage.output.toLocaleString() })}
+				title={t("chat.usage.outputTokens", { count: usage.output.toLocaleString(uiLocale()) })}
 			>
 				<ArrowDown aria-hidden />
 				{formatTokens(usage.output)}
 			</span>
 			{usage.cacheRead > 0 && (
-				<span title={t("chat.usage.cachedTokens", { count: usage.cacheRead.toLocaleString() })}>
+				<span title={t("chat.usage.cachedTokens", { count: usage.cacheRead.toLocaleString(uiLocale()) })}>
 					{t("chat.usage.cached", { tokens: formatTokens(usage.cacheRead) })}
 				</span>
 			)}

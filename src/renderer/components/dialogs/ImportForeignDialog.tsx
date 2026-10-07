@@ -10,13 +10,14 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { Download, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcForeignSessionInfo, RpcResponse } from "../../../shared/rpc-types";
+import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, Input, Modal, Spinner } from "../common";
+import { Button, ErrorDetail, Input, Modal, Spinner } from "../common";
 
 type Source = "claude" | "codex";
 
@@ -38,7 +39,7 @@ export function ImportForeignDialog() {
 	const [query, setQuery] = useState("");
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [importing, setImporting] = useState(false);
-	const [importError, setImportError] = useState<string | null>(null);
+	const [importError, setImportError] = useState<InlineFailure | null>(null);
 	const [completed, setCompleted] = useState<Set<string>>(new Set());
 	const generation = useRef(0);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a different session client invalidates pending imports.
@@ -134,13 +135,13 @@ export function ImportForeignDialog() {
 					response = await tabRpc.importForeignSession(source, session.id);
 				} catch (cause) {
 					failed.add(`${source}:${session.id}`);
-					setImportError(String(cause));
+					setImportError(inlineFailure(cause, t("import.failed")));
 					continue;
 				}
 				if (generation.current !== version) return;
 				if (!response.success) {
 					failed.add(`${source}:${session.id}`);
-					setImportError(response.error);
+					setImportError(inlineFailure(response, t("import.failed")));
 					continue;
 				}
 				const data = response.data as { sessionPath?: string; sessionId?: string; cwd?: string } | undefined;
@@ -158,7 +159,7 @@ export function ImportForeignDialog() {
 			if (sessions.length === 1 && firstImported) {
 				const tabId = await useTabsStore.getState().openTab({ sessionPath: firstImported.sessionPath });
 				if (tabId) close();
-				else setImportError(t("import.openFailed", { path: firstImported.sessionPath }));
+				else setImportError({ message: t("import.openFailed", { path: firstImported.sessionPath }) });
 				return;
 			}
 			toast({ variant: "success", message: t("import.imported", { count: importedCount }) });
@@ -167,7 +168,7 @@ export function ImportForeignDialog() {
 			// completion markers are reconciled instead of leaving a stale snapshot.
 			await load(source, true);
 		} catch (cause) {
-			setImportError(String(cause));
+			setImportError(inlineFailure(cause, t("import.failed")));
 		} finally {
 			if (generation.current === version) setImporting(false);
 		}
@@ -215,7 +216,8 @@ export function ImportForeignDialog() {
 
 			{importError && (
 				<p role="alert" className="mb-2 text-omp-sm text-(--omp-error)">
-					{importError}
+					{importError.message}
+					<ErrorDetail className="mt-0.5" error={importError.cause} />
 				</p>
 			)}
 			<Button
@@ -235,7 +237,7 @@ export function ImportForeignDialog() {
 				{state?.error && (
 					<div className="px-4 py-6 text-center text-omp-md text-(--omp-muted)">
 						{t("import.sourceUnavailable", { source })}
-						<div className="mt-1 text-omp-sm text-(--omp-dim)">{state.error}</div>
+						<ErrorDetail className="mt-1" error={state.error} />
 					</div>
 				)}
 				{!state?.loading && !state?.error && filtered.length === 0 && (

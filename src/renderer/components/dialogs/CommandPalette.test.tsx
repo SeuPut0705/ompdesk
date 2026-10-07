@@ -314,8 +314,10 @@ describe("sidecar command fetch failure", () => {
 		seedTab("agent");
 		await mount();
 
+		// Localized headline first; the raw cause only as the quiet detail line.
 		const alert = container.querySelector('[role="alert"]');
-		expect(alert?.textContent).toBe(translate("palette.commandsFailed"));
+		expect(alert?.querySelector("span")?.textContent).toBe(translate("palette.commandsFailed"));
+		expect(alert?.querySelector("[data-error-detail]")?.textContent).toBe("sidecar not ready");
 		expect(alert?.getAttribute("title")).toBe("sidecar not ready");
 
 		const retry = container

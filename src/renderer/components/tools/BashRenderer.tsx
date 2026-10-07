@@ -18,11 +18,17 @@ import type { ToolRendererProps } from "./ToolCard";
  * `details` as a stats line instead.
  */
 
+/** Locale key + params for the truncation notice; the component translates it. */
+interface TruncationNotice {
+	key: string;
+	params?: Record<string, number>;
+}
+
 interface BashParsed {
 	output: string;
 	exitCode: number | null;
 	stats: string[];
-	truncation: string | null;
+	truncation: TruncationNotice | null;
 }
 
 function asNumber(value: unknown): number | undefined {
@@ -71,19 +77,21 @@ function stripGeneratedOutputNotice(text: string): string {
 	return trimmed.slice(0, lineStart === -1 ? 0 : lineStart).trimEnd();
 }
 
-function formatTruncation(truncation: Record<string, unknown>): string | null {
-	const totalLines = asNumber(truncation.totalLines);
-	const outputLines = asNumber(truncation.outputLines);
-	const shownRange = truncation.shownRange as { start?: number; end?: number } | undefined;
+function describeTruncation(truncation: Record<string, unknown>): TruncationNotice | null {
+	const total = asNumber(truncation.totalLines);
+	const count = asNumber(truncation.outputLines);
+	const shownRange = truncation.shownRange as { start?: unknown; end?: unknown } | undefined;
 	if (truncation.direction === "middle") {
-		return totalLines != null && outputLines != null
-			? `Showing ${outputLines} of ${totalLines} lines; middle elided`
-			: "Middle of output elided";
+		return total != null && count != null
+			? { key: "tools.bash.truncation.middleCount", params: { count, total } }
+			: { key: "tools.bash.truncation.middle" };
 	}
-	if (shownRange && asNumber(shownRange.start) != null && asNumber(shownRange.end) != null && totalLines != null) {
-		return `Showing lines ${shownRange.start}-${shownRange.end} of ${totalLines}`;
+	const start = asNumber(shownRange?.start);
+	const end = asNumber(shownRange?.end);
+	if (start != null && end != null && total != null) {
+		return { key: "tools.bash.truncation.range", params: { start, end, total } };
 	}
-	if (outputLines != null && totalLines != null) return `Showing ${outputLines} of ${totalLines} lines`;
+	if (count != null && total != null) return { key: "tools.bash.truncation.count", params: { count, total } };
 	return null;
 }
 
@@ -148,7 +156,7 @@ function parseBashResult(result: unknown, isError: boolean | undefined): BashPar
 		output: text.trimEnd(),
 		exitCode,
 		stats,
-		truncation: truncation ? formatTruncation(truncation) : null,
+		truncation: truncation ? describeTruncation(truncation) : null,
 	};
 }
 
@@ -203,7 +211,11 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult }
 			{parsed.stats.length > 0 && (
 				<div className="font-mono text-sc-xs text-(--sc-text-subtle)">[{parsed.stats.join(" | ")}]</div>
 			)}
-			{parsed.truncation && <div className="font-mono text-sc-xs text-(--sc-warning)">[{parsed.truncation}]</div>}
+			{parsed.truncation && (
+				<div className="font-mono text-sc-xs text-(--sc-warning)">
+					[{t(parsed.truncation.key, parsed.truncation.params)}]
+				</div>
+			)}
 			{isError && !hasOutput && <div className="text-sc-sm text-(--sc-danger)">{t("tools.bash.failed")}</div>}
 		</div>
 	);

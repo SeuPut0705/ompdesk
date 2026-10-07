@@ -1,13 +1,14 @@
 import { AlertTriangle, Copy, ExternalLink } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RpcShareSessionPreview, RpcShareSessionResult } from "../../../shared/rpc-types";
+import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, Modal, Spinner } from "../common";
+import { Button, ErrorDetail, Modal, Spinner } from "../common";
 
 export function ShareSessionDialog() {
 	const t = useT();
@@ -20,11 +21,11 @@ export function ShareSessionDialog() {
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
 	const [result, setResult] = useState<RpcShareSessionResult | null>(null);
 	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<InlineFailure | null>(null);
 
 	const prepare = useCallback(async () => {
 		if (!sidecarReady) {
-			setError(t("sidecar.notResponding"));
+			setError({ message: t("sidecar.notResponding") });
 			return;
 		}
 		const version = ++generation.current;
@@ -36,10 +37,13 @@ export function ShareSessionDialog() {
 		try {
 			const response = await rpc.previewShareSession();
 			if (version !== generation.current) return;
-			if (!response.success) throw new Error(response.error);
+			if (!response.success) {
+				setError(inlineFailure(response, t("shareDialog.previewFailed")));
+				return;
+			}
 			setPreview(response.data as RpcShareSessionPreview);
 		} catch (cause) {
-			if (version === generation.current) setError(String(cause));
+			if (version === generation.current) setError(inlineFailure(cause, t("shareDialog.previewFailed")));
 		} finally {
 			if (version === generation.current) setLoading(false);
 		}
@@ -60,11 +64,14 @@ export function ShareSessionDialog() {
 		try {
 			const response = await rpc.shareSession(preview.snapshotId);
 			if (version !== generation.current) return;
-			if (!response.success) throw new Error(response.error);
+			if (!response.success) {
+				setError(inlineFailure(response, t("shareDialog.error")));
+				return;
+			}
 			setResult(response.data as RpcShareSessionResult);
 			setPreview(null);
 		} catch (cause) {
-			if (version === generation.current) setError(String(cause));
+			if (version === generation.current) setError(inlineFailure(cause, t("shareDialog.error")));
 		} finally {
 			if (version === generation.current) setUploading(false);
 		}
@@ -161,7 +168,8 @@ export function ShareSessionDialog() {
 			{error && (
 				<div role="alert" className="space-y-2 py-3 text-sm text-(--omp-error)">
 					<p>
-						{t("shareDialog.error")}: {error}
+						{error.message}
+						<ErrorDetail className="mt-0.5" error={error.cause} />
 					</p>
 					<Button
 						variant="secondary"

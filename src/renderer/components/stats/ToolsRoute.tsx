@@ -9,6 +9,7 @@ import { baseChartOptions, chartColors, compact, formatUsd, useChartThemeKey, wi
 import "../../lib/chart";
 import type { ToolRow, ToolsData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
+import { uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { Badge } from "../common";
 import { ChartBox, RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
@@ -64,7 +65,7 @@ export function ToolsRoute({ range, refreshKey }: { range: StatsRange; refreshKe
 				align: "right",
 				render: row =>
 					row.lastUsed > 0
-						? new Date(row.lastUsed).toLocaleString(undefined, {
+						? new Date(row.lastUsed).toLocaleString(uiLocale(), {
 								month: "short",
 								day: "numeric",
 								hour: "2-digit",

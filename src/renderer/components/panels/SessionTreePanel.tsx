@@ -371,7 +371,7 @@ function useSessionTreeController(onNavigated: () => void): SessionTreeControlle
 		try {
 			const response = await tabRpc.switchLeaf(entryId, summarize ? { summarize: true } : undefined);
 			if (!response.success) {
-				failureToast("sessionTree.switchFailed", response.error);
+				failureToast("sessionTree.switchFailed", response);
 				return;
 			}
 			const data = response.data as RpcSwitchLeafResult | undefined;
@@ -404,7 +404,7 @@ function useSessionTreeController(onNavigated: () => void): SessionTreeControlle
 		try {
 			const response = await tabRpc.forkFrom(entryId);
 			if (!response.success) {
-				failureToast("sessionTree.forkFailed", response.error);
+				failureToast("sessionTree.forkFailed", response);
 				return;
 			}
 			const data = response.data as { sessionPath?: string } | undefined;
@@ -459,7 +459,10 @@ function useSessionTreeController(onNavigated: () => void): SessionTreeControlle
 		setSavingLabel(true);
 		try {
 			const response = await tabRpc.setEntryLabel(entryId, label);
-			if (!response.success) throw new Error(response.error);
+			if (!response.success) {
+				applyLabel(previous);
+				failureToast("sessionTree.labelFailed", response);
+			}
 		} catch (cause) {
 			applyLabel(previous);
 			failureToast("sessionTree.labelFailed", cause);

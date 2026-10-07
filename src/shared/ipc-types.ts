@@ -422,7 +422,7 @@ export interface IpcBenchmarkSummary {
 
 export type IpcBenchmarkRunResult =
 	| { success: true; summary: IpcBenchmarkSummary; exitCode: number | null; stderr?: string }
-	| { success: false; error: string; stderr?: string };
+	| { success: false; error: string; stderr?: string; code?: IpcErrorCode };
 
 /** Compact snapshot the renderer pushes to main to build the tray menu. */
 export interface TrayState {
@@ -717,6 +717,8 @@ export interface IpcFsReadResult {
 	/** Total file size in bytes. */
 	size: number;
 	error?: string;
+	/** Stable failure code for the renderer's localized message (shared/ipc-error-codes). */
+	code?: IpcErrorCode;
 }
 
 export interface IpcOpenPathResult {
@@ -757,6 +759,8 @@ export interface IpcFsReadImageResult {
 	/** Total file size in bytes. */
 	size: number;
 	error?: string;
+	/** Stable failure code for the renderer's localized message (shared/ipc-error-codes). */
+	code?: IpcErrorCode;
 }
 
 export interface IpcFsReadPlanResult {
@@ -766,6 +770,8 @@ export interface IpcFsReadPlanResult {
 	/** File content ("" for an empty file); null when no plan file exists. */
 	content: string | null;
 	error?: string;
+	/** Stable failure code for the renderer's localized message (shared/ipc-error-codes). */
+	code?: IpcErrorCode;
 }
 
 // ============================================================================

@@ -20,6 +20,7 @@ import {
 	serializeAgentMarkdown,
 } from "../../../shared/agent-definition";
 import type { AgentFileScope, RpcAgentDefinitionInfo } from "../../../shared/rpc-types";
+import { errorMessage } from "../../lib/error-detail";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
@@ -27,6 +28,7 @@ import { toastError } from "../../stores/toast";
 import {
 	Banner,
 	Button,
+	ErrorDetail,
 	IconButton,
 	Input,
 	MenuButton,
@@ -281,7 +283,8 @@ function AgentEditorForm({
 		target.draft.spawns === "*" ? "all" : target.draft.spawns.length > 0 ? "custom" : "none",
 	);
 	const [submitted, setSubmitted] = useState(false);
-	const [saveError, setSaveError] = useState<string | null>(null);
+	/** Localized sentence for the banner body; `cause` is the raw failure shown under it. */
+	const [saveError, setSaveError] = useState<{ message: string; cause?: unknown } | null>(null);
 	const errorRef = useRef<HTMLDivElement>(null);
 	const instructionsHintId = useId();
 	const set = <K extends keyof AgentDraft>(key: K, value: AgentDraft[K]) =>
@@ -321,8 +324,8 @@ function AgentEditorForm({
 		if (entry && !draft.model.includes(entry)) set("model", [...draft.model, entry]);
 	};
 
-	const fail = (message: string) => {
-		setSaveError(message);
+	const fail = (message: string, cause?: unknown) => {
+		setSaveError({ message, cause });
 		requestAnimationFrame(() => errorRef.current?.scrollIntoView({ block: "nearest" }));
 	};
 
@@ -347,7 +350,8 @@ function AgentEditorForm({
 			);
 			const response = await rpc.writeAgentFile({ scope, name, content, replacePath: selfPath });
 			if (!response.success) {
-				fail(response.code === "exists" ? t("agentStudio.save.exists", { path: targetPath }) : response.error);
+				if (response.code === "exists") fail(t("agentStudio.save.exists", { path: targetPath }));
+				else fail(errorMessage(response), response);
 				return;
 			}
 			const saved = response.data;
@@ -357,7 +361,7 @@ function AgentEditorForm({
 					: targetPath;
 			onSaved({ name, filePath });
 		} catch (cause) {
-			fail(cause instanceof Error ? cause.message : String(cause));
+			fail(errorMessage(cause), cause);
 		} finally {
 			onSavingChange(false);
 		}
@@ -379,7 +383,8 @@ function AgentEditorForm({
 			{saveError && (
 				<div ref={errorRef}>
 					<Banner live title={t("agentStudio.save.failed")} variant="danger">
-						{saveError}
+						{saveError.message}
+						<ErrorDetail className="mt-0.5" error={saveError.cause} />
 					</Banner>
 				</div>
 			)}

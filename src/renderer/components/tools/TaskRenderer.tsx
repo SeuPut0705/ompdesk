@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { basename, cx, formatDuration, formatTokens, headLines, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
+import { ErrorDetail } from "../common";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 import {
@@ -604,12 +605,13 @@ function ResultAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; dep
 			{error && (!success || mergeFailed) && (!aborted || error !== asString(row.abortReason)) && (
 				<div
 					className={cx(
-						"truncate pl-3 text-omp-xs",
+						"min-w-0 pl-3 text-omp-xs",
 						mergeFailed ? "text-[var(--omp-warning)]" : "text-[var(--omp-error)]",
 					)}
 					title={error}
 				>
-					{error}
+					{t(mergeFailed ? "tools.task.mergeFailedHeading" : "tools.task.failedHeading")}
+					<ErrorDetail className="truncate" error={error} />
 				</div>
 			)}
 		</div>

@@ -2,7 +2,7 @@ import { ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { STREAM_FORMAT_FLUSH_MS, useThrottledText } from "../../hooks/use-throttled-text";
 import { useDisplayPreference } from "../../lib/display-preferences";
-import { cx, durationBetween, formatTokens } from "../../lib/format";
+import { cx, durationBetween, formatTokens, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import {
@@ -152,7 +152,8 @@ export function ThinkingBlock({ text, live = false, startTime, endTime }: Thinki
 	const words = trimmed ? trimmed.split(/\s+/).length : 0;
 	const meta = isLive
 		? null
-		: (duration ?? t("chat.thinking.words", { count: words.toLocaleString(), plural: words === 1 ? "" : "s" }));
+		: (duration ??
+			t("chat.thinking.words", { count: words.toLocaleString(uiLocale()), plural: words === 1 ? "" : "s" }));
 
 	return (
 		<div className="omp-thinking-block min-w-0">

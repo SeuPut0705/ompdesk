@@ -20,6 +20,7 @@ const { BashRenderer } = await import("./BashRenderer");
 
 let container: HTMLElement;
 let root: Root;
+const realLocalStorage = (globalThis as Record<string, unknown>).localStorage;
 
 async function mount(element: ReactElement): Promise<void> {
 	container = document.createElement("div") as unknown as HTMLElement;
@@ -30,9 +31,18 @@ async function mount(element: ReactElement): Promise<void> {
 	});
 }
 
+/** Force the persisted language the provider seeds itself from. */
+function setLanguage(lang: "en" | "ko"): void {
+	(globalThis as Record<string, unknown>).localStorage = {
+		getItem: (key: string) => (key === "omp.lang" ? lang : null),
+		setItem: () => {},
+	};
+}
+
 afterEach(async () => {
 	await act(async () => root?.unmount());
 	container?.remove();
+	(globalThis as Record<string, unknown>).localStorage = realLocalStorage;
 });
 
 function bashResult(text: string, details: Record<string, unknown> = {}) {
@@ -40,6 +50,25 @@ function bashResult(text: string, details: Record<string, unknown> = {}) {
 }
 
 describe("BashRenderer", () => {
+	it("states the truncation notice in the UI language", async () => {
+		const truncated = bashResult("line 1", { meta: { truncation: { totalLines: 500, outputLines: 120 } } });
+		await mount(<BashRenderer args={{ command: "seq 500" }} result={truncated} />);
+		expect(container.textContent).toContain("[Showing 120 of 500 lines]");
+		await act(async () => root.unmount());
+		container.remove();
+
+		setLanguage("ko");
+		await mount(
+			<BashRenderer
+				args={{ command: "seq 500" }}
+				result={bashResult("line 1", {
+					meta: { truncation: { totalLines: 500, shownRange: { start: 381, end: 500 } } },
+				})}
+			/>,
+		);
+		expect(container.textContent).toContain("[전체 500줄 중 381-500줄을 보여줘요]");
+	});
+
 	it("renders SGR-colored output as styled spans instead of raw escapes", async () => {
 		await mount(
 			<BashRenderer

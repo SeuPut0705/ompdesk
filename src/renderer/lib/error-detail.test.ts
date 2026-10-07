@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { codedError } from "../../shared/ipc-error-codes";
-import { errorDetail, errorMessage } from "./error-detail";
+import { errorDetail, errorMessage, inlineFailure } from "./error-detail";
 import { translate } from "./i18n";
 
 describe("errorDetail", () => {
@@ -27,5 +27,20 @@ describe("errorDetail", () => {
 		expect(errorMessage(response)).toBe(translate("ipcError.sidecar_not_connected"));
 		expect(errorDetail(response)).toBe("Sidecar not connected");
 		expect(errorMessage(new Error("boom"))).toBe(translate("toast.failedRetry"));
+	});
+});
+
+describe("inlineFailure", () => {
+	it("headlines main's coded sentence when the failure carries a code, else the caller's sentence", () => {
+		const coded = { success: false, error: "Not inside a git worktree: /tmp/x", code: "not_a_worktree" };
+		expect(inlineFailure(coded, "Couldn't create the worktree.")).toEqual({
+			message: translate("ipcError.not_a_worktree"),
+			cause: coded,
+		});
+		const plain = new Error("git exited 128");
+		expect(inlineFailure(plain, "Couldn't create the worktree.")).toEqual({
+			message: "Couldn't create the worktree.",
+			cause: plain,
+		});
 	});
 });

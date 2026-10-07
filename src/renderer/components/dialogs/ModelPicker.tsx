@@ -24,6 +24,7 @@ import {
 } from "react";
 import type { LoginProvider, ModelInfo, RpcModelPoolState } from "../../../shared/rpc-types";
 import { applyModelInfo, hydrateSession } from "../../hooks/use-rpc-events";
+import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { cx, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -34,7 +35,7 @@ import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, Kbd, Modal, SearchField, Spinner } from "../common";
+import { Badge, Button, ErrorDetail, Kbd, Modal, SearchField, Spinner } from "../common";
 import { persistDefaultModel } from "../onboarding/default-model";
 import { MIN_SERVING_CONTEXT, modelDisplayName } from "../settings/providers/provider-catalog";
 
@@ -62,7 +63,7 @@ export function ModelPicker() {
 	const [loginProviders, setLoginProviders] = useState<LoginProvider[]>([]);
 	const [switching, setSwitching] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<InlineFailure | null>(null);
 	const [activeIndex, setActiveIndex] = useState(0);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
@@ -80,7 +81,7 @@ export function ModelPicker() {
 			setLoading(true);
 			setError(null);
 			if (!sidecarReady) {
-				setError(t("modelPicker.notConnected"));
+				setError({ message: t("modelPicker.notConnected") });
 				setLoading(false);
 				return;
 			}
@@ -97,13 +98,9 @@ export function ModelPicker() {
 				return;
 			}
 			if (modelsResult.status === "fulfilled") return;
-			const reason = (settled: PromiseSettledResult<unknown>): string | null => {
-				if (settled.status === "rejected") {
-					return settled.reason instanceof Error ? settled.reason.message : String(settled.reason);
-				}
-				return (settled.value as { error?: string } | undefined)?.error ?? null;
-			};
-			setError(failedCopy ?? reason(providersResult) ?? reason(modelsResult) ?? t("modelPicker.notResponding"));
+			// Models rejected too; the login-providers failure carries the cause.
+			const cause = providersResult.status === "rejected" ? providersResult.reason : providersResult.value;
+			setError(failedCopy ? { message: failedCopy, cause } : inlineFailure(cause, t("modelPicker.notResponding")));
 		},
 		[refreshAvailableModels, sidecarReady, t, tabRpc],
 	);
@@ -330,7 +327,10 @@ export function ModelPicker() {
 				>
 					{error ? (
 						<div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
-							<span className="text-sc-md text-(--sc-danger)">{error}</span>
+							<span className="text-sc-md text-(--sc-danger)">
+								{error.message}
+								<ErrorDetail className="mt-1" error={error.cause} />
+							</span>
 							<span className="text-sc-sm text-(--sc-text-muted)">{t("modelPicker.notRespondingHint")}</span>
 							<Button
 								disabled={!sidecarReady}

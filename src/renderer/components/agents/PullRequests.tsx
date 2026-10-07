@@ -13,7 +13,7 @@ import { cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { usePrCenterStore } from "../../stores/pr-center";
 import { toastError } from "../../stores/toast";
-import { Banner, Button, EmptyState, IconButton, Spinner, Tabs } from "../common";
+import { Banner, Button, EmptyState, ErrorDetail, IconButton, Spinner, Tabs } from "../common";
 import { PrCreateDialog } from "./pr/PrCreateDialog";
 import { PrDetail } from "./pr/PrDetail";
 
@@ -121,7 +121,11 @@ export function PullRequests() {
 			return (
 				<EmptyState
 					actions={retry}
-					description={<span role="alert">{error}</span>}
+					description={
+						<span role="alert">
+							<ErrorDetail error={error} />
+						</span>
+					}
 					icon={<GitPullRequest />}
 					title={t("prCenter.probeFailed")}
 				/>
@@ -194,7 +198,7 @@ export function PullRequests() {
 				>
 					{error && list.length > 0 && (
 						<Banner className="mb-2" live title={t("prCenter.loadFailed")} variant="warning">
-							{error}
+							<ErrorDetail error={error} />
 						</Banner>
 					)}
 					{error && list.length === 0 ? (
@@ -210,7 +214,11 @@ export function PullRequests() {
 								</Button>
 							}
 							className="flex-1"
-							description={<span role="alert">{error}</span>}
+							description={
+								<span role="alert">
+									<ErrorDetail error={error} />
+								</span>
+							}
 							icon={<GitPullRequest />}
 							size="sm"
 							title={t("prCenter.loadFailed")}

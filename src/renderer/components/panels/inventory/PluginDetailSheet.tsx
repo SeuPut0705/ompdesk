@@ -22,6 +22,7 @@ import { useTabRpc } from "../../../lib/tab-rpc";
 import { Check, RefreshCw, RotateCcw, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcPluginDetail, RpcPluginInfo } from "../../../../shared/rpc-types";
+import { errorDetail, type InlineFailure } from "../../../lib/error-detail";
 import { useT } from "../../../lib/i18n";
 import {
 	capturePluginActivationOrigin,
@@ -30,7 +31,18 @@ import {
 } from "../../../lib/plugin-activation";
 import { useSessionStore } from "../../../stores/session";
 import { toast, toastError } from "../../../stores/toast";
-import { Badge, Banner, Button, IconButton, Input, Sheet, Spinner, SwitchField, TextArea } from "../../common";
+import {
+	Badge,
+	Banner,
+	Button,
+	ErrorDetail,
+	IconButton,
+	Input,
+	Sheet,
+	Spinner,
+	SwitchField,
+	TextArea,
+} from "../../common";
 import { ArrayChipEditor } from "../../settings/editors/ArrayChipEditor";
 import { EnumerableSelect } from "../../settings/editors/EnumerableSelect";
 import { RecordKvEditor } from "../../settings/editors/RecordKvEditor";
@@ -78,8 +90,8 @@ function SettingFieldRow({
 	/** Staged draft (unknown kind per editor). */
 	draft: unknown;
 	hasDraft: boolean;
-	/** Server validation or client assembly error, rendered under the field. */
-	error: string | undefined;
+	/** Server validation or client assembly failure, rendered under the field. */
+	error: InlineFailure | undefined;
 	saving: boolean;
 	/** Masked complex field is in "replace" mode (empty JSON textarea). */
 	replacing: boolean;
@@ -151,7 +163,12 @@ function SettingFieldRow({
 					</div>
 					{resetControls && <div className="mt-1.5 shrink-0">{resetControls}</div>}
 				</div>
-				{error && <span className="mt-1 block px-2 text-sc-sm break-words text-(--sc-danger)">{error}</span>}
+				{error && (
+					<span className="mt-1 block px-2 text-sc-sm break-words text-(--sc-danger)">
+						{error.message}
+						<ErrorDetail className="mt-0.5" error={error.cause} />
+					</span>
+				)}
 			</div>
 		);
 	}
@@ -265,7 +282,12 @@ function SettingFieldRow({
 				<span className="mt-0.5 block text-sc-sm text-(--sc-text-muted)">{field.description}</span>
 			)}
 			<div className="mt-2">{control}</div>
-			{error && <span className="mt-1 block text-sc-sm break-words text-(--sc-danger)">{error}</span>}
+			{error && (
+				<span className="mt-1 block text-sc-sm break-words text-(--sc-danger)">
+					{error.message}
+					<ErrorDetail className="mt-0.5" error={error.cause} />
+				</span>
+			)}
 		</div>
 	);
 }
@@ -341,10 +363,10 @@ export function PluginDetailBody({
 
 	const [featuresDraft, setFeaturesDraft] = useState<string[] | null>(null);
 	const [featuresBusy, setFeaturesBusy] = useState(false);
-	const [featuresError, setFeaturesError] = useState<string | null>(null);
+	const [featuresError, setFeaturesError] = useState<InlineFailure | null>(null);
 
 	const [drafts, setDrafts] = useState<Readonly<Record<string, unknown>>>({});
-	const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({});
+	const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, InlineFailure>>>({});
 	const [saving, setSaving] = useState(false);
 	const [savedTick, setSavedTick] = useState(false);
 	const [replacingKey, setReplacingKey] = useState<string | null>(null);
@@ -439,7 +461,7 @@ export function PluginDetailBody({
 		if (!sidecarReady) return;
 		const origin = capturePluginActivationOrigin();
 		if (!origin) {
-			setFeaturesError(t("pluginActivation.routePending"));
+			setFeaturesError({ message: t("pluginActivation.routePending") });
 			return;
 		}
 		if (featuresDraft === null || featuresBusy) return;
@@ -449,7 +471,9 @@ export function PluginDetailBody({
 			const res = await tabRpc.setPluginFeatures(pluginId, featuresDraft);
 			const failure = mutationError(res, t("pluginDetail.unknownError"));
 			if (failure !== null) {
-				if (isPluginActivationOriginActive(origin)) setFeaturesError(failure);
+				if (isPluginActivationOriginActive(origin)) {
+					setFeaturesError({ message: t("pluginDetail.featuresSaveFailed"), cause: failure });
+				}
 				return;
 			}
 			const data = res.data as { activation?: string } | undefined;
@@ -458,7 +482,9 @@ export function PluginDetailBody({
 			setFeaturesDraft(null);
 			await load();
 		} catch (cause) {
-			if (isPluginActivationOriginActive(origin)) setFeaturesError(String(cause));
+			if (isPluginActivationOriginActive(origin)) {
+				setFeaturesError({ message: t("pluginDetail.featuresSaveFailed"), cause });
+			}
 		} finally {
 			setFeaturesBusy(false);
 		}
@@ -503,30 +529,30 @@ export function PluginDetailBody({
 			.map(field => field.key);
 	}, [detail, fields, drafts, replacingKey]);
 
-	const assembleErrorText = (error: AssembleError, detailMessage?: string): string => {
+	const assembleFailure = (error: AssembleError, detailMessage?: string): InlineFailure => {
 		switch (error) {
 			case "number":
-				return t("pluginDetail.errNumber");
+				return { message: t("pluginDetail.errNumber") };
 			case "jsonArray":
-				return t("pluginDetail.errJsonArray");
+				return { message: t("pluginDetail.errJsonArray") };
 			case "jsonObject":
-				return t("pluginDetail.errJsonObject");
+				return { message: t("pluginDetail.errJsonObject") };
 			case "json":
-				return t("pluginDetail.errJson", { message: detailMessage ?? "" });
+				return { message: t("pluginDetail.errJson"), cause: detailMessage };
 		}
 	};
 
 	const saveSettings = async (): Promise<void> => {
 		if (!sidecarReady || !detail || saving || dirtyKeys.length === 0) return;
 		setSaving(true);
-		const failures: Record<string, string> = {};
+		const failures: Record<string, InlineFailure> = {};
 		const succeeded: string[] = [];
 		for (const field of fields) {
 			if (!dirtyKeys.includes(field.key)) continue;
 			const assembled = assembleFieldValue(field, drafts[field.key]);
 			if (!assembled.ok) {
 				// Client-side assembly failure — keep the draft, flag the field.
-				failures[field.key] = assembleErrorText(assembled.error, assembled.detail);
+				failures[field.key] = assembleFailure(assembled.error, assembled.detail);
 				continue;
 			}
 			try {
@@ -534,12 +560,12 @@ export function PluginDetailBody({
 				const failure = mutationError(res, t("pluginDetail.unknownError"));
 				if (failure !== null) {
 					// Server-side validation — keep the user's input in place.
-					failures[field.key] = failure;
+					failures[field.key] = { message: t("pluginDetail.settingSaveFailed"), cause: failure };
 				} else {
 					succeeded.push(field.key);
 				}
 			} catch (cause) {
-				failures[field.key] = String(cause);
+				failures[field.key] = { message: t("pluginDetail.settingSaveFailed"), cause };
 			}
 		}
 		if (succeeded.length > 0) {
@@ -568,14 +594,17 @@ export function PluginDetailBody({
 			const res = await tabRpc.deletePluginSetting(pluginId, field.key);
 			const failure = mutationError(res, t("pluginDetail.unknownError"));
 			if (failure !== null) {
-				setFieldErrors(prev => ({ ...prev, [field.key]: failure }));
+				setFieldErrors(prev => ({
+					...prev,
+					[field.key]: { message: t("pluginDetail.resetFailed"), cause: failure },
+				}));
 				return;
 			}
 			clearDraft(field.key);
 			if (replacingKey === field.key) setReplacingKey(null);
 			await load();
 		} catch (cause) {
-			setFieldErrors(prev => ({ ...prev, [field.key]: String(cause) }));
+			setFieldErrors(prev => ({ ...prev, [field.key]: { message: t("pluginDetail.resetFailed"), cause } }));
 		} finally {
 			setResetBusy(false);
 			setResetKey(null);
@@ -610,7 +639,12 @@ export function PluginDetailBody({
 	if (detail === null && loadError !== null) {
 		return (
 			<div className="flex flex-col items-start gap-3">
-				<CopyableError className="w-full" copyLabel={t("pluginDetail.copyError")} message={loadError} />
+				<CopyableError
+					className="w-full"
+					copyLabel={t("pluginDetail.copyError")}
+					message={loadError}
+					title={t("pluginDetail.loadFailed")}
+				/>
 				{retry}
 			</div>
 		);
@@ -623,7 +657,7 @@ export function PluginDetailBody({
 			    offer the re-read, instead of letting the panel look healthy. */}
 			{loadError !== null && (
 				<Banner actions={retry} title={t("pluginDetail.stale")} variant="danger">
-					<span className="break-words">{loadError}</span>
+					<ErrorDetail error={loadError} />
 				</Banner>
 			)}
 			<fieldset className="contents" disabled={!sidecarReady}>
@@ -667,7 +701,12 @@ export function PluginDetailBody({
 								<CopyableError
 									className="mt-2"
 									copyLabel={t("pluginDetail.copyError")}
-									message={featuresError}
+									message={
+										featuresError.cause === undefined
+											? featuresError.message
+											: errorDetail(featuresError.cause)
+									}
+									title={featuresError.cause === undefined ? undefined : featuresError.message}
 								/>
 							)}
 							<div className="mt-2 flex justify-end">

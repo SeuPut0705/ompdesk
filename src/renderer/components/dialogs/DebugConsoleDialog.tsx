@@ -34,11 +34,12 @@ import {
 } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { RpcDebugAction, RpcDebugParams } from "../../../shared/rpc-types";
+import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { cx, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Badge, type BadgeVariant, Button, Modal, Spinner, TextArea } from "../common";
+import { Badge, type BadgeVariant, Button, ErrorDetail, Modal, Spinner, TextArea } from "../common";
 
 type TranslateFn = (key: string, params?: Record<string, string | number>) => string;
 
@@ -510,23 +511,26 @@ export function DebugConsoleDialog() {
 	const open = useUiStore(state => state.debugOpen);
 	const close = useUiStore(state => state.closeDebug);
 	const [sessions, setSessions] = useState<DebugSessionSummary[] | null>(null);
-	const [sessionsError, setSessionsError] = useState<string | null>(null);
+	const [sessionsError, setSessionsError] = useState<InlineFailure | null>(null);
 	const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 	const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 	const [result, setResult] = useState<DebugResultData | null>(null);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<InlineFailure | null>(null);
 	const [pending, setPending] = useState(0);
 	const [request, setRequest] = useState('{\n  "action": "sessions"\n}');
 	const [advancedOpen, setAdvancedOpen] = useState(false);
 
+	/** Runs one debug request; a failure resolves to the inline failure to show. */
 	const execDebug = useCallback(
-		async (params: RpcDebugParams): Promise<unknown> => {
-			if (!sidecarReady) throw new Error(t("common.notConnected"));
+		async (params: RpcDebugParams): Promise<{ ok: true; data: unknown } | { ok: false; failure: InlineFailure }> => {
+			if (!sidecarReady) return { ok: false, failure: { message: t("common.notConnected") } };
 			setPending(value => value + 1);
 			try {
 				const response = await tabRpc.debug(params);
-				if (!response.success) throw new Error(response.error);
-				return response.data;
+				if (!response.success) return { ok: false, failure: inlineFailure(response, t("debug.requestFailed")) };
+				return { ok: true, data: response.data };
+			} catch (cause) {
+				return { ok: false, failure: inlineFailure(cause, t("debug.requestFailed")) };
 			} finally {
 				setPending(value => Math.max(0, value - 1));
 			}
@@ -536,17 +540,17 @@ export function DebugConsoleDialog() {
 
 	const refreshSessions = useCallback(async () => {
 		setSessionsError(null);
-		try {
-			const data = await execDebug({ action: "sessions" });
-			const list = asSessions(resultDetails(data)?.sessions);
-			setSessions(list);
-			setActiveSessionId(previous => pickActiveSession(list, previous));
-			setSelectedSessionId(previous =>
-				previous && list.some(session => session.id === previous) ? previous : pickActiveSession(list, null),
-			);
-		} catch (cause) {
-			setSessionsError(cause instanceof Error ? cause.message : String(cause));
+		const outcome = await execDebug({ action: "sessions" });
+		if (!outcome.ok) {
+			setSessionsError(outcome.failure);
+			return;
 		}
+		const list = asSessions(resultDetails(outcome.data)?.sessions);
+		setSessions(list);
+		setActiveSessionId(previous => pickActiveSession(list, previous));
+		setSelectedSessionId(previous =>
+			previous && list.some(session => session.id === previous) ? previous : pickActiveSession(list, null),
+		);
 	}, [execDebug]);
 
 	useEffect(() => {
@@ -556,33 +560,34 @@ export function DebugConsoleDialog() {
 	const runAction = async (params: RpcDebugParams) => {
 		setError(null);
 		setRequest(JSON.stringify(params, null, 2));
-		try {
-			const data = await execDebug(params);
-			setResult({ action: params.action, data });
-			const snapshot = asSummary(resultDetails(data)?.snapshot);
+		const outcome = await execDebug(params);
+		if (outcome.ok) {
+			setResult({ action: params.action, data: outcome.data });
+			const snapshot = asSummary(resultDetails(outcome.data)?.snapshot);
 			if (snapshot) {
 				setActiveSessionId(snapshot.id);
 				setSelectedSessionId(snapshot.id);
 			}
-		} catch (cause) {
-			setError(cause instanceof Error ? cause.message : String(cause));
+		} else {
+			setError(outcome.failure);
 		}
 		if (!READONLY_ACTIONS[params.action]) await refreshSessions();
 	};
 
 	const runRaw = async () => {
 		setError(null);
-		let parsed: RpcDebugParams;
+		let value: unknown;
 		try {
-			const value: unknown = JSON.parse(request);
-			const action = asRecord(value)?.action;
-			if (typeof action !== "string") throw new Error(t("debug.actionRequired"));
-			parsed = value as RpcDebugParams;
+			value = JSON.parse(request);
 		} catch (cause) {
-			setError(cause instanceof Error ? cause.message : String(cause));
+			setError({ message: t("debug.invalidJson"), cause });
 			return;
 		}
-		await runAction(parsed);
+		if (typeof asRecord(value)?.action !== "string") {
+			setError({ message: t("debug.actionRequired") });
+			return;
+		}
+		await runAction(value as RpcDebugParams);
 	};
 
 	const fillExample = (example: RpcDebugParams) => {
@@ -612,7 +617,10 @@ export function DebugConsoleDialog() {
 					{sessions === null ? (
 						sessionsError ? (
 							<div className="flex flex-col items-center gap-2 rounded-lg border border-(--omp-border-muted) px-4 py-6 text-center">
-								<span className="text-omp-sm break-all text-(--omp-error)">{sessionsError}</span>
+								<span className="text-omp-sm text-(--omp-error)">
+									{sessionsError.message}
+									<ErrorDetail className="mt-0.5" error={sessionsError.cause} />
+								</span>
 								<Button
 									disabled={!sidecarReady}
 									icon={<RefreshCw size={12} />}
@@ -657,7 +665,8 @@ export function DebugConsoleDialog() {
 						<div className="flex max-h-40 flex-col gap-1.5 overflow-auto">
 							{sessionsError ? (
 								<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-3 py-1.5 text-omp-sm text-(--omp-error)">
-									{sessionsError}
+									{sessionsError.message}
+									<ErrorDetail className="mt-0.5" error={sessionsError.cause} />
 								</div>
 							) : null}
 							{sessions.map(session => (
@@ -692,7 +701,8 @@ export function DebugConsoleDialog() {
 
 				{error ? (
 					<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent p-3 text-sm text-(--omp-error)">
-						{error}
+						{error.message}
+						<ErrorDetail className="mt-0.5" error={error.cause} />
 					</div>
 				) : null}
 

@@ -8,12 +8,14 @@ import { baseChartOptions, bucketLabels, chartColors, formatUsd, useChartThemeKe
 import "../../lib/chart";
 import type { CostsData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
+import { uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { ChartBox, MetricCard, MetricGrid, RouteFrame, SectionTitle, type StatsRange } from "./shared";
 
 export function CostsRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
 	const t = useT();
 	const themeKey = useChartThemeKey();
+	const locale = uiLocale();
 	const params = useMemo(() => ({ range }), [range]);
 	const { data, isLoading, error, refetch } = useStats<CostsData>("/api/stats/costs", params);
 
@@ -32,7 +34,7 @@ export function CostsRoute({ range, refreshKey }: { range: StatsRange; refreshKe
 		return {
 			total: sum,
 			chart: {
-				labels: bucketLabels(timestamps),
+				labels: bucketLabels(timestamps, locale),
 				datasets: providers.map((provider, index) => ({
 					label: provider,
 					data: timestamps.map(ts =>
@@ -50,7 +52,7 @@ export function CostsRoute({ range, refreshKey }: { range: StatsRange; refreshKe
 				})),
 			},
 		};
-	}, [series, themeKey]);
+	}, [series, locale, themeKey]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: themeKey re-reads the axis tokens on a theme switch.
 	const options = useMemo(() => {
@@ -80,7 +82,7 @@ export function CostsRoute({ range, refreshKey }: { range: StatsRange; refreshKe
 				<MetricCard label={t("stats.costs.totalCost")} tone="accent" value={formatUsd(total)} />
 				<MetricCard
 					label={t("stats.col.requests")}
-					value={new Intl.NumberFormat().format(series.reduce((acc, point) => acc + point.requests, 0))}
+					value={series.reduce((acc, point) => acc + point.requests, 0).toLocaleString(uiLocale())}
 				/>
 				<MetricCard
 					label={t("stats.costs.outputCost")}

@@ -21,7 +21,7 @@ import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";
 import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, EmptyState, IconButton, ListRow } from "../common";
+import { Badge, Button, EmptyState, ErrorDetail, IconButton, ListRow } from "../common";
 import { SubagentTranscriptSheet } from "../panels/SubagentTranscriptSheet";
 import { runSubagentAction } from "../panels/subagent-actions";
 import {
@@ -304,7 +304,11 @@ export function LiveAgents() {
 								{t("common.retry")}
 							</Button>
 						}
-						description={<span role="alert">{loadError}</span>}
+						description={
+							<span role="alert">
+								<ErrorDetail error={loadError} />
+							</span>
+						}
 						icon={<Bot />}
 						title={t("subagent.loadFailed")}
 					/>

@@ -2,8 +2,8 @@
  * Worktree-tab close prompt (plan/20): runs when a worktree-bound tab is
  * closed, BEFORE closeTab. Queries the tab's OWN sidecar via commandForTab
  * (background tabs stay untouched — no forced switch), then:
- * - clean → [删除并关闭] / [保留并关闭] / [取消]
- * - dirty → counts + [强制删除（丢弃改动）] / [保留并关闭] / [取消]
+ * - clean → [Delete & close] / [Keep & close] / [Cancel]
+ * - dirty → counts + [Force delete (discard changes)] / [Keep & close] / [Cancel]
  * The remove RPC also rides the tab's sidecar; the tab closes right after,
  * so the sidecar's cwd-inside-removed-dir never matters.
  */

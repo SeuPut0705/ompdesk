@@ -82,6 +82,7 @@ import {
 	Button,
 	type ContextMenuItem,
 	EmptyState,
+	ErrorDetail,
 	IconButton,
 	Input,
 	Kbd,
@@ -1171,7 +1172,7 @@ export function Sidebar() {
 									<AlertTriangle aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-danger)" />
 									{sessions.length > 0 ? t("sidebar.stale") : t("sidebar.loadFailed")}
 								</p>
-								<p className="break-words text-(--sc-text-muted)">{listError}</p>
+								<ErrorDetail error={listError} />
 								<Button icon={<RefreshCw />} onClick={() => refresh(true)} size="sm" variant="ghost">
 									{t("common.retry")}
 								</Button>
@@ -1184,7 +1185,7 @@ export function Sidebar() {
 									</Button>
 								}
 								className="omp-sidebar-empty"
-								description={<span className="break-words">{listError}</span>}
+								description={<ErrorDetail error={listError} />}
 								icon={<AlertTriangle />}
 								size="sm"
 								title={t("sidebar.loadFailed")}

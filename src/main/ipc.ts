@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from "electron";
 import Store from "electron-store";
-import { codedError } from "../shared/ipc-error-codes";
+import { codedError, type IpcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
 	FsTreeEntry,
@@ -20,6 +20,7 @@ import type {
 	IpcFsReadPayload,
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
+	IpcFsReadResult,
 	IpcGetSessionOwnerPayload,
 	IpcHostToolResultPayload,
 	IpcHostToolUpdatePayload,
@@ -805,7 +806,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		IPC_COMMANDS.BENCH_RUN,
 		async (event, options: IpcBenchmarkRunOptions): Promise<IpcBenchmarkRunResult> => {
 			const cwd = cwdFor(deps, event);
-			if (!cwd) return { success: false, error: "No active workspace" };
+			if (!cwd) return { success: false, error: "No active workspace", code: "no_workspace" };
 			const resolution = await deps.benchmarkOmp();
 			if (!resolution.ok) return { success: false, error: resolution.error };
 			const senderId = event.sender.id;
@@ -849,7 +850,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// files outside the workspace. When no editor association exists, reveal
 	// the file in the file manager instead of failing.
 	ipcMain.handle(IPC_COMMANDS.SYSTEM_OPEN_PATH, async (event, target: string): Promise<IpcOpenPathResult> => {
-		if (typeof target !== "string" || !target.trim()) return { ok: false, error: "Empty path" };
+		if (typeof target !== "string" || !target.trim()) return { ok: false, error: "Empty path", code: "empty_path" };
 		let resolved = target.startsWith("~/") ? path.join(os.homedir(), target.slice(2)) : target;
 		if (!path.isAbsolute(resolved)) {
 			const rootAbs = cwdFor(deps, event);
@@ -874,7 +875,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	// "Show in Finder" for an absolute path the renderer already knows (agent definition files).
 	ipcMain.handle(IPC_COMMANDS.SYSTEM_REVEAL_PATH, async (_event, target: string): Promise<IpcOpenPathResult> => {
-		if (typeof target !== "string" || !path.isAbsolute(target)) return { ok: false, error: "Not an absolute path" };
+		if (typeof target !== "string" || !path.isAbsolute(target)) {
+			return { ok: false, error: "Not an absolute path", code: "not_absolute_path" };
+		}
 		try {
 			await fsp.access(target);
 		} catch {
@@ -983,7 +986,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			typeof payload?.tabId === "string"
 				? sidecarPool.sidecarForTab(win, payload.tabId)
 				: sidecarPool.sidecarForWindow(win);
-		if (!sidecar) throw new Error("Unknown tab");
+		if (!sidecar) throw codedError("unknown_tab", "Unknown tab");
 		const sessionPath =
 			typeof payload?.sessionPath === "string" && payload.sessionPath ? payload.sessionPath : undefined;
 		sidecar.restart(undefined, sessionPath);
@@ -1103,7 +1106,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 
 	ipcMain.handle(IPC_COMMANDS.FS_READ, async (event, payload: IpcFsReadPayload) => {
-		const fail = (error: string) => ({ ok: false, content: "", truncated: false, binary: false, size: 0, error });
+		const fail = (error: string, code?: IpcErrorCode): IpcFsReadResult => ({
+			ok: false,
+			content: "",
+			truncated: false,
+			binary: false,
+			size: 0,
+			error,
+			...(code ? { code } : {}),
+		});
 		if (typeof payload.path !== "string" || payload.path.length === 0) {
 			return fail("Invalid path");
 		}
@@ -1112,16 +1123,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (path.isAbsolute(raw)) abs = path.normalize(raw);
 		else {
 			const cwd = cwdFor(deps, event, payload.tabId);
-			if (!cwd) return fail("No workspace");
+			if (!cwd) return fail("No workspace", "no_workspace");
 			const within = resolveWithin(cwd, raw);
-			if (!within) return fail("Path escapes the workspace");
+			if (!within) return fail("Path escapes the workspace", "path_escapes_workspace");
 			abs = within;
 		}
 		const maxBytes = clampInt(payload.maxBytes, 1, FS_READ_MAX_BYTES_CAP, FS_READ_DEFAULT_MAX_BYTES);
 		try {
 			const stat = await fsp.stat(abs);
 			if (!stat.isFile()) {
-				return fail("Not a file");
+				return fail("Not a file", "not_a_file");
 			}
 			const handle = await fsp.open(abs, "r");
 			try {
@@ -1184,7 +1195,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	}
 
 	ipcMain.handle(IPC_COMMANDS.FS_READ_IMAGE, async (event, payload: IpcFsReadImagePayload) => {
-		const fail = (error: string): IpcFsReadImageResult => ({ ok: false, dataUrl: null, mime: null, size: 0, error });
+		const fail = (error: string, code?: IpcErrorCode): IpcFsReadImageResult => ({
+			ok: false,
+			dataUrl: null,
+			mime: null,
+			size: 0,
+			error,
+			...(code ? { code } : {}),
+		});
 		if (typeof payload?.path !== "string" || payload.path.length === 0) return fail("Invalid path");
 		let abs: string;
 		const raw = payload.path.startsWith("~/") ? path.join(os.homedir(), payload.path.slice(2)) : payload.path;
@@ -1192,21 +1210,21 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			abs = path.normalize(raw);
 		} else {
 			const cwd = cwdFor(deps, event, payload.tabId);
-			if (!cwd) return fail("No workspace");
+			if (!cwd) return fail("No workspace", "no_workspace");
 			const within = resolveWithin(cwd, raw);
-			if (!within) return fail("Path escapes the workspace");
+			if (!within) return fail("Path escapes the workspace", "path_escapes_workspace");
 			abs = within;
 		}
 		try {
 			const stat = await fsp.stat(abs);
-			if (!stat.isFile()) return fail("Not a file");
-			if (stat.size > FS_IMAGE_MAX_BYTES) return fail("Image too large");
+			if (!stat.isFile()) return fail("Not a file", "not_a_file");
+			if (stat.size > FS_IMAGE_MAX_BYTES) return fail("Image too large", "image_too_large");
 			const handle = await fsp.open(abs, "r");
 			try {
 				const header = Buffer.alloc(512);
 				const { bytesRead } = await handle.read(header, 0, 512, 0);
 				const mime = sniffImageMime(header.subarray(0, bytesRead));
-				if (!mime) return fail("Not a supported image");
+				if (!mime) return fail("Not a supported image", "unsupported_image");
 				const body = Buffer.alloc(stat.size);
 				await handle.read(body, 0, stat.size, 0);
 				return { ok: true, dataUrl: `data:${mime};base64,${body.toString("base64")}`, mime, size: stat.size };
@@ -1226,20 +1244,26 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipcMain.handle(
 		IPC_COMMANDS.FS_READ_PLAN,
 		async (event, payload: IpcFsReadPlanPayload): Promise<IpcFsReadPlanResult> => {
-			const fail = (error: string): IpcFsReadPlanResult => ({ ok: false, path: null, content: null, error });
+			const fail = (error: string, code?: IpcErrorCode): IpcFsReadPlanResult => ({
+				ok: false,
+				path: null,
+				content: null,
+				error,
+				...(code ? { code } : {}),
+			});
 			if (typeof payload?.fsPath !== "string" || payload.fsPath.length === 0) {
 				return fail("Invalid path");
 			}
 			const cwd = cwdFor(deps, event, payload.tabId);
-			if (!cwd) return fail("No workspace");
+			if (!cwd) return fail("No workspace", "no_workspace");
 			const withinAllowedRoots = (value: string): string | null =>
 				resolveWithin(cwd, value) ?? resolveWithin(sessionIndex.sessionsDir, value);
 			const target = withinAllowedRoots(payload.fsPath);
-			if (!target) return fail("Path escapes allowed roots");
+			if (!target) return fail("Path escapes allowed roots", "path_escapes_roots");
 			let localRoot: string | null = null;
 			if (typeof payload.localRoot === "string" && payload.localRoot.length > 0) {
 				localRoot = withinAllowedRoots(payload.localRoot);
-				if (!localRoot) return fail("Path escapes allowed roots");
+				if (!localRoot) return fail("Path escapes allowed roots", "path_escapes_roots");
 			}
 			try {
 				const picked = (await statFile(target)) ?? (localRoot ? await newestPlanFile(localRoot) : null);

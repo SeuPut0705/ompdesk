@@ -46,12 +46,12 @@ describe("buildIssueUrl", () => {
 		const url = buildIssueUrl({
 			kind: "bug",
 			title: "t",
-			description: "很长的描述。".repeat(3000),
+			description: "아주 긴 설명이에요.".repeat(3000),
 			environment: env,
 			errors: ['{"report":{"source":"x","message":"e"}}'],
 		});
 		expect(url.length).toBeLessThanOrEqual(8000);
-		expect(new URL(url).searchParams.get("body")).toContain("很长的描述");
+		expect(new URL(url).searchParams.get("body")).toContain("아주 긴 설명이에요");
 	});
 });
 

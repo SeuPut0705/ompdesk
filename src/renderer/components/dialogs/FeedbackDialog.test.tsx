@@ -94,12 +94,12 @@ describe("FeedbackDialog", () => {
 	it("embeds a store-carried error under error details in the issue body", async () => {
 		useUiStore.setState({
 			feedbackOpen: true,
-			feedbackPrefill: { error: "TypeError: boundary crashed", description: "界面崩了" },
+			feedbackPrefill: { error: "TypeError: boundary crashed", description: "화면이 깨졌어요" },
 		});
 		await mount();
 		await submit();
 		const body = new URL(openExternal.mock.calls[0][0]).searchParams.get("body") ?? "";
-		expect(body).toContain("界面崩了");
+		expect(body).toContain("화면이 깨졌어요");
 		expect(body).toContain("TypeError: boundary crashed");
 		expect(body).toContain("Error details");
 	});

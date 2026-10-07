@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { memo, useState } from "react";
 import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from "../../../shared/rpc-types";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
-import { copyText, cx, formatClock, formatTokens } from "../../lib/format";
+import { copyText, cx, formatClock, formatTokens, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { forkSessionFromMessageInNewTab, isRenderableMessageText } from "../../lib/messages";
@@ -161,7 +161,7 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 				: compactionMethod
 					? t("chat.context.compactedBy", { method: compactionMethod })
 					: message.tokensBefore
-						? t("chat.context.compactedFrom", { tokens: message.tokensBefore.toLocaleString() })
+						? t("chat.context.compactedFrom", { tokens: message.tokensBefore.toLocaleString(uiLocale()) })
 						: t("chat.context.compacted")
 			: message.role === "branchSummary"
 				? t("chat.context.branchSummary")

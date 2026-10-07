@@ -12,6 +12,11 @@ export function cx(...parts: Array<string | false | null | undefined>): string {
 	return parts.filter(Boolean).join(" ");
 }
 
+/** BCP 47 tag of the UI language: dates and numbers follow the app's language, not the OS locale. */
+export function uiLocale(): string {
+	return UI_LANGUAGE_INTL[getCurrentLanguage()];
+}
+
 /** "just now" / "8m" / "3h" / "2d" / "Aug 2" */
 export function formatTimeAgo(iso: string | undefined | null): string {
 	if (!iso) return "";
@@ -22,8 +27,7 @@ export function formatTimeAgo(iso: string | undefined | null): string {
 	if (seconds < 3600) return translate("time.minutesShort", { count: Math.floor(seconds / 60) });
 	if (seconds < 86_400) return translate("time.hoursShort", { count: Math.floor(seconds / 3600) });
 	if (seconds < 604_800) return translate("time.daysShort", { count: Math.floor(seconds / 86_400) });
-	const locale = UI_LANGUAGE_INTL[getCurrentLanguage()];
-	return new Date(then).toLocaleDateString(locale, { month: "short", day: "numeric" });
+	return new Date(then).toLocaleDateString(uiLocale(), { month: "short", day: "numeric" });
 }
 
 /** Compact clock label — no seconds; same-day times shrink to HH:MM. */
@@ -32,7 +36,7 @@ export function formatClock(value: number | string | undefined | null): string {
 	if (timestamp == null) return "";
 	const date = new Date(timestamp);
 	const now = new Date();
-	const locale = UI_LANGUAGE_INTL[getCurrentLanguage()];
+	const locale = uiLocale();
 	const time: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hour12: false };
 	if (date.toDateString() === now.toDateString()) return date.toLocaleTimeString(locale, time);
 	if (date.getFullYear() === now.getFullYear()) {
@@ -44,10 +48,9 @@ export function formatClock(value: number | string | undefined | null): string {
 /** Compact hour/minute label for dense visual timelines. */
 export function formatShortClock(value: number | string | undefined | null): string {
 	const timestamp = toMs(value);
-	const locale = UI_LANGUAGE_INTL[getCurrentLanguage()];
 	return timestamp == null
 		? ""
-		: new Date(timestamp).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+		: new Date(timestamp).toLocaleTimeString(uiLocale(), { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 /** Accepts epoch ms (number) or ISO strings. */

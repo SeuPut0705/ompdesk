@@ -1,6 +1,6 @@
 /**
  * True when this key event belongs to an in-progress IME composition, so the
- * keystroke belongs to the input method (committing "客服" with Enter, paging
+ * keystroke belongs to the input method (committing "한글" with Enter, paging
  * candidates with the arrows) and not to the handler below it.
  *
  * React does not proxy `isComposing` onto its synthetic keyboard event, so the

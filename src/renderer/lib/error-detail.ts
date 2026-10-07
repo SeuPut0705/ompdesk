@@ -31,3 +31,23 @@ export function errorMessage(error: unknown): string {
 	const code = ipcErrorCode(error);
 	return code ? translate(`ipcError.${code}`) : translate("toast.failedRetry");
 }
+
+/**
+ * An inline failure (dialog alert, banner body, field error): `message` is
+ * the localized headline, `cause` the raw failure for `ErrorDetail` under it
+ * (absent when the failure is a purely local, already-localized one).
+ */
+export interface InlineFailure {
+	message: string;
+	cause?: unknown;
+}
+
+/**
+ * Inline failure for a caught value or failed result: main's coded failures
+ * get their own sentence, anything else the caller's `fallback` sentence. The
+ * raw failure rides along as the cause.
+ */
+export function inlineFailure(error: unknown, fallback: string): InlineFailure {
+	const code = ipcErrorCode(error);
+	return { message: code ? translate(`ipcError.${code}`) : fallback, cause: error };
+}

@@ -18,6 +18,7 @@ import {
 import "../../lib/chart";
 import type { AgentTypeRow, OverviewData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
+import { uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import {
 	ChartBox,
@@ -33,6 +34,7 @@ import {
 export function OverviewRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
 	const t = useT();
 	const themeKey = useChartThemeKey();
+	const locale = uiLocale();
 	const params = useMemo(() => ({ range }), [range]);
 	const { data, isLoading, error, refetch } = useStats<OverviewData>("/api/stats/overview", params);
 
@@ -48,7 +50,10 @@ export function OverviewRoute({ range, refreshKey }: { range: StatsRange; refres
 	const activityChart = useMemo(() => {
 		const theme = chartTheme();
 		return {
-			labels: bucketLabels(series.map(point => point.timestamp)),
+			labels: bucketLabels(
+				series.map(point => point.timestamp),
+				locale,
+			),
 			datasets: [
 				{
 					label: t("stats.col.requests"),
@@ -71,7 +76,7 @@ export function OverviewRoute({ range, refreshKey }: { range: StatsRange; refres
 				},
 			],
 		};
-	}, [series, t, themeKey]);
+	}, [series, locale, t, themeKey]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: themeKey re-reads the axis tokens on a theme switch.
 	const chartOptions = useMemo(() => baseChartOptions(), [themeKey]);
 

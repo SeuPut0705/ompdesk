@@ -9,7 +9,7 @@ import { ArrowLeft, AtSign, ExternalLink as ExternalLinkIcon, File, Folder, Fold
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ipcErrorCode } from "../../../shared/ipc-error-codes";
 import type { FsTreeEntry } from "../../../shared/ipc-types";
-import { errorMessage } from "../../lib/error-detail";
+import { errorMessage, type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
@@ -27,6 +27,8 @@ interface PreviewState {
 	content: string | null;
 	loading: boolean;
 	truncated: boolean;
+	/** Set when the read failed; replaces the content. */
+	failure?: InlineFailure;
 }
 
 function countFiles(entries: FsTreeEntry[]): number {
@@ -115,9 +117,10 @@ export function FilesPanel() {
 				if (!result.ok) {
 					setPreview({
 						path,
-						content: t("filesPanel.readFailed", { error: result.error ?? "unknown" }),
+						content: null,
 						loading: false,
 						truncated: false,
+						failure: inlineFailure(result, t("filesPanel.readFailed")),
 					});
 					return;
 				}
@@ -130,9 +133,10 @@ export function FilesPanel() {
 				if (version !== previewVersion.current) return;
 				setPreview({
 					path,
-					content: t("filesPanel.readFailed", { error: error instanceof Error ? error.message : String(error) }),
+					content: null,
 					loading: false,
 					truncated: false,
+					failure: inlineFailure(error, t("filesPanel.readFailed")),
 				});
 			}
 		},
@@ -231,6 +235,11 @@ export function FilesPanel() {
 						<div className="flex items-center gap-2 p-4">
 							<Spinner size="sm" />
 							<span className="text-omp-sm text-(--omp-dim)">{t("filesPanel.reading")}</span>
+						</div>
+					) : activePreview.failure ? (
+						<div className="p-4 text-omp-sm text-(--omp-error)" role="alert">
+							{activePreview.failure.message}
+							<ErrorDetail className="mt-1" error={activePreview.failure.cause} />
 						</div>
 					) : previewIsMarkdown ? (
 						<div className="p-4 text-omp-md text-(--omp-text)">

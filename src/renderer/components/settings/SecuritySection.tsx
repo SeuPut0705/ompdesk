@@ -12,7 +12,7 @@ import type {
 	RpcSecurityScanResult,
 	RpcSecurityTargetInput,
 } from "../../../shared/rpc-types";
-import { cx } from "../../lib/format";
+import { cx, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
@@ -58,7 +58,7 @@ function formatWhen(value?: string): string {
 	if (delta < 60_000) return "<1m";
 	if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m`;
 	if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h`;
-	return date.toLocaleDateString();
+	return date.toLocaleDateString(uiLocale());
 }
 
 /** i18n suffix of a scan target (`security.scan.*`, `security.target.*`); other stored kinds read as repository. */

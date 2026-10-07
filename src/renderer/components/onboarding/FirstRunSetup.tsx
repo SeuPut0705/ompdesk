@@ -15,7 +15,7 @@ import { type FirstRunPhase, useFirstRunStore } from "../../stores/first-run";
 import { useModelStore } from "../../stores/model";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
-import { Badge, Banner, BrandMark, Button, EmptyState, ListRow, Spinner } from "../common";
+import { Badge, Banner, BrandMark, Button, EmptyState, ErrorDetail, ListRow, Spinner } from "../common";
 import { CustomProviderForm } from "../settings/providers/CustomProviderForm";
 import { ProviderList, useProviderCatalog } from "../settings/providers/ProviderList";
 import { useProviderLogin } from "../settings/providers/ProviderLogin";
@@ -134,7 +134,7 @@ function ConnectStep() {
 					title={t("providers.loadFailed")}
 					variant="danger"
 				>
-					{catalog.error}
+					<ErrorDetail error={catalog.error} />
 				</Banner>
 			)}
 			{catalog.configError && <Banner variant="warning">{t("setup.configReadFailed")}</Banner>}
@@ -331,12 +331,12 @@ function ModelStep() {
 			)}
 			{test.kind === "failed" && (
 				<Banner live title={t("setup.test.failed")} variant="danger">
-					{test.error}
+					<ErrorDetail error={test.error} />
 				</Banner>
 			)}
 			{error && (
 				<Banner live title={t("setup.model.saveFailed")} variant="danger">
-					{error}
+					<ErrorDetail error={error} />
 				</Banner>
 			)}
 

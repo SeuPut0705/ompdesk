@@ -2,10 +2,11 @@ import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { IpcBenchmarkModelReport, IpcBenchmarkProfile, IpcBenchmarkRunResult } from "../../../shared/ipc-types";
 import { formatUsd } from "../../lib/chart";
+import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
-import { Button, Input, Modal } from "../common";
+import { Button, ErrorDetail, Input, Modal } from "../common";
 import { ModelValueSelect } from "../settings/ModelValueSelect";
 
 function formatMetric(value: number, suffix = ""): string {
@@ -24,7 +25,7 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 	const [runs, setRuns] = useState(3);
 	const [parallel, setParallel] = useState(2);
 	const [running, setRunning] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<InlineFailure | null>(null);
 	// The benchmark writes its diagnostics to stderr on both success and failure,
 	// so a run that produced no rows still has a reason to show.
 	const [stderr, setStderr] = useState<string | null>(null);
@@ -60,7 +61,7 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 		try {
 			await window.omp.bench.abort();
 		} catch (cause) {
-			setError(String(cause));
+			setError(inlineFailure(cause, t("benchmark.abortFailed")));
 		}
 	};
 	const run = async () => {
@@ -73,9 +74,9 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 			const output = next.stderr?.trim();
 			setStderr(output ? output : null);
 			if (next.success) setResult(next);
-			else setError(next.error);
+			else setError(inlineFailure(next, t("benchmark.failed")));
 		} catch (cause) {
-			setError(String(cause));
+			setError(inlineFailure(cause, t("benchmark.failed")));
 		} finally {
 			setRunning(false);
 		}
@@ -174,7 +175,12 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 								: "border-(--omp-border-muted) text-(--omp-muted)",
 						)}
 					>
-						{error && <div>{error}</div>}
+						{error && (
+							<div>
+								{error.message}
+								<ErrorDetail className="mt-0.5" error={error.cause} />
+							</div>
+						)}
 						{stderr && (
 							<pre
 								className={cx(
@@ -207,9 +213,10 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 											<td className="px-3 py-2 font-mono text-(--omp-text)">
 												{report.model}
 												{report.results.some(item => !item.ok) && (
-													<p className="mt-1 max-w-64 whitespace-pre-wrap break-words text-(--omp-error)">
-														{resultError(report)}
-													</p>
+													<ErrorDetail
+														className="mt-1 max-w-64 whitespace-pre-wrap"
+														error={resultError(report)}
+													/>
 												)}
 											</td>
 											<td className="px-3 py-2">{`${succeeded}/${report.results.length}`}</td>

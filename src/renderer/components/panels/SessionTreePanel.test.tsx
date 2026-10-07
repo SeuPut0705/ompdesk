@@ -11,7 +11,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcResponse } from "../../../shared/rpc-types";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { useToastStore } from "../../stores/toast";
@@ -469,6 +469,28 @@ describe("SessionTreePanel", () => {
 		expect(rpc.getState).toHaveBeenCalled();
 		// The side panel stays put after navigating (only the wide view closes).
 		expect(queryAll(CANVAS)).toHaveLength(1);
+	});
+
+	it("keeps main's failure code on a switch failure toast", async () => {
+		installMockOmp({
+			getBranchMessages: vi.fn(async () => success({ messages: [{ entryId: "m1", text: "alpha" }] })),
+			switchLeaf: vi.fn(async () => ({ ...failure("Sidecar not ready"), code: "sidecar_not_ready" })),
+		});
+		seedSession("tree-switch-coded");
+		await mount(<SessionTreePanel />);
+		const card = nodeCards().find(el => el.getAttribute("data-tree-node") === "m1");
+		if (!card) throw new Error("card m1 not found");
+		const actionButton = card.querySelector("button");
+		if (!actionButton) throw new Error("node action button not found");
+		await click(actionButton);
+		const switchItem = queryAll("button").find(button => button.textContent?.includes("Switch to this point"));
+		if (!switchItem) throw new Error("switch action not found");
+		await click(switchItem);
+		await flush();
+
+		const errorToast = useToastStore.getState().toasts.find(toast => toast.variant === "error");
+		expect(errorToast?.message).toBe(translate("ipcError.sidecar_not_ready"));
+		expect(errorToast?.detail).toBe("Sidecar not ready");
 	});
 
 	it("defers switch-leaf to the owning tab when the session file is owned elsewhere (F-OWN)", async () => {
