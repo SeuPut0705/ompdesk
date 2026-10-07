@@ -31,14 +31,9 @@ const AGENTS_TABS: readonly string[] = ["live", "definitions", "prs"] satisfies 
 const INSIGHTS_TABS: readonly string[] = ["stats", "usage"] satisfies InsightsTab[];
 /** Settings section a cold ⌘, lands on (SettingsPage maps legacy ids). */
 const DEFAULT_SETTINGS_TAB = "general";
-/** Below this width the sidebar and side panel become sheets (design-spec §8). */
+/** Below this width the side panel becomes a sheet (design-spec §8); the sidebar never folds on its own. */
 export const COMPACT_SHELL_QUERY = "(max-width: 999px)";
 
-function compactShell(): boolean {
-	return typeof window !== "undefined" && typeof window.matchMedia === "function"
-		? window.matchMedia(COMPACT_SHELL_QUERY).matches
-		: false;
-}
 /** Center-dock card identifiers: todo/plan/agents render as live cards above the composer. */
 export type DockCardId = "todo" | "plan" | "agents";
 export type TranscriptDetail = "compact" | "full";
@@ -61,10 +56,7 @@ export interface GuiDisplayPreferences {
 
 interface UiStore {
 	displayPreferences: GuiDisplayPreferences;
-	/** Docked sidebar (≥ 1000px windows). */
 	sidebarVisible: boolean;
-	/** Sidebar shown as a left Sheet in compact windows (< 1000px). */
-	compactSidebarOpen: boolean;
 	panelVisible: boolean;
 	panelTab: PanelTab;
 	/** Local file currently shown in the Files drawer. */
@@ -135,9 +127,8 @@ interface UiStore {
 	transcriptDetail: TranscriptDetail;
 	/** Expand/collapse-all signal for tool cards (⌃O); `seq` bumps per toggle so cards re-sync their local state. */
 	toolsExpandAll: { expanded: boolean; seq: number };
-	/** Docked sidebar toggle, or the left Sheet in compact windows. */
+	/** Show / hide the docked sidebar (only ever by the user). */
 	toggleSidebar: () => void;
-	closeCompactSidebar: () => void;
 	togglePanel: () => void;
 	toggleToolsExpandAll: () => void;
 	setPanelTab: (tab: PanelTab) => void;
@@ -246,7 +237,6 @@ interface UiStore {
 export const useUiStore = create<UiStore>()((set, get) => ({
 	displayPreferences: {},
 	sidebarVisible: true,
-	compactSidebarOpen: false,
 	panelVisible: false,
 	panelTab: "diff",
 	filePreviewPath: null,
@@ -266,11 +256,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	notifications: true,
 	thinkingExpanded: false,
 	transcriptDetail: "compact",
-	toggleSidebar: () =>
-		compactShell()
-			? set({ compactSidebarOpen: !get().compactSidebarOpen })
-			: set({ sidebarVisible: !get().sidebarVisible }),
-	closeCompactSidebar: () => set({ compactSidebarOpen: false }),
+	toggleSidebar: () => set({ sidebarVisible: !get().sidebarVisible }),
 	togglePanel: () => set({ panelVisible: !get().panelVisible }),
 	toolsExpandAll: { expanded: false, seq: 0 },
 	toggleToolsExpandAll: () =>

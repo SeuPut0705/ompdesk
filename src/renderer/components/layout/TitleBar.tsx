@@ -18,7 +18,6 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { SessionStats } from "../../../shared/rpc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
-import { useMediaQuery } from "../../hooks/use-media-query";
 import { useSessionList } from "../../hooks/use-session-list";
 import { basename, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -32,7 +31,7 @@ import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useActiveTabKind } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useToolsStore } from "../../stores/tools";
-import { COMPACT_SHELL_QUERY, useUiStore } from "../../stores/ui";
+import { useUiStore } from "../../stores/ui";
 import { Button, type ContextMenuItem, IconButton, Input, MenuButton, Popover, Spinner } from "../common";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 import { sessionCacheHitPercent, sessionExecutionDurationMs } from "./session-metrics";
@@ -91,7 +90,6 @@ export function TitleBar() {
 	const panelVisible = useUiStore(s => s.panelVisible);
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
-	const compact = useMediaQuery(COMPACT_SHELL_QUERY);
 	const { sessions } = useSessionList("local");
 	const projectName = !isChat && cwd ? (groupAliases[cwd] ?? basename(cwd)) : t("sidebar.chats");
 
@@ -257,7 +255,7 @@ export function TitleBar() {
 
 	return (
 		<header className="omp-titlebar omp-topbar drag-region flex h-12 min-w-0 shrink-0 items-center gap-1 px-2">
-			{(compact || !sidebarVisible) && (
+			{!sidebarVisible && (
 				<IconButton
 					className="no-drag"
 					icon={<PanelLeft />}

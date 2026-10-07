@@ -244,10 +244,6 @@ html[data-platform="win32"] {
 	padding-left: max(var(--sc-space-2), var(--sc-traffic-lights));
 }
 
-.omp-shell[data-sidebar="rail"] .omp-topbar {
-	padding-left: max(var(--sc-space-2), calc(var(--sc-traffic-lights) - 56px));
-}
-
 .omp-shell:not(:has(> .omp-inspector)) .omp-topbar,
 .omp-panel-topbar {
 	padding-right: calc(var(--sc-space-2) + var(--sc-caption-buttons));

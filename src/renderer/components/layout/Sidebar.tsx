@@ -6,7 +6,6 @@ import {
 	ChevronDown,
 	ChevronRight,
 	CircleHelp,
-	Code2,
 	ExternalLink,
 	Folder,
 	FolderOpen,
@@ -19,7 +18,6 @@ import {
 	MessageSquareWarning,
 	MoreHorizontal,
 	PanelLeftClose,
-	PanelLeftOpen,
 	Pencil,
 	Pin,
 	PinOff,
@@ -75,13 +73,11 @@ import {
 	MenuButton,
 	SearchField,
 	Spinner,
+	Tabs,
 } from "../common";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
-
-/** Docked column, icon rail (side panel open on a mid-width window), or the compact left sheet. */
-export type SidebarVariant = "docked" | "rail" | "sheet";
 
 interface WorkspaceGroup {
 	cwd: string;
@@ -94,7 +90,8 @@ type PendingDelete = { kind: "session"; session: SessionInfo } | { kind: "group"
 
 type SidebarMode = "code" | "work";
 
-const SIDEBAR_MIN = 180;
+/** Floor for the docked column: the sidebar never folds on its own, so this is what a narrow window keeps. */
+const SIDEBAR_MIN = 220;
 const SIDEBAR_MAX = 420;
 const SIDEBAR_DEFAULT = 248;
 /** Recent projects offered directly in the project menu (the rest: "All projects…"). */
@@ -188,7 +185,7 @@ function useHelpItems(): ContextMenuItem[] {
 }
 
 /** Footer: Agents · Insights · Settings and the help menu, always visible. */
-function SidebarFooter({ rail, onNavigate }: { rail: boolean; onNavigate: () => void }) {
+function SidebarFooter() {
 	const t = useT();
 	const destination = useUiStore(s => s.destination);
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
@@ -204,32 +201,17 @@ function SidebarFooter({ rail, onNavigate }: { rail: boolean; onNavigate: () => 
 		if (id === "agents") ui.openAgents();
 		else if (id === "insights") ui.openInsights();
 		else ui.openSettings();
-		onNavigate();
 	};
 	return (
 		<nav
 			aria-label={t("sidebar.destinations")}
-			className={cx(
-				"flex shrink-0 flex-col gap-0.5 border-t border-(--sc-divider)",
-				rail ? "items-center py-2" : "p-2",
-			)}
+			className="flex shrink-0 flex-col gap-0.5 border-t border-(--sc-divider) p-2"
 			data-sidebar-destinations
 		>
 			{DESTINATIONS.map(({ id, labelKey, icon: Icon }) => {
 				const current = destination === id;
 				const shortcut = shortcutFor(id);
-				return rail ? (
-					<IconButton
-						aria-current={current ? "page" : undefined}
-						className={cx(current && "bg-(--sc-selected) text-(--sc-text)")}
-						icon={<Icon />}
-						key={id}
-						label={t(labelKey)}
-						onClick={() => open(id)}
-						shortcut={shortcut}
-						tooltipSide="right"
-					/>
-				) : (
+				return (
 					<Button
 						aria-current={current ? "page" : undefined}
 						className={cx(
@@ -247,7 +229,7 @@ function SidebarFooter({ rail, onNavigate }: { rail: boolean; onNavigate: () => 
 					</Button>
 				);
 			})}
-			<div className={cx(!rail && "flex items-center")}>
+			<div className="flex items-center">
 				<MenuButton align="start" icon={<CircleHelp />} items={helpItems} label={t("help.menu")} variant="ghost" />
 			</div>
 		</nav>
@@ -259,11 +241,10 @@ function SidebarFooter({ rail, onNavigate }: { rail: boolean; onNavigate: () => 
  * a filter, sessions grouped by project (newest first, status as text/icon),
  * and a footer with the three destinations plus help.
  */
-export function Sidebar({ variant = "docked", onExpandRail }: { variant?: SidebarVariant; onExpandRail?: () => void }) {
+export function Sidebar() {
 	const tabRpc = useTabRpc();
 	const t = useT();
 	const keymapOverrides = useUiStore(state => state.keymapOverrides);
-	const closeCompactSidebar = useUiStore(state => state.closeCompactSidebar);
 	const [mode, setMode] = useState<SidebarMode>("code");
 	const [defaultWorkspace, setDefaultWorkspace] = useState<string | null>(null);
 	const [filter, setFilter] = useState("");
@@ -338,7 +319,6 @@ export function Sidebar({ variant = "docked", onExpandRail }: { variant?: Sideba
 	// A blocking confirmation (plan approval / ask / permission) on the
 	// attached session outranks "running": it needs the user, not just time.
 	const awaitingConfirmation = useAwaitingConfirmation();
-	const afterNavigate = variant === "sheet" ? closeCompactSidebar : () => {};
 
 	useEffect(() => {
 		void window.omp.sidecar
@@ -468,7 +448,6 @@ export function Sidebar({ variant = "docked", onExpandRail }: { variant?: Sideba
 	};
 
 	const openSession = (session: SessionInfo) => {
-		afterNavigate();
 		useUiStore.getState().closeDestination();
 		if (session.id === sessionId) return;
 		// Already open in a tab: go there. An untouched empty tab is replaced
@@ -487,7 +466,6 @@ export function Sidebar({ variant = "docked", onExpandRail }: { variant?: Sideba
 	};
 	/** Start in `target`: re-root the untouched tab, else open a new one. */
 	const goToProject = async (target: string) => {
-		afterNavigate();
 		useUiStore.getState().closeDestination();
 		if (activeTabUntouched() && activeTab?.kind !== "chat") {
 			if (target === cwd) {
@@ -504,7 +482,6 @@ export function Sidebar({ variant = "docked", onExpandRail }: { variant?: Sideba
 	};
 	const startNew = () => {
 		if (mode === "work") {
-			afterNavigate();
 			useUiStore.getState().closeDestination();
 			void openTab({ kind: "agent", work: true });
 			return;
@@ -515,7 +492,6 @@ export function Sidebar({ variant = "docked", onExpandRail }: { variant?: Sideba
 			return;
 		}
 		if (activeTabUntouched() && activeTab?.kind !== "chat") {
-			afterNavigate();
 			useUiStore.getState().closeDestination();
 			focusComposer();
 			return;
@@ -523,15 +499,9 @@ export function Sidebar({ variant = "docked", onExpandRail }: { variant?: Sideba
 		void goToProject(target);
 	};
 	const startChat = () => {
-		afterNavigate();
 		useUiStore.getState().closeDestination();
 		void openTab({ kind: "chat" });
 	};
-	const openPalette = () => {
-		afterNavigate();
-		useUiStore.getState().openCommandPalette();
-	};
-
 	// Explicit parallel action: open this session in a NEW window with its own
 	// sidecar, leaving the current window's running session untouched.
 	const openSessionInNewWindow = async (session: SessionInfo) => {
@@ -848,7 +818,6 @@ export function Sidebar({ variant = "docked", onExpandRail }: { variant?: Sideba
 								icon={<Plus />}
 								label={t("sidebar.menu.newAgentHere")}
 								onClick={() => {
-									afterNavigate();
 									useUiStore.getState().closeDestination();
 									void openTab({ cwd: group.cwd });
 								}}
@@ -919,106 +888,52 @@ export function Sidebar({ variant = "docked", onExpandRail }: { variant?: Sideba
 					);
 			},
 		},
-		{
-			id: "mode-code",
-			label: t("sidebar.mode.code"),
-			description: t("sidebar.mode.codeDescription"),
-			icon: Code2,
-			checked: mode === "code",
-			onSelect: () => setMode("code"),
-		},
-		{
-			id: "mode-work",
-			label: t("sidebar.mode.work"),
-			description: t("sidebar.mode.workDescription"),
-			icon: BriefcaseBusiness,
-			checked: mode === "work",
-			onSelect: () => setMode("work"),
-		},
 	];
-
-	if (variant === "rail") {
-		return (
-			<aside
-				aria-label={t("sidebar.label")}
-				className="omp-session-sidebar flex h-full w-14 shrink-0 flex-col items-center border-r border-(--sc-border-subtle) bg-(--sc-surface-1)"
-				data-variant="rail"
-			>
-				<div className="drag-region h-12 w-full shrink-0" />
-				<div className="flex flex-col items-center gap-1">
-					<IconButton
-						icon={<PanelLeftOpen />}
-						label={t("sidebar.expand")}
-						onClick={onExpandRail}
-						tooltipSide="right"
-					/>
-					<IconButton
-						data-sidebar-new-agent
-						icon={<SquarePen />}
-						label={t("sidebar.newSession")}
-						onClick={startNew}
-						tooltipSide="right"
-					/>
-					<IconButton
-						data-command-center-entry
-						icon={<Search />}
-						label={t("help.palette")}
-						onClick={openPalette}
-						shortcut={actionKbd("palette", keymapOverrides)}
-						tooltipSide="right"
-					/>
-				</div>
-				<div className="flex-1" />
-				<SidebarFooter onNavigate={afterNavigate} rail />
-				<WorkspaceDialog
-					intent={workspaceDialog ?? "switch"}
-					onClose={() => setWorkspaceDialog(null)}
-					open={workspaceDialog !== null}
-				/>
-			</aside>
-		);
-	}
 
 	return (
 		<>
 			<aside
 				aria-label={t("sidebar.label")}
-				className={cx(
-					"omp-session-sidebar relative flex h-full min-h-0 flex-col",
-					variant === "docked"
-						? "shrink-0 border-r border-(--sc-border-subtle) bg-(--sc-surface-1)"
-						: "w-full flex-1",
-				)}
-				data-variant={variant}
-				style={variant === "docked" ? { width: sidebarWidth } : undefined}
+				className="omp-session-sidebar relative flex h-full min-h-0 shrink-0 flex-col border-r border-(--sc-border-subtle) bg-(--sc-surface-1)"
+				style={{ width: sidebarWidth }}
 			>
-				{variant === "docked" && (
-					<div className="omp-sidebar-header drag-region flex h-12 shrink-0 items-center gap-1 pr-2 pl-3">
-						<span className="flex min-w-0 flex-1 items-center gap-2 text-sc-md font-semibold text-(--sc-text)">
-							<BrandMark size={18} />
-							<span className="truncate">seucode</span>
-						</span>
-						<IconButton
-							className="no-drag"
-							data-command-center-entry
-							icon={<Search />}
-							label={t("help.palette")}
-							onClick={openPalette}
-							shortcut={actionKbd("palette", keymapOverrides)}
-							size="sm"
-						/>
-						<IconButton
-							className="no-drag"
-							icon={<PanelLeftClose />}
-							label={t("sidebar.collapse")}
-							onClick={() => useUiStore.getState().toggleSidebar()}
-							shortcut={actionKbd("sidebar.toggle", keymapOverrides)}
-							size="sm"
-						/>
-					</div>
-				)}
+				<div className="omp-sidebar-header drag-region flex h-12 shrink-0 items-center gap-1 pr-2 pl-3">
+					<span className="flex min-w-0 flex-1 items-center gap-2 text-sc-md font-semibold text-(--sc-text)">
+						<BrandMark size={18} />
+						<span className="truncate">seucode</span>
+					</span>
+					<IconButton
+						className="no-drag"
+						data-command-center-entry
+						icon={<Search />}
+						label={t("help.palette")}
+						onClick={() => useUiStore.getState().openCommandPalette()}
+						shortcut={actionKbd("palette", keymapOverrides)}
+						size="sm"
+					/>
+					<IconButton
+						className="no-drag"
+						icon={<PanelLeftClose />}
+						label={t("sidebar.collapse")}
+						onClick={() => useUiStore.getState().toggleSidebar()}
+						shortcut={actionKbd("sidebar.toggle", keymapOverrides)}
+						size="sm"
+					/>
+				</div>
 
 				<div className="flex shrink-0 flex-col gap-2 px-2 pt-2 pb-2">
+					<Tabs
+						activeId={mode}
+						ariaLabel={t("sidebar.mode.aria")}
+						className="flex w-full [&>button]:flex-1 [&>button]:justify-center"
+						compact
+						onChange={id => setMode(id as SidebarMode)}
+						tabs={[
+							{ id: "code", label: t("sidebar.mode.code") },
+							{ id: "work", label: t("sidebar.mode.work") },
+						]}
+						variant="segmented"
+					/>
 					<MenuButton
 						className="w-full justify-start gap-2 px-2.5 text-(--sc-text)"
 						icon={mode === "work" ? <BriefcaseBusiness /> : <Folder />}
@@ -1128,17 +1043,15 @@ export function Sidebar({ variant = "docked", onExpandRail }: { variant?: Sideba
 					{visibleGroups.map(renderGroup)}
 				</div>
 
-				<SidebarFooter onNavigate={afterNavigate} rail={false} />
-				{variant === "docked" && (
-					<div
-						aria-hidden
-						className="absolute inset-y-0 right-0 z-(--sc-z-raised) w-1 translate-x-1/2 cursor-col-resize transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-accent-border) active:bg-(--sc-accent)"
-						onPointerDown={startSidebarDrag}
-						onPointerMove={onSidebarDrag}
-						onPointerUp={endSidebarDrag}
-						role="separator"
-					/>
-				)}
+				<SidebarFooter />
+				<div
+					aria-hidden
+					className="absolute inset-y-0 right-0 z-(--sc-z-raised) w-1 translate-x-1/2 cursor-col-resize transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-accent-border) active:bg-(--sc-accent)"
+					onPointerDown={startSidebarDrag}
+					onPointerMove={onSidebarDrag}
+					onPointerUp={endSidebarDrag}
+					role="separator"
+				/>
 			</aside>
 			<WorkspaceDialog
 				intent={workspaceDialog ?? "switch"}
@@ -1163,7 +1076,6 @@ export function Sidebar({ variant = "docked", onExpandRail }: { variant?: Sideba
 									icon: SquareTerminal,
 									onSelect: () => {
 										setGroupMenu(null);
-										afterNavigate();
 										useUiStore.getState().closeDestination();
 										void openTab({ cwd: groupMenu.group.cwd });
 									},
@@ -1241,7 +1153,6 @@ export function Sidebar({ variant = "docked", onExpandRail }: { variant?: Sideba
 									icon: Plus,
 									onSelect: () => {
 										setSessionMenu(null);
-										afterNavigate();
 										useUiStore.getState().closeDestination();
 										void openTab({
 											cwd: sessionMenu.session.cwd,

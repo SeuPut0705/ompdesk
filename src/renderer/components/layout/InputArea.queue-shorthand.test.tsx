@@ -11,6 +11,7 @@ import type { AgentMessage, RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { pasteMarkerText, storePaste } from "../../lib/paste-blobs";
 import { useComposerStore } from "../../stores/composer";
+import { useExtensionUiStore } from "../../stores/extension-ui";
 import { useInputHistoryStore } from "../../stores/input-history";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
@@ -576,6 +577,45 @@ async function openAddMenuItem(label: string): Promise<void> {
 function isExpanded(): boolean {
 	return document.querySelector(".omp-composer-region--expanded") !== null;
 }
+
+describe("InputArea next-prompt suggestion", () => {
+	// The `next-prompt` extension can't see Tab over RPC, so the composer owns
+	// its widget: gray placeholder, Tab on an empty composer takes it.
+	const showSuggestion = () =>
+		act(async () =>
+			useExtensionUiStore.getState().setWidget("next-prompt", ["\x1b[2m↹ Tab  ompdesk로 가자\x1b[22m"]),
+		);
+
+	afterEach(() => useExtensionUiStore.getState().clearAll());
+
+	it("shows the suggestion as the placeholder and Tab fills it in", async () => {
+		await mount();
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		await showSuggestion();
+		expect(findTextarea().getAttribute("placeholder")).toBe("ompdesk로 가자");
+
+		expect((await pressKey({ key: "Tab" })).defaultPrevented).toBe(true);
+		expect(useComposerStore.getState().draft).toBe("ompdesk로 가자");
+		expect(useExtensionUiStore.getState().widgetPanels["next-prompt"]).toBeUndefined();
+	});
+
+	it("leaves Tab alone once the user has typed", async () => {
+		await mount();
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		await showSuggestion();
+		await typeInto(findTextarea(), "직접 입력");
+
+		expect((await pressKey({ key: "Tab" })).defaultPrevented).toBe(false);
+		expect(useComposerStore.getState().draft).toBe("직접 입력");
+		expect(useExtensionUiStore.getState().widgetPanels["next-prompt"]).toBeUndefined();
+	});
+
+	it("hides the suggestion while a turn streams", async () => {
+		await mount();
+		await showSuggestion();
+		expect(findTextarea().getAttribute("placeholder")).not.toBe("ompdesk로 가자");
+	});
+});
 
 describe("InputArea expanded composer", () => {
 	// ⌃G alone was undiscoverable, so the + menu offers it too. Both grow the

@@ -19,6 +19,7 @@ import { AnsiText } from "../../lib/ansi";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
+import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
 import { isInlineLoginRequest, useExtensionUiStore } from "../../stores/extension-ui";
 import { toast } from "../../stores/toast";
 import { Button, Input, Modal, Spinner } from "../common";
@@ -30,11 +31,12 @@ const NON_DIALOG_METHODS = new Set(["notify", "setStatus", "setWidget", "setTitl
 /**
  * Floating surface for extension-pushed widgets. Transient `setStatus` text is
  * intentionally not rendered: the GUI has no status line, and floating pills
- * obscure composer controls.
+ * obscure composer controls. The `next-prompt` widget is the composer's
+ * placeholder (InputArea), not a panel.
  */
 function ExtensionSurfaces() {
 	const widgetPanels = useExtensionUiStore(state => state.widgetPanels);
-	const widgets = Object.entries(widgetPanels);
+	const widgets = Object.entries(widgetPanels).filter(([key]) => key !== NEXT_PROMPT_WIDGET);
 	if (widgets.length === 0) return null;
 	return (
 		<div className="pointer-events-none fixed bottom-9 left-1/2 z-40 flex max-h-[40vh] w-[min(560px,92vw)] -translate-x-1/2 flex-col gap-1.5 overflow-y-auto">

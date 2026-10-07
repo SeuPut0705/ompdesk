@@ -9,13 +9,13 @@
  * selecting a session returns to the session view; the session view stays
  * mounted underneath so its scroll position and composer survive.
  *
- * Responsive: ≥ 1280px full sidebar; 1000–1279px the sidebar folds to an
- * icon rail while the side panel is open; < 1000px the sidebar and the side
- * panel become sheets (left / right) over a scrim.
+ * Responsive: the sidebar never folds on its own — it keeps its own width
+ * (Sidebar's SIDEBAR_MIN floor) until the user collapses it. Below 1000px
+ * only the side panel becomes a sheet over a scrim.
  */
 
 import { ArrowLeft, PanelLeft } from "lucide-react";
-import { lazy, type ReactNode, Suspense, useEffect, useLayoutEffect, useState } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useLayoutEffect } from "react";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useT } from "../../lib/i18n";
 import { actionShortcut } from "../../lib/keymap";
@@ -23,9 +23,9 @@ import { markChromePlatform, syncWindowControls } from "../../lib/window-chrome"
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { COMPACT_SHELL_QUERY, type PageDestination, useUiStore } from "../../stores/ui";
-import { Button, IconButton, Sheet, Spinner } from "../common";
+import { Button, IconButton, Spinner } from "../common";
 import { PanelContainer } from "./PanelContainer";
-import { Sidebar, type SidebarVariant } from "./Sidebar";
+import { Sidebar } from "./Sidebar";
 import { SidecarBanner } from "./SidecarBanner";
 import { SplitWorkspace } from "./SplitWorkspace";
 import { TabBar } from "./TabBar";
@@ -35,9 +35,6 @@ import { UpdateBanner } from "./UpdateBanner";
 const AgentsPage = lazy(() => import("../agents/AgentsPage").then(m => ({ default: m.AgentsPage })));
 const InsightsPage = lazy(() => import("../insights/InsightsPage").then(m => ({ default: m.InsightsPage })));
 const SettingsPage = lazy(() => import("../settings/SettingsPage").then(m => ({ default: m.SettingsPage })));
-
-/** Below this the sidebar folds to a rail while the side panel is docked. */
-const RAIL_QUERY = "(max-width: 1279px)";
 
 const PAGE_LABEL_KEY: Record<PageDestination, string> = {
 	agents: "destination.agents",
@@ -78,44 +75,25 @@ export function AppShell() {
 	const t = useT();
 	const destination = useUiStore(s => s.destination);
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
-	const compactSidebarOpen = useUiStore(s => s.compactSidebarOpen);
-	const closeCompactSidebar = useUiStore(s => s.closeCompactSidebar);
 	const panelVisible = useUiStore(s => s.panelVisible);
 	const compact = useMediaQuery(COMPACT_SHELL_QUERY);
-	const narrow = useMediaQuery(RAIL_QUERY);
-	const [railExpanded, setRailExpanded] = useState(false);
 	const onPage = destination !== "session";
 	const panelOpen = !onPage && panelVisible;
 	const panelDocked = panelOpen && !compact;
-
-	const sidebar: SidebarVariant | "hidden" = compact
-		? "hidden"
-		: !sidebarVisible
-			? "hidden"
-			: panelDocked && narrow && !railExpanded
-				? "rail"
-				: "docked";
 
 	useLayoutEffect(() => {
 		markChromePlatform();
 	}, []);
 	// Windows caption buttons sit over the top-right corner: match its surface.
 	useEffect(() => syncWindowControls(panelDocked ? "--sc-surface-1" : "--sc-bg"), [panelDocked]);
-	// The rail override lasts only while the side panel that caused it is open.
-	useEffect(() => {
-		if (!panelDocked) setRailExpanded(false);
-	}, [panelDocked]);
 
 	// Entering compact width: a docked side panel would turn into a modal sheet
-	// the user never asked for, so close it; the left sheet starts closed too.
+	// the user never asked for, so close it.
 	useEffect(() => {
-		if (!compact) {
-			closeCompactSidebar();
-			return;
-		}
+		if (!compact) return;
 		const ui = useUiStore.getState();
 		if (ui.panelVisible) ui.togglePanel();
-	}, [compact, closeCompactSidebar]);
+	}, [compact]);
 
 	// Selecting a session (another tab, a switch in place, a new session)
 	// returns from a destination page to the session view.
@@ -149,20 +127,8 @@ export function AppShell() {
 	}, [onPage]);
 
 	return (
-		<div className="omp-shell flex min-w-0 flex-1" data-sidebar={sidebar}>
-			{sidebar !== "hidden" && <Sidebar onExpandRail={() => setRailExpanded(true)} variant={sidebar} />}
-			{compact && (
-				<Sheet
-					bodyClassName="flex flex-col"
-					onClose={closeCompactSidebar}
-					open={compactSidebarOpen}
-					side="left"
-					size="sm"
-					title={t("sidebar.sheetTitle")}
-				>
-					<Sidebar variant="sheet" />
-				</Sheet>
-			)}
+		<div className="omp-shell flex min-w-0 flex-1" data-sidebar={sidebarVisible ? "docked" : "hidden"}>
+			{sidebarVisible && <Sidebar />}
 
 			<main aria-label={t("shell.main")} className="omp-workspace-main relative flex min-w-0 flex-1 flex-col">
 				<div className={onPage ? "hidden" : "flex min-h-0 flex-1 flex-col"} data-session-view>
@@ -178,7 +144,7 @@ export function AppShell() {
 						className="flex min-h-0 flex-1 flex-col"
 						data-destination={destination}
 					>
-						<PageTopBar showSidebarToggle={sidebar === "hidden"} />
+						<PageTopBar showSidebarToggle={!sidebarVisible} />
 						<Suspense
 							fallback={
 								<div className="flex flex-1 items-center justify-center">

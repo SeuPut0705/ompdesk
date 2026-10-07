@@ -71,13 +71,13 @@ test("bounded history rendering and input responsiveness across 5k, 20k and 50k 
 						await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
 						for (let index = 1; index < 5; index++) {
 							await page.keyboard.press("ControlOrMeta+t");
-							await expect(page.locator('[role="tablist"] [role="tab"]')).toHaveCount(index + 1);
+							await expect(page.locator('[role="tablist"] [role="tab"][data-status]')).toHaveCount(index + 1);
 							await expect(page.locator("[data-transcript-kind]").first()).toBeVisible();
 						}
 						for (let index = 0; index < 20; index++) {
 							const before = performance.now();
 							await page
-								.locator('[role="tablist"] [role="tab"]')
+								.locator('[role="tablist"] [role="tab"][data-status]')
 								.nth(index % 5)
 								.click();
 							await expect(page.locator("textarea").first()).toBeEnabled();

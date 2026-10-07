@@ -25,6 +25,7 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { parseComposerMode } from "../../lib/input-modes";
 import { formatShortcut } from "../../lib/keymap";
 import { abortActiveTurn } from "../../lib/messages";
+import { NEXT_PROMPT_WIDGET, parseNextPrompt } from "../../lib/next-prompt";
 import {
 	dropReferencedPastes,
 	expandPasteMarkers,
@@ -44,6 +45,7 @@ import {
 	stopVoiceRecording,
 } from "../../lib/voice";
 import { useComposerStore } from "../../stores/composer";
+import { useExtensionUiStore } from "../../stores/extension-ui";
 import { useFirstRunStore } from "../../stores/first-run";
 import { useInputHistoryStore } from "../../stores/input-history";
 import { useMessagesStore } from "../../stores/messages";
@@ -96,6 +98,10 @@ export function InputArea() {
 	const pasteMenuThreshold = useDisplayPreference("pasteMenuThreshold");
 	/** Agent `emojiAutocomplete` setting: emoji popup/inline/submit expansion. */
 	const emojiAutocomplete = useDisplayPreference("emojiAutocomplete");
+	/** `next-prompt` extension suggestion: gray placeholder, Tab on an empty composer accepts it. */
+	const nextPromptLines = useExtensionUiStore(s => s.widgetPanels[NEXT_PROMPT_WIDGET]);
+	const setExtensionWidget = useExtensionUiStore(s => s.setWidget);
+	const nextPrompt = status === "ready" && !isStreaming ? parseNextPrompt(nextPromptLines) : undefined;
 
 	// Draft lives in the composer store (not local state) so session-tab
 	// switches snapshot/restore it per tab. Value + updater-form setter are
@@ -571,6 +577,20 @@ export function InputArea() {
 			}
 			return;
 		}
+		if (
+			nextPrompt !== undefined &&
+			text === "" &&
+			e.key === "Tab" &&
+			!e.shiftKey &&
+			!e.ctrlKey &&
+			!e.metaKey &&
+			!e.altKey
+		) {
+			e.preventDefault();
+			setExtensionWidget(NEXT_PROMPT_WIDGET, undefined);
+			setText(nextPrompt);
+			return;
+		}
 		if (menu && ["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(e.key)) {
 			setMenu(null);
 			return;
@@ -728,11 +748,13 @@ export function InputArea() {
 	const placeholder =
 		status !== "ready"
 			? t("input.placeholder.connecting")
-			: isStreaming
-				? t("input.placeholder.streaming")
-				: isChat
-					? t("input.placeholder.chat")
-					: t("input.placeholder.idle");
+			: nextPrompt !== undefined
+				? nextPrompt
+				: isStreaming
+					? t("input.placeholder.streaming")
+					: isChat
+						? t("input.placeholder.chat")
+						: t("input.placeholder.idle");
 
 	return (
 		<div
@@ -931,6 +953,9 @@ export function InputArea() {
 										setText(`${value}\n`);
 										return;
 									}
+									// TUI parity: typing anything drops the suggestion.
+									if (nextPrompt !== undefined && value !== "")
+										setExtensionWidget(NEXT_PROMPT_WIDGET, undefined);
 									setText(value);
 									// Emoji inline replace (TUI parity): `:name:` fires on the closing
 									// colon, emoticons fire on a trailing space/tab/newline.

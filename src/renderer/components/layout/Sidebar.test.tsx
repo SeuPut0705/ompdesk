@@ -402,20 +402,11 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 		await mount(<Sidebar />);
 
-		const projectMenu = (container.querySelector("[data-sidebar-project]") as unknown as Element | null)
-			?.parentNode as unknown as Element;
-		await fire(projectMenu, "onClick");
+		const modeTab = (id: string) => container.querySelector(`[role="tablist"] [data-tab-id="${id}"]`);
+		expect(modeTab("code")?.getAttribute("aria-selected")).toBe("true");
 
-		const labels = menuItemLabels();
-		expect(labels.some(label => label.includes("Build, debug, and ship in a project"))).toBe(true);
-		expect(labels.some(label => label.includes(translate("sidebar.mode.workDescription")))).toBe(true);
-		expect(labels.some(label => label.includes("Open project…"))).toBe(true);
-		expect(labels.some(label => label.includes("All projects…"))).toBe(true);
-
-		const workItem = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
-			(button.textContent ?? "").includes(translate("sidebar.mode.workDescription")),
-		);
-		await fire(workItem as Element, "onClick");
+		await fire(modeTab("work"), "onClick");
+		expect(modeTab("work")?.getAttribute("aria-selected")).toBe("true");
 		expect(container.querySelector("[data-sidebar-new-chat]")).toBeNull();
 		await fire(container.querySelector("[data-sidebar-new-agent]"), "onClick");
 
