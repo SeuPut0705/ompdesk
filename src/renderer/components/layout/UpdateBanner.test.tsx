@@ -47,80 +47,10 @@ afterEach(async () => {
 });
 
 describe("UpdateBanner", () => {
-	it("offers the architecture installer instead of Squirrel installation in manual mode", async () => {
-		useUpdaterStore.setState({
-			status: { state: "available", version: "0.8.5", mode: "manual" },
-			dismissed: {},
-		});
-		await mount(<UpdateBanner />);
-
-		expect(container.textContent).toContain("Download installer");
-		expect(container.textContent).not.toContain("Restart & install");
-	});
-
-	it("keeps Finder replacement guidance visible and reopens the verified installer", async () => {
-		useUpdaterStore.setState({
-			status: { state: "downloaded", version: "0.8.5", mode: "manual" },
-			dismissed: {},
-		});
-		await mount(<UpdateBanner />);
-
-		expect(container.textContent).toContain("drag ompdesk into Applications");
-		expect(container.textContent).toContain("Privacy & Security");
-		const openButton = container
-			.querySelectorAll("button")
-			.find(button => button.textContent?.includes("Open installer"));
-		expect(openButton).toBeDefined();
-		await act(async () => {
-			openButton?.click();
-		});
-		expect(apply).toHaveBeenCalledOnce();
-	});
-
-	it("stays silent while a background update downloads, then offers one restart", async () => {
-		useUpdaterStore.setState({
-			status: { state: "available", version: "0.8.5", mode: "relaunch" },
-			dismissed: {},
-		});
+	it("leaves available and ready updates to the sidebar card", async () => {
+		useUpdaterStore.setState({ status: { state: "downloaded", version: "0.8.5", mode: "relaunch" }, dismissed: {} });
 		await mount(<UpdateBanner />);
 		expect(container.textContent).toBe("");
-
-		await act(async () => {
-			useUpdaterStore.setState({
-				status: {
-					state: "downloading",
-					version: "0.8.5",
-					mode: "relaunch",
-					percent: 40,
-					bytesPerSecond: 1,
-					transferred: 40,
-					total: 100,
-				},
-			});
-		});
-		expect(container.textContent).toBe("");
-
-		await act(async () => {
-			useUpdaterStore.setState({ status: { state: "downloaded", version: "0.8.5", mode: "relaunch" } });
-		});
-		const restart = container.querySelectorAll("button").find(button => button.textContent?.includes("Restart"));
-		expect(container.textContent).toContain("installs when you quit");
-		await act(async () => {
-			restart?.click();
-		});
-		expect(apply).toHaveBeenCalledOnce();
-		expect(download).not.toHaveBeenCalled();
-	});
-
-	it("retains restart-and-install for certificate-backed automatic updates", async () => {
-		useUpdaterStore.setState({
-			status: { state: "downloaded", version: "0.8.5", mode: "automatic" },
-			dismissed: {},
-		});
-		await mount(<UpdateBanner />);
-
-		expect(container.textContent).toContain("Restart & install");
-		expect(container.textContent).not.toContain("Open installer");
 	});
 
 	it("keeps user-initiated verification failures visible with a retry action", async () => {

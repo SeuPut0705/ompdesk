@@ -843,6 +843,11 @@
 	animation: omp-live-step-in var(--sc-duration-med) var(--sc-ease-enter) both;
 }
 
+/* A remount mid-turn resumes the same log: no second entrance. */
+.omp-live-step[data-resumed] {
+	animation: none;
+}
+
 /* The scroller carries the top fade so the panel's border stays crisp. */
 .omp-live-step-scroll {
 	display: flex;

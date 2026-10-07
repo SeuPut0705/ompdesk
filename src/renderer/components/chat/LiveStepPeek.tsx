@@ -4,6 +4,7 @@ import { parseAnsi } from "../../lib/ansi";
 import { resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
+import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useToolsStore } from "../../stores/tools";
 import { toolDiffStats } from "../tools/diff-stats";
 import { getToolHeader } from "../tools/index";
@@ -18,6 +19,20 @@ const THINKING_TAIL_CHARS = 600;
 const THINKING_TAIL_LINES = 6;
 /** Distance from the bottom (px) that still counts as "at the newest line". */
 const STICK_THRESHOLD_PX = 8;
+
+/**
+ * The running turn's log, by `<tab>:<turn start>`. The window can remount
+ * mid-turn (the first step finalizing moves the live group from the streaming
+ * row to the history row; virtualization recycles rows), and a remount must
+ * pick the log up where it was instead of blanking and fading in again.
+ */
+const liveLogs = new Map<string, LiveLog>();
+
+function rememberLog(key: string, log: LiveLog): void {
+	const tab = key.slice(0, key.lastIndexOf(":") + 1);
+	for (const other of liveLogs.keys()) if (other !== key && other.startsWith(tab)) liveLogs.delete(other);
+	liveLogs.set(key, log);
+}
 
 /**
  * A small fixed-height window under a collapsed running work summary where
@@ -40,7 +55,13 @@ export function LiveStepPeek({ thinkingLive, toolCallIds }: { thinkingLive: bool
 	const toolLines = useToolLines(toolCallId);
 	const thinkingLines = useThinkingLines(stepKey === "thinking");
 
-	const [log, setLog] = useState<LiveLog>([]);
+	const tabId = useRuntimeTabId();
+	const turnStart = useMessagesStore(s => s.turnMeter.startedAt);
+	const logKey = `${tabId ?? ""}:${turnStart ?? ""}`;
+	const [state, setState] = useState(() => ({ key: logKey, log: liveLogs.get(logKey) ?? [] }));
+	// Resumed windows skip the entrance fade: they were already on screen.
+	const [resumed] = useState(() => state.log.length > 0);
+	const log = state.key === logKey ? state.log : [];
 	// Record the current step during render; appendLiveLog returns the same
 	// log when nothing changed, so this settles after one pass.
 	if (stepKey) {
@@ -52,7 +73,10 @@ export function LiveStepPeek({ thinkingLive, toolCallIds }: { thinkingLive: bool
 			{ key: segmentKey, lines: stepKey === "thinking" ? thinkingLines : toolLines },
 			LIVE_LOG_LINES,
 		);
-		if (next !== log) setLog(next);
+		if (next !== log || state.key !== logKey) {
+			rememberLog(logKey, next);
+			setState({ key: logKey, log: next });
+		}
 	}
 
 	const scrollRef = useRef<HTMLDivElement>(null);
@@ -64,7 +88,7 @@ export function LiveStepPeek({ thinkingLive, toolCallIds }: { thinkingLive: bool
 	}, [log]);
 
 	return (
-		<div aria-hidden className="omp-live-step">
+		<div aria-hidden className="omp-live-step" data-resumed={resumed || undefined}>
 			<div
 				className="omp-live-step-scroll"
 				onScroll={event => {

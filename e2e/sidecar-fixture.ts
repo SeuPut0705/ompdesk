@@ -600,6 +600,67 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			};
 			clearInterval(streamTimer);
 			streamTimer = setInterval(streamTick, 16);
+		} else if (message === "fixture steps") {
+			// A run of separate assistant messages, each thinking then calling a
+			// tool, with gaps between them — the shape that used to mount a new
+			// live work group per step.
+			const turn: AgentMessage[] = [user];
+			const step = (index: number) => {
+				if (index === 4) {
+					const answer: AgentMessage = {
+						role: "assistant",
+						content: [{ type: "text", text: "Steps finished" }],
+						timestamp: Date.now(),
+						provider: model.provider,
+						model: model.id,
+						stopReason: "stop",
+					};
+					appendMessage(answer);
+					write({ type: "message_end", message: answer });
+					turn.push(answer);
+					endTurn(turn);
+					return;
+				}
+				const id = `step-${Date.now()}-${index}`;
+				const shell: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
+				write({ type: "message_start", message: shell });
+				write({
+					type: "message_update",
+					message: shell,
+					assistantMessageEvent: {
+						type: "thinking_delta",
+						contentIndex: 0,
+						delta: `Planning step ${index + 1}`,
+						partial: shell,
+					},
+				});
+				setTimeout(() => {
+					const args = { command: `echo step ${index + 1}` };
+					write({ type: "tool_execution_start", toolCallId: id, toolName: "bash", args });
+					const call: AgentMessage = {
+						role: "assistant",
+						content: [{ type: "toolCall", id, name: "bash", arguments: args }],
+						timestamp: shell.timestamp,
+						provider: model.provider,
+						model: model.id,
+						stopReason: "toolUse",
+					};
+					appendMessage(call);
+					write({ type: "message_end", message: call });
+					turn.push(call);
+					setTimeout(() => {
+						write({
+							type: "tool_execution_end",
+							toolCallId: id,
+							toolName: "bash",
+							result: { content: [{ type: "text", text: `step ${index + 1} done` }] },
+							isError: false,
+						});
+						setTimeout(() => step(index + 1), 400);
+					}, 400);
+				}, 400);
+			};
+			step(0);
 		} else if (message === "fixture approval") {
 			write({
 				type: "extension_ui_request",

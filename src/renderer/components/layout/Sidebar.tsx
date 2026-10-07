@@ -83,6 +83,7 @@ import {
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
+import { SidebarUpdateCard } from "./SidebarUpdateCard";
 
 /**
  * A sidebar row: an indexed session, or one synthesized from an open tab the
@@ -1192,6 +1193,7 @@ export function Sidebar() {
 					{visibleGroups.map(renderGroup)}
 				</div>
 
+				<SidebarUpdateCard />
 				<SidebarFooter />
 				<div
 					aria-hidden

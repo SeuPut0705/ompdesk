@@ -54,16 +54,16 @@ When an omp update breaks a bridge method, fix the method against the new intern
 
 ## Change workflow
 
-Every change ends the same way, and stops there:
+Every change ships, so the user can update right away from the app:
 
 1. `bun run check:types`, `bunx biome check src e2e`, `bunx vitest run` — all green.
-2. Commit and push to `main`.
+2. Release it with the steps below: bump the version, add the dated Korean `CHANGELOG.md` section, commit `release: vX.Y.Z`, push to `main`, and watch the release run to the end.
 
-Do not bump `package.json` `version` (a version bump on `main` publishes a release) and do not reinstall the local app unless the user asks. Changes accumulate on `main` until the user says "릴리스해" (release), which runs the Release steps below.
+Several changes requested together go out as one release. Never leave an `Unreleased` section behind on `main`. Do not reinstall the local app unless the user asks — the in-app updater picks the release up.
 
 ## Release
 
-- Version `X.Y.Z` semver; tag `vX.Y.Z`; release commit `release: vX.Y.Z`. Commit messages carry no AI attribution trailers. Only on the user's explicit release request.
+- Version `X.Y.Z` semver; tag `vX.Y.Z`; release commit `release: vX.Y.Z`. Commit messages carry no AI attribution trailers.
 1. Pick the version from the commits since the last release tag (features → minor, fixes only → patch). Bump `package.json` `version`, add a dated `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md` with a Korean summary (it becomes the release notes), update README version mentions. Confirm `MIN_OMP_VERSION` is current.
 2. `git commit -am "release: vX.Y.Z" && git push origin main`. Do not tag.
 3. `.github/workflows/release.yml` does the rest: runs ci.yml (checks on both platforms, macOS e2e, Windows `@smoke`), packages macOS arm64 (dmg + zip, ad-hoc signed, codesign + `gui-bridge` verified) and Windows x64 (NSIS setup + portable; `makensis` cannot run on Apple Silicon), and only if everything passed creates tag `vX.Y.Z` and the GitHub Release: notes = changelog section + minimum omp version; assets = versioned dmg/zip/exe, `*.blockmap`, `latest-mac.yml`, `latest.yml`, and the version-free copies `ompdesk-mac-arm64.dmg`, `ompdesk-windows-setup.exe`, `ompdesk-windows-portable.exe`. An existing tag or an `Unreleased` heading makes the run a no-op.
