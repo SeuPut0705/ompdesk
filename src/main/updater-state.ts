@@ -36,10 +36,14 @@ export function selectMacAsset(
 	return undefined;
 }
 
-/** `/Applications/ompdesk.app` from `/Applications/ompdesk.app/Contents/MacOS/ompdesk`; undefined outside a bundle. */
+/**
+ * `/Applications/ompdesk.app` from `/Applications/ompdesk.app/Contents/MacOS/ompdesk`; undefined outside a bundle.
+ * macOS paths only, so POSIX path rules on every platform the tests run on.
+ */
 export function macBundlePath(execPath: string): string | undefined {
-	const bundle = path.resolve(execPath, "..", "..", "..");
-	return bundle.endsWith(".app") && path.basename(path.dirname(execPath)) === "MacOS" ? bundle : undefined;
+	const macOsDir = path.posix.dirname(execPath);
+	const bundle = path.posix.dirname(path.posix.dirname(macOsDir));
+	return bundle.endsWith(".app") && path.posix.basename(macOsDir) === "MacOS" ? bundle : undefined;
 }
 
 /**
