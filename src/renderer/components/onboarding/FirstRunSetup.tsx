@@ -377,7 +377,7 @@ export function FirstRunSetup() {
 	if (phase === "idle") return null;
 	return (
 		<section aria-labelledby="first-run-title" className="mx-auto flex w-full max-w-2xl flex-col py-10">
-			<BrandMark size={36} />
+			<BrandMark size={64} />
 			<h1
 				className="mt-5 text-sc-3xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
 				id="first-run-title"

@@ -6,7 +6,7 @@ First release of **seucode** (formerly omp GUI) as its own project. Derived from
 
 ### Identity
 
-- New name and mark: the app is **seucode** (bundle id `com.seuput.seucode`, installers `seucode-<version>-…`, stable download names `seucode-mac-arm64.dmg`, `seucode-windows-setup.exe`, `seucode-windows-portable.exe`). The agent it drives is still omp. One S-shaped mark (an ink arc handing over to an accent arc) renders the app icon, the menu-bar/tray icon and the in-app logo.
+- New name and mark: the app is **seucode** (bundle id `com.seuput.seucode`, installers `seucode-<version>-…`, stable download names `seucode-mac-arm64.dmg`, `seucode-windows-setup.exe`, `seucode-windows-portable.exe`). The agent it drives is still omp. One mark, an interlaced knot (two congruent strands, you and the agent, woven into an S), renders the app icon (platinum and gold on an ink tile), the menu-bar/tray icon and the in-app logo (ink and the theme accent); 48px and smaller use a simplified, heavier knot.
 - The app's data directory follows the new name (`~/Library/Application Support/seucode`, `%APPDATA%\seucode`), so window layout and GUI preferences start fresh; omp's own settings, logins and sessions in `~/.omp` are unaffected.
 
 ### Runtime

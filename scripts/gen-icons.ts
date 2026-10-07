@@ -1,10 +1,14 @@
 /**
- * Generate every raster brand asset from the hand-written SVGs:
- * - resources/icon-source.svg → icon.png (1024px master: dev dock icon) and,
- *   on macOS, icon.icns (via an iconset + iconutil).
- * - resources/brand/mark-tile.svg → icon.ico (full-bleed tile, Windows) and
- *   brand/tray.png + tray@2x.png (Windows tray).
- * - resources/brand/mark-mono.svg → brand/trayTemplate.png + trayTemplate@2x.png
+ * Generate every brand asset from the knot geometry in src/shared/brand-mark.ts:
+ * - writes the SVGs in scripts/brand-svgs.ts (resources/icon-source*.svg,
+ *   resources/brand/*.svg), then rasterizes them:
+ * - icon-source.svg → icon.png (1024px master: dev dock icon); on macOS,
+ *   icon.icns (via an iconset + iconutil) from icon-source.svg above 48px and
+ *   icon-source-small.svg at 48px and below.
+ * - brand/mark-tile.svg / mark-tile-small.svg (same size split) → icon.ico
+ *   (full-bleed tile, Windows); mark-tile-small.svg → brand/tray.png + tray@2x.png
+ *   (Windows tray).
+ * - brand/mark-mono.svg → brand/trayTemplate.png + trayTemplate@2x.png
  *   (macOS menu-bar template: monochrome, alpha only; the system tints it).
  * Run: `bun run gen:icons`.
  */
@@ -13,6 +17,8 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import sharp from "sharp";
+import { BRAND_MARK } from "../src/shared/brand-mark";
+import { BRAND_SVGS } from "./brand-svgs";
 
 const resources = path.join(import.meta.dir, "..", "resources");
 const brand = path.join(resources, "brand");
@@ -69,9 +75,14 @@ async function writeIco(frames: { size: number; data: Buffer }[], outPath: strin
 }
 
 async function main(): Promise<void> {
-	const appIcon = await fs.readFile(path.join(resources, "icon-source.svg"));
-	const tile = await fs.readFile(path.join(brand, "mark-tile.svg"));
-	const mono = await fs.readFile(path.join(brand, "mark-mono.svg"));
+	for (const [file, contents] of Object.entries(BRAND_SVGS)) await Bun.write(path.join(resources, file), contents);
+	const source = (file: string) => Buffer.from(BRAND_SVGS[file]);
+	const small = (px: number) => px <= BRAND_MARK.smallMaxPx;
+	const appIcon = source("icon-source.svg");
+	const appIconSmall = source("icon-source-small.svg");
+	const tile = source("brand/mark-tile.svg");
+	const tileSmall = source("brand/mark-tile-small.svg");
+	const mono = source("brand/mark-mono.svg");
 
 	await Bun.write(path.join(resources, "icon.png"), await render(appIcon, 1024));
 
@@ -79,7 +90,7 @@ async function main(): Promise<void> {
 		await fs.rm(iconset, { recursive: true, force: true });
 		await fs.mkdir(iconset, { recursive: true });
 		for (const [name, px] of ICONSET) {
-			await Bun.write(path.join(iconset, name), await render(appIcon, px));
+			await Bun.write(path.join(iconset, name), await render(small(px) ? appIconSmall : appIcon, px));
 		}
 		execFileSync("iconutil", ["-c", "icns", iconset, "-o", path.join(resources, "icon.icns")], { stdio: "inherit" });
 		await fs.rm(iconset, { recursive: true, force: true });
@@ -87,15 +98,17 @@ async function main(): Promise<void> {
 		console.warn("Skipping icon.icns: iconutil is macOS-only.");
 	}
 
-	const icoFrames = await Promise.all(ICO_SIZES.map(async size => ({ size, data: await render(tile, size) })));
+	const icoFrames = await Promise.all(
+		ICO_SIZES.map(async size => ({ size, data: await render(small(size) ? tileSmall : tile, size) })),
+	);
 	await writeIco(icoFrames, path.join(resources, "icon.ico"));
 
 	await Bun.write(path.join(brand, "trayTemplate.png"), await render(mono, TRAY_POINTS));
 	await Bun.write(path.join(brand, "trayTemplate@2x.png"), await render(mono, TRAY_POINTS * 2));
-	await Bun.write(path.join(brand, "tray.png"), await render(tile, WIN_TRAY_PX));
-	await Bun.write(path.join(brand, "tray@2x.png"), await render(tile, WIN_TRAY_PX * 2));
+	await Bun.write(path.join(brand, "tray.png"), await render(tileSmall, WIN_TRAY_PX));
+	await Bun.write(path.join(brand, "tray@2x.png"), await render(tileSmall, WIN_TRAY_PX * 2));
 
-	console.log("Generated icon.png, icon.icns (macOS), icon.ico, and brand/tray*.png");
+	console.log("Generated brand SVGs, icon.png, icon.icns (macOS), icon.ico, and brand/tray*.png");
 }
 
 await main();
