@@ -47,8 +47,12 @@ afterEach(async () => {
 });
 
 describe("SidebarUpdateCard", () => {
+	// Actions are icon buttons: find them by their accessible name.
 	const button = (label: string) =>
-		container.querySelectorAll("button").find(candidate => candidate.textContent?.includes(label));
+		container
+			.querySelectorAll("button")
+			.find(candidate => (candidate as never as Element).getAttribute("aria-label") === label);
+	const card = () => container.querySelectorAll("[data-sidebar-update]")[0] as never as Element | undefined;
 
 	it("stays out of the way while a background update downloads, then offers one restart", async () => {
 		useUpdaterStore.setState({ status: { state: "available", version: "0.8.5", mode: "relaunch" }, dismissed: {} });
@@ -73,8 +77,9 @@ describe("SidebarUpdateCard", () => {
 		await act(async () => {
 			useUpdaterStore.setState({ status: { state: "downloaded", version: "0.8.5", mode: "relaunch" } });
 		});
-		expect(container.textContent).toContain("OMPdesk 0.8.5 is ready");
-		expect(container.textContent).toContain("installs the next time you quit");
+		// One row: the version in a few words; the full sentence is the description.
+		expect(container.textContent).toContain("Update 0.8.5 ready");
+		expect(card()?.getAttribute("title")).toContain("installs the next time you quit");
 		await act(async () => button("Restart to update")?.click());
 		expect(apply).toHaveBeenCalledOnce();
 		expect(download).not.toHaveBeenCalled();
@@ -94,9 +99,25 @@ describe("SidebarUpdateCard", () => {
 		expect(download).toHaveBeenCalledOnce();
 
 		await act(async () => {
+			useUpdaterStore.setState({
+				status: {
+					state: "downloading",
+					version: "0.8.5",
+					mode: "manual",
+					percent: 42,
+					bytesPerSecond: 1,
+					transferred: 42,
+					total: 100,
+				},
+			});
+		});
+		expect(container.textContent).toContain("42%");
+		expect(container.querySelectorAll("[data-update-progress]")).toHaveLength(1);
+
+		await act(async () => {
 			useUpdaterStore.setState({ status: { state: "downloaded", version: "0.8.5", mode: "manual" } });
 		});
-		expect(container.textContent).toContain("drag OMPdesk into Applications");
+		expect(card()?.getAttribute("title")).toContain("drag OMPdesk into Applications");
 		expect(button("Restart to update")).toBeUndefined();
 		await act(async () => button("Open installer")?.click());
 		expect(apply).toHaveBeenCalledOnce();
@@ -111,6 +132,6 @@ describe("SidebarUpdateCard", () => {
 		await act(async () => {
 			useUpdaterStore.setState({ status: { state: "downloaded", version: "0.8.6", mode: "relaunch" } });
 		});
-		expect(container.textContent).toContain("OMPdesk 0.8.6 is ready");
+		expect(container.textContent).toContain("Update 0.8.6 ready");
 	});
 });

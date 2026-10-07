@@ -47,3 +47,4 @@ export { type TabItem, Tabs, type TabsProps, type TabsVariant } from "./Tabs";
 export { ToastStack } from "./Toast";
 export { Tooltip, type TooltipProps, type TooltipSide } from "./Tooltip";
 export { type TreeNode, TreeView, type TreeViewProps } from "./TreeView";
+export { ZoomableImage, type ZoomableImageProps } from "./ZoomableImage";

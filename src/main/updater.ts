@@ -65,7 +65,9 @@ import {
 
 const { autoUpdater } = pkg;
 
-const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
+// Five minutes: a release reaches users within one interval. One authenticated
+// GitHub API call per check stays far under the 5,000/h rate limit.
+const CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const PROGRESS_INTERVAL_MS = 100;
 
 /**
@@ -624,7 +626,7 @@ export function setupUpdater(): void {
 		return updateAuthInfo();
 	});
 
-	// First check once the app settles; then every 4h. A downloaded or
+	// First check once the app settles; then every five minutes. A downloaded or
 	// in-flight update is never replaced by a background re-check.
 	const backgroundCheck = () => {
 		if (current.state === "downloading" || current.state === "downloaded") return;

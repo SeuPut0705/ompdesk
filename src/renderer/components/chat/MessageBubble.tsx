@@ -14,7 +14,7 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
-import { Badge, Button, IconButton } from "../common";
+import { Badge, Button, IconButton, ZoomableImage } from "../common";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -43,7 +43,7 @@ function InlineImage({ image }: { image: ImageContent }) {
 	const t = useT();
 	const src = `data:${image.mimeType};base64,${image.data}`;
 	return (
-		<img
+		<ZoomableImage
 			src={src}
 			alt={t("chat.attachedImage")}
 			className="my-1 max-h-48 max-w-64 rounded-(--sc-radius-md) border border-(--sc-border-subtle) object-contain"
