@@ -2,12 +2,11 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 import { isUiLanguage, type UiLanguage, uiLanguageFromLocale } from "../../shared/ui-language";
 import { en } from "../locales/en";
 import { ko } from "../locales/ko";
-import { zh } from "../locales/zh";
 
 export type Locale = Record<string, string>;
 export type Lang = UiLanguage;
 
-const LOCALES: Record<Lang, Locale> = { en, zh, ko };
+const LOCALES: Record<Lang, Locale> = { en, ko };
 const LANG_KEY = "omp.lang";
 
 function readStoredLanguage(): Lang | undefined {

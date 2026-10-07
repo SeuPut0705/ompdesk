@@ -231,16 +231,16 @@ test("system omp persists settings and sessions and serves every stats route", a
 		}
 		await page.keyboard.press("Escape");
 		await page.evaluate(async () => {
-			await window.omp.prefs.set("language", "zh");
+			await window.omp.prefs.set("language", "ko");
 		});
 		await page.reload();
 		await expect(page.locator('[data-sidebar-destinations] button[data-destination="settings"]')).toContainText(
-			"设置",
+			"설정",
 		);
-		await dismissSetupIfPresent("设置 OMPdesk", "稍后设置");
+		await dismissSetupIfPresent("OMPdesk 시작하기", "나중에 설정");
 		await page.keyboard.press("ControlOrMeta+Comma");
 		const settings = page.locator("[data-settings-page]");
-		await expect(settings).toContainText("权限与安全");
+		await expect(settings).toContainText("권한 및 보안");
 		const sectionIds = await settings
 			.locator("[data-settings-section]")
 			.evaluateAll(elements => elements.map(element => element.getAttribute("data-settings-section") ?? ""));
@@ -271,28 +271,28 @@ test("system omp persists settings and sessions and serves every stats route", a
 			await capture(`advanced-${value}`);
 		}
 		await fs.writeFile("test-results/settings-pages.json", JSON.stringify(settingsPages, null, 2));
-		const settingsSearch = settings.getByRole("searchbox", { name: "搜索设置" });
+		const settingsSearch = settings.getByRole("searchbox", { name: "설정 검색" });
 		await settingsSearch.fill("bash.patterns");
-		await settings.getByRole("button", { name: "Bash 审批模式", exact: true }).click();
+		await settings.getByRole("button", { name: "Bash 승인 패턴", exact: true }).click();
 		const rules = settings.locator('[id="setting-bash.patterns"]');
 		await expect(rules.locator("textarea")).toHaveValue("[]");
 		const rule = { match: "echo audit-blocked", approval: "deny" };
 		await rules.locator("textarea").fill(JSON.stringify([rule]));
-		await rules.getByRole("button", { name: "应用", exact: true }).click();
+		await rules.getByRole("button", { name: "적용", exact: true }).click();
 		await expect
 			.poll(() => page.evaluate(() => window.omp.rpc.getSettings(["bash.patterns"])))
 			.toMatchObject({ success: true, data: { values: { "bash.patterns": [rule] } } });
 		await rules.locator("textarea").fill("[]");
-		await rules.getByRole("button", { name: "应用", exact: true }).click();
+		await rules.getByRole("button", { name: "적용", exact: true }).click();
 		await expect
 			.poll(() => page.evaluate(() => window.omp.rpc.getSettings(["bash.patterns"])))
 			.toMatchObject({ success: true, data: { values: { "bash.patterns": [] } } });
 		await settings.locator('[data-settings-section="appearance"]').click();
-		const themes = settings.getByRole("radiogroup", { name: "主题" });
+		const themes = settings.getByRole("radiogroup", { name: "테마" });
 		await expect(themes).toBeVisible();
-		await page.screenshot({ path: "test-results/05-packaged-zh.png", scale: "css", animations: "disabled" });
+		await page.screenshot({ path: "test-results/05-packaged-ko.png", scale: "css", animations: "disabled" });
 		const backgrounds: string[] = [];
-		for (const theme of ["瓷白", "石墨"]) {
+		for (const theme of ["포슬린", "그래파이트"]) {
 			await themes.getByRole("radio", { name: theme }).click();
 			await expect(themes.getByRole("radio", { name: theme })).toHaveAttribute("aria-checked", "true");
 			backgrounds.push(
@@ -324,13 +324,13 @@ test("system omp persists settings and sessions and serves every stats route", a
 		}, bootPrefs);
 		await page.reload();
 		await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "auditPrefsRequested"))).toBe(true);
-		await dismissSetupIfPresent("设置 OMPdesk", "稍后设置");
+		await dismissSetupIfPresent("OMPdesk 시작하기", "나중에 설정");
 		await page.keyboard.press("ControlOrMeta+Comma");
 		const freshSettings = page.locator("[data-settings-page]");
 		await freshSettings.locator('[data-settings-section="appearance"]').click();
-		const freshThemes = freshSettings.getByRole("radiogroup", { name: "主题" });
-		await freshThemes.getByRole("radio", { name: "瓷白" }).click();
-		await expect(freshThemes.getByRole("radio", { name: "瓷白" })).toHaveAttribute("aria-checked", "true");
+		const freshThemes = freshSettings.getByRole("radiogroup", { name: "테마" });
+		await freshThemes.getByRole("radio", { name: "포슬린" }).click();
+		await expect(freshThemes.getByRole("radio", { name: "포슬린" })).toHaveAttribute("aria-checked", "true");
 		const chosenBackground = await page.evaluate(() =>
 			getComputedStyle(document.documentElement).getPropertyValue("--omp-bg-primary"),
 		);

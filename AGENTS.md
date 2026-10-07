@@ -80,7 +80,7 @@ macOS builds are ad-hoc signed and not notarized; locally built apps run without
 ## Code conventions
 
 - TypeScript: no `any`, no inline `import("…")` types, `#private` fields, Bun APIs where cleaner.
-- i18n: every user-visible string goes through `useT()` with the same key in `src/renderer/locales/en.ts`, `zh.ts`, and `ko.ts` (`locales.test.ts` enforces identical key sets). Settings-schema text lives in `src/renderer/components/settings/schema-{zh,ko}.ts` and `schema-option-{zh,ko}.ts`; main-process strings in `src/main/i18n.ts` and `tray-labels.ts`.
+- i18n: the UI ships English and Korean only (`UI_LANGUAGES` in `src/shared/ui-language.ts`). Every user-visible string goes through `useT()` with the same key in `src/renderer/locales/en.ts` and `ko.ts` (`locales.test.ts` enforces identical key sets). Settings-schema text lives in `src/renderer/components/settings/schema-ko.ts` and `schema-option-ko.ts`; main-process strings in `src/main/i18n.ts` and `tray-labels.ts`.
 - Model output renders through `MarkdownRenderer` (`src/renderer/lib/markdown.tsx`, rehype-sanitize) — never `dangerouslySetInnerHTML` with model text.
 - Tool-rendered text uses the helpers in `src/renderer/lib/format.ts`; preview ceilings come from `src/renderer/lib/preview.ts`; subprocess output renders through `AnsiText` (`src/renderer/lib/ansi.tsx`).
 - Component tests use the linkedom harness (see `src/renderer/components/chat/ThinkingBlock.test.tsx`): mount through `I18nProvider`, reset zustand stores in `afterEach` via their `reset()`/setters — never `mock.module()`.

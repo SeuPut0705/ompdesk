@@ -8,7 +8,6 @@
 import type { SettingEntry } from "../../../shared/rpc-types";
 import { en } from "../../locales/en";
 import { ko } from "../../locales/ko";
-import { zh } from "../../locales/zh";
 import { schemaSearchTexts } from "./schema-i18n";
 import {
 	ADVANCED_OTHER_CATEGORY,
@@ -48,7 +47,7 @@ const SECTION_ALIASES: Record<SettingsSectionId, string> = {
 	advanced: "advanced proxy launch profile system prompt schema",
 };
 
-const DICTIONARIES = [en, ko, zh] as const;
+const DICTIONARIES = [en, ko] as const;
 
 function allLanguages(key: string): string {
 	return DICTIONARIES.map(dictionary => (dictionary as Record<string, string>)[key] ?? "").join(" ");

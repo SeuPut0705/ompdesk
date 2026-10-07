@@ -16,7 +16,8 @@
 :root {
 	/* ── Typography ─────────────────────────────────────────────────────
 	   Latin from Inter; Hangul from the system Korean face (named first so it
-	   is not borrowed from a Chinese font); CJK ideographs for zh via :lang. */
+	   is not borrowed from a Chinese font); Chinese faces stay as a fallback for
+	   ideographs in model output. */
 	--sc-font-sans:
 		"Inter Variable", "Apple SD Gothic Neo", "Pretendard Variable", "Pretendard", "Malgun Gothic", "PingFang SC",
 		"Hiragino Sans GB", "Microsoft YaHei", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -181,11 +182,4 @@
 	--omp-shadow-md: var(--sc-shadow-md);
 	--omp-shadow-lg: var(--sc-shadow-lg);
 	--omp-shadow-glow: 0 0 0 1px var(--sc-accent-border);
-}
-
-/* Chinese UI: ideographs from the Chinese face, not the Korean one. */
-:root:lang(zh) {
-	--sc-font-sans:
-		"Inter Variable", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Apple SD Gothic Neo", "Malgun Gothic",
-		ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }

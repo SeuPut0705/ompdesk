@@ -547,8 +547,11 @@ export function Sidebar() {
 	};
 	const isCurrentSession = (session: SidebarSession) =>
 		session.id === sessionId || (session.liveTabId !== undefined && session.liveTabId === activeTabId);
+	// Main reports a tab's file (get_state → sessionPath) reliably; the session id
+	// only arrives with stock's rare session_info_update, so match the path first.
 	const tabForSession = (session: SidebarSession) =>
 		(session.liveTabId ? tabs.find(tab => tab.id === session.liveTabId) : undefined) ??
+		tabs.find(tab => tab.sessionPath === session.path) ??
 		tabs.find(tab => tab.sessionId === session.id) ??
 		(isCurrentSession(session) ? activeTab : undefined);
 	const sessionTabSignal = (session: SidebarSession) => {

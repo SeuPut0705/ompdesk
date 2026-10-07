@@ -12,7 +12,7 @@
 
 import { type AgentDraft, emptyAgentDraft, READ_ONLY_TOOLS } from "./agent-definition";
 
-export type TemplateLanguage = "en" | "ko" | "zh";
+export type TemplateLanguage = "en" | "ko";
 
 export interface AgentTemplate {
 	/** Doubles as the agent name and file name. */
@@ -57,11 +57,10 @@ const SHARED_RULES = `## Working rules
 export const AGENT_TEMPLATES: readonly AgentTemplate[] = [
 	{
 		name: "frontend",
-		title: { en: "Frontend engineer", ko: "프론트엔드 엔지니어", zh: "前端工程师" },
+		title: { en: "Frontend engineer", ko: "프론트엔드 엔지니어" },
 		summary: {
 			en: "Builds and fixes UI components, state and styling in the existing framework.",
 			ko: "기존 프레임워크 안에서 UI 컴포넌트, 상태, 스타일을 만들고 고쳐요.",
-			zh: "在现有框架内构建和修复 UI 组件、状态与样式。",
 		},
 		description:
 			"Frontend specialist: implements and fixes UI components, client state, styling and accessibility in the project's existing framework.",
@@ -82,11 +81,10 @@ ${SHARED_RULES}`,
 	},
 	{
 		name: "backend-api",
-		title: { en: "Backend / API engineer", ko: "백엔드·API 엔지니어", zh: "后端 / API 工程师" },
+		title: { en: "Backend / API engineer", ko: "백엔드·API 엔지니어" },
 		summary: {
 			en: "Implements endpoints, services and data access with validation and error handling.",
 			ko: "검증과 오류 처리를 갖춘 엔드포인트, 서비스, 데이터 접근 코드를 구현해요.",
-			zh: "实现带校验与错误处理的接口、服务和数据访问。",
 		},
 		description:
 			"Backend/API specialist: implements endpoints, services, data access and integrations with input validation, error handling and tests.",
@@ -108,11 +106,10 @@ ${SHARED_RULES}`,
 	},
 	{
 		name: "test-writer",
-		title: { en: "Test writer", ko: "테스트 작성자", zh: "测试编写者" },
+		title: { en: "Test writer", ko: "테스트 작성자" },
 		summary: {
 			en: "Adds focused tests for behavior and edge cases; fixes flaky ones.",
 			ko: "동작과 경계 사례를 검증하는 테스트를 추가하고, 불안정한 테스트를 고쳐요.",
-			zh: "为行为和边界情况补充测试，修复不稳定的测试。",
 		},
 		description:
 			"Test specialist: writes focused unit/integration tests for specified behavior and edge cases, and stabilizes flaky tests. Does not change production code unless told to.",
@@ -133,11 +130,10 @@ ${SHARED_RULES}`,
 	},
 	{
 		name: "refactorer",
-		title: { en: "Refactorer", ko: "리팩터링 담당", zh: "重构专家" },
+		title: { en: "Refactorer", ko: "리팩터링 담당" },
 		summary: {
 			en: "Restructures code without changing behavior; migrates every caller.",
 			ko: "동작은 그대로 두고 구조를 정리하며, 모든 호출부를 함께 옮겨요.",
-			zh: "在不改变行为的前提下重组代码，并迁移所有调用方。",
 		},
 		description:
 			"Refactoring specialist: behavior-preserving restructuring (extract, rename, move, simplify) that migrates every caller and deletes dead code.",
@@ -158,11 +154,10 @@ ${SHARED_RULES}`,
 	},
 	{
 		name: "debugger",
-		title: { en: "Debugger", ko: "디버거", zh: "调试专家" },
+		title: { en: "Debugger", ko: "디버거" },
 		summary: {
 			en: "Reproduces a failure, finds the root cause and fixes it with a regression test.",
 			ko: "문제를 재현하고 근본 원인을 찾아 회귀 테스트와 함께 고쳐요.",
-			zh: "复现故障、定位根因，并附回归测试修复。",
 		},
 		description:
 			"Debugging specialist: reproduces a reported failure, isolates the root cause with evidence, fixes it minimally and adds a regression test.",
@@ -185,11 +180,10 @@ ${SHARED_RULES}`,
 	},
 	{
 		name: "docs-writer",
-		title: { en: "Docs writer", ko: "문서 작성자", zh: "文档撰写者" },
+		title: { en: "Docs writer", ko: "문서 작성자" },
 		summary: {
 			en: "Writes READMEs, guides, changelogs and doc comments that match the code.",
 			ko: "코드와 일치하는 README, 가이드, 변경 기록, 문서 주석을 써요.",
-			zh: "撰写与代码一致的 README、指南、变更日志和文档注释。",
 		},
 		description:
 			"Documentation specialist: writes and updates READMEs, guides, API docs, changelog entries and doc comments that are accurate to the current code.",
@@ -209,11 +203,10 @@ ${SHARED_RULES}`,
 	},
 	{
 		name: "code-reviewer",
-		title: { en: "Code reviewer (deep)", ko: "코드 리뷰어 (심층)", zh: "代码审查（深度）" },
+		title: { en: "Code reviewer (deep)", ko: "코드 리뷰어 (심층)" },
 		summary: {
 			en: "Reviews a change for correctness, edge cases, security and maintainability; never edits.",
 			ko: "변경을 정확성, 경계 사례, 보안, 유지보수성 기준으로 검토하고, 직접 수정하지 않아요.",
-			zh: "从正确性、边界、安全与可维护性审查变更；不直接修改。",
 		},
 		description:
 			"Deep code review: checks a diff or branch for correctness bugs, unhandled edge cases, security issues, API/contract breaks, missing tests and maintainability. Read-only; reports prioritized findings with file:line evidence.",
@@ -233,11 +226,10 @@ List findings ordered by severity (blocker, major, minor, nit). Each finding: fi
 	},
 	{
 		name: "perf-optimizer",
-		title: { en: "Performance optimizer", ko: "성능 최적화 담당", zh: "性能优化专家" },
+		title: { en: "Performance optimizer", ko: "성능 최적화 담당" },
 		summary: {
 			en: "Measures first, then removes hot-path waste with before/after numbers.",
 			ko: "먼저 측정한 뒤 병목을 줄이고, 전후 수치로 결과를 보여 줘요.",
-			zh: "先测量，再消除热点开销，并给出前后数据。",
 		},
 		description:
 			"Performance specialist: profiles or benchmarks first, removes measured hot-path waste (allocations, N+1 queries, redundant work, bundle size) and reports before/after numbers.",
@@ -257,11 +249,10 @@ ${SHARED_RULES}`,
 	},
 	{
 		name: "migrator",
-		title: { en: "Migration / upgrade", ko: "마이그레이션·업그레이드", zh: "迁移 / 升级" },
+		title: { en: "Migration / upgrade", ko: "마이그레이션·업그레이드" },
 		summary: {
 			en: "Upgrades dependencies, frameworks and APIs across the codebase, step by step.",
 			ko: "의존성, 프레임워크, API를 코드베이스 전체에 걸쳐 단계적으로 업그레이드해요.",
-			zh: "分步升级整个代码库的依赖、框架与 API。",
 		},
 		description:
 			"Migration specialist: upgrades dependencies, frameworks, language versions or internal APIs across the codebase, following official migration guides and keeping the build green at each step.",
@@ -282,11 +273,10 @@ ${SHARED_RULES}`,
 	},
 	{
 		name: "ui-polisher",
-		title: { en: "UI/UX polish", ko: "UI/UX 다듬기", zh: "UI/UX 打磨" },
+		title: { en: "UI/UX polish", ko: "UI/UX 다듬기" },
 		summary: {
 			en: "Fixes spacing, states, copy, accessibility and consistency against the design system.",
 			ko: "디자인 시스템에 맞춰 간격, 상태, 문구, 접근성, 일관성을 다듬어요.",
-			zh: "依照设计系统修正间距、状态、文案、无障碍与一致性。",
 		},
 		description:
 			"UI/UX polish specialist: aligns screens with the project's design system — spacing, typography, color tokens, empty/loading/error states, copy, keyboard and screen-reader accessibility — without redesigning flows.",
@@ -306,11 +296,10 @@ ${SHARED_RULES}`,
 	},
 	{
 		name: "db-sql",
-		title: { en: "Database / SQL", ko: "데이터베이스·SQL", zh: "数据库 / SQL" },
+		title: { en: "Database / SQL", ko: "데이터베이스·SQL" },
 		summary: {
 			en: "Designs schemas, writes safe migrations and tunes queries and indexes.",
 			ko: "스키마를 설계하고, 안전한 마이그레이션을 작성하고, 쿼리와 인덱스를 튜닝해요.",
-			zh: "设计表结构、编写安全迁移，并调优查询与索引。",
 		},
 		description:
 			"Database specialist: schema design, reversible migrations, query and index tuning (EXPLAIN-driven), data integrity and safe backfills for the project's database and ORM.",
@@ -330,11 +319,10 @@ ${SHARED_RULES}`,
 	},
 	{
 		name: "devops-ci",
-		title: { en: "DevOps / CI", ko: "DevOps·CI", zh: "DevOps / CI" },
+		title: { en: "DevOps / CI", ko: "DevOps·CI" },
 		summary: {
 			en: "Maintains CI pipelines, build scripts, containers and release automation.",
 			ko: "CI 파이프라인, 빌드 스크립트, 컨테이너, 릴리스 자동화를 관리해요.",
-			zh: "维护 CI 流水线、构建脚本、容器与发布自动化。",
 		},
 		description:
 			"DevOps/CI specialist: fixes and improves CI workflows, build and release scripts, Dockerfiles and infrastructure config; diagnoses failing pipelines from logs.",

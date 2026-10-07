@@ -39,7 +39,7 @@ async function mount(element: ReactElement): Promise<void> {
 }
 
 /** Force the persisted language the provider seeds itself from. */
-function setLanguage(lang: "en" | "zh"): void {
+function setLanguage(lang: "en" | "ko"): void {
 	(globalThis as Record<string, unknown>).localStorage = {
 		getItem: (key: string) => (key === "omp.lang" ? lang : null),
 		setItem: () => {},
@@ -151,8 +151,8 @@ describe("FindRenderer", () => {
 		expect(container.querySelector("ol")).toBeNull();
 	});
 
-	it("localizes the failure label after a language switch to zh", async () => {
-		setLanguage("zh");
+	it("localizes the failure label after a language switch to ko", async () => {
+		setLanguage("ko");
 		await mount(
 			<FindRenderer
 				args={{ query: "boom" }}
@@ -160,7 +160,7 @@ describe("FindRenderer", () => {
 				result={findResult({ query: "boom", hits: [] }, "index unavailable")}
 			/>,
 		);
-		expect(container.textContent).toContain("搜索失败");
+		expect(container.textContent).toContain("검색 실패");
 		expect(container.textContent).not.toContain("search failed");
 	});
 });

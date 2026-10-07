@@ -1,19 +1,18 @@
 /** UI languages shipped by the GUI, in switcher cycle order. Shared by main (menus, tray) and renderer. */
-export const UI_LANGUAGES = ["en", "zh", "ko"] as const;
+export const UI_LANGUAGES = ["en", "ko"] as const;
 
 export type UiLanguage = (typeof UI_LANGUAGES)[number];
 
 /** Autonyms shown in language pickers. */
-export const UI_LANGUAGE_NAMES: Record<UiLanguage, string> = { en: "English", zh: "中文", ko: "한국어" };
+export const UI_LANGUAGE_NAMES: Record<UiLanguage, string> = { en: "English", ko: "한국어" };
 
 export function isUiLanguage(value: unknown): value is UiLanguage {
 	return typeof value === "string" && (UI_LANGUAGES as readonly string[]).includes(value);
 }
 
-/** Maps an OS/browser locale tag (`ko-KR`, `zh-Hans`, …) to a UI language, falling back to English. */
+/** Maps an OS/browser locale tag (`ko-KR`, `en-GB`, …) to a UI language, falling back to English. */
 export function uiLanguageFromLocale(locale: string | undefined): UiLanguage {
 	const tag = (locale ?? "").toLowerCase();
-	if (tag.startsWith("zh")) return "zh";
 	if (tag.startsWith("ko")) return "ko";
 	return "en";
 }
@@ -24,4 +23,4 @@ export function nextUiLanguage(lang: UiLanguage): UiLanguage {
 }
 
 /** BCP 47 tag for Intl formatting. */
-export const UI_LANGUAGE_INTL: Record<UiLanguage, string> = { en: "en-US", zh: "zh-CN", ko: "ko-KR" };
+export const UI_LANGUAGE_INTL: Record<UiLanguage, string> = { en: "en-US", ko: "ko-KR" };

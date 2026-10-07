@@ -113,6 +113,46 @@ describe("messages streaming snapshots", () => {
 	});
 });
 
+describe("attaching to a message already streaming", () => {
+	// A background tab's frames are not forwarded, so after the user switches to
+	// it mid-reply the first event it sees is a message_update, not message_start.
+	function partialUpdate(timestamp: number, text: string, delta: string): AgentSessionEvent {
+		const partial: AgentMessage = {
+			role: "assistant",
+			content: [
+				{ type: "thinking", thinking: "plan" },
+				{ type: "text", text },
+			],
+			timestamp,
+		};
+		return {
+			type: "message_update",
+			message: partial,
+			assistantMessageEvent: { type: "text_delta", contentIndex: 1, delta, partial },
+		};
+	}
+
+	it("adopts the in-flight message from the update's snapshot without doubling its delta", () => {
+		const store = createMessagesStore();
+		store.getState().applyEvents([partialUpdate(5, "Hello", "lo")]);
+		expect(store.getState()).toMatchObject({
+			streamingMessage: { role: "assistant", content: [], timestamp: 5 },
+			streamingText: "Hello",
+			streamingThinking: "plan",
+		});
+
+		store.getState().applyEvents([partialUpdate(5, "Hello!", "!")]);
+		expect(store.getState().streamingText).toBe("Hello!");
+	});
+
+	it("replaces a stale stream left from a message that ended while the tab was away", () => {
+		const store = createMessagesStore();
+		store.getState().applyEvents([{ type: "message_start", message: streamingMessage }, delta("old reply")]);
+		store.getState().applyEvents([partialUpdate(5, "New", "New")]);
+		expect(store.getState()).toMatchObject({ streamingMessage: { timestamp: 5 }, streamingText: "New" });
+	});
+});
+
 describe("committed transcript ownership", () => {
 	it("keeps the original prompt when steering and follow-up deliveries join the same run", () => {
 		const original: AgentMessage = { role: "user", content: [{ type: "text", text: "original" }], timestamp: 10 };

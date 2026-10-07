@@ -65,16 +65,10 @@ afterEach(async () => {
 });
 
 describe("LangSwitcher", () => {
-	it("shows the current language and cycles EN → 中文 → 한국어 on click", async () => {
+	it("shows the current language and toggles EN → 한국어 → EN on click", async () => {
 		await mountSwitcher();
 		const button = document.querySelector("button") as unknown as TestElement;
 		expect(button.textContent).toContain("EN");
-
-		await act(async () => {
-			button.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
-		});
-		await flush();
-		expect(button.textContent).toContain("中文");
 
 		await act(async () => {
 			button.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
@@ -89,8 +83,7 @@ describe("LangSwitcher", () => {
 		expect(button.textContent).toContain("EN");
 	});
 
-	it("rehydrates the persisted language (omp.lang=zh → 中文)", async () => {
-		// I18nProvider reads the LANG_KEY at mount; install a stub store first.
+	it("falls back to the system language when the stored one is no longer shipped (omp.lang=zh)", async () => {
 		const store: Record<string, string> = { "omp.lang": "zh" };
 		globals.localStorage = {
 			getItem: (key: string) => store[key] ?? null,
@@ -103,7 +96,7 @@ describe("LangSwitcher", () => {
 		};
 		try {
 			await mountSwitcher();
-			expect(document.querySelector("button")?.textContent).toContain("中文");
+			expect(document.querySelector("button")?.textContent).toContain("EN");
 		} finally {
 			delete globals.localStorage;
 		}
@@ -150,7 +143,7 @@ describe("LangSwitcher", () => {
 		};
 		bridgeWindow.omp = {
 			prefs: {
-				get: async () => "zh",
+				get: async () => "ko",
 				set: async (key, value) => {
 					writes.push({ key, value });
 				},
@@ -158,7 +151,7 @@ describe("LangSwitcher", () => {
 		};
 		try {
 			await mountSwitcher();
-			expect(document.querySelector("button")?.textContent).toContain("中文");
+			expect(document.querySelector("button")?.textContent).toContain("한국어");
 			expect(writes).toEqual([]);
 		} finally {
 			delete bridgeWindow.omp;

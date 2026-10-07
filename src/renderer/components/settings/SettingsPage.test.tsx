@@ -251,19 +251,6 @@ describe("schema tab translations", () => {
 		}
 	}
 
-	it("renders group titles and setting text in Chinese when lang is zh, with English fallback", () => {
-		inLanguage("zh-CN", () => {
-			const html = renderSchemaTab(entries, "appearance", ["Theme"]);
-			expect(html).toContain(">主题</h3>");
-			expect(html).toContain("自动压缩");
-			expect(html).toContain("上下文过大时自动压缩");
-			expect(html).toContain(">Undeclared</h3>");
-			expect(html).toContain("Mystery Setting");
-			expect(html).toContain("An English-only setting");
-			expect(html).not.toContain("Auto Compaction");
-		});
-	});
-
 	it("renders group titles and setting text in Korean when lang is ko, with English fallback", () => {
 		inLanguage("ko-KR", () => {
 			const html = renderSchemaTab(entries, "appearance", ["Theme"]);

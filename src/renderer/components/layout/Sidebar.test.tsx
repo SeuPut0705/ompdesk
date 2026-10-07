@@ -599,6 +599,32 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(activeRow().querySelector('[aria-label="Delete session"]')).toBeNull();
 	});
 
+	it("spins for a saved session running in a background tab that main reports by path only", async () => {
+		// Main learns a tab's file from get_state (sessionPath); stock omp rarely
+		// sends the session id, so a background tab often carries no sessionId.
+		installMockOmp(LIST);
+		seedStores();
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false },
+				{
+					id: "t1",
+					cwd: "/work/beta",
+					status: "running",
+					kind: "agent",
+					sessionPath: "/work/beta/three.jsonl",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "t0",
+		});
+		await mount(<Sidebar />);
+
+		const row = rowFor("Session /work/beta/three");
+		expect(row.textContent).toContain("Running");
+		expect(row.querySelector('[aria-label="Delete session"]')).toBeNull();
+	});
+
 	it("aligns workspace and session titles with folder, chat, and reserved icon slots", async () => {
 		installMockOmp(LIST);
 		seedStores();

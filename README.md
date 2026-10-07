@@ -17,7 +17,7 @@
 <br><br>
 
 <img src="https://img.shields.io/badge/omp-18.6%2B-8B5CF6?style=flat-square" alt="omp 18.6 이상">
-<img src="https://img.shields.io/badge/%ED%95%9C%EA%B5%AD%EC%96%B4%20%C2%B7%20English%20%C2%B7%20%E4%B8%AD%E6%96%87-UI-F59E0B?style=flat-square" alt="한국어 · English · 中文">
+<img src="https://img.shields.io/badge/%ED%95%9C%EA%B5%AD%EC%96%B4%20%C2%B7%20English-UI-F59E0B?style=flat-square" alt="한국어 · English">
 <img src="https://img.shields.io/badge/license-MIT-BE185D?style=flat-square" alt="MIT">
 
 </div>

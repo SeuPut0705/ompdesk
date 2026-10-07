@@ -1,9 +1,9 @@
 /**
- * Language switcher: compact globe button that cycles the UI through
- * English → 中文 → 한국어. Reads and persists the active language through useLang()
+ * Language switcher: compact globe button that toggles the UI between
+ * English and 한국어. Reads and persists the active language through useLang()
  * (localStorage LANG_KEY inside I18nProvider), so no extra wiring is needed —
  * mount it anywhere under the provider. Rendered label shows the CURRENT
- * language autonym ("EN" / "中文" / "한국어"), matching OS-language-picker convention.
+ * language autonym ("EN" / "한국어"), matching OS-language-picker convention.
  *
  * Mount points (wired by the shell owner): TitleBar trailing icon row and the
  * Settings window GUI tab.

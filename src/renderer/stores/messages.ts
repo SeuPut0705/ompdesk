@@ -178,6 +178,26 @@ export const createMessagesStore = () =>
 						break;
 					case "message_update": {
 						const update = event.assistantMessageEvent;
+						const partial = event.message;
+						// A tab that sat in the background never saw this message's
+						// message_start (its frames are not forwarded), so the first
+						// update it gets opens the stream — or replaces the shell of a
+						// message that ended meanwhile. The snapshot already holds this
+						// update's delta, so seed the buffers from it instead.
+						if (
+							partial.role === "assistant" &&
+							Array.isArray(partial.content) &&
+							(streamingMessage === null || streamingMessage.timestamp !== partial.timestamp)
+						) {
+							streamingMessage = { ...partial, content: [] };
+							streamingText = "";
+							streamingThinking = "";
+							for (const block of partial.content) {
+								if (block.type === "text") streamingText += block.text;
+								else if (block.type === "thinking") streamingThinking += block.thinking;
+							}
+							break;
+						}
 						if (update.type === "text_delta") streamingText += update.delta;
 						else if (update.type === "thinking_delta") streamingThinking += update.delta;
 						break;

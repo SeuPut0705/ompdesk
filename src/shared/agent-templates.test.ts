@@ -60,7 +60,7 @@ describe("AGENT_TEMPLATES", () => {
 
 	it("carry localized gallery copy and English model-facing text", () => {
 		for (const template of AGENT_TEMPLATES) {
-			for (const lang of ["en", "ko", "zh"] as const) {
+			for (const lang of ["en", "ko"] as const) {
 				expect(template.title[lang].trim(), `${template.name} title.${lang}`).not.toBe("");
 				expect(template.summary[lang].trim(), `${template.name} summary.${lang}`).not.toBe("");
 			}

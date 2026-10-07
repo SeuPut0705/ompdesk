@@ -1,11 +1,10 @@
 /**
- * Locale parity guard. The GUI ships en/zh/ko locales as flat key→string maps;
- * drift between them silently renders raw keys in the UI. For each of zh and
- * ko, asserts:
+ * Locale parity guard. The GUI ships en/ko locales as flat key→string maps;
+ * drift between them silently renders raw keys in the UI. For ko, asserts:
  *
  * 1. It exposes exactly en's key set (both directions).
  * 2. No empty values.
- * 3. Its {placeholders} are a subset of en's (Chinese/Korean legitimately drop
+ * 3. Its {placeholders} are a subset of en's (Korean legitimately drops
  *    plural markers like {plural}, but must never invent new params).
  * 4. For the namespaces internationalized in the language-switcher wave,
  *    it must genuinely translate — no value may be identical to its English
@@ -15,7 +14,6 @@
 import { describe, expect, it } from "vitest";
 import { en } from "./en";
 import { ko } from "./ko";
-import { zh } from "./zh";
 
 /** Namespaces completed or extended in the i18n-switcher wave. */
 const TRANSLATED_NAMESPACES = [
@@ -85,7 +83,7 @@ const ALLOW_IDENTICAL: Record<string, true> = {
 	"stats.overview.ttftSub": true, // TTFT {time} — acronym + placeholder
 	"stats.requests.detail.api": true, // API — protocol acronym
 	"chat.exec.python": true, // Python — language name
-	"chat.exec.shell": true, // Shell — universal term in zh dev UIs
+	"chat.exec.shell": true, // Shell — universal term in dev UIs
 	"tools.label.github": true, // GitHub — brand name
 	"tools.label.vibe": true, // Vibe — feature name
 	"themePicker.theme.nord.label": true, // Nord — theme name
@@ -105,7 +103,7 @@ function placeholdersOf(value: string): Set<string> {
 	return new Set([...value.matchAll(/\{(\w+)\}/g)].map(match => match[1]));
 }
 
-const TRANSLATIONS = { zh, ko } as const;
+const TRANSLATIONS = { ko } as const;
 
 describe.each(Object.entries(TRANSLATIONS))("locale parity: %s", (lang, locale) => {
 	it(`exposes the same keys in en and ${lang}`, () => {
