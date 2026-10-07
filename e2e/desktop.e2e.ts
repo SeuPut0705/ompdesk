@@ -117,7 +117,7 @@ test("settings page lists its sections, searches across languages, and Escape re
 	await expect(settings.getByRole("radiogroup", { name: "Theme" })).toBeVisible();
 	await page.screenshot({ path: "test-results/01-settings.png", scale: "css", animations: "disabled" });
 	const search = settings.getByRole("searchbox", { name: "Search settings" });
-	await search.fill("压缩");
+	await search.fill("압축");
 	await expect(settings.locator("[data-settings-search-results]")).toContainText("Auto compaction");
 	await search.fill("paste.largeMenuThreshold");
 	await expect(settings.locator("[data-settings-search-results]")).toContainText("paste");

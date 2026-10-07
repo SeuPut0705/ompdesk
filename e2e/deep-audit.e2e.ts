@@ -214,7 +214,7 @@ function conditionGate(condition: string | undefined): Array<{ path: string; val
 }
 
 async function clickSearchResult(page: Page, pathName: string): Promise<boolean> {
-	const search = page.locator("[data-settings-page]").getByRole("searchbox", { name: /Search settings|搜索设置/ });
+	const search = page.locator("[data-settings-page]").getByRole("searchbox", { name: /Search settings/ });
 	await search.fill(pathName);
 	// The Advanced row (last) is the one every schema entry has; curated sections may list it first.
 	const result = page.locator(`[data-search-path="${pathName}"]`);
@@ -263,7 +263,7 @@ async function mutateEntry(
 > {
 	const notes: string[] = [];
 	if (entry.secret === true) {
-		const reveal = row.getByRole("button", { name: /Reveal|显示/ });
+		const reveal = row.getByRole("button", { name: /Reveal/ });
 		if ((await reveal.count()) > 0) {
 			await reveal.click();
 			notes.push("secret reveal control opened; value was not written");
@@ -369,7 +369,7 @@ async function mutateEntry(
 							}
 							await trigger.click();
 							if (initial === "") {
-								await row.getByRole("button", { name: /Clear|清除/ }).click();
+								await row.getByRole("button", { name: /Clear/ }).click();
 							} else {
 								await pickerInput.fill(String(initial));
 								await row
@@ -418,10 +418,10 @@ async function mutateEntry(
 						? [{ match: "echo gui-audit-block", approval: "deny" }]
 						: ["__gui_audit__"];
 				await textarea.fill(JSON.stringify(changed, null, 2));
-				await row.getByRole("button", { name: /Apply|应用/ }).click();
+				await row.getByRole("button", { name: /Apply/ }).click();
 				const readbackValue = await pollSetting(page, entry.path, changed);
 				await textarea.fill(JSON.stringify(initial ?? [], null, 2));
-				await row.getByRole("button", { name: /Apply|应用/ }).click();
+				await row.getByRole("button", { name: /Apply/ }).click();
 				await pollSetting(page, entry.path, initial ?? []);
 				return { write: "passed", readback: "passed", restore: "passed", changedTo: changed, readbackValue, notes };
 			}
@@ -448,13 +448,13 @@ async function mutateEntry(
 					};
 				}
 			}
-			const down = row.getByRole("button", { name: /Move .* down|下移/ }).first();
+			const down = row.getByRole("button", { name: /Move .* down/ }).first();
 			if ((await down.count()) > 0 && !(await down.isDisabled()) && Array.isArray(initial) && initial.length > 1) {
 				const changed = [...initial];
 				[changed[0], changed[1]] = [changed[1], changed[0]];
 				await down.click();
 				const readbackValue = await pollSetting(page, entry.path, changed);
-				const up = row.getByRole("button", { name: new RegExp(`Move ${String(changed[1])} up|上移`) }).first();
+				const up = row.getByRole("button", { name: new RegExp(`Move ${String(changed[1])} up`) }).first();
 				if ((await up.count()) > 0) await up.click();
 				else await writeSetting(page, entry.path, initial);
 				await pollSetting(page, entry.path, initial);
@@ -527,7 +527,7 @@ async function mutateEntry(
 					__gui_audit__: "ok",
 				};
 				await textarea.fill(JSON.stringify(changed, null, 2));
-				const apply = row.getByRole("button", { name: /Apply|应用/ });
+				const apply = row.getByRole("button", { name: /Apply/ });
 				await apply.click();
 				const readbackValue = await pollSetting(page, entry.path, changed);
 				await textarea.fill(JSON.stringify(initial ?? {}, null, 2));
@@ -536,7 +536,7 @@ async function mutateEntry(
 				return { write: "passed", readback: "passed", restore: "passed", changedTo: changed, readbackValue, notes };
 			}
 			if (entry.path === "providers.maxInFlightRequests") {
-				const trigger = row.getByRole("button", { name: /Add provider|添加提供商/ }).first();
+				const trigger = row.getByRole("button", { name: /Add provider/ }).first();
 				if ((await trigger.count()) > 0) {
 					const marker = "__gui_audit_provider__";
 					await trigger.click();
@@ -550,7 +550,7 @@ async function mutateEntry(
 							await custom.last().click();
 							const changed = { [marker]: 1 };
 							const readbackValue = await pollSetting(page, entry.path, changed);
-							const remove = row.getByRole("button", { name: /Remove|移除/ }).last();
+							const remove = row.getByRole("button", { name: /Remove/ }).last();
 							if ((await remove.count()) > 0) await remove.click();
 							else await writeSetting(page, entry.path, initial ?? {});
 							await pollSetting(page, entry.path, initial ?? {});
@@ -567,7 +567,7 @@ async function mutateEntry(
 					await page.keyboard.press("Escape");
 				}
 			}
-			const add = row.getByRole("button", { name: /Add|添加/ }).first();
+			const add = row.getByRole("button", { name: /Add/ }).first();
 			if ((await add.count()) > 0) {
 				await add.click();
 				const changed = await readSetting(page, entry.path);
@@ -809,7 +809,7 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 		// executing it and retain the TUI-only negative contract.
 		// The settings home also exposes the same live palette entry, so the
 		// discoverability action is exercised through its second-level surface.
-		await settings.getByRole("searchbox", { name: /Search settings|搜索设置/ }).fill("");
+		await settings.getByRole("searchbox", { name: /Search settings/ }).fill("");
 		await page.keyboard.press("Escape");
 		await expect(settings).toHaveCount(0);
 		await page.keyboard.press("ControlOrMeta+Comma");
@@ -824,7 +824,7 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 		// The sidebar header's palette entry is an icon button: its name says what
 		// it opens and the shortcut lives in its tooltip.
 		await expect(page.locator('aside button[data-command-center-entry="true"]').first()).toHaveAccessibleName(
-			/^(Command palette|명령 팔레트|命令面板)$/,
+			/^(Command palette|명령 팔레트)$/,
 		);
 		await page.locator('aside button[data-command-center-entry="true"]').first().click();
 		const palette = page.getByRole("dialog");
