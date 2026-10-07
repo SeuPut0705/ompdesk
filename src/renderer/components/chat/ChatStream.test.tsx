@@ -9,6 +9,7 @@ import {
 	buildTimelineMarkers,
 	buildTranscriptRowKeys,
 	claimRowEntrances,
+	conversationReadingRowIndex,
 	createRowEntranceState,
 	findConversationAnchorIndex,
 	hasStreamingTranscriptContent,
@@ -457,6 +458,44 @@ describe("conversation navigation anchors", () => {
 		expect(findConversationAnchorIndex(anchors, 11)).toBe(1);
 		expect(findConversationAnchorIndex(anchors, 99)).toBe(2);
 		expect(findConversationAnchorIndex([], 3)).toBe(-1);
+	});
+
+	it("makes the newest turn current while the reader sits at the bottom", () => {
+		// Ten 100px rows in a 300px viewport; the last turns are short, so the top
+		// row at the bottom still belongs to an older turn.
+		const transcript = {
+			ownerDocument: { defaultView: { requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} } },
+			scrollHeight: 1000,
+			clientHeight: 300,
+			scrollTop: 700,
+		};
+		const virtualizer = new Virtualizer<HTMLElement, Element>({
+			count: 10,
+			estimateSize: () => 100,
+			// The fake only implements what the virtualizer reads from its scroll element.
+			getScrollElement: () => transcript as unknown as HTMLElement,
+			scrollToFn: elementScroll,
+			observeElementRect: (_instance, report) => report({ width: 800, height: transcript.clientHeight }),
+			observeElementOffset: (_instance, report) => report(transcript.scrollTop, false),
+		});
+		virtualizer._willUpdate();
+		const anchors = [
+			{ key: "one", rowIndex: 0, preview: "One" },
+			{ key: "two", rowIndex: 4, preview: "Two" },
+			{ key: "three", rowIndex: 8, preview: "Three" },
+			{ key: "four", rowIndex: 9, preview: "Four" },
+		];
+		const range = virtualizer.range;
+		if (!range) throw new Error("virtualizer computed no range");
+		expect(range.startIndex).toBe(7);
+
+		expect(findConversationAnchorIndex(anchors, conversationReadingRowIndex(range, transcript))).toBe(3);
+		// Within the live-edge slack still counts as the bottom.
+		expect(conversationReadingRowIndex(range, { ...transcript, scrollTop: 700 - LIVE_EDGE_SLACK_PX + 1 })).toBe(
+			range.endIndex,
+		);
+		// Away from the bottom the top row keeps deciding the current turn.
+		expect(conversationReadingRowIndex(range, { ...transcript, scrollTop: 400 })).toBe(range.startIndex);
 	});
 
 	it("bounds long prompt previews without changing their target row", () => {

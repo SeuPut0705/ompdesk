@@ -18,7 +18,6 @@ interface SidebarPrefsBlob {
 	pinnedSessions?: string[];
 	groupAliases?: Record<string, string>;
 	workspaceLastUsed?: Record<string, number>;
-	sessionLastUsed?: Record<string, number>;
 	groupOrder?: string[];
 }
 
@@ -27,7 +26,6 @@ interface SidebarPrefsStore {
 	pinnedSessions: string[];
 	groupAliases: Record<string, string>;
 	workspaceLastUsed: Record<string, number>;
-	sessionLastUsed: Record<string, number>;
 	/** Project order the user set by dragging (cwds, top first); empty = by recency. */
 	groupOrder: string[];
 	hydrated: boolean;
@@ -37,12 +35,10 @@ interface SidebarPrefsStore {
 	setGroupAlias: (cwd: string, alias: string | null) => Promise<void>;
 	setGroupOrder: (order: string[]) => Promise<void>;
 	touchWorkspace: (cwd: string) => void;
-	touchSession: (path: string, cwd?: string) => void;
 	reset: () => void;
 }
 
 const MAX_RECENT_WORKSPACES = 100;
-const MAX_RECENT_SESSIONS = 500;
 
 function validRecencyMap(value: unknown): Record<string, number> {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
@@ -55,11 +51,9 @@ function validRecencyMap(value: unknown): Record<string, number> {
 	return result;
 }
 
-function nextTimestamp(...maps: Record<string, number>[]): number {
+function nextTimestamp(map: Record<string, number>): number {
 	let latest = 0;
-	for (const map of maps) {
-		for (const value of Object.values(map)) latest = Math.max(latest, value);
-	}
+	for (const value of Object.values(map)) latest = Math.max(latest, value);
 	return Math.max(Date.now(), latest + 1);
 }
 
@@ -79,7 +73,6 @@ function prefsBlob(state: SidebarPrefsStore): SidebarPrefsBlob {
 		pinnedSessions: state.pinnedSessions,
 		groupAliases: state.groupAliases,
 		workspaceLastUsed: state.workspaceLastUsed,
-		sessionLastUsed: state.sessionLastUsed,
 		groupOrder: state.groupOrder,
 	};
 }
@@ -104,7 +97,6 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 	pinnedSessions: [],
 	groupAliases: {},
 	workspaceLastUsed: {},
-	sessionLastUsed: {},
 	groupOrder: [],
 	hydrated: false,
 
@@ -117,7 +109,6 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 				pinnedSessions: Array.isArray(blob?.pinnedSessions) ? blob.pinnedSessions : [],
 				groupAliases: blob?.groupAliases && typeof blob.groupAliases === "object" ? blob.groupAliases : {},
 				workspaceLastUsed: validRecencyMap(blob?.workspaceLastUsed),
-				sessionLastUsed: validRecencyMap(blob?.sessionLastUsed),
 				groupOrder: Array.isArray(blob?.groupOrder)
 					? blob.groupOrder.filter((cwd): cwd is string => typeof cwd === "string" && cwd.length > 0)
 					: [],
@@ -176,21 +167,8 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 	touchWorkspace: cwd => {
 		if (!cwd) return;
 		const state = get();
-		const timestamp = nextTimestamp(state.workspaceLastUsed, state.sessionLastUsed);
+		const timestamp = nextTimestamp(state.workspaceLastUsed);
 		set({ workspaceLastUsed: touchedMap(state.workspaceLastUsed, cwd, timestamp, MAX_RECENT_WORKSPACES) });
-		persist(get);
-	},
-
-	touchSession: (path, cwd) => {
-		if (!path) return;
-		const state = get();
-		const timestamp = nextTimestamp(state.workspaceLastUsed, state.sessionLastUsed);
-		set({
-			sessionLastUsed: touchedMap(state.sessionLastUsed, path, timestamp, MAX_RECENT_SESSIONS),
-			workspaceLastUsed: cwd
-				? touchedMap(state.workspaceLastUsed, cwd, timestamp, MAX_RECENT_WORKSPACES)
-				: state.workspaceLastUsed,
-		});
 		persist(get);
 	},
 
@@ -200,7 +178,6 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 			pinnedSessions: [],
 			groupAliases: {},
 			workspaceLastUsed: {},
-			sessionLastUsed: {},
 			groupOrder: [],
 			hydrated: false,
 		}),

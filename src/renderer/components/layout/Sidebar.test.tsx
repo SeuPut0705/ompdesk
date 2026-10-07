@@ -350,8 +350,8 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(omp.rpc.switchSession).toHaveBeenCalledWith("/work/alpha/one.jsonl");
 	});
 
-	it("moves the most recently used session and its workspace to the front immediately", async () => {
-		const omp = installMockOmp(LIST);
+	it("keeps sessions and projects in place when one is opened", async () => {
+		installMockOmp(LIST);
 		useSessionStore.setState({ sessionId: "", cwd: "/neutral", isStreaming: false });
 		useTabsStore.setState({
 			tabs: [{ id: "chat", cwd: "/neutral", status: "ready", kind: "chat", unreadDone: false }],
@@ -391,16 +391,11 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 		await flush();
 
-		expect(workspaceOrder()).toEqual(["/work/alpha", "/work/beta"]);
-		expect(alphaSessionOrder()[0]).toContain("Session /work/alpha/two");
-		expect(useSidebarPrefs.getState().sessionLastUsed["/work/alpha/two.jsonl"]).toBeGreaterThan(0);
-		expect(useSidebarPrefs.getState().workspaceLastUsed["/work/alpha"]).toBeGreaterThan(0);
-		expect(omp.prefs.set).toHaveBeenCalledWith(
-			"sidebar",
-			expect.objectContaining({
-				sessionLastUsed: expect.objectContaining({ "/work/alpha/two.jsonl": expect.any(Number) }),
-			}),
-		);
+		// Opening alpha's older session must not reorder anything: order follows
+		// real activity, not the last click.
+		expect(workspaceOrder()).toEqual(["/work/beta", "/work/alpha"]);
+		expect(alphaSessionOrder()[0]).toContain("Session /work/alpha/one");
+		expect(alphaSessionOrder()[1]).toContain("Session /work/alpha/two");
 	});
 
 	it("an active chat opens the Chat lane, whose New button starts a chat; Code starts agents", async () => {

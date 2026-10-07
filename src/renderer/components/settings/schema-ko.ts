@@ -66,6 +66,11 @@ export const KO_GROUP_TITLES: Record<string, string> = {
 	Protocol: "프로토콜",
 	Timeouts: "타임아웃",
 	Privacy: "개인정보",
+	Composer: "입력창",
+	Sharpshooter: "Sharpshooter",
+	Skills: "스킬",
+	"IDA Pro": "IDA Pro",
+	Stream: "스트림",
 };
 
 /** Per-setting row text, keyed by schema setting path. */
@@ -2034,5 +2039,22 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "IDA 유휴 닫기 시간",
 		description:
 			"이 초 수보다 오래 유휴 상태인 IDA 데이터베이스를 저장하고 닫아요(0 = 닫지 않음). 다시 열면 exec 네임스페이스가 초기화돼요.",
+	},
+	"tui.renderSvg": {
+		label: "SVG 그림 렌더링",
+		description:
+			"에이전트가 다이어그램과 차트를 SVG로 그리게 하고, 그래픽을 표시하는 터미널에서는 이미지로 바로 보여줘요",
+	},
+	"tui.autoGraph": {
+		label: "표 자동 차트",
+		description: "에이전트 답변의 숫자 표 아래에 테마 색으로 차트를 그려요. 그래픽을 표시하는 터미널에서 동작해요",
+	},
+	"title.icons": {
+		label: "제목 아이콘",
+		description: "생성된 세션 제목이 터미널 제목에 짧은 코드와 함께 표시할 아이콘이에요",
+	},
+	"title.generator": {
+		label: "제목 생성 방식",
+		description: "제목 없는 세션에 사용자의 메시지를 바탕으로 이름을 붙이는 방식이에요",
 	},
 };

@@ -66,6 +66,11 @@ export const ZH_GROUP_TITLES: Record<string, string> = {
 	Protocol: "协议",
 	Timeouts: "超时",
 	Privacy: "隐私",
+	Composer: "输入框",
+	Sharpshooter: "Sharpshooter",
+	Skills: "技能",
+	"IDA Pro": "IDA Pro",
+	Stream: "流式",
 };
 
 /** Per-setting row text, keyed by schema setting path. */
@@ -1735,5 +1740,21 @@ export const ZH_SETTINGS: Record<string, { label: string; description?: string }
 	"ida.idleCloseSec": {
 		label: "IDA 空闲关闭超时",
 		description: "保存并关闭空闲超过该秒数的 IDA 数据库（0 = 从不）；重新打开时 exec 命名空间会重置。",
+	},
+	"tui.renderSvg": {
+		label: "渲染 SVG 图形",
+		description: "允许代理以 SVG 绘制图表，在支持图形的终端中直接以图片内联显示",
+	},
+	"tui.autoGraph": {
+		label: "表格自动图表",
+		description: "在代理回答中的数值表格下方按主题配色绘制图表，适用于支持图形的终端",
+	},
+	"title.icons": {
+		label: "标题图标",
+		description: "生成的会话标题在终端标题中显示的图标及其短代码",
+	},
+	"title.generator": {
+		label: "标题生成方式",
+		description: "根据用户消息为未命名会话起名的方式",
 	},
 };

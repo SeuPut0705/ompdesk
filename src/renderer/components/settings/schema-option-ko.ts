@@ -831,4 +831,184 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 	"Share only when /collab is run": "/collab 실행 시에만 공유",
 	"Auto-host; the registry hands out view-only links (omp collab link --view)":
 		"자동 호스팅; 레지스트리가 보기 전용 링크를 배포해요 (omp collab link --view)",
+	"Requires a Nerd Font, or a Glyph Protocol terminal (icons ship in-band)":
+		"Nerd Font 또는 Glyph Protocol 지원 터미널이 필요해요 (아이콘을 출력에 함께 보내요)",
+	Annotated: "주석 표시",
+	"Percentage plus ticks at the speculative and auto-compaction boundaries":
+		"비율과 함께 예측 압축·자동 압축 경계에 눈금을 표시해요",
+	Embedded: "내장형",
+	"Annotated line with the context percentage and window embedded in the gauge":
+		"게이지 안에 컨텍스트 비율과 창 크기를 넣은 주석 줄",
+	Preserve: "유지",
+	"Repaint only the viewport and keep history wrapped at its old width":
+		"보이는 화면만 다시 그리고 기록은 이전 너비로 줄바꿈된 채 유지해요",
+	"The judge model picks the chart kind and columns for tables with several numeric columns":
+		"숫자 열이 여러 개인 표는 판정 모델이 차트 종류와 열을 골라요",
+	"Chart every table that reads as numeric, using the built-in best guess":
+		"숫자로 보이는 모든 표를 내장 추정 방식으로 차트로 그려요",
+	"Leave tables as tables": "표를 그대로 둬요",
+	"Classic ⠋⠙⠹ sweep (default)": "클래식 ⠋⠙⠹ 스윕 (기본값)",
+	"Moon filling ○◑● then emptying": "달이 ○◑● 차올랐다가 비워져요",
+	"Single braille dots cycling": "점자 점 하나가 순환해요",
+	"ASCII - \\ | / for fonts without braille coverage": "점자 문자가 없는 글꼴용 ASCII - \\ | /",
+	"Always list every live agent": "실행 중인 에이전트를 항상 모두 표시해요",
+	Text: "텍스트",
+	"Full mode name — NORMAL, INSERT, VISUAL, V-LINE": "모드 전체 이름 — NORMAL, INSERT, VISUAL, V-LINE",
+	Icon: "아이콘",
+	"Single compact glyph per mode": "모드마다 작은 글리프 하나",
+	"Do not show the mode in the status line": "상태 표시줄에 모드를 표시하지 않아요",
+	"No word completion": "단어 자동 완성 안 함",
+	"N-gram (nothing to download)": "N-gram (다운로드 없음)",
+	"Learns your vocabulary from prompt history": "프롬프트 기록에서 자주 쓰는 단어를 학습해요",
+	"Small on-device language model blended with N-gram (downloads weights on first use)":
+		"기기 내 소형 언어 모델을 N-gram과 섞어 써요 (처음 사용할 때 가중치를 내려받아요)",
+	"macOS dictionary completions": "macOS 사전 자동 완성",
+	"Keep the system awake while a session is open (macOS `caffeinate -i`)":
+		"세션이 열려 있는 동안 시스템이 잠자기에 들지 않게 해요 (macOS `caffeinate -i`)",
+	"Also keep the display from idle-sleeping (macOS `caffeinate -i -d`)":
+		"디스플레이도 유휴 잠자기에 들지 않게 해요 (macOS `caffeinate -i -d`)",
+	"Also block all system sleep on AC and declare the user active (macOS `caffeinate -i -d -s -u`)":
+		"전원 연결 시 모든 시스템 잠자기를 막고 사용자가 활동 중인 것으로 알려요 (macOS `caffeinate -i -d -s -u`)",
+	Ultrafast: "초고속",
+	"Lowest-latency serving; OpenAI API preview access, or Codex models that advertise it":
+		"지연 시간이 가장 짧은 서빙이에요. OpenAI API 프리뷰 권한이나 이를 지원하는 Codex 모델이 필요해요",
+	"Ultrafast serving (OpenAI family, where available)": "초고속 서빙 (OpenAI 계열, 지원되는 경우)",
+	"Apple silicon GPU via mlx-lm (Python subprocess; macOS arm64)":
+		"mlx-lm으로 Apple silicon GPU 사용 (Python 하위 프로세스, macOS arm64)",
+	"Alias for MLX": "MLX의 별칭",
+	"Retry stops with no visible assistant message; tool calls are excluded (default)":
+		"보이는 어시스턴트 메시지 없이 멈추면 재시도해요. 도구 호출은 제외해요 (기본값)",
+	"Mechanical + small-model classification of text-only stops":
+		"텍스트만 남기고 멈춘 경우를 규칙과 소형 모델로 분류해요",
+	"Provider default — Anthropic OAuth subscriber sessions default to 1h, API keys use 5m; PI_CACHE_RETENTION still applies":
+		"프로바이더 기본값 — Anthropic OAuth 구독 세션은 기본 1시간, API 키는 5분을 써요. PI_CACHE_RETENTION은 계속 적용돼요",
+	"Cheapest cache writes; pair with cache warming to keep short entries alive while idle":
+		"캐시 쓰기 비용이 가장 낮아요. 캐시 예열과 함께 쓰면 유휴 중에도 짧은 캐시가 유지돼요",
+	"1h TTL where the provider supports it; pricier writes, only warmed during active runs":
+		"프로바이더가 지원하면 1시간 TTL이에요. 쓰기 비용이 더 높고 실행 중에만 예열해요",
+	"Disable cache warming": "캐시 예열 끄기",
+	Streaming: "실행 중",
+	"Protect expensive prefixes during long tool executions; stops when the agent settles":
+		"긴 도구 실행 중 비싼 프롬프트 앞부분을 보호해요. 에이전트가 멈추면 중단해요",
+	Idle: "유휴",
+	"Also refresh 5-minute entries between runs while the expected savings stay above the cost floor":
+		"예상 절감액이 비용 하한보다 크면 실행 사이에도 5분 캐시를 갱신해요",
+	"Priority: native > trafilatura > lynx > parallel > firecrawl > jina":
+		"우선순위: native > trafilatura > lynx > parallel > firecrawl > jina",
+	"Requires FIRECRAWL_API_KEY": "FIRECRAWL_API_KEY가 필요해요",
+	"Check live eligibility, then ask before spending the first Claude reset.":
+		"현재 사용 가능 여부를 확인하고, 첫 Claude 리셋을 쓰기 전에 물어봐요.",
+	"Spend eligible Claude resets without prompting.": "사용 가능한 Claude 리셋을 묻지 않고 써요.",
+	"Do not run Claude reset auto-redeem checks.": "Claude 리셋 자동 사용 확인을 하지 않아요.",
+	"0 steps": "0단계",
+	"No cooldown.": "대기 시간 없음.",
+	"1 step": "1단계",
+	"2 steps": "2단계",
+	"3 steps": "3단계",
+	"4 steps": "4단계",
+	"5 steps": "5단계",
+	"Every turn": "매 턴",
+	"Review every primary update (tool-call round).": "주 에이전트의 모든 업데이트(도구 호출 라운드)를 검토해요.",
+	"Agent end": "에이전트 종료 시",
+	"Review only at final yields (once per run).": "최종 응답 때만 검토해요 (실행마다 한 번).",
+	"Every eligible update": "해당되는 모든 업데이트",
+	"Every 2nd": "2번마다",
+	"Every 3rd": "3번마다",
+	"Every 5th": "5번마다",
+	"Every 10th": "10번마다",
+	"1 note": "메모 1개",
+	"Anti-flood (strict).": "과다 방지 (엄격).",
+	"2 notes": "메모 2개",
+	"3 notes": "메모 3개",
+	"4 notes": "메모 4개",
+	"Frontier reasoning models. Default.": "최상위 추론 모델용. 기본값.",
+	"5 notes": "메모 5개",
+	"Server compaction": "서버 압축",
+	"Use provider-native server compaction (OpenAI Responses compact, Anthropic compaction beta) when the active route supports it":
+		"현재 경로가 지원하면 프로바이더 자체 서버 압축(OpenAI Responses compact, Anthropic compaction beta)을 써요",
+	"1/8 of a 200K window": "200K 창의 1/8",
+	"1/4 of a 200K window": "200K 창의 1/4",
+	"1/2 of a 200K window": "200K 창의 1/2",
+	"3/4 of a 200K window": "200K 창의 3/4",
+	"Judge only when the judge role resolves to a native TypeSafe jev model":
+		"판정 역할이 TypeSafe jev 네이티브 모델일 때만 판정해요",
+	"Always judge, whichever model the judge role resolves to": "판정 역할이 어떤 모델이든 항상 판정해요",
+	"Never judge; question rules stay inactive": "판정하지 않아요. 질문 규칙은 꺼진 채로 둬요",
+	"Save the complete output": "전체 출력을 저장해요",
+	"Enable when the judge role resolves to a native TypeSafe jev model":
+		"판정 역할이 TypeSafe jev 네이티브 모델일 때 켜요",
+	"Always enable, whichever model the judge role resolves to": "판정 역할이 어떤 모델이든 항상 켜요",
+	"Disable the find tool": "find 도구 끄기",
+	"1 operation": "작업 1개",
+	"2 operations": "작업 2개",
+	"3 operations": "작업 3개",
+	"4 operations": "작업 4개",
+	"Uses the selected model's policy; some models require an explicit delegation request":
+		"선택한 모델의 정책을 따라요. 일부 모델은 명시적인 위임 요청이 필요해요",
+	"Nerd Font + Emoji": "Nerd Font + 이모지",
+	"Nerd Font glyph where the Nerd Font symbol preset renders it, else the emoji (default)":
+		"Nerd Font 기호 프리셋이 표시할 수 있으면 Nerd Font 글리프, 아니면 이모지 (기본값)",
+	Emoji: "이모지",
+	"Always the emoji": "항상 이모지",
+	Boring: "단순",
+	"Plain title: no icon or code": "아이콘과 코드 없는 일반 제목",
+	Fork: "포크",
+	"A side turn of the reply on the session's model: reads its prompt cache, adds the card icon (default)":
+		"세션 모델로 답변의 곁가지 턴을 돌려요. 프롬프트 캐시를 재사용하고 카드 아이콘을 붙여요 (기본값)",
+	Tiny: "초소형",
+	"The title model role only; plain titles without a card": "제목 모델 역할만 써요. 카드 없는 일반 제목",
+	"Uploads require either an Imgur access token or client ID.":
+		"업로드하려면 Imgur 액세스 토큰이나 클라이언트 ID가 필요해요.",
+	"The API requires a paid subscription.": "API를 쓰려면 유료 구독이 필요해요.",
+	"image-host": "이미지 호스팅",
+	"self-hosted": "자체 호스팅",
+	"cloud-files": "클라우드 파일",
+	"file-transfer": "파일 전송",
+	"puush-compatible endpoint": "puush 호환 엔드포인트",
+	"The public service is defunct; a replacement endpoint is required.":
+		"공개 서비스가 종료되어 대체 엔드포인트가 필요해요.",
+	"object-storage": "오브젝트 스토리지",
+	"Configure either native B2 application keys or S3-compatible access keys.":
+		"B2 애플리케이션 키나 S3 호환 액세스 키 중 하나를 설정하세요.",
+	"MediaFire-compatible endpoint": "MediaFire 호환 엔드포인트",
+	"The public API is deprecated; a replacement endpoint is required.":
+		"공개 API가 지원 중단되어 대체 엔드포인트가 필요해요.",
+	"SendSpace-compatible endpoint": "SendSpace 호환 엔드포인트",
+	"The public discovery API is deprecated; a replacement endpoint is required.":
+		"공개 디스커버리 API가 지원 중단되어 대체 엔드포인트가 필요해요.",
+	"Hostr-compatible endpoint": "Hostr 호환 엔드포인트",
+	"The public service is offline; a replacement endpoint is required.":
+		"공개 서비스가 중단되어 대체 엔드포인트가 필요해요.",
+	"Lambda-compatible endpoint": "Lambda 호환 엔드포인트",
+	"Public uploads expire after approximately three hours.": "공개 업로드는 약 3시간 뒤 만료돼요.",
+	"file-host": "파일 호스팅",
+	"LobFile-compatible endpoint": "LobFile 호환 엔드포인트",
+	"transfer.sh-compatible endpoint": "transfer.sh 호환 엔드포인트",
+	"The defunct public endpoint is blocked; a self-hosted replacement is required.":
+		"종료된 공개 엔드포인트는 차단되어 있어 자체 호스팅 대체가 필요해요.",
+	"Shared folder": "공유 폴더",
+	filesystem: "파일 시스템",
+	"anonymous-host": "익명 호스팅",
+	"Uploads are temporary.": "업로드는 임시로만 보관돼요.",
+	"Public uploads expire after a retention window determined by file size.":
+		"공개 업로드는 파일 크기에 따라 정해진 보관 기간 뒤 만료돼요.",
+	"Public uploads are temporary.": "공개 업로드는 임시로만 보관돼요.",
+	messaging: "메신저",
+	"Model provider files": "모델 프로바이더 파일",
+	"Provider file references are API-local rather than public image URLs.":
+		"프로바이더 파일 참조는 공개 이미지 URL이 아니라 해당 API 안에서만 쓸 수 있어요.",
+	"Direct public URL": "직접 공개 URL",
+	"local-serving": "로컬 서빙",
+	"Cloudflare quick tunnel": "Cloudflare 빠른 터널",
+	tunnel: "터널",
+	"SSH reverse tunnel": "SSH 리버스 터널",
+	"Uploader command": "업로더 명령",
+	"external-command": "외부 명령",
+	"Microsoft dev tunnel": "Microsoft 개발 터널",
+	"The devtunnel CLI must be logged in locally.": "로컬에서 devtunnel CLI에 로그인되어 있어야 해요.",
+	"The local zrok environment must be enabled.": "로컬 zrok 환경이 활성화되어 있어야 해요.",
+	"Named Cloudflare Tunnel": "이름 있는 Cloudflare 터널",
+	Control: "제어",
+	"Auto-host; the registry hands out control links that can prompt the session":
+		"자동 호스팅; 레지스트리가 세션에 프롬프트를 보낼 수 있는 제어 링크를 배포해요",
 };

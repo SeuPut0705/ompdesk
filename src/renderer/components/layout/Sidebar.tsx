@@ -379,9 +379,6 @@ export function Sidebar() {
 	const groupOrder = useSidebarPrefs(s => s.groupOrder);
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
-	const workspaceLastUsed = useSidebarPrefs(s => s.workspaceLastUsed);
-	const sessionLastUsed = useSidebarPrefs(s => s.sessionLastUsed);
-	const touchSession = useSidebarPrefs(s => s.touchSession);
 	const { sessions, isLoading, error: listError, refresh, deleteSession, renameSession } = useSessionList("global");
 	const sessionId = useSessionStore(s => s.sessionId);
 	const sessionName = useSessionStore(s => s.sessionName);
@@ -420,18 +417,16 @@ export function Sidebar() {
 			session.cwd.toLocaleLowerCase().includes(query),
 		[query],
 	);
-	const recencyForSession = useCallback(
-		(session: SessionInfo) => sessionLastUsed[session.path] ?? modifiedAt(session),
-		[sessionLastUsed],
-	);
+	// Sessions sort by their last real activity (the transcript file's mtime),
+	// never by when they were last clicked, so opening a row keeps its place.
 	const byPinThenRecency = useCallback(
 		(a: SessionInfo, b: SessionInfo) => {
 			const aPinned = pinnedSessions.includes(a.path) ? 0 : 1;
 			const bPinned = pinnedSessions.includes(b.path) ? 0 : 1;
 			if (aPinned !== bPinned) return aPinned - bPinned;
-			return recencyForSession(b) - recencyForSession(a);
+			return modifiedAt(b) - modifiedAt(a);
 		},
-		[pinnedSessions, recencyForSession],
+		[pinnedSessions],
 	);
 	// Every open tab keeps a row even before the index lists its session (a
 	// brand-new session has no file yet): synthesize it from the tab and, for
@@ -501,9 +496,9 @@ export function Sidebar() {
 		return orderProjects(result, {
 			pinned: pinnedGroups,
 			manual: groupOrder,
-			recency: group => Math.max(workspaceLastUsed[group.cwd] ?? 0, ...group.sessions.map(recencyForSession)),
+			recency: group => Math.max(...group.sessions.map(modifiedAt)),
 		});
-	}, [codeSessions, groupAliases, pinnedGroups, groupOrder, byPinThenRecency, recencyForSession, workspaceLastUsed]);
+	}, [codeSessions, groupAliases, pinnedGroups, groupOrder, byPinThenRecency]);
 	const groups = useMemo(
 		() =>
 			query
@@ -650,7 +645,6 @@ export function Sidebar() {
 			toast({ variant: "warning", message: t("sidebar.parallelCap") });
 			return;
 		}
-		touchSession(session.path, session.kind === "chat" ? undefined : session.cwd);
 	};
 
 	const startRename = (session: SessionInfo) => {

@@ -228,7 +228,7 @@ function conversationPreview(text: string): string {
 	return `${normalized.slice(0, CONVERSATION_PREVIEW_LIMIT - 1).trimEnd()}…`;
 }
 
-/** Current user turn at or immediately before the first visible transcript row. */
+/** Current user turn at or immediately before the reader's row (see `conversationReadingRowIndex`). */
 export function findConversationAnchorIndex(anchors: readonly ConversationAnchor[], visibleRowIndex: number): number {
 	if (anchors.length === 0) return -1;
 	let low = 0;
@@ -244,6 +244,17 @@ export function findConversationAnchorIndex(anchors: readonly ConversationAnchor
 		}
 	}
 	return match;
+}
+
+/** Transcript row the turn navigator treats as the reader's position: the first
+ * row in view, except at the live edge, where it is the last. Trailing turns that
+ * are short all fit below an earlier turn's tail, so the top row alone would leave
+ * the current turn on an older one while the reader sits on the newest. */
+export function conversationReadingRowIndex(
+	range: { startIndex: number; endIndex: number },
+	viewport: Parameters<typeof isTranscriptAtLiveEdge>[0],
+): number {
+	return isTranscriptAtLiveEdge(viewport) ? range.endIndex : range.startIndex;
 }
 
 /** Stable finalized-row identities used by the virtualizer and regression tests. */

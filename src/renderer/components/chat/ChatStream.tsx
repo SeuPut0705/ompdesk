@@ -40,6 +40,7 @@ import {
 	buildHistoryRows,
 	buildTranscriptRowKeys,
 	claimRowEntrances,
+	conversationReadingRowIndex,
 	createRowEntranceState,
 	findConversationAnchorIndex,
 	type GestureTowardTail,
@@ -220,12 +221,16 @@ function SessionTranscript() {
 	const followedSizeRef = useRef(0);
 	const handleVirtualizerChange = useCallback(
 		(instance: {
-			range: { startIndex: number } | null;
+			range: { startIndex: number; endIndex: number } | null;
 			getTotalSize: () => number;
 			scrollToOffset: (offset: number) => void;
 		}) => {
-			const next = instance.range?.startIndex;
-			if (next != null) setVisibleRowIndex(current => (current === next ? current : next));
+			const el = parentRef.current;
+			const range = instance.range;
+			if (range && el) {
+				const next = conversationReadingRowIndex(range, el);
+				setVisibleRowIndex(current => (current === next ? current : next));
+			}
 			// A row measured taller (streamed text): pin in this same frame. The
 			// canvas observer below only sees the growth once React re-renders the
 			// sizer — a frame later, longer on a slow renderer — and meanwhile the
@@ -233,7 +238,6 @@ function SessionTranscript() {
 			const size = instance.getTotalSize();
 			if (size === followedSizeRef.current) return;
 			followedSizeRef.current = size;
-			const el = parentRef.current;
 			if (!el || userScrollIntentRef.current || !followsTail(el)) return;
 			scrollTranscriptToTail(instance, el);
 		},
@@ -1197,6 +1201,7 @@ export {
 	buildTimelineMarkers,
 	buildTranscriptRowKeys,
 	claimRowEntrances,
+	conversationReadingRowIndex,
 	createRowEntranceState,
 	findConversationAnchorIndex,
 	hasStreamingTranscriptContent,
