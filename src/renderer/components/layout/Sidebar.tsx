@@ -1,5 +1,10 @@
+import { closestCenter, DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
 	AlertTriangle,
+	ArrowDown,
+	ArrowUp,
 	BarChart3,
 	Bot,
 	ChevronDown,
@@ -56,6 +61,7 @@ import { basename, cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { actionKbd, onEscape } from "../../lib/keymap";
+import { orderProjects, reorderProjects } from "../../lib/project-order";
 import { sessionDisplayTitle } from "../../lib/session-title";
 import { performTabClose } from "../../lib/tab-close";
 import { useTabRpc } from "../../lib/tab-rpc";
@@ -108,7 +114,12 @@ interface WorkspaceGroup {
 /** A delete the row or context menu queued, awaiting the confirmation dialog. */
 type PendingDelete = { kind: "session"; session: SidebarSession } | { kind: "group"; group: WorkspaceGroup };
 
-type SidebarMode = "code" | "work";
+/**
+ * Sidebar lanes. Code: project sessions grouped by folder. Chat: conversations
+ * without a project — tool-free chats plus agent sessions started in the
+ * GUI's default folder.
+ */
+type SidebarMode = "code" | "chat";
 
 /** Floor for the docked column: the sidebar never folds on its own, so this is what a narrow window keeps. */
 const SIDEBAR_MIN = 220;
@@ -202,6 +213,33 @@ function useHelpItems(): ContextMenuItem[] {
 			onSelect: () => useUiStore.getState().openSettings("updates"),
 		},
 	];
+}
+
+/**
+ * A project group the user can drag to a new place. Pointer-only, armed after a
+ * short move so a plain click still toggles the group; the group menu's
+ * "위로/아래로 이동" is the keyboard path.
+ */
+function SortableProject({
+	id,
+	disabled,
+	children,
+}: {
+	id: string;
+	disabled: boolean;
+	children: (dragHandle: Record<string, unknown>) => ReactNode;
+}) {
+	const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id, disabled });
+	return (
+		<div
+			className={cx("mt-2 first:mt-0", isDragging && "relative z-(--sc-z-raised) opacity-80")}
+			data-dragging={isDragging || undefined}
+			ref={setNodeRef}
+			style={{ transform: CSS.Translate.toString(transform), transition }}
+		>
+			{children(listeners ?? {})}
+		</div>
+	);
 }
 
 /** Footer: Agents · Stats · Settings, with the help menu closing the Settings row. */
@@ -338,6 +376,7 @@ export function Sidebar() {
 	const activeTab = tabs.find(tab => tab.id === activeTabId);
 	const activeTabKind = activeTab?.kind;
 	const pinnedGroups = useSidebarPrefs(s => s.pinnedGroups);
+	const groupOrder = useSidebarPrefs(s => s.groupOrder);
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const workspaceLastUsed = useSidebarPrefs(s => s.workspaceLastUsed);
@@ -362,7 +401,7 @@ export function Sidebar() {
 				setDefaultWorkspace(workspace);
 				const tabState = useTabsStore.getState();
 				const activeKind = tabState.tabs.find(tab => tab.id === tabState.activeTabId)?.kind;
-				if (activeKind !== "chat" && useSessionStore.getState().cwd === workspace) setMode("work");
+				if (activeKind === "chat" || useSessionStore.getState().cwd === workspace) setMode("chat");
 			})
 			.catch(() => {});
 	}, []);
@@ -370,7 +409,7 @@ export function Sidebar() {
 	// Opening a session from search or the palette keeps the lane honest.
 	useEffect(() => {
 		if (!defaultWorkspace || !cwd) return;
-		setMode(activeTabKind === "chat" ? "code" : cwd === defaultWorkspace ? "work" : "code");
+		setMode(activeTabKind === "chat" || cwd === defaultWorkspace ? "chat" : "code");
 	}, [activeTabKind, cwd, defaultWorkspace]);
 
 	const query = filter.trim().toLocaleLowerCase();
@@ -433,25 +472,20 @@ export function Sidebar() {
 		() => agentSessions.filter(session => !defaultWorkspace || session.cwd !== defaultWorkspace),
 		[agentSessions, defaultWorkspace],
 	);
-	const workSessions = useMemo(
-		() =>
-			agentSessions
-				.filter(session => defaultWorkspace !== null && session.cwd === defaultWorkspace)
-				.filter(matchesFilter)
-				.toSorted(byPinThenRecency),
-		[agentSessions, defaultWorkspace, matchesFilter, byPinThenRecency],
-	);
-	const chatSessions = useMemo(
+	// Chat lane: tool-free chats and no-project sessions, one recency-ordered list.
+	const chatLaneSessions = useMemo(
 		() =>
 			allSessions
-				.filter(session => session.kind === "chat")
+				.filter(
+					session => session.kind === "chat" || (defaultWorkspace !== null && session.cwd === defaultWorkspace),
+				)
 				.filter(matchesFilter)
 				.toSorted(byPinThenRecency),
-		[allSessions, matchesFilter, byPinThenRecency],
+		[allSessions, defaultWorkspace, matchesFilter, byPinThenRecency],
 	);
 
-	// Code sessions stay grouped by project. Pins remain a priority partition,
-	// with MRU inside it.
+	// Code sessions stay grouped by project: pinned first, then the order the user
+	// dragged, with projects they never placed on top by recency.
 	const allGroups = useMemo<WorkspaceGroup[]>(() => {
 		const byCwd = new Map<string, SidebarSession[]>();
 		for (const session of codeSessions) {
@@ -464,16 +498,12 @@ export function Sidebar() {
 			name: groupAliases[groupCwd] ?? (basename(groupCwd) || groupCwd),
 			sessions: groupSessions.toSorted(byPinThenRecency),
 		}));
-		result.sort((a, b) => {
-			const aPinned = pinnedGroups.includes(a.cwd) ? 0 : 1;
-			const bPinned = pinnedGroups.includes(b.cwd) ? 0 : 1;
-			if (aPinned !== bPinned) return aPinned - bPinned;
-			const aRecency = Math.max(workspaceLastUsed[a.cwd] ?? 0, ...a.sessions.map(recencyForSession));
-			const bRecency = Math.max(workspaceLastUsed[b.cwd] ?? 0, ...b.sessions.map(recencyForSession));
-			return bRecency - aRecency;
+		return orderProjects(result, {
+			pinned: pinnedGroups,
+			manual: groupOrder,
+			recency: group => Math.max(workspaceLastUsed[group.cwd] ?? 0, ...group.sessions.map(recencyForSession)),
 		});
-		return result;
-	}, [codeSessions, groupAliases, pinnedGroups, byPinThenRecency, recencyForSession, workspaceLastUsed]);
+	}, [codeSessions, groupAliases, pinnedGroups, groupOrder, byPinThenRecency, recencyForSession, workspaceLastUsed]);
 	const groups = useMemo(
 		() =>
 			query
@@ -488,13 +518,12 @@ export function Sidebar() {
 				: allGroups,
 		[allGroups, matchesFilter, query],
 	);
-	const totalCount = mode === "work" ? workSessions.length : groups.length + chatSessions.length;
+	const totalCount = mode === "chat" ? chatLaneSessions.length : groups.length;
 	// An empty lane must not read as "no sessions at all" while the other lane
-	// holds some (e.g. the open code session while 업무 is selected).
-	const workTotal = agentSessions.length - codeSessions.length;
-	const otherModeCount = mode === "work" ? allSessions.length - workTotal : workTotal;
+	// holds some (e.g. the open code session while 채팅 is selected).
+	const codeTotal = codeSessions.length;
+	const otherModeCount = mode === "chat" ? codeTotal : allSessions.length - codeTotal;
 	const visibleGroups = mode === "code" ? groups : [];
-	const chatsCollapsed = !query && (collapsed.__chats__ ?? false);
 	// Projects with an open tab start expanded so every open session is in view.
 	const openTabCwds = useMemo(() => new Set(tabs.filter(tab => tab.kind !== "chat").map(tab => tab.cwd)), [tabs]);
 
@@ -507,6 +536,18 @@ export function Sidebar() {
 	};
 	const toggleGroup = (groupCwd: string) => {
 		setCollapsed(prev => ({ ...prev, [groupCwd]: !isCollapsed(groupCwd) }));
+	};
+	// A drag arms only after 6px of movement, so clicking a project still toggles it.
+	const projectSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+	const onProjectDragEnd = ({ active, over }: DragEndEvent) => {
+		if (!over || active.id === over.id) return;
+		void useSidebarPrefs.getState().setGroupOrder(
+			reorderProjects(
+				allGroups.map(group => group.cwd),
+				String(active.id),
+				String(over.id),
+			),
+		);
 	};
 	const isCurrentSession = (session: SidebarSession) =>
 		session.id === sessionId || (session.liveTabId !== undefined && session.liveTabId === activeTabId);
@@ -562,9 +603,8 @@ export function Sidebar() {
 		await openTab({ cwd: target, kind: "agent" });
 	};
 	const startNew = () => {
-		if (mode === "work") {
-			useUiStore.getState().closeDestination();
-			void openTab({ kind: "agent", work: true });
+		if (mode === "chat") {
+			startChat();
 			return;
 		}
 		const target = activeTab?.kind === "chat" ? null : cwd;
@@ -896,116 +936,123 @@ export function Sidebar() {
 		const groupBusy = groupCollapsed && group.sessions.some(isSessionBusy);
 		const FolderIcon = groupCollapsed ? Folder : FolderOpen;
 		return (
-			<div className="mt-2 first:mt-0" key={group.cwd}>
-				<div
-					className="group/head relative flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
-					data-workspace-group={group.cwd}
-					onContextMenu={event => setGroupMenu({ anchor: anchorFromEvent(event), group })}
-				>
-					{renamingGroupCwd === group.cwd ? (
-						<div className="min-w-0 flex-1 pl-1">
-							<Input
-								aria-label={t("sidebar.menu.rename")}
-								autoFocus
-								controlSize="sm"
-								onBlur={() => {
-									useSidebarPrefs.getState().setGroupAlias(group.cwd, groupRenameDraft);
-									setRenamingGroupCwd(null);
-								}}
-								onChange={event => setGroupRenameDraft(event.target.value)}
-								onFocus={event => event.currentTarget.select()}
-								onKeyDown={event => {
-									if (isImeKeyEvent(event)) return;
-									if (event.key === "Enter") {
-										useSidebarPrefs.getState().setGroupAlias(group.cwd, groupRenameDraft);
-										setRenamingGroupCwd(null);
-									}
-									onEscape(event, () => setRenamingGroupCwd(null));
-								}}
-								value={groupRenameDraft}
-							/>
-						</div>
-					) : (
-						<button
-							aria-expanded={!groupCollapsed}
-							className={cx(
-								"flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-2 pl-2 text-left text-sc-sm font-medium outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)",
-								// Hover actions overlay the right edge; make room only while they show.
-								"group-focus-within/head:pr-16 group-hover/head:pr-16",
-								isCurrentProject ? "text-(--sc-text)" : "text-(--sc-text-muted)",
-							)}
-							data-roving-item={key}
-							onClick={() => toggleGroup(group.cwd)}
-							onFocus={() => setFocusKey(key)}
-							onKeyDown={event => {
-								if (opensMenu(event)) {
-									event.preventDefault();
-									setGroupMenu({ anchor: anchorBelow(event.currentTarget), group });
-								} else if (event.key === "ArrowRight" && groupCollapsed) {
-									event.preventDefault();
-									toggleGroup(group.cwd);
-								} else if (event.key === "ArrowLeft" && !groupCollapsed) {
-									event.preventDefault();
-									toggleGroup(group.cwd);
-								}
-							}}
-							tabIndex={tabIndex}
-							title={group.cwd}
-							type="button"
+			<SortableProject disabled={query.length > 0 || renamingGroupCwd !== null} id={group.cwd} key={group.cwd}>
+				{dragHandle => (
+					<>
+						<div
+							className="group/head relative flex h-8 cursor-default items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+							data-workspace-group={group.cwd}
+							onContextMenu={event => setGroupMenu({ anchor: anchorFromEvent(event), group })}
+							{...dragHandle}
 						>
-							{groupCollapsed ? (
-								<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+							{renamingGroupCwd === group.cwd ? (
+								<div className="min-w-0 flex-1 pl-1">
+									<Input
+										aria-label={t("sidebar.menu.rename")}
+										autoFocus
+										controlSize="sm"
+										onBlur={() => {
+											useSidebarPrefs.getState().setGroupAlias(group.cwd, groupRenameDraft);
+											setRenamingGroupCwd(null);
+										}}
+										onChange={event => setGroupRenameDraft(event.target.value)}
+										onFocus={event => event.currentTarget.select()}
+										onKeyDown={event => {
+											if (isImeKeyEvent(event)) return;
+											if (event.key === "Enter") {
+												useSidebarPrefs.getState().setGroupAlias(group.cwd, groupRenameDraft);
+												setRenamingGroupCwd(null);
+											}
+											onEscape(event, () => setRenamingGroupCwd(null));
+										}}
+										value={groupRenameDraft}
+									/>
+								</div>
 							) : (
-								<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-							)}
-							<FolderIcon aria-hidden className="size-(--sc-icon-sm) shrink-0" data-sidebar-workspace-icon />
-							<span className="min-w-0 flex-1 truncate">{group.name}</span>
-							{pinned && <Pin aria-label={t("sidebar.pinned")} className="size-3 shrink-0" />}
-							<span className="flex shrink-0 items-center text-sc-xs font-normal tabular-nums text-(--sc-text-subtle) group-focus-within/head:hidden group-hover/head:hidden">
-								{groupBusy ? (
-									<>
-										<span aria-hidden className="inline-flex">
-											<Spinner size="sm" />
+								<button
+									aria-expanded={!groupCollapsed}
+									className={cx(
+										"flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)",
+										isCurrentProject ? "text-(--sc-text)" : "text-(--sc-text-muted)",
+									)}
+									data-roving-item={key}
+									onClick={() => toggleGroup(group.cwd)}
+									onFocus={() => setFocusKey(key)}
+									onKeyDown={event => {
+										if (opensMenu(event)) {
+											event.preventDefault();
+											setGroupMenu({ anchor: anchorBelow(event.currentTarget), group });
+										} else if (event.key === "ArrowRight" && groupCollapsed) {
+											event.preventDefault();
+											toggleGroup(group.cwd);
+										} else if (event.key === "ArrowLeft" && !groupCollapsed) {
+											event.preventDefault();
+											toggleGroup(group.cwd);
+										}
+									}}
+									tabIndex={tabIndex}
+									title={group.cwd}
+									type="button"
+								>
+									{groupCollapsed ? (
+										<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+									) : (
+										<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+									)}
+									<FolderIcon
+										aria-hidden
+										className="size-(--sc-icon-sm) shrink-0"
+										data-sidebar-workspace-icon
+									/>
+									<span className="min-w-0 flex-1 truncate">{group.name}</span>
+									{pinned && <Pin aria-label={t("sidebar.pinned")} className="size-3 shrink-0" />}
+									{groupBusy && (
+										<span className="flex shrink-0 items-center">
+											<span aria-hidden className="inline-flex">
+												<Spinner size="sm" />
+											</span>
+											<span className="sr-only">, {t("sidebar.signal.running")}</span>
 										</span>
-										<span className="sr-only">, {t("sidebar.signal.running")}</span>
-									</>
-								) : (
-									group.sessions.length
-								)}
-							</span>
-						</button>
-					)}
-					{renamingGroupCwd !== group.cwd && (
-						<span className="pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100">
-							<IconButton
-								icon={<Plus />}
-								label={t("sidebar.menu.newAgentHere")}
-								onClick={() => {
-									useUiStore.getState().closeDestination();
-									void openTab({ cwd: group.cwd });
-								}}
-								size="sm"
-								tabIndex={-1}
-							/>
-							<IconButton
-								icon={<MoreHorizontal />}
-								label={t("sidebar.groupMenu")}
-								onClick={event => setGroupMenu({ anchor: anchorBelow(event.currentTarget), group })}
-								size="sm"
-								tabIndex={-1}
-							/>
-						</span>
-					)}
-				</div>
-				{/* Collapsed groups render nothing: a long-lived install with
+									)}
+								</button>
+							)}
+							{renamingGroupCwd !== group.cwd && (
+								<span className="flex shrink-0 items-center gap-0.5 pr-1">
+									<IconButton
+										className="pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100"
+										icon={<MoreHorizontal />}
+										label={t("sidebar.groupMenu")}
+										onClick={event => setGroupMenu({ anchor: anchorBelow(event.currentTarget), group })}
+										size="sm"
+										tabIndex={-1}
+									/>
+									{/* Always visible (Claude-style): a new session in this project, one click. */}
+									<IconButton
+										className="text-(--sc-text-subtle) hover:text-(--sc-text)"
+										data-sidebar-group-new={group.cwd}
+										icon={<Plus />}
+										label={t("sidebar.menu.newAgentHere")}
+										onClick={() => {
+											useUiStore.getState().closeDestination();
+											void openTab({ cwd: group.cwd });
+										}}
+										size="sm"
+										tabIndex={-1}
+									/>
+								</span>
+							)}
+						</div>
+						{/* Collapsed groups render nothing: a long-lived install with
 				    hundreds of sessions must not build the full DOM per
 				    debounced refresh just to hide it. */}
-				{!groupCollapsed && (
-					<div className="space-y-px" data-session-group={group.cwd} data-state="expanded">
-						{group.sessions.map(session => renderSessionRow(session, true))}
-					</div>
+						{!groupCollapsed && (
+							<div className="space-y-px" data-session-group={group.cwd} data-state="expanded">
+								{group.sessions.map(session => renderSessionRow(session, true))}
+							</div>
+						)}
+					</>
 				)}
-			</div>
+			</SortableProject>
 		);
 	};
 
@@ -1052,7 +1099,7 @@ export function Sidebar() {
 						onChange={id => setMode(id as SidebarMode)}
 						tabs={[
 							{ id: "code", label: t("sidebar.mode.code") },
-							{ id: "work", label: t("sidebar.mode.work") },
+							{ id: "chat", label: t("sidebar.mode.chat") },
 						]}
 						variant="segmented"
 					/>
@@ -1060,29 +1107,22 @@ export function Sidebar() {
 						<Button
 							className="min-w-0 flex-1 justify-start gap-2.5 px-2.5"
 							data-sidebar-new-agent
-							icon={<SquarePen />}
+							icon={mode === "chat" ? <MessageSquarePlus /> : <SquarePen />}
 							onClick={startNew}
 							variant="secondary"
 						>
-							<span className="min-w-0 flex-1 truncate text-left">{t("sidebar.newSession")}</span>
+							<span className="min-w-0 flex-1 truncate text-left">
+								{mode === "chat" ? t("sidebar.newChat") : t("sidebar.newSession")}
+							</span>
 						</Button>
 						{mode === "code" && (
-							<>
-								<IconButton
-									data-sidebar-open-project
-									icon={<FolderPlus />}
-									label={t("sidebar.project.newFolder")}
-									onClick={() => void openProjectFolder()}
-									variant="secondary"
-								/>
-								<IconButton
-									data-sidebar-new-chat
-									icon={<MessageSquarePlus />}
-									label={t("sidebar.menu.newChat")}
-									onClick={startChat}
-									variant="secondary"
-								/>
-							</>
+							<IconButton
+								data-sidebar-open-project
+								icon={<FolderPlus />}
+								label={t("sidebar.project.newFolder")}
+								onClick={() => void openProjectFolder()}
+								variant="secondary"
+							/>
 						)}
 					</div>
 					<SearchField
@@ -1174,11 +1214,11 @@ export function Sidebar() {
 										{otherModeCount > 0 && (
 											<Button
 												data-sidebar-other-mode
-												onClick={() => setMode("work")}
+												onClick={() => setMode("chat")}
 												size="sm"
 												variant="ghost"
 											>
-												{t("sidebar.otherMode.showWork")}
+												{t("sidebar.otherMode.showChat")}
 											</Button>
 										)}
 									</>
@@ -1187,7 +1227,7 @@ export function Sidebar() {
 								description={
 									otherModeCount > 0 ? (
 										<>
-											{t("sidebar.emptyCodeHint")} {t("sidebar.otherMode.work", { count: otherModeCount })}
+											{t("sidebar.emptyCodeHint")} {t("sidebar.otherMode.chat", { count: otherModeCount })}
 										</>
 									) : (
 										t("sidebar.emptyCodeHint")
@@ -1201,8 +1241,8 @@ export function Sidebar() {
 							<EmptyState
 								actions={
 									<>
-										<Button icon={<SquarePen />} onClick={startNew} size="sm" variant="secondary">
-											{t("sidebar.newSession")}
+										<Button icon={<MessageSquarePlus />} onClick={startChat} size="sm" variant="secondary">
+											{t("sidebar.menu.newChat")}
 										</Button>
 										{otherModeCount > 0 && (
 											<Button
@@ -1220,52 +1260,32 @@ export function Sidebar() {
 								description={
 									otherModeCount > 0 ? (
 										<>
-											{t("sidebar.emptyWorkHint")} {t("sidebar.otherMode.code", { count: otherModeCount })}
+											{t("sidebar.emptyChatHint")} {t("sidebar.otherMode.code", { count: otherModeCount })}
 										</>
 									) : (
-										t("sidebar.emptyWorkHint")
+										t("sidebar.emptyChatHint")
 									)
 								}
-								icon={<SquarePen />}
+								icon={<MessageCircle />}
 								size="sm"
-								title={t("sidebar.emptyWork")}
+								title={t("sidebar.emptyChat")}
 							/>
 						))}
-					{mode === "work" && workSessions.length > 0 && (
-						<div className="space-y-px" data-work-section>
-							{workSessions.map(session => renderSessionRow(session))}
+					{mode === "chat" && chatLaneSessions.length > 0 && (
+						<div className="space-y-px" data-chat-lane>
+							{chatLaneSessions.map(session => renderSessionRow(session))}
 						</div>
 					)}
-					{mode === "code" && chatSessions.length > 0 && (
-						<div data-chat-section>
-							<button
-								aria-expanded={!chatsCollapsed}
-								className="flex h-8 w-full min-w-0 items-center gap-1.5 rounded-(--sc-radius-md) pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) outline-none hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
-								data-roving-item="group:__chats__"
-								onClick={() => setCollapsed(prev => ({ ...prev, __chats__: !chatsCollapsed }))}
-								onFocus={() => setFocusKey("group:__chats__")}
-								tabIndex={-1}
-								type="button"
+					{visibleGroups.length > 0 && (
+						<DndContext collisionDetection={closestCenter} onDragEnd={onProjectDragEnd} sensors={projectSensors}>
+							<SortableContext
+								items={visibleGroups.map(group => group.cwd)}
+								strategy={verticalListSortingStrategy}
 							>
-								{chatsCollapsed ? (
-									<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-								) : (
-									<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-								)}
-								<MessageCircle aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-								<span className="min-w-0 flex-1 truncate">{t("sidebar.chats")}</span>
-								<span className="shrink-0 pr-2 text-sc-xs font-normal tabular-nums text-(--sc-text-subtle)">
-									{chatSessions.length}
-								</span>
-							</button>
-							{!chatsCollapsed && (
-								<div className="space-y-px" data-session-group="__chats__" data-state="expanded">
-									{chatSessions.map(session => renderSessionRow(session, true))}
-								</div>
-							)}
-						</div>
+								{visibleGroups.map(renderGroup)}
+							</SortableContext>
+						</DndContext>
 					)}
-					{visibleGroups.map(renderGroup)}
 				</div>
 
 				<SidebarUpdateCard />
@@ -1326,6 +1346,37 @@ export function Sidebar() {
 										setGroupMenu(null);
 									},
 								},
+								...(() => {
+									const index = allGroups.findIndex(item => item.cwd === groupMenu.group.cwd);
+									const move = (to: number) => {
+										const target = allGroups[to];
+										setGroupMenu(null);
+										if (!target) return;
+										void useSidebarPrefs.getState().setGroupOrder(
+											reorderProjects(
+												allGroups.map(item => item.cwd),
+												groupMenu.group.cwd,
+												target.cwd,
+											),
+										);
+									};
+									return [
+										{
+											id: "group-move-up",
+											label: t("sidebar.menu.moveUp"),
+											icon: ArrowUp,
+											disabled: index <= 0,
+											onSelect: () => move(index - 1),
+										},
+										{
+											id: "group-move-down",
+											label: t("sidebar.menu.moveDown"),
+											icon: ArrowDown,
+											disabled: index === -1 || index >= allGroups.length - 1,
+											onSelect: () => move(index + 1),
+										},
+									];
+								})(),
 								{
 									id: "group-pin",
 									label: pinnedGroups.includes(groupMenu.group.cwd)

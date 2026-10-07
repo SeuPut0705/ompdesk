@@ -19,6 +19,7 @@ interface SidebarPrefsBlob {
 	groupAliases?: Record<string, string>;
 	workspaceLastUsed?: Record<string, number>;
 	sessionLastUsed?: Record<string, number>;
+	groupOrder?: string[];
 }
 
 interface SidebarPrefsStore {
@@ -27,11 +28,14 @@ interface SidebarPrefsStore {
 	groupAliases: Record<string, string>;
 	workspaceLastUsed: Record<string, number>;
 	sessionLastUsed: Record<string, number>;
+	/** Project order the user set by dragging (cwds, top first); empty = by recency. */
+	groupOrder: string[];
 	hydrated: boolean;
 	hydrate: () => Promise<void>;
 	toggleGroupPin: (cwd: string) => Promise<void>;
 	toggleSessionPin: (path: string) => Promise<void>;
 	setGroupAlias: (cwd: string, alias: string | null) => Promise<void>;
+	setGroupOrder: (order: string[]) => Promise<void>;
 	touchWorkspace: (cwd: string) => void;
 	touchSession: (path: string, cwd?: string) => void;
 	reset: () => void;
@@ -76,6 +80,7 @@ function prefsBlob(state: SidebarPrefsStore): SidebarPrefsBlob {
 		groupAliases: state.groupAliases,
 		workspaceLastUsed: state.workspaceLastUsed,
 		sessionLastUsed: state.sessionLastUsed,
+		groupOrder: state.groupOrder,
 	};
 }
 
@@ -100,6 +105,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 	groupAliases: {},
 	workspaceLastUsed: {},
 	sessionLastUsed: {},
+	groupOrder: [],
 	hydrated: false,
 
 	hydrate: async () => {
@@ -112,6 +118,9 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 				groupAliases: blob?.groupAliases && typeof blob.groupAliases === "object" ? blob.groupAliases : {},
 				workspaceLastUsed: validRecencyMap(blob?.workspaceLastUsed),
 				sessionLastUsed: validRecencyMap(blob?.sessionLastUsed),
+				groupOrder: Array.isArray(blob?.groupOrder)
+					? blob.groupOrder.filter((cwd): cwd is string => typeof cwd === "string" && cwd.length > 0)
+					: [],
 				hydrated: true,
 			});
 		} catch {
@@ -156,6 +165,14 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 			onFailure: message => toast({ variant: "error", title: translate("sidebar.renameFailed"), message }),
 		}),
 
+	setGroupOrder: order =>
+		optimisticWrite({
+			store: { getState: get, setState: set },
+			mutate: () => ({ groupOrder: [...new Set(order)] }),
+			persist: () => writePrefs(get),
+			onFailure: message => toast({ variant: "error", title: translate("sidebar.reorderFailed"), message }),
+		}),
+
 	touchWorkspace: cwd => {
 		if (!cwd) return;
 		const state = get();
@@ -184,6 +201,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 			groupAliases: {},
 			workspaceLastUsed: {},
 			sessionLastUsed: {},
+			groupOrder: [],
 			hydrated: false,
 		}),
 }));
