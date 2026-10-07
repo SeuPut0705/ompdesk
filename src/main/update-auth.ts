@@ -4,6 +4,13 @@
  *   1. GH_TOKEN / GITHUB_TOKEN (launch env, then the login shell's exports);
  *   2. `gh auth token` (the GitHub CLI's login);
  *   3. a token pasted in Settings › Updates, encrypted at rest with safeStorage.
+ *
+ * On macOS any safeStorage call — `isEncryptionAvailable()` included — opens
+ * the "ompdesk Safe Storage" keychain item, and because ad-hoc builds change
+ * code identity with every update, macOS asks for the login password again
+ * after each one (and blocks the main process while it waits). So the
+ * keychain is touched only when a stored token actually exists, or when the
+ * user saves one.
  */
 
 import { execFile } from "node:child_process";
@@ -44,11 +51,26 @@ async function ghToken(): Promise<string | undefined> {
 }
 
 async function storedToken(): Promise<string | undefined> {
-	if (!safeStorage.isEncryptionAvailable()) return undefined;
+	let encrypted: Buffer;
 	try {
-		return safeStorage.decryptString(await fs.readFile(storedTokenPath()));
+		encrypted = await fs.readFile(storedTokenPath());
 	} catch {
 		return undefined;
+	}
+	try {
+		if (!safeStorage.isEncryptionAvailable()) return undefined;
+		return safeStorage.decryptString(encrypted);
+	} catch {
+		return undefined;
+	}
+}
+
+async function hasStoredToken(): Promise<boolean> {
+	try {
+		await fs.access(storedTokenPath());
+		return true;
+	} catch {
+		return false;
 	}
 }
 
@@ -76,11 +98,12 @@ export async function checkRepoAccess(token: string): Promise<UpdateAccess> {
 }
 
 export async function updateAuthInfo(): Promise<UpdateAuthInfo> {
-	const [resolved, stored] = await Promise.all([resolveUpdateToken(), storedToken()]);
+	const [resolved, stored] = await Promise.all([resolveUpdateToken(), hasStoredToken()]);
 	return {
 		source: resolved?.source ?? null,
-		hasStoredToken: stored !== undefined,
-		canStore: safeStorage.isEncryptionAvailable(),
+		hasStoredToken: stored,
+		// macOS/Windows always have an OS keystore; probing it would prompt (see top).
+		canStore: process.platform !== "linux" || safeStorage.isEncryptionAvailable(),
 	};
 }
 
