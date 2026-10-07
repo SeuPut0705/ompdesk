@@ -16,7 +16,7 @@ import type {
 	CustomProviderView,
 } from "../../../../shared/ipc-types";
 import { CUSTOM_PROVIDER_APIS } from "../../../../shared/ipc-types";
-import { errorDetail } from "../../../lib/error-detail";
+import { errorDetail, type InlineFailure, inlineFailure } from "../../../lib/error-detail";
 import { useT } from "../../../lib/i18n";
 import { useModelStore } from "../../../stores/model";
 import { toast } from "../../../stores/toast";
@@ -126,7 +126,7 @@ export function CustomProviderForm({ editing, existing, onSaved, onCancel }: Cus
 			editing?.extraBody !== undefined,
 	);
 	const [errors, setErrors] = useState<Record<string, string>>({});
-	const [submitError, setSubmitError] = useState<string | null>(null);
+	const [submitError, setSubmitError] = useState<InlineFailure | null>(null);
 	const [submitting, setSubmitting] = useState(false);
 	const locked = readonly || submitting;
 
@@ -266,7 +266,7 @@ export function CustomProviderForm({ editing, existing, onSaved, onCancel }: Cus
 			toast({ variant: "success", message: t("providerCfg.toast.saved", { id: input.id }) });
 			onSaved(input.id);
 		} catch (cause) {
-			setSubmitError(cause instanceof Error ? cause.message : String(cause));
+			setSubmitError(inlineFailure(cause, t("providerCfg.toast.saveFailed")));
 		} finally {
 			setSubmitting(false);
 		}
@@ -593,8 +593,8 @@ export function CustomProviderForm({ editing, existing, onSaved, onCancel }: Cus
 			</div>
 
 			{submitError && (
-				<Banner live title={t("providerCfg.toast.saveFailed")} variant="danger">
-					<ErrorDetail error={submitError} />
+				<Banner live title={submitError.message} variant="danger">
+					<ErrorDetail error={submitError.cause} />
 				</Banner>
 			)}
 

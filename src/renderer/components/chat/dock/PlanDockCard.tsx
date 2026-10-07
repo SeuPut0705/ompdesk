@@ -21,6 +21,7 @@ import { CheckCircle2, Circle, ClipboardList, FileWarning, MessageSquare, Refres
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlanModeState } from "../../../../shared/rpc-types";
 import { useTabGuard } from "../../../hooks/use-tab-guard";
+import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { type TabRpc, useTabRpc } from "../../../lib/tab-rpc";
@@ -143,7 +144,7 @@ export function PlanDockCard() {
 	const [loading, setLoading] = useState(false);
 	const [loaded, setLoaded] = useState(false);
 	/** Localized sentence, plus the raw cause when a read failed. */
-	const [error, setError] = useState<{ message: string; detail?: unknown } | null>(null);
+	const [error, setError] = useState<InlineFailure | null>(null);
 	const [toggling, setToggling] = useState(false);
 	const [tab, setTab] = useState<"steps" | "raw">("steps");
 	const [approving, setApproving] = useState(false);
@@ -162,7 +163,7 @@ export function PlanDockCard() {
 				const modeResponse = await rpc.getPlanMode();
 				if (!isActive(origin)) return;
 				if (!modeResponse.success) {
-					if (!quiet) setError({ message: t("planPanel.readFailed"), detail: modeResponse });
+					if (!quiet) setError(inlineFailure(modeResponse, t("planPanel.readFailed")));
 					return;
 				}
 				const mode = modeResponse.data as PlanModeState | undefined;
@@ -191,7 +192,7 @@ export function PlanDockCard() {
 				if (!isActive(origin)) return;
 				setLocalRoot(resolved.localRoot);
 				if (!response.ok) {
-					if (!quiet) setError({ message: t("planPanel.readFailed"), detail: response });
+					if (!quiet) setError(inlineFailure(response, t("planPanel.readFailed")));
 					return;
 				}
 				if (response.path == null || response.content == null) {
@@ -202,7 +203,7 @@ export function PlanDockCard() {
 				setPlanFile(response.path);
 				setContent(response.content);
 			} catch (cause) {
-				if (isActive(origin) && !quiet) setError({ message: t("planPanel.readFailed"), detail: cause });
+				if (isActive(origin) && !quiet) setError(inlineFailure(cause, t("planPanel.readFailed")));
 			} finally {
 				if (isActive(origin)) {
 					setLoading(false);
@@ -373,7 +374,7 @@ export function PlanDockCard() {
 				<div className="flex flex-col items-center justify-center gap-2 px-6 py-4 text-center">
 					<FileWarning aria-hidden="true" className="text-(--sc-warning)" size={20} />
 					<div className="text-sc-sm leading-snug text-(--sc-text-muted)">{error.message}</div>
-					<ErrorDetail error={error.detail} />
+					<ErrorDetail error={error.cause} />
 					<Button onClick={() => void load()} size="sm">
 						{t("planPanel.retry")}
 					</Button>

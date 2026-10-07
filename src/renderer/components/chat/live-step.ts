@@ -13,7 +13,7 @@ export type LiveStep = { kind: "tool"; id: string } | { kind: "thinking" } | nul
  */
 export function selectLiveStep(
 	toolCallIds: readonly string[],
-	tools: ReadonlyMap<string, Pick<ToolEntry, "status" | "startTime">>,
+	tools: Pick<ReadonlyMap<string, Pick<ToolEntry, "status" | "startTime">>, "get">,
 	thinkingLive: boolean,
 ): LiveStep {
 	let active: { id: string; startTime: number } | null = null;

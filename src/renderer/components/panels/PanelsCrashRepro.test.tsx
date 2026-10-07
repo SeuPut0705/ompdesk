@@ -59,14 +59,13 @@ afterEach(async () => {
 describe("panels under running state", () => {
 	it("DiffPanel mounts with mid-flight tool executions (no result yet)", async () => {
 		useToolsStore.setState({
-			activeTools: new Map([
+			liveTools: new Map([
 				[
 					"call_1",
 					{
 						toolName: "edit",
 						args: { path: "src/a.ts", old_string: "a", new_string: "b" },
 						status: "running" as const,
-						partialResult: null,
 						streamingArgs: "",
 						result: null,
 						isError: false,
@@ -79,7 +78,6 @@ describe("panels under running state", () => {
 						toolName: "write",
 						args: { path: "src/b.ts", content: "hello\nworld" },
 						status: "pending" as const,
-						partialResult: null,
 						streamingArgs: '{"path":"src/b.ts"',
 						result: null,
 						isError: false,
@@ -92,7 +90,6 @@ describe("panels under running state", () => {
 						toolName: "bash",
 						args: { command: "ls" },
 						status: "running" as const,
-						partialResult: null,
 						streamingArgs: "",
 						result: null,
 						isError: false,
@@ -107,14 +104,13 @@ describe("panels under running state", () => {
 
 	it("DiffPanel mounts with a completed edit carrying a details diff", async () => {
 		useToolsStore.setState({
-			activeTools: new Map([
+			finishedTools: new Map([
 				[
 					"call_9",
 					{
 						toolName: "edit",
 						args: { path: "src/a.ts", old_string: "a", new_string: "b" },
 						status: "done" as const,
-						partialResult: null,
 						streamingArgs: "",
 						result: {
 							content: [{ type: "text", text: "edited" }],

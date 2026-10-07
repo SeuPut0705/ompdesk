@@ -2,7 +2,7 @@ import { ChevronRight, CircleCheck, CircleX } from "lucide-react";
 import type { ReactNode } from "react";
 import { cx, formatDuration } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { useToolsStore } from "../../stores/tools";
+import { selectToolEntry, useToolsStore } from "../../stores/tools";
 import { Spinner } from "../common";
 import { getToolActivity, type ToolActivity } from "../tools/index";
 import { LiveStepPeek } from "./LiveStepPeek";
@@ -60,7 +60,7 @@ export function ExecutionGroup({
 		let end = 0;
 		const counts: Record<ToolActivity, number> = { read: 0, edit: 0, run: 0, search: 0, other: 0 };
 		for (const id of toolCallIds) {
-			const entry = s.activeTools.get(id);
+			const entry = selectToolEntry(s, id);
 			if (!entry) continue;
 			if (entry.status === "pending" || entry.status === "running") running++;
 			else if (entry.status === "error" || entry.isError) failed++;

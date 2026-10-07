@@ -556,7 +556,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	ipcMain.handle(IPC_COMMANDS.RPC_COMMAND, async (event, payload: IpcRpcCommandPayload) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
-		if (!win) return { id: payload.command.id, type: "response", success: false, error: "No window" };
+		if (!win)
+			return { id: payload.command.id, type: "response", success: false, error: "No window", code: "no_window" };
 		const issuerTabId = sidecarPool.activeTabForWindow(win);
 		return dispatchRpcCommand(win, sidecarPool.sidecarForWindow(win), issuerTabId, payload);
 	});
@@ -566,7 +567,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// focused-tab path.
 	ipcMain.handle(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, async (event, payload: IpcRpcCommandForTabPayload) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
-		if (!win) return { id: payload?.command?.id, type: "response", success: false, error: "No window" };
+		if (!win)
+			return { id: payload?.command?.id, type: "response", success: false, error: "No window", code: "no_window" };
 		const sidecar = sidecarPool.sidecarForTab(win, payload.tabId);
 		return dispatchRpcCommand(win, sidecar, payload.tabId, payload);
 	});
@@ -778,7 +780,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// Stats
 	ipcMain.handle(IPC_COMMANDS.STATS_FETCH, async (_event, payload: IpcStatsFetchPayload) => {
 		if (typeof payload.path !== "string") {
-			throw new Error("Invalid stats path");
+			throw codedError("invalid_stats_path", "Invalid stats path");
 		}
 		if (!statsClient.port) {
 			// Nothing is listening: ask for it and let the caller keep waiting — but
@@ -950,7 +952,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	ipcMain.handle(IPC_COMMANDS.PREFS_SET, (_event, payload: IpcPrefsSetPayload) => {
 		if (typeof payload.key !== "string") {
-			throw new Error("Invalid preference key");
+			throw codedError("invalid_preference_key", "Invalid preference key");
 		}
 		prefsStore.set(payload.key, payload.value);
 		if (payload.key === "language" && isUiLanguage(payload.value)) {
@@ -966,7 +968,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			typeof payload.patch !== "object" ||
 			Array.isArray(payload.patch)
 		)
-			throw new Error("Invalid launch profile update");
+			throw codedError("invalid_launch_profile", "Invalid launch profile update");
 		// The entire read/merge/write stays synchronous in Main: concurrent windows
 		// can change different fields or workspaces without replacing each other.
 		const raw = prefsStore.get("launchProfiles");
@@ -981,7 +983,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// Sidecar control
 	ipcMain.handle(IPC_COMMANDS.SIDECAR_RESTART, (event, payload?: IpcSidecarRestartPayload) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
-		if (!win) throw new Error("No window");
+		if (!win) throw codedError("no_window", "No window");
 		const sidecar =
 			typeof payload?.tabId === "string"
 				? sidecarPool.sidecarForTab(win, payload.tabId)
@@ -1116,7 +1118,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			...(code ? { code } : {}),
 		});
 		if (typeof payload.path !== "string" || payload.path.length === 0) {
-			return fail("Invalid path");
+			return fail("Invalid path", "invalid_path");
 		}
 		const raw = payload.path.startsWith("~/") ? path.join(os.homedir(), payload.path.slice(2)) : payload.path;
 		let abs: string;
@@ -1203,7 +1205,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			error,
 			...(code ? { code } : {}),
 		});
-		if (typeof payload?.path !== "string" || payload.path.length === 0) return fail("Invalid path");
+		if (typeof payload?.path !== "string" || payload.path.length === 0) return fail("Invalid path", "invalid_path");
 		let abs: string;
 		const raw = payload.path.startsWith("~/") ? path.join(os.homedir(), payload.path.slice(2)) : payload.path;
 		if (path.isAbsolute(raw)) {
@@ -1252,7 +1254,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				...(code ? { code } : {}),
 			});
 			if (typeof payload?.fsPath !== "string" || payload.fsPath.length === 0) {
-				return fail("Invalid path");
+				return fail("Invalid path", "invalid_path");
 			}
 			const cwd = cwdFor(deps, event, payload.tabId);
 			if (!cwd) return fail("No workspace", "no_workspace");
@@ -1291,6 +1293,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				unavailable: true as const,
 				text: null,
 				error: "Set $VISUAL or $EDITOR to use an external editor",
+				code: "editor_unset" as const,
 			};
 		}
 		try {

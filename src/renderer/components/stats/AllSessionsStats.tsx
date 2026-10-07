@@ -9,11 +9,10 @@
 
 import { BarChart3, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { errorDetail } from "../../lib/error-detail";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { runStatsSync } from "../../lib/stats-sync";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { Button, EmptyState, Tabs } from "../common";
 import { CostsRoute } from "./CostsRoute";
 import { ErrorsRoute } from "./ErrorsRoute";
@@ -72,11 +71,7 @@ export function AllSessionsStats() {
 				if (outcome.kind === "error") {
 					// The quiet mount sync stays silent: the section below shows its own error state.
 					if (!opts?.quiet) {
-						toast({
-							variant: "error",
-							message: t("stats.syncFailed"),
-							...(outcome.message ? { detail: outcome.message } : {}),
-						});
+						toastError({ title: t("stats.syncFailed"), error: outcome.message });
 					}
 					return;
 				}
@@ -94,7 +89,7 @@ export function AllSessionsStats() {
 				setRefreshKey(key => key + 1);
 			} catch (error) {
 				if (!opts?.quiet) {
-					toast({ variant: "error", message: t("stats.syncFailed"), detail: errorDetail(error) });
+					toastError({ title: t("stats.syncFailed"), error });
 				}
 			} finally {
 				setSyncing(false);

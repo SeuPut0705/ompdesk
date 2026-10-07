@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { z } from "zod";
+import { codedError, ipcErrorCode } from "../shared/ipc-error-codes";
 import type { IpcBenchmarkRunOptions, IpcBenchmarkRunResult, IpcBenchmarkSummary } from "../shared/ipc-types";
 import { ompNeedsShell, ompPathEnv, ompSpawnArgs, ompSpawnCommand } from "./omp-runtime";
 
@@ -8,21 +9,23 @@ const BENCHMARK_TIMEOUT_MS = 15 * 60 * 1000;
 
 function boundedInteger(name: string, value: number, min: number, max: number): number {
 	if (!Number.isSafeInteger(value) || value < min || value > max) {
-		throw new Error(`${name} must be between ${min} and ${max}`);
+		throw codedError("benchmark_invalid_option", `${name} must be between ${min} and ${max}`);
 	}
 	return value;
 }
 
 export function benchmarkArgs(options: IpcBenchmarkRunOptions): string[] {
-	if (options.models.length < 1 || options.models.length > 8) throw new Error("Select between 1 and 8 models");
+	if (options.models.length < 1 || options.models.length > 8)
+		throw codedError("benchmark_model_count", "Select between 1 and 8 models");
 	if (!(["mix", "chat", "prefill", "generation"] as const).includes(options.profile)) {
-		throw new Error("Invalid benchmark profile");
+		throw codedError("benchmark_invalid_option", "Invalid benchmark profile");
 	}
 	const models = [
 		...new Set(
 			options.models.map(model => {
 				const value = model.trim();
-				if (!value || value.length > 200 || value.startsWith("-")) throw new Error("Invalid model selector");
+				if (!value || value.length > 200 || value.startsWith("-"))
+					throw codedError("benchmark_invalid_model", "Invalid model selector");
 				return value;
 			}),
 		),
@@ -111,12 +114,17 @@ export class BenchmarkRunner {
 		options: IpcBenchmarkRunOptions,
 		env: NodeJS.ProcessEnv,
 	): Promise<IpcBenchmarkRunResult> {
-		if (this.#child) return { success: false, error: "A benchmark is already running" };
+		if (this.#child) return { success: false, error: "A benchmark is already running", code: "benchmark_running" };
 		let args: string[];
 		try {
 			args = benchmarkArgs(options);
 		} catch (error) {
-			return { success: false, error: error instanceof Error ? error.message : String(error) };
+			const code = ipcErrorCode(error);
+			return {
+				success: false,
+				error: error instanceof Error ? error.message : String(error),
+				...(code ? { code } : {}),
+			};
 		}
 		this.#terminationReason = null;
 		const child = spawn(ompSpawnCommand(ompBin), ompSpawnArgs(ompBin, args), {

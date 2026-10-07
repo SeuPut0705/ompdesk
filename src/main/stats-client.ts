@@ -3,6 +3,8 @@
  * Polls GET endpoints; discovers availability via x-omp-stats-dashboard header.
  */
 
+import { codedError } from "../shared/ipc-error-codes";
+
 const DEFAULT_PORT = 0;
 // Above stock omp-stats' 5s SQLite busy_timeout plus the query: a read that
 // waits on the background ingest's lock (the first queries after the server
@@ -82,11 +84,12 @@ export class StatsClient {
 	 * /api/request/:id is also allowed (dynamic path prefix).
 	 */
 	async fetch(path: string, params?: Record<string, string>): Promise<unknown> {
-		if (this.#port === 0) throw new Error("The bundled stats server is not ready. Please retry shortly.");
+		if (this.#port === 0)
+			throw codedError("stats_not_ready", "The bundled stats server is not ready. Please retry shortly.");
 		// Validate path: allow known paths or /api/request/:id pattern
 		const isRequestPath = /^\/api\/request\/\d+$/.test(path);
 		if (!isRequestPath && !VALID_PATHS[path]) {
-			throw new Error(`Invalid stats path: ${path}`);
+			throw codedError("invalid_stats_path", `Invalid stats path: ${path}`);
 		}
 
 		const url = new URL(`http://127.0.0.1:${this.#port}${path}`);
@@ -105,7 +108,7 @@ export class StatsClient {
 				signal: controller.signal,
 			});
 			if (!resp.ok) {
-				throw new Error(`Stats API error: ${resp.status} ${resp.statusText}`);
+				throw codedError("stats_api_error", `Stats API error: ${resp.status} ${resp.statusText}`);
 			}
 			return await resp.json();
 		} finally {

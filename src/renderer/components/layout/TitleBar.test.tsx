@@ -101,14 +101,13 @@ describe("TitleBar", () => {
 			messages: [{ role: "assistant", timestamp: 1_000, duration: 2_000 }],
 		});
 		useToolsStore.setState({
-			activeTools: new Map([
+			finishedTools: new Map([
 				[
 					"tool-1",
 					{
 						toolName: "read",
 						args: {},
 						status: "done",
-						partialResult: null,
 						streamingArgs: "",
 						result: null,
 						isError: false,

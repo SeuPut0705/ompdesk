@@ -15,7 +15,7 @@ import {
 	Wrench,
 	XCircle,
 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionStats } from "../../../shared/rpc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
@@ -102,7 +102,7 @@ function StatRow({ label, hint, value }: { label: string; hint?: string; value: 
 /**
  * Execution time of the session. Mounted only while the status popover is
  * open (Popover unmounts closed content), so the bar itself never subscribes
- * to the tools map or re-runs the range merge on every tool event.
+ * to the tools store or re-runs the range merge on every tool event.
  */
 function ExecutionDurationRow() {
 	const t = useT();
@@ -110,10 +110,18 @@ function ExecutionDurationRow() {
 	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
 	const messages = useMessagesStore(s => s.messages);
 	const streamingMessage = useMessagesStore(s => s.streamingMessage);
-	const tools = useToolsStore(s => s.activeTools);
+	const liveTools = useToolsStore(s => s.liveTools);
+	const finishedTools = useToolsStore(s => s.finishedTools);
+	const finishedVersion = useToolsStore(s => s.finishedVersion);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the finished map changes in place; its version marks each change.
+	const tools = useMemo(
+		() => [...liveTools.values(), ...finishedTools.values()],
+		[liveTools, finishedTools, finishedVersion],
+	);
 	const [now, setNow] = useState(() => Date.now());
-	// History-aborted calls never end: they must not keep the clock alive.
-	const hasRunningTool = [...tools.values()].some(tool => tool.endTime === null && tool.status !== "aborted");
+	// Only live (pending/running) calls keep the clock alive; history-aborted
+	// calls never end and are finished entries.
+	const hasRunningTool = liveTools.size > 0;
 	const ticking = isStreaming || hasRunningTool;
 	useEffect(() => {
 		setNow(Date.now());

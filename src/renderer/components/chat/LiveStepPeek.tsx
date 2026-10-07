@@ -5,7 +5,7 @@ import { resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
-import { useToolsStore } from "../../stores/tools";
+import { selectToolEntry, useToolsStore } from "../../stores/tools";
 import { toolDiffStats } from "../tools/diff-stats";
 import { getToolHeader } from "../tools/index";
 import { DiffStatChip, ToolPathTarget } from "../tools/ToolCard";
@@ -50,7 +50,7 @@ export function LiveStepPeek({ thinkingLive, toolCallIds }: { thinkingLive: bool
 	// Primitive selector: the log re-renders when the chosen step changes, not
 	// on every unrelated tool event.
 	const stepKey = useToolsStore(s => {
-		const step = selectLiveStep(toolCallIds, s.activeTools, thinkingLive);
+		const step = selectLiveStep(toolCallIds, { get: id => selectToolEntry(s, id) }, thinkingLive);
 		return step === null ? "" : step.kind === "thinking" ? "thinking" : `tool:${step.id}`;
 	});
 	const toolCallId = stepKey.startsWith("tool:") ? stepKey.slice("tool:".length) : "";
@@ -142,9 +142,10 @@ function useThinkingLines(active: boolean): readonly LiveLogLine[] {
 
 /** The step label, plus a command's output lines (live while it runs, final once done). */
 function useToolLines(toolCallId: string): readonly LiveLogLine[] {
-	const entry = useToolsStore(s => (toolCallId ? s.activeTools.get(toolCallId) : undefined));
+	const entry = useToolsStore(s => (toolCallId ? selectToolEntry(s, toolCallId) : undefined));
 	const command = entry ? getToolHeader(entry.toolName, entry.args).tool === "bash" : false;
-	const output = command ? (entry?.result ?? entry?.partialResult) : null;
+	const partialResult = useToolsStore(s => (command ? s.partialResults.get(toolCallId) : undefined));
+	const output = command ? (entry?.result ?? partialResult) : null;
 	return useMemo(() => {
 		if (!toolCallId) return [];
 		const lines: LiveLogLine[] = [{ kind: "tool", text: toolCallId }];
@@ -159,7 +160,7 @@ function useToolLines(toolCallId: string): readonly LiveLogLine[] {
 
 function ToolLabel({ toolCallId }: { toolCallId: string }) {
 	const t = useT();
-	const entry = useToolsStore(s => s.activeTools.get(toolCallId));
+	const entry = useToolsStore(s => selectToolEntry(s, toolCallId));
 	const toolName = entry?.toolName ?? "";
 	const args = entry?.args ?? {};
 	const failed = entry?.status === "error" || Boolean(entry?.isError);

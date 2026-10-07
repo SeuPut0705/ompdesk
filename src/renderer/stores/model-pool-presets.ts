@@ -106,7 +106,7 @@ export const useModelPoolPresets = create<ModelPoolPresetsStore>()((set, get) =>
 				return { presets };
 			},
 			persist: () => writePresets(get().presets),
-			onFailure: message => toastError({ title: translate("modelPool.presetSaveFailed"), error: message }),
+			onFailure: failure => toastError({ title: translate("modelPool.presetSaveFailed"), error: failure }),
 		});
 	},
 
@@ -115,7 +115,7 @@ export const useModelPoolPresets = create<ModelPoolPresetsStore>()((set, get) =>
 			store: { getState: get, setState: set },
 			mutate: state => ({ presets: state.presets.filter(preset => preset.id !== id) }),
 			persist: () => writePresets(get().presets),
-			onFailure: message => toastError({ title: translate("modelPool.presetSaveFailed"), error: message }),
+			onFailure: failure => toastError({ title: translate("modelPool.presetSaveFailed"), error: failure }),
 		}),
 
 	reset: () => set({ presets: [], hydrated: false }),

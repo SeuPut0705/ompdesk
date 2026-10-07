@@ -8,6 +8,7 @@
 import { ArrowLeft, Check, CheckCircle2, Plus, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ModelInfo } from "../../../shared/rpc-types";
+import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
@@ -162,7 +163,7 @@ type TestState =
 	| { kind: "idle" }
 	| { kind: "running" }
 	| { kind: "ok"; ms: number | null }
-	| { kind: "failed"; error: string };
+	| { kind: "failed"; failure: InlineFailure };
 
 function ModelStep() {
 	const t = useT();
@@ -219,18 +220,21 @@ function ModelStep() {
 				maxTokens: 16,
 			});
 			if (!result.success) {
-				setTest({ kind: "failed", error: result.error });
+				setTest({ kind: "failed", failure: inlineFailure(result, t("setup.test.failed")) });
 				return;
 			}
 			const report = result.summary.models[0];
 			const failure = report?.results.find(item => !item.ok);
 			if (!report || failure || result.summary.failures > 0) {
-				setTest({ kind: "failed", error: failure?.error ?? t("setup.test.unknownError") });
+				setTest({
+					kind: "failed",
+					failure: { message: t("setup.test.failed"), cause: failure?.error ?? t("setup.test.unknownError") },
+				});
 				return;
 			}
 			setTest({ kind: "ok", ms: report.stats ? Math.round(report.stats.ttftMs.mean) : null });
 		} catch (cause) {
-			setTest({ kind: "failed", error: cause instanceof Error ? cause.message : String(cause) });
+			setTest({ kind: "failed", failure: inlineFailure(cause, t("setup.test.failed")) });
 		}
 	};
 
@@ -330,8 +334,8 @@ function ModelStep() {
 				</Banner>
 			)}
 			{test.kind === "failed" && (
-				<Banner live title={t("setup.test.failed")} variant="danger">
-					<ErrorDetail error={test.error} />
+				<Banner live title={test.failure.message} variant="danger">
+					<ErrorDetail error={test.failure.cause} />
 				</Banner>
 			)}
 			{error && (

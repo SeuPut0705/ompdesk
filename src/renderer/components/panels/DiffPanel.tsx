@@ -109,13 +109,15 @@ function isFinishedDiff(entry: ToolEntry): boolean {
 }
 
 /** Keep multi-file results distinct; failed or pending writes are never counted as applied changes. */
-export function buildEditCandidates(activeTools: ReadonlyMap<string, ToolEntry>): DiffCandidate[] {
+export function buildEditCandidates(tools: ReadonlyMap<string, ToolEntry>): DiffCandidate[] {
 	const out: DiffCandidate[] = [];
-	for (const [id, entry] of activeTools) if (isFinishedDiff(entry)) out.push(...entryCandidates(id, entry));
+	for (const [id, entry] of tools) if (isFinishedDiff(entry)) out.push(...entryCandidates(id, entry));
 	return out.sort((a, b) => b.timestamp - a.timestamp);
 }
 
 interface CandidatesSnapshot {
+	tools: ReadonlyMap<string, ToolEntry>;
+	version: number;
 	ids: string[];
 	entries: ToolEntry[];
 	candidates: DiffCandidate[];
@@ -123,25 +125,33 @@ interface CandidatesSnapshot {
 
 /**
  * Edit candidates that change only when a finished edit/write entry does.
- * The tools map is replaced on every tool event (streamed args, partial
- * results); the selector re-checks finished diff entries by identity — no
- * parsing — and returns the previous array when none changed, so unrelated
- * tool traffic never re-renders the panel.
+ * Diffs only come from finished entries, and the store bumps
+ * `finishedVersion` whenever that map changes, so live traffic (streamed
+ * args, partial results) costs one comparison. When it did change, finished
+ * diff entries are re-checked by identity — no parsing — and the previous
+ * array is returned when none changed, so other tools finishing never
+ * re-render the panel.
  */
 function useEditCandidates(): DiffCandidate[] {
 	const snapshot = useRef<CandidatesSnapshot | null>(null);
 	return useToolsStore(state => {
 		const previous = snapshot.current;
+		const tools = state.finishedTools;
+		const version = state.finishedVersion;
+		if (previous?.tools === tools && previous.version === version) return previous.candidates;
 		let same = previous !== null;
 		let count = 0;
-		for (const [id, entry] of state.activeTools) {
+		for (const [id, entry] of tools) {
 			if (!isFinishedDiff(entry)) continue;
 			if (same && (previous?.entries[count] !== entry || previous.ids[count] !== id)) same = false;
 			count++;
 		}
-		if (same && previous && count === previous.entries.length) return previous.candidates;
-		const next: CandidatesSnapshot = { ids: [], entries: [], candidates: buildEditCandidates(state.activeTools) };
-		for (const [id, entry] of state.activeTools) {
+		if (same && previous && count === previous.entries.length) {
+			snapshot.current = { ...previous, tools, version };
+			return previous.candidates;
+		}
+		const next: CandidatesSnapshot = { tools, version, ids: [], entries: [], candidates: buildEditCandidates(tools) };
+		for (const [id, entry] of tools) {
 			if (!isFinishedDiff(entry)) continue;
 			next.ids.push(id);
 			next.entries.push(entry);

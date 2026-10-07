@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { RequestDetail, RequestPage, RequestRow } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
 import { compact, formatMs, formatUsd } from "../../lib/chart";
+import { inlineFailure } from "../../lib/error-detail";
 import { uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { Badge, Button, ErrorDetail, Sheet, Spinner } from "../common";
@@ -99,7 +100,7 @@ function RequestDetailBody({ row }: { row: RequestRow }) {
 				</div>
 			) : error ? (
 				<div className="text-sc-xs text-(--sc-danger)" role="alert">
-					{t("stats.requests.detailFailed")}
+					{inlineFailure(error, t("stats.requests.detailFailed")).message}
 					<ErrorDetail className="mt-0.5" error={error} />
 				</div>
 			) : (

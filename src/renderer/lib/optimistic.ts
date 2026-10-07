@@ -47,8 +47,9 @@ export interface OptimisticWrite<State extends object> {
 	mutate: (state: State) => Partial<State>;
 	/** The call that must succeed for the change to be real. */
 	persist: () => Promise<{ success: boolean; error?: string }>;
-	/** Report the failure to the user — a toast, inline, whatever the surface has. */
-	onFailure: (message: string) => void;
+	/** Report the failure to the user — a toast, inline, whatever the surface has.
+	 *  Gets the failed response (its `error`/`code` intact for `toastError`) or the thrown cause. */
+	onFailure: (failure: unknown) => void;
 	/** Optional authoritative re-read after the rollback. */
 	resync?: () => Promise<unknown>;
 }
@@ -77,13 +78,13 @@ export async function optimisticWrite<State extends object>({
 	const applied: Record<string, unknown> = {};
 	for (const key of Object.keys(next)) applied[key] = store.getState()[key as keyof State];
 
-	let failure: string | undefined;
+	let failure: unknown;
 	try {
 		const response = await persist();
 		if (response.success) return;
-		failure = response.error;
+		failure = response.error === undefined ? UNKNOWN_FAILURE : response;
 	} catch (cause) {
-		failure = cause instanceof Error ? cause.message : String(cause);
+		failure = cause;
 	}
 
 	const rollback: Record<string, unknown> = {};
@@ -97,6 +98,6 @@ export async function optimisticWrite<State extends object>({
 		if (store.getState()[key as keyof State] === value) rollback[key] = rollbackBase(value, previous);
 	}
 	if (Object.keys(rollback).length > 0) store.setState(rollback as Partial<State>);
-	onFailure(failure ?? UNKNOWN_FAILURE);
+	onFailure(failure);
 	await resync?.();
 }

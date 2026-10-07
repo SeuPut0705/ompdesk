@@ -25,7 +25,7 @@ const SOURCES: Source[] = ["claude", "codex"];
 
 interface SourceState {
 	loading: boolean;
-	error: string | null;
+	error: InlineFailure | null;
 	sessions: RpcForeignSessionInfo[];
 }
 
@@ -65,7 +65,11 @@ export function ImportForeignDialog() {
 				if (!response.success) {
 					setStates(current => ({
 						...current,
-						[target]: { loading: false, error: response.error, sessions: [] },
+						[target]: {
+							loading: false,
+							error: inlineFailure(response, t("import.sourceUnavailable", { source: target })),
+							sessions: [],
+						},
 					}));
 					return;
 				}
@@ -75,11 +79,13 @@ export function ImportForeignDialog() {
 					[target]: { loading: false, error: null, sessions: data?.sessions ?? [] },
 				}));
 			} catch (cause) {
-				if (generation.current === version)
-					setStates(current => ({ ...current, [target]: { loading: false, error: String(cause), sessions: [] } }));
+				if (generation.current === version) {
+					const error = inlineFailure(cause, t("import.sourceUnavailable", { source: target }));
+					setStates(current => ({ ...current, [target]: { loading: false, error, sessions: [] } }));
+				}
 			}
 		},
-		[sidecarReady, states, tabRpc.listForeignSessions],
+		[sidecarReady, states, t, tabRpc.listForeignSessions],
 	);
 
 	// Reload only when the source tab changes (load() closes over cached states).
@@ -88,7 +94,11 @@ export function ImportForeignDialog() {
 		if (!sidecarReady) {
 			setStates(current => ({
 				...current,
-				[source]: { loading: false, error: t("import.notConnected"), sessions: [] },
+				[source]: {
+					loading: false,
+					error: { message: t("import.sourceUnavailable", { source }), cause: t("import.notConnected") },
+					sessions: [],
+				},
 			}));
 			return;
 		}
@@ -236,8 +246,8 @@ export function ImportForeignDialog() {
 				)}
 				{state?.error && (
 					<div className="px-4 py-6 text-center text-omp-md text-(--omp-muted)">
-						{t("import.sourceUnavailable", { source })}
-						<ErrorDetail className="mt-1" error={state.error} />
+						{state.error.message}
+						<ErrorDetail className="mt-1" error={state.error.cause} />
 					</div>
 				)}
 				{!state?.loading && !state?.error && filtered.length === 0 && (

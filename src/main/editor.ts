@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { codedError } from "../shared/ipc-error-codes";
 import { resolveEditorCommand, spawnPath } from "./shell-env";
 
 export interface EditorRoundTripResult {
@@ -21,7 +22,7 @@ export async function openInExternalEditor(content: string): Promise<EditorRound
 	// editor settings never reach the GUI process env.
 	const editorCmd = await resolveEditorCommand();
 	if (!editorCmd) {
-		throw new Error("Set $VISUAL or $EDITOR to use an external editor");
+		throw codedError("editor_unset", "Set $VISUAL or $EDITOR to use an external editor");
 	}
 	const tmpFile = path.join(os.tmpdir(), `omp-editor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.md`);
 	try {

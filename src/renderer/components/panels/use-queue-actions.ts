@@ -34,7 +34,7 @@ async function applyLaneMutation(
 		mutate: state =>
 			lane === "steering" ? { steering: optimistic(state.steering) } : { followUp: optimistic(state.followUp) },
 		persist,
-		onFailure: message => toastError({ title: t(failureKey), error: message }),
+		onFailure: failure => toastError({ title: t(failureKey), error: failure }),
 		resync: () => queueStore.getState().refresh(),
 	});
 }
@@ -58,7 +58,7 @@ async function applyCrossLaneMove(
 				: { steering: [...state.steering, item], followUp: without };
 		},
 		persist: () => rpc.queueMove(id, Number.MAX_SAFE_INTEGER, target),
-		onFailure: message => toastError({ title: t("queuePanel.moveFailed"), error: message }),
+		onFailure: failure => toastError({ title: t("queuePanel.moveFailed"), error: failure }),
 		resync: () => queueStore.getState().refresh(),
 	});
 }
@@ -106,12 +106,7 @@ export function useQueueActions(): QueueActions {
 					const edited = items.find(item => item.id === id);
 					return edited ? [...items.filter(item => item.id !== id), { ...edited, text }] : items;
 				},
-				async () => {
-					const response = await tabRpc.queueEdit(id, text);
-					return response.success
-						? { success: true as const }
-						: { success: false as const, error: response.error };
-				},
+				() => tabRpc.queueEdit(id, text),
 				"queuePanel.editFailed",
 				t,
 			);
@@ -134,12 +129,7 @@ export function useQueueActions(): QueueActions {
 				queueStore,
 				lane,
 				() => [],
-				async () => {
-					const response = await tabRpc.queueClear(lane);
-					return response.success
-						? { success: true as const }
-						: { success: false as const, error: response.error };
-				},
+				() => tabRpc.queueClear(lane),
 				"queuePanel.clearFailed",
 				t,
 			);

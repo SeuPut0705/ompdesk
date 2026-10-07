@@ -84,17 +84,13 @@ function SessionTranscript() {
 	const streamingMessage = useMessagesStore(s => s.streamingMessage);
 	const hasStreamingText = useMessagesStore(s => isRenderableMessageText(s.streamingText));
 	const hasStreamingThinking = useMessagesStore(s => isRenderableMessageText(s.streamingThinking));
-	// Primitive-valued selector: the tools store replaces the whole Map on
-	// every tool event (including high-frequency partial results), so
-	// subscribing to the map itself re-rendered the whole transcript window
-	// per event. Only the boolean this row set cares about may re-render it.
+	// Primitive-valued selector over the small live set: only the boolean this
+	// row set cares about may re-render the whole transcript window.
 	const hasLiveToolsForStream = useToolsStore(s => {
 		if (!streamingMessage) return false;
 		const streamStart = messageTimestampMs(streamingMessage);
-		for (const entry of s.activeTools.values()) {
-			if ((entry.status === "pending" || entry.status === "running") && entry.startTime >= streamStart) {
-				return true;
-			}
+		for (const entry of s.liveTools.values()) {
+			if (entry.startTime >= streamStart) return true;
 		}
 		return false;
 	});
@@ -695,29 +691,29 @@ function SessionTranscript() {
 	);
 }
 
-/** Stable "nothing live" map for rows that don't watch the tools store. */
-const NO_ACTIVE_TOOLS: Map<string, ToolEntry> = new Map();
+/** Stable "nothing live" set for rows that don't watch the tools store. */
+const NO_LIVE_TOOLS: ReadonlyMap<string, ToolEntry> = new Map();
 
 type LiveCard = { id: string; name: string; args: Record<string, unknown> };
 
 /**
  * The streaming message's work so far. `streamingMessage.content` only fills
- * at message_end; mid-stream the live tool calls accumulate in the tools store
- * (toolcall_delta → pending while args stream, tool_execution_start →
- * running), so those store entries count too. Entries from before this stream
- * started (hydrated history that never finished) are excluded by start time.
+ * at message_end; mid-stream the live tool calls accumulate in the tools
+ * store's live set (toolcall_delta → pending while args stream,
+ * tool_execution_start → running), so those entries count too. Entries from
+ * before this stream started (hydrated history that never finished) are
+ * excluded by start time.
  */
-function liveProcessParts(streamingMessage: AgentMessage, activeTools: Map<string, ToolEntry>) {
+function liveProcessParts(streamingMessage: AgentMessage, liveTools: ReadonlyMap<string, ToolEntry>) {
 	const content = Array.isArray(streamingMessage.content) ? streamingMessage.content : [];
 	const toolCalls = content.filter(block => block.type === "toolCall");
 	const streamStart = messageTimestampMs(streamingMessage);
 	const contentIds = new Set(toolCalls.map(block => toolEntryKey(block)));
-	const liveTools: Array<{ id: string; entry: ToolEntry }> = [];
-	for (const [id, entry] of activeTools) {
+	const streamTools: Array<{ id: string; entry: ToolEntry }> = [];
+	for (const [id, entry] of liveTools) {
 		if (contentIds.has(id)) continue;
-		if (entry.status !== "pending" && entry.status !== "running") continue;
 		if (entry.startTime < streamStart) continue;
-		liveTools.push({ id, entry });
+		streamTools.push({ id, entry });
 	}
 	const allCards: LiveCard[] = [
 		...toolCalls.map(block => ({
@@ -725,9 +721,13 @@ function liveProcessParts(streamingMessage: AgentMessage, activeTools: Map<strin
 			name: block.name,
 			args: block.arguments as Record<string, unknown>,
 		})),
-		...liveTools.map(({ id, entry }) => ({ id, name: entry.toolName, args: entry.args as Record<string, unknown> })),
+		...streamTools.map(({ id, entry }) => ({
+			id,
+			name: entry.toolName,
+			args: entry.args as Record<string, unknown>,
+		})),
 	];
-	return { toolCalls, liveTools, allCards };
+	return { toolCalls, streamTools, allCards };
 }
 
 function ProcessGroup({
@@ -751,8 +751,8 @@ function ProcessGroup({
 	const streamingMessage = useMessagesStore(s => (live ? s.streamingMessage : null));
 	const hasThinking = useMessagesStore(s => live && isRenderableMessageText(s.streamingThinking));
 	const hasText = useMessagesStore(s => live && isRenderableMessageText(s.streamingText));
-	const activeTools = useToolsStore(s => (live && streamingMessage ? s.activeTools : NO_ACTIVE_TOOLS));
-	const liveCards = streamingMessage ? liveProcessParts(streamingMessage, activeTools).allCards : [];
+	const liveTools = useToolsStore(s => (live && streamingMessage ? s.liveTools : NO_LIVE_TOOLS));
+	const liveCards = streamingMessage ? liveProcessParts(streamingMessage, liveTools).allCards : [];
 	const known = new Set(row.toolCallIds);
 	const toolCallIds =
 		liveCards.length === 0
@@ -822,10 +822,10 @@ export function StreamingRows({
 	const streamingMessage = useMessagesStore(s => s.streamingMessage);
 	const streamingThinking = useMessagesStore(s => s.streamingThinking);
 	const hasText = useMessagesStore(s => isRenderableMessageText(s.streamingText));
-	// Full-map subscription is intentional here: this ONE live row legitimately
-	// watches the whole active set (it renders every pending/running card).
-	// Per-row isolation lives in ExecutionGroup/ToolCard.
-	const activeTools = useToolsStore(s => (processInTail ? NO_ACTIVE_TOOLS : s.activeTools));
+	// Live-set subscription is intentional here: this ONE live row renders
+	// every pending/running card. Per-row isolation lives in
+	// ExecutionGroup/ToolCard.
+	const liveTools = useToolsStore(s => (processInTail ? NO_LIVE_TOOLS : s.liveTools));
 	const transcriptDetail = useUiStore(s => s.transcriptDetail);
 	if (!streamingMessage) return null;
 	if (processInTail) {
@@ -837,10 +837,10 @@ export function StreamingRows({
 			</div>
 		);
 	}
-	const { toolCalls, liveTools, allCards } = liveProcessParts(streamingMessage, activeTools);
+	const { toolCalls, streamTools, allCards } = liveProcessParts(streamingMessage, liveTools);
 
 	const hasThinking = isRenderableMessageText(streamingThinking);
-	const hasProcess = hasThinking || toolCalls.length > 0 || liveTools.length > 0;
+	const hasProcess = hasThinking || toolCalls.length > 0 || streamTools.length > 0;
 	const compactChrome = transcriptDetail === "compact" ? !hasText : !hasText && !hasThinking;
 	const turnClass = compactChrome ? "omp-assistant-turn--compact" : "omp-assistant-turn";
 
@@ -904,7 +904,7 @@ export function StreamingRows({
 					runningIndicator="dot"
 				/>
 			))}
-			{liveTools.map(({ id, entry }) => (
+			{streamTools.map(({ id, entry }) => (
 				<ToolCard key={id} toolCallId={id} toolName={entry.toolName} args={entry.args} runningIndicator="dot" />
 			))}
 		</>
@@ -933,13 +933,13 @@ export function StreamingRows({
 						expanded={expanded}
 						live
 						onExpandedChange={onExpandedChange}
-						stepCount={toolCalls.length + liveTools.length + (hasThinking ? 1 : 0)}
+						stepCount={toolCalls.length + streamTools.length + (hasThinking ? 1 : 0)}
 						thinkingLive={hasThinking && !hasText}
 						toolCallIds={allCards.map(card => card.id)}
 					>
 						<div className="omp-process-group omp-process-group--live">
 							{hasThinking ? <ThinkingBlock live /> : null}
-							{toolCalls.length + liveTools.length > 0 ? <div>{toolCards}</div> : null}
+							{toolCalls.length + streamTools.length > 0 ? <div>{toolCards}</div> : null}
 						</div>
 					</ExecutionGroup>
 				) : null}

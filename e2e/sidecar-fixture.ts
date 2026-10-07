@@ -3,7 +3,7 @@
 import * as fs from "node:fs";
 import * as net from "node:net";
 import { createInterface } from "node:readline";
-import type { AgentMessage, RpcSecurityDashboardResult } from "../src/shared/rpc-types";
+import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from "../src/shared/rpc-types";
 
 // A local stand-in for the system omp the GUI drives: stock `--mode rpc-ui` on
 // stdin/stdout, plus the gui-bridge extension's socket (loaded with `-e`,
@@ -245,6 +245,10 @@ if (process.argv[2] === "stats") {
 	let streamTimer: Timer | undefined;
 	let streamChunks = 0;
 	let streamTick: (() => void) | undefined;
+	/** get_subagents roster; `fixture:subagents` fills it (running, finished, nested). */
+	let subagentRoster: SubagentSnapshot[] = [];
+	/** The emitted plan proposal awaiting `plan_approval`, as the bridge's get_plan_mode reports it. */
+	let planProposal: Record<string, unknown> | undefined;
 	let holdSettings = false;
 	let releaseSettings: (() => void) | undefined;
 	const values: Record<string, unknown> = {
@@ -266,10 +270,14 @@ if (process.argv[2] === "stats") {
 		cost: 0,
 		premiumRequests: 0,
 	};
-	/** Every stdin command and bridge request, one JSON line each, keyed by `type` (bridge: the method name). */
+	/**
+	 * Every stdin command and bridge request, one JSON line each, keyed by `type`
+	 * (bridge: the method name) and tagged `recordedBy` with this process's
+	 * session id, so a multi-tab test can tell which tab's omp received it.
+	 */
 	const record = (frame: object) => {
 		if (process.env.OMP_GUI_TEST_RECORD)
-			fs.appendFileSync(process.env.OMP_GUI_TEST_RECORD, `${JSON.stringify(frame)}\n`);
+			fs.appendFileSync(process.env.OMP_GUI_TEST_RECORD, `${JSON.stringify({ ...frame, recordedBy: sessionId })}\n`);
 	};
 
 	// Stock framing (rpc-frame.ts): under protocol v2 a frame over 1 MiB is split into base64 `rpc_chunk` lines.
@@ -474,9 +482,10 @@ if (process.argv[2] === "stats") {
 			sampledAt: Date.now(),
 		}),
 		"workspace.directories": () => ({ directories: [] }),
-		"modes.get_plan_mode": () => ({ enabled: planModeEnabled }),
+		"modes.get_plan_mode": () => ({ enabled: planModeEnabled, proposal: planProposal }),
 		"modes.set_plan_mode": params => {
 			planModeEnabled = params.enabled === true;
+			if (!planModeEnabled) planProposal = undefined;
 			return { enabled: planModeEnabled };
 		},
 		"modes.get_loop_mode": () => ({ enabled: false, state: "off" }),
@@ -762,7 +771,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				ok({ messages: entries.flatMap(entry => (entry.type === "message" ? [entry.message] : [])) });
 				break;
 			case "get_subagents":
-				ok({ subagents: [] });
+				ok({ subagents: subagentRoster });
 				break;
 			case "get_available_models":
 				ok({ models: [model] });
@@ -858,6 +867,133 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				if (line === "fixture:resume") {
 					clearInterval(streamTimer);
 					if (streamTick) streamTimer = setInterval(streamTick, 16);
+					ok();
+					break;
+				}
+				// Session title (stock's session_info_update): main carries it to the
+				// tab's sidebar row and its notifications, background tabs included.
+				if (line.startsWith("fixture:title:")) {
+					write({ type: "session_info_update", title: line.slice("fixture:title:".length) });
+					ok();
+					break;
+				}
+				// A blocking confirm mid-run; the answer ends the turn (extension_ui_response).
+				if (line === "fixture:confirm") {
+					write({
+						type: "extension_ui_request",
+						id: "fixture-confirm",
+						method: "confirm",
+						title: "Deploy to staging?",
+						message: "The agent wants to run the staging deploy script.",
+					});
+					ok();
+					break;
+				}
+				// The running turn finishes normally (completion notification).
+				if (line === "fixture:finish") {
+					const answer: AgentMessage = {
+						role: "assistant",
+						content: [{ type: "text", text: "Background run finished" }],
+						timestamp: Date.now(),
+						provider: model.provider,
+						model: model.id,
+						stopReason: "stop",
+					};
+					appendMessage(answer);
+					write({ type: "message_end", message: answer });
+					endTurn([answer]);
+					ok();
+					break;
+				}
+				// The agent proposes a plan: plan mode turns on, the bridge pushes the
+				// one-shot `plan_proposal` frame and keeps it for get_plan_mode.
+				if (line === "fixture:plan") {
+					planModeEnabled = true;
+					planProposal = {
+						planFilePath: `${process.cwd()}/.omp/plans/fixture-rollout.md`,
+						title: "Fixture rollout plan",
+						suggestedFileName: "FIXTURE_ROLLOUT.md",
+						planContent: "## Steps\n\n1. Ship the background tab coverage.\n2. Watch the release run.",
+						options: ["execute", "compact", "keep_context", "save", "refine"],
+					};
+					const frame = `${JSON.stringify({ event: { type: "plan_proposal", ...planProposal } })}\n`;
+					for (const socket of bridgeClients) socket.write(frame);
+					ok();
+					break;
+				}
+				// The `next-prompt` extension's suggestion widget; `clear` is its own
+				// clear on input / agent_start.
+				if (line.startsWith("fixture:next-prompt:")) {
+					const suggestion = line.slice("fixture:next-prompt:".length);
+					write({
+						type: "extension_ui_request",
+						id: `next-prompt-${Date.now()}`,
+						method: "setWidget",
+						widgetKey: "next-prompt",
+						widgetLines: suggestion === "clear" ? undefined : [`\x1b[2m↹ Tab  ${suggestion}\x1b[22m`],
+						widgetPlacement: "belowEditor",
+					});
+					ok();
+					break;
+				}
+				// A subagent roster for the sidebar rows and the dock line.
+				if (line === "fixture:subagents") {
+					const now = Date.now();
+					subagentRoster = [
+						{
+							id: "sa-explore",
+							index: 0,
+							agent: "explore",
+							description: "Map the settings code",
+							status: "running",
+							live: true,
+							lastUpdate: now,
+						},
+						{
+							id: "sa-review",
+							index: 1,
+							agent: "reviewer",
+							description: "Review the sidebar diff",
+							status: "completed",
+							lastUpdate: now - 5000,
+						},
+						{
+							id: "sa-nested",
+							index: 2,
+							agent: "task",
+							description: "Read locale files",
+							status: "running",
+							live: true,
+							parentSubagentId: "sa-explore",
+							lastUpdate: now,
+						},
+					];
+					ok();
+					break;
+				}
+				// One roster subagent finishes: its terminal lifecycle frame, then the roster agrees.
+				if (line.startsWith("fixture:subagents:finish:")) {
+					const id = line.slice("fixture:subagents:finish:".length);
+					const agent = subagentRoster.find(entry => entry.id === id);
+					if (!agent) {
+						fail(`Fixture has no subagent ${id}`);
+						break;
+					}
+					agent.status = "completed";
+					agent.live = false;
+					agent.lastUpdate = Date.now();
+					write({
+						type: "subagent_lifecycle",
+						payload: {
+							id,
+							agent: agent.agent,
+							agentSource: "bundled",
+							description: agent.description,
+							status: "completed",
+							parentSubagentId: agent.parentSubagentId,
+							index: agent.index,
+						},
+					});
 					ok();
 					break;
 				}

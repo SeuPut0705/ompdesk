@@ -12,7 +12,6 @@ export interface ToolEntry {
 	 * spin forever and keep a live clock subscribed.
 	 */
 	status: "pending" | "running" | "done" | "error" | "aborted";
-	partialResult: unknown;
 	/** Accumulated raw args JSON string during streaming (before execution starts). */
 	streamingArgs: string;
 	result: unknown;
@@ -22,22 +21,56 @@ export interface ToolEntry {
 }
 
 export interface ToolsStore {
-	activeTools: Map<string, ToolEntry>;
 	/**
-	 * Rebuild the map from a transcript. `turnIsLive` marks the trailing
+	 * Terminal entries (`done`, `error`, `aborted`) by key. Live events update
+	 * this map in place, so a batch never copies the session's whole history and
+	 * the map keeps its identity; every in-place change bumps `finishedVersion`.
+	 * Entries themselves are immutable (a change stores a new object). Read one
+	 * entry with `selectToolEntry`; readers of the whole map also select
+	 * `finishedVersion`. Only the store writes to it.
+	 */
+	finishedTools: Map<string, ToolEntry>;
+	finishedVersion: number;
+	/** Pending/running entries by key: the small live set, replaced when one changes. */
+	liveTools: ReadonlyMap<string, ToolEntry>;
+	/**
+	 * Latest `tool_execution_update` payload per key, kept out of the entries so
+	 * streaming output never replaces an entry or either map. Dropped once
+	 * `agent_end` commits the run's results.
+	 */
+	partialResults: ReadonlyMap<string, unknown>;
+	/** Bumps on every batch that writes an entry; the `keepChangedSince` token. */
+	revision: number;
+	/**
+	 * Rebuild the entries from a transcript. `turnIsLive` marks the trailing
 	 * unanswered calls of the streaming turn as still running; every other
-	 * unanswered call is terminal `aborted`. `keepChangedSince` is the map as it
-	 * was when the transcript fetch began, and marks the rebuild as racing live
-	 * events: entries live events wrote after that, and in-flight calls the
+	 * unanswered call is terminal `aborted`. `keepChangedSince` is `revision` as
+	 * it was when the transcript fetch began, and marks the rebuild as racing
+	 * live events: entries live events wrote after that, and in-flight calls the
 	 * transcript does not contain yet, survive the rebuild with their execution
 	 * routing. Everything else is rebuilt from the transcript.
 	 */
-	hydrateMessages: (
-		messages: AgentMessage[],
-		options?: { turnIsLive?: boolean; keepChangedSince?: ReadonlyMap<string, ToolEntry> },
-	) => void;
+	hydrateMessages: (messages: AgentMessage[], options?: { turnIsLive?: boolean; keepChangedSince?: number }) => void;
 	applyEvents: (events: AgentSessionEvent[]) => void;
 	reset: () => void;
+}
+
+type ToolEntries = Pick<ToolsStore, "finishedTools" | "liveTools">;
+
+/** One entry by key, live or finished. */
+export function selectToolEntry(state: ToolEntries, key: string): ToolEntry | undefined {
+	return state.liveTools.get(key) ?? state.finishedTools.get(key);
+}
+
+/** Split entries into the store's live set and finished map, keeping their order. */
+export function toolEntriesState(entries: Iterable<readonly [string, ToolEntry]>): ToolEntries {
+	const finishedTools = new Map<string, ToolEntry>();
+	const liveTools = new Map<string, ToolEntry>();
+	for (const [key, entry] of entries) {
+		const live = entry.status === "pending" || entry.status === "running";
+		(live ? liveTools : finishedTools).set(key, entry);
+	}
+	return { finishedTools, liveTools };
 }
 
 function timestampMs(value: string | number | undefined, fallback: number): number {
@@ -52,7 +85,7 @@ function timestampMs(value: string | number | undefined, fallback: number): numb
 /**
  * Provider tool-call ids are only required to be unique inside one assistant
  * message. Some providers therefore reuse ids such as `read:0` on every turn.
- * The GUI keeps the full transcript in one map, so raw ids cannot be map keys
+ * The GUI keeps the full transcript in one store, so raw ids cannot be keys
  * on their own: later calls would overwrite earlier results.
  *
  * Call objects are bound to occurrence-specific store keys. The first
@@ -75,6 +108,14 @@ export const createToolsStore = () => {
 	let streamMessageTimestamp: AgentMessage["timestamp"] | undefined;
 	let queuedExecutionKeysByCallId = new Map<string, string[]>();
 	let runningEntryKeyByCallId = new Map<string, string>();
+	/** Revision of the last live write per key since the last rebuild (`keepChangedSince`). */
+	let writtenAt = new Map<string, number>();
+	/**
+	 * Keys finished by `tool_execution_end` since the last `agent_end`, per raw
+	 * call id in end order. `agent_end` points them at the committed result
+	 * messages so the event's own copy of the payload can be released.
+	 */
+	let uncommittedKeysByCallId = new Map<string, string[]>();
 
 	const resetEntryKeyTracking = (): void => {
 		nextOccurrenceByCallId = new Map();
@@ -83,6 +124,8 @@ export const createToolsStore = () => {
 		streamMessageTimestamp = undefined;
 		queuedExecutionKeysByCallId = new Map();
 		runningEntryKeyByCallId = new Map();
+		writtenAt = new Map();
+		uncommittedKeysByCallId = new Map();
 	};
 
 	const allocateEntryKey = (callId: string): string => {
@@ -104,14 +147,20 @@ export const createToolsStore = () => {
 		else queuedExecutionKeysByCallId.set(callId, [key]);
 	};
 
-	const takeExecutionKey = (callId: string, tools: Map<string, ToolEntry>): string => {
+	const queueUncommittedKey = (callId: string, key: string): void => {
+		const queue = uncommittedKeysByCallId.get(callId);
+		if (queue) queue.push(key);
+		else uncommittedKeysByCallId.set(callId, [key]);
+	};
+
+	const takeExecutionKey = (callId: string, lookup: (key: string) => ToolEntry | undefined): string => {
 		const queue = queuedExecutionKeysByCallId.get(callId);
 		const queued = queue?.shift();
 		if (queue?.length === 0) queuedExecutionKeysByCallId.delete(callId);
 		if (queued) return queued;
 
 		const latest = latestEntryKeyByCallId.get(callId);
-		const latestEntry = latest ? tools.get(latest) : undefined;
+		const latestEntry = latest ? lookup(latest) : undefined;
 		// Claim any call that has not reported a result yet — including the
 		// `aborted` placeholders a history rebuild leaves behind, so a late
 		// `tool_execution_start` promotes that card instead of opening a second
@@ -121,15 +170,21 @@ export const createToolsStore = () => {
 	};
 
 	return createStore<ToolsStore>()((set, get) => ({
-		activeTools: new Map(),
+		finishedTools: new Map(),
+		finishedVersion: 0,
+		liveTools: new Map(),
+		partialResults: new Map(),
+		revision: 0,
 		hydrateMessages: (messages, options) => {
 			const now = Date.now();
 			const since = options?.keepChangedSince;
-			const previous = get().activeTools;
+			const state = get();
 			const previousRunning = runningEntryKeyByCallId;
 			const previousQueued = queuedExecutionKeysByCallId;
 			const previousStreaming = streamEntryKeysByIndex;
 			const previousStreamTimestamp = streamMessageTimestamp;
+			const previousWritten = writtenAt;
+			const previousUncommitted = uncommittedKeysByCallId;
 			resetEntryKeyTracking();
 
 			// Pair repeated raw ids by occurrence, not with a last-write-wins map.
@@ -164,11 +219,11 @@ export const createToolsStore = () => {
 						toolName: block.name,
 						args: block.arguments,
 						status: result ? (result.isError ? "error" : "done") : "aborted",
-						partialResult: null,
 						streamingArgs: "",
 						// Keep the same `{content, details}` envelope as the live path so
 						// renderers read history identically (details: diffs, exit codes,
-						// todo phases, counts — previously dropped here).
+						// todo phases, counts — previously dropped here). It points at
+						// the transcript message, so the payload is held once.
 						result: result ? { content: result.content ?? null, details: result.details ?? null } : null,
 						isError: result?.isError ?? false,
 						startTime,
@@ -186,15 +241,20 @@ export const createToolsStore = () => {
 					if (entry) tools.set(key, { ...entry, status: "running" });
 				}
 			}
-			if (since) {
+			const partialResults = new Map<string, unknown>();
+			if (since !== undefined) {
 				const kept = new Set<string>();
-				for (const [key, entry] of previous) {
-					const changed = since.get(key) !== entry;
-					const inFlightOnly = !tools.has(key) && (entry.status === "pending" || entry.status === "running");
-					if (!changed && !inFlightOnly) continue;
+				const keep = (key: string, entry: ToolEntry): void => {
 					kept.add(key);
 					tools.set(key, entry);
+				};
+				for (const [key, revision] of previousWritten) {
+					if (revision <= since) continue;
+					const entry = selectToolEntry(state, key);
+					if (entry) keep(key, entry);
 				}
+				// In-flight calls the transcript does not contain yet.
+				for (const [key, entry] of state.liveTools) if (!kept.has(key) && !tools.has(key)) keep(key, entry);
 				for (const [callId, key] of previousRunning) {
 					if (!kept.has(key)) continue;
 					runningEntryKeyByCallId.set(callId, key);
@@ -203,19 +263,45 @@ export const createToolsStore = () => {
 				for (const [callId, keys] of previousQueued) {
 					for (const key of keys) if (kept.has(key)) queueExecutionKey(callId, key);
 				}
+				for (const [callId, keys] of previousUncommitted) {
+					for (const key of keys) if (kept.has(key)) queueUncommittedKey(callId, key);
+				}
+				for (const key of kept)
+					if (state.partialResults.has(key)) partialResults.set(key, state.partialResults.get(key));
 				const streaming = [...previousStreaming].filter(([, key]) => kept.has(key));
 				if (streaming.length > 0) {
 					streamEntryKeysByIndex = new Map(streaming);
 					streamMessageTimestamp = previousStreamTimestamp;
 				}
 			}
-			set({ activeTools: tools });
+			set({ ...toolEntriesState(tools), finishedVersion: state.finishedVersion + 1, partialResults });
 		},
 		applyEvents: events => {
-			// Copy-on-first-write: batches without tool events (the common case —
-			// text/thinking deltas) must not pay an O(tools) Map clone per batch.
-			let tools: Map<string, ToolEntry> | null = null;
-			const writable = () => (tools ??= new Map(get().activeTools));
+			const state = get();
+			// The finished map changes in place; the live set and the partial
+			// slots are copied on first write. Batches without tool events (the
+			// common case — text/thinking deltas) write nothing and publish nothing.
+			const finished = state.finishedTools;
+			let live: Map<string, ToolEntry> | null = null;
+			let partials: Map<string, unknown> | null = null;
+			let finishedChanged = false;
+			let wrote = false;
+			const revision = state.revision + 1;
+			const liveNow = (): ReadonlyMap<string, ToolEntry> => live ?? state.liveTools;
+			const writableLive = () => (live ??= new Map(state.liveTools));
+			const lookup = (key: string): ToolEntry | undefined => liveNow().get(key) ?? finished.get(key);
+			const put = (key: string, entry: ToolEntry): void => {
+				wrote = true;
+				writtenAt.set(key, revision);
+				if (entry.status === "pending" || entry.status === "running") {
+					writableLive().set(key, entry);
+					if (finished.delete(key)) finishedChanged = true;
+					return;
+				}
+				if (liveNow().has(key)) writableLive().delete(key);
+				finished.set(key, entry);
+				finishedChanged = true;
+			};
 
 			for (const event of events) {
 				switch (event.type) {
@@ -247,16 +333,14 @@ export const createToolsStore = () => {
 								streamEntryKeysByIndex.set(ame.contentIndex, key);
 							}
 							bindCallEntryKey(block, block.id, key);
-							const map = writable();
-							const existing = map.get(key);
+							const existing = lookup(key);
 							if (existing) {
-								map.set(key, { ...existing, streamingArgs: existing.streamingArgs + (ame.delta ?? "") });
+								put(key, { ...existing, streamingArgs: existing.streamingArgs + (ame.delta ?? "") });
 							} else {
-								map.set(key, {
+								put(key, {
 									toolName: block.name ?? "unknown",
 									args: {},
 									status: "pending",
-									partialResult: null,
 									streamingArgs: ame.delta ?? "",
 									result: null,
 									isError: false,
@@ -269,21 +353,19 @@ export const createToolsStore = () => {
 					}
 					case "message_end": {
 						if (event.message.role !== "assistant" || !Array.isArray(event.message.content)) break;
-						const map = writable();
 						for (const [contentIndex, block] of event.message.content.entries()) {
 							if (block.type !== "toolCall") continue;
 							const key = streamEntryKeysByIndex.get(contentIndex) ?? allocateEntryKey(block.id);
 							bindCallEntryKey(block, block.id, key);
 							queueExecutionKey(block.id, key);
-							const existing = map.get(key);
+							const existing = lookup(key);
 							if (existing) {
-								map.set(key, { ...existing, toolName: block.name, args: block.arguments });
+								put(key, { ...existing, toolName: block.name, args: block.arguments });
 							} else {
-								map.set(key, {
+								put(key, {
 									toolName: block.name,
 									args: block.arguments,
 									status: "pending",
-									partialResult: null,
 									streamingArgs: "",
 									result: null,
 									isError: false,
@@ -296,15 +378,13 @@ export const createToolsStore = () => {
 						break;
 					}
 					case "tool_execution_start": {
-						const map = writable();
-						const key = takeExecutionKey(event.toolCallId, map);
+						const key = takeExecutionKey(event.toolCallId, lookup);
 						latestEntryKeyByCallId.set(event.toolCallId, key);
 						runningEntryKeyByCallId.set(event.toolCallId, key);
-						map.set(key, {
+						put(key, {
 							toolName: event.toolName,
 							args: event.args,
 							status: "running",
-							partialResult: null,
 							streamingArgs: "",
 							result: null,
 							isError: false,
@@ -316,26 +396,63 @@ export const createToolsStore = () => {
 					case "tool_execution_update": {
 						const key =
 							runningEntryKeyByCallId.get(event.toolCallId) ?? latestEntryKeyByCallId.get(event.toolCallId);
-						const existing = key ? (tools ?? get().activeTools).get(key) : undefined;
-						if (key && existing) {
-							writable().set(key, { ...existing, partialResult: event.partialResult });
+						if (key && lookup(key)) {
+							partials ??= new Map(state.partialResults);
+							partials.set(key, event.partialResult);
+							writtenAt.set(key, revision);
+							wrote = true;
 						}
 						break;
 					}
 					case "tool_execution_end": {
 						const key =
 							runningEntryKeyByCallId.get(event.toolCallId) ?? latestEntryKeyByCallId.get(event.toolCallId);
-						const existing = key ? (tools ?? get().activeTools).get(key) : undefined;
+						const existing = key ? lookup(key) : undefined;
 						if (key && existing) {
-							writable().set(key, {
+							put(key, {
 								...existing,
 								status: event.isError ? "error" : "done",
 								result: event.result,
 								isError: event.isError ?? false,
 								endTime: Date.now(),
 							});
+							queueUncommittedKey(event.toolCallId, key);
 						}
 						runningEntryKeyByCallId.delete(event.toolCallId);
+						break;
+					}
+					case "agent_end": {
+						// The run's results are committed now: point finished entries at
+						// the committed messages (the transcript keeps those) instead of
+						// the end events' own copies, and release their partial slots.
+						// Results are matched from the newest backwards: a tab that was
+						// in the background saw only the run's later end events.
+						const committed = event.messages ?? [];
+						for (let index = committed.length - 1; index >= 0; index--) {
+							const message = committed[index];
+							if (message?.role !== "toolResult" || !message.toolCallId) continue;
+							const key = uncommittedKeysByCallId.get(message.toolCallId)?.pop();
+							const entry = key ? finished.get(key) : undefined;
+							if (
+								!key ||
+								!entry ||
+								!message.entryId ||
+								entry.toolName !== (message.toolName ?? entry.toolName) ||
+								entry.isError !== (message.isError ?? false)
+							)
+								continue;
+							finished.set(key, {
+								...entry,
+								result: { content: message.content ?? null, details: message.details ?? null },
+							});
+							finishedChanged = true;
+						}
+						uncommittedKeysByCallId = new Map();
+						const current = partials ?? state.partialResults;
+						if (current.size > 0) {
+							partials = new Map();
+							for (const [key, partial] of current) if (liveNow().has(key)) partials.set(key, partial);
+						}
 						break;
 					}
 					default:
@@ -343,13 +460,24 @@ export const createToolsStore = () => {
 				}
 			}
 
-			if (tools) {
-				set({ activeTools: tools });
-			}
+			if (!wrote && !finishedChanged && !live && !partials) return;
+			set({
+				...(live ? { liveTools: live } : {}),
+				...(partials ? { partialResults: partials } : {}),
+				...(finishedChanged ? { finishedVersion: state.finishedVersion + 1 } : {}),
+				...(wrote ? { revision } : {}),
+			});
 		},
 		reset: () => {
 			resetEntryKeyTracking();
-			set({ activeTools: new Map() });
+			const state = get();
+			set({
+				finishedTools: new Map(),
+				finishedVersion: state.finishedVersion + 1,
+				liveTools: new Map(),
+				partialResults: new Map(),
+				revision: state.revision + 1,
+			});
 		},
 	}));
 };

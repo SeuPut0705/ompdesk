@@ -5,6 +5,7 @@
  */
 
 import type { ReactNode } from "react";
+import { inlineFailure } from "../../lib/error-detail";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { AsyncSection } from "../common";
@@ -33,7 +34,7 @@ export function RouteFrame({
 			empty={empty}
 			emptyLabel={t("stats.emptyRange")}
 			error={error}
-			errorTitle={t("stats.unavailable")}
+			errorTitle={inlineFailure(error, t("stats.unavailable")).message}
 			hasData={hasData}
 			loading={loading}
 			loadingLabel={t("stats.loading")}

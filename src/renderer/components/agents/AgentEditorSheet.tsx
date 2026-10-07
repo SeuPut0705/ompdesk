@@ -134,10 +134,10 @@ export function AgentEditorSheet({ target, definitions, onClose, onSaved }: Agen
 								{t("agentHub.retry")}
 							</Button>
 						}
-						title={t("agentStudio.editor.loadFailed")}
+						title={authoring.error.message}
 						variant="danger"
 					>
-						{authoring.error}
+						<ErrorDetail error={authoring.error.cause} />
 					</Banner>
 				) : (
 					<div className="flex justify-center py-12">

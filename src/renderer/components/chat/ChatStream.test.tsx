@@ -252,7 +252,6 @@ describe("streaming transcript visibility", () => {
 							toolName: "read",
 							args: { path: "src/a.ts" },
 							status: "running",
-							partialResult: null,
 							streamingArgs: "",
 							result: null,
 							isError: false,

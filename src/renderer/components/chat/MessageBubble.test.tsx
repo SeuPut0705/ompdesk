@@ -53,7 +53,7 @@ describe("MessageBubble tool messages", () => {
 	it("hydrates a completed tool card and folds away the standalone result", () => {
 		useToolsStore.getState().hydrateMessages([assistantMessage, toolResultMessage]);
 
-		const entry = useToolsStore.getState().activeTools.get(toolCallId);
+		const entry = useToolsStore.getState().finishedTools.get(toolCallId);
 		expect(entry).toMatchObject({
 			toolName: "read",
 			args: { path: "packages/gui/package.json" },

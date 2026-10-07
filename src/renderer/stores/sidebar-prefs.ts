@@ -129,7 +129,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 					: [...state.pinnedGroups, cwd],
 			}),
 			persist: () => writePrefs(get),
-			onFailure: message => toastError({ title: translate("sidebar.pinFailed"), error: message }),
+			onFailure: failure => toastError({ title: translate("sidebar.pinFailed"), error: failure }),
 		}),
 
 	toggleSessionPin: path =>
@@ -141,7 +141,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 					: [...state.pinnedSessions, path],
 			}),
 			persist: () => writePrefs(get),
-			onFailure: message => toastError({ title: translate("sidebar.pinFailed"), error: message }),
+			onFailure: failure => toastError({ title: translate("sidebar.pinFailed"), error: failure }),
 		}),
 
 	setGroupAlias: (cwd, alias) =>
@@ -154,7 +154,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 				return { groupAliases };
 			},
 			persist: () => writePrefs(get),
-			onFailure: message => toastError({ title: translate("sidebar.renameFailed"), error: message }),
+			onFailure: failure => toastError({ title: translate("sidebar.renameFailed"), error: failure }),
 		}),
 
 	setGroupOrder: order =>
@@ -162,7 +162,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 			store: { getState: get, setState: set },
 			mutate: () => ({ groupOrder: [...new Set(order)] }),
 			persist: () => writePrefs(get),
-			onFailure: message => toastError({ title: translate("sidebar.reorderFailed"), error: message }),
+			onFailure: failure => toastError({ title: translate("sidebar.reorderFailed"), error: failure }),
 		}),
 
 	touchWorkspace: cwd => {

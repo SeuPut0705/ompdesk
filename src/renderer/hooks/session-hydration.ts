@@ -299,7 +299,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	const beforeMessages = useMessagesStore.getState().messages;
 	const beforeLiveMessages = useMessagesStore.getState().liveMessages;
 	const beforeEventVersion = useSessionStore.getState().eventVersion;
-	const beforeTools = useToolsStore.getState().activeTools;
+	const beforeTools = useToolsStore.getState().revision;
 	const core = Promise.allSettled([
 		initialState ? Promise.resolve(initialState) : activeTabCommand({ type: "get_state" }),
 		createSessionRpcClient(activeTabCommand).getTranscript(),
@@ -434,7 +434,7 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 	const beforeMessages = initialMessagesStore?.messages ?? [];
 	const beforeLiveMessages = initialMessagesStore?.liveMessages ?? [];
 	const beforeEventVersion = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion;
-	const beforeTools = sessionRuntimeStore<ToolsStore>(tabId, "tools")?.getState().activeTools;
+	const beforeTools = sessionRuntimeStore<ToolsStore>(tabId, "tools")?.getState().revision;
 
 	const coreResult = Promise.allSettled([
 		runtime.command({ type: "get_state" }),

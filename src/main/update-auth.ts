@@ -17,6 +17,7 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { app, net, safeStorage } from "electron";
+import { codedError } from "../shared/ipc-error-codes";
 import type { UpdateAccess, UpdateAuthInfo, UpdateTokenSource } from "../shared/ipc-types";
 import { resolveLoginShellEnv, spawnPath } from "./shell-env";
 import { classifyRepoAccess, firstUpdateToken, type ResolvedUpdateToken } from "./updater-state";
@@ -108,7 +109,8 @@ export async function updateAuthInfo(): Promise<UpdateAuthInfo> {
 }
 
 export async function storeUpdateToken(token: string): Promise<void> {
-	if (!safeStorage.isEncryptionAvailable()) throw new Error("safeStorage encryption is unavailable");
+	if (!safeStorage.isEncryptionAvailable())
+		throw codedError("safe_storage_unavailable", "safeStorage encryption is unavailable");
 	const file = storedTokenPath();
 	await fs.mkdir(path.dirname(file), { recursive: true });
 	await fs.writeFile(file, safeStorage.encryptString(token), { mode: 0o600 });

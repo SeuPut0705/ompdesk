@@ -3,7 +3,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { basename, cx, dirname, durationBetween } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
-import { useToolsStore } from "../../stores/tools";
+import { selectToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { Spinner } from "../common";
 import { type DiffStats, toolDiffStats } from "./diff-stats";
@@ -114,9 +114,11 @@ export function DiffStatChip({ stats }: { stats: DiffStats }) {
  */
 export function ToolCard({ toolCallId, toolName, args, runningIndicator = "spinner" }: ToolCardProps) {
 	const t = useT();
-	const entry = useToolsStore(s => s.activeTools.get(toolCallId));
+	const entry = useToolsStore(s => selectToolEntry(s, toolCallId));
 	const expandAll = useUiStore(s => s.toolsExpandAll);
 	const [expanded, setExpanded] = useState(expandAll.expanded);
+	// Only an open body shows streaming output, so a collapsed card ignores it.
+	const partialResult = useToolsStore(s => (expanded ? s.partialResults.get(toolCallId) : undefined));
 
 	// ⌃O expand/collapse-all: every card snaps to the latest shared target.
 	useEffect(() => {
@@ -206,7 +208,7 @@ export function ToolCard({ toolCallId, toolName, args, runningIndicator = "spinn
 				<div className="omp-tool-body">
 					{/* A specialized renderer would claim "no matches" for a call that never
 					 * returned, so an output-less abort shows only what was asked for. */}
-					{isAborted && entry?.result == null && entry?.partialResult == null ? (
+					{isAborted && entry?.result == null && partialResult == null ? (
 						<GenericRenderer args={args} result={null} interrupted />
 					) : (
 						<Renderer
@@ -214,7 +216,7 @@ export function ToolCard({ toolCallId, toolName, args, runningIndicator = "spinn
 							result={entry?.result}
 							isError={isError}
 							isPartial={isPartial}
-							partialResult={entry?.partialResult}
+							partialResult={partialResult}
 							interrupted={isAborted}
 						/>
 					)}

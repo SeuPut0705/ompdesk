@@ -8,7 +8,6 @@ it("separates multi-file edits, failed results, write snapshots and virtual arti
 		toolName: "edit",
 		args: {},
 		status: "done",
-		partialResult: null,
 		streamingArgs: "",
 		result: null,
 		isError: false,
@@ -47,7 +46,6 @@ it("parses a finished edit once and reuses its candidates while the entry is unc
 		toolName: "edit",
 		args: { path: "a.ts" },
 		status: "done",
-		partialResult: null,
 		streamingArgs: "",
 		result: { details: { diff: "@@ -1 +1 @@\n-a\n+b" } },
 		isError: false,
@@ -56,11 +54,11 @@ it("parses a finished edit once and reuses its candidates while the entry is unc
 	};
 	const running: ToolEntry = { ...edit, toolName: "bash", status: "running", endTime: null };
 	const [first] = buildEditCandidates(new Map([["e1", edit]]));
-	// Another tool's event replaces the map, not the finished entry.
+	// Another tool's event touches other entries, not the finished one.
 	const [again] = buildEditCandidates(
 		new Map([
 			["e1", edit],
-			["b1", { ...running, partialResult: "out" }],
+			["b1", running],
 		]),
 	);
 	expect(again).toBe(first);

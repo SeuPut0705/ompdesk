@@ -350,13 +350,13 @@ export function hasStreamingTranscriptContent(
 	message: AgentMessage | null,
 	streamingText: string,
 	streamingThinking: string,
-	activeTools: ReadonlyMap<string, ToolEntry>,
+	liveTools: ReadonlyMap<string, ToolEntry>,
 ): boolean {
 	if (!message) return false;
 	if (isRenderableMessageText(streamingText) || isRenderableMessageText(streamingThinking)) return true;
 	if (isVisibleTranscriptMessage(message)) return true;
 	const streamStart = messageTimestampMs(message);
-	for (const entry of activeTools.values()) {
+	for (const entry of liveTools.values()) {
 		if ((entry.status === "pending" || entry.status === "running") && entry.startTime >= streamStart) return true;
 	}
 	return false;

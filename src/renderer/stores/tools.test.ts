@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { StoreApi } from "zustand/vanilla";
 import type { AgentMessage, AgentSessionEvent } from "../../shared/rpc-types";
-import { createToolsStore } from "./tools";
+import { createToolsStore, selectToolEntry, type ToolsStore } from "./tools";
 
 function call(id: string, timestamp = 1): AgentMessage {
 	return {
@@ -28,6 +29,9 @@ const start = (toolCallId: string): AgentSessionEvent => ({
 	args: { path: `${toolCallId}.ts` },
 });
 
+const entryOf = (store: StoreApi<ToolsStore>, key: string) => selectToolEntry(store.getState(), key);
+const entryCount = (state: ToolsStore) => state.finishedTools.size + state.liveTools.size;
+
 describe("tools store history rebuild", () => {
 	it("ends an unanswered call from a finished turn instead of spinning forever", () => {
 		const store = createToolsStore();
@@ -36,7 +40,7 @@ describe("tools store history rebuild", () => {
 		// every one of those cards as still running, with a live duration clock.
 		store.getState().hydrateMessages([call("read:0")]);
 
-		expect(store.getState().activeTools.get("read:0")).toMatchObject({
+		expect(entryOf(store, "read:0")).toMatchObject({
 			status: "aborted",
 			endTime: null,
 		});
@@ -47,15 +51,15 @@ describe("tools store history rebuild", () => {
 		const messages = [call("first"), result("first"), call("last")];
 		store.getState().hydrateMessages(messages, { turnIsLive: true });
 
-		expect(store.getState().activeTools.get("first")).toMatchObject({ status: "done" });
-		expect(store.getState().activeTools.get("last")).toMatchObject({ status: "running" });
+		expect(entryOf(store, "first")).toMatchObject({ status: "done" });
+		expect(entryOf(store, "last")).toMatchObject({ status: "running" });
 	});
 
 	it("aborts the trailing unanswered call once the session reports it is idle", () => {
 		const store = createToolsStore();
 		store.getState().hydrateMessages([call("first"), result("first"), call("last")], { turnIsLive: false });
 
-		expect(store.getState().activeTools.get("last")).toMatchObject({ status: "aborted" });
+		expect(entryOf(store, "last")).toMatchObject({ status: "aborted" });
 	});
 
 	it("promotes the aborted placeholder when a late execution event arrives", () => {
@@ -65,8 +69,8 @@ describe("tools store history rebuild", () => {
 		// for the same call. The card must switch to running, not duplicate.
 		store.getState().applyEvents([start("read:0")]);
 
-		expect(store.getState().activeTools.size).toBe(1);
-		expect(store.getState().activeTools.get("read:0")).toMatchObject({ status: "running" });
+		expect(entryCount(store.getState())).toBe(1);
+		expect(entryOf(store, "read:0")).toMatchObject({ status: "running" });
 
 		store.getState().applyEvents([
 			{
@@ -77,7 +81,7 @@ describe("tools store history rebuild", () => {
 				isError: false,
 			},
 		]);
-		expect(store.getState().activeTools.get("read:0")).toMatchObject({ status: "done" });
+		expect(entryOf(store, "read:0")).toMatchObject({ status: "done" });
 	});
 
 	it("does not resurrect an already answered call", () => {
@@ -86,8 +90,8 @@ describe("tools store history rebuild", () => {
 		store.getState().applyEvents([start("read:0")]);
 
 		// The finished call keeps its result; the new event opens its own card.
-		expect(store.getState().activeTools.size).toBe(2);
-		expect(store.getState().activeTools.get("read:0")).toMatchObject({ status: "done" });
+		expect(entryCount(store.getState())).toBe(2);
+		expect(entryOf(store, "read:0")).toMatchObject({ status: "done" });
 	});
 });
 
@@ -118,7 +122,7 @@ describe("tools store across a hidden stretch", () => {
 		// same content index.
 		store.getState().applyEvents([toolcallDelta("second", 2)]);
 
-		const names = [...store.getState().activeTools.values()].map(entry => entry.toolName);
+		const names = [...store.getState().liveTools.values()].map(entry => entry.toolName);
 		expect(names).toEqual(["first", "second"]);
 	});
 
@@ -126,7 +130,7 @@ describe("tools store across a hidden stretch", () => {
 		const store = createToolsStore();
 		// Seen live before the tab was hidden; its end event was missed.
 		store.getState().applyEvents([start("stale")]);
-		const beforeFetch = store.getState().activeTools;
+		const beforeFetch = store.getState().revision;
 		// Live again while the transcript fetch is in flight.
 		store.getState().applyEvents([start("fresh")]);
 
@@ -134,8 +138,8 @@ describe("tools store across a hidden stretch", () => {
 			turnIsLive: true,
 			keepChangedSince: beforeFetch,
 		});
-		expect(store.getState().activeTools.get("stale")).toMatchObject({ status: "done" });
-		expect(store.getState().activeTools.get("fresh")).toMatchObject({ status: "running" });
+		expect(entryOf(store, "stale")).toMatchObject({ status: "done" });
+		expect(entryOf(store, "fresh")).toMatchObject({ status: "running" });
 
 		// The kept call still resolves through its live route.
 		store.getState().applyEvents([
@@ -147,7 +151,150 @@ describe("tools store across a hidden stretch", () => {
 				isError: false,
 			},
 		]);
-		expect(store.getState().activeTools.get("fresh")).toMatchObject({ status: "done" });
-		expect(store.getState().activeTools.size).toBe(2);
+		expect(entryOf(store, "fresh")).toMatchObject({ status: "done" });
+		expect(entryCount(store.getState())).toBe(2);
+	});
+});
+
+describe("tools store layout", () => {
+	const update = (toolCallId: string, text: string): AgentSessionEvent => ({
+		type: "tool_execution_update",
+		toolCallId,
+		toolName: "read",
+		args: {},
+		partialResult: { content: [{ type: "text", text }] },
+	});
+	const end = (toolCallId: string, result: unknown, isError = false): AgentSessionEvent => ({
+		type: "tool_execution_end",
+		toolCallId,
+		toolName: "read",
+		result,
+		isError,
+	});
+	const committed = (id: string, text: string): AgentMessage => ({
+		...result(id),
+		content: [{ type: "text", text }],
+		details: { lines: 1 },
+		entryId: `e-${id}-${text}`,
+	});
+	function envelope(value: unknown): { content: unknown; details: unknown } {
+		if (value === null || typeof value !== "object" || !("content" in value) || !("details" in value)) {
+			throw new Error("not a {content, details} result");
+		}
+		return { content: value.content, details: value.details };
+	}
+
+	it("keeps both entry maps and the finished version untouched by a tool update", () => {
+		const store = createToolsStore();
+		store.getState().hydrateMessages([call("old"), result("old")]);
+		store.getState().applyEvents([start("run")]);
+		const before = store.getState();
+
+		store.getState().applyEvents([update("run", "one"), update("run", "two")]);
+
+		const after = store.getState();
+		expect(after.finishedTools).toBe(before.finishedTools);
+		expect(after.finishedVersion).toBe(before.finishedVersion);
+		expect(after.liveTools).toBe(before.liveTools);
+		expect(after.partialResults.get("run")).toEqual({ content: [{ type: "text", text: "two" }] });
+	});
+
+	it("finishes a call into the same finished map instead of copying it", () => {
+		const store = createToolsStore();
+		store.getState().hydrateMessages([call("old"), result("old")]);
+		store.getState().applyEvents([start("run")]);
+		const before = store.getState();
+
+		store.getState().applyEvents([end("run", { content: [] })]);
+
+		const after = store.getState();
+		expect(after.finishedTools).toBe(before.finishedTools);
+		expect(after.finishedVersion).toBeGreaterThan(before.finishedVersion);
+		expect(after.finishedTools.get("run")).toMatchObject({ status: "done" });
+		expect(after.finishedTools.get("old")).toMatchObject({ status: "done" });
+	});
+
+	it("holds exactly the pending and running calls in the live set", () => {
+		const store = createToolsStore();
+		const liveKeys = () => [...store.getState().liveTools.keys()];
+		const assistant: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "toolCall", id: "a", name: "read", arguments: { path: "a.ts" } }],
+			timestamp: 1,
+		};
+		store.getState().applyEvents([
+			{ type: "message_start", message: { role: "assistant", content: [], timestamp: 1 } },
+			{
+				type: "message_update",
+				message: assistant,
+				assistantMessageEvent: { type: "toolcall_delta", contentIndex: 0, delta: "{", partial: assistant },
+			},
+		]);
+		expect(liveKeys()).toEqual(["a"]);
+		expect(entryOf(store, "a")).toMatchObject({ status: "pending" });
+
+		store.getState().applyEvents([{ type: "message_end", message: assistant }, start("a"), start("b")]);
+		expect(liveKeys()).toEqual(["a", "b"]);
+		expect(store.getState().finishedTools.size).toBe(0);
+
+		store.getState().applyEvents([update("a", "partial")]);
+		expect(liveKeys()).toEqual(["a", "b"]);
+
+		store.getState().applyEvents([end("a", { content: [] }), end("b", { content: [] }, true)]);
+		expect(liveKeys()).toEqual([]);
+		expect(entryOf(store, "a")).toMatchObject({ status: "done" });
+		expect(entryOf(store, "b")).toMatchObject({ status: "error" });
+
+		// Abort: the run stops while a call is in flight, and the idle rebuild
+		// settles it as interrupted.
+		store.getState().applyEvents([start("c")]);
+		expect(liveKeys()).toEqual(["c"]);
+		store.getState().hydrateMessages([call("c")], { turnIsLive: false, keepChangedSince: store.getState().revision });
+		expect(liveKeys()).toEqual([]);
+		expect(store.getState().finishedTools.get("c")).toMatchObject({ status: "aborted" });
+
+		// A late execution event moves the interrupted card back into the live set.
+		store.getState().applyEvents([start("c")]);
+		expect(liveKeys()).toEqual(["c"]);
+		expect(store.getState().finishedTools.has("c")).toBe(false);
+	});
+
+	it("points finished entries at the committed result messages after agent_end", () => {
+		const store = createToolsStore();
+		const eventResult = { content: [{ type: "text", text: "big output" }], details: { lines: 1 } };
+		store.getState().applyEvents([start("run"), update("run", "partial"), end("run", eventResult)]);
+		expect(entryOf(store, "run")?.result).toBe(eventResult);
+
+		const message = committed("run", "big output");
+		store.getState().applyEvents([{ type: "agent_end", messages: [call("run"), message] }]);
+
+		const swapped = entryOf(store, "run")?.result;
+		expect(swapped).not.toBe(eventResult);
+		expect(envelope(swapped).content).toBe(message.content);
+		expect(envelope(swapped).details).toBe(message.details);
+		expect(store.getState().partialResults.size).toBe(0);
+	});
+
+	it("matches committed results from the newest end backwards when early ends were missed", () => {
+		const store = createToolsStore();
+		// The tab was in the background for the run's first `read:0`; it saw only
+		// the second occurrence of the provider's reused id.
+		store.getState().applyEvents([start("read:0"), end("read:0", { content: [{ type: "text", text: "second" }] })]);
+
+		const first = committed("read:0", "first");
+		const second = committed("read:0", "second");
+		store.getState().applyEvents([{ type: "agent_end", messages: [call("read:0"), first, call("read:0"), second] }]);
+
+		expect(envelope(entryOf(store, "read:0")?.result).content).toBe(second.content);
+	});
+
+	it("keeps the event result when the run's result was never committed", () => {
+		const store = createToolsStore();
+		const eventResult = { content: [] };
+		store.getState().applyEvents([start("run"), end("run", eventResult)]);
+
+		store.getState().applyEvents([{ type: "agent_end", messages: [{ ...result("run"), entryId: undefined }] }]);
+
+		expect(entryOf(store, "run")?.result).toBe(eventResult);
 	});
 });

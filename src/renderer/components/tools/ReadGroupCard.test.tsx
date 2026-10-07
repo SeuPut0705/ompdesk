@@ -31,7 +31,6 @@ function runningRead(): ToolEntry {
 		toolName: "read",
 		args: {},
 		status: "running",
-		partialResult: null,
 		streamingArgs: "",
 		result: null,
 		isError: false,
@@ -45,7 +44,7 @@ let root: Root;
 
 async function mount(runningIndicator: RunningIndicator = "spinner"): Promise<void> {
 	useToolsStore.setState({
-		activeTools: new Map([
+		liveTools: new Map([
 			["read-1", runningRead()],
 			["read-2", runningRead()],
 		]),

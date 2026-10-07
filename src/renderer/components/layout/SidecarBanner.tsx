@@ -8,6 +8,7 @@
 import { AlertTriangle, RefreshCw, X } from "lucide-react";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
+import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 
 export function SidecarBanner() {
@@ -75,7 +76,9 @@ export function SidecarBanner() {
 				type="button"
 				onClick={() => {
 					clearSidecarError();
-					void window.omp.sidecar.restart();
+					void window.omp.sidecar
+						.restart()
+						.catch((error: unknown) => toastError({ title: t("settings.connection.restartFailed"), error }));
 				}}
 				className="omp-pressable flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--omp-border-muted)] px-2.5 py-1 text-omp-sm font-medium text-[var(--omp-text)] hover:bg-[var(--omp-selected-bg)]"
 			>

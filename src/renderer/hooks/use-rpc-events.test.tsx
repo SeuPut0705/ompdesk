@@ -1537,7 +1537,7 @@ describe("useRpcEvents tab-scoped routing guards", () => {
 		expect(useMessagesStore.getState().messages).toEqual([compacted]);
 		expect(useMessagesStore.getState().streamingText).toBe("Resumed reply");
 		expect(useSessionStore.getState()).toMatchObject({ isStreaming: true, isCompacting: false });
-		expect(useToolsStore.getState().activeTools.get("resumed-tool")?.status).toBe("running");
+		expect(useToolsStore.getState().liveTools.get("resumed-tool")?.status).toBe("running");
 	});
 
 	it("drops in-flight event batches for a closed tab instead of polluting the focused pane", async () => {
@@ -1715,8 +1715,8 @@ describe("useRpcEvents background tabs", () => {
 			await hydrated;
 		});
 
-		expect(tools.getState().activeTools.get("stale")?.status).toBe("done");
-		expect(tools.getState().activeTools.get("fresh")?.status).toBe("running");
+		expect(tools.getState().finishedTools.get("stale")?.status).toBe("done");
+		expect(tools.getState().liveTools.get("fresh")?.status).toBe("running");
 	});
 
 	it("drops a stale retry row when the hydrated session is idle", async () => {

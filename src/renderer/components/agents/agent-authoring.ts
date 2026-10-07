@@ -6,6 +6,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ModelRolesResult, RpcAgentAuthoringInfo, RpcResponse, RpcSkillsResult } from "../../../shared/rpc-types";
+import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
+import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 
 export interface AgentRoleOption {
@@ -26,7 +28,8 @@ export interface AgentAuthoringData {
 
 export interface AgentAuthoringState {
 	data: AgentAuthoringData | null;
-	error: string | null;
+	/** Localized headline plus the raw cause when the authoring data failed to load. */
+	error: InlineFailure | null;
 	loading: boolean;
 	reload: () => void;
 }
@@ -39,8 +42,9 @@ function dataOf<T>(response: RpcResponse): T {
 /** Load authoring data while `enabled`; roles and skills degrade to empty lists on their own failure. */
 export function useAgentAuthoring(enabled: boolean): AgentAuthoringState {
 	const rpc = useTabRpc();
+	const t = useT();
 	const [data, setData] = useState<AgentAuthoringData | null>(null);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<InlineFailure | null>(null);
 	const [loading, setLoading] = useState(false);
 
 	/** `isCurrent` turns false when the requesting effect is cleaned up. */
@@ -49,8 +53,8 @@ export function useAgentAuthoring(enabled: boolean): AgentAuthoringState {
 			setLoading(true);
 			setError(null);
 			try {
-				const [authoring, roles, skills] = await Promise.all([
-					rpc.getAgentAuthoring().then(dataOf<RpcAgentAuthoringInfo>),
+				const [response, roles, skills] = await Promise.all([
+					rpc.getAgentAuthoring(),
 					rpc
 						.getModelRoles()
 						.then(dataOf<ModelRolesResult>)
@@ -63,6 +67,11 @@ export function useAgentAuthoring(enabled: boolean): AgentAuthoringState {
 						.catch(() => []),
 				]);
 				if (!isCurrent()) return;
+				if (!response.success) {
+					setError(inlineFailure(response, t("agentStudio.editor.loadFailed")));
+					return;
+				}
+				const authoring = response.data as RpcAgentAuthoringInfo;
 				const builtin = new Set(authoring.builtinTools);
 				const extra = authoring.registeredTools.filter(tool => !builtin.has(tool)).sort();
 				setData({
@@ -72,12 +81,12 @@ export function useAgentAuthoring(enabled: boolean): AgentAuthoringState {
 					skills: [...new Set(skills.filter(skill => !skill.hidden).map(skill => skill.name))].sort(),
 				});
 			} catch (cause) {
-				if (isCurrent()) setError(cause instanceof Error ? cause.message : String(cause));
+				if (isCurrent()) setError(inlineFailure(cause, t("agentStudio.editor.loadFailed")));
 			} finally {
 				if (isCurrent()) setLoading(false);
 			}
 		},
-		[rpc],
+		[rpc, t],
 	);
 
 	useEffect(() => {

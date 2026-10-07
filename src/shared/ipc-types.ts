@@ -1359,6 +1359,8 @@ export interface OmpApi {
 			unavailable: boolean;
 			text: string | null;
 			error?: string;
+			/** Stable failure code for the renderer's localized message (shared/ipc-error-codes). */
+			code?: IpcErrorCode;
 		}>;
 	};
 }

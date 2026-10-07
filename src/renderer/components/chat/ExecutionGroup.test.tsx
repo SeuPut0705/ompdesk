@@ -3,7 +3,7 @@ import { act, type ReactNode, useState } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
-import { type ToolEntry, useToolsStore } from "../../stores/tools";
+import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -27,7 +27,6 @@ function toolEntry(status: "running" | "error", isError = false): ToolEntry {
 		toolName: "bash",
 		args: {},
 		status,
-		partialResult: null,
 		streamingArgs: "",
 		result: null,
 		isError,
@@ -101,9 +100,7 @@ describe("ExecutionGroup", () => {
 	});
 
 	it("keeps failed work compact while preserving its error summary and details", async () => {
-		useToolsStore.setState({
-			activeTools: new Map([["tool-1", toolEntry("error", true)]]),
-		});
+		useToolsStore.setState(toolEntriesState([["tool-1", toolEntry("error", true)]]));
 		await mount(["tool-1"]);
 
 		expect(container.textContent).toContain("1 failed · 2 steps");
@@ -122,7 +119,7 @@ describe("ExecutionGroup", () => {
 	});
 
 	it("never overrides the user's disclosure while execution activity changes", async () => {
-		useToolsStore.setState({ activeTools: new Map([["tool-1", toolEntry("running")]]) });
+		useToolsStore.setState(toolEntriesState([["tool-1", toolEntry("running")]]));
 		await mount(["tool-1"]);
 		expect(container.querySelector('[data-testid="details"]')).toBeNull();
 
@@ -132,7 +129,7 @@ describe("ExecutionGroup", () => {
 		expect(container.querySelector('[data-testid="details"]')).not.toBeNull();
 
 		await act(async () => {
-			useToolsStore.setState({ activeTools: new Map([["tool-1", toolEntry("error", true)]]) });
+			useToolsStore.setState(toolEntriesState([["tool-1", toolEntry("error", true)]]));
 		});
 
 		expect(container.textContent).toContain("1 failed · 2 steps");
@@ -140,18 +137,18 @@ describe("ExecutionGroup", () => {
 
 		await act(async () => {
 			(container.querySelector("button") as unknown as { click: () => void }).click();
-			useToolsStore.setState({ activeTools: new Map([["tool-1", toolEntry("running")]]) });
+			useToolsStore.setState(toolEntriesState([["tool-1", toolEntry("running")]]));
 		});
 		expect(container.querySelector('[data-testid="details"]')).toBeNull();
 	});
 
 	it("keeps one animated status for a live group while running child steps remain visible", async () => {
-		useToolsStore.setState({
-			activeTools: new Map([
+		useToolsStore.setState(
+			toolEntriesState([
 				["tool-1", toolEntry("running")],
 				["tool-2", toolEntry("running")],
 			]),
-		});
+		);
 		await mount(
 			["tool-1", "tool-2"],
 			true,
@@ -183,14 +180,14 @@ describe("ExecutionGroup", () => {
 			startTime,
 			endTime,
 		});
-		useToolsStore.setState({
-			activeTools: new Map([
+		useToolsStore.setState(
+			toolEntriesState([
 				["read-1", done("read", { path: "src/a.ts" }, 1_000, 2_000)],
 				["read-2", done("read", { path: "src/b.ts" }, 2_000, 3_000)],
 				["edit-1", done("edit", { path: "src/a.ts" }, 3_000, 5_000)],
 				["bash-1", done("bash", { command: "bun test" }, 5_000, 17_000)],
 			]),
-		});
+		);
 		await mount(["read-1", "read-2", "edit-1", "bash-1"]);
 
 		expect(container.textContent).toContain("Read 2 files · Edited 1 file · Ran 1 command");
@@ -199,11 +196,11 @@ describe("ExecutionGroup", () => {
 	});
 
 	it("flows the running work through a fixed window under a collapsed live group, then drops it once finished", async () => {
-		useToolsStore.setState({
-			activeTools: new Map<string, ToolEntry>([
+		useToolsStore.setState(
+			toolEntriesState([
 				["read-1", { ...toolEntry("running"), toolName: "read", args: { path: "src/a.ts" }, status: "done" }],
 			]),
-		});
+		);
 		await mount(["read-1", "bash-1"], true);
 
 		const panel = container.querySelector(".omp-live-step");
@@ -214,17 +211,12 @@ describe("ExecutionGroup", () => {
 
 		await act(async () => {
 			useToolsStore.setState({
-				activeTools: new Map<string, ToolEntry>([
+				...toolEntriesState([
 					["read-1", { ...toolEntry("running"), toolName: "read", args: { path: "src/a.ts" }, status: "done" }],
-					[
-						"bash-1",
-						{
-							...toolEntry("running"),
-							args: { command: "bun run check" },
-							startTime: 5,
-							partialResult: { content: [{ type: "text", text: "step one\nstep two\n\nstep three\n" }] },
-						},
-					],
+					["bash-1", { ...toolEntry("running"), args: { command: "bun run check" }, startTime: 5 }],
+				]),
+				partialResults: new Map([
+					["bash-1", { content: [{ type: "text", text: "step one\nstep two\n\nstep three\n" }] }],
 				]),
 			});
 		});
@@ -241,19 +233,12 @@ describe("ExecutionGroup", () => {
 
 		await act(async () => {
 			useToolsStore.setState({
-				activeTools: new Map<string, ToolEntry>([
+				...toolEntriesState([
 					["read-1", { ...toolEntry("running"), toolName: "read", args: { path: "src/a.ts" }, status: "done" }],
-					[
-						"bash-1",
-						{
-							...toolEntry("running"),
-							args: { command: "bun run check" },
-							startTime: 5,
-							partialResult: {
-								content: [{ type: "text", text: "step one\nstep two\n\nstep three\nstep four\n" }],
-							},
-						},
-					],
+					["bash-1", { ...toolEntry("running"), args: { command: "bun run check" }, startTime: 5 }],
+				]),
+				partialResults: new Map([
+					["bash-1", { content: [{ type: "text", text: "step one\nstep two\n\nstep three\nstep four\n" }] }],
 				]),
 			});
 		});
@@ -272,12 +257,12 @@ describe("ExecutionGroup", () => {
 					</StatefulExecutionGroup>
 				</I18nProvider>,
 			);
-			useToolsStore.setState({
-				activeTools: new Map<string, ToolEntry>([
+			useToolsStore.setState(
+				toolEntriesState([
 					["read-1", { ...toolEntry("running"), toolName: "read", args: { path: "src/a.ts" }, status: "done" }],
 					["bash-1", { ...toolEntry("running"), args: { command: "bun run check" }, status: "done", endTime: 9 }],
 				]),
-			});
+			);
 		});
 		expect(container.querySelector(".omp-live-step")).toBeNull();
 		expect(container.querySelector('[data-state="complete"]')).not.toBeNull();

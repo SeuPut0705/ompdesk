@@ -74,7 +74,7 @@ export function TodoDockCard() {
 				store: writes,
 				mutate: () => ({ phases: next }),
 				persist: () => rpc.setTodos(todoPayload(next)),
-				onFailure: message => toastError({ title: t("todoPanel.updateFailed"), error: message }),
+				onFailure: failure => toastError({ title: t("todoPanel.updateFailed"), error: failure }),
 			});
 		},
 		[rpc, t, writes],

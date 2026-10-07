@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMessagesStore } from "../renderer/stores/messages";
-import { createToolsStore } from "../renderer/stores/tools";
+import { createToolsStore, selectToolEntry } from "../renderer/stores/tools";
 import type { AgentMessage, AgentSessionEvent, AssistantMessageEvent } from "../shared/rpc-types";
 import { createMessageUpdateSlimmer, slimMessageUpdate } from "./message-update-slim";
 
@@ -180,8 +180,8 @@ describe("renderer stores on slimmed updates", () => {
 		const slimTools = createToolsStore();
 		fullTools.getState().applyEvents(wire);
 		slimTools.getState().applyEvents(slimmed);
-		const entry = slimTools.getState().activeTools.get("call-9");
+		const entry = selectToolEntry(slimTools.getState(), "call-9");
 		expect(entry).toMatchObject({ toolName: "write", status: "pending", streamingArgs: '{"path":"a"}' });
-		expect({ ...entry, startTime: 0 }).toEqual({ ...fullTools.getState().activeTools.get("call-9"), startTime: 0 });
+		expect({ ...entry, startTime: 0 }).toEqual({ ...selectToolEntry(fullTools.getState(), "call-9"), startTime: 0 });
 	});
 });

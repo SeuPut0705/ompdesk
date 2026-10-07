@@ -8,7 +8,7 @@ import { Download, FolderOpen, RefreshCw, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { UpdateAccess, UpdateAuthInfo, UpdateStatus } from "../../../shared/ipc-types";
 import type { RpcOmpUpdateResult, RpcOmpUpdateRunResult } from "../../../shared/rpc-types";
-import { errorDetail } from "../../lib/error-detail";
+import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
@@ -68,7 +68,7 @@ export function UpdatesSection() {
 	const [guiVersion, setGuiVersion] = useState<string>();
 	const [core, setCore] = useState<RpcOmpUpdateResult>();
 	const [checking, setChecking] = useState(false);
-	const [coreError, setCoreError] = useState<string>();
+	const [coreError, setCoreError] = useState<InlineFailure>();
 	const [coreUpdating, setCoreUpdating] = useState(false);
 
 	const check = useCallback(async () => {
@@ -89,14 +89,15 @@ export function UpdatesSection() {
 		if (coreResult.status === "fulfilled" && coreResult.value !== null && coreResult.value.success) {
 			setCore(coreResult.value.data as RpcOmpUpdateResult);
 		} else {
+			const fallback = t("updates.core.checkFailed");
 			setCoreError(
 				!sidecarReady
-					? t("common.notConnected")
+					? { message: t("common.notConnected") }
 					: coreResult.status === "rejected"
-						? String(coreResult.reason)
+						? inlineFailure(coreResult.reason, fallback)
 						: coreResult.value === null || coreResult.value.success
-							? t("updates.core.checkFailed")
-							: coreResult.value.error,
+							? { message: fallback }
+							: inlineFailure(coreResult.value, fallback),
 			);
 		}
 		setChecking(false);
@@ -127,7 +128,7 @@ export function UpdatesSection() {
 		}
 	}, [check, t, tabRpc.ompUpdate]);
 
-	const overview = updateOverviewState(status, core, coreError, checking);
+	const overview = updateOverviewState(status, core, coreError?.message, checking);
 	const appError = status.state === "error" ? status.message : null;
 
 	return (
@@ -143,7 +144,12 @@ export function UpdatesSection() {
 					// One line per component: the app's message, then omp's own (often raw CLI) error, quieter.
 					<>
 						{appError && <ErrorDetail error={appError} />}
-						{coreError && <ErrorDetail className="mt-0.5" error={`omp: ${errorDetail(coreError)}`} />}
+						{coreError && (
+							<>
+								<ErrorDetail className="mt-0.5" error={`omp: ${coreError.message}`} />
+								{coreError.cause !== undefined && <ErrorDetail className="mt-0.5" error={coreError.cause} />}
+							</>
+						)}
 					</>
 				) : status.state === "auth-required" ? (
 					t(ACCESS_MESSAGE[status.reason])
@@ -274,11 +280,13 @@ function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> }) {
 					setInfo(await window.omp.updater.authInfo());
 				}
 				if (action !== "test") await onChanged();
+			} catch (error) {
+				toastError({ title: t("updates.auth.failed"), error });
 			} finally {
 				setBusy(false);
 			}
 		},
-		[draft, onChanged],
+		[draft, onChanged, t],
 	);
 
 	const source = info?.source ?? "none";

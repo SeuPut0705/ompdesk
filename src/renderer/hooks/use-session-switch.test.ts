@@ -286,14 +286,13 @@ describe("switchSessionNow F-OWN owner guard", () => {
 			totalMessages: 1,
 		});
 		useToolsStore.setState({
-			activeTools: new Map([
+			finishedTools: new Map([
 				[
 					"old-tool",
 					{
 						toolName: "read",
 						args: {},
 						status: "done",
-						partialResult: null,
 						streamingArgs: "",
 						result: null,
 						isError: false,

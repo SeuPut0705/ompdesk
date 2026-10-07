@@ -76,11 +76,11 @@ describe("tab session runtimes", () => {
 		expect(withSessionRuntime("tab-b", () => useComposerStore.getState().draft)).toBe("draft B");
 		expect(messagesA.getState().messages[0]?.content).toBe("message A");
 		expect(messagesB.getState().messages[0]?.content).toBe("message B");
-		expect(toolsA.getState().activeTools.get("shared-id")).toMatchObject({
+		expect(toolsA.getState().finishedTools.get("shared-id")).toMatchObject({
 			args: { path: "/a" },
 			result: { content: [{ type: "text", text: "result A" }] },
 		});
-		expect(toolsB.getState().activeTools.get("shared-id")).toMatchObject({
+		expect(toolsB.getState().finishedTools.get("shared-id")).toMatchObject({
 			args: { path: "/b" },
 			result: { content: [{ type: "text", text: "result B" }] },
 		});

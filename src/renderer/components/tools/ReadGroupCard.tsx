@@ -11,7 +11,7 @@ import { useMemo, useState } from "react";
 import { basename, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { mergeReadGroupEntries, type ReadGroupEntry, type ReadGroupUsage } from "../../lib/read-group";
-import { useToolsStore } from "../../stores/tools";
+import { selectToolEntry, useToolsStore } from "../../stores/tools";
 import { UsageRow } from "../chat/UsageRow";
 import { type RunningIndicator, TOOL_ROW_CLASS, ToolCard, ToolPathTarget, ToolStatusIcon } from "./ToolCard";
 
@@ -39,10 +39,10 @@ export function ReadGroupCard({
 	const rows = mergeReadGroupEntries(entries);
 	const pad = inset ? "py-0.5" : "ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-0.5";
 
-	// One primitive snapshot for this group's calls: unrelated tool events may
-	// replace the store Map without re-rendering historical read groups.
+	// One primitive snapshot for this group's calls: unrelated tool events
+	// never re-render historical read groups.
 	const statusKey = useToolsStore(s =>
-		entries.map(entry => statusOf(s.activeTools.get(entry.toolKey)?.status)).join("|"),
+		entries.map(entry => statusOf(selectToolEntry(s, entry.toolKey)?.status)).join("|"),
 	);
 	const statuses = useMemo(() => {
 		const values = statusKey.split("|") as Array<"pending" | "success" | "error" | "aborted">;

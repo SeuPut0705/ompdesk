@@ -16,6 +16,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { type Document, parseDocument } from "yaml";
+import { codedError } from "../shared/ipc-error-codes";
 import {
 	CUSTOM_MODEL_EFFORTS,
 	CUSTOM_PROVIDER_APIS,
@@ -436,7 +437,7 @@ function mergeModel(existingModels: unknown, input: CustomProviderModelInput): R
  * re-supplies one or sets `clearApiKey`. */
 export function upsertModelsProvider(input: CustomProviderInput): void {
 	if (BUILTIN_PROVIDERS.has(input.id)) {
-		throw new Error(`"${input.id}" is a built-in provider id; choose a distinct custom id.`);
+		throw codedError("provider_id_builtin", `"${input.id}" is a built-in provider id; choose a distinct custom id.`);
 	}
 	const data = readModelsFile();
 	const existingRaw = data.providers[input.id];
@@ -475,7 +476,7 @@ export function upsertModelsProvider(input: CustomProviderInput): void {
 /** Delete a custom provider entry (built-ins cannot be removed here). */
 export function deleteModelsProvider(id: string): void {
 	if (BUILTIN_PROVIDERS.has(id)) {
-		throw new Error(`"${id}" is a built-in provider and cannot be removed from the GUI.`);
+		throw codedError("provider_builtin_delete", `"${id}" is a built-in provider and cannot be removed from the GUI.`);
 	}
 	const data = readModelsFile();
 	if (!(id in data.providers)) return;
