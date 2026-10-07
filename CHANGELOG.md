@@ -1,8 +1,17 @@
 # Changelog
 
-## [0.1.0] - Unreleased
+## [0.2.0] - 2026-10-07
 
-First release of **ompdesk** (developed as seucode, formerly omp GUI) as its own project, an unofficial desktop app for omp. Derived from [nornzach/oh-my-pi-gui](https://github.com/nornzach/oh-my-pi-gui) 0.9.16 (MIT); rebuilt to run on the user's stock omp instead of a bundled fork.
+**ompdesk의 첫 공개 릴리스예요.** 설치된 omp를 그대로 쓰는 비공식 데스크톱 앱이에요(0.1.0은 출시하지 않고 건너뛰었어요).
+
+- **이름과 데이터**: 앱 이름이 seucode에서 ompdesk로 바뀌었고, 첫 실행 때 이전 설정 폴더를 자동으로 옮겨요.
+- **사이드바 중심 탐색**: 상단 탭 줄 대신 사이드바에서 세션을 열고 전환해요(⌃⇥로 순환). 코드/업무 전환 토글, 프로젝트 폴더 열기·만들기 버튼, 저절로 접히지 않는 사이드바(최소 220px).
+- **채팅 화면**: 실행 중인 단계를 접힌 상태로도 보여 주고, 토큰 사용량과 속도(↓ 12.4k · 86 tok/s)를 작게 표시해요. 응답을 기다릴 땐 마지막 작업 줄의 도는 아이콘만 남겨요.
+- **입력창**: 다음 프롬프트 제안을 회색 글자로 보여 주고 Tab이나 →로 받아요. 대기 중인 메시지는 입력창 위 한곳에서 편집·이동·삭제해요. 에이전트 질문은 화면을 가리지 않는 카드로 떠요.
+- **할 일·서브에이전트 카드**: 접힌 채로 진행률과 현재 항목을 한 줄로 보여 줘요. 카드가 생겨도 자동 스크롤이 풀리지 않아요.
+- **그 밖에**: "인사이트"를 "통계"로 바꾸고, 제목 표시줄·설정·통계·⌘K 팔레트·알림의 디자인을 다듬었어요. 모델 풀, 에이전트 편집기, 한국어 UI 등 아래의 전체 목록을 참고하세요.
+
+Developed as seucode (formerly omp GUI) and shipped as its own project, an unofficial desktop app for omp. Derived from [nornzach/oh-my-pi-gui](https://github.com/nornzach/oh-my-pi-gui) 0.9.16 (MIT); rebuilt to run on the user's stock omp instead of a bundled fork.
 
 ### Identity
 
