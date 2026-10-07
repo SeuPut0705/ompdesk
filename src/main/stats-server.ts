@@ -62,7 +62,9 @@ export class StatsServerManager extends EventEmitter {
 		let child: ChildProcess;
 		try {
 			child = spawn(command, args, {
-				stdio: ["ignore", "pipe", "pipe"],
+				// stdin stays an open pipe: stats-host exits when it closes, so a
+				// crashed or force-killed app never leaves the server orphaned.
+				stdio: ["pipe", "pipe", "pipe"],
 				env: { ...process.env, ...env, PI_NOTIFICATIONS: "off" },
 				windowsHide: true,
 			});

@@ -139,3 +139,9 @@ const shutdown = () => {
 };
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+// The app holds our stdin pipe open for its whole life. When it goes away
+// without a clean quit (crash, force-kill, an app swap), the pipe closes and
+// this server must not outlive it as an orphan.
+process.stdin.on("end", shutdown);
+process.stdin.on("close", shutdown);
+process.stdin.resume();

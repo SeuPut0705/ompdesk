@@ -49,6 +49,8 @@ When an omp update breaks a bridge method, fix the method against the new intern
 - CI (`.github/workflows/ci.yml`): `check` (types, biome, vitest, build) on macOS and Windows for every push/PR. `e2e` runs only on `workflow_dispatch` and inside the release workflow (`workflow_call` with `e2e: true`), against the latest published omp: the full suite on macOS, the `@smoke` subset (`e2e/smoke.e2e.ts`, `--grep @smoke`, fake omp) on Windows. Ad hoc: `gh workflow run ci.yml --ref <branch>`.
 - Never drive the app with synthetic OS input (osascript keystrokes etc.); use Playwright.
 - Dev: `bun run dev` (HMR against the system omp; opens a visible window).
+- Reinstalling the local app (you may be running *inside* ompdesk): `bun run package:mac -- --publish never && bash scripts/reinstall-mac.sh`. The script detaches, swaps `/Applications/ompdesk.app` once, and reopens it; the current app and this agent session quit, the session resumes on reopen. **Never** schedule a swap with `launchctl submit` (launchd keeps submitted jobs alive and reruns them, so the app quits and relaunches forever) or any `KeepAlive` job. Don't bump `package.json` `version` to test locally: a version bump on `main` publishes a release.
+- Child processes the app spawns must not outlive it: they get an open stdin pipe and exit when it closes (see `resources/gui-bridge/stats-host.ts`), because a crash or force-kill skips the quit handlers.
 
 ## Release
 
