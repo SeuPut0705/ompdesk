@@ -1,0 +1,205 @@
+# Pushing a `package.json` version bump to main releases it: when tag
+# `v<version>` does not exist yet and CHANGELOG.md has a dated
+# `## [<version>] - YYYY-MM-DD` section, this runs the full ci.yml (checks on
+# both platforms, macOS e2e, Windows @smoke), packages macOS (arm64) and
+# Windows (x64), and only when all of that passed creates the tag and the
+# GitHub Release with the changelog section as notes and every asset.
+# An `Unreleased` heading or an existing tag makes the run a no-op.
+# `workflow_dispatch` re-runs it; `dry_run` does everything except the tag and
+# release (the packages stay as run artifacts) and works on any branch.
+name: release
+
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and test only; do not create the tag or release"
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # mac signs ad-hoc (`identity: "-"` in electron-builder.yml); never look for
+  # a keychain certificate or publish from electron-builder itself.
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      release: ${{ steps.meta.outputs.release }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: meta
+        env:
+          DRY_RUN: ${{ inputs.dry_run == true }}
+        run: |
+          V=$(jq -r .version package.json)
+          TAG="v$V"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            if [ "$DRY_RUN" != "true" ]; then
+              echo "::notice::$TAG already exists; nothing to release."
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::warning::$TAG already exists (dry run continues)."
+          fi
+
+          HEADING=$(awk -v h="## [$V]" 'index($0, h) == 1 { print; exit }' CHANGELOG.md)
+          if [ -z "$HEADING" ]; then
+            echo "::error file=CHANGELOG.md::No '## [$V]' section in CHANGELOG.md; write it before releasing $TAG."
+            exit 1
+          fi
+          if [[ "$HEADING" == *Unreleased* && "$DRY_RUN" != "true" ]]; then
+            echo "::notice::CHANGELOG.md still marks $V as Unreleased; date the heading to release $TAG."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$DRY_RUN" != "true" ] && [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Releases are cut from main only (got $GITHUB_REF); use dry_run on other branches."
+            exit 1
+          fi
+
+          mkdir -p notes
+          awk -v h="## [$V]" 'index($0, h) == 1 { f = 1; next } f && /^## \[/ { exit } f' CHANGELOG.md > notes/notes.md
+          if ! grep -q '[^[:space:]]' notes/notes.md; then
+            echo "::error file=CHANGELOG.md::The '## [$V]' section in CHANGELOG.md is empty."
+            exit 1
+          fi
+          MIN_OMP=$(sed -n 's/^export const MIN_OMP_VERSION = "\(.*\)";$/\1/p' src/main/omp-runtime.ts)
+          if [ -z "$MIN_OMP" ]; then
+            echo "::error file=src/main/omp-runtime.ts::MIN_OMP_VERSION not found."
+            exit 1
+          fi
+          # shellcheck disable=SC2016 # literal backticks are Markdown
+          printf '\n---\n\nRequires omp **%s** or newer (`omp update`).\n' "$MIN_OMP" >> notes/notes.md
+          echo "release=true" >> "$GITHUB_OUTPUT"
+      - if: steps.meta.outputs.release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: notes/notes.md
+          if-no-files-found: error
+
+  # Typecheck, biome, vitest, build on both platforms plus the macOS e2e suite
+  # and the Windows @smoke subset.
+  ci:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    uses: ./.github/workflows/ci.yml
+    with:
+      e2e: true
+
+  build-mac:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      V: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run package:mac -- --publish never
+      - name: Verify bundle
+        run: |
+          set -euo pipefail
+          MNT=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -mountpoint "$MNT" "dist/seucode-$V-arm64.dmg"
+          trap 'hdiutil detach "$MNT" -quiet || true' EXIT
+          APP="$MNT/seucode.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          test -f "$APP/Contents/Resources/gui-bridge/index.ts"
+          lipo -archs "$APP/Contents/MacOS/seucode" | grep -qx arm64
+      - name: Stage assets
+        run: |
+          set -euo pipefail
+          mkdir release
+          cp "dist/seucode-$V-arm64.dmg" "dist/seucode-$V-arm64-mac.zip" dist/*.blockmap dist/latest-mac.yml release/
+          cp "dist/seucode-$V-arm64.dmg" release/seucode-mac-arm64.dmg
+          ls -l release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seucode-mac
+          path: release/
+          if-no-files-found: error
+          compression-level: 0
+
+  build-win:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      V: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run package:win -- --publish never
+      - name: Verify package
+        shell: bash
+        run: test -f dist/win-unpacked/resources/gui-bridge/index.ts
+      - name: Stage assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release
+          cp "dist/seucode-$V-setup.exe" "dist/seucode-$V-portable.exe" dist/*.blockmap dist/latest.yml release/
+          cp "dist/seucode-$V-setup.exe" release/seucode-windows-setup.exe
+          cp "dist/seucode-$V-portable.exe" release/seucode-windows-portable.exe
+          ls -l release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seucode-win
+          path: release/
+          if-no-files-found: error
+          compression-level: 0
+
+  # Runs only when every check, e2e, and package job succeeded.
+  publish:
+    needs: [prepare, ci, build-mac, build-win]
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: seucode-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v5
+        with:
+          name: release-notes
+          path: notes
+      - name: Release contents
+        run: |
+          ls -l dist
+          cat notes/notes.md
+      - name: Create tag and release
+        if: inputs.dry_run != true
+        run: gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes-file notes/notes.md dist/*

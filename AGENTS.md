@@ -46,28 +46,19 @@ When an omp update breaks a bridge method, fix the method against the new intern
 - Unit/component tests: `bunx vitest run` (full suite must stay green; `vitest.setup.ts` pins `navigator.language` to en-US and `navigator.platform` to MacIntel, so keymap defaults and shortcut labels are the macOS ones on every runner — Windows behavior is tested by passing `"windows"` to the `lib/keymap.ts` functions).
 - Build: `bun run build` (electron-vite → `out/`).
 - E2E: `bunx playwright test`. `playwright.config.ts` sets `OMP_GUI_HEADLESS=1`: windows are transparent, click-through, off the Dock/taskbar, and never focused, so tests never cover the user's screen. Set `OMP_GUI_HEADLESS=0` only when you must watch. `e2e/real-core.e2e.ts` and `e2e/deep-audit.e2e.ts` run against the real system omp (isolated agent dir, no credentials); the other suites use the fake omp in `e2e/sidecar-fixture.ts`, installed per test by `fixtureOmp()` (`e2e/harness.ts`: an `omp.cmd` shim on Windows) and passed as `OMP_GUI_OMP`; it speaks stock `--mode rpc-ui` and serves the gui-bridge methods those suites reach on `OMP_GUI_BRIDGE`. Tear apps down with `exitApp()` (same file); shortcuts in tests use `ControlOrMeta`. `e2e/performance.e2e.ts` only runs with `OMP_GUI_PERFORMANCE=1` (optional `OMP_GUI_BASELINE_DIR` compares another built checkout).
-- CI (`.github/workflows/ci.yml`): `check` (types, biome, vitest, build) on macOS and Windows for every push/PR. `e2e` runs only on `workflow_dispatch` and published releases, against the latest published omp: the full suite on macOS, the `@smoke` subset (`e2e/smoke.e2e.ts`, `--grep @smoke`, fake omp) on Windows. Before a release: `gh workflow run ci.yml --ref <branch>`.
+- CI (`.github/workflows/ci.yml`): `check` (types, biome, vitest, build) on macOS and Windows for every push/PR. `e2e` runs only on `workflow_dispatch` and inside the release workflow (`workflow_call` with `e2e: true`), against the latest published omp: the full suite on macOS, the `@smoke` subset (`e2e/smoke.e2e.ts`, `--grep @smoke`, fake omp) on Windows. Ad hoc: `gh workflow run ci.yml --ref <branch>`.
 - Never drive the app with synthetic OS input (osascript keystrokes etc.); use Playwright.
 - Dev: `bun run dev` (HMR against the system omp; opens a visible window).
 
 ## Release
 
 - Version `X.Y.Z` semver; tag `vX.Y.Z`; release commit `release: vX.Y.Z`. Commit messages carry no AI attribution trailers.
-1. `main` clean and current. `omp update`; confirm `omp --version` ≥ `MIN_OMP_VERSION`.
-2. Bump `package.json` `version`, write the `CHANGELOG.md` section, update README version mentions.
-3. `bunx vitest run && bun run check:types && bun run build && bunx playwright test`.
-4. Commit, tag, push: `git commit -am "release: vX.Y.Z" && git tag vX.Y.Z && git push origin main vX.Y.Z`.
-5. Package macOS: `bun run package:mac -- --publish never` (dmg + zip, Apple Silicon only; Intel Macs are not supported). Windows installers are built by `.github/workflows/release-windows.yml` on a Windows runner (NSIS's `makensis` is x86-only and fails on Apple Silicon with error -86); locally, `bun run package:win:dir` checks the unpacked Windows app.
-6. Inspect: `codesign --verify --deep --strict "<dmg mount>/seucode.app"`; `Contents/Resources/gui-bridge` exists; launch with omp installed (reaches Ready) and with omp absent from `PATH` (install error shown).
-7. Publish a GitHub Release on the tag with the DMG, the ZIP, and `latest-mac.yml` (the updater resolves the DMG from it), plus a version-free DMG copy for the README download button (`releases/latest/download/<name>`; the updater keeps using the versioned name):
-   ```bash
-   V=X.Y.Z
-   cp dist/seucode-$V-arm64.dmg dist/seucode-mac-arm64.dmg
-   gh release create v$V --title "v$V" --notes-file <changelog section> \
-     dist/seucode-$V-arm64.dmg dist/seucode-$V-arm64-mac.zip dist/latest-mac.yml \
-     dist/seucode-mac-arm64.dmg
-   ```
-   Publishing triggers the Windows workflow, which uploads the setup and portable exe (versioned and `seucode-windows-*.exe`) plus `latest.yml`. Release body = changelog section + minimum omp version.
+1. Bump `package.json` `version`, add a dated `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md` (it becomes the release notes), update README version mentions. Confirm `MIN_OMP_VERSION` is current.
+2. `git commit -am "release: vX.Y.Z" && git push origin main`. Do not tag.
+3. `.github/workflows/release.yml` does the rest: runs ci.yml (checks on both platforms, macOS e2e, Windows `@smoke`), packages macOS arm64 (dmg + zip, ad-hoc signed, codesign + `gui-bridge` verified) and Windows x64 (NSIS setup + portable; `makensis` cannot run on Apple Silicon), and only if everything passed creates tag `vX.Y.Z` and the GitHub Release: notes = changelog section + minimum omp version; assets = versioned dmg/zip/exe, `*.blockmap`, `latest-mac.yml`, `latest.yml`, and the version-free copies `seucode-mac-arm64.dmg`, `seucode-windows-setup.exe`, `seucode-windows-portable.exe`. An existing tag or an `Unreleased` heading makes the run a no-op.
+4. Re-run after a failure: `gh workflow run release.yml` (on main). Rehearse without releasing from any branch: `gh workflow run release.yml --ref <branch> -f dry_run=true` (packages land as run artifacts).
+
+Manual fallback: `bun run package:mac -- --publish never` on a Mac, `bun run package:win -- --publish never` on Windows, then `gh release create vX.Y.Z --target main --notes-file <section> <assets above>`.
 
 macOS builds are ad-hoc signed and not notarized; locally built apps run without Gatekeeper prompts, downloaded ones need right-click → Open once.
 
