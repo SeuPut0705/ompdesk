@@ -105,6 +105,9 @@ test("long approval remains complete and Enter is neutral", async () => {
 	await expect.poll(() => page.evaluate(() => document.activeElement?.textContent)).not.toBe("Approve");
 	await page.keyboard.press("Escape");
 	await expect(modal).toHaveCount(0);
+	// The answer ends the fixture's turn; until agent_end lands a send is a steer,
+	// so the next test must start from an idle session.
+	await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
 	expect(errors).toEqual([]);
 });
 
