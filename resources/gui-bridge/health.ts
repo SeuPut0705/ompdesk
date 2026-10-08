@@ -98,6 +98,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/session/session-pins": () => import("@oh-my-pi/pi-coding-agent/session/session-pins"),
 	"@oh-my-pi/pi-coding-agent/session/session-workspace": () =>
 		import("@oh-my-pi/pi-coding-agent/session/session-workspace"),
+	"@oh-my-pi/pi-coding-agent/session/settings": () => import("@oh-my-pi/pi-coding-agent/session/settings"),
 	"@oh-my-pi/pi-coding-agent/session/ttsr-outputs": () => import("@oh-my-pi/pi-coding-agent/session/ttsr-outputs"),
 	"@oh-my-pi/pi-coding-agent/slash-commands/builtin-completions": () =>
 		import("@oh-my-pi/pi-coding-agent/slash-commands/builtin-completions"),

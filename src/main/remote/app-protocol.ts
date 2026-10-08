@@ -17,6 +17,8 @@
  *   `host.models.upsert {input: CustomProviderInput}`, `host.models.delete {id}`,
  *   `host.stats.fetch {path, params?}` → the stats reply,
  *   `host.bench.run {rtab?, cwd?, options}` → IpcBenchmarkRunResult, `host.bench.abort {}` → boolean,
+ *   `host.modelSetup.run {request: ModelSetupRequest}` → IpcModelSetupRunResult,
+ *   `host.modelSetup.status {}` → ModelSetupStatus, `host.modelSetup.abort {}` → boolean,
  *   `host.accountRotation.get {}` / `host.accountRotation.set {mode}` → AccountRotationState
  *   (the host's own pref; its sessions follow it)
  *
@@ -33,6 +35,7 @@ import {
 	type IpcBenchmarkRunOptions,
 	type IpcFsReadBinaryResult,
 } from "../../shared/ipc-types";
+import type { ModelSetupStatus } from "../../shared/model-setup";
 
 /** SidecarManager events a host forwards for a remote tab; everything else stays on the host. */
 export const TAB_EVENT_NAMES = [
@@ -193,6 +196,13 @@ export const BenchmarkOptionsSchema: z.ZodType<IpcBenchmarkRunOptions> = z.objec
 export const AccountRotationStateSchema: z.ZodType<AccountRotationState> = z.object({
 	mode: z.enum(ACCOUNT_ROTATION_MODES),
 	evenSupported: z.boolean().nullable(),
+});
+
+/** `host.modelSetup.status` reply: whether this device's research runs on the host, and its last tool call. */
+export const ModelSetupStatusSchema: z.ZodType<ModelSetupStatus> = z.object({
+	running: z.boolean(),
+	startedAt: z.number().optional(),
+	activity: z.object({ tool: z.string(), detail: z.string().optional() }).optional(),
 });
 
 /** A host-level stats read waits for the host's own stats request (15 s) plus the link. */

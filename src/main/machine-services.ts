@@ -1,11 +1,12 @@
 /**
  * Machine-scoped services behind Settings, Usage and Stats: the agent's
- * models.yml custom providers, the omp-stats dashboard, `omp bench` and the
- * account-rotation pref. Each computer serves its own. `LocalMachine` is this
- * computer's — for its own windows (ipc.ts) and for the devices paired with it
- * (host-services.ts `host.*` calls) — and `RemoteMachine` asks a paired host
- * for its own. ipc.ts picks one per call with `machineFor(device)`, `device`
- * being the paired host the caller's focused tab runs on (absent = this computer).
+ * models.yml custom providers, the omp-stats dashboard, `omp bench`, the
+ * model setup research run and the account-rotation pref. Each computer
+ * serves its own. `LocalMachine` is this computer's — for its own windows
+ * (ipc.ts) and for the devices paired with it (host-services.ts `host.*`
+ * calls) — and `RemoteMachine` asks a paired host for its own. ipc.ts picks
+ * one per call with `machineFor(device)`, `device` being the paired host the
+ * caller's focused tab runs on (absent = this computer).
  */
 import {
 	type AccountRotationMode,
@@ -19,11 +20,19 @@ import type {
 	CustomProviderView,
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
+	IpcModelSetupRunResult,
 } from "../shared/ipc-types";
+import { MODEL_SETUP_TIMEOUT_MS, type ModelSetupRequest, type ModelSetupStatus } from "../shared/model-setup";
 import { BENCHMARK_TIMEOUT_MS, BenchmarkRunner } from "./benchmark-runner";
+import { ModelSetupRunner } from "./model-setup-runner";
 import { deleteModelsProvider, listModelsProviders, upsertModelsProvider } from "./models-config";
 import type { OmpResolution } from "./omp-runtime";
-import { AccountRotationStateSchema, HOST_STATS_TIMEOUT_MS, LINK_SLACK_MS } from "./remote/app-protocol";
+import {
+	AccountRotationStateSchema,
+	HOST_STATS_TIMEOUT_MS,
+	LINK_SLACK_MS,
+	ModelSetupStatusSchema,
+} from "./remote/app-protocol";
 import type { StatsClient } from "./stats-client";
 import type { Revive } from "./stats-restart-policy";
 
@@ -39,6 +48,11 @@ export interface MachineServices {
 	 */
 	runBenchmark(caller: string, options: IpcBenchmarkRunOptions, cwd: string | null): Promise<IpcBenchmarkRunResult>;
 	abortBenchmark(caller: string): Promise<boolean>;
+	/** One model setup research run per `caller`; the request is validated where it runs. */
+	runModelSetup(caller: string, request: ModelSetupRequest): Promise<IpcModelSetupRunResult>;
+	/** Whether `caller`'s research runs, since when, and its latest tool call (polled for progress). */
+	modelSetupStatus(caller: string): Promise<ModelSetupStatus>;
+	abortModelSetup(caller: string): Promise<boolean>;
 	/** prefs `accountRotation` of this machine, and whether its omp can rotate evenly. */
 	accountRotation(): Promise<AccountRotationState>;
 	/** Store the mode; every session this machine runs follows from its next prompt. */
@@ -84,7 +98,7 @@ export interface LocalMachineDeps {
 	/** Demand-driven revive for the bundled stats server (no server → "exhausted"). */
 	statsRestart: () => Revive;
 	statsText: StatsText;
-	/** The system omp `omp bench` runs. */
+	/** The system omp `omp bench` and the model setup research run. */
 	benchmarkOmp: () => Promise<OmpResolution>;
 	benchmarkEnv: () => Promise<NodeJS.ProcessEnv>;
 	accountRotation: AccountRotationDeps;
@@ -102,6 +116,7 @@ export interface AccountRotationDeps {
 export class LocalMachine implements MachineServices {
 	readonly #deps: LocalMachineDeps;
 	readonly #benchmarks = new Map<string, BenchmarkRunner>();
+	readonly #modelSetups = new Map<string, ModelSetupRunner>();
 
 	constructor(deps: LocalMachineDeps) {
 		this.#deps = deps;
@@ -158,6 +173,30 @@ export class LocalMachine implements MachineServices {
 		if (!runner) return false;
 		const aborted = runner.abort();
 		if (!runner.running) this.#benchmarks.delete(caller);
+		return aborted;
+	}
+
+	async runModelSetup(caller: string, request: ModelSetupRequest): Promise<IpcModelSetupRunResult> {
+		const resolution = await this.#deps.benchmarkOmp();
+		if (!resolution.ok) return { success: false, error: resolution.error };
+		const runner = this.#modelSetups.get(caller) ?? new ModelSetupRunner();
+		this.#modelSetups.set(caller, runner);
+		try {
+			return await runner.run(resolution.runtime.bin, request, await this.#deps.benchmarkEnv());
+		} finally {
+			if (!runner.running && this.#modelSetups.get(caller) === runner) this.#modelSetups.delete(caller);
+		}
+	}
+
+	async modelSetupStatus(caller: string): Promise<ModelSetupStatus> {
+		return this.#modelSetups.get(caller)?.status() ?? { running: false };
+	}
+
+	async abortModelSetup(caller: string): Promise<boolean> {
+		const runner = this.#modelSetups.get(caller);
+		if (!runner) return false;
+		const aborted = runner.abort();
+		if (!runner.running) this.#modelSetups.delete(caller);
 		return aborted;
 	}
 
@@ -236,6 +275,18 @@ export class RemoteMachine implements MachineServices {
 
 	abortBenchmark(): Promise<boolean> {
 		return this.#request("host.bench.abort", {});
+	}
+
+	runModelSetup(_caller: string, request: ModelSetupRequest): Promise<IpcModelSetupRunResult> {
+		return this.#request("host.modelSetup.run", { request }, MODEL_SETUP_TIMEOUT_MS + LINK_SLACK_MS);
+	}
+
+	async modelSetupStatus(): Promise<ModelSetupStatus> {
+		return ModelSetupStatusSchema.parse(await this.#request<unknown>("host.modelSetup.status", {}));
+	}
+
+	abortModelSetup(): Promise<boolean> {
+		return this.#request("host.modelSetup.abort", {});
 	}
 
 	async accountRotation(): Promise<AccountRotationState> {

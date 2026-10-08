@@ -10,7 +10,9 @@ import type {
 	CustomProviderView,
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
+	IpcModelSetupRunResult,
 } from "../../shared/ipc-types";
+import type { ModelSetupRequest, ModelSetupStatus } from "../../shared/model-setup";
 import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-client";
 import type { RpcCommand, RpcResponse, SidecarStatus } from "../../shared/rpc-types";
 import { canonicalCwd } from "../canonical-cwd";
@@ -144,6 +146,14 @@ function fakeMachine() {
 			}),
 		),
 		abortBenchmark: vi.fn(async (_caller: string) => true),
+		runModelSetup: vi.fn(
+			async (_caller: string, _request: ModelSetupRequest): Promise<IpcModelSetupRunResult> => ({
+				success: false,
+				error: "not run",
+			}),
+		),
+		modelSetupStatus: vi.fn(async (_caller: string): Promise<ModelSetupStatus> => ({ running: false })),
+		abortModelSetup: vi.fn(async (_caller: string) => true),
 		accountRotation: vi.fn(async (): Promise<AccountRotationState> => ({ mode: "quota", evenSupported: true })),
 		setAccountRotation: vi.fn(
 			async (mode: AccountRotationMode): Promise<AccountRotationState> => ({ mode, evenSupported: true }),
@@ -587,6 +597,31 @@ describe("LocalHostServices host.* calls", () => {
 		expect(machine.abortBenchmark).toHaveBeenLastCalledWith("peer:device-y");
 		services.dropPeer("device-x");
 		expect(machine.abortBenchmark).toHaveBeenLastCalledWith("peer:device-x");
+	});
+
+	it("runs one model setup research per device, validates its request, and stops it when the device drops", async () => {
+		const { services, machine } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		const request: ModelSetupRequest = {
+			researchModel: "anthropic/claude-opus-4-1",
+			models: [{ selector: "anthropic/claude-opus-4-1", provider: "anthropic" }],
+			roles: [{ id: "default", name: "Default" }],
+		};
+		await services.call(x.peer, "host.modelSetup.run", { request }, x);
+		expect(machine.runModelSetup).toHaveBeenLastCalledWith("peer:device-x", request);
+		await expect(
+			services.call(x.peer, "host.modelSetup.run", { request: { ...request, researchModel: "--help" } }, x),
+		).rejects.toThrow(/Invalid host.modelSetup.run/);
+		expect(machine.runModelSetup).toHaveBeenCalledTimes(1);
+		await services.call(y.peer, "host.modelSetup.status", {}, y);
+		expect(machine.modelSetupStatus).toHaveBeenLastCalledWith("peer:device-y");
+		await expect(services.call(x.peer, "host.modelSetup.abort", {}, x)).resolves.toBe(true);
+		expect(machine.abortModelSetup).toHaveBeenLastCalledWith("peer:device-x");
+		services.disconnected(y.peer, y);
+		expect(machine.abortModelSetup).toHaveBeenLastCalledWith("peer:device-y");
+		services.dropPeer("device-x");
+		expect(machine.abortModelSetup).toHaveBeenLastCalledWith("peer:device-x");
 	});
 
 	it("serves a tab's file bytes to its own device only, as base64 that decodes to the same bytes", async () => {

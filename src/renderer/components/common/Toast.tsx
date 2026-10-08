@@ -7,7 +7,8 @@
  * Rules: title ≤ 4 words in the user's language, message one sentence,
  * never raw error text as the message — localize it and pass the raw cause
  * as `detail` (lib/error-detail), shown as a quiet, selectable second line.
- * Anything the user must act on to continue is a Banner or a Dialog.
+ * Anything the user must act on to continue is a Banner or a Dialog; an
+ * optional `action` only offers a shortcut to the fix (it dismisses the toast).
  * `ToastCard` is the visual, shared with the style guide.
  */
 
@@ -31,13 +32,24 @@ export interface ToastCardProps {
 	message: ReactNode;
 	/** Raw technical cause (error text) under the message: small, muted, selectable. */
 	detail?: string;
+	/** One follow-up, shown as a link-styled button under the message. */
+	action?: { label: ReactNode; onClick: () => void };
 	/** Repeat count; shown as ×N above 1. */
 	count?: number;
 	onDismiss?: () => void;
 	className?: string;
 }
 
-export function ToastCard({ variant, title, message, detail, count = 1, onDismiss, className }: ToastCardProps) {
+export function ToastCard({
+	variant,
+	title,
+	message,
+	detail,
+	action,
+	count = 1,
+	onDismiss,
+	className,
+}: ToastCardProps) {
 	const t = useT();
 	const style = VARIANT_STYLES[variant];
 	const Icon = style.Icon;
@@ -61,6 +73,16 @@ export function ToastCard({ variant, title, message, detail, count = 1, onDismis
 					>
 						{detail}
 					</div>
+				)}
+				{action && (
+					<button
+						className="mt-1.5 text-sc-sm font-medium text-(--sc-accent) hover:underline"
+						data-toast-action
+						onClick={action.onClick}
+						type="button"
+					>
+						{action.label}
+					</button>
 				)}
 			</div>
 			{count > 1 && (
@@ -105,6 +127,17 @@ export function ToastStack() {
 		>
 			{toasts.map(entry => (
 				<ToastCard
+					action={
+						entry.action
+							? {
+									label: entry.action.label,
+									onClick: () => {
+										dismiss(entry.id);
+										entry.action?.run();
+									},
+								}
+							: undefined
+					}
 					className={
 						entry.exitingAt != null ? "pointer-events-none omp-toast-out" : "pointer-events-auto omp-toast-in"
 					}

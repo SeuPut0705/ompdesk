@@ -19,15 +19,16 @@
  * fit one link frame), the folder picker listing, the default workspace and
  * launch profiles. Session index changes are pushed as `sessions.changed`.
  * The other `host.*` calls are what a device's Settings, Usage and Stats show for a
- * tab here: this machine's models.yml providers, stats server, `omp bench` and
- * account-rotation pref (machine-services.ts), one benchmark per device, aborted
- * when it drops.
+ * tab here: this machine's models.yml providers, stats server, `omp bench`, model
+ * setup research and account-rotation pref (machine-services.ts), one benchmark and
+ * one research run per device, aborted when it drops.
  */
 import { promises as fsp } from "node:fs";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { codedError } from "../../shared/ipc-error-codes";
+import { ModelSetupRequestSchema } from "../../shared/model-setup";
 import { MAX_RPC_COMMAND_TIMEOUT_MS } from "../../shared/rpc-client";
 import type {
 	AgentSessionEvent,
@@ -206,6 +207,7 @@ const ModelsUpsertParams = z.object({ input: CustomProviderInputSchema });
 const ModelsDeleteParams = z.object({ id: z.string().min(1) });
 const StatsFetchParams = z.object({ path: z.string().min(1).max(512), params: z.record(z.string()).optional() });
 const BenchRunParams = z.object({ ...FsRoot, options: BenchmarkOptionsSchema });
+const ModelSetupRunParams = z.object({ request: ModelSetupRequestSchema });
 const AccountRotationSetParams = z.object({ mode: z.enum(ACCOUNT_ROTATION_MODES) });
 
 function parse<T extends z.ZodTypeAny>(schema: T, method: string, params: unknown): z.infer<T> {
@@ -365,6 +367,15 @@ export class LocalHostServices implements HostServices {
 			}
 			case "host.bench.abort":
 				return this.#deps.machine.abortBenchmark(benchCaller(peer.deviceId));
+			case "host.modelSetup.run":
+				return this.#deps.machine.runModelSetup(
+					benchCaller(peer.deviceId),
+					parse(ModelSetupRunParams, method, params).request,
+				);
+			case "host.modelSetup.status":
+				return this.#deps.machine.modelSetupStatus(benchCaller(peer.deviceId));
+			case "host.modelSetup.abort":
+				return this.#deps.machine.abortModelSetup(benchCaller(peer.deviceId));
 			case "host.accountRotation.get":
 				return this.#deps.machine.accountRotation();
 			case "host.accountRotation.set":
@@ -378,6 +389,7 @@ export class LocalHostServices implements HostServices {
 		this.#conns.delete(conn);
 		// Nobody is left to read the result.
 		void this.#deps.machine.abortBenchmark(benchCaller(peer.deviceId));
+		void this.#deps.machine.abortModelSetup(benchCaller(peer.deviceId));
 		for (const [key, tab] of this.#tabs) {
 			if (tab.peerId !== peer.deviceId || tab.conn !== conn) continue;
 			tab.conn = null;
@@ -406,9 +418,10 @@ export class LocalHostServices implements HostServices {
 		for (const tab of this.#tabs.values()) tab.sidecar.syncAccountRotation();
 	}
 
-	/** A revoked device's tabs and benchmark stop now, grace or not. */
+	/** A revoked device's tabs, benchmark and research stop now, grace or not. */
 	dropPeer(deviceId: string): void {
 		void this.#deps.machine.abortBenchmark(benchCaller(deviceId));
+		void this.#deps.machine.abortModelSetup(benchCaller(deviceId));
 		for (const [key, tab] of this.#tabs) if (tab.peerId === deviceId) this.#closeTab(key);
 	}
 
@@ -644,7 +657,7 @@ function isBusy(run: HostTabRun): boolean {
 	return run.running || run.compacting;
 }
 
-/** The benchmark slot of a paired device on this machine (windows here use `window:<id>`). */
+/** The benchmark and research slot of a paired device on this machine (windows here use `window:<id>`). */
 function benchCaller(deviceId: string): string {
 	return `peer:${deviceId}`;
 }

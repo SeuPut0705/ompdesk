@@ -78,7 +78,7 @@ function installRpc(getModelRoles?: (...args: unknown[]) => Promise<unknown>) {
 		getModelRoles: vi.fn(getModelRoles ?? (async () => ({ success: true, data: { roles: ROLES } }))),
 		setModelRole: vi.fn(async () => ({ success: true })),
 	};
-	(window as unknown as { omp?: unknown }).omp = { rpc };
+	(window as unknown as { omp?: unknown }).omp = { rpc, events: { onConfigUpdate: () => () => {} } };
 	return rpc;
 }
 

@@ -6,6 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { useToastStore } from "../stores/toast";
+import { useUiStore } from "../stores/ui";
 import {
 	buildCommandMenu,
 	type CommandAffordance,
@@ -250,7 +251,15 @@ describe("nativized action wiring", () => {
 		expect(lastToast()?.variant).toBe("success");
 		rpc.setSetting.mockResolvedValueOnce(ok({ advisorEnabled: true, advisorActive: false }));
 		await affordance.run();
-		expect(lastToast()?.variant).toBe("info");
+		const noModel = lastToast();
+		expect(noModel?.variant).toBe("info");
+		expect(noModel?.message).toBe(translate("advisor.noModel"));
+		// The no-model toast offers the model setup assistant instead of a dead end.
+		expect(noModel?.action?.label).toBe(translate("modelSetup.open"));
+		expect(useUiStore.getState().modelSetupOpen).toBe(false);
+		noModel?.action?.run();
+		expect(useUiStore.getState().modelSetupOpen).toBe(true);
+		useUiStore.getState().closeModelSetup();
 	});
 
 	it("marketplace update remains an action while install opens the confirming UI", async () => {

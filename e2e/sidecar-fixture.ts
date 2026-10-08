@@ -85,6 +85,99 @@ if (process.argv[2] === "stats") {
 			process.exit(0);
 		});
 	}
+} else if (process.env.OMP_GUI_TEST_MODEL_SETUP === "1" && process.argv.includes("rpc")) {
+	// `OMP_GUI_TEST_MODEL_SETUP=1`: the model setup assistant's research job, stock
+	// `--mode rpc` (src/main/model-setup-runner.ts). It answers set_event_filter and
+	// the prompt, streams two tool calls, then the stock-shaped reply (a plan in a
+	// code fence, with one unknown role the parser drops) and the prompt_result.
+	const expected = [
+		"--mode",
+		"rpc",
+		"--no-session",
+		"--model",
+		"*",
+		"--thinking",
+		"auto",
+		"--tools",
+		"web_search,read",
+		"--no-extensions",
+		"--no-skills",
+		"--no-rules",
+		"--no-lsp",
+		"--no-title",
+	];
+	const argv = process.argv.slice(2);
+	if (
+		argv.length !== expected.length ||
+		argv.some((arg, index) => expected[index] !== "*" && arg !== expected[index])
+	) {
+		console.error(`fixture: unexpected research argv: ${argv.join(" ")}`);
+		process.exit(1);
+	}
+	const write = (frame: object) => process.stdout.write(`${JSON.stringify(frame)}\n`);
+	const plan = {
+		assignments: [
+			{
+				role: "default",
+				model: "anthropic/claude-sonnet-4-5",
+				reason: "Leads the coding benchmarks among the picks.",
+			},
+			{ role: "smol", model: "fixture/local-fixture", reason: "Fastest and cheapest pick." },
+			{ role: "slow", model: "anthropic/claude-sonnet-4-5", reason: "Strongest reasoning scores." },
+			{ role: "plan", model: "anthropic/claude-sonnet-4-5", reason: "Best long-horizon planning results." },
+			{ role: "advisor", model: "fixture/local-fixture", reason: "A different vendor than the default model." },
+			{ role: "reviewer", model: "fixture/local-fixture", reason: "Not a role omp knows." },
+		],
+		advisor: { enable: true, reason: "A capable second vendor is available." },
+		sources: [{ title: "Fixture leaderboard", url: "https://example.com/leaderboard" }],
+		notes: "Canned fixture plan.",
+	};
+	const research = async (id: unknown) => {
+		await Bun.sleep(600);
+		write({
+			type: "tool_execution_start",
+			toolCallId: "t1",
+			toolName: "web_search",
+			args: { query: "coding benchmarks 2026" },
+		});
+		await Bun.sleep(600);
+		write({
+			type: "message_end",
+			message: { role: "toolResult", toolCallId: "t1", toolName: "web_search", content: [] },
+		});
+		write({
+			type: "tool_execution_start",
+			toolCallId: "t2",
+			toolName: "read",
+			args: { path: "https://example.com/leaderboard" },
+		});
+		await Bun.sleep(600);
+		write({
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking: "Comparing the picks." },
+					{ type: "text", text: `Here is the plan:\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`` },
+				],
+				stopReason: "stop",
+			},
+		});
+		write({ type: "prompt_result", id, agentInvoked: true, status: "completed", sessionSettled: true });
+	};
+	const lines = createInterface({ input: process.stdin });
+	lines.on("line", line => {
+		const command = JSON.parse(line) as { id?: unknown; type?: unknown; message?: unknown };
+		if (process.env.OMP_GUI_TEST_RECORD)
+			fs.appendFileSync(
+				process.env.OMP_GUI_TEST_RECORD,
+				`${JSON.stringify({ type: `research:${String(command.type)}`, argv, message: command.message, recordedBy: "model-setup" })}\n`,
+			);
+		write({ type: "response", id: command.id, command: command.type, success: true });
+		if (command.type === "prompt") void research(command.id);
+	});
+	// Stock RPC mode ends when its client closes stdin.
+	lines.on("close", () => process.exit(0));
 } else if (!process.argv.includes("--mode")) {
 	// Other `omp` CLI calls main makes (`plugin list --json`, `update --check`, …) have no local stand-in.
 	console.error(`fixture: unsupported invocation: ${process.argv.slice(2).join(" ")}`);
@@ -371,6 +464,11 @@ if (process.argv[2] === "stats") {
 	type Params = Record<string, unknown>;
 	type Reply = (result: unknown) => void;
 	const bridgeClients = new Set<net.Socket>();
+	/** The bridge's settings and role writes push config_update, as `resources/gui-bridge/settings.ts` does. */
+	const emitConfigUpdate = () => {
+		const frame = `${JSON.stringify({ event: { type: "config_update", model, thinkingLevel: "medium" } })}\n`;
+		for (const socket of bridgeClients) socket.write(frame);
+	};
 	const securityDashboard = (): RpcSecurityDashboardResult => {
 		if (securityMode === "unavailable") throw new Error("Isolated dashboard unavailable");
 		const dashboard: RpcSecurityDashboardResult = {
@@ -480,11 +578,17 @@ if (process.argv[2] === "stats") {
 		slow: "anthropic/claude-opus-4-1",
 		commit: "fixture/local-fixture",
 	};
+	/** Like stock: the advisor runs when it is on and a model resolves (its own role, else the Thinking role). */
+	const advisorState = (settings: Record<string, unknown>) => {
+		const advisorEnabled = settings["advisor.enabled"] === true;
+		return { advisorEnabled, advisorActive: advisorEnabled && Boolean(modelRoles.advisor ?? modelRoles.slow) };
+	};
 	const ROLE_META = [
 		{ id: "default", name: "Default", section: "chat" },
 		{ id: "smol", name: "Fast", tag: "SMOL", color: "success", section: "chat" },
 		{ id: "slow", name: "Thinking", tag: "SLOW", color: "accent", section: "chat" },
 		{ id: "plan", name: "Plan", tag: "PLAN", color: "info", section: "chat" },
+		{ id: "advisor", name: "Advisor", tag: "ADVISOR", color: "accent", section: "chat" },
 		{ id: "commit", name: "Commit messages", section: "kind" },
 	];
 	const modelsPageMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
@@ -504,6 +608,7 @@ if (process.argv[2] === "stats") {
 		model_role_metadata: () => ({ roles: ROLE_META }),
 		model_role_set: params => {
 			modelRoles[String(params.role)] = typeof params.modelId === "string" ? params.modelId : undefined;
+			emitConfigUpdate();
 			return { role: params.role, modelId: params.modelId ?? null };
 		},
 		usage: () => ({
@@ -608,21 +713,40 @@ if (process.argv[2] === "stats") {
 					description: "Isolated numeric audit setting",
 					default: 8192,
 				},
+				// Settings › Features renders the advisor row only when the schema has the setting.
+				...(modelsData
+					? [
+							{
+								path: "advisor.enabled",
+								type: "boolean",
+								tab: "model",
+								label: "Advisor",
+								description: "A second model reviews the main model's turns.",
+								default: false,
+							},
+						]
+					: []),
 			],
 		}),
 		settings_get: (params, reply) => {
 			if (holdSettings && !params.paths) {
 				holdSettings = false;
 				const snapshot = { ...values };
-				releaseSettings = () => reply({ values: snapshot, advisorEnabled: false, advisorActive: false });
+				releaseSettings = () => reply({ values: snapshot, ...advisorState(snapshot) });
 				return undefined;
 			}
-			return { values, advisorEnabled: false, advisorActive: false };
+			return { values, ...advisorState(values) };
 		},
 		settings_set: params => {
 			const path = String(params.path);
 			values[path] = params.value;
-			return { path, value: params.value, savedValue: params.value };
+			emitConfigUpdate();
+			return {
+				path,
+				value: params.value,
+				savedValue: params.value,
+				...(path === "advisor.enabled" ? advisorState(values) : {}),
+			};
 		},
 		models_catalog: () => ({ models: catalogModels(), discoveryStates: [], refreshPending: false, generation: 1 }),
 		providers: () => ({

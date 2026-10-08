@@ -8,6 +8,12 @@ import { errorDetail, errorMessage } from "../lib/error-detail";
 
 export type ToastVariant = "info" | "success" | "warning" | "error";
 
+/** One follow-up the toast offers (a link-styled button); running it dismisses the toast. */
+export interface ToastAction {
+	label: string;
+	run: () => void;
+}
+
 export interface Toast {
 	id: number;
 	variant: ToastVariant;
@@ -15,6 +21,7 @@ export interface Toast {
 	message: string;
 	/** Raw technical cause (error text), shown as a quiet secondary line. */
 	detail?: string;
+	action?: ToastAction;
 	expiresAt: number;
 	count: number;
 	/** Set when dismissal began; the entry lingers for the exit animation. */
@@ -27,6 +34,7 @@ export interface ToastInput {
 	message: string;
 	/** Raw technical cause, kept available under the localized message (see lib/error-detail). */
 	detail?: string;
+	action?: ToastAction;
 	/** Auto-dismiss delay in ms (default 5000). */
 	durationMs?: number;
 }
@@ -75,6 +83,7 @@ export const useToastStore = create<ToastStore>()(set => ({
 				title: toast.title,
 				message: toast.message,
 				...(toast.detail ? { detail: toast.detail } : {}),
+				...(toast.action ? { action: toast.action } : {}),
 				expiresAt,
 				count: 1,
 			};

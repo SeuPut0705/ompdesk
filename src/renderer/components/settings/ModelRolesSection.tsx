@@ -132,9 +132,11 @@ export function ModelRolesSection() {
 	}, [sidecarReady, tabRpc.getModelRoles]);
 
 	// Mount and every sidecar (re)connect re-read: `load` changes identity with
-	// `sidecarReady`.
+	// `sidecarReady`. A role written elsewhere (the model setup assistant, the
+	// advisor row, another window) pushes config_update.
 	useEffect(() => {
 		void load();
+		return window.omp.events.onConfigUpdate(() => void load());
 	}, [load]);
 
 	const sections = useMemo(() => {

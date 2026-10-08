@@ -19,6 +19,7 @@ import type {
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
+	IpcModelSetupRunResult,
 	IpcOpenPathResult,
 	IpcRemotePairPayload,
 	IpcSessionOpenNewWindowPayload,
@@ -45,6 +46,7 @@ import type {
 	UpdateStatus,
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
+import type { ModelSetupRequest, ModelSetupStatus } from "../shared/model-setup";
 import { createSessionRpcClient, timeoutForCommand } from "../shared/rpc-client";
 import type {
 	AgentSessionEvent,
@@ -305,6 +307,14 @@ const api: OmpApi = {
 		run: (options: IpcBenchmarkRunOptions, device?: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.BENCH_RUN, options, device) as Promise<IpcBenchmarkRunResult>,
 		abort: (device?: string) => ipcRenderer.invoke(IPC_COMMANDS.BENCH_ABORT, device) as Promise<boolean>,
+	},
+
+	modelSetup: {
+		run: (request: ModelSetupRequest, device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.MODEL_SETUP_RUN, request, device) as Promise<IpcModelSetupRunResult>,
+		status: (device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.MODEL_SETUP_STATUS, device) as Promise<ModelSetupStatus>,
+		abort: (device?: string) => ipcRenderer.invoke(IPC_COMMANDS.MODEL_SETUP_ABORT, device) as Promise<boolean>,
 	},
 
 	system: {

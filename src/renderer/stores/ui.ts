@@ -85,6 +85,8 @@ interface UiStore {
 	insightsStatsScope: InsightsStatsScope;
 	settingsTab: string;
 	benchmarkOpen: boolean;
+	/** The model setup assistant (Settings › Models, the advisor row, `/advisor on`). */
+	modelSetupOpen: boolean;
 	themePickerOpen: boolean;
 	modesOpen: boolean;
 	modesTab: ModesTab;
@@ -178,6 +180,8 @@ interface UiStore {
 	closeFeedback: () => void;
 	openBenchmark: () => void;
 	closeBenchmark: () => void;
+	openModelSetup: () => void;
+	closeModelSetup: () => void;
 	openThemePicker: () => void;
 	closeThemePicker: () => void;
 	openModes: (tab?: ModesTab) => void;
@@ -339,6 +343,9 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	benchmarkOpen: false,
 	openBenchmark: () => set({ benchmarkOpen: true }),
 	closeBenchmark: () => set({ benchmarkOpen: false }),
+	modelSetupOpen: false,
+	openModelSetup: () => set({ modelSetupOpen: true }),
+	closeModelSetup: () => set({ modelSetupOpen: false }),
 	themePickerOpen: false,
 	openThemePicker: () => set({ themePickerOpen: true }),
 	closeThemePicker: () => set({ themePickerOpen: false }),

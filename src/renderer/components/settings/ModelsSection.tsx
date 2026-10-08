@@ -1,9 +1,9 @@
 /**
  * Settings › Models & providers, in the order a user needs it: where models
  * come from (providers and their accounts, then custom models.yml endpoints),
- * which model does what (roles, then the model defaults), and the advanced
- * side-by-side comparison with the benchmark, collapsed until asked for
- * (`models:compare` opens it).
+ * which model does what (the model setup assistant, roles, then the model
+ * defaults), and the advanced side-by-side comparison with the benchmark,
+ * collapsed until asked for (`models:compare` opens it).
  */
 
 import { ChevronDown } from "lucide-react";
@@ -14,6 +14,7 @@ import { useUiStore } from "../../stores/ui";
 import { Button } from "../common";
 import { ModelCompareSection } from "./ModelCompareSection";
 import { ModelRolesSection } from "./ModelRolesSection";
+import { ModelSetupEntry } from "./model-setup/ModelSetupEntry";
 import { ProvidersSection } from "./providers/ProvidersSection";
 import { SchemaSection } from "./SchemaField";
 import { SettingsSection } from "./SettingsLayout";
@@ -30,6 +31,7 @@ export function ModelsSection({ sub }: { sub?: string }) {
 	return (
 		<>
 			<ProvidersSection />
+			<ModelSetupEntry />
 			<ModelRolesSection />
 			<SchemaSection id="settings-models-defaults" paths={DEFAULT_PATHS} title={t("settings.models.defaults")} />
 			<SettingsSection

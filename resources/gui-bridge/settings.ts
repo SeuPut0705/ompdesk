@@ -17,6 +17,7 @@ import { SETTING_TABS, TAB_GROUPS, TAB_METADATA } from "@oh-my-pi/pi-tui/overlay
 import { getAgentDir, MAIN_CONFIG_FILENAMES } from "@oh-my-pi/pi-utils";
 import { accountLabel, matchReportAccount, reportIdentity, type StoredAccount } from "./accounts-core";
 import { guard } from "./health";
+import { releaseThinkingDefaultFor, syncThinkingDefault } from "./thinking-default";
 import type { BridgeEnv, BridgeMethods } from "./types";
 
 type Rec = Record<string, unknown>;
@@ -85,9 +86,10 @@ export function syncImageGeneration(session: AgentSession): void {
 	autoImageOverrides.add(scope);
 }
 
-/** The user's own write replaces the automatic choice instead of hiding under it. */
+/** The user's own write replaces an automatic choice (image tool, thinking default) instead of hiding under it. */
 function releaseAutoOverride(session: AgentSession, setting: SettingLike): void {
 	const scope = session.settings as unknown as object;
+	releaseThinkingDefaultFor(setting.id, scope);
 	if (setting.id !== IMAGE_SETTING || !autoImageOverrides.has(scope)) return;
 	setting.clearOverride?.(scope);
 	autoImageOverrides.delete(scope);
@@ -188,6 +190,7 @@ function optionsOf(setting: SettingLike): Array<{ value: string; label: string; 
 }
 
 function settingsSchema(session: AgentSession) {
+	syncThinkingDefault(session.settings);
 	const provenance = provenanceReader(session.settings as unknown as SettingsLike, globalConfigPath());
 	const entries = (orderedSettings() as unknown as SettingLike[]).map(setting => {
 		const ui = setting.ui;
@@ -228,6 +231,7 @@ function advisorState(session: AgentSession): { advisorEnabled?: boolean; adviso
 }
 
 function getSettings(session: AgentSession, paths: string[] | undefined) {
+	syncThinkingDefault(session.settings);
 	const ids = paths ?? orderedSettings().map(setting => setting.id);
 	const provenance = provenanceReader(session.settings as unknown as SettingsLike, globalConfigPath());
 	const values: Rec = {};
@@ -260,6 +264,8 @@ async function setSetting(env: BridgeEnv, session: AgentSession, id: string, val
 		setting.set(session.settings, value);
 		await settings.flush?.();
 	}
+	// A reset (`undefined`) leaves the thinking level unset again: OMPdesk's default returns.
+	syncThinkingDefault(session.settings);
 	env.emit({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
 	const provenance = provenanceReader(settings, globalConfigPath());
 	return {

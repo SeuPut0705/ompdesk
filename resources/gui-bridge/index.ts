@@ -114,9 +114,16 @@ function isRequest(value: unknown): value is BridgeRequest {
 	return typeof value === "object" && value !== null && "id" in value && "method" in value;
 }
 
-export default function guiBridge(pi: ExtensionAPI): void {
+export default async function guiBridge(pi: ExtensionAPI): Promise<void> {
 	const address = process.env.OMP_GUI_BRIDGE;
 	if (!address) return;
+
+	// Stock picks the first session's thinking level right after the extensions
+	// load, so the default must be in place before this factory returns. Dynamic
+	// like AREAS: a vanished omp export must not fail the whole extension at link time.
+	await import("./thinking-default")
+		.then(module => module.applyGuiThinkingDefault(pi))
+		.catch(err => pi.logger.error("gui-bridge: thinking default failed", { error: String(err) }));
 
 	const loading = loadMethods(pi);
 	// Requests rethrow it; this only keeps a broken table from being an unhandled rejection.

@@ -7,6 +7,7 @@ import type { AccountRotationMode, AccountRotationState } from "./account-rotati
 import type { IpcErrorCode } from "./ipc-error-codes";
 import type { LaunchProfile } from "./launch-profile";
 import type { SessionModelOverride } from "./model-restore";
+import type { ModelSetupPlan, ModelSetupRequest, ModelSetupStatus } from "./model-setup";
 import type {
 	AgentFileScope,
 	AgentSessionEvent,
@@ -144,6 +145,10 @@ export const IPC_COMMANDS = {
 	/** Run/cancel an isolated bundled `omp bench --json` process. */
 	BENCH_RUN: "bench:run",
 	BENCH_ABORT: "bench:abort",
+	/** Run/poll/cancel the model setup assistant's research job. */
+	MODEL_SETUP_RUN: "model-setup:run",
+	MODEL_SETUP_STATUS: "model-setup:status",
+	MODEL_SETUP_ABORT: "model-setup:abort",
 	/** Open external URL */
 	SYSTEM_INFO: "system:info",
 	SYSTEM_OPEN_EXTERNAL: "system:open-external",
@@ -455,6 +460,18 @@ export interface IpcBenchmarkSummary {
 export type IpcBenchmarkRunResult =
 	| { success: true; summary: IpcBenchmarkSummary; exitCode: number | null; stderr?: string }
 	| { success: false; error: string; stderr?: string; code?: IpcErrorCode };
+
+export type IpcModelSetupRunResult =
+	| { success: true; plan: ModelSetupPlan; dropped: string[] }
+	| {
+			success: false;
+			error: string;
+			code?: IpcErrorCode;
+			stderr?: string;
+			/** The research reply when it held no valid plan. */
+			reply?: string;
+			cancelled?: boolean;
+	  };
 
 /** Compact snapshot the renderer pushes to main to build the tray menu. */
 export interface TrayState {
@@ -1499,6 +1516,12 @@ export interface OmpApi {
 	bench: {
 		/** `omp bench` on `device` (the paired host; absent = this device), one per window. */
 		run(options: IpcBenchmarkRunOptions, device?: string): Promise<IpcBenchmarkRunResult>;
+		abort(device?: string): Promise<boolean>;
+	};
+	modelSetup: {
+		/** The model setup research on `device` (the paired host; absent = this device), one per window. */
+		run(request: ModelSetupRequest, device?: string): Promise<IpcModelSetupRunResult>;
+		status(device?: string): Promise<ModelSetupStatus>;
 		abort(device?: string): Promise<boolean>;
 	};
 	system: {

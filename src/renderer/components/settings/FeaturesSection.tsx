@@ -1,14 +1,17 @@
 /**
  * Settings › Features: what omp adds on top of a chat — modes, rules,
  * the advisor, memory, subagents — each with its on/off switch where omp has
- * one and a link to its full configuration. Quick commands and the command
+ * one and a link to its full configuration. The advisor row also picks its
+ * model and opens the model setup assistant. Quick commands and the command
  * palette are entry points, not settings.
  */
 
+import { Sparkles } from "lucide-react";
 import { prefillComposer } from "../../lib/command-registry";
 import { useT } from "../../lib/i18n";
 import { useUiStore } from "../../stores/ui";
-import { Banner, Button, Kbd } from "../common";
+import { Button, Kbd } from "../common";
+import { AdvisorModelRow } from "./AdvisorModelRow";
 import { SchemaField } from "./SchemaField";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 import { useSettingsData } from "./settings-data";
@@ -30,8 +33,7 @@ export function FeaturesSection() {
 		useUiStore.getState().closeDestination();
 		open();
 	};
-	const advisorIdle =
-		sidecarReady && loadState === "ready" && values["advisor.enabled"] === true && advisorActive === false;
+	const advisorOn = sidecarReady && loadState === "ready" && values["advisor.enabled"] === true;
 
 	return (
 		<>
@@ -114,29 +116,27 @@ export function FeaturesSection() {
 				/>
 				<SchemaField
 					action={
-						<Button
-							onClick={() => navigate("advanced:model", "setting-advisor.enabled")}
-							size="sm"
-							variant="ghost"
-						>
-							{t("settings.features.configureAdvisor")}
-						</Button>
+						<div className="flex flex-wrap items-center">
+							<Button
+								icon={<Sparkles />}
+								onClick={() => useUiStore.getState().openModelSetup()}
+								size="sm"
+								variant="ghost"
+							>
+								{t("modelSetup.open")}
+							</Button>
+							<Button
+								onClick={() => navigate("advanced:model", "setting-advisor.enabled")}
+								size="sm"
+								variant="ghost"
+							>
+								{t("settings.features.configureAdvisor")}
+							</Button>
+						</div>
 					}
 					path="advisor.enabled"
 				/>
-				{advisorIdle && (
-					<Banner
-						actions={
-							<Button onClick={() => navigate("models:roles")} size="sm" variant="secondary">
-								{t("settings.features.configureRoles")}
-							</Button>
-						}
-						className="my-2"
-						variant="info"
-					>
-						{t("settings.features.advisorIdle")}
-					</Banner>
-				)}
+				{advisorOn && <AdvisorModelRow active={advisorActive} sidecarReady={sidecarReady} />}
 				<SchemaField
 					action={
 						<Button onClick={() => navigate("advanced:memory")} size="sm" variant="ghost">

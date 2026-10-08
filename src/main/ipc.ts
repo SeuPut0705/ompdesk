@@ -36,6 +36,7 @@ import type {
 	IpcHostToolResultPayload,
 	IpcHostToolUpdatePayload,
 	IpcHostUriResultPayload,
+	IpcModelSetupRunResult,
 	IpcNotifyPayload,
 	IpcOpenPathResult,
 	IpcPrefsGetPayload,
@@ -58,6 +59,7 @@ import type {
 	SessionKind,
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from "../shared/ipc-types";
+import type { ModelSetupRequest } from "../shared/model-setup";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import type { HostToolResult, HostToolUpdate, RpcCommand, RpcSessionState } from "../shared/rpc-types";
 import { isUiLanguage } from "../shared/ui-language";
@@ -180,6 +182,8 @@ function aggregateProgress(states: RunProgressState[]): RunProgressState {
 export function registerIpcHandlers(deps: IpcDeps): void {
 	/** The paired host a window's running benchmark is on, so closing the window stops it there. */
 	const remoteBenchmarks = new Map<number, string>();
+	/** The same for a window's model setup research. */
+	const remoteModelSetups = new Map<number, string>();
 	const { sidecarPool, sessionIndex, logWatcher, windowManager, remoteDevices } = deps;
 	const prefsStore = new Store<PrefsSchema>({ name: "prefs" });
 	const remoteMachine = { request: remoteDevices.request.bind(remoteDevices), statsText: mainT };
@@ -210,6 +214,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (device)
 			void pickMachine(device, deps.machine, remoteMachine)
 				.abortBenchmark(caller)
+				.catch(() => false);
+		void deps.machine.abortModelSetup(caller);
+		const setupDevice = remoteModelSetups.get(record.id);
+		remoteModelSetups.delete(record.id);
+		if (setupDevice)
+			void pickMachine(setupDevice, deps.machine, remoteMachine)
+				.abortModelSetup(caller)
 				.catch(() => false);
 	});
 
@@ -728,6 +739,35 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	);
 	ipcMain.handle(IPC_COMMANDS.BENCH_ABORT, (event, device?: unknown) =>
 		machineFor(event, device).abortBenchmark(benchCaller(event.sender.id)),
+	);
+
+	// The model setup assistant's research on the machine the caller's focused tab runs on, one per window.
+	ipcMain.handle(
+		IPC_COMMANDS.MODEL_SETUP_RUN,
+		async (event, request: ModelSetupRequest, device?: unknown): Promise<IpcModelSetupRunResult> => {
+			const id = deviceOf(device);
+			const senderId = event.sender.id;
+			if (!id) return deps.machine.runModelSetup(benchCaller(senderId), request);
+			remoteModelSetups.set(senderId, id);
+			try {
+				return await machineFor(event, id).runModelSetup(benchCaller(senderId), request);
+			} catch (err) {
+				const code = ipcErrorCode(err);
+				return {
+					success: false,
+					error: err instanceof Error ? err.message : String(err),
+					...(code ? { code } : {}),
+				};
+			} finally {
+				if (remoteModelSetups.get(senderId) === id) remoteModelSetups.delete(senderId);
+			}
+		},
+	);
+	ipcMain.handle(IPC_COMMANDS.MODEL_SETUP_STATUS, (event, device?: unknown) =>
+		machineFor(event, device).modelSetupStatus(benchCaller(event.sender.id)),
+	);
+	ipcMain.handle(IPC_COMMANDS.MODEL_SETUP_ABORT, (event, device?: unknown) =>
+		machineFor(event, device).abortModelSetup(benchCaller(event.sender.id)),
 	);
 
 	// Renderer-initiated quit (the `quit` command). Straight to the guard, never

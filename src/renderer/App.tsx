@@ -82,6 +82,9 @@ const FeedbackDialog = lazy(() =>
 const BenchmarkDialog = lazy(() =>
 	import("./components/dialogs/BenchmarkDialog").then(m => ({ default: m.BenchmarkDialog })),
 );
+const ModelSetupDialog = lazy(() =>
+	import("./components/settings/model-setup/ModelSetupDialog").then(m => ({ default: m.ModelSetupDialog })),
+);
 
 function FocusedSessionEffects() {
 	useTraySync();
@@ -137,6 +140,7 @@ export function App() {
 	const feedbackOpen = useUiStore(s => s.feedbackOpen);
 	const benchmarkOpen = useUiStore(s => s.benchmarkOpen);
 	const closeBenchmark = useUiStore(s => s.closeBenchmark);
+	const modelSetupOpen = useUiStore(s => s.modelSetupOpen);
 	const importDialogOpen = useUiStore(s => s.importDialogOpen);
 	const activeTabId = useTabsStore(s => s.activeTabId);
 	const activeTabStatus = useTabsStore(s => s.tabs.find(tab => tab.id === s.activeTabId)?.status);
@@ -413,6 +417,7 @@ export function App() {
 				ui.modelPickerOpen ||
 				ui.destination !== "session" ||
 				ui.benchmarkOpen ||
+				ui.modelSetupOpen ||
 				ui.sessionPickerOpen ||
 				ui.branchPickerOpen;
 			if (event.key === "Escape") {
@@ -694,6 +699,7 @@ export function App() {
 			<Suspense fallback={null}>
 				<BenchmarkDialog open={benchmarkOpen} onClose={closeBenchmark} />
 			</Suspense>
+			<Suspense fallback={null}>{modelSetupOpen && <ModelSetupDialog />}</Suspense>
 			<ThemePickerDialog />
 			<PlanApprovalDialog />
 			{importDialogOpen && <ImportForeignDialog />}

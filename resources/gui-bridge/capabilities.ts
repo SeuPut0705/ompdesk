@@ -28,6 +28,7 @@ export const FEATURES = {
 	modelPool: "Model pool",
 	replyLanguage: "Reply language",
 	accountRotation: "Even account rotation",
+	thinkingDefault: "Auto thinking by default",
 	mcp: "MCP servers",
 	plugins: "Plugins & marketplaces",
 	skills: "Skills, hooks & prompt templates",
@@ -309,6 +310,23 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			],
 			["@oh-my-pi/pi-ai/usage/registry"]: ["defaultRankingStrategy()"],
 			[`${AGENT}/session/credential-pin`]: ["credentialPinHash()"],
+		},
+	},
+	/**
+	 * thinking-default.ts: `auto` as the runtime-override default of `defaultThinkingLevel`
+	 * (index.ts applies it before the first session; settings.ts re-checks it). The
+	 * handle is reached through `lookup`; the `session/settings` entry only probes it.
+	 */
+	thinkingDefault: {
+		pkg: ["Settings.instance.getGlobalSettings()", "Settings.instance.getProjectSettings()"],
+		modules: {
+			[`${AGENT}/config/registry`]: ["lookup()"],
+			[`${AGENT}/session/settings`]: [
+				"cfgDefaultThinkingLevel.segments",
+				"cfgDefaultThinkingLevel.isConfigured()",
+				"cfgDefaultThinkingLevel.override()",
+				"cfgDefaultThinkingLevel.clearOverride()",
+			],
 		},
 	},
 	mcp: {

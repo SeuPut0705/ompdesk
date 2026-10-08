@@ -321,7 +321,12 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		if (!res.success) throw new Error(res.error);
 		const data = res.data as { advisorEnabled?: boolean; advisorActive?: boolean } | undefined;
 		if (enabled && data?.advisorEnabled === true && data.advisorActive !== true) {
-			toast({ variant: "info", message: t("advisor.noModel") });
+			toast({
+				variant: "info",
+				message: t("advisor.noModel"),
+				action: { label: t("modelSetup.open"), run: () => useUiStore.getState().openModelSetup() },
+				durationMs: 10_000,
+			});
 			return;
 		}
 		toast({ variant: "success", message: t(enabled ? "advisor.enabled" : "advisor.disabled") });
