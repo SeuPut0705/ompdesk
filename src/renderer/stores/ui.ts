@@ -72,6 +72,8 @@ interface UiStore {
 	panelTab: PanelTab;
 	/** Local file currently shown in the Files drawer. */
 	filePreviewPath: string | null;
+	/** The Files drawer's viewer asked for a wider docked panel (not persisted; the drag width stays the pref). */
+	filePreviewExpanded: boolean;
 	commandPaletteOpen: boolean;
 	modelPickerOpen: boolean;
 	/** "pool" adds the picked model to the session's model pool instead of switching to it. */
@@ -145,6 +147,7 @@ interface UiStore {
 	setPanelTab: (tab: PanelTab) => void;
 	openFilePreview: (path: string) => void;
 	closeFilePreview: () => void;
+	toggleFilePreviewExpanded: () => void;
 	/** Per-card collapse overrides for the center dock (absent = the card's default, see `isDockCardCollapsed`). */
 	dockCollapsed: Partial<Record<DockCardId, boolean>>;
 	toggleDockCard: (id: DockCardId) => void;
@@ -251,6 +254,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	panelVisible: false,
 	panelTab: "diff",
 	filePreviewPath: null,
+	filePreviewExpanded: false,
 	commandPaletteOpen: false,
 	modelPickerOpen: false,
 	modelPickerPurpose: "session",
@@ -284,7 +288,8 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 		set({ panelTab: tab, panelVisible: true });
 	},
 	openFilePreview: path => set({ filePreviewPath: path, panelTab: "files", panelVisible: true }),
-	closeFilePreview: () => set({ filePreviewPath: null }),
+	closeFilePreview: () => set({ filePreviewPath: null, filePreviewExpanded: false }),
+	toggleFilePreviewExpanded: () => set({ filePreviewExpanded: !get().filePreviewExpanded }),
 	dockCollapsed: {},
 	toggleDockCard: id =>
 		set({
@@ -419,6 +424,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 			worktreeClosePrompt: null,
 			armedCloseTab: null,
 			filePreviewPath: null,
+			filePreviewExpanded: false,
 			sessionPickerOpen: false,
 			branchPickerOpen: false,
 			sessionSwitchPrompt: null,

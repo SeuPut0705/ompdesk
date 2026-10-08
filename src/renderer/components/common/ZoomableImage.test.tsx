@@ -73,4 +73,29 @@ describe("ZoomableImage", () => {
 		await click(container.querySelector("[data-zoomable-image]"));
 		expect(viewer()?.querySelector("[data-image-viewer]")?.getAttribute("aria-pressed")).toBe("false");
 	});
+
+	it("covers only the chat pane it sits in, not the whole window", async () => {
+		container = document.createElement("div");
+		document.body.appendChild(container);
+		const pane = document.createElement("div");
+		pane.className = "omp-session-pane";
+		const sidebar = document.createElement("aside");
+		container.append(sidebar, pane);
+		root = createRoot(pane as unknown as Element);
+		await act(async () =>
+			root.render(
+				<I18nProvider>
+					<ZoomableImage alt="chart" src="data:image/png;base64,AAAA" />
+				</I18nProvider>,
+			),
+		);
+		await settle();
+
+		await click(pane.querySelector("[data-zoomable-image]"));
+		const overlay = viewer()?.parentElement;
+		expect(overlay?.parentElement).toBe(pane);
+		expect(overlay?.className).toContain("absolute");
+		expect(overlay?.className).not.toContain("fixed");
+		expect(sidebar.contains(viewer())).toBe(false);
+	});
 });

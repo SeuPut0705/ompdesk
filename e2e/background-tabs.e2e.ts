@@ -38,6 +38,8 @@ test.beforeEach(async () => {
 		PI_PROFILE: "",
 		OMP_GUI_OMP: await fixtureOmp(profile),
 		OMP_GUI_TEST_RECORD: record,
+		// Tests tagged @session-files run on stock-shaped session files, so their rows come from the session index.
+		OMP_GUI_TEST_SESSION_FILES: test.info().tags.includes("@session-files") ? "1" : "",
 	};
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	app = await electron.launch({
@@ -178,7 +180,7 @@ test("a plan proposed in the background shows its approval card after switching 
 	await openTab();
 
 	await fixtureCommand(background, "fixture:plan");
-	// The one-shot plan_proposal frame is not forwarded for a hidden tab.
+	// The proposal belongs to the background tab: nothing shows in front.
 	await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
 
 	await switchTo(background);
@@ -186,7 +188,7 @@ test("a plan proposed in the background shows its approval card after switching 
 	await expect(card).toContainText("Ship the background tab coverage.");
 	await expect(card).toContainText("fixture-rollout.md");
 	await expect(card.getByRole("button", { name: "Approve and execute" })).toBeEnabled();
-	// Re-shown from the background tab's own get_plan_mode on hydrate.
+	// Hydrate still re-syncs it from the background tab's own omp (get_plan_mode).
 	const owner = await sessionIdOf(background);
 	expect(await recorded("modes.get_plan_mode")).toContainEqual(expect.objectContaining({ recordedBy: owner }));
 	expect(errors).toEqual([]);
@@ -270,5 +272,46 @@ test("sidebar subagent rows start collapsed, expand on click, and leave as each 
 	await fixtureCommand(owner, "fixture:subagents:finish:sa-explore");
 	await expect(page.locator("[data-sidebar-subagent]")).toHaveCount(0);
 	await expect(toggle).toHaveCount(0);
+	expect(errors).toEqual([]);
+});
+
+test("a background session's sidebar row follows its run, dialogs, title, plan and subagents without a visit", {
+	tag: "@session-files",
+}, async () => {
+	const background = await activeTab();
+	await startRun("fixture running");
+	// The run wrote the session file: this row is the session index's, keyed by that file.
+	await expect.poll(async () => (await tabs()).find(tab => tab.tabId === background)?.sessionPath).toBeTruthy();
+	const sessionPath = (await tabs()).find(tab => tab.tabId === background)?.sessionPath ?? "";
+	const row = page.locator(`[data-session-path="${sessionPath}"]`);
+	const front = await openTab();
+	await expect(row).not.toHaveAttribute("data-live", "true");
+	await expect(row).toContainText("Running");
+
+	await fixtureCommand(background, "fixture:title:Release prep");
+	await expect(row).toContainText("Release prep");
+
+	await fixtureCommand(background, "fixture:confirm");
+	await expect(row).toContainText("Needs approval");
+	await fixtureCommand(background, "fixture:confirm:cancel");
+	await expect(row).not.toContainText("Needs approval");
+	await expect(row).toContainText("Running");
+
+	const subagents = page.locator(`[data-sidebar-subagents-toggle="${sessionPath}"]`);
+	await fixtureCommand(background, "fixture:subagents");
+	await expect(subagents).toHaveAccessibleName("Show subagents (2)");
+	await fixtureCommand(background, "fixture:subagents:finish:sa-nested");
+	await expect(subagents).toHaveAccessibleName("Show subagents (1)");
+
+	await fixtureCommand(background, "fixture:finish");
+	await expect(row).not.toContainText("Running");
+	await expect(row.locator("[data-sidebar-done]")).toHaveCount(1);
+
+	await fixtureCommand(background, "fixture:plan");
+	await expect(row).toContainText("Needs approval");
+	await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
+
+	// Every update above reached the row while the other tab stayed in front.
+	expect(await activeTab()).toBe(front);
 	expect(errors).toEqual([]);
 });

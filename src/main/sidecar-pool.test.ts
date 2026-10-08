@@ -277,13 +277,54 @@ describe("SidecarPool tabs", () => {
 		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS)).toHaveLength(4);
 
 		// Background sidecar emits nothing on the remaining full channels.
-		b?.emit("subagentFrame", { type: "subagent_lifecycle" });
+		b?.emit("subagentFrame", { type: "subagent_progress" });
 		b?.emit("promptResult", { type: "prompt_result" });
 		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAME)).toHaveLength(0);
 		expect(fw.sentTo(IPC_EVENTS.PROMPT_RESULT)).toHaveLength(0);
 		a?.emit("promptResult", { type: "prompt_result" });
 		expect(fw.sentTo(IPC_EVENTS.PROMPT_RESULT).map(entry => entry.data)).toEqual([
 			{ tabId: "tab-a", payload: { type: "prompt_result" } },
+		]);
+	});
+
+	it("routes a hidden tab's plan proposals and subagent lifecycle to its own runtime, once", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		const [a, b] = sidecars;
+		fw.sent.length = 0;
+
+		// Hidden B: what its sidebar row reads still arrives, tagged with B's id;
+		// the rest of its event stream and its progress frames stay home.
+		const proposal = { type: "plan_proposal", planFilePath: "/plans/b.md" };
+		const started = { type: "subagent_lifecycle", payload: { id: "sa-1", status: "started" } };
+		b?.emitEvents([{ type: "message_update" }, proposal, { type: "agent_end" }]);
+		b?.emit("subagentFrame", started);
+		b?.emit("subagentFrame", { type: "subagent_progress", payload: { progress: { id: "sa-1" } } });
+		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
+			{ tabId: "tab-b", payload: [proposal] },
+		]);
+		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAME).map(entry => entry.data)).toEqual([
+			{ tabId: "tab-b", payload: started },
+		]);
+
+		// Shown, B's full channel carries them: no second copy from the light one.
+		expect(pool.setActiveTab(fw.win, "tab-b")).toBe(true);
+		fw.sent.length = 0;
+		b?.emitEvents([proposal]);
+		b?.emit("subagentFrame", started);
+		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
+			{ tabId: "tab-b", payload: [proposal] },
+		]);
+		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAME).map(entry => entry.data)).toEqual([
+			{ tabId: "tab-b", payload: started },
+		]);
+		// And A, now hidden, gets the light routing instead.
+		fw.sent.length = 0;
+		a?.emitEvents([proposal]);
+		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
+			{ tabId: "tab-a", payload: [proposal] },
 		]);
 	});
 

@@ -103,6 +103,12 @@ export interface ModalProps {
 	bodyClassName?: string;
 	/** Action row pinned under the body; primary action last. */
 	footer?: ReactNode;
+	/**
+	 * Scope the layer to this element instead of the whole window: the overlay
+	 * covers only it (`absolute inset-0`; the element must be positioned). Unset
+	 * or null = the window.
+	 */
+	container?: HTMLElement | null;
 	children: ReactNode;
 }
 
@@ -117,6 +123,7 @@ export function Modal({
 	panelClassName,
 	bodyClassName = "px-5 py-4",
 	footer,
+	container,
 	children,
 }: ModalProps) {
 	const titleId = useId();
@@ -143,7 +150,8 @@ export function Modal({
 	return createPortal(
 		<div
 			className={cx(
-				"omp-dialog-overlay fixed inset-0 z-(--sc-z-dialog) flex justify-center bg-(--sc-overlay) p-4 backdrop-blur-[2px]",
+				"omp-dialog-overlay inset-0 z-(--sc-z-dialog) flex justify-center bg-(--sc-overlay) p-4 backdrop-blur-[2px]",
+				container ? "absolute" : "fixed",
 				closing ? "omp-fade-out" : "omp-fade-in",
 				placement === "top" ? "items-start pt-[12dvh]" : "items-center",
 			)}
@@ -183,6 +191,6 @@ export function Modal({
 				{shown.body}
 			</DialogSurface>
 		</div>,
-		document.body,
+		container ?? document.body,
 	);
 }

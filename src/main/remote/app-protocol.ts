@@ -10,6 +10,8 @@
  * - `tab.sideChannel {rtab, frame}`, `tab.syncImageGeneration {rtab}`
  * - `sessions.list|search|kindFor|delete|rename`, `fs.list|read|readImage|readPlan|listDirs`,
  *   `workspace.default`, `launchProfile.get|update`
+ * - `host.fs.readBinary {rtab?, cwd?, path, maxBytes?}` → HostFsReadBinaryReply: the file
+ *   viewer's bytes, base64 on the link, capped at FS_BINARY_REMOTE_MAX_BYTES by the host
  * - Settings, Usage and Stats of a remote tab read the host's own machine
  *   (machine-services.ts): `host.models.list {}` → CustomProviderView[],
  *   `host.models.upsert {input: CustomProviderInput}`, `host.models.delete {id}`,
@@ -20,11 +22,13 @@
  * Both sides parse what crosses the link with the schemas below.
  */
 import { z } from "zod";
+import { codedError, isIpcErrorCode } from "../../shared/ipc-error-codes";
 import {
 	CUSTOM_MODEL_EFFORTS,
 	CUSTOM_PROVIDER_APIS,
 	type CustomProviderInput,
 	type IpcBenchmarkRunOptions,
+	type IpcFsReadBinaryResult,
 } from "../../shared/ipc-types";
 
 /** SidecarManager events a host forwards for a remote tab; everything else stays on the host. */
@@ -184,3 +188,45 @@ export const BenchmarkOptionsSchema: z.ZodType<IpcBenchmarkRunOptions> = z.objec
 
 /** A host-level stats read waits for the host's own stats request (15 s) plus the link. */
 export const HOST_STATS_TIMEOUT_MS = 20_000;
+
+/** A file viewer read moves up to ~15 MB of base64 over the link; give it longer than a plain request. */
+export const HOST_FS_READ_BINARY_TIMEOUT_MS = 60_000;
+
+/** Standard base64 (what Buffer emits); a plain character class stays linear on a 15 MB string. */
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+
+/** `host.fs.readBinary` reply: IpcFsReadBinaryResult with `data` as base64, since the link carries JSON. */
+export const HostFsReadBinaryReply = z.object({
+	ok: z.boolean(),
+	data: z
+		.string()
+		.regex(BASE64)
+		.refine(data => data.length % 4 === 0, "base64 length"),
+	mime: z.string().max(255),
+	size: z.number().int().nonnegative(),
+	truncated: z.boolean(),
+	error: z.string().optional(),
+	// A newer host may send a code this build does not know: keep the reply, drop the code.
+	code: z.string().optional(),
+});
+export type HostFsReadBinaryReply = z.infer<typeof HostFsReadBinaryReply>;
+
+/** Host side: the bytes go out as base64 without copying them first. */
+export function encodeBinaryRead(result: IpcFsReadBinaryResult): HostFsReadBinaryReply {
+	const { data, ...rest } = result;
+	return { ...rest, data: Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString("base64") };
+}
+
+/**
+ * Client side: parse the host's reply and decode the base64 straight into an
+ * exact-size Uint8Array (its own ArrayBuffer, so IPC clones only these bytes).
+ * A malformed reply throws `remote_protocol`.
+ */
+export function decodeBinaryRead(raw: unknown): IpcFsReadBinaryResult {
+	const parsed = HostFsReadBinaryReply.safeParse(raw);
+	if (!parsed.success) throw codedError("remote_protocol", "Malformed host.fs.readBinary reply");
+	const { data, code, ...rest } = parsed.data;
+	const bytes = new Uint8Array(Buffer.byteLength(data, "base64"));
+	Buffer.from(bytes.buffer).write(data, "base64");
+	return { ...rest, data: bytes, ...(isIpcErrorCode(code) ? { code } : {}) };
+}

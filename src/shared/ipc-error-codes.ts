@@ -29,6 +29,7 @@ export const IPC_ERROR_CODES = [
 	"not_a_file",
 	"image_too_large",
 	"unsupported_image",
+	"file_too_large",
 	"path_escapes_roots",
 	"unknown_tab",
 	"no_window",

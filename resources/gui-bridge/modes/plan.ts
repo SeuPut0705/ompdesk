@@ -46,9 +46,9 @@ interface PendingProposal {
 	title: string;
 	/**
 	 * The `plan_proposal` frame once emitted, i.e. the proposal is awaiting the
-	 * host's answer. The frame is a one-shot event the GUI only receives for a
-	 * tab it is showing, so `get_plan_mode` returns it too: a tab that was in
-	 * the background when the agent proposed re-shows it on hydrate.
+	 * host's answer. The frame is a one-shot event a renderer that was not
+	 * listening yet (reloaded, restored) never sees, so `get_plan_mode` returns
+	 * it too: the tab re-shows it on hydrate.
 	 */
 	frame?: ProposalFrame;
 }

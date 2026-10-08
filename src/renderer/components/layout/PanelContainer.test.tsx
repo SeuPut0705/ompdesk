@@ -65,7 +65,7 @@ afterEach(async () => {
 	container?.remove();
 	useSessionStore.getState().reset();
 	useTabsStore.getState().reset();
-	useUiStore.setState({ panelTab: "files", panelVisible: true, filePreviewPath: null });
+	useUiStore.setState({ panelTab: "files", panelVisible: true, filePreviewPath: null, filePreviewExpanded: false });
 	if (initialOmp === undefined) delete ompWindow.omp;
 	else ompWindow.omp = initialOmp;
 	Object.defineProperty(window, "innerWidth", { configurable: true, value: 1440 });
@@ -180,6 +180,35 @@ describe("PanelContainer chat tab filter", () => {
 		});
 		expect(aside.style.width).toBe("440px");
 		expect(useUiStore.getState().panelVisible).toBe(true);
+	});
+
+	it("widens for an expanded file viewer and restores the dragged width", async () => {
+		Object.defineProperty(window, "innerWidth", { configurable: true, value: 1440 });
+		seedActiveTab("agent");
+		ompWindow.omp = {
+			fs: {
+				list: vi.fn(async () => ({ ok: true, entries: [], truncated: false })),
+				read: vi.fn(async () => ({ ok: true, content: "x", truncated: false, binary: false, size: 1 })),
+			},
+		};
+		useUiStore.setState({ panelTab: "files", panelVisible: true, filePreviewPath: "src/a.ts" });
+		await mount(<PanelContainer />);
+		const aside = document.querySelector("aside") as HTMLElement;
+		expect(aside.style.width).toBe("403px");
+
+		const expand = document.querySelector('button[aria-label="Expand panel"]') as HTMLElement;
+		await act(async () => {
+			expand.dispatchEvent(new Event("click", { bubbles: true }));
+		});
+		// 55% of the window, never past the 56px the transcript keeps.
+		expect(aside.style.width).toBe("792px");
+		expect(aside.getAttribute("data-expanded")).toBe("true");
+
+		await act(async () => {
+			useUiStore.getState().closeFilePreview();
+		});
+		expect(aside.style.width).toBe("403px");
+		expect(useUiStore.getState().filePreviewExpanded).toBe(false);
 	});
 
 	it("opens a local markdown link inside the Files drawer", async () => {

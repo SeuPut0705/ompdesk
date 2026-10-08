@@ -22,6 +22,8 @@ import type {
 	IpcExtensionUiRespondPayload,
 	IpcFsListPayload,
 	IpcFsListResult,
+	IpcFsReadBinaryPayload,
+	IpcFsReadBinaryResult,
 	IpcFsReadImagePayload,
 	IpcFsReadImageResult,
 	IpcFsReadPayload,
@@ -69,6 +71,7 @@ import { type LocalMachine, type MachineServices, machineFor as pickMachine } fr
 import { createMenu } from "./menu";
 import { modelsPath } from "./models-config";
 import { systemOmp } from "./omp-runtime";
+import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS } from "./remote/app-protocol";
 import type { RemoteDevices } from "./remote/devices";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import type { SessionIndex } from "./session-index";
@@ -81,7 +84,14 @@ import { aggregateTrayStatus } from "./tray-labels";
 import { appVersion } from "./updater";
 import type { SpawnWindow, WindowManager } from "./window";
 import { sanitizeChromeColors, TOP_BAR_HEIGHT } from "./window-chrome";
-import { listWorkspace, readPlanFile, readWorkspaceFile, readWorkspaceImage, resolveWithin } from "./workspace-fs";
+import {
+	listWorkspace,
+	readPlanFile,
+	readWorkspaceBinary,
+	readWorkspaceFile,
+	readWorkspaceImage,
+	resolveWithin,
+} from "./workspace-fs";
 
 export interface IpcDeps {
 	sidecarPool: SidecarPool;
@@ -1012,13 +1022,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		method: string,
 		params: object,
 		fail: (error: string, code: IpcErrorCode | undefined) => T,
+		wire: { timeoutMs?: number; decode?: (raw: unknown) => T } = {},
 	): Promise<T> => {
 		try {
-			return await remoteDevices.request<T>(target.device, method, {
-				...params,
-				rtab: target.tabId,
-				cwd: target.sidecar.cwd,
-			});
+			const raw = await remoteDevices.request<T>(
+				target.device,
+				method,
+				{ ...params, rtab: target.tabId, cwd: target.sidecar.cwd },
+				wire.timeoutMs,
+			);
+			return wire.decode ? wire.decode(raw) : raw;
 		} catch (err) {
 			return fail(err instanceof Error ? err.message : String(err), ipcErrorCode(err));
 		}
@@ -1072,6 +1085,32 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				}));
 			}
 			return readWorkspaceImage(cwdFor(deps, event, payload?.tabId), request);
+		},
+	);
+
+	ipcMain.handle(
+		IPC_COMMANDS.FS_READ_BINARY,
+		async (event, payload: IpcFsReadBinaryPayload): Promise<IpcFsReadBinaryResult> => {
+			const target = targetFor(deps, event, payload?.tabId);
+			const request = { path: payload?.path, maxBytes: payload?.maxBytes };
+			if (target?.device) {
+				return remoteFs(
+					{ ...target, device: target.device },
+					"host.fs.readBinary",
+					request,
+					(error, code) => ({
+						ok: false,
+						data: new Uint8Array(0),
+						mime: "application/octet-stream",
+						size: 0,
+						truncated: false,
+						error,
+						...(code ? { code } : {}),
+					}),
+					{ timeoutMs: HOST_FS_READ_BINARY_TIMEOUT_MS, decode: decodeBinaryRead },
+				);
+			}
+			return readWorkspaceBinary(cwdFor(deps, event, payload?.tabId), request);
 		},
 	);
 

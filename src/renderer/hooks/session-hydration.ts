@@ -266,10 +266,11 @@ function isPlanProposal(value: unknown): value is PendingPlanProposal {
 
 /**
  * Re-show the plan proposal the bridge holds awaiting approval
- * (get_plan_mode → `proposal`). Its `plan_proposal` frame only reaches a tab
- * whose event stream is forwarded, so a proposal made while the tab sat in the
- * background would otherwise be lost while the agent waits on it. A proposal
- * already on screen is left alone, keeping its feedback and submit state.
+ * (get_plan_mode → `proposal`). Main routes every `plan_proposal` frame to its
+ * tab, shown or hidden, but a frame emitted before this renderer subscribed
+ * (a reload, a restored window) is gone while the agent still waits on it.
+ * A proposal already on screen is left alone, keeping its feedback and
+ * submit state.
  */
 export async function syncPlanProposal(tabId: string, command: TabCommand, isCurrent: HydrationGuard): Promise<void> {
 	try {

@@ -16,6 +16,9 @@
  * background) additionally pushes the light TAB_STATUS channel, so background
  * tabs report status flips, run outcomes, and session title/id changes, and
  * forwards its extension UI requests (a background ask still needs an answer).
+ * A hidden tab also forwards the two frames its sidebar row reads from its own
+ * runtime: plan proposals (the row asks for approval) and subagent lifecycle
+ * (the row's live subagent count), so the row is current without a visit.
  *
  * F-OWN (double-attach guard): `#sessionOwners` maps a session file to the
  * tab/window attached to it, registered at acquire (spawn-with-sessionPath),
@@ -398,6 +401,13 @@ export class SidecarPool {
 				this.#requestOwners.delete(request.targetId);
 			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request });
 		});
+		// A hidden tab's subagents still start and finish: lifecycle frames keep
+		// its runtime roster (the sidebar row's count) current. Progress frames
+		// stay on the full channel; the roster is re-read when the tab is shown.
+		sidecar.on("subagentFrame", (frame: SubagentFrame) => {
+			if (entry.detachFull || frame.type !== "subagent_lifecycle") return;
+			forwardToWindow(win, IPC_EVENTS.SUBAGENT_FRAME, { tabId: entry.tabId, payload: frame });
+		});
 		const setRunning = (running: boolean): void => {
 			const wasBusy = entry.running || entry.compacting === true;
 			entry.running = running;
@@ -418,6 +428,9 @@ export class SidecarPool {
 		sidecar.on("events", (events: AgentSessionEvent[]) => {
 			const wasBusy = entry.running || entry.compacting === true;
 			const wasPlaceholder = entry.placeholder;
+			// A plan proposal blocks a hidden tab's session on the user: it goes to
+			// that tab's runtime here (the full channel carries it for a shown tab).
+			let hiddenProposals: AgentSessionEvent[] | undefined;
 			for (const event of events) {
 				if (event.type === "agent_start") {
 					entry.running = true;
@@ -442,12 +455,19 @@ export class SidecarPool {
 					entry.endedWhileRetrying = false;
 				} else if (event.type === "auto_compaction_start") entry.compacting = true;
 				else if (event.type === "auto_compaction_end") entry.compacting = false;
+				else if (event.type === "plan_proposal" && !entry.detachFull) {
+					hiddenProposals ??= [];
+					hiddenProposals.push(event);
+				}
 			}
 			const busy = entry.running || entry.compacting === true;
 			if (busy !== wasBusy || entry.placeholder !== wasPlaceholder) {
 				forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			}
 			if (entry.placeholder !== wasPlaceholder) this.#notifyWindowTabsChanged(win);
+			if (hiddenProposals) {
+				forwardToWindow(win, IPC_EVENTS.EVENTS_BATCH, { tabId: entry.tabId, payload: hiddenProposals });
+			}
 		});
 	}
 

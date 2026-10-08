@@ -1,12 +1,13 @@
 /**
  * Workspace filesystem reads behind fs:list / fs:read / fs:read-image /
- * fs:read-plan — node:fs based, no sidecar session required, cross-platform,
- * rooted at a tab's cwd. Shared by the local IPC handlers and by the remote
- * host (src/main/remote/host-services.ts), which serves the same reads for a
- * paired device's tabs with the same confinement and caps. Never throws: every
- * failure is an `ok: false` result with a stable code.
+ * fs:read-binary / fs:read-plan — node:fs based, no sidecar session required,
+ * cross-platform, rooted at a tab's cwd. Shared by the local IPC handlers and
+ * by the remote host (src/main/remote/host-services.ts), which serves the same
+ * reads for a paired device's tabs with the same confinement and caps. Never
+ * throws: every failure is an `ok: false` result with a stable code.
  */
 import { type Dirent, promises as fsp } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { codedError, type IpcErrorCode } from "../shared/ipc-error-codes";
@@ -14,6 +15,8 @@ import type {
 	FsTreeEntry,
 	IpcFsListPayload,
 	IpcFsListResult,
+	IpcFsReadBinaryPayload,
+	IpcFsReadBinaryResult,
 	IpcFsReadImagePayload,
 	IpcFsReadImageResult,
 	IpcFsReadPayload,
@@ -31,6 +34,13 @@ const FS_READ_DEFAULT_MAX_BYTES = 200_000;
 const FS_READ_MAX_BYTES_CAP = 2_000_000;
 /** Markdown images become data URLs in the renderer; bound the bytes. */
 const FS_IMAGE_MAX_BYTES = 25_000_000;
+/** File viewer reads on this device: whole files up to this size. */
+export const FS_BINARY_LOCAL_MAX_BYTES = 100 * 1024 * 1024;
+/** A paired host's reply travels base64 (+33%) in one 16 MiB frame (remote/wire.ts). */
+export const FS_BINARY_REMOTE_MAX_BYTES = 11 * 1024 * 1024;
+/** Bytes read for magic-number sniffing (SVG's text check needs a few hundred). */
+const SNIFF_HEADER_BYTES = 512;
+const OCTET_STREAM = "application/octet-stream";
 /** Remote folder picker: one level, bounded so a huge directory cannot flood the link. */
 const LIST_DIRS_MAX_ENTRIES = 2000;
 
@@ -339,33 +349,205 @@ export async function readWorkspaceFile(
 	}
 }
 
-function sniffImageMime(header: Buffer): string | null {
-	if (header.length >= 8 && header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47) {
-		return "image/png";
+function hasBytes(header: Uint8Array, offset: number, bytes: readonly number[]): boolean {
+	if (header.length < offset + bytes.length) return false;
+	return bytes.every((byte, index) => header[offset + index] === byte);
+}
+
+function hasAscii(header: Uint8Array, offset: number, text: string): boolean {
+	if (header.length < offset + text.length) return false;
+	for (let index = 0; index < text.length; index++) {
+		if (header[offset + index] !== text.charCodeAt(index)) return false;
 	}
-	if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) return "image/jpeg";
-	if (header.length >= 6 && header.subarray(0, 6).toString("ascii") === "GIF89a") return "image/gif";
-	if (header.length >= 6 && header.subarray(0, 6).toString("ascii") === "GIF87a") return "image/gif";
-	if (
-		header.length >= 12 &&
-		header.subarray(0, 4).toString("ascii") === "RIFF" &&
-		header.subarray(8, 12).toString("ascii") === "WEBP"
-	) {
-		return "image/webp";
+	return true;
+}
+
+/** The MIME a binary file's leading bytes prove, or null when no known signature matches. */
+function sniffMagic(header: Uint8Array): string | null {
+	if (hasAscii(header, 0, "%PDF-")) return "application/pdf";
+	if (hasBytes(header, 0, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png";
+	if (hasBytes(header, 0, [0xff, 0xd8, 0xff])) return "image/jpeg";
+	if (hasAscii(header, 0, "GIF87a") || hasAscii(header, 0, "GIF89a")) return "image/gif";
+	if (hasAscii(header, 0, "RIFF")) {
+		if (hasAscii(header, 8, "WEBP")) return "image/webp";
+		if (hasAscii(header, 8, "WAVE")) return "audio/wav";
 	}
-	if (header.length >= 12 && header.subarray(4, 8).toString("ascii") === "ftyp") {
-		const brand = header.subarray(8, 12).toString("ascii");
+	// ISO base media (mp4/mov/m4a/avif): `ftyp` box first, major brand after it.
+	if (header.length >= 12 && hasAscii(header, 4, "ftyp")) {
+		const brand = String.fromCharCode(...header.subarray(8, 12));
 		if (brand === "avif" || brand === "avis") return "image/avif";
+		if (brand === "qt  ") return "video/quicktime";
+		if (brand === "M4A " || brand === "M4B ") return "audio/mp4";
+		return "video/mp4";
 	}
-	if (header.length >= 2 && header[0] === 0x42 && header[1] === 0x4d) return "image/bmp";
-	if (header.length >= 4 && header[0] === 0x00 && header[1] === 0x00 && header[2] === 0x01 && header[3] === 0x00) {
+	// EBML: the DocType element names WebM or Matroska within the first bytes.
+	if (hasBytes(header, 0, [0x1a, 0x45, 0xdf, 0xa3])) {
+		return String.fromCharCode(...header.subarray(0, 64)).includes("webm") ? "video/webm" : "video/x-matroska";
+	}
+	if (hasAscii(header, 0, "ID3")) return "audio/mpeg";
+	if (hasAscii(header, 0, "OggS")) return "audio/ogg";
+	if (hasAscii(header, 0, "fLaC")) return "audio/flac";
+	const zipRecord = hasBytes(header, 2, [3, 4]) || hasBytes(header, 2, [5, 6]) || hasBytes(header, 2, [7, 8]);
+	if (hasAscii(header, 0, "PK") && zipRecord) return "application/zip";
+	if (hasBytes(header, 0, [0x1f, 0x8b])) return "application/gzip";
+	if (hasAscii(header, 0, "SQLite format 3\0")) return "application/vnd.sqlite3";
+	// BMP: "BM" alone is too weak for arbitrary files; the header's reserved words are zero.
+	if (hasAscii(header, 0, "BM") && hasBytes(header, 6, [0, 0, 0, 0])) return "image/bmp";
+	// ICO: reserved 0, type 1, and at least one image.
+	if (hasBytes(header, 0, [0, 0, 1, 0]) && header.length >= 6 && (header[4] !== 0 || header[5] !== 0)) {
 		return "image/x-icon";
 	}
+	// Bare MPEG audio frame (an mp3 without an ID3 tag): sync bits, a valid version, layer I–III.
+	const second = header[1] ?? 0;
+	if (header[0] === 0xff && (second & 0xe0) === 0xe0 && (second & 0x18) !== 0x08 && (second & 0x06) !== 0) {
+		return "audio/mpeg";
+	}
+	return null;
+}
+
+function sniffImageMime(header: Buffer): string | null {
+	const magic = sniffMagic(header);
+	if (magic) return magic.startsWith("image/") ? magic : null;
 	// SVG is text: only when it actually starts with an XML/SVG prolog. Loaded
 	// through <img> it renders in secure static mode (no script execution).
 	const text = header.toString("utf8").trimStart().slice(0, 512).toLowerCase();
 	if (text.startsWith("<svg") || (text.startsWith("<?xml") && text.includes("<svg"))) return "image/svg+xml";
 	return null;
+}
+
+const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+/** Fallback when no signature matches, and the refinement inside a container family. */
+const EXTENSION_MIME: Readonly<Record<string, string>> = {
+	pdf: "application/pdf",
+	png: "image/png",
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	gif: "image/gif",
+	webp: "image/webp",
+	avif: "image/avif",
+	bmp: "image/bmp",
+	ico: "image/x-icon",
+	svg: "image/svg+xml",
+	mp4: "video/mp4",
+	m4v: "video/mp4",
+	mov: "video/quicktime",
+	webm: "video/webm",
+	mkv: "video/x-matroska",
+	ogv: "video/ogg",
+	mp3: "audio/mpeg",
+	m4a: "audio/mp4",
+	aac: "audio/aac",
+	wav: "audio/wav",
+	ogg: "audio/ogg",
+	oga: "audio/ogg",
+	opus: "audio/ogg",
+	weba: "audio/webm",
+	flac: "audio/flac",
+	docx: DOCX_MIME,
+	xlsx: XLSX_MIME,
+	pptx: PPTX_MIME,
+	zip: "application/zip",
+	gz: "application/gzip",
+	tgz: "application/gzip",
+	tar: "application/x-tar",
+	"7z": "application/x-7z-compressed",
+	sqlite: "application/vnd.sqlite3",
+	sqlite3: "application/vnd.sqlite3",
+	wasm: "application/wasm",
+};
+
+/**
+ * Signatures that cannot tell the members of a family apart (OOXML is a zip;
+ * an mp4/ogg/webm container may hold only audio): the extension picks the member.
+ */
+const FAMILY_BY_EXTENSION: Readonly<Record<string, readonly string[]>> = {
+	"application/zip": [DOCX_MIME, XLSX_MIME, PPTX_MIME],
+	"video/mp4": ["audio/mp4"],
+	"audio/ogg": ["video/ogg"],
+	"video/webm": ["audio/webm"],
+};
+
+/** A file's MIME: magic numbers first, then the extension, else application/octet-stream. */
+export function sniffMime(header: Uint8Array, filePath: string): string {
+	const byExtension = EXTENSION_MIME[path.extname(filePath).slice(1).toLowerCase()];
+	const magic = sniffMagic(header);
+	if (magic) return byExtension && FAMILY_BY_EXTENSION[magic]?.includes(byExtension) ? byExtension : magic;
+	return byExtension ?? OCTET_STREAM;
+}
+
+/** Fill `buffer` from the start of the file; fewer bytes only when the file is shorter. */
+async function readInto(handle: FileHandle, buffer: Uint8Array): Promise<number> {
+	let offset = 0;
+	while (offset < buffer.length) {
+		const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset);
+		if (bytesRead === 0) break;
+		offset += bytesRead;
+	}
+	return offset;
+}
+
+/**
+ * File viewer read: the bytes of any file with a sniffed MIME, resolved like
+ * `readWorkspaceFile`. A whole file up to `capBytes` (local 100 MB, a paired
+ * host's 11 MB); over the cap it fails `file_too_large` with the size and MIME
+ * set. An explicit `maxBytes` below the cap asks for a prefix instead (the hex
+ * view): a bigger file comes back `truncated` with that many bytes.
+ */
+export async function readWorkspaceBinary(
+	cwd: string | null,
+	payload: Omit<IpcFsReadBinaryPayload, "tabId">,
+	capBytes: number = FS_BINARY_LOCAL_MAX_BYTES,
+): Promise<IpcFsReadBinaryResult> {
+	const fail = (error: string, code?: IpcErrorCode, size = 0, mime = OCTET_STREAM): IpcFsReadBinaryResult => ({
+		ok: false,
+		data: new Uint8Array(0),
+		mime,
+		size,
+		truncated: false,
+		error,
+		...(code ? { code } : {}),
+	});
+	if (typeof payload?.path !== "string" || payload.path.length === 0) return fail("Invalid path", "invalid_path");
+	const target = resolveReadPath(cwd, payload.path);
+	if ("error" in target) return fail(target.error, target.code);
+	const prefix =
+		typeof payload.maxBytes === "number" && payload.maxBytes < capBytes
+			? clampInt(payload.maxBytes, 1, capBytes, capBytes)
+			: null;
+	try {
+		const stat = await fsp.stat(target.abs);
+		if (!stat.isFile()) return fail("Not a file", "not_a_file");
+		const handle = await fsp.open(target.abs, "r");
+		try {
+			if (prefix === null && stat.size > capBytes) {
+				const header = new Uint8Array(Math.min(stat.size, SNIFF_HEADER_BYTES));
+				const read = await readInto(handle, header);
+				const mime = sniffMime(header.subarray(0, read), target.abs);
+				return fail(`File is ${stat.size} bytes, over the ${capBytes}-byte cap`, "file_too_large", stat.size, mime);
+			}
+			const length = prefix === null ? stat.size : Math.min(stat.size, prefix);
+			const buffer = new Uint8Array(length);
+			const read = await readInto(handle, buffer);
+			// A file that shrank since the stat: hand over an exact-size copy, not a view of the larger buffer.
+			const data = read === length ? buffer : buffer.slice(0, read);
+			return {
+				ok: true,
+				data,
+				mime: sniffMime(data.subarray(0, SNIFF_HEADER_BYTES), target.abs),
+				size: stat.size,
+				truncated: stat.size > length,
+			};
+		} finally {
+			await handle.close();
+		}
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		const missing = err instanceof Error && "code" in err && err.code === "ENOENT";
+		return fail(message, missing ? "file_not_found" : undefined);
+	}
 }
 
 /**

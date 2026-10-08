@@ -15,9 +15,10 @@
  *
  * Host-level calls: session listing/search/kind/delete/rename against this
  * machine's session index, the workspace fs reads (same confinement and caps
- * as the local handlers), the folder picker listing, the default workspace and
+ * as the local handlers; the file viewer's `host.fs.readBinary` is capped to
+ * fit one link frame), the folder picker listing, the default workspace and
  * launch profiles. Session index changes are pushed as `sessions.changed`.
- * The `host.*` calls are what a device's Settings, Usage and Stats show for a
+ * The other `host.*` calls are what a device's Settings, Usage and Stats show for a
  * tab here: this machine's models.yml providers, stats server and `omp bench`
  * (machine-services.ts), one benchmark per device, aborted when it drops.
  */
@@ -40,10 +41,19 @@ import type { MachineServices } from "../machine-services";
 import type { SessionIndex } from "../session-index";
 import type { SidecarSessionIdentity } from "../sidecar";
 import type { SidecarLike, SidecarPool } from "../sidecar-pool";
-import { listDirectories, listWorkspace, readPlanFile, readWorkspaceFile, readWorkspaceImage } from "../workspace-fs";
+import {
+	FS_BINARY_REMOTE_MAX_BYTES,
+	listDirectories,
+	listWorkspace,
+	readPlanFile,
+	readWorkspaceBinary,
+	readWorkspaceFile,
+	readWorkspaceImage,
+} from "../workspace-fs";
 import {
 	BenchmarkOptionsSchema,
 	CustomProviderInputSchema,
+	encodeBinaryRead,
 	SESSIONS_CHANGED_EVENT,
 	TAB_EVENT,
 	TAB_EVENT_NAMES,
@@ -309,6 +319,15 @@ export class LocalHostServices implements HostServices {
 			case "fs.readImage": {
 				const { rtab, cwd, ...payload } = parse(FsReadImageParams, method, params);
 				return readWorkspaceImage(this.#fsRoot(peer, rtab, cwd), payload);
+			}
+			case "host.fs.readBinary": {
+				const { rtab, cwd, ...payload } = parse(FsReadParams, method, params);
+				const result = await readWorkspaceBinary(
+					this.#fsRoot(peer, rtab, cwd),
+					payload,
+					FS_BINARY_REMOTE_MAX_BYTES,
+				);
+				return encodeBinaryRead(result);
 			}
 			case "fs.readPlan": {
 				const { rtab, cwd, ...payload } = parse(FsReadPlanParams, method, params);

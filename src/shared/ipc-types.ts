@@ -190,6 +190,8 @@ export const IPC_COMMANDS = {
 	FS_READ_PLAN: "fs:read-plan",
 	/** Read an image file as a data URL for markdown <img> rendering (sniffed mime, size cap) */
 	FS_READ_IMAGE: "fs:read-image",
+	/** Read a file's bytes for the file viewer (sniffed mime, local/remote size caps) */
+	FS_READ_BINARY: "fs:read-binary",
 	/** Open a session (or a fresh window) in a new parallel window with its own sidecar */
 	SESSION_OPEN_NEW_WINDOW: "session:open-new-window",
 	/** Fresh window pulls the session it was opened for (one-shot) */
@@ -799,6 +801,34 @@ export interface IpcFsReadImageResult {
 	size: number;
 	error?: string;
 	/** Stable failure code for the renderer's localized message (shared/ipc-error-codes). */
+	code?: IpcErrorCode;
+}
+
+export interface IpcFsReadBinaryPayload {
+	/** Visible tab whose workspace resolves relative paths (and whose device serves the bytes). */
+	tabId?: string;
+	/** Workspace-relative path, or an absolute/~/ path; resolved like `fs.read`. */
+	path: string;
+	/**
+	 * Prefix length for a partial view (the hex dump). Below the cap, a bigger
+	 * file comes back `truncated` with this many bytes; omitted (or at/above
+	 * the cap), a file over the cap fails with `file_too_large`.
+	 */
+	maxBytes?: number;
+}
+
+export interface IpcFsReadBinaryResult {
+	ok: boolean;
+	/** File bytes (structured-clone Uint8Array over IPC). Empty on failure. */
+	data: Uint8Array;
+	/** Sniffed/derived MIME (magic numbers first, then extension); "application/octet-stream" when unknown. */
+	mime: string;
+	/** Total file size in bytes. */
+	size: number;
+	/** File exceeded an explicit small `maxBytes`; data is a prefix (hex view only — media/pdf/office treat it as too large). */
+	truncated: boolean;
+	error?: string;
+	/** Stable failure code for the renderer's localized message (shared/ipc-error-codes); `file_too_large` over the cap. */
 	code?: IpcErrorCode;
 }
 
@@ -1522,6 +1552,8 @@ export interface OmpApi {
 		read(path: string, maxBytes?: number, tabId?: string): Promise<IpcFsReadResult>;
 		readPlan(payload: IpcFsReadPlanPayload): Promise<IpcFsReadPlanResult>;
 		readImage(path: string, tabId?: string): Promise<IpcFsReadImageResult>;
+		/** File bytes for the viewer: 100 MB cap on this device, 11 MB for a paired host's tab. */
+		readBinary(path: string, maxBytes?: number, tabId?: string): Promise<IpcFsReadBinaryResult>;
 	};
 	editor: {
 		openExternal(content: string): Promise<{

@@ -1,6 +1,6 @@
 {
   "name": "ompdesk",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "author": "SeuPut <228744781+SeuPut0705@users.noreply.github.com>",
   "private": true,
   "type": "module",
@@ -52,6 +52,7 @@
     "mermaid": "^11.0.0",
     "micromark-factory-space": "2.0.1",
     "micromark-util-character": "2.1.1",
+    "pdfjs-dist": "^6.4.299",
     "react": "^19.0.0",
     "react-chartjs-2": "^5.3.0",
     "react-dom": "^19.0.0",

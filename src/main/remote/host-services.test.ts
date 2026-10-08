@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,7 +15,8 @@ import type { RpcCommand, RpcResponse, SidecarStatus } from "../../shared/rpc-ty
 import { canonicalCwd } from "../canonical-cwd";
 import type { MachineServices } from "../machine-services";
 import type { SidecarLike } from "../sidecar-pool";
-import type { TabEventMessage } from "./app-protocol";
+import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
+import { decodeBinaryRead, type TabEventMessage } from "./app-protocol";
 import type { HostConnection } from "./host-server";
 import { type HostServicesDeps, LocalHostServices } from "./host-services";
 import type { PeerInfo } from "./peers-store";
@@ -546,5 +547,73 @@ describe("LocalHostServices host.* calls", () => {
 		expect(machine.abortBenchmark).toHaveBeenLastCalledWith("peer:device-y");
 		services.dropPeer("device-x");
 		expect(machine.abortBenchmark).toHaveBeenLastCalledWith("peer:device-x");
+	});
+
+	it("serves a tab's file bytes to its own device only, as base64 that decodes to the same bytes", async () => {
+		const { services } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		const project = join(workDir, "project");
+		mkdirSync(project);
+		const bytes = new Uint8Array(70_000);
+		for (let index = 0; index < bytes.length; index++) bytes[index] = (index * 31 + 7) % 256;
+		bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+		writeFileSync(join(project, "pic.png"), bytes);
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: project, fresh: true }, x);
+
+		const reply = await services.call(x.peer, "host.fs.readBinary", { rtab: "t1", path: "pic.png" }, x);
+		// The link carries JSON; decode what actually crosses it.
+		const decoded = decodeBinaryRead(JSON.parse(JSON.stringify(reply)));
+		expect(decoded).toMatchObject({ ok: true, mime: "image/png", size: bytes.length, truncated: false });
+		expect(decoded.data).toBeInstanceOf(Uint8Array);
+		expect(decoded.data).toEqual(bytes);
+		expect(decoded.data.buffer.byteLength).toBe(bytes.length);
+
+		// Y names X's rtab: not Y's tab, so there is no workspace to read from.
+		const foreign = decodeBinaryRead(
+			await services.call(y.peer, "host.fs.readBinary", { rtab: "t1", path: "pic.png" }, y),
+		);
+		expect(foreign).toMatchObject({ ok: false, code: "no_workspace" });
+		expect(foreign.data).toHaveLength(0);
+		// Confinement still applies on the host.
+		await expect(
+			services.call(x.peer, "host.fs.readBinary", { rtab: "t1", path: "../outside.bin" }, x),
+		).resolves.toMatchObject({ ok: false, code: "path_escapes_workspace" });
+		await expect(services.call(x.peer, "host.fs.readBinary", { rtab: "t1" }, x)).rejects.toThrow(
+			/Invalid host.fs.readBinary/,
+		);
+	});
+
+	it("caps a remote binary read to fit one link frame", async () => {
+		const { services } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const size = FS_BINARY_REMOTE_MAX_BYTES + 1;
+		writeFileSync(join(workDir, "movie.mp4"), new Uint8Array(size));
+
+		const params = { cwd: workDir, path: "movie.mp4" };
+		const tooLarge = decodeBinaryRead(await services.call(x.peer, "host.fs.readBinary", params, x));
+		expect(tooLarge).toMatchObject({ ok: false, code: "file_too_large", size, mime: "video/mp4" });
+		expect(tooLarge.data).toHaveLength(0);
+		// A bigger maxBytes cannot lift the host's cap.
+		const asked = { ...params, maxBytes: 100 * 1024 * 1024 };
+		await expect(services.call(x.peer, "host.fs.readBinary", asked, x)).resolves.toMatchObject({
+			ok: false,
+			code: "file_too_large",
+		});
+		// The hex view's prefix still works.
+		const prefix = decodeBinaryRead(
+			await services.call(x.peer, "host.fs.readBinary", { ...params, maxBytes: 4096 }, x),
+		);
+		expect(prefix).toMatchObject({ ok: true, truncated: true, size });
+		expect(prefix.data).toEqual(new Uint8Array(4096));
+	});
+
+	it("refuses a malformed readBinary reply on the device side", () => {
+		const good = { ok: true, data: "AAEC", mime: "application/octet-stream", size: 3, truncated: false };
+		expect(decodeBinaryRead(good).data).toEqual(new Uint8Array([0, 1, 2]));
+		expect(decodeBinaryRead({ ...good, ok: false, data: "", code: "from_a_newer_host" })).not.toHaveProperty("code");
+		for (const bad of [{ ...good, data: "AA=C" }, { ...good, data: "AAE" }, { ...good, size: -1 }, null]) {
+			expect(() => decodeBinaryRead(bad)).toThrow(/\[remote_protocol\]/);
+		}
 	});
 });

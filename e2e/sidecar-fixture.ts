@@ -2,6 +2,7 @@
 /// <reference types="bun" />
 import * as fs from "node:fs";
 import * as net from "node:net";
+import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
 import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from "../src/shared/rpc-types";
 
@@ -131,7 +132,30 @@ if (process.argv[2] === "stats") {
 		timestamp: string;
 		[key: string]: unknown;
 	}
+	const sessionId = `fixture-${process.pid}`;
 	const entries: Entry[] = [];
+	/**
+	 * `OMP_GUI_TEST_SESSION_FILES=1`: the journal is also a stock session file
+	 * (title slot, header, entries) under `$PI_CODING_AGENT_DIR/sessions/`,
+	 * created with the first entry and reported by get_state, so the GUI's
+	 * session index lists it the way it lists real omp sessions.
+	 */
+	const sessionFile =
+		process.env.OMP_GUI_TEST_SESSION_FILES === "1" && process.env.PI_CODING_AGENT_DIR
+			? nodePath.join(process.env.PI_CODING_AGENT_DIR, "sessions", "fixture", `${sessionId}.jsonl`)
+			: undefined;
+	const sessionCreated = new Date().toISOString();
+	let sessionTitle = "";
+	const persistSession = () => {
+		if (!sessionFile || entries.length === 0) return;
+		const lines = [
+			{ type: "title", v: 1, title: sessionTitle, updatedAt: new Date().toISOString() },
+			{ type: "session", version: 3, id: sessionId, timestamp: sessionCreated, cwd: process.cwd() },
+			...entries,
+		];
+		fs.mkdirSync(nodePath.dirname(sessionFile), { recursive: true });
+		fs.writeFileSync(sessionFile, `${lines.map(line => JSON.stringify(line)).join("\n")}\n`);
+	};
 	const append = (fields: { type: string; [key: string]: unknown }, time: number | string) => {
 		entries.push({
 			...fields,
@@ -139,6 +163,7 @@ if (process.argv[2] === "stats") {
 			parentId: entries.at(-1)?.id ?? null,
 			timestamp: new Date(time).toISOString(),
 		});
+		persistSession();
 	};
 	const appendMessage = (message: AgentMessage) =>
 		append({ type: "message", message }, message.timestamp ?? Date.now());
@@ -215,7 +240,6 @@ if (process.argv[2] === "stats") {
 	let planModeEnabled = false;
 	/** Stock `/btw` history, newest first. */
 	const btwRecords: object[] = [];
-	const sessionId = `fixture-${process.pid}`;
 	// Stock `get_state`: cwd, plan mode and the pause gate come from the bridge's `composer.state`.
 	const state = () => ({
 		model,
@@ -226,6 +250,7 @@ if (process.argv[2] === "stats") {
 		followUpMode: "all",
 		interruptMode: "immediate",
 		sessionId,
+		...(sessionFile ? { sessionFile } : {}),
 		sessionName: "Audit session",
 		autoCompactionEnabled: true,
 		queuedMessageCount: lanes.steering.length + lanes.followUp.length,
@@ -316,6 +341,20 @@ if (process.argv[2] === "stats") {
 		isStreaming = false;
 		write({ type: "agent_end", messages });
 	};
+	/** Stock's `subagent_lifecycle` frame for one roster subagent (any subscription level but `off`). */
+	const writeLifecycle = (agent: SubagentSnapshot, status: "started" | "completed") =>
+		write({
+			type: "subagent_lifecycle",
+			payload: {
+				id: agent.id,
+				agent: agent.agent,
+				agentSource: "bundled",
+				description: agent.description,
+				status,
+				parentSubagentId: agent.parentSubagentId,
+				index: agent.index,
+			},
+		});
 
 	// The gui-bridge extension's end of `OMP_GUI_BRIDGE`: `{id, method, params}` in,
 	// `{id, ok, result|error}` and pushed `{event}` out (resources/gui-bridge/index.ts).
@@ -773,7 +812,17 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		} else if (message !== "fixture running") {
 			const answer: AgentMessage = {
 				role: "assistant",
-				content: [{ type: "text", text: message === "fixture math" ? MATH_REPLY : "Local fixture reply" }],
+				content: [
+					{
+						type: "text",
+						text:
+							message === "fixture math"
+								? MATH_REPLY
+								: message === "fixture image"
+									? "Here is the chart:\n\n![chart](pixel.png)"
+									: "Local fixture reply",
+					},
+				],
 				timestamp: Date.now(),
 				provider: model.provider,
 				model: model.id,
@@ -981,7 +1030,9 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				// Session title (stock's session_info_update): main carries it to the
 				// tab's sidebar row and its notifications, background tabs included.
 				if (line.startsWith("fixture:title:")) {
-					write({ type: "session_info_update", title: line.slice("fixture:title:".length) });
+					sessionTitle = line.slice("fixture:title:".length);
+					persistSession();
+					write({ type: "session_info_update", title: sessionTitle });
 					ok();
 					break;
 				}
@@ -993,6 +1044,17 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						method: "confirm",
 						title: "Deploy to staging?",
 						message: "The agent wants to run the staging deploy script.",
+					});
+					ok();
+					break;
+				}
+				// omp withdraws that confirm unanswered (dialog timeout, abort).
+				if (line === "fixture:confirm:cancel") {
+					write({
+						type: "extension_ui_request",
+						id: `cancel-${Date.now()}`,
+						method: "cancel",
+						targetId: "fixture-confirm",
 					});
 					ok();
 					break;
@@ -1044,7 +1106,8 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					ok();
 					break;
 				}
-				// A subagent roster for the sidebar rows and the dock line.
+				// A subagent roster for the sidebar rows and the dock line; the live ones
+				// announce their start the way stock does.
 				if (line === "fixture:subagents") {
 					const now = Date.now();
 					subagentRoster = [
@@ -1076,6 +1139,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 							lastUpdate: now,
 						},
 					];
+					for (const agent of subagentRoster) if (agent.live) writeLifecycle(agent, "started");
 					ok();
 					break;
 				}
@@ -1090,18 +1154,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					agent.status = "completed";
 					agent.live = false;
 					agent.lastUpdate = Date.now();
-					write({
-						type: "subagent_lifecycle",
-						payload: {
-							id,
-							agent: agent.agent,
-							agentSource: "bundled",
-							description: agent.description,
-							status: "completed",
-							parentSubagentId: agent.parentSubagentId,
-							index: agent.index,
-						},
-					});
+					writeLifecycle(agent, "completed");
 					ok();
 					break;
 				}

@@ -22,6 +22,8 @@ const MAX_WIDTH = 840;
 /** Docked default range (design-spec §8: 360–460px); dragging may widen it for diffs. */
 const DEFAULT_MAX_WIDTH = 460;
 const PANEL_WIDTH_PREF = "gui.panelWidth";
+/** Share of the window an expanded file viewer takes (never narrower than the dragged width). */
+const EXPANDED_VIEWPORT_SHARE = 0.55;
 
 function defaultPanelWidth(): number {
 	const viewportWidth = Number.isFinite(window.innerWidth) && window.innerWidth > 0 ? window.innerWidth : 1440;
@@ -94,6 +96,9 @@ export function PanelContainer() {
 	const compact = useMediaQuery(COMPACT_SHELL_QUERY);
 
 	const [width, setWidth] = useState(defaultPanelWidth);
+	const viewerExpanded = useUiStore(
+		s => s.filePreviewExpanded && s.filePreviewPath !== null && s.panelTab === "files",
+	);
 	const [widthHydrated, setWidthHydrated] = useState(false);
 	const dragging = useRef(false);
 
@@ -142,6 +147,8 @@ export function PanelContainer() {
 
 	const startDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
 		dragging.current = true;
+		// A manual drag takes over from the viewer's Expand: the drag width rules again.
+		if (useUiStore.getState().filePreviewExpanded) useUiStore.setState({ filePreviewExpanded: false });
 		e.currentTarget.setPointerCapture(e.pointerId);
 	}, []);
 
@@ -187,7 +194,15 @@ export function PanelContainer() {
 				!routeReady && "pointer-events-none",
 			)}
 			data-docked={split ? "floating" : "docked"}
-			style={{ width }}
+			data-expanded={viewerExpanded || undefined}
+			style={{
+				width: viewerExpanded
+					? Math.max(
+							width,
+							Math.min(window.innerWidth - 56, Math.round(window.innerWidth * EXPANDED_VIEWPORT_SHARE)),
+						)
+					: width,
+			}}
 		>
 			<div className="omp-panel-topbar drag-region flex h-12 shrink-0 items-center gap-2 pr-2 pl-4">
 				<h2 className="min-w-0 flex-1 truncate text-sc-md font-semibold text-(--sc-text)">{t("panel.title")}</h2>
