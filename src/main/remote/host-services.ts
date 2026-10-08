@@ -17,11 +17,15 @@
  * machine's session index, the workspace fs reads (same confinement and caps
  * as the local handlers), the folder picker listing, the default workspace and
  * launch profiles. Session index changes are pushed as `sessions.changed`.
+ * The `host.*` calls are what a device's Settings, Usage and Stats show for a
+ * tab here: this machine's models.yml providers, stats server and `omp bench`
+ * (machine-services.ts), one benchmark per device, aborted when it drops.
  */
 import { promises as fsp } from "node:fs";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import { codedError } from "../../shared/ipc-error-codes";
+import { MAX_RPC_COMMAND_TIMEOUT_MS } from "../../shared/rpc-client";
 import type {
 	AgentSessionEvent,
 	PromptResultFrame,
@@ -32,11 +36,14 @@ import type {
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
+import type { MachineServices } from "../machine-services";
 import type { SessionIndex } from "../session-index";
 import type { SidecarSessionIdentity } from "../sidecar";
 import type { SidecarLike, SidecarPool } from "../sidecar-pool";
 import { listDirectories, listWorkspace, readPlanFile, readWorkspaceFile, readWorkspaceImage } from "../workspace-fs";
 import {
+	BenchmarkOptionsSchema,
+	CustomProviderInputSchema,
 	SESSIONS_CHANGED_EVENT,
 	TAB_EVENT,
 	TAB_EVENT_NAMES,
@@ -53,8 +60,6 @@ import type { PeerInfo } from "./peers-store";
 export const HOST_TAB_GRACE_MS = 10 * 60_000;
 /** Session-index changes come in bursts while an agent writes; one push per burst. */
 const SESSIONS_CHANGED_DEBOUNCE_MS = 300;
-/** Upper bound a device may ask a single command to wait (voice/model loads run long). */
-const MAX_COMMAND_TIMEOUT_MS = 10 * 60_000;
 
 export interface HostServicesDeps {
 	/** This machine's sidecar factory — the one the local pool uses. */
@@ -65,6 +70,8 @@ export interface HostServicesDeps {
 	/** The GUI-owned Work workspace, created on demand. */
 	defaultWorkspace: () => string;
 	launchProfiles: LaunchProfilePrefs;
+	/** This machine's models.yml, stats server and `omp bench`. */
+	machine: MachineServices;
 	/**
 	 * This machine's own tabs (the local pool): a session file one of them
 	 * holds is changed through that tab, and a credential change reaches them.
@@ -160,7 +167,9 @@ const AdoptCwdParams = z.object({ rtab: Rtab, cwd: AbsolutePath });
 const CommandParams = z.object({
 	rtab: Rtab,
 	command: z.object({ type: z.string().min(1) }).passthrough(),
-	timeoutMs: z.number().int().positive().max(MAX_COMMAND_TIMEOUT_MS).optional(),
+	// Up to the longest window the GUI itself gives a command (a login waits on
+	// the browser, a bash or a PR checkout runs long): every command a device sends fits.
+	timeoutMs: z.number().int().positive().max(MAX_RPC_COMMAND_TIMEOUT_MS).optional(),
 });
 const SideChannelParams = z.object({ rtab: Rtab, frame: z.object({}).passthrough() });
 const SessionsListParams = z.object({ scope: Scope, cwd: AbsolutePath.optional() });
@@ -181,6 +190,10 @@ const FsReadPlanParams = z.object({ ...FsRoot, fsPath: z.string(), localRoot: z.
 const ListDirsParams = z.object({ path: z.string().optional() });
 const LaunchProfileGetParams = z.object({ cwd: AbsolutePath });
 const LaunchProfileUpdateParams = z.object({ cwd: AbsolutePath, patch: z.record(z.unknown()) });
+const ModelsUpsertParams = z.object({ input: CustomProviderInputSchema });
+const ModelsDeleteParams = z.object({ id: z.string().min(1) });
+const StatsFetchParams = z.object({ path: z.string().min(1).max(512), params: z.record(z.string()).optional() });
+const BenchRunParams = z.object({ ...FsRoot, options: BenchmarkOptionsSchema });
 
 function parse<T extends z.ZodTypeAny>(schema: T, method: string, params: unknown): z.infer<T> {
 	const parsed = schema.safeParse(params ?? {});
@@ -311,6 +324,25 @@ export class LocalHostServices implements HostServices {
 				const { cwd, patch } = parse(LaunchProfileUpdateParams, method, params);
 				return updateLaunchProfile(this.#deps.launchProfiles, cwd, patch);
 			}
+			case "host.models.list":
+				return this.#deps.machine.listProviders();
+			case "host.models.upsert":
+				await this.#deps.machine.upsertProvider(parse(ModelsUpsertParams, method, params).input);
+				return null;
+			case "host.models.delete":
+				await this.#deps.machine.deleteProvider(parse(ModelsDeleteParams, method, params).id);
+				return null;
+			case "host.stats.fetch": {
+				const { path, params: query } = parse(StatsFetchParams, method, params);
+				return this.#deps.machine.fetchStats(path, query);
+			}
+			case "host.bench.run": {
+				const { rtab, cwd, options } = parse(BenchRunParams, method, params);
+				const root = this.#fsRoot(peer, rtab, cwd) ?? this.#deps.defaultWorkspace();
+				return this.#deps.machine.runBenchmark(benchCaller(peer.deviceId), options, root);
+			}
+			case "host.bench.abort":
+				return this.#deps.machine.abortBenchmark(benchCaller(peer.deviceId));
 			default:
 				throw codedError("unsupported", `Unknown method ${method}`);
 		}
@@ -318,6 +350,8 @@ export class LocalHostServices implements HostServices {
 
 	disconnected(peer: PeerInfo, conn: HostConnection): void {
 		this.#conns.delete(conn);
+		// Nobody is left to read the result.
+		void this.#deps.machine.abortBenchmark(benchCaller(peer.deviceId));
 		for (const [key, tab] of this.#tabs) {
 			if (tab.peerId !== peer.deviceId || tab.conn !== conn) continue;
 			tab.conn = null;
@@ -341,8 +375,9 @@ export class LocalHostServices implements HostServices {
 		for (const tab of this.#tabs.values()) tab.sidecar.syncReplyLanguage();
 	}
 
-	/** A revoked device's tabs stop now, grace or not. */
+	/** A revoked device's tabs and benchmark stop now, grace or not. */
 	dropPeer(deviceId: string): void {
+		void this.#deps.machine.abortBenchmark(benchCaller(deviceId));
 		for (const [key, tab] of this.#tabs) if (tab.peerId === deviceId) this.#closeTab(key);
 	}
 
@@ -576,6 +611,11 @@ export class LocalHostServices implements HostServices {
 
 function isBusy(run: HostTabRun): boolean {
 	return run.running || run.compacting;
+}
+
+/** The benchmark slot of a paired device on this machine (windows here use `window:<id>`). */
+function benchCaller(deviceId: string): string {
+	return `peer:${deviceId}`;
 }
 
 /**

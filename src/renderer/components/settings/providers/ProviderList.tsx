@@ -13,6 +13,7 @@ import type { ProviderInfo, ProvidersResult } from "../../../../shared/rpc-types
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { useModelStore } from "../../../stores/model";
+import { useFocusedTabDevice } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
 import { Badge, Button, EmptyState, IconButton, ListRow, SearchField, Spinner } from "../../common";
 import { type ProviderLogin, ProviderLoginPanel } from "./ProviderLogin";
@@ -47,6 +48,8 @@ export function useProviderCatalog({
 	pollMs?: number;
 } = {}): ProviderCatalog {
 	const tabRpc = useTabRpc();
+	// models.yml lives with the focused tab's omp: a paired host's own file.
+	const device = useFocusedTabDevice();
 	const t = useT();
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
 	const providers = useModelStore(state => state.providers);
@@ -70,7 +73,7 @@ export function useProviderCatalog({
 			try {
 				const [providerResult, configsResult] = await Promise.allSettled([
 					refreshProviders(forceRefresh),
-					window.omp.models.listProviders(),
+					window.omp.models.listProviders(device),
 				]);
 				if (version !== requestVersion.current) return undefined;
 				if (configsResult.status === "fulfilled") {
@@ -89,7 +92,7 @@ export function useProviderCatalog({
 				if (version === requestVersion.current) setLoading(false);
 			}
 		},
-		[refreshProviders, sidecarReady, t],
+		[device, refreshProviders, sidecarReady, t],
 	);
 
 	// A read can be superseded by a tab switch; the store guard replaces the

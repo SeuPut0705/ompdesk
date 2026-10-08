@@ -79,6 +79,23 @@ export function focusedTabDevice(): string | undefined {
 	return useTabsStore.getState().tabs.find(tab => tab.id === tabId)?.device;
 }
 
+/** The paired host the focused tab runs on, as Settings/Usage/Stats scope to it. */
+export interface FocusedHost {
+	deviceId: string;
+	/** Undefined while the remote state is loading or after the host was removed. */
+	name: string | undefined;
+	/** Only an online host's data is shown; anything else is offline, never stale or local. */
+	online: boolean;
+}
+
+/** The focused tab's paired host; undefined when the focused tab runs on this device. */
+export function useFocusedHost(): FocusedHost | undefined {
+	const deviceId = useFocusedTabDevice();
+	const host = useHostView(deviceId);
+	if (deviceId === undefined) return undefined;
+	return { deviceId, name: host?.name, online: host?.state === "online" };
+}
+
 interface RemotePickerRequest {
 	deviceId: string;
 	resolve: (path: string | undefined) => void;

@@ -3,7 +3,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CustomProviderView } from "../../../../shared/ipc-types";
+import type { CustomProviderView, RemoteState } from "../../../../shared/ipc-types";
 import type {
 	ModelCatalogUpdateFrame,
 	ProviderAccount,
@@ -15,7 +15,10 @@ import { formatClock } from "../../../lib/format";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useModelStore } from "../../../stores/model";
+import { useRemoteStore } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
+import { setFocusedSessionRuntime } from "../../../stores/session-runtime-context";
+import { useTabsStore } from "../../../stores/tabs";
 import { useToastStore } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { ProviderRow } from "./ProviderList";
@@ -78,13 +81,14 @@ const getProviderAccounts = vi.fn(
 );
 const listProviders = vi.fn(async (): Promise<CustomProviderView[]> => []);
 const respondExtensionUi = vi.fn();
+const openExternal = vi.fn(async () => {});
 
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
 		rpc: { getProviders, logout, disconnectProvider, login, getProviderAccounts },
 		models: { listProviders },
 		ui: { respondExtensionUi },
-		system: { openExternal: vi.fn(async () => {}) },
+		system: { openExternal },
 	},
 });
 
@@ -127,6 +131,33 @@ async function mount(element: ReactElement): Promise<void> {
 	roots.push(root);
 }
 
+const HOST_ID = "host-studio";
+
+/** One focused tab on the paired host "Studio" (or, with `undefined`, on this device). */
+function focusTab(device: string | undefined): void {
+	const remote: RemoteState = {
+		host: {
+			enabled: false,
+			name: "laptop",
+			port: null,
+			addresses: [],
+			code: null,
+			expiresAt: null,
+			peers: [],
+			keepAwake: true,
+			keepingAwake: false,
+			usedBy: [],
+		},
+		hosts: [{ deviceId: HOST_ID, name: "Studio", state: "online" }],
+	};
+	useRemoteStore.getState().apply(remote);
+	useTabsStore.setState({
+		tabs: [{ id: "t1", cwd: "/Users/kim/app", status: "ready", kind: "agent", unreadDone: false, device }],
+		activeTabId: "t1",
+	});
+	setFocusedSessionRuntime("t1");
+}
+
 afterEach(async () => {
 	for (const root of roots) {
 		await act(async () => root.unmount());
@@ -139,6 +170,10 @@ afterEach(async () => {
 	useExtensionUiStore.getState().clearAll();
 	useExtensionUiStore.getState().setInlineLogin(false);
 	useToastStore.setState({ toasts: [] });
+	useTabsStore.getState().reset();
+	useRemoteStore.getState().reset();
+	setFocusedSessionRuntime(null);
+	openExternal.mockClear();
 	getProviders.mockReset();
 	getProviders.mockResolvedValue(providersResponse(snapshot([row("anthropic")])));
 	listProviders.mockReset();
@@ -370,6 +405,8 @@ describe("ProvidersSection", () => {
 		// The URL is shown inline and acknowledged so the prompt is not queued behind it.
 		expect(respondExtensionUi).toHaveBeenCalledWith({ type: "extension_ui_response", id: "url-1", value: "done" });
 		expect(text()).toContain("Create or copy your API key from the DeepSeek dashboard");
+		// No callback server (no launchUrl): the link is a page to copy the key from.
+		expect(button(translate("providerList.login.openKeyPage"))).toBeDefined();
 		const field = document.querySelector('input[type="password"]');
 		expect(field).toBeTruthy();
 		await typeInto(field, "sk-test");
@@ -407,6 +444,72 @@ describe("ProvidersSection", () => {
 		expect(text()).toContain(translate("providerList.login.failed", { provider: "DeepSeek" }));
 		expect(text()).toContain("Invalid API key");
 		expect(button(translate("providerList.login.retry"))).toBeDefined();
+	});
+
+	it("offers 'Edit config' only for this device's models.yml, and reads the host's file on a remote tab", async () => {
+		useSessionStore.setState({ status: "ready" });
+		focusTab(undefined);
+		await mount(<ProvidersSection />);
+		expect(button(translate("providers.editConfig"))).toBeDefined();
+		expect(listProviders).toHaveBeenLastCalledWith(undefined);
+		await act(async () => roots.pop()?.unmount());
+
+		focusTab(HOST_ID);
+		await mount(<ProvidersSection />);
+		expect(button(translate("providers.editConfig"))).toBeUndefined();
+		expect(button(translate("providerList.addCustom"))).toBeDefined();
+		expect(listProviders).toHaveBeenLastCalledWith(HOST_ID);
+	});
+
+	describe("browser sign-in", () => {
+		const openUrl = {
+			type: "extension_ui_request",
+			id: "url-1",
+			method: "open_url",
+			url: "https://claude.ai/oauth/authorize?state=xyz",
+			launchUrl: "http://localhost:54545/launch",
+		} as const;
+
+		async function startSignIn(device: string | undefined): Promise<void> {
+			login.mockReturnValueOnce(Promise.withResolvers<RpcResponse>().promise);
+			getProviders.mockResolvedValue(
+				providersResponse(
+					snapshot([row("anthropic", { name: "Anthropic", authenticated: false, loginAvailable: true })]),
+				),
+			);
+			useSessionStore.setState({ status: "ready" });
+			focusTab(device);
+			await mount(<ProvidersSection />);
+			await act(async () => button(translate("providerList.connect"))?.click());
+			await act(async () => {
+				useExtensionUiStore.getState().pushRequest(openUrl);
+				useExtensionUiStore.getState().pushRequest({
+					type: "extension_ui_request",
+					id: "code-1",
+					method: "input",
+					title: "Paste the authorization code (or full redirect URL):",
+				});
+			});
+			await act(async () => button(translate("providerList.login.openBrowser"))?.click());
+		}
+
+		it("on a remote tab opens the provider's URL, not the host's launch page, and asks for the redirect", async () => {
+			await startSignIn(HOST_ID);
+			expect(openExternal).toHaveBeenCalledWith(openUrl.url);
+			expect(openExternal).not.toHaveBeenCalledWith(openUrl.launchUrl);
+			expect(document.querySelector("[data-remote-login-hint]")?.textContent).toBe(
+				translate("providerList.login.remoteHint", { name: "Studio" }),
+			);
+			expect(document.querySelector('input[type="password"]')).toBeTruthy();
+		});
+
+		it("on a local tab opens the launch page and shows no paste hint", async () => {
+			await startSignIn(undefined);
+			expect(openExternal).toHaveBeenCalledWith(openUrl.launchUrl);
+			expect(document.querySelector("[data-remote-login-hint]")).toBeNull();
+			// The code prompt beside an OAuth callback does not turn the browser sign-in into a key page.
+			expect(button(translate("providerList.login.openKeyPage"))).toBeUndefined();
+		});
 	});
 });
 

@@ -1,4 +1,8 @@
-/** Settings › General: language, conversation language, notifications, side panel default, messages sent mid-turn, and long-session compaction. */
+/**
+ * Settings › General: language, conversation language, notifications, side
+ * panel default (this device's app preferences), then messages sent mid-turn
+ * and long-session compaction (the focused tab's agent — a paired host's own).
+ */
 
 import { useId } from "react";
 import { isUiLanguage, UI_LANGUAGE_NAMES, UI_LANGUAGES } from "../../../shared/ui-language";
@@ -6,6 +10,7 @@ import { saveGuiPreference } from "../../lib/display-preferences";
 import { useLang, useT } from "../../lib/i18n";
 import { type PanelTab, useUiStore } from "../../stores/ui";
 import { Select } from "../common";
+import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
 import { ReplyLanguageRow } from "./ReplyLanguageRow";
 import { SchemaSection } from "./SchemaField";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
@@ -23,7 +28,7 @@ export function GeneralSection() {
 	const panelId = useId();
 	return (
 		<>
-			<SettingsSection title={t("settings.general.app")}>
+			<SettingsSection actions={<ThisDeviceTag />} title={t("settings.general.app")}>
 				<SettingsRow
 					control={
 						<Select
@@ -68,16 +73,18 @@ export function GeneralSection() {
 					label={t("settings.gui.panelDefault")}
 				/>
 			</SettingsSection>
-			<SchemaSection
-				description={t("settings.general.messagesDesc")}
-				paths={MESSAGE_PATHS}
-				title={t("settings.general.messages")}
-			/>
-			<SchemaSection
-				description={t("settings.general.contextDesc")}
-				paths={CONTEXT_PATHS}
-				title={t("settings.general.context")}
-			/>
+			<HostScoped>
+				<SchemaSection
+					description={t("settings.general.messagesDesc")}
+					paths={MESSAGE_PATHS}
+					title={t("settings.general.messages")}
+				/>
+				<SchemaSection
+					description={t("settings.general.contextDesc")}
+					paths={CONTEXT_PATHS}
+					title={t("settings.general.context")}
+				/>
+			</HostScoped>
 		</>
 	);
 }

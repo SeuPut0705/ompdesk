@@ -1,10 +1,11 @@
 /**
  * Insights › Stats › All sessions: the global omp stats across every project
- * and session on this machine (the stats HTTP API through the stats:fetch
- * IPC bridge). Left sub-nav for the ten sections, a range switch and a sync
- * action above the active section. A quiet sync runs on mount; when the
- * bundled stats server is down for good the page shows one calm state with a
- * retry instead of ten failing sections.
+ * and session on the focused tab's machine — this one, or the paired host the
+ * tab runs on (the stats HTTP API through the stats:fetch IPC bridge). Left
+ * sub-nav for the ten sections, a range switch and a sync action above the
+ * active section. A quiet sync runs on mount; when the stats server is down
+ * for good the page shows one calm state with a retry instead of ten failing
+ * sections.
  */
 
 import { BarChart3, RefreshCw } from "lucide-react";
@@ -12,6 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { runStatsSync } from "../../lib/stats-sync";
+import { useFocusedTabDevice } from "../../stores/remote";
 import { toast, toastError } from "../../stores/toast";
 import { Button, EmptyState, Tabs } from "../common";
 import { CostsRoute } from "./CostsRoute";
@@ -43,6 +45,7 @@ type RouteId = (typeof ROUTES)[number]["id"];
 
 export function AllSessionsStats() {
 	const t = useT();
+	const device = useFocusedTabDevice();
 	const [route, setRoute] = useState<RouteId>("overview");
 	const [range, setRange] = useState<StatsRange>("24h");
 	const [refreshKey, setRefreshKey] = useState(0);
@@ -53,7 +56,7 @@ export function AllSessionsStats() {
 		async (opts?: { quiet?: boolean }) => {
 			setSyncing(true);
 			try {
-				const outcome = await runStatsSync(path => window.omp.stats.fetch(path));
+				const outcome = await runStatsSync(path => window.omp.stats.fetch(path, undefined, device));
 				if (outcome.kind === "stopped") {
 					// The page itself says so; a toast would repeat it in raw form.
 					setStopped(true);
@@ -95,7 +98,7 @@ export function AllSessionsStats() {
 				setSyncing(false);
 			}
 		},
-		[t],
+		[device, t],
 	);
 
 	// Quiet auto-sync once per mount (no toast spam).

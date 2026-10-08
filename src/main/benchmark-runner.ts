@@ -5,7 +5,7 @@ import type { IpcBenchmarkRunOptions, IpcBenchmarkRunResult, IpcBenchmarkSummary
 import { ompNeedsShell, ompPathEnv, ompSpawnArgs, ompSpawnCommand } from "./omp-runtime";
 
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
-const BENCHMARK_TIMEOUT_MS = 15 * 60 * 1000;
+export const BENCHMARK_TIMEOUT_MS = 15 * 60 * 1000;
 
 function boundedInteger(name: string, value: number, min: number, max: number): number {
 	if (!Number.isSafeInteger(value) || value < min || value > max) {

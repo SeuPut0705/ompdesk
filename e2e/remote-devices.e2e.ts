@@ -20,7 +20,7 @@ interface Instance {
 	errors: string[];
 }
 
-async function launch(profile: string, name: string, discoveryPort: number): Promise<Instance> {
+async function launch(profile: string, name: string, discoveryPort: number, customProvider: string): Promise<Instance> {
 	const root = path.join(profile, name);
 	const project = path.join(root, "project");
 	const desktop = path.join(root, "desktop");
@@ -28,6 +28,11 @@ async function launch(profile: string, name: string, discoveryPort: number): Pro
 	await fs.mkdir(root);
 	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
 	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
+	// This machine's own models.yml entry: Settings › Models lists the one of the focused tab's machine.
+	await fs.writeFile(
+		path.join(agent, "models.yml"),
+		`providers:\n  ${customProvider}:\n    baseUrl: http://127.0.0.1:9/v1\n    api: openai-completions\n    models:\n      - id: ${customProvider}-model\n`,
+	);
 	const record = path.join(root, "record.jsonl");
 	const env = {
 		...process.env,
@@ -38,6 +43,7 @@ async function launch(profile: string, name: string, discoveryPort: number): Pro
 		OMP_GUI_OMP: await fixtureOmp(root),
 		OMP_GUI_TEST_RECORD: record,
 		OMP_GUI_REMOTE_PORT: "0",
+		OMP_GUI_TEST_LOGIN: "1",
 		OMP_GUI_REMOTE_DISCOVERY_PORT: String(discoveryPort),
 	};
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
@@ -76,12 +82,13 @@ test("pairs two devices, runs a prompt on the host, and shows the link drop", as
 	let host: Instance | null = null;
 	let client: Instance | null = null;
 	try {
-		host = await launch(profile, "b", discoveryBase);
-		client = await launch(profile, "a", discoveryBase + 1);
+		host = await launch(profile, "b", discoveryBase, "host-b-provider");
+		client = await launch(profile, "a", discoveryBase + 1, "host-a-provider");
 		const b = host.page;
 		const a = client.page;
 
 		// ── B: let other devices use this computer, read its port and code ──
+		await b.evaluate(() => window.omp.remote.setDeviceName("Host B"));
 		await openRemoteSettings(b);
 		await b.getByRole("switch", { name: "Let other devices use this computer" }).click();
 		const codeRow = b.locator("[data-remote-section] [data-remote-code]");
@@ -165,6 +172,79 @@ test("pairs two devices, runs a prompt on the host, and shows the link drop", as
 		await expect.poll(async () => (await recorded(host?.record ?? "")).some(isPrompt)).toBe(true);
 		expect((await recorded(client.record)).some(isPrompt)).toBe(false);
 
+		// ── Settings follow the focused tab: B's machine settings, A's app settings ──
+		const tabs = await a.evaluate(() => window.omp.tabs.list());
+		const localTab = tabs.find(tab => tab.device === undefined);
+		if (!localTab || !remoteTab) throw new Error("expected a local and a remote tab");
+		// The local tab's sidebar row is under This device; the remote tab's is under B's section.
+		const rows = {
+			[localTab.tabId]: a.locator(`[data-session-path="tab:${localTab.tabId}"]`),
+			[remoteTab.tabId]: section.locator("[data-device-session]").first(),
+		};
+		const focusTab = async (tabId: string) => {
+			await rows[tabId].locator("button[data-roving-item]").click();
+			await expect
+				.poll(async () => (await a.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId)
+				.toBe(tabId);
+		};
+		const settings = a.locator("[data-settings-page]");
+		const openModels = async () => {
+			await a.keyboard.press("ControlOrMeta+Comma");
+			await settings.locator('[data-settings-section="models"]').click();
+		};
+		await openModels();
+		await expect(a.locator(`[data-settings-device-banner="${deviceId}"]`)).toContainText(
+			"These are Host B's settings.",
+		);
+		await expect(settings.getByText("host-b-provider", { exact: true })).toBeVisible();
+		await expect(settings.getByText("host-a-provider", { exact: true })).toHaveCount(0);
+		await expect(settings.getByRole("button", { name: "Edit config" })).toHaveCount(0);
+		await expect(settings.locator('[data-settings-nav="appearance"] [data-this-device-tag]')).toBeVisible();
+		await expect(settings.locator('[data-settings-nav="models"] [data-this-device-tag]')).toHaveCount(0);
+
+		// Signing in from the remote tab runs omp's login on B. The browser link
+		// is the provider's own URL (B's localhost/launch is unreachable from A),
+		// and the redirect A's browser ends on is pasted back to B's omp.
+		await client.app.evaluate(({ shell }) => {
+			const opened: string[] = [];
+			Object.assign(globalThis, { openedUrls: opened });
+			shell.openExternal = async (url: string) => {
+				opened.push(url);
+			};
+		});
+		const anthropic = settings.locator("li").filter({ has: a.getByText("Anthropic", { exact: true }) });
+		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
+		await expect(anthropic.locator("[data-remote-login-hint]")).toContainText("the sign-in finishes on Host B");
+		await anthropic.getByRole("button", { name: "Sign in with browser" }).click();
+		await expect
+			.poll(() => client?.app.evaluate(() => Reflect.get(globalThis, "openedUrls")))
+			.toEqual([expect.stringMatching(/^https:\/\/claude\.ai\/oauth\/authorize\?/)]);
+		const redirect = "http://localhost:54545/callback?code=abc&state=xyz";
+		await anthropic.getByLabel("Paste the authorization code (or full redirect URL):").fill(redirect);
+		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
+		await expect(a.getByText("Signed in to Anthropic")).toBeVisible();
+		await expect(anthropic.locator("[data-remote-login-hint]")).toHaveCount(0);
+		const hostFrames = await recorded(host.record);
+		expect(hostFrames).toContainEqual(expect.objectContaining({ type: "login", providerId: "anthropic" }));
+		expect(hostFrames).toContainEqual(expect.objectContaining({ type: "extension_ui_response", value: redirect }));
+		const clientFrames = await recorded(client.record);
+		expect(clientFrames).not.toContainEqual(expect.objectContaining({ type: "login" }));
+		expect(clientFrames).not.toContainEqual(expect.objectContaining({ value: redirect }));
+
+		// A local tab: A's own models.yml, no device banner, "Edit config" back.
+		await a.keyboard.press("Escape");
+		await expect(settings).toHaveCount(0);
+		await focusTab(localTab.tabId);
+		await openModels();
+		await expect(settings.getByText("host-a-provider", { exact: true })).toBeVisible();
+		await expect(settings.getByText("host-b-provider", { exact: true })).toHaveCount(0);
+		await expect(a.locator("[data-settings-device-banner]")).toHaveCount(0);
+		await expect(a.locator("[data-this-device-tag]")).toHaveCount(0);
+		await expect(settings.getByRole("button", { name: "Edit config" })).toBeVisible();
+		await a.keyboard.press("Escape");
+		await expect(settings).toHaveCount(0);
+		await focusTab(remoteTab.tabId);
+
 		// ── B goes away: A's tab says it is reconnecting and refuses commands ──
 		await exitApp(host.app);
 		host = null;
@@ -176,6 +256,10 @@ test("pairs two devices, runs a prompt on the host, and shows the link drop", as
 				async () => (await a.evaluate(() => window.omp.tabs.list())).find(tab => tab.device === deviceId)?.status,
 			)
 			.toBe("error");
+		// Settings for the offline host's tab say so instead of showing stale values.
+		await openModels();
+		await expect(a.locator("[data-host-offline]")).toContainText("Host B is offline");
+		await expect(settings.getByText("host-b-provider", { exact: true })).toHaveCount(0);
 		expect(client.errors).toEqual([]);
 	} finally {
 		if (host) await exitApp(host.app);

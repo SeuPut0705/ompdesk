@@ -11,6 +11,7 @@ import { compact, formatMs, formatUsd } from "../../lib/chart";
 import { inlineFailure } from "../../lib/error-detail";
 import { uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useFocusedTabDevice } from "../../stores/remote";
 import { Badge, Button, ErrorDetail, Sheet, Spinner } from "../common";
 import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
 
@@ -36,6 +37,7 @@ function RequestDetailSheet({ row, onClose }: { row: RequestRow | null; onClose:
 
 function RequestDetailBody({ row }: { row: RequestRow }) {
 	const t = useT();
+	const device = useFocusedTabDevice();
 	const [detail, setDetail] = useState<RequestDetail | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -50,7 +52,7 @@ function RequestDetailBody({ row }: { row: RequestRow }) {
 		setLoading(true);
 		setError(null);
 		window.omp.stats
-			.fetch(`/api/request/${row.id}`)
+			.fetch(`/api/request/${row.id}`, undefined, device)
 			.then(result => {
 				if (result && typeof result === "object" && "error" in result) throw new Error(String(result.error));
 				if (!cancelled) setDetail(result as RequestDetail);
@@ -64,7 +66,7 @@ function RequestDetailBody({ row }: { row: RequestRow }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [row.id]);
+	}, [device, row.id]);
 
 	return (
 		<>

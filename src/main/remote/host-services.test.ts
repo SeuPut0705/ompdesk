@@ -1,11 +1,19 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
+import type {
+	CustomProviderInput,
+	CustomProviderView,
+	IpcBenchmarkRunOptions,
+	IpcBenchmarkRunResult,
+} from "../../shared/ipc-types";
+import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-client";
 import type { RpcCommand, RpcResponse, SidecarStatus } from "../../shared/rpc-types";
 import { canonicalCwd } from "../canonical-cwd";
+import type { MachineServices } from "../machine-services";
 import type { SidecarLike } from "../sidecar-pool";
 import type { TabEventMessage } from "./app-protocol";
 import type { HostConnection } from "./host-server";
@@ -112,8 +120,39 @@ function fakeLocalTabs() {
 	return { tab, owned, localTabs };
 }
 
+/** This machine's models.yml, stats and bench, recording what the host asked of it. */
+function fakeMachine() {
+	return {
+		listProviders: vi.fn(async (): Promise<CustomProviderView[]> => [PROVIDER_VIEW]),
+		upsertProvider: vi.fn(async (_input: CustomProviderInput) => {}),
+		deleteProvider: vi.fn(async (_id: string) => {}),
+		fetchStats: vi.fn(async (path: string, params?: Record<string, string>): Promise<unknown> => ({ path, params })),
+		runBenchmark: vi.fn(
+			async (
+				_caller: string,
+				_options: IpcBenchmarkRunOptions,
+				cwd: string | null,
+			): Promise<IpcBenchmarkRunResult> => ({
+				success: false,
+				error: `ran in ${cwd}`,
+			}),
+		),
+		abortBenchmark: vi.fn(async (_caller: string) => true),
+	} satisfies MachineServices;
+}
+
+const PROVIDER_VIEW: CustomProviderView = {
+	id: "host-only",
+	api: "openai-completions",
+	baseUrl: "http://127.0.0.1:1234/v1",
+	hasApiKey: false,
+	models: [{ id: "m1" }],
+	builtin: false,
+};
+
 function setup(graceMs = 60_000) {
 	const sidecars: FakeHostSidecar[] = [];
+	const machine = fakeMachine();
 	const local = fakeLocalTabs();
 	const deleteSession = vi.fn(async (_path: string) => {});
 	const renameStoredSession = vi.fn(async (_path: string, _name: string) => {});
@@ -133,10 +172,11 @@ function setup(graceMs = 60_000) {
 		renameStoredSession,
 		defaultWorkspace: () => workDir,
 		launchProfiles: { get: () => undefined, set: () => {} },
+		machine,
 		localTabs: local.localTabs,
 		graceMs,
 	});
-	return { services, sidecars, local, deleteSession, renameStoredSession };
+	return { services, sidecars, local, deleteSession, renameStoredSession, machine };
 }
 
 describe("LocalHostServices", () => {
@@ -409,5 +449,102 @@ describe("LocalHostServices", () => {
 		await expect(services.call(x.peer, "tab.open", { rtab: "t", cwd: "relative", fresh: true }, x)).rejects.toThrow();
 		const unknown = await services.call(x.peer, "shell.exec", {}, x).catch((error: unknown) => error);
 		expect(ipcErrorCode(unknown)).toBe("unsupported");
+	});
+
+	it("accepts every command timeout the GUI itself uses (a sign-in waits 11 minutes)", async () => {
+		const { services, sidecars } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		const login = { type: "login", providerId: "anthropic" };
+		const timeoutMs = timeoutForCommand(login as RpcCommand);
+		expect(timeoutMs).toBe(660_000);
+		await expect(
+			services.call(x.peer, "tab.command", { rtab: "t1", command: login, timeoutMs }, x),
+		).resolves.toMatchObject({ success: true, command: "login" });
+		expect(sidecars[0]?.commands).toEqual([login]);
+		await expect(
+			services.call(
+				x.peer,
+				"tab.command",
+				{ rtab: "t1", command: login, timeoutMs: MAX_RPC_COMMAND_TIMEOUT_MS + 1 },
+				x,
+			),
+		).rejects.toThrow(/Invalid tab.command/);
+	});
+});
+
+describe("LocalHostServices host.* calls", () => {
+	it("serves this machine's models.yml providers, validating what a device writes", async () => {
+		const { services, machine } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await expect(services.call(x.peer, "host.models.list", {}, x)).resolves.toEqual([PROVIDER_VIEW]);
+
+		const input: CustomProviderInput = {
+			id: "lan",
+			api: "openai-completions",
+			baseUrl: "http://10.0.0.2:8080/v1",
+			apiKey: "sk-test",
+			models: [{ id: "m1", contextWindow: 8192, thinking: { mode: "effort", efforts: ["low", "high"] } }],
+		};
+		await services.call(x.peer, "host.models.upsert", { input: { ...input, extra: "dropped" } }, x);
+		expect(machine.upsertProvider).toHaveBeenCalledWith(input);
+		for (const bad of [
+			{},
+			{ input: { ...input, api: "telnet" } },
+			{ input: { ...input, id: "" } },
+			{ input: { ...input, models: [{ id: "m1", contextWindow: "big" }] } },
+		]) {
+			await expect(services.call(x.peer, "host.models.upsert", bad, x)).rejects.toThrow(
+				/Invalid host.models.upsert/,
+			);
+		}
+		expect(machine.upsertProvider).toHaveBeenCalledTimes(1);
+
+		await services.call(x.peer, "host.models.delete", { id: "lan" }, x);
+		expect(machine.deleteProvider).toHaveBeenCalledWith("lan");
+		await expect(services.call(x.peer, "host.models.delete", { id: "" }, x)).rejects.toThrow(
+			/Invalid host.models.delete/,
+		);
+		expect(machine.deleteProvider).toHaveBeenCalledTimes(1);
+	});
+
+	it("reads this machine's stats server", async () => {
+		const { services, machine } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await expect(
+			services.call(x.peer, "host.stats.fetch", { path: "/api/stats/overview", params: { range: "24h" } }, x),
+		).resolves.toEqual({ path: "/api/stats/overview", params: { range: "24h" } });
+		await expect(
+			services.call(x.peer, "host.stats.fetch", { path: "/api/stats/overview", params: { range: 24 } }, x),
+		).rejects.toThrow(/Invalid host.stats.fetch/);
+		await expect(services.call(x.peer, "host.stats.fetch", {}, x)).rejects.toThrow(/Invalid host.stats.fetch/);
+		expect(machine.fetchStats).toHaveBeenCalledTimes(1);
+	});
+
+	it("runs one benchmark per device, in the caller's own tab folder, and stops it when the device drops", async () => {
+		const { services, machine } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		const project = join(workDir, "project");
+		mkdirSync(project);
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: project, fresh: true }, x);
+		const options: IpcBenchmarkRunOptions = { models: ["anthropic/x"], profile: "chat", runs: 1, parallel: 1 };
+
+		await services.call(x.peer, "host.bench.run", { rtab: "t1", options }, x);
+		expect(machine.runBenchmark).toHaveBeenLastCalledWith("peer:device-x", options, canonicalCwd(project));
+		// Y names X's rtab: it is not Y's tab, so Y's run starts in the default workspace.
+		await services.call(y.peer, "host.bench.run", { rtab: "t1", options }, y);
+		expect(machine.runBenchmark).toHaveBeenLastCalledWith("peer:device-y", options, workDir);
+		await expect(
+			services.call(x.peer, "host.bench.run", { options: { ...options, profile: "everything" } }, x),
+		).rejects.toThrow(/Invalid host.bench.run/);
+		expect(machine.runBenchmark).toHaveBeenCalledTimes(2);
+
+		await expect(services.call(x.peer, "host.bench.abort", {}, x)).resolves.toBe(true);
+		expect(machine.abortBenchmark).toHaveBeenLastCalledWith("peer:device-x");
+		services.disconnected(y.peer, y);
+		expect(machine.abortBenchmark).toHaveBeenLastCalledWith("peer:device-y");
+		services.dropPeer("device-x");
+		expect(machine.abortBenchmark).toHaveBeenLastCalledWith("peer:device-x");
 	});
 });

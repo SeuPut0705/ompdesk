@@ -29,6 +29,16 @@ export function isInlineLoginRequest(request: ExtensionUIRequest): boolean {
 }
 
 /**
+ * The address to open for an `open_url` request. `launchUrl` is served by the
+ * OAuth callback server on the machine running omp (`http://localhost:<port>/launch`),
+ * so a tab on a paired host opens the provider's own `url` instead: this
+ * device's localhost is not the host's.
+ */
+export function openUrlTarget(request: Extract<ExtensionUIRequest, { method: "open_url" }>, remote: boolean): string {
+	return remote ? request.url : (request.launchUrl ?? request.url);
+}
+
+/**
  * The session blocks on the user: a response-bearing request is pending. A
  * provider sign-in answered inline is the user's own action, not the session
  * waiting on them.

@@ -1,11 +1,12 @@
 import { X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { IpcBenchmarkModelReport, IpcBenchmarkProfile, IpcBenchmarkRunResult } from "../../../shared/ipc-types";
 import { formatUsd } from "../../lib/chart";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
+import { useFocusedTabDevice } from "../../stores/remote";
 import { Button, ErrorDetail, Input, Modal } from "../common";
 import { ModelValueSelect } from "../settings/ModelValueSelect";
 
@@ -20,6 +21,9 @@ function resultError(report: IpcBenchmarkModelReport): string {
 export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
 	const t = useT();
 	const activeModel = useModelStore(state => state.model);
+	// `omp bench` runs where the focused tab's omp does; the abort goes to the same machine.
+	const device = useFocusedTabDevice();
+	const runDevice = useRef<string | undefined>(undefined);
 	const [models, setModels] = useState("");
 	const [profile, setProfile] = useState<IpcBenchmarkProfile>("mix");
 	const [runs, setRuns] = useState(3);
@@ -59,7 +63,7 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 		parallel <= 8;
 	const abort = async () => {
 		try {
-			await window.omp.bench.abort();
+			await window.omp.bench.abort(runDevice.current);
 		} catch (cause) {
 			setError(inlineFailure(cause, t("benchmark.abortFailed")));
 		}
@@ -70,7 +74,8 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 		setError(null);
 		setStderr(null);
 		try {
-			const next = await window.omp.bench.run({ models: selectors, profile, runs, parallel });
+			runDevice.current = device;
+			const next = await window.omp.bench.run({ models: selectors, profile, runs, parallel }, device);
 			const output = next.stderr?.trim();
 			setStderr(output ? output : null);
 			if (next.success) setResult(next);

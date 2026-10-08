@@ -7,6 +7,11 @@
  * Routing: `useUiStore.settingsTab` holds `section[:sub]`
  * (`resolveSettingsTarget`); `openSettings(target)` deep-links from
  * anywhere, `setSettingsSection` navigates within the page.
+ *
+ * A focused tab on a paired host shows that host's agent settings: a banner
+ * names the host, app-scoped sections carry a "This device" tag, and host
+ * sections show an offline notice while the host is unreachable
+ * (`SECTION_SCOPE`, components/remote/HostScope.tsx).
  */
 
 import {
@@ -30,9 +35,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { SettingEntry, SidecarStatus } from "../../../shared/rpc-types";
 import { useLang, useT } from "../../lib/i18n";
 import { PLATFORM } from "../../lib/keymap";
+import { type FocusedHost, useFocusedHost } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 import { Banner, Button, EmptyState, ListRow, SearchField } from "../common";
+import { DeviceChip } from "../remote/DeviceChip";
+import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
 import { AdvancedSection } from "./AdvancedSection";
 import { AppearanceSection } from "./AppearanceSection";
 import { ExtensionsSection } from "./ExtensionsSection";
@@ -51,6 +59,7 @@ import {
 	PLUGINS_TABS,
 	type PluginsTab,
 	resolveSettingsTarget,
+	SECTION_SCOPE,
 	SETTINGS_NAV,
 	type SettingsSectionId,
 } from "./settings-catalog";
@@ -121,6 +130,19 @@ export function SettingsConnectionBanner({
 	);
 }
 
+/** The focused tab runs on a paired host: name it, and say app settings stay this device's. */
+export function SettingsDeviceBanner({ host }: { host: FocusedHost }) {
+	const t = useT();
+	const name = host.name ?? t("remote.tab.unknownDevice");
+	return (
+		<div data-settings-device-banner={host.deviceId}>
+			<Banner actions={<DeviceChip deviceId={host.deviceId} />} className="mb-5">
+				{t("settings.device.banner", { name })}
+			</Banner>
+		</div>
+	);
+}
+
 export function SettingsPage() {
 	const t = useT();
 	const { lang } = useLang();
@@ -129,6 +151,10 @@ export function SettingsPage() {
 	const sidecarStatus = useSessionStore(state => state.status);
 	const sidecarError = useUiStore(state => state.sidecarError);
 	const { section, sub } = resolveSettingsTarget(settingsTab);
+	const host = useFocusedHost();
+	// An unreachable host's sections show its offline notice instead of the connection banners.
+	const hostOffline = host !== undefined && !host.online;
+	const agentSection = AGENT_SECTIONS[section] === true && !hostOffline;
 	const [query, setQuery] = useState("");
 	const [focusRowId, setFocusRowId] = useState<string | null>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
@@ -302,9 +328,11 @@ export function SettingsPage() {
 											buttonProps={{ "data-settings-section": id }}
 											key={id}
 											leading={<Icon aria-hidden />}
+											meta={SECTION_SCOPE[id] === "app" ? <ThisDeviceTag compact /> : undefined}
 											onClick={() => navigate(id)}
 											selected={id === section}
 											title={t(`settings.section.${id}`)}
+											rowProps={{ "data-settings-nav": id, "data-settings-scope": SECTION_SCOPE[id] }}
 										/>
 									);
 								})}
@@ -313,6 +341,7 @@ export function SettingsPage() {
 					</nav>
 					<div className="settings-content min-h-0 min-w-0 flex-1 overflow-y-auto" ref={contentRef}>
 						<main aria-labelledby="settings-section-title" className="settings-column">
+							{host && <SettingsDeviceBanner host={host} />}
 							<header className="mb-6">
 								<h2
 									className="text-sc-2xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
@@ -326,7 +355,7 @@ export function SettingsPage() {
 										: t(`settings.section.${section}.desc`)}
 								</p>
 							</header>
-							{AGENT_SECTIONS[section] && !data.sidecarReady && (
+							{agentSection && !data.sidecarReady && (
 								<SettingsConnectionBanner
 									busy={data.sidecarBusy}
 									error={sidecarError}
@@ -334,7 +363,7 @@ export function SettingsPage() {
 									status={sidecarStatus}
 								/>
 							)}
-							{AGENT_SECTIONS[section] && data.sidecarReady && data.loadState === "error" && (
+							{agentSection && data.sidecarReady && data.loadState === "error" && (
 								<Banner
 									actions={
 										<Button icon={<RefreshCw />} onClick={data.retry} size="sm" variant="secondary">
@@ -377,7 +406,11 @@ export function SettingsPage() {
 											</Button>
 										</div>
 									)}
-									{renderSection()}
+									{SECTION_SCOPE[section] === "host" ? (
+										<HostScoped>{renderSection()}</HostScoped>
+									) : (
+										renderSection()
+									)}
 								</div>
 							)}
 						</main>

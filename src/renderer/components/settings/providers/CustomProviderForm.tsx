@@ -19,6 +19,7 @@ import { CUSTOM_PROVIDER_APIS } from "../../../../shared/ipc-types";
 import { errorDetail, type InlineFailure, inlineFailure } from "../../../lib/error-detail";
 import { useT } from "../../../lib/i18n";
 import { useModelStore } from "../../../stores/model";
+import { useFocusedTabDevice } from "../../../stores/remote";
 import { toast } from "../../../stores/toast";
 import { Banner, Button, ErrorDetail, IconButton, Input, Select, TextArea } from "../../common";
 import { FieldError, FieldLabel } from "./FormFields";
@@ -80,6 +81,7 @@ export interface CustomProviderFormProps {
 
 export function CustomProviderForm({ editing, existing, onSaved, onCancel }: CustomProviderFormProps) {
 	const t = useT();
+	const device = useFocusedTabDevice();
 	const refreshProviders = useModelStore(state => state.refreshProviders);
 	const nextKey = useRef(1);
 	const readonly = editing?.builtin ?? false;
@@ -247,7 +249,7 @@ export function CustomProviderForm({ editing, existing, onSaved, onCancel }: Cus
 		setSubmitting(true);
 		setSubmitError(null);
 		try {
-			await window.omp.models.upsertProvider(input);
+			await window.omp.models.upsertProvider(input, device);
 			try {
 				const catalog = await refreshProviders(true);
 				const discoveryError = catalog.discoveryStates.find(

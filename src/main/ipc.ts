@@ -3,8 +3,9 @@
  *
  * A tab on a paired host (`device`) runs its omp there, so every handler
  * that reads or writes the machine running omp — sessions, workspace files,
- * launch profiles, project switches — goes to that host through
- * RemoteDevices. Native open/reveal of a host path is refused
+ * launch profiles, project switches, and the models.yml providers, stats and
+ * benchmarks Settings/Usage/Stats show (machine-services.ts) — goes to that
+ * host through RemoteDevices. Native open/reveal of a host path is refused
  * (`remote_path_native`): this machine cannot see that disk.
  */
 import { existsSync, promises as fsp } from "node:fs";
@@ -58,24 +59,22 @@ import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-langua
 import type { HostToolResult, HostToolUpdate, RpcCommand, RpcSessionState } from "../shared/rpc-types";
 import { isUiLanguage } from "../shared/ui-language";
 import { requestQuit } from "./app-quit";
-import { BenchmarkRunner } from "./benchmark-runner";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { openInExternalEditor } from "./editor";
 import { mainT } from "./i18n";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "./launch-profile-store";
 import { renameStoredSession } from "./local/session-files";
 import type { LogWatcher } from "./log-watcher";
+import { type LocalMachine, type MachineServices, machineFor as pickMachine } from "./machine-services";
 import { createMenu } from "./menu";
-import { deleteModelsProvider, listModelsProviders, modelsPath, upsertModelsProvider } from "./models-config";
-import { type OmpResolution, systemOmp } from "./omp-runtime";
+import { modelsPath } from "./models-config";
+import { systemOmp } from "./omp-runtime";
 import type { RemoteDevices } from "./remote/devices";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import type { SessionIndex } from "./session-index";
 import { resolveEditorCommand } from "./shell-env";
 import { deviceLanguage } from "./sidecar-factory";
 import type { SidecarLike, SidecarPool } from "./sidecar-pool";
-import type { StatsClient } from "./stats-client";
-import type { Revive } from "./stats-restart-policy";
 import { spawnTabForWindow } from "./tab-spawn";
 import { setTrayState } from "./tray";
 import { aggregateTrayStatus } from "./tray-labels";
@@ -87,16 +86,12 @@ import { listWorkspace, readPlanFile, readWorkspaceFile, readWorkspaceImage, res
 export interface IpcDeps {
 	sidecarPool: SidecarPool;
 	sessionIndex: SessionIndex;
-	statsClient: StatsClient;
-	/** Demand-driven revive for the bundled stats server (no server → "exhausted"). */
-	statsRestart: () => Revive;
+	/** This computer's models.yml, stats server and `omp bench`; a paired host serves its own. */
+	machine: LocalMachine;
 	logWatcher: LogWatcher;
 	windowManager: WindowManager;
 	/** Both remote roles: the paired hosts tabs may run on, and this computer as a host. */
 	remoteDevices: RemoteDevices;
-	/** The system omp the benchmark runs (`omp bench`). */
-	benchmarkOmp: () => Promise<OmpResolution>;
-	benchmarkEnv: () => Promise<NodeJS.ProcessEnv>;
 	/** Spawn a window with its own sidecar (index.ts's pool-backed helper). */
 	spawnWindow: SpawnWindow;
 	/** Where to start when the caller has no cwd. Never the volume root: a
@@ -147,6 +142,11 @@ function deviceOf(value: unknown): string | undefined {
 	return typeof value === "string" && value ? value : undefined;
 }
 
+/** The benchmark slot of a window on this machine (paired devices on a host use `peer:<id>`). */
+function benchCaller(webContentsId: number): string {
+	return `window:${webContentsId}`;
+}
+
 interface PrefsSchema {
 	[key: string]: unknown;
 }
@@ -167,17 +167,39 @@ function aggregateProgress(states: RunProgressState[]): RunProgressState {
 }
 
 export function registerIpcHandlers(deps: IpcDeps): void {
-	const benchmarkRunners = new Map<number, BenchmarkRunner>();
-	const { sidecarPool, sessionIndex, statsClient, logWatcher, windowManager, remoteDevices } = deps;
+	/** The paired host a window's running benchmark is on, so closing the window stops it there. */
+	const remoteBenchmarks = new Map<number, string>();
+	const { sidecarPool, sessionIndex, logWatcher, windowManager, remoteDevices } = deps;
 	const prefsStore = new Store<PrefsSchema>({ name: "prefs" });
+	const remoteMachine = { request: remoteDevices.request.bind(remoteDevices), statsText: mainT };
+
+	/**
+	 * The machine a Settings/Usage/Stats call acts on: `device` is the paired
+	 * host the caller's focused tab runs on (absent = this computer). A
+	 * benchmark there roots at that tab's folder when it is the window's tab.
+	 */
+	const machineFor = (event: Electron.IpcMainInvokeEvent, device: unknown): MachineServices => {
+		const id = deviceOf(device);
+		const target = id ? targetFor(deps, event) : null;
+		return pickMachine(id, deps.machine, {
+			...remoteMachine,
+			...(target && target.device === id ? { tab: { rtab: target.tabId, cwd: target.sidecar.cwd } } : {}),
+		});
+	};
 
 	// Drop a closed window's tray/progress snapshot so the aggregate reflects
 	// only live windows (and re-render the tray with the new aggregate).
 	windowManager.subscribeWindowClosed(record => {
 		trayStates.delete(record.id);
 		progressStates.delete(record.id);
-		benchmarkRunners.get(record.id)?.abort();
-		benchmarkRunners.delete(record.id);
+		const caller = benchCaller(record.id);
+		void deps.machine.abortBenchmark(caller);
+		const device = remoteBenchmarks.get(record.id);
+		remoteBenchmarks.delete(record.id);
+		if (device)
+			void pickMachine(device, deps.machine, remoteMachine)
+				.abortBenchmark(caller)
+				.catch(() => false);
 	});
 
 	// Sidecar → owning-window event forwarding (events/status/extensionUi/
@@ -666,51 +688,36 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		);
 	});
 
-	// Stats
-	ipcMain.handle(IPC_COMMANDS.STATS_FETCH, async (_event, payload: IpcStatsFetchPayload) => {
-		if (typeof payload.path !== "string") {
-			throw codedError("invalid_stats_path", "Invalid stats path");
-		}
-		if (!statsClient.port) {
-			// Nothing is listening: ask for it and let the caller keep waiting — but
-			// only while a revive is actually possible, so a permanently dead stats
-			// server ends in an error instead of an endless "loading".
-			const revive = deps.statsRestart();
-			return {
-				error: mainT(revive === "exhausted" ? "stats.notRunning" : "stats.notReady"),
-				unavailable: revive !== "exhausted",
-				// Dead for good (no revive left): the renderer shows a calm page-level state, not this text.
-				stopped: revive === "exhausted",
-			};
-		}
-		try {
-			return await statsClient.fetch(payload.path, payload.params);
-		} catch (err) {
-			// A request that reached the server and failed is a failure, not a
-			// booting server: the dashboard must show it, not retry for a budget.
-			const msg = err instanceof Error ? err.message : String(err);
-			return { error: msg, unavailable: false };
-		}
-	});
+	// Stats: the stats server of the machine the caller's focused tab runs on.
+	ipcMain.handle(IPC_COMMANDS.STATS_FETCH, (event, payload: IpcStatsFetchPayload) =>
+		machineFor(event, payload?.device).fetchStats(payload.path, payload.params),
+	);
 
+	// `omp bench` on the machine the caller's focused tab runs on, one per window.
 	ipcMain.handle(
 		IPC_COMMANDS.BENCH_RUN,
-		async (event, options: IpcBenchmarkRunOptions): Promise<IpcBenchmarkRunResult> => {
-			const cwd = cwdFor(deps, event);
-			if (!cwd) return { success: false, error: "No active workspace", code: "no_workspace" };
-			const resolution = await deps.benchmarkOmp();
-			if (!resolution.ok) return { success: false, error: resolution.error };
+		async (event, options: IpcBenchmarkRunOptions, device?: unknown): Promise<IpcBenchmarkRunResult> => {
+			const id = deviceOf(device);
 			const senderId = event.sender.id;
-			const runner = benchmarkRunners.get(senderId) ?? new BenchmarkRunner();
-			benchmarkRunners.set(senderId, runner);
+			if (!id) return deps.machine.runBenchmark(benchCaller(senderId), options, cwdFor(deps, event));
+			remoteBenchmarks.set(senderId, id);
 			try {
-				return await runner.run(resolution.runtime.bin, cwd, options, await deps.benchmarkEnv());
+				return await machineFor(event, id).runBenchmark(benchCaller(senderId), options, null);
+			} catch (err) {
+				const code = ipcErrorCode(err);
+				return {
+					success: false,
+					error: err instanceof Error ? err.message : String(err),
+					...(code ? { code } : {}),
+				};
 			} finally {
-				if (!runner.running) benchmarkRunners.delete(senderId);
+				if (remoteBenchmarks.get(senderId) === id) remoteBenchmarks.delete(senderId);
 			}
 		},
 	);
-	ipcMain.handle(IPC_COMMANDS.BENCH_ABORT, event => benchmarkRunners.get(event.sender.id)?.abort() ?? false);
+	ipcMain.handle(IPC_COMMANDS.BENCH_ABORT, (event, device?: unknown) =>
+		machineFor(event, device).abortBenchmark(benchCaller(event.sender.id)),
+	);
 
 	// Renderer-initiated quit (the `quit` command). Straight to the guard, never
 	// `window.close()`: closing the focused window only hides the rest of the
@@ -966,23 +973,26 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	ipcMain.handle(IPC_COMMANDS.SIDECAR_DEFAULT_WORKSPACE, () => ensureDefaultWorkspace());
 
-	ipcMain.handle(IPC_COMMANDS.MODELS_PROVIDERS_LIST, () => {
-		return listModelsProviders();
-	});
+	// models.yml custom providers of the machine the caller's focused tab runs on.
+	ipcMain.handle(IPC_COMMANDS.MODELS_PROVIDERS_LIST, (event, device?: unknown) =>
+		machineFor(event, device).listProviders(),
+	);
 
-	ipcMain.handle(IPC_COMMANDS.MODELS_PROVIDER_UPSERT, (_event, input: CustomProviderInput) => {
-		upsertModelsProvider(input);
-	});
+	ipcMain.handle(IPC_COMMANDS.MODELS_PROVIDER_UPSERT, (event, input: CustomProviderInput, device?: unknown) =>
+		machineFor(event, device).upsertProvider(input),
+	);
 
-	ipcMain.handle(IPC_COMMANDS.MODELS_PROVIDER_DELETE, (_event, id: string) => {
-		deleteModelsProvider(id);
-	});
+	ipcMain.handle(IPC_COMMANDS.MODELS_PROVIDER_DELETE, (event, id: string, device?: unknown) =>
+		machineFor(event, device).deleteProvider(id),
+	);
 
 	// "Edit config" — open the agent's models.yml in the system editor. The
 	// file is created with a minimal skeleton when missing so there is always
 	// something to edit; when no editor association exists, reveal it in the
-	// file manager instead.
-	ipcMain.handle(IPC_COMMANDS.MODELS_CONFIG_OPEN, async () => {
+	// file manager instead. A paired host's file is out of this editor's reach:
+	// its providers are edited in-app.
+	ipcMain.handle(IPC_COMMANDS.MODELS_CONFIG_OPEN, async (_event, device?: unknown) => {
+		if (deviceOf(device)) throw codedError("remote_path_native", "The models file is on another device");
 		const file = modelsPath();
 		if (!existsSync(file)) {
 			await fsp.mkdir(path.dirname(file), { recursive: true });

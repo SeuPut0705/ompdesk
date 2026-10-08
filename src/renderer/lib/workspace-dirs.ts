@@ -1,7 +1,8 @@
 /**
  * Workspace-directory flows (TUI /dirs /add-dir /remove-dir /move parity)
  * shared by Settings › Project folders (WorkspaceSection) and the command-registry picker/window
- * affordances. Every mutation toasts the server truth: refusals (primary
+ * affordances. Every mutation goes to the focused tab's omp (a paired host's
+ * for a remote tab) and toasts the server truth: refusals (primary
  * removal, missing path, busy while streaming) surface the agent's error
  * message, successes confirm and — for move, which re-scopes the whole
  * session cwd — rehydrate session state.
@@ -11,6 +12,7 @@ import { hydrateSession } from "../hooks/use-rpc-events";
 import { focusedTabDevice, pickRemoteDirectory } from "../stores/remote";
 import { toast, toastError } from "../stores/toast";
 import { translate } from "./i18n";
+import { focusedTabRpc } from "./tab-rpc";
 
 export type { RpcWorkspaceDirectory };
 
@@ -60,7 +62,7 @@ function directoriesOf(response: RpcResponse): RpcWorkspaceDirectory[] {
 
 /** add_directory; returns the post-add list, or null on refusal (error toast shown). */
 export async function addWorkspaceDirectory(path: string): Promise<RpcWorkspaceDirectory[] | null> {
-	const response = await window.omp.rpc.addDirectory(path);
+	const response = await focusedTabRpc().addDirectory(path);
 	if (!response.success) {
 		toastError({ title: translate("workspaceDirs.add"), error: response });
 		return null;
@@ -71,7 +73,7 @@ export async function addWorkspaceDirectory(path: string): Promise<RpcWorkspaceD
 
 /** remove_directory; returns the post-removal list, or null on refusal (error toast shown). */
 export async function removeWorkspaceDirectory(path: string): Promise<RpcWorkspaceDirectory[] | null> {
-	const response = await window.omp.rpc.removeDirectory(path);
+	const response = await focusedTabRpc().removeDirectory(path);
 	if (!response.success) {
 		toastError({ title: translate("workspaceDirs.remove"), error: response });
 		return null;
@@ -86,7 +88,7 @@ export async function removeWorkspaceDirectory(path: string): Promise<RpcWorkspa
  * server truth. Returns whether the move happened.
  */
 export async function moveSessionTo(path: string): Promise<boolean> {
-	const response = await window.omp.rpc.moveSession(path);
+	const response = await focusedTabRpc().moveSession(path);
 	if (!response.success) {
 		toastError({ title: translate("workspaceDirs.move"), error: response });
 		return false;

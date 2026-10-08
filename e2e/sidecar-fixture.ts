@@ -251,6 +251,14 @@ if (process.argv[2] === "stats") {
 	let planProposal: Record<string, unknown> | undefined;
 	let holdSettings = false;
 	let releaseSettings: (() => void) | undefined;
+	/**
+	 * `OMP_GUI_TEST_LOGIN=1`: Anthropic is a signed-out OAuth provider the
+	 * providers screen can sign in to; other suites keep the one fixture provider.
+	 */
+	const loginProvider = process.env.OMP_GUI_TEST_LOGIN === "1";
+	let anthropicSignedIn = false;
+	/** The `login` in flight: its open_url and input request ids, and how it ends. */
+	let pendingLogin: { urlId: string; inputId: string; finish: (value: string | undefined) => void } | undefined;
 	const values: Record<string, unknown> = {
 		"approval.mode": "ask",
 		"theme.dark": "dark",
@@ -458,7 +466,22 @@ if (process.argv[2] === "stats") {
 		},
 		models_catalog: () => ({ models: [model], discoveryStates: [], refreshPending: false, generation: 1 }),
 		providers: () => ({
-			providers: [{ id: "fixture", name: "Local fixture", hasAuth: true, authenticated: true, modelCount: 1 }],
+			providers: [
+				{ id: "fixture", name: "Local fixture", hasAuth: true, authenticated: true, modelCount: 1 },
+				...(loginProvider
+					? [
+							{
+								id: "anthropic",
+								name: "Anthropic",
+								authenticated: anthropicSignedIn,
+								authKind: anthropicSignedIn ? "oauth" : undefined,
+								loginAvailable: true,
+								disabled: false,
+								modelCount: 0,
+							},
+						]
+					: []),
+			],
 			models: [model],
 			discoveryStates: [],
 			refreshPending: false,
@@ -813,8 +836,54 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				ok({ levels: ["off", "low", "medium", "high"] });
 				break;
 			case "get_login_providers":
-				ok({ providers: [] });
+				ok({
+					providers: loginProvider
+						? [{ id: "anthropic", name: "Anthropic", available: true, authenticated: anthropicSignedIn }]
+						: [],
+				});
 				break;
+			case "get_provider_accounts":
+				ok({ providerId: text("providerId"), accounts: [] });
+				break;
+			// Stock 18.8 (rpc-mode.ts `login`, Anthropic's oauth-code flow): open_url
+			// is fire-and-forget, then a blocking `input` for the pasted code or
+			// redirect URL (raced against the host's callback server, which never
+			// fires here). The command answers once that input does.
+			case "login": {
+				if (command.providerId !== "anthropic") {
+					fail(`Unknown OAuth provider: ${text("providerId")}`);
+					break;
+				}
+				const urlId = `fixture-login-url-${Date.now()}`;
+				const inputId = `fixture-login-input-${Date.now()}`;
+				write({
+					type: "extension_ui_request",
+					id: urlId,
+					method: "open_url",
+					url: "https://claude.ai/oauth/authorize?code=true&client_id=fixture&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback&state=xyz",
+					launchUrl: "http://localhost:54545/launch",
+					instructions: "Complete the sign-in in your browser.",
+				});
+				write({
+					type: "extension_ui_request",
+					id: inputId,
+					method: "input",
+					title: "Paste the authorization code (or full redirect URL):",
+					timeout: 600_000,
+				});
+				pendingLogin = {
+					urlId,
+					inputId,
+					finish: value => {
+						pendingLogin = undefined;
+						if (value?.trim()) {
+							anthropicSignedIn = true;
+							ok({ providerId: "anthropic" });
+						} else fail("Login cancelled");
+					},
+				};
+				break;
+			}
 			case "btw": {
 				const now = Date.now();
 				const btw = {
@@ -881,6 +950,12 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				ok();
 				break;
 			case "extension_ui_response":
+				// The sign-in's requests are not a turn's: no response frame, no agent_end.
+				if (pendingLogin && command.id === pendingLogin.urlId) break;
+				if (pendingLogin && command.id === pendingLogin.inputId) {
+					pendingLogin.finish(command.cancelled === true ? undefined : text("value"));
+					break;
+				}
 				ok();
 				endTurn([]);
 				break;

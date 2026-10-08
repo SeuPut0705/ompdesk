@@ -36,6 +36,27 @@ export const SETTINGS_NAV: readonly SettingsNavGroup[] = [
 	{ id: "system", items: ["workspace", "ssh", "remote", "updates", "advanced"] },
 ];
 
+/**
+ * Whose settings a section shows while the focused tab runs on a paired host:
+ * `app` = this device's own preferences, `host` = the host's agent (its omp,
+ * files and credentials), `mixed` = both, each part marked in the section.
+ */
+export const SECTION_SCOPE: Record<SettingsSectionId, "app" | "host" | "mixed"> = {
+	general: "mixed",
+	appearance: "app",
+	keyboard: "app",
+	models: "host",
+	permissions: "host",
+	features: "host",
+	extensions: "host",
+	plugins: "host",
+	workspace: "host",
+	ssh: "host",
+	remote: "app",
+	updates: "mixed",
+	advanced: "mixed",
+};
+
 export const EXTENSIONS_TABS = ["skills", "mcp", "hooks", "commands"] as const;
 export type ExtensionsTab = (typeof EXTENSIONS_TABS)[number];
 export const PLUGINS_TABS = ["plugins", "marketplaces", "templates", "memory"] as const;

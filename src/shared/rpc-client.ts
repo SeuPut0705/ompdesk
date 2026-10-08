@@ -60,6 +60,9 @@ export function timeoutForCommand(cmd: RpcCommand): number | undefined {
 	return RPC_COMMAND_TIMEOUTS[cmd.type];
 }
 
+/** The longest window any command gets; a paired host accepts `tab.command` timeouts up to this. */
+export const MAX_RPC_COMMAND_TIMEOUT_MS = Math.max(...Object.values(RPC_COMMAND_TIMEOUTS));
+
 const TRANSCRIPT_PAGE_LIMIT = 256;
 
 function transcriptPageData(response: RpcResponse): MessagesPage | undefined {

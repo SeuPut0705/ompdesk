@@ -673,6 +673,8 @@ export interface IpcSessionsSearchPayload {
 export interface IpcStatsFetchPayload {
 	path: string;
 	params?: Record<string, string>;
+	/** Paired host deviceId whose stats server answers; absent = this device. */
+	device?: string;
 }
 
 export interface IpcNotifyPayload {
@@ -1456,11 +1458,13 @@ export interface OmpApi {
 		onDiscovered(callback: (devices: RemoteDiscoveredDevice[]) => void): () => void;
 	};
 	stats: {
-		fetch(path: string, params?: Record<string, string>): Promise<unknown>;
+		/** `device` = the paired host whose stats server answers; absent = this device. */
+		fetch(path: string, params?: Record<string, string>, device?: string): Promise<unknown>;
 	};
 	bench: {
-		run(options: IpcBenchmarkRunOptions): Promise<IpcBenchmarkRunResult>;
-		abort(): Promise<boolean>;
+		/** `omp bench` on `device` (the paired host; absent = this device), one per window. */
+		run(options: IpcBenchmarkRunOptions, device?: string): Promise<IpcBenchmarkRunResult>;
+		abort(device?: string): Promise<boolean>;
 	};
 	system: {
 		info(): Promise<SystemInfo>;
@@ -1505,11 +1509,13 @@ export interface OmpApi {
 		/** Windows: recolor the native caption buttons drawn over the title bar. No-op elsewhere. */
 		setColors(colors: WindowChromeColors): void;
 	};
+	/** The agent's models.yml on `device` (a paired host; absent = this device). */
 	models: {
-		listProviders(): Promise<CustomProviderView[]>;
-		upsertProvider(input: CustomProviderInput): Promise<void>;
-		deleteProvider(id: string): Promise<void>;
-		openConfig(): Promise<{ path: string; opened: boolean }>;
+		listProviders(device?: string): Promise<CustomProviderView[]>;
+		upsertProvider(input: CustomProviderInput, device?: string): Promise<void>;
+		deleteProvider(id: string, device?: string): Promise<void>;
+		/** Opens this device's file only; a paired host's fails with code `remote_path_native`. */
+		openConfig(device?: string): Promise<{ path: string; opened: boolean }>;
 	};
 	fs: {
 		list(path?: string, maxDepth?: number, maxEntries?: number, tabId?: string): Promise<IpcFsListResult>;

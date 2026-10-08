@@ -12,12 +12,13 @@ import { saveGuiPreference } from "../../lib/display-preferences";
 import { useLang, useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { pickWorkspaceDirectory } from "../../lib/workspace-dirs";
-import { useFocusedTabDevice } from "../../stores/remote";
+import { useFocusedHost, useFocusedTabDevice } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { focusedSessionRuntime, sessionRuntime, withSessionRuntime } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { CodeBlock } from "../chat/CodeBlock";
 import { Banner, Button, EmptyState, Input, Select, TextArea } from "../common";
+import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
 import { ArrayChipEditor } from "./editors/ArrayChipEditor";
 import { SchemaSettingRow } from "./SchemaSettingRow";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
@@ -32,9 +33,13 @@ import {
 import { useSettingsData } from "./settings-data";
 import { groupSchemaEntries, isSettingSupportedInGui, isSettingVisibleInGui } from "./settings-schema-utils";
 
-/** HTTP proxy for omp's network traffic; saving restarts an idle sidecar so it applies. */
+/**
+ * HTTP proxy for omp's network traffic — this device's own sessions (a paired
+ * host's tabs use the host's); saving restarts an idle local sidecar so it applies.
+ */
 function ProxyRow() {
 	const t = useT();
+	const host = useFocusedHost();
 	const [draft, setDraft] = useState<string | null>(null);
 	const [saved, setSaved] = useState("");
 	const [saving, setSaving] = useState(false);
@@ -62,6 +67,7 @@ function ProxyRow() {
 			return;
 		}
 		const origin = focusedSessionRuntime();
+		const remote = host !== undefined;
 		pending.current = true;
 		setSaving(true);
 		try {
@@ -70,6 +76,10 @@ function ProxyRow() {
 				setDraft(current => (current === draft ? null : current));
 			});
 			if (!ok) return;
+			if (remote) {
+				toast({ variant: "info", message: t("settings.gui.proxySavedThisDevice") });
+				return;
+			}
 			const restart = () => {
 				const state = useSessionStore.getState();
 				if (state.status !== "ready" || state.isStreaming || state.isCompacting) return null;
@@ -95,6 +105,7 @@ function ProxyRow() {
 
 	return (
 		<SettingsRow
+			badge={<ThisDeviceTag />}
 			control={
 				<Input
 					disabled={saving}
@@ -467,20 +478,26 @@ export function AdvancedSection({
 						<SettingsSection title={t("settings.advanced.network")}>
 							<ProxyRow />
 						</SettingsSection>
-						<LaunchProfileSection />
+						<HostScoped>
+							<LaunchProfileSection />
+						</HostScoped>
 					</>
-				) : !schemaReady ? (
-					loadState === "loading" && <div aria-hidden className="omp-skeleton h-40 w-full" />
-				) : category === ADVANCED_OTHER_CATEGORY ? (
-					other.length === 0 ? (
-						<EmptyState size="sm" title={t("settings.advancedEmpty")} />
-					) : (
-						<div className="settings-section-body">
-							<SchemaRows entries={other} />
-						</div>
-					)
 				) : (
-					<SchemaTabSettings groups={activeTab?.groups ?? []} tabId={category} />
+					<HostScoped>
+						{!schemaReady ? (
+							loadState === "loading" && <div aria-hidden className="omp-skeleton h-40 w-full" />
+						) : category === ADVANCED_OTHER_CATEGORY ? (
+							other.length === 0 ? (
+								<EmptyState size="sm" title={t("settings.advancedEmpty")} />
+							) : (
+								<div className="settings-section-body">
+									<SchemaRows entries={other} />
+								</div>
+							)
+						) : (
+							<SchemaTabSettings groups={activeTab?.groups ?? []} tabId={category} />
+						)}
+					</HostScoped>
 				)}
 			</div>
 		</>

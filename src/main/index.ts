@@ -22,6 +22,7 @@ import { registerIpcHandlers } from "./ipc";
 import { migrateLegacyUserData } from "./legacy-user-data";
 import { renameStoredSession } from "./local/session-files";
 import { LogWatcher } from "./log-watcher";
+import { LocalMachine } from "./machine-services";
 import { createMenu } from "./menu";
 import { ompPackageRoot, ompPathEnv, systemOmp } from "./omp-runtime";
 import { RemoteDevices } from "./remote/devices";
@@ -386,6 +387,16 @@ app.whenReady().then(() => {
 		sc.on("bridge", (result: BridgeConnectResult) => void bridgeHealth.observe(result));
 		return sc;
 	}, 10);
+	// This computer's models.yml, stats server and `omp bench`, for its own
+	// windows and for the devices that use it as their host.
+	statsClient = new StatsClient();
+	const machine = new LocalMachine({
+		stats: statsClient,
+		statsRestart: () => statsServer?.ensureRunning() ?? "exhausted",
+		statsText: mainT,
+		benchmarkOmp: systemOmp,
+		benchmarkEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
+	});
 	// This computer as a host: paired devices' tabs run here through the same factory.
 	const prefs = prefsStore();
 	const hostServices = new LocalHostServices({
@@ -398,6 +409,7 @@ app.whenReady().then(() => {
 		},
 		defaultWorkspace: ensureDefaultWorkspace,
 		launchProfiles: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) },
+		machine,
 		localTabs: sidecarPool,
 	});
 	let hostOmpVersion: string | null = null;
@@ -424,7 +436,6 @@ app.whenReady().then(() => {
 	// A closed window's tabs have to leave the saved session with it, or the next
 	// launch resurrects a window the user deliberately shut.
 	windowManager.subscribeWindowClosed(() => persistTabLayouts());
-	statsClient = new StatsClient();
 	// Stats dashboard: omp's own dashboard API from the user's omp install. A
 	// missing or too-old omp already surfaces on every tab; the dashboard just
 	// stays unavailable.
@@ -454,13 +465,10 @@ app.whenReady().then(() => {
 	registerIpcHandlers({
 		sidecarPool,
 		sessionIndex,
-		statsClient,
-		statsRestart: () => statsServer?.ensureRunning() ?? "exhausted",
+		machine,
 		logWatcher,
 		windowManager,
 		remoteDevices: devices,
-		benchmarkOmp: systemOmp,
-		benchmarkEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
 		spawnWindow,
 		initialCwd: resolveInitialCwd,
 	});

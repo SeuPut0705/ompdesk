@@ -22,8 +22,9 @@ import {
 	setPoolMemberRole,
 } from "../../lib/model-pool";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { type PoolModelCheck, useModelPoolChecks } from "../../stores/model-pool-checks";
+import { type PoolModelCheck, poolCheckKey, useModelPoolChecks } from "../../stores/model-pool-checks";
 import { useModelPoolPresets } from "../../stores/model-pool-presets";
+import { useFocusedTabDevice } from "../../stores/remote";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toastError } from "../../stores/toast";
@@ -236,11 +237,13 @@ export function ModelPoolConfig({ onAddModel }: { onAddModel: () => void }) {
 	}, [ready, stored, rpc, tabId]);
 
 	const checks = useModelPoolChecks(s => s.checks);
+	// The check runs where this tab's omp does (a paired host's accounts are its own).
+	const device = useFocusedTabDevice();
 	const selectorsKey = pool.members.map(member => member.selector).join("\n");
-	// A model joining the pool gets its quick check (cached per selector for this app run).
+	// A model joining the pool gets its quick check (cached per selector and machine for this app run).
 	useEffect(() => {
-		if (selectorsKey) useModelPoolChecks.getState().ensure(selectorsKey.split("\n"));
-	}, [selectorsKey]);
+		if (selectorsKey) useModelPoolChecks.getState().ensure(selectorsKey.split("\n"), device);
+	}, [selectorsKey, device]);
 
 	const update = async (next: RpcModelPoolState) => {
 		if (pending || !ready) return;
@@ -286,11 +289,11 @@ export function ModelPoolConfig({ onAddModel }: { onAddModel: () => void }) {
 					<ul className="divide-y divide-(--sc-divider)">
 						{pool.members.map(member => (
 							<MemberRow
-								check={checks[member.selector]}
+								check={checks[poolCheckKey(member.selector, device)]}
 								disabled={disabled}
 								key={member.selector}
 								member={member}
-								onRecheck={() => useModelPoolChecks.getState().recheck(member.selector)}
+								onRecheck={() => useModelPoolChecks.getState().recheck(member.selector, device)}
 								onRemove={() => void update(removePoolMember(pool, member.selector))}
 								onRole={role => void update(setPoolMemberRole(pool, member.selector, role))}
 							/>

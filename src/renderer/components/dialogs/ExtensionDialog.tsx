@@ -30,7 +30,8 @@ import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
-import { isInlineLoginRequest, useExtensionUiStore } from "../../stores/extension-ui";
+import { isInlineLoginRequest, openUrlTarget, useExtensionUiStore } from "../../stores/extension-ui";
+import { useFocusedTabDevice } from "../../stores/remote";
 import { toast } from "../../stores/toast";
 import { Badge, Button, Input, Kbd, TextArea } from "../common";
 import { ApprovalDialog, isApprovalRequest } from "./ApprovalDialog";
@@ -577,7 +578,8 @@ function OpenUrlDialog({
 	onCancel: () => void;
 }) {
 	const t = useT();
-	const target = request.launchUrl ?? request.url;
+	const device = useFocusedTabDevice();
+	const target = openUrlTarget(request, device !== undefined);
 	const choose = (key: string) => {
 		if (key !== "open") {
 			onCancel();

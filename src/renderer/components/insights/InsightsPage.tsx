@@ -5,12 +5,16 @@
  * - Usage: provider quotas.
  * Tab and scope live in the ui store (`insightsTab`, `insightsStatsScope`,
  * `openInsights(tab, scope)`) so the title-bar status popover, palette,
- * menus and tray land on the right view.
+ * menus and tray land on the right view. A focused tab on a paired host shows
+ * that host's stats and quotas (named in a banner), or its offline notice.
  */
 
 import { useT } from "../../lib/i18n";
+import { useFocusedHost } from "../../stores/remote";
 import { type InsightsStatsScope, type InsightsTab, useUiStore } from "../../stores/ui";
-import { PageLayout, Tabs } from "../common";
+import { Banner, PageLayout, Tabs } from "../common";
+import { DeviceChip } from "../remote/DeviceChip";
+import { HostScoped } from "../remote/HostScope";
 import { AllSessionsStats } from "../stats/AllSessionsStats";
 import { SessionInsights } from "./SessionInsights";
 import { UsageQuotas } from "./UsageQuotas";
@@ -30,6 +34,7 @@ export function InsightsPage() {
 	const tab = useUiStore(s => s.insightsTab);
 	const scope = useUiStore(s => s.insightsStatsScope);
 	const openInsights = useUiStore(s => s.openInsights);
+	const host = useFocusedHost();
 
 	return (
 		<PageLayout
@@ -45,28 +50,42 @@ export function InsightsPage() {
 			}
 			title={t("insights.title")}
 		>
-			{tab === "stats" ? (
-				<div className="flex flex-col gap-6">
-					<div className="flex flex-wrap items-center gap-3">
-						<Tabs
-							activeId={scope}
-							ariaLabel={t("insights.scope.label")}
-							onChange={id => openInsights("stats", id as InsightsStatsScope)}
-							tabs={(Object.keys(SCOPE_LABEL_KEY) as InsightsStatsScope[]).map(id => ({
-								id,
-								label: t(SCOPE_LABEL_KEY[id]),
-							}))}
-							variant="segmented"
-						/>
-						<p className="text-sc-sm text-(--sc-text-muted)">
-							{scope === "session" ? t("insights.scope.sessionHint") : t("insights.scope.allHint")}
-						</p>
-					</div>
-					{scope === "session" ? <SessionInsights /> : <AllSessionsStats />}
+			{host && (
+				<div data-insights-device-banner={host.deviceId}>
+					<Banner actions={<DeviceChip deviceId={host.deviceId} />} className="mb-5">
+						{t("insights.device", { name: host.name ?? t("remote.tab.unknownDevice") })}
+					</Banner>
 				</div>
-			) : (
-				<UsageQuotas />
 			)}
+			<HostScoped>
+				{tab === "stats" ? (
+					<div className="flex flex-col gap-6">
+						<div className="flex flex-wrap items-center gap-3">
+							<Tabs
+								activeId={scope}
+								ariaLabel={t("insights.scope.label")}
+								onChange={id => openInsights("stats", id as InsightsStatsScope)}
+								tabs={(Object.keys(SCOPE_LABEL_KEY) as InsightsStatsScope[]).map(id => ({
+									id,
+									label: t(SCOPE_LABEL_KEY[id]),
+								}))}
+								variant="segmented"
+							/>
+							<p className="text-sc-sm text-(--sc-text-muted)">
+								{scope === "session"
+									? t("insights.scope.sessionHint")
+									: host
+										? t("insights.scope.allHintHost", { name: host.name ?? t("remote.tab.unknownDevice") })
+										: t("insights.scope.allHint")}
+							</p>
+						</div>
+						{/* Another machine is another stats server: start its page over. */}
+						{scope === "session" ? <SessionInsights /> : <AllSessionsStats key={host?.deviceId ?? ""} />}
+					</div>
+				) : (
+					<UsageQuotas />
+				)}
+			</HostScoped>
 		</PageLayout>
 	);
 }

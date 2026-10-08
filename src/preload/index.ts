@@ -295,14 +295,14 @@ const api: OmpApi = {
 	},
 
 	stats: {
-		fetch: (path: string, params?: Record<string, string>) =>
-			ipcRenderer.invoke(IPC_COMMANDS.STATS_FETCH, { path, params }),
+		fetch: (path: string, params?: Record<string, string>, device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.STATS_FETCH, { path, params, device }),
 	},
 
 	bench: {
-		run: (options: IpcBenchmarkRunOptions) =>
-			ipcRenderer.invoke(IPC_COMMANDS.BENCH_RUN, options) as Promise<IpcBenchmarkRunResult>,
-		abort: () => ipcRenderer.invoke(IPC_COMMANDS.BENCH_ABORT) as Promise<boolean>,
+		run: (options: IpcBenchmarkRunOptions, device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.BENCH_RUN, options, device) as Promise<IpcBenchmarkRunResult>,
+		abort: (device?: string) => ipcRenderer.invoke(IPC_COMMANDS.BENCH_ABORT, device) as Promise<boolean>,
 	},
 
 	system: {
@@ -353,12 +353,14 @@ const api: OmpApi = {
 	},
 
 	models: {
-		listProviders: () => ipcRenderer.invoke(IPC_COMMANDS.MODELS_PROVIDERS_LIST) as Promise<CustomProviderView[]>,
-		upsertProvider: (input: CustomProviderInput) =>
-			ipcRenderer.invoke(IPC_COMMANDS.MODELS_PROVIDER_UPSERT, input) as Promise<void>,
-		deleteProvider: (id: string) => ipcRenderer.invoke(IPC_COMMANDS.MODELS_PROVIDER_DELETE, id) as Promise<void>,
-		openConfig: () =>
-			ipcRenderer.invoke(IPC_COMMANDS.MODELS_CONFIG_OPEN) as Promise<{ path: string; opened: boolean }>,
+		listProviders: (device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.MODELS_PROVIDERS_LIST, device) as Promise<CustomProviderView[]>,
+		upsertProvider: (input: CustomProviderInput, device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.MODELS_PROVIDER_UPSERT, input, device) as Promise<void>,
+		deleteProvider: (id: string, device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.MODELS_PROVIDER_DELETE, id, device) as Promise<void>,
+		openConfig: (device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.MODELS_CONFIG_OPEN, device) as Promise<{ path: string; opened: boolean }>,
 	},
 
 	fs: {

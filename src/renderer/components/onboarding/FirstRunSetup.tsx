@@ -14,6 +14,7 @@ import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { type FirstRunPhase, useFirstRunStore } from "../../stores/first-run";
 import { useModelStore } from "../../stores/model";
+import { focusedTabDevice } from "../../stores/remote";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { Badge, Banner, BrandMark, Button, EmptyState, ErrorDetail, ListRow, Spinner } from "../common";
@@ -212,13 +213,16 @@ function ModelStep() {
 	const runTest = async (model: ModelInfo) => {
 		setTest({ kind: "running" });
 		try {
-			const result = await window.omp.bench.run({
-				models: [modelSelector(model)],
-				profile: "chat",
-				runs: 1,
-				parallel: 1,
-				maxTokens: 16,
-			});
+			const result = await window.omp.bench.run(
+				{
+					models: [modelSelector(model)],
+					profile: "chat",
+					runs: 1,
+					parallel: 1,
+					maxTokens: 16,
+				},
+				focusedTabDevice(),
+			);
 			if (!result.success) {
 				setTest({ kind: "failed", failure: inlineFailure(result, t("setup.test.failed")) });
 				return;

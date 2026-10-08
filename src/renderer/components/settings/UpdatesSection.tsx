@@ -11,10 +11,13 @@ import type { RpcOmpUpdateResult, RpcOmpUpdateRunResult } from "../../../shared/
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { useFocusedHost } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUpdaterStore } from "../../stores/updater";
 import { Badge, Banner, type BannerVariant, Button, ErrorDetail, Input, Spinner } from "../common";
+import { DeviceChip } from "../remote/DeviceChip";
+import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 export type UpdateOverviewState = "checking" | "healthy" | "attention" | "error";
@@ -62,6 +65,7 @@ export function updateOverviewState(
 export function UpdatesSection() {
 	const tabRpc = useTabRpc();
 	const t = useT();
+	const host = useFocusedHost();
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
 	const status = useUpdaterStore(state => state.status);
 	const setStatus = useUpdaterStore(state => state.setStatus);
@@ -159,6 +163,7 @@ export function UpdatesSection() {
 			</Banner>
 
 			<SettingsRow
+				badge={<ThisDeviceTag />}
 				control={
 					status.state === "available" ? (
 						<Button
@@ -211,37 +216,41 @@ export function UpdatesSection() {
 
 			<UpdateAuthRow onChanged={check} />
 
-			<SettingsRow
-				control={
-					coreError ? (
-						<Badge variant="error">{t("updates.checkFailed")}</Badge>
-					) : !core || checking ? (
-						<Spinner label={t("updates.checking")} size="sm" />
-					) : core.updateAvailable ? (
-						<Button
-							disabled={coreUpdating || !sidecarReady}
-							icon={<Download />}
-							loading={coreUpdating}
-							onClick={() => void updateCore()}
-							size="sm"
-						>
-							{coreUpdating ? t("updates.core.updating") : t("updates.core.update")}
-						</Button>
-					) : (
-						<Badge variant="success">{t("updates.upToDate")}</Badge>
-					)
-				}
-				description={t("updates.core.description")}
-				footer={
-					<p className="mt-1 text-sc-xs text-(--sc-text-muted)">
-						{t("updates.current")}{" "}
-						<span className="font-mono text-(--sc-text)">{core?.currentVersion ?? "—"}</span>
-						{" · "}
-						{t("updates.latest")} <span className="font-mono text-(--sc-text)">{core?.latestVersion ?? "—"}</span>
-					</p>
-				}
-				label={t("updates.core.name")}
-			/>
+			<HostScoped>
+				<SettingsRow
+					badge={host && <DeviceChip deviceId={host.deviceId} />}
+					control={
+						coreError ? (
+							<Badge variant="error">{t("updates.checkFailed")}</Badge>
+						) : !core || checking ? (
+							<Spinner label={t("updates.checking")} size="sm" />
+						) : core.updateAvailable ? (
+							<Button
+								disabled={coreUpdating || !sidecarReady}
+								icon={<Download />}
+								loading={coreUpdating}
+								onClick={() => void updateCore()}
+								size="sm"
+							>
+								{coreUpdating ? t("updates.core.updating") : t("updates.core.update")}
+							</Button>
+						) : (
+							<Badge variant="success">{t("updates.upToDate")}</Badge>
+						)
+					}
+					description={t("updates.core.description")}
+					footer={
+						<p className="mt-1 text-sc-xs text-(--sc-text-muted)">
+							{t("updates.current")}{" "}
+							<span className="font-mono text-(--sc-text)">{core?.currentVersion ?? "—"}</span>
+							{" · "}
+							{t("updates.latest")}{" "}
+							<span className="font-mono text-(--sc-text)">{core?.latestVersion ?? "—"}</span>
+						</p>
+					}
+					label={t("updates.core.name")}
+				/>
+			</HostScoped>
 		</SettingsSection>
 	);
 }
@@ -292,6 +301,7 @@ function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> }) {
 	const source = info?.source ?? "none";
 	return (
 		<SettingsRow
+			badge={<ThisDeviceTag />}
 			control={
 				info === undefined ? (
 					<Spinner label={t("updates.checking")} size="sm" />

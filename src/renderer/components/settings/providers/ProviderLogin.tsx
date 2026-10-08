@@ -4,13 +4,21 @@
  * extension requests; while a sign-in started here is in flight those
  * requests render inside the provider row instead of as a global dialog
  * (`inlineLogin` in the extension-ui store). The key/code field is masked.
+ *
+ * On a tab that runs on a paired host, omp and its OAuth callback server run
+ * there while the browser opens here: the link is the provider's own URL
+ * (never the host's `localhost/launch`), and the panel tells the user to
+ * paste the address the browser ends on — stock omp asks for exactly that
+ * ("Paste the authorization code (or full redirect URL)") alongside its
+ * callback server, so the code reaches the host through the paste.
  */
 
 import { ExternalLink, Eye, EyeOff } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { useExtensionUiStore } from "../../../stores/extension-ui";
+import { openUrlTarget, useExtensionUiStore } from "../../../stores/extension-ui";
+import { useFocusedHost, useFocusedTabDevice } from "../../../stores/remote";
 import { Banner, Button, IconButton, Input, Spinner } from "../../common";
 
 interface LoginPrompt {
@@ -23,8 +31,8 @@ export interface ProviderLoginState {
 	/** Provider whose sign-in is in flight, or whose last attempt failed. */
 	providerId: string | null;
 	running: boolean;
-	/** Sign-in or key page omp asked to open. */
-	link: { url: string; instructions?: string } | null;
+	/** Sign-in or key page omp asked to open. `oauth`: a browser sign-in with a callback server (it sent a `launchUrl`). */
+	link: { url: string; instructions?: string; oauth: boolean } | null;
 	/** omp is waiting for a pasted key / code. */
 	prompt: LoginPrompt | null;
 	error: string | null;
@@ -45,6 +53,7 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
 	const setInlineLogin = useExtensionUiStore(state => state.setInlineLogin);
+	const remote = useFocusedTabDevice() !== undefined;
 	const [state, setState] = useState<ProviderLoginState>(IDLE);
 	const attempt = useRef(0);
 	const promptRef = useRef<LoginPrompt | null>(null);
@@ -66,7 +75,11 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 				// request (the key prompt) is not queued behind it.
 				setState(prev => ({
 					...prev,
-					link: { url: request.launchUrl ?? request.url, instructions: request.instructions },
+					link: {
+						url: openUrlTarget(request, remote),
+						instructions: request.instructions,
+						oauth: request.launchUrl !== undefined,
+					},
 				}));
 				respond(request.id, { value: "done" });
 			} else if (request.method === "input" && promptRef.current?.id !== request.id) {
@@ -76,7 +89,7 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 				}));
 			}
 		}
-	}, [pending, respond, state.running]);
+	}, [pending, remote, respond, state.running]);
 
 	const finish = useCallback(() => {
 		setInlineLogin(false);
@@ -144,6 +157,7 @@ export function ProviderLoginPanel({
 }) {
 	const t = useT();
 	const { state } = login;
+	const host = useFocusedHost();
 	const [value, setValue] = useState("");
 	const [reveal, setReveal] = useState(false);
 	const promptId = state.prompt?.id;
@@ -180,6 +194,9 @@ export function ProviderLoginPanel({
 		event.preventDefault();
 		if (value.trim()) login.submit(value);
 	};
+	// An OAuth sign-in also asks for the pasted code/redirect beside its callback
+	// server; only a link without one is a page to copy a key from.
+	const keyPage = state.prompt !== null && state.link?.oauth === false;
 
 	return (
 		<div className="flex flex-col gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-surface-1) p-3">
@@ -187,7 +204,7 @@ export function ProviderLoginPanel({
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
 					<p className="min-w-0 flex-1 text-sc-sm text-(--sc-text-secondary)">
 						{state.link.instructions ||
-							t(state.prompt ? "providerList.login.keyPage" : "providerList.login.browser", {
+							t(keyPage ? "providerList.login.keyPage" : "providerList.login.browser", {
 								provider: providerName,
 							})}
 					</p>
@@ -197,11 +214,16 @@ export function ProviderLoginPanel({
 							if (state.link) void window.omp.system.openExternal(state.link.url);
 						}}
 						size="sm"
-						variant={state.prompt ? "secondary" : "primary"}
+						variant={keyPage ? "secondary" : "primary"}
 					>
-						{state.prompt ? t("providerList.login.openKeyPage") : t("providerList.login.openBrowser")}
+						{keyPage ? t("providerList.login.openKeyPage") : t("providerList.login.openBrowser")}
 					</Button>
 				</div>
+			)}
+			{state.link && host && (
+				<p className="text-sc-xs break-keep text-(--sc-text-muted)" data-remote-login-hint="true">
+					{t("providerList.login.remoteHint", { name: host.name ?? t("remote.tab.unknownDevice") })}
+				</p>
 			)}
 			{state.prompt ? (
 				<form className="flex items-end gap-2" onSubmit={submit}>

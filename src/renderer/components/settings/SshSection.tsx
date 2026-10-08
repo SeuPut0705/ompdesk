@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcSshHostInfo, RpcSshHostInput, RpcSshHostsResult, RpcSshTestResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { useFocusedTabDevice } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import {
 	Badge,
@@ -75,6 +76,8 @@ export function SshSection() {
 	const tabRpc = useTabRpc();
 	const t = useT();
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
+	// The native file panel sees this device only; a paired host's key path is typed.
+	const remote = useFocusedTabDevice() !== undefined;
 	const [data, setData] = useState<RpcSshHostsResult>();
 	const [selected, setSelected] = useState<RpcSshHostInfo>();
 	const selectionRef = useRef<{ name: string; scope: RpcSshHostInfo["scope"] } | undefined>(undefined);
@@ -419,13 +422,15 @@ export function SshSection() {
 									onChange={event => setDraft(current => ({ ...current, keyPath: event.target.value }))}
 									placeholder="~/.ssh/id_ed25519"
 									trailing={
-										<IconButton
-											disabled={!sidecarReady}
-											icon={<FolderOpen />}
-											label={t("ssh.chooseKey")}
-											onClick={() => void chooseKey()}
-											size="sm"
-										/>
+										remote ? undefined : (
+											<IconButton
+												disabled={!sidecarReady}
+												icon={<FolderOpen />}
+												label={t("ssh.chooseKey")}
+												onClick={() => void chooseKey()}
+												size="sm"
+											/>
+										)
 									}
 									value={draft.keyPath ?? ""}
 								/>

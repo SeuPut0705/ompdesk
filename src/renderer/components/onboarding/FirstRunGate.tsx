@@ -11,6 +11,7 @@ import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useFirstRunStore } from "../../stores/first-run";
 import { useModelStore } from "../../stores/model";
+import { focusedTabDevice } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
@@ -30,7 +31,7 @@ export function FirstRunGate() {
 		void (async () => {
 			const [catalogResult, configResult] = await Promise.allSettled([
 				refreshProviders(false),
-				window.omp.models.listProviders(),
+				window.omp.models.listProviders(focusedTabDevice()),
 			]);
 			// A failed catalog read is transient (sidecar/transport): stay
 			// unlatched so the next ready transition checks again.

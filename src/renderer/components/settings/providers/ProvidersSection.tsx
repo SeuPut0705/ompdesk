@@ -4,6 +4,8 @@
  * Search, connected first, inline sign-in (OAuth or API key), every stored
  * account of a connected subscription (ProviderAccounts) and an inline form
  * for custom endpoints (`ui.providerForm`, opened by `openProviderConfig`).
+ * A tab on a paired host edits the host's models.yml in-app; "Edit config"
+ * opens this device's file only, so it is not offered there.
  */
 
 import { FileCode2, Plus, RefreshCw } from "lucide-react";
@@ -14,6 +16,7 @@ import { errorDetail } from "../../../lib/error-detail";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { useModelStore } from "../../../stores/model";
+import { useFocusedTabDevice } from "../../../stores/remote";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { Banner, Button, ConfirmDialog, IconButton, Spinner } from "../../common";
@@ -26,6 +29,7 @@ import { providerDiscoveryErrors } from "./provider-catalog";
 export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 	const t = useT();
 	const tabRpc = useTabRpc();
+	const device = useFocusedTabDevice();
 	const catalog = useProviderCatalog({ pollMs });
 	const discoveryStates = useModelStore(state => state.discoveryStates);
 	const refreshProviders = useModelStore(state => state.refreshProviders);
@@ -78,7 +82,7 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 	const deleteConfig = async (config: CustomProviderView) => {
 		setBusyProvider(config.id);
 		try {
-			await window.omp.models.deleteProvider(config.id);
+			await window.omp.models.deleteProvider(config.id, device);
 			try {
 				await refreshProviders(true);
 			} catch (cause) {
@@ -118,18 +122,20 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 				<Button icon={<Plus />} onClick={() => openProviderConfig()} size="sm" variant="secondary">
 					{t("providerList.addCustom")}
 				</Button>
-				<Button
-					icon={<FileCode2 />}
-					onClick={() => {
-						void window.omp.models.openConfig().catch(cause => {
-							toastError({ title: t("providers.editConfig"), error: cause });
-						});
-					}}
-					size="sm"
-					variant="ghost"
-				>
-					{t("providers.editConfig")}
-				</Button>
+				{device === undefined && (
+					<Button
+						icon={<FileCode2 />}
+						onClick={() => {
+							void window.omp.models.openConfig().catch(cause => {
+								toastError({ title: t("providers.editConfig"), error: cause });
+							});
+						}}
+						size="sm"
+						variant="ghost"
+					>
+						{t("providers.editConfig")}
+					</Button>
+				)}
 				<IconButton
 					disabled={!catalog.sidecarReady || catalog.loading}
 					icon={catalog.loading ? <Spinner inheritColor size="sm" /> : <RefreshCw />}
