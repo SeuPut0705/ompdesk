@@ -1,6 +1,6 @@
 import { parseHTML } from "linkedom";
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { ExtensionUIResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
@@ -8,7 +8,8 @@ import { useExtensionUiStore } from "../../stores/extension-ui";
 import { AskDockSlot } from "./ask-dock";
 import { ExtensionDialog } from "./ExtensionDialog";
 
-const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
+const { document, window, Event, CustomEvent, HTMLElement, HTMLTextAreaElement, Node } =
+	parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
 globals.document = document;
 globals.window = window;
@@ -21,6 +22,26 @@ globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0
 
 const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
 if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
+// linkedom's textarea lacks `defaultValue` (per spec, its text content), which
+// React writes the initial value through.
+if (!("defaultValue" in HTMLTextAreaElement.prototype)) {
+	Object.defineProperty(HTMLTextAreaElement.prototype, "defaultValue", {
+		configurable: true,
+		get(this: { textContent: string }) {
+			return this.textContent;
+		},
+		set(this: { textContent: string }, value: string) {
+			this.textContent = value;
+		},
+	});
+}
+// React snapshots `isInputEventSupported` at module load via `"oninput" in
+// document`; without it, keys in a textarea take the IE propertychange polyfill.
+Object.defineProperty(document, "oninput", { value: null, writable: true, configurable: true });
+
+// Deferred until after the globals above: react-dom-client computes its DOM
+// support flags (canUseDOM, isInputEventSupported) at evaluation time.
+const { createRoot } = await import("react-dom/client");
 
 interface TestElement {
 	textContent: string | null;
@@ -31,6 +52,7 @@ interface TestElement {
 let container: TestElement;
 let root: Root;
 let respondExtensionUi: Mock<(response: ExtensionUIResponse) => void>;
+let openExternal: Mock<(url: string) => Promise<void>>;
 
 async function flush(): Promise<void> {
 	await act(async () => {
@@ -42,8 +64,14 @@ async function flush(): Promise<void> {
 
 async function mount({ withComposerDock = false }: { withComposerDock?: boolean } = {}): Promise<void> {
 	respondExtensionUi = vi.fn();
-	const ompWindow = window as unknown as { omp: { ui: { respondExtensionUi: typeof respondExtensionUi } } };
-	ompWindow.omp = { ui: { respondExtensionUi } };
+	openExternal = vi.fn(async () => {});
+	const ompWindow = window as unknown as {
+		omp: {
+			ui: { respondExtensionUi: typeof respondExtensionUi };
+			system: { openExternal: typeof openExternal };
+		};
+	};
+	ompWindow.omp = { ui: { respondExtensionUi }, system: { openExternal } };
 	container = document.createElement("div") as unknown as TestElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
@@ -299,6 +327,173 @@ describe("ExtensionDialog docked prompts", () => {
 		});
 		await flush();
 		expect(respondExtensionUi).toHaveBeenCalledWith({ type: "extension_ui_response", id: "approval", value: "Deny" });
+	});
+});
+
+/** Fires a keydown with optional modifiers on `target`, the way the browser would. */
+async function press(
+	target: object,
+	key: string,
+	modifiers: { metaKey?: boolean; ctrlKey?: boolean } = {},
+): Promise<boolean> {
+	const event = new Event("keydown", { bubbles: true, cancelable: true });
+	Object.assign(event, { key, metaKey: false, ctrlKey: false, altKey: false, ...modifiers });
+	await act(async () => {
+		(target as TestElement).dispatchEvent(event);
+	});
+	await flush();
+	return event.defaultPrevented;
+}
+
+function dockedCard(): TestElement {
+	const card = document.querySelector(".omp-ask-dock [data-prompt-card]") as unknown as TestElement | null;
+	if (!card) throw new Error("prompt is not docked above the composer");
+	return card;
+}
+
+describe("ExtensionDialog input", () => {
+	async function showInput(): Promise<HTMLInputElement> {
+		await mount({ withComposerDock: true });
+		await act(async () =>
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "input-1",
+				method: "input",
+				title: "Branch name",
+				placeholder: "feature/…",
+			}),
+		);
+		await flush();
+		const field = document.querySelector(".omp-ask-dock [data-prompt-card] input") as unknown as HTMLInputElement;
+		if (!field) throw new Error("missing input field");
+		return field;
+	}
+
+	it("docks without a scrim, keeps focus off the buttons, and Enter submits the typed value", async () => {
+		const field = await showInput();
+		expect(document.querySelector(".omp-dialog-overlay")).toBeNull();
+		expect(document.querySelector('[role="dialog"]')).toBeNull();
+		expect(document.activeElement?.tagName).not.toBe("BUTTON");
+		field.value = "feature/docked";
+		// Digits type into the field; they never pick anything here.
+		await press(field, "1");
+		expect(respondExtensionUi).not.toHaveBeenCalled();
+		await press(field, "Enter");
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "input-1",
+			value: "feature/docked",
+		});
+	});
+
+	it("Escape cancels", async () => {
+		const field = await showInput();
+		await press(field, "Escape");
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "input-1",
+			cancelled: true,
+		});
+	});
+});
+
+describe("ExtensionDialog editor", () => {
+	async function showEditor(): Promise<HTMLTextAreaElement> {
+		await mount({ withComposerDock: true });
+		await act(async () =>
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "editor-1",
+				method: "editor",
+				title: "Commit message",
+				prefill: "fix: docked prompts",
+			}),
+		);
+		await flush();
+		const field = document.querySelector(
+			".omp-ask-dock [data-prompt-card] textarea",
+		) as unknown as HTMLTextAreaElement;
+		if (!field) throw new Error("missing editor textarea");
+		return field;
+	}
+
+	it("prefills, keeps plain Enter and digits in the text, and Cmd+Enter submits", async () => {
+		const field = await showEditor();
+		expect(field.value).toBe("fix: docked prompts");
+		expect(dockedCard().textContent).toContain("Submit");
+		expect(document.querySelector(".omp-ask-dock [data-prompt-card] kbd")).not.toBeNull();
+		field.value = "fix: docked prompts\n\nbody";
+		expect(await press(field, "Enter")).toBe(false);
+		expect(await press(field, "2")).toBe(false);
+		expect(respondExtensionUi).not.toHaveBeenCalled();
+		await press(field, "Enter", { metaKey: true });
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "editor-1",
+			value: "fix: docked prompts\n\nbody",
+		});
+	});
+
+	it("Ctrl+Enter submits too", async () => {
+		const field = await showEditor();
+		await press(field, "Enter", { ctrlKey: true });
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "editor-1",
+			value: "fix: docked prompts",
+		});
+	});
+
+	it("Escape cancels", async () => {
+		const field = await showEditor();
+		await press(field, "Escape");
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "editor-1",
+			cancelled: true,
+		});
+	});
+});
+
+describe("ExtensionDialog open_url", () => {
+	async function showOpenUrl(): Promise<TestElement> {
+		await mount({ withComposerDock: true });
+		await act(async () =>
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "url-1",
+				method: "open_url",
+				url: "https://example.com/login",
+				launchUrl: "https://example.com/login?launch=1",
+				instructions: "Sign in, then come back.",
+			}),
+		);
+		await flush();
+		return dockedCard();
+	}
+
+	it("shows the URL plainly and 1 opens it, answering done", async () => {
+		const card = await showOpenUrl();
+		expect(card.textContent).toContain("https://example.com/login?launch=1");
+		expect(card.textContent).toContain("Sign in, then come back.");
+		expect(document.activeElement?.tagName).not.toBe("BUTTON");
+		await press(card, "1");
+		expect(openExternal).toHaveBeenCalledWith("https://example.com/login?launch=1");
+		expect(respondExtensionUi).toHaveBeenCalledWith({ type: "extension_ui_response", id: "url-1", value: "done" });
+	});
+
+	it("2 cancels without opening anything", async () => {
+		const card = await showOpenUrl();
+		await press(card, "2");
+		expect(openExternal).not.toHaveBeenCalled();
+		expect(respondExtensionUi).toHaveBeenCalledWith({ type: "extension_ui_response", id: "url-1", cancelled: true });
+	});
+
+	it("Escape cancels", async () => {
+		const card = await showOpenUrl();
+		await press(card, "Escape");
+		expect(openExternal).not.toHaveBeenCalled();
+		expect(respondExtensionUi).toHaveBeenCalledWith({ type: "extension_ui_response", id: "url-1", cancelled: true });
 	});
 });
 

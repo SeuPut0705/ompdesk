@@ -2,7 +2,9 @@
  * Remote devices in the main process: both roles of this computer.
  *
  * Host (B): when prefs `remote.hostEnabled` is on, a RemoteHost listens and
- * beacons, and paired devices run tabs here through LocalHostServices.
+ * beacons, and paired devices run tabs here through LocalHostServices. While
+ * a device is connected or one of its tabs still runs a turn, this computer
+ * is kept awake (prefs `remote.keepAwake`, default on; see keep-awake.ts).
  *
  * Client (A): one RemoteClient per paired host, reconnecting on its own. Tabs
  * on a host are RemoteSidecars created through `createSidecar` (the pool's
@@ -29,6 +31,7 @@ import { type HostMachineInfo, RemoteHost } from "./host-server";
 import type { LocalHostServices } from "./host-services";
 import { HostStore, type PairedHost } from "./hosts-store";
 import { type Identity, loadIdentity } from "./identity";
+import { type KeepAwakeBlocker, KeepAwakePolicy } from "./keep-awake";
 import { PeerStore } from "./peers-store";
 import { RemoteSidecar } from "./remote-sidecar";
 
@@ -40,6 +43,7 @@ const MAX_DEVICE_NAME = 64;
 
 const HOST_ENABLED_KEY = "remote.hostEnabled";
 const DEVICE_NAME_KEY = "remote.deviceName";
+const KEEP_AWAKE_KEY = "remote.keepAwake";
 
 /** Pairing failures the renderer localizes; anything else reads as a protocol failure. */
 const PAIR_ERROR_CODES: Record<string, IpcErrorCode> = {
@@ -62,6 +66,8 @@ export interface RemoteDevicesDeps {
 	machineInfo: () => HostMachineInfo;
 	/** Status message of a tab whose host is unreachable, in the UI language. */
 	offlineMessage: () => string;
+	/** Electron `powerSaveBlocker` held while devices use this computer. */
+	powerSaveBlocker: KeepAwakeBlocker;
 }
 
 interface HostLink {
@@ -88,12 +94,19 @@ export class RemoteDevices {
 	#host: RemoteHost | null = null;
 	#discovery: Discovery | null = null;
 	#disposed = false;
+	readonly #keepAwake: KeepAwakePolicy;
+	readonly #unwatchRunning: () => void;
 
 	constructor(deps: RemoteDevicesDeps) {
 		this.#deps = deps;
 		this.#identity = loadIdentity(deps.userData);
 		this.#peers = new PeerStore(deps.userData);
 		this.#hosts = new HostStore(deps.userData);
+		this.#keepAwake = new KeepAwakePolicy({
+			blocker: deps.powerSaveBlocker,
+			onChange: () => this.#broadcastState(),
+		});
+		this.#unwatchRunning = deps.services.onRunningChange(() => this.#broadcastState());
 	}
 
 	/** Launch: the host role per prefs, a link to every paired host, and a brief beacon listen for new addresses. */
@@ -107,6 +120,8 @@ export class RemoteDevices {
 		const host = this.#host;
 		const code = host?.port != null ? host.pairingCode() : null;
 		const online = new Set((host?.connections() ?? []).map(peer => peer.deviceId));
+		const using = new Set([...online, ...this.#deps.services.runningPeers()]);
+		const peers = this.#peers.list();
 		return {
 			host: {
 				enabled: this.#deps.prefs.get(HOST_ENABLED_KEY) === true,
@@ -115,12 +130,15 @@ export class RemoteDevices {
 				addresses: host?.addresses() ?? [],
 				code: code?.code ?? null,
 				expiresAt: code?.expiresAt ?? null,
-				peers: this.#peers.list().map(peer => ({
+				peers: peers.map(peer => ({
 					deviceId: peer.deviceId,
 					name: peer.name,
 					online: online.has(peer.deviceId),
 					lastSeenAt: peer.lastSeenAt ?? null,
 				})),
+				keepAwake: this.#deps.prefs.get(KEEP_AWAKE_KEY) !== false,
+				keepingAwake: this.#keepAwake.held,
+				usedBy: peers.filter(peer => using.has(peer.deviceId)).map(peer => peer.name),
 			},
 			hosts: this.#hosts
 				.list()
@@ -145,6 +163,11 @@ export class RemoteDevices {
 		const trimmed = typeof name === "string" ? name.trim() : "";
 		if (!trimmed || trimmed.length > MAX_DEVICE_NAME) throw codedError("invalid_name", "Invalid device name");
 		this.#deps.prefs.set(DEVICE_NAME_KEY, trimmed);
+		return this.#broadcastState();
+	}
+
+	setKeepAwake(enabled: boolean): RemoteState {
+		this.#deps.prefs.set(KEEP_AWAKE_KEY, enabled === true);
 		return this.#broadcastState();
 	}
 
@@ -263,8 +286,15 @@ export class RemoteDevices {
 		this.#deps.services.sessionsChanged();
 	}
 
+	/** This machine's reply-language setting changed: tabs it hosts for devices follow it. */
+	hostReplyLanguageChanged(): void {
+		this.#deps.services.syncReplyLanguage();
+	}
+
 	async dispose(): Promise<void> {
 		this.#disposed = true;
+		this.#unwatchRunning();
+		this.#keepAwake.dispose();
 		this.#stopListening();
 		for (const deviceId of [...this.#links.keys()]) this.#unlink(deviceId);
 		this.#deps.services.disposeAll();
@@ -420,7 +450,17 @@ export class RemoteDevices {
 		return [...(this.#discovery?.seen.values() ?? [])].map(entry => ({ ...entry.device }));
 	}
 
+	/** Every change lands here, so this is also where the keep-awake policy sees it. */
 	#broadcastState(): RemoteState {
+		const host = this.#host;
+		this.#keepAwake.update({
+			enabled:
+				!this.#disposed &&
+				this.#deps.prefs.get(HOST_ENABLED_KEY) === true &&
+				this.#deps.prefs.get(KEEP_AWAKE_KEY) !== false,
+			connected: (host?.connections().length ?? 0) > 0,
+			running: this.#deps.services.runningPeers().length > 0,
+		});
 		const state = this.state();
 		this.#deps.broadcast(IPC_EVENTS.REMOTE_STATE, state);
 		return state;

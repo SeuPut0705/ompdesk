@@ -233,6 +233,8 @@ export const IPC_COMMANDS = {
 	/** Turn the host role (other devices may use this computer) on or off; persisted in prefs */
 	REMOTE_SET_HOST_ENABLED: "remote:set-host-enabled",
 	REMOTE_SET_DEVICE_NAME: "remote:set-device-name",
+	/** Keep this computer awake while a device uses it; persisted in prefs */
+	REMOTE_SET_KEEP_AWAKE: "remote:set-keep-awake",
 	/** Mint a fresh pairing code */
 	REMOTE_ROTATE_CODE: "remote:rotate-code",
 	/** Forget a paired client device and close its live connections */
@@ -1034,6 +1036,12 @@ export interface RemoteHostState {
 	/** Epoch ms when `code` stops working. */
 	expiresAt: number | null;
 	peers: PeerView[];
+	/** Keep this computer awake while a device uses it (prefs `remote.keepAwake`, default on). */
+	keepAwake: boolean;
+	/** The sleep blocker is held now: a device uses this computer, or did within the last minute. */
+	keepingAwake: boolean;
+	/** Names of paired devices connected now or with a turn still running here. */
+	usedBy: string[];
 }
 
 export interface RemoteState {
@@ -1087,11 +1095,13 @@ export interface LogBatch {
 	nextSequence: number;
 }
 
-/** Versions/environment the feedback dialog attaches to bug reports. */
+/** Versions/environment: the feedback dialog attaches them to bug reports; Settings shows the device language. */
 export interface SystemInfo {
 	appVersion: string;
 	platform: string;
 	arch: string;
+	/** Device language subtag (`ko`, `zh-Hant`) the agent replies in on `auto` (src/shared/reply-language.ts); null when unknown. */
+	deviceLanguage: string | null;
 	osRelease: string;
 	electron: string;
 	chrome: string;
@@ -1432,6 +1442,7 @@ export interface OmpApi {
 		getState(): Promise<RemoteState>;
 		setHostEnabled(enabled: boolean): Promise<RemoteState>;
 		setDeviceName(name: string): Promise<RemoteState>;
+		setKeepAwake(enabled: boolean): Promise<RemoteState>;
 		rotateCode(): Promise<RemoteState>;
 		revokePeer(deviceId: string): Promise<RemoteState>;
 		/** Start or stop LAN discovery; resolves with the devices seen so far (empty on stop). */

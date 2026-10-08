@@ -10,6 +10,8 @@
  * clipboard) are among them and are answered by the client device — nothing
  * here executes them. When a connection drops, its tabs keep running for a
  * grace period; a reconnect re-attaches by rtab and gets the status again.
+ * Whether each tab is running a turn is tracked here too (the same rules as
+ * the local pool's "running"), so the host can keep this computer awake.
  *
  * Host-level calls: session listing/search/kind/delete/rename against this
  * machine's session index, the workspace fs reads (same confinement and caps
@@ -20,7 +22,13 @@ import { promises as fsp } from "node:fs";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import { codedError } from "../../shared/ipc-error-codes";
-import type { RpcCommand, RpcResponse, SidecarStatusPayload } from "../../shared/rpc-types";
+import type {
+	AgentSessionEvent,
+	PromptResultFrame,
+	RpcCommand,
+	RpcResponse,
+	SidecarStatusPayload,
+} from "../../shared/rpc-types";
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
@@ -84,6 +92,53 @@ interface HostTab {
 	/** Session file the sidecar last reported (live-owner checks for delete/rename). */
 	sessionFile: string | undefined;
 	graceTimer: NodeJS.Timeout | undefined;
+	run: HostTabRun;
+}
+
+/** A host tab's turn state, read from its sidecar's events like the local pool's `running`. */
+interface HostTabRun {
+	/** agent_start seen, its run not yet over. */
+	running: boolean;
+	/** The prompt yielded while background work can still wake the session. */
+	awaitingSettled: boolean;
+	/** Inside an auto-retry saga: its coalesced agent_end is not the end of the run. */
+	retrying: boolean;
+	endedWhileRetrying: boolean;
+	compacting: boolean;
+}
+
+const IDLE_RUN: Readonly<HostTabRun> = {
+	running: false,
+	awaitingSettled: false,
+	retrying: false,
+	endedWhileRetrying: false,
+	compacting: false,
+};
+
+function runEvent(run: HostTabRun, event: AgentSessionEvent): void {
+	switch (event.type) {
+		case "agent_start":
+			run.running = true;
+			break;
+		case "agent_end":
+			if (run.retrying) run.endedWhileRetrying = true;
+			else if (!run.awaitingSettled) run.running = false;
+			break;
+		case "auto_retry_start":
+			run.retrying = true;
+			break;
+		case "auto_retry_end":
+			run.retrying = false;
+			if (!event.success && run.endedWhileRetrying && !run.awaitingSettled) run.running = false;
+			run.endedWhileRetrying = false;
+			break;
+		case "auto_compaction_start":
+			run.compacting = true;
+			break;
+		case "auto_compaction_end":
+			run.compacting = false;
+			break;
+	}
 }
 
 const Rtab = z.string().min(1).max(128);
@@ -149,10 +204,26 @@ export class LocalHostServices implements HostServices {
 	/** Live connections that have talked to us; `sessions.changed` goes to each. */
 	readonly #conns = new Set<HostConnection>();
 	#sessionsTimer: NodeJS.Timeout | undefined;
+	readonly #runningListeners = new Set<() => void>();
 
 	constructor(deps: HostServicesDeps) {
 		this.#deps = deps;
 		this.#graceMs = deps.graceMs ?? HOST_TAB_GRACE_MS;
+	}
+
+	/** Paired devices with a host tab running a turn here (connected or in their grace period). */
+	runningPeers(): string[] {
+		const peers = new Set<string>();
+		for (const tab of this.#tabs.values()) if (isBusy(tab.run)) peers.add(tab.peerId);
+		return [...peers];
+	}
+
+	/** Called whenever a host tab starts or stops running a turn; returns the unsubscribe. */
+	onRunningChange(listener: () => void): () => void {
+		this.#runningListeners.add(listener);
+		return () => {
+			this.#runningListeners.delete(listener);
+		};
 	}
 
 	async call(peer: PeerInfo, method: string, params: unknown, conn: HostConnection): Promise<unknown> {
@@ -265,6 +336,11 @@ export class LocalHostServices implements HostServices {
 		this.#sessionsTimer.unref?.();
 	}
 
+	/** This machine's reply-language setting changed: the tabs it runs for paired devices follow it. */
+	syncReplyLanguage(): void {
+		for (const tab of this.#tabs.values()) tab.sidecar.syncReplyLanguage();
+	}
+
 	/** A revoked device's tabs stop now, grace or not. */
 	dropPeer(deviceId: string): void {
 		for (const [key, tab] of this.#tabs) if (tab.peerId === deviceId) this.#closeTab(key);
@@ -323,9 +399,11 @@ export class LocalHostServices implements HostServices {
 			resumeSessionPath: params.sessionPath,
 			sessionFile: params.sessionPath,
 			graceTimer: undefined,
+			run: { ...IDLE_RUN },
 		};
 		this.#tabs.set(key, tab);
 		this.#wire(tab);
+		this.#trackRun(tab);
 		return { cwd: sidecar.cwd, kind, attached: false };
 	}
 
@@ -353,6 +431,43 @@ export class LocalHostServices implements HostServices {
 					sidecar.on(name, (arg: unknown) => this.#emit(tab, name, arg));
 			}
 		}
+	}
+
+	/** Keep `tab.run` current from the sidecar's own events; a busy flip notifies the listeners. */
+	#trackRun(tab: HostTab): void {
+		const { sidecar } = tab;
+		const change = (apply: (run: HostTabRun) => void): void => {
+			const was = isBusy(tab.run);
+			apply(tab.run);
+			if (isBusy(tab.run) !== was) this.#runningChanged();
+		};
+		// "Running" only means something on a live connection: a restart or crash ends the run.
+		sidecar.on("status", (payload: SidecarStatusPayload) => {
+			if (payload.status !== "ready") change(run => Object.assign(run, IDLE_RUN));
+		});
+		sidecar.on("promptResult", (frame: PromptResultFrame) => {
+			if (typeof frame.sessionSettled !== "boolean") return;
+			const settled = frame.sessionSettled;
+			change(run => {
+				run.awaitingSettled = !settled;
+				run.running = !settled;
+			});
+		});
+		sidecar.on("sessionSettled", () =>
+			change(run => {
+				run.awaitingSettled = false;
+				run.running = false;
+			}),
+		);
+		sidecar.on("events", (events: AgentSessionEvent[]) =>
+			change(run => {
+				for (const event of events) runEvent(run, event);
+			}),
+		);
+	}
+
+	#runningChanged(): void {
+		for (const listener of this.#runningListeners) listener();
 	}
 
 	#statusArg(sidecar: SidecarLike, payload: SidecarStatusPayload): TabStatusArg {
@@ -455,7 +570,12 @@ export class LocalHostServices implements HostServices {
 		tab.conn = null;
 		tab.sidecar.removeAllListeners();
 		tab.sidecar.dispose();
+		if (isBusy(tab.run)) this.#runningChanged();
 	}
+}
+
+function isBusy(run: HostTabRun): boolean {
+	return run.running || run.compacting;
 }
 
 /**

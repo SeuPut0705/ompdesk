@@ -1,4 +1,4 @@
-/** Settings › General: language, notifications, side panel default, messages sent mid-turn, and long-session compaction. */
+/** Settings › General: language, conversation language, notifications, side panel default, messages sent mid-turn, and long-session compaction. */
 
 import { useId } from "react";
 import { isUiLanguage, UI_LANGUAGE_NAMES, UI_LANGUAGES } from "../../../shared/ui-language";
@@ -6,6 +6,7 @@ import { saveGuiPreference } from "../../lib/display-preferences";
 import { useLang, useT } from "../../lib/i18n";
 import { type PanelTab, useUiStore } from "../../stores/ui";
 import { Select } from "../common";
+import { ReplyLanguageRow } from "./ReplyLanguageRow";
 import { SchemaSection } from "./SchemaField";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
@@ -39,6 +40,7 @@ export function GeneralSection() {
 					id="setting-gui-language"
 					label={t("settings.gui.language")}
 				/>
+				<ReplyLanguageRow />
 				<SettingsSwitchRow
 					checked={notifications}
 					description={t("settings.gui.notificationsDesc")}

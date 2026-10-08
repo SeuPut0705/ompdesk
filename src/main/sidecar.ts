@@ -190,10 +190,11 @@ export interface SidecarOptions {
 	 */
 	shellEnv?: () => Promise<Record<string, string>>;
 	/**
-	 * The device language's English name (`Korean`), passed to omp as
-	 * `OMP_GUI_REPLY_LANGUAGE` for the gui-bridge's reply-language instruction.
-	 * Same point-of-use pattern as proxyEnv: read on every spawn, so a restart
-	 * picks up a changed device language. Undefined: the env is not set.
+	 * The reply language's English name (`Korean`; the Settings choice, else the
+	 * device language), passed to omp as `OMP_GUI_REPLY_LANGUAGE` for the
+	 * gui-bridge's reply-language instruction. Same point-of-use pattern as
+	 * proxyEnv: read on every spawn, and by `syncReplyLanguage()` for the live
+	 * session. Undefined: no instruction.
 	 */
 	replyLanguage?: () => string | undefined;
 	/**
@@ -781,6 +782,8 @@ export class SidecarManager extends EventEmitter {
 							// generate_image is off in stock; the bridge turns it on while the user
 							// hasn't decided and a connected account can make images.
 							this.syncImageGeneration();
+							// The setting may have changed between spawn (env) and connect.
+							this.syncReplyLanguage();
 						},
 						(err: unknown) => {
 							const error = err instanceof Error ? err.message : String(err);
@@ -922,6 +925,16 @@ export class SidecarManager extends EventEmitter {
 	 */
 	syncImageGeneration(): void {
 		void this.#bridge?.request("image_generation_sync").catch(() => {});
+	}
+
+	/**
+	 * Push the current reply language to this omp (gui-bridge
+	 * `reply_language_set`); its next turn's system prompt follows. Fire-and-
+	 * forget like syncImageGeneration: an unconnected bridge syncs on connect.
+	 */
+	syncReplyLanguage(): void {
+		const language = this.#options.replyLanguage?.() ?? null;
+		void this.#bridge?.request("reply_language_set", { language }).catch(() => {});
 	}
 
 	/** Send a side-channel frame (bypasses command queue). */

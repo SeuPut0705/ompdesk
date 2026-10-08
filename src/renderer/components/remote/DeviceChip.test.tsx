@@ -34,7 +34,18 @@ Object.assign(window as unknown as Record<string, unknown>, {
 
 function remoteState(hosts: HostView[]): RemoteState {
 	return {
-		host: { enabled: false, name: "laptop", port: null, addresses: [], code: null, expiresAt: null, peers: [] },
+		host: {
+			enabled: false,
+			name: "laptop",
+			port: null,
+			addresses: [],
+			code: null,
+			expiresAt: null,
+			peers: [],
+			keepAwake: true,
+			keepingAwake: false,
+			usedBy: [],
+		},
 		hosts,
 	};
 }

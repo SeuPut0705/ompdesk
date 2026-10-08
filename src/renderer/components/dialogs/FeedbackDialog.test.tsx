@@ -15,6 +15,7 @@ const info: SystemInfo = {
 	appVersion: "0.9.13",
 	platform: "darwin",
 	arch: "arm64",
+	deviceLanguage: "ko",
 	osRelease: "25.0.0",
 	electron: "36.9.5",
 	chrome: "134.0",

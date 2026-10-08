@@ -700,7 +700,9 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 			.locator("[data-settings-section]")
 			.evaluateAll(elements => elements.map(element => element.getAttribute("data-settings-section") ?? ""));
 		const capturePage = async (group: string, pageName: string) => {
-			await expect(settings.locator(".settings-content .animate-spin")).toHaveCount(0, { timeout: 30_000 });
+			// Updates runs the real `omp update --check`, which may take up to its
+			// 60s limit (UPDATE_CHECK_TIMEOUT_MS) on a slow CI network.
+			await expect(settings.locator(".settings-content .animate-spin")).toHaveCount(0, { timeout: 70_000 });
 			evidence.settingsPages.push({ group, page: pageName, controls: await captureSurfaceControls(page, pageName) });
 		};
 		for (const id of sectionIds) {

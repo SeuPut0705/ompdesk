@@ -4,7 +4,7 @@
  * both come from here, so a session runs the same way whoever opened it.
  */
 import { app } from "electron";
-import { deviceReplyLanguage } from "../shared/reply-language";
+import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../shared/reply-language";
 import { bootModelSelector } from "./boot-model";
 import type { BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { ompFailureText } from "./i18n";
@@ -21,6 +21,13 @@ export interface LocalSidecarDeps {
 	proxyEnv: () => Promise<Record<string, string>>;
 	bridgeHealth: BridgeHealth;
 	sessionKinds: SessionKindStore;
+	/** The stored Settings › General conversation-language pref (`replyLanguage`), read per use. */
+	replyLanguagePref: () => unknown;
+}
+
+/** The device language as a BCP 47 subtag (`ko`, `zh-Hant`): not the UI one, which ships only en/ko. */
+export function deviceLanguage(): string | undefined {
+	return deviceLanguageTag(app.getPreferredSystemLanguages(), app.getLocale());
 }
 
 export type LocalSidecarFactory = (cwd: string, kind: "agent" | "chat", fresh: boolean) => SidecarManager;
@@ -42,8 +49,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			fresh,
 			proxyEnv: deps.proxyEnv,
 			shellEnv: shellSpawnEnv,
-			// The device language, not the UI one: the UI ships only en/ko.
-			replyLanguage: () => deviceReplyLanguage(app.getPreferredSystemLanguages(), app.getLocale()),
+			replyLanguage: () => resolveReplyLanguage(deps.replyLanguagePref(), replyLanguageName(deviceLanguage())),
 			bootModel: runtime => bootModelSelector(runtime, bridgeDir),
 			// Finder-launched omp has no terminal, and a sidecar that dies before
 			// it can write its own log only speaks through stderr — land the tail

@@ -1186,7 +1186,18 @@ describe("Sidebar device sections", () => {
 
 	function pairHost(state: HostView["state"]): void {
 		useRemoteStore.getState().apply({
-			host: { enabled: false, name: "laptop", port: null, addresses: [], code: null, expiresAt: null, peers: [] },
+			host: {
+				enabled: false,
+				name: "laptop",
+				port: null,
+				addresses: [],
+				code: null,
+				expiresAt: null,
+				peers: [],
+				keepAwake: true,
+				keepingAwake: false,
+				usedBy: [],
+			},
 			hosts: [{ deviceId: "dev-studio", name: "studio", state }],
 		});
 	}

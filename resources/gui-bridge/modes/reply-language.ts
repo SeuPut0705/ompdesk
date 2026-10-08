@@ -1,17 +1,22 @@
 /**
- * Default reply language: the GUI resolves the device language at spawn and
- * passes its English name in `OMP_GUI_REPLY_LANGUAGE` (src/shared/reply-language.ts).
- * Stock omp has no such setting, so the public `before_agent_start` hook appends
- * one soft instruction to the system prompt, every prompt, like modes/pool.ts.
+ * Reply language: the GUI resolves the user's setting (Settings › General;
+ * default: the device language) and passes its English name in
+ * `OMP_GUI_REPLY_LANGUAGE` at spawn (src/shared/reply-language.ts), then
+ * `reply_language_set` whenever the setting changes, so open sessions follow
+ * from their next turn without a restart. Stock omp has no such setting, so
+ * the public `before_agent_start` hook appends one soft instruction to the
+ * system prompt, every prompt, like modes/pool.ts.
  *
- * - Missing env or English: no handler at all, so the prompt stays byte-identical
- *   to stock and the provider prompt cache is untouched.
+ * - No language, off or English: the hook returns nothing, so the prompt stays
+ *   byte-identical to stock and the provider prompt cache is untouched.
  * - Not `--append-system-prompt`: that collides with the user's launch profile
  *   flag and turns off omp's fork prompt-cache key.
- * - Subagents rebind this extension (task executor `preloadedPreparedExtensions`),
- *   so their sessions get the same line. Their "user" is the parent agent, whose
- *   language wins by the instruction's own rule; any question they surface to
- *   the person follows the device language.
+ * - The value is module state, read by the hook on every prompt. Subagents
+ *   rebind this extension (task executor `preloadedPreparedExtensions`), which
+ *   re-runs `install` in the same process and module instance, so their
+ *   sessions get the same, current line. Their "user" is the parent agent,
+ *   whose language wins by the instruction's own rule; any question they
+ *   surface to the person follows the setting.
  *
  * No omp imports (not even types): the GUI's vitest installs it on a fake `pi`
  * (src/main/bridge-reply-language.test.ts).
@@ -40,11 +45,34 @@ export function replyLanguageInstruction(language: string | undefined): string |
 	].join("\n");
 }
 
-export function install(pi: ReplyLanguageHost, language = process.env.OMP_GUI_REPLY_LANGUAGE): void {
-	const instruction = replyLanguageInstruction(language);
-	if (!instruction) return;
-	pi.on("before_agent_start", event => ({ systemPrompt: [...event.systemPrompt, instruction] }));
+/** The instruction every hooked prompt gets; undefined = none. */
+let instruction = replyLanguageInstruction(process.env.OMP_GUI_REPLY_LANGUAGE);
+
+/** Called once per extension instance (main and every subagent rebinding) by index.ts. */
+export function install(pi: ReplyLanguageHost): void {
+	pi.on("before_agent_start", event => (instruction ? { systemPrompt: [...event.systemPrompt, instruction] } : undefined));
 }
 
-/** Hook-only area. */
-export const methods = {};
+/**
+ * `{language: string | null}`: the English language name, or null for none.
+ * A non-language string (too long, control characters) is refused rather than
+ * silently dropping the instruction.
+ */
+export function setReplyLanguage(params: unknown): { language: string | null } {
+	const language = typeof params === "object" && params !== null && "language" in params ? params.language : undefined;
+	if (language === null) {
+		instruction = undefined;
+		return { language: null };
+	}
+	if (typeof language !== "string") throw new Error("reply_language_set needs {language: string | null}");
+	const name = language.trim();
+	const next = replyLanguageInstruction(name);
+	if (!next && name && name.toLowerCase() !== "english") throw new Error(`Not a language name: ${JSON.stringify(name.slice(0, 80))}`);
+	instruction = next;
+	return { language: name || null };
+}
+
+export const methods = {
+	/** Main sends this to every live local sidecar when the setting changes, and on bridge connect. */
+	reply_language_set: async (params: unknown) => setReplyLanguage(params),
+};

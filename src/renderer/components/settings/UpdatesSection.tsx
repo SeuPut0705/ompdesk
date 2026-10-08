@@ -71,37 +71,37 @@ export function UpdatesSection() {
 	const [coreError, setCoreError] = useState<InlineFailure>();
 	const [coreUpdating, setCoreUpdating] = useState(false);
 
-	const check = useCallback(async () => {
+	// The app check and the omp check settle independently: `omp update
+	// --check` can take up to a minute on a slow network, and the app's own
+	// result must not wait behind it.
+	const checkApp = useCallback(async () => {
+		try {
+			setStatus(await window.omp.updater.check());
+		} catch (error) {
+			setStatus({ state: "error", message: error instanceof Error ? error.message : String(error) });
+		}
+	}, [setStatus]);
+	const checkCore = useCallback(async () => {
 		setChecking(true);
 		setCoreError(undefined);
-		const [appResult, coreResult] = await Promise.allSettled([
-			window.omp.updater.check(),
-			sidecarReady ? tabRpc.getOmpUpdate() : Promise.resolve(null),
-		]);
-		setStatus(
-			appResult.status === "fulfilled"
-				? appResult.value
-				: {
-						state: "error",
-						message: appResult.reason instanceof Error ? appResult.reason.message : String(appResult.reason),
-					},
-		);
-		if (coreResult.status === "fulfilled" && coreResult.value !== null && coreResult.value.success) {
-			setCore(coreResult.value.data as RpcOmpUpdateResult);
-		} else {
-			const fallback = t("updates.core.checkFailed");
-			setCoreError(
-				!sidecarReady
-					? { message: t("common.notConnected") }
-					: coreResult.status === "rejected"
-						? inlineFailure(coreResult.reason, fallback)
-						: coreResult.value === null || coreResult.value.success
-							? { message: fallback }
-							: inlineFailure(coreResult.value, fallback),
-			);
+		const fallback = t("updates.core.checkFailed");
+		try {
+			if (!sidecarReady) {
+				setCoreError({ message: t("common.notConnected") });
+				return;
+			}
+			const response = await tabRpc.getOmpUpdate();
+			if (response.success) setCore(response.data as RpcOmpUpdateResult);
+			else setCoreError(inlineFailure(response, fallback));
+		} catch (error) {
+			setCoreError(inlineFailure(error, fallback));
+		} finally {
+			setChecking(false);
 		}
-		setChecking(false);
-	}, [setStatus, sidecarReady, t, tabRpc.getOmpUpdate]);
+	}, [sidecarReady, t, tabRpc.getOmpUpdate]);
+	const check = useCallback(async () => {
+		await Promise.all([checkApp(), checkCore()]);
+	}, [checkApp, checkCore]);
 
 	useEffect(() => {
 		void window.omp.updater.version().then(setGuiVersion);

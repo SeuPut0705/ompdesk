@@ -1,7 +1,8 @@
 /**
  * Settings › Remote devices: the host role shows its addresses and pairing
  * code (copyable, with a countdown), an expired code refreshes on its own,
- * and Remove revokes a paired device through main.
+ * Remove revokes a paired device through main, and the keep-awake row shows
+ * whether sleep is blocked now and toggles through setKeepAwake.
  */
 
 import { parseHTML } from "linkedom";
@@ -36,6 +37,9 @@ function hostOn(overrides: Partial<RemoteState["host"]> = {}): RemoteState {
 			code: "K7QM-2XDP",
 			expiresAt: Date.now() + 9 * 60_000 + 30_000,
 			peers: [{ deviceId: "peer-laptop", name: "laptop", online: true, lastSeenAt: Date.now() - 60_000 }],
+			keepAwake: true,
+			keepingAwake: false,
+			usedBy: [],
 			...overrides,
 		},
 		hosts: [],
@@ -46,6 +50,9 @@ const remote = {
 	getState: vi.fn(async (): Promise<RemoteState> => hostOn()),
 	setHostEnabled: vi.fn(async (enabled: boolean): Promise<RemoteState> => hostOn({ enabled })),
 	setDeviceName: vi.fn(async (name: string): Promise<RemoteState> => hostOn({ name })),
+	setKeepAwake: vi.fn(
+		async (enabled: boolean): Promise<RemoteState> => hostOn({ keepAwake: enabled, keepingAwake: false, usedBy: [] }),
+	),
 	rotateCode: vi.fn(
 		async (): Promise<RemoteState> => hostOn({ code: "NEW0-CODE", expiresAt: Date.now() + 10 * 60_000 }),
 	),
@@ -80,6 +87,10 @@ function buttonLabeled(label: string): HTMLButtonElement | undefined {
 	return (Array.from(document.body.querySelectorAll("button")) as HTMLButtonElement[]).find(
 		button => button.getAttribute("aria-label") === label || (button.textContent ?? "").trim() === label,
 	);
+}
+
+function keepAwakeRow(): Element | null {
+	return document.body.querySelector("#settings-remote-keep-awake");
 }
 
 beforeEach(() => {
@@ -150,5 +161,35 @@ describe("RemoteSection", () => {
 		expect(document.body.textContent).toContain(translate("remote.host.toggle"));
 		expect(document.body.querySelector("[data-remote-code]")).toBeNull();
 		expect(document.body.querySelector("[data-remote-addresses]")).toBeNull();
+		expect(keepAwakeRow()).toBeNull();
+	});
+
+	it("shows the keep-awake option on by default, with who keeps the computer awake now", async () => {
+		remote.getState.mockImplementation(async () =>
+			hostOn({ keepingAwake: true, usedBy: ["MacBook", "studio-mini"] }),
+		);
+		await mount();
+
+		const row = keepAwakeRow();
+		expect(row?.textContent).toContain(translate("remote.host.keepAwake"));
+		expect(row?.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("true");
+		expect(row?.querySelector("[data-remote-keep-awake-state]")?.textContent).toBe(
+			translate("remote.host.keepingAwakeFor", { names: "MacBook, studio-mini" }),
+		);
+	});
+
+	it("explains the option while nothing keeps the computer awake, and turns it off through setKeepAwake", async () => {
+		await mount();
+
+		expect(keepAwakeRow()?.querySelector("[data-remote-keep-awake-state]")?.textContent).toBe(
+			translate("remote.host.keepAwakeDesc"),
+		);
+		await act(async () => {
+			(keepAwakeRow()?.querySelector('[role="switch"]') as HTMLButtonElement | null)?.click();
+		});
+
+		expect(remote.setKeepAwake).toHaveBeenCalledWith(false);
+		expect(useRemoteStore.getState().state?.host.keepAwake).toBe(false);
+		expect(keepAwakeRow()?.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("false");
 	});
 });

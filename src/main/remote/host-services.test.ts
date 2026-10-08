@@ -20,6 +20,7 @@ class FakeHostSidecar extends EventEmitter {
 	started: Array<{ resume: string | undefined }> = [];
 	sideFrames: object[] = [];
 	imageSyncs = 0;
+	replyLanguageSyncs = 0;
 	commands: RpcCommand[] = [];
 	readonly rpcClient = {
 		command: async (command: RpcCommand): Promise<RpcResponse> => {
@@ -53,6 +54,9 @@ class FakeHostSidecar extends EventEmitter {
 	}
 	syncImageGeneration(): void {
 		this.imageSyncs++;
+	}
+	syncReplyLanguage(): void {
+		this.replyLanguageSyncs++;
 	}
 	dispose(): void {
 		this.disposed = true;
@@ -228,6 +232,17 @@ describe("LocalHostServices", () => {
 		expect(local.tab.imageSyncs).toBe(1);
 	});
 
+	it("pushes this machine's reply-language setting to every tab it hosts, leaving the local pool to ipc", async () => {
+		const { services, sidecars, local } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await services.call(y.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, y);
+		services.syncReplyLanguage();
+		expect(sidecars.map(sidecar => sidecar.replyLanguageSyncs)).toEqual([1, 1]);
+		expect(local.tab.replyLanguageSyncs).toBe(0);
+	});
+
 	it("deletes and renames a session through this machine's own live tab that holds it", async () => {
 		const { services, local, deleteSession, renameStoredSession } = setup();
 		const x = new FakeConnection(peer("device-x"));
@@ -346,6 +361,45 @@ describe("LocalHostServices", () => {
 
 		services.dropPeer("device-x");
 		expect(sidecars[0]?.disposed).toBe(true);
+	});
+
+	it("reports which devices have a host tab running a turn, through settle, restart and close", async () => {
+		const { services, sidecars } = setup();
+		const changes = vi.fn();
+		services.onRunningChange(changes);
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await services.call(y.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, y);
+		const [xTab, yTab] = sidecars;
+		if (!xTab || !yTab) throw new Error("expected two sidecars");
+		xTab.setStatus("ready");
+		yTab.setStatus("ready");
+		expect(services.runningPeers()).toEqual([]);
+
+		xTab.emit("events", [{ type: "agent_start" }]);
+		expect(services.runningPeers()).toEqual(["device-x"]);
+		expect(changes).toHaveBeenCalledTimes(1);
+
+		// The prompt yielded but background work can still wake it: agent_end is not the end.
+		xTab.emit("promptResult", { type: "prompt_result", agentInvoked: true, sessionSettled: false });
+		xTab.emit("events", [{ type: "agent_end" }]);
+		services.disconnected(x.peer, x);
+		expect(services.runningPeers()).toEqual(["device-x"]);
+		xTab.emit("sessionSettled", { type: "session_settled" });
+		expect(services.runningPeers()).toEqual([]);
+		expect(changes).toHaveBeenCalledTimes(2);
+
+		// A restart ends the run; closing a running tab does too.
+		yTab.emit("events", [{ type: "agent_start" }]);
+		yTab.setStatus("restarting");
+		expect(services.runningPeers()).toEqual([]);
+		yTab.setStatus("ready");
+		yTab.emit("events", [{ type: "agent_start" }]);
+		expect(services.runningPeers()).toEqual(["device-y"]);
+		await services.call(y.peer, "tab.close", { rtab: "t1" }, y);
+		expect(services.runningPeers()).toEqual([]);
+		expect(changes).toHaveBeenCalledTimes(6);
 	});
 
 	it("rejects malformed parameters and unknown methods", async () => {

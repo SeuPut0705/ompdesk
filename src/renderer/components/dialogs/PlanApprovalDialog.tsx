@@ -1,24 +1,27 @@
 import { useTabRpc } from "../../lib/tab-rpc";
 /**
- * Structured plan-approval dialog. The agent submits a plan by writing to
+ * Structured plan-approval card. The agent submits a plan by writing to
  * `xd://propose` while plan mode is active; the sidecar emits a
  * `plan_proposal` frame, silently stops the proposal turn, and waits for the
- * host's `plan_approval` answer. This dialog renders the proposal as
- * scrollable markdown with one approve button per advertised option:
+ * host's `plan_approval` answer. The card docks above the composer (like the
+ * other agent prompts): the plan as scrollable markdown, then numbered
+ * choices, one per advertised option:
  *
  * - execute      → planApproval(true, "execute")       (fresh session)
  * - compact      → planApproval(true, "compact")       (distill transcript first)
  * - keep_context → planApproval(true, "keep_context")  (intact transcript)
+ * - save         → planApproval(true, "save", undefined, path) (host picks the path)
  * - refine       → planApproval(false, undefined, feedback) (re-plan with feedback)
  * - dismiss/Esc  → planApproval(false)                 (plain reject)
  *
- * Mirrors the TUI plan-review overlay ("Approve and execute" / "Approve and
- * compact context" / "keep context" / "Refine plan"). Zero props and
- * self-subscribing — mount once in App.
+ * Focus starts on the card, never on an approve row. Mirrors the TUI
+ * plan-review overlay ("Approve and execute" / "Approve and compact context"
+ * / "keep context" / "Refine plan"). Zero props and self-subscribing — mount
+ * once in App.
  */
 
-import { ClipboardList, History, ListCollapse, Play, Save, Send } from "lucide-react";
-import type { ReactNode } from "react";
+import { ClipboardList } from "lucide-react";
+import { useRef } from "react";
 import { usePlanApproval } from "../../hooks/use-plan-approval";
 import { basename } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -31,7 +34,8 @@ import {
 import { useSessionStore } from "../../stores/session";
 import { settleTabPlanApproval, useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
-import { Button, Modal, TextArea } from "../common";
+import { Spinner, TextArea } from "../common";
+import { type Choice, ChoiceList, PromptCard } from "./PromptCard";
 
 type SubmitKind = PlanApprovalSubmitState["kind"];
 
@@ -44,27 +48,14 @@ interface PlanApprovalResult {
 	freshSessionStarted?: boolean;
 }
 
-const APPROVE_CHOICES: Record<PlanApprovalOption, { labelKey: string; hintKey: string; icon: ReactNode }> = {
-	execute: {
-		labelKey: "planApproval.approve.execute.label",
-		hintKey: "planApproval.approve.execute.hint",
-		icon: <Play size={12} />,
-	},
-	compact: {
-		labelKey: "planApproval.approve.compact.label",
-		hintKey: "planApproval.approve.compact.hint",
-		icon: <ListCollapse size={12} />,
-	},
+const APPROVE_CHOICES: Record<PlanApprovalOption, { labelKey: string; hintKey: string }> = {
+	execute: { labelKey: "planApproval.approve.execute.label", hintKey: "planApproval.approve.execute.hint" },
+	compact: { labelKey: "planApproval.approve.compact.label", hintKey: "planApproval.approve.compact.hint" },
 	keep_context: {
 		labelKey: "planApproval.approve.keepContext.label",
 		hintKey: "planApproval.approve.keepContext.hint",
-		icon: <History size={12} />,
 	},
-	save: {
-		labelKey: "planApproval.approve.save.label",
-		hintKey: "planApproval.approve.save.hint",
-		icon: <Save size={12} />,
-	},
+	save: { labelKey: "planApproval.approve.save.label", hintKey: "planApproval.approve.save.hint" },
 };
 
 /** Approve buttons from the advertised options; falls back to execute when none are recognizable. */
@@ -88,6 +79,7 @@ export function PlanApprovalDialog() {
 	const submitting = usePlanApprovalStore(state => state.submitting);
 	const setSubmitting = usePlanApprovalStore(state => state.setSubmitting);
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
+	const feedbackRef = useRef<HTMLTextAreaElement>(null);
 
 	if (!pending) return null;
 
@@ -170,7 +162,7 @@ export function PlanApprovalDialog() {
 		}
 	};
 
-	// Esc, backdrop click, and the X button all answer planApproval(false).
+	// Escape and the Dismiss row answer planApproval(false).
 	const requestDismiss = () => {
 		if (submitting !== null) return;
 		void respond("dismiss");
@@ -179,93 +171,100 @@ export function PlanApprovalDialog() {
 	const approveOptions = approveOptionsOf(pending.options);
 	const showRefine = pending.options.length === 0 || pending.options.includes("refine");
 	const busy = submitting !== null;
+	const hasFeedback = feedback.trim().length > 0;
+	const spinner = <Spinner size="sm" />;
+
+	const choices: Choice[] = [
+		...approveOptions.map(option => ({
+			key: option,
+			label: t(APPROVE_CHOICES[option].labelKey),
+			description: t(APPROVE_CHOICES[option].hintKey),
+			aside: submitting?.kind === "approve" && submitting.option === option ? spinner : undefined,
+			disabled: !sidecarReady || busy,
+		})),
+		...(showRefine
+			? [
+					{
+						key: "refine",
+						label: t("planApproval.refine"),
+						description: hasFeedback ? t("planApproval.refineTitle") : t("planApproval.refineNeedsFeedback"),
+						aside: submitting?.kind === "refine" ? spinner : undefined,
+						disabled: !sidecarReady || busy || !hasFeedback,
+					},
+				]
+			: []),
+		{ key: "dismiss", label: t("planApproval.dismiss"), disabled: !sidecarReady },
+	];
+
+	const choose = (key: string) => {
+		if (key === "dismiss") {
+			requestDismiss();
+			return;
+		}
+		if (key === "refine") {
+			// Refine needs feedback: picking it first moves into the field.
+			if (hasFeedback) void respond("refine");
+			else feedbackRef.current?.focus();
+			return;
+		}
+		const option = approveOptions.find(candidate => candidate === key);
+		if (option) void respond("approve", option);
+	};
 
 	return (
-		<Modal
-			onClose={requestDismiss}
-			open
-			size="lg"
-			title={
-				<span className="flex items-center gap-2">
-					<ClipboardList className="shrink-0 text-(--omp-accent)" size={14} />
-					{pending.title ?? t("planApproval.reviewFallback")}
-				</span>
+		<PromptCard
+			footer={
+				!sidecarReady ? (
+					<span className="text-sc-xs text-(--sc-warning)">{t("sidecar.notResponding")}</span>
+				) : undefined
 			}
+			icon={ClipboardList}
+			label={pending.title ?? t("planApproval.reviewFallback")}
+			onCancel={requestDismiss}
+			onDigit={n => {
+				const choice = choices[n - 1];
+				if (choice && (!choice.disabled || choice.key === "refine")) choose(choice.key);
+			}}
 		>
-			<div className="flex flex-col gap-3 p-4">
-				<div className="flex items-center gap-2 text-omp-xs text-(--omp-dim)">
+			<div className="flex flex-col gap-2.5">
+				<div className="flex items-center gap-2 text-sc-xs text-(--sc-text-muted)">
 					<span className="shrink-0">{t("planApproval.planFile")}</span>
 					<span className="truncate font-mono" title={pending.planFilePath}>
 						{basename(pending.planFilePath)}
 					</span>
 				</div>
-				<div className="max-h-[52vh] overflow-y-auto rounded-md border border-(--omp-border-muted) px-4 py-3">
+				<div
+					className="max-h-[min(32vh,20rem)] overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2"
+					data-plan-content
+				>
 					{pending.planContent.trim().length > 0 ? (
 						<MarkdownRenderer content={pending.planContent} />
 					) : (
-						<p className="text-xs text-(--omp-dim)">{t("planApproval.emptyPlan")}</p>
+						<p className="text-sc-sm text-(--sc-text-muted)">{t("planApproval.emptyPlan")}</p>
 					)}
 				</div>
 				{notice !== null && (
-					<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent px-3 py-2 text-omp-sm text-(--omp-warning)">
+					<div className="rounded-(--sc-radius-md) border border-(--sc-warning) px-3 py-2 text-sc-sm text-(--sc-warning)">
 						{notice}
 					</div>
 				)}
+				<ChoiceList choices={choices} onChoose={choose} />
 				{showRefine && (
 					<TextArea
 						autoGrow
+						className="max-h-[min(20vh,10rem)] overflow-y-auto"
 						disabled={busy}
 						hint={t("planApproval.refineHint")}
 						label={t("planApproval.refineLabel")}
 						maxLength={8000}
 						onChange={event => setFeedback(event.target.value)}
 						placeholder={t("planApproval.refinePlaceholder")}
+						ref={feedbackRef}
 						rows={2}
 						value={feedback}
 					/>
 				)}
-				<div className="flex flex-wrap items-center justify-end gap-2">
-					<Button
-						disabled={!sidecarReady}
-						onClick={requestDismiss}
-						size="sm"
-						title={!sidecarReady ? t("sidecar.notResponding") : undefined}
-						variant="ghost"
-					>
-						{t("planApproval.dismiss")}
-					</Button>
-					{showRefine && (
-						<Button
-							disabled={!sidecarReady || busy || feedback.trim().length === 0}
-							icon={<Send size={12} />}
-							loading={submitting?.kind === "refine"}
-							onClick={() => void respond("refine")}
-							size="sm"
-							title={!sidecarReady ? t("sidecar.notResponding") : t("planApproval.refineTitle")}
-							variant="secondary"
-						>
-							{t("planApproval.refine")}
-						</Button>
-					)}
-					{approveOptions.map((option, index) => {
-						const choice = APPROVE_CHOICES[option];
-						return (
-							<Button
-								disabled={!sidecarReady || busy}
-								icon={choice.icon}
-								key={option}
-								loading={submitting?.kind === "approve" && submitting.option === option}
-								onClick={() => void respond("approve", option)}
-								size="sm"
-								title={!sidecarReady ? t("sidecar.notResponding") : t(choice.hintKey)}
-								variant={index === 0 ? "primary" : "secondary"}
-							>
-								{t(choice.labelKey)}
-							</Button>
-						);
-					})}
-				</div>
 			</div>
-		</Modal>
+		</PromptCard>
 	);
 }

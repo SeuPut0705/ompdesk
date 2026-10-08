@@ -299,4 +299,64 @@ describe("SidecarManager spawn env", () => {
 			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
+
+	it("pushes the current reply language over the gui-bridge on connect and on syncReplyLanguage()", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-bridge-"));
+		const logPath = path.join(tempDir, "bridge.jsonl");
+		// A fake omp that serves the bridge socket and logs every request.
+		const script = [
+			'import * as fs from "node:fs";',
+			'import * as net from "node:net";',
+			"const server = net.createServer(socket => {",
+			'\tsocket.setEncoding("utf8");',
+			'\tlet buffer = "";',
+			'\tsocket.on("data", (chunk: string) => {',
+			"\t\tbuffer += chunk;",
+			'\t\tfor (let i = buffer.indexOf("\\n"); i !== -1; i = buffer.indexOf("\\n")) {',
+			"\t\t\tconst request = JSON.parse(buffer.slice(0, i)) as { id: unknown; method: string; params?: unknown };",
+			"\t\t\tbuffer = buffer.slice(i + 1);",
+			`\t\t\tfs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({ method: request.method, params: request.params ?? null }) + "\\n");`,
+			'\t\t\tsocket.write(JSON.stringify({ id: request.id, ok: true, result: {} }) + "\\n");',
+			"\t\t}",
+			"\t});",
+			"});",
+			"server.listen(process.env.OMP_GUI_BRIDGE, () => {",
+			'\tprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
+			"});",
+			"process.stdin.resume();",
+			'process.stdin.on("end", () => process.exit(0));',
+		].join("\n");
+		const binaryPath = await writeFakeOmp(tempDir, script);
+		let language: string | undefined = "Korean";
+		const sidecar = new SidecarManager({
+			omp: async () => ({
+				ok: true,
+				runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+			}),
+			cwd: tempDir,
+			bridgeDir: tempDir,
+			replyLanguage: () => language,
+		});
+		const replyLanguageRequests = async () => {
+			const text = await fs.readFile(logPath, "utf8").catch(() => "");
+			return text
+				.split("\n")
+				.filter(Boolean)
+				.map(line => JSON.parse(line) as { method: string; params: unknown })
+				.filter(request => request.method === "reply_language_set")
+				.map(request => request.params);
+		};
+		try {
+			sidecar.start();
+			await expect.poll(replyLanguageRequests, { timeout: 5_000, interval: 25 }).toEqual([{ language: "Korean" }]);
+			language = undefined;
+			sidecar.syncReplyLanguage();
+			await expect
+				.poll(replyLanguageRequests, { timeout: 5_000, interval: 25 })
+				.toEqual([{ language: "Korean" }, { language: null }]);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
 });

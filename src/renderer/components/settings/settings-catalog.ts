@@ -112,6 +112,12 @@ export interface GuiSearchItem {
 export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 	{ id: "language", section: "general", labelKey: "settings.gui.language", aliases: "language lang 언어" },
 	{
+		id: "replyLanguage",
+		section: "general",
+		labelKey: "settings.gui.replyLanguage",
+		aliases: "reply language conversation answer agent 대화 언어 답변",
+	},
+	{
 		id: "notifications",
 		section: "general",
 		labelKey: "settings.gui.notifications",

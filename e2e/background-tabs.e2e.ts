@@ -179,10 +179,10 @@ test("a plan proposed in the background shows its approval card after switching 
 
 	await fixtureCommand(background, "fixture:plan");
 	// The one-shot plan_proposal frame is not forwarded for a hidden tab.
-	await expect(page.getByRole("dialog")).toHaveCount(0);
+	await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
 
 	await switchTo(background);
-	const card = page.getByRole("dialog", { name: "Fixture rollout plan" });
+	const card = page.getByRole("region", { name: "Fixture rollout plan" });
 	await expect(card).toContainText("Ship the background tab coverage.");
 	await expect(card).toContainText("fixture-rollout.md");
 	await expect(card.getByRole("button", { name: "Approve and execute" })).toBeEnabled();

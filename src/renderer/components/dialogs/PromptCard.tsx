@@ -1,7 +1,8 @@
 /**
- * The agent's in-turn prompts (ask, select, confirm, tool approval) as one
- * card docked directly above the composer, the way the Claude app asks: no
- * scrim, the transcript stays readable, choices are numbered rows. With focus
+ * The agent's in-turn prompts (ask, select, confirm, input, editor, open-url,
+ * tool approval, plan approval) as one card docked directly above the
+ * composer, the way the Claude app asks: no scrim, the transcript stays
+ * readable, choices are numbered rows. With focus
  * in the card, 1–9 pick a row, ↑/↓ move, Enter confirms the focused row and
  * Escape answers "cancel". Without a mounted composer (Settings open) the card
  * floats at the bottom at composer width.
@@ -115,6 +116,8 @@ export interface Choice {
 	/** Shown after the label (e.g. a "Recommended" badge). */
 	aside?: ReactNode;
 	tone?: "default" | "danger";
+	/** Unavailable right now (e.g. a field it needs is empty); arrows skip it. */
+	disabled?: boolean;
 }
 
 /**
@@ -138,7 +141,9 @@ export function ChoiceList({
 		const forward = event.key === "ArrowDown";
 		if (!forward && event.key !== "ArrowUp") return;
 		const group = event.currentTarget.closest<HTMLElement>("[data-choice-list]");
-		const rows = Array.from(group?.querySelectorAll<HTMLButtonElement>("[data-choice]") ?? []);
+		const rows = Array.from(group?.querySelectorAll<HTMLButtonElement>("[data-choice]") ?? []).filter(
+			row => !row.disabled,
+		);
 		const index = rows.indexOf(event.currentTarget);
 		if (index < 0) return;
 		event.preventDefault();
@@ -153,12 +158,13 @@ export function ChoiceList({
 					<button
 						aria-checked={mode === "action" ? undefined : checked}
 						className={cx(
-							"group flex w-full items-start gap-3 rounded-(--sc-radius-md) border px-3 py-2 text-left transition-colors duration-(--sc-duration-fast) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--sc-accent)",
+							"group flex w-full items-start gap-3 rounded-(--sc-radius-md) border px-3 py-2 text-left transition-colors duration-(--sc-duration-fast) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--sc-accent) disabled:cursor-not-allowed disabled:opacity-50",
 							checked
 								? "border-(--sc-accent-border) bg-(--sc-accent-soft)"
-								: "border-transparent hover:bg-(--sc-hover) focus-visible:bg-(--sc-hover)",
+								: "border-transparent enabled:hover:bg-(--sc-hover) focus-visible:bg-(--sc-hover)",
 						)}
 						data-choice={choice.key}
+						disabled={choice.disabled}
 						key={choice.key}
 						onClick={() => onChoose(choice.key, index)}
 						onKeyDown={onKeyDown}

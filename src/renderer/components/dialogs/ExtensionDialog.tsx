@@ -1,9 +1,9 @@
 /**
  * Extension UI dispatcher: renders the oldest pending extension_ui_request
- * as the right surface (select / confirm / input / editor / open_url as
- * modals, `ask` as a non-modal card docked above the composer), routes
- * tool-approval selects to ApprovalDialog, turns `notify` into a toast, and
- * enforces request timeouts with a visible countdown.
+ * as a non-modal card docked above the composer (select / confirm / input /
+ * editor / open_url / ask), routes tool-approval selects to ApprovalDialog,
+ * turns `notify` into a toast, and enforces request timeouts with a visible
+ * countdown.
  *
  * `setStatus` / `setWidget` are captured by the extension-ui store and
  * surfaced here as floating status segments / widget panels.
@@ -12,18 +12,27 @@
  * dropped silently.
  */
 
-import type { EditorView } from "@codemirror/view";
-import { Check, ChevronLeft, ExternalLink, ListChecks, MessageCircleQuestion, ShieldQuestion } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+	Check,
+	ChevronLeft,
+	ExternalLink,
+	ListChecks,
+	MessageCircleQuestion,
+	ShieldQuestion,
+	SquarePen,
+	TextCursorInput,
+} from "lucide-react";
+import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ExtensionAskDialogResult, ExtensionUIRequest } from "../../../shared/rpc-types";
 import { AnsiText } from "../../lib/ansi";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { isImeKeyEvent } from "../../lib/ime";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
 import { isInlineLoginRequest, useExtensionUiStore } from "../../stores/extension-ui";
 import { toast } from "../../stores/toast";
-import { Badge, Button, Input, Modal, Spinner } from "../common";
+import { Badge, Button, Input, Kbd, TextArea } from "../common";
 import { ApprovalDialog, isApprovalRequest } from "./ApprovalDialog";
 import { ChoiceList, PromptCard } from "./PromptCard";
 
@@ -195,6 +204,7 @@ function ConfirmDialog({
 	);
 }
 
+/** Single-line answer: Enter submits, Escape cancels. Focus starts in the field. */
 function InputDialog({
 	request,
 	remaining,
@@ -207,35 +217,39 @@ function InputDialog({
 	onCancel: () => void;
 }) {
 	const t = useT();
-	const [value, setValue] = useState("");
+	const fieldRef = useRef<HTMLInputElement>(null);
+	const { label, body } = splitTitle(request.title);
+	useEffect(() => {
+		fieldRef.current?.focus();
+	}, []);
+	const submit = () => onValue(fieldRef.current?.value ?? "");
+	const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+		if (event.key !== "Enter" || isImeKeyEvent(event.nativeEvent)) return;
+		event.preventDefault();
+		submit();
+	};
 	return (
-		<Modal onClose={onCancel} open size="sm" title={request.title}>
-			<form
-				className="space-y-3"
-				onSubmit={event => {
-					event.preventDefault();
-					onValue(value);
-				}}
-			>
-				<Input
-					autoFocus
-					onChange={event => setValue(event.target.value)}
-					placeholder={request.placeholder}
-					value={value}
-				/>
-				<div className="flex items-center justify-between gap-2">
+		<PromptCard
+			footer={
+				<>
 					<TimeoutFooter remaining={remaining} />
-					<div className="flex gap-2">
-						<Button onClick={onCancel} size="sm" type="button" variant="ghost">
+					<div className="ml-auto flex gap-2">
+						<Button onClick={onCancel} size="sm" variant="ghost">
 							{t("common.cancel")}
 						</Button>
-						<Button size="sm" type="submit" variant="primary">
+						<Button onClick={submit} size="sm" variant="primary">
 							{t("extDialog.submit")}
 						</Button>
 					</div>
-				</div>
-			</form>
-		</Modal>
+				</>
+			}
+			icon={TextCursorInput}
+			label={label}
+			onCancel={onCancel}
+		>
+			{body && <p className="mb-2 text-sc-sm break-words whitespace-pre-wrap text-(--sc-text-muted)">{body}</p>}
+			<Input aria-label={label} onKeyDown={onKeyDown} placeholder={request.placeholder} ref={fieldRef} />
+		</PromptCard>
 	);
 }
 
@@ -485,6 +499,7 @@ function looksLikeJson(text: string): boolean {
 	return (trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"));
 }
 
+/** Multi-line answer: Cmd/Ctrl+Enter submits, Enter adds a newline, Escape cancels. */
 function EditorDialog({
 	request,
 	onValue,
@@ -495,85 +510,63 @@ function EditorDialog({
 	onCancel: () => void;
 }) {
 	const t = useT();
-	const hostRef = useRef<HTMLDivElement>(null);
-	const valueRef = useRef(request.prefill ?? "");
-	const [editorReady, setEditorReady] = useState(false);
-
-	// CodeMirror (~900 KB) is imported on the first editor request, not at app startup.
+	const fieldRef = useRef<HTMLTextAreaElement>(null);
+	const prefill = request.prefill ?? "";
+	const { label, body } = splitTitle(request.title);
 	useEffect(() => {
-		const host = hostRef.current;
-		if (!host) return;
-		// The editor view is rebuilt per request — resync the submit ref so text
-		// left over from a previous request can't leak into this one's value.
-		valueRef.current = request.prefill ?? "";
-		let view: EditorView | null = null;
-		let disposed = false;
-		void Promise.all([import("@codemirror/lang-json"), import("@codemirror/view")]).then(
-			([{ json }, { EditorView }]) => {
-				if (disposed) return;
-				view = new EditorView({
-					doc: request.prefill ?? "",
-					extensions: [
-						EditorView.lineWrapping,
-						...(looksLikeJson(request.prefill ?? "") ? [json()] : []),
-						EditorView.theme({
-							"&": {
-								backgroundColor: "var(--omp-code-bg)",
-								color: "var(--omp-text)",
-								fontSize: "12px",
-								height: "100%",
-							},
-							"&.cm-focused": { outline: "none" },
-							".cm-content": { fontFamily: "var(--font-mono, monospace)", padding: "8px 0" },
-							".cm-line": { padding: "0 10px" },
-							".cm-cursor": { borderLeftColor: "var(--omp-accent)" },
-							".cm-selectionBackground": { backgroundColor: "var(--omp-selected-bg) !important" },
-							".cm-gutters": {
-								backgroundColor: "transparent",
-								borderRight: "1px solid var(--omp-border-muted)",
-								color: "var(--omp-dim)",
-							},
-						}),
-						EditorView.updateListener.of(update => {
-							if (update.docChanged) valueRef.current = update.state.doc.toString();
-						}),
-					],
-					parent: host,
-				});
-				setEditorReady(true);
-				view.focus();
-			},
-		);
-		return () => {
-			disposed = true;
-			view?.destroy();
-		};
-	}, [request.prefill]);
-
+		fieldRef.current?.focus();
+	}, []);
+	const submit = () => onValue(fieldRef.current?.value ?? "");
+	const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+		if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || isImeKeyEvent(event.nativeEvent)) return;
+		event.preventDefault();
+		submit();
+	};
 	return (
-		<Modal bodyClassName="p-0" onClose={onCancel} open size="lg" title={request.title}>
-			<div className="flex h-[55vh] flex-col">
-				<div className="relative min-h-0 flex-1 overflow-hidden border-b border-(--omp-border-muted)">
-					<div className="h-full" ref={hostRef} />
-					{!editorReady && (
-						<div className="absolute inset-0 flex items-center justify-center">
-							<Spinner size="sm" />
-						</div>
-					)}
-				</div>
-				<div className="flex items-center justify-end gap-2 p-3">
-					<Button onClick={onCancel} size="sm" variant="ghost">
-						{t("common.cancel")}
-					</Button>
-					<Button onClick={() => onValue(valueRef.current)} size="sm" variant="primary">
-						{t("extDialog.submit")}
-					</Button>
-				</div>
-			</div>
-		</Modal>
+		<PromptCard
+			footer={
+				<>
+					<span className="flex items-center gap-3 text-sc-xs text-(--sc-text-muted)">
+						<span className="flex items-center gap-1.5">
+							<Kbd shortcut="⌘↵" />
+							{t("extDialog.editor.hintSubmit")}
+						</span>
+						<span className="flex items-center gap-1.5">
+							<Kbd shortcut="↵" />
+							{t("extDialog.editor.hintNewline")}
+						</span>
+					</span>
+					<div className="ml-auto flex gap-2">
+						<Button onClick={onCancel} size="sm" variant="ghost">
+							{t("common.cancel")}
+						</Button>
+						<Button onClick={submit} size="sm" variant="primary">
+							{t("extDialog.submit")}
+						</Button>
+					</div>
+				</>
+			}
+			icon={SquarePen}
+			label={label}
+			onCancel={onCancel}
+		>
+			{body && <p className="mb-2 text-sc-sm break-words whitespace-pre-wrap text-(--sc-text-muted)">{body}</p>}
+			<TextArea
+				aria-label={label}
+				autoGrow
+				className="max-h-[min(40vh,24rem)] overflow-y-auto"
+				defaultValue={prefill}
+				mono={looksLikeJson(prefill)}
+				onKeyDown={onKeyDown}
+				ref={fieldRef}
+				rows={4}
+				spellCheck={false}
+			/>
+		</PromptCard>
 	);
 }
 
+/** A link the extension wants opened: 1 opens it in the browser and answers "done", 2 cancels. */
 function OpenUrlDialog({
 	request,
 	onDone,
@@ -584,42 +577,41 @@ function OpenUrlDialog({
 	onCancel: () => void;
 }) {
 	const t = useT();
-	const [opened, setOpened] = useState(false);
 	const target = request.launchUrl ?? request.url;
-
+	const choose = (key: string) => {
+		if (key !== "open") {
+			onCancel();
+			return;
+		}
+		void window.omp.system.openExternal(target);
+		onDone();
+	};
 	return (
-		<Modal onClose={onCancel} open size="sm" title={t("extDialog.openUrl.title")}>
-			<div className="space-y-3">
-				{request.instructions && (
-					<p className="text-xs leading-relaxed break-words whitespace-pre-wrap text-(--omp-muted)">
-						{request.instructions}
-					</p>
-				)}
-				<div className="rounded-md border border-(--omp-border-muted) bg-(--omp-code-bg) px-2.5 py-2 font-mono text-omp-xs break-all text-(--omp-md-link)">
-					{target}
-				</div>
-				<div className="flex items-center justify-end gap-2">
-					<Button onClick={onCancel} size="sm" variant="ghost">
-						{t("common.cancel")}
-					</Button>
-					<Button
-						icon={<ExternalLink size={12} />}
-						onClick={() => {
-							void window.omp.system.openExternal(target);
-							setOpened(true);
-						}}
-						size="sm"
-						variant="secondary"
-					>
-						{opened ? t("extDialog.openUrl.openAgain") : t("extDialog.openUrl.open")}
-					</Button>
-					<Button autoFocus disabled={!opened} onClick={onDone} size="sm" variant="primary">
-						{t("extDialog.openUrl.done")}
-					</Button>
-				</div>
-				{!opened && <p className="text-right text-omp-xs text-(--omp-dim)">{t("extDialog.openUrl.hint")}</p>}
-			</div>
-		</Modal>
+		<PromptCard
+			icon={ExternalLink}
+			label={t("extDialog.openUrl.title")}
+			onCancel={onCancel}
+			onDigit={n => {
+				if (n === 1) choose("open");
+				else if (n === 2) choose("cancel");
+			}}
+		>
+			{request.instructions && (
+				<p className="mb-2 text-sc-sm break-words whitespace-pre-wrap text-(--sc-text-muted)">
+					{request.instructions}
+				</p>
+			)}
+			<p className="mb-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--omp-code-bg) px-3 py-2 font-mono text-sc-sm break-all text-(--sc-text-secondary) select-text">
+				{target}
+			</p>
+			<ChoiceList
+				choices={[
+					{ key: "open", label: t("extDialog.openUrl.open") },
+					{ key: "cancel", label: t("common.cancel") },
+				]}
+				onChoose={choose}
+			/>
+		</PromptCard>
 	);
 }
 
@@ -701,8 +693,7 @@ function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; rem
 				<EditorDialog key={request.id} onCancel={cancel} onValue={value => respond({ value })} request={request} />
 			);
 		case "open_url":
-			// Keyed: `opened` state must reset per request, or Done enables before
-			// the new URL was ever opened.
+			// Keyed: each link gets a fresh card, so focus lands on it again.
 			return (
 				<OpenUrlDialog
 					key={request.id}

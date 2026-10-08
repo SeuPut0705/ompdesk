@@ -151,6 +151,9 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		this.#notify("tab.syncImageGeneration", { rtab: this.#rtab });
 	}
 
+	/** The host's own reply-language setting applies to the omp it runs; this machine's is not sent. */
+	syncReplyLanguage(): void {}
+
 	dispose(): void {
 		if (this.#disposed) return;
 		this.#notify("tab.close", { rtab: this.#rtab });

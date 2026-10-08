@@ -6,10 +6,11 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { app, BrowserWindow, globalShortcut, ipcMain, nativeImage, session } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, nativeImage, powerSaveBlocker, session } from "electron";
 import Store from "electron-store";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
+import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import { installQuitGuard, requestQuit } from "./app-quit";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { setupDeepLinks } from "./deep-link";
@@ -374,6 +375,7 @@ app.whenReady().then(() => {
 		proxyEnv: resolveProxyEnvForSpawn,
 		bridgeHealth,
 		sessionKinds,
+		replyLanguagePref: () => prefsStore().get(REPLY_LANGUAGE_PREF),
 	});
 	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId));
 	sidecarPool = new SidecarPool((cwd, kind, fresh, device, tabId) => {
@@ -412,6 +414,10 @@ app.whenReady().then(() => {
 		services: hostServices,
 		machineInfo: () => ({ platform: process.platform, ompVersion: hostOmpVersion, home: homedir(), sep }),
 		offlineMessage: () => mainT("remote.offline"),
+		powerSaveBlocker: {
+			start: () => powerSaveBlocker.start("prevent-app-suspension"),
+			stop: id => powerSaveBlocker.stop(id),
+		},
 	});
 	remoteDevices = devices;
 	sidecarPool.onWindowTabsChanged = () => persistTabLayouts();

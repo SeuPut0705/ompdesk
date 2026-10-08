@@ -54,6 +54,7 @@ import type {
 	SessionKind,
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from "../shared/ipc-types";
+import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import type { HostToolResult, HostToolUpdate, RpcCommand, RpcSessionState } from "../shared/rpc-types";
 import { isUiLanguage } from "../shared/ui-language";
 import { requestQuit } from "./app-quit";
@@ -71,6 +72,7 @@ import type { RemoteDevices } from "./remote/devices";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import type { SessionIndex } from "./session-index";
 import { resolveEditorCommand } from "./shell-env";
+import { deviceLanguage } from "./sidecar-factory";
 import type { SidecarLike, SidecarPool } from "./sidecar-pool";
 import type { StatsClient } from "./stats-client";
 import type { Revive } from "./stats-restart-policy";
@@ -722,6 +724,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		appVersion: appVersion(),
 		platform: process.platform,
 		arch: process.arch,
+		deviceLanguage: deviceLanguage() ?? null,
 		osRelease: os.release(),
 		electron: process.versions.electron ?? "?",
 		chrome: process.versions.chrome ?? "?",
@@ -856,7 +859,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (typeof payload.key !== "string") {
 			throw codedError("invalid_preference_key", "Invalid preference key");
 		}
+		const replyLanguage = payload.key === REPLY_LANGUAGE_PREF;
+		if (replyLanguage && !isReplyLanguagePref(payload.value)) {
+			throw codedError("invalid_preference_key", "Invalid reply language");
+		}
 		prefsStore.set(payload.key, payload.value);
+		if (replyLanguage) {
+			// Every open session's next turn follows; paired hosts keep their own setting.
+			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncReplyLanguage();
+			remoteDevices.hostReplyLanguageChanged();
+		}
 		if (payload.key === "language" && isUiLanguage(payload.value)) {
 			createMenu(windowManager, deps.spawnWindow);
 		}
@@ -1086,6 +1098,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		remoteDevices.setHostEnabled(enabled === true),
 	);
 	ipcMain.handle(IPC_COMMANDS.REMOTE_SET_DEVICE_NAME, (_event, name: unknown) => remoteDevices.setDeviceName(name));
+	ipcMain.handle(IPC_COMMANDS.REMOTE_SET_KEEP_AWAKE, (_event, enabled: unknown) =>
+		remoteDevices.setKeepAwake(enabled === true),
+	);
 	ipcMain.handle(IPC_COMMANDS.REMOTE_ROTATE_CODE, () => remoteDevices.rotateCode());
 	ipcMain.handle(IPC_COMMANDS.REMOTE_REVOKE_PEER, (_event, deviceId: unknown) => remoteDevices.revokePeer(deviceId));
 	ipcMain.handle(IPC_COMMANDS.REMOTE_DISCOVER, (_event, action: unknown) => remoteDevices.discover(action));

@@ -276,6 +276,8 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_SET_HOST_ENABLED, enabled) as Promise<RemoteState>,
 		setDeviceName: (name: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_SET_DEVICE_NAME, name) as Promise<RemoteState>,
+		setKeepAwake: (enabled: boolean) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_SET_KEEP_AWAKE, enabled) as Promise<RemoteState>,
 		rotateCode: () => ipcRenderer.invoke(IPC_COMMANDS.REMOTE_ROTATE_CODE) as Promise<RemoteState>,
 		revokePeer: (deviceId: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_REVOKE_PEER, deviceId) as Promise<RemoteState>,

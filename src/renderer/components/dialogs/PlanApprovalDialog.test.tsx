@@ -143,10 +143,15 @@ function click(element: TestElement): void {
 	element.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
 }
 
-function keydownOnDocument(key: string): void {
+async function pressOnCard(key: string): Promise<void> {
+	const card = document.querySelector("[data-prompt-card]") as unknown as TestElement | null;
+	if (!card) throw new Error("plan card not rendered");
 	const event = new Event("keydown", { bubbles: true, cancelable: true });
-	(event as unknown as { key: string }).key = key;
-	document.dispatchEvent(event);
+	Object.assign(event, { key, metaKey: false, ctrlKey: false, altKey: false });
+	await act(async () => {
+		card.dispatchEvent(event);
+	});
+	await flush();
 }
 
 afterEach(async () => {
@@ -184,11 +189,15 @@ describe("PlanApprovalDialog", () => {
 		const planApproval = vi.fn<PlanApprovalFn>(async () => success({ approved: false, dispatched: false }));
 		installMockOmp(planApproval);
 		await mount(<PlanApprovalDialog />);
-		expect(document.querySelector("[role='dialog']")).toBeNull();
+		expect(document.querySelector("[data-prompt-card]")).toBeNull();
 		expect(batchListener).not.toBeNull();
 
 		await emit([proposal("# The Plan\n\n1. Do the thing.")]);
-		expect(document.querySelector("[role='dialog']")).not.toBeNull();
+		expect(document.querySelector("[data-prompt-card]")).not.toBeNull();
+		// A docked card, not a modal: no dialog role, no scrim, focus off every row.
+		expect(document.querySelector("[role='dialog']")).toBeNull();
+		expect(document.querySelector(".omp-dialog-overlay")).toBeNull();
+		expect((document.activeElement as unknown as { tagName?: string } | null)?.tagName).not.toBe("BUTTON");
 		expect(document.body.textContent).toContain("Auth refactor");
 		expect(document.body.textContent).toContain("Do the thing.");
 	});
@@ -213,7 +222,7 @@ describe("PlanApprovalDialog", () => {
 		expect(planApproval).toHaveBeenCalledWith(true, "compact");
 		// Dispatched → dialog closes with a success toast.
 		expect(usePlanApprovalStore.getState().pending).toBeNull();
-		expect(document.querySelector("[role='dialog']")).toBeNull();
+		expect(document.querySelector("[data-prompt-card]")).toBeNull();
 		expect(useToastStore.getState().toasts.some(t => t.variant === "success")).toBe(true);
 	});
 
@@ -327,7 +336,7 @@ describe("PlanApprovalDialog", () => {
 		await flush();
 		expect(planApproval).toHaveBeenCalledWith(false);
 		expect(usePlanApprovalStore.getState().pending).toBeNull();
-		expect(document.querySelector("[role='dialog']")).toBeNull();
+		expect(document.querySelector("[data-prompt-card]")).toBeNull();
 	});
 
 	it("answers planApproval(false) on Escape", async () => {
@@ -338,8 +347,48 @@ describe("PlanApprovalDialog", () => {
 		await mount(<PlanApprovalDialog />);
 		await emit([proposal("# Plan")]);
 
-		await act(async () => keydownOnDocument("Escape"));
+		await pressOnCard("Escape");
+		expect(planApproval).toHaveBeenCalledWith(false);
+		expect(usePlanApprovalStore.getState().pending).toBeNull();
+	});
+
+	it("digits pick the numbered rows: 1 approves with the first advertised option", async () => {
+		const planApproval = vi.fn<PlanApprovalFn>(async () => success({ approved: true, dispatched: true }));
+		installMockOmp(planApproval);
+		await mount(<PlanApprovalDialog />);
+		await emit([proposal("# Plan")]);
+
+		await pressOnCard("1");
+		expect(planApproval).toHaveBeenCalledWith(true, "execute");
+		expect(usePlanApprovalStore.getState().pending).toBeNull();
+	});
+
+	it("the refine digit sends nothing until feedback is written, then sends it", async () => {
+		const planApproval = vi.fn<PlanApprovalFn>(async () => success({ approved: false, dispatched: true }));
+		installMockOmp(planApproval);
+		await mount(<PlanApprovalDialog />);
+		await emit([proposal("# Plan")]);
+
+		// execute, compact, keep_context, save, then refine (5) and dismiss (6).
+		await pressOnCard("5");
+		expect(planApproval).not.toHaveBeenCalled();
+		await act(async () => {
+			usePlanApprovalStore.getState().setFeedback("Add a rollback step.");
+		});
 		await flush();
+		await pressOnCard("5");
+		expect(planApproval).toHaveBeenCalledWith(false, undefined, "Add a rollback step.");
+	});
+
+	it("the last digit dismisses with planApproval(false)", async () => {
+		const planApproval = vi.fn<PlanApprovalFn>(async () =>
+			success({ approved: false, dispatched: false, reason: "rejected" }),
+		);
+		installMockOmp(planApproval);
+		await mount(<PlanApprovalDialog />);
+		await emit([proposal("# Plan")]);
+
+		await pressOnCard("6");
 		expect(planApproval).toHaveBeenCalledWith(false);
 		expect(usePlanApprovalStore.getState().pending).toBeNull();
 	});
@@ -385,7 +434,7 @@ describe("PlanApprovalDialog", () => {
 		await act(async () => click(execute));
 		await flush();
 		expect(usePlanApprovalStore.getState().pending).not.toBeNull();
-		expect(document.querySelector("[role='dialog']")).not.toBeNull();
+		expect(document.querySelector("[data-prompt-card]")).not.toBeNull();
 		expect(useToastStore.getState().toasts.some(t => t.variant === "error")).toBe(true);
 	});
 

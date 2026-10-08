@@ -2,9 +2,11 @@
  * Settings › Remote devices. Two roles on one page:
  *
  * - This computer (B, host): "Let other devices use this computer". While on,
- *   it shows the device name (editable), the LAN addresses and a single-use
- *   pairing code with its countdown — both selectable and copyable — and the
- *   paired devices with an online dot and Remove (revoke). An expired code is
+ *   it shows "Keep this computer awake while a device is using it" (on by
+ *   default; its description says whether sleep is blocked now and for whom),
+ *   the device name (editable), the LAN addresses and a single-use pairing
+ *   code with its countdown — both selectable and copyable — and the paired
+ *   devices with an online dot and Remove (revoke). An expired code is
  *   replaced on its own.
  * - Other devices (A, client): the hosts this computer can run sessions on,
  *   with their link state and Remove, plus "Connect to a device".
@@ -13,7 +15,7 @@
  */
 import { Copy, Monitor, Plus, RefreshCw } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import type { RemoteState } from "../../../shared/ipc-types";
+import type { RemoteHostState, RemoteState } from "../../../shared/ipc-types";
 import { copyText, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -167,6 +169,34 @@ function DeviceNameRow({ name }: { name: string }) {
 	);
 }
 
+/** The host's keep-awake option; its description is the live state while it is on. */
+function KeepAwakeRow({ host }: { host: RemoteHostState }) {
+	const t = useT();
+	const [saving, setSaving] = useState(false);
+	let description = t("remote.host.keepAwakeDesc");
+	if (host.keepAwake && host.keepingAwake) {
+		description =
+			host.usedBy.length > 0
+				? t("remote.host.keepingAwakeFor", { names: host.usedBy.join(", ") })
+				: t("remote.host.keepingAwake");
+	}
+	return (
+		<SettingsSwitchRow
+			checked={host.keepAwake}
+			description={<span data-remote-keep-awake-state>{description}</span>}
+			disabled={saving}
+			id="settings-remote-keep-awake"
+			label={t("remote.host.keepAwake")}
+			onCheckedChange={enabled => {
+				setSaving(true);
+				void mutate(() => window.omp.remote.setKeepAwake(enabled), t("remote.host.keepAwakeFailed")).finally(() =>
+					setSaving(false),
+				);
+			}}
+		/>
+	);
+}
+
 export function RemoteSection() {
 	const t = useT();
 	const state = useRemoteStore(store => store.state);
@@ -218,6 +248,7 @@ export function RemoteSection() {
 				/>
 				{host.enabled && (
 					<>
+						<KeepAwakeRow host={host} />
 						<DeviceNameRow name={host.name} />
 						<SettingsRow description={t("remote.host.addressesDesc")} label={t("remote.host.addresses")}>
 							{host.addresses.length > 0 ? (

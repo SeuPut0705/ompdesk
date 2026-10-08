@@ -147,7 +147,18 @@ describe("WorkspaceDialog folder picker", () => {
 	it("browses the host on a remote tab, then re-roots the tab there", async () => {
 		seedTab("dev-studio");
 		useRemoteStore.getState().apply({
-			host: { enabled: false, name: "laptop", port: null, addresses: [], code: null, expiresAt: null, peers: [] },
+			host: {
+				enabled: false,
+				name: "laptop",
+				port: null,
+				addresses: [],
+				code: null,
+				expiresAt: null,
+				peers: [],
+				keepAwake: true,
+				keepingAwake: false,
+				usedBy: [],
+			},
 			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
 		});
 		await mount("switch");

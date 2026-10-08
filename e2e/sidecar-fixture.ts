@@ -483,6 +483,7 @@ if (process.argv[2] === "stats") {
 		}),
 		"workspace.directories": () => ({ directories: [] }),
 		image_generation_sync: () => ({}),
+		reply_language_set: params => ({ language: typeof params.language === "string" ? params.language : null }),
 		"modes.get_plan_mode": () => ({ enabled: planModeEnabled, proposal: planProposal }),
 		"modes.set_plan_mode": params => {
 			planModeEnabled = params.enabled === true;

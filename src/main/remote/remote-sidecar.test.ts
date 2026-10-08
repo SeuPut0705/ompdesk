@@ -132,6 +132,8 @@ describe("RemoteSidecar", () => {
 
 		sidecar.sendSideChannel({ type: "host_tool_result", id: "ht-1" });
 		sidecar.syncImageGeneration();
+		// The host's own reply-language setting applies: nothing goes over the link.
+		sidecar.syncReplyLanguage();
 		expect(sidecar.adoptCwd("/canonical/p")).toBe(false);
 		expect(sidecar.adoptCwd("/elsewhere")).toBe(true);
 		sidecar.restart(undefined, "/s/next.jsonl");
