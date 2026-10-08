@@ -15,19 +15,19 @@ const LANGUAGE_NAMES = new Intl.DisplayNames(["en"], { type: "language", fallbac
  */
 export function replyLanguageName(tag: string | undefined): string | undefined {
 	if (!tag) return undefined;
-	let locale: Intl.Locale;
 	try {
 		// Some platforms report POSIX-style `ko_KR`.
-		locale = new Intl.Locale(tag.trim().replaceAll("_", "-"));
+		const locale = new Intl.Locale(tag.trim().replaceAll("_", "-"));
+		const { language } = locale;
+		if (!language || language === "und") return undefined;
+		const script = locale.maximize().script;
+		const usualScript = new Intl.Locale(language).maximize().script;
+		const subtag = script && script !== usualScript ? `${language}-${script}` : language;
+		return LANGUAGE_NAMES.of(subtag) ?? LANGUAGE_NAMES.of(language);
 	} catch {
+		// Engines differ on which malformed tags throw (CI Node rejects some local Bun accepts).
 		return undefined;
 	}
-	const { language } = locale;
-	if (language === "und") return undefined;
-	const script = locale.maximize().script;
-	const usualScript = new Intl.Locale(language).maximize().script;
-	const subtag = script && script !== usualScript ? `${language}-${script}` : language;
-	return LANGUAGE_NAMES.of(subtag) ?? LANGUAGE_NAMES.of(language);
 }
 
 /** First device language that maps to a name; `preferred` comes first, `fallback` (e.g. `app.getLocale()`) last. */
