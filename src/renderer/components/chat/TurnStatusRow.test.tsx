@@ -58,10 +58,10 @@ describe("TurnStatusRow", () => {
 		expect(container.childElementCount).toBe(0);
 	});
 
-	it("a slow wait surfaces elapsed time and recovery even when attached", async () => {
-		useSessionStore.setState({ awaitingModelSince: Date.now() - 45_000 });
-		await mount(true);
-		expect(container.textContent).toMatch(/Waiting for model response… \d+s/);
-		expect(container.textContent).toContain("Stop");
+	it("a long wait stays a bare spinner: no elapsed clock, warning, or recovery buttons", async () => {
+		useSessionStore.setState({ awaitingModelSince: Date.now() - 1_013_000 });
+		await mount();
+		expect(container.textContent).toBe("Waiting for model response…");
+		expect(container.querySelector("button")).toBeNull();
 	});
 });

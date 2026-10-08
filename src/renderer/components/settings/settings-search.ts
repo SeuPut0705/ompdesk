@@ -43,6 +43,7 @@ const SECTION_ALIASES: Record<SettingsSectionId, string> = {
 	plugins: "plugins marketplace templates memory resources inventory",
 	workspace: "workspace project folders directories dirs",
 	ssh: "ssh hosts remote",
+	remote: "remote devices pair pairing code host connect other computer 원격 기기 연결 페어링",
 	updates: "updates version upgrade omp update",
 	advanced: "advanced proxy launch profile system prompt schema",
 };

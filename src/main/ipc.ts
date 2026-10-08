@@ -1,26 +1,33 @@
 /**
  * Registers all IPC handlers and wires sidecar events to renderer windows.
+ *
+ * A tab on a paired host (`device`) runs its omp there, so every handler
+ * that reads or writes the machine running omp — sessions, workspace files,
+ * launch profiles, project switches — goes to that host through
+ * RemoteDevices. Native open/reveal of a host path is refused
+ * (`remote_path_native`): this machine cannot see that disk.
  */
-import { type Dirent, existsSync, promises as fsp } from "node:fs";
+import { existsSync, promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from "electron";
 import Store from "electron-store";
-import { codedError, type IpcErrorCode } from "../shared/ipc-error-codes";
+import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
-	FsTreeEntry,
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
 	IpcCloseTabPayload,
 	IpcExtensionUiRespondPayload,
 	IpcFsListPayload,
+	IpcFsListResult,
 	IpcFsReadImagePayload,
 	IpcFsReadImageResult,
 	IpcFsReadPayload,
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
+	IpcGetLaunchProfilePayload,
 	IpcGetSessionOwnerPayload,
 	IpcHostToolResultPayload,
 	IpcHostToolUpdatePayload,
@@ -29,6 +36,7 @@ import type {
 	IpcOpenPathResult,
 	IpcPrefsGetPayload,
 	IpcPrefsSetPayload,
+	IpcRemoteListDirsPayload,
 	IpcRpcCommandForTabPayload,
 	IpcRpcCommandPayload,
 	IpcSessionOpenNewWindowPayload,
@@ -42,9 +50,10 @@ import type {
 	IpcSpawnTabPayload,
 	IpcStatsFetchPayload,
 	IpcUpdateLaunchProfilePayload,
+	SessionInfo,
+	SessionKind,
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from "../shared/ipc-types";
-import { parseLaunchProfile } from "../shared/launch-profile";
 import type { HostToolResult, HostToolUpdate, RpcCommand, RpcSessionState } from "../shared/rpc-types";
 import { isUiLanguage } from "../shared/ui-language";
 import { requestQuit } from "./app-quit";
@@ -52,16 +61,17 @@ import { BenchmarkRunner } from "./benchmark-runner";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { openInExternalEditor } from "./editor";
 import { mainT } from "./i18n";
+import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "./launch-profile-store";
 import { renameStoredSession } from "./local/session-files";
 import type { LogWatcher } from "./log-watcher";
 import { createMenu } from "./menu";
 import { deleteModelsProvider, listModelsProviders, modelsPath, upsertModelsProvider } from "./models-config";
 import { type OmpResolution, systemOmp } from "./omp-runtime";
+import type { RemoteDevices } from "./remote/devices";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import type { SessionIndex } from "./session-index";
 import { resolveEditorCommand } from "./shell-env";
-import type { SidecarManager } from "./sidecar";
-import type { SidecarPool } from "./sidecar-pool";
+import type { SidecarLike, SidecarPool } from "./sidecar-pool";
 import type { StatsClient } from "./stats-client";
 import type { Revive } from "./stats-restart-policy";
 import { spawnTabForWindow } from "./tab-spawn";
@@ -70,6 +80,7 @@ import { aggregateTrayStatus } from "./tray-labels";
 import { appVersion } from "./updater";
 import type { SpawnWindow, WindowManager } from "./window";
 import { sanitizeChromeColors, TOP_BAR_HEIGHT } from "./window-chrome";
+import { listWorkspace, readPlanFile, readWorkspaceFile, readWorkspaceImage, resolveWithin } from "./workspace-fs";
 
 export interface IpcDeps {
 	sidecarPool: SidecarPool;
@@ -79,6 +90,8 @@ export interface IpcDeps {
 	statsRestart: () => Revive;
 	logWatcher: LogWatcher;
 	windowManager: WindowManager;
+	/** Both remote roles: the paired hosts tabs may run on, and this computer as a host. */
+	remoteDevices: RemoteDevices;
 	/** The system omp the benchmark runs (`omp bench`). */
 	benchmarkOmp: () => Promise<OmpResolution>;
 	benchmarkEnv: () => Promise<NodeJS.ProcessEnv>;
@@ -94,244 +107,46 @@ export interface IpcDeps {
  * `event.sender` (Electron guarantees it is the caller's webContents), never
  * from a client-supplied id. Null when the window has no sidecar bound yet.
  */
-function sidecarFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent): SidecarManager | null {
+function sidecarFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent): SidecarLike | null {
 	const win = BrowserWindow.fromWebContents(event.sender);
 	if (!win) return null;
 	return deps.sidecarPool.sidecarForWindow(win);
 }
 
+/** The tab a handler acts on — `tabId`, else the calling window's active tab — with its device. */
+function targetFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent, tabId?: string) {
+	const win = BrowserWindow.fromWebContents(event.sender);
+	return win ? deps.sidecarPool.tabTarget(win, typeof tabId === "string" ? tabId : undefined) : null;
+}
+
 /**
- * The calling window's working directory — the bound sidecar's cwd when one
- * exists, else the cwd the window was created with (before its sidecar binds).
+ * The calling window's working directory on THIS machine — the bound local
+ * tab's cwd when one exists, else the cwd the window was created with (before
+ * its sidecar binds, or while its active tab runs on a paired host).
  */
 function cwdFor(deps: IpcDeps, event: Electron.IpcMainInvokeEvent, tabId?: string): string | null {
 	const win = BrowserWindow.fromWebContents(event.sender);
 	if (!win) return null;
-	if (tabId) return deps.sidecarPool.sidecarForTab(win, tabId)?.cwd ?? null;
-	return deps.sidecarPool.sidecarForWindow(win)?.cwd ?? deps.windowManager.recordFor(win)?.cwd ?? null;
+	const target = deps.sidecarPool.tabTarget(win, tabId);
+	if (tabId) return target && !target.device ? target.sidecar.cwd : null;
+	if (target && !target.device) return target.sidecar.cwd;
+	return deps.windowManager.recordFor(win)?.cwd ?? null;
+}
+
+/** The caller's cwd when its active tab runs on `device` (undefined = this machine), else null. */
+function cwdOnDevice(deps: IpcDeps, event: Electron.IpcMainInvokeEvent, device: string | undefined): string | null {
+	if (!device) return cwdFor(deps, event);
+	const target = targetFor(deps, event);
+	return target?.device === device ? target.sidecar.cwd : null;
+}
+
+/** A payload's paired-host deviceId; anything else means this machine. */
+function deviceOf(value: unknown): string | undefined {
+	return typeof value === "string" && value ? value : undefined;
 }
 
 interface PrefsSchema {
 	[key: string]: unknown;
-}
-
-// ============================================================================
-// Workspace filesystem (fs:list / fs:read) — node:fs based, no sidecar session
-// required, cross-platform. Rooted at the sidecar's cwd.
-// ============================================================================
-
-const FS_LIST_DEFAULT_DEPTH = 8;
-const FS_LIST_MAX_DEPTH = 16;
-const FS_LIST_DEFAULT_MAX_FILES = 2000;
-const FS_LIST_MAX_FILES_CAP = 20_000;
-const FS_READ_DEFAULT_MAX_BYTES = 200_000;
-const FS_READ_MAX_BYTES_CAP = 2_000_000;
-
-/** Always-skipped names, applied like root .gitignore patterns. */
-const FS_IGNORED_DEFAULTS = [
-	"node_modules",
-	".git",
-	".hg",
-	".svn",
-	"dist",
-	"out",
-	".next",
-	"target",
-	"build",
-	".turbo",
-	"coverage",
-	"__pycache__",
-	".venv",
-	"venv",
-	".cache",
-	".codegraph",
-	"bazel-*",
-];
-
-interface IgnoreRule {
-	negated: boolean;
-	dirOnly: boolean;
-	regex: RegExp;
-}
-
-const REGEX_SPECIALS = "\\^$.|+()[]{}";
-
-/**
- * Compile one gitignore pattern line into a rule. Minimal but faithful to the
- * common semantics: `!` negation, trailing `/` dir-only, any slash anchors the
- * pattern to the root, `*`/`?` match within a segment, `**` crosses segments.
- */
-function compileIgnoreRule(rawLine: string): IgnoreRule | null {
-	let line = rawLine.trimEnd();
-	if (!line || line.startsWith("#")) return null;
-	let negated = false;
-	if (line.startsWith("!")) {
-		negated = true;
-		line = line.slice(1);
-	} else if (line.startsWith("\\!") || line.startsWith("\\#")) {
-		line = line.slice(1);
-	}
-	let dirOnly = false;
-	if (line.endsWith("/")) {
-		dirOnly = true;
-		line = line.slice(0, -1);
-	}
-	if (!line) return null;
-	const anchored = line.includes("/");
-	if (line.startsWith("/")) line = line.slice(1);
-	let body = "";
-	let i = 0;
-	while (i < line.length) {
-		const char = line[i];
-		if (char === "*") {
-			if (line[i + 1] === "*") {
-				if (line[i + 2] === "/") {
-					body += "(?:[^/]+/)*";
-					i += 3;
-				} else {
-					body += ".*";
-					i += 2;
-				}
-			} else {
-				body += "[^/]*";
-				i += 1;
-			}
-		} else if (char === "?") {
-			body += "[^/]";
-			i += 1;
-		} else if (REGEX_SPECIALS.includes(char)) {
-			body += `\\${char}`;
-			i += 1;
-		} else {
-			body += char;
-			i += 1;
-		}
-	}
-	// A matching directory also ignores everything beneath it.
-	const source = anchored ? `^${body}(?:/.*)?$` : `(?:^|/)${body}(?:/.*)?$`;
-	return { negated, dirOnly, regex: new RegExp(source) };
-}
-
-/** Last matching rule wins, per gitignore semantics. */
-function isIgnored(rules: IgnoreRule[], relPath: string, isDir: boolean): boolean {
-	let ignored = false;
-	for (const rule of rules) {
-		if (rule.dirOnly && !isDir) continue;
-		if (rule.regex.test(relPath)) ignored = !rule.negated;
-	}
-	return ignored;
-}
-
-async function loadIgnoreRules(rootAbs: string): Promise<IgnoreRule[]> {
-	const rules: IgnoreRule[] = [];
-	for (const pattern of FS_IGNORED_DEFAULTS) {
-		const rule = compileIgnoreRule(pattern);
-		if (rule) rules.push(rule);
-	}
-	try {
-		const content = await fsp.readFile(path.join(rootAbs, ".gitignore"), "utf8");
-		for (const line of content.split(/\r?\n/)) {
-			const rule = compileIgnoreRule(line);
-			if (rule) rules.push(rule);
-		}
-	} catch {
-		// No readable root .gitignore — defaults only.
-	}
-	return rules;
-}
-
-/** Resolve `rel` against `root`, refusing escapes outside the workspace. */
-function resolveWithin(root: string, rel: string): string | null {
-	const resolved = path.resolve(root, rel);
-	const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
-	if (resolved !== root && !resolved.startsWith(rootWithSep)) return null;
-	return resolved;
-}
-
-/** `abs` when it exists and is a regular file, else null. */
-async function statFile(abs: string): Promise<string | null> {
-	try {
-		return (await fsp.stat(abs)).isFile() ? abs : null;
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Newest top-level `*plan.md` (case-insensitive) in `dirAbs`, mirroring the
- * agent-side `listPlanFiles` fallback (the agent names its own
- * `local://<slug>-plan.md`, so the configured path alone often misses it).
- */
-async function newestPlanFile(dirAbs: string): Promise<string | null> {
-	let dirents: Dirent[];
-	try {
-		dirents = await fsp.readdir(dirAbs, { withFileTypes: true });
-	} catch {
-		return null;
-	}
-	let best: { abs: string; mtimeMs: number } | null = null;
-	for (const dirent of dirents) {
-		if (!dirent.isFile() || !/plan\.md$/i.test(dirent.name)) continue;
-		const abs = path.join(dirAbs, dirent.name);
-		try {
-			const { mtimeMs } = await fsp.stat(abs);
-			if (!best || mtimeMs > best.mtimeMs) best = { abs, mtimeMs };
-		} catch {
-			// Vanished between readdir and stat — skip.
-		}
-	}
-	return best?.abs ?? null;
-}
-
-function clampInt(value: number | undefined, min: number, max: number, fallback: number): number {
-	if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
-	return Math.min(max, Math.max(min, Math.floor(value)));
-}
-
-interface WalkState {
-	rules: IgnoreRule[];
-	maxDepth: number;
-	maxFiles: number;
-	fileCount: number;
-	truncated: boolean;
-}
-
-/** Recursive readdir → sorted tree (dirs first, then files, each alphabetical). */
-async function walkWorkspace(
-	dirAbs: string,
-	relPrefix: string,
-	depth: number,
-	state: WalkState,
-): Promise<FsTreeEntry[]> {
-	let dirents: Dirent[];
-	try {
-		dirents = await fsp.readdir(dirAbs, { withFileTypes: true });
-	} catch {
-		return []; // Unreadable directory (permissions) — skip, don't fail the walk.
-	}
-	const dirs: FsTreeEntry[] = [];
-	const files: FsTreeEntry[] = [];
-	const sorted = dirents.filter(dirent => !dirent.isSymbolicLink()).sort((a, b) => a.name.localeCompare(b.name));
-	for (const dirent of sorted) {
-		if (state.truncated) break;
-		const isDir = dirent.isDirectory();
-		if (!isDir && !dirent.isFile()) continue;
-		const rel = relPrefix ? `${relPrefix}/${dirent.name}` : dirent.name;
-		if (isIgnored(state.rules, rel, isDir)) continue;
-		if (isDir) {
-			const children =
-				depth < state.maxDepth ? await walkWorkspace(path.join(dirAbs, dirent.name), rel, depth + 1, state) : [];
-			dirs.push({ name: dirent.name, path: rel, kind: "dir", children });
-		} else {
-			if (state.fileCount >= state.maxFiles) {
-				state.truncated = true;
-				break;
-			}
-			state.fileCount += 1;
-			files.push({ name: dirent.name, path: rel, kind: "file" });
-		}
-	}
-	return [...dirs, ...files];
 }
 
 // Dedupe state for SYSTEM_NOTIFY across multiple windows (see the handler).
@@ -351,7 +166,7 @@ function aggregateProgress(states: RunProgressState[]): RunProgressState {
 
 export function registerIpcHandlers(deps: IpcDeps): void {
 	const benchmarkRunners = new Map<number, BenchmarkRunner>();
-	const { sidecarPool, sessionIndex, statsClient, logWatcher, windowManager } = deps;
+	const { sidecarPool, sessionIndex, statsClient, logWatcher, windowManager, remoteDevices } = deps;
 	const prefsStore = new Store<PrefsSchema>({ name: "prefs" });
 
 	// Drop a closed window's tray/progress snapshot so the aggregate reflects
@@ -380,10 +195,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return false;
 	};
 
-	// Session index changes
+	// Session index changes: this window set, and every device using this
+	// computer as its host.
 	sessionIndex.onChange = () => {
 		broadcast(windowManager, IPC_EVENTS.SESSIONS_CHANGED, undefined);
+		remoteDevices.hostSessionsChanged();
 	};
+
+	// Host-level lookups on a paired host, shared by spawn/open/switch paths.
+	const remoteKindFor = (device: string, sessionPath: string) =>
+		remoteDevices.request<SessionKind>(device, "sessions.kindFor", { sessionPath });
+	const remoteDefaultWorkspace = (device: string) => remoteDevices.request<string>(device, "workspace.default", {});
 
 	// Log lines (batched by LogWatcher)
 	logWatcher.onLines = lines => {
@@ -458,7 +280,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	const dispatchRpcCommand = async (
 		win: BrowserWindow,
-		sidecar: SidecarManager | null,
+		sidecar: SidecarLike | null,
 		issuerTabId: string | null,
 		payload: IpcRpcCommandPayload,
 	) => {
@@ -470,6 +292,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				success: false,
 				error: "Sidecar not connected",
 				code: "sidecar_not_connected",
+			};
+		}
+		// A tab on a paired host whose link is down: say so, not "not ready".
+		if (sidecar.offline) {
+			return {
+				id: payload.command.id,
+				type: "response",
+				success: false,
+				error: "The device running this tab is offline",
+				code: "remote_offline",
 			};
 		}
 		if (sidecar.status !== "ready") {
@@ -501,8 +333,23 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				};
 			}
 			// Agent and chat sessions never convert. omp has no session kind, so
-			// the guard lives here, against the GUI's own kind record.
-			const targetKind = await sessionIndex.kindFor(cmd.sessionPath);
+			// the guard lives here, against the GUI's own kind record — on the
+			// machine that holds the file.
+			let targetKind: SessionKind;
+			try {
+				targetKind = sidecar.device
+					? await remoteKindFor(sidecar.device, cmd.sessionPath)
+					: await sessionIndex.kindFor(cmd.sessionPath);
+			} catch (err) {
+				return {
+					id: _id,
+					type: "response",
+					command: "switch_session",
+					success: false,
+					error: err instanceof Error ? err.message : String(err),
+					code: ipcErrorCode(err) ?? "rpc_delivery_unknown",
+				};
+			}
 			if (targetKind !== sidecar.kind) {
 				return {
 					id: _id,
@@ -536,8 +383,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					// event; get_state (run by every hydrate) carries the live
 					// cwd. Adopt it so the tab chip tracks the session, and sync
 					// the window record (menu "New Window" reads cwd from it) —
-					// the same tail as a project switch, minus the respawn.
-					if (state?.cwd && sidecarPool.adoptSessionCwd(issuerTabId, state.cwd)) {
+					// the same tail as a project switch, minus the respawn. The
+					// record keeps local paths: a host's cwd means nothing here.
+					if (state?.cwd && sidecarPool.adoptSessionCwd(issuerTabId, state.cwd) && !sidecar.device) {
 						windowManager.setRecordCwd(win, state.cwd);
 					}
 				}
@@ -553,7 +401,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				id: _id,
 				type: "response",
 				success: false,
-				code: "rpc_delivery_unknown",
+				code: ipcErrorCode(err) ?? "rpc_delivery_unknown",
 				error: err instanceof Error ? err.message : String(err),
 			};
 		}
@@ -616,19 +464,29 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		sidecarFor(deps, event)?.sendSideChannel(result);
 	});
 
-	// Sessions
+	// Sessions. `device` names the paired host whose session index answers;
+	// its sessions come back tagged with it.
 	ipcMain.handle(IPC_COMMANDS.SESSIONS_LIST, async (event, payload: IpcSessionsListPayload) => {
 		const scope = payload.scope === "local" ? "local" : "global";
-		return sessionIndex.list(scope, cwdFor(deps, event) ?? undefined);
+		const device = deviceOf(payload.device);
+		const cwd = cwdOnDevice(deps, event, device) ?? undefined;
+		if (!device) return sessionIndex.list(scope, cwd);
+		const sessions = await remoteDevices.request<SessionInfo[]>(device, "sessions.list", { scope, cwd });
+		return sessions.map(info => ({ ...info, device }));
 	});
 
 	ipcMain.handle(IPC_COMMANDS.SESSIONS_DELETE, async (_event, payload: IpcSessionsDeletePayload) => {
 		if (typeof payload.sessionPath !== "string" || !payload.sessionPath.endsWith(".jsonl")) {
 			throw codedError("invalid_session_path", "Invalid session path");
 		}
-		const owner = sidecarPool.sessionOwner(payload.sessionPath);
-		if (owner && sidecarPool.sessionOwnerIsLive(payload.sessionPath)) {
-			const response = await sidecarPool.commandForIdleSession(payload.sessionPath, { type: "drop_session" });
+		const device = deviceOf(payload.device);
+		const owner = sidecarPool.sessionOwner(payload.sessionPath, device);
+		if (owner && sidecarPool.sessionOwnerIsLive(payload.sessionPath, device)) {
+			const response = await sidecarPool.commandForIdleSession(
+				payload.sessionPath,
+				{ type: "drop_session" },
+				device,
+			);
 			if (!response) throw codedError("session_running", "Session is currently running");
 			if (!response.success) throw new Error(response.error);
 			const cancelled = (response.data as { cancelled?: boolean } | undefined)?.cancelled ?? false;
@@ -642,7 +500,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// file IS the session — drop the tab's claim first so it cannot wake into
 		// a path that no longer exists.
 		if (owner) sidecarPool.noteSessionFile(owner.tabId, null);
-		return sessionIndex.deleteSession(payload.sessionPath);
+		if (device) await remoteDevices.request(device, "sessions.delete", { sessionPath: payload.sessionPath });
+		else await sessionIndex.deleteSession(payload.sessionPath);
 	});
 
 	ipcMain.handle(IPC_COMMANDS.SESSIONS_RENAME, async (_event, payload: IpcSessionsRenamePayload) => {
@@ -651,18 +510,26 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		const name = typeof payload.name === "string" ? payload.name.trim() : "";
 		if (!name) throw codedError("session_name_empty", "Session name cannot be empty");
-		if (sidecarPool.sessionOwner(payload.sessionPath) && sidecarPool.sessionOwnerIsLive(payload.sessionPath)) {
+		const device = deviceOf(payload.device);
+		if (
+			sidecarPool.sessionOwner(payload.sessionPath, device) &&
+			sidecarPool.sessionOwnerIsLive(payload.sessionPath, device)
+		) {
 			// The owner's in-memory title must change with the file. Stock renames
 			// mid-run (a user title also locks out the pending auto-title), so
 			// unlike delete this does not wait for the tab to go idle.
 			const command: RpcCommand = { type: "set_session_name", name, sessionPath: payload.sessionPath };
-			const response = await sidecarPool.commandForSession(payload.sessionPath, command);
+			const response = await sidecarPool.commandForSession(payload.sessionPath, command, device);
 			if (!response) throw codedError("session_starting", "Session is still starting");
 			if (!response.success) throw new Error(response.error);
 			return;
 		}
 		// An owner with no process has no in-memory title to keep in step, so the
 		// rename is the same stored-file edit it is for an unowned session.
+		if (device) {
+			await remoteDevices.request(device, "sessions.rename", { sessionPath: payload.sessionPath, name });
+			return;
+		}
 		const omp = await systemOmp();
 		if (!omp.ok) throw new Error(omp.error);
 		await renameStoredSession(omp.runtime, payload.sessionPath, name);
@@ -680,18 +547,26 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// racing the renderer's boot hydration and surfaces failures in that window.
 	ipcMain.handle(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, async (event, payload: IpcSessionOpenNewWindowPayload) => {
 		const sessionPath = typeof payload?.sessionPath === "string" ? payload.sessionPath : undefined;
+		const device = deviceOf(payload?.device);
 		if (sessionPath) {
-			const owner = deps.sidecarPool.sessionOwner(sessionPath);
+			const owner = deps.sidecarPool.sessionOwner(sessionPath, device);
 			if (owner && deps.windowManager.focusWindowById(owner.winId)) return true;
 		}
 		if (deps.sidecarPool.atCap) return false;
-		const callerCwd = cwdFor(deps, event) ?? deps.initialCwd();
-		const cwd = typeof payload?.cwd === "string" && payload.cwd.length > 0 ? payload.cwd : callerCwd;
+		const requested = typeof payload?.cwd === "string" && payload.cwd.length > 0 ? payload.cwd : undefined;
+		const cwd =
+			requested ??
+			cwdOnDevice(deps, event, device) ??
+			(device ? await remoteDefaultWorkspace(device) : deps.initialCwd());
 		// The new window's sidecar must spawn with the target file's kind, or the
 		// boot-time switch_session hits the agent-side kind guard and the pool
 		// entry would lie about its kind (I1).
-		const kind = sessionPath ? await sessionIndex.kindFor(sessionPath) : undefined;
-		return deps.spawnWindow(cwd, sessionPath, kind) !== null;
+		const kind = sessionPath
+			? device
+				? await remoteKindFor(device, sessionPath)
+				: await sessionIndex.kindFor(sessionPath)
+			: undefined;
+		return deps.spawnWindow(cwd, sessionPath, kind, device) !== null;
 	});
 
 	// Fresh window pulls the session it was opened to display (one-shot). The
@@ -725,8 +600,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			{
 				sidecarPool: deps.sidecarPool,
 				sessionIndex,
-				fallbackCwd: () => cwdFor(deps, event) ?? deps.initialCwd(),
+				fallbackCwd: device => cwdOnDevice(deps, event, device),
+				initialCwd: deps.initialCwd,
 				defaultWorkspace: ensureDefaultWorkspace,
+				remote: { kindFor: remoteKindFor, defaultWorkspace: remoteDefaultWorkspace },
 			},
 			win,
 			payload,
@@ -767,15 +644,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// belt-guards (open tab / open-in-new-window rows) consult this before
 	// attempting an attach.
 	ipcMain.handle(IPC_COMMANDS.GET_SESSION_OWNER, (_event, payload: IpcGetSessionOwnerPayload) => {
-		return typeof payload?.sessionPath === "string" ? deps.sidecarPool.sessionOwner(payload.sessionPath) : null;
+		return typeof payload?.sessionPath === "string"
+			? deps.sidecarPool.sessionOwner(payload.sessionPath, deviceOf(payload.device))
+			: null;
 	});
 
-	// Full-content search over session files (raw JSONL grep in main, scoped to
-	// the same candidate set the list view would show).
+	// Full-content search over session files (raw JSONL grep on the machine
+	// holding them, scoped to the same candidate set the list view would show).
 	ipcMain.handle(IPC_COMMANDS.SESSIONS_SEARCH, async (event, payload: IpcSessionsSearchPayload) => {
 		const scope = payload.scope === "local" ? "local" : "global";
 		const query = typeof payload.query === "string" ? payload.query : "";
-		const candidates = await sessionIndex.list(scope, cwdFor(deps, event) ?? undefined);
+		const device = deviceOf(payload.device);
+		const cwd = cwdOnDevice(deps, event, device) ?? undefined;
+		if (device) return remoteDevices.request<string[]>(device, "sessions.search", { query, scope, cwd });
+		const candidates = await sessionIndex.list(scope, cwd);
 		return sessionIndex.searchContent(
 			query,
 			candidates.map(info => info.path),
@@ -856,43 +738,58 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// refused), absolute paths pass through: the agent can legitimately touch
 	// files outside the workspace. When no editor association exists, reveal
 	// the file in the file manager instead of failing.
-	ipcMain.handle(IPC_COMMANDS.SYSTEM_OPEN_PATH, async (event, target: string): Promise<IpcOpenPathResult> => {
-		if (typeof target !== "string" || !target.trim()) return { ok: false, error: "Empty path", code: "empty_path" };
-		let resolved = target.startsWith("~/") ? path.join(os.homedir(), target.slice(2)) : target;
-		if (!path.isAbsolute(resolved)) {
-			const rootAbs = cwdFor(deps, event);
-			if (!rootAbs) return { ok: false, error: "No workspace", code: "no_workspace" };
-			const within = resolveWithin(rootAbs, resolved);
-			if (!within) return { ok: false, error: "Path escapes the workspace", code: "path_escapes_workspace" };
-			resolved = within;
-		}
-		// A stale tool card can reference a file that no longer exists (or never
-		// did outside the workspace). Both openPath and showItemInFolder fail
-		// silently on missing paths, so detect it here and let the link toast.
-		try {
-			await fsp.access(resolved);
-		} catch {
-			return { ok: false, error: "File not found", code: "file_not_found" };
-		}
-		const openError = await shell.openPath(resolved);
-		if (!openError) return { ok: true, resolvedPath: resolved };
-		shell.showItemInFolder(resolved);
-		return { ok: true, resolvedPath: resolved };
-	});
+	ipcMain.handle(
+		IPC_COMMANDS.SYSTEM_OPEN_PATH,
+		async (event, target: string, tabId?: string): Promise<IpcOpenPathResult> => {
+			// A paired host's path means nothing to this machine's editor; the
+			// renderer falls back to the in-app preview (forwarded fs read).
+			if (targetFor(deps, event, tabId)?.device) {
+				return { ok: false, error: "The file is on another device", code: "remote_path_native" };
+			}
+			if (typeof target !== "string" || !target.trim())
+				return { ok: false, error: "Empty path", code: "empty_path" };
+			let resolved = target.startsWith("~/") ? path.join(os.homedir(), target.slice(2)) : target;
+			if (!path.isAbsolute(resolved)) {
+				const rootAbs = cwdFor(deps, event, tabId);
+				if (!rootAbs) return { ok: false, error: "No workspace", code: "no_workspace" };
+				const within = resolveWithin(rootAbs, resolved);
+				if (!within) return { ok: false, error: "Path escapes the workspace", code: "path_escapes_workspace" };
+				resolved = within;
+			}
+			// A stale tool card can reference a file that no longer exists (or never
+			// did outside the workspace). Both openPath and showItemInFolder fail
+			// silently on missing paths, so detect it here and let the link toast.
+			try {
+				await fsp.access(resolved);
+			} catch {
+				return { ok: false, error: "File not found", code: "file_not_found" };
+			}
+			const openError = await shell.openPath(resolved);
+			if (!openError) return { ok: true, resolvedPath: resolved };
+			shell.showItemInFolder(resolved);
+			return { ok: true, resolvedPath: resolved };
+		},
+	);
 
 	// "Show in Finder" for an absolute path the renderer already knows (agent definition files).
-	ipcMain.handle(IPC_COMMANDS.SYSTEM_REVEAL_PATH, async (_event, target: string): Promise<IpcOpenPathResult> => {
-		if (typeof target !== "string" || !path.isAbsolute(target)) {
-			return { ok: false, error: "Not an absolute path", code: "not_absolute_path" };
-		}
-		try {
-			await fsp.access(target);
-		} catch {
-			return { ok: false, error: "File not found", code: "file_not_found" };
-		}
-		shell.showItemInFolder(target);
-		return { ok: true, resolvedPath: target };
-	});
+	ipcMain.handle(
+		IPC_COMMANDS.SYSTEM_REVEAL_PATH,
+		async (event, target: string, tabId?: string): Promise<IpcOpenPathResult> => {
+			if (targetFor(deps, event, tabId)?.device) {
+				return { ok: false, error: "The file is on another device", code: "remote_path_native" };
+			}
+			if (typeof target !== "string" || !path.isAbsolute(target)) {
+				return { ok: false, error: "Not an absolute path", code: "not_absolute_path" };
+			}
+			try {
+				await fsp.access(target);
+			} catch {
+				return { ok: false, error: "File not found", code: "file_not_found" };
+			}
+			shell.showItemInFolder(target);
+			return { ok: true, resolvedPath: target };
+		},
+	);
 
 	ipcMain.handle(
 		IPC_COMMANDS.SYSTEM_SAVE_DIALOG,
@@ -965,24 +862,24 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 	});
 
+	// Launch profiles live with the machine that spawns omp: a tab's paired
+	// host keeps its own.
+	const launchProfilePrefs: LaunchProfilePrefs = {
+		get: key => prefsStore.get(key),
+		set: (key, value) => prefsStore.set(key, value),
+	};
+	ipcMain.handle(IPC_COMMANDS.PREFS_GET_LAUNCH_PROFILE, (_event, payload: IpcGetLaunchProfilePayload) => {
+		const device = deviceOf(payload?.device);
+		return device
+			? remoteDevices.request(device, "launchProfile.get", { cwd: payload.cwd })
+			: readLaunchProfile(launchProfilePrefs, payload?.cwd);
+	});
+
 	ipcMain.handle(IPC_COMMANDS.PREFS_UPDATE_LAUNCH_PROFILE, (_event, payload: IpcUpdateLaunchProfilePayload) => {
-		if (
-			typeof payload?.cwd !== "string" ||
-			!path.isAbsolute(payload.cwd) ||
-			!payload.patch ||
-			typeof payload.patch !== "object" ||
-			Array.isArray(payload.patch)
-		)
-			throw codedError("invalid_launch_profile", "Invalid launch profile update");
-		// The entire read/merge/write stays synchronous in Main: concurrent windows
-		// can change different fields or workspaces without replacing each other.
-		const raw = prefsStore.get("launchProfiles");
-		const profiles: Record<string, unknown> = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw } : {};
-		const profile = parseLaunchProfile({ ...parseLaunchProfile(profiles[payload.cwd]), ...payload.patch });
-		if (Object.keys(profile).length) profiles[payload.cwd] = profile;
-		else delete profiles[payload.cwd];
-		prefsStore.set("launchProfiles", profiles);
-		return profile;
+		const device = deviceOf(payload?.device);
+		return device
+			? remoteDevices.request(device, "launchProfile.update", { cwd: payload.cwd, patch: payload.patch })
+			: updateLaunchProfile(launchProfilePrefs, payload?.cwd, payload?.patch);
 	});
 
 	// Sidecar control
@@ -999,11 +896,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		sidecar.restart(undefined, sessionPath);
 	});
 
+	// Native folder picker: this machine's disk only. A tab on a paired host
+	// picks through the remote folder picker (remote.listDirs) and setProject.
 	ipcMain.handle(IPC_COMMANDS.SIDECAR_SELECT_PROJECT, async event => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win) return null;
-		const sidecar = sidecarFor(deps, event);
-		if (!sidecar) return null;
+		const target = targetFor(deps, event);
+		if (!target) return null;
+		if (target.device) throw codedError("remote_path_native", "The project is on another device");
+		const { sidecar } = target;
 		const result = await dialog.showOpenDialog(win, {
 			title: mainT("dialog.openProject"),
 			defaultPath: sidecar.cwd,
@@ -1023,11 +924,22 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// Switch to a KNOWN workspace directory (no native picker): used by the
 	// workspace manager to jump to a recent project. Validates the directory
 	// exists, then restarts the sidecar there (same tail as select-project).
+	// On a paired host the directory is checked there, and this machine's
+	// last-project pref and window record keep local paths only.
 	ipcMain.handle(IPC_COMMANDS.SIDECAR_SET_PROJECT, async (event, payload: { cwd?: string }) => {
 		const cwd = payload?.cwd;
 		if (typeof cwd !== "string" || cwd.length === 0) return false;
-		const sidecar = sidecarFor(deps, event);
-		if (!sidecar) return false;
+		const target = targetFor(deps, event);
+		if (!target) return false;
+		if (target.device) {
+			try {
+				await remoteDevices.request(target.device, "fs.listDirs", { path: cwd });
+			} catch {
+				return false;
+			}
+			target.sidecar.restart(cwd);
+			return true;
+		}
 		try {
 			if (!(await fsp.stat(cwd)).isDirectory()) return false;
 		} catch {
@@ -1036,7 +948,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		prefsStore.set("lastProject", cwd);
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (win) windowManager.setRecordCwd(win, cwd);
-		sidecar.restart(cwd);
+		target.sidecar.restart(cwd);
 		return true;
 	});
 
@@ -1069,224 +981,119 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return { path: file, opened: !openError };
 	});
 
-	// Workspace filesystem — node:fs against the calling window's cwd; works
-	// without a live sidecar session and never throws (renderer reads ok/error).
-	ipcMain.handle(IPC_COMMANDS.FS_LIST, async (event, payload: IpcFsListPayload) => {
-		const rootAbs = cwdFor(deps, event, payload.tabId);
-		if (!rootAbs) return { ok: false, entries: [], truncated: false, error: "No workspace", code: "no_workspace" };
-		const prefix = (typeof payload.path === "string" ? payload.path : "")
-			.replace(/\\/g, "/")
-			.replace(/^\.\//, "")
-			.replace(/^\/+|\/+$/g, "");
-		const dirAbs = resolveWithin(rootAbs, prefix);
-		if (!dirAbs) {
-			return {
+	// Workspace filesystem — node:fs against the tab's cwd (src/main/workspace-fs.ts);
+	// works without a live sidecar session and never throws (renderer reads
+	// ok/error). A tab on a paired host reads that host's disk, with the same
+	// confinement and caps.
+	const remoteFs = async <T>(
+		target: { tabId: string; sidecar: SidecarLike; device: string },
+		method: string,
+		params: object,
+		fail: (error: string, code: IpcErrorCode | undefined) => T,
+	): Promise<T> => {
+		try {
+			return await remoteDevices.request<T>(target.device, method, {
+				...params,
+				rtab: target.tabId,
+				cwd: target.sidecar.cwd,
+			});
+		} catch (err) {
+			return fail(err instanceof Error ? err.message : String(err), ipcErrorCode(err));
+		}
+	};
+
+	ipcMain.handle(IPC_COMMANDS.FS_LIST, async (event, payload: IpcFsListPayload): Promise<IpcFsListResult> => {
+		const target = targetFor(deps, event, payload?.tabId);
+		const request = { path: payload?.path, maxDepth: payload?.maxDepth, maxEntries: payload?.maxEntries };
+		if (target?.device) {
+			return remoteFs({ ...target, device: target.device }, "fs.list", request, (error, code) => ({
 				ok: false,
 				entries: [],
 				truncated: false,
-				error: "Path escapes the workspace",
-				code: "path_escapes_workspace",
-			};
+				error,
+				...(code ? { code } : {}),
+			}));
 		}
-		const state: WalkState = {
-			rules: await loadIgnoreRules(rootAbs),
-			maxDepth: clampInt(payload.maxDepth, 1, FS_LIST_MAX_DEPTH, FS_LIST_DEFAULT_DEPTH),
-			maxFiles: clampInt(payload.maxEntries, 1, FS_LIST_MAX_FILES_CAP, FS_LIST_DEFAULT_MAX_FILES),
-			fileCount: 0,
-			truncated: false,
-		};
-		try {
-			const stat = await fsp.stat(dirAbs);
-			if (!stat.isDirectory()) {
-				return { ok: false, entries: [], truncated: false, error: "Not a directory", code: "not_a_directory" };
-			}
-			const entries = await walkWorkspace(dirAbs, prefix, 0, state);
-			return { ok: true, entries, truncated: state.truncated };
-		} catch (err) {
-			return {
+		return listWorkspace(cwdFor(deps, event, payload?.tabId), request);
+	});
+
+	ipcMain.handle(IPC_COMMANDS.FS_READ, async (event, payload: IpcFsReadPayload): Promise<IpcFsReadResult> => {
+		const target = targetFor(deps, event, payload?.tabId);
+		const request = { path: payload?.path, maxBytes: payload?.maxBytes };
+		if (target?.device) {
+			return remoteFs({ ...target, device: target.device }, "fs.read", request, (error, code) => ({
 				ok: false,
-				entries: [],
-				truncated: state.truncated,
-				error: err instanceof Error ? err.message : String(err),
-			};
+				content: "",
+				truncated: false,
+				binary: false,
+				size: 0,
+				error,
+				...(code ? { code } : {}),
+			}));
 		}
+		return readWorkspaceFile(cwdFor(deps, event, payload?.tabId), request);
 	});
 
-	ipcMain.handle(IPC_COMMANDS.FS_READ, async (event, payload: IpcFsReadPayload) => {
-		const fail = (error: string, code?: IpcErrorCode): IpcFsReadResult => ({
-			ok: false,
-			content: "",
-			truncated: false,
-			binary: false,
-			size: 0,
-			error,
-			...(code ? { code } : {}),
-		});
-		if (typeof payload.path !== "string" || payload.path.length === 0) {
-			return fail("Invalid path", "invalid_path");
-		}
-		const raw = payload.path.startsWith("~/") ? path.join(os.homedir(), payload.path.slice(2)) : payload.path;
-		let abs: string;
-		if (path.isAbsolute(raw)) abs = path.normalize(raw);
-		else {
-			const cwd = cwdFor(deps, event, payload.tabId);
-			if (!cwd) return fail("No workspace", "no_workspace");
-			const within = resolveWithin(cwd, raw);
-			if (!within) return fail("Path escapes the workspace", "path_escapes_workspace");
-			abs = within;
-		}
-		const maxBytes = clampInt(payload.maxBytes, 1, FS_READ_MAX_BYTES_CAP, FS_READ_DEFAULT_MAX_BYTES);
-		try {
-			const stat = await fsp.stat(abs);
-			if (!stat.isFile()) {
-				return fail("Not a file", "not_a_file");
+	ipcMain.handle(
+		IPC_COMMANDS.FS_READ_IMAGE,
+		async (event, payload: IpcFsReadImagePayload): Promise<IpcFsReadImageResult> => {
+			const target = targetFor(deps, event, payload?.tabId);
+			const request = { path: payload?.path };
+			if (target?.device) {
+				return remoteFs({ ...target, device: target.device }, "fs.readImage", request, (error, code) => ({
+					ok: false,
+					dataUrl: null,
+					mime: null,
+					size: 0,
+					error,
+					...(code ? { code } : {}),
+				}));
 			}
-			const handle = await fsp.open(abs, "r");
-			try {
-				const length = Math.min(stat.size, maxBytes + 1);
-				const buffer = Buffer.alloc(length);
-				const { bytesRead } = await handle.read(buffer, 0, length, 0);
-				const slice = buffer.subarray(0, bytesRead);
-				if (slice.includes(0)) {
-					return { ok: true, content: "", truncated: false, binary: true, size: stat.size };
-				}
-				return {
-					ok: true,
-					content: slice.subarray(0, Math.min(bytesRead, maxBytes)).toString("utf8"),
-					truncated: stat.size > maxBytes,
-					binary: false,
-					size: stat.size,
-				};
-			} finally {
-				await handle.close();
-			}
-		} catch (err) {
-			return fail(err instanceof Error ? err.message : String(err));
-		}
-	});
+			return readWorkspaceImage(cwdFor(deps, event, payload?.tabId), request);
+		},
+	);
 
-	// Markdown-image read: model output references images by path (`![alt](…)`)
-	// and the renderer turns them into data URLs for <img>. Relative paths stay
-	// workspace-confined; absolute paths and `~` are readable because the bytes
-	// never leave the local <img> (no exfil channel), but the file must sniff
-	// as a real image type and fit under a size cap.
-	const FS_IMAGE_MAX_BYTES = 25_000_000;
-
-	function sniffImageMime(header: Buffer): string | null {
-		if (header.length >= 8 && header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47) {
-			return "image/png";
-		}
-		if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) return "image/jpeg";
-		if (header.length >= 6 && header.subarray(0, 6).toString("ascii") === "GIF89a") return "image/gif";
-		if (header.length >= 6 && header.subarray(0, 6).toString("ascii") === "GIF87a") return "image/gif";
-		if (
-			header.length >= 12 &&
-			header.subarray(0, 4).toString("ascii") === "RIFF" &&
-			header.subarray(8, 12).toString("ascii") === "WEBP"
-		) {
-			return "image/webp";
-		}
-		if (header.length >= 12 && header.subarray(4, 8).toString("ascii") === "ftyp") {
-			const brand = header.subarray(8, 12).toString("ascii");
-			if (brand === "avif" || brand === "avis") return "image/avif";
-		}
-		if (header.length >= 2 && header[0] === 0x42 && header[1] === 0x4d) return "image/bmp";
-		if (header.length >= 4 && header[0] === 0x00 && header[1] === 0x00 && header[2] === 0x01 && header[3] === 0x00) {
-			return "image/x-icon";
-		}
-		// SVG is text: only when it actually starts with an XML/SVG prolog. Loaded
-		// through <img> it renders in secure static mode (no script execution).
-		const text = header.toString("utf8").trimStart().slice(0, 512).toLowerCase();
-		if (text.startsWith("<svg") || (text.startsWith("<?xml") && text.includes("<svg"))) return "image/svg+xml";
-		return null;
-	}
-
-	ipcMain.handle(IPC_COMMANDS.FS_READ_IMAGE, async (event, payload: IpcFsReadImagePayload) => {
-		const fail = (error: string, code?: IpcErrorCode): IpcFsReadImageResult => ({
-			ok: false,
-			dataUrl: null,
-			mime: null,
-			size: 0,
-			error,
-			...(code ? { code } : {}),
-		});
-		if (typeof payload?.path !== "string" || payload.path.length === 0) return fail("Invalid path", "invalid_path");
-		let abs: string;
-		const raw = payload.path.startsWith("~/") ? path.join(os.homedir(), payload.path.slice(2)) : payload.path;
-		if (path.isAbsolute(raw)) {
-			abs = path.normalize(raw);
-		} else {
-			const cwd = cwdFor(deps, event, payload.tabId);
-			if (!cwd) return fail("No workspace", "no_workspace");
-			const within = resolveWithin(cwd, raw);
-			if (!within) return fail("Path escapes the workspace", "path_escapes_workspace");
-			abs = within;
-		}
-		try {
-			const stat = await fsp.stat(abs);
-			if (!stat.isFile()) return fail("Not a file", "not_a_file");
-			if (stat.size > FS_IMAGE_MAX_BYTES) return fail("Image too large", "image_too_large");
-			const handle = await fsp.open(abs, "r");
-			try {
-				const header = Buffer.alloc(512);
-				const { bytesRead } = await handle.read(header, 0, 512, 0);
-				const mime = sniffImageMime(header.subarray(0, bytesRead));
-				if (!mime) return fail("Not a supported image", "unsupported_image");
-				const body = Buffer.alloc(stat.size);
-				await handle.read(body, 0, stat.size, 0);
-				return { ok: true, dataUrl: `data:${mime};base64,${body.toString("base64")}`, mime, size: stat.size };
-			} finally {
-				await handle.close();
-			}
-		} catch (err) {
-			return fail(err instanceof Error ? err.message : String(err));
-		}
-	});
-
-	// Plan-mode document read — deliberately OFF the RPC bus: reading via the
-	// bash RPC injected the plan into the model context and appended
-	// bashExecution entries to the transcript on every poll. Reads the
-	// configured path, else the newest `*plan.md` in the session-local root.
-	// Confined to the workspace and the sessions dir (plan artifacts live there).
 	ipcMain.handle(
 		IPC_COMMANDS.FS_READ_PLAN,
 		async (event, payload: IpcFsReadPlanPayload): Promise<IpcFsReadPlanResult> => {
-			const fail = (error: string, code?: IpcErrorCode): IpcFsReadPlanResult => ({
-				ok: false,
-				path: null,
-				content: null,
-				error,
-				...(code ? { code } : {}),
-			});
-			if (typeof payload?.fsPath !== "string" || payload.fsPath.length === 0) {
-				return fail("Invalid path", "invalid_path");
+			const target = targetFor(deps, event, payload?.tabId);
+			const request = { fsPath: payload?.fsPath, localRoot: payload?.localRoot ?? null };
+			if (target?.device) {
+				return remoteFs({ ...target, device: target.device }, "fs.readPlan", request, (error, code) => ({
+					ok: false,
+					path: null,
+					content: null,
+					error,
+					...(code ? { code } : {}),
+				}));
 			}
-			const cwd = cwdFor(deps, event, payload.tabId);
-			if (!cwd) return fail("No workspace", "no_workspace");
-			const withinAllowedRoots = (value: string): string | null =>
-				resolveWithin(cwd, value) ?? resolveWithin(sessionIndex.sessionsDir, value);
-			const target = withinAllowedRoots(payload.fsPath);
-			if (!target) return fail("Path escapes allowed roots", "path_escapes_roots");
-			let localRoot: string | null = null;
-			if (typeof payload.localRoot === "string" && payload.localRoot.length > 0) {
-				localRoot = withinAllowedRoots(payload.localRoot);
-				if (!localRoot) return fail("Path escapes allowed roots", "path_escapes_roots");
-			}
-			try {
-				const picked = (await statFile(target)) ?? (localRoot ? await newestPlanFile(localRoot) : null);
-				if (!picked) return { ok: true, path: null, content: null };
-				return { ok: true, path: picked, content: await fsp.readFile(picked, "utf8") };
-			} catch (err) {
-				return fail(err instanceof Error ? err.message : String(err));
-			}
+			return readPlanFile(cwdFor(deps, event, payload?.tabId), sessionIndex.sessionsDir, request);
 		},
 	);
 
 	ipcMain.handle(IPC_COMMANDS.SIDECAR_STATUS_GET, event => {
 		const sidecar = sidecarFor(deps, event);
-		const cwd = cwdFor(deps, event) ?? "";
-		return sidecar ? { ...sidecar.statusPayload, cwd } : { status: "starting", cwd };
+		return sidecar
+			? { ...sidecar.statusPayload, cwd: sidecar.cwd }
+			: { status: "starting", cwd: cwdFor(deps, event) ?? "" };
 	});
+
+	// ========================================================================
+	// Remote devices — this computer as a host, and the hosts it is paired with.
+	// ========================================================================
+	ipcMain.handle(IPC_COMMANDS.REMOTE_GET_STATE, () => remoteDevices.state());
+	ipcMain.handle(IPC_COMMANDS.REMOTE_SET_HOST_ENABLED, (_event, enabled: unknown) =>
+		remoteDevices.setHostEnabled(enabled === true),
+	);
+	ipcMain.handle(IPC_COMMANDS.REMOTE_SET_DEVICE_NAME, (_event, name: unknown) => remoteDevices.setDeviceName(name));
+	ipcMain.handle(IPC_COMMANDS.REMOTE_ROTATE_CODE, () => remoteDevices.rotateCode());
+	ipcMain.handle(IPC_COMMANDS.REMOTE_REVOKE_PEER, (_event, deviceId: unknown) => remoteDevices.revokePeer(deviceId));
+	ipcMain.handle(IPC_COMMANDS.REMOTE_DISCOVER, (_event, action: unknown) => remoteDevices.discover(action));
+	ipcMain.handle(IPC_COMMANDS.REMOTE_PAIR, (_event, payload: unknown) => remoteDevices.pair(payload));
+	ipcMain.handle(IPC_COMMANDS.REMOTE_REMOVE_HOST, (_event, deviceId: unknown) => remoteDevices.removeHost(deviceId));
+	ipcMain.handle(IPC_COMMANDS.REMOTE_LIST_DIRS, (_event, payload: IpcRemoteListDirsPayload) =>
+		remoteDevices.listDirs(payload?.deviceId, payload?.path),
+	);
 
 	// External-editor round trip ($VISUAL/$EDITOR, temp file, exit-0 read-back)
 	// for the composer editor dialog. Result shape carries availability +

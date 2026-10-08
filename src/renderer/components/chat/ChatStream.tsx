@@ -951,16 +951,6 @@ export function StreamingRows({
 	);
 }
 
-/** Seconds past which the waiting row escalates to the slow-response hint. */
-const SLOW_RESPONSE_HINT_SECONDS = 30;
-/**
- * Seconds past which the row escalates again to the stalled-connection hint.
- * The provider first-event watchdog fires at ~300s (and auto-retry may
- * follow); telling the user that up front turns a silent 5-minute wait into
- * an informed one — they know it's still alive, why, and that Esc aborts now.
- */
-const STALLED_RESPONSE_HINT_SECONDS = 90;
-
 /**
  * Live status row for the windows where the agent is busy but the transcript
  * has nothing to show yet — the GUI counterpart of the TUI's loader line:
@@ -971,16 +961,13 @@ const STALLED_RESPONSE_HINT_SECONDS = 90;
  *   initial delay.
  * - compaction: `{reason}{action}…` for auto-maintenance, same
  *   reason/action vocabulary as the TUI loader.
- * - waiting: between turn_start and the first streamed event. A normal wait
- *   is only a spinner — on the turn's last work row when there is one
- *   (`attached`, so this row renders nothing), else in place of the reply
- *   about to stream. Past 30s the slow-response hint and elapsed seconds
- *   appear so a stalled provider reads as "slow but alive" rather than dead
- *   air.
+ * - waiting: between turn_start and the first streamed event, only a
+ *   spinner — on the turn's last work row when there is one (`attached`, so
+ *   this row renders nothing), else in place of the reply about to stream.
  *
- * Retry, compaction and slow waits carry the Esc interrupt hint (App routes
- * Esc → rpc.abort), matching the TUI's `[esc]` / `(esc to cancel)` suffixes,
- * and offer recovery: change model, or stop the response.
+ * Retry and compaction carry the Esc interrupt hint (App routes Esc →
+ * rpc.abort), matching the TUI's `[esc]` / `(esc to cancel)` suffixes; retry
+ * also offers recovery: change model, or stop the response.
  */
 export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 	const t = useT();
@@ -990,22 +977,12 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 	const compactionInfo = useSessionStore(s => s.compactionInfo);
 	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
 	const now = Date.now();
-	// Clock for the countdown/elapsed variants. It runs only while a variant
-	// shows time: every second for a retry countdown or a slow wait, once at
-	// the slow threshold for a fresh wait, never for compaction or when idle
-	// (the row renders nothing then, and it is mounted for the whole session).
+	// Clock for the retry countdown only; it never runs for compaction or a
+	// model wait (the row is mounted for the whole session).
 	const [, setNowTick] = useState(0);
-	const untilSlowMs = awaitingModelSince == null ? 0 : awaitingModelSince + SLOW_RESPONSE_HINT_SECONDS * 1000 - now;
-	const tickMs = retryInfo
-		? 1000
-		: compactionInfo || awaitingModelSince == null
-			? null
-			: untilSlowMs > 0
-				? untilSlowMs
-				: 1000;
 	useEffect(() => {
-		if (tickMs === null) return;
-		const timer = setTimeout(() => setNowTick(tick => tick + 1), tickMs);
+		if (!retryInfo) return;
+		const timer = setTimeout(() => setNowTick(tick => tick + 1), 1000);
 		return () => clearTimeout(timer);
 	});
 
@@ -1013,8 +990,6 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 	let reason: string | null = null;
 	let detail: string | null = null;
 	let announcement: string;
-	let slow = false;
-	let stalled = false;
 
 	if (retryInfo) {
 		const remainingSeconds = Math.max(0, Math.ceil((retryInfo.startedAt + retryInfo.delayMs - now) / 1000));
@@ -1050,32 +1025,24 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 		text = `${compactionReason}${t(actionKey)}…`;
 		announcement = text;
 	} else if (awaitingModelSince != null) {
-		const elapsedSeconds = Math.max(0, Math.floor((now - awaitingModelSince) / 1000));
-		slow = elapsedSeconds >= SLOW_RESPONSE_HINT_SECONDS;
-		stalled = elapsedSeconds >= STALLED_RESPONSE_HINT_SECONDS;
-		announcement = t("chat.awaitingModel.announcement");
-		if (!slow) {
-			if (attached) return null;
-			return (
-				<div className="omp-status-turn ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
-					<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
-						{announcement}
-					</span>
-					<span
-						aria-hidden
-						className="flex size-7 items-center justify-center px-1.5 text-(--sc-text-muted)"
-						data-awaiting-spinner
-					>
-						<Spinner size="sm" />
-					</span>
-				</div>
-			);
-		}
-		text = t("chat.awaitingModel", { seconds: elapsedSeconds });
+		if (attached) return null;
+		return (
+			<div className="omp-status-turn ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
+				<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
+					{t("chat.awaitingModel.announcement")}
+				</span>
+				<span
+					aria-hidden
+					className="flex size-7 items-center justify-center px-1.5 text-(--sc-text-muted)"
+					data-awaiting-spinner
+				>
+					<Spinner size="sm" />
+				</span>
+			</div>
+		);
 	} else {
 		return null;
 	}
-	const offerRecovery = retryInfo != null || slow;
 
 	return (
 		<div className="omp-status-turn flex flex-col gap-1.5 ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-4 text-sc-md text-(--sc-text-muted)">
@@ -1088,26 +1055,17 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 				</span>
 				<span className="text-(--sc-text-secondary)">{text}</span>
 				{reason ? <span>· {reason}</span> : null}
-				{stalled ? (
-					// The stalled hint already names Esc — drop the generic interrupt
-					// hint so the line stays readable.
-					<span className="text-(--sc-warning)">{t("chat.awaitingModel.stalled")}</span>
-				) : (
-					<>
-						{slow ? <span className="text-(--sc-warning)">{t("chat.awaitingModel.slow")}</span> : null}
-						<span className="flex items-center gap-1.5 text-sc-sm text-(--sc-text-subtle)">
-							<Kbd shortcut="Esc" />
-							{t("chat.interruptHint")}
-						</span>
-					</>
-				)}
+				<span className="flex items-center gap-1.5 text-sc-sm text-(--sc-text-subtle)">
+					<Kbd shortcut="Esc" />
+					{t("chat.interruptHint")}
+				</span>
 			</div>
 			{detail ? (
 				<div className="max-w-full truncate ps-6 text-sc-xs text-(--sc-text-subtle)" title={detail}>
 					{detail}
 				</div>
 			) : null}
-			{offerRecovery ? (
+			{retryInfo ? (
 				<div className="flex flex-wrap items-center gap-2 ps-6">
 					<Button onClick={() => useUiStore.getState().openModelPicker()} size="sm" variant="secondary">
 						{t("turnError.action.changeModel")}

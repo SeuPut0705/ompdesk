@@ -25,10 +25,11 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { actionKbd, onEscape } from "../../lib/keymap";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
+import { useHostView } from "../../stores/remote";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
-import { useActiveTabKind } from "../../stores/tabs";
+import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
 import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
@@ -44,6 +45,7 @@ import {
 	Tooltip,
 } from "../common";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
+import { DeviceChip } from "../remote/DeviceChip";
 import { sessionCacheHitPercent, sessionExecutionDurationMs } from "./session-metrics";
 
 type StatusTone = "ready" | "busy" | "attention" | "error";
@@ -165,6 +167,10 @@ export function TitleBar() {
 	const statsPulse = useSessionStore(s => s.statsPulse);
 	const awaiting = useAwaitingConfirmation();
 	const isChat = useActiveTabKind() === "chat";
+	// A remote tab names its host; while the link is down the tab is reconnecting, not failed.
+	const device = useTabsStore(s => s.tabs.find(tab => tab.id === tabId)?.device);
+	const host = useHostView(device);
+	const reconnecting = device !== undefined && host?.state !== "online";
 	const statsMessageCount = useMessagesStore(s => s.messages.length);
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
 	const panelVisible = useUiStore(s => s.panelVisible);
@@ -258,19 +264,21 @@ export function TitleBar() {
 	};
 
 	const working = isStreaming || isCompacting;
-	const [tone, statusLabel]: [StatusTone, string] = awaiting
-		? ["attention", t("titlebar.status.needsApproval")]
-		: working
-			? ["busy", t("titlebar.status.working")]
-			: status === "ready"
-				? ["ready", t("titlebar.status.ready")]
-				: status === "starting"
-					? ["busy", t("titlebar.status.connecting")]
-					: status === "restarting"
-						? ["busy", t("titlebar.status.restarting")]
-						: status === "error" || status === "exited"
-							? ["error", t(`titlebar.status.${status}`)]
-							: ["ready", t(`titlebar.status.${status}`)];
+	const [tone, statusLabel]: [StatusTone, string] = reconnecting
+		? ["busy", t("remote.tab.statusReconnecting")]
+		: awaiting
+			? ["attention", t("titlebar.status.needsApproval")]
+			: working
+				? ["busy", t("titlebar.status.working")]
+				: status === "ready"
+					? ["ready", t("titlebar.status.ready")]
+					: status === "starting"
+						? ["busy", t("titlebar.status.connecting")]
+						: status === "restarting"
+							? ["busy", t("titlebar.status.restarting")]
+							: status === "error" || status === "exited"
+								? ["error", t(`titlebar.status.${status}`)]
+								: ["ready", t(`titlebar.status.${status}`)];
 
 	const ui = useUiStore.getState;
 	const sessionMenuItems: ContextMenuItem[] = [
@@ -332,6 +340,11 @@ export function TitleBar() {
 			)}
 
 			<nav aria-label={t("titlebar.breadcrumb")} className="omp-titlebar-identity no-drag flex min-w-0 items-center">
+				{device !== undefined && (
+					<span className="mr-1 flex shrink-0 items-center">
+						<DeviceChip deviceId={device} />
+					</span>
+				)}
 				<Tooltip
 					content={cwd && !isChat ? `${t("titlebar.switchProject")} · ${cwd}` : t("titlebar.switchProject")}
 					describe={false}

@@ -1,9 +1,10 @@
 /**
- * Insights › Usage: provider quota reports — one card per provider account
- * with limit bars, reset countdowns and provider notes. Quotas are live calls
- * to each provider's usage endpoint, so they are read when the tab mounts,
- * when the active session tab changes, and on the explicit refresh. The
- * session's own token/cost figures live in Insights › Stats › This session.
+ * Insights › Usage: provider quota reports — one card per stored account
+ * (several sign-ins of one provider each get their own) with limit bars,
+ * reset countdowns and provider notes. Quotas are live calls to each
+ * provider's usage endpoint, so they are read when the tab mounts, when the
+ * active session tab changes, and on the explicit refresh. The session's own
+ * token/cost figures live in Insights › Stats › This session.
  */
 
 import { Gauge, RefreshCw } from "lucide-react";
@@ -89,6 +90,7 @@ function ProviderReportCard({ report, t, now }: { report: UsageReport; t: Transl
 			<header className="flex flex-wrap items-center gap-x-3 gap-y-1">
 				<h3 className="text-sc-md font-semibold text-(--sc-text)">{report.provider}</h3>
 				{report.account && <span className="text-sc-sm text-(--sc-text-muted)">{report.account}</span>}
+				{report.active && <Badge variant="success">{t("usage.inUse")}</Badge>}
 				{report.resetCreditsAvailable !== undefined && report.resetCreditsAvailable > 0 && (
 					<Badge className="ml-auto" variant="info">
 						{t("usage.resetsAvailable", { count: report.resetCreditsAvailable })}
@@ -195,9 +197,9 @@ export function UsageQuotas() {
 			)}
 			{reports && reports.length > 0 && (
 				<div className="grid gap-4 lg:grid-cols-2">
-					{reports.map(report => (
+					{reports.map((report, index) => (
 						<ProviderReportCard
-							key={`${report.provider}-${report.account ?? ""}`}
+							key={`${report.provider}-${report.credentialId ?? report.account ?? index}`}
 							now={now}
 							report={report}
 							t={t}

@@ -7,7 +7,9 @@
 
 import { AlertTriangle, RefreshCw, X } from "lucide-react";
 import { useT } from "../../lib/i18n";
+import { useHostView } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 
@@ -20,7 +22,12 @@ export function SidecarBanner() {
 	const sidecarDismissed = useUiStore(s => s.sidecarDismissed);
 	const clearSidecarError = useUiStore(s => s.clearSidecarError);
 	const dismissSidecarBanner = useUiStore(s => s.dismissSidecarBanner);
+	const device = useTabsStore(s => s.tabs.find(tab => tab.id === s.activeTabId)?.device);
+	const host = useHostView(device);
 
+	// A remote tab whose link is down is reconnecting, not broken: its pane's
+	// RemoteTabBanner says so, and a restart here could not reach the host.
+	if (device !== undefined && host?.state !== "online") return null;
 	const restarting = status === "restarting";
 	// Show banner when the sidecar is down, respawning itself, or a health check
 	// failed on a nominally "ready" process.

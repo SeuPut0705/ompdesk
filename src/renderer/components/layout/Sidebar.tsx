@@ -69,6 +69,7 @@ import { pickWorkspaceDirectory } from "../../lib/workspace-dirs";
 import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
 import { useQueueStore } from "../../stores/queue";
+import { usePairedHosts } from "../../stores/remote";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
@@ -95,6 +96,7 @@ import {
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
+import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarSubagents, SidebarSubagentsToggle, sidebarSubagentCount } from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
 
@@ -141,7 +143,8 @@ function modifiedAt(session: SessionInfo): number {
 function activeTabUntouched(): boolean {
 	const tabs = useTabsStore.getState();
 	const tab = tabs.tabs.find(entry => entry.id === tabs.activeTabId);
-	if (!tab || tab.worktree || tab.status === "running" || tab.compacting) return false;
+	// A remote tab runs on its host: it can never be re-rooted to this device's sessions or folders.
+	if (!tab || tab.device !== undefined || tab.worktree || tab.status === "running" || tab.compacting) return false;
 	const session = useSessionStore.getState();
 	const composer = useComposerStore.getState();
 	const queue = useQueueStore.getState();
@@ -377,6 +380,10 @@ export function Sidebar() {
 	const activeTabId = useTabsStore(s => s.activeTabId);
 	const activeTab = tabs.find(tab => tab.id === activeTabId);
 	const activeTabKind = activeTab?.kind;
+	// Remote tabs (a paired host's sessions) live in their device sections; this list is this device's.
+	const localTabs = useMemo(() => tabs.filter(tab => tab.device === undefined), [tabs]);
+	const activeTabRemote = activeTab?.device !== undefined;
+	const hosts = usePairedHosts();
 	const pinnedGroups = useSidebarPrefs(s => s.pinnedGroups);
 	const groupOrder = useSidebarPrefs(s => s.groupOrder);
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
@@ -438,7 +445,7 @@ export function Sidebar() {
 		const listedPaths = new Set(sessions.map(session => session.path));
 		const now = new Date().toISOString();
 		const rows: SidebarSession[] = [];
-		for (const tab of tabs) {
+		for (const tab of localTabs) {
 			const focused = tab.id === activeTabId;
 			const id = (focused ? sessionId : "") || tab.sessionId || "";
 			const path = (focused ? sessionFile : null) ?? tab.sessionPath ?? "";
@@ -459,7 +466,7 @@ export function Sidebar() {
 			});
 		}
 		return rows;
-	}, [sessions, tabs, activeTabId, sessionId, sessionFile, sessionName, cwd]);
+	}, [sessions, localTabs, activeTabId, sessionId, sessionFile, sessionName, cwd]);
 	const allSessions = useMemo<SidebarSession[]>(
 		() => (liveSessions.length === 0 ? sessions : [...sessions, ...liveSessions]),
 		[sessions, liveSessions],
@@ -522,7 +529,10 @@ export function Sidebar() {
 	const otherModeCount = mode === "chat" ? codeTotal : allSessions.length - codeTotal;
 	const visibleGroups = mode === "code" ? groups : [];
 	// Projects with an open tab start expanded so every open session is in view.
-	const openTabCwds = useMemo(() => new Set(tabs.filter(tab => tab.kind !== "chat").map(tab => tab.cwd)), [tabs]);
+	const openTabCwds = useMemo(
+		() => new Set(localTabs.filter(tab => tab.kind !== "chat").map(tab => tab.cwd)),
+		[localTabs],
+	);
 
 	const isCollapsed = (groupCwd: string) => {
 		// A filter shows every match.
@@ -547,13 +557,14 @@ export function Sidebar() {
 		);
 	};
 	const isCurrentSession = (session: SidebarSession) =>
-		session.id === sessionId || (session.liveTabId !== undefined && session.liveTabId === activeTabId);
+		!activeTabRemote &&
+		(session.id === sessionId || (session.liveTabId !== undefined && session.liveTabId === activeTabId));
 	// Main reports a tab's file (get_state → sessionPath) reliably; the session id
 	// only arrives with stock's rare session_info_update, so match the path first.
 	const tabForSession = (session: SidebarSession) =>
-		(session.liveTabId ? tabs.find(tab => tab.id === session.liveTabId) : undefined) ??
-		tabs.find(tab => tab.sessionPath === session.path) ??
-		tabs.find(tab => tab.sessionId === session.id) ??
+		(session.liveTabId ? localTabs.find(tab => tab.id === session.liveTabId) : undefined) ??
+		localTabs.find(tab => tab.sessionPath === session.path) ??
+		localTabs.find(tab => tab.sessionId === session.id) ??
 		(isCurrentSession(session) ? activeTab : undefined);
 	const sessionTabSignal = (session: SidebarSession) => {
 		const tab = tabForSession(session);
@@ -573,7 +584,7 @@ export function Sidebar() {
 		// Already open in a tab: go there. An untouched empty tab is replaced
 		// instead of left behind; anything else keeps its tab and the session
 		// opens next to it.
-		const owner = tabs.find(
+		const owner = localTabs.find(
 			tab => tab.id === session.liveTabId || tab.sessionId === session.id || tab.sessionPath === session.path,
 		);
 		if (owner) {
@@ -605,6 +616,12 @@ export function Sidebar() {
 	const startNew = () => {
 		if (mode === "chat") {
 			startChat();
+			return;
+		}
+		// A remote tab's folder is on its host: the new session opens there too.
+		if (activeTab?.device !== undefined && activeTab.kind !== "chat") {
+			useUiStore.getState().closeDestination();
+			void openTab({ device: activeTab.device });
 			return;
 		}
 		const target = activeTab?.kind === "chat" ? null : cwd;
@@ -705,6 +722,7 @@ export function Sidebar() {
 			const projectTabs = tabsStore.tabs.filter(
 				tab =>
 					tab.kind !== "chat" &&
+					tab.device === undefined &&
 					(tab.cwd === group.cwd ||
 						(tab.sessionPath !== undefined && paths.has(tab.sessionPath)) ||
 						(tab.sessionId !== undefined && ids.has(tab.sessionId))),
@@ -950,7 +968,7 @@ export function Sidebar() {
 	const renderGroup = (group: WorkspaceGroup) => {
 		const key = `group:${group.cwd}`;
 		const groupCollapsed = isCollapsed(group.cwd);
-		const isCurrentProject = group.cwd === cwd && activeTabKind !== "chat";
+		const isCurrentProject = group.cwd === cwd && activeTabKind !== "chat" && !activeTabRemote;
 		const tabIndex = -1;
 		const pinned = pinnedGroups.includes(group.cwd);
 		// A collapsed project still says when something inside it is working.
@@ -1162,6 +1180,7 @@ export function Sidebar() {
 					ref={listRef}
 					role="group"
 				>
+					{hosts.length > 0 && <SidebarLocalHeader />}
 					{listError &&
 						(allSessions.length > 0 ? (
 							<div
@@ -1307,6 +1326,9 @@ export function Sidebar() {
 							</SortableContext>
 						</DndContext>
 					)}
+					{hosts.map(host => (
+						<SidebarDeviceSection host={host} key={host.deviceId} mode={mode} query={query} />
+					))}
 				</div>
 
 				<SidebarUpdateCard />
@@ -1324,6 +1346,7 @@ export function Sidebar() {
 				intent={workspaceDialog ?? "switch"}
 				onClose={() => setWorkspaceDialog(null)}
 				open={workspaceDialog !== null}
+				thisDevice
 			/>
 
 			{/* Project menu: rename (alias), new sessions, pin, delete. */}

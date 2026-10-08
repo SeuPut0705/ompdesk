@@ -15,10 +15,11 @@ interface SessionListResult {
 
 /**
  * The session list and its change subscription, shared by every caller of
- * the same scope (see stores/session-list.ts for the refresh rules).
+ * the same scope and device (see stores/session-list.ts for the refresh
+ * rules). `device` = paired host deviceId; absent = this device.
  */
-export function useSessionList(scope: SessionListScope = "local"): SessionListResult {
-	const feed = sessionListFeed(scope);
+export function useSessionList(scope: SessionListScope = "local", device?: string): SessionListResult {
+	const feed = sessionListFeed(scope, device);
 	useEffect(() => feed.retain(), [feed]);
 	const { sessions, isLoading, error } = useStore(feed.store);
 	return {

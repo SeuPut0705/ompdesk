@@ -142,6 +142,7 @@ export function ProviderRow({
 	config,
 	busy,
 	sidecarReady,
+	listsAccounts = false,
 	handlers,
 }: {
 	provider: ProviderInfo;
@@ -149,6 +150,8 @@ export function ProviderRow({
 	config: CustomProviderView | undefined;
 	busy: boolean;
 	sidecarReady: boolean;
+	/** The accounts render under the row, so the row names none. */
+	listsAccounts?: boolean;
 	handlers: RowHandlers;
 }) {
 	const t = useT();
@@ -159,7 +162,7 @@ export function ProviderRow({
 	// the entry is what actually removes it.
 	const canLogout = connected && handlers.onLogout && !config?.hasApiKey;
 	const description = [
-		provider.account,
+		listsAccounts ? null : provider.account,
 		provider.modelCount > 0 ? t("providers.models", { count: provider.modelCount }) : null,
 		provider.baseUrl,
 	]
@@ -210,7 +213,7 @@ export function ProviderRow({
 							<IconButton
 								disabled={!sidecarReady}
 								icon={<LogOut />}
-								label={t("providers.logout")}
+								label={listsAccounts ? t("providers.logoutAll") : t("providers.logout")}
 								onClick={() => handlers.onLogout?.(provider)}
 								size="sm"
 							/>
@@ -258,6 +261,7 @@ export function ProviderList({
 	onEditConfig,
 	onDeleteConfig,
 	onAddCustom,
+	renderAccounts,
 	autoFocusSearch = false,
 }: {
 	catalog: ProviderCatalog;
@@ -268,6 +272,8 @@ export function ProviderList({
 	onDeleteConfig?: (config: CustomProviderView) => void;
 	/** Offered when a search finds nothing. */
 	onAddCustom?: () => void;
+	/** A provider's stored accounts, rendered under its row; `null` when it lists none. */
+	renderAccounts?: (provider: ProviderInfo) => ReactNode;
 	autoFocusSearch?: boolean;
 }) {
 	const t = useT();
@@ -292,26 +298,31 @@ export function ProviderList({
 		onDeleteConfig,
 	};
 
-	const renderRow = (provider: ProviderInfo) => (
-		<li key={provider.id}>
-			<ProviderRow
-				busy={busyProvider === provider.id || (login.state.running && login.state.providerId === provider.id)}
-				config={configById.get(provider.id)}
-				handlers={handlers}
-				provider={provider}
-				sidecarReady={sidecarReady}
-			/>
-			{login.state.providerId === provider.id && (
-				<div className="px-2.5 pt-1 pb-2">
-					<ProviderLoginPanel
-						login={login}
-						onRetry={() => void login.start(provider.id)}
-						providerName={provider.name}
-					/>
-				</div>
-			)}
-		</li>
-	);
+	const renderRow = (provider: ProviderInfo) => {
+		const accounts = renderAccounts?.(provider) ?? null;
+		return (
+			<li key={provider.id}>
+				<ProviderRow
+					busy={busyProvider === provider.id || (login.state.running && login.state.providerId === provider.id)}
+					config={configById.get(provider.id)}
+					handlers={handlers}
+					listsAccounts={accounts !== null}
+					provider={provider}
+					sidecarReady={sidecarReady}
+				/>
+				{accounts}
+				{login.state.providerId === provider.id && (
+					<div className="px-2.5 pt-1 pb-2">
+						<ProviderLoginPanel
+							login={login}
+							onRetry={() => void login.start(provider.id)}
+							providerName={provider.name}
+						/>
+					</div>
+				)}
+			</li>
+		);
+	};
 
 	const empty = groups.connected.length + groups.recommended.length + groups.others.length + unlisted.length === 0;
 	const tailOpen = searching || showAll || (groups.connected.length + groups.recommended.length === 0 && !loading);

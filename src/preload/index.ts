@@ -8,6 +8,7 @@ import type {
 	CustomProviderInput,
 	CustomProviderView,
 	DeepLinkPayload,
+	HostView,
 	IpcActiveTabEnvelope,
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
@@ -17,6 +18,7 @@ import type {
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
 	IpcOpenPathResult,
+	IpcRemotePairPayload,
 	IpcSessionOpenNewWindowPayload,
 	IpcSessionOwner,
 	IpcSetTabViewPayload,
@@ -30,6 +32,9 @@ import type {
 	MenuAction,
 	MenuActionPayload,
 	OmpApi,
+	RemoteDirListing,
+	RemoteDiscoveredDevice,
+	RemoteState,
 	RunProgressState,
 	RuntimeErrorReport,
 	SessionInfo,
@@ -229,14 +234,14 @@ const api: OmpApi = {
 	},
 
 	sessions: {
-		list: (scope: "local" | "global") =>
-			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_LIST, { scope }) as Promise<SessionInfo[]>,
-		delete: (sessionPath: string) =>
-			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_DELETE, { sessionPath }) as Promise<void>,
-		rename: (sessionPath: string, name: string) =>
-			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_RENAME, { sessionPath, name }) as Promise<void>,
-		search: (query: string, scope: "local" | "global") =>
-			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_SEARCH, { query, scope }) as Promise<string[]>,
+		list: (scope: "local" | "global", device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_LIST, { scope, device }) as Promise<SessionInfo[]>,
+		delete: (sessionPath: string, device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_DELETE, { sessionPath, device }) as Promise<void>,
+		rename: (sessionPath: string, name: string, device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_RENAME, { sessionPath, name, device }) as Promise<void>,
+		search: (query: string, scope: "local" | "global", device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_SEARCH, { query, scope, device }) as Promise<string[]>,
 		openInNewWindow: (payload: IpcSessionOpenNewWindowPayload) =>
 			ipcRenderer.invoke(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, payload) as Promise<boolean>,
 		consumePendingOpen: () => ipcRenderer.invoke(IPC_COMMANDS.SESSION_CONSUME_PENDING) as Promise<string | null>,
@@ -261,8 +266,30 @@ const api: OmpApi = {
 			if (switched) activeTabId = focusedTabId;
 			return switched;
 		},
-		getSessionOwner: (sessionPath: string) =>
-			ipcRenderer.invoke(IPC_COMMANDS.GET_SESSION_OWNER, { sessionPath }) as Promise<IpcSessionOwner | null>,
+		getSessionOwner: (sessionPath: string, device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.GET_SESSION_OWNER, { sessionPath, device }) as Promise<IpcSessionOwner | null>,
+	},
+
+	remote: {
+		getState: () => ipcRenderer.invoke(IPC_COMMANDS.REMOTE_GET_STATE) as Promise<RemoteState>,
+		setHostEnabled: (enabled: boolean) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_SET_HOST_ENABLED, enabled) as Promise<RemoteState>,
+		setDeviceName: (name: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_SET_DEVICE_NAME, name) as Promise<RemoteState>,
+		rotateCode: () => ipcRenderer.invoke(IPC_COMMANDS.REMOTE_ROTATE_CODE) as Promise<RemoteState>,
+		revokePeer: (deviceId: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_REVOKE_PEER, deviceId) as Promise<RemoteState>,
+		discover: (action: "start" | "stop") =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_DISCOVER, action) as Promise<RemoteDiscoveredDevice[]>,
+		pair: (payload: IpcRemotePairPayload) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_PAIR, payload) as Promise<HostView>,
+		removeHost: (deviceId: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_REMOVE_HOST, deviceId) as Promise<RemoteState>,
+		listDirs: (deviceId: string, path?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_LIST_DIRS, { deviceId, path }) as Promise<RemoteDirListing>,
+		onState: (callback: (state: RemoteState) => void) => subscribe<RemoteState>(IPC_EVENTS.REMOTE_STATE, callback),
+		onDiscovered: (callback: (devices: RemoteDiscoveredDevice[]) => void) =>
+			subscribe<RemoteDiscoveredDevice[]>(IPC_EVENTS.REMOTE_DISCOVERED, callback),
 	},
 
 	stats: {
@@ -279,9 +306,10 @@ const api: OmpApi = {
 	system: {
 		info: () => ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_INFO) as Promise<SystemInfo>,
 		openExternal: (url: string) => ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_OPEN_EXTERNAL, url),
-		openPath: (path: string) => ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_OPEN_PATH, path) as Promise<IpcOpenPathResult>,
-		revealPath: (path: string) =>
-			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_REVEAL_PATH, path) as Promise<IpcOpenPathResult>,
+		openPath: (path: string, tabId?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_OPEN_PATH, path, tabId) as Promise<IpcOpenPathResult>,
+		revealPath: (path: string, tabId?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_REVEAL_PATH, path, tabId) as Promise<IpcOpenPathResult>,
 		showSaveDialog: (defaultPath?: string, filters?: { name: string; extensions: string[] }[]) =>
 			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_SAVE_DIALOG, defaultPath, filters),
 		showOpenDialog: (
@@ -297,7 +325,9 @@ const api: OmpApi = {
 	prefs: {
 		get: (key?: string) => ipcRenderer.invoke(IPC_COMMANDS.PREFS_GET, { key }),
 		set: (key: string, value: unknown) => ipcRenderer.invoke(IPC_COMMANDS.PREFS_SET, { key, value }),
-		updateLaunchProfile: (cwd, patch) => ipcRenderer.invoke(IPC_COMMANDS.PREFS_UPDATE_LAUNCH_PROFILE, { cwd, patch }),
+		getLaunchProfile: (cwd, device) => ipcRenderer.invoke(IPC_COMMANDS.PREFS_GET_LAUNCH_PROFILE, { cwd, device }),
+		updateLaunchProfile: (cwd, patch, device) =>
+			ipcRenderer.invoke(IPC_COMMANDS.PREFS_UPDATE_LAUNCH_PROFILE, { cwd, patch, device }),
 	},
 
 	sidecar: {

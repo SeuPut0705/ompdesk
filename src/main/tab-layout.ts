@@ -19,6 +19,12 @@ export interface PersistedTabDescriptor {
 	 * meantime; the live session overwrites it on wake.
 	 */
 	title?: string;
+	/**
+	 * Paired host deviceId the tab runs on; absent = this machine. A remote
+	 * tab's cwd and session file are the host's paths, so nothing about them
+	 * is checked on this disk — the tab reconnects (or shows offline) on restore.
+	 */
+	device?: string;
 }
 
 export interface PersistedTabLayout {
@@ -106,7 +112,8 @@ function parseWorktree(value: unknown): IpcTabWorktree | undefined {
 /**
  * Validate the tab snapshot loaded from electron-store before it reaches a
  * sidecar. Missing workspaces are dropped; a deleted transcript becomes a
- * fresh tab at the same cwd instead of making the whole startup fail.
+ * fresh tab at the same cwd instead of making the whole startup fail. Remote
+ * descriptors (`device`) skip both disk checks: their paths live on the host.
  */
 export function sanitizePersistedTabLayout(
 	value: unknown,
@@ -125,21 +132,27 @@ export function sanitizePersistedTabLayout(
 		if (!isRecord(candidate)) continue;
 		const cwd = nonEmptyString(candidate.cwd);
 		const kind = parseKind(candidate.kind);
-		if (!cwd || !kind || !paths.directoryExists(cwd)) continue;
+		const device = nonEmptyString(candidate.device);
+		if (!cwd || !kind || (!device && !paths.directoryExists(cwd))) continue;
 
 		const storedSessionPath = nonEmptyString(candidate.sessionPath);
-		const sessionPath = storedSessionPath && paths.fileExists(storedSessionPath) ? storedSessionPath : undefined;
-		if (sessionPath && sessionPaths.has(sessionPath)) continue;
-		if (sessionPath) sessionPaths.add(sessionPath);
+		const sessionPath =
+			storedSessionPath && (device || paths.fileExists(storedSessionPath)) ? storedSessionPath : undefined;
+		// The same path on two machines is two files (F-OWN keys device + path too).
+		const sessionKey = sessionPath && `${device ?? ""}\u0000${sessionPath}`;
+		if (sessionKey && sessionPaths.has(sessionKey)) continue;
+		if (sessionKey) sessionPaths.add(sessionKey);
 
 		const descriptor: PersistedTabDescriptor = { cwd, kind };
 		if (sessionPath) descriptor.sessionPath = sessionPath;
+		if (device) descriptor.device = device;
 		const worktree = parseWorktree(candidate.worktree);
 		if (worktree) descriptor.worktree = worktree;
 		const legacyEmptyStartupChat =
 			candidate.placeholder === undefined &&
 			sourceIndex === 0 &&
 			kind === "chat" &&
+			!device &&
 			(!sessionPath || paths.sessionHasContent?.(sessionPath) === false);
 		if (candidate.placeholder === true || legacyEmptyStartupChat) descriptor.placeholder = true;
 		const title = nonEmptyString(candidate.title);

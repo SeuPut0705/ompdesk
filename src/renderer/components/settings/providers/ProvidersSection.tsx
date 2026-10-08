@@ -1,8 +1,9 @@
 /**
  * Settings › Models & providers — the provider part. Embedded by the Settings
  * page (which renders the page heading); no modal, no outer padding.
- * Search, connected first, inline sign-in (OAuth or API key) and an inline
- * form for custom endpoints (`ui.providerForm`, opened by `openProviderConfig`).
+ * Search, connected first, inline sign-in (OAuth or API key), every stored
+ * account of a connected subscription (ProviderAccounts) and an inline form
+ * for custom endpoints (`ui.providerForm`, opened by `openProviderConfig`).
  */
 
 import { FileCode2, Plus, RefreshCw } from "lucide-react";
@@ -17,6 +18,7 @@ import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { Banner, Button, ConfirmDialog, IconButton, Spinner } from "../../common";
 import { CustomProviderForm } from "./CustomProviderForm";
+import { ProviderAccounts } from "./ProviderAccounts";
 import { ProviderList, useProviderCatalog } from "./ProviderList";
 import { useProviderLogin } from "./ProviderLogin";
 import { providerDiscoveryErrors } from "./provider-catalog";
@@ -33,11 +35,14 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 	const [busyProvider, setBusyProvider] = useState<string | null>(null);
 	const [pendingLogout, setPendingLogout] = useState<ProviderInfo | null>(null);
 	const [pendingDelete, setPendingDelete] = useState<CustomProviderView | null>(null);
+	/** Bumped after any sign-in or sign-out here: the account lists read again. */
+	const [accountsRevision, setAccountsRevision] = useState(0);
 	const { providers, load } = catalog;
 
 	const onConnected = useCallback(
 		async (providerId: string) => {
 			await load(true);
+			setAccountsRevision(revision => revision + 1);
 			const name = providers.find(provider => provider.id === providerId)?.name ?? providerId;
 			toast({ variant: "success", message: t("providers.loginSuccess", { provider: name }) });
 		},
@@ -45,11 +50,12 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 	);
 	const login = useProviderLogin(onConnected);
 
+	/** Provider-wide sign-out: every stored account. One account is removed from its own row. */
 	const logout = async (provider: ProviderInfo) => {
 		setPendingLogout(null);
 		setBusyProvider(provider.id);
 		try {
-			const response = await tabRpc.logout(provider.id);
+			const response = await tabRpc.disconnectProvider(provider.id);
 			if (!response.success) {
 				toastError({ title: t("providers.logoutFailed"), error: response });
 				return;
@@ -57,6 +63,7 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 			// A non-forced read answers from a still-fresh cache row, which is how
 			// a signed-out provider used to keep showing as connected.
 			const fresh = await load(true);
+			setAccountsRevision(revision => revision + 1);
 			toast({ variant: "success", message: t("providers.logoutSuccess", { provider: provider.name }) });
 			if (fresh?.providers.some(row => row.id === provider.id && row.authenticated)) {
 				toast({ variant: "warning", message: t("providers.logoutKept", { provider: provider.name }) });
@@ -169,6 +176,18 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 				onDeleteConfig={setPendingDelete}
 				onEditConfig={config => openProviderConfig(config)}
 				onLogout={setPendingLogout}
+				renderAccounts={provider =>
+					provider.authenticated && provider.authKind === "oauth" && provider.loginAvailable ? (
+						<ProviderAccounts
+							adding={login.state.running}
+							onAdd={() => void login.start(provider.id)}
+							onChanged={() => load(true)}
+							provider={provider}
+							revision={accountsRevision}
+							sidecarReady={catalog.sidecarReady}
+						/>
+					) : null
+				}
 			/>
 
 			<ConfirmDialog

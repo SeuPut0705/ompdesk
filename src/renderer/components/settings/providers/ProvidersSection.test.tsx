@@ -4,7 +4,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CustomProviderView } from "../../../../shared/ipc-types";
-import type { ModelCatalogUpdateFrame, ProviderInfo, ProvidersResult, RpcResponse } from "../../../../shared/rpc-types";
+import type {
+	ModelCatalogUpdateFrame,
+	ProviderAccount,
+	ProviderInfo,
+	ProvidersResult,
+	RpcResponse,
+} from "../../../../shared/rpc-types";
+import { formatClock } from "../../../lib/format";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useModelStore } from "../../../stores/model";
@@ -57,13 +64,24 @@ function providersResponse(data: ProvidersResult): RpcResponse {
 
 const getProviders = vi.fn(async () => providersResponse(snapshot([row("anthropic")])));
 const logout = vi.fn(async (): Promise<RpcResponse> => ({ type: "response", command: "logout", success: true }));
+const disconnectProvider = vi.fn(
+	async (): Promise<RpcResponse> => ({ type: "response", command: "logout", success: true }),
+);
 const login = vi.fn(async (): Promise<RpcResponse> => ({ type: "response", command: "login", success: true }));
+const getProviderAccounts = vi.fn(
+	async (): Promise<RpcResponse> => ({
+		type: "response",
+		command: "get_provider_accounts",
+		success: true,
+		data: { providerId: "anthropic", accounts: [] },
+	}),
+);
 const listProviders = vi.fn(async (): Promise<CustomProviderView[]> => []);
 const respondExtensionUi = vi.fn();
 
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
-		rpc: { getProviders, logout, login },
+		rpc: { getProviders, logout, disconnectProvider, login, getProviderAccounts },
 		models: { listProviders },
 		ui: { respondExtensionUi },
 		system: { openExternal: vi.fn(async () => {}) },
@@ -126,6 +144,14 @@ afterEach(async () => {
 	listProviders.mockReset();
 	listProviders.mockResolvedValue([]);
 	logout.mockClear();
+	disconnectProvider.mockClear();
+	getProviderAccounts.mockReset();
+	getProviderAccounts.mockResolvedValue({
+		type: "response",
+		command: "get_provider_accounts",
+		success: true,
+		data: { providerId: "anthropic", accounts: [] },
+	});
 	login.mockReset();
 	login.mockResolvedValue({ type: "response", command: "login", success: true });
 	respondExtensionUi.mockClear();
@@ -242,7 +268,8 @@ describe("ProvidersSection", () => {
 		expect(text()).toContain(translate("providers.logoutTitle", { provider: "My Proxy" }));
 		await act(async () => button(translate("providers.logoutConfirm"))?.click());
 
-		expect(logout).toHaveBeenCalledWith("my-proxy");
+		expect(disconnectProvider).toHaveBeenCalledWith("my-proxy");
+		expect(logout).not.toHaveBeenCalled();
 		expect(getProviders).toHaveBeenCalledWith(true);
 		const messages = useToastStore
 			.getState()
@@ -257,7 +284,7 @@ describe("ProvidersSection", () => {
 		await mount(<ProvidersSection />);
 		await act(async () => button(translate("providers.logout"))?.click());
 		await act(async () => button(translate("common.cancel"))?.click());
-		expect(logout).not.toHaveBeenCalled();
+		expect(disconnectProvider).not.toHaveBeenCalled();
 	});
 
 	it("reports a failed catalog read instead of an empty list", async () => {
@@ -380,5 +407,103 @@ describe("ProvidersSection", () => {
 		expect(text()).toContain(translate("providerList.login.failed", { provider: "DeepSeek" }));
 		expect(text()).toContain("Invalid API key");
 		expect(button(translate("providerList.login.retry"))).toBeDefined();
+	});
+});
+
+describe("ProviderAccounts", () => {
+	const limitedUntil = Date.now() + 2 * 60 * 60_000;
+	const accounts: ProviderAccount[] = [
+		{
+			credentialId: 7,
+			label: "work@example.com",
+			detail: "oauth #7",
+			type: "oauth",
+			inUse: true,
+			state: "healthy",
+			remainingFraction: 0.39,
+			limits: [
+				{ id: "anthropic:5h", label: "Claude 5 Hour", usedFraction: 0.06 },
+				{ id: "anthropic:7d", label: "Claude 7 Day", usedFraction: 0.61 },
+			],
+		},
+		{
+			credentialId: 9,
+			label: "home@example.com",
+			detail: "oauth #9",
+			type: "oauth",
+			inUse: false,
+			state: "depleted",
+			limitedUntil,
+			limits: [],
+		},
+	];
+	const claude = row("anthropic", { name: "Anthropic", authKind: "oauth", loginAvailable: true, modelCount: 3 });
+
+	async function mountWithAccounts(list: ProviderAccount[] = accounts): Promise<void> {
+		getProviders.mockResolvedValue(providersResponse(snapshot([claude])));
+		getProviderAccounts.mockResolvedValue({
+			type: "response",
+			command: "get_provider_accounts",
+			success: true,
+			data: { providerId: "anthropic", accounts: list },
+		});
+		useSessionStore.setState({ status: "ready" });
+		await mount(<ProvidersSection />);
+	}
+
+	it("lists every connected account with its quota, the one in use and the one skipped until reset", async () => {
+		await mountWithAccounts();
+		expect(getProviderAccounts).toHaveBeenCalledWith("anthropic");
+		const body = text();
+		expect(body).toContain("work@example.com");
+		expect(body).toContain("home@example.com");
+		expect(body).toContain(translate("providers.accounts.inUse"));
+		expect(body.split(translate("providers.accounts.inUse")).length).toBe(2);
+		expect(body).toContain(translate("providers.accounts.windowLeft", { window: "Claude 5 Hour", percent: 94 }));
+		expect(body).toContain(translate("providers.accounts.windowLeft", { window: "Claude 7 Day", percent: 39 }));
+		expect(body).toContain(translate("providers.accounts.limitedUntil", { time: formatClock(limitedUntil) }));
+		expect(body).toContain(translate("providers.accounts.rotation"));
+		expect(button(translate("providers.logoutAll"))).toBeDefined();
+	});
+
+	it("removes only the chosen account, by its credentialId, after confirming", async () => {
+		await mountWithAccounts();
+		getProviders.mockClear();
+		await act(async () => button(translate("providers.accounts.remove", { account: "home@example.com" }))?.click());
+		expect(logout).not.toHaveBeenCalled();
+		expect(text()).toContain(
+			translate("providers.accounts.removeBody", { account: "home@example.com", provider: "Anthropic" }),
+		);
+		await act(async () => button(translate("providers.accounts.removeConfirm"))?.click());
+
+		expect(logout).toHaveBeenCalledWith("anthropic", 9);
+		expect(disconnectProvider).not.toHaveBeenCalled();
+		expect(getProviders).toHaveBeenCalledWith(true);
+	});
+
+	it("warns that removing the last account disconnects the provider", async () => {
+		await mountWithAccounts([accounts[0]]);
+		await act(async () => button(translate("providers.accounts.remove", { account: "work@example.com" }))?.click());
+		expect(text()).toContain(
+			translate("providers.accounts.removeLastBody", { account: "work@example.com", provider: "Anthropic" }),
+		);
+		await act(async () => button(translate("providers.accounts.removeConfirm"))?.click());
+		expect(logout).toHaveBeenCalledWith("anthropic", 7);
+	});
+
+	it("adds another account through the same sign-in flow", async () => {
+		await mountWithAccounts();
+		await act(async () => button(translate("providers.accounts.add"))?.click());
+		expect(login).toHaveBeenCalledWith("anthropic");
+	});
+
+	it("lists no accounts for a provider signed in with an API key", async () => {
+		getProviders.mockResolvedValue(
+			providersResponse(snapshot([row("deepseek", { authKind: "apikey", loginAvailable: true })])),
+		);
+		useSessionStore.setState({ status: "ready" });
+		await mount(<ProvidersSection />);
+		expect(getProviderAccounts).not.toHaveBeenCalled();
+		expect(button(translate("providers.accounts.add"))).toBeUndefined();
 	});
 });

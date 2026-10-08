@@ -71,6 +71,7 @@ export type MainTextKey =
 	| "quit.quitAnyway"
 	| "quit.workingBody"
 	| "quit.workingTitle"
+	| "remote.offline"
 	| "restart.body"
 	| "restart.later"
 	| "restart.now"
@@ -177,6 +178,11 @@ const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 	"restart.later": { en: "Later", ko: "나중에" },
 	"restart.now": { en: "Restart now", ko: "지금 재시작" },
 	"restart.title": { en: "Restart to finish updating", ko: "업데이트를 마치려면 재시작하세요" },
+	// Status of a tab whose omp runs on a paired device that is unreachable.
+	"remote.offline": {
+		en: "The device running this session is offline. Reconnecting…",
+		ko: "이 세션을 실행하는 기기가 오프라인이에요. 다시 연결하는 중이에요…",
+	},
 	// Stats bridge failures that reach the renderer (toasts, the stats page).
 	"stats.notReady": {
 		en: "The stats server is still starting. Try again in a moment.",

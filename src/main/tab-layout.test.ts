@@ -219,6 +219,38 @@ describe("persisted tab layout", () => {
 			sanitizePersistedTabLayout({ version: 1, activeIndex: 11, tabs }, pathChecks(directories, []))?.tabs,
 		).toHaveLength(MAX_PERSISTED_TABS);
 	});
+
+	it("keeps remote descriptors without checking this disk, and dedupes sessions per device", () => {
+		const value = {
+			version: 1,
+			activeIndex: 1,
+			tabs: [
+				{ cwd: "/a", kind: "agent", sessionPath: "/sessions/a.jsonl" },
+				{ cwd: "/Users/b/project", kind: "agent", sessionPath: "/sessions/a.jsonl", device: "host-b" },
+				// Same host, same file: a second attach would double-own it.
+				{ cwd: "/Users/b/other", kind: "agent", sessionPath: "/sessions/a.jsonl", device: "host-b" },
+				{ cwd: "/Users/c/project", kind: "chat", device: "host-c" },
+			],
+		};
+		const checks = pathChecks(["/a"], ["/sessions/a.jsonl"]);
+		const directoryExists = checks.directoryExists;
+		const probed: string[] = [];
+		checks.directoryExists = path => {
+			probed.push(path);
+			return directoryExists(path);
+		};
+
+		expect(sanitizePersistedTabLayout(value, checks)).toEqual({
+			version: 1,
+			activeIndex: 1,
+			tabs: [
+				{ cwd: "/a", kind: "agent", sessionPath: "/sessions/a.jsonl" },
+				{ cwd: "/Users/b/project", kind: "agent", sessionPath: "/sessions/a.jsonl", device: "host-b" },
+				{ cwd: "/Users/c/project", kind: "chat", device: "host-c" },
+			],
+		});
+		expect(probed).toEqual(["/a"]);
+	});
 });
 
 describe("persisted session (all windows)", () => {

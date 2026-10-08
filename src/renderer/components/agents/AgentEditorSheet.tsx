@@ -24,6 +24,8 @@ import { errorMessage } from "../../lib/error-detail";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { useFocusedTabDevice } from "../../stores/remote";
+import { focusedRuntimeTabId } from "../../stores/session-runtime-context";
 import { toastError } from "../../stores/toast";
 import {
 	Banner,
@@ -75,9 +77,17 @@ export function joinAgentPath(dir: string, file: string): string {
 	return dir.endsWith(separator) ? `${dir}${file}` : `${dir}${separator}${file}`;
 }
 
+/**
+ * Open or reveal an agent file natively. Agent files come from the focused
+ * tab's omp, so main resolves them for that tab; callers hide these actions
+ * on a remote tab, whose files live on its host.
+ */
 export async function revealAgentFile(filePath: string, action: "open" | "reveal", failedTitle: string) {
+	const tabId = focusedRuntimeTabId() ?? undefined;
 	const result =
-		action === "open" ? await window.omp.system.openPath(filePath) : await window.omp.system.revealPath(filePath);
+		action === "open"
+			? await window.omp.system.openPath(filePath, tabId)
+			: await window.omp.system.revealPath(filePath, tabId);
 	if (!result.ok) toastError({ title: failedTitle, error: result.error ? result : filePath });
 }
 
@@ -277,6 +287,8 @@ function AgentEditorForm({
 }) {
 	const t = useT();
 	const rpc = useTabRpc();
+	// A remote tab's agent files live on its host: nothing here can open them natively.
+	const remoteTab = useFocusedTabDevice() !== undefined;
 	const [draft, setDraft] = useState<AgentDraft>(target.draft);
 	const [scope, setScope] = useState<AgentFileScope>(target.scope);
 	const [spawnsMode, setSpawnsMode] = useState<SpawnsMode>(
@@ -415,7 +427,7 @@ function AgentEditorForm({
 						>
 							{targetPath}
 						</code>
-						{target.mode === "edit" && (
+						{target.mode === "edit" && !remoteTab && (
 							<>
 								<IconButton
 									icon={<ExternalLink />}

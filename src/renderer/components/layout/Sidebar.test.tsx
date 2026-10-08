@@ -12,12 +12,13 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { SessionInfo } from "../../../shared/ipc-types";
+import type { HostView, SessionInfo } from "../../../shared/ipc-types";
 import { useWorkspaceRecency } from "../../hooks/use-workspace-recency";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useComposerStore } from "../../stores/composer";
 import { useMessagesStore } from "../../stores/messages";
 import { useQueueStore } from "../../stores/queue";
+import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { deleteSessionRuntime, sessionRuntimeStore } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
@@ -55,7 +56,7 @@ interface MockOmp {
 		setProject: Mock<(cwd: string) => Promise<boolean>>;
 	};
 	sessions: {
-		list: Mock<(scope: string) => Promise<SessionInfo[]>>;
+		list: Mock<(scope: string, device?: string) => Promise<SessionInfo[]>>;
 		delete: Mock<(path: string) => Promise<void>>;
 		rename: Mock<(path: string, name: string) => Promise<void>>;
 		search: Mock<(query: string, scope: string) => Promise<string[]>>;
@@ -246,6 +247,7 @@ afterEach(async () => {
 	useMessagesStore.getState().reset();
 	useQueueStore.setState({ steering: [], followUp: [] });
 	useSidebarPrefs.getState().reset();
+	useRemoteStore.getState().reset();
 	useUiStore.setState({
 		panelVisible: false,
 		sessionPickerOpen: false,
@@ -1171,5 +1173,84 @@ describe("Sidebar subagents", () => {
 		await flush();
 		expect(disclosure()?.getAttribute("aria-expanded")).toBe("false");
 		expect(subagentGroup()).toBeNull();
+	});
+});
+
+describe("Sidebar device sections", () => {
+	const REMOTE = [
+		session("/Users/kim/.omp/agent/sessions/app/one.jsonl", "/Users/kim/code/app", {
+			title: "Remote fix",
+			device: "dev-studio",
+		}),
+	];
+
+	function pairHost(state: HostView["state"]): void {
+		useRemoteStore.getState().apply({
+			host: { enabled: false, name: "laptop", port: null, addresses: [], code: null, expiresAt: null, peers: [] },
+			hosts: [{ deviceId: "dev-studio", name: "studio", state }],
+		});
+	}
+
+	function installWithRemote(): MockOmp {
+		const omp = installMockOmp(LIST);
+		omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? REMOTE : LIST));
+		return omp;
+	}
+
+	it("looks exactly as before while no host is paired", async () => {
+		const omp = installWithRemote();
+		seedStores();
+		await mount(<Sidebar />);
+
+		expect(container.querySelector("[data-sidebar-device-header]")).toBeNull();
+		expect(container.querySelector("[data-sidebar-device]")).toBeNull();
+		expect(omp.sessions.list.mock.calls.every(call => call.length === 1)).toBe(true);
+	});
+
+	it("lists an online host's projects and sessions under its own header and opens them remotely", async () => {
+		const omp = installWithRemote();
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+
+		expect(container.querySelector('[data-sidebar-device-header="local"]')?.textContent).toBe(
+			translate("remote.sidebar.thisDevice"),
+		);
+		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
+		expect(section?.getAttribute("data-device-state")).toBe("online");
+		expect(section?.querySelector("[data-sidebar-device-toggle]")?.textContent).toContain("studio");
+		expect(section?.querySelector('[data-device-group="/Users/kim/code/app"]')?.textContent).toContain("Remote fix");
+		expect(omp.sessions.list).toHaveBeenCalledWith("global", "dev-studio");
+		// The host's session never leaks into this device's list.
+		expect(container.querySelector('[data-session-group="/Users/kim/code/app"]')).toBeNull();
+
+		await fire(section?.querySelector("[data-device-session] button") ?? null, "onClick");
+		expect(omp.tabs.spawn).toHaveBeenCalledWith(
+			expect.objectContaining({
+				cwd: "/Users/kim/code/app",
+				sessionPath: "/Users/kim/.omp/agent/sessions/app/one.jsonl",
+				kind: "agent",
+				device: "dev-studio",
+			}),
+		);
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t-new")?.device).toBe("dev-studio");
+
+		// ⌄ folds the host away.
+		await fire(section?.querySelector("[data-sidebar-device-toggle]") ?? null, "onClick");
+		expect(section?.querySelector("[data-device-group]")).toBeNull();
+	});
+
+	it("shows an offline host as one offline line with no sessions", async () => {
+		const omp = installWithRemote();
+		seedStores();
+		pairHost("offline");
+		await mount(<Sidebar />);
+
+		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
+		expect(section?.getAttribute("data-device-state")).toBe("offline");
+		expect(section?.querySelector("[data-device-offline]")?.textContent).toBe(translate("remote.sidebar.offline"));
+		expect(section?.querySelector("[data-device-session]")).toBeNull();
+		expect(omp.sessions.list).not.toHaveBeenCalledWith("global", "dev-studio");
+		expect(section?.querySelector('[data-sidebar-device-add="dev-studio"]')?.getAttribute("disabled")).not.toBeNull();
 	});
 });

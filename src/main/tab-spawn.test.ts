@@ -2,8 +2,7 @@ import { EventEmitter } from "node:events";
 import type { BrowserWindow } from "electron";
 import { describe, expect, it, type Mock, vi } from "vitest";
 import type { IpcSpawnTabResult, SessionKind } from "../shared/ipc-types";
-import type { SidecarManager } from "./sidecar";
-import type { SidecarPool } from "./sidecar-pool";
+import type { SidecarLike, SidecarPool } from "./sidecar-pool";
 import { type SpawnTabDeps, spawnTabForWindow } from "./tab-spawn";
 
 /** Minimal BrowserWindow stand-in (only the identity fields the guard touches). */
@@ -17,19 +16,31 @@ function fakeWindow(): BrowserWindow {
 
 interface Harness {
 	deps: SpawnTabDeps;
-	acquire: Mock<(...args: unknown[]) => SidecarManager>;
+	acquire: Mock<(...args: unknown[]) => SidecarLike>;
 	kindFor: Mock<(path: string) => Promise<SessionKind>>;
-	sessionOwner: Mock<() => { tabId: string; winId: number } | null>;
+	remoteKindFor: Mock<(device: string, path: string) => Promise<SessionKind>>;
+	remoteDefaultWorkspace: Mock<(device: string) => Promise<string>>;
+	sessionOwner: Mock<(path: string, device?: string) => { tabId: string; winId: number } | null>;
+	fallbackCwd: Mock<(device: string | undefined) => string | null>;
 }
 
+/** acquire's placeholder/deferStart/title arguments for an explicit spawn; the device follows them. */
+const SPAWNED = [false, false, undefined] as const;
+
 function harness(options: { atCap?: boolean } = {}): Harness {
-	const acquire = vi.fn(() => ({}) as SidecarManager);
+	const acquire = vi.fn(() => ({}) as SidecarLike);
 	const kindFor = vi.fn(async (_path: string): Promise<SessionKind> => "agent");
-	const sessionOwner = vi.fn(() => null);
+	const remoteKindFor = vi.fn(async (_device: string, _path: string): Promise<SessionKind> => "agent");
+	const remoteDefaultWorkspace = vi.fn(async (_device: string) => "/host/work");
+	const sessionOwner = vi.fn((_path: string, _device?: string): { tabId: string; winId: number } | null => null);
+	const fallbackCwd = vi.fn((device: string | undefined): string | null => (device ? null : "/fallback"));
 	return {
 		acquire,
 		kindFor,
+		remoteKindFor,
+		remoteDefaultWorkspace,
 		sessionOwner,
+		fallbackCwd,
 		deps: {
 			sidecarPool: {
 				sessionOwner,
@@ -37,8 +48,10 @@ function harness(options: { atCap?: boolean } = {}): Harness {
 				acquire,
 			} as unknown as Pick<SidecarPool, "sessionOwner" | "atCap" | "acquire">,
 			sessionIndex: { kindFor },
-			fallbackCwd: () => "/fallback",
+			fallbackCwd,
+			initialCwd: () => "/initial",
 			defaultWorkspace: () => "/default-workspace",
+			remote: { kindFor: remoteKindFor, defaultWorkspace: remoteDefaultWorkspace },
 		},
 	};
 }
@@ -76,6 +89,8 @@ describe("spawnTabForWindow refusal contracts", () => {
 			"chat",
 			undefined,
 			false,
+			...SPAWNED,
+			undefined,
 		);
 	});
 
@@ -93,6 +108,8 @@ describe("spawnTabForWindow refusal contracts", () => {
 			"chat",
 			undefined,
 			false,
+			...SPAWNED,
+			undefined,
 		);
 	});
 
@@ -130,6 +147,8 @@ describe("spawnTabForWindow refusal contracts", () => {
 			"agent",
 			undefined,
 			true,
+			...SPAWNED,
+			undefined,
 		);
 		expect(kindFor).not.toHaveBeenCalled();
 	});
@@ -147,6 +166,8 @@ describe("spawnTabForWindow refusal contracts", () => {
 			"agent",
 			undefined,
 			true,
+			...SPAWNED,
+			undefined,
 		);
 		expect(kindFor).not.toHaveBeenCalled();
 	});
@@ -170,6 +191,71 @@ describe("spawnTabForWindow refusal contracts", () => {
 			"agent",
 			worktree,
 			true,
+			...SPAWNED,
+			undefined,
 		);
+	});
+});
+
+describe("spawnTabForWindow on a paired host", () => {
+	it("checks F-OWN and the file kind on the host, and keeps the host's cwd as given", async () => {
+		const { deps, acquire, kindFor, remoteKindFor, sessionOwner } = harness();
+		remoteKindFor.mockResolvedValue("chat");
+		const result = await spawnTabForWindow(deps, fakeWindow(), {
+			device: "host-b",
+			cwd: "/Users/b/project",
+			sessionPath: "/Users/b/.omp/agent/sessions/x/s.jsonl",
+		});
+
+		expect(result?.tabId).toEqual(expect.any(String));
+		expect(sessionOwner).toHaveBeenCalledWith("/Users/b/.omp/agent/sessions/x/s.jsonl", "host-b");
+		expect(remoteKindFor).toHaveBeenCalledWith("host-b", "/Users/b/.omp/agent/sessions/x/s.jsonl");
+		expect(kindFor).not.toHaveBeenCalled();
+		expect(acquire).toHaveBeenCalledWith(
+			"/Users/b/project",
+			expect.anything(),
+			expect.any(String),
+			"/Users/b/.omp/agent/sessions/x/s.jsonl",
+			"chat",
+			undefined,
+			false,
+			...SPAWNED,
+			"host-b",
+		);
+	});
+
+	it("refuses a session another tab already holds on that host", async () => {
+		const { deps, acquire, sessionOwner } = harness();
+		sessionOwner.mockImplementation((_path, device) => (device === "host-b" ? { tabId: "t-b", winId: 2 } : null));
+		const result = await spawnTabForWindow(deps, fakeWindow(), { device: "host-b", sessionPath: "/s/a.jsonl" });
+
+		expect(result).toEqual({ tabId: null, ownerTabId: "t-b", ownerWinId: 2, refusal: "owned" });
+		expect(acquire).not.toHaveBeenCalled();
+	});
+
+	it("opens in the host's Work workspace when no cwd on that host is known", async () => {
+		const { deps, acquire, remoteDefaultWorkspace } = harness();
+		const result = await spawnTabForWindow(deps, fakeWindow(), { device: "host-b" });
+
+		expect(result).toEqual({ tabId: expect.any(String) });
+		expect(remoteDefaultWorkspace).toHaveBeenCalledWith("host-b");
+		expect(acquire).toHaveBeenCalledWith(
+			"/host/work",
+			expect.anything(),
+			expect.any(String),
+			undefined,
+			"agent",
+			undefined,
+			true,
+			...SPAWNED,
+			"host-b",
+		);
+	});
+
+	it("returns the host's Work workspace for a defaultWorkspace spawn", async () => {
+		const { deps } = harness();
+		const result = await spawnTabForWindow(deps, fakeWindow(), { device: "host-b", defaultWorkspace: true });
+
+		expect(result).toEqual({ tabId: expect.any(String), cwd: "/host/work" });
 	});
 });

@@ -18,6 +18,7 @@ export const SETTINGS_SECTION_IDS = [
 	"plugins",
 	"workspace",
 	"ssh",
+	"remote",
 	"updates",
 	"advanced",
 ] as const;
@@ -32,7 +33,7 @@ export interface SettingsNavGroup {
 export const SETTINGS_NAV: readonly SettingsNavGroup[] = [
 	{ id: "app", items: ["general", "appearance", "keyboard"] },
 	{ id: "agent", items: ["models", "permissions", "features", "extensions", "plugins"] },
-	{ id: "system", items: ["workspace", "ssh", "updates", "advanced"] },
+	{ id: "system", items: ["workspace", "ssh", "remote", "updates", "advanced"] },
 ];
 
 export const EXTENSIONS_TABS = ["skills", "mcp", "hooks", "commands"] as const;

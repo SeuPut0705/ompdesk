@@ -65,9 +65,15 @@ export interface WindowRecord {
  * explicit but empty cwd falls back to resolveInitialCwd. Neither path can land
  * on a bare process.cwd(), which is "/" for Finder-launched apps. `kind` is the
  * target session file's stamped kind (OPEN_NEW_WINDOW resolves it from the
- * session index); omitted = agent.
+ * session index); omitted = agent. `device` opens the window's tab on a paired
+ * host, where `cwd` and `pendingSessionPath` are that host's paths.
  */
-export type SpawnWindow = (cwd?: string, pendingSessionPath?: string, kind?: SessionKind) => BrowserWindow | null;
+export type SpawnWindow = (
+	cwd?: string,
+	pendingSessionPath?: string,
+	kind?: SessionKind,
+	device?: string,
+) => BrowserWindow | null;
 
 export class WindowManager {
 	#records = new Map<number, WindowRecord>();

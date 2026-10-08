@@ -74,6 +74,15 @@ export const IPC_ERROR_CODES = [
 	"worktree_remove_failed",
 	"bridge_unavailable",
 	"unsupported_omp",
+	// Remote devices (src/main/remote): link and pairing failures.
+	"remote_offline",
+	"remote_unknown_device",
+	"remote_path_native",
+	"remote_wrong_code",
+	"remote_expired",
+	"remote_locked",
+	"remote_unreachable",
+	"remote_protocol",
 ] as const;
 
 export type IpcErrorCode = (typeof IPC_ERROR_CODES)[number];

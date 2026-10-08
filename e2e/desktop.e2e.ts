@@ -148,7 +148,7 @@ test("settings page lists its sections, searches across languages, and Escape re
 	await page.keyboard.press("ControlOrMeta+Comma");
 	const settings = page.locator("[data-settings-page]");
 	await expect(settings).toBeVisible();
-	await expect(settings.locator("[data-settings-section]")).toHaveCount(12);
+	await expect(settings.locator("[data-settings-section]")).toHaveCount(13);
 	await settings.locator('[data-settings-section="appearance"]').click();
 	await expect(settings.getByRole("radiogroup", { name: "Theme" })).toBeVisible();
 	await page.screenshot({ path: "test-results/01-settings.png", scale: "css", animations: "disabled" });

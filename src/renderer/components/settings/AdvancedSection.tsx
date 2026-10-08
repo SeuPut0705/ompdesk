@@ -6,16 +6,13 @@
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import {
-	flagsToCommandLine,
-	type LaunchProfile,
-	parseLaunchProfile,
-	profileToFlags,
-} from "../../../shared/launch-profile";
+import { flagsToCommandLine, type LaunchProfile, profileToFlags } from "../../../shared/launch-profile";
 import type { SettingEntry } from "../../../shared/rpc-types";
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { useLang, useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
+import { pickWorkspaceDirectory } from "../../lib/workspace-dirs";
+import { useFocusedTabDevice } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { focusedSessionRuntime, sessionRuntime, withSessionRuntime } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
@@ -122,10 +119,15 @@ function ProxyRow() {
 	);
 }
 
-/** Per-project omp launch flags (prefs `launchProfiles.<cwd>`), applied on the next sidecar start. */
+/**
+ * Per-project omp launch flags, applied on the next sidecar start. Profiles
+ * live on the machine that spawns omp: a remote tab reads and writes its
+ * host's (`device`), and its extra folders come from the host's disk.
+ */
 function LaunchProfileSection() {
 	const t = useT();
 	const cwd = useSessionStore(state => state.cwd);
+	const device = useFocusedTabDevice();
 	const { sidecarBusy } = useSettingsData();
 	const [profile, setProfile] = useState<LaunchProfile>({});
 	const [drafts, setDrafts] = useState<Partial<Record<LaunchTextField, string>>>({});
@@ -147,18 +149,16 @@ function LaunchProfileSection() {
 		const current = ++version.current;
 		setDrafts({});
 		void window.omp.prefs
-			.get("launchProfiles")
-			.then(raw => {
+			.getLaunchProfile(cwd, device)
+			.then(next => {
 				if (cancelled || current !== version.current) return;
-				const map =
-					typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
-				setProfile(parseLaunchProfile(map[cwd]));
+				setProfile(next);
 			})
 			.catch(() => {});
 		return () => {
 			cancelled = true;
 		};
-	}, [cwd]);
+	}, [cwd, device]);
 
 	// Patch only edited fields; main owns the atomic per-project merge.
 	const update = useCallback(
@@ -169,7 +169,7 @@ function LaunchProfileSection() {
 			const write = (async () => {
 				await previous;
 				try {
-					const next = await window.omp.prefs.updateLaunchProfile(cwd, patch);
+					const next = await window.omp.prefs.updateLaunchProfile(cwd, patch, device);
 					if (current !== version.current) return false;
 					setProfile(next);
 					return true;
@@ -188,7 +188,7 @@ function LaunchProfileSection() {
 				}
 			}
 		},
-		[cwd, t],
+		[cwd, device, t],
 	);
 
 	const commitField = async (field: LaunchTextField) => {
@@ -206,7 +206,11 @@ function LaunchProfileSection() {
 
 	const pickAddDirs = async () => {
 		const current = version.current;
-		const picked = await window.omp.system.showOpenDialog([], { directory: true }).catch(() => null);
+		// The native panel can multi-select this device's folders; a host's come one at a time from its picker.
+		const picked =
+			device === undefined
+				? await window.omp.system.showOpenDialog([], { directory: true }).catch(() => null)
+				: await pickWorkspaceDirectory({ device }).then(path => (path ? [path] : null));
 		if (!picked || picked.length === 0 || current !== version.current) return;
 		const existing = profile.addDirs ?? [];
 		const merged = [...existing];

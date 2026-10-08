@@ -8,18 +8,49 @@
  */
 import type { RpcResponse, RpcWorkspaceDirectoriesResult, RpcWorkspaceDirectory } from "../../shared/rpc-types";
 import { hydrateSession } from "../hooks/use-rpc-events";
+import { focusedTabDevice, pickRemoteDirectory } from "../stores/remote";
 import { toast, toastError } from "../stores/toast";
 import { translate } from "./i18n";
 
 export type { RpcWorkspaceDirectory };
 
-/** Native directory picker (Electron openDirectory + New Folder); undefined when cancelled. */
-export async function pickWorkspaceDirectory(labels?: {
-	title: string;
-	buttonLabel: string;
+/**
+ * Directory picker; undefined when cancelled. This device's folders use the
+ * native panel (Electron openDirectory + New Folder); a paired host's folders
+ * (`device`) use the remote folder picker, since the native panel cannot see
+ * that disk.
+ */
+export async function pickWorkspaceDirectory(options?: {
+	title?: string;
+	buttonLabel?: string;
+	device?: string;
 }): Promise<string | undefined> {
-	const paths = await window.omp.system.showOpenDialog(undefined, { directory: true, ...labels });
+	if (options?.device !== undefined) return pickRemoteDirectory(options.device);
+	const paths = await window.omp.system.showOpenDialog(undefined, {
+		directory: true,
+		title: options?.title,
+		buttonLabel: options?.buttonLabel,
+	});
 	return paths?.[0];
+}
+
+/** A folder for the focused tab (add-dir, move, re-root): on its own device. */
+export function pickFocusedTabDirectory(): Promise<string | undefined> {
+	return pickWorkspaceDirectory({ device: focusedTabDevice() });
+}
+
+/**
+ * "Open project…" for the focused tab: a local tab uses main's native picker
+ * (`sidecar.selectProject`); a remote tab browses its host, then re-roots
+ * there (`sidecar.setProject` routes to the host). Resolves the new folder,
+ * or null when cancelled or refused.
+ */
+export async function selectFocusedTabProject(): Promise<string | null> {
+	const device = focusedTabDevice();
+	if (device === undefined) return window.omp.sidecar.selectProject();
+	const picked = await pickRemoteDirectory(device);
+	if (!picked) return null;
+	return (await window.omp.sidecar.setProject(picked)) ? picked : null;
 }
 
 function directoriesOf(response: RpcResponse): RpcWorkspaceDirectory[] {

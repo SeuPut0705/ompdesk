@@ -163,4 +163,37 @@ describe("InsightsPage", () => {
 		expect(omp.getUsage).toHaveBeenCalled();
 		expect(document.body.textContent).toContain("No quota reports");
 	});
+
+	it("gives every account of one provider its own quota card and marks the one in use", async () => {
+		const omp = installOmp();
+		const limit = { id: "anthropic:5h", label: "Claude 5 Hour", usedFraction: 0.25 };
+		omp.getUsage.mockResolvedValue({
+			type: "response",
+			command: "get_usage",
+			success: true,
+			data: {
+				reports: [
+					{ provider: "anthropic", fetchedAt: 1, limits: [limit], account: "work@example.com", credentialId: 7 },
+					{
+						provider: "anthropic",
+						fetchedAt: 1,
+						limits: [limit],
+						account: "home@example.com",
+						credentialId: 9,
+						active: true,
+					},
+				],
+			},
+		});
+		useSessionStore.getState().setStatus("ready", "/repo");
+		useUiStore.getState().openInsights("usage");
+		await mount();
+		const cards = Array.from(document.querySelectorAll("section")).map(card => card.textContent ?? "");
+		const work = cards.find(card => card.includes("work@example.com") && !card.includes("home@example.com"));
+		const home = cards.find(card => card.includes("home@example.com") && !card.includes("work@example.com"));
+		expect(work).toBeDefined();
+		expect(home).toBeDefined();
+		expect(work).not.toContain("In use");
+		expect(home).toContain("In use");
+	});
 });

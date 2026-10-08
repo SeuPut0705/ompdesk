@@ -190,6 +190,13 @@ export interface SidecarOptions {
 	 */
 	shellEnv?: () => Promise<Record<string, string>>;
 	/**
+	 * The device language's English name (`Korean`), passed to omp as
+	 * `OMP_GUI_REPLY_LANGUAGE` for the gui-bridge's reply-language instruction.
+	 * Same point-of-use pattern as proxyEnv: read on every spawn, so a restart
+	 * picks up a changed device language. Undefined: the env is not set.
+	 */
+	replyLanguage?: () => string | undefined;
+	/**
 	 * Persists a crash report (reason + stderr tail) for post-mortem diagnosis.
 	 * Same point-of-use injection as `proxyEnv`/`shellEnv`: the real
 	 * implementation is `writeRuntimeLog`, which resolves its path through
@@ -409,6 +416,7 @@ export class SidecarManager extends EventEmitter {
 		this.#session = null;
 		this.#lastEntryId = null;
 		const { bridgeDir, cwd, extraFlags } = this.#options;
+		const replyLanguage = this.#options.replyLanguage?.();
 
 		const args = ["--mode", "rpc-ui"];
 		if (this.#resumeSessionPath) args.push("--session", this.#resumeSessionPath);
@@ -440,6 +448,7 @@ export class SidecarManager extends EventEmitter {
 					...this.#proxyEnvVars,
 					PATH: ompPathEnv(bin, this.#shellEnvVars.PATH ?? process.env.PATH ?? ""),
 					...(bridgeAddress ? { OMP_GUI_BRIDGE: bridgeAddress } : {}),
+					...(replyLanguage ? { OMP_GUI_REPLY_LANGUAGE: replyLanguage } : {}),
 					PI_RPC_EMIT_TITLE: "1",
 					PI_NO_PTY: "1",
 					PI_NOTIFICATIONS: "off",

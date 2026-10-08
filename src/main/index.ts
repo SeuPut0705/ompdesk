@@ -5,29 +5,31 @@
 
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { app, BrowserWindow, globalShortcut, ipcMain, nativeImage, session } from "electron";
 import Store from "electron-store";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
 import { installQuitGuard, requestQuit } from "./app-quit";
-import { bootModelSelector } from "./boot-model";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { applyGpuFallbackIfNeeded, handleGpuProcessGone } from "./gpu-fallback";
-import { ompFailureText } from "./i18n";
+import { mainT } from "./i18n";
 import { firstUsableCwd } from "./initial-cwd";
 import { registerIpcHandlers } from "./ipc";
 import { migrateLegacyUserData } from "./legacy-user-data";
+import { renameStoredSession } from "./local/session-files";
 import { LogWatcher } from "./log-watcher";
 import { createMenu } from "./menu";
 import { ompPackageRoot, ompPathEnv, systemOmp } from "./omp-runtime";
+import { RemoteDevices } from "./remote/devices";
+import { LocalHostServices } from "./remote/host-services";
 import { writeRuntimeLog } from "./runtime-log";
 import { SessionIndex } from "./session-index";
 import { SessionKindStore } from "./session-kinds";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
-import { SidecarManager } from "./sidecar";
+import { localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
 import { StatsClient } from "./stats-client";
 import { StatsServerManager } from "./stats-server";
@@ -215,6 +217,7 @@ let statsServer: StatsServerManager | null = null;
 let sessionIndex: SessionIndex;
 let statsClient: StatsClient;
 let logWatcher: LogWatcher;
+let remoteDevices: RemoteDevices | null = null;
 
 function errorMessage(value: unknown): { message: string; stack?: string } {
 	if (value instanceof Error) return { message: value.message, stack: value.stack };
@@ -281,9 +284,10 @@ function persistTabLayouts(): void {
 
 /** Reopen one saved window: its tabs in order, at the layout's active cwd. */
 function spawnWindowWithLayout(layout: PersistedTabLayout): BrowserWindow | null {
-	const activeCwd = layout.tabs[layout.activeIndex]?.cwd ?? layout.tabs[0]?.cwd;
-	if (!activeCwd) return null;
-	const win = windowManager.createWindow({ cwd: activeCwd });
+	const active = layout.tabs[layout.activeIndex] ?? layout.tabs[0];
+	if (!active) return null;
+	// The window record keeps a path on this machine; a paired host's cwd means nothing here.
+	const win = windowManager.createWindow({ cwd: active.device ? resolveInitialCwd() : active.cwd });
 	if (sidecarPool.restoreLayout(win, layout) > 0) return win;
 	win.close();
 	return null;
@@ -291,8 +295,34 @@ function spawnWindowWithLayout(layout: PersistedTabLayout): BrowserWindow | null
 
 /** Spawn a window with its own sidecar (the pool's 1:1 owner). Null at cap.
  *  With no target, create a fresh global chat; explicit workspace/session
- *  requests retain their selected/fallback cwd and requested session kind. */
-function spawnWindow(cwd?: string, pendingSessionPath?: string, kind?: SessionKind): BrowserWindow | null {
+ *  requests retain their selected/fallback cwd and requested session kind.
+ *  `device` runs the window's tab on that paired host, at its `cwd`. */
+function spawnWindow(
+	cwd?: string,
+	pendingSessionPath?: string,
+	kind?: SessionKind,
+	device?: string,
+): BrowserWindow | null {
+	if (device && cwd) {
+		const win = windowManager.createWindow({ cwd: resolveInitialCwd(), pendingSessionPath });
+		const fresh = pendingSessionPath === undefined;
+		const sidecar = sidecarPool.acquire(
+			cwd,
+			win,
+			undefined,
+			undefined,
+			kind ?? "agent",
+			undefined,
+			fresh,
+			false,
+			false,
+			undefined,
+			device,
+		);
+		if (sidecar) return win;
+		win.close();
+		return null;
+	}
 	const restoreSavedLayout = cwd === undefined && pendingSessionPath === undefined && kind === undefined;
 	if (restoreSavedLayout) {
 		const [saved] = readSavedTabLayouts();
@@ -339,62 +369,55 @@ app.whenReady().then(() => {
 		for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC_EVENTS.BRIDGE_HEALTH);
 	});
 	ipcMain.handle(IPC_COMMANDS.BRIDGE_HEALTH_TAKE, () => bridgeHealth.take());
-	sidecarPool = new SidecarPool((cwd, kind, fresh) => {
-		const sc = new SidecarManager({
-			// The status banner shows this text; localize it in the UI language.
-			omp: async () => {
-				const resolution = await systemOmp();
-				return resolution.ok || !resolution.reason
-					? resolution
-					: { ...resolution, error: ompFailureText(resolution.reason) };
-			},
-			bridgeDir,
-			cwd,
-			kind,
-			fresh,
-			proxyEnv: resolveProxyEnvForSpawn,
-			shellEnv: shellSpawnEnv,
-			bootModel: runtime => bootModelSelector(runtime, bridgeDir),
-			// Finder-launched omp has no terminal, and a sidecar that dies before
-			// it can write its own log only speaks through stderr — land the tail
-			// in gui-runtime.jsonl so it is readable after the fact.
-			reportFailure: report => {
-				writeRuntimeLog(
-					{
-						source: "sidecar-restart",
-						message: report.reason,
-						details: { attempt: report.attempt, maxAttempts: report.maxAttempts, stderr: report.stderr },
-					},
-					{ cwd: report.cwd },
-				);
-			},
-		});
-		// Ready-health-check applies to every pooled sidecar, not just the first.
-		// A failure marks the live child `error` without killing it; the manager
-		// re-probes and returns it to `ready` once a command succeeds again.
-		sc.on("status", ({ status }) => {
-			if (status !== "ready") return;
-			const client = sc.rpcClient;
-			if (!client) return;
-			client
-				.command({ type: "get_state" })
-				.then(res => {
-					if (!res.success) sc.markUnhealthy(`Health check failed: ${res.error ?? "unknown"}`);
-				})
-				.catch(err => {
-					sc.markUnhealthy(`Health check timed out: ${err instanceof Error ? err.message : String(err)}`);
-				});
-		});
+	const createLocalSidecar = localSidecarFactory({
+		bridgeDir,
+		proxyEnv: resolveProxyEnvForSpawn,
+		bridgeHealth,
+		sessionKinds,
+	});
+	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId));
+	sidecarPool = new SidecarPool((cwd, kind, fresh, device, tabId) => {
+		if (!device) return createLocalSidecar(cwd, kind, fresh);
+		// The host runs its own health check, session-kind record and bridge
+		// probe; only the probe's verdict comes back, for this machine's toast.
+		const sc = devices.createSidecar(device, tabId, cwd, kind, fresh);
 		sc.on("bridge", (result: BridgeConnectResult) => void bridgeHealth.observe(result));
-		// omp has no session kind; remember which sessions chat tabs created.
-		if (kind === "chat") sc.on("session", ({ sessionId }) => sessionId && sessionKinds.markChat(sessionId));
 		return sc;
 	}, 10);
+	// This computer as a host: paired devices' tabs run here through the same factory.
+	const prefs = prefsStore();
+	const hostServices = new LocalHostServices({
+		createSidecar: createLocalSidecar,
+		sessionIndex,
+		renameStoredSession: async (sessionPath, name) => {
+			const omp = await systemOmp();
+			if (!omp.ok) throw new Error(omp.error);
+			await renameStoredSession(omp.runtime, sessionPath, name);
+		},
+		defaultWorkspace: ensureDefaultWorkspace,
+		launchProfiles: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) },
+		localTabs: sidecarPool,
+	});
+	let hostOmpVersion: string | null = null;
+	void systemOmp().then(resolution => {
+		if (resolution.ok) hostOmpVersion = resolution.runtime.version;
+	});
+	const devices = new RemoteDevices({
+		userData: app.getPath("userData"),
+		appVersion: app.getVersion(),
+		prefs: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) },
+		broadcast: (channel, data) => {
+			for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send(channel, data);
+		},
+		services: hostServices,
+		machineInfo: () => ({ platform: process.platform, ompVersion: hostOmpVersion, home: homedir(), sep }),
+		offlineMessage: () => mainT("remote.offline"),
+	});
+	remoteDevices = devices;
 	sidecarPool.onWindowTabsChanged = () => persistTabLayouts();
 	// A closed window's tabs have to leave the saved session with it, or the next
 	// launch resurrects a window the user deliberately shut.
 	windowManager.subscribeWindowClosed(() => persistTabLayouts());
-	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId));
 	statsClient = new StatsClient();
 	// Stats dashboard: omp's own dashboard API from the user's omp install. A
 	// missing or too-old omp already surfaces on every tab; the dashboard just
@@ -429,11 +452,14 @@ app.whenReady().then(() => {
 		statsRestart: () => statsServer?.ensureRunning() ?? "exhausted",
 		logWatcher,
 		windowManager,
+		remoteDevices: devices,
 		benchmarkOmp: systemOmp,
 		benchmarkEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
 		spawnWindow,
 		initialCwd: resolveInitialCwd,
 	});
+	// Before the first window: a restored remote tab needs its host's link to exist.
+	devices.start();
 
 	// Global shortcut: Cmd+Shift+O — toggle focused window, else show the most
 	// recent, else spawn one (multi-window decision tree).
@@ -499,6 +525,7 @@ installQuitGuard(
 	() => {
 		statsServer?.kill();
 		sidecarPool?.disposeAll();
+		void remoteDevices?.dispose();
 		sessionIndex?.stop();
 		logWatcher?.stop();
 		destroyTray();

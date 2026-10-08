@@ -61,7 +61,7 @@ function reconcile(previous: SessionInfo[], fetched: SessionInfo[]): SessionInfo
 	return changed ? next : previous;
 }
 
-function createSessionListFeed(scope: SessionListScope): SessionListFeed {
+function createSessionListFeed(scope: SessionListScope, device: string | undefined): SessionListFeed {
 	const store = createStore<SessionListState>()(() => INITIAL_STATE);
 	let holders = 0;
 	/** Bumped when the last holder lets go: answers to older reads are dropped. */
@@ -80,8 +80,7 @@ function createSessionListFeed(scope: SessionListScope): SessionListFeed {
 		}
 		inFlight = true;
 		const version = generation;
-		window.omp.sessions
-			.list(scope)
+		(device === undefined ? window.omp.sessions.list(scope) : window.omp.sessions.list(scope, device))
 			.then(
 				list => {
 					if (version !== generation) return;
@@ -136,12 +135,14 @@ function createSessionListFeed(scope: SessionListScope): SessionListFeed {
 		retain,
 		refresh,
 		deleteSession: async path => {
-			await window.omp.sessions.delete(path);
+			await (device === undefined ? window.omp.sessions.delete(path) : window.omp.sessions.delete(path, device));
 			store.setState({ sessions: store.getState().sessions.filter(session => session.path !== path) });
 			refresh();
 		},
 		renameSession: async (path, name) => {
-			await window.omp.sessions.rename(path, name);
+			await (device === undefined
+				? window.omp.sessions.rename(path, name)
+				: window.omp.sessions.rename(path, name, device));
 			store.setState({
 				sessions: store
 					.getState()
@@ -152,10 +153,12 @@ function createSessionListFeed(scope: SessionListScope): SessionListFeed {
 	};
 }
 
-const feeds: Partial<Record<SessionListScope, SessionListFeed>> = {};
+const feeds = new Map<string, SessionListFeed>();
 
-export function sessionListFeed(scope: SessionListScope): SessionListFeed {
-	const feed = feeds[scope] ?? createSessionListFeed(scope);
-	feeds[scope] = feed;
+/** One feed per scope and device (`device` = paired host deviceId; absent = this device). */
+export function sessionListFeed(scope: SessionListScope, device?: string): SessionListFeed {
+	const key = device === undefined ? scope : `${scope}:${device}`;
+	const feed = feeds.get(key) ?? createSessionListFeed(scope, device);
+	feeds.set(key, feed);
 	return feed;
 }

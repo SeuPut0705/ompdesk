@@ -15,7 +15,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import {
 	addWorkspaceDirectory,
 	moveSessionTo,
-	pickWorkspaceDirectory,
+	pickFocusedTabDirectory,
 	type RpcWorkspaceDirectory,
 	removeWorkspaceDirectory,
 } from "../../lib/workspace-dirs";
@@ -65,7 +65,7 @@ export function WorkspaceSection() {
 
 	const onAdd = async (): Promise<void> => {
 		if (!sidecarReady) return;
-		const path = await pickWorkspaceDirectory();
+		const path = await pickFocusedTabDirectory();
 		if (!path) return;
 		setMutating(true);
 		try {
@@ -90,7 +90,7 @@ export function WorkspaceSection() {
 
 	const onMove = async (): Promise<void> => {
 		if (!sidecarReady) return;
-		const path = await pickWorkspaceDirectory();
+		const path = await pickFocusedTabDirectory();
 		if (!path) return;
 		setMutating(true);
 		try {

@@ -1,7 +1,8 @@
 /**
  * Pool of per-tab sidecar processes, bounded at a hard cap.
  *
- * Each TAB owns one SidecarManager; a window holds N tabs. The pool enforces
+ * Each TAB owns one sidecar (a local SidecarManager, or a RemoteSidecar for a
+ * tab on a paired host); a window holds N tabs. The pool enforces
  * the concurrency cap atomically (a slot is reserved synchronously before the
  * async spawn, so N concurrent acquires cannot overshoot — and the cap now
  * counts tabs across all windows), wires each sidecar's events to its owning
@@ -22,7 +23,9 @@
  * the sidecar answers (its `session` event — the only main-observable
  * carriers of the file path), and dropped on release or when
  * session_info_update reports a sessionId change (the cached file is stale;
- * the renderer's hydrate re-registers the current one).
+ * the renderer's hydrate re-registers the current one). The key is the
+ * device plus the path: a paired host's `~/.omp` layout mirrors this one, so
+ * the same path on two machines names two different files.
  *
  * F-UI-ORIGIN (response routing): extension_ui / host_tool / host_uri
  * requests raised by a tab are recorded by request id → owning entry, so a
@@ -30,6 +33,7 @@
  * after the user switched to another tab (sidecarForWindow would misroute
  * it to the newly active sidecar, which never saw the request).
  */
+import type { EventEmitter } from "node:events";
 import type { BrowserWindow } from "electron";
 import {
 	IPC_EVENTS,
@@ -66,20 +70,59 @@ import {
 import { canonicalCwd } from "./canonical-cwd";
 import { createMessageUpdateSlimmer } from "./message-update-slim";
 import type { WindowTabFact } from "./quit-guard";
-import type { SidecarManager, SidecarSessionIdentity } from "./sidecar";
+import type { RpcClient } from "./rpc-client";
+import type { SidecarSessionIdentity } from "./sidecar";
 import { nextSnowflake } from "./snowflake";
 import { type PersistedTabDescriptor, type PersistedTabLayout, TAB_LAYOUT_VERSION } from "./tab-layout";
 
-export type SidecarFactory = (cwd: string, kind: "agent" | "chat", fresh: boolean) => SidecarManager;
+/**
+ * What the pool, ipc.ts and the host-tool executor need from a tab's sidecar:
+ * the local SidecarManager, or a RemoteSidecar whose omp runs on a paired host.
+ * Events are SidecarManager's (`SidecarEvents`), re-emitted verbatim by remote ones.
+ */
+export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | "removeAllListeners"> {
+	readonly status: SidecarStatus;
+	readonly statusPayload: SidecarStatusPayload;
+	readonly cwd: string;
+	readonly kind: "agent" | "chat";
+	readonly rpcClient: Pick<RpcClient, "command"> | null;
+	readonly processAlive: boolean;
+	/** Paired host deviceId the omp runs on; absent for a local sidecar. */
+	readonly device?: string;
+	/** True while a remote sidecar's link to its host is down (commands fail with `remote_offline`). */
+	readonly offline?: boolean;
+	start(): void;
+	restart(cwd?: string, resumeSessionPath?: string): void;
+	adoptCwd(cwd: string): boolean;
+	sendSideChannel(frame: object): void;
+	syncImageGeneration(): void;
+	dispose(): void;
+}
+
+/** `device` = paired host deviceId (absent = this machine); `tabId` names the tab on that host. */
+export type SidecarFactory = (
+	cwd: string,
+	kind: "agent" | "chat",
+	fresh: boolean,
+	device: string | undefined,
+	tabId: string,
+) => SidecarLike;
+
+/** F-OWN key: the same path on another device is another file. */
+function ownerKey(device: string | undefined, sessionPath: string): string {
+	return device ? `${device}\u0000${sessionPath}` : sessionPath;
+}
 
 function forwardToWindow(win: BrowserWindow, channel: string, data: unknown): void {
 	if (!win.isDestroyed()) win.webContents.send(channel, data);
 }
 
 interface PoolEntry {
-	sidecar: SidecarManager;
+	sidecar: SidecarLike;
 	tabId: string;
 	win: BrowserWindow;
+	/** Paired host deviceId the tab runs on; undefined = this machine. Immutable; set at acquire. */
+	device?: string;
 	/** win.webContents.id, cached at acquire — safe to read after the window is destroyed. */
 	winId: number;
 	/** Session kind: "agent" (default) or "chat" (tool-free). Immutable; set at acquire. */
@@ -174,7 +217,7 @@ export class SidecarPool {
 	 * true when the tool was answered inline (GUI-registered) — the pool only
 	 * tracks request ids for renderer-forwarded calls (F-UI-ORIGIN).
 	 */
-	hostToolExecutor: ((sidecar: SidecarManager, request: HostToolCallRequest, win: BrowserWindow) => boolean) | null =
+	hostToolExecutor: ((sidecar: SidecarLike, request: HostToolCallRequest, win: BrowserWindow) => boolean) | null =
 		null;
 	/** Main-process persistence hook. The primary window installs this at startup. */
 	onWindowTabsChanged: ((win: BrowserWindow, layout: PersistedTabLayout | null) => void) | null = null;
@@ -208,6 +251,10 @@ export class SidecarPool {
 	 * The spawn happens in `#wireFull`, i.e. the first time the tab is
 	 * rendered — `#syncFullWiring` is the single point that knows a tab became
 	 * visible.
+	 *
+	 * `device` runs the tab on a paired host: the factory returns a
+	 * RemoteSidecar and the cwd is the host's path, so it is not resolved here
+	 * (the host canonicalizes it).
 	 */
 	acquire(
 		cwd: string,
@@ -220,17 +267,19 @@ export class SidecarPool {
 		placeholder = false,
 		deferStart = false,
 		title?: string,
-	): SidecarManager | null {
+		device?: string,
+	): SidecarLike | null {
 		if (this.atCap) return null;
 		this.#reserved++;
 		try {
 			// One spelling per directory: the sidecar reports its realpath'd cwd.
-			const sidecar = this.#factory(canonicalCwd(cwd), kind, fresh);
+			const sidecar = this.#factory(device ? cwd : canonicalCwd(cwd), kind, fresh, device, tabId);
 			const entry: PoolEntry = {
 				sidecar,
 				tabId,
 				win,
 				winId: win.webContents.id,
+				device,
 				kind,
 				placeholder,
 				worktree,
@@ -547,19 +596,32 @@ export class SidecarPool {
 	}
 
 	/** Every live sidecar, across windows (account changes reach all tabs). */
-	allSidecars(): SidecarManager[] {
+	allSidecars(): SidecarLike[] {
 		return [...this.#entries].map(entry => entry.sidecar);
 	}
 
 	/** Resolves via the ACTIVE tab, so every existing ipc.ts handler keeps working unchanged. */
-	sidecarForWindow(win: BrowserWindow): SidecarManager | null {
+	sidecarForWindow(win: BrowserWindow): SidecarLike | null {
 		return this.entryForWindow(win)?.sidecar ?? null;
 	}
 
 	/** The sidecar of one specific tab, scoped to the window that owns it. */
-	sidecarForTab(win: BrowserWindow, tabId: string): SidecarManager | null {
+	sidecarForTab(win: BrowserWindow, tabId: string): SidecarLike | null {
 		const entry = this.#byTabId.get(tabId);
 		return entry && entry.win === win ? entry.sidecar : null;
+	}
+
+	/**
+	 * One tab of `win` — `tabId`, or the window's active tab when omitted — with
+	 * the device it runs on, so a handler can route a remote tab to its host.
+	 */
+	tabTarget(
+		win: BrowserWindow,
+		tabId?: string,
+	): { tabId: string; sidecar: SidecarLike; device: string | undefined } | null {
+		const entry = tabId ? this.#byTabId.get(tabId) : this.entryForWindow(win);
+		if (!entry || entry.win !== win) return null;
+		return { tabId: entry.tabId, sidecar: entry.sidecar, device: entry.device };
 	}
 
 	/**
@@ -567,8 +629,8 @@ export class SidecarPool {
 	 * for mutations stock applies safely during a run (rename). Null until the
 	 * owner's process is ready.
 	 */
-	async commandForSession(sessionPath: string, command: RpcCommand): Promise<RpcResponse | null> {
-		const owner = this.#sessionOwners.get(sessionPath);
+	async commandForSession(sessionPath: string, command: RpcCommand, device?: string): Promise<RpcResponse | null> {
+		const owner = this.#sessionOwners.get(ownerKey(device, sessionPath));
 		const entry = owner ? this.#byTabId.get(owner.tabId) : undefined;
 		if (entry?.status !== "ready") return null;
 		const client = entry.sidecar.rpcClient;
@@ -576,11 +638,11 @@ export class SidecarPool {
 	}
 
 	/** Send a command to the idle tab attached to `sessionPath`; null while a run or compaction is in flight. */
-	async commandForIdleSession(sessionPath: string, command: RpcCommand): Promise<RpcResponse | null> {
-		const owner = this.#sessionOwners.get(sessionPath);
+	async commandForIdleSession(sessionPath: string, command: RpcCommand, device?: string): Promise<RpcResponse | null> {
+		const owner = this.#sessionOwners.get(ownerKey(device, sessionPath));
 		const entry = owner ? this.#byTabId.get(owner.tabId) : undefined;
 		if (!entry || entry.running || entry.compacting === true) return null;
-		return this.commandForSession(sessionPath, command);
+		return this.commandForSession(sessionPath, command, device);
 	}
 
 	/** Make `tabId` the window's active tab (moves full event forwarding). False when unknown/foreign. */
@@ -635,8 +697,8 @@ export class SidecarPool {
 	 * (F-OWN). SPAWN_TAB and SESSION_OPEN_NEW_WINDOW consult this before
 	 * spawning a second sidecar for the same file.
 	 */
-	sessionOwner(sessionPath: string): IpcSessionOwner | null {
-		return this.#sessionOwners.get(sessionPath) ?? null;
+	sessionOwner(sessionPath: string, device?: string): IpcSessionOwner | null {
+		return this.#sessionOwners.get(ownerKey(device, sessionPath)) ?? null;
 	}
 
 	/**
@@ -650,8 +712,8 @@ export class SidecarPool {
 	 * counts, whatever the status says: a failed health check reports `error`
 	 * over a live process that still holds the file.
 	 */
-	sessionOwnerIsLive(sessionPath: string): boolean {
-		const owner = this.#sessionOwners.get(sessionPath);
+	sessionOwnerIsLive(sessionPath: string, device?: string): boolean {
+		const owner = this.#sessionOwners.get(ownerKey(device, sessionPath));
 		const entry = owner ? this.#byTabId.get(owner.tabId) : undefined;
 		if (!entry) return false;
 		if (entry.sidecar.processAlive) return true;
@@ -664,9 +726,11 @@ export class SidecarPool {
 	 * issuer itself, which re-attaches freely). An untracked issuer (null
 	 * tabId) is blocked by any owner: refusing is the safe direction there.
 	 * F-OWN's refuse-or-focus decision point for the switch_session passthrough.
+	 * The path is on the issuer's device.
 	 */
 	foreignSessionOwner(tabId: string | null, sessionPath: string): IpcSessionOwner | null {
-		const owner = this.#sessionOwners.get(sessionPath);
+		const device = tabId ? this.#byTabId.get(tabId)?.device : undefined;
+		const owner = this.#sessionOwners.get(ownerKey(device, sessionPath));
 		if (!owner || owner.tabId === tabId) return null;
 		return owner;
 	}
@@ -726,7 +790,7 @@ export class SidecarPool {
 	#registerSessionFile(entry: PoolEntry, sessionFile: string): void {
 		if (entry.sessionFile !== sessionFile) this.#unregisterSessionFile(entry);
 		entry.sessionFile = sessionFile;
-		this.#sessionOwners.set(sessionFile, { tabId: entry.tabId, winId: entry.winId });
+		this.#sessionOwners.set(ownerKey(entry.device, sessionFile), { tabId: entry.tabId, winId: entry.winId });
 	}
 
 	/** Drop the entry's file→owner mapping when it still points at this entry. */
@@ -734,8 +798,9 @@ export class SidecarPool {
 		if (entry.sessionFile === undefined) return;
 		// Another tab may have re-registered the same file since — only the
 		// current owner may clear the mapping.
-		if (this.#sessionOwners.get(entry.sessionFile)?.tabId === entry.tabId) {
-			this.#sessionOwners.delete(entry.sessionFile);
+		const key = ownerKey(entry.device, entry.sessionFile);
+		if (this.#sessionOwners.get(key)?.tabId === entry.tabId) {
+			this.#sessionOwners.delete(key);
 		}
 		entry.sessionFile = undefined;
 	}
@@ -792,6 +857,7 @@ export class SidecarPool {
 				if (entry.sessionFile) descriptor.sessionPath = entry.sessionFile;
 				if (entry.worktree) descriptor.worktree = entry.worktree;
 				if (entry.placeholder) descriptor.placeholder = true;
+				if (entry.device) descriptor.device = entry.device;
 				// Written even when the live title is null, so a cleared title
 				// cannot survive as a stale one until the tab is spawned again.
 				if (entry.title !== undefined) descriptor.title = entry.title ?? undefined;
@@ -830,6 +896,7 @@ export class SidecarPool {
 					tab.placeholder === true,
 					true,
 					tab.title,
+					tab.device,
 				);
 				if (!sidecar) continue;
 				restoredCount++;
@@ -897,6 +964,7 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	if (entry.title !== undefined) payload.title = entry.title;
 	if (entry.worktree !== undefined) payload.worktree = entry.worktree;
 	if (entry.lastRun !== undefined) payload.lastRun = entry.lastRun;
+	if (entry.device !== undefined) payload.device = entry.device;
 	return payload;
 }
 

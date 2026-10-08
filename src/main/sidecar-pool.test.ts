@@ -6,8 +6,7 @@ import type { BrowserWindow } from "electron";
 import { describe, expect, it } from "vitest";
 import { IPC_EVENTS, type IpcTabStatusPayload } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse, SessionInfoUpdateFrame, SidecarStatus } from "../shared/rpc-types";
-import type { SidecarManager } from "./sidecar";
-import { SidecarPool } from "./sidecar-pool";
+import { type SidecarLike, SidecarPool } from "./sidecar-pool";
 import type { PersistedTabLayout } from "./tab-layout";
 
 /** Minimal SidecarManager stand-in: an EventEmitter with lifecycle recording. */
@@ -146,7 +145,7 @@ function fakePool(max = 10): { pool: SidecarPool; sidecars: FakeSidecar[] } {
 	const pool = new SidecarPool(cwd => {
 		const sidecar = new FakeSidecar(cwd);
 		sidecars.push(sidecar);
-		return sidecar as unknown as SidecarManager;
+		return sidecar as unknown as SidecarLike;
 	}, max);
 	return { pool, sidecars };
 }
@@ -159,7 +158,7 @@ describe("SidecarPool session kind", () => {
 			kinds.push(kind);
 			const sidecar = new FakeSidecar(cwd);
 			sidecars.push(sidecar);
-			return sidecar as unknown as SidecarManager;
+			return sidecar as unknown as SidecarLike;
 		});
 		const fw = fakeWindow(1);
 
@@ -512,7 +511,7 @@ describe("SidecarPool tabs", () => {
 		const pool = new SidecarPool(cwd => {
 			const sidecar = new FakeSidecar(cwd);
 			sidecars.push(sidecar);
-			return sidecar as unknown as SidecarManager;
+			return sidecar as unknown as SidecarLike;
 		});
 		const fw = fakeWindow(1);
 		pool.restoreLayout(fw.win, {
@@ -548,7 +547,7 @@ describe("SidecarPool tabs", () => {
 	});
 
 	it("labels a sleeping tab with the title its session last had", () => {
-		const pool = new SidecarPool(cwd => new FakeSidecar(cwd) as unknown as SidecarManager);
+		const pool = new SidecarPool(cwd => new FakeSidecar(cwd) as unknown as SidecarLike);
 		const fw = fakeWindow(1);
 		pool.restoreLayout(fw.win, {
 			version: 1,
@@ -577,7 +576,7 @@ describe("SidecarPool tabs", () => {
 			factoryCalls.push({ cwd, kind, fresh });
 			const sidecar = new FakeSidecar(cwd);
 			sidecars.push(sidecar);
-			return sidecar as unknown as SidecarManager;
+			return sidecar as unknown as SidecarLike;
 		});
 		const fw = fakeWindow(1);
 
@@ -926,6 +925,80 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(pool.sessionOwner("/sessions/s.jsonl")).not.toBeNull();
 		fw.close();
 		expect(pool.sessionOwner("/sessions/s.jsonl")).toBeNull();
+	});
+
+	it("keys ownership by device + path: the same path on a paired host is another file", async () => {
+		const factoryCalls: Array<{ cwd: string; device: string | undefined; tabId: string }> = [];
+		const sidecars: FakeSidecar[] = [];
+		const pool = new SidecarPool((cwd, _kind, _fresh, device, tabId) => {
+			factoryCalls.push({ cwd, device, tabId });
+			const sidecar = new FakeSidecar(cwd);
+			sidecars.push(sidecar);
+			return sidecar as unknown as SidecarLike;
+		});
+		const fw = fakeWindow(1);
+		const path = "/Users/me/.omp/agent/sessions/p/s.jsonl";
+		pool.acquire("/a", fw.win, "tab-local", path);
+		pool.acquire("/b", fw.win, "tab-remote", path, "agent", undefined, false, false, false, undefined, "host-b");
+
+		// The host's cwd is passed through untouched (it canonicalizes), with the tab id as rtab.
+		expect(factoryCalls[1]).toEqual({ cwd: "/b", device: "host-b", tabId: "tab-remote" });
+		expect(pool.sessionOwner(path)).toEqual({ tabId: "tab-local", winId: 1 });
+		expect(pool.sessionOwner(path, "host-b")).toEqual({ tabId: "tab-remote", winId: 1 });
+		expect(pool.sessionOwner(path, "host-c")).toBeNull();
+		// Each tab re-attaches its own file freely; neither blocks the other.
+		expect(pool.foreignSessionOwner("tab-local", path)).toBeNull();
+		expect(pool.foreignSessionOwner("tab-remote", path)).toBeNull();
+
+		// Commands for a device's session go to that device's tab only.
+		sidecars[1]?.emitStatus("ready");
+		await pool.commandForSession(path, { type: "set_session_name", name: "x", sessionPath: path }, "host-b");
+		expect(sidecars[1]?.rpcCommands.map(command => command.type)).toEqual(["set_session_name"]);
+		expect(sidecars[0]?.rpcCommands).toEqual([]);
+
+		// A session report on the remote tab registers under its device.
+		sidecars[1]?.emitSessionIdentity({ sessionId: "r2", sessionFile: "/Users/me/.omp/agent/sessions/p/t.jsonl" });
+		expect(pool.sessionOwner("/Users/me/.omp/agent/sessions/p/t.jsonl")).toBeNull();
+		expect(pool.sessionOwner("/Users/me/.omp/agent/sessions/p/t.jsonl", "host-b")).toEqual({
+			tabId: "tab-remote",
+			winId: 1,
+		});
+
+		expect(pool.releaseTab("tab-remote")).toBe(true);
+		expect(pool.sessionOwner("/Users/me/.omp/agent/sessions/p/t.jsonl", "host-b")).toBeNull();
+		expect(pool.sessionOwner(path)).toEqual({ tabId: "tab-local", winId: 1 });
+	});
+
+	it("reports and persists a remote tab's device, and restores it onto that device", () => {
+		const devices: Array<string | undefined> = [];
+		const pool = new SidecarPool((cwd, _kind, _fresh, device) => {
+			devices.push(device);
+			return new FakeSidecar(cwd) as unknown as SidecarLike;
+		});
+		const fw = fakeWindow(1);
+		pool.acquire(
+			"/host/p",
+			fw.win,
+			"tab-r",
+			"/host/s.jsonl",
+			"agent",
+			undefined,
+			false,
+			false,
+			false,
+			undefined,
+			"host-b",
+		);
+		expect(pool.tabsForWindow(fw.win)[0]).toMatchObject({ tabId: "tab-r", device: "host-b" });
+		expect(pool.tabTarget(fw.win, "tab-r")?.device).toBe("host-b");
+		const layout = pool.tabLayoutForWindow(fw.win);
+		expect(layout?.tabs[0]).toMatchObject({ cwd: "/host/p", sessionPath: "/host/s.jsonl", device: "host-b" });
+
+		const restoredWindow = fakeWindow(2);
+		if (!layout) throw new Error("expected a layout");
+		pool.restoreLayout(restoredWindow.win, layout);
+		expect(devices).toEqual(["host-b", "host-b"]);
+		expect(pool.sessionOwner("/host/s.jsonl", "host-b")).not.toBeNull();
 	});
 });
 

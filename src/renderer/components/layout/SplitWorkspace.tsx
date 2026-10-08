@@ -18,6 +18,8 @@ import { type SplitAxis, type SplitPlacement, tabDisplayTitle, useTabsStore } fr
 import { ChatStream } from "../chat/ChatStream";
 import { WorkspaceDock } from "../chat/dock/WorkspaceDock";
 import { IconButton, Spinner } from "../common";
+import { DeviceChip } from "../remote/DeviceChip";
+import { RemoteTabBanner } from "../remote/RemoteTabBanner";
 import { InputArea } from "./InputArea";
 
 const DIVIDER_SIZE = 5;
@@ -93,6 +95,7 @@ function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; l
 							<XCircle aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-danger)" />
 						) : null}
 						<span className="min-w-0 flex-1 truncate font-medium text-(--sc-text)">{label}</span>
+						{tab.device !== undefined && <DeviceChip deviceId={tab.device} />}
 						<span className="omp-session-pane-cwd max-w-[45%] truncate font-mono text-sc-xs text-(--sc-text-muted)">
 							{tab.cwd}
 						</span>
@@ -104,6 +107,7 @@ function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; l
 						/>
 					</header>
 				)}
+				{tab.device !== undefined && <RemoteTabBanner deviceId={tab.device} />}
 				<div className="relative flex min-h-0 flex-1 flex-col">
 					<ChatStream />
 					<div className="omp-composer-region relative shrink-0 bg-transparent pt-2">
@@ -143,9 +147,12 @@ export function SplitWorkspace() {
 	const pane = (tabId: string, isSplit: boolean) => {
 		const tab = tabs.find(entry => entry.id === tabId);
 		if (!tab) return null;
+		// The index lists this device's sessions; a remote tab's path may coincide with one of them.
 		const indexedSession =
-			(tab.sessionPath ? sessionsByPath.get(tab.sessionPath) : undefined) ??
-			(tab.sessionId ? sessionsById.get(tab.sessionId) : undefined);
+			tab.device !== undefined
+				? undefined
+				: ((tab.sessionPath ? sessionsByPath.get(tab.sessionPath) : undefined) ??
+					(tab.sessionId ? sessionsById.get(tab.sessionId) : undefined));
 		return (
 			<SessionPane
 				tabId={tabId}

@@ -26,6 +26,7 @@ export const FEATURES = {
 	omfg: "/omfg rule forging",
 	agentPause: "Agent pause",
 	modelPool: "Model pool",
+	replyLanguage: "Reply language",
 	mcp: "MCP servers",
 	plugins: "Plugins & marketplaces",
 	skills: "Skills, hooks & prompt templates",
@@ -287,6 +288,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"sessionManager.appendCustomEntry()",
 		],
 	},
+	/** Only the public `before_agent_start` hook; no internals to probe. */
+	replyLanguage: {},
 	mcp: {
 		session: [
 			"setMCPPromptCommands()",
@@ -493,15 +496,21 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		},
 	},
 	usage: {
+		// usage + provider_accounts (settings.ts): per-account quota, health and the session's pinned account.
 		session: [
 			"fetchUsageReports()",
 			"sessionId",
 			"model",
 			"sessionManager.getUsageStatistics()",
-			"modelRegistry.authStorage.oauth.identity()",
+			"modelRegistry.authStorage.oauth.accounts()",
+			"modelRegistry.authStorage.credentials.reload()",
+			"modelRegistry.authStorage.credentials.list()",
+			"modelRegistry.authStorage.health.model()",
+			"modelRegistry.authStorage.usage.report()",
 		],
 		modules: {
 			["@oh-my-pi/pi-ai"]: ["resolveUsedFraction()"],
+			["@oh-my-pi/pi-ai/oauth"]: ["getOAuthCredentialProvider()"],
 		},
 	},
 	security: {

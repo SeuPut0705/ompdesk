@@ -26,6 +26,7 @@ import { WorktreeCloseDialog } from "./components/dialogs/WorktreeCloseDialog";
 import { WorktreeDialog } from "./components/dialogs/WorktreeDialog";
 import { AppShell } from "./components/layout/AppShell";
 import { FirstRunGate } from "./components/onboarding/FirstRunGate";
+import { RemoteFolderPickerHost } from "./components/remote/RemoteFolderPicker";
 import { useAwaitingConfirmation } from "./hooks/use-awaiting-confirmation";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { useRpcEvents } from "./hooks/use-rpc-events";
@@ -60,8 +61,10 @@ import {
 	resolveThemeSelection,
 } from "./lib/themes";
 import { startVoiceAutoSpeak } from "./lib/voice";
+import { selectFocusedTabProject } from "./lib/workspace-dirs";
 import { openHandoffDialog } from "./stores/fork-handoff";
 import { useModelStore } from "./stores/model";
+import { useRemoteStateSync } from "./stores/remote";
 import { useSessionStore } from "./stores/session";
 import { SessionRuntimeProvider } from "./stores/session-runtime-context";
 import { useSettingsStore } from "./stores/settings";
@@ -126,6 +129,8 @@ export function App() {
 	useExtensionUi();
 	// Session tabs: GET_TABS boot reconciliation + TAB_STATUS subscription.
 	useSessionTabs();
+	// Remote devices: the RemoteState snapshot + `remote:state` pushes.
+	useRemoteStateSync();
 	const theme = useUiStore(s => s.theme);
 	const fontSize = useUiStore(s => s.fontSize);
 	const followAgentTheme = useUiStore(s => s.followAgentTheme);
@@ -644,7 +649,7 @@ export function App() {
 
 			try {
 				if (action === "open-project") {
-					await window.omp.sidecar.selectProject();
+					await selectFocusedTabProject();
 				} else if (action === "switch-project") {
 					if (payload?.cwd) await window.omp.sidecar.setProject(payload.cwd);
 				} else if (action === "new-session") {
@@ -687,6 +692,7 @@ export function App() {
 			<ChangelogDialog />
 			<ForceToolDialog />
 			<HandoffDialog />
+			<RemoteFolderPickerHost />
 			<Suspense fallback={null}>
 				<BenchmarkDialog open={benchmarkOpen} onClose={closeBenchmark} />
 			</Suspense>

@@ -99,6 +99,10 @@ export const IPC_EVENTS = {
 	UPDATER_STATUS: "updater:status",
 	/** New gui-bridge compatibility warnings are waiting; the renderer takes them with BRIDGE_HEALTH_TAKE. */
 	BRIDGE_HEALTH: "bridge-health:changed",
+	/** Remote devices state changed (host role and paired hosts); payload is the whole RemoteState. */
+	REMOTE_STATE: "remote:state",
+	/** LAN discovery list changed while discovery runs; payload is the whole RemoteDiscoveredDevice[]. */
+	REMOTE_DISCOVERED: "remote:discovered",
 } as const;
 
 // ============================================================================
@@ -159,6 +163,8 @@ export const IPC_COMMANDS = {
 	/** Set GUI preferences */
 	PREFS_SET: "prefs:set",
 	PREFS_UPDATE_LAUNCH_PROFILE: "prefs:update-launch-profile",
+	/** One workspace's launch profile, from the machine that spawns its omp */
+	PREFS_GET_LAUNCH_PROFILE: "prefs:get-launch-profile",
 	/** Restart sidecar */
 	SIDECAR_RESTART: "sidecar:restart",
 	/** Get sidecar status */
@@ -222,6 +228,23 @@ export const IPC_COMMANDS = {
 	UPDATER_AUTH_CLEAR: "updater:authClear",
 	/** Pending gui-bridge compatibility warnings, handed to exactly one caller */
 	BRIDGE_HEALTH_TAKE: "bridge-health:take",
+	/** Remote devices: whole RemoteState snapshot */
+	REMOTE_GET_STATE: "remote:get-state",
+	/** Turn the host role (other devices may use this computer) on or off; persisted in prefs */
+	REMOTE_SET_HOST_ENABLED: "remote:set-host-enabled",
+	REMOTE_SET_DEVICE_NAME: "remote:set-device-name",
+	/** Mint a fresh pairing code */
+	REMOTE_ROTATE_CODE: "remote:rotate-code",
+	/** Forget a paired client device and close its live connections */
+	REMOTE_REVOKE_PEER: "remote:revoke-peer",
+	/** Start or stop LAN discovery (pushes REMOTE_DISCOVERED) */
+	REMOTE_DISCOVER: "remote:discover",
+	/** Pair with a host by address and code */
+	REMOTE_PAIR: "remote:pair",
+	/** Forget a paired host and close its link */
+	REMOTE_REMOVE_HOST: "remote:remove-host",
+	/** Browse a paired host's directories (remote folder picker) */
+	REMOTE_LIST_DIRS: "remote:list-dirs",
 } as const;
 
 export type RuntimeErrorSource =
@@ -624,20 +647,25 @@ export interface CustomProviderView {
 
 export interface IpcSessionsListPayload {
 	scope: "local" | "global";
+	/** Paired host deviceId; absent = this device. */
+	device?: string;
 }
 
 export interface IpcSessionsDeletePayload {
 	sessionPath: string;
+	device?: string;
 }
 
 export interface IpcSessionsRenamePayload {
 	sessionPath: string;
 	name: string;
+	device?: string;
 }
 
 export interface IpcSessionsSearchPayload {
 	query: string;
 	scope: "local" | "global";
+	device?: string;
 }
 
 export interface IpcStatsFetchPayload {
@@ -662,6 +690,13 @@ export interface IpcPrefsSetPayload {
 export interface IpcUpdateLaunchProfilePayload {
 	cwd: string;
 	patch: Partial<LaunchProfile>;
+	/** Paired host deviceId whose profiles hold `cwd`; absent = this device. */
+	device?: string;
+}
+
+export interface IpcGetLaunchProfilePayload {
+	cwd: string;
+	device?: string;
 }
 
 // ============================================================================
@@ -786,6 +821,8 @@ export interface IpcFsReadPlanResult {
 export interface IpcSessionOpenNewWindowPayload {
 	sessionPath?: string;
 	cwd?: string;
+	/** Paired host deviceId the session/cwd lives on; absent = this device. */
+	device?: string;
 }
 
 // ============================================================================
@@ -844,6 +881,8 @@ export interface IpcTabInfo {
 	title?: string | null;
 	/** How the tab's last finished run ended; absent while a run is in flight or before the first one ends. */
 	lastRun?: IpcTabRunOutcome;
+	/** Paired host deviceId the tab's omp runs on; absent = this device. */
+	device?: string;
 }
 
 /**
@@ -882,6 +921,8 @@ export interface IpcSpawnTabPayload {
 	 * the close-time cleanup prompt.
 	 */
 	worktree?: IpcTabWorktree;
+	/** Paired host deviceId to run the tab on; absent = this device. */
+	device?: string;
 }
 
 /** Owner of a session file: the tab (and its window) currently attached to it. */
@@ -914,6 +955,7 @@ export interface IpcSpawnTabResult {
 /** Look up which tab/window owns a session file (F-OWN renderer belt-guards). */
 export interface IpcGetSessionOwnerPayload {
 	sessionPath: string;
+	device?: string;
 }
 
 export interface IpcCloseTabPayload {
@@ -950,6 +992,90 @@ export interface SessionInfo {
 	kind?: "chat";
 	parentSessionPath?: string;
 	firstMessage: string;
+	/** Paired host deviceId the session file lives on; absent = this device. */
+	device?: string;
+}
+
+// ============================================================================
+// Remote Devices Types
+// ============================================================================
+
+/** Link state of a paired host (A role). */
+export type RemoteLinkState = "connecting" | "online" | "offline";
+
+/** A paired host this device can run sessions on. */
+export interface HostView {
+	deviceId: string;
+	name: string;
+	state: RemoteLinkState;
+	/** From the host's hello (`process.platform`); absent until the first connection. */
+	platform?: string;
+	/** Host home directory (folder picker start); absent until the first connection. */
+	home?: string;
+}
+
+/** A client device paired with this computer (B role). */
+export interface PeerView {
+	deviceId: string;
+	name: string;
+	online: boolean;
+	/** Epoch ms of the last live connection; null when it never connected after pairing. */
+	lastSeenAt: number | null;
+}
+
+/** Host role of this computer. `port`/`code`/`expiresAt` are null while disabled. */
+export interface RemoteHostState {
+	enabled: boolean;
+	name: string;
+	port: number | null;
+	/** `ip:port` LAN addresses. */
+	addresses: string[];
+	code: string | null;
+	/** Epoch ms when `code` stops working. */
+	expiresAt: number | null;
+	peers: PeerView[];
+}
+
+export interface RemoteState {
+	host: RemoteHostState;
+	hosts: HostView[];
+}
+
+/** A host seen on the LAN by discovery. */
+export interface RemoteDiscoveredDevice {
+	deviceId: string;
+	name: string;
+	/** `ip:port`, ready for `remote.pair({address})`. */
+	address: string;
+	/** True when this device is already paired with it. */
+	paired: boolean;
+}
+
+export interface RemoteDirEntry {
+	name: string;
+	/** Absolute path on the host. */
+	path: string;
+}
+
+/** One directory level of a host's disk (remote folder picker). */
+export interface RemoteDirListing {
+	/** Absolute path listed (the host's home when none was asked). */
+	path: string;
+	/** Parent directory; null at a filesystem root. */
+	parent: string | null;
+	/** Subdirectories, sorted by name. */
+	entries: RemoteDirEntry[];
+}
+
+export interface IpcRemotePairPayload {
+	/** `host` or `host:port`. */
+	address: string;
+	code: string;
+}
+
+export interface IpcRemoteListDirsPayload {
+	deviceId: string;
+	path?: string;
 }
 
 // ============================================================================
@@ -1096,7 +1222,11 @@ export interface OmpApi {
 		getMessagesPage(cursor?: string, limit?: number): Promise<RpcResponse>;
 		getLoginProviders(): Promise<RpcResponse>;
 		login(providerId: string): Promise<RpcResponse>;
-		logout(providerId: string): Promise<RpcResponse>;
+		/** Removes one stored account; the provider stays connected while another remains. */
+		logout(providerId: string, credentialId: number): Promise<RpcResponse>;
+		/** Removes every stored account of the provider. */
+		disconnectProvider(providerId: string): Promise<RpcResponse>;
+		getProviderAccounts(providerId: string): Promise<RpcResponse>;
 		getUsage(): Promise<RpcResponse>;
 		getSettingsSchema(): Promise<RpcResponse>;
 		getSettings(paths?: string[]): Promise<RpcResponse>;
@@ -1265,10 +1395,11 @@ export interface OmpApi {
 		sendHostUriResult(result: HostUriResult): void;
 	};
 	sessions: {
-		list(scope: "local" | "global"): Promise<SessionInfo[]>;
-		delete(sessionPath: string): Promise<void>;
-		rename(sessionPath: string, name: string): Promise<void>;
-		search(query: string, scope: "local" | "global"): Promise<string[]>;
+		/** `device` = paired host deviceId; absent = this device. Remote results carry `device`. */
+		list(scope: "local" | "global", device?: string): Promise<SessionInfo[]>;
+		delete(sessionPath: string, device?: string): Promise<void>;
+		rename(sessionPath: string, name: string, device?: string): Promise<void>;
+		search(query: string, scope: "local" | "global", device?: string): Promise<string[]>;
 		/**
 		 * Open a session (or a fresh project window) in a new parallel window.
 		 * False at the cap. When `sessionPath` is already attached to a tab,
@@ -1294,8 +1425,24 @@ export interface OmpApi {
 		setActive(tabId: string): Promise<boolean>;
 		/** Set the focused tab plus the one or two tabs rendered by the window. */
 		setView(focusedTabId: string, visibleTabIds: string[], split?: IpcSetTabViewPayload["split"]): Promise<boolean>;
-		/** The tab/window currently attached to a session file, if any (F-OWN). */
-		getSessionOwner(sessionPath: string): Promise<IpcSessionOwner | null>;
+		/** The tab/window currently attached to a session file on `device` (absent = this device), if any (F-OWN). */
+		getSessionOwner(sessionPath: string, device?: string): Promise<IpcSessionOwner | null>;
+	};
+	remote: {
+		getState(): Promise<RemoteState>;
+		setHostEnabled(enabled: boolean): Promise<RemoteState>;
+		setDeviceName(name: string): Promise<RemoteState>;
+		rotateCode(): Promise<RemoteState>;
+		revokePeer(deviceId: string): Promise<RemoteState>;
+		/** Start or stop LAN discovery; resolves with the devices seen so far (empty on stop). */
+		discover(action: "start" | "stop"): Promise<RemoteDiscoveredDevice[]>;
+		/** Throws IpcError `remote_wrong_code|remote_expired|remote_locked|remote_unreachable|remote_protocol`. */
+		pair(payload: IpcRemotePairPayload): Promise<HostView>;
+		removeHost(deviceId: string): Promise<RemoteState>;
+		/** One directory level on the host; `path` absent = the host's home. */
+		listDirs(deviceId: string, path?: string): Promise<RemoteDirListing>;
+		onState(callback: (state: RemoteState) => void): () => void;
+		onDiscovered(callback: (devices: RemoteDiscoveredDevice[]) => void): () => void;
 	};
 	stats: {
 		fetch(path: string, params?: Record<string, string>): Promise<unknown>;
@@ -1307,10 +1454,14 @@ export interface OmpApi {
 	system: {
 		info(): Promise<SystemInfo>;
 		openExternal(url: string): Promise<void>;
-		/** Open a file in the system editor; relative paths resolve against the workspace. */
-		openPath(path: string): Promise<IpcOpenPathResult>;
-		/** Reveal an absolute path in the file manager; fails when the file is missing. */
-		revealPath(path: string): Promise<IpcOpenPathResult>;
+		/**
+		 * Open a file in the system editor; relative paths resolve against the
+		 * workspace of `tabId` (default: the active tab). A tab on a paired host
+		 * fails with code `remote_path_native`.
+		 */
+		openPath(path: string, tabId?: string): Promise<IpcOpenPathResult>;
+		/** Reveal an absolute path in the file manager; fails when the file is missing, or `remote_path_native` for a paired host's tab. */
+		revealPath(path: string, tabId?: string): Promise<IpcOpenPathResult>;
 		showSaveDialog(defaultPath?: string, filters?: { name: string; extensions: string[] }[]): Promise<string | null>;
 		showOpenDialog(
 			filters?: { name: string; extensions: string[] }[],
@@ -1322,7 +1473,9 @@ export interface OmpApi {
 	prefs: {
 		get(key?: string): Promise<unknown>;
 		set(key: string, value: unknown): Promise<void>;
-		updateLaunchProfile(cwd: string, patch: Partial<LaunchProfile>): Promise<LaunchProfile>;
+		/** `device` = the paired host whose profile it is; absent = this device. */
+		getLaunchProfile(cwd: string, device?: string): Promise<LaunchProfile>;
+		updateLaunchProfile(cwd: string, patch: Partial<LaunchProfile>, device?: string): Promise<LaunchProfile>;
 	};
 	sidecar: {
 		restart(payload?: IpcSidecarRestartPayload): Promise<void>;

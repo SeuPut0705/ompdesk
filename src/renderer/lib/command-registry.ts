@@ -46,7 +46,7 @@ import {
 	isPluginActivationOriginActive,
 } from "./plugin-activation";
 import { copyTodosToClipboard, dumpTranscriptToClipboard, exportTodos, importTodosFromFile } from "./transcript-copy";
-import { addWorkspaceDirectory, moveSessionTo, pickWorkspaceDirectory } from "./workspace-dirs";
+import { addWorkspaceDirectory, moveSessionTo, pickFocusedTabDirectory } from "./workspace-dirs";
 
 /**
  * `action` and `prompt` carry `argUsage` when the command needs user text
@@ -1229,12 +1229,12 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 	};
 	const pickAndAdd = async (): Promise<void> => {
 		if (workspaceMutationBusy()) return;
-		const path = await pickWorkspaceDirectory();
+		const path = await pickFocusedTabDirectory();
 		if (path) await addWorkspaceDirectory(path);
 	};
 	const pickAndMove = async (): Promise<void> => {
 		if (workspaceMutationBusy()) return;
-		const path = await pickWorkspaceDirectory();
+		const path = await pickFocusedTabDirectory();
 		if (path) await moveSessionTo(path);
 	};
 	add({

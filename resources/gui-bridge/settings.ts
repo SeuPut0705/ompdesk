@@ -6,8 +6,8 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { resolveUsedFraction } from "@oh-my-pi/pi-ai";
-import { getOAuthProviders } from "@oh-my-pi/pi-ai/oauth";
+import { resolveUsedFraction, type UsageLimit, type UsageReport } from "@oh-my-pi/pi-ai";
+import { getOAuthCredentialProvider, getOAuthProviders } from "@oh-my-pi/pi-ai/oauth";
 import { modelKind } from "@oh-my-pi/pi-catalog/types";
 import { orderedSettings } from "@oh-my-pi/pi-coding-agent/config/all-settings";
 import { getKnownRoleIds, getRoleInfo, roleCandidatePool } from "@oh-my-pi/pi-coding-agent/config/model-roles";
@@ -15,6 +15,7 @@ import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { SETTING_TABS, TAB_GROUPS, TAB_METADATA } from "@oh-my-pi/pi-tui/overlays/settings-defs";
 import { getAgentDir, MAIN_CONFIG_FILENAMES } from "@oh-my-pi/pi-utils";
+import { accountLabel, matchReportAccount, reportIdentity, type StoredAccount } from "./accounts-core";
 import { guard } from "./health";
 import type { BridgeEnv, BridgeMethods } from "./types";
 
@@ -401,38 +402,47 @@ async function refreshCatalog(env: BridgeEnv, session: AgentSession, forceRefres
 // Usage
 // ============================================================================
 
+function shapeLimit(limit: UsageLimit) {
+	return {
+		id: limit.id,
+		label: limit.label,
+		usedFraction: resolveUsedFraction(limit),
+		used: limit.amount.used,
+		limit: limit.amount.limit,
+		unit: limit.amount.unit,
+		remainingFraction: limit.amount.remainingFraction,
+		windowLabel: limit.window?.label,
+		resetsAt: limit.window?.resetsAt,
+		status: limit.status,
+		notes: limit.notes,
+	};
+}
+
+/** One report per stored account; each keeps the identity its own metadata names. */
 async function usage(session: AgentSession) {
 	const reports: Rec[] = [];
 	try {
-		const raw = await session.fetchUsageReports();
-		const currentProvider = session.model?.provider;
-		const authStorage = session.modelRegistry.authStorage;
-		for (const report of raw ?? []) {
-			const identity =
-				report.provider === currentProvider ? authStorage.oauth.identity(report.provider, session.sessionId) : undefined;
-			const metadata = report.metadata as Rec | undefined;
+		const raw = (await session.fetchUsageReports()) ?? [];
+		const oauth = session.modelRegistry.authStorage.oauth;
+		const reportCount = new Map<string, number>();
+		for (const report of raw) reportCount.set(report.provider, (reportCount.get(report.provider) ?? 0) + 1);
+		const accountsByProvider = new Map<string, StoredAccount[]>();
+		for (const report of raw) {
+			let accounts = accountsByProvider.get(report.provider);
+			if (!accounts) {
+				accounts = oauth.accounts(report.provider, session.sessionId);
+				accountsByProvider.set(report.provider, accounts);
+			}
+			const identity = reportIdentity(report.metadata);
+			const account = matchReportAccount(identity, accounts, reportCount.get(report.provider) ?? 0);
 			reports.push({
 				provider: report.provider,
 				fetchedAt: report.fetchedAt,
-				limits: report.limits.map(limit => ({
-					id: limit.id,
-					label: limit.label,
-					usedFraction: resolveUsedFraction(limit),
-					used: limit.amount.used,
-					limit: limit.amount.limit,
-					unit: limit.amount.unit,
-					remainingFraction: limit.amount.remainingFraction,
-					windowLabel: limit.window?.label,
-					resetsAt: limit.window?.resetsAt,
-					status: limit.status,
-					notes: limit.notes,
-				})),
+				limits: report.limits.map(shapeLimit),
 				notes: report.notes,
-				account:
-					identity?.email ??
-					identity?.accountId ??
-					(metadata?.email as string | undefined) ??
-					(metadata?.orgName as string | undefined),
+				account: account ? accountLabel(account) : (identity.email ?? identity.accountId ?? identity.orgName),
+				...(account ? { credentialId: account.credentialId } : {}),
+				...(account?.active ? { active: true } : {}),
 				resetCreditsAvailable: report.resetCredits?.availableCount,
 			});
 		}
@@ -453,6 +463,50 @@ async function usage(session: AgentSession) {
 			cost: stats.cost,
 		},
 	};
+}
+
+/** Stock `UsageService.report` (one stored credential); not on the `UsageApi` interface. */
+interface CredentialUsageReporter {
+	report(provider: string, credential: unknown): Promise<UsageReport | null>;
+}
+
+/**
+ * Per-account quota and health for one login provider: what stock RPC lacks
+ * next to `get_logout_accounts` (main joins the two by credentialId). Health
+ * is stock's own view (`health.model`): an account blocked by a usage limit is
+ * `depleted` with `resetsAt` = when stock tries it again.
+ */
+async function providerAccounts(session: AgentSession, loginProviderId: string) {
+	const provider = getOAuthCredentialProvider(loginProviderId);
+	const authStorage = session.modelRegistry.authStorage;
+	await authStorage.credentials.reload();
+	const sessionId = session.sessionId;
+	const pinned = authStorage.oauth.accounts(provider, sessionId).find(account => account.active)?.credentialId;
+	const health = await authStorage.health
+		.model(provider, {
+			modelId: session.model?.provider === provider ? session.model.id : undefined,
+			sessionId,
+			// Not finite: stock applies the configured default reserve (`retry.usageReservePct`).
+			reserveFraction: Number.NaN,
+		})
+		.catch(() => ({ state: "unknown" as const, accounts: [] }));
+	const healthById = new Map(health.accounts.map(account => [account.credentialId, account]));
+	const reporter = authStorage.usage as unknown as CredentialUsageReporter;
+	// After `health.model`, these reads answer from stock's per-credential usage cache.
+	const accounts = await Promise.all(
+		authStorage.credentials.list(provider).map(async row => {
+			const report = await reporter.report(provider, row.credential).catch(() => null);
+			const accountHealth = healthById.get(row.id);
+			return {
+				credentialId: row.id,
+				state: accountHealth?.state ?? "unknown",
+				remainingFraction: accountHealth?.remainingFraction,
+				resetsAt: accountHealth?.resetsAt,
+				limits: report ? report.limits.map(shapeLimit) : [],
+			};
+		}),
+	);
+	return { providerId: loginProviderId, ...(pinned !== undefined ? { pinnedCredentialId: pinned } : {}), accounts };
 }
 
 // ============================================================================
@@ -517,6 +571,7 @@ export const methods: BridgeMethods = {
 			const catalog = await refreshCatalog(env, session, asRecord(params).forceRefresh === true);
 			return { providers: buildProviders(session), ...catalog };
 		},
+		/** Explicit "disconnect the provider": removes every stored account (one account: stock `logout`). */
 		provider_logout: async (params, env) => {
 			const session = env.session();
 			const providerId = str(params, "providerId");
@@ -526,6 +581,9 @@ export const methods: BridgeMethods = {
 			emitCatalogUpdate(env, session);
 			return { providerId };
 		},
+	}),
+	...guard(["providers", "usage"], {
+		provider_accounts: async (params, env) => providerAccounts(env.session(), str(params, "providerId")),
 	}),
 	...guard("usage", {
 		usage: async (_params, env) => usage(env.session()),

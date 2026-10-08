@@ -1157,25 +1157,6 @@ describe("TurnStatusRow", () => {
 		expect(document.body.textContent).not.toContain("Change model");
 	});
 
-	it("escalates to the slow-response hint after 30s", async () => {
-		useSessionStore.setState({ awaitingModelSince: Date.now() - 35_000 });
-		await mount(<TurnStatusRow />);
-		expect(document.body.textContent).toContain("35s");
-		expect(document.body.textContent).toContain("Slow response");
-		const buttons = Array.from(document.querySelectorAll("button")).map(button => button.textContent);
-		expect(buttons).toEqual(["Change model", "Stop response"]);
-	});
-
-	it("escalates to the stalled-connection hint after 90s, replacing the generic interrupt hint", async () => {
-		useSessionStore.setState({ awaitingModelSince: Date.now() - 95_000 });
-		await mount(<TurnStatusRow />);
-		expect(document.body.textContent).toContain("95s");
-		// The stalled copy explains the ~5min watchdog + retry and names Esc
-		// itself, so the generic interrupt hint would be redundant noise.
-		expect(document.body.textContent).toContain("times out after about 5 minutes");
-		expect(document.body.textContent).not.toContain("to stop");
-	});
-
 	it("renders the retry countdown with the failure detail", async () => {
 		useSessionStore.setState({
 			retryInfo: {

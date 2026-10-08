@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import type { RpcPrListItem } from "../../../shared/rpc-types";
 import { cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { selectFocusedTabProject } from "../../lib/workspace-dirs";
 import { usePrCenterStore } from "../../stores/pr-center";
 import { toastError } from "../../stores/toast";
 import { Banner, Button, EmptyState, ErrorDetail, IconButton, Spinner, Tabs } from "../common";
@@ -98,7 +99,7 @@ export function PullRequests() {
 
 	const openProject = async () => {
 		try {
-			if (await window.omp.sidecar.selectProject()) await probe();
+			if (await selectFocusedTabProject()) await probe();
 		} catch (cause) {
 			toastError({ title: t("titlebar.openProjectFailed"), error: cause });
 		}

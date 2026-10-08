@@ -43,6 +43,7 @@ import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { useFocusedTabDevice } from "../../stores/remote";
 import { useSubagentsStore } from "../../stores/subagents";
 import { toast, toastError } from "../../stores/toast";
 import {
@@ -160,9 +161,13 @@ function DefinitionMenu({
 	onAction: (action: DefinitionAction, entry: DefinitionEntry) => void;
 }) {
 	const t = useT();
+	// A remote tab's agent files live on its host: no native app here can open or reveal them.
+	const remoteTab = useFocusedTabDevice() !== undefined;
 	if (!entry.source) return null;
 	const editable = Boolean(entry.scope && entry.filePath);
-	const onDisk = Boolean(entry.filePath && !entry.filePath.startsWith("embedded:") && entry.source !== "bundled");
+	const onDisk = Boolean(
+		!remoteTab && entry.filePath && !entry.filePath.startsWith("embedded:") && entry.source !== "bundled",
+	);
 	const item = (id: DefinitionAction, label: string, icon: ContextMenuItem["icon"], danger?: boolean) => ({
 		id,
 		label,

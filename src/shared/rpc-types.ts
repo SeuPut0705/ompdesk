@@ -70,7 +70,10 @@ export type RpcCommand =
 	| { id?: string; type: "get_messages_page"; cursor?: string; limit?: number }
 	| { id?: string; type: "get_login_providers" }
 	| { id?: string; type: "login"; providerId: string }
-	| { id?: string; type: "logout"; providerId: string }
+	/** One stored account (stock `logout`), or every account of the provider with `all`. */
+	| { id?: string; type: "logout"; providerId: string; credentialId: number }
+	| { id?: string; type: "logout"; providerId: string; all: true }
+	| { id?: string; type: "get_provider_accounts"; providerId: string }
 	| { id?: string; type: "get_usage" }
 	| { id?: string; type: "get_settings_schema" }
 	| { id?: string; type: "get_settings"; paths?: string[] }
@@ -1737,6 +1740,10 @@ export interface UsageReport {
 	limits: UsageLimit[];
 	notes?: string[];
 	account?: string;
+	/** Stored credential the report belongs to, when its identity names one. */
+	credentialId?: number;
+	/** This tab's session is pinned to that account. */
+	active?: boolean;
 	resetCreditsAvailable?: number;
 }
 
@@ -1754,6 +1761,36 @@ export interface UsageSessionStats {
 export interface UsageResult {
 	reports: UsageReport[];
 	session: UsageSessionStats;
+}
+
+// ============================================================================
+// Provider accounts (several sign-ins per login provider)
+// ============================================================================
+
+/** Stock omp's usage health of one account (`ModelUsageAccountHealth.state`). */
+export type AccountUsageState = "healthy" | "reserve" | "depleted" | "unknown";
+
+export interface ProviderAccount {
+	credentialId: number;
+	/** Email or account id, plus the org when one email holds two subscriptions (stock `/logout` label). */
+	label: string;
+	detail: string;
+	type: "oauth" | "api_key";
+	/** This tab's session is pinned to this account. */
+	inUse: boolean;
+	state: AccountUsageState;
+	/** Unused share of the account's tightest window, 0–1. */
+	remainingFraction?: number;
+	/** Set while omp skips the account after it hit a limit: when it is tried again. */
+	limitedUntil?: number;
+	limits: UsageLimit[];
+}
+
+export interface ProviderAccountsResult {
+	providerId: string;
+	accounts: ProviderAccount[];
+	/** Quotas could not be read; the accounts still list. */
+	usageError?: string;
 }
 
 // ============================================================================

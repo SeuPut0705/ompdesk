@@ -263,4 +263,40 @@ describe("SidecarManager spawn env", () => {
 			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
+
+	it("passes the reply language as OMP_GUI_REPLY_LANGUAGE, resolved on every spawn", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-env-"));
+		const envPath = path.join(tempDir, "language.txt");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, process.env.OMP_GUI_REPLY_LANGUAGE ?? "");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		);
+		let language = "Korean";
+		const sidecar = new SidecarManager({
+			omp: async () => ({
+				ok: true,
+				runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+			}),
+			cwd: tempDir,
+			replyLanguage: () => language,
+		});
+		let ready = Promise.withResolvers<void>();
+		sidecar.on("status", ({ status }) => {
+			if (status === "ready") ready.resolve();
+		});
+		const spawnedLanguage = () => fs.readFile(envPath, "utf8");
+		try {
+			sidecar.start();
+			await ready.promise;
+			expect(await spawnedLanguage()).toBe("Korean");
+			language = "Japanese";
+			ready = Promise.withResolvers<void>();
+			sidecar.restart();
+			await ready.promise;
+			expect(await spawnedLanguage()).toBe("Japanese");
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
 });

@@ -1,10 +1,66 @@
 /**
  * Settings, model catalog, providers, usage and model roles. Stock omp has no
- * RPC for any of these (its `get_available_models` lacks discovery state), so
+ * RPC for most of these (its `get_available_models` lacks discovery state), so
  * each one is answered by the gui-bridge's `settings` methods over the live
- * session, keeping the fork's wire shapes.
+ * session, keeping the fork's wire shapes. Provider accounts reuse stock
+ * `get_logout_accounts` / `logout` and add only the per-account quota stock lacks.
  */
+import { z } from "zod";
+import type { AccountUsageState, ProviderAccount, ProviderAccountsResult, UsageLimit } from "../../shared/rpc-types";
 import type { LocalHandler } from "./types";
+
+/** Stock `get_logout_accounts` row (`LogoutAccount`). */
+export interface StockLogoutAccount {
+	credentialId: number;
+	label: string;
+	detail: string;
+	type: "oauth" | "api_key";
+	active: boolean;
+}
+
+/** gui-bridge `provider_accounts` result (resources/gui-bridge/settings.ts). */
+export interface BridgeProviderAccounts {
+	providerId: string;
+	pinnedCredentialId?: number;
+	accounts: Array<{
+		credentialId: number;
+		state: AccountUsageState;
+		remainingFraction?: number;
+		resetsAt?: number;
+		limits: UsageLimit[];
+	}>;
+}
+
+/**
+ * Stock's account list joined with the bridge's per-account quota by
+ * credentialId. "In use" is the session's actual pin: stock's `active` falls
+ * back to the first account before the session has used any.
+ */
+export function mergeProviderAccounts(
+	providerId: string,
+	stock: readonly StockLogoutAccount[],
+	usage: BridgeProviderAccounts | undefined,
+	usageError?: string,
+): ProviderAccountsResult {
+	const usageById = new Map(usage?.accounts.map(account => [account.credentialId, account]));
+	const accounts = stock.map((account): ProviderAccount => {
+		const quota = usageById.get(account.credentialId);
+		return {
+			credentialId: account.credentialId,
+			label: account.label,
+			detail: account.detail,
+			type: account.type,
+			inUse: usage?.pinnedCredentialId === account.credentialId,
+			state: quota?.state ?? "unknown",
+			...(quota?.remainingFraction !== undefined ? { remainingFraction: quota.remainingFraction } : {}),
+			...(quota?.state === "depleted" && quota.resetsAt !== undefined ? { limitedUntil: quota.resetsAt } : {}),
+			limits: quota?.limits ?? [],
+		};
+	});
+	return { providerId, accounts, ...(usageError ? { usageError } : {}) };
+}
+
+const providerIdParam = z.string().min(1);
 
 export const handlers: Record<string, LocalHandler> = {
 	get_settings_schema: (_command, ctx) => ctx.bridge.request("settings_schema"),
@@ -13,7 +69,29 @@ export const handlers: Record<string, LocalHandler> = {
 	get_available_models: (command, ctx) =>
 		ctx.bridge.request("models_catalog", { forceRefresh: command.forceRefresh === true }),
 	get_providers: (command, ctx) => ctx.bridge.request("providers", { forceRefresh: command.forceRefresh === true }),
-	logout: (command, ctx) => ctx.bridge.request("provider_logout", { providerId: command.providerId }),
+	// One account goes through stock `logout`; the whole provider only when asked for explicitly.
+	logout: async (command, ctx) => {
+		const providerId = providerIdParam.parse(command.providerId);
+		if (command.all === true) return ctx.bridge.request("provider_logout", { providerId });
+		const credentialId = z.number().int().parse(command.credentialId);
+		return ctx.send({ type: "logout", providerId, credentialId });
+	},
+	get_provider_accounts: async (command, ctx) => {
+		const providerId = providerIdParam.parse(command.providerId);
+		const [stock, usage] = await Promise.allSettled([
+			ctx.send<{ accounts: StockLogoutAccount[] }>({ type: "get_logout_accounts", providerId }),
+			ctx.bridge.request<BridgeProviderAccounts>("provider_accounts", { providerId }),
+		]);
+		if (stock.status === "rejected") throw stock.reason;
+		return usage.status === "fulfilled"
+			? mergeProviderAccounts(providerId, stock.value.accounts, usage.value)
+			: mergeProviderAccounts(
+					providerId,
+					stock.value.accounts,
+					undefined,
+					usage.reason instanceof Error ? usage.reason.message : String(usage.reason),
+				);
+	},
 	get_usage: (_command, ctx) => ctx.bridge.request("usage"),
 	get_model_roles: (_command, ctx) => ctx.bridge.request("model_roles"),
 	set_model_role: (command, ctx) =>

@@ -3,6 +3,9 @@
  * all sessions + the current project) with the current one highlighted, lets
  * the user jump to any of them (`setProject` → sidecar restarts there) or add
  * a new directory (native picker). Far richer than the bare breadcrumb picker.
+ * On a remote tab every row, pick and new session is the tab's host: its
+ * sessions, the remote folder picker (this dialog closes first), and
+ * `openTab({device})`.
  */
 
 import { Check, Folder, FolderPlus } from "lucide-react";
@@ -10,7 +13,8 @@ import { useMemo } from "react";
 import { useSessionList } from "../../hooks/use-session-list";
 import { basename, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { pickWorkspaceDirectory } from "../../lib/workspace-dirs";
+import { pickWorkspaceDirectory, selectFocusedTabProject } from "../../lib/workspace-dirs";
+import { useFocusedTabDevice } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useTabsStore } from "../../stores/tabs";
@@ -28,15 +32,20 @@ export function WorkspaceDialog({
 	open,
 	onClose,
 	intent = "switch",
+	thisDevice = false,
 }: {
 	open: boolean;
 	onClose: () => void;
 	/** "switch" = jump between workspaces (breadcrumb); "new-session" = the "+"
 	 * button — picking a workspace starts a NEW session there. */
 	intent?: "switch" | "new-session";
+	/** New sessions on this device even while a remote tab is focused (the sidebar's local list). */
+	thisDevice?: boolean;
 }) {
 	const t = useT();
-	const { sessions } = useSessionList("global");
+	const focusedDevice = useFocusedTabDevice();
+	const device = thisDevice ? undefined : focusedDevice;
+	const { sessions } = useSessionList("global", device);
 	const cwd = useSessionStore(s => s.cwd);
 	const workspaceLastUsed = useSidebarPrefs(s => s.workspaceLastUsed);
 	const openTab = useTabsStore(s => s.openTab);
@@ -78,7 +87,7 @@ export function WorkspaceDialog({
 	};
 
 	const newSessionHere = async (target: string) => {
-		const tabId = await openTab({ cwd: target, kind: "agent" });
+		const tabId = await openTab({ cwd: target, kind: "agent", device });
 		if (tabId) onClose();
 	};
 
@@ -108,13 +117,15 @@ export function WorkspaceDialog({
 
 	const addWorkspace = async () => {
 		if (intent === "switch" && guardBusy()) return;
+		// The remote picker is a dialog of its own: never stack it on this one.
+		if (device !== undefined) onClose();
 		try {
 			if (intent === "new-session") {
-				const picked = await pickWorkspaceDirectory();
+				const picked = await pickWorkspaceDirectory({ device });
 				if (picked) await newSessionHere(picked);
 				return;
 			}
-			if (await window.omp.sidecar.selectProject()) onClose();
+			if (await selectFocusedTabProject()) onClose();
 		} catch (error) {
 			toastError({ title: t("titlebar.openProjectFailed"), error });
 		}

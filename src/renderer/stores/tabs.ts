@@ -70,6 +70,8 @@ export interface SessionTab {
 	 * basename), and the close-time cleanup prompt.
 	 */
 	worktree?: IpcTabWorktree;
+	/** Paired host deviceId the tab's omp runs on (immutable from spawn); absent = this device. */
+	device?: string;
 	/** Session title when known (session_info_update via TAB_STATUS). */
 	title?: string;
 	/** Main-owned transcript identity, available even before session_info_update. */
@@ -235,6 +237,9 @@ export interface TabsStore {
 		/** Full agent in the GUI-owned default Work workspace. */
 		work?: boolean;
 		worktree?: IpcTabWorktree;
+		/** Paired host deviceId to run on; absent = this device. Without `cwd`,
+		 * only a tab on the same device lends its folder. */
+		device?: string;
 	}) => Promise<string | null>;
 	/** Focus this tab. In split mode, a non-visible tab replaces the focused pane. */
 	switchTab: (id: string) => Promise<void>;
@@ -286,6 +291,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					kind: info.kind ?? existing?.kind ?? "agent",
 					placeholder: info.placeholder ?? existing?.placeholder,
 					worktree: info.worktree ?? existing?.worktree,
+					device: info.device ?? existing?.device,
 					title:
 						info.title === undefined ? (sessionChanged ? undefined : existing?.title) : (info.title ?? undefined),
 					sessionPath: info.sessionPath === undefined ? existing?.sessionPath : (info.sessionPath ?? undefined),
@@ -344,10 +350,12 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	},
 
 	openTab: async args => {
+		const activeTab = get().tabs.find(tab => tab.id === get().activeTabId);
+		const device = args?.device;
+		// The focused tab's folder only means something on its own device.
+		const inheritCwd = activeTab?.device === device;
 		const runtimeCwd = sessionRuntimeStore<SessionStore>(get().activeTabId, "session")?.getState().cwd;
-		const cwd =
-			args?.cwd ??
-			(runtimeCwd || get().tabs.find(tab => tab.id === get().activeTabId)?.cwd || useSessionStore.getState().cwd);
+		const cwd = args?.cwd ?? (inheritCwd ? runtimeCwd || activeTab?.cwd || useSessionStore.getState().cwd : "");
 		const kind = args?.kind ?? "agent";
 		let result: IpcSpawnTabResult | null;
 		try {
@@ -357,6 +365,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				kind,
 				...(args?.work ? { defaultWorkspace: true } : {}),
 				worktree: args?.worktree,
+				...(device === undefined ? {} : { device }),
 			});
 		} catch (error) {
 			toastError({ title: translate("tabs.newFailed"), error });
@@ -384,7 +393,10 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			}
 			if (args?.sessionPath) {
 				try {
-					await window.omp.sessions.openInNewWindow({ sessionPath: args.sessionPath });
+					await window.omp.sessions.openInNewWindow({
+						sessionPath: args.sessionPath,
+						...(device === undefined ? {} : { device }),
+					});
 				} catch {
 					// Best-effort focus — the owner window may be mid-teardown.
 				}
@@ -414,6 +426,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				kind,
 				placeholder: false,
 				worktree: args?.worktree,
+				device,
 				unreadDone: false,
 				sessionPath: args?.sessionPath,
 				pendingSessionPath: args?.sessionPath,
@@ -641,6 +654,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				kind: payload.kind ?? previous?.kind ?? "agent",
 				placeholder: payload.placeholder ?? previous?.placeholder,
 				worktree: payload.worktree ?? previous?.worktree,
+				device: payload.device ?? previous?.device,
 				title:
 					payload.title === undefined
 						? sessionChanged

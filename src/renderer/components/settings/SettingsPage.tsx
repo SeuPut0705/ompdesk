@@ -16,6 +16,7 @@ import {
 	HardDriveDownload,
 	Keyboard,
 	type LucideIcon,
+	MonitorSmartphone,
 	Package,
 	Palette,
 	RefreshCw,
@@ -41,6 +42,7 @@ import { KeyboardSection } from "./KeyboardSection";
 import { ModelsSection } from "./ModelsSection";
 import { PermissionsSection } from "./PermissionsSection";
 import { PluginsSection } from "./PluginsSection";
+import { RemoteSection } from "./RemoteSection";
 import { SshSection } from "./SshSection";
 import { schemaSettingText } from "./schema-i18n";
 import {
@@ -69,6 +71,7 @@ const SECTION_ICONS: Record<SettingsSectionId, LucideIcon> = {
 	plugins: Package,
 	workspace: FolderOpen,
 	ssh: Server,
+	remote: MonitorSmartphone,
 	updates: HardDriveDownload,
 	advanced: Wrench,
 };
@@ -245,6 +248,8 @@ export function SettingsPage() {
 				return <WorkspaceSection />;
 			case "ssh":
 				return <SshSection />;
+			case "remote":
+				return <RemoteSection />;
 			case "updates":
 				return <UpdatesSection />;
 			case "advanced":
