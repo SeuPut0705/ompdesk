@@ -16,12 +16,15 @@
  *   (machine-services.ts): `host.models.list {}` → CustomProviderView[],
  *   `host.models.upsert {input: CustomProviderInput}`, `host.models.delete {id}`,
  *   `host.stats.fetch {path, params?}` → the stats reply,
- *   `host.bench.run {rtab?, cwd?, options}` → IpcBenchmarkRunResult, `host.bench.abort {}` → boolean
+ *   `host.bench.run {rtab?, cwd?, options}` → IpcBenchmarkRunResult, `host.bench.abort {}` → boolean,
+ *   `host.accountRotation.get {}` / `host.accountRotation.set {mode}` → AccountRotationState
+ *   (the host's own pref; its sessions follow it)
  *
  * Events (B → A): `tab.event` (TabEventMessage) and `sessions.changed` (no data).
  * Both sides parse what crosses the link with the schemas below.
  */
 import { z } from "zod";
+import { ACCOUNT_ROTATION_MODES, type AccountRotationState } from "../../shared/account-rotation";
 import { codedError, isIpcErrorCode } from "../../shared/ipc-error-codes";
 import {
 	CUSTOM_MODEL_EFFORTS,
@@ -184,6 +187,12 @@ export const BenchmarkOptionsSchema: z.ZodType<IpcBenchmarkRunOptions> = z.objec
 	runs: z.number().int(),
 	parallel: z.number().int(),
 	maxTokens: z.number().int().optional(),
+});
+
+/** `host.accountRotation.*` reply: the host's pref and whether its omp can rotate evenly. */
+export const AccountRotationStateSchema: z.ZodType<AccountRotationState> = z.object({
+	mode: z.enum(ACCOUNT_ROTATION_MODES),
+	evenSupported: z.boolean().nullable(),
 });
 
 /** A host-level stats read waits for the host's own stats request (15 s) plus the link. */

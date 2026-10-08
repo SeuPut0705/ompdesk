@@ -8,9 +8,11 @@ import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { app, BrowserWindow, globalShortcut, ipcMain, nativeImage, powerSaveBlocker, session } from "electron";
 import Store from "electron-store";
+import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
+import { accountRotationDeps } from "./account-rotation";
 import { installQuitGuard, requestQuit } from "./app-quit";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { setupDeepLinks } from "./deep-link";
@@ -377,6 +379,8 @@ app.whenReady().then(() => {
 		bridgeHealth,
 		sessionKinds,
 		replyLanguagePref: () => prefsStore().get(REPLY_LANGUAGE_PREF),
+		accountRotationPref: () => prefsStore().get(ACCOUNT_ROTATION_PREF),
+		accountRotationLedger: join(app.getPath("userData"), ACCOUNT_ROTATION_LEDGER_FILE),
 	});
 	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId));
 	sidecarPool = new SidecarPool((cwd, kind, fresh, device, tabId) => {
@@ -396,6 +400,15 @@ app.whenReady().then(() => {
 		statsText: mainT,
 		benchmarkOmp: systemOmp,
 		benchmarkEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
+		accountRotation: accountRotationDeps({
+			prefs: { get: key => prefsStore().get(key), set: (key, value) => prefsStore().set(key, value) },
+			tabs: () => sidecarPool.allSidecars(),
+			hostedTabsChanged: () => devices.hostAccountRotationChanged(),
+			evenSupported: async () => {
+				const omp = await systemOmp();
+				return omp.ok ? bridgeHealth.supports(omp.runtime.version, "accountRotation") : null;
+			},
+		}),
 	});
 	// This computer as a host: paired devices' tabs run here through the same factory.
 	const prefs = prefsStore();

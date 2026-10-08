@@ -1,15 +1,17 @@
 /**
- * Settings › Models & providers — the provider part. Embedded by the Settings
- * page (which renders the page heading); no modal, no outer padding.
- * Search, connected first, inline sign-in (OAuth or API key), every stored
- * account of a connected subscription (ProviderAccounts) and an inline form
- * for custom endpoints (`ui.providerForm`, opened by `openProviderConfig`).
+ * Settings › Models & providers — where the models come from, as two
+ * sections: "Providers" lists the connected ones (a subscription expands to
+ * its accounts, ProviderAccounts), the account-switching mode, and "Add a
+ * provider", a collapsed picker with search, the recommended set and the long
+ * tail; "Custom endpoints" lists this machine's models.yml entries and opens
+ * the inline form (`ui.providerForm`, opened by `openProviderConfig`) in place
+ * of both. A failed read is a quiet InlineNotice in the part it concerns.
  * A tab on a paired host edits the host's models.yml in-app; "Edit config"
  * opens this device's file only, so it is not offered there.
  */
 
-import { FileCode2, Plus, RefreshCw } from "lucide-react";
-import { useCallback, useState } from "react";
+import { CircleDashed, FileCode2, Pencil, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
+import { useCallback, useId, useState } from "react";
 import type { CustomProviderView } from "../../../../shared/ipc-types";
 import type { ProviderInfo } from "../../../../shared/rpc-types";
 import { errorDetail } from "../../../lib/error-detail";
@@ -19,17 +21,191 @@ import { useModelStore } from "../../../stores/model";
 import { useFocusedTabDevice } from "../../../stores/remote";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Banner, Button, ConfirmDialog, IconButton, Spinner } from "../../common";
+import { Button, ConfirmDialog, IconButton, ListRow, Spinner } from "../../common";
+import { InlineNotice } from "../InlineNotice";
+import { SettingsSection } from "../SettingsLayout";
 import { CustomProviderForm } from "./CustomProviderForm";
-import { ProviderAccounts } from "./ProviderAccounts";
-import { ProviderList, useProviderCatalog } from "./ProviderList";
-import { useProviderLogin } from "./ProviderLogin";
-import { providerDiscoveryErrors } from "./provider-catalog";
+import { ProviderAccounts, useProviderAccounts } from "./ProviderAccounts";
+import { type ProviderCatalog, ProviderItem, ProviderList, type RowHandlers, useProviderCatalog } from "./ProviderList";
+import { type ProviderLogin, useProviderLogin } from "./ProviderLogin";
+import { groupProviders, providerDiscoveryErrors } from "./provider-catalog";
+import { RotationModeControl } from "./RotationModeControl";
+
+function ConnectedProvider({
+	provider,
+	config,
+	login,
+	busyProvider,
+	sidecarReady,
+	handlers,
+	revision,
+	onChanged,
+}: {
+	provider: ProviderInfo;
+	config: CustomProviderView | undefined;
+	login: ProviderLogin;
+	busyProvider: string | null;
+	sidecarReady: boolean;
+	handlers: RowHandlers;
+	revision: number;
+	onChanged: () => Promise<unknown>;
+}) {
+	const t = useT();
+	const regionId = useId();
+	const [expanded, setExpanded] = useState(false);
+	// A subscription sign-in can hold several accounts (stock lists them for OAuth providers).
+	const accounts = provider.authenticated && provider.authKind === "oauth" && provider.loginAvailable;
+	const state = useProviderAccounts(provider.id, accounts && sidecarReady, revision);
+	const count = state.result?.accounts.length;
+	const summary = !accounts
+		? undefined
+		: state.error && !expanded
+			? state.error.message
+			: count === undefined
+				? undefined
+				: count === 1
+					? t("providers.accounts.countOne")
+					: t("providers.accounts.count", { count });
+	return (
+		<ProviderItem
+			busyProvider={busyProvider}
+			config={config}
+			disclosure={
+				accounts ? { expanded, onToggle: () => setExpanded(open => !open), controls: regionId } : undefined
+			}
+			handlers={handlers}
+			login={login}
+			provider={provider}
+			sidecarReady={sidecarReady}
+			summary={summary}
+		>
+			{accounts
+				? expanded && (
+						<ProviderAccounts
+							adding={login.state.running}
+							id={regionId}
+							onAdd={() => void login.start(provider.id)}
+							onChanged={onChanged}
+							provider={provider}
+							sidecarReady={sidecarReady}
+							state={state}
+						/>
+					)
+				: undefined}
+		</ProviderItem>
+	);
+}
+
+function CustomEndpoints({
+	catalog,
+	busyProvider,
+	onEdit,
+	onDelete,
+}: {
+	catalog: ProviderCatalog;
+	busyProvider: string | null;
+	onEdit: (config: CustomProviderView) => void;
+	onDelete: (config: CustomProviderView) => void;
+}) {
+	const t = useT();
+	const device = useFocusedTabDevice();
+	const openProviderConfig = useUiStore(state => state.openProviderConfig);
+	const configs = catalog.customConfigs.filter(config => !config.builtin);
+	const listed = new Map(catalog.providers.map(provider => [provider.id, provider]));
+	return (
+		<SettingsSection
+			actions={
+				<>
+					{device === undefined && (
+						<Button
+							icon={<FileCode2 />}
+							onClick={() => {
+								void window.omp.models.openConfig().catch(cause => {
+									toastError({ title: t("providers.editConfig"), error: cause });
+								});
+							}}
+							size="sm"
+							variant="ghost"
+						>
+							{t("providers.editConfig")}
+						</Button>
+					)}
+					<Button icon={<Plus />} onClick={() => openProviderConfig()} size="sm" variant="secondary">
+						{t("providerList.addCustom")}
+					</Button>
+				</>
+			}
+			description={t("settings.models.customDesc")}
+			id="settings-models-custom"
+			title={t("settings.models.custom")}
+		>
+			{catalog.configError && <InlineNotice title={catalog.configError} tone="warning" />}
+			{configs.length === 0 ? (
+				!catalog.configError && (
+					<p className="py-2 text-sc-sm text-(--sc-text-muted)">{t("providers.custom.empty")}</p>
+				)
+			) : (
+				<ul>
+					{configs.map(config => {
+						const provider = listed.get(config.id);
+						const models = provider?.modelCount ?? 0;
+						const description = [
+							provider === undefined
+								? t("providerList.noModels")
+								: models === 1
+									? t("providers.modelOne")
+									: t("providers.models", { count: models }),
+							config.baseUrl,
+						]
+							.filter(Boolean)
+							.join(" · ");
+						return (
+							<li key={config.id}>
+								<ListRow
+									actions={
+										busyProvider === config.id ? undefined : (
+											<>
+												<IconButton
+													icon={<Pencil />}
+													label={t("providers.edit")}
+													onClick={() => onEdit(config)}
+													size="sm"
+												/>
+												<IconButton
+													icon={<Trash2 />}
+													label={t("providerCfg.list.delete")}
+													onClick={() => onDelete(config)}
+													size="sm"
+												/>
+											</>
+										)
+									}
+									description={description}
+									leading={
+										provider === undefined ? (
+											<CircleDashed aria-hidden className="text-(--sc-warning)" />
+										) : (
+											<Server aria-hidden />
+										)
+									}
+									meta={busyProvider === config.id ? <Spinner size="sm" /> : undefined}
+									onClick={() => onEdit(config)}
+									title={config.id}
+								/>
+							</li>
+						);
+					})}
+				</ul>
+			)}
+		</SettingsSection>
+	);
+}
 
 export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 	const t = useT();
 	const tabRpc = useTabRpc();
 	const device = useFocusedTabDevice();
+	const pickerId = useId();
 	const catalog = useProviderCatalog({ pollMs });
 	const discoveryStates = useModelStore(state => state.discoveryStates);
 	const refreshProviders = useModelStore(state => state.refreshProviders);
@@ -39,6 +215,8 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 	const [busyProvider, setBusyProvider] = useState<string | null>(null);
 	const [pendingLogout, setPendingLogout] = useState<ProviderInfo | null>(null);
 	const [pendingDelete, setPendingDelete] = useState<CustomProviderView | null>(null);
+	/** "Add a provider" picker; `null` until toggled: open only while nothing is connected. */
+	const [pickerOpen, setPickerOpen] = useState<boolean | null>(null);
 	/** Bumped after any sign-in or sign-out here: the account lists read again. */
 	const [accountsRevision, setAccountsRevision] = useState(0);
 	const { providers, load } = catalog;
@@ -100,125 +278,157 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 
 	if (providerForm) {
 		return (
-			<CustomProviderForm
-				editing={providerForm.edit}
-				existing={catalog.customConfigs}
-				key={providerForm.edit?.id ?? "new"}
-				onCancel={closeProviderForm}
-				onSaved={() => {
-					closeProviderForm();
-					void load();
-				}}
-			/>
+			<SettingsSection id="settings-models-custom">
+				<CustomProviderForm
+					editing={providerForm.edit}
+					existing={catalog.customConfigs}
+					key={providerForm.edit?.id ?? "new"}
+					onCancel={closeProviderForm}
+					onSaved={() => {
+						closeProviderForm();
+						void load();
+					}}
+				/>
+			</SettingsSection>
 		);
 	}
 
 	const discoveryErrors = providerDiscoveryErrors(discoveryStates, t("providers.discoveryUnavailable"));
+	const connected = groupProviders(providers).connected;
+	const configById = new Map(catalog.customConfigs.map(config => [config.id, config]));
+	const handlers: RowHandlers = {
+		onConnect: provider => void login.start(provider.id),
+		onLogout: setPendingLogout,
+		onEditConfig: config => openProviderConfig(config),
+		onDeleteConfig: setPendingDelete,
+	};
+	const showPicker = pickerOpen ?? connected.length === 0;
 
 	return (
-		<div className="flex flex-col gap-3">
-			<div className="flex flex-wrap items-center gap-2">
-				<p className="min-w-0 flex-1 text-sc-sm text-(--sc-text-muted)">{t("providerList.intro")}</p>
-				<Button icon={<Plus />} onClick={() => openProviderConfig()} size="sm" variant="secondary">
-					{t("providerList.addCustom")}
-				</Button>
-				{device === undefined && (
+		<>
+			<SettingsSection
+				actions={
+					<IconButton
+						disabled={!catalog.sidecarReady || catalog.loading}
+						icon={catalog.loading ? <Spinner inheritColor size="sm" /> : <RefreshCw />}
+						label={catalog.sidecarReady ? t("providers.refresh") : t("providers.notConnected")}
+						onClick={() => void load(true)}
+						size="sm"
+					/>
+				}
+				description={t("providerList.intro")}
+				id="settings-models-providers"
+				title={t("settings.models.providers")}
+			>
+				{catalog.error && (
+					<InlineNotice
+						action={
+							<Button
+								disabled={!catalog.sidecarReady}
+								icon={<RefreshCw />}
+								onClick={() => void load(true)}
+								size="sm"
+								variant="ghost"
+							>
+								{t("providerCfg.list.retry")}
+							</Button>
+						}
+						detail={catalog.error}
+						live
+						title={providers.length > 0 ? t("providers.stale") : t("providers.loadFailed")}
+						tone="danger"
+					/>
+				)}
+				{discoveryErrors.length > 0 && (
+					<InlineNotice
+						title={t("providers.discoveryFailed", { details: discoveryErrors.join("; ") })}
+						tone="warning"
+					/>
+				)}
+				{catalog.refreshPending && <InlineNotice title={t("providers.refreshPending")} tone="pending" />}
+
+				{connected.length > 0 && (
+					<ul aria-label={t("providerList.section.connected")}>
+						{connected.map(provider => (
+							<ConnectedProvider
+								busyProvider={busyProvider}
+								config={configById.get(provider.id)}
+								handlers={handlers}
+								key={provider.id}
+								login={login}
+								onChanged={() => load(true)}
+								provider={provider}
+								revision={accountsRevision}
+								sidecarReady={catalog.sidecarReady}
+							/>
+						))}
+					</ul>
+				)}
+
+				{connected.some(
+					provider => provider.authKind === "oauth" && provider.loginAvailable && provider.authenticated,
+				) && (
+					<div className="mx-2.5 my-2 border-t border-(--sc-divider) pt-3" data-models-rotation="true">
+						<RotationModeControl device={device} />
+					</div>
+				)}
+
+				{connected.length > 0 && (
 					<Button
-						icon={<FileCode2 />}
-						onClick={() => {
-							void window.omp.models.openConfig().catch(cause => {
-								toastError({ title: t("providers.editConfig"), error: cause });
-							});
-						}}
+						aria-controls={pickerId}
+						aria-expanded={showPicker}
+						className="mt-1"
+						icon={<Plus />}
+						onClick={() => setPickerOpen(!showPicker)}
 						size="sm"
 						variant="ghost"
 					>
-						{t("providers.editConfig")}
+						{t("providers.add")}
 					</Button>
 				)}
-				<IconButton
-					disabled={!catalog.sidecarReady || catalog.loading}
-					icon={catalog.loading ? <Spinner inheritColor size="sm" /> : <RefreshCw />}
-					label={catalog.sidecarReady ? t("providers.refresh") : t("providers.notConnected")}
-					onClick={() => void load(true)}
-					size="sm"
+				{showPicker && (
+					<div className="mt-2" id={pickerId}>
+						<ProviderList
+							autoFocusSearch={pickerOpen === true}
+							available
+							busyProvider={busyProvider}
+							catalog={catalog}
+							login={login}
+							onAddCustom={() => openProviderConfig()}
+						/>
+					</div>
+				)}
+
+				<ConfirmDialog
+					busy={pendingLogout !== null && busyProvider === pendingLogout.id}
+					confirmLabel={t("providers.logoutConfirm")}
+					message={t("providers.logoutBody", { provider: pendingLogout?.name ?? "" })}
+					onCancel={() => setPendingLogout(null)}
+					onConfirm={() => {
+						if (pendingLogout) void logout(pendingLogout);
+					}}
+					open={pendingLogout !== null}
+					title={t("providers.logoutTitle", { provider: pendingLogout?.name ?? "" })}
+					warning={t("providers.logoutWarning")}
 				/>
-			</div>
-
-			{catalog.configError && (
-				<Banner live variant="danger">
-					{catalog.configError}
-				</Banner>
-			)}
-			{catalog.error && (
-				<Banner
-					actions={
-						<Button
-							disabled={!catalog.sidecarReady}
-							onClick={() => void load(true)}
-							size="sm"
-							variant="secondary"
-						>
-							{t("providerCfg.list.retry")}
-						</Button>
-					}
-					live
-					title={providers.length > 0 ? t("providers.stale") : t("providers.loadFailed")}
-					variant="danger"
-				>
-					{catalog.error}
-				</Banner>
-			)}
-			{discoveryErrors.length > 0 && (
-				<Banner variant="warning">{t("providers.discoveryFailed", { details: discoveryErrors.join("; ") })}</Banner>
-			)}
-			{catalog.refreshPending && <Banner variant="info">{t("providers.refreshPending")}</Banner>}
-
-			<ProviderList
+				<ConfirmDialog
+					busy={pendingDelete !== null && busyProvider === pendingDelete.id}
+					confirmLabel={t("providerCfg.delete.confirm")}
+					message={t("providerCfg.delete.body", { id: pendingDelete?.id ?? "" })}
+					onCancel={() => setPendingDelete(null)}
+					onConfirm={() => {
+						if (pendingDelete) void deleteConfig(pendingDelete);
+					}}
+					open={pendingDelete !== null}
+					title={t("providerCfg.delete.title")}
+				/>
+			</SettingsSection>
+			<CustomEndpoints
 				busyProvider={busyProvider}
 				catalog={catalog}
-				login={login}
-				onAddCustom={() => openProviderConfig()}
-				onDeleteConfig={setPendingDelete}
-				onEditConfig={config => openProviderConfig(config)}
-				onLogout={setPendingLogout}
-				renderAccounts={provider =>
-					provider.authenticated && provider.authKind === "oauth" && provider.loginAvailable ? (
-						<ProviderAccounts
-							adding={login.state.running}
-							onAdd={() => void login.start(provider.id)}
-							onChanged={() => load(true)}
-							provider={provider}
-							revision={accountsRevision}
-							sidecarReady={catalog.sidecarReady}
-						/>
-					) : null
-				}
+				onDelete={setPendingDelete}
+				onEdit={config => openProviderConfig(config)}
 			/>
-
-			<ConfirmDialog
-				busy={pendingLogout !== null && busyProvider === pendingLogout.id}
-				confirmLabel={t("providers.logoutConfirm")}
-				message={t("providers.logoutBody", { provider: pendingLogout?.name ?? "" })}
-				onCancel={() => setPendingLogout(null)}
-				onConfirm={() => {
-					if (pendingLogout) void logout(pendingLogout);
-				}}
-				open={pendingLogout !== null}
-				title={t("providers.logoutTitle", { provider: pendingLogout?.name ?? "" })}
-				warning={t("providers.logoutWarning")}
-			/>
-			<ConfirmDialog
-				busy={pendingDelete !== null && busyProvider === pendingDelete.id}
-				confirmLabel={t("providerCfg.delete.confirm")}
-				message={t("providerCfg.delete.body", { id: pendingDelete?.id ?? "" })}
-				onCancel={() => setPendingDelete(null)}
-				onConfirm={() => {
-					if (pendingDelete) void deleteConfig(pendingDelete);
-				}}
-				open={pendingDelete !== null}
-				title={t("providerCfg.delete.title")}
-			/>
-		</div>
+		</>
 	);
 }

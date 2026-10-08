@@ -35,6 +35,8 @@ export class BridgeHealth {
 	readonly #notify: () => void;
 	/** `<kind>@<version>` already checked (or in flight) this launch. */
 	readonly #seen = new Set<string>();
+	/** Unavailable feature ids per omp version whose probe answered. */
+	readonly #unavailable = new Map<string, readonly string[]>();
 	#pending: BridgeHealthWarning[] = [];
 
 	/** `notify` tells every window that warnings are waiting. */
@@ -66,6 +68,7 @@ export class BridgeHealth {
 			return;
 		}
 		const features = unavailableFeatures(capabilities);
+		this.#unavailable.set(result.ompVersion, features);
 		if (features.length === 0) return;
 		console.warn(
 			`[bridge-health] omp ${result.ompVersion} lacks internals: ${JSON.stringify((capabilities as Capabilities).unavailable)}`,
@@ -76,6 +79,15 @@ export class BridgeHealth {
 			ompVersion: typeof reported === "string" && reported ? reported : result.ompVersion,
 			features,
 		});
+	}
+
+	/**
+	 * Whether omp `ompVersion` serves `feature` (capabilities.ts id), from this
+	 * launch's probe; null before a sidecar of that version has answered one.
+	 */
+	supports(ompVersion: string, feature: string): boolean | null {
+		const unavailable = this.#unavailable.get(ompVersion);
+		return unavailable ? !unavailable.includes(feature) : null;
 	}
 
 	/** Hand every pending warning to the caller (one window), clearing them. */

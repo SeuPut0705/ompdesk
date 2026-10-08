@@ -255,7 +255,7 @@ export function SettingsPage() {
 			case "keyboard":
 				return <KeyboardSection query={query} />;
 			case "models":
-				return <ModelsSection />;
+				return <ModelsSection sub={sub} />;
 			case "permissions":
 				return <PermissionsSection />;
 			case "features":

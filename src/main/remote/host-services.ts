@@ -19,12 +19,14 @@
  * fit one link frame), the folder picker listing, the default workspace and
  * launch profiles. Session index changes are pushed as `sessions.changed`.
  * The other `host.*` calls are what a device's Settings, Usage and Stats show for a
- * tab here: this machine's models.yml providers, stats server and `omp bench`
- * (machine-services.ts), one benchmark per device, aborted when it drops.
+ * tab here: this machine's models.yml providers, stats server, `omp bench` and
+ * account-rotation pref (machine-services.ts), one benchmark per device, aborted
+ * when it drops.
  */
 import { promises as fsp } from "node:fs";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
+import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { codedError } from "../../shared/ipc-error-codes";
 import { MAX_RPC_COMMAND_TIMEOUT_MS } from "../../shared/rpc-client";
 import type {
@@ -204,6 +206,7 @@ const ModelsUpsertParams = z.object({ input: CustomProviderInputSchema });
 const ModelsDeleteParams = z.object({ id: z.string().min(1) });
 const StatsFetchParams = z.object({ path: z.string().min(1).max(512), params: z.record(z.string()).optional() });
 const BenchRunParams = z.object({ ...FsRoot, options: BenchmarkOptionsSchema });
+const AccountRotationSetParams = z.object({ mode: z.enum(ACCOUNT_ROTATION_MODES) });
 
 function parse<T extends z.ZodTypeAny>(schema: T, method: string, params: unknown): z.infer<T> {
 	const parsed = schema.safeParse(params ?? {});
@@ -362,6 +365,10 @@ export class LocalHostServices implements HostServices {
 			}
 			case "host.bench.abort":
 				return this.#deps.machine.abortBenchmark(benchCaller(peer.deviceId));
+			case "host.accountRotation.get":
+				return this.#deps.machine.accountRotation();
+			case "host.accountRotation.set":
+				return this.#deps.machine.setAccountRotation(parse(AccountRotationSetParams, method, params).mode);
 			default:
 				throw codedError("unsupported", `Unknown method ${method}`);
 		}
@@ -392,6 +399,11 @@ export class LocalHostServices implements HostServices {
 	/** This machine's reply-language setting changed: the tabs it runs for paired devices follow it. */
 	syncReplyLanguage(): void {
 		for (const tab of this.#tabs.values()) tab.sidecar.syncReplyLanguage();
+	}
+
+	/** This machine's account-rotation setting changed: the tabs it runs for paired devices follow it. */
+	syncAccountRotation(): void {
+		for (const tab of this.#tabs.values()) tab.sidecar.syncAccountRotation();
 	}
 
 	/** A revoked device's tabs and benchmark stop now, grace or not. */

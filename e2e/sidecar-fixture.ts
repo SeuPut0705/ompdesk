@@ -279,9 +279,19 @@ if (process.argv[2] === "stats") {
 	/**
 	 * `OMP_GUI_TEST_LOGIN=1`: Anthropic is a signed-out OAuth provider the
 	 * providers screen can sign in to; other suites keep the one fixture provider.
+	 * `OMP_GUI_TEST_MODELS=1` (with it) gives Settings › Models data to show:
+	 * Anthropic starts signed in with two accounts and their quota, and the
+	 * model roles and usage reads answer.
 	 */
 	const loginProvider = process.env.OMP_GUI_TEST_LOGIN === "1";
-	let anthropicSignedIn = false;
+	const modelsData = loginProvider && process.env.OMP_GUI_TEST_MODELS === "1";
+	let anthropicSignedIn = modelsData;
+	let anthropicAccounts = modelsData
+		? [
+				{ credentialId: 1, label: "work@example.com", detail: "Claude Max · Work", type: "oauth", active: true },
+				{ credentialId: 2, label: "home@example.com", detail: "Claude Pro", type: "oauth", active: false },
+			]
+		: [];
 	/** The `login` in flight: its open_url and input request ids, and how it ends. */
 	let pendingLogin: { urlId: string; inputId: string; finish: (value: string | undefined) => void } | undefined;
 	const values: Record<string, unknown> = {
@@ -421,6 +431,117 @@ if (process.argv[2] === "stats") {
 		return dashboard;
 	};
 	const SCHEMA_TABS = ["context", "model", "providers", "tasks", "files", "shell", "tools", "memory", "interaction"];
+	/** `OMP_GUI_TEST_MODELS`: the catalog's long tail, signed out, as a real omp lists it. */
+	const MODELS_PAGE_PROVIDERS = [
+		["openai-codex", "OpenAI Codex"],
+		["github-copilot", "GitHub Copilot"],
+		["openrouter", "OpenRouter"],
+		["google-gemini-cli", "Google Gemini CLI"],
+		["deepseek", "DeepSeek"],
+		["groq", "Groq"],
+		["mistral", "Mistral"],
+		["xai", "xAI"],
+		["cerebras", "Cerebras"],
+		["fireworks", "Fireworks"],
+		["together", "Together AI"],
+		["perplexity", "Perplexity"],
+	].map(([id, name]) => ({ id, name, authenticated: false, loginAvailable: true, disabled: false, modelCount: 0 }));
+	const claudeModels = [
+		{ ...model, id: "claude-opus-4-1", name: "Claude Opus 4.1", provider: "anthropic", contextWindow: 200000 },
+		{ ...model, id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", provider: "anthropic", contextWindow: 1000000 },
+	];
+	const catalogModels = () => (modelsData && anthropicSignedIn ? [model, ...claudeModels] : [model]);
+	const accountQuota: Record<
+		number,
+		{ credentialId: number; state: string; remainingFraction: number; resetsAt?: number; limits: object[] }
+	> = {
+		1: {
+			credentialId: 1,
+			state: "healthy",
+			remainingFraction: 0.62,
+			limits: [
+				{ id: "5h", label: "5h", usedFraction: 0.38, windowLabel: "5 hours" },
+				{ id: "7d", label: "Week", usedFraction: 0.21, windowLabel: "7 days" },
+			],
+		},
+		2: {
+			credentialId: 2,
+			state: "depleted",
+			remainingFraction: 0,
+			resetsAt: Date.now() + 2 * 3_600_000,
+			limits: [
+				{ id: "5h", label: "5h", usedFraction: 1, windowLabel: "5 hours" },
+				{ id: "7d", label: "Week", usedFraction: 0.64, windowLabel: "7 days" },
+			],
+		},
+	};
+	const modelRoles: Record<string, string | undefined> = {
+		default: "anthropic/claude-sonnet-4-5",
+		slow: "anthropic/claude-opus-4-1",
+		commit: "fixture/local-fixture",
+	};
+	const ROLE_META = [
+		{ id: "default", name: "Default", section: "chat" },
+		{ id: "smol", name: "Fast", tag: "SMOL", color: "success", section: "chat" },
+		{ id: "slow", name: "Thinking", tag: "SLOW", color: "accent", section: "chat" },
+		{ id: "plan", name: "Plan", tag: "PLAN", color: "info", section: "chat" },
+		{ id: "commit", name: "Commit messages", section: "kind" },
+	];
+	const modelsPageMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
+		model_roles: () => ({
+			roles: ROLE_META.map(meta => ({
+				...meta,
+				...(modelRoles[meta.id] ? { model: modelRoles[meta.id] } : {}),
+				source: modelRoles[meta.id] ? "global" : "default",
+				candidates: catalogModels().map(entry => ({
+					provider: entry.provider,
+					id: entry.id,
+					name: entry.name,
+					kind: "chat",
+				})),
+			})),
+		}),
+		model_role_metadata: () => ({ roles: ROLE_META }),
+		model_role_set: params => {
+			modelRoles[String(params.role)] = typeof params.modelId === "string" ? params.modelId : undefined;
+			return { role: params.role, modelId: params.modelId ?? null };
+		},
+		usage: () => ({
+			reports: anthropicAccounts.map(account => ({
+				provider: "anthropic",
+				fetchedAt: Date.now(),
+				account: account.label,
+				credentialId: account.credentialId,
+				active: account.credentialId === 1,
+				limits: accountQuota[account.credentialId].limits,
+			})),
+			session: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				orchestrationTokens: 0,
+				premiumRequests: 0,
+				cost: 0,
+			},
+		}),
+		provider_accounts: params => ({
+			providerId: params.providerId,
+			...(anthropicAccounts.some(account => account.credentialId === 1) ? { pinnedCredentialId: 1 } : {}),
+			accounts:
+				params.providerId === "anthropic"
+					? anthropicAccounts.map(account => accountQuota[account.credentialId])
+					: [],
+		}),
+		provider_logout: params => {
+			if (params.providerId === "anthropic") {
+				anthropicAccounts = [];
+				anthropicSignedIn = false;
+			}
+			return { providerId: params.providerId };
+		},
+	};
 	/** A handler returning `undefined` replies itself (deferred, or ahead of the events it pushes). */
 	const bridgeMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
 		ping: () => ({ version: "18.8.0" }),
@@ -503,7 +624,7 @@ if (process.argv[2] === "stats") {
 			values[path] = params.value;
 			return { path, value: params.value, savedValue: params.value };
 		},
-		models_catalog: () => ({ models: [model], discoveryStates: [], refreshPending: false, generation: 1 }),
+		models_catalog: () => ({ models: catalogModels(), discoveryStates: [], refreshPending: false, generation: 1 }),
 		providers: () => ({
 			providers: [
 				{ id: "fixture", name: "Local fixture", hasAuth: true, authenticated: true, modelCount: 1 },
@@ -516,12 +637,13 @@ if (process.argv[2] === "stats") {
 								authKind: anthropicSignedIn ? "oauth" : undefined,
 								loginAvailable: true,
 								disabled: false,
-								modelCount: 0,
+								modelCount: modelsData && anthropicSignedIn ? 2 : 0,
 							},
+							...(modelsData ? MODELS_PAGE_PROVIDERS : []),
 						]
 					: []),
 			],
-			models: [model],
+			models: catalogModels(),
 			discoveryStates: [],
 			refreshPending: false,
 			generation: 1,
@@ -546,6 +668,7 @@ if (process.argv[2] === "stats") {
 		"workspace.directories": () => ({ directories: [] }),
 		image_generation_sync: () => ({}),
 		reply_language_set: params => ({ language: typeof params.language === "string" ? params.language : null }),
+		account_rotation_set: params => ({ mode: params.mode === "even" ? "even" : "quota" }),
 		"modes.get_plan_mode": () => ({ enabled: planModeEnabled, proposal: planProposal }),
 		"modes.set_plan_mode": params => {
 			planModeEnabled = params.enabled === true;
@@ -562,6 +685,7 @@ if (process.argv[2] === "stats") {
 		get_hooks: () => ({ hooks: [] }),
 		get_mcp_servers: () => ({ servers: [] }),
 		get_skills: () => ({ skills: [] }),
+		...(modelsData ? modelsPageMethods : {}),
 	};
 	const serveBridge = (socket: net.Socket, line: string) => {
 		const request: { id?: unknown; method?: unknown; params?: Params } = JSON.parse(line);
@@ -879,7 +1003,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				ok({ subagents: subagentRoster });
 				break;
 			case "get_available_models":
-				ok({ models: [model] });
+				ok({ models: catalogModels() });
 				break;
 			case "get_available_thinking_levels":
 				ok({ levels: ["off", "low", "medium", "high"] });
@@ -891,8 +1015,14 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						: [],
 				});
 				break;
-			case "get_provider_accounts":
-				ok({ providerId: text("providerId"), accounts: [] });
+			// Stock `get_logout_accounts` / one-account `logout` (the bridge's provider_accounts adds quotas).
+			case "get_logout_accounts":
+				ok({ accounts: command.providerId === "anthropic" ? anthropicAccounts : [] });
+				break;
+			case "logout":
+				anthropicAccounts = anthropicAccounts.filter(account => account.credentialId !== command.credentialId);
+				if (anthropicAccounts.length === 0) anthropicSignedIn = false;
+				ok({ providerId: text("providerId") });
 				break;
 			// Stock 18.8 (rpc-mode.ts `login`, Anthropic's oauth-code flow): open_url
 			// is fire-and-forget, then a blocking `input` for the pasted code or

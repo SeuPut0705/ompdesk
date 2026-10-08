@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AccountRotationMode, AccountRotationState } from "../../shared/account-rotation";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -30,6 +31,7 @@ class FakeHostSidecar extends EventEmitter {
 	sideFrames: object[] = [];
 	imageSyncs = 0;
 	replyLanguageSyncs = 0;
+	accountRotationSyncs = 0;
 	commands: RpcCommand[] = [];
 	readonly rpcClient = {
 		command: async (command: RpcCommand): Promise<RpcResponse> => {
@@ -66,6 +68,9 @@ class FakeHostSidecar extends EventEmitter {
 	}
 	syncReplyLanguage(): void {
 		this.replyLanguageSyncs++;
+	}
+	syncAccountRotation(): void {
+		this.accountRotationSyncs++;
 	}
 	dispose(): void {
 		this.disposed = true;
@@ -139,6 +144,10 @@ function fakeMachine() {
 			}),
 		),
 		abortBenchmark: vi.fn(async (_caller: string) => true),
+		accountRotation: vi.fn(async (): Promise<AccountRotationState> => ({ mode: "quota", evenSupported: true })),
+		setAccountRotation: vi.fn(
+			async (mode: AccountRotationMode): Promise<AccountRotationState> => ({ mode, evenSupported: true }),
+		),
 	} satisfies MachineServices;
 }
 
@@ -282,6 +291,17 @@ describe("LocalHostServices", () => {
 		services.syncReplyLanguage();
 		expect(sidecars.map(sidecar => sidecar.replyLanguageSyncs)).toEqual([1, 1]);
 		expect(local.tab.replyLanguageSyncs).toBe(0);
+	});
+
+	it("pushes this machine's account-rotation setting to every tab it hosts, leaving the local pool to its own fan-out", async () => {
+		const { services, sidecars, local } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await services.call(y.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, y);
+		services.syncAccountRotation();
+		expect(sidecars.map(sidecar => sidecar.accountRotationSyncs)).toEqual([1, 1]);
+		expect(local.tab.accountRotationSyncs).toBe(0);
 	});
 
 	it("deletes and renames a session through this machine's own live tab that holds it", async () => {
@@ -507,6 +527,26 @@ describe("LocalHostServices host.* calls", () => {
 			/Invalid host.models.delete/,
 		);
 		expect(machine.deleteProvider).toHaveBeenCalledTimes(1);
+	});
+
+	it("reads and writes this machine's account-rotation pref, refusing an unknown mode", async () => {
+		const { services, machine } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await expect(services.call(x.peer, "host.accountRotation.get", {}, x)).resolves.toEqual({
+			mode: "quota",
+			evenSupported: true,
+		});
+		await expect(services.call(x.peer, "host.accountRotation.set", { mode: "even" }, x)).resolves.toEqual({
+			mode: "even",
+			evenSupported: true,
+		});
+		expect(machine.setAccountRotation).toHaveBeenCalledWith("even");
+		for (const bad of [{}, { mode: "round-robin" }, { mode: 1 }]) {
+			await expect(services.call(x.peer, "host.accountRotation.set", bad, x)).rejects.toThrow(
+				/Invalid host.accountRotation.set/,
+			);
+		}
+		expect(machine.setAccountRotation).toHaveBeenCalledTimes(1);
 	});
 
 	it("reads this machine's stats server", async () => {

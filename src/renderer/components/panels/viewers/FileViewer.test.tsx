@@ -8,6 +8,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { tinyPptx, tinyXlsx } from "../../../../../e2e/file-viewer-fixtures";
 import type { IpcFsReadBinaryResult, IpcFsReadResult } from "../../../../shared/ipc-types";
 import { loadHljs } from "../../../lib/highlight";
 import { I18nProvider } from "../../../lib/i18n";
@@ -125,6 +126,9 @@ describe("viewer dispatch", () => {
 					"index.html",
 					"analysis.ipynb",
 					"report.docx",
+					"budget.XLSX",
+					"deck.pptx",
+					"legacy.xls",
 					"blob.bin",
 					"archive.zip",
 					"Makefile",
@@ -145,7 +149,10 @@ describe("viewer dispatch", () => {
 			"events.jsonl": "json",
 			"index.html": "html",
 			"analysis.ipynb": "notebook",
-			"report.docx": "office",
+			"report.docx": "docx",
+			"budget.XLSX": "xlsx",
+			"deck.pptx": "pptx",
+			"legacy.xls": "office",
 			"blob.bin": "binary",
 			"archive.zip": "binary",
 			Makefile: "code",
@@ -321,5 +328,86 @@ describe("html view", () => {
 		});
 		expect(container.querySelector("iframe")).toBeNull();
 		expect(container.querySelector("[data-code-view]")?.textContent).toContain("<script>alert(1)</script>");
+	});
+});
+
+describe("office views", () => {
+	/** The readers load as lazy chunks and parse asynchronously; flush until the view settles. */
+	async function settle(done: () => boolean): Promise<void> {
+		for (let i = 0; i < 100 && !done(); i++) await flush();
+	}
+
+	it("shows workbook sheets as tabs and switches between them", async () => {
+		const bytes = new Uint8Array(await tinyXlsx());
+		const fs = installFs({ readBinary: async () => binaryResult(bytes) });
+		await mount(view("budget.xlsx"));
+		expect(fs.readBinary).toHaveBeenCalledWith("budget.xlsx", undefined);
+		await settle(() => container.querySelector("[data-sheet-grid]") !== null);
+		const tabs = () => container.querySelectorAll('[role="tab"]');
+		expect(tabs().map(tab => tab.textContent)).toEqual(["Summary", "Regions"]);
+		const cells = () => container.querySelectorAll("[data-sheet-grid] tbody td").map(td => td.textContent);
+		expect(cells()).toContain('Said "hello", then left');
+		expect(container.querySelectorAll("[data-sheet-grid] thead th").map(th => th.textContent)).toEqual([
+			"",
+			"A",
+			"B",
+		]);
+
+		await act(async () => {
+			tabs()[1]?.dispatchEvent(new Event("click", { bubbles: true }));
+		});
+		await settle(() => cells().includes("North"));
+		expect(cells()).toEqual(["Region", "Total", "North", "1,234.50"]);
+		expect(tabs()[1]?.getAttribute("aria-selected")).toBe("true");
+	});
+
+	it("lists slides with their text, notes and images", async () => {
+		const bytes = new Uint8Array(await tinyPptx());
+		installFs({ readBinary: async () => binaryResult(bytes) });
+		await mount(view("deck.pptx"));
+		await settle(() => container.querySelector("[data-slide]") !== null);
+		expect(container.querySelector("[data-slides-simplified]")?.textContent).toContain("Simplified preview");
+		expect(container.querySelectorAll("[data-slide]").map(slide => slide.getAttribute("data-slide"))).toEqual([
+			"1",
+			"2",
+		]);
+		expect(container.querySelector('[data-slide="1"] h3')?.textContent).toBe("Roadmap 2025");
+		expect(container.querySelector('[data-slide="1"] [data-slide-notes]')?.textContent).toContain(
+			"Mention remote tabs",
+		);
+		expect(container.querySelectorAll('[data-slide="2"] img[data-slide-image]')).toHaveLength(1);
+	});
+
+	it("ends in the too-large card or an error, never a spinner", async () => {
+		installFs({
+			readBinary: async () => ({
+				ok: false,
+				data: new Uint8Array(),
+				mime: "application/zip",
+				size: 200 * 1024 * 1024,
+				truncated: false,
+				code: "file_too_large",
+				error: "too large",
+			}),
+		});
+		await mount(view("deck.pptx"));
+		expect(container.querySelector("[data-viewer-fallback]")?.textContent).toContain("too large to preview");
+		root?.unmount();
+		root = null;
+		container.remove();
+
+		installFs({ readBinary: async () => binaryResult(new TextEncoder().encode("not a zip")) });
+		await mount(view("broken.xlsx"));
+		await settle(() => container.querySelector('[role="alert"]') !== null);
+		expect(container.querySelector('[role="alert"]')?.textContent).toContain("Couldn't read this document.");
+		expect(container.querySelector('[role="status"]')).toBeNull();
+	});
+
+	it("keeps the fallback card for formats without a reader", async () => {
+		installFs({ readBinary: async () => binaryResult(new Uint8Array([0xd0, 0xcf, 0x11, 0xe0])) });
+		await mount(view("legacy.xls"));
+		expect(container.querySelector("[data-viewer-fallback]")?.textContent).toContain(
+			"This document format can't be previewed here.",
+		);
 	});
 });

@@ -730,8 +730,6 @@ export const en: Record<string, string> = {
 	"providers.logoutAll": "Sign out of every account",
 	"providers.accounts.label": "{provider} accounts",
 	"providers.accounts.add": "Add another account",
-	"providers.accounts.rotation":
-		"With several accounts, omp switches between them by the quota each has left. An account that hits its limit is skipped until it resets.",
 	"providers.accounts.inUse": "In use",
 	"providers.accounts.limitedUntil": "Limited until {time}",
 	"providers.accounts.limited": "Limit reached",
@@ -740,6 +738,8 @@ export const en: Record<string, string> = {
 	"providers.accounts.remaining": "{percent}% left",
 	"providers.accounts.quotaUnavailable": "Couldn't read the quotas right now.",
 	"providers.accounts.loadFailed": "Couldn't list the accounts",
+	"providers.accounts.count": "{count} accounts",
+	"providers.accounts.countOne": "1 account",
 	"providers.accounts.remove": "Remove {account}",
 	"providers.accounts.removeTitle": "Remove this account?",
 	"providers.accounts.removeBody":
@@ -754,11 +754,14 @@ export const en: Record<string, string> = {
 	"providers.badge.noAuth": "no auth",
 	"providers.badge.disabled": "disabled",
 	"providers.models": "{count} models",
+	"providers.modelOne": "1 model",
+	"providers.add": "Add a provider",
+	"providers.custom.empty": "None yet. Add any OpenAI- or Anthropic-compatible server.",
 
 	// Model roles (Settings › Models)
 	"modelRoles.refresh": "Refresh",
 	"modelRoles.default": "Default (catalog)",
-	"modelRoles.source": "Source: {source}",
+	"modelRoles.sourceProject": "Set for this project",
 	"modelRoles.notConnected": "omp isn't connected",
 	"modelRoles.notConnectedHint": "Model roles load once omp connects.",
 	"modelRoles.set": 'Role "{role}" set to {model}',
@@ -1613,6 +1616,12 @@ export const en: Record<string, string> = {
 	"updater.card.compactReady": "Update {version} ready",
 	"updater.card.compactAvailable": "Update {version} available",
 	"updater.card.compactDownloading": "Downloading {percent}%",
+	"updater.card.checking": "Checking for updates…",
+	"updater.card.upToDate": "OMPdesk {version} is up to date",
+	"updater.card.failed": "Update check failed",
+	"updater.card.authRequired": "GitHub access needed to update",
+	"updater.card.openSettings": "Open update settings",
+	"updater.card.downloadingHint": "Downloading in the background. You can keep working.",
 	"updater.restart": "Restart & install",
 	"updater.openInstaller": "Open installer",
 	"updater.manualInstructions":
@@ -2644,7 +2653,28 @@ export const en: Record<string, string> = {
 	"fileViewer.notebookInvalid": "Not a readable notebook. Showing the raw JSON.",
 	"fileViewer.notebookEmpty": "This notebook has no cells.",
 	"fileViewer.notebookOutputImage": "Output image of cell {cell}",
-	"fileViewer.officeUnsupported": "Office documents can't be previewed here.",
+	"fileViewer.officeUnsupported":
+		"This document format can't be previewed here. Word, Excel and PowerPoint files (.docx, .xlsx, .pptx) can.",
+	"fileViewer.officeFailed": "Couldn't read this document.",
+	"fileViewer.docxContent": "Document content",
+	"fileViewer.docxLayout": "Document layout",
+	"fileViewer.docxReflow": "Reading",
+	"fileViewer.docxPages": "Page layout",
+	"fileViewer.sheets": "Sheets",
+	"fileViewer.sheetUntitled": "Sheet {number}",
+	"fileViewer.sheetEmpty": "This sheet is empty.",
+	"fileViewer.sheetChart": "This sheet holds a chart, which can't be previewed here.",
+	"fileViewer.sheetColumnsClipped": "Showing the first {columns} columns.",
+	"fileViewer.workbookEmpty": "This workbook has no sheets.",
+	"fileViewer.slidesSimplified": "Simplified preview: slide text and images, without the layout.",
+	"fileViewer.slideCount": "Slides: {count}",
+	"fileViewer.slide": "Slide {number}",
+	"fileViewer.slideHidden": "Hidden",
+	"fileViewer.slideEmpty": "No text on this slide.",
+	"fileViewer.slideImage": "Image {index} on slide {slide}",
+	"fileViewer.slideImagesSkipped": "Images not shown (unsupported format or linked file): {count}",
+	"fileViewer.slideNotes": "Speaker notes",
+	"fileViewer.presentationEmpty": "This presentation has no slides.",
 	"fileViewer.binary": "No preview for this file type.",
 	"fileViewer.hexPrefix": "Hex dump of the first {shown}.",
 	"fileViewer.hexAll": "Hex dump of the whole file.",
@@ -2667,6 +2697,9 @@ export const en: Record<string, string> = {
 	"fileViewer.kind.json": "JSON",
 	"fileViewer.kind.html": "HTML",
 	"fileViewer.kind.notebook": "Jupyter notebook",
+	"fileViewer.kind.docx": "Word document",
+	"fileViewer.kind.xlsx": "Excel workbook",
+	"fileViewer.kind.pptx": "PowerPoint presentation",
 	"fileViewer.kind.office": "Office document",
 	"fileViewer.kind.binary": "Binary file",
 
@@ -2968,6 +3001,21 @@ export const en: Record<string, string> = {
 	"sidecar.project": "Project: {cwd}",
 	"sidecar.restart": "Restart",
 
+	// Settings › Models & providers: account rotation (providers/RotationModeControl.tsx)
+	"providers.rotation.label": "Account rotation",
+	"providers.rotation.quota": "Quota-based",
+	"providers.rotation.even": "Even",
+	"providers.rotation.quotaDesc":
+		"Uses the accounts with the most quota left first, draining the ones whose limits reset soonest.",
+	"providers.rotation.evenDesc":
+		"Alternates accounts for each new session to spread usage evenly. Accounts that hit their limit are skipped.",
+	"providers.rotation.hint":
+		"Applies to providers with two or more signed-in accounts. A session keeps its account until that account hits its limit.",
+	"providers.rotation.host": "Sessions on {name} follow this setting.",
+	"providers.rotation.evenUnavailable": "Even rotation isn't available with this omp version. Run `omp update`.",
+	"providers.rotation.loadFailed": "Couldn't read the account rotation setting",
+	"providers.rotation.saveFailed": "Couldn't change the account rotation",
+
 	// gui-bridge compatibility self-check (startup warning toast)
 	"bridgeHealth.unsupportedTitle": "Some OMPdesk features don't work with this omp",
 	"bridgeHealth.unsupported":
@@ -2988,6 +3036,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.agentPause": "Agent pause",
 	"bridgeHealth.feature.modelPool": "Model pool",
 	"bridgeHealth.feature.replyLanguage": "Reply language",
+	"bridgeHealth.feature.accountRotation": "Even account rotation",
 	"bridgeHealth.feature.mcp": "MCP servers",
 	"bridgeHealth.feature.plugins": "Plugins & marketplaces",
 	"bridgeHealth.feature.skills": "Skills & hooks",
@@ -3787,6 +3836,10 @@ export const en: Record<string, string> = {
 	"settings.models.compare": "Compare models",
 	"settings.models.compareDesc":
 		"Context size, price, and capabilities side by side; run a benchmark to measure speed.",
+	"settings.models.compareShow": "Show",
+	"settings.models.compareHide": "Hide",
+	"settings.models.custom": "Custom endpoints",
+	"settings.models.customDesc": "Your own OpenAI- or Anthropic-compatible servers, saved in models.yml.",
 	"settings.permissions.approval": "Agent permissions",
 	"settings.features.start": "Get around",
 	"settings.features.openPalette": "Open command palette",
@@ -3843,8 +3896,7 @@ export const en: Record<string, string> = {
 	"providerList.noModels": "In models.yml but has no models yet. Edit it to add one.",
 	"providerList.showMore": "Show {count} more providers",
 	"providerList.showLess": "Show fewer",
-	"providerList.intro":
-		"Sign in or paste an API key to connect a provider. Its models then appear in the composer's model picker.",
+	"providerList.intro": "Sign in or paste an API key. A connected provider's models appear in the model picker.",
 	"providerList.login.retry": "Try again",
 	"providerList.login.failed": "Couldn't connect {provider}. Try again.",
 	"providerList.login.keyPage": "Create or copy an API key in your {provider} account.",

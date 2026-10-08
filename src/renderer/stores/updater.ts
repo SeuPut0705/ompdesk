@@ -50,14 +50,23 @@ function persistDismissal(dismissal: UpdateDismissal): void {
 interface UpdaterStore {
 	status: UpdateStatus;
 	dismissed: UpdateDismissal;
+	/**
+	 * A check the user asked for (app menu › Check for Updates…) is in progress or
+	 * its result is still on screen: the sidebar card reports every outcome
+	 * (checking, up to date, failure) in place instead of opening Settings.
+	 * Background polls never set it, so they stay silent.
+	 */
+	manualCheck: boolean;
 	setStatus: (status: UpdateStatus) => void;
 	dismiss: (version: string) => void;
 	dismissError: () => void;
+	endManualCheck: () => void;
 }
 
 export const useUpdaterStore = create<UpdaterStore>()((set, get) => ({
 	status: { state: "idle" },
 	dismissed: loadDismissal(),
+	manualCheck: false,
 	setStatus: status => {
 		const { error } = get().dismissed;
 		if (error && RECOVERED.includes(status.state)) {
@@ -78,6 +87,7 @@ export const useUpdaterStore = create<UpdaterStore>()((set, get) => ({
 		persistDismissal(next);
 		set({ dismissed: next });
 	},
+	endManualCheck: () => set({ manualCheck: false }),
 }));
 
 /** Wire the main-process push + boot replay once (App mount). Returns unsubscribe. */
@@ -89,4 +99,20 @@ export function subscribeUpdaterStatus(): () => void {
 		useUpdaterStore.getState().setStatus(status);
 	});
 	return unsubscribe;
+}
+
+/**
+ * Run a user-requested check without leaving the session: the sidebar card
+ * shows "Checking…" right away and then the outcome. Main broadcasts the same
+ * transitions; the returned status covers a check that settles without one.
+ */
+export async function checkForUpdatesInPlace(): Promise<void> {
+	useUpdaterStore.setState({ manualCheck: true, status: { state: "checking" } });
+	try {
+		useUpdaterStore.getState().setStatus(await window.omp.updater.check());
+	} catch (error) {
+		useUpdaterStore
+			.getState()
+			.setStatus({ state: "error", message: error instanceof Error ? error.message : String(error) });
+	}
 }

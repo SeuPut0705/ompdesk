@@ -32,7 +32,9 @@ const HIDDEN = parseHidden(process.env.OMP_GUI_BRIDGE_PROBE_HIDE);
 const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-agent-core": () => import("@oh-my-pi/pi-agent-core"),
 	"@oh-my-pi/pi-ai": () => import("@oh-my-pi/pi-ai"),
+	"@oh-my-pi/pi-ai/auth/blocks": () => import("@oh-my-pi/pi-ai/auth/blocks"),
 	"@oh-my-pi/pi-ai/oauth": () => import("@oh-my-pi/pi-ai/oauth"),
+	"@oh-my-pi/pi-ai/usage/registry": () => import("@oh-my-pi/pi-ai/usage/registry"),
 	"@oh-my-pi/pi-catalog/types": () => import("@oh-my-pi/pi-catalog/types"),
 	"@oh-my-pi/pi-coding-agent/autolearn/managed-skills": () =>
 		import("@oh-my-pi/pi-coding-agent/autolearn/managed-skills"),
@@ -87,6 +89,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 		import("@oh-my-pi/pi-coding-agent/registry/agent-registry"),
 	"@oh-my-pi/pi-coding-agent/security/coordinator": () => import("@oh-my-pi/pi-coding-agent/security/coordinator"),
 	"@oh-my-pi/pi-coding-agent/security/store": () => import("@oh-my-pi/pi-coding-agent/security/store"),
+	"@oh-my-pi/pi-coding-agent/session/credential-pin": () => import("@oh-my-pi/pi-coding-agent/session/credential-pin"),
 	"@oh-my-pi/pi-coding-agent/session/foreign-session-import": () =>
 		import("@oh-my-pi/pi-coding-agent/session/foreign-session-import"),
 	"@oh-my-pi/pi-coding-agent/session/session-loader": () => import("@oh-my-pi/pi-coding-agent/session/session-loader"),

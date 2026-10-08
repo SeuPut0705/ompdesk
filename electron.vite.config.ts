@@ -33,6 +33,10 @@ const VENDOR_CHUNK_RULES: ReadonlyArray<readonly [RegExp, string]> = [
 		/[\\/]node_modules[\\/](katex|rehype-katex|hast-util-from-html-isomorphic|hast-util-from-dom|hast-util-from-html)[\\/]/,
 		"katex",
 	],
+	// Office previews (lazy-imported by the Files drawer viewers): docx-preview for
+	// Word, JSZip (its self-contained browser build) for every OOXML package.
+	[/[\\/]node_modules[\\/]docx-preview[\\/]/, "docx-preview"],
+	[/[\\/]node_modules[\\/]jszip[\\/]/, "jszip"],
 	// Markdown pipeline (eager: transcripts render on the first screen):
 	// react-markdown + the unified/remark/rehype/mdast/hast ecosystem.
 	[

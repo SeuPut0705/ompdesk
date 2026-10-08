@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from "electron";
 import Store from "electron-store";
+import { ACCOUNT_ROTATION_PREF, isAccountRotationMode } from "../shared/account-rotation";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -880,6 +881,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (replyLanguage && !isReplyLanguagePref(payload.value)) {
 			throw codedError("invalid_preference_key", "Invalid reply language");
 		}
+		if (payload.key === ACCOUNT_ROTATION_PREF) {
+			if (!isAccountRotationMode(payload.value)) {
+				throw codedError("invalid_preference_key", "Invalid account rotation");
+			}
+			// Same path as Settings' own control: store, then push to the live sessions.
+			return deps.machine.setAccountRotation(payload.value).then(() => undefined);
+		}
 		prefsStore.set(payload.key, payload.value);
 		if (replyLanguage) {
 			// Every open session's next turn follows; paired hosts keep their own setting.
@@ -995,6 +1003,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipcMain.handle(IPC_COMMANDS.MODELS_PROVIDER_DELETE, (event, id: string, device?: unknown) =>
 		machineFor(event, device).deleteProvider(id),
 	);
+
+	// Account rotation is per machine: a paired host's tabs follow the host's own pref.
+	ipcMain.handle(IPC_COMMANDS.ACCOUNT_ROTATION_GET, (event, device?: unknown) =>
+		machineFor(event, device).accountRotation(),
+	);
+
+	ipcMain.handle(IPC_COMMANDS.ACCOUNT_ROTATION_SET, (event, mode: unknown, device?: unknown) => {
+		if (!isAccountRotationMode(mode)) throw codedError("invalid_preference_key", "Invalid account rotation");
+		return machineFor(event, device).setAccountRotation(mode);
+	});
 
 	// "Edit config" — open the agent's models.yml in the system editor. The
 	// file is created with a minimal skeleton when missing so there is always

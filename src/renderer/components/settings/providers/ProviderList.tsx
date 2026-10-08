@@ -2,14 +2,16 @@
  * The provider catalog as a searchable list: connected first, a short
  * recommended set next, and the long tail collapsed behind one button. Rows
  * are calm (ListRow); "Connect" is a quiet row action and the row itself, so
- * eighty providers never become eighty primary buttons. Used by Settings ›
- * Models & providers and by the first-run setup.
+ * eighty providers never become eighty primary buttons. The first-run setup
+ * shows the whole list; Settings › Models & providers lists the connected
+ * ones itself (`ProviderItem`) and shows only the rest here (`available`).
  */
 
 import { CheckCircle2, ChevronDown, ChevronUp, CircleDashed, KeyRound, LogOut, Pencil, Trash2 } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { CustomProviderView } from "../../../../shared/ipc-types";
 import type { ProviderInfo, ProvidersResult } from "../../../../shared/rpc-types";
+import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { useModelStore } from "../../../stores/model";
@@ -119,11 +121,12 @@ export function useProviderCatalog({
 	return { providers, customConfigs, loading, error, configError, refreshPending, sidecarReady, load };
 }
 
-function SectionLabel({ children }: { children: ReactNode }) {
+function SectionLabel({ children, level }: { children: ReactNode; level: "h3" | "h4" }) {
+	const Heading = level;
 	return (
-		<h3 className="px-2.5 pt-4 pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
+		<Heading className="px-2.5 pt-4 pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
 			{children}
-		</h3>
+		</Heading>
 	);
 }
 
@@ -133,11 +136,19 @@ function authLabel(provider: ProviderInfo, t: TFn): string {
 	return t("providers.badge.apikey");
 }
 
-interface RowHandlers {
+export interface RowHandlers {
 	onConnect: (provider: ProviderInfo) => void;
 	onLogout?: (provider: ProviderInfo) => void;
 	onEditConfig?: (config: CustomProviderView) => void;
 	onDeleteConfig?: (config: CustomProviderView) => void;
+}
+
+/** A row that expands what renders under it (a subscription's accounts). */
+export interface RowDisclosure {
+	expanded: boolean;
+	onToggle: () => void;
+	/** id of the expanded region. */
+	controls: string;
 }
 
 export function ProviderRow({
@@ -146,6 +157,8 @@ export function ProviderRow({
 	busy,
 	sidecarReady,
 	listsAccounts = false,
+	summary,
+	disclosure,
 	handlers,
 }: {
 	provider: ProviderInfo;
@@ -155,6 +168,9 @@ export function ProviderRow({
 	sidecarReady: boolean;
 	/** The accounts render under the row, so the row names none. */
 	listsAccounts?: boolean;
+	/** Leading part of the description (the account count). */
+	summary?: string;
+	disclosure?: RowDisclosure;
 	handlers: RowHandlers;
 }) {
 	const t = useT();
@@ -165,20 +181,25 @@ export function ProviderRow({
 	// the entry is what actually removes it.
 	const canLogout = connected && handlers.onLogout && !config?.hasApiKey;
 	const description = [
+		summary,
 		listsAccounts ? null : provider.account,
-		provider.modelCount > 0 ? t("providers.models", { count: provider.modelCount }) : null,
+		provider.modelCount === 1
+			? t("providers.modelOne")
+			: provider.modelCount > 0
+				? t("providers.models", { count: provider.modelCount })
+				: null,
 		provider.baseUrl,
 	]
 		.filter(Boolean)
 		.join(" · ");
 	const connect = () => handlers.onConnect(provider);
-	const onClick =
-		!connected && provider.loginAvailable && sidecarReady
+	const onClick = disclosure
+		? disclosure.onToggle
+		: !connected && provider.loginAvailable && sidecarReady
 			? connect
 			: editable && handlers.onEditConfig
 				? () => handlers.onEditConfig?.(editable)
 				: undefined;
-
 	return (
 		<ListRow
 			actions={
@@ -249,10 +270,76 @@ export function ProviderRow({
 					authLabel(provider, t)
 				) : undefined
 			}
+			buttonProps={
+				disclosure ? { "aria-expanded": disclosure.expanded, "aria-controls": disclosure.controls } : undefined
+			}
 			onClick={onClick}
 			title={provider.name}
 			titleText={provider.id === provider.name ? undefined : provider.id}
+			trailing={
+				disclosure ? (
+					<ChevronDown
+						aria-hidden
+						className={cx(
+							"size-(--sc-icon-sm) text-(--sc-text-muted) transition-transform duration-(--sc-duration-fast) motion-reduce:transition-none",
+							disclosure.expanded && "rotate-180",
+						)}
+					/>
+				) : undefined
+			}
 		/>
+	);
+}
+
+/**
+ * One provider as a list item: its row, whatever expands under it (the
+ * accounts), and the inline sign-in while one for it is open.
+ */
+export function ProviderItem({
+	provider,
+	config,
+	login,
+	busyProvider,
+	sidecarReady,
+	handlers,
+	summary,
+	disclosure,
+	children,
+}: {
+	provider: ProviderInfo;
+	config: CustomProviderView | undefined;
+	login: ProviderLogin;
+	busyProvider: string | null;
+	sidecarReady: boolean;
+	handlers: RowHandlers;
+	summary?: string;
+	disclosure?: RowDisclosure;
+	/** Rendered under the row; its presence means the row names no account. */
+	children?: ReactNode;
+}) {
+	return (
+		<li>
+			<ProviderRow
+				busy={busyProvider === provider.id || (login.state.running && login.state.providerId === provider.id)}
+				config={config}
+				disclosure={disclosure}
+				handlers={handlers}
+				listsAccounts={children !== undefined}
+				provider={provider}
+				sidecarReady={sidecarReady}
+				summary={summary}
+			/>
+			{children}
+			{login.state.providerId === provider.id && (
+				<div className="px-2.5 pt-1 pb-2">
+					<ProviderLoginPanel
+						login={login}
+						onRetry={() => void login.start(provider.id)}
+						providerName={provider.name}
+					/>
+				</div>
+			)}
+		</li>
 	);
 }
 
@@ -260,23 +347,24 @@ export function ProviderList({
 	catalog,
 	login,
 	busyProvider = null,
-	onLogout,
 	onEditConfig,
 	onDeleteConfig,
 	onAddCustom,
-	renderAccounts,
+	available = false,
 	autoFocusSearch = false,
 }: {
 	catalog: ProviderCatalog;
 	login: ProviderLogin;
 	busyProvider?: string | null;
-	onLogout?: (provider: ProviderInfo) => void;
 	onEditConfig?: (config: CustomProviderView) => void;
 	onDeleteConfig?: (config: CustomProviderView) => void;
 	/** Offered when a search finds nothing. */
 	onAddCustom?: () => void;
-	/** A provider's stored accounts, rendered under its row; `null` when it lists none. */
-	renderAccounts?: (provider: ProviderInfo) => ReactNode;
+	/**
+	 * Only what is not connected yet (the Settings "Add a provider" picker):
+	 * the connected providers and models.yml entries are listed elsewhere there.
+	 */
+	available?: boolean;
 	autoFocusSearch?: boolean;
 }) {
 	const t = useT();
@@ -284,51 +372,40 @@ export function ProviderList({
 	const [showAll, setShowAll] = useState(false);
 	const { providers, customConfigs, loading, sidecarReady } = catalog;
 	const groups = groupProviders(providers, query);
+	const connected = available ? [] : groups.connected;
 	const searching = query.trim().length > 0;
 	const configById = new Map(customConfigs.map(config => [config.id, config]));
 	// A models.yml entry the session lists no models for is absent from the
 	// catalog, which reads as "the add did nothing": list it with the reason.
-	const unlisted = customConfigs.filter(
-		config =>
-			!config.builtin &&
-			!providers.some(provider => provider.id === config.id) &&
-			(!searching || config.id.includes(query.trim().toLowerCase())),
-	);
+	const unlisted = available
+		? []
+		: customConfigs.filter(
+				config =>
+					!config.builtin &&
+					!providers.some(provider => provider.id === config.id) &&
+					(!searching || config.id.includes(query.trim().toLowerCase())),
+			);
 	const handlers: RowHandlers = {
 		onConnect: provider => void login.start(provider.id),
-		onLogout,
 		onEditConfig,
 		onDeleteConfig,
 	};
+	const level = available ? "h4" : "h3";
 
-	const renderRow = (provider: ProviderInfo) => {
-		const accounts = renderAccounts?.(provider) ?? null;
-		return (
-			<li key={provider.id}>
-				<ProviderRow
-					busy={busyProvider === provider.id || (login.state.running && login.state.providerId === provider.id)}
-					config={configById.get(provider.id)}
-					handlers={handlers}
-					listsAccounts={accounts !== null}
-					provider={provider}
-					sidecarReady={sidecarReady}
-				/>
-				{accounts}
-				{login.state.providerId === provider.id && (
-					<div className="px-2.5 pt-1 pb-2">
-						<ProviderLoginPanel
-							login={login}
-							onRetry={() => void login.start(provider.id)}
-							providerName={provider.name}
-						/>
-					</div>
-				)}
-			</li>
-		);
-	};
+	const renderRow = (provider: ProviderInfo) => (
+		<ProviderItem
+			busyProvider={busyProvider}
+			config={configById.get(provider.id)}
+			handlers={handlers}
+			key={provider.id}
+			login={login}
+			provider={provider}
+			sidecarReady={sidecarReady}
+		/>
+	);
 
-	const empty = groups.connected.length + groups.recommended.length + groups.others.length + unlisted.length === 0;
-	const tailOpen = searching || showAll || (groups.connected.length + groups.recommended.length === 0 && !loading);
+	const empty = connected.length + groups.recommended.length + groups.others.length + unlisted.length === 0;
+	const tailOpen = searching || showAll || (connected.length + groups.recommended.length === 0 && !loading);
 
 	return (
 		<div className="flex flex-col">
@@ -359,11 +436,11 @@ export function ProviderList({
 				/>
 			) : (
 				<>
-					{(groups.connected.length > 0 || unlisted.length > 0) && (
+					{(connected.length > 0 || unlisted.length > 0) && (
 						<section aria-label={t("providerList.section.connected")}>
-							<SectionLabel>{t("providerList.section.connected")}</SectionLabel>
+							<SectionLabel level={level}>{t("providerList.section.connected")}</SectionLabel>
 							<ul>
-								{groups.connected.map(renderRow)}
+								{connected.map(renderRow)}
 								{unlisted.map(config => (
 									<li key={`config:${config.id}`}>
 										<ListRow
@@ -399,7 +476,7 @@ export function ProviderList({
 					)}
 					{groups.recommended.length > 0 && (
 						<section aria-label={t("providerList.section.recommended")}>
-							<SectionLabel>{t("providerList.section.recommended")}</SectionLabel>
+							<SectionLabel level={level}>{t("providerList.section.recommended")}</SectionLabel>
 							<ul>{groups.recommended.map(renderRow)}</ul>
 						</section>
 					)}
@@ -407,7 +484,7 @@ export function ProviderList({
 						<section aria-label={t("providerList.section.others")}>
 							{tailOpen ? (
 								<>
-									<SectionLabel>{t("providerList.section.others")}</SectionLabel>
+									<SectionLabel level={level}>{t("providerList.section.others")}</SectionLabel>
 									<ul>{groups.others.map(renderRow)}</ul>
 									{!searching && showAll && (
 										<Button
@@ -424,7 +501,7 @@ export function ProviderList({
 							) : (
 								<Button
 									aria-expanded={false}
-									className="mt-3"
+									className="mt-3 self-start"
 									icon={<ChevronDown />}
 									onClick={() => setShowAll(true)}
 									size="sm"

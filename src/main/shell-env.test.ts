@@ -3,6 +3,7 @@ import * as os from "node:os";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { AccountRotationMode } from "../shared/account-rotation";
 import {
 	resetLoginShellEnvCache,
 	resolveEditorCommand,
@@ -303,30 +304,7 @@ describe("SidecarManager spawn env", () => {
 	it("pushes the current reply language over the gui-bridge on connect and on syncReplyLanguage()", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-bridge-"));
 		const logPath = path.join(tempDir, "bridge.jsonl");
-		// A fake omp that serves the bridge socket and logs every request.
-		const script = [
-			'import * as fs from "node:fs";',
-			'import * as net from "node:net";',
-			"const server = net.createServer(socket => {",
-			'\tsocket.setEncoding("utf8");',
-			'\tlet buffer = "";',
-			'\tsocket.on("data", (chunk: string) => {',
-			"\t\tbuffer += chunk;",
-			'\t\tfor (let i = buffer.indexOf("\\n"); i !== -1; i = buffer.indexOf("\\n")) {',
-			"\t\t\tconst request = JSON.parse(buffer.slice(0, i)) as { id: unknown; method: string; params?: unknown };",
-			"\t\t\tbuffer = buffer.slice(i + 1);",
-			`\t\t\tfs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({ method: request.method, params: request.params ?? null }) + "\\n");`,
-			'\t\t\tsocket.write(JSON.stringify({ id: request.id, ok: true, result: {} }) + "\\n");',
-			"\t\t}",
-			"\t});",
-			"});",
-			"server.listen(process.env.OMP_GUI_BRIDGE, () => {",
-			'\tprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
-			"});",
-			"process.stdin.resume();",
-			'process.stdin.on("end", () => process.exit(0));',
-		].join("\n");
-		const binaryPath = await writeFakeOmp(tempDir, script);
+		const binaryPath = await writeFakeOmp(tempDir, loggingBridgeOmp(logPath));
 		let language: string | undefined = "Korean";
 		const sidecar = new SidecarManager({
 			omp: async () => ({
@@ -337,15 +315,7 @@ describe("SidecarManager spawn env", () => {
 			bridgeDir: tempDir,
 			replyLanguage: () => language,
 		});
-		const replyLanguageRequests = async () => {
-			const text = await fs.readFile(logPath, "utf8").catch(() => "");
-			return text
-				.split("\n")
-				.filter(Boolean)
-				.map(line => JSON.parse(line) as { method: string; params: unknown })
-				.filter(request => request.method === "reply_language_set")
-				.map(request => request.params);
-		};
+		const replyLanguageRequests = () => bridgeRequests(logPath, "reply_language_set");
 		try {
 			sidecar.start();
 			await expect.poll(replyLanguageRequests, { timeout: 5_000, interval: 25 }).toEqual([{ language: "Korean" }]);
@@ -359,4 +329,77 @@ describe("SidecarManager spawn env", () => {
 			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
+
+	it("passes the account-rotation mode and ledger at spawn and pushes the mode on connect and on syncAccountRotation()", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-rotation-"));
+		const logPath = path.join(tempDir, "bridge.jsonl");
+		const envPath = path.join(tempDir, "rotation.json");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`${loggingBridgeOmp(logPath)}\nfs.writeFileSync(${JSON.stringify(envPath)}, JSON.stringify({ mode: process.env.OMP_GUI_ACCOUNT_ROTATION ?? null, ledger: process.env.OMP_GUI_ACCOUNT_ROTATION_STATE ?? null }));`,
+		);
+		let mode: AccountRotationMode = "even";
+		const ledger = path.join(tempDir, "account-rotation.json");
+		const sidecar = new SidecarManager({
+			omp: async () => ({
+				ok: true,
+				runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+			}),
+			cwd: tempDir,
+			bridgeDir: tempDir,
+			accountRotation: () => mode,
+			accountRotationLedger: ledger,
+		});
+		const rotationRequests = () => bridgeRequests(logPath, "account_rotation_set");
+		try {
+			sidecar.start();
+			await expect.poll(rotationRequests, { timeout: 5_000, interval: 25 }).toEqual([{ mode: "even" }]);
+			expect(JSON.parse(await fs.readFile(envPath, "utf8"))).toEqual({ mode: "even", ledger });
+			mode = "quota";
+			sidecar.syncAccountRotation();
+			await expect
+				.poll(rotationRequests, { timeout: 5_000, interval: 25 })
+				.toEqual([{ mode: "even" }, { mode: "quota" }]);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
 });
+
+/** A fake omp that serves the gui-bridge socket, answers `{}` and logs every request to `logPath`. */
+function loggingBridgeOmp(logPath: string): string {
+	return [
+		'import * as fs from "node:fs";',
+		'import * as net from "node:net";',
+		"const server = net.createServer(socket => {",
+		'\tsocket.setEncoding("utf8");',
+		'\tlet buffer = "";',
+		'\tsocket.on("data", (chunk: string) => {',
+		"\t\tbuffer += chunk;",
+		'\t\tfor (let i = buffer.indexOf("\\n"); i !== -1; i = buffer.indexOf("\\n")) {',
+		"\t\t\tconst request = JSON.parse(buffer.slice(0, i)) as { id: unknown; method: string; params?: unknown };",
+		"\t\t\tbuffer = buffer.slice(i + 1);",
+		`\t\t\tfs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({ method: request.method, params: request.params ?? null }) + "\\n");`,
+		'\t\t\tsocket.write(JSON.stringify({ id: request.id, ok: true, result: {} }) + "\\n");',
+		"\t\t}",
+		"\t});",
+		"});",
+		"server.listen(process.env.OMP_GUI_BRIDGE, () => {",
+		'\tprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
+		"});",
+		"process.stdin.resume();",
+		'process.stdin.on("end", () => process.exit(0));',
+	].join("\n");
+}
+
+/** Params of every `method` request the fake bridge logged, in order. */
+async function bridgeRequests(logPath: string, method: string): Promise<unknown[]> {
+	const text = await fs.readFile(logPath, "utf8").catch(() => "");
+	return text
+		.split("\n")
+		.filter(Boolean)
+		.map(line => JSON.parse(line) as { method: string; params: unknown })
+		.filter(request => request.method === method)
+		.map(request => request.params);
+}

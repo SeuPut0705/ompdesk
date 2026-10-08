@@ -1,12 +1,18 @@
 /**
  * Machine-scoped services behind Settings, Usage and Stats: the agent's
- * models.yml custom providers, the omp-stats dashboard and `omp bench`. Each
- * computer serves its own. `LocalMachine` is this computer's — for its own
- * windows (ipc.ts) and for the devices paired with it (host-services.ts
- * `host.*` calls) — and `RemoteMachine` asks a paired host for its own.
- * ipc.ts picks one per call with `machineFor(device)`, `device` being the
- * paired host the caller's focused tab runs on (absent = this computer).
+ * models.yml custom providers, the omp-stats dashboard, `omp bench` and the
+ * account-rotation pref. Each computer serves its own. `LocalMachine` is this
+ * computer's — for its own windows (ipc.ts) and for the devices paired with it
+ * (host-services.ts `host.*` calls) — and `RemoteMachine` asks a paired host
+ * for its own. ipc.ts picks one per call with `machineFor(device)`, `device`
+ * being the paired host the caller's focused tab runs on (absent = this computer).
  */
+import {
+	type AccountRotationMode,
+	type AccountRotationState,
+	isAccountRotationMode,
+	parseAccountRotationPref,
+} from "../shared/account-rotation";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -17,7 +23,7 @@ import type {
 import { BENCHMARK_TIMEOUT_MS, BenchmarkRunner } from "./benchmark-runner";
 import { deleteModelsProvider, listModelsProviders, upsertModelsProvider } from "./models-config";
 import type { OmpResolution } from "./omp-runtime";
-import { HOST_STATS_TIMEOUT_MS, LINK_SLACK_MS } from "./remote/app-protocol";
+import { AccountRotationStateSchema, HOST_STATS_TIMEOUT_MS, LINK_SLACK_MS } from "./remote/app-protocol";
 import type { StatsClient } from "./stats-client";
 import type { Revive } from "./stats-restart-policy";
 
@@ -33,6 +39,10 @@ export interface MachineServices {
 	 */
 	runBenchmark(caller: string, options: IpcBenchmarkRunOptions, cwd: string | null): Promise<IpcBenchmarkRunResult>;
 	abortBenchmark(caller: string): Promise<boolean>;
+	/** prefs `accountRotation` of this machine, and whether its omp can rotate evenly. */
+	accountRotation(): Promise<AccountRotationState>;
+	/** Store the mode; every session this machine runs follows from its next prompt. */
+	setAccountRotation(mode: AccountRotationMode): Promise<AccountRotationState>;
 }
 
 /** The stats server's down-state texts, in this computer's UI language. */
@@ -77,6 +87,16 @@ export interface LocalMachineDeps {
 	/** The system omp `omp bench` runs. */
 	benchmarkOmp: () => Promise<OmpResolution>;
 	benchmarkEnv: () => Promise<NodeJS.ProcessEnv>;
+	accountRotation: AccountRotationDeps;
+}
+
+export interface AccountRotationDeps {
+	/** The stored prefs `accountRotation`, unparsed. */
+	read(): unknown;
+	/** Store the pref and push it to every live omp this machine runs (its own tabs and the ones it hosts). */
+	write(mode: AccountRotationMode): void;
+	/** The gui-bridge `accountRotation` probe for this machine's omp; null before one has answered. */
+	evenSupported(): Promise<boolean | null>;
 }
 
 export class LocalMachine implements MachineServices {
@@ -139,6 +159,17 @@ export class LocalMachine implements MachineServices {
 		const aborted = runner.abort();
 		if (!runner.running) this.#benchmarks.delete(caller);
 		return aborted;
+	}
+
+	async accountRotation(): Promise<AccountRotationState> {
+		const { read, evenSupported } = this.#deps.accountRotation;
+		return { mode: parseAccountRotationPref(read()), evenSupported: await evenSupported() };
+	}
+
+	async setAccountRotation(mode: AccountRotationMode): Promise<AccountRotationState> {
+		if (!isAccountRotationMode(mode)) throw codedError("invalid_preference_key", "Invalid account rotation");
+		this.#deps.accountRotation.write(mode);
+		return this.accountRotation();
 	}
 }
 
@@ -205,6 +236,14 @@ export class RemoteMachine implements MachineServices {
 
 	abortBenchmark(): Promise<boolean> {
 		return this.#request("host.bench.abort", {});
+	}
+
+	async accountRotation(): Promise<AccountRotationState> {
+		return AccountRotationStateSchema.parse(await this.#request<unknown>("host.accountRotation.get", {}));
+	}
+
+	async setAccountRotation(mode: AccountRotationMode): Promise<AccountRotationState> {
+		return AccountRotationStateSchema.parse(await this.#request<unknown>("host.accountRotation.set", { mode }));
 	}
 }
 

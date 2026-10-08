@@ -27,6 +27,7 @@ export const FEATURES = {
 	agentPause: "Agent pause",
 	modelPool: "Model pool",
 	replyLanguage: "Reply language",
+	accountRotation: "Even account rotation",
 	mcp: "MCP servers",
 	plugins: "Plugins & marketplaces",
 	skills: "Skills, hooks & prompt templates",
@@ -290,6 +291,26 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** Only the public `before_agent_start` hook; no internals to probe. */
 	replyLanguage: {},
+	/** account-rotation.ts: the even-rotation hook pins a session's account through public AuthStorage namespaces. */
+	accountRotation: {
+		pkg: ["AgentRegistry.global()"],
+		session: [
+			"sessionId",
+			"modelRegistry.authStorage.oauth.accounts()",
+			"modelRegistry.authStorage.sessions.pin()",
+			"modelRegistry.authStorage.blocks.list()",
+		],
+		modules: {
+			["@oh-my-pi/pi-ai/auth/blocks"]: [
+				"ACCOUNT_POLICY_BLOCK_SCOPE",
+				"AUTH_BLOCK_SCOPE",
+				"credentialBlockScopesForRequest()",
+				"providerTypeKey()",
+			],
+			["@oh-my-pi/pi-ai/usage/registry"]: ["defaultRankingStrategy()"],
+			[`${AGENT}/session/credential-pin`]: ["credentialPinHash()"],
+		},
+	},
 	mcp: {
 		session: [
 			"setMCPPromptCommands()",

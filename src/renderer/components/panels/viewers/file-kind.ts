@@ -16,6 +16,9 @@ export type ViewerKind =
 	| "json"
 	| "html"
 	| "notebook"
+	| "docx"
+	| "xlsx"
+	| "pptx"
 	| "office"
 	| "binary";
 
@@ -73,9 +76,10 @@ const KIND_BY_EXT: Readonly<Record<string, ViewerKind>> = {
 	htm: "html",
 	xhtml: "html",
 	ipynb: "notebook",
-	docx: "office",
-	xlsx: "office",
-	pptx: "office",
+	docx: "docx",
+	xlsx: "xlsx",
+	pptx: "pptx",
+	// Office formats without an in-app reader (binary or OpenDocument/iWork): the fallback card.
 	doc: "office",
 	xls: "office",
 	ppt: "office",
@@ -175,6 +179,9 @@ const ICON_BY_KIND: Readonly<Record<ViewerKind, FileIconKind>> = {
 	json: "json",
 	html: "code",
 	notebook: "code",
+	docx: "text",
+	xlsx: "table",
+	pptx: "file",
 	office: "file",
 	binary: "file",
 };

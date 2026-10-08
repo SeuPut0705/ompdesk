@@ -5,16 +5,22 @@
  * the panel width; above 100% the page scrolls horizontally.
  */
 
-import { ZoomIn, ZoomOut } from "lucide-react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
 import { useT } from "../../../lib/i18n";
-import { Button, IconButton } from "../../common";
 import { useBinaryFile } from "./use-file-read";
-import { useReportFileInfo, ViewerFailure, ViewerLoading, ViewerTooLarge, ViewerToolbar } from "./viewer-chrome";
+import {
+	useReportFileInfo,
+	ViewerFailure,
+	ViewerLoading,
+	ViewerTooLarge,
+	ViewerToolbar,
+	ZOOM_FIT_INDEX,
+	ZOOM_STEPS,
+	ZoomControls,
+} from "./viewer-chrome";
 
-const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3] as const;
 /** Horizontal breathing room around a fitted page (px). */
 const PAGE_GUTTER = 24;
 /** Pages within this margin of the viewport paint ahead of the scroll. */
@@ -43,7 +49,7 @@ function PdfDocumentView({ data }: { data: Uint8Array }) {
 	const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
 	const [firstPage, setFirstPage] = useState<PageSize | null>(null);
 	const [failure, setFailure] = useState<InlineFailure | null>(null);
-	const [zoomIndex, setZoomIndex] = useState<number>(ZOOM_STEPS.indexOf(1));
+	const [zoomIndex, setZoomIndex] = useState<number>(ZOOM_FIT_INDEX);
 	const [containerWidth, setContainerWidth] = useState(0);
 
 	useEffect(() => {
@@ -92,29 +98,7 @@ function PdfDocumentView({ data }: { data: Uint8Array }) {
 	return (
 		<div className="flex h-full min-h-0 flex-col" data-viewer="pdf">
 			<ViewerToolbar label={t("fileViewer.toolbar")}>
-				<IconButton
-					disabled={zoomIndex === 0}
-					icon={<ZoomOut />}
-					label={t("fileViewer.zoomOut")}
-					onClick={() => setZoomIndex(index => Math.max(0, index - 1))}
-					size="sm"
-				/>
-				<Button
-					aria-label={t("fileViewer.zoomFit")}
-					className="min-w-14 tabular-nums"
-					onClick={() => setZoomIndex(ZOOM_STEPS.indexOf(1))}
-					size="sm"
-					variant="ghost"
-				>
-					{`${Math.round(zoom * 100)}%`}
-				</Button>
-				<IconButton
-					disabled={zoomIndex === ZOOM_STEPS.length - 1}
-					icon={<ZoomIn />}
-					label={t("fileViewer.zoomIn")}
-					onClick={() => setZoomIndex(index => Math.min(ZOOM_STEPS.length - 1, index + 1))}
-					size="sm"
-				/>
+				<ZoomControls index={zoomIndex} onChange={setZoomIndex} />
 				{doc && (
 					<span className="ms-auto pe-1 text-omp-xs text-(--omp-dim) tabular-nums">
 						{t("fileViewer.pdfPages", { count: doc.numPages })}

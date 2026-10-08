@@ -55,6 +55,7 @@ const AREAS: readonly Area[] = [
 	{ name: "modes/loop", features: ["loopMode"], load: () => import("./modes/loop") },
 	{ name: "modes/pool", features: ["modelPool"], load: () => import("./modes/pool") },
 	{ name: "modes/reply-language", features: ["replyLanguage"], load: () => import("./modes/reply-language") },
+	{ name: "account-rotation", features: ["accountRotation"], load: () => import("./account-rotation") },
 	{ name: "modes/actions", features: ["tan", "omfg", "agentPause"], load: () => import("./modes/actions") },
 ];
 

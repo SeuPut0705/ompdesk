@@ -1,8 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
+import type { AccountRotationMode } from "../shared/account-rotation";
 import { codedError, ipcErrorCode } from "../shared/ipc-error-codes";
 import type { CustomProviderInput, IpcBenchmarkRunOptions } from "../shared/ipc-types";
 import { BENCHMARK_TIMEOUT_MS } from "./benchmark-runner";
-import { type HostRequest, LocalMachine, type MachineServices, machineFor, RemoteMachine } from "./machine-services";
+import {
+	type AccountRotationDeps,
+	type HostRequest,
+	LocalMachine,
+	type MachineServices,
+	machineFor,
+	RemoteMachine,
+} from "./machine-services";
 import { HOST_STATS_TIMEOUT_MS, LINK_SLACK_MS } from "./remote/app-protocol";
 import type { Revive } from "./stats-restart-policy";
 
@@ -11,13 +19,33 @@ const OPTIONS: IpcBenchmarkRunOptions = { models: ["anthropic/x"], profile: "cha
 
 type StatsFetch = (path: string, params?: Record<string, string>) => Promise<unknown>;
 
-function localMachine(port: number, revive: Revive = "scheduled", fetch: StatsFetch = async () => ({ ok: 1 })) {
+/** prefs `accountRotation` in memory; `write` records each fan-out. */
+function rotationPrefs(stored: unknown = undefined, evenSupported: boolean | null = true) {
+	const writes: AccountRotationMode[] = [];
+	const deps: AccountRotationDeps = {
+		read: () => stored,
+		write: mode => {
+			stored = mode;
+			writes.push(mode);
+		},
+		evenSupported: async () => evenSupported,
+	};
+	return { deps, writes };
+}
+
+function localMachine(
+	port: number,
+	revive: Revive = "scheduled",
+	fetch: StatsFetch = async () => ({ ok: 1 }),
+	accountRotation: AccountRotationDeps = rotationPrefs().deps,
+) {
 	return new LocalMachine({
 		stats: { port, fetch },
 		statsRestart: () => revive,
 		statsText,
 		benchmarkOmp: async () => ({ ok: false, error: "omp missing" }),
 		benchmarkEnv: async () => ({}),
+		accountRotation,
 	});
 }
 
@@ -92,6 +120,27 @@ describe("machineFor", () => {
 		expect(reply.unavailable).toBe(false);
 		expect(ipcErrorCode(reply)).toBe("remote_offline");
 	});
+
+	it("reads and writes a paired host's own account-rotation pref and checks the reply", async () => {
+		const host = fakeHost((method, params) =>
+			method === "host.accountRotation.set" && typeof params === "object" && params !== null && "mode" in params
+				? { mode: params.mode, evenSupported: false }
+				: { mode: "even", evenSupported: true },
+		);
+		const remote = new RemoteMachine({ request: host.request, device: "host-b", statsText });
+		await expect(remote.accountRotation()).resolves.toEqual({ mode: "even", evenSupported: true });
+		await expect(remote.setAccountRotation("quota")).resolves.toEqual({ mode: "quota", evenSupported: false });
+		expect(host.calls.map(({ method, params }) => ({ method, params }))).toEqual([
+			{ method: "host.accountRotation.get", params: {} },
+			{ method: "host.accountRotation.set", params: { mode: "quota" } },
+		]);
+		const garbled = new RemoteMachine({
+			request: fakeHost(() => ({ mode: "fastest" })).request,
+			device: "host-b",
+			statsText,
+		});
+		await expect(garbled.accountRotation()).rejects.toThrow();
+	});
 });
 
 describe("LocalMachine", () => {
@@ -133,5 +182,21 @@ describe("LocalMachine", () => {
 			error: "omp missing",
 		});
 		await expect(machine.abortBenchmark("window:1")).resolves.toBe(false);
+	});
+
+	it("reads the account-rotation pref as quota unless it is a known mode, and stores and pushes a change", async () => {
+		for (const stored of [undefined, "round-robin", 3]) {
+			await expect(
+				localMachine(0, "scheduled", undefined, rotationPrefs(stored).deps).accountRotation(),
+			).resolves.toEqual({ mode: "quota", evenSupported: true });
+		}
+		const prefs = rotationPrefs("quota", null);
+		const machine = localMachine(0, "scheduled", undefined, prefs.deps);
+		await expect(machine.setAccountRotation("even")).resolves.toEqual({ mode: "even", evenSupported: null });
+		expect(prefs.writes).toEqual(["even"]);
+		// What a renderer could send over IPC: the type says nothing about it.
+		const bad = "round-robin" as AccountRotationMode;
+		await expect(machine.setAccountRotation(bad)).rejects.toThrow(/Invalid account rotation/);
+		expect(prefs.writes).toEqual(["even"]);
 	});
 });

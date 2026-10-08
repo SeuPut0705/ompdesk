@@ -1,7 +1,8 @@
 /**
  * Fallback for files with no viewer: file info, "Open with default app", and
- * a hex dump of the first 64 KB. Office documents land here too, with a note
- * saying why (no in-app renderer ships for them).
+ * a hex dump of the first 64 KB. Office formats without an in-app reader
+ * (legacy binary .doc/.xls/.ppt, OpenDocument, iWork) land here too, with a
+ * note saying which ones can be previewed.
  */
 import { useMemo } from "react";
 import { formatBytes } from "../../../lib/format";

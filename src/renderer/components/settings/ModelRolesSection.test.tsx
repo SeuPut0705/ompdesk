@@ -124,8 +124,10 @@ describe("ModelRolesSection", () => {
 
 		await mount(<ModelRolesSection />);
 
-		const headings = [...document.body.querySelectorAll("h3")].map(heading => heading.textContent);
+		const headings = [...document.body.querySelectorAll("h4")].map(heading => heading.textContent);
 		expect(headings).toEqual(["Chat roles", "Specialized roles"]);
+		// Under the section's own heading.
+		expect(document.body.querySelector("h3")?.textContent).toBe(translate("settings.models.roles"));
 	});
 
 	it("groups each role's candidates by model kind and preselects the saved selector by name", async () => {

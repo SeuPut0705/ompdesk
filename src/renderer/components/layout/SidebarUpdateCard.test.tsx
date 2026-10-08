@@ -2,9 +2,11 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { UpdateStatus } from "../../../shared/ipc-types";
 import { I18nProvider } from "../../lib/i18n";
-import { useUpdaterStore } from "../../stores/updater";
-import { SidebarUpdateCard } from "./SidebarUpdateCard";
+import { useUiStore } from "../../stores/ui";
+import { checkForUpdatesInPlace, useUpdaterStore } from "../../stores/updater";
+import { SidebarUpdateCard, UP_TO_DATE_MS } from "./SidebarUpdateCard";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -18,7 +20,7 @@ interface TestElement {
 	querySelectorAll: (selector: string) => TestElement[];
 }
 
-const check = vi.fn(() => Promise.resolve({ state: "checking" } as const));
+const check = vi.fn<() => Promise<UpdateStatus>>(() => Promise.resolve({ state: "checking" }));
 const download = vi.fn(() => Promise.resolve({ state: "idle" } as const));
 const apply = vi.fn(() => Promise.resolve());
 Object.assign(window, { omp: { updater: { check, download, apply } } });
@@ -40,7 +42,9 @@ afterEach(async () => {
 		root.unmount();
 	});
 	container.remove();
-	useUpdaterStore.setState({ status: { state: "idle" }, dismissed: {} });
+	useUpdaterStore.setState({ status: { state: "idle" }, dismissed: {}, manualCheck: false });
+	useUiStore.getState().closeDestination();
+	vi.useRealTimers();
 	check.mockClear();
 	download.mockClear();
 	apply.mockClear();
@@ -133,5 +137,73 @@ describe("SidebarUpdateCard", () => {
 			useUpdaterStore.setState({ status: { state: "downloaded", version: "0.8.6", mode: "relaunch" } });
 		});
 		expect(container.textContent).toContain("Update 0.8.6 ready");
+	});
+
+	describe("a check from the app menu", () => {
+		it("reports checking, then up to date in place, and fades out on its own", async () => {
+			vi.useFakeTimers();
+			const { promise, resolve } = Promise.withResolvers<UpdateStatus>();
+			check.mockReturnValueOnce(promise);
+			await mount(<SidebarUpdateCard />);
+			await act(async () => {
+				void checkForUpdatesInPlace();
+			});
+			expect(container.textContent).toContain("Checking for updates…");
+			expect(useUiStore.getState().destination).toBe("session");
+
+			await act(async () => resolve({ state: "not-available", version: "0.14.0" }));
+			expect(container.textContent).toContain("OMPdesk 0.14.0 is up to date");
+			expect(card()?.getAttribute("data-update-tone")).toBe("ok");
+
+			await act(async () => vi.advanceTimersByTime(UP_TO_DATE_MS));
+			expect(container.textContent).toBe("");
+		});
+
+		it("shows a failure with retry, and the retry checks again", async () => {
+			check.mockResolvedValueOnce({ state: "error", message: "Couldn't check", showInBanner: true });
+			await mount(<SidebarUpdateCard />);
+			await act(async () => checkForUpdatesInPlace());
+			expect(container.textContent).toContain("Update check failed");
+			check.mockResolvedValueOnce({ state: "not-available", version: "0.14.0" });
+			await act(async () => button("Check again")?.click());
+			expect(check).toHaveBeenCalledTimes(2);
+			expect(container.textContent).toContain("is up to date");
+		});
+
+		it("follows the background download it finds, even for a version put off earlier", async () => {
+			useUpdaterStore.setState({ dismissed: { version: "0.15.0" } });
+			check.mockResolvedValueOnce({ state: "available", version: "0.15.0", mode: "relaunch" });
+			await mount(<SidebarUpdateCard />);
+			await act(async () => checkForUpdatesInPlace());
+			expect(container.textContent).toContain("Update 0.15.0 available");
+			await act(async () => {
+				useUpdaterStore.setState({
+					status: {
+						state: "downloading",
+						version: "0.15.0",
+						mode: "relaunch",
+						percent: 30,
+						bytesPerSecond: 1,
+						transferred: 30,
+						total: 100,
+					},
+				});
+			});
+			expect(container.textContent).toContain("30%");
+			await act(async () => {
+				useUpdaterStore.setState({ status: { state: "downloaded", version: "0.15.0", mode: "relaunch" } });
+			});
+			expect(button("Restart to update")).toBeDefined();
+		});
+
+		it("opens the update settings only when GitHub access is missing", async () => {
+			check.mockResolvedValueOnce({ state: "auth-required", reason: "missing" });
+			await mount(<SidebarUpdateCard />);
+			await act(async () => checkForUpdatesInPlace());
+			expect(useUiStore.getState().destination).toBe("session");
+			await act(async () => button("Open update settings")?.click());
+			expect(useUiStore.getState().destination).toBe("settings");
+			expect(useUiStore.getState().settingsTab).toBe("updates");
+		});
 	});
 });

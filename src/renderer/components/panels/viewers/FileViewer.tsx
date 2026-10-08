@@ -20,6 +20,7 @@ import type { ReactNode } from "react";
 import { type FileIconKind, fileIconKind, type ViewerKind, viewerKind } from "./file-kind";
 import { HexView } from "./HexView";
 import { AvView, ImageView } from "./MediaViews";
+import { DocxView, PptxView, XlsxView } from "./OfficeViews";
 import { PdfView } from "./PdfView";
 import { CodeFileView, CsvFileView, HtmlFileView, JsonFileView, MarkdownFileView, NotebookFileView } from "./TextViews";
 import { type FileInfo, FileInfoContext } from "./viewer-chrome";
@@ -46,6 +47,9 @@ export function FileViewer({
 		json: <JsonFileView path={path} tabId={tabId} />,
 		html: <HtmlFileView path={path} tabId={tabId} />,
 		notebook: <NotebookFileView path={path} tabId={tabId} />,
+		docx: <DocxView path={path} tabId={tabId} />,
+		xlsx: <XlsxView path={path} tabId={tabId} />,
+		pptx: <PptxView path={path} tabId={tabId} />,
 		office: <HexView office path={path} tabId={tabId} />,
 		binary: <HexView path={path} tabId={tabId} />,
 	};

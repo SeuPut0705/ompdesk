@@ -8,6 +8,7 @@ import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import Store from "electron-store";
+import type { AccountRotationMode } from "../shared/account-rotation";
 import { parseLaunchProfile, profileToFlags, stripDenylistedFlags } from "../shared/launch-profile";
 import { DEFAULT_ROLE_MODEL_SELECTOR, parseModelRestoreFailure } from "../shared/model-restore";
 import type {
@@ -197,6 +198,14 @@ export interface SidecarOptions {
 	 * session. Undefined: no instruction.
 	 */
 	replyLanguage?: () => string | undefined;
+	/**
+	 * The Settings › Models & providers account-rotation mode, passed to omp as
+	 * `OMP_GUI_ACCOUNT_ROTATION` and pushed by `syncAccountRotation()` (same
+	 * point-of-use pattern as replyLanguage). Absent: stock selection.
+	 */
+	accountRotation?: () => AccountRotationMode;
+	/** The even-rotation ledger every local omp shares (`OMP_GUI_ACCOUNT_ROTATION_STATE`). */
+	accountRotationLedger?: string;
 	/**
 	 * Persists a crash report (reason + stderr tail) for post-mortem diagnosis.
 	 * Same point-of-use injection as `proxyEnv`/`shellEnv`: the real
@@ -418,6 +427,8 @@ export class SidecarManager extends EventEmitter {
 		this.#lastEntryId = null;
 		const { bridgeDir, cwd, extraFlags } = this.#options;
 		const replyLanguage = this.#options.replyLanguage?.();
+		const accountRotation = this.#options.accountRotation?.();
+		const accountRotationLedger = this.#options.accountRotationLedger;
 
 		const args = ["--mode", "rpc-ui"];
 		if (this.#resumeSessionPath) args.push("--session", this.#resumeSessionPath);
@@ -450,6 +461,8 @@ export class SidecarManager extends EventEmitter {
 					PATH: ompPathEnv(bin, this.#shellEnvVars.PATH ?? process.env.PATH ?? ""),
 					...(bridgeAddress ? { OMP_GUI_BRIDGE: bridgeAddress } : {}),
 					...(replyLanguage ? { OMP_GUI_REPLY_LANGUAGE: replyLanguage } : {}),
+					...(accountRotation ? { OMP_GUI_ACCOUNT_ROTATION: accountRotation } : {}),
+					...(accountRotationLedger ? { OMP_GUI_ACCOUNT_ROTATION_STATE: accountRotationLedger } : {}),
 					PI_RPC_EMIT_TITLE: "1",
 					PI_NO_PTY: "1",
 					PI_NOTIFICATIONS: "off",
@@ -784,6 +797,7 @@ export class SidecarManager extends EventEmitter {
 							this.syncImageGeneration();
 							// The setting may have changed between spawn (env) and connect.
 							this.syncReplyLanguage();
+							this.syncAccountRotation();
 						},
 						(err: unknown) => {
 							const error = err instanceof Error ? err.message : String(err);
@@ -935,6 +949,17 @@ export class SidecarManager extends EventEmitter {
 	syncReplyLanguage(): void {
 		const language = this.#options.replyLanguage?.() ?? null;
 		void this.#bridge?.request("reply_language_set", { language }).catch(() => {});
+	}
+
+	/**
+	 * Push the current account-rotation mode to this omp (gui-bridge
+	 * `account_rotation_set`); its next prompt follows. Fire-and-forget like
+	 * syncReplyLanguage: an unconnected bridge syncs on connect, and an omp
+	 * without the feature refuses it (`unsupported_omp`) and stays stock.
+	 */
+	syncAccountRotation(): void {
+		const mode = this.#options.accountRotation?.();
+		if (mode) void this.#bridge?.request("account_rotation_set", { mode }).catch(() => {});
 	}
 
 	/** Send a side-channel frame (bypasses command queue). */

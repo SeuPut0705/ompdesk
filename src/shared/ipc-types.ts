@@ -3,6 +3,7 @@
  * Type-safe contract for the contextBridge API.
  */
 
+import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
 import type { IpcErrorCode } from "./ipc-error-codes";
 import type { LaunchProfile } from "./launch-profile";
 import type { SessionModelOverride } from "./model-restore";
@@ -182,6 +183,10 @@ export const IPC_COMMANDS = {
 	MODELS_PROVIDER_DELETE: "models:provider-delete",
 	/** Open the agent's models.yml in the system editor (created when missing; falls back to revealing it in the file manager) */
 	MODELS_CONFIG_OPEN: "models:config-open",
+	/** The account-rotation pref of a machine (a paired host, or this device) and whether its omp supports even mode */
+	ACCOUNT_ROTATION_GET: "account-rotation:get",
+	/** Store the account-rotation pref there; its live sessions follow from their next prompt */
+	ACCOUNT_ROTATION_SET: "account-rotation:set",
 	/** List workspace files as a tree (main-process readdir, no sidecar needed) */
 	FS_LIST: "fs:list",
 	/** Read a workspace file with a byte cap */
@@ -1546,6 +1551,11 @@ export interface OmpApi {
 		deleteProvider(id: string, device?: string): Promise<void>;
 		/** Opens this device's file only; a paired host's fails with code `remote_path_native`. */
 		openConfig(device?: string): Promise<{ path: string; opened: boolean }>;
+	};
+	/** How omp spreads sessions over a provider's accounts on `device` (a paired host; absent = this device). */
+	accountRotation: {
+		get(device?: string): Promise<AccountRotationState>;
+		set(mode: AccountRotationMode, device?: string): Promise<AccountRotationState>;
 	};
 	fs: {
 		list(path?: string, maxDepth?: number, maxEntries?: number, tabId?: string): Promise<IpcFsListResult>;

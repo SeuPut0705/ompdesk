@@ -39,8 +39,9 @@ export function SettingsSection({ id, title, description, actions, children, cla
 			id={id}
 		>
 			{(title || description || actions) && (
-				<div className="mb-2 flex items-end gap-3">
-					<div className="min-w-0 flex-1">
+				<div className="mb-2 flex flex-wrap items-end gap-x-3 gap-y-2">
+					{/* Wide actions wrap under the text instead of squeezing it into a column. */}
+					<div className="min-w-[min(100%,12rem)] flex-1">
 						{title && (
 							<h3 className="text-sc-lg font-semibold text-(--sc-text)" id={headingId}>
 								{title}

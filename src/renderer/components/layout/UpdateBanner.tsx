@@ -16,10 +16,12 @@ export function UpdateBanner() {
 	const status = useUpdaterStore(s => s.status);
 	const dismissed = useUpdaterStore(s => s.dismissed);
 	const dismissError = useUpdaterStore(s => s.dismissError);
+	// A check the user just asked for reports its own failure in the sidebar card.
+	const manualCheck = useUpdaterStore(s => s.manualCheck);
 
 	// A dismissed failure stays hidden until a check actually succeeds again, so
 	// the four-hourly poll can't resurrect a banner the user already closed.
-	if (status.state !== "error" || status.showInBanner === false || dismissed.error) return null;
+	if (manualCheck || status.state !== "error" || status.showInBanner === false || dismissed.error) return null;
 	const tooltip = status.detail ? `${status.message}\n${status.detail}` : status.message;
 	return (
 		<div className="shrink-0 px-(--omp-column-pad) pt-2" data-update-notice role="status">

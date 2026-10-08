@@ -8,8 +8,10 @@ export interface ProgressBarProps {
 	value: number;
 	/** Optional label rendered to the left of the bar. */
 	label?: string;
-	/** Optional value text rendered to the right (defaults to percent). */
+	/** Optional value text rendered to the right (defaults to percent; `""` shows none). */
 	valueText?: string;
+	/** Accessible name of the meter when no visible `label` names it. */
+	ariaLabel?: string;
 	/** Override automatic threshold coloring with an explicit CSS color. */
 	color?: string;
 	/** Track height in px. */
@@ -23,7 +25,7 @@ function thresholdColor(value: number): string {
 	return "var(--sc-success)";
 }
 
-export function ProgressBar({ value, label, valueText, color, height = 6, className }: ProgressBarProps) {
+export function ProgressBar({ value, label, valueText, ariaLabel, color, height = 6, className }: ProgressBarProps) {
 	const clamped = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
 	const fill = color ?? thresholdColor(clamped);
 	const text = valueText ?? `${Math.round(clamped * 100)}%`;
@@ -36,6 +38,7 @@ export function ProgressBar({ value, label, valueText, color, height = 6, classN
 				</span>
 			)}
 			<div
+				aria-label={ariaLabel ?? label}
 				aria-valuemax={1}
 				aria-valuemin={0}
 				aria-valuenow={Number(clamped.toFixed(3))}
@@ -48,7 +51,7 @@ export function ProgressBar({ value, label, valueText, color, height = 6, classN
 					style={{ width: `${clamped * 100}%`, backgroundColor: fill }}
 				/>
 			</div>
-			<span className="shrink-0 text-sc-2xs tabular-nums text-(--sc-text-muted)">{text}</span>
+			{text && <span className="shrink-0 text-sc-2xs tabular-nums text-(--sc-text-muted)">{text}</span>}
 		</div>
 	);
 }

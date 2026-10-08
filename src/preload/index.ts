@@ -4,6 +4,7 @@
  * Event subscriptions return unsubscribe functions.
  */
 import { contextBridge, ipcRenderer } from "electron";
+import type { AccountRotationMode, AccountRotationState } from "../shared/account-rotation";
 import type {
 	CustomProviderInput,
 	CustomProviderView,
@@ -362,6 +363,13 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.MODELS_PROVIDER_DELETE, id, device) as Promise<void>,
 		openConfig: (device?: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.MODELS_CONFIG_OPEN, device) as Promise<{ path: string; opened: boolean }>,
+	},
+
+	accountRotation: {
+		get: (device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.ACCOUNT_ROTATION_GET, device) as Promise<AccountRotationState>,
+		set: (mode: AccountRotationMode, device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.ACCOUNT_ROTATION_SET, mode, device) as Promise<AccountRotationState>,
 	},
 
 	fs: {

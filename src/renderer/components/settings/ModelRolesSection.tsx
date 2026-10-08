@@ -1,11 +1,11 @@
 /**
- * Settings › Models › Roles: which model each role uses. Role metadata and
- * the eligible candidate pool per role are owned by the backend
- * (get_model_roles returns candidates inline); this section renders them,
- * grouped into chat and specialized roles, and commits through
- * set_model_role. Loads on mount and re-reads whenever the sidecar
- * (re)connects; a failed or impossible read degrades to a Banner over the
- * last good rows instead of claiming no roles exist.
+ * Settings › Models › Roles: which model each role uses, one row per role
+ * with its picker. Role metadata and the eligible candidate pool per role
+ * are owned by the backend (get_model_roles returns candidates inline); this
+ * section renders them, grouped into chat and specialized roles, and commits
+ * through set_model_role. Loads on mount and re-reads whenever the sidecar
+ * (re)connects; a failed or impossible read is one quiet InlineNotice over
+ * the last good rows instead of claiming no roles exist.
  */
 
 import { RefreshCw, Tags } from "lucide-react";
@@ -15,9 +15,10 @@ import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
-import { Badge, type BadgeVariant, Banner, Button, EmptyState, ErrorDetail, Spinner } from "../common";
+import { Badge, type BadgeVariant, Button, EmptyState, IconButton, Spinner } from "../common";
+import { InlineNotice } from "./InlineNotice";
 import { type ModelValueGroup, ModelValueSelect } from "./ModelValueSelect";
-import { SettingsRow } from "./SettingsLayout";
+import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 const BADGE_BY_COLOR: Record<string, BadgeVariant> = {
 	success: "success",
@@ -81,10 +82,12 @@ function RoleRow({
 				/>
 			}
 			description={
-				<>
-					{t("modelRoles.source", { source: role.source })}
-					{candidates.length === 0 && <span className="block">{t("modelRoles.noCandidates")}</span>}
-				</>
+				role.source === "project" || candidates.length === 0 ? (
+					<>
+						{role.source === "project" && t("modelRoles.sourceProject")}
+						{candidates.length === 0 && <span className="block">{t("modelRoles.noCandidates")}</span>}
+					</>
+				) : undefined
 			}
 			id={`model-role-${role.id}`}
 			label={role.name}
@@ -170,41 +173,43 @@ export function ModelRolesSection() {
 	};
 
 	const hasRows = sections.length > 0;
-	const retry = (
-		<Button icon={<RefreshCw />} onClick={() => void load()} size="sm" variant="secondary">
-			{t("common.retry")}
-		</Button>
-	);
-	const refresh = (
-		<Button
-			disabled={!sidecarReady}
-			icon={<RefreshCw />}
-			loading={loading}
-			onClick={() => void load()}
-			size="sm"
-			variant="ghost"
-		>
-			{t("modelRoles.refresh")}
-		</Button>
-	);
 
 	return (
-		<div className="flex flex-col gap-4 py-3">
-			{/* The banners below carry their own retry; a second refresh above them is noise. */}
-			{sidecarReady && error === null && <div className="flex justify-end">{refresh}</div>}
+		<SettingsSection
+			actions={
+				<IconButton
+					disabled={!sidecarReady || loading}
+					icon={loading ? <Spinner inheritColor size="sm" /> : <RefreshCw />}
+					label={sidecarReady ? t("modelRoles.refresh") : t("modelRoles.notConnected")}
+					onClick={() => void load()}
+					size="sm"
+				/>
+			}
+			description={t("settings.models.rolesDesc")}
+			id="settings-models-roles"
+			title={t("settings.models.roles")}
+		>
 			{!sidecarReady && (
-				<Banner live title={t("modelRoles.notConnected")} variant="warning">
-					{hasRows ? t("modelRoles.stale") : t("modelRoles.notConnectedHint")}
-				</Banner>
+				<InlineNotice
+					title={`${t("modelRoles.notConnected")}. ${hasRows ? t("modelRoles.stale") : t("modelRoles.notConnectedHint")}`}
+					tone="info"
+				/>
 			)}
 			{sidecarReady && error !== null && (
-				<Banner actions={retry} live title={t("modelRoles.loadFailed")} variant="danger">
-					{hasRows && <span className="block">{t("modelRoles.stale")}</span>}
-					<ErrorDetail error={error} />
-				</Banner>
+				<InlineNotice
+					action={
+						<Button icon={<RefreshCw />} onClick={() => void load()} size="sm" variant="ghost">
+							{t("common.retry")}
+						</Button>
+					}
+					detail={error}
+					live
+					title={hasRows ? `${t("modelRoles.loadFailed")} ${t("modelRoles.stale")}` : t("modelRoles.loadFailed")}
+					tone="danger"
+				/>
 			)}
 			{loading && !hasRows && (
-				<div className="flex justify-center py-10">
+				<div className="flex justify-center py-6">
 					<Spinner />
 				</div>
 			)}
@@ -213,12 +218,12 @@ export function ModelRolesSection() {
 			)}
 			{sections.map(section => (
 				<div aria-labelledby={`model-roles-${section.key}`} key={section.key} role="group">
-					<h3
-						className="text-sc-xs font-semibold tracking-wide text-(--sc-text-muted) uppercase"
+					<h4
+						className="pt-3 pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase"
 						id={`model-roles-${section.key}`}
 					>
 						{t(`modelRoles.section.${section.key}`)}
-					</h3>
+					</h4>
 					<div className="divide-y divide-(--sc-divider)">
 						{section.roles.map(role => (
 							<RoleRow
@@ -232,6 +237,6 @@ export function ModelRolesSection() {
 					</div>
 				</div>
 			))}
-		</div>
+		</SettingsSection>
 	);
 }

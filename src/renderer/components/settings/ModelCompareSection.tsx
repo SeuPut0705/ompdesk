@@ -41,16 +41,16 @@ import { toast, toastError } from "../../stores/toast";
 import {
 	Badge,
 	type BadgeVariant,
-	Banner,
 	Button,
 	EmptyState,
-	ErrorDetail,
+	IconButton,
 	ProgressBar,
 	SearchField,
 	Select,
 	Spinner,
 	Switch,
 } from "../common";
+import { InlineNotice } from "./InlineNotice";
 
 // ============================================================================
 // Derived row + helpers
@@ -156,7 +156,7 @@ export function buildModelRows(input: {
 	});
 }
 
-type SortKey = "provider" | "model" | "context" | "cost" | "quota" | "roles";
+type SortKey = "provider" | "model" | "context" | "cost" | "roles";
 
 export type UnusableReason = "disabled" | "no-auth";
 
@@ -177,7 +177,6 @@ const COMPARATORS: Record<SortKey, (a: Row, b: Row, dir: 1 | -1) => number> = {
 	model: (a, b, dir) => (a.name ?? a.id).localeCompare(b.name ?? b.id) * dir || a.provider.localeCompare(b.provider),
 	context: (a, b, dir) => cmpNumber(a.contextWindow, b.contextWindow, dir),
 	cost: (a, b, dir) => cmpNumber(a.costIn, b.costIn, dir) || cmpNumber(a.costOut, b.costOut, dir),
-	quota: (a, b, dir) => cmpNumber(a.quota?.fraction ?? null, b.quota?.fraction ?? null, dir),
 	roles: (a, b, dir) => cmpNumber(a.roles.length, b.roles.length, dir),
 };
 
@@ -488,7 +487,7 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 			// Wide matrix: scrolls both ways inside the section instead of pushing
 			// the page wider than a 900px window.
 			<div className="max-h-[70vh] overflow-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
-				<table className="w-full min-w-[56rem] border-separate border-spacing-0 text-left text-sc-md">
+				<table className="w-full min-w-[42rem] border-separate border-spacing-0 text-left text-sc-md">
 					<thead className="sticky top-0 z-(--sc-z-raised) bg-(--sc-surface-1)">
 						<tr>
 							<SortHeader
@@ -512,7 +511,6 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 								sort={sort}
 								sortKey="cost"
 							/>
-							<SortHeader label={t("modelCompare.col.quota")} onSort={handleSort} sort={sort} sortKey="quota" />
 							<SortHeader label={t("modelCompare.col.roles")} onSort={handleSort} sort={sort} sortKey="roles" />
 							<th
 								className={cx(
@@ -557,15 +555,30 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 											active ? "border-l-(--sc-accent)" : "border-l-transparent",
 										)}
 									>
-										<div className="flex items-center gap-2">
+										<div className="flex min-w-0 flex-col gap-1">
 											<span className="font-medium whitespace-nowrap text-(--sc-text)">
 												{row.providerName}
 											</span>
-											<AuthBadge row={row} t={t} />
-											{row.disabled && <Badge variant="warning">{t("providers.badge.disabled")}</Badge>}
+											<div className="flex items-center gap-1.5">
+												<AuthBadge row={row} t={t} />
+												{row.disabled && <Badge variant="warning">{t("providers.badge.disabled")}</Badge>}
+											</div>
+											{row.quota && (
+												<span
+													className="block w-20"
+													title={`${t("modelCompare.col.quota")}: ${row.quota.limit.label}${row.quota.limit.windowLabel ? ` · ${row.quota.limit.windowLabel}` : ""}`}
+												>
+													<ProgressBar
+														ariaLabel={`${t("modelCompare.col.quota")}: ${row.quota.limit.label}`}
+														height={3}
+														value={row.quota.fraction}
+														valueText=""
+													/>
+												</span>
+											)}
 										</div>
 									</td>
-									<td className={cx(CELL, "max-w-[18rem]")}>
+									<td className={cx(CELL, "max-w-[16rem]")}>
 										<div className="flex min-w-0 flex-col">
 											<div className="flex min-w-0 items-center gap-1.5">
 												<span className="truncate font-medium text-(--sc-text)">{row.name ?? row.id}</span>
@@ -604,18 +617,6 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 											<span className="text-(--sc-text-subtle)">—</span>
 										)}
 									</td>
-									<td className={cx(CELL, "min-w-[7rem]")}>
-										{row.quota ? (
-											<span
-												className="block"
-												title={`${row.quota.limit.label}${row.quota.limit.windowLabel ? ` · ${row.quota.limit.windowLabel}` : ""}`}
-											>
-												<ProgressBar height={4} value={row.quota.fraction} />
-											</span>
-										) : (
-											<span className="text-(--sc-text-subtle)">—</span>
-										)}
-									</td>
 									<td className={CELL}>
 										<div className="flex flex-wrap items-center gap-1">
 											{row.roles.map(role => {
@@ -637,7 +638,7 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 										<div className="flex items-center justify-end gap-1.5">
 											<Select
 												aria-label={t("modelCompare.assignRole")}
-												className="max-w-[9rem]"
+												className="max-w-[8rem]"
 												controlSize="sm"
 												disabled={busy || roles === null || !sidecarReady}
 												onChange={event => void assignRole(row, event.target.value)}
@@ -676,28 +677,36 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 	}
 
 	return (
-		<div className="flex min-w-0 flex-col gap-3 py-3">
+		<div className="flex min-w-0 flex-col gap-3 pt-1">
 			{!sidecarReady && (
-				<Banner live title={t("modelCompare.notConnected")} variant="warning">
-					{t("modelCompare.notConnectedHint")}
-				</Banner>
+				<InlineNotice
+					title={`${t("modelCompare.notConnected")}. ${t("modelCompare.notConnectedHint")}`}
+					tone="info"
+				/>
 			)}
 			{fatalError !== null && (
-				<Banner
-					actions={
-						<Button icon={<RefreshCw />} onClick={() => void load()} size="sm" variant="secondary">
+				<InlineNotice
+					action={
+						<Button icon={<RefreshCw />} onClick={() => void load()} size="sm" variant="ghost">
 							{t("modelCompare.retry")}
 						</Button>
 					}
+					detail={fatalError}
 					live
 					title={t("modelCompare.modelsFailed")}
-					variant="danger"
-				>
-					<ErrorDetail error={fatalError} />
-				</Banner>
+					tone="danger"
+				/>
 			)}
 			{failedSections.length > 0 && (
-				<Banner variant="warning">{t("modelCompare.partialWarning", { what: failedSections.join(", ") })}</Banner>
+				<InlineNotice
+					action={
+						<Button icon={<RefreshCw />} onClick={() => void load()} size="sm" variant="ghost">
+							{t("modelCompare.retry")}
+						</Button>
+					}
+					title={t("modelCompare.partialWarning", { what: failedSections.join(", ") })}
+					tone="warning"
+				/>
 			)}
 
 			<div className="flex flex-wrap items-center gap-2">
@@ -726,22 +735,21 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 							<Switch checked={authOnly} id={authOnlyId} onCheckedChange={setAuthOnly} size="sm" />
 							{t("modelCompare.authOnly")}
 						</label>
-						<span className="text-sc-xs whitespace-nowrap text-(--sc-text-muted) tabular-nums">
-							{t("modelCompare.count", { shown: visibleRows.length, total: rows.length })}
-						</span>
 					</>
 				)}
 				<div className="ml-auto flex items-center gap-2">
-					<Button
-						disabled={!sidecarReady}
-						icon={<RefreshCw />}
-						loading={loading}
+					{rows.length > 0 && (
+						<span className="text-sc-xs whitespace-nowrap text-(--sc-text-muted) tabular-nums">
+							{t("modelCompare.count", { shown: visibleRows.length, total: rows.length })}
+						</span>
+					)}
+					<IconButton
+						disabled={!sidecarReady || loading}
+						icon={loading ? <Spinner inheritColor size="sm" /> : <RefreshCw />}
+						label={t("modelCompare.refresh")}
 						onClick={() => void load()}
 						size="sm"
-						variant="ghost"
-					>
-						{t("modelCompare.refresh")}
-					</Button>
+					/>
 					<Button icon={<Gauge />} onClick={onOpenBenchmark} size="sm" variant="secondary">
 						{t("modelCompare.runBenchmark")}
 					</Button>

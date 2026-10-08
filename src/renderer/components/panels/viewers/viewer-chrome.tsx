@@ -1,15 +1,15 @@
 /**
  * Shared chrome for the Files drawer viewers: the loading / error / too-large
  * states every view must end in, the truncation note with Load more, the
- * per-view toolbar, and the channel a view uses to tell the header the file's
- * size and type.
+ * per-view toolbar and its fit-relative zoom controls, and the channel a view
+ * uses to tell the header the file's size and type.
  */
-import { ExternalLink as ExternalLinkIcon } from "lucide-react";
+import { ExternalLink as ExternalLinkIcon, ZoomIn, ZoomOut } from "lucide-react";
 import { createContext, type ReactNode, useContext, useEffect } from "react";
 import type { InlineFailure } from "../../../lib/error-detail";
 import { formatBytes } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { Button, ErrorDetail, Spinner } from "../../common";
+import { Button, ErrorDetail, IconButton, Spinner } from "../../common";
 import { PathLink } from "../../tools/PathLink";
 
 export interface FileInfo {
@@ -116,5 +116,42 @@ export function ViewerToolbar({ children, label }: { children: ReactNode; label:
 		>
 			{children}
 		</div>
+	);
+}
+
+/** Zoom levels relative to fitting the panel width (PDF pages, Word pages). */
+export const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3] as const;
+export const ZOOM_FIT_INDEX = ZOOM_STEPS.indexOf(1);
+
+/** Zoom out, the current percentage (click: back to fit), zoom in. */
+export function ZoomControls({ index, onChange }: { index: number; onChange: (index: number) => void }) {
+	const t = useT();
+	const zoom = ZOOM_STEPS[index] ?? 1;
+	return (
+		<>
+			<IconButton
+				disabled={index === 0}
+				icon={<ZoomOut />}
+				label={t("fileViewer.zoomOut")}
+				onClick={() => onChange(Math.max(0, index - 1))}
+				size="sm"
+			/>
+			<Button
+				aria-label={t("fileViewer.zoomFit")}
+				className="min-w-14 tabular-nums"
+				onClick={() => onChange(ZOOM_FIT_INDEX)}
+				size="sm"
+				variant="ghost"
+			>
+				{`${Math.round(zoom * 100)}%`}
+			</Button>
+			<IconButton
+				disabled={index === ZOOM_STEPS.length - 1}
+				icon={<ZoomIn />}
+				label={t("fileViewer.zoomIn")}
+				onClick={() => onChange(Math.min(ZOOM_STEPS.length - 1, index + 1))}
+				size="sm"
+			/>
+		</>
 	);
 }

@@ -4,6 +4,7 @@
  * both come from here, so a session runs the same way whoever opened it.
  */
 import { app } from "electron";
+import { parseAccountRotationPref } from "../shared/account-rotation";
 import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../shared/reply-language";
 import { bootModelSelector } from "./boot-model";
 import type { BridgeConnectResult, BridgeHealth } from "./bridge-health";
@@ -23,6 +24,10 @@ export interface LocalSidecarDeps {
 	sessionKinds: SessionKindStore;
 	/** The stored Settings › General conversation-language pref (`replyLanguage`), read per use. */
 	replyLanguagePref: () => unknown;
+	/** The stored Settings › Models & providers account-rotation pref (`accountRotation`), read per use. */
+	accountRotationPref: () => unknown;
+	/** The even-rotation ledger file every omp on this machine shares. */
+	accountRotationLedger: string;
 }
 
 /** The device language as a BCP 47 subtag (`ko`, `zh-Hant`): not the UI one, which ships only en/ko. */
@@ -50,6 +55,8 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			proxyEnv: deps.proxyEnv,
 			shellEnv: shellSpawnEnv,
 			replyLanguage: () => resolveReplyLanguage(deps.replyLanguagePref(), replyLanguageName(deviceLanguage())),
+			accountRotation: () => parseAccountRotationPref(deps.accountRotationPref()),
+			accountRotationLedger: deps.accountRotationLedger,
 			bootModel: runtime => bootModelSelector(runtime, bridgeDir),
 			// Finder-launched omp has no terminal, and a sidecar that dies before
 			// it can write its own log only speaks through stderr — land the tail

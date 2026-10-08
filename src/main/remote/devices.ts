@@ -291,6 +291,11 @@ export class RemoteDevices {
 		this.#deps.services.syncReplyLanguage();
 	}
 
+	/** This machine's account-rotation setting changed: tabs it hosts for devices follow it. */
+	hostAccountRotationChanged(): void {
+		this.#deps.services.syncAccountRotation();
+	}
+
 	async dispose(): Promise<void> {
 		this.#disposed = true;
 		this.#unwatchRunning();

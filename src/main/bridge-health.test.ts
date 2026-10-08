@@ -61,6 +61,19 @@ describe("BridgeHealth", () => {
 		expect(health.take()).toEqual([]);
 	});
 
+	it("answers whether a probed omp version serves a feature, and doesn't know before a probe", async () => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		const health = new BridgeHealth(() => {});
+		expect(health.supports("18.8.0", "accountRotation")).toBeNull();
+		const old = fakeBridge(async () => ({ unavailable: [{ feature: "accountRotation", missing: ["x"] }] }));
+		await health.observe({ connected: true, ompVersion: "18.7.0", bridge: old.bridge });
+		const current = fakeBridge(async () => ({ unavailable: [] }));
+		await health.observe({ connected: true, ompVersion: "18.8.0", bridge: current.bridge });
+		expect(health.supports("18.7.0", "accountRotation")).toBe(false);
+		expect(health.supports("18.7.0", "planMode")).toBe(true);
+		expect(health.supports("18.8.0", "accountRotation")).toBe(true);
+	});
+
 	it("retries on the next sidecar when the capabilities request itself fails", async () => {
 		vi.spyOn(console, "warn").mockImplementation(() => {});
 		const health = new BridgeHealth(() => {});

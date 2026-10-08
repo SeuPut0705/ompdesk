@@ -147,6 +147,23 @@ test("ask walks one question at a time with numbered keys and submits every answ
 	expect(errors).toEqual([]);
 });
 
+test("Check for Updates… from the app menu reports in the sidebar without opening Settings", async () => {
+	await app.evaluate(({ Menu }) => {
+		const item = Menu.getApplicationMenu()
+			?.items.flatMap(top => top.submenu?.items ?? [])
+			.find(entry => entry.label === "Check for Updates…");
+		if (!item) throw new Error("Check for Updates… is missing from the app menu");
+		item.click();
+	});
+	const card = page.locator("[data-sidebar-update]");
+	await expect(card).toBeVisible();
+	await expect(page.locator("[data-settings-page]")).toHaveCount(0);
+	// The outcome depends on the runner's GitHub access; it settles past "checking" either way.
+	await expect(card).not.toHaveAttribute("data-update-tone", "busy", { timeout: 30_000 });
+	await card.getByRole("button", { name: /Close|Later/ }).click();
+	await expect(card).toHaveCount(0);
+});
+
 test("settings page lists its sections, searches across languages, and Escape returns to the session", async () => {
 	await page.keyboard.press("ControlOrMeta+Comma");
 	const settings = page.locator("[data-settings-page]");

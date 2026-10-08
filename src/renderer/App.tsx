@@ -72,7 +72,7 @@ import { ensureTabRuntime } from "./stores/tab-runtime";
 import { useSessionTabs, useTabsStore } from "./stores/tabs";
 import { toast, toastError } from "./stores/toast";
 import { type PanelTab, useUiStore } from "./stores/ui";
-import { subscribeUpdaterStatus } from "./stores/updater";
+import { checkForUpdatesInPlace, subscribeUpdaterStatus } from "./stores/updater";
 
 // Heavy overlays code-split: they render null while closed, so they download
 // only on first open instead of bloating the eager bundle.
@@ -506,10 +506,8 @@ export function App() {
 				return;
 			}
 			if (action === "check-updates") {
-				// Settings › Updates checks when it mounts; already open, re-check in place.
-				const alreadyOpen = ui.destination === "settings" && ui.settingsTab === "updates";
-				ui.openSettings("updates");
-				if (alreadyOpen) void window.omp.updater.check();
+				// Claude-style: check in place; the sidebar card reports the outcome.
+				void checkForUpdatesInPlace();
 				return;
 			}
 			if (action === "open-usage") {

@@ -1,14 +1,16 @@
 /**
- * Every stored sign-in of one connected subscription provider, under its row
- * in Settings › Models & providers: each account's remaining quota, the one
- * this tab's session is using, and the ones omp is skipping after they hit a
- * limit. omp itself picks between the accounts by the quota each has left;
+ * Every stored sign-in of one connected subscription provider, expanded under
+ * its row in Settings › Models & providers: each account's remaining quota
+ * per window as a bar, the one this tab's session is using, and the ones omp
+ * is skipping after they hit a limit. omp itself picks between the accounts;
  * this list only shows that and adds or removes accounts. "Add another
- * account" is the same sign-in flow (a different identity adds a row); remove
- * logs out that one credential, and the last one disconnects the provider.
+ * account" is the same sign-in flow (a different identity adds a row);
+ * remove logs out that one credential, and the last one disconnects the
+ * provider. The read lives in `useProviderAccounts`, owned by the provider
+ * row, so the collapsed row can name the account count.
  */
 
-import { Trash2, UserPlus } from "lucide-react";
+import { RefreshCw, Trash2, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProviderAccount, ProviderAccountsResult, ProviderInfo } from "../../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
@@ -16,28 +18,88 @@ import { formatClock } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { toast, toastError } from "../../../stores/toast";
-import { Badge, Banner, Button, ConfirmDialog, ErrorDetail, IconButton, Spinner } from "../../common";
+import { Badge, Button, ConfirmDialog, IconButton, ProgressBar, Spinner } from "../../common";
+import { InlineNotice } from "../InlineNotice";
 
 type TFn = (key: string, params?: Record<string, string | number>) => string;
 
 const percent = (fraction: number) => Math.round(Math.max(0, Math.min(1, fraction)) * 100);
 
-/** Remaining share per window when the report has windows, else the tightest window's remainder. */
-function quotaText(account: ProviderAccount, t: TFn): string | null {
+/** One quota bar: a window's used share, labelled by what is left. */
+interface QuotaWindow {
+	key: string;
+	label: string;
+	used: number;
+}
+
+/** Per-window used share when the report has windows, else the tightest window's remainder. */
+function quotaWindows(account: ProviderAccount, t: TFn): QuotaWindow[] {
 	const windows = account.limits.filter(limit => limit.usedFraction !== undefined);
 	if (windows.length > 0) {
-		return windows
-			.map(limit =>
-				t("providers.accounts.windowLeft", {
-					window: limit.label,
-					percent: percent(1 - (limit.usedFraction ?? 0)),
-				}),
-			)
-			.join(" · ");
+		return windows.map(limit => {
+			const used = limit.usedFraction ?? 0;
+			return {
+				key: limit.id,
+				label: t("providers.accounts.windowLeft", { window: limit.label, percent: percent(1 - used) }),
+				used,
+			};
+		});
 	}
-	return account.remainingFraction === undefined
-		? null
-		: t("providers.accounts.remaining", { percent: percent(account.remainingFraction) });
+	if (account.remainingFraction === undefined) return [];
+	return [
+		{
+			key: "remaining",
+			label: t("providers.accounts.remaining", { percent: percent(account.remainingFraction) }),
+			used: 1 - account.remainingFraction,
+		},
+	];
+}
+
+export interface ProviderAccountsState {
+	result: ProviderAccountsResult | null;
+	error: InlineFailure | null;
+	loading: boolean;
+	load: () => Promise<void>;
+}
+
+/**
+ * The stored accounts of one provider. Reads while `enabled` (connected, lists
+ * accounts, omp ready) and again whenever `revision` changes: a sign-in or
+ * sign-out elsewhere on the page.
+ */
+export function useProviderAccounts(providerId: string, enabled: boolean, revision: number): ProviderAccountsState {
+	const t = useT();
+	const tabRpc = useTabRpc();
+	const [result, setResult] = useState<ProviderAccountsResult | null>(null);
+	const [error, setError] = useState<InlineFailure | null>(null);
+	const [loading, setLoading] = useState(false);
+	const requestVersion = useRef(0);
+
+	const load = useCallback(async () => {
+		const version = ++requestVersion.current;
+		setLoading(true);
+		try {
+			const response = await tabRpc.getProviderAccounts(providerId);
+			if (version !== requestVersion.current) return;
+			if (!response.success) {
+				setError(inlineFailure(response, t("providers.accounts.loadFailed")));
+				return;
+			}
+			setError(null);
+			setResult(response.data as ProviderAccountsResult);
+		} catch (cause) {
+			if (version === requestVersion.current) setError(inlineFailure(cause, t("providers.accounts.loadFailed")));
+		} finally {
+			if (version === requestVersion.current) setLoading(false);
+		}
+	}, [providerId, t, tabRpc]);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `revision` is the re-read signal.
+	useEffect(() => {
+		if (enabled) void load();
+	}, [enabled, load, revision]);
+
+	return { result, error, loading, load };
 }
 
 function AccountRow({
@@ -52,11 +114,11 @@ function AccountRow({
 	onRemove: () => void;
 }) {
 	const t = useT();
-	const quota = quotaText(account, t);
+	const windows = quotaWindows(account, t);
 	return (
-		<li className="flex items-center gap-2 py-1.5">
-			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-				<div className="flex min-w-0 flex-wrap items-center gap-1.5">
+		<li className="flex items-start gap-2 py-2">
+			<div className="flex min-w-0 flex-1 flex-col gap-1.5">
+				<div className="flex min-h-6 min-w-0 flex-wrap items-center gap-1.5">
 					<span className="min-w-0 truncate text-sc-sm text-(--sc-text)" title={account.detail}>
 						{account.label}
 					</span>
@@ -70,10 +132,21 @@ function AccountRow({
 					)}
 					{account.state === "reserve" && <Badge variant="warning">{t("providers.accounts.low")}</Badge>}
 				</div>
-				{quota && <span className="text-sc-xs tabular-nums text-(--sc-text-muted)">{quota}</span>}
+				{windows.length > 0 && (
+					<ul className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-4 gap-y-1.5">
+						{windows.map(window => (
+							<li className="flex min-w-0 flex-col gap-1" key={window.key}>
+								<span className="truncate text-sc-xs tabular-nums text-(--sc-text-muted)">{window.label}</span>
+								<ProgressBar ariaLabel={window.label} height={4} value={window.used} valueText="" />
+							</li>
+						))}
+					</ul>
+				)}
 			</div>
 			{busy ? (
-				<Spinner size="sm" />
+				<span className="flex size-(--sc-control-sm) items-center justify-center">
+					<Spinner size="sm" />
+				</span>
 			) : (
 				<IconButton
 					disabled={disabled}
@@ -89,55 +162,29 @@ function AccountRow({
 
 export function ProviderAccounts({
 	provider,
-	revision,
+	state,
 	sidecarReady,
 	adding,
 	onAdd,
 	onChanged,
+	id,
 }: {
 	provider: ProviderInfo;
-	/** Bumped after a sign-in or sign-out elsewhere on the page: read the accounts again. */
-	revision: number;
+	state: ProviderAccountsState;
 	sidecarReady: boolean;
 	/** A sign-in for this provider is in flight. */
 	adding: boolean;
 	onAdd: () => void;
 	/** After an account is removed: the provider row may no longer be connected. */
 	onChanged: () => Promise<unknown>;
+	/** The disclosure's `aria-controls` target. */
+	id?: string;
 }) {
 	const t = useT();
 	const tabRpc = useTabRpc();
-	const [result, setResult] = useState<ProviderAccountsResult | null>(null);
-	const [error, setError] = useState<InlineFailure | null>(null);
-	const [loading, setLoading] = useState(false);
+	const { result, error, loading, load } = state;
 	const [pendingRemove, setPendingRemove] = useState<ProviderAccount | null>(null);
 	const [removing, setRemoving] = useState<number | null>(null);
-	const requestVersion = useRef(0);
-
-	const load = useCallback(async () => {
-		const version = ++requestVersion.current;
-		setLoading(true);
-		try {
-			const response = await tabRpc.getProviderAccounts(provider.id);
-			if (version !== requestVersion.current) return;
-			if (!response.success) {
-				setError(inlineFailure(response, t("providers.accounts.loadFailed")));
-				return;
-			}
-			setError(null);
-			setResult(response.data as ProviderAccountsResult);
-		} catch (cause) {
-			if (version === requestVersion.current) setError(inlineFailure(cause, t("providers.accounts.loadFailed")));
-		} finally {
-			if (version === requestVersion.current) setLoading(false);
-		}
-	}, [provider.id, t, tabRpc]);
-
-	// biome-ignore lint/correctness/useExhaustiveDependencies: `revision` is the re-read signal.
-	useEffect(() => {
-		if (sidecarReady) void load();
-	}, [load, revision, sidecarReady]);
-
 	const accounts = result?.accounts ?? [];
 
 	const remove = async (account: ProviderAccount) => {
@@ -162,14 +209,33 @@ export function ProviderAccounts({
 	};
 
 	return (
-		<section aria-label={t("providers.accounts.label", { provider: provider.name })} className="pr-2.5 pb-2 pl-9">
+		<section
+			aria-label={t("providers.accounts.label", { provider: provider.name })}
+			className="pr-2.5 pb-2 pl-9"
+			id={id}
+		>
 			{error && (
-				<Banner title={error.message} variant="danger">
-					<ErrorDetail error={error.cause} />
-				</Banner>
+				<InlineNotice
+					action={
+						<Button
+							disabled={!sidecarReady || loading}
+							icon={<RefreshCw />}
+							onClick={() => void load()}
+							size="sm"
+							variant="ghost"
+						>
+							{t("common.retry")}
+						</Button>
+					}
+					detail={error.cause}
+					title={error.message}
+					tone="danger"
+				/>
 			)}
 			{loading && result === null && !error ? (
-				<Spinner label={t("common.loading")} size="sm" />
+				<div className="py-2">
+					<Spinner label={t("common.loading")} size="sm" />
+				</div>
 			) : (
 				accounts.length > 0 && (
 					<ul className="flex flex-col divide-y divide-(--sc-divider)">
@@ -185,22 +251,18 @@ export function ProviderAccounts({
 					</ul>
 				)
 			)}
-			{result?.usageError && (
-				<p className="text-sc-xs text-(--sc-text-muted)">{t("providers.accounts.quotaUnavailable")}</p>
-			)}
-			<div className="mt-1 flex flex-col items-start gap-1">
-				<Button
-					disabled={!sidecarReady || adding}
-					icon={<UserPlus />}
-					onClick={onAdd}
-					size="sm"
-					title={sidecarReady ? undefined : t("providers.notConnected")}
-					variant="ghost"
-				>
-					{t("providers.accounts.add")}
-				</Button>
-				<p className="text-sc-xs text-(--sc-text-muted)">{t("providers.accounts.rotation")}</p>
-			</div>
+			{result?.usageError && <InlineNotice title={t("providers.accounts.quotaUnavailable")} tone="info" />}
+			<Button
+				className="-ml-2"
+				disabled={!sidecarReady || adding}
+				icon={<UserPlus />}
+				onClick={onAdd}
+				size="sm"
+				title={sidecarReady ? undefined : t("providers.notConnected")}
+				variant="ghost"
+			>
+				{t("providers.accounts.add")}
+			</Button>
 			<ConfirmDialog
 				busy={pendingRemove !== null && removing === pendingRemove.credentialId}
 				confirmLabel={t("providers.accounts.removeConfirm")}
