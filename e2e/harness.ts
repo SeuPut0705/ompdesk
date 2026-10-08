@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
+import { expect, type Locator, type Page } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
 
@@ -11,6 +12,18 @@ import { writeFakeOmp } from "../src/main/test-fake-omp";
 export function fixtureOmp(dir: string): Promise<string> {
 	const fixture = pathToFileURL(path.resolve("e2e/sidecar-fixture.ts")).href;
 	return writeFakeOmp(dir, `import ${JSON.stringify(fixture)};\n`);
+}
+
+/**
+ * Press an app shortcut until `target` shows. A key pressed while the renderer
+ * is still mounting (slow CI runners) has no listener yet and is lost; the
+ * press repeats only while the target is absent, so toggles never double-fire.
+ */
+export async function pressShortcutUntilVisible(page: Page, shortcut: string, target: Locator): Promise<void> {
+	await expect(async () => {
+		if (!(await target.isVisible())) await page.keyboard.press(shortcut);
+		await expect(target).toBeVisible({ timeout: 2_000 });
+	}).toPass({ timeout: 20_000 });
 }
 
 /**

@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import type { SettingEntry, SettingsSchemaResult } from "../src/shared/rpc-types";
-import { exitApp } from "./harness";
+import { exitApp, pressShortcutUntilVisible } from "./harness";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -676,9 +676,8 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 		await setup.getByRole("button", { name: "Set up later", exact: true }).click();
 		await expect(setup).toHaveCount(0);
 
-		await page.keyboard.press("ControlOrMeta+Comma");
 		const settings = page.locator("[data-settings-page]");
-		await expect(settings).toBeVisible();
+		await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
 		await expect(settings.locator("[data-settings-section]").first()).toBeVisible();
 		const schemaResponse = await page.evaluate(() => window.omp.rpc.getSettingsSchema());
 		if (!schemaResponse.success) throw new Error(schemaResponse.error);

@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { writeViewerSamples } from "./file-viewer-fixtures";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
 
 // The Files drawer viewer in the built app on the fake omp: the pdf.js worker
 // loads under the CSP and paints a page, images, tables, highlighted code and
@@ -40,8 +40,8 @@ test("file viewer renders pdf, image, csv, code and binary files", async () => {
 			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 			.toBe("ready");
 
-		await page.keyboard.press("ControlOrMeta+j");
 		const aside = page.locator("aside[data-docked]");
+		await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
 		await aside.getByRole("tab", { name: "Files" }).click();
 		const open = async (name: string) => {
 			await aside.getByText(name, { exact: true }).click();
