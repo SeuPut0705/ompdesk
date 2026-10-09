@@ -1,43 +1,37 @@
-# Typecheck, lint, unit/component tests, build on every push and PR. Windows
-# runs catch path, PATH-lookup, cmd.exe shim, and named-pipe assumptions that
-# a Unix runner never exercises. Push and PR checks pair Windows with Linux
-# (macOS minutes bill at roughly 10x Linux); release.yml calls this workflow
-# with `macos` so every release still checks on macOS. Playwright e2e is slow,
-# so it runs only on demand and when release.yml calls this workflow with `e2e`.
+# Typecheck, lint, unit/component tests, build on every push and PR, on Linux
+# only: the cheapest runner (macOS minutes bill at 10x Linux, Windows at 2x).
+# Windows-specific paths (PATH lookup, cmd.exe shim, named pipes) are covered
+# where they ship: release.yml runs vitest, packaging and the @smoke e2e on
+# Windows, and packaging plus @smoke and the real-omp e2e on macOS.
+#
+# The full Playwright suite on macOS is manual (`gh workflow run ci.yml -f
+# e2e=true`, about 60 billed minutes); every release runs it locally first.
 name: ci
 
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md"]
   pull_request:
+    paths-ignore: ["**.md"]
   workflow_dispatch:
-  workflow_call:
     inputs:
       e2e:
-        description: "Also run the Playwright e2e jobs"
-        type: boolean
-        default: false
-      macos:
-        description: "Run the checks on macOS instead of Linux"
+        description: "Also run the full Playwright e2e suite on macOS (about 60 billed minutes)"
         type: boolean
         default: false
 
-# `github.workflow` is the caller's name under workflow_call, so a release run
-# never cancels (or is cancelled by) the push run on the same ref.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   # A `release: vX.Y.Z` push also starts release.yml, which runs these checks
-  # (on macOS) before packaging, so the push run would only repeat them.
+  # before packaging, so the push run would only repeat them.
   check:
-    if: "inputs.macos || github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'release: v')"
-    strategy:
-      fail-fast: false
-      matrix:
-        os: ${{ fromJSON(inputs.macos && '["macos-latest", "windows-latest"]' || '["ubuntu-latest", "windows-latest"]') }}
-    runs-on: ${{ matrix.os }}
+    if: "github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'release: v')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -50,19 +44,13 @@ jobs:
       - run: bunx vitest run
       - run: bun run build
 
-  # Launches the built app. macOS runs the full suite: most suites drive the
-  # fake omp in e2e/sidecar-fixture.ts; real-core, deep-audit, and the stats
-  # route need the real omp, installed here with no provider credentials (each
-  # suite uses an isolated agent dir). Windows runs the `@smoke` subset on the
-  # fake omp (launch, named-pipe bridge, new tab, prompt round-trip, settings).
+  # Launches the built app: the full suite, against the latest published omp
+  # (real-core, deep-audit and the stats route need it; installed here with no
+  # provider credentials, each suite uses an isolated agent dir).
   e2e:
-    if: inputs.e2e || github.event_name == 'workflow_dispatch'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    if: inputs.e2e
+    runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -70,22 +58,18 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - name: Install omp
-        if: runner.os == 'macOS'
-        shell: bash
         run: |
           bun install -g @oh-my-pi/pi-coding-agent
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
           "$HOME/.bun/bin/omp" --version
       - run: bun run build
-      - if: runner.os == 'macOS'
-        run: bunx playwright test
-      - if: runner.os == 'Windows'
-        run: bunx playwright test --grep "@smoke"
+      - run: bunx playwright test
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-${{ matrix.os }}
+          name: e2e-macos
           path: |
             test-results/
             playwright-report/
           if-no-files-found: ignore
+          retention-days: 3

@@ -1,12 +1,20 @@
 # Pushing a `package.json` version bump to main releases it: when tag
 # `v<version>` does not exist yet and CHANGELOG.md has a dated
-# `## [<version>] - YYYY-MM-DD` section, this runs the full ci.yml (checks on
-# both platforms, macOS e2e, Windows @smoke), packages macOS (arm64) and
-# Windows (x64), and only when all of that passed creates the tag and the
-# GitHub Release with the changelog section as notes and every asset.
+# `## [<version>] - YYYY-MM-DD` section, this runs the checks, packages macOS
+# (arm64) and Windows (x64), launches each fresh build, and only when all of
+# that passed creates the tag and the GitHub Release with the changelog
+# section as notes and every asset.
 # An `Unreleased` heading or an existing tag makes the run a no-op.
 # `workflow_dispatch` re-runs it; `dry_run` does everything except the tag and
 # release (the packages stay as run artifacts) and works on any branch.
+#
+# Cost: a private repo bills macOS minutes at 10x Linux and Windows at 2x, and
+# every job rounds up to a whole minute. So each OS gets one job that installs
+# once and reuses the build packaging produced (`out/`) for its e2e, the
+# OS-independent checks run on Linux, and macOS runs only @smoke plus the
+# real-omp suite (the full suite runs locally before every release; manual on
+# CI: `gh workflow run ci.yml -f e2e=true`). After a flaky failure, rerun only
+# the failed job: `gh run rerun <id> --failed`.
 name: release
 
 on:
@@ -35,6 +43,7 @@ env:
 jobs:
   prepare:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       version: ${{ steps.meta.outputs.version }}
       tag: ${{ steps.meta.outputs.tag }}
@@ -96,21 +105,30 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # Typecheck, biome, vitest, build on both platforms plus the macOS e2e suite
-  # and the Windows @smoke subset.
-  ci:
+  # OS-independent checks: typecheck, biome, surface policy, vitest.
+  check:
     needs: prepare
     if: needs.prepare.outputs.release == 'true'
-    uses: ./.github/workflows/ci.yml
-    with:
-      e2e: true
-      macos: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run check:types
+      - run: bunx biome check src e2e
+      - run: node scripts/lint-surfaces.mjs
+      - run: bunx vitest run
 
-  build-mac:
+  # Package, verify the bundle, then launch the build packaging just made:
+  # @smoke on the fake omp, and real-core against the latest published omp.
+  mac:
     needs: prepare
     if: needs.prepare.outputs.release == 'true'
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     env:
       V: ${{ needs.prepare.outputs.version }}
     steps:
@@ -130,6 +148,22 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$APP"
           test -f "$APP/Contents/Resources/gui-bridge/index.ts"
           lipo -archs "$APP/Contents/MacOS/OMPdesk" | grep -qx arm64
+      - name: Install omp
+        run: |
+          bun install -g @oh-my-pi/pi-coding-agent
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/omp" --version
+      - run: bunx playwright test --grep "@smoke"
+      - run: bunx playwright test e2e/real-core.e2e.ts
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-macos
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Stage assets
         run: |
           set -euo pipefail
@@ -147,11 +181,13 @@ jobs:
           compression-level: 0
           retention-days: ${{ inputs.dry_run == true && 7 || 1 }}
 
-  build-win:
+  # vitest on Windows (paths, PATH lookup, cmd.exe shim, named pipes), package,
+  # then @smoke on the fake omp against the build packaging just made.
+  win:
     needs: prepare
     if: needs.prepare.outputs.release == 'true'
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
     env:
       V: ${{ needs.prepare.outputs.version }}
     steps:
@@ -160,10 +196,21 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
+      - run: bunx vitest run
       - run: bun run package:win -- --publish never
       - name: Verify package
         shell: bash
         run: test -f dist/win-unpacked/resources/gui-bridge/index.ts
+      - run: bunx playwright test --grep "@smoke"
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-windows
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Stage assets
         shell: bash
         run: |
@@ -181,11 +228,12 @@ jobs:
           compression-level: 0
           retention-days: ${{ inputs.dry_run == true && 7 || 1 }}
 
-  # Runs only when every check, e2e, and package job succeeded.
+  # Runs only when the checks and both platform jobs succeeded.
   publish:
-    needs: [prepare, ci, build-mac, build-win]
+    needs: [prepare, check, mac, win]
     if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     env:

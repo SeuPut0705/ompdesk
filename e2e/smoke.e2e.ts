@@ -5,9 +5,10 @@ import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { exitApp, fixtureOmp } from "./harness";
 
-// The Windows CI e2e job runs only this (`--grep @smoke`): launch on the fake
-// omp, gui-bridge over the named pipe, a new tab, one prompt round-trip, and
-// the settings window.
+// The release workflow's mac and win jobs run this (`--grep @smoke`) against
+// the build packaging just made: launch on the fake omp, gui-bridge over the
+// socket (a named pipe on Windows), a new tab, one prompt round-trip, and the
+// settings window.
 test("@smoke app boots on omp, connects the bridge, opens a tab, answers a prompt, opens settings", async () => {
 	const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-smoke-"));
 	const project = path.join(profile, "project");
