@@ -252,7 +252,7 @@ function SessionTranscript() {
 		{ icon: Lightbulb, title: t("chat.starter.brainstorm.title"), prompt: t("chat.starter.brainstorm.prompt") },
 		{ icon: Languages, title: t("chat.starter.translate.title"), prompt: t("chat.starter.translate.prompt") },
 	] as const;
-	/** Chat tabs get a conversation-oriented empty state (agent starters imply tools). */
+	/** Chat tabs get a conversation-oriented empty state (agent starters assume a project). */
 	const isChat = useActiveTabKind() === "chat";
 	const starters = isChat ? CHAT_STARTERS : STARTERS;
 	/** No provider yet: the inline first-run setup takes the empty state's place. */

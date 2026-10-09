@@ -1,7 +1,7 @@
 /**
- * Side panel (PanelContainer): Changes · Files · Logs · Queue · Tree · Jobs;
- * a tool-free chat tab drops Changes and Tree (no diffs or branches without
- * tools). Todo/plan/agents cards stay in the center dock. Docked width
+ * Side panel (PanelContainer): Changes · Files · Logs · Queue · Tree · Jobs,
+ * the same in an agent and a chat tab (a chat is a full agent outside any
+ * project). Todo/plan/agents cards stay in the center dock. Docked width
  * defaults into the spec's 360–460px range and stays resizable.
  * Same linkedom + react-dom harness as mode-visibility.test.tsx.
  */
@@ -102,37 +102,22 @@ function FileLinkHarness({ content = "[report](docs/report.md)" }: { content?: s
 	);
 }
 
-describe("PanelContainer chat tab filter", () => {
-	it("drops Changes and Tree in a chat tab", async () => {
-		seedActiveTab("chat");
-		useUiStore.setState({ panelTab: "files", panelVisible: true });
-		await mount(<PanelContainer />);
+describe("PanelContainer", () => {
+	for (const kind of ["agent", "chat"] as const) {
+		it(`renders every side panel view in an ${kind} tab, labelled as one region`, async () => {
+			seedActiveTab(kind);
+			useUiStore.setState({ panelTab: "files", panelVisible: true });
+			await mount(<PanelContainer />);
 
-		const labels = drawerTabLabels();
-		for (const visible of ["Files", "Logs", "Queue", "Jobs"]) expect(labels).toContain(visible);
-		expect(labels).not.toContain("Changes");
-		expect(labels).not.toContain("Tree");
-	});
-
-	it("falls back to the files surface when the agent-only diff tab was selected before entering chat", async () => {
-		seedActiveTab("chat");
-		useUiStore.setState({ panelTab: "diff", panelVisible: true });
-		await mount(<PanelContainer />);
-
-		expect(document.querySelector('button[aria-label="Refresh file tree"]')).not.toBeNull();
-	});
-
-	it("renders every side panel view in an agent tab, labelled as one region", async () => {
-		seedActiveTab("agent");
-		useUiStore.setState({ panelTab: "files", panelVisible: true });
-		await mount(<PanelContainer />);
-
-		expect(drawerTabLabels()).toEqual(expect.arrayContaining(["Changes", "Files", "Logs", "Queue", "Tree", "Jobs"]));
-		// The live-execution cards stay in the center dock.
-		for (const moved of ["Todo", "Plan", "Agents"]) expect(drawerTabLabels()).not.toContain(moved);
-		expect(document.querySelector("aside")?.getAttribute("aria-label")).toBe("Side panel");
-		expect(document.querySelector('button[aria-label="Close side panel"]')).not.toBeNull();
-	});
+			expect(drawerTabLabels()).toEqual(
+				expect.arrayContaining(["Changes", "Files", "Logs", "Queue", "Tree", "Jobs"]),
+			);
+			// The live-execution cards stay in the center dock.
+			for (const moved of ["Todo", "Plan", "Agents"]) expect(drawerTabLabels()).not.toContain(moved);
+			expect(document.querySelector("aside")?.getAttribute("aria-label")).toBe("Side panel");
+			expect(document.querySelector('button[aria-label="Close side panel"]')).not.toBeNull();
+		});
+	}
 
 	it("opens Queue, Tree and Jobs through the store like the other views", async () => {
 		seedActiveTab("agent");
@@ -142,9 +127,8 @@ describe("PanelContainer chat tab filter", () => {
 		useUiStore.getState().openSessionTree();
 		expect(useUiStore.getState().panelTab).toBe("tree");
 		seedActiveTab("chat");
-		useUiStore.setState({ panelTab: "files" });
-		useUiStore.getState().setPanelTab("tree");
-		expect(useUiStore.getState().panelTab).toBe("files");
+		useUiStore.getState().setPanelTab("diff");
+		expect(useUiStore.getState().panelTab).toBe("diff");
 		useUiStore.getState().setPanelTab("queue");
 		expect(useUiStore.getState().panelTab).toBe("queue");
 	});

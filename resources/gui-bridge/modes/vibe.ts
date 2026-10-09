@@ -9,7 +9,7 @@ import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-sessi
 import type { VibeOwnerScope, VibeParentSession } from "@oh-my-pi/pi-coding-agent/vibe/runtime";
 import { guard } from "../health";
 import type { BridgeMethods } from "../types";
-import { assertToolSession, attach, record } from "./shared";
+import { attach, record } from "./shared";
 
 let previousTools: string[] | undefined;
 let ownerScope: VibeOwnerScope | undefined;
@@ -31,7 +31,6 @@ async function enter(session: AgentSession): Promise<{ enabled: boolean }> {
 	if (session.getPlanModeState()?.enabled) throw new Error("Exit plan mode first.");
 	const goal = session.getGoalModeState();
 	if (goal?.enabled || goal?.goal?.status === "paused") throw new Error("Exit goal mode first.");
-	assertToolSession(session, "Vibe mode");
 	const { VibeSessionRegistry } = await import("@oh-my-pi/pi-coding-agent/vibe/runtime");
 	const registry = VibeSessionRegistry.global();
 	const scope = registry.ownerScope(await parentSession(session));

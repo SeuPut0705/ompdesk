@@ -298,9 +298,9 @@ function spawnWindowWithLayout(layout: PersistedTabLayout): BrowserWindow | null
 }
 
 /** Spawn a window with its own sidecar (the pool's 1:1 owner). Null at cap.
- *  With no target, create a fresh global chat; explicit workspace/session
- *  requests retain their selected/fallback cwd and requested session kind.
- *  `device` runs the window's tab on that paired host, at its `cwd`. */
+ *  With no target, start a fresh agent in the default workspace; explicit
+ *  workspace/session requests retain their selected/fallback cwd and requested
+ *  session kind. `device` runs the window's tab on that paired host, at its `cwd`. */
 function spawnWindow(
 	cwd?: string,
 	pendingSessionPath?: string,

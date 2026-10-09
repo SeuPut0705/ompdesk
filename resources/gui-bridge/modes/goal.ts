@@ -8,7 +8,7 @@
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { guard } from "../health";
 import type { BridgeMethods } from "../types";
-import { assertToolSession, attach, emit, errorMessage, ompPrompt, record, submitTurn } from "./shared";
+import { attach, emit, errorMessage, ompPrompt, record, submitTurn } from "./shared";
 
 function activeGoal(session: AgentSession) {
 	const state = session.getGoalModeState();
@@ -19,7 +19,6 @@ function activeGoal(session: AgentSession) {
 async function guidedGoal(session: AgentSession, initial: string | undefined): Promise<{ started: true }> {
 	if (session.getPlanModeState()?.enabled) throw new Error("Exit plan mode first.");
 	if (session.getVibeModeState()?.enabled) throw new Error("Exit vibe mode first.");
-	assertToolSession(session, "Goal mode");
 	const { cfgGoalEnabled } = await import("@oh-my-pi/pi-coding-agent/goals/settings");
 	if (!cfgGoalEnabled.get(session.settings)) {
 		throw new Error("Goal mode is disabled. Enable it in settings (goal.enabled).");

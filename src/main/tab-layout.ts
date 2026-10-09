@@ -160,8 +160,8 @@ export function sanitizePersistedTabLayout(
 		retained.push({ descriptor, sourceIndex });
 	}
 
-	// Startup placeholders are disposable. Never restore the legacy tool-free
-	// chat after Work mode became the default full-agent surface.
+	// Startup placeholders are disposable. Never restore the legacy empty
+	// startup chat after Work mode became the default full-agent surface.
 	const effective = retained.filter(entry => entry.descriptor.placeholder !== true);
 	if (effective.length === 0) return null;
 	let activeIndex = effective.findIndex(entry => entry.sourceIndex === requestedActiveIndex);

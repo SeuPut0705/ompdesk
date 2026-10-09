@@ -109,7 +109,7 @@ describe("SidecarManager", () => {
 		}
 	});
 
-	it("spawns a chat sidecar with stock --no-tools in the code-controlled argv", async () => {
+	it("spawns a chat sidecar with the same full-tool argv as an agent", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-chat-"));
 		const logPath = path.join(tempDir, "argv.json");
 		const binaryPath = await writeFakeOmp(
@@ -124,7 +124,8 @@ describe("SidecarManager", () => {
 			await ready;
 
 			const launch: unknown = JSON.parse(await fs.readFile(logPath, "utf8"));
-			expect(launch).toEqual(["--mode", "rpc-ui", "--no-tools"]);
+			expect(launch).toEqual(["--mode", "rpc-ui"]);
+			expect(launch).not.toContain("--no-tools");
 		} finally {
 			sidecar.dispose();
 			await fs.rm(tempDir, RM_TEMP);

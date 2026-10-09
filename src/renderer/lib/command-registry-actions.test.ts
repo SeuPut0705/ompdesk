@@ -16,7 +16,6 @@ const ok = (data?: unknown) => ({ type: "response" as const, command: "x", succe
 
 const baseCtx: CommandRegistryContext = {
 	t: translate,
-	tabKind: "agent",
 	isStreaming: false,
 	fastModeEnabled: false,
 	autoCompaction: false,

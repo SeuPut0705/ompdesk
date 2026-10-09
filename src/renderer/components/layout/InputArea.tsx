@@ -85,9 +85,8 @@ export function InputArea() {
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const runtimeTabId = contextTabId ?? activeTabId;
 	const routeReady = runtimeTabId !== null;
-	/** Chat tabs are tool-free: approval/mode chrome is meaningless there. */
-	const tabKind = useActiveTabKind();
-	const isChat = tabKind === "chat";
+	/** A chat tab only differs in wording: it has no project to work in. */
+	const isChat = useActiveTabKind() === "chat";
 	const status = useSessionStore(s => s.status);
 	const sessionId = useSessionStore(s => s.sessionId);
 	const queuedMessageCount = useSessionStore(s => s.queuedMessageCount);
@@ -276,7 +275,6 @@ export function InputArea() {
 		filePaths,
 		commands,
 		emojiAutocomplete,
-		tabKind,
 		textareaRef,
 		setMenu,
 	});
@@ -1085,8 +1083,8 @@ export function InputArea() {
 								}}
 							/>
 
-							{!isChat && <ComposerModes />}
-							<RunSettings isChat={isChat} />
+							<ComposerModes />
+							<RunSettings />
 
 							{composerMode && (
 								<Tooltip

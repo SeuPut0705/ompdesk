@@ -7,9 +7,7 @@
  */
 
 import { useEffect, useState } from "react";
-import type { SessionKind } from "../../../shared/ipc-types";
 import type { AvailableCommand, AvailableModelsResult, ModelInfo } from "../../../shared/rpc-types";
-import { isCommandAvailable } from "../../lib/command-availability";
 import { getEmojiSuggestions } from "../../lib/emoji";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
@@ -49,7 +47,6 @@ export function useCompletionMenu({
 	filePaths,
 	commands,
 	emojiAutocomplete,
-	tabKind,
 	textareaRef,
 	setMenu,
 }: {
@@ -57,14 +54,12 @@ export function useCompletionMenu({
 	filePaths: string[];
 	commands: AvailableCommand[];
 	emojiAutocomplete: boolean;
-	tabKind: SessionKind;
 	textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 	setMenu: (menu: CompletionMenu | null) => void;
 }) {
 	const t = useT();
 	const rpc = useTabRpc();
 	const models = useModelStore(state => state.availableModels);
-	const isChat = tabKind === "chat";
 	const [selection, setSelection] = useState("");
 	useEffect(() => {
 		const el = textareaRef.current;
@@ -207,9 +202,7 @@ export function useCompletionMenu({
 				return -1;
 			};
 			const items = commands
-				// Every surface shares one availability rule: never offer a command
-				// that does nothing in this tab kind.
-				.filter(command => isCommandAvailable(tabKind, command.name) && rank(command) >= 0)
+				.filter(command => rank(command) >= 0)
 				.map((command, index) => ({ command, index, rank: rank(command) }))
 				.sort((a, b) => a.rank - b.rank || a.index - b.index)
 				.slice(0, MAX_MENU_ITEMS)
@@ -273,9 +266,7 @@ export function useCompletionMenu({
 					})),
 				});
 			};
-			// Tool-free chats cannot delegate tasks.
-			if (isChat) apply(null);
-			else if (models.length > 0) showModels(models);
+			if (models.length > 0) showModels(models);
 			else {
 				apply(null);
 				timer = window.setTimeout(() => {
@@ -317,5 +308,5 @@ export function useCompletionMenu({
 		return () => {
 			cancelled = true;
 		};
-	}, [text, selection, models, filePaths, commands, emojiAutocomplete, tabKind, textareaRef, setMenu, t, rpc]);
+	}, [text, selection, models, filePaths, commands, emojiAutocomplete, textareaRef, setMenu, t, rpc]);
 }

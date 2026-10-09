@@ -9,9 +9,9 @@
  * zero height on an idle session. Queued messages are not a dock card: they
  * live in the composer's own queue tray (ComposerQueue), which every tab kind
  * mounts. The stack scrolls within a capped height so the composer is never
- * pushed off-screen. Chat tabs are tool-free — none of these surfaces can
- * exist there. Every card sits behind its own error boundary: a card crash
- * must never take down the composer.
+ * pushed off-screen. Agent and chat tabs mount it alike. Every card sits
+ * behind its own error boundary: a card crash must never take down the
+ * composer.
  */
 
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
@@ -20,7 +20,6 @@ import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
-import { useActiveTabKind } from "../../../stores/tabs";
 import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
 import { PanelErrorBoundary } from "../../common";
 import { isLiveSubagentStatus } from "../../panels/subagent-graph";
@@ -166,9 +165,6 @@ function WorkspaceDockContent() {
 }
 
 export function WorkspaceDock() {
-	const isChat = useActiveTabKind() === "chat";
-	if (isChat) return null;
-
 	return (
 		<WorkspaceDockFocusProvider>
 			<WorkspaceDockContent />

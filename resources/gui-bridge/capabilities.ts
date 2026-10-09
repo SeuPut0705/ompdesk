@@ -171,7 +171,6 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"followUp()",
 			"compact()",
 			"newSession()",
-			"getEnabledToolNames()",
 			"getVibeModeState()",
 			"isStreaming",
 			"isCompacting",

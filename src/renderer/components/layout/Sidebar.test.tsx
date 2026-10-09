@@ -833,7 +833,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		);
 		await fire(chatRow?.querySelector("button") as unknown as Element, "onClick");
 		expect(omp.tabs.spawn).toHaveBeenLastCalledWith({
-			cwd: "/work/alpha",
+			cwd: undefined,
 			kind: "chat",
 			sessionPath: "/work/alpha/chat.jsonl",
 			worktree: undefined,

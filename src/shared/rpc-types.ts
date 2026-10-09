@@ -1143,7 +1143,7 @@ export interface RpcSessionState {
 	prewalkArmed?: boolean;
 	agentsPaused: boolean;
 	agentsPausedAt?: number;
-	/** Session kind. Absent = agent; chat sessions are tool-free. */
+	/** Session kind. Absent = agent; a chat is the same full agent outside any project. */
 	kind?: "chat";
 }
 

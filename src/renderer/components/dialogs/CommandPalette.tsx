@@ -55,7 +55,6 @@ import { openHandoffDialog } from "../../stores/fork-handoff";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
-import { useActiveTabKind } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, EmptyState, ErrorDetail, Kbd, Spinner } from "../common";
@@ -194,7 +193,6 @@ export function CommandPalette() {
 	const focusDockCard = useUiStore(state => state.focusDockCard);
 
 	const isStreaming = useSessionStore(s => s.isStreaming);
-	const tabKind = useActiveTabKind();
 	const fastModeEnabled = useModelStore(s => s.fastModeEnabled);
 	const autoCompaction = useSettingsStore(s => s.autoCompaction);
 	const autoRetry = useSettingsStore(s => s.autoRetry);
@@ -329,7 +327,6 @@ export function CommandPalette() {
 		() =>
 			buildCommandMenu({
 				t,
-				tabKind,
 				isStreaming,
 				fastModeEnabled,
 				autoCompaction,
@@ -383,7 +380,6 @@ export function CommandPalette() {
 			}),
 		[
 			t,
-			tabKind,
 			isStreaming,
 			fastModeEnabled,
 			autoCompaction,

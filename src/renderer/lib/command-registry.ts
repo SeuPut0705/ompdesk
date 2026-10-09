@@ -22,7 +22,6 @@ import { createTabRpc } from "./tab-rpc";
  * - `unavailable` — non-text command lacking a native GUI affordance
  */
 
-import type { SessionKind } from "../../shared/ipc-types";
 import type { AvailableCommand, CopyTarget, RpcResponse } from "../../shared/rpc-types";
 import { hydrateSession, hydrateTabSession } from "../hooks/use-rpc-events";
 import { newSessionNow } from "../hooks/use-session-switch";
@@ -30,11 +29,10 @@ import { openHandoffDialog } from "../stores/fork-handoff";
 import { useModelStore } from "../stores/model";
 import { type SessionStore, useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
-import { activeTabKind, useTabsStore } from "../stores/tabs";
+import { useTabsStore } from "../stores/tabs";
 import { toast, toastError } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { type AgentsTab, type DockCardId, type InsightsStatsScope, type InsightsTab, useUiStore } from "../stores/ui";
-import { isCommandAvailable } from "./command-availability";
 import type { CommandGuard } from "./command-search";
 import { exportSessionHtml } from "./export-session";
 import { copyText } from "./format";
@@ -113,11 +111,6 @@ export interface CommandRegistryContext {
 	 * non-component callers pass the module-scope `translate()`.
 	 */
 	t: (key: string, params?: Record<string, string | number>) => string;
-	/**
-	 * Kind of the tab this menu is built for. Required: chat tabs run without
-	 * tools, and a menu that ignores it offers commands that do nothing.
-	 */
-	tabKind: SessionKind;
 	isStreaming: boolean;
 	fastModeEnabled: boolean;
 	autoCompaction: boolean;
@@ -256,20 +249,12 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 	/** Every name the menu claims: item names plus their aliases. */
 	const claimed = new Set<string>();
 
-	/**
-	 * Single insertion point. A command that cannot run in this tab kind is
-	 * downgraded to a disabled row carrying the reason, so no surface can
-	 * offer (or execute) a silent no-op.
-	 */
+	/** Single insertion point: the first claimant of a name (or alias) wins. */
 	const add = (item: CommandMenuItem) => {
 		if (claimed.has(item.name)) return;
 		claimed.add(item.name);
 		for (const alias of item.aliases ?? []) claimed.add(alias);
-		items.push(
-			isCommandAvailable(ctx.tabKind, item.name)
-				? item
-				: { ...item, affordance: { kind: "unavailable", reason: t("unavailable.chatSession") } },
-		);
+		items.push(item);
 	};
 
 	/** Helper to build a submenu item; the label resolves through the ctx translator. */
@@ -1703,7 +1688,6 @@ export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): 
 	const ui = useUiStore.getState();
 	return buildCommandMenu({
 		t: translate,
-		tabKind: activeTabKind(),
 		isStreaming: session.isStreaming,
 		fastModeEnabled: model.fastModeEnabled,
 		autoCompaction: settings.autoCompaction,

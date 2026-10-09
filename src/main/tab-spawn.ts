@@ -12,6 +12,10 @@
  * A payload `device` opens the tab on a paired host: the session file, its
  * kind and the cwd are the host's, so they are looked up there, and the cwd
  * is left for the host to canonicalize.
+ *
+ * A chat tab is a full agent outside any project: whatever the caller's
+ * folder, it always runs in the GUI-owned default workspace (the host's for
+ * a remote tab), exactly like an explicit `defaultWorkspace` request.
  */
 
 import type { BrowserWindow } from "electron";
@@ -67,16 +71,15 @@ export async function spawnTabForWindow(
 	}
 	if (deps.sidecarPool.atCap) return null;
 	const requested = typeof payload?.cwd === "string" && payload.cwd.length > 0 ? payload.cwd : undefined;
+	const neutral = payload.defaultWorkspace === true || kind === "chat";
 	// A host's paths are canonicalized by the host; with no explicit or
 	// same-device caller cwd, a remote tab opens in the host's Work workspace.
 	const callerCwd = deps.fallbackCwd(device);
 	const cwd = device
-		? payload.defaultWorkspace
+		? neutral
 			? await deps.remote.defaultWorkspace(device)
 			: (requested ?? callerCwd ?? (await deps.remote.defaultWorkspace(device)))
-		: canonicalCwd(
-				payload.defaultWorkspace ? deps.defaultWorkspace() : (requested ?? callerCwd ?? deps.initialCwd()),
-			);
+		: canonicalCwd(neutral ? deps.defaultWorkspace() : (requested ?? callerCwd ?? deps.initialCwd()));
 	const tabId = nextSnowflake();
 	// A no-path tab is an explicit New Tab action. It must start empty even
 	// when the CLI's persistent autoResume setting is enabled for the project.
@@ -93,7 +96,7 @@ export async function spawnTabForWindow(
 		undefined,
 		device,
 	)
-		? payload.defaultWorkspace
+		? neutral
 			? { tabId, cwd }
 			: { tabId }
 		: null;

@@ -7,8 +7,8 @@ import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { actionShortcut } from "../../lib/keymap";
 import { useQueueStore } from "../../stores/queue";
-import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
-import { COMPACT_SHELL_QUERY, PANEL_TAB_IN_CHAT, type PanelTab, useUiStore } from "../../stores/ui";
+import { useTabsStore } from "../../stores/tabs";
+import { COMPACT_SHELL_QUERY, type PanelTab, useUiStore } from "../../stores/ui";
 import { IconButton, PanelErrorBoundary, Sheet, Tabs } from "../common";
 import { DiffPanel } from "../panels/DiffPanel";
 import { FilesPanel } from "../panels/FilesPanel";
@@ -46,36 +46,32 @@ function SidePanelViews() {
 	const setPanelTab = useUiStore(s => s.setPanelTab);
 	const activeTabId = useTabsStore(s => s.activeTabId);
 	const queued = useQueueStore(s => s.steering.length + s.followUp.length);
-	/** Chat tabs are tool-free: no diffs and no branch tree exist there. */
-	const isChat = useActiveTabKind() === "chat";
-	const visibleTabs = isChat ? TABS.filter(tab => PANEL_TAB_IN_CHAT[tab.id]) : TABS;
-	const visiblePanelTab = isChat && !PANEL_TAB_IN_CHAT[panelTab] ? "files" : panelTab;
 	return (
 		<>
 			<Tabs
 				ariaLabel={t("panel.title")}
-				activeId={visiblePanelTab}
+				activeId={panelTab}
 				className="shrink-0 overflow-x-auto px-3 [scrollbar-width:none]"
 				compact
 				onChange={id => setPanelTab(id as PanelTab)}
-				tabs={visibleTabs.map(({ id, labelKey }) => ({
+				tabs={TABS.map(({ id, labelKey }) => ({
 					id,
 					label: t(labelKey),
 					badge: id === "queue" && queued > 0 ? queued : undefined,
 				}))}
 			/>
 			<div className="flex min-h-0 flex-1 flex-col overflow-hidden" role="tabpanel">
-				<PanelErrorBoundary key={`${activeTabId ?? "no-tab"}:${visiblePanelTab}`}>
-					{visiblePanelTab === "diff" && <DiffPanel />}
-					{visiblePanelTab === "files" && <FilesPanel />}
-					{visiblePanelTab === "logs" && <LogPanel />}
-					{visiblePanelTab === "queue" && (
+				<PanelErrorBoundary key={`${activeTabId ?? "no-tab"}:${panelTab}`}>
+					{panelTab === "diff" && <DiffPanel />}
+					{panelTab === "files" && <FilesPanel />}
+					{panelTab === "logs" && <LogPanel />}
+					{panelTab === "queue" && (
 						<div className="min-h-0 flex-1 overflow-y-auto p-4">
 							<QueuePanel />
 						</div>
 					)}
-					{visiblePanelTab === "tree" && <SessionTreePanel />}
-					{visiblePanelTab === "jobs" && <JobsPanel />}
+					{panelTab === "tree" && <SessionTreePanel />}
+					{panelTab === "jobs" && <JobsPanel />}
 				</PanelErrorBoundary>
 			</div>
 		</>

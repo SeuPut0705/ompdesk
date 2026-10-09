@@ -80,9 +80,9 @@ describe("spawnTabForWindow refusal contracts", () => {
 		kindFor.mockResolvedValue("chat");
 		const result = await spawnTabForWindow(deps, fakeWindow(), { sessionPath: "/s/chat.jsonl" });
 
-		expect(result?.tabId).toEqual(expect.any(String));
+		expect(result).toEqual({ tabId: expect.any(String), cwd: "/default-workspace" });
 		expect(acquire).toHaveBeenCalledWith(
-			"/fallback",
+			"/default-workspace",
 			expect.anything(),
 			expect.any(String),
 			"/s/chat.jsonl",
@@ -99,9 +99,9 @@ describe("spawnTabForWindow refusal contracts", () => {
 		kindFor.mockResolvedValue("chat");
 		const result = await spawnTabForWindow(deps, fakeWindow(), { sessionPath: "/s/chat.jsonl", kind: "chat" });
 
-		expect(result?.tabId).toEqual(expect.any(String));
+		expect(result).toEqual({ tabId: expect.any(String), cwd: "/default-workspace" });
 		expect(acquire).toHaveBeenCalledWith(
-			"/fallback",
+			"/default-workspace",
 			expect.anything(),
 			expect.any(String),
 			"/s/chat.jsonl",
@@ -172,6 +172,24 @@ describe("spawnTabForWindow refusal contracts", () => {
 		expect(kindFor).not.toHaveBeenCalled();
 	});
 
+	it("runs a fresh chat tab in the default workspace, never the caller's project", async () => {
+		const { deps, acquire } = harness();
+		const result = await spawnTabForWindow(deps, fakeWindow(), { cwd: "/project", kind: "chat" });
+
+		expect(result).toEqual({ tabId: expect.any(String), cwd: "/default-workspace" });
+		expect(acquire).toHaveBeenCalledWith(
+			"/default-workspace",
+			expect.anything(),
+			expect.any(String),
+			undefined,
+			"chat",
+			undefined,
+			true,
+			...SPAWNED,
+			undefined,
+		);
+	});
+
 	it("passes a worktree binding through to acquire (plan/20)", async () => {
 		const { deps, acquire } = harness();
 		const worktree = {
@@ -198,7 +216,7 @@ describe("spawnTabForWindow refusal contracts", () => {
 });
 
 describe("spawnTabForWindow on a paired host", () => {
-	it("checks F-OWN and the file kind on the host, and keeps the host's cwd as given", async () => {
+	it("checks F-OWN and the file kind on the host, and runs a host chat in the host's default workspace", async () => {
 		const { deps, acquire, kindFor, remoteKindFor, sessionOwner } = harness();
 		remoteKindFor.mockResolvedValue("chat");
 		const result = await spawnTabForWindow(deps, fakeWindow(), {
@@ -207,16 +225,38 @@ describe("spawnTabForWindow on a paired host", () => {
 			sessionPath: "/Users/b/.omp/agent/sessions/x/s.jsonl",
 		});
 
-		expect(result?.tabId).toEqual(expect.any(String));
+		expect(result).toEqual({ tabId: expect.any(String), cwd: "/host/work" });
 		expect(sessionOwner).toHaveBeenCalledWith("/Users/b/.omp/agent/sessions/x/s.jsonl", "host-b");
 		expect(remoteKindFor).toHaveBeenCalledWith("host-b", "/Users/b/.omp/agent/sessions/x/s.jsonl");
 		expect(kindFor).not.toHaveBeenCalled();
 		expect(acquire).toHaveBeenCalledWith(
-			"/Users/b/project",
+			"/host/work",
 			expect.anything(),
 			expect.any(String),
 			"/Users/b/.omp/agent/sessions/x/s.jsonl",
 			"chat",
+			undefined,
+			false,
+			...SPAWNED,
+			"host-b",
+		);
+	});
+
+	it("keeps the host's cwd as given for an agent session", async () => {
+		const { deps, acquire } = harness();
+		const result = await spawnTabForWindow(deps, fakeWindow(), {
+			device: "host-b",
+			cwd: "/Users/b/project",
+			sessionPath: "/s/agent.jsonl",
+		});
+
+		expect(result).toEqual({ tabId: expect.any(String) });
+		expect(acquire).toHaveBeenCalledWith(
+			"/Users/b/project",
+			expect.anything(),
+			expect.any(String),
+			"/s/agent.jsonl",
+			"agent",
 			undefined,
 			false,
 			...SPAWNED,

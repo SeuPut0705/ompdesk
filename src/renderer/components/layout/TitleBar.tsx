@@ -294,7 +294,6 @@ export function TitleBar() {
 			id: "tree",
 			label: t("cmd.tree"),
 			description: t("cmd.tree.desc"),
-			disabled: isChat,
 			icon: ListTree,
 			onSelect: () => ui().openSessionTree(),
 		},

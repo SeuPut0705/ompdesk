@@ -57,7 +57,7 @@ async function mountControl(mode: "yolo" | "write" | "always-ask"): Promise<void
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<RunSettings isChat={false} />
+				<RunSettings />
 			</I18nProvider>,
 		);
 	});

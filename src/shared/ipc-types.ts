@@ -891,7 +891,11 @@ export interface IpcSessionOpenNewWindowPayload {
  */
 export type TabStatus = SidecarStatus | "running";
 
-/** Session kind: "agent" (tools enabled) or "chat" (tool-free conversation). */
+/**
+ * Session kind: "agent" (a session in a project folder) or "chat" (the same
+ * full agent outside any project, in the GUI's default workspace). Both run
+ * omp's full tool set; the kind only decides where the session is listed.
+ */
 export type SessionKind = "agent" | "chat";
 
 /**
@@ -967,7 +971,8 @@ export interface IpcActiveTabEnvelope<T> {
 export interface IpcSpawnTabPayload {
 	cwd?: string;
 	sessionPath?: string;
-	/** Session kind for the new tab; omitted = "agent". Immutable once spawned. */
+	/** Session kind for the new tab; omitted = "agent". Immutable once spawned.
+	 * A chat tab always runs in the default workspace (its `cwd` is ignored). */
 	kind?: SessionKind;
 	/** Spawn a full agent in the GUI-owned default Work workspace. */
 	defaultWorkspace?: boolean;
@@ -995,7 +1000,7 @@ export interface IpcSpawnTabResult {
 	 * spawning a second sidecar for the same file (F-OWN).
 	 */
 	tabId: string | null;
-	/** Resolved cwd when main selected the default Work workspace. */
+	/** Resolved cwd when main selected the default workspace (Work or chat tab). */
 	cwd?: string;
 	/** Present iff tabId is null: the tab/window owning the requested sessionPath. */
 	ownerTabId?: string;

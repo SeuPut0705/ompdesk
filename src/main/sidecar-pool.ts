@@ -132,7 +132,7 @@ interface PoolEntry {
 	device?: string;
 	/** win.webContents.id, cached at acquire — safe to read after the window is destroyed. */
 	winId: number;
-	/** Session kind: "agent" (default) or "chat" (tool-free). Immutable; set at acquire. */
+	/** Session kind: "agent" (default) or "chat" (no project, default workspace). Immutable; set at acquire. */
 	kind: "agent" | "chat";
 	/** Untargeted startup tab; disposed when the user opens an explicit tab. */
 	placeholder: boolean;
@@ -247,7 +247,7 @@ export class SidecarPool {
 	 * Spawn + bind a sidecar for `cwd` to `win` as a tab. Returns null at the
 	 * cap. `tabId` defaults to a fresh snowflake (the window's initial sidecar
 	 * is minted here too); `sessionPath` resumes that session on first start.
-	 * `kind` defaults to "agent"; "chat" spawns a tool-free conversation.
+	 * `kind` defaults to "agent"; "chat" marks a session outside any project.
 	 * The first tab of a window becomes its active tab; later tabs start in
 	 * the background (light TAB_STATUS wiring only). Removes the entry when
 	 * the window closes.

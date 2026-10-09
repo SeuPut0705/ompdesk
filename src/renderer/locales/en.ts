@@ -171,8 +171,8 @@ export const en: Record<string, string> = {
 	"input.placeholder.followUp": "Queue a message for when omp finishes…",
 	"input.placeholder.idle": "Ask omp anything · @ for files, / for commands",
 	"input.suggestion.accept": "to accept",
-	"input.placeholder.chat": "Ask anything (no tools, just answers)…",
-	"tabs.kind.chat": "Chat session (no tools)",
+	"input.placeholder.chat": "Ask anything",
+	"tabs.kind.chat": "Chat session (no project)",
 	"input.attach": "Attach image",
 	"input.model": "Change model",
 	"input.thinking.failed": "Couldn't change thinking level",
@@ -422,7 +422,7 @@ export const en: Record<string, string> = {
 	"cmd.newTab": "New tab",
 	"cmd.newTab.desc": "Open a new session tab",
 	"cmd.newChatTab": "New chat tab",
-	"cmd.newChatTab.desc": "Open a tool-free chat session tab",
+	"cmd.newChatTab.desc": "Open a chat tab that isn't tied to a project",
 	"cmd.new.desc": "Start a fresh session",
 	"cmd.clear": "Clear context",
 	"cmd.clear.desc": "Drop the context but keep the session",
@@ -683,7 +683,6 @@ export const en: Record<string, string> = {
 	"cmd.guidedGoal.desc": "Agent interviews you for goal setup",
 
 	// Unavailable reason
-	"unavailable.chatSession": "Needs an agent session; chat sessions run without tools",
 	"unavailable.tuiOnly": "Only available in the omp terminal app for now",
 
 	// Insights › Usage (+ shared usage figures)
@@ -2309,7 +2308,7 @@ export const en: Record<string, string> = {
 	"chat.starter.review.title": "Review changes",
 	"chat.starter.review.prompt": "Review the current changes for correctness and quality.",
 	"chat.empty.title.chat": "What's on your mind?",
-	"chat.empty.subtitle.chat": "Ask anything. Chat answers in conversation only, without file access or commands.",
+	"chat.empty.subtitle.chat": "Ask anything. No project needed: omp still has every tool it uses in a session.",
 	"chat.starter.explain.title": "Explain a concept",
 	"chat.starter.explain.prompt": "Explain a programming concept in plain language, with a short example.",
 	"chat.starter.draft.title": "Draft something",

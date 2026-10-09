@@ -17,7 +17,6 @@ import { translate } from "./i18n";
 
 const ctx: CommandRegistryContext = {
 	t: translate,
-	tabKind: "agent",
 	isStreaming: false,
 	fastModeEnabled: false,
 	autoCompaction: false,

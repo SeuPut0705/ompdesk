@@ -1,10 +1,10 @@
 /**
- * CommandPalette contracts for the single availability source: a command that
- * cannot run in this tab kind renders disabled (and is never the keyboard
- * selection), a row that needs an argument hands its slash form to the composer
- * instead of being dispatched without it, Escape closes the panel wherever
- * focus sits inside it, a failed sidecar command fetch says so with a retry,
- * and Enter never runs a turn-starting command off a partial match.
+ * CommandPalette contracts: a chat tab offers the same commands as an agent
+ * tab, a command that cannot run here renders disabled (and is never the
+ * keyboard selection), a row that needs an argument hands its slash form to
+ * the composer instead of being dispatched without it, Escape closes the panel
+ * wherever focus sits inside it, a failed sidecar command fetch says so with a
+ * retry, and Enter never runs a turn-starting command off a partial match.
  */
 import { parseHTML } from "linkedom";
 import { act } from "react";
@@ -184,16 +184,16 @@ afterEach(async () => {
 	useTabsStore.setState({ tabs: [], activeTabId: null });
 });
 
-describe("chat-tab rows", () => {
-	it("renders a tool command disabled, with the reason, and never as the selection", async () => {
-		sidecarCommands = [DEPLOY];
-		seedTab("chat");
+describe("row availability", () => {
+	it("renders a terminal-only command disabled, with the reason, and never as the selection", async () => {
+		sidecarCommands = [{ name: "terminal-only", description: "Terminal helper", textModeExecutable: false }];
+		seedTab("agent");
 		await mount();
 
-		const plan = rowByLabel(translate("cmd.plan"));
-		expect(plan.getAttribute("disabled")).not.toBeNull();
-		expect(plan.getAttribute("aria-disabled")).toBe("true");
-		expect(plan.textContent).toContain(translate("unavailable.chatSession"));
+		const row = rowByLabel("/terminal-only");
+		expect(row.getAttribute("disabled")).not.toBeNull();
+		expect(row.getAttribute("aria-disabled")).toBe("true");
+		expect(row.textContent).toContain(translate("palette.tuiOnly"));
 
 		// Keyboard navigation must never be able to rest on a disabled row.
 		expect(selectedIndex()).toBeGreaterThan(-1);
@@ -202,14 +202,18 @@ describe("chat-tab rows", () => {
 		expect(rows()[selectedIndex()].getAttribute("disabled")).toBeNull();
 	});
 
-	it("keeps the same command executable in an agent tab", async () => {
-		sidecarCommands = [DEPLOY];
-		seedTab("agent");
-		await mount();
-		const plan = rowByLabel(translate("cmd.plan"));
-		expect(plan.getAttribute("disabled")).toBeNull();
-		expect(plan.getAttribute("aria-disabled")).toBe("false");
-	});
+	for (const kind of ["agent", "chat"] as const) {
+		it(`keeps plan mode and the session tree executable in an ${kind} tab`, async () => {
+			sidecarCommands = [DEPLOY];
+			seedTab(kind);
+			await mount();
+			for (const label of [translate("cmd.plan"), translate("cmd.tree")]) {
+				const row = rowByLabel(label);
+				expect(row.getAttribute("disabled"), label).toBeNull();
+				expect(row.getAttribute("aria-disabled"), label).toBe("false");
+			}
+		});
+	}
 });
 
 describe("panel keyboard handling", () => {

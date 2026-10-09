@@ -409,8 +409,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		try {
 			let response = await client.command({ ...cmd, id: _id } as RpcCommand, payload.timeoutMs);
-			// omp has no session kind: a chat tab is omp spawned with --no-tools,
-			// so the tab's own kind is what get_state reports.
+			// omp has no session kind: a chat tab is plain omp started in the
+			// default workspace, so the tab's own kind is what get_state reports.
 			if (cmd.type === "get_state" && response.success && sidecar.kind === "chat") {
 				response = { ...response, data: { ...(response.data as RpcSessionState), kind: "chat" } };
 			}
@@ -599,11 +599,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			if (owner && deps.windowManager.focusWindowById(owner.winId)) return true;
 		}
 		if (deps.sidecarPool.atCap) return false;
-		const requested = typeof payload?.cwd === "string" && payload.cwd.length > 0 ? payload.cwd : undefined;
-		const cwd =
-			requested ??
-			cwdOnDevice(deps, event, device) ??
-			(device ? await remoteDefaultWorkspace(device) : deps.initialCwd());
 		// The new window's sidecar must spawn with the target file's kind, or the
 		// boot-time switch_session hits the agent-side kind guard and the pool
 		// entry would lie about its kind (I1).
@@ -612,6 +607,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				? await remoteKindFor(device, sessionPath)
 				: await sessionIndex.kindFor(sessionPath)
 			: undefined;
+		const requested = typeof payload?.cwd === "string" && payload.cwd.length > 0 ? payload.cwd : undefined;
+		// A chat runs outside any project, in the default workspace.
+		const cwd =
+			kind === "chat"
+				? device
+					? await remoteDefaultWorkspace(device)
+					: ensureDefaultWorkspace()
+				: (requested ??
+					cwdOnDevice(deps, event, device) ??
+					(device ? await remoteDefaultWorkspace(device) : deps.initialCwd()));
 		return deps.spawnWindow(cwd, sessionPath, kind, device) !== null;
 	});
 

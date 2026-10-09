@@ -169,8 +169,8 @@ export const ko: Record<string, string> = {
 	"input.placeholder.followUp": "omp가 끝나면 보낼 메시지를 입력하세요…",
 	"input.placeholder.idle": "omp에게 무엇이든 요청하세요 · @ 파일, / 명령",
 	"input.suggestion.accept": "수락",
-	"input.placeholder.chat": "무엇이든 물어보세요 (도구 없이 답변만)…",
-	"tabs.kind.chat": "채팅 세션 (도구 없음)",
+	"input.placeholder.chat": "무엇이든 물어보세요",
+	"tabs.kind.chat": "채팅 세션 (프로젝트 없음)",
 	"input.attach": "이미지 첨부",
 	"input.model": "모델 변경",
 	"input.thinking.failed": "사고 수준을 바꾸지 못했어요",
@@ -418,7 +418,7 @@ export const ko: Record<string, string> = {
 	"cmd.newTab": "새 탭",
 	"cmd.newTab.desc": "새 세션 탭 열기",
 	"cmd.newChatTab": "새 채팅 탭",
-	"cmd.newChatTab.desc": "도구 없는 채팅 세션 탭 열기",
+	"cmd.newChatTab.desc": "프로젝트 없이 채팅 탭 열기",
 	"cmd.new.desc": "새 세션 시작",
 	"cmd.clear": "컨텍스트 비우기",
 	"cmd.clear.desc": "세션은 유지하고 컨텍스트만 비우기",
@@ -680,7 +680,6 @@ export const ko: Record<string, string> = {
 	"cmd.guidedGoal.desc": "에이전트가 질문하며 목표 설정을 도와줘요",
 
 	// Unavailable reason
-	"unavailable.chatSession": "에이전트 세션이 필요해요. 채팅 세션은 도구 없이 실행돼요",
 	"unavailable.tuiOnly": "지금은 omp 터미널 앱에서만 사용할 수 있어요",
 
 	// Insights › Usage (+ shared usage figures)
@@ -2301,7 +2300,7 @@ export const ko: Record<string, string> = {
 	"chat.starter.review.title": "변경 사항 리뷰",
 	"chat.starter.review.prompt": "현재 변경 사항의 정확성과 품질을 리뷰해 줘.",
 	"chat.empty.title.chat": "무엇이 궁금한가요?",
-	"chat.empty.subtitle.chat": "무엇이든 물어보세요. 파일이나 명령 없이 대화로만 답해요.",
+	"chat.empty.subtitle.chat": "무엇이든 물어보세요. 프로젝트가 없어도 omp는 세션과 똑같이 모든 도구를 써요.",
 	"chat.starter.explain.title": "개념 설명",
 	"chat.starter.explain.prompt": "프로그래밍 개념 하나를 쉬운 말로 짧은 예제와 함께 설명해 줘.",
 	"chat.starter.draft.title": "초안 작성",

@@ -120,8 +120,8 @@ type PendingDelete = { kind: "session"; session: SidebarSession } | { kind: "gro
 
 /**
  * Sidebar lanes. Code: project sessions grouped by folder. Chat: conversations
- * without a project — tool-free chats plus agent sessions started in the
- * GUI's default folder.
+ * without a project — chat tabs plus agent sessions started in the GUI's
+ * default folder.
  */
 type SidebarMode = "code" | "chat";
 
@@ -476,7 +476,7 @@ export function Sidebar() {
 		() => agentSessions.filter(session => !defaultWorkspace || session.cwd !== defaultWorkspace),
 		[agentSessions, defaultWorkspace],
 	);
-	// Chat lane: tool-free chats and no-project sessions, one recency-ordered list.
+	// Chat lane: chats and other no-project sessions, one recency-ordered list.
 	const chatLaneSessions = useMemo(
 		() =>
 			allSessions

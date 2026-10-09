@@ -3,21 +3,11 @@ import type { CustomProviderView, SessionInfo } from "../../shared/ipc-types";
 import type { SidecarRestartProgress } from "../../shared/rpc-types";
 import { KEYMAP_ACTIONS, type KeymapOverrides, sanitizeOverrides } from "../lib/keymap";
 import { readPrepaintThemeMode, type ThemeMode } from "../lib/theme";
-import { useTabsStore } from "./tabs";
 
 export type { ThemeMode };
 
 /** Side panel views (design-spec §2.2): Changes · Files · Logs · Queue · Tree · Jobs. */
 export type PanelTab = "diff" | "files" | "logs" | "queue" | "tree" | "jobs";
-/** Side panel views and whether they exist in a tool-free chat tab. */
-export const PANEL_TAB_IN_CHAT: Record<PanelTab, boolean> = {
-	diff: false,
-	files: true,
-	logs: true,
-	queue: true,
-	tree: false,
-	jobs: true,
-};
 /**
  * What fills the main area: the open session (transcript + composer) or one
  * of the three destination pages. The sidebar stays visible for all of them.
@@ -280,17 +270,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	toolsExpandAll: { expanded: false, seq: 0 },
 	toggleToolsExpandAll: () =>
 		set({ toolsExpandAll: { expanded: !get().toolsExpandAll.expanded, seq: get().toolsExpandAll.seq + 1 } }),
-	setPanelTab: tab => {
-		// Chat tabs are tool-free: no diffs and no branch tree exist there, so a
-		// force-open of those views is a no-op.
-		if (!PANEL_TAB_IN_CHAT[tab]) {
-			const activeKind = useTabsStore
-				.getState()
-				.tabs.find(t2 => t2.id === useTabsStore.getState().activeTabId)?.kind;
-			if (activeKind === "chat") return;
-		}
-		set({ panelTab: tab, panelVisible: true });
-	},
+	setPanelTab: tab => set({ panelTab: tab, panelVisible: true }),
 	openFilePreview: path => set({ filePreviewPath: path, panelTab: "files", panelVisible: true }),
 	closeFilePreview: () => set({ filePreviewPath: null, filePreviewExpanded: false }),
 	toggleFilePreviewExpanded: () => set({ filePreviewExpanded: !get().filePreviewExpanded }),

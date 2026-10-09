@@ -168,9 +168,10 @@ export interface SidecarOptions {
 	/** Fresh GUI tabs must not inherit the CLI's persistent autoResume setting. */
 	fresh?: boolean;
 	/**
-	 * Session kind: "agent" (default) or "chat" (tool-free conversation, spawned
-	 * with `--no-tools`). Immutable per sidecar; omp itself has no notion of it,
-	 * so the GUI records chat sessions in its own metadata (session-kinds.ts).
+	 * Session kind: "agent" (default) or "chat" (a conversation outside any
+	 * project). Both spawn the same argv with omp's full tool set; omp itself
+	 * has no notion of the kind, so the GUI records chat sessions in its own
+	 * metadata (session-kinds.ts) for the sidebar's Chat lane.
 	 */
 	kind?: "agent" | "chat";
 	/**
@@ -435,7 +436,6 @@ export class SidecarManager extends EventEmitter {
 		else if (this.#freshLaunchPending && bridgeDir) args.push("--config", join(bridgeDir, FRESH_LAUNCH_CONFIG));
 		if (this.#noModelBoot) args.push("--model", this.#noModelBoot);
 		else if (this.#bootModelFallback) args.push("--model", DEFAULT_ROLE_MODEL_SELECTOR);
-		if (this.#options.kind === "chat") args.push("--no-tools");
 		const bridgeAddress = bridgeDir ? newBridgeAddress() : null;
 		if (bridgeDir) args.push("-e", join(bridgeDir, BRIDGE_ENTRY));
 		// User-controllable flags ride the extraFlags seam + the launch profile.

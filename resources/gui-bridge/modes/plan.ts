@@ -16,7 +16,6 @@ import type { PlanProposalHandler } from "@oh-my-pi/pi-coding-agent/tools/resolv
 import { guard } from "../health";
 import type { BridgeMethods } from "../types";
 import {
-	assertToolSession,
 	attach,
 	emit,
 	errorMessage,
@@ -120,7 +119,6 @@ async function enterPlanMode(session: AgentSession): Promise<void> {
 	const goal = session.getGoalModeState();
 	if (goal?.enabled || goal?.goal?.status === "paused") throw new Error("Exit goal mode first.");
 	if (session.getVibeModeState()?.enabled) throw new Error("Exit vibe mode first.");
-	assertToolSession(session, "Plan mode");
 	const planFilePath = session.getPlanReferencePath() || "local://PLAN.md";
 	const before = session.getEnabledToolNames();
 	const previousState = session.getPlanModeState();

@@ -43,7 +43,6 @@ import {
 import { type SessionStore, useSessionStore } from "./session";
 import {
 	deleteSessionRuntime,
-	focusedRuntimeTabId,
 	type SessionRuntime,
 	sessionRuntime,
 	sessionRuntimeStore,
@@ -197,22 +196,13 @@ export function tabDisplayTitle(
 }
 
 /**
- * Kind of the window's active tab ("agent" default). THE single read point
- * for every chat-mode UI gate — components must never re-derive kind from
- * session state, argv, or the session file.
+ * Kind of the window's active tab ("agent" default). The single read point
+ * for the chat tab's no-project chrome (title, placeholder, empty state) —
+ * components never re-derive kind from session state, argv, or the file.
  */
 export function useActiveTabKind(): SessionKind {
 	const tabId = useRuntimeTabId();
-	return useTabsStore(state => tabKindOf(state, tabId));
-}
-
-/** Non-hook read for imperative callers (the command registry's window build). */
-export function activeTabKind(): SessionKind {
-	return tabKindOf(useTabsStore.getState(), focusedRuntimeTabId());
-}
-
-function tabKindOf(state: Pick<TabsStore, "tabs" | "activeTabId">, tabId: string | null): SessionKind {
-	return state.tabs.find(tab => tab.id === (tabId ?? state.activeTabId))?.kind ?? "agent";
+	return useTabsStore(state => state.tabs.find(tab => tab.id === (tabId ?? state.activeTabId))?.kind ?? "agent");
 }
 
 export interface TabsStore {
@@ -227,7 +217,8 @@ export interface TabsStore {
 	reconcileTabs: () => Promise<boolean>;
 	/** Spawn a new background tab (same cwd unless given) and switch to it.
 	 * Returns the tabId, or null at the pool cap. `kind` is immutable once
-	 * the tab's sidecar is spawned ("agent" default; "chat" = tool-free).
+	 * the tab's sidecar is spawned ("agent" default; "chat" = a conversation
+	 * outside any project, run in the GUI's default workspace).
 	 * `worktree` binds the tab to a git worktree created by a prior
 	 * worktree_create RPC (cwd must be the worktree path). */
 	openTab: (args?: {
@@ -360,7 +351,8 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		let result: IpcSpawnTabResult | null;
 		try {
 			result = await window.omp.tabs.spawn({
-				cwd: args?.work ? undefined : cwd || undefined,
+				// Work and chat tabs run in the default workspace main picks.
+				cwd: args?.work || kind === "chat" ? undefined : cwd || undefined,
 				sessionPath: args?.sessionPath,
 				kind,
 				...(args?.work ? { defaultWorkspace: true } : {}),

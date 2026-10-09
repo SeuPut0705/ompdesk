@@ -1,16 +1,15 @@
 /**
- * Single-source command availability: chat tabs run without tools, so every
- * surface must derive one menu from the active tab kind. Exercises the real
- * production entry point (buildCurrentCommandMenu, which reads the tab store)
- * so a surface cannot re-implement the rule and drift.
+ * Single-source command menu: every surface derives one menu from the live
+ * stores, and a chat tab (a full agent outside any project) gets the same
+ * commands as an agent tab. Exercises the real production entry point
+ * (buildCurrentCommandMenu, which reads the tab store) so a surface cannot
+ * re-implement the rule and drift.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AvailableCommand } from "../../shared/rpc-types";
 import { useTabsStore } from "../stores/tabs";
 import { buildCurrentCommandMenu, type CommandMenuItem, commandArgPrefill } from "./command-registry";
 import { translate } from "./i18n";
-
-const CHAT_REASON = translate("unavailable.chatSession");
 
 const SIDECAR_COMMANDS: AvailableCommand[] = [
 	// A tool-backed builtin the sidecar advertises but the GUI does not register.
@@ -47,33 +46,20 @@ afterEach(() => {
 });
 
 describe("chat-tab availability", () => {
-	it("downgrades a GUI-registered tool command to a disabled row that explains itself", () => {
-		seedTab("agent");
-		expect(menuItem("plan").affordance.kind).toBe("toggle");
-		expect(menuItem("security").affordance.kind).toBe("submenu");
-
-		seedTab("chat");
-		for (const name of ["plan", "security", "goal", "vibe", "tree"]) {
-			const affordance = menuItem(name).affordance;
-			if (affordance.kind !== "unavailable") throw new Error(`${name} is still executable in a chat tab`);
-			expect(affordance.reason, name).toBe(CHAT_REASON);
+	it("offers GUI-registered tool commands exactly as in an agent tab", () => {
+		for (const kind of ["agent", "chat"] as const) {
+			seedTab(kind);
+			expect(menuItem("plan").affordance.kind, kind).toBe("toggle");
+			expect(menuItem("security").affordance.kind, kind).toBe("submenu");
+			expect(menuItem("tree").affordance.kind, kind).toBe("window");
+			expect(menuItem("git").affordance.kind, kind).toBe("window");
+			expect(menuItem("model").affordance.kind, kind).toBe("picker");
 		}
 	});
 
-	it("gates a sidecar-advertised tool command with the same rule", () => {
-		seedTab("agent");
+	it("keeps a sidecar-advertised tool command executable in a chat tab", () => {
+		seedTab("chat");
 		expect(menuItem("task").affordance.kind).toBe("prompt");
-
-		seedTab("chat");
-		const affordance = menuItem("task").affordance;
-		if (affordance.kind !== "unavailable") throw new Error("task is still executable in a chat tab");
-		expect(affordance.reason).toBe(CHAT_REASON);
-	});
-
-	it("keeps tool-free commands executable in a chat tab", () => {
-		seedTab("chat");
-		expect(menuItem("model").affordance.kind).toBe("picker");
-		expect(menuItem("compact").affordance.kind).toBe("action");
 	});
 });
 
@@ -88,11 +74,6 @@ describe("native rows vs sidecar-advertised duplicates", () => {
 	it("exposes repository changes through the native git row", () => {
 		seedTab("agent");
 		expect(menuItem("git").affordance.kind).toBe("window");
-
-		seedTab("chat");
-		const affordance = menuItem("git").affordance;
-		if (affordance.kind !== "unavailable") throw new Error("git is executable in a chat tab");
-		expect(affordance.reason).toBe(CHAT_REASON);
 	});
 
 	it("drops a sidecar row whose name is a native alias instead of listing a dead duplicate", () => {

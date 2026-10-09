@@ -409,12 +409,14 @@ if (process.argv[2] === "stats") {
 	/**
 	 * Every stdin command and bridge request, one JSON line each, keyed by `type`
 	 * (bridge: the method name) and tagged `recordedBy` with this process's
-	 * session id, so a multi-tab test can tell which tab's omp received it.
+	 * session id, so a multi-tab test can tell which tab's omp received it. The
+	 * first line of each process is its `launch`: argv and working directory.
 	 */
 	const record = (frame: object) => {
 		if (process.env.OMP_GUI_TEST_RECORD)
 			fs.appendFileSync(process.env.OMP_GUI_TEST_RECORD, `${JSON.stringify({ ...frame, recordedBy: sessionId })}\n`);
 	};
+	record({ type: "launch", argv: process.argv.slice(2), cwd: process.cwd() });
 
 	// Stock framing (rpc-frame.ts): under protocol v2 a frame over 1 MiB is split into base64 `rpc_chunk` lines.
 	const MAX_FRAME_BYTES = 1_048_576;

@@ -540,11 +540,6 @@ export function App() {
 				return;
 			}
 			if (action === "open-git") {
-				const active = useTabsStore.getState().tabs.find(tab => tab.id === useTabsStore.getState().activeTabId);
-				if (active?.kind === "chat") {
-					toast({ variant: "warning", message: t("unavailable.chatSession") });
-					return;
-				}
 				ui.setPanelTab("diff");
 				return;
 			}

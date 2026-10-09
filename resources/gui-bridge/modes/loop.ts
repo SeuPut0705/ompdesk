@@ -18,16 +18,7 @@ import type { LoopConditionVerdict } from "@oh-my-pi/pi-coding-agent/modes/loop-
 import type { AgentSession, AgentSessionEvent } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { guard } from "../health";
 import type { BridgeMethods } from "../types";
-import {
-	assertToolSession,
-	attach,
-	emit,
-	errorMessage,
-	onHostInput,
-	onSessionEvent,
-	onSessionSwitch,
-	record,
-} from "./shared";
+import { attach, emit, errorMessage, onHostInput, onSessionEvent, onSessionSwitch, record } from "./shared";
 
 /** Grace period between iterations (the TUI's Esc window). */
 const ITERATION_DELAY_MS = 800;
@@ -240,7 +231,6 @@ onSessionSwitch(() => {
 });
 
 async function enable(session: AgentSession, args: string): Promise<void> {
-	assertToolSession(session, "Loop mode");
 	const { createLoopLimitRuntime, parseLoopArgs } = await import("@oh-my-pi/pi-coding-agent/modes/loop-limit");
 	const parsed = parseLoopArgs(args);
 	if (typeof parsed === "string") throw new Error(parsed);

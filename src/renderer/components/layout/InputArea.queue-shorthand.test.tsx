@@ -888,6 +888,23 @@ describe("InputArea run settings and modes", () => {
 		expect(useSettingsStore.getState().approvalMode).toBe("always-ask");
 	});
 
+	it("gives a chat tab the same mode chip and approval mode as an agent tab", async () => {
+		await mount();
+		await act(async () => {
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab => (tab.id === "t0" ? { ...tab, kind: "chat" } : tab)),
+			}));
+			useSessionStore.setState({ isStreaming: false });
+		});
+		await flush();
+
+		expect(findTextarea().getAttribute("placeholder")).toBe(translate("input.placeholder.chat"));
+		expect(document.querySelector("button[data-composer-modes-trigger]")).not.toBeNull();
+		await openRunSettings();
+		await choose("select[data-approval-mode]", "always-ask");
+		expect(setSetting).toHaveBeenCalledWith("tools.approvalMode", "always-ask");
+	});
+
 	it("shows fast mode as an on switch when enabled, even if this model cannot use it", async () => {
 		useModelStore.setState({ fastModeEnabled: true, fastModeActive: false });
 		await mount();

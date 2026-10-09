@@ -30,13 +30,6 @@ export function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-/** `--no-tools` (chat) sessions have no tools to arm a mode with. */
-export function assertToolSession(session: AgentSession, mode: string): void {
-	if (session.getEnabledToolNames().length === 0) {
-		throw new Error(`${mode} is unavailable in a tool-free (chat) session.`);
-	}
-}
-
 /**
  * Start a turn without aborting one in flight: queue behind it, falling back to a
  * follow-up on the busy race (the TUI's streaming guard). Resolves once admitted.
