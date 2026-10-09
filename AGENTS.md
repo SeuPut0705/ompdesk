@@ -59,12 +59,12 @@ When an omp update breaks a bridge method, fix the method against the new intern
 
 ## Change workflow
 
-Every change to the shipped app ships, so the user can update right away from the app:
+Every change ships, so the user can update right away from the app:
 
 1. `bun run check:types`, `bunx biome check src e2e`, `node scripts/lint-surfaces.mjs`, `bunx vitest run` — all green.
 2. Release it with the steps below: bump the version, add the dated Korean `CHANGELOG.md` section, commit `release: vX.Y.Z`, push to `main`, and watch the release run to the end.
 
-Every release run bills macOS and Windows minutes (checks, macOS e2e, both packages), so release once per finished request: several changes requested together, and fixes made while still working on them, go out as one release, never one per intermediate commit. Changes that leave the app untouched (CI workflows, docs, these rules) are pushed to `main` without a release. Never leave an `Unreleased` section behind on `main`. Do not reinstall the local app unless the user asks — the in-app updater picks the release up.
+Every release run bills macOS and Windows minutes (checks, macOS e2e, both packages), so release once per finished request: several changes requested together, and fixes made while still working on them, go out as one release, never one per intermediate commit. Never leave an `Unreleased` section behind on `main`. Do not reinstall the local app unless the user asks — the in-app updater picks the release up.
 
 ## Release
 
