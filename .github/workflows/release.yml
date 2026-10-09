@@ -94,6 +94,7 @@ jobs:
           name: release-notes
           path: notes/notes.md
           if-no-files-found: error
+          retention-days: 1
 
   # Typecheck, biome, vitest, build on both platforms plus the macOS e2e suite
   # and the Windows @smoke subset.
@@ -103,6 +104,7 @@ jobs:
     uses: ./.github/workflows/ci.yml
     with:
       e2e: true
+      macos: true
 
   build-mac:
     needs: prepare
@@ -135,12 +137,15 @@ jobs:
           cp "dist/ompdesk-$V-arm64.dmg" "dist/ompdesk-$V-arm64-mac.zip" dist/*.blockmap dist/latest-mac.yml release/
           cp "dist/ompdesk-$V-arm64.dmg" release/ompdesk-mac-arm64.dmg
           ls -l release
+      # The GitHub Release keeps these files; the run artifact only carries
+      # them to `publish` (a dry run keeps them a week to download).
       - uses: actions/upload-artifact@v4
         with:
           name: ompdesk-mac
           path: release/
           if-no-files-found: error
           compression-level: 0
+          retention-days: ${{ inputs.dry_run == true && 7 || 1 }}
 
   build-win:
     needs: prepare
@@ -174,6 +179,7 @@ jobs:
           path: release/
           if-no-files-found: error
           compression-level: 0
+          retention-days: ${{ inputs.dry_run == true && 7 || 1 }}
 
   # Runs only when every check, e2e, and package job succeeded.
   publish:

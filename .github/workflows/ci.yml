@@ -1,7 +1,9 @@
-# Typecheck, lint, unit/component tests on both supported platforms on every
-# push and PR. Windows runs catch path, PATH-lookup, cmd.exe shim, and
-# named-pipe assumptions that a Mac never exercises. Playwright e2e is slow, so
-# it runs only on demand and when release.yml calls this workflow with `e2e`.
+# Typecheck, lint, unit/component tests, build on every push and PR. Windows
+# runs catch path, PATH-lookup, cmd.exe shim, and named-pipe assumptions that
+# a Unix runner never exercises. Push and PR checks pair Windows with Linux
+# (macOS minutes bill at roughly 10x Linux); release.yml calls this workflow
+# with `macos` so every release still checks on macOS. Playwright e2e is slow,
+# so it runs only on demand and when release.yml calls this workflow with `e2e`.
 name: ci
 
 on:
@@ -15,6 +17,10 @@ on:
         description: "Also run the Playwright e2e jobs"
         type: boolean
         default: false
+      macos:
+        description: "Run the checks on macOS instead of Linux"
+        type: boolean
+        default: false
 
 # `github.workflow` is the caller's name under workflow_call, so a release run
 # never cancels (or is cancelled by) the push run on the same ref.
@@ -23,11 +29,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A `release: vX.Y.Z` push also starts release.yml, which runs these checks
+  # (on macOS) before packaging, so the push run would only repeat them.
   check:
+    if: "inputs.macos || github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'release: v')"
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: ${{ fromJSON(inputs.macos && '["macos-latest", "windows-latest"]' || '["ubuntu-latest", "windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
