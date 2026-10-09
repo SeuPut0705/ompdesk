@@ -820,8 +820,12 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 		await settingsCommandCenter.click();
 		await expect(settings).toHaveCount(0);
 		await expect(page.getByRole("dialog")).toBeVisible();
-		await page.keyboard.press("Escape");
-		await expect(page.getByRole("dialog")).toHaveCount(0);
+		// Retried only while the palette is still open: on a slow runner the first
+		// Escape can land before the freshly mounted palette listens for it.
+		await expect(async () => {
+			if ((await page.getByRole("dialog").count()) > 0) await page.keyboard.press("Escape");
+			await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 2_000 });
+		}).toPass({ timeout: 20_000 });
 		// The sidebar header's palette entry is an icon button: its name says what
 		// it opens and the shortcut lives in its tooltip.
 		await expect(page.locator('aside button[data-command-center-entry="true"]').first()).toHaveAccessibleName(
