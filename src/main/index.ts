@@ -93,7 +93,14 @@ if (process.env.OMP_GUI_HEADLESS === "1") {
 	app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 	app.commandLine.appendSwitch("disable-renderer-backgrounding");
 	app.commandLine.appendSwitch("disable-background-timer-throttling");
-	if (process.platform === "darwin") app.setActivationPolicy("accessory");
+	if (process.platform === "darwin") {
+		app.setActivationPolicy("accessory");
+		// Chromium's own storage encryption would open the "ompdesk Safe Storage"
+		// login-keychain item. Tests must not touch the user's keychain, and in a
+		// fresh security session (the self-hosted CI runner's LaunchAgent) that
+		// access blocks the main process.
+		app.commandLine.appendSwitch("use-mock-keychain");
+	}
 	app.on("browser-window-created", (_event, win) => {
 		win.setOpacity(0);
 		win.setIgnoreMouseEvents(true);
