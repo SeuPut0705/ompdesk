@@ -17,6 +17,8 @@ export const handlers: Record<string, LocalHandler> = {
 			baseRef: command.baseRef === "default" ? "default" : "HEAD",
 		}),
 	worktree_remove: command => removeWorktree({ path: str(command.path) ?? "", force: command.force === true }),
+	// worktree-lifecycle.ts reads `worktree.onExit` from the closing tab's live session.
+	worktree_lifecycle_settings: (_command, ctx) => ctx.bridge.request("worktree_lifecycle_settings"),
 	pr_repo: (_command, ctx) => prRepo(ctx.cwd),
 	pr_list: (command, ctx) =>
 		prList(ctx.cwd, {

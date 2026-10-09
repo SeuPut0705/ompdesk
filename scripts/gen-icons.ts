@@ -1,7 +1,8 @@
 /**
- * Generate every brand asset from the knot geometry in src/shared/brand-mark.ts:
+ * Generate every brand asset from the π geometry in src/shared/brand-mark.ts:
  * - writes the SVGs in scripts/brand-svgs.ts (resources/icon-source*.svg,
- *   resources/brand/*.svg), then rasterizes them:
+ *   resources/brand/*.svg) and the favicon data URL in src/renderer/index.html,
+ *   then rasterizes the SVGs:
  * - icon-source.svg → icon.png (1024px master: dev dock icon); on macOS,
  *   icon.icns (via an iconset + iconutil) from icon-source.svg above 48px and
  *   icon-source-small.svg at 48px and below.
@@ -18,9 +19,10 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import sharp from "sharp";
 import { BRAND_MARK } from "../src/shared/brand-mark";
-import { BRAND_SVGS } from "./brand-svgs";
+import { BRAND_SVGS, FAVICON_HREF } from "./brand-svgs";
 
 const resources = path.join(import.meta.dir, "..", "resources");
+const rendererHtml = path.join(import.meta.dir, "..", "src", "renderer", "index.html");
 const brand = path.join(resources, "brand");
 const iconset = path.join(resources, "icon.iconset");
 
@@ -39,7 +41,7 @@ const ICONSET: [string, number][] = [
 ];
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
 /** Menu-bar / notification-area icon size in points; @2x is double. */
-const TRAY_POINTS = 18;
+const TRAY_POINTS = 16;
 const WIN_TRAY_PX = 16;
 
 async function render(svg: Buffer, size: number): Promise<Buffer> {
@@ -76,6 +78,13 @@ async function writeIco(frames: { size: number; data: Buffer }[], outPath: strin
 
 async function main(): Promise<void> {
 	for (const [file, contents] of Object.entries(BRAND_SVGS)) await Bun.write(path.join(resources, file), contents);
+	const html = await Bun.file(rendererHtml).text();
+	const favicon = /(<link\s+rel="icon"\s+type="image\/svg\+xml"\s+href=")[^"]*"/;
+	if (!favicon.test(html)) throw new Error('src/renderer/index.html has no <link rel="icon" type="image/svg+xml">');
+	await Bun.write(
+		rendererHtml,
+		html.replace(favicon, (_, head: string) => `${head}${FAVICON_HREF}"`),
+	);
 	const source = (file: string) => Buffer.from(BRAND_SVGS[file]);
 	const small = (px: number) => px <= BRAND_MARK.smallMaxPx;
 	const appIcon = source("icon-source.svg");

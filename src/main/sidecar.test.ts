@@ -732,4 +732,61 @@ describe("SidecarManager", () => {
 			}
 		},
 	);
+
+	it("holds a fresh tab at starting until its start gate settles, then restarts fresh in the gate's cwd", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-gate-"));
+		const gatedCwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-gated-")));
+		const logPath = path.join(tempDir, "spawns.jsonl");
+		// Listens on the bridge address like the real extension, then reports ready.
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			[
+				`import * as fs from "node:fs";`,
+				`import * as net from "node:net";`,
+				`fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + "\\n");`,
+				`const server = net.createServer(() => {});`,
+				`server.listen(process.env.OMP_GUI_BRIDGE, () => process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n"));`,
+				`server.unref();`,
+				`process.stdin.resume();`,
+			].join("\n"),
+		);
+		const gate = Promise.withResolvers<string | null>();
+		const gateCalls: string[] = [];
+		const statuses: SidecarStatus[] = [];
+		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, fresh: true, bridgeDir: tempDir });
+		sidecar.on("status", ({ status }: SidecarStatusPayload) => statuses.push(status));
+		sidecar.setStartGate(async (bridge, cwd) => {
+			expect(bridge.connected).toBe(true);
+			gateCalls.push(cwd);
+			return gate.promise;
+		});
+		try {
+			sidecar.start();
+			await vi.waitFor(() => expect(gateCalls).toEqual([tempDir]));
+			await delay(100);
+			expect(statuses).not.toContain("ready");
+
+			const ready = waitForReady(sidecar);
+			gate.resolve(gatedCwd);
+			await ready;
+			expect(sidecar.cwd).toBe(gatedCwd);
+			const spawns = (await fs.readFile(logPath, "utf8"))
+				.trim()
+				.split("\n")
+				.map(line => JSON.parse(line) as { argv: string[]; cwd: string });
+			expect(spawns).toHaveLength(2);
+			expect(spawns[1]?.cwd).toBe(gatedCwd);
+			// Still a fresh session there: no autoResume of an older one.
+			expect(spawns[1]?.argv).toContain(path.join(tempDir, "fresh-launch.yml"));
+			// One-shot: a later restart reports ready without asking again.
+			const again = waitForReady(sidecar);
+			sidecar.restart();
+			await again;
+			expect(gateCalls).toHaveLength(1);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+			await fs.rm(gatedCwd, RM_TEMP);
+		}
+	});
 });

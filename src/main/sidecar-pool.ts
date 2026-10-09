@@ -74,9 +74,10 @@ import { canonicalCwd } from "./canonical-cwd";
 import { createMessageUpdateSlimmer } from "./message-update-slim";
 import type { WindowTabFact } from "./quit-guard";
 import type { RpcClient } from "./rpc-client";
-import type { SidecarSessionIdentity } from "./sidecar";
+import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import { nextSnowflake } from "./snowflake";
 import { type PersistedTabDescriptor, type PersistedTabLayout, TAB_LAYOUT_VERSION } from "./tab-layout";
+import type { TabSpawnFacts } from "./worktree-lifecycle";
 
 /**
  * What the pool, ipc.ts and the host-tool executor need from a tab's sidecar:
@@ -104,6 +105,10 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	/** Push this machine's account-rotation setting to the live omp (the omp's own machine decides). */
 	syncAccountRotation(): void;
 	dispose(): void;
+	/** Local sidecars: hold the first spawn at `starting` until `gate` settles (worktree.onStart). */
+	setStartGate?(gate: SidecarStartGate): void;
+	/** Local sidecars: resolves once the omp process has exited. Call before dispose(). */
+	whenExited?(): Promise<void>;
 }
 
 /** `device` = paired host deviceId (absent = this machine); `tabId` names the tab on that host. */
@@ -137,9 +142,10 @@ interface PoolEntry {
 	/** Untargeted startup tab; disposed when the user opens an explicit tab. */
 	placeholder: boolean;
 	/**
-	 * Git-worktree binding (plan/20). Immutable, set at acquire from the spawn
-	 * payload; surfaced via tabStatusPayload so the chip and close flow know
-	 * this tab owns a ~/.omp/wt checkout.
+	 * Git-worktree binding (plan/20). Set at acquire from the spawn payload, or
+	 * once by `bindWorktree` while a `worktree.onStart` tab is still starting;
+	 * surfaced via tabStatusPayload so the chip and close flow know this tab
+	 * owns a ~/.omp/wt checkout.
 	 */
 	worktree?: IpcTabWorktree;
 	/** Last status this tab's sidecar reported (TAB_STATUS / GET_TABS). */
@@ -228,6 +234,13 @@ export class SidecarPool {
 		null;
 	/** Main-process persistence hook. The primary window installs this at startup. */
 	onWindowTabsChanged: ((win: BrowserWindow, layout: PersistedTabLayout | null) => void) | null = null;
+	/**
+	 * `worktree.onStart` (worktree-lifecycle.ts): the gate for a new tab, or null
+	 * when the tab is not a candidate. Installed at startup.
+	 */
+	worktreeStartGate: ((tabId: string, winId: number, facts: TabSpawnFacts) => SidecarStartGate | null) | null = null;
+	/** A tab was released (closed, or its window closed); `exited` settles once its omp is gone. */
+	onTabReleased: ((tabId: string, exited: Promise<void>) => void) | null = null;
 
 	constructor(factory: SidecarFactory, max = 10) {
 		this.#factory = factory;
@@ -301,6 +314,17 @@ export class SidecarPool {
 				detachFull: null,
 			};
 			if (title) entry.title = title;
+			// Before anything can start it: the gate must be in place for the first `ready`.
+			const gate = this.worktreeStartGate?.(tabId, entry.winId, {
+				kind,
+				sessionPath,
+				device,
+				worktree,
+				fresh,
+				placeholder,
+				deferStart,
+			});
+			if (gate) sidecar.setStartGate?.(gate);
 			this.#wireLight(entry);
 			this.#entries.add(entry);
 			this.#byTabId.set(tabId, entry);
@@ -566,8 +590,8 @@ export class SidecarPool {
 	 * over (the renderer may override with SET_ACTIVE_TAB); releasing the last
 	 * tab leaves the window tab-less, back to its initial no-sidecar state.
 	 */
-	#releaseEntry(entry: PoolEntry): void {
-		if (!this.#entries.delete(entry)) return;
+	#releaseEntry(entry: PoolEntry): Promise<void> {
+		if (!this.#entries.delete(entry)) return Promise.resolve();
 		this.#byTabId.delete(entry.tabId);
 		this.#unregisterSessionFile(entry);
 		// Drop pending request-id routes pointing at the released entry — a
@@ -578,7 +602,10 @@ export class SidecarPool {
 		// A destroyed window already dropped its one-shot "closed" listener.
 		if (!entry.win.isDestroyed()) entry.win.removeListener("closed", entry.onWindowClosed);
 		entry.sidecar.removeAllListeners();
+		// Taken before dispose(), which forgets the child it kills.
+		const exited = entry.sidecar.whenExited?.() ?? Promise.resolve();
 		entry.sidecar.dispose();
+		this.onTabReleased?.(entry.tabId, exited);
 		const visible = this.#visibleByWindow.get(entry.winId);
 		visible?.delete(entry.tabId);
 		const split = this.#splitByWindow.get(entry.winId);
@@ -588,25 +615,26 @@ export class SidecarPool {
 			this.#activeByWindow.delete(entry.winId);
 			this.#visibleByWindow.delete(entry.winId);
 			this.#splitByWindow.delete(entry.winId);
-			return;
+			return exited;
 		}
 		if (this.#activeByWindow.get(entry.winId) !== entry.tabId) {
 			this.#syncFullWiring(entry.winId);
-			return;
+			return exited;
 		}
 		this.#activeByWindow.delete(entry.winId);
 		// During window teardown every entry self-releases; activating a sibling
 		// whose window is already gone would wire forwarders for nothing.
-		if (entry.win.isDestroyed()) return;
+		if (entry.win.isDestroyed()) return exited;
 		const candidates = [...this.#entries].filter(candidate => candidate.winId === entry.winId);
 		const candidate = candidates.find(item => visible?.has(item.tabId)) ?? candidates[0];
 		if (!candidate) {
 			this.#visibleByWindow.delete(entry.winId);
-			return;
+			return exited;
 		}
 		if (!visible || visible.size === 0) this.#visibleByWindow.set(entry.winId, new Set([candidate.tabId]));
 		this.#activeByWindow.set(entry.winId, candidate.tabId);
 		this.#syncFullWiring(entry.winId);
+		return exited;
 	}
 
 	/** The window's active entry (first entry as a fallback, e.g. mid-teardown). */
@@ -714,6 +742,34 @@ export class SidecarPool {
 		this.#releaseEntry(entry);
 		this.#notifyWindowTabsChanged(entry.win);
 		return true;
+	}
+
+	/** Release one tab like `releaseTab`; resolves once its omp process has exited. */
+	releaseTabWhenExited(tabId: string): Promise<void> {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return Promise.resolve();
+		const exited = this.#releaseEntry(entry);
+		this.#notifyWindowTabsChanged(entry.win);
+		return exited;
+	}
+
+	/**
+	 * Bind a worktree `worktree.onStart` created to a tab that is still starting
+	 * (it restarts there next). Pushes TAB_STATUS so the chip shows it. False
+	 * when the tab is gone.
+	 */
+	bindWorktree(tabId: string, worktree: IpcTabWorktree): boolean {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return false;
+		entry.worktree = worktree;
+		forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		this.#notifyWindowTabsChanged(entry.win);
+		return true;
+	}
+
+	/** A tab's sidecar, any window (main-side flows that start from a tab id). */
+	sidecarOf(tabId: string): SidecarLike | null {
+		return this.#byTabId.get(tabId)?.sidecar ?? null;
 	}
 
 	/**
@@ -879,7 +935,11 @@ export class SidecarPool {
 			tabs: entries.map(entry => {
 				const descriptor: PersistedTabDescriptor = { cwd: entry.sidecar.cwd, kind: entry.kind };
 				if (entry.sessionFile) descriptor.sessionPath = entry.sessionFile;
-				if (entry.worktree) descriptor.worktree = entry.worktree;
+				if (entry.worktree) {
+					// Ownership is this launch's only: a restored tab is an ordinary worktree tab.
+					const { name, branch, baseCwd, path } = entry.worktree;
+					descriptor.worktree = { name, branch, baseCwd, path };
+				}
 				if (entry.placeholder) descriptor.placeholder = true;
 				if (entry.device) descriptor.device = entry.device;
 				// Written even when the live title is null, so a cleared title

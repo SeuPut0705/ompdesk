@@ -16,7 +16,9 @@ import { FileViewer } from "./FileViewer";
 import { fileIconKind, viewerKind } from "./file-kind";
 import { hexDump, parseDelimited, prettyJson } from "./parse";
 
-const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
+const { document, window, Event, HTMLElement, Element, Node, MutationObserver } = parseHTML(
+	'<html data-theme="dark"><body></body></html>',
+);
 
 const globals = globalThis as Record<string, unknown>;
 globals.document = document;
@@ -25,6 +27,7 @@ globals.Event = Event;
 globals.HTMLElement = HTMLElement;
 globals.Element = Element;
 globals.Node = Node;
+globals.MutationObserver = MutationObserver;
 globals.IS_REACT_ACT_ENVIRONMENT = true;
 globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
 
@@ -125,6 +128,8 @@ describe("viewer dispatch", () => {
 					"events.jsonl",
 					"index.html",
 					"analysis.ipynb",
+					"flow.mmd",
+					"seq.MERMAID",
 					"report.docx",
 					"budget.XLSX",
 					"deck.pptx",
@@ -149,6 +154,8 @@ describe("viewer dispatch", () => {
 			"events.jsonl": "json",
 			"index.html": "html",
 			"analysis.ipynb": "notebook",
+			"flow.mmd": "mermaid",
+			"seq.MERMAID": "mermaid",
 			"report.docx": "docx",
 			"budget.XLSX": "xlsx",
 			"deck.pptx": "pptx",
@@ -328,6 +335,23 @@ describe("html view", () => {
 		});
 		expect(container.querySelector("iframe")).toBeNull();
 		expect(container.querySelector("[data-code-view]")?.textContent).toContain("<script>alert(1)</script>");
+	});
+});
+
+describe("mermaid view", () => {
+	it("renders the diagram through MermaidBlock, then shows source on request", async () => {
+		installFs({ read: async () => textResult("graph TD\n  A --> B\n") });
+		await mount(view("docs/flow.mmd"));
+		expect(container.querySelector('[data-viewer-kind="mermaid"]')).not.toBeNull();
+		// MermaidBlock: rendering, or (mermaid needs a real browser) its source fallback with the Mermaid badge.
+		expect(container.querySelector("[data-mermaid-rendered]")?.textContent).toMatch(/Rendering diagram|^Mermaid/);
+
+		const source = container.querySelectorAll('[role="tab"]').find(tab => tab.textContent === "Source");
+		await act(async () => {
+			source?.dispatchEvent(new Event("click", { bubbles: true }));
+		});
+		expect(container.querySelector("[data-mermaid-rendered]")).toBeNull();
+		expect(container.querySelector("[data-code-view]")?.textContent).toContain("A --> B");
 	});
 });
 

@@ -8,18 +8,20 @@ import {
 	classifyRepoAccess,
 	DOWNLOAD_IDLE_TIMEOUT_MS,
 	firstUpdateToken,
-	hasStableMacSigningIdentity,
 	installerPartialPath,
 	isSwappableBundleLocation,
 	macBundlePath,
+	macDownloadName,
 	planInstallerTransfer,
 	SingleTransfer,
+	StageBundleError,
 	SWAP_SCRIPT,
-	selectMacAsset,
 	settleFailedUpdateCheck,
 	settleIncompleteUpdateCheck,
 	sha512FileBase64,
+	stageBundleFromDmg,
 	sweepInstallerPartials,
+	type ToolRunner,
 	TransferStalledError,
 	withinIdle,
 } from "./updater-state";
@@ -105,36 +107,143 @@ describe("update check terminal state", () => {
 	});
 });
 
-describe("macOS release asset selection", () => {
-	const files = [
-		{ url: "ompdesk-0.8.4-arm64-mac.zip", sha512: "arm-zip", size: 110 },
-		{ url: "ompdesk-0.8.4-arm64.dmg", sha512: "arm-dmg", size: 120 },
-		{ url: "https://example.test/ompdesk-0.8.4.dmg", sha512: "other-dmg", size: 140 },
-	];
-
-	it("selects the exact Apple Silicon DMG or ZIP for the asked kind", () => {
-		expect(selectMacAsset(files, "0.8.4", "dmg")).toEqual({
-			name: "ompdesk-0.8.4-arm64.dmg",
-			sha512: "arm-dmg",
-			size: 120,
-		});
-		expect(selectMacAsset(files, "0.8.4", "zip")).toEqual({
-			name: "ompdesk-0.8.4-arm64-mac.zip",
-			sha512: "arm-zip",
-			size: 110,
-		});
+describe("macOS DMG download name", () => {
+	it("puts the version back into the version-free release asset's local name", () => {
+		expect(macDownloadName("0.18.0")).toBe("ompdesk-0.18.0-arm64.dmg");
 	});
 
-	it("rejects other names and assets for a different release", () => {
-		expect(selectMacAsset(files, "0.8.5", "dmg")).toBeUndefined();
-		expect(selectMacAsset(files, "0.8.5", "zip")).toBeUndefined();
-		expect(
-			selectMacAsset(
-				files.filter(file => !file.url.endsWith("arm64.dmg")),
-				"0.8.4",
-				"dmg",
-			),
-		).toBeUndefined();
+	it("names it so the Downloads sweep still recognizes its partials", async () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-dmg-name-"));
+		try {
+			const stale = `${macDownloadName("0.18.0")}.partial`;
+			fs.writeFileSync(path.join(dir, stale), "");
+			const active = path.join(dir, `${macDownloadName("0.18.1")}.partial`);
+			expect(await sweepInstallerPartials(dir, active)).toEqual([stale]);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+// Symlinks (the DMG's /Applications link) need extra privileges on Windows; staging is macOS-only anyway.
+describe.runIf(process.platform !== "win32")("macOS DMG staging", () => {
+	let dir: string;
+	let calls: string[][];
+	/** Bundle id and short version each fake bundle reports through `plutil`. */
+	let plists: Map<string, Record<string, string>>;
+	let failures: Set<string>;
+
+	const OWN = "/Applications/OMPdesk.app";
+	const options = (run: ToolRunner, version = "0.18.0") => ({
+		dmgPath: path.join(dir, "ompdesk-0.18.0-arm64.dmg"),
+		stagingDir: path.join(dir, "updates", "0.18.0"),
+		mountRoot: path.join(dir, "mnt"),
+		version,
+		ownBundle: OWN,
+		run,
+		fs: fs.promises,
+	});
+
+	/** hdiutil/ditto/codesign/plutil stand-ins: `attach` lays out the DMG's contents at the mount point. */
+	const fakeTools =
+		(dmgContents: (mountPoint: string) => void): ToolRunner =>
+		async (command, args) => {
+			const tool = path.basename(command);
+			calls.push([tool, ...args]);
+			const verb = tool === "hdiutil" ? `hdiutil ${args[0]}${args.includes("-force") ? " -force" : ""}` : tool;
+			if (failures.has(verb)) return { ok: false, stdout: "" };
+			if (verb === "hdiutil attach") dmgContents(args[args.indexOf("-mountpoint") + 1] ?? "");
+			// Unmounting leaves the mount point an empty directory.
+			if (args[0] === "detach") {
+				const mountPoint = args[args.length - 1] ?? "";
+				for (const entry of fs.readdirSync(mountPoint))
+					fs.rmSync(path.join(mountPoint, entry), { recursive: true });
+			}
+			if (tool === "ditto") fs.cpSync(args[0] ?? "", args[1] ?? "", { recursive: true });
+			if (tool === "plutil") {
+				const plist = args[args.length - 1] ?? "";
+				const value = plists.get(path.dirname(path.dirname(plist)))?.[args[1] ?? ""];
+				return value === undefined ? { ok: false, stdout: "" } : { ok: true, stdout: `${value}\n` };
+			}
+			return { ok: true, stdout: "" };
+		};
+
+	const releaseDmg = (mountPoint: string) => {
+		fs.mkdirSync(path.join(mountPoint, "OMPdesk.app", "Contents"), { recursive: true });
+		fs.writeFileSync(path.join(mountPoint, "OMPdesk.app", "Contents", "marker"), "new");
+		fs.symlinkSync("/Applications", path.join(mountPoint, "Applications"));
+	};
+
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-stage-"));
+		calls = [];
+		failures = new Set();
+		plists = new Map([[OWN, { CFBundleIdentifier: "com.seuput.ompdesk", CFBundleShortVersionString: "0.17.4" }]]);
+		plists.set(path.join(dir, "updates", "0.18.0", "OMPdesk.app"), {
+			CFBundleIdentifier: "com.seuput.ompdesk",
+			CFBundleShortVersionString: "0.18.0",
+		});
+	});
+	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+	it("mounts read-only without Finder, copies the app out, detaches, then verifies it", async () => {
+		const staged = await stageBundleFromDmg(options(fakeTools(releaseDmg)));
+
+		expect(staged).toBe(path.join(dir, "updates", "0.18.0", "OMPdesk.app"));
+		expect(fs.readFileSync(path.join(staged, "Contents", "marker"), "utf8")).toBe("new");
+		// The /Applications symlink in the image is never mistaken for the bundle.
+		expect(fs.readdirSync(path.dirname(staged))).toEqual(["OMPdesk.app"]);
+		const [attach, copy, detach, verify] = calls;
+		expect(attach?.slice(0, 5)).toEqual(["hdiutil", "attach", "-nobrowse", "-readonly", "-noautoopen"]);
+		expect(attach?.at(-1)).toBe(path.join(dir, "ompdesk-0.18.0-arm64.dmg"));
+		expect(copy?.[0]).toBe("ditto");
+		expect(detach?.slice(0, 2)).toEqual(["hdiutil", "detach"]);
+		expect(verify).toEqual(["codesign", "--verify", "--deep", "--strict", staged]);
+		// The temporary mount point is gone once the image is detached.
+		expect(fs.readdirSync(path.join(dir, "mnt"))).toEqual([]);
+	});
+
+	it("rejects a bundle of another version and removes what it staged", async () => {
+		const failure = stageBundleFromDmg(options(fakeTools(releaseDmg), "0.18.1"));
+		await expect(failure).rejects.toMatchObject({ reason: "verify" });
+		await expect(failure).rejects.toBeInstanceOf(StageBundleError);
+		expect(fs.existsSync(path.join(dir, "updates", "0.18.0"))).toBe(false);
+	});
+
+	it("rejects a bundle whose signature does not verify", async () => {
+		failures.add("codesign");
+		await expect(stageBundleFromDmg(options(fakeTools(releaseDmg)))).rejects.toMatchObject({ reason: "verify" });
+		expect(fs.existsSync(path.join(dir, "updates", "0.18.0"))).toBe(false);
+	});
+
+	it("rejects a bundle with another bundle id", async () => {
+		plists.set(path.join(dir, "updates", "0.18.0", "OMPdesk.app"), {
+			CFBundleIdentifier: "com.example.other",
+			CFBundleShortVersionString: "0.18.0",
+		});
+		await expect(stageBundleFromDmg(options(fakeTools(releaseDmg)))).rejects.toMatchObject({ reason: "verify" });
+	});
+
+	it("fails as a mount error when hdiutil cannot attach, and copies nothing", async () => {
+		failures.add("hdiutil attach");
+		await expect(stageBundleFromDmg(options(fakeTools(releaseDmg)))).rejects.toMatchObject({ reason: "mount" });
+		expect(calls.map(call => call[0])).toEqual(["hdiutil"]);
+		expect(fs.readdirSync(path.join(dir, "mnt"))).toEqual([]);
+	});
+
+	it("detaches an image that holds no app", async () => {
+		const noApp = (mountPoint: string) => fs.symlinkSync("/Applications", path.join(mountPoint, "Applications"));
+		await expect(stageBundleFromDmg(options(fakeTools(noApp)))).rejects.toMatchObject({ reason: "missing" });
+		expect(calls.at(-1)?.slice(0, 2)).toEqual(["hdiutil", "detach"]);
+	});
+
+	it("forces the detach when a plain detach is refused", async () => {
+		failures.add("hdiutil detach");
+		await stageBundleFromDmg(options(fakeTools(releaseDmg)));
+		expect(calls.filter(call => call[1] === "detach").map(call => call.slice(1, 3))).toEqual([
+			["detach", expect.any(String)],
+			["detach", "-force"],
+		]);
 	});
 });
 
@@ -199,18 +308,6 @@ describe("in-place macOS swap", () => {
 			expect(fs.readFileSync(path.join(dest, "Contents", "marker"), "utf8")).toBe("old");
 			expect(fs.readdirSync(dir).sort()).toEqual(["ompdesk.app", "swap.log"]);
 		});
-	});
-});
-
-describe("macOS signing identity", () => {
-	it("keeps Squirrel only for a certificate-backed stable identity", () => {
-		expect(
-			hasStableMacSigningIdentity(
-				"Authority=Developer ID Application: Example Corp (TEAM123456)\nTeamIdentifier=TEAM123456",
-			),
-		).toBe(true);
-		expect(hasStableMacSigningIdentity("Signature=adhoc\nTeamIdentifier=not set")).toBe(false);
-		expect(hasStableMacSigningIdentity("TeamIdentifier=TEAM123456")).toBe(false);
 	});
 });
 

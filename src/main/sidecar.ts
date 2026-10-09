@@ -43,7 +43,7 @@ import { EventBatcher } from "./event-batcher";
 import { localHandlerFor, runLocalCommand } from "./local";
 import { projectQueueUpdate } from "./local/queue";
 import { attachEntryIds, fetchEntries } from "./local/sessions";
-import type { LocalCommandContext, OmpRuntime } from "./local/types";
+import type { BridgeClient, LocalCommandContext, OmpRuntime } from "./local/types";
 import { type OmpResolution, ompNeedsShell, ompPathEnv, ompSpawnArgs, ompSpawnCommand } from "./omp-runtime";
 import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
 import { RpcClient } from "./rpc-client";
@@ -278,6 +278,14 @@ export interface SidecarEvents {
 	bridge: (result: BridgeConnectResult) => void;
 }
 
+/**
+ * Runs once, between a fresh tab's first bridge connect and its `ready`, while
+ * the tab still reports `starting` (src/main/worktree-lifecycle.ts). Resolves
+ * the cwd the tab must restart in as a fresh session, or null to report ready
+ * where it is. A rejection counts as null.
+ */
+export type SidecarStartGate = (bridge: BridgeClient, cwd: string) => Promise<string | null>;
+
 export class SidecarManager extends EventEmitter {
 	#child: ChildProcess | null = null;
 	#rpcClient: RpcClient | null = null;
@@ -348,6 +356,8 @@ export class SidecarManager extends EventEmitter {
 	 */
 	#held: { event: Frame; frames: Frame[] } | null = null;
 	#disposed = false;
+	/** One-shot gate held until the first spawn's `ready` (see SidecarStartGate). */
+	#startGate: SidecarStartGate | null = null;
 
 	constructor(options: SidecarOptions) {
 		super();
@@ -807,8 +817,21 @@ export class SidecarManager extends EventEmitter {
 					)
 				: Promise.resolve();
 		const announceReady = (): void => {
-			void bridgeReady.then(() => {
+			void bridgeReady.then(async () => {
 				if (!this.#isLive(generation)) return;
+				const gate = this.#startGate;
+				this.#startGate = null;
+				if (gate && bridge?.connected) {
+					const cwd = await gate(bridge, this.#options.cwd).catch(() => null);
+					if (this.#disposed) return;
+					if (cwd) {
+						// The tab's session begins in `cwd`: a fresh one, never an autoResume.
+						this.#freshLaunchPending = true;
+						this.restart(cwd);
+						return;
+					}
+					if (!this.#isLive(generation)) return;
+				}
 				this.#setStatus("ready", undefined, undefined, modelFallback);
 				this.#restartCount = 0;
 			});
@@ -1022,6 +1045,20 @@ export class SidecarManager extends EventEmitter {
 		if (cwd === this.#options.cwd) return false;
 		this.#options = { ...this.#options, cwd };
 		return true;
+	}
+
+	/** Hold the first spawn at `starting` until `gate` settles (set before that spawn's `ready`). */
+	setStartGate(gate: SidecarStartGate): void {
+		this.#startGate = gate;
+	}
+
+	/** Resolves once the current child process has exited (at once when there is none). */
+	whenExited(): Promise<void> {
+		const child = this.#child;
+		if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+		const { promise, resolve } = Promise.withResolvers<void>();
+		child.once("exit", () => resolve());
+		return promise;
 	}
 
 	restart(cwd?: string, resumeSessionPath?: string): void {

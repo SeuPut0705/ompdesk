@@ -15,6 +15,13 @@ export type RpcCommand =
 	| { id?: string; type: "follow_up"; message: string; images?: ImageContent[] }
 	| { id?: string; type: "abort" }
 	| { id?: string; type: "abort_and_prompt"; message: string; images?: ImageContent[] }
+	// Stock queue edits (queued messages are identified by chip text + lane, as
+	// in `queue_update`); the renderer reaches them through the id-keyed
+	// queue_* commands below, which main resolves to chip text.
+	| { id?: string; type: "remove_queued_message"; message: string; queue: "steering" | "followUp" }
+	| { id?: string; type: "promote_queued_message"; message: string }
+	// TUI Esc parity: withdraw queued user input, then abort; returns the input.
+	| { id?: string; type: "abort_and_restore_queue" }
 	| { id?: string; type: "new_session"; parentSession?: string }
 	| { id?: string; type: "drop_session" }
 	| { id?: string; type: "get_state" }
@@ -74,6 +81,8 @@ export type RpcCommand =
 	| { id?: string; type: "logout"; providerId: string; credentialId: number }
 	| { id?: string; type: "logout"; providerId: string; all: true }
 	| { id?: string; type: "get_provider_accounts"; providerId: string }
+	/** Spend one of the account's saved rate-limit resets (stock `/usage reset`); `creditId` = the pass the user confirmed. */
+	| { id?: string; type: "redeem_reset_pass"; providerId: string; credentialId: number; creditId?: string }
 	| { id?: string; type: "get_usage" }
 	| { id?: string; type: "get_settings_schema" }
 	| { id?: string; type: "get_settings"; paths?: string[] }
@@ -84,6 +93,7 @@ export type RpcCommand =
 	| { id?: string; type: "get_model_roles" }
 	| { id?: string; type: "set_model_role"; role: string; modelId: string | null }
 	| { id?: string; type: "get_model_role_metadata" }
+	| { id?: string; type: "get_compaction_points" }
 
 	// Domain inspection (read-only)
 	| { id?: string; type: "get_skills" }
@@ -268,6 +278,8 @@ export type RpcCommand =
 	| { id?: string; type: "get_git_diff"; path: string }
 	| { id?: string; type: "worktree_create"; name: string; baseCwd?: string; baseRef?: "HEAD" | "default" }
 	| { id?: string; type: "worktree_remove"; path: string; force?: boolean }
+	// omp's `worktree.onStart` / `worktree.onExit` as the live session resolves them (omp 18.8.6+).
+	| { id?: string; type: "worktree_lifecycle_settings" }
 	// Pull requests (PR Center, plan/21). pr_diff is per-file (lazy), pr_draft
 	// is a model call, pr_checkout lands the PR in a worktree (plan/20 scheme).
 	| { id?: string; type: "pr_repo" }
@@ -599,6 +611,35 @@ export interface RpcQueueMoveResult {
 /** queue_clear result: count of user-restorable messages removed. */
 export interface RpcQueueClearResult {
 	removed: number;
+}
+
+/** One queued message stock handed back: its chip text and attached images. */
+export interface RpcRestoredQueuedMessage {
+	text: string;
+	images?: ImageContent[];
+}
+
+/** Stock `remove_queued_message` result. */
+export interface RpcRemoveQueuedMessageResult {
+	removed: boolean;
+	images?: ImageContent[];
+	/** The removal happened, but the images exceeded the transport limit. */
+	imagesDropped?: true;
+}
+
+/** Stock `promote_queued_message` result. */
+export interface RpcPromoteQueuedMessageResult {
+	promoted: boolean;
+}
+
+/** Stock `abort_and_restore_queue` result: the withdrawn user input, oldest first. */
+export interface RpcAbortAndRestoreQueueResult {
+	steering: RpcRestoredQueuedMessage[];
+	followUp: RpcRestoredQueuedMessage[];
+	/** Every entry's images were omitted to fit the transport limit. */
+	imagesDropped?: true;
+	/** Only an oldest-first prefix (steering, then follow-ups) fit the transport limit. */
+	truncated?: true;
 }
 
 // ============================================================================
@@ -1744,7 +1785,55 @@ export interface UsageReport {
 	credentialId?: number;
 	/** This tab's session is pinned to that account. */
 	active?: boolean;
-	resetCreditsAvailable?: number;
+	/** The account's saved rate-limit resets, when the provider reports any. */
+	resetPasses?: ResetPasses;
+}
+
+/**
+ * An account's saved rate-limit resets ("reset passes"; stock `UsageResetCredits`
+ * through its `summarizeUsageResetCredits`). Codex and Claude bank them; one
+ * resets the account's limits right away.
+ */
+export interface ResetPasses {
+	/** Banked passes, including ones the provider won't let the account spend right now. */
+	count: number;
+	/** Passes the provider lets the account spend now. */
+	usableCount: number;
+	/** When the soonest pass expires, epoch ms. */
+	expiresAt?: number;
+	/** The provider's name for the next pass. */
+	title?: string;
+	/** Limit ids (`UsageLimit.id`) the next pass resets. */
+	clears: string[];
+	/** The provider allows spending the next pass before a covered limit is reached. */
+	early: boolean;
+	/** The pass the provider picked for the next spend (Claude); a redeem passes it back so a changed offer is refused. */
+	creditId?: string;
+	/**
+	 * One may be spent now under stock's rules: the provider allows it, and a
+	 * limit it covers is reached unless the provider itself judges that.
+	 */
+	redeemable: boolean;
+	/** The provider's reason none can be spent now. */
+	unavailableReason?: string;
+}
+
+/** `redeem_reset_pass` result: stock's redeem outcome. */
+export interface ResetPassRedeemResult {
+	/** A reset was applied (stock code `reset`). */
+	ok: boolean;
+	/**
+	 * Stock's outcome code (`reset`, `already_redeemed`, `no_credit`,
+	 * `nothing_to_reset`, `credit_list_failed`, `offer_changed`, …) or the
+	 * bridge's own refusal before spending: `not_redeemable`, `not_limited`.
+	 */
+	code: string;
+	/** Stock's sentence for the outcome (English). */
+	message: string;
+	/** The provider's explanation of a refusal. */
+	reason?: string;
+	/** Limit ids the provider confirmed it reset. */
+	cleared?: string[];
 }
 
 export interface UsageSessionStats {
@@ -1784,6 +1873,14 @@ export interface ProviderAccount {
 	/** Set while omp skips the account after it hit a limit: when it is tried again. */
 	limitedUntil?: number;
 	limits: UsageLimit[];
+	/**
+	 * Token-free identity key `task.agentAccountPools` matches (`omp usage
+	 * accounts`), on omp 18.8.1+ only; `null` when the account has none (an API
+	 * key, or OAuth without identity), absent on an omp without account pools.
+	 */
+	identityKey?: string | null;
+	/** The account's saved rate-limit resets, when the provider reports any. */
+	resetPasses?: ResetPasses;
 }
 
 export interface ProviderAccountsResult {
@@ -1791,6 +1888,8 @@ export interface ProviderAccountsResult {
 	accounts: ProviderAccount[];
 	/** Quotas could not be read; the accounts still list. */
 	usageError?: string;
+	/** Provider id account pools are keyed by (the credential provider); set only where `identityKey` is. */
+	credentialProvider?: string;
 }
 
 // ============================================================================
@@ -1922,6 +2021,25 @@ export interface ModelRoleMetadata {
 
 export interface ModelRoleMetadataResult {
 	roles: ModelRoleMetadata[];
+}
+
+/** Where auto-compaction triggers for one model (stock `describeModelCompactionPoint`, omp 18.8.5+). */
+export interface CompactionPoint {
+	/** Context tokens that trigger auto-compaction; absent when auto-compaction is off or the window is unknown. */
+	tokens?: number;
+	/** The configured percentage of the window, when the trigger is percent-based. */
+	percent?: number;
+	/** What sets it: the matching `compaction.modelThresholds` key, `global`, or `default`. */
+	source: string;
+	/** The model's own exact entry as stock's input text (`90k`, `80%`); absent when it has none. */
+	draft?: string;
+}
+
+export interface CompactionPointsResult {
+	/** One per available catalog model, keyed `provider/id`. */
+	models: Array<{ selector: string; point: CompactionPoint }>;
+	/** The model each role resolves to in stock's `/models` Roles view, configured or auto-selected. */
+	roles: Array<{ role: string; selector: string; autoSelected: boolean; point: CompactionPoint }>;
 }
 
 // ============================================================================

@@ -2,8 +2,11 @@
 # `v<version>` does not exist yet and CHANGELOG.md has a dated
 # `## [<version>] - YYYY-MM-DD` section, this runs the checks, packages macOS
 # (arm64) and Windows (x64), launches each fresh build, and only when all of
-# that passed creates the tag and the GitHub Release with the changelog
-# section as notes and every asset.
+# that passed creates the tag and the GitHub Release: the changelog section as
+# notes, and exactly two assets, `ompdesk-mac-arm64.dmg` and
+# `ompdesk-windows-setup.exe`. The in-app updater reads their version, size and
+# SHA-512 from an HTML comment the publish job appends to the notes
+# (`<!-- ompdesk-update {json} -->`, parsed by src/main/update-release.ts).
 # An `Unreleased` heading or an existing tag makes the run a no-op.
 # `workflow_dispatch` re-runs it; `dry_run` does everything except the tag and
 # release (the packages stay as run artifacts) and works on any branch.
@@ -51,6 +54,14 @@ env:
   # mac signs ad-hoc (`identity: "-"` in electron-builder.yml); never look for
   # a keychain certificate or publish from electron-builder itself.
   CSC_IDENTITY_AUTO_DISCOVERY: "false"
+  # Transition switch. Installed apps up to v0.17.x update from
+  # electron-updater's `latest-mac.yml` / `latest.yml` and fetch the files those
+  # name by exact name: `ompdesk-<v>-arm64-mac.zip` (relaunch mode),
+  # `ompdesk-<v>-arm64.dmg` (manual mode), `ompdesk-<v>-setup.exe` (Windows).
+  # "true" adds that feed and those files to the release, so such installs
+  # update once into the new updater. Set it to "false" once v0.18.0 is out;
+  # releases then carry exactly the two assets.
+  LEGACY_UPDATE_FEED: "true"
 
 jobs:
   prepare:
@@ -156,7 +167,16 @@ jobs:
       # error, leaving no binary. Under bun it unzips; a no-op once installed.
       - name: Ensure the Electron binary
         run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
-      - run: bun run package:mac -- --publish never
+      # The legacy feed also needs the ZIP (and the latest-mac.yml listing it).
+      - name: Package
+        run: |
+          set -euo pipefail
+          if [ "$LEGACY_UPDATE_FEED" = "true" ]; then
+            bun run build
+            bunx electron-builder --mac dmg zip --arm64 --publish never
+          else
+            bun run package:mac -- --publish never
+          fi
       - name: Verify bundle
         run: |
           set -euo pipefail
@@ -188,8 +208,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir release
-          cp "dist/ompdesk-$V-arm64.dmg" "dist/ompdesk-$V-arm64-mac.zip" dist/*.blockmap dist/latest-mac.yml release/
           cp "dist/ompdesk-$V-arm64.dmg" release/ompdesk-mac-arm64.dmg
+          if [ "$LEGACY_UPDATE_FEED" = "true" ]; then
+            cp dist/latest-mac.yml release/
+            sed -n 's/^ *- url: //p' dist/latest-mac.yml | while IFS= read -r name; do cp "dist/$name" release/; done
+            test -f "release/ompdesk-$V-arm64-mac.zip"
+          fi
           ls -l release
       # The GitHub Release keeps these files; the run artifact only carries
       # them to `publish` (a dry run keeps them a week to download).
@@ -236,9 +260,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir release
-          cp "dist/ompdesk-$V-setup.exe" "dist/ompdesk-$V-portable.exe" dist/*.blockmap dist/latest.yml release/
           cp "dist/ompdesk-$V-setup.exe" release/ompdesk-windows-setup.exe
-          cp "dist/ompdesk-$V-portable.exe" release/ompdesk-windows-portable.exe
+          if [ "$LEGACY_UPDATE_FEED" = "true" ]; then
+            cp dist/latest.yml release/
+            sed -n 's/^ *- url: //p' dist/latest.yml | while IFS= read -r name; do cp "dist/$name" release/; done
+            test -f "release/ompdesk-$V-setup.exe"
+          fi
           ls -l release
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -258,6 +285,7 @@ jobs:
       contents: write
     env:
       TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
@@ -270,9 +298,36 @@ jobs:
         with:
           name: release-notes
           path: notes
-      - name: Release contents
+      - name: Check assets
         run: |
+          set -euo pipefail
           ls -l dist
+          test -f dist/ompdesk-mac-arm64.dmg
+          test -f dist/ompdesk-windows-setup.exe
+          if [ "$LEGACY_UPDATE_FEED" != "true" ]; then
+            ASSETS=$(find dist -mindepth 1 -maxdepth 1 -printf '%f\n' | sort | paste -sd ' ')
+            if [ "$ASSETS" != "ompdesk-mac-arm64.dmg ompdesk-windows-setup.exe" ]; then
+              echo "::error::A release carries exactly two assets; got: $ASSETS"
+              exit 1
+            fi
+          fi
+      # Version, size and SHA-512 (base64, as electron-updater writes it) of the
+      # two installers, for the in-app updater (src/main/update-release.ts). An
+      # HTML comment: GitHub does not render it.
+      - name: Append update metadata
+        run: |
+          set -euo pipefail
+          entry() {
+            jq -n --arg name "$1" \
+              --argjson size "$(wc -c < "dist/$1" | tr -d ' ')" \
+              --arg sha512 "$(openssl dgst -sha512 -binary "dist/$1" | base64 | tr -d '\n')" \
+              '{name: $name, size: $size, sha512: $sha512}'
+          }
+          META=$(jq -cn --arg version "$VERSION" --arg releaseDate "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" \
+            --argjson mac "$(entry ompdesk-mac-arm64.dmg)" \
+            --argjson windows "$(entry ompdesk-windows-setup.exe)" \
+            '{version: $version, releaseDate: $releaseDate, files: {mac: $mac, windows: $windows}}')
+          printf '\n<!-- ompdesk-update %s -->\n' "$META" >> notes/notes.md
           cat notes/notes.md
       - name: Create tag and release
         if: inputs.dry_run != true

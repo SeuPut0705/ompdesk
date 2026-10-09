@@ -56,6 +56,7 @@ import type { SessionInfo } from "../../../shared/ipc-types";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
 import { dropSessionNow, requestSessionSwitch } from "../../hooks/use-session-switch";
+import { hideNativeDragImage } from "../../lib/drag-image";
 import { basename, cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -946,6 +947,7 @@ export function Sidebar() {
 						onDragStart: event => {
 							if (!openTabId) return;
 							event.dataTransfer.effectAllowed = "move";
+							hideNativeDragImage(event.dataTransfer);
 							window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: openTabId } }));
 						},
 						onDragEnd: () => window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: null } })),

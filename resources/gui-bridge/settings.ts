@@ -16,7 +16,8 @@ import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-sessi
 import { SETTING_TABS, TAB_GROUPS, TAB_METADATA } from "@oh-my-pi/pi-tui/overlays/settings-defs";
 import { getAgentDir, MAIN_CONFIG_FILENAMES } from "@oh-my-pi/pi-utils";
 import { accountLabel, matchReportAccount, reportIdentity, type StoredAccount } from "./accounts-core";
-import { guard } from "./health";
+import { guard, probe } from "./health";
+import { type ResetSummarizer, shapeResetPasses } from "./reset-passes-core";
 import { shownRoleValue, storedRoleValue } from "./role-values";
 import { releaseThinkingDefaultFor, syncThinkingDefault } from "./thinking-default";
 import type { BridgeEnv, BridgeMethods } from "./types";
@@ -425,11 +426,25 @@ function shapeLimit(limit: UsageLimit) {
 	};
 }
 
+/**
+ * Stock's saved-reset summary (`summarizeUsageResetCredits`), or `undefined` on
+ * an omp without feature `resetPasses`: accounts then list without passes.
+ * Loaded lazily, so a vanished export costs the passes, not this module.
+ */
+async function resetSummarizer(env: BridgeEnv): Promise<ResetSummarizer | undefined> {
+	if ((await probe(env, ["resetPasses"])).length > 0) return undefined;
+	const { summarizeUsageResetCredits } = await import("@oh-my-pi/pi-tui/overlays/usage-display");
+	return summarizeUsageResetCredits;
+}
+
 /** One report per stored account; each keeps the identity its own metadata names. */
-async function usage(session: AgentSession) {
+async function usage(env: BridgeEnv, session: AgentSession) {
 	const reports: Rec[] = [];
 	try {
-		const raw = (await session.fetchUsageReports()) ?? [];
+		const [raw, summarize] = await Promise.all([
+			session.fetchUsageReports().then(value => value ?? []),
+			resetSummarizer(env).catch(() => undefined),
+		]);
 		const oauth = session.modelRegistry.authStorage.oauth;
 		const reportCount = new Map<string, number>();
 		for (const report of raw) reportCount.set(report.provider, (reportCount.get(report.provider) ?? 0) + 1);
@@ -442,15 +457,18 @@ async function usage(session: AgentSession) {
 			}
 			const identity = reportIdentity(report.metadata);
 			const account = matchReportAccount(identity, accounts, reportCount.get(report.provider) ?? 0);
+			const limits = report.limits.map(shapeLimit);
+			const resetPasses =
+				summarize && shapeResetPasses(report.provider, report.resetCredits, summarize(report.resetCredits), limits);
 			reports.push({
 				provider: report.provider,
 				fetchedAt: report.fetchedAt,
-				limits: report.limits.map(shapeLimit),
+				limits,
 				notes: report.notes,
 				account: account ? accountLabel(account) : (identity.email ?? identity.accountId ?? identity.orgName),
 				...(account ? { credentialId: account.credentialId } : {}),
 				...(account?.active ? { active: true } : {}),
-				resetCreditsAvailable: report.resetCredits?.availableCount,
+				...(resetPasses ? { resetPasses } : {}),
 			});
 		}
 	} catch {
@@ -477,16 +495,45 @@ interface CredentialUsageReporter {
 	report(provider: string, credential: unknown): Promise<UsageReport | null>;
 }
 
+type IdentityKeyResolver = (provider: string, credential: { type: string }) => string | null;
+
+/**
+ * Stock `resolveCredentialIdentityKey` (exported since omp 18.8.1, with
+ * `task.agentAccountPools`), or `undefined` on an omp without account pools.
+ * Loaded lazily: a static import of the missing export would fail this whole
+ * module on older omp.
+ */
+async function identityKeyResolver(env: BridgeEnv): Promise<IdentityKeyResolver | undefined> {
+	if ((await probe(env, ["accountPools"])).length > 0) return undefined;
+	const auth: Rec = await import("@oh-my-pi/pi-ai/auth-storage");
+	const resolve = auth.resolveCredentialIdentityKey;
+	return typeof resolve === "function"
+		? (provider, credential) => {
+				const key: unknown = resolve(provider, credential);
+				return typeof key === "string" && key ? key : null;
+			}
+		: undefined;
+}
+
 /**
  * Per-account quota and health for one login provider: what stock RPC lacks
  * next to `get_logout_accounts` (main joins the two by credentialId). Health
  * is stock's own view (`health.model`): an account blocked by a usage limit is
- * `depleted` with `resetsAt` = when stock tries it again.
+ * `depleted` with `resetsAt` = when stock tries it again. On an omp with
+ * account pools each account also carries its token-free identity key (the
+ * string `omp usage accounts` prints; `null` for an API key or an OAuth
+ * account without identity) and the result names the credential provider id
+ * pools are keyed by. An account whose report lists saved rate-limit resets
+ * carries them as `resetPasses` (reset-passes-core.ts).
  */
-async function providerAccounts(session: AgentSession, loginProviderId: string) {
+async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProviderId: string) {
 	const provider = getOAuthCredentialProvider(loginProviderId);
 	const authStorage = session.modelRegistry.authStorage;
 	await authStorage.credentials.reload();
+	const [identityKey, summarize] = await Promise.all([
+		identityKeyResolver(env),
+		resetSummarizer(env).catch(() => undefined),
+	]);
 	const sessionId = session.sessionId;
 	const pinned = authStorage.oauth.accounts(provider, sessionId).find(account => account.active)?.credentialId;
 	const health = await authStorage.health
@@ -504,16 +551,28 @@ async function providerAccounts(session: AgentSession, loginProviderId: string) 
 		authStorage.credentials.list(provider).map(async row => {
 			const report = await reporter.report(provider, row.credential).catch(() => null);
 			const accountHealth = healthById.get(row.id);
+			const limits = report ? report.limits.map(shapeLimit) : [];
+			const resetPasses =
+				report && summarize && shapeResetPasses(provider, report.resetCredits, summarize(report.resetCredits), limits);
 			return {
 				credentialId: row.id,
 				state: accountHealth?.state ?? "unknown",
 				remainingFraction: accountHealth?.remainingFraction,
 				resetsAt: accountHealth?.resetsAt,
-				limits: report ? report.limits.map(shapeLimit) : [],
+				limits,
+				...(identityKey
+					? { identityKey: row.credential.type === "oauth" ? identityKey(provider, row.credential) : null }
+					: {}),
+				...(resetPasses ? { resetPasses } : {}),
 			};
 		}),
 	);
-	return { providerId: loginProviderId, ...(pinned !== undefined ? { pinnedCredentialId: pinned } : {}), accounts };
+	return {
+		providerId: loginProviderId,
+		...(identityKey ? { credentialProvider: provider } : {}),
+		...(pinned !== undefined ? { pinnedCredentialId: pinned } : {}),
+		accounts,
+	};
 }
 
 // ============================================================================
@@ -590,10 +649,10 @@ export const methods: BridgeMethods = {
 		},
 	}),
 	...guard(["providers", "usage"], {
-		provider_accounts: async (params, env) => providerAccounts(env.session(), str(params, "providerId")),
+		provider_accounts: async (params, env) => providerAccounts(env, env.session(), str(params, "providerId")),
 	}),
 	...guard("usage", {
-		usage: async (_params, env) => usage(env.session()),
+		usage: async (_params, env) => usage(env, env.session()),
 	}),
 	...guard("modelRoles", {
 		model_roles: async (_params, env) => ({ roles: modelRoles(env.session()) }),

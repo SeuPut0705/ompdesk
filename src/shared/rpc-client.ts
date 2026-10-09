@@ -39,6 +39,9 @@ const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
 	login: 660_000,
 	// Reads every account's quota; each usage request has stock's 10s budget.
 	get_provider_accounts: 30_000,
+	// Re-reads the provider's live reset offer for every account of the provider
+	// (Claude probes them one by one), then spends one; the spend is never retried.
+	redeem_reset_pass: 120_000,
 	get_transcript: 30_000,
 	get_messages: 30_000,
 	get_transcript_page: 30_000,
@@ -115,6 +118,10 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		followUp: (message: string, images?: ImageContent[]) => rpcCommand({ type: "follow_up", message, images }),
 		abort: () => rpcCommand({ type: "abort" }),
 		abortAndPrompt: (message: string) => rpcCommand({ type: "abort_and_prompt", message }),
+		abortAndRestoreQueue: () => rpcCommand({ type: "abort_and_restore_queue" }),
+		removeQueuedMessage: (message: string, queue: "steering" | "followUp") =>
+			rpcCommand({ type: "remove_queued_message", message, queue }),
+		promoteQueuedMessage: (message: string) => rpcCommand({ type: "promote_queued_message", message }),
 		newSession: (parentSession?: string) => rpcCommand({ type: "new_session", parentSession }),
 		dropSession: () => rpcCommand({ type: "drop_session" }),
 		switchSession: (sessionPath: string, model?: SessionModelOverride) =>
@@ -229,6 +236,8 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		logout: (providerId: string, credentialId: number) => rpcCommand({ type: "logout", providerId, credentialId }),
 		disconnectProvider: (providerId: string) => rpcCommand({ type: "logout", providerId, all: true }),
 		getProviderAccounts: (providerId: string) => rpcCommand({ type: "get_provider_accounts", providerId }),
+		redeemResetPass: (providerId: string, credentialId: number, creditId?: string) =>
+			rpcCommand({ type: "redeem_reset_pass", providerId, credentialId, creditId }),
 		getUsage: () => rpcCommand({ type: "get_usage" }),
 		getSettingsSchema: () => rpcCommand({ type: "get_settings_schema" }),
 		getSettings: (paths?: string[]) => rpcCommand({ type: "get_settings", paths }),
@@ -239,6 +248,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getModelRoles: () => rpcCommand({ type: "get_model_roles" }),
 		setModelRole: (role: string, modelId: string | null) => rpcCommand({ type: "set_model_role", role, modelId }),
 		getModelRoleMetadata: () => rpcCommand({ type: "get_model_role_metadata" }),
+		getCompactionPoints: () => rpcCommand({ type: "get_compaction_points" }),
 		getAvailableCommands: () => rpcCommand({ type: "get_available_commands" }),
 		getSkills: () => rpcCommand({ type: "get_skills" }),
 		getSkillDetail: (name: string) => rpcCommand({ type: "get_skill_detail", name }),

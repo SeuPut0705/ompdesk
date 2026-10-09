@@ -7,19 +7,23 @@
  * account" is the same sign-in flow (a different identity adds a row);
  * remove logs out that one credential, and the last one disconnects the
  * provider. The read lives in `useProviderAccounts`, owned by the provider
- * row, so the collapsed row can name the account count.
+ * row, so the collapsed row can name the account count. On omp 18.8.1+ each
+ * account with an identity key offers to copy it (the name
+ * `task.agentAccountPools` matches; see AccountPoolsEditor). An account with
+ * saved rate-limit resets shows them and can spend one (ResetPasses.tsx).
  */
 
-import { RefreshCw, Trash2, UserPlus } from "lucide-react";
+import { Copy, RefreshCw, Trash2, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ProviderAccount, ProviderAccountsResult, ProviderInfo } from "../../../../shared/rpc-types";
+import type { ProviderAccount, ProviderAccountsResult, ProviderInfo, UsageLimit } from "../../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
-import { formatClock } from "../../../lib/format";
+import { copyText, formatClock } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { toast, toastError } from "../../../stores/toast";
 import { Badge, Button, ConfirmDialog, IconButton, ProgressBar, Spinner } from "../../common";
 import { InlineNotice } from "../InlineNotice";
+import { ResetPassControl } from "./ResetPasses";
 
 type TFn = (key: string, params?: Record<string, string | number>) => string;
 
@@ -59,7 +63,8 @@ export interface ProviderAccountsState {
 	result: ProviderAccountsResult | null;
 	error: InlineFailure | null;
 	loading: boolean;
-	load: () => Promise<void>;
+	/** Re-reads the accounts; resolves to the new result, `null` when the read failed or a newer one superseded it. */
+	load: () => Promise<ProviderAccountsResult | null>;
 }
 
 /**
@@ -75,20 +80,23 @@ export function useProviderAccounts(providerId: string, enabled: boolean, revisi
 	const [loading, setLoading] = useState(false);
 	const requestVersion = useRef(0);
 
-	const load = useCallback(async () => {
+	const load = useCallback(async (): Promise<ProviderAccountsResult | null> => {
 		const version = ++requestVersion.current;
 		setLoading(true);
 		try {
 			const response = await tabRpc.getProviderAccounts(providerId);
-			if (version !== requestVersion.current) return;
+			if (version !== requestVersion.current) return null;
 			if (!response.success) {
 				setError(inlineFailure(response, t("providers.accounts.loadFailed")));
-				return;
+				return null;
 			}
+			const next = response.data as ProviderAccountsResult;
 			setError(null);
-			setResult(response.data as ProviderAccountsResult);
+			setResult(next);
+			return next;
 		} catch (cause) {
 			if (version === requestVersion.current) setError(inlineFailure(cause, t("providers.accounts.loadFailed")));
+			return null;
 		} finally {
 			if (version === requestVersion.current) setLoading(false);
 		}
@@ -103,15 +111,22 @@ export function useProviderAccounts(providerId: string, enabled: boolean, revisi
 }
 
 function AccountRow({
+	provider,
 	account,
 	busy,
 	disabled,
+	sidecarReady,
 	onRemove,
+	onRedeemed,
 }: {
+	provider: ProviderInfo;
 	account: ProviderAccount;
 	busy: boolean;
 	disabled: boolean;
+	sidecarReady: boolean;
 	onRemove: () => void;
+	/** After a reset pass is spent: re-reads the accounts, resolving to this account's limits. */
+	onRedeemed: () => Promise<readonly UsageLimit[] | undefined>;
 }) {
 	const t = useT();
 	const windows = quotaWindows(account, t);
@@ -132,6 +147,18 @@ function AccountRow({
 					)}
 					{account.state === "reserve" && <Badge variant="warning">{t("providers.accounts.low")}</Badge>}
 				</div>
+				{account.resetPasses && (
+					<ResetPassControl
+						account={account.label}
+						credentialId={account.credentialId}
+						disabled={!sidecarReady}
+						limits={account.limits}
+						onRedeemed={onRedeemed}
+						passes={account.resetPasses}
+						providerId={provider.id}
+						providerName={provider.name}
+					/>
+				)}
 				{windows.length > 0 && (
 					<ul className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-4 gap-y-1.5">
 						{windows.map(window => (
@@ -148,13 +175,34 @@ function AccountRow({
 					<Spinner size="sm" />
 				</span>
 			) : (
-				<IconButton
-					disabled={disabled}
-					icon={<Trash2 />}
-					label={t("providers.accounts.remove", { account: account.label })}
-					onClick={onRemove}
-					size="sm"
-				/>
+				<>
+					{typeof account.identityKey === "string" && (
+						<IconButton
+							icon={<Copy />}
+							label={t("providers.accounts.copyKey", { account: account.label })}
+							onClick={() => {
+								// Token-free: the key is the pool name `omp usage accounts` prints.
+								const key = account.identityKey;
+								if (typeof key !== "string") return;
+								void copyText(key).then(ok =>
+									toast(
+										ok
+											? { variant: "success", message: t("providers.accounts.keyCopied") }
+											: { variant: "error", message: t("providers.accounts.keyCopyFailed") },
+									),
+								);
+							}}
+							size="sm"
+						/>
+					)}
+					<IconButton
+						disabled={disabled}
+						icon={<Trash2 />}
+						label={t("providers.accounts.remove", { account: account.label })}
+						onClick={onRemove}
+						size="sm"
+					/>
+				</>
 			)}
 		</li>
 	);
@@ -245,7 +293,12 @@ export function ProviderAccounts({
 								busy={removing === account.credentialId}
 								disabled={!sidecarReady || removing !== null}
 								key={account.credentialId}
+								onRedeemed={async () =>
+									(await load())?.accounts.find(entry => entry.credentialId === account.credentialId)?.limits
+								}
 								onRemove={() => setPendingRemove(account)}
+								provider={provider}
+								sidecarReady={sidecarReady}
 							/>
 						))}
 					</ul>

@@ -1,8 +1,9 @@
 /**
- * QueuePanel mutations: edit (omp re-queues the text at the end of its lane)
- * and the cross-lane move, both applied optimistically and rolled back when
- * the transport rejects. omp cannot reorder within a lane, so there are no
- * same-lane move controls.
+ * QueuePanel mutations: edit (omp re-queues the text at the end of its lane),
+ * remove, and the lane switch (a follow-up is sent now as a steer, a steer
+ * can wait for the turn to end), all applied optimistically and rolled back
+ * when the transport rejects. omp cannot reorder within a lane, so there are
+ * no same-lane move controls.
  */
 import { parseHTML } from "linkedom";
 import { act } from "react";
@@ -67,8 +68,8 @@ function queued(id: string, text: string, editable = true): RpcQueuedMessage {
 	return { id, text, editable, timestamp: 1 };
 }
 
-async function mount(steering: RpcQueuedMessage[]): Promise<void> {
-	getQueue = vi.fn(async () => ok({ steering, followUp: [] }));
+async function mount(steering: RpcQueuedMessage[], followUp: RpcQueuedMessage[] = []): Promise<void> {
+	getQueue = vi.fn(async () => ok({ steering, followUp }));
 	queueMove = vi.fn(async () => ok({ lane: "steering", index: 0 }));
 	queueEdit = vi.fn(async () => ok({ updated: true }));
 	queueRemove = vi.fn(async () => ok({ removed: true }));
@@ -85,7 +86,7 @@ async function mount(steering: RpcQueuedMessage[]): Promise<void> {
 		},
 	};
 	useSessionStore.setState({ status: "ready" });
-	useQueueStore.getState().setFromFrame({ steering, followUp: [] });
+	useQueueStore.getState().setFromFrame({ steering, followUp });
 	container = document.createElement("div") as unknown as TestElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
@@ -141,23 +142,39 @@ describe("QueuePanel editing", () => {
 		expect(buttonsByLabel("Edit")).toHaveLength(0);
 	});
 });
-describe("QueuePanel lane switch", () => {
-	it("⇄ on a steering row moves it to the end of the follow-up lane via queue_move with toLane", async () => {
-		await mount([queued("s1", "one"), queued("s2", "two")]);
-		// Seed a non-empty target lane after mount's hydrate pull consumed the mock.
-		await act(async () => {
-			useQueueStore.getState().setFromFrame({
-				steering: useQueueStore.getState().steering,
-				followUp: [queued("f1", "queued one")],
-			});
-		});
-		await flush();
+describe("QueuePanel remove", () => {
+	it("removes only the clicked item, by its stable queue id", async () => {
+		await mount([queued("s1", "same text"), queued("s2", "same text")], [queued("f1", "later")]);
+		await click(buttonsByLabel("Remove")[1]!);
 
-		const switchButtons = buttonsByLabel(
-			translate("queuePanel.moveToLane", { lane: translate("queuePanel.lane.followUp") }),
-		);
-		expect(switchButtons).toHaveLength(2);
-		await click(switchButtons[0]!);
+		expect(queueRemove).toHaveBeenCalledTimes(1);
+		expect(queueRemove).toHaveBeenCalledWith("s2");
+		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s1"]);
+		expect(useQueueStore.getState().followUp.map(entry => entry.id)).toEqual(["f1"]);
+	});
+});
+
+describe("QueuePanel lane switch", () => {
+	it("offers Send now only on follow-ups and promotes through queue_move to steering", async () => {
+		await mount([queued("s1", "steer")], [queued("f1", "later one"), queued("f2", "later two")]);
+		const sendNow = buttonsByLabel(translate("composerQueue.sendNow"));
+		expect(sendNow).toHaveLength(2);
+		expect(buttonsByLabel(translate("composerQueue.sendLater"))).toHaveLength(1);
+
+		await click(sendNow[1]!);
+
+		expect(queueMove).toHaveBeenCalledWith("f2", Number.MAX_SAFE_INTEGER, "steering");
+		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s1", "f2"]);
+		expect(useQueueStore.getState().followUp.map(entry => entry.id)).toEqual(["f1"]);
+	});
+
+	it("moves a steer to the end of the follow-up lane via queue_move with toLane", async () => {
+		await mount([queued("s1", "one"), queued("s2", "two")], [queued("f1", "queued one")]);
+
+		const sendLater = buttonsByLabel(translate("composerQueue.sendLater"));
+		expect(sendLater).toHaveLength(2);
+		expect(buttonsByLabel(translate("composerQueue.sendNow"))).toHaveLength(1);
+		await click(sendLater[0]!);
 
 		expect(queueMove).toHaveBeenCalledWith("s1", Number.MAX_SAFE_INTEGER, "followUp");
 		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s2"]);
@@ -168,9 +185,7 @@ describe("QueuePanel lane switch", () => {
 		await mount([queued("s1", "one"), queued("s2", "two")]);
 		queueMove.mockRejectedValueOnce(new Error("sidecar unavailable"));
 
-		await click(
-			buttonsByLabel(translate("queuePanel.moveToLane", { lane: translate("queuePanel.lane.followUp") }))[0]!,
-		);
+		await click(buttonsByLabel(translate("composerQueue.sendLater"))[0]!);
 
 		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s1", "s2"]);
 		expect(useQueueStore.getState().followUp).toEqual([]);

@@ -3,8 +3,10 @@
  *
  * A tab whose run is live dies with its close, so the first ⌘W only arms it
  * (a toast says to press again); a worktree-bound tab detours to the cleanup
- * prompt (plan/20) instead of orphaning the checkout; and at the single-tab
- * floor there is no tab left to close, so ⌘W closes the window.
+ * prompt (plan/20) instead of orphaning the checkout — except one omp's
+ * `worktree.onStart` made, whose close applies `worktree.onExit` in main
+ * (src/main/worktree-lifecycle.ts, which asks when stock asks); and at the
+ * single-tab floor there is no tab left to close, so ⌘W closes the window.
  */
 
 import { useSessionStore } from "../stores/session";
@@ -36,7 +38,7 @@ export type TabCloseOutcome = "closed" | "worktree-prompt" | "armed" | "window" 
 export function performTabClose(tab: SessionTab): TabCloseOutcome {
 	const ui = useUiStore.getState();
 	ui.cancelCloseTab();
-	if (tab.worktree) {
+	if (tab.worktree && !tab.worktree.lifecycle) {
 		ui.openWorktreeClosePrompt(tab.id);
 		return "worktree-prompt";
 	}

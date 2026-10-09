@@ -43,7 +43,7 @@ interface OmpMock {
 	abortSubagent: Mock;
 	setAgentsPaused: Mock;
 	reviveSubagent: Mock;
-	abort: Mock;
+	abortAndRestoreQueue: Mock;
 }
 
 function installOmpMock(overrides: Partial<OmpMock> = {}): OmpMock {
@@ -53,7 +53,7 @@ function installOmpMock(overrides: Partial<OmpMock> = {}): OmpMock {
 		abortSubagent: vi.fn(async () => ok({ ok: true })),
 		reviveSubagent: vi.fn(async () => ok({ ok: true })),
 		setAgentsPaused: vi.fn(async (enabled: boolean) => ok({ paused: enabled, pausedAt: enabled ? 123 : undefined })),
-		abort: vi.fn(async () => ok({})),
+		abortAndRestoreQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
 		...overrides,
 	};
 	(window as unknown as { omp: { rpc: OmpMock } }).omp = { rpc: mock };

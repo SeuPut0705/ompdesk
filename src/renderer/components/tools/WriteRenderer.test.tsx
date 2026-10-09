@@ -4,7 +4,8 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
 
-const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
+const { document, window, Event, HTMLElement, Element, Node, MutationObserver } =
+	parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
 	document,
 	window,
@@ -12,6 +13,7 @@ Object.assign(globalThis as Record<string, unknown>, {
 	HTMLElement,
 	Element,
 	Node,
+	MutationObserver,
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
 
@@ -96,4 +98,78 @@ describe("WriteRenderer", () => {
 		await mount(<WriteRenderer args={{ file_path: "src/alias.ts", content: "x\n" }} result={{}} />);
 		expect(container.textContent).toContain("alias.ts");
 	});
+
+	it(".svg write: sanitized data URL preview, Code switch shows the source", async () => {
+		const svg =
+			'<svg viewBox="0 0 4 4" onload="alert(1)"><script>alert(2)</script><rect width="4" height="4"/></svg>';
+		await mount(<WriteRenderer args={{ path: "art/logo.svg", content: svg }} result={{}} />);
+		await expand();
+		const img = container.querySelector("[data-svg-preview] img");
+		const src = img?.getAttribute("src") ?? "";
+		expect(src.startsWith("data:image/svg+xml;charset=utf-8,")).toBe(true);
+		const decoded = decodeURIComponent(src.slice(src.indexOf(",") + 1));
+		expect(decoded).toContain('<rect width="4" height="4"/>');
+		expect(decoded).not.toMatch(/script|onload|alert/);
+		expect(container.textContent).not.toContain("alert(2)");
+
+		await clickTab("code");
+		expect(container.querySelector("[data-svg-preview]")).toBeNull();
+		expect(container.textContent).toContain("alert(2)");
+	});
+
+	it(".svg write that does not parse yet shows only the code", async () => {
+		await mount(
+			<WriteRenderer
+				args={{ path: "art/logo.svg", content: '<svg viewBox="0 0 4 4"><rect wid' }}
+				isPartial
+				result={{}}
+			/>,
+		);
+		await expand();
+		expect(container.querySelector("[data-svg-preview]")).toBeNull();
+		expect(container.querySelector('[role="tab"]')).toBeNull();
+		expect(container.textContent).toContain("<rect wid");
+	});
+
+	it(".svg overwrite keeps the diff behind the Code switch", async () => {
+		await mount(
+			<WriteRenderer
+				args={{ path: "art/logo.svg", content: '<svg viewBox="0 0 1 1"/>' }}
+				result={{ details: { overwritten: true, diff: DIFF } }}
+			/>,
+		);
+		await expand();
+		expect(container.querySelector("[data-svg-preview] img")).not.toBeNull();
+		await clickTab("code");
+		expect(container.textContent).toContain("const oldValue = true;");
+	});
+
+	it(".mmd write renders through MermaidBlock once the content is complete", async () => {
+		document.documentElement.setAttribute("data-theme", "dark");
+		const diagram = "graph TD\n  A --> B\n";
+		await mount(<WriteRenderer args={{ path: "docs/flow.mmd", content: diagram }} result={{}} />);
+		await expand();
+		const figure = container.querySelector('[data-write-figure="mermaid"]');
+		expect(figure?.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Preview");
+		// MermaidBlock: rendering, or (mermaid needs a real browser) its source fallback with the Mermaid badge.
+		expect(figure?.textContent).toMatch(/Rendering diagram|PreviewCodeMermaid/);
+		await clickTab("code");
+		expect(container.textContent).toContain("A --> B");
+
+		await act(async () => root.unmount());
+		await mount(
+			<WriteRenderer args={{ path: "docs/flow.mermaid", content: "graph TD\n  A -" }} isPartial result={{}} />,
+		);
+		await expand();
+		expect(container.querySelector("[data-write-figure]")).toBeNull();
+		expect(container.textContent).toContain("A -");
+	});
 });
+
+async function clickTab(id: string): Promise<void> {
+	const tab = container.querySelector(`[role="tab"][data-tab-id="${id}"]`) as HTMLElement | null;
+	expect(tab).not.toBeNull();
+	await act(async () => {
+		tab?.click();
+	});
+}

@@ -24,6 +24,7 @@ import { ShareSessionDialog } from "./components/dialogs/ShareSessionDialog";
 import { ThemePickerDialog } from "./components/dialogs/ThemePickerDialog";
 import { WorktreeCloseDialog } from "./components/dialogs/WorktreeCloseDialog";
 import { WorktreeDialog } from "./components/dialogs/WorktreeDialog";
+import { WorktreeLifecycleDialog } from "./components/dialogs/WorktreeLifecycleDialog";
 import { AppShell } from "./components/layout/AppShell";
 import { FirstRunGate } from "./components/onboarding/FirstRunGate";
 import { RemoteFolderPickerHost } from "./components/remote/RemoteFolderPicker";
@@ -677,6 +678,7 @@ export function App() {
 			<RenameSessionDialog />
 			<WorktreeDialog />
 			<WorktreeCloseDialog />
+			<WorktreeLifecycleDialog />
 			<SessionPickerDialog />
 			<SessionSwitchDialog />
 			<ModelRestoreDialog />

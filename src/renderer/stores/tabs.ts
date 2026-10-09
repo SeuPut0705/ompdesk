@@ -346,7 +346,12 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		// The focused tab's folder only means something on its own device.
 		const inheritCwd = activeTab?.device === device;
 		const runtimeCwd = sessionRuntimeStore<SessionStore>(get().activeTabId, "session")?.getState().cwd;
-		const cwd = args?.cwd ?? (inheritCwd ? runtimeCwd || activeTab?.cwd || useSessionStore.getState().cwd : "");
+		// A `worktree.onStart` worktree belongs to its tab's session: a new tab
+		// starts from the checkout it was forked from (and gets its own worktree).
+		const lifecycleSource = activeTab?.worktree?.lifecycle ? activeTab.worktree.baseCwd : undefined;
+		const cwd =
+			args?.cwd ??
+			(inheritCwd ? lifecycleSource || runtimeCwd || activeTab?.cwd || useSessionStore.getState().cwd : "");
 		const kind = args?.kind ?? "agent";
 		let result: IpcSpawnTabResult | null;
 		try {

@@ -16,6 +16,7 @@ export type ViewerKind =
 	| "json"
 	| "html"
 	| "notebook"
+	| "mermaid"
 	| "docx"
 	| "xlsx"
 	| "pptx"
@@ -76,6 +77,8 @@ const KIND_BY_EXT: Readonly<Record<string, ViewerKind>> = {
 	htm: "html",
 	xhtml: "html",
 	ipynb: "notebook",
+	mmd: "mermaid",
+	mermaid: "mermaid",
 	docx: "docx",
 	xlsx: "xlsx",
 	pptx: "pptx",
@@ -179,6 +182,7 @@ const ICON_BY_KIND: Readonly<Record<ViewerKind, FileIconKind>> = {
 	json: "json",
 	html: "code",
 	notebook: "code",
+	mermaid: "code",
 	docx: "text",
 	xlsx: "table",
 	pptx: "file",

@@ -1,113 +1,142 @@
 /**
- * Geometry of the ompdesk mark, the interlaced knot: two congruent open loops
- * on a 512-unit grid centred at the origin. The upper loop (ink) is the person,
- * the lower loop (accent) is the agent; it is the same strand rotated 180°. The
- * loops cross twice and the weave alternates (each strand passes over at one
- * crossing and under at the other), so one strand plus one mask, reused inside
- * `rotate(180)`, gives a consistent over/under.
+ * Geometry of the ompdesk mark: omp's π, rebuilt for the desk. It follows the
+ * construction of omp's terminal logo (pi-tui `PI_LOGO`): a top bar, two legs
+ * set well in from its ends, the right leg running the full height and the left
+ * one stopping higher, its last cell shaded (`▒▒`). Here that shaded cell is the
+ * foot, a separate shape painted in the OMPdesk accent where omp uses an orange
+ * plug; everything else is ink.
  *
- * Two forms: `full` (outer ring, hairline groove along the strand) for large
- * renderings and `small` (heavier strand, no ring or groove) for ≤ SMALL_MAX_PX.
+ * Shapes are filled paths on a 512-unit grid centred at the origin. Two forms:
+ * `full` (round terminals, the foot set apart by a cut) for large renderings and
+ * `small` (≤ SMALL_MAX_PX) drawn on a 16 px pixel grid (the menu-bar template
+ * and Windows tray size; 32 and 48 px are the same grid scaled by whole
+ * pixels), with the foot joined to its leg so the monochrome tray template
+ * stays one solid, crisp π.
  *
  * resources/icon-source*.svg and resources/brand/*.svg are generated from this
  * module by `bun run gen:icons` (scripts/gen-icons.ts); brand-mark.test.ts keeps
  * the checked-in files in sync with it. The in-app mark is BrandMark.tsx.
  */
 
-export interface KnotOptions {
-	/** Loop radius. */
-	R: number;
-	/** Vertical offset of each loop centre from the origin. */
-	a: number;
-	/** Strand stroke width. */
-	sw: number;
-	/** Start angle of the strand (degrees, +y down). */
-	s0: number;
-	/** How far the strand stops short of the far crossing (degrees). */
-	tail: number;
-	/** Clearance each side of the over-strand at the crossing where this strand goes under. */
-	gap: number;
-	/** Width of the hairline groove cut along the strand centre (0 = none). */
-	groove: number;
-	/** Draw the outer ring. */
-	ring: boolean;
+export interface PiOptions {
+	/** Bar width. */
+	width: number;
+	/** Bar thickness and leg width. */
+	stroke: number;
+	/** Clear space between the legs. */
+	legGap: number;
+	/** Bar top to the end of the right leg. */
+	height: number;
+	/** Length of the left leg below the bar, foot included. */
+	leftLeg: number;
+	/** Length of the accent foot that ends the left leg. */
+	foot: number;
+	/** Cut between the left leg and its foot (0 = joined). */
+	footGap: number;
+	/** Corner radius at the ends of the bar. */
+	barRadius: number;
+	/** Corner radius at the free ends of the legs. */
+	endRadius: number;
+	/** Corner radius on both sides of the cut (ignored when `footGap` is 0). */
+	cutRadius: number;
 }
 
-export interface KnotGeometry {
-	/** The upper (ink) strand; the accent strand is the same path rotated 180°. */
-	strand: string;
-	strokeWidth: number;
-	/** Where this strand goes under the other: the mask cut is clipped to this circle. */
-	under: { cx: number; r: number };
-	/** Stroke width of the other strand's silhouette cut out of this one. */
-	cutWidth: number;
-	/** Hairline groove along the strand centre, trimmed short of its ends. */
-	groove: { d: string; width: number } | null;
-	/** Outer ring: a heavy ink circle with a hairline accent circle inside. */
-	ring: { ink: { r: number; width: number }; accent: { r: number; width: number } } | null;
+export interface PiGeometry {
+	/** Bar, left leg above the foot, and right leg: one path, filled in ink. */
+	ink: string;
+	/** The foot of the left leg, filled in the accent; drawn after `ink`. */
+	accent: string;
 }
 
-const round = (n: number) => Math.round(n * 100) / 100;
-const fmt = (n: number) => String(round(n));
-const toRad = (d: number) => (d * Math.PI) / 180;
-const toDeg = (r: number) => (r * 180) / Math.PI;
+const fmt = (n: number) => String(Math.round(n * 100) / 100);
 
-/** Arc around (cx, cy) from angle a0 to a1, split into ≤ 90° segments. */
-function arc(cx: number, cy: number, r: number, a0: number, a1: number): string {
-	const point = (a: number) => `${fmt(cx + r * Math.cos(toRad(a)))} ${fmt(cy + r * Math.sin(toRad(a)))}`;
-	const n = Math.max(1, Math.ceil(Math.abs(a1 - a0) / 90));
-	let d = `M${point(a0)}`;
-	for (let i = 1; i <= n; i++) d += `A${fmt(r)} ${fmt(r)} 0 0 ${a1 > a0 ? 1 : 0} ${point(a0 + ((a1 - a0) * i) / n)}`;
-	return d;
+/** Clockwise rectangle with per-corner radii [top-left, top-right, bottom-right, bottom-left]. */
+function rect(x: number, y: number, w: number, h: number, [tl, tr, br, bl]: number[]): string {
+	const corner = (r: number, dx: number, dy: number) => (r ? `A${fmt(r)} ${fmt(r)} 0 0 1 ${fmt(dx)} ${fmt(dy)}` : "");
+	return (
+		`M${fmt(x + tl)} ${fmt(y)}H${fmt(x + w - tr)}${corner(tr, x + w, y + tr)}` +
+		`V${fmt(y + h - br)}${corner(br, x + w - br, y + h)}` +
+		`H${fmt(x + bl)}${corner(bl, x, y + h - bl)}` +
+		`V${fmt(y + tl)}${corner(tl, x + tl, y)}Z`
+	);
 }
 
-export function knotGeometry(o: KnotOptions): KnotGeometry {
-	const { R, a, sw } = o;
-	const w = Math.sqrt(R * R - a * a);
-	// Angle of the right crossing seen from the upper loop's centre.
-	const crossing = toDeg(Math.atan2(a, w));
-	const a1 = crossing - o.tail - 360;
-	const trim = toDeg((sw * 0.75) / R);
-	return {
-		strand: arc(0, -a, R, o.s0, a1),
-		strokeWidth: sw,
-		under: { cx: round(-w), r: round(sw * 1.4) },
-		cutWidth: round(sw + 2 * o.gap),
-		groove: o.groove ? { d: arc(0, -a, R, o.s0 - trim, a1 + trim), width: o.groove } : null,
-		ring: o.ring ? { ink: { r: 238, width: 5 }, accent: { r: 225, width: 1.8 } } : null,
-	};
+export function piGeometry(o: PiOptions): PiGeometry {
+	const top = -o.height / 2;
+	const barBottom = top + o.stroke;
+	const leftX = -o.legGap / 2 - o.stroke;
+	const rightX = o.legGap / 2;
+	// Legs start inside the bar so the union has no seam; all subpaths wind the same way.
+	const legTop = top + o.stroke / 2;
+	const footTop = barBottom + o.leftLeg - o.foot;
+	const footBottom = barBottom + o.leftLeg;
+	const cut = o.footGap ? o.cutRadius : 0;
+	// Joined foot: the ink leg reaches halfway under the foot, so mono renders stay one solid shape.
+	const leftInkBottom = o.footGap ? footTop - o.footGap : footTop + o.foot / 2;
+	const ink =
+		rect(-o.width / 2, top, o.width, o.stroke, [o.barRadius, o.barRadius, o.barRadius, o.barRadius]) +
+		rect(leftX, legTop, o.stroke, leftInkBottom - legTop, [0, 0, cut, cut]) +
+		rect(rightX, legTop, o.stroke, o.height / 2 - legTop, [0, 0, o.endRadius, o.endRadius]);
+	const accent = rect(leftX, footTop, o.stroke, footBottom - footTop, [cut, cut, o.endRadius, o.endRadius]);
+	return { ink, accent };
 }
+
+/** One pixel of the 16 px grid the small form is drawn on. */
+const PX = 512 / 16;
 
 export const BRAND_MARK = {
 	viewBox: "-256 -256 512 512",
-	full: knotGeometry({ R: 104, a: 72, sw: 34, s0: -30, tail: 22, gap: 7, groove: 3.4, ring: true }),
-	small: knotGeometry({ R: 114, a: 80, sw: 60, s0: -30, tail: 22, gap: 20, groove: 0, ring: false }),
+	full: piGeometry({
+		width: 448,
+		stroke: 76,
+		legGap: 112,
+		height: 392,
+		leftLeg: 230,
+		foot: 76,
+		footGap: 14,
+		barRadius: 38,
+		endRadius: 38,
+		cutRadius: 8,
+	}),
+	small: piGeometry({
+		width: 16 * PX,
+		stroke: 3 * PX,
+		legGap: 4 * PX,
+		height: 14 * PX,
+		leftLeg: 8 * PX,
+		foot: 3 * PX,
+		footGap: 0,
+		barRadius: 0.75 * PX,
+		endRadius: 0.75 * PX,
+		cutRadius: 0,
+	}),
 	/** Largest rendered size (px) that uses the `small` form. */
 	smallMaxPx: 48,
 	/**
 	 * App-icon tile (dock, .icns/.ico, Windows tray, in-app tile): ink square with
-	 * the knot in platinum (person) and gold (agent) at 80% of the tile.
+	 * the π in a platinum gradient and the foot in an indigo gradient at 76% of the tile.
 	 */
-	tile: { radius: 115, glyphScale: 0.8, background: "#17171C" },
-	/** Diagonal metal gradients (userSpaceOnUse, top-left → bottom-right), as [offset, color] stops. */
-	metal: {
-		from: [-180, -250],
-		to: [180, 250],
-		platinum: [
-			[0, "#F5F5F7"],
-			[0.5, "#C8CAD0"],
-			[1, "#8E9098"],
+	tile: {
+		radius: 115,
+		glyphScale: 0.76,
+		background: "#17171C",
+		/** Gradient line (userSpaceOnUse, top → bottom of the glyph). */
+		from: [0, -200],
+		to: [0, 200],
+		/** [offset, color] stops. */
+		ink: [
+			[0, "#FFFFFF"],
+			[1, "#C4C6D0"],
 		],
-		gold: [
-			[0, "#E2C990"],
-			[0.5, "#B8955A"],
-			[1, "#86663A"],
+		accent: [
+			[0, "#A5A7FB"],
+			[1, "#6E70EE"],
 		],
 	},
 } as const;
 
-export type KnotForm = "full" | "small";
+export type PiForm = "full" | "small";
 
-export function knotFormForSize(px: number): KnotForm {
+export function piFormForSize(px: number): PiForm {
 	return px <= BRAND_MARK.smallMaxPx ? "small" : "full";
 }

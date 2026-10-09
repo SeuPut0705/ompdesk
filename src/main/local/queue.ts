@@ -10,7 +10,13 @@
  * keeps it too. Stock cannot reorder within a lane, and its lanes carry no
  * images.
  */
-import type { RpcGetQueueResult, RpcQueuedMessage, RpcQueueMoveResult } from "../../shared/rpc-types";
+import type {
+	RpcGetQueueResult,
+	RpcPromoteQueuedMessageResult,
+	RpcQueuedMessage,
+	RpcQueueMoveResult,
+	RpcRemoveQueuedMessageResult,
+} from "../../shared/rpc-types";
 import { type BridgeClient, type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
 
 export type QueueLane = "steering" | "followUp";
@@ -164,7 +170,11 @@ async function locate(ctx: LocalCommandContext, id: unknown) {
 }
 
 async function removeChip(ctx: LocalCommandContext, lane: QueueLane, text: string): Promise<boolean> {
-	const data = await ctx.send<{ removed?: boolean }>({ type: "remove_queued_message", message: text, queue: lane });
+	const data = await ctx.send<RpcRemoveQueuedMessageResult | undefined>({
+		type: "remove_queued_message",
+		message: text,
+		queue: lane,
+	});
 	return data?.removed === true;
 }
 
@@ -232,7 +242,10 @@ export const handlers: Record<string, LocalHandler> = {
 		const landedAt = queue[toLane].length;
 		if (toLane === "steering") {
 			queue.expect("steering", chip.text, chip);
-			const data = await ctx.send<{ promoted?: boolean }>({ type: "promote_queued_message", message: chip.text });
+			const data = await ctx.send<RpcPromoteQueuedMessageResult | undefined>({
+				type: "promote_queued_message",
+				message: chip.text,
+			});
 			if (data?.promoted !== true) throw new Error(`Unknown queued message id: ${chip.id}`);
 		} else {
 			requireEditable(chip.text);

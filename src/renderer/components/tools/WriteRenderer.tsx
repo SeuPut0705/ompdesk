@@ -1,14 +1,57 @@
 import { ChevronDown, ChevronRight, FilePlus2 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { DiffView } from "../../lib/diff";
 import { basename, cx, dirname, headLines, languageFromPath, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { CodeBlock } from "../chat/CodeBlock";
+import { MermaidBlock } from "../chat/MermaidBlock";
+import { type PreviewMode, PreviewModeTabs, SvgImage, useSanitizedSvg } from "../chat/SvgBlock";
 import { ProtocolWriteRenderer } from "./CoordinationRenderer";
 import { unifiedDiffStats } from "./diff-stats";
 import { PathLink } from "./PathLink";
 import type { ToolRendererProps } from "./ToolCard";
+
+/** Written files drawn as a figure, as stock omp draws their fence in a reply. */
+type WriteFigure = "svg" | "mermaid";
+
+function writeFigure(path: string): WriteFigure | null {
+	if (/\.svg$/i.test(path)) return "svg";
+	if (/\.(?:mmd|mermaid)$/i.test(path)) return "mermaid";
+	return null;
+}
+
+/**
+ * Preview/Code switch over a figure write. The code side is the card's usual
+ * diff or content view. An svg that does not parse yet (still streaming, or
+ * broken) and a mermaid write still streaming show only the code, as stock
+ * waits for a mermaid fence to close.
+ */
+function WriteFigurePreview({
+	figure,
+	content,
+	streaming,
+	codeView,
+}: {
+	figure: WriteFigure;
+	content: string;
+	streaming: boolean;
+	codeView: ReactNode;
+}) {
+	const [mode, setMode] = useState<PreviewMode>("preview");
+	const svg = useSanitizedSvg(figure === "svg" ? content : "");
+	const preview =
+		figure === "svg"
+			? svg !== null && <SvgImage svg={svg} />
+			: !streaming && content.trim() !== "" && <MermaidBlock code={content} />;
+	if (!preview) return codeView;
+	return (
+		<div className="flex flex-col items-start gap-1.5" data-write-figure={figure}>
+			<PreviewModeTabs mode={mode} onChange={setMode} />
+			<div className="flex w-full flex-col gap-1.5">{mode === "preview" ? preview : codeView}</div>
+		</div>
+	);
+}
 
 /**
  * File write: path header + collapsible preview. When the write overwrote an
@@ -51,6 +94,25 @@ export function WriteRenderer({ args, result, isError, isPartial, partialResult,
 	// success-style preview of the requested content.
 	const errorText = isError ? headLines(resultText(result), WRITE_PREVIEW_LINES) : null;
 
+	const figure = writeFigure(path);
+	const codeView = diff ? (
+		<DiffView diff={diff} filePath={path} className={cx("rounded", PREVIEW_SCROLL_LG)} />
+	) : content ? (
+		<>
+			<CodeBlock
+				code={previewContent}
+				language={languageFromPath(path)}
+				showLanguage={false}
+				showCopy={false}
+				maxHeightClass="max-h-72"
+			/>
+			{previewOmitted > 0 && (
+				<div className="text-omp-xs text-[var(--omp-dim)]">
+					{t("tools.read.more", { count: previewOmitted, plural: previewOmitted === 1 ? "" : "s" })}
+				</div>
+			)}
+		</>
+	) : null;
 	return (
 		<div className="flex flex-col gap-1.5">
 			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
@@ -89,23 +151,19 @@ export function WriteRenderer({ args, result, isError, isPartial, partialResult,
 					{errorText.head}
 				</div>
 			)}
-			{!isError && open && diff && (
-				<DiffView diff={diff} filePath={path} className={cx("rounded", PREVIEW_SCROLL_LG)} />
-			)}
-			{!isError && open && !diff && content && (
-				<CodeBlock
-					code={previewContent}
-					language={languageFromPath(path)}
-					showLanguage={false}
-					showCopy={false}
-					maxHeightClass="max-h-72"
-				/>
-			)}
-			{!isError && open && !diff && previewOmitted > 0 && (
-				<div className="text-omp-xs text-[var(--omp-dim)]">
-					{t("tools.read.more", { count: previewOmitted, plural: previewOmitted === 1 ? "" : "s" })}
-				</div>
-			)}
+			{!isError &&
+				open &&
+				codeView &&
+				(figure ? (
+					<WriteFigurePreview
+						codeView={codeView}
+						content={content}
+						figure={figure}
+						streaming={isPartial === true}
+					/>
+				) : (
+					codeView
+				))}
 		</div>
 	);
 }

@@ -1,6 +1,6 @@
 /**
- * Viewers fed by `fs.read`: code/text, Markdown, JSON, CSV/TSV, HTML and
- * Jupyter notebooks. TextFileFrame owns the read and its end states; a NUL
+ * Viewers fed by `fs.read`: code/text, Markdown, JSON, CSV/TSV, HTML, Mermaid
+ * and Jupyter notebooks. TextFileFrame owns the read and its end states; a NUL
  * byte in the content hands the file to the hex view instead.
  */
 import { type ReactNode, useMemo, useState } from "react";
@@ -9,6 +9,7 @@ import { languageFromPath } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
 import { CodeBlock } from "../../chat/CodeBlock";
+import { MermaidBlock } from "../../chat/MermaidBlock";
 import { Tabs, ZoomableImage } from "../../common";
 import { CodeView, useWrapToggle } from "./CodeView";
 import { fileExtension } from "./file-kind";
@@ -135,6 +136,34 @@ export function HtmlFileView({ path, tabId }: TextViewProps) {
 					/>
 				) : (
 					<CodeView code={content} language="xml" wrap={wrap} />
+				)
+			}
+			tabId={tabId}
+			toolbar={
+				<ViewerToolbar label={t("fileViewer.toolbar")}>
+					<ModeTabs mode={mode} onChange={setMode} />
+					{mode === "source" && toggle}
+				</ViewerToolbar>
+			}
+		/>
+	);
+}
+
+/** .mmd/.mermaid: the diagram (MermaidBlock falls back to the source when it does not parse), or the source. */
+export function MermaidFileView({ path, tabId }: TextViewProps) {
+	const t = useT();
+	const [mode, setMode] = useState<DocumentMode>("rendered");
+	const { wrap, toggle } = useWrapToggle();
+	return (
+		<TextFileFrame
+			path={path}
+			render={content =>
+				mode === "rendered" ? (
+					<div className="p-3" data-mermaid-rendered>
+						<MermaidBlock code={content} />
+					</div>
+				) : (
+					<CodeView code={content} language="plaintext" wrap={wrap} />
 				)
 			}
 			tabId={tabId}

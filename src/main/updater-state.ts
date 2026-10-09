@@ -1,39 +1,26 @@
 import { createHash } from "node:crypto";
+import type * as nodeFs from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { UpdateAccess, UpdateStatus, UpdateTokenSource } from "../shared/ipc-types";
 
+/** The macOS update download: the release's DMG, saved under a versioned local name. */
 export interface MacInstallerAsset {
+	/** Local file name (`macDownloadName`). */
 	name: string;
-	sha512: string;
-	size?: number;
-}
-
-interface ReleaseFile {
+	/** API asset endpoint of the release's `ompdesk-mac-arm64.dmg`. */
 	url: string;
 	sha512: string;
-	size?: number;
+	size: number;
 }
 
 /**
- * The Apple Silicon asset for this release (the only macOS build ompdesk
- * ships): the DMG for the Finder fallback, the ZIP for the in-place swap.
+ * Local name of a downloaded DMG. The release asset is version-free, so the
+ * version goes back into the name: Downloads stays legible, and a partial of
+ * a superseded release never resumes into the new one.
  */
-export function selectMacAsset(
-	files: readonly ReleaseFile[],
-	version: string,
-	kind: "dmg" | "zip",
-): MacInstallerAsset | undefined {
-	const expectedName = kind === "dmg" ? `ompdesk-${version}-arm64.dmg` : `ompdesk-${version}-arm64-mac.zip`;
-	for (const file of files) {
-		let name = file.url;
-		try {
-			const pathname = new URL(file.url, "https://updates.invalid").pathname;
-			name = decodeURIComponent(pathname.slice(pathname.lastIndexOf("/") + 1));
-		} catch {}
-		if (name === expectedName) return { name: expectedName, sha512: file.sha512, size: file.size };
-	}
-	return undefined;
+export function macDownloadName(version: string): string {
+	return `ompdesk-${version}-arm64.dmg`;
 }
 
 /**
@@ -86,14 +73,105 @@ if [ "$relaunch" = "1" ]; then
 fi
 `;
 
+/** Outcome of one external tool run (hdiutil, ditto, codesign, plutil). */
+export interface ToolResult {
+	ok: boolean;
+	stdout: string;
+}
+
+export type ToolRunner = (command: string, args: readonly string[]) => Promise<ToolResult>;
+
+/** Why a DMG could not be staged; updater.ts maps it to user-facing copy. */
+export class StageBundleError extends Error {
+	readonly reason: "mount" | "missing" | "copy" | "verify";
+
+	constructor(reason: StageBundleError["reason"], message: string) {
+		super(message);
+		this.name = "StageBundleError";
+		this.reason = reason;
+	}
+}
+
+export interface StageBundleOptions {
+	/** SHA-512-verified release DMG. */
+	dmgPath: string;
+	/** Emptied, then receives the `.app`; removed again if verification fails. */
+	stagingDir: string;
+	/** Parent of the temporary mount point. */
+	mountRoot: string;
+	version: string;
+	/** Running bundle; the staged one must carry its bundle id. */
+	ownBundle: string;
+	run: ToolRunner;
+	/** Electron's `original-fs` in the app: plain fs never mistakes `app.asar` for a directory. */
+	fs: Pick<typeof nodeFs.promises, "mkdir" | "mkdtemp" | "readdir" | "rm" | "rmdir">;
+}
+
 /**
- * A certificate-backed signature has both an authority chain and a team.
- * Ad-hoc signatures explicitly report `Signature=adhoc` and no team.
+ * Copy the app out of the release DMG and prove it is this app at `version`,
+ * intact: mount read-only without Finder, `ditto` the bundle out, always
+ * detach, then check `codesign --verify --deep --strict`, the bundle id and
+ * the short version. Returns the staged `.app` path.
  */
-export function hasStableMacSigningIdentity(codesignDetails: string): boolean {
-	if (/^\s*Signature=adhoc\s*$/m.test(codesignDetails)) return false;
-	if (/^\s*TeamIdentifier=not set\s*$/m.test(codesignDetails)) return false;
-	return /^\s*Authority=.+$/m.test(codesignDetails) && /^\s*TeamIdentifier=(?!not set$).+$/m.test(codesignDetails);
+export async function stageBundleFromDmg(options: StageBundleOptions): Promise<string> {
+	const { dmgPath, stagingDir, mountRoot, version, ownBundle, run, fs: files } = options;
+	await files.rm(stagingDir, { recursive: true, force: true });
+	await files.mkdir(stagingDir, { recursive: true });
+	await files.mkdir(mountRoot, { recursive: true });
+	const mountPoint = await files.mkdtemp(path.join(mountRoot, "ompdesk-update-"));
+
+	let staged: string;
+	try {
+		const attach = await run("/usr/bin/hdiutil", [
+			"attach",
+			"-nobrowse",
+			"-readonly",
+			"-noautoopen",
+			"-mountpoint",
+			mountPoint,
+			dmgPath,
+		]);
+		if (!attach.ok) throw new StageBundleError("mount", `hdiutil could not attach ${dmgPath}`);
+		try {
+			const entries = await files.readdir(mountPoint, { withFileTypes: true });
+			// The DMG also holds the /Applications symlink; only a real directory is the app.
+			const bundle = entries.find(entry => entry.isDirectory() && entry.name.endsWith(".app"));
+			if (!bundle) throw new StageBundleError("missing", `${dmgPath} contains no .app bundle`);
+			staged = path.join(stagingDir, bundle.name);
+			const copy = await run("/usr/bin/ditto", [path.join(mountPoint, bundle.name), staged]);
+			if (!copy.ok) throw new StageBundleError("copy", `ditto could not copy ${bundle.name} out of the DMG`);
+		} finally {
+			const detach = await run("/usr/bin/hdiutil", ["detach", mountPoint]);
+			if (!detach.ok) await run("/usr/bin/hdiutil", ["detach", "-force", mountPoint]);
+		}
+	} finally {
+		// rmdir, never a recursive rm: a mount that refused to detach must keep its contents.
+		await files.rmdir(mountPoint).catch(() => {});
+	}
+
+	const plistValue = async (appPath: string, key: string) => {
+		const result = await run("/usr/bin/plutil", [
+			"-extract",
+			key,
+			"raw",
+			"-o",
+			"-",
+			path.join(appPath, "Contents", "Info.plist"),
+		]);
+		return result.ok ? result.stdout.trim() : undefined;
+	};
+	const signature = await run("/usr/bin/codesign", ["--verify", "--deep", "--strict", staged]);
+	const bundleId = await plistValue(staged, "CFBundleIdentifier");
+	const verified =
+		signature.ok &&
+		bundleId !== undefined &&
+		bundleId === (await plistValue(ownBundle, "CFBundleIdentifier")) &&
+		(await plistValue(staged, "CFBundleShortVersionString")) === version;
+	if (!verified) {
+		await files.rm(stagingDir, { recursive: true, force: true });
+		throw new StageBundleError("verify", `The bundle in ${dmgPath} is not an intact OMPdesk ${version}`);
+	}
+	return staged;
 }
 
 /**

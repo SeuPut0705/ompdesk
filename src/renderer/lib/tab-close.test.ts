@@ -122,6 +122,28 @@ describe("closeActiveTab", () => {
 		expect(useTabsStore.getState().tabs).toHaveLength(2);
 	});
 
+	it("closes a worktree.onStart tab straight away: main applies worktree.onExit", async () => {
+		useTabsStore.setState({
+			tabs: [
+				tab("a", {
+					worktree: {
+						name: "wt/20261009-120000",
+						branch: "wt/20261009-120000",
+						baseCwd: "/work/base",
+						path: "/wt/wt-20261009-120000-1234567",
+						lifecycle: true,
+					},
+				}),
+				tab("b"),
+			],
+			activeTabId: "a",
+		});
+
+		expect(closeActiveTab()).toBe("closed");
+		expect(useUiStore.getState().worktreeClosePrompt).toBeNull();
+		await vi.waitFor(() => expect(omp.tabs.close).toHaveBeenCalledWith("a"));
+	});
+
 	it("closes an idle tab with no confirm interlude", async () => {
 		useTabsStore.setState({ tabs: [tab("a"), tab("b")], activeTabId: "a" });
 

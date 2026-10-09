@@ -10,12 +10,14 @@
 
 import { RefreshCw, Tags } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ModelRoleCandidate, ModelRoleEntry, ModelRolesResult } from "../../../shared/rpc-types";
+import type { CompactionPoint, ModelRoleCandidate, ModelRoleEntry, ModelRolesResult } from "../../../shared/rpc-types";
+import { useCompactionPoints } from "../../lib/compaction-limits";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { Badge, type BadgeVariant, Button, EmptyState, IconButton, Spinner } from "../common";
+import { CompactsAt } from "./CompactsAt";
 import { InlineNotice } from "./InlineNotice";
 import { type ModelValueGroup, ModelValueSelect } from "./ModelValueSelect";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
@@ -38,11 +40,14 @@ function RoleRow({
 	onChange,
 	busy,
 	sidecarReady,
+	compaction,
 }: {
 	role: ModelRoleEntry;
 	onChange: (role: string, modelId: string | null) => void;
 	busy: boolean;
 	sidecarReady: boolean;
+	/** Where the role's resolved model compacts (omp 18.8.5+; absent before). */
+	compaction?: CompactionPoint;
 }) {
 	const t = useT();
 	const candidates = role.candidates ?? [];
@@ -82,10 +87,11 @@ function RoleRow({
 				/>
 			}
 			description={
-				role.source === "project" || candidates.length === 0 ? (
+				role.source === "project" || candidates.length === 0 || compaction ? (
 					<>
 						{role.source === "project" && t("modelRoles.sourceProject")}
 						{candidates.length === 0 && <span className="block">{t("modelRoles.noCandidates")}</span>}
+						{compaction && <CompactsAt className="block" point={compaction} />}
 					</>
 				) : undefined
 			}
@@ -99,6 +105,7 @@ export function ModelRolesSection() {
 	const tabRpc = useTabRpc();
 	const t = useT();
 	const sidecarReady = useSessionStore(s => s.status) === "ready";
+	const compactionPoints = useCompactionPoints();
 
 	const [roles, setRoles] = useState<ModelRoleEntry[]>([]);
 	const [loaded, setLoaded] = useState(false);
@@ -230,6 +237,7 @@ export function ModelRolesSection() {
 						{section.roles.map(role => (
 							<RoleRow
 								busy={busyRole === role.id}
+								compaction={compactionPoints?.byRole.get(role.id)?.point}
 								key={role.id}
 								onChange={handleChange}
 								role={role}

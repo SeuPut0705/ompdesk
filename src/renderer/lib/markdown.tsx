@@ -17,6 +17,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { CodeBlock as SharedCodeBlock } from "../components/chat/CodeBlock";
 import { MermaidBlock } from "../components/chat/MermaidBlock";
+import { SvgBlock } from "../components/chat/SvgBlock";
 import { ZoomableImage } from "../components/common/ZoomableImage";
 import { useRuntimeTabId } from "../stores/session-runtime-context";
 import { useUiStore } from "../stores/ui";
@@ -432,9 +433,22 @@ function Pre({ children }: ComponentPropsWithoutRef<"pre">) {
 			? children.props.className
 			: "";
 	const language = FENCE_LANGUAGE_RE.exec(codeClass)?.[1] ?? "plaintext";
+	const code = textOf(children).replace(/\n$/, "");
+	// ```svg (any case, as stock's TUI matches it) draws the figure; a fence
+	// still streaming stays code until the document parses.
+	if (language.toLowerCase() === "svg") {
+		return (
+			<SvgBlock
+				code={code}
+				showLineNumbers={showLineNumbers}
+				maxHeightClass={PREVIEW_SCROLL_CODE}
+				className="my-2"
+			/>
+		);
+	}
 	return (
 		<SharedCodeBlock
-			code={textOf(children).replace(/\n$/, "")}
+			code={code}
 			language={language}
 			showLineNumbers={showLineNumbers}
 			maxHeightClass={PREVIEW_SCROLL_CODE}

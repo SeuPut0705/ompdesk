@@ -92,7 +92,10 @@ test("a running task keeps both send and stop reachable", async () => {
 	await page.getByRole("button", { name: "Send", exact: true }).click();
 	await expect.poll(async () => (await recorded("steer")).length + (await recorded("follow_up")).length).toBe(1);
 	await page.getByRole("button", { name: "Stop", exact: true }).click();
-	await expect(composer).toHaveValue("");
+	// Stop is the TUI's Esc: the queued input comes back into the composer instead of running later.
+	await expect(composer).toHaveValue("queued instruction");
+	expect(await recorded("abort_and_restore_queue")).toHaveLength(1);
+	await composer.fill("");
 	// The run ends only once agent_end lands (after main stamps its entry ids); until
 	// then a send is a steer, so the next test must start from an idle session.
 	await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);

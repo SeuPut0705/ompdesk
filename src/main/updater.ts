@@ -1,17 +1,20 @@
 /**
- * GitHub release updates. Install paths:
+ * GitHub release updates. A release carries two assets, `ompdesk-mac-arm64.dmg`
+ * and `ompdesk-windows-setup.exe`, and their version, size and SHA-512 in an
+ * HTML comment in its notes (src/main/update-release.ts); a custom
+ * electron-updater provider (src/main/update-provider.ts) turns that into
+ * electron-updater's UpdateInfo. Install paths:
  *
- * - certificate-signed macOS builds and Windows keep electron-updater's
- *   staged flow (Squirrel ZIP / NSIS), downloaded in the background and
- *   applied on restart or quit;
- * - ad-hoc-signed macOS builds in a writable location ("relaunch") download
- *   the architecture-matched ZIP in the background, verify its release
- *   SHA-512 and the extracted bundle's signature/identity, and swap the bundle
- *   in place from a detached helper once the app exits — on "Restart" (then
- *   relaunch) or on any approved quit (no relaunch). Squirrel cannot do this
- *   for ad-hoc builds: it requires a stable signing identity;
- * - ad-hoc builds the app cannot replace (read-only volume, translocated)
- *   fall back to the verified DMG opened in Finder ("manual").
+ * - Windows keeps electron-updater's NSIS flow, downloaded in the background
+ *   and applied on restart or quit (full download: no blockmaps ship);
+ * - macOS builds in a writable location ("relaunch") download the DMG in the
+ *   background, verify its SHA-512, copy the app out of the mounted image,
+ *   verify its signature/identity, and swap the bundle in place from a
+ *   detached helper once the app exits — on "Restart" (then relaunch) or on
+ *   any approved quit (no relaunch). This covers certificate-signed builds
+ *   too: Squirrel would need a ZIP the release no longer ships;
+ * - builds the app cannot replace (read-only volume, translocated) fall back
+ *   to the verified DMG opened in Finder ("manual").
  *
  * Transfers report progress through one shared renderer state machine; an
  * interrupted transfer keeps its `.partial` and continues from that offset.
@@ -19,13 +22,14 @@
  * just returns its status), and one that receives nothing for
  * DOWNLOAD_IDLE_TIMEOUT_MS fails as retryable.
  *
- * Releases live in a private repo, so every request — release lookup, the
- * latest*.yml feed, and asset downloads — carries the user's own GitHub token
+ * Releases live in a private repo, so every request — the release lookup and
+ * asset downloads — carries the user's own GitHub token
  * (src/main/update-auth.ts). Without one, or without access, the state is
  * `auth-required` instead of a raw 404.
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import * as os from "node:os";
 import * as path from "node:path";
 import { app, BrowserWindow, ipcMain, net, shell } from "electron";
 import type { UpdateInfo } from "electron-updater";
@@ -44,26 +48,29 @@ import {
 	clearUpdateToken,
 	GITHUB_API_REPO,
 	githubApiHeaders,
-	RELEASE_REPO,
 	resolveUpdateToken,
 	storeUpdateToken,
 	updateAuthInfo,
 } from "./update-auth";
+import { releaseUpdateProvider } from "./update-provider";
+import { type PlatformRelease, UPDATE_METADATA_ERROR, UPDATE_PLATFORM_ERROR } from "./update-release";
 import {
 	DOWNLOAD_IDLE_TIMEOUT_MS,
-	hasStableMacSigningIdentity,
 	installerPartialPath,
 	isSwappableBundleLocation,
 	type MacInstallerAsset,
 	macBundlePath,
+	macDownloadName,
 	planInstallerTransfer,
 	SingleTransfer,
+	StageBundleError,
 	SWAP_SCRIPT,
-	selectMacAsset,
 	settleFailedUpdateCheck,
 	settleIncompleteUpdateCheck,
 	sha512FileBase64,
+	stageBundleFromDmg,
 	sweepInstallerPartials,
+	type ToolResult,
 	withinIdle,
 } from "./updater-state";
 
@@ -97,10 +104,12 @@ export function appVersion(): string {
 let current: UpdateStatus = { state: "idle" };
 let installMode: UpdateInstallMode = "automatic";
 let activeUpdate: UpdateInfo | undefined;
-/** The release asset the current mode downloads: DMG (manual) or ZIP (relaunch). */
+/** The release the last check resolved; macOS takes its DMG from here. */
+let resolvedRelease: PlatformRelease | undefined;
+/** The DMG the current macOS mode downloads (manual: to Downloads; relaunch: to staging). */
 let macAsset: MacInstallerAsset | undefined;
 let downloadedInstallerPath: string | undefined;
-/** Running bundle the relaunch mode replaces (`/Applications/ompdesk.app`). */
+/** Running bundle the relaunch mode replaces (`/Applications/OMPdesk.app`). */
 let ownBundle: string | undefined;
 /** Verified new bundle waiting for the swap (relaunch mode). */
 let stagedApp: string | undefined;
@@ -110,7 +119,7 @@ let relaunchAfterSwap = false;
 let updateToken: string | undefined;
 /** A check's failure is classified by runCheck, so the updater's own error event stays quiet. */
 let checkInFlight = false;
-/** The macOS asset download (manual DMG or relaunch ZIP); a second one would append to the same `.partial`. */
+/** The macOS DMG download; a second one would append to the same `.partial`. */
 const macTransfer = new SingleTransfer();
 
 function isWritable(target: string): boolean {
@@ -122,61 +131,64 @@ function isWritable(target: string): boolean {
 	}
 }
 
+/** Relaunch needs a bundle we may replace; anything else gets the Finder DMG. */
+function swappableBundle(bundle: string | undefined): string | undefined {
+	if (bundle && isSwappableBundleLocation(bundle) && isWritable(bundle) && isWritable(path.dirname(bundle))) {
+		return bundle;
+	}
+	return undefined;
+}
+
 function detectInstallMode(): UpdateInstallMode {
 	if (process.platform !== "darwin") return "automatic";
 
-	// Test seam for unpackaged preview builds; never overrides a release bundle.
+	// Test seams for unpackaged preview builds; never override a release bundle.
+	// Relaunch needs a writable stand-in bundle to replace (OMP_DEV_UPDATE_BUNDLE).
 	if (!app.isPackaged) {
 		const override = process.env.OMP_DEV_UPDATE_MODE;
-		if (override === "automatic" || override === "manual") return override;
+		if (override === "relaunch") {
+			ownBundle = swappableBundle(process.env.OMP_DEV_UPDATE_BUNDLE);
+			return ownBundle ? "relaunch" : "manual";
+		}
+		if (override === "manual") return "manual";
 	}
 
-	const result = spawnSync("/usr/bin/codesign", ["-dv", "--verbose=4", process.execPath], {
-		encoding: "utf8",
-	});
-	if (result.status === 0 && hasStableMacSigningIdentity(`${result.stdout}${result.stderr}`)) return "automatic";
-	// Ad-hoc: replace ourselves when the bundle sits somewhere we may write.
-	const bundle = app.isPackaged ? macBundlePath(process.execPath) : undefined;
-	if (bundle && isSwappableBundleLocation(bundle) && isWritable(bundle) && isWritable(path.dirname(bundle))) {
-		ownBundle = bundle;
-		return "relaunch";
-	}
-	return "manual";
+	// Ad-hoc or certificate-signed alike: the release ships a DMG, not the ZIP Squirrel needs.
+	ownBundle = swappableBundle(app.isPackaged ? macBundlePath(process.execPath) : undefined);
+	return ownBundle ? "relaunch" : "manual";
 }
 
 function updatesDirectory(): string {
 	return path.join(app.getPath("userData"), "updates");
 }
 
-function plistValue(appPath: string, key: string): string | undefined {
-	const result = spawnSync(
-		"/usr/bin/plutil",
-		["-extract", key, "raw", "-o", "-", path.join(appPath, "Contents", "Info.plist")],
-		{ encoding: "utf8" },
+function runTool(command: string, args: readonly string[]): Promise<ToolResult> {
+	const { promise, resolve } = Promise.withResolvers<ToolResult>();
+	execFile(command, [...args], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }, (error, stdout) =>
+		resolve({ ok: !error, stdout }),
 	);
-	return result.status === 0 ? result.stdout.trim() : undefined;
+	return promise;
 }
 
-/** Extract the verified ZIP and prove the bundle is this app at `version`, intact. */
-async function stageBundle(zipPath: string, version: string): Promise<string> {
-	const stagingDir = path.join(updatesDirectory(), version);
-	await fs.promises.rm(stagingDir, { recursive: true, force: true });
-	await fs.promises.mkdir(stagingDir, { recursive: true });
-	const unzip = spawnSync("/usr/bin/ditto", ["-x", "-k", zipPath, stagingDir], { encoding: "utf8" });
-	if (unzip.status !== 0) throw new Error(`${mainT("updates.downloadFailed")} (unzip)`);
-	const entries = await fs.promises.readdir(stagingDir);
-	const bundleName = entries.find(entry => entry.endsWith(".app"));
-	if (!bundleName || !ownBundle) throw new Error(mainT("updates.installerMissing"));
-	const staged = path.join(stagingDir, bundleName);
-	const verify = spawnSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", staged], { encoding: "utf8" });
-	const identityMatches =
-		plistValue(staged, "CFBundleIdentifier") === plistValue(ownBundle, "CFBundleIdentifier") &&
-		plistValue(staged, "CFBundleShortVersionString") === version;
-	if (verify.status !== 0 || !identityMatches) {
-		await fs.promises.rm(stagingDir, { recursive: true, force: true });
-		throw new Error(mainT("updates.hashMismatch"));
+/** Copy the app out of the verified DMG and prove it is this app at `version`, intact. */
+async function stageBundle(dmgPath: string, version: string): Promise<string> {
+	if (!ownBundle) throw new Error(mainT("updates.installerMissing"));
+	try {
+		return await stageBundleFromDmg({
+			dmgPath,
+			stagingDir: path.join(updatesDirectory(), version),
+			mountRoot: os.tmpdir(),
+			version,
+			ownBundle,
+			run: runTool,
+			fs: fs.promises,
+		});
+	} catch (error) {
+		if (!(error instanceof StageBundleError)) throw error;
+		if (error.reason === "missing") throw new Error(mainT("updates.installerMissing"));
+		if (error.reason === "verify") throw new Error(mainT("updates.hashMismatch"));
+		throw new Error(`${mainT("updates.downloadFailed")} (${error.reason})`);
 	}
-	return staged;
 }
 
 /** Hand the swap to a detached helper that outlives this process (never launchd). */
@@ -232,18 +244,9 @@ async function openManualInstaller(filePath: string): Promise<void> {
  * URL. The redirect is taken by hand because Chromium would forward the
  * Authorization header to the CDN, which rejects a second auth mechanism.
  */
-async function signedAssetUrl(version: string, assetName: string, token: string, signal: AbortSignal): Promise<string> {
-	const release = await net.fetch(`${GITHUB_API_REPO}/releases/tags/v${encodeURIComponent(version)}`, {
-		headers: githubApiHeaders(token),
-		signal,
-	});
-	if (!release.ok) throw new Error(`${mainT("updates.downloadFailed")} (${release.status})`);
-	const { assets } = (await release.json()) as { assets?: { id: number; name: string }[] };
-	const asset = assets?.find(candidate => candidate.name === assetName);
-	if (!asset) throw new Error(mainT("updates.installerMissing"));
-
+async function signedAssetUrl(assetApiUrl: string, token: string, signal: AbortSignal): Promise<string> {
 	const { promise, resolve, reject } = Promise.withResolvers<string>();
-	const request = net.request({ url: `${GITHUB_API_REPO}/releases/assets/${asset.id}`, redirect: "manual" });
+	const request = net.request({ url: assetApiUrl, redirect: "manual" });
 	for (const [name, value] of Object.entries(githubApiHeaders(token, "application/octet-stream"))) {
 		request.setHeader(name, value);
 	}
@@ -267,7 +270,7 @@ async function downloadMacAsset(
 	token: string,
 	mode: "manual" | "relaunch",
 ): Promise<void> {
-	// Manual installers land in Downloads for Finder; relaunch ZIPs are private staging.
+	// Manual installers land in Downloads for Finder; relaunch DMGs are private staging.
 	if (mode === "relaunch") await fs.promises.mkdir(updatesDirectory(), { recursive: true });
 	const destinationPath =
 		mode === "manual" ? availableDownloadPath(asset.name) : path.join(updatesDirectory(), asset.name);
@@ -277,7 +280,7 @@ async function downloadMacAsset(
 	const controller = new AbortController();
 	const abort = () => controller.abort();
 	const assetUrl = await withinIdle(
-		signedAssetUrl(version, asset.name, token, controller.signal),
+		signedAssetUrl(asset.url, token, controller.signal),
 		DOWNLOAD_IDLE_TIMEOUT_MS,
 		abort,
 	);
@@ -286,7 +289,7 @@ async function downloadMacAsset(
 	else await sweepUpdatesDirectory(asset.name);
 
 	let existing = await fileSize(partialPath);
-	if (asset.size !== undefined && existing > asset.size) {
+	if (existing > asset.size) {
 		await fs.promises.rm(partialPath, { force: true });
 		existing = 0;
 	}
@@ -309,8 +312,7 @@ async function downloadMacAsset(
 		throw new Error(`${mainT("updates.downloadFailed")} (${response.status})`);
 	}
 
-	const contentLength = Number(response.headers.get("content-length"));
-	const total = asset.size ?? (Number.isFinite(contentLength) ? contentLength + plan.offset : 0);
+	const total = asset.size;
 	const startedAt = performance.now();
 	let transferred = plan.offset;
 	let lastProgressAt = 0;
@@ -408,7 +410,7 @@ function startMacDownload(
 			percent: 0,
 			bytesPerSecond: 0,
 			transferred: 0,
-			total: asset.size ?? 0,
+			total: asset.size,
 		});
 		return downloadMacAsset(version, asset, token, mode);
 	});
@@ -463,19 +465,40 @@ async function runCheck(manual: boolean): Promise<void> {
 		return;
 	}
 	updateToken = resolved.token;
-	// A pre-release only exists for the updater test harness; never in a release bundle.
-	autoUpdater.allowPrerelease = !app.isPackaged && process.env.OMP_DEV_UPDATE_PRERELEASE === "1";
-	autoUpdater.setFeedURL({ provider: "github", ...RELEASE_REPO, private: true, token: resolved.token });
+	const token = resolved.token;
+	resolvedRelease = undefined;
+	autoUpdater.setFeedURL({
+		provider: "custom",
+		updateProvider: releaseUpdateProvider({
+			apiRepo: GITHUB_API_REPO,
+			platform: process.platform === "win32" ? "windows" : "mac",
+			// A pre-release only exists for the updater test harness; never in a release bundle.
+			allowPrerelease: !app.isPackaged && process.env.OMP_DEV_UPDATE_PRERELEASE === "1",
+			apiHeaders: githubApiHeaders(token),
+			downloadHeaders: githubApiHeaders(token, "application/octet-stream"),
+			fetch: (url, init) => net.fetch(url, init),
+			onResolved: release => {
+				resolvedRelease = release;
+			},
+		}),
+	});
 	checkInFlight = true;
 	try {
 		await autoUpdater.checkForUpdates();
 		const settled = settleIncompleteUpdateCheck(current, manual, mainT("updates.noResult"));
 		if (settled !== current) broadcast(settled);
 	} catch (error) {
-		const access = await checkRepoAccess(resolved.token);
+		const access = await checkRepoAccess(token);
 		const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined;
 		const detail = error instanceof Error ? error.message : String(error);
-		broadcast(settleFailedUpdateCheck(access, code, mainT("updates.checkFailed"), appVersion(), manual, detail));
+		// A release without usable metadata is no update, but never a silent one.
+		const message =
+			code === UPDATE_METADATA_ERROR
+				? mainT("updates.releaseInvalid")
+				: code === UPDATE_PLATFORM_ERROR
+					? mainT("updates.installerMissing")
+					: mainT("updates.checkFailed");
+		broadcast(settleFailedUpdateCheck(access, code, message, appVersion(), manual, detail));
 	} finally {
 		checkInFlight = false;
 	}
@@ -498,8 +521,10 @@ export function setupUpdater(): void {
 	// style); the only prompt is "Restart & install". Manual DMGs still wait for a click.
 	autoUpdater.autoDownload = installMode === "automatic";
 	autoUpdater.autoInstallOnAppQuit = installMode === "automatic";
+	// Releases publish no blockmaps; NSIS always downloads the whole installer.
+	autoUpdater.disableDifferentialDownload = true;
 	// Dev/preview verification gate: electron-updater skips unpackaged apps
-	// unless forced. Pair with OMP_DEV_UPDATE_MODE=manual to exercise the DMG path.
+	// unless forced. Pair with OMP_DEV_UPDATE_MODE to exercise the DMG paths.
 	if (process.env.OMP_DEV_UPDATE_CHECK === "1") autoUpdater.forceDevUpdateConfig = true;
 	// Relaunch mode: any approved quit installs the staged bundle; "Restart"
 	// additionally reopens it. `will-quit` only fires once the quit guard agreed.
@@ -529,11 +554,17 @@ export function setupUpdater(): void {
 				broadcast({ state: "error", message: mainT("updates.unsupportedArchitecture") });
 				return;
 			}
-			macAsset = selectMacAsset(info.files, info.version, installMode === "manual" ? "dmg" : "zip");
-			if (!macAsset) {
+			const release = resolvedRelease?.version === info.version ? resolvedRelease : undefined;
+			if (!release) {
 				broadcast({ state: "error", message: mainT("updates.installerMissing") });
 				return;
 			}
+			macAsset = {
+				name: macDownloadName(info.version),
+				url: release.assetUrl,
+				sha512: release.file.sha512,
+				size: release.file.size,
+			};
 		}
 		broadcast({ state: "available", version: info.version, notes: notesOf(info), mode: installMode });
 		if (installMode === "relaunch") void prepareRelaunchUpdate(info.version);

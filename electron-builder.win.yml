@@ -23,8 +23,6 @@ win:
   target:
     - target: nsis
       arch: [x64]
-    - target: portable
-      arch: [x64]
   # Windows packages are currently unsigned; electron-updater must not require
   # a stable certificate identity for an update check.
   verifyUpdateCodeSignature: false
@@ -37,9 +35,6 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: OMPdesk
   artifactName: ompdesk-${version}-setup.${ext}
-
-portable:
-  artifactName: ompdesk-${version}-portable.${ext}
 
 publish:
   provider: github

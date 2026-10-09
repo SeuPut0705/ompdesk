@@ -19,13 +19,19 @@ interface Capabilities {
 	unavailable?: unknown;
 }
 
-/** Feature ids from a `capabilities` result; anything malformed reads as none. */
-export function unavailableFeatures(result: unknown): string[] {
+/**
+ * Feature ids from a `capabilities` result; anything malformed reads as none.
+ * `requiredOnly` drops `optional` features: ones only a newer omp has
+ * (capabilities.ts FeatureRequirement.optional), which are no breakage.
+ */
+export function unavailableFeatures(result: unknown, { requiredOnly = false } = {}): string[] {
 	const unavailable = (result as Capabilities | null)?.unavailable;
 	if (!Array.isArray(unavailable)) return [];
 	const features: string[] = [];
 	for (const entry of unavailable) {
-		const feature = (entry as { feature?: unknown } | null)?.feature;
+		if (typeof entry !== "object" || entry === null || !("feature" in entry)) continue;
+		if (requiredOnly && "optional" in entry && entry.optional === true) continue;
+		const feature = entry.feature;
 		if (typeof feature === "string" && !features.includes(feature)) features.push(feature);
 	}
 	return features;
@@ -67,8 +73,8 @@ export class BridgeHealth {
 			);
 			return;
 		}
-		const features = unavailableFeatures(capabilities);
-		this.#unavailable.set(result.ompVersion, features);
+		this.#unavailable.set(result.ompVersion, unavailableFeatures(capabilities));
+		const features = unavailableFeatures(capabilities, { requiredOnly: true });
 		if (features.length === 0) return;
 		console.warn(
 			`[bridge-health] omp ${result.ompVersion} lacks internals: ${JSON.stringify((capabilities as Capabilities).unavailable)}`,

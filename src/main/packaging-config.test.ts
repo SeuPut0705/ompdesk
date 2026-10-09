@@ -11,6 +11,7 @@ import * as path from "node:path";
 import { type PlistObject, parsePlistFile, savePlistFile } from "app-builder-lib/out/util/plist";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { UPDATE_ASSETS } from "./update-release";
 
 interface BuilderConfig {
 	appId?: string;
@@ -26,7 +27,11 @@ interface BuilderConfig {
 	dmg?: { artifactName?: string };
 	win?: { target?: { target?: string; arch?: string[] }[] };
 	nsis?: { artifactName?: string };
-	portable?: { artifactName?: string };
+}
+
+interface ReleaseWorkflow {
+	env: Record<string, string>;
+	jobs: Record<string, { steps: { name?: string; run?: string }[] }>;
 }
 
 const PACKAGE_ROOT = path.join(__dirname, "..", "..");
@@ -72,12 +77,10 @@ describe("mac bundle configs", () => {
 		).toBe("electron-builder.yml");
 	});
 
-	it("builds only Apple Silicon for macOS", () => {
+	it("builds only the Apple Silicon DMG for macOS", () => {
 		const main = configs.find(entry => entry.file === "electron-builder.yml")?.config;
-		for (const target of ["dmg", "zip"]) {
-			const arch = main?.mac?.target?.find(entry => entry.target === target)?.arch ?? [];
-			expect(arch, `mac ${target} arch`).toEqual(["arm64"]);
-		}
+		// The legacy update feed adds the ZIP from the release workflow's command line.
+		expect(main?.mac?.target).toEqual([{ target: "dmg", arch: ["arm64"] }]);
 	});
 
 	it("ships the gui-bridge extension outside the asar", () => {
@@ -168,19 +171,41 @@ describe("product identity", () => {
 		}
 	});
 
-	it("keeps the lowercase release asset names installed updaters fetch by exact name", () => {
+	it("keeps the versioned artifact names the legacy update feed serves by exact name", () => {
 		const mac = parse(fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.yml"), "utf8")) as BuilderConfig;
-		// electron-builder macros (`${version}`) matched literally; selectMacAsset needs these exact names.
+		// electron-builder macros (`${version}`) matched literally; v0.17.x's updater
+		// requests `ompdesk-<v>-arm64-mac.zip` / `ompdesk-<v>-arm64.dmg` / `ompdesk-<v>-setup.exe`.
 		expect(mac.mac?.artifactName).toMatch(/^ompdesk-\$\{version\}-\$\{arch\}-mac\.\$\{ext\}$/);
 		expect(mac.dmg?.artifactName).toMatch(/^ompdesk-\$\{version\}-\$\{arch\}\.\$\{ext\}$/);
 		const win = parse(fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.win.yml"), "utf8")) as BuilderConfig;
 		expect(win.nsis?.artifactName).toMatch(/^ompdesk-\$\{version\}-setup\.\$\{ext\}$/);
-		expect(win.portable?.artifactName).toMatch(/^ompdesk-\$\{version\}-portable\.\$\{ext\}$/);
+	});
+});
+
+describe("release assets", () => {
+	const workflow = fs.readFileSync(path.join(PACKAGE_ROOT, ".github", "workflows", "release.yml"), "utf8");
+	const release = parse(workflow) as ReleaseWorkflow;
+
+	it("stages exactly the two version-free installers the updater resolves", () => {
+		const staged = (job: string) =>
+			release.jobs[job]?.steps
+				.find(step => step.name === "Stage assets")
+				?.run?.match(/release\/ompdesk-[\w-]+\.\w+/g);
+		expect(staged("mac")).toEqual([`release/${UPDATE_ASSETS.mac}`]);
+		expect(staged("win")).toEqual([`release/${UPDATE_ASSETS.windows}`]);
+		const publish = release.jobs.publish?.steps.map(step => step.run ?? "").join("\n") ?? "";
+		expect(publish).toContain(`entry ${UPDATE_ASSETS.mac}`);
+		expect(publish).toContain(`entry ${UPDATE_ASSETS.windows}`);
+		expect(publish).toContain(`"${UPDATE_ASSETS.mac} ${UPDATE_ASSETS.windows}"`);
+	});
+
+	it("keeps the legacy update feed behind one explicit top-level switch", () => {
+		expect(["true", "false"]).toContain(release.env.LEGACY_UPDATE_FEED);
 	});
 });
 
 describe("Windows package config", () => {
-	it("ships the gui-bridge extension and both x64 installer targets", () => {
+	it("ships the gui-bridge extension and only the x64 NSIS installer", () => {
 		const file = "electron-builder.win.yml";
 		const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
 		expect(
@@ -188,10 +213,7 @@ describe("Windows package config", () => {
 			`${file} ships no URL scheme`,
 		).toContain("omp");
 		expect(config.extraResources).toContainEqual({ from: "resources/gui-bridge", to: "gui-bridge" });
-		expect(config.win?.target).toEqual([
-			{ target: "nsis", arch: ["x64"] },
-			{ target: "portable", arch: ["x64"] },
-		]);
+		expect(config.win?.target).toEqual([{ target: "nsis", arch: ["x64"] }]);
 	});
 });
 

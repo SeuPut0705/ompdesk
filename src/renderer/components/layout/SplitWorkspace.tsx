@@ -9,6 +9,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useSessionList } from "../../hooks/use-session-list";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -32,31 +33,76 @@ function placementFromPointer(event: DragEvent<HTMLDivElement>): SplitPlacement 
 	return Math.min(x, 1 - x) < Math.min(y, 1 - y) ? (x < 0.5 ? "left" : "right") : y < 0.5 ? "top" : "bottom";
 }
 
-function SplitDropOverlay({ placement }: { placement: SplitPlacement }) {
-	const t = useT();
-	const zones: Array<{ placement: SplitPlacement; className: string }> = [
-		{ placement: "top", className: "col-start-2 row-start-1" },
-		{ placement: "left", className: "col-start-1 row-start-2" },
-		{ placement: "right", className: "col-start-3 row-start-2" },
-		{ placement: "bottom", className: "col-start-2 row-start-3" },
-	];
+// Where the dropped session lands: the half the new pane will occupy, inset
+// from the workspace edge so it reads as a floating panel, and the half the
+// current view is pushed into. Both morph between zones (inset transitions).
+const GHOST_INSET: Record<SplitPlacement, string> = {
+	left: "var(--sc-space-2) calc(50% + var(--sc-space-1)) var(--sc-space-2) var(--sc-space-2)",
+	right: "var(--sc-space-2) var(--sc-space-2) var(--sc-space-2) calc(50% + var(--sc-space-1))",
+	top: "var(--sc-space-2) var(--sc-space-2) calc(50% + var(--sc-space-1)) var(--sc-space-2)",
+	bottom: "calc(50% + var(--sc-space-1)) var(--sc-space-2) var(--sc-space-2) var(--sc-space-2)",
+};
+const PUSHED_INSET: Record<SplitPlacement, string> = {
+	left: "0 0 0 50%",
+	right: "0 50% 0 0",
+	top: "50% 0 0 0",
+	bottom: "0 0 50% 0",
+};
+
+function SplitDropPreview({ placement }: { placement: SplitPlacement }) {
+	const morph = "absolute transition-[inset] duration-(--sc-duration-fast) ease-(--sc-ease-standard)";
 	return (
-		<div className="pointer-events-none absolute inset-0 z-(--sc-z-drawer) grid grid-cols-3 grid-rows-3 gap-3 bg-(--sc-overlay) p-6">
-			{zones.map(zone => (
-				<div
-					key={zone.placement}
-					className={cx(
-						zone.className,
-						"flex items-center justify-center rounded-(--sc-radius-lg) border text-sc-sm font-medium transition-colors duration-(--sc-duration-fast)",
-						zone.placement === placement
-							? "border-(--sc-accent) bg-(--sc-elevated) text-(--sc-accent)"
-							: "border-(--sc-border-subtle) bg-(--sc-elevated) text-(--sc-text-muted)",
-					)}
-				>
-					{t(`tabs.menu.split${zone.placement[0]?.toUpperCase()}${zone.placement.slice(1)}`)}
-				</div>
-			))}
+		<div aria-hidden className="omp-fade-in pointer-events-none absolute inset-0 z-(--sc-z-drawer)">
+			<div className={cx(morph, "bg-(--sc-bg) opacity-50")} style={{ inset: PUSHED_INSET[placement] }} />
+			<div
+				data-split-ghost={placement}
+				className={cx(
+					morph,
+					"rounded-(--sc-radius-lg) border border-(--sc-accent-border) bg-(--sc-accent-soft) shadow-(--sc-shadow-md)",
+				)}
+				style={{ inset: GHOST_INSET[placement] }}
+			/>
 		</div>
+	);
+}
+
+/** Gap between the cursor and the chip, and the chip's minimum distance from the window edge. */
+const CHIP_OFFSET = 14;
+const CHIP_MARGIN = 8;
+
+/** The dragged session's title, following the cursor in place of the native drag image. */
+function DragChip({ title }: { title: string }) {
+	const ref = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		const follow = (event: globalThis.DragEvent) => {
+			const chip = ref.current;
+			if (!chip) return;
+			// Near the right or bottom edge the chip flips to the cursor's other side instead of clipping.
+			const fitsRight = event.clientX + CHIP_OFFSET + chip.offsetWidth + CHIP_MARGIN <= window.innerWidth;
+			const fitsBelow = event.clientY + CHIP_OFFSET + chip.offsetHeight + CHIP_MARGIN <= window.innerHeight;
+			const x = fitsRight ? event.clientX + CHIP_OFFSET : event.clientX - CHIP_OFFSET - chip.offsetWidth;
+			const y = fitsBelow ? event.clientY + CHIP_OFFSET : event.clientY - CHIP_OFFSET - chip.offsetHeight;
+			chip.style.transform = `translate3d(${Math.max(CHIP_MARGIN, x)}px, ${Math.max(CHIP_MARGIN, y)}px, 0)`;
+			chip.style.opacity = "1";
+		};
+		// dragover is throttled; dragenter adds a position at every element crossing.
+		window.addEventListener("dragenter", follow, true);
+		window.addEventListener("dragover", follow, true);
+		return () => {
+			window.removeEventListener("dragenter", follow, true);
+			window.removeEventListener("dragover", follow, true);
+		};
+	}, []);
+	return createPortal(
+		<div
+			ref={ref}
+			aria-hidden
+			data-split-drag-chip
+			className="pointer-events-none fixed top-0 left-0 z-(--sc-z-tooltip) max-w-60 truncate rounded-(--sc-radius-full) border border-(--sc-border-subtle) bg-(--sc-elevated) px-2.5 py-1 text-sc-xs font-medium text-(--sc-text) opacity-0 shadow-(--sc-shadow-md) transition-opacity duration-(--sc-duration-fast)"
+		>
+			{title}
+		</div>,
+		document.body,
 	);
 }
 
@@ -141,10 +187,11 @@ export function SplitWorkspace() {
 	const pendingRatioRef = useRef<number | null>(null);
 	const frameRef = useRef<number | null>(null);
 	const [dragTabId, setDragTabId] = useState<string | null>(null);
-	const [dropPlacement, setDropPlacement] = useState<SplitPlacement>("right");
+	// Null until the drag is over the workspace: the ghost shows only where a drop would land.
+	const [dropPlacement, setDropPlacement] = useState<SplitPlacement | null>(null);
 	const sessionsById = useMemo(() => new Map(sessions.map(session => [session.id, session])), [sessions]);
 	const sessionsByPath = useMemo(() => new Map(sessions.map(session => [session.path, session])), [sessions]);
-	const pane = (tabId: string, isSplit: boolean) => {
+	const labelFor = (tabId: string) => {
 		const tab = tabs.find(entry => entry.id === tabId);
 		if (!tab) return null;
 		// The index lists this device's sessions; a remote tab's path may coincide with one of them.
@@ -153,13 +200,11 @@ export function SplitWorkspace() {
 				? undefined
 				: ((tab.sessionPath ? sessionsByPath.get(tab.sessionPath) : undefined) ??
 					(tab.sessionId ? sessionsById.get(tab.sessionId) : undefined));
-		return (
-			<SessionPane
-				tabId={tabId}
-				split={isSplit}
-				label={tabDisplayTitle(tab, tabs, indexedSession, t("sidebar.untitled"))}
-			/>
-		);
+		return tabDisplayTitle(tab, tabs, indexedSession, t("sidebar.untitled"));
+	};
+	const pane = (tabId: string, isSplit: boolean) => {
+		const label = labelFor(tabId);
+		return label === null ? null : <SessionPane tabId={tabId} split={isSplit} label={label} />;
 	};
 
 	useEffect(
@@ -171,6 +216,7 @@ export function SplitWorkspace() {
 	useEffect(() => {
 		const onTabDrag = (event: Event) => {
 			setDragTabId((event as CustomEvent<{ tabId: string | null }>).detail.tabId);
+			setDropPlacement(null);
 		};
 		window.addEventListener("omp:tab-drag", onTabDrag);
 		return () => window.removeEventListener("omp:tab-drag", onTabDrag);
@@ -191,18 +237,36 @@ export function SplitWorkspace() {
 			event.dataTransfer.dropEffect = "move";
 			setDropPlacement(placementFromPointer(event));
 		},
+		onDragLeave: (event: DragEvent<HTMLDivElement>) => {
+			// dragleave also fires when crossing into a child; only leaving the workspace clears the ghost.
+			const bounds = event.currentTarget.getBoundingClientRect();
+			const inside =
+				event.clientX > bounds.left &&
+				event.clientX < bounds.right &&
+				event.clientY > bounds.top &&
+				event.clientY < bounds.bottom;
+			if (!inside) setDropPlacement(null);
+		},
 		onDrop: (event: DragEvent<HTMLDivElement>) => {
 			if (!canDrop || !dragTabId) return;
 			event.preventDefault();
 			void splitTab(dragTabId, placementFromPointer(event));
 			setDragTabId(null);
+			setDropPlacement(null);
 		},
 	};
+	const dragLabel = dragTabId === null ? null : labelFor(dragTabId);
+	const dragFeedback = (
+		<>
+			{canDrop && dropPlacement !== null && <SplitDropPreview placement={dropPlacement} />}
+			{dragLabel !== null && <DragChip title={dragLabel} />}
+		</>
+	);
 	if (!split) {
 		return (
 			<div ref={rootRef} className="omp-split-workspace relative grid min-h-0 flex-1" {...dropProps}>
 				{pane(activeTabId, false)}
-				{canDrop && <SplitDropOverlay placement={dropPlacement} />}
+				{dragFeedback}
 			</div>
 		);
 	}
@@ -282,7 +346,7 @@ export function SplitWorkspace() {
 				</span>
 			</div>
 			{pane(split.secondTabId, true)}
-			{canDrop && <SplitDropOverlay placement={dropPlacement} />}
+			{dragFeedback}
 		</div>
 	);
 }

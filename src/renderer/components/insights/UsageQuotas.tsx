@@ -4,7 +4,8 @@
  * reset countdowns and provider notes. Quotas are live calls to each
  * provider's usage endpoint, so they are read when the tab mounts, when the
  * active session tab changes, and on the explicit refresh. The session's own
- * token/cost figures live in Insights › Stats › This session.
+ * token/cost figures live in Insights › Stats › This session. An account with
+ * saved rate-limit resets shows them and can spend one (ResetPassControl).
  */
 
 import { Gauge, RefreshCw } from "lucide-react";
@@ -18,6 +19,7 @@ import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Banner, Button, EmptyState, ErrorDetail, ProgressBar, Spinner } from "../common";
+import { ResetPassControl, resetPassSummary } from "../settings/providers/ResetPasses";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -83,7 +85,19 @@ function LimitRow({ limit, t, now }: { limit: UsageLimit; t: Translate; now: num
 	);
 }
 
-function ProviderReportCard({ report, t, now }: { report: UsageReport; t: Translate; now: number }) {
+function ProviderReportCard({
+	report,
+	t,
+	now,
+	ready,
+	onRedeemed,
+}: {
+	report: UsageReport;
+	t: Translate;
+	now: number;
+	ready: boolean;
+	onRedeemed: () => Promise<readonly UsageLimit[] | undefined>;
+}) {
 	const limits = Array.isArray(report.limits) ? report.limits : [];
 	return (
 		<section className="flex flex-col gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-4">
@@ -91,12 +105,24 @@ function ProviderReportCard({ report, t, now }: { report: UsageReport; t: Transl
 				<h3 className="text-sc-md font-semibold text-(--sc-text)">{report.provider}</h3>
 				{report.account && <span className="text-sc-sm text-(--sc-text-muted)">{report.account}</span>}
 				{report.active && <Badge variant="success">{t("usage.inUse")}</Badge>}
-				{report.resetCreditsAvailable !== undefined && report.resetCreditsAvailable > 0 && (
-					<Badge className="ml-auto" variant="info">
-						{t("usage.resetsAvailable", { count: report.resetCreditsAvailable })}
-					</Badge>
-				)}
 			</header>
+			{report.resetPasses &&
+				(report.credentialId !== undefined ? (
+					<ResetPassControl
+						account={report.account ?? report.provider}
+						credentialId={report.credentialId}
+						disabled={!ready}
+						limits={limits}
+						onRedeemed={onRedeemed}
+						passes={report.resetPasses}
+						providerId={report.provider}
+						providerName={report.provider}
+					/>
+				) : (
+					<Badge className="self-start" variant="info">
+						{resetPassSummary(report.resetPasses, t)}
+					</Badge>
+				))}
 			<Notes notes={report.notes} />
 			{limits.length > 0 && (
 				<ul className="flex flex-col divide-y divide-(--sc-divider)">
@@ -125,24 +151,35 @@ export function UsageQuotas() {
 	 * that is no longer frontmost must not overwrite the new tab's numbers. */
 	const ownerRef = useRef<string | null>(null);
 
-	const load = useCallback(async () => {
+	/** Reads the quotas; resolves to the reports, `null` when the read failed or a newer read took over. */
+	const load = useCallback(async (): Promise<UsageReport[] | null> => {
 		setLoading(true);
 		setError(null);
 		if (!ready) {
 			setError(t("usage.notConnected"));
 			setLoading(false);
-			return;
+			return null;
 		}
 		const owner = `${tabId}/${sessionId}`;
 		ownerRef.current = owner;
 		const originSession = sessionRuntimeStore<SessionStore>(tabId, "session") ?? useSessionStore;
 		try {
 			const res = await tabRpc.getUsage();
-			if (ownerRef.current !== owner || originSession.getState().sessionId !== sessionId) return;
-			if (res.success) setReports((res.data as { reports?: UsageReport[] })?.reports ?? []);
-			else setError(res.error);
+			if (ownerRef.current !== owner || originSession.getState().sessionId !== sessionId) return null;
+			if (!res.success) {
+				setError(res.error);
+				return null;
+			}
+			const data: unknown = res.data;
+			const next: UsageReport[] =
+				typeof data === "object" && data !== null && "reports" in data && Array.isArray(data.reports)
+					? data.reports
+					: [];
+			setReports(next);
+			return next;
 		} catch (cause) {
 			if (ownerRef.current === owner) setError(String(cause));
+			return null;
 		} finally {
 			if (ownerRef.current === owner) setLoading(false);
 		}
@@ -201,6 +238,12 @@ export function UsageQuotas() {
 						<ProviderReportCard
 							key={`${report.provider}-${report.credentialId ?? report.account ?? index}`}
 							now={now}
+							onRedeemed={async () =>
+								(await load())?.find(
+									entry => entry.provider === report.provider && entry.credentialId === report.credentialId,
+								)?.limits
+							}
+							ready={ready}
 							report={report}
 							t={t}
 						/>

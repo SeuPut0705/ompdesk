@@ -6,8 +6,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { BRAND_SVGS } from "../../scripts/brand-svgs";
-import { BRAND_MARK, knotFormForSize } from "./brand-mark";
+import { BRAND_SVGS, FAVICON_HREF } from "../../scripts/brand-svgs";
+import { BRAND_MARK, piFormForSize } from "./brand-mark";
 
 const RESOURCES = path.join(__dirname, "..", "..", "resources");
 
@@ -21,26 +21,39 @@ describe("brand mark sources", () => {
 			...fs.readdirSync(RESOURCES).filter(name => name.endsWith(".svg")),
 			...fs
 				.readdirSync(path.join(RESOURCES, "brand"))
-				.filter(name => name.endsWith(".svg"))
+				// README download buttons (download-*.svg) are hand-made, not brand marks.
+				.filter(name => name.endsWith(".svg") && !name.startsWith("download-"))
 				.map(name => `brand/${name}`),
 		];
 		expect(onDisk.sort()).toEqual(Object.keys(BRAND_SVGS).sort());
 	});
 
-	it("the knot strands weave: each form cuts the other strand where it passes under", () => {
-		for (const knot of [BRAND_MARK.full, BRAND_MARK.small]) {
-			expect(knot.cutWidth).toBeGreaterThan(knot.strokeWidth);
-			expect(knot.under.cx).toBeLessThan(0);
-		}
-		expect(BRAND_MARK.full.ring).not.toBeNull();
-		expect(BRAND_MARK.small.ring).toBeNull();
-		expect(BRAND_MARK.small.groove).toBeNull();
+	it("the renderer favicon is the generated tile", () => {
+		const html = fs.readFileSync(path.join(__dirname, "..", "renderer", "index.html"), "utf8");
+		expect(html).toContain(`href="${FAVICON_HREF}"`);
 	});
 
-	it("uses the simplified knot up to 48px and the full emblem above", () => {
-		expect(knotFormForSize(16)).toBe("small");
-		expect(knotFormForSize(48)).toBe("small");
-		expect(knotFormForSize(49)).toBe("full");
+	it("each form is a π: one ink shape and the accent foot", () => {
+		for (const pi of [BRAND_MARK.full, BRAND_MARK.small]) {
+			// Bar, left leg, right leg.
+			expect(pi.ink.match(/M/g)).toHaveLength(3);
+			expect(pi.accent.match(/M/g)).toHaveLength(1);
+		}
+	});
+
+	it("draws the small form on the 16 px pixel grid", () => {
+		const px = 512 / 16;
+		for (const value of `${BRAND_MARK.small.ink}${BRAND_MARK.small.accent}`.match(/[HV]-?[\d.]+/g) ?? []) {
+			const steps = (Number(value.slice(1)) + 256) / px;
+			// Straight edges sit on pixel boundaries; rounded corners start three quarters in.
+			expect(Math.abs(steps * 4 - Math.round(steps * 4)), value).toBeLessThan(0.01);
+		}
+	});
+
+	it("uses the pixel-grid π up to 48px and the full mark above", () => {
+		expect(piFormForSize(16)).toBe("small");
+		expect(piFormForSize(48)).toBe("small");
+		expect(piFormForSize(49)).toBe("full");
 	});
 
 	it("generated raster assets exist", () => {

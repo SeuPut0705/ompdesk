@@ -42,6 +42,13 @@ import { createTray, destroyTray } from "./tray";
 import { setupUpdater } from "./updater";
 import { WindowManager } from "./window";
 import { resolveWindowSpawnTarget } from "./window-spawn-target";
+import {
+	isWorktreeStartCandidate,
+	readLiveLifecycleSettings,
+	WorktreeLifecycle,
+	WorktreePrompts,
+	type WorktreeWindows,
+} from "./worktree-lifecycle";
 
 // App identity: the dev run shows "Electron" in the dock otherwise; packaged
 // builds get the name from the bundle via electron-builder. The name also picks
@@ -229,6 +236,8 @@ let sessionIndex: SessionIndex;
 let statsClient: StatsClient;
 let logWatcher: LogWatcher;
 let remoteDevices: RemoteDevices | null = null;
+let worktreePrompts: WorktreePrompts | null = null;
+let worktreeLifecycle: WorktreeLifecycle | null = null;
 
 function errorMessage(value: unknown): { message: string; stack?: string } {
 	if (value instanceof Error) return { message: value.message, stack: value.stack };
@@ -398,6 +407,30 @@ app.whenReady().then(() => {
 		sc.on("bridge", (result: BridgeConnectResult) => void bridgeHealth.observe(result));
 		return sc;
 	}, 10);
+	// omp's `worktree.onStart` / `worktree.onExit` (omp 18.8.6+), which stock runs only in its TUI.
+	const worktreeWindows: WorktreeWindows = {
+		live: () => {
+			const focused = BrowserWindow.getFocusedWindow();
+			const all = BrowserWindow.getAllWindows().filter(win => !win.isDestroyed());
+			const ordered = focused && !focused.isDestroyed() ? [focused, ...all.filter(win => win !== focused)] : all;
+			return ordered.map(win => win.webContents.id);
+		},
+		send: (winId, channel, payload) => {
+			const win = BrowserWindow.getAllWindows().find(item => !item.isDestroyed() && item.webContents.id === winId);
+			win?.webContents.send(channel, payload);
+		},
+	};
+	const prompts = new WorktreePrompts(worktreeWindows);
+	const lifecycle = new WorktreeLifecycle(
+		{ bind: (tabId, worktree) => sidecarPool.bindWorktree(tabId, worktree) },
+		prompts,
+		worktreeWindows,
+	);
+	worktreePrompts = prompts;
+	worktreeLifecycle = lifecycle;
+	sidecarPool.worktreeStartGate = (tabId, winId, facts) =>
+		isWorktreeStartCandidate(facts) ? lifecycle.startGate(tabId, winId) : null;
+	sidecarPool.onTabReleased = (tabId, exited) => lifecycle.released(tabId, exited);
 	// This computer's models.yml, stats server and `omp bench`, for its own
 	// windows and for the devices that use it as their host.
 	statsClient = new StatsClient();
@@ -455,7 +488,10 @@ app.whenReady().then(() => {
 	sidecarPool.onWindowTabsChanged = () => persistTabLayouts();
 	// A closed window's tabs have to leave the saved session with it, or the next
 	// launch resurrects a window the user deliberately shut.
-	windowManager.subscribeWindowClosed(() => persistTabLayouts());
+	windowManager.subscribeWindowClosed(record => {
+		worktreePrompts?.windowClosed(record.id);
+		persistTabLayouts();
+	});
 	// Stats dashboard: omp's own dashboard API from the user's omp install. A
 	// missing or too-old omp already surfaces on every tab; the dashboard just
 	// stays unavailable.
@@ -491,6 +527,8 @@ app.whenReady().then(() => {
 		remoteDevices: devices,
 		spawnWindow,
 		initialCwd: resolveInitialCwd,
+		worktreeLifecycle: lifecycle,
+		worktreePrompts: prompts,
 	});
 	// Before the first window: a restored remote tab needs its host's link to exist.
 	devices.start();
@@ -553,7 +591,9 @@ app.on("window-all-closed", () => {
 });
 
 // Cleanup on quit, behind the "sessions are still working" confirmation: ⌘Q
-// used to SIGTERM every live agent run without a word.
+// used to SIGTERM every live agent run without a word. Before the teardown,
+// tabs owning a `worktree.onStart` worktree apply `worktree.onExit` while their
+// windows can still ask.
 installQuitGuard(
 	() => (sidecarPool ? sidecarPool.tabInventory() : []),
 	() => {
@@ -563,5 +603,19 @@ installQuitGuard(
 		sessionIndex?.stop();
 		logWatcher?.stop();
 		destroyTray();
+	},
+	async () => {
+		const lifecycle = worktreeLifecycle;
+		if (!lifecycle) return;
+		await lifecycle.finalize({
+			prepare: async tabId => {
+				const sidecar = sidecarPool.sidecarOf(tabId);
+				if (!sidecar) return;
+				// Stock stops the turn first, so the questions describe a worktree nothing still writes to.
+				await sidecar.rpcClient?.command({ type: "abort" }).catch(() => undefined);
+				await lifecycle.refreshExitPolicy(tabId, () => readLiveLifecycleSettings(sidecar));
+			},
+			release: tabId => sidecarPool.releaseTabWhenExited(tabId),
+		});
 	},
 );

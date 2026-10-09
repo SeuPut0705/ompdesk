@@ -24,6 +24,7 @@ import {
 } from "react";
 import type { LoginProvider, ModelInfo, RpcModelPoolState } from "../../../shared/rpc-types";
 import { applyModelInfo, hydrateSession } from "../../hooks/use-rpc-events";
+import { useCompactionPoints } from "../../lib/compaction-limits";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { cx, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -37,6 +38,7 @@ import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, ErrorDetail, Kbd, Modal, SearchField, Spinner } from "../common";
 import { persistDefaultModel } from "../onboarding/default-model";
+import { CompactsAt } from "../settings/CompactsAt";
 import { MIN_SERVING_CONTEXT, modelDisplayName } from "../settings/providers/provider-catalog";
 
 export function ModelPicker() {
@@ -58,6 +60,8 @@ export function ModelPicker() {
 	// over-context warning and compact-first on pick (TUI markOverContext parity).
 	const contextUsage = useSessionStore(state => state.contextUsage);
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
+	// Where each model auto-compacts (stock `/models` preview parity); null on an omp before 18.8.5.
+	const compactionPoints = useCompactionPoints(open);
 
 	const [query, setQuery] = useState("");
 	const [loginProviders, setLoginProviders] = useState<LoginProvider[]>([]);
@@ -394,6 +398,7 @@ export function ModelPicker() {
 										]
 											.filter(Boolean)
 											.join(" · ");
+										const compaction = compactionPoints?.bySelector.get(key);
 										return (
 											<button
 												aria-selected={isCurrent}
@@ -430,12 +435,15 @@ export function ModelPicker() {
 															<Badge variant="warning">{t("modelPicker.badge.beta")}</Badge>
 														)}
 													</span>
-													{subtitle && (
-														<span
-															className="truncate text-sc-xs text-(--sc-text-muted)"
-															title={model.description}
-														>
-															{subtitle}
+													{(subtitle || compaction) && (
+														<span className="flex min-w-0 items-center gap-1.5 text-sc-xs text-(--sc-text-muted)">
+															{subtitle && (
+																<span className="truncate" title={model.description}>
+																	{subtitle}
+																</span>
+															)}
+															{subtitle && compaction && <span aria-hidden>·</span>}
+															{compaction && <CompactsAt className="shrink-0" point={compaction} />}
 														</span>
 													)}
 												</span>

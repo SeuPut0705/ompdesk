@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 /// <reference types="bun" />
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as nodePath from "node:path";
@@ -395,6 +397,16 @@ if (process.argv[2] === "stats") {
 		"security.enabled": false,
 		"compaction.reserveTokens": 8192,
 	};
+	// OMP_GUI_TEST_WORKTREE_LIFECYCLE=<onStart>:<onExit> stands in for omp 18.8.6's
+	// per-session worktree settings (worktree-lifecycle.e2e.ts); unset = omp 18.8.0,
+	// which has neither the settings nor the bridge methods.
+	const worktreeLifecycle = /^(off|ask|create):(keep|ask|remove)$/.exec(
+		process.env.OMP_GUI_TEST_WORKTREE_LIFECYCLE ?? "",
+	);
+	if (worktreeLifecycle) {
+		values["worktree.onStart"] = worktreeLifecycle[1];
+		values["worktree.onExit"] = worktreeLifecycle[2];
+	}
 	const stats = {
 		sessionId,
 		userMessages: 0,
@@ -551,9 +563,27 @@ if (process.argv[2] === "stats") {
 		{ ...model, id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", provider: "anthropic", contextWindow: 1000000 },
 	];
 	const catalogModels = () => (modelsData && anthropicSignedIn ? [model, ...claudeModels] : [model]);
+	/** `ResetPasses` (src/shared/rpc-types.ts) as the bridge shapes stock's saved resets. */
+	interface FixtureResetPasses {
+		count: number;
+		usableCount: number;
+		expiresAt?: number;
+		title?: string;
+		clears: string[];
+		early: boolean;
+		creditId?: string;
+		redeemable: boolean;
+	}
 	const accountQuota: Record<
 		number,
-		{ credentialId: number; state: string; remainingFraction: number; resetsAt?: number; limits: object[] }
+		{
+			credentialId: number;
+			state: string;
+			remainingFraction: number;
+			resetsAt?: number;
+			limits: Array<{ id: string; label: string; usedFraction: number; windowLabel: string }>;
+			resetPasses?: FixtureResetPasses;
+		}
 	> = {
 		1: {
 			credentialId: 1,
@@ -573,6 +603,53 @@ if (process.argv[2] === "stats") {
 				{ id: "5h", label: "5h", usedFraction: 1, windowLabel: "5 hours" },
 				{ id: "7d", label: "Week", usedFraction: 0.64, windowLabel: "7 days" },
 			],
+		},
+	};
+	/**
+	 * `OMP_GUI_TEST_RESET_PASSES=1` (with OMP_GUI_TEST_MODELS): both accounts hold
+	 * saved rate-limit resets. work@ is under its limits, so its pass waits;
+	 * home@ hit its 5h limit, so one of its two passes can be spent, and
+	 * `reset_pass_redeem` clears that window the way stock's redeem does.
+	 */
+	if (modelsData && process.env.OMP_GUI_TEST_RESET_PASSES === "1") {
+		const expiresAt = Date.now() + 9 * 86_400_000;
+		accountQuota[1].resetPasses = {
+			count: 1,
+			usableCount: 1,
+			expiresAt,
+			clears: ["5h"],
+			early: false,
+			redeemable: false,
+		};
+		accountQuota[2].resetPasses = {
+			count: 2,
+			usableCount: 2,
+			expiresAt,
+			title: "One free rate limit reset",
+			clears: ["5h"],
+			early: false,
+			creditId: "grant-home-1",
+			redeemable: true,
+		};
+	}
+	const resetPassMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
+		reset_pass_redeem: params => {
+			const quota = accountQuota[Number(params.credentialId)];
+			const passes = quota?.resetPasses;
+			if (!quota || !passes?.redeemable || params.creditId !== passes.creditId) {
+				return { ok: false, code: "not_limited", message: "nothing was spent" };
+			}
+			quota.limits = quota.limits.map(limit =>
+				passes.clears.includes(limit.id) ? { ...limit, usedFraction: 0 } : limit,
+			);
+			quota.state = "healthy";
+			quota.remainingFraction = 1 - Math.max(...quota.limits.map(limit => limit.usedFraction));
+			delete quota.resetsAt;
+			quota.resetPasses =
+				passes.count > 1
+					? { ...passes, count: passes.count - 1, usableCount: passes.usableCount - 1, redeemable: false }
+					: undefined;
+			return { ok: true, code: "reset", message: "Reset applied.", cleared: passes.clears };
 		},
 	};
 	const modelRoles: Record<string, string | undefined> = {
@@ -621,6 +698,9 @@ if (process.argv[2] === "stats") {
 				credentialId: account.credentialId,
 				active: account.credentialId === 1,
 				limits: accountQuota[account.credentialId].limits,
+				...(accountQuota[account.credentialId].resetPasses
+					? { resetPasses: accountQuota[account.credentialId].resetPasses }
+					: {}),
 			})),
 			session: {
 				input: 0,
@@ -647,6 +727,50 @@ if (process.argv[2] === "stats") {
 				anthropicSignedIn = false;
 			}
 			return { providerId: params.providerId };
+		},
+	};
+	const gitIn = (cwd: string, ...args: string[]) =>
+		execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+	/** The primary checkout's root when `cwd` is one with commits (stock `canAutoCreateWorktree`), else null. */
+	const primaryCheckout = (cwd: string): string | null => {
+		try {
+			const gitDir = fs.realpathSync(gitIn(cwd, "rev-parse", "--absolute-git-dir"));
+			const common = fs.realpathSync(nodePath.resolve(cwd, gitIn(cwd, "rev-parse", "--git-common-dir")));
+			if (gitDir !== common) return null;
+			gitIn(cwd, "rev-parse", "--verify", "--quiet", "HEAD");
+			return nodePath.dirname(common);
+		} catch {
+			return null;
+		}
+	};
+	/** Stock's worktree-lifecycle bridge methods over the git CLI, shaped like `createSessionWorktree`. */
+	const worktreeLifecycleMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
+		worktree_lifecycle_settings: () => ({
+			onStart: values["worktree.onStart"],
+			onExit: values["worktree.onExit"],
+			eligible: primaryCheckout(process.cwd()) !== null,
+		}),
+		worktree_lifecycle_create: () => {
+			const cwd = process.cwd();
+			const primary = primaryCheckout(cwd);
+			const root = process.env.OMP_WORKTREE_DIR;
+			// Never the user's ~/.omp/wt from a test.
+			if (!primary || !root)
+				throw new Error("fixture worktree_lifecycle_create needs a repository and OMP_WORKTREE_DIR");
+			const now = new Date();
+			const pad = (n: number) => String(n).padStart(2, "0");
+			const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+			// Two tabs can start in the same second; stock would refuse the second name.
+			const branch = `wt/${stamp}-${process.pid}`;
+			const baseCommit = gitIn(cwd, "rev-parse", "HEAD");
+			const target = nodePath.join(
+				root,
+				`${branch.replaceAll(/[^A-Za-z0-9._-]+/g, "-")}-${createHash("sha1").update(primary).digest("hex").slice(0, 7)}`,
+			);
+			fs.mkdirSync(root, { recursive: true });
+			gitIn(cwd, "branch", branch, baseCommit);
+			gitIn(primary, "worktree", "add", "-q", target, branch);
+			return { path: fs.realpathSync(target), branch, sourceCwd: cwd, baseCommit, root };
 		},
 	};
 	/** A handler returning `undefined` replies itself (deferred, or ahead of the events it pushes). */
@@ -725,6 +849,39 @@ if (process.argv[2] === "stats") {
 								label: "Advisor",
 								description: "A second model reviews the main model's turns.",
 								default: false,
+							},
+						]
+					: []),
+				...(worktreeLifecycle
+					? [
+							{
+								path: "worktree.onStart",
+								type: "enum",
+								tab: "tasks",
+								group: "Isolation",
+								label: "Worktree on Start",
+								description: "Whether fresh interactive sessions start in a new linked worktree",
+								default: "off",
+								options: [
+									{ value: "off", label: "Off" },
+									{ value: "ask", label: "Ask" },
+									{ value: "create", label: "Create" },
+								],
+							},
+							{
+								path: "worktree.onExit",
+								type: "enum",
+								tab: "tasks",
+								group: "Isolation",
+								label: "Worktree on Exit",
+								description:
+									"What to do on exit with worktrees created since omp started (on start or with `/wt`)",
+								default: "keep",
+								options: [
+									{ value: "keep", label: "Keep" },
+									{ value: "ask", label: "Ask" },
+									{ value: "remove", label: "Remove" },
+								],
 							},
 						]
 					: []),
@@ -812,6 +969,8 @@ if (process.argv[2] === "stats") {
 		get_mcp_servers: () => ({ servers: [] }),
 		get_skills: () => ({ skills: [] }),
 		...(modelsData ? modelsPageMethods : {}),
+		...(modelsData && process.env.OMP_GUI_TEST_RESET_PASSES === "1" ? resetPassMethods : {}),
+		...(worktreeLifecycle ? worktreeLifecycleMethods : {}),
 	};
 	const serveBridge = (socket: net.Socket, line: string) => {
 		const request: { id?: unknown; method?: unknown; params?: Params } = JSON.parse(line);
@@ -860,6 +1019,20 @@ TPS_{\\text{decode}}
 \\[
 T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\text{输入预处理}} + T_{\\text{输入分词}} + T_{\\text{首令牌等待}} + \\frac{N_{\\text{输出令牌总数}}-1}{TPS_{\\text{decode}}} + T_{\\text{结果后处理}} + T_{\\text{客户端渲染}}
 \\]`;
+	// An svg fence as stock omp teaches models to write it (theme tokens), plus
+	// a script and an onload handler the preview must never run.
+	const SVG_REPLY = [
+		"Here is the badge:",
+		"",
+		"```svg",
+		'<svg viewBox="0 0 120 60" width="240" height="120" onload="window.__svgPwned = 1">',
+		"  <script>window.__svgPwned = 2</script>",
+		'  <rect x="4" y="4" width="112" height="52" rx="10" fill="none" stroke="var(--accent)" stroke-width="4"/>',
+		'  <circle cx="30" cy="30" r="12" fill="var(--success)"/>',
+		'  <text x="50" y="36" font-size="14" fill="var(--fg)">OMP</text>',
+		"</svg>",
+		"```",
+	].join("\n");
 
 	const prompt = (message: string, respond: () => void) => {
 		if (message === "fixture hold settings") {
@@ -1070,7 +1243,9 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 								? MATH_REPLY
 								: message === "fixture image"
 									? "Here is the chart:\n\n![chart](pixel.png)"
-									: "Local fixture reply",
+									: message === "fixture svg"
+										? SVG_REPLY
+										: "Local fixture reply",
 					},
 				],
 				timestamp: Date.now(),
@@ -1467,6 +1642,29 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				if (index !== -1) lane.splice(index, 1);
 				ok({ removed: index !== -1 });
 				emitQueue();
+				break;
+			}
+			case "promote_queued_message": {
+				// Stock: the first matching follow-up moves to the end of the steering lane.
+				const index = lanes.followUp.indexOf(text("message"));
+				if (index !== -1) lanes.steering.push(...lanes.followUp.splice(index, 1));
+				ok({ promoted: index !== -1 });
+				if (index !== -1) emitQueue();
+				break;
+			}
+			case "abort_and_restore_queue": {
+				// Stock (TUI Esc parity): withdraw the queued input first, then abort.
+				const restored = {
+					steering: lanes.steering.map(message => ({ text: message })),
+					followUp: lanes.followUp.map(message => ({ text: message })),
+				};
+				const hadQueue = lanes.steering.length + lanes.followUp.length > 0;
+				lanes.steering = [];
+				lanes.followUp = [];
+				if (hadQueue) emitQueue();
+				clearInterval(streamTimer);
+				ok(restored);
+				if (isStreaming) endTurn([]);
 				break;
 			}
 			case "abort":

@@ -73,10 +73,11 @@ async function mount(element: ReactElement): Promise<void> {
 	await act(async () => {});
 }
 
-function installRpc(getModelRoles?: (...args: unknown[]) => Promise<unknown>) {
+function installRpc(getModelRoles?: (...args: unknown[]) => Promise<unknown>, extra: Record<string, unknown> = {}) {
 	const rpc = {
 		getModelRoles: vi.fn(getModelRoles ?? (async () => ({ success: true, data: { roles: ROLES } }))),
 		setModelRole: vi.fn(async () => ({ success: true })),
+		...extra,
 	};
 	(window as unknown as { omp?: unknown }).omp = { rpc, events: { onConfigUpdate: () => () => {} } };
 	return rpc;
@@ -250,5 +251,56 @@ describe("ModelRolesSection", () => {
 		await act(async () => option?.dispatchEvent(new Event("click", { bubbles: true })));
 
 		expect(setModelRole).toHaveBeenCalledWith("default", "openai/gpt");
+	});
+
+	it("shows where each role's model compacts, from the bridge's resolver", async () => {
+		const getCompactionPoints = vi.fn(async () => ({
+			success: true,
+			data: {
+				models: [],
+				roles: [
+					{
+						role: "default",
+						selector: "anthropic/claude",
+						autoSelected: false,
+						point: { tokens: 90_000, source: "anthropic/claude", draft: "90k" },
+					},
+					{
+						role: "image",
+						selector: "openai/dalle",
+						autoSelected: true,
+						point: { tokens: 160_000, percent: 80, source: "global" },
+					},
+				],
+			},
+		}));
+		installRpc(undefined, {
+			getSettings: vi.fn(async () => ({ success: true, data: { values: { "compaction.modelThresholds": {} } } })),
+			getCompactionPoints,
+		});
+		useSessionStore.getState().setStatus("ready", "/repo");
+
+		await mount(<ModelRolesSection />);
+		await act(async () => {});
+
+		const facts = [...document.body.querySelectorAll("[data-compacts-at]")].map(node => node.textContent);
+		expect(facts).toEqual(["Compacts at 90.0k · anthropic/claude", "Compacts at 160.0k · 80% · global setting"]);
+	});
+
+	it("shows no compaction point on an omp whose settings lack compaction.modelThresholds", async () => {
+		const getCompactionPoints = vi.fn();
+		installRpc(undefined, {
+			// omp 18.8.0: the setting is not in the live registry, so get_settings omits it.
+			getSettings: vi.fn(async () => ({ success: true, data: { values: {} } })),
+			getCompactionPoints,
+		});
+		useSessionStore.getState().setStatus("ready", "/repo");
+
+		await mount(<ModelRolesSection />);
+		await act(async () => {});
+
+		expect(getCompactionPoints).not.toHaveBeenCalled();
+		expect(document.body.querySelector("[data-compacts-at]")).toBeNull();
+		expect(bodyText()).toContain("Default");
 	});
 });

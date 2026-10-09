@@ -85,6 +85,7 @@ export type MainTextKey =
 	| "updates.installerMissing"
 	| "updates.noResult"
 	| "updates.openInstallerFailed"
+	| "updates.releaseInvalid"
 	| "updates.unsupportedArchitecture";
 
 const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
@@ -205,8 +206,8 @@ const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 		ko: "다운로드한 설치 프로그램이 SHA-512 검증에 실패해 삭제했어요. 업데이트를 다시 시도하세요.",
 	},
 	"updates.installerMissing": {
-		en: "This release does not include the required installer for this Mac.",
-		ko: "이 릴리스에는 이 Mac에 필요한 설치 프로그램이 없어요.",
+		en: "This release does not include an installer for this computer.",
+		ko: "이 릴리스에는 이 컴퓨터에 맞는 설치 프로그램이 없어요.",
 	},
 	"updates.failed": {
 		en: "Couldn't finish the update. Try again later.",
@@ -219,6 +220,10 @@ const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 	"updates.openInstallerFailed": {
 		en: "The installer was downloaded, but macOS could not open it.",
 		ko: "설치 프로그램을 다운로드했지만 macOS에서 열 수 없어요.",
+	},
+	"updates.releaseInvalid": {
+		en: "The latest release has no valid update information, so OMPdesk can't update from it.",
+		ko: "최신 릴리스에 올바른 업데이트 정보가 없어서 OMPdesk를 업데이트할 수 없어요.",
 	},
 	"updates.unsupportedArchitecture": {
 		en: "This Mac architecture does not have a supported installer.",

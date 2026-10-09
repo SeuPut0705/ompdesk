@@ -1,8 +1,10 @@
 appId: com.seuput.ompdesk
 # Display name: the bundle (OMPdesk.app), menu bar and Dock read it. Identifiers
 # stay lowercase: appId, userData and the keychain item (app.setName in
-# src/main/index.ts), and the release asset names below, which installed
-# updaters look up by exact name (selectMacAsset in src/main/updater-state.ts).
+# src/main/index.ts), and the artifact names below. The release renames the DMG
+# to `ompdesk-mac-arm64.dmg`; the versioned names matter to the legacy update
+# feed (LEGACY_UPDATE_FEED in release.yml), whose v0.17.x readers look them up
+# by exact name.
 productName: OMPdesk
 afterPack: scripts/after-pack.cjs
 directories:
@@ -27,14 +29,13 @@ compression: maximum
 mac:
   category: public.app-category.developer-tools
   icon: resources/icon.icns
+  # Names the ZIP the legacy feed builds (`--mac dmg zip`); the DMG has its own below.
   artifactName: ompdesk-${version}-${arch}-mac.${ext}
   # Seal the complete bundle even when no Developer ID certificate is available.
   # This preserves macOS's user-override flow instead of presenting the app as damaged.
   identity: "-"
   target:
     - target: dmg
-      arch: [arm64]
-    - target: zip
       arch: [arm64]
   hardenedRuntime: true
   gatekeeperAssess: false
@@ -70,8 +71,6 @@ win:
   icon: resources/icon.ico
   target:
     - target: nsis
-      arch: [x64]
-    - target: portable
       arch: [x64]
 
 nsis:

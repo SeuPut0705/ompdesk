@@ -6,6 +6,7 @@ import type { BrowserWindow } from "electron";
 import { describe, expect, it } from "vitest";
 import { IPC_EVENTS, type IpcTabStatusPayload } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse, SessionInfoUpdateFrame, SidecarStatus } from "../shared/rpc-types";
+import type { SidecarStartGate } from "./sidecar";
 import { type SidecarLike, SidecarPool } from "./sidecar-pool";
 import type { PersistedTabLayout } from "./tab-layout";
 
@@ -102,6 +103,15 @@ class FakeSidecar extends EventEmitter {
 	}
 	emitEvents(events: Array<Record<string, unknown>>): void {
 		this.emit("events", events);
+	}
+	/** Gates installed with setStartGate, and whether start() had run by then. */
+	gates: Array<{ gate: SidecarStartGate; afterStart: boolean }> = [];
+	setStartGate(gate: SidecarStartGate): void {
+		this.gates.push({ gate, afterStart: this.started });
+	}
+	readonly exited = Promise.withResolvers<void>();
+	whenExited(): Promise<void> {
+		return this.exited.promise;
 	}
 }
 
@@ -1351,5 +1361,91 @@ describe("SidecarPool background tabs", () => {
 
 		expect(pool.releaseTab("tab-b")).toBe(true);
 		expect(fw.win.listenerCount("closed")).toBe(before + 1);
+	});
+});
+
+describe("SidecarPool worktree.onStart hooks", () => {
+	it("hands a new tab's facts to the start-gate hook and installs the gate before the sidecar starts", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(7);
+		const seen: Array<{ tabId: string; winId: number; facts: unknown }> = [];
+		const gate: SidecarStartGate = async () => null;
+		pool.worktreeStartGate = (tabId, winId, facts) => {
+			seen.push({ tabId, winId, facts });
+			return facts.fresh ? gate : null;
+		};
+
+		pool.acquire("/repo", fw.win, "tab-new", undefined, "agent", undefined, true);
+		pool.acquire("/repo", fw.win, "tab-resume", "/s/one.jsonl", "agent", undefined, false);
+
+		expect(seen).toEqual([
+			{
+				tabId: "tab-new",
+				winId: 7,
+				facts: {
+					kind: "agent",
+					sessionPath: undefined,
+					device: undefined,
+					worktree: undefined,
+					fresh: true,
+					placeholder: false,
+					deferStart: false,
+				},
+			},
+			expect.objectContaining({
+				tabId: "tab-resume",
+				facts: expect.objectContaining({ sessionPath: "/s/one.jsonl" }),
+			}),
+		]);
+		expect(sidecars[0]?.gates).toEqual([{ gate, afterStart: false }]);
+		expect(sidecars[0]?.started).toBe(true);
+		expect(sidecars[1]?.gates).toEqual([]);
+	});
+
+	it("binds a lifecycle worktree, shows it on TAB_STATUS, and never persists the ownership", () => {
+		const { pool } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/repo", fw.win, "tab-a", undefined, "agent", undefined, true);
+		const binding = {
+			name: "wt/20261009-120000",
+			branch: "wt/20261009-120000",
+			baseCwd: "/repo",
+			path: "/wt/wt-20261009-120000-1234567",
+			lifecycle: true as const,
+		};
+		fw.sent.length = 0;
+
+		expect(pool.bindWorktree("tab-a", binding)).toBe(true);
+		expect(pool.bindWorktree("gone", binding)).toBe(false);
+		const pushed = fw.sentTo(IPC_EVENTS.TAB_STATUS).map(entry => entry.data as IpcTabStatusPayload);
+		expect(pushed.at(-1)?.worktree).toEqual(binding);
+		expect(pool.tabLayoutForWindow(fw.win)?.tabs[0]?.worktree).toEqual({
+			name: binding.name,
+			branch: binding.branch,
+			baseCwd: binding.baseCwd,
+			path: binding.path,
+		});
+	});
+
+	it("reports every release with the tab's process exit, closed tab or closed window alike", async () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		const released: string[] = [];
+		pool.onTabReleased = (tabId, exited) => {
+			released.push(tabId);
+			void exited.then(() => released.push(`${tabId}:exited`));
+		};
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		pool.acquire("/c", fw.win, "tab-c");
+
+		expect(pool.releaseTab("tab-a")).toBe(true);
+		const waited = pool.releaseTabWhenExited("tab-b");
+		expect(released).toEqual(["tab-a", "tab-b"]);
+		sidecars[1]?.exited.resolve();
+		await waited;
+		fw.close();
+		expect(released).toContain("tab-c");
+		expect(released).toContain("tab-b:exited");
 	});
 });

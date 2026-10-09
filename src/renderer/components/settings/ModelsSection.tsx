@@ -1,9 +1,10 @@
 /**
  * Settings › Models & providers, in the order a user needs it: where models
  * come from (providers and their accounts, then custom models.yml endpoints),
- * which model does what (the model setup assistant, roles, then the model
- * defaults), and the advanced side-by-side comparison with the benchmark,
- * collapsed until asked for (`models:compare` opens it).
+ * which model does what (the model setup assistant, roles and their per-model
+ * compaction limits, then the model defaults), and the advanced side-by-side
+ * comparison with the benchmark, collapsed until asked for (`models:compare`
+ * opens it).
  */
 
 import { ChevronDown } from "lucide-react";
@@ -12,6 +13,7 @@ import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useUiStore } from "../../stores/ui";
 import { Button } from "../common";
+import { CompactionLimitsSection } from "./CompactionLimitsSection";
 import { ModelCompareSection } from "./ModelCompareSection";
 import { ModelRolesSection } from "./ModelRolesSection";
 import { ModelSetupEntry } from "./model-setup/ModelSetupEntry";
@@ -33,6 +35,7 @@ export function ModelsSection({ sub }: { sub?: string }) {
 			<ProvidersSection />
 			<ModelSetupEntry />
 			<ModelRolesSection />
+			<CompactionLimitsSection />
 			<SchemaSection id="settings-models-defaults" paths={DEFAULT_PATHS} title={t("settings.models.defaults")} />
 			<SettingsSection
 				actions={

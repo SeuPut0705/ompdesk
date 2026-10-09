@@ -156,7 +156,7 @@ async function mount(withRuntime = false): Promise<void> {
 			followUp,
 			steer,
 			prompt,
-			abort: vi.fn(async () => ok()),
+			abortAndRestoreQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
 			setThinkingLevel,
 			setSetting,
 			setPlanMode,

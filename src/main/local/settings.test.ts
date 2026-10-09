@@ -82,6 +82,28 @@ describe("mergeProviderAccounts", () => {
 		expect(result.usageError).toBe("unsupported_omp");
 		expect(result.accounts.map(account => account.credentialId)).toEqual([7, 9]);
 	});
+
+	it("passes each account's identity key and the pool provider through on an omp with account pools", () => {
+		const usage: BridgeProviderAccounts = {
+			providerId: "anthropic",
+			credentialProvider: "anthropic",
+			accounts: [
+				{ credentialId: 7, state: "healthy", limits: [], identityKey: "email:work@example.com|org:org-1" },
+				{ credentialId: 9, state: "healthy", limits: [], identityKey: null },
+			],
+		};
+		const result = mergeProviderAccounts("anthropic", [work, home], usage);
+		expect(result.credentialProvider).toBe("anthropic");
+		expect(result.accounts.map(account => account.identityKey)).toEqual(["email:work@example.com|org:org-1", null]);
+	});
+
+	it("reports no identity keys on an omp without account pools, or when the bridge read failed", () => {
+		const old = mergeProviderAccounts("anthropic", [work], { providerId: "anthropic", accounts: [] });
+		expect(old.credentialProvider).toBeUndefined();
+		expect("identityKey" in old.accounts[0]).toBe(false);
+		const failed = mergeProviderAccounts("anthropic", [work], undefined, "boom");
+		expect("identityKey" in failed.accounts[0]).toBe(false);
+	});
 });
 
 describe("logout handler", () => {
@@ -142,5 +164,43 @@ describe("get_provider_accounts handler", () => {
 			usageError: "usage fetch aborted",
 			accounts: [{ credentialId: 7, inUse: false }],
 		});
+	});
+});
+
+describe("reset passes", () => {
+	const passes = { count: 2, usableCount: 2, clears: ["5h"], early: false, creditId: "g1", redeemable: true };
+
+	it("carries each account's reset passes through the merge", () => {
+		const result = mergeProviderAccounts("anthropic", [work, home], {
+			providerId: "anthropic",
+			accounts: [{ credentialId: 9, state: "depleted", limits: [], resetPasses: passes }],
+		});
+		expect(result.accounts[0]).not.toHaveProperty("resetPasses");
+		expect(result.accounts[1].resetPasses).toEqual(passes);
+	});
+
+	it("passes a redeem to the tab's bridge with the confirmed pass", async () => {
+		const send = vi.fn();
+		const outcome = { ok: true, code: "reset", message: "Reset applied" };
+		const request = vi.fn(async () => outcome);
+		const result = await handlers.redeem_reset_pass(
+			{ type: "redeem_reset_pass", providerId: "anthropic", credentialId: 9, creditId: "g1" },
+			fakeCtx(send, request),
+		);
+		expect(request).toHaveBeenCalledWith("reset_pass_redeem", {
+			providerId: "anthropic",
+			credentialId: 9,
+			creditId: "g1",
+		});
+		expect(send).not.toHaveBeenCalled();
+		expect(result).toEqual(outcome);
+	});
+
+	it("refuses a redeem without a credential before reaching omp", async () => {
+		const request = vi.fn();
+		await expect(
+			handlers.redeem_reset_pass({ type: "redeem_reset_pass", providerId: "anthropic" }, fakeCtx(vi.fn(), request)),
+		).rejects.toThrow();
+		expect(request).not.toHaveBeenCalled();
 	});
 });

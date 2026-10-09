@@ -45,6 +45,7 @@ const AREAS: readonly Area[] = [
 		load: () => import("./settings"),
 	},
 	{ name: "misc", features: ["voice", "debug", "security", "ssh"], load: () => import("./misc") },
+	{ name: "reset-passes", features: ["resetPasses"], load: () => import("./reset-passes") },
 	{ name: "extensions/agents", features: ["agents", "themes"], load: () => import("./extensions/agents") },
 	{ name: "extensions/mcp", features: ["mcp"], load: () => import("./extensions/mcp") },
 	{ name: "extensions/plugins", features: ["plugins"], load: () => import("./extensions/plugins") },
@@ -57,6 +58,8 @@ const AREAS: readonly Area[] = [
 	{ name: "modes/reply-language", features: ["replyLanguage"], load: () => import("./modes/reply-language") },
 	{ name: "account-rotation", features: ["accountRotation"], load: () => import("./account-rotation") },
 	{ name: "modes/actions", features: ["tan", "omfg", "agentPause"], load: () => import("./modes/actions") },
+	{ name: "compaction-limits", features: ["compactionLimits"], load: () => import("./compaction-limits") },
+	{ name: "worktree-lifecycle", features: ["worktreeLifecycle"], load: () => import("./worktree-lifecycle") },
 ];
 
 function builtins(failures: readonly AreaFailure[]): BridgeMethods {

@@ -105,6 +105,10 @@ export const IPC_EVENTS = {
 	REMOTE_STATE: "remote:state",
 	/** LAN discovery list changed while discovery runs; payload is the whole RemoteDiscoveredDevice[]. */
 	REMOTE_DISCOVERED: "remote:discovered",
+	/** The window's open worktree-lifecycle questions changed; payload is the whole IpcWorktreePrompt[]. */
+	WORKTREE_PROMPTS: "worktree-lifecycle:prompts",
+	/** A worktree-lifecycle step the user should hear about (IpcWorktreeNotice). */
+	WORKTREE_NOTICE: "worktree-lifecycle:notice",
 } as const;
 
 // ============================================================================
@@ -259,6 +263,10 @@ export const IPC_COMMANDS = {
 	REMOTE_REMOVE_HOST: "remote:remove-host",
 	/** Browse a paired host's directories (remote folder picker) */
 	REMOTE_LIST_DIRS: "remote:list-dirs",
+	/** The calling window's open worktree-lifecycle questions (IpcWorktreePrompt[]). */
+	WORKTREE_PROMPTS_GET: "worktree-lifecycle:prompts-get",
+	/** Answer one worktree-lifecycle question (IpcWorktreePromptAnswer). */
+	WORKTREE_PROMPT_ANSWER: "worktree-lifecycle:answer",
 } as const;
 
 export type RuntimeErrorSource =
@@ -900,18 +908,59 @@ export type SessionKind = "agent" | "chat";
 
 /**
  * A tab's git-worktree binding (tab × worktree, plan/20). Immutable, set at
- * spawn like `kind`; main-held so it survives renderer reloads. `name` is the
- * user-facing slug (chip label for untitled tabs), `branch` the created
- * omp/gui/<name> ref, `baseCwd` the repo checkout the worktree forked from,
- * `path` the checkout itself — the one directory the close prompt may remove
- * (the tab's cwd follows session switches).
+ * spawn like `kind` (or, for `worktree.onStart`, before the tab's first
+ * session reports ready); main-held so it survives renderer reloads. `name` is
+ * the user-facing slug (chip label for untitled tabs), `branch` the created
+ * omp/gui/<name> (or omp's wt/<timestamp>) ref, `baseCwd` the repo checkout the
+ * worktree forked from, `path` the checkout itself — the one directory the
+ * close prompt may remove (the tab's cwd follows session switches).
  */
 export interface IpcTabWorktree {
 	name: string;
 	branch: string;
 	baseCwd: string;
 	path: string;
+	/**
+	 * Created by omp's `worktree.onStart` for this tab's fresh session during
+	 * this launch (src/main/worktree-lifecycle.ts): closing the tab applies
+	 * `worktree.onExit` instead of the close prompt. Never persisted; a restored
+	 * tab is an ordinary worktree tab, as stock owns only the worktrees its own
+	 * launch created.
+	 */
+	lifecycle?: true;
 }
+
+/**
+ * A question omp's per-session worktree lifecycle needs answered
+ * (src/main/worktree-lifecycle.ts). `start`: `worktree.onStart` = `ask` for a
+ * new tab in `cwd`. `exit`: `worktree.onExit` asks before removing the
+ * worktree a closed tab created; the flags are what removing it would lose.
+ */
+export type IpcWorktreePrompt =
+	| { id: string; kind: "start"; cwd: string }
+	| {
+			id: string;
+			kind: "exit";
+			path: string;
+			branch: string;
+			/** Uncommitted or untracked changes. */
+			dirty: boolean;
+			/** The branch has new commits; it is kept either way. */
+			moved: boolean;
+			/** HEAD is not the branch tip, so commits only HEAD reaches are lost. */
+			offBranch: boolean;
+	  };
+
+export interface IpcWorktreePromptAnswer {
+	id: string;
+	accept: boolean;
+}
+
+/** A lifecycle step that ended differently than planned. */
+export type IpcWorktreeNotice =
+	| { kind: "create-failed"; cwd: string; message: string }
+	| { kind: "kept-changed"; path: string }
+	| { kind: "remove-failed"; path: string; message: string };
 
 /** One tab of a window: its sidecar's cwd, last status, and cached session meta. */
 export interface IpcTabInfo {
@@ -1193,6 +1242,12 @@ export interface OmpApi {
 		followUp(message: string, images?: ImageContent[]): Promise<RpcResponse>;
 		abort(): Promise<RpcResponse>;
 		abortAndPrompt(message: string): Promise<RpcResponse>;
+		/** Stop the turn the TUI Esc way: the queued user input comes back (RpcAbortAndRestoreQueueResult). */
+		abortAndRestoreQueue(): Promise<RpcResponse>;
+		/** Stock removal by chip text + lane (RpcRemoveQueuedMessageResult). */
+		removeQueuedMessage(message: string, queue: "steering" | "followUp"): Promise<RpcResponse>;
+		/** Stock follow-up → steer promotion by chip text (RpcPromoteQueuedMessageResult). */
+		promoteQueuedMessage(message: string): Promise<RpcResponse>;
 		newSession(parentSession?: string): Promise<RpcResponse>;
 		dropSession(): Promise<RpcResponse>;
 		switchSession(sessionPath: string, model?: SessionModelOverride): Promise<RpcResponse>;
@@ -1296,6 +1351,8 @@ export interface OmpApi {
 		/** Removes every stored account of the provider. */
 		disconnectProvider(providerId: string): Promise<RpcResponse>;
 		getProviderAccounts(providerId: string): Promise<RpcResponse>;
+		/** Spends one saved rate-limit reset of one stored account (stock `/usage reset`). */
+		redeemResetPass(providerId: string, credentialId: number, creditId?: string): Promise<RpcResponse>;
 		getUsage(): Promise<RpcResponse>;
 		getSettingsSchema(): Promise<RpcResponse>;
 		getSettings(paths?: string[]): Promise<RpcResponse>;
@@ -1306,6 +1363,8 @@ export interface OmpApi {
 		getModelRoles(): Promise<RpcResponse>;
 		setModelRole(role: string, modelId: string | null): Promise<RpcResponse>;
 		getModelRoleMetadata(): Promise<RpcResponse>;
+		/** Per-model compaction points (omp 18.8.5+; older omp answers `unsupported_omp`). */
+		getCompactionPoints(): Promise<RpcResponse>;
 		getAvailableCommands(): Promise<RpcResponse>;
 		getSkills(): Promise<RpcResponse>;
 		getSkillDetail(name: string): Promise<RpcResponse>;
@@ -1602,5 +1661,13 @@ export interface OmpApi {
 			/** Stable failure code for the renderer's localized message (shared/ipc-error-codes). */
 			code?: IpcErrorCode;
 		}>;
+	};
+	/** omp's per-session worktree lifecycle (`worktree.onStart` / `worktree.onExit`, omp 18.8.6+). */
+	worktreeLifecycle: {
+		/** This window's open questions, oldest first. */
+		prompts(): Promise<IpcWorktreePrompt[]>;
+		answer(id: string, accept: boolean): Promise<void>;
+		onPrompts(callback: (prompts: IpcWorktreePrompt[]) => void): () => void;
+		onNotice(callback: (notice: IpcWorktreeNotice) => void): () => void;
 	};
 }

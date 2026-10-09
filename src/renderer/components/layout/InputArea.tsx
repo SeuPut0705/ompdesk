@@ -4,6 +4,7 @@ import {
 	CornerDownRight,
 	ExternalLink,
 	History,
+	ImagePlus,
 	ListPlus,
 	Maximize2,
 	Mic,
@@ -889,17 +890,21 @@ export function InputArea() {
 							}}
 						/>
 					)}
+					{/* Focus and drag paint live in components.css (.omp-composer-box): the
+					    field state follows the TEXT field, not any focused descendant, so a
+					    focused toolbar control draws its own ring, never a ring in a ring. */}
 					<div
-						className={cx(
-							"omp-composer-box flex flex-col rounded-(--sc-radius-xl) border bg-(--sc-field) shadow-(--sc-shadow-sm) transition-[border-color,box-shadow] duration-(--sc-duration-fast)",
-							// The field ring follows the TEXT field, not any focused descendant:
-							// a focused toolbar control draws its own ring, never a ring in a ring.
-							"border-(--sc-border-subtle) has-[textarea:focus]:border-(--sc-accent-border) has-[textarea:focus]:ring-3 has-[textarea:focus]:ring-(--sc-focus-glow)",
-							dragActive && "border-(--sc-accent) ring-3 ring-(--sc-focus-glow)",
-						)}
+						className="omp-composer-box relative flex flex-col rounded-(--sc-radius-xl) border border-(--sc-border-subtle) bg-(--sc-field) shadow-(--sc-shadow-sm) transition-[border-color,box-shadow] duration-(--sc-duration-fast)"
 						data-composer-mode={composerMode?.mode}
+						data-drag-active={dragActive || undefined}
 						{...dropProps}
 					>
+						{dragActive && (
+							<div aria-hidden className="omp-composer-drop omp-fade-in">
+								<ImagePlus aria-hidden className="size-(--sc-icon-md)" />
+								{t("input.dropImages")}
+							</div>
+						)}
 						{expanded && (
 							<div className="flex items-center gap-2 border-b border-(--sc-divider) py-1.5 pr-2 pl-4">
 								<span className="min-w-0 flex-1 truncate text-sc-sm font-medium text-(--sc-text-secondary)">
@@ -941,27 +946,27 @@ export function InputArea() {
 							</Banner>
 						)}
 						{images.length > 0 && (
-							<div className="flex flex-wrap gap-2 px-3 pt-3">
+							<ul aria-label={t("input.attachments")} className="flex flex-wrap gap-2.5 px-3 pt-3">
 								{images.map((image, index) => (
-									<div key={index} className="group/attachment relative">
+									<li key={index} className="relative">
 										<img
 											src={image.preview}
 											alt={t("input.attachmentAlt", { index: index + 1 })}
-											className="size-16 rounded-(--sc-radius-md) border border-(--sc-border-subtle) object-cover"
+											className="size-14 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) object-cover"
 										/>
 										<IconButton
-											className="absolute -top-2 -right-2 rounded-(--sc-radius-full) border-(--sc-border-subtle) bg-(--sc-elevated) opacity-0 shadow-(--sc-shadow-sm) group-hover/attachment:opacity-100 focus-visible:opacity-100 group-focus-within/attachment:opacity-100"
+											className="omp-composer-attachment-remove absolute -top-1.5 -right-1.5"
 											icon={<X />}
-											label={t("input.removeAttachment")}
+											label={t("input.removeAttachment", { index: index + 1 })}
 											onClick={() =>
 												setImages(previous => previous.filter((_, itemIndex) => itemIndex !== index))
 											}
 											size="sm"
 											variant="secondary"
 										/>
-									</div>
+									</li>
 								))}
-							</div>
+							</ul>
 						)}
 						<div className={cx("relative px-4 pt-3 pb-1", expanded && "flex min-h-0 flex-1 flex-col")}>
 							<textarea
@@ -1039,7 +1044,7 @@ export function InputArea() {
 						<div
 							aria-busy={!routeReady}
 							aria-label={t("input.toolbar")}
-							className="omp-composer-toolbar flex min-h-11 flex-wrap items-center gap-1 px-2 pb-2"
+							className="omp-composer-toolbar flex min-h-11 flex-wrap items-center gap-1 pr-2.5 pb-2.5 pl-2"
 							inert={!routeReady}
 							role="toolbar"
 						>
@@ -1162,34 +1167,38 @@ export function InputArea() {
 										</Button>
 									</Tooltip>
 								)}
-								{isStreaming && (
-									<IconButton
-										disabled={!routeReady}
-										icon={<Square fill="currentColor" />}
-										label={t("input.abort")}
-										onClick={() => void abortActiveTurn(rpc, runtimeTabId)}
-										shortcut="Esc"
-										size="sm"
-										variant={showSend ? "secondary" : "primary"}
-									/>
-								)}
-								{showSend && (
-									<IconButton
-										disabled={sendDisabled}
-										icon={<ArrowUp strokeWidth={2.4} />}
-										label={t("input.send")}
-										onClick={() => {
-											if (expanded) setExpanded(false);
-											send();
-											// The button disables itself once the draft clears; a disabled
-											// focused control swallows keystrokes (⌘, and friends), so keep
-											// typing focus in the composer like Enter does.
-											textareaRef.current?.focus();
-										}}
-										size="sm"
-										variant="primary"
-									/>
-								)}
+								{/* The turn's primary actions: a round Send that turns into Stop while a
+								    turn runs with nothing to send; with a draft, Stop steps back beside it. */}
+								<div className="ml-1 flex items-center gap-1.5">
+									{isStreaming && (
+										<IconButton
+											className="omp-composer-action"
+											disabled={!routeReady}
+											icon={<Square className="omp-composer-stop-glyph" fill="currentColor" />}
+											label={t("input.abort")}
+											onClick={() => void abortActiveTurn(rpc, runtimeTabId)}
+											shortcut="Esc"
+											variant={showSend ? "secondary" : "primary"}
+										/>
+									)}
+									{showSend && (
+										<IconButton
+											className="omp-composer-action"
+											disabled={sendDisabled}
+											icon={<ArrowUp strokeWidth={2.25} />}
+											label={t("input.send")}
+											onClick={() => {
+												if (expanded) setExpanded(false);
+												send();
+												// The button disables itself once the draft clears; a disabled
+												// focused control swallows keystrokes (⌘, and friends), so keep
+												// typing focus in the composer like Enter does.
+												textareaRef.current?.focus();
+											}}
+											variant="primary"
+										/>
+									)}
+								</div>
 							</div>
 						</div>
 					</div>

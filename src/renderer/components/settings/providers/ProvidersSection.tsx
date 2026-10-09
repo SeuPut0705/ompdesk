@@ -3,17 +3,19 @@
  * sections: "Providers" lists the connected ones (a subscription expands to
  * its accounts, ProviderAccounts), the account-switching mode, and "Add a
  * provider", a collapsed picker with search, the recommended set and the long
- * tail; "Custom endpoints" lists this machine's models.yml entries and opens
+ * tail; "Account pools" (AccountPoolsEditor, omp 18.8.1+ only) limits which of
+ * those accounts each agent may use, from the same account reads; "Custom
+ * endpoints" lists this machine's models.yml entries and opens
  * the inline form (`ui.providerForm`, opened by `openProviderConfig`) in place
- * of both. A failed read is a quiet InlineNotice in the part it concerns.
+ * of all of them. A failed read is a quiet InlineNotice in the part it concerns.
  * A tab on a paired host edits the host's models.yml in-app; "Edit config"
  * opens this device's file only, so it is not offered there.
  */
 
 import { CircleDashed, FileCode2, Pencil, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
-import { useCallback, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import type { CustomProviderView } from "../../../../shared/ipc-types";
-import type { ProviderInfo } from "../../../../shared/rpc-types";
+import type { ProviderAccountsResult, ProviderInfo } from "../../../../shared/rpc-types";
 import { errorDetail } from "../../../lib/error-detail";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -24,6 +26,7 @@ import { useUiStore } from "../../../stores/ui";
 import { Button, ConfirmDialog, IconButton, ListRow, Spinner } from "../../common";
 import { InlineNotice } from "../InlineNotice";
 import { SettingsSection } from "../SettingsLayout";
+import { AccountPoolsEditor } from "./AccountPoolsEditor";
 import { CustomProviderForm } from "./CustomProviderForm";
 import { ProviderAccounts, useProviderAccounts } from "./ProviderAccounts";
 import { type ProviderCatalog, ProviderItem, ProviderList, type RowHandlers, useProviderCatalog } from "./ProviderList";
@@ -40,6 +43,7 @@ function ConnectedProvider({
 	handlers,
 	revision,
 	onChanged,
+	onAccounts,
 }: {
 	provider: ProviderInfo;
 	config: CustomProviderView | undefined;
@@ -49,6 +53,8 @@ function ConnectedProvider({
 	handlers: RowHandlers;
 	revision: number;
 	onChanged: () => Promise<unknown>;
+	/** Each account read of this row, for the account pool editor (one read serves both). */
+	onAccounts: (providerId: string, result: ProviderAccountsResult | null) => void;
 }) {
 	const t = useT();
 	const regionId = useId();
@@ -56,6 +62,7 @@ function ConnectedProvider({
 	// A subscription sign-in can hold several accounts (stock lists them for OAuth providers).
 	const accounts = provider.authenticated && provider.authKind === "oauth" && provider.loginAvailable;
 	const state = useProviderAccounts(provider.id, accounts && sidecarReady, revision);
+	useEffect(() => onAccounts(provider.id, state.result), [onAccounts, provider.id, state.result]);
 	const count = state.result?.accounts.length;
 	const summary = !accounts
 		? undefined
@@ -219,6 +226,13 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 	const [pickerOpen, setPickerOpen] = useState<boolean | null>(null);
 	/** Bumped after any sign-in or sign-out here: the account lists read again. */
 	const [accountsRevision, setAccountsRevision] = useState(0);
+	/** Each connected row's latest account read, by provider id: the account pool editor's accounts. */
+	const [accountResults, setAccountResults] = useState<Record<string, ProviderAccountsResult | null>>({});
+	const onAccounts = useCallback((providerId: string, result: ProviderAccountsResult | null) => {
+		setAccountResults(previous =>
+			previous[providerId] === result ? previous : { ...previous, [providerId]: result },
+		);
+	}, []);
 	const { providers, load } = catalog;
 
 	const onConnected = useCallback(
@@ -356,6 +370,7 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 								handlers={handlers}
 								key={provider.id}
 								login={login}
+								onAccounts={onAccounts}
 								onChanged={() => load(true)}
 								provider={provider}
 								revision={accountsRevision}
@@ -423,6 +438,10 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 					title={t("providerCfg.delete.title")}
 				/>
 			</SettingsSection>
+			<AccountPoolsEditor
+				providers={connected.map(provider => ({ provider, result: accountResults[provider.id] ?? null }))}
+				sidecarReady={catalog.sidecarReady}
+			/>
 			<CustomEndpoints
 				busyProvider={busyProvider}
 				catalog={catalog}

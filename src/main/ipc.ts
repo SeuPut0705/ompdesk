@@ -55,6 +55,7 @@ import type {
 	IpcSpawnTabPayload,
 	IpcStatsFetchPayload,
 	IpcUpdateLaunchProfilePayload,
+	IpcWorktreePromptAnswer,
 	SessionInfo,
 	SessionKind,
 } from "../shared/ipc-types";
@@ -95,6 +96,7 @@ import {
 	readWorkspaceImage,
 	resolveWithin,
 } from "./workspace-fs";
+import { readLiveLifecycleSettings, type WorktreeLifecycle, type WorktreePrompts } from "./worktree-lifecycle";
 
 export interface IpcDeps {
 	sidecarPool: SidecarPool;
@@ -110,6 +112,10 @@ export interface IpcDeps {
 	/** Where to start when the caller has no cwd. Never the volume root: a
 	 * Finder-launched app's `process.cwd()` is "/", which no session belongs in. */
 	initialCwd: () => string;
+	/** omp's `worktree.onStart` / `worktree.onExit` for this machine's tabs. */
+	worktreeLifecycle: WorktreeLifecycle;
+	/** The questions it asks in the windows. */
+	worktreePrompts: WorktreePrompts;
 }
 
 /**
@@ -663,11 +669,28 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	// Release a tab's sidecar. The window falls back to its initial no-tab
 	// state when its last tab closes (welcome screen; handlers tolerate null).
-	ipcMain.handle(IPC_COMMANDS.CLOSE_TAB, (event, payload: IpcCloseTabPayload) => {
+	// A tab owning a `worktree.onStart` worktree first re-reads `worktree.onExit`
+	// from its live session (stock reads it at shutdown); the pool's release
+	// then hands the exit to worktree-lifecycle.ts.
+	ipcMain.handle(IPC_COMMANDS.CLOSE_TAB, async (event, payload: IpcCloseTabPayload) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win || typeof payload?.tabId !== "string") return false;
-		if (!deps.sidecarPool.sidecarForTab(win, payload.tabId)) return false;
+		const sidecar = deps.sidecarPool.sidecarForTab(win, payload.tabId);
+		if (!sidecar) return false;
+		await deps.worktreeLifecycle.refreshExitPolicy(payload.tabId, () => readLiveLifecycleSettings(sidecar));
 		return deps.sidecarPool.releaseTab(payload.tabId);
+	});
+
+	// The calling window's open `worktree.onStart` / `worktree.onExit` questions.
+	ipcMain.handle(IPC_COMMANDS.WORKTREE_PROMPTS_GET, event => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		return win ? deps.worktreePrompts.forWindow(win.webContents.id) : [];
+	});
+
+	ipcMain.handle(IPC_COMMANDS.WORKTREE_PROMPT_ANSWER, (event, payload: IpcWorktreePromptAnswer) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win || typeof payload?.id !== "string") return false;
+		return deps.worktreePrompts.answer(win.webContents.id, payload.id, payload.accept === true);
 	});
 
 	// Move full event forwarding to the window's active tab (listeners move,

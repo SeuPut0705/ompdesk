@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RpcSessionTreeNode } from "../../shared/rpc-types";
+import type { RpcAbortAndRestoreQueueResult, RpcSessionTreeNode } from "../../shared/rpc-types";
+import { useComposerStore } from "../stores/composer";
 import { useMessagesStore } from "../stores/messages";
 import { useSessionStore } from "../stores/session";
 import { useTabsStore } from "../stores/tabs";
+import { useToastStore } from "../stores/toast";
 import {
 	abortActiveTurn,
 	forkSessionFromEntryInNewTab,
@@ -26,7 +28,12 @@ function installWindow(messages: Array<{ text: string }>) {
 	const deliveryOrder: string[] = [];
 	let fillDetail: FillComposerDetail | undefined;
 	const rpc = {
-		abort: vi.fn(async () => ({ success: true as const })),
+		abortAndRestoreQueue: vi.fn(
+			async (): Promise<{ success: true; data: RpcAbortAndRestoreQueueResult }> => ({
+				success: true,
+				data: { steering: [], followUp: [] },
+			}),
+		),
 		abortRetry: vi.fn(async () => ({ success: true as const })),
 		dequeue: vi.fn(async () => ({ success: true as const, data: { messages } })),
 		steer: vi.fn(async (text: string) => {
@@ -62,6 +69,8 @@ afterEach(() => {
 	delete (globalThis as Record<string, unknown>).window;
 	useMessagesStore.getState().reset();
 	useSessionStore.getState().reset();
+	useComposerStore.getState().reset();
+	useToastStore.setState({ toasts: [] });
 	useTabsStore.getState().reset();
 	useSessionStore.setState({ switchPending: null });
 	vi.restoreAllMocks();
@@ -254,15 +263,59 @@ describe("abortActiveTurn", () => {
 		expect(useSessionStore.getState().retryInfo).toBeNull();
 		expect(useSessionStore.getState().awaitingModelSince).toBeNull();
 		expect(harness.rpc.abortRetry).toHaveBeenCalledTimes(1);
-		expect(harness.rpc.abort).not.toHaveBeenCalled();
+		expect(harness.rpc.abortAndRestoreQueue).not.toHaveBeenCalled();
 
 		retryAbort.resolve({ success: true });
 		await aborting;
 
-		expect(harness.rpc.abort).toHaveBeenCalledTimes(1);
+		expect(harness.rpc.abortAndRestoreQueue).toHaveBeenCalledTimes(1);
 		expect(harness.rpc.abortRetry.mock.invocationCallOrder[0]).toBeLessThan(
-			harness.rpc.abort.mock.invocationCallOrder[0],
+			harness.rpc.abortAndRestoreQueue.mock.invocationCallOrder[0],
 		);
+	});
+
+	it("stops through abort_and_restore_queue and restores the queue into an empty draft, steers first", async () => {
+		const harness = installWindow([]);
+		harness.rpc.abortAndRestoreQueue.mockResolvedValue({
+			success: true,
+			data: { steering: [{ text: "steer one" }], followUp: [{ text: "later a" }, { text: "later b" }] },
+		});
+
+		await abortActiveTurn();
+
+		expect(harness.rpc.abortAndRestoreQueue).toHaveBeenCalledTimes(1);
+		expect(useComposerStore.getState().draft).toBe("steer one\n\nlater a\n\nlater b");
+	});
+
+	it("merges the restored queue ahead of an existing draft without losing it, as the TUI's Esc does", async () => {
+		const harness = installWindow([]);
+		const image = { type: "image" as const, data: "AAAA", mimeType: "image/png" };
+		useComposerStore.getState().setDraft("my unsent draft");
+		harness.rpc.abortAndRestoreQueue.mockResolvedValue({
+			success: true,
+			data: { steering: [], followUp: [{ text: "queued follow-up" }, { text: "[Image]", images: [image] }] },
+		});
+
+		await abortActiveTurn();
+
+		expect(useComposerStore.getState().draft).toBe("queued follow-up\n\nmy unsent draft");
+		expect(useComposerStore.getState().images.map(entry => entry.content)).toEqual([image]);
+	});
+
+	it("leaves the draft alone when nothing was queued and warns when stock truncated the restore", async () => {
+		const harness = installWindow([]);
+		useComposerStore.getState().setDraft("keep me");
+		await abortActiveTurn();
+		expect(useComposerStore.getState().draft).toBe("keep me");
+		expect(useToastStore.getState().toasts).toEqual([]);
+
+		harness.rpc.abortAndRestoreQueue.mockResolvedValue({
+			success: true,
+			data: { steering: [{ text: "first" }], followUp: [], truncated: true },
+		});
+		await abortActiveTurn();
+		expect(useComposerStore.getState().draft).toBe("first\n\nkeep me");
+		expect(useToastStore.getState().toasts.map(toast => toast.variant)).toEqual(["warning"]);
 	});
 });
 

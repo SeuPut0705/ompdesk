@@ -1225,6 +1225,86 @@
 	min-height: 0;
 }
 
+/* Composer field state. The field holds focus most of the time, so its focus
+   is a quiet neutral lift (firmer hairline, a touch more shadow), never an
+   accent halo that would sit there for good. The accent is for a file drag. */
+.omp-composer-box:has(textarea:focus) {
+	border-color: color-mix(in srgb, var(--sc-border) 45%, var(--sc-border-subtle));
+	box-shadow: var(--sc-shadow-md);
+}
+
+.omp-composer-box[data-drag-active] {
+	border-color: var(--sc-accent-border);
+}
+
+/* Image drop target: a translucent accent wash over the whole field while
+   files hover it; pointer-transparent so the drop still lands on the box. */
+.omp-composer-drop {
+	position: absolute;
+	inset: -1px;
+	z-index: var(--sc-z-raised);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--sc-space-2);
+	border: 1.5px dashed var(--sc-accent);
+	border-radius: inherit;
+	background: color-mix(in srgb, var(--sc-accent) 10%, color-mix(in srgb, var(--sc-field) 82%, transparent));
+	backdrop-filter: blur(2px);
+	color: var(--sc-accent);
+	font-size: var(--sc-font-md);
+	font-weight: var(--sc-weight-medium);
+	pointer-events: none;
+}
+
+/* Send / Stop: the composer's one round primary action (control-md circle).
+   A disabled Send rests as a neutral disc rather than a washed-out accent,
+   so "nothing to send yet" and "ready" read apart at a glance. */
+.omp-composer-action {
+	border-radius: var(--sc-radius-full);
+}
+
+.omp-composer-action:disabled {
+	border-color: transparent;
+	background: var(--sc-surface-3);
+	color: var(--sc-text-subtle);
+	box-shadow: none;
+	opacity: 1;
+}
+
+.omp-composer-action > .omp-composer-stop-glyph {
+	width: 10px;
+	height: 10px;
+}
+
+/* Attachment remove: a small disc on the thumbnail's corner, always visible
+   so removal never hides behind hover; the hit area keeps the 28px minimum. */
+.omp-composer-attachment-remove {
+	width: 20px;
+	height: 20px;
+	border-radius: var(--sc-radius-full);
+	border-color: var(--sc-border-subtle);
+	background: var(--sc-elevated);
+	color: var(--sc-text-secondary);
+	box-shadow: var(--sc-shadow-sm);
+}
+
+.omp-composer-attachment-remove:hover {
+	background: linear-gradient(var(--sc-hover), var(--sc-hover)), var(--sc-elevated);
+	color: var(--sc-text);
+}
+
+.omp-composer-attachment-remove::after {
+	content: "";
+	position: absolute;
+	inset: calc((var(--sc-hit-min) - 20px) / -2);
+}
+
+.omp-composer-attachment-remove > svg {
+	width: 12px;
+	height: 12px;
+}
+
 /* Narrow main area: the breadcrumb truncates the project before the session
    and gives it up only when the session name itself runs out of room; the
    status trigger keeps its icon, the status keeps its icon. */

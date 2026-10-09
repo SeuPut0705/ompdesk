@@ -1,11 +1,13 @@
 /**
  * Queue panel: the agent's pending message queue as two lanes — Steer
  * (delivered mid-run) and Follow-up (delivered after the
- * run). Mutations (edit, lane switch, remove, lane clear) come from
- * useQueueActions, shared with the composer's queued-message tray.
+ * run). Mutations (edit, remove, lane clear, and the lane switch: a follow-up
+ * is sent now as a steer through stock promotion, a steer can wait for the
+ * turn to end) come from useQueueActions, shared with the composer's
+ * queued-message tray.
  */
 
-import { ArrowLeftRight, Check, ListX, Pencil, X } from "lucide-react";
+import { Check, CornerDownRight, ListPlus, ListX, Pencil, X } from "lucide-react";
 import { memo, useEffect, useState } from "react";
 import type { RpcQueuedMessage } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
@@ -37,7 +39,9 @@ const QueuedRow = memo(function QueuedRow({
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState(item.text);
 	const t = useT();
-	const targetLane: QueueLane = lane === "steering" ? "followUp" : "steering";
+	// Stock promotes only follow-ups (promote_queued_message), so "Send now" is a follow-up action.
+	const moveLabel = lane === "followUp" ? t("composerQueue.sendNow") : t("composerQueue.sendLater");
+	const MoveIcon = lane === "followUp" ? CornerDownRight : ListPlus;
 	useEffect(() => {
 		if (!editing) setDraft(item.text);
 	}, [editing, item.text]);
@@ -113,18 +117,14 @@ const QueuedRow = memo(function QueuedRow({
 						</button>
 					)}
 					<button
-						aria-label={t("queuePanel.moveToLane", { lane: t(`queuePanel.lane.${targetLane}`) })}
+						aria-label={moveLabel}
 						className="omp-pressable mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
 						disabled={!ready}
 						onClick={() => onMoveToLane(lane, item.id)}
-						title={
-							!ready
-								? t("common.notConnected")
-								: t("queuePanel.moveToLane", { lane: t(`queuePanel.lane.${targetLane}`) })
-						}
+						title={!ready ? t("common.notConnected") : moveLabel}
 						type="button"
 					>
-						<ArrowLeftRight size={14} />
+						<MoveIcon size={14} />
 					</button>
 					<button
 						aria-label={removeLabel}

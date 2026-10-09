@@ -22,7 +22,15 @@ import { HexView } from "./HexView";
 import { AvView, ImageView } from "./MediaViews";
 import { DocxView, PptxView, XlsxView } from "./OfficeViews";
 import { PdfView } from "./PdfView";
-import { CodeFileView, CsvFileView, HtmlFileView, JsonFileView, MarkdownFileView, NotebookFileView } from "./TextViews";
+import {
+	CodeFileView,
+	CsvFileView,
+	HtmlFileView,
+	JsonFileView,
+	MarkdownFileView,
+	MermaidFileView,
+	NotebookFileView,
+} from "./TextViews";
 import { type FileInfo, FileInfoContext } from "./viewer-chrome";
 
 export function FileViewer({
@@ -47,6 +55,7 @@ export function FileViewer({
 		json: <JsonFileView path={path} tabId={tabId} />,
 		html: <HtmlFileView path={path} tabId={tabId} />,
 		notebook: <NotebookFileView path={path} tabId={tabId} />,
+		mermaid: <MermaidFileView path={path} tabId={tabId} />,
 		docx: <DocxView path={path} tabId={tabId} />,
 		xlsx: <XlsxView path={path} tabId={tabId} />,
 		pptx: <PptxView path={path} tabId={tabId} />,

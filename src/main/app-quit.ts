@@ -64,11 +64,32 @@ export async function confirmQuit(): Promise<boolean> {
 /**
  * Register the `before-quit` gate. `tabInventory` reports what the sidecars are
  * doing, `teardown` runs exactly once per approved quit — ⌘Q and an update's
- * `quitAndInstall()` alike.
+ * `quitAndInstall()` alike. `finalize` runs once between approval and the
+ * teardown, with the windows still up (worktree-lifecycle.ts asks there); the
+ * quit resumes when it settles. An update's quit skips it: Squirrel has already
+ * closed the windows, and the saved tabs come back after the update.
  */
-export function installQuitGuard(tabInventory: () => WindowTabFact[], teardown: () => void): void {
+export function installQuitGuard(
+	tabInventory: () => WindowTabFact[],
+	teardown: () => void,
+	finalize: () => Promise<void>,
+): void {
 	inventory = tabInventory;
+	let finalizing: "pending" | "running" | "done" = "pending";
 	app.on("before-quit", event => {
+		if (latch.approved && finalizing !== "done") {
+			event.preventDefault();
+			if (finalizing === "pending") {
+				finalizing = "running";
+				void finalize()
+					.catch((err: unknown) => console.warn(`[quit] finalize failed: ${String(err)}`))
+					.finally(() => {
+						finalizing = "done";
+						app.quit();
+					});
+			}
+			return;
+		}
 		if (latch.proceed(teardown)) return;
 		event.preventDefault();
 		void confirmQuit().then(ok => {
@@ -79,5 +100,8 @@ export function installQuitGuard(tabInventory: () => WindowTabFact[], teardown: 
 	// NSIS once its installer started), only after updater.ts confirmed.
 	// Squirrel then closes every window before `before-quit`, and a closing
 	// window takes its tabs and their saved layout with it.
-	autoUpdater.on("before-quit-for-update", () => latch.proceedForUpdate(teardown));
+	autoUpdater.on("before-quit-for-update", () => {
+		finalizing = "done";
+		latch.proceedForUpdate(teardown);
+	});
 }

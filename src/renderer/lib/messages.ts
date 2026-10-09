@@ -1,14 +1,17 @@
 import type {
 	AgentMessage,
 	ImageContent,
+	RpcAbortAndRestoreQueueResult,
 	RpcResponse,
+	RpcRestoredQueuedMessage,
 	RpcSessionTreeNode,
 	RpcSessionTreeResult,
 } from "../../shared/rpc-types";
 import { hydrateSession, resetRetryPending } from "../hooks/use-rpc-events";
+import { type ComposerStore, useComposerStore } from "../stores/composer";
 import { useMessagesStore } from "../stores/messages";
 import { useSessionStore } from "../stores/session";
-import { withSessionRuntime } from "../stores/session-runtime-context";
+import { sessionRuntimeStore, withSessionRuntime } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
 import { toast, toastError } from "../stores/toast";
 import { translate } from "./i18n";
@@ -197,11 +200,68 @@ export function turnErrorToast(
 	};
 }
 
-/** Abort the active turn and synchronously retire any live retry UI. */
+/** stock `queueChipText` for an image-only message; its images carry the content. */
+const IMAGE_ONLY_CHIP = "[Image]";
+
+function isRestoredEntry(value: unknown): value is RpcRestoredQueuedMessage {
+	if (typeof value !== "object" || value === null || !("text" in value) || typeof value.text !== "string")
+		return false;
+	return !("images" in value) || value.images === undefined || Array.isArray(value.images);
+}
+
+function isRestoreResult(value: unknown): value is RpcAbortAndRestoreQueueResult {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"steering" in value &&
+		"followUp" in value &&
+		Array.isArray(value.steering) &&
+		Array.isArray(value.followUp) &&
+		value.steering.every(isRestoredEntry) &&
+		value.followUp.every(isRestoredEntry)
+	);
+}
+
+/**
+ * Put the input `abort_and_restore_queue` withdrew back into the composer the
+ * way the TUI's Esc does: steers then follow-ups, oldest first, joined by blank
+ * lines, ahead of any draft (kept after a blank line); images join the strip.
+ */
+export function restoreAbortedQueue(composer: ComposerStore, restored: RpcAbortAndRestoreQueueResult): void {
+	const entries = [...restored.steering, ...restored.followUp];
+	if (entries.length === 0) return;
+	const images = entries.flatMap(entry => entry.images ?? []);
+	const queuedText = entries
+		.map(entry => (entry.text === IMAGE_ONLY_CHIP && entry.images?.length ? "" : entry.text))
+		.filter(text => text.trim())
+		.join("\n\n");
+	if (queuedText) composer.setDraft(current => [queuedText, current].filter(text => text.trim()).join("\n\n"));
+	if (images.length > 0) {
+		composer.setImages(current => [
+			...current,
+			...images.map(content => ({ content, preview: `data:${content.mimeType};base64,${content.data}` })),
+		]);
+	}
+	if (restored.truncated) toast({ variant: "warning", message: translate("input.queueRestore.truncated") });
+	else if (restored.imagesDropped) {
+		toast({ variant: "warning", message: translate("input.queueRestore.imagesDropped") });
+	}
+}
+
+/**
+ * Stop the active turn the way the TUI's Esc does: stock withdraws the queued
+ * user input before aborting (`abort_and_restore_queue`), so nothing queued
+ * runs afterwards, and it comes back into this tab's composer. Any live retry
+ * UI retires synchronously first.
+ */
 export async function abortActiveTurn(
-	rpc: Pick<TabRpc, "abort" | "abortRetry"> = window.omp.rpc,
+	rpc: Pick<TabRpc, "abortAndRestoreQueue" | "abortRetry"> = window.omp.rpc,
 	tabId?: string | null,
 ): Promise<RpcResponse> {
+	// Bind the composer before any await: the user may switch tabs meanwhile.
+	const composer =
+		(tabId ? sessionRuntimeStore<ComposerStore>(tabId, "composer")?.getState() : undefined) ??
+		useComposerStore.getState();
 	const retrying = useSessionStore.getState().retryInfo !== null;
 	if (retrying) {
 		resetRetryPending(tabId ?? undefined);
@@ -212,7 +272,9 @@ export async function abortActiveTurn(
 			// Generic abort below also cancels retry server-side.
 		}
 	}
-	return rpc.abort();
+	const response = await rpc.abortAndRestoreQueue();
+	if (response.success && isRestoreResult(response.data)) restoreAbortedQueue(composer, response.data);
+	return response;
 }
 
 /** Branch from a user entry, restoring its draft and refreshing the session. */

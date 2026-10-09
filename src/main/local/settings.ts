@@ -6,7 +6,14 @@
  * `get_logout_accounts` / `logout` and add only the per-account quota stock lacks.
  */
 import { z } from "zod";
-import type { AccountUsageState, ProviderAccount, ProviderAccountsResult, UsageLimit } from "../../shared/rpc-types";
+import type {
+	AccountUsageState,
+	ProviderAccount,
+	ProviderAccountsResult,
+	ResetPasses,
+	ResetPassRedeemResult,
+	UsageLimit,
+} from "../../shared/rpc-types";
 import type { LocalHandler } from "./types";
 
 /** Stock `get_logout_accounts` row (`LogoutAccount`). */
@@ -22,19 +29,26 @@ export interface StockLogoutAccount {
 export interface BridgeProviderAccounts {
 	providerId: string;
 	pinnedCredentialId?: number;
+	/** Only on omp with account pools (bridge feature `accountPools`). */
+	credentialProvider?: string;
 	accounts: Array<{
 		credentialId: number;
 		state: AccountUsageState;
 		remainingFraction?: number;
 		resetsAt?: number;
 		limits: UsageLimit[];
+		/** Only on omp with account pools; `null` when the account has no identity. */
+		identityKey?: string | null;
+		/** The account's saved rate-limit resets (bridge feature `resetPasses`). */
+		resetPasses?: ResetPasses;
 	}>;
 }
 
 /**
  * Stock's account list joined with the bridge's per-account quota by
  * credentialId. "In use" is the session's actual pin: stock's `active` falls
- * back to the first account before the session has used any.
+ * back to the first account before the session has used any. Identity keys
+ * pass through only when the bridge reported them (omp with account pools).
  */
 export function mergeProviderAccounts(
 	providerId: string,
@@ -43,6 +57,7 @@ export function mergeProviderAccounts(
 	usageError?: string,
 ): ProviderAccountsResult {
 	const usageById = new Map(usage?.accounts.map(account => [account.credentialId, account]));
+	const pools = usage?.credentialProvider !== undefined;
 	const accounts = stock.map((account): ProviderAccount => {
 		const quota = usageById.get(account.credentialId);
 		return {
@@ -55,9 +70,16 @@ export function mergeProviderAccounts(
 			...(quota?.remainingFraction !== undefined ? { remainingFraction: quota.remainingFraction } : {}),
 			...(quota?.state === "depleted" && quota.resetsAt !== undefined ? { limitedUntil: quota.resetsAt } : {}),
 			limits: quota?.limits ?? [],
+			...(pools ? { identityKey: quota?.identityKey ?? null } : {}),
+			...(quota?.resetPasses ? { resetPasses: quota.resetPasses } : {}),
 		};
 	});
-	return { providerId, accounts, ...(usageError ? { usageError } : {}) };
+	return {
+		providerId,
+		accounts,
+		...(usageError ? { usageError } : {}),
+		...(usage?.credentialProvider !== undefined ? { credentialProvider: usage.credentialProvider } : {}),
+	};
 }
 
 const providerIdParam = z.string().min(1);
@@ -92,9 +114,17 @@ export const handlers: Record<string, LocalHandler> = {
 					usage.reason instanceof Error ? usage.reason.message : String(usage.reason),
 				);
 	},
+	// Through the tab's own bridge, so a paired host's tab spends the host's account.
+	redeem_reset_pass: async (command, ctx) =>
+		ctx.bridge.request<ResetPassRedeemResult>("reset_pass_redeem", {
+			providerId: providerIdParam.parse(command.providerId),
+			credentialId: z.number().int().parse(command.credentialId),
+			creditId: z.string().min(1).optional().parse(command.creditId),
+		}),
 	get_usage: (_command, ctx) => ctx.bridge.request("usage"),
 	get_model_roles: (_command, ctx) => ctx.bridge.request("model_roles"),
 	set_model_role: (command, ctx) =>
 		ctx.bridge.request("model_role_set", { role: command.role, modelId: command.modelId ?? null }),
 	get_model_role_metadata: (_command, ctx) => ctx.bridge.request("model_role_metadata"),
+	get_compaction_points: (_command, ctx) => ctx.bridge.request("compaction_points"),
 };

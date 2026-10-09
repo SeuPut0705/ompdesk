@@ -37,6 +37,7 @@ let container: TestElement;
 let root: Root;
 let queueMove: Mock;
 let queueEdit: Mock;
+let queueRemove: Mock;
 
 async function flush(): Promise<void> {
 	await act(async () => {
@@ -100,6 +101,7 @@ function queued(id: string, text: string): RpcQueuedMessage {
 }
 
 async function mount(steering: RpcQueuedMessage[], followUp: RpcQueuedMessage[]): Promise<void> {
+	queueRemove = vi.fn(async () => ok({ removed: true }));
 	queueMove = vi.fn(async () => ok({ lane: "steering", index: 0 }));
 	queueEdit = vi.fn(async () => ok({ updated: true }));
 	(window as unknown as Record<string, unknown>).omp = {
@@ -107,7 +109,7 @@ async function mount(steering: RpcQueuedMessage[], followUp: RpcQueuedMessage[])
 			getQueue: vi.fn(async () => ok({ steering, followUp })),
 			queueEdit,
 			queueMove,
-			queueRemove: vi.fn(async () => ok({ removed: true })),
+			queueRemove,
 			queueClear: vi.fn(async () => ok({ removed: 0 })),
 		},
 	};
@@ -156,6 +158,26 @@ describe("ComposerQueue", () => {
 		await click(buttonByLabel("Send now as a steer"));
 		expect(queueMove).toHaveBeenCalledWith("f1", Number.MAX_SAFE_INTEGER, "steering");
 		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["f1"]);
+	});
+
+	it("shows Send now only on follow-up rows, as stock promotes only follow-ups", async () => {
+		await mount([queued("s1", "steer first")], [queued("f1", "follow later")]);
+		const [steerRow, followUpRow] = Array.from(document.querySelectorAll("li"));
+		expect(steerRow?.querySelector('button[aria-label="Send now as a steer"]')).toBeNull();
+		expect(followUpRow?.querySelector('button[aria-label="Send now as a steer"]')).not.toBeNull();
+	});
+
+	it("removes only the clicked row, by its stable queue id", async () => {
+		await mount([queued("s1", "same"), queued("s2", "same")], [queued("f1", "follow later")]);
+		const removeButtons = Array.from(
+			document.querySelectorAll('button[aria-label="Remove"]'),
+		) as unknown as TestElement[];
+		expect(removeButtons).toHaveLength(3);
+		await click(removeButtons[1]!);
+		expect(queueRemove).toHaveBeenCalledTimes(1);
+		expect(queueRemove).toHaveBeenCalledWith("s2");
+		expect(useQueueStore.getState().steering.map(entry => entry.id)).toEqual(["s1"]);
+		expect(useQueueStore.getState().followUp.map(entry => entry.id)).toEqual(["f1"]);
 	});
 
 	it("cancels an edit on Escape without letting it reach the app-wide Escape", async () => {

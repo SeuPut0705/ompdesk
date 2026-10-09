@@ -46,6 +46,10 @@ export const FEATURES = {
 	sessionTree: "Session tree, labels & pins",
 	sessionImport: "Claude/Codex session import",
 	workspace: "Workspace directories",
+	compactionLimits: "Per-model compaction limits",
+	accountPools: "Agent account pools",
+	worktreeLifecycle: "Per-session worktrees (worktree.onStart / onExit)",
+	resetPasses: "Saved rate-limit resets (reset passes)",
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -59,11 +63,19 @@ export interface FeatureRequirement {
 	modules?: Readonly<Record<string, readonly string[]>>;
 	/** omp prompt templates under `src/prompts` (see modes/shared.ts `ompPrompt`). */
 	prompts?: readonly string[];
+	/**
+	 * Only a newer omp than MIN_OMP_VERSION has it: `capabilities` still reports it
+	 * missing (so `guard` and BridgeHealth.supports stay exact), marked `optional`,
+	 * and the startup "unsupported omp" warning leaves it out.
+	 */
+	optional?: true;
 }
 
 export interface UnavailableFeature {
 	feature: FeatureId;
 	missing: string[];
+	/** From FeatureRequirement.optional: absent on an older omp by design, not a breakage. */
+	optional?: true;
 }
 
 const AGENT = "@oh-my-pi/pi-coding-agent";
@@ -673,6 +685,55 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/session/session-workspace`]: ["normalizeWorkspaceDirectory()"],
 		},
 	},
+	compactionLimits: {
+		optional: true,
+		session: ["settings", "getAvailableModels()", "modelRegistry.getAll()", "modelRegistry.getAvailable()"],
+		modules: {
+			[`${AGENT}/session/model-compaction-threshold`]: ["describeModelCompactionPoint()"],
+			[`${AGENT}/modes/model-browser-source`]: ["createModelBrowserSource()"],
+			"@oh-my-pi/pi-tui/overlays/model-browser": ["resolveRoleAssignments()"],
+		},
+	},
+	accountPools: {
+		// provider_accounts (settings.ts): each account's token-free identity key, the
+		// string `task.agentAccountPools` matches (omp 18.8.1+).
+		optional: true,
+		modules: {
+			["@oh-my-pi/pi-ai/auth-storage"]: ["resolveCredentialIdentityKey()"],
+		},
+	},
+	worktreeLifecycle: {
+		// worktree-lifecycle.ts: the `worktree.onStart` / `worktree.onExit` settings and
+		// stock's start condition and creation for them (omp 18.8.6+).
+		optional: true,
+		session: ["settings", "sessionManager.getCwd()"],
+		modules: {
+			[`${AGENT}/task/settings`]: ["cfgWorktreeOnStart.get()", "cfgWorktreeOnExit.get()"],
+			[`${AGENT}/session/session-worktree`]: [
+				"canAutoCreateWorktree()",
+				"createSessionWorktree()",
+				"defaultSessionWorktreeBranch()",
+			],
+			[UTILS]: ["getWorktreesDir()"],
+		},
+	},
+	resetPasses: {
+		// reset-passes.ts (redeem) + the passes on usage / provider_accounts (settings.ts):
+		// stock's saved-reset listing, summary, `/usage reset` helpers and redeem
+		// (omp 18.7.0 through 18.8.6 alike, so not optional).
+		session: [
+			"listResetCredits()",
+			"redeemResetCredit()",
+			"modelRegistry.authStorage.credentials.list()",
+			"modelRegistry.authStorage.usage.report()",
+		],
+		modules: {
+			["@oh-my-pi/pi-ai"]: ["resolveUsedFraction()"],
+			["@oh-my-pi/pi-ai/oauth"]: ["getOAuthCredentialProvider()"],
+			["@oh-my-pi/pi-tui/overlays/usage-display"]: ["summarizeUsageResetCredits()"],
+			[`${AGENT}/slash-commands/helpers/reset-usage`]: ["toResetUsageAccounts()", "describeRedeemOutcome()"],
+		},
+	},
 };
 
 export const ALL_FEATURES = Object.keys(FEATURES) as FeatureId[];
@@ -747,7 +808,7 @@ export function deriveUnavailable(
 		const requirement = requirements[feature];
 		if (!requirement) continue;
 		const missing = missingFor(requirement, sources);
-		if (missing.length > 0) unavailable.push({ feature, missing });
+		if (missing.length > 0) unavailable.push({ feature, missing, ...(requirement.optional ? { optional: true } : {}) });
 	}
 	return unavailable;
 }
@@ -773,7 +834,10 @@ export function mergeAreaFailures(
 			merged.set(feature, missing);
 		}
 	}
-	return [...merged].map(([feature, missing]) => ({ feature, missing }));
+	const optional = new Set(unavailable.filter(entry => entry.optional).map(entry => entry.feature));
+	return [...merged].map(([feature, missing]) =>
+		optional.has(feature) || REQUIREMENTS[feature]?.optional ? { feature, missing, optional: true } : { feature, missing },
+	);
 }
 
 /** `OMP_GUI_BRIDGE_PROBE_HIDE`: comma-separated missing labels to simulate (diagnostics and tests). */

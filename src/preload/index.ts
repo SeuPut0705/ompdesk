@@ -31,6 +31,9 @@ import type {
 	IpcSpawnTabResult,
 	IpcTabInfo,
 	IpcTabStatusPayload,
+	IpcWorktreeNotice,
+	IpcWorktreePrompt,
+	IpcWorktreePromptAnswer,
 	LogBatch,
 	MenuAction,
 	MenuActionPayload,
@@ -403,6 +406,18 @@ const api: OmpApi = {
 				text: string | null;
 				error?: string;
 			}>,
+	},
+
+	worktreeLifecycle: {
+		prompts: () => ipcRenderer.invoke(IPC_COMMANDS.WORKTREE_PROMPTS_GET) as Promise<IpcWorktreePrompt[]>,
+		answer: async (id: string, accept: boolean) => {
+			const payload: IpcWorktreePromptAnswer = { id, accept };
+			await ipcRenderer.invoke(IPC_COMMANDS.WORKTREE_PROMPT_ANSWER, payload);
+		},
+		onPrompts: (callback: (prompts: IpcWorktreePrompt[]) => void) =>
+			subscribe<IpcWorktreePrompt[]>(IPC_EVENTS.WORKTREE_PROMPTS, callback),
+		onNotice: (callback: (notice: IpcWorktreeNotice) => void) =>
+			subscribe<IpcWorktreeNotice>(IPC_EVENTS.WORKTREE_NOTICE, callback),
 	},
 };
 
