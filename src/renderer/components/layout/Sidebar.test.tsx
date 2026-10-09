@@ -840,6 +840,34 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 	});
 
+	it("a session file stock wrote before the first message is a new chat, not a deletable Untitled row", async () => {
+		// drop_session's replacement: stock wrote its header, no message and no title yet.
+		const empty = { id: "fresh", messageCount: 0, firstMessage: "", title: null, kind: "chat" as const };
+		const owned = session("/work/alpha/fresh.jsonl", "/work/alpha", empty);
+		const orphan = session("/work/alpha/orphan.jsonl", "/work/alpha", { ...empty, id: "orphan" });
+		const kept = session("/work/alpha/kept.jsonl", "/work/alpha", { kind: "chat" });
+		installMockOmp([owned, orphan, kept]);
+		useSessionStore.setState({ sessionId: "fresh", cwd: "/work/alpha", isStreaming: false });
+		useTabsStore.setState({
+			tabs: [
+				{ id: "chat", cwd: "/work/alpha", status: "ready", kind: "chat", unreadDone: false, sessionId: "fresh" },
+			],
+			activeTabId: "chat",
+			bundles: new Map(),
+		});
+		await mount(<Sidebar />);
+
+		const lane = container.querySelector("[data-chat-lane]");
+		const rows = [...(lane?.querySelectorAll(".omp-sidebar-session-row") ?? [])];
+		expect(lane?.textContent).not.toContain("Untitled");
+		// The open tab's empty session reads as a new session, with nothing to delete; the orphan is gone.
+		const current = rows.find(row => (row.textContent ?? "").includes("New session"));
+		expect(current).toBeDefined();
+		expect(current?.querySelector('[aria-label="Delete session"]')).toBeNull();
+		expect(rows).toHaveLength(2);
+		expect(lane?.textContent).toContain("Session /work/alpha/kept");
+	});
+
 	it("sessions started without a project share the Chat lane with chats", async () => {
 		const chat = session("/elsewhere/chat.jsonl", "/elsewhere", { kind: "chat" });
 		const noProject = session("/default/work/agent.jsonl", "/default/work");

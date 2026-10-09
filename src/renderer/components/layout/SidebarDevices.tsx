@@ -13,7 +13,7 @@ import type { HostView, SessionInfo, SessionKind } from "../../../shared/ipc-typ
 import { useSessionList } from "../../hooks/use-session-list";
 import { basename, cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { sessionDisplayTitle } from "../../lib/session-title";
+import { sessionDisplayTitle, sessionHasContent } from "../../lib/session-title";
 import { tabSignalPresentation } from "../../lib/tab-signal";
 import { pickRemoteDirectory } from "../../stores/remote";
 import { type SessionTab, tabChipLabel, useTabsStore } from "../../stores/tabs";
@@ -160,8 +160,10 @@ function DeviceSessions({
 	const hostTabs = useMemo(() => allTabs.filter(tab => tab.device === host.deviceId), [allTabs, host.deviceId]);
 
 	const rows = useMemo<DeviceSession[]>(() => {
-		const listedPaths = new Set(sessions.map(session => session.path));
-		const listedIds = new Set(sessions.map(session => session.id));
+		// A file stock wrote before the first message is not a conversation yet (see Sidebar).
+		const listed = sessions.filter(sessionHasContent);
+		const listedPaths = new Set(listed.map(session => session.path));
+		const listedIds = new Set(listed.map(session => session.id));
 		const now = new Date().toISOString();
 		const live: DeviceSession[] = hostTabs
 			.filter(
@@ -185,7 +187,7 @@ function DeviceSessions({
 				liveTabId: tab.id,
 			}));
 		const needle = query.toLocaleLowerCase();
-		return [...sessions, ...live]
+		return [...listed, ...live]
 			.filter(session => (mode === "chat" ? session.kind === "chat" : session.kind !== "chat"))
 			.filter(
 				session =>

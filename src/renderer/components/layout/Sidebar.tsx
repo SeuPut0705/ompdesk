@@ -61,7 +61,7 @@ import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { actionKbd, onEscape } from "../../lib/keymap";
 import { orderProjects, reorderProjects } from "../../lib/project-order";
-import { sessionDisplayTitle } from "../../lib/session-title";
+import { sessionDisplayTitle, sessionHasContent } from "../../lib/session-title";
 import { performTabClose } from "../../lib/tab-close";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { tabSignalPresentation } from "../../lib/tab-signal";
@@ -437,12 +437,19 @@ export function Sidebar() {
 		},
 		[pinnedSessions],
 	);
+	// Stock can write a session file before its first message (a header and
+	// settings entries, e.g. the replacement `drop_session` starts). Such a file
+	// is not a conversation yet: an open tab that owns it keeps its live "new
+	// session" row (not deletable), and an orphaned one is not listed at all —
+	// otherwise deleting the last chat leaves an "Untitled" row whose deletion
+	// starts the next one.
+	const listedSessions = useMemo(() => sessions.filter(sessionHasContent), [sessions]);
 	// Every open tab keeps a row even before the index lists its session (a
 	// brand-new session has no file yet): synthesize it from the tab and, for
 	// the focused tab, the attached session's live identity.
 	const liveSessions = useMemo<SidebarSession[]>(() => {
-		const listedIds = new Set(sessions.map(session => session.id));
-		const listedPaths = new Set(sessions.map(session => session.path));
+		const listedIds = new Set(listedSessions.map(session => session.id));
+		const listedPaths = new Set(listedSessions.map(session => session.path));
 		const now = new Date().toISOString();
 		const rows: SidebarSession[] = [];
 		for (const tab of localTabs) {
@@ -466,10 +473,10 @@ export function Sidebar() {
 			});
 		}
 		return rows;
-	}, [sessions, localTabs, activeTabId, sessionId, sessionFile, sessionName, cwd]);
+	}, [listedSessions, localTabs, activeTabId, sessionId, sessionFile, sessionName, cwd]);
 	const allSessions = useMemo<SidebarSession[]>(
-		() => (liveSessions.length === 0 ? sessions : [...sessions, ...liveSessions]),
-		[sessions, liveSessions],
+		() => (liveSessions.length === 0 ? listedSessions : [...listedSessions, ...liveSessions]),
+		[listedSessions, liveSessions],
 	);
 	const agentSessions = useMemo(() => allSessions.filter(session => session.kind !== "chat"), [allSessions]);
 	const codeSessions = useMemo(
