@@ -1,7 +1,7 @@
 /**
  * This device's long-term remote identity: an X25519 key pair plus a random
  * 128-bit device id, kept in `<userData>/remote-identity.json` (mode 0600).
- * Not in safeStorage: ad-hoc builds would prompt for the keychain after every
+ * Not in safeStorage: builds without an Apple Team ID would prompt for the keychain after every
  * update. A missing or unreadable file mints a new identity, which unpairs
  * this device everywhere.
  */

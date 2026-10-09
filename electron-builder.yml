@@ -31,9 +31,12 @@ mac:
   icon: resources/icon.icns
   # Names the ZIP the legacy feed builds (`--mac dmg zip`); the DMG has its own below.
   artifactName: ompdesk-${version}-${arch}-mac.${ext}
-  # Seal the complete bundle even when no Developer ID certificate is available.
-  # This preserves macOS's user-override flow instead of presenting the app as damaged.
+  # "-" lets electron-builder hand signing to scripts/mac-sign.cjs without an
+  # Apple identity. That hook signs with OMPdesk's own pinned self-signed
+  # certificate (scripts/mac-signing.json), so macOS privacy grants survive
+  # updates; with no certificate available it seals the bundle ad-hoc.
   identity: "-"
+  sign: scripts/mac-sign.cjs
   target:
     - target: dmg
       arch: [arm64]

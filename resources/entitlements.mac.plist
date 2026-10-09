@@ -8,7 +8,7 @@
 	<true/>
 	<key>com.apple.security.cs.allow-dyld-environment-variables</key>
 	<true/>
-	<!-- Required when the complete Electron bundle is ad-hoc signed. -->
+	<!-- Required: the bundle carries no Apple Team ID (self-signed or ad-hoc). -->
 	<key>com.apple.security.cs.disable-library-validation</key>
 	<true/>
 	<key>com.apple.security.audio-input</key>

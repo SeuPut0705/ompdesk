@@ -6,9 +6,9 @@
  *   3. a token pasted in Settings › Updates, encrypted at rest with safeStorage.
  *
  * On macOS any safeStorage call — `isEncryptionAvailable()` included — opens
- * the "ompdesk Safe Storage" keychain item, and because ad-hoc builds change
- * code identity with every update, macOS asks for the login password again
- * after each one (and blocks the main process while it waits). So the
+ * the "ompdesk Safe Storage" keychain item, and because builds without an
+ * Apple Team ID bind keychain access to each build's cdhash, macOS asks for
+ * the login password again after every update (and blocks the main process while it waits). So the
  * keychain is touched only when a stored token actually exists, or when the
  * user saves one.
  */

@@ -51,8 +51,9 @@ permissions:
   contents: read
 
 env:
-  # mac signs ad-hoc (`identity: "-"` in electron-builder.yml); never look for
-  # a keychain certificate or publish from electron-builder itself.
+  # mac signing is scripts/mac-sign.cjs with OMPdesk's pinned self-signed
+  # certificate (repository secrets below); never look for a keychain
+  # certificate or publish from electron-builder itself.
   CSC_IDENTITY_AUTO_DISCOVERY: "false"
   # Transition switch. Installed apps up to v0.17.x update from
   # electron-updater's `latest-mac.yml` / `latest.yml` and fetch the files those
@@ -168,7 +169,13 @@ jobs:
       - name: Ensure the Electron binary
         run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
       # The legacy feed also needs the ZIP (and the latest-mac.yml listing it).
+      # Signing must use the pinned certificate: an ad-hoc fallback would make
+      # macOS ask every user for its privacy permissions again.
       - name: Package
+        env:
+          OMPDESK_MAC_SIGNING_P12_BASE64: ${{ secrets.MAC_SIGNING_P12_BASE64 }}
+          OMPDESK_MAC_SIGNING_PASSWORD: ${{ secrets.MAC_SIGNING_PASSWORD }}
+          OMPDESK_MAC_SIGNING_REQUIRED: "1"
         run: |
           set -euo pipefail
           if [ "$LEGACY_UPDATE_FEED" = "true" ]; then
@@ -185,6 +192,12 @@ jobs:
           trap 'hdiutil detach "$MNT" -quiet || true' EXIT
           APP="$MNT/OMPdesk.app"
           codesign --verify --deep --strict --verbose=2 "$APP"
+          SHA1=$(jq -r .certificateSha1 scripts/mac-signing.json)
+          REQ=$(codesign -d -r- "$APP" 2>&1 | sed -n 's/^designated => //p')
+          if [ "$REQ" != "identifier \"com.seuput.ompdesk\" and certificate root = H\"$SHA1\"" ]; then
+            echo "::error::OMPdesk.app is not signed with the pinned certificate: $REQ"
+            exit 1
+          fi
           test -f "$APP/Contents/Resources/gui-bridge/index.ts"
           lipo -archs "$APP/Contents/MacOS/OMPdesk" | grep -qx arm64
       - name: Install omp
