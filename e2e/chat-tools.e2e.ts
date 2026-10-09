@@ -55,6 +55,18 @@ function tabs() {
 	return page.evaluate(() => window.omp.tabs.list());
 }
 
+/**
+ * Press a new-tab shortcut until `opened` holds. A key pressed while the
+ * renderer is still mounting (slow CI runners) is lost; the press repeats only
+ * while the tab is missing, so it never opens a second one.
+ */
+async function pressUntil(shortcut: string, opened: () => Promise<boolean>): Promise<void> {
+	await expect(async () => {
+		if (!(await opened())) await page.keyboard.press(shortcut);
+		await expect.poll(opened, { timeout: 2_000 }).toBe(true);
+	}).toPass({ timeout: 20_000 });
+}
+
 async function sessionIdOf(tabId: string): Promise<string> {
 	const response = await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "get_state" }), tabId);
 	const sessionId = (response.data as { sessionId?: unknown } | undefined)?.sessionId;
@@ -77,8 +89,7 @@ async function launchOf(sessionId: string): Promise<{ argv: string[]; cwd: strin
 test("a chat tab runs omp with every tool in the default workspace", async () => {
 	// A fresh agent tab (⌘T) in the startup project is the reference launch.
 	const [startup] = await tabs();
-	await page.keyboard.press("ControlOrMeta+t");
-	await expect.poll(async () => (await tabs()).length).toBe(2);
+	await pressUntil("ControlOrMeta+t", async () => (await tabs()).length === 2);
 	const agentTab = (await tabs()).find(tab => tab.tabId !== startup?.tabId);
 	if (!agentTab) throw new Error("No agent tab");
 	await expect.poll(async () => (await tabs()).find(tab => tab.tabId === agentTab.tabId)?.status).toBe("ready");
@@ -86,7 +97,7 @@ test("a chat tab runs omp with every tool in the default workspace", async () =>
 	expect(agentLaunch.cwd).toBe(await fs.realpath(project));
 
 	// ⇧⌘T from inside that project: the chat still leaves the project behind.
-	await page.keyboard.press("ControlOrMeta+Shift+t");
+	await pressUntil("ControlOrMeta+Shift+t", async () => (await tabs()).some(tab => tab.kind === "chat"));
 	await expect.poll(async () => (await tabs()).find(tab => tab.kind === "chat")?.status).toBe("ready");
 	const chat = (await tabs()).find(tab => tab.kind === "chat");
 	if (!chat) throw new Error("No chat tab");
