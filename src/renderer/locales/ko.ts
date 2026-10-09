@@ -122,6 +122,7 @@ export const ko: Record<string, string> = {
 	"worktreeLifecycle.keep": "남겨 두기",
 	"worktreeLifecycle.createFailed": "워크트리를 만들지 못했어요: {message}",
 	"worktreeLifecycle.keptChanged": "세션을 닫는 동안 바뀌어서 워크트리 {path}를 남겨 뒀어요.",
+	"worktreeLifecycle.keptRunning": "omp가 제때 종료되지 않아 아직 쓰고 있을 수 있어서 워크트리 {path}를 남겨 뒀어요.",
 	"worktreeLifecycle.removeFailed": "워크트리 {path}를 삭제하지 못했어요: {message}",
 
 	// Agents › Pull requests

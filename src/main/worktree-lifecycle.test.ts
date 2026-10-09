@@ -12,6 +12,7 @@ import {
 	type LifecycleSettings,
 	type TabSpawnFacts,
 	WorktreeLifecycle,
+	type WorktreeLifecycleOptions,
 	WorktreePrompts,
 	type WorktreeWindows,
 } from "./worktree-lifecycle";
@@ -153,7 +154,7 @@ describe("WorktreeLifecycle", () => {
 		await fs.rm(scratch, { recursive: true, force: true });
 	});
 
-	function setup(live: number[] = [WIN]) {
+	function setup(live: number[] = [WIN], options: WorktreeLifecycleOptions = {}) {
 		const ui = fakeWindows(live);
 		const prompts = new WorktreePrompts(ui.windows);
 		const lifecycle = new WorktreeLifecycle(
@@ -166,6 +167,7 @@ describe("WorktreeLifecycle", () => {
 			},
 			prompts,
 			ui.windows,
+			options,
 		);
 		/** Waits for every exit under way. */
 		const settle = () => lifecycle.finalize({ prepare: async () => {}, release: async () => {} });
@@ -373,6 +375,17 @@ describe("WorktreeLifecycle", () => {
 		expect(created && (await pathExists(created.path))).toBe(false);
 	});
 
+	it("keeps the worktree and says so when the closed tab's omp does not exit in time", async () => {
+		const { lifecycle, settle, ui } = setup([WIN], { processExitTimeoutMs: 20 });
+		const wt = await startOwned(lifecycle, "remove");
+		lifecycle.released("tab", new Promise<void>(() => {}));
+		await settle();
+		expect(await pathExists(wt.path)).toBe(true);
+		expect(gitSync(repo, "branch", "--list", wt.branch)).toContain(wt.branch);
+		expect(ui.notices()).toEqual([{ kind: "kept-running", path: wt.path }]);
+		expect(ui.prompts()).toEqual([]);
+	});
+
 	it("on quit stops each owner's run, asks while windows are up, and releases only the tabs it removes", async () => {
 		const { lifecycle, prompts, ui } = setup();
 		const kept = await startOwned(lifecycle, "remove");
@@ -418,6 +431,23 @@ describe("WorktreeLifecycle", () => {
 		});
 		expect(released).toEqual([]);
 		expect(await pathExists(owned.path)).toBe(true);
+		expect(lifecycle.owns("tab")).toBe(false);
+	});
+
+	it("on quit keeps a worktree whose omp does not exit after release, and says so", async () => {
+		const { lifecycle, ui } = setup([WIN], { processExitTimeoutMs: 20 });
+		const wt = await startOwned(lifecycle, "remove");
+		const released: string[] = [];
+		await lifecycle.finalize({
+			prepare: async () => {},
+			release: tabId => {
+				released.push(tabId);
+				return new Promise<void>(() => {});
+			},
+		});
+		expect(released).toEqual(["tab"]);
+		expect(await pathExists(wt.path)).toBe(true);
+		expect(ui.notices()).toEqual([{ kind: "kept-running", path: wt.path }]);
 		expect(lifecycle.owns("tab")).toBe(false);
 	});
 });

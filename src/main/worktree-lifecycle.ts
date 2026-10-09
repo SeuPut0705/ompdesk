@@ -20,7 +20,8 @@
  *   or the app quits, `keep` leaves the worktree, `remove` removes a clean one
  *   silently, and anything that could lose work (or every worktree under `ask`)
  *   asks first. Removal waits for the tab's omp to exit and keeps a worktree
- *   that changed since it was inspected. The git steps run in main
+ *   that changed since it was inspected, or whose omp did not exit in time
+ *   (it could still be writing there). The git steps run in main
  *   (local/git/session-worktree.ts): the tab's omp is gone by then.
  *
  * Electron-free: windows are webContents ids and the IPC send is injected.
@@ -252,19 +253,31 @@ function message(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+export interface WorktreeLifecycleOptions {
+	/** How long removal waits for the tab's omp to exit before keeping the worktree. */
+	processExitTimeoutMs?: number;
+}
+
 export class WorktreeLifecycle {
 	readonly #tabs: WorktreeLifecycleTabs;
 	readonly #prompts: WorktreePrompts;
 	readonly #windows: WorktreeWindows;
+	readonly #processExitTimeoutMs: number;
 	/** Tab → the worktree `onStart` created for it this launch. */
 	readonly #owned = new Map<string, OwnedWorktree>();
 	/** Exits under way; quit waits for them. */
 	readonly #exits = new Set<Promise<void>>();
 
-	constructor(tabs: WorktreeLifecycleTabs, prompts: WorktreePrompts, windows: WorktreeWindows) {
+	constructor(
+		tabs: WorktreeLifecycleTabs,
+		prompts: WorktreePrompts,
+		windows: WorktreeWindows,
+		options: WorktreeLifecycleOptions = {},
+	) {
 		this.#tabs = tabs;
 		this.#prompts = prompts;
 		this.#windows = windows;
+		this.#processExitTimeoutMs = options.processExitTimeoutMs ?? PROCESS_EXIT_TIMEOUT_MS;
 	}
 
 	/** Whether the tab owns a lifecycle worktree. */
@@ -341,8 +354,9 @@ export class WorktreeLifecycle {
 	 * tab's run and refreshes its policy (stock aborts before planning), the
 	 * questions are asked while the windows are alive, then `release` closes
 	 * each tab chosen for removal (so the saved session drops it) and resolves
-	 * once its omp exited. Kept tabs stay for the next launch as ordinary
-	 * worktree tabs. Also waits for exits already under way.
+	 * once its omp exited; one that does not exit in time keeps its worktree.
+	 * Kept tabs stay for the next launch as ordinary worktree tabs. Also waits
+	 * for exits already under way.
 	 */
 	async finalize(steps: {
 		prepare(tabId: string): Promise<void>;
@@ -365,7 +379,7 @@ export class WorktreeLifecycle {
 				try {
 					const plan = await this.#plan(entry);
 					if (!plan) return;
-					await withTimeout(steps.release(tabId), PROCESS_EXIT_TIMEOUT_MS).catch(() => undefined);
+					if (!(await this.#awaitExit(entry, steps.release(tabId)))) return;
 					await this.#remove(plan);
 				} catch (error) {
 					this.#notify(entry.winId, { kind: "remove-failed", path: entry.worktree.path, message: message(error) });
@@ -378,9 +392,23 @@ export class WorktreeLifecycle {
 	async #exit(owned: OwnedWorktree, exited: Promise<void>): Promise<void> {
 		if (owned.onExit === "keep") return;
 		// Stock removes after teardown; on Windows a live omp in the directory would also block it.
-		await withTimeout(exited, PROCESS_EXIT_TIMEOUT_MS).catch(() => undefined);
+		if (!(await this.#awaitExit(owned, exited))) return;
 		const plan = await this.#plan(owned);
 		if (plan) await this.#remove(plan);
+	}
+
+	/**
+	 * Waits for the tab's omp to exit. An omp that does not exit in time (or a
+	 * release that fails) may still be writing into the worktree: keep it.
+	 */
+	async #awaitExit(owned: OwnedWorktree, exited: Promise<void>): Promise<boolean> {
+		try {
+			await withTimeout(exited, this.#processExitTimeoutMs);
+			return true;
+		} catch {
+			this.#notify(owned.winId, { kind: "kept-running", path: owned.worktree.path });
+			return false;
+		}
 	}
 
 	/** Stock `planWorktreeExit` for one worktree: inspect, decide, ask when it asks. */

@@ -59,9 +59,9 @@ env:
   # name by exact name: `ompdesk-<v>-arm64-mac.zip` (relaunch mode),
   # `ompdesk-<v>-arm64.dmg` (manual mode), `ompdesk-<v>-setup.exe` (Windows).
   # "true" adds that feed and those files to the release, so such installs
-  # update once into the new updater. Set it to "false" once v0.18.0 is out;
-  # releases then carry exactly the two assets.
-  LEGACY_UPDATE_FEED: "true"
+  # update once into the new updater. v0.18.0 shipped it on; it is off since
+  # v0.18.1, so releases carry exactly the two assets.
+  LEGACY_UPDATE_FEED: "false"
 
 jobs:
   prepare:

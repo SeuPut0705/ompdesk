@@ -22,6 +22,8 @@ function noticeMessage(
 			return t("worktreeLifecycle.createFailed", { message: notice.message });
 		case "kept-changed":
 			return t("worktreeLifecycle.keptChanged", { path: notice.path });
+		case "kept-running":
+			return t("worktreeLifecycle.keptRunning", { path: notice.path });
 		case "remove-failed":
 			return t("worktreeLifecycle.removeFailed", { path: notice.path, message: notice.message });
 	}
@@ -41,7 +43,7 @@ export function WorktreeLifecycleDialog() {
 			if (live) setPrompts(open);
 		});
 		const offNotice = api.onNotice(notice =>
-			toast({ variant: notice.kind === "kept-changed" ? "warning" : "error", message: noticeMessage(notice, t) }),
+			toast({ variant: notice.kind.startsWith("kept-") ? "warning" : "error", message: noticeMessage(notice, t) }),
 		);
 		return () => {
 			live = false;

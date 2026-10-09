@@ -960,6 +960,8 @@ export interface IpcWorktreePromptAnswer {
 export type IpcWorktreeNotice =
 	| { kind: "create-failed"; cwd: string; message: string }
 	| { kind: "kept-changed"; path: string }
+	/** The tab's omp did not exit in time, so it may still be writing into the worktree. */
+	| { kind: "kept-running"; path: string }
 	| { kind: "remove-failed"; path: string; message: string };
 
 /** One tab of a window: its sidecar's cwd, last status, and cached session meta. */

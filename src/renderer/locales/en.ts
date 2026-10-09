@@ -124,6 +124,7 @@ export const en: Record<string, string> = {
 	"worktreeLifecycle.keep": "Keep",
 	"worktreeLifecycle.createFailed": "Worktree not created: {message}",
 	"worktreeLifecycle.keptChanged": "Kept worktree {path}: it changed while the session was closing.",
+	"worktreeLifecycle.keptRunning": "Kept worktree {path}: omp didn't exit in time and may still be using it.",
 	"worktreeLifecycle.removeFailed": "Couldn't remove worktree {path}: {message}",
 
 	// Agents › Pull requests
