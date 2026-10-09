@@ -15,6 +15,14 @@
 # real-omp suite (the full suite runs locally before every release; manual on
 # CI: `gh workflow run ci.yml -f e2e=true`). After a flaky failure, rerun only
 # the failed job: `gh run rerun <id> --failed`.
+#
+# The mac job runs on the maintainer's own Mac (self-hosted runner, label
+# `ompdesk-mac`, free of Actions minutes) for runs on main only; other refs,
+# and `hosted_mac` when that Mac is off, use GitHub's macOS runner. That runner
+# acts as the maintainer's login account, so the job must not change its
+# environment: it keeps the installed bun (no setup-bun, which writes
+# ~/.bun/bin) and omp (real-core runs against it), and every action is pinned
+# to a commit.
 name: release
 
 on:
@@ -25,6 +33,10 @@ on:
     inputs:
       dry_run:
         description: "Build and test only; do not create the tag or release"
+        type: boolean
+        default: false
+      hosted_mac:
+        description: "Package macOS on GitHub's runner (when the maintainer's Mac is off; about 20 billed minutes)"
         type: boolean
         default: false
 
@@ -49,7 +61,7 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
       release: ${{ steps.meta.outputs.release }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - id: meta
         env:
           DRY_RUN: ${{ inputs.dry_run == true }}
@@ -98,7 +110,7 @@ jobs:
           printf '\n---\n\nRequires omp **%s** or newer (`omp update`).\n' "$MIN_OMP" >> notes/notes.md
           echo "release=true" >> "$GITHUB_OUTPUT"
       - if: steps.meta.outputs.release == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-notes
           path: notes/notes.md
@@ -112,8 +124,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
@@ -123,17 +135,19 @@ jobs:
       - run: bunx vitest run
 
   # Package, verify the bundle, then launch the build packaging just made:
-  # @smoke on the fake omp, and real-core against the latest published omp.
+  # @smoke on the fake omp, and real-core against omp (the latest published
+  # one on GitHub's runner, the maintainer's installed one on their Mac).
   mac:
     needs: prepare
     if: needs.prepare.outputs.release == 'true'
-    runs-on: macos-latest
+    runs-on: ${{ (github.ref == 'refs/heads/main' && inputs.hosted_mac != true) && fromJSON('["self-hosted", "macOS", "ARM64", "ompdesk-mac"]') || 'macos-latest' }}
     timeout-minutes: 20
     env:
       V: ${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - if: runner.environment == 'github-hosted'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
@@ -149,6 +163,7 @@ jobs:
           test -f "$APP/Contents/Resources/gui-bridge/index.ts"
           lipo -archs "$APP/Contents/MacOS/OMPdesk" | grep -qx arm64
       - name: Install omp
+        if: runner.environment == 'github-hosted'
         run: |
           bun install -g @oh-my-pi/pi-coding-agent
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
@@ -156,7 +171,7 @@ jobs:
       - run: bunx playwright test --grep "@smoke"
       - run: bunx playwright test e2e/real-core.e2e.ts
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-macos
           path: |
@@ -173,7 +188,7 @@ jobs:
           ls -l release
       # The GitHub Release keeps these files; the run artifact only carries
       # them to `publish` (a dry run keeps them a week to download).
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ompdesk-mac
           path: release/
@@ -191,8 +206,8 @@ jobs:
     env:
       V: ${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
@@ -203,7 +218,7 @@ jobs:
         run: test -f dist/win-unpacked/resources/gui-bridge/index.ts
       - run: bunx playwright test --grep "@smoke"
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-windows
           path: |
@@ -220,7 +235,7 @@ jobs:
           cp "dist/ompdesk-$V-setup.exe" release/ompdesk-windows-setup.exe
           cp "dist/ompdesk-$V-portable.exe" release/ompdesk-windows-portable.exe
           ls -l release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ompdesk-win
           path: release/
@@ -241,12 +256,12 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           pattern: ompdesk-*
           path: dist
           merge-multiple: true
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: release-notes
           path: notes
