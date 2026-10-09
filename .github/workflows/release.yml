@@ -151,6 +151,11 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
+      # bun runs lifecycle scripts with the `node` on PATH; on Node 26 (the
+      # maintainer's Mac) electron's extract-zip exits mid-unzip without an
+      # error, leaving no binary. Under bun it unzips; a no-op once installed.
+      - name: Ensure the Electron binary
+        run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
       - run: bun run package:mac -- --publish never
       - name: Verify bundle
         run: |

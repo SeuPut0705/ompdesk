@@ -61,6 +61,9 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
+      # See release.yml's mac job: electron's unzip fails silently on Node 26.
+      - name: Ensure the Electron binary
+        run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
       - name: Install omp
         if: runner.environment == 'github-hosted'
         run: |
