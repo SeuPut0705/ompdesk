@@ -8,6 +8,7 @@
 import { z } from "zod";
 import {
 	ADVISOR_ROLE,
+	isSetupRole,
 	MODEL_SETUP_MAX_MODELS,
 	type ModelSetupModel,
 	type ModelSetupPlan,
@@ -102,9 +103,14 @@ export function defaultSelection(options: readonly SetupModelOption[], defaultMo
 	return picks.slice(0, MODEL_SETUP_MAX_MODELS);
 }
 
-/** The roles the research assigns: the visible chat roles (kind roles such as image or speech need other models). */
+/**
+ * The roles the research assigns: the visible built-in chat roles. Kind roles
+ * (image, speech) need other models; custom roles keep the user's model.
+ */
 export function setupRoles(roles: readonly ModelRoleEntry[]): ModelSetupRole[] {
-	return roles.filter(role => role.section === "chat" && !role.hidden).map(role => ({ id: role.id, name: role.name }));
+	return roles
+		.filter(role => role.section === "chat" && !role.hidden && isSetupRole(role.id))
+		.map(role => ({ id: role.id, name: role.name }));
 }
 
 /** The assignments that change a role; one already on that model (any thinking suffix) is not written. */

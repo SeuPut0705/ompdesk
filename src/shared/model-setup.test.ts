@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { ipcErrorCode } from "./ipc-error-codes";
 import {
 	buildModelSetupPrompt,
+	isSetupRole,
 	type ModelSetupRequest,
 	ModelSetupRequestSchema,
 	parseModelSetupPlan,
@@ -59,7 +60,7 @@ describe("buildModelSetupPrompt", () => {
 		expect(prompt).not.toContain("claude-opus-4-1");
 	});
 
-	it("describes every known role, the advisor as a cross-vendor reviewer, and asks for JSON only", () => {
+	it("describes every requested role, the advisor as a cross-vendor reviewer, and asks for JSON only", () => {
 		const roleLines = prompt.split("\n").filter(line => /^- [a-z]+ \([A-Za-z]+\): /.test(line));
 		expect(roleLines.map(line => line.slice(2, line.indexOf(" (")))).toEqual([
 			"default",
@@ -68,8 +69,9 @@ describe("buildModelSetupPrompt", () => {
 			"reviewer",
 		]);
 		expect(prompt).toMatch(/- advisor \(Advisor\): Second-opinion reviewer.*different vendor than the default/);
-		expect(prompt).toContain('- reviewer (Reviewer): Custom role "Reviewer"');
 		expect(prompt).toContain('"role" is one of: default, smol, advisor, reviewer.');
+		expect(isSetupRole("advisor")).toBe(true);
+		expect(isSetupRole("reviewer")).toBe(false);
 		expect(prompt).toContain("Reply with ONLY one JSON object");
 		expect(prompt).toContain("benchmarks and comparisons for exactly these models");
 		expect(prompt).toContain('Write every "reason" and "notes" in Korean.');

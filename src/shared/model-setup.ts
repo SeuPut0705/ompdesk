@@ -114,7 +114,11 @@ export const ModelSetupPlanSchema: z.ZodType<ModelSetupPlan> = z.object({
 	notes: z.string().optional(),
 });
 
-/** What each built-in role does in stock omp; a custom role is described by its name. */
+/**
+ * What each built-in role does in stock omp. The assistant assigns only these:
+ * a custom role (`modelRoles.<name>` the user added, e.g. for their own
+ * agents) has a purpose OMPdesk cannot know, so its model stays the user's.
+ */
 const ROLE_PURPOSES: Record<string, string> = {
 	default:
 		"The main model: it answers every conversation turn and does the coding work unless another role takes over.",
@@ -129,6 +133,11 @@ const ROLE_PURPOSES: Record<string, string> = {
 	[ADVISOR_ROLE]:
 		"Second-opinion reviewer: passively reviews every turn of the main agent and injects notes (concerns, blockers). Ideally a strong model from a different vendor than the default model, so it catches different mistakes. It only runs while the advisor is enabled.",
 };
+
+/** Whether the model setup assistant proposes a model for `role`. */
+export function isSetupRole(role: string): boolean {
+	return Object.hasOwn(ROLE_PURPOSES, role);
+}
 
 function formatTokens(value: number): string {
 	return value >= 1_000_000
@@ -150,9 +159,7 @@ function describeModel(model: ModelSetupModel): string {
 }
 
 function describeRole(role: ModelSetupRole): string {
-	const purpose =
-		ROLE_PURPOSES[role.id] ?? `Custom role "${role.name}" the user defined; assign a general-purpose model.`;
-	return `- ${role.id} (${role.name}): ${purpose}`;
+	return `- ${role.id} (${role.name}): ${ROLE_PURPOSES[role.id] ?? role.name}`;
 }
 
 /** The research prompt: exactly the picked models and the known roles, and the reply contract. */

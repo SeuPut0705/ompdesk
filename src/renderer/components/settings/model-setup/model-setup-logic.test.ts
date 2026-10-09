@@ -48,6 +48,7 @@ const ROLES = [
 	role("slow", { model: "anthropic/claude-opus-4-1" }),
 	role("advisor"),
 	role("hidden", { hidden: true }),
+	role("specialist", { model: "openai-codex/gpt-6.1-sol" }),
 	role("image", { section: "kind" }),
 ];
 
@@ -80,7 +81,7 @@ describe("model setup logic", () => {
 		);
 	});
 
-	it("researches the visible chat roles only", () => {
+	it("researches the visible built-in chat roles only, never a custom role the user defined", () => {
 		expect(setupRoles(ROLES).map(entry => entry.id)).toEqual(["default", "smol", "slow", "advisor"]);
 	});
 

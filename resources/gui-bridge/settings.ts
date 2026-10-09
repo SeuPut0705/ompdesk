@@ -17,6 +17,7 @@ import { SETTING_TABS, TAB_GROUPS, TAB_METADATA } from "@oh-my-pi/pi-tui/overlay
 import { getAgentDir, MAIN_CONFIG_FILENAMES } from "@oh-my-pi/pi-utils";
 import { accountLabel, matchReportAccount, reportIdentity, type StoredAccount } from "./accounts-core";
 import { guard } from "./health";
+import { shownRoleValue, storedRoleValue } from "./role-values";
 import { releaseThinkingDefaultFor, syncThinkingDefault } from "./thinking-default";
 import type { BridgeEnv, BridgeMethods } from "./types";
 
@@ -529,7 +530,7 @@ function roleMetadata(session: AgentSession) {
 function modelRoles(session: AgentSession) {
 	return roleMetadata(session).map(role => ({
 		...role,
-		model: session.settings.getModelRole(role.id),
+		model: shownRoleValue(role.id, session.settings.getModelRole(role.id)),
 		source: session.settings.getModelRoleSource(role.id),
 		candidates: roleCandidatePool(role.id, session.settings, session.modelRegistry).map(model => ({
 			provider: model.provider,
@@ -601,7 +602,7 @@ export const methods: BridgeMethods = {
 			const session = env.session();
 			const role = str(params, "role");
 			const modelId = asRecord(params).modelId;
-			session.settings.setModelRole(role, typeof modelId === "string" && modelId ? modelId : undefined);
+			session.settings.setModelRole(role, storedRoleValue(role, typeof modelId === "string" && modelId ? modelId : undefined));
 			await session.settings.flush();
 			env.emit({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
 			return { role, modelId: typeof modelId === "string" ? modelId : null };

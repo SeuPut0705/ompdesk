@@ -1,8 +1,9 @@
 /**
- * gui-bridge thinking default (resources/gui-bridge/thinking-default-core.ts)
+ * gui-bridge thinking defaults (resources/gui-bridge/thinking-default-core.ts)
  * against a fake of stock's layered Settings: OMPdesk's sessions start on `auto`
- * while no layer sets `defaultThinkingLevel`, and any level the user set — in
- * config.yml, a project config, or later through Settings — wins and persists.
+ * with the auto classifier allowed up to `max` while no layer sets those
+ * settings, and any value the user set — in config.yml, a project config, or
+ * later through Settings — wins and persists.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -25,40 +26,38 @@ interface FakeSettings {
 
 const fakeSettings = (global: Layer = {}, project: Layer = {}): FakeSettings => ({ global, project, overrides: {} });
 
-/** The `defaultThinkingLevel` handle with stock's `Setting` semantics, plus `get` and `set` (a global write). */
+/** A setting handle with stock's `Setting` semantics, plus `get` and `set` (a global write). */
 interface FakeHandle extends ThinkingDefaultSetting {
 	get(scope: FakeSettings): unknown;
 	set(scope: FakeSettings, value: string | undefined): void;
 }
 
-const setting: FakeHandle = {
-	id: "defaultThinkingLevel",
-	segments: ["defaultThinkingLevel"],
-	get(scope: FakeSettings): unknown {
-		return (
-			scope.overrides.defaultThinkingLevel ??
-			scope.project.defaultThinkingLevel ??
-			scope.global.defaultThinkingLevel ??
-			"high"
-		);
-	},
-	set(scope: FakeSettings, value: string | undefined): void {
-		if (value === undefined) delete scope.global.defaultThinkingLevel;
-		else scope.global.defaultThinkingLevel = value;
-	},
-	isConfigured(scope: object): boolean {
-		const settings = scope as FakeSettings;
-		return [settings.overrides, settings.project, settings.global].some(layer =>
-			configuredIn(layer, ["defaultThinkingLevel"]),
-		);
-	},
-	override(scope: object, value: string): void {
-		(scope as FakeSettings).overrides.defaultThinkingLevel = value;
-	},
-	clearOverride(scope: object): void {
-		delete (scope as FakeSettings).overrides.defaultThinkingLevel;
-	},
-};
+function fakeHandle(id: string, stockDefault: string): FakeHandle {
+	return {
+		id,
+		segments: [id],
+		get(scope: FakeSettings): unknown {
+			return scope.overrides[id] ?? scope.project[id] ?? scope.global[id] ?? stockDefault;
+		},
+		set(scope: FakeSettings, value: string | undefined): void {
+			if (value === undefined) delete scope.global[id];
+			else scope.global[id] = value;
+		},
+		isConfigured(scope: object): boolean {
+			const settings = scope as FakeSettings;
+			return [settings.overrides, settings.project, settings.global].some(layer => configuredIn(layer, [id]));
+		},
+		override(scope: object, value: string): void {
+			(scope as FakeSettings).overrides[id] = value;
+		},
+		clearOverride(scope: object): void {
+			delete (scope as FakeSettings).overrides[id];
+		},
+	};
+}
+
+const setting = fakeHandle("defaultThinkingLevel", "high");
+const ceiling = fakeHandle("providers.autoThinkingMaxEffort", "xhigh");
 
 const persisted = (scope: FakeSettings) =>
 	configuredIn(scope.global, setting.segments) || configuredIn(scope.project, setting.segments);
@@ -135,5 +134,28 @@ describe("gui-bridge thinking default", () => {
 		expect(asThinkingDefaultSetting(setting)).toBe(setting);
 		expect(asThinkingDefaultSetting({ id: "defaultThinkingLevel", segments: [], get() {} })).toBeUndefined();
 		expect(asThinkingDefaultSetting(undefined)).toBeUndefined();
+	});
+
+	it("lets auto reach the model's top effort unless the user capped it", () => {
+		const scope = fakeSettings();
+		applyThinkingDefault(setting, scope);
+		expect(applyThinkingDefault(ceiling, scope)).toBe(true);
+		expect(ceiling.get(scope)).toBe("max");
+		expect(scope.global).toEqual({});
+
+		const capped = fakeSettings({ "providers.autoThinkingMaxEffort": "xhigh" });
+		expect(applyThinkingDefault(ceiling, capped)).toBe(false);
+		expect(ceiling.get(capped)).toBe("xhigh");
+	});
+
+	it("releases one default without touching the other on the same Settings", () => {
+		const scope = fakeSettings();
+		applyThinkingDefault(setting, scope);
+		applyThinkingDefault(ceiling, scope);
+		releaseThinkingDefault(setting, scope);
+		setting.set(scope, "high");
+		expect(setting.get(scope)).toBe("high");
+		expect(ceiling.get(scope)).toBe("max");
+		expect(scope.overrides).toEqual({ "providers.autoThinkingMaxEffort": "max" });
 	});
 });
