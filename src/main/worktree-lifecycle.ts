@@ -349,12 +349,20 @@ export class WorktreeLifecycle {
 		release(tabId: string): Promise<void>;
 	}): Promise<void> {
 		const owned = [...this.#owned];
-		this.#owned.clear();
 		await Promise.all(
 			owned.map(async ([tabId, entry]) => {
 				this.#prompts.withdrawTab(tabId);
 				try {
+					// Ownership stays through `prepare`: it re-reads the live `onExit`
+					// through `refreshExitPolicy`, which only updates owned tabs.
 					await steps.prepare(tabId);
+				} catch {
+					// A session that cannot stop or answer keeps its last known policy.
+				}
+				// From here finalize owns the exit; a pool release must not run it twice.
+				if (this.#owned.get(tabId) !== entry) return;
+				this.#owned.delete(tabId);
+				try {
 					const plan = await this.#plan(entry);
 					if (!plan) return;
 					await withTimeout(steps.release(tabId), PROCESS_EXIT_TIMEOUT_MS).catch(() => undefined);

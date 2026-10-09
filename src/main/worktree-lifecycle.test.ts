@@ -401,4 +401,23 @@ describe("WorktreeLifecycle", () => {
 		expect(removed && (await pathExists(removed))).toBe(false);
 		expect(lifecycle.owns("tab")).toBe(false);
 	});
+
+	it("on quit honors an onExit changed to keep while the tab ran, and runs that exit only once", async () => {
+		const { lifecycle } = setup();
+		const owned = await startOwned(lifecycle, "remove");
+		const released: string[] = [];
+		await lifecycle.finalize({
+			prepare: tabId =>
+				lifecycle.refreshExitPolicy(tabId, async () => settings({ onExit: "keep" })).then(() => {
+					// The pool releasing the tab mid-quit must not start a second exit with the old policy.
+					lifecycle.released(tabId, Promise.resolve());
+				}),
+			release: async tabId => {
+				released.push(tabId);
+			},
+		});
+		expect(released).toEqual([]);
+		expect(await pathExists(owned.path)).toBe(true);
+		expect(lifecycle.owns("tab")).toBe(false);
+	});
 });
