@@ -206,7 +206,10 @@ describe("SidecarManager", () => {
 			"const seen: string[] = [];",
 			'const userMessage = { role: "user", content: "hi", timestamp: 10 };',
 			'const entries = [{ type: "message", id: "e1", parentId: null, timestamp: "2026-01-01T00:00:00.000Z", message: userMessage }];',
-			'net.createServer(socket => { createInterface({ input: socket }).on("line", line => { const request = JSON.parse(line); const result = request.method === "sessions.transcript" ? { leafId: "e1", messages: [{ ...userMessage, entryId: "e1" }] } : request.method === "sessions.attach_entry_ids" ? { messages: request.params.messages.map(message => ({ ...message, entryId: "e1" })) } : null; socket.write(JSON.stringify({ id: request.id, ok: true, result }) + "\\n"); }); }).listen(process.env.OMP_GUI_BRIDGE, () => out({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }));',
+			// Buffer the socket by hand, as shell-env.test.ts's fake bridge does (that one passes on
+			// Windows CI); the readline-over-socket version timed out there on the named pipe.
+			'const answer = (request) => request.method === "sessions.transcript" ? { leafId: "e1", messages: [{ ...userMessage, entryId: "e1" }] } : request.method === "sessions.attach_entry_ids" ? { messages: request.params.messages.map(message => ({ ...message, entryId: "e1" })) } : null;',
+			'net.createServer(socket => { socket.setEncoding("utf8"); let buffer = ""; socket.on("data", chunk => { buffer += chunk; for (let i = buffer.indexOf("\\n"); i !== -1; i = buffer.indexOf("\\n")) { const request = JSON.parse(buffer.slice(0, i)); buffer = buffer.slice(i + 1); socket.write(JSON.stringify({ id: request.id, ok: true, result: answer(request) }) + "\\n"); } }); }).listen(process.env.OMP_GUI_BRIDGE, () => out({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }));',
 			"createInterface({ input: process.stdin }).on('line', line => {",
 			"\tconst command = JSON.parse(line);",
 			"\tseen.push(command.type);",
