@@ -308,6 +308,8 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getThemes: () => rpcCommand({ type: "get_themes" }),
 		getThemeColors: (name: string) => rpcCommand({ type: "get_theme_colors", name }),
 		getTranscript: () => fetchTranscript(rpcCommand),
+		getTranscriptPage: (cursor, limit, fromEnd) =>
+			rpcCommand({ type: "get_transcript_page", cursor, limit, fromEnd }),
 		planApproval: (
 			approved: boolean,
 			option?: "execute" | "compact" | "keep_context" | "save",

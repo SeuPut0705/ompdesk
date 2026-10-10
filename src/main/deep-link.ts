@@ -35,11 +35,15 @@ app.on("open-file", (event, path) => {
 });
 
 export function setupDeepLinks(windowManager: WindowManager, spawnWindow: SpawnWindow): void {
-	// Register as default protocol handler (Windows/Linux)
-	if (process.defaultApp && process.argv.length >= 2) {
-		app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [process.argv[1]]);
-	} else {
-		app.setAsDefaultProtocolClient(PROTOCOL);
+	// Register as the default omp:// handler, except in test runs (OMP_GUI_HEADLESS):
+	// that LaunchServices entry belongs to the user's installed OMPdesk. Links
+	// still arrive through open-url / second-instance below either way.
+	if (process.env.OMP_GUI_HEADLESS !== "1") {
+		if (process.defaultApp && process.argv.length >= 2) {
+			app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [process.argv[1]]);
+		} else {
+			app.setAsDefaultProtocolClient(PROTOCOL);
+		}
 	}
 
 	handler = url => handleDeepLink(url, windowManager, spawnWindow);

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { transcriptTurnStart } from "../../../resources/gui-bridge/transcript-page";
 import type { AgentMessage, MessagesPage } from "../../shared/rpc-types";
 import { GuiBridgeClient } from "../bridge-client";
 import { handlers } from "./sessions";
@@ -19,9 +20,11 @@ function pagedBridge(entries: ReturnType<typeof message>[], leaf: () => string) 
 	vi.spyOn(bridge, "request").mockImplementation(async <T>(method: string, params?: unknown) => {
 		expect(method).toBe("sessions.transcript");
 		requested.push(params);
-		const { offset, limit } = params as { offset: number; limit: number };
+		const { offset, limit, snapToTurn } = params as { offset: number; limit: number; snapToTurn?: boolean };
 		const messages = entries.map(entry => ({ ...entry.message, entryId: entry.id }));
-		return { leafId: leaf(), total: messages.length, messages: messages.slice(offset, offset + limit) } as T;
+		const end = Math.min(messages.length, offset + limit);
+		const startIndex = snapToTurn ? transcriptTurnStart(messages, offset, end) : offset;
+		return { leafId: leaf(), total: messages.length, startIndex, messages: messages.slice(startIndex, end) } as T;
 	});
 	const ctx: LocalCommandContext = {
 		cwd: "/tmp",
@@ -62,6 +65,73 @@ describe("get_transcript_page", () => {
 		await expect(page({ type: "get_transcript_page", limit: 2, cursor: second.nextCursor }, ctx)).rejects.toThrow(
 			"stale",
 		);
+	});
+
+	it("loads the tail then preceding pages with snapshot-bound cursors", async () => {
+		let leaf = "u1499";
+		const { ctx, requested } = pagedBridge(chain(1500), () => leaf);
+		const page = handlers.get_transcript_page as (
+			command: Record<string, unknown>,
+			ctx: LocalCommandContext,
+		) => Promise<MessagesPage>;
+		const tail = await page({ type: "get_transcript_page", fromEnd: true, limit: 200 }, ctx);
+		expect(tail.startIndex).toBe(1300);
+		expect(tail.messages[0]?.entryId).toBe("u1300");
+		expect(tail.messages.at(-1)?.entryId).toBe("u1499");
+		expect(tail.nextCursor).toBeUndefined();
+		expect(requested).toEqual([
+			{ offset: 0, limit: 0 },
+			{ offset: 1300, limit: 200, snapToTurn: true },
+		]);
+		const older = await page({ type: "get_transcript_page", cursor: tail.prevCursor, limit: 200 }, ctx);
+		expect(older.startIndex).toBe(1100);
+		expect(older.messages.at(-1)?.entryId).toBe("u1299");
+		leaf = "different";
+		await expect(page({ type: "get_transcript_page", cursor: older.prevCursor, limit: 200 }, ctx)).rejects.toThrow(
+			"stale",
+		);
+	});
+
+	it("handles short and empty tails without a preceding cursor", async () => {
+		const page = handlers.get_transcript_page as (
+			command: Record<string, unknown>,
+			ctx: LocalCommandContext,
+		) => Promise<MessagesPage>;
+		for (const total of [0, 3]) {
+			const { ctx } = pagedBridge(chain(total), () => "leaf");
+			const tail = await page({ type: "get_transcript_page", fromEnd: true, limit: 200 }, ctx);
+			expect(tail.startIndex).toBe(0);
+			expect(tail.messages).toHaveLength(total);
+			expect(tail.prevCursor).toBeUndefined();
+		}
+	});
+
+	it("rejects a backward cursor when the total changes without a leaf change", async () => {
+		const entries = chain(4);
+		const { ctx } = pagedBridge(entries, () => "same-leaf");
+		const page = handlers.get_transcript_page as (
+			command: Record<string, unknown>,
+			ctx: LocalCommandContext,
+		) => Promise<MessagesPage>;
+		const tail = await page({ type: "get_transcript_page", fromEnd: true, limit: 2 }, ctx);
+		entries.pop();
+		await expect(page({ type: "get_transcript_page", cursor: tail.prevCursor, limit: 2 }, ctx)).rejects.toThrow(
+			"stale",
+		);
+	});
+
+	it("snaps a tool result/assistant step back to the user's turn", () => {
+		const messages = [
+			{ role: "user" },
+			{ role: "assistant" },
+			{ role: "toolResult" },
+			{ role: "assistant" },
+			{ role: "user" },
+		];
+		expect(transcriptTurnStart(messages, 2, 4)).toBe(0);
+		expect(transcriptTurnStart(messages, 3, 4)).toBe(0);
+		expect(transcriptTurnStart(messages, 4, 5)).toBe(4);
+		expect(transcriptTurnStart(messages, 5, 5)).toBe(5);
 	});
 });
 

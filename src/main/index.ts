@@ -572,8 +572,11 @@ app.whenReady().then(() => {
 		for (const layout of savedLayouts.slice(1)) spawnWindowWithLayout(layout);
 	}
 
-	// Tray, menu, deep links, updater
-	createTray(windowManager, spawnWindow);
+	// Tray, menu, deep links, updater. Test runs (OMP_GUI_HEADLESS) skip the tray:
+	// the menu bar is shared with the user's own OMPdesk, and a test's status item
+	// once stalled this main thread (MenuBarAgent never completed its scene), so
+	// the first window never reached Playwright (release run 38048085831).
+	if (process.env.OMP_GUI_HEADLESS !== "1") createTray(windowManager, spawnWindow);
 	createMenu(windowManager, spawnWindow);
 	setupDeepLinks(windowManager, spawnWindow);
 	setupUpdater();

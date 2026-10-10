@@ -28,6 +28,8 @@ export function activeTabCommand(command: RpcCommand, timeoutMs?: number): Promi
 			return rpc.getState();
 		case "get_transcript":
 			return rpc.getTranscript();
+		case "get_transcript_page":
+			return rpc.getTranscriptPage(command.cursor, command.limit, command.fromEnd);
 		case "get_subagents":
 			return rpc.getSubagents();
 		case "get_queue":

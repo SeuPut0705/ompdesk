@@ -1,6 +1,6 @@
-import { createSessionRpcClient } from "../../shared/rpc-client";
 import type {
 	AgentMessage,
+	MessagesPage,
 	ModelInfo,
 	RpcGoalState,
 	RpcLoopModeState,
@@ -287,6 +287,75 @@ export async function syncPlanProposal(tabId: string, command: TabCommand, isCur
 	}
 }
 
+// 200 messages bounds the initial IPC/renderer work while retaining several
+// recent turns. The bridge extends a page to the start of its first turn.
+export const TRANSCRIPT_TAIL_LIMIT = 200;
+
+async function fetchTranscriptTail(command: TabCommand): Promise<RpcResponse> {
+	const request = { type: "get_transcript_page" as const, fromEnd: true, limit: TRANSCRIPT_TAIL_LIMIT };
+	const response = await command(request);
+	// A live commit between the metadata and tail reads invalidates that
+	// snapshot, not the session. Re-read its newest page, never the full history.
+	return !response.success && response.code === "stale_cursor" ? command(request) : response;
+}
+
+function retainLoadedHistory(fetched: AgentMessage[], current: AgentMessage[]): AgentMessage[] {
+	const firstId = fetched[0]?.entryId;
+	const overlap = firstId ? current.findIndex(message => message.entryId === firstId) : -1;
+	return overlap > 0 ? [...current.slice(0, overlap), ...fetched] : fetched;
+}
+
+export async function loadOlderTranscript(tabId?: string, beforePrepend?: () => void): Promise<boolean> {
+	const runtime = tabId ? sessionRuntime(tabId) : focusedSessionRuntime();
+	const store = tabId ? sessionRuntimeStore<MessagesStore>(tabId, "messages") : useMessagesStore;
+	if (!store?.getState().prevCursor || store.getState().isLoadingPage) return false;
+	const command = runtime?.command ?? activeTabCommand;
+	const cursor = store.getState().prevCursor;
+	const before = store.getState().messages;
+	const tools = tabId ? sessionRuntimeStore<ToolsStore>(tabId, "tools") : useToolsStore;
+	const beforeTools = tools?.getState().revision;
+	store.setState({ isLoadingPage: true, pageError: null });
+	try {
+		let response = await command({ type: "get_transcript_page", cursor, limit: TRANSCRIPT_TAIL_LIMIT });
+		// A live commit invalidates the snapshot-bound cursor. Refresh its tail,
+		// then walk back to the old leading entry rather than lose loaded history.
+		if (!response.success && response.code === "stale_cursor") {
+			response = await command({ type: "get_transcript_page", fromEnd: true, limit: TRANSCRIPT_TAIL_LIMIT });
+			const target = before[0]?.entryId;
+			while (response.success) {
+				const page = response.data as MessagesPage;
+				if (!page.prevCursor || page.messages.some(message => message.entryId === target)) break;
+				response = await command({
+					type: "get_transcript_page",
+					cursor: page.prevCursor,
+					limit: TRANSCRIPT_TAIL_LIMIT,
+				});
+			}
+			if (response.success && (response.data as MessagesPage).prevCursor) {
+				response = await command({
+					type: "get_transcript_page",
+					cursor: (response.data as MessagesPage).prevCursor,
+					limit: TRANSCRIPT_TAIL_LIMIT,
+				});
+			}
+		}
+		if (!response.success) throw new Error(response.error ?? "Transcript page could not be loaded");
+		if ((tabId && sessionRuntime(tabId) !== runtime) || store.getState().messages[0] !== before[0]) return false;
+		beforePrepend?.();
+		store.getState().prependPage(response.data as MessagesPage);
+		const session = tabId ? sessionRuntimeStore<SessionStore>(tabId, "session") : useSessionStore;
+		tools?.getState().hydrateMessages(store.getState().messages, {
+			turnIsLive: session?.getState().isStreaming === true,
+			keepChangedSince: beforeTools,
+		});
+		return true;
+	} catch (error) {
+		store.setState({ pageError: error instanceof Error ? error.message : String(error) });
+		return false;
+	} finally {
+		store.setState({ isLoadingPage: false });
+	}
+}
 const hydrationVersions = new WeakMap<SessionRuntime, number>();
 let legacyHydrationVersion = 0;
 
@@ -303,7 +372,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	const beforeTools = useToolsStore.getState().revision;
 	const core = Promise.allSettled([
 		initialState ? Promise.resolve(initialState) : activeTabCommand({ type: "get_state" }),
-		createSessionRpcClient(activeTabCommand).getTranscript(),
+		fetchTranscriptTail(activeTabCommand),
 	]);
 	const subagents = useSubagentsStore.getState().refresh({ expect: isCurrent });
 	const secondary = Promise.allSettled([
@@ -348,7 +417,16 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	if (focusUnchanged && messagesResult.status === "fulfilled" && messagesResult.value.success) {
 		const fetched = (messagesResult.value.data as { messages?: AgentMessage[] } | undefined)?.messages ?? [];
 		const current = useMessagesStore.getState().messages;
-		useMessagesStore.getState().reconcileFetched(mergeFetchedTranscript(fetched, beforeMessages, current));
+		const page = messagesResult.value.data as MessagesPage;
+		const merged = mergeFetchedTranscript(fetched, beforeMessages, current);
+		const retained = retainLoadedHistory(merged, current);
+		const prevCursor = retained.length > merged.length ? useMessagesStore.getState().prevCursor : page.prevCursor;
+		useMessagesStore.getState().reconcileFetched(retained);
+		useMessagesStore.setState({
+			prevCursor,
+			totalMessages: page.totalMessages + merged.length - fetched.length,
+			pageError: null,
+		});
 		if (eventsUnchanged && stateIsIdle && useMessagesStore.getState().liveMessages === beforeLiveMessages) {
 			useMessagesStore.getState().clearDeliveredLiveMessages();
 		}
@@ -439,7 +517,7 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 
 	const coreResult = Promise.allSettled([
 		runtime.command({ type: "get_state" }),
-		createSessionRpcClient(runtime.command).getTranscript(),
+		fetchTranscriptTail(runtime.command),
 	]);
 	const subagentsResult = sessionRuntimeStore<SubagentsStore>(tabId, "subagents")
 		?.getState()
@@ -528,7 +606,16 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 		const messages = sessionRuntimeStore<MessagesStore>(tabId, "messages");
 		const tools = sessionRuntimeStore<ToolsStore>(tabId, "tools");
 		const current = messages?.getState().messages ?? [];
-		messages?.getState().reconcileFetched(mergeFetchedTranscript(fetched, beforeMessages, current));
+		const page = messagesResult.value.data as MessagesPage;
+		const merged = mergeFetchedTranscript(fetched, beforeMessages, current);
+		const retained = retainLoadedHistory(merged, current);
+		const prevCursor = retained.length > merged.length ? messages?.getState().prevCursor : page.prevCursor;
+		messages?.getState().reconcileFetched(retained);
+		messages?.setState({
+			prevCursor,
+			totalMessages: page.totalMessages + merged.length - fetched.length,
+			pageError: null,
+		});
 		if (eventsUnchanged && stateIsIdle && messages?.getState().liveMessages === beforeLiveMessages) {
 			messages.getState().clearDeliveredLiveMessages();
 		}

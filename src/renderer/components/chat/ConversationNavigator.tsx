@@ -7,6 +7,8 @@ interface ConversationNavigatorProps {
 	activeIndex: number;
 	anchors: readonly ConversationAnchor[];
 	onNavigate: (rowIndex: number) => void;
+	onLoadOlder?: () => void;
+	loadingOlder?: boolean;
 }
 
 /** Below this many user turns the transcript is short enough to scroll; a rail would be noise. */
@@ -17,7 +19,13 @@ const MIN_ANCHORS = 3;
  * faint track, the current turn emphasized. Hovering or focusing a dot
  * previews that prompt; arrows/Home/End move between dots (roving tabindex).
  */
-export function ConversationNavigator({ activeIndex, anchors, onNavigate }: ConversationNavigatorProps) {
+export function ConversationNavigator({
+	activeIndex,
+	anchors,
+	onNavigate,
+	onLoadOlder,
+	loadingOlder,
+}: ConversationNavigatorProps) {
 	const t = useT();
 	const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 	const buttonsRef = useRef<Array<HTMLButtonElement | null>>([]);
@@ -33,6 +41,17 @@ export function ConversationNavigator({ activeIndex, anchors, onNavigate }: Conv
 	return (
 		<nav className="omp-conversation-nav" aria-label={t("chat.navigator.label")}>
 			<div className={cx("omp-conversation-nav-stack", density)}>
+				{onLoadOlder && (
+					<button
+						type="button"
+						onClick={onLoadOlder}
+						disabled={loadingOlder}
+						className="omp-conversation-nav-marker"
+						aria-label={t("chat.history.earlier")}
+					>
+						↑
+					</button>
+				)}
 				{anchors.map((anchor, index) => {
 					const preview = anchor.preview || t("chat.navigator.imagePrompt");
 					const clock = previewIndex === index ? formatShortClock(anchor.timestamp) : "";

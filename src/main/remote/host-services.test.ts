@@ -486,6 +486,20 @@ describe("LocalHostServices", () => {
 		expect(ipcErrorCode(unknown)).toBe("unsupported");
 	});
 
+	it("preserves tail direction, page size and backward cursor for remote transcript commands", async () => {
+		const { services, sidecars } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "tail", cwd: workDir, fresh: true }, x);
+		const commands: RpcCommand[] = [
+			{ type: "get_transcript_page", fromEnd: true, limit: 200 },
+			{ type: "get_transcript_page", cursor: "snapshot-bound-cursor", limit: 200 },
+		];
+		for (const command of commands) {
+			await services.call(x.peer, "tab.command", { rtab: "tail", command }, x);
+		}
+		expect(sidecars[0]?.commands).toEqual(commands);
+	});
+
 	it("accepts every command timeout the GUI itself uses (a sign-in waits 11 minutes)", async () => {
 		const { services, sidecars } = setup();
 		const x = new FakeConnection(peer("device-x"));

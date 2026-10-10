@@ -53,7 +53,7 @@ interface MockRpc {
 	fork: Mock<() => Promise<RpcResponse>>;
 	handoff: Mock<(customInstructions?: string) => Promise<RpcResponse>>;
 	getState: Mock<() => Promise<RpcResponse>>;
-	getTranscript: Mock<() => Promise<RpcResponse>>;
+	getTranscriptPage: Mock<() => Promise<RpcResponse>>;
 	getSubagents: Mock<() => Promise<RpcResponse>>;
 	setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 }
@@ -63,7 +63,7 @@ function installMockOmp(overrides: Partial<MockRpc> = {}): MockRpc {
 		fork: vi.fn(async () => success({})),
 		handoff: vi.fn(async () => success({ savedPath: undefined })),
 		getState: vi.fn(async () => success({ sessionId: "s2", todoPhases: [], messageCount: 3, queuedMessageCount: 0 })),
-		getTranscript: vi.fn(async () => success({ messages: [] })),
+		getTranscriptPage: vi.fn(async () => success({ messages: [], totalMessages: 0 })),
 		getSubagents: vi.fn(async () => success({ subagents: [] })),
 		setSubagentSubscription: vi.fn(async () => success({})),
 		...overrides,

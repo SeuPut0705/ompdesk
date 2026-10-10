@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage } from "../../../shared/rpc-types";
+import { loadOlderTranscript } from "../../hooks/session-hydration";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { cx, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -80,6 +81,9 @@ function SessionTranscript() {
 	const tabId = useRuntimeTabId();
 	const messages = useMessagesStore(s => s.messages);
 	const liveMessages = useMessagesStore(s => s.liveMessages);
+	const prevCursor = useMessagesStore(s => s.prevCursor);
+	const isLoadingPage = useMessagesStore(s => s.isLoadingPage);
+	const pageError = useMessagesStore(s => s.pageError);
 	const displayMessages = useMemo(() => [...messages, ...liveMessages], [messages, liveMessages]);
 	const streamingMessage = useMessagesStore(s => s.streamingMessage);
 	const hasStreamingText = useMessagesStore(s => isRenderableMessageText(s.streamingText));
@@ -291,6 +295,72 @@ function SessionTranscript() {
 		onChange: handleVirtualizerChange,
 	});
 	const totalSize = virtualizer.getTotalSize();
+	const prependAnchorRef = useRef<{ key: string; offset: number; positioned?: boolean } | null>(null);
+	const capturePrependAnchor = useCallback(() => {
+		// Capture immediately before applying the page, after pending scroll
+		// and measurement work has settled while its request was in flight.
+		const element = parentRef.current;
+		prependAnchorRef.current = null;
+		if (element) {
+			const top = element.getBoundingClientRect().top;
+			for (const row of element.querySelectorAll<HTMLElement>("[data-row-key]")) {
+				const box = row.getBoundingClientRect();
+				if (box.bottom > top + 4 && box.top < top + element.clientHeight && row.dataset.rowKey) {
+					prependAnchorRef.current = { key: row.dataset.rowKey, offset: top - box.top };
+					break;
+				}
+			}
+			if (!prependAnchorRef.current) {
+				const anchor = virtualizer.getVirtualItemForOffset(element.scrollTop);
+				if (anchor)
+					prependAnchorRef.current = { key: String(anchor.key), offset: element.scrollTop - anchor.start };
+			}
+		}
+	}, [virtualizer]);
+	const requestOlder = useCallback(async () => {
+		if (!prevCursor || isLoadingPage) return;
+		await loadOlderTranscript(tabId ?? undefined, capturePrependAnchor);
+	}, [prevCursor, isLoadingPage, tabId, capturePrependAnchor]);
+	useLayoutEffect(() => {
+		const anchor = prependAnchorRef.current;
+		if (!anchor || isLoadingPage || totalSize === 0) return;
+		const element = parentRef.current;
+		if (!element) return;
+		const index = rowKeys.indexOf(anchor.key);
+		if (index < 0) {
+			prependAnchorRef.current = null;
+			return;
+		}
+		if (!anchor.positioned) {
+			const offset = virtualizer.getOffsetForIndex(index, "start")?.[0];
+			if (offset !== undefined) {
+				virtualizer.scrollToOffset(offset + anchor.offset);
+				anchor.positioned = true;
+			}
+		}
+		gestureAnchorRef.current = null;
+		let frame = 0;
+		let settledFrames = 0;
+		const restore = () => {
+			if (prependAnchorRef.current !== anchor) return;
+			let delta: number | undefined;
+			for (const row of element.querySelectorAll<HTMLElement>("[data-row-key]")) {
+				if (row.dataset.rowKey === anchor.key) {
+					delta = row.getBoundingClientRect().top - element.getBoundingClientRect().top + anchor.offset;
+					break;
+				}
+			}
+			if (delta !== undefined && Math.abs(delta) < 0.5) settledFrames++;
+			else {
+				settledFrames = 0;
+				if (delta !== undefined) virtualizer.scrollToOffset(element.scrollTop + delta);
+			}
+			if (settledFrames >= 2) prependAnchorRef.current = null;
+			else frame = requestAnimationFrame(restore);
+		};
+		restore();
+		return () => cancelAnimationFrame(frame);
+	}, [rowKeys, isLoadingPage, virtualizer, totalSize]);
 	useLayoutEffect(
 		() => () => {
 			const scrollOffset = virtualizer.scrollOffset ?? 0;
@@ -411,6 +481,9 @@ function SessionTranscript() {
 		if (!userScrollIntentRef.current) return;
 		const el = parentRef.current;
 		if (!el) return;
+		if (!viewRef.current.pinned && el.scrollTop < 240 && prevCursor && !isLoadingPage && !pageError) {
+			void requestOlder();
+		}
 		const anchor = readingAnchor(el);
 		if (anchor) {
 			const looked = gestureAnchorRef.current;
@@ -425,12 +498,13 @@ function SessionTranscript() {
 		// Reaching the live edge by a tailward gesture hands layout growth back to
 		// the follower until another explicit gesture.
 		if (nextPinned) userScrollIntentRef.current = false;
-	}, [readingAnchor]);
+	}, [readingAnchor, prevCursor, isLoadingPage, pageError, requestOlder]);
 
 	// Every reader gesture takes the viewport: block the follower, forget the previous
 	// reading anchor, and record which way they moved so only a trip back to the tail
 	// can hand it over again.
 	const beginGesture = useCallback((towardTail: GestureTowardTail) => {
+		prependAnchorRef.current = null;
 		userScrollIntentRef.current = true;
 		gestureAnchorRef.current = null;
 		gestureTowardTailRef.current = towardTail;
@@ -497,6 +571,7 @@ function SessionTranscript() {
 	);
 
 	const jumpToLatest = useCallback(() => {
+		prependAnchorRef.current = null;
 		userScrollIntentRef.current = false;
 		gestureAnchorRef.current = null;
 		gestureTowardTailRef.current = true;
@@ -518,6 +593,7 @@ function SessionTranscript() {
 
 	const jumpToConversation = useCallback(
 		(rowIndex: number) => {
+			prependAnchorRef.current = null;
 			userScrollIntentRef.current = false;
 			gestureAnchorRef.current = null;
 			gestureTowardTailRef.current = null;
@@ -562,6 +638,27 @@ function SessionTranscript() {
 				{switchPending && (
 					<div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px overflow-hidden">
 						<div className="omp-indeterminate-progress h-full bg-[var(--omp-accent)]" />
+					</div>
+				)}
+				{(isLoadingPage || pageError) && (
+					<div
+						data-testid="transcript-history-status"
+						role={pageError ? "alert" : "status"}
+						className="absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 bg-(--sc-surface-1) py-2 text-sc-sm text-(--sc-text-muted)"
+					>
+						{isLoadingPage ? (
+							<>
+								<Spinner size="sm" />
+								{t("chat.history.loading")}
+							</>
+						) : (
+							<>
+								<span>{t("chat.history.failed")}</span>
+								<Button size="sm" onClick={() => void requestOlder()}>
+									{t("chat.history.retry")}
+								</Button>
+							</>
+						)}
 					</div>
 				)}
 				{status === "starting" && rows.length === 0 && !switchPending && (
@@ -686,6 +783,15 @@ function SessionTranscript() {
 				activeIndex={activeConversationIndex}
 				anchors={conversationAnchors}
 				onNavigate={jumpToConversation}
+				onLoadOlder={
+					prevCursor
+						? () => {
+								jumpToConversation(0);
+								void requestOlder();
+							}
+						: undefined
+				}
+				loadingOlder={isLoadingPage}
 			/>
 		</div>
 	);

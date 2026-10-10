@@ -196,9 +196,11 @@ describe("ModelSetupRunner", { timeout: 30_000 }, () => {
 					[
 						"out({ type: 'tool_execution_start', toolCallId: '1', toolName: 'web_search', args: { query: 'benchmarks' } });",
 						// The reply waits for the test's `go` file, so the run is observably in progress until then.
-						"const watcher = fs.watch(dir, () => { if (!fs.existsSync(dir + '/go')) return; watcher.close();",
+						// The fake polls for it: a directory fs.watch event can be dropped (seen as a 30s hang
+						// under a loaded full-suite run), and nothing else crosses the process boundary.
+						"const gate = setInterval(() => { if (!fs.existsSync(dir + '/go')) return; clearInterval(gate);",
 						`out(${JSON.stringify(reply)});`,
-						"out({ type: 'prompt_result', id: command.id, status: 'completed' }); });",
+						"out({ type: 'prompt_result', id: command.id, status: 'completed' }); }, 25);",
 					].join(" "),
 				),
 			);

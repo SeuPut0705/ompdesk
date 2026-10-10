@@ -19,6 +19,8 @@ export interface MessagesSnapshot {
 	streamingThinking: string;
 	totalMessages: number;
 	nextCursor: string | undefined;
+	prevCursor: string | undefined;
+	pageError: string | null;
 	isLoadingPage: boolean;
 	turnMeter: TurnMeter;
 }
@@ -39,11 +41,14 @@ export interface MessagesStore {
 	streamingThinking: string;
 	totalMessages: number;
 	nextCursor: string | undefined;
+	prevCursor: string | undefined;
+	pageError: string | null;
 	isLoadingPage: boolean;
 	/** Output-token meter for the running (or last) agent run; lib/turn-meter. */
 	turnMeter: TurnMeter;
 	applyEvents: (events: AgentSessionEvent[]) => void;
 	loadPage: (page: MessagesPage) => void;
+	prependPage: (page: MessagesPage) => void;
 	appendMessage: (message: AgentMessage) => void;
 	removeMessage: (message: AgentMessage) => void;
 	appendLiveMessage: (message: AgentMessage) => void;
@@ -73,6 +78,8 @@ const initialState = {
 	streamingThinking: "",
 	totalMessages: 0,
 	nextCursor: undefined as string | undefined,
+	prevCursor: undefined as string | undefined,
+	pageError: null as string | null,
 	isLoadingPage: false,
 	turnMeter: EMPTY_TURN_METER,
 };
@@ -247,7 +254,9 @@ export const createMessagesStore = () =>
 				streamingText,
 				streamingThinking,
 				turnMeter,
-				...(messages !== state.messages ? { totalMessages: messages.length } : {}),
+				...(messages !== state.messages
+					? { totalMessages: state.totalMessages + messages.length - state.messages.length }
+					: {}),
 				...(appended.length > 0 ? { lastAppended: appended } : {}),
 			});
 		},
@@ -258,7 +267,26 @@ export const createMessagesStore = () =>
 				lastAppended: [],
 				totalMessages: page.totalMessages,
 				nextCursor: page.nextCursor,
+				prevCursor: page.prevCursor,
+				pageError: null,
 				isLoadingPage: false,
+			}),
+		prependPage: page =>
+			set(state => {
+				const ids = new Set(state.messages.flatMap(message => (message.entryId ? [message.entryId] : [])));
+				const older = page.messages.filter(message => {
+					if (!message.entryId) return !state.messages.includes(message);
+					if (ids.has(message.entryId)) return false;
+					ids.add(message.entryId);
+					return true;
+				});
+				return {
+					messages: [...older, ...state.messages],
+					totalMessages: Math.max(page.totalMessages, state.totalMessages),
+					prevCursor: page.prevCursor,
+					isLoadingPage: false,
+					pageError: null,
+				};
 			}),
 		appendMessage: message =>
 			set(s => ({
@@ -322,6 +350,8 @@ export const createMessagesStore = () =>
 				streamingThinking: state.streamingThinking,
 				totalMessages: state.totalMessages,
 				nextCursor: state.nextCursor,
+				prevCursor: state.prevCursor,
+				pageError: state.pageError,
 				isLoadingPage: state.isLoadingPage,
 				turnMeter: state.turnMeter,
 			};
@@ -340,6 +370,8 @@ export const createMessagesStore = () =>
 				streamingThinking: snapshot.streamingThinking,
 				totalMessages: snapshot.totalMessages,
 				nextCursor: snapshot.nextCursor,
+				prevCursor: snapshot.prevCursor,
+				pageError: snapshot.pageError,
 				isLoadingPage: snapshot.isLoadingPage,
 				turnMeter: snapshot.turnMeter,
 			});

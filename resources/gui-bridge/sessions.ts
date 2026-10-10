@@ -14,6 +14,7 @@ import { getAgentDir, withFileLock } from "@oh-my-pi/pi-utils";
 import { guard } from "./health";
 import { attachEntryIds, buildTranscript, flattenSessionTree } from "./session-display";
 import { decorateMessages } from "./stream-metadata";
+import { transcriptTurnStart } from "./transcript-page";
 import type { BridgeMethods } from "./types";
 
 /** omp's pins file (session/session-pins.ts): a JSON array of session ids. */
@@ -61,9 +62,17 @@ export const methods: BridgeMethods = guard("sessionTree", {
 	...guard("streamMetadata", {
 		"sessions.transcript": async (params, env) => {
 			const { leafId, messages } = transcriptSnapshot(env.session().sessionManager);
-			const offset = Math.min(pageNumber(params, "offset", 0), messages.length);
+			let offset = Math.min(pageNumber(params, "offset", 0), messages.length);
 			const end = Math.min(messages.length, offset + pageNumber(params, "limit", messages.length));
-			return { leafId, total: messages.length, messages: decorateMessages(messages.slice(offset, end)) };
+			// A page starts with the user's turn, never with an orphan tool result
+			// or an assistant step whose call/read group is on the preceding page.
+			if (param(params, "snapToTurn") === true) offset = transcriptTurnStart(messages, offset, end);
+			return {
+				leafId,
+				total: messages.length,
+				startIndex: offset,
+				messages: decorateMessages(messages.slice(offset, end)),
+			};
 		},
 		"sessions.attach_entry_ids": async (params, env) => {
 			const messages = param(params, "messages");

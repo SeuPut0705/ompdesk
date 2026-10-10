@@ -109,7 +109,7 @@ interface MockOmp {
 	};
 	rpc: {
 		getState: Mock<() => Promise<RpcResponse>>;
-		getTranscript: Mock<() => Promise<RpcResponse>>;
+		getTranscriptPage: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
 		getGoal: Mock<() => Promise<RpcResponse>>;
 		getLoopMode: Mock<() => Promise<RpcResponse>>;
@@ -140,7 +140,7 @@ function installMockOmp(): { omp: MockOmp; emitTabStatus: TabStatusHandler } {
 		},
 		rpc: {
 			getState: vi.fn(async () => ok(serverState())),
-			getTranscript: vi.fn(async () => ok({ messages: [] })),
+			getTranscriptPage: vi.fn(async () => ok({ messages: [], totalMessages: 0 })),
 			getSubagents: vi.fn(async () => ok({ subagents: [] })),
 			getGoal: vi.fn(async () => ok({ enabled: false })),
 			getLoopMode: vi.fn(async () => ok({ enabled: false, state: "off" })),
@@ -504,7 +504,7 @@ describe("tabs store switch", () => {
 
 		// Gate the transcript so the restored (pre-hydrate) state is observable.
 		const gate = Promise.withResolvers<RpcResponse>();
-		omp.rpc.getTranscript.mockReturnValueOnce(gate.promise);
+		omp.rpc.getTranscriptPage.mockReturnValueOnce(gate.promise);
 		const firstSwitch = useTabsStore.getState().switchTab("t1");
 
 		// t1 has no bundle: stores reset to empty instantly, before any RPC settles.
@@ -533,7 +533,7 @@ describe("tabs store switch", () => {
 		});
 		expect(useExtensionUiStore.getState().pendingRequests.map(request => request.id)).toEqual(["ui-t1"]);
 		const gate2 = Promise.withResolvers<RpcResponse>();
-		omp.rpc.getTranscript.mockReturnValueOnce(gate2.promise);
+		omp.rpc.getTranscriptPage.mockReturnValueOnce(gate2.promise);
 		const secondSwitch = useTabsStore.getState().switchTab("t0");
 
 		// Instant restore of t0's parked bundle — every slice, before hydrate.
@@ -617,7 +617,7 @@ describe("tabs store switch", () => {
 
 		// Gate the hydrate so the restored (pre-hydrate) state is observable.
 		const gate = Promise.withResolvers<RpcResponse>();
-		omp.rpc.getTranscript.mockReturnValueOnce(gate.promise);
+		omp.rpc.getTranscriptPage.mockReturnValueOnce(gate.promise);
 		const switching = useTabsStore.getState().switchTab("t1");
 
 		// Restore paints the run live before hydrate's get_state confirms it.
@@ -656,7 +656,7 @@ describe("tabs store switch", () => {
 		expect(omp.tabs.setActive).toHaveBeenCalledTimes(2);
 		// …then hydrate paints the target instead of leaving the restored empty
 		// bundle on screen after the successful retry.
-		expect(omp.rpc.getTranscript).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getTranscriptPage).toHaveBeenCalledTimes(1);
 	});
 
 	it("treats a false SET_ACTIVE_TAB reply as a routing failure and recovers on retry", async () => {
@@ -668,7 +668,7 @@ describe("tabs store switch", () => {
 		await useTabsStore.getState().switchTab("t1");
 
 		expect(useToastStore.getState().toasts.some(toast => toast.title === "Couldn't switch tab")).toBe(true);
-		expect(omp.rpc.getTranscript).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.getTranscriptPage).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not hydrate when both the tab route and reconciliation route fail", async () => {
@@ -678,7 +678,7 @@ describe("tabs store switch", () => {
 
 		await useTabsStore.getState().switchTab("t1");
 
-		expect(omp.rpc.getTranscript).not.toHaveBeenCalled();
+		expect(omp.rpc.getTranscriptPage).not.toHaveBeenCalled();
 	});
 });
 
@@ -972,7 +972,7 @@ describe("useSessionTabs hook", () => {
 
 		expect(useTabsStore.getState().activeTabId).toBe("t1");
 		expect(useSessionStore.getState()).toMatchObject({ sessionId: "restored", cwd: "/beta", status: "ready" });
-		expect(omp.rpc.getTranscript).toHaveBeenCalled();
+		expect(omp.rpc.getTranscriptPage).toHaveBeenCalled();
 	});
 
 	it("restores transcript and controls when metadata arrives before the boot status snapshot", async () => {
@@ -981,7 +981,7 @@ describe("useSessionTabs hook", () => {
 		useSessionStore.setState({ sessionId: "restored", cwd: "/alpha", status: "starting" });
 		omp.tabs.list.mockResolvedValue([{ ...tabInfo("t0", "/alpha"), active: true }]);
 		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "restored", cwd: "/alpha", messageCount: 1 })));
-		omp.rpc.getTranscript.mockResolvedValue(ok({ messages: [msg("restored history")] }));
+		omp.rpc.getTranscriptPage.mockResolvedValue(ok({ messages: [msg("restored history")] }));
 		await mount();
 		await act(async () => {
 			const { promise, resolve } = Promise.withResolvers<void>();
@@ -1003,7 +1003,7 @@ describe("useSessionTabs hook", () => {
 		setFocusedSessionRuntime("t1");
 		useSessionStore.setState({ sessionId: "restored", status: "starting" });
 		omp.rpc.getState.mockResolvedValue(ok(serverState({ sessionId: "restored", messageCount: 1 })));
-		omp.rpc.getTranscript.mockResolvedValue(ok({ messages: [msg("restored history")] }));
+		omp.rpc.getTranscriptPage.mockResolvedValue(ok({ messages: [msg("restored history")] }));
 
 		await act(async () => {
 			emitTabStatus({ kind: "chat", tabId: "t1", cwd: "/beta", status: "ready" });
@@ -1089,7 +1089,7 @@ describe("useSessionTabs hook", () => {
 		// No redundant switch — but the transcript still hydrates and the
 		// pending path is consumed.
 		expect(omp.rpc.switchSession).not.toHaveBeenCalled();
-		expect(omp.rpc.getTranscript).toHaveBeenCalled();
+		expect(omp.rpc.getTranscriptPage).toHaveBeenCalled();
 		expect(useTabsStore.getState().tabs[0]?.pendingSessionPath).toBeUndefined();
 	});
 

@@ -1439,6 +1439,7 @@ export interface OmpApi {
 		getThemes(): Promise<RpcResponse>;
 		getThemeColors(name: string): Promise<RpcResponse>;
 		getTranscript(): Promise<RpcResponse>;
+		getTranscriptPage(cursor?: string, limit?: number, fromEnd?: boolean): Promise<RpcResponse>;
 		planApproval(
 			approved: boolean,
 			option?: "execute" | "compact" | "keep_context" | "save",

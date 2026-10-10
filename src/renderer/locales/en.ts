@@ -1,4 +1,8 @@
 export const en: Record<string, string> = {
+	"chat.history.loading": "Loading earlier messages…",
+	"chat.history.failed": "Could not load earlier messages.",
+	"chat.history.retry": "Retry",
+	"chat.history.earlier": "Load earlier conversation turns",
 	"extDialog.ask.step": "{current} of {total}",
 	"extDialog.ask.next": "Next",
 	"extDialog.ask.back": "Back",

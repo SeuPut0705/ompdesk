@@ -27,6 +27,29 @@ function userMessage(entryId: string): AgentMessage {
 
 beforeEach(() => useMessagesStore.getState().reset());
 
+describe("older transcript pages", () => {
+	it("prepends in transcript order and dedupes entry ids without a live-arrival signal", () => {
+		const store = createMessagesStore();
+		const newest = userMessage("newest");
+		store.getState().loadPage({ messages: [userMessage("middle"), newest], totalMessages: 4, prevCursor: "older" });
+		store.getState().prependPage({
+			messages: [userMessage("first"), userMessage("first"), userMessage("second"), userMessage("middle")],
+			totalMessages: 4,
+		});
+		expect(store.getState().messages.map(message => message.entryId)).toEqual([
+			"first",
+			"second",
+			"middle",
+			"newest",
+		]);
+		expect(store.getState().messages.at(-1)).toBe(newest);
+		expect(store.getState().prevCursor).toBeUndefined();
+		expect(store.getState().lastAppended).toEqual([]);
+		store.getState().appendMessage(userMessage("live"));
+		expect(store.getState().messages.at(-1)?.entryId).toBe("live");
+	});
+});
+
 describe("messages streaming snapshots", () => {
 	it("preserves the next reply and follow-up regardless of event batch boundaries", () => {
 		const previous: AgentMessage = { role: "assistant", content: "previous", timestamp: 0, entryId: "previous" };

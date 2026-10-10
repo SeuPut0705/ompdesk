@@ -84,18 +84,20 @@ test("system omp persists settings and sessions and serves every stats route", a
 	const mainOutput: string[] = [];
 	app.process().stdout?.on("data", (chunk: Buffer) => mainOutput.push(chunk.toString()));
 	app.process().stderr?.on("data", (chunk: Buffer) => mainOutput.push(chunk.toString()));
-	const page = await app.firstWindow();
-	const errors: string[] = [];
-	page.on("pageerror", error => errors.push(error.message));
-	// First run is inline in the empty main area (no dialog); it only shows on an
-	// empty session, so it is dismissed where present rather than asserted.
-	const dismissSetupIfPresent = async (title: string, laterLabel: string) => {
-		const setup = page.getByRole("region", { name: title, exact: true });
-		if ((await setup.count()) === 0) return;
-		await setup.getByRole("button", { name: laterLabel, exact: true }).click();
-		await expect(setup).toHaveCount(0);
-	};
 	try {
+		// Inside the try: a launch whose window never shows still leaves
+		// main-process.log behind and is torn down by exitApp.
+		const page = await app.firstWindow();
+		const errors: string[] = [];
+		page.on("pageerror", error => errors.push(error.message));
+		// First run is inline in the empty main area (no dialog); it only shows on an
+		// empty session, so it is dismissed where present rather than asserted.
+		const dismissSetupIfPresent = async (title: string, laterLabel: string) => {
+			const setup = page.getByRole("region", { name: title, exact: true });
+			if ((await setup.count()) === 0) return;
+			await setup.getByRole("button", { name: laterLabel, exact: true }).click();
+			await expect(setup).toHaveCount(0);
+		};
 		// The whole payload, so a failure prints the sidecar's error message too.
 		await expect
 			.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 60_000 })

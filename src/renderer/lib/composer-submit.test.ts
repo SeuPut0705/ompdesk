@@ -33,7 +33,7 @@ interface MockOmp {
 		tan: Mock<(work: string) => Promise<RpcResponse>>;
 		omfg: Mock<(complaint: string) => Promise<RpcResponse>>;
 		getState: Mock<() => Promise<RpcResponse>>;
-		getTranscript: Mock<() => Promise<RpcResponse>>;
+		getTranscriptPage: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
 		setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 	};
@@ -69,7 +69,7 @@ function installMockOmp(): MockOmp {
 					todoPhases: [],
 				}),
 			),
-			getTranscript: vi.fn(async () => success({ messages: [] })),
+			getTranscriptPage: vi.fn(async () => success({ messages: [], totalMessages: 0 })),
 			getSubagents: vi.fn(async () => success({ subagents: [] })),
 			setSubagentSubscription: vi.fn(async () => success({})),
 		},
@@ -455,14 +455,14 @@ describe("settleComposerResponse", () => {
 		const omp = installMockOmp();
 		await settleComposerResponse(success({ agentInvoked: false }));
 		expect(omp.rpc.getState).toHaveBeenCalled();
-		expect(omp.rpc.getTranscript).toHaveBeenCalled();
+		expect(omp.rpc.getTranscriptPage).toHaveBeenCalled();
 	});
 
 	it("rehydrates after dedicated compaction completes", async () => {
 		const omp = installMockOmp();
 		await settleComposerResponse({ ...success({}), command: "compact" });
 		expect(omp.rpc.getState).toHaveBeenCalled();
-		expect(omp.rpc.getTranscript).toHaveBeenCalled();
+		expect(omp.rpc.getTranscriptPage).toHaveBeenCalled();
 	});
 
 	it("does not rehydrate when the agent was invoked (events stream normally)", async () => {

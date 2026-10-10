@@ -57,18 +57,35 @@ export async function pressShortcutUntilVisible(page: Page, shortcut: string, ta
 	}).toPass({ timeout: 20_000 });
 }
 
+/** How long a running main process gets to act on `exitApp` before it is killed. */
+const EXIT_GRACE_MS = 10_000;
+
 /**
  * Exit the app, bypassing the production quit confirmation, and wait until the
  * process is gone so Chromium stops writing the profile before it is removed.
  * The exit is scheduled after `evaluate` returns: exiting inside it races the
  * reply ("Resulting promise was garbage collected") and can mask a test's error.
+ * A main process whose thread is stuck never runs the evaluate; it is killed
+ * after a grace period, so the test reports its own failure instead of the
+ * worker teardown timing out.
  */
 export async function exitApp(app: ElectronApplication): Promise<void> {
 	const child = app.process();
 	if (child.exitCode !== null || child.signalCode !== null) return;
-	const exited = new Promise<void>(resolve => child.once("exit", () => resolve()));
-	await app.evaluate(({ app }) => {
+	const exited = Promise.withResolvers<void>();
+	child.once("exit", () => exited.resolve());
+	const quit = app.evaluate(({ app }) => {
 		setImmediate(() => app.exit(0));
 	});
-	await exited;
+	const stuck = Promise.withResolvers<"stuck">();
+	const timer = setTimeout(() => stuck.resolve("stuck"), EXIT_GRACE_MS);
+	try {
+		if ((await Promise.race([quit, stuck.promise])) === "stuck") {
+			quit.catch(() => undefined);
+			child.kill("SIGKILL");
+		}
+	} finally {
+		clearTimeout(timer);
+	}
+	await exited.promise;
 }

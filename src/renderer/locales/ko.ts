@@ -1,4 +1,8 @@
 export const ko: Record<string, string> = {
+	"chat.history.loading": "이전 메시지를 불러오고 있어요…",
+	"chat.history.failed": "이전 메시지를 불러오지 못했어요.",
+	"chat.history.retry": "다시 시도",
+	"chat.history.earlier": "이전 대화 불러오기",
 	"extDialog.ask.step": "{current}/{total}",
 	"extDialog.ask.next": "다음",
 	"extDialog.ask.back": "이전",

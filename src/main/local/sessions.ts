@@ -15,6 +15,7 @@ const TranscriptCursor = z
 		leafId: z.string().nullable(),
 		total: z.number().int().nonnegative(),
 		offset: z.number().int().nonnegative(),
+		backward: z.boolean().optional(),
 	})
 	.refine(cursor => cursor.offset <= cursor.total);
 type TranscriptCursor = z.infer<typeof TranscriptCursor>;
@@ -36,6 +37,7 @@ interface TranscriptPage {
 	leafId: string | null;
 	total: number;
 	messages: AgentMessage[];
+	startIndex?: number;
 }
 
 /**
@@ -43,8 +45,13 @@ interface TranscriptPage {
  * transcript: the bridge socket answers in order, so one multi-MB reply would
  * stall every other bridge request (history, compaction, completions) behind it.
  */
-function transcriptPage(ctx: LocalCommandContext, offset: number, limit: number): Promise<TranscriptPage> {
-	return ctx.bridge.request("sessions.transcript", { offset, limit });
+function transcriptPage(
+	ctx: LocalCommandContext,
+	offset: number,
+	limit: number,
+	snapToTurn = false,
+): Promise<TranscriptPage> {
+	return ctx.bridge.request("sessions.transcript", { offset, limit, ...(snapToTurn ? { snapToTurn } : {}) });
 }
 
 function pageLimit(raw: unknown): number {
@@ -83,14 +90,31 @@ export const handlers: Record<string, LocalHandler> = {
 	get_transcript_page: async (command, ctx): Promise<MessagesPage> => {
 		const limit = pageLimit(command.limit);
 		const cursor = command.cursor === undefined ? undefined : decodeCursor(command.cursor);
-		const page = await transcriptPage(ctx, cursor?.offset ?? 0, limit);
-		if (cursor && (page.leafId !== cursor.leafId || page.total !== cursor.total)) {
+		const backward = command.fromEnd === true || cursor?.backward === true;
+		const metadata = backward && !cursor ? await transcriptPage(ctx, 0, 0) : undefined;
+		const endIndex = cursor?.offset ?? metadata?.total ?? limit;
+		const offset = backward ? Math.max(0, endIndex - limit) : (cursor?.offset ?? 0);
+		const page = await transcriptPage(ctx, offset, backward ? endIndex - offset : limit, backward);
+		if (
+			(cursor && (page.leafId !== cursor.leafId || page.total !== cursor.total)) ||
+			(metadata && (page.leafId !== metadata.leafId || page.total !== metadata.total))
+		) {
 			throw new LocalCommandError("RPC message cursor is stale", "stale_cursor");
 		}
-		const end = (cursor?.offset ?? 0) + page.messages.length;
-		const result: MessagesPage = { messages: page.messages, totalMessages: page.total };
-		if (end < page.total)
+		const startIndex = page.startIndex ?? offset;
+		const end = startIndex + page.messages.length;
+		const result: MessagesPage = { messages: page.messages, totalMessages: page.total, startIndex };
+		if (backward && startIndex > 0) {
+			result.prevCursor = encodeCursor({
+				v: 1,
+				leafId: page.leafId,
+				total: page.total,
+				offset: startIndex,
+				backward: true,
+			});
+		} else if (!backward && end < page.total) {
 			result.nextCursor = encodeCursor({ v: 1, leafId: page.leafId, total: page.total, offset: end });
+		}
 		return result;
 	},
 

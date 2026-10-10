@@ -87,7 +87,7 @@ interface MockOmp {
 		dropSession: Mock<() => Promise<RpcResponse>>;
 		newSession: Mock<() => Promise<RpcResponse>>;
 		getState: Mock<() => Promise<RpcResponse>>;
-		getTranscript: Mock<() => Promise<RpcResponse>>;
+		getTranscriptPage: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
 		getGoal: Mock<() => Promise<RpcResponse>>;
 		getLoopMode: Mock<() => Promise<RpcResponse>>;
@@ -112,7 +112,7 @@ function installMockOmp(): MockOmp {
 			dropSession: vi.fn(async () => ok({ cancelled: false })),
 			newSession: vi.fn(async () => ok({ cancelled: false })),
 			getState: vi.fn(async () => ok(serverState())),
-			getTranscript: vi.fn(async () => ok({ messages: [] })),
+			getTranscriptPage: vi.fn(async () => ok({ messages: [], totalMessages: 0 })),
 			getSubagents: vi.fn(async () => ok({ subagents: [] })),
 			getGoal: vi.fn(async () => ok({ enabled: false })),
 			getLoopMode: vi.fn(async () => ok({ enabled: false, state: "off" })),
@@ -327,7 +327,7 @@ describe("switchSessionNow F-OWN owner guard", () => {
 		});
 		const transcript = Promise.withResolvers<RpcResponse>();
 		const transcriptStarted = Promise.withResolvers<void>();
-		omp.rpc.getTranscript.mockImplementation(() => {
+		omp.rpc.getTranscriptPage.mockImplementation(() => {
 			transcriptStarted.resolve();
 			return transcript.promise;
 		});

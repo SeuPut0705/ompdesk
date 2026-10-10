@@ -231,6 +231,22 @@ if (process.argv[2] === "stats") {
 	}
 	const sessionId = `fixture-${process.pid}`;
 	const entries: Entry[] = [];
+	let activeLeafId: string | null = null;
+	let holdHistory = false;
+	let releaseHistory: (() => void) | undefined;
+	let failHistory = false;
+	const activeBranch = (): Entry[] => {
+		const byId = new Map(entries.map(entry => [entry.id, entry]));
+		const branch: Entry[] = [];
+		let id = activeLeafId;
+		while (id) {
+			const entry = byId.get(id);
+			if (!entry) break;
+			branch.push(entry);
+			id = entry.parentId;
+		}
+		return branch.reverse();
+	};
 	/**
 	 * `OMP_GUI_TEST_SESSION_FILES=1`: the journal is also a stock session file
 	 * (title slot, header, entries) under `$PI_CODING_AGENT_DIR/sessions/`,
@@ -253,17 +269,65 @@ if (process.argv[2] === "stats") {
 		fs.mkdirSync(nodePath.dirname(sessionFile), { recursive: true });
 		fs.writeFileSync(sessionFile, `${lines.map(line => JSON.stringify(line)).join("\n")}\n`);
 	};
-	const append = (fields: { type: string; [key: string]: unknown }, time: number | string) => {
+	const append = (fields: { type: string; [key: string]: unknown }, time: number | string, persist = true) => {
 		entries.push({
 			...fields,
 			id: `entry-${entries.length + 1}`,
-			parentId: entries.at(-1)?.id ?? null,
+			parentId: activeLeafId,
 			timestamp: new Date(time).toISOString(),
 		});
-		persistSession();
+		activeLeafId = entries.at(-1)?.id ?? null;
+		if (persist) persistSession();
 	};
 	const appendMessage = (message: AgentMessage) =>
 		append({ type: "message", message }, message.timestamp ?? Date.now());
+	const seedLongSession = () => {
+		entries.length = 0;
+		activeLeafId = null;
+		for (let turn = 0; turn < 250; turn++) {
+			const time = 1700000000000 + turn * 6000;
+			const messages: AgentMessage[] = [
+				{ role: "user", content: `Long session turn ${String(turn).padStart(3, "0")}`, timestamp: time },
+				{
+					role: "assistant",
+					content: [{ type: "toolCall", id: `long-${turn}-a`, name: "read", arguments: { path: "a.ts" } }],
+					timestamp: time + 1,
+					stopReason: "toolUse",
+				},
+				{
+					role: "toolResult",
+					toolCallId: `long-${turn}-a`,
+					toolName: "read",
+					content: [{ type: "text", text: "const a = 1;" }],
+					timestamp: time + 2,
+					isError: false,
+				},
+				{
+					role: "assistant",
+					content: [{ type: "toolCall", id: `long-${turn}-b`, name: "read", arguments: { path: "b.ts" } }],
+					timestamp: time + 3,
+					stopReason: "toolUse",
+				},
+				{
+					role: "toolResult",
+					toolCallId: `long-${turn}-b`,
+					toolName: "read",
+					content: [{ type: "text", text: "const b = 2;" }],
+					timestamp: time + 4,
+					isError: false,
+				},
+				{
+					role: "assistant",
+					content: [{ type: "text", text: `Long session answer ${String(turn).padStart(3, "0")}` }],
+					timestamp: time + 5,
+					stopReason: "stop",
+				},
+			];
+			for (const message of messages) append({ type: "message", message }, message.timestamp ?? time, false);
+		}
+		persistSession();
+	};
+	if (process.env.OMP_GUI_TEST_LONG_SESSION === "1") seedLongSession();
 
 	const count = Math.min(50_000, Number(process.env.OMP_GUI_TEST_HISTORY ?? 0));
 	for (let index = 0; index < count; index++) {
@@ -981,17 +1045,38 @@ if (process.argv[2] === "stats") {
 		security_dashboard: securityDashboard,
 		ssh_hosts: () => ({ hosts: [], warnings: [], openSshAvailable: true }),
 		"sessions.foreign_list": () => ({ sessions: [] }),
-		"sessions.transcript": params => {
-			const messages = entries
+		"sessions.transcript": (params, reply) => {
+			const messages = activeBranch()
 				.filter(entry => entry.type === "message")
 				.map(entry => ({ ...(entry.message as AgentMessage), entryId: entry.id }));
-			const offset = typeof params.offset === "number" ? params.offset : 0;
-			const limit = typeof params.limit === "number" ? params.limit : messages.length;
-			return {
-				leafId: entries.at(-1)?.id ?? null,
+			let offset =
+				typeof params.offset === "number" && Number.isInteger(params.offset) && params.offset >= 0
+					? Math.min(params.offset, messages.length)
+					: 0;
+			const limit =
+				typeof params.limit === "number" && Number.isInteger(params.limit) && params.limit >= 0
+					? params.limit
+					: messages.length;
+			const end = Math.min(messages.length, offset + limit);
+			if (params.snapToTurn === true && offset < end) {
+				while (offset > 0 && messages[offset]?.role !== "user") offset--;
+			}
+			if (limit > 0 && failHistory) {
+				failHistory = false;
+				throw new Error("Fixture history page failed");
+			}
+			const result = {
+				leafId: activeLeafId,
 				total: messages.length,
-				messages: messages.slice(offset, offset + limit),
+				startIndex: offset,
+				messages: messages.slice(offset, end),
 			};
+			if (limit > 0 && holdHistory) {
+				holdHistory = false;
+				releaseHistory = () => reply(result);
+				return undefined;
+			}
+			return result;
 		},
 		"sessions.attach_entry_ids": params => ({
 			messages: (params.messages as AgentMessage[]).map(message => {
@@ -1006,9 +1091,18 @@ if (process.argv[2] === "stats") {
 			const visible = entries.filter(
 				entry => entry.type === "message" && ["user", "assistant"].includes((entry.message as AgentMessage).role),
 			);
+			const branchIds = new Set(activeBranch().map(entry => entry.id));
+			const visibleIds = new Set(visible.map(entry => entry.id));
+			const byId = new Map(entries.map(entry => [entry.id, entry]));
+			const visibleParent = (entry: Entry) => {
+				let parent = entry.parentId;
+				while (parent && !visibleIds.has(parent)) parent = byId.get(parent)?.parentId ?? null;
+				return parent;
+			};
+			const parents = new Set(visible.map(visibleParent));
 			return {
-				activeLeafId: visible.at(-1)?.id ?? null,
-				tree: visible.map((entry, index) => {
+				activeLeafId,
+				tree: visible.map(entry => {
 					const message = entry.message as AgentMessage;
 					const content = message.content;
 					const text =
@@ -1020,15 +1114,22 @@ if (process.argv[2] === "stats") {
 									.join(" ");
 					return {
 						entryId: entry.id,
-						parentId: visible[index - 1]?.id ?? null,
+						parentId: visibleParent(entry),
 						role: message.role,
 						textPreview: text.replace(/\s+/g, " ").trim().slice(0, 200),
 						timestamp: Date.parse(entry.timestamp),
-						onActiveBranch: true,
-						isLeaf: index === visible.length - 1,
+						onActiveBranch: branchIds.has(entry.id),
+						isLeaf: !parents.has(entry.id),
 					};
 				}),
 			};
+		},
+		"sessions.switch_leaf": params => {
+			if (typeof params.entryId !== "string" || !entries.some(entry => entry.id === params.entryId)) {
+				throw new Error("Unknown session entry");
+			}
+			activeLeafId = params.entryId;
+			return { cancelled: false, activeLeafId };
 		},
 		"sessions.delete": params => {
 			const target = params.sessionPath;
@@ -1482,7 +1583,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				ok({ model, thinkingLevel: "medium", isScoped: false });
 				break;
 			case "get_entries": {
-				const leafId = entries.at(-1)?.id ?? null;
+				const leafId = activeLeafId;
 				if (command.since === undefined) {
 					ok({ entries, leafId });
 					break;
@@ -1493,7 +1594,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				break;
 			}
 			case "get_messages":
-				ok({ messages: entries.flatMap(entry => (entry.type === "message" ? [entry.message] : [])) });
+				ok({ messages: activeBranch().flatMap(entry => (entry.type === "message" ? [entry.message] : [])) });
 				break;
 			case "get_subagents":
 				ok({ subagents: subagentRoster });
@@ -1636,6 +1737,27 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				break;
 			case "bash": {
 				const line = text("command");
+				if (line === "fixture:hold-history") {
+					holdHistory = true;
+					ok();
+					break;
+				}
+				if (line === "fixture:release-history") {
+					releaseHistory?.();
+					releaseHistory = undefined;
+					ok();
+					break;
+				}
+				if (line === "fixture:fail-history") {
+					failHistory = true;
+					ok();
+					break;
+				}
+				if (line === "fixture:long-session") {
+					seedLongSession();
+					ok({ totalMessages: 1500, leafId: activeLeafId });
+					break;
+				}
 				if (line === "fixture:progress") {
 					ok({ chunks: streamChunks });
 					break;

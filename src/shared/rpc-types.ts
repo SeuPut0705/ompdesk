@@ -152,7 +152,7 @@ export type RpcCommand =
 	| { id?: string; type: "get_themes" }
 	| { id?: string; type: "get_theme_colors"; name: string }
 	| { id?: string; type: "get_transcript" }
-	| { id?: string; type: "get_transcript_page"; cursor?: string; limit?: number }
+	| { id?: string; type: "get_transcript_page"; cursor?: string; limit?: number; fromEnd?: boolean }
 	| { id?: string; type: "get_copy_targets" }
 
 	// Plan approval (structured)
@@ -1747,6 +1747,8 @@ export interface MessagesPage {
 	messages: AgentMessage[];
 	totalMessages: number;
 	nextCursor?: string;
+	startIndex?: number;
+	prevCursor?: string;
 }
 
 // ============================================================================

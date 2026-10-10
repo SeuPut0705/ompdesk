@@ -41,6 +41,7 @@ import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { selectTodoCardVisible, useTodoStore } from "../stores/todo";
 import { type ToolsStore, useToolsStore } from "../stores/tools";
+import { loadOlderTranscript } from "./session-hydration";
 import { attachTabSession, hydrateSession, hydrateTabSession, useRpcEvents } from "./use-rpc-events";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -78,7 +79,7 @@ interface MockOmp {
 	};
 	rpc: {
 		getState: Mock<() => Promise<RpcResponse>>;
-		getTranscript: Mock<() => Promise<RpcResponse>>;
+		getTranscriptPage: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
 		getGoal: Mock<() => Promise<RpcResponse>>;
 		getLoopMode: Mock<() => Promise<RpcResponse>>;
@@ -141,7 +142,7 @@ function installMockOmp(): {
 					todoPhases: [],
 				}),
 			),
-			getTranscript: vi.fn(async () => success({ messages: [] })),
+			getTranscriptPage: vi.fn(async () => success({ messages: [], totalMessages: 0 })),
 			getSubagents: vi.fn(async () => success({ subagents: [] })),
 			getGoal: vi.fn(async () => success({ enabled: false })),
 			getLoopMode: vi.fn(async () => success({ enabled: false, state: "off" })),
@@ -234,8 +235,8 @@ function installTabRoutedMockOmp(): {
 					planModeEnabled: false,
 					todoPhases: [],
 				});
-			case "get_transcript":
-				return success({ messages: [] });
+			case "get_transcript_page":
+				return success({ messages: [], totalMessages: 0 });
 			case "get_subagents":
 				return success({ subagents: [] });
 			case "get_goal":
@@ -986,7 +987,7 @@ describe("useRpcEvents non-transcript frames", () => {
 		const { omp, emitPromptResult } = installMockOmp();
 		await mount(<RpcEventsProbe />);
 		const stateCallsBefore = omp.rpc.getState.mock.calls.length;
-		const transcriptCallsBefore = omp.rpc.getTranscript.mock.calls.length;
+		const transcriptCallsBefore = omp.rpc.getTranscriptPage.mock.calls.length;
 
 		await act(async () => {
 			emitPromptResult({ type: "prompt_result", id: "extension-command", agentInvoked: false });
@@ -995,7 +996,7 @@ describe("useRpcEvents non-transcript frames", () => {
 		await flush();
 
 		expect(omp.rpc.getState.mock.calls.length).toBeGreaterThan(stateCallsBefore);
-		expect(omp.rpc.getTranscript.mock.calls.length).toBeGreaterThan(transcriptCallsBefore);
+		expect(omp.rpc.getTranscriptPage.mock.calls.length).toBeGreaterThan(transcriptCallsBefore);
 	});
 
 	it("applies a model catalog completion frame without reopening the picker", async () => {
@@ -1275,7 +1276,7 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 				todoPhases: [],
 			}),
 		);
-		omp.rpc.getTranscript
+		omp.rpc.getTranscriptPage
 			.mockReturnValueOnce(oldTranscript.promise)
 			.mockResolvedValue(success({ messages: [newMessage] }));
 		omp.rpc.getGoal.mockReturnValueOnce(oldGoal.promise).mockResolvedValue(success({ enabled: false }));
@@ -1315,7 +1316,7 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 			content: [{ type: "text", text: "new session transcript" }],
 			timestamp: 2,
 		};
-		omp.rpc.getTranscript.mockResolvedValue(success({ messages: [hydrated] }));
+		omp.rpc.getTranscriptPage.mockResolvedValue(success({ messages: [hydrated] }));
 		omp.rpc.getSubagents.mockReturnValue(subagents.promise);
 		omp.rpc.getGoal.mockReturnValue(goal.promise);
 		const transcriptPainted = Promise.withResolvers<void>();
@@ -1356,6 +1357,66 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 
 		expect(sessionRuntimeStore<MessagesStore>("t-page", "messages")?.getState().messages).toEqual([hydrated]);
 		expect(commandForTab.mock.calls.some(call => call[1]?.type === "get_transcript_page")).toBe(true);
+	});
+
+	it("retains loaded older history and its cursor when a tail-only rehydrate reconciles live ids", async () => {
+		const { commandForTab } = installTabRoutedMockOmp();
+		seedReadyTab("t-retained");
+		const older: AgentMessage = { role: "user", content: "older", timestamp: 1, entryId: "older" };
+		const tail: AgentMessage = { role: "user", content: "tail", timestamp: 2, entryId: "tail" };
+		const original = commandForTab.getMockImplementation()!;
+		commandForTab.mockImplementation(async (tabId, command) =>
+			command.type === "get_transcript_page"
+				? success({ messages: [tail], totalMessages: 2, prevCursor: "tail-cursor" })
+				: original(tabId, command),
+		);
+		await hydrateTabSession("t-retained");
+		const messages = sessionRuntimeStore<MessagesStore>("t-retained", "messages")!;
+		messages.getState().prependPage({ messages: [older], totalMessages: 2 });
+		await hydrateTabSession("t-retained");
+		expect(messages.getState().messages.map(message => message.entryId)).toEqual(["older", "tail"]);
+		expect(messages.getState().prevCursor).toBeUndefined();
+	});
+
+	it("refreshes a stale live-commit cursor without losing already loaded messages", async () => {
+		const { commandForTab } = installTabRoutedMockOmp();
+		seedReadyTab("t-stale");
+		const older: AgentMessage = { role: "user", content: "older", timestamp: 1, entryId: "older" };
+		const tail: AgentMessage = { role: "user", content: "tail", timestamp: 2, entryId: "tail" };
+		const live: AgentMessage = { role: "assistant", content: "live", timestamp: 3, entryId: "live" };
+		const messages = sessionRuntimeStore<MessagesStore>("t-stale", "messages")!;
+		messages.getState().loadPage({ messages: [tail], totalMessages: 2, prevCursor: "stale" });
+		messages.getState().applyEvents([{ type: "agent_end", messages: [live] }]);
+		const original = commandForTab.getMockImplementation()!;
+		commandForTab.mockImplementation(async (tabId, command) => {
+			if (command.type !== "get_transcript_page") return original(tabId, command);
+			if (command.cursor === "stale")
+				return { type: "response", command: command.type, success: false, error: "stale", code: "stale_cursor" };
+			if (command.fromEnd) return success({ messages: [tail, live], totalMessages: 3, prevCursor: "fresh" });
+			return success({ messages: [older], totalMessages: 3 });
+		});
+		expect(await loadOlderTranscript("t-stale")).toBe(true);
+		expect(messages.getState().messages.map(message => message.entryId)).toEqual(["older", "tail", "live"]);
+		expect(messages.getState().prevCursor).toBeUndefined();
+		expect(messages.getState().pageError).toBeNull();
+	});
+
+	it("re-reads only the tail if a live commit changes the initial paging snapshot", async () => {
+		const { commandForTab } = installTabRoutedMockOmp();
+		seedReadyTab("t-tail-race");
+		const message: AgentMessage = { role: "assistant", content: "settled tail", timestamp: 1, entryId: "settled" };
+		const original = commandForTab.getMockImplementation()!;
+		let pages = 0;
+		commandForTab.mockImplementation(async (tabId, command) => {
+			if (command.type !== "get_transcript_page") return original(tabId, command);
+			expect(command.fromEnd).toBe(true);
+			if (pages++ === 0)
+				return { type: "response", command: command.type, success: false, error: "stale", code: "stale_cursor" };
+			return success({ messages: [message], totalMessages: 1 });
+		});
+		await hydrateTabSession("t-tail-race");
+		expect(pages).toBe(2);
+		expect(sessionRuntimeStore<MessagesStore>("t-tail-race", "messages")?.getState().messages).toEqual([message]);
 	});
 
 	it("shares one in-flight tab hydration per session and refetches after a session change or reload", async () => {
@@ -1430,7 +1491,7 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 			streamingText: "partial reply",
 			streamingThinking: "partial thinking",
 		});
-		omp.rpc.getTranscript.mockResolvedValue(success({ messages: [finalized] }));
+		omp.rpc.getTranscriptPage.mockResolvedValue(success({ messages: [finalized] }));
 
 		await hydrateSession();
 
@@ -1448,7 +1509,7 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 	it("does not clear live deliveries that arrived after an idle hydration began", async () => {
 		const { omp } = installMockOmp();
 		const transcript = Promise.withResolvers<RpcResponse>();
-		omp.rpc.getTranscript.mockReturnValue(transcript.promise);
+		omp.rpc.getTranscriptPage.mockReturnValue(transcript.promise);
 		const hydration = hydrateSession();
 		const delivered: AgentMessage = { role: "user", content: "new run", timestamp: 3 };
 		useMessagesStore.getState().applyEvents([{ type: "message_end", message: delivered }]);
@@ -1515,7 +1576,7 @@ describe("useRpcEvents tab-scoped routing guards", () => {
 		const transcript = Promise.withResolvers<RpcResponse>();
 		const original = commandForTab.getMockImplementation()!;
 		commandForTab.mockImplementation((tabId, command) =>
-			command.type === "get_transcript" ? transcript.promise : original(tabId, command),
+			command.type === "get_transcript_page" ? transcript.promise : original(tabId, command),
 		);
 		const shell: AgentMessage = { role: "assistant", content: [], timestamp: 100 };
 		await act(async () => {
@@ -1710,7 +1771,7 @@ describe("useRpcEvents background tabs", () => {
 		const transcript = Promise.withResolvers<RpcResponse>();
 		const original = commandForTab.getMockImplementation()!;
 		commandForTab.mockImplementation((tabId, command) =>
-			command.type === "get_transcript" ? transcript.promise : original(tabId, command),
+			command.type === "get_transcript_page" ? transcript.promise : original(tabId, command),
 		);
 		const hydrated = hydrateTabSession("t-back");
 		// The run is live, so events keep landing while the transcript is fetched.
