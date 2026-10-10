@@ -206,8 +206,8 @@ describe("SidecarManager", () => {
 			"const seen: string[] = [];",
 			'const userMessage = { role: "user", content: "hi", timestamp: 10 };',
 			'const entries = [{ type: "message", id: "e1", parentId: null, timestamp: "2026-01-01T00:00:00.000Z", message: userMessage }];',
-			// Buffer the socket by hand, as shell-env.test.ts's fake bridge does (that one passes on
-			// Windows CI); the readline-over-socket version timed out there on the named pipe.
+			// The bridge server would keep the fake alive after stdin closes; on Windows the live
+			// process then locks tempDir (its cwd) and the cleanup rmdir fails with EBUSY.
 			'const answer = (request) => request.method === "sessions.transcript" ? { leafId: "e1", messages: [{ ...userMessage, entryId: "e1" }] } : request.method === "sessions.attach_entry_ids" ? { messages: request.params.messages.map(message => ({ ...message, entryId: "e1" })) } : null;',
 			'net.createServer(socket => { socket.setEncoding("utf8"); let buffer = ""; socket.on("data", chunk => { buffer += chunk; for (let i = buffer.indexOf("\\n"); i !== -1; i = buffer.indexOf("\\n")) { const request = JSON.parse(buffer.slice(0, i)); buffer = buffer.slice(i + 1); socket.write(JSON.stringify({ id: request.id, ok: true, result: answer(request) }) + "\\n"); } }); }).listen(process.env.OMP_GUI_BRIDGE, () => out({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }));',
 			"createInterface({ input: process.stdin }).on('line', line => {",
@@ -221,6 +221,7 @@ describe("SidecarManager", () => {
 			'\t\tout({ type: "prompt_result", id: command.id, agentInvoked: true });',
 			"\t}",
 			"});",
+			'process.stdin.on("end", () => process.exit(0));',
 		].join("\n");
 		const binaryPath = await writeFakeOmp(tempDir, script);
 
