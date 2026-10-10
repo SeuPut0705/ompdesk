@@ -245,11 +245,23 @@ test("dragging a session previews and splits on the hovered side", async () => {
 			"Session: Replacement session",
 		);
 
-		// A tall question in a quarter pane: the card shrinks to the pane and scrolls,
-		// its answer controls and the composer stay inside the pane.
+		// A tall question in a quarter pane while its composer is at its tallest (a
+		// multiline draft plus an attached image): the card shrinks to the room left,
+		// its answer controls and the whole composer stay inside the pane.
 		const quarter = page.locator(".omp-session-pane").nth(3);
 		const quarterTab = await quarter.getAttribute("data-tab-id");
 		if (!quarterTab) throw new Error("expected the quarter pane's tab id");
+		const composer = quarter.locator(".omp-composer-box");
+		await composer.locator("textarea").fill(Array.from({ length: 30 }, (_, i) => `draft line ${i + 1}`).join("\n"));
+		await quarter.locator('input[type="file"]').setInputFiles({
+			name: "shot.png",
+			mimeType: "image/png",
+			buffer: Buffer.from(
+				"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6VQAAAAASUVORK5CYII=",
+				"base64",
+			),
+		});
+		await expect(composer.getByRole("img")).toHaveCount(1);
 		await page.evaluate(
 			tabId => window.omp.rpc.commandForTab(tabId, { type: "prompt", message: "fixture long ask" }),
 			quarterTab,
@@ -259,7 +271,7 @@ test("dragging a session previews and splits on the hovered side", async () => {
 		const paneBox = await quarter.boundingBox();
 		const submit = longAsk.getByRole("button", { name: "Submit", exact: true });
 		const submitBox = await submit.boundingBox();
-		const composerBox = await quarter.locator("textarea").first().boundingBox();
+		const composerBox = await composer.boundingBox();
 		if (!paneBox || !submitBox || !composerBox) throw new Error("expected long-ask boxes");
 		for (const inner of [submitBox, composerBox]) {
 			expect(inner.y).toBeGreaterThanOrEqual(paneBox.y);

@@ -174,7 +174,10 @@ const exists = (file: string) =>
 		() => false,
 	);
 
-describe("ModelSetupRunner", () => {
+// Every case here but one spawns a fake omp (a bun script, behind a cmd.exe shim on
+// Windows). A cold spawn on a loaded CI runner alone can take seconds, so the
+// default 5s per-test budget failed at random; each wait inside stays bounded by its signal.
+describe("ModelSetupRunner", { timeout: 30_000 }, () => {
 	it("returns the parsed plan, shows progress meanwhile, and closes omp's stdin", async () => {
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-model-setup-"));
 		try {
@@ -202,7 +205,7 @@ describe("ModelSetupRunner", () => {
 			const runner = new ModelSetupRunner();
 			const result = runner.run(bin, REQUEST, process.env);
 			await expect
-				.poll(() => runner.status().activity, { timeout: 5_000 })
+				.poll(() => runner.status().activity, { timeout: 15_000 })
 				.toEqual({
 					tool: "web_search",
 					detail: "benchmarks",
@@ -215,7 +218,7 @@ describe("ModelSetupRunner", () => {
 			await fs.writeFile(path.join(dir, "go"), "");
 			await expect(result).resolves.toEqual({ success: true, plan: PLAN, dropped: [] });
 			expect(runner.status()).toEqual({ running: false });
-			await expect.poll(() => exists(path.join(dir, "closed")), { timeout: 5_000 }).toBe(true);
+			await expect.poll(() => exists(path.join(dir, "closed")), { timeout: 15_000 }).toBe(true);
 			expect(JSON.parse(await fs.readFile(path.join(dir, "argv.json"), "utf8"))).toEqual(
 				modelSetupArgs("anthropic/claude-opus-4-1"),
 			);
@@ -232,7 +235,7 @@ describe("ModelSetupRunner", () => {
 			const bin = await writeFakeOmp(dir, rpcFake(dir, ""));
 			const runner = new ModelSetupRunner();
 			const result = runner.run(bin, REQUEST, process.env);
-			await expect.poll(() => exists(path.join(dir, "stdin.jsonl")), { timeout: 5_000 }).toBe(true);
+			await expect.poll(() => exists(path.join(dir, "stdin.jsonl")), { timeout: 15_000 }).toBe(true);
 			expect(runner.abort()).toBe(true);
 			await expect(result).resolves.toMatchObject({ success: false, cancelled: true });
 			expect(runner.running).toBe(false);
