@@ -5,6 +5,7 @@
 
 import { create } from "zustand";
 import { errorDetail, errorMessage } from "../lib/error-detail";
+import { reportRuntimeError } from "../lib/runtime-errors";
 
 export type ToastVariant = "info" | "success" | "warning" | "error";
 
@@ -142,5 +143,8 @@ export interface ToastErrorInput {
  * coded failures get their own, see lib/error-detail), raw cause as `detail`.
  */
 export function toastError({ title, error, variant = "error", durationMs }: ToastErrorInput): number {
-	return toast({ variant, title, message: errorMessage(error), detail: errorDetail(error), durationMs });
+	const detail = errorDetail(error);
+	// Recorded in gui-runtime.jsonl: a toast vanishes, and "it keeps failing" needs the cause afterwards.
+	reportRuntimeError("error-toast", error, { details: { title, detail } });
+	return toast({ variant, title, message: errorMessage(error), detail, durationMs });
 }

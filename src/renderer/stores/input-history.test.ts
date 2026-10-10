@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSessionRpcClient } from "../../shared/rpc-client";
 import type { RpcResponse } from "../../shared/rpc-types";
 import { useInputHistoryStore } from "./input-history";
+import { useToastStore } from "./toast";
 
 beforeEach(() => {
 	useInputHistoryStore.setState({ entries: [], hydrated: false, navIndex: -1, navDraft: "", navContext: undefined });
@@ -80,5 +81,14 @@ describe("stock prompt history adapter", () => {
 			{ type: "history_search", query: "git-commit", limit: 50, cwd: "/repo" },
 			undefined,
 		);
+	});
+	it("keeps a prompt whose history write failed recallable, without a failure toast", async () => {
+		const { rpc, command } = installHistory();
+		command.mockRejectedValueOnce(new Error("RPC timeout (8000ms): history_record"));
+		useInputHistoryStore.getState().record("ship it", "/repo", rpc);
+		await vi.waitFor(() => expect(command).toHaveBeenCalledTimes(1));
+		await Promise.resolve();
+		expect(useToastStore.getState().toasts).toEqual([]);
+		expect(useInputHistoryStore.getState().prev("draft", { cwd: "/repo", owner: "local" })).toBe("ship it");
 	});
 });

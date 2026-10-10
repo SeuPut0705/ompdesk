@@ -285,6 +285,10 @@ export type RuntimeErrorSource =
 	| "child-process"
 	| "main-uncaught"
 	| "main-unhandled-rejection"
+	/** An error toast the user saw (title + raw cause), so a report can be traced afterwards. */
+	| "error-toast"
+	/** A background task failed without interrupting the user (e.g. saving prompt history). */
+	| "background-task"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */

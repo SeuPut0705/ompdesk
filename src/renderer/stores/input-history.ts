@@ -1,8 +1,7 @@
 import { z } from "zod";
 import { create } from "zustand";
-import { translate } from "../lib/i18n";
+import { reportRuntimeError } from "../lib/runtime-errors";
 import { focusedTabRpc, type TabRpc } from "../lib/tab-rpc";
-import { toastError } from "./toast";
 
 /** Stock HistoryStorage owns persistence/search. Remote tabs use their omp host's
  * history, never the client's local history. Only local tabs migrate legacy prefs. */
@@ -102,7 +101,9 @@ export const useInputHistoryStore = create<InputHistoryStore>()((set, get) => ({
 				hydrated: true,
 			}));
 		} catch (error) {
-			toastError({ title: translate("palette.failed"), error });
+			// Background: loading recall entries is never something the user asked for, so a
+			// failure must not interrupt with "Command failed"; the next ready/send retries it.
+			reportRuntimeError("background-task", error, { details: { task: "history_recent" } });
 		}
 	},
 	record: (prompt, cwd, rpc = focusedTabRpc(), device) => {
@@ -127,7 +128,9 @@ export const useInputHistoryStore = create<InputHistoryStore>()((set, get) => ({
 					return get().hydrate(rpc, device);
 				}
 			})
-			.catch(error => toastError({ title: translate("palette.failed"), error }));
+			// The prompt itself was sent. A history write that fails keeps the entry in memory
+			// (transient, still recallable) and is logged instead of toasted.
+			.catch(error => reportRuntimeError("background-task", error, { details: { task: "history_record" } }));
 	},
 	search: async (query, limit = 100, cwd, rpc = focusedTabRpc(), device) => {
 		const response = await (query.trim() ? rpc.historySearch(query, limit, cwd) : rpc.historyRecent(limit, cwd));
