@@ -6,10 +6,8 @@
  * for a paired host's tab). Settings › Models & providers (ProviderAccounts)
  * and Insights › Usage (UsageQuotas) show the same control.
  *
- * The action follows stock's rules as the bridge reports them
- * (`ResetPasses.redeemable`): the provider must allow a spend now, and a limit
- * the pass covers must be reached unless the provider itself judges that
- * (Claude grants that allow early use).
+ * Manual eligibility follows stock toResetUsageAccounts. Stock redeemResetCredit
+ * decides whether there is anything to reset; automatic exhaustion policy is separate.
  */
 
 import { RotateCcw } from "lucide-react";
@@ -33,7 +31,6 @@ const WINDOW_KEYS: Record<string, string> = {
 
 /** Refusals and outcomes with their own sentence; anything else shows stock's. */
 const OUTCOME_KEYS: Record<string, string> = {
-	not_limited: "resetPasses.outcome.notLimited",
 	not_redeemable: "resetPasses.outcome.notRedeemable",
 	offer_changed: "resetPasses.outcome.offerChanged",
 	nothing_to_reset: "resetPasses.outcome.nothingToReset",
@@ -95,9 +92,7 @@ export function ResetPassControl({
 	const [busy, setBusy] = useState(false);
 	const hint = passes.redeemable
 		? undefined
-		: passes.usableCount > 0
-			? t("resetPasses.notLimited")
-			: t("resetPasses.unavailable", { reason: passes.unavailableReason ?? t("resetPasses.unavailableUnknown") });
+		: t("resetPasses.unavailable", { reason: passes.unavailableReason ?? t("resetPasses.unavailableUnknown") });
 
 	const redeem = async () => {
 		setBusy(true);

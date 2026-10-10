@@ -63,7 +63,7 @@ async function launch(profile: string, name: string, discoveryPort: number, cust
 
 async function openRemoteSettings(page: Page): Promise<void> {
 	await page.keyboard.press("ControlOrMeta+Comma");
-	await page.locator('[data-settings-page] [data-settings-section="remote"]').click();
+	await page.locator('[data-settings-page] [data-settings-section="connections"]').click();
 	await expect(page.locator("[data-remote-section]")).toBeVisible();
 }
 

@@ -17,9 +17,12 @@ import { spawnPath } from "./shell-env";
 
 /**
  * Oldest omp whose RPC surface and bridge-extension internals this GUI is written
- * against: 18.6.3 added the stock `/btw` RPC commands, 18.7.0 `AgentSession.disarmPrewalk`.
+ * against. 18.8.7: the stock internals the bridge reuses instead of keeping
+ * OMPdesk copies (session listing and transcript, worktree root, provider
+ * catalog, account matching…), plus `worktree.onStart`/`onExit` (18.8.6),
+ * per-model compaction limits and account identity keys.
  */
-export const MIN_OMP_VERSION = "18.7.0";
+export const MIN_OMP_VERSION = "18.8.7";
 
 const VERSION_TIMEOUT_MS = 15_000;
 const DEFAULT_RUN_TIMEOUT_MS = 60_000;

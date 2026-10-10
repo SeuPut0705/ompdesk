@@ -13,14 +13,13 @@ import type {
 	RpcPrListItem,
 	RpcPrRepo,
 } from "../../../shared/rpc-types";
-import type { OmpRuntime } from "../types";
+import type { BridgeClient, OmpRuntime } from "../types";
 import { LocalCommandError } from "../types";
-import { primaryRoot, repoRoot } from "./changes";
-import { DEFAULT_TIMEOUT_MS, gh, git, gitRaw, resolveBin, withRepoLock } from "./exec";
-import { extractDraftJson, hashPath, parsePrUnifiedDiff, renderPrompt, rollupCounts, worktreesDir } from "./parse";
+import { repoRoot } from "./changes";
+import { DEFAULT_TIMEOUT_MS, gh, git, gitRaw, resolveBin } from "./exec";
+import { extractDraftJson, parsePrUnifiedDiff, renderPrompt, rollupCounts } from "./parse";
 import prDraftSystemPrompt from "./pr-draft-system.md?raw";
 import prDraftUserPrompt from "./pr-draft-user.md?raw";
-import { WORKTREE_ADD_TIMEOUT_MS } from "./worktree";
 
 interface GhPrListRow {
 	number?: number;
@@ -47,10 +46,8 @@ const PR_LIST_FIELDS =
 	"number,title,url,isDraft,author,headRefName,baseRefName,additions,deletions,updatedAt,reviewDecision,statusCheckRollup";
 const PR_DETAIL_FIELDS =
 	"number,title,url,isDraft,author,body,baseRefName,headRefName,mergeStateStatus,additions,deletions,reviewDecision,files,statusCheckRollup";
-const WORKTREE_MAX_SUFFIX = 100;
 const DRAFT_TIMEOUT_MS = 170_000;
 const PR_CREATE_TIMEOUT_MS = 110_000;
-const PR_CHECKOUT_TIMEOUT_MS = 170_000;
 
 /**
  * Longest each command runs before main answers, counting every git/gh step on
@@ -66,8 +63,8 @@ export const PR_COMMAND_BUDGETS_MS = {
 	// + current branch, two revisions at up to two rev-parses each, then log/diff in parallel.
 	pr_draft: 8 * DEFAULT_TIMEOUT_MS + DRAFT_TIMEOUT_MS,
 	pr_create: 2 * DEFAULT_TIMEOUT_MS + PR_CREATE_TIMEOUT_MS,
-	// + primary root and `worktree list`, `worktree add`, `gh pr checkout`, and the rollback remove when that fails.
-	pr_checkout: 5 * DEFAULT_TIMEOUT_MS + WORKTREE_ADD_TIMEOUT_MS + PR_CHECKOUT_TIMEOUT_MS,
+	// Preflight plus the bridge's bounded stock checkout (including clone/fetch).
+	pr_checkout: 2 * DEFAULT_TIMEOUT_MS + 600_000,
 } as const;
 
 interface GithubRepo {
@@ -270,64 +267,20 @@ export async function prCreate(
 	}
 }
 
-/** `{path → branch ref}` from `git worktree list --porcelain`. */
-export function parseWorktreeList(text: string): Array<{ path: string; branch: string | null }> {
-	return text
-		.split(/\n\n+/)
-		.map(block => {
-			const lines = block.split("\n");
-			const wt = lines.find(line => line.startsWith("worktree "))?.slice("worktree ".length);
-			const branch = lines.find(line => line.startsWith("branch "))?.slice("branch ".length) ?? null;
-			return wt ? { path: wt, branch } : null;
-		})
-		.filter(entry => entry !== null);
-}
-
-/** Check a PR out into its own worktree (`~/.omp/wt/<pr>-<hash7>`); reuses an existing `pr-<n>` worktree. */
-export async function prCheckout(cwd: string, input: { number: number }): Promise<{ path: string; branch: string }> {
-	const { ghBin, root, repo } = await requireGithubRepo(cwd);
+/** Stock checkout writes the PR branch metadata that stock pr_push consumes. */
+export async function prCheckout(
+	cwd: string,
+	input: { number: number },
+	bridge: Pick<BridgeClient, "request">,
+): Promise<{ path: string; branch: string }> {
 	const number = input.number;
-	if (!Number.isInteger(number) || number <= 0) {
+	if (!Number.isSafeInteger(number) || number <= 0) {
 		throw new LocalCommandError(`Invalid PR number: ${String(number)}`, "pr_checkout_failed");
 	}
-	const branch = `pr-${number}`;
-	const primary = await primaryRoot(root);
-	return withRepoLock(primary, async () => {
-		try {
-			const worktrees = parseWorktreeList(await git(primary, ["worktree", "list", "--porcelain"]));
-			const existing = worktrees.find(entry => entry.branch === `refs/heads/${branch}`);
-			if (existing) {
-				await gh(existing.path, ghBin, ["pr", "checkout", String(number), "--repo", repo, "--branch", branch], {
-					timeoutMs: PR_CHECKOUT_TIMEOUT_MS,
-				});
-				return { path: existing.path, branch };
-			}
-			const registered = new Set(worktrees.map(entry => path.resolve(entry.path)));
-			const basePath = path.join(worktreesDir(), `${number}-${hashPath(primary)}`);
-			let target: string | null = null;
-			for (let attempt = 1; attempt <= WORKTREE_MAX_SUFFIX && !target; attempt++) {
-				const candidate = attempt === 1 ? basePath : `${basePath}-${attempt}`;
-				const onDisk = await fs.stat(candidate).then(
-					() => true,
-					() => false,
-				);
-				if (!onDisk && !registered.has(path.resolve(candidate))) target = candidate;
-			}
-			if (!target) throw new Error(`could not find an unused worktree path under ${basePath}`);
-			await fs.mkdir(path.dirname(target), { recursive: true });
-			await git(primary, ["worktree", "add", "--detach", target, "HEAD"], { timeoutMs: WORKTREE_ADD_TIMEOUT_MS });
-			try {
-				// gh wires fork remotes + upstream tracking for cross-repository PRs.
-				await gh(target, ghBin, ["pr", "checkout", String(number), "--repo", repo, "--branch", branch], {
-					timeoutMs: PR_CHECKOUT_TIMEOUT_MS,
-				});
-			} catch (error) {
-				await gitRaw(primary, ["worktree", "remove", "--force", target]).catch(() => undefined);
-				throw error;
-			}
-			return { path: target, branch };
-		} catch (error) {
-			throw new LocalCommandError(errorText(error), "pr_checkout_failed");
-		}
-	});
+	const { repo } = await requireGithubRepo(cwd);
+	try {
+		return await bridge.request<{ path: string; branch: string }>("git.pr_checkout", { number, repo });
+	} catch (error) {
+		throw new LocalCommandError(errorText(error), "pr_checkout_failed");
+	}
 }

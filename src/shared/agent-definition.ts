@@ -1,10 +1,9 @@
 /**
  * omp task-agent definition files (`~/.omp/agent/agents/*.md`,
  * `.omp/agents/*.md`): markdown with YAML frontmatter whose body is the
- * agent's system prompt. Parsing mirrors omp's `parseAgentFields`
- * (discovery/helpers.ts): kebab-case keys normalize to camelCase, `tools` /
- * `spawns` / `model` / `autoload-skills` accept CSV or arrays, `yield` is
- * implied by any explicit tool list, `main` / `sub` are reserved.
+ * agent's system prompt. Field parsing/validation runs in the bridge using
+ * stock parseFrontmatter + parseAgentFields; this module only projects the
+ * normalized result into form controls and preserves YAML when serializing.
  *
  * Serialization edits the original frontmatter document in place (the `yaml`
  * Document API), so keys ompdesk does not know and YAML comments survive a
@@ -12,16 +11,16 @@
  * (`thinking` vs `thinking-level`).
  */
 
-import { Document, isMap, isSeq, parse, parseDocument } from "yaml";
-import type { AgentFileScope } from "./rpc-types";
+import { Document, isMap, isSeq, parseDocument } from "yaml";
+import type { AgentFileScope, RpcParsedAgentDefinition } from "./rpc-types";
 
-/** Rule names omp reserves for the top-level session and anonymous subagents. */
+/** Stock parseAgentFields reserves these names; mirrored only for immediate renderer/file-name feedback. Stock still validates every save. */
 export const RESERVED_AGENT_NAMES: readonly string[] = ["main", "sub"];
 
 /** Names ompdesk writes: they double as the file name, so no separators, dots first or spaces. */
 export const AGENT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 
-/** omp's configured thinking selectors (`auto` plus `parseThinkingLevel`'s levels). */
+/** Stock parseConfiguredThinkingLevel's picker vocabulary; kept here because the renderer cannot import stock. */
 export const AGENT_THINKING_LEVELS: readonly string[] = [
 	"auto",
 	"off",
@@ -82,96 +81,34 @@ export function emptyAgentDraft(): AgentDraft {
 
 const FRONTMATTER = /^\uFEFF?---[ \t]*\r?\n([\s\S]*?)(?:\r?\n)?---[ \t]*(?:\r?\n|$)/;
 
-/** Split a definition file into its frontmatter source (`null` when absent) and body. */
+/**
+ * Raw YAML/body split for comment-preserving renderer serialization, not validation.
+ * Stock parseFrontmatter returns normalized fields, not the original YAML document.
+ */
 export function splitFrontmatter(raw: string): { frontmatter: string | null; body: string } {
 	const match = FRONTMATTER.exec(raw);
 	if (!match) return { frontmatter: null, body: raw };
 	return { frontmatter: match[1], body: raw.slice(match[0].length) };
 }
 
-function listOf(value: unknown): string[] | undefined {
-	if (Array.isArray(value)) {
-		const items = value.filter((item): item is string => typeof item === "string").map(item => item.trim());
-		return items.filter(Boolean);
-	}
-	if (typeof value === "string") {
-		return value
-			.split(",")
-			.map(item => item.trim())
-			.filter(Boolean);
-	}
-	return undefined;
-}
-
-function booleanOf(value: unknown): boolean | undefined {
-	if (typeof value === "boolean") return value;
-	if (typeof value === "string") {
-		const lower = value.trim().toLowerCase();
-		if (lower === "true") return true;
-		if (lower === "false") return false;
-	}
-	return undefined;
-}
-
-function toggleOrPattern(value: unknown): boolean | string {
-	const flag = booleanOf(value);
-	if (flag !== undefined) return flag;
-	return typeof value === "string" ? value.trim() || false : false;
-}
-
 /** Build a draft from already-parsed frontmatter fields (camelCase keys) and a body. */
-export function draftFromFields(fields: Record<string, unknown>, body: string): AgentDraft {
-	const draft = emptyAgentDraft();
-	if (typeof fields.name === "string") draft.name = fields.name.trim();
-	if (typeof fields.description === "string") draft.description = fields.description.trim();
-	draft.instructions = body.replace(/^\s*\n/, "").trimEnd();
-	if (fields.tools !== undefined && fields.tools !== null) {
-		// omp adds `yield` to every explicit list itself.
-		draft.tools = (listOf(fields.tools) ?? []).filter(tool => tool !== "yield");
-	}
-	const spawns = fields.spawns;
-	if (spawns === "*" || (typeof spawns === "string" && spawns.trim() === "*")) draft.spawns = "*";
-	else draft.spawns = listOf(spawns) ?? [];
-	draft.model = listOf(fields.model) ?? [];
-	const thinking =
-		typeof fields.thinkingLevel === "string"
-			? fields.thinkingLevel
-			: typeof fields.thinking === "string"
-				? fields.thinking
-				: "";
-	draft.thinkingLevel = thinking.trim().toLowerCase();
-	draft.prewalk = toggleOrPattern(fields.prewalk);
-	draft.advisor = toggleOrPattern(fields.advisor);
-	draft.blocking = booleanOf(fields.blocking) ?? false;
-	draft.readSummarize = booleanOf(fields.readSummarize) !== false;
-	draft.autoloadSkills = listOf(fields.autoloadSkills) ?? [];
-	if (fields.output !== undefined && fields.output !== null) draft.output = JSON.stringify(fields.output, null, 2);
-	return draft;
-}
-
-export interface ParsedAgentFile {
-	draft: AgentDraft;
-	/** Frontmatter YAML error, when the frontmatter could not be read. */
-	error?: string;
-}
-
-/** Parse a definition file into the editor's draft. */
-export function parseAgentMarkdown(raw: string): ParsedAgentFile {
-	const { frontmatter, body } = splitFrontmatter(raw);
-	if (frontmatter === null) return { draft: draftFromFields({}, body) };
-	let data: unknown;
-	try {
-		data = parse(frontmatter);
-	} catch (cause) {
-		return { draft: draftFromFields({}, body), error: cause instanceof Error ? cause.message : String(cause) };
-	}
-	const fields: Record<string, unknown> = {};
-	if (data && typeof data === "object" && !Array.isArray(data)) {
-		for (const [key, value] of Object.entries(data)) {
-			fields[key.replace(/-([a-z0-9])/g, (_, letter: string) => letter.toUpperCase())] = value;
-		}
-	}
-	return { draft: draftFromFields(fields, body) };
+export function draftFromFields(fields: RpcParsedAgentDefinition["fields"], body: string): AgentDraft {
+	return {
+		name: fields.name,
+		description: fields.description,
+		instructions: body.replace(/^\s*\n/, "").trimEnd(),
+		// Stock adds yield; the editor hides it rather than offering a toggle.
+		tools: fields.tools?.filter(tool => tool !== "yield") ?? null,
+		spawns: fields.spawns ?? [],
+		model: fields.model ?? [],
+		thinkingLevel: fields.thinkingLevel ?? "",
+		prewalk: fields.prewalk ?? false,
+		advisor: fields.advisor ?? false,
+		blocking: fields.blocking ?? false,
+		readSummarize: fields.readSummarize ?? true,
+		autoloadSkills: fields.autoloadSkills ?? [],
+		output: fields.output === undefined ? "" : JSON.stringify(fields.output, null, 2),
+	};
 }
 
 /** Frontmatter keys in write order; the first spelling is used for new keys. */

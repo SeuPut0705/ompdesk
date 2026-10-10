@@ -62,7 +62,7 @@ function rowFor(value: string): HTMLButtonElement {
 let root: Root | null = null;
 
 /** Mount the dropdown and open its panel, letting the fetch-on-open settle. */
-async function openDropdown(): Promise<void> {
+async function openDropdown(beforeOpen?: (trigger: HTMLButtonElement) => void): Promise<void> {
 	const container = document.createElement("div");
 	document.body.appendChild(container);
 	root = createRoot(container as unknown as Element);
@@ -74,7 +74,9 @@ async function openDropdown(): Promise<void> {
 		);
 	});
 	await act(async () => {
-		(container.querySelector("button") as HTMLButtonElement).click();
+		const trigger = container.querySelector("button") as HTMLButtonElement;
+		beforeOpen?.(trigger);
+		trigger.click();
 	});
 	await act(async () => {
 		await new Promise(resolve => setTimeout(resolve, 0));
@@ -159,5 +161,34 @@ describe("ModelValueSelect", () => {
 		// `*Provider` setting value fails at call time, far from this row.
 		expect(rowFor("off-one").hasAttribute("disabled")).toBe(true);
 		expect(rowFor("off-one").textContent).toContain("(disabled)");
+	});
+
+	it("follows its trigger through a scroll and closes once the trigger leaves the scroller", async () => {
+		Object.assign(window as unknown as Record<string, unknown>, { innerWidth: 1440, innerHeight: 900 });
+		let top = 400;
+		await openDropdown(trigger => {
+			trigger.getBoundingClientRect = () => ({ top, left: 100, bottom: top + 30, right: 400 }) as DOMRect;
+		});
+		const scroller = document.createElement("div");
+		scroller.getBoundingClientRect = () => ({ top: 0, bottom: 800 }) as DOMRect;
+		document.body.appendChild(scroller);
+		const scroll = async () => {
+			await act(async () => {
+				scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+			});
+		};
+		const panelStyle = () =>
+			document.body.querySelector("[role='listbox']")?.parentElement?.getAttribute("style") ?? null;
+		expect(panelStyle()).toMatch(/top:\s*434px/);
+
+		// Opening refreshed the catalog; the provider list above the row grew and
+		// the column's scroll anchoring shifted the row by 16px while the user typed.
+		top = 416;
+		await scroll();
+		expect(panelStyle()).toMatch(/top:\s*450px/);
+
+		top = 820;
+		await scroll();
+		expect(panelStyle()).toBeNull();
 	});
 });

@@ -9,7 +9,7 @@ import {
 	resolveActiveProjectRegistryPath,
 	resolveOrDefaultProjectRegistryPath,
 } from "@oh-my-pi/pi-coding-agent/discovery/helpers";
-import type { ScopedInstalledPlugin } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/loader";
+import { resolvePluginManifestEntries, type ScopedInstalledPlugin } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/loader";
 import {
 	getInstalledPluginsRegistryPath,
 	getMarketplacesCacheDir,
@@ -17,7 +17,6 @@ import {
 	getPluginsCacheDir,
 	MarketplaceManager,
 } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/marketplace";
-import type { PluginManifest } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/types";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 
 /** The GUI's params object; anything else reads as empty. */
@@ -54,16 +53,15 @@ export async function setExtensionDisabled(
 	session: AgentSession,
 	extensionId: string,
 	enabled: boolean,
-): Promise<void> {
+): Promise<{ enabled: boolean; provenance: string }> {
 	const setting = lookup("disabledExtensions");
 	if (!setting) throw new Error("This omp version has no disabledExtensions setting");
-	const disabled = [...((setting.get(session.settings) as string[] | undefined) ?? [])];
-	const index = disabled.indexOf(extensionId);
-	if (enabled === (index === -1)) return;
-	if (enabled) disabled.splice(index, 1);
-	else disabled.push(extensionId);
-	setting.set(session.settings, disabled);
+	setting.setMember(session.settings, extensionId, { member: !enabled });
 	await session.settings.flush();
+	return {
+		enabled: !((setting.get(session.settings) as string[]).includes(extensionId)),
+		provenance: setting.provenance(session.settings),
+	};
 }
 
 /**
@@ -98,17 +96,10 @@ export type PluginActivation = "live" | "restart-required";
  * session creation, so touching them needs a sidecar restart; commands and
  * skills hot-reload.
  */
-function pluginRequiresRestart(manifest: PluginManifest, enabledFeatures: string[] | null): boolean {
-	for (const key of ["extensions", "tools", "hooks"] as const) {
-		const base = manifest[key];
-		if (Array.isArray(base) ? base.length > 0 : Boolean(base)) return true;
-		for (const [name, feature] of Object.entries(manifest.features ?? {})) {
-			const on = enabledFeatures === null ? feature.default === true : enabledFeatures.includes(name);
-			const entries = feature[key];
-			if (on && entries !== undefined && entries.length > 0) return true;
-		}
-	}
-	return false;
+function pluginRequiresRestart(plugin: ScopedInstalledPlugin): boolean {
+	return (["extensions", "tools", "hooks"] as const).some(
+		key => resolvePluginManifestEntries(plugin, key).length > 0,
+	);
 }
 
 function sameFeatures(left: string[] | null, right: string[] | null): boolean {
@@ -138,8 +129,8 @@ export function classifyPluginActivation(
 			continue;
 		}
 		if (
-			(previous && pluginRequiresRestart(previous.manifest, previous.enabledFeatures)) ||
-			(next && pluginRequiresRestart(next.manifest, next.enabledFeatures))
+			(previous && pluginRequiresRestart(previous)) ||
+			(next && pluginRequiresRestart(next))
 		) {
 			return "restart-required";
 		}

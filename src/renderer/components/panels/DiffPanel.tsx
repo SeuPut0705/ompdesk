@@ -19,7 +19,8 @@ import { useT } from "../../lib/i18n";
 import { PREVIEW_TEXT_CHARS } from "../../lib/preview";
 import { useSessionStore } from "../../stores/session";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
-import { EmptyState, IconButton, Tabs } from "../common";
+import { EmptyState, IconButton, Select } from "../common";
+import { PanelActions, PanelToolbar } from "./PanelChrome";
 import { RepositoryChanges } from "./RepositoryChanges";
 
 const DIFF_TOOLS = new Set(["edit", "apply_patch", "ast_edit", "write"]);
@@ -552,45 +553,47 @@ export function DiffPanel() {
 	);
 
 	const selected = candidates.find(c => c.id === selectedId) ?? candidates[0] ?? null;
+	const sourceSelector = (
+		<Select
+			aria-label={t("diffPanel.title")}
+			controlSize="sm"
+			value={mode}
+			onChange={event => setMode(event.target.value as typeof mode)}
+			options={(["repository", "current", "timeline", "artifacts"] as const).map(value => ({
+				value,
+				label: t(`diffPanel.mode.${value}`),
+			}))}
+		/>
+	);
 
 	return (
 		<div className="flex h-full flex-col">
-			{/* The side-panel tab already says "Changes": the header is just the view switch. */}
-			<div className="flex items-center gap-2 px-3 pt-2.5 pb-2">
-				<Tabs
-					activeId={mode}
-					ariaLabel={t("diffPanel.title")}
-					className="min-w-0 overflow-x-auto"
-					compact
-					onChange={value => setMode(value as typeof mode)}
-					tabs={(["repository", "current", "timeline", "artifacts"] as const).map(value => ({
-						id: value,
-						label: t(`diffPanel.mode.${value}`),
-					}))}
-					variant="segmented"
-				/>
-				{mode === "current" && (
-					<div className="ml-auto flex shrink-0 items-center gap-0.5">
-						<IconButton
-							icon={<Rows3 />}
-							label={t("diffPanel.unified")}
-							onClick={() => setSplit(false)}
-							pressed={!split}
-							size="sm"
-						/>
-						<IconButton
-							icon={<Columns2 />}
-							label={t("diffPanel.split")}
-							onClick={() => setSplit(true)}
-							pressed={split}
-							size="sm"
-						/>
-					</div>
-				)}
-			</div>
+			{mode !== "repository" && (
+				<PanelToolbar>
+					{sourceSelector}
+					{mode === "current" && (
+						<PanelActions>
+							<IconButton
+								icon={<Rows3 />}
+								label={t("diffPanel.unified")}
+								onClick={() => setSplit(false)}
+								pressed={!split}
+								size="sm"
+							/>
+							<IconButton
+								icon={<Columns2 />}
+								label={t("diffPanel.split")}
+								onClick={() => setSplit(true)}
+								pressed={split}
+								size="sm"
+							/>
+						</PanelActions>
+					)}
+				</PanelToolbar>
+			)}
 
 			{mode === "repository" ? (
-				<RepositoryChanges key={sessionId} />
+				<RepositoryChanges key={sessionId} sourceSelector={sourceSelector} />
 			) : candidates.length === 0 ? (
 				<div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
 					<EmptyState

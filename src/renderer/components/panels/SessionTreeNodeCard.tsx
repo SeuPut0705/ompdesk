@@ -63,18 +63,17 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 	return (
 		<div
 			className={cx(
-				"group absolute flex cursor-grab flex-col rounded-(--sc-radius-md) border bg-(--sc-elevated) px-2 py-1.5 transition-colors duration-(--sc-duration-instant)",
-				entry.onActiveBranch ? "border-(--sc-accent-border)" : "border-(--sc-border-subtle) opacity-75",
-				selected && "ring-2 ring-(--sc-info)",
+				"group absolute flex cursor-grab flex-col rounded-(--sc-radius-md) border bg-(--sc-surface-1) px-3 py-2 transition-colors duration-(--sc-duration-fast)",
+				entry.onActiveBranch ? "border-(--sc-border)" : "border-(--sc-border-subtle)",
+				selected && "ring-2 ring-(--sc-focus-ring)",
 			)}
 			data-tree-node={entry.entryId}
+			title={entry.entryId}
 			style={{ left: x, top: y, width: TREE_NODE_WIDTH, height: TREE_NODE_HEIGHT }}
 		>
 			<div className="flex min-w-0 items-center gap-1.5 pr-4">
 				<RoleGlyph role={entry.role} />
-				<span className={cx("shrink-0 text-sc-xs font-semibold tracking-wide uppercase", meta.className)}>
-					{t(meta.labelKey)}
-				</span>
+				<span className={cx("shrink-0 text-sc-xs font-medium", meta.className)}>{t(meta.labelKey)}</span>
 				{entry.timestamp > 0 && (
 					<span
 						className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-subtle)"
@@ -94,7 +93,7 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 					</span>
 				)}
 			</div>
-			<p className="mt-0.5 line-clamp-2 min-h-0 flex-1 text-sc-xs whitespace-pre-wrap text-(--sc-text)">
+			<p className="mt-1 line-clamp-2 min-h-0 flex-1 text-sc-sm whitespace-pre-wrap text-(--sc-text)">
 				{entry.textPreview}
 			</p>
 			{/* Node actions: switch the active leaf here (any node), branch (user
@@ -136,7 +135,7 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 					]}
 					label={t("sessionTree.actions")}
 					size="sm"
-					variant="secondary"
+					variant="ghost"
 				/>
 			</span>
 		</div>

@@ -10,7 +10,6 @@
  */
 import type { Stats } from "node:fs";
 import { stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import * as path from "node:path";
 import type { RpcWorkspaceDirectoriesResult } from "../../shared/rpc-types";
 import { runSlashCommand } from "./slash";
@@ -19,15 +18,8 @@ import { type LocalCommandContext, LocalCommandError, type LocalHandler } from "
 function requirePath(raw: unknown): string {
 	if (typeof raw !== "string" || raw.trim().length === 0) throw new Error("path must be a non-empty string");
 	// The slash line is one line; a newline would end the argument early.
-	if (/[\r\n]/.test(raw)) throw new Error("path must not contain line breaks");
+	if (/[\r\n\0]/.test(raw)) throw new Error("path must not contain line breaks or NUL");
 	return raw.trim();
-}
-
-/** omp's `resolveToCwd`: `~` expansion, then relative to the session cwd. */
-function resolveAgainst(raw: string, cwd: string): string {
-	if (raw === "~") return homedir();
-	if (raw.startsWith("~/") || raw.startsWith("~\\")) return path.join(homedir(), raw.slice(2));
-	return path.resolve(cwd, raw);
 }
 
 function directories(ctx: LocalCommandContext): Promise<RpcWorkspaceDirectoriesResult> {
@@ -53,7 +45,7 @@ export const handlers: Record<string, LocalHandler> = {
 		]);
 		if (state?.isStreaming) throw new LocalCommandError("Cannot move while streaming.", "busy");
 		const previousCwd = before.directories.find(directory => directory.primary)?.path ?? ctx.cwd;
-		const target = resolveAgainst(raw, previousCwd);
+		const { path: target } = await ctx.bridge.request<{ path: string }>("workspace.resolve_path", { path: raw });
 		let info: Stats;
 		try {
 			info = await stat(target);

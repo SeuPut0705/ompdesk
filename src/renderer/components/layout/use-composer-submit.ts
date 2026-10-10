@@ -82,6 +82,7 @@ export function useComposerSubmit({
 			const originMessages = sessionRuntimeStore<MessagesStore>(originTabId, "messages") ?? useMessagesStore;
 			const originSessionId = originSession?.getState().sessionId ?? useSessionStore.getState().sessionId;
 			const originCwd = (originSession?.getState() ?? useSessionStore.getState()).cwd;
+			const originDevice = useTabsStore.getState().tabs.find(tab => tab.id === originTabId)?.device;
 			const originStillActive = () =>
 				originSession
 					? sessionRuntimeStore<ComposerStore>(originTabId, "composer") === originComposer
@@ -154,7 +155,7 @@ export function useComposerSubmit({
 							return;
 						}
 						accepted = true;
-						useInputHistoryStore.getState().record(message, originCwd);
+						useInputHistoryStore.getState().record(message, originCwd, rpc, originDevice);
 						if (!originStillActive()) return;
 						dropReferencedPastes(message);
 						await hydrateTabSession(originTabId);
@@ -204,7 +205,7 @@ export function useComposerSubmit({
 							return;
 						}
 						accepted = true;
-						useInputHistoryStore.getState().record(message, originCwd);
+						useInputHistoryStore.getState().record(message, originCwd, rpc, originDevice);
 						if (!originStillActive()) return;
 						dropReferencedPastes(message);
 						await hydrateTabSession(originTabId);
@@ -284,7 +285,7 @@ export function useComposerSubmit({
 						// Only a fully dispatched shorthand enters history. A partial run
 						// restores the unsent remainder as the draft, so recording the
 						// original would offer ↑ a list whose first items already ran.
-						useInputHistoryStore.getState().record(message, originCwd);
+						useInputHistoryStore.getState().record(message, originCwd, rpc, originDevice);
 						if (originStillActive()) dropReferencedPastes(message);
 					} catch (error) {
 						if (deliveryPending) markUncertain();
@@ -333,7 +334,7 @@ export function useComposerSubmit({
 			});
 			if (submit.kind === "blocked") return;
 			if (submit.kind === "handled") {
-				useInputHistoryStore.getState().record(message, originCwd);
+				useInputHistoryStore.getState().record(message, originCwd, rpc, originDevice);
 				setText("");
 				setImages([]);
 				setMenu(null);
@@ -349,7 +350,7 @@ export function useComposerSubmit({
 				setMenu(null);
 				void clearSessionContext(rpc, () => hydrateTabSession(originTabId)).then(cleared => {
 					if (cleared) {
-						useInputHistoryStore.getState().record(message, originCwd);
+						useInputHistoryStore.getState().record(message, originCwd, rpc, originDevice);
 						if (originStillActive()) dropReferencedPastes(message);
 						return;
 					}
@@ -398,7 +399,7 @@ export function useComposerSubmit({
 							return;
 						}
 						accepted = true;
-						useInputHistoryStore.getState().record(message, originCwd);
+						useInputHistoryStore.getState().record(message, originCwd, rpc, originDevice);
 						if (!originStillActive()) return;
 						dropReferencedPastes(message);
 						await settleComposerResponse(response, () => hydrateTabSession(originTabId));

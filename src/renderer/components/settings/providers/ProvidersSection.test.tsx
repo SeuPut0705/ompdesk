@@ -3,7 +3,8 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CustomProviderView, RemoteState } from "../../../../shared/ipc-types";
+import { fixtureProviderOptions } from "../../../../../e2e/models-config-fixture";
+import type { CustomProvidersConfig, CustomProviderView, RemoteState } from "../../../../shared/ipc-types";
 import type {
 	ModelCatalogUpdateFrame,
 	ProviderAccount,
@@ -21,6 +22,8 @@ import { setFocusedSessionRuntime } from "../../../stores/session-runtime-contex
 import { useTabsStore } from "../../../stores/tabs";
 import { useToastStore } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
+import { SettingsDataProvider } from "../settings-data";
+import { SettingsNavigationProvider } from "../settings-navigation";
 import { ProviderRow } from "./ProviderList";
 import { ProvidersSection } from "./ProvidersSection";
 
@@ -79,7 +82,9 @@ const getProviderAccounts = vi.fn(
 		data: { providerId: "anthropic", accounts: [] },
 	}),
 );
-const listProviders = vi.fn(async (): Promise<CustomProviderView[]> => []);
+const listProviders = vi.fn(
+	async (): Promise<CustomProvidersConfig> => ({ providers: [], options: fixtureProviderOptions }),
+);
 const respondExtensionUi = vi.fn();
 const openExternal = vi.fn(async () => {});
 
@@ -133,7 +138,27 @@ async function typeInto(element: unknown, value: string): Promise<void> {
 async function mount(element: ReactElement): Promise<void> {
 	const root = createRoot(document.body as unknown as Element);
 	await act(async () => {
-		root.render(<I18nProvider>{element}</I18nProvider>);
+		root.render(
+			<I18nProvider>
+				<SettingsNavigationProvider value={() => {}}>
+					<SettingsDataProvider
+						value={{
+							schema: { entries: [], tabs: [] },
+							values: {},
+							loadState: "ready",
+							loadError: null,
+							sidecarReady: true,
+							sidecarBusy: false,
+							advisorActive: undefined,
+							onCommitted: () => {},
+							retry: () => {},
+						}}
+					>
+						{element}
+					</SettingsDataProvider>
+				</SettingsNavigationProvider>
+			</I18nProvider>,
+		);
 	});
 	await act(async () => {
 		await delay(0);
@@ -187,7 +212,7 @@ afterEach(async () => {
 	getProviders.mockReset();
 	getProviders.mockResolvedValue(providersResponse(snapshot([row("anthropic")])));
 	listProviders.mockReset();
-	listProviders.mockResolvedValue([]);
+	listProviders.mockResolvedValue({ providers: [], options: fixtureProviderOptions });
 	logout.mockClear();
 	disconnectProvider.mockClear();
 	getProviderAccounts.mockReset();
@@ -203,7 +228,7 @@ afterEach(async () => {
 });
 
 describe("ProviderRow", () => {
-	const handlers = { onConnect: () => {}, onLogout: () => {}, onEditConfig: () => {}, onDeleteConfig: () => {} };
+	const handlers = { onConnect: () => {}, onLogout: () => {} };
 	const render = (provider: ProviderInfo, config?: CustomProviderView, sidecarReady = true) =>
 		renderToStaticMarkup(
 			<I18nProvider>
@@ -231,12 +256,10 @@ describe("ProviderRow", () => {
 		expect(html).not.toContain(`>${translate("providerList.connect")}<`);
 	});
 
-	it("offers editing rather than sign-out when models.yml supplies the key", () => {
-		// Signing out clears the credential store, but the reload re-installs the
-		// key written in models.yml — a sign-out there can never change the row.
+	it("keeps endpoint editing in the single custom endpoint list, not the account summary", () => {
 		const html = render(row("infronai"), config("infronai"));
-		expect(html).toContain(translate("providers.edit"));
-		expect(html).toContain(translate("providerCfg.list.delete"));
+		expect(html).not.toContain(translate("providers.edit"));
+		expect(html).not.toContain(translate("providerCfg.list.delete"));
 		expect(html).not.toContain(translate("providers.logout"));
 	});
 
@@ -341,7 +364,7 @@ describe("ProvidersSection", () => {
 	});
 
 	it("names a models.yml provider the sidecar lists no models for", async () => {
-		listProviders.mockResolvedValueOnce([config("my-proxy")]);
+		listProviders.mockResolvedValueOnce({ providers: [config("my-proxy")], options: fixtureProviderOptions });
 		getProviders.mockResolvedValueOnce(
 			providersResponse(snapshot([row("anthropic", { modelCount: 4 })], { generation: 5 })),
 		);

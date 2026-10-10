@@ -249,6 +249,12 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		setModelRole: (role: string, modelId: string | null) => rpcCommand({ type: "set_model_role", role, modelId }),
 		getModelRoleMetadata: () => rpcCommand({ type: "get_model_role_metadata" }),
 		getCompactionPoints: () => rpcCommand({ type: "get_compaction_points" }),
+		compactionLimits: (params: { values?: unknown; key?: string; input?: string }) =>
+			rpcCommand({ type: "compaction_limits", ...params }),
+		historyRecent: (limit?: number, cwd?: string) => rpcCommand({ type: "history_recent", limit, cwd }),
+		historySearch: (query: string, limit?: number, cwd?: string) =>
+			rpcCommand({ type: "history_search", query, limit, cwd }),
+		historyRecord: (prompt: string, cwd?: string) => rpcCommand({ type: "history_record", prompt, cwd }),
 		getAvailableCommands: () => rpcCommand({ type: "get_available_commands" }),
 		getSkills: () => rpcCommand({ type: "get_skills" }),
 		getSkillDetail: (name: string) => rpcCommand({ type: "get_skill_detail", name }),

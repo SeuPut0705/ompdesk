@@ -197,7 +197,7 @@ function useHelpItems(): ContextMenuItem[] {
 			label: t("help.features"),
 			icon: Compass,
 			separatorBefore: true,
-			onSelect: () => useUiStore.getState().openSettings("features"),
+			onSelect: () => useUiStore.getState().openSettings("agent"),
 		},
 		{
 			id: "help-whats-new",

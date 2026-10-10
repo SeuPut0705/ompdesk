@@ -5,23 +5,21 @@
  */
 import path from "node:path";
 import { findAllNearestProjectConfigDirs, getConfigDirs } from "@oh-my-pi/pi-coding-agent/config";
-import {
-	formatModelString,
-	resolveAgentModelPatterns,
-	resolveAgentPrewalkPattern,
-	resolveModelOverride,
-} from "@oh-my-pi/pi-coding-agent/config/model-resolver";
+import { formatModelString } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
+import { parseAgentFields, type ParsedAgentFields } from "@oh-my-pi/pi-coding-agent/discovery/helpers";
+import { createAgentsHubDeps } from "@oh-my-pi/pi-coding-agent/modes/agents-hub-deps";
+import { AgentParsingError } from "@oh-my-pi/pi-coding-agent/task/agents";
 import { resolveMemoryBackend } from "@oh-my-pi/pi-coding-agent/memory-backend/resolve";
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
 import { AgentRegistry, MAIN_AGENT_ID } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import { discoverAgents } from "@oh-my-pi/pi-coding-agent/task/discovery";
-import { resolveAgentPrewalkDefault } from "@oh-my-pi/pi-coding-agent/task/prewalk";
 import { BUILTIN_TOOL_NAMES, HIDDEN_TOOL_NAMES } from "@oh-my-pi/pi-coding-agent/tools/builtin-names";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { getAvailableThemesWithPaths, getResolvedThemeColors } from "@oh-my-pi/pi-tui/theme";
+import { parseFrontmatter } from "@oh-my-pi/pi-utils";
 import { guard } from "../health";
 import type { BridgeMethods } from "../types";
-import { errorMessage, paramsOf, readSetting, requireString } from "./shared";
+import { errorMessage, paramsOf, requireString } from "./shared";
 
 /** Where omp's discovery reads `.omp` task agents for this session: the user dir and the nearest project dir (or where it would be). */
 function agentDirs(session: AgentSession): { user: string; project: string } {
@@ -39,46 +37,45 @@ async function discover(session: AgentSession) {
 
 export const methods: BridgeMethods = {
 	...guard("agents", {
+		/** Same field/YAML parser as stock task agents; never writes a file. */
+		validate_agent_definition: async params => {
+			const p = paramsOf(params);
+			const content = requireString(p, "content");
+			const source = typeof p.source === "string" ? p.source : "agent-definition.md";
+			const { frontmatter, body } = parseFrontmatter(content, { location: source, level: "fatal" });
+			const fields = parseAgentFields(frontmatter);
+			if (!fields) {
+				throw new AgentParsingError(new Error(`Invalid agent field: ${source}\n${content}`), source);
+			}
+			return { fields, body };
+		},
 		/** Workspace-visible definitions plus the TUI control center's model/prewalk projection. */
 		get_agent_definitions: async (_params, env) => {
 			const session = env.session();
-			const agents = await discover(session);
+			const hub = createAgentsHubDeps(
+				session.sessionManager.getCwd(),
+				session.settings,
+				session.modelRegistry,
+				() => session.effectiveExtensionRoots,
+				session.model ? formatModelString(session.model) : undefined,
+				session.settings.getModelRole("default"),
+			);
+			const agents = await hub.loadAgents();
 			const dirs = agentDirs(session);
 			const scopeOf = (filePath: string | undefined) => {
 				if (!filePath) return undefined;
 				const parent = path.dirname(path.resolve(filePath));
 				return parent === dirs.project ? "project" : parent === dirs.user ? "user" : undefined;
 			};
-			const activeModelPattern = session.model ? formatModelString(session.model) : undefined;
-			const fallbackModelPattern = session.settings.getModelRole("default");
-			const modelOverrides = readSetting<Record<string, string>>(session, "task.agentModelOverrides") ?? {};
-			const prewalkOverrides = readSetting<Record<string, string>>(session, "task.agentPrewalk") ?? {};
-			const taskPrewalk = readSetting<boolean>(session, "task.prewalk") ?? false;
-			const resolve = (patterns: string[]) => {
-				const result = resolveModelOverride(patterns, session.modelRegistry, session.settings);
-				return {
-					model: result.model ? formatModelString(result.model) : undefined,
-					thinkingLevel: result.thinkingLevel,
-				};
-			};
 			return {
-				agents: agents.map(agent => {
-					const base = {
-						agentModel: agent.model,
-						settings: session.settings,
-						activeModelPattern,
-						fallbackModelPattern,
-					};
-					const defaultPatterns = resolveAgentModelPatterns(base);
-					const effectivePatterns = resolveAgentModelPatterns({
-						...base,
-						settingsOverride: modelOverrides[agent.name],
-					});
-					const effective = resolve(effectivePatterns);
-					const prewalkPattern = resolveAgentPrewalkPattern({
-						settingsOverride: prewalkOverrides[agent.name],
-						agentPrewalk: resolveAgentPrewalkDefault(agent, taskPrewalk),
-					});
+				agents: agents.map(hubAgent => {
+					// loadAgents spreads the definition; HubAgent's public type
+					// omits authoring fields that remain present at runtime.
+					const agent = hubAgent as typeof hubAgent & ParsedAgentFields;
+					const defaultPatterns = hub.effectiveModelPatterns({ ...agent, overrideModel: undefined });
+					const effectivePatterns = hub.effectiveModelPatterns(agent);
+					const effective = hub.resolvePatterns(effectivePatterns);
+					const prewalkPattern = hub.effectivePrewalkPattern(agent);
 					return {
 						name: agent.name,
 						description: agent.description,
@@ -94,14 +91,18 @@ export const methods: BridgeMethods = {
 						readSummarize: agent.readSummarize,
 						prewalk: agent.prewalk,
 						advisor: agent.advisor,
+						disabled: agent.disabled,
+						overrideModel: agent.overrideModel,
+						prewalkOverride: agent.prewalkOverride,
+						advisorOverride: agent.advisorOverride,
+						advisorPattern: hub.effectiveAdvisorPattern(agent),
 						scope: agent.source === "bundled" ? undefined : scopeOf(agent.filePath),
 						defaultPatterns,
-						defaultResolved: resolve(defaultPatterns).model,
+						defaultResolved: hub.resolvePatterns(defaultPatterns),
 						effectivePatterns,
-						effectiveResolved: effective.model,
-						effectiveThinkingLevel: effective.thinkingLevel,
+						effectiveResolved: effective,
 						prewalkPattern,
-						prewalkResolved: prewalkPattern ? resolve([prewalkPattern]).model : undefined,
+						prewalkResolved: prewalkPattern ? hub.resolvePatterns([prewalkPattern]) : undefined,
 					};
 				}),
 			};

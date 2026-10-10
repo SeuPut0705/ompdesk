@@ -36,6 +36,18 @@ describe("normalizePresets", () => {
 		]);
 		expect(normalizePresets(undefined)).toEqual([]);
 	});
+
+	it("uses the same selector, whitespace, and member cap as live bridge pools", () => {
+		const members = [
+			{ selector: " p/m ", name: " First\nmodel ", role: " custom\nrole " },
+			{ selector: "p/m", name: "duplicate", role: "coding" },
+			{ selector: "bad provider/model" },
+			...Array.from({ length: 10 }, (_, index) => ({ selector: `p/m${index}` })),
+		];
+		const [preset] = normalizePresets([{ id: "a", name: "Pool", members }]);
+		expect(preset.members).toHaveLength(8);
+		expect(preset.members[0]).toEqual({ selector: "p/m", name: "First model", role: "custom role" });
+	});
 });
 
 describe("model-pool presets store", () => {

@@ -241,7 +241,7 @@ function RunSettingsPanel({ onClose, onRequestFullAccess }: { onClose: () => voi
 					icon={<SlidersHorizontal aria-hidden className="text-(--sc-text-muted)" />}
 					onClick={() => {
 						onClose();
-						useUiStore.getState().openSettings("models");
+						useUiStore.getState().openSettings("models:roles");
 					}}
 					size="sm"
 					trailingIcon={<ArrowUpRight aria-hidden className="ml-auto text-(--sc-text-subtle)" />}

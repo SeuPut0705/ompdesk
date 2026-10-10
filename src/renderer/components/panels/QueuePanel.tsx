@@ -14,7 +14,8 @@ import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { formatShortcut, onEscape } from "../../lib/keymap";
 import { type QueueLane, useQueuedMessages } from "../../stores/queue";
-import { Badge } from "../common";
+import { Badge, EmptyState, IconButton } from "../common";
+import { PANEL_ROW_SURFACE } from "./PanelChrome";
 import { useQueueActions } from "./use-queue-actions";
 
 interface QueuedRowProps {
@@ -52,13 +53,13 @@ const QueuedRow = memo(function QueuedRow({
 		setEditing(false);
 	};
 	return (
-		<div className="group flex items-start gap-2 rounded-lg border border-(--omp-border-muted) bg-transparent px-2.5 py-2">
+		<div className={`group flex items-start gap-2 ${PANEL_ROW_SURFACE}`}>
 			{editing ? (
 				<div className="min-w-0 flex-1">
 					<textarea
 						aria-label={t("queuePanel.editInput")}
 						autoFocus
-						className="w-full resize-y rounded-md border border-(--omp-input-focus-border) bg-(--omp-input-bg) px-2 py-1 text-omp-md leading-snug text-(--omp-text) outline-none"
+						className="w-full resize-y rounded-(--sc-radius-md) border border-(--sc-accent-border) bg-(--sc-field) px-2 py-1 text-sc-sm leading-(--sc-leading-snug) text-(--sc-text)"
 						onInput={event => setDraft(event.currentTarget.value)}
 						onKeyDown={event => {
 							if (isImeKeyEvent(event)) return;
@@ -75,67 +76,53 @@ const QueuedRow = memo(function QueuedRow({
 						value={draft}
 					/>
 					<div className="mt-1 flex justify-end gap-1">
-						<button
-							aria-label={t("queuePanel.cancelEdit")}
-							className="omp-pressable rounded-sm p-1 text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
+						<IconButton
+							icon={<X />}
+							label={t("queuePanel.cancelEdit")}
 							onClick={() => {
 								setDraft(item.text);
 								setEditing(false);
 							}}
-							title={t("queuePanel.cancelEdit")}
-							type="button"
-						>
-							<X size={12} />
-						</button>
-						<button
-							aria-label={t("queuePanel.saveEdit")}
-							className="omp-pressable rounded-sm p-1 text-(--omp-accent) hover:bg-(--omp-bg-tertiary) disabled:cursor-not-allowed disabled:opacity-40"
+							size="sm"
+						/>
+						<IconButton
+							icon={<Check />}
+							label={t("queuePanel.saveEdit")}
 							disabled={!ready || draft.trim().length === 0}
 							onClick={saveEdit}
-							title={t("queuePanel.saveEditHint", { shortcut: formatShortcut("⌘↵") })}
-							type="button"
-						>
-							<Check size={12} />
-						</button>
+							shortcut={formatShortcut("⌘↵")}
+							size="sm"
+						/>
 					</div>
 				</div>
 			) : (
 				<>
-					<span className="min-w-0 flex-1 whitespace-pre-wrap break-words py-1 text-omp-md leading-snug text-(--omp-text)">
+					<span className="min-w-0 flex-1 whitespace-pre-wrap break-words py-1 text-sc-sm leading-(--sc-leading-normal) text-(--sc-text)">
 						{item.text || "…"}
 					</span>
 					{item.editable && (
-						<button
-							aria-label={t("queuePanel.edit")}
-							className="omp-pressable mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
+						<IconButton
+							icon={<Pencil />}
+							label={t("queuePanel.edit")}
 							disabled={!ready}
 							onClick={() => setEditing(true)}
-							title={t("queuePanel.edit")}
-							type="button"
-						>
-							<Pencil size={14} />
-						</button>
+							size="sm"
+						/>
 					)}
-					<button
-						aria-label={moveLabel}
-						className="omp-pressable mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
+					<IconButton
+						icon={<MoveIcon />}
+						label={moveLabel}
 						disabled={!ready}
 						onClick={() => onMoveToLane(lane, item.id)}
-						title={!ready ? t("common.notConnected") : moveLabel}
-						type="button"
-					>
-						<MoveIcon size={14} />
-					</button>
-					<button
-						aria-label={removeLabel}
-						className="omp-pressable mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-error)"
+						size="sm"
+					/>
+					<IconButton
+						icon={<X />}
+						label={removeLabel}
 						disabled={!ready}
 						onClick={() => onRemove(lane, item.id)}
-						title={!ready ? t("common.notConnected") : removeLabel}
-						type="button"
-					>
-						<X size={14} />
-					</button>
+						size="sm"
+					/>
 				</>
 			)}
 		</div>
@@ -163,7 +150,7 @@ function LaneSection({
 	return (
 		<section className="mb-3">
 			<div className="flex items-center gap-1.5 px-2 py-1.5">
-				<span className="min-w-0 flex-1 truncate text-omp-sm font-semibold tracking-wide text-(--omp-accent) uppercase">
+				<span className="min-w-0 flex-1 truncate text-sc-sm font-medium text-(--sc-text-muted)">
 					{t(lane === "steering" ? "queuePanel.lane.steering" : "queuePanel.lane.followUp")}
 				</span>
 				<Badge variant="muted">{items.length}</Badge>
@@ -220,11 +207,12 @@ export function QueuePanel() {
 			)}
 			<div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
 				{total === 0 ? (
-					<div className="px-3 py-8 text-center text-omp-sm leading-relaxed text-(--omp-dim)">
-						{t("queuePanel.empty")}
-						<br />
-						{t("queuePanel.emptyHint")}
-					</div>
+					<EmptyState
+						icon={<ListX />}
+						size="sm"
+						title={t("queuePanel.empty")}
+						description={t("queuePanel.emptyHint")}
+					/>
 				) : (
 					<>
 						<LaneSection

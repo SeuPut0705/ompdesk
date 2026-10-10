@@ -1,5 +1,8 @@
 /**
  * NDJSON framing and v2 chunk reassembly for the RPC sidecar stdout stream.
+ * Kept instead of stock pi-coding-agent/modes/rpc/rpc-frame RpcFrameDecoder:
+ * Electron must decode before the Bun-only omp bridge exists; the installed
+ * stock source graph is not a shipped Node-compatible dependency.
  */
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";

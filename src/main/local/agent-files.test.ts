@@ -2,8 +2,10 @@ import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { emptyAgentDraft, parseAgentMarkdown, serializeAgentMarkdown } from "../../shared/agent-definition";
+import { parse } from "yaml";
+import { emptyAgentDraft, serializeAgentMarkdown, splitFrontmatter } from "../../shared/agent-definition";
 import { AGENT_TEMPLATES } from "../../shared/agent-templates";
+import type { RpcParsedAgentDefinition } from "../../shared/rpc-types";
 import {
 	type AgentDirs,
 	deleteAgentFile,
@@ -15,6 +17,15 @@ import {
 
 function agent(name: string, body = "Do the thing."): string {
 	return serializeAgentMarkdown({ ...emptyAgentDraft(), name, description: `${name} agent`, instructions: body });
+}
+
+// Filesystem tests inject the bridge boundary; stock parsing is exercised by
+// agent-studio-stock.e2e.ts, not duplicated inside the production writer.
+async function validate(content: string): Promise<RpcParsedAgentDefinition> {
+	const { frontmatter, body } = splitFrontmatter(content);
+	const fields = parse(frontmatter ?? "") as RpcParsedAgentDefinition["fields"];
+	if (!fields.name || !fields.description) throw new Error("Invalid agent field");
+	return { fields, body };
 }
 
 let root: string;
@@ -34,72 +45,108 @@ afterEach(async () => {
 
 describe("writeAgentFile", () => {
 	it("creates <dir>/<name>.md (and the directory) without temp leftovers", async () => {
-		const result = await writeAgentFile(dirs, { scope: "project", name: "helper", content: agent("helper") });
+		const result = await writeAgentFile(
+			dirs,
+			{ scope: "project", name: "helper", content: agent("helper") },
+			validate,
+		);
 		expect(result.filePath).toBe(path.join(dirs.project, "helper.md"));
 		expect(await readFile(result.filePath, "utf8")).toBe(agent("helper"));
 		expect(await readdir(dirs.project)).toEqual(["helper.md"]);
 	});
 
 	it("never replaces another agent's file", async () => {
-		await writeAgentFile(dirs, { scope: "user", name: "helper", content: agent("helper", "first") });
+		await writeAgentFile(dirs, { scope: "user", name: "helper", content: agent("helper", "first") }, validate);
 		await expect(
-			writeAgentFile(dirs, { scope: "user", name: "helper", content: agent("helper", "second") }),
+			writeAgentFile(dirs, { scope: "user", name: "helper", content: agent("helper", "second") }, validate),
 		).rejects.toMatchObject({ code: "exists" });
 		expect(await readFile(path.join(dirs.user, "helper.md"), "utf8")).toContain("first");
 		expect(await readdir(dirs.user)).toEqual(["helper.md"]);
 	});
 
 	it("overwrites the file being edited in place", async () => {
-		const { filePath } = await writeAgentFile(dirs, { scope: "user", name: "helper", content: agent("helper") });
-		await writeAgentFile(dirs, {
-			scope: "user",
-			name: "helper",
-			content: agent("helper", "edited"),
-			replacePath: filePath,
-		});
+		const { filePath } = await writeAgentFile(
+			dirs,
+			{ scope: "user", name: "helper", content: agent("helper") },
+			validate,
+		);
+		await writeAgentFile(
+			dirs,
+			{
+				scope: "user",
+				name: "helper",
+				content: agent("helper", "edited"),
+				replacePath: filePath,
+			},
+			validate,
+		);
 		expect(await readFile(filePath, "utf8")).toContain("edited");
 	});
 
 	it("renames and moves between scopes by writing the new file, then removing the old one", async () => {
-		const { filePath } = await writeAgentFile(dirs, { scope: "user", name: "helper", content: agent("helper") });
-		const renamed = await writeAgentFile(dirs, {
-			scope: "project",
-			name: "helper2",
-			content: agent("helper2"),
-			replacePath: filePath,
-		});
+		const { filePath } = await writeAgentFile(
+			dirs,
+			{ scope: "user", name: "helper", content: agent("helper") },
+			validate,
+		);
+		const renamed = await writeAgentFile(
+			dirs,
+			{
+				scope: "project",
+				name: "helper2",
+				content: agent("helper2"),
+				replacePath: filePath,
+			},
+			validate,
+		);
 		expect(renamed.filePath).toBe(path.join(dirs.project, "helper2.md"));
 		expect(await readdir(dirs.user)).toEqual([]);
 	});
 
 	it("refuses names that are reserved, malformed or traverse paths", async () => {
 		for (const name of ["main", "../escape", "a/b", "", ".hidden"]) {
-			await expect(writeAgentFile(dirs, { scope: "user", name, content: agent("x") })).rejects.toMatchObject({
+			await expect(
+				writeAgentFile(dirs, { scope: "user", name, content: agent("x") }, validate),
+			).rejects.toMatchObject({
 				code: "invalid_name",
 			});
 		}
-		await expect(writeAgentFile(dirs, { scope: "elsewhere", name: "x", content: agent("x") })).rejects.toMatchObject({
+		await expect(
+			writeAgentFile(dirs, { scope: "elsewhere", name: "x", content: agent("x") }, validate),
+		).rejects.toMatchObject({
 			code: "invalid_scope",
 		});
 	});
 
-	it("refuses content omp would not load as this agent", async () => {
-		await expect(writeAgentFile(dirs, { scope: "user", name: "x", content: agent("y") })).rejects.toMatchObject({
+	it("refuses a name mismatch and propagates validator failures", async () => {
+		await expect(
+			writeAgentFile(dirs, { scope: "user", name: "x", content: agent("y") }, validate),
+		).rejects.toMatchObject({
 			code: "invalid_content",
 		});
 		await expect(
-			writeAgentFile(dirs, { scope: "user", name: "x", content: "---\nname: x\n---\nno description" }),
+			writeAgentFile(dirs, { scope: "user", name: "x", content: "---\nname: x\n---\nno description" }, validate),
 		).rejects.toMatchObject({ code: "invalid_content" });
 		await expect(
-			writeAgentFile(dirs, { scope: "user", name: "x", content: "---\nname: [x\n---\nbroken" }),
+			writeAgentFile(dirs, { scope: "user", name: "x", content: "---\nname: [x\n---\nbroken" }, validate),
 		).rejects.toMatchObject({ code: "invalid_content" });
+	});
+
+	it("preserves bridge validation errors and writes nothing before validation", async () => {
+		const error = new Error("stock validation failure");
+		await expect(
+			writeAgentFile(dirs, { scope: "user", name: "x", content: agent("x") }, async () => {
+				throw error;
+			}),
+		).rejects.toMatchObject({ code: "invalid_content", message: error.message });
+		expect(await readdir(dirs.user).catch(() => [])).toEqual([]);
 	});
 
 	it("refuses a replacePath outside the agent directories", async () => {
 		const outside = path.join(root, "outside.md");
 		await writeFile(outside, agent("x"));
 		await expect(
-			writeAgentFile(dirs, { scope: "user", name: "x", content: agent("x"), replacePath: outside }),
+			writeAgentFile(dirs, { scope: "user", name: "x", content: agent("x"), replacePath: outside }, validate),
 		).rejects.toMatchObject({ code: "path_outside" });
 		expect(await readFile(outside, "utf8")).toBe(agent("x"));
 	});
@@ -135,7 +182,11 @@ describe("locate / read / delete", () => {
 	});
 
 	it("reads and deletes inside, refuses outside", async () => {
-		const { filePath } = await writeAgentFile(dirs, { scope: "project", name: "gone", content: agent("gone") });
+		const { filePath } = await writeAgentFile(
+			dirs,
+			{ scope: "project", name: "gone", content: agent("gone") },
+			validate,
+		);
 		expect((await readAgentFile(dirs, filePath)).content).toBe(agent("gone"));
 		await deleteAgentFile(dirs, filePath);
 		expect(await readdir(dirs.project)).toEqual([]);
@@ -152,27 +203,25 @@ describe("installAgentTemplates", () => {
 		const mine = path.join(dirs.user, "debugger.md");
 		await writeFile(mine, agent("debugger", "my own debugger"));
 
-		const first = await installAgentTemplates(dirs.user);
+		const first = await installAgentTemplates(dirs.user, validate);
 		expect(first.skipped).toEqual(["debugger"]);
 		expect(first.installed).toHaveLength(AGENT_TEMPLATES.length - 1);
 		expect(await readFile(mine, "utf8")).toContain("my own debugger");
 
-		const second = await installAgentTemplates(dirs.user);
+		const second = await installAgentTemplates(dirs.user, validate);
 		expect(second.installed).toEqual([]);
 		expect(second.skipped).toHaveLength(AGENT_TEMPLATES.length);
 
 		for (const template of AGENT_TEMPLATES.filter(entry => entry.name !== "debugger")) {
-			const { draft, error } = parseAgentMarkdown(
-				await readFile(path.join(dirs.user, `${template.name}.md`), "utf8"),
-			);
-			expect(error).toBeUndefined();
-			expect(draft.name).toBe(template.name);
-			expect(draft.tools).toEqual(template.tools);
+			const { frontmatter } = splitFrontmatter(await readFile(path.join(dirs.user, `${template.name}.md`), "utf8"));
+			const fields = parse(frontmatter ?? "");
+			expect(fields.name).toBe(template.name);
+			expect(fields.tools).toEqual(template.tools);
 		}
 	});
 
 	it("installs a named subset", async () => {
-		const result = await installAgentTemplates(dirs.project, ["frontend", "nope"]);
+		const result = await installAgentTemplates(dirs.project, validate, ["frontend", "nope"]);
 		expect(result.installed).toEqual(["frontend"]);
 		expect(await readdir(dirs.project)).toEqual(["frontend.md"]);
 	});

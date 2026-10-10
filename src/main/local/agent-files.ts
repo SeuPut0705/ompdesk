@@ -15,18 +15,14 @@
 import { randomBytes } from "node:crypto";
 import { promises as fsp } from "node:fs";
 import path from "node:path";
-import {
-	agentFileName,
-	agentNameError,
-	parseAgentMarkdown,
-	serializeAgentMarkdown,
-} from "../../shared/agent-definition";
+import { agentFileName, agentNameError, serializeAgentMarkdown } from "../../shared/agent-definition";
 import { AGENT_TEMPLATES, templateDraft } from "../../shared/agent-templates";
 import type {
 	AgentFileScope,
 	RpcAgentAuthoringInfo,
 	RpcAgentFileContent,
 	RpcAgentTemplatesInstallResult,
+	RpcParsedAgentDefinition,
 } from "../../shared/rpc-types";
 import { type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
 
@@ -103,7 +99,11 @@ export interface WriteAgentFileParams {
  * overwrites; a new name or scope creates the new file first, then removes
  * the old one.
  */
-export async function writeAgentFile(dirs: AgentDirs, params: WriteAgentFileParams): Promise<{ filePath: string }> {
+export async function writeAgentFile(
+	dirs: AgentDirs,
+	params: WriteAgentFileParams,
+	validate: (content: string, source: string) => Promise<RpcParsedAgentDefinition>,
+): Promise<{ filePath: string }> {
 	const scope = scopeOf(params.scope);
 	if (typeof params.name !== "string") throw new LocalCommandError("`name` must be a string.", "invalid_name");
 	const name = params.name.trim();
@@ -115,12 +115,16 @@ export async function writeAgentFile(dirs: AgentDirs, params: WriteAgentFilePara
 	if (Buffer.byteLength(content, "utf8") > MAX_AGENT_FILE_BYTES) {
 		throw new LocalCommandError("The agent file is too large.", "invalid_content");
 	}
-	const parsed = parseAgentMarkdown(content);
-	if (parsed.error) throw new LocalCommandError(`Frontmatter is not valid YAML: ${parsed.error}`, "invalid_content");
-	if (parsed.draft.name !== name) {
+	const source = path.join(path.resolve(dirs[scope]), agentFileName(name));
+	let parsed: RpcParsedAgentDefinition;
+	try {
+		parsed = await validate(content, source);
+	} catch (cause) {
+		throw new LocalCommandError(cause instanceof Error ? cause.message : String(cause), "invalid_content");
+	}
+	if (parsed.fields.name !== name) {
 		throw new LocalCommandError("The frontmatter name does not match the file name.", "invalid_content");
 	}
-	if (!parsed.draft.description) throw new LocalCommandError("The description is required.", "invalid_content");
 
 	const dir = path.resolve(dirs[scope]);
 	const target = path.join(dir, agentFileName(name));
@@ -155,6 +159,7 @@ export async function deleteAgentFile(dirs: AgentDirs, filePath: unknown): Promi
  */
 export async function installAgentTemplates(
 	dir: string,
+	validate: (content: string, source: string) => Promise<RpcParsedAgentDefinition>,
 	names?: readonly string[],
 ): Promise<RpcAgentTemplatesInstallResult> {
 	const wanted = names ? AGENT_TEMPLATES.filter(template => names.includes(template.name)) : AGENT_TEMPLATES;
@@ -164,6 +169,7 @@ export async function installAgentTemplates(
 	const skipped: string[] = [];
 	for (const template of wanted) {
 		const content = serializeAgentMarkdown(templateDraft(template));
+		await validate(content, path.join(resolved, agentFileName(template.name)));
 		try {
 			await atomicWrite(path.join(resolved, agentFileName(template.name)), content, true);
 			installed.push(template.name);
@@ -181,15 +187,33 @@ async function agentDirs(ctx: LocalCommandContext): Promise<AgentDirs> {
 }
 
 export const handlers: Record<string, LocalHandler> = {
-	read_agent_file: async (command, ctx) => readAgentFile(await agentDirs(ctx), command.filePath),
+	read_agent_file: async (command, ctx) => {
+		const file = await readAgentFile(await agentDirs(ctx), command.filePath);
+		try {
+			const parsed = await ctx.bridge.request<RpcParsedAgentDefinition>("validate_agent_definition", {
+				content: file.content,
+				source: file.filePath,
+			});
+			return { ...file, parsed };
+		} catch (cause) {
+			return { ...file, parseError: cause instanceof Error ? cause.message : String(cause) };
+		}
+	},
 	write_agent_file: async ({ scope, name, content, replacePath }, ctx) =>
-		writeAgentFile(await agentDirs(ctx), { scope, name, content, replacePath }),
+		writeAgentFile(await agentDirs(ctx), { scope, name, content, replacePath }, (text, source) =>
+			ctx.bridge.request<RpcParsedAgentDefinition>("validate_agent_definition", { content: text, source }),
+		),
 	delete_agent_file: async (command, ctx) => deleteAgentFile(await agentDirs(ctx), command.filePath),
 	install_agent_templates: async (command, ctx) => {
 		const dirs = await agentDirs(ctx);
 		const names = Array.isArray(command.names)
 			? command.names.filter((name): name is string => typeof name === "string")
 			: undefined;
-		return installAgentTemplates(dirs[scopeOf(command.scope)], names);
+		return installAgentTemplates(
+			dirs[scopeOf(command.scope)],
+			(text, source) =>
+				ctx.bridge.request<RpcParsedAgentDefinition>("validate_agent_definition", { content: text, source }),
+			names,
+		);
 	},
 };

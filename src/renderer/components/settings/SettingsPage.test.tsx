@@ -10,12 +10,19 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { SettingEntry } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useUiStore } from "../../stores/ui";
-import { SchemaTabSettings } from "./AdvancedSection";
 import { GeneralSection } from "./GeneralSection";
+import { OwnedSchemaSettings } from "./OwnedSchemaSettings";
 import { SchemaSettingRow } from "./SchemaSettingRow";
 import { SettingsConnectionBanner } from "./SettingsPage";
-import { resolveSettingsTarget } from "./settings-catalog";
+import {
+	CURATED_SCHEMA_ROWS,
+	CUSTOM_SCHEMA_EDITORS,
+	resolveSettingsTarget,
+	SETTINGS_SECTION_IDS,
+	schemaSettingsOwner,
+} from "./settings-catalog";
 import { type SettingsData, SettingsDataProvider } from "./settings-data";
+import { SettingsNavigationProvider } from "./settings-navigation";
 import { groupSchemaEntries, isSettingVisibleInGui } from "./settings-schema-utils";
 import { searchSettings } from "./settings-search";
 
@@ -37,7 +44,9 @@ function withData(entries: SettingEntry[], values: Record<string, unknown>, chil
 	};
 	return (
 		<I18nProvider>
-			<SettingsDataProvider value={data}>{children}</SettingsDataProvider>
+			<SettingsNavigationProvider value={() => {}}>
+				<SettingsDataProvider value={data}>{children}</SettingsDataProvider>
+			</SettingsNavigationProvider>
 		</I18nProvider>
 	);
 }
@@ -45,10 +54,25 @@ function withData(entries: SettingEntry[], values: Record<string, unknown>, chil
 function renderSchemaTab(
 	entries: SettingEntry[],
 	tabId: string,
-	groups: string[],
+	_groups: string[],
 	values: Record<string, unknown> = {},
 ): string {
-	return renderToStaticMarkup(withData(entries, values, <SchemaTabSettings groups={groups} tabId={tabId} />));
+	return renderToStaticMarkup(
+		withData(
+			entries.filter(item => item.tab === tabId),
+			values,
+			<>
+				{SETTINGS_SECTION_IDS.map(section => (
+					<OwnedSchemaSettings key={section} section={section} />
+				))}
+				{entries
+					.filter(item => item.tab === tabId && CURATED_SCHEMA_ROWS[item.path])
+					.map(item => (
+						<SchemaSettingRow key={item.path} entry={item} value={values[item.path]} onCommitted={() => {}} />
+					))}
+			</>,
+		),
+	);
 }
 
 afterEach(() => {
@@ -59,24 +83,24 @@ describe("resolveSettingsTarget", () => {
 	it("maps section and section:sub targets", () => {
 		expect(resolveSettingsTarget(undefined)).toEqual({ section: "general" });
 		expect(resolveSettingsTarget("keyboard")).toEqual({ section: "keyboard", sub: undefined });
-		expect(resolveSettingsTarget("extensions:mcp")).toEqual({ section: "extensions", sub: "mcp" });
-		expect(resolveSettingsTarget("plugins:marketplaces")).toEqual({ section: "plugins", sub: "marketplaces" });
-		expect(resolveSettingsTarget("advanced:model")).toEqual({ section: "advanced", sub: "model" });
+		expect(resolveSettingsTarget("tools:mcp")).toEqual({ section: "tools", sub: "mcp" });
+		expect(resolveSettingsTarget("tools:marketplaces")).toEqual({ section: "tools", sub: "marketplaces" });
+		expect(resolveSettingsTarget("agent:context")).toEqual({ section: "agent", sub: "context" });
 	});
 
-	it("sends bare agent schema tabs to their Advanced category and providers to Models", () => {
-		expect(resolveSettingsTarget("context")).toEqual({ section: "advanced", sub: "context" });
-		expect(resolveSettingsTarget("providers")).toEqual({ section: "models" });
+	it("rejects obsolete aliases instead of retaining a second route convention", () => {
+		expect(resolveSettingsTarget("context")).toEqual({ section: "general" });
+		expect(resolveSettingsTarget("providers")).toEqual({ section: "general" });
 		expect(resolveSettingsTarget("nonsense")).toEqual({ section: "general" });
 	});
 });
 
 describe("openSettings routing", () => {
 	it("deep-links a section and keeps it when ⌘, lands on the open page", () => {
-		useUiStore.getState().openSettings("extensions:skills");
-		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "extensions:skills" });
+		useUiStore.getState().openSettings("tools:skills");
+		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "tools:skills" });
 		useUiStore.getState().openSettings();
-		expect(useUiStore.getState().settingsTab).toBe("extensions:skills");
+		expect(useUiStore.getState().settingsTab).toBe("tools:skills");
 		useUiStore.getState().setSettingsSection("appearance");
 		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "appearance" });
 	});
@@ -254,7 +278,6 @@ describe("schema tab translations", () => {
 	it("renders group titles and setting text in Korean when lang is ko, with English fallback", () => {
 		inLanguage("ko-KR", () => {
 			const html = renderSchemaTab(entries, "appearance", ["Theme"]);
-			expect(html).toContain(">테마</h3>");
 			expect(html).toContain("자동 압축");
 			expect(html).toContain(">Undeclared</h3>");
 			expect(html).toContain("Mystery Setting");
@@ -264,7 +287,6 @@ describe("schema tab translations", () => {
 
 	it("renders the schema's English text when lang is en", () => {
 		const html = renderSchemaTab(entries, "appearance", ["Theme"]);
-		expect(html).toContain(">Theme</h3>");
 		expect(html).toContain("Auto Compaction");
 		expect(html).toContain("Compact when context grows");
 	});
@@ -302,11 +324,11 @@ describe("SchemaSettingRow", () => {
 });
 
 describe("GeneralSection", () => {
-	it("gives compaction its own heading and drops a heading whose rows this omp lacks", () => {
+	it("keeps host settings out of this device's section", () => {
 		const html = renderToStaticMarkup(withData([entry({ path: "compaction.enabled" })], {}, <GeneralSection />));
-		expect(html).toContain(`>${translate("settings.general.context")}</h3>`);
-		expect(html).toContain('id="setting-compaction.enabled"');
-		expect(html).not.toContain(translate("settings.general.messages"));
+		expect(html).not.toContain('id="setting-compaction.enabled"');
+		expect(html).toContain('id="setting-gui-proxy"');
+		expect(html).toContain('id="setting-gui-titleState"');
 	});
 });
 
@@ -340,22 +362,34 @@ describe("searchSettings", () => {
 			schemaLabel: e => e.label ?? e.path,
 		});
 
-	it("routes curated rows to their section and every schema entry to Advanced", () => {
-		const results = search("compaction.enabled");
-		expect(results.find(result => result.key === "curated:compaction.enabled")).toMatchObject({
-			target: "general",
-			rowId: "setting-compaction.enabled",
-		});
-		expect(results.find(result => result.key === "schema:compaction.enabled")).toMatchObject({
-			target: "advanced:context",
-		});
-		expect(search("mystery")[0]).toMatchObject({ target: "advanced:other", rowId: "setting-mystery.flag" });
+	it("returns one canonical result per key and preserves the future-schema fallback", () => {
+		const results = search("compaction.enabled").filter(result => result.path === "compaction.enabled");
+		expect(results).toHaveLength(1);
+		expect(results[0]).toMatchObject({ target: "agent", rowId: "setting-compaction.enabled" });
+		expect(search("mystery")[0]).toMatchObject({ target: "advanced", rowId: "setting-mystery.flag" });
+	});
+
+	it("gives structured editors a canonical route and precise anchor", () => {
+		for (const [path, editor] of Object.entries(CUSTOM_SCHEMA_EDITORS)) {
+			const results = searchSettings({
+				query: path,
+				t: key => translate(key),
+				entries: [entry({ path })],
+				values: {},
+				schemaTabLabel: id => id,
+				schemaLabel: item => item.path,
+			});
+			expect(results.filter(result => result.path === path)).toEqual([
+				expect.objectContaining({ target: `${editor.section}:${editor.sub}`, rowId: editor.rowId }),
+			]);
+			expect(schemaSettingsOwner({ path })).toBe(editor.section);
+		}
 	});
 
 	it("finds renderer preferences and sections in any UI language, title prefix first", () => {
 		expect(search("테마")[0]).toMatchObject({ target: "appearance" });
-		expect(search("proxy").some(result => result.target === "advanced:launch")).toBe(true);
-		expect(search("mcp").some(result => result.key === "section:extensions")).toBe(true);
+		expect(search("proxy").some(result => result.target === "general")).toBe(true);
+		expect(search("mcp").some(result => result.key === "section:tools")).toBe(true);
 		expect(search("")).toEqual([]);
 	});
 });

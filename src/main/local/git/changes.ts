@@ -46,10 +46,22 @@ export async function getGitChanges(cwd: string): Promise<RpcGitChanges> {
 	const root = await repoRoot(cwd);
 	if (!root) return { isRepo: false, root: null, base: null, files: [], truncated: false };
 	const base = await headSha(root);
-	const [status, changed] = await Promise.all([
+	const [status, changed, numstat] = await Promise.all([
 		git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
 		base ? git(root, ["diff", "--name-only", "-z", "--no-renames", base]) : Promise.resolve(null),
+		base ? git(root, ["diff", "--numstat", "-z", "--find-renames", "--no-ext-diff", base]) : Promise.resolve(""),
 	]);
+	const counts = new Map<string, { added: number; removed: number }>();
+	const records = numstat.split("\0");
+	for (let index = 0; index < records.length; index++) {
+		const match = /^(\d+|-)\t(\d+|-)\t([\s\S]*)$/.exec(records[index]!);
+		if (!match) continue;
+		// With -z, a renamed path is an empty field followed by old/new NUL records.
+		const filePath = match[3] || records[index + 2];
+		if (!match[3]) index += 2;
+		if (filePath && match[1] !== "-" && match[2] !== "-")
+			counts.set(filePath, { added: Number(match[1]), removed: Number(match[2]) });
+	}
 	// Net change vs HEAD: a file staged then reverted in the worktree shows in status but not here.
 	const net = changed === null ? null : new Set(changed.split("\0").filter(Boolean));
 	const files = parseGitStatus(status)
@@ -61,7 +73,12 @@ export async function getGitChanges(cwd: string): Promise<RpcGitChanges> {
 					? net.has(entry.path) || (entry.oldPath !== undefined && net.has(entry.oldPath))
 					: entry.worktree !== "D"),
 		)
-		.map(entry => ({ path: entry.path, oldPath: entry.oldPath, status: `${entry.index}${entry.worktree}` }));
+		.map(entry => ({
+			path: entry.path,
+			oldPath: entry.oldPath,
+			status: `${entry.index}${entry.worktree}`,
+			...counts.get(entry.path),
+		}));
 	return {
 		isRepo: true,
 		root,

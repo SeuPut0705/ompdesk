@@ -22,10 +22,8 @@ import {
 	Keyboard,
 	type LucideIcon,
 	MonitorSmartphone,
-	Package,
 	Palette,
 	RefreshCw,
-	Server,
 	ShieldCheck,
 	SlidersHorizontal,
 	Sparkles,
@@ -41,21 +39,26 @@ import { useUiStore } from "../../stores/ui";
 import { Banner, Button, EmptyState, ListRow, SearchField } from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
 import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
-import { AdvancedSection } from "./AdvancedSection";
+import { AgentSection } from "./AgentSection";
 import { AppearanceSection } from "./AppearanceSection";
 import { ExtensionsSection } from "./ExtensionsSection";
-import { FeaturesSection } from "./FeaturesSection";
 import { GeneralSection } from "./GeneralSection";
 import { KeyboardSection } from "./KeyboardSection";
+import { LaunchProfileSection } from "./LaunchSettings";
 import { ModelsSection } from "./ModelsSection";
+import { OtherExtensionIds } from "./OtherExtensionIds";
+import { OwnedSchemaSettings } from "./OwnedSchemaSettings";
 import { PermissionsSection } from "./PermissionsSection";
 import { PluginsSection } from "./PluginsSection";
 import { RemoteSection } from "./RemoteSection";
+import { SettingsScopeProvider, SettingsSection } from "./SettingsLayout";
 import { SshSection } from "./SshSection";
 import { schemaSettingText } from "./schema-i18n";
 import {
+	CUSTOM_SCHEMA_EDITORS,
 	EXTENSIONS_TABS,
 	type ExtensionsTab,
+	GUI_SEARCH_ITEMS,
 	PLUGINS_TABS,
 	type PluginsTab,
 	resolveSettingsTarget,
@@ -75,27 +78,25 @@ const SECTION_ICONS: Record<SettingsSectionId, LucideIcon> = {
 	keyboard: Keyboard,
 	models: Bot,
 	permissions: ShieldCheck,
-	features: Sparkles,
-	extensions: Blocks,
-	plugins: Package,
+	agent: Sparkles,
+	tools: Blocks,
 	workspace: FolderOpen,
-	ssh: Server,
-	remote: MonitorSmartphone,
+	connections: MonitorSmartphone,
 	updates: HardDriveDownload,
 	advanced: Wrench,
 };
 
 /** Sections whose content comes from the agent: they explain a missing omp connection. */
 const AGENT_SECTIONS: Partial<Record<SettingsSectionId, true>> = {
-	general: true,
+	agent: true,
 	models: true,
 	permissions: true,
-	features: true,
+	tools: true,
 	advanced: true,
 };
 
 /** List sections filter their own rows with the page search instead of showing global results. */
-const LIST_SECTIONS: Partial<Record<SettingsSectionId, true>> = { keyboard: true, extensions: true, plugins: true };
+const LIST_SECTIONS: Partial<Record<SettingsSectionId, true>> = { keyboard: true };
 
 export function SettingsConnectionBanner({
 	status,
@@ -191,7 +192,16 @@ export function SettingsPage() {
 	// Deep links and search results scroll to their row once it has rendered (schema rows arrive after load).
 	// biome-ignore lint/correctness/useExhaustiveDependencies: loadState re-runs the lookup when schema rows mount.
 	useEffect(() => {
-		const id = focusRowId ?? (section === "models" && sub ? `settings-models-${sub}` : null);
+		const id =
+			focusRowId ??
+			(sub
+				? (GUI_SEARCH_ITEMS.find(item => item.section === section && item.sub === sub)?.rowId ??
+					Object.values(CUSTOM_SCHEMA_EDITORS).find(editor => editor.section === section && editor.sub === sub)
+						?.rowId ??
+					(section === "tools"
+						? `settings-tools-${PLUGINS_TABS.includes(sub as PluginsTab) ? "plugins" : "extensions"}`
+						: `settings-${section}-${sub}`))
+				: null);
 		if (!id || query) return;
 		const frame = requestAnimationFrame(() => {
 			const target = document.getElementById(id);
@@ -257,29 +267,69 @@ export function SettingsPage() {
 			case "models":
 				return <ModelsSection sub={sub} />;
 			case "permissions":
-				return <PermissionsSection />;
-			case "features":
-				return <FeaturesSection />;
-			case "extensions":
 				return (
-					<ExtensionsSection
-						onTabChange={tab => navigate(`extensions:${tab}`)}
-						query={query}
-						tab={extensionsTab}
-					/>
+					<>
+						<PermissionsSection />
+						<OwnedSchemaSettings section="permissions" />
+					</>
 				);
-			case "plugins":
-				return <PluginsSection onTabChange={tab => navigate(`plugins:${tab}`)} query={query} tab={pluginsTab} />;
+			case "agent":
+				return <AgentSection />;
+			case "tools":
+				return (
+					<>
+						<SettingsSection id="settings-tools-tools" title={t("settings.features.tools")}>
+							<OwnedSchemaSettings section="tools" />
+						</SettingsSection>
+						<SettingsSection id="settings-tools-extensions" title={t("settings.section.extensions")}>
+							<ExtensionsSection
+								onTabChange={tab => navigate(`tools:${tab}`)}
+								query={query}
+								tab={extensionsTab}
+							/>
+							<OtherExtensionIds />
+						</SettingsSection>
+						<SettingsSection id="settings-tools-plugins" title={t("settings.section.plugins")}>
+							<PluginsSection onTabChange={tab => navigate(`tools:${tab}`)} query={query} tab={pluginsTab} />
+						</SettingsSection>
+					</>
+				);
 			case "workspace":
-				return <WorkspaceSection />;
-			case "ssh":
-				return <SshSection />;
-			case "remote":
-				return <RemoteSection />;
+				return (
+					<>
+						<WorkspaceSection />
+						<LaunchProfileSection />
+						<OwnedSchemaSettings section="workspace" />
+					</>
+				);
+			case "connections":
+				return (
+					<>
+						<SettingsSection
+							scope="app"
+							id="settings-connections-remote"
+							title={t("settings.connections.sharing")}
+						>
+							<RemoteSection />
+						</SettingsSection>
+						<HostScoped>
+							<SettingsSection scope="host" id="settings-connections-ssh" title={t("settings.section.ssh")}>
+								<SshSection />
+							</SettingsSection>
+						</HostScoped>
+					</>
+				);
 			case "updates":
-				return <UpdatesSection />;
+				return (
+					<>
+						<UpdatesSection />
+						<HostScoped>
+							<OwnedSchemaSettings section="updates" scope="host" />
+						</HostScoped>
+					</>
+				);
 			case "advanced":
-				return <AdvancedSection category={sub} onCategoryChange={category => navigate(`advanced:${category}`)} />;
+				return <OwnedSchemaSettings section="advanced" />;
 		}
 	};
 
@@ -354,6 +404,21 @@ export function SettingsPage() {
 										? t("settings.search.count", { count: results.length })
 										: t(`settings.section.${section}.desc`)}
 								</p>
+								<p
+									className="mt-2 text-sc-xs text-(--sc-text-muted)"
+									data-settings-section-scope={SECTION_SCOPE[section]}
+								>
+									{SECTION_SCOPE[section] === "app" && host ? (
+										<ThisDeviceTag />
+									) : (
+										<>
+											{t(
+												`settings.navGroup.${SECTION_SCOPE[section] === "host" ? "agent" : SECTION_SCOPE[section] === "mixed" ? "system" : "app"}`,
+											)}
+											{SECTION_SCOPE[section] === "host" && host?.name ? `: ${host.name}` : ""}
+										</>
+									)}
+								</p>
 							</header>
 							{agentSection && !data.sidecarReady && (
 								<SettingsConnectionBanner
@@ -406,11 +471,13 @@ export function SettingsPage() {
 											</Button>
 										</div>
 									)}
-									{SECTION_SCOPE[section] === "host" ? (
-										<HostScoped>{renderSection()}</HostScoped>
-									) : (
-										renderSection()
-									)}
+									<SettingsScopeProvider value={SECTION_SCOPE[section]}>
+										{SECTION_SCOPE[section] === "host" ? (
+											<HostScoped>{renderSection()}</HostScoped>
+										) : (
+											renderSection()
+										)}
+									</SettingsScopeProvider>
 								</div>
 							)}
 						</main>

@@ -311,12 +311,12 @@ describe("SessionTreePanel", () => {
 		expect(edgePaths()).toHaveLength(4);
 		expect(document.body.textContent).toContain("4 messages · 1 fork");
 		expect(document.body.textContent).toContain("experiment");
-		// Exactly one HEAD badge (Badge root span), and the off-branch card is dimmed.
+		// Exactly one HEAD badge, and every alternate branch remains available.
 		expect(
 			queryAll("span").filter(el => el.textContent === "head" && el.className.includes("rounded-full")),
 		).toHaveLength(1);
 		const offBranch = nodeCards().find(card => card.getAttribute("data-tree-node") === "d");
-		expect(offBranch?.className).toContain("opacity-75");
+		expect(offBranch?.textContent).toContain("alternate path");
 	});
 
 	it("drags a node to a cosmetic offset that survives re-render", async () => {

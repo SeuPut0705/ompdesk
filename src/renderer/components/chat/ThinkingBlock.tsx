@@ -1,19 +1,17 @@
 import { ChevronRight } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { STREAM_FORMAT_FLUSH_MS, useThrottledText } from "../../hooks/use-throttled-text";
 import { useDisplayPreference } from "../../lib/display-preferences";
-import { cx, durationBetween, formatTokens, uiLocale } from "../../lib/format";
+import { cx, durationBetween, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import {
 	formatThinkingForDisplay,
 	hasDisplayableThinking,
-	SpeedTracker,
 	THINKING_GLYPH_FRAMES,
 	thinkingGlyphFrameDelay,
 } from "../../lib/thinking";
 import { useMessagesStore } from "../../stores/messages";
-import { useModelStore } from "../../stores/model";
 import { useUiStore } from "../../stores/ui";
 import { formatTokenRate } from "./TurnOutputMeter";
 
@@ -27,9 +25,6 @@ export interface ThinkingBlockProps {
 	endTime?: number | string;
 }
 
-/** Decay/refresh cadence (ms) for the live speed gauge while streaming. */
-const GAUGE_TICK_MS = 500;
-
 /**
  * Collapsible reasoning trace, kept quiet so the answer stays the most
  * prominent thing in the turn (TUI parity for the content rules):
@@ -38,9 +33,7 @@ const GAUGE_TICK_MS = 500;
  * - `hideThinkingBlock` suppresses the block entirely; while reasoning is
  *   still streaming, an eased starburst pulse (✻✼❉…) shows in its place,
  *   ending once text output starts or the block finalizes.
- * - While live, a speed gauge shows the reasoning-token count (buffer length)
- *   and a windowed tok/s rate observed from buffer growth, falling back to
- *   the model store's tokensPerSecond before the first observation.
+ * - While live, the speed gauge uses the host's stock token-rate snapshot.
  *
  * Collapsed it is one muted row: chevron, "Thought", and the duration (or a
  * word count when no timing is known). Open state follows the
@@ -52,7 +45,7 @@ export function ThinkingBlock({ text, live = false, startTime, endTime }: Thinki
 	// delta would re-render every mounted history block in the window.
 	const streamingThinking = useMessagesStore(s => (live ? s.streamingThinking : ""));
 	const streamingTextStarted = useMessagesStore(s => s.streamingText.length > 0);
-	const tokensPerSecond = useModelStore(s => s.tokensPerSecond);
+	const tokensPerSecond = useMessagesStore(s => (live ? s.turnMeter.rate : null));
 	const hideThinkingBlock = useDisplayPreference("hideThinkingBlock");
 	const proseOnly = useDisplayPreference("proseOnlyThinking");
 	const thinkingExpanded = useUiStore(s => s.thinkingExpanded);
@@ -63,8 +56,7 @@ export function ThinkingBlock({ text, live = false, startTime, endTime }: Thinki
 
 	const content = live ? streamingThinking : (text ?? "");
 	const isLive = live && content.length > 0;
-	// Raw length still drives the live speed gauge, but formatting, word
-	// counts, and Markdown parse share the same bounded cadence as reply text.
+	// Formatting, word counts, and Markdown parse share the reply-text cadence.
 	// Previously a long reasoning stream reprocessed its entire growing prefix
 	// on every 16 ms event batch, even while the block was collapsed.
 	const displayContent = useThrottledText(content, live ? STREAM_FORMAT_FLUSH_MS : 0);
@@ -76,44 +68,12 @@ export function ThinkingBlock({ text, live = false, startTime, endTime }: Thinki
 	// or the block finalizes, hidden thinking renders nothing.
 	const showPulse = hideThinkingBlock && isLive && !streamingTextStarted;
 
-	// ── tok/s speed gauge ─────────────────────────────────────────────────
-	// Deltas (not cumulative totals) feed the windowed tracker, so a buffer
-	// reset on a new block never produces a spike.
-	const trackerRef = useRef<SpeedTracker | null>(null);
-	if (trackerRef.current === null) trackerRef.current = new SpeedTracker();
-	const lastSampleRef = useRef<{ len: number; time: number } | null>(null);
-	const [, setGaugeTick] = useState(0);
-
-	useEffect(() => {
-		if (!isLive) {
-			lastSampleRef.current = null;
-			return;
-		}
-		const now = performance.now();
-		const last = lastSampleRef.current;
-		if (last !== null && content.length < last.len) trackerRef.current?.reset();
-		if (last !== null && content.length > last.len && now > last.time) {
-			trackerRef.current?.observe(((content.length - last.len) / (now - last.time)) * 1000, now);
-		}
-		lastSampleRef.current = { len: content.length, time: now };
-	}, [content, isLive]);
-
-	// Periodic re-render while live so the windowed rate decays during lulls.
-	useEffect(() => {
-		if (!isLive) return;
-		const timer = setInterval(() => setGaugeTick(v => v + 1), GAUGE_TICK_MS);
-		return () => clearInterval(timer);
-	}, [isLive]);
-
-	const observedRate = isLive ? (trackerRef.current?.getSpeed() ?? 0) : 0;
-	const rate = observedRate >= 0.05 ? observedRate : isLive && tokensPerSecond !== null ? tokensPerSecond : 0;
+	const rate = isLive ? (tokensPerSecond ?? 0) : 0;
 	const showGauge = isLive && rate >= 0.05;
-	// Same words as the work-summary meter; the count is an estimate (buffer growth), hence "~".
 	const gauge = showGauge ? (
 		<span className="omp-thinking-gauge -ms-1 shrink-0 tabular-nums text-(--sc-text-subtle)">
 			{"· "}
-			{t("chat.meter.tokensEstimated", { tokens: formatTokens(content.length) })}
-			{` · ${t("chat.meter.rate", { rate: formatTokenRate(rate) })}`}
+			{t("chat.meter.rate", { rate: formatTokenRate(rate) })}
 		</span>
 	) : null;
 

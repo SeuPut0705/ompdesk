@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { ChevronDown, Files, GitCompareArrows, GitFork, Hourglass, ListOrdered, ScrollText, X } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
@@ -9,11 +9,12 @@ import { actionShortcut } from "../../lib/keymap";
 import { useQueueStore } from "../../stores/queue";
 import { useTabsStore } from "../../stores/tabs";
 import { COMPACT_SHELL_QUERY, type PanelTab, useUiStore } from "../../stores/ui";
-import { IconButton, PanelErrorBoundary, Sheet, Tabs } from "../common";
+import { IconButton, MenuButton, PanelErrorBoundary, Sheet } from "../common";
 import { DiffPanel } from "../panels/DiffPanel";
 import { FilesPanel } from "../panels/FilesPanel";
 import { JobsPanel } from "../panels/JobsPanel";
 import { LogPanel } from "../panels/LogPanel";
+import { PanelActionsContext } from "../panels/PanelChrome";
 import { QueuePanel } from "../panels/QueuePanel";
 import { SessionTreePanel } from "../panels/SessionTreePanel";
 
@@ -30,51 +31,83 @@ function defaultPanelWidth(): number {
 	return Math.min(DEFAULT_MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(viewportWidth * 0.28)));
 }
 
-const TABS: { id: PanelTab; labelKey: string }[] = [
-	{ id: "diff", labelKey: "panel.tabs.diff" },
-	{ id: "files", labelKey: "panel.tabs.files" },
-	{ id: "logs", labelKey: "panel.tabs.logs" },
-	{ id: "queue", labelKey: "panel.tabs.queue" },
-	{ id: "tree", labelKey: "panel.tabs.tree" },
-	{ id: "jobs", labelKey: "panel.tabs.jobs" },
-];
+const VIEWS = [
+	{ id: "diff", labelKey: "panel.tabs.diff", icon: GitCompareArrows },
+	{ id: "files", labelKey: "panel.tabs.files", icon: Files },
+	{ id: "logs", labelKey: "panel.tabs.logs", icon: ScrollText },
+	{ id: "queue", labelKey: "panel.tabs.queue", icon: ListOrdered },
+	{ id: "tree", labelKey: "panel.tabs.tree", icon: GitFork },
+	{ id: "jobs", labelKey: "panel.tabs.jobs", icon: Hourglass },
+] satisfies { id: PanelTab; labelKey: string; icon: typeof Files }[];
 
-/** Tab strip + the selected view; shared by the docked panel and the compact sheet. */
-function SidePanelViews() {
+function PanelHeader({ actionRef }: { actionRef: (element: HTMLDivElement | null) => void }) {
 	const t = useT();
 	const panelTab = useUiStore(s => s.panelTab);
 	const setPanelTab = useUiStore(s => s.setPanelTab);
-	const activeTabId = useTabsStore(s => s.activeTabId);
+	const togglePanel = useUiStore(s => s.togglePanel);
 	const queued = useQueueStore(s => s.steering.length + s.followUp.length);
+	const current = VIEWS.find(view => view.id === panelTab) ?? VIEWS[0];
+	const Icon = current.icon;
 	return (
-		<>
-			<Tabs
-				ariaLabel={t("panel.title")}
-				activeId={panelTab}
-				className="shrink-0 overflow-x-auto px-3 [scrollbar-width:none]"
-				compact
-				onChange={id => setPanelTab(id as PanelTab)}
-				tabs={TABS.map(({ id, labelKey }) => ({
-					id,
-					label: t(labelKey),
-					badge: id === "queue" && queued > 0 ? queued : undefined,
+		<div className="omp-panel-topbar drag-region flex min-h-(--sc-space-12) shrink-0 items-center gap-1 px-3">
+			<MenuButton
+				className="no-drag min-w-0"
+				icon={<Icon />}
+				label={t("panel.switchView")}
+				variant="ghost"
+				size="sm"
+				items={VIEWS.map(view => ({
+					id: view.id,
+					label: t(view.labelKey),
+					icon: view.icon,
+					checked: panelTab === view.id,
+					onSelect: () => setPanelTab(view.id),
 				}))}
-			/>
-			<div className="flex min-h-0 flex-1 flex-col overflow-hidden" role="tabpanel">
-				<PanelErrorBoundary key={`${activeTabId ?? "no-tab"}:${panelTab}`}>
-					{panelTab === "diff" && <DiffPanel />}
-					{panelTab === "files" && <FilesPanel />}
-					{panelTab === "logs" && <LogPanel />}
-					{panelTab === "queue" && (
-						<div className="min-h-0 flex-1 overflow-y-auto p-4">
-							<QueuePanel />
-						</div>
-					)}
-					{panelTab === "tree" && <SessionTreePanel />}
-					{panelTab === "jobs" && <JobsPanel />}
-				</PanelErrorBoundary>
+			>
+				<span className="truncate">{t(current.labelKey)}</span>
+				{panelTab === "queue" && queued > 0 && <span className="text-sc-xs text-(--sc-text-muted)">{queued}</span>}
+				<ChevronDown className="size-(--sc-icon-sm) text-(--sc-text-subtle)" />
+			</MenuButton>
+			<div className="no-drag flex shrink-0 items-center" aria-label={t("panel.primaryViews")}>
+				{VIEWS.slice(0, 2)
+					.filter(view => view.id !== panelTab)
+					.map(view => (
+						<IconButton
+							key={view.id}
+							icon={<view.icon />}
+							label={t(view.labelKey)}
+							onClick={() => setPanelTab(view.id)}
+							size="sm"
+						/>
+					))}
 			</div>
-		</>
+			<div className="ml-auto flex min-w-0 items-center" ref={actionRef} />
+			<IconButton
+				className="no-drag shrink-0"
+				icon={<X />}
+				label={t("panel.close")}
+				onClick={togglePanel}
+				shortcut={actionShortcut("panel.toggle")}
+				size="sm"
+			/>
+		</div>
+	);
+}
+
+function SidePanelViews() {
+	const panelTab = useUiStore(s => s.panelTab);
+	const activeTabId = useTabsStore(s => s.activeTabId);
+	return (
+		<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+			<PanelErrorBoundary key={`${activeTabId ?? "no-tab"}:${panelTab}`}>
+				{panelTab === "diff" && <DiffPanel />}
+				{panelTab === "files" && <FilesPanel />}
+				{panelTab === "logs" && <LogPanel />}
+				{panelTab === "queue" && <QueuePanel />}
+				{panelTab === "tree" && <SessionTreePanel />}
+				{panelTab === "jobs" && <JobsPanel />}
+			</PanelErrorBoundary>
+		</div>
 	);
 }
 
@@ -97,6 +130,7 @@ export function PanelContainer() {
 	);
 	const [widthHydrated, setWidthHydrated] = useState(false);
 	const dragging = useRef(false);
+	const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -169,12 +203,15 @@ export function PanelContainer() {
 				side="right"
 				size="md"
 				title={t("panel.title")}
+				header={<PanelHeader actionRef={setActionsTarget} />}
 			>
 				<div
 					className={cx("flex min-h-0 flex-1 flex-col", !routeReady && "pointer-events-none")}
 					aria-busy={!routeReady}
 				>
-					<SidePanelViews />
+					<PanelActionsContext.Provider value={actionsTarget}>
+						<SidePanelViews />
+					</PanelActionsContext.Provider>
 				</div>
 			</Sheet>
 		);
@@ -200,18 +237,10 @@ export function PanelContainer() {
 					: width,
 			}}
 		>
-			<div className="omp-panel-topbar drag-region flex h-12 shrink-0 items-center gap-2 pr-2 pl-4">
-				<h2 className="min-w-0 flex-1 truncate text-sc-md font-semibold text-(--sc-text)">{t("panel.title")}</h2>
-				<IconButton
-					className="no-drag"
-					icon={<X />}
-					label={t("panel.close")}
-					onClick={togglePanel}
-					shortcut={actionShortcut("panel.toggle")}
-					size="sm"
-				/>
-			</div>
-			<SidePanelViews />
+			<PanelHeader actionRef={setActionsTarget} />
+			<PanelActionsContext.Provider value={actionsTarget}>
+				<SidePanelViews />
+			</PanelActionsContext.Provider>
 			<div
 				role="separator"
 				aria-label={t("panel.resize")}

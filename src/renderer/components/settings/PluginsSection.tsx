@@ -56,7 +56,7 @@ import { PluginDetailSheet } from "../panels/inventory/PluginDetailSheet";
 import { filterMarketplaces, filterPlugins, filterTemplates } from "../panels/inventory-utils";
 import { SettingsRow } from "./SettingsLayout";
 
-export type PluginsTab = "plugins" | "marketplaces" | "templates" | "memory";
+export type PluginsTab = "plugins" | "marketplaces" | "templates";
 
 export interface PluginsSectionProps {
 	tab: PluginsTab;
@@ -674,6 +674,16 @@ function MemoryTab({ resource, visible }: { resource: RpcResource<RpcMemoryRepor
 	);
 }
 
+export function MemoryReportSection() {
+	const tabRpc = useTabRpc();
+	const memory = useRpcResource<RpcMemoryReport>(() => tabRpc.getMemoryReport());
+	return (
+		<div id="settings-agent-memory-report">
+			<MemoryTab resource={memory} visible />
+		</div>
+	);
+}
+
 // ============================================================================
 // Section
 // ============================================================================
@@ -685,14 +695,12 @@ export function PluginsSection({ tab, onTabChange, query }: PluginsSectionProps)
 	const plugins = useRpcResource<RpcPluginsResult>(() => tabRpc.getPlugins());
 	const marketplaces = useRpcResource<RpcMarketplacesResult>(() => tabRpc.getMarketplaces());
 	const templates = useRpcResource<RpcPromptTemplatesResult>(() => tabRpc.getPromptTemplates());
-	const memory = useRpcResource<RpcMemoryReport>(() => tabRpc.getMemoryReport());
 
 	const tabs = useMemo<TabItem[]>(
 		() => [
 			{ id: "plugins", label: t("invPanel.tabs.plugins"), badge: plugins.data?.plugins.length },
 			{ id: "marketplaces", label: t("invPanel.tabs.marketplaces"), badge: marketplaces.data?.marketplaces.length },
 			{ id: "templates", label: t("invPanel.tabs.templates"), badge: templates.data?.templates.length },
-			{ id: "memory", label: t("invPanel.tabs.memory") },
 		],
 		[t, plugins.data, marketplaces.data, templates.data],
 	);
@@ -715,7 +723,6 @@ export function PluginsSection({ tab, onTabChange, query }: PluginsSectionProps)
 			/>
 			<MarketplacesTab query={query} resource={marketplaces} visible={tab === "marketplaces"} />
 			<TemplatesTab query={query} resource={templates} visible={tab === "templates"} />
-			<MemoryTab resource={memory} visible={tab === "memory"} />
 			<PluginDetailSheet onChanged={plugins.reload} onClose={() => setDetailPlugin(null)} plugin={detailPlugin} />
 		</div>
 	);

@@ -17,142 +17,25 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import * as path from "node:path";
 import { type Document, parseDocument } from "yaml";
 import { codedError } from "../shared/ipc-error-codes";
-import {
-	CUSTOM_MODEL_EFFORTS,
-	CUSTOM_PROVIDER_APIS,
-	type CustomModelEffort,
-	type CustomProviderApi,
-	type CustomProviderDiscovery,
-	type CustomProviderInput,
-	type CustomProviderModelCost,
-	type CustomProviderModelInput,
-	type CustomProviderModelThinking,
-	type CustomProviderView,
+import type {
+	CustomModelEffort,
+	CustomProviderApi,
+	CustomProviderDiscovery,
+	CustomProviderInput,
+	CustomProviderModelCost,
+	CustomProviderModelInput,
+	CustomProviderModelThinking,
+	CustomProviderView,
 } from "../shared/ipc-types";
 import { agentDir } from "./agent-paths";
+import { type ModelsConfigMetadata, modelsConfigMetadata, normalizeModelsConfig } from "./models-config-stock";
 
 export type { CustomProviderInput, CustomProviderModelInput, CustomProviderView };
 
 const MASK_PREVIEW_LEN = 4;
 
-/**
- * Provider ids the agent already knows — a `models.yml` entry under one of
- * these is an *override* of the built-in, not a custom provider, so the GUI
- * must neither create nor delete it.
- *
- * Union of `KnownProvider` and `AuthProviderId`, generated from
- * `packages/catalog/src/compat/{provider-ids,auth-ids}.ts` by
- * `bun run gen:compat` in the monorepo. The GUI has no catalog dependency, so
- * this is a checked-in copy: when the catalog adds a provider, a missing id
- * here lets the GUI write a silent override.
- */
-const BUILTIN_PROVIDERS: ReadonlySet<string> = new Set([
-	"abliteration",
-	"aiand",
-	"aimlapi",
-	"alibaba-coding-plan",
-	"alibaba-token-plan",
-	"amazon-bedrock",
-	"anthropic",
-	"azure",
-	"baseten",
-	"bedrock-mantle",
-	"cerebras",
-	"charm-hyper",
-	"cline-pass",
-	"cloudflare-ai-gateway",
-	"commandcode",
-	"coreweave",
-	"cursor",
-	"deepinfra",
-	"deepseek",
-	"devin",
-	"exa",
-	"firepass",
-	"fireworks",
-	"github-copilot",
-	"gitlab-duo",
-	"gitlab-duo-agent",
-	"gmi-cloud",
-	"google",
-	"google-antigravity",
-	"google-gemini-cli",
-	"google-vertex",
-	"groq",
-	"huggingface",
-	"kagi",
-	"kilo",
-	"kimi-code",
-	"litellm",
-	"llama.cpp",
-	"lm-studio",
-	"local",
-	"meta",
-	"minimax",
-	"minimax-code",
-	"minimax-code-cn",
-	"mistral",
-	"moonshot",
-	"muse-code",
-	"nanogpt",
-	"novita",
-	"nvidia",
-	"ollama",
-	"ollama-cloud",
-	"openai",
-	"openai-codex",
-	"openai-codex-device",
-	"opencode-go",
-	"opencode-zen",
-	"openrouter",
-	"parallel",
-	"perplexity",
-	"qianfan",
-	"qwen-portal",
-	"sakana",
-	"siliconflow",
-	"siliconflow-cn",
-	"singularityapi",
-	"stencil",
-	"synthetic",
-	"tavily",
-	"together",
-	"typesafe",
-	"umans",
-	"venice",
-	"vercel-ai-gateway",
-	"vllm",
-	"wafer-serverless",
-	"web",
-	"xai",
-	"xai-oauth",
-	"xiaomi",
-	"xiaomi-token-plan-ams",
-	"xiaomi-token-plan-cn",
-	"xiaomi-token-plan-sgp",
-	"yolo-auto",
-	"zai",
-	"zai-coding-plan",
-	"zenmux",
-	"zhipu-coding-plan",
-]);
-
-const DISCOVERY_TYPES: ReadonlySet<string> = new Set([
-	"ollama",
-	"llama.cpp",
-	"lm-studio",
-	"openai-models-list",
-	"proxy",
-	"litellm",
-]);
-const AUTH_MODES: ReadonlySet<string> = new Set(["apiKey", "none", "oauth"]);
-const THINKING_MODES: ReadonlySet<string> = new Set([
-	"effort",
-	"budget",
-	"google-level",
-	"anthropic-adaptive",
-	"anthropic-budget-effort",
-]);
+// Stock owns the roster and option vocabularies; no stale checked-in fallback.
+let options: ModelsConfigMetadata;
 
 /** Absolute path to the agent's models file (`models.yml` preferred, `models.yaml` fallback). */
 export function modelsPath(): string {
@@ -171,14 +54,15 @@ interface ModelsFile {
 	providers: Record<string, unknown>;
 }
 
-function readModelsFile(): ModelsFile {
+async function readModelsFile(): Promise<ModelsFile> {
 	const file = modelsPath();
 	if (!existsSync(file)) return { doc: parseDocument(""), providers: {} };
 	const doc = parseDocument(readFileSync(file, "utf8"));
 	const issue = doc.errors[0] ?? doc.warnings[0];
 	if (doc.errors.length > 0) throw new Error(`${file}: ${issue?.message ?? "invalid YAML"}`);
-	const contents = doc.toJS();
-	const providers = contents?.providers;
+	const normalized = await normalizeModelsConfig(doc.toJS() ?? {});
+	if (normalized.error) throw new Error(normalized.error);
+	const providers = normalized.config?.providers;
 	return {
 		doc,
 		providers: typeof providers === "object" && providers !== null ? (providers as Record<string, unknown>) : {},
@@ -192,7 +76,35 @@ let tmpCounter = 0;
  * so a truncate-then-write leaves a window where a concurrent read sees an empty
  * or half-written config — and a crash inside it destroys every provider.
  */
-function writeModelsFile(doc: Document): void {
+/** Update existing nodes rather than replacing mappings, preserving comments on edited fields too. */
+function applyYamlDiff(doc: Document, before: unknown, after: unknown, keys: Array<string | number>): void {
+	if (before === after) return;
+	if (Array.isArray(before) && Array.isArray(after) && before.length === after.length) {
+		after.forEach((value, index) => {
+			applyYamlDiff(doc, before[index], value, [...keys, index]);
+		});
+	} else if (
+		before &&
+		after &&
+		typeof before === "object" &&
+		typeof after === "object" &&
+		!Array.isArray(before) &&
+		!Array.isArray(after)
+	) {
+		const old = before as Record<string, unknown>;
+		const next = after as Record<string, unknown>;
+		for (const key of Object.keys(old)) if (!(key in next)) doc.deleteIn([...keys, key]);
+		for (const [key, value] of Object.entries(next)) applyYamlDiff(doc, old[key], value, [...keys, key]);
+	} else {
+		doc.setIn(keys, after);
+	}
+}
+
+async function writeModelsFile(doc: Document): Promise<void> {
+	const raw = doc.toJS() ?? {};
+	const normalized = await normalizeModelsConfig(raw);
+	if (normalized.error) throw new Error(normalized.error);
+	applyYamlDiff(doc, raw, normalized.config, []);
 	const file = modelsPath();
 	mkdirSync(path.dirname(file), { recursive: true });
 	const tmp = `${file}.tmp-${process.pid}-${tmpCounter++}`;
@@ -237,9 +149,7 @@ function asStringRecord(value: unknown): Record<string, string> | undefined {
 }
 
 function asApi(value: unknown): CustomProviderApi | undefined {
-	return typeof value === "string" && (CUSTOM_PROVIDER_APIS as readonly string[]).includes(value)
-		? (value as CustomProviderApi)
-		: undefined;
+	return typeof value === "string" && options.apis.includes(value) ? (value as CustomProviderApi) : undefined;
 }
 
 function asCost(value: unknown): CustomProviderModelCost | undefined {
@@ -253,38 +163,18 @@ function asCost(value: unknown): CustomProviderModelCost | undefined {
 	return Object.keys(cost).length > 0 ? cost : undefined;
 }
 
-/**
- * Effort ladder as the agent's ModelThinkingSchema resolves it: `efforts` wins,
- * then the legacy `levels` list, then the `minLevel`..`maxLevel` range. Without
- * this a hand-written range config reads back as "no thinking" and the next save
- * deletes the block.
- */
-function thinkingEfforts(rec: Record<string, unknown>): CustomModelEffort[] {
-	const isEffort = (value: unknown): value is CustomModelEffort =>
-		typeof value === "string" && (CUSTOM_MODEL_EFFORTS as readonly string[]).includes(value);
-	const fromList = (value: unknown): CustomModelEffort[] => (Array.isArray(value) ? value.filter(isEffort) : []);
-	const explicit = fromList(rec.efforts);
-	if (explicit.length > 0) return explicit;
-	const levels = fromList(rec.levels);
-	if (levels.length > 0) return levels;
-	if (!isEffort(rec.minLevel) || !isEffort(rec.maxLevel)) return [];
-	const min = CUSTOM_MODEL_EFFORTS.indexOf(rec.minLevel);
-	const max = CUSTOM_MODEL_EFFORTS.indexOf(rec.maxLevel);
-	return CUSTOM_MODEL_EFFORTS.slice(min, Math.max(min, max) + 1);
-}
-
 function asThinking(value: unknown): CustomProviderModelThinking | undefined {
 	if (!value || typeof value !== "object") return undefined;
 	const rec = value as Record<string, unknown>;
-	if (typeof rec.mode !== "string" || !THINKING_MODES.has(rec.mode)) return undefined;
-	const efforts = thinkingEfforts(rec);
+	if (typeof rec.mode !== "string" || !options.thinkingModes.includes(rec.mode)) return undefined;
+	const efforts = Array.isArray(rec.efforts) ? (rec.efforts as CustomModelEffort[]) : [];
 	if (efforts.length === 0) return undefined;
 	const thinking: CustomProviderModelThinking = {
 		mode: rec.mode as CustomProviderModelThinking["mode"],
 		efforts,
 	};
 	const defaultLevel = asString(rec.defaultLevel);
-	if (defaultLevel && (CUSTOM_MODEL_EFFORTS as readonly string[]).includes(defaultLevel)) {
+	if (defaultLevel && options.efforts.includes(defaultLevel)) {
 		thinking.defaultLevel = defaultLevel as CustomProviderModelThinking["defaultLevel"];
 	}
 	if (typeof rec.supportsDisplay === "boolean") thinking.supportsDisplay = rec.supportsDisplay;
@@ -300,7 +190,7 @@ function asInput(value: unknown): Array<"text" | "image"> | undefined {
 function asDiscovery(value: unknown): CustomProviderDiscovery | undefined {
 	if (!value || typeof value !== "object") return undefined;
 	const rec = value as Record<string, unknown>;
-	if (typeof rec.type !== "string" || !DISCOVERY_TYPES.has(rec.type)) return undefined;
+	if (typeof rec.type !== "string" || !options.discovery.includes(rec.type)) return undefined;
 	const discovery: CustomProviderDiscovery = { type: rec.type as CustomProviderDiscovery["type"] };
 	const timeoutMs = asNumber(rec.timeoutMs);
 	if (timeoutMs !== undefined) discovery.timeoutMs = timeoutMs;
@@ -358,7 +248,7 @@ function toView(id: string, raw: unknown): CustomProviderView & { apiKey?: strin
 		baseUrl: asString(rec.baseUrl) ?? "",
 		hasApiKey,
 		apiKeyPreview,
-		auth: auth && AUTH_MODES.has(auth) ? (auth as CustomProviderView["auth"]) : undefined,
+		auth: auth && options.auth.includes(auth) ? (auth as CustomProviderView["auth"]) : undefined,
 		authHeader: asBoolean(rec.authHeader),
 		headers: asStringRecord(rec.headers),
 		discovery: asDiscovery(rec.discovery),
@@ -366,14 +256,15 @@ function toView(id: string, raw: unknown): CustomProviderView & { apiKey?: strin
 		transport: rec.transport === "pi-native" ? "pi-native" : undefined,
 		extraBody: extraBody && Object.keys(extraBody).length > 0 ? extraBody : undefined,
 		models,
-		builtin: BUILTIN_PROVIDERS.has(id),
+		builtin: options.builtinProviders.includes(id),
 		apiKey: typeof rec.apiKey === "string" ? rec.apiKey : undefined,
 	};
 }
 
 /** List configured providers (custom + user overrides), apiKey masked. */
-export function listModelsProviders(): CustomProviderView[] {
-	const { providers } = readModelsFile();
+export async function listModelsProviders(): Promise<CustomProviderView[]> {
+	options = await modelsConfigMetadata();
+	const { providers } = await readModelsFile();
 	return Object.entries(providers).map(([id, raw]) => {
 		const { apiKey: _secret, ...view } = toView(id, raw);
 		return view;
@@ -435,54 +326,70 @@ function mergeModel(existingModels: unknown, input: CustomProviderModelInput): R
 
 /** Insert or update a custom provider. Keeps the stored apiKey unless the input
  * re-supplies one or sets `clearApiKey`. */
-export function upsertModelsProvider(input: CustomProviderInput): void {
-	if (BUILTIN_PROVIDERS.has(input.id)) {
-		throw codedError("provider_id_builtin", `"${input.id}" is a built-in provider id; choose a distinct custom id.`);
-	}
-	const data = readModelsFile();
-	const existingRaw = data.providers[input.id];
-	const existing = toView(input.id, existingRaw);
-	const apiKey = input.clearApiKey
-		? undefined
-		: input.apiKey && input.apiKey.trim().length > 0
-			? input.apiKey.trim()
-			: existing.apiKey;
-	const entry: Record<string, unknown> =
-		existingRaw && typeof existingRaw === "object" ? { ...(existingRaw as Record<string, unknown>) } : {};
-	entry.baseUrl = input.baseUrl;
-	entry.api = input.api;
-	setOrDelete(entry, "apiKey", apiKey);
-	setOrDelete(entry, "auth", input.auth);
-	setOrDelete(entry, "authHeader", input.authHeader);
-	setOrDelete(entry, "headers", input.headers && Object.keys(input.headers).length > 0 ? input.headers : undefined);
-	setOrDelete(entry, "discovery", input.discovery);
-	setOrDelete(entry, "disableStrictTools", input.disableStrictTools);
-	setOrDelete(entry, "transport", input.transport);
-	// compat: merge extraBody into the existing compat object (other flags survive).
-	const compat =
-		entry.compat && typeof entry.compat === "object" ? { ...(entry.compat as Record<string, unknown>) } : {};
-	setOrDelete(
-		compat,
-		"extraBody",
-		input.extraBody && Object.keys(input.extraBody).length > 0 ? input.extraBody : undefined,
-	);
-	if (Object.keys(compat).length > 0) entry.compat = compat;
-	else delete entry.compat;
-	entry.models = input.models.map(m => mergeModel(entry.models, m));
-	data.doc.setIn(["providers", input.id], entry);
-	writeModelsFile(data.doc);
+// The old synchronous writers were serialized by main's event loop. Keep that guarantee across helper awaits.
+let mutation: Promise<void> = Promise.resolve();
+
+export function upsertModelsProvider(input: CustomProviderInput): Promise<void> {
+	const operation = mutation.then(async () => {
+		options = await modelsConfigMetadata();
+		if (options.builtinProviders.includes(input.id)) {
+			throw codedError(
+				"provider_id_builtin",
+				`"${input.id}" is a built-in provider id; choose a distinct custom id.`,
+			);
+		}
+		const data = await readModelsFile();
+		const existingRaw = data.providers[input.id];
+		const existing = toView(input.id, existingRaw);
+		const apiKey = input.clearApiKey
+			? undefined
+			: input.apiKey && input.apiKey.trim().length > 0
+				? input.apiKey.trim()
+				: existing.apiKey;
+		const entry: Record<string, unknown> =
+			existingRaw && typeof existingRaw === "object" ? { ...(existingRaw as Record<string, unknown>) } : {};
+		entry.baseUrl = input.baseUrl;
+		entry.api = input.api;
+		setOrDelete(entry, "apiKey", apiKey);
+		setOrDelete(entry, "auth", input.auth);
+		setOrDelete(entry, "authHeader", input.authHeader);
+		setOrDelete(entry, "headers", input.headers && Object.keys(input.headers).length > 0 ? input.headers : undefined);
+		setOrDelete(entry, "discovery", input.discovery);
+		setOrDelete(entry, "disableStrictTools", input.disableStrictTools);
+		setOrDelete(entry, "transport", input.transport);
+		// compat: merge extraBody into the existing compat object (other flags survive).
+		const compat =
+			entry.compat && typeof entry.compat === "object" ? { ...(entry.compat as Record<string, unknown>) } : {};
+		setOrDelete(
+			compat,
+			"extraBody",
+			input.extraBody && Object.keys(input.extraBody).length > 0 ? input.extraBody : undefined,
+		);
+		if (Object.keys(compat).length > 0) entry.compat = compat;
+		else delete entry.compat;
+		entry.models = input.models.map(m => mergeModel(entry.models, m));
+		applyYamlDiff(data.doc, data.doc.toJS()?.providers?.[input.id], entry, ["providers", input.id]);
+		await writeModelsFile(data.doc);
+	});
+	mutation = operation.catch(() => undefined);
+	return operation;
 }
 
 /** Delete a custom provider entry (built-ins cannot be removed here). */
-export function deleteModelsProvider(id: string): void {
-	if (BUILTIN_PROVIDERS.has(id)) {
-		throw codedError("provider_builtin_delete", `"${id}" is a built-in provider and cannot be removed from the GUI.`);
-	}
-	const data = readModelsFile();
-	if (!(id in data.providers)) return;
-	data.doc.deleteIn(["providers", id]);
-	writeModelsFile(data.doc);
+export function deleteModelsProvider(id: string): Promise<void> {
+	const operation = mutation.then(async () => {
+		options = await modelsConfigMetadata();
+		if (options.builtinProviders.includes(id)) {
+			throw codedError(
+				"provider_builtin_delete",
+				`"${id}" is a built-in provider and cannot be removed from the GUI.`,
+			);
+		}
+		const data = await readModelsFile();
+		if (!(id in data.providers)) return;
+		data.doc.deleteIn(["providers", id]);
+		await writeModelsFile(data.doc);
+	});
+	mutation = operation.catch(() => undefined);
+	return operation;
 }
-
-/** Protocol options for the add-provider form (ApiSchema in models-config-schema). */
-export const PROVIDER_PROTOCOLS = CUSTOM_PROVIDER_APIS;

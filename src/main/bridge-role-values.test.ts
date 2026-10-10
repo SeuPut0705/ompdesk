@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { shownRoleValue, storedRoleValue } from "../../resources/gui-bridge/role-values";
 
-describe("gui-bridge model-role values", () => {
-	it("stores a bare advisor pick with :auto so it follows the primary's per-turn effort", () => {
-		expect(storedRoleValue("advisor", "openai-codex/gpt-6.1-sol")).toBe("openai-codex/gpt-6.1-sol:auto");
-		expect(shownRoleValue("advisor", "openai-codex/gpt-6.1-sol:auto")).toBe("openai-codex/gpt-6.1-sol");
+describe("advisor auto policy around stock selector", () => {
+	it("appends auto when stock says there is no explicit thinking selector", () => {
+		expect(storedRoleValue("advisor", "provider/model", () => undefined)).toBe("provider/model:auto");
+		expect(storedRoleValue("advisor", "provider/literal:max", () => undefined)).toBe("provider/literal:max:auto");
+		expect(shownRoleValue("advisor", "provider/model:auto")).toBe("provider/model");
 	});
-
-	it("keeps an explicit advisor level, a cleared role and every other role as picked", () => {
-		expect(storedRoleValue("advisor", "openai-codex/gpt-6.1-sol:high")).toBe("openai-codex/gpt-6.1-sol:high");
-		expect(shownRoleValue("advisor", "openai-codex/gpt-6.1-sol:high")).toBe("openai-codex/gpt-6.1-sol:high");
-		expect(storedRoleValue("advisor", undefined)).toBeUndefined();
-		expect(storedRoleValue("slow", "anthropic/claude-opus-5-5")).toBe("anthropic/claude-opus-5-5");
-		expect(shownRoleValue("slow", "anthropic/claude-opus-5-5:auto")).toBe("anthropic/claude-opus-5-5:auto");
+	it("preserves stock explicit selectors, clears, and other roles", () => {
+		expect(storedRoleValue("advisor", "provider/model:high", () => "high")).toBe("provider/model:high");
+		expect(storedRoleValue("advisor", undefined, () => undefined)).toBeUndefined();
+		expect(storedRoleValue("slow", "provider/model", () => undefined)).toBe("provider/model");
+		expect(shownRoleValue("slow", "provider/model:auto")).toBe("provider/model:auto");
 	});
 });

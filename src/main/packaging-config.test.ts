@@ -88,6 +88,19 @@ describe("mac bundle configs", () => {
 		expect(config.extraResources).toContainEqual({ from: "resources/gui-bridge", to: "gui-bridge" });
 	});
 
+	it("ships the shared pool contract inside the bridge on macOS and Windows", () => {
+		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
+			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
+			const bridge = config.extraResources?.find(resource => resource.to === "gui-bridge");
+			expect(bridge?.from, file).toBe("resources/gui-bridge");
+			const source = path.join(PACKAGE_ROOT, bridge?.from ?? "", "pool-contracts.ts");
+			expect(fs.existsSync(source), `${file} omits pool-contracts.ts`).toBe(true);
+			const core = fs.readFileSync(path.join(PACKAGE_ROOT, "resources/gui-bridge/modes/pool-core.ts"), "utf8");
+			expect(core).toContain('from "../pool-contracts"');
+			expect(fs.readFileSync(source, "utf8")).not.toMatch(/^\s*import\s/m);
+		}
+	});
+
 	it("registers the omp:// scheme that src/main/deep-link.ts handles", () => {
 		for (const { file, config } of configs) {
 			const schemes = (config.protocols ?? []).flatMap(protocol => protocol.schemes ?? []);

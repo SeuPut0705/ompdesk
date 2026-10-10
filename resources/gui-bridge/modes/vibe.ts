@@ -4,6 +4,8 @@
  * `runModeExitTeardown`) and the worker registry (`VibeSessionRegistry`); only
  * the TUI wires them to `/vibe`. This mirrors `InteractiveMode.#enterVibeMode`
  * / `#exitVibeMode` without the status-line widgets.
+ * Kept: stock InteractiveMode's vibe lifecycle is private/TUI-bound, not
+ * an exported RPC controller; worker execution and teardown remain stock.
  */
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import type { VibeOwnerScope, VibeParentSession } from "@oh-my-pi/pi-coding-agent/vibe/runtime";

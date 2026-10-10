@@ -101,7 +101,13 @@ const TERMINAL_DISPLAY_PATHS = new Set([
 ]);
 
 function settingRow(page: Page, pathName: string): Locator {
-	return page.locator(`#setting-${pathName.replaceAll(".", "\\.")}`);
+	const custom: Record<string, string> = {
+		modelRoles: "settings-models-roles",
+		"task.agentAccountPools": "settings-models-account-pools",
+		"compaction.modelThresholds": "settings-models-compaction-limits",
+		disabledExtensions: "settings-tools-other-extensions",
+	};
+	return page.locator(custom[pathName] ? `#${custom[pathName]}` : `#setting-${pathName.replaceAll(".", "\\.")}`);
 }
 
 async function readSetting(page: Page, pathName: string): Promise<unknown> {
@@ -216,10 +222,11 @@ function conditionGate(condition: string | undefined): Array<{ path: string; val
 async function clickSearchResult(page: Page, pathName: string): Promise<boolean> {
 	const search = page.locator("[data-settings-page]").getByRole("searchbox", { name: /Search settings/ });
 	await search.fill(pathName);
-	// The Advanced row (last) is the one every schema entry has; curated sections may list it first.
+	// A key has one canonical result, including dedicated structured editors.
 	const result = page.locator(`[data-search-path="${pathName}"]`);
 	if ((await result.count()) === 0) return false;
-	await result.last().getByRole("button").click();
+	await expect(result).toHaveCount(1);
+	await result.getByRole("button").click();
 	return true;
 }
 
@@ -708,13 +715,6 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 			await settings.locator(`[data-settings-section="${id}"]`).click();
 			await capturePage("settings", id);
 		}
-		const category = settings.locator("#settings-advanced-category select");
-		for (const value of await category
-			.locator("option")
-			.evaluateAll(options => options.map(option => (option as HTMLOptionElement).value))) {
-			await category.selectOption(value);
-			await capturePage("advanced", value);
-		}
 
 		// Exercise every schema entry that the GUI claims to support. TUI-only and
 		// metadata-less entries remain explicit rows in the matrix instead of being silently dropped.
@@ -808,17 +808,11 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 		// The command palette is the single discoverability surface for built-ins,
 		// slash commands, and native actions. Search every advertised command without
 		// executing it and retain the TUI-only negative contract.
-		// The settings home also exposes the same live palette entry, so the
-		// discoverability action is exercised through its second-level surface.
+		// Command launchers stay outside Settings and remain reachable from the sidebar.
 		await settings.getByRole("searchbox", { name: /Search settings/ }).fill("");
 		await page.keyboard.press("Escape");
 		await expect(settings).toHaveCount(0);
-		await page.keyboard.press("ControlOrMeta+Comma");
-		await settings.locator('[data-settings-section="features"]').click();
-		const settingsCommandCenter = settings.locator('[data-command-center-entry="true"]');
-		await expect(settingsCommandCenter).toBeVisible();
-		await settingsCommandCenter.click();
-		await expect(settings).toHaveCount(0);
+		await page.locator('aside button[data-command-center-entry="true"]').first().click();
 		await expect(page.getByRole("dialog")).toBeVisible();
 		// Retried only while the palette is still open: on a slow runner the first
 		// Escape can land before the freshly mounted palette listens for it.

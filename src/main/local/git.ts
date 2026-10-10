@@ -11,12 +11,17 @@ export const handlers: Record<string, LocalHandler> = {
 	get_git_changes: (_command, ctx) => getGitChanges(ctx.cwd),
 	get_git_diff: (command, ctx) => getGitDiff(ctx.cwd, str(command.path) ?? ""),
 	worktree_create: (command, ctx) =>
-		createWorktree(ctx.cwd, {
-			name: str(command.name) ?? "",
-			baseCwd: str(command.baseCwd),
-			baseRef: command.baseRef === "default" ? "default" : "HEAD",
-		}),
-	worktree_remove: command => removeWorktree({ path: str(command.path) ?? "", force: command.force === true }),
+		createWorktree(
+			ctx.cwd,
+			{
+				name: str(command.name) ?? "",
+				baseCwd: str(command.baseCwd),
+				baseRef: command.baseRef === "default" ? "default" : "HEAD",
+			},
+			ctx.bridge,
+		),
+	worktree_remove: (command, ctx) =>
+		removeWorktree({ path: str(command.path) ?? "", force: command.force === true }, ctx.bridge, ctx.cwd),
 	// worktree-lifecycle.ts reads `worktree.onExit` from the closing tab's live session.
 	worktree_lifecycle_settings: (_command, ctx) => ctx.bridge.request("worktree_lifecycle_settings"),
 	pr_repo: (_command, ctx) => prRepo(ctx.cwd),
@@ -36,5 +41,5 @@ export const handlers: Record<string, LocalHandler> = {
 			head: str(command.head),
 			draft: command.draft === true,
 		}),
-	pr_checkout: (command, ctx) => prCheckout(ctx.cwd, { number: Number(command.number) }),
+	pr_checkout: (command, ctx) => prCheckout(ctx.cwd, { number: Number(command.number) }, ctx.bridge),
 };

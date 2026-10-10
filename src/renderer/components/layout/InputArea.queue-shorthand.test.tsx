@@ -146,11 +146,18 @@ async function mount(withRuntime = false): Promise<void> {
 	setThinkingLevel = vi.fn(async (level: string) => ok({ thinkingLevel: level, thinkingConfigured: level }));
 	setSetting = vi.fn(async (_path: string, value: unknown) => ok({ value, provenance: { layers: ["global"] } }));
 	setPlanMode = vi.fn(async (enabled: boolean) => ok({ enabled }));
+	const history: Array<{ prompt: string; cwd?: string; created_at: number }> = [];
 	(window as unknown as Record<string, unknown>).omp = {
 		fs: { list: vi.fn(async () => ({ entries: [] })) },
 		events: { onCommandsUpdate: vi.fn(() => () => {}) },
 		prefs: { set: vi.fn(async () => ({})), get: vi.fn(async () => []) },
 		rpc: {
+			historyRecord: vi.fn(async (prompt: string, cwd?: string) => {
+				history.unshift({ prompt, cwd, created_at: Date.now() / 1000 });
+				return ok({ skipped: false });
+			}),
+			historyRecent: vi.fn(async () => ok(history)),
+			historySearch: vi.fn(async () => ok(history)),
 			getAvailableCommands: vi.fn(async () => ok({ commands: [] })),
 			getQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
 			followUp,

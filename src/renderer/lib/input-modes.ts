@@ -1,3 +1,4 @@
+// Stock modes/controllers/input-controller prefix detection stays synchronous per keystroke; omp is not shipped in the renderer.
 /**
  * Composer `!` / `$` input-mode detection, mirroring the TUI editor
  * (`packages/coding-agent/src/modes/controllers/input-controller.ts`):
@@ -7,9 +8,9 @@
  * - `$ code`  → python mode (runs via `window.omp.rpc.eval`; `$$ code` = excluded variant)
  * - `${...}` template literals and `$HOME`-style variables are NOT python mode
  *
- * Mode is detected from the prefix alone (even with an empty body) so the
- * composer can show the mode badge while the user is still typing; the send
- * path additionally requires a non-empty body.
+ * Mode is detected before the body is complete; `$`/`$$` must be followed by
+ * whitespace before showing the Python badge. Sending additionally requires
+ * a non-empty body.
  */
 
 export type ComposerInputMode = "bash" | "python";
@@ -54,11 +55,11 @@ export function parseComposerMode(text: string): ComposerModeParse | null {
 	}
 
 	// Mirrors `pythonCommandPrefixLength` in the TUI input controller: `$`/`$$`
-	// (but not `${`) followed by whitespace or end of input.
+	// (but not `${`) followed by whitespace.
 	if (trimmed.charCodeAt(0) === CHAR_DOLLAR && trimmed.charCodeAt(1) !== CHAR_OPEN_BRACE) {
 		const prefixLength = trimmed.charCodeAt(1) === CHAR_DOLLAR ? 2 : 1;
 		const next = trimmed.charCodeAt(prefixLength);
-		if (Number.isNaN(next) || next === 32 || next === 9 || next === 10 || next === 13) {
+		if (next === 32 || next === 9 || next === 10 || next === 13) {
 			const body = trimmed.slice(prefixLength).trim();
 			if (prefixLength === 1 && looksLikePastedShellPrompt(body)) return null;
 			return { mode: "python", body, excluded: prefixLength === 2 };

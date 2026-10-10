@@ -47,9 +47,11 @@ export const FEATURES = {
 	sessionImport: "Claude/Codex session import",
 	workspace: "Workspace directories",
 	compactionLimits: "Per-model compaction limits",
+	inputHistory: "Shared prompt history",
 	accountPools: "Agent account pools",
 	worktreeLifecycle: "Per-session worktrees (worktree.onStart / onExit)",
 	resetPasses: "Saved rate-limit resets (reset passes)",
+	streamMetadata: "Stock read grouping and live token rate",
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -63,19 +65,11 @@ export interface FeatureRequirement {
 	modules?: Readonly<Record<string, readonly string[]>>;
 	/** omp prompt templates under `src/prompts` (see modes/shared.ts `ompPrompt`). */
 	prompts?: readonly string[];
-	/**
-	 * Only a newer omp than MIN_OMP_VERSION has it: `capabilities` still reports it
-	 * missing (so `guard` and BridgeHealth.supports stay exact), marked `optional`,
-	 * and the startup "unsupported omp" warning leaves it out.
-	 */
-	optional?: true;
 }
 
 export interface UnavailableFeature {
 	feature: FeatureId;
 	missing: string[];
-	/** From FeatureRequirement.optional: absent on an older omp by design, not a breakage. */
-	optional?: true;
 }
 
 const AGENT = "@oh-my-pi/pi-coding-agent";
@@ -85,6 +79,14 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	core: {
 		pkg: ["VERSION", "AgentRegistry.global()", "MAIN_AGENT_ID"],
 	},
+	streamMetadata: {
+		session: ["subscribe()", "tokenRate.rate()"],
+		modules: {
+			"@oh-my-pi/pi-coding-agent/internal-urls/router": ["InternalUrlRouter.instance()", "InternalUrlRouter.prototype.spec()"],
+			"@oh-my-pi/pi-tui/tools/url-scheme-host": ["splitUrlScheme()"],
+			"@oh-my-pi/pi-tui/tools/read": ["splitPathAndSel()"],
+		},
+	},
 	composer: {
 		session: [
 			"getActiveToolNames()",
@@ -93,7 +95,6 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"getPrewalkState()",
 			"disarmPrewalk()",
 			"autoRetryEnabled",
-			"thinkingLevel",
 			"configuredThinkingLevel()",
 			"executePython()",
 			"abortEval()",
@@ -105,22 +106,25 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"popLastQueuedMessage()",
 			"getQueuedMessages()",
 			"agent.state",
+			"hasBuiltInTool()",
+			"getXdevToolEntries()",
 			"settings",
 			"sessionManager.getCwd()",
 			"sessionManager.getArtifactsDir()",
 			"sessionManager.getSessionId()",
 		],
 		modules: {
+			"@oh-my-pi/pi-tui/overlays/copy-targets": ["extractBlocks()", "commandFromToolCall()", "assistantText()"],
 			[`${AGENT}/utils/tool-choice`]: ["buildNamedToolChoice()"],
 			[`${AGENT}/internal-urls/local-protocol`]: ["resolveLocalRoot()"],
 			[`${AGENT}/slash-commands/builtin-completions`]: [
 				"buildArgumentCompletions()",
 				"buildDirectoryArgumentCompletions()",
+				"buildMcpArgumentCompletions()",
 			],
 			[`${AGENT}/slash-commands/builtin-registry`]: ["BUILTIN_SLASH_COMMANDS_INTERNAL"],
-			[`${AGENT}/mcp/config-writer`]: ["readMCPConfigFile()"],
 			[`${AGENT}/mcp/manager`]: ["MCPManager.instance()"],
-			[UTILS]: ["isEexist()", "getMCPConfigPath()"],
+			[UTILS]: ["isEexist()", "getProjectDir()"],
 		},
 	},
 	share: {
@@ -351,14 +355,18 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"refreshMCPTools()",
 			"effectiveExtensionRoots",
 			"settings",
+			"settings.getAgentDir()",
 			"sessionManager.getCwd()",
 			"modelRegistry.authStorage.credentials.set()",
 		],
 		modules: {
-			[`${AGENT}/capability/fs`]: ["clearCache()"],
+			[`${AGENT}/capability`]: ["loadCapability()"],
 			[`${AGENT}/discovery/helpers`]: ["expandEnvVarsDeep()"],
 			[`${AGENT}/mcp/client`]: ["connectToServer()", "disconnectServer()", "listTools()"],
 			[`${AGENT}/mcp/config`]: ["loadAllMCPConfigs()", "validateServerConfig()"],
+			[`${AGENT}/modes/controllers/mcp-command-controller`]: ["MCPCommandController.prototype.reloadServers()"],
+			[`${AGENT}/modes/components/extensions/mcp-runtime`]: ["applyMcpToggleRuntime()"],
+			["@oh-my-pi/pi-tui/overlays/extensions/mcp-runtime"]: ["inferMcpTransport()"],
 			[`${AGENT}/mcp/config-writer`]: [
 				"addMCPServer()",
 				"readMCPConfigFile()",
@@ -404,7 +412,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"resolveActiveProjectRegistryPath()",
 				"resolveOrDefaultProjectRegistryPath()",
 			],
-			[`${AGENT}/extensibility/plugins/loader`]: ["getEnabledPlugins()"],
+			[`${AGENT}/extensibility/plugins/loader`]: ["getEnabledPlugins()", "resolvePluginManifestEntries()"],
 			[`${AGENT}/extensibility/plugins/manager`]: [
 				"validateSetting()",
 				"PluginManager.prototype.list()",
@@ -440,11 +448,11 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	skills: {
 		session: [
 			"skills",
-			"skillsSettings",
 			"promptTemplates",
 			"effectiveExtensionRoots",
 			"refreshSkills()",
 			"settings.flush()",
+			"settings.getAgentDir()",
 			"sessionManager.getCwd()",
 		],
 		modules: {
@@ -457,8 +465,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"writeManagedSkill()",
 			],
 			[`${AGENT}/config/prompt-templates`]: ["templateUsesInlineArgPlaceholders()"],
-			[`${AGENT}/config/registry`]: ["lookup()"],
-			[`${AGENT}/extensibility/skills`]: ["loadSkills()"],
+			[`${AGENT}/config/registry`]: ["lookup()", "Setting.prototype.setMember()", "Setting.prototype.provenance()"],
 			[UTILS]: ["parseFrontmatter()"],
 		},
 	},
@@ -473,18 +480,15 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		],
 		modules: {
 			[`${AGENT}/config`]: ["getConfigDirs()", "findAllNearestProjectConfigDirs()"],
-			[`${AGENT}/config/model-resolver`]: [
-				"formatModelString()",
-				"resolveAgentModelPatterns()",
-				"resolveAgentPrewalkPattern()",
-				"resolveModelOverride()",
-			],
-			[`${AGENT}/config/registry`]: ["lookup()"],
+			[`${AGENT}/config/model-resolver`]: ["formatModelString()"],
+			[`${AGENT}/discovery/helpers`]: ["parseAgentFields()"],
+			[`${AGENT}/modes/agents-hub-deps`]: ["createAgentsHubDeps()"],
+			[`${AGENT}/task/agents`]: ["AgentParsingError"],
+			[UTILS]: ["parseFrontmatter()"],
 			[`${AGENT}/memory-backend/resolve`]: ["resolveMemoryBackend()"],
 			[`${AGENT}/registry/agent-lifecycle`]: ["AgentLifecycleManager.global()"],
 			[`${AGENT}/registry/agent-registry`]: ["AgentRegistry.global()", "MAIN_AGENT_ID"],
 			[`${AGENT}/task/discovery`]: ["discoverAgents()"],
-			[`${AGENT}/task/prewalk`]: ["resolveAgentPrewalkDefault()"],
 			[`${AGENT}/tools/builtin-names`]: ["BUILTIN_TOOL_NAMES", "HIDDEN_TOOL_NAMES"],
 		},
 	},
@@ -525,20 +529,24 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"sessionId",
 			"settings",
 			"modelRegistry.authStorage.credentials.list()",
-			"modelRegistry.authStorage.credentials.remove()",
+			"modelRegistry.authStorage.credentials.reload()",
+			"modelRegistry.authStorage.credentials.removeById()",
 			"modelRegistry.authStorage.keys.source()",
+			"modelRegistry.authStorage.keys.describe()",
 			"modelRegistry.authStorage.oauth.identity()",
 			"modelRegistry.getProviderBaseUrl()",
 			"modelRegistry.refreshProvider()",
 		],
 		modules: {
-			["@oh-my-pi/pi-ai/oauth"]: ["getOAuthProviders()"],
+			["@oh-my-pi/pi-ai/oauth"]: ["getOAuthProviders()", "getOAuthCredentialProvider()"],
 			[`${AGENT}/config/registry`]: ["lookup()"],
+			[`${AGENT}/slash-commands/helpers/logout`]: ["listLogoutAccounts()", "logoutCredential()"],
 		},
 	},
 	modelRoles: {
 		session: [
 			"modelRegistry",
+			"modelRegistry.getAll()",
 			"settings.getModelRole()",
 			"settings.getModelRoleSource()",
 			"settings.setModelRole()",
@@ -546,6 +554,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		],
 		modules: {
 			[`${AGENT}/config/model-roles`]: ["getKnownRoleIds()", "getRoleInfo()", "roleCandidatePool()"],
+			[`${AGENT}/config/model-resolver`]: ["extractExplicitThinkingSelector()"],
 			["@oh-my-pi/pi-catalog/types"]: ["modelKind()"],
 		},
 	},
@@ -565,6 +574,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		modules: {
 			["@oh-my-pi/pi-ai"]: ["resolveUsedFraction()"],
 			["@oh-my-pi/pi-ai/oauth"]: ["getOAuthCredentialProvider()"],
+			[`${AGENT}/slash-commands/helpers/active-oauth-account`]: ["reportMatchesActiveAccount()", "formatActiveAccountLabel()"],
 		},
 	},
 	security: {
@@ -588,7 +598,9 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"SecurityStore.prototype.getFinding()",
 				"SecurityStore.prototype.updateDisposition()",
 			],
+			[UTILS]: ["prompt.render()"],
 		},
+		prompts: ["security/validate-request.md"],
 	},
 	ssh: {
 		session: ["sessionManager.getCwd()"],
@@ -641,24 +653,23 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"sessionManager.getBranch()",
 			"sessionManager.getCwd()",
 			"sessionManager.getSessionDir()",
-			"sessionManager.getAdditionalDirectories()",
+			"sessionManager.getEntries()",
+			"sessionManager.getTree()",
 			"sessionManager.getLabel()",
-			"sessionManager.getSessionName()",
+			"sessionManager.flush()",
 		],
 		modules: {
 			[`${AGENT}/session/session-manager`]: [
-				"copySessionArtifacts()",
-				"SessionManager.create()",
-				"SessionManager.prototype.newSession()",
-				"SessionManager.prototype.ingestReplicatedEntry()",
-				"SessionManager.prototype.appendLabelChange()",
-				"SessionManager.prototype.setSessionName()",
+				"SessionManager.open()",
+				"SessionManager.prototype.createBranchedSession()",
 				"SessionManager.prototype.flush()",
 				"SessionManager.prototype.close()",
-				"SessionManager.prototype.getSessionFile()",
 				"SessionManager.prototype.getSessionId()",
 			],
+			[`${AGENT}/session/session-context`]: ["buildSessionContext()"],
+			[`${AGENT}/session/turn-persistence`]: ["sessionMessagePersistenceKey()", "sameMessageContent()"],
 			[`${AGENT}/session/session-pins`]: ["loadPinnedSessionIds()"],
+			[`${AGENT}/session/session-storage`]: ["FileSessionStorage.prototype.deleteSessionWithArtifacts()"],
 			[`${AGENT}/utils/atomic-file`]: ["replaceFileAtomically()"],
 			[UTILS]: ["getAgentDir()", "withFileLock()"],
 		},
@@ -683,12 +694,20 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		],
 		modules: {
 			[`${AGENT}/session/session-workspace`]: ["normalizeWorkspaceDirectory()"],
+			[`${AGENT}/tools/path-utils`]: ["resolveToCwd()"],
+		},
+	},
+	inputHistory: {
+		session: ["sessionManager.getSessionId()"],
+		modules: {
+			[`${AGENT}/session/history-storage`]: ["HistoryStorage.open()", "HistoryStorage.prototype.getRecent()", "HistoryStorage.prototype.search()", "HistoryStorage.prototype.add()"],
+			[`${AGENT}/modes/controllers/input-controller`]: ["shouldSkipHistory()"],
 		},
 	},
 	compactionLimits: {
-		optional: true,
 		session: ["settings", "getAvailableModels()", "modelRegistry.getAll()", "modelRegistry.getAvailable()"],
 		modules: {
+			[`${AGENT}/config/compaction-threshold`]: ["parseCompactionPointInput()", "validateModelCompactionThresholds()", "formatCompactionPointInput()"],
 			[`${AGENT}/session/model-compaction-threshold`]: ["describeModelCompactionPoint()"],
 			[`${AGENT}/modes/model-browser-source`]: ["createModelBrowserSource()"],
 			"@oh-my-pi/pi-tui/overlays/model-browser": ["resolveRoleAssignments()"],
@@ -696,17 +715,15 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	accountPools: {
 		// provider_accounts (settings.ts): each account's token-free identity key, the
-		// string `task.agentAccountPools` matches (omp 18.8.1+).
-		optional: true,
+		// string `task.agentAccountPools` matches.
 		modules: {
 			["@oh-my-pi/pi-ai/auth-storage"]: ["resolveCredentialIdentityKey()"],
 		},
 	},
 	worktreeLifecycle: {
 		// worktree-lifecycle.ts: the `worktree.onStart` / `worktree.onExit` settings and
-		// stock's start condition and creation for them (omp 18.8.6+).
-		optional: true,
-		session: ["settings", "sessionManager.getCwd()"],
+		// stock's start condition and creation for them.
+		session: ["settings", "sessionManager.getCwd()", "sessionManager.getSessionFile()"],
 		modules: {
 			[`${AGENT}/task/settings`]: ["cfgWorktreeOnStart.get()", "cfgWorktreeOnExit.get()"],
 			[`${AGENT}/session/session-worktree`]: [
@@ -714,21 +731,18 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"createSessionWorktree()",
 				"defaultSessionWorktreeBranch()",
 			],
-			[UTILS]: ["getWorktreesDir()"],
+			[`${AGENT}/tools/gh-pr-checkout`]: ["checkoutPullRequest()"],
+			[UTILS]: ["getWorktreesDir()", "hashPath()"],
 		},
 	},
 	resetPasses: {
 		// reset-passes.ts (redeem) + the passes on usage / provider_accounts (settings.ts):
-		// stock's saved-reset listing, summary, `/usage reset` helpers and redeem
-		// (omp 18.7.0 through 18.8.6 alike, so not optional).
+		// stock's saved-reset listing, summary, `/usage reset` helpers and redeem.
 		session: [
 			"listResetCredits()",
 			"redeemResetCredit()",
-			"modelRegistry.authStorage.credentials.list()",
-			"modelRegistry.authStorage.usage.report()",
 		],
 		modules: {
-			["@oh-my-pi/pi-ai"]: ["resolveUsedFraction()"],
 			["@oh-my-pi/pi-ai/oauth"]: ["getOAuthCredentialProvider()"],
 			["@oh-my-pi/pi-tui/overlays/usage-display"]: ["summarizeUsageResetCredits()"],
 			[`${AGENT}/slash-commands/helpers/reset-usage`]: ["toResetUsageAccounts()", "describeRedeemOutcome()"],
@@ -808,7 +822,7 @@ export function deriveUnavailable(
 		const requirement = requirements[feature];
 		if (!requirement) continue;
 		const missing = missingFor(requirement, sources);
-		if (missing.length > 0) unavailable.push({ feature, missing, ...(requirement.optional ? { optional: true } : {}) });
+		if (missing.length > 0) unavailable.push({ feature, missing });
 	}
 	return unavailable;
 }
@@ -834,10 +848,7 @@ export function mergeAreaFailures(
 			merged.set(feature, missing);
 		}
 	}
-	const optional = new Set(unavailable.filter(entry => entry.optional).map(entry => entry.feature));
-	return [...merged].map(([feature, missing]) =>
-		optional.has(feature) || REQUIREMENTS[feature]?.optional ? { feature, missing, optional: true } : { feature, missing },
-	);
+	return [...merged].map(([feature, missing]) => ({ feature, missing }));
 }
 
 /** `OMP_GUI_BRIDGE_PROBE_HIDE`: comma-separated missing labels to simulate (diagnostics and tests). */

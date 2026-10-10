@@ -2,6 +2,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { fixtureProviderOptions } from "../../../../../e2e/models-config-fixture";
 import type {
 	ProviderAccount,
 	ProviderInfo,
@@ -89,7 +90,7 @@ const getUsage = vi.fn(async (): Promise<RpcResponse> => ok("get_usage"));
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
 		rpc: { getProviders, getProviderAccounts, redeemResetPass, getUsage },
-		models: { listProviders: vi.fn(async () => []) },
+		models: { listProviders: vi.fn(async () => ({ providers: [], options: fixtureProviderOptions })) },
 		ui: { respondExtensionUi: vi.fn() },
 		system: { openExternal: vi.fn(async () => {}) },
 		accountRotation: { get: vi.fn(async () => ({ mode: "quota", evenSupported: true })), set: vi.fn() },
@@ -157,11 +158,13 @@ describe("reset pass badge", () => {
 });
 
 describe("reset passes on provider accounts", () => {
-	it("shows each account's passes and holds the action until a covered limit is reached", async () => {
+	it("shows each account's passes and holds the action while stock says it is unavailable", async () => {
 		await mountAccounts([healthy, limited]);
 		expect(text()).toContain(resetPassSummary(usable, translate));
 		expect(text()).toContain(translate("resetPasses.countOne"));
-		expect(text()).toContain(translate("resetPasses.notLimited"));
+		expect(text()).toContain(
+			translate("resetPasses.unavailable", { reason: translate("resetPasses.unavailableUnknown") }),
+		);
 		expect(button(translate("resetPasses.useFor", { account: "work@example.com" }))?.disabled).toBe(true);
 		expect(button(translate("resetPasses.useFor", { account: "home@example.com" }))?.disabled).toBe(false);
 	});

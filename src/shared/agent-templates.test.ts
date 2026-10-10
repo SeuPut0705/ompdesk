@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_THINKING_LEVELS, agentNameError, parseAgentMarkdown, serializeAgentMarkdown } from "./agent-definition";
+import { parse } from "yaml";
+import { AGENT_THINKING_LEVELS, agentNameError, serializeAgentMarkdown, splitFrontmatter } from "./agent-definition";
 import { AGENT_TEMPLATES, templateDraft } from "./agent-templates";
 
 /** omp 18.7 `BUILTIN_TOOL_NAMES` (tools/builtin-names.ts); templates must only name real tools. */
@@ -72,12 +73,16 @@ describe("AGENT_TEMPLATES", () => {
 		}
 	});
 
-	it("serialize to files that parse back to the same draft", () => {
+	it("serializes the template name, description, tools and instructions", () => {
 		for (const template of AGENT_TEMPLATES) {
 			const draft = templateDraft(template);
-			const parsed = parseAgentMarkdown(serializeAgentMarkdown(draft));
-			expect(parsed.error).toBeUndefined();
-			expect(parsed.draft).toEqual(draft);
+			const { frontmatter, body } = splitFrontmatter(serializeAgentMarkdown(draft));
+			expect(parse(frontmatter ?? "")).toMatchObject({
+				name: draft.name,
+				description: draft.description,
+				tools: draft.tools,
+			});
+			expect(body.trim()).toBe(draft.instructions.trim());
 		}
 	});
 });

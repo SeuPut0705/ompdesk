@@ -10,13 +10,14 @@ import { en } from "../../locales/en";
 import { ko } from "../../locales/ko";
 import { schemaSearchTexts } from "./schema-i18n";
 import {
-	ADVANCED_OTHER_CATEGORY,
 	CURATED_SCHEMA_ROWS,
+	CUSTOM_SCHEMA_EDITORS,
 	GUI_SEARCH_ITEMS,
 	SETTINGS_SECTION_IDS,
 	type SettingsSectionId,
+	schemaSettingsOwner,
 } from "./settings-catalog";
-import { isSettingVisibleInGui } from "./settings-schema-utils";
+import { isSettingSupportedInGui } from "./settings-schema-utils";
 
 export interface SettingsSearchResult {
 	key: string;
@@ -38,12 +39,10 @@ const SECTION_ALIASES: Record<SettingsSectionId, string> = {
 	keyboard: "keyboard shortcuts hotkeys keymap",
 	models: "models providers login logout api key model roles compare benchmark thinking retry",
 	permissions: "permissions security approval secrets scan",
-	features: "features capabilities plan goal loop ttsr advisor memory palette",
-	extensions: "extensions skills mcp servers hooks commands",
-	plugins: "plugins marketplace templates memory resources inventory",
-	workspace: "workspace project folders directories dirs",
-	ssh: "ssh hosts remote",
-	remote: "remote devices pair pairing code host connect other computer 원격 기기 연결 페어링",
+	agent: "agent behavior plan goal loop ttsr advisor memory compaction retry speech",
+	tools: "tools extensions skills mcp servers hooks commands plugins marketplace templates resources",
+	workspace: "workspace project folders directories dirs launch profile",
+	connections: "ssh remote devices pair pairing code host connect other computer 원격 기기 연결 페어링",
 	updates: "updates version upgrade omp update",
 	advanced: "advanced proxy launch profile system prompt schema",
 };
@@ -78,8 +77,6 @@ export function searchSettings({
 	query,
 	t,
 	entries,
-	values,
-	schemaTabLabel,
 	schemaLabel,
 	limit = 60,
 }: SettingsSearchInput): SettingsSearchResult[] {
@@ -98,41 +95,30 @@ export function searchSettings({
 		});
 	}
 	for (const item of GUI_SEARCH_ITEMS) {
+		if (item.rowId && entries.some(entry => CUSTOM_SCHEMA_EDITORS[entry.path]?.rowId === item.rowId)) continue;
 		candidates.push({
 			key: `gui:${item.id}`,
 			title: t(item.labelKey),
 			location: sectionLabel(item.section),
 			target: item.sub ? `${item.section}:${item.sub}` : item.section,
-			rowId: `setting-gui-${item.id}`,
+			rowId: item.rowId ?? `setting-gui-${item.id}`,
 			haystack: `${item.id} ${allLanguages(item.labelKey)} ${item.aliases}`,
 		});
 	}
 	for (const entry of entries) {
-		if (!isSettingVisibleInGui(entry, values)) continue;
+		if (!isSettingSupportedInGui(entry)) continue;
 		const curated = CURATED_SCHEMA_ROWS[entry.path];
+		const custom = CUSTOM_SCHEMA_EDITORS[entry.path];
+		const owner = schemaSettingsOwner(entry);
 		const schemaText = `${entry.path} ${entry.label ?? ""} ${entry.description ?? ""} ${schemaSearchTexts(entry.path).join(" ")}`;
-		if (curated) {
-			candidates.push({
-				key: `curated:${entry.path}`,
-				title: t(`settings.field.${entry.path}`),
-				location: sectionLabel(curated),
-				target: curated,
-				rowId: `setting-${entry.path}`,
-				path: entry.path,
-				haystack: `${allLanguages(`settings.field.${entry.path}`)} ${schemaText}`,
-			});
-		}
-		const category = entry.advanced === true || entry.tab === undefined ? ADVANCED_OTHER_CATEGORY : entry.tab;
 		candidates.push({
 			key: `schema:${entry.path}`,
-			title: schemaLabel(entry),
-			location: `${sectionLabel("advanced")} › ${
-				category === ADVANCED_OTHER_CATEGORY ? t("settings.advanced.other") : schemaTabLabel(category)
-			}`,
-			target: `advanced:${category}`,
-			rowId: `setting-${entry.path}`,
+			title: curated ? t(`settings.field.${entry.path}`) : schemaLabel(entry),
+			location: sectionLabel(owner),
+			target: custom ? `${owner}:${custom.sub}` : owner,
+			rowId: custom?.rowId ?? `setting-${entry.path}`,
 			path: entry.path,
-			haystack: schemaText,
+			haystack: `${curated ? allLanguages(`settings.field.${entry.path}`) : ""} ${schemaText}`,
 		});
 	}
 

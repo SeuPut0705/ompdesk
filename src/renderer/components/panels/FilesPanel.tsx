@@ -24,9 +24,10 @@ import { formatBytes } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { COMPACT_SHELL_QUERY, useUiStore } from "../../stores/ui";
-import { Button, ErrorDetail, IconButton, Spinner } from "../common";
+import { Button, EmptyState, ErrorDetail, IconButton, SearchField, Spinner } from "../common";
 import { type TreeNode, TreeView } from "../common/TreeView";
 import { PathLink } from "../tools/PathLink";
+import { PanelActions, PanelToolbar } from "./PanelChrome";
 import { FileIcon, FileViewer } from "./viewers/FileViewer";
 import { viewerKind } from "./viewers/file-kind";
 import type { FileInfo } from "./viewers/viewer-chrome";
@@ -72,59 +73,49 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 	const kindLabel = t(`fileViewer.kind.${viewerKind(path)}`);
 	return (
 		<div className="omp-slide-in-right flex h-full min-h-0 flex-col">
-			<div className="shrink-0 border-b border-(--omp-border-muted) px-3 py-1.5">
+			<div className="shrink-0 px-3 py-2">
 				<div className="flex min-w-0 items-center gap-2">
-					<button
-						type="button"
-						onClick={closeFilePreview}
-						aria-label={t("filesPanel.back")}
-						className="omp-pressable flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-(--omp-muted) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
-					>
-						<ArrowLeft size={14} />
-					</button>
-					<FileIcon className="shrink-0 text-(--omp-dim)" path={path} size={12} />
-					<span className="min-w-0 flex-1 truncate font-mono text-omp-xs" title={path}>
+					<IconButton icon={<ArrowLeft />} label={t("filesPanel.back")} onClick={closeFilePreview} size="sm" />
+					<FileIcon className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)" path={path} />
+					<span className="min-w-0 flex-1 truncate text-sc-sm" title={path}>
 						{path}
 					</span>
-					{!compact && (
+					<PanelActions>
+						<PathLink
+							path={path}
+							className="flex size-(--sc-control-sm) shrink-0 items-center justify-center rounded-(--sc-radius-md) text-(--sc-text-muted) hover:bg-(--sc-hover)"
+						>
+							<ExternalLinkIcon className="size-(--sc-icon-sm)" />
+							<span className="sr-only">{t("filesPanel.openExternal")}</span>
+						</PathLink>
 						<IconButton
-							icon={expanded ? <Minimize2 /> : <Maximize2 />}
-							label={t(expanded ? "fileViewer.collapse" : "fileViewer.expand")}
-							onClick={toggleExpanded}
-							pressed={expanded}
+							icon={<AtSign />}
+							label={t("filesPanel.insertMention")}
+							onClick={insertMention}
 							size="sm"
 						/>
-					)}
+						{!compact && (
+							<IconButton
+								icon={expanded ? <Minimize2 /> : <Maximize2 />}
+								label={t(expanded ? "fileViewer.collapse" : "fileViewer.expand")}
+								onClick={toggleExpanded}
+								pressed={expanded}
+								size="sm"
+							/>
+						)}
+					</PanelActions>
 				</div>
 				<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 ps-9">
 					<span
-						// Never squeezed: when the actions don't fit beside it, they wrap below.
-						className="me-auto max-w-full truncate text-omp-xs text-(--omp-dim) tabular-nums"
+						className="me-auto max-w-full truncate text-sc-xs text-(--sc-text-subtle) tabular-nums"
 						data-file-meta
 						title={info?.mime}
 					>
 						{info ? `${kindLabel} · ${formatBytes(info.size)}` : kindLabel}
 					</span>
-					<div className="ms-auto flex shrink-0 items-center gap-1">
-						<PathLink
-							path={path}
-							className="inline-flex shrink-0 items-center gap-1 px-1.5 py-1 text-omp-xs text-(--omp-muted)"
-						>
-							<ExternalLinkIcon size={12} />
-							<span>{t("filesPanel.openExternal")}</span>
-						</PathLink>
-						<button
-							type="button"
-							onClick={insertMention}
-							className="omp-pressable inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-omp-xs text-(--omp-muted) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
-						>
-							<AtSign size={12} />
-							<span>{t("filesPanel.insertMention")}</span>
-						</button>
-					</div>
 				</div>
 			</div>
-			<div className="min-h-0 flex-1 bg-(--omp-code-bg)">
+			<div className="min-h-0 flex-1 bg-(--sc-surface-1)">
 				<FileViewer onInfo={setInfo} path={path} tabId={tabId} />
 			</div>
 		</div>
@@ -206,12 +197,12 @@ export function FilesPanel() {
 				label: entry.name,
 				icon: isDir ? (
 					expanded.has(id) ? (
-						<FolderOpen size={12} />
+						<FolderOpen className="size-(--sc-icon-sm)" />
 					) : (
-						<Folder size={12} />
+						<Folder className="size-(--sc-icon-sm)" />
 					)
 				) : (
-					<FileIcon path={entry.path} size={12} />
+					<FileIcon path={entry.path} className="size-(--sc-icon-sm)" />
 				),
 				onClick: () => onNodeClick(id),
 				children: entry.children && entry.children.length > 0 ? entry.children.map(toNode) : undefined,
@@ -228,40 +219,35 @@ export function FilesPanel() {
 
 	return (
 		<div className="flex h-full flex-col">
-			<div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">
-				<span className="text-omp-xs font-medium tracking-widest text-(--omp-dim) uppercase">
-					{t("filesPanel.title")}
+			<PanelActions>
+				<span className="px-1 text-sc-xs tabular-nums text-(--sc-text-subtle)">
+					{fileCount}
+					{truncated ? "+" : ""}
 				</span>
-				<div className="flex items-center gap-1.5">
-					<span className="text-omp-xs tabular-nums text-(--omp-dim)">
-						{fileCount}
-						{truncated ? "+" : ""}
-					</span>
-					<button
-						aria-label={t("filesPanel.refresh")}
-						className="rounded p-0.5 text-(--omp-dim) transition-colors hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
-						disabled={loading}
-						onClick={() => void load()}
-						type="button"
-					>
-						<RefreshCw className={loading ? "animate-spin" : undefined} size={11} />
-					</button>
-				</div>
-			</div>
-			<div className="px-3 pb-2">
-				<input
-					aria-label={t("filesPanel.search")}
-					placeholder={t("filesPanel.search")}
-					className="w-full rounded border border-(--omp-input-border) bg-(--omp-input-bg) px-2 py-1.5 text-omp-sm"
-					value={query}
-					onChange={event => setQuery(event.target.value)}
+				<IconButton
+					disabled={loading}
+					icon={<RefreshCw />}
+					label={t("filesPanel.refresh")}
+					onClick={() => void load()}
+					size="sm"
 				/>
-				{truncated && (
-					<p className="mt-1 text-omp-xs text-(--omp-muted)">
-						{t("filesPanel.searchLimit", { files: MAX_FILES, depth: MAX_DEPTH })}
-					</p>
-				)}
-			</div>
+			</PanelActions>
+			<PanelToolbar>
+				<div className="w-full">
+					<SearchField
+						controlSize="sm"
+						label={t("filesPanel.search")}
+						placeholder={t("filesPanel.search")}
+						value={query}
+						onValueChange={setQuery}
+					/>
+					{truncated && (
+						<p className="mt-1 text-omp-xs text-(--omp-muted)">
+							{t("filesPanel.searchLimit", { files: MAX_FILES, depth: MAX_DEPTH })}
+						</p>
+					)}
+				</div>
+			</PanelToolbar>
 			<div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
 				{loading && tree.length === 0 ? (
 					<div className="flex items-center justify-center gap-2 py-8">
@@ -278,9 +264,12 @@ export function FilesPanel() {
 							</Button>
 						</div>
 					</div>
+				) : nodes.length === 0 ? (
+					<EmptyState icon={<Folder />} size="sm" title={t("filesPanel.empty")} />
 				) : (
 					<TreeView
 						emptyMessage={t("filesPanel.empty")}
+						className="omp-files-tree"
 						expanded={expanded}
 						nodes={nodes}
 						onExpandedChange={setExpanded}

@@ -56,22 +56,7 @@ export const DENYLISTED_FLAGS: readonly string[] = [
 	"--no-tools",
 ];
 
-const DENYLISTED: Record<string, true> = {
-	"--session": true,
-	"--mode": true,
-	"--print": true,
-	"--print-thoughts": true,
-	"--export": true,
-	"--cwd": true,
-	"--resume": true,
-	"--fork": true,
-	"--help": true,
-	"--version": true,
-	"--no-pty": true,
-	"--no-title": true,
-	"--api-key": true,
-	"--no-tools": true,
-};
+const DENYLISTED: Record<string, true> = Object.fromEntries(DENYLISTED_FLAGS.map(flag => [flag, true]));
 
 /** Denylisted flags that consume a separate value token (--flag value). The
  * rest are boolean switches; --resume/--session take an optional value and
@@ -90,7 +75,8 @@ const DENYLISTED_WITH_VALUE: Record<string, true> = {
 /** Non-denylisted flags that consume a separate value token. The value of one
  * of these is DATA (a prompt, a path, a tool list) and must never be inspected
  * as a potential smuggled flag — a prompt that happens to be "--session" is a
- * legitimate value, not an override. */
+ * legitimate value, not an override. Mirrors stock cli/flag-tables; this must
+ * run before omp starts and in the renderer's launch-command preview. */
 const VALUED_FLAGS: Record<string, true> = {
 	"--system-prompt": true,
 	"--append-system-prompt": true,

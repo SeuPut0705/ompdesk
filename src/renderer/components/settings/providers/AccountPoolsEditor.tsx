@@ -52,8 +52,6 @@ const settingsData = z.object({
 const definitionsData = z.object({ agents: z.array(z.object({ name: z.string().min(1) })) });
 
 interface Loaded {
-	/** The omp knows `task.agentAccountPools`. */
-	supported: boolean;
 	/** The global layer's map; null when it is not one this editor can edit. */
 	pools: AgentAccountPools | null;
 	/** A project or overlay layer sets the value too, and wins. */
@@ -208,7 +206,6 @@ export function AccountPoolsEditor({
 }) {
 	const t = useT();
 	const tabRpc = useTabRpc();
-	const keysReported = providers.some(entry => entry.result?.credentialProvider !== undefined);
 	const [loaded, setLoaded] = useState<Loaded | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
@@ -231,7 +228,6 @@ export function AccountPoolsEditor({
 			const provenance = data.provenance?.[AGENT_ACCOUNT_POOLS_PATH];
 			const agents = definitionsData.parse(definitions.data).agents.map(agent => agent.name);
 			setLoaded({
-				supported: Object.hasOwn(data.values, AGENT_ACCOUNT_POOLS_PATH),
 				pools: parseAgentAccountPools(provenance ? provenance.globalValue : data.values[AGENT_ACCOUNT_POOLS_PATH]),
 				overridden: provenance?.layers.some(layer => layer === "project" || layer === "overlay") === true,
 				agents: [...new Set(agents)],
@@ -245,8 +241,8 @@ export function AccountPoolsEditor({
 	}, [tabRpc]);
 
 	useEffect(() => {
-		if (keysReported && sidecarReady) void load();
-	}, [keysReported, sidecarReady, load]);
+		if (sidecarReady) void load();
+	}, [sidecarReady, load]);
 
 	const write = async (next: AgentAccountPools) => {
 		if (!loaded) return;
@@ -267,11 +263,10 @@ export function AccountPoolsEditor({
 		}
 	};
 
-	if (!keysReported || (loaded !== null && !loaded.supported) || (loaded === null && error === null)) return null;
-
 	const pools = loaded?.pools;
 	const agents = loaded ? [...loaded.agents] : [];
 	for (const name of pools ? Object.keys(pools) : []) if (!agents.includes(name)) agents.push(name);
+	if (loaded && pools && agents.length === 0 && !error) return null;
 
 	return (
 		<SettingsSection
@@ -298,7 +293,22 @@ export function AccountPoolsEditor({
 				/>
 			)}
 			{loaded?.overridden && <InlineNotice title={t("accountPools.overridden")} tone="info" />}
-			{loaded && pools === null && <InlineNotice title={t("accountPools.unreadable")} tone="warning" />}
+			{loaded && pools === null && (
+				<InlineNotice
+					title={t("accountPools.unreadable")}
+					tone="warning"
+					action={
+						<Button
+							disabled={saving || !sidecarReady}
+							onClick={() => void write({})}
+							size="sm"
+							variant="secondary"
+						>
+							{t("common.reset")}
+						</Button>
+					}
+				/>
+			)}
 			{loaded && pools && (
 				<ul aria-label={t("accountPools.title")} className="flex flex-col divide-y divide-(--sc-divider)">
 					{agents.map(agent => (

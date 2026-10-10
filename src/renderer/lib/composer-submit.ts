@@ -13,6 +13,7 @@ import { hydrateSession } from "../hooks/use-rpc-events";
 import { toast, toastError } from "../stores/toast";
 import { buildCurrentCommandMenu, type CommandAffordance } from "./command-registry";
 import { translate } from "./i18n";
+import { parseSlashCommand } from "./slash-command";
 import type { TabRpc } from "./tab-rpc";
 
 export type ComposerSendMode = "prompt" | "steer" | "followUp";
@@ -60,11 +61,9 @@ function runGuiAffordance(affordance: CommandAffordance, args?: string): boolean
 }
 
 function findGuiOnlyBuiltin(message: string, commands: AvailableCommand[]): AvailableCommand | undefined {
-	const name = /^\/([a-z0-9-]+)/i.exec(message)?.[1]?.toLowerCase();
+	const name = parseSlashCommand(message)?.name;
 	if (!name) return undefined;
-	const command = commands.find(
-		command => command.name.toLowerCase() === name || command.aliases?.some(alias => alias.toLowerCase() === name),
-	);
+	const command = commands.find(command => command.name === name || command.aliases?.includes(name));
 	if (GUI_CONFIRMATION_COMMANDS.has(name) && (!command || command.source === "builtin")) {
 		return command ?? { name, source: "builtin", description: name, textModeExecutable: false };
 	}
@@ -78,13 +77,11 @@ export function isGuiOnlyBuiltinCommand(message: string, commands: AvailableComm
 function runGuiOnlyBuiltin(message: string, commands: AvailableCommand[]): boolean | undefined {
 	const wireCommand = findGuiOnlyBuiltin(message, commands);
 	if (!wireCommand) return undefined;
-	const match = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/i.exec(message.trim());
-	const name = match?.[1]?.toLowerCase() ?? wireCommand.name.toLowerCase();
-	const args = match?.[2]?.trim() || undefined;
+	const parsed = parseSlashCommand(message);
+	const name = parsed?.name ?? wireCommand.name;
+	const args = parsed?.args || undefined;
 	const item = buildCurrentCommandMenu(commands).find(
-		candidate =>
-			candidate.name.toLowerCase() === wireCommand.name.toLowerCase() ||
-			candidate.aliases?.some(alias => alias.toLowerCase() === name),
+		candidate => candidate.name === wireCommand.name || candidate.aliases?.includes(name),
 	);
 	if (!item) {
 		toast({ variant: "warning", message: translate("unavailable.tuiOnly") });
@@ -104,7 +101,7 @@ export function planComposerSubmit(input: {
 	const { message, images, isStreaming, mode, commands, rpc = window.omp.rpc } = input;
 	const isSlashCommand = message.startsWith("/");
 	if (isSlashCommand && isStreaming) {
-		const commandName = /^\/([a-z-]+)/i.exec(message)?.[1]?.toLowerCase();
+		const commandName = parseSlashCommand(message)?.name;
 		if (commandName !== undefined && SESSION_REPLACING_COMMANDS[commandName]) {
 			toast({ variant: "warning", message: translate("sessionSwitch.busyBlocked") });
 			return { kind: "blocked" };

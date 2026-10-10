@@ -6,14 +6,19 @@
 
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { CUSTOM_PROVIDER_APIS, type CustomProviderModelInput } from "../../../../shared/ipc-types";
+import type { CustomProviderModelInput, CustomProviderOptions } from "../../../../shared/ipc-types";
 import { useT } from "../../../lib/i18n";
 import { Button, IconButton, Input, Select } from "../../common";
 
-/** Protocols accepted by models.yml (re-export from shared types). */
-const PROVIDER_PROTOCOLS = CUSTOM_PROVIDER_APIS;
 const COST_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
 type CostField = (typeof COST_FIELDS)[number];
+const THINKING_MODE_LABELS: Record<string, string> = {
+	effort: "providerCfg.form.thinkingModeEffort",
+	budget: "providerCfg.form.thinkingModeBudget",
+	"google-level": "providerCfg.form.thinkingModeGoogle",
+	"anthropic-adaptive": "providerCfg.form.thinkingModeAnthropicAdaptive",
+	"anthropic-budget-effort": "providerCfg.form.thinkingModeAnthropicBudgetEffort",
+};
 
 export interface ModelRow extends Omit<CustomProviderModelInput, "id"> {
 	key: number;
@@ -27,9 +32,10 @@ interface ModelEditorProps {
 	onUpdate: (key: number, patch: Partial<Omit<ModelRow, "key">>) => void;
 	onRemove: (key: number) => void;
 	canRemove: boolean;
+	options: CustomProviderOptions;
 }
 
-function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove }: ModelEditorProps) {
+function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove, options }: ModelEditorProps) {
 	const t = useT();
 	const [expanded, setExpanded] = useState(false);
 	const [costDrafts, setCostDrafts] = useState<Record<CostField, string>>(() => ({
@@ -141,7 +147,7 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove 
 							disabled={readonly || disabled}
 						>
 							<option value="">{t("providerCfg.form.modelApiInherit")}</option>
-							{PROVIDER_PROTOCOLS.map(protocol => (
+							{options.apis.map(protocol => (
 								<option key={protocol} value={protocol}>
 									{t(`providerCfg.protocol.${protocol}`)}
 								</option>
@@ -289,15 +295,11 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove 
 									}
 									disabled={readonly || disabled}
 								>
-									<option value="effort">{t("providerCfg.form.thinkingModeEffort")}</option>
-									<option value="budget">{t("providerCfg.form.thinkingModeBudget")}</option>
-									<option value="google-level">{t("providerCfg.form.thinkingModeGoogle")}</option>
-									<option value="anthropic-adaptive">
-										{t("providerCfg.form.thinkingModeAnthropicAdaptive")}
-									</option>
-									<option value="anthropic-budget-effort">
-										{t("providerCfg.form.thinkingModeAnthropicBudgetEffort")}
-									</option>
+									{options.thinkingModes.map(mode => (
+										<option key={mode} value={mode}>
+											{t(THINKING_MODE_LABELS[mode] ?? mode)}
+										</option>
+									))}
 								</Select>
 
 								<div className="space-y-1.5">
@@ -305,11 +307,11 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove 
 										{t("providerCfg.form.thinkingEfforts")}
 									</span>
 									<div className="flex flex-wrap gap-3">
-										{(["minimal", "low", "medium", "high", "xhigh", "max"] as const).map(effort => (
+										{options.efforts.map(effort => (
 											<label key={effort} className="flex items-center gap-2">
 												<input
 													type="checkbox"
-													checked={model.thinking!.efforts.includes(effort)}
+													checked={model.thinking!.efforts.some(value => value === effort)}
 													onChange={e => updateThinkingEfforts(effort, e.target.checked)}
 													disabled={readonly || disabled}
 													className="size-4 accent-(--sc-accent)"

@@ -18,7 +18,11 @@ export function RemoteTabBanner({ deviceId }: { deviceId: string }) {
 		return (
 			<Banner
 				actions={
-					<Button onClick={() => useUiStore.getState().openSettings("remote")} size="sm" variant="secondary">
+					<Button
+						onClick={() => useUiStore.getState().openSettings("connections:remote")}
+						size="sm"
+						variant="secondary"
+					>
 						{t("remote.openSettings")}
 					</Button>
 				}

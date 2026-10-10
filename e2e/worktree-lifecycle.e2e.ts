@@ -100,6 +100,34 @@ test.describe("worktree.onStart = create, worktree.onExit = remove", () => {
 		await launch("create:remove");
 	});
 
+	test("GUI worktree removal recognises legacy directory names and keeps branches", async () => {
+		const created = await page.evaluate(() => window.omp.rpc.worktreeCreate("gui-feature"));
+		expect(created).toMatchObject({ success: true, data: { branch: "omp/gui/gui-feature" } });
+		const data = created.data;
+		if (
+			!created.success ||
+			!data ||
+			typeof data !== "object" ||
+			!("path" in data) ||
+			typeof data.path !== "string" ||
+			!("branch" in data) ||
+			typeof data.branch !== "string"
+		) {
+			throw new Error("GUI worktree was not created");
+		}
+		expect(path.dirname(data.path)).toBe(worktreeRoot);
+		const removed = await page.evaluate(target => window.omp.rpc.worktreeRemove(target), data.path);
+		expect(removed.success).toBe(true);
+		expect(await exists(data.path)).toBe(false);
+		expect(git(project, "branch", "--list", data.branch)).toContain(data.branch);
+		const legacy = path.join(worktreeRoot, "gui-old-sha-7654321");
+		git(project, "worktree", "add", "-q", "-b", "omp/gui/legacy", legacy);
+		const legacyRemoved = await page.evaluate(target => window.omp.rpc.worktreeRemove(target), legacy);
+		expect(legacyRemoved.success).toBe(true);
+		expect(await exists(legacy)).toBe(false);
+		expect(await exists(path.join(project, "README.md"))).toBe(true);
+	});
+
 	test("a new tab lands in a fresh worktree, and closing it removes a clean one", async () => {
 		// Opened on the project from the command line: not a new session, so no worktree.
 		const [first] = await tabs();

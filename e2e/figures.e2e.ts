@@ -46,7 +46,7 @@ test("mermaid files and svg replies render as figures", async () => {
 
 		const aside = page.locator("aside[data-docked]");
 		await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
-		await aside.getByRole("tab", { name: "Files" }).click();
+		await aside.getByRole("button", { name: "Files", exact: true }).click();
 		await aside.getByText("flow.mmd", { exact: true }).click();
 		const diagram = aside.locator("[data-mermaid-rendered] img");
 		await expect(diagram).toBeVisible({ timeout: 30_000 });

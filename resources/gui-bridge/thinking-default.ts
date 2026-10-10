@@ -2,6 +2,8 @@
  * OMPdesk's thinking defaults wired to stock omp (rules and values:
  * thinking-default-core.ts): `defaultThinkingLevel` = auto, and the auto
  * classifier's ceiling `providers.autoThinkingMaxEffort` = max.
+ * Stock Setting.pinDefault can only pin its schema's high/xhigh defaults; GUI auto/max
+ * requires a runtime override so CLI defaults and explicit user configuration stay untouched.
  *
  * Timing: stock `main.ts` initializes Settings, then loads the `-e` extensions
  * (index.ts awaits `applyGuiThinkingDefault` inside the factory), and only then

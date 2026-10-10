@@ -96,12 +96,13 @@ function ConnectStep() {
 		setPhase("model", first ?? null);
 	}, [customConfigs, customForm, login.state.running, providers, setPhase]);
 
-	if (customForm) {
+	if (customForm && catalog.options) {
 		return (
 			<div className="mt-8">
 				<CustomProviderForm
 					editing={null}
 					existing={customConfigs}
+					options={catalog.options}
 					onCancel={() => setCustomForm(false)}
 					onSaved={providerId => {
 						setCustomForm(false);

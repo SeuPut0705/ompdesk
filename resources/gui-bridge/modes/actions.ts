@@ -2,6 +2,8 @@
  * One-shot mode actions stock wires only to its terminal UI: `/tan` (background
  * tangent agent), `/omfg` (forge a TTSR rule from a complaint) and the global
  * agent pause gate (the TUI's pause toggle).
+ * Kept: stock OmfgController constructs terminal panels; no exported
+ * host-neutral generation controller supports RPC confirmation/input.
  */
 import * as path from "node:path";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";

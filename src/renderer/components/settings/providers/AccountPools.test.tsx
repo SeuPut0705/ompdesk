@@ -2,6 +2,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fixtureProviderOptions } from "../../../../../e2e/models-config-fixture";
 import type { ProviderAccount, ProviderInfo, ProvidersResult, RpcResponse } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useModelStore } from "../../../stores/model";
@@ -76,7 +77,7 @@ const writeText = vi.fn(async (_text: string) => {});
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
 		rpc: { getProviders, getProviderAccounts, getSettings, setSetting, getAgentDefinitions },
-		models: { listProviders: vi.fn(async () => []) },
+		models: { listProviders: vi.fn(async () => ({ providers: [], options: fixtureProviderOptions })) },
 		ui: { respondExtensionUi: vi.fn() },
 		system: { openExternal: vi.fn(async () => {}) },
 		accountRotation: { get: vi.fn(async () => ({ mode: "quota", evenSupported: true })), set: vi.fn(async () => {}) },
@@ -186,29 +187,30 @@ describe("Copy identity key", () => {
 		);
 	});
 
-	it("offers no copy and no pool editor on an omp without identity keys", async () => {
+	it("keeps the pool editor reachable even before an account reports an identity key", async () => {
 		getProviderAccounts.mockResolvedValue(
 			ok("get_provider_accounts", { providerId: "anthropic", accounts: [account(7, "work@example.com")] }),
 		);
+		getSettings.mockResolvedValue(settingsWith(undefined));
 		await mount();
 		await act(async () => document.body.querySelector<HTMLButtonElement>("button[aria-expanded]")?.click());
 
 		expect(text()).toContain("work@example.com");
 		expect(button(translate("providers.accounts.copyKey", { account: "work@example.com" }))).toBeUndefined();
-		expect(text()).not.toContain(translate("accountPools.title"));
-		expect(getSettings).not.toHaveBeenCalled();
+		expect(text()).toContain(translate("accountPools.title"));
+		expect(getSettings).toHaveBeenCalledWith([AGENT_ACCOUNT_POOLS_PATH]);
 	});
 });
 
 describe("AccountPoolsEditor", () => {
 	const both = [account(7, "work@example.com", WORK), account(9, "home@example.com", HOME)];
 
-	it("hides itself when the omp has identity keys but not the setting", async () => {
+	it("keeps an unset stock pool reachable in its custom editor", async () => {
 		getProviderAccounts.mockResolvedValue(accountsWithKeys(both));
 		getSettings.mockResolvedValue(ok("get_settings", { values: {}, provenance: {} }));
 		await mount();
 		expect(getSettings).toHaveBeenCalledWith([AGENT_ACCOUNT_POOLS_PATH]);
-		expect(text()).not.toContain(translate("accountPools.title"));
+		expect(text()).toContain(translate("accountPools.title"));
 	});
 
 	it("lists every agent and checks the accounts its saved pool names", async () => {
@@ -288,11 +290,17 @@ describe("AccountPoolsEditor", () => {
 		expect(useToastStore.getState().toasts.map(toast => toast.title)).toContain(translate("accountPools.saveFailed"));
 	});
 
-	it("leaves a map it cannot read to the Advanced row", async () => {
+	it("offers recovery in the sole editor for a map it cannot read", async () => {
 		getProviderAccounts.mockResolvedValue(accountsWithKeys(both));
 		getSettings.mockResolvedValue(settingsWith({ task: ["anthropic"] }));
 		await mount();
 		expect(text()).toContain(translate("accountPools.unreadable"));
 		expect(agentRow("task")).toBeNull();
+		const reset = Array.from(document.body.querySelectorAll("button")).find(
+			button => button.textContent === translate("common.reset"),
+		);
+		expect(reset).toBeDefined();
+		await act(async () => reset?.click());
+		expect(setSetting).toHaveBeenCalledWith(AGENT_ACCOUNT_POOLS_PATH, undefined);
 	});
 });

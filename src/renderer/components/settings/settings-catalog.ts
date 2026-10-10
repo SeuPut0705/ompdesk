@@ -1,8 +1,6 @@
 /**
- * Settings page catalog: section ids, navigation order, deep-link
- * resolution, and the curated rows each section shows. Everything the
- * schema offers stays reachable under Advanced; curated rows only decide
- * where a setting appears first and how it is worded.
+ * Canonical Settings ownership. Navigation, schema editors and search share
+ * this catalog so each setting has exactly one editing destination.
  */
 
 import { GUI_DISPLAY_BOOL_FIELDS, GUI_DISPLAY_LEGACY_PATHS } from "../../lib/display-preferences";
@@ -12,13 +10,11 @@ export const SETTINGS_SECTION_IDS = [
 	"appearance",
 	"keyboard",
 	"models",
+	"agent",
+	"tools",
 	"permissions",
-	"features",
-	"extensions",
-	"plugins",
 	"workspace",
-	"ssh",
-	"remote",
+	"connections",
 	"updates",
 	"advanced",
 ] as const;
@@ -32,8 +28,8 @@ export interface SettingsNavGroup {
 /** Left sub-nav: flat, always fully visible, grouped by who the setting is for. */
 export const SETTINGS_NAV: readonly SettingsNavGroup[] = [
 	{ id: "app", items: ["general", "appearance", "keyboard"] },
-	{ id: "agent", items: ["models", "permissions", "features", "extensions", "plugins"] },
-	{ id: "system", items: ["workspace", "ssh", "remote", "updates", "advanced"] },
+	{ id: "agent", items: ["models", "agent", "tools", "permissions", "workspace"] },
+	{ id: "system", items: ["connections", "updates", "advanced"] },
 ];
 
 /**
@@ -42,41 +38,23 @@ export const SETTINGS_NAV: readonly SettingsNavGroup[] = [
  * files and credentials), `mixed` = both, each part marked in the section.
  */
 export const SECTION_SCOPE: Record<SettingsSectionId, "app" | "host" | "mixed"> = {
-	general: "mixed",
+	general: "app",
 	appearance: "app",
 	keyboard: "app",
 	models: "host",
 	permissions: "host",
-	features: "host",
-	extensions: "host",
-	plugins: "host",
+	agent: "host",
+	tools: "host",
 	workspace: "host",
-	ssh: "host",
-	remote: "app",
+	connections: "mixed",
 	updates: "mixed",
-	advanced: "mixed",
+	advanced: "host",
 };
 
 export const EXTENSIONS_TABS = ["skills", "mcp", "hooks", "commands"] as const;
 export type ExtensionsTab = (typeof EXTENSIONS_TABS)[number];
-export const PLUGINS_TABS = ["plugins", "marketplaces", "templates", "memory"] as const;
+export const PLUGINS_TABS = ["plugins", "marketplaces", "templates"] as const;
 export type PluginsTab = (typeof PLUGINS_TABS)[number];
-
-/** Advanced › category: app launch/network options, each agent schema tab, then uncategorized settings. */
-export const ADVANCED_LAUNCH_CATEGORY = "launch";
-export const ADVANCED_OTHER_CATEGORY = "other";
-
-/** Agent schema tabs (omp `SETTING_TABS`); a bare one deep-links into Advanced. */
-const SCHEMA_TAB_IDS: Record<string, true> = {
-	model: true,
-	interaction: true,
-	context: true,
-	memory: true,
-	files: true,
-	shell: true,
-	tools: true,
-	tasks: true,
-};
 
 export interface SettingsTarget {
 	section: SettingsSectionId;
@@ -84,46 +62,115 @@ export interface SettingsTarget {
 	sub?: string;
 }
 
-/**
- * `openSettings(target)` → page section. Targets are `section` or
- * `section:sub` (`extensions:mcp`, `plugins:marketplaces`, `advanced:model`,
- * `models:compare`); a bare agent schema tab id opens that Advanced category.
- */
+/** Canonical deep links use section ids with an optional editor/group anchor. */
 export function resolveSettingsTarget(target: string | null | undefined): SettingsTarget {
 	const [head = "", ...rest] = (target ?? "").split(":");
 	const sub = rest.length > 0 ? rest.join(":") : undefined;
 	if ((SETTINGS_SECTION_IDS as readonly string[]).includes(head)) return { section: head as SettingsSectionId, sub };
-	// FirstRun's provider flows and the old Providers window share one page.
-	if (head === "providers") return { section: "models" };
-	if (SCHEMA_TAB_IDS[head]) return { section: "advanced", sub: head };
 	return { section: "general" };
 }
 
 /** Curated agent-schema rows and the section that shows them (human copy: `settings.field.<path>`). */
 export const CURATED_SCHEMA_ROWS: Readonly<Record<string, SettingsSectionId>> = {
-	steeringMode: "general",
-	followUpMode: "general",
-	interruptMode: "general",
-	"compaction.enabled": "general",
-	"tui.renderMermaid": "appearance",
+	steeringMode: "agent",
+	followUpMode: "agent",
+	interruptMode: "agent",
+	"compaction.enabled": "agent",
+	"tui.renderMermaid": "agent",
 	defaultThinkingLevel: "models",
-	"retry.modelFallback": "models",
-	"retry.maxRetries": "models",
+	"retry.modelFallback": "agent",
+	"retry.maxRetries": "agent",
 	"tools.approvalMode": "permissions",
 	"tools.approval": "permissions",
 	"secrets.enabled": "permissions",
-	"plan.enabled": "features",
-	"goal.enabled": "features",
-	"ttsr.enabled": "features",
-	"advisor.enabled": "features",
-	"memory.backend": "features",
+	"plan.enabled": "agent",
+	"goal.enabled": "agent",
+	"ttsr.enabled": "agent",
+	"advisor.enabled": "agent",
+	"memory.backend": "agent",
 };
+
+/** Structured settings are edited only by their dedicated editor. */
+export const CUSTOM_SCHEMA_EDITORS: Readonly<
+	Record<string, { section: SettingsSectionId; sub: string; rowId: string }>
+> = {
+	modelRoles: { section: "models", sub: "roles", rowId: "settings-models-roles" },
+	"task.agentAccountPools": { section: "models", sub: "account-pools", rowId: "settings-models-account-pools" },
+	"compaction.modelThresholds": { section: "agent", sub: "context", rowId: "settings-models-compaction-limits" },
+	disabledExtensions: { section: "tools", sub: "other-extensions", rowId: "settings-tools-other-extensions" },
+};
+
+/** Unknown future stock keys deliberately remain reachable in Other settings. */
+export function schemaSettingsOwner(entry: { path: string; tab?: string; group?: string }): SettingsSectionId {
+	const path = entry.path;
+	const custom = CUSTOM_SCHEMA_EDITORS[path];
+	if (custom) return custom.section;
+	const curated = CURATED_SCHEMA_ROWS[path];
+	if (curated) return curated;
+	if (/^(codexResets|claudeResets|providers)\./.test(path) || path === "modelRoleStorage") return "models";
+	if (/^(tools\.approval|secrets\.|security\.)/.test(path)) return "permissions";
+	if (/^(workspace|git|worktree)\./.test(path)) return "workspace";
+	if (/^(update|power)\./.test(path)) return "updates";
+	if (
+		/^(retry|advisor|plan|goal|ttsr|memory|autolearn|mnemopi|hindsight|sharpshooter|compaction|prewalk|vision|prompt|task)\./.test(
+			path,
+		)
+	)
+		return "agent";
+	if (path === "disabledExtensions") return "tools";
+	if (entry.tab === "interaction") {
+		if (entry.group === "Approvals") return "permissions";
+		if (entry.group === "Startup & Updates" || entry.group === "Power") return "updates";
+		if (entry.group === "Git") return "workspace";
+		if (entry.group === "Skills") return "tools";
+	}
+	if (
+		entry.tab === "model" &&
+		["Prompt", "Retry & Fallback", "Advisor", "Prewalk", "Vision"].includes(entry.group ?? "")
+	)
+		return "agent";
+	if (entry.tab === "tasks" && entry.group === "Commands & Skills") return "tools";
+	switch (entry.tab) {
+		case "model":
+			return "models";
+		case "providers":
+			return "models";
+		case "appearance":
+			return "agent";
+		case "interaction":
+		case "context":
+		case "memory":
+		case "tasks":
+			return "agent";
+		case "files":
+		case "shell":
+		case "tools":
+			return "tools";
+		default:
+			return "advanced";
+	}
+}
+
+export type AgentSettingsGroup = "messages" | "modes" | "context" | "io";
+/** Agent's four groups are shared by composition and search breadcrumbs. */
+export function agentSettingsGroup(entry: { path: string; tab?: string; group?: string }): AgentSettingsGroup {
+	if (/^(advisor|plan|goal|ttsr|task)\./.test(entry.path) || entry.tab === "tasks") return "modes";
+	if (
+		/^(compaction|memory|autolearn|mnemopi|hindsight|sharpshooter)\./.test(entry.path) ||
+		entry.tab === "context" ||
+		entry.tab === "memory"
+	)
+		return "context";
+	if (entry.tab === "interaction" || entry.tab === "appearance") return "io";
+	return "messages";
+}
 
 export interface GuiSearchItem {
 	/** Row id suffix: the row renders as `setting-gui-<id>`. */
 	id: string;
 	section: SettingsSectionId;
 	sub?: string;
+	rowId?: string;
 	labelKey: string;
 	/** Extra match terms (wire names, other-language synonyms). */
 	aliases: string;
@@ -195,7 +242,7 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 	},
 	...GUI_DISPLAY_BOOL_FIELDS.map((id, index) => ({
 		id,
-		section: "appearance" as const,
+		section: id === "titleState" || id === "showProgress" ? ("general" as const) : ("appearance" as const),
 		labelKey: `settings.display.${id}`,
 		aliases: `${GUI_DISPLAY_LEGACY_PATHS[index]} display 표시`,
 	})),
@@ -207,18 +254,116 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 	},
 	{
 		id: "proxy",
-		section: "advanced",
-		sub: ADVANCED_LAUNCH_CATEGORY,
+		section: "general",
 		labelKey: "settings.gui.proxy",
 		aliases: "proxyUrl proxy network 프록시 네트워크",
 	},
 	{
 		id: "launch",
-		section: "advanced",
-		sub: ADVANCED_LAUNCH_CATEGORY,
+		section: "workspace",
 		labelKey: "settings.launch.title",
 		aliases: "launchProfiles launch systemPrompt profile sessionDir 실행 시작 인수",
 	},
+	{
+		id: "roles",
+		section: "models",
+		sub: "roles",
+		rowId: "settings-models-roles",
+		labelKey: "settings.models.roles",
+		aliases: "modelRoles advisor slow fast default roles 모델 역할 어드바이저",
+	},
+	{
+		id: "pools",
+		section: "models",
+		sub: "account-pools",
+		rowId: "settings-models-account-pools",
+		labelKey: "accountPools.title",
+		aliases: "task.agentAccountPools accounts pools 계정 풀",
+	},
+	{
+		id: "rotation",
+		section: "models",
+		sub: "rotation",
+		rowId: "settings-models-rotation",
+		labelKey: "providers.rotation.label",
+		aliases: "accountRotation quota even rotation 계정 순환",
+	},
+	{
+		id: "reset-passes",
+		section: "models",
+		sub: "reset-passes",
+		rowId: "settings-models-reset-passes",
+		labelKey: "resetPasses.use",
+		aliases: "codex claude reset passes redeem 초기화권 리셋",
+	},
+	{
+		id: "setup",
+		section: "models",
+		sub: "setup",
+		rowId: "settings-models-setup",
+		labelKey: "modelSetup.title",
+		aliases: "model setup assistant 자동 설정 도우미",
+	},
+	{
+		id: "ssh",
+		section: "connections",
+		sub: "ssh",
+		rowId: "settings-connections-ssh",
+		labelKey: "ssh.title",
+		aliases: "ssh host hostname port key user project SSH 호스트 포트 키",
+	},
+	{
+		id: "remote",
+		section: "connections",
+		sub: "remote",
+		rowId: "settings-connections-remote",
+		labelKey: "settings.connections.sharing",
+		aliases: "remote pairing address sharing keep awake 원격 기기 페어링 주소 공유 잠자기",
+	},
+	{
+		id: "auth",
+		section: "updates",
+		sub: "auth",
+		rowId: "settings-updates-auth",
+		labelKey: "updates.auth.tokenLabel",
+		aliases: "github token auth updates 인증 토큰 업데이트",
+	},
+	{
+		id: "accounts",
+		section: "models",
+		sub: "accounts",
+		rowId: "settings-models-accounts",
+		labelKey: "settings.models.providers",
+		aliases: "provider account login credentials OAuth API key 프로바이더 계정 로그인 인증",
+	},
+	{
+		id: "custom",
+		section: "models",
+		sub: "custom",
+		rowId: "settings-models-custom",
+		labelKey: "settings.models.custom",
+		aliases:
+			"models.yml providers endpoint API baseUrl transport discovery price capabilities 직접 추가 엔드포인트 URL 가격",
+	},
+	...[
+		"systemPrompt",
+		"appendSystemPrompt",
+		"addDirs",
+		"tools",
+		"noRules",
+		"noLsp",
+		"planYolo",
+		"profile",
+		"sessionDir",
+		"config",
+	].map(field => ({
+		id: `launch-${field}`,
+		section: "workspace" as const,
+		sub: `launch-${field}`,
+		rowId: `settings-workspace-launch-${field}`,
+		labelKey: `settings.launch.${field}`,
+		aliases: `launchProfiles.${field} launch ${field} 실행`,
+	})),
 ];
 
 /** Launch-profile text fields that commit on blur (switches/chips apply immediately). */

@@ -62,7 +62,9 @@ function fakeHost(reply: (method: string, params: unknown) => unknown = () => nu
 describe("machineFor", () => {
 	it("serves this computer without a device and the paired host with one", async () => {
 		const local: MachineServices = localMachine(0);
-		const host = fakeHost(method => (method === "host.models.list" ? [{ id: "host-only" }] : null));
+		const host = fakeHost(method =>
+			method === "host.models.list" ? { providers: [{ id: "host-only" }], options: { apis: ["stock-api"] } } : null,
+		);
 		expect(machineFor(undefined, local, { request: host.request, statsText })).toBe(local);
 
 		const remote = machineFor("host-b", local, {
@@ -71,7 +73,10 @@ describe("machineFor", () => {
 			tab: { rtab: "tab-1", cwd: "/Users/b/project" },
 		});
 		expect(remote).toBeInstanceOf(RemoteMachine);
-		await expect(remote.listProviders()).resolves.toEqual([{ id: "host-only" }]);
+		await expect(remote.listProviders()).resolves.toEqual({
+			providers: [{ id: "host-only" }],
+			options: { apis: ["stock-api"] },
+		});
 		const input: CustomProviderInput = { id: "lan", api: "openai-completions", baseUrl: "http://x/v1", models: [] };
 		await remote.upsertProvider(input);
 		await remote.deleteProvider("lan");

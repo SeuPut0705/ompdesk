@@ -4,6 +4,8 @@
  * the tool set and continuation); these only touch state that controller does
  * not track: replacing an active goal's objective, changing its token budget,
  * and the TUI's guided-goal interview (`handleGuidedGoalCommand`).
+ * Kept: stock InteractiveMode.handleGuidedGoalCommand is TUI-bound and
+ * RpcGoalController exposes no interview, objective-replace or budget API.
  */
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { guard } from "../health";

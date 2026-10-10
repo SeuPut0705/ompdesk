@@ -17,7 +17,7 @@ import { toast, toastError } from "../../stores/toast";
 import { useUpdaterStore } from "../../stores/updater";
 import { Badge, Banner, type BannerVariant, Button, ErrorDetail, Input, Spinner } from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
-import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
+import { HostScoped } from "../remote/HostScope";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 export type UpdateOverviewState = "checking" | "healthy" | "attention" | "error";
@@ -163,7 +163,7 @@ export function UpdatesSection() {
 			</Banner>
 
 			<SettingsRow
-				badge={<ThisDeviceTag />}
+				badge={<Badge variant="muted">{t("settings.navGroup.app")}</Badge>}
 				control={
 					status.state === "available" ? (
 						<Button
@@ -218,7 +218,13 @@ export function UpdatesSection() {
 
 			<HostScoped>
 				<SettingsRow
-					badge={host && <DeviceChip deviceId={host.deviceId} />}
+					badge={
+						host ? (
+							<DeviceChip deviceId={host.deviceId} />
+						) : (
+							<Badge variant="muted">{t("settings.navGroup.agent")}</Badge>
+						)
+					}
 					control={
 						coreError ? (
 							<Badge variant="error">{t("updates.checkFailed")}</Badge>
@@ -301,7 +307,7 @@ function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> }) {
 	const source = info?.source ?? "none";
 	return (
 		<SettingsRow
-			badge={<ThisDeviceTag />}
+			id="settings-updates-auth"
 			control={
 				info === undefined ? (
 					<Spinner label={t("updates.checking")} size="sm" />

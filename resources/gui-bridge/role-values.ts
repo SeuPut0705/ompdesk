@@ -11,11 +11,14 @@
 
 const ADVISOR_ROLE = "advisor";
 const AUTO_SUFFIX = ":auto";
-const LEVEL_SUFFIX = /:(?:off|minimal|low|medium|high|xhigh|max|auto|inherit)$/;
 
 /** The value to store for `role` when the user picks `modelId` (undefined clears the role). */
-export function storedRoleValue(role: string, modelId: string | undefined): string | undefined {
-	if (role !== ADVISOR_ROLE || !modelId || LEVEL_SUFFIX.test(modelId)) return modelId;
+export function storedRoleValue(
+	role: string,
+	modelId: string | undefined,
+	explicitThinking: (value: string) => unknown,
+): string | undefined {
+	if (role !== ADVISOR_ROLE || !modelId || explicitThinking(modelId)) return modelId;
 	return `${modelId}${AUTO_SUFFIX}`;
 }
 

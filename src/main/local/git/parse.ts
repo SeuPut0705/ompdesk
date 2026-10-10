@@ -1,6 +1,4 @@
 /** Pure parsers/projections for the GUI-side git commands (unit-tested). */
-import { createHash } from "node:crypto";
-import { homedir } from "node:os";
 import * as path from "node:path";
 
 export interface GitStatusEntry {
@@ -111,27 +109,15 @@ export function worktreeSlug(raw: string): string | null {
 	return slug;
 }
 
-/** 7-hex digest of a repository root, used to keep worktree dirs of different repos apart. */
-export function hashPath(absPath: string): string {
-	return createHash("sha256").update(path.resolve(absPath)).digest("hex").slice(0, 7);
-}
-
-/** `~/.omp/wt` (or `OMP_WORKTREE_DIR`), the directory omp's own worktree producers share. */
-export function worktreesDir(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
-	const override = env.OMP_WORKTREE_DIR?.trim();
-	if (override) return path.resolve(override.startsWith("~") ? path.join(home, override.slice(1)) : override);
-	return path.join(home, ".omp", "wt");
-}
-
 /** Candidate `{path, branch}` for GUI worktree attempt `suffix` (1 = bare name). */
 export function guiWorktreeCandidate(
 	slug: string,
-	primaryRoot: string,
+	repoHash: string,
 	suffix: number,
-	baseDir: string = worktreesDir(),
+	baseDir: string,
 ): { name: string; branch: string; path: string } {
 	const name = suffix === 1 ? slug : `${slug}-${suffix}`;
-	return { name, branch: `omp/gui/${name}`, path: path.join(baseDir, `gui-${name}-${hashPath(primaryRoot)}`) };
+	return { name, branch: `omp/gui/${name}`, path: path.join(baseDir, `gui-${name}-${repoHash}`) };
 }
 
 export interface PrDiffFile {
@@ -141,6 +127,7 @@ export interface PrDiffFile {
 	endOffset: number;
 }
 
+/** Kept over stock tools/gh-pr-diff: decode octal UTF-8 bytes together, so Korean filenames do not become mojibake. */
 function parseQuoted(text: string, start: number): { value: string; next: number } | undefined {
 	if (text.charAt(start) !== '"') return undefined;
 	const bytes: number[] = [];

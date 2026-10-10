@@ -21,8 +21,9 @@
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { guard } from "../health";
+import { normalizePool, type PoolState } from "../pool-contracts";
 import type { BridgeEnv, BridgeMethods } from "../types";
-import { buildPoolInstruction, normalizePool, POOL_ENTRY_TYPE, type PoolState, poolFromEntries } from "./pool-core";
+import { buildPoolInstruction, POOL_ENTRY_TYPE, poolFromEntries } from "./pool-core";
 
 let latestEnv: BridgeEnv | undefined;
 

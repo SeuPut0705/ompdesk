@@ -9,6 +9,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { normalizeWorkspaceDirectory } from "@oh-my-pi/pi-coding-agent/session/session-workspace";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { resolveToCwd } from "@oh-my-pi/pi-coding-agent/tools/path-utils";
 import { guard } from "./health";
 import type { BridgeMethods } from "./types";
 
@@ -50,6 +51,12 @@ async function requireExistingDirectory(resolved: string): Promise<void> {
 
 export const methods: BridgeMethods = guard("workspace", {
 	"workspace.directories": async (_params, env) => directories(env.session()),
+
+	"workspace.resolve_path": async (params, env) => {
+		const raw = requirePath(params);
+		if (/[\r\n\0]/.test(raw)) throw new Error("path must not contain line breaks or NUL");
+		return { path: resolveToCwd(raw, env.session().sessionManager.getCwd()) };
+	},
 
 	/** Already-present paths are a no-op success; the cwd itself is refused by SessionManager. */
 	"workspace.add_directory": async (params, env) => {

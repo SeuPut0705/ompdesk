@@ -85,6 +85,7 @@ export function InputArea() {
 	const contextTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const runtimeTabId = contextTabId ?? activeTabId;
+	const historyDevice = useTabsStore(state => state.tabs.find(tab => tab.id === runtimeTabId)?.device);
 	const routeReady = runtimeTabId !== null;
 	/** A chat tab only differs in wording: it has no project to work in. */
 	const isChat = useActiveTabKind() === "chat";
@@ -179,10 +180,10 @@ export function InputArea() {
 		};
 	}, []);
 
-	// Load persisted prompt history once (prefs IPC).
+	// Refresh from this tab's omp machine when its bridge is ready.
 	useEffect(() => {
-		void useInputHistoryStore.getState().hydrate();
-	}, []);
+		if (status === "ready") void useInputHistoryStore.getState().hydrate(rpc, historyDevice);
+	}, [rpc, status, historyDevice]);
 
 	// `!` → bash / `$` → python composer mode (TUI parity): drives the toolbar
 	// badge and reroutes sending. Detected from the prefix alone so the badge
@@ -672,9 +673,9 @@ export function InputArea() {
 				const history = useInputHistoryStore.getState();
 				let recalled: string | undefined;
 				if (e.key === "ArrowUp" && !text.slice(0, caretStart).includes("\n")) {
-					recalled = history.prev(text, { cwd, owner: `${runtimeTabId}:${sessionId}` });
+					recalled = history.prev(text, { cwd, owner: `${runtimeTabId}:${sessionId}`, device: historyDevice });
 				} else if (e.key === "ArrowDown" && !text.slice(caretEnd).includes("\n")) {
-					recalled = history.next({ cwd, owner: `${runtimeTabId}:${sessionId}` });
+					recalled = history.next({ cwd, owner: `${runtimeTabId}:${sessionId}`, device: historyDevice });
 				}
 				if (recalled !== undefined) {
 					e.preventDefault();

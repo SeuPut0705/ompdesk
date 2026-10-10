@@ -1,25 +1,44 @@
+import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { createInterface } from "node:readline";
 import { afterEach, describe, expect, it } from "vitest";
-import type { SessionInfo } from "../shared/ipc-types";
+import { ompPackageRoot } from "./omp-runtime";
 import { SessionIndex } from "./session-index";
 
+const stockRoot = ompPackageRoot(path.join(os.homedir(), ".bun", "bin", "omp"));
 const tempDirs: string[] = [];
+const indexes: SessionIndex[] = [];
+const previousAgent = process.env.PI_CODING_AGENT_DIR;
 
 async function makeIndex(): Promise<{ index: SessionIndex; dir: string }> {
-	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-session-index-"));
-	tempDirs.push(dir);
-	return { index: new SessionIndex(dir, dir), dir };
+	const agent = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-session-index-"));
+	tempDirs.push(agent);
+	await fs.chmod(agent, 0o700);
+	const realAgent = path.join(os.homedir(), ".omp", "agent");
+	await fs.copyFile(path.join(realAgent, "config.yml"), path.join(agent, "config.yml")).catch(() => {});
+	try {
+		await fs.access(path.join(realAgent, "agent.db"));
+		execFileSync("sqlite3", [
+			path.join(realAgent, "agent.db"),
+			`VACUUM INTO '${path.join(agent, "agent.db").replaceAll("'", "''")}'`,
+		]);
+	} catch {
+		/* CI may have no stock database. */
+	}
+	process.env.PI_CODING_AGENT_DIR = agent;
+	const dir = path.join(agent, "sessions");
+	const index = new SessionIndex(dir, dir);
+	indexes.push(index);
+	return { index, dir };
 }
 
-/** Minimal on-disk session: title-slot line, then the header line (the layout SessionIndex parses). */
-async function writeSession(dir: string, id: string, kind?: "chat"): Promise<string> {
-	// #scanDir only collects <sessionsDir>/<projectDir>/*.jsonl.
+async function writeSession(dir: string, id: string, kind?: "chat", titleSlot = true): Promise<string> {
 	const projectDir = path.join(dir, "project-x");
 	await fs.mkdir(projectDir, { recursive: true });
 	const file = path.join(projectDir, `${id}.jsonl`);
-	const slot = `${JSON.stringify({ updatedAt: new Date().toISOString() })}\n`;
 	const header = {
 		type: "session",
 		version: 3,
@@ -28,61 +47,109 @@ async function writeSession(dir: string, id: string, kind?: "chat"): Promise<str
 		cwd: dir,
 		...(kind ? { kind } : {}),
 	};
-	await fs.writeFile(file, `${slot}${JSON.stringify(header)}\n`);
+	await fs.writeFile(
+		file,
+		`${titleSlot ? `${JSON.stringify({ type: "title", title: "" })}\n` : ""}${JSON.stringify(header)}\n`,
+	);
 	return file;
 }
 
 afterEach(async () => {
+	for (const index of indexes.splice(0)) index.stop();
+	if (previousAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+	else process.env.PI_CODING_AGENT_DIR = previousAgent;
 	await Promise.all(tempDirs.splice(0).map(dir => fs.rm(dir, { recursive: true, force: true })));
 });
 
-describe("SessionIndex session kind", () => {
-	it("reads kind from the session header into SessionInfo, absent on legacy files", async () => {
+describe.skipIf(!stockRoot)("SessionIndex using real stock storage", () => {
+	it("keeps GUI kind overlays and handles headers with no title slot", async () => {
 		const { index, dir } = await makeIndex();
-		await writeSession(dir, "chat-one", "chat");
+		const chat = await writeSession(dir, "chat-one", "chat", false);
 		await writeSession(dir, "agent-one");
-
 		const infos = await index.list("global");
 		expect(infos.find(info => info.id === "chat-one")?.kind).toBe("chat");
 		expect(infos.find(info => info.id === "agent-one")?.kind).toBeUndefined();
-	});
-
-	it("kindFor cold-reads a single file and degrades unreadable files to agent", async () => {
-		const { index, dir } = await makeIndex();
-		const chatFile = await writeSession(dir, "chat-two", "chat");
-		const agentFile = await writeSession(dir, "agent-two");
-
-		expect(await index.kindFor(chatFile)).toBe("chat");
-		expect(await index.kindFor(agentFile)).toBe("agent");
+		expect(await index.kindFor(chat)).toBe("chat");
 		expect(await index.kindFor(path.join(dir, "missing.jsonl"))).toBe("agent");
 	});
-});
 
-describe("SessionIndex cache scope", () => {
-	function row(infos: SessionInfo[], id: string) {
-		return infos.find(info => info.id === id);
-	}
-
-	it("re-reads only the session that was written to", async () => {
+	it("classifies errors, cancellation, truncation and unanswered tools like stock", async () => {
 		const { index, dir } = await makeIndex();
-		const growing = await writeSession(dir, "growing");
-		await writeSession(dir, "quiet");
+		const cases = [
+			{ id: "error", stopReason: "error", content: [], expected: "error" },
+			{ id: "aborted", stopReason: "aborted", content: [], expected: "aborted" },
+			{ id: "length", stopReason: "length", content: [], expected: "interrupted" },
+			{
+				id: "tool",
+				stopReason: "toolUse",
+				content: [{ type: "toolCall", id: "unanswered", name: "bash", arguments: {} }],
+				expected: "interrupted",
+			},
+			{ id: "complete", stopReason: "stop", content: [{ type: "text", text: "done" }], expected: "complete" },
+		];
+		for (const item of cases) {
+			const file = await writeSession(dir, item.id, undefined, false);
+			await fs.appendFile(
+				file,
+				`${JSON.stringify({ type: "message", message: { role: "assistant", stopReason: item.stopReason, content: item.content } })}\n`,
+			);
+		}
+		const infos = await index.list("global");
+		for (const item of cases) expect(infos.find(info => info.id === item.id)?.status).toBe(item.expected);
+		console.log(
+			"Session status before -> stock:",
+			cases.map(item => `${item.id}: complete -> ${item.expected}`).join(", "),
+		);
+	});
 
-		const first = await index.list("global");
-		const quietBefore = row(first, "quiet");
-		expect(row(first, "growing")?.messageCount).toBe(0);
-
+	it("refreshes changed files, filters local cwd and suppresses duplicate ids", async () => {
+		const { index, dir } = await makeIndex();
+		const file = await writeSession(dir, "growing");
+		expect((await index.list("global"))[0]?.messageCount).toBe(0);
 		await fs.appendFile(
-			growing,
+			file,
 			`${JSON.stringify({ type: "message", message: { role: "user", content: "next turn" } })}\n`,
 		);
-		const second = await index.list("global");
+		const duplicateDir = path.join(dir, "legacy");
+		await fs.mkdir(duplicateDir);
+		await fs.copyFile(file, path.join(duplicateDir, "growing.jsonl"));
+		const infos = await index.list("local", dir);
+		expect(infos).toHaveLength(1);
+		expect(infos[0]?.messageCount).toBe(1);
+		expect(await index.list("local", os.tmpdir())).toEqual([]);
+	});
 
-		// The written file's row is a fresh parse…
-		expect(row(second, "growing")?.messageCount).toBe(1);
-		// …and the untouched one is the very same object, which is only true if it
-		// was never re-stat'ed or re-parsed. One append used to invalidate every
-		// entry whose key merely contained a path.
-		expect(row(second, "quiet")).toBe(quietBefore);
+	it("does not repair orphan backups and deletes session artifacts through stock", async () => {
+		const { index, dir } = await makeIndex();
+		const session = await writeSession(dir, "s1");
+		await fs.mkdir(path.join(path.dirname(session), "s1", "nested"), { recursive: true });
+		await fs.writeFile(path.join(path.dirname(session), "s1", "nested", "artifact.txt"), "artifact");
+		await fs.copyFile(session, `${session}.123.bak`);
+		await fs.copyFile(session, path.join(path.dirname(session), "orphan.jsonl.123.bak"));
+		await index.list("global");
+		await expect(fs.access(path.join(path.dirname(session), "orphan.jsonl"))).rejects.toThrow();
+		await index.deleteSession(session);
+		expect((await fs.readdir(path.dirname(session))).sort()).toEqual(["orphan.jsonl.123.bak"]);
+		await expect(index.deleteSession("/tmp/not-a-session")).rejects.toThrow("Invalid session path");
+	});
+
+	it("exits on stdin EOF even without an app quit handler", async () => {
+		const { dir } = await makeIndex();
+		const child = spawn("bun", [path.resolve("resources/gui-bridge/stock-helper/host.ts")], {
+			stdio: ["pipe", "pipe", "pipe"],
+			env: { ...process.env, OMP_PACKAGE_ROOT: stockRoot ?? "" },
+		});
+		const input = createInterface({ input: child.stdout });
+		try {
+			const reply = once(input, "line");
+			child.stdin.write(`${JSON.stringify({ id: 1, method: "sessions.list", params: { sessionsRoot: dir } })}\n`);
+			await reply;
+			const exited = once(child, "exit");
+			child.stdin.end();
+			expect(await exited).toEqual([0, null]);
+		} finally {
+			input.close();
+			child.kill();
+		}
 	});
 });

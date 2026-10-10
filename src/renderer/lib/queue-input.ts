@@ -1,3 +1,4 @@
+// Stock pi-tui/prompt/queue-input stays synchronous per keystroke for preview and submit; omp is not shipped in the renderer.
 /**
  * Queue shorthand parsing, ported verbatim from the TUI
  * (`packages/coding-agent/src/modes/queue-input.ts`). One parser feeds BOTH

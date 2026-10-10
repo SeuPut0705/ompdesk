@@ -3,10 +3,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fixtureProviderOptions } from "../../../e2e/models-config-fixture";
 import type { AccountRotationMode, AccountRotationState } from "../../shared/account-rotation";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
+	CustomProvidersConfig,
 	CustomProviderView,
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
@@ -131,7 +133,9 @@ function fakeLocalTabs() {
 /** This machine's models.yml, stats and bench, recording what the host asked of it. */
 function fakeMachine() {
 	return {
-		listProviders: vi.fn(async (): Promise<CustomProviderView[]> => [PROVIDER_VIEW]),
+		listProviders: vi.fn(
+			async (): Promise<CustomProvidersConfig> => ({ providers: [PROVIDER_VIEW], options: fixtureProviderOptions }),
+		),
 		upsertProvider: vi.fn(async (_input: CustomProviderInput) => {}),
 		deleteProvider: vi.fn(async (_id: string) => {}),
 		fetchStats: vi.fn(async (path: string, params?: Record<string, string>): Promise<unknown> => ({ path, params })),
@@ -508,7 +512,10 @@ describe("LocalHostServices host.* calls", () => {
 	it("serves this machine's models.yml providers, validating what a device writes", async () => {
 		const { services, machine } = setup();
 		const x = new FakeConnection(peer("device-x"));
-		await expect(services.call(x.peer, "host.models.list", {}, x)).resolves.toEqual([PROVIDER_VIEW]);
+		await expect(services.call(x.peer, "host.models.list", {}, x)).resolves.toEqual({
+			providers: [PROVIDER_VIEW],
+			options: fixtureProviderOptions,
+		});
 
 		const input: CustomProviderInput = {
 			id: "lan",
@@ -521,7 +528,7 @@ describe("LocalHostServices host.* calls", () => {
 		expect(machine.upsertProvider).toHaveBeenCalledWith(input);
 		for (const bad of [
 			{},
-			{ input: { ...input, api: "telnet" } },
+			{ input: { ...input, api: 42 } },
 			{ input: { ...input, id: "" } },
 			{ input: { ...input, models: [{ id: "m1", contextWindow: "big" }] } },
 		]) {

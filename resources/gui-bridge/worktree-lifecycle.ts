@@ -7,16 +7,50 @@
  * live setting values, stock's start condition, and stock's worktree creation,
  * so the branch name, location, clone backend and clean-HEAD start match the TUI.
  *
- * The omp modules are imported only once `guard` has seen them (feature
- * `worktreeLifecycle`, optional in capabilities.ts): omp 18.8.0 has
- * `session/session-worktree` without these exports and no such settings.
+ * Dynamic stock imports are deliberate: static imports would fail area loading
+ * before the capability guard can explain a missing internal. The minimum is
+ * omp 18.8.7; there is no older-version implementation fallback.
  * Literal specifiers, so omp maps them onto its loaded singletons (see health.ts).
  */
+import * as path from "node:path";
+import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools/index";
 import { guard } from "./health";
 import type { BridgeMethods } from "./types";
 
 export const methods: BridgeMethods = {
 	...guard("worktreeLifecycle", {
+		/** Naming and authorization use the running stock process's worktree.base and Bun hash. */
+		"git.worktree_location": async (params, env) => {
+			const primaryRoot = (params as { primaryRoot?: unknown } | null)?.primaryRoot;
+			if (typeof primaryRoot !== "string" || !path.isAbsolute(primaryRoot) || primaryRoot.includes("\0")) {
+				throw new Error("primaryRoot must be an absolute path");
+			}
+			env.session();
+			const { getWorktreesDir, hashPath } = await import("@oh-my-pi/pi-utils");
+			return { root: getWorktreesDir(), hash: hashPath(primaryRoot) };
+		},
+		"git.pr_checkout": async (params, env) => {
+			const input = params as { number?: unknown; repo?: unknown } | null;
+			if (!Number.isSafeInteger(input?.number) || Number(input?.number) <= 0 || typeof input?.repo !== "string") {
+				throw new Error("Invalid PR checkout parameters");
+			}
+			const session = env.session();
+			const toolSession: ToolSession = {
+				cwd: session.sessionManager.getCwd(),
+				hasUI: false,
+				settings: session.settings,
+				getSessionFile: () => session.sessionManager.getSessionFile() ?? null,
+				// This operation has no child-agent surface, like stock's selector ToolSession.
+				getSessionSpawns: () => null,
+			};
+			const { checkoutPullRequest } = await import("@oh-my-pi/pi-coding-agent/tools/gh-pr-checkout");
+			const outcome = await checkoutPullRequest(toolSession, AbortSignal.timeout(600_000), {
+				prRef: String(input.number),
+				repo: input.repo,
+				force: false,
+			});
+			return { path: outcome.worktreePath, branch: outcome.localBranch };
+		},
 		/**
 		 * Both policies as the live session resolves them, plus stock's start
 		 * condition for the session's cwd (`canAutoCreateWorktree`: a primary git

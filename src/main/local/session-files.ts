@@ -1,9 +1,8 @@
 /**
- * Stored (not live) session files: delete and rename without a sidecar.
+ * Stored (not live) session rename through stock RPC. Deletion uses the stock session-store helper.
  */
-import { access, readdir, rm } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
 import { DEFAULT_ROLE_MODEL_SELECTOR, parseModelRestoreFailure } from "../../shared/model-restore";
 import type { OmpRuntime } from "./types";
 
@@ -21,29 +20,6 @@ const RENAME_ARGS = [
 	"--no-lsp",
 	"--no-title",
 ];
-
-/**
- * Delete a session the way omp's `FileSessionStorage.deleteSessionWithArtifacts`
- * does: the `.jsonl`, its artifacts directory (the path minus `.jsonl`), and the
- * `<name>.jsonl.<id>.bak` leftovers a failed rewrite can leave behind (omp's
- * session picker would resurrect the session from those). Missing files are fine.
- */
-export async function deleteSessionFiles(sessionPath: string): Promise<void> {
-	if (!sessionPath.endsWith(SESSION_EXT)) throw new Error("Invalid session path");
-	await rm(sessionPath, { force: true });
-	await rm(sessionPath.slice(0, -SESSION_EXT.length), { recursive: true, force: true });
-	const dir = dirname(sessionPath);
-	const backupPrefix = `${basename(sessionPath)}.`;
-	let names: string[];
-	try {
-		names = await readdir(dir);
-	} catch {
-		return;
-	}
-	for (const name of names) {
-		if (name.startsWith(backupPrefix) && name.endsWith(".bak")) await rm(join(dir, name), { force: true });
-	}
-}
 
 /** The `set_session_name` response in a short-lived omp's stdout, or undefined when it never answered. */
 function renameResponse(stdout: string): { success: boolean; error?: string } | undefined {
@@ -67,8 +43,9 @@ function renameResponse(stdout: string): { success: boolean; error?: string } | 
  * Rename a session no omp process has open. omp persists a title in a header
  * slot, a `title_change` entry and its title index, so the rename runs stock
  * `set_session_name` in a short-lived `omp --mode rpc --session <path>` that
- * exits when its stdin closes. A session whose saved model is gone boots on
- * the default model instead (the boot never records a model change).
+ * exits when its stdin closes. Keep only GUI recovery around that stock command:
+ * stock session restoration fails closed when the saved model is gone, so the
+ * offline rename retries with an explicit default model (never records a model change).
  */
 export async function renameStoredSession(omp: OmpRuntime, sessionPath: string, name: string): Promise<void> {
 	const title = name.trim();

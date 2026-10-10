@@ -383,22 +383,25 @@ describe("planComposerSubmit GUI-only routing", () => {
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();
 	});
 
-	it("dispatches typed /tan work through the background-agent RPC", async () => {
-		const omp = installMockOmp();
-		const submit = planComposerSubmit({
-			message: "/tan investigate the flaky test",
-			images: [],
-			isStreaming: false,
-			mode: "prompt",
-			commands: [guiOnly("tan")],
-		});
-		await Promise.resolve();
-		await Promise.resolve();
+	it.each(["/tan investigate the flaky test", "/tan:investigate the flaky test"])(
+		"dispatches %s through the background-agent RPC",
+		async message => {
+			const omp = installMockOmp();
+			const submit = planComposerSubmit({
+				message,
+				images: [],
+				isStreaming: false,
+				mode: "prompt",
+				commands: [guiOnly("tan")],
+			});
+			await Promise.resolve();
+			await Promise.resolve();
 
-		expect(submit.kind).toBe("handled");
-		expect(omp.rpc.tan).toHaveBeenCalledWith("investigate the flaky test");
-		expect(omp.rpc.prompt).not.toHaveBeenCalled();
-	});
+			expect(submit.kind).toBe("handled");
+			expect(omp.rpc.tan).toHaveBeenCalledWith("investigate the flaky test");
+			expect(omp.rpc.prompt).not.toHaveBeenCalled();
+		},
+	);
 
 	it("runs typed /omfg through the RPC-hosted confirmation workflow", async () => {
 		const omp = installMockOmp();

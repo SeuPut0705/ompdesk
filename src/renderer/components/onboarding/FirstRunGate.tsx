@@ -40,7 +40,7 @@ export function FirstRunGate() {
 			const providers = catalogResult.value.providers
 				.map(toProviderInfo)
 				.filter((row): row is ProviderInfo => row !== null);
-			const configs = configResult.status === "fulfilled" ? configResult.value : [];
+			const configs = configResult.status === "fulfilled" ? configResult.value.providers : [];
 			if (!hasUsableModelProvider(providers, configs)) {
 				useFirstRunStore.getState().setPhase("connect", null);
 				return;

@@ -1,16 +1,19 @@
 /**
  * `worktree_create` / `worktree_remove` over the git CLI (port of fork rpc-worktree.ts).
- * GUI worktrees live on branch `omp/gui/<slug>` at `~/.omp/wt/gui-<slug>-<hash7(primaryRoot)>`,
- * alongside omp's task and PR worktrees; collisions suffix `-2..-100` on path and branch.
- * The bound branch is never deleted on remove, and nothing outside that root is ever removed.
+ * GUI naming uses stock's canonical worktree base and repo hash through the bridge.
+ * Collisions suffix `-2..-100` on path and branch. Removal keeps the branch and
+ * requires a linked checkout registered by git under the canonical root.
+ * Kept over stock createSessionWorktree: GUI names/baseRef differ and never carry
+ * uncommitted changes. Removal deliberately retains branches; session exit safety
+ * still runs in main after omp has gone, unlike stock removeExitWorktrees.
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { RpcWorktreeCreateResult } from "../../../shared/rpc-types";
-import { LocalCommandError } from "../types";
+import { type BridgeClient, LocalCommandError } from "../types";
 import { getGitStatus, primaryRoot, repoRoot } from "./changes";
 import { DEFAULT_TIMEOUT_MS, git, gitRaw, withRepoLock } from "./exec";
-import { guiWorktreeCandidate, isInside, worktreeSlug, worktreesDir } from "./parse";
+import { guiWorktreeCandidate, isInside, worktreeSlug } from "./parse";
 
 const MAX_SUFFIX = 100;
 /** `git worktree add` checks out the whole tree: minutes on a large repository. */
@@ -47,9 +50,28 @@ async function pathTaken(file: string): Promise<boolean> {
 	);
 }
 
+/** Main cannot import pi-utils' Bun hash or its live worktree.base override. */
+export async function stockWorktreeLocation(
+	bridge: Pick<BridgeClient, "request">,
+	primaryRoot: string,
+): Promise<{ root: string; hash: string }> {
+	const location = await bridge.request<{ root: string; hash: string }>("git.worktree_location", { primaryRoot });
+	if (
+		!location ||
+		typeof location.root !== "string" ||
+		!path.isAbsolute(location.root) ||
+		typeof location.hash !== "string" ||
+		!/^[0-9a-f]{7}$/.test(location.hash)
+	) {
+		throw new Error("omp returned an invalid worktree location");
+	}
+	return location;
+}
+
 export async function createWorktree(
 	sessionCwd: string,
 	input: { name: string; baseCwd?: string; baseRef?: "HEAD" | "default" },
+	bridge: Pick<BridgeClient, "request">,
 ): Promise<RpcWorktreeCreateResult> {
 	const slug = worktreeSlug(input.name);
 	if (!slug) {
@@ -62,10 +84,11 @@ export async function createWorktree(
 	if (!(await repoRoot(baseCwd))) throw new LocalCommandError(`Not a git repository: ${baseCwd}`, "not_a_repo");
 	const primary = await primaryRoot(baseCwd);
 	const startPoint = input.baseRef === "default" ? ((await defaultBranchRef(primary)) ?? "HEAD") : "HEAD";
+	const location = await stockWorktreeLocation(bridge, primary);
 
 	return withRepoLock(primary, async () => {
 		for (let suffix = 1; suffix <= MAX_SUFFIX; suffix++) {
-			const candidate = guiWorktreeCandidate(slug, primary, suffix);
+			const candidate = guiWorktreeCandidate(slug, location.hash, suffix, location.root);
 			// A half-created dir (no .git yet) still makes `git worktree add` fail with "exists".
 			if ((await pathTaken(candidate.path)) || (await branchExists(primary, candidate.branch))) continue;
 			try {
@@ -94,10 +117,7 @@ export async function createWorktree(
  * are resolved first, so neither `..` segments nor a symlink inside the root
  * can reach a checkout elsewhere.
  */
-export async function removableWorktreePath(
-	worktreePath: string,
-	root: string = worktreesDir(),
-): Promise<string | null> {
+export async function removableWorktreePath(worktreePath: string, root: string): Promise<string | null> {
 	if (!worktreePath || !path.isAbsolute(worktreePath)) return null;
 	try {
 		const [realRoot, realPath] = await Promise.all([fs.realpath(root), fs.realpath(worktreePath)]);
@@ -112,18 +132,32 @@ export async function removableWorktreePath(
  * Dirty worktrees are refused unless `force`; the message carries the counts for the close dialog.
  * Only checkouts under the worktree root qualify: `--force` must never reach the user's own clone.
  */
-export async function removeWorktree(input: { path: string; force?: boolean }): Promise<{ removed: true }> {
-	const worktreePath = await removableWorktreePath(input.path);
+export async function removeWorktree(
+	input: { path: string; force?: boolean },
+	bridge: Pick<BridgeClient, "request">,
+	sessionCwd: string,
+): Promise<{ removed: true }> {
+	const { root } = await stockWorktreeLocation(bridge, path.resolve(sessionCwd));
+	const worktreePath = await removableWorktreePath(input.path, root);
 	if (!worktreePath) {
 		throw new LocalCommandError(
-			`Refusing to remove ${input.path || "(no path)"}: only worktrees under ${worktreesDir()} can be removed.`,
+			`Refusing to remove ${input.path || "(no path)"}: only registered linked worktrees under ${root} can be removed (check worktree.base).`,
 			"worktree_outside_root",
 		);
 	}
-	if (!(await repoRoot(worktreePath).catch(() => null))) {
-		throw new LocalCommandError(`Not inside a git worktree: ${worktreePath}`, "not_a_worktree");
+	const checkoutRoot = await repoRoot(worktreePath).catch(() => null);
+	if (!checkoutRoot || (await fs.realpath(checkoutRoot)) !== worktreePath) {
+		throw new LocalCommandError(`Not a git checkout root: ${worktreePath}`, "not_a_worktree");
 	}
 	const primary = await primaryRoot(worktreePath);
+	const registered = (await git(primary, ["worktree", "list", "--porcelain", "-z"]))
+		.split("\0")
+		.filter(field => field.startsWith("worktree "))
+		.map(field => field.slice("worktree ".length));
+	const linked = await Promise.all(registered.slice(1).map(file => fs.realpath(file).catch(() => null)));
+	if ((await fs.realpath(primary)) === worktreePath || !linked.includes(worktreePath)) {
+		throw new LocalCommandError(`Not a registered linked worktree: ${worktreePath}`, "not_a_worktree");
+	}
 	if (!input.force) {
 		const status = await getGitStatus(worktreePath);
 		if (status.staged > 0 || status.unstaged > 0 || status.untracked > 0) {

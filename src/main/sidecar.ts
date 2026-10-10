@@ -42,7 +42,6 @@ import type { BridgeConnectResult } from "./bridge-health";
 import { EventBatcher } from "./event-batcher";
 import { localHandlerFor, runLocalCommand } from "./local";
 import { projectQueueUpdate } from "./local/queue";
-import { attachEntryIds, fetchEntries } from "./local/sessions";
 import type { BridgeClient, LocalCommandContext, OmpRuntime } from "./local/types";
 import { type OmpResolution, ompNeedsShell, ompPathEnv, ompSpawnArgs, ompSpawnCommand } from "./omp-runtime";
 import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
@@ -148,6 +147,8 @@ const AGENT_EVENT_TYPES: Record<string, true> = {
 	model_pool_update: true,
 	plan_proposal: true,
 	queue_update: true,
+	token_rate: true,
+	read_group_metadata: true,
 };
 
 type Frame = Record<string, unknown>;
@@ -347,8 +348,6 @@ export class SidecarManager extends EventEmitter {
 	#noModelBoot: string | null = null;
 	/** Last session identity `get_state` reported; null when a session change made it unknown. */
 	#session: SidecarSessionIdentity | null = null;
-	/** Newest session entry seen by the `agent_end` entry-id fetch (its `get_entries` cursor). */
-	#lastEntryId: string | null = null;
 	/**
 	 * An `agent_end` waiting for its entry ids, and every non-response frame that
 	 * arrived behind it. Holding the tail keeps the renderer's frame order
@@ -435,7 +434,6 @@ export class SidecarManager extends EventEmitter {
 		this.#lastStderr = [];
 		this.#bootedThisSpawn = false;
 		this.#session = null;
-		this.#lastEntryId = null;
 		const { bridgeDir, cwd, extraFlags } = this.#options;
 		const replyLanguage = this.#options.replyLanguage?.();
 		const accountRotation = this.#options.accountRotation?.();
@@ -622,7 +620,7 @@ export class SidecarManager extends EventEmitter {
 				return;
 			}
 			if (obj.type === "agent_end" && Array.isArray(obj.messages) && this.#rpcClient) {
-				this.#holdForEntryIds(obj, this.#rpcClient);
+				this.#holdForEntryIds(obj);
 				return;
 			}
 			if (obj.type === "session_info_update") this.#session = null;
@@ -632,25 +630,21 @@ export class SidecarManager extends EventEmitter {
 
 	/**
 	 * Stock `agent_end` messages carry no `entryId`, which the renderer needs to
-	 * reconcile committed messages. Fetch the entries appended since the last
-	 * look, stamp the ids, then release the event and everything behind it.
+	 * reconcile committed messages. Let the bridge match persisted ids with stock
+	 * persistence helpers, then release the event and everything behind it.
 	 */
-	#holdForEntryIds(event: Frame, client: RpcClient): void {
+	#holdForEntryIds(event: Frame): void {
 		const held = { event, frames: [] as Frame[] };
 		this.#held = held;
 		const generation = this.#generation;
-		const send = stockSender(client, ENTRY_ID_TIMEOUT_MS);
 		const timeout = Promise.withResolvers<never>();
 		const timer = setTimeout(() => timeout.reject(new Error("entry id fetch timed out")), ENTRY_ID_TIMEOUT_MS);
-		void Promise.race([fetchEntries(send, this.#lastEntryId), timeout.promise])
+		const enrich = this.#bridge?.request<{ messages: AgentMessage[] }>("sessions.attach_entry_ids", {
+			messages: event.messages,
+		});
+		void Promise.race([enrich ?? Promise.reject(new Error("Bridge is disconnected")), timeout.promise])
 			.then(
-				snapshot => {
-					const last = snapshot.entries.at(-1);
-					if (last) this.#lastEntryId = last.id;
-					// Array-checked in #routeFrame; the elements are omp's wire messages.
-					const messages = event.messages as AgentMessage[];
-					return { ...event, messages: attachEntryIds(messages, snapshot.entries) };
-				},
+				result => ({ ...event, messages: result.messages }),
 				() => event,
 			)
 			.then(enriched => {
@@ -808,6 +802,9 @@ export class SidecarManager extends EventEmitter {
 							// The setting may have changed between spawn (env) and connect.
 							this.syncReplyLanguage();
 							this.syncAccountRotation();
+							void bridge
+								.request("stream_metadata.start")
+								.catch(error => console.warn("[sidecar] stock stream metadata unavailable:", error));
 						},
 						(err: unknown) => {
 							const error = err instanceof Error ? err.message : String(err);

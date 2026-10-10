@@ -9,8 +9,6 @@
  */
 import { z } from "zod";
 import type { SessionStats } from "../../shared/rpc-types";
-import { buildCopyTargets } from "./copy-targets";
-import type { EntriesSnapshot } from "./sessions";
 import { type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
 
 const foreignSource = z.enum(["claude", "codex"]);
@@ -36,12 +34,7 @@ export const handlers: Record<string, LocalHandler> = {
 	write_local_paste: async (command, ctx) =>
 		ctx.bridge.request("sessions.write_local_paste", { content: z.string().parse(command.content) }),
 
-	get_copy_targets: async (_command, ctx) => {
-		// sessions.ts spreads this module's handlers at load time; a static import back would be a TDZ cycle.
-		const { projectTranscript } = await import("./sessions");
-		const { entries, leafId } = await ctx.send<EntriesSnapshot>({ type: "get_entries" });
-		return { targets: buildCopyTargets(projectTranscript(entries, leafId)) };
-	},
+	get_copy_targets: async (_command, ctx) => ctx.bridge.request("composer.copy_targets"),
 
 	get_command_arg_completions: async (command, ctx) => {
 		const { command: name, prefix } = z.object({ command: z.string(), prefix: z.string() }).parse(command);

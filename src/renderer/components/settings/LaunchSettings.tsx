@@ -1,15 +1,9 @@
-/**
- * Settings › Advanced: everything not curated elsewhere. Category "launch"
- * holds the app's network proxy and the per-project omp launch profile; each
- * agent schema tab follows with every GUI-relevant setting (source layers
- * shown for configured values); "other" lists settings without UI metadata.
- */
+/** Device network preferences and host/project launch-profile editors. */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { flagsToCommandLine, type LaunchProfile, profileToFlags } from "../../../shared/launch-profile";
-import type { SettingEntry } from "../../../shared/rpc-types";
 import { saveGuiPreference } from "../../lib/display-preferences";
-import { useLang, useT } from "../../lib/i18n";
+import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { pickWorkspaceDirectory } from "../../lib/workspace-dirs";
 import { useFocusedHost, useFocusedTabDevice } from "../../stores/remote";
@@ -17,27 +11,17 @@ import { useSessionStore } from "../../stores/session";
 import { focusedSessionRuntime, sessionRuntime, withSessionRuntime } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { CodeBlock } from "../chat/CodeBlock";
-import { Banner, Button, EmptyState, Input, Select, TextArea } from "../common";
-import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
+import { Banner, Button, Input, TextArea } from "../common";
 import { ArrayChipEditor } from "./editors/ArrayChipEditor";
-import { SchemaSettingRow } from "./SchemaSettingRow";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
-import { schemaGroupTitle } from "./schema-i18n";
-import {
-	ADVANCED_LAUNCH_CATEGORY,
-	ADVANCED_OTHER_CATEGORY,
-	LAUNCH_TEXT_FIELDS,
-	LAUNCH_VERBATIM_FIELDS,
-	type LaunchTextField,
-} from "./settings-catalog";
+import { LAUNCH_TEXT_FIELDS, LAUNCH_VERBATIM_FIELDS, type LaunchTextField } from "./settings-catalog";
 import { useSettingsData } from "./settings-data";
-import { groupSchemaEntries, isSettingSupportedInGui, isSettingVisibleInGui } from "./settings-schema-utils";
 
 /**
  * HTTP proxy for omp's network traffic — this device's own sessions (a paired
  * host's tabs use the host's); saving restarts an idle local sidecar so it applies.
  */
-function ProxyRow() {
+export function ProxyRow() {
 	const t = useT();
 	const host = useFocusedHost();
 	const [draft, setDraft] = useState<string | null>(null);
@@ -105,7 +89,6 @@ function ProxyRow() {
 
 	return (
 		<SettingsRow
-			badge={<ThisDeviceTag />}
 			control={
 				<Input
 					disabled={saving}
@@ -135,7 +118,7 @@ function ProxyRow() {
  * live on the machine that spawns omp: a remote tab reads and writes its
  * host's (`device`), and its extra folders come from the host's disk.
  */
-function LaunchProfileSection() {
+export function LaunchProfileSection() {
 	const t = useT();
 	const cwd = useSessionStore(state => state.cwd);
 	const device = useFocusedTabDevice();
@@ -292,13 +275,25 @@ function LaunchProfileSection() {
 			id="setting-gui-launch"
 			title={t("settings.launch.title")}
 		>
-			<SettingsRow htmlFor={ids.systemPrompt} label={t("settings.launch.systemPrompt")}>
+			<SettingsRow
+				id="settings-workspace-launch-systemPrompt"
+				htmlFor={ids.systemPrompt}
+				label={t("settings.launch.systemPrompt")}
+			>
 				{textField("systemPrompt", true)}
 			</SettingsRow>
-			<SettingsRow htmlFor={ids.appendSystemPrompt} label={t("settings.launch.appendSystemPrompt")}>
+			<SettingsRow
+				id="settings-workspace-launch-appendSystemPrompt"
+				htmlFor={ids.appendSystemPrompt}
+				label={t("settings.launch.appendSystemPrompt")}
+			>
 				{textField("appendSystemPrompt", true)}
 			</SettingsRow>
-			<SettingsRow description={t("settings.launch.addDirsDesc")} label={t("settings.launch.addDirs")}>
+			<SettingsRow
+				id="settings-workspace-launch-addDirs"
+				description={t("settings.launch.addDirsDesc")}
+				label={t("settings.launch.addDirs")}
+			>
 				<ArrayChipEditor
 					disabled={locked}
 					onCommit={dirs => update({ addDirs: dirs })}
@@ -311,13 +306,18 @@ function LaunchProfileSection() {
 					</Button>
 				</div>
 			</SettingsRow>
-			<SettingsRow description={t("settings.launch.toolsDesc")} label={t("settings.launch.tools")}>
+			<SettingsRow
+				id="settings-workspace-launch-tools"
+				description={t("settings.launch.toolsDesc")}
+				label={t("settings.launch.tools")}
+			>
 				<ArrayChipEditor disabled={locked} onCommit={tools => update({ tools })} values={profile.tools ?? []} />
 			</SettingsRow>
 			<SettingsSwitchRow
 				checked={profile.noRules === true}
 				description={t("settings.launch.noRulesDesc")}
 				disabled={locked}
+				id="settings-workspace-launch-noRules"
 				label={t("settings.launch.noRules")}
 				onCheckedChange={value => void update({ noRules: value })}
 			/>
@@ -325,6 +325,7 @@ function LaunchProfileSection() {
 				checked={profile.noLsp === true}
 				description={t("settings.launch.noLspDesc")}
 				disabled={locked}
+				id="settings-workspace-launch-noLsp"
 				label={t("settings.launch.noLsp")}
 				onCheckedChange={value => void update({ noLsp: value })}
 			/>
@@ -332,20 +333,28 @@ function LaunchProfileSection() {
 				checked={profile.planYolo === true}
 				description={t("settings.launch.planYoloDesc")}
 				disabled={locked}
+				id="settings-workspace-launch-planYolo"
 				label={t("settings.launch.planYolo")}
 				onCheckedChange={value => void update({ planYolo: value })}
 			/>
 			<SettingsRow
 				control={textField("profile", false)}
 				htmlFor={ids.profile}
+				id="settings-workspace-launch-profile"
 				label={t("settings.launch.profile")}
 			/>
 			<SettingsRow
 				control={textField("sessionDir", false)}
 				htmlFor={ids.sessionDir}
+				id="settings-workspace-launch-sessionDir"
 				label={t("settings.launch.sessionDir")}
 			/>
-			<SettingsRow control={textField("config", false)} htmlFor={ids.config} label={t("settings.launch.config")} />
+			<SettingsRow
+				id="settings-workspace-launch-config"
+				control={textField("config", false)}
+				htmlFor={ids.config}
+				label={t("settings.launch.config")}
+			/>
 			<SettingsRow label={t("settings.launch.preview")}>
 				<CodeBlock code={preview} language="bash" showCopy={false} showLineNumbers={false} />
 			</SettingsRow>
@@ -367,139 +376,5 @@ function LaunchProfileSection() {
 				{t(sidecarBusy ? "settings.launch.busyHint" : "settings.launch.restartNote")}
 			</Banner>
 		</SettingsSection>
-	);
-}
-
-function SchemaRows({ entries }: { entries: SettingEntry[] }) {
-	const { values, onCommitted } = useSettingsData();
-	return (
-		<>
-			{entries.map(entry => (
-				<SchemaSettingRow
-					entry={entry}
-					key={entry.path}
-					onCommitted={onCommitted}
-					showSource
-					value={values[entry.path]}
-				/>
-			))}
-		</>
-	);
-}
-
-/** Every GUI-relevant setting of one agent schema tab, grouped as the schema declares. */
-export function SchemaTabSettings({ tabId, groups }: { tabId: string; groups: string[] }) {
-	const t = useT();
-	const { lang } = useLang();
-	const { schema, values } = useSettingsData();
-	const visible = useMemo(
-		() => (schema?.entries ?? []).filter(entry => isSettingVisibleInGui(entry, values)),
-		[schema, values],
-	);
-	const { tabEntries, ungrouped, orderedGroups } = useMemo(
-		() => groupSchemaEntries(visible, tabId, groups),
-		[visible, tabId, groups],
-	);
-	if (tabEntries.length === 0) return <EmptyState size="sm" title={t("settings.sectionEmpty")} />;
-	return (
-		<>
-			{ungrouped.length > 0 && (
-				<div className="settings-section-body">
-					<SchemaRows entries={ungrouped} />
-				</div>
-			)}
-			{orderedGroups.map(group => (
-				<SettingsSection key={group.name} title={schemaGroupTitle(lang, group.name)}>
-					<SchemaRows entries={group.entries} />
-				</SettingsSection>
-			))}
-		</>
-	);
-}
-
-export function AdvancedSection({
-	category: requested,
-	onCategoryChange,
-}: {
-	category: string | undefined;
-	onCategoryChange: (category: string) => void;
-}) {
-	const t = useT();
-	const { schema, values, loadState, sidecarReady } = useSettingsData();
-	const selectId = useId();
-	const tabs = useMemo(
-		() =>
-			(schema?.tabs ?? []).filter(tab =>
-				schema?.entries.some(entry => entry.tab === tab.id && isSettingSupportedInGui(entry)),
-			),
-		[schema],
-	);
-	const other = useMemo(
-		() =>
-			(schema?.entries ?? []).filter(
-				entry => (entry.advanced === true || entry.tab === undefined) && isSettingVisibleInGui(entry, values),
-			),
-		[schema, values],
-	);
-	const tabLabel = (id: string, fallback: string) => {
-		const key = `settings.tabs.${id}`;
-		const translated = t(key);
-		return translated === key ? fallback : translated;
-	};
-	const category = requested ?? ADVANCED_LAUNCH_CATEGORY;
-	const schemaReady = sidecarReady && loadState === "ready" && schema !== null;
-	const activeTab = tabs.find(tab => tab.id === category);
-
-	return (
-		<>
-			<SettingsRow
-				control={
-					<Select id={selectId} onChange={event => onCategoryChange(event.target.value)} value={category}>
-						<option value={ADVANCED_LAUNCH_CATEGORY}>{t("settings.advanced.launch")}</option>
-						{tabs.map(tab => (
-							<option key={tab.id} value={tab.id}>
-								{tabLabel(tab.id, tab.label)}
-							</option>
-						))}
-						{!activeTab && category !== ADVANCED_LAUNCH_CATEGORY && category !== ADVANCED_OTHER_CATEGORY && (
-							<option value={category}>{tabLabel(category, category)}</option>
-						)}
-						<option value={ADVANCED_OTHER_CATEGORY}>{t("settings.advanced.other")}</option>
-					</Select>
-				}
-				description={t("settings.advanced.categoryDesc")}
-				htmlFor={selectId}
-				id="settings-advanced-category"
-				label={t("settings.advanced.category")}
-			/>
-			<div className="mt-6">
-				{category === ADVANCED_LAUNCH_CATEGORY ? (
-					<>
-						<SettingsSection title={t("settings.advanced.network")}>
-							<ProxyRow />
-						</SettingsSection>
-						<HostScoped>
-							<LaunchProfileSection />
-						</HostScoped>
-					</>
-				) : (
-					<HostScoped>
-						{!schemaReady ? (
-							loadState === "loading" && <div aria-hidden className="omp-skeleton h-40 w-full" />
-						) : category === ADVANCED_OTHER_CATEGORY ? (
-							other.length === 0 ? (
-								<EmptyState size="sm" title={t("settings.advancedEmpty")} />
-							) : (
-								<div className="settings-section-body">
-									<SchemaRows entries={other} />
-								</div>
-							)
-						) : (
-							<SchemaTabSettings groups={activeTab?.groups ?? []} tabId={category} />
-						)}
-					</HostScoped>
-				)}
-			</div>
-		</>
 	);
 }

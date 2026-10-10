@@ -1,3 +1,4 @@
+import { mkdir, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, type Locator, type Page } from "@playwright/test";
@@ -9,9 +10,39 @@ import { writeFakeOmp } from "../src/main/test-fake-omp";
  * shaped like a real install: an executable script on POSIX, an `omp.cmd` shim
  * (spawned through cmd.exe, in a path with a space) on Windows.
  */
-export function fixtureOmp(dir: string): Promise<string> {
+export async function fixtureOmp(dir: string): Promise<string> {
 	const fixture = pathToFileURL(path.resolve("e2e/sidecar-fixture.ts")).href;
-	return writeFakeOmp(dir, `import ${JSON.stringify(fixture)};\n`);
+	const bin = await writeFakeOmp(dir, `import ${JSON.stringify(fixture)};\n`);
+	const root = path.join(path.dirname(bin), "node_modules", "@oh-my-pi", "pi-coding-agent");
+	await mkdir(root, { recursive: true });
+	await writeFile(
+		path.join(root, "package.json"),
+		JSON.stringify({
+			name: "@oh-my-pi/pi-coding-agent",
+			type: "module",
+			exports: {
+				"./session/session-listing": "./session-store.ts",
+				"./session/session-storage": "./session-store.ts",
+				"./config/models-config-schema": "./models-config.ts",
+			},
+		}),
+	);
+	const store = pathToFileURL(path.resolve("e2e/session-store-fixture.ts")).href;
+	await writeFile(path.join(root, "session-store.ts"), `export * from ${JSON.stringify(store)};\n`);
+	const config = pathToFileURL(path.resolve("e2e/models-config-fixture.ts")).href;
+	await writeFile(path.join(root, "models-config.ts"), `export * from ${JSON.stringify(config)};\n`);
+	const catalog = path.join(path.dirname(root), "pi-catalog");
+	await mkdir(catalog, { recursive: true });
+	await writeFile(
+		path.join(catalog, "package.json"),
+		JSON.stringify({
+			name: "@oh-my-pi/pi-catalog",
+			type: "module",
+			exports: { "./compat/providers": "./config.ts", "./compat/auth": "./config.ts" },
+		}),
+	);
+	await writeFile(path.join(catalog, "config.ts"), `export * from ${JSON.stringify(config)};\n`);
+	return bin;
 }
 
 /**

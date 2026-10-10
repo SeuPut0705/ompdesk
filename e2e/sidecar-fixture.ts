@@ -13,7 +13,7 @@ import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from 
 // address in `OMP_GUI_BRIDGE`) answering the bridge methods the e2e suites
 // reach. No provider credentials, external network, or user session files.
 if (process.argv.includes("--version")) {
-	console.log("omp/18.8.0");
+	console.log("omp/18.8.7");
 	process.exit(0);
 }
 if (process.argv[2] === "stats") {
@@ -180,8 +180,10 @@ if (process.argv[2] === "stats") {
 	});
 	// Stock RPC mode ends when its client closes stdin.
 	lines.on("close", () => process.exit(0));
+} else if (process.argv[2] === "update" && process.argv.includes("--check")) {
+	console.log("Current version: 18.8.7\nAlready up to date");
 } else if (!process.argv.includes("--mode")) {
-	// Other `omp` CLI calls main makes (`plugin list --json`, `update --check`, …) have no local stand-in.
+	// Other CLI calls have no local stand-in.
 	console.error(`fixture: unsupported invocation: ${process.argv.slice(2).join(" ")}`);
 	process.exit(1);
 } else {
@@ -397,9 +399,9 @@ if (process.argv[2] === "stats") {
 		"security.enabled": false,
 		"compaction.reserveTokens": 8192,
 	};
-	// OMP_GUI_TEST_WORKTREE_LIFECYCLE=<onStart>:<onExit> stands in for omp 18.8.6's
-	// per-session worktree settings (worktree-lifecycle.e2e.ts); unset = omp 18.8.0,
-	// which has neither the settings nor the bridge methods.
+	// OMP_GUI_TEST_WORKTREE_LIFECYCLE=<onStart>:<onExit> sets stock's per-session
+	// worktree settings (worktree-lifecycle.e2e.ts); unset leaves them out, so no
+	// tab starts in a worktree.
 	const worktreeLifecycle = /^(off|ask|create):(keep|ask|remove)$/.exec(
 		process.env.OMP_GUI_TEST_WORKTREE_LIFECYCLE ?? "",
 	);
@@ -615,7 +617,7 @@ if (process.argv[2] === "stats") {
 		const expiresAt = Date.now() + 9 * 86_400_000;
 		accountQuota[1].resetPasses = {
 			count: 1,
-			usableCount: 1,
+			usableCount: 0,
 			expiresAt,
 			clears: ["5h"],
 			early: false,
@@ -637,7 +639,7 @@ if (process.argv[2] === "stats") {
 			const quota = accountQuota[Number(params.credentialId)];
 			const passes = quota?.resetPasses;
 			if (!quota || !passes?.redeemable || params.creditId !== passes.creditId) {
-				return { ok: false, code: "not_limited", message: "nothing was spent" };
+				return { ok: false, code: "not_redeemable", message: "nothing was spent" };
 			}
 			quota.limits = quota.limits.map(limit =>
 				passes.clears.includes(limit.id) ? { ...limit, usedFraction: 0 } : limit,
@@ -773,18 +775,63 @@ if (process.argv[2] === "stats") {
 			return { path: fs.realpathSync(target), branch, sourceCwd: cwd, baseCommit, root };
 		},
 	};
+	const promptHistory: Array<{ prompt: string; created_at: number; cwd?: string }> = [];
 	/** A handler returning `undefined` replies itself (deferred, or ahead of the events it pushes). */
 	const bridgeMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
-		ping: () => ({ version: "18.8.0" }),
-		capabilities: () => ({ ompVersion: "18.8.0", unavailable: [] }),
+		ping: () => ({ version: "18.8.7" }),
+		capabilities: () => ({ ompVersion: "18.8.7", unavailable: [] }),
+		history_recent: params =>
+			promptHistory.filter(entry => !params.cwd || entry.cwd === params.cwd).slice(0, Number(params.limit ?? 200)),
+		history_search: params =>
+			promptHistory
+				.filter(
+					entry =>
+						(!params.cwd || entry.cwd === params.cwd) &&
+						String(params.query)
+							.toLowerCase()
+							.split(/\s+/)
+							.every(token => entry.prompt.toLowerCase().includes(token)),
+				)
+				.slice(0, Number(params.limit ?? 100)),
+		history_record: params => {
+			const prompt = String(params.prompt);
+			const skipped = /^\/(?:login|join)[\s:]/.test(prompt) || /^\/mcp[\s:]add\b.*--token\s/.test(prompt);
+			if (!skipped) {
+				const index = promptHistory.findIndex(entry => entry.prompt === prompt);
+				if (index !== -1) promptHistory.splice(index, 1);
+				promptHistory.unshift({
+					prompt,
+					created_at: Date.now() / 1000,
+					cwd: typeof params.cwd === "string" ? params.cwd : undefined,
+				});
+			}
+			return { skipped };
+		},
+		"stream_metadata.start": () => {
+			write({ type: "token_rate", rate: 64 });
+			return null;
+		},
 		"composer.state": () => ({
 			cwd: process.cwd(),
 			autoRetryEnabled: true,
-			thinkingLevel: "medium",
 			thinkingConfigured: "medium",
 			planModeEnabled,
 			prewalkArmed: false,
 			agentsPaused: false,
+		}),
+		"composer.cycle_model_backward": () => {
+			model.id = model.id === "local-fixture" ? "local-fixture-alt" : "local-fixture";
+			return { model, thinkingLevel: "medium", isScoped: false };
+		},
+		"composer.copy_targets": () => ({
+			targets: [
+				{
+					id: "msg:1",
+					label: "Fixture copy target",
+					preview: "Fixture copy target",
+					content: "Fixture copy target",
+				},
+			],
 		}),
 		"composer.context_report": () => ({
 			contextWindow: 128_000,
@@ -810,7 +857,7 @@ if (process.argv[2] === "stats") {
 				endTime: 3000,
 			},
 		],
-		"composer.active_tools": () => ({ tools: [] }),
+		"composer.tool_extras": () => ({ sources: {}, mounted: [] }),
 		"composer.skill_count": () => ({ skills: 0 }),
 		"composer.share_preview": () => ({
 			snapshotId: "fixture",
@@ -934,6 +981,60 @@ if (process.argv[2] === "stats") {
 		security_dashboard: securityDashboard,
 		ssh_hosts: () => ({ hosts: [], warnings: [], openSshAvailable: true }),
 		"sessions.foreign_list": () => ({ sessions: [] }),
+		"sessions.transcript": () => ({
+			leafId: entries.at(-1)?.id ?? null,
+			messages: entries
+				.filter(entry => entry.type === "message")
+				.map(entry => ({
+					...(entry.message as AgentMessage),
+					entryId: entry.id,
+				})),
+		}),
+		"sessions.attach_entry_ids": params => ({
+			messages: (params.messages as AgentMessage[]).map(message => {
+				const entry = entries.find(
+					candidate =>
+						candidate.type === "message" && JSON.stringify(candidate.message) === JSON.stringify(message),
+				);
+				return entry ? { ...message, entryId: entry.id } : message;
+			}),
+		}),
+		"sessions.tree": () => {
+			const visible = entries.filter(
+				entry => entry.type === "message" && ["user", "assistant"].includes((entry.message as AgentMessage).role),
+			);
+			return {
+				activeLeafId: visible.at(-1)?.id ?? null,
+				tree: visible.map((entry, index) => {
+					const message = entry.message as AgentMessage;
+					const content = message.content;
+					const text =
+						typeof content === "string"
+							? content
+							: (content ?? [])
+									.filter(block => block.type === "text")
+									.map(block => block.text)
+									.join(" ");
+					return {
+						entryId: entry.id,
+						parentId: visible[index - 1]?.id ?? null,
+						role: message.role,
+						textPreview: text.replace(/\s+/g, " ").trim().slice(0, 200),
+						timestamp: Date.parse(entry.timestamp),
+						onActiveBranch: true,
+						isLeaf: index === visible.length - 1,
+					};
+				}),
+			};
+		},
+		"sessions.delete": params => {
+			const target = params.sessionPath;
+			if (typeof target !== "string" || !target.endsWith(".jsonl")) throw new Error("Invalid session path");
+			if (target === sessionFile) throw new Error("Cannot delete the active session");
+			fs.rmSync(target, { force: true });
+			fs.rmSync(target.slice(0, -6), { recursive: true, force: true });
+			return null;
+		},
 		"sessions.arg_completions": () => ({ items: [] }),
 		"sessions.usage_history": () => ({
 			input: 0,
@@ -949,6 +1050,14 @@ if (process.argv[2] === "stats") {
 			sampledAt: Date.now(),
 		}),
 		"workspace.directories": () => ({ directories: [] }),
+		"git.worktree_location": params => ({
+			root: process.env.OMP_WORKTREE_DIR ?? nodePath.join(process.env.PI_CODING_AGENT_DIR ?? "", "wt"),
+			hash: Bun.hash(nodePath.resolve(String(params.primaryRoot)))
+				.toString(16)
+				.padStart(16, "0")
+				.slice(-7),
+		}),
+		"workspace.resolve_path": params => ({ path: nodePath.resolve(process.cwd(), String(params.path)) }),
 		image_generation_sync: () => ({}),
 		reply_language_set: params => ({ language: typeof params.language === "string" ? params.language : null }),
 		account_rotation_set: params => ({ mode: params.mode === "even" ? "even" : "quota" }),
@@ -968,6 +1077,15 @@ if (process.argv[2] === "stats") {
 		get_hooks: () => ({ hooks: [] }),
 		get_mcp_servers: () => ({ servers: [] }),
 		get_skills: () => ({ skills: [] }),
+		get_agent_definitions: () => ({ agents: [] }),
+		get_memory_report: () => ({ backend: "none", entryCount: 0 }),
+		model_roles: () => ({
+			roles: ROLE_META.map(meta => ({
+				...meta,
+				source: "default",
+				candidates: [{ provider: "fixture", id: "local-fixture", name: "Local fixture", kind: "chat" }],
+			})),
+		}),
 		...(modelsData ? modelsPageMethods : {}),
 		...(modelsData && process.env.OMP_GUI_TEST_RESET_PASSES === "1" ? resetPassMethods : {}),
 		...(worktreeLifecycle ? worktreeLifecycleMethods : {}),
@@ -1057,8 +1175,42 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		const user: AgentMessage = { role: "user", content: [{ type: "text", text: message }], timestamp: Date.now() };
 		appendMessage(user);
 		write({ type: "agent_start" });
+		write({ type: "token_rate", rate: 64 });
 		write({ type: "message_end", message: user });
-		if (message === "fixture stream") {
+		if (message === "fixture reads") {
+			const targets = ["https://example.com/leaderboard", "xd://lsp", "src/a.ts"];
+			const answer: AgentMessage = {
+				role: "assistant",
+				timestamp: Date.now(),
+				content: targets.map((path, index) => ({
+					type: "toolCall",
+					id: `fixture-read-${index}`,
+					name: "read",
+					arguments: { path, __ompReadGroup: { path } },
+				})),
+			};
+			write({ type: "message_start", message: answer });
+			appendMessage(answer);
+			write({ type: "message_end", message: answer });
+			const results: AgentMessage[] = [];
+			for (const [index, path] of targets.entries()) {
+				const toolCallId = `fixture-read-${index}`;
+				write({ type: "tool_execution_start", toolCallId, toolName: "read", args: { path } });
+				write({ type: "read_group_metadata", toolCallId, target: { path } });
+				const content = [{ type: "text" as const, text: "fixture read output" }];
+				write({ type: "tool_execution_end", toolCallId, toolName: "read", result: { content }, isError: false });
+				const result: AgentMessage = {
+					role: "toolResult",
+					toolCallId,
+					toolName: "read",
+					content,
+					timestamp: Date.now(),
+				};
+				appendMessage(result);
+				results.push(result);
+			}
+			endTurn([answer, ...results]);
+		} else if (message === "fixture stream" || message === "fixture meter") {
 			const answer: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
 			write({ type: "message_start", message: answer });
 			streamChunks = 0;
@@ -1068,7 +1220,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					type: "message_update",
 					message: answer,
 					assistantMessageEvent: {
-						type: "text_delta",
+						type: message === "fixture meter" ? "thinking_delta" : "text_delta",
 						contentIndex: 0,
 						delta: `Stream chunk ${streamChunks}.\n`,
 						partial: answer,
@@ -1285,6 +1437,10 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				break;
 			case "get_state":
 				ok(state());
+				break;
+			case "cycle_model":
+				model.id = model.id === "local-fixture" ? "local-fixture-alt" : "local-fixture";
+				ok({ model, thinkingLevel: "medium", isScoped: false });
 				break;
 			case "get_entries": {
 				const leafId = entries.at(-1)?.id ?? null;

@@ -11,10 +11,11 @@
 
 import { Bot, Check, MessageSquare, Pause, Play, RefreshCw, RotateCcw, Square, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { isPresetRole } from "../../../../resources/gui-bridge/pool-contracts";
 import type { RpcModelPoolMember, SubagentSnapshot } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { abortActiveTurn } from "../../lib/messages";
-import { isPresetRole, poolMemberFor } from "../../lib/model-pool";
+import { poolMemberFor } from "../../lib/model-pool";
 import { useNowTick } from "../../lib/now-tick";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";

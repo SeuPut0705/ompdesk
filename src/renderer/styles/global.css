@@ -713,6 +713,10 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	margin-top: var(--sc-space-10);
 }
 
+.settings-section-nested + .settings-section-nested {
+	margin-top: var(--sc-space-4);
+}
+
 /* Rows inside a section are separated by hairlines, never boxes. */
 .settings-section-body > [data-setting-row] + [data-setting-row] {
 	border-top: 1px solid var(--sc-divider);
@@ -730,6 +734,7 @@ html[data-platform="darwin"] .omp-sidebar-search {
 }
 
 .settings-field-control {
+	text-align: end;
 	min-width: 0;
 	width: 100%;
 }

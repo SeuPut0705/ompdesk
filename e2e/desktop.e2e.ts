@@ -73,6 +73,50 @@ test("initially closed modal receives focus and Escape closes it", async () => {
 	await expect(modal).toHaveCount(0);
 });
 
+test("composer recalls shared history and restores its draft", async () => {
+	await command("shared history recall regression");
+	await expect
+		.poll(async () => {
+			const response = await page.evaluate(() => window.omp.rpc.historyRecent(1));
+			return response.data;
+		})
+		.toMatchObject([{ prompt: "shared history recall regression" }]);
+	await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+	const composer = page.locator("textarea").first();
+	await composer.fill("unfinished draft");
+	await composer.press("ArrowUp");
+	await expect(composer).toHaveValue("shared history recall regression");
+	await composer.press("ArrowDown");
+	await expect(composer).toHaveValue("unfinished draft");
+	await composer.fill("");
+});
+
+test("stock session identity, cycling in both directions, and /copy stay usable", async () => {
+	const identity = await page.evaluate(async () => {
+		const before = await window.omp.rpc.getState();
+		const forward = await window.omp.rpc.command({ type: "cycle_model", direction: "forward" });
+		const backward = await window.omp.rpc.command({ type: "cycle_model", direction: "backward" });
+		const after = await window.omp.rpc.getState();
+		return { before, forward, backward, after };
+	});
+	expect(identity.before.success).toBe(true);
+	expect(identity.before.data).toMatchObject({ sessionId: expect.stringMatching(/^fixture-/) });
+	expect(identity.forward).toMatchObject({ success: true, data: { model: { id: "local-fixture-alt" } } });
+	expect(identity.backward).toMatchObject({ success: true, data: { model: { id: "local-fixture" } } });
+	const beforeState = identity.before.data;
+	if (!beforeState || typeof beforeState !== "object" || !("sessionId" in beforeState)) {
+		throw new Error("Stock get_state omitted session identity");
+	}
+	expect(identity.after.data).toMatchObject({ sessionId: beforeState.sessionId });
+	await command("/copy");
+	const modal = page.getByRole("dialog");
+	await expect(modal.getByRole("button", { name: "Fixture copy target", exact: true })).toBeVisible();
+	await modal.getByRole("button", { name: "Copy", exact: true }).click();
+	await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe("Fixture copy target");
+	await expect(modal).toHaveCount(0);
+	expect(await recorded("composer.copy_targets")).toHaveLength(1);
+});
+
 test("opening sharing performs local preview only, upload needs a button click", async () => {
 	await command("/share");
 	const modal = page.getByRole("dialog");
@@ -171,13 +215,13 @@ test("settings page lists its sections, searches across languages, and Escape re
 	await page.keyboard.press("ControlOrMeta+Comma");
 	const settings = page.locator("[data-settings-page]");
 	await expect(settings).toBeVisible();
-	await expect(settings.locator("[data-settings-section]")).toHaveCount(13);
+	await expect(settings.locator("[data-settings-section]")).toHaveCount(11);
 	await settings.locator('[data-settings-section="appearance"]').click();
 	await expect(settings.getByRole("radiogroup", { name: "Theme" })).toBeVisible();
 	await page.screenshot({ path: "test-results/01-settings.png", scale: "css", animations: "disabled" });
 	const search = settings.getByRole("searchbox", { name: "Search settings" });
 	await search.fill("압축");
-	await expect(settings.locator("[data-settings-search-results]")).toContainText("Auto compaction");
+	await expect(settings.locator('[data-search-path="compaction.enabled"]')).toHaveCount(1);
 	await search.fill("paste.largeMenuThreshold");
 	await expect(settings.locator("[data-settings-search-results]")).toContainText("paste");
 	await search.fill("");
@@ -644,7 +688,7 @@ test("failed preference writes retain edits and never allow a premature restart"
 	});
 	await page.keyboard.press("ControlOrMeta+Comma");
 	const settings = page.locator("[data-settings-page]");
-	await settings.locator('[data-settings-section="advanced"]').click();
+	await settings.locator('[data-settings-section="general"]').click();
 	const proxy = page.locator("#setting-gui-proxy input");
 	await proxy.fill("http://127.0.0.1:7899");
 	await proxy.press("Enter");
@@ -655,6 +699,7 @@ test("failed preference writes retain edits and never allow a premature restart"
 	await expect(page.getByRole("alert")).toContainText("audit disk write refused");
 	await expect(proxy).toHaveValue("http://127.0.0.1:7899");
 	expect(await app.evaluate(() => Reflect.get(globalThis, "auditRestarts"))).toEqual([]);
+	await settings.locator('[data-settings-section="workspace"]').click();
 	const prompt = settings.getByPlaceholder("Leave empty to use the default system prompt");
 	await prompt.fill("Preserve this unsaved instruction.");
 	await prompt.press("Tab");

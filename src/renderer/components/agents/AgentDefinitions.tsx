@@ -26,12 +26,7 @@ import {
 	Users,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import {
-	type AgentDraft,
-	draftFromFields,
-	emptyAgentDraft,
-	parseAgentMarkdown,
-} from "../../../shared/agent-definition";
+import { type AgentDraft, draftFromFields, emptyAgentDraft, splitFrontmatter } from "../../../shared/agent-definition";
 import { type AgentTemplate, templateDraft } from "../../../shared/agent-templates";
 import type {
 	AgentFileScope,
@@ -467,14 +462,16 @@ export function AgentDefinitions() {
 			if (action === "edit" && filePath) {
 				const file = await readFile(filePath);
 				if (!file) return;
-				const parsed = parseAgentMarkdown(file.content);
+				const draft = file.parsed
+					? draftFromFields(file.parsed.fields, file.parsed.body)
+					: { ...emptyAgentDraft(), name: entry.name, instructions: splitFrontmatter(file.content).body };
 				setEditorTarget({
 					mode: "edit",
-					draft: parsed.draft,
+					draft,
 					scope: file.scope,
 					original: file.content,
 					filePath: file.filePath,
-					parseError: parsed.error,
+					parseError: file.parseError,
 				});
 				return;
 			}
@@ -484,7 +481,11 @@ export function AgentDefinitions() {
 				// A copy of an editable file keeps its unknown keys and comments.
 				const file = await readFile(filePath);
 				if (!file) return;
-				const { draft } = parseAgentMarkdown(file.content);
+				if (!file.parsed) {
+					failed(file.parseError ?? t("agentHub.actionFailed"));
+					return;
+				}
+				const draft = draftFromFields(file.parsed.fields, file.parsed.body);
 				setEditorTarget({
 					mode: "create",
 					draft: { ...draft, name: copyName(draft.name || entry.name, taken) },

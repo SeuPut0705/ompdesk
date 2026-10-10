@@ -314,7 +314,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	setSettingsSection: tab => set({ settingsTab: tab }),
 	openProviders: () => {
 		set({ providerForm: null });
-		get().openSettings("models");
+		get().openSettings("models:accounts");
 	},
 	feedbackOpen: false,
 	feedbackPrefill: null,

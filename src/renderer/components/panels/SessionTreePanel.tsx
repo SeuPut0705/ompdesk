@@ -45,7 +45,8 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
-import { Badge, Button, EmptyState, ErrorDetail, IconButton, Input, Sheet, Spinner, Tabs } from "../common";
+import { Badge, Button, EmptyState, ErrorDetail, IconButton, Input, Select, Sheet, Spinner } from "../common";
+import { PanelActions, PanelToolbar } from "./PanelChrome";
 import { RoleGlyph, roleMeta, SessionRootNode, SessionTreeNodeCard } from "./SessionTreeNodeCard";
 import {
 	buildSessionTreeLayout,
@@ -831,27 +832,21 @@ function SessionTreeView({
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col" ref={rootRef}>
-			<div className="flex shrink-0 flex-col gap-1.5 border-b border-(--sc-divider) px-3 py-2">
+			<PanelToolbar className="flex-col items-stretch">
 				<div className="flex min-w-0 items-center gap-2">
-					<span className="min-w-0 truncate text-sc-sm font-medium text-(--sc-text)">
+					<span className="min-w-0 truncate text-sc-sm text-(--sc-text-muted)" title={tree.sessionId ?? undefined}>
 						{tree.sessionName ?? t("sessionTree.untitled")}
 					</span>
-					{tree.sessionId && (
-						<span className="shrink-0 font-mono text-sc-xs text-(--sc-text-subtle)">
-							#{tree.sessionId.slice(0, 8)}
-						</span>
-					)}
-					{toolbarAction && <span className="ml-auto flex shrink-0 items-center">{toolbarAction}</span>}
+					{toolbarAction && <PanelActions>{toolbarAction}</PanelActions>}
 				</div>
 				{model && model.entries.length > 0 && (
 					<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-						<Tabs
-							activeId={tree.filterMode}
-							ariaLabel={t("sessionTree.filter.group")}
-							compact
-							onChange={id => tree.setFilterMode(id as TreeFilterMode)}
-							tabs={TREE_FILTER_MODES.map(mode => ({ id: mode.id, label: t(mode.labelKey) }))}
-							variant="segmented"
+						<Select
+							value={tree.filterMode}
+							aria-label={t("sessionTree.filter.group")}
+							controlSize="sm"
+							onChange={event => tree.setFilterMode(event.target.value as TreeFilterMode)}
+							options={TREE_FILTER_MODES.map(mode => ({ value: mode.id, label: t(mode.labelKey) }))}
 						/>
 						{layout && layout.nodeCount > 0 && (
 							<span className="ml-auto text-sc-xs text-(--sc-text-muted)">
@@ -874,7 +869,7 @@ function SessionTreeView({
 						)}
 					</div>
 				)}
-			</div>
+			</PanelToolbar>
 			{tree.error ? (
 				<div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
 					<div role="alert">

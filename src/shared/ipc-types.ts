@@ -562,26 +562,34 @@ export interface IpcCommandsUpdatePayload {
 	commands: AvailableCommand[];
 }
 
-/** API protocols accepted by the agent's models.yml (mirror of ApiSchema in
- *  coding-agent/src/config/models-config-schema-bundle.ts — keep in sync). */
-export const CUSTOM_PROVIDER_APIS = [
-	"openai-completions",
-	"openai-responses",
-	"openai-codex-responses",
-	"azure-openai-responses",
-	"anthropic-messages",
-	"bedrock-converse-stream",
-	"google-generative-ai",
-	"google-gemini-cli",
-	"google-vertex",
-] as const;
+/** DTO types only. Installed stock ModelsConfigSchema supplies all runtime vocabularies. */
+export type CustomProviderApi =
+	| "openai-completions"
+	| "openai-responses"
+	| "openai-codex-responses"
+	| "azure-openai-responses"
+	| "anthropic-messages"
+	| "bedrock-converse-stream"
+	| "google-generative-ai"
+	| "google-gemini-cli"
+	| "google-vertex"
+	| "openrouter-decisions"
+	| "typesafe";
 
-export type CustomProviderApi = (typeof CUSTOM_PROVIDER_APIS)[number];
+export type CustomModelEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
-/** Reasoning/thinking effort levels accepted by models.yml (EffortSchema). */
-export const CUSTOM_MODEL_EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export interface CustomProviderOptions {
+	apis: string[];
+	auth: string[];
+	discovery: string[];
+	thinkingModes: string[];
+	efforts: string[];
+}
 
-export type CustomModelEffort = (typeof CUSTOM_MODEL_EFFORTS)[number];
+export interface CustomProvidersConfig {
+	providers: CustomProviderView[];
+	options: CustomProviderOptions;
+}
 
 export type CustomModelThinkingMode =
 	| "effort"
@@ -612,7 +620,8 @@ export type CustomProviderDiscoveryType =
 	| "lm-studio"
 	| "openai-models-list"
 	| "proxy"
-	| "litellm";
+	| "litellm"
+	| "apple-foundation-models";
 
 export interface CustomProviderDiscovery {
 	type: CustomProviderDiscoveryType;
@@ -1367,6 +1376,10 @@ export interface OmpApi {
 		getModelRoleMetadata(): Promise<RpcResponse>;
 		/** Per-model compaction points (omp 18.8.5+; older omp answers `unsupported_omp`). */
 		getCompactionPoints(): Promise<RpcResponse>;
+		compactionLimits(params: { values?: unknown; key?: string; input?: string }): Promise<RpcResponse>;
+		historyRecent(limit?: number, cwd?: string): Promise<RpcResponse>;
+		historySearch(query: string, limit?: number, cwd?: string): Promise<RpcResponse>;
+		historyRecord(prompt: string, cwd?: string): Promise<RpcResponse>;
 		getAvailableCommands(): Promise<RpcResponse>;
 		getSkills(): Promise<RpcResponse>;
 		getSkillDetail(name: string): Promise<RpcResponse>;
@@ -1635,7 +1648,7 @@ export interface OmpApi {
 	};
 	/** The agent's models.yml on `device` (a paired host; absent = this device). */
 	models: {
-		listProviders(device?: string): Promise<CustomProviderView[]>;
+		listProviders(device?: string): Promise<CustomProvidersConfig>;
 		upsertProvider(input: CustomProviderInput, device?: string): Promise<void>;
 		deleteProvider(id: string, device?: string): Promise<void>;
 		/** Opens this device's file only; a paired host's fails with code `remote_path_native`. */

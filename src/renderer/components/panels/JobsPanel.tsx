@@ -13,7 +13,8 @@ import { formatClock, formatDuration } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { Badge, type BadgeVariant, Banner, Button, EmptyState, ErrorDetail, Spinner } from "../common";
+import { Badge, type BadgeVariant, Banner, Button, EmptyState, ErrorDetail, IconButton, Spinner } from "../common";
+import { PANEL_ROW_SURFACE, PanelActions, PanelToolbar } from "./PanelChrome";
 
 const STATUS_VARIANT: Record<RpcAsyncJobItem["status"], BadgeVariant> = {
 	running: "success",
@@ -78,11 +79,9 @@ export function JobsPanel() {
 		const live = job.status === "running" || job.cancellationPending === true;
 		const preview = job.errorPreview ?? job.resultPreview;
 		return (
-			<li className="px-3 py-2" data-job-id={job.id} key={job.id}>
+			<li className={`${PANEL_ROW_SURFACE} mx-1`} data-job-id={job.id} key={job.id} title={job.id}>
 				<div className="flex min-w-0 items-start gap-2">
-					<span className="line-clamp-2 min-w-0 flex-1 text-sc-md font-medium break-words text-(--sc-text)">
-						{job.label}
-					</span>
+					<span className="line-clamp-2 min-w-0 flex-1 text-sc-sm break-words text-(--sc-text)">{job.label}</span>
 					<Badge dot pulse={job.status === "running"} variant={STATUS_VARIANT[job.status]}>
 						{t(job.cancellationPending ? "jobs.cancelling" : `jobs.status.${job.status}`)}
 					</Badge>
@@ -95,8 +94,6 @@ export function JobsPanel() {
 							? formatDuration(Math.max(0, (job.endedAt ?? now) - job.startTime))
 							: t("jobs.durationUnavailable")}
 					</span>
-					<span aria-hidden>·</span>
-					<span className="truncate font-mono text-(--sc-text-subtle)">{job.id}</span>
 				</div>
 				{preview && (
 					<details className="mt-1.5">
@@ -121,18 +118,27 @@ export function JobsPanel() {
 		items.length > 0 && (
 			<section aria-labelledby={id}>
 				<h3
-					className="flex items-center gap-2 px-3 pt-3 pb-1 text-sc-xs font-semibold tracking-wide text-(--sc-text-muted) uppercase"
+					className="flex items-center gap-2 px-3 pt-3 pb-1 text-sc-xs font-medium text-(--sc-text-muted)"
 					id={id}
 				>
 					{title}
 					<Badge>{items.length}</Badge>
 				</h3>
-				<ul className="divide-y divide-(--sc-divider)">{items.map(renderJob)}</ul>
+				<ul>{items.map(renderJob)}</ul>
 			</section>
 		);
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-3">
+			<PanelActions>
+				<IconButton
+					disabled={loading}
+					icon={<RotateCw />}
+					label={t("common.refresh")}
+					onClick={() => setAttempt(count => count + 1)}
+					size="sm"
+				/>
+			</PanelActions>
 			{error && (
 				<Banner
 					actions={
@@ -170,9 +176,9 @@ export function JobsPanel() {
 			) : (
 				<>
 					{updatedAt && (
-						<p className="px-3 pt-2 text-sc-xs text-(--sc-text-subtle)">
+						<PanelToolbar className="text-sc-xs text-(--sc-text-subtle)">
 							{t("jobs.updated", { time: formatClock(updatedAt) })}
-						</p>
+						</PanelToolbar>
 					)}
 					{renderSection(`${sectionId}-running`, t("jobs.running"), running)}
 					{renderSection(`${sectionId}-recent`, t("jobs.recentLimited"), recent)}

@@ -10,14 +10,12 @@ import { saveGuiPreference } from "../../lib/display-preferences";
 import { useLang, useT } from "../../lib/i18n";
 import { type PanelTab, useUiStore } from "../../stores/ui";
 import { Select } from "../common";
-import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
+import { DisplayPreferenceRow } from "./AppearanceSection";
+import { ProxyRow } from "./LaunchSettings";
 import { ReplyLanguageRow } from "./ReplyLanguageRow";
-import { SchemaSection } from "./SchemaField";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
 const PANEL_DEFAULTS: readonly PanelTab[] = ["diff", "files", "logs"];
-const MESSAGE_PATHS = ["steeringMode", "followUpMode", "interruptMode"] as const;
-const CONTEXT_PATHS = ["compaction.enabled"] as const;
 
 export function GeneralSection() {
 	const t = useT();
@@ -28,7 +26,7 @@ export function GeneralSection() {
 	const panelId = useId();
 	return (
 		<>
-			<SettingsSection actions={<ThisDeviceTag />} title={t("settings.general.app")}>
+			<SettingsSection title={t("settings.general.language")}>
 				<SettingsRow
 					control={
 						<Select
@@ -55,6 +53,8 @@ export function GeneralSection() {
 						void saveGuiPreference("notifications", next, () => useUiStore.getState().setNotifications(next))
 					}
 				/>
+			</SettingsSection>
+			<SettingsSection title={t("settings.general.window")}>
 				<SettingsRow
 					control={
 						<Select
@@ -72,19 +72,10 @@ export function GeneralSection() {
 					id="setting-gui-panelDefault"
 					label={t("settings.gui.panelDefault")}
 				/>
+				<DisplayPreferenceRow field="titleState" />
+				<DisplayPreferenceRow field="showProgress" />
+				<ProxyRow />
 			</SettingsSection>
-			<HostScoped>
-				<SchemaSection
-					description={t("settings.general.messagesDesc")}
-					paths={MESSAGE_PATHS}
-					title={t("settings.general.messages")}
-				/>
-				<SchemaSection
-					description={t("settings.general.contextDesc")}
-					paths={CONTEXT_PATHS}
-					title={t("settings.general.context")}
-				/>
-			</HostScoped>
 		</>
 	);
 }

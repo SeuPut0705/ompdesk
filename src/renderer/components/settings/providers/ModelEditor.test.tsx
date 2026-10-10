@@ -2,6 +2,7 @@ import { parseHTML } from "linkedom";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { fixtureProviderOptions } from "../../../../../e2e/models-config-fixture";
 import { I18nProvider } from "../../../lib/i18n";
 import { ModelEditor, type ModelRow } from "./ModelEditor";
 
@@ -44,6 +45,7 @@ function Harness({ onUpdate }: { onUpdate: (model: ModelRow) => void }) {
 	return (
 		<ModelEditor
 			model={model}
+			options={fixtureProviderOptions}
 			readonly={false}
 			disabled={false}
 			onUpdate={(_key, patch) =>

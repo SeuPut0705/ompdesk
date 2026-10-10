@@ -86,7 +86,7 @@ const ICONS: Record<FileIconKind, typeof File> = {
 };
 
 /** Type-aware tree glyph for a file path. */
-export function FileIcon({ path, size, className }: { path: string; size: number; className?: string }) {
+export function FileIcon({ path, size, className }: { path: string; size?: number; className?: string }) {
 	const kind = fileIconKind(path);
 	const Icon = ICONS[kind];
 	return <Icon className={className} data-file-icon={kind} size={size} />;

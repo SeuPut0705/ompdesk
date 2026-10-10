@@ -9,7 +9,8 @@
  * reload and reauth details (mcp-command-controller.ts in omp 18.6).
  */
 import * as path from "node:path";
-import { clearCache as clearFsCache } from "@oh-my-pi/pi-coding-agent/capability/fs";
+import { loadCapability } from "@oh-my-pi/pi-coding-agent/capability";
+import type { MCPServer } from "@oh-my-pi/pi-coding-agent/capability/mcp";
 import { expandEnvVarsDeep } from "@oh-my-pi/pi-coding-agent/discovery/helpers";
 import { connectToServer, disconnectServer, listTools } from "@oh-my-pi/pi-coding-agent/mcp/client";
 import { loadAllMCPConfigs, validateServerConfig } from "@oh-my-pi/pi-coding-agent/mcp/config";
@@ -41,6 +42,11 @@ import {
 import { cfgMcpEnableProjectConfig } from "@oh-my-pi/pi-coding-agent/mcp/settings";
 import type { MCPServerConfig, MCPServerConnection } from "@oh-my-pi/pi-coding-agent/mcp/types";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { MCPCommandController } from "@oh-my-pi/pi-coding-agent/modes/controllers/mcp-command-controller";
+import { applyMcpToggleRuntime } from "@oh-my-pi/pi-coding-agent/modes/components/extensions/mcp-runtime";
+import type { InteractiveModeContext } from "@oh-my-pi/pi-coding-agent/modes/types";
+import type { Component } from "@oh-my-pi/pi-tui";
+import { inferMcpTransport } from "@oh-my-pi/pi-tui/overlays/extensions/mcp-runtime";
 import { getMCPConfigPath, Snowflake } from "@oh-my-pi/pi-utils";
 import { guard } from "../health";
 import type { BridgeEnv, BridgeMethods } from "../types";
@@ -127,19 +133,18 @@ function serializeMcpReload<T>(reload: () => Promise<T>): Promise<T> {
 function reloadMcpServers(session: AgentSession): Promise<void> {
 	return serializeMcpReload(async () => {
 		const manager = MCPManager.instance();
-		if (manager) {
-			await manager.disconnectAll();
-			// Clear before rediscovery so removed servers leave no stale `/server:prompt` entries.
-			session.setMCPPromptCommands([]);
-			clearFsCache();
-			await manager.discoverAndConnect({
-				enableProjectConfig: cfgMcpEnableProjectConfig.get(session.settings),
-				filterExa: true,
-				filterBrowser: session.getEvalPreludes().some(definition => definition.name === "browser"),
-				extensionRoots: session.effectiveExtensionRoots,
-			});
-		}
-		await session.refreshMCPTools(manager?.getTools() ?? []);
+		if (!manager) throw new Error("MCP manager not available.");
+		// reloadServers reads only these context members. Its terminal error
+		// output becomes a rejected bridge call, never a discarded UI no-op.
+		const context = {
+			mcpManager: manager,
+			session,
+			settings: session.settings,
+			presentCommandOutput: (output: Component): never => {
+				throw new Error(output.render(120).join("\n"));
+			},
+		} as InteractiveModeContext;
+		await new MCPCommandController(context).reloadServers();
 	});
 }
 
@@ -149,24 +154,37 @@ type AuthState = "none" | "authorized" | "expired" | "required";
 async function listMcpServers(session: AgentSession) {
 	const cwd = session.sessionManager.getCwd();
 	const manager = MCPManager.instance();
-	const [userConfig, projectConfig] = await Promise.all([
+	const [userConfig, projectConfig, inventory, active] = await Promise.all([
 		readMCPConfigFile(getMCPConfigPath("user", cwd)),
 		readMCPConfigFile(getMCPConfigPath("project", cwd)),
+		loadCapability<MCPServer>("mcps", {
+			cwd,
+			agentDir: session.settings.getAgentDir(),
+			includeDisabled: true,
+			extensionRoots: session.effectiveExtensionRoots,
+		}),
+		loadAllMCPConfigs(cwd, {
+			enableProjectConfig: cfgMcpEnableProjectConfig.get(session.settings),
+			filterExa: false,
+			extensionRoots: session.effectiveExtensionRoots,
+		}),
 	]);
-	// Project config overrides user config for same-named servers.
-	const configured = new Map<string, MCPServerConfig>();
-	for (const file of [userConfig, projectConfig]) {
-		for (const [name, config] of Object.entries(file.mcpServers ?? {})) {
-			if (config) configured.set(name, config);
-		}
+	// Stock's dashboard uses all rows, including equivalent aliases. The GUI
+	// has one row per name; keep stock's priority-ordered first occurrence.
+	const configured = new Map<string, MCPServer>();
+	for (const server of inventory.all) {
+		if (!configured.has(server.name)) configured.set(server.name, server);
 	}
 	const disabledNames = new Set(userConfig.disabledServers ?? []);
-	const names = new Set<string>([...configured.keys(), ...disabledNames, ...(manager?.getAllServerNames() ?? [])]);
+	const names = new Set([...configured.keys(), ...disabledNames, ...(manager?.getAllServerNames() ?? [])]);
 
 	const authStorage = session.modelRegistry.authStorage;
 	const tools = manager?.getTools() ?? [];
 	const servers = [...names].map(name => {
-		const config = configured.get(name) ?? manager?.getServerConfig(name);
+		const server = configured.get(name);
+		const config = active.configs[name] ?? (server
+			? ({ ...server, type: inferMcpTransport(server) } as MCPServerConfig)
+			: manager?.getServerConfig(name));
 		const scope = projectConfig.mcpServers?.[name] ? "project" : userConfig.mcpServers?.[name] ? "user" : undefined;
 		const credential = config ? lookupMcpOAuthCredential(authStorage, config) : undefined;
 		const headerAuth = config ? hasMcpAuthorizationHeader(config) : false;
@@ -186,7 +204,7 @@ async function listMcpServers(session: AgentSession) {
 			transport: config?.type ?? (config ? "stdio" : "unknown"),
 			status: manager?.getConnectionStatus(name) ?? "disconnected",
 			toolCount: tools.filter(tool => tool.mcpServerName === name).length,
-			enabled: config?.enabled !== false && !disabledNames.has(name),
+			enabled: Object.hasOwn(active.configs, name),
 			authed: credential !== undefined || headerAuth,
 			...(scope !== undefined ? { scope } : {}),
 			...(config && "command" in config && config.command ? { command: config.command } : {}),
@@ -217,21 +235,20 @@ async function mcpAction(session: AgentSession, name: string, action: unknown, s
 				userConfig.mcpServers?.[name] ??
 				manager?.getSource(name) ??
 				userConfig.disabledServers?.includes(name);
-			if (!known) throw new Error(`Server "${name}" not found.`);
+			if (!known && !(await listMcpServers(session)).some(server => server.name === name)) {
+				throw new Error(`Server "${name}" not found.`);
+			}
+			if (!manager) throw new Error("MCP manager not available.");
 			await setMcpServerEnabled({ userPath, projectPath, name, enabled });
-			await serializeMcpReload(async () => {
-				if (enabled) {
-					if (manager) {
-						const { configs, sources } = await loadAllMCPConfigs(cwd);
-						const config = configs[name];
-						const source = sources[name];
-						if (config) await manager.connectServers({ [name]: config }, source ? { [name]: source } : {});
-					}
-				} else {
-					await manager?.disconnectServer(name);
-				}
-				await session.refreshMCPTools(manager?.getTools() ?? []);
-			});
+			await serializeMcpReload(() => applyMcpToggleRuntime({
+				name, enabled, cwd, manager, session,
+				discovery: {
+					enableProjectConfig: cfgMcpEnableProjectConfig.get(session.settings),
+					filterExa: true,
+					filterBrowser: session.getEvalPreludes().some(definition => definition.name === "browser"),
+					extensionRoots: session.effectiveExtensionRoots,
+				},
+			}));
 			return { name, action, status: manager?.getConnectionStatus(name) ?? "disconnected" };
 		}
 		case "reconnect": {
@@ -290,6 +307,9 @@ async function probeServer(session: AgentSession, probeName: string, config: MCP
 }
 
 // ── OAuth reauth ────────────────────────────────────────────────────────────
+// Kept: stock MCPCommandController.#handleReauth is private and constructs
+// terminal OAuth UI. MCPOAuthFlow supplies the engine; this adapts RPC
+// open_url/input, cancellation and timeout without fake terminal widgets.
 
 class OAuthCancelledError extends Error {
 	constructor() {

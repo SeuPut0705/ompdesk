@@ -11,11 +11,14 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import type {
+	RpcActiveTool,
+	RpcActiveToolsResult,
 	RpcAsyncJobItem,
 	RpcJobsResult,
 	RpcReloadPluginsResult,
 	RpcSessionState,
 	RpcThinkingLevelState,
+	RpcToolSource,
 	ThinkingLevel,
 } from "../../shared/rpc-types";
 import { runSlashCommand } from "./slash";
@@ -30,7 +33,6 @@ const BUSY_MESSAGE = "Session is busy (streaming or foreground execution in flig
 interface StateExtras {
 	cwd: string;
 	autoRetryEnabled: boolean;
-	thinkingLevel: ThinkingLevel | undefined;
 	thinkingConfigured: ThinkingLevel | "auto" | undefined;
 	planModeEnabled: boolean;
 	prewalkArmed: boolean;
@@ -200,7 +202,24 @@ export const handlers: Record<string, LocalHandler> = {
 		return { enabled: true };
 	},
 
-	get_active_tools: async (_command, ctx) => ctx.bridge.request("composer.active_tools"),
+	get_active_tools: async (_command, ctx): Promise<RpcActiveToolsResult> => {
+		const [state, extras] = await Promise.all([
+			ctx.send<RpcSessionState>({ type: "get_state" }),
+			ctx.bridge.request<{ sources: Record<string, RpcToolSource>; mounted: RpcActiveTool[] }>(
+				"composer.tool_extras",
+			),
+		]);
+		return {
+			tools: [
+				...(state.dumpTools ?? []).map(tool => ({
+					name: tool.name,
+					description: tool.description,
+					source: extras.sources[tool.name] ?? "extension",
+				})),
+				...extras.mounted,
+			],
+		};
+	},
 
 	get_context_report: async (_command, ctx) => ctx.bridge.request("composer.context_report"),
 
@@ -228,7 +247,7 @@ export const handlers: Record<string, LocalHandler> = {
 	// Stock RPC `cycle_model` is forward-only; the session's own cycle (scoped models included) takes a direction.
 	cycle_model: async (command, ctx) => {
 		const direction = z.enum(["forward", "backward"]).optional().parse(command.direction);
-		if (direction === "backward") return ctx.bridge.request("composer.cycle_model", { direction });
+		if (direction === "backward") return ctx.bridge.request("composer.cycle_model_backward");
 		return ctx.send({ type: "cycle_model" });
 	},
 
@@ -236,18 +255,10 @@ export const handlers: Record<string, LocalHandler> = {
 	set_thinking_level: async (command, ctx) => {
 		const level = z.string().min(1).parse(command.level);
 		await ctx.send({ type: "set_thinking_level", level });
-		const extras = await stateExtras(ctx);
-		if (extras) {
-			const result: RpcThinkingLevelState = {
-				thinkingLevel: extras.thinkingLevel,
-				thinkingConfigured: extras.thinkingConfigured,
-			};
-			return result;
-		}
-		const state = await ctx.send<RpcSessionState>({ type: "get_state" });
+		const [state, extras] = await Promise.all([ctx.send<RpcSessionState>({ type: "get_state" }), stateExtras(ctx)]);
 		const result: RpcThinkingLevelState = {
 			thinkingLevel: state.thinkingLevel,
-			thinkingConfigured: level === "auto" ? "auto" : state.thinkingLevel,
+			thinkingConfigured: extras?.thinkingConfigured ?? (level === "auto" ? "auto" : state.thinkingLevel),
 		};
 		return result;
 	},

@@ -3,6 +3,8 @@
  * GUI passes the mode in `OMP_GUI_ACCOUNT_ROTATION` at spawn and
  * `account_rotation_set` whenever Settings changes it, and names the shared
  * ledger file in `OMP_GUI_ACCOUNT_ROTATION_STATE`.
+ * Stock defaultRankingStrategy ranks by quota, but has no even-rotation switch;
+ * keep only this GUI ledger/pinning policy around the stock credential selector.
  *
  * Only public AuthStorage namespaces are touched (`oauth.accounts`,
  * `sessions.pin`, `blocks.list`); the selector, its strategies and the 429

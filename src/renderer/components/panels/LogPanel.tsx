@@ -3,14 +3,15 @@
  * with search filtering, level filter, and pin-aware auto-scroll.
  */
 
-import { ArrowDown, Copy, Download, RotateCw } from "lucide-react";
+import { ArrowDown, Copy, Download, RotateCw, ScrollText } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LogBatch } from "../../../shared/ipc-types";
 import { errorDetail } from "../../lib/error-detail";
 import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { toast } from "../../stores/toast";
-import { Button, IconButton, SearchField, Tabs } from "../common";
+import { Button, EmptyState, IconButton, SearchField, Select } from "../common";
+import { PanelActions, PanelToolbar } from "./PanelChrome";
 
 const MAX_LINES = 1000;
 
@@ -120,21 +121,19 @@ export function LogPanel() {
 
 	return (
 		<div className="flex h-full flex-col">
-			{/* The side-panel tab already says "Logs": the header holds the filters and actions. */}
-			<div className="flex items-center gap-1.5 px-3 pt-2.5 pb-2">
-				<Tabs
-					activeId={levelFilter}
-					ariaLabel={t("logPanel.title")}
-					compact
-					onChange={level => setLevelFilter(level as "all" | LogLevel)}
-					tabs={(["all", "info", "warn", "error"] as const).map(level => ({
-						id: level,
+			<PanelToolbar>
+				<Select
+					value={levelFilter}
+					aria-label={t("logPanel.title")}
+					controlSize="sm"
+					onChange={event => setLevelFilter(event.target.value as "all" | LogLevel)}
+					options={(["all", "info", "warn", "error"] as const).map(level => ({
+						value: level,
 						label: t(LEVEL_LABEL_KEY[level]),
 					}))}
-					variant="segmented"
 				/>
 				<span className="text-sc-xs tabular-nums text-(--sc-text-subtle)">{filtered.length}</span>
-				<div className="ml-auto flex shrink-0 items-center gap-0.5">
+				<PanelActions>
 					<IconButton
 						disabled={filtered.length === 0}
 						icon={<Copy />}
@@ -153,8 +152,8 @@ export function LogPanel() {
 						onClick={exportLogs}
 						size="sm"
 					/>
-				</div>
-			</div>
+				</PanelActions>
+			</PanelToolbar>
 			<div className="px-3 pb-1.5">
 				<SearchField
 					controlSize="sm"
@@ -163,7 +162,7 @@ export function LogPanel() {
 					placeholder={t("logPanel.placeholder")}
 					value={query}
 				/>
-				<p className="mt-1.5 text-sc-xs text-(--sc-text-subtle)">{t("logPanel.scope")}</p>
+				<span className="sr-only">{t("logPanel.scope")}</span>
 			</div>
 			<div className="relative min-h-0 flex-1">
 				<div
@@ -180,9 +179,11 @@ export function LogPanel() {
 							</Button>
 						</div>
 					) : filtered.length === 0 ? (
-						<div className="py-8 text-center font-sans text-omp-sm text-(--omp-dim)">
-							{lines.length === 0 ? t("logPanel.waiting") : t("logPanel.noMatch")}
-						</div>
+						<EmptyState
+							icon={<ScrollText />}
+							size="sm"
+							title={lines.length === 0 ? t("logPanel.waiting") : t("logPanel.noMatch")}
+						/>
 					) : (
 						filtered.map(line => (
 							<div className={`break-all whitespace-pre-wrap ${LEVEL_CLASS[line.level]}`} key={line.seq}>

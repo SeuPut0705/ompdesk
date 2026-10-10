@@ -5,10 +5,9 @@
  * (`describeModelCompactionPoint`, `resolveRoleAssignments` over
  * `createModelBrowserSource`). Writes go through the generic `settings_set`.
  *
- * The omp modules are imported only once `guard` has seen them (feature
- * `compactionLimits`, optional in capabilities.ts): an older omp lacks them, and
- * a static import would fail this area at load on every start. Literal
- * specifiers, so omp maps them onto its loaded singletons (see health.ts).
+ * Stock internals load only after `guard` checks the compactionLimits feature.
+ * Deferral keeps incompatible modules from failing the entire area at startup.
+ * Literal specifiers resolve onto omp's loaded singletons (see health.ts).
  */
 import type { Model } from "@oh-my-pi/pi-ai";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
@@ -73,5 +72,29 @@ async function compactionPoints(session: AgentSession) {
 export const methods: BridgeMethods = {
 	...guard("compactionLimits", {
 		compaction_points: async (_params, env) => compactionPoints(env.session()),
+		compaction_limits: async params => {
+			// Defer internals until guard succeeds so missing modules cannot break bridge startup.
+			const { parseCompactionPointInput, validateModelCompactionThresholds, formatCompactionPointInput } =
+				await import("@oh-my-pi/pi-coding-agent/config/compaction-threshold");
+			const input = params as { values?: unknown; key?: string; input?: string };
+			if (input.input !== undefined) {
+				let value: number | string | null;
+				try { value = parseCompactionPointInput(input.input); }
+				catch (error) {
+					return { ok: false, limitError: String(error).includes("percentage must") ? "percent" : "invalid" };
+				}
+				if (value === null) return { ok: false, limitError: "invalid" };
+				if (!input.key) return { ok: false, modelError: "empty" };
+				try { validateModelCompactionThresholds({ [input.key]: value }); }
+				catch (error) {
+					return { ok: false, modelError: String(error).includes("last character") ? "star" : "shape" };
+				}
+				return { ok: true, value };
+			}
+			const thresholds = validateModelCompactionThresholds(input.values);
+			const values = input.values as Record<string, number | string>;
+			return { rows: Object.entries(thresholds).sort(([a], [b]) => a.localeCompare(b))
+				.map(([key, threshold]) => ({ key, value: values[key], text: formatCompactionPointInput(threshold) })) };
+		},
 	}),
 };

@@ -23,7 +23,14 @@ test.beforeEach(async () => {
 	const agent = path.join(profile, "agent");
 	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
 	record = path.join(profile, "rpc.jsonl");
-	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
+	await fs.writeFile(
+		path.join(desktop, "prefs.json"),
+		JSON.stringify({
+			language: "en",
+			firstRunComplete: true,
+			transcriptDetail: "full",
+		}),
+	);
 	const env = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agent,
@@ -131,10 +138,26 @@ test("a chat tab runs omp with every tool in the default workspace", async () =>
 
 	const aside = page.locator("aside[data-docked]");
 	await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
+	await aside.getByRole("button", { name: "Switch panel view", exact: true }).click();
 	for (const name of ["Changes", "Files", "Logs", "Queue", "Tree", "Jobs"]) {
-		await expect(aside.getByRole("tab", { name, exact: true })).toBeVisible();
+		await expect(page.getByRole("menuitemcheckbox", { name, exact: true })).toBeVisible();
 	}
-	await aside.getByRole("tab", { name: "Tree", exact: true }).click();
-	await expect(aside.getByRole("tab", { name: "Tree", exact: true })).toHaveAttribute("aria-selected", "true");
+	await page.getByRole("menuitemcheckbox", { name: "Tree", exact: true }).click();
+	await expect(aside.getByRole("button", { name: "Switch panel view", exact: true })).toContainText("Tree");
+	expect(errors).toEqual([]);
+});
+
+test("stock metadata drives live token rate and read grouping", async () => {
+	await page.evaluate(() => window.omp.rpc.command({ type: "prompt", message: "fixture meter" }));
+	await expect(page.locator(".omp-thinking-gauge").last()).toContainText("64/s");
+	await expect(page.locator(".omp-thinking-gauge").last()).not.toContainText("tokens");
+	await page.evaluate(() => window.omp.rpc.command({ type: "abort" }));
+	await page.evaluate(() => window.omp.rpc.command({ type: "prompt", message: "fixture reads" }));
+	const group = page.locator(".omp-read-group");
+	await expect(group).toHaveCount(1);
+	await expect(group.locator(".omp-tool-summary")).toHaveAttribute(
+		"title",
+		"https://example.com/leaderboard\nxd://lsp\nsrc/a.ts",
+	);
 	expect(errors).toEqual([]);
 });

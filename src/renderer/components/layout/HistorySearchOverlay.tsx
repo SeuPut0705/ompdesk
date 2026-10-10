@@ -4,8 +4,12 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { cx, escapeRegExp, formatTimeAgo, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
+import { useTabRpc } from "../../lib/tab-rpc";
 import type { InputHistoryEntry } from "../../stores/input-history";
-import { filterHistory, useInputHistoryStore, workspaceHistory } from "../../stores/input-history";
+import { useInputHistoryStore } from "../../stores/input-history";
+import { useRuntimeTabId } from "../../stores/session-runtime-context";
+import { useTabsStore } from "../../stores/tabs";
+import { toastError } from "../../stores/toast";
 import { Tabs } from "../common";
 
 /**
@@ -45,6 +49,11 @@ function HighlightedPrompt({ text, tokens }: { text: string; tokens: string[] })
 export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOverlayProps) {
 	const t = useT();
 	const entries = useInputHistoryStore(s => s.entries);
+	const rpc = useTabRpc();
+	const tabId = useRuntimeTabId();
+	const device = useTabsStore(state => state.tabs.find(tab => tab.id === (tabId ?? state.activeTabId))?.device);
+	const [results, setResults] = useState<InputHistoryEntry[]>([]);
+	const [loading, setLoading] = useState(true);
 	const [query, setQuery] = useState("");
 	const [allWorkspaces, setAllWorkspaces] = useState(false);
 	const [index, setIndex] = useState(0);
@@ -54,10 +63,29 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 	const listId = useId();
 
 	const tokens = useMemo(() => query.toLowerCase().split(/\s+/).filter(Boolean), [query]);
-	const results = useMemo(
-		() => filterHistory(workspaceHistory(entries, allWorkspaces ? undefined : cwd), query, MAX_RESULTS),
-		[entries, query, allWorkspaces, cwd],
-	);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a submission in another pane refreshes stock search results.
+	useEffect(() => {
+		let current = true;
+		setLoading(true);
+		void useInputHistoryStore
+			.getState()
+			.search(query, MAX_RESULTS, allWorkspaces ? undefined : cwd, rpc, device)
+			.then(rows => {
+				if (current) setResults(rows);
+			})
+			.catch(error => {
+				if (current) {
+					setResults([]);
+					toastError({ title: t("palette.failed"), error });
+				}
+			})
+			.finally(() => {
+				if (current) setLoading(false);
+			});
+		return () => {
+			current = false;
+		};
+	}, [entries, query, allWorkspaces, cwd, rpc, device, t]);
 	const selected = Math.min(index, Math.max(0, results.length - 1));
 
 	useEffect(() => {
@@ -169,10 +197,15 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 				className="max-h-64 overflow-y-auto p-1"
 				role="listbox"
 				aria-label={t("input.history.title")}
+				aria-busy={loading}
 			>
 				{results.length === 0 ? (
 					<div className="px-3 py-2.5 text-sc-sm text-(--sc-text-muted)">
-						{tokens.length > 0 ? t("input.history.empty") : t("input.history.none")}
+						{loading
+							? t("common.loading")
+							: tokens.length > 0
+								? t("input.history.empty")
+								: t("input.history.none")}
 					</div>
 				) : (
 					results.map((entry, rowIndex) => (

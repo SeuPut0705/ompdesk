@@ -12,6 +12,8 @@
  * - Every non-slash host prompt while enabled becomes the loop prompt and un-pauses.
  * - An aborted turn pauses the loop (TUI Esc): the prompt is dropped, the mode stays on.
  * - Any session change the loop did not start itself (`reset` action) disables it.
+ * Kept: stock InteractiveMode owns the private TUI loop scheduler; its
+ * exported parser/condition helpers cannot supply the GUI event lifecycle.
  */
 import type { LoopConditionConfig, LoopLimitRuntime } from "@oh-my-pi/pi-tui/status-line/loop";
 import type { LoopConditionVerdict } from "@oh-my-pi/pi-coding-agent/modes/loop-condition";

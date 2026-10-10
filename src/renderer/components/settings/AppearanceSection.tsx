@@ -27,7 +27,6 @@ import {
 import { toast } from "../../stores/toast";
 import { type TranscriptDetail, useUiStore } from "../../stores/ui";
 import { Button, Input, Select } from "../common";
-import { SchemaField } from "./SchemaField";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
 const THEME_SELECTIONS: readonly ThemeSelection[] = ["system", ...(Object.keys(THEMES) as ThemeName[])];
@@ -151,7 +150,7 @@ function ThemeSwatches() {
  * A display preference that, until changed here, follows the omp setting of
  * the same name; once set in ompdesk a reset returns it to following omp.
  */
-function DisplayPreferenceRow({ field }: { field: (typeof GUI_DISPLAY_BOOL_FIELDS)[number] }) {
+export function DisplayPreferenceRow({ field }: { field: (typeof GUI_DISPLAY_BOOL_FIELDS)[number] }) {
 	const t = useT();
 	const value = useDisplayPreference(field);
 	const overridden = useUiStore(state => state.displayPreferences[field] != null);
@@ -332,9 +331,14 @@ export function AppearanceSection() {
 						})
 					}
 				/>
-				{GUI_DISPLAY_BOOL_FIELDS.map(field => (
+				{GUI_DISPLAY_BOOL_FIELDS.filter(
+					field => field !== "titleState" && field !== "showProgress" && field !== "emojiAutocomplete",
+				).map(field => (
 					<DisplayPreferenceRow field={field} key={field} />
 				))}
+			</SettingsSection>
+			<SettingsSection title={t("settings.appearance.input")}>
+				<DisplayPreferenceRow field="emojiAutocomplete" />
 				<SettingsRow
 					control={
 						<Input
@@ -356,7 +360,6 @@ export function AppearanceSection() {
 					id="setting-gui-pasteMenuThreshold"
 					label={t("settings.display.pasteMenuThreshold")}
 				/>
-				<SchemaField path="tui.renderMermaid" />
 			</SettingsSection>
 		</>
 	);

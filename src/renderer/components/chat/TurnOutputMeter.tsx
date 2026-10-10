@@ -1,7 +1,6 @@
 import { formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { useNowTick } from "../../lib/now-tick";
-import { isTurnMeterEstimate, throughputTokensPerSecond, turnMeterTokens } from "../../lib/turn-meter";
+import { turnMeterTokens } from "../../lib/turn-meter";
 import { useMessagesStore } from "../../stores/messages";
 
 /**
@@ -22,7 +21,7 @@ export function OutputMeter({
 	tokens: number;
 }) {
 	const t = useT();
-	if (!(tokens > 0)) return null;
+	if (!(tokens > 0) && !(rate > 0)) return null;
 	const rateText =
 		rate > 0 ? t(average ? "chat.meter.average" : "chat.meter.rate", { rate: formatTokenRate(rate) }) : null;
 	const count = formatTokens(tokens);
@@ -32,8 +31,8 @@ export function OutputMeter({
 			title={t(estimated ? "chat.meter.estimatedTitle" : "chat.meter.reportedTitle")}
 		>
 			{"· "}
-			{t(estimated ? "chat.meter.tokensEstimated" : "chat.meter.tokens", { tokens: count })}
-			{rateText ? ` · ${rateText}` : null}
+			{tokens > 0 ? t(estimated ? "chat.meter.tokensEstimated" : "chat.meter.tokens", { tokens: count }) : rateText}
+			{tokens > 0 && rateText ? ` · ${rateText}` : null}
 		</span>
 	);
 }
@@ -47,14 +46,6 @@ export function formatTokenRate(rate: number): string {
 export function LiveTurnMeter() {
 	const meter = useMessagesStore(s => s.turnMeter);
 	const live = meter.startedAt != null && meter.endedAt == null;
-	// The once-a-second tick re-renders so the windowed rate decays while no deltas arrive.
-	useNowTick(live);
 	if (!live) return null;
-	return (
-		<OutputMeter
-			estimated={isTurnMeterEstimate(meter)}
-			rate={throughputTokensPerSecond(meter.samples, Date.now())}
-			tokens={turnMeterTokens(meter)}
-		/>
-	);
+	return <OutputMeter estimated={false} rate={meter.rate ?? 0} tokens={turnMeterTokens(meter)} />;
 }

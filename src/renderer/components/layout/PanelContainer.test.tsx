@@ -79,8 +79,14 @@ function seedActiveTab(kind: "agent" | "chat"): void {
 	});
 }
 
-function drawerTabLabels(): string[] {
-	return [...document.querySelectorAll("aside button")].map(button => (button.textContent ?? "").trim());
+async function openViewMenu(): Promise<void> {
+	const button = document.querySelector('button[aria-label="Switch panel view"]') as HTMLElement;
+	button.getBoundingClientRect = () => ({ left: 0, bottom: 48 }) as DOMRect;
+	await act(async () => {
+		const event = new Event("click", { bubbles: true });
+		Object.defineProperty(event, "eventPhase", { value: 0, writable: true });
+		button.dispatchEvent(event);
+	});
 }
 
 function dispatchPointer(element: Element, type: string, clientX: number): void {
@@ -109,11 +115,19 @@ describe("PanelContainer", () => {
 			useUiStore.setState({ panelTab: "files", panelVisible: true });
 			await mount(<PanelContainer />);
 
-			expect(drawerTabLabels()).toEqual(
-				expect.arrayContaining(["Changes", "Files", "Logs", "Queue", "Tree", "Jobs"]),
+			await openViewMenu();
+			const views = [...document.querySelectorAll('[role="menuitemcheckbox"]')].map(button =>
+				button.textContent?.trim(),
 			);
-			// The live-execution cards stay in the center dock.
-			for (const moved of ["Todo", "Plan", "Agents"]) expect(drawerTabLabels()).not.toContain(moved);
+			expect(views).toEqual(["Changes", "Files", "Logs", "Queue", "Tree", "Jobs"]);
+			const tree = document.querySelectorAll('[role="menuitemcheckbox"]')[4]!;
+			await act(async () => {
+				const event = new Event("click", { bubbles: true });
+				Object.defineProperty(event, "eventPhase", { value: 0, writable: true });
+				tree.dispatchEvent(event);
+			});
+			expect(useUiStore.getState().panelTab).toBe("tree");
+			expect(document.querySelector('button[aria-label="Switch panel view"]')?.textContent).toContain("Tree");
 			expect(document.querySelector("aside")?.getAttribute("aria-label")).toBe("Side panel");
 			expect(document.querySelector('button[aria-label="Close side panel"]')).not.toBeNull();
 		});

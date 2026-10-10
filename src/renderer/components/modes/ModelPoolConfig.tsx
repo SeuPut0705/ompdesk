@@ -10,17 +10,11 @@
  */
 import { AlertTriangle, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { isPresetRole, MAX_POOL_MEMBERS, POOL_ROLES } from "../../../../resources/gui-bridge/pool-contracts";
 import type { RpcModelPoolMember, RpcModelPoolState } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
-import {
-	EMPTY_MODEL_POOL,
-	isPresetRole,
-	MAX_POOL_MEMBERS,
-	POOL_ROLES,
-	removePoolMember,
-	setPoolMemberRole,
-} from "../../lib/model-pool";
+import { EMPTY_MODEL_POOL, removePoolMember, setPoolMemberRole } from "../../lib/model-pool";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { type PoolModelCheck, poolCheckKey, useModelPoolChecks } from "../../stores/model-pool-checks";
 import { useModelPoolPresets } from "../../stores/model-pool-presets";

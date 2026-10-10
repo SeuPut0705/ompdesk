@@ -7,7 +7,6 @@ import {
 	emptyAgentDraft,
 	type KnownAgent,
 	outputSchemaError,
-	parseAgentMarkdown,
 	serializeAgentMarkdown,
 	splitFrontmatter,
 } from "./agent-definition";
@@ -16,64 +15,6 @@ function frontmatterOf(markdown: string): Record<string, unknown> {
 	const { frontmatter } = splitFrontmatter(markdown);
 	return parse(frontmatter ?? "") as Record<string, unknown>;
 }
-
-describe("parseAgentMarkdown", () => {
-	it("reads every key omp's parseAgentFields reads, kebab or camel", () => {
-		const { draft, error } = parseAgentMarkdown(`---
-name: reviewer
-description: Review a change
-tools: read, grep, yield
-spawns: scout
-model: ["@slow", openai/gpt-5.4]
-thinking-level: high
-prewalk: "@smol"
-advisor: true
-blocking: true
-read-summarize: false
-autoload-skills: [git, docs]
-output:
-  properties:
-    verdict:
-      type: string
----
-
-Review carefully.
-`);
-		expect(error).toBeUndefined();
-		expect(draft).toEqual({
-			name: "reviewer",
-			description: "Review a change",
-			instructions: "Review carefully.",
-			tools: ["read", "grep"],
-			spawns: ["scout"],
-			model: ["@slow", "openai/gpt-5.4"],
-			thinkingLevel: "high",
-			prewalk: "@smol",
-			advisor: true,
-			blocking: true,
-			readSummarize: false,
-			autoloadSkills: ["git", "docs"],
-			output: JSON.stringify({ properties: { verdict: { type: "string" } } }, null, 2),
-		});
-	});
-
-	it("treats a missing tools key as the default tool set and `tools: []` as an explicit empty list", () => {
-		expect(parseAgentMarkdown("---\nname: a\ndescription: b\n---\nx").draft.tools).toBeNull();
-		expect(parseAgentMarkdown("---\nname: a\ndescription: b\ntools: []\n---\nx").draft.tools).toEqual([]);
-	});
-
-	it('accepts the legacy `thinking` key and `spawns: "*"`', () => {
-		const { draft } = parseAgentMarkdown("---\nname: a\ndescription: b\nthinking: Low\nspawns: '*'\n---\nx");
-		expect(draft.thinkingLevel).toBe("low");
-		expect(draft.spawns).toBe("*");
-	});
-
-	it("reports broken frontmatter instead of throwing", () => {
-		const parsed = parseAgentMarkdown("---\nname: [unclosed\n---\nbody");
-		expect(parsed.error).toBeTruthy();
-		expect(parsed.draft.instructions).toBe("body");
-	});
-});
 
 describe("serializeAgentMarkdown", () => {
 	it("writes a new file omp can parse, omitting empty keys", () => {
@@ -89,10 +30,10 @@ describe("serializeAgentMarkdown", () => {
 		expect(markdown).toBe(
 			'---\nname: docs-writer\ndescription: "Writes docs: guides and READMEs"\ntools: [ read, write ]\nmodel: "@smol"\nthinking-level: low\n---\n\nWrite docs.\n',
 		);
-		expect(parseAgentMarkdown(markdown).draft.description).toBe("Writes docs: guides and READMEs");
+		expect(frontmatterOf(markdown).description).toBe("Writes docs: guides and READMEs");
 	});
 
-	it("round-trips every field", () => {
+	it("writes every configured field", () => {
 		const draft = {
 			...emptyAgentDraft(),
 			name: "x",
@@ -109,7 +50,22 @@ describe("serializeAgentMarkdown", () => {
 			autoloadSkills: ["s1"],
 			output: JSON.stringify({ properties: { a: { type: "string" } } }, null, 2),
 		};
-		expect(parseAgentMarkdown(serializeAgentMarkdown(draft)).draft).toEqual(draft);
+		const markdown = serializeAgentMarkdown(draft);
+		expect(frontmatterOf(markdown)).toMatchObject({
+			name: draft.name,
+			description: draft.description,
+			tools: draft.tools,
+			spawns: draft.spawns,
+			model: draft.model,
+			"thinking-level": draft.thinkingLevel,
+			prewalk: draft.prewalk,
+			advisor: draft.advisor,
+			blocking: draft.blocking,
+			"read-summarize": draft.readSummarize,
+			"autoload-skills": draft.autoloadSkills,
+			output: JSON.parse(draft.output),
+		});
+		expect(splitFrontmatter(markdown).body.trim()).toBe(draft.instructions);
 	});
 
 	it("keeps unknown keys, comments, key order and the file's own key spelling", () => {
@@ -123,9 +79,14 @@ readSummarize: false
 ---
 Old body
 `;
-		const { draft } = parseAgentMarkdown(original);
 		const next = serializeAgentMarkdown(
-			{ ...draft, name: "new", description: "New description", thinkingLevel: "high", readSummarize: true },
+			{
+				...emptyAgentDraft(),
+				name: "new",
+				description: "New description",
+				thinkingLevel: "high",
+				readSummarize: true,
+			},
 			original,
 		);
 		expect(next).toContain("# Owned by the platform team");
@@ -140,7 +101,10 @@ Old body
 
 	it("drops a duplicate alias so omp cannot read a stale value", () => {
 		const original = "---\nname: a\ndescription: b\nthinking: low\nthinkingLevel: medium\n---\nx";
-		const next = serializeAgentMarkdown({ ...parseAgentMarkdown(original).draft, thinkingLevel: "max" }, original);
+		const next = serializeAgentMarkdown(
+			{ ...emptyAgentDraft(), name: "a", description: "b", instructions: "x", thinkingLevel: "max" },
+			original,
+		);
 		const fields = frontmatterOf(next);
 		expect(fields.thinkingLevel).toBe("max");
 		expect(fields.thinking).toBeUndefined();

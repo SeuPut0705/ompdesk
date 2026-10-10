@@ -173,8 +173,8 @@ describe("renderer stores on slimmed updates", () => {
 		slim.getState().applyEvents(slimmed);
 		expect(slim.getState().streamingText).toBe("Hello world");
 		expect(slim.getState().streamingText).toBe(full.getState().streamingText);
-		const { liveChars, liveReportedTokens } = full.getState().turnMeter;
-		expect(slim.getState().turnMeter).toMatchObject({ liveChars, liveReportedTokens });
+		const { liveReportedTokens } = full.getState().turnMeter;
+		expect(slim.getState().turnMeter).toMatchObject({ liveReportedTokens });
 
 		const fullTools = createToolsStore();
 		const slimTools = createToolsStore();

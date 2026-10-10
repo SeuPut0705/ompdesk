@@ -116,27 +116,6 @@ describe("deriveUnavailable", () => {
 		]);
 	});
 
-	it("marks a missing newer-omp feature optional, and the merge with an area failure keeps it", () => {
-		const requirements = {
-			planMode: { session: ["navigateTree()"] },
-			compactionLimits: { optional: true as const, modules: { "mod/new": ["describe()"] } },
-		};
-		const unavailable = deriveUnavailable(["planMode", "compactionLimits"], sources(), requirements);
-		expect(unavailable).toEqual([
-			{ feature: "planMode", missing: ["AgentSession.navigateTree"] },
-			{ feature: "compactionLimits", missing: ["mod/new"], optional: true },
-		]);
-		expect(
-			mergeAreaFailures([], [{ area: "compaction-limits", features: ["compactionLimits"], error: "gone" }]),
-		).toEqual([
-			{
-				feature: "compactionLimits",
-				missing: ["gui-bridge/compaction-limits.ts failed to load: gone"],
-				optional: true,
-			},
-		]);
-	});
-
 	it("covers every feature with a requirement and a renderer label", () => {
 		expect(Object.keys(REQUIREMENTS).sort()).toEqual([...ALL_FEATURES].sort());
 		for (const feature of ALL_FEATURES) expect(en[`bridgeHealth.feature.${feature}`], feature).toBeTruthy();
@@ -146,7 +125,6 @@ describe("deriveUnavailable", () => {
 		const members = [
 			"AgentSession.disarmPrewalk",
 			"AgentSession.autoRetryEnabled",
-			"AgentSession.thinkingLevel",
 			"AgentSession.configuredThinkingLevel",
 		];
 		const composer = { session: REQUIREMENTS.composer.session };
@@ -155,9 +133,6 @@ describe("deriveUnavailable", () => {
 			disarmPrewalk() {},
 			get autoRetryEnabled() {
 				return true;
-			},
-			get thinkingLevel() {
-				return undefined;
 			},
 			configuredThinkingLevel() {},
 		};

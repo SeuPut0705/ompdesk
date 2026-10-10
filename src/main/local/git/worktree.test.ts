@@ -4,13 +4,20 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { timeoutForCommand } from "../../../shared/rpc-client";
 import type { RpcCommand } from "../../../shared/rpc-types";
+import type { BridgeClient } from "../types";
 import { PR_COMMAND_BUDGETS_MS } from "./pr";
-import { removableWorktreePath, removeWorktree, WORKTREE_COMMAND_BUDGETS_MS } from "./worktree";
+import { gitSync, initRepo, pathExists, stockShapedWorktree } from "./test-repos";
+import { createWorktree, removableWorktreePath, removeWorktree, WORKTREE_COMMAND_BUDGETS_MS } from "./worktree";
 
 let scratch: string;
 let root: string;
 let outside: string;
 const savedWorktreeDir = process.env.OMP_WORKTREE_DIR;
+const bridge: Pick<BridgeClient, "request"> = {
+	async request<T>() {
+		return { root, hash: "abc1234" } as T;
+	},
+};
 
 beforeEach(async () => {
 	scratch = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-wt-guard-")));
@@ -53,10 +60,35 @@ describe("removeWorktree", () => {
 	it("refuses a force removal outside the worktree root and leaves the directory alone", async () => {
 		await fs.writeFile(path.join(outside, "keep.txt"), "user work");
 
-		await expect(removeWorktree({ path: outside, force: true })).rejects.toMatchObject({
+		await expect(removeWorktree({ path: outside, force: true }, bridge, outside)).rejects.toMatchObject({
 			code: "worktree_outside_root",
 		});
 		expect(await fs.readFile(path.join(outside, "keep.txt"), "utf8")).toBe("user work");
+	});
+	it("creates with the stock-provided location, removes linked checkouts, and retains their branches", async () => {
+		await initRepo(outside);
+		const created = await createWorktree(outside, { name: "feature" }, bridge);
+		expect(created.path).toBe(path.join(root, "gui-feature-abc1234"));
+		await removeWorktree({ path: created.path }, bridge, outside);
+		expect(await pathExists(created.path)).toBe(false);
+		expect(gitSync(outside, "branch", "--list", created.branch)).toContain(created.branch);
+		const old = await stockShapedWorktree(outside, root, "legacy-sha-name");
+		await removeWorktree({ path: old.path }, bridge, outside);
+		expect(await pathExists(old.path)).toBe(false);
+	});
+	it("refuses a primary checkout under the root and a linked checkout subdirectory", async () => {
+		const primary = path.join(root, "user-clone");
+		await initRepo(primary);
+		await expect(removeWorktree({ path: primary, force: true }, bridge, primary)).rejects.toMatchObject({
+			code: "not_a_worktree",
+		});
+		const linked = await stockShapedWorktree(primary, root, "linked");
+		const nested = path.join(linked.path, "nested");
+		await fs.mkdir(nested);
+		await expect(removeWorktree({ path: nested, force: true }, bridge, primary)).rejects.toMatchObject({
+			code: "not_a_worktree",
+		});
+		expect(await pathExists(linked.path)).toBe(true);
 	});
 });
 

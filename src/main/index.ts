@@ -398,7 +398,13 @@ app.whenReady().then(() => {
 		accountRotationPref: () => prefsStore().get(ACCOUNT_ROTATION_PREF),
 		accountRotationLedger: join(app.getPath("userData"), ACCOUNT_ROTATION_LEDGER_FILE),
 	});
-	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId));
+	sessionIndex = new SessionIndex(
+		undefined,
+		initialCwd,
+		sessionId => sessionKinds.isChat(sessionId),
+		undefined,
+		bridgeDir,
+	);
 	sidecarPool = new SidecarPool((cwd, kind, fresh, device, tabId) => {
 		if (!device) return createLocalSidecar(cwd, kind, fresh);
 		// The host runs its own health check, session-kind record and bridge

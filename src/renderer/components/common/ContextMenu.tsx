@@ -306,7 +306,7 @@ export function MenuButton({
 			{children === undefined ? (
 				<IconButton {...triggerProps} icon={icon} label={label} size={size} variant={variant ?? "ghost"} />
 			) : (
-				<Button {...triggerProps} icon={icon} size={size} variant={variant ?? "secondary"}>
+				<Button {...triggerProps} aria-label={label} icon={icon} size={size} variant={variant ?? "secondary"}>
 					{children}
 				</Button>
 			)}

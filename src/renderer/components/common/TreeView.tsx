@@ -5,7 +5,7 @@
  */
 
 import { ChevronRight } from "lucide-react";
-import { type KeyboardEvent, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type KeyboardEvent, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { useT } from "../../lib/i18n";
 
 export interface TreeNode {
@@ -168,7 +168,12 @@ export function TreeView({
 						onClick={() => row.node.onClick?.()}
 						onKeyDown={event => onKeyDown(event, row, index)}
 						role="treeitem"
-						style={{ paddingLeft: 6 + row.depth * 14 }}
+						style={
+							{
+								paddingLeft: `calc(var(--sc-space-1-5) + ${row.depth} * var(--sc-icon-sm))`,
+								"--tree-depth": row.depth,
+							} as CSSProperties
+						}
 						tabIndex={selectedId == null ? (index === 0 ? 0 : -1) : selected ? 0 : -1}
 					>
 						{row.hasChildren ? (

@@ -13,7 +13,7 @@
  * - `host.fs.readBinary {rtab?, cwd?, path, maxBytes?}` → HostFsReadBinaryReply: the file
  *   viewer's bytes, base64 on the link, capped at FS_BINARY_REMOTE_MAX_BYTES by the host
  * - Settings, Usage and Stats of a remote tab read the host's own machine
- *   (machine-services.ts): `host.models.list {}` → CustomProviderView[],
+ *   (machine-services.ts): `host.models.list {}` → CustomProvidersConfig (providers + stock options),
  *   `host.models.upsert {input: CustomProviderInput}`, `host.models.delete {id}`,
  *   `host.stats.fetch {path, params?}` → the stats reply,
  *   `host.bench.run {rtab?, cwd?, options}` → IpcBenchmarkRunResult, `host.bench.abort {}` → boolean,
@@ -28,12 +28,14 @@
 import { z } from "zod";
 import { ACCOUNT_ROTATION_MODES, type AccountRotationState } from "../../shared/account-rotation";
 import { codedError, isIpcErrorCode } from "../../shared/ipc-error-codes";
-import {
-	CUSTOM_MODEL_EFFORTS,
-	CUSTOM_PROVIDER_APIS,
-	type CustomProviderInput,
-	type IpcBenchmarkRunOptions,
-	type IpcFsReadBinaryResult,
+import type {
+	CustomModelEffort,
+	CustomModelThinkingMode,
+	CustomProviderApi,
+	CustomProviderDiscoveryType,
+	CustomProviderInput,
+	IpcBenchmarkRunOptions,
+	IpcFsReadBinaryResult,
 } from "../../shared/ipc-types";
 import type { ModelSetupStatus } from "../../shared/model-setup";
 
@@ -131,8 +133,9 @@ export const HOST_COMMAND_TIMEOUT_MS = 8_000;
 export const LINK_SLACK_MS = 5_000;
 
 const StringRecord = z.record(z.string());
-const ProviderApi = z.enum(CUSTOM_PROVIDER_APIS);
-const Effort = z.enum(CUSTOM_MODEL_EFFORTS);
+// Transport shape only: host ModelsConfigSchema is the authority for option values.
+const ProviderApi = z.custom<CustomProviderApi>(value => typeof value === "string");
+const Effort = z.custom<CustomModelEffort>(value => typeof value === "string");
 const OptionalNumber = z.number().finite().optional();
 
 const CustomProviderModelInputSchema = z.object({
@@ -143,7 +146,7 @@ const CustomProviderModelInputSchema = z.object({
 	reasoning: z.boolean().optional(),
 	thinking: z
 		.object({
-			mode: z.enum(["effort", "budget", "google-level", "anthropic-adaptive", "anthropic-budget-effort"]),
+			mode: z.custom<CustomModelThinkingMode>(value => typeof value === "string"),
 			efforts: z.array(Effort),
 			defaultLevel: Effort.optional(),
 			supportsDisplay: z.boolean().optional(),
@@ -168,12 +171,12 @@ export const CustomProviderInputSchema: z.ZodType<CustomProviderInput> = z.objec
 	baseUrl: z.string(),
 	apiKey: z.string().optional(),
 	clearApiKey: z.boolean().optional(),
-	auth: z.enum(["apiKey", "none", "oauth"]).optional(),
+	auth: z.custom<NonNullable<CustomProviderInput["auth"]>>(value => typeof value === "string").optional(),
 	authHeader: z.boolean().optional(),
 	headers: StringRecord.optional(),
 	discovery: z
 		.object({
-			type: z.enum(["ollama", "llama.cpp", "lm-studio", "openai-models-list", "proxy", "litellm"]),
+			type: z.custom<CustomProviderDiscoveryType>(value => typeof value === "string"),
 			timeoutMs: OptionalNumber,
 		})
 		.optional(),

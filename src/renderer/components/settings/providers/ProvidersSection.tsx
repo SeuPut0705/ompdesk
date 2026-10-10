@@ -13,7 +13,7 @@
  */
 
 import { CircleDashed, FileCode2, Pencil, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useId, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import type { CustomProviderView } from "../../../../shared/ipc-types";
 import type { ProviderAccountsResult, ProviderInfo } from "../../../../shared/rpc-types";
 import { errorDetail } from "../../../lib/error-detail";
@@ -208,7 +208,15 @@ function CustomEndpoints({
 	);
 }
 
-export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
+export function ProvidersSection({
+	pollMs = 2_500,
+	accountPolicies,
+	modelSettings,
+}: {
+	pollMs?: number;
+	accountPolicies?: ReactNode;
+	modelSettings?: ReactNode;
+}) {
 	const t = useT();
 	const tabRpc = useTabRpc();
 	const device = useFocusedTabDevice();
@@ -290,12 +298,13 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 		}
 	};
 
-	if (providerForm) {
+	if (providerForm && catalog.options) {
 		return (
 			<SettingsSection id="settings-models-custom">
 				<CustomProviderForm
 					editing={providerForm.edit}
 					existing={catalog.customConfigs}
+					options={catalog.options}
 					key={providerForm.edit?.id ?? "new"}
 					onCancel={closeProviderForm}
 					onSaved={() => {
@@ -313,8 +322,6 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 	const handlers: RowHandlers = {
 		onConnect: provider => void login.start(provider.id),
 		onLogout: setPendingLogout,
-		onEditConfig: config => openProviderConfig(config),
-		onDeleteConfig: setPendingDelete,
 	};
 	const showPicker = pickerOpen ?? connected.length === 0;
 
@@ -331,7 +338,7 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 					/>
 				}
 				description={t("providerList.intro")}
-				id="settings-models-providers"
+				id="settings-models-accounts"
 				title={t("settings.models.providers")}
 			>
 				{catalog.error && (
@@ -383,7 +390,11 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 				{connected.some(
 					provider => provider.authKind === "oauth" && provider.loginAvailable && provider.authenticated,
 				) && (
-					<div className="mx-2.5 my-2 border-t border-(--sc-divider) pt-3" data-models-rotation="true">
+					<div
+						className="mx-2.5 my-2 border-t border-(--sc-divider) pt-3"
+						data-models-rotation="true"
+						id="settings-models-rotation"
+					>
 						<RotationModeControl device={device} />
 					</div>
 				)}
@@ -438,10 +449,12 @@ export function ProvidersSection({ pollMs = 2_500 }: { pollMs?: number }) {
 					title={t("providerCfg.delete.title")}
 				/>
 			</SettingsSection>
+			{accountPolicies}
 			<AccountPoolsEditor
 				providers={connected.map(provider => ({ provider, result: accountResults[provider.id] ?? null }))}
 				sidecarReady={catalog.sidecarReady}
 			/>
+			{modelSettings}
 			<CustomEndpoints
 				busyProvider={busyProvider}
 				catalog={catalog}

@@ -72,15 +72,15 @@ test("shows each account's reset passes and spends one after confirming", async 
 
 	const work = settings.locator('[data-reset-passes="1"]');
 	const home = settings.locator('[data-reset-passes="2"]');
-	await expect(work).toContainText("1 reset pass · expires");
-	await expect(work).toContainText("Usable once a limit it resets is reached");
+	await expect(work).toContainText("1 reset pass");
+	await expect(work).toContainText("Can't be used now: the provider doesn't allow it");
 	await expect(work.getByRole("button", { name: "Use a reset pass for work@example.com" })).toBeDisabled();
 	await expect(home).toContainText(/2 reset passes · expires \d{1,2}\/\d{1,2}/);
 
 	await home.getByRole("button", { name: "Use a reset pass for home@example.com" }).click();
 	const dialog = page.getByRole("dialog", { name: "Use a reset pass?" });
 	await expect(dialog).toContainText("This spends 1 of the 2 reset passes on home@example.com (Anthropic).");
-	await expect(dialog).toContainText("Resets right away: 5h.");
+	await expect(dialog).toContainText("Requests a reset of: 5h. The provider decides whether it can be applied.");
 	await expect(dialog).toContainText("Pass: One free rate limit reset");
 	await expect(dialog).toContainText("claudeResets.autoRedeem");
 	await expect(dialog).toContainText("A used pass can't be returned.");

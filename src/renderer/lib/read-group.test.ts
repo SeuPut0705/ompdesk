@@ -1,9 +1,4 @@
-/**
- * Contract tests for read-tool grouping (plan/17 §7.4): the collapse
- * predicate, break rules, cross-message accretion, selector split, and
- * same-file merge. These pin the TUI read-tool-group semantics the GUI port
- * must replicate, independent of the render layer.
- */
+/** React folding consumes authoritative stock read metadata; policy lives in the bridge. */
 import { describe, expect, it } from "vitest";
 import type { AgentMessage, MessageContent } from "../../shared/rpc-types";
 import { useToolsStore } from "../stores/tools";
@@ -13,7 +8,7 @@ function assistant(...blocks: MessageContent[]): AgentMessage {
 	return { role: "assistant", content: blocks, timestamp: 1 };
 }
 function readCall(id: string, path: string) {
-	return { type: "toolCall" as const, id, name: "read", arguments: { path } };
+	return { type: "toolCall" as const, id, name: "read", arguments: { path, __ompReadGroup: { path } } };
 }
 function bashCall(id: string) {
 	return { type: "toolCall" as const, id, name: "bash", arguments: { command: "ls" } };
@@ -26,33 +21,17 @@ function thinking(value: string) {
 }
 
 describe("collapsibleReadTarget", () => {
-	it("collapses plain fs paths and xd:// targets", () => {
-		expect(collapsibleReadTarget({ path: "src/a.ts" })).toEqual({ path: "src/a.ts" });
-		expect(collapsibleReadTarget({ path: "xd://lsp" })).toEqual({ path: "xd://lsp" });
+	it("uses host metadata rather than reclassifying URL schemes or selectors", () => {
+		for (const path of ["https://example.com", "xd://lsp", "src/a.ts", "custom://compact"]) {
+			expect(collapsibleReadTarget({ path, __ompReadGroup: { path } })).toEqual({ path });
+		}
+		expect(
+			collapsibleReadTarget({ path: "src/a.ts:-5", __ompReadGroup: { path: "src/a.ts", selector: "-5" } }),
+		).toEqual({ path: "src/a.ts", selector: "-5" });
 	});
-
-	it("does not collapse scheme URLs the router handles", () => {
-		expect(collapsibleReadTarget({ path: "skill://agent-reach" })).toBeNull();
-		expect(collapsibleReadTarget({ path: "agent://abc" })).toBeNull();
-		expect(collapsibleReadTarget({ path: "memory://m" })).toBeNull();
-	});
-
-	it("splits numeric selector suffixes", () => {
-		expect(collapsibleReadTarget({ path: "src/a.ts:50" })).toEqual({ path: "src/a.ts", selector: "50" });
-		expect(collapsibleReadTarget({ path: "src/a.ts:5-16,960-973" })).toEqual({
-			path: "src/a.ts",
-			selector: "5-16,960-973",
-		});
-		expect(collapsibleReadTarget({ path: "src/a.ts:50+150" })).toEqual({ path: "src/a.ts", selector: "50+150" });
-	});
-
-	it("keeps scheme colons out of the selector split", () => {
-		expect(collapsibleReadTarget({ path: "xd://lsp" })).toEqual({ path: "xd://lsp" });
-	});
-
-	it("tolerates the legacy file_path alias and rejects missing paths", () => {
-		expect(collapsibleReadTarget({ file_path: "src/b.ts" })).toEqual({ path: "src/b.ts" });
-		expect(collapsibleReadTarget({})).toBeNull();
+	it("does not guess when metadata is missing or stock rejects grouping", () => {
+		expect(collapsibleReadTarget({ path: "src/a.ts" })).toBeNull();
+		expect(collapsibleReadTarget({ path: "skill://example", __ompReadGroup: null })).toBeNull();
 		expect(collapsibleReadTarget(null)).toBeNull();
 	});
 });

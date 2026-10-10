@@ -95,6 +95,15 @@ function matches(option: ModelValueOption, needle: string): boolean {
 const PANEL_WIDTH = 320;
 const PANEL_MAX_HEIGHT = 288;
 
+/** Panel position for a trigger rect: right-aligned to it, below unless only above has room. */
+function panelPlacement(rect: DOMRect): { top: number; left: number } {
+	const openUp = window.innerHeight - rect.bottom < PANEL_MAX_HEIGHT + 16 && rect.top > PANEL_MAX_HEIGHT + 16;
+	return {
+		left: Math.max(8, Math.min(rect.right - PANEL_WIDTH, window.innerWidth - PANEL_WIDTH - 8)),
+		top: openUp ? Math.max(8, rect.top - PANEL_MAX_HEIGHT - 4) : rect.bottom + 4,
+	};
+}
+
 const ROW_CLASS =
 	"flex w-full items-center gap-2 rounded-(--sc-radius-sm) px-2 py-1.5 text-left text-sc-md text-(--sc-text) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) focus-visible:bg-(--sc-hover) disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -187,9 +196,12 @@ export function ModelValueSelect({
 		if (disabled) setOpen(false);
 	}, [disabled]);
 
-	// Close on outside click and on any scroll (the panel is viewport-fixed,
-	// so it would otherwise detach from the trigger inside the scrolling
-	// settings column).
+	// Close on outside click. A scroll re-places the viewport-fixed panel under
+	// its trigger instead of closing it: opening the panel refreshes the
+	// catalog, the provider list above a settings row grows, and the column's
+	// scroll anchoring then scrolls and shifts the row by a few pixels, all
+	// while the user is typing into the panel. Only a trigger scrolled out of
+	// its scroller (or the viewport) closes the panel.
 	useEffect(() => {
 		if (!open) return;
 		const onMouseDown = (event: MouseEvent) => {
@@ -199,7 +211,16 @@ export function ModelValueSelect({
 		};
 		const onScroll = (event: Event) => {
 			if (listRef.current && event.target instanceof Node && listRef.current.contains(event.target)) return;
-			setOpen(false);
+			const rect = triggerRef.current?.getBoundingClientRect();
+			const bounds =
+				event.target instanceof Element
+					? event.target.getBoundingClientRect()
+					: { top: 0, bottom: window.innerHeight };
+			if (!rect || rect.bottom <= bounds.top || rect.top >= bounds.bottom) {
+				setOpen(false);
+				return;
+			}
+			setPlacement(panelPlacement(rect));
 		};
 		document.addEventListener("mousedown", onMouseDown);
 		document.addEventListener("scroll", onScroll, true);
@@ -211,14 +232,7 @@ export function ModelValueSelect({
 
 	const openPanel = () => {
 		const rect = triggerRef.current?.getBoundingClientRect();
-		if (rect) {
-			const openUp = window.innerHeight - rect.bottom < PANEL_MAX_HEIGHT + 16 && rect.top > PANEL_MAX_HEIGHT + 16;
-			const left = Math.max(8, Math.min(rect.right - PANEL_WIDTH, window.innerWidth - PANEL_WIDTH - 8));
-			setPlacement({
-				left,
-				top: openUp ? Math.max(8, rect.top - PANEL_MAX_HEIGHT - 4) : rect.bottom + 4,
-			});
-		}
+		if (rect) setPlacement(panelPlacement(rect));
 		setQuery("");
 		setOpen(true);
 	};

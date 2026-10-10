@@ -125,11 +125,10 @@ describe("panels under running state", () => {
 		});
 		await mount(<DiffPanel />);
 		await act(async () => {
-			const edits = Array.from(document.querySelectorAll("button")).find(
-				button => button.textContent === "Edit results",
-			);
-			if (!edits) throw new Error("Edit results tab missing");
-			edits.dispatchEvent(new Event("click", { bubbles: true }));
+			const source = document.querySelector('select[aria-label="Changes"]') as HTMLSelectElement;
+			if (!source) throw new Error("Change source selector missing");
+			Object.defineProperty(source, "value", { configurable: true, value: "current" });
+			source.dispatchEvent(new Event("change", { bubbles: true }));
 		});
 		expect(document.body.textContent).toContain("src/a.ts");
 	});

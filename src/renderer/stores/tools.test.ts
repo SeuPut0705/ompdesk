@@ -32,6 +32,37 @@ const start = (toolCallId: string): AgentSessionEvent => ({
 const entryOf = (store: StoreApi<ToolsStore>, key: string) => selectToolEntry(store.getState(), key);
 const entryCount = (state: ToolsStore) => state.finishedTools.size + state.liveTools.size;
 
+describe("stock read metadata ordering", () => {
+	it.each([true, false])("joins bridge metadata before or after execution start: %s", before => {
+		const store = createToolsStore();
+		const metadata: AgentSessionEvent = {
+			type: "read_group_metadata",
+			toolCallId: "read-1",
+			target: { path: "https://example.com" },
+		};
+		store.getState().applyEvents(before ? [metadata, start("read-1")] : [start("read-1"), metadata]);
+		expect(entryOf(store, "read-1")?.args.__ompReadGroup).toEqual({ path: "https://example.com" });
+	});
+	it("preserves transcript metadata when execution begins after hydration", () => {
+		const store = createToolsStore();
+		const message: AgentMessage = {
+			role: "assistant",
+			timestamp: 1,
+			content: [
+				{
+					type: "toolCall",
+					id: "read-1",
+					name: "read",
+					arguments: { path: "read-1.ts", __ompReadGroup: { path: "read-1.ts" } },
+				},
+			],
+		};
+		store.getState().hydrateMessages([message], { turnIsLive: true });
+		store.getState().applyEvents([start("read-1")]);
+		expect(entryOf(store, "read-1")?.args.__ompReadGroup).toEqual({ path: "read-1.ts" });
+	});
+});
+
 describe("tools store history rebuild", () => {
 	it("ends an unanswered call from a finished turn instead of spinning forever", () => {
 		const store = createToolsStore();

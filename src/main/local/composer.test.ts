@@ -80,6 +80,51 @@ describe("get_state", () => {
 	});
 });
 
+describe("stock composer authority", () => {
+	it("keeps forward cycling on stock RPC and only routes backward through the bridge", async () => {
+		const ctx = fakeContext({
+			stock: { cycle_model: { model: { id: "forward" } } },
+			bridge: { "composer.cycle_model_backward": { model: { id: "backward" } } },
+		});
+		await expect(handlers.cycle_model({ type: "cycle_model" }, ctx)).resolves.toEqual({ model: { id: "forward" } });
+		await expect(handlers.cycle_model({ type: "cycle_model", direction: "forward" }, ctx)).resolves.toEqual({
+			model: { id: "forward" },
+		});
+		await expect(handlers.cycle_model({ type: "cycle_model", direction: "backward" }, ctx)).resolves.toEqual({
+			model: { id: "backward" },
+		});
+	});
+
+	it("reads the resolved thinking level from get_state, not composer extras", async () => {
+		const ctx = fakeContext({
+			stock: { set_thinking_level: {} },
+			bridge: { "composer.state": { thinkingConfigured: "auto", thinkingLevel: "low" } },
+		});
+		await expect(handlers.set_thinking_level({ type: "set_thinking_level", level: "auto" }, ctx)).resolves.toEqual({
+			thinkingLevel: "high",
+			thinkingConfigured: "auto",
+		});
+	});
+
+	it("uses stock tool descriptions and retains provenance plus mounted tools", async () => {
+		const ctx = fakeContext({
+			stock: { get_state: { ...STOCK_STATE, dumpTools: [{ name: "read", description: "Stock description" }] } },
+			bridge: {
+				"composer.tool_extras": {
+					sources: { read: "builtin" },
+					mounted: [{ name: "xd://tool", description: "Mounted", source: "extension" }],
+				},
+			},
+		});
+		await expect(handlers.get_active_tools({ type: "get_active_tools" }, ctx)).resolves.toEqual({
+			tools: [
+				{ name: "read", description: "Stock description", source: "builtin" },
+				{ name: "xd://tool", description: "Mounted", source: "extension" },
+			],
+		});
+	});
+});
+
 describe("composer actions", () => {
 	it("maps stock job items onto the renderer's job shape", async () => {
 		const ctx = fakeContext({

@@ -108,13 +108,16 @@ describe("omp lookup", () => {
 
 describe("resolveOmp", () => {
 	it("accepts a supported omp and runs subcommands through it", async () => {
-		const { bin, dir } = await fakeOmp("omp/18.7.0");
+		const { bin, dir } = await fakeOmp(`omp/${MIN_OMP_VERSION}`);
 		process.env.OMP_GUI_OMP = bin;
 		try {
 			const resolution = await resolveOmp();
 			if (!resolution.ok) throw new Error(resolution.error);
-			expect(resolution.runtime).toMatchObject({ bin, version: "18.7.0" });
-			await expect(resolution.runtime.run(["anything"])).resolves.toMatchObject({ code: 0, stdout: "omp/18.7.0\n" });
+			expect(resolution.runtime).toMatchObject({ bin, version: MIN_OMP_VERSION });
+			await expect(resolution.runtime.run(["anything"])).resolves.toMatchObject({
+				code: 0,
+				stdout: `omp/${MIN_OMP_VERSION}\n`,
+			});
 		} finally {
 			await fs.rm(dir, RM_TEMP);
 		}

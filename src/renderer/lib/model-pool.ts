@@ -2,23 +2,13 @@
  * Model pool, GUI side: role presets, member edits, matching a subagent's
  * resolved model back to its pool member, and the per-model usage split the
  * Insights page shows. The bridge owns the instruction and persistence
- * (`resources/gui-bridge/modes/pool-core.ts`); keep `POOL_ROLES` in step with
- * its `POOL_ROLE_HINTS` (model-pool.test.ts checks).
+ * (`resources/gui-bridge/modes/pool-core.ts`); contracts live in the packaged
+ * dependency-free `resources/gui-bridge/pool-contracts.ts`.
  */
+import { EMPTY_POOL, MAX_POOL_MEMBERS } from "../../../resources/gui-bridge/pool-contracts";
 import type { ModelInfo, RpcModelPoolMember, RpcModelPoolState, SubagentSnapshot } from "../../shared/rpc-types";
 
-/** Preset roles, in menu order. A member's `role` is one of these or free text. */
-export const POOL_ROLES = ["general", "explore", "reasoning", "coding", "review"] as const;
-export type PoolRoleId = (typeof POOL_ROLES)[number];
-
-export function isPresetRole(role: string): role is PoolRoleId {
-	return (POOL_ROLES as readonly string[]).includes(role);
-}
-
-/** Bridge-side cap (`MAX_POOL_MEMBERS`). */
-export const MAX_POOL_MEMBERS = 8;
-
-export const EMPTY_MODEL_POOL: RpcModelPoolState = { enabled: false, members: [] };
+export const EMPTY_MODEL_POOL: RpcModelPoolState = EMPTY_POOL;
 
 /** The task tool's `model` selector for a catalog model. */
 export function modelSelector(model: Pick<ModelInfo, "provider" | "id">): string {

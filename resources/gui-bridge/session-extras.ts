@@ -13,15 +13,15 @@ import type { ForeignSessionInfo, ForeignSessionSource } from "@oh-my-pi/pi-codi
 import { loadSessionFile } from "@oh-my-pi/pi-coding-agent/session/session-loader";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { resolveLocalRoot } from "@oh-my-pi/pi-coding-agent/internal-urls/local-protocol";
-import { readMCPConfigFile } from "@oh-my-pi/pi-coding-agent/mcp/config-writer";
 import { MCPManager } from "@oh-my-pi/pi-coding-agent/mcp/manager";
-import type { MCPConfigFile } from "@oh-my-pi/pi-coding-agent/mcp/types";
+import type { TuiSlashCommandRuntime } from "@oh-my-pi/pi-coding-agent/slash-commands/types";
 import {
 	buildArgumentCompletions,
 	buildDirectoryArgumentCompletions,
+	buildMcpArgumentCompletions,
 } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-completions";
 import { BUILTIN_SLASH_COMMANDS_INTERNAL } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
-import { directoryExists, getMCPConfigPath, isEexist, withFileLock } from "@oh-my-pi/pi-utils";
+import { directoryExists, getProjectDir, isEexist, withFileLock } from "@oh-my-pi/pi-utils";
 import { requireFn } from "./capabilities";
 import { guard } from "./health";
 import type { BridgeMethods } from "./types";
@@ -52,60 +52,11 @@ function foreignToWire(info: ForeignSessionInfo) {
 	};
 }
 
-// /mcp subcommands taking a server name; stock keeps these private (slash-commands/builtin-completions.ts).
-const MCP_SERVER_NAME_SUBCOMMANDS: Readonly<Record<string, true>> = {
-	enable: true,
-	disable: true,
-	test: true,
-	remove: true,
-	reconnect: true,
-	reauth: true,
-	unauth: true,
-};
-const MCP_DISABLED_ONLY_ELIGIBLE: Readonly<Record<string, true>> = { enable: true, disable: true };
-const MCP_DISABLED_CONFIG_ELIGIBLE: Readonly<Record<string, true>> = { enable: true, disable: true, unauth: true };
-
 interface ArgCompletionItem {
 	value: string;
 	label?: string;
 	description?: string;
 	hint?: string;
-}
-
-/** collectMcpServerNames without the TUI context: user/project config plus the live MCPManager. */
-async function mcpServerNames(cwd: string, includeDisabledOnly: boolean, includeDisabledConfigured: boolean) {
-	const [userConfig, projectConfig] = await Promise.all([
-		readMCPConfigFile(getMCPConfigPath("user", cwd)),
-		readMCPConfigFile(getMCPConfigPath("project", cwd)),
-	]);
-	const names = new Set<string>(includeDisabledOnly ? (userConfig.disabledServers ?? []) : []);
-	const addConfigured = (config: MCPConfigFile) => {
-		for (const [name, server] of Object.entries(config.mcpServers ?? {})) {
-			if (server && (includeDisabledConfigured || server.enabled !== false)) names.add(name);
-		}
-	};
-	addConfigured(userConfig);
-	addConfigured(projectConfig);
-	for (const name of MCPManager.instance()?.getAllServerNames() ?? []) names.add(name);
-	return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-}
-
-/** `/mcp remove` only succeeds against config entries; user-only names get `--scope user` appended. */
-async function mcpRemoveCompletions(rawSubcommand: string, namePrefix: string, cwd: string) {
-	const [projectConfig, userConfig] = await Promise.all([
-		readMCPConfigFile(getMCPConfigPath("project", cwd)),
-		readMCPConfigFile(getMCPConfigPath("user", cwd)),
-	]);
-	const projectNames = new Set(Object.keys(projectConfig.mcpServers ?? {}));
-	const allNames = new Set([...projectNames, ...Object.keys(userConfig.mcpServers ?? {})]);
-	return [...allNames]
-		.filter(name => name.toLowerCase().startsWith(namePrefix))
-		.map(name =>
-			projectNames.has(name)
-				? { value: `${rawSubcommand} ${name} `, label: name }
-				: { value: `${rawSubcommand} ${name} --scope user `, label: `${name} (user)` },
-		)
-		.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
 }
 
 async function argCompletions(cwd: string, commandName: string, prefix: string): Promise<ArgCompletionItem[] | null> {
@@ -115,25 +66,15 @@ async function argCompletions(cwd: string, commandName: string, prefix: string):
 	if (!spec) return null;
 	if (spec.subcommands) {
 		if (spec.name !== "mcp") return buildArgumentCompletions(spec.subcommands)(prefix);
-		const spaceIndex = prefix.indexOf(" ");
-		if (spaceIndex === -1) return buildArgumentCompletions(spec.subcommands)(prefix);
-		const rawSubcommand = prefix.slice(0, spaceIndex);
-		const subcommand = rawSubcommand.toLowerCase();
-		if (MCP_SERVER_NAME_SUBCOMMANDS[subcommand] !== true) return null;
-		const namePrefix = prefix.slice(spaceIndex + 1).toLowerCase();
-		const matches =
-			subcommand === "remove"
-				? await mcpRemoveCompletions(rawSubcommand, namePrefix, cwd)
-				: (
-						await mcpServerNames(
-							cwd,
-							MCP_DISABLED_ONLY_ELIGIBLE[subcommand] === true,
-							MCP_DISABLED_CONFIG_ELIGIBLE[subcommand] === true,
-						)
-					)
-						.filter(name => name.toLowerCase().startsWith(namePrefix))
-						.map(name => ({ value: `${rawSubcommand} ${name} `, label: name }));
-		return matches.length > 0 ? matches : null;
+		// Stock completion disk reads use the live process project directory.
+		// Main always requests this sidecar's cwd; reject other directories
+		// instead of changing the process-global cwd during concurrent calls.
+		if (path.resolve(cwd) !== path.resolve(getProjectDir())) {
+			throw new Error("MCP completions require the live session project directory");
+		}
+		// The MCP builder reads only ctx.mcpManager, not terminal widgets.
+		const runtime = { ctx: { mcpManager: MCPManager.instance() } } as TuiSlashCommandRuntime;
+		return buildMcpArgumentCompletions(spec.subcommands, runtime)(prefix);
 	}
 	if (spec.name === "move") return await buildDirectoryArgumentCompletions()(prefix);
 	return null;
@@ -219,6 +160,7 @@ export const methods: BridgeMethods = {
 		return { ...manager.getUsageStatistics(), sampledAt: Date.now() };
 	},
 
+	...guard("composer", {
 	/** `{cwd, command, prefix}` → argument candidates for a builtin slash command, or `[]`. */
 	"sessions.arg_completions": async params => {
 		const cwd = param(params, "cwd");
@@ -229,4 +171,5 @@ export const methods: BridgeMethods = {
 		}
 		return { items: (await argCompletions(cwd, command, prefix)) ?? [] };
 	},
+	}),
 };

@@ -3,6 +3,7 @@
  * Hand-written from verified source (rpc-types.ts, rpc-mode.ts).
  * These are the wire types — no runtime dependency on @oh-my-pi/*.
  */
+import type { PoolMember, PoolState } from "../../resources/gui-bridge/pool-contracts";
 
 // ============================================================================
 // RPC Commands (GUI → omp stdin)
@@ -94,6 +95,10 @@ export type RpcCommand =
 	| { id?: string; type: "set_model_role"; role: string; modelId: string | null }
 	| { id?: string; type: "get_model_role_metadata" }
 	| { id?: string; type: "get_compaction_points" }
+	| { id?: string; type: "compaction_limits"; values?: unknown; key?: string; input?: string }
+	| { id?: string; type: "history_recent"; limit?: number; cwd?: string }
+	| { id?: string; type: "history_search"; query: string; limit?: number; cwd?: string }
+	| { id?: string; type: "history_record"; prompt: string; cwd?: string }
 
 	// Domain inspection (read-only)
 	| { id?: string; type: "get_skills" }
@@ -792,7 +797,7 @@ export interface RpcGitChanges {
 	isRepo: boolean;
 	root: string | null;
 	base: string | null;
-	files: { path: string; oldPath?: string; status: string }[];
+	files: { path: string; oldPath?: string; status: string; added?: number; removed?: number }[];
 	truncated: boolean;
 }
 
@@ -1074,18 +1079,9 @@ export interface RpcLoopModeState {
 	prompt?: string;
 	limit?: RpcLoopLimit;
 }
-/** One model of a session's model pool (`resources/gui-bridge/modes/pool-core.ts` `PoolMember`). */
-export interface RpcModelPoolMember {
-	/** `provider/model` selector the main agent passes as the task item's `model`. */
-	selector: string;
-	name: string;
-	/** Preset role id (`src/shared/model-pool.ts` `POOL_ROLES`) or a free-form hint. */
-	role: string;
-}
-export interface RpcModelPoolState {
-	enabled: boolean;
-	members: RpcModelPoolMember[];
-}
+/** Shared packaged pool contracts; the renderer-facing wire shape is unchanged. */
+export type RpcModelPoolMember = PoolMember;
+export type RpcModelPoolState = PoolState;
 
 // ============================================================================
 // Ready Frame
@@ -1452,6 +1448,11 @@ export interface RpcAgentDefinitionInfo {
 	readSummarize?: boolean;
 	prewalk?: boolean | string;
 	advisor?: boolean | string;
+	disabled?: boolean;
+	overrideModel?: string;
+	prewalkOverride?: string;
+	advisorOverride?: string;
+	advisorPattern?: string;
 	/** Set when the file lives directly in the user or project agents directory (editable there); absent for bundled and extension agents. */
 	scope?: AgentFileScope;
 	defaultPatterns: string[];
@@ -1481,11 +1482,33 @@ export interface RpcAgentDefinitionDetail
 	systemPrompt: string;
 }
 
+/** Stock parseFrontmatter + parseAgentFields result, projected for authoring. */
+export interface RpcParsedAgentDefinition {
+	fields: Pick<
+		RpcAgentDefinitionInfo,
+		| "name"
+		| "description"
+		| "model"
+		| "thinkingLevel"
+		| "tools"
+		| "spawns"
+		| "autoloadSkills"
+		| "output"
+		| "blocking"
+		| "readSummarize"
+		| "prewalk"
+		| "advisor"
+	>;
+	body: string;
+}
+
 /** `read_agent_file`. */
 export interface RpcAgentFileContent {
 	filePath: string;
 	scope: AgentFileScope;
 	content: string;
+	parsed?: RpcParsedAgentDefinition;
+	parseError?: string;
 }
 
 /** `install_agent_templates`: names written and names left alone because a file already existed. */
@@ -1790,9 +1813,8 @@ export interface UsageReport {
 }
 
 /**
- * An account's saved rate-limit resets ("reset passes"; stock `UsageResetCredits`
- * through its `summarizeUsageResetCredits`). Codex and Claude bank them; one
- * resets the account's limits right away.
+ * An account's saved rate-limit resets ("reset passes"), projected from stock
+ * toResetUsageAccounts. Stock chooses the credit, target and manual eligibility.
  */
 export interface ResetPasses {
 	/** Banked passes, including ones the provider won't let the account spend right now. */
@@ -1809,10 +1831,7 @@ export interface ResetPasses {
 	early: boolean;
 	/** The pass the provider picked for the next spend (Claude); a redeem passes it back so a changed offer is refused. */
 	creditId?: string;
-	/**
-	 * One may be spent now under stock's rules: the provider allows it, and a
-	 * limit it covers is reached unless the provider itself judges that.
-	 */
+	/** Stock offers manual redemption; redeemResetCredit decides whether a reset can actually apply. */
 	redeemable: boolean;
 	/** The provider's reason none can be spent now. */
 	unavailableReason?: string;
@@ -2205,6 +2224,8 @@ export interface ExtensionErrorFrame {
 // ============================================================================
 
 export type AgentSessionEvent =
+	| { type: "token_rate"; rate: number | null }
+	| { type: "read_group_metadata"; toolCallId: string; target: { path: string; selector?: string } | null }
 	| { type: "agent_start"; sessionId?: string }
 	| { type: "agent_end"; messages?: AgentMessage[]; isTerminal?: boolean; telemetry?: unknown; coverage?: unknown }
 	| { type: "turn_start" }

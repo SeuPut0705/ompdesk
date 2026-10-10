@@ -1,3 +1,4 @@
+// Stock pi-tui/prompt/emoji-autocomplete stays synchronous per keystroke with lazy browser data; omp is not shipped in the renderer.
 /**
  * Emoji completion, ported from the TUI (`packages/coding-agent/src/modes/
  * emoji-autocomplete.ts`). The shortcode bucket JSON (32.7 KB, built offline

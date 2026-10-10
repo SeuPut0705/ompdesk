@@ -190,7 +190,7 @@ describe("nativized action wiring", () => {
 		const affordance = wired("skills");
 		if (affordance.kind !== "window") throw new Error("expected window");
 		affordance.open();
-		expect(openSettings).toHaveBeenCalledWith("extensions:skills");
+		expect(openSettings).toHaveBeenCalledWith("tools:skills");
 	});
 
 	it("SSH actions open the native host manager, where selection and confirmation happen", () => {
@@ -198,21 +198,21 @@ describe("nativized action wiring", () => {
 			const affordance = wired(name);
 			if (affordance.kind !== "window") throw new Error("expected native SSH manager");
 			affordance.open();
-			expect(openSettings).toHaveBeenLastCalledWith("ssh");
+			expect(openSettings).toHaveBeenLastCalledWith("connections:ssh");
 		}
 	});
 
 	it.each([
-		["hooks", "extensions:hooks"],
-		["commands", "extensions:commands"],
-		["mcp panel", "extensions:mcp"],
-		["marketplace panel", "plugins:marketplaces"],
-		["plugins panel", "plugins"],
-		["memory panel", "plugins:memory"],
-		["templates", "plugins:templates"],
-		["extensions", "extensions"],
+		["hooks", "tools:hooks"],
+		["commands", "tools:commands"],
+		["mcp panel", "tools:mcp"],
+		["marketplace panel", "tools:marketplaces"],
+		["plugins panel", "tools:plugins"],
+		["memory panel", "agent:memory-report"],
+		["templates", "tools:templates"],
+		["extensions", "tools:skills"],
 		["hotkeys", "keyboard"],
-		["model-roles", "models"],
+		["model-roles", "models:roles"],
 		["dirs", "workspace"],
 	] as const)("%s deep-links to Settings route %s", (name, route) => {
 		const affordance = wired(name);
@@ -239,7 +239,7 @@ describe("nativized action wiring", () => {
 		if (affordance.kind !== "action") throw new Error("expected action");
 		await affordance.run();
 		expect(rpc.mcpAction).not.toHaveBeenCalled();
-		expect(openSettings).toHaveBeenCalledWith("extensions:mcp");
+		expect(openSettings).toHaveBeenCalledWith("tools:mcp");
 	});
 
 	it("advisor on writes advisor.enabled and reports activation state", async () => {
@@ -270,7 +270,7 @@ describe("nativized action wiring", () => {
 		if (install.kind !== "window") throw new Error("expected window");
 		install.open();
 		expect(rpc.marketplaceAction).not.toHaveBeenCalledWith(expect.objectContaining({ action: "install" }));
-		expect(openSettings).toHaveBeenCalledWith("plugins:marketplaces");
+		expect(openSettings).toHaveBeenCalledWith("tools:marketplaces");
 	});
 
 	it("plugins enable without an id opens the installed-plugins Settings route", async () => {
@@ -278,7 +278,7 @@ describe("nativized action wiring", () => {
 		if (affordance.kind !== "action") throw new Error("expected action");
 		await affordance.run();
 		expect(rpc.setPluginEnabled).not.toHaveBeenCalled();
-		expect(openSettings).toHaveBeenCalledWith("plugins");
+		expect(openSettings).toHaveBeenCalledWith("tools:plugins");
 	});
 
 	it("computer status toasts the current setting value", async () => {

@@ -1,27 +1,16 @@
 /**
- * Watches ~/.omp/agent/sessions/ for .jsonl session files.
- * Parses title, session header, first message, and tail status.
- *
- * Change handling is per file: a watcher event drops that path's cache entries
- * and notifies, so a streaming agent appending to one session costs one stat —
- * never a re-fingerprint of the whole tree. Correctness does not depend on the
- * events, though: every read goes through `list()`, which scans and re-parses
- * whatever its cache does not already hold, so a missed event self-heals on the
- * next refresh instead of needing a background poll.
+ * Watches session JSONL changes for sidebar invalidation. Listing/classification
+ * and deletion run stock storage under omp's Bun, without a live tab.
  */
-import { open, readdir, stat } from "node:fs/promises";
+import { open, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { type FSWatcher, watch } from "chokidar";
 import { codedError } from "../shared/ipc-error-codes";
 import type { SessionInfo, SessionKind } from "../shared/ipc-types";
 import { agentDir } from "./agent-paths";
-import { deleteSessionFiles } from "./local/session-files";
 import { StampedLru } from "./session-cache";
+import { type SessionStore, StockSessionStore } from "./session-store";
 
-const TITLE_SLOT_BYTES = 256;
-const TAIL_BYTES = 32 * 1024;
-const HEAD_BYTES = 32 * 1024;
-const MAX_PARSE_CACHE_ENTRIES = 4096;
 /** Per-file cap for full-content search reads; larger sessions match on this prefix. */
 const SEARCH_READ_BYTES = 8 * 1024 * 1024;
 /**
@@ -33,23 +22,28 @@ const SEARCH_CACHE_BYTES = 64 * 1024 * 1024;
 /** Files read concurrently during a content search (bounds FD pressure). */
 const SEARCH_BATCH = 16;
 
-type SessionStatus = SessionInfo["status"];
-
 export class SessionIndex {
 	#watcher: FSWatcher | null = null;
-	#parseCache = new StampedLru<SessionInfo>(MAX_PARSE_CACHE_ENTRIES);
 	#textCache = new StampedLru<string>(SEARCH_CACHE_BYTES, text => text.length);
 	#sessionsDir: string;
 	#cwd: string;
 	/** GUI-side chat labels for sessions whose header carries no kind (stock omp writes none). */
 	#isChat: (sessionId: string) => boolean;
+	#store: SessionStore;
 
 	onChange: (() => void) | null = null;
 
-	constructor(sessionsDir: string | undefined, cwd: string, isChat: (sessionId: string) => boolean = () => false) {
+	constructor(
+		sessionsDir: string | undefined,
+		cwd: string,
+		isChat: (sessionId: string) => boolean = () => false,
+		store?: SessionStore,
+		bridgeDir = resolve("resources/gui-bridge"),
+	) {
 		this.#sessionsDir = sessionsDir ?? join(agentDir(), "sessions");
 		this.#cwd = resolve(cwd);
 		this.#isChat = isChat;
+		this.#store = store ?? new StockSessionStore(this.#sessionsDir, bridgeDir);
 	}
 
 	/** Sessions root watched by this index (plan files live in per-session artifact dirs beneath it). */
@@ -75,7 +69,7 @@ export class SessionIndex {
 	stop(): void {
 		this.#watcher?.close();
 		this.#watcher = null;
-		this.#parseCache.clear();
+		this.#store.stop();
 		this.#textCache.clear();
 	}
 
@@ -86,17 +80,16 @@ export class SessionIndex {
 	 *   own so each window sees only its project's sessions.
 	 */
 	async list(scope: "local" | "global", cwd?: string): Promise<SessionInfo[]> {
-		const entries = await this.#scanDir();
-		const parsed = await Promise.all(entries.map(entry => this.#parseSessionFile(entry.path)));
+		const parsed = await this.#store.list();
 		const localCwd = cwd !== undefined ? resolve(cwd) : this.#cwd;
-		const infos = parsed.filter((info): info is SessionInfo => {
-			if (!info) return false;
+		const infos = parsed.filter(info => {
 			return scope === "global" || (info.cwd != null && resolve(info.cwd) === localCwd);
 		});
-		for (const info of infos) {
-			if (!info.kind && this.#isChat(info.id)) info.kind = "chat";
-		}
-
+		await Promise.all(
+			infos.map(async info => {
+				if (this.#isChat(info.id) || (await this.#legacyChatKind(info.path))) info.kind = "chat";
+			}),
+		);
 		// Sort by modified descending
 		infos.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
 
@@ -114,15 +107,12 @@ export class SessionIndex {
 		});
 	}
 
-	/**
-	 * Session kind for one file: the LRU-cached parse when fresh, a cold parse
-	 * otherwise. Unreadable files degrade to "agent" — the kind guards re-check
-	 * with the file's real parse before refusing anything.
-	 */
+	/** GUI chat labels are an overlay: stock sessions have no chat-kind concept. */
 	async kindFor(sessionPath: string): Promise<SessionKind> {
 		try {
-			const info = await this.#parseSessionFile(sessionPath);
-			return info?.kind === "chat" || (info !== null && this.#isChat(info.id)) ? "chat" : "agent";
+			const infos = await this.#store.listDirectory(sessionPath);
+			const info = infos.find(row => resolve(row.path) === resolve(sessionPath));
+			return info && (this.#isChat(info.id) || (await this.#legacyChatKind(sessionPath))) ? "chat" : "agent";
 		} catch {
 			return "agent";
 		}
@@ -134,8 +124,7 @@ export class SessionIndex {
 		if (!target.startsWith(root) || !target.endsWith(".jsonl")) {
 			throw codedError("invalid_session_path", "Invalid session path");
 		}
-		await deleteSessionFiles(target);
-		this.#parseCache.delete(target);
+		await this.#store.delete(target);
 		this.#textCache.delete(target);
 		this.#notifyChange();
 	}
@@ -192,26 +181,6 @@ export class SessionIndex {
 		}
 	}
 
-	async #scanDir(): Promise<{ path: string }[]> {
-		try {
-			const projectDirs = (await readdir(this.#sessionsDir, { withFileTypes: true })).filter(entry =>
-				entry.isDirectory(),
-			);
-			const projectFiles = await Promise.all(
-				projectDirs.map(async projectDir => {
-					const projectPath = join(this.#sessionsDir, projectDir.name);
-					const entries = await readdir(projectPath, { withFileTypes: true });
-					return entries
-						.filter(entry => entry.isFile() && entry.name.endsWith(".jsonl"))
-						.map(entry => ({ path: join(projectPath, entry.name) }));
-				}),
-			);
-			return projectFiles.flat();
-		} catch {
-			return [];
-		}
-	}
-
 	/**
 	 * One session file changed, appeared, or vanished: forget exactly that file's
 	 * cached view and notify. Nothing else is stat'ed — the previous handler
@@ -220,161 +189,34 @@ export class SessionIndex {
 	 */
 	#invalidate(path: string): void {
 		if (!path.endsWith(".jsonl")) return;
-		this.#parseCache.delete(path);
 		this.#textCache.delete(path);
 		this.#notifyChange();
 	}
 
-	async #parseSessionFile(filePath: string): Promise<SessionInfo | null> {
+	/** Legacy GUI-only header flag; stock session-listing deliberately does not expose it.
+	 * Read only this presentation overlay, never derive stock metadata or lifecycle.
+	 */
+	async #legacyChatKind(filePath: string): Promise<boolean> {
 		try {
-			const fileStat = await stat(filePath);
-			const signature = `${fileStat.mtimeMs}:${fileStat.size}`;
-			const cached = this.#parseCache.get(filePath, signature);
-			if (cached) return cached;
-
-			const info = await this.#doParse(filePath, fileStat);
-			if (!info) return null;
-			this.#parseCache.set(filePath, signature, info);
-			return info;
-		} catch {
-			return null;
-		}
-	}
-
-	async #doParse(
-		filePath: string,
-		fileStat: { size: number; mtimeMs: number; birthtimeMs: number },
-	): Promise<SessionInfo | null> {
-		const size = fileStat.size;
-		if (size === 0) return null;
-
-		const fh = await open(filePath, "r");
-		try {
-			// Read enough of the head to parse the title, header, and first user message.
-			const headBuf = Buffer.alloc(Math.min(HEAD_BYTES, size));
-			await fh.read(headBuf, 0, headBuf.length, 0);
-			const titleBuf = headBuf.subarray(0, Math.min(TITLE_SLOT_BYTES, headBuf.length));
-			const title = this.#parseTitleSlot(titleBuf);
-
-			// Read header line (second line, after first newline)
-			const headerStart = headBuf.indexOf(0x0a);
-			let header: {
-				id?: string;
-				title?: string;
-				timestamp?: string;
-				cwd?: string;
-				parentSession?: string;
-				kind?: "chat";
-			} | null = null;
-
-			if (headerStart !== -1) {
-				// Read up to 4KB for the header line
-				const headerBuf = Buffer.alloc(Math.min(4096, size - headerStart - 1));
-				await fh.read(headerBuf, 0, headerBuf.length, headerStart + 1);
-				const headerLine = headerBuf.toString("utf-8").split("\n")[0];
-				try {
-					header = JSON.parse(headerLine);
-				} catch {
-					// Header parse failure is non-fatal
-				}
-			}
-
-			// Read tail 32KB for status derivation
-			const tailStart = Math.max(0, size - TAIL_BYTES);
-			const tailBuf = Buffer.alloc(size - tailStart);
-			await fh.read(tailBuf, 0, tailBuf.length, tailStart);
-			const { status, messageCount } = this.#parseTail(tailBuf.toString("utf-8"));
-			const firstMessage = this.#parseFirstMessage(headBuf.toString("utf-8"));
-
-			const id = header?.id ?? filePath.split("/").pop()?.replace(".jsonl", "") ?? "unknown";
-
-			const info: SessionInfo = {
-				path: filePath,
-				id,
-				// `||` not `??`: an empty title slot (auto-title never ran) is
-				// missing data, so fall back to the header line's title.
-				title: title || header?.title || null,
-				cwd: header?.cwd ?? "",
-				created: header?.timestamp ?? new Date(fileStat.birthtimeMs).toISOString(),
-				modified: new Date(fileStat.mtimeMs).toISOString(),
-				messageCount,
-				size,
-				status,
-				kind: header?.kind,
-				parentSessionPath: header?.parentSession,
-				firstMessage,
-			};
-
-			return info;
-		} finally {
-			await fh.close();
-		}
-	}
-
-	#parseTitleSlot(buf: Buffer): string | null {
-		try {
-			const firstLine = buf.toString("utf-8").split("\n", 1)[0]?.trimEnd();
-			if (!firstLine) return null;
-			const parsed = JSON.parse(firstLine) as { type?: string; title?: string };
-			return parsed.type === "title" && parsed.title ? parsed.title : null;
-		} catch {
-			return null;
-		}
-	}
-
-	#parseFirstMessage(head: string): string {
-		for (const line of head.split("\n")) {
+			const fh = await open(filePath, "r");
 			try {
-				const entry = JSON.parse(line) as { type?: string; message?: { role?: string; content?: unknown } };
-				if (entry.type !== "message" || entry.message?.role !== "user") continue;
-				const content = entry.message.content;
-				if (typeof content === "string") return content.slice(0, 200);
-				if (Array.isArray(content)) {
-					const textPart = (content as Array<{ type?: string; text?: string }>).find(part => part.type === "text");
-					if (textPart?.text) return textPart.text.slice(0, 200);
+				const buffer = Buffer.alloc(4096);
+				const { bytesRead } = await fh.read(buffer, 0, buffer.length, 0);
+				for (const line of buffer.toString("utf8", 0, bytesRead).split("\n")) {
+					try {
+						const entry = JSON.parse(line) as { type?: string; kind?: string };
+						if (entry.type === "session") return entry.kind === "chat";
+					} catch {
+						/* A partial final line is not a header. */
+					}
 				}
-			} catch {
-				// The final head chunk may contain a partial JSON line.
+			} finally {
+				await fh.close();
 			}
+		} catch {
+			/* Missing/unreadable files have no GUI label. */
 		}
-		return "";
-	}
-
-	#parseTail(tail: string): { status: SessionStatus; messageCount: number } {
-		const lines = tail.split("\n").filter(line => line.trim().length > 0);
-		let messageCount = 0;
-		let status: SessionStatus = "unknown";
-		let lastEntry: Record<string, unknown> | null = null;
-
-		for (const line of lines) {
-			try {
-				const entry = JSON.parse(line) as Record<string, unknown>;
-				lastEntry = entry;
-				if (entry.type === "message") messageCount++;
-			} catch {
-				// Tail reads can begin or end in the middle of a JSON line.
-			}
-		}
-
-		if (lastEntry) {
-			const lastType = lastEntry.type;
-			if (lastType === "agent_end" || lastType === "turn_end") {
-				status = "complete";
-			} else if (lastType === "error") {
-				status = "error";
-			} else if (lastType === "aborted") {
-				status = "aborted";
-			} else if (lastType === "interrupted") {
-				status = "interrupted";
-			} else if (lastType === "message_start" || lastType === "tool_execution_start") {
-				status = "pending";
-			} else if (lastType === "message") {
-				const message = lastEntry.message as { role?: string } | undefined;
-				status = message?.role === "assistant" ? "complete" : "pending";
-			}
-		}
-
-		return { status, messageCount };
+		return false;
 	}
 
 	#notifyChange(): void {

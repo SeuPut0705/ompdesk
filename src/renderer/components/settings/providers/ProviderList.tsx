@@ -7,9 +7,9 @@
  * ones itself (`ProviderItem`) and shows only the rest here (`available`).
  */
 
-import { CheckCircle2, ChevronDown, ChevronUp, CircleDashed, KeyRound, LogOut, Pencil, Trash2 } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, CircleDashed, KeyRound, LogOut } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import type { CustomProviderView } from "../../../../shared/ipc-types";
+import type { CustomProviderOptions, CustomProviderView } from "../../../../shared/ipc-types";
 import type { ProviderInfo, ProvidersResult } from "../../../../shared/rpc-types";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -26,6 +26,7 @@ type TFn = (key: string, params?: Record<string, string | number>) => string;
 export interface ProviderCatalog {
 	providers: ProviderInfo[];
 	customConfigs: CustomProviderView[];
+	options: CustomProviderOptions | null;
 	loading: boolean;
 	/** Provider read failed (the list may still show the last good catalog). */
 	error: string | null;
@@ -58,6 +59,7 @@ export function useProviderCatalog({
 	const refreshPending = useModelStore(state => state.catalogRefreshPending);
 	const refreshProviders = useModelStore(state => state.refreshProviders);
 	const [customConfigs, setCustomConfigs] = useState<CustomProviderView[]>([]);
+	const [options, setOptions] = useState<CustomProviderOptions | null>(null);
 	const [configError, setConfigError] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
@@ -79,7 +81,8 @@ export function useProviderCatalog({
 				]);
 				if (version !== requestVersion.current) return undefined;
 				if (configsResult.status === "fulfilled") {
-					setCustomConfigs(configsResult.value);
+					setCustomConfigs(configsResult.value.providers);
+					setOptions(configsResult.value.options);
 					setConfigError(null);
 				} else {
 					setConfigError(t("providers.configFailed", { details: String(configsResult.reason) }));
@@ -103,6 +106,7 @@ export function useProviderCatalog({
 	useEffect(() => {
 		requestVersion.current++;
 		setLoading(false);
+		setOptions(null);
 		setError(null);
 	}, [tabRpc]);
 
@@ -118,7 +122,7 @@ export function useProviderCatalog({
 		return () => clearInterval(timer);
 	}, [active, refreshPending, load, pollMs]);
 
-	return { providers, customConfigs, loading, error, configError, refreshPending, sidecarReady, load };
+	return { providers, customConfigs, options, loading, error, configError, refreshPending, sidecarReady, load };
 }
 
 function SectionLabel({ children, level }: { children: ReactNode; level: "h3" | "h4" }) {
@@ -139,8 +143,6 @@ function authLabel(provider: ProviderInfo, t: TFn): string {
 export interface RowHandlers {
 	onConnect: (provider: ProviderInfo) => void;
 	onLogout?: (provider: ProviderInfo) => void;
-	onEditConfig?: (config: CustomProviderView) => void;
-	onDeleteConfig?: (config: CustomProviderView) => void;
 }
 
 /** A row that expands what renders under it (a subscription's accounts). */
@@ -175,7 +177,6 @@ export function ProviderRow({
 }) {
 	const t = useT();
 	const connected = provider.authenticated;
-	const editable = config && !config.builtin ? config : undefined;
 	// A key written in models.yml is reinstalled by every catalog reload, so
 	// signing out would clear a credential the provider never used; editing
 	// the entry is what actually removes it.
@@ -197,9 +198,7 @@ export function ProviderRow({
 		? disclosure.onToggle
 		: !connected && provider.loginAvailable && sidecarReady
 			? connect
-			: editable && handlers.onEditConfig
-				? () => handlers.onEditConfig?.(editable)
-				: undefined;
+			: undefined;
 	return (
 		<ListRow
 			actions={
@@ -225,28 +224,12 @@ export function ProviderRow({
 								size="sm"
 							/>
 						)}
-						{editable && handlers.onEditConfig && (
-							<IconButton
-								icon={<Pencil />}
-								label={t("providers.edit")}
-								onClick={() => handlers.onEditConfig?.(editable)}
-								size="sm"
-							/>
-						)}
 						{canLogout && (
 							<IconButton
 								disabled={!sidecarReady}
 								icon={<LogOut />}
 								label={listsAccounts ? t("providers.logoutAll") : t("providers.logout")}
 								onClick={() => handlers.onLogout?.(provider)}
-								size="sm"
-							/>
-						)}
-						{editable && handlers.onDeleteConfig && (
-							<IconButton
-								icon={<Trash2 />}
-								label={t("providerCfg.list.delete")}
-								onClick={() => handlers.onDeleteConfig?.(editable)}
 								size="sm"
 							/>
 						)}
@@ -347,8 +330,6 @@ export function ProviderList({
 	catalog,
 	login,
 	busyProvider = null,
-	onEditConfig,
-	onDeleteConfig,
 	onAddCustom,
 	available = false,
 	autoFocusSearch = false,
@@ -356,8 +337,6 @@ export function ProviderList({
 	catalog: ProviderCatalog;
 	login: ProviderLogin;
 	busyProvider?: string | null;
-	onEditConfig?: (config: CustomProviderView) => void;
-	onDeleteConfig?: (config: CustomProviderView) => void;
 	/** Offered when a search finds nothing. */
 	onAddCustom?: () => void;
 	/**
@@ -387,8 +366,6 @@ export function ProviderList({
 			);
 	const handlers: RowHandlers = {
 		onConnect: provider => void login.start(provider.id),
-		onEditConfig,
-		onDeleteConfig,
 	};
 	const level = available ? "h4" : "h3";
 
@@ -444,29 +421,8 @@ export function ProviderList({
 								{unlisted.map(config => (
 									<li key={`config:${config.id}`}>
 										<ListRow
-											actions={
-												<>
-													{onEditConfig && (
-														<IconButton
-															icon={<Pencil />}
-															label={t("providers.edit")}
-															onClick={() => onEditConfig(config)}
-															size="sm"
-														/>
-													)}
-													{onDeleteConfig && (
-														<IconButton
-															icon={<Trash2 />}
-															label={t("providerCfg.list.delete")}
-															onClick={() => onDeleteConfig(config)}
-															size="sm"
-														/>
-													)}
-												</>
-											}
 											description={t("providerList.noModels")}
 											leading={<CircleDashed aria-hidden className="text-(--sc-warning)" />}
-											onClick={onEditConfig ? () => onEditConfig(config) : undefined}
 											title={config.id}
 										/>
 									</li>

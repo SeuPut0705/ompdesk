@@ -2,7 +2,8 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CustomProviderView } from "../../../shared/ipc-types";
+import { fixtureProviderOptions } from "../../../../e2e/models-config-fixture";
+import type { CustomProvidersConfig } from "../../../shared/ipc-types";
 import type { ModelInfo, ProviderInfo, ProvidersResult, RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useFirstRunStore } from "../../stores/first-run";
@@ -50,7 +51,9 @@ const rpc = {
 	setModelRole: vi.fn(async () => ok("set_model_role", {})),
 	login: vi.fn(async () => ok("login", {})),
 };
-const listProviders = vi.fn(async (): Promise<CustomProviderView[]> => []);
+const listProviders = vi.fn(
+	async (): Promise<CustomProvidersConfig> => ({ providers: [], options: fixtureProviderOptions }),
+);
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: { rpc, models: { listProviders }, ui: { respondExtensionUi: vi.fn() }, system: { openExternal: vi.fn() } },
 });

@@ -39,6 +39,8 @@ export interface SheetSurfaceProps {
 	className?: string;
 	/** Body padding/layout; defaults to the standard inset. Pass e.g. "flex flex-col" for a full-bleed canvas. */
 	bodyClassName?: string;
+	/** Full custom chrome, while retaining the sheet's accessible title. */
+	header?: ReactNode;
 	children: ReactNode;
 }
 
@@ -53,6 +55,7 @@ export function SheetSurface({
 	className,
 	bodyClassName = "px-5 py-4",
 	children,
+	header,
 }: SheetSurfaceProps) {
 	const t = useT();
 	return (
@@ -63,20 +66,29 @@ export function SheetSurface({
 				className,
 			)}
 		>
-			<div
-				className="omp-sheet-header flex shrink-0 items-start justify-between gap-3 border-b border-(--sc-divider) py-3 pr-3 pl-5"
-				data-side={side}
-			>
-				<div className="min-w-0 pt-1">
-					<div className="truncate text-sc-lg font-semibold tracking-(--sc-tracking-tight)" id={titleId}>
+			{header ? (
+				<>
+					<span className="sr-only" id={titleId}>
 						{title}
+					</span>
+					{header}
+				</>
+			) : (
+				<div
+					className="omp-sheet-header flex shrink-0 items-start justify-between gap-3 border-b border-(--sc-divider) py-3 pr-3 pl-5"
+					data-side={side}
+				>
+					<div className="min-w-0 pt-1">
+						<div className="truncate text-sc-lg font-semibold tracking-(--sc-tracking-tight)" id={titleId}>
+							{title}
+						</div>
+						{description && <div className="mt-0.5 text-sc-sm text-(--sc-text-muted)">{description}</div>}
 					</div>
-					{description && <div className="mt-0.5 text-sc-sm text-(--sc-text-muted)">{description}</div>}
+					{onClose && (
+						<IconButton icon={<X />} label={t("common.close")} onClick={onClose} size="sm" tooltip={false} />
+					)}
 				</div>
-				{onClose && (
-					<IconButton icon={<X />} label={t("common.close")} onClick={onClose} size="sm" tooltip={false} />
-				)}
-			</div>
+			)}
 			<div className={cx("min-h-0 flex-1 overflow-y-auto", bodyClassName)}>{children}</div>
 			{footer && (
 				<div className="flex shrink-0 items-center justify-end gap-2 border-t border-(--sc-divider) px-5 py-3">

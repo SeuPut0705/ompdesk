@@ -108,6 +108,7 @@ export const createToolsStore = () => {
 	let streamMessageTimestamp: AgentMessage["timestamp"] | undefined;
 	let queuedExecutionKeysByCallId = new Map<string, string[]>();
 	let runningEntryKeyByCallId = new Map<string, string>();
+	let readTargets = new Map<string, { path: string; selector?: string } | null>();
 	/** Revision of the last live write per key since the last rebuild (`keepChangedSince`). */
 	let writtenAt = new Map<string, number>();
 	/**
@@ -126,6 +127,7 @@ export const createToolsStore = () => {
 		runningEntryKeyByCallId = new Map();
 		writtenAt = new Map();
 		uncommittedKeysByCallId = new Map();
+		readTargets = new Map();
 	};
 
 	const allocateEntryKey = (callId: string): string => {
@@ -305,6 +307,17 @@ export const createToolsStore = () => {
 
 			for (const event of events) {
 				switch (event.type) {
+					case "read_group_metadata": {
+						readTargets.set(event.toolCallId, event.target);
+						const key =
+							runningEntryKeyByCallId.get(event.toolCallId) ?? latestEntryKeyByCallId.get(event.toolCallId);
+						const existing = key ? lookup(key) : undefined;
+						if (key && existing) {
+							put(key, { ...existing, args: { ...existing.args, __ompReadGroup: event.target } });
+							if (runningEntryKeyByCallId.has(event.toolCallId)) readTargets.delete(event.toolCallId);
+						}
+						break;
+					}
 					case "message_start": {
 						streamEntryKeysByIndex.clear();
 						streamMessageTimestamp = event.message.timestamp;
@@ -381,9 +394,14 @@ export const createToolsStore = () => {
 						const key = takeExecutionKey(event.toolCallId, lookup);
 						latestEntryKeyByCallId.set(event.toolCallId, key);
 						runningEntryKeyByCallId.set(event.toolCallId, key);
+						const existingArgs = lookup(key)?.args;
 						put(key, {
 							toolName: event.toolName,
-							args: event.args,
+							args: readTargets.has(event.toolCallId)
+								? { ...event.args, __ompReadGroup: readTargets.get(event.toolCallId) }
+								: existingArgs && "__ompReadGroup" in existingArgs
+									? { ...event.args, __ompReadGroup: existingArgs.__ompReadGroup }
+									: event.args,
 							status: "running",
 							streamingArgs: "",
 							result: null,
@@ -391,6 +409,7 @@ export const createToolsStore = () => {
 							startTime: Date.now(),
 							endTime: null,
 						});
+						readTargets.delete(event.toolCallId);
 						break;
 					}
 					case "tool_execution_update": {

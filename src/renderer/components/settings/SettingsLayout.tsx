@@ -15,9 +15,15 @@
  * Rows use `id` (e.g. `setting-<path>`) as the search-navigation target.
  */
 
-import { type ReactNode, useId } from "react";
+import { createContext, type ReactNode, useContext, useId } from "react";
 import { cx } from "../../lib/format";
+import { useT } from "../../lib/i18n";
 import { Switch } from "../common";
+
+type SettingsScope = "app" | "host" | "mixed";
+const SettingsScopeContext = createContext<SettingsScope | null>(null);
+export const SettingsScopeProvider = SettingsScopeContext.Provider;
+const SettingsGroupContext = createContext(false);
 
 export interface SettingsSectionProps {
 	id?: string;
@@ -28,31 +34,53 @@ export interface SettingsSectionProps {
 	actions?: ReactNode;
 	children: ReactNode;
 	className?: string;
+	scope?: SettingsScope;
 }
 
-export function SettingsSection({ id, title, description, actions, children, className }: SettingsSectionProps) {
+export function SettingsSection({
+	id,
+	title,
+	description,
+	actions,
+	children,
+	className,
+	scope: ownScope,
+}: SettingsSectionProps) {
 	const headingId = useId();
+	const inheritedScope = useContext(SettingsScopeContext);
+	const nested = useContext(SettingsGroupContext);
+	const scope = ownScope ?? inheritedScope;
+	const t = useT();
 	return (
 		<section
-			aria-labelledby={title ? headingId : undefined}
-			className={cx("settings-section scroll-mt-4", className)}
+			aria-labelledby={title && !nested ? headingId : undefined}
+			className={cx("settings-section scroll-mt-4", nested && "settings-section-nested", className)}
 			id={id}
 		>
-			{(title || description || actions) && (
+			{((title && !nested) || description || actions) && (
 				<div className="mb-2 flex flex-wrap items-end gap-x-3 gap-y-2">
 					{/* Wide actions wrap under the text instead of squeezing it into a column. */}
 					<div className="min-w-[min(100%,12rem)] flex-1">
-						{title && (
+						{title && !nested && (
 							<h3 className="text-sc-lg font-semibold text-(--sc-text)" id={headingId}>
 								{title}
 							</h3>
+						)}
+						{ownScope && ownScope !== inheritedScope && !nested && (
+							<p className="mt-0.5 text-sc-xs text-(--sc-text-muted)" data-settings-group-scope={scope}>
+								{t(`settings.navGroup.${scope === "host" ? "agent" : scope === "mixed" ? "system" : "app"}`)}
+							</p>
 						)}
 						{description && <p className="mt-0.5 text-sc-sm break-keep text-(--sc-text-muted)">{description}</p>}
 					</div>
 					{actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
 				</div>
 			)}
-			<div className="settings-section-body">{children}</div>
+			<div className="settings-section-body">
+				<SettingsScopeProvider value={scope}>
+					<SettingsGroupContext.Provider value={true}>{children}</SettingsGroupContext.Provider>
+				</SettingsScopeProvider>
+			</div>
 		</section>
 	);
 }

@@ -11,13 +11,19 @@ import { getOAuthCredentialProvider, getOAuthProviders } from "@oh-my-pi/pi-ai/o
 import { modelKind } from "@oh-my-pi/pi-catalog/types";
 import { orderedSettings } from "@oh-my-pi/pi-coding-agent/config/all-settings";
 import { getKnownRoleIds, getRoleInfo, roleCandidatePool } from "@oh-my-pi/pi-coding-agent/config/model-roles";
+import { extractExplicitThinkingSelector } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import {
+	formatActiveAccountLabel,
+	reportMatchesActiveAccount,
+} from "@oh-my-pi/pi-coding-agent/slash-commands/helpers/active-oauth-account";
+import { listLogoutAccounts, logoutCredential } from "@oh-my-pi/pi-coding-agent/slash-commands/helpers/logout";
 import { SETTING_TABS, TAB_GROUPS, TAB_METADATA } from "@oh-my-pi/pi-tui/overlays/settings-defs";
 import { getAgentDir, MAIN_CONFIG_FILENAMES } from "@oh-my-pi/pi-utils";
-import { accountLabel, matchReportAccount, reportIdentity, type StoredAccount } from "./accounts-core";
+import { matchReportAccount, type StoredAccount } from "./accounts-core";
 import { guard, probe } from "./health";
-import { type ResetSummarizer, shapeResetPasses } from "./reset-passes-core";
+import { type ResetPasses, shapeResetPasses } from "./reset-passes-core";
 import { shownRoleValue, storedRoleValue } from "./role-values";
 import { releaseThinkingDefaultFor, syncThinkingDefault } from "./thinking-default";
 import type { BridgeEnv, BridgeMethods } from "./types";
@@ -384,6 +390,7 @@ function watchRefresh(env: BridgeEnv, session: AgentSession, refresh: Promise<vo
 		});
 }
 
+// Stock get_available_models blocks on refresh; this richer bounded catalog is required for responsive GUI discovery.
 async function refreshCatalog(env: BridgeEnv, session: AgentSession, forceRefresh: boolean) {
 	const registry = session.modelRegistry;
 	const credentials = registry.authStorage.credentials;
@@ -426,24 +433,33 @@ function shapeLimit(limit: UsageLimit) {
 	};
 }
 
-/**
- * Stock's saved-reset summary (`summarizeUsageResetCredits`), or `undefined` on
- * an omp without feature `resetPasses`: accounts then list without passes.
- * Loaded lazily, so a vanished export costs the passes, not this module.
- */
-async function resetSummarizer(env: BridgeEnv): Promise<ResetSummarizer | undefined> {
+/** Lazy loading isolates a missing reset export from the other usage/account features. */
+async function resetProjector(
+	env: BridgeEnv,
+): Promise<((report: UsageReport, account: StoredAccount | undefined) => ResetPasses | undefined) | undefined> {
 	if ((await probe(env, ["resetPasses"])).length > 0) return undefined;
-	const { summarizeUsageResetCredits } = await import("@oh-my-pi/pi-tui/overlays/usage-display");
-	return summarizeUsageResetCredits;
+	const { toResetUsageAccounts } = await import("@oh-my-pi/pi-coding-agent/slash-commands/helpers/reset-usage");
+	return (report, account) => {
+		if (!report.resetCredits) return undefined;
+		const [selected] = toResetUsageAccounts([{
+			...report.resetCredits,
+			provider: report.provider,
+			credentialId: account?.credentialId ?? 0,
+			...account,
+			active: account?.active ?? false,
+			credits: report.resetCredits.credits ?? [],
+		}]);
+		return shapeResetPasses(selected);
+	};
 }
 
 /** One report per stored account; each keeps the identity its own metadata names. */
 async function usage(env: BridgeEnv, session: AgentSession) {
 	const reports: Rec[] = [];
 	try {
-		const [raw, summarize] = await Promise.all([
+		const [raw, projectReset] = await Promise.all([
 			session.fetchUsageReports().then(value => value ?? []),
-			resetSummarizer(env).catch(() => undefined),
+			resetProjector(env).catch(() => undefined),
 		]);
 		const oauth = session.modelRegistry.authStorage.oauth;
 		const reportCount = new Map<string, number>();
@@ -455,17 +471,15 @@ async function usage(env: BridgeEnv, session: AgentSession) {
 				accounts = oauth.accounts(report.provider, session.sessionId);
 				accountsByProvider.set(report.provider, accounts);
 			}
-			const identity = reportIdentity(report.metadata);
-			const account = matchReportAccount(identity, accounts, reportCount.get(report.provider) ?? 0);
+			const account = matchReportAccount(report, accounts, reportCount.get(report.provider) ?? 0, reportMatchesActiveAccount);
 			const limits = report.limits.map(shapeLimit);
-			const resetPasses =
-				summarize && shapeResetPasses(report.provider, report.resetCredits, summarize(report.resetCredits), limits);
+			const resetPasses = projectReset?.(report, account);
 			reports.push({
 				provider: report.provider,
 				fetchedAt: report.fetchedAt,
 				limits,
 				notes: report.notes,
-				account: account ? accountLabel(account) : (identity.email ?? identity.accountId ?? identity.orgName),
+				account: formatActiveAccountLabel(account) ?? (account ? `#${account.credentialId}` : formatActiveAccountLabel(report.metadata)),
 				...(account ? { credentialId: account.credentialId } : {}),
 				...(account?.active ? { active: true } : {}),
 				...(resetPasses ? { resetPasses } : {}),
@@ -530,9 +544,9 @@ async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProv
 	const provider = getOAuthCredentialProvider(loginProviderId);
 	const authStorage = session.modelRegistry.authStorage;
 	await authStorage.credentials.reload();
-	const [identityKey, summarize] = await Promise.all([
+	const [identityKey, projectReset] = await Promise.all([
 		identityKeyResolver(env),
-		resetSummarizer(env).catch(() => undefined),
+		resetProjector(env).catch(() => undefined),
 	]);
 	const sessionId = session.sessionId;
 	const pinned = authStorage.oauth.accounts(provider, sessionId).find(account => account.active)?.credentialId;
@@ -552,8 +566,8 @@ async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProv
 			const report = await reporter.report(provider, row.credential).catch(() => null);
 			const accountHealth = healthById.get(row.id);
 			const limits = report ? report.limits.map(shapeLimit) : [];
-			const resetPasses =
-				report && summarize && shapeResetPasses(provider, report.resetCredits, summarize(report.resetCredits), limits);
+			const stored = authStorage.oauth.accounts(provider, sessionId).find(account => account.credentialId === row.id);
+			const resetPasses = report && projectReset?.(report, stored);
 			return {
 				credentialId: row.id,
 				state: accountHealth?.state ?? "unknown",
@@ -641,9 +655,10 @@ export const methods: BridgeMethods = {
 		provider_logout: async (params, env) => {
 			const session = env.session();
 			const providerId = str(params, "providerId");
-			await session.modelRegistry.authStorage.credentials.remove(providerId);
-			// Recompose without an authenticated network call so auth filtering updates immediately.
-			await session.modelRegistry.refreshProvider(providerId, "offline");
+			const accounts = await listLogoutAccounts(session.modelRegistry.authStorage, providerId, session.sessionId);
+			for (const account of accounts) {
+				await logoutCredential(session.modelRegistry, providerId, account.credentialId, session.sessionId);
+			}
 			emitCatalogUpdate(env, session);
 			return { providerId };
 		},
@@ -661,7 +676,15 @@ export const methods: BridgeMethods = {
 			const session = env.session();
 			const role = str(params, "role");
 			const modelId = asRecord(params).modelId;
-			session.settings.setModelRole(role, storedRoleValue(role, typeof modelId === "string" && modelId ? modelId : undefined));
+			session.settings.setModelRole(role, storedRoleValue(
+				role,
+				typeof modelId === "string" && modelId ? modelId : undefined,
+				value => extractExplicitThinkingSelector(value, session.settings, {
+					isLiteralModelId: (provider, id) => session.modelRegistry.getAll().some(
+						model => (provider === undefined || model.provider === provider) && model.id === id,
+					),
+				}),
+			));
 			await session.settings.flush();
 			env.emit({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
 			return { role, modelId: typeof modelId === "string" ? modelId : null };

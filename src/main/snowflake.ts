@@ -1,6 +1,6 @@
 /**
- * Snowflake id generator — vendored from packages/utils/src/snowflake.ts
- * (Snowflake.Source + Snowflake.next). The GUI may not runtime-import
+ * Snowflake id generator — stock @oh-my-pi/pi-utils/src/snowflake.ts
+ * (Snowflake.Source + Snowflake.next). IDs are minted before omp starts. The GUI may not runtime-import
  * @oh-my-pi/* packages, so the algorithm is copied: 16-char lowercase hex,
  * (timestamp - EPOCH) << 22 | seq, time-ordered and collision-resistant
  * within the process. Used to mint opaque tab ids.

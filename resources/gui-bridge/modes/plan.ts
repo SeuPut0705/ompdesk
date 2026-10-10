@@ -8,6 +8,8 @@
  * set restored on exit. When the agent proposes, the proposal is pushed as a
  * `plan_proposal` frame and the turn is silently aborted, the same stop the TUI
  * and print mode perform, until `plan_approval` resolves it.
+ * Kept: stock InteractiveMode's plan lifecycle is private and TUI-bound;
+ * no exported host-neutral controller can drive the RPC proposal UI.
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";

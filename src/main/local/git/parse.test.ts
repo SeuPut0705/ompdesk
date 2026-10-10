@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
 	extractDraftJson,
 	guiWorktreeCandidate,
-	hashPath,
 	isInside,
 	isSafeRelativePath,
 	newFileDiff,
@@ -12,9 +11,7 @@ import {
 	parseStatusV2,
 	renderPrompt,
 	worktreeSlug,
-	worktreesDir,
 } from "./parse";
-import { parseWorktreeList } from "./pr";
 
 describe("parseGitStatus", () => {
 	it("keeps spaces in paths and pairs renames with their origin", () => {
@@ -73,25 +70,13 @@ describe("worktree naming", () => {
 		expect(worktreeSlug("a".repeat(42))).toBeNull();
 	});
 	it("builds suffixed branch and hashed path", () => {
-		const hash = hashPath("/repo");
-		expect(hash).toMatch(/^[0-9a-f]{7}$/);
-		expect(guiWorktreeCandidate("x", "/repo", 1, "/wt")).toEqual({
+		const hash = "abc1234";
+		expect(guiWorktreeCandidate("x", hash, 1, "/wt")).toEqual({
 			name: "x",
 			branch: "omp/gui/x",
 			path: path.join("/wt", `gui-x-${hash}`),
 		});
-		expect(guiWorktreeCandidate("x", "/repo", 3, "/wt").branch).toBe("omp/gui/x-3");
-	});
-	it("honors OMP_WORKTREE_DIR", () => {
-		expect(worktreesDir({}, "/home/u")).toBe(path.join("/home/u", ".omp", "wt"));
-		expect(worktreesDir({ OMP_WORKTREE_DIR: "~/w" }, "/home/u")).toBe(path.resolve("/home/u/w"));
-	});
-	it("parses git worktree list --porcelain", () => {
-		const text = "worktree /r\nHEAD abc\nbranch refs/heads/main\n\nworktree /wt/1\nHEAD def\ndetached\n";
-		expect(parseWorktreeList(text)).toEqual([
-			{ path: "/r", branch: "refs/heads/main" },
-			{ path: "/wt/1", branch: null },
-		]);
+		expect(guiWorktreeCandidate("x", hash, 3, "/wt").branch).toBe("omp/gui/x-3");
 	});
 });
 
@@ -121,6 +106,10 @@ describe("parsePrUnifiedDiff", () => {
 			["sp aceé.ts", undefined],
 		]);
 		expect(text.slice(files[0]!.startOffset, files[0]!.endOffset)).toMatch(/^diff --git a\/a.ts[\s\S]*\+y\n$/);
+	});
+	it("decodes Git-quoted Korean UTF-8 filenames without stock gh-pr-diff mojibake", () => {
+		const encoded = [...Buffer.from("한글.ts")].map(byte => `\\${byte.toString(8).padStart(3, "0")}`).join("");
+		expect(parsePrUnifiedDiff(`diff --git "a/${encoded}" "b/${encoded}"\n`)[0]?.path).toBe("한글.ts");
 	});
 });
 

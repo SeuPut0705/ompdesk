@@ -73,6 +73,34 @@ function settingsData(entries: SettingEntry[], onCommitted = vi.fn()): SettingsD
 
 function installRpc(setResult: unknown = { path: PATH, value: {}, savedValue: {} }) {
 	const rpc = {
+		compactionLimits: vi.fn(async (params: { values?: Record<string, unknown>; key?: string; input?: string }) => {
+			if (params.input !== undefined) {
+				const text = params.input.trim();
+				const value = ({ "120k": 120_000, "90k": 90_000, "75%": "75%" } as Record<string, number | string>)[text];
+				const data = !params.key
+					? { ok: false, modelError: "empty" }
+					: params.key === "openai*x"
+						? { ok: false, modelError: "star" }
+						: params.key === "mistral-large"
+							? { ok: false, modelError: "shape" }
+							: value === undefined
+								? { ok: false, limitError: text === "150%" ? "percent" : "invalid" }
+								: { ok: true, value };
+				return { success: true, data };
+			}
+			return {
+				success: true,
+				data: {
+					rows: Object.entries(params.values ?? {})
+						.filter(([, value]) => value !== null)
+						.map(([key, value]) => ({
+							key,
+							value,
+							text: value === 120_000 ? "120k" : value === 90_000 ? "90k" : String(value),
+						})),
+				},
+			};
+		}),
 		setSetting: vi.fn(async (_path: string, _value: unknown) => ({ success: true, data: setResult })),
 		getSettings: vi.fn(async () => ({ success: true, data: { values: { [PATH]: {} } } })),
 		getCompactionPoints: vi.fn(async () => ({

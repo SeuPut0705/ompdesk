@@ -5,21 +5,22 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-	MAX_POOL_MEMBERS as BRIDGE_MAX_POOL_MEMBERS,
 	buildPoolInstruction,
-	normalizePool,
 	POOL_ENTRY_TYPE,
-	POOL_ROLE_HINTS,
 	poolFromEntries,
 	roleHint,
 } from "../../../resources/gui-bridge/modes/pool-core";
+import {
+	MAX_POOL_MEMBERS,
+	normalizePool,
+	POOL_ROLE_HINTS,
+	POOL_ROLES,
+} from "../../../resources/gui-bridge/pool-contracts";
 import type { RpcModelPoolState, SubagentSnapshot } from "../../shared/rpc-types";
 import {
 	addPoolMember,
 	EMPTY_MODEL_POOL,
-	MAX_POOL_MEMBERS,
 	modelSelector,
-	POOL_ROLES,
 	poolMemberFor,
 	removePoolMember,
 	setPoolMemberRole,
@@ -57,9 +58,8 @@ function subagent(id: string, resolvedModel: string | undefined, tokens: number,
 }
 
 describe("bridge pool-core", () => {
-	it("keeps GUI role presets and the bridge's role hints in step", () => {
-		expect(Object.keys(POOL_ROLE_HINTS).sort()).toEqual([...POOL_ROLES].sort());
-		expect(MAX_POOL_MEMBERS).toBe(BRIDGE_MAX_POOL_MEMBERS);
+	it("offers each preset role in its display order", () => {
+		expect(Object.keys(POOL_ROLE_HINTS)).toEqual(POOL_ROLES);
 	});
 
 	it("normalizes untrusted input: valid selectors only, first one wins, defaults filled", () => {
@@ -89,7 +89,7 @@ describe("bridge pool-core", () => {
 
 	it("caps the pool size", () => {
 		const members = Array.from({ length: 12 }, (_, i) => ({ selector: `p/m${i}`, name: `m${i}` }));
-		expect(normalizePool({ enabled: true, members }).members).toHaveLength(BRIDGE_MAX_POOL_MEMBERS);
+		expect(normalizePool({ enabled: true, members }).members).toHaveLength(MAX_POOL_MEMBERS);
 	});
 
 	it("restores the latest pool entry on the branch and ignores other entries", () => {

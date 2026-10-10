@@ -8,6 +8,8 @@
  */
 import { createHash } from "node:crypto";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import type { AgentMessage } from "../../src/shared/rpc-types";
+import { buildCopyTargets } from "./copy-targets";
 import { requireFn } from "./capabilities";
 import { guard } from "./health";
 import type { BridgeMethods } from "./types";
@@ -118,7 +120,7 @@ async function sharePreview(session: Session) {
 }
 
 // ── Methods ──────────────────────────────────────────────────────────────────
-export const methods: BridgeMethods = {
+export const methods: BridgeMethods = guard("composer", {
 	/** The get_state fields stock omits. */
 	"composer.state": async (_params, env) => {
 		const session = env.session() as Session;
@@ -126,8 +128,7 @@ export const methods: BridgeMethods = {
 		return {
 			cwd: session.sessionManager.getCwd(),
 			autoRetryEnabled: session.autoRetryEnabled,
-			thinkingLevel: session.thinkingLevel,
-			thinkingConfigured: session.configuredThinkingLevel?.() ?? session.thinkingLevel,
+			thinkingConfigured: session.configuredThinkingLevel(),
 			planModeEnabled: session.getPlanModeState?.()?.enabled ?? false,
 			prewalkArmed: session.getPrewalkState?.() !== undefined,
 			agentsPaused: agentPauseGate?.paused === true,
@@ -192,24 +193,21 @@ export const methods: BridgeMethods = {
 		return { armed: session.getPrewalkState() !== undefined };
 	},
 
-	/** `/tools` parity: active tools, then xd:// mounted entries, with provenance. */
-	"composer.active_tools": async (_params, env) => {
+	/** Stock get_state supplies top-level tool descriptions; only provenance and xd:// entries are extras. */
+	"composer.tool_extras": async (_params, env) => {
 		const session = env.session() as Session;
 		const source = (name: string) =>
 			name.startsWith("mcp__")
 				? "mcp"
-				: typeof session.hasBuiltInTool === "function" && session.hasBuiltInTool(name)
+				: session.hasBuiltInTool(name)
 					? "builtin"
 					: "extension";
-		const tools = session.agent.state.tools.map(tool => ({
-			name: tool.name,
-			description: tool.description,
-			source: source(tool.name),
-		}));
-		const mounted: Array<{ name: string; summary: string }> =
-			typeof session.getXdevToolEntries === "function" ? session.getXdevToolEntries() : [];
-		for (const entry of mounted) tools.push({ name: entry.name, description: entry.summary, source: source(entry.name) });
-		return { tools };
+		const sources = Object.fromEntries(session.agent.state.tools.map(tool => [tool.name, source(tool.name)]));
+		const mounted = session.getXdevToolEntries();
+		return {
+			sources,
+			mounted: mounted.map(entry => ({ name: entry.name, description: entry.summary, source: source(entry.name) })),
+		};
 	},
 
 	/** `/context` parity. */
@@ -248,13 +246,28 @@ export const methods: BridgeMethods = {
 		},
 	}),
 
-	/** Stock RPC `cycle_model` only goes forward; the session method takes a direction. */
-	"composer.cycle_model": async (params, env) => {
+	/** Stock RPC owns forward cycling; only the missing backward direction needs the bridge. */
+	"composer.cycle_model_backward": async (_params, env) => {
 		const session = env.session() as Session;
 		requireFn(session, "cycleModel", "composer");
-		const { direction } = record(params);
-		return (await session.cycleModel(direction === "backward" ? "backward" : "forward")) ?? null;
+		return (await session.cycleModel("backward")) ?? null;
 	},
+
+	...guard(["composer", "sessionTree"], {
+		"composer.copy_targets": async (_params, env) => {
+			// Late imports isolate moved stock internals from the other composer adapters.
+			const stock = await import("@oh-my-pi/pi-tui/overlays/copy-targets");
+			const { buildTranscript } = await import("./session-display");
+			const messages = buildTranscript(env.session().sessionManager).messages as unknown as AgentMessage[];
+			return {
+				targets: buildCopyTargets(messages, {
+					extractBlocks: stock.extractBlocks,
+					assistantText: message => stock.assistantText(message as Parameters<typeof stock.assistantText>[0]),
+					commandFromToolCall: call => stock.commandFromToolCall(call),
+				}),
+			};
+		},
+	}),
 
 	"composer.skill_count": async (_params, env) => ({ skills: (env.session() as Session).skills?.length ?? 0 }),
 
@@ -270,4 +283,4 @@ export const methods: BridgeMethods = {
 		const mode = after.steering.length < before.steering.length ? "steer" : "followUp";
 		return { text: popped.text, images: popped.images, mode };
 	},
-};
+});

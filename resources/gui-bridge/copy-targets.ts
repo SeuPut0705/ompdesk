@@ -1,24 +1,14 @@
 /**
- * Copy-picker targets for `get_copy_targets`, derived from the projected
- * transcript: recent assistant messages (with their fenced code and quote
- * blocks as children) and the bash/eval commands they ran. Port of omp's
- * RPC copy targets (pi-tui overlays/copy-targets.ts `buildCopyTargets`).
+ * GUI copy-picker ranking, tree labels and handoff adapter. Markdown/text/tool
+ * extraction is supplied by stock pi-tui/overlays/copy-targets in the bridge.
  */
-import type { AgentMessage, CopyTarget, MessageContent } from "../../shared/rpc-types";
+import type { AgentMessage, CopyTarget, MessageContent } from "../../src/shared/rpc-types";
 
-/** Assistant messages considered, newest first. */
-const MAX_MESSAGES = 50;
-
-const OPEN_FENCE_RE = /^```([^\n]*)$/;
-const CLOSE_FENCE_RE = /^```/;
-const QUOTE_LINE_RE = /^>(.*)$/;
-
-interface CodeBlock {
-	lang: string;
-	code: string;
+export interface CopyExtractors {
+	extractBlocks(text: string): Array<{ kind: "code"; lang: string; code: string } | { kind: "quote"; text: string }>;
+	assistantText(message: AgentMessage): string | undefined;
+	commandFromToolCall(content: Extract<MessageContent, { type: "toolCall" }>): RunnableCommand | undefined;
 }
-
-type MessageBlock = ({ kind: "code" } & CodeBlock) | { kind: "quote"; text: string };
 
 interface RunnableCommand {
 	kind: "bash" | "eval";
@@ -26,90 +16,11 @@ interface RunnableCommand {
 	language: string;
 }
 
-/**
- * Fenced code and `>`-quoted runs in document order. Fences mask their bodies;
- * an unclosed fence is ordinary text.
- */
-export function extractBlocks(text: string): MessageBlock[] {
-	const blocks: MessageBlock[] = [];
-	const lines = text.split("\n");
-	let quote: string[] | undefined;
-	const flushQuote = () => {
-		if (quote) {
-			blocks.push({ kind: "quote", text: quote.join("\n") });
-			quote = undefined;
-		}
-	};
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i] ?? "";
-		const open = OPEN_FENCE_RE.exec(line);
-		if (open) {
-			let close = -1;
-			for (let k = i + 1; k < lines.length; k++) {
-				if (CLOSE_FENCE_RE.test(lines[k] ?? "")) {
-					close = k;
-					break;
-				}
-			}
-			if (close !== -1) {
-				flushQuote();
-				blocks.push({ kind: "code", lang: (open[1] ?? "").trim(), code: lines.slice(i + 1, close).join("\n") });
-				i = close;
-				continue;
-			}
-		}
-		const quoted = QUOTE_LINE_RE.exec(line);
-		if (quoted) {
-			const body = quoted[1] ?? "";
-			quote ??= [];
-			quote.push(body.startsWith(" ") ? body.slice(1) : body);
-		} else {
-			flushQuote();
-		}
-	}
-	flushQuote();
-	return blocks;
-}
+/** Assistant messages considered, newest first. */
+const MAX_MESSAGES = 50;
 
 function contentBlocks(message: AgentMessage): MessageContent[] {
 	return Array.isArray(message.content) ? message.content : [];
-}
-
-/** Concatenated visible text of an assistant message; undefined when blank. */
-function assistantText(message: AgentMessage): string | undefined {
-	if (message.role !== "assistant") return undefined;
-	let text = "";
-	for (const content of contentBlocks(message)) {
-		if (content.type === "text") text += content.text;
-	}
-	return text.trim() ? text : undefined;
-}
-
-function evalCode(args: Record<string, unknown>): { code: string; language: string } | undefined {
-	const cells = Array.isArray(args.cells) ? args.cells : typeof args.code === "string" ? [args] : undefined;
-	if (!cells) return undefined;
-	const codes: string[] = [];
-	let language: string | undefined;
-	for (const cell of cells) {
-		if (!cell || typeof cell !== "object" || !("code" in cell)) continue;
-		if (typeof cell.code !== "string" || cell.code.length === 0) continue;
-		codes.push(cell.code);
-		language ??= "language" in cell && cell.language === "js" ? "javascript" : "python";
-	}
-	return codes.length > 0 ? { code: codes.join("\n\n"), language: language ?? "python" } : undefined;
-}
-
-function commandFromToolCall(content: MessageContent): RunnableCommand | undefined {
-	if (content.type !== "toolCall") return undefined;
-	const args = content.arguments ?? {};
-	if (content.name === "bash" && typeof args.command === "string") {
-		return { kind: "bash", code: args.command, language: "bash" };
-	}
-	if (content.name === "eval") {
-		const result = evalCode(args);
-		if (result) return { kind: "eval", ...result };
-	}
-	return undefined;
 }
 
 function pluralLines(text: string): string {
@@ -125,10 +36,10 @@ function firstLine(text: string): string {
 	return text.trim().replace(/\s+/g, " ");
 }
 
-function messageTarget(text: string, rank: number): CopyTarget {
+function messageTarget(text: string, rank: number, stock: CopyExtractors): CopyTarget {
 	const id = `msg:${rank}`;
 	const label = firstLine(text);
-	const blocks = extractBlocks(text);
+	const blocks = stock.extractBlocks(text);
 	const copyMessage = rank === 1 ? "Copied last message to clipboard" : "Copied message to clipboard";
 	if (blocks.length === 0) return { id, label, hint: pluralLines(text), preview: text, content: text, copyMessage };
 
@@ -218,7 +129,7 @@ function lastHandoffText(messages: readonly AgentMessage[]): string | undefined 
 }
 
 /** Recent assistant messages (newest first), each followed by the commands its turn ran. */
-export function buildCopyTargets(messages: readonly AgentMessage[]): CopyTarget[] {
+export function buildCopyTargets(messages: readonly AgentMessage[], stock: CopyExtractors): CopyTarget[] {
 	const targets: CopyTarget[] = [];
 	const pending: RunnableCommand[] = [];
 	let messageRank = 0;
@@ -237,16 +148,16 @@ export function buildCopyTargets(messages: readonly AgentMessage[]): CopyTarget[
 		const content = contentBlocks(message);
 		for (let j = content.length - 1; j >= 0; j--) {
 			const block = content[j];
-			const command = block && commandFromToolCall(block);
+			const command = block?.type === "toolCall" && stock.commandFromToolCall(block);
 			if (command) commands.push(command);
 		}
-		const text = assistantText(message);
+		const text = stock.assistantText(message);
 		if (!text) {
 			pending.push(...commands);
 			continue;
 		}
 		messageRank += 1;
-		targets.push(messageTarget(text, messageRank));
+		targets.push(messageTarget(text, messageRank, stock));
 		appendCommands(pending);
 		appendCommands(commands);
 		pending.length = 0;

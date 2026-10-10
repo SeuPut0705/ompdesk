@@ -59,16 +59,14 @@ const AREAS: readonly Area[] = [
 	{ name: "account-rotation", features: ["accountRotation"], load: () => import("./account-rotation") },
 	{ name: "modes/actions", features: ["tan", "omfg", "agentPause"], load: () => import("./modes/actions") },
 	{ name: "compaction-limits", features: ["compactionLimits"], load: () => import("./compaction-limits") },
+	{ name: "input-history", features: ["inputHistory"], load: () => import("./input-history") },
 	{ name: "worktree-lifecycle", features: ["worktreeLifecycle"], load: () => import("./worktree-lifecycle") },
+	{ name: "stream-metadata", features: ["streamMetadata"], load: () => import("./stream-metadata") },
 ];
 
 function builtins(failures: readonly AreaFailure[]): BridgeMethods {
 	return {
 		ping: async (_params, env) => ({ version: env.pi.pi.VERSION }),
-		session_info: async (_params, env) => {
-			const session = env.session();
-			return { sessionId: session.sessionId, sessionFile: session.sessionFile ?? null };
-		},
 		/** Startup compatibility self-check: which GUI features this omp cannot serve, and why. */
 		capabilities: async (_params, env) => ({
 			ompVersion: env.pi.pi.VERSION,

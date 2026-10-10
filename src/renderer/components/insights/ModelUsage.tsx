@@ -5,11 +5,13 @@
  * pool models carry their member name and role, so the distribution the pool
  * produced is visible at a glance. Renders nothing until a subagent has run.
  */
+
+import { isPresetRole } from "../../../../resources/gui-bridge/pool-contracts";
 import type { SessionStats } from "../../../shared/rpc-types";
 import { formatUsd } from "../../lib/chart";
 import { formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { isPresetRole, modelSelector, usageByModel } from "../../lib/model-pool";
+import { modelSelector, usageByModel } from "../../lib/model-pool";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";

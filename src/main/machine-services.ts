@@ -17,7 +17,7 @@ import {
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
-	CustomProviderView,
+	CustomProvidersConfig,
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
 	IpcModelSetupRunResult,
@@ -26,6 +26,7 @@ import { MODEL_SETUP_TIMEOUT_MS, type ModelSetupRequest, type ModelSetupStatus }
 import { BENCHMARK_TIMEOUT_MS, BenchmarkRunner } from "./benchmark-runner";
 import { ModelSetupRunner } from "./model-setup-runner";
 import { deleteModelsProvider, listModelsProviders, upsertModelsProvider } from "./models-config";
+import { modelsConfigMetadata } from "./models-config-stock";
 import type { OmpResolution } from "./omp-runtime";
 import {
 	AccountRotationStateSchema,
@@ -37,7 +38,7 @@ import type { StatsClient } from "./stats-client";
 import type { Revive } from "./stats-restart-policy";
 
 export interface MachineServices {
-	listProviders(): Promise<CustomProviderView[]>;
+	listProviders(): Promise<CustomProvidersConfig>;
 	upsertProvider(input: CustomProviderInput): Promise<void>;
 	deleteProvider(id: string): Promise<void>;
 	/** A stats API read; failures resolve as `{error, unavailable, stopped?}` (never reject). */
@@ -122,16 +123,17 @@ export class LocalMachine implements MachineServices {
 		this.#deps = deps;
 	}
 
-	async listProviders(): Promise<CustomProviderView[]> {
-		return listModelsProviders();
+	async listProviders(): Promise<CustomProvidersConfig> {
+		const [providers, options] = await Promise.all([listModelsProviders(), modelsConfigMetadata()]);
+		return { providers, options };
 	}
 
 	async upsertProvider(input: CustomProviderInput): Promise<void> {
-		upsertModelsProvider(input);
+		await upsertModelsProvider(input);
 	}
 
 	async deleteProvider(id: string): Promise<void> {
-		deleteModelsProvider(id);
+		await deleteModelsProvider(id);
 	}
 
 	async fetchStats(path: string, params?: Record<string, string>): Promise<unknown> {
@@ -239,7 +241,7 @@ export class RemoteMachine implements MachineServices {
 		return this.#options.request<T>(this.#options.device, method, params, timeoutMs);
 	}
 
-	listProviders(): Promise<CustomProviderView[]> {
+	listProviders(): Promise<CustomProvidersConfig> {
 		return this.#request("host.models.list", {});
 	}
 

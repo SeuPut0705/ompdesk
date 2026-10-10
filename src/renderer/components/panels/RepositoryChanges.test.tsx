@@ -112,6 +112,40 @@ afterEach(async () => {
 });
 
 describe("RepositoryChanges", () => {
+	it("opens a file with counts and navigation, hides git metadata, and returns to the list", async () => {
+		const data = changes("src/a.ts", "src/b.ts");
+		data.files[0] = { path: "src/a.ts", status: "M", added: 1, removed: 1 };
+		const getGitDiff = vi.fn(async (path: string) => ({
+			success: true,
+			data: {
+				path,
+				kind: "text",
+				truncated: false,
+				diff: "diff --git a/src/a.ts b/src/a.ts\nindex 123..456 100644\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n",
+			},
+		}));
+		Object.assign(window, {
+			omp: { rpc: { getGitChanges: vi.fn(async () => ({ success: true, data })), getGitDiff } },
+		});
+		await mount();
+		const first = queryAll("button").find(button => button.getAttribute("title") === "src/a.ts")!;
+		await click(first);
+		await flush();
+		expect(getGitDiff).toHaveBeenCalledWith("src/a.ts");
+		expect(bodyText()).toContain("+1");
+		expect(bodyText()).toContain("−1");
+		expect(bodyText()).toContain("old");
+		expect(bodyText()).toContain("new");
+		expect(bodyText()).not.toContain("index 123");
+		const next = queryAll("button").find(button => button.getAttribute("aria-label") === "Next file")!;
+		await click(next);
+		await flush();
+		expect(getGitDiff).toHaveBeenLastCalledWith("src/b.ts");
+		const back = queryAll("button").find(button => button.getAttribute("aria-label") === "Back to changed files")!;
+		await click(back);
+		expect(document.querySelector(".omp-changes-preview")).toBeNull();
+		expect(document.querySelector('button[title="src/a.ts"]')).not.toBeNull();
+	});
 	it("keeps the loaded file list on screen when a refresh fails", async () => {
 		installMockOmp(async () => ({
 			type: "response",
@@ -120,7 +154,7 @@ describe("RepositoryChanges", () => {
 			data: changes("src/a.ts"),
 		}));
 		await mount();
-		expect(bodyText()).toContain("src/a.ts");
+		expect(document.querySelector('button[title="src/a.ts"]')).not.toBeNull();
 		expect(getGitChanges).toHaveBeenCalledTimes(1);
 
 		getGitChanges.mockResolvedValueOnce({
@@ -134,7 +168,7 @@ describe("RepositoryChanges", () => {
 
 		// The user was looking at real changes; a failed re-read may not turn the
 		// panel into an empty "clean tree".
-		expect(bodyText()).toContain("src/a.ts");
+		expect(document.querySelector('button[title="src/a.ts"]')).not.toBeNull();
 		expect(bodyText()).not.toContain("No net changes in this checkout.");
 		expect(bodyText()).toContain("git status failed");
 	});
@@ -167,8 +201,8 @@ describe("RepositoryChanges", () => {
 		await click(refreshButton());
 		await flush();
 
-		expect(bodyText()).toContain("src/b.ts");
-		expect(bodyText()).not.toContain("src/a.ts");
+		expect(document.querySelector('button[title="src/b.ts"]')).not.toBeNull();
+		expect(document.querySelector('button[title="src/a.ts"]')).toBeNull();
 		expect(bodyText()).not.toContain("git status failed");
 	});
 });

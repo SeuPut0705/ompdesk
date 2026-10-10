@@ -1,6 +1,6 @@
 /**
- * Read-tool grouping (TUI read-tool-group.ts parity, GUI port): consecutive
- * collapsible `read` calls fold into ONE group card that accretes across
+ * React read-tool grouping: consecutive calls with stock collapse metadata
+ * fold into ONE group card that accretes across
  * assistant messages for as long as the run is uninterrupted.
  *
  * Break rules (mirrors the TUI): a newly visible assistant text or non-empty
@@ -10,7 +10,7 @@
  *
  * Both render paths share this module (plan/17 §7.4): buildHistoryRows
  * output is post-processed here for the finalized transcript; the live
- * StreamingRows path groups its read cards with the same predicate.
+ * StreamingRows path groups its read cards using the same host metadata.
  */
 
 import type { AgentMessage, MessageContent } from "../../shared/rpc-types";
@@ -47,28 +47,17 @@ export interface ReadGroupUsage {
 	timestamp?: string | number;
 }
 
-const SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
-/** Numeric selector suffix: `:50`, `:50-100`, `:50+150`, `:5-16,960-973`. */
-const SELECTOR_RE = /:(\d+(?:[-+]\d+)?(?:,\d+(?:[-+]\d+)?)*)$/;
-
 /**
- * Collapse predicate (readArgsCollapseIntoGroup parity): `xd://` targets and
- * anything the internal-URL router would NOT handle collapse; scheme URLs
- * (skill://, agent://, …) render full. Unknown/missing path → not collapsible.
+ * Stock pi-tui/chat/read-tool-group and tools/read attach this metadata in the
+ * bridge. Missing metadata renders a full card; no renderer scheme policy.
  */
 export function collapsibleReadTarget(args: unknown): { path: string; selector?: string } | null {
 	if (args === null || typeof args !== "object") return null;
-	const record = args as Record<string, unknown>;
-	// Legacy alias tolerated: older reads carried file_path.
-	const target =
-		typeof record.path === "string" ? record.path : typeof record.file_path === "string" ? record.file_path : null;
-	if (!target) return null;
-	if (SCHEME_RE.test(target) && !target.startsWith("xd://")) return null;
-	const selectorMatch = SELECTOR_RE.exec(target);
-	if (selectorMatch) {
-		return { path: target.slice(0, selectorMatch.index), selector: selectorMatch[1] };
-	}
-	return { path: target };
+	const target = (args as Record<string, unknown>).__ompReadGroup;
+	if (target === null || typeof target !== "object") return null;
+	const record = target as Record<string, unknown>;
+	if (typeof record.path !== "string") return null;
+	return { path: record.path, ...(typeof record.selector === "string" ? { selector: record.selector } : {}) };
 }
 
 /** A visible non-read block seals the run; empty thinking/invisible filler does not. */

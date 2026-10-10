@@ -27,17 +27,6 @@ describe("unavailableFeatures", () => {
 		expect(unavailableFeatures({ unavailable: [] })).toEqual([]);
 		expect(unavailableFeatures(null)).toEqual([]);
 	});
-
-	it("drops optional (newer-omp) features only when asked for the required ones", () => {
-		const result = {
-			unavailable: [
-				{ feature: "compactionLimits", missing: ["x"], optional: true },
-				{ feature: "planMode", missing: ["y"] },
-			],
-		};
-		expect(unavailableFeatures(result)).toEqual(["compactionLimits", "planMode"]);
-		expect(unavailableFeatures(result, { requiredOnly: true })).toEqual(["planMode"]);
-	});
 });
 
 describe("BridgeHealth", () => {
@@ -83,21 +72,6 @@ describe("BridgeHealth", () => {
 		expect(health.supports("18.7.0", "accountRotation")).toBe(false);
 		expect(health.supports("18.7.0", "planMode")).toBe(true);
 		expect(health.supports("18.8.0", "accountRotation")).toBe(true);
-	});
-
-	it("does not warn about a feature only a newer omp has, but still reports it unsupported", async () => {
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-		const notify = vi.fn();
-		const health = new BridgeHealth(notify);
-		const older = fakeBridge(async () => ({
-			ompVersion: "18.8.0",
-			unavailable: [{ feature: "compactionLimits", missing: ["x"], optional: true }],
-		}));
-		await health.observe({ connected: true, ompVersion: "18.8.0", bridge: older.bridge });
-		expect(notify).not.toHaveBeenCalled();
-		expect(warn).not.toHaveBeenCalled();
-		expect(health.take()).toEqual([]);
-		expect(health.supports("18.8.0", "compactionLimits")).toBe(false);
 	});
 
 	it("retries on the next sidecar when the capabilities request itself fails", async () => {

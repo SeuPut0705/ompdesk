@@ -59,6 +59,13 @@ afterEach(async () => {
 });
 
 describe("ThinkingBlock", () => {
+	it("renders the stock rate without treating reasoning characters as tokens", async () => {
+		useMessagesStore.getState().applyEvents([{ type: "token_rate", rate: 64 }]);
+		useMessagesStore.setState({ streamingThinking: HEADLINED_THINKING });
+		await mount(<ThinkingBlock live />);
+		expect(container.querySelector(".omp-thinking-gauge")?.textContent).toContain("64");
+		expect(container.querySelector(".omp-thinking-gauge")?.textContent).not.toContain("tokens");
+	});
 	it("renders reasoning markdown instead of literal syntax (TUI parity)", async () => {
 		await mountExpandedThinking(HEADLINED_THINKING);
 

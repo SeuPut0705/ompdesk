@@ -11,7 +11,11 @@
  * - tools store: `message.timestamp` and, for `toolcall_delta`, the toolCall
  *   block at `partial.content[contentIndex]` (its id and name; arguments
  *   stream as deltas).
- * - turn meter: `message.usage` and the delta length.
+ * - turn meter: provider-reported `message.usage`.
+ *
+ * Kept over stock modes/rpc/rpc-session-events delta projection: that drops
+ * every snapshot, whereas our attachment-aware first snapshot restores a
+ * renderer joining mid-stream without losing the prefix or tool identity.
  */
 import type { AgentMessage, AgentSessionEvent, AssistantMessageEvent, MessageContent } from "../shared/rpc-types";
 

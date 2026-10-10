@@ -109,6 +109,18 @@ test("agent editor and template gallery write definitions omp discovers", async 
 		await openDefinitions("Definitions");
 		await expect(page.getByRole("heading", { name: "legacy", exact: true })).toBeVisible({ timeout: 30_000 });
 		expect(await discovered("legacy")).toMatchObject({ source: "user", scope: "user" });
+		// The writer must surface stock's field error rather than the removed
+		// local coercion/parser's wording, and must not persist an invalid file.
+		const invalid = await page.evaluate(() =>
+			window.omp.rpc.writeAgentFile({
+				scope: "user",
+				name: "invalid-field-probe",
+				content: "---\nname: invalid-field-probe\ndescription: [not, a, string]\n---\nInstructions.",
+			}),
+		);
+		expect(invalid.success).toBe(false);
+		if (!invalid.success) expect(invalid.error).toContain("Failed to parse agent: Invalid agent field:");
+		expect(await fs.stat(path.join(userAgents, "invalid-field-probe.md")).catch(() => null)).toBeNull();
 		expect(await discovered("scout")).toMatchObject({ source: "bundled" });
 		expect((await discovered("scout"))?.scope).toBeUndefined();
 

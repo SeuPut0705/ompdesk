@@ -17,11 +17,9 @@ import { z } from "zod";
 import type { SettingProvenance } from "../../../shared/rpc-types";
 import {
 	type CompactionLimit,
-	compactionLimitEntries,
-	formatCompactionLimit,
+	compactionLimitCommitSchema,
+	compactionLimitsSchema,
 	MODEL_THRESHOLDS_PATH,
-	modelSelectorError,
-	parseCompactionLimit,
 	useCompactionPoints,
 } from "../../lib/compaction-limits";
 import { useT } from "../../lib/i18n";
@@ -64,6 +62,33 @@ export function CompactionLimitsSection() {
 	const [modelError, setModelError] = useState<string | null>(null);
 	const [limitError, setLimitError] = useState<string | null>(null);
 	const limitId = useId();
+	const [rows, setRows] = useState<Array<{ key: string; value: CompactionLimit; text: string }>>([]);
+	const [loadingRows, setLoadingRows] = useState(true);
+	const rawLimits = values[MODEL_THRESHOLDS_PATH];
+	useEffect(() => {
+		if (!sidecarReady || !entry) return;
+		let current = true;
+		setLoadingRows(true);
+		void tabRpc
+			.compactionLimits({ values: rawLimits })
+			.then(response => {
+				if (!response.success) throw new Error(response.error);
+				const result = compactionLimitsSchema.parse(response.data);
+				if (current) setRows(result.rows);
+			})
+			.catch(error => {
+				if (current) {
+					setRows([]);
+					toastError({ title: t("settings.saveFailed"), error });
+				}
+			})
+			.finally(() => {
+				if (current) setLoadingRows(false);
+			});
+		return () => {
+			current = false;
+		};
+	}, [rawLimits, sidecarReady, entry, tabRpc, t]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: fresh schema provenance (config_update) replaces the one the last save returned.
 	useEffect(() => {
@@ -75,7 +100,6 @@ export function CompactionLimitsSection() {
 	const provenance = savedProvenance ?? entry.provenance;
 	// The global layer alone is what a write replaces; project entries must not be copied into it.
 	const globalLayer = provenance?.layers.includes("global") ? asRecord(provenance.globalValue) : {};
-	const rows = compactionLimitEntries(values[MODEL_THRESHOLDS_PATH]);
 	const disabled = saving || !sidecarReady;
 
 	const write = async (key: string, next: CompactionLimit | undefined): Promise<boolean> => {
@@ -113,14 +137,22 @@ export function CompactionLimitsSection() {
 
 	const add = async () => {
 		const key = model.trim();
-		const keyProblem = key.length === 0 ? "empty" : modelSelectorError(key);
-		const parsed = parseCompactionLimit(limit);
-		setModelError(keyProblem ? t(`compactionLimits.err.model.${keyProblem}`) : null);
-		setLimitError(parsed.ok ? null : t(`compactionLimits.err.limit.${parsed.error}`));
-		if (keyProblem || !parsed.ok) return;
-		if (await write(key, parsed.value)) {
-			setModel("");
-			setLimit("");
+		setSaving(true);
+		try {
+			const response = await tabRpc.compactionLimits({ key, input: limit });
+			if (!response.success) throw new Error(response.error);
+			const parsed = compactionLimitCommitSchema.parse(response.data);
+			setModelError(!parsed.ok && parsed.modelError ? t(`compactionLimits.err.model.${parsed.modelError}`) : null);
+			setLimitError(!parsed.ok && parsed.limitError ? t(`compactionLimits.err.limit.${parsed.limitError}`) : null);
+			if (!parsed.ok) return;
+			if (await write(key, parsed.value)) {
+				setModel("");
+				setLimit("");
+			}
+		} catch (error) {
+			toastError({ title: t("settings.saveFailed"), error });
+		} finally {
+			setSaving(false);
 		}
 	};
 
@@ -131,16 +163,14 @@ export function CompactionLimitsSection() {
 			title={t("compactionLimits.title")}
 		>
 			<div className="divide-y divide-(--sc-divider)">
-				{rows.map(([key, value]) => {
+				{rows.map(({ key, value, text }) => {
 					const own = Object.hasOwn(globalLayer, key) && globalLayer[key] === value;
 					const point = key.endsWith("*") ? undefined : points?.bySelector.get(key);
 					return (
 						<SettingsRow
 							control={
 								<div className="flex items-center justify-end gap-2">
-									<span className="font-mono text-sc-sm tabular-nums text-(--sc-text)">
-										{formatCompactionLimit(value)}
-									</span>
+									<span className="font-mono text-sc-sm tabular-nums text-(--sc-text)">{text}</span>
 									{own && (
 										<IconButton
 											disabled={disabled}
@@ -171,7 +201,9 @@ export function CompactionLimitsSection() {
 					);
 				})}
 				{rows.length === 0 && (
-					<p className="py-3 text-sc-sm text-(--sc-text-muted)">{t("compactionLimits.empty")}</p>
+					<p className="py-3 text-sc-sm text-(--sc-text-muted)">
+						{t(loadingRows ? "common.loading" : "compactionLimits.empty")}
+					</p>
 				)}
 				<SettingsRow
 					description={t("compactionLimits.addHint")}

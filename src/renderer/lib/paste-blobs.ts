@@ -1,3 +1,4 @@
+// Stock pi-tui/components/editor paste atoms stay synchronous and draft-owned across tabs; omp is not shipped in the renderer.
 /**
  * Large-paste bookkeeping for the composer, mirroring the TUI editor
  * (`packages/tui/src/components/editor.ts`). The draft text carries compact

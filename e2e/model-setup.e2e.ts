@@ -170,7 +170,7 @@ test("reopening shows the saved proposal, and the Features advisor row opens the
 	await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
 	await expect(dialog).toHaveCount(0);
 
-	await settingsSection("features").click();
+	await settingsSection("agent").click();
 	const advisorRow = settings.locator('[id="setting-advisor.enabled"]');
 	await expect(advisorRow.getByRole("switch")).toHaveAttribute("aria-checked", "true");
 	await expect(settings.locator("#setting-advisor-model")).toBeVisible();

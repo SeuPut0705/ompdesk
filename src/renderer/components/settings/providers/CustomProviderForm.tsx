@@ -13,9 +13,9 @@ import type {
 	CustomProviderApi,
 	CustomProviderDiscoveryType,
 	CustomProviderInput,
+	CustomProviderOptions,
 	CustomProviderView,
 } from "../../../../shared/ipc-types";
-import { CUSTOM_PROVIDER_APIS } from "../../../../shared/ipc-types";
 import { errorDetail, type InlineFailure, inlineFailure } from "../../../lib/error-detail";
 import { useT } from "../../../lib/i18n";
 import { useModelStore } from "../../../stores/model";
@@ -36,15 +36,6 @@ export function providerRequiresManualModels(discoveryType: CustomProviderDiscov
 }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-
-const DISCOVERY_TYPES: readonly CustomProviderDiscoveryType[] = [
-	"ollama",
-	"llama.cpp",
-	"lm-studio",
-	"openai-models-list",
-	"proxy",
-	"litellm",
-];
 
 interface HeaderRow {
 	key: number;
@@ -75,11 +66,12 @@ export interface CustomProviderFormProps {
 	editing: CustomProviderView | null;
 	/** Already-configured providers (id collision check when adding). */
 	existing: readonly CustomProviderView[];
+	options: CustomProviderOptions;
 	onSaved: (providerId: string) => void;
 	onCancel: () => void;
 }
 
-export function CustomProviderForm({ editing, existing, onSaved, onCancel }: CustomProviderFormProps) {
+export function CustomProviderForm({ editing, existing, options, onSaved, onCancel }: CustomProviderFormProps) {
 	const t = useT();
 	const device = useFocusedTabDevice();
 	const refreshProviders = useModelStore(state => state.refreshProviders);
@@ -88,7 +80,8 @@ export function CustomProviderForm({ editing, existing, onSaved, onCancel }: Cus
 
 	const [id, setId] = useState(editing?.id ?? "");
 	const [api, setApi] = useState<CustomProviderApi>(
-		(editing?.api as CustomProviderApi | undefined) ?? CUSTOM_PROVIDER_APIS[0],
+		(editing?.api ??
+			(options.apis.includes("openai-completions") ? "openai-completions" : options.apis[0])) as CustomProviderApi,
 	);
 	const [baseUrl, setBaseUrl] = useState(editing?.baseUrl ?? "");
 	const [apiKey, setApiKey] = useState("");
@@ -313,7 +306,7 @@ export function CustomProviderForm({ editing, existing, onSaved, onCancel }: Cus
 					hint={t("providerCfg.form.apiHint")}
 					label={t("providerCfg.form.api")}
 					onChange={event => setApi(event.target.value as CustomProviderApi)}
-					options={CUSTOM_PROVIDER_APIS.map(protocol => ({
+					options={options.apis.map(protocol => ({
 						value: protocol,
 						label: t(`providerCfg.protocol.${protocol}`),
 					}))}
@@ -396,6 +389,7 @@ export function CustomProviderForm({ editing, existing, onSaved, onCancel }: Cus
 							onRemove={removeModel}
 							onUpdate={updateModel}
 							readonly={readonly}
+							options={options}
 						/>
 					))}
 				</div>
@@ -440,9 +434,15 @@ export function CustomProviderForm({ editing, existing, onSaved, onCancel }: Cus
 							}
 							options={[
 								{ value: "", label: t("providerCfg.form.authApiKeyDefault") },
-								{ value: "apiKey", label: t("providerCfg.form.authApiKey") },
-								{ value: "none", label: t("common.none") },
-								{ value: "oauth", label: "OAuth" },
+								...options.auth.map(value => ({
+									value,
+									label:
+										value === "apiKey"
+											? t("providerCfg.form.authApiKey")
+											: value === "none"
+												? t("common.none")
+												: value,
+								})),
 							]}
 							value={auth ?? ""}
 						/>
@@ -475,7 +475,7 @@ export function CustomProviderForm({ editing, existing, onSaved, onCancel }: Cus
 								}
 								options={[
 									{ value: "", label: t("providerCfg.form.discoveryNone") },
-									...DISCOVERY_TYPES.map(type => ({
+									...options.discovery.map(type => ({
 										value: type,
 										label: t(`providerCfg.discovery.${type}`),
 									})),

@@ -203,6 +203,18 @@ test("system omp persists settings and sessions and serves every stats route", a
 		await page.reload();
 		await expect(page.locator("[data-transcript-kind]").filter({ hasText: "arm audit ok" })).toHaveCount(1);
 		await dismissSetupIfPresent("Set up OMPdesk", "Set up later");
+		const artifacts = seededSession.slice(0, -6);
+		await fs.mkdir(path.join(artifacts, "nested"), { recursive: true });
+		await fs.writeFile(path.join(artifacts, "nested", "artifact.txt"), "session artifact");
+		await fs.copyFile(seededSession, `${seededSession}.123.bak`);
+		const dropped = await page.evaluate(() => window.omp.rpc.dropSession());
+		expect(dropped.success).toBe(true);
+		await expect(fs.access(seededSession)).rejects.toThrow();
+		await expect(fs.access(artifacts)).rejects.toThrow();
+		await expect(fs.access(`${seededSession}.123.bak`)).rejects.toThrow();
+		const afterDrop = await page.evaluate(() => window.omp.rpc.getState());
+		expect(afterDrop.success).toBe(true);
+		if (afterDrop.success) expect((afterDrop.data as RpcSessionState).sessionFile).not.toBe(seededSession);
 		await page.locator('[data-sidebar-destinations] button[data-destination="insights"]').click();
 		const stats = page.locator('section[data-destination="insights"]');
 		await expect(stats).toBeVisible();
@@ -244,7 +256,7 @@ test("system omp persists settings and sessions and serves every stats route", a
 		const sectionIds = await settings
 			.locator("[data-settings-section]")
 			.evaluateAll(elements => elements.map(element => element.getAttribute("data-settings-section") ?? ""));
-		expect(sectionIds).toHaveLength(13);
+		expect(sectionIds).toHaveLength(11);
 		const content = settings.locator(".settings-content");
 		const settingsPages: Array<{ page: string; text: string }> = [];
 		const capture = async (name: string) => {
@@ -260,16 +272,8 @@ test("system omp persists settings and sessions and serves every stats route", a
 			await settings.locator(`[data-settings-section="${id}"]`).click();
 			await capture(id);
 		}
-		// Advanced keeps every agent schema category reachable.
-		const category = settings.locator("#settings-advanced-category select");
-		const categories = await category
-			.locator("option")
-			.evaluateAll(options => options.map(option => (option as HTMLOptionElement).value));
-		expect(categories.length).toBeGreaterThan(5);
-		for (const value of categories) {
-			await category.selectOption(value);
-			await capture(`advanced-${value}`);
-		}
+		// Each setting belongs to one section; Other settings is only the future-schema fallback.
+		await expect(settings.locator("#settings-advanced-category")).toHaveCount(0);
 		await fs.writeFile("test-results/settings-pages.json", JSON.stringify(settingsPages, null, 2));
 		const settingsSearch = settings.getByRole("searchbox", { name: "설정 검색" });
 		await settingsSearch.fill("bash.patterns");

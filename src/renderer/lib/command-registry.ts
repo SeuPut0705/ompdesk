@@ -321,7 +321,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 	const runMcpAction = async (verb: "enable" | "disable" | "reconnect" | "remove", args?: string): Promise<void> => {
 		const name = args?.trim();
 		if (!name) {
-			ctx.openSettings("extensions:mcp");
+			ctx.openSettings("tools:mcp");
 			return;
 		}
 		const res = await boundRpc.mcpAction(name, verb);
@@ -340,7 +340,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 	): Promise<void> => {
 		const input = args?.trim() ?? "";
 		if (!input && verb !== "update") {
-			ctx.openSettings(verb === "uninstall" ? "plugins" : "plugins:marketplaces");
+			ctx.openSettings(verb === "uninstall" ? "tools:plugins" : "tools:marketplaces");
 			return;
 		}
 		const origin = verb === "uninstall" || verb === "upgrade" ? capturePluginActivationOrigin() : null;
@@ -380,7 +380,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 	const runPluginEnabled = async (enabled: boolean, args?: string): Promise<void> => {
 		const id = args?.trim();
 		if (!id) {
-			ctx.openSettings("plugins");
+			ctx.openSettings("tools:plugins");
 			return;
 		}
 		const origin = capturePluginActivationOrigin();
@@ -709,7 +709,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.modelRoles"),
 		description: t("cmd.modelRoles.desc"),
 		category: "model",
-		affordance: { kind: "window", open: () => ctx.openSettings("models") },
+		affordance: { kind: "window", open: () => ctx.openSettings("models:roles") },
 	});
 	add({
 		name: "model-compare",
@@ -955,21 +955,21 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.skills"),
 		description: t("cmd.skills.desc"),
 		category: "extensions",
-		affordance: { kind: "window", open: () => ctx.openSettings("extensions:skills") },
+		affordance: { kind: "window", open: () => ctx.openSettings("tools:skills") },
 	});
 	add({
 		name: "hooks",
 		label: t("cmd.hooks"),
 		description: t("cmd.hooks.desc"),
 		category: "extensions",
-		affordance: { kind: "window", open: () => ctx.openSettings("extensions:hooks") },
+		affordance: { kind: "window", open: () => ctx.openSettings("tools:hooks") },
 	});
 	add({
 		name: "commands",
 		label: t("cmd.commands"),
 		description: t("cmd.commands.desc"),
 		category: "extensions",
-		affordance: { kind: "window", open: () => ctx.openSettings("extensions:commands") },
+		affordance: { kind: "window", open: () => ctx.openSettings("tools:commands") },
 	});
 	add({
 		name: "mcp",
@@ -984,22 +984,22 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 					label: t("cmd.mcp.panel"),
 					description: t("cmd.mcp.panel.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openSettings("extensions:mcp") },
+					affordance: { kind: "window", open: () => ctx.openSettings("tools:mcp") },
 				},
 				{
 					name: "mcp list",
 					label: t("cmd.mcp.list"),
 					description: t("cmd.mcp.list.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openSettings("extensions:mcp") },
+					affordance: { kind: "window", open: () => ctx.openSettings("tools:mcp") },
 				},
 				// add/test/reauth are covered natively by the MCP tab (wizard + cards).
-				subWindow("mcp add", () => ctx.openSettings("extensions:mcp")),
+				subWindow("mcp add", () => ctx.openSettings("tools:mcp")),
 				subAction("mcp remove", args => runMcpAction("remove", args)),
-				subWindow("mcp test", () => ctx.openSettings("extensions:mcp")),
+				subWindow("mcp test", () => ctx.openSettings("tools:mcp")),
 				subAction("mcp enable", args => runMcpAction("enable", args)),
 				subAction("mcp disable", args => runMcpAction("disable", args)),
-				subWindow("mcp reauth", () => ctx.openSettings("extensions:mcp")),
+				subWindow("mcp reauth", () => ctx.openSettings("tools:mcp")),
 				sub("mcp unauth", "/mcp unauth ", "<name>"),
 				subAction("mcp reconnect", args => runMcpAction("reconnect", args)),
 				sub("mcp reload", "/mcp reload"),
@@ -1026,27 +1026,27 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 					label: t("cmd.marketplace.panel"),
 					description: t("cmd.marketplace.panel.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openSettings("plugins:marketplaces") },
+					affordance: { kind: "window", open: () => ctx.openSettings("tools:marketplaces") },
 				},
 				{
 					name: "marketplace list",
 					label: t("cmd.marketplace.list"),
 					description: t("cmd.marketplace.list.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openSettings("plugins:marketplaces") },
+					affordance: { kind: "window", open: () => ctx.openSettings("tools:marketplaces") },
 				},
 				subAction("marketplace add", args => runMarketplaceAction("add", args)),
 				subAction("marketplace remove", args => runMarketplaceAction("remove", args)),
 				subAction("marketplace update", args => runMarketplaceAction("update", args)),
-				subWindow("marketplace discover", () => ctx.openSettings("plugins:marketplaces")),
-				subWindow("marketplace install", () => ctx.openSettings("plugins:marketplaces")),
+				subWindow("marketplace discover", () => ctx.openSettings("tools:marketplaces")),
+				subWindow("marketplace install", () => ctx.openSettings("tools:marketplaces")),
 				subAction("marketplace uninstall", args => runMarketplaceAction("uninstall", args)),
 				{
 					name: "marketplace installed",
 					label: t("cmd.marketplace.installed"),
 					description: t("cmd.marketplace.installed.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openSettings("plugins") },
+					affordance: { kind: "window", open: () => ctx.openSettings("tools:plugins") },
 				},
 				subAction("marketplace upgrade", args => runMarketplaceAction("upgrade", args)),
 				sub("marketplace help", "/marketplace help"),
@@ -1066,7 +1066,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 					label: t("cmd.plugins.panel"),
 					description: t("cmd.plugins.panel.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openSettings("plugins") },
+					affordance: { kind: "window", open: () => ctx.openSettings("tools:plugins") },
 				},
 				sub("plugins list", "/plugins list"),
 				subAction("plugins enable", args => runPluginEnabled(true, args)),
@@ -1094,12 +1094,12 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 					label: t("cmd.memory.panel"),
 					description: t("cmd.memory.panel.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openSettings("plugins:memory") },
+					affordance: { kind: "window", open: () => ctx.openSettings("agent:memory-report") },
 				},
 				// Settings › Plugins & resources › Memory covers view/stats/diagnose natively.
-				subWindow("memory view", () => ctx.openSettings("plugins:memory")),
-				subWindow("memory stats", () => ctx.openSettings("plugins:memory")),
-				subWindow("memory diagnose", () => ctx.openSettings("plugins:memory")),
+				subWindow("memory view", () => ctx.openSettings("agent:memory-report")),
+				subWindow("memory stats", () => ctx.openSettings("agent:memory-report")),
+				subWindow("memory diagnose", () => ctx.openSettings("agent:memory-report")),
 				{ ...sub("memory clear", "/memory clear"), guard: "destructive" },
 				sub("memory enqueue", "/memory enqueue"),
 			],
@@ -1133,7 +1133,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: t("cmd.templates.desc"),
 		category: "extensions",
 		aliases: ["prompt-templates"],
-		affordance: { kind: "window", open: () => ctx.openSettings("plugins:templates") },
+		affordance: { kind: "window", open: () => ctx.openSettings("tools:templates") },
 	});
 	add({
 		name: "ssh",
@@ -1144,9 +1144,9 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 			kind: "submenu",
 			items: [
 				// The native page owns host selection, validation, and confirmation.
-				subWindow("ssh list", () => ctx.openSettings("ssh")),
-				subWindow("ssh add", () => ctx.openSettings("ssh")),
-				subWindow("ssh remove", () => ctx.openSettings("ssh")),
+				subWindow("ssh list", () => ctx.openSettings("connections:ssh")),
+				subWindow("ssh add", () => ctx.openSettings("connections:ssh")),
+				subWindow("ssh remove", () => ctx.openSettings("connections:ssh")),
 				sub("ssh help", "/ssh help"),
 			],
 		},
@@ -1329,7 +1329,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: t("cmd.extensions.desc"),
 		category: "settings",
 		aliases: ["status"],
-		affordance: { kind: "window", open: () => ctx.openSettings("extensions") },
+		affordance: { kind: "window", open: () => ctx.openSettings("tools:skills") },
 	});
 	add({
 		name: "agents",

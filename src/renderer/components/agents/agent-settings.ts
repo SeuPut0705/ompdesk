@@ -64,9 +64,20 @@ function pickAgentSettings(data: unknown, definitions: RpcAgentDefinitionInfo[])
 	const disabled = values["task.disabledAgents"];
 	const models = values["task.agentModelOverrides"];
 	const prewalk = values["task.agentPrewalk"];
+	const modelOverrides: Record<string, string> =
+		typeof models === "object" && models !== null && !Array.isArray(models)
+			? Object.fromEntries(
+					Object.entries(models).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+				)
+			: {};
+	// createAgentsHubDeps is the stock authority for array/string overrides;
+	// use its normalized projection rather than re-parsing known agents here.
+	for (const agent of definitions) {
+		if (agent.overrideModel !== undefined) modelOverrides[agent.name] = agent.overrideModel;
+	}
 	return {
 		disabledAgents: Array.isArray(disabled) ? disabled.filter((v): v is string => typeof v === "string") : [],
-		modelOverrides: isStringRecord(models) ? models : {},
+		modelOverrides,
 		prewalkOverrides: isStringRecord(prewalk) ? prewalk : {},
 		definitions,
 	};

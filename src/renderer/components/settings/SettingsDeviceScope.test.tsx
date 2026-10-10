@@ -122,12 +122,14 @@ describe("Settings for a tab on a paired host", () => {
 			"These are Studio's settings. App settings (appearance, shortcuts, language, updates) follow this device.",
 		);
 		expect(banner?.querySelector(`[data-device-chip="${HOST_ID}"]`)).not.toBeNull();
-		expect(["appearance", "keyboard", "remote"].map(navTag)).toEqual([true, true, true]);
+		expect(["general", "appearance", "keyboard"].map(navTag)).toEqual([true, true, true]);
 		// The narrow nav keeps its labels whole: the tag there is the device icon, named for screen readers.
 		expect(query('[data-settings-nav="appearance"] [data-this-device-tag]')?.getAttribute("aria-label")).toBe(
 			"This device",
 		);
-		expect(["general", "models", "permissions", "workspace", "ssh", "updates", "advanced"].some(navTag)).toBe(false);
+		expect(
+			["models", "agent", "tools", "permissions", "workspace", "connections", "updates", "advanced"].some(navTag),
+		).toBe(false);
 		expect(query('[data-settings-nav="models"]')?.getAttribute("data-settings-scope")).toBe("host");
 		// An app section renders as usual, with no offline notice.
 		expect(query("[data-host-offline]")).toBeNull();
@@ -140,16 +142,16 @@ describe("Settings for a tab on a paired host", () => {
 		expect(notice?.textContent).toContain("Studio is offline");
 		expect(notice?.textContent).toContain("These settings live on Studio. They show again once it reconnects.");
 		expect(query("[data-settings-connection-notice]")).toBeNull();
-		expect(query("#settings-models-providers")).toBeNull();
+		expect(query("#settings-models-accounts")).toBeNull();
 	});
 
-	it("keeps a mixed section's app part and marks it, while its host part goes offline", async () => {
+	it("keeps this device's settings available while the host is offline", async () => {
 		focusTab(HOST_ID, "connecting");
 		await openSettings("general");
 		expect(query("#setting-gui-language")).not.toBeNull();
 		expect(query("main [data-this-device-tag]")?.textContent).toBe("This device");
 		expect(query("[data-reply-language-host]")?.textContent).toBe("Tabs on Studio follow that device's own setting.");
-		expect(query("[data-host-offline]")).not.toBeNull();
+		expect(query("[data-host-offline]")).toBeNull();
 		expect(query("#setting-steeringMode")).toBeNull();
 	});
 
@@ -160,6 +162,6 @@ describe("Settings for a tab on a paired host", () => {
 		expect(query("[data-this-device-tag]")).toBeNull();
 		expect(query("[data-host-offline]")).toBeNull();
 		expect(query("[data-reply-language-host]")).toBeNull();
-		expect(query("#setting-steeringMode")).not.toBeNull();
+		expect(query("#setting-steeringMode")).toBeNull();
 	});
 });

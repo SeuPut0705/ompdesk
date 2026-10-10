@@ -11,7 +11,7 @@ import {
 	writeManagedSkill,
 } from "@oh-my-pi/pi-coding-agent/autolearn/managed-skills";
 import { templateUsesInlineArgPlaceholders } from "@oh-my-pi/pi-coding-agent/config/prompt-templates";
-import { loadSkills } from "@oh-my-pi/pi-coding-agent/extensibility/skills";
+import type { Skill } from "@oh-my-pi/pi-coding-agent/capability/skill";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { parseFrontmatter } from "@oh-my-pi/pi-utils";
 import { guard } from "../health";
@@ -35,40 +35,30 @@ interface SkillInfo {
 
 /**
  * Every discoverable skill with its live enable state. The session's loaded
- * set already passed every disable channel; the universe re-runs discovery
- * with every filter opened so disabled skills stay listed.
+ * set already passed every disable channel; stock's disabled-inclusive
+ * inventory keeps disabled skills visible without changing provider policy.
  */
 async function listSkills(session: AgentSession): Promise<SkillInfo[]> {
 	const enabledNames = new Set(session.skills.map(skill => skill.name));
-	const discovered = await loadSkills({
-		...session.skillsSettings,
+	const discovered = await loadCapability<Skill>("skills", {
 		cwd: session.sessionManager.getCwd(),
+		agentDir: session.settings.getAgentDir(),
 		extensionRoots: session.effectiveExtensionRoots,
-		enabled: true,
-		enableCodexUser: true,
-		enableClaudeUser: true,
-		enableClaudeProject: true,
-		enablePiUser: true,
-		enablePiProject: true,
-		enableAgentsUser: true,
-		enableAgentsProject: true,
-		ignoredSkills: [],
-		includeSkills: [],
-		disabledExtensions: [],
+		includeDisabled: true,
+		disabledExtensions: readSetting<string[]>(session, "disabledExtensions") ?? [],
 	});
-	return discovered.skills.map(skill => {
-		const sourcePrefix = skill.source.split(":", 1)[0];
+	return discovered.items.map(skill => {
 		return {
 			name: skill.name,
-			description: skill.description,
-			source: skill.source,
+			description: skill.frontmatter?.description ?? "",
+			source: `${skill._source.provider}:${skill.level}`,
 			enabled: enabledNames.has(skill.name),
-			location: skill.filePath,
-			provider: skill._source?.provider ?? sourcePrefix ?? "custom",
-			providerName: skill._source?.providerName ?? sourcePrefix ?? "Custom",
+			location: skill.path,
+			provider: skill._source.provider,
+			providerName: skill._source.providerName,
 			level: skill._source?.level ?? "user",
 			managed: skill._source?.provider === MANAGED_SKILLS_PROVIDER_ID,
-			hidden: skill.hide === true,
+			hidden: skill.frontmatter?.hide === true || skill.frontmatter?.disableModelInvocation === true,
 		};
 	});
 }
@@ -102,11 +92,12 @@ export const methods: BridgeMethods = guard("skills", {
 		const p = paramsOf(params);
 		const name = requireString(p, "name");
 		if (!name.trim()) throw new Error("Skill name cannot be empty");
+		if (typeof p.enabled !== "boolean") throw new Error("`enabled` must be a boolean");
 		const enabled = p.enabled === true;
 		const session = env.session();
-		await setExtensionDisabled(session, `skill:${name}`, enabled);
+		const state = await setExtensionDisabled(session, `skill:${name}`, enabled);
 		await session.refreshSkills();
-		return { name, enabled };
+		return { name, ...state, enabled: session.skills.some(skill => skill.name === name) };
 	},
 
 	/** Create/update/delete only omp-managed skills; authored and plugin skills stay read-only. */
@@ -167,9 +158,10 @@ export const methods: BridgeMethods = guard("skills", {
 		if (!id.startsWith("hook:")) {
 			throw new Error(`Invalid hook id: ${id} (expected "hook:<type>:<tool>:<name>")`);
 		}
+		if (typeof p.enabled !== "boolean") throw new Error("`enabled` must be a boolean");
 		const enabled = p.enabled === true;
-		await setExtensionDisabled(env.session(), id, enabled);
-		return { id, enabled };
+		const state = await setExtensionDisabled(env.session(), id, enabled);
+		return { id, ...state };
 	},
 
 	get_prompt_templates: async (_params, env) => ({

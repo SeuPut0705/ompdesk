@@ -1425,3 +1425,69 @@
 		width: calc(100vw - 1.5rem);
 	}
 }
+
+/* Inspector changes use the pane width, not the window width. */
+.omp-changes {
+	container-type: inline-size;
+	container-name: changes;
+}
+.omp-changes-body {
+	display: flex;
+	flex-direction: column;
+}
+.omp-changes-body[data-open="true"] .omp-changes-list {
+	display: none;
+}
+.omp-changes-list,
+.omp-changes-preview {
+	flex: 1;
+}
+.omp-pane-gutter {
+	width: calc(var(--sc-space-8) + var(--sc-space-1));
+}
+.omp-pane-diff {
+	padding-block: var(--sc-space-2);
+	tab-size: 4;
+	overflow-wrap: anywhere;
+}
+@container changes (min-width: 720px) {
+	.omp-changes-body {
+		flex-direction: row;
+	}
+	.omp-changes-body[data-open="true"] .omp-changes-list {
+		display: block;
+		flex: 0 0 40%;
+		border-right: 1px solid var(--sc-divider);
+	}
+}
+.omp-files-tree [role="treeitem"] {
+	min-height: var(--sc-control-sm);
+	font-size: var(--sc-font-sm);
+	border-radius: var(--sc-radius-sm);
+	color: var(--sc-text);
+}
+.omp-files-tree [role="treeitem"]:hover {
+	background: var(--sc-hover);
+}
+.omp-files-tree [role="treeitem"]:focus-visible {
+	outline: 2px solid var(--sc-focus-ring);
+	outline-offset: -2px;
+}
+.omp-files-tree [role="treeitem"] {
+	position: relative;
+}
+.omp-files-tree [role="treeitem"]::before {
+	content: "";
+	position: absolute;
+	pointer-events: none;
+	inset-block: 0;
+	left: var(--sc-space-2);
+	width: calc(var(--tree-depth) * var(--sc-icon-sm));
+	background: repeating-linear-gradient(
+		to right,
+		var(--sc-divider) 0,
+		var(--sc-divider) 1px,
+		transparent 1px,
+		transparent var(--sc-icon-sm)
+	);
+}

@@ -537,7 +537,7 @@ export function App() {
 				return;
 			}
 			if (action === "open-capabilities") {
-				ui.openSettings("features");
+				ui.openSettings("agent");
 				return;
 			}
 			if (action === "open-git") {
@@ -597,15 +597,15 @@ export function App() {
 				return;
 			}
 			if (action === "open-model-roles") {
-				ui.openSettings("models");
+				ui.openSettings("models:roles");
 				return;
 			}
 			if (action === "open-extensions") {
-				ui.openSettings("extensions");
+				ui.openSettings("tools:skills");
 				return;
 			}
 			if (action === "open-inventory") {
-				ui.openSettings("plugins");
+				ui.openSettings("tools:plugins");
 				return;
 			}
 			if (action === "open-pr-center") {

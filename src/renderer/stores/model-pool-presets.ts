@@ -6,9 +6,9 @@
  * per session and lives in the session journal (gui-bridge modes/pool.ts).
  */
 import { create } from "zustand";
+import { normalizePool } from "../../../resources/gui-bridge/pool-contracts";
 import type { RpcModelPoolMember } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
-import { MAX_POOL_MEMBERS } from "../lib/model-pool";
 import { optimisticWrite } from "../lib/optimistic";
 import { toastError } from "./toast";
 
@@ -35,21 +35,9 @@ export function normalizePresets(raw: unknown): ModelPoolPreset[] {
 		const { id, name, members } = item as Record<string, unknown>;
 		if (typeof id !== "string" || !id || typeof name !== "string" || !name.trim() || !Array.isArray(members))
 			continue;
-		const seen = new Set<string>();
-		const valid: RpcModelPoolMember[] = [];
-		for (const member of members) {
-			if (typeof member !== "object" || member === null) continue;
-			const { selector, name: memberName, role } = member as Record<string, unknown>;
-			if (typeof selector !== "string" || !selector.includes("/") || seen.has(selector)) continue;
-			seen.add(selector);
-			valid.push({
-				selector,
-				name: typeof memberName === "string" && memberName ? memberName : selector,
-				role: typeof role === "string" && role ? role : "general",
-			});
-		}
+		const valid = normalizePool({ members }).members;
 		if (valid.length === 0) continue;
-		presets.push({ id, name: name.trim(), members: valid.slice(0, MAX_POOL_MEMBERS) });
+		presets.push({ id, name: name.trim(), members: valid });
 		if (presets.length === MAX_PRESETS) break;
 	}
 	return presets;

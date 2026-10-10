@@ -201,16 +201,16 @@ describe("SidecarManager", () => {
 		const script = [
 			'import * as fs from "node:fs";',
 			'import { createInterface } from "node:readline";',
+			'import * as net from "node:net";',
 			"const out = (frame: unknown) => process.stdout.write(JSON.stringify(frame) + '\\n');",
 			"const seen: string[] = [];",
 			'const userMessage = { role: "user", content: "hi", timestamp: 10 };',
 			'const entries = [{ type: "message", id: "e1", parentId: null, timestamp: "2026-01-01T00:00:00.000Z", message: userMessage }];',
-			'out({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] });',
+			'net.createServer(socket => { createInterface({ input: socket }).on("line", line => { const request = JSON.parse(line); const result = request.method === "sessions.transcript" ? { leafId: "e1", messages: [{ ...userMessage, entryId: "e1" }] } : request.method === "sessions.attach_entry_ids" ? { messages: request.params.messages.map(message => ({ ...message, entryId: "e1" })) } : null; socket.write(JSON.stringify({ id: request.id, ok: true, result }) + "\\n"); }); }).listen(process.env.OMP_GUI_BRIDGE, () => out({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }));',
 			"createInterface({ input: process.stdin }).on('line', line => {",
 			"\tconst command = JSON.parse(line);",
 			"\tseen.push(command.type);",
 			`\tfs.writeFileSync(${JSON.stringify(commandLog)}, JSON.stringify(seen));`,
-			'\tif (command.type === "get_entries") return out({ type: "response", id: command.id, command: "get_entries", success: true, data: { entries, leafId: "e1" } });',
 			'\tif (command.type === "get_state") return out({ type: "response", id: command.id, command: "get_state", success: true, data: { sessionId: "s1" } });',
 			'\tout({ type: "response", id: command.id, command: command.type, success: true });',
 			'\tif (command.type === "prompt") {',
@@ -221,7 +221,7 @@ describe("SidecarManager", () => {
 		].join("\n");
 		const binaryPath = await writeFakeOmp(tempDir, script);
 
-		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
+		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, bridgeDir: tempDir });
 		const frames: Array<{ type: string; messages?: Array<{ entryId?: string }> }> = [];
 		sidecar.on("frame", frame => frames.push(frame));
 		try {
@@ -242,10 +242,10 @@ describe("SidecarManager", () => {
 			await client.command({ type: "prompt", message: "hi" });
 			await expect.poll(() => frames.map(frame => frame.type)).toEqual(["agent_end", "prompt_result"]);
 			expect(frames[0]?.messages?.[0]?.entryId).toBe("e1");
-			// get_transcript never reached omp; its projection did (get_state, then get_entries).
+			// Transcript and entry-id matching go through the bridge, never raw get_entries.
 			const commands = JSON.parse(await fs.readFile(commandLog, "utf8")) as string[];
 			expect(commands).not.toContain("get_transcript");
-			expect(commands).toEqual(["get_state", "get_entries", "prompt", "get_entries"]);
+			expect(commands).toEqual(["get_state", "prompt"]);
 		} finally {
 			sidecar.dispose();
 			await fs.rm(tempDir, RM_TEMP);
