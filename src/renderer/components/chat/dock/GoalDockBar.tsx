@@ -3,7 +3,8 @@ import { useState } from "react";
 import { useTabGuard } from "../../../hooks/use-tab-guard";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { useSessionStore } from "../../../stores/session";
+import { type SessionStore, useSessionStore } from "../../../stores/session";
+import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { IconButton, Spinner } from "../../common";
@@ -14,6 +15,8 @@ type GoalAction = "pause" | "resume" | "drop";
 export function GoalDockBar() {
 	const t = useT();
 	const rpc = useTabRpc();
+	const tabId = useRuntimeTabId();
+	const sessionStore = sessionRuntimeStore<SessionStore>(tabId, "session") ?? useSessionStore;
 	const goal = useSessionStore(state => state.goal);
 	const goalState = useSessionStore(state => state.goalState);
 	const openModes = useUiStore(state => state.openModes);
@@ -38,8 +41,8 @@ export function GoalDockBar() {
 				toastError({ title: t("dock.goal.actionFailed"), error: response });
 				return;
 			}
-			if (action === "drop") useSessionStore.setState({ goal: null, goalState: null });
-			else useSessionStore.setState({ goalState: { status: action === "pause" ? "paused" : "active" } });
+			if (action === "drop") sessionStore.setState({ goal: null, goalState: null });
+			else sessionStore.setState({ goalState: { status: action === "pause" ? "paused" : "active" } });
 		} catch (cause) {
 			if (!isActive(origin)) return;
 			toastError({ title: t("dock.goal.actionFailed"), error: cause });

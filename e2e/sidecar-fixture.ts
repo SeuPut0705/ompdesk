@@ -348,7 +348,7 @@ if (process.argv[2] === "stats") {
 		interruptMode: "immediate",
 		sessionId,
 		...(sessionFile ? { sessionFile } : {}),
-		sessionName: "Audit session",
+		sessionName: sessionTitle || "Audit session",
 		autoCompactionEnabled: true,
 		queuedMessageCount: lanes.steering.length + lanes.followUp.length,
 		hasPendingAsyncWork: false,
@@ -981,15 +981,18 @@ if (process.argv[2] === "stats") {
 		security_dashboard: securityDashboard,
 		ssh_hosts: () => ({ hosts: [], warnings: [], openSshAvailable: true }),
 		"sessions.foreign_list": () => ({ sessions: [] }),
-		"sessions.transcript": () => ({
-			leafId: entries.at(-1)?.id ?? null,
-			messages: entries
+		"sessions.transcript": params => {
+			const messages = entries
 				.filter(entry => entry.type === "message")
-				.map(entry => ({
-					...(entry.message as AgentMessage),
-					entryId: entry.id,
-				})),
-		}),
+				.map(entry => ({ ...(entry.message as AgentMessage), entryId: entry.id }));
+			const offset = typeof params.offset === "number" ? params.offset : 0;
+			const limit = typeof params.limit === "number" ? params.limit : messages.length;
+			return {
+				leafId: entries.at(-1)?.id ?? null,
+				total: messages.length,
+				messages: messages.slice(offset, offset + limit),
+			};
+		},
 		"sessions.attach_entry_ids": params => ({
 			messages: (params.messages as AgentMessage[]).map(message => {
 				const entry = entries.find(
@@ -1384,6 +1387,23 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					},
 				],
 			});
+		} else if (message === "fixture transcript") {
+			const answer: AgentMessage = {
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking: "변경 범위를 확인하고 읽기 흐름을 정리해요." },
+					{
+						type: "text",
+						text: '## 변경 사항\n\n본문과 `inlineCode`를 차분하게 읽을 수 있어요. [문서 보기](https://example.com/docs)\n\n- 첫 번째 항목\n- 긴 파일 경로도 확인해요: `src/components/transcript/very-long-component-name.tsx`\n\n> 중요한 맥락을 따로 표시해요.\n\n| 항목 | 상태 |\n| --- | --- |\n| 타입 검사 | 완료 |\n| 접근성 | 확인 중 |\n\n```typescript\nconst greeting = "안녕하세요";\nconsole.log(greeting);\n```\n\n다음 단계는 검토한 내용을 적용하는 거예요.',
+					},
+				],
+				timestamp: Date.now(),
+				stopReason: "error",
+				errorMessage: "503 Service unavailable: fixture provider temporarily unavailable",
+			};
+			appendMessage(answer);
+			write({ type: "message_end", message: answer });
+			endTurn([user, answer]);
 		} else if (message !== "fixture running") {
 			const answer: AgentMessage = {
 				role: "assistant",

@@ -34,11 +34,36 @@ function optionalString(params: unknown, key: string): string | undefined {
 	return typeof value === "string" ? value : undefined;
 }
 
+/**
+ * The last stock replay of this process's session, reused while the journal is
+ * unchanged: a transcript walk asks page by page, and each page must cost a
+ * slice, not a replay. Pages keep every bridge reply small, since one socket
+ * carries every bridge request in order and a whole long transcript (tens of
+ * MB) would hold up the rest behind it.
+ */
+let replay: { key: string; snapshot: ReturnType<typeof buildTranscript> } | undefined;
+
+function transcriptSnapshot(manager: SessionManager): ReturnType<typeof buildTranscript> {
+	const entries = manager.getEntries();
+	const key = [manager.getSessionFile() ?? "", entries.length, entries.at(-1)?.id ?? "", manager.getLeafId() ?? ""].join(
+		"\0",
+	);
+	if (replay?.key !== key) replay = { key, snapshot: buildTranscript(manager) };
+	return replay.snapshot;
+}
+
+function pageNumber(params: unknown, key: string, fallback: number): number {
+	const value = param(params, key);
+	return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback;
+}
+
 export const methods: BridgeMethods = guard("sessionTree", {
 	...guard("streamMetadata", {
-		"sessions.transcript": async (_params, env) => {
-			const snapshot = buildTranscript(env.session().sessionManager);
-			return { ...snapshot, messages: decorateMessages(snapshot.messages) };
+		"sessions.transcript": async (params, env) => {
+			const { leafId, messages } = transcriptSnapshot(env.session().sessionManager);
+			const offset = Math.min(pageNumber(params, "offset", 0), messages.length);
+			const end = Math.min(messages.length, offset + pageNumber(params, "limit", messages.length));
+			return { leafId, total: messages.length, messages: decorateMessages(messages.slice(offset, end)) };
 		},
 		"sessions.attach_entry_ids": async (params, env) => {
 			const messages = param(params, "messages");

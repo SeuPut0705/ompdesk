@@ -113,9 +113,35 @@ export function BtwDialog() {
 	const failure = error ?? (turn?.status === "error" ? (turn.error ?? t("btw.failed")) : null);
 
 	return (
-		<Modal onClose={close} open={question !== null} size="lg" title={t("btw.title")}>
-			<div className="mb-4 flex items-start gap-2 rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-2.5 text-xs text-(--omp-dim)">
-				<MessageCircleQuestion className="mt-0.5 shrink-0" size={14} />
+		<Modal
+			onClose={close}
+			open={question !== null}
+			size="lg"
+			title={t("btw.title")}
+			footer={
+				<>
+					<Button
+						disabled={running || !turn?.answer.trim()}
+						onClick={() => void copyAnswer()}
+						size="sm"
+						variant="secondary"
+					>
+						{t("btw.copy")}
+					</Button>
+					{running ? (
+						<Button disabled={starting} onClick={cancel} size="sm" variant="secondary">
+							{t("btw.cancel")}
+						</Button>
+					) : (
+						<Button disabled={!draft.trim()} onClick={() => void ask()} size="sm" variant="primary">
+							{t("btw.ask")}
+						</Button>
+					)}
+				</>
+			}
+		>
+			<div className="mb-4 flex items-start gap-2.5 text-sc-sm text-(--sc-text-muted)">
+				<MessageCircleQuestion aria-hidden className="mt-2 size-(--sc-icon-md) shrink-0" />
 				<TextArea
 					aria-label={t("btw.title")}
 					value={draft}
@@ -125,42 +151,29 @@ export function BtwDialog() {
 				/>
 			</div>
 			{failure ? (
-				<div className="rounded-lg border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent p-3 text-sm text-[var(--omp-error)]">
+				<div
+					className="rounded-(--sc-radius-md) border border-(--sc-danger) p-3 text-sc-sm text-(--sc-danger)"
+					role="alert"
+				>
 					{failure}
 				</div>
 			) : turn?.answer ? (
 				<div className="max-h-[55vh] overflow-y-auto pr-1">
 					<MarkdownRenderer content={turn.answer} />
 					{turn.status === "cancelled" || turn.status === "interrupted" ? (
-						<div className="mt-2 text-xs text-(--omp-dim)">{t("btw.cancelled")}</div>
+						<div className="mt-2 text-sc-sm text-(--sc-text-muted)">{t("btw.cancelled")}</div>
 					) : null}
 				</div>
 			) : running ? (
-				<div className="flex items-center justify-center gap-2 py-16 text-sm text-(--omp-dim)">
+				<div
+					className="flex items-center justify-center gap-2 py-16 text-sc-sm text-(--sc-text-muted)"
+					role="status"
+				>
 					<Spinner size="sm" /> {t("btw.thinking")}
 				</div>
 			) : turn?.status === "cancelled" || turn?.status === "interrupted" ? (
-				<div className="py-4 text-sm text-(--omp-dim)">{t("btw.cancelled")}</div>
+				<div className="py-4 text-sc-sm text-(--sc-text-muted)">{t("btw.cancelled")}</div>
 			) : null}
-			<div className="mt-5 flex justify-end gap-2 border-t border-(--omp-border-muted) pt-3">
-				{running ? (
-					<Button disabled={starting} onClick={cancel} size="sm" variant="secondary">
-						{t("btw.cancel")}
-					</Button>
-				) : (
-					<Button disabled={!draft.trim()} onClick={() => void ask()} size="sm">
-						{t("btw.ask")}
-					</Button>
-				)}
-				<Button
-					disabled={running || !turn?.answer.trim()}
-					onClick={() => void copyAnswer()}
-					size="sm"
-					variant="secondary"
-				>
-					{t("btw.copy")}
-				</Button>
-			</div>
 		</Modal>
 	);
 }

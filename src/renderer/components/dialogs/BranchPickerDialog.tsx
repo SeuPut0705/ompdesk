@@ -14,7 +14,7 @@ import { branchSessionFromEntry } from "../../lib/messages";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, ErrorDetail, Modal, Spinner } from "../common";
+import { Button, ErrorDetail, Kbd, Modal, Spinner } from "../common";
 
 interface BranchEntry {
 	entryId: string;
@@ -155,22 +155,20 @@ export function BranchPickerDialog() {
 			size="picker"
 		>
 			<div className="flex h-full flex-col">
-				<div className="flex items-center gap-2.5 border-b border-(--omp-border-muted) px-3.5 py-2.5">
-					<Search className="shrink-0 text-(--omp-dim)" size={14} />
+				<div className="flex min-h-16 items-center gap-2.5 border-b border-(--sc-divider) px-4 py-3">
+					<Search aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
 					<input
 						aria-activedescendant={filtered.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
 						aria-controls={listboxId}
 						aria-label={t("branchPicker.searchLabel")}
-						className="min-w-0 flex-1 bg-transparent text-sm text-(--omp-text) placeholder:text-(--omp-dim) focus:outline-none"
+						className="min-w-0 flex-1 rounded-(--sc-radius-sm) bg-transparent text-sc-lg text-(--sc-text) placeholder:text-(--sc-text-subtle)"
 						onChange={event => setQuery(event.target.value)}
 						onKeyDown={onKeyDown}
 						placeholder={t("branchPicker.placeholder")}
 						ref={inputRef}
 						value={query}
 					/>
-					<kbd className="shrink-0 rounded border border-(--omp-border-muted) px-1.5 py-0.5 text-omp-xxs text-(--omp-dim)">
-						esc
-					</kbd>
+					<Kbd shortcut="⎋" />
 				</div>
 				<div
 					className="min-h-0 flex-1 overflow-y-auto p-1.5"
@@ -180,12 +178,12 @@ export function BranchPickerDialog() {
 				>
 					{error ? (
 						<div className="flex flex-col items-center gap-2 py-10 text-center">
-							<p role="alert" className="text-xs text-[var(--omp-error)]">
+							<p role="alert" className="text-sc-sm text-(--sc-danger)">
 								{error.message}
 								<ErrorDetail className="mt-0.5" error={error.cause} />
 							</p>
 							<Button
-								icon={<RotateCw size={12} />}
+								icon={<RotateCw />}
 								disabled={!sidecarReady}
 								onClick={() => setAttempt(count => count + 1)}
 								size="sm"
@@ -198,10 +196,10 @@ export function BranchPickerDialog() {
 					) : loading ? (
 						<div className="flex items-center justify-center gap-2 py-10">
 							<Spinner size="sm" />
-							<span className="text-xs text-(--omp-dim)">{t("branchPicker.loading")}</span>
+							<span className="text-sc-sm text-(--sc-text-muted)">{t("branchPicker.loading")}</span>
 						</div>
 					) : filtered.length === 0 ? (
-						<div className="py-10 text-center text-xs text-(--omp-dim)">
+						<div className="py-10 text-center text-sc-sm text-(--sc-text-muted)">
 							{entries.length === 0 ? t("branchPicker.empty") : t("branchPicker.noMatch", { query })}
 						</div>
 					) : (
@@ -210,8 +208,8 @@ export function BranchPickerDialog() {
 							return (
 								<button
 									aria-selected={false}
-									className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left transition-colors ${
-										isActive ? "bg-(--omp-selected-bg)" : "hover:bg-(--omp-bg-tertiary)"
+									className={`flex min-h-10 w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-2 text-left disabled:opacity-50 ${
+										isActive ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)"
 									}`}
 									data-option-index={index}
 									disabled={branching !== null || !sidecarReady}
@@ -223,11 +221,8 @@ export function BranchPickerDialog() {
 									role="option"
 									type="button"
 								>
-									<GitBranch
-										className={`shrink-0 ${isActive ? "text-(--omp-accent)" : "text-(--omp-dim)"}`}
-										size={13}
-									/>
-									<span className="min-w-0 flex-1 truncate text-xs text-(--omp-text)">{entry.text}</span>
+									<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+									<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text)">{entry.text}</span>
 									{branching === entry.entryId && <Spinner size="sm" />}
 								</button>
 							);

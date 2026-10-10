@@ -15,7 +15,7 @@ import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, ErrorDetail, Input, Modal, Spinner } from "../common";
+import { Badge, Button, ErrorDetail, Input, Modal, SearchField, Spinner } from "../common";
 
 export function ForceToolDialog() {
 	const tabRpc = useTabRpc();
@@ -116,22 +116,43 @@ export function ForceToolDialog() {
 	};
 
 	return (
-		<Modal onClose={close} open={open} size="picker" title={t("forceTool.title")}>
+		<Modal
+			onClose={close}
+			open={open}
+			size="picker"
+			title={t("forceTool.title")}
+			footer={
+				<>
+					<Button onClick={close} variant="secondary">
+						{t("common.cancel")}
+					</Button>
+					<Button
+						disabled={!selected || busy || !sidecarReady}
+						loading={busy}
+						onClick={() => void apply()}
+						title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
+						variant="primary"
+					>
+						{t("forceTool.apply")}
+					</Button>
+				</>
+			}
+		>
 			<div className="flex min-h-0 flex-1 flex-col gap-3">
 				{/* Current forced tool + clear */}
-				<div className="flex items-center justify-between rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-2">
-					<div className="flex min-w-0 items-center gap-2 text-sm">
-						<Wrench className="h-4 w-4 shrink-0 text-(--omp-muted)" />
+				<div className="flex min-w-0 items-center justify-between gap-3 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2">
+					<div className="flex min-w-0 items-center gap-2 text-sc-md">
+						<Wrench aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
 						{current ? (
-							<span className="truncate font-medium text-(--omp-text)">{current}</span>
+							<span className="truncate font-medium text-(--sc-text)">{current}</span>
 						) : (
-							<span className="text-(--omp-muted)">{t("forceTool.none")}</span>
+							<span className="text-(--sc-text-muted)">{t("forceTool.none")}</span>
 						)}
 					</div>
 					{current ? (
 						<Button
 							disabled={busy || !sidecarReady}
-							icon={<X className="h-3.5 w-3.5" />}
+							icon={<X />}
 							onClick={() => void clear()}
 							size="sm"
 							title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
@@ -142,28 +163,30 @@ export function ForceToolDialog() {
 				</div>
 
 				{/* Tool picker */}
-				<Input
-					onChange={event => setFilter(event.target.value)}
+				<SearchField
+					label={t("forceTool.filterPlaceholder")}
+					onValueChange={setFilter}
 					placeholder={t("forceTool.filterPlaceholder")}
 					value={filter}
 				/>
-				<div className="min-h-32 flex-1 overflow-y-auto rounded-lg border border-(--omp-border)">
+				<div className="min-h-32 max-h-[36dvh] flex-1 overflow-y-auto rounded-(--sc-radius-md) p-1">
 					{loading ? (
 						<div className="flex h-32 items-center justify-center">
-							<Spinner />
+							<Spinner label={t("modelPicker.loading")} />
 						</div>
 					) : loadError ? (
-						<div className="p-3 text-sm text-(--omp-error)">
+						<div className="p-3 text-sc-sm text-(--sc-danger)" role="alert">
 							{loadError.message}
 							<ErrorDetail className="mt-0.5" error={loadError.cause} />
 						</div>
 					) : filtered.length === 0 ? (
-						<div className="p-3 text-sm text-(--omp-muted)">{t("forceTool.empty")}</div>
+						<div className="px-3 py-8 text-center text-sc-sm text-(--sc-text-muted)">{t("forceTool.empty")}</div>
 					) : (
 						filtered.map(tool => (
 							<button
-								className={`flex w-full items-start gap-2 border-b border-(--omp-border) px-3 py-2 text-left last:border-b-0 hover:bg-(--omp-selected-bg) ${
-									selected === tool.name ? "bg-(--omp-selected-bg)" : ""
+								aria-pressed={selected === tool.name}
+								className={`flex min-h-10 w-full items-start gap-2.5 rounded-(--sc-radius-md) px-2.5 py-2 text-left hover:bg-(--sc-hover) ${
+									selected === tool.name ? "bg-(--sc-selected)" : ""
 								}`}
 								key={tool.name}
 								onClick={() => setSelected(tool.name)}
@@ -173,9 +196,11 @@ export function ForceToolDialog() {
 									<Badge variant={tool.name === current ? "info" : "muted"}>{tool.source}</Badge>
 								</span>
 								<span className="min-w-0">
-									<span className="block truncate font-mono text-omp-lg text-(--omp-text)">{tool.name}</span>
+									<span className="block truncate font-mono text-sc-md text-(--sc-text)">{tool.name}</span>
 									{tool.description ? (
-										<span className="block truncate text-xs text-(--omp-muted)">{tool.description}</span>
+										<span className="block text-sc-sm break-words text-(--sc-text-muted)">
+											{tool.description}
+										</span>
 									) : null}
 								</span>
 							</button>
@@ -185,23 +210,11 @@ export function ForceToolDialog() {
 
 				{/* Optional prompt riding the forced turn */}
 				<Input
+					aria-label={t("forceTool.promptPlaceholder")}
 					onChange={event => setPromptText(event.target.value)}
 					placeholder={t("forceTool.promptPlaceholder")}
 					value={promptText}
 				/>
-
-				<div className="flex justify-end gap-2">
-					<Button onClick={close}>{t("common.cancel")}</Button>
-					<Button
-						disabled={!selected || busy || !sidecarReady}
-						loading={busy}
-						onClick={() => void apply()}
-						title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
-						variant="primary"
-					>
-						{t("forceTool.apply")}
-					</Button>
-				</div>
 			</div>
 		</Modal>
 	);

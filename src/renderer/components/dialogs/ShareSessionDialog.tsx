@@ -83,69 +83,14 @@ export function ShareSessionDialog() {
 	};
 
 	return (
-		<Modal onClose={uploading ? () => {} : close} open={open} size="md" title={t("shareDialog.title")}>
-			{loading ? (
-				<div className="flex items-center justify-center gap-2 py-8 text-sm text-(--omp-dim)">
-					<Spinner size="sm" /> {t("shareDialog.preparing")}
-				</div>
-			) : result ? (
-				<div className="space-y-3">
-					<div>
-						<div className="mb-1 text-xs font-medium text-(--omp-dim)">{t("shareDialog.url")}</div>
-						<div className="flex items-end gap-2">
-							<code className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded bg-(--omp-code-bg) px-3 py-2 text-xs text-(--omp-text)">
-								{result.url}
-							</code>
-							<Button
-								aria-label={t("shareDialog.copy")}
-								onClick={() => void copy(result.url)}
-								size="sm"
-								title={t("shareDialog.copy")}
-								variant="secondary"
-							>
-								<Copy size={13} />
-							</Button>
-							<Button
-								aria-label={t("shareDialog.open")}
-								onClick={() => void window.omp.system.openExternal(result.url)}
-								size="sm"
-								title={t("shareDialog.open")}
-								variant="secondary"
-							>
-								<ExternalLink size={13} />
-							</Button>
-						</div>
-					</div>
-					{result.truncated ? (
-						<div className="flex items-start gap-2 rounded-lg border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent p-3 text-xs text-(--omp-warning)">
-							<AlertTriangle className="mt-px shrink-0" size={14} />
-							{t("shareDialog.truncated")}
-						</div>
-					) : null}
-				</div>
-			) : preview ? (
-				<div className="space-y-3">
-					<p className="text-sm text-(--omp-muted)">{t("shareDialog.previewHint")}</p>
-					<p className="break-all text-xs text-(--omp-dim)">
-						{t("shareDialog.destination")}: {preview.store === "gist" ? t("shareDialog.gistDestination") : ""}
-						{preview.serverUrl}
-					</p>
-					<p className="text-xs text-(--omp-dim)">
-						{t(preview.redactionEnabled ? "shareDialog.redactionOn" : "shareDialog.redactionOff")}
-					</p>
-					{preview.truncated && (
-						<p role="status" className="text-omp-sm text-(--omp-warning)">
-							{t("shareDialog.previewTrimmed")}
-						</p>
-					)}
-					<pre
-						tabIndex={0}
-						aria-label={t("shareDialog.preview")}
-						className="max-h-[40vh] overflow-auto rounded border border-(--omp-border-muted) p-3 text-xs whitespace-pre-wrap break-words"
-					>
-						{preview.preview}
-					</pre>
-					<div className="flex justify-end gap-2">
+		<Modal
+			onClose={uploading ? () => {} : close}
+			open={open}
+			size="md"
+			title={t("shareDialog.title")}
+			footer={
+				!loading && !result && preview ? (
+					<>
 						<Button
 							variant="secondary"
 							disabled={uploading || !sidecarReady}
@@ -159,14 +104,79 @@ export function ShareSessionDialog() {
 							disabled={uploading || !sidecarReady}
 							onClick={() => void upload()}
 							title={!sidecarReady ? t("sidecar.notResponding") : undefined}
+							variant="primary"
 						>
 							{t("shareDialog.upload")}
 						</Button>
+					</>
+				) : undefined
+			}
+		>
+			{loading ? (
+				<div className="flex items-center justify-center gap-2 py-8 text-sc-sm text-(--sc-text-muted)">
+					<Spinner size="sm" /> {t("shareDialog.preparing")}
+				</div>
+			) : result ? (
+				<div className="space-y-3">
+					<div>
+						<div className="mb-1 text-sc-xs font-medium text-(--sc-text-muted)">{t("shareDialog.url")}</div>
+						<div className="flex flex-wrap items-end gap-2">
+							<code className="min-w-0 flex-1 basis-48 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2 text-sc-sm break-all text-(--sc-text)">
+								{result.url}
+							</code>
+							<Button
+								aria-label={t("shareDialog.copy")}
+								onClick={() => void copy(result.url)}
+								size="sm"
+								title={t("shareDialog.copy")}
+								variant="secondary"
+							>
+								<Copy aria-hidden className="size-(--sc-icon-sm)" />
+							</Button>
+							<Button
+								aria-label={t("shareDialog.open")}
+								onClick={() => void window.omp.system.openExternal(result.url)}
+								size="sm"
+								title={t("shareDialog.open")}
+								variant="secondary"
+							>
+								<ExternalLink aria-hidden className="size-(--sc-icon-sm)" />
+							</Button>
+						</div>
 					</div>
+					{result.truncated ? (
+						<div className="flex items-start gap-2 rounded-(--sc-radius-md) border border-(--sc-warning) p-3 text-sc-sm text-(--sc-warning)">
+							<AlertTriangle aria-hidden className="mt-px size-(--sc-icon-md) shrink-0" />
+							{t("shareDialog.truncated")}
+						</div>
+					) : null}
+				</div>
+			) : preview ? (
+				<div className="space-y-3">
+					<p className="text-sc-md text-(--sc-text-secondary)">{t("shareDialog.previewHint")}</p>
+					<p className="break-all text-sc-xs text-(--sc-text-muted)">
+						{t("shareDialog.destination")}: {preview.store === "gist" ? t("shareDialog.gistDestination") : ""}
+						{preview.serverUrl}
+					</p>
+					<p className="text-sc-xs text-(--sc-text-muted)">
+						{t(preview.redactionEnabled ? "shareDialog.redactionOn" : "shareDialog.redactionOff")}
+					</p>
+					{preview.truncated && (
+						<p role="status" className="text-sc-sm text-(--sc-warning)">
+							{t("shareDialog.previewTrimmed")}
+						</p>
+					)}
+					<pre
+						tabIndex={0}
+						aria-label={t("shareDialog.preview")}
+						className="max-h-[40vh] overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3 text-sc-sm whitespace-pre-wrap break-words"
+					>
+						{preview.preview}
+					</pre>
 				</div>
 			) : null}
 			{error && (
-				<div role="alert" className="space-y-2 py-3 text-sm text-(--omp-error)">
+				<div role="alert" className="space-y-2 py-3 text-sc-sm text-(--sc-danger)">
 					<p>
 						{error.message}
 						<ErrorDetail className="mt-0.5" error={error.cause} />

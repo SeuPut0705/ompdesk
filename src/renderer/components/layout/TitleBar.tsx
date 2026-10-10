@@ -327,7 +327,7 @@ export function TitleBar() {
 	];
 
 	return (
-		<header className="omp-titlebar omp-topbar drag-region flex h-12 min-w-0 shrink-0 items-center gap-1 px-2">
+		<header className="omp-titlebar omp-topbar drag-region flex h-12 min-w-0 shrink-0 items-center gap-1 px-3">
 			{!sidebarVisible && (
 				<IconButton
 					className="no-drag"
@@ -385,6 +385,7 @@ export function TitleBar() {
 						<Button
 							className="min-w-0 max-w-96 shrink! px-2 font-semibold text-(--sc-text)"
 							data-titlebar-session-name=""
+							aria-label={`${t("titlebar.rename")}: ${displayName}`}
 							onClick={startRename}
 							size="sm"
 							variant="ghost"
@@ -434,17 +435,17 @@ export function TitleBar() {
 			<Popover
 				anchorRef={statusAnchorRef}
 				ariaLabel={t("sessionStatus.title")}
-				className="w-72 p-3"
+				className="w-80 max-w-[calc(100vw-2rem)] p-4"
 				onClose={() => setStatusOpen(false)}
 				open={statusOpen}
 				placement="bottom-end"
 			>
-				<div className="flex items-center gap-2 pb-2">
-					<StatusIcon tone={tone} />
-					<span className="text-sc-md font-semibold text-(--sc-text)">{statusLabel}</span>
+				<div className="flex items-center justify-between gap-3 pb-3">
+					<span className="text-sc-md font-semibold text-(--sc-text)">{t("sessionStatus.title")}</span>
+					<StatusPill tone={tone} label={statusLabel} />
 				</div>
 				{visibleStats ? (
-					<dl className="divide-y divide-(--sc-divider) border-y border-(--sc-divider)">
+					<dl className="border-y border-(--sc-divider) py-1">
 						<StatRow
 							hint={visibleStats.history ? t("sessionStatus.historyHint") : undefined}
 							label={t("sessionStatus.tokens")}
@@ -460,14 +461,14 @@ export function TitleBar() {
 					</p>
 				)}
 				<Button
-					className="mt-3 w-full"
+					className="mt-3 w-full justify-start"
 					icon={<BarChart3 />}
 					onClick={() => {
 						setStatusOpen(false);
 						ui().openInsights("stats", "session");
 					}}
 					size="sm"
-					variant="secondary"
+					variant="ghost"
 				>
 					{t("sessionStatus.openInsights")}
 				</Button>

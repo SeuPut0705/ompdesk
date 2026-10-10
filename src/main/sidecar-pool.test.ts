@@ -467,8 +467,8 @@ describe("SidecarPool tabs", () => {
 		expect(
 			pool.setTabView(fw.win, "tab-b", ["tab-a", "tab-b"], {
 				axis: "columns",
-				firstTabId: "tab-a",
-				secondTabId: "tab-b",
+				first: { tabId: "tab-a" },
+				second: { tabId: "tab-b" },
 				ratio: 0.65,
 			}),
 		).toBe(true);
@@ -487,22 +487,47 @@ describe("SidecarPool tabs", () => {
 				.filter(tab => tab.visible)
 				.map(tab => tab.split),
 		).toEqual([
-			{ axis: "columns", index: 0, ratio: 0.65 },
-			{ axis: "columns", index: 1, ratio: 0.65 },
+			{ axis: "columns", first: { tabId: "tab-a" }, second: { tabId: "tab-b" }, ratio: 0.65 },
+			{ axis: "columns", first: { tabId: "tab-a" }, second: { tabId: "tab-b" }, ratio: 0.65 },
 		]);
 		expect(pool.tabLayoutForWindow(fw.win)?.split).toEqual({
 			axis: "columns",
-			firstIndex: 0,
-			secondIndex: 1,
+			first: { tabId: "0" },
+			second: { tabId: "1" },
 			ratio: 0.65,
 		});
-		expect(pool.setTabView(fw.win, "tab-b", ["tab-a", "tab-b", "tab-c"])).toBe(false);
+		expect(pool.setTabView(fw.win, "tab-b", ["tab-a", "tab-b", "tab-c", "tab-d", "tab-e"])).toBe(false);
 
 		expect(pool.releaseTab("tab-b")).toBe(true);
 		expect(pool.activeTabForWindow(fw.win)).toBe("tab-a");
 		expect(pool.tabLayoutForWindow(fw.win)?.split).toBeUndefined();
 		expect(a?.listenerCount("events")).toBe(2);
 		expect(c?.listenerCount("events")).toBe(1);
+	});
+
+	it("routes four visible streams and roundtrips a two-by-two layout", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		for (const id of ["a", "b", "c", "d", "e"]) pool.acquire(`/${id}`, fw.win, id);
+		const split = {
+			axis: "columns" as const,
+			ratio: 0.5,
+			first: { axis: "rows" as const, ratio: 0.6, first: { tabId: "a" }, second: { tabId: "b" } },
+			second: { axis: "rows" as const, ratio: 0.4, first: { tabId: "c" }, second: { tabId: "d" } },
+		};
+		expect(pool.setTabView(fw.win, "c", ["a", "b", "c", "d"], split)).toBe(true);
+		expect(sidecars.map(sidecar => sidecar.listenerCount("events"))).toEqual([2, 2, 2, 2, 1]);
+		const layout = pool.tabLayoutForWindow(fw.win);
+		expect(layout?.split).toEqual({
+			axis: "columns",
+			ratio: 0.5,
+			first: { axis: "rows", ratio: 0.6, first: { tabId: "0" }, second: { tabId: "1" } },
+			second: { axis: "rows", ratio: 0.4, first: { tabId: "2" }, second: { tabId: "3" } },
+		});
+		const restored = fakePool();
+		if (!layout) throw new Error("expected layout");
+		expect(restored.pool.restoreLayout(fakeWindow(2).win, layout)).toBe(5);
+		expect(restored.sidecars.filter(sidecar => sidecar.started)).toHaveLength(4);
 	});
 
 	it("caches session meta per tab and includes it in TAB_STATUS and GET_TABS", () => {
@@ -638,7 +663,7 @@ describe("SidecarPool tabs", () => {
 				{ cwd: "/agent", kind: "agent", sessionPath: "/sessions/a.jsonl" },
 				{ cwd: "/chat", kind: "chat" },
 			],
-			split: { axis: "rows", firstIndex: 0, secondIndex: 1, ratio: 0.6 },
+			split: { axis: "rows", first: { tabId: "0" }, second: { tabId: "1" }, ratio: 0.6 },
 		});
 
 		expect(restored).toBe(2);
@@ -649,10 +674,15 @@ describe("SidecarPool tabs", () => {
 		expect(sidecars[0]?.restartArgs).toEqual([{ cwd: undefined, sessionPath: "/sessions/a.jsonl" }]);
 		expect(sidecars[1]?.started).toBe(true);
 		expect(pool.tabsForWindow(fw.win).map(tab => tab.active ?? false)).toEqual([false, true]);
-		expect(pool.tabsForWindow(fw.win).map(tab => tab.split)).toEqual([
-			{ axis: "rows", index: 0, ratio: 0.6 },
-			{ axis: "rows", index: 1, ratio: 0.6 },
-		]);
+		const restoredIds = pool.tabsForWindow(fw.win).map(tab => tab.tabId);
+		expect(pool.tabsForWindow(fw.win).map(tab => tab.split)).toEqual(
+			restoredIds.map(() => ({
+				axis: "rows",
+				first: { tabId: restoredIds[0] },
+				second: { tabId: restoredIds[1] },
+				ratio: 0.6,
+			})),
+		);
 		expect(pool.tabLayoutForWindow(fw.win)).toEqual({
 			version: 1,
 			activeIndex: 1,
@@ -660,7 +690,7 @@ describe("SidecarPool tabs", () => {
 				{ cwd: "/agent", kind: "agent", sessionPath: "/sessions/a.jsonl" },
 				{ cwd: "/chat", kind: "chat" },
 			],
-			split: { axis: "rows", firstIndex: 0, secondIndex: 1, ratio: 0.6 },
+			split: { axis: "rows", first: { tabId: "0" }, second: { tabId: "1" }, ratio: 0.6 },
 		});
 	});
 
@@ -1123,6 +1153,22 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 
 		// Final responses consume the route — a repeat id falls back to the caller.
 		expect(pool.routeSideChannel("req-1", response, true)).toBe(false);
+	});
+
+	it("routes identical request ids independently when panes provide their tab owner", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		const [a, b] = sidecars;
+		a?.emitExtensionUi("same-id");
+		b?.emitExtensionUi("same-id");
+		const yes = { type: "extension_ui_response", id: "same-id", confirmed: true };
+		const no = { type: "extension_ui_response", id: "same-id", confirmed: false };
+		expect(pool.routeSideChannel("same-id", yes, true, "tab-a")).toBe(true);
+		expect(pool.routeSideChannel("same-id", no, true, "tab-b")).toBe(true);
+		expect(a?.sentFrames).toEqual([yes]);
+		expect(b?.sentFrames).toEqual([no]);
 	});
 
 	it("routes host-uri results to the origin sidecar", () => {

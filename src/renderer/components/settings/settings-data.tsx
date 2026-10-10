@@ -14,7 +14,6 @@ import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
 import { focusedSessionRuntime } from "../../stores/session-runtime-context";
 import { toastError } from "../../stores/toast";
-import { useUiStore } from "../../stores/ui";
 
 export type LoadState = "loading" | "error" | "ready";
 
@@ -76,7 +75,7 @@ export function useSettingsDataLoader(): SettingsData {
 	const settingsVersion = useRef(0);
 
 	const retry = useCallback(() => {
-		useUiStore.getState().clearSidecarError();
+		useSessionStore.getState().clearSidecarError();
 		setReloadToken(token => token + 1);
 		if (sidecarBusy || sidecarStatus === "ready" || sidecarStatus === "starting" || sidecarStatus === "restarting")
 			return;

@@ -245,7 +245,7 @@ function DeviceSessions({
 		return (
 			<ListRow
 				buttonProps={{ tabIndex: -1, "data-roving-item": `device-session:${host.deviceId}:${session.path}` }}
-				className={cx("omp-sidebar-session-row", nested && "pl-5.5")}
+				className={cx("omp-sidebar-session-row", nested && "omp-sidebar-session-nested")}
 				key={session.path}
 				leading={leading}
 				meta={
@@ -258,6 +258,7 @@ function DeviceSessions({
 				onClick={() => openSession(session)}
 				rowProps={{
 					"data-device-session": session.path,
+					"data-active": current && destination === "session",
 					"data-current": current || undefined,
 					"data-live": indexed ? undefined : true,
 				}}

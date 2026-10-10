@@ -7,7 +7,7 @@
  * - The tab list (title/cwd/status/unreadDone) fed by GET_TABS boot
  *   reconciliation plus the light TAB_STATUS channel (fires for EVERY tab,
  *   unlike the full event channels which only forward the active tab's).
- * - Each tab owns a persistent renderer runtime. One or two visible panes read
+ * - Each tab owns a persistent renderer runtime. Up to four visible panes read
  *   those runtimes directly; focus only chooses the target for window-global
  *   actions and never moves session state between tabs.
  *
@@ -15,6 +15,18 @@
  * main-process pool live in the main slice — this store only consumes
  * window.omp.tabs.* and window.omp.events.onTabStatus.
  */
+import {
+	asSplitLayout,
+	mapSplitLeaves,
+	type SplitLayout,
+	type SplitPlacement,
+	splitForPlacement,
+	splitTabIds,
+	updateSplitRatio,
+} from "../../shared/split-layout";
+
+export type { SplitAxis, SplitLayout, SplitPlacement } from "../../shared/split-layout";
+
 import { useEffect } from "react";
 import { create, type StoreApi } from "zustand";
 import type {
@@ -86,16 +98,6 @@ export interface SessionTab {
 	awaitingInput?: boolean;
 }
 
-export type SplitAxis = "columns" | "rows";
-export type SplitPlacement = "left" | "right" | "top" | "bottom";
-
-export interface SplitLayout {
-	axis: SplitAxis;
-	firstTabId: string;
-	secondTabId: string;
-	ratio: number;
-}
-
 // Focus routing is window-global. Serialize changes so rapid tab clicks cannot
 // resolve out of order and leave main targeting the wrong sidecar.
 let switchVersion = 0;
@@ -128,31 +130,15 @@ function routeTabView(focusedTabId: string, visibleTabIds: string[], split?: Spl
 	return request;
 }
 
-function clampRatio(ratio: number): number {
-	return Math.min(0.8, Math.max(0.2, ratio));
-}
-
 export function visibleTabIds(state: Pick<TabsStore, "activeTabId" | "split">): string[] {
-	if (state.split) return [state.split.firstTabId, state.split.secondTabId];
+	if (state.split) return splitTabIds(state.split);
 	return state.activeTabId ? [state.activeTabId] : [];
 }
 
 function replaceFocusedSplitTab(split: SplitLayout | null, focusedTabId: string | null, nextTabId: string) {
 	if (!split || !focusedTabId) return null;
-	if (split.firstTabId === nextTabId || split.secondTabId === nextTabId) return split;
-	return split.firstTabId === focusedTabId
-		? { ...split, firstTabId: nextTabId }
-		: { ...split, secondTabId: nextTabId };
-}
-
-function splitForPlacement(activeTabId: string, targetTabId: string, placement: SplitPlacement): SplitLayout {
-	const targetFirst = placement === "left" || placement === "top";
-	return {
-		axis: placement === "left" || placement === "right" ? "columns" : "rows",
-		firstTabId: targetFirst ? targetTabId : activeTabId,
-		secondTabId: targetFirst ? activeTabId : targetTabId,
-		ratio: 0.5,
-	};
+	if (splitTabIds(split).includes(nextTabId)) return split;
+	return asSplitLayout(mapSplitLeaves(split, tabId => ({ tabId: tabId === focusedTabId ? nextTabId : tabId })));
 }
 
 /**
@@ -234,9 +220,10 @@ export interface TabsStore {
 	}) => Promise<string | null>;
 	/** Focus this tab. In split mode, a non-visible tab replaces the focused pane. */
 	switchTab: (id: string) => Promise<void>;
-	splitTab: (id: string, placement: SplitPlacement) => Promise<void>;
+	splitTab: (id: string, placement: SplitPlacement, targetTabId?: string) => Promise<void>;
 	unsplit: (keepTabId?: string) => Promise<void>;
-	setSplitRatio: (ratio: number) => void;
+	removePane: (tabId: string) => Promise<void>;
+	setSplitRatio: (ratio: number, path?: readonly ("first" | "second")[]) => void;
 	/** Close a tab (keeps ≥1). Closing the active tab activates its neighbor first. */
 	closeTab: (id: string) => Promise<void>;
 	/** Merge a TAB_STATUS push: upsert the entry, stamp unreadDone when a
@@ -303,25 +290,10 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 						? mainActiveTabId
 						: (tabs[0]?.id ?? null);
 			const mainVisible = list.filter(info => info.visible).map(info => info.tabId);
-			const mainSplitFirst = list.find(info => info.split?.index === 0);
-			const mainSplitSecond = list.find(info => info.split?.index === 1);
-			const restoredSplit =
-				mainSplitFirst?.split && mainSplitSecond?.split && mainSplitFirst.split.axis === mainSplitSecond.split.axis
-					? {
-							axis: mainSplitFirst.split.axis,
-							firstTabId: mainSplitFirst.tabId,
-							secondTabId: mainSplitSecond.tabId,
-							ratio: clampRatio(mainSplitFirst.split.ratio),
-						}
-					: null;
+			const restoredSplit = list.find(info => info.split)?.split ?? null;
 			const split =
 				restoredSplit ??
-				(state.split &&
-				mainVisible.length === 2 &&
-				mainVisible.includes(state.split.firstTabId) &&
-				mainVisible.includes(state.split.secondTabId)
-					? state.split
-					: null);
+				(state.split && splitTabIds(state.split).every(id => mainVisible.includes(id)) ? state.split : null);
 			return { tabs, activeTabId, split };
 		});
 		for (const tab of get().tabs) watchTabAwaitingInput(tab.id);
@@ -464,7 +436,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					toastError({ title: translate("tabs.switchFailed"), error: stopped });
 				}
 			}
-			const routed = await routeTabView(id, split ? [split.firstTabId, split.secondTabId] : [id], split);
+			const routed = await routeTabView(id, split ? splitTabIds(split) : [id], split);
 			if (!routed) throw new Error(`Tab ${id} is no longer available`);
 		} catch (error) {
 			if (version !== switchVersion) return;
@@ -494,15 +466,25 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		}
 	},
 
-	splitTab: async (id, placement) => {
+	splitTab: async (id, placement, targetTabId) => {
 		const state = get();
 		const activeTabId = state.activeTabId;
-		if (!activeTabId || id === activeTabId || !state.tabs.some(tab => tab.id === id)) return;
-		// Already occupying a pane: re-dropping would silently reset the ratio
-		// to 0.5 and, for top/bottom placements, flip the axis. Treat as a no-op.
-		if (state.split && (state.split.firstTabId === id || state.split.secondTabId === id)) return;
+		const target = targetTabId ?? activeTabId;
+		if (!activeTabId || !target || id === target || !state.tabs.some(tab => tab.id === id)) return;
+		if (state.split && splitTabIds(state.split).includes(id)) return;
+		if (!visibleTabIds(state).includes(target)) return;
 		ensureTabRuntime(id);
-		const split = splitForPlacement(activeTabId, id, placement);
+		const split = state.split
+			? asSplitLayout(
+					mapSplitLeaves(state.split, tabId =>
+						tabId !== target
+							? { tabId }
+							: splitTabIds(state.split!).length === 4
+								? { tabId: id }
+								: splitForPlacement(tabId, id, placement),
+					),
+				)!
+			: splitForPlacement(target, id, placement);
 		const version = ++switchVersion;
 		beginTabRoute(activeTabId, id);
 		// Same surface handoff as switchTab: the previously focused pane leaves
@@ -525,7 +507,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					toastError({ title: translate("tabs.switchFailed"), error: stopped });
 				}
 			}
-			const routed = await routeTabView(id, [split.firstTabId, split.secondTabId], split);
+			const routed = await routeTabView(id, splitTabIds(split), split);
 			if (!routed) throw new Error(`Tab ${id} is no longer available`);
 		} catch (error) {
 			if (version !== switchVersion) return;
@@ -537,6 +519,19 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		settleTabRoute(id);
 		const tab = get().tabs.find(entry => entry.id === id);
 		if (tab?.status === "ready" || tab?.status === "running") await attachTabSession(id);
+	},
+
+	removePane: async tabId => {
+		const state = get();
+		if (!state.split || !splitTabIds(state.split).includes(tabId)) return;
+		const remaining = mapSplitLeaves(state.split, id => (id === tabId ? null : { tabId: id }));
+		if (!remaining) return;
+		const ids = splitTabIds(remaining);
+		const focused = state.activeTabId && ids.includes(state.activeTabId) ? state.activeTabId : ids[0];
+		const split = asSplitLayout(remaining);
+		set({ split });
+		if (focused !== state.activeTabId) await get().switchTab(focused);
+		else await routeTabView(focused, ids, split);
 	},
 
 	unsplit: async keepTabId => {
@@ -559,10 +554,10 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		}
 	},
 
-	setSplitRatio: ratio => {
+	setSplitRatio: (ratio, path = []) => {
 		const state = get();
 		if (!state.split || !state.activeTabId) return;
-		const split = { ...state.split, ratio: clampRatio(ratio) };
+		const split = updateSplitRatio(state.split, path, ratio);
 		set({ split });
 		// Debounce: keyboard stepping fires per keystroke and each routed view
 		// change lands in main's layout persistence. Main only needs the settled
@@ -572,11 +567,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			ratioFlushTimer = null;
 			const current = get();
 			if (!current.split || !current.activeTabId) return;
-			void routeTabView(
-				current.activeTabId,
-				[current.split.firstTabId, current.split.secondTabId],
-				current.split,
-			).catch(() => {
+			void routeTabView(current.activeTabId, splitTabIds(current.split), current.split).catch(() => {
 				// Stale ratio flush (window closing, tab gone) — the next
 				// reconcile re-converges the real view state.
 			});
@@ -588,15 +579,8 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		if (state.tabs.length <= 1) return;
 		const index = state.tabs.findIndex(tab => tab.id === id);
 		if (index === -1) return;
-		const splitSurvivor = state.split
-			? state.split.firstTabId === id
-				? state.split.secondTabId
-				: state.split.secondTabId === id
-					? state.split.firstTabId
-					: null
-			: null;
-		if (splitSurvivor) {
-			await get().unsplit(splitSurvivor);
+		if (state.split && splitTabIds(state.split).includes(id)) {
+			await get().removePane(id);
 		} else if (id === state.activeTabId) {
 			// Activate a neighbor BEFORE releasing — main's routing needs a live
 			// target and the window keeps painting a real session. Prefer the
@@ -862,7 +846,7 @@ export function useSessionTabs(): void {
 							if (tabId !== state.activeTabId) continue;
 							void window.omp.sidecar.getStatus().then(status => {
 								if (status.status !== "error" && status.status !== "exited") return;
-								useUiStore
+								useSessionStore
 									.getState()
 									.setSidecarError(
 										status.message ?? translate("events.sidecarProcessFailed"),

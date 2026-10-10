@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { AgentMessage, MessagesPage, RpcSessionTreeResult, RpcSwitchLeafResult } from "../../shared/rpc-types";
 import { handlers as extraHandlers } from "./session-extras";
 import { renameStoredSession } from "./session-files";
-import { type BridgeClient, type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
+import { type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
 
 const DEFAULT_PAGE_LIMIT = 100;
 const MAX_PAGE_LIMIT = 256;
@@ -32,17 +32,19 @@ function decodeCursor(raw: unknown): TranscriptCursor {
 	}
 }
 
-/**
- * Projection of the first page, reused by the follow-up pages of the same walk
- * so a long transcript costs one bridge projection, not one per page. Keyed by the
- * sidecar spawn's bridge client, which lives exactly as long as that omp process.
- */
-const pagedTranscripts = new WeakMap<BridgeClient, { leafId: string | null; messages: AgentMessage[] }>();
+interface TranscriptPage {
+	leafId: string | null;
+	total: number;
+	messages: AgentMessage[];
+}
 
-async function transcriptSnapshot(
-	ctx: LocalCommandContext,
-): Promise<{ leafId: string | null; messages: AgentMessage[] }> {
-	return ctx.bridge.request("sessions.transcript");
+/**
+ * One page of the bridge's cached stock replay. Pages, never the whole
+ * transcript: the bridge socket answers in order, so one multi-MB reply would
+ * stall every other bridge request (history, compaction, completions) behind it.
+ */
+function transcriptPage(ctx: LocalCommandContext, offset: number, limit: number): Promise<TranscriptPage> {
+	return ctx.bridge.request("sessions.transcript", { offset, limit });
 }
 
 function pageLimit(raw: unknown): number {
@@ -65,38 +67,31 @@ function requiredString(command: Record<string, unknown>, key: string, what: str
 
 export const handlers: Record<string, LocalHandler> = {
 	...extraHandlers,
-	get_transcript: async (_command, ctx) => ({ messages: (await transcriptSnapshot(ctx)).messages }),
+	get_transcript: async (_command, ctx) => {
+		const first = await transcriptPage(ctx, 0, MAX_PAGE_LIMIT);
+		const messages = [...first.messages];
+		while (messages.length < first.total) {
+			const page = await transcriptPage(ctx, messages.length, MAX_PAGE_LIMIT);
+			if (page.leafId !== first.leafId || page.total !== first.total || page.messages.length === 0) {
+				throw new LocalCommandError("Transcript changed while it was read", "stale_cursor");
+			}
+			messages.push(...page.messages);
+		}
+		return { messages };
+	},
 
 	get_transcript_page: async (command, ctx): Promise<MessagesPage> => {
 		const limit = pageLimit(command.limit);
-		let snapshot: { leafId: string | null; messages: AgentMessage[] };
-		let offset = 0;
-		if (command.cursor === undefined) {
-			snapshot = await transcriptSnapshot(ctx);
-			pagedTranscripts.set(ctx.bridge, snapshot);
-		} else {
-			const cursor = decodeCursor(command.cursor);
-			const cached = pagedTranscripts.get(ctx.bridge);
-			if (cached && cached.leafId === cursor.leafId && cached.messages.length === cursor.total) snapshot = cached;
-			else {
-				// Another walk of the same spawn finished and dropped the cache (hydrations
-				// overlap on tab open). Re-cache the fresh projection, or every remaining page
-				// of this walk would re-fetch and re-project the whole journal.
-				snapshot = await transcriptSnapshot(ctx);
-				pagedTranscripts.set(ctx.bridge, snapshot);
-			}
-			if (snapshot.leafId !== cursor.leafId || snapshot.messages.length !== cursor.total) {
-				throw new LocalCommandError("RPC message cursor is stale", "stale_cursor");
-			}
-			offset = cursor.offset;
+		const cursor = command.cursor === undefined ? undefined : decodeCursor(command.cursor);
+		const page = await transcriptPage(ctx, cursor?.offset ?? 0, limit);
+		if (cursor && (page.leafId !== cursor.leafId || page.total !== cursor.total)) {
+			throw new LocalCommandError("RPC message cursor is stale", "stale_cursor");
 		}
-		const total = snapshot.messages.length;
-		const end = Math.min(total, offset + limit);
-		const page: MessagesPage = { messages: snapshot.messages.slice(offset, end), totalMessages: total };
-		if (end < total) page.nextCursor = encodeCursor({ v: 1, leafId: snapshot.leafId, total, offset: end });
-		// Only the walk that owns the cached projection releases it; a concurrent walk still paging it keeps it.
-		else if (pagedTranscripts.get(ctx.bridge) === snapshot) pagedTranscripts.delete(ctx.bridge);
-		return page;
+		const end = (cursor?.offset ?? 0) + page.messages.length;
+		const result: MessagesPage = { messages: page.messages, totalMessages: page.total };
+		if (end < page.total)
+			result.nextCursor = encodeCursor({ v: 1, leafId: page.leafId, total: page.total, offset: end });
+		return result;
 	},
 
 	/** Fork `newSession({ drop: true })`: leave for a fresh session, then delete the one left behind. */

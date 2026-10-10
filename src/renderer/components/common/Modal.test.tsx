@@ -73,6 +73,24 @@ afterEach(async () => {
 });
 
 describe("Modal", () => {
+	it("associates supporting copy with the dialog and retains it during exit", async () => {
+		await mount(
+			<Modal open onClose={() => {}} title="Handoff" description="Your current session stays available.">
+				<input />
+			</Modal>,
+		);
+		const dialog = document.querySelector("[role='dialog']");
+		const descriptionId = dialog?.getAttribute("aria-describedby");
+		expect(descriptionId).toBeTruthy();
+		expect(document.getElementById(descriptionId ?? "")?.textContent).toBe("Your current session stays available.");
+		await render(
+			<Modal open={false} onClose={() => {}} title="Handoff">
+				{null}
+			</Modal>,
+		);
+		expect(document.getElementById(descriptionId ?? "")?.textContent).toBe("Your current session stays available.");
+	});
+
 	it("registers focus and Escape when an initially closed dialog opens", async () => {
 		const close = vi.fn();
 		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {

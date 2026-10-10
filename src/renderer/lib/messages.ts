@@ -10,7 +10,7 @@ import type {
 import { hydrateSession, resetRetryPending } from "../hooks/use-rpc-events";
 import { type ComposerStore, useComposerStore } from "../stores/composer";
 import { useMessagesStore } from "../stores/messages";
-import { useSessionStore } from "../stores/session";
+import { type SessionStore, useSessionStore } from "../stores/session";
 import { sessionRuntimeStore, withSessionRuntime } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
 import { toast, toastError } from "../stores/toast";
@@ -262,10 +262,11 @@ export async function abortActiveTurn(
 	const composer =
 		(tabId ? sessionRuntimeStore<ComposerStore>(tabId, "composer")?.getState() : undefined) ??
 		useComposerStore.getState();
-	const retrying = useSessionStore.getState().retryInfo !== null;
+	const session = (tabId ? sessionRuntimeStore<SessionStore>(tabId, "session") : null) ?? useSessionStore;
+	const retrying = session.getState().retryInfo !== null;
 	if (retrying) {
 		resetRetryPending(tabId ?? undefined);
-		useSessionStore.setState({ retryInfo: null, awaitingModelSince: null });
+		session.setState({ retryInfo: null, awaitingModelSince: null });
 		try {
 			await rpc.abortRetry();
 		} catch {

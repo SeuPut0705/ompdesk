@@ -113,14 +113,22 @@ export class GuiBridgeClient implements BridgeClient {
 	}
 
 	#onData(chunk: string): void {
-		this.#buffer += chunk;
-		let newline = this.#buffer.indexOf("\n");
-		while (newline !== -1) {
-			const line = this.#buffer.slice(0, newline);
-			this.#buffer = this.#buffer.slice(newline + 1);
-			if (line.trim()) this.#onFrame(line);
-			newline = this.#buffer.indexOf("\n");
+		// Look for the newline in the new chunk only: rescanning the whole buffer per
+		// chunk made a multi-MB reply cost quadratic time and stalled every request behind it.
+		let newline = chunk.indexOf("\n");
+		if (newline === -1) {
+			this.#buffer += chunk;
+			return;
 		}
+		let rest = chunk;
+		while (newline !== -1) {
+			const line = this.#buffer + rest.slice(0, newline);
+			this.#buffer = "";
+			rest = rest.slice(newline + 1);
+			if (line.trim()) this.#onFrame(line);
+			newline = rest.indexOf("\n");
+		}
+		this.#buffer = rest;
 	}
 
 	#onFrame(line: string): void {

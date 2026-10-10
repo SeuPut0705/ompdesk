@@ -385,8 +385,11 @@ export function FirstRunSetup() {
 	const phase = useFirstRunStore(state => state.phase);
 	if (phase === "idle") return null;
 	return (
-		<section aria-labelledby="first-run-title" className="mx-auto flex w-full max-w-2xl flex-col py-10">
-			<BrandMark size={64} />
+		<section
+			aria-labelledby="first-run-title"
+			className="mx-auto flex w-full max-w-2xl flex-col px-4 py-8 sm:px-6 sm:py-10"
+		>
+			<BrandMark size={48} />
 			<h1
 				className="mt-5 text-sc-3xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
 				id="first-run-title"

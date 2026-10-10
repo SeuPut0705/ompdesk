@@ -30,6 +30,7 @@ import { FirstRunGate } from "./components/onboarding/FirstRunGate";
 import { RemoteFolderPickerHost } from "./components/remote/RemoteFolderPicker";
 import { useAwaitingConfirmation } from "./hooks/use-awaiting-confirmation";
 import { useExtensionUi } from "./hooks/use-extension-ui";
+import { usePlanApproval } from "./hooks/use-plan-approval";
 import { useRpcEvents } from "./hooks/use-rpc-events";
 import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch";
 import { useTraySync } from "./hooks/use-tray-sync";
@@ -70,7 +71,7 @@ import { useSessionStore } from "./stores/session";
 import { SessionRuntimeProvider } from "./stores/session-runtime-context";
 import { useSettingsStore } from "./stores/settings";
 import { ensureTabRuntime } from "./stores/tab-runtime";
-import { useSessionTabs, useTabsStore } from "./stores/tabs";
+import { useSessionTabs, useTabsStore, visibleTabIds } from "./stores/tabs";
 import { toast, toastError } from "./stores/toast";
 import { type PanelTab, useUiStore } from "./stores/ui";
 import { checkForUpdatesInPlace, subscribeUpdaterStatus } from "./stores/updater";
@@ -131,6 +132,7 @@ function FocusedSessionEffects() {
 export function App() {
 	useRpcEvents();
 	useExtensionUi();
+	usePlanApproval();
 	// Session tabs: GET_TABS boot reconciliation + TAB_STATUS subscription.
 	useSessionTabs();
 	// Remote devices: the RemoteState snapshot + `remote:state` pushes.
@@ -144,6 +146,7 @@ export function App() {
 	const modelSetupOpen = useUiStore(s => s.modelSetupOpen);
 	const importDialogOpen = useUiStore(s => s.importDialogOpen);
 	const activeTabId = useTabsStore(s => s.activeTabId);
+	const split = useTabsStore(s => s.split);
 	const activeTabStatus = useTabsStore(s => s.tabs.find(tab => tab.id === s.activeTabId)?.status);
 	const themeSidecarReady = activeTabStatus === "ready" || activeTabStatus === "running";
 	const { lang, setLang } = useLang();
@@ -369,11 +372,12 @@ export function App() {
 					return;
 				case "tab.next":
 				case "tab.prev": {
-					const { tabs, activeTabId, switchTab } = useTabsStore.getState();
-					if (tabs.length < 2) return;
-					const index = tabs.findIndex(tab => tab.id === activeTabId);
+					const state = useTabsStore.getState();
+					const ids = state.split ? visibleTabIds(state) : state.tabs.map(tab => tab.id);
+					if (ids.length < 2) return;
+					const index = state.activeTabId ? ids.indexOf(state.activeTabId) : -1;
 					const step = actionId === "tab.next" ? 1 : -1;
-					void switchTab(tabs[(index + step + tabs.length) % tabs.length].id);
+					void state.switchTab(ids[(index + step + ids.length) % ids.length]);
 					return;
 				}
 				case "pr.center":
@@ -672,7 +676,12 @@ export function App() {
 			<AppShell />
 
 			<CommandPalette />
-			<ExtensionDialog />
+			{visibleTabIds({ activeTabId, split }).map(tabId => (
+				<SessionRuntimeProvider key={tabId} runtime={ensureTabRuntime(tabId)}>
+					<ExtensionDialog />
+					<PlanApprovalDialog />
+				</SessionRuntimeProvider>
+			))}
 			<FirstRunGate />
 			<ModelPicker />
 			<RenameSessionDialog />
@@ -698,7 +707,6 @@ export function App() {
 			</Suspense>
 			<Suspense fallback={null}>{modelSetupOpen && <ModelSetupDialog />}</Suspense>
 			<ThemePickerDialog />
-			<PlanApprovalDialog />
 			{importDialogOpen && <ImportForeignDialog />}
 			<Suspense fallback={null}>{feedbackOpen && <FeedbackDialog />}</Suspense>
 			<ToastStack />

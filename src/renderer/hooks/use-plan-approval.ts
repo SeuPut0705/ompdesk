@@ -13,11 +13,12 @@ import { useEffect } from "react";
 import type { AgentSessionEvent } from "../../shared/rpc-types";
 import { usePlanApprovalStore } from "../stores/plan-approval";
 import { withSessionRuntime } from "../stores/session-runtime-context";
-import { useTabsStore } from "../stores/tabs";
+import { isTabClosed, useTabsStore } from "../stores/tabs";
 
 export function usePlanApproval(): void {
 	useEffect(() => {
 		const reduce = (events: AgentSessionEvent[], tabId: string) => {
+			if (isTabClosed(tabId)) return;
 			withSessionRuntime(tabId, () => {
 				for (const event of events) {
 					if (event.type !== "plan_proposal") continue;

@@ -26,7 +26,6 @@ import { COMPACT_SHELL_QUERY, type PageDestination, useUiStore } from "../../sto
 import { Button, IconButton, Spinner, Tooltip } from "../common";
 import { PanelContainer } from "./PanelContainer";
 import { Sidebar } from "./Sidebar";
-import { SidecarBanner } from "./SidecarBanner";
 import { SplitWorkspace } from "./SplitWorkspace";
 import { TabHousekeeping } from "./TabHousekeeping";
 import { TitleBar } from "./TitleBar";
@@ -54,7 +53,7 @@ function PageTopBar({ showSidebarToggle }: { showSidebarToggle: boolean }) {
 	const toggleSidebar = useUiStore(s => s.toggleSidebar);
 	const closeDestination = useUiStore(s => s.closeDestination);
 	return (
-		<div className="omp-topbar drag-region flex h-12 shrink-0 items-center gap-1 px-2">
+		<div className="omp-topbar drag-region flex h-12 shrink-0 items-center gap-1 px-3">
 			{showSidebarToggle && (
 				<IconButton
 					className="no-drag"
@@ -142,7 +141,6 @@ export function AppShell() {
 				<div className={onPage ? "hidden" : "flex min-h-0 flex-1 flex-col"} data-session-view>
 					<TitleBar />
 					<TabHousekeeping />
-					<SidecarBanner />
 					<UpdateBanner />
 					<SplitWorkspace />
 				</div>

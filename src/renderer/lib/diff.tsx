@@ -2,6 +2,7 @@ import { diffWords } from "diff";
 import type { HLJSApi } from "highlight.js";
 import { Check, Copy } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { IconButton } from "../components/common";
 import { copyText, cx, languageFromPath } from "./format";
 import { getLoadedHljs, type HighlightToken, loadHljs, splitHighlightedLines } from "./highlight";
 import { useT } from "./i18n";
@@ -300,9 +301,9 @@ const MORE_RENDER_ROWS = 600;
 const MAX_RENDER_ROWS = 3000;
 
 const LINE_STYLES: Record<DiffLine["type"], string> = {
-	add: "text-[var(--omp-diff-added)] bg-[color-mix(in_srgb,var(--omp-diff-added)_10%,transparent)]",
-	remove: "text-[var(--omp-diff-removed)] bg-[color-mix(in_srgb,var(--omp-diff-removed)_10%,transparent)]",
-	context: "text-[var(--omp-diff-context)]",
+	add: "text-(--sc-text) bg-(--sc-success-soft)",
+	remove: "text-(--sc-text) bg-(--sc-danger-soft)",
+	context: "text-(--sc-text-secondary)",
 };
 
 const LINE_PREFIXES: Record<DiffLine["type"], string> = {
@@ -312,8 +313,8 @@ const LINE_PREFIXES: Record<DiffLine["type"], string> = {
 };
 
 const INTRA_STYLES: Record<"add" | "remove", string> = {
-	add: "rounded-[2px] bg-[color-mix(in_srgb,var(--omp-diff-added)_30%,transparent)]",
-	remove: "rounded-[2px] bg-[color-mix(in_srgb,var(--omp-diff-removed)_30%,transparent)]",
+	add: "rounded-(--sc-radius-xs) bg-[color-mix(in_srgb,var(--sc-success)_30%,transparent)]",
+	remove: "rounded-(--sc-radius-xs) bg-[color-mix(in_srgb,var(--sc-danger)_30%,transparent)]",
 };
 
 interface DiffViewProps {
@@ -433,20 +434,20 @@ export function DiffView({ diff, filePath, className }: DiffViewProps) {
 		// The copy affordance hangs off this box, not the scroller below, so it
 		// stays put while the patch scrolls.
 		<div className="group/diff relative">
-			<button
-				aria-label={t("diff.copy")}
-				className="absolute top-0 right-0 z-10 flex h-5 w-5 items-center justify-center rounded-md text-[var(--omp-dim)] opacity-0 transition-[opacity,background-color,color] duration-150 hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)] focus:opacity-100 group-hover/diff:opacity-100"
+			<IconButton
+				className="absolute top-0 right-0 z-10 bg-(--sc-surface-1) opacity-0 focus-visible:opacity-100 group-hover/diff:opacity-100"
+				icon={copied ? <Check className="text-(--sc-success)" /> : <Copy />}
+				label={t(copied ? "diff.copied" : "diff.copy")}
 				onClick={handleCopy}
-				title={t(copied ? "diff.copied" : "diff.copy")}
-				type="button"
+				size="sm"
+			/>
+			<div
+				className={cx("overflow-x-auto font-mono text-sc-sm leading-(--sc-leading-normal) [tab-size:4]", className)}
 			>
-				{copied ? <Check size={12} className="text-[var(--omp-success)]" /> : <Copy size={12} />}
-			</button>
-			<div className={cx("font-mono text-xs leading-[1.4] overflow-x-auto [tab-size:4]", className)}>
 				{viewRows.map((row, i) => {
 					if (row.type === "gap") {
 						return (
-							<div key={i} className="whitespace-pre px-2 text-[var(--omp-diff-context)]">
+							<div key={i} className="whitespace-pre px-2 text-(--sc-text-muted)">
 								{gutterWidth > 0 && (
 									<>
 										<span
@@ -504,7 +505,7 @@ export function DiffView({ diff, filePath, className }: DiffViewProps) {
 						{t("diff.showMore", { count: revealRows })}
 					</button>
 				) : unreachableRows > 0 ? (
-					<div className="whitespace-pre px-2 text-[var(--omp-diff-context)]">
+					<div className="whitespace-pre px-2 text-(--sc-text-muted)">
 						<span className="opacity-50">{t("diff.moreLines", { count: unreachableRows })}</span>
 					</div>
 				) : null}

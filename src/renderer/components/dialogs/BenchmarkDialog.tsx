@@ -7,7 +7,7 @@ import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useFocusedTabDevice } from "../../stores/remote";
-import { Button, ErrorDetail, Input, Modal } from "../common";
+import { Button, ErrorDetail, Input, Modal, Select } from "../common";
 import { ModelValueSelect } from "../settings/ModelValueSelect";
 
 function formatMetric(value: number, suffix = ""): string {
@@ -88,12 +88,29 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 	};
 
 	return (
-		<Modal onClose={close} open={open} size="lg" title={t("benchmark.title")}>
+		<Modal
+			onClose={close}
+			open={open}
+			size="lg"
+			title={t("benchmark.title")}
+			description={t("benchmark.description")}
+			footer={
+				<>
+					{running && (
+						<Button onClick={() => void abort()} variant="danger">
+							{t("common.cancel")}
+						</Button>
+					)}
+					<Button disabled={!valid || running} loading={running} onClick={() => void run()} variant="primary">
+						{t("benchmark.run")}
+					</Button>
+				</>
+			}
+		>
 			<div className="space-y-4">
-				<p className="text-sm text-(--omp-muted)">{t("benchmark.description")}</p>
-				<div className="grid grid-cols-[minmax(0,1fr)_150px_90px_90px] gap-3 max-md:grid-cols-2">
+				<div className="grid grid-cols-[minmax(0,1fr)_9rem_5.5rem_5.5rem] gap-3 max-md:grid-cols-2 max-sm:grid-cols-1">
 					<div className="space-y-2">
-						<span className="text-omp-md">{t("benchmark.models")}</span>
+						<span className="text-sc-md">{t("benchmark.models")}</span>
 						<ModelValueSelect
 							kind="model"
 							value=""
@@ -108,34 +125,27 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 								<button
 									type="button"
 									disabled={running}
-									className="flex max-w-full items-center gap-1 rounded border border-(--omp-border-muted) px-2 py-1 text-omp-xs"
+									className="flex min-h-(--sc-hit-min) max-w-full items-center gap-1 rounded-(--sc-radius-sm) border border-(--sc-border-subtle) px-2 py-1 text-sc-xs hover:bg-(--sc-hover) disabled:opacity-50"
 									key={selector}
 									onClick={() => setModels(selectors.filter(value => value !== selector).join(", "))}
 									aria-label={t("benchmark.removeModel", { model: selector })}
 								>
 									<span className="truncate">{selector}</span>
-									<X size={12} />
+									<X aria-hidden className="size-(--sc-icon-sm)" />
 								</button>
 							))}
 						</div>
 					</div>
-					<label className="block">
-						<span className="mb-1.5 block text-omp-md font-medium text-(--omp-text-secondary)">
-							{t("benchmark.profile")}
-						</span>
-						<select
-							className="h-10 w-full rounded-lg border border-(--omp-input-border) bg-(--omp-input-bg) px-3 text-sm"
-							disabled={running}
-							onChange={event => setProfile(event.target.value as IpcBenchmarkProfile)}
-							value={profile}
-						>
-							{(["mix", "chat", "prefill", "generation"] as const).map(value => (
-								<option key={value} value={value}>
-									{t(`benchmark.profile.${value}`)}
-								</option>
-							))}
-						</select>
-					</label>
+					<Select
+						label={t("benchmark.profile")}
+						disabled={running}
+						onChange={event => setProfile(event.target.value as IpcBenchmarkProfile)}
+						value={profile}
+						options={(["mix", "chat", "prefill", "generation"] as const).map(value => ({
+							value,
+							label: t(`benchmark.profile.${value}`),
+						}))}
+					/>
 					<Input
 						disabled={running}
 						label={t("benchmark.runs")}
@@ -155,29 +165,20 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 						value={parallel}
 					/>
 				</div>
-				<p className="text-omp-sm text-(--omp-muted)">
+				<p className="text-sc-sm text-(--sc-text-muted)">
 					{t("benchmark.requestScale", {
 						count: selectors.length * (Number.isInteger(runs) && runs > 0 ? runs : 0),
 					})}
 				</p>
-				<div className="flex justify-end gap-2">
-					{running && (
-						<Button onClick={() => void abort()} variant="danger">
-							{t("common.cancel")}
-						</Button>
-					)}
-					<Button disabled={!valid || running} loading={running} onClick={() => void run()} variant="primary">
-						{t("benchmark.run")}
-					</Button>
-				</div>
 
 				{(error ?? stderr) && (
 					<div
+						role={error ? "alert" : "status"}
 						className={cx(
-							"rounded-lg border p-3 text-sm",
+							"rounded-(--sc-radius-md) border p-3 text-sc-sm",
 							error
-								? "border-(--omp-error)/40 bg-(--omp-error-dim) text-(--omp-error)"
-								: "border-(--omp-border-muted) text-(--omp-muted)",
+								? "border-(--sc-danger) bg-(--sc-danger-soft) text-(--sc-danger)"
+								: "border-(--sc-border-subtle) text-(--sc-text-muted)",
 						)}
 					>
 						{error && (
@@ -189,7 +190,7 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 						{stderr && (
 							<pre
 								className={cx(
-									"max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-mono text-omp-xs",
+									"max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-mono text-sc-xs",
 									error && "mt-2",
 								)}
 							>
@@ -199,10 +200,10 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 					</div>
 				)}
 				{result?.success && (
-					<div className="overflow-x-auto rounded-lg border border-(--omp-border-muted)">
-						<table className="w-full text-left text-xs">
-							<thead className="text-(--omp-muted)">
-								<tr className="border-b border-(--omp-border-muted)">
+					<div className="overflow-x-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
+						<table className="w-full text-left text-sc-xs">
+							<thead className="text-(--sc-text-muted)">
+								<tr className="border-b border-(--sc-divider)">
 									{["model", "success", "ttft", "prefill", "decode", "throughput", "cost"].map(key => (
 										<th className="px-3 py-2 font-medium" key={key}>
 											{t(`benchmark.col.${key}`)}
@@ -210,12 +211,12 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 									))}
 								</tr>
 							</thead>
-							<tbody className="divide-y divide-(--omp-border-muted)">
+							<tbody className="divide-y divide-(--sc-divider) tabular-nums">
 								{result.summary.models.map(report => {
 									const succeeded = report.results.filter(item => item.ok).length;
 									return (
 										<tr key={report.selector} title={report.stats ? undefined : resultError(report)}>
-											<td className="px-3 py-2 font-mono text-(--omp-text)">
+											<td className="px-3 py-2 font-mono text-(--sc-text)">
 												{report.model}
 												{report.results.some(item => !item.ok) && (
 													<ErrorDetail

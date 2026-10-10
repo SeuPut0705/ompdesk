@@ -28,7 +28,7 @@ export function PopoverSurface({ className, children }: { className?: string; ch
 	return (
 		<div
 			className={cx(
-				"max-w-[min(360px,calc(100vw-16px))] rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) p-3 text-(--sc-text) shadow-(--sc-shadow-md)",
+				"max-w-[min(22.5rem,calc(100vw-1rem))] max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) p-3 text-(--sc-text) shadow-(--sc-shadow-md)",
 				className,
 			)}
 		>

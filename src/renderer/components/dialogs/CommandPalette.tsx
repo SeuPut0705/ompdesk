@@ -627,7 +627,7 @@ export function CommandPalette() {
 			<button
 				aria-disabled={disabled}
 				className={cx(
-					"flex min-h-9 w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-1.5 text-left",
+					"flex min-h-10 w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-2 text-left",
 					isActive ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
 					disabled && "opacity-50",
 				)}
@@ -648,16 +648,9 @@ export function CommandPalette() {
 				}}
 				type="button"
 			>
-				<Icon
-					aria-hidden
-					className={cx(
-						"size-(--sc-icon-sm) shrink-0",
-						isActive ? "text-(--sc-accent)" : "text-(--sc-text-muted)",
-					)}
-				/>
-				{/* One line per command — label, then its description in the muted tone — so
-				    twice as many fit; an armed warning wraps instead of truncating. */}
-				<span className={cx("flex min-w-0 flex-1 items-baseline gap-x-2", isArmed && "flex-wrap")}>
+				<Icon aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+				{/* Labels stay readable at narrow widths; supporting copy wraps onto a quiet second line. */}
+				<span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
 					<span className="max-w-full shrink-0 truncate text-sc-md font-medium text-(--sc-text)">
 						<HighlightedLabel label={item.label} query={query} />
 					</span>
@@ -675,7 +668,7 @@ export function CommandPalette() {
 						<span
 							className={cx(
 								"min-w-0 text-sc-sm",
-								isArmed ? "basis-full text-(--sc-warning)" : "flex-1 truncate text-(--sc-text-muted)",
+								isArmed ? "basis-full text-(--sc-warning)" : "flex-1 basis-32 truncate text-(--sc-text-muted)",
 							)}
 						>
 							{detail}
@@ -708,7 +701,7 @@ export function CommandPalette() {
 				ref={dialogRef}
 				role="dialog"
 			>
-				<div className="flex items-center gap-2.5 border-b border-(--sc-divider) px-3.5 py-2.5">
+				<div className="flex min-h-16 items-center gap-2.5 border-b border-(--sc-divider) px-4 py-3">
 					{submenu && (
 						<button
 							aria-label={`${t("palette.hintBack")}: ${submenu.label}`}
@@ -723,7 +716,7 @@ export function CommandPalette() {
 					<Search aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
 					<input
 						aria-label={t("palette.searchLabel")}
-						className="min-w-0 flex-1 bg-transparent text-sc-lg text-(--sc-text) placeholder:text-(--sc-text-subtle) focus:outline-none"
+						className="min-w-0 flex-1 rounded-(--sc-radius-sm) bg-transparent text-sc-lg text-(--sc-text) placeholder:text-(--sc-text-subtle)"
 						onChange={event => {
 							setQuery(event.target.value);
 							resetSelection();
@@ -785,7 +778,7 @@ export function CommandPalette() {
 						)
 					)}
 				</div>
-				<div className="flex items-center gap-4 border-t border-(--sc-divider) px-3.5 py-2 text-sc-xs text-(--sc-text-muted)">
+				<div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-(--sc-divider) px-4 py-3 text-sc-xs text-(--sc-text-muted)">
 					<span className="flex items-center gap-1.5">
 						<Kbd shortcut="↑" />
 						<Kbd shortcut="↓" />

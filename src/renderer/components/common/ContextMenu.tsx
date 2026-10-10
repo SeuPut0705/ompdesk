@@ -64,7 +64,7 @@ export function MenuSurface({ className, children }: { className?: string; child
 	return (
 		<div
 			className={cx(
-				"min-w-48 max-w-80 overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) p-1 shadow-(--sc-shadow-md)",
+				"min-w-48 max-w-[min(20rem,calc(100vw-1rem))] max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) p-1 shadow-(--sc-shadow-md)",
 				className,
 			)}
 		>
@@ -80,13 +80,18 @@ export function MenuItemView({ item }: { item: Omit<ContextMenuItem, "onSelect" 
 	return (
 		<>
 			{showCheckColumn ? (
-				<Check aria-hidden className={cx("shrink-0 text-(--sc-accent)", !item.checked && "invisible")} size={14} />
+				<Check
+					aria-hidden
+					className={cx("size-(--sc-icon-sm) shrink-0 text-(--sc-text-secondary)", !item.checked && "invisible")}
+				/>
 			) : (
 				Icon && (
 					<Icon
 						aria-hidden
-						className={cx("shrink-0", item.danger ? "text-(--sc-danger)" : "text-(--sc-text-muted)")}
-						size={14}
+						className={cx(
+							"size-(--sc-icon-sm) shrink-0",
+							item.danger ? "text-(--sc-danger)" : "text-(--sc-text-muted)",
+						)}
 					/>
 				)
 			)}
@@ -105,7 +110,7 @@ export function MenuItemView({ item }: { item: Omit<ContextMenuItem, "onSelect" 
 /** Item row classes; `active` is the keyboard/pointer highlight. */
 export function menuItemClasses(item: Pick<ContextMenuItem, "danger" | "disabled">, active: boolean): string {
 	return cx(
-		"flex min-h-8 w-full items-center gap-2.5 rounded-(--sc-radius-sm) px-2 py-1.5 text-left text-sc-md outline-none",
+		"flex min-h-9 w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-1.5 text-left text-sc-md",
 		item.danger ? "text-(--sc-danger)" : "text-(--sc-text)",
 		active && (item.danger ? "bg-(--sc-danger-soft)" : "bg-(--sc-selected)"),
 		item.disabled && "cursor-not-allowed opacity-50",
@@ -207,7 +212,7 @@ export function ContextMenu({ items, x, y, align = "start", ariaLabel, onClose }
 				{items.map((item, index) => (
 					<Fragment key={item.id}>
 						{item.separatorBefore && index > 0 && (
-							<div className="mx-1 my-1 h-px bg-(--sc-border-subtle)" role="separator" />
+							<div className="mx-2 my-1 h-px bg-(--sc-divider)" role="separator" />
 						)}
 						<button
 							aria-checked={item.checked}

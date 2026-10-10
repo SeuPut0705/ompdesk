@@ -38,10 +38,10 @@ export function ConfirmDialog({
 		<Modal
 			footer={
 				<>
-					<Button autoFocus onClick={onCancel} variant="ghost">
+					<Button autoFocus onClick={onCancel} variant="secondary">
 						{cancelLabel ?? t("common.cancel")}
 					</Button>
-					<Button disabled={busy} onClick={onConfirm} variant="danger">
+					<Button disabled={busy} loading={busy} onClick={onConfirm} variant="danger">
 						{confirmLabel ?? t("common.delete")}
 					</Button>
 				</>

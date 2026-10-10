@@ -141,7 +141,8 @@ export function StatTable<T>({
 						<tr
 							className={cx(
 								"border-b border-(--sc-divider) last:border-b-0",
-								onRowClick && "cursor-pointer hover:bg-(--sc-hover)",
+								onRowClick &&
+									"cursor-pointer hover:bg-(--sc-hover) focus-visible:bg-(--sc-selected) active:bg-(--sc-pressed)",
 							)}
 							key={keyFor(row)}
 							onClick={onRowClick ? () => onRowClick(row) : undefined}
@@ -159,7 +160,10 @@ export function StatTable<T>({
 						>
 							{columns.map(column => (
 								<td
-									className={cx("px-3 py-2 align-top", column.align === "right" && "text-right tabular-nums")}
+									className={cx(
+										"px-3 py-3 align-top",
+										column.align === "right" && "text-right whitespace-nowrap tabular-nums",
+									)}
 									key={column.key}
 								>
 									{column.render(row)}

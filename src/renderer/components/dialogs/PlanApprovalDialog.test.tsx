@@ -11,6 +11,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { AgentSessionEvent, RpcResponse } from "../../../shared/rpc-types";
+import { usePlanApproval } from "../../hooks/use-plan-approval";
 import { I18nProvider } from "../../lib/i18n";
 import { usePlanApprovalStore } from "../../stores/plan-approval";
 import { useSessionStore } from "../../stores/session";
@@ -117,12 +118,21 @@ async function flush(): Promise<void> {
 	});
 }
 
+function PlanEvents({ children }: { children: ReactElement }) {
+	usePlanApproval();
+	return children;
+}
+
 async function mount(element: ReactElement): Promise<void> {
 	container = document.createElement("div") as unknown as TestElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
 	await act(async () => {
-		root.render(<I18nProvider>{element}</I18nProvider>);
+		root.render(
+			<I18nProvider>
+				<PlanEvents>{element}</PlanEvents>
+			</I18nProvider>,
+		);
 	});
 	await flush();
 }

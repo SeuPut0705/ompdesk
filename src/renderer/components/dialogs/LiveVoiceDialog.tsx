@@ -95,59 +95,78 @@ export function LiveVoiceDialog() {
 	const connecting = busy && state.phase === "connecting";
 	const phaseLabel = !state.active && !busy && !state.error ? t("live.ready") : t(`live.phase.${state.phase}`);
 	return (
-		<Modal onClose={() => void close()} open={open} size="md" title={t("live.title")}>
+		<Modal
+			onClose={() => void close()}
+			open={open}
+			size="md"
+			title={t("live.title")}
+			footer={
+				<>
+					<Button
+						disabled={busy && !state.active}
+						onClick={() => void close()}
+						variant={state.active ? "danger" : "secondary"}
+						icon={<PhoneOff />}
+					>
+						{state.active ? t("live.end") : t("common.close")}
+					</Button>
+					<Button
+						disabled={!state.active || busy}
+						onClick={() => void run("live_mute", { muted: !state.muted })}
+						variant="secondary"
+						icon={state.muted ? <Mic /> : <MicOff />}
+					>
+						{state.muted ? t("live.unmute") : t("live.mute")}
+					</Button>
+					{!state.active && (
+						<Button disabled={busy} loading={busy} onClick={() => void run("live_start")} variant="primary">
+							{t("live.start")}
+						</Button>
+					)}
+				</>
+			}
+		>
 			<div className="space-y-4">
-				<div className="flex items-center justify-center gap-2 py-2 text-sm font-medium text-(--omp-text)">
+				<div
+					className="flex flex-wrap items-center justify-center gap-2 py-2 text-sc-md font-medium text-(--sc-text)"
+					role="status"
+				>
 					{connecting ? <Spinner size="sm" /> : null}
 					<span>{phaseLabel}</span>
 					{state.active && state.voice ? (
-						<span className="text-omp-xs font-normal text-(--omp-dim)">
+						<span className="text-sc-xs font-normal text-(--sc-text-muted)">
 							· {t("live.voice", { voice: state.voice })}
 						</span>
 					) : null}
 				</div>
-				<div className="space-y-3 rounded-lg border border-(--omp-border-muted) bg-transparent p-4">
+				<div className="space-y-3 rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-4">
 					<Level label={t("live.input")} value={state.inputLevel} />
 					<Level label={t("live.output")} value={state.outputLevel} />
 				</div>
-				<div className="max-h-64 min-h-24 space-y-2 overflow-y-auto rounded-lg border border-(--omp-border-muted) bg-transparent p-3 text-sm">
+				<div className="max-h-64 min-h-24 space-y-2 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3 text-sc-md">
 					{state.transcript.length > 0 ? (
 						state.transcript.map(entry => (
 							<div key={`${entry.role}:${entry.turn}`}>
-								<div className="mb-0.5 text-omp-xs font-semibold uppercase tracking-wide text-(--omp-dim)">
+								<div className="mb-0.5 text-sc-xs font-medium text-(--sc-text-muted)">
 									{entry.role === "user" ? t("live.you") : t("live.assistant")}
 								</div>
 								<div
-									className={`whitespace-pre-wrap ${entry.final ? "text-(--omp-text)" : "text-(--omp-dim)"}`}
+									className={`whitespace-pre-wrap break-words ${entry.final ? "text-(--sc-text)" : "text-(--sc-text-muted)"}`}
 								>
 									{entry.text}
 								</div>
 							</div>
 						))
 					) : (
-						<div className="text-(--omp-dim)">{t("live.waiting")}</div>
+						<div className="text-(--sc-text-muted)">{t("live.waiting")}</div>
 					)}
 					<div ref={transcriptEnd} />
 				</div>
-				{state.error ? <div className="text-sm text-(--omp-error)">{state.error}</div> : null}
-				<div className="flex justify-end gap-2">
-					{!state.active && (
-						<Button disabled={busy} loading={busy} onClick={() => void run("live_start")}>
-							{t("live.start")}
-						</Button>
-					)}
-					<Button
-						disabled={!state.active || busy}
-						onClick={() => void run("live_mute", { muted: !state.muted })}
-						variant="secondary"
-					>
-						{state.muted ? <Mic size={14} /> : <MicOff size={14} />}
-						{state.muted ? t("live.unmute") : t("live.mute")}
-					</Button>
-					<Button disabled={busy && !state.active} onClick={() => void close()} variant="danger">
-						<PhoneOff size={14} /> {state.active ? t("live.end") : t("common.close")}
-					</Button>
-				</div>
+				{state.error ? (
+					<div className="text-sc-sm text-(--sc-danger)" role="alert">
+						{state.error}
+					</div>
+				) : null}
 			</div>
 		</Modal>
 	);
@@ -156,14 +175,15 @@ export function LiveVoiceDialog() {
 function Level({ label, value }: { label: string; value: number }) {
 	const percent = Math.max(0, Math.min(100, Math.round(value * 100)));
 	return (
-		<div className="grid grid-cols-[5rem_1fr_2.5rem] items-center gap-2 text-xs">
-			<span className="text-(--omp-dim)">{label}</span>
-			<div
-				className="h-2 overflow-hidden rounded-full bg-(--omp-bg-primary)" // surface-ok: level meter track
-			>
-				<div className="h-full bg-(--omp-accent) transition-[width] duration-75" style={{ width: `${percent}%` }} />
+		<div className="grid grid-cols-[minmax(0,5rem)_1fr_2.5rem] items-center gap-2 text-sc-xs">
+			<span className="text-(--sc-text-muted)">{label}</span>
+			<div className="h-2 overflow-hidden rounded-(--sc-radius-full) bg-(--sc-border-subtle)">
+				<div
+					className="h-full bg-(--sc-accent) transition-[width] duration-(--sc-duration-instant) motion-reduce:transition-none"
+					style={{ width: `${percent}%` }}
+				/>
 			</div>
-			<span className="text-right tabular-nums text-(--omp-dim)">{percent}%</span>
+			<span className="text-right tabular-nums text-(--sc-text-muted)">{percent}%</span>
 		</div>
 	);
 }

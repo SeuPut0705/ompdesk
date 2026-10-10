@@ -555,6 +555,7 @@ describe("ExtensionDialog non-dialog mutations", () => {
 			text: "restored draft",
 			images: [{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }],
 			prepend: true,
+			tabId: null,
 		});
 		expect(document.title).toBe("Extension task");
 		expect(useExtensionUiStore.getState().pendingRequests).toEqual([]);

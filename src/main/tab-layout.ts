@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import type { IpcTabWorktree, SessionKind } from "../shared/ipc-types";
+import { asSplitLayout, mapSplitLeaves, readSplitNode, type SplitLayout, splitTabIds } from "../shared/split-layout";
 
 export const TAB_LAYOUT_VERSION = 1;
 export const MAX_PERSISTED_TABS = 10;
@@ -31,12 +32,8 @@ export interface PersistedTabLayout {
 	version: typeof TAB_LAYOUT_VERSION;
 	tabs: PersistedTabDescriptor[];
 	activeIndex: number;
-	split?: {
-		axis: "columns" | "rows";
-		firstIndex: number;
-		secondIndex: number;
-		ratio: number;
-	};
+	/** Leaves store tab indices as strings, remapped to runtime ids on restore. */
+	split?: SplitLayout;
 }
 
 export interface TabLayoutPathChecks {
@@ -169,26 +166,26 @@ export function sanitizePersistedTabLayout(
 	if (activeIndex < 0) activeIndex = effective.length - 1;
 	let split: PersistedTabLayout["split"];
 	if (isRecord(value.split)) {
-		const axis = value.split.axis;
-		const firstSourceIndex = value.split.firstIndex;
-		const secondSourceIndex = value.split.secondIndex;
-		const ratio = value.split.ratio;
-		const firstIndex = effective.findIndex(entry => entry.sourceIndex === firstSourceIndex);
-		const secondIndex = effective.findIndex(entry => entry.sourceIndex === secondSourceIndex);
-		if (
-			(axis === "columns" || axis === "rows") &&
-			firstIndex >= 0 &&
-			secondIndex >= 0 &&
-			firstIndex !== secondIndex &&
-			typeof ratio === "number" &&
-			Number.isFinite(ratio)
-		) {
-			// Both panes survived but the persisted focus was dropped (e.g. its
-			// cwd vanished): keep the split and refocus a pane — discarding the
-			// whole split here would also be re-persisted on restore, permanently
-			// forgetting the layout after one bad launch.
-			if (activeIndex !== firstIndex && activeIndex !== secondIndex) activeIndex = firstIndex;
-			split = { axis, firstIndex, secondIndex, ratio: Math.min(0.8, Math.max(0.2, ratio)) };
+		const raw = value.split;
+		const migrated =
+			"firstIndex" in raw && "secondIndex" in raw
+				? {
+						axis: raw.axis,
+						ratio: raw.ratio,
+						first: { tabId: String(raw.firstIndex) },
+						second: { tabId: String(raw.secondIndex) },
+					}
+				: raw;
+		const parsed = readSplitNode(migrated);
+		if (parsed) {
+			split =
+				asSplitLayout(
+					mapSplitLeaves(parsed, source => {
+						const index = effective.findIndex(entry => entry.sourceIndex === Number(source));
+						return index >= 0 ? { tabId: String(index) } : null;
+					}),
+				) ?? undefined;
+			if (split && !splitTabIds(split).includes(String(activeIndex))) activeIndex = Number(splitTabIds(split)[0]);
 		}
 	}
 

@@ -1,7 +1,7 @@
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
 import { useSettingsStore } from "../../stores/settings";
@@ -48,6 +48,8 @@ async function mountExpandedThinking(text: string): Promise<void> {
 	await mount(<ThinkingBlock text={text} />);
 }
 
+const originalMatchMedia = window.matchMedia;
+
 afterEach(async () => {
 	await act(async () => {
 		root.unmount();
@@ -56,9 +58,27 @@ afterEach(async () => {
 	useSettingsStore.getState().reset();
 	useMessagesStore.getState().reset();
 	useUiStore.getState().setThinkingExpanded(false);
+	Reflect.set(window, "matchMedia", originalMatchMedia);
+	vi.useRealTimers();
 });
 
 describe("ThinkingBlock", () => {
+	it("keeps hidden reasoning still when reduced motion is requested", async () => {
+		vi.useFakeTimers();
+		Reflect.set(window, "matchMedia", () => ({
+			matches: true,
+			addEventListener: () => {},
+			removeEventListener: () => {},
+		}));
+		useSettingsStore.setState({ hideThinkingBlock: true });
+		useMessagesStore.setState({ streamingThinking: HEADLINED_THINKING });
+		await mount(<ThinkingBlock live />);
+		const before = container.querySelector(".omp-thinking-block--pulse")?.textContent;
+		await act(async () => vi.advanceTimersByTime(3000));
+		expect(container.querySelector(".omp-thinking-block--pulse")?.textContent).toBe(before);
+		expect(container.textContent).toContain("Thinking");
+	});
+
 	it("renders the stock rate without treating reasoning characters as tokens", async () => {
 		useMessagesStore.getState().applyEvents([{ type: "token_rate", rate: 64 }]);
 		useMessagesStore.setState({ streamingThinking: HEADLINED_THINKING });

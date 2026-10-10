@@ -66,37 +66,46 @@ export function SessionSwitchDialog() {
 	const name = session?.title || session?.firstMessage || session?.id || "";
 
 	return (
-		<Modal open={session !== null} onClose={dismiss} title={t("sessionSwitch.title")} size="sm">
-			<p className="text-omp-lg leading-relaxed text-(--omp-muted)">{t("sessionSwitch.body", { name })}</p>
-			<div className="mt-5 flex flex-col gap-2">
-				<Button
-					variant="primary"
-					loading={busy === "new-tab"}
-					disabled={busy !== null}
-					onClick={() => void openInNewTab()}
-				>
-					{t("sessionSwitch.openNewTab")}
-				</Button>
-				<Button
-					variant="secondary"
-					loading={busy === "new-window"}
-					disabled={busy !== null}
-					onClick={() => void openInNewWindow()}
-				>
-					{t("sessionSwitch.openNewWindow")}
-				</Button>
-				<Button
-					variant="danger"
-					loading={busy === "switch"}
-					disabled={busy !== null}
-					onClick={() => void switchAnyway()}
-				>
-					{t("sessionSwitch.switchAnyway")}
-				</Button>
-				<Button variant="ghost" disabled={busy !== null} onClick={dismiss}>
-					{t("common.cancel")}
-				</Button>
-			</div>
+		<Modal
+			open={session !== null}
+			onClose={dismiss}
+			title={t("sessionSwitch.title")}
+			size="sm"
+			footer={
+				<>
+					<Button variant="secondary" disabled={busy !== null} onClick={dismiss}>
+						{t("common.cancel")}
+					</Button>
+					<Button
+						variant="danger"
+						loading={busy === "switch"}
+						disabled={busy !== null}
+						onClick={() => void switchAnyway()}
+					>
+						{t("sessionSwitch.switchAnyway")}
+					</Button>
+					<Button
+						variant="secondary"
+						loading={busy === "new-window"}
+						disabled={busy !== null}
+						onClick={() => void openInNewWindow()}
+					>
+						{t("sessionSwitch.openNewWindow")}
+					</Button>
+					<Button
+						variant="primary"
+						loading={busy === "new-tab"}
+						disabled={busy !== null}
+						onClick={() => void openInNewTab()}
+					>
+						{t("sessionSwitch.openNewTab")}
+					</Button>
+				</>
+			}
+		>
+			<p className="text-sc-md leading-relaxed break-words text-(--sc-text-secondary)">
+				{t("sessionSwitch.body", { name })}
+			</p>
 		</Modal>
 	);
 }

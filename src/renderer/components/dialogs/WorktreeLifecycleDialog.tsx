@@ -70,7 +70,7 @@ export function WorktreeLifecycleDialog() {
 				size="sm"
 				footer={
 					<>
-						<Button variant="ghost" onClick={() => answer(false)} disabled={busy}>
+						<Button variant="secondary" onClick={() => answer(false)} disabled={busy}>
 							{t("worktreeLifecycle.skip")}
 						</Button>
 						<Button variant="primary" onClick={() => answer(true)} loading={busy}>
@@ -79,8 +79,8 @@ export function WorktreeLifecycleDialog() {
 					</>
 				}
 			>
-				<p className="text-omp-lg leading-relaxed text-(--omp-muted)">{t("worktreeLifecycle.startBody")}</p>
-				<p className="mt-2 truncate font-mono text-omp-sm text-(--omp-dim)" title={prompt.cwd}>
+				<p className="text-sc-md leading-relaxed text-(--sc-text-secondary)">{t("worktreeLifecycle.startBody")}</p>
+				<p className="mt-2 font-mono text-sc-sm break-all text-(--sc-text-muted)" title={prompt.cwd}>
 					{prompt.cwd}
 				</p>
 			</Modal>
@@ -99,7 +99,7 @@ export function WorktreeLifecycleDialog() {
 			title={t("worktreeLifecycle.exitTitle")}
 			message={
 				<>
-					<span className="block font-mono text-omp-sm text-(--omp-dim)">
+					<span className="block font-mono text-sc-sm break-all text-(--sc-text-muted)">
 						{prompt.branch} — {prompt.path}
 					</span>
 					<span className="mt-2 block">

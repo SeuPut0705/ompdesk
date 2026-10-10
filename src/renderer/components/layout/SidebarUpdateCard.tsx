@@ -199,7 +199,7 @@ export function SidebarUpdateCard() {
 			aria-describedby={descriptionId}
 			aria-label={row.label}
 			aria-live="polite"
-			className="omp-update-card relative mx-2 mb-2 flex h-9 items-center gap-2 overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-elevated) pr-1 pl-2.5"
+			className="omp-update-card relative mx-2 mb-2 flex min-h-(--sc-control-lg) items-center gap-2 overflow-hidden rounded-(--sc-radius-md) bg-(--sc-hover) pr-1 pl-2.5"
 			data-sidebar-update
 			data-update-tone={row.tone}
 			title={row.description}

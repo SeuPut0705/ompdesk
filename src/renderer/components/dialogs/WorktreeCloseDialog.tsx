@@ -86,33 +86,20 @@ export function WorktreeCloseDialog() {
 	};
 
 	return (
-		<Modal open onClose={closePrompt} title={t("worktreeClose.title", { name: worktree.name })} size="sm">
-			{query.phase === "loading" ? (
-				<div className="flex items-center justify-center gap-2 py-6 text-xs text-(--omp-dim)">
-					<Spinner size="sm" />
-					<span>{t("worktreeClose.checking")}</span>
-				</div>
-			) : (
-				<div className="flex flex-col gap-4">
-					{query.phase === "error" ? (
-						<p className="text-omp-lg leading-relaxed text-(--omp-muted)">
-							{sidecarReady ? t("worktreeClose.statusUnknown") : t("worktreeClose.notConnected")}
-						</p>
-					) : dirty && status ? (
-						<p className="text-omp-lg leading-relaxed text-(--omp-warning)">
-							{t("worktreeClose.dirtyBody", {
-								staged: String(status.staged),
-								unstaged: String(status.unstaged),
-								untracked: String(status.untracked),
-							})}
-						</p>
-					) : (
-						<p className="text-omp-lg leading-relaxed text-(--omp-muted)">{t("worktreeClose.cleanBody")}</p>
-					)}
-					<p className="truncate font-mono text-omp-sm text-(--omp-dim)" title={worktree.path}>
-						{worktree.branch} — {worktree.path}
-					</p>
-					<div className="flex flex-col gap-2">
+		<Modal
+			open
+			onClose={closePrompt}
+			title={t("worktreeClose.title", { name: worktree.name })}
+			size="sm"
+			footer={
+				query.phase !== "loading" ? (
+					<>
+						<Button variant="secondary" onClick={closePrompt} disabled={busy}>
+							{t("common.cancel")}
+						</Button>
+						<Button variant="secondary" onClick={finish} disabled={busy}>
+							{t("worktreeClose.keep")}
+						</Button>
 						{query.phase === "ready" && (
 							<Button
 								variant={dirty ? "danger" : "primary"}
@@ -122,13 +109,37 @@ export function WorktreeCloseDialog() {
 								{dirty ? t("worktreeClose.forceDelete") : t("worktreeClose.delete")}
 							</Button>
 						)}
-						<Button variant="ghost" onClick={finish} disabled={busy}>
-							{t("worktreeClose.keep")}
-						</Button>
-						<Button variant="ghost" onClick={closePrompt} disabled={busy}>
-							{t("common.cancel")}
-						</Button>
-					</div>
+					</>
+				) : undefined
+			}
+		>
+			{query.phase === "loading" ? (
+				<div className="flex items-center justify-center gap-2 py-6 text-sc-sm text-(--sc-text-muted)">
+					<Spinner size="sm" />
+					<span>{t("worktreeClose.checking")}</span>
+				</div>
+			) : (
+				<div className="flex flex-col gap-4">
+					{query.phase === "error" ? (
+						<p className="text-sc-md leading-relaxed text-(--sc-text-secondary)">
+							{sidecarReady ? t("worktreeClose.statusUnknown") : t("worktreeClose.notConnected")}
+						</p>
+					) : dirty && status ? (
+						<p className="text-sc-md leading-relaxed text-(--sc-warning)">
+							{t("worktreeClose.dirtyBody", {
+								staged: String(status.staged),
+								unstaged: String(status.unstaged),
+								untracked: String(status.untracked),
+							})}
+						</p>
+					) : (
+						<p className="text-sc-md leading-relaxed text-(--sc-text-secondary)">
+							{t("worktreeClose.cleanBody")}
+						</p>
+					)}
+					<p className="font-mono text-sc-sm break-all text-(--sc-text-muted)" title={worktree.path}>
+						{worktree.branch} — {worktree.path}
+					</p>
 				</div>
 			)}
 		</Modal>

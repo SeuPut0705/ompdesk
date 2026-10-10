@@ -79,25 +79,39 @@ export function FeedbackDialog() {
 	}, [canSubmit, kind, title, description, includeEnv, includeErrors, info, errorTail, prefill, close]);
 
 	return (
-		<Modal onClose={close} open={open} size="lg" title={t("feedback.title")}>
+		<Modal
+			onClose={close}
+			open={open}
+			size="lg"
+			title={t("feedback.title")}
+			description={t("feedback.intro")}
+			footer={
+				<>
+					<Button onClick={close} size="sm" variant="secondary">
+						{t("feedback.cancel")}
+					</Button>
+					<Button disabled={!canSubmit} icon={<ExternalLink />} onClick={submit} size="sm" variant="primary">
+						{t("feedback.submit")}
+					</Button>
+				</>
+			}
+		>
 			<div className="space-y-4">
-				<p className="text-omp-sm leading-relaxed text-(--omp-muted)">{t("feedback.intro")}</p>
-
 				<div>
-					<span className="mb-1.5 block text-omp-md font-medium text-(--omp-text-secondary)">
+					<span className="mb-1.5 block text-sc-md font-medium text-(--sc-text-secondary)">
 						{t("feedback.kind")}
 					</span>
-					<div className="flex gap-1.5" role="group" aria-label={t("feedback.kind")}>
+					<div className="flex flex-wrap gap-1.5" role="group" aria-label={t("feedback.kind")}>
 						{FEEDBACK_KINDS.map(value => (
 							<button
 								key={value}
 								type="button"
 								aria-pressed={kind === value}
 								onClick={() => setKind(value)}
-								className={`omp-pressable rounded-md px-3 py-1.5 text-omp-sm font-medium transition-colors ${
+								className={`omp-pressable min-h-8 rounded-(--sc-radius-md) px-3 py-1.5 text-sc-sm font-medium ${
 									kind === value
-										? "bg-(--omp-btn-primary-bg) text-(--omp-btn-primary-text)"
-										: "border border-(--omp-border-muted) text-(--omp-muted) hover:text-(--omp-text)"
+										? "bg-(--sc-selected) text-(--sc-text)"
+										: "text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text)"
 								}`}
 							>
 								{t(`feedback.kind.${value}`)}
@@ -116,10 +130,10 @@ export function FeedbackDialog() {
 
 				{prefill?.error && (
 					<div>
-						<span className="mb-1.5 block text-omp-md font-medium text-(--omp-text-secondary)">
+						<span className="mb-1.5 block text-sc-md font-medium text-(--sc-text-secondary)">
 							{t("feedback.capturedError")}
 						</span>
-						<pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-(--omp-border-muted) bg-(--omp-code-bg) p-2.5 font-mono text-omp-xs text-(--omp-error)">
+						<pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-2) p-2.5 font-mono text-sc-xs text-(--sc-danger)">
 							{prefill.error}
 						</pre>
 					</div>
@@ -134,38 +148,38 @@ export function FeedbackDialog() {
 					required
 				/>
 
-				<div className="space-y-2 rounded-lg border border-(--omp-border-muted) p-3">
-					<label className="flex items-start gap-2.5 text-omp-sm text-(--omp-text)">
+				<div className="space-y-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3">
+					<label className="flex items-start gap-2.5 text-sc-sm text-(--sc-text)">
 						<input
 							type="checkbox"
 							checked={includeEnv}
 							onChange={event => setIncludeEnv(event.target.checked)}
-							className="mt-0.5 accent-(--omp-accent)"
+							className="mt-0.5 accent-(--sc-accent)"
 						/>
 						<span>
 							{t("feedback.includeEnv")}
 							{includeEnv && envLine && (
-								<span className="block font-mono text-omp-xs text-(--omp-dim)">{envLine}</span>
+								<span className="block font-mono text-sc-xs break-all text-(--sc-text-muted)">{envLine}</span>
 							)}
 						</span>
 					</label>
 					<div>
-						<label className="flex items-start gap-2.5 text-omp-sm text-(--omp-text)">
+						<label className="flex items-start gap-2.5 text-sc-sm text-(--sc-text)">
 							<input
 								type="checkbox"
 								checked={includeErrors}
 								onChange={event => setIncludeErrors(event.target.checked)}
-								className="mt-0.5 accent-(--omp-accent)"
+								className="mt-0.5 accent-(--sc-accent)"
 							/>
 							<span>{t("feedback.includeErrors")}</span>
 						</label>
 						{/* Kept outside the label: clicking the preview to read/select text must not toggle the box. */}
 						{includeErrors && (
 							<details className="mt-1 ml-6">
-								<summary className="cursor-pointer text-omp-xs text-(--omp-dim) hover:text-(--omp-muted)">
+								<summary className="cursor-pointer text-sc-xs text-(--sc-text-muted) hover:text-(--sc-text-secondary)">
 									{t("feedback.errorsPreview", { count: errorTail.length })}
 								</summary>
-								<pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-(--omp-code-bg) p-2 font-mono text-omp-xs text-(--omp-dim)">
+								<pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-(--sc-radius-md) bg-(--sc-surface-2) p-2 font-mono text-sc-xs text-(--sc-text-muted)">
 									{errorPreview || t("feedback.errorsEmpty")}
 								</pre>
 							</details>
@@ -173,22 +187,7 @@ export function FeedbackDialog() {
 					</div>
 				</div>
 
-				<p className="text-omp-xs leading-relaxed text-(--omp-dim)">{t("feedback.note")}</p>
-
-				<div className="flex justify-end gap-2 pt-1">
-					<Button onClick={close} size="sm" variant="secondary">
-						{t("feedback.cancel")}
-					</Button>
-					<Button
-						disabled={!canSubmit}
-						icon={<ExternalLink size={12} />}
-						onClick={submit}
-						size="sm"
-						variant="primary"
-					>
-						{t("feedback.submit")}
-					</Button>
-				</div>
+				<p className="text-sc-xs leading-relaxed text-(--sc-text-muted)">{t("feedback.note")}</p>
 			</div>
 		</Modal>
 	);

@@ -11,7 +11,7 @@
  *
  * Event routing: the full event channels (events batch, status, subagent,
  * live, commands, config, prompt result, command output, session info,
- * extension error, host tool/uri) forward from at most two VISIBLE tabs.
+ * extension error, host tool/uri) forward from at most four VISIBLE tabs.
  * One of them is focused for untargeted commands. Every tab (visible or
  * background) additionally pushes the light TAB_STATUS channel, so background
  * tabs report status flips, run outcomes, and session title/id changes, and
@@ -70,6 +70,7 @@ import {
 	type SidecarStatusPayload,
 	type SubagentFrame,
 } from "../shared/rpc-types";
+import { asSplitLayout, mapSplitLeaves, readSplitNode, splitTabIds } from "../shared/split-layout";
 import { canonicalCwd } from "./canonical-cwd";
 import { createMessageUpdateSlimmer } from "./message-update-slim";
 import type { WindowTabFact } from "./quit-guard";
@@ -198,9 +199,9 @@ export class SidecarPool {
 	#byTabId = new Map<string, PoolEntry>();
 	/** Window (webContents.id) → active tab. The first acquired tab defaults active. */
 	#activeByWindow = new Map<number, string>();
-	/** Window → the one or two tabs whose full event streams are rendered. */
+	/** Window → up to four tabs whose full event streams are rendered. */
 	#visibleByWindow = new Map<number, Set<string>>();
-	/** Window → persisted order, axis, and ratio for its optional two-pane view. */
+	/** Window → recursive split geometry for its optional multi-pane view. */
 	#splitByWindow = new Map<number, WindowSplitView>();
 	/** Session file → owning tab/window (F-OWN double-attach guard). */
 	#sessionOwners = new Map<string, IpcSessionOwner>();
@@ -609,8 +610,11 @@ export class SidecarPool {
 		const visible = this.#visibleByWindow.get(entry.winId);
 		visible?.delete(entry.tabId);
 		const split = this.#splitByWindow.get(entry.winId);
-		if (split?.firstTabId === entry.tabId || split?.secondTabId === entry.tabId)
-			this.#splitByWindow.delete(entry.winId);
+		if (split && splitTabIds(split).includes(entry.tabId)) {
+			const remaining = asSplitLayout(mapSplitLeaves(split, tabId => (tabId === entry.tabId ? null : { tabId })));
+			if (remaining) this.#splitByWindow.set(entry.winId, remaining);
+			else this.#splitByWindow.delete(entry.winId);
+		}
 		if (![...this.#entries].some(candidate => candidate.winId === entry.winId)) {
 			this.#activeByWindow.delete(entry.winId);
 			this.#visibleByWindow.delete(entry.winId);
@@ -702,7 +706,7 @@ export class SidecarPool {
 		return this.setTabView(win, tabId, [tabId]);
 	}
 
-	/** Atomically focus one tab and wire full streams for one or two visible tabs. */
+	/** Atomically focus one tab and wire full streams for up to four visible tabs. */
 	setTabView(
 		win: BrowserWindow,
 		focusedTabId: string,
@@ -710,15 +714,11 @@ export class SidecarPool {
 		split?: IpcSetTabViewPayload["split"],
 	): boolean {
 		const ids = [...new Set(visibleTabIds)];
-		if (ids.length < 1 || ids.length > 2 || !ids.includes(focusedTabId)) return false;
+		if (ids.length < 1 || ids.length > 4 || !ids.includes(focusedTabId)) return false;
+		const parsed = split ? asSplitLayout(readSplitNode(split)) : null;
 		if (
 			split &&
-			(ids.length !== 2 ||
-				!ids.includes(split.firstTabId) ||
-				!ids.includes(split.secondTabId) ||
-				split.firstTabId === split.secondTabId ||
-				(split.axis !== "columns" && split.axis !== "rows") ||
-				!Number.isFinite(split.ratio))
+			(!parsed || splitTabIds(parsed).length !== ids.length || !splitTabIds(parsed).every(id => ids.includes(id)))
 		)
 			return false;
 		for (const tabId of ids) {
@@ -728,7 +728,7 @@ export class SidecarPool {
 		const winId = win.webContents.id;
 		this.#activeByWindow.set(winId, focusedTabId);
 		this.#visibleByWindow.set(winId, new Set(ids));
-		if (split) this.#splitByWindow.set(winId, { ...split, ratio: Math.min(0.8, Math.max(0.2, split.ratio)) });
+		if (parsed) this.#splitByWindow.set(winId, parsed);
 		else this.#splitByWindow.delete(winId);
 		this.#syncFullWiring(winId);
 		this.#notifyWindowTabsChanged(win);
@@ -858,10 +858,10 @@ export class SidecarPool {
 	 * single-shot; a host_tool UPDATE is not, the result follows). False when
 	 * the id is unknown — the caller falls back to the active tab's sidecar.
 	 */
-	routeSideChannel(id: string, frame: object, final: boolean): boolean {
-		const entry = this.#requestOwners.get(id);
+	routeSideChannel(id: string, frame: object, final: boolean, tabId?: string): boolean {
+		const entry = tabId ? this.#byTabId.get(tabId) : this.#requestOwners.get(id);
 		if (!entry) return false;
-		if (final) this.#requestOwners.delete(id);
+		if (final && this.#requestOwners.get(id) === entry) this.#requestOwners.delete(id);
 		entry.sidecar.sendSideChannel(frame);
 		return true;
 	}
@@ -901,8 +901,7 @@ export class SidecarPool {
 			const tab = tabStatusPayload(entry);
 			if (entry.tabId === activeTabId) tab.active = true;
 			if (visibleTabIds?.has(entry.tabId)) tab.visible = true;
-			if (split?.firstTabId === entry.tabId) tab.split = { axis: split.axis, index: 0, ratio: split.ratio };
-			else if (split?.secondTabId === entry.tabId) tab.split = { axis: split.axis, index: 1, ratio: split.ratio };
+			if (split && visibleTabIds?.has(entry.tabId)) tab.split = split;
 			tabs.push(tab);
 		}
 		return tabs;
@@ -927,8 +926,6 @@ export class SidecarPool {
 			entries.findIndex(entry => entry.tabId === activeTabId),
 		);
 		const split = this.#splitByWindow.get(win.webContents.id);
-		const firstIndex = split ? entries.findIndex(entry => entry.tabId === split.firstTabId) : -1;
-		const secondIndex = split ? entries.findIndex(entry => entry.tabId === split.secondTabId) : -1;
 		return {
 			version: TAB_LAYOUT_VERSION,
 			activeIndex,
@@ -947,8 +944,16 @@ export class SidecarPool {
 				if (entry.title !== undefined) descriptor.title = entry.title ?? undefined;
 				return descriptor;
 			}),
-			...(split && firstIndex >= 0 && secondIndex >= 0
-				? { split: { axis: split.axis, firstIndex, secondIndex, ratio: split.ratio } }
+			...(split
+				? {
+						split:
+							asSplitLayout(
+								mapSplitLeaves(split, tabId => {
+									const index = entries.findIndex(entry => entry.tabId === tabId);
+									return index >= 0 ? { tabId: String(index) } : null;
+								}),
+							) ?? undefined,
+					}
 				: {}),
 		};
 	}
@@ -990,18 +995,16 @@ export class SidecarPool {
 			}
 			const activeTabId = activeRestoredTabId ?? firstRestoredTabId;
 			if (activeTabId) {
-				const firstTabId = layout.split ? restoredTabIds[layout.split.firstIndex] : undefined;
-				const secondTabId = layout.split ? restoredTabIds[layout.split.secondIndex] : undefined;
-				// Routing the view is what spawns the shown tabs, so a split whose
-				// panes were both dropped still falls back to one visible tab.
-				if (layout.split && firstTabId && secondTabId) {
-					this.setTabView(win, activeTabId, [firstTabId, secondTabId], {
-						axis: layout.split.axis,
-						firstTabId,
-						secondTabId,
-						ratio: layout.split.ratio,
-					});
-				} else this.setTabView(win, activeTabId, [activeTabId]);
+				const restored = layout.split
+					? mapSplitLeaves(layout.split, index => {
+							const tabId = restoredTabIds[Number(index)];
+							return tabId ? { tabId } : null;
+						})
+					: null;
+				const split = asSplitLayout(restored);
+				const ids = restored ? splitTabIds(restored) : [activeTabId];
+				const focused = ids.includes(activeTabId) ? activeTabId : ids[0];
+				this.setTabView(win, focused, ids, split ?? undefined);
 			}
 		} finally {
 			this.#restoringWindows.delete(winId);

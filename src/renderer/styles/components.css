@@ -260,9 +260,9 @@
 .markdown-body blockquote {
 	margin: 0.85em 0;
 	padding: 0.25em 0 0.25em 1.1em;
-	border-left: 3px solid var(--omp-md-quote-border);
-	border-radius: 2px;
-	color: var(--omp-md-quote);
+	border-left: var(--sc-focus-width) solid var(--sc-border);
+	border-radius: 0;
+	color: var(--sc-text-secondary);
 }
 .markdown-body hr {
 	margin: 1.5em 0;
@@ -278,16 +278,16 @@
 	border: none;
 	padding: 0;
 	font-size: inherit;
-	color: var(--omp-md-code-block);
+	color: var(--sc-text);
 }
 .markdown-body code {
-	font-family: var(--font-mono);
+	font-family: var(--sc-font-mono);
 	font-size: 0.85em;
-	background: var(--omp-code-bg);
-	border: 1px solid var(--omp-border-muted);
-	border-radius: 6px;
-	padding: 0.14em 0.42em;
-	color: var(--omp-md-code);
+	background: var(--sc-surface-2);
+	border: 0;
+	border-radius: var(--sc-radius-xs);
+	padding: var(--sc-space-0-5) var(--sc-space-1);
+	color: var(--sc-text-secondary);
 }
 .markdown-body table {
 	border-collapse: collapse;
@@ -314,17 +314,18 @@
 }
 .markdown-body img {
 	max-width: 100%;
-	border-radius: 12px;
-	border: 1px solid var(--omp-border-muted);
+	border-radius: var(--sc-radius-lg);
+	border: 1px solid var(--sc-border-subtle);
 }
 .markdown-body a {
-	color: var(--omp-md-link);
-	text-decoration: none;
-	border-bottom: 1px solid color-mix(in srgb, var(--omp-md-link) 30%, transparent);
-	transition: border-color var(--omp-motion-fast) var(--omp-ease);
+	color: var(--sc-accent);
+	text-decoration: underline;
+	text-decoration-color: color-mix(in srgb, var(--sc-accent) 40%, transparent);
+	text-underline-offset: 0.2em;
+	transition: text-decoration-color var(--sc-duration-fast) var(--sc-ease-standard);
 }
 .markdown-body a:hover {
-	border-bottom-color: var(--omp-md-link);
+	text-decoration-color: var(--sc-accent);
 }
 .markdown-body strong {
 	font-weight: 650;
@@ -432,14 +433,14 @@
 }
 
 .omp-session-pane {
-	container: omp-workspace / inline-size;
+	container: omp-workspace / size;
 }
 
 .omp-session-pane--active {
 	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--omp-accent) 62%, transparent);
 }
 
-.omp-split-workspace > .omp-session-pane {
+	.omp-split-workspace .omp-session-pane {
 	animation: omp-fade-in var(--omp-motion-fast) var(--omp-ease) both;
 }
 
@@ -1028,6 +1029,22 @@
 	margin: 0.75em 0;
 }
 
+/* Separate content blocks share one gap; nested prose keeps its own rhythm. */
+.omp-transcript-editorial .omp-transcript-content > :is(.markdown-body, .omp-code-block, [data-svg-block]) + :is(.markdown-body, .omp-code-block, [data-svg-block]) {
+	margin-top: var(--sc-space-3);
+}
+
+.omp-transcript-editorial :is(.omp-tool-header, .omp-thinking-header, .omp-starter-card, summary):focus-visible,
+.markdown-body a:focus-visible {
+	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
+	outline-offset: var(--sc-focus-offset);
+	border-radius: var(--sc-radius-xs);
+}
+
+.omp-transcript-editorial :is(.omp-tool-header, .omp-thinking-header):active {
+	background: var(--sc-pressed);
+}
+
 /* A reply's outer edges carry no paragraph margin — the turn padding owns the
    rhythm (the rule above otherwise outranks `.markdown-body > :first-child`).
    The first streaming block follows suit so promotion never shifts text. */
@@ -1144,16 +1161,13 @@
 .omp-transcript-editorial .markdown-body code {
 	border: 0;
 	border-radius: var(--sc-radius-xs);
-	background: color-mix(in srgb, var(--omp-transcript-code-bg) 85%, var(--omp-text) 15%);
+	background: var(--sc-surface-2);
 }
 
 .omp-transcript-editorial .markdown-body pre code {
 	background: transparent;
 }
 
-.omp-transcript-editorial .markdown-body a {
-	border-bottom-color: color-mix(in srgb, var(--omp-md-link) 20%, transparent);
-}
 
 /* The virtualizer recycles rows through the viewport, so an entrance keyed on
  * mounting would replay on every scroll. Per-row utilities stay off, and
@@ -1345,16 +1359,53 @@
 }
 
 @container omp-workspace (max-width: 680px) {
-	.omp-session-pane-cwd {
-		display: none;
-	}
-
 	.omp-starter-grid {
 		grid-template-columns: minmax(0, 1fr);
 	}
 
 	.omp-composer-model-label {
 		max-width: 8rem;
+	}
+}
+
+/* Stacked panes need the welcome actions to fit their own height, not the
+   window's height. Keep all four starters reachable without a clipped title. */
+@container omp-workspace (max-height: 480px) {
+	.omp-empty-canvas {
+		justify-content: flex-start;
+		padding-block: var(--sc-space-4);
+	}
+
+	.omp-empty-logo {
+		display: none;
+	}
+
+	.omp-empty-canvas h1 {
+		font-size: var(--sc-font-lg);
+	}
+
+	.omp-empty-canvas > p {
+		font-size: var(--sc-font-sm);
+	}
+
+	.omp-starter-grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		margin-top: var(--sc-space-4);
+		gap: var(--sc-space-2);
+	}
+
+	.omp-starter-card {
+		min-height: 0;
+		padding: var(--sc-space-2);
+	}
+
+	.omp-starter-card .omp-starter-icon {
+		width: var(--sc-space-6);
+		height: var(--sc-space-6);
+	}
+
+	.omp-starter-card p {
+		font-size: var(--sc-font-xs);
 	}
 }
 

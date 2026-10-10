@@ -5,6 +5,7 @@ import type {
 	RpcLoopModeState,
 	RpcModelPoolState,
 	RpcSessionState,
+	SidecarRestartProgress,
 	SidecarStatus,
 } from "../../shared/rpc-types";
 import { createScopedStoreHook } from "./session-runtime-context";
@@ -35,6 +36,14 @@ export interface SessionStore {
 	sessionName: string | null;
 	sessionFile: string | null;
 	cwd: string;
+	sidecarError: string | null;
+	/** Crash-loop progress carried by the status behind `sidecarError`: non-null
+	 * while the sidecar is respawning itself, and on the terminal error once the
+	 * attempts run out. Null for renderer-detected health failures. */
+	sidecarRestart: SidecarRestartProgress | null;
+	/** The banner was dismissed by the user. A new diagnostic — or the sidecar
+	 * coming back — clears it; the one that was closed stays hidden. */
+	sidecarDismissed: boolean;
 	isStreaming: boolean;
 	isCompacting: boolean;
 	/** Client clock (Date.now()) of the current turn_start while no assistant
@@ -75,6 +84,9 @@ export interface SessionStore {
 	modelPool: RpcModelPoolState | null;
 	setFromState: (state: RpcSessionState) => void;
 	setStatus: (status: SidecarStatus, cwd: string) => void;
+	setSidecarError: (error: string | null, restart?: SidecarRestartProgress | null) => void;
+	clearSidecarError: () => void;
+	dismissSidecarBanner: () => void;
 	reset: () => void;
 }
 
@@ -87,6 +99,9 @@ const initialState = {
 	sessionName: null,
 	sessionFile: null,
 	cwd: "",
+	sidecarError: null as string | null,
+	sidecarRestart: null as SidecarRestartProgress | null,
+	sidecarDismissed: false,
 	isStreaming: false,
 	isCompacting: false,
 	awaitingModelSince: null,
@@ -111,6 +126,10 @@ const initialState = {
 export const createSessionStore = () =>
 	createStore<SessionStore>()(set => ({
 		...initialState,
+		setSidecarError: (error, restart = null) =>
+			set({ sidecarError: error, sidecarRestart: restart, sidecarDismissed: false }),
+		clearSidecarError: () => set({ sidecarError: null, sidecarRestart: null, sidecarDismissed: false }),
+		dismissSidecarBanner: () => set({ sidecarDismissed: true }),
 		setSwitchPending: switchPending => set({ switchPending }),
 		saveTranscriptView: transcriptView => set({ transcriptView }),
 		pinTranscriptToBottom: () => set(state => ({ transcriptPinNonce: state.transcriptPinNonce + 1 })),

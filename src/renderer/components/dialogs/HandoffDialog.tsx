@@ -8,7 +8,6 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
  * unavailable while the agent is streaming, with the reason shown inline.
  */
 
-import { Handshake } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
@@ -16,7 +15,7 @@ import { useT } from "../../lib/i18n";
 import { useForkHandoffStore } from "../../stores/fork-handoff";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
-import { Button, ErrorDetail, Modal, Spinner, TextArea } from "../common";
+import { Banner, Button, ErrorDetail, Modal, Spinner, TextArea } from "../common";
 
 interface HandoffResult {
 	savedPath?: string;
@@ -129,43 +128,15 @@ export function HandoffDialog() {
 	};
 
 	return (
-		<Modal open={open} onClose={requestClose} title={t("handoff.title")} size="md">
-			<div className="flex flex-col gap-3">
-				<div className="flex items-start gap-2.5 rounded-md border border-(--omp-border-muted) bg-transparent px-3 py-2.5">
-					<Handshake className="mt-0.5 shrink-0 text-(--omp-accent)" size={14} />
-					<p className="text-omp-sm leading-relaxed text-(--omp-muted)">{t("handoff.desc")}</p>
-				</div>
-				<TextArea
-					autoGrow
-					disabled={running || prepared?.sessionId === sessionId}
-					hint={t("handoff.instructionsHint")}
-					label={t("handoff.instructionsLabel")}
-					maxLength={2000}
-					onChange={event => setInstructions(event.target.value)}
-					placeholder={t("handoff.instructionsPlaceholder")}
-					ref={textRef}
-					rows={3}
-					value={instructions}
-				/>
-				{blockedReason !== null && (
-					<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-warning)_35%,transparent)] bg-transparent px-3 py-2 text-omp-sm text-(--omp-warning)">
-						{blockedReason}
-					</div>
-				)}
-				{error !== null && (
-					<div className="rounded-md border border-[var(--omp-error)] bg-transparent px-3 py-2 text-omp-sm text-[var(--omp-error)]">
-						{error.message}
-						<ErrorDetail className="mt-0.5" error={error.cause} />
-					</div>
-				)}
-				{running && (
-					<div className="flex items-center gap-2 text-omp-sm text-(--omp-dim)">
-						<Spinner size="sm" />
-						{t(stage === "summary" ? "handoff.generating" : "handoff.creating")}
-					</div>
-				)}
-				<div className="flex justify-end gap-2">
-					<Button disabled={running} onClick={requestClose} type="button" variant="ghost">
+		<Modal
+			open={open}
+			onClose={requestClose}
+			title={t("handoff.title")}
+			description={t("handoff.desc")}
+			size="md"
+			footer={
+				<>
+					<Button disabled={running} onClick={requestClose} type="button" variant="secondary">
 						{t("common.cancel")}
 					</Button>
 					<Button
@@ -178,7 +149,35 @@ export function HandoffDialog() {
 					>
 						{t(prepared?.sessionId === sessionId ? "handoff.retryFork" : "handoff.start")}
 					</Button>
-				</div>
+				</>
+			}
+		>
+			<div className="flex flex-col gap-3">
+				<TextArea
+					autoGrow
+					disabled={running || prepared?.sessionId === sessionId}
+					hint={t("handoff.instructionsHint")}
+					label={t("handoff.instructionsLabel")}
+					maxLength={2000}
+					onChange={event => setInstructions(event.target.value)}
+					placeholder={t("handoff.instructionsPlaceholder")}
+					ref={textRef}
+					rows={3}
+					value={instructions}
+				/>
+				{blockedReason !== null && <Banner variant="warning">{blockedReason}</Banner>}
+				{error !== null && (
+					<Banner live variant="danger">
+						{error.message}
+						<ErrorDetail className="mt-0.5" error={error.cause} />
+					</Banner>
+				)}
+				{running && (
+					<div className="flex items-center gap-2 text-sc-sm text-(--sc-text-muted)" role="status">
+						<Spinner size="sm" />
+						{t(stage === "summary" ? "handoff.generating" : "handoff.creating")}
+					</div>
+				)}
 			</div>
 		</Modal>
 	);

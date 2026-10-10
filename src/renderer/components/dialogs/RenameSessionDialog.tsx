@@ -5,7 +5,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
  * the session store (the sidecar does not push a name update by itself).
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { toastError } from "../../stores/toast";
@@ -15,6 +15,7 @@ import { Button, Input, Modal } from "../common";
 export function RenameSessionDialog() {
 	const tabRpc = useTabRpc();
 	const t = useT();
+	const formId = useId();
 	const open = useUiStore(state => state.renameDialogOpen);
 	const close = useUiStore(state => state.closeRenameDialog);
 	const sessionName = useSessionStore(state => state.sessionName);
@@ -54,8 +55,31 @@ export function RenameSessionDialog() {
 	};
 
 	return (
-		<Modal open={open} onClose={close} title={t("rename.title")} size="sm">
+		<Modal
+			open={open}
+			onClose={close}
+			title={t("rename.title")}
+			size="sm"
+			footer={
+				<>
+					<Button type="button" variant="secondary" onClick={close}>
+						{t("common.cancel")}
+					</Button>
+					<Button
+						type="submit"
+						form={formId}
+						variant="primary"
+						loading={saving}
+						disabled={name.trim().length === 0 || !sidecarReady}
+						title={!sidecarReady ? t("sidecar.notResponding") : undefined}
+					>
+						{t("rename.submit")}
+					</Button>
+				</>
+			}
+		>
 			<form
+				id={formId}
 				className="flex flex-col gap-3"
 				onSubmit={event => {
 					event.preventDefault();
@@ -71,20 +95,6 @@ export function RenameSessionDialog() {
 					maxLength={120}
 					autoFocus
 				/>
-				<div className="flex justify-end gap-2">
-					<Button type="button" variant="ghost" onClick={close}>
-						{t("common.cancel")}
-					</Button>
-					<Button
-						type="submit"
-						variant="primary"
-						loading={saving}
-						disabled={name.trim().length === 0 || !sidecarReady}
-						title={!sidecarReady ? t("sidecar.notResponding") : undefined}
-					>
-						{t("rename.submit")}
-					</Button>
-				</div>
 			</form>
 		</Modal>
 	);

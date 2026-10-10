@@ -1,5 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useMediaQuery } from "../../hooks/use-media-query";
 import { STREAM_FORMAT_FLUSH_MS, useThrottledText } from "../../hooks/use-throttled-text";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { cx, durationBetween, uiLocale } from "../../lib/format";
@@ -79,8 +80,9 @@ export function ThinkingBlock({ text, live = false, startTime, endTime }: Thinki
 
 	// ── Hidden-thinking glyph pulse ─────────────────────────────────────────
 	const [glyphFrame, setGlyphFrame] = useState(0);
+	const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 	useEffect(() => {
-		if (!showPulse) return;
+		if (!showPulse || reducedMotion) return;
 		let frame = 0;
 		let timer = setTimeout(function tick() {
 			frame += 1;
@@ -88,13 +90,13 @@ export function ThinkingBlock({ text, live = false, startTime, endTime }: Thinki
 			timer = setTimeout(tick, thinkingGlyphFrameDelay(frame));
 		}, thinkingGlyphFrameDelay(0));
 		return () => clearTimeout(timer);
-	}, [showPulse]);
+	}, [showPulse, reducedMotion]);
 
 	if (!content) return null;
 
 	if (hideThinkingBlock) {
 		if (!showPulse) return null;
-		const glyph = THINKING_GLYPH_FRAMES[glyphFrame % THINKING_GLYPH_FRAMES.length] ?? "…";
+		const glyph = THINKING_GLYPH_FRAMES[(reducedMotion ? 0 : glyphFrame) % THINKING_GLYPH_FRAMES.length] ?? "…";
 		return (
 			<div className="omp-thinking-block omp-thinking-block--pulse flex min-h-7 items-center gap-2 px-1.5 text-sc-sm text-(--sc-text-muted)">
 				<span aria-hidden className="inline-block w-(--sc-icon-sm) text-center">

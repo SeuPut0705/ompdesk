@@ -53,7 +53,7 @@ import {
 } from "../stores/session-runtime-context";
 import { useSettingsStore } from "../stores/settings";
 import { useSubagentsStore } from "../stores/subagents";
-import { isTabClosed, useTabsStore } from "../stores/tabs";
+import { isTabClosed, useTabsStore, visibleTabIds } from "../stores/tabs";
 import { toastError, useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
@@ -540,35 +540,35 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		// that post-boot brick and surfaces the SidecarBanner (with Restart),
 		// which the one-shot boot health check cannot catch.
 		let heartbeat: ReturnType<typeof setInterval> | null = null;
-		let probing = false;
+		const probing = new Set<string>();
 		const startHeartbeat = () => {
 			if (heartbeat) return;
 			heartbeat = setInterval(() => {
-				if (probing) return;
-				if (!acceptsActiveTabEvents()) return;
-				if (useSessionStore.getState().status !== "ready") return;
-				probing = true;
-				const probeTabId = useTabsStore.getState().activeTabId;
-				void window.omp.rpc
-					.getState()
-					.then(res => {
-						probing = false;
-						if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== probeTabId) return;
-						if (!res.success) {
-							useUiStore.getState().setSidecarError(translate("events.sidecarNoResponse"));
-							return;
-						}
-						useUiStore.getState().clearSidecarError();
-						// The probe already paid for the tokenised context reading, so let it
-						// keep the usage ring honest: a session that idles between turns never
-						// lands a get_state snapshot any other way.
-						if (res.data != null && probeTabId) applyUsageSnapshot(res.data as RpcSessionState, probeTabId);
-					})
-					.catch(() => {
-						probing = false;
-						if (!acceptsActiveTabEvents() || useTabsStore.getState().activeTabId !== probeTabId) return;
-						useUiStore.getState().setSidecarError(translate("events.sidecarNoResponse"));
-					});
+				const ids = visibleTabIds(useTabsStore.getState());
+				if (ids.length === 0) ids.push("");
+				for (const probeTabId of ids) {
+					const runtime = sessionRuntime(probeTabId);
+					const session = sessionRuntimeStore<SessionStore>(probeTabId, "session") ?? useSessionStore;
+					if (probing.has(probeTabId) || session.getState().status !== "ready" || session.getState().switchPending)
+						continue;
+					probing.add(probeTabId);
+					const command = runtime?.command ?? activeTabCommand;
+					const current = () => !disposed && !closedTabFrame(probeTabId) && sessionRuntime(probeTabId) === runtime;
+					void command({ type: "get_state" })
+						.then(res => {
+							if (!current()) return;
+							if (!res.success) {
+								session.getState().setSidecarError(translate("events.sidecarNoResponse"));
+								return;
+							}
+							session.getState().clearSidecarError();
+							if (res.data != null) applyUsageSnapshot(res.data as RpcSessionState, probeTabId);
+						})
+						.catch(() => {
+							if (current()) session.getState().setSidecarError(translate("events.sidecarNoResponse"));
+						})
+						.finally(() => probing.delete(probeTabId));
+				}
 			}, heartbeatMs);
 		};
 		const stopHeartbeat = () => {
@@ -583,7 +583,6 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			statusVersion++;
 			const isFocused = () => useTabsStore.getState().activeTabId === statusTabId;
 			if (payload.status === "starting") {
-				if (isFocused()) stopHeartbeat();
 				retryPendingTabs.delete(statusTabId);
 				withSessionRuntime(statusTabId, () => {
 					useMessagesStore.getState().reset();
@@ -596,12 +595,12 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 					useExtensionUiStore.getState().clearAll();
 					usePlanApprovalStore.getState().clearProposal();
 				});
-				if (isFocused()) useUiStore.getState().clearSidecarError();
+				withSessionRuntime(statusTabId, () => useSessionStore.getState().clearSidecarError());
 			}
 			withSessionRuntime(statusTabId, () => useSessionStore.getState().setStatus(payload.status, payload.cwd));
 
 			if (payload.status === "ready") {
-				if (isFocused()) startHeartbeat();
+				startHeartbeat();
 				if (payload.modelFallback) {
 					useToastStore.getState().push({
 						variant: "warning",
@@ -624,9 +623,11 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 						const res = await command({ type: "get_state" });
 						if (runtime && sessionRuntime(statusTabId) !== runtime) return;
 						if (!res.success) {
-							if (isFocused()) useUiStore.getState().setSidecarError(translate("events.sidecarNoResponse"));
+							withSessionRuntime(statusTabId, () =>
+								useSessionStore.getState().setSidecarError(translate("events.sidecarNoResponse")),
+							);
 						} else {
-							if (isFocused()) useUiStore.getState().clearSidecarError();
+							withSessionRuntime(statusTabId, () => useSessionStore.getState().clearSidecarError());
 							if (runtime) {
 								// A pending open just switched sessions: never join a fetch started before it.
 								void (pending ? hydrateTabSession(statusTabId) : attachTabSession(statusTabId));
@@ -649,21 +650,20 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							void command({ type: "set_subagent_subscription", level: "progress" });
 						}
 					} catch {
-						if (isFocused()) useUiStore.getState().setSidecarError(translate("events.sidecarHealthFailed"));
+						withSessionRuntime(statusTabId, () =>
+							useSessionStore.getState().setSidecarError(translate("events.sidecarHealthFailed")),
+						);
 					}
 				})();
 			} else if (payload.status === "error" || payload.status === "exited" || payload.status === "restarting") {
-				if (isFocused()) {
-					// The command queue died with the process, so a probe would fail and
-					// overwrite the crash reason with a generic "not responding".
-					stopHeartbeat();
-					useUiStore
+				withSessionRuntime(statusTabId, () =>
+					useSessionStore
 						.getState()
 						.setSidecarError(
 							payload.message ?? translate("events.sidecarProcessFailed"),
 							payload.restart ?? null,
-						);
-				}
+						),
+				);
 			}
 		};
 

@@ -47,7 +47,7 @@ export function TooltipBubble({ id, content, shortcut, className, style }: Toolt
 	return (
 		<div
 			className={cx(
-				"pointer-events-none w-max max-w-72 rounded-(--sc-radius-sm) bg-(--sc-text) px-2 py-1 text-sc-xs font-medium text-(--sc-bg) shadow-(--sc-shadow-md)",
+				"pointer-events-none w-max max-w-[min(18rem,calc(100vw-1rem))] rounded-(--sc-radius-sm) bg-(--sc-text) px-2 py-1 text-sc-xs font-medium break-words text-(--sc-bg) shadow-(--sc-shadow-md)",
 				className,
 			)}
 			id={id}

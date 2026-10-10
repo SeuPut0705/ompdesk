@@ -140,19 +140,19 @@ export function formatCompactElapsed(ms: number): string {
 }
 
 /**
- * Tree geometry. A session row's icon sits at pl-2.5 (nested sessions
- * pl-5.5) and is --sc-icon-md (16px) wide, so its center is 8px further in.
+ * A session row's icon sits at pl-2.5 (nested sessions use 28px)
+ * and is --sc-icon-md (16px) wide, so its center is 8px further in.
  * The connector runs down from that center; child icons start one icon step
  * (16px) right of the parent icon, sub-subagents one more step, with their
  * own connector under the child icon.
  */
 const INDENT = {
 	top: ["pl-6.5", "pl-10.5"],
-	nested: ["pl-9.5", "pl-13.5"],
+	nested: ["pl-11", "pl-15"],
 } as const;
 const CONNECTOR = {
 	top: ["left-4.5", "left-8.5"],
-	nested: ["left-7.5", "left-11.5"],
+	nested: ["left-9", "left-13"],
 } as const;
 
 function Connector({ nested, depth }: { nested: boolean; depth: 0 | 1 }) {
@@ -256,7 +256,7 @@ function SubagentDisclosure({ sessionKey }: { sessionKey: string }) {
 		<button
 			aria-expanded={expanded}
 			aria-label={label}
-			className="flex h-5 items-center gap-0.5 rounded-(--sc-radius-sm) px-1 text-sc-xs tabular-nums text-(--sc-text-muted) outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:outline-(--sc-focus-ring)"
+			className="flex h-(--sc-hit-min) items-center gap-0.5 rounded-(--sc-radius-sm) px-1 text-sc-xs tabular-nums text-(--sc-text-muted) outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:outline-(--sc-focus-ring)"
 			data-sidebar-subagents-toggle={sessionKey}
 			onClick={() => toggleSidebarSubagents(sessionKey)}
 			tabIndex={-1}
@@ -265,9 +265,12 @@ function SubagentDisclosure({ sessionKey }: { sessionKey: string }) {
 		>
 			<ChevronRight
 				aria-hidden
-				className={cx("size-3 transition-transform duration-(--sc-duration-fast)", expanded && "rotate-90")}
+				className={cx(
+					"size-(--sc-icon-sm) motion-safe:transition-transform duration-(--sc-duration-fast)",
+					expanded && "rotate-90",
+				)}
 			/>
-			<Bot aria-hidden className="size-3" />
+			<Bot aria-hidden className="size-(--sc-icon-sm)" />
 			{count}
 		</button>
 	);

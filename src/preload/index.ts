@@ -226,8 +226,8 @@ const api: OmpApi = {
 	},
 
 	ui: {
-		respondExtensionUi: (response: ExtensionUIResponse) => {
-			ipcRenderer.invoke(IPC_COMMANDS.EXTENSION_UI_RESPOND, { response });
+		respondExtensionUi: (response: ExtensionUIResponse, tabId?: string) => {
+			ipcRenderer.invoke(IPC_COMMANDS.EXTENSION_UI_RESPOND, { response, tabId });
 		},
 		sendHostToolResult: (result: HostToolResult) => {
 			ipcRenderer.invoke(IPC_COMMANDS.HOST_TOOL_RESULT, { result });

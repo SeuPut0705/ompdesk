@@ -67,9 +67,11 @@ function LimitRow({ limit, t, now }: { limit: UsageLimit; t: Translate; now: num
 	const countdown = resetCountdown(limit.resetsAt, t, now);
 	return (
 		<li className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0">
-			<div className="flex items-center justify-between gap-3">
-				<span className="min-w-0 truncate text-sc-md font-medium text-(--sc-text)">{limit.label}</span>
-				<div className="flex shrink-0 items-center gap-2">
+			<div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+				<span className="min-w-0 flex-1 basis-32 text-sc-md font-medium break-words text-(--sc-text)">
+					{limit.label}
+				</span>
+				<div className="ml-auto flex flex-wrap items-center justify-end gap-2">
 					{limit.status && limit.status !== "ok" && (
 						<Badge variant={limit.status === "exhausted" ? "error" : "warning"}>
 							{STATUS_KEY[limit.status] ? t(STATUS_KEY[limit.status]) : limit.status}
@@ -78,7 +80,7 @@ function LimitRow({ limit, t, now }: { limit: UsageLimit; t: Translate; now: num
 					<span className="text-sc-sm tabular-nums text-(--sc-text-secondary)">{limitValueText(limit, t)}</span>
 				</div>
 			</div>
-			<ProgressBar height={6} value={fraction} valueText={`${Math.round(fraction * 100)}%`} />
+			<ProgressBar ariaLabel={limit.label} value={fraction} valueText="" />
 			{countdown && <span className="text-sc-xs text-(--sc-text-muted)">{countdown}</span>}
 			<Notes notes={limit.notes} />
 		</li>
@@ -102,8 +104,10 @@ function ProviderReportCard({
 	return (
 		<section className="flex flex-col gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-4">
 			<header className="flex flex-wrap items-center gap-x-3 gap-y-1">
-				<h3 className="text-sc-md font-semibold text-(--sc-text)">{report.provider}</h3>
-				{report.account && <span className="text-sc-sm text-(--sc-text-muted)">{report.account}</span>}
+				<h3 className="min-w-0 text-sc-md font-semibold break-words text-(--sc-text)">{report.provider}</h3>
+				{report.account && (
+					<span className="min-w-0 text-sc-sm break-all text-(--sc-text-muted)">{report.account}</span>
+				)}
 				{report.active && <Badge variant="success">{t("usage.inUse")}</Badge>}
 			</header>
 			{report.resetPasses &&

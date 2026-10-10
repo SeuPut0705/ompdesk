@@ -61,9 +61,9 @@ export function ToastCard({
 			)}
 			role={variant === "error" ? "alert" : "status"}
 		>
-			<Icon aria-hidden className={cx("mt-0.5 shrink-0", style.icon)} size={16} />
+			<Icon aria-hidden className={cx("mt-0.5 size-(--sc-icon-md) shrink-0", style.icon)} />
 			<div className="min-w-0 flex-1 py-px">
-				{title && <div className="mb-0.5 text-sc-sm font-semibold text-(--sc-text)">{title}</div>}
+				{title && <div className="mb-0.5 text-sc-sm font-semibold break-words text-(--sc-text)">{title}</div>}
 				<div className="text-sc-sm break-words break-keep text-(--sc-text-secondary)">{message}</div>
 				{detail && (
 					<div
@@ -100,7 +100,7 @@ export function ToastCard({
 					onClick={onDismiss}
 					type="button"
 				>
-					<X size={14} />
+					<X aria-hidden className="size-(--sc-icon-sm)" />
 				</button>
 			)}
 		</div>
@@ -123,7 +123,7 @@ export function ToastStack() {
 	return createPortal(
 		<div
 			aria-live="polite"
-			className="pointer-events-none fixed top-28 right-4 z-(--sc-z-toast) flex w-80 flex-col gap-2"
+			className="pointer-events-none fixed top-28 right-4 z-(--sc-z-toast) flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
 		>
 			{toasts.map(entry => (
 				<ToastCard

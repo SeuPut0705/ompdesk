@@ -15,6 +15,7 @@
 
 import { ExternalLink, Eye, EyeOff } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useExtensionUiResponder } from "../../../hooks/use-extension-ui";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { openUrlTarget, useExtensionUiStore } from "../../../stores/extension-ui";
@@ -50,6 +51,7 @@ export interface ProviderLogin {
 /** Run `login` for one provider at a time and answer its prompts inline. */
 export function useProviderLogin(onConnected: (providerId: string) => Promise<void> | void): ProviderLogin {
 	const tabRpc = useTabRpc();
+	const sendResponse = useExtensionUiResponder();
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
 	const setInlineLogin = useExtensionUiStore(state => state.setInlineLogin);
@@ -61,10 +63,10 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 
 	const respond = useCallback(
 		(id: string, response: { value: string } | { cancelled: true }) => {
-			window.omp.ui.respondExtensionUi({ type: "extension_ui_response", id, ...response });
+			sendResponse({ type: "extension_ui_response", id, ...response });
 			removeRequest(id);
 		},
-		[removeRequest],
+		[removeRequest, sendResponse],
 	);
 
 	useEffect(() => {

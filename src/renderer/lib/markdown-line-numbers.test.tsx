@@ -24,14 +24,14 @@ function render(content: string, codeLineNumbers?: boolean): string {
 const FENCE = "```ts\nalpha\nbeta\ngamma\n```";
 /** The gutter renders as one preformatted text node, one number per line. */
 const GUTTER_ROWS = ">1\n2\n3</div>";
-/** Metrics class combo of the shared CodeBlock gutter. */
-const SHARED_GUTTER = "px-2.5 py-3 text-omp-md leading-[1.5]";
 
 describe("markdown code line numbers", () => {
 	it("renders the gutter beside block code when the pref is on", () => {
 		const html = render(FENCE, true);
 		expect(html).toContain(GUTTER_ROWS);
-		expect(html).toContain(SHARED_GUTTER);
+		const gutter = parseHTML(html).document.querySelector('div[aria-hidden="true"]');
+		expect(gutter?.textContent).toBe("1\n2\n3");
+		expect(gutter?.parentElement?.querySelector("pre code")?.textContent).toBe("alpha\nbeta\ngamma");
 		// The code itself still renders, still inside a <pre>.
 		expect(html).toContain("alpha");
 		expect(html).toContain("<pre");
@@ -40,7 +40,6 @@ describe("markdown code line numbers", () => {
 	it("omits the gutter when the pref is off", () => {
 		const html = render(FENCE, false);
 		expect(html).not.toContain(GUTTER_ROWS);
-		expect(html).not.toContain(SHARED_GUTTER);
 		expect(html).toContain("alpha");
 	});
 

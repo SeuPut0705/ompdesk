@@ -59,7 +59,7 @@ export function SvgImage({ svg, className }: { svg: string; className?: string }
 	return (
 		<div
 			className={cx(
-				"flex justify-center overflow-hidden rounded-lg border border-[var(--omp-border-muted)] bg-[var(--omp-code-bg)] p-3",
+				"flex justify-center overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-surface-1) p-3",
 				className,
 			)}
 			data-svg-preview

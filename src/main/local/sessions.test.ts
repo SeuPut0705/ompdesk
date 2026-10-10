@@ -12,29 +12,36 @@ function message(id: string, parentId: string | null, body: AgentMessage) {
 
 const user = (text: string, timestamp: number): AgentMessage => ({ role: "user", content: text, timestamp });
 
+/** A bridge serving its replay page by page, as gui-bridge sessions.transcript does. */
+function pagedBridge(entries: ReturnType<typeof message>[], leaf: () => string) {
+	const requested: unknown[] = [];
+	const bridge = new GuiBridgeClient("");
+	vi.spyOn(bridge, "request").mockImplementation(async <T>(method: string, params?: unknown) => {
+		expect(method).toBe("sessions.transcript");
+		requested.push(params);
+		const { offset, limit } = params as { offset: number; limit: number };
+		const messages = entries.map(entry => ({ ...entry.message, entryId: entry.id }));
+		return { leafId: leaf(), total: messages.length, messages: messages.slice(offset, offset + limit) } as T;
+	});
+	const ctx: LocalCommandContext = {
+		cwd: "/tmp",
+		omp: { bin: "omp", version: "18.8.7", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+		bridge,
+		emit: () => {},
+		send: async () => {
+			throw new Error("Transcript must not request raw entries");
+		},
+	};
+	return { ctx, requested };
+}
+
+const chain = (n: number) =>
+	Array.from({ length: n }, (_, i) => message(`u${i}`, i === 0 ? null : `u${i - 1}`, user(`m${i}`, i)));
+
 describe("get_transcript_page", () => {
-	it("pages one bridge snapshot and rejects a cursor from a moved leaf", async () => {
-		const entries = Array.from({ length: 5 }, (_, i) =>
-			message(`u${i}`, i === 0 ? null : `u${i - 1}`, user(`m${i}`, i)),
-		);
+	it("asks the bridge for one page at a time and rejects a cursor from a moved leaf", async () => {
 		let leafId = "u4";
-		let fetches = 0;
-		const bridge = new GuiBridgeClient("");
-		const snapshot = async <T>(method: string) => {
-			expect(method).toBe("sessions.transcript");
-			fetches++;
-			return { messages: entries.map(entry => ({ ...entry.message, entryId: entry.id })), leafId } as T;
-		};
-		vi.spyOn(bridge, "request").mockImplementation(snapshot);
-		const ctx: LocalCommandContext = {
-			cwd: "/tmp",
-			omp: { bin: "omp", version: "18.6.1", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
-			bridge,
-			emit: () => {},
-			send: async () => {
-				throw new Error("Transcript must not request raw entries");
-			},
-		};
+		const { ctx, requested } = pagedBridge(chain(5), () => leafId);
 		const page = handlers.get_transcript_page as (
 			command: { type: string; cursor?: string; limit?: number },
 			ctx: LocalCommandContext,
@@ -45,56 +52,30 @@ describe("get_transcript_page", () => {
 		expect(first.totalMessages).toBe(5);
 		const second = await page({ type: "get_transcript_page", limit: 2, cursor: first.nextCursor }, ctx);
 		expect(second.messages.map(m => m.entryId)).toEqual(["u2", "u3"]);
-		expect(fetches).toBe(1);
+		// Never the whole transcript in one bridge reply: it would hold up every other bridge request.
+		expect(requested).toEqual([
+			{ offset: 0, limit: 2 },
+			{ offset: 2, limit: 2 },
+		]);
 
-		// A cursor outliving its snapshot (another spawn, no cached walk) is
-		// checked against the live tree and refused once the leaf has moved.
 		leafId = "u3";
-		const otherBridge = new GuiBridgeClient("");
-		vi.spyOn(otherBridge, "request").mockImplementation(snapshot);
-		const stale = page(
-			{ type: "get_transcript_page", limit: 2, cursor: second.nextCursor },
-			{ ...ctx, bridge: otherBridge },
+		await expect(page({ type: "get_transcript_page", limit: 2, cursor: second.nextCursor }, ctx)).rejects.toThrow(
+			"stale",
 		);
-		await expect(stale).rejects.toThrow("stale");
 	});
+});
 
-	it("overlapping walks of one spawn share one projection instead of re-fetching per page", async () => {
-		const entries = Array.from({ length: 6 }, (_, i) =>
-			message(`u${i}`, i === 0 ? null : `u${i - 1}`, user(`m${i}`, i)),
-		);
-		let fetches = 0;
-		const bridge = new GuiBridgeClient("");
-		vi.spyOn(bridge, "request").mockImplementation(async <T>() => {
-			fetches++;
-			return { messages: entries.map(entry => ({ ...entry.message, entryId: entry.id })), leafId: "u5" } as T;
-		});
-		const ctx: LocalCommandContext = {
-			cwd: "/tmp",
-			omp: { bin: "omp", version: "18.6.1", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
-			bridge,
-			emit: () => {},
-			send: async () => {
-				throw new Error("Transcript must not request raw entries");
-			},
-		};
-		const page = handlers.get_transcript_page as (
-			command: { type: string; cursor?: string; limit?: number },
+describe("get_transcript", () => {
+	it("assembles the whole transcript from bounded pages", async () => {
+		const { ctx, requested } = pagedBridge(chain(600), () => "u599");
+		const getTranscript = handlers.get_transcript as (
+			command: { type: string },
 			ctx: LocalCommandContext,
-		) => Promise<MessagesPage>;
-
-		// Two hydrations start, then the later one finishes first and releases the cache.
-		let a = await page({ type: "get_transcript_page", limit: 2 }, ctx);
-		let b = await page({ type: "get_transcript_page", limit: 2 }, ctx);
-		while (b.nextCursor) b = await page({ type: "get_transcript_page", limit: 2, cursor: b.nextCursor }, ctx);
-		const walked = [...a.messages];
-		while (a.nextCursor) {
-			a = await page({ type: "get_transcript_page", limit: 2, cursor: a.nextCursor }, ctx);
-			walked.push(...a.messages);
-		}
-		expect(walked.map(m => m.entryId)).toEqual(["u0", "u1", "u2", "u3", "u4", "u5"]);
-		// Two first pages plus at most one re-fetch for the walk whose cache was released.
-		expect(fetches).toBeLessThanOrEqual(3);
+		) => Promise<{ messages: AgentMessage[] }>;
+		const full = await getTranscript({ type: "get_transcript" }, ctx);
+		expect(full.messages).toHaveLength(600);
+		expect(full.messages.at(-1)).toMatchObject({ entryId: "u599" });
+		expect(requested.length).toBeGreaterThan(1);
 	});
 });
 

@@ -553,16 +553,21 @@ describe("useRpcEvents context usage sync", () => {
 	});
 
 	it("refreshes the usage ring from the liveness probe while the session idles", async () => {
-		const { emitTabStatus } = installTabRoutedMockOmp();
+		const { emitTabStatus, commandForTab } = installTabRoutedMockOmp();
 		const session = seedReadyTab("t-idle");
 		await mount(<RpcEventsProbe heartbeatMs={25} />);
 		emitTabStatus({ status: "ready", cwd: "/alpha" }, "t-idle");
 		await flush();
 		session.setState({ contextUsage: null });
 
+		const original = commandForTab.getMockImplementation()!;
 		const getState = vi
-			.spyOn(window.omp.rpc, "getState")
-			.mockResolvedValue(settledState({ contextUsage: { tokens: 900, contextWindow: 1000, percent: 90 } }));
+			.spyOn(window.omp.rpc, "commandForTab")
+			.mockImplementation((tabId, command) =>
+				command.type === "get_state"
+					? Promise.resolve(settledState({ contextUsage: { tokens: 900, contextWindow: 1000, percent: 90 } }))
+					: original(tabId, command),
+			);
 		await act(async () => {
 			const { promise, resolve } = Promise.withResolvers<void>();
 			setTimeout(resolve, 80);
@@ -572,9 +577,43 @@ describe("useRpcEvents context usage sync", () => {
 		// The probe is already paid for (it tokenises the context to answer at
 		// all); a session that only idles between turns had no other way to land
 		// a snapshot, so its ring stayed on the number from the last turn.
-		expect(getState).toHaveBeenCalled();
+		expect(getState).toHaveBeenCalledWith("t-idle", { type: "get_state" }, undefined);
 		expect(session.getState().contextUsage).toMatchObject({ tokens: 900 });
 		expect(session.getState().statsPulse).toBeGreaterThan(0);
+	});
+	it("refreshes visible unfocused panes and keeps their failure diagnostics independent", async () => {
+		const { emitTabStatus, commandForTab } = installTabRoutedMockOmp();
+		const first = seedReadyTab("t-first");
+		ensureTabRuntime("t-second");
+		const second = sessionRuntimeStore<SessionStore>("t-second", "session")!;
+		useTabsStore.setState(state => ({
+			tabs: [...state.tabs, { kind: "agent", id: "t-second", cwd: "/beta", status: "ready", unreadDone: false }],
+			split: { axis: "columns", ratio: 0.5, first: { tabId: "t-first" }, second: { tabId: "t-second" } },
+		}));
+		await mount(<RpcEventsProbe heartbeatMs={25} />);
+		emitTabStatus({ status: "ready", cwd: "/alpha" }, "t-first");
+		emitTabStatus({ status: "ready", cwd: "/beta" }, "t-second");
+		await flush();
+		const original = commandForTab.getMockImplementation()!;
+		commandForTab.mockImplementation((tabId, command) =>
+			command.type === "get_state"
+				? Promise.resolve(
+						settledState({ contextUsage: { tokens: tabId === "t-first" ? 100 : 800, contextWindow: 1000 } }),
+					)
+				: original(tabId, command),
+		);
+		await act(async () => {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			setTimeout(resolve, 80);
+			await promise;
+		});
+		expect(first.getState().contextUsage?.tokens).toBe(100);
+		expect(second.getState().contextUsage?.tokens).toBe(800);
+		emitTabStatus({ status: "error", cwd: "/beta", message: "Second pane failed" }, "t-second");
+		await flush();
+		expect(second.getState().sidecarError).toBe("Second pane failed");
+		expect(first.getState().sidecarError).toBeNull();
+		expect(useTabsStore.getState().activeTabId).toBe("t-first");
 	});
 });
 

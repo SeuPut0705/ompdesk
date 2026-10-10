@@ -30,7 +30,7 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { mergeContentMatches, rankSessions, type SessionSortMode } from "../../lib/session-search";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, ErrorDetail, Modal, Spinner } from "../common";
+import { Badge, Button, ErrorDetail, Kbd, Modal, Spinner } from "../common";
 
 type SessionScope = "local" | "global";
 
@@ -211,7 +211,7 @@ export function SessionPickerDialog() {
 	const showOptions = !error && !loading && filtered.length > 0;
 
 	const toggleButton =
-		"flex h-5 w-5 shrink-0 items-center justify-center rounded border border-(--omp-border-muted) text-(--omp-dim) transition-colors hover:text-(--omp-text)";
+		"flex size-(--sc-hit-min) shrink-0 items-center justify-center rounded-(--sc-radius-md) text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text) [&>svg]:size-(--sc-icon-sm)";
 
 	return (
 		<Modal
@@ -224,13 +224,13 @@ export function SessionPickerDialog() {
 			size="picker"
 		>
 			<div className="flex h-full flex-col">
-				<div className="flex items-center gap-2.5 border-b border-(--omp-border-muted) px-3.5 py-2.5">
-					<Search className="shrink-0 text-(--omp-dim)" size={14} />
+				<div className="flex min-h-16 items-center gap-2.5 border-b border-(--sc-divider) px-4 py-3">
+					<Search aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
 					<input
 						aria-activedescendant={filtered.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
 						aria-controls={listboxId}
 						aria-label={t("sessionPicker.searchLabel")}
-						className="min-w-0 flex-1 bg-transparent text-sm text-(--omp-text) placeholder:text-(--omp-dim) focus:outline-none"
+						className="min-w-0 flex-1 rounded-(--sc-radius-sm) bg-transparent text-sc-lg text-(--sc-text) placeholder:text-(--sc-text-subtle)"
 						onChange={event => setQuery(event.target.value)}
 						onKeyDown={onKeyDown}
 						placeholder={t("sessionPicker.placeholder")}
@@ -240,7 +240,7 @@ export function SessionPickerDialog() {
 					<button
 						aria-label={scope === "local" ? t("sessionPicker.scopeToGlobal") : t("sessionPicker.scopeToLocal")}
 						aria-pressed={scope === "global"}
-						className={cx(toggleButton, scope === "global" && "border-(--omp-border-accent) text-(--omp-accent)")}
+						className={cx(toggleButton, scope === "global" && "bg-(--sc-selected) text-(--sc-text)")}
 						onClick={() => void switchScope(scope === "local" ? "global" : "local")}
 						title={scope === "local" ? t("sessionPicker.scopeToGlobal") : t("sessionPicker.scopeToLocal")}
 						type="button"
@@ -259,16 +259,14 @@ export function SessionPickerDialog() {
 					<button
 						aria-label={effectiveShowPath ? t("sessionPicker.hidePaths") : t("sessionPicker.showPaths")}
 						aria-pressed={effectiveShowPath}
-						className={cx(toggleButton, effectiveShowPath && "border-(--omp-border-accent) text-(--omp-accent)")}
+						className={cx(toggleButton, effectiveShowPath && "bg-(--sc-selected) text-(--sc-text)")}
 						onClick={() => setShowPath(!effectiveShowPath)}
 						title={effectiveShowPath ? t("sessionPicker.hidePaths") : t("sessionPicker.showPaths")}
 						type="button"
 					>
 						<FolderTree size={11} />
 					</button>
-					<kbd className="shrink-0 rounded border border-(--omp-border-muted) px-1.5 py-0.5 text-omp-xxs text-(--omp-dim)">
-						esc
-					</kbd>
+					<Kbd shortcut="⎋" />
 				</div>
 				<div
 					className="min-h-0 flex-1 overflow-y-auto p-1.5"
@@ -278,12 +276,12 @@ export function SessionPickerDialog() {
 				>
 					{error ? (
 						<div className="flex flex-col items-center gap-2 py-10 text-center">
-							<p role="alert" className="text-xs text-[var(--omp-error)]">
+							<p role="alert" className="text-sc-sm text-(--sc-danger)">
 								{error.message}
 								<ErrorDetail className="mt-0.5" error={error.cause} />
 							</p>
 							<Button
-								icon={<RotateCw size={12} />}
+								icon={<RotateCw />}
 								onClick={() => setAttempt(count => count + 1)}
 								size="sm"
 								variant="secondary"
@@ -294,10 +292,10 @@ export function SessionPickerDialog() {
 					) : loading ? (
 						<div className="flex items-center justify-center gap-2 py-10">
 							<Spinner size="sm" />
-							<span className="text-xs text-(--omp-dim)">{t("sessionPicker.loading")}</span>
+							<span className="text-sc-sm text-(--sc-text-muted)">{t("sessionPicker.loading")}</span>
 						</div>
 					) : filtered.length === 0 ? (
-						<div className="py-10 text-center text-xs text-(--omp-dim)">
+						<div className="py-10 text-center text-sc-sm text-(--sc-text-muted)">
 							{sessions.length === 0
 								? scope === "local"
 									? t("sessionPicker.emptyLocal")
@@ -312,8 +310,8 @@ export function SessionPickerDialog() {
 							return (
 								<button
 									aria-selected={isCurrent}
-									className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left transition-colors ${
-										isActive ? "bg-(--omp-selected-bg)" : "hover:bg-(--omp-bg-tertiary)"
+									className={`flex min-h-10 w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-2 text-left disabled:opacity-50 ${
+										isActive ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)"
 									}`}
 									data-option-index={index}
 									disabled={switching !== null}
@@ -324,21 +322,20 @@ export function SessionPickerDialog() {
 									role="option"
 									type="button"
 								>
-									<History className="shrink-0 text-(--omp-dim)" size={13} />
+									<History aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 									{session.kind === "chat" && (
 										<MessageCircle
-											className="shrink-0 text-(--omp-muted)"
-											size={12}
+											className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)"
 											aria-label={t("tabs.kind.chat")}
 										/>
 									)}
 									<span className="min-w-0 flex-1">
 										<span
-											className={`block truncate text-xs ${isCurrent ? "font-semibold text-(--omp-accent)" : "font-medium text-(--omp-text)"}`}
+											className={`block truncate text-sc-md text-(--sc-text) ${isCurrent ? "font-semibold" : "font-medium"}`}
 										>
 											{title}
 										</span>
-										<span className="block truncate text-omp-xs text-(--omp-muted)">
+										<span className="block truncate text-sc-xs text-(--sc-text-muted)">
 											{effectiveShowPath && session.cwd ? session.cwd : basename(session.cwd)} ·{" "}
 											{t("sessionPicker.messageCount", { count: session.messageCount })} ·{" "}
 											{formatTimeAgo(session.modified)}
@@ -350,7 +347,9 @@ export function SessionPickerDialog() {
 										</Badge>
 									)}
 									{switching === session.path && <Spinner size="sm" />}
-									{isCurrent && <Check className="shrink-0 text-(--omp-accent)" size={13} />}
+									{isCurrent && (
+										<Check aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-secondary)" />
+									)}
 								</button>
 							);
 						})

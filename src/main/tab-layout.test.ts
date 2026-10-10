@@ -94,8 +94,30 @@ describe("persisted tab layout", () => {
 				{ cwd: "/a", kind: "agent" },
 				{ cwd: "/b", kind: "chat" },
 			],
-			split: { axis: "rows", firstIndex: 0, secondIndex: 1, ratio: 0.8 },
+			split: { axis: "rows", first: { tabId: "0" }, second: { tabId: "1" }, ratio: 0.8 },
 		});
+	});
+
+	it("restores nested splits and collapses a missing middle pane", () => {
+		const value = {
+			version: 1,
+			activeIndex: 1,
+			tabs: ["/a", "/missing", "/c", "/d"].map(cwd => ({ cwd, kind: "agent" })),
+			split: {
+				axis: "columns",
+				ratio: 0.6,
+				first: { axis: "rows", ratio: 0.5, first: { tabId: "0" }, second: { tabId: "1" } },
+				second: { axis: "rows", ratio: 0.5, first: { tabId: "2" }, second: { tabId: "3" } },
+			},
+		};
+		const restored = sanitizePersistedTabLayout(value, pathChecks(["/a", "/c", "/d"], []));
+		expect(restored?.split).toEqual({
+			axis: "columns",
+			ratio: 0.6,
+			first: { tabId: "0" },
+			second: { axis: "rows", ratio: 0.5, first: { tabId: "1" }, second: { tabId: "2" } },
+		});
+		expect(restored?.activeIndex).toBe(1);
 	});
 
 	it("drops missing workspaces and selects the nearest surviving tab", () => {

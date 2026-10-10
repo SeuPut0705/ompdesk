@@ -42,6 +42,7 @@ import type {
 	ThinkingLevel,
 	TodoPhase,
 } from "./rpc-types";
+import type { SplitLayout } from "./split-layout";
 import type { UiLanguage } from "./ui-language";
 
 // ============================================================================
@@ -532,6 +533,7 @@ export interface IpcExtensionUiPayload {
 
 export interface IpcExtensionUiRespondPayload {
 	response: ExtensionUIResponse;
+	tabId?: string;
 }
 
 export interface IpcHostToolCallPayload {
@@ -984,7 +986,7 @@ export interface IpcTabInfo {
 	/** Present on GET_TABS for the one or two tabs whose full stream is visible. */
 	visible?: boolean;
 	/** Restored split geometry for this visible tab. */
-	split?: { axis: "columns" | "rows"; index: 0 | 1; ratio: number };
+	split?: SplitLayout;
 	/** True while automatic transcript compaction is mutating this session. */
 	compacting?: boolean;
 	/** Immutable session kind, fixed when the tab's sidecar was spawned. */
@@ -1090,7 +1092,7 @@ export interface IpcSetActiveTabPayload {
 export interface IpcSetTabViewPayload {
 	focusedTabId: string;
 	visibleTabIds: string[];
-	split?: { axis: "columns" | "rows"; firstTabId: string; secondTabId: string; ratio: number };
+	split?: SplitLayout;
 }
 
 export interface IpcSidecarRestartPayload {
@@ -1532,7 +1534,7 @@ export interface OmpApi {
 		take(): Promise<BridgeHealthWarning[]>;
 	};
 	ui: {
-		respondExtensionUi(response: ExtensionUIResponse): void;
+		respondExtensionUi(response: ExtensionUIResponse, tabId?: string): void;
 		sendHostToolResult(result: HostToolResult): void;
 		sendHostToolUpdate(update: HostToolUpdate): void;
 		sendHostUriResult(result: HostUriResult): void;
@@ -1566,7 +1568,7 @@ export interface OmpApi {
 		close(tabId: string): Promise<boolean>;
 		/** Move full event forwarding to this tab. False when unknown or foreign. */
 		setActive(tabId: string): Promise<boolean>;
-		/** Set the focused tab plus the one or two tabs rendered by the window. */
+		/** Set the focused tab plus up to four tabs rendered by the window. */
 		setView(focusedTabId: string, visibleTabIds: string[], split?: IpcSetTabViewPayload["split"]): Promise<boolean>;
 		/** The tab/window currently attached to a session file on `device` (absent = this device), if any (F-OWN). */
 		getSessionOwner(sessionPath: string, device?: string): Promise<IpcSessionOwner | null>;

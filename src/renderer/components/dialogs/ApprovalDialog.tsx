@@ -103,13 +103,13 @@ export function ApprovalDialog({
 			}}
 		>
 			<div className="mb-1 truncate font-mono text-sc-sm font-semibold">{toolName}</div>
-			<div className="mb-2 max-h-[30vh] overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--omp-code-bg) px-3 py-2">
+			<div className="mb-2 max-h-[30vh] overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-2) px-3 py-2">
 				{body ? (
-					<pre className="font-mono text-omp-sm leading-[1.55] break-words whitespace-pre-wrap text-(--sc-text-secondary)">
+					<pre className="font-mono text-sc-sm leading-(--sc-leading-normal) break-words whitespace-pre-wrap text-(--sc-text-secondary)">
 						{body}
 					</pre>
 				) : (
-					<span className="text-omp-sm text-(--sc-text-muted) italic">{t("approval.noArgs")}</span>
+					<span className="text-sc-sm text-(--sc-text-muted) italic">{t("approval.noArgs")}</span>
 				)}
 			</div>
 			<ChoiceList

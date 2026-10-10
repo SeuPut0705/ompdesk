@@ -25,13 +25,23 @@ async function startFakeBridge(): Promise<string> {
 			while (newline !== -1) {
 				const request = JSON.parse(buffer.slice(0, newline)) as { id: number; method: string; params: unknown };
 				buffer = buffer.slice(newline + 1);
-				const reply =
-					request.method === "echo"
-						? { id: request.id, ok: true, result: request.params }
-						: request.method === "old"
-							? { id: request.id, ok: false, error: "Plan mode is unavailable", code: "unsupported_omp" }
-							: { id: request.id, ok: false, error: `bad ${request.method}` };
-				socket.write(`${JSON.stringify(reply)}\n`);
+				if (request.method === "split") {
+					// One reply cut across three writes, then two replies in one write.
+					const big = `${JSON.stringify({ id: request.id, ok: true, result: "x".repeat(200_000) })}\n`;
+					socket.write(big.slice(0, 7));
+					socket.write(big.slice(7, 150_000));
+					socket.write(
+						`${big.slice(150_000)}${JSON.stringify({ event: { type: "btw_delta", text: "a" } })}\n${JSON.stringify({ event: { type: "btw_delta", text: "b" } })}\n`,
+					);
+				} else {
+					const reply =
+						request.method === "echo"
+							? { id: request.id, ok: true, result: request.params }
+							: request.method === "old"
+								? { id: request.id, ok: false, error: "Plan mode is unavailable", code: "unsupported_omp" }
+								: { id: request.id, ok: false, error: `bad ${request.method}` };
+					socket.write(`${JSON.stringify(reply)}\n`);
+				}
 				newline = buffer.indexOf("\n");
 			}
 		});
@@ -64,6 +74,21 @@ describe("GuiBridgeClient", () => {
 			code: "bridge_unavailable",
 			message: "GUI bridge is not connected",
 		});
+	});
+
+	it("reassembles a reply split across writes and frames sharing one write", async () => {
+		const client = new GuiBridgeClient(await startFakeBridge());
+		const events: unknown[] = [];
+		client.onEvent(event => events.push(event));
+		await client.connect();
+		await expect(client.request("split")).resolves.toHaveLength(200_000);
+		await expect(client.request("echo", 1)).resolves.toBe(1);
+		expect(events).toEqual([
+			{ type: "btw_delta", text: "hi" },
+			{ type: "btw_delta", text: "a" },
+			{ type: "btw_delta", text: "b" },
+		]);
+		client.close();
 	});
 
 	it("rejects requests when no bridge ever listened", async () => {

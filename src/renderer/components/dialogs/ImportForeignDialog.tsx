@@ -7,7 +7,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
  * Backs the `list_foreign_sessions` / `import_foreign_session` RPCs.
  */
 
-import { Download, Loader2 } from "lucide-react";
+import { Download } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcForeignSessionInfo, RpcResponse } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
@@ -192,8 +192,24 @@ export function ImportForeignDialog() {
 			}}
 			title={t("import.title")}
 			size="lg"
+			footer={
+				<>
+					<span className="mr-auto text-sc-sm text-(--sc-text-muted)">{t("import.copyNote")}</span>
+					<Button
+						disabled={!sidecarReady || selected.size === 0 || importing}
+						icon={<Download />}
+						loading={importing}
+						onClick={() => void doImport()}
+						size="sm"
+						variant="primary"
+						title={!sidecarReady ? t("import.notConnected") : undefined}
+					>
+						{selected.size > 0 ? t("import.importN", { count: selected.size }) : t("import.import")}
+					</Button>
+				</>
+			}
 		>
-			<div className="mb-3 flex items-center gap-2">
+			<div className="mb-3 flex flex-wrap items-center gap-2">
 				{SOURCES.map(candidate => (
 					<button
 						key={candidate}
@@ -205,10 +221,10 @@ export function ImportForeignDialog() {
 							setSelected(new Set());
 						}}
 						className={cx(
-							"rounded-lg px-3 py-1.5 text-omp-md font-medium capitalize",
+							"min-h-8 rounded-(--sc-radius-md) px-3 py-1.5 text-sc-md font-medium capitalize disabled:opacity-50",
 							source === candidate
-								? "bg-(--omp-btn-primary-bg) text-(--omp-btn-primary-text)"
-								: "border border-(--omp-border) text-(--omp-muted) hover:bg-(--omp-selected-bg)",
+								? "bg-(--sc-selected) text-(--sc-text)"
+								: "text-(--sc-text-muted) hover:bg-(--sc-hover)",
 						)}
 					>
 						{candidate === "claude" ? "Claude" : "Codex"}
@@ -225,7 +241,7 @@ export function ImportForeignDialog() {
 			</div>
 
 			{importError && (
-				<p role="alert" className="mb-2 text-omp-sm text-(--omp-error)">
+				<p role="alert" className="mb-2 text-sc-sm text-(--sc-danger)">
 					{importError.message}
 					<ErrorDetail className="mt-0.5" error={importError.cause} />
 				</p>
@@ -238,27 +254,27 @@ export function ImportForeignDialog() {
 			>
 				{t("common.refresh")}
 			</Button>
-			<div className="max-h-[46vh] min-h-[200px] overflow-y-auto rounded-lg border border-(--omp-border-muted)">
+			<div className="mt-2 max-h-[46vh] min-h-48 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
 				{state?.loading && (
-					<div className="flex h-32 items-center justify-center text-(--omp-dim)">
-						<Loader2 size={16} className="animate-spin" />
+					<div className="flex h-32 items-center justify-center text-(--sc-text-muted)">
+						<Spinner label={t("common.loading")} />
 					</div>
 				)}
 				{state?.error && (
-					<div className="px-4 py-6 text-center text-omp-md text-(--omp-muted)">
+					<div className="px-4 py-6 text-center text-sc-md text-(--sc-text-secondary)" role="alert">
 						{state.error.message}
 						<ErrorDetail className="mt-1" error={state.error.cause} />
 					</div>
 				)}
 				{!state?.loading && !state?.error && filtered.length === 0 && (
-					<div className="px-4 py-6 text-center text-omp-md text-(--omp-dim)">{t("import.empty")}</div>
+					<div className="px-4 py-6 text-center text-sc-md text-(--sc-text-muted)">{t("import.empty")}</div>
 				)}
 				{!state?.loading &&
 					!state?.error &&
 					filtered.map(session => (
 						<label
 							key={session.id}
-							className="flex cursor-pointer items-start gap-3 border-b border-(--omp-border-muted) px-3 py-2.5 last:border-0 hover:bg-(--omp-selected-bg)"
+							className="flex cursor-pointer flex-wrap items-start gap-3 border-b border-(--sc-divider) px-3 py-2.5 last:border-0 hover:bg-(--sc-hover)"
 						>
 							<input
 								type="checkbox"
@@ -266,23 +282,23 @@ export function ImportForeignDialog() {
 								title={!sidecarReady ? t("import.notConnected") : undefined}
 								checked={selected.has(`${source}:${session.id}`)}
 								onChange={() => toggle(session.id)}
-								className="mt-1"
+								className="mt-1 accent-(--sc-accent)"
 							/>
 							<span className="min-w-0 flex-1">
-								<span className="block truncate text-omp-md font-medium text-(--omp-text)">
+								<span className="block truncate text-sc-md font-medium text-(--sc-text)">
 									{session.title ?? session.firstMessage ?? t("import.untitled")}
 									{completed.has(`${source}:${session.id}`) && (
-										<span className="ml-2 text-(--omp-success)">{t("import.done")}</span>
+										<span className="ml-2 text-(--sc-success)">{t("import.done")}</span>
 									)}
 								</span>
-								<span className="mt-0.5 block whitespace-pre-wrap text-omp-sm text-(--omp-muted)">
+								<span className="mt-0.5 block whitespace-pre-wrap text-sc-sm break-words text-(--sc-text-secondary)">
 									{session.firstMessage}
 								</span>
-								<span className="mt-0.5 block truncate font-mono text-omp-xs text-(--omp-dim)">
+								<span className="mt-0.5 block truncate font-mono text-sc-xs text-(--sc-text-muted)">
 									{session.cwd}
 								</span>
 							</span>
-							<span className="shrink-0 text-right text-omp-xs text-(--omp-dim)">
+							<span className="ml-auto shrink-0 text-right text-sc-xs text-(--sc-text-muted)">
 								{formatTimeAgo(session.modified)}
 								{session.messageCount !== undefined && (
 									<span className="block">{t("import.messages", { count: session.messageCount })}</span>
@@ -290,21 +306,6 @@ export function ImportForeignDialog() {
 							</span>
 						</label>
 					))}
-			</div>
-
-			<div className="mt-3 flex items-center gap-3">
-				<span className="text-omp-sm text-(--omp-dim)">{t("import.copyNote")}</span>
-				<span className="ml-auto">
-					<Button
-						disabled={!sidecarReady || selected.size === 0 || importing}
-						icon={importing ? <Spinner size="sm" /> : <Download size={13} />}
-						onClick={() => void doImport()}
-						size="sm"
-						title={!sidecarReady ? t("import.notConnected") : undefined}
-					>
-						{selected.size > 0 ? t("import.importN", { count: selected.size }) : t("import.import")}
-					</Button>
-				</span>
 			</div>
 		</Modal>
 	);

@@ -33,22 +33,35 @@ export function ModelRestoreDialog() {
 	};
 
 	return (
-		<Modal bodyClassName="p-4" onClose={close} open={prompt !== null} size="sm" title={t("modelRestore.title")}>
-			<div className="space-y-2 text-omp-md leading-relaxed break-words text-(--omp-muted)">
+		<Modal
+			onClose={close}
+			open={prompt !== null}
+			size="sm"
+			title={t("modelRestore.title")}
+			footer={
+				<>
+					<Button autoFocus onClick={close} size="sm" variant="secondary">
+						{t("common.cancel")}
+					</Button>
+					{currentLabel ? (
+						<Button
+							disabled={busy}
+							loading={busy}
+							onClick={() => void openWithCurrent()}
+							size="sm"
+							variant="primary"
+						>
+							{t("modelRestore.openWith", { model: currentLabel })}
+						</Button>
+					) : null}
+				</>
+			}
+		>
+			<div className="space-y-2 text-sc-md leading-relaxed break-words text-(--sc-text-secondary)">
 				<p>{t("modelRestore.message", { model: prompt?.missingModel ?? "" })}</p>
-				<p className="text-omp-sm">
+				<p className="text-sc-sm">
 					{currentLabel ? t("modelRestore.offer", { model: currentLabel }) : t("modelRestore.noCurrent")}
 				</p>
-			</div>
-			<div className="mt-4 flex items-center justify-end gap-2">
-				<Button autoFocus onClick={close} size="sm" variant="ghost">
-					{t("common.cancel")}
-				</Button>
-				{currentLabel ? (
-					<Button disabled={busy} loading={busy} onClick={() => void openWithCurrent()} size="sm">
-						{t("modelRestore.openWith", { model: currentLabel })}
-					</Button>
-				) : null}
 			</div>
 		</Modal>
 	);

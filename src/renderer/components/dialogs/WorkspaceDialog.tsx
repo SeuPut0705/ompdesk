@@ -142,17 +142,15 @@ export function WorkspaceDialog({
 				<button
 					type="button"
 					onClick={() => void addWorkspace()}
-					className="omp-pressable flex items-center gap-2.5 rounded-xl border border-dashed border-[var(--omp-border)] px-3 py-2.5 text-omp-lg font-medium text-[var(--omp-accent)] transition-colors hover:border-[var(--omp-accent)] hover:bg-[var(--omp-selected-bg)]"
+					className="omp-pressable flex min-h-10 items-center gap-2.5 rounded-(--sc-radius-md) border border-dashed border-(--sc-border-subtle) px-3 py-2.5 text-sc-md font-medium text-(--sc-text-secondary) hover:bg-(--sc-hover) hover:text-(--sc-text)"
 				>
-					<FolderPlus size={16} />
+					<FolderPlus aria-hidden className="size-(--sc-icon-md)" />
 					{t("workspaces.add")}
 				</button>
 
 				<div className="max-h-[46vh] overflow-y-auto">
 					{workspaces.length === 0 ? (
-						<div className="px-2 py-8 text-center text-omp-md text-[var(--omp-muted)]">
-							{t("workspaces.empty")}
-						</div>
+						<div className="px-2 py-8 text-center text-sc-md text-(--sc-text-muted)">{t("workspaces.empty")}</div>
 					) : (
 						workspaces.map(ws => {
 							const isCurrent = ws.cwd === cwd;
@@ -162,38 +160,27 @@ export function WorkspaceDialog({
 									type="button"
 									onClick={() => void pick(ws.cwd)}
 									className={cx(
-										"omp-pressable group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
-										isCurrent ? "bg-[var(--omp-selected-bg)]" : "hover:bg-[var(--omp-selected-bg)]",
+										"omp-pressable group flex min-h-10 w-full items-center gap-3 rounded-(--sc-radius-md) px-2.5 py-2 text-left",
+										isCurrent ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
 									)}
 								>
-									<Folder
-										size={16}
-										className={cx(
-											"shrink-0",
-											isCurrent ? "text-[var(--omp-accent)]" : "text-[var(--omp-dim)]",
-										)}
-									/>
+									<Folder aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
 									<span className="min-w-0 flex-1">
-										<span className="flex items-baseline gap-2">
-											<span
-												className={cx(
-													"truncate text-omp-lg font-medium",
-													isCurrent ? "text-[var(--omp-text)]" : "text-[var(--omp-muted)]",
-												)}
-											>
+										<span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+											<span className={cx("truncate text-sc-md font-medium text-(--sc-text)")}>
 												{ws.name}
 											</span>
 											{ws.sessionCount > 0 && (
-												<span className="shrink-0 text-omp-sm text-[var(--omp-dim)]">
+												<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">
 													{t("workspaces.sessionCount", { count: ws.sessionCount })}
 												</span>
 											)}
 										</span>
-										<span className="block truncate text-omp-sm text-[var(--omp-dim)]">{ws.cwd}</span>
+										<span className="block truncate text-sc-xs text-(--sc-text-muted)">{ws.cwd}</span>
 									</span>
 									{isCurrent ? (
-										<span className="flex shrink-0 items-center gap-1 text-omp-sm font-medium text-[var(--omp-accent)]">
-											<Check size={13} />
+										<span className="flex shrink-0 items-center gap-1 text-sc-xs font-medium text-(--sc-text-secondary)">
+											<Check aria-hidden className="size-(--sc-icon-sm)" />
 											{t("workspaces.current")}
 										</span>
 									) : null}

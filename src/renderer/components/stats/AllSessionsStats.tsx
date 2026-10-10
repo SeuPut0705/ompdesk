@@ -125,15 +125,15 @@ export function AllSessionsStats() {
 	}
 
 	return (
-		<div className="flex gap-8">
-			<nav aria-label={t("stats.sectionsAria")} className="w-40 shrink-0">
-				<ul className="sticky top-0 flex flex-col gap-0.5">
+		<div className="flex min-w-0 flex-col gap-6 lg:flex-row lg:gap-8">
+			<nav aria-label={t("stats.sectionsAria")} className="min-w-0 shrink-0 lg:w-40">
+				<ul className="flex flex-wrap gap-1 lg:sticky lg:top-0 lg:flex-col lg:gap-0.5">
 					{ROUTES.map(item => (
 						<li key={item.id}>
 							<button
 								aria-current={route === item.id ? "page" : undefined}
 								className={cx(
-									"flex h-(--sc-control-md) w-full items-center rounded-(--sc-radius-md) px-3 text-left text-sc-md",
+									"flex h-(--sc-control-md) w-full items-center rounded-(--sc-radius-md) px-3 text-left text-sc-md active:bg-(--sc-pressed)",
 									route === item.id
 										? "bg-(--sc-selected) font-medium text-(--sc-text)"
 										: "text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text)",
@@ -159,9 +159,10 @@ export function AllSessionsStats() {
 							variant="segmented"
 						/>
 						<Button
-							icon={<RefreshCw className={syncing ? "animate-spin" : undefined} />}
+							icon={<RefreshCw />}
 							onClick={() => void sync()}
 							size="sm"
+							loading={syncing}
 							variant="secondary"
 						>
 							{t("stats.sync")}

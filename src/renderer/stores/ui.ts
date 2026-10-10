@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import type { CustomProviderView, SessionInfo } from "../../shared/ipc-types";
-import type { SidecarRestartProgress } from "../../shared/rpc-types";
 import { KEYMAP_ACTIONS, type KeymapOverrides, sanitizeOverrides } from "../lib/keymap";
 import { readPrepaintThemeMode, type ThemeMode } from "../lib/theme";
 
@@ -110,14 +109,6 @@ interface UiStore {
 	/** Session whose saved model could not be restored on switch; non-null shows
 	 * the ModelRestoreDialog offering to open it with the current model. */
 	modelRestorePrompt: { session: SessionInfo; missingModel: string } | null;
-	sidecarError: string | null;
-	/** Crash-loop progress carried by the status behind `sidecarError`: non-null
-	 * while the sidecar is respawning itself, and on the terminal error once the
-	 * attempts run out. Null for renderer-detected health failures. */
-	sidecarRestart: SidecarRestartProgress | null;
-	/** The banner was dismissed by the user. A new diagnostic — or the sidecar
-	 * coming back — clears it; the one that was closed stays hidden. */
-	sidecarDismissed: boolean;
 	theme: ThemeMode;
 	fontSize: number;
 	/** Application-wide display preferences, independent of a task's terminal configuration. */
@@ -219,10 +210,6 @@ interface UiStore {
 	closeModelRestore: () => void;
 	/** Close UI whose data or actions belong to the outgoing tab. */
 	closeSessionOverlays: () => void;
-	/** In-flight sidebar/picker session switch: keep the outgoing transcript painted. */
-	setSidecarError: (error: string | null, restart?: SidecarRestartProgress | null) => void;
-	clearSidecarError: () => void;
-	dismissSidecarBanner: () => void;
 	setTheme: (theme: ThemeMode) => void;
 	setFontSize: (size: number) => void;
 	setNotifications: (enabled: boolean) => void;
@@ -417,13 +404,6 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 			sessionSwitchPrompt: null,
 			modelRestorePrompt: null,
 		}),
-	sidecarError: null as string | null,
-	sidecarRestart: null as SidecarRestartProgress | null,
-	sidecarDismissed: false,
-	setSidecarError: (error, restart = null) =>
-		set({ sidecarError: error, sidecarRestart: restart, sidecarDismissed: false }),
-	clearSidecarError: () => set({ sidecarError: null, sidecarRestart: null, sidecarDismissed: false }),
-	dismissSidecarBanner: () => set({ sidecarDismissed: true }),
 	setTheme: theme => set({ theme }),
 	setFontSize: size => set({ fontSize: size }),
 	setNotifications: enabled => set({ notifications: enabled }),

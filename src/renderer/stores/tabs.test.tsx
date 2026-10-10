@@ -27,6 +27,7 @@ import type {
 	SubagentSnapshot,
 	TodoPhase,
 } from "../../shared/rpc-types";
+import { readSplitNode, type SplitLayout, type SplitPlacement, splitTabIds } from "../../shared/split-layout";
 import { translate } from "../lib/i18n";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { useComposerStore } from "./composer";
@@ -101,6 +102,7 @@ interface MockOmp {
 		spawn: Mock<(payload: IpcSpawnTabPayload) => Promise<IpcSpawnTabResult | null>>;
 		close: Mock<(tabId: string) => Promise<boolean>>;
 		setActive: Mock<(tabId: string) => Promise<boolean>>;
+		setView: Mock<(tabId: string, ids: string[], split?: SplitLayout) => Promise<boolean>>;
 	};
 	events: {
 		onTabStatus: Mock<(callback: (payload: IpcTabStatusPayload) => void) => () => void>;
@@ -128,6 +130,7 @@ function installMockOmp(): { omp: MockOmp; emitTabStatus: TabStatusHandler } {
 			spawn: vi.fn(async () => null),
 			close: vi.fn(async () => true),
 			setActive: vi.fn(async () => true),
+			setView: vi.fn(async () => true),
 		},
 		events: {
 			onTabStatus: vi.fn((callback: TabStatusHandler) => {
@@ -1243,7 +1246,7 @@ describe("tab runtime lifecycle guards", () => {
 	it("refuses to re-split a tab that already occupies a pane", async () => {
 		seedTabs("t0");
 		useTabsStore.setState({
-			split: { axis: "columns", firstTabId: "t0", secondTabId: "t1", ratio: 0.7 },
+			split: { axis: "columns", first: { tabId: "t0" }, second: { tabId: "t1" }, ratio: 0.7 },
 		});
 
 		await useTabsStore.getState().splitTab("t1", "top");
@@ -1251,11 +1254,96 @@ describe("tab runtime lifecycle guards", () => {
 		// No ratio reset, no axis flip, no focus move.
 		expect(useTabsStore.getState().split).toEqual({
 			axis: "columns",
-			firstTabId: "t0",
-			secondTabId: "t1",
+			first: { tabId: "t0" },
+			second: { tabId: "t1" },
 			ratio: 0.7,
 		});
 		expect(useTabsStore.getState().activeTabId).toBe("t0");
+	});
+});
+
+describe("four-pane layouts", () => {
+	const placements: SplitPlacement[] = ["left", "right", "top", "bottom"];
+	function seed() {
+		seedTabs();
+		useTabsStore.setState(state => ({
+			tabs: [
+				...state.tabs,
+				...["t3", "t4"].map(id => ({
+					id,
+					kind: "agent" as const,
+					cwd: "/project",
+					status: "ready" as const,
+					unreadDone: false,
+				})),
+			],
+		}));
+	}
+
+	it.each(placements)("adds third and fourth panes at %s of the target", async placement => {
+		installMockOmp();
+		seed();
+		await useTabsStore.getState().splitTab("t1", "right");
+		await useTabsStore.getState().splitTab("t2", placement, "t0");
+		const three = useTabsStore.getState().split!;
+		expect(splitTabIds(three)).toHaveLength(3);
+		expect("tabId" in three.first).toBe(false);
+		if (!("tabId" in three.first)) {
+			expect(three.first.axis).toBe(placement === "left" || placement === "right" ? "columns" : "rows");
+			expect(splitTabIds(three.first)).toEqual(
+				placement === "left" || placement === "top" ? ["t2", "t0"] : ["t0", "t2"],
+			);
+		}
+		await useTabsStore.getState().splitTab("t3", placement, "t1");
+		const four = useTabsStore.getState().split!;
+		expect(splitTabIds(four)).toHaveLength(4);
+		expect(splitTabIds(four.second)).toEqual(
+			placement === "left" || placement === "top" ? ["t3", "t1"] : ["t1", "t3"],
+		);
+	});
+
+	it("replaces the pointed pane at four without changing geometry", async () => {
+		installMockOmp();
+		seed();
+		await useTabsStore.getState().splitTab("t1", "right");
+		await useTabsStore.getState().splitTab("t2", "bottom", "t0");
+		await useTabsStore.getState().splitTab("t3", "bottom", "t1");
+		await useTabsStore.getState().splitTab("t4", "left", "t2");
+		expect(splitTabIds(useTabsStore.getState().split!)).toEqual(["t0", "t4", "t1", "t3"]);
+		expect(useTabsStore.getState().split?.axis).toBe("columns");
+	});
+
+	it("closing a middle tab collapses only its parent", async () => {
+		installMockOmp();
+		seed();
+		await useTabsStore.getState().splitTab("t1", "right");
+		await useTabsStore.getState().splitTab("t2", "right", "t1");
+		await useTabsStore.getState().closeTab("t1");
+		expect(useTabsStore.getState().split).toEqual({
+			axis: "columns",
+			ratio: 0.5,
+			first: { tabId: "t0" },
+			second: { tabId: "t2" },
+		});
+	});
+
+	it("unsplit keeps the focused pane", async () => {
+		installMockOmp();
+		seed();
+		await useTabsStore.getState().splitTab("t1", "right");
+		await useTabsStore.getState().splitTab("t2", "bottom", "t0");
+		await useTabsStore.getState().unsplit();
+		expect(useTabsStore.getState().activeTabId).toBe("t2");
+		expect(useTabsStore.getState().split).toBeNull();
+	});
+
+	it("migrates the legacy split at the read boundary", () => {
+		expect(readSplitNode({ axis: "rows", firstTabId: "t0", secondTabId: "t1", ratio: 0.7 })).toEqual({
+			axis: "rows",
+			first: { tabId: "t0" },
+			second: { tabId: "t1" },
+			ratio: 0.7,
+		});
 	});
 });
 

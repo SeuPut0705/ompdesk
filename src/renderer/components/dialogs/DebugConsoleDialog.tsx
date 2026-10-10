@@ -245,33 +245,33 @@ const isLive = (active: DebugSessionSummary | undefined): boolean =>
 const isStopped = (active: DebugSessionSummary | undefined): boolean => active?.status === "stopped";
 
 const ACTION_DEFS: ActionDef[] = [
-	{ action: "threads", labelKey: "debug.threads", icon: <ListTree size={12} />, enabled: isLive },
-	{ action: "stack_trace", labelKey: "debug.stack", icon: <Layers size={12} />, enabled: isStopped },
+	{ action: "threads", labelKey: "debug.threads", icon: <ListTree />, enabled: isLive },
+	{ action: "stack_trace", labelKey: "debug.stack", icon: <Layers />, enabled: isStopped },
 	{
 		action: "continue",
 		labelKey: "debug.continue",
-		icon: <Play size={12} />,
+		icon: <Play />,
 		enabled: active => isStopped(active) || active?.status === "configuring",
 	},
 	{
 		action: "pause",
 		labelKey: "debug.pause",
-		icon: <Pause size={12} />,
+		icon: <Pause />,
 		enabled: active => active?.status === "running",
 	},
-	{ action: "step_over", labelKey: "debug.stepOver", icon: <ArrowRightToLine size={12} />, enabled: isStopped },
-	{ action: "step_in", labelKey: "debug.stepIn", icon: <ArrowDownToLine size={12} />, enabled: isStopped },
-	{ action: "step_out", labelKey: "debug.stepOut", icon: <ArrowUpFromLine size={12} />, enabled: isStopped },
+	{ action: "step_over", labelKey: "debug.stepOver", icon: <ArrowRightToLine />, enabled: isStopped },
+	{ action: "step_in", labelKey: "debug.stepIn", icon: <ArrowDownToLine />, enabled: isStopped },
+	{ action: "step_out", labelKey: "debug.stepOut", icon: <ArrowUpFromLine />, enabled: isStopped },
 	{
 		action: "output",
 		labelKey: "debug.output",
-		icon: <Terminal size={12} />,
+		icon: <Terminal />,
 		enabled: active => active !== undefined,
 	},
 	{
 		action: "terminate",
 		labelKey: "debug.terminate",
-		icon: <Square size={12} />,
+		icon: <Square />,
 		danger: true,
 		enabled: isLive,
 	},
@@ -290,7 +290,7 @@ function MetaRow({ label, value, mono }: { label: string; value: string; mono?: 
 	return (
 		<div className="flex gap-2">
 			<span className="w-20 shrink-0">{label}</span>
-			<span className={cx("min-w-0 break-all text-(--omp-text)", mono && "font-mono")}>{value}</span>
+			<span className={cx("min-w-0 break-all text-(--sc-text)", mono && "font-mono")}>{value}</span>
 		</div>
 	);
 }
@@ -315,23 +315,22 @@ function SessionRow({
 	if (location) details.push(location);
 	return (
 		<button
+			aria-pressed={selected}
 			className={cx(
-				"flex w-full flex-col gap-1 rounded-lg border px-3 py-2 text-left transition-colors",
-				selected
-					? "border-(--omp-accent) bg-(--omp-selected-bg)"
-					: "border-(--omp-border-muted) bg-transparent hover:border-(--omp-border-strong)",
+				"flex min-h-10 w-full flex-col gap-1 rounded-(--sc-radius-md) border border-transparent px-3 py-2 text-left",
+				selected ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
 			)}
 			onClick={onSelect}
 			type="button"
 		>
 			<div className="flex flex-wrap items-center gap-2">
-				<span className="font-mono text-omp-md font-medium text-(--omp-text)">{session.adapter}</span>
+				<span className="font-mono text-sc-md font-medium text-(--sc-text)">{session.adapter}</span>
 				<StatusBadge status={session.status} t={t} />
 				{active ? <Badge variant="info">{t("debug.active")}</Badge> : null}
-				<span className="ml-auto font-mono text-omp-xs text-(--omp-dim)">{session.id}</span>
+				<span className="ml-auto font-mono text-sc-xs text-(--sc-text-muted)">{session.id}</span>
 			</div>
 			{details.length > 0 ? (
-				<div className="truncate text-omp-sm text-(--omp-dim)">{details.join(" · ")}</div>
+				<div className="truncate text-sc-sm text-(--sc-text-muted)">{details.join(" · ")}</div>
 			) : null}
 		</button>
 	);
@@ -347,26 +346,26 @@ function ThreadsTable({
 	t: TranslateFn;
 }) {
 	if (threads.length === 0) {
-		return <div className="px-3 py-4 text-center text-omp-sm text-(--omp-dim)">{t("debug.emptyThreads")}</div>;
+		return <div className="px-3 py-4 text-center text-sc-sm text-(--sc-text-muted)">{t("debug.emptyThreads")}</div>;
 	}
 	return (
-		<div className="overflow-hidden rounded-lg border border-(--omp-border-muted)">
-			<div className="grid grid-cols-[48px_1fr_auto] gap-2 border-b border-(--omp-border-muted) bg-transparent px-3 py-1.5 text-omp-xs font-medium tracking-wide text-(--omp-dim) uppercase">
+		<div className="overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
+			<div className="grid grid-cols-[3rem_minmax(0,1fr)_auto] gap-2 border-b border-(--sc-divider) px-3 py-1.5 text-sc-xs font-medium text-(--sc-text-muted)">
 				<span>{t("debug.col.id")}</span>
 				<span>{t("debug.col.name")}</span>
 				<span>{t("debug.col.state")}</span>
 			</div>
 			{threads.map(thread => (
 				<div
-					className="grid grid-cols-[48px_1fr_auto] items-center gap-2 border-t border-(--omp-border-muted) px-3 py-1.5"
+					className="grid grid-cols-[3rem_minmax(0,1fr)_auto] items-center gap-2 border-t border-(--sc-divider) px-3 py-1.5"
 					key={thread.id}
 				>
-					<span className="font-mono text-omp-md text-(--omp-text)">{thread.id}</span>
-					<span className="truncate text-omp-md text-(--omp-text)">{thread.name}</span>
+					<span className="font-mono text-sc-md text-(--sc-text)">{thread.id}</span>
+					<span className="truncate text-sc-md text-(--sc-text)">{thread.name}</span>
 					{snapshot?.threadId === thread.id ? (
 						<StatusBadge status={snapshot.status} t={t} />
 					) : (
-						<span className="text-omp-sm text-(--omp-dim)">—</span>
+						<span className="text-sc-sm text-(--sc-text-muted)">—</span>
 					)}
 				</div>
 			))}
@@ -376,7 +375,7 @@ function ThreadsTable({
 
 function FrameList({ frames, t }: { frames: DebugStackFrame[]; t: TranslateFn }) {
 	if (frames.length === 0) {
-		return <div className="px-3 py-4 text-center text-omp-sm text-(--omp-dim)">{t("debug.emptyFrames")}</div>;
+		return <div className="px-3 py-4 text-center text-sc-sm text-(--sc-text-muted)">{t("debug.emptyFrames")}</div>;
 	}
 	return (
 		<div className="flex flex-col gap-0.5">
@@ -384,13 +383,13 @@ function FrameList({ frames, t }: { frames: DebugStackFrame[]; t: TranslateFn })
 				const location = formatLocation(frame.sourcePath, frame.line, frame.column);
 				return (
 					<div
-						className="flex items-baseline gap-2 rounded-md px-2 py-1 hover:bg-(--omp-bg-secondary)"
+						className="flex flex-wrap items-baseline gap-2 rounded-(--sc-radius-md) px-2 py-1 hover:bg-(--sc-hover)"
 						key={frame.id}
 					>
-						<span className="w-7 shrink-0 text-right font-mono text-omp-sm text-(--omp-dim)">#{index}</span>
-						<span className="min-w-0 break-all font-mono text-omp-md text-(--omp-text)">{frame.name}</span>
+						<span className="w-7 shrink-0 text-right font-mono text-sc-sm text-(--sc-text-muted)">#{index}</span>
+						<span className="min-w-0 break-all font-mono text-sc-md text-(--sc-text)">{frame.name}</span>
 						{location ? (
-							<span className="ml-auto shrink-0 font-mono text-omp-sm text-(--omp-dim)">{location}</span>
+							<span className="ml-auto font-mono text-sc-sm break-all text-(--sc-text-muted)">{location}</span>
 						) : null}
 					</div>
 				);
@@ -442,14 +441,14 @@ function SnapshotCard({
 	const location = summaryLocation(snapshot);
 	const frame = [snapshot.frameName, location].filter((part): part is string => Boolean(part)).join(" @ ");
 	return (
-		<div className="flex flex-col gap-1.5 rounded-lg border border-(--omp-border-muted) bg-transparent px-3 py-2.5">
+		<div className="flex flex-col gap-1.5 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2.5">
 			<div className="flex flex-wrap items-center gap-2">
-				<span className="font-mono text-omp-md font-medium text-(--omp-text)">{snapshot.adapter}</span>
+				<span className="font-mono text-sc-md font-medium text-(--sc-text)">{snapshot.adapter}</span>
 				<StatusBadge status={snapshot.status} t={t} />
-				<span className="ml-auto font-mono text-omp-xs text-(--omp-dim)">{snapshot.id}</span>
+				<span className="ml-auto font-mono text-sc-xs text-(--sc-text-muted)">{snapshot.id}</span>
 			</div>
-			{outcome ? <div className="text-omp-md text-(--omp-text)">{outcome}</div> : null}
-			<div className="flex flex-col gap-0.5 text-omp-sm text-(--omp-dim)">
+			{outcome ? <div className="text-sc-md text-(--sc-text)">{outcome}</div> : null}
+			<div className="flex flex-col gap-0.5 text-sc-sm text-(--sc-text-muted)">
 				{snapshot.program ? <MetaRow label={t("debug.meta.program")} mono value={snapshot.program} /> : null}
 				{snapshot.stopReason ? <MetaRow label={t("debug.meta.stopReason")} value={snapshot.stopReason} /> : null}
 				{frame ? <MetaRow label={t("debug.meta.location")} mono value={frame} /> : null}
@@ -462,7 +461,7 @@ function SnapshotCard({
 }
 
 const SCROLLBACK_CLASS =
-	"max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg font-mono text-omp-sm leading-relaxed text-(--omp-text)";
+	"max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-(--sc-radius-md) font-mono text-sc-sm leading-relaxed text-(--sc-text)";
 
 function ResultBody({ result, t }: { result: DebugResultData; t: TranslateFn }) {
 	const details = resultDetails(result.data);
@@ -481,7 +480,7 @@ function ResultBody({ result, t }: { result: DebugResultData; t: TranslateFn }) 
 		case "output": {
 			const output = asString(details?.output) ?? resultText(result.data);
 			if (output) return <pre className={SCROLLBACK_CLASS}>{output}</pre>;
-			return <div className="px-3 py-4 text-center text-omp-sm text-(--omp-dim)">{t("debug.noOutput")}</div>;
+			return <div className="px-3 py-4 text-center text-sc-sm text-(--sc-text-muted)">{t("debug.noOutput")}</div>;
 		}
 		case "continue":
 		case "step_over":
@@ -501,7 +500,7 @@ function ResultBody({ result, t }: { result: DebugResultData; t: TranslateFn }) 
 	}
 	const text = resultText(result.data);
 	if (text) return <pre className={SCROLLBACK_CLASS}>{text}</pre>;
-	return <div className="px-3 py-4 text-center text-omp-sm text-(--omp-dim)">{t("debug.noResult")}</div>;
+	return <div className="px-3 py-4 text-center text-sc-sm text-(--sc-text-muted)">{t("debug.noResult")}</div>;
 }
 
 export function DebugConsoleDialog() {
@@ -598,14 +597,32 @@ export function DebugConsoleDialog() {
 	const activeSession = sessions?.find(session => session.id === activeSessionId);
 
 	return (
-		<Modal onClose={close} open={open} size="lg" title={t("debug.title")}>
+		<Modal
+			onClose={close}
+			open={open}
+			size="lg"
+			title={t("debug.title")}
+			footer={
+				advancedOpen ? (
+					<Button
+						disabled={!sidecarReady || pending > 0}
+						onClick={() => void runRaw()}
+						title={!sidecarReady ? t("common.notConnected") : undefined}
+						icon={<Bug />}
+						variant="primary"
+					>
+						{t("debug.run")}
+					</Button>
+				) : undefined
+			}
+		>
 			<div className="flex flex-col gap-4">
 				<section>
 					<div className="mb-1 flex items-center justify-between">
-						<span className="text-xs font-medium text-(--omp-text)">{t("debug.sessions")}</span>
+						<span className="text-sc-sm font-medium text-(--sc-text)">{t("debug.sessions")}</span>
 						<Button
 							disabled={!sidecarReady || pending > 0}
-							icon={<RefreshCw size={12} />}
+							icon={<RefreshCw />}
 							onClick={() => void refreshSessions()}
 							size="sm"
 							variant="ghost"
@@ -616,14 +633,17 @@ export function DebugConsoleDialog() {
 					</div>
 					{sessions === null ? (
 						sessionsError ? (
-							<div className="flex flex-col items-center gap-2 rounded-lg border border-(--omp-border-muted) px-4 py-6 text-center">
-								<span className="text-omp-sm text-(--omp-error)">
+							<div
+								className="flex flex-col items-center gap-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-4 py-6 text-center"
+								role="alert"
+							>
+								<span className="text-sc-sm text-(--sc-danger)">
 									{sessionsError.message}
 									<ErrorDetail className="mt-0.5" error={sessionsError.cause} />
 								</span>
 								<Button
 									disabled={!sidecarReady}
-									icon={<RefreshCw size={12} />}
+									icon={<RefreshCw />}
 									onClick={() => void refreshSessions()}
 									size="sm"
 									variant="secondary"
@@ -633,18 +653,18 @@ export function DebugConsoleDialog() {
 								</Button>
 							</div>
 						) : (
-							<div className="flex items-center justify-center rounded-lg border border-(--omp-border-muted) px-4 py-6">
-								<Spinner size="sm" />
+							<div className="flex items-center justify-center rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-4 py-6">
+								<Spinner size="sm" label={t("common.loading")} />
 							</div>
 						)
 					) : sessions.length === 0 ? (
-						<div className="flex flex-col items-center gap-2 rounded-lg border border-(--omp-border-muted) px-4 py-6 text-center">
-							<Bug className="text-(--omp-dim)" size={16} />
-							<span className="text-omp-md font-medium text-(--omp-text)">{t("debug.noSessions")}</span>
-							<span className="max-w-sm text-omp-sm text-(--omp-dim)">{t("debug.noSessionsHint")}</span>
+						<div className="flex flex-col items-center gap-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-4 py-6 text-center">
+							<Bug aria-hidden className="size-(--sc-icon-md) text-(--sc-text-muted)" />
+							<span className="text-sc-md font-medium text-(--sc-text)">{t("debug.noSessions")}</span>
+							<span className="max-w-sm text-sc-sm text-(--sc-text-muted)">{t("debug.noSessionsHint")}</span>
 							<div className="mt-1 flex flex-wrap justify-center gap-2">
 								<Button
-									icon={<Rocket size={12} />}
+									icon={<Rocket />}
 									onClick={() => fillExample(LAUNCH_EXAMPLE)}
 									size="sm"
 									variant="secondary"
@@ -652,7 +672,7 @@ export function DebugConsoleDialog() {
 									{t("debug.fillLaunch")}
 								</Button>
 								<Button
-									icon={<Plug size={12} />}
+									icon={<Plug />}
 									onClick={() => fillExample(ATTACH_EXAMPLE)}
 									size="sm"
 									variant="secondary"
@@ -664,7 +684,10 @@ export function DebugConsoleDialog() {
 					) : (
 						<div className="flex max-h-40 flex-col gap-1.5 overflow-auto">
 							{sessionsError ? (
-								<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent px-3 py-1.5 text-omp-sm text-(--omp-error)">
+								<div
+									className="rounded-(--sc-radius-md) border border-(--sc-danger) px-3 py-1.5 text-sc-sm text-(--sc-danger)"
+									role="alert"
+								>
 									{sessionsError.message}
 									<ErrorDetail className="mt-0.5" error={sessionsError.cause} />
 								</div>
@@ -700,7 +723,10 @@ export function DebugConsoleDialog() {
 				</div>
 
 				{error ? (
-					<div className="rounded-md border border-[color-mix(in_srgb,var(--omp-error)_35%,transparent)] bg-transparent p-3 text-sm text-(--omp-error)">
+					<div
+						className="rounded-(--sc-radius-md) border border-(--sc-danger) p-3 text-sc-sm text-(--sc-danger)"
+						role="alert"
+					>
 						{error.message}
 						<ErrorDetail className="mt-0.5" error={error.cause} />
 					</div>
@@ -708,31 +734,36 @@ export function DebugConsoleDialog() {
 
 				<section>
 					<div className="mb-1 flex items-center justify-between">
-						<span className="text-xs font-medium text-(--omp-text)">{t("debug.result")}</span>
+						<span className="text-sc-sm font-medium text-(--sc-text)">{t("debug.result")}</span>
 						{pending > 0 ? <Spinner label={t("debug.running")} size="sm" /> : null}
 					</div>
-					<div className="max-h-72 min-h-28 overflow-auto rounded-lg border border-(--omp-border-muted) bg-transparent p-3">
+					<div className="max-h-72 min-h-28 overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3">
 						{result ? (
 							<ResultBody result={result} t={t} />
 						) : (
-							<div className="flex min-h-24 items-center justify-center text-omp-sm text-(--omp-dim)">
+							<div className="flex min-h-24 items-center justify-center text-sc-sm text-(--sc-text-muted)">
 								{t("debug.noResult")}
 							</div>
 						)}
 					</div>
 				</section>
 
-				<section className="rounded-lg border border-(--omp-border-muted)">
+				<section className="rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
 					<button
-						className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-omp-md font-medium text-(--omp-muted) transition-colors hover:text-(--omp-text)"
+						aria-expanded={advancedOpen}
+						className="flex min-h-9 w-full items-center gap-2 rounded-(--sc-radius-md) px-3 py-2 text-left text-sc-md font-medium text-(--sc-text-secondary) hover:bg-(--sc-hover) hover:text-(--sc-text)"
 						onClick={() => setAdvancedOpen(value => !value)}
 						type="button"
 					>
-						{advancedOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+						{advancedOpen ? (
+							<ChevronDown aria-hidden className="size-(--sc-icon-sm)" />
+						) : (
+							<ChevronRight aria-hidden className="size-(--sc-icon-sm)" />
+						)}
 						{t("debug.advanced")}
 					</button>
 					{advancedOpen ? (
-						<div className="flex flex-col gap-3 border-t border-(--omp-border-muted) px-3 py-3">
+						<div className="flex flex-col gap-3 border-t border-(--sc-divider) px-3 py-3">
 							<div className="flex flex-wrap gap-2">
 								{PRESETS.map(preset => (
 									<Button
@@ -748,7 +779,7 @@ export function DebugConsoleDialog() {
 								))}
 							</div>
 							<div>
-								<label className="mb-1 block text-xs font-medium text-(--omp-text)" htmlFor="debug-request">
+								<label className="mb-1 block text-sc-sm font-medium text-(--sc-text)" htmlFor="debug-request">
 									{t("debug.request")}
 								</label>
 								<TextArea
@@ -759,15 +790,6 @@ export function DebugConsoleDialog() {
 									spellCheck={false}
 									value={request}
 								/>
-							</div>
-							<div className="flex items-center justify-end">
-								<Button
-									disabled={!sidecarReady || pending > 0}
-									onClick={() => void runRaw()}
-									title={!sidecarReady ? t("common.notConnected") : undefined}
-								>
-									<Bug size={14} /> {t("debug.run")}
-								</Button>
 							</div>
 						</div>
 					) : null}

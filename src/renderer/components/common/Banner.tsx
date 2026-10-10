@@ -60,20 +60,24 @@ export function Banner({ variant = "info", title, children, actions, onDismiss, 
 	return (
 		<div
 			className={cx(
-				"flex items-start gap-3 rounded-(--sc-radius-md) border px-3 py-2.5 text-sc-md text-(--sc-text)",
+				"flex flex-wrap items-start gap-3 rounded-(--sc-radius-md) border px-3 py-2.5 text-sc-md text-(--sc-text)",
 				style.box,
 				className,
 			)}
 			role={live ? (variant === "danger" ? "alert" : "status") : undefined}
 		>
-			<Icon aria-hidden className={cx("mt-0.5 shrink-0", style.icon)} size={16} />
-			<div className="min-w-0 flex-1 py-px">
+			<Icon aria-hidden className={cx("mt-0.5 size-(--sc-icon-md) shrink-0", style.icon)} />
+			<div className="min-w-0 flex-1 basis-40 break-words py-px">
 				{title && <div className="font-semibold">{title}</div>}
 				{children && (
 					<div className={cx(title ? "mt-0.5" : undefined, "text-(--sc-text-secondary)")}>{children}</div>
 				)}
 			</div>
-			{actions && <div className="flex shrink-0 items-center gap-2 self-center">{actions}</div>}
+			{actions && (
+				<div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2 self-center">
+					{actions}
+				</div>
+			)}
 			{onDismiss && (
 				<IconButton
 					className="-my-1 -mr-1.5"

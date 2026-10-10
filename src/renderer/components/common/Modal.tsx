@@ -37,6 +37,8 @@ const SIZE_CLASSES: Record<ModalSize, string> = {
 export interface DialogSurfaceProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
 	title?: ReactNode;
 	titleId?: string;
+	description?: ReactNode;
+	descriptionId?: string;
 	/** Renders the close button in the header when set. */
 	onClose?: () => void;
 	chromeless?: boolean;
@@ -45,11 +47,24 @@ export interface DialogSurfaceProps extends Omit<HTMLAttributes<HTMLDivElement>,
 }
 
 /**
- * The dialog panel: header (title + close), scrolling body, optional footer.
+ * The dialog panel: header (title + description + close), scrolling body,
+ * optional right-aligned footer. Long titles and action rows wrap.
  * Modal renders it as the dialog element; the style guide renders it inline.
  */
 export const DialogSurface = forwardRef<HTMLDivElement, DialogSurfaceProps>(function DialogSurface(
-	{ title, titleId, onClose, chromeless, bodyClassName = "px-5 py-4", footer, className, children, ...rest },
+	{
+		title,
+		titleId,
+		description,
+		descriptionId,
+		onClose,
+		chromeless,
+		bodyClassName = "px-5 py-4",
+		footer,
+		className,
+		children,
+		...rest
+	},
 	ref,
 ) {
 	const t = useT();
@@ -63,9 +78,16 @@ export const DialogSurface = forwardRef<HTMLDivElement, DialogSurfaceProps>(func
 			{...rest}
 		>
 			{!chromeless && (
-				<div className="flex min-h-13 shrink-0 items-center justify-between gap-3 py-2.5 pr-3 pl-5">
-					<div className="min-w-0 truncate text-sc-lg font-semibold tracking-(--sc-tracking-tight)" id={titleId}>
-						{title}
+				<div className="flex min-h-13 shrink-0 items-start justify-between gap-3 py-3 pr-3 pl-5">
+					<div className="min-w-0 pt-0.5">
+						<div className="text-sc-lg font-semibold tracking-(--sc-tracking-tight) break-words" id={titleId}>
+							{title}
+						</div>
+						{description && (
+							<p className="mt-1 text-sc-sm leading-relaxed text-(--sc-text-muted)" id={descriptionId}>
+								{description}
+							</p>
+						)}
 					</div>
 					{onClose && (
 						<IconButton icon={<X />} label={t("common.close")} onClick={onClose} size="sm" tooltip={false} />
@@ -74,7 +96,7 @@ export const DialogSurface = forwardRef<HTMLDivElement, DialogSurfaceProps>(func
 			)}
 			<div className={cx("min-h-0 flex-1 overflow-y-auto", bodyClassName)}>{children}</div>
 			{footer && (
-				<div className="flex shrink-0 items-center justify-end gap-2 border-t border-(--sc-divider) px-5 py-3">
+				<div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-(--sc-divider) px-5 py-3">
 					{footer}
 				</div>
 			)}
@@ -86,6 +108,8 @@ export interface ModalProps {
 	open: boolean;
 	onClose: () => void;
 	title?: ReactNode;
+	/** Short supporting copy below the title, associated with the dialog. */
+	description?: ReactNode;
 	size?: ModalSize;
 	/** Hide the title bar entirely (chromeless dialogs like the command palette). */
 	chromeless?: boolean;
@@ -116,6 +140,7 @@ export function Modal({
 	open,
 	onClose,
 	title,
+	description,
 	size = "md",
 	chromeless,
 	placement = "center",
@@ -127,6 +152,7 @@ export function Modal({
 	children,
 }: ModalProps) {
 	const titleId = useId();
+	const descriptionId = useId();
 	const panelRef = useRef<HTMLDivElement>(null);
 	// Exit phase lives in the shared overlay-presence hook: `mounted` — not `open` —
 	// gates the portal, the phase starts in the SAME commit's effect while the panel
@@ -137,8 +163,14 @@ export function Modal({
 	// its children from `null`, so the fading panel would collapse to an empty box;
 	// holding the tree from the last open commit lets callers drop their own
 	// `if (!payload) return null` gate and pass `open` instead.
-	const shownRef = useRef<{ ariaLabel?: string; body: ReactNode; footer: ReactNode; title: ReactNode } | null>(null);
-	if (open) shownRef.current = { ariaLabel, body: children, footer, title };
+	const shownRef = useRef<{
+		ariaLabel?: string;
+		body: ReactNode;
+		description?: ReactNode;
+		footer: ReactNode;
+		title: ReactNode;
+	} | null>(null);
+	if (open) shownRef.current = { ariaLabel, body: children, description, footer, title };
 	const shown = shownRef.current;
 
 	useModalLayer(open, panelRef, onClose);
@@ -164,10 +196,13 @@ export function Modal({
 		>
 			<DialogSurface
 				aria-label={shown.ariaLabel ?? (typeof shown.title === "string" ? shown.title : undefined)}
+				aria-describedby={!chromeless && shown.description ? descriptionId : undefined}
 				aria-labelledby={!chromeless && shown.title ? titleId : undefined}
 				aria-modal={!closing}
 				bodyClassName={bodyClassName}
 				chromeless={chromeless}
+				description={shown.description}
+				descriptionId={descriptionId}
 				className={cx(
 					"omp-dialog-panel",
 					closing ? "omp-scale-out" : "omp-scale-in",

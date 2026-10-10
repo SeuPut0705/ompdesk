@@ -161,3 +161,21 @@ test("stock metadata drives live token rate and read grouping", async () => {
 	);
 	expect(errors).toEqual([]);
 });
+
+test("reference blocks stay readable and errors retain recovery actions", async () => {
+	await page.evaluate(() => window.omp.rpc.command({ type: "prompt", message: "fixture transcript" }));
+	await expect(page.getByRole("heading", { name: "변경 사항", exact: true })).toBeVisible();
+	await expect(page.getByRole("table")).toContainText("타입 검사");
+	await expect(page.getByRole("link", { name: "문서 보기" })).toHaveAttribute("href", "https://example.com/docs");
+	const thinking = page.locator(".omp-thinking-header");
+	await expect(thinking).toHaveAttribute("aria-expanded", "false");
+	await thinking.click();
+	await expect(page.locator(".omp-thinking-body")).toContainText("변경 범위를 확인");
+	const error = page.locator(".omp-message-error");
+	await expect(error.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
+	await expect(error.getByRole("button", { name: "Change model", exact: true })).toBeVisible();
+	await error.locator("summary").click();
+	await expect(error.locator("pre")).toContainText("503 Service unavailable");
+	await page.getByRole("button", { name: "Copy code", exact: true }).click();
+	expect(errors).toEqual([]);
+});

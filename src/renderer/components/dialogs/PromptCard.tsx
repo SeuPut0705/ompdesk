@@ -13,6 +13,8 @@ import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObjec
 import { createPortal } from "react-dom";
 import { cx } from "../../lib/format";
 import { isImeKeyEvent } from "../../lib/ime";
+import { useSessionRuntime } from "../../stores/session-runtime-context";
+import { useTabsStore } from "../../stores/tabs";
 import { useAskDock } from "./ask-dock";
 
 function PromptDock({ children }: { children: ReactNode }) {
@@ -32,15 +34,19 @@ function isTextField(target: EventTarget | null): boolean {
 
 /** Focus the first row of the card (not a destructive default), return focus on close. */
 function useCardFocus(cardRef: RefObject<HTMLElement | null>): void {
+	const tabId = useSessionRuntime()?.tabId;
 	useEffect(() => {
+		// A prompt in another visible pane must not steal keyboard focus.
+		if (tabId && useTabsStore.getState().activeTabId !== tabId) return;
 		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 		const card = cardRef.current;
 		card?.focus();
 		return () => {
+			if (tabId && useTabsStore.getState().activeTabId !== tabId) return;
 			const active = document.activeElement;
 			if (!active || active === document.body || card?.contains(active)) opener?.focus();
 		};
-	}, [cardRef]);
+	}, [cardRef, tabId]);
 }
 
 export interface PromptCardProps {
@@ -66,6 +72,10 @@ export function PromptCard({
 	children,
 	footer,
 }: PromptCardProps) {
+	const tabId = useSessionRuntime()?.tabId;
+	const focusPane = () => {
+		if (tabId) void useTabsStore.getState().switchTab(tabId);
+	};
 	const cardRef = useRef<HTMLElement>(null);
 	useCardFocus(cardRef);
 	const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
@@ -89,6 +99,8 @@ export function PromptCard({
 				className="omp-pop-in mb-2 flex max-h-[min(55vh,38rem)] flex-col overflow-hidden rounded-(--sc-radius-xl) border border-(--sc-border-subtle) bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-md) outline-none"
 				data-prompt-card
 				onKeyDown={onKeyDown}
+				onPointerDownCapture={focusPane}
+				onFocusCapture={focusPane}
 				ref={cardRef}
 				role="region"
 				tabIndex={-1}

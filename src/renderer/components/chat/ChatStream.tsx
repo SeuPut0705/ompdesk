@@ -591,9 +591,9 @@ function SessionTranscript() {
 											new CustomEvent("omp:fill-composer", { detail: { text: prompt, tabId } }),
 										)
 									}
-									className="omp-starter-card group flex items-start gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-3.5 text-left transition-colors duration-(--sc-duration-fast) hover:border-(--sc-border) hover:bg-(--sc-hover) active:bg-(--sc-pressed)"
+									className="omp-starter-card group flex items-start gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-4 text-left transition-colors duration-(--sc-duration-fast) hover:border-(--sc-border) hover:bg-(--sc-hover) active:bg-(--sc-pressed)"
 								>
-									<span className="omp-starter-icon flex size-8 shrink-0 items-center justify-center rounded-(--sc-radius-md) bg-(--sc-accent-soft) text-(--sc-accent)">
+									<span className="omp-starter-icon flex size-8 shrink-0 items-center justify-center rounded-(--sc-radius-md) bg-(--sc-surface-2) text-(--sc-text-muted)">
 										<Icon aria-hidden className="size-(--sc-icon-md)" />
 									</span>
 									<span className="min-w-0">

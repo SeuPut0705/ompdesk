@@ -53,6 +53,7 @@ import {
 	useState,
 } from "react";
 import type { SessionInfo } from "../../../shared/ipc-types";
+import { splitTabIds } from "../../../shared/split-layout";
 import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
 import { useSessionList } from "../../hooks/use-session-list";
 import { dropSessionNow, requestSessionSwitch } from "../../hooks/use-session-switch";
@@ -100,6 +101,7 @@ import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarSubagents, SidebarSubagentsToggle, sidebarSubagentCount } from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
+import "../../styles/sidebar.css";
 
 /**
  * A sidebar row: an indexed session, or one synthesized from an open tab the
@@ -832,7 +834,10 @@ export function Sidebar() {
 		const tabIndex = -1;
 		if (renamingSessionPath === session.path) {
 			return (
-				<div className={cx("py-0.5 pr-1", nested ? "pl-5.5" : "pl-1")} key={session.path}>
+				<div
+					className={cx("py-0.5 pr-1", nested ? "omp-sidebar-session-rename-nested" : "pl-1")}
+					key={session.path}
+				>
 					<Input
 						aria-label={t("sidebar.rename")}
 						autoFocus
@@ -926,11 +931,13 @@ export function Sidebar() {
 							}
 						},
 					}}
-					className={cx("omp-sidebar-session-row", nested && "pl-5.5")}
+					className={cx("omp-sidebar-session-row", nested && "omp-sidebar-session-nested")}
 					leading={leading}
 					meta={
 						waiting ? (
-							<Badge variant="warning">{t("sidebar.row.needsApproval")}</Badge>
+							<Badge className="omp-sidebar-approval" variant="warning">
+								{t("sidebar.row.needsApproval")}
+							</Badge>
 						) : indexed ? (
 							<time className="text-(--sc-text-subtle)" dateTime={session.modified}>
 								{formatTimeAgo(session.modified)}
@@ -1065,9 +1072,9 @@ export function Sidebar() {
 								</button>
 							)}
 							{renamingGroupCwd !== group.cwd && (
-								<span className="flex shrink-0 items-center gap-0.5 pr-1">
+								<span className="omp-sidebar-project-actions relative flex shrink-0 items-center pr-1">
 									<IconButton
-										className="pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100"
+										className="omp-sidebar-project-menu pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100"
 										icon={<MoreHorizontal />}
 										label={t("sidebar.groupMenu")}
 										onClick={event => setGroupMenu({ anchor: anchorBelow(event.currentTarget), group })}
@@ -1138,7 +1145,7 @@ export function Sidebar() {
 					/>
 				</div>
 
-				<div className="flex shrink-0 flex-col gap-2 px-2 pt-1 pb-2">
+				<div className="omp-sidebar-controls flex shrink-0 flex-col gap-2 px-2 pt-1 pb-2">
 					<Tabs
 						activeId={mode}
 						ariaLabel={t("sidebar.mode.aria")}
@@ -1157,7 +1164,7 @@ export function Sidebar() {
 							data-sidebar-new-agent
 							icon={mode === "chat" ? <MessageSquarePlus /> : <SquarePen />}
 							onClick={startNew}
-							variant="secondary"
+							variant="ghost"
 						>
 							<span className="min-w-0 flex-1 truncate text-left">
 								{mode === "chat" ? t("sidebar.newChat") : t("sidebar.newSession")}
@@ -1169,7 +1176,7 @@ export function Sidebar() {
 								icon={<FolderPlus />}
 								label={t("sidebar.project.newFolder")}
 								onClick={() => void openProjectFolder()}
-								variant="secondary"
+								variant="ghost"
 							/>
 						)}
 					</div>
@@ -1465,8 +1472,7 @@ export function Sidebar() {
 					const targetBusy = isSessionBusy(sessionMenu.session);
 					const targetTab = tabForSession(sessionMenu.session);
 					const { split } = useTabsStore.getState();
-					const inSplit =
-						targetTab && split && (split.firstTabId === targetTab.id || split.secondTabId === targetTab.id);
+					const inSplit = targetTab && split && splitTabIds(split).includes(targetTab.id);
 					const viewItems: ContextMenuItem[] = !targetTab
 						? []
 						: [

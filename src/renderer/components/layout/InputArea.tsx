@@ -332,7 +332,8 @@ export function InputArea() {
 			const restoredImages = detail?.images ?? [];
 			if (!next && restoredImages.length === 0) return;
 			// The editor dialog writes back fully-inline text — consume the blobs.
-			if (detail?.clearPastes) dropReferencedPastes(useComposerStore.getState().draft);
+			if (detail?.clearPastes)
+				dropReferencedPastes(sessionRuntimeStore<ComposerStore>(runtimeTabId, "composer")?.getState().draft ?? "");
 			// prepend (dequeue restore): queued text goes ahead of any draft, TUI-style;
 			// otherwise replace (starter cards, history recall).
 			setText(current => {
@@ -351,6 +352,7 @@ export function InputArea() {
 			requestAnimationFrame(() => {
 				const el = textareaRef.current;
 				if (!el) return;
+				if (useTabsStore.getState().activeTabId !== runtimeTabId) return;
 				el.focus();
 				if (next) el.setSelectionRange(next.length, next.length);
 			});

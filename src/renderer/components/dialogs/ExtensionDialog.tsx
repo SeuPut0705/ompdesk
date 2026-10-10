@@ -23,7 +23,9 @@ import {
 	TextCursorInput,
 } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ExtensionAskDialogResult, ExtensionUIRequest } from "../../../shared/rpc-types";
+import { useExtensionUiResponder } from "../../hooks/use-extension-ui";
 import { AnsiText } from "../../lib/ansi";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -32,9 +34,12 @@ import { MarkdownRenderer } from "../../lib/markdown";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
 import { isInlineLoginRequest, openUrlTarget, useExtensionUiStore } from "../../stores/extension-ui";
 import { useFocusedTabDevice } from "../../stores/remote";
+import { useRuntimeTabId } from "../../stores/session-runtime-context";
+import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { Badge, Button, Input, Kbd, TextArea } from "../common";
 import { ApprovalDialog, isApprovalRequest } from "./ApprovalDialog";
+import { useAskDock } from "./ask-dock";
 import { ChoiceList, PromptCard } from "./PromptCard";
 
 /** Requests handled elsewhere (store/router) — never rendered as dialogs. */
@@ -47,22 +52,28 @@ const NON_DIALOG_METHODS = new Set(["notify", "setStatus", "setWidget", "setTitl
  * placeholder (InputArea), not a panel.
  */
 function ExtensionSurfaces() {
+	const dock = useAskDock();
 	const widgetPanels = useExtensionUiStore(state => state.widgetPanels);
 	const widgets = Object.entries(widgetPanels).filter(([key]) => key !== NEXT_PROMPT_WIDGET);
 	if (widgets.length === 0) return null;
-	return (
-		<div className="pointer-events-none fixed bottom-9 left-1/2 z-40 flex max-h-[40vh] w-[min(560px,92vw)] -translate-x-1/2 flex-col gap-1.5 overflow-y-auto">
+	const surface = (
+		<div
+			className={cx(
+				"pointer-events-none flex max-h-[40vh] flex-col gap-1.5 overflow-y-auto",
+				dock ? "mb-2" : "fixed bottom-9 left-1/2 z-40 w-[min(560px,92vw)] -translate-x-1/2",
+			)}
+		>
 			{widgets.map(([key, lines]) => (
 				<div
 					aria-label={key}
-					className="pointer-events-auto rounded-md border border-(--omp-border-muted) bg-(--omp-bg-elevated) px-2.5 py-1.5 shadow-lg shadow-black/40"
+					className="pointer-events-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) px-3 py-2 shadow-(--sc-shadow-md)"
 					key={key}
 					role="region"
 				>
-					<div className="mb-0.5 text-omp-xxs font-medium tracking-widest text-(--omp-dim) uppercase">{key}</div>
+					<div className="mb-1 text-sc-xs font-medium text-(--sc-text-muted)">{key}</div>
 					{lines.map((line, index) => (
 						<div
-							className="font-mono text-omp-xs leading-snug break-words whitespace-pre-wrap text-(--omp-text)"
+							className="font-mono text-sc-xs leading-snug break-words whitespace-pre-wrap text-(--sc-text)"
 							key={index}
 						>
 							{line === "" ? "\u00A0" : <AnsiText text={line} />}
@@ -72,6 +83,7 @@ function ExtensionSurfaces() {
 			))}
 		</div>
 	);
+	return dock ? createPortal(surface, dock) : surface;
 }
 
 function useCountdown(request: ExtensionUIRequest | null): number | null {
@@ -110,7 +122,7 @@ function TimeoutFooter({ remaining }: { remaining: number | null }) {
 	const t = useT();
 	if (remaining === null) return null;
 	return (
-		<span className="text-omp-xs tabular-nums text-(--omp-dim)">
+		<span className="text-sc-xs tabular-nums text-(--sc-text-muted)">
 			{t("extDialog.autoDismiss", { seconds: Math.ceil(remaining / 1000) })}
 		</span>
 	);
@@ -218,11 +230,13 @@ function InputDialog({
 	onCancel: () => void;
 }) {
 	const t = useT();
+	const tabId = useRuntimeTabId();
 	const fieldRef = useRef<HTMLInputElement>(null);
 	const { label, body } = splitTitle(request.title);
 	useEffect(() => {
+		if (tabId && useTabsStore.getState().activeTabId !== tabId) return;
 		fieldRef.current?.focus();
-	}, []);
+	}, [tabId]);
 	const submit = () => onValue(fieldRef.current?.value ?? "");
 	const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
 		if (event.key !== "Enter" || isImeKeyEvent(event.nativeEvent)) return;
@@ -281,6 +295,7 @@ function AskDialog({
 	onCancel: () => void;
 }) {
 	const t = useT();
+	const tabId = useRuntimeTabId();
 	const formId = useId();
 	const bodyRef = useRef<HTMLDivElement>(null);
 	const questions = request.questions;
@@ -303,8 +318,9 @@ function AskDialog({
 	// Each step opens on its first option, so 1–9 and ↑/↓ work right away.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a step change moves focus.
 	useEffect(() => {
+		if (tabId && useTabsStore.getState().activeTabId !== tabId) return;
 		bodyRef.current?.querySelector<HTMLElement>("[data-choice]")?.focus();
-	}, [step]);
+	}, [step, tabId]);
 
 	const update = (index: number, change: (entry: AskAnswerState) => AskAnswerState) =>
 		setAnswers(prev => prev.map((entry, at) => (at === index ? change(entry) : entry)));
@@ -474,7 +490,7 @@ function AskDialog({
 					{showNote ? (
 						<Input
 							aria-label={t("extDialog.ask.notePlaceholder")}
-							autoFocus={answer.note === ""}
+							autoFocus={answer.note === "" && (!tabId || useTabsStore.getState().activeTabId === tabId)}
 							controlSize="sm"
 							onChange={event => update(step, entry => ({ ...entry, note: event.target.value }))}
 							placeholder={t("extDialog.ask.notePlaceholder")}
@@ -511,12 +527,14 @@ function EditorDialog({
 	onCancel: () => void;
 }) {
 	const t = useT();
+	const tabId = useRuntimeTabId();
 	const fieldRef = useRef<HTMLTextAreaElement>(null);
 	const prefill = request.prefill ?? "";
 	const { label, body } = splitTitle(request.title);
 	useEffect(() => {
+		if (tabId && useTabsStore.getState().activeTabId !== tabId) return;
 		fieldRef.current?.focus();
-	}, []);
+	}, [tabId]);
 	const submit = () => onValue(fieldRef.current?.value ?? "");
 	const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
 		if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || isImeKeyEvent(event.nativeEvent)) return;
@@ -603,7 +621,7 @@ function OpenUrlDialog({
 					{request.instructions}
 				</p>
 			)}
-			<p className="mb-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--omp-code-bg) px-3 py-2 font-mono text-sc-sm break-all text-(--sc-text-secondary) select-text">
+			<p className="mb-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-2) px-3 py-2 font-mono text-sc-sm break-all text-(--sc-text-secondary) select-text">
 				{target}
 			</p>
 			<ChoiceList
@@ -618,6 +636,7 @@ function OpenUrlDialog({
 }
 
 function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; remaining: number | null }) {
+	const sendResponse = useExtensionUiResponder();
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
 
 	const respond = (
@@ -627,7 +646,7 @@ function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; rem
 			| { answers: Array<{ id: string; selectedOptions: string[]; customInput?: string }> }
 			| { cancelled: true },
 	) => {
-		window.omp.ui.respondExtensionUi({ type: "extension_ui_response", id: request.id, ...response });
+		sendResponse({ type: "extension_ui_response", id: request.id, ...response });
 		removeRequest(request.id);
 	};
 	const cancel = () => respond({ cancelled: true });
@@ -710,6 +729,8 @@ function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; rem
 }
 
 export function ExtensionDialog() {
+	const sendResponse = useExtensionUiResponder();
+	const tabId = useRuntimeTabId();
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
 	const inlineLogin = useExtensionUiStore(state => state.inlineLogin);
@@ -740,30 +761,30 @@ export function ExtensionDialog() {
 			} else if (req.method === "set_editor_text") {
 				window.dispatchEvent(
 					new CustomEvent("omp:fill-composer", {
-						detail: { text: req.text, images: req.images, prepend: req.prepend },
+						detail: { text: req.text, images: req.images, prepend: req.prepend, tabId },
 					}),
 				);
 				removeRequest(req.id);
 			} else if (req.method === "setTitle") {
-				document.title = req.title;
+				if (!tabId || useTabsStore.getState().activeTabId === tabId) document.title = req.title;
 				removeRequest(req.id);
 			} else if (NON_DIALOG_METHODS.has(req.method)) {
 				removeRequest(req.id);
 			}
 		}
-	}, [pending, removeRequest]);
+	}, [pending, removeRequest, tabId]);
 
 	// Timeout: auto-cancel with timedOut marker.
 	useEffect(() => {
 		if (!request || remaining === null || remaining > 0) return;
-		window.omp.ui.respondExtensionUi({
+		sendResponse({
 			type: "extension_ui_response",
 			id: request.id,
 			cancelled: true,
 			timedOut: true,
 		});
 		removeRequest(request.id);
-	}, [request, remaining, removeRequest]);
+	}, [request, remaining, removeRequest, sendResponse]);
 
 	return (
 		<>

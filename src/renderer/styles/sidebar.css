@@ -1,0 +1,54 @@
+/* Sidebar-only polish; shared controls and the theme scales stay unchanged. */
+.omp-session-sidebar {
+	--sc-sidebar-row-selected: var(--sc-selected);
+}
+
+.omp-session-sidebar .omp-sidebar-session-row {
+	min-height: var(--sc-control-lg);
+}
+
+.omp-session-sidebar .omp-sidebar-session-nested,
+.omp-sidebar-session-rename-nested {
+	padding-left: calc(var(--sc-space-3) + var(--sc-space-4));
+}
+
+.omp-session-sidebar [data-workspace-group],
+.omp-session-sidebar [data-device-group] > div:first-child {
+	min-height: var(--sc-control-lg);
+}
+
+.omp-sidebar-project-menu {
+	position: absolute;
+	right: calc(var(--sc-control-sm) + var(--sc-space-1));
+}
+
+.omp-session-sidebar [data-workspace-group]:is(:hover, :focus-within) > button {
+	padding-right: var(--sc-space-8);
+}
+
+.omp-session-sidebar .omp-sidebar-session-row:active,
+.omp-session-sidebar [data-workspace-group]:active,
+.omp-session-sidebar [data-device-group] > div:first-child:active {
+	background-color: var(--sc-pressed);
+}
+
+.omp-session-sidebar .omp-sidebar-approval {
+	white-space: nowrap;
+	font-weight: var(--sc-weight-regular);
+}
+
+.omp-sidebar-controls {
+	padding-bottom: var(--sc-space-3);
+}
+
+.omp-session-sidebar [data-sidebar-destinations] {
+	padding-block: var(--sc-space-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.omp-session-sidebar *,
+	.omp-session-sidebar *::after {
+		animation: none;
+		transition: none;
+	}
+}

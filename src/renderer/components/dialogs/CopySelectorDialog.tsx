@@ -100,38 +100,62 @@ export function CopySelectorDialog() {
 	};
 
 	return (
-		<Modal bodyClassName="p-0" onClose={close} open={open} size="lg" title={t("copySelector.title")}>
-			<div className="grid h-[62vh] min-h-0 grid-cols-[minmax(220px,0.9fr)_minmax(0,1.3fr)]" onKeyDown={onKeyDown}>
-				<div className="min-h-0 overflow-y-auto border-r border-(--omp-border-muted) p-2" ref={listRef}>
+		<Modal
+			bodyClassName="p-0"
+			onClose={close}
+			open={open}
+			size="lg"
+			title={t("copySelector.title")}
+			footer={
+				<Button
+					disabled={selected?.content === undefined}
+					icon={copied ? <Check /> : <ClipboardCopy />}
+					onClick={() => void copyTarget(selected)}
+					size="sm"
+					variant="primary"
+				>
+					{copied ? t("copySelector.copied") : t("copySelector.copy")}
+				</Button>
+			}
+		>
+			<div
+				className="grid h-[62vh] min-h-0 grid-cols-[minmax(0,0.9fr)_minmax(0,1.3fr)] max-sm:grid-cols-1 max-sm:grid-rows-2"
+				onKeyDown={onKeyDown}
+			>
+				<div
+					className="min-h-0 overflow-y-auto border-r border-(--sc-divider) p-2 max-sm:border-r-0 max-sm:border-b"
+					ref={listRef}
+				>
 					{error ? (
-						<div className="p-4 text-xs text-[var(--omp-error)]" role="alert">
+						<div className="p-4 text-sc-sm text-(--sc-danger)" role="alert">
 							{error.message}
 							<ErrorDetail className="mt-0.5" error={error.cause} />
 						</div>
 					) : loading ? (
-						<div className="flex items-center justify-center gap-2 p-8 text-xs text-(--omp-dim)">
+						<div className="flex items-center justify-center gap-2 p-8 text-sc-sm text-(--sc-text-muted)">
 							<Spinner size="sm" /> {t("copySelector.loading")}
 						</div>
 					) : flat.length === 0 ? (
-						<div className="p-8 text-center text-xs text-(--omp-dim)">{t("copySelector.empty")}</div>
+						<div className="p-8 text-center text-sc-sm text-(--sc-text-muted)">{t("copySelector.empty")}</div>
 					) : (
 						flat.map((item, index) => (
 							<button
-								className={`flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-xs ${
+								aria-pressed={index === selectedIndex}
+								className={`flex min-h-9 w-full items-center gap-2 rounded-(--sc-radius-md) py-1.5 pr-2 text-left text-sc-md ${
 									index === selectedIndex
-										? "bg-(--omp-selected-bg) text-(--omp-text)"
-										: "text-(--omp-dim) hover:bg-(--omp-bg-tertiary)"
+										? "bg-(--sc-selected) text-(--sc-text)"
+										: "text-(--sc-text-secondary) hover:bg-(--sc-hover)"
 								}`}
 								data-copy-index={index}
 								key={item.target.id}
 								onClick={() => setSelectedId(item.target.id)}
 								onDoubleClick={() => void copyTarget(item.target)}
-								style={{ paddingLeft: `${8 + item.depth * 18}px` }}
+								style={{ paddingLeft: `calc(var(--sc-space-2) + ${item.depth} * var(--sc-space-4))` }}
 								type="button"
 							>
 								<span className="min-w-0 flex-1 truncate">{item.target.label}</span>
 								{item.target.hint && (
-									<span className="shrink-0 text-omp-xs opacity-70">{item.target.hint}</span>
+									<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{item.target.hint}</span>
 								)}
 							</button>
 						))
@@ -139,22 +163,10 @@ export function CopySelectorDialog() {
 				</div>
 				<div className="flex min-h-0 flex-col">
 					<div className="min-h-0 flex-1 overflow-auto p-4">
-						<div className="mb-2 text-omp-xs font-medium uppercase tracking-wider text-(--omp-dim)">
-							{t("copySelector.preview")}
-						</div>
-						<pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-(--omp-text)">
+						<div className="mb-2 text-sc-xs font-medium text-(--sc-text-muted)">{t("copySelector.preview")}</div>
+						<pre className="whitespace-pre-wrap break-words font-mono text-sc-sm leading-relaxed text-(--sc-text)">
 							{selected?.preview ?? ""}
 						</pre>
-					</div>
-					<div className="flex justify-end border-t border-(--omp-border-muted) p-3">
-						<Button
-							disabled={selected?.content === undefined}
-							onClick={() => void copyTarget(selected)}
-							size="sm"
-						>
-							{copied ? <Check size={13} /> : <ClipboardCopy size={13} />}
-							{copied ? t("copySelector.copied") : t("copySelector.copy")}
-						</Button>
 					</div>
 				</div>
 			</div>

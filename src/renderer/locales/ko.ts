@@ -358,7 +358,7 @@ export const ko: Record<string, string> = {
 		'프로젝트 "{name}"의 열린 탭을 닫고, 프로젝트와 세션 {count}개를 모두 목록에서 삭제해요.',
 	"sidebar.deleteGroupWarning": "세션 파일이 영구 삭제되며 되돌릴 수 없어요.",
 	"sidebar.loading": "세션 불러오는 중…",
-	"sidebar.loadFailed": "세션을 불러오지 못했어요. 다시 시도하세요.",
+	"sidebar.loadFailed": "세션을 불러오지 못했어요",
 	"sidebar.stale": "마지막으로 불러온 세션을 표시하고 있어요.",
 	"sidebar.noMatch": "일치하는 세션이 없어요",
 	"sidebar.untitled": "제목 없음",
@@ -1301,8 +1301,7 @@ export const ko: Record<string, string> = {
 
 	// Handoff dialog
 	"handoff.title": "새 세션으로 핸드오프",
-	"handoff.desc":
-		"핸드오프는 이 세션을 핸드오프 문서로 요약한 뒤, 그 요약을 시작 컨텍스트로 가진 새 세션을 시작해요. 현재 세션은 그대로 남아 있어 나중에 다시 이어갈 수 있어요.",
+	"handoff.desc": "이 세션을 문서로 요약해 새 세션에서 이어가요. 현재 세션은 그대로 남아 나중에 다시 열 수 있어요.",
 	"handoff.instructionsLabel": "사용자 지정 지침 (선택)",
 	"handoff.instructionsHint": "에이전트가 핸드오프 문서를 작성할 때 전달돼요.",
 	"handoff.instructionsPlaceholder": "예: 인증 리팩터링에 집중하고 실패하는 테스트 목록을 유지해 주세요.",

@@ -1,28 +1,30 @@
 /**
- * Global sidecar status banner. Shows when the agent process is not usable:
+ * Per-session sidecar status banner. Shows when the agent process is not usable:
  * failed, exited, crash-looping through its restart attempts, or "ready" but
  * failing health checks. Restart attempts are amber progress reporting; the
  * rest is an error with a restart action.
  */
 
-import { AlertTriangle, RefreshCw, X } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useT } from "../../lib/i18n";
 import { useHostView } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
+import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
-import { useUiStore } from "../../stores/ui";
+import { Banner, Button } from "../common";
 
 export function SidecarBanner() {
 	const t = useT();
+	const tabId = useRuntimeTabId();
 	const status = useSessionStore(s => s.status);
 	const cwd = useSessionStore(s => s.cwd);
-	const sidecarError = useUiStore(s => s.sidecarError);
-	const sidecarRestart = useUiStore(s => s.sidecarRestart);
-	const sidecarDismissed = useUiStore(s => s.sidecarDismissed);
-	const clearSidecarError = useUiStore(s => s.clearSidecarError);
-	const dismissSidecarBanner = useUiStore(s => s.dismissSidecarBanner);
-	const device = useTabsStore(s => s.tabs.find(tab => tab.id === s.activeTabId)?.device);
+	const sidecarError = useSessionStore(s => s.sidecarError);
+	const sidecarRestart = useSessionStore(s => s.sidecarRestart);
+	const sidecarDismissed = useSessionStore(s => s.sidecarDismissed);
+	const clearSidecarError = useSessionStore(s => s.clearSidecarError);
+	const dismissSidecarBanner = useSessionStore(s => s.dismissSidecarBanner);
+	const device = useTabsStore(s => s.tabs.find(tab => tab.id === tabId)?.device);
 	const host = useHostView(device);
 
 	// A remote tab whose link is down is reconnecting, not broken: its pane's
@@ -53,53 +55,32 @@ export function SidecarBanner() {
 					: t("sidecar.notResponding"));
 
 	return (
-		<div
-			role="status"
-			className={`flex items-center gap-3 border-b px-4 py-2.5 ${
-				restarting
-					? "border-[var(--omp-warning)]/30 bg-[var(--omp-warning-dim)]"
-					: "border-[var(--omp-error)]/30 bg-[var(--omp-error)]/10"
-			}`}
-		>
-			{restarting ? (
-				<RefreshCw size={16} className="shrink-0 animate-spin text-[var(--omp-warning)]" />
-			) : (
-				<AlertTriangle size={16} className="shrink-0 text-[var(--omp-error)]" />
-			)}
-			<div className="min-w-0 flex-1">
-				<div
-					className={`text-omp-md font-medium ${
-						restarting ? "text-[var(--omp-warning)]" : "text-[var(--omp-error)]"
-					}`}
+		<Banner
+			live
+			variant={restarting ? "warning" : "danger"}
+			className="rounded-none border-x-0 border-t-0 px-4"
+			title={restarting ? t("sidecar.restartingTitle") : t("sidecar.title")}
+			onDismiss={dismissSidecarBanner}
+			actions={
+				<Button
+					icon={<RefreshCw />}
+					onClick={() => {
+						clearSidecarError();
+						void window.omp.sidecar
+							.restart(tabId ? { tabId } : undefined)
+							.catch((error: unknown) => toastError({ title: t("settings.connection.restartFailed"), error }));
+					}}
+					size="sm"
+					variant="secondary"
 				>
-					{restarting ? t("sidecar.restartingTitle") : t("sidecar.title")}
-				</div>
-				<div className="truncate text-omp-sm text-[var(--omp-muted)]" title={reason}>
-					{progress ? `${progress} — ${reason}` : reason}
-				</div>
-				{cwd && <div className="text-omp-xs text-[var(--omp-dim)]">{t("sidecar.project", { cwd })}</div>}
-			</div>
-			<button
-				type="button"
-				onClick={() => {
-					clearSidecarError();
-					void window.omp.sidecar
-						.restart()
-						.catch((error: unknown) => toastError({ title: t("settings.connection.restartFailed"), error }));
-				}}
-				className="omp-pressable flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--omp-border-muted)] px-2.5 py-1 text-omp-sm font-medium text-[var(--omp-text)] hover:bg-[var(--omp-selected-bg)]"
-			>
-				<RefreshCw size={11} />
-				{t("sidecar.restart")}
-			</button>
-			<button
-				type="button"
-				onClick={dismissSidecarBanner}
-				aria-label={t("common.close")}
-				className="omp-pressable flex shrink-0 items-center justify-center rounded-md p-1 text-[var(--omp-dim)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
-			>
-				<X size={12} />
-			</button>
-		</div>
+					{t("sidecar.restart")}
+				</Button>
+			}
+		>
+			<p className="text-sc-sm break-words" title={reason}>
+				{progress ? `${progress} — ${reason}` : reason}
+			</p>
+			{cwd && <p className="mt-0.5 text-sc-xs break-all text-(--sc-text-muted)">{t("sidecar.project", { cwd })}</p>}
+		</Banner>
 	);
 }

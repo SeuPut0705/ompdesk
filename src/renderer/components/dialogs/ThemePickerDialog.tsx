@@ -124,9 +124,10 @@ export function ThemePickerDialog() {
 			bodyClassName="p-0"
 		>
 			<div onKeyDown={onKey}>
-				<div className="flex items-center gap-2 border-b border-[var(--omp-border-muted)] px-4 py-3">
-					<Search size={15} className="shrink-0 text-[var(--omp-dim)]" />
+				<div className="flex min-h-16 items-center gap-2.5 border-b border-(--sc-divider) px-4 py-3">
+					<Search aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
 					<input
+						aria-label={t("themePicker.search")}
 						ref={inputRef}
 						value={query}
 						onChange={e => {
@@ -134,12 +135,12 @@ export function ThemePickerDialog() {
 							setActive(0);
 						}}
 						placeholder={t("themePicker.search")}
-						className="w-full bg-transparent text-omp-lg text-[var(--omp-text)] outline-none placeholder:text-[var(--omp-dim)]"
+						className="min-w-0 flex-1 rounded-(--sc-radius-sm) bg-transparent text-sc-lg text-(--sc-text) placeholder:text-(--sc-text-subtle)"
 					/>
 				</div>
 				<div ref={listRef} className="omp-command-list overflow-y-auto p-2">
 					{filtered.length === 0 && (
-						<div className="px-3 py-8 text-center text-omp-lg text-[var(--omp-dim)]">
+						<div className="px-3 py-8 text-center text-sc-md text-(--sc-text-muted)">
 							{t("themePicker.empty")}
 						</div>
 					)}
@@ -156,26 +157,26 @@ export function ThemePickerDialog() {
 								onClick={() => select(entry)}
 								onMouseEnter={() => setActive(i)}
 								className={cx(
-									"flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
-									i === active ? "bg-[var(--omp-selected-bg)]" : "hover:bg-[var(--omp-bg-tertiary)]",
+									"flex min-h-10 w-full items-center gap-3 rounded-(--sc-radius-md) px-3 py-2.5 text-left",
+									i === active ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
 								)}
 							>
 								<span
 									aria-hidden="true"
-									className="flex h-14 w-24 shrink-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-lg border"
+									className="flex h-14 w-24 shrink-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-(--sc-radius-md) border"
 									style={{
-										background: theme ? resolveTokenColor(theme, "--omp-bg-primary") : "var(--omp-input-bg)",
-										borderColor: theme ? resolveTokenColor(theme, "--omp-border") : "var(--omp-border)",
-										color: theme ? resolveTokenColor(theme, "--omp-text") : "var(--omp-text)",
+										background: theme ? resolveTokenColor(theme, "--omp-bg-primary") : "var(--sc-surface-2)",
+										borderColor: theme ? resolveTokenColor(theme, "--omp-border") : "var(--sc-border-subtle)",
+										color: theme ? resolveTokenColor(theme, "--omp-text") : "var(--sc-text)",
 									}}
 								>
 									{isSystem ? (
-										<span className="flex h-full w-full items-center justify-center text-[var(--omp-dim)]">
-											<Monitor size={15} />
+										<span className="flex h-full w-full items-center justify-center text-(--sc-text-muted)">
+											<Monitor className="size-(--sc-icon-md)" />
 										</span>
 									) : (
 										<>
-											<span className="font-display text-omp-xl font-medium">Aa</span>
+											<span className="font-display text-sc-xl font-medium">Aa</span>
 											<span className="flex gap-1">
 												{SWATCH_KEYS.map(key => (
 													<span
@@ -189,11 +190,13 @@ export function ThemePickerDialog() {
 									)}
 								</span>
 								<span className="min-w-0 flex-1">
-									<span className="flex items-center gap-2 text-omp-lg font-medium text-[var(--omp-text)]">
+									<span className="flex flex-wrap items-center gap-2 text-sc-md font-medium text-(--sc-text)">
 										{entry.label}
-										{isCurrent && <Check size={14} className="text-[var(--omp-accent)]" />}
+										{isCurrent && (
+											<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-text-secondary)" />
+										)}
 									</span>
-									<span className="block text-omp-md leading-relaxed text-[var(--omp-muted)]">
+									<span className="block text-sc-sm leading-relaxed text-(--sc-text-muted)">
 										{entry.description}
 									</span>
 								</span>

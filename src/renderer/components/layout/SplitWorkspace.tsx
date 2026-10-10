@@ -1,27 +1,21 @@
-import { Columns2, Rows2, X, XCircle } from "lucide-react";
-import {
-	type CSSProperties,
-	type DragEvent,
-	type KeyboardEvent,
-	type PointerEvent,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { ChevronRight, Columns2, Rows2, X, XCircle } from "lucide-react";
+import { type CSSProperties, type DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { type SplitNode, splitTabIds } from "../../../shared/split-layout";
 import { useSessionList } from "../../hooks/use-session-list";
-import { cx } from "../../lib/format";
+import { basename, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { SessionRuntimeProvider } from "../../stores/session-runtime-context";
+import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { ensureTabRuntime } from "../../stores/tab-runtime";
-import { type SplitAxis, type SplitPlacement, tabDisplayTitle, useTabsStore } from "../../stores/tabs";
+import { type SessionTab, type SplitAxis, type SplitPlacement, tabDisplayTitle, useTabsStore } from "../../stores/tabs";
 import { ChatStream } from "../chat/ChatStream";
 import { WorkspaceDock } from "../chat/dock/WorkspaceDock";
 import { IconButton, Spinner } from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
 import { RemoteTabBanner } from "../remote/RemoteTabBanner";
 import { InputArea } from "./InputArea";
+import { SidecarBanner } from "./SidecarBanner";
 
 const DIVIDER_SIZE = 5;
 const RATIO_STEP = 0.05;
@@ -49,18 +43,20 @@ const PUSHED_INSET: Record<SplitPlacement, string> = {
 	bottom: "0 0 50% 0",
 };
 
-function SplitDropPreview({ placement }: { placement: SplitPlacement }) {
+function SplitDropPreview({ placement, replace }: { placement: SplitPlacement; replace: boolean }) {
 	const morph = "absolute transition-[inset] duration-(--sc-duration-fast) ease-(--sc-ease-standard)";
 	return (
 		<div aria-hidden className="omp-fade-in pointer-events-none absolute inset-0 z-(--sc-z-drawer)">
-			<div className={cx(morph, "bg-(--sc-bg) opacity-50")} style={{ inset: PUSHED_INSET[placement] }} />
+			{!replace && (
+				<div className={cx(morph, "bg-(--sc-bg) opacity-50")} style={{ inset: PUSHED_INSET[placement] }} />
+			)}
 			<div
 				data-split-ghost={placement}
 				className={cx(
 					morph,
 					"rounded-(--sc-radius-lg) border border-(--sc-accent-border) bg-(--sc-accent-soft) shadow-(--sc-shadow-md)",
 				)}
-				style={{ inset: GHOST_INSET[placement] }}
+				style={{ inset: replace ? "var(--sc-space-2)" : GHOST_INSET[placement] }}
 			/>
 		</div>
 	);
@@ -106,22 +102,51 @@ function DragChip({ title }: { title: string }) {
 	);
 }
 
+export function SplitPaneHeader({ tab, label }: { tab: SessionTab; label: string }) {
+	const t = useT();
+	const removePane = useTabsStore(state => state.removePane);
+	const groupAliases = useSidebarPrefs(state => state.groupAliases);
+	const busy =
+		tab.status === "running" || tab.compacting === true || tab.status === "starting" || tab.status === "restarting";
+	const failed = tab.status === "error" || tab.status === "exited";
+	return (
+		<header className="relative flex h-9 shrink-0 items-center gap-2 border-b border-(--sc-divider) pr-1 pl-3 text-sc-sm">
+			{busy ? (
+				<span aria-hidden className="inline-flex">
+					<Spinner size="sm" />
+				</span>
+			) : failed ? (
+				<XCircle aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-danger)" />
+			) : null}
+			<span className="flex min-w-0 flex-1 items-center gap-1">
+				<span title={tab.cwd} className="min-w-0 max-w-48 shrink-[4] truncate text-(--sc-text-muted)">
+					{tab.kind === "chat" || !tab.cwd ? t("sidebar.chats") : (groupAliases[tab.cwd] ?? basename(tab.cwd))}
+				</span>
+				<ChevronRight
+					aria-hidden
+					className="omp-titlebar-crumb-sep size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)"
+				/>
+				<span className="min-w-0 truncate font-medium text-(--sc-text)">{label}</span>
+			</span>
+			{tab.device !== undefined && <DeviceChip deviceId={tab.device} />}
+			<IconButton icon={<X />} label={t("split.removePane")} onClick={() => void removePane(tab.id)} size="sm" />
+		</header>
+	);
+}
+
 function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; label: string }) {
 	const t = useT();
 	const runtime = ensureTabRuntime(tabId);
 	const tab = useTabsStore(state => state.tabs.find(entry => entry.id === tabId));
 	const active = useTabsStore(state => state.activeTabId === tabId);
 	const switchTab = useTabsStore(state => state.switchTab);
-	const unsplit = useTabsStore(state => state.unsplit);
 	if (!tab) return null;
-	const busy =
-		tab.status === "running" || tab.compacting === true || tab.status === "starting" || tab.status === "restarting";
-	const failed = tab.status === "error" || tab.status === "exited";
 
 	return (
 		<SessionRuntimeProvider runtime={runtime}>
 			<section
 				aria-label={t("split.paneLabel", { title: label })}
+				data-tab-id={tabId}
 				data-active={active ? "true" : "false"}
 				onPointerDownCapture={() => {
 					if (!active) void switchTab(tabId);
@@ -131,29 +156,9 @@ function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; l
 					active && split && "omp-session-pane--active",
 				)}
 			>
-				{split && (
-					<header className="relative flex h-9 shrink-0 items-center gap-2 border-b border-(--sc-divider) pr-1 pl-3 text-sc-sm">
-						{busy ? (
-							<span aria-hidden className="inline-flex">
-								<Spinner size="sm" />
-							</span>
-						) : failed ? (
-							<XCircle aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-danger)" />
-						) : null}
-						<span className="min-w-0 flex-1 truncate font-medium text-(--sc-text)">{label}</span>
-						{tab.device !== undefined && <DeviceChip deviceId={tab.device} />}
-						<span className="omp-session-pane-cwd max-w-[45%] truncate font-mono text-sc-xs text-(--sc-text-muted)">
-							{tab.cwd}
-						</span>
-						<IconButton
-							icon={<X />}
-							label={t("split.removePane")}
-							onClick={() => void unsplit(tabId)}
-							size="sm"
-						/>
-					</header>
-				)}
+				{split && <SplitPaneHeader tab={tab} label={label} />}
 				{tab.device !== undefined && <RemoteTabBanner deviceId={tab.device} />}
+				<SidecarBanner />
 				<div className="relative flex min-h-0 flex-1 flex-col">
 					<ChatStream />
 					<div className="omp-composer-region relative shrink-0 bg-transparent pt-2">
@@ -170,8 +175,91 @@ function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; l
 
 function splitGrid(axis: SplitAxis, ratio: number): CSSProperties {
 	return axis === "columns"
-		? { gridTemplateColumns: `${ratio}fr ${DIVIDER_SIZE}px ${1 - ratio}fr`, gridTemplateRows: "minmax(0, 1fr)" }
-		: { gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: `${ratio}fr ${DIVIDER_SIZE}px ${1 - ratio}fr` };
+		? {
+				gridTemplateColumns: `minmax(0, ${ratio}fr) ${DIVIDER_SIZE}px minmax(0, ${1 - ratio}fr)`,
+				gridTemplateRows: "minmax(0, 1fr)",
+			}
+		: {
+				gridTemplateColumns: "minmax(0, 1fr)",
+				gridTemplateRows: `minmax(0, ${ratio}fr) ${DIVIDER_SIZE}px minmax(0, ${1 - ratio}fr)`,
+			};
+}
+
+function SplitBranch({
+	node,
+	path,
+	renderPane,
+}: {
+	node: SplitNode;
+	path: ("first" | "second")[];
+	renderPane: (tabId: string) => ReactNode;
+}) {
+	const t = useT();
+	const setRatio = useTabsStore(state => state.setSplitRatio);
+	const root = useRef<HTMLDivElement>(null);
+	const dragging = useRef(false);
+	const pending = useRef<number | null>(null);
+	if ("tabId" in node) return renderPane(node.tabId);
+	const finish = () => {
+		if (!dragging.current) return;
+		dragging.current = false;
+		setRatio(pending.current ?? node.ratio, path);
+		pending.current = null;
+	};
+	return (
+		<div ref={root} className="grid min-h-0 min-w-0" style={splitGrid(node.axis, node.ratio)}>
+			<SplitBranch node={node.first} path={[...path, "first"]} renderPane={renderPane} />
+			<div
+				role="separator"
+				tabIndex={0}
+				aria-label={t("split.resize")}
+				aria-orientation={node.axis === "columns" ? "vertical" : "horizontal"}
+				aria-valuemin={20}
+				aria-valuemax={80}
+				aria-valuenow={Math.round(node.ratio * 100)}
+				onKeyDown={event => {
+					const decrease = node.axis === "columns" ? event.key === "ArrowLeft" : event.key === "ArrowUp";
+					const increase = node.axis === "columns" ? event.key === "ArrowRight" : event.key === "ArrowDown";
+					if (!decrease && !increase) return;
+					event.preventDefault();
+					setRatio(node.ratio + (increase ? RATIO_STEP : -RATIO_STEP), path);
+				}}
+				onPointerDown={event => {
+					dragging.current = true;
+					pending.current = node.ratio;
+					event.currentTarget.setPointerCapture(event.pointerId);
+				}}
+				onPointerMove={event => {
+					if (!dragging.current || !root.current) return;
+					const bounds = root.current.getBoundingClientRect();
+					const raw =
+						node.axis === "columns"
+							? (event.clientX - bounds.left) / bounds.width
+							: (event.clientY - bounds.top) / bounds.height;
+					pending.current = Math.min(0.8, Math.max(0.2, raw));
+					Object.assign(root.current.style, splitGrid(node.axis, pending.current));
+				}}
+				onPointerUp={event => {
+					finish();
+					event.currentTarget.releasePointerCapture(event.pointerId);
+				}}
+				onPointerCancel={finish}
+				className={cx(
+					"omp-split-divider group relative z-(--sc-z-raised) touch-none bg-(--sc-divider) focus-visible:bg-(--sc-accent)",
+					node.axis === "columns" ? "cursor-col-resize" : "cursor-row-resize",
+				)}
+			>
+				<span className="pointer-events-none absolute inset-0 m-auto flex size-5 items-center justify-center rounded-full bg-(--sc-elevated) text-(--sc-text-muted) opacity-0 shadow-(--sc-shadow-sm) transition-opacity duration-(--sc-duration-fast) group-hover:opacity-100 group-focus-visible:opacity-100">
+					{node.axis === "columns" ? (
+						<Columns2 className="size-3" aria-hidden />
+					) : (
+						<Rows2 className="size-3" aria-hidden />
+					)}
+				</span>
+			</div>
+			<SplitBranch node={node.second} path={[...path, "second"]} renderPane={renderPane} />
+		</div>
+	);
 }
 
 export function SplitWorkspace() {
@@ -181,14 +269,9 @@ export function SplitWorkspace() {
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const split = useTabsStore(state => state.split);
 	const splitTab = useTabsStore(state => state.splitTab);
-	const setSplitRatio = useTabsStore(state => state.setSplitRatio);
-	const rootRef = useRef<HTMLDivElement>(null);
-	const draggingRef = useRef(false);
-	const pendingRatioRef = useRef<number | null>(null);
-	const frameRef = useRef<number | null>(null);
 	const [dragTabId, setDragTabId] = useState<string | null>(null);
 	// Null until the drag is over the workspace: the ghost shows only where a drop would land.
-	const [dropPlacement, setDropPlacement] = useState<SplitPlacement | null>(null);
+	const [dropTarget, setDropTarget] = useState<{ tabId: string; placement: SplitPlacement } | null>(null);
 	const sessionsById = useMemo(() => new Map(sessions.map(session => [session.id, session])), [sessions]);
 	const sessionsByPath = useMemo(() => new Map(sessions.map(session => [session.path, session])), [sessions]);
 	const labelFor = (tabId: string) => {
@@ -207,146 +290,60 @@ export function SplitWorkspace() {
 		return label === null ? null : <SessionPane tabId={tabId} split={isSplit} label={label} />;
 	};
 
-	useEffect(
-		() => () => {
-			if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-		},
-		[],
-	);
 	useEffect(() => {
 		const onTabDrag = (event: Event) => {
 			setDragTabId((event as CustomEvent<{ tabId: string | null }>).detail.tabId);
-			setDropPlacement(null);
+			setDropTarget(null);
 		};
 		window.addEventListener("omp:tab-drag", onTabDrag);
 		return () => window.removeEventListener("omp:tab-drag", onTabDrag);
 	}, []);
 
 	if (!activeTabId) return null;
-	// A tab already occupying a pane is not a valid drop target — re-dropping
-	// it would silently reset the ratio/axis (splitTab refuses it anyway; the
-	// overlay must not invite the gesture).
-	const canDrop =
-		dragTabId !== null &&
-		dragTabId !== activeTabId &&
-		!(split && (split.firstTabId === dragTabId || split.secondTabId === dragTabId));
-	const dropProps = {
-		onDragOver: (event: DragEvent<HTMLDivElement>) => {
-			if (!canDrop) return;
-			event.preventDefault();
-			event.dataTransfer.dropEffect = "move";
-			setDropPlacement(placementFromPointer(event));
-		},
-		onDragLeave: (event: DragEvent<HTMLDivElement>) => {
-			// dragleave also fires when crossing into a child; only leaving the workspace clears the ghost.
-			const bounds = event.currentTarget.getBoundingClientRect();
-			const inside =
-				event.clientX > bounds.left &&
-				event.clientX < bounds.right &&
-				event.clientY > bounds.top &&
-				event.clientY < bounds.bottom;
-			if (!inside) setDropPlacement(null);
-		},
-		onDrop: (event: DragEvent<HTMLDivElement>) => {
-			if (!canDrop || !dragTabId) return;
-			event.preventDefault();
-			void splitTab(dragTabId, placementFromPointer(event));
-			setDragTabId(null);
-			setDropPlacement(null);
-		},
-	};
-	const dragLabel = dragTabId === null ? null : labelFor(dragTabId);
-	const dragFeedback = (
-		<>
-			{canDrop && dropPlacement !== null && <SplitDropPreview placement={dropPlacement} />}
-			{dragLabel !== null && <DragChip title={dragLabel} />}
-		</>
-	);
-	if (!split) {
-		return (
-			<div ref={rootRef} className="omp-split-workspace relative grid min-h-0 flex-1" {...dropProps}>
-				{pane(activeTabId, false)}
-				{dragFeedback}
-			</div>
-		);
-	}
-
-	const applyRatio = (ratio: number) => {
-		pendingRatioRef.current = ratio;
-		if (frameRef.current !== null) return;
-		frameRef.current = requestAnimationFrame(() => {
-			frameRef.current = null;
-			if (!rootRef.current || pendingRatioRef.current === null) return;
-			Object.assign(rootRef.current.style, splitGrid(split.axis, pendingRatioRef.current));
-		});
-	};
-	const ratioFromPointer = (event: PointerEvent<HTMLDivElement>) => {
-		const bounds = rootRef.current?.getBoundingClientRect();
-		if (!bounds) return split.ratio;
-		const raw =
-			split.axis === "columns"
-				? (event.clientX - bounds.left) / bounds.width
-				: (event.clientY - bounds.top) / bounds.height;
-		return Math.min(0.8, Math.max(0.2, raw));
-	};
-	const finishDrag = (event: PointerEvent<HTMLDivElement>) => {
-		if (!draggingRef.current) return;
-		draggingRef.current = false;
-		event.currentTarget.releasePointerCapture(event.pointerId);
-		const ratio = pendingRatioRef.current ?? split.ratio;
-		pendingRatioRef.current = null;
-		setSplitRatio(ratio);
-	};
-	const adjustFromKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
-		const decrement = split.axis === "columns" ? event.key === "ArrowLeft" : event.key === "ArrowUp";
-		const increment = split.axis === "columns" ? event.key === "ArrowRight" : event.key === "ArrowDown";
-		if (!decrement && !increment) return;
-		event.preventDefault();
-		setSplitRatio(split.ratio + (increment ? RATIO_STEP : -RATIO_STEP));
-	};
-
-	return (
+	const visible = split ? splitTabIds(split) : [activeTabId];
+	const canDrop = dragTabId !== null && !visible.includes(dragTabId);
+	const renderPane = (tabId: string) => (
 		<div
-			ref={rootRef}
-			className="omp-split-workspace relative grid min-h-0 flex-1"
-			style={splitGrid(split.axis, split.ratio)}
-			{...dropProps}
+			key={tabId}
+			data-split={split ? "pane" : undefined}
+			className="relative grid min-h-0 min-w-0"
+			onDragOver={event => {
+				if (!canDrop) return;
+				event.preventDefault();
+				event.stopPropagation();
+				event.dataTransfer.dropEffect = "move";
+				setDropTarget({ tabId, placement: placementFromPointer(event) });
+			}}
+			onDragLeave={event => {
+				const bounds = event.currentTarget.getBoundingClientRect();
+				if (
+					event.clientX <= bounds.left ||
+					event.clientX >= bounds.right ||
+					event.clientY <= bounds.top ||
+					event.clientY >= bounds.bottom
+				)
+					setDropTarget(current => (current?.tabId === tabId ? null : current));
+			}}
+			onDrop={event => {
+				if (!canDrop || !dragTabId) return;
+				event.preventDefault();
+				event.stopPropagation();
+				void splitTab(dragTabId, placementFromPointer(event), tabId);
+				setDragTabId(null);
+				setDropTarget(null);
+			}}
 		>
-			{pane(split.firstTabId, true)}
-			<div
-				role="separator"
-				tabIndex={0}
-				aria-label={t("split.resize")}
-				aria-orientation={split.axis === "columns" ? "vertical" : "horizontal"}
-				aria-valuemin={20}
-				aria-valuemax={80}
-				aria-valuenow={Math.round(split.ratio * 100)}
-				onKeyDown={adjustFromKeyboard}
-				onPointerDown={event => {
-					draggingRef.current = true;
-					pendingRatioRef.current = split.ratio;
-					event.currentTarget.setPointerCapture(event.pointerId);
-				}}
-				onPointerMove={event => {
-					if (draggingRef.current) applyRatio(ratioFromPointer(event));
-				}}
-				onPointerUp={finishDrag}
-				onPointerCancel={finishDrag}
-				className={cx(
-					"omp-split-divider group relative z-(--sc-z-raised) touch-none bg-(--sc-divider) focus-visible:bg-(--sc-accent)",
-					split.axis === "columns" ? "cursor-col-resize" : "cursor-row-resize",
-				)}
-			>
-				<span className="pointer-events-none absolute inset-0 m-auto flex size-5 items-center justify-center rounded-full bg-(--sc-elevated) text-(--sc-text-muted) opacity-0 shadow-(--sc-shadow-sm) transition-opacity duration-(--sc-duration-fast) group-hover:opacity-100 group-focus-visible:opacity-100">
-					{split.axis === "columns" ? (
-						<Columns2 className="size-3" aria-hidden />
-					) : (
-						<Rows2 className="size-3" aria-hidden />
-					)}
-				</span>
-			</div>
-			{pane(split.secondTabId, true)}
-			{dragFeedback}
+			{pane(tabId, split !== null)}
+			{canDrop && dropTarget?.tabId === tabId && (
+				<SplitDropPreview placement={dropTarget.placement} replace={visible.length === 4} />
+			)}
+		</div>
+	);
+	const dragLabel = dragTabId ? labelFor(dragTabId) : null;
+	return (
+		<div className="omp-split-workspace relative grid min-h-0 min-w-0 flex-1">
+			<SplitBranch node={split ?? { tabId: activeTabId }} path={[]} renderPane={renderPane} />
+			{dragLabel !== null && <DragChip title={dragLabel} />}
 		</div>
 	);
 }

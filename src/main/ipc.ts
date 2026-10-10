@@ -483,7 +483,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// may have switched tabs while the dialog was open. Unknown ids (raised
 	// before tracking, or after a restart) fall back to the active sidecar.
 	ipcMain.handle(IPC_COMMANDS.EXTENSION_UI_RESPOND, (event, payload: IpcExtensionUiRespondPayload) => {
-		const { response } = payload;
+		const { response, tabId } = payload;
+		if (typeof tabId === "string") {
+			const win = BrowserWindow.fromWebContents(event.sender);
+			if (!win || !sidecarPool.sidecarForTab(win, tabId)) return;
+			if (typeof response?.id === "string") sidecarPool.routeSideChannel(response.id, response, true, tabId);
+			return;
+		}
 		if (typeof response?.id === "string" && sidecarPool.routeSideChannel(response.id, response, true)) return;
 		sidecarFor(deps, event)?.sendSideChannel(response);
 	});

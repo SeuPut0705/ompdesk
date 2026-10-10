@@ -544,7 +544,7 @@ export function AgentDefinitions() {
 			<p className="text-sc-sm text-(--sc-text-muted)">{t("agentHub.defs.footerNote")}</p>
 			<div className="flex flex-wrap items-center gap-3">
 				<SearchField
-					className="min-w-48 flex-1"
+					className="min-w-0 flex-1 basis-48"
 					label={t("agentHub.defs.searchPlaceholder")}
 					onValueChange={setQuery}
 					placeholder={t("agentHub.defs.searchPlaceholder")}
@@ -561,30 +561,32 @@ export function AgentDefinitions() {
 					}))}
 					variant="segmented"
 				/>
-				<IconButton
-					disabled={!rpc.ready || rpc.loading}
-					icon={<RefreshCw className={rpc.loading ? "animate-spin" : undefined} />}
-					label={notConnected ?? t("agentHub.refresh")}
-					onClick={rpc.refresh}
-				/>
-				<Button
-					disabled={!rpc.ready}
-					icon={<LayoutTemplate />}
-					onClick={() => setGalleryOpen(true)}
-					title={notConnected}
-					variant="secondary"
-				>
-					{t("agentStudio.templates")}
-				</Button>
-				<Button
-					disabled={!rpc.ready}
-					icon={<Plus />}
-					onClick={() => openNew()}
-					title={notConnected}
-					variant="primary"
-				>
-					{t("agentStudio.newAgent")}
-				</Button>
+				<div className="ml-auto flex flex-wrap items-center gap-2">
+					<IconButton
+						disabled={!rpc.ready || rpc.loading}
+						icon={<RefreshCw className={rpc.loading ? "motion-safe:animate-spin" : undefined} />}
+						label={notConnected ?? t("agentHub.refresh")}
+						onClick={rpc.refresh}
+					/>
+					<Button
+						disabled={!rpc.ready}
+						icon={<LayoutTemplate />}
+						onClick={() => setGalleryOpen(true)}
+						title={notConnected}
+						variant="secondary"
+					>
+						{t("agentStudio.templates")}
+					</Button>
+					<Button
+						disabled={!rpc.ready}
+						icon={<Plus />}
+						onClick={() => openNew()}
+						title={notConnected}
+						variant="primary"
+					>
+						{t("agentStudio.newAgent")}
+					</Button>
+				</div>
 			</div>
 
 			{!loadedState ? (

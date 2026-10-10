@@ -122,7 +122,7 @@ export function RemoteConnectDialog({ open, onClose }: { open: boolean; onClose:
 						{devices.map(device => (
 							<ListRow
 								buttonProps={{ "data-remote-device": device.deviceId }}
-								description={<span className="font-mono">{device.address}</span>}
+								description={<span className="break-all font-mono">{device.address}</span>}
 								key={`${device.deviceId}@${device.address}`}
 								leading={<Monitor aria-hidden />}
 								meta={device.paired ? <Badge variant="muted">{t("remote.connect.paired")}</Badge> : undefined}
@@ -133,7 +133,7 @@ export function RemoteConnectDialog({ open, onClose }: { open: boolean; onClose:
 						))}
 					</div>
 					{devices.length === 0 && (
-						<p className="text-sc-sm text-(--sc-text-muted)">
+						<p className="text-sc-sm text-(--sc-text-muted)" role="status">
 							{discovering ? t("remote.connect.searching") : t("remote.connect.noneFound")}
 						</p>
 					)}

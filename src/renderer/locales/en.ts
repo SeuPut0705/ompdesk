@@ -363,7 +363,7 @@ export const en: Record<string, string> = {
 		'Close the open tabs of the project "{name}" and remove it with all {count} of its sessions from the list.',
 	"sidebar.deleteGroupWarning": "This permanently deletes the session files. It cannot be undone.",
 	"sidebar.loading": "Loading sessions…",
-	"sidebar.loadFailed": "Couldn't load your sessions. Try again.",
+	"sidebar.loadFailed": "Couldn't load sessions",
 	"sidebar.stale": "Showing the sessions that last loaded.",
 	"sidebar.noMatch": "No matching sessions",
 	"sidebar.untitled": "Untitled",
@@ -1309,7 +1309,7 @@ export const en: Record<string, string> = {
 	// Handoff dialog
 	"handoff.title": "Hand off to a new session",
 	"handoff.desc":
-		"Handoff summarizes this session into a handoff document, then starts a new session with that summary as its starting context. The current session stays unchanged, and you can resume it later.",
+		"Summarize this session into a document and continue in a new session. The current session stays available.",
 	"handoff.instructionsLabel": "Custom instructions (optional)",
 	"handoff.instructionsHint": "Passed to the agent when it writes the handoff document.",
 	"handoff.instructionsPlaceholder": "e.g. Focus on the auth refactor and keep the list of failing tests.",

@@ -8,7 +8,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
  * the preview shows the branch only.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { RpcWorktreeCreateResult } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
@@ -31,6 +31,7 @@ function slugify(name: string): string {
 export function WorktreeDialog() {
 	const tabRpc = useTabRpc();
 	const t = useT();
+	const formId = useId();
 	const dialog = useUiStore(state => state.worktreeDialog);
 	const close = useUiStore(state => state.closeWorktreeDialog);
 	const sessionCwd = useSessionStore(state => state.cwd);
@@ -96,8 +97,31 @@ export function WorktreeDialog() {
 	};
 
 	return (
-		<Modal open={dialog !== null} onClose={requestClose} title={t("worktree.title")} size="sm">
+		<Modal
+			open={dialog !== null}
+			onClose={requestClose}
+			title={t("worktree.title")}
+			size="sm"
+			footer={
+				<>
+					<Button type="button" variant="secondary" onClick={requestClose} disabled={creating}>
+						{t("common.cancel")}
+					</Button>
+					<Button
+						type="submit"
+						form={formId}
+						variant="primary"
+						loading={creating}
+						disabled={!validName || !sidecarReady}
+						title={!sidecarReady ? t("sidecar.notResponding") : undefined}
+					>
+						{t(created ? "worktree.retryOpen" : "worktree.submit")}
+					</Button>
+				</>
+			}
+		>
 			<form
+				id={formId}
 				className="flex flex-col gap-3"
 				onSubmit={event => {
 					event.preventDefault();
@@ -115,51 +139,40 @@ export function WorktreeDialog() {
 					autoFocus
 				/>
 				{validName && (
-					<p className="text-omp-sm text-(--omp-dim)">
+					<p className="text-sc-sm text-(--sc-text-muted)">
 						{t("worktree.branchPreview", { branch: `omp/gui/${slug}` })}
 					</p>
 				)}
-				<p className="text-omp-sm text-(--omp-muted)">{t("worktree.baseScope")}</p>
+				<p className="text-sc-sm text-(--sc-text-secondary)">{t("worktree.baseScope")}</p>
 				{name && !validName && (
-					<p role="alert" className="text-omp-sm text-(--omp-error)">
+					<p role="alert" className="text-sc-sm text-(--sc-danger)">
 						{t("worktree.invalidName")}
 					</p>
 				)}
 				{error && (
-					<p role="alert" className="break-words text-omp-sm text-(--omp-error)">
+					<p role="alert" className="break-words text-sc-sm text-(--sc-danger)">
 						{error.message}
 						<ErrorDetail className="mt-0.5" error={error.cause} />
 					</p>
 				)}
 				<fieldset disabled={creating || created !== null} className="flex flex-col gap-1.5">
-					<legend className="text-omp-sm font-medium text-(--omp-muted)">{t("worktree.baseLabel")}</legend>
+					<legend className="text-sc-sm font-medium text-(--sc-text-secondary)">{t("worktree.baseLabel")}</legend>
 					{(["HEAD", "default"] as const).map(value => (
-						<label key={value} className="flex cursor-pointer items-center gap-2 text-omp-md text-(--omp-text)">
+						<label
+							key={value}
+							className="flex min-h-8 cursor-pointer items-center gap-2 text-sc-md text-(--sc-text)"
+						>
 							<input
 								type="radio"
 								name="worktree-base"
 								checked={baseRef === value}
 								onChange={() => setBaseRef(value)}
-								className="accent-(--omp-accent)"
+								className="accent-(--sc-accent)"
 							/>
 							{value === "HEAD" ? t("worktree.baseHead") : t("worktree.baseDefault")}
 						</label>
 					))}
 				</fieldset>
-				<div className="flex justify-end gap-2">
-					<Button type="button" variant="ghost" onClick={requestClose} disabled={creating}>
-						{t("common.cancel")}
-					</Button>
-					<Button
-						type="submit"
-						variant="primary"
-						loading={creating}
-						disabled={!validName || !sidecarReady}
-						title={!sidecarReady ? t("sidecar.notResponding") : undefined}
-					>
-						{t(created ? "worktree.retryOpen" : "worktree.submit")}
-					</Button>
-				</div>
 			</form>
 		</Modal>
 	);

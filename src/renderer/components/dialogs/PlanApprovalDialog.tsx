@@ -16,13 +16,12 @@ import { useTabRpc } from "../../lib/tab-rpc";
  *
  * Focus starts on the card, never on an approve row. Mirrors the TUI
  * plan-review overlay ("Approve and execute" / "Approve and compact context"
- * / "keep context" / "Refine plan"). Zero props and self-subscribing — mount
- * once in App.
+ * / "keep context" / "Refine plan"). Each visible runtime mounts its own card;
+ * App owns the single all-tab plan-proposal subscription.
  */
 
 import { ClipboardList } from "lucide-react";
 import { useRef } from "react";
-import { usePlanApproval } from "../../hooks/use-plan-approval";
 import { basename } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
@@ -32,7 +31,8 @@ import {
 	usePlanApprovalStore,
 } from "../../stores/plan-approval";
 import { useSessionStore } from "../../stores/session";
-import { settleTabPlanApproval, useTabsStore } from "../../stores/tabs";
+import { useRuntimeTabId } from "../../stores/session-runtime-context";
+import { settleTabPlanApproval } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
 import { Spinner, TextArea } from "../common";
 import { type Choice, ChoiceList, PromptCard } from "./PromptCard";
@@ -69,8 +69,9 @@ function approveOptionsOf(options: string[]): PlanApprovalOption[] {
 
 export function PlanApprovalDialog() {
 	const tabRpc = useTabRpc();
-	// Self-contained: mounting this component also subscribes to plan_proposal events.
-	usePlanApproval();
+	const originTabId = useRuntimeTabId();
+	const originSessionId = useSessionStore(state => state.sessionId);
+	const cwd = useSessionStore(state => state.cwd);
 	const t = useT();
 	const pending = usePlanApprovalStore(state => state.pending);
 	const feedback = usePlanApprovalStore(state => state.feedback);
@@ -86,13 +87,11 @@ export function PlanApprovalDialog() {
 	const respond = async (kind: SubmitKind, option?: PlanApprovalOption) => {
 		if (!sidecarReady || submitting !== null) return;
 		const target = pending;
-		const originTabId = useTabsStore.getState().activeTabId;
-		const originSessionId = useSessionStore.getState().sessionId;
 		const trimmed = feedback.trim();
 		const savePath =
 			kind === "approve" && option === "save"
 				? await window.omp.system.showSaveDialog(
-						`${useSessionStore.getState().cwd}/${target.suggestedFileName ?? basename(target.planFilePath)}`,
+						`${cwd}/${target.suggestedFileName ?? basename(target.planFilePath)}`,
 						[{ name: "Markdown", extensions: ["md"] }],
 					)
 				: undefined;

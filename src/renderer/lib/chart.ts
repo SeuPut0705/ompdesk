@@ -72,9 +72,9 @@ function token(name: TokenName): string {
 }
 
 /**
- * Categorical palette for multi-series charts (cycled). Semantic tokens first
- * (accent, info, success, warning, danger), then the theme's syntax hues for
- * spread; exact duplicates (small palettes reuse hues) are removed.
+ * Categorical palette for multi-series charts (cycled). Only semantic design
+ * tokens are used, so charts share the page's light/dark contrast policy;
+ * exact duplicates (small palettes reuse hues) are removed.
  */
 const SERIES_TOKENS = [
 	"--sc-accent",
@@ -82,9 +82,6 @@ const SERIES_TOKENS = [
 	"--sc-success",
 	"--sc-warning",
 	"--sc-danger",
-	"--omp-syntax-string",
-	"--omp-syntax-type",
-	"--omp-thinking-xhigh",
 	"--sc-text-muted",
 ] as const;
 
@@ -174,12 +171,14 @@ export function baseChartOptions(): {
 	};
 	maintainAspectRatio: boolean;
 	responsive: boolean;
+	animation: false | undefined;
 } {
 	const theme = chartTheme();
 	const font = chartFont();
 	return {
 		maintainAspectRatio: false,
 		responsive: true,
+		animation: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? false : undefined,
 		scales: {
 			x: {
 				grid: { color: theme.grid },

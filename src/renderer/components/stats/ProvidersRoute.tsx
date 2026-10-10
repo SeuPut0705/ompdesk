@@ -111,6 +111,7 @@ export function ProvidersRoute({ range, refreshKey }: { range: StatsRange; refre
 		return {
 			maintainAspectRatio: false,
 			responsive: true,
+			animation: base.animation,
 			plugins: {
 				legend: { ...base.plugins.legend, position: "right" as const },
 				tooltip: base.plugins.tooltip,

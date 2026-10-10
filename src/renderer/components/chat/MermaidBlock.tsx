@@ -196,7 +196,7 @@ export const MermaidBlock = memo(function MermaidBlock({ code, className }: Merm
 		return (
 			<div
 				className={cx(
-					"my-1 flex items-center justify-center rounded-lg border border-[var(--omp-border)] bg-[var(--omp-code-bg)] px-3 py-6",
+					"my-1 flex items-center justify-center rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-surface-1) px-3 py-6",
 					className,
 				)}
 			>
@@ -207,7 +207,7 @@ export const MermaidBlock = memo(function MermaidBlock({ code, className }: Merm
 	return (
 		<div
 			className={cx(
-				"my-1 overflow-x-auto rounded-lg border border-[var(--omp-border)] bg-[var(--omp-code-bg)] p-3",
+				"my-1 overflow-x-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-surface-1) p-3",
 				className,
 			)}
 		>

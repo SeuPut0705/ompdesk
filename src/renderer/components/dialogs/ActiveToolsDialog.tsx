@@ -64,18 +64,13 @@ export function ActiveToolsDialog() {
 	return (
 		<Modal onClose={close} open={open} size="lg" title={t("activeTools.title")}>
 			<div className="space-y-3">
-				<div className="relative">
-					<Search
-						className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-(--omp-dim)"
-						size={14}
-					/>
-					<Input
-						className="pl-9"
-						onChange={event => setQuery(event.target.value)}
-						placeholder={t("activeTools.search")}
-						value={query}
-					/>
-				</div>
+				<Input
+					aria-label={t("activeTools.search")}
+					leadingIcon={<Search />}
+					onChange={event => setQuery(event.target.value)}
+					placeholder={t("activeTools.search")}
+					value={query}
+				/>
 				<AsyncSection
 					className="py-8"
 					empty={tools.length === 0}
@@ -88,23 +83,23 @@ export function ActiveToolsDialog() {
 					onRetry={() => void reload()}
 				>
 					{groups.length === 0 ? (
-						<div className="py-4 text-sm text-(--omp-dim)">{t("activeTools.noMatch")}</div>
+						<div className="py-4 text-sc-sm text-(--sc-text-muted)">{t("activeTools.noMatch")}</div>
 					) : (
 						<div className="space-y-4">
 							{groups.map(group => (
 								<section key={group.source}>
 									<div className="mb-1.5 flex items-center gap-2">
-										<span className="text-xs font-semibold text-(--omp-text)">
+										<span className="text-sc-xs font-medium text-(--sc-text-muted)">
 											{t(`activeTools.source.${group.source}`)}
 										</span>
 										<Badge variant="muted">{group.tools.length}</Badge>
 									</div>
-									<div className="divide-y divide-(--omp-border-muted) rounded-lg border border-(--omp-border-muted)">
+									<div className="divide-y divide-(--sc-divider)">
 										{group.tools.map(tool => (
 											<div className="px-3 py-2" key={`${group.source}:${tool.name}`}>
-												<div className="font-mono text-xs font-medium text-(--omp-text)">{tool.name}</div>
+												<div className="font-mono text-sc-sm font-medium text-(--sc-text)">{tool.name}</div>
 												{tool.description ? (
-													<div className="mt-0.5 line-clamp-2 text-xs text-(--omp-dim)">
+													<div className="mt-0.5 text-sc-sm break-words text-(--sc-text-muted)">
 														{tool.description}
 													</div>
 												) : null}

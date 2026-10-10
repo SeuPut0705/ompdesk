@@ -310,7 +310,7 @@ export function ModelPicker() {
 			size="picker"
 		>
 			<div className="flex h-full flex-col">
-				<div className="border-b border-(--sc-divider) p-3">
+				<div className="border-b border-(--sc-divider) p-4">
 					<SearchField
 						aria-activedescendant={flatOptions.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
 						aria-controls={listboxId}
@@ -403,7 +403,7 @@ export function ModelPicker() {
 											<button
 												aria-selected={isCurrent}
 												className={cx(
-													"flex min-h-10 w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-1.5 text-left disabled:cursor-not-allowed",
+													"flex min-h-10 w-full flex-wrap items-center gap-x-2.5 gap-y-1 rounded-(--sc-radius-md) px-2.5 py-2 text-left disabled:cursor-not-allowed disabled:opacity-50",
 													isActive ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
 												)}
 												data-option-index={optionIndex}
@@ -416,8 +416,8 @@ export function ModelPicker() {
 												title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
 												type="button"
 											>
-												<span className="flex min-w-0 flex-1 flex-col">
-													<span className="flex min-w-0 items-center gap-1.5">
+												<span className="flex min-w-0 flex-1 basis-48 flex-col">
+													<span className="flex min-w-0 flex-wrap items-center gap-1.5">
 														<span
 															className={cx(
 																"truncate text-sc-md",
@@ -486,7 +486,7 @@ export function ModelPicker() {
 												{isCurrent && (
 													<Check
 														aria-label={forPool ? t("modelPool.inPool") : t("modelPicker.current")}
-														className="size-(--sc-icon-sm) shrink-0 text-(--sc-accent)"
+														className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-secondary)"
 													/>
 												)}
 											</button>
@@ -497,7 +497,7 @@ export function ModelPicker() {
 						})
 					)}
 				</div>
-				<div className="flex items-center gap-4 border-t border-(--sc-divider) py-2 pr-2 pl-3.5 text-sc-xs text-(--sc-text-muted)">
+				<div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-(--sc-divider) px-4 py-3 text-sc-xs text-(--sc-text-muted)">
 					<span className="min-w-0 flex-1 truncate">
 						{forPool ? t("modelPool.pickerHint") : t("modelPicker.defaultHint")}
 					</span>

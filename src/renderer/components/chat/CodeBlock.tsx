@@ -163,7 +163,7 @@ export function CodeBlock({
 	return (
 		<div
 			className={cx(
-				"group/code relative overflow-hidden rounded-(--sc-radius-md) border border-[color:var(--omp-md-code-block-border,var(--sc-border-subtle))] bg-[var(--omp-code-bg)]",
+				"omp-code-block group/code relative overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-1) text-(--sc-text)",
 				className,
 			)}
 		>
@@ -192,14 +192,16 @@ export function CodeBlock({
 							lineCount={lineCount}
 							lineNumbers={lineNumbers}
 							startLine={startLine}
-							className="px-2.5 py-3 text-omp-md leading-[1.5]"
+							className="px-2.5 py-3 text-sc-sm leading-(--sc-leading-normal)"
 						/>
-						<pre className="min-w-0 flex-1 overflow-x-auto px-3 py-3 font-mono text-omp-md leading-[1.5]">
+						<pre className="min-w-0 flex-1 overflow-x-auto px-3 py-3 font-mono text-sc-sm leading-(--sc-leading-normal)">
 							{codeElement}
 						</pre>
 					</div>
 				) : (
-					<pre className="overflow-x-auto px-3 py-3 font-mono text-omp-md leading-[1.5]">{codeElement}</pre>
+					<pre className="overflow-x-auto px-3 py-3 font-mono text-sc-sm leading-(--sc-leading-normal)">
+						{codeElement}
+					</pre>
 				)}
 			</div>
 		</div>
