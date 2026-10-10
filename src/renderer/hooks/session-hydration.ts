@@ -331,10 +331,15 @@ export async function loadOlderTranscript(tabId?: string, beforePrepend?: () => 
 					limit: TRANSCRIPT_TAIL_LIMIT,
 				});
 			}
-			if (response.success && (response.data as MessagesPage).prevCursor) {
+			// The page holding the old leading entry may also hold older rows in front of
+			// it: prepend that page itself (prependPage drops the rows already loaded).
+			// Only when the entry opens its page is the page before it the next one.
+			const found = response.success ? (response.data as MessagesPage) : undefined;
+			const opensPage = found?.messages[0]?.entryId === target;
+			if (found?.prevCursor && opensPage) {
 				response = await command({
 					type: "get_transcript_page",
-					cursor: (response.data as MessagesPage).prevCursor,
+					cursor: found.prevCursor,
 					limit: TRANSCRIPT_TAIL_LIMIT,
 				});
 			}

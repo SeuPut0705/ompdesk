@@ -1,5 +1,5 @@
 import { Monitor } from "lucide-react";
-import { extractImageDataUrl, resultText } from "../../lib/format";
+import { extractImageDataUrls, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { ZoomableImage } from "../common/ZoomableImage";
 import type { ToolRendererProps } from "./ToolCard";
@@ -10,8 +10,8 @@ export function ComputerRenderer({ args, result, isError, isPartial, partialResu
 	const action = typeof args.action === "string" ? args.action : "";
 	const coordinate = Array.isArray(args.coordinate) ? (args.coordinate as number[]).join(", ") : "";
 	const text = typeof args.text === "string" ? args.text : "";
-	const effective = isPartial ? partialResult : result;
-	const screenshot = extractImageDataUrl(effective);
+	const effective = isPartial ? (partialResult ?? result) : result;
+	const screenshot = extractImageDataUrls(effective).at(-1);
 	const output = resultText(effective);
 
 	return (

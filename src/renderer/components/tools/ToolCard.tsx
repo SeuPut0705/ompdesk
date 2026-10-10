@@ -16,6 +16,9 @@ export interface ToolRendererProps {
 	isError?: boolean;
 	isPartial?: boolean;
 	partialResult?: unknown;
+	/** Compact in-chat work surface; reuse the same parser and show its content immediately. */
+	livePreview?: boolean;
+	toolCallId?: string;
 	/**
 	 * The call ended without ever reporting a result (interrupted turn, dead
 	 * process). Renderers must stop showing live text — the run is over, but

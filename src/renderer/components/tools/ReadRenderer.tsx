@@ -38,7 +38,7 @@ function stripReadSelector(path: string): string {
 	return index > 1 ? path.slice(0, index) : path;
 }
 
-export function ReadRenderer({ args, result, isError, isPartial, partialResult }: ToolRendererProps) {
+export function ReadRenderer({ args, result, isError, isPartial, partialResult, livePreview }: ToolRendererProps) {
 	const t = useT();
 	const path = typeof args.path === "string" ? args.path : "";
 	const effective = isPartial ? partialResult : result;
@@ -65,13 +65,15 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult }
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
-				<FileText size={12} className="shrink-0 text-[var(--omp-dim)]" />
-				<PathLink path={basePath} className="truncate">
-					<span className="text-[var(--omp-text)]">{basename(basePath)}</span>
-					<span className="text-[var(--omp-dim)]"> {dirname(basePath)}</span>
-				</PathLink>
-			</div>
+			{!livePreview && (
+				<div className="flex items-center gap-1.5 font-mono text-omp-sm">
+					<FileText size={12} className="shrink-0 text-[var(--omp-dim)]" />
+					<PathLink path={basePath} className="truncate">
+						<span className="text-[var(--omp-text)]">{basename(basePath)}</span>
+						<span className="text-[var(--omp-dim)]"> {dirname(basePath)}</span>
+					</PathLink>
+				</div>
+			)}
 			{image ? (
 				<ZoomableImage
 					src={image}
@@ -90,6 +92,7 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult }
 						code={head}
 						language={languageFromPath(basePath)}
 						showLanguage={false}
+						showCopy={!livePreview}
 						maxHeightClass={PREVIEW_HEIGHT_LG}
 						startLine={display?.startLine}
 						lineNumbers={display?.lineNumbers?.slice(0, head.split("\n").length)}

@@ -1,192 +1,180 @@
-import { Brain } from "lucide-react";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { parseAnsi } from "../../lib/ansi";
-import { resultText } from "../../lib/format";
+import { Brain, Radio } from "lucide-react";
+import { useLayoutEffect, useRef, useState } from "react";
+import type { StoreApi } from "zustand/vanilla";
+import { useFrameSelector } from "../../hooks/use-frame-selector";
+import { cx, formatDuration } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { useMessagesStore } from "../../stores/messages";
-import { useRuntimeTabId } from "../../stores/session-runtime-context";
-import { selectToolEntry, useToolsStore } from "../../stores/tools";
-import { toolDiffStats } from "../tools/diff-stats";
-import { getToolHeader } from "../tools/index";
-import { DiffStatChip, ToolPathTarget } from "../tools/ToolCard";
-import { appendLiveLog, type LiveLog, type LiveLogLine, selectLiveStep, tailLines } from "./live-step";
+import { useNowTick } from "../../lib/now-tick";
+import { type MessagesStore, useMessagesStore } from "../../stores/messages";
+import { useSessionRuntime } from "../../stores/session-runtime-context";
+import { selectToolEntry, type ToolsStore, useToolsStore } from "../../stores/tools";
+import { getToolHeader, getToolRenderer } from "../tools/index";
+import { ToolPathTarget } from "../tools/ToolCard";
+import { collapseWaitSteps, selectLiveStep } from "./live-step";
 
-/** Lines the live log keeps; older ones scroll out of the window and are dropped. */
-const LIVE_LOG_LINES = 50;
-/** Characters of live reasoning read for the log (its tail is what's new). */
-const THINKING_TAIL_CHARS = 600;
-/** Reasoning lines shown per thinking step. */
-const THINKING_TAIL_LINES = 6;
-/** Distance from the bottom (px) that still counts as "at the newest line". */
-const STICK_THRESHOLD_PX = 8;
-
-/**
- * The running turn's log, by `<tab>:<turn start>`. The window can remount
- * mid-turn (the first step finalizing moves the live group from the streaming
- * row to the history row; virtualization recycles rows), and a remount must
- * pick the log up where it was instead of blanking and fading in again.
- */
-const liveLogs = new Map<string, LiveLog>();
-
-function rememberLog(key: string, log: LiveLog): void {
-	const tab = key.slice(0, key.lastIndexOf(":") + 1);
-	for (const other of liveLogs.keys()) if (other !== key && other.startsWith(tab)) liveLogs.delete(other);
-	liveLogs.set(key, log);
-}
-
-/**
- * A small fixed-height window under a collapsed running work summary where
- * the turn's activity flows like a log: each step's label (kind icon, label,
- * target, +/− lines), a command's output lines and live reasoning append
- * below the previous ones. A short log reads top-down from the first row;
- * once it fills the window it follows the newest line and older lines scroll
- * up under a fade (shown only while something is scrolled out above). Its
- * height never changes while the turn runs, so the transcript around it does
- * not jump. It sticks to the newest line unless the user scrolls up inside
- * it. aria-hidden: the summary row's status carries the announcement, the
- * full steps are one disclosure away.
- */
+/** One bounded work surface, with a replay strip rather than an accumulating log. */
 export function LiveStepPeek({ thinkingLive, toolCallIds }: { thinkingLive: boolean; toolCallIds: readonly string[] }) {
-	// Primitive selector: the log re-renders when the chosen step changes, not
-	// on every unrelated tool event.
-	const stepKey = useToolsStore(s => {
+	const t = useT();
+	const runtime = useSessionRuntime();
+	const tools = (runtime?.stores.get("tools") as StoreApi<ToolsStore> | undefined) ?? useToolsStore;
+	const messages = (runtime?.stores.get("messages") as StoreApi<MessagesStore> | undefined) ?? useMessagesStore;
+	const stepKey = useFrameSelector(tools, s => {
 		const step = selectLiveStep(toolCallIds, { get: id => selectToolEntry(s, id) }, thinkingLive);
-		return step === null ? "" : step.kind === "thinking" ? "thinking" : `tool:${step.id}`;
+		return step?.kind === "tool" ? step.id : step?.kind === "thinking" ? "thinking" : "";
 	});
-	const toolCallId = stepKey.startsWith("tool:") ? stepKey.slice("tool:".length) : "";
-	const toolLines = useToolLines(toolCallId);
-	const thinkingLines = useThinkingLines(stepKey === "thinking");
-
-	const tabId = useRuntimeTabId();
-	const turnStart = useMessagesStore(s => s.turnMeter.startedAt);
-	const logKey = `${tabId ?? ""}:${turnStart ?? ""}`;
-	const [state, setState] = useState(() => ({ key: logKey, log: liveLogs.get(logKey) ?? [] }));
-	// Resumed windows skip the entrance fade: they were already on screen.
-	const [resumed] = useState(() => state.log.length > 0);
-	const log = state.key === logKey ? state.log : [];
-	// Record the current step during render; appendLiveLog returns the same
-	// log when nothing changed, so this settles after one pass.
-	if (stepKey) {
-		// Reasoning restarts with each assistant message, after the group's
-		// earlier calls, so the call count tells thinking episodes apart.
-		const segmentKey = stepKey === "thinking" ? `thinking:${toolCallIds.length}` : stepKey;
-		const next = appendLiveLog(
-			log,
-			{ key: segmentKey, lines: stepKey === "thinking" ? thinkingLines : toolLines },
-			LIVE_LOG_LINES,
-		);
-		if (next !== log || state.key !== logKey) {
-			rememberLog(logKey, next);
-			setState({ key: logKey, log: next });
-		}
-	}
-
+	const stripKey = useFrameSelector(tools, s =>
+		toolCallIds
+			.map(id => {
+				const entry = selectToolEntry(s, id);
+				return entry ? `${id}:${entry.status}:${entry.toolName}` : "";
+			})
+			.join("|"),
+	);
+	const [replay, setReplay] = useState<string | null>(null);
+	const selected = replay ?? stepKey;
+	// Only the chosen entry/result is subscribed: unrelated partial results are ignored.
+	const entry = useFrameSelector(tools, s => (selected ? selectToolEntry(s, selected) : undefined));
+	const partial = useFrameSelector(tools, s => (selected ? s.partialResults.get(selected) : undefined));
+	const reasoning = useFrameSelector(messages, s => (selected === "thinking" ? s.streamingThinking.slice(-600) : ""));
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const stripRef = useRef<HTMLDivElement>(null);
 	const stickRef = useRef(true);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: re-pin whenever the log changes.
+	const previousStep = useRef(selected);
+	const header = entry ? getToolHeader(entry.toolName, entry.args) : null;
+	const live = replay === null;
+	const kind = selected === "thinking" ? "thinking" : (header?.tool ?? "thinking");
+	const latest = kind === "bash" || kind === "eval" || kind === "write" || kind === "edit" || kind === "ast_edit";
+	// stripKey deliberately contains only status/kind, not any tool output.
+	void stripKey;
+	const steps = collapseWaitSteps(toolCallIds, { get: id => selectToolEntry(tools.getState(), id) });
+	const selectedStep = steps.find(step => step.ids.includes(selected));
+	const startTime = selectedStep?.startedAt ?? entry?.startTime ?? 0;
+	const now = useNowTick(kind === "wait" && live);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: streaming content must repin the nested renderer after layout.
 	useLayoutEffect(() => {
+		if (previousStep.current !== selected) {
+			stickRef.current = true;
+			previousStep.current = selected;
+		}
 		const element = scrollRef.current;
-		if (element && stickRef.current) element.scrollTop = element.scrollHeight;
-	}, [log]);
-
+		if (!element) return;
+		if (!latest) {
+			element.scrollTop = 0;
+			return;
+		}
+		if (stickRef.current) {
+			element.scrollTop = element.scrollHeight;
+			for (const child of element.querySelectorAll<HTMLElement>("pre, .overflow-y-auto, .overflow-auto")) {
+				child.scrollTop = child.scrollHeight;
+			}
+		}
+	}, [entry, partial, latest, selected]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: selected/status changes update chip geometry and aria-pressed after layout.
+	useLayoutEffect(() => {
+		const strip = stripRef.current;
+		if (!strip) return;
+		const revealCurrent = () => {
+			const current = strip.querySelector<HTMLButtonElement>('[aria-pressed="true"]');
+			if (!current) return;
+			const viewport = strip.getBoundingClientRect();
+			const chip = current.getBoundingClientRect();
+			if (chip.right > viewport.right) strip.scrollLeft += chip.right - viewport.right;
+			else if (chip.left < viewport.left) strip.scrollLeft -= viewport.left - chip.left;
+		};
+		revealCurrent();
+		if (typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver(revealCurrent);
+		observer.observe(strip);
+		return () => observer.disconnect();
+	}, [selected, stripKey]);
+	const Renderer = entry ? getToolRenderer(entry.toolName) : null;
+	const Icon = header?.icon ?? Brain;
 	return (
-		<div aria-hidden className="omp-live-step" data-resumed={resumed || undefined}>
+		<div className="omp-live-step" data-following={live} data-surface={kind}>
+			<div className="omp-live-work-heading">
+				<Icon aria-hidden className="omp-live-step-icon" />
+				<span>{header?.labelKey ? t(header.labelKey) : (header?.tool ?? t("chat.thinking.live"))}</span>
+				{header?.path ? (
+					<ToolPathTarget path={header.path} />
+				) : header?.target ? (
+					<span className="min-w-0 truncate font-mono" title={header.target}>
+						{header.target}
+					</span>
+				) : null}
+				<span className="omp-live-work-mode">{t(live ? "chat.work.live" : "chat.work.replay")}</span>
+			</div>
 			<div
 				className="omp-live-step-scroll"
+				ref={scrollRef}
+				tabIndex={0}
+				role="region"
+				aria-label={t("chat.work.surface")}
 				onScroll={event => {
 					const element = event.currentTarget;
-					stickRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= STICK_THRESHOLD_PX;
-					// Pinning moves scrollTop too, so this also tracks the fade over clipped lines.
-					element.toggleAttribute("data-clipped", element.scrollTop > 0);
+					stickRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 8;
 				}}
-				ref={scrollRef}
 			>
-				<div className="omp-live-step-log">
-					{log.flatMap(segment =>
-						segment.lines.map((line, index) => <LogLine key={`${segment.key}:${index}`} line={line} />),
-					)}
-				</div>
+				{kind === "wait" && !entry?.isError && entry?.status !== "error" && entry?.status !== "aborted" ? (
+					<div className="omp-live-work-calm" data-wait-line>
+						{t("chat.work.waiting")}{" "}
+						<span className="tabular-nums">
+							· {formatDuration(Math.max(0, (live ? now : (entry?.endTime ?? now)) - startTime))}
+						</span>
+					</div>
+				) : Renderer && entry ? (
+					<Renderer
+						key={selected}
+						args={entry.args}
+						result={entry.result}
+						partialResult={partial}
+						isPartial={entry.status === "pending" || entry.status === "running"}
+						isError={entry.isError || entry.status === "error"}
+						interrupted={entry.status === "aborted"}
+						livePreview
+						toolCallId={selected}
+					/>
+				) : (
+					<div className="omp-live-work-calm">{reasoning || t("chat.thinking.live")}</div>
+				)}
 			</div>
-		</div>
-	);
-}
-
-function LogLine({ line }: { line: LiveLogLine }) {
-	if (line.kind === "tool") return <ToolLabel toolCallId={line.text} />;
-	if (line.kind === "thinking") return <ThinkingLabel />;
-	if (line.kind === "output") return <div className="omp-live-step-output">{line.text}</div>;
-	return <div className="omp-live-step-text">{line.text}</div>;
-}
-
-function ThinkingLabel() {
-	const t = useT();
-	return (
-		<div className="omp-live-step-line">
-			<Brain aria-hidden className="omp-live-step-icon" />
-			<span className="shrink-0 text-(--sc-text-secondary)">{t("chat.thinking.live")}</span>
-		</div>
-	);
-}
-
-/** Reasoning label plus the last lines of live reasoning. */
-function useThinkingLines(active: boolean): readonly LiveLogLine[] {
-	const tail = useMessagesStore(s => (active ? s.streamingThinking.slice(-THINKING_TAIL_CHARS) : ""));
-	return useMemo(
-		() => [
-			{ kind: "thinking", text: "" },
-			...tailLines(tail, THINKING_TAIL_LINES).map(text => ({ kind: "text" as const, text: text.trim() })),
-		],
-		[tail],
-	);
-}
-
-/** The step label, plus a command's output lines (live while it runs, final once done). */
-function useToolLines(toolCallId: string): readonly LiveLogLine[] {
-	const entry = useToolsStore(s => (toolCallId ? selectToolEntry(s, toolCallId) : undefined));
-	const command = entry ? getToolHeader(entry.toolName, entry.args).tool === "bash" : false;
-	const partialResult = useToolsStore(s => (command ? s.partialResults.get(toolCallId) : undefined));
-	const output = command ? (entry?.result ?? partialResult) : null;
-	return useMemo(() => {
-		if (!toolCallId) return [];
-		const lines: LiveLogLine[] = [{ kind: "tool", text: toolCallId }];
-		if (output == null) return lines;
-		const plain = parseAnsi(resultText(output))
-			.map(segment => segment.text)
-			.join("");
-		for (const text of tailLines(plain, LIVE_LOG_LINES)) lines.push({ kind: "output", text });
-		return lines;
-	}, [toolCallId, output]);
-}
-
-function ToolLabel({ toolCallId }: { toolCallId: string }) {
-	const t = useT();
-	const entry = useToolsStore(s => selectToolEntry(s, toolCallId));
-	const toolName = entry?.toolName ?? "";
-	const args = entry?.args ?? {};
-	const failed = entry?.status === "error" || Boolean(entry?.isError);
-	const header = getToolHeader(toolName, args);
-	const Icon = header.icon;
-	const result = entry?.result;
-	const diffStats = useMemo(
-		() => (entry?.status === "aborted" ? null : toolDiffStats(toolName, args, result, failed)),
-		[toolName, args, result, failed, entry?.status],
-	);
-	if (!entry) return null;
-
-	return (
-		<div className="omp-live-step-line">
-			<Icon aria-hidden className="omp-live-step-icon" />
-			<span className="shrink-0 text-(--sc-text-secondary)">
-				{header.labelKey ? t(header.labelKey) : header.tool}
-			</span>
-			{header.path ? (
-				<ToolPathTarget moreFiles={header.moreFiles} path={header.path} />
-			) : header.target ? (
-				<span className="omp-tool-summary min-w-0 truncate font-mono text-(--sc-text-muted)" title={header.target}>
-					{header.target}
-				</span>
-			) : null}
-			{diffStats && (diffStats.added > 0 || diffStats.removed > 0) ? <DiffStatChip stats={diffStats} /> : null}
+			<div className="omp-live-work-strip" role="group" aria-label={t("chat.work.steps")}>
+				<div className="omp-live-work-chips" ref={stripRef}>
+					{steps.map((step, index) => {
+						const item = selectToolEntry(tools.getState(), step.id);
+						if (!item) return null;
+						const meta = getToolHeader(item.toolName, item.args);
+						const StepIcon = meta.icon;
+						const label = `${index + 1}. ${meta.labelKey ? t(meta.labelKey) : meta.tool}${meta.path || meta.target ? ` · ${meta.path ?? meta.target}` : ""}`;
+						return (
+							<button
+								type="button"
+								key={step.ids[0]}
+								className={cx(
+									"omp-live-work-chip",
+									item.status !== "pending" && item.status !== "running" && "omp-live-work-chip--finished",
+								)}
+								aria-label={label}
+								title={label}
+								aria-pressed={step.ids.includes(selected)}
+								data-step-id={step.id}
+								onClick={() => setReplay(step.id)}
+							>
+								<StepIcon aria-hidden className="omp-live-step-icon" />
+								<span className="tabular-nums">{index + 1}</span>
+							</button>
+						);
+					})}
+				</div>
+				<button
+					type="button"
+					className="omp-live-work-chip omp-live-work-follow"
+					aria-pressed={live}
+					onClick={() => setReplay(null)}
+				>
+					<Radio aria-hidden className="omp-live-step-icon" />
+					{t("chat.work.live")}
+				</button>
+			</div>
 		</div>
 	);
 }

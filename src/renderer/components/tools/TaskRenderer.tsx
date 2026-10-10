@@ -1,8 +1,12 @@
 import { Bot, Check, Wrench, X } from "lucide-react";
 import type { ReactNode } from "react";
+import type { StoreApi } from "zustand/vanilla";
+import { useFrameSelector } from "../../hooks/use-frame-selector";
 import { basename, cx, formatDuration, formatTokens, headLines, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
+import { useSessionRuntime } from "../../stores/session-runtime-context";
+import { type SubagentsStore, useSubagentsStore } from "../../stores/subagents";
 import { ErrorDetail } from "../common";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
@@ -641,7 +645,15 @@ function ResultOutputPreview({ text }: { text: string }) {
 // ---------------------------------------------------------------------------
 
 /** Task (subagent spawn): agent badge, name, status, live agent tree. */
-export function TaskRenderer({ args, result, isError, isPartial, partialResult }: ToolRendererProps) {
+export function TaskRenderer({
+	args,
+	result,
+	isError,
+	isPartial,
+	partialResult,
+	livePreview,
+	toolCallId,
+}: ToolRendererProps) {
 	const t = useT();
 	const agent = typeof args.agent === "string" ? args.agent : "task";
 	const name = typeof args.name === "string" ? args.name : null;
@@ -678,6 +690,17 @@ export function TaskRenderer({ args, result, isError, isPartial, partialResult }
 	// while the call runs so they stay fresh between partial emissions.
 	const now = useNowTick(isPartial);
 
+	if (livePreview && !isError) {
+		return (
+			<TaskWorkPreview
+				args={args}
+				progress={progress}
+				results={results}
+				toolCallId={toolCallId}
+				active={isPartial === true}
+			/>
+		);
+	}
 	// Run-summary counts: one pass derives footer counts + request total.
 	let abortedCount = 0;
 	let failCount = 0;
@@ -818,6 +841,89 @@ export function TaskRenderer({ args, result, isError, isPartial, partialResult }
 					{text}
 				</pre>
 			)}
+		</div>
+	);
+}
+
+/** A compact presentation of the same parsed task rows, enriched by live roster activity. */
+function TaskWorkPreview({
+	args,
+	progress,
+	results,
+	toolCallId,
+	active,
+}: {
+	args: Record<string, unknown>;
+	progress: Record<string, unknown>[];
+	results: Record<string, unknown>[];
+	toolCallId?: string;
+	active: boolean;
+}) {
+	const runtime = useSessionRuntime();
+	const store = (runtime?.stores.get("subagents") as StoreApi<SubagentsStore> | undefined) ?? useSubagentsStore;
+	const rosterKey = useFrameSelector(store, s =>
+		Array.from(s.subagents.values())
+			.filter(agent => agent.parentToolCallId === toolCallId && toolCallId !== undefined)
+			.map(agent => agent.id)
+			.join("\n"),
+	);
+	const rows = [...results, ...progress.filter(row => !results.some(result => result.id === row.id))];
+	for (const id of rosterKey.split("\n").filter(Boolean)) {
+		if (!rows.some(row => row.id === id)) rows.push({ id });
+	}
+	if (rows.length === 0) {
+		const tasks = asArray(args.tasks)
+			.map(asRecord)
+			.filter((row): row is Record<string, unknown> => row !== undefined);
+		rows.push(...(tasks.length > 0 ? tasks : [args]));
+	}
+	return (
+		<div className="flex flex-col gap-2" data-agent-work>
+			{rows.map((row, index) => (
+				<TaskWorkRow key={asString(row.id) ?? index} row={row} store={store} active={active} />
+			))}
+		</div>
+	);
+}
+
+function TaskWorkRow({
+	row,
+	store,
+	active,
+}: {
+	row: Record<string, unknown>;
+	store: Pick<StoreApi<SubagentsStore>, "getState" | "subscribe">;
+	active: boolean;
+}) {
+	const t = useT();
+	const id = asString(row.id) ?? "";
+	const name = useFrameSelector(store, s => (active ? (s.subagents.get(id)?.id ?? "") : ""));
+	const status = useFrameSelector(store, s => (active ? (s.subagents.get(id)?.status ?? "") : ""));
+	const activity = useFrameSelector(store, s => {
+		const agent = active ? s.subagents.get(id) : undefined;
+		return (
+			agent?.progress?.lastIntent ||
+			agent?.progress?.currentToolArgs ||
+			agent?.progress?.currentTool ||
+			agent?.description ||
+			""
+		);
+	});
+	const title = name || asString(row.name) || asString(row.id) || asString(row.agent) || t("tools.label.task");
+	const detail =
+		activity ||
+		asString(row.lastIntent) ||
+		asString(row.currentToolArgs) ||
+		asString(row.currentTool) ||
+		asString(row.description) ||
+		t(active ? "subagent.status.started" : "subagent.status.completed");
+	return (
+		<div className="flex min-w-0 items-center gap-2 text-sc-sm" data-agent-status={status || asString(row.status)}>
+			<Bot aria-hidden className="omp-live-step-icon text-(--sc-text-muted)" />
+			<span className="shrink-0 font-mono text-(--sc-text-secondary)">{title}</span>
+			<span className="min-w-0 truncate text-(--sc-text-muted)" title={detail}>
+				{detail}
+			</span>
 		</div>
 	);
 }

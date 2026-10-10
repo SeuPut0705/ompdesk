@@ -1401,6 +1401,37 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 		expect(messages.getState().pageError).toBeNull();
 	});
 
+	it("keeps the older rows that share a refreshed page with the old leading entry", async () => {
+		const { commandForTab } = installTabRoutedMockOmp();
+		seedReadyTab("t-shift");
+		const row = (id: string, timestamp: number): AgentMessage => ({
+			role: "user",
+			content: id,
+			timestamp,
+			entryId: id,
+		});
+		const messages = sessionRuntimeStore<MessagesStore>("t-shift", "messages")!;
+		messages.getState().loadPage({ messages: [row("c", 3), row("d", 4)], totalMessages: 4, prevCursor: "stale" });
+		messages.getState().applyEvents([{ type: "agent_end", messages: [row("e", 5)] }]);
+		const original = commandForTab.getMockImplementation()!;
+		commandForTab.mockImplementation(async (tabId, command) => {
+			if (command.type !== "get_transcript_page") return original(tabId, command);
+			if (command.cursor === "stale")
+				return { type: "response", command: command.type, success: false, error: "stale", code: "stale_cursor" };
+			// The live commit shifted the boundaries: "c" now sits mid-page, after "b".
+			if (command.fromEnd)
+				return success({ messages: [row("d", 4), row("e", 5)], totalMessages: 5, prevCursor: "p1" });
+			if (command.cursor === "p1")
+				return success({ messages: [row("b", 2), row("c", 3)], totalMessages: 5, prevCursor: "p0" });
+			return success({ messages: [row("a", 1)], totalMessages: 5 });
+		});
+		expect(await loadOlderTranscript("t-shift")).toBe(true);
+		expect(messages.getState().messages.map(message => message.entryId)).toEqual(["b", "c", "d", "e"]);
+		expect(messages.getState().prevCursor).toBe("p0");
+		expect(await loadOlderTranscript("t-shift")).toBe(true);
+		expect(messages.getState().messages.map(message => message.entryId)).toEqual(["a", "b", "c", "d", "e"]);
+	});
+
 	it("re-reads only the tail if a live commit changes the initial paging snapshot", async () => {
 		const { commandForTab } = installTabRoutedMockOmp();
 		seedReadyTab("t-tail-race");

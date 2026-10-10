@@ -841,108 +841,161 @@
 	color: var(--sc-text-muted);
 }
 
-/* Live step window under a collapsed running work summary: a fixed-height
-   panel (five rows at every width) where step labels, command output and
-   reasoning flow like a log. A short log reads top-down from the first row;
-   once full it follows the newest line, older lines scrolling up under a top
-   fade. The height is reserved from the first running frame, so switching
-   steps never shifts the transcript. Reduced motion flattens the one fade-in
-   (global.css). */
+/* One quiet, bounded in-chat work surface. Tool renderers retain their own
+   semantic code/diff paint; the surrounding content stays transparent. */
 .omp-live-step {
-	--omp-live-step-row: calc(var(--sc-font-sm) * var(--sc-leading-normal));
+	display: flex;
+	flex-direction: column;
 	box-sizing: border-box;
 	min-width: 0;
-	height: calc(var(--omp-live-step-row) * 5 + var(--sc-space-1-5) * 2 + 2px);
-	margin: var(--sc-space-0-5) 0 var(--sc-space-1-5)
+	height: 220px;
+	min-height: 176px;
+	max-height: max(176px, 28cqh);
+	margin: var(--sc-space-1) 0 var(--sc-space-1-5)
 		calc(var(--sc-space-1-5) + var(--sc-icon-sm) + var(--sc-space-2));
 	border: 1px solid var(--sc-divider);
 	border-radius: var(--sc-radius-md);
-	background: var(--sc-surface-1);
-	padding: var(--sc-space-1-5) var(--sc-space-3);
-	animation: omp-live-step-in var(--sc-duration-med) var(--sc-ease-enter) both;
+	overflow: hidden;
 }
 
-/* A remount mid-turn resumes the same log: no second entrance. */
-.omp-live-step[data-resumed] {
-	animation: none;
-}
-
-/* The scroller carries the top fade so the panel's border stays crisp; the
-   fade appears only while lines are scrolled out above (data-clipped), so a
-   short log's first row is never dimmed. It is positioned so it contains the
-   log's absolutely positioned descendants (the `sr-only` labels of diff stats
-   and running steps): without that their containing block is the transcript
-   row, so they escape this scroller's clipping, sit at their unscrolled place
-   in the whole log below the panel, and stretch the transcript's scroll
-   height — an empty band under the live work row that grew with the log. */
-.omp-live-step-scroll {
-	position: relative;
-	height: 100%;
-	min-width: 0;
-	overflow-x: hidden;
-	overflow-y: auto;
-	overscroll-behavior: contain;
-	scrollbar-width: none;
-}
-
-.omp-live-step-scroll[data-clipped] {
-	mask-image: linear-gradient(to bottom, transparent, #000 var(--omp-live-step-row));
-}
-
-.omp-live-step-scroll::-webkit-scrollbar {
-	display: none;
-}
-
-.omp-live-step-log {
-	min-width: 0;
-}
-
-.omp-live-step-line {
+.omp-live-work-heading {
 	display: flex;
 	align-items: center;
 	gap: var(--sc-space-2);
 	min-width: 0;
-	min-height: var(--omp-live-step-row);
+	min-height: 32px;
+	flex-shrink: 0;
+	padding: var(--sc-space-1) var(--sc-space-3);
+	border-bottom: 1px solid var(--sc-divider);
+	color: var(--sc-text-secondary);
+	font-size: var(--sc-font-xs);
+}
+
+.omp-live-work-mode {
+	margin-inline-start: auto;
+	flex-shrink: 0;
+	color: var(--sc-text-subtle);
+	font-size: var(--sc-font-2xs);
+}
+
+.omp-live-step-scroll {
+	position: relative;
+	flex: 1;
+	min-height: 96px;
+	min-width: 0;
+	padding: var(--sc-space-2) var(--sc-space-3);
+	overflow: auto;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
+}
+
+.omp-live-step-scroll img {
+	max-height: 100%;
+	object-fit: contain;
+}
+
+/* A capture fits the available work viewport rather than cropping to its top.
+   The existing zoom control still opens the original image. */
+.omp-live-step:is([data-surface="browser"], [data-surface="computer"]) .omp-live-step-scroll > div {
+	height: 100%;
+}
+
+.omp-live-step:is([data-surface="browser"], [data-surface="computer"]) [data-zoomable-image] {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	align-items: center;
+	justify-content: center;
+}
+
+.omp-live-step:is([data-surface="browser"], [data-surface="computer"]) [data-zoomable-image] img {
+	height: 100%;
+	width: 100%;
+	object-fit: contain;
+}
+
+.omp-live-work-calm {
+	padding-block: var(--sc-space-2);
 	color: var(--sc-text-muted);
 	font-size: var(--sc-font-sm);
-	line-height: var(--omp-live-step-row);
+	line-height: var(--sc-leading-normal);
+	overflow-wrap: anywhere;
+}
+
+.omp-live-work-strip {
+	display: flex;
+	align-items: center;
+	gap: var(--sc-space-1);
+	min-height: 36px;
+	padding: var(--sc-space-1) var(--sc-space-2);
+	border-top: 1px solid var(--sc-divider);
+	flex-shrink: 0;
+	min-width: 0;
+}
+
+.omp-live-work-chips {
+	display: flex;
+	align-items: center;
+	gap: var(--sc-space-1);
+	flex: 1;
+	min-width: 0;
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+
+.omp-live-work-chip {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--sc-space-1);
+	flex-shrink: 0;
+	min-height: 26px;
+	padding: var(--sc-space-1) var(--sc-space-1-5);
+	border-radius: var(--sc-radius-sm);
+	color: var(--sc-text-secondary);
+	font-size: var(--sc-font-xs);
+}
+
+.omp-live-work-chip--finished {
+	color: var(--sc-text-subtle);
+}
+
+.omp-live-work-chip:hover {
+	background: var(--sc-hover);
+}
+
+.omp-live-work-chip[aria-pressed="true"] {
+	background: var(--sc-hover);
+	color: var(--sc-text);
+}
+
+.omp-live-work-follow {
+	margin-inline-start: auto;
+}
+
+.omp-live-work-chip:focus-visible,
+.omp-live-step-scroll:focus-visible {
+	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
+	outline-offset: -2px;
 }
 
 .omp-live-step-icon {
 	flex-shrink: 0;
 	width: var(--sc-icon-sm);
 	height: var(--sc-icon-sm);
-	color: var(--sc-text-subtle);
 }
 
-/* Reasoning wraps inside the window; it is prose, not a terminal. */
-.omp-live-step-text {
-	margin-inline-start: calc(var(--sc-icon-sm) + var(--sc-space-2));
-	color: var(--sc-text-subtle);
-	font-size: var(--sc-font-sm);
-	line-height: var(--omp-live-step-row);
-	overflow-wrap: anywhere;
-}
-
-.omp-live-step-output {
-	margin-inline-start: calc(var(--sc-icon-sm) + var(--sc-space-2));
-	overflow: hidden;
-	color: var(--sc-text-subtle);
-	font-family: var(--font-mono);
-	font-size: var(--sc-font-xs);
-	line-height: var(--omp-live-step-row);
-	text-overflow: ellipsis;
-	white-space: pre;
-}
-
-@keyframes omp-live-step-in {
-	from {
-		opacity: 0;
-		transform: translateY(3px);
+@container omp-workspace (max-height: 480px) {
+	.omp-live-step {
+		height: 176px;
+		max-height: max(176px, 36cqh);
+		margin-inline-start: var(--sc-space-1);
 	}
-	to {
-		opacity: 1;
-		transform: none;
+}
+
+@container omp-workspace (max-width: 600px) {
+	.omp-live-step {
+		margin-inline-start: var(--sc-space-1);
 	}
 }
 

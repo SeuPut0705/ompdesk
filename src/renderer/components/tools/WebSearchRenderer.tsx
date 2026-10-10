@@ -91,11 +91,12 @@ function parseSearch(result: unknown): SearchParsed {
 }
 
 /** Web search: query header, markdown answer, sources with domain/age, provider metadata. */
-export function WebSearchRenderer({ args, result, isPartial }: ToolRendererProps) {
+export function WebSearchRenderer({ args, result, partialResult, isPartial }: ToolRendererProps) {
 	const t = useT();
-	const parsed = parseSearch(isPartial ? undefined : result);
+	const effective = isPartial ? (partialResult ?? result) : result;
+	const parsed = parseSearch(effective);
 	const query = typeof args.query === "string" && args.query.trim() ? args.query : parsed.query;
-	const answer = parsed.answer || resultText(isPartial ? undefined : result).trim();
+	const answer = parsed.answer || resultText(effective).trim();
 	const authShort = parsed.authMode === "oauth" ? "OAuth" : parsed.authMode === "api_key" ? "API" : parsed.authMode;
 	const providerInfo = parsed.model ? `${parsed.model} @ ${parsed.provider ?? "?"}` : parsed.provider;
 	const usageParts: string[] = [];

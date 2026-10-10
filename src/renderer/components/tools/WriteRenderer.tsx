@@ -3,7 +3,7 @@ import { type ReactNode, useState } from "react";
 import { DiffView } from "../../lib/diff";
 import { basename, cx, dirname, headLines, languageFromPath, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { PREVIEW_SCROLL_LG } from "../../lib/preview";
+import { PREVIEW_SCROLL_LG, PREVIEW_TEXT_CHARS } from "../../lib/preview";
 import { CodeBlock } from "../chat/CodeBlock";
 import { MermaidBlock } from "../chat/MermaidBlock";
 import { type PreviewMode, PreviewModeTabs, SvgImage, useSanitizedSvg } from "../chat/SvgBlock";
@@ -61,9 +61,17 @@ function WriteFigurePreview({
  */
 /** Preview ceiling for diff-less write content (lines entered into the DOM). */
 const WRITE_PREVIEW_LINES = 500;
-export function WriteRenderer({ args, result, isError, isPartial, partialResult, interrupted }: ToolRendererProps) {
+export function WriteRenderer({
+	args,
+	result,
+	isError,
+	isPartial,
+	partialResult,
+	interrupted,
+	livePreview,
+}: ToolRendererProps) {
 	const t = useT();
-	const [open, setOpen] = useState(false);
+	const [open, setOpen] = useState(livePreview === true);
 	const path = typeof args.path === "string" ? args.path : typeof args.file_path === "string" ? args.file_path : "";
 	const content = typeof args.content === "string" ? args.content : "";
 	if (/^(?:agent|proc):\/\//i.test(path)) {
@@ -84,8 +92,11 @@ export function WriteRenderer({ args, result, isError, isPartial, partialResult,
 	// Preview ceiling: the full written file must not enter the DOM — the
 	// height class only clips after layout. Copy stays available via the file.
 	const { head: previewContent, omitted: previewOmitted } = headLines(content, WRITE_PREVIEW_LINES);
+	const liveContent = livePreview
+		? content.slice(-PREVIEW_TEXT_CHARS).split("\n").slice(-WRITE_PREVIEW_LINES).join("\n")
+		: previewContent;
 
-	const details = resultDetails(result);
+	const details = resultDetails(isPartial ? (partialResult ?? result) : result);
 	const diff = typeof details?.diff === "string" && details.diff ? details.diff : null;
 	const overwritten = details?.overwritten === true;
 	const openPath = typeof details?.resolvedPath === "string" ? details.resolvedPath : path;
@@ -100,19 +111,24 @@ export function WriteRenderer({ args, result, isError, isPartial, partialResult,
 	) : content ? (
 		<>
 			<CodeBlock
-				code={previewContent}
+				code={liveContent}
 				language={languageFromPath(path)}
 				showLanguage={false}
 				showCopy={false}
+				startLine={livePreview ? Math.max(1, lineCount - liveContent.split("\n").length + 1) : undefined}
 				maxHeightClass="max-h-72"
 			/>
-			{previewOmitted > 0 && (
+			{!livePreview && previewOmitted > 0 && (
 				<div className="text-omp-xs text-[var(--omp-dim)]">
 					{t("tools.read.more", { count: previewOmitted, plural: previewOmitted === 1 ? "" : "s" })}
 				</div>
 			)}
 		</>
 	) : null;
+	if (livePreview) {
+		if (isError) return <div className="whitespace-pre-wrap text-sc-sm text-(--sc-danger)">{errorText?.head}</div>;
+		return codeView;
+	}
 	return (
 		<div className="flex flex-col gap-1.5">
 			<div className="flex items-center gap-1.5 font-mono text-omp-sm">

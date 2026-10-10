@@ -86,16 +86,17 @@ export function ExecutionGroup({
 	});
 	// `live` with nothing executing = the model is preparing the next step:
 	// keep the spinner, but don't claim a tool is running.
+	const plural = stepCount === 1 ? "" : "s";
 	const summary =
 		state === "failed"
-			? t("chat.process.statusFailed", { failed, total: stepCount })
+			? t("chat.process.statusFailed", { failed, total: stepCount, plural })
 			: state === "running" && running > 0
-				? t("chat.process.statusRunning", { running, total: stepCount })
+				? t("chat.process.statusRunning", { running, total: stepCount, plural })
 				: activities.length > 0
 					? activities.join(" · ")
 					: state === "running"
-						? t("chat.process.statusWorking", { total: stepCount })
-						: t("chat.process.statusComplete", { total: stepCount });
+						? t("chat.process.statusWorking", { total: stepCount, plural })
+						: t("chat.process.statusComplete", { total: stepCount, plural });
 	const duration = state !== "running" && spanMs > 0 ? formatDuration(spanMs) : null;
 
 	return (

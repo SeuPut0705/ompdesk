@@ -1256,6 +1256,271 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		"```",
 	].join("\n");
 
+	// Deterministic, held stages: the test advances only after observing the
+	// current surface. This avoids racing screenshots against fixture timers.
+	let advanceWork: (() => void) | undefined;
+	let appendWorkOutput: (() => void) | undefined;
+	const startWorkView = (user: AgentMessage) => {
+		const screenshot = Buffer.from(
+			'<svg xmlns="http://www.w3.org/2000/svg" width="720" height="320" viewBox="0 0 720 320"><rect width="720" height="320" fill="#faf9f6"/><rect width="720" height="38" fill="#eceae5"/><circle cx="20" cy="19" r="5" fill="#b8b3a9"/><text x="44" y="24" font-family="sans-serif" font-size="12" fill="#69665e">example.com · Workspace</text><text x="48" y="94" font-family="sans-serif" font-size="28" fill="#35332e">Project overview</text><text x="48" y="124" font-family="sans-serif" font-size="14" fill="#827d73">A calm workspace for the next step.</text><rect x="48" y="158" width="288" height="110" rx="8" fill="#efede7"/><rect x="358" y="158" width="314" height="110" rx="8" fill="#efede7"/><text x="70" y="192" font-family="sans-serif" font-size="15" fill="#69665e">Implementation</text><text x="380" y="192" font-family="sans-serif" font-size="15" fill="#69665e">Review</text><text x="70" y="228" font-family="sans-serif" font-size="12" fill="#827d73">Ready to continue</text><text x="380" y="228" font-family="sans-serif" font-size="12" fill="#827d73">Reading source files</text></svg>',
+		).toString("base64");
+		type WorkFixtureStep = {
+			name: string;
+			args: Record<string, unknown>;
+			result: { content: AgentMessage["content"]; details?: Record<string, unknown> };
+		};
+		const steps: WorkFixtureStep[] = [
+			{
+				name: "bash",
+				args: { command: "bun run check:types" },
+				result: { content: [{ type: "text", text: "$ tsc --noEmit\nChecking renderer components…" }] },
+			},
+			{
+				name: "write",
+				args: {
+					path: "src/workspace.ts",
+					content: "export const workspace = {\n  title: 'Live work',\n  ready: true,\n};\n",
+				},
+				result: { content: [{ type: "text", text: "Wrote src/workspace.ts" }] },
+			},
+			{
+				name: "read",
+				args: { path: "src/workspace.ts" },
+				result: {
+					content: [
+						{ type: "text", text: "export const workspace = {\n  title: 'Live work',\n  ready: true,\n};" },
+					],
+					details: {
+						displayContent: {
+							text: "export const workspace = {\n  title: 'Live work',\n  ready: true,\n};",
+							startLine: 1,
+						},
+					},
+				},
+			},
+			{
+				name: "task",
+				args: {
+					tasks: [
+						{ name: "WorkspaceScout", task: "Read the workspace state" },
+						{ name: "WorkspaceReview", task: "Review accessibility" },
+					],
+				},
+				result: {
+					content: [{ type: "text", text: "Agents are reading the workspace" }],
+					details: {
+						progress: [
+							{ id: "WorkspaceScout", status: "running", lastIntent: "Reading source files" },
+							{ id: "WorkspaceReview", status: "running", lastIntent: "Reviewing keyboard navigation" },
+						],
+					},
+				},
+			},
+			{
+				name: "wait",
+				args: { i: "background activity" },
+				result: { content: [{ type: "text", text: "Waiting for background activity" }] },
+			},
+			{
+				name: "wait",
+				args: { i: "background activity" },
+				result: { content: [{ type: "text", text: "Waiting for background activity" }] },
+			},
+			{
+				name: "browser",
+				args: { action: "run", code: "await tab.screenshot()", url: "https://example.com/workspace" },
+				result: {
+					content: [{ type: "image", mimeType: "image/svg+xml", data: screenshot }],
+					details: { url: "https://example.com/workspace" },
+				},
+			},
+			{
+				name: "computer",
+				args: { action: "screenshot" },
+				result: { content: [{ type: "image", mimeType: "image/svg+xml", data: screenshot }] },
+			},
+			{
+				name: "edit",
+				args: { path: "src/workspace.ts", edits: [{ old_text: "ready: true", new_text: "ready: false" }] },
+				result: {
+					content: [{ type: "text", text: "Updated workspace state" }],
+					details: {
+						diff: "@@ -1,4 +1,4 @@\n export const workspace = {\n   title: 'Live work',\n-  ready: true,\n+  ready: false,\n };",
+					},
+				},
+			},
+			{
+				name: "eval",
+				args: { code: "console.log(workspace.title)", language: "javascript" },
+				result: { content: [{ type: "text", text: "Live work\nWorkspace state is ready" }] },
+			},
+			{
+				name: "grep",
+				args: { pattern: "workspace", path: "src" },
+				result: {
+					content: [
+						{
+							type: "text",
+							text: "src/workspace.ts:1:export const workspace = {\nsrc/app.ts:4:import { workspace } from './workspace';",
+						},
+					],
+				},
+			},
+			{
+				name: "glob",
+				args: { pattern: "src/*.ts" },
+				result: { content: [{ type: "text", text: "src/workspace.ts\nsrc/app.ts" }] },
+			},
+			{
+				name: "web_search",
+				args: { query: "accessible keyboard navigation" },
+				result: {
+					content: [
+						{
+							type: "text",
+							text: "Keyboard accessibility · W3C\nhttps://www.w3.org/WAI/\nMake every control reachable with the keyboard.",
+						},
+					],
+				},
+			},
+		];
+		const turn: AgentMessage[] = [user];
+		let index = -1;
+		const shell: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
+		write({ type: "message_start", message: shell });
+		write({
+			type: "message_update",
+			message: shell,
+			assistantMessageEvent: {
+				type: "thinking_delta",
+				contentIndex: 0,
+				delta: "Preparing the workspace and checking the implementation.",
+				partial: shell,
+			},
+		});
+		const finishStep = () => {
+			if (index < 0 || index >= steps.length) return;
+			const step = steps[index];
+			const id = `work-view-${index}`;
+			write({
+				type: "tool_execution_end",
+				toolCallId: id,
+				toolName: step.name,
+				result: step.result,
+				isError: false,
+			});
+			const result: AgentMessage = {
+				role: "toolResult",
+				toolCallId: id,
+				toolName: step.name,
+				content: step.result.content,
+				details: step.result.details,
+				timestamp: Date.now(),
+			};
+			appendMessage(result);
+			write({ type: "message_end", message: result });
+			turn.push(result);
+		};
+		advanceWork = () => {
+			finishStep();
+			index++;
+			if (index === steps.length) {
+				const answer: AgentMessage = {
+					role: "assistant",
+					content: [{ type: "text", text: "Live workspace finished" }],
+					timestamp: Date.now(),
+					provider: model.provider,
+					model: model.id,
+					stopReason: "stop",
+				};
+				appendMessage(answer);
+				write({ type: "message_end", message: answer });
+				endTurn([...turn, answer]);
+				advanceWork = undefined;
+				appendWorkOutput = undefined;
+				return;
+			}
+			const step = steps[index];
+			const id = `work-view-${index}`;
+			const call: AgentMessage = {
+				role: "assistant",
+				content: [{ type: "toolCall", id, name: step.name, arguments: step.args }],
+				timestamp: Date.now(),
+				provider: model.provider,
+				model: model.id,
+				stopReason: "toolUse",
+			};
+			write({ type: "message_start", message: call });
+			appendMessage(call);
+			write({ type: "message_end", message: call });
+			turn.push(call);
+			write({ type: "tool_execution_start", toolCallId: id, toolName: step.name, args: step.args });
+			write({
+				type: "tool_execution_update",
+				toolCallId: id,
+				toolName: step.name,
+				args: step.args,
+				partialResult: step.result,
+			});
+			if (step.name === "task") {
+				subagentRoster = ["WorkspaceScout", "WorkspaceReview"].map((name, agentIndex) => ({
+					id: name,
+					index: agentIndex,
+					agent: "scout",
+					status: "running",
+					live: true,
+					parentToolCallId: id,
+					lastUpdate: Date.now(),
+				}));
+				for (const agent of subagentRoster)
+					write({ type: "subagent_lifecycle", payload: { ...agent, agentSource: "bundled", status: "started" } });
+				for (const agent of subagentRoster)
+					write({
+						type: "subagent_progress",
+						payload: {
+							index: agent.index,
+							agent: agent.agent,
+							agentSource: "bundled",
+							parentToolCallId: id,
+							progress: {
+								id: agent.id,
+								index: agent.index,
+								agent: agent.agent,
+								agentSource: "bundled",
+								status: "running",
+								task: "Inspect workspace",
+								lastIntent: agent.index === 0 ? "Reading source files" : "Reviewing keyboard navigation",
+								recentTools: [],
+								recentOutput: [],
+								toolCount: 1,
+								requests: 1,
+								tokens: 10,
+								cost: 0,
+								durationMs: 100,
+							},
+						},
+					});
+			}
+		};
+		appendWorkOutput = () => {
+			if (index !== 0) return;
+			steps[0].result = {
+				content: [
+					{
+						type: "text",
+						text: "$ tsc --noEmit\nChecking renderer components…\nChecking workspace state…\n\u001b[32mAll types are valid\u001b[0m",
+					},
+				],
+			};
+			write({
+				type: "tool_execution_update",
+				toolCallId: "work-view-0",
+				toolName: "bash",
+				args: steps[0].args,
+				partialResult: steps[0].result,
+			});
+		};
+	};
 	const prompt = (message: string, respond: () => void) => {
 		if (message === "fixture hold settings") {
 			holdSettings = true;
@@ -1281,7 +1546,9 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		write({ type: "agent_start" });
 		write({ type: "token_rate", rate: 64 });
 		write({ type: "message_end", message: user });
-		if (message === "fixture reads") {
+		if (message === "fixture work view") {
+			startWorkView(user);
+		} else if (message === "fixture reads") {
 			const targets = ["https://example.com/leaderboard", "xd://lsp", "src/a.ts"];
 			const answer: AgentMessage = {
 				role: "assistant",
@@ -1737,6 +2004,16 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				break;
 			case "bash": {
 				const line = text("command");
+				if (line === "fixture:work-next") {
+					advanceWork?.();
+					ok();
+					break;
+				}
+				if (line === "fixture:work-output") {
+					appendWorkOutput?.();
+					ok();
+					break;
+				}
 				if (line === "fixture:hold-history") {
 					holdHistory = true;
 					ok();
