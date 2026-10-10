@@ -1387,6 +1387,25 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					},
 				],
 			});
+		} else if (message === "fixture long ask") {
+			// One question with many described options: taller than a 2×2 pane.
+			write({
+				type: "extension_ui_request",
+				id: "fixture-long-ask",
+				method: "ask",
+				questions: [
+					{
+						id: "region",
+						header: "Region",
+						question: "Which region should host the release?",
+						multi: true,
+						options: Array.from({ length: 12 }, (_, i) => ({
+							label: `Region ${i + 1}`,
+							description: `Datacenter option ${i + 1} with its own latency and cost profile`,
+						})),
+					},
+				],
+			});
 		} else if (message === "fixture transcript") {
 			const answer: AgentMessage = {
 				role: "assistant",

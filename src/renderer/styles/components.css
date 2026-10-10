@@ -436,6 +436,14 @@
 	container: omp-workspace / size;
 }
 
+/* A question or approval card above the composer. In a split pane it is capped
+   by the pane's own height (the pane is a size container, so 100cqh is the pane),
+   leaving room for the pane header and the composer; its body scrolls and the
+   answer controls stay visible. Outside a pane, cqh falls back to the viewport. */
+.omp-prompt-card {
+	max-height: min(55vh, 38rem, max(9rem, calc(100cqh - 13rem)));
+}
+
 .omp-session-pane--active {
 	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--omp-accent) 62%, transparent);
 }

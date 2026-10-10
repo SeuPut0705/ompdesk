@@ -96,7 +96,7 @@ export function PromptCard({
 		<PromptDock>
 			<section
 				aria-label={label}
-				className="omp-pop-in mb-2 flex max-h-[min(55vh,38rem)] flex-col overflow-hidden rounded-(--sc-radius-xl) border border-(--sc-border-subtle) bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-md) outline-none"
+				className="omp-pop-in omp-prompt-card mb-2 flex flex-col overflow-hidden rounded-(--sc-radius-xl) border border-(--sc-border-subtle) bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-md) outline-none"
 				data-prompt-card
 				onKeyDown={onKeyDown}
 				onPointerDownCapture={focusPane}

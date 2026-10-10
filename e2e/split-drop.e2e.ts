@@ -244,6 +244,33 @@ test("dragging a session previews and splits on the hovered side", async () => {
 			"aria-label",
 			"Session: Replacement session",
 		);
+
+		// A tall question in a quarter pane: the card shrinks to the pane and scrolls,
+		// its answer controls and the composer stay inside the pane.
+		const quarter = page.locator(".omp-session-pane").nth(3);
+		const quarterTab = await quarter.getAttribute("data-tab-id");
+		if (!quarterTab) throw new Error("expected the quarter pane's tab id");
+		await page.evaluate(
+			tabId => window.omp.rpc.commandForTab(tabId, { type: "prompt", message: "fixture long ask" }),
+			quarterTab,
+		);
+		const longAsk = quarter.getByRole("region", { name: "Questions", exact: true });
+		await expect(longAsk).toContainText("Which region should host the release?");
+		const paneBox = await quarter.boundingBox();
+		const submit = longAsk.getByRole("button", { name: "Submit", exact: true });
+		const submitBox = await submit.boundingBox();
+		const composerBox = await quarter.locator("textarea").first().boundingBox();
+		if (!paneBox || !submitBox || !composerBox) throw new Error("expected long-ask boxes");
+		for (const inner of [submitBox, composerBox]) {
+			expect(inner.y).toBeGreaterThanOrEqual(paneBox.y);
+			expect(inner.y + inner.height).toBeLessThanOrEqual(paneBox.y + paneBox.height + 1);
+		}
+		const lastOption = longAsk.locator("[data-choice]").last();
+		await lastOption.scrollIntoViewIfNeeded();
+		await lastOption.click();
+		await submit.click();
+		await expect(longAsk).toHaveCount(0);
+		await expect.poll(() => recorded("fixture-long-ask")).toHaveLength(1);
 		expect(errors).toEqual([]);
 	} finally {
 		await exitApp(app);
