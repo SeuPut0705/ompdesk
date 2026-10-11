@@ -962,7 +962,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			// Same path as Settings' own control: store, then push to the live sessions.
 			return deps.machine.setAccountRotation(payload.value).then(() => undefined);
 		}
-		prefsStore.set(payload.key, payload.value);
+		// `undefined` clears the key: electron-store rejects set(key, undefined) with
+		// "Use `delete()` to clear values", which broke the one-time prompt-history
+		// migration on every launch and with it loading the composer's ↑ history.
+		if (payload.value === undefined) prefsStore.delete(payload.key);
+		else prefsStore.set(payload.key, payload.value);
 		if (replyLanguage) {
 			// Every open session's next turn follows; paired hosts keep their own setting.
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncReplyLanguage();
