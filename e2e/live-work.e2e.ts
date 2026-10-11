@@ -289,7 +289,7 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 		} else {
 			await control("fixture:work-next");
 		}
-		await expect(surface).toHaveCount(0);
+		await expect(page.locator('.omp-live-step[data-following="true"]')).toHaveCount(0);
 		await expect(page.locator(".omp-execution-group-header").first()).toHaveAttribute("aria-expanded", "false");
 		await page.locator(".omp-execution-group-header").first().click();
 		await expect(page.locator(".omp-execution-group-body").first()).toBeVisible();

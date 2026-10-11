@@ -1,10 +1,13 @@
 import { createStore } from "zustand/vanilla";
 import type { AgentMessage, AgentSessionEvent } from "../../shared/rpc-types";
+import { resultDetails } from "../lib/format";
 import { createScopedStoreHook } from "./session-runtime-context";
 
 export interface ToolEntry {
 	toolName: string;
 	args: Record<string, unknown>;
+	/** Stock's execution intent, separate from tool arguments. */
+	intent?: string;
 	/**
 	 * `aborted` is the terminal state of a call that never reported a result:
 	 * the turn was interrupted, or the process died before execution finished.
@@ -20,6 +23,10 @@ export interface ToolEntry {
 	endTime: number | null;
 }
 
+function resultStatus(result: unknown, isError: boolean | undefined): ToolEntry["status"] {
+	return resultDetails(result)?.__interrupted === true ? "aborted" : isError ? "error" : "done";
+}
+
 export interface ToolsStore {
 	/**
 	 * Terminal entries (`done`, `error`, `aborted`) by key. Live events update
@@ -31,6 +38,8 @@ export interface ToolsStore {
 	 */
 	finishedTools: Map<string, ToolEntry>;
 	finishedVersion: number;
+	/** Transcript hydration boundary: returning views wait for this before counting missed work. */
+	hydrationVersion: number;
 	/** Pending/running entries by key: the small live set, replaced when one changes. */
 	liveTools: ReadonlyMap<string, ToolEntry>;
 	/**
@@ -52,6 +61,8 @@ export interface ToolsStore {
 	 */
 	hydrateMessages: (messages: AgentMessage[], options?: { turnIsLive?: boolean; keepChangedSince?: number }) => void;
 	applyEvents: (events: AgentSessionEvent[]) => void;
+	/** Resolve a stock call id to its latest occurrence-specific entry key. */
+	entryKeyForCallId: (id: string) => string;
 	reset: () => void;
 }
 
@@ -174,9 +185,11 @@ export const createToolsStore = () => {
 	return createStore<ToolsStore>()((set, get) => ({
 		finishedTools: new Map(),
 		finishedVersion: 0,
+		hydrationVersion: 0,
 		liveTools: new Map(),
 		partialResults: new Map(),
 		revision: 0,
+		entryKeyForCallId: id => latestEntryKeyByCallId.get(id) ?? id,
 		hydrateMessages: (messages, options) => {
 			const now = Date.now();
 			const since = options?.keepChangedSince;
@@ -220,7 +233,8 @@ export const createToolsStore = () => {
 					tools.set(key, {
 						toolName: block.name,
 						args: block.arguments,
-						status: result ? (result.isError ? "error" : "done") : "aborted",
+						intent: block.intent,
+						status: result ? resultStatus(result, result.isError) : "aborted",
 						streamingArgs: "",
 						// Keep the same `{content, details}` envelope as the live path so
 						// renderers read history identically (details: diffs, exit codes,
@@ -253,7 +267,10 @@ export const createToolsStore = () => {
 				for (const [key, revision] of previousWritten) {
 					if (revision <= since) continue;
 					const entry = selectToolEntry(state, key);
-					if (entry) keep(key, entry);
+					// A persisted terminal result settles a call whose end event was missed.
+					// Preserve fresher wire evidence, not an earlier in-flight placeholder.
+					const settled = tools.get(key)?.result;
+					if (entry && !(settled && (entry.status === "running" || entry.status === "pending"))) keep(key, entry);
 				}
 				// In-flight calls the transcript does not contain yet.
 				for (const [key, entry] of state.liveTools) if (!kept.has(key) && !tools.has(key)) keep(key, entry);
@@ -276,7 +293,12 @@ export const createToolsStore = () => {
 					streamMessageTimestamp = previousStreamTimestamp;
 				}
 			}
-			set({ ...toolEntriesState(tools), finishedVersion: state.finishedVersion + 1, partialResults });
+			set({
+				...toolEntriesState(tools),
+				finishedVersion: state.finishedVersion + 1,
+				hydrationVersion: state.hydrationVersion + 1,
+				partialResults,
+			});
 		},
 		applyEvents: events => {
 			const state = get();
@@ -353,6 +375,7 @@ export const createToolsStore = () => {
 								put(key, {
 									toolName: block.name ?? "unknown",
 									args: {},
+									intent: block.intent,
 									status: "pending",
 									streamingArgs: ame.delta ?? "",
 									result: null,
@@ -373,11 +396,17 @@ export const createToolsStore = () => {
 							queueExecutionKey(block.id, key);
 							const existing = lookup(key);
 							if (existing) {
-								put(key, { ...existing, toolName: block.name, args: block.arguments });
+								put(key, {
+									...existing,
+									toolName: block.name,
+									args: block.arguments,
+									intent: block.intent ?? existing.intent,
+								});
 							} else {
 								put(key, {
 									toolName: block.name,
 									args: block.arguments,
+									intent: block.intent,
 									status: "pending",
 									streamingArgs: "",
 									result: null,
@@ -397,6 +426,7 @@ export const createToolsStore = () => {
 						const existingArgs = lookup(key)?.args;
 						put(key, {
 							toolName: event.toolName,
+							intent: event.intent,
 							args: readTargets.has(event.toolCallId)
 								? { ...event.args, __ompReadGroup: readTargets.get(event.toolCallId) }
 								: existingArgs && "__ompReadGroup" in existingArgs
@@ -430,7 +460,7 @@ export const createToolsStore = () => {
 						if (key && existing) {
 							put(key, {
 								...existing,
-								status: event.isError ? "error" : "done",
+								status: resultStatus(event.result, event.isError),
 								result: event.result,
 								isError: event.isError ?? false,
 								endTime: Date.now(),
@@ -493,6 +523,7 @@ export const createToolsStore = () => {
 			set({
 				finishedTools: new Map(),
 				finishedVersion: state.finishedVersion + 1,
+				hydrationVersion: 0,
 				liveTools: new Map(),
 				partialResults: new Map(),
 				revision: state.revision + 1,

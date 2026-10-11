@@ -7,6 +7,7 @@ import * as net from "node:net";
 import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
 import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from "../src/shared/rpc-types";
+import { type RecordedWorkFrame, rebaseWorkRecording } from "./work-recording";
 
 // A local stand-in for the system omp the GUI drives: stock `--mode rpc-ui` on
 // stdin/stdout, plus the gui-bridge extension's socket (loaded with `-e`,
@@ -433,6 +434,7 @@ if (process.argv[2] === "stats") {
 	let streamTick: (() => void) | undefined;
 	/** get_subagents roster; `fixture:subagents` fills it (running, finished, nested). */
 	let subagentRoster: SubagentSnapshot[] = [];
+	let subagentSubscription = "progress";
 	/** The emitted plan proposal awaiting `plan_approval`, as the bridge's get_plan_mode reports it. */
 	let planProposal: Record<string, unknown> | undefined;
 	let holdSettings = false;
@@ -503,6 +505,7 @@ if (process.argv[2] === "stats") {
 	let protocolVersion = 1;
 	let chunkSequence = 0;
 	const write = (frame: object) => {
+		if ("type" in frame && frame.type === "subagent_event" && subagentSubscription !== "events") return;
 		const json = JSON.stringify(frame);
 		const bytes = Buffer.from(json, "utf8");
 		if (protocolVersion < 2 || bytes.byteLength <= MAX_FRAME_BYTES) {
@@ -1260,6 +1263,56 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 	// current surface. This avoids racing screenshots against fixture timers.
 	let advanceWork: (() => void) | undefined;
 	let appendWorkOutput: (() => void) | undefined;
+	let recording: RecordedWorkFrame[] = [];
+	let recordingCursor = 0;
+	const recordedMessages = new Map<string, AgentMessage[]>();
+	const replayRecordedWork = async () => {
+		const end = recordingCursor === 0 ? 260 : recordingCursor === 261 ? 284 : recording.length - 1;
+		let previous = recording[recordingCursor]?.atMs ?? 0;
+		for (; recordingCursor <= end; recordingCursor++) {
+			const item = recording[recordingCursor];
+			const delay = item.atMs - previous;
+			if (delay > 0) await new Promise<void>(resolve => setTimeout(resolve, delay));
+			previous = item.atMs;
+			if (item.channel === "main") {
+				for (const event of item.events) {
+					if (event.type === "message_end") appendMessage(event.message);
+					write(event);
+				}
+			} else {
+				const frame = item.frame;
+				if (frame.type === "subagent_lifecycle") {
+					const p = frame.payload;
+					const existing = subagentRoster.find(node => node.id === p.id);
+					const node: SubagentSnapshot = {
+						...existing,
+						id: p.id,
+						index: p.index,
+						agent: p.agent,
+						agentSource: p.agentSource,
+						status: p.status === "started" ? "running" : p.status,
+						parentToolCallId: p.parentToolCallId,
+						sessionFile: p.sessionFile,
+						lastUpdate: Date.now(),
+					};
+					if (existing) Object.assign(existing, node);
+					else subagentRoster.push(node);
+				} else if (frame.type === "subagent_progress") {
+					const node = subagentRoster.find(node => node.id === frame.payload.progress.id);
+					if (node)
+						Object.assign(node, { status: frame.payload.progress.status, progress: frame.payload.progress });
+				} else if (frame.payload.event.type === "message_end") {
+					const messages = recordedMessages.get(frame.payload.id) ?? [];
+					messages.push(frame.payload.event.message);
+					recordedMessages.set(frame.payload.id, messages);
+				}
+				write(frame);
+			}
+		}
+		// The audit captured both real yields but stopped before the main reply.
+		// Close fixture playback; never manufacture an assistant answer.
+		if (recordingCursor === recording.length) endTurn([]);
+	};
 	const startWorkView = (user: AgentMessage) => {
 		const screenshot = Buffer.from(
 			'<svg xmlns="http://www.w3.org/2000/svg" width="720" height="320" viewBox="0 0 720 320"><rect width="720" height="320" fill="#faf9f6"/><rect width="720" height="38" fill="#eceae5"/><circle cx="20" cy="19" r="5" fill="#b8b3a9"/><text x="44" y="24" font-family="sans-serif" font-size="12" fill="#69665e">example.com · Workspace</text><text x="48" y="94" font-family="sans-serif" font-size="28" fill="#35332e">Project overview</text><text x="48" y="124" font-family="sans-serif" font-size="14" fill="#827d73">A calm workspace for the next step.</text><rect x="48" y="158" width="288" height="110" rx="8" fill="#efede7"/><rect x="358" y="158" width="314" height="110" rx="8" fill="#efede7"/><text x="70" y="192" font-family="sans-serif" font-size="15" fill="#69665e">Implementation</text><text x="380" y="192" font-family="sans-serif" font-size="15" fill="#69665e">Review</text><text x="70" y="228" font-family="sans-serif" font-size="12" fill="#827d73">Ready to continue</text><text x="380" y="228" font-family="sans-serif" font-size="12" fill="#827d73">Reading source files</text></svg>',
@@ -1272,8 +1325,11 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		const steps: WorkFixtureStep[] = [
 			{
 				name: "bash",
-				args: { command: "bun run check:types" },
-				result: { content: [{ type: "text", text: "$ tsc --noEmit\nChecking renderer components…" }] },
+				args: { command: "bun run check:types", intent: "Checking the workspace types" },
+				result: {
+					content: [{ type: "text", text: "$ tsc --noEmit\nChecking renderer components…" }],
+					details: { exitCode: 0 },
+				},
 			},
 			{
 				name: "write",
@@ -1402,6 +1458,50 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			if (index < 0 || index >= steps.length) return;
 			const step = steps[index];
 			const id = `work-view-${index}`;
+			if (step.name === "task") {
+				step.result.details = {
+					results: subagentRoster.map(agent => ({
+						id: agent.id,
+						agent: agent.agent,
+						output: "Workspace has 5 lines.",
+						exitCode: 0,
+					})),
+				};
+				for (const agent of subagentRoster) {
+					agent.status = "completed";
+					const messages = recordedMessages.get(agent.id) ?? [];
+					messages.push({
+						role: "toolResult",
+						toolCallId: `${agent.id}-bash`,
+						toolName: "bash",
+						content: [{ type: "text", text: `5 src/workspace.ts · ${agent.id}` }],
+						details: { exitCode: 0 },
+						isError: false,
+						timestamp: Date.now(),
+					});
+					recordedMessages.set(agent.id, messages);
+					write({
+						type: "subagent_event",
+						payload: {
+							id: agent.id,
+							event: {
+								type: "tool_execution_end",
+								toolCallId: `${agent.id}-bash`,
+								toolName: "bash",
+								result: {
+									content: [{ type: "text", text: `5 src/workspace.ts · ${agent.id}` }],
+									details: { exitCode: 0 },
+								},
+								isError: false,
+							},
+						},
+					});
+					write({
+						type: "subagent_lifecycle",
+						payload: { ...agent, agentSource: "bundled", status: "completed" },
+					});
+				}
+			}
 			write({
 				type: "tool_execution_end",
 				toolCallId: id,
@@ -1474,35 +1574,105 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				}));
 				for (const agent of subagentRoster)
 					write({ type: "subagent_lifecycle", payload: { ...agent, agentSource: "bundled", status: "started" } });
-				for (const agent of subagentRoster)
+				for (const agent of subagentRoster) {
+					recordedMessages.set(agent.id, [
+						{
+							role: "assistant",
+							timestamp: Date.now(),
+							content: [
+								{
+									type: "toolCall",
+									id: `${agent.id}-bash`,
+									name: "bash",
+									arguments: { command: "wc -l src/workspace.ts", intent: "Counting workspace lines" },
+								},
+							],
+						},
+					]);
+					agent.progress = {
+						id: agent.id,
+						index: agent.index,
+						agent: agent.agent,
+						agentSource: "bundled",
+						status: "running",
+						task: "Inspect workspace",
+						lastIntent: agent.index === 0 ? "Reading source files" : "Reviewing keyboard navigation",
+						currentTool: "bash",
+						currentToolArgs: JSON.stringify({ command: "wc -l src/workspace.ts" }),
+						currentToolIntent: agent.index === 0 ? "Reading source files" : "Reviewing keyboard navigation",
+						recentTools: [],
+						recentOutput: [],
+						toolCount: 1,
+						requests: 1,
+						tokens: 10,
+						cost: 0,
+						durationMs: 100,
+					};
 					write({
 						type: "subagent_progress",
 						payload: {
 							index: agent.index,
 							agent: agent.agent,
 							agentSource: "bundled",
+							task: "Inspect workspace",
 							parentToolCallId: id,
-							progress: {
-								id: agent.id,
-								index: agent.index,
-								agent: agent.agent,
-								agentSource: "bundled",
-								status: "running",
-								task: "Inspect workspace",
-								lastIntent: agent.index === 0 ? "Reading source files" : "Reviewing keyboard navigation",
-								recentTools: [],
-								recentOutput: [],
-								toolCount: 1,
-								requests: 1,
-								tokens: 10,
-								cost: 0,
-								durationMs: 100,
-							},
+							progress: agent.progress,
 						},
 					});
+				}
 			}
 		};
 		appendWorkOutput = () => {
+			if (index === 3) {
+				for (const agent of subagentRoster) {
+					if (agent.progress) {
+						agent.progress = {
+							...agent.progress,
+							currentToolIntent: "Counting source lines",
+							toolCount: 2,
+							tokens: 84,
+							durationMs: 1200,
+						};
+						write({
+							type: "subagent_progress",
+							payload: {
+								index: agent.index,
+								agent: agent.agent,
+								agentSource: "bundled",
+								task: "Inspect workspace",
+								parentToolCallId: agent.parentToolCallId,
+								progress: agent.progress,
+							},
+						});
+					}
+					write({
+						type: "subagent_event",
+						payload: {
+							id: agent.id,
+							event: {
+								type: "tool_execution_start",
+								toolCallId: `${agent.id}-bash`,
+								toolName: "bash",
+								args: { command: "wc -l src/workspace.ts", intent: "Counting workspace lines" },
+							},
+						},
+					});
+					write({
+						type: "subagent_event",
+						payload: {
+							id: agent.id,
+							event: {
+								type: "tool_execution_update",
+								toolCallId: `${agent.id}-bash`,
+								toolName: "bash",
+								args: { command: "wc -l src/workspace.ts" },
+								partialResult: { content: [{ type: "text", text: `5 src/workspace.ts · ${agent.id}` }] },
+							},
+						},
+					});
+				}
+				return;
+			}
 			if (index !== 0) return;
 			steps[0].result = {
 				content: [
@@ -1511,6 +1681,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						text: "$ tsc --noEmit\nChecking renderer components…\nChecking workspace state…\n\u001b[32mAll types are valid\u001b[0m",
 					},
 				],
+				details: { exitCode: 0 },
 			};
 			write({
 				type: "tool_execution_update",
@@ -1548,6 +1719,13 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		write({ type: "message_end", message: user });
 		if (message === "fixture work view") {
 			startWorkView(user);
+		} else if (message === "fixture real work replay") {
+			recording = JSON.parse(
+				fs.readFileSync(nodePath.join(import.meta.dir, "fixtures/real-live-work.json"), "utf8"),
+			) as RecordedWorkFrame[];
+			rebaseWorkRecording(recording);
+			recordingCursor = 0;
+			void replayRecordedWork();
 		} else if (message === "fixture reads") {
 			const targets = ["https://example.com/leaderboard", "xd://lsp", "src/a.ts"];
 			const answer: AgentMessage = {
@@ -1837,9 +2015,12 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				break;
 			case "set_event_filter":
 			case "set_ask_dialog":
-			case "set_subagent_subscription":
 			case "set_host_tools":
 			case "set_host_uri_schemes":
+				ok();
+				break;
+			case "set_subagent_subscription":
+				subagentSubscription = text("level");
 				ok();
 				break;
 			case "get_state":
@@ -1866,6 +2047,12 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			case "get_subagents":
 				ok({ subagents: subagentRoster });
 				break;
+			case "get_subagent_messages": {
+				const id = text("subagentId");
+				const messages = recordedMessages.get(id) ?? [];
+				ok({ messages, entries: [], fromByte: 0, nextByte: 0, reset: false });
+				break;
+			}
 			case "get_available_models":
 				ok({ models: catalogModels() });
 				break;
@@ -2004,6 +2191,11 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				break;
 			case "bash": {
 				const line = text("command");
+				if (line === "fixture:replay-next") {
+					void replayRecordedWork();
+					ok();
+					break;
+				}
 				if (line === "fixture:work-next") {
 					advanceWork?.();
 					ok();

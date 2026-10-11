@@ -1,11 +1,22 @@
+import type { StoreApi } from "zustand/vanilla";
 import { createStore } from "zustand/vanilla";
-import type { SubagentFrame, SubagentSnapshot } from "../../shared/rpc-types";
+import type { AgentMessage, SubagentFrame, SubagentSnapshot } from "../../shared/rpc-types";
+import { reportedOutputTokens } from "../lib/turn-meter";
 import { activeTabCommand, createScopedStoreHook, type TabCommand } from "./session-runtime-context";
+import { createToolsStore, type ToolsStore } from "./tools";
 
 export type SubagentNode = SubagentSnapshot;
 
 export interface SubagentsStore {
 	subagents: Map<string, SubagentNode>;
+	surfaces: Map<string, StoreApi<ToolsStore>>;
+	surface: (id: string) => StoreApi<ToolsStore>;
+	hydrateSurface: (id: string) => Promise<void>;
+	surfaceVersion: number;
+	/** Provider-reported output seen before the next stock progress snapshot. */
+	observedTokens: Map<string, number>;
+	/** Visible expanded surfaces; hydration must not downgrade their event stream. */
+	eventConsumers: number;
 	/** Why the roster could not be read. Rows stay on screen when set; an empty
 	    roster plus an error is "couldn't load", never "nothing spawned". */
 	error: string | null;
@@ -84,8 +95,70 @@ function sameValue(a: unknown, b: unknown): boolean {
 
 export const createSubagentsStore = (command: TabCommand = activeTabCommand) => {
 	let refreshVersion = 0;
+	const hydrations = new Map<string, { completed: boolean; toolCount: number; load: Promise<void> }>();
+	const observedUsage = new Map<string, Map<AgentMessage["timestamp"], number>>();
+	const captureOutput = (id: string, message: AgentMessage): number => {
+		if (message.role !== "assistant") return 0;
+		const tokens = reportedOutputTokens(message);
+		if (!tokens) return 0;
+		let usage = observedUsage.get(id);
+		if (!usage) {
+			usage = new Map();
+			observedUsage.set(id, usage);
+		}
+		const previous = usage.get(message.timestamp) ?? 0;
+		if (tokens <= previous) return 0;
+		usage.set(message.timestamp, tokens);
+		return tokens - previous;
+	};
 	return createStore<SubagentsStore>()((set, get) => ({
 		subagents: new Map(),
+		surfaces: new Map(),
+		eventConsumers: 0,
+		surfaceVersion: 0,
+		observedTokens: new Map(),
+		surface: id => {
+			const existing = get().surfaces.get(id);
+			if (existing) return existing;
+			const store = createToolsStore();
+			set({ surfaces: new Map(get().surfaces).set(id, store) });
+			return store;
+		},
+		hydrateSurface: id => {
+			const existing = hydrations.get(id);
+			const tools = get().surface(id);
+			const node = get().subagents.get(id);
+			const completed = !!node && node.status !== "running" && node.status !== "pending";
+			const toolCount = node?.progress?.toolCount ?? 0;
+			const observed = tools.getState();
+			const missing =
+				toolCount > observed.finishedTools.size + observed.liveTools.size ||
+				(completed && observed.liveTools.size > 0);
+			// Snapshot once on first expansion; replay a gap only at a new mount or completion.
+			// No timer, no progress-frame polling, and no repeated completion fetch.
+			if (existing && (!missing || existing.completed || (!completed && existing.toolCount >= toolCount)))
+				return existing.load;
+			const load = command({ type: "get_subagent_messages", subagentId: id }).then(response => {
+				if (!response.success) throw new Error(response.error);
+				const data = response.data as { messages?: AgentMessage[] } | undefined;
+				if (!data?.messages) return;
+				const status = get().subagents.get(id)?.status;
+				tools.getState().hydrateMessages(data.messages, {
+					// Persisted messages can lag events already observed before this one-time fetch.
+					keepChangedSince: 0,
+					turnIsLive: status === "running" || status === "pending",
+				});
+				const tokens = data.messages.reduce((total, message) => total + captureOutput(id, message), 0);
+				set(state => ({
+					surfaceVersion: state.surfaceVersion + 1,
+					observedTokens: tokens
+						? new Map(state.observedTokens).set(id, (state.observedTokens.get(id) ?? 0) + tokens)
+						: state.observedTokens,
+				}));
+			});
+			hydrations.set(id, { completed, toolCount, load });
+			return load;
+		},
 		error: null,
 		applyFrame: frame => {
 			// Copy-on-first-write: a progress frame without an id leaves the map
@@ -93,6 +166,27 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 			let subagents: Map<string, SubagentNode> | null = null;
 
 			switch (frame.type) {
+				case "subagent_event": {
+					const surface = get().surface(frame.payload.id);
+					const version = surface.getState().revision;
+					surface.getState().applyEvents([frame.payload.event]);
+					const event = frame.payload.event;
+					const tokens =
+						event.type === "message_update" || event.type === "message_end"
+							? captureOutput(frame.payload.id, event.message)
+							: 0;
+					if (surface.getState().revision !== version || tokens)
+						set(state => ({
+							surfaceVersion: state.surfaceVersion + 1,
+							observedTokens: tokens
+								? new Map(state.observedTokens).set(
+										frame.payload.id,
+										(state.observedTokens.get(frame.payload.id) ?? 0) + tokens,
+									)
+								: state.observedTokens,
+						}));
+					break;
+				}
 				case "subagent_lifecycle": {
 					const p = frame.payload;
 					subagents = new Map(get().subagents);
@@ -213,7 +307,16 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 		},
 		reset: () => {
 			refreshVersion++;
-			set({ subagents: new Map(), error: null });
+			hydrations.clear();
+			observedUsage.clear();
+			set({
+				subagents: new Map(),
+				surfaces: new Map(),
+				observedTokens: new Map(),
+				surfaceVersion: 0,
+				eventConsumers: 0,
+				error: null,
+			});
 		},
 	}));
 };

@@ -38,7 +38,7 @@ function asOp(value: unknown): EditOp | undefined {
 	return value === "create" || value === "delete" || value === "update" ? value : undefined;
 }
 
-function asPerFileResults(value: unknown): EditPerFileResult[] {
+export function asPerFileResults(value: unknown): EditPerFileResult[] {
 	if (!Array.isArray(value)) return [];
 	const out: EditPerFileResult[] = [];
 	for (const entry of value) {

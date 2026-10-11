@@ -1532,6 +1532,7 @@ export interface AgentProgress {
 	assignment?: string;
 	description?: string;
 	lastIntent?: string;
+	currentToolIntent?: string;
 	currentTool?: string;
 	currentToolArgs?: string;
 	currentToolStartMs?: number;

@@ -161,13 +161,14 @@ function parseBashResult(result: unknown, isError: boolean | undefined): BashPar
 }
 
 /** Bash: command line, terminal-style output, exit-code badge, stats footer. */
-export function BashRenderer({ args, result, isError, isPartial, partialResult }: ToolRendererProps) {
+export function BashRenderer({ args, result, isError, isPartial, partialResult, livePreview }: ToolRendererProps) {
 	const t = useT();
 	const command = typeof args.command === "string" ? args.command : "";
 	const effective = isPartial ? partialResult : result;
 	const parsed = parseBashResult(effective, isError);
 	const images = extractImageDataUrls(effective);
 	const hasOutput = parsed.output.length > 0;
+	const outputLines = livePreview ? parsed.output.split("\n") : null;
 
 	return (
 		<div className="flex flex-col gap-1.5">
@@ -202,7 +203,18 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult }
 						)}
 					>
 						<div className="whitespace-pre-wrap">
-							{hasAnsi(parsed.output) ? <AnsiText text={parsed.output} /> : parsed.output}
+							{outputLines ? (
+								outputLines.map((line, index) => (
+									<span className="omp-work-line" key={`${index}:${line}`}>
+										{hasAnsi(line) ? <AnsiText text={line} /> : line}
+										{index < outputLines.length - 1 ? "\n" : ""}
+									</span>
+								))
+							) : hasAnsi(parsed.output) ? (
+								<AnsiText text={parsed.output} />
+							) : (
+								parsed.output
+							)}
 						</div>
 					</div>
 				)}

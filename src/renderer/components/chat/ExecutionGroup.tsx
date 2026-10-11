@@ -2,11 +2,13 @@ import { ChevronRight, CircleCheck, CircleX } from "lucide-react";
 import type { ReactNode } from "react";
 import { cx, formatDuration } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useSubagentsStore } from "../../stores/subagents";
 import { selectToolEntry, useToolsStore } from "../../stores/tools";
 import { Spinner } from "../common";
 import { getToolActivity, type ToolActivity } from "../tools/index";
 import { LiveStepPeek } from "./LiveStepPeek";
 import { LiveTurnMeter, OutputMeter } from "./TurnOutputMeter";
+import { WorkOutcome } from "./WorkOutcome";
 
 interface ExecutionGroupProps {
 	children: ReactNode;
@@ -56,12 +58,17 @@ export function ExecutionGroup({
 	const encoded = useToolsStore(s => {
 		let running = 0;
 		let failed = 0;
+		let skipped = 0;
 		let start = Number.POSITIVE_INFINITY;
 		let end = 0;
 		const counts: Record<ToolActivity, number> = { read: 0, edit: 0, run: 0, search: 0, other: 0 };
 		for (const id of toolCallIds) {
 			const entry = selectToolEntry(s, id);
 			if (!entry) continue;
+			if (entry.status === "aborted") {
+				skipped++;
+				continue;
+			}
 			if (entry.status === "pending" || entry.status === "running") running++;
 			else if (entry.status === "error" || entry.isError) failed++;
 			const { activity, files } = getToolActivity(entry.toolName, entry.args);
@@ -70,12 +77,24 @@ export function ExecutionGroup({
 			end = Math.max(end, entry.endTime ?? 0);
 		}
 		const span = Number.isFinite(start) && end > start ? end - start : 0;
-		return [running, failed, span, ...ACTIVITY_ORDER.map(activity => counts[activity])].join(":");
+		return [running, failed, skipped, span, ...ACTIVITY_ORDER.map(activity => counts[activity])].join(":");
 	});
-	const [running = 0, toolFailures = 0, spanMs = 0, ...activityCounts] = encoded.split(":").map(Number);
+	const [running = 0, toolFailures = 0, skipped = 0, spanMs = 0, ...activityCounts] = encoded.split(":").map(Number);
+	const resolveKey = useToolsStore(s => s.entryKeyForCallId);
+	const agentState = useSubagentsStore(s => {
+		let count = 0;
+		let running = 0;
+		for (const node of s.subagents.values()) {
+			if (!node.parentToolCallId || !toolCallIds.includes(resolveKey(node.parentToolCallId))) continue;
+			count++;
+			if (node.status === "running" || node.status === "pending") running++;
+		}
+		return `${count}:${running}`;
+	});
+	const [agentCount = 0, runningAgents = 0] = agentState.split(":").map(Number);
 	const failed = toolFailures + failureCount;
 
-	const active = live || running > 0;
+	const active = live || running > 0 || runningAgents > 0;
 	const state = active ? "running" : failed > 0 ? "failed" : "complete";
 
 	const activities = ACTIVITY_ORDER.flatMap((activity, index) => {
@@ -86,17 +105,20 @@ export function ExecutionGroup({
 	});
 	// `live` with nothing executing = the model is preparing the next step:
 	// keep the spinner, but don't claim a tool is running.
-	const plural = stepCount === 1 ? "" : "s";
+	const totalSteps = Math.max(0, stepCount - skipped);
+	const plural = totalSteps === 1 ? "" : "s";
 	const summary =
 		state === "failed"
-			? t("chat.process.statusFailed", { failed, total: stepCount, plural })
+			? t("chat.process.statusFailed", { failed, total: totalSteps, plural })
 			: state === "running" && running > 0
-				? t("chat.process.statusRunning", { running, total: stepCount, plural })
-				: activities.length > 0
-					? activities.join(" · ")
-					: state === "running"
-						? t("chat.process.statusWorking", { total: stepCount, plural })
-						: t("chat.process.statusComplete", { total: stepCount, plural });
+				? t("chat.process.statusRunning", { running, total: totalSteps, plural })
+				: state === "complete" && activityCounts.slice(0, -1).every(count => count === 0)
+					? t("chat.process.statusComplete", { total: totalSteps, plural })
+					: activities.length > 0
+						? activities.join(" · ")
+						: state === "running"
+							? t("chat.process.statusWorking", { total: totalSteps, plural })
+							: t("chat.process.statusComplete", { total: totalSteps, plural });
 	const duration = state !== "running" && spanMs > 0 ? formatDuration(spanMs) : null;
 
 	return (
@@ -148,11 +170,11 @@ export function ExecutionGroup({
 					)}
 				/>
 			</button>
-			{expanded ? (
-				<div className="omp-execution-group-body">{children}</div>
-			) : state === "running" ? (
-				<LiveStepPeek thinkingLive={thinkingLive} toolCallIds={toolCallIds} />
+			{state === "running" || agentCount > 0 ? (
+				<LiveStepPeek thinkingLive={thinkingLive} toolCallIds={toolCallIds} turnIsLive={state === "running"} />
 			) : null}
+			{expanded ? <div className="omp-execution-group-body">{children}</div> : null}
+			{state !== "running" && agentCount === 0 ? <WorkOutcome toolCallIds={toolCallIds} /> : null}
 		</section>
 	);
 }

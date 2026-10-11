@@ -17,7 +17,7 @@ import {
 } from "./session-runtime-context";
 import { createSettingsStore } from "./settings";
 import { createSubagentGraphStore } from "./subagent-graph";
-import { createSubagentsStore } from "./subagents";
+import { createSubagentsStore, type SubagentsStore } from "./subagents";
 import { createTodoStore } from "./todo";
 import { createToolsStore } from "./tools";
 
@@ -48,6 +48,14 @@ export function createTabRuntime(tabId: string): SessionRuntime {
 	const command = async (rpcCommand: RpcCommand, timeoutMs?: number): Promise<RpcResponse> => {
 		// An old dialog/continuation must not send a mutation to this tab's new owner.
 		if (sessionRuntime(tabId) !== runtime) return replacedSessionResponse(rpcCommand);
+		// Hydration reasserts progress; keep events while an inline surface owns a lease.
+		if (
+			rpcCommand.type === "set_subagent_subscription" &&
+			rpcCommand.level === "progress" &&
+			(sessionRuntimeStore<SubagentsStore>(tabId, "subagents")?.getState().eventConsumers ?? 0) > 0
+		) {
+			rpcCommand = { ...rpcCommand, level: "events" };
+		}
 		const changesSession = SESSION_CHANGING_COMMANDS.has(rpcCommand.type);
 		if (changesSession) generation++;
 		const requestGeneration = generation;
