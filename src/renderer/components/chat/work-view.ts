@@ -46,6 +46,26 @@ export function lastReasoningSentence(text: string): string {
 	);
 }
 
+/**
+ * The headline of a final reply: its first sentence as plain text. A reply's
+ * opening states the result; its last sentence is often a caveat. Inline
+ * markdown marks are dropped because the head renders plain text.
+ */
+export function replyHeadline(text: string): string {
+	const plain = text
+		.replace(/^\s*(?:#{1,6}\s+|[-*+]\s+|\d+\.\s+|>\s+)/gm, "")
+		.replace(/`([^`]*)`/g, "$1")
+		.replace(/(\*\*|__)(.+?)\1/g, "$2")
+		.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+		.trim();
+	return (
+		plain
+			.split(/(?<=[.!?。])\s+|\n+/)
+			.find(part => part.trim())
+			?.trim() ?? ""
+	);
+}
+
 export function isSkippedWork(entry: ToolEntry | undefined): boolean {
 	return resultDetails(entry?.result)?.source === "interrupt_skipped";
 }
@@ -71,7 +91,7 @@ export function workConclusion(
 					.filter(block => block.type === "text")
 					.map(block => block.text)
 					.join("\n");
-				if (text.trim()) conclusion = lastReasoningSentence(text);
+				if (text.trim()) conclusion = replyHeadline(text);
 			}
 		}
 	}

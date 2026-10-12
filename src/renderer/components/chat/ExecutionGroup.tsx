@@ -120,15 +120,17 @@ export function ExecutionGroup({
 			? t("chat.process.statusFailed", { failed, total: totalSteps, plural })
 			: state === "running" && running > 0
 				? t("chat.process.statusRunning", { running, total: totalSteps, plural })
-				: state === "complete" && interrupted > 0
-					? t("chat.process.statusInterrupted", { interrupted, total: totalSteps, plural })
-					: state === "complete" && activityCounts.slice(0, -1).every(count => count === 0)
-						? t("chat.process.statusComplete", { total: totalSteps, plural })
-						: activities.length > 0
-							? activities.join(" · ")
-							: state === "running"
-								? t("chat.process.statusWorking", { total: totalSteps, plural })
-								: t("chat.process.statusComplete", { total: totalSteps, plural });
+				: state === "running" && runningAgents > 0
+					? t("chat.process.statusAgents", { count: runningAgents, plural: runningAgents === 1 ? "" : "s" })
+					: state === "complete" && interrupted > 0
+						? t("chat.process.statusInterrupted", { interrupted, total: totalSteps, plural })
+						: state === "complete" && activityCounts.slice(0, -1).every(count => count === 0)
+							? t("chat.process.statusComplete", { total: totalSteps, plural })
+							: activities.length > 0
+								? activities.join(" · ")
+								: state === "running"
+									? t("chat.process.statusWorking", { total: totalSteps, plural })
+									: t("chat.process.statusComplete", { total: totalSteps, plural });
 	const duration = state !== "running" && spanMs > 0 ? formatDuration(spanMs) : null;
 
 	return (
@@ -189,7 +191,11 @@ export function ExecutionGroup({
 				/>
 			</button>
 			{state === "running" || agentCount > 0 ? (
-				<LiveStepPeek thinkingLive={thinkingLive} toolCallIds={toolCallIds} turnIsLive={state === "running"} />
+				<LiveStepPeek
+					thinkingLive={thinkingLive}
+					toolCallIds={toolCallIds}
+					state={state === "complete" && interrupted > 0 ? "interrupted" : state}
+				/>
 			) : null}
 			{expanded ? <div className="omp-execution-group-body">{children}</div> : null}
 			{state !== "running" && agentCount === 0 ? <WorkOutcome toolCallIds={toolCallIds} /> : null}

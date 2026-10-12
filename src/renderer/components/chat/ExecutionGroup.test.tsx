@@ -400,12 +400,18 @@ describe("ExecutionGroup", () => {
 		expect(container.querySelector(".omp-live-step-scroll")?.textContent).toContain("Live search result");
 	});
 
-	it("shows each task agent's current activity from the subagents store", async () => {
+	it("shows each detached task agent's activity on its lane and counts the group by its agents", async () => {
 		useToolsStore.setState(
 			toolEntriesState([
 				[
 					"task",
-					{ ...toolEntry("running"), toolName: "task", args: { tasks: [{ name: "Scout", task: "Find code" }] } },
+					// Stock returns a detached task call at once; only its agents keep running.
+					{
+						...toolEntry("running"),
+						toolName: "task",
+						args: { tasks: [{ name: "Scout", task: "Find code" }] },
+						status: "done",
+					},
 				],
 			]),
 		);
@@ -437,7 +443,48 @@ describe("ExecutionGroup", () => {
 			},
 		]);
 		await mount(["task"], true);
-		expect(container.querySelector("[data-agent-work]")?.textContent).toContain("Scout");
-		expect(container.querySelector("[data-agent-work]")?.textContent).toContain("Reading source files");
+		// The agent's lane carries its activity; the task tool's own list would only repeat it.
+		expect(container.querySelector(".omp-work-card-button")?.textContent).toContain("Scout");
+		expect(container.querySelector(".omp-work-card-button")?.textContent).toContain("Reading source files");
+		expect(container.querySelector("[data-agent-work]")).toBeNull();
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 agent working");
+	});
+
+	it("reports a cancelled task with an agent as interrupted, never as completed work", async () => {
+		// A finished agent's transcript is fetched once for the outcome; an empty one is enough here.
+		Object.assign(window, { omp: { rpc: { command: async () => ({ success: true, data: { messages: [] } }) } } });
+		useToolsStore.setState(
+			toolEntriesState([
+				[
+					"task",
+					{
+						...toolEntry("running"),
+						toolName: "task",
+						args: { tasks: [{ name: "Scout", task: "Find code" }] },
+						status: "aborted",
+						isError: true,
+						endTime: 20,
+					},
+				],
+			]),
+		);
+		useSubagentsStore.getState().setSnapshots([
+			{
+				id: "Scout",
+				index: 0,
+				agent: "scout",
+				agentSource: "project",
+				status: "cancelled",
+				lastUpdate: 1,
+				parentToolCallId: "task",
+			},
+		]);
+		await mount(["task"]);
+		const work = container.querySelector(".omp-live-step");
+		expect(work?.getAttribute("data-state")).toBe("stopped");
+		expect(work?.querySelector(".omp-work-narrative")?.textContent).toBe("Work interrupted");
+		expect(work?.querySelector(".omp-work-head [role='img']")?.getAttribute("aria-label")).toBe("cancelled");
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toMatch(/^1 interrupted · /);
+		expect(container.textContent).not.toContain("Work complete");
 	});
 });

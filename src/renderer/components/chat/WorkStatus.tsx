@@ -3,6 +3,23 @@ import { cx } from "../../lib/format";
 
 export type WorkState = "running" | "pending" | "complete" | "failed" | "stopped";
 
+/** How a work group (or one agent's lane) ended, resolved once by its owner. */
+export type WorkGroupState = "running" | "failed" | "interrupted" | "complete";
+
+export function agentGroupState(status: string | undefined): WorkGroupState {
+	switch (status) {
+		case "running":
+		case "pending":
+			return "running";
+		case "failed":
+			return "failed";
+		case "cancelled":
+			return "interrupted";
+		default:
+			return "complete";
+	}
+}
+
 /** Maps a stock subagent status onto the four shapes the work view draws. */
 export function agentWorkState(status: string | undefined): WorkState {
 	switch (status) {

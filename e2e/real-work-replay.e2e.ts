@@ -123,7 +123,9 @@ test("actual stock frames preserve live and completed agent replay without false
 		await expect(surface).toBeVisible();
 		await expect(surface).toHaveAttribute("data-running", "false");
 		await expect(surface).toHaveAttribute("data-surface", "yield");
-		await expect(work).toHaveAttribute("data-outcome", "false");
+		// A finished group keeps its outcome under an open lane.
+		await expect(work).toHaveAttribute("data-outcome", "true");
+		await expect(work.locator(":scope > .omp-work-outcome")).toBeVisible();
 		// Opening a lane is not a replay: no "back" control on the group.
 		await expect(work.locator(":scope > .omp-live-work-strip .omp-live-work-follow")).toHaveCount(0);
 		await capture("completed-last-step");

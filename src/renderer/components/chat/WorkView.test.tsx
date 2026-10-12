@@ -142,7 +142,21 @@ describe("live work", () => {
 				[],
 				id => id === "parent",
 			),
-		).toBe("It has twelve lines.");
+		).toBe("Inspected the file.");
+	});
+	it("heads the outcome with the reply's opening as plain text, not its closing caveat", () => {
+		const reply =
+			"Both agents **finished**: `alpha.txt` has 3 lines.\n\n- Note: I could not confirm `@smol` was used.";
+		expect(
+			workConclusion(
+				[
+					{ role: "toolResult", toolCallId: "parent", content: [] },
+					{ role: "assistant", content: [{ type: "text", text: reply }] },
+				],
+				[],
+				id => id === "parent",
+			),
+		).toBe("Both agents finished: alpha.txt has 3 lines.");
 	});
 	it("uses observed tools and reported usage while stock progress still reports zero", async () => {
 		const store = useSubagentsStore.getState();
@@ -211,7 +225,7 @@ describe("live work", () => {
 		await act(async () =>
 			root.render(
 				<I18nProvider>
-					<LiveStepPeek thinkingLive={false} toolCallIds={["parent", "skipped"]} turnIsLive={false} />
+					<LiveStepPeek thinkingLive={false} toolCallIds={["parent", "skipped"]} state="complete" />
 				</I18nProvider>,
 			),
 		);
@@ -341,7 +355,7 @@ describe("live work", () => {
 		await act(async () =>
 			root.render(
 				<I18nProvider>
-					<LiveStepPeek thinkingLive={false} toolCallIds={["parent"]} turnIsLive={false} />
+					<LiveStepPeek thinkingLive={false} toolCallIds={["parent"]} state="complete" />
 				</I18nProvider>,
 			),
 		);

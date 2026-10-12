@@ -184,9 +184,11 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 			} else if (kind === "write" || kind === "read") {
 				await expect(content).toContainText("title: 'Live work'");
 			} else if (kind === "task") {
-				await expect(content).toContainText("WorkspaceScout");
-				await expect(content).toContainText("Reading source files");
-				await expect(content).toContainText("Reviewing keyboard navigation");
+				// Agent lanes are the task's surface; the task tool's own list is not repeated below them.
+				const lanes = surface.locator(".omp-work-card-button");
+				await expect(lanes.filter({ hasText: "WorkspaceScout" })).toContainText("Reading source files");
+				await expect(lanes.filter({ hasText: "WorkspaceReview" })).toContainText("Reviewing keyboard navigation");
+				await expect(content).toHaveCount(0);
 			} else if (kind === "wait") {
 				await expect(surface.locator(".omp-work-sub")).toContainText("Waiting for");
 				await expect(content).toHaveCount(0);

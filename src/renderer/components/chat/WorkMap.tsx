@@ -9,7 +9,7 @@ import { activeTabCommand, useSessionRuntime } from "../../stores/session-runtim
 import { type SubagentsStore, useSubagentsStore } from "../../stores/subagents";
 import { selectToolEntry, type ToolsStore, useToolsStore } from "../../stores/tools";
 import { LiveStepPeek } from "./LiveStepPeek";
-import { agentWorkState, WorkStatus } from "./WorkStatus";
+import { agentGroupState, agentWorkState, WorkStatus } from "./WorkStatus";
 import { agentResultSummary, workNarrative, workOutcomes } from "./work-view";
 
 function progressArgs(progress?: AgentProgress): Record<string, unknown> {
@@ -62,7 +62,7 @@ function SubagentSurface({ id, store }: { id: string; store: StoreApi<SubagentsS
 				toolCallIds={JSON.parse(key) as string[]}
 				thinkingLive={false}
 				toolsOverride={tools}
-				turnIsLive={store.getState().subagents.get(id)?.status === "running"}
+				state={agentGroupState(store.getState().subagents.get(id)?.status)}
 				nested
 			/>
 		</>
@@ -119,9 +119,13 @@ export function WorkMap({
 			})
 			.join("\u0001"),
 	);
-	const nodes = [...store.getState().subagents.values()].filter(
-		node => node.parentToolCallId && toolCallIds.includes(tools.getState().entryKeyForCallId(node.parentToolCallId)),
-	);
+	// Stock's spawn index, so lanes keep the order the task listed them in whichever reports first.
+	const nodes = [...store.getState().subagents.values()]
+		.filter(
+			node =>
+				node.parentToolCallId && toolCallIds.includes(tools.getState().entryKeyForCallId(node.parentToolCallId)),
+		)
+		.sort((a, b) => a.index - b.index);
 	void key;
 	const conclusions = workOutcomes(
 		toolCallIds.flatMap(id => {
@@ -167,8 +171,16 @@ export function WorkMap({
 					const activity = running
 						? progress?.currentTool
 							? workNarrative(progress.currentTool, args, t, progress)
-							: (progress?.lastIntent ?? node.description ?? node.task ?? "")
-						: (conclusions.find(item => item.name === node.id)?.summary ?? t("chat.work.completed"));
+							: // The raw assignment is a model prompt, not a status line; its full text stays on the agent's page.
+								(progress?.lastIntent ?? node.description ?? t("chat.work.starting"))
+						: (conclusions.find(item => item.name === node.id)?.summary ??
+							t(
+								node.status === "failed"
+									? "chat.work.failed"
+									: node.status === "cancelled"
+										? "chat.work.interrupted"
+										: "chat.work.completed",
+							));
 					const target = running && typeof args.target === "string" && args.target !== activity ? args.target : "";
 					const observed = store.getState().surfaces.get(node.id)?.getState();
 					const toolCount = Math.max(

@@ -16,7 +16,7 @@ import { ToolPathTarget } from "../tools/ToolCard";
 import { collapseWaitSteps, selectLiveStep } from "./live-step";
 import { WorkMap } from "./WorkMap";
 import { WorkOutcome } from "./WorkOutcome";
-import { WorkStatus } from "./WorkStatus";
+import { type WorkGroupState, type WorkState, WorkStatus } from "./WorkStatus";
 import { isSkippedWork, lastReasoningSentence, workConclusion, workNarrative } from "./work-view";
 
 const seenSteps = new WeakMap<
@@ -35,14 +35,16 @@ export function LiveStepPeek({
 	toolCallIds,
 	toolsOverride,
 	nested = false,
-	turnIsLive = true,
+	state = "running",
 }: {
 	thinkingLive: boolean;
 	toolCallIds: readonly string[];
 	toolsOverride?: StoreApi<ToolsStore>;
 	nested?: boolean;
-	turnIsLive?: boolean;
+	/** The owner's resolved state (ExecutionGroup's summary, or the lane's agent); never recomputed here. */
+	state?: WorkGroupState;
 }) {
+	const turnIsLive = state === "running";
 	const t = useT();
 	const runtime = useSessionRuntime();
 	const tools = toolsOverride ?? (runtime?.stores.get("tools") as StoreApi<ToolsStore> | undefined) ?? useToolsStore;
@@ -89,7 +91,14 @@ export function LiveStepPeek({
 				: workConclusion(state.messages, state.liveMessages, id =>
 						toolCallIds.includes(tools.getState().entryKeyForCallId(id)),
 					),
-		) || t("chat.work.completed");
+		) ||
+		t(
+			state === "failed"
+				? "chat.work.failed"
+				: state === "interrupted"
+					? "chat.work.interrupted"
+					: "chat.work.completed",
+		);
 	// Only the chosen entry/result is subscribed: unrelated partial results are ignored.
 	const entry = useFrameSelector(tools, s => (selected ? selectToolEntry(s, selected) : undefined));
 	const partial = useFrameSelector(tools, s => (selected ? s.partialResults.get(selected) : undefined));
@@ -100,7 +109,8 @@ export function LiveStepPeek({
 	const previousStep = useRef(selected);
 	const header = entry ? getToolHeader(entry.toolName, entry.args) : null;
 	const following = validReplay === null;
-	const outcomeMode = !nested && !turnIsLive && following && expandedAgent === null;
+	// A finished group always states its outcome, also while one agent lane stays open.
+	const outcomeMode = !nested && !turnIsLive && following;
 	const live = following && turnIsLive;
 	const kind = selected === "thinking" ? "thinking" : (header?.tool ?? "thinking");
 	const latest = kind === "bash" || kind === "eval" || kind === "write" || kind === "edit" || kind === "ast_edit";
@@ -121,19 +131,6 @@ export function LiveStepPeek({
 		lastOutput.current = { selected, partial, time: Date.now() };
 	}
 	const silentSeconds = Math.floor(Math.max(0, now - lastOutput.current.time) / 1000);
-	// Head figures: failure and the group's start, skipped waits excluded.
-	const groupStats = useFrameSelector(tools, s => {
-		let failed = 0;
-		let start = Number.POSITIVE_INFINITY;
-		for (const id of toolCallIds) {
-			const item = selectToolEntry(s, id);
-			if (!item || isSkippedWork(item)) continue;
-			if (item.status === "error" || (item.isError && item.status !== "aborted")) failed = 1;
-			start = Math.min(start, item.startTime);
-		}
-		return `${failed}:${Number.isFinite(start) ? start : 0}`;
-	});
-	const [groupFailed = 0, groupStart = 0] = groupStats.split(":").map(Number);
 	const waitingFor = useFrameSelector(subagents, s =>
 		nested || !turnIsLive
 			? ""
@@ -146,6 +143,16 @@ export function LiveStepPeek({
 					)
 					.map(node => node.id)
 					.join(", "),
+	);
+	const hasLanes = useFrameSelector(
+		subagents,
+		s =>
+			!nested &&
+			[...s.subagents.values()].some(
+				node =>
+					!!node.parentToolCallId &&
+					toolCallIds.includes(tools.getState().entryKeyForCallId(node.parentToolCallId)),
+			),
 	);
 	const groupKey = toolCallIds[0] ?? "thinking";
 	useEffect(() => {
@@ -244,9 +251,12 @@ export function LiveStepPeek({
 	const Icon = header?.icon ?? Brain;
 	const calmWait = kind === "wait" && !entry?.isError && entry?.status !== "error" && entry?.status !== "aborted";
 	const motion = !reducedMotion;
-	// Top level, the head carries thinking and calm waits; the surface is for real tool output.
+	// Top level, the head carries thinking and calm waits, and agent lanes are the task's own surface:
+	// the surface below is for real tool output only.
 	const showSurface =
-		!outcomeMode && expandedAgent === null && (nested || !following || (!!entry && kind !== "thinking" && !calmWait));
+		!outcomeMode &&
+		expandedAgent === null &&
+		(nested || !following || (!!entry && kind !== "thinking" && !calmWait && !(kind === "task" && hasLanes)));
 	const narrative =
 		!nested && !turnIsLive
 			? completion
@@ -260,11 +270,16 @@ export function LiveStepPeek({
 			: kind === "thinking" && turnIsLive
 				? lastReasoningSentence(reasoning)
 				: calmWait && live
-					? `${t("chat.work.waiting")} · ${formatDuration(Math.max(0, now - startTime))}`
+					? t("chat.work.waiting")
 					: "";
-	const headState = turnIsLive ? "running" : groupFailed ? "failed" : "complete";
-	// Counts and the final span already sit on the group summary; the head adds the running clock.
-	const headMeta = turnIsLive && groupStart > 0 ? formatDuration(Math.max(0, now - groupStart)) : "";
+	const headState: WorkState = state === "interrupted" ? "stopped" : state;
+	// One clock: the current step's elapsed time, or the no-output warning for a silent command.
+	const stalled = running && (kind === "bash" || kind === "eval") && silentSeconds > 10;
+	const headMeta = running
+		? stalled
+			? t("chat.work.stalled", { seconds: silentSeconds })
+			: formatDuration(Math.max(0, now - startTime))
+		: "";
 	return (
 		<div
 			className={cx("omp-live-step", motion && "omp-work-motion")}
@@ -281,11 +296,13 @@ export function LiveStepPeek({
 					<WorkStatus
 						state={headState}
 						label={t(
-							headState === "running"
+							state === "running"
 								? "subagent.status.started"
-								: headState === "failed"
+								: state === "failed"
 									? "subagent.status.failed"
-									: "subagent.status.completed",
+									: state === "interrupted"
+										? "subagent.status.cancelled"
+										: "subagent.status.completed",
 						)}
 						motion={motion}
 					/>
@@ -299,7 +316,11 @@ export function LiveStepPeek({
 							</div>
 						) : null}
 					</div>
-					{headMeta ? <span className="omp-work-head-meta">{headMeta}</span> : null}
+					{headMeta ? (
+						<span className="omp-work-head-meta omp-work-clock" data-stalled={stalled} role="status">
+							{headMeta}
+						</span>
+					) : null}
 				</div>
 			) : null}
 			{catchUp > 0 ? (
@@ -341,16 +362,6 @@ export function LiveStepPeek({
 						{!following ? (
 							<span className="omp-live-work-mode" data-mode="replay">
 								{t("chat.work.replay")}
-							</span>
-						) : running && (kind === "bash" || kind === "eval") ? (
-							<span
-								className="omp-live-work-mode omp-work-clock"
-								data-stalled={silentSeconds > 10}
-								role="status"
-							>
-								{silentSeconds > 10
-									? t("chat.work.stalled", { seconds: silentSeconds })
-									: formatDuration(Math.max(0, now - startTime))}
 							</span>
 						) : null}
 					</div>
