@@ -312,10 +312,12 @@ describe("ExecutionGroup", () => {
 		});
 		expect(container.querySelector(".omp-live-step")?.getAttribute("data-surface")).toBe("bash");
 		expect(container.querySelector(".omp-live-step")?.getAttribute("data-following")).toBe("true");
-		expect(container.querySelectorAll(".omp-live-work-strip button")).toHaveLength(3);
+		// Following draws no "live" label: the strip holds only the two steps.
+		expect(container.querySelectorAll(".omp-live-work-strip button")).toHaveLength(2);
+		expect(container.querySelector(".omp-live-work-follow")).toBeNull();
 	});
 
-	it("collapses consecutive identical waits to one elapsed line and one chip", async () => {
+	it("collapses consecutive identical waits to one elapsed line in the head and one chip", async () => {
 		useToolsStore.setState(
 			toolEntriesState([
 				[
@@ -326,9 +328,10 @@ describe("ExecutionGroup", () => {
 			]),
 		);
 		await mount(["wait-1", "wait-2"], true);
-		expect(container.querySelectorAll("[data-wait-line]")).toHaveLength(1);
+		// A calm wait has no output of its own: the head says it, no empty surface is drawn.
+		expect(container.querySelector(".omp-work-surface")).toBeNull();
 		expect(container.querySelectorAll("[data-step-id]")).toHaveLength(1);
-		expect(container.querySelector("[data-wait-line]")?.textContent).toContain("Waiting for background activity");
+		expect(container.querySelector(".omp-work-sub")?.textContent).toContain("Waiting for background activity");
 	});
 
 	it("shows an editor and screenshot surfaces using the shared renderers", async () => {

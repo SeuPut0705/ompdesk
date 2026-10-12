@@ -678,7 +678,7 @@ function SessionTranscript() {
 						<p className="mt-2 max-w-xl text-sc-lg text-(--sc-text-muted)">
 							{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
 						</p>
-						<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-2.5 max-sm:grid-cols-1">
+						<div className="omp-starter-grid mt-8 grid auto-rows-fr grid-cols-2 gap-(--sc-space-3) max-sm:grid-cols-1">
 							{starters.map(({ icon: Icon, title, prompt }) => (
 								<button
 									key={title}
@@ -695,7 +695,7 @@ function SessionTranscript() {
 									</span>
 									<span className="min-w-0">
 										<span className="block text-sc-md font-medium text-(--sc-text)">{title}</span>
-										<span className="mt-0.5 line-clamp-2 block text-sc-sm text-(--sc-text-muted)">
+										<span className="omp-starter-description mt-0.5 line-clamp-2 text-sc-sm text-(--sc-text-muted)">
 											{prompt}
 										</span>
 									</span>

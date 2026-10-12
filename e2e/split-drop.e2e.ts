@@ -245,6 +245,26 @@ test("dragging a session previews and splits on the hovered side", async () => {
 			"Session: Replacement session",
 		);
 
+		// Welcome panes own their scroll: shrinking a four-pane workspace must
+		// keep the heading at the top instead of tail-pinning to its last card.
+		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1000, 720));
+		await expect
+			.poll(() =>
+				page.locator(".omp-empty-canvas").evaluateAll(elements =>
+					elements.every(element => {
+						const heading = element.querySelector("h1");
+						return heading !== null && heading.getBoundingClientRect().top >= element.getBoundingClientRect().top;
+					}),
+				),
+			)
+			.toBe(true);
+		for (const welcome of await page.locator(".omp-empty-canvas").all()) {
+			await expect(welcome.locator(".omp-starter-card")).toHaveCount(4);
+			await welcome.locator(".omp-starter-card").last().focus();
+			await expect(welcome.locator(".omp-starter-card").last()).toBeInViewport();
+		}
+		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900));
+
 		// A tall question in a quarter pane while its composer is at its tallest (a
 		// multiline draft plus an attached image): the card shrinks to the room left,
 		// its answer controls and the whole composer stay inside the pane.

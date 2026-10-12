@@ -37,7 +37,7 @@ test("inline work cards stream tool evidence, catch up and retain outcomes witho
 		const input = page.locator("textarea").first();
 		await input.fill("fixture work view");
 		await input.press("Enter");
-		await expect(page.locator(".omp-live-work-calm")).toContainText("Preparing the workspace");
+		await expect(page.locator(".omp-work-sub")).toContainText("Preparing the workspace");
 		const tab = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId;
 		if (!tab) throw new Error("Missing work tab");
 		const advance = () =>
@@ -105,8 +105,13 @@ test("inline work cards stream tool evidence, catch up and retain outcomes witho
 		await expect(page.locator(".omp-work-outcome")).toBeVisible();
 		await page.locator(".omp-work-outcome summary").click();
 		await expect(page.locator(".omp-work-outcome")).toContainText("src/workspace.ts");
-		await expect(page.locator(".omp-work-outcome")).toContainText("Passed · exit 0");
-		await expect(page.locator(".omp-work-outcome")).toContainText("Workspace has 5 lines.");
+		await expect(page.locator('.omp-work-outcome li[data-kind="command"] [role="img"]').first()).toHaveAttribute(
+			"aria-label",
+			"Passed",
+		);
+		await expect(page.locator(".omp-work-outcome")).not.toContainText("exit 0");
+		// Agent conclusions live on their lanes, not repeated in the outcome.
+		await expect(page.locator(".omp-work-card-button").first()).toContainText("Workspace has 5 lines.");
 		await expect(page.locator(".omp-work-outcome summary")).toContainText("3 commands");
 		await expect(page.locator(".omp-work-outcome li").filter({ hasText: "wc -l src/workspace.ts" })).toHaveCount(2);
 		await capture("outcome");

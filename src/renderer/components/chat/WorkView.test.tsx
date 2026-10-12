@@ -217,9 +217,10 @@ describe("live work", () => {
 		);
 		expect(container.querySelector(".omp-live-step")?.getAttribute("data-outcome")).toBe("true");
 		expect(container.querySelector(".omp-work-narrative")?.textContent).toBe("Work complete");
-		expect(container.querySelector(".omp-work-main-card .omp-work-card-activity")?.textContent).toBe("Work complete");
+		expect(container.querySelector(".omp-live-step")?.getAttribute("data-state")).toBe("complete");
 		expect(container.querySelector(".omp-work-card-button")?.textContent).toContain("Twelve lines.");
-		expect(container.querySelector(".omp-work-outcome")).not.toBeNull();
+		// The lane already states the agent's conclusion; an outcome with nothing else stays out.
+		expect(container.querySelector(".omp-work-outcome")).toBeNull();
 		expect(container.querySelector(".omp-live-work-heading")).toBeNull();
 		expect(container.querySelectorAll(".omp-live-work-chips button")).toHaveLength(1);
 		expect(container.textContent).not.toContain("Skipped due to");
@@ -316,7 +317,7 @@ describe("live work", () => {
 		expect(commands.at(-1)).toEqual({ type: "set_subagent_subscription", level: "progress" });
 		expect(commands.filter(command => command.type === "get_subagent_messages")).toHaveLength(1);
 	});
-	it("keeps completed cards expandable and replays their command without an event lease", async () => {
+	it("keeps completed cards expandable and shows their command without an event lease", async () => {
 		const tools = useSubagentsStore.getState().surface(progress.id);
 		tools.getState().applyEvents([
 			{
@@ -348,16 +349,12 @@ describe("live work", () => {
 		await flush();
 		expect(container.querySelector(".omp-work-card .omp-live-step")).not.toBeNull();
 		expect(container.textContent).toContain("12 a.ts");
-		expect(container.querySelector(".omp-work-card .omp-live-work-follow")?.textContent).toContain("Latest");
-		expect(container.querySelector(".omp-work-card .omp-live-work-follow")?.getAttribute("aria-pressed")).toBe(
-			"true",
-		);
+		expect(container.querySelector(".omp-work-card .omp-live-step")?.getAttribute("data-surface")).toBe("bash");
+		// One step has nothing to replay: the lane draws no strip of its own.
+		expect(container.querySelector(".omp-work-card .omp-live-work-strip")).toBeNull();
 		expect(
 			commands.filter(command => command.type === "set_subagent_subscription" && command.level === "events"),
 		).toHaveLength(0);
-		await act(async () => container.querySelector<HTMLButtonElement>(".omp-work-card .omp-live-work-chip")?.click());
-		expect(container.querySelector(".omp-work-card .omp-live-step")?.getAttribute("data-surface")).toBe("bash");
-		expect(container.querySelector(".omp-work-card .omp-live-work-mode")?.textContent).toBe("Replay");
 		expect(commands.filter(command => command.type === "get_subagent_messages")).toHaveLength(1);
 	});
 	it("classifies stock interrupt_skipped as aborted, not failed or completed work", async () => {
@@ -457,8 +454,9 @@ describe("live work", () => {
 				</I18nProvider>,
 			),
 		);
-		expect(container.textContent).toContain("wc -l a.ts · Succeeded");
-		expect(container.textContent).toContain("Wall time 3.0s");
+		const row = container.querySelector('li[data-kind="command"]');
+		expect(row?.querySelector('[role="img"]')?.getAttribute("aria-label")).toBe("Succeeded");
+		expect(row?.textContent).toBe("wc -l a.ts 3.0s");
 	});
 	it.each([true, false])(
 		"hydrates a completion gap once, but not fully observed events (missing=%s)",
@@ -561,8 +559,13 @@ describe("live work", () => {
 				</I18nProvider>,
 			),
 		);
-		expect(container.textContent).toContain("Succeeded · Wall time 3");
-		expect(container.textContent).toContain("Status unknown");
+		const rows = [...container.querySelectorAll('li[data-kind="command"]')];
+		expect(rows.map(row => row.querySelector('[role="img"]')?.getAttribute("aria-label"))).toEqual([
+			"Succeeded",
+			"Status unknown",
+		]);
+		expect(rows[0]?.textContent).toBe("wc -l a.ts 3.0s");
+		expect(rows[1]?.textContent).toContain("Status unknown");
 		expect(container.textContent).not.toContain("exit 0");
 	});
 	it("summarizes changed files, exit statuses and task conclusions without a new diff engine", () => {
@@ -653,10 +656,17 @@ describe("live work", () => {
 				</I18nProvider>,
 			),
 		);
-		expect(container.textContent).toContain("a.ts +2 −0");
-		expect(container.textContent).toContain("Passed · exit 0");
-		expect(container.textContent).toContain("Failed · exit 1");
-		expect(container.textContent).toContain("LineCounter · Two lines.");
+		expect(container.querySelector('li[data-kind="file"]')?.textContent).toBe("a.ts +2 −0");
+		const commands = [...container.querySelectorAll('li[data-kind="command"]')];
+		expect(commands.map(row => row.querySelector('[role="img"]')?.getAttribute("aria-label"))).toEqual([
+			"Passed",
+			"Failed",
+		]);
+		// Exit 0 is the check mark; only a failing code is spelled out.
+		expect(commands[0]?.textContent).toBe("bun test ");
+		expect(commands[1]?.textContent).toBe("false exit 1");
+		expect(container.querySelector("summary")?.textContent).toContain("1 failed");
+		expect(container.querySelector('li[data-kind="agent"]')?.textContent).toBe("LineCounter Two lines.");
 		expect(container.querySelector("details")?.hasAttribute("open")).toBe(false);
 		await act(async () => useUiStore.getState().setTranscriptDetail("full"));
 		expect(container.querySelector("details")?.hasAttribute("open")).toBe(true);

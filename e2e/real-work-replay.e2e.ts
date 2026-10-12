@@ -78,12 +78,15 @@ test("actual stock frames preserve live and completed agent replay without false
 		await expect(cards.first()).not.toContainText("0 tokens");
 		const work = page.locator(".omp-execution-group > .omp-live-step");
 		await expect(work.locator(".omp-live-step-scroll:visible")).toHaveCount(1);
-		await expect(work.locator(".omp-work-map")).toHaveCSS("overflow-y", "hidden");
-		const rowBox = await work.locator(".omp-work-cards").boundingBox();
+		// The open lane hangs its agent's surface directly beneath its own row.
+		await expect(work.locator('.omp-work-card[data-open="true"]')).toHaveCount(1);
+		const rowBox = await cards.first().boundingBox();
 		const surfaceBox = await surface.boundingBox();
-		if (!rowBox || !surfaceBox) throw new Error("Missing compact card geometry");
+		if (!rowBox || !surfaceBox) throw new Error("Missing lane geometry");
 		expect(rowBox.y + rowBox.height).toBeLessThanOrEqual(surfaceBox.y);
-		await expect(work.locator(".omp-work-card-activity:visible")).toHaveCount(0);
+		const nextBox = await cards.nth(1).boundingBox();
+		if (!nextBox) throw new Error("Missing second lane");
+		expect(surfaceBox.y + surfaceBox.height).toBeLessThanOrEqual(nextBox.y);
 		await capture("expanded-live");
 		await advance();
 		await expect(surface).toContainText("3 alpha.txt");
@@ -95,8 +98,8 @@ test("actual stock frames preserve live and completed agent replay without false
 		await expect(page.locator(".omp-execution-group-summary")).toHaveText("2 steps complete");
 		await expect(page.locator(".omp-execution-group-duration")).toHaveText(/^· [1-9]\d*(?:\.\d+)?s$/);
 		await expect(page.locator(".omp-execution-group-header")).toContainText("408 tokens");
-		await expect(work.locator(":scope > .omp-work-narrative")).toHaveText("Work complete");
-		await expect(work.locator(".omp-work-main-card .omp-work-card-activity")).toHaveText("Work complete");
+		await expect(work.locator(".omp-work-head .omp-work-narrative")).toHaveText("Work complete");
+		await expect(work).toHaveAttribute("data-state", "complete");
 		await expect(cards.first()).toContainText("alpha.txt contains 3 lines.");
 		await expect(cards.nth(1)).toContainText("beta.txt contains 2 lines.");
 		await expect(work).toHaveAttribute("data-outcome", "true");
@@ -112,31 +115,30 @@ test("actual stock frames preserve live and completed agent replay without false
 		await expect(outcome).toContainText("AlphaCounter");
 		await expect(outcome).toContainText("BetaCounter");
 		await expect(outcome.locator("li").filter({ hasText: "sleep 3" })).toHaveCount(2);
-		await expect(outcome.locator("li").filter({ hasText: "Succeeded · Wall time" })).toHaveCount(2);
+		await expect(outcome.locator('li[data-kind="command"] [role="img"][aria-label="Succeeded"]')).toHaveCount(2);
 		await expect(outcome.locator("li").filter({ hasText: "exit 0" })).toHaveCount(0);
-		await expect(outcome).toContainText("alpha.txt contains 3 lines.");
-		await expect(outcome).toContainText("beta.txt contains 2 lines.");
+		await expect(outcome.locator('li[data-kind="agent"]')).toHaveCount(0);
 		await capture("complete");
 		await cards.first().click();
 		await expect(surface).toBeVisible();
 		await expect(surface).toHaveAttribute("data-running", "false");
 		await expect(surface).toHaveAttribute("data-surface", "yield");
 		await expect(work).toHaveAttribute("data-outcome", "false");
-		await expect(work.locator(":scope > .omp-live-work-strip .omp-live-work-follow")).toHaveAttribute(
-			"aria-pressed",
-			"false",
-		);
+		// Opening a lane is not a replay: no "back" control on the group.
+		await expect(work.locator(":scope > .omp-live-work-strip .omp-live-work-follow")).toHaveCount(0);
 		await capture("completed-last-step");
 		await surface.getByRole("button", { name: /Run command/ }).click();
 		await expect(surface).toHaveAttribute("data-surface", "bash");
 		await expect(surface).toContainText("3 alpha.txt");
 		await capture("completed-replay");
-		await work.locator(":scope > .omp-live-work-strip .omp-live-work-follow").click();
+		await cards.first().click();
 		await expect(work).toHaveAttribute("data-outcome", "true");
 		await expect(surface).toHaveCount(0);
 		await work.locator(":scope > .omp-live-work-strip .omp-live-work-chips button").last().click();
 		await expect(work).toHaveAttribute("data-outcome", "false");
-		await expect(work.locator(":scope > .omp-live-step-scroll")).toContainText("Waiting for background activity");
+		await expect(work.locator(":scope > .omp-work-surface .omp-live-step-scroll")).toContainText(
+			"Waiting for background activity",
+		);
 		await expect(work).not.toContainText("Skipped due to");
 		await work.locator(":scope > .omp-live-work-strip .omp-live-work-follow").click();
 		await expect(work).toHaveAttribute("data-outcome", "true");

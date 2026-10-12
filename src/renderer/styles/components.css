@@ -468,7 +468,7 @@
 }
 
 .omp-workspace-main {
-	--omp-column-pad: clamp(16px, 3vw, 40px);
+	--omp-column-pad: clamp(var(--sc-space-4), 3cqw, var(--sc-space-10));
 	--omp-column-reading: 60rem;
 	--omp-column-workspace: 104rem;
 }
@@ -495,8 +495,8 @@
 
 /* Surface policy card: the single content-card recipe (hairline, no fill). */
 .omp-card {
-	border: 1px solid var(--omp-border-muted);
-	border-radius: 0.75rem;
+	border: 1px solid var(--sc-divider);
+	border-radius: var(--sc-radius-lg);
 	background: transparent;
 }
 
@@ -841,54 +841,329 @@
 	color: var(--sc-text-muted);
 }
 
-/* One quiet, bounded in-chat work surface. Tool renderers retain their own
-   semantic code/diff paint; the surrounding content stays transparent. */
+/* Live work card: one hairline card under a running (or agent) group's summary.
+   Head (status, what is happening now, counts) → agent lanes → the current
+   step's own surface, sized to its content → a quiet replay strip. Content
+   stays colorless; only state marks (status, failures, diff counts) carry
+   color. Tool renderers keep their own code/diff paint. */
 .omp-live-step {
+	position: relative;
 	display: flex;
 	flex-direction: column;
-	box-sizing: border-box;
 	min-width: 0;
-	height: 280px;
-	min-height: 176px;
-	max-height: max(176px, 48cqh);
-	margin: var(--sc-space-1) 0 var(--sc-space-1-5)
-		calc(var(--sc-space-1-5) + var(--sc-icon-sm) + var(--sc-space-2));
+	margin: var(--sc-space-1) 0 var(--sc-space-2) calc(var(--sc-space-1-5) + var(--sc-icon-sm) + var(--sc-space-2));
 	border: 1px solid var(--sc-divider);
-	border-radius: var(--sc-radius-md);
+	border-radius: var(--sc-radius-lg);
 	overflow: hidden;
 }
-.omp-live-step:has(.omp-work-map) { height: 400px; }
-.omp-work-main-card { display: flex; flex-direction: column; gap: var(--sc-space-1); padding: var(--sc-space-2); }
+
+/* Running: a thin light sweeps along the top edge (static under reduced motion). */
+.omp-live-step[data-state="running"]::before {
+	content: "";
+	position: absolute;
+	inset: 0 0 auto;
+	height: 2px;
+	background: linear-gradient(90deg, transparent, var(--sc-accent), transparent) no-repeat;
+	background-size: 40% 100%;
+	background-position: 50% 0;
+	opacity: 0.55;
+	pointer-events: none;
+}
+
+.omp-live-step[data-nested="true"] {
+	margin: 0;
+	border: 0;
+	border-radius: 0;
+	overflow: visible;
+}
+
+/* Head ─────────────────────────────────────────────────────────────── */
+.omp-work-head {
+	--omp-work-head-line: calc(var(--sc-font-lg) * var(--sc-leading-snug));
+	display: grid;
+	grid-template-columns: var(--sc-icon-sm) minmax(0, 1fr) auto;
+	align-items: start;
+	column-gap: var(--sc-space-2);
+	padding: var(--sc-space-2) var(--sc-space-3);
+}
+
+.omp-work-head > .omp-work-status {
+	margin-block-start: calc((var(--omp-work-head-line) - var(--sc-icon-sm)) / 2);
+}
+
+.omp-work-head-text {
+	min-width: 0;
+}
+
+.omp-work-narrative {
+	overflow: hidden;
+	color: var(--sc-text);
+	font-size: var(--sc-font-lg);
+	font-weight: var(--sc-weight-medium);
+	line-height: var(--sc-leading-snug);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.omp-work-sub {
+	display: -webkit-box;
+	margin-block-start: var(--sc-space-0-5);
+	overflow: hidden;
+	color: var(--sc-text-muted);
+	font-size: var(--sc-font-sm);
+	line-height: var(--sc-leading-snug);
+	overflow-wrap: anywhere;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+}
+
+.omp-work-head-meta {
+	margin-block-start: calc((var(--omp-work-head-line) - var(--sc-font-xs) * var(--sc-leading-snug)) / 2);
+	color: var(--sc-text-subtle);
+	font-size: var(--sc-font-xs);
+	line-height: var(--sc-leading-snug);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.omp-work-catch-up {
+	align-self: flex-start;
+	margin: calc(var(--sc-space-1) * -1) var(--sc-space-3) var(--sc-space-2)
+		calc(var(--sc-space-3) + var(--sc-icon-sm) + var(--sc-space-2));
+	padding: var(--sc-space-0-5) var(--sc-space-2);
+	border-radius: var(--sc-radius-full);
+	background: var(--sc-accent-soft);
+	color: var(--sc-accent);
+	font-size: var(--sc-font-xs);
+	font-weight: var(--sc-weight-medium);
+}
+
+.omp-work-catch-up:hover {
+	color: var(--sc-accent-hover);
+}
+
+/* Status mark (head, lanes, outcome rows) ────────────────────────────── */
+.omp-work-status {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: var(--sc-icon-sm);
+	height: var(--sc-icon-sm);
+	color: var(--sc-text-subtle);
+}
+
+.omp-work-status > svg {
+	width: 100%;
+	height: 100%;
+	stroke-width: 2.5;
+}
+
+.omp-work-status:is([data-state="running"], [data-state="pending"])::before {
+	content: "";
+	width: 7px;
+	height: 7px;
+	box-sizing: border-box;
+	border-radius: var(--sc-radius-full);
+}
+
+.omp-work-status[data-state="running"]::before {
+	background: var(--sc-accent);
+}
+
+.omp-work-status[data-state="pending"]::before {
+	border: 1.5px solid var(--sc-text-subtle);
+}
+
+.omp-work-status[data-state="complete"] {
+	color: var(--sc-success);
+}
+
+.omp-work-status[data-state="failed"] {
+	color: var(--sc-danger);
+}
+
+.omp-work-status.omp-work-pulse {
+	animation: none;
+}
+
+.omp-work-status.omp-work-pulse::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: var(--sc-radius-full);
+	background: var(--sc-accent);
+	opacity: 0;
+	animation: omp-work-ring calc(var(--sc-duration-slow) * 5) var(--sc-ease-standard) infinite;
+}
+
+/* Agent lanes ─────────────────────────────────────────────────────────── */
+.omp-work-map {
+	container: omp-work-map / inline-size;
+	padding: 0 var(--sc-space-1-5) var(--sc-space-1-5);
+}
+
+.omp-work-cards {
+	display: grid;
+	gap: 1px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.omp-work-card {
+	min-width: 0;
+}
+
+.omp-work-card-button {
+	display: grid;
+	grid-template-columns: var(--sc-icon-sm) minmax(0, max-content) minmax(0, 1fr) auto var(--sc-icon-sm);
+	align-items: center;
+	column-gap: var(--sc-space-2);
+	width: 100%;
+	min-height: var(--sc-control-md);
+	padding: var(--sc-space-1) var(--sc-space-1-5);
+	border-radius: var(--sc-radius-md);
+	font-size: var(--sc-font-sm);
+	text-align: start;
+	transition: background-color var(--sc-duration-instant) var(--sc-ease-standard);
+}
+
+.omp-work-card-button:hover {
+	background: var(--sc-hover);
+}
+
+.omp-work-card[data-open="true"] > .omp-work-card-button {
+	background: var(--sc-selected);
+}
+
+.omp-work-card-name {
+	max-width: 16ch;
+	overflow: hidden;
+	color: var(--sc-text);
+	font-weight: var(--sc-weight-medium);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.omp-work-card-activity {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--sc-text-secondary);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.omp-work-card[data-status="completed"] .omp-work-card-activity {
+	color: var(--sc-text);
+}
+
+.omp-work-card-target {
+	margin-inline-start: var(--sc-space-1-5);
+	color: var(--sc-text-subtle);
+	font-family: var(--sc-font-mono);
+	font-size: var(--sc-font-xs);
+}
+
+.omp-work-card-progress {
+	color: var(--sc-text-subtle);
+	font-size: var(--sc-font-xs);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.omp-work-card-chevron {
+	width: var(--sc-icon-sm);
+	height: var(--sc-icon-sm);
+	color: var(--sc-text-subtle);
+	transition: transform var(--sc-duration-fast) var(--sc-ease-standard);
+}
+
+.omp-work-card-button:hover .omp-work-card-chevron {
+	color: var(--sc-text-muted);
+}
+
+/* A narrow lane puts what the agent is doing on its own line. */
+@container omp-work-map (max-width: 440px) {
+	.omp-work-card-button {
+		grid-template-columns: var(--sc-icon-sm) minmax(0, 1fr) auto var(--sc-icon-sm);
+		row-gap: var(--sc-space-0-5);
+	}
+	.omp-work-card-activity {
+		grid-row: 2;
+		grid-column: 2 / -1;
+	}
+	.omp-work-card-name {
+		max-width: none;
+	}
+}
+
+/* An open lane hangs its agent's surface off a hairline under the status mark. */
+.omp-work-lane-surface {
+	margin: var(--sc-space-1) 0 var(--sc-space-1-5) calc(var(--sc-space-1-5) + var(--sc-icon-sm) / 2);
+	padding-inline-start: calc(var(--sc-icon-sm) / 2 + var(--sc-space-2));
+	border-inline-start: 1px solid var(--sc-divider);
+}
+
+/* Current step surface ─────────────────────────────────────────────────── */
+.omp-work-surface {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	border-top: 1px solid var(--sc-divider);
+}
+
+.omp-live-step[data-nested="true"] > .omp-work-surface {
+	border-top: 0;
+}
 
 .omp-live-work-heading {
 	display: flex;
 	align-items: center;
-	gap: var(--sc-space-2);
+	gap: var(--sc-space-1-5);
 	min-width: 0;
-	min-height: 32px;
+	min-height: var(--sc-control-sm);
 	flex-shrink: 0;
-	padding: var(--sc-space-1) var(--sc-space-3);
-	border-bottom: 1px solid var(--sc-divider);
+	padding: var(--sc-space-1-5) var(--sc-space-3) 0;
 	color: var(--sc-text-secondary);
 	font-size: var(--sc-font-xs);
 }
 
 .omp-live-work-mode {
 	margin-inline-start: auto;
+	padding-inline-start: var(--sc-space-2);
 	flex-shrink: 0;
 	color: var(--sc-text-subtle);
 	font-size: var(--sc-font-2xs);
+	font-variant-numeric: tabular-nums;
+}
+
+.omp-live-work-mode[data-mode="replay"] {
+	color: var(--sc-accent);
+}
+
+.omp-work-clock[data-stalled="true"] {
+	color: var(--sc-warning);
 }
 
 .omp-live-step-scroll {
 	position: relative;
-	flex: 1;
-	min-height: 0;
 	min-width: 0;
-	padding: var(--sc-space-2) var(--sc-space-3);
+	max-height: min(22rem, 45cqh);
+	padding: var(--sc-space-1-5) var(--sc-space-3) var(--sc-space-2);
 	overflow: auto;
 	overscroll-behavior: contain;
 	scrollbar-width: thin;
+}
+
+.omp-live-step[data-nested="true"] :is(.omp-live-work-heading, .omp-live-step-scroll) {
+	padding-inline: 0;
+}
+
+.omp-live-step[data-nested="true"] .omp-live-step-scroll {
+	max-height: min(16rem, 36cqh);
 }
 
 .omp-live-step-scroll img {
@@ -896,8 +1171,12 @@
 	object-fit: contain;
 }
 
-/* A capture fits the available work viewport rather than cropping to its top.
-   The existing zoom control still opens the original image. */
+/* A capture fits the work viewport rather than cropping to its top; the zoom
+   control still opens the original image. */
+.omp-live-step:is([data-surface="browser"], [data-surface="computer"]) .omp-live-step-scroll {
+	height: min(20rem, 42cqh);
+}
+
 .omp-live-step:is([data-surface="browser"], [data-surface="computer"]) .omp-live-step-scroll > div {
 	height: 100%;
 }
@@ -917,28 +1196,38 @@
 }
 
 .omp-live-work-calm {
-	padding-block: var(--sc-space-2);
+	padding-block: var(--sc-space-1);
 	color: var(--sc-text-muted);
 	font-size: var(--sc-font-sm);
 	line-height: var(--sc-leading-normal);
 	overflow-wrap: anywhere;
 }
 
+.omp-work-map > .omp-live-work-calm {
+	padding-inline: var(--sc-space-1-5);
+}
+
+/* Replay strip ─────────────────────────────────────────────────────────── */
 .omp-live-work-strip {
 	display: flex;
 	align-items: center;
 	gap: var(--sc-space-1);
-	min-height: 36px;
-	padding: var(--sc-space-1) var(--sc-space-2);
-	border-top: 1px solid var(--sc-divider);
-	flex-shrink: 0;
 	min-width: 0;
+	min-height: var(--sc-control-md);
+	flex-shrink: 0;
+	padding: var(--sc-space-0-5) var(--sc-space-1-5) var(--sc-space-0-5) var(--sc-space-2);
+	border-top: 1px solid var(--sc-divider);
+}
+
+.omp-live-step[data-nested="true"] > .omp-live-work-strip {
+	padding-inline: 0;
+	border-top: 0;
 }
 
 .omp-live-work-chips {
 	display: flex;
 	align-items: center;
-	gap: var(--sc-space-1);
+	gap: 2px;
 	flex: 1;
 	min-width: 0;
 	overflow-x: auto;
@@ -951,32 +1240,67 @@
 	justify-content: center;
 	gap: var(--sc-space-1);
 	flex-shrink: 0;
-	min-height: 26px;
-	padding: var(--sc-space-1) var(--sc-space-1-5);
+	min-width: 24px;
+	height: 24px;
+	padding: 0 var(--sc-space-1);
 	border-radius: var(--sc-radius-sm);
-	color: var(--sc-text-secondary);
+	color: var(--sc-text-muted);
 	font-size: var(--sc-font-xs);
+	transition:
+		background-color var(--sc-duration-instant) var(--sc-ease-standard),
+		color var(--sc-duration-instant) var(--sc-ease-standard);
 }
 
 .omp-live-work-chip--finished {
 	color: var(--sc-text-subtle);
 }
 
+.omp-live-work-chip[data-state="running"] {
+	color: var(--sc-accent);
+}
+
+.omp-live-work-chip[data-state="failed"] {
+	color: var(--sc-danger);
+}
+
 .omp-live-work-chip:hover {
 	background: var(--sc-hover);
+	color: var(--sc-text-secondary);
 }
 
 .omp-live-work-chip[aria-pressed="true"] {
-	background: var(--sc-hover);
+	background: var(--sc-selected);
 	color: var(--sc-text);
 }
 
+.omp-live-work-chip[data-state="failed"][aria-pressed="true"] {
+	color: var(--sc-danger);
+}
+
+/* Following: a quiet label. Replaying: an accent "come back" control. */
 .omp-live-work-follow {
 	margin-inline-start: auto;
+	padding-inline: var(--sc-space-2);
+	border-radius: var(--sc-radius-full);
+	font-weight: var(--sc-weight-medium);
+}
+
+.omp-live-work-follow[aria-pressed="true"] {
+	background: transparent;
+	color: var(--sc-text-subtle);
+}
+
+.omp-live-work-follow[aria-pressed="false"] {
+	background: var(--sc-accent-soft);
+	color: var(--sc-accent);
 }
 
 .omp-live-work-chip:focus-visible,
-.omp-live-step-scroll:focus-visible {
+.omp-live-step-scroll:focus-visible,
+.omp-work-card-button:focus-visible,
+.omp-work-catch-up:focus-visible,
+.omp-work-outcome summary:focus-visible,
+.omp-work-outcome-more:focus-visible {
 	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
 	outline-offset: -2px;
 }
@@ -987,13 +1311,54 @@
 	height: var(--sc-icon-sm);
 }
 
+/* A short pane (split view) keeps the card under half its height, the surface
+   still showing several lines. */
 @container omp-workspace (max-height: 480px) {
-	.omp-live-step, .omp-live-step:has(.omp-work-map) {
-		height: 208px;
-		max-height: max(176px, 54cqh);
-		margin-inline-start: var(--sc-space-1);
+	.omp-live-step-scroll {
+		max-height: max(6rem, 23cqh);
 	}
-	.omp-live-step .omp-work-narrative { padding: var(--sc-space-1-5) var(--sc-space-3); font-size: var(--sc-font-lg); }
+	.omp-live-step:is([data-surface="browser"], [data-surface="computer"]) .omp-live-step-scroll {
+		height: max(6rem, 23cqh);
+	}
+	.omp-work-head {
+		--omp-work-head-line: calc(var(--sc-font-md) * var(--sc-leading-snug));
+		padding-block: var(--sc-space-1);
+	}
+	.omp-work-narrative {
+		font-size: var(--sc-font-md);
+	}
+	.omp-work-sub {
+		-webkit-line-clamp: 1;
+	}
+	.omp-live-work-heading {
+		min-height: 24px;
+		padding-block-start: var(--sc-space-1);
+	}
+	.omp-live-work-strip {
+		min-height: 26px;
+		padding-block: 1px;
+	}
+	/* Lanes become one wrapping row of name pills; an open lane takes the full row. */
+	.omp-work-map {
+		padding-block-end: var(--sc-space-0-5);
+	}
+	.omp-work-cards {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 2px var(--sc-space-1);
+	}
+	.omp-work-card[data-open="true"] {
+		flex-basis: 100%;
+	}
+	.omp-work-card-button {
+		grid-template-columns: var(--sc-icon-sm) max-content;
+		width: auto;
+		min-height: 24px;
+		padding-block: 0;
+	}
+	.omp-work-card-button > :is(.omp-work-card-activity, .omp-work-card-progress, .omp-work-card-chevron) {
+		display: none;
+	}
 }
 
 @container omp-workspace (max-width: 600px) {
@@ -1002,81 +1367,237 @@
 	}
 }
 
-.omp-work-narrative {
-	padding: var(--sc-space-3);
-	font-size: var(--sc-font-xl);
-	line-height: var(--sc-leading-snug);
-	color: var(--sc-text);
-	flex-shrink: 0;
+/* Outcome ──────────────────────────────────────────────────────────────── */
+.omp-work-outcome {
+	margin: var(--sc-space-0-5) 0 var(--sc-space-1-5) calc(var(--sc-space-1-5) + var(--sc-icon-sm) + var(--sc-space-2));
+	font-size: var(--sc-font-sm);
+}
+
+.omp-live-step > .omp-work-outcome {
+	margin: 0;
+	padding: var(--sc-space-1) var(--sc-space-3) var(--sc-space-1-5);
+	border-top: 1px solid var(--sc-divider);
+}
+
+.omp-work-outcome summary {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--sc-space-0-5) var(--sc-space-2);
+	min-height: var(--sc-control-sm);
+	color: var(--sc-text-muted);
+	list-style: none;
+	cursor: pointer;
+}
+
+.omp-work-outcome summary::-webkit-details-marker {
+	display: none;
+}
+
+.omp-work-outcome-chevron {
+	width: var(--sc-icon-sm);
+	height: var(--sc-icon-sm);
+	color: var(--sc-text-subtle);
+	transition: transform var(--sc-duration-fast) var(--sc-ease-standard);
+}
+
+.omp-work-outcome[open] .omp-work-outcome-chevron {
+	transform: rotate(90deg);
+}
+
+.omp-work-outcome summary:hover {
+	color: var(--sc-text-secondary);
+}
+
+.omp-work-outcome-title {
+	color: var(--sc-text-secondary);
+	font-weight: var(--sc-weight-medium);
+}
+
+.omp-work-fact::before {
+	content: "·";
+	margin-inline-end: var(--sc-space-2);
+	color: var(--sc-text-subtle);
+}
+
+.omp-work-fact[data-tone="danger"] {
+	color: var(--sc-danger);
+}
+
+.omp-work-diff {
+	font-variant-numeric: tabular-nums;
+}
+
+.omp-work-diff [data-diff="added"] {
+	color: var(--sc-success);
+}
+
+.omp-work-diff [data-diff="removed"] {
+	color: var(--sc-danger);
+}
+
+.omp-work-outcome-list {
+	display: grid;
+	gap: 1px;
+	margin: var(--sc-space-0-5) 0 0;
+	padding: 0;
+	list-style: none;
+}
+
+.omp-work-outcome-list > li {
+	display: grid;
+	grid-template-columns: var(--sc-icon-sm) minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: var(--sc-space-2);
+	min-height: 26px;
+}
+
+.omp-work-outcome-icon {
+	width: var(--sc-icon-sm);
+	height: var(--sc-icon-sm);
+	color: var(--sc-text-subtle);
+}
+
+.omp-work-outcome-main {
+	min-width: 0;
 	overflow: hidden;
+	color: var(--sc-text);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
-.omp-work-map { padding-inline: var(--sc-space-3); overflow: auto; max-height: 50%; flex-shrink: 0; }
-.omp-work-main, .omp-work-clock, .omp-work-card-progress { color: var(--sc-text-muted); font-size: var(--sc-font-xs); }
-.omp-work-clock { padding-inline: var(--sc-space-3); }
-.omp-work-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: var(--sc-space-2); }
-.omp-work-card { min-width: 0; border: 1px solid var(--sc-divider); border-radius: var(--sc-radius-sm); }
-.omp-work-card-button { display: flex; flex-direction: column; width: 100%; gap: var(--sc-space-1); padding: var(--sc-space-2); text-align: start; }
-.omp-work-card-name { display: flex; justify-content: space-between; gap: var(--sc-space-2); font-size: var(--sc-font-sm); font-weight: var(--sc-weight-medium); }
-.omp-work-card-name > span { color: var(--sc-text-muted); font-size: var(--sc-font-xs); }
-.omp-work-card-activity { font-size: var(--sc-font-sm); overflow-wrap: anywhere; }
-.omp-work-card .omp-live-step { margin: 0; height: 180px; min-height: 0; border: 0; }
-.omp-work-card .omp-work-narrative { display: none; }
-.omp-live-step:has(> .omp-work-map[data-expanded="true"]) { height: 520px; }
-.omp-work-map[data-expanded="true"] {
-	display: flex;
-	flex: 1;
-	flex-direction: column;
-	gap: var(--sc-space-2);
-	min-height: 0;
-	max-height: none;
-	overflow: hidden;
+
+.omp-work-outcome-list .font-mono {
+	font-size: var(--sc-font-xs);
 }
-.omp-work-map[data-expanded="true"] .omp-work-cards { display: flex; flex-shrink: 0; }
-.omp-work-map[data-expanded="true"] .omp-work-cards > .omp-work-card { flex: 1; }
-.omp-work-map[data-expanded="true"] .omp-work-card-name { flex-direction: column; gap: 0; overflow-wrap: anywhere; }
-.omp-work-map[data-expanded="true"] .omp-work-cards .omp-work-card-activity,
-.omp-work-map[data-expanded="true"] > .omp-work-main { display: none; }
-.omp-work-expanded-card { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
-.omp-work-expanded-card > div { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.omp-work-expanded-card .omp-live-step { flex: 1; height: auto; max-height: none; }
-.omp-live-step:has(> .omp-work-map[data-expanded="true"]) > :is(.omp-live-work-heading, .omp-live-step-scroll, .omp-work-clock) { display: none; }
-@container omp-workspace (max-height: 480px) {
-	.omp-live-step:has(> .omp-work-map[data-expanded="true"]) { height: 208px; }
-	.omp-work-map[data-expanded="true"] .omp-work-main-card,
-	.omp-work-map[data-expanded="true"] .omp-work-card-button { padding: var(--sc-space-1); }
+
+.omp-work-outcome-list > li[data-kind="agent"] {
+	align-items: start;
 }
-@container omp-workspace (max-height: 480px) {
-	.omp-live-step[data-outcome="true"] .omp-work-map:not([data-expanded="true"]) { max-height: none; overflow: visible; }
-	.omp-live-step[data-outcome="true"] .omp-work-map:not([data-expanded="true"]) .omp-work-cards { grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); }
-	.omp-live-step[data-outcome="true"] .omp-work-map:not([data-expanded="true"]) :is(.omp-work-main-card, .omp-work-card-button) { padding: var(--sc-space-1); }
-	.omp-live-step[data-outcome="true"] .omp-work-map:not([data-expanded="true"]) .omp-work-card-name { font-size: var(--sc-font-xs); }
-	.omp-live-step[data-outcome="true"] .omp-work-map:not([data-expanded="true"]) .omp-work-card-name > span { min-width: 0; font-size: var(--sc-font-2xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.omp-live-step[data-outcome="true"] .omp-work-map:not([data-expanded="true"]) :is(.omp-work-card-activity, .omp-work-card-progress) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.omp-live-step[data-outcome="true"] .omp-work-map:not([data-expanded="true"]) .omp-work-card-activity { font-size: var(--sc-font-xs); }
-	.omp-live-step[data-outcome="true"] .omp-work-map:not([data-expanded="true"]) .omp-work-card-progress { font-size: var(--sc-font-2xs); }
-	.omp-live-step[data-outcome="true"] .omp-work-outcome { margin: 0; padding: var(--sc-space-1) var(--sc-space-2); }
+
+.omp-work-outcome-list > li[data-kind="agent"] > .omp-work-outcome-icon {
+	margin-block-start: calc((var(--sc-font-sm) * var(--sc-leading-normal) - var(--sc-icon-sm)) / 2);
 }
-.omp-work-outcome { margin: var(--sc-space-2) var(--sc-space-3); border: 1px solid var(--sc-divider); border-radius: var(--sc-radius-md); padding: var(--sc-space-2) var(--sc-space-3); font-size: var(--sc-font-sm); }
-.omp-work-outcome summary { cursor: pointer; color: var(--sc-text-secondary); }
-.omp-work-outcome ul { display: grid; gap: var(--sc-space-1); margin-top: var(--sc-space-2); overflow-wrap: anywhere; }
-.omp-work-diff { color: var(--sc-success); }
-.omp-work-catch-up { margin-inline: var(--sc-space-3); text-align: start; color: var(--sc-accent); font-size: var(--sc-font-xs); }
-.omp-work-card-button:focus-visible, .omp-work-catch-up:focus-visible, .omp-work-outcome summary:focus-visible { outline: var(--sc-focus-width) solid var(--sc-focus-ring); outline-offset: -2px; }
-@keyframes omp-work-fade { from { opacity: 0.5; } to { opacity: 1; } }
-@keyframes omp-work-pulse { 50% { opacity: 0.65; } }
-@keyframes omp-work-caret { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
-.omp-work-motion .omp-work-narrative { animation: omp-work-fade var(--sc-duration-med) var(--sc-ease-enter); }
-.omp-work-motion > .omp-live-step-scroll > div { animation: omp-work-fade var(--sc-duration-med) var(--sc-ease-enter); }
-.omp-work-pulse { animation: omp-work-pulse calc(var(--sc-duration-slow) * 4) var(--sc-ease-standard) infinite; }
-.omp-work-line { display: block; }
-.omp-work-motion .omp-work-line { animation: omp-work-arrival var(--sc-duration-slow) var(--sc-ease-standard); }
-@keyframes omp-work-arrival { from { background: var(--sc-hover); } to { background: transparent; } }
+
+.omp-work-outcome-list > li[data-kind="agent"] > .omp-work-outcome-main {
+	grid-column: 2 / -1;
+	line-height: var(--sc-leading-normal);
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.omp-work-outcome-agent {
+	margin-inline-end: var(--sc-space-1);
+	font-weight: var(--sc-weight-medium);
+}
+
+.omp-work-outcome-meta {
+	color: var(--sc-text-subtle);
+	font-size: var(--sc-font-xs);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.omp-work-outcome-list > li[data-failed="true"] .omp-work-outcome-meta {
+	color: var(--sc-danger);
+}
+
+.omp-work-outcome-more {
+	margin: var(--sc-space-1) 0 0 calc(var(--sc-icon-sm) + var(--sc-space-2));
+	color: var(--sc-accent);
+	font-size: var(--sc-font-xs);
+}
+
+.omp-work-outcome-more:hover {
+	color: var(--sc-accent-hover);
+}
+
+/* Motion: only where it means something ─────────────────────────────────── */
+@keyframes omp-work-fade {
+	from {
+		opacity: 0.4;
+		transform: translateY(2px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes omp-work-pulse {
+	50% {
+		opacity: 0.6;
+	}
+}
+@keyframes omp-work-ring {
+	from {
+		opacity: 0.45;
+		transform: scale(0.45);
+	}
+	to {
+		opacity: 0;
+		transform: scale(1.35);
+	}
+}
+@keyframes omp-work-sweep {
+	from {
+		background-position: -60% 0;
+	}
+	to {
+		background-position: 160% 0;
+	}
+}
+@keyframes omp-work-caret {
+	0%,
+	49% {
+		opacity: 1;
+	}
+	50%,
+	100% {
+		opacity: 0;
+	}
+}
+@keyframes omp-work-arrival {
+	from {
+		background: var(--sc-hover);
+	}
+	to {
+		background: transparent;
+	}
+}
+.omp-work-motion[data-state="running"]::before {
+	animation: omp-work-sweep calc(var(--sc-duration-slow) * 6) linear infinite;
+}
+.omp-work-motion .omp-work-narrative,
+.omp-work-motion .omp-live-step-scroll > *,
+.omp-work-motion .omp-work-card {
+	animation: omp-work-fade var(--sc-duration-med) var(--sc-ease-enter);
+}
+.omp-work-pulse {
+	animation: omp-work-pulse calc(var(--sc-duration-slow) * 4) var(--sc-ease-standard) infinite;
+}
+.omp-work-line {
+	display: block;
+}
+.omp-work-motion .omp-work-line {
+	animation: omp-work-arrival var(--sc-duration-slow) var(--sc-ease-standard);
+}
 .omp-work-motion[data-running="true"] .omp-work-line:last-child::after,
-.omp-work-motion[data-running="true"]:is([data-surface="write"], [data-surface="edit"]) pre code::after { content: "▏"; color: var(--sc-accent); animation: omp-work-caret calc(var(--sc-duration-slow) * 2) var(--sc-ease-standard) infinite; }
+.omp-work-motion[data-running="true"]:is([data-surface="write"], [data-surface="edit"]) pre code::after {
+	content: "▏";
+	color: var(--sc-accent);
+	animation: omp-work-caret calc(var(--sc-duration-slow) * 2) var(--sc-ease-standard) infinite;
+}
 @media (prefers-reduced-motion: reduce) {
-	.omp-work-pulse, .omp-work-motion .omp-work-narrative, .omp-work-motion > .omp-live-step-scroll > div, .omp-work-motion .omp-work-line, .omp-work-motion .omp-work-line::after, .omp-work-motion pre code::after { animation: none; }
+	.omp-work-pulse,
+	.omp-work-status::after,
+	.omp-live-step::before,
+	.omp-work-motion .omp-work-narrative,
+	.omp-work-motion .omp-live-step-scroll > *,
+	.omp-work-motion .omp-work-card,
+	.omp-work-motion .omp-work-line,
+	.omp-work-motion .omp-work-line::after,
+	.omp-work-motion pre code::after {
+		animation: none;
+	}
 }
 
 .omp-transcript-editorial .omp-execution-turn,
@@ -1347,6 +1868,21 @@
 	padding-inline: var(--omp-column-pad);
 }
 
+/* The welcome content scrolls from its heading, independently of the
+   transcript tail follower. Resizing a quarter pane must not pin its
+   starter cards to the bottom and crop the heading behind the pane header. */
+.omp-transcript-scroll:has(> .omp-empty-canvas) {
+	display: flex;
+	flex-direction: column;
+	overflow-y: hidden;
+}
+
+.omp-empty-canvas {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+}
+
 .omp-starter-grid {
 	width: 100%;
 	min-width: 0;
@@ -1523,7 +2059,7 @@
 @container omp-workspace (max-height: 480px) {
 	.omp-empty-canvas {
 		justify-content: flex-start;
-		padding-block: var(--sc-space-4);
+		padding-block: var(--sc-space-3);
 	}
 
 	.omp-empty-logo {
@@ -1536,17 +2072,19 @@
 
 	.omp-empty-canvas > p {
 		font-size: var(--sc-font-sm);
+		line-height: var(--sc-leading-snug);
 	}
 
 	.omp-starter-grid {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
-		margin-top: var(--sc-space-4);
+		margin-top: var(--sc-space-3);
 		gap: var(--sc-space-2);
 	}
 
 	.omp-starter-card {
 		min-height: 0;
 		padding: var(--sc-space-2);
+		gap: var(--sc-space-2);
 	}
 
 	.omp-starter-card .omp-starter-icon {
@@ -1554,7 +2092,7 @@
 		height: var(--sc-space-6);
 	}
 
-	.omp-starter-card p {
+	.omp-starter-description {
 		font-size: var(--sc-font-xs);
 	}
 }

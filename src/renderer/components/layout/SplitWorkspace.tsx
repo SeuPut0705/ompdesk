@@ -119,7 +119,10 @@ export function SplitPaneHeader({ tab, label }: { tab: SessionTab; label: string
 				<XCircle aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-danger)" />
 			) : null}
 			<span className="flex min-w-0 flex-1 items-center gap-1">
-				<span title={tab.cwd} className="min-w-0 max-w-48 shrink-[4] truncate text-(--sc-text-muted)">
+				<span
+					title={tab.cwd}
+					className="omp-titlebar-project min-w-0 max-w-48 shrink-[4] truncate text-(--sc-text-muted)"
+				>
 					{tab.kind === "chat" || !tab.cwd ? t("sidebar.chats") : (groupAliases[tab.cwd] ?? basename(tab.cwd))}
 				</span>
 				<ChevronRight

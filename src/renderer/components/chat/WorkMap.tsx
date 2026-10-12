@@ -1,16 +1,15 @@
+import { ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
 import type { AgentProgress } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
 import { cx, formatDuration, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { useNowTick } from "../../lib/now-tick";
-import { turnMeterTokens } from "../../lib/turn-meter";
-import { type MessagesStore, useMessagesStore } from "../../stores/messages";
 import { activeTabCommand, useSessionRuntime } from "../../stores/session-runtime-context";
 import { type SubagentsStore, useSubagentsStore } from "../../stores/subagents";
 import { selectToolEntry, type ToolsStore, useToolsStore } from "../../stores/tools";
 import { LiveStepPeek } from "./LiveStepPeek";
+import { agentWorkState, WorkStatus } from "./WorkStatus";
 import { agentResultSummary, workNarrative, workOutcomes } from "./work-view";
 
 function progressArgs(progress?: AgentProgress): Record<string, unknown> {
@@ -36,7 +35,7 @@ function SubagentSurface({ id, store }: { id: string; store: StoreApi<SubagentsS
 	const hasEvidence = key !== "[]";
 	useEffect(() => {
 		void status;
-		// Initial hydration or one replay of events missed while this card was collapsed.
+		// Initial hydration or one replay of events missed while this lane was collapsed.
 		setLoading(true);
 		void store
 			.getState()
@@ -53,7 +52,7 @@ function SubagentSurface({ id, store }: { id: string; store: StoreApi<SubagentsS
 			</div>
 		);
 	return (
-		<div>
+		<>
 			{error ? (
 				<div role="alert" className="omp-live-work-calm">
 					{t("subagent.transcriptFailed")}: {error}
@@ -66,26 +65,25 @@ function SubagentSurface({ id, store }: { id: string; store: StoreApi<SubagentsS
 				turnIsLive={store.getState().subagents.get(id)?.status === "running"}
 				nested
 			/>
-		</div>
+		</>
 	);
 }
 
+/**
+ * One lane per subagent of this group: status, name, what it is doing now (its
+ * conclusion once done) and its counts. A lane opens its agent's own live
+ * surface in place; only an open lane subscribes to per-event frames.
+ */
 export function WorkMap({
 	toolCallIds,
 	active,
 	motion,
-	running,
-	mainStepId,
-	completion,
 	expanded,
 	onExpandedChange,
 }: {
 	toolCallIds: readonly string[];
 	active: boolean;
 	motion: boolean;
-	running: boolean;
-	mainStepId: string;
-	completion: string;
 	expanded: string | null;
 	onExpandedChange: (id: string | null) => void;
 }) {
@@ -93,21 +91,6 @@ export function WorkMap({
 	const runtime = useSessionRuntime();
 	const store = (runtime?.stores.get("subagents") as StoreApi<SubagentsStore> | undefined) ?? useSubagentsStore;
 	const tools = (runtime?.stores.get("tools") as StoreApi<ToolsStore> | undefined) ?? useToolsStore;
-	const messages = (runtime?.stores.get("messages") as StoreApi<MessagesStore> | undefined) ?? useMessagesStore;
-	const mainTokens = useFrameSelector(messages, state => turnMeterTokens(state.turnMeter));
-	const mainActivity = useFrameSelector(tools, state => {
-		const entry = selectToolEntry(state, mainStepId);
-		return running && entry
-			? workNarrative(entry.toolName, entry.args, t, undefined, entry.intent)
-			: running
-				? t("chat.thinking.live")
-				: completion;
-	});
-	const now = useNowTick(active);
-	const mainStarted = Math.min(...toolCallIds.map(id => selectToolEntry(tools.getState(), id)?.startTime ?? now));
-	const mainEnded = running
-		? now
-		: Math.max(...toolCallIds.map(id => selectToolEntry(tools.getState(), id)?.endTime ?? mainStarted));
 	const key = useFrameSelector(store, state =>
 		[...state.subagents.values()]
 			.filter(
@@ -168,40 +151,15 @@ export function WorkMap({
 			void command({ type: "set_subagent_subscription", level: "progress" }).catch(() => undefined);
 		};
 	}, [active, expanded, hasRunning, runtime, store]);
-	if (!nodes.length || (running && !hasRunning && !expanded)) return null;
+	if (!nodes.length) return null;
 	return (
 		<div className="omp-work-map" data-expanded={expanded !== null} aria-label={t("chat.work.map")}>
-			{nodes.some(node => node.status === "running") ? (
-				<div className="omp-work-main">
-					{t("chat.work.waitingFor", {
-						names: nodes
-							.filter(node => node.status === "running")
-							.map(node => node.id)
-							.join(", "),
-					})}
-				</div>
-			) : null}
 			{streamError ? (
 				<div className="omp-live-work-calm" role="alert">
 					{t("subagent.transcriptFailed")}: {streamError}
 				</div>
 			) : null}
-			<div className="omp-work-cards">
-				<div className={cx("omp-work-card omp-work-main-card", running && motion && "omp-work-pulse")}>
-					<span className="omp-work-card-name">
-						{t("chat.work.main")}
-						<span>{t(running ? "subagent.status.started" : "subagent.status.completed")}</span>
-					</span>
-					<span className="omp-work-card-activity">{mainActivity}</span>
-					<span className="omp-work-card-progress">
-						{t("chat.work.progress", {
-							tools: toolCallIds.length,
-							plural: toolCallIds.length === 1 ? "" : "s",
-							tokens: formatTokens(mainTokens),
-						})}{" "}
-						· {formatDuration(Math.max(0, mainEnded - mainStarted))}
-					</span>
-				</div>
+			<ul className="omp-work-cards">
 				{nodes.map(node => {
 					const progress = node.progress;
 					const running = node.status === "running" || node.status === "pending";
@@ -211,48 +169,56 @@ export function WorkMap({
 							? workNarrative(progress.currentTool, args, t, progress)
 							: (progress?.lastIntent ?? node.description ?? node.task ?? "")
 						: (conclusions.find(item => item.name === node.id)?.summary ?? t("chat.work.completed"));
+					const target = running && typeof args.target === "string" && args.target !== activity ? args.target : "";
 					const observed = store.getState().surfaces.get(node.id)?.getState();
 					const toolCount = Math.max(
 						progress?.toolCount ?? 0,
 						(observed?.liveTools.size ?? 0) + (observed?.finishedTools.size ?? 0),
 					);
 					const tokens = progress?.tokens || store.getState().observedTokens.get(node.id) || 0;
+					const plural = toolCount === 1 ? "" : "s";
+					const open = expanded === node.id;
 					return (
-						<div className="omp-work-card" key={node.id} data-status={node.status}>
+						<li className="omp-work-card" key={node.id} data-status={node.status} data-open={open}>
 							<button
 								type="button"
-								className={cx("omp-work-card-button", running && motion && "omp-work-pulse")}
-								aria-expanded={expanded === node.id}
-								onClick={() => onExpandedChange(expanded === node.id ? null : node.id)}
+								className="omp-work-card-button"
+								aria-expanded={open}
+								onClick={() => onExpandedChange(open ? null : node.id)}
 							>
-								<span className="omp-work-card-name">
-									{node.id}{" "}
-									<span>{t(`subagent.status.${node.status === "running" ? "started" : node.status}`)}</span>
-								</span>
-								<span className="omp-work-card-activity">
+								<WorkStatus
+									state={agentWorkState(node.status)}
+									label={t(`subagent.status.${node.status === "running" ? "started" : node.status}`)}
+									motion={motion}
+								/>
+								<span className="omp-work-card-name">{node.id}</span>
+								<span className="omp-work-card-activity" title={target ? `${activity} · ${target}` : activity}>
 									{activity}
-									{running && args.target ? ` · ${String(args.target)}` : ""}
+									{target ? <span className="omp-work-card-target">{target}</span> : null}
 								</span>
 								<span className="omp-work-card-progress">
-									{tokens > 0
-										? t("chat.work.progress", {
-												tools: toolCount,
-												plural: toolCount === 1 ? "" : "s",
-												tokens: formatTokens(tokens),
-											})
-										: t("chat.work.toolsOnly", { tools: toolCount, plural: toolCount === 1 ? "" : "s" })}{" "}
-									· {formatDuration(progress?.durationMs ?? 0)}
+									{[
+										tokens > 0
+											? t("chat.work.progress", { tools: toolCount, plural, tokens: formatTokens(tokens) })
+											: toolCount > 0
+												? t("chat.work.toolsOnly", { tools: toolCount, plural })
+												: null,
+										formatDuration(progress?.durationMs ?? 0),
+									]
+										.filter(Boolean)
+										.join(" · ")}
 								</span>
+								<ChevronRight aria-hidden className={cx("omp-work-card-chevron", open && "rotate-90")} />
 							</button>
-						</div>
+							{open ? (
+								<div className="omp-work-lane-surface">
+									<SubagentSurface id={node.id} store={store} />
+								</div>
+							) : null}
+						</li>
 					);
 				})}
-			</div>
-			{expanded ? (
-				<div className="omp-work-card omp-work-expanded-card">
-					<SubagentSurface id={expanded} store={store} />
-				</div>
-			) : null}
+			</ul>
 		</div>
 	);
 }

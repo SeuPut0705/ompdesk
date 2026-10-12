@@ -153,7 +153,8 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 			}
 		};
 		await expect(surface).toHaveAttribute("data-surface", "thinking");
-		await expect(content).toContainText("Preparing the workspace");
+		await expect(surface.locator(".omp-work-sub")).toContainText("Preparing the workspace");
+		await expect(content).toHaveCount(0);
 		await capture("thinking");
 		const kinds = [
 			"bash",
@@ -187,7 +188,8 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 				await expect(content).toContainText("Reading source files");
 				await expect(content).toContainText("Reviewing keyboard navigation");
 			} else if (kind === "wait") {
-				await expect(surface.locator("[data-wait-line]")).toHaveCount(1);
+				await expect(surface.locator(".omp-work-sub")).toContainText("Waiting for");
+				await expect(content).toHaveCount(0);
 				await expect(surface.locator("[data-step-id]")).toHaveCount(5);
 			} else if (kind === "browser" || kind === "computer") {
 				await expect(content.locator("img")).toBeVisible();
@@ -204,7 +206,9 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 				await expect(surface).toHaveAttribute("data-surface", "bash");
 				await expect(content).toContainText("All types are valid");
 				await capture("replay");
-				await surface.getByRole("button", { name: "Live", exact: true }).click();
+				await surface.getByRole("button", { name: "Back to current step", exact: true }).click();
+				// Following again: no status label is drawn, only the step strip.
+				await expect(surface.locator(".omp-live-work-follow")).toHaveCount(0);
 				await expect(surface).toHaveAttribute("data-following", "true");
 				await expect(surface).toHaveAttribute("data-surface", "read");
 			}
@@ -259,10 +263,7 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 			expect(
 				await pane.locator(".omp-live-step-scroll").evaluate(element => element.clientHeight),
 			).toBeGreaterThanOrEqual(96);
-			for (const chip of [
-				pane.locator(".omp-live-work-follow"),
-				pane.locator('.omp-live-work-chips [aria-pressed="true"]'),
-			]) {
+			for (const chip of [pane.locator('.omp-live-work-chips [aria-pressed="true"]')]) {
 				await expect
 					.poll(async () => {
 						const bounds = await chip.boundingBox();

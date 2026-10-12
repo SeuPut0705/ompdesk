@@ -1,4 +1,4 @@
-import { ChevronRight, CircleCheck, CircleX } from "lucide-react";
+import { ChevronRight, CircleCheck, CircleSlash, CircleX } from "lucide-react";
 import type { ReactNode } from "react";
 import { cx, formatDuration } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -9,6 +9,7 @@ import { getToolActivity, type ToolActivity } from "../tools/index";
 import { LiveStepPeek } from "./LiveStepPeek";
 import { LiveTurnMeter, OutputMeter } from "./TurnOutputMeter";
 import { WorkOutcome } from "./WorkOutcome";
+import { isSkippedWork } from "./work-view";
 
 interface ExecutionGroupProps {
 	children: ReactNode;
@@ -59,6 +60,7 @@ export function ExecutionGroup({
 		let running = 0;
 		let failed = 0;
 		let skipped = 0;
+		let interrupted = 0;
 		let start = Number.POSITIVE_INFINITY;
 		let end = 0;
 		const counts: Record<ToolActivity, number> = { read: 0, edit: 0, run: 0, search: 0, other: 0 };
@@ -66,7 +68,9 @@ export function ExecutionGroup({
 			const entry = selectToolEntry(s, id);
 			if (!entry) continue;
 			if (entry.status === "aborted") {
-				skipped++;
+				// Stock's internal interrupt_skipped waits are not steps; a user-interrupted call is.
+				if (isSkippedWork(entry)) skipped++;
+				else interrupted++;
 				continue;
 			}
 			if (entry.status === "pending" || entry.status === "running") running++;
@@ -77,9 +81,13 @@ export function ExecutionGroup({
 			end = Math.max(end, entry.endTime ?? 0);
 		}
 		const span = Number.isFinite(start) && end > start ? end - start : 0;
-		return [running, failed, skipped, span, ...ACTIVITY_ORDER.map(activity => counts[activity])].join(":");
+		return [running, failed, skipped, interrupted, span, ...ACTIVITY_ORDER.map(activity => counts[activity])].join(
+			":",
+		);
 	});
-	const [running = 0, toolFailures = 0, skipped = 0, spanMs = 0, ...activityCounts] = encoded.split(":").map(Number);
+	const [running = 0, toolFailures = 0, skipped = 0, interrupted = 0, spanMs = 0, ...activityCounts] = encoded
+		.split(":")
+		.map(Number);
 	const resolveKey = useToolsStore(s => s.entryKeyForCallId);
 	const agentState = useSubagentsStore(s => {
 		let count = 0;
@@ -112,13 +120,15 @@ export function ExecutionGroup({
 			? t("chat.process.statusFailed", { failed, total: totalSteps, plural })
 			: state === "running" && running > 0
 				? t("chat.process.statusRunning", { running, total: totalSteps, plural })
-				: state === "complete" && activityCounts.slice(0, -1).every(count => count === 0)
-					? t("chat.process.statusComplete", { total: totalSteps, plural })
-					: activities.length > 0
-						? activities.join(" · ")
-						: state === "running"
-							? t("chat.process.statusWorking", { total: totalSteps, plural })
-							: t("chat.process.statusComplete", { total: totalSteps, plural });
+				: state === "complete" && interrupted > 0
+					? t("chat.process.statusInterrupted", { interrupted, total: totalSteps, plural })
+					: state === "complete" && activityCounts.slice(0, -1).every(count => count === 0)
+						? t("chat.process.statusComplete", { total: totalSteps, plural })
+						: activities.length > 0
+							? activities.join(" · ")
+							: state === "running"
+								? t("chat.process.statusWorking", { total: totalSteps, plural })
+								: t("chat.process.statusComplete", { total: totalSteps, plural });
 	const duration = state !== "running" && spanMs > 0 ? formatDuration(spanMs) : null;
 
 	return (
@@ -139,7 +149,15 @@ export function ExecutionGroup({
 					aria-hidden
 					className="flex size-(--sc-icon-sm) shrink-0 items-center justify-center [&>svg]:size-(--sc-icon-sm)"
 				>
-					{state === "running" ? <Spinner size="sm" /> : state === "failed" ? <CircleX /> : <CircleCheck />}
+					{state === "running" ? (
+						<Spinner size="sm" />
+					) : state === "failed" ? (
+						<CircleX />
+					) : interrupted > 0 ? (
+						<CircleSlash />
+					) : (
+						<CircleCheck />
+					)}
 				</span>
 				<span
 					aria-atomic="true"
