@@ -80,9 +80,11 @@ interface EditHeaderProps {
 	/** Diff whose +added/-removed stats ride the header; omitted when absent. */
 	diff?: string;
 	isError?: boolean;
+	/** Live multi-file block: the card names the operation, so only the file and its stats remain. */
+	bare?: boolean;
 }
 
-function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError }: EditHeaderProps) {
+function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError, bare }: EditHeaderProps) {
 	const t = useT();
 	const Icon = op === "delete" ? Trash2 : op === "create" ? FilePlus2 : title != null ? ArrowRightLeft : Pencil;
 	const label =
@@ -95,12 +97,22 @@ function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError }
 	const stats = diff ? unifiedDiffStats(diff) : null;
 	return (
 		<div className="omp-tool-edit-heading flex items-center gap-1.5 font-mono text-omp-sm">
-			<Icon size={12} className={cx("shrink-0", isError ? "text-[var(--omp-error)]" : "text-[var(--omp-dim)]")} />
-			<span
-				className={cx("shrink-0 font-semibold", isError ? "text-[var(--omp-error)]" : "text-[var(--omp-muted)]")}
-			>
-				{label}
-			</span>
+			{bare ? null : (
+				<>
+					<Icon
+						size={12}
+						className={cx("shrink-0", isError ? "text-[var(--omp-error)]" : "text-[var(--omp-dim)]")}
+					/>
+					<span
+						className={cx(
+							"shrink-0 font-semibold",
+							isError ? "text-[var(--omp-error)]" : "text-[var(--omp-muted)]",
+						)}
+					>
+						{label}
+					</span>
+				</>
+			)}
 			{path && (
 				<>
 					<PathLink path={path} className="truncate text-[var(--omp-text)]">
@@ -177,6 +189,7 @@ function PerFileEditBlock({ file, livePreview }: { file: EditPerFileResult; live
 				moveTo={file.move}
 				firstChangedLine={file.firstChangedLine}
 				diff={file.diff}
+				bare={livePreview}
 			/>
 			<DiffView
 				diff={livePreview ? liveDiffPreview(file.diff) : file.diff}
@@ -196,11 +209,8 @@ function PerFileEditBlock({ file, livePreview }: { file: EditPerFileResult; live
  */
 export function EditRenderer(props: ToolRendererProps) {
 	if (!props.livePreview) return <EditContent {...props} />;
-	const details = resultDetails(props.result) ?? resultDetails(props.partialResult);
-	const multiFile =
-		Math.max(editArgumentPaths(props.args).length, asPerFileResults(details?.perFileResults).length) > 1;
 	return (
-		<div className="omp-tool-editor omp-tool-edit" data-multi-file={multiFile}>
+		<div className="omp-tool-editor omp-tool-edit">
 			<EditContent {...props} />
 		</div>
 	);
@@ -285,13 +295,16 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 		if (detailDiff) {
 			return (
 				<div className="flex flex-col gap-1.5">
-					<EditHeader
-						op={op}
-						path={rawPath}
-						moveTo={rename}
-						firstChangedLine={firstChangedLine}
-						diff={detailDiff}
-					/>
+					{/* Live, the card heading already names the file and the diff shows its +/−. */}
+					{livePreview ? null : (
+						<EditHeader
+							op={op}
+							path={rawPath}
+							moveTo={rename}
+							firstChangedLine={firstChangedLine}
+							diff={detailDiff}
+						/>
+					)}
 					<DiffView
 						diff={livePreview ? liveDiffPreview(detailDiff) : detailDiff}
 						filePath={rawPath}
@@ -318,7 +331,7 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 	if (argDiff) {
 		return (
 			<div className="flex flex-col gap-1.5">
-				<EditHeader op={op} path={rawPath} moveTo={rename} diff={argDiff} />
+				{livePreview ? null : <EditHeader op={op} path={rawPath} moveTo={rename} diff={argDiff} />}
 				<DiffView
 					diff={livePreview ? liveDiffPreview(argDiff) : argDiff}
 					filePath={rawPath}
@@ -346,7 +359,9 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 			: undefined;
 		return (
 			<div className="flex flex-col gap-1.5">
-				<EditHeader op={op} path={multiFileArgs ? "" : rawPath} moveTo={rename} diff={singleDiff} />
+				{livePreview ? null : (
+					<EditHeader op={op} path={multiFileArgs ? "" : rawPath} moveTo={rename} diff={singleDiff} />
+				)}
 				{argEdits.map((entry, index) => {
 					const entryPath = asString(entry.path);
 					const entryDiff = asString(entry.diff);
@@ -429,7 +444,7 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 		const fallbackDiff = oldNewDiff(oldStr, newStr);
 		return (
 			<div className="flex flex-col gap-1.5">
-				<EditHeader op={op} path={rawPath} moveTo={rename} diff={fallbackDiff} />
+				{livePreview ? null : <EditHeader op={op} path={rawPath} moveTo={rename} diff={fallbackDiff} />}
 				<DiffView
 					diff={livePreview ? liveDiffPreview(fallbackDiff) : fallbackDiff}
 					filePath={rawPath}

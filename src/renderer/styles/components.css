@@ -2659,15 +2659,6 @@
 .omp-tool-editor [class~="group/diff"] > button {
 	display: none;
 }
-/* One file: the card heading already names it and the diff shows its +/−, so the row goes entirely
-   (left alone, the stat sat orphaned on a line of its own). */
-.omp-tool-edit[data-multi-file="false"] .omp-tool-edit-heading {
-	display: none;
-}
-.omp-tool-edit .omp-tool-edit-heading > svg,
-.omp-tool-edit .omp-tool-edit-heading > span.font-semibold {
-	display: none;
-}
 .omp-tool-write pre {
 	background: var(--sc-success-soft);
 }

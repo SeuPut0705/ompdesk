@@ -104,16 +104,56 @@ describe("live tool screens", () => {
 		expect(preview).toContain("+30|new");
 		expect(preview).not.toContain("context 98");
 	});
-	it("marks live diffs without changing transcript rendering", async () => {
+	it("lets the diff stand alone under the card heading for a live single-file edit", async () => {
 		await mount(
 			<EditRenderer
 				livePreview
-				args={{ path: "file.ts" }}
+				args={{ path: "src/file.ts" }}
 				result={result("", { diff: "@@ -3 +3 @@\n-old\n+new" })}
 			/>,
 		);
-		expect(container.querySelector(".omp-tool-edit")?.getAttribute("data-multi-file")).toBe("false");
+		expect(container.querySelector(".omp-tool-edit-heading")).toBeNull();
 		expect(container.textContent).toContain("new");
+	});
+	it("keeps the operation row for live deletes and moves, which have no diff to show", async () => {
+		await mount(
+			<EditRenderer
+				livePreview
+				args={{ path: "src/old.ts" }}
+				result={result("", { path: "src/old.ts", op: "delete" })}
+			/>,
+		);
+		expect(container.querySelector(".omp-tool-edit-heading")?.textContent).toBe("Deleteold.tssrc");
+		await act(async () => root?.unmount());
+		container.remove();
+		await mount(
+			<EditRenderer
+				livePreview
+				args={{ path: "src/old.ts", rename: "lib/new.ts" }}
+				result={result("", { path: "src/old.ts", move: "lib/new.ts" })}
+			/>,
+		);
+		const row = container.querySelector(".omp-tool-edit-heading")?.textContent ?? "";
+		expect(row).toContain("old.ts");
+		expect(row).toContain("→new.tslib");
+	});
+	it("names each file of a live multi-file edit without repeating the operation", async () => {
+		await mount(
+			<EditRenderer
+				livePreview
+				args={{ edits: [{ path: "a.ts" }, { path: "b.ts" }] }}
+				result={result("", {
+					perFileResults: [
+						{ path: "a.ts", diff: "@@ -1 +1 @@\n-a\n+A" },
+						{ path: "b.ts", op: "delete", diff: "" },
+					],
+				})}
+			/>,
+		);
+		const rows = [...container.querySelectorAll(".omp-tool-edit-heading")].map(row => row.textContent);
+		expect(rows[0]).not.toContain("Edit");
+		expect(rows[0]).toContain("a.ts");
+		expect(rows[1]).toBe("Deleteb.ts");
 	});
 	it("shows grep paths and matched lines without repeating the search header", async () => {
 		await mount(<GrepRenderer livePreview args={{ pattern: "needle" }} result={result("file.ts:7:needle found")} />);
