@@ -39,21 +39,40 @@ function stockEntries(data: unknown, device?: string): InputHistoryEntry[] {
 		.map(entry => ({ prompt: entry.prompt, ts: entry.created_at * 1000, cwd: entry.cwd, device }));
 }
 
+// Whitespace-insensitive key for "stock already holds this prompt"; looser than stock's
+// own normalization on purpose, so a near-duplicate is skipped rather than re-stamped.
+const promptKey = (prompt: string) => prompt.replace(/\s+/g, " ").trim();
+
+async function stockHolds(rpc: TabRpc, prompt: string, recent: Set<string>): Promise<boolean> {
+	const key = promptKey(prompt);
+	if (recent.has(key)) return true;
+	const response = await rpc.historySearch(prompt, 1000);
+	if (!response.success) throw new Error(response.error);
+	return stockEntries(response.data).some(entry => promptKey(entry.prompt) === key);
+}
+
 let migration: Promise<void> | undefined;
 async function migratePrefs(rpc: TabRpc): Promise<void> {
 	if (migration) return migration;
 	migration = (async () => {
 		const raw = await window.omp.prefs.get("inputHistory");
 		if (!Array.isArray(raw)) return;
+		// Stock's add() always stamps "now" and bumps use_count, so recording a prompt stock
+		// already holds would lift an old prompt above newer ones. Only missing prompts are
+		// recorded; they land newest, which is where the GUI's own ↑ showed them before.
+		const recentResponse = await rpc.historyRecent(1000);
+		if (!recentResponse.success) throw new Error(recentResponse.error);
+		const recent = new Set(stockEntries(recentResponse.data).map(entry => promptKey(entry.prompt)));
 		// Oldest first preserves the legacy newest-first order after stock upserts.
 		for (const item of [...raw].reverse()) {
 			const entry =
 				typeof item === "string"
 					? { prompt: item }
 					: z.object({ prompt: z.string(), cwd: z.string().optional() }).safeParse(item).data;
-			if (!entry?.prompt.trim()) continue;
+			if (!entry?.prompt.trim() || (await stockHolds(rpc, entry.prompt, recent))) continue;
 			const result = await rpc.historyRecord(entry.prompt, entry.cwd);
 			if (!result.success) throw new Error(result.error);
+			recent.add(promptKey(entry.prompt));
 		}
 		// Setting undefined removes the serialized prefs key; no second history copy remains.
 		await window.omp.prefs.set("inputHistory", undefined);

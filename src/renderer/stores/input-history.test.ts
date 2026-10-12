@@ -17,8 +17,16 @@ function installHistory(legacy: unknown = undefined) {
 			if (input.type === "history_record") {
 				const prompt = input.prompt ?? "";
 				const skipped = prompt.startsWith("/login:");
-				if (!skipped) history.unshift({ prompt, created_at: Date.now() / 1000, cwd: input.cwd });
+				if (!skipped) {
+					// Stock upserts: a repeat moves to the top with a fresh timestamp.
+					const index = history.findIndex(entry => entry.prompt === prompt);
+					if (index !== -1) history.splice(index, 1);
+					history.unshift({ prompt, created_at: Date.now() / 1000, cwd: input.cwd });
+				}
 				data = { skipped };
+			} else if (input.type === "history_search") {
+				const tokens = (input.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+				data = history.filter(entry => tokens.every(token => entry.prompt.toLowerCase().includes(token)));
 			} else data = history;
 			return { type: "response", command: input.type, success: true, data };
 		},
@@ -42,6 +50,24 @@ describe("stock prompt history adapter", () => {
 		expect(prefs.set).toHaveBeenCalledWith("inputHistory", undefined);
 		await useInputHistoryStore.getState().hydrate(rpc);
 		expect(history).toHaveLength(2);
+	});
+	it("never re-stamps a legacy prompt stock already holds, so newer prompts stay on top", async () => {
+		const { rpc, prefs, history, command } = installHistory([
+			{ prompt: "legacy only", ts: 2, cwd: "/repo" },
+			{ prompt: "typed  in\nterminal too", ts: 1, cwd: "/repo" },
+		]);
+		history.push(
+			{ prompt: "newest real prompt", created_at: 30, cwd: "/repo" },
+			{ prompt: "typed in terminal too", created_at: 20, cwd: "/repo" },
+		);
+		await useInputHistoryStore.getState().hydrate(rpc);
+		expect(command.mock.calls.filter(([input]) => input.type === "history_record")).toHaveLength(1);
+		expect(history.map(entry => [entry.prompt, entry.created_at > 30])).toEqual([
+			["legacy only", true],
+			["newest real prompt", false],
+			["typed in terminal too", false],
+		]);
+		expect(prefs.set).toHaveBeenCalledWith("inputHistory", undefined);
 	});
 	it("retains legacy prefs if stock rejects migration", async () => {
 		const { rpc, prefs, command } = installHistory(["old"]);
