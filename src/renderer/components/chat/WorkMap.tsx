@@ -3,11 +3,14 @@ import { useEffect, useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
 import type { AgentProgress } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
+import { useMediaQuery } from "../../hooks/use-media-query";
 import { cx, formatDuration, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { activeTabCommand, useSessionRuntime } from "../../stores/session-runtime-context";
 import { type SubagentsStore, useSubagentsStore } from "../../stores/subagents";
 import { selectToolEntry, type ToolsStore, useToolsStore } from "../../stores/tools";
+import { statusMeta } from "../panels/subagent-graph";
+import { getToolHeader } from "../tools/index";
 import { LiveStepPeek } from "./LiveStepPeek";
 import { agentGroupState, agentWorkState, WorkStatus } from "./WorkStatus";
 import { agentResultSummary, workNarrative, workOutcomes } from "./work-view";
@@ -69,6 +72,41 @@ function SubagentSurface({ id, store }: { id: string; store: StoreApi<SubagentsS
 	);
 }
 
+/** Keep the closing surface mounted until its grid track finishes easing shut. */
+function LaneSurface({
+	id,
+	store,
+	open,
+	motion,
+}: {
+	id: string;
+	store: StoreApi<SubagentsStore>;
+	open: boolean;
+	motion: boolean;
+}) {
+	const [present, setPresent] = useState(open);
+	useEffect(() => {
+		if (open) setPresent(true);
+		else if (!motion) setPresent(false);
+	}, [open, motion]);
+	return (
+		<div
+			className="omp-work-lane-surface"
+			data-open={open && present}
+			data-motion={motion}
+			aria-hidden={!open}
+			inert={!open}
+			onTransitionEnd={event => {
+				if (event.target === event.currentTarget && !open) setPresent(false);
+			}}
+		>
+			<div className="omp-work-lane-surface-content">
+				{present ? <SubagentSurface id={id} store={store} /> : null}
+			</div>
+		</div>
+	);
+}
+
 /**
  * One lane per subagent of this group: status, name, what it is doing now (its
  * conclusion once done) and its counts. A lane opens its agent's own live
@@ -88,6 +126,8 @@ export function WorkMap({
 	onExpandedChange: (id: string | null) => void;
 }) {
 	const t = useT();
+	const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+	const laneMotion = motion && !reducedMotion;
 	const runtime = useSessionRuntime();
 	const store = (runtime?.stores.get("subagents") as StoreApi<SubagentsStore> | undefined) ?? useSubagentsStore;
 	const tools = (runtime?.stores.get("tools") as StoreApi<ToolsStore> | undefined) ?? useToolsStore;
@@ -134,7 +174,7 @@ export function WorkMap({
 		}),
 		nodes,
 	).conclusions;
-	const hasRunning = nodes.some(node => node.status === "running" || node.status === "pending");
+	const hasRunning = nodes.some(node => statusMeta(node.status).live);
 	const [streamError, setStreamError] = useState<string | null>(null);
 	useEffect(() => {
 		if (!active || !expanded || !hasRunning) return;
@@ -166,7 +206,9 @@ export function WorkMap({
 			<ul className="omp-work-cards">
 				{nodes.map(node => {
 					const progress = node.progress;
-					const running = node.status === "running" || node.status === "pending";
+					const meta = statusMeta(node.status);
+					const running = meta.live;
+					const groupState = agentGroupState(node.status);
 					const args = progressArgs(progress);
 					const activity = running
 						? progress?.currentTool
@@ -175,13 +217,16 @@ export function WorkMap({
 								(progress?.lastIntent ?? node.description ?? t("chat.work.starting"))
 						: (conclusions.find(item => item.name === node.id)?.summary ??
 							t(
-								node.status === "failed"
+								groupState === "failed"
 									? "chat.work.failed"
-									: node.status === "cancelled"
+									: groupState === "interrupted"
 										? "chat.work.interrupted"
 										: "chat.work.completed",
 							));
-					const target = running && typeof args.target === "string" && args.target !== activity ? args.target : "";
+					const header = running && progress?.currentTool ? getToolHeader(progress.currentTool, args) : null;
+					const toolTarget =
+						header?.path || header?.target || (typeof args.target === "string" ? args.target : "");
+					const target = toolTarget && !activity.includes(toolTarget) ? toolTarget : "";
 					const observed = store.getState().surfaces.get(node.id)?.getState();
 					const toolCount = Math.max(
 						progress?.toolCount ?? 0,
@@ -191,42 +236,46 @@ export function WorkMap({
 					const plural = toolCount === 1 ? "" : "s";
 					const open = expanded === node.id;
 					return (
-						<li className="omp-work-card" key={node.id} data-status={node.status} data-open={open}>
+						<li
+							className="omp-work-card"
+							key={node.id}
+							data-status={node.status}
+							data-open={open}
+							data-motion={laneMotion}
+						>
 							<button
 								type="button"
 								className="omp-work-card-button"
 								aria-expanded={open}
 								onClick={() => onExpandedChange(open ? null : node.id)}
 							>
-								<WorkStatus
-									state={agentWorkState(node.status)}
-									label={t(`subagent.status.${node.status === "running" ? "started" : node.status}`)}
-									motion={motion}
-								/>
+								<WorkStatus state={agentWorkState(node.status)} label={t(meta.labelKey)} motion={laneMotion} />
 								<span className="omp-work-card-name">{node.id}</span>
 								<span className="omp-work-card-activity" title={target ? `${activity} · ${target}` : activity}>
-									{activity}
-									{target ? <span className="omp-work-card-target">{target}</span> : null}
+									<span
+										className="omp-work-card-activity-text"
+										key={`${progress?.currentTool ?? ""}\u0000${activity}\u0000${target}`}
+									>
+										{activity}
+										{target ? <span className="omp-work-card-target">{target}</span> : null}
+									</span>
 								</span>
 								<span className="omp-work-card-progress">
-									{[
-										tokens > 0
+									<span className="omp-work-card-count">
+										{tokens > 0
 											? t("chat.work.progress", { tools: toolCount, plural, tokens: formatTokens(tokens) })
 											: toolCount > 0
 												? t("chat.work.toolsOnly", { tools: toolCount, plural })
-												: null,
-										formatDuration(progress?.durationMs ?? 0),
-									]
-										.filter(Boolean)
-										.join(" · ")}
+												: null}
+									</span>
+									<span className="omp-work-card-elapsed">
+										{tokens > 0 || toolCount > 0 ? " · " : ""}
+										{formatDuration(progress?.durationMs ?? 0)}
+									</span>
 								</span>
 								<ChevronRight aria-hidden className={cx("omp-work-card-chevron", open && "rotate-90")} />
 							</button>
-							{open ? (
-								<div className="omp-work-lane-surface">
-									<SubagentSurface id={node.id} store={store} />
-								</div>
-							) : null}
+							<LaneSurface id={node.id} store={store} open={open} motion={laneMotion} />
 						</li>
 					);
 				})}

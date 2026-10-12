@@ -9,6 +9,7 @@ import { MermaidBlock } from "../chat/MermaidBlock";
 import { type PreviewMode, PreviewModeTabs, SvgImage, useSanitizedSvg } from "../chat/SvgBlock";
 import { ProtocolWriteRenderer } from "./CoordinationRenderer";
 import { unifiedDiffStats } from "./diff-stats";
+import { liveDiffPreview } from "./live-diff";
 import { PathLink } from "./PathLink";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -107,7 +108,11 @@ export function WriteRenderer({
 
 	const figure = writeFigure(path);
 	const codeView = diff ? (
-		<DiffView diff={diff} filePath={path} className={cx("rounded", PREVIEW_SCROLL_LG)} />
+		<DiffView
+			diff={livePreview ? liveDiffPreview(diff) : diff}
+			filePath={path}
+			className={cx("rounded", PREVIEW_SCROLL_LG)}
+		/>
 	) : content ? (
 		<>
 			<CodeBlock
@@ -127,7 +132,15 @@ export function WriteRenderer({
 	) : null;
 	if (livePreview) {
 		if (isError) return <div className="whitespace-pre-wrap text-sc-sm text-(--sc-danger)">{errorText?.head}</div>;
-		return codeView;
+		return (
+			<div className="omp-tool-editor omp-tool-write">
+				{codeView || (
+					<div className="text-sc-sm text-(--sc-text-muted)">
+						{isPartial ? t("tools.edit.applying") : t("tools.read.empty")}
+					</div>
+				)}
+			</div>
+		);
 	}
 	return (
 		<div className="flex flex-col gap-1.5">

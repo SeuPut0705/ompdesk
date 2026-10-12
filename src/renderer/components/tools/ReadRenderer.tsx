@@ -64,7 +64,7 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult, 
 	const { head, omitted } = headLines(rawText, READ_PREVIEW_LINES);
 
 	return (
-		<div className="flex flex-col gap-1.5">
+		<div className={livePreview ? "omp-tool-editor omp-tool-read flex flex-col gap-1.5" : "flex flex-col gap-1.5"}>
 			{!livePreview && (
 				<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 					<FileText size={12} className="shrink-0 text-[var(--omp-dim)]" />
@@ -94,7 +94,7 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult, 
 						showLanguage={false}
 						showCopy={!livePreview}
 						maxHeightClass={PREVIEW_HEIGHT_LG}
-						startLine={display?.startLine}
+						startLine={display?.startLine ?? (livePreview ? 1 : undefined)}
 						lineNumbers={display?.lineNumbers?.slice(0, head.split("\n").length)}
 					/>
 					{omitted > 0 && (

@@ -147,7 +147,7 @@ function HighlightedContent({ content, pattern }: { content: string; pattern: st
 }
 
 /** Grep: match/file counts + truncation meta, grouped per-file match list. */
-export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRendererProps) {
+export function GrepRenderer({ args, result, isPartial, partialResult, livePreview }: ToolRendererProps) {
 	const t = useT();
 	const pattern = typeof args.pattern === "string" ? args.pattern : "";
 	const effective = isPartial ? partialResult : result;
@@ -189,29 +189,31 @@ export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRen
 	const hidden = Math.max(matchCount - shown, 0);
 
 	return (
-		<div className="flex flex-col gap-1">
-			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
-				<Search size={12} className="shrink-0 text-[var(--omp-dim)]" />
-				<span className="truncate text-[var(--omp-accent)]">/{pattern}/</span>
-				<span className="ml-auto flex shrink-0 items-center gap-1.5 text-omp-xs text-[var(--omp-dim)]">
-					{scope && (
-						<span className="max-w-40 truncate" title={scope}>
-							{t("tools.grep.scope", { scope })}
+		<div className={livePreview ? "omp-tool-results flex flex-col gap-1" : "flex flex-col gap-1"}>
+			{!livePreview && (
+				<div className="flex items-center gap-1.5 font-mono text-omp-sm">
+					<Search size={12} className="shrink-0 text-[var(--omp-dim)]" />
+					<span className="truncate text-[var(--omp-accent)]">/{pattern}/</span>
+					<span className="ml-auto flex shrink-0 items-center gap-1.5 text-omp-xs text-[var(--omp-dim)]">
+						{scope && (
+							<span className="max-w-40 truncate" title={scope}>
+								{t("tools.grep.scope", { scope })}
+							</span>
+						)}
+						{truncated && !isPartial && (
+							<span className="text-[var(--omp-warning)]">{t("tools.grep.truncated")}</span>
+						)}
+						<span>
+							{isPartial
+								? t("tools.grep.searching")
+								: t("tools.grep.matches", { count: matchCount, plural: matchCount === 1 ? "" : "es" })}
 						</span>
-					)}
-					{truncated && !isPartial && (
-						<span className="text-[var(--omp-warning)]">{t("tools.grep.truncated")}</span>
-					)}
-					<span>
-						{isPartial
-							? t("tools.grep.searching")
-							: t("tools.grep.matches", { count: matchCount, plural: matchCount === 1 ? "" : "es" })}
+						{!isPartial && fileCount > 0 && (
+							<span>{t("tools.grep.files", { count: fileCount, plural: fileCount === 1 ? "" : "s" })}</span>
+						)}
 					</span>
-					{!isPartial && fileCount > 0 && (
-						<span>{t("tools.grep.files", { count: fileCount, plural: fileCount === 1 ? "" : "s" })}</span>
-					)}
-				</span>
-			</div>
+				</div>
+			)}
 			{renderedGroups.length > 0 && (
 				<div
 					className={cx(
@@ -261,7 +263,7 @@ export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRen
 				</div>
 			)}
 			{renderedGroups.length === 0 &&
-				!isPartial &&
+				(!isPartial || livePreview) &&
 				(text ? (
 					<pre
 						className={cx(
@@ -272,7 +274,9 @@ export function GrepRenderer({ args, result, isPartial, partialResult }: ToolRen
 						{text}
 					</pre>
 				) : (
-					<div className="text-omp-sm italic text-[var(--omp-dim)]">{t("tools.grep.noMatches")}</div>
+					<div className="text-omp-sm italic text-[var(--omp-dim)]">
+						{isPartial ? t("tools.grep.searching") : t("tools.grep.noMatches")}
+					</div>
 				))}
 		</div>
 	);

@@ -7,6 +7,7 @@ import { CodeBlock } from "../chat/CodeBlock";
 import { ErrorDetail } from "../common";
 import { unifiedDiffStats } from "./diff-stats";
 import { editArgumentPaths } from "./edit-args";
+import { liveDiffPreview } from "./live-diff";
 import { PathLink } from "./PathLink";
 import { resultBodyText, resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
@@ -93,7 +94,7 @@ function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError }
 				: t("tools.edit.op.edit"));
 	const stats = diff ? unifiedDiffStats(diff) : null;
 	return (
-		<div className="flex items-center gap-1.5 font-mono text-omp-sm">
+		<div className="omp-tool-edit-heading flex items-center gap-1.5 font-mono text-omp-sm">
 			<Icon size={12} className={cx("shrink-0", isError ? "text-[var(--omp-error)]" : "text-[var(--omp-dim)]")} />
 			<span
 				className={cx("shrink-0 font-semibold", isError ? "text-[var(--omp-error)]" : "text-[var(--omp-muted)]")}
@@ -132,7 +133,7 @@ function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError }
 }
 
 /** One file of a multi-file edit result: header + diff, or an inline op row. */
-function PerFileEditBlock({ file }: { file: EditPerFileResult }) {
+function PerFileEditBlock({ file, livePreview }: { file: EditPerFileResult; livePreview?: boolean }) {
 	const t = useT();
 	const displayPath = file.sourcePath ?? file.path;
 
@@ -177,7 +178,11 @@ function PerFileEditBlock({ file }: { file: EditPerFileResult }) {
 				firstChangedLine={file.firstChangedLine}
 				diff={file.diff}
 			/>
-			<DiffView diff={file.diff} filePath={displayPath} className={cx("rounded", PREVIEW_SCROLL_LG)} />
+			<DiffView
+				diff={livePreview ? liveDiffPreview(file.diff) : file.diff}
+				filePath={displayPath}
+				className={cx("rounded", PREVIEW_SCROLL_LG)}
+			/>
 		</div>
 	);
 }
@@ -189,7 +194,19 @@ function PerFileEditBlock({ file }: { file: EditPerFileResult }) {
  * (edits[] pairs, patch diff, apply_patch input, legacy old/new strings)
  * while streaming or for history entries without details.
  */
-export function EditRenderer({ args, result, isError, isPartial, partialResult }: ToolRendererProps) {
+export function EditRenderer(props: ToolRendererProps) {
+	if (!props.livePreview) return <EditContent {...props} />;
+	const details = resultDetails(props.result) ?? resultDetails(props.partialResult);
+	const multiFile =
+		Math.max(editArgumentPaths(props.args).length, asPerFileResults(details?.perFileResults).length) > 1;
+	return (
+		<div className="omp-tool-editor omp-tool-edit" data-multi-file={multiFile}>
+			<EditContent {...props} />
+		</div>
+	);
+}
+
+function EditContent({ args, result, isError, isPartial, partialResult, livePreview }: ToolRendererProps) {
 	const t = useT();
 	const details = resultDetails(result) ?? resultDetails(partialResult);
 	const perFileResults = asPerFileResults(details?.perFileResults);
@@ -218,7 +235,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 		return (
 			<div className="flex flex-col gap-3">
 				{perFileResults.map((file, index) => (
-					<PerFileEditBlock key={`${index}:${file.path}`} file={file} />
+					<PerFileEditBlock key={`${index}:${file.path}`} file={file} livePreview={livePreview} />
 				))}
 				{remaining > 0 && isPartial && (
 					<div className="flex items-center gap-1.5 text-omp-sm text-[var(--omp-dim)]">
@@ -275,7 +292,11 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 						firstChangedLine={firstChangedLine}
 						diff={detailDiff}
 					/>
-					<DiffView diff={detailDiff} filePath={rawPath} className={cx("rounded", PREVIEW_SCROLL_LG)} />
+					<DiffView
+						diff={livePreview ? liveDiffPreview(detailDiff) : detailDiff}
+						filePath={rawPath}
+						className={cx("rounded", PREVIEW_SCROLL_LG)}
+					/>
 				</div>
 			);
 		}
@@ -298,7 +319,11 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 		return (
 			<div className="flex flex-col gap-1.5">
 				<EditHeader op={op} path={rawPath} moveTo={rename} diff={argDiff} />
-				<DiffView diff={argDiff} filePath={rawPath} className={cx("rounded", PREVIEW_SCROLL_LG)} />
+				<DiffView
+					diff={livePreview ? liveDiffPreview(argDiff) : argDiff}
+					filePath={rawPath}
+					className={cx("rounded", PREVIEW_SCROLL_LG)}
+				/>
 			</div>
 		);
 	}
@@ -338,7 +363,7 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 									<div className="truncate font-mono text-omp-xs text-[var(--omp-dim)]">{entryPath}</div>
 								)}
 								<DiffView
-									diff={entryDiff}
+									diff={livePreview ? liveDiffPreview(entryDiff) : entryDiff}
 									filePath={entryPath ?? rawPath}
 									className={cx("rounded", PREVIEW_SCROLL_LG)}
 								/>
@@ -352,7 +377,11 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 									<div className="truncate font-mono text-omp-xs text-[var(--omp-dim)]">{entryPath}</div>
 								)}
 								<DiffView
-									diff={oldNewDiff(entryOld, entryNew)}
+									diff={
+										livePreview
+											? liveDiffPreview(oldNewDiff(entryOld, entryNew))
+											: oldNewDiff(entryOld, entryNew)
+									}
 									filePath={entryPath ?? rawPath}
 									className={cx("rounded", PREVIEW_SCROLL_LG)}
 								/>
@@ -401,7 +430,11 @@ export function EditRenderer({ args, result, isError, isPartial, partialResult }
 		return (
 			<div className="flex flex-col gap-1.5">
 				<EditHeader op={op} path={rawPath} moveTo={rename} diff={fallbackDiff} />
-				<DiffView diff={fallbackDiff} filePath={rawPath} className={cx("rounded", PREVIEW_SCROLL_LG)} />
+				<DiffView
+					diff={livePreview ? liveDiffPreview(fallbackDiff) : fallbackDiff}
+					filePath={rawPath}
+					className={cx("rounded", PREVIEW_SCROLL_LG)}
+				/>
 			</div>
 		);
 	}

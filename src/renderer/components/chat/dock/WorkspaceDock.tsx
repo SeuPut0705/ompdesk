@@ -1,29 +1,27 @@
 /**
- * Workspace dock: the live execution-state region mounted between the
- * transcript and the composer, replacing the workspace drawer's
- * todo/plan/agents tabs with always-current center cards. Large todo
- * collections render a compact summary and temporarily focus the card for
- * full-list inspection; running subagents get a compact count chip beside the
- * todo card (the roster lives in the sidebar). Each card self-gates its visibility (no todos, no
- * live subagents, plan mode off → nothing rendered), so the region collapses to
- * zero height on an idle session. Queued messages are not a dock card: they
- * live in the composer's own queue tray (ComposerQueue), which every tab kind
- * mounts. The stack scrolls within a capped height so the composer is never
- * pushed off-screen. Agent and chat tabs mount it alike. Every card sits
- * behind its own error boundary: a card crash must never take down the
- * composer.
+ * Workspace dock: the region between the transcript and the composer. While
+ * this tab's transcript has a live work tail (state, not a card mount), that
+ * tail carries todo progress, the goal and every subagent lane, so the dock keeps only
+ * the plan-mode card; otherwise it shows the todo list (collapsed to one line)
+ * and the goal strip. Subagents never get a dock surface of their own: their
+ * lanes live in the work card and the roster in the sidebar. The dock still
+ * owns the stream-time roster poll, since it is mounted in every tab.
+ * Each card self-gates its visibility, so the region collapses to zero height
+ * on an idle session; the stack scrolls within a capped height so the composer
+ * is never pushed off-screen, and every card sits behind its own error
+ * boundary: a card crash must never take down the composer.
  */
 
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useSubagentRosterPoll } from "../../../hooks/use-subagent-roster-poll";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { liveWorkKey, useLiveWorkStore } from "../../../stores/live-work";
 import { useSessionStore } from "../../../stores/session";
-import { useSubagentsStore } from "../../../stores/subagents";
+import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
 import { PanelErrorBoundary } from "../../common";
-import { isLiveSubagentStatus } from "../../panels/subagent-graph";
-import { AgentsDockCard } from "./AgentsDockCard";
 import { GoalDockBar } from "./GoalDockBar";
 import { PlanDockCard } from "./PlanDockCard";
 import { TodoDockCard } from "./TodoDockCard";
@@ -34,15 +32,18 @@ function clampFocusHeight(height: number): number {
 }
 
 function WorkspaceDockContent() {
-	const { focusedCard } = useWorkspaceDockFocus();
+	const { focusedCard, clearFocus } = useWorkspaceDockFocus();
 	const t = useT();
 	const planModeEnabled = useSessionStore(state => state.planModeEnabled);
-	const goalVisible = useSessionStore(state => state.goal !== null);
-	const todoVisible = useTodoStore(selectTodoCardVisible);
-	const agentsVisible = useSubagentsStore(state =>
-		[...state.subagents.values()].some(agent => isLiveSubagentStatus(agent.status)),
-	);
-	const cardsVisible = planModeEnabled || todoVisible || agentsVisible;
+	const tabId = useRuntimeTabId();
+	// The running work card shows todos and the goal itself.
+	const carriedByWork = useLiveWorkStore(state => state.cards[liveWorkKey(tabId)] ?? false);
+	const goalVisible = useSessionStore(state => state.goal !== null) && !carriedByWork;
+	const todoVisible = useTodoStore(selectTodoCardVisible) && !carriedByWork;
+	const cardsVisible = planModeEnabled || todoVisible;
+	useLayoutEffect(() => {
+		if (carriedByWork && focusedCard === "todo") clearFocus();
+	}, [carriedByWork, focusedCard, clearFocus]);
 
 	// Focused-card height: user-resizable via the drag handle above the stack,
 	// persisted across launches. null = fall back to the viewport-derived cap.
@@ -138,33 +139,25 @@ function WorkspaceDockContent() {
 						<PanelErrorBoundary>
 							<PlanDockCard />
 						</PanelErrorBoundary>
-						{(todoVisible || agentsVisible) && (
-							// Todo card fills the row; the agents chip keeps its natural
-							// width beside it (alone and left-aligned without todos).
-							<div className="flex items-start gap-2">
-								{todoVisible && (
-									<div className="min-w-0 flex-1">
-										<PanelErrorBoundary>
-											<TodoDockCard />
-										</PanelErrorBoundary>
-									</div>
-								)}
-								<PanelErrorBoundary>
-									<AgentsDockCard />
-								</PanelErrorBoundary>
-							</div>
+						{todoVisible && (
+							<PanelErrorBoundary>
+								<TodoDockCard />
+							</PanelErrorBoundary>
 						)}
 					</div>
 				</>
 			)}
-			<PanelErrorBoundary>
-				<GoalDockBar />
-			</PanelErrorBoundary>
+			{goalVisible && (
+				<PanelErrorBoundary>
+					<GoalDockBar />
+				</PanelErrorBoundary>
+			)}
 		</div>
 	);
 }
 
 export function WorkspaceDock() {
+	useSubagentRosterPoll();
 	return (
 		<WorkspaceDockFocusProvider>
 			<WorkspaceDockContent />

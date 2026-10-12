@@ -91,7 +91,7 @@ function parseSearch(result: unknown): SearchParsed {
 }
 
 /** Web search: query header, markdown answer, sources with domain/age, provider metadata. */
-export function WebSearchRenderer({ args, result, partialResult, isPartial }: ToolRendererProps) {
+export function WebSearchRenderer({ args, result, partialResult, isPartial, livePreview }: ToolRendererProps) {
 	const t = useT();
 	const effective = isPartial ? (partialResult ?? result) : result;
 	const parsed = parseSearch(effective);
@@ -113,18 +113,20 @@ export function WebSearchRenderer({ args, result, partialResult, isPartial }: To
 	}
 
 	return (
-		<div className="flex flex-col gap-1.5">
-			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
-				<Globe size={12} className="shrink-0 text-[var(--omp-link)]" />
-				<span className="min-w-0 flex-1 truncate text-[var(--omp-text)]">
-					{query || t("tools.websearch.fallback")}
-				</span>
-				{parsed.sources.length > 0 && (
-					<span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">
-						{t("tools.websearch.sources", { count: parsed.sources.length })}
+		<div className={livePreview ? "omp-tool-results omp-tool-web flex flex-col gap-1.5" : "flex flex-col gap-1.5"}>
+			{!livePreview && (
+				<div className="flex items-center gap-1.5 font-mono text-omp-sm">
+					<Globe size={12} className="shrink-0 text-[var(--omp-link)]" />
+					<span className="min-w-0 flex-1 truncate text-[var(--omp-text)]">
+						{query || t("tools.websearch.fallback")}
 					</span>
-				)}
-			</div>
+					{parsed.sources.length > 0 && (
+						<span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">
+							{t("tools.websearch.sources", { count: parsed.sources.length })}
+						</span>
+					)}
+				</div>
+			)}
 
 			{parsed.error && (
 				<div className="rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 text-omp-sm text-[var(--omp-error)]">
@@ -132,7 +134,7 @@ export function WebSearchRenderer({ args, result, partialResult, isPartial }: To
 				</div>
 			)}
 
-			{!parsed.error && answer && (
+			{!parsed.error && answer && (!livePreview || parsed.sources.length === 0) && (
 				<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1.5 text-omp-sm [&_.markdown-body]:text-omp-sm">
 					<MarkdownRenderer content={answer} />
 				</div>
@@ -189,7 +191,7 @@ export function WebSearchRenderer({ args, result, partialResult, isPartial }: To
 				</div>
 			)}
 
-			{(providerInfo || usageParts.length > 0) && !isPartial && (
+			{!livePreview && (providerInfo || usageParts.length > 0) && !isPartial && (
 				<div className="font-mono text-omp-xs text-[var(--omp-dim)]">
 					{providerInfo && (
 						<span>

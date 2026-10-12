@@ -65,7 +65,15 @@ function hitPath(rel: string, cwd: unknown): string {
 }
 
 /** Semantic search: ranked files and verified passages, plus text-only phase updates. */
-export function FindRenderer({ args, result, isError, isPartial, partialResult, interrupted }: ToolRendererProps) {
+export function FindRenderer({
+	args,
+	result,
+	isError,
+	isPartial,
+	partialResult,
+	interrupted,
+	livePreview,
+}: ToolRendererProps) {
 	const t = useT();
 	const effective = isPartial ? partialResult : result;
 	const details = resultDetails(effective);
@@ -122,40 +130,44 @@ export function FindRenderer({ args, result, isError, isPartial, partialResult, 
 	const text = previewText(resultText(effective));
 
 	return (
-		<div className="flex min-w-0 flex-col gap-1.5">
-			<div className="flex min-w-0 items-center gap-1.5 font-mono text-omp-sm">
-				<Search size={12} className="shrink-0 text-[var(--omp-dim)]" />
-				<span className="min-w-0 flex-1 truncate text-[var(--omp-accent)]">{previewText(query, 1)}</span>
-				<span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">
-					{failed
-						? t("tools.find.failed")
-						: pending
-							? t("tools.grep.searching")
-							: structured
-								? t("tools.find.hits", { count: hits.length })
-								: ""}
-				</span>
-			</div>
-			{scope && (
+		<div className={livePreview ? "omp-tool-results flex min-w-0 flex-col gap-1.5" : "flex min-w-0 flex-col gap-1.5"}>
+			{!livePreview && (
+				<div className="flex min-w-0 items-center gap-1.5 font-mono text-omp-sm">
+					<Search size={12} className="shrink-0 text-[var(--omp-dim)]" />
+					<span className="min-w-0 flex-1 truncate text-[var(--omp-accent)]">{previewText(query, 1)}</span>
+					<span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">
+						{failed
+							? t("tools.find.failed")
+							: pending
+								? t("tools.grep.searching")
+								: structured
+									? t("tools.find.hits", { count: hits.length })
+									: ""}
+					</span>
+				</div>
+			)}
+			{!livePreview && scope && (
 				<div className="truncate font-mono text-omp-xs text-[var(--omp-dim)]">
 					{t("tools.grep.scope", { scope: shortenPath(previewText(scope, 1)) })}
 				</div>
 			)}
-			{keywords.length > 0 && (
+			{!livePreview && keywords.length > 0 && (
 				<div className="truncate font-mono text-omp-xs text-[var(--omp-dim)]">
 					{t("tools.find.keywords", { keywords: previewText(keywords.join(", "), 1) })}
 				</div>
 			)}
 			{!pending && !failed && structured && (
 				<>
-					<div className="flex flex-wrap gap-2 text-omp-xs text-[var(--omp-dim)]">
-						{typeof stats?.filesRead === "number" && (
-							<span>{t("tools.find.filesRead", { count: stats.filesRead })}</span>
-						)}
-						{typeof details?.threshold === "number" && (
-							<span>{t("tools.find.threshold", { score: details.threshold.toFixed(2) })}</span>
-						)}
-					</div>
+					{!livePreview && (
+						<div className="flex flex-wrap gap-2 text-omp-xs text-[var(--omp-dim)]">
+							{typeof stats?.filesRead === "number" && (
+								<span>{t("tools.find.filesRead", { count: stats.filesRead })}</span>
+							)}
+							{typeof details?.threshold === "number" && (
+								<span>{t("tools.find.threshold", { score: details.threshold.toFixed(2) })}</span>
+							)}
+						</div>
+					)}
 					{hits.length === 0 ? (
 						<div className="text-omp-sm italic text-[var(--omp-dim)]">{t("tools.find.empty")}</div>
 					) : (
@@ -182,7 +194,7 @@ export function FindRenderer({ args, result, isError, isPartial, partialResult, 
 											{label}
 										</PathLink>
 									</div>
-									{Number.isFinite(hit.linesSeen) && (
+									{!livePreview && Number.isFinite(hit.linesSeen) && (
 										<div className="text-omp-xs text-[var(--omp-dim)]">
 											{t(hit.truncated ? "tools.find.partialCoverage" : "tools.find.coverage", {
 												count: hit.linesSeen,

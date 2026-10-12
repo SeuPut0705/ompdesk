@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -7,6 +6,7 @@ import { _electron as electron } from "playwright";
 import { createToolsStore } from "../src/renderer/stores/tools";
 import type { SubagentFrame } from "../src/shared/rpc-types";
 import { exitApp } from "./harness";
+import { realOmpProfile } from "./real-omp";
 import type { RecordedWorkFrame } from "./work-recording";
 
 // Explicit opt-in: this audit spends model tokens and copies credentials only
@@ -16,37 +16,9 @@ test("real omp 18.8.7 streams inline subagent tools", async () => {
 	test.setTimeout(300_000);
 	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(os.tmpdir(), "ompdesk-real-work-evidence");
 	await fs.mkdir(evidenceDir, { recursive: true });
-	const profile = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-real-work-"));
-	await fs.chmod(profile, 0o700);
-	const project = path.join(profile, "project");
-	const desktop = path.join(profile, "desktop");
-	const agent = path.join(profile, "agent");
-	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent, { mode: 0o700 })]);
-	await fs.copyFile(path.join(os.homedir(), ".omp/agent/config.yml"), path.join(agent, "config.yml"));
-	execFileSync("sqlite3", [
-		path.join(os.homedir(), ".omp/agent/agent.db"),
-		`VACUUM INTO '${path.join(agent, "agent.db").replaceAll("'", "''")}'`,
-	]);
-	execFileSync("git", ["init", "--quiet"], { cwd: project });
+	const { profile, project, desktop, env } = await realOmpProfile();
 	await fs.writeFile(path.join(project, "alpha.txt"), "alpha\nbeta\ngamma\n");
 	await fs.writeFile(path.join(project, "beta.txt"), "one\ntwo\n");
-	await fs.writeFile(
-		path.join(desktop, "prefs.json"),
-		JSON.stringify({
-			language: "en",
-			firstRunComplete: true,
-			launchProfiles: { [project]: { noExtensions: true, noSkills: true, noRules: true } },
-		}),
-	);
-	const env = {
-		...process.env,
-		PI_CODING_AGENT_DIR: agent,
-		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
-		OMP_PROFILE: "",
-		PI_PROFILE: "",
-	};
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	Reflect.deleteProperty(env, "OMP_GUI_OMP");
 	const app = await electron.launch({
 		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
 		env,
@@ -82,7 +54,7 @@ test("real omp 18.8.7 streams inline subagent tools", async () => {
 			scale: "css",
 		});
 		await page.locator(".omp-work-card-button").first().click();
-		const liveSurface = page.locator(".omp-work-card .omp-live-step").first();
+		const liveSurface = page.locator('.omp-work-card[data-open="true"] .omp-live-step').first();
 		await expect(liveSurface).toBeVisible({ timeout: 120_000 });
 		await page.screenshot({
 			path: path.join(evidenceDir, "real-work-expanded-live.png"),

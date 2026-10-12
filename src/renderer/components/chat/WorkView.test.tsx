@@ -544,7 +544,7 @@ describe("live work", () => {
 		await mount([key]);
 		expect(container.querySelectorAll(".omp-work-card-button")).toHaveLength(1);
 	});
-	it("shows stock success and wall time without inventing an exit code, and reserves unknown for missing results", async () => {
+	it("shows stock success and wall time without inventing an exit code, and marks explicit aborts interrupted", async () => {
 		const succeeded = entry("bash", { command: "wc -l a.ts" }, { details: { wallTimeMs: 3000 } });
 		const unknown: ToolEntry = {
 			...entry("bash", { command: "interrupted command" }),
@@ -558,6 +558,7 @@ describe("live work", () => {
 			exitCode: null,
 			failed: false,
 			unknown: true,
+			interrupted: true,
 		});
 		useToolsStore.setState(
 			toolEntriesState([
@@ -576,10 +577,10 @@ describe("live work", () => {
 		const rows = [...container.querySelectorAll('li[data-kind="command"]')];
 		expect(rows.map(row => row.querySelector('[role="img"]')?.getAttribute("aria-label"))).toEqual([
 			"Succeeded",
-			"Status unknown",
+			"Interrupted",
 		]);
 		expect(rows[0]?.textContent).toBe("wc -l a.ts 3.0s");
-		expect(rows[1]?.textContent).toContain("Status unknown");
+		expect(rows[1]?.textContent).toContain("Interrupted");
 		expect(container.textContent).not.toContain("exit 0");
 	});
 	it("summarizes changed files, exit statuses and task conclusions without a new diff engine", () => {
@@ -654,6 +655,28 @@ describe("live work", () => {
 		);
 		expect(container.textContent).toContain("The file has twelve lines.");
 	});
+	it("shows the screenshots the work read back without opening any step", async () => {
+		const picture = { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" };
+		useToolsStore.setState(
+			toolEntriesState([
+				["shot", entry("read", { path: "/tmp/menu_now/menu_1280x720.png" }, { content: [picture] })],
+				["again", entry("read", { path: "/tmp/menu_now/menu_1280x720.png" }, { content: [picture] })],
+			]),
+		);
+		await mount([]);
+		await act(async () =>
+			root.render(
+				<I18nProvider>
+					<WorkOutcome toolCallIds={["shot", "again"]} />
+				</I18nProvider>,
+			),
+		);
+		const images = [...container.querySelectorAll(".omp-work-images img")];
+		expect(images.map(image => image.getAttribute("src"))).toEqual(["data:image/png;base64,iVBORw0KGgo="]);
+		expect(container.querySelector(".omp-work-images figcaption")?.textContent).toBe("menu_1280x720.png");
+		// Nothing else happened, so there is no outcome list to open.
+		expect(container.querySelector("details")).toBeNull();
+	});
 	it("renders outcome evidence and respects transcript detail", async () => {
 		const entries: Array<[string, ToolEntry]> = [
 			["file", entry("write", { path: "a.ts", content: "one\ntwo" }, { content: [] })],
@@ -692,6 +715,30 @@ describe("live work", () => {
 		await mount(["command"]);
 		await act(async () => vi.advanceTimersByTime(11_000));
 		expect(container.textContent).toContain("Running for 11s without output");
+	});
+	it("warns about a silent command inside an open subagent lane too", async () => {
+		vi.useFakeTimers();
+		Object.assign(window, { setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval });
+		useSubagentsStore
+			.getState()
+			.surface(progress.id)
+			.getState()
+			.applyEvents([
+				{
+					type: "tool_execution_start",
+					toolCallId: "sub-bash",
+					toolName: "bash",
+					args: { command: "sleep 30" },
+				},
+			]);
+		await mount();
+		await act(async () => container.querySelector<HTMLButtonElement>(".omp-work-card-button")?.click());
+		await act(async () => vi.advanceTimersByTime(11_000));
+		const lane = container.querySelector(".omp-work-card .omp-live-step");
+		expect(lane?.getAttribute("data-surface")).toBe("bash");
+		const clock = lane?.querySelector(".omp-work-clock");
+		expect(clock?.textContent).toBe("Running for 11s without output");
+		expect(clock?.getAttribute("data-stalled")).toBe("true");
 	});
 	it("counts only steps advanced outside visibility", async () => {
 		await mount();

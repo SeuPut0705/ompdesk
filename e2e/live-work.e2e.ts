@@ -178,9 +178,12 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 			if (kind === "bash") {
 				await expect(content).toContainText("Checking renderer components");
 				await control("fixture:work-output");
-				await expect(content).toContainText(
-					"Checking renderer components…\nChecking workspace state…\nAll types are valid",
-				);
+				await expect(content.locator(".omp-bash-line")).toHaveText([
+					"$ tsc --noEmit",
+					"Checking renderer components…",
+					"Checking workspace state…",
+					"All types are valid",
+				]);
 			} else if (kind === "write" || kind === "read") {
 				await expect(content).toContainText("title: 'Live work'");
 			} else if (kind === "task") {

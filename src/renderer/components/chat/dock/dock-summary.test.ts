@@ -1,21 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import type { UiTodoPhase, UiTodoTask } from "../../../stores/todo";
-import { buildAgentDockPeek, buildTodoDockPeek, buildTodoDockSummary } from "./dock-summary";
+import { buildTodoDockPeek, buildTodoDockSummary } from "./dock-summary";
 
 function task(id: string, status: UiTodoTask["status"]): UiTodoTask {
 	return { id, content: id, status };
-}
-
-function agent(id: string, status: string, lastUpdate: number, parentSubagentId?: string): SubagentSnapshot {
-	return {
-		id,
-		index: Number(id.replace(/\D/g, "")) || 0,
-		agent: id,
-		status,
-		lastUpdate,
-		parentSubagentId,
-	};
 }
 
 describe("dock summaries", () => {
@@ -61,16 +49,5 @@ describe("dock summaries", () => {
 		// Nothing in progress: the next open task (blocked counts) stands in.
 		expect(buildTodoDockPeek(phase([task("done", "completed"), task("stuck", "blocked")])).current?.id).toBe("stuck");
 		expect(buildTodoDockPeek(phase([task("done", "completed")]))).toEqual({ done: 1, total: 1, current: undefined });
-	});
-
-	it("peeks agent status counts", () => {
-		const agents = [
-			agent("a1", "running", 5),
-			agent("a2", "parked", 9),
-			agent("a3", "completed", 20),
-			agent("a4", "failed", 3),
-			agent("a5", "cancelled", 4),
-		];
-		expect(buildAgentDockPeek(agents)).toEqual({ running: 2, done: 1, failed: 1 });
 	});
 });

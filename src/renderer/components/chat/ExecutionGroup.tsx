@@ -2,13 +2,17 @@ import { ChevronRight, CircleCheck, CircleSlash, CircleX } from "lucide-react";
 import type { ReactNode } from "react";
 import { cx, formatDuration } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";
+import type { TodoSnapshot } from "../../stores/todo";
 import { selectToolEntry, useToolsStore } from "../../stores/tools";
-import { Spinner } from "../common";
+import { editArgumentPaths, workFilePathKey } from "../tools/edit-args";
 import { getToolActivity, type ToolActivity } from "../tools/index";
 import { LiveStepPeek } from "./LiveStepPeek";
 import { LiveTurnMeter, OutputMeter } from "./TurnOutputMeter";
+import { WorkContext } from "./WorkContext";
 import { WorkOutcome } from "./WorkOutcome";
+import { type GroupAgent, isInterruptedError, resolveWorkGroup } from "./WorkStatus";
 import { isSkippedWork } from "./work-view";
 
 interface ExecutionGroupProps {
@@ -24,6 +28,9 @@ interface ExecutionGroupProps {
 	toolCallIds: readonly string[];
 	/** The group's reasoning is streaming right now (live step preview). */
 	thinkingLive?: boolean;
+	/** Timestamp of stock's empty aborted reply after this group. */
+	stoppedAt?: number;
+	todoSnapshots?: readonly TodoSnapshot[];
 }
 
 /** Order of the human summary: reads, edits, commands, searches, then the rest. */
@@ -51,19 +58,25 @@ export function ExecutionGroup({
 	stepCount,
 	toolCallIds,
 	thinkingLive = false,
+	stoppedAt,
+	todoSnapshots,
 }: ExecutionGroupProps) {
 	const t = useT();
+	const cwd = useSessionStore(state => state.cwd);
 	// Primitive selector: encode (running, failed, per-activity counts, span)
 	// so unrelated tool events — partial results on cards outside this group —
 	// never re-render the group.
 	const encoded = useToolsStore(s => {
 		let running = 0;
-		let failed = 0;
 		let skipped = 0;
 		let interrupted = 0;
 		let start = Number.POSITIVE_INFINITY;
 		let end = 0;
+		let failed = 0;
 		const counts: Record<ToolActivity, number> = { read: 0, edit: 0, run: 0, search: 0, other: 0 };
+		// Files count once per group: writing a file and then editing it is one edited file, keyed
+		// like the outcome's ledger so `./a.ts` and `/repo/a.ts` are the same file.
+		const editedPaths = new Set<string>();
 		for (const id of toolCallIds) {
 			const entry = selectToolEntry(s, id);
 			if (!entry) continue;
@@ -74,36 +87,63 @@ export function ExecutionGroup({
 				continue;
 			}
 			if (entry.status === "pending" || entry.status === "running") running++;
+			else if (isInterruptedError(entry, stoppedAt)) interrupted++;
 			else if (entry.status === "error" || entry.isError) failed++;
-			const { activity, files } = getToolActivity(entry.toolName, entry.args);
-			counts[activity] += activity === "edit" ? files : 1;
+			const { activity } = getToolActivity(entry.toolName, entry.args);
+			if (activity === "edit") {
+				const paths = editArgumentPaths(entry.args);
+				if (paths.length === 0) counts.edit++;
+				for (const file of paths) editedPaths.add(workFilePathKey(file, cwd));
+			} else counts[activity]++;
 			start = Math.min(start, entry.startTime);
 			end = Math.max(end, entry.endTime ?? 0);
 		}
+		counts.edit += editedPaths.size;
 		const span = Number.isFinite(start) && end > start ? end - start : 0;
 		return [running, failed, skipped, interrupted, span, ...ACTIVITY_ORDER.map(activity => counts[activity])].join(
 			":",
 		);
 	});
-	const [running = 0, toolFailures = 0, skipped = 0, interrupted = 0, spanMs = 0, ...activityCounts] = encoded
+	const [running = 0, toolFailures = 0, skipped = 0, interruptedTools = 0, spanMs = 0, ...activityCounts] = encoded
 		.split(":")
 		.map(Number);
 	const resolveKey = useToolsStore(s => s.entryKeyForCallId);
-	const agentState = useSubagentsStore(s => {
-		let count = 0;
-		let running = 0;
+	// Primitive key: each agent of this group with how its parent call ended.
+	const agentKey = useSubagentsStore(s => {
+		const tools = useToolsStore.getState();
+		const rows: string[] = [];
 		for (const node of s.subagents.values()) {
-			if (!node.parentToolCallId || !toolCallIds.includes(resolveKey(node.parentToolCallId))) continue;
-			count++;
-			if (node.status === "running" || node.status === "pending") running++;
+			if (!node.parentToolCallId) continue;
+			const key = resolveKey(node.parentToolCallId);
+			if (!toolCallIds.includes(key)) continue;
+			const parent = selectToolEntry(tools, key);
+			const parentState: GroupAgent["parent"] =
+				!parent || parent.status === "pending" || parent.status === "running"
+					? "running"
+					: isInterruptedError(parent, stoppedAt)
+						? "interrupted"
+						: parent.status === "error" || parent.isError
+							? "failed"
+							: "done";
+			rows.push(`${node.status}\u0000${parentState}`);
 		}
-		return `${count}:${running}`;
+		return rows.join("\u0001");
 	});
-	const [agentCount = 0, runningAgents = 0] = agentState.split(":").map(Number);
-	const failed = toolFailures + failureCount;
-
-	const active = live || running > 0 || runningAgents > 0;
-	const state = active ? "running" : failed > 0 ? "failed" : "complete";
+	const agents: GroupAgent[] = agentKey
+		? agentKey.split("\u0001").map(row => {
+				const [status = "", parent = "done"] = row.split("\u0000");
+				return { status, parent: parent as GroupAgent["parent"] };
+			})
+		: [];
+	const agentCount = agents.length;
+	const { state, failed, interrupted, runningAgents } = resolveWorkGroup({
+		live,
+		runningTools: running,
+		failedTools: toolFailures,
+		reportedFailures: failureCount,
+		interruptedTools,
+		agents,
+	});
 
 	const activities = ACTIVITY_ORDER.flatMap((activity, index) => {
 		const count = activityCounts[index] ?? 0;
@@ -122,7 +162,7 @@ export function ExecutionGroup({
 				? t("chat.process.statusRunning", { running, total: totalSteps, plural })
 				: state === "running" && runningAgents > 0
 					? t("chat.process.statusAgents", { count: runningAgents, plural: runningAgents === 1 ? "" : "s" })
-					: state === "complete" && interrupted > 0
+					: state === "interrupted"
 						? t("chat.process.statusInterrupted", { interrupted, total: totalSteps, plural })
 						: state === "complete" && activityCounts.slice(0, -1).every(count => count === 0)
 							? t("chat.process.statusComplete", { total: totalSteps, plural })
@@ -132,73 +172,90 @@ export function ExecutionGroup({
 									? t("chat.process.statusWorking", { total: totalSteps, plural })
 									: t("chat.process.statusComplete", { total: totalSteps, plural });
 	const duration = state !== "running" && spanMs > 0 ? formatDuration(spanMs) : null;
-
-	return (
-		<section className={cx("omp-execution-group", className)} data-state={state}>
-			<button
-				aria-expanded={expanded}
-				className={cx(
-					"omp-execution-group-header flex min-h-7 w-fit max-w-full min-w-0 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-left text-sc-sm transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover)",
-					state === "failed"
-						? "text-(--sc-danger)"
-						: "text-(--sc-text-muted) hover:text-(--sc-text) aria-expanded:text-(--sc-text-secondary)",
-				)}
-				onClick={() => onExpandedChange(!expanded)}
-				type="button"
-				aria-label={`${t("chat.process.title")}: ${summary}`}
-			>
+	// While the work card shows, this summary row lives in the card's head: the card's status mark
+	// and narrative already say what is running, so the row keeps only the counts and the toggle.
+	const carded = state === "running" || agentCount > 0;
+	const shownSummary =
+		carded && state === "running" ? t("chat.work.stepCount", { total: totalSteps, plural }) : summary;
+	const header = (
+		<button
+			aria-expanded={expanded}
+			className={cx(
+				"omp-execution-group-header flex min-h-7 w-fit max-w-full min-w-0 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-left text-sc-sm transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover)",
+				carded && "omp-execution-group-header--embedded",
+				state === "failed"
+					? "text-(--sc-danger)"
+					: "text-(--sc-text-muted) hover:text-(--sc-text) aria-expanded:text-(--sc-text-secondary)",
+			)}
+			onClick={() => onExpandedChange(!expanded)}
+			type="button"
+			aria-label={`${t("chat.process.title")}: ${summary}`}
+		>
+			{carded ? null : (
 				<span
 					aria-hidden
 					className="flex size-(--sc-icon-sm) shrink-0 items-center justify-center [&>svg]:size-(--sc-icon-sm)"
 				>
-					{state === "running" ? (
-						<Spinner size="sm" />
-					) : state === "failed" ? (
-						<CircleX />
-					) : interrupted > 0 ? (
-						<CircleSlash />
-					) : (
-						<CircleCheck />
-					)}
+					{state === "failed" ? <CircleX /> : state === "interrupted" ? <CircleSlash /> : <CircleCheck />}
 				</span>
-				<span
-					aria-atomic="true"
-					aria-live="polite"
-					className={cx(
-						"omp-execution-group-summary min-w-0 truncate font-medium",
-						state === "running" && "omp-thinking-shimmer",
-					)}
-					role="status"
-				>
-					{summary}
+			)}
+			<span
+				aria-atomic="true"
+				aria-live="polite"
+				className={cx(
+					"omp-execution-group-summary min-w-0 truncate",
+					carded ? null : "font-medium",
+					state === "running" && !carded && "omp-thinking-shimmer",
+				)}
+				role="status"
+			>
+				{shownSummary}
+			</span>
+			{duration ? (
+				<span className="omp-execution-group-duration -ms-1 shrink-0 tabular-nums text-(--sc-text-subtle)">
+					· {duration}
 				</span>
-				{duration ? (
-					<span className="omp-execution-group-duration -ms-1 shrink-0 tabular-nums text-(--sc-text-subtle)">
-						· {duration}
-					</span>
-				) : null}
-				{state === "running" ? (
-					<LiveTurnMeter />
-				) : output ? (
-					<OutputMeter average estimated={false} rate={output.rate} tokens={output.tokens} />
-				) : null}
-				<ChevronRight
-					aria-hidden="true"
-					className={cx(
-						"omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
-						expanded && "rotate-90",
-					)}
-				/>
-			</button>
-			{state === "running" || agentCount > 0 ? (
+			) : null}
+			{state === "running" ? (
+				<LiveTurnMeter />
+			) : output ? (
+				<OutputMeter average estimated={false} rate={output.rate} tokens={output.tokens} />
+			) : null}
+			<ChevronRight
+				aria-hidden="true"
+				className={cx(
+					"omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
+					expanded && "rotate-90",
+				)}
+			/>
+		</button>
+	);
+
+	return (
+		<section className={cx("omp-execution-group", className)} data-state={state}>
+			{carded ? (
 				<LiveStepPeek
+					summaryRow={header}
 					thinkingLive={thinkingLive}
 					toolCallIds={toolCallIds}
-					state={state === "complete" && interrupted > 0 ? "interrupted" : state}
+					state={state}
+					stoppedAt={stoppedAt}
+					stepsListed={expanded}
+					carriesContext={live}
+					todoSnapshots={todoSnapshots}
 				/>
+			) : (
+				header
+			)}
+			{expanded ? (
+				<div className="omp-execution-group-body">
+					{!carded ? <WorkContext live={false} snapshot={todoSnapshots?.at(-1)} /> : null}
+					{children}
+				</div>
 			) : null}
-			{expanded ? <div className="omp-execution-group-body">{children}</div> : null}
-			{state !== "running" && agentCount === 0 ? <WorkOutcome toolCallIds={toolCallIds} /> : null}
+			{state !== "running" && agentCount === 0 ? (
+				<WorkOutcome toolCallIds={toolCallIds} stoppedAt={stoppedAt} />
+			) : null}
 		</section>
 	);
 }

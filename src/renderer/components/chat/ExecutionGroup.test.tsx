@@ -6,6 +6,7 @@ import { I18nProvider } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
 import { useSubagentsStore } from "../../stores/subagents";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
+import { resolveWorkGroup } from "./WorkStatus";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -124,7 +125,66 @@ describe("ExecutionGroup", () => {
 				</I18nProvider>,
 			);
 		});
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 running · 1 step");
+		// The summary row rides in the work card's head; the card's own mark says it is running.
+		const header = container.querySelector(".omp-work-head .omp-execution-group-header");
+		expect(header?.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 step");
+		expect(header?.getAttribute("aria-label")).toBe("Steps: 1 running · 1 step");
+	});
+
+	it("counts the command a user stop cut short as interrupted, keeping an earlier real failure", async () => {
+		Object.assign(window, { omp: { rpc: { command: async () => ({ success: true, data: { messages: [] } }) } } });
+		const failure = (command: string, endTime: number): ToolEntry => ({
+			...toolEntry("error", true),
+			args: { command },
+			result: { content: [{ type: "text", text: "failed" }], details: {} },
+			endTime,
+		});
+		useToolsStore.setState(
+			toolEntriesState([
+				["exit", failure("exit 3", 5_000)],
+				["sleep", failure("sleep 40", 20_000)],
+			]),
+		);
+		await mount(["exit", "sleep"]);
+		await act(async () => {
+			root.render(
+				<I18nProvider>
+					<ExecutionGroup
+						expanded={false}
+						onExpandedChange={() => {}}
+						stepCount={2}
+						stoppedAt={20_000}
+						toolCallIds={["exit", "sleep"]}
+					>
+						<div />
+					</ExecutionGroup>
+				</I18nProvider>,
+			);
+		});
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 failed · 2 steps");
+		const rows = [...container.querySelectorAll('.omp-work-outcome li[data-kind="command"]')];
+		expect(rows.map(row => row.querySelector('[role="img"]')?.getAttribute("aria-label"))).toEqual([
+			"Failed",
+			"Interrupted",
+		]);
+		expect(container.querySelector(".omp-work-outcome summary")?.textContent).toContain("1 failed");
+	});
+
+	it("counts a file written and then edited in one group as one edited file", async () => {
+		const done = (toolName: string): ToolEntry => ({
+			...toolEntry("error"),
+			toolName,
+			args: { path: "notes.txt", content: "alpha" },
+			status: "done",
+		});
+		useToolsStore.setState(
+			toolEntriesState([
+				["write", done("write")],
+				["edit", done("edit")],
+			]),
+		);
+		await mount(["write", "edit"]);
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("Edited 1 file");
 	});
 
 	it("keeps completed work to one summary line until requested", async () => {
@@ -181,6 +241,54 @@ describe("ExecutionGroup", () => {
 		expect(container.querySelector('[data-testid="details"]')).toBeNull();
 	});
 
+	it("lists calls running at the same time, one row each, and opens the one picked", async () => {
+		useToolsStore.setState(
+			toolEntriesState([
+				["lint", { ...toolEntry("running"), args: { command: "bun lint" }, startTime: 1 }],
+				["test", { ...toolEntry("running"), args: { command: "bun test" }, startTime: 2 }],
+			]),
+		);
+		await mount(["lint", "test"], true);
+		const rows = [...container.querySelectorAll(".omp-work-parallel-row")];
+		expect(rows.map(row => row.textContent)).toEqual([
+			expect.stringContaining("bun lint"),
+			expect.stringContaining("bun test"),
+		]);
+		expect(container.querySelector(".omp-work-sub")?.textContent).toContain("2 running at once");
+		// The newest call is the one on screen until another is picked.
+		expect(rows[1]?.getAttribute("aria-current")).toBe("true");
+		await act(async () => (rows[0] as unknown as { click(): void }).click());
+		expect(container.querySelector(".omp-live-step-scroll")?.textContent).toContain("bun lint");
+	});
+
+	it("keeps the step that just finished on screen while the model thinks about the next one", async () => {
+		useToolsStore.setState(
+			toolEntriesState([["done", { ...toolEntry("running"), args: { command: "bun check" }, status: "done" }]]),
+		);
+		await mount(["done"], true);
+		await act(async () => {
+			root.render(
+				<I18nProvider>
+					<ExecutionGroup
+						expanded={false}
+						onExpandedChange={() => {}}
+						stepCount={2}
+						toolCallIds={["done"]}
+						live
+						thinkingLive
+					>
+						<div />
+					</ExecutionGroup>
+				</I18nProvider>,
+			);
+		});
+		expect(container.querySelector(".omp-work-narrative")?.textContent).toBe("Thinking…");
+		const surface = container.querySelector(".omp-live-step-scroll");
+		expect(surface?.getAttribute("data-settled")).toBe("true");
+		expect(surface?.textContent).toContain("bun check");
+		expect(container.querySelector(".omp-live-work-heading")?.textContent).toContain("Just finished");
+	});
+
 	it("keeps one animated status for a live group while running child steps remain visible", async () => {
 		useToolsStore.setState(
 			toolEntriesState([
@@ -205,9 +313,11 @@ describe("ExecutionGroup", () => {
 			}
 		});
 
-		expect(container.querySelectorAll(".animate-spin, .animate-pulse")).toHaveLength(1);
+		// One running mark, the card's head status; the summary row carries no spinner of its own.
+		expect(container.querySelectorAll(".animate-spin")).toHaveLength(0);
+		expect(container.querySelectorAll('.omp-work-head .omp-work-status[data-state="running"]')).toHaveLength(1);
 		expect(container.querySelectorAll(".omp-tool-status-icon")).toHaveLength(2);
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toContain("2 running");
+		expect(container.querySelector(".omp-execution-group-header")?.getAttribute("aria-label")).toContain("2 running");
 	});
 
 	it("summarizes finished work by what it did, with the elapsed time", async () => {
@@ -256,7 +366,9 @@ describe("ExecutionGroup", () => {
 		});
 		await flushFrame();
 		expect(panel?.getAttribute("data-surface")).toBe("bash");
-		expect(panel?.querySelector(".omp-bash-terminal")?.textContent).toContain("step one\nstep two");
+		const terminalLines = () =>
+			[...(panel?.querySelectorAll(".omp-bash-terminal .omp-bash-line") ?? [])].map(line => line.textContent);
+		expect(terminalLines()).toEqual(["step one", "step two"]);
 		await act(async () => {
 			useToolsStore.setState({
 				partialResults: new Map([
@@ -265,7 +377,7 @@ describe("ExecutionGroup", () => {
 			});
 		});
 		await flushFrame();
-		expect(panel?.querySelector(".omp-bash-terminal")?.textContent).toContain("step one\nstep two\nstep three");
+		expect(terminalLines()).toEqual(["step one", "step two", "step three"]);
 		expect(panel?.querySelector(".omp-live-step-scroll")?.textContent).not.toContain("a.ts");
 		await act(async () => {
 			root.render(
@@ -447,7 +559,9 @@ describe("ExecutionGroup", () => {
 		expect(container.querySelector(".omp-work-card-button")?.textContent).toContain("Scout");
 		expect(container.querySelector(".omp-work-card-button")?.textContent).toContain("Reading source files");
 		expect(container.querySelector("[data-agent-work]")).toBeNull();
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 agent working");
+		expect(container.querySelector(".omp-execution-group-header")?.getAttribute("aria-label")).toBe(
+			"Steps: 1 agent working",
+		);
 	});
 
 	it("reports a cancelled task with an agent as interrupted, never as completed work", async () => {
@@ -486,5 +600,70 @@ describe("ExecutionGroup", () => {
 		expect(work?.querySelector(".omp-work-head [role='img']")?.getAttribute("aria-label")).toBe("cancelled");
 		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toMatch(/^1 interrupted · /);
 		expect(container.textContent).not.toContain("Work complete");
+	});
+
+	it.each([
+		["failed", "1 failed · ", "Work failed", "failed"],
+		["cancelled", "1 interrupted · ", "Work interrupted", "cancelled"],
+	])(
+		"ends a detached task by its agent's own %s end, never with a success check",
+		async (status, summary, head, label) => {
+			Object.assign(window, { omp: { rpc: { command: async () => ({ success: true, data: { messages: [] } }) } } });
+			useToolsStore.setState(
+				toolEntriesState([
+					[
+						"task",
+						// Stock returned the detached call successfully before the agent ended.
+						{ ...toolEntry("running"), toolName: "task", args: {}, status: "done", endTime: 20 },
+					],
+				]),
+			);
+			useSubagentsStore.getState().setSnapshots([
+				{
+					id: "Scout",
+					index: 0,
+					agent: "scout",
+					agentSource: "project",
+					status,
+					lastUpdate: 1,
+					parentToolCallId: "task",
+				},
+			]);
+			await mount(["task"]);
+			expect(container.querySelector(".omp-execution-group-summary")?.textContent?.startsWith(summary)).toBe(true);
+			expect(container.querySelector(".omp-live-step .omp-work-narrative")?.textContent).toBe(head);
+			expect(container.querySelector(".omp-work-head [role='img']")?.getAttribute("aria-label")).toBe(label);
+			expect(container.querySelector(".omp-work-card-button")?.textContent).toContain(head);
+		},
+	);
+});
+
+describe("resolveWorkGroup", () => {
+	const base = { live: false, runningTools: 0, failedTools: 0, reportedFailures: 0, interruptedTools: 0, agents: [] };
+	it("counts a failure its parent call already reported once", () => {
+		expect(
+			resolveWorkGroup({ ...base, failedTools: 1, agents: [{ status: "failed", parent: "failed" }] }),
+		).toMatchObject({ state: "failed", failed: 1 });
+	});
+	it("counts an interruption its parent call already reported once, and failure over interruption", () => {
+		expect(
+			resolveWorkGroup({ ...base, interruptedTools: 1, agents: [{ status: "cancelled", parent: "interrupted" }] }),
+		).toMatchObject({ state: "interrupted", interrupted: 1 });
+		expect(
+			resolveWorkGroup({
+				...base,
+				agents: [
+					{ status: "cancelled", parent: "done" },
+					{ status: "failed", parent: "done" },
+				],
+			}),
+		).toMatchObject({ state: "failed", failed: 1, interrupted: 1 });
+	});
+	it("stays running while any agent runs, and settles complete when all completed", () => {
+		expect(resolveWorkGroup({ ...base, agents: [{ status: "pending", parent: "done" }] })).toMatchObject({
+			state: "running",
+			runningAgents: 1,
+		});
+		expect(resolveWorkGroup({ ...base, agents: [{ status: "completed", parent: "done" }] }).state).toBe("complete");
 	});
 });

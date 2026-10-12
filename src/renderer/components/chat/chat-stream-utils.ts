@@ -18,6 +18,12 @@ interface ProcessMeta {
 	failedEvents: number;
 	toolCallIds: string[];
 	toolNames: string[];
+	/** Timestamp of stock's empty aborted reply; partial content means the model, not a tool, was cut. */
+	stoppedAt?: number;
+	/** Todo changes belong to this work run permanently, including after completion. */
+	todoSnapshots?: readonly TodoSnapshot[];
+	/** User turn boundary, including user messages hidden from the rendered transcript. */
+	turnStartedAt?: number;
 }
 
 type TimelineState = "done" | "running" | "error" | "launch";
@@ -393,15 +399,20 @@ export function buildHistoryRows(
 	const rows: HistoryRow[] = [];
 	let processMessages: AgentMessage[] = [];
 	let reactionTargetIndex: number | undefined;
+	let turnStartedAt: number | undefined;
 	const flushProcess = () => {
 		if (processMessages.length === 0) return;
-		rows.push({ kind: "process", messages: processMessages, ...summarizeProcess(processMessages) });
+		rows.push({ kind: "process", messages: processMessages, ...summarizeProcess(processMessages), turnStartedAt });
 		processMessages = [];
 	};
 
 	for (let index = 0; index < messages.length; index++) {
 		const incoming = messages[index];
 		if (!incoming) continue;
+		if (incoming.role === "user") {
+			flushProcess();
+			turnStartedAt = messageTimestampMs(incoming);
+		}
 		// Keep an explicitly opened live phase in place when it finalizes.
 		if (preservedProcessStarts?.has(`message-${messageKey(incoming)}`)) flushProcess();
 		let message = incoming;
@@ -470,39 +481,99 @@ export function buildHistoryRows(
 		rows.push({ kind: "message", message });
 	}
 	flushProcess();
+	for (let index = 0; index < rows.length - 1; index++) {
+		const row = rows[index];
+		const next = rows[index + 1];
+		if (
+			row?.kind === "process" &&
+			next?.kind === "message" &&
+			next.message.role === "assistant" &&
+			next.message.stopReason === "aborted" &&
+			messageContent(next.message).length === 0
+		) {
+			rows[index] = { ...row, stoppedAt: messageTimestampMs(next.message) };
+		}
+	}
 	return rows;
 }
 
 /**
- * Interleave archived todo snapshots into finalized history by timestamp:
- * each snapshot lands after the last row at or before its change time, and
- * leftovers (changes newer than every message) tail the history. Rows
- * without a reliable timestamp (read groups) never flush snapshots.
+ * Fold changes captured during a run permanently into its process row.
+ * Idle edits remain standalone; for older snapshots the final reply closes ownership.
  */
 export function mergeTodoSnapshots(rows: readonly HistoryRow[], snapshots: readonly TodoSnapshot[]): HistoryRow[] {
 	if (snapshots.length === 0) return rows as HistoryRow[];
+	// Decide ownership against the complete transcript, not the row last visited
+	// while interleaving: an assistant's timestamp is its stream start, and user
+	// turn boundaries can be hidden from the rendered row set.
+	const runs: Array<{ index: number; start: number; turn: number; end: number; reply?: number }> = [];
+	let turn = Number.NEGATIVE_INFINITY;
+	for (const [index, row] of rows.entries()) {
+		if (row.kind === "message" && row.message.role === "user") {
+			turn = messageTimestampMs(row.message);
+			const previous = runs.at(-1);
+			if (previous) previous.end = Math.min(previous.end, turn);
+		} else if (row.kind === "process") {
+			let start = Number.POSITIVE_INFINITY;
+			for (const message of row.messages) {
+				if (messageContent(message).some(block => block.type === "toolCall")) {
+					start = Math.min(start, messageTimestampMs(message));
+				}
+			}
+			if (!Number.isFinite(start) && row.messages[0]) start = messageTimestampMs(row.messages[0]);
+			const boundary = row.turnStartedAt ?? turn;
+			const previous = runs.at(-1);
+			if (previous) previous.end = Math.min(previous.end, previous.turn === boundary ? start : boundary);
+			runs.push({ index, start: Math.max(start, boundary), turn: boundary, end: Number.POSITIVE_INFINITY });
+		} else if (row.kind === "message" && row.message.role === "assistant") {
+			const run = runs.at(-1);
+			if (run) run.reply = messageTimestampMs(row.message);
+		}
+	}
+	const folded = rows.slice();
+	const standalone: TodoSnapshot[] = [];
+	for (const snapshot of snapshots) {
+		const run =
+			snapshot.duringTurn === false
+				? undefined
+				: runs.findLast(
+						candidate =>
+							snapshot.ts >= candidate.start &&
+							snapshot.ts < candidate.end &&
+							(snapshot.duringTurn === true || candidate.reply === undefined || snapshot.ts <= candidate.reply),
+					);
+		const row = run ? folded[run.index] : undefined;
+		if (run && row?.kind === "process") {
+			folded[run.index] = { ...row, todoSnapshots: [...(row.todoSnapshots ?? []), snapshot] };
+		} else standalone.push(snapshot);
+	}
 	const out: HistoryRow[] = [];
 	let next = 0;
-	for (const row of rows) {
+	for (const row of folded) {
 		const ts =
 			row.kind === "message"
 				? messageTimestampMs(row.message)
-				: row.kind === "process" && row.messages.length > 0
-					? messageTimestampMs(row.messages[0]!)
+				: row.kind === "process" && row.messages[0]
+					? messageTimestampMs(row.messages[0])
 					: undefined;
-		if (ts !== undefined) {
-			while (next < snapshots.length && (snapshots[next]?.ts ?? 0) < ts) {
-				out.push({ kind: "todoSnapshot", entry: snapshots[next]! });
-				next++;
-			}
+		while (ts !== undefined && next < standalone.length && standalone[next]!.ts < ts) {
+			out.push({ kind: "todoSnapshot", entry: standalone[next++]! });
 		}
 		out.push(row);
 	}
-	while (next < snapshots.length) {
-		out.push({ kind: "todoSnapshot", entry: snapshots[next]! });
-		next++;
-	}
+	for (; next < standalone.length; next++) out.push({ kind: "todoSnapshot", entry: standalone[next]! });
 	return out;
+}
+
+/** Which finalized process row absorbs the running turn's live steps. */
+export function liveWorkTail(
+	rows: readonly HistoryRow[],
+	isStreaming: boolean,
+): { liveTail: boolean; lastWorkRow: number } {
+	let lastWorkRow = rows.length - 1;
+	while (lastWorkRow >= 0 && rows[lastWorkRow]?.kind === "todoSnapshot") lastWorkRow--;
+	const liveTail = isStreaming && rows[lastWorkRow]?.kind === "process";
+	return { liveTail, lastWorkRow };
 }
 
 /**

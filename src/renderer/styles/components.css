@@ -917,13 +917,115 @@
 	-webkit-line-clamp: 2;
 }
 
-.omp-work-head-meta {
-	margin-block-start: calc((var(--omp-work-head-line) - var(--sc-font-xs) * var(--sc-leading-snug)) / 2);
+/* The group's summary row (counts, output meter, step-list toggle) rides on the head's right. */
+.omp-work-head-side {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--sc-space-1);
+	min-height: var(--sc-control-sm);
+	margin-block-start: calc((var(--omp-work-head-line) - var(--sc-control-sm)) / 2);
+	white-space: nowrap;
+}
+
+.omp-work-head-side > .omp-work-head-meta {
+	margin-block-start: 0;
+}
+
+.omp-work-head-side > .omp-work-head-meta[data-stalled="true"] {
+	color: var(--sc-warning);
+}
+
+.omp-execution-group-header--embedded {
+	min-height: var(--sc-control-sm);
+	margin-inline-end: calc(var(--sc-space-1-5) * -1);
+	font-size: var(--sc-font-xs);
+}
+
+/* Short and sized by its content: it must never shrink away beside a long narrative. */
+.omp-execution-group-header--embedded .omp-execution-group-summary {
+	flex-shrink: 0;
+	overflow: visible;
+	color: var(--sc-text-muted);
+}
+
+.omp-work-sub .omp-work-clock {
+	font-variant-numeric: tabular-nums;
+}
+
+/* Goal and todo progress: quiet rows under the head, indented to the narrative. */
+.omp-work-context {
+	display: grid;
+	gap: 1px;
+	margin: calc(var(--sc-space-1) * -1) 0 var(--sc-space-1);
+	padding-inline: var(--sc-space-1-5);
+}
+
+.omp-work-context-row {
+	min-height: 26px;
+	padding: var(--sc-space-0-5) var(--sc-space-1-5);
+	border-radius: var(--sc-radius-md);
+	font-size: var(--sc-font-sm);
+}
+
+.omp-work-todo-toggle {
+	display: grid;
+	grid-template-columns: var(--sc-icon-sm) 3rem auto minmax(0, 1fr) var(--sc-icon-sm);
+	align-items: center;
+	column-gap: var(--sc-space-2);
+	width: 100%;
+	color: var(--sc-text-muted);
+	text-align: start;
+	transition: background-color var(--sc-duration-instant) var(--sc-ease-standard);
+}
+
+.omp-work-todo-toggle:hover,
+.omp-work-todo[data-open="true"] > .omp-work-todo-toggle {
+	background: var(--sc-hover);
+}
+
+.omp-work-todo-toggle:focus-visible {
+	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
+	outline-offset: -2px;
+}
+
+.omp-work-todo-bar {
+	position: relative;
+	height: 4px;
+	overflow: hidden;
+	border-radius: var(--sc-radius-full);
+	background: var(--sc-border);
+}
+
+.omp-work-todo-bar > span {
+	position: absolute;
+	inset: 0 auto 0 0;
+	border-radius: var(--sc-radius-full);
+	background: var(--sc-accent);
+	transition: width var(--sc-duration-med) var(--sc-ease-standard);
+}
+
+.omp-work-todo-count {
 	color: var(--sc-text-subtle);
 	font-size: var(--sc-font-xs);
-	line-height: var(--sc-leading-snug);
 	font-variant-numeric: tabular-nums;
+}
+
+.omp-work-todo-current {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--sc-text);
+	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.omp-work-todo-list {
+	max-height: min(18rem, 40cqh);
+	margin: var(--sc-space-0-5) 0 var(--sc-space-1) calc(var(--sc-space-1-5) + var(--sc-icon-sm) / 2);
+	padding-inline-start: calc(var(--sc-icon-sm) / 2 + var(--sc-space-2));
+	overflow: auto;
+	overscroll-behavior: contain;
+	border-inline-start: 1px solid var(--sc-divider);
 }
 
 .omp-work-catch-up {
@@ -1022,7 +1124,7 @@
 	align-items: center;
 	column-gap: var(--sc-space-2);
 	width: 100%;
-	min-height: var(--sc-control-md);
+	min-height: var(--sc-control-sm);
 	padding: var(--sc-space-1) var(--sc-space-1-5);
 	border-radius: var(--sc-radius-md);
 	font-size: var(--sc-font-sm);
@@ -1055,6 +1157,38 @@
 	white-space: nowrap;
 }
 
+.omp-work-card-activity-text {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.omp-work-card[data-motion="true"] .omp-work-card-activity-text {
+	animation: omp-work-lane-activity var(--sc-duration-med) var(--sc-ease-enter);
+}
+
+@keyframes omp-work-lane-activity {
+	from {
+		opacity: 0.65;
+		transform: translateY(var(--sc-space-0-5));
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.omp-work-card[data-motion="true"] .omp-work-card-activity-text {
+		animation: none;
+	}
+	.omp-work-lane-surface[data-motion],
+	.omp-work-card[data-motion] .omp-work-card-chevron,
+	.omp-work-card[data-motion] .omp-work-card-button {
+		transition: none;
+	}
+}
+
 .omp-work-card[data-status="completed"] .omp-work-card-activity {
 	color: var(--sc-text);
 }
@@ -1071,6 +1205,20 @@
 	font-size: var(--sc-font-xs);
 	font-variant-numeric: tabular-nums;
 	white-space: nowrap;
+}
+
+.omp-work-card-count {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.omp-work-card-elapsed {
+	flex-shrink: 0;
+}
+
+.omp-work-card[data-motion="false"] .omp-work-card-chevron {
+	transition: none;
 }
 
 .omp-work-card-chevron {
@@ -1101,7 +1249,27 @@
 
 /* An open lane hangs its agent's surface off a hairline under the status mark. */
 .omp-work-lane-surface {
-	margin: var(--sc-space-1) 0 var(--sc-space-1-5) calc(var(--sc-space-1-5) + var(--sc-icon-sm) / 2);
+	display: grid;
+	grid-template-rows: 0fr;
+	margin-inline-start: calc(var(--sc-space-1-5) + var(--sc-icon-sm) / 2);
+	transition: grid-template-rows var(--sc-duration-med) var(--sc-ease-standard);
+}
+
+.omp-work-lane-surface[data-open="true"] {
+	grid-template-rows: 1fr;
+}
+
+.omp-work-lane-surface[data-motion="false"] {
+	transition: none;
+}
+
+.omp-work-lane-surface-content {
+	min-height: 0;
+	overflow: hidden;
+}
+
+.omp-work-lane-surface-content > * {
+	margin-block: var(--sc-space-1) var(--sc-space-1-5);
 	padding-inline-start: calc(var(--sc-icon-sm) / 2 + var(--sc-space-2));
 	border-inline-start: 1px solid var(--sc-divider);
 }
@@ -1156,6 +1324,56 @@
 	overflow: auto;
 	overscroll-behavior: contain;
 	scrollbar-width: thin;
+}
+
+/* Between steps the last surface stays, quieter, until the next step replaces it. */
+.omp-live-step-scroll[data-settled="true"] {
+	opacity: 0.72;
+}
+
+/* Calls running at once, one quiet row each; the shown one is marked. */
+.omp-work-parallel {
+	display: grid;
+	gap: 1px;
+	margin: 0;
+	padding: 0 var(--sc-space-1-5) var(--sc-space-1-5);
+	list-style: none;
+}
+
+.omp-work-parallel-row {
+	display: grid;
+	grid-template-columns: var(--sc-icon-sm) var(--sc-icon-sm) minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: var(--sc-space-2);
+	width: 100%;
+	min-height: 28px;
+	padding: var(--sc-space-0-5) var(--sc-space-1-5);
+	border-radius: var(--sc-radius-md);
+	color: var(--sc-text-secondary);
+	font-size: var(--sc-font-sm);
+	text-align: start;
+	transition: background-color var(--sc-duration-instant) var(--sc-ease-standard);
+}
+
+.omp-work-parallel-row:hover {
+	background: var(--sc-hover);
+}
+
+.omp-work-parallel-row[aria-current="true"] {
+	background: var(--sc-selected);
+	color: var(--sc-text);
+}
+
+.omp-work-parallel-row:focus-visible {
+	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
+	outline-offset: -2px;
+}
+
+.omp-work-parallel-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .omp-live-step[data-nested="true"] :is(.omp-live-work-heading, .omp-live-step-scroll) {
@@ -1338,26 +1556,38 @@
 		min-height: 26px;
 		padding-block: 1px;
 	}
-	/* Lanes become one wrapping row of name pills; an open lane takes the full row. */
+	/* One compact row per worker keeps activity visible without crowding the surface. */
 	.omp-work-map {
 		padding-block-end: var(--sc-space-0-5);
 	}
 	.omp-work-cards {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 2px var(--sc-space-1);
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 1px var(--sc-space-1);
 	}
 	.omp-work-card[data-open="true"] {
-		flex-basis: 100%;
+		grid-column: 1 / -1;
 	}
 	.omp-work-card-button {
-		grid-template-columns: var(--sc-icon-sm) max-content;
-		width: auto;
+		grid-template-columns: var(--sc-icon-sm) minmax(0, max-content) minmax(0, 1fr) auto var(--sc-icon-sm);
+		row-gap: 0;
+		column-gap: var(--sc-space-1);
 		min-height: 24px;
 		padding-block: 0;
+		font-size: var(--sc-font-xs);
 	}
-	.omp-work-card-button > :is(.omp-work-card-activity, .omp-work-card-progress, .omp-work-card-chevron) {
+	.omp-work-card-activity {
+		grid-row: 1;
+		grid-column: 3;
+	}
+	.omp-work-card-progress {
+		display: flex;
+		max-width: none;
+	}
+	.omp-work-card-count {
 		display: none;
+	}
+	.omp-work-card-name {
+		max-width: 9ch;
 	}
 }
 
@@ -1370,6 +1600,7 @@
 /* Outcome ──────────────────────────────────────────────────────────────── */
 .omp-work-outcome {
 	margin: var(--sc-space-0-5) 0 var(--sc-space-1-5) calc(var(--sc-space-1-5) + var(--sc-icon-sm) + var(--sc-space-2));
+	min-width: 0;
 	font-size: var(--sc-font-sm);
 }
 
@@ -1385,6 +1616,7 @@
 	align-items: center;
 	gap: var(--sc-space-0-5) var(--sc-space-2);
 	min-height: var(--sc-control-sm);
+	line-height: var(--sc-leading-normal);
 	color: var(--sc-text-muted);
 	list-style: none;
 	cursor: pointer;
@@ -1397,6 +1629,7 @@
 .omp-work-outcome-chevron {
 	width: var(--sc-icon-sm);
 	height: var(--sc-icon-sm);
+	flex-shrink: 0;
 	color: var(--sc-text-subtle);
 	transition: transform var(--sc-duration-fast) var(--sc-ease-standard);
 }
@@ -1414,9 +1647,17 @@
 	font-weight: var(--sc-weight-medium);
 }
 
+.omp-work-fact {
+	display: inline-flex;
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: var(--sc-space-1);
+	min-width: 0;
+}
+
 .omp-work-fact::before {
 	content: "·";
-	margin-inline-end: var(--sc-space-2);
+	margin-inline-end: var(--sc-space-1);
 	color: var(--sc-text-subtle);
 }
 
@@ -1425,6 +1666,9 @@
 }
 
 .omp-work-diff {
+	display: inline-flex;
+	gap: var(--sc-space-1);
+	white-space: nowrap;
 	font-variant-numeric: tabular-nums;
 }
 
@@ -1446,10 +1690,11 @@
 
 .omp-work-outcome-list > li {
 	display: grid;
-	grid-template-columns: var(--sc-icon-sm) minmax(0, 1fr) auto;
+	grid-template-columns: var(--sc-icon-sm) minmax(0, 1fr) fit-content(40%);
 	align-items: center;
 	column-gap: var(--sc-space-2);
 	min-height: 26px;
+	padding-block: var(--sc-space-0-5);
 }
 
 .omp-work-outcome-icon {
@@ -1491,6 +1736,9 @@
 }
 
 .omp-work-outcome-meta {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
 	color: var(--sc-text-subtle);
 	font-size: var(--sc-font-xs);
 	font-variant-numeric: tabular-nums;
@@ -1499,6 +1747,67 @@
 
 .omp-work-outcome-list > li[data-failed="true"] .omp-work-outcome-meta {
 	color: var(--sc-danger);
+}
+
+/* Pictures the work made or read back: always visible thumbnails under the outcome. */
+.omp-work-images {
+	display: flex;
+	align-items: start;
+	overflow-x: auto;
+	gap: var(--sc-space-2);
+	min-width: 0;
+	scrollbar-width: thin;
+	padding-block-end: var(--sc-space-1);
+	margin: var(--sc-space-1) 0 var(--sc-space-2) calc(var(--sc-space-1-5) + var(--sc-icon-sm) + var(--sc-space-2));
+}
+
+.omp-live-step > .omp-work-images {
+	margin: 0;
+	padding: var(--sc-space-1-5) var(--sc-space-3) var(--sc-space-2);
+	border-top: 1px solid var(--sc-divider);
+}
+
+.omp-work-image {
+	display: grid;
+	gap: var(--sc-space-1);
+	width: min(12rem, 100%);
+	flex: 0 0 min(12rem, 100%);
+	min-width: 0;
+	margin: 0;
+}
+
+.omp-work-image > [data-zoomable-image] {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	aspect-ratio: 16 / 10;
+	overflow: hidden;
+	border: 1px solid var(--sc-divider);
+	border-radius: var(--sc-radius-md);
+	background: var(--sc-code-bg);
+}
+
+.omp-work-image > [data-zoomable-image]:focus-visible {
+	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
+	outline-offset: -2px;
+}
+
+.omp-work-image > [data-zoomable-image] img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	max-width: 100%;
+	max-height: 100%;
+	object-fit: contain;
+}
+
+.omp-work-image figcaption {
+	overflow: hidden;
+	color: var(--sc-text-subtle);
+	font-size: var(--sc-font-2xs);
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .omp-work-outcome-more {
@@ -1566,21 +1875,73 @@
 .omp-work-motion[data-state="running"]::before {
 	animation: omp-work-sweep calc(var(--sc-duration-slow) * 6) linear infinite;
 }
-.omp-work-motion .omp-work-narrative,
-.omp-work-motion .omp-live-step-scroll > *,
-.omp-work-motion .omp-work-card {
+.omp-work-motion .omp-work-card,
+.omp-work-motion .omp-work-lane-surface,
+.omp-work-motion .omp-work-parallel > li {
 	animation: omp-work-fade var(--sc-duration-med) var(--sc-ease-enter);
+}
+/* One step flows into the next: the narrative rises into place, the new step's output slides in,
+   and the surface eases to its new height instead of jumping. */
+@keyframes omp-work-rise {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes omp-work-step-in {
+	from {
+		opacity: 0.15;
+		transform: translateX(8px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes omp-work-pop {
+	from {
+		opacity: 0;
+		transform: scale(0.7);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+.omp-work-motion .omp-work-narrative {
+	animation: omp-work-rise var(--sc-duration-slow) var(--sc-ease-enter);
+}
+.omp-work-motion .omp-work-surface-content > * {
+	animation: omp-work-step-in var(--sc-duration-slow) var(--sc-ease-enter);
+}
+.omp-work-motion .omp-live-step-scroll[data-height-transition="true"] {
+	transition:
+		height var(--sc-duration-slow) var(--sc-ease-standard),
+		opacity var(--sc-duration-med) var(--sc-ease-standard);
+}
+.omp-work-motion .omp-live-work-chip {
+	animation: omp-work-pop var(--sc-duration-med) var(--sc-ease-enter);
+}
+.omp-work-motion .omp-live-work-chip.omp-work-pulse {
+	animation:
+		omp-work-pop var(--sc-duration-med) var(--sc-ease-enter),
+		omp-work-pulse calc(var(--sc-duration-slow) * 4) var(--sc-ease-standard) var(--sc-duration-med) infinite;
 }
 .omp-work-pulse {
 	animation: omp-work-pulse calc(var(--sc-duration-slow) * 4) var(--sc-ease-standard) infinite;
 }
-.omp-work-line {
+.omp-bash-line {
 	display: block;
+	min-height: 1lh;
 }
-.omp-work-motion .omp-work-line {
+.omp-work-motion .omp-bash-line {
 	animation: omp-work-arrival var(--sc-duration-slow) var(--sc-ease-standard);
 }
-.omp-work-motion[data-running="true"] .omp-work-line:last-child::after,
+.omp-work-motion[data-running="true"] .omp-bash-line:last-child::after,
 .omp-work-motion[data-running="true"]:is([data-surface="write"], [data-surface="edit"]) pre code::after {
 	content: "▏";
 	color: var(--sc-accent);
@@ -1591,12 +1952,19 @@
 	.omp-work-status::after,
 	.omp-live-step::before,
 	.omp-work-motion .omp-work-narrative,
-	.omp-work-motion .omp-live-step-scroll > *,
+	.omp-work-motion .omp-work-surface-content > *,
 	.omp-work-motion .omp-work-card,
-	.omp-work-motion .omp-work-line,
-	.omp-work-motion .omp-work-line::after,
+	.omp-work-motion .omp-work-lane-surface,
+	.omp-work-motion .omp-work-parallel > li,
+	.omp-work-motion .omp-live-work-chip,
+	.omp-work-motion .omp-live-work-chip.omp-work-pulse,
+	.omp-work-motion .omp-bash-line,
+	.omp-work-motion .omp-bash-line::after,
 	.omp-work-motion pre code::after {
 		animation: none;
+	}
+	.omp-work-motion .omp-live-step-scroll[data-height-transition="true"] {
+		transition: none;
 	}
 }
 
@@ -2097,6 +2465,30 @@
 	}
 }
 
+/* Deeply split panes keep a readable text column instead of a column of
+   individual glyphs squeezed beside the starter icon. */
+@container omp-workspace (max-width: 320px) {
+	.omp-starter-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.omp-starter-card {
+		flex-direction: column;
+		gap: var(--sc-space-2);
+		padding: var(--sc-space-2);
+	}
+
+	.omp-starter-card > span:last-child {
+		width: 100%;
+		word-break: keep-all;
+		overflow-wrap: anywhere;
+	}
+
+	.omp-starter-card > span:last-child > span:first-child {
+		font-size: var(--sc-font-sm);
+	}
+}
+
 /* Composer toolbar at narrow widths (design-spec §2.2): one row that never
    overflows. Labels give way in order of how much the icon alone still says —
    send mode and modes first (icon + tooltip + accent stay), then the thinking
@@ -2229,4 +2621,82 @@
 		transparent 1px,
 		transparent var(--sc-icon-sm)
 	);
+}
+
+/* Tool-owned live screens. Transcript renderers deliberately keep their chrome. */
+.omp-bash-live,
+.omp-tool-editor,
+.omp-tool-results {
+	min-width: 0;
+	line-height: var(--sc-leading-normal);
+}
+.omp-bash-live .omp-bash-prompt {
+	align-items: center;
+	min-height: var(--sc-control-sm);
+}
+.omp-bash-live .omp-bash-prompt > span:nth-child(2) {
+	white-space: pre;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.omp-bash-line {
+	line-height: var(--sc-leading-normal);
+}
+.omp-bash-live > div:nth-child(2) {
+	min-height: calc(var(--sc-font-sm) * var(--sc-leading-normal) * 4);
+	white-space: pre;
+	overflow-anchor: none;
+}
+.omp-bash-live > div:nth-child(2) > div {
+	white-space: pre;
+}
+.omp-tool-editor pre,
+.omp-tool-results pre,
+.omp-tool-results li {
+	line-height: var(--sc-leading-normal);
+	overflow-anchor: none;
+}
+.omp-tool-editor [class~="group/diff"] > button {
+	display: none;
+}
+/* One file: the card heading already names it and the diff shows its +/−, so the row goes entirely
+   (left alone, the stat sat orphaned on a line of its own). */
+.omp-tool-edit[data-multi-file="false"] .omp-tool-edit-heading {
+	display: none;
+}
+.omp-tool-edit .omp-tool-edit-heading > svg,
+.omp-tool-edit .omp-tool-edit-heading > span.font-semibold {
+	display: none;
+}
+.omp-tool-write pre {
+	background: var(--sc-success-soft);
+}
+.omp-tool-results button:focus-visible {
+	outline: 2px solid var(--sc-focus-ring);
+	outline-offset: 2px;
+}
+.omp-tool-capture,
+.omp-tool-images {
+	min-width: 0;
+}
+.omp-tool-caption {
+	min-height: var(--sc-control-sm);
+	overflow: hidden;
+	white-space: nowrap;
+}
+.omp-tool-capture > button,
+.omp-tool-images > button {
+	display: flex;
+	width: 100%;
+	justify-content: center;
+	overflow: hidden;
+}
+.omp-tool-capture img,
+.omp-tool-images img {
+	width: 100%;
+	height: auto;
+	max-height: 220px;
+	object-fit: contain;
+	border-color: var(--sc-divider);
+	border-radius: var(--sc-radius-sm);
 }

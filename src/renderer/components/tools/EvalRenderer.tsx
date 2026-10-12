@@ -8,7 +8,7 @@ import { ResultImages } from "./ResultImages";
 import type { ToolRendererProps } from "./ToolCard";
 
 /** Eval: code cell with language badge + output below. */
-export function EvalRenderer({ args, result, isError, isPartial, partialResult }: ToolRendererProps) {
+export function EvalRenderer({ args, result, isError, isPartial, partialResult, livePreview }: ToolRendererProps) {
 	const t = useT();
 	const code = typeof args.code === "string" ? args.code : "";
 	const language =
@@ -19,24 +19,34 @@ export function EvalRenderer({ args, result, isError, isPartial, partialResult }
 	const images = extractImageDataUrls(effective);
 
 	return (
-		<div className="flex flex-col gap-1.5">
-			{title && (
+		<div className={livePreview ? "omp-tool-editor omp-tool-eval flex flex-col gap-1.5" : "flex flex-col gap-1.5"}>
+			{!livePreview && title && (
 				<div className="flex items-center gap-1.5 text-omp-sm">
 					<Code2 size={12} className="text-[var(--omp-dim)]" />
 					<span className="font-medium text-[var(--omp-text)]">{title}</span>
 				</div>
 			)}
-			{code && <CodeBlock code={code} language={language} showCopy={false} maxHeightClass="max-h-64" />}
+			{code && (
+				<CodeBlock
+					code={code}
+					language={language}
+					showLanguage={!livePreview}
+					showCopy={false}
+					maxHeightClass="max-h-64"
+				/>
+			)}
 			{output && (
 				<div>
-					<div
-						className={
-							"mb-0.5 text-omp-xxs font-semibold uppercase tracking-wider " +
-							(isError ? "text-[var(--omp-error)]" : "text-[var(--omp-dim)]")
-						}
-					>
-						{isError ? t("tools.eval.error") : t("tools.eval.output")}
-					</div>
+					{!livePreview && (
+						<div
+							className={
+								"mb-0.5 text-omp-xxs font-semibold uppercase tracking-wider " +
+								(isError ? "text-[var(--omp-error)]" : "text-[var(--omp-dim)]")
+							}
+						>
+							{isError ? t("tools.eval.error") : t("tools.eval.output")}
+						</div>
+					)}
 					<pre
 						className={cx(
 							"whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
@@ -50,7 +60,7 @@ export function EvalRenderer({ args, result, isError, isPartial, partialResult }
 					</pre>
 				</div>
 			)}
-			<ResultImages images={images} />
+			<ResultImages images={images} livePreview={livePreview} />
 			{isPartial && !output && images.length === 0 && (
 				<div className="text-omp-sm italic text-[var(--omp-accent)]">{t("tools.eval.evaluating")}</div>
 			)}

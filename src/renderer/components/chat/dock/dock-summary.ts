@@ -1,6 +1,4 @@
-import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import type { UiTodoPhase, UiTodoTask } from "../../../stores/todo";
-import { isLiveSubagentStatus } from "../../panels/subagent-graph";
 
 export const TODO_SUMMARY_THRESHOLD = 10;
 export const TODO_COMPLETED_PREVIEW = 3;
@@ -55,20 +53,5 @@ export function buildTodoDockPeek(phases: UiTodoPhase[]): TodoDockPeek {
 		current:
 			tasks.find(task => task.status === "in_progress") ??
 			tasks.find(task => task.status === "pending" || task.status === "blocked"),
-	};
-}
-
-export interface AgentDockPeek {
-	running: number;
-	done: number;
-	failed: number;
-}
-
-/** What the subagents dock chip shows: status counts. */
-export function buildAgentDockPeek(agents: SubagentSnapshot[]): AgentDockPeek {
-	return {
-		running: agents.filter(agent => isLiveSubagentStatus(agent.status)).length,
-		done: agents.filter(agent => agent.status === "completed").length,
-		failed: agents.filter(agent => agent.status === "failed").length,
 	};
 }

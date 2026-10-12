@@ -2,11 +2,11 @@ import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { ZoomableImage } from "../common/ZoomableImage";
 
-export function ResultImages({ images }: { images: readonly string[] }) {
+export function ResultImages({ images, livePreview }: { images: readonly string[]; livePreview?: boolean }) {
 	const t = useT();
 	if (images.length === 0) return null;
 	return (
-		<div className={cx("grid gap-2", images.length > 1 && "sm:grid-cols-2")}>
+		<div className={cx("grid gap-2", livePreview && "omp-tool-images", images.length > 1 && "sm:grid-cols-2")}>
 			{images.map((src, index) => (
 				<ZoomableImage
 					alt={`${t("tools.image.alt")} ${index + 1}`}

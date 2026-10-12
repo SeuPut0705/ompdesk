@@ -15,6 +15,7 @@ import {
 	hasStreamingTranscriptContent,
 	isTranscriptAtLiveEdge,
 	LIVE_EDGE_SLACK_PX,
+	liveWorkTail,
 	mergeTodoSnapshots,
 	ROW_ENTRANCE_TAIL_ROWS,
 	scrollTranscriptToTail,
@@ -63,6 +64,21 @@ describe("compact transcript rows", () => {
 		const answer = rows[1];
 		if (answer?.kind !== "message") throw new Error("final answer row missing");
 		expect(answer.message.content).toEqual([{ type: "text", text: "Implemented and verified." }]);
+	});
+
+	it("marks a run the user stopped from stock's aborted reply that follows it", () => {
+		// Stock's reply to a user stop: no content, stopReason aborted, and an error message.
+		const stopped: AgentMessage = {
+			role: "assistant",
+			content: [],
+			stopReason: "aborted",
+			errorMessage: "Request was aborted",
+			timestamp: 9,
+		};
+		const rows = buildHistoryRows([...toolRun.slice(0, -1), stopped], "compact");
+		expect(rows[0]?.kind === "process" && rows[0].stoppedAt).toBe(9);
+		const finished = buildHistoryRows(toolRun, "compact");
+		expect(finished[0]?.kind === "process" && finished[0].stoppedAt).toBeUndefined();
 	});
 
 	it("splits final reasoning from final text so only the answer stays outside the process row", () => {
@@ -512,7 +528,7 @@ describe("conversation navigation anchors", () => {
 
 describe("mergeTodoSnapshots", () => {
 	function snapshot(id: string, ts: number): TodoSnapshot {
-		return { id, ts, phases: [{ name: "Build", tasks: [{ content: "task", status: "pending" }] }] };
+		return { id, ts, duringTurn: true, phases: [{ name: "Build", tasks: [{ content: "task", status: "pending" }] }] };
 	}
 
 	it("interleaves snapshots by timestamp and tails the newest changes", () => {
@@ -543,6 +559,105 @@ describe("mergeTodoSnapshots", () => {
 	it("passes rows through untouched when there are no snapshots", () => {
 		const rows = buildHistoryRows([assistant([{ type: "text", text: "Solo" }])], "full");
 		expect(mergeTodoSnapshots(rows, [])).toEqual(rows);
+	});
+
+	it("folds a running turn's todo snapshots permanently into its work row", () => {
+		const rows = mergeTodoSnapshots(buildHistoryRows(toolRun.slice(0, -1), "compact"), [
+			snapshot("s1", 9_999_999_999_999),
+		]);
+		expect(rows.map(row => row.kind)).toEqual(["process"]);
+		expect(rows[0]?.kind === "process" && rows[0].todoSnapshots?.[0]?.id).toBe("s1");
+		expect(liveWorkTail(rows, true)).toEqual({ liveTail: true, lastWorkRow: 0 });
+		expect(liveWorkTail(rows, false)).toEqual({ liveTail: false, lastWorkRow: 0 });
+	});
+	it("keeps the finished reply next to its work and carries the last todo state", () => {
+		const rows = mergeTodoSnapshots(buildHistoryRows(toolRun, "compact"), [
+			snapshot("first", 9_999_999_999_998),
+			snapshot("last", 9_999_999_999_999),
+		]);
+		expect(rows.map(row => row.kind)).toEqual(["process", "message"]);
+		expect(rows[0]?.kind === "process" && rows[0].todoSnapshots?.at(-1)?.id).toBe("last");
+	});
+	it("leaves idle edits standalone without changing the finished run's last todo", () => {
+		const rows = mergeTodoSnapshots(buildHistoryRows(toolRun, "compact"), [
+			snapshot("run", 9_999_999_999_998),
+			{ ...snapshot("idle", 9_999_999_999_999), duringTurn: false },
+		]);
+		expect(rows.map(row => row.kind)).toEqual(["process", "message", "todoSnapshot"]);
+		expect(rows[0]?.kind === "process" && rows[0].todoSnapshots?.at(-1)?.id).toBe("run");
+	});
+	it("closes older snapshot ownership at the final assistant reply", () => {
+		const { duringTurn: _active, ...idle } = snapshot("legacy-idle", 9_999_999_999_999);
+		const rows = mergeTodoSnapshots(buildHistoryRows(toolRun, "compact"), [idle]);
+		expect(rows.map(row => row.kind)).toEqual(["process", "message", "todoSnapshot"]);
+	});
+	it("assigns a first-step todo snapshot to turn two, never turn one's write/edit group", () => {
+		const messages: AgentMessage[] = [
+			{ role: "user", timestamp: 100, content: [{ type: "text", text: "Write and edit notes.txt" }] },
+			{
+				role: "assistant",
+				timestamp: 110,
+				content: [
+					{ type: "toolCall", id: "write", name: "write", arguments: { path: "notes.txt" } },
+					{ type: "toolCall", id: "edit", name: "edit", arguments: { path: "notes.txt" } },
+				],
+			},
+			// Ownership must not depend on interleaving through reply envelope timestamps.
+			{ role: "assistant", timestamp: 400, content: [{ type: "text", text: "Edited notes.txt." }] },
+			{ role: "user", timestamp: 200, content: [{ type: "text", text: "Create todos then run ls and wc" }] },
+			{
+				role: "assistant",
+				timestamp: 210,
+				content: [
+					{ type: "toolCall", id: "todo", name: "todo", arguments: {} },
+					{ type: "toolCall", id: "ls", name: "bash", arguments: { command: "ls" } },
+					{ type: "toolCall", id: "wc", name: "bash", arguments: { command: "wc -l notes.txt" } },
+				],
+			},
+			{ role: "assistant", timestamp: 300, content: [{ type: "text", text: "Three steps complete." }] },
+		];
+		const entry = {
+			...snapshot("turn-two", 210),
+			phases: [
+				{
+					name: "Work",
+					tasks: [
+						{ content: "Read", status: "completed" as const },
+						{ content: "Count", status: "completed" as const },
+						{ content: "Report", status: "completed" as const },
+					],
+				},
+			],
+		};
+		const rows = mergeTodoSnapshots(buildHistoryRows(messages, "compact"), [entry]);
+		const runs = rows.filter(row => row.kind === "process");
+		expect(runs).toHaveLength(2);
+		expect(runs[0]?.todoSnapshots).toBeUndefined();
+		expect(runs[1]?.toolNames).toEqual(["todo", "bash", "bash"]);
+		expect(runs[1]?.todoSnapshots).toEqual([entry]);
+		// A turn's own boundary remains authoritative even when its user row is invisible.
+		const hiddenUserRows = buildHistoryRows(
+			messages.map(message =>
+				message.role === "user" && message.timestamp === 200 ? { ...message, content: [] } : message,
+			),
+			"compact",
+		);
+		const hiddenRuns = mergeTodoSnapshots(hiddenUserRows, [entry]).filter(row => row.kind === "process");
+		expect(hiddenRuns[0]?.todoSnapshots).toBeUndefined();
+		expect(hiddenRuns[1]?.todoSnapshots).toEqual([entry]);
+	});
+	it("never folds a pre-tool change into the preceding turn", () => {
+		const rows = buildHistoryRows(
+			[
+				{ ...toolRun[0]!, timestamp: 100 },
+				{ role: "user", timestamp: 200, content: [] },
+				{ ...toolRun[2]!, timestamp: 300 },
+			],
+			"compact",
+		);
+		const merged = mergeTodoSnapshots(rows, [snapshot("before-first-tool", 250)]);
+		expect(merged.filter(row => row.kind === "process").every(row => !row.todoSnapshots)).toBe(true);
+		expect(merged.some(row => row.kind === "todoSnapshot")).toBe(true);
 	});
 });
 

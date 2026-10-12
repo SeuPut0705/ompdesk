@@ -22,6 +22,10 @@ export interface TodoSnapshot {
 	id: string;
 	ts: number;
 	phases: TodoPhase[];
+	/** Captured at the edit: idle changes must never rewrite a finished run. */
+	duringTurn?: boolean;
+	/** Separates runs and idle periods when coalescing progress updates. */
+	epoch?: number;
 }
 
 /** Archive cap — the transcript keeps the newest snapshots, drops the oldest. */
@@ -37,6 +41,7 @@ export interface TodoStore {
 	historyHydrated: boolean;
 	/** Mirrors the session's agent run (agent_start → agent_end, or a get_state snapshot). */
 	turnActive: boolean;
+	historyEpoch: number;
 	/**
 	 * Keep an all-closed list on the dock: set when the running turn finishes it
 	 * (released when that turn ends) or when the user reopens it explicitly.
@@ -58,6 +63,7 @@ const initialState = {
 	history: [] as TodoSnapshot[],
 	historyHydrated: false,
 	turnActive: false,
+	historyEpoch: 0,
 	keepClosedVisible: false,
 };
 
@@ -122,12 +128,16 @@ export const createTodoStore = () =>
 			}));
 			const previous = state.history.at(-1);
 			const snapshot: TodoSnapshot =
-				previous && fingerprintTodo(previous.phases) === fingerprintTodo(archivedPhases)
+				previous &&
+				previous.epoch === state.historyEpoch &&
+				fingerprintTodo(previous.phases) === fingerprintTodo(archivedPhases)
 					? { ...previous, phases: archivedPhases }
 					: {
 							id: `todo-snapshot-${Date.now()}-${state.history.length}`,
 							ts: Date.now(),
 							phases: archivedPhases,
+							duringTurn: state.turnActive,
+							epoch: state.historyEpoch,
 						};
 			const history =
 				previous?.id === snapshot.id ? [...state.history.slice(0, -1), snapshot] : [...state.history, snapshot];
@@ -137,6 +147,7 @@ export const createTodoStore = () =>
 		setTurnActive: active =>
 			set(state => ({
 				turnActive: active,
+				historyEpoch: state.historyEpoch + Number(active !== state.turnActive),
 				// The end of a turn releases the finished list it held; an idle reveal survives idle re-syncs.
 				keepClosedVisible: state.keepClosedVisible && (active || !state.turnActive),
 			})),

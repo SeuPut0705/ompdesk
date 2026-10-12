@@ -168,13 +168,26 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 	const parsed = parseBashResult(effective, isError);
 	const images = extractImageDataUrls(effective);
 	const hasOutput = parsed.output.length > 0;
-	const outputLines = livePreview ? parsed.output.split("\n") : null;
+	const echo = `${command}\n`;
+	const promptEcho = `$ ${command}\n`;
+	const liveOutput =
+		livePreview && parsed.output.startsWith(echo)
+			? parsed.output.slice(echo.length)
+			: livePreview && parsed.output.startsWith(promptEcho)
+				? parsed.output.slice(promptEcho.length)
+				: parsed.output;
+	const outputLines = livePreview ? liveOutput.split("\n") : null;
 
 	return (
 		<div className="flex flex-col gap-1.5">
 			{/* One terminal surface: the command line, then its output under a hairline. */}
-			<div className="omp-bash-terminal overflow-hidden rounded-(--sc-radius-md) bg-(--omp-code-bg) font-mono text-sc-sm">
-				<div className="flex items-start gap-2 px-2.5 py-1.5 leading-normal">
+			<div
+				className={cx(
+					"omp-bash-terminal overflow-hidden rounded-(--sc-radius-md) bg-(--omp-code-bg) font-mono text-sc-sm",
+					livePreview && "omp-bash-live",
+				)}
+			>
+				<div className="omp-bash-prompt flex items-start gap-2 px-2.5 py-1.5 leading-normal">
 					<span aria-hidden className="shrink-0 select-none text-(--sc-text-subtle)">
 						$
 					</span>
@@ -195,7 +208,7 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 						<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("tools.bash.running")}</span>
 					)}
 				</div>
-				{hasOutput && (
+				{(hasOutput || livePreview) && (
 					<div
 						className={cx(
 							"border-t border-(--sc-divider) px-2.5 py-1.5 leading-normal text-(--omp-tool-output)",
@@ -205,9 +218,8 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 						<div className="whitespace-pre-wrap">
 							{outputLines ? (
 								outputLines.map((line, index) => (
-									<span className="omp-work-line" key={`${index}:${line}`}>
+									<span className="omp-bash-line" key={index}>
 										{hasAnsi(line) ? <AnsiText text={line} /> : line}
-										{index < outputLines.length - 1 ? "\n" : ""}
 									</span>
 								))
 							) : hasAnsi(parsed.output) ? (
@@ -219,9 +231,11 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 					</div>
 				)}
 			</div>
-			<ResultImages images={images} />
+			<ResultImages images={images} livePreview={livePreview} />
 			{parsed.stats.length > 0 && (
-				<div className="font-mono text-sc-xs text-(--sc-text-subtle)">[{parsed.stats.join(" | ")}]</div>
+				<div className="font-mono text-sc-xs text-(--sc-text-subtle)">
+					[{(livePreview ? parsed.stats.filter(stat => !stat.startsWith("Exit:")) : parsed.stats).join(" | ")}]
+				</div>
 			)}
 			{parsed.truncation && (
 				<div className="font-mono text-sc-xs text-(--sc-warning)">

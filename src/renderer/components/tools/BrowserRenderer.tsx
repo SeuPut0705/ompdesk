@@ -5,7 +5,7 @@ import { ZoomableImage } from "../common/ZoomableImage";
 import type { ToolRendererProps } from "./ToolCard";
 
 /** Browser automation: action description + screenshot thumbnail when present. */
-export function BrowserRenderer({ args, result, isError, isPartial, partialResult }: ToolRendererProps) {
+export function BrowserRenderer({ args, result, isError, isPartial, partialResult, livePreview }: ToolRendererProps) {
 	const t = useT();
 	const effective = isPartial ? (partialResult ?? result) : result;
 	const details = resultDetails(effective);
@@ -15,10 +15,23 @@ export function BrowserRenderer({ args, result, isError, isPartial, partialResul
 	const text = resultText(effective);
 
 	return (
-		<div className="flex flex-col gap-1.5">
-			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
-				<Globe size={12} className="shrink-0 text-[var(--omp-md-link)]" />
-				{action && <span className="font-semibold text-[var(--omp-text)]">{action}</span>}
+		<div className={livePreview ? "omp-tool-capture flex flex-col gap-1.5" : "flex flex-col gap-1.5"}>
+			<div
+				className={
+					livePreview
+						? "omp-tool-caption flex items-center gap-1.5 font-mono text-sc-xs"
+						: "flex items-center gap-1.5 font-mono text-omp-sm"
+				}
+			>
+				{!livePreview && <Globe size={12} className="shrink-0 text-[var(--omp-md-link)]" />}
+				{action && (!livePreview || !url) && (
+					<span
+						className={livePreview ? "truncate text-(--sc-text-muted)" : "font-semibold text-[var(--omp-text)]"}
+						title={action}
+					>
+						{action}
+					</span>
+				)}
 				{url && <span className="min-w-0 flex-1 truncate text-[var(--omp-md-link)]">{url}</span>}
 			</div>
 			{screenshot && (
@@ -28,7 +41,7 @@ export function BrowserRenderer({ args, result, isError, isPartial, partialResul
 					className="max-h-56 rounded-md border border-[var(--omp-border-muted)] object-contain"
 				/>
 			)}
-			{text && !screenshot && (
+			{text && (!screenshot || isError) && (
 				<pre
 					className={
 						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45] " +

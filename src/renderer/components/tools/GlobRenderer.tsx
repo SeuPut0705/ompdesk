@@ -16,7 +16,7 @@ interface GlobToolDetails {
 /** Glob: matched-path count + the path list. Prefers the structured
  * `details.files` — parsing text lines miscounts appended notices (timeouts,
  * truncation notes) as paths and offers them as file links. */
-export function GlobRenderer({ args, result, isPartial, partialResult }: ToolRendererProps) {
+export function GlobRenderer({ args, result, isPartial, partialResult, livePreview }: ToolRendererProps) {
 	const t = useT();
 	const pattern = typeof args.path === "string" ? args.path : typeof args.pattern === "string" ? args.pattern : "";
 	const effective = isPartial ? partialResult : result;
@@ -32,19 +32,21 @@ export function GlobRenderer({ args, result, isPartial, partialResult }: ToolRen
 	).slice(0, MAX_PATHS);
 
 	return (
-		<div className="flex flex-col gap-1">
-			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
-				<FolderOpen size={12} className="shrink-0 text-[var(--omp-dim)]" />
-				<span className="truncate text-[var(--omp-text)]">{pattern}</span>
-				<span className="ml-auto shrink-0 text-omp-xs text-[var(--omp-dim)]">
-					{isPartial
-						? t("tools.glob.matching")
-						: Number.isFinite(totalCount)
-							? t("tools.glob.paths", { count: totalCount, plural: totalCount === 1 ? "" : "s" })
-							: t("tools.glob.paths", { count: paths.length, plural: paths.length === 1 ? "" : "s" })}
-					{details?.truncated === true ? " +" : ""}
-				</span>
-			</div>
+		<div className={livePreview ? "omp-tool-results flex flex-col gap-1" : "flex flex-col gap-1"}>
+			{!livePreview && (
+				<div className="flex items-center gap-1.5 font-mono text-omp-sm">
+					<FolderOpen size={12} className="shrink-0 text-[var(--omp-dim)]" />
+					<span className="truncate text-[var(--omp-text)]">{pattern}</span>
+					<span className="ml-auto shrink-0 text-omp-xs text-[var(--omp-dim)]">
+						{isPartial
+							? t("tools.glob.matching")
+							: Number.isFinite(totalCount)
+								? t("tools.glob.paths", { count: totalCount, plural: totalCount === 1 ? "" : "s" })
+								: t("tools.glob.paths", { count: paths.length, plural: paths.length === 1 ? "" : "s" })}
+						{details?.truncated === true ? " +" : ""}
+					</span>
+				</div>
+			)}
 			{paths.length > 0 && (
 				<div
 					className={cx(
@@ -61,6 +63,11 @@ export function GlobRenderer({ args, result, isPartial, partialResult }: ToolRen
 							{p.endsWith("/") ? <span className="text-[var(--omp-status-path)]">{p}</span> : p}
 						</PathLink>
 					))}
+				</div>
+			)}
+			{livePreview && paths.length === 0 && (
+				<div className="text-sc-sm text-(--sc-text-muted)">
+					{isPartial ? t("tools.glob.matching") : t("tools.grep.noMatches")}
 				</div>
 			)}
 		</div>

@@ -24,6 +24,7 @@ import { abortActiveTurn, describeTurnError, isRenderableMessageText } from "../
 import { collapsibleReadTarget, groupReadRows, type ReadGroupEntry } from "../../lib/read-group";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { summarizeMessagesOutput } from "../../lib/turn-meter";
+import { liveWorkKey, useLiveWorkStore } from "../../stores/live-work";
 import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
@@ -48,6 +49,7 @@ import {
 	type HistoryRow,
 	isTranscriptAtLiveEdge,
 	isVisibleTranscriptMessage,
+	liveWorkTail,
 	type MountedTranscriptRow,
 	mergeTodoSnapshots,
 	messageTimestampMs,
@@ -168,10 +170,23 @@ function SessionTranscript() {
 	// summary and its live log window never remount and flicker. Only the
 	// reply text streams as its own row. History process rows exist in compact
 	// detail only; full detail keeps per-message rows.
-	const lastHistoryRow = historyRows.at(-1);
-	const liveTail = isStreaming && lastHistoryRow?.kind === "process";
-	const tailRowIndex = liveTail ? (hiddenCount > 0 ? 1 : 0) + historyRows.length - 1 : -1;
+	const { liveTail, lastWorkRow } = liveWorkTail(historyRows, isStreaming);
+	const tailRowIndex = liveTail ? (hiddenCount > 0 ? 1 : 0) + lastWorkRow : -1;
 	const showStreamingRow = hasStreamedContent && (!liveTail || hasStreamingText);
+	// Transcript state owns this handoff; virtualization never changes the dock.
+	const carriesContext =
+		liveTail ||
+		(showStreamingRow &&
+			transcriptDetail === "compact" &&
+			(hasStreamingThinking ||
+				hasLiveToolsForStream ||
+				(Array.isArray(streamingMessage?.content) &&
+					streamingMessage.content.some(block => block.type === "toolCall"))));
+	useLayoutEffect(() => {
+		const key = liveWorkKey(tabId);
+		useLiveWorkStore.getState().setCarried(key, carriesContext);
+		return () => useLiveWorkStore.getState().setCarried(key, false);
+	}, [tabId, carriesContext]);
 
 	// Streaming deltas rerender this component for the live row, but they do not
 	// change finalized history. Keep the O(history) row/key projection stable so
@@ -283,6 +298,10 @@ function SessionTranscript() {
 		// layers it produced on large transcripts.
 		useFlushSync: false,
 		getScrollElement: () => parentRef.current,
+		// TanStack rounds border-box heights down below .5px; that leaves the
+		// final absolute row outside its canvas and creates phantom scroll overflow.
+		measureElement: (element, entry) =>
+			Math.ceil(entry?.borderBoxSize[0]?.blockSize ?? element.getBoundingClientRect().height),
 		estimateSize: i => {
 			const kind = rows[i]?.kind;
 			if (kind === "streaming") return 80;
@@ -294,6 +313,18 @@ function SessionTranscript() {
 		overscan: 8,
 		onChange: handleVirtualizerChange,
 	});
+	const dockFocus = useUiStore(state => state.dockFocus);
+	const revealedTodoFocus = useRef(useUiStore.getState().dockFocus?.seq ?? null);
+	useLayoutEffect(() => {
+		if (!carriesContext || dockFocus?.id !== "todo" || revealedTodoFocus.current === dockFocus.seq) return;
+		// Reveal an off-screen virtualized owner first; its WorkTodo then opens
+		// and scrolls the editable row into view using this same focus signal.
+		const index = liveTail ? tailRowIndex : rows.findLastIndex(row => row.kind === "streaming");
+		if (index < 0) return;
+		const offset = virtualizer.getOffsetForIndex(index, "start")?.[0];
+		if (offset !== undefined) virtualizer.scrollToOffset(offset);
+		revealedTodoFocus.current = dockFocus.seq;
+	}, [dockFocus, carriesContext, liveTail, tailRowIndex, rows, virtualizer]);
 	const totalSize = virtualizer.getTotalSize();
 	const prependAnchorRef = useRef<{ key: string; offset: number; positioned?: boolean } | null>(null);
 	const capturePrependAnchor = useCallback(() => {
@@ -675,7 +706,7 @@ function SessionTranscript() {
 						<h1 className="font-display text-sc-3xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">
 							{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
 						</h1>
-						<p className="mt-2 max-w-xl text-sc-lg text-(--sc-text-muted)">
+						<p className="mt-2 max-w-xl text-sc-lg text-pretty text-(--sc-text-muted)">
 							{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
 						</p>
 						<div className="omp-starter-grid mt-8 grid auto-rows-fr grid-cols-2 gap-(--sc-space-3) max-sm:grid-cols-1">
@@ -869,12 +900,14 @@ function ProcessGroup({
 			<ExecutionGroup
 				expanded={expanded}
 				failureCount={row.failedEvents}
+				stoppedAt={row.stoppedAt}
 				live={live}
 				onExpandedChange={onExpandedChange}
 				output={output}
 				stepCount={row.stepCount + liveCards.length + (hasThinking ? 1 : 0)}
 				thinkingLive={hasThinking && !hasText}
 				toolCallIds={toolCallIds}
+				todoSnapshots={row.todoSnapshots}
 			>
 				<div className="omp-process-group">
 					{row.messages.map((message, index) => (
@@ -1283,6 +1316,7 @@ export {
 	hasStreamingTranscriptContent,
 	isTranscriptAtLiveEdge,
 	LIVE_EDGE_SLACK_PX,
+	liveWorkTail,
 	mergeTodoSnapshots,
 	ROW_ENTRANCE_TAIL_ROWS,
 	scrollTranscriptToTail,

@@ -26,8 +26,11 @@ export function unifiedDiffStats(diff: string): DiffStats {
 	return { added, removed };
 }
 
-function lineCount(text: string): number {
-	return text ? text.split("\n").length : 0;
+/** Lines of written content; a final newline ends the last line rather than starting another. */
+export function lineCount(text: string): number {
+	if (!text) return 0;
+	const lines = text.split("\n").length;
+	return text.endsWith("\n") ? lines - 1 : lines;
 }
 
 function sum(parts: DiffStats[]): DiffStats | null {

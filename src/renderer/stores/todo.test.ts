@@ -52,6 +52,31 @@ describe("todo snapshot archive", () => {
 		expect(history[0]?.id).toBe(id);
 		expect(history[0]?.phases[0]?.tasks.map(task => task.status)).toEqual(["completed", "completed"]);
 	});
+	it("never coalesces idle progress into the preceding run's final snapshot", () => {
+		const store = useTodoStore.getState();
+		store.setPhases([phase("Build", ["scaffold", "pending"], ["wire", "pending"])]);
+		store.setTurnActive(true);
+		store.setPhases([phase("Build", ["scaffold", "completed"], ["wire", "pending"])]);
+		const final = useTodoStore.getState().history.at(-1);
+		store.setTurnActive(false);
+		store.setPhases([phase("Build", ["scaffold", "completed"], ["wire", "completed"])]);
+		const history = useTodoStore.getState().history;
+		expect(history).toHaveLength(2);
+		expect(history[0]).toBe(final);
+		expect(history[0]?.duringTurn).toBe(true);
+		expect(history[1]?.duringTurn).toBe(false);
+		expect(history[0]?.phases[0]?.tasks[1]?.status).toBe("pending");
+	});
+	it("starts a new archive group on the next run even with the same task list", () => {
+		const store = useTodoStore.getState();
+		store.setPhases([phase("Build", ["scaffold", "pending"])]);
+		store.setTurnActive(true);
+		store.setPhases([phase("Build", ["scaffold", "in_progress"])]);
+		store.setTurnActive(false);
+		store.setTurnActive(true);
+		store.setPhases([phase("Build", ["scaffold", "completed"])]);
+		expect(useTodoStore.getState().history).toHaveLength(2);
+	});
 
 	it("records an explicit clear transition as an empty snapshot", () => {
 		useTodoStore.getState().setPhases([phase("Build", ["scaffold", "completed"])]);

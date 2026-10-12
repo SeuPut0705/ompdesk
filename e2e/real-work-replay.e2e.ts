@@ -71,7 +71,7 @@ test("actual stock frames preserve live and completed agent replay without false
 		await expect(cards.first()).toContainText("Count lines in alpha.txt");
 		await capture("running");
 		await cards.first().click();
-		const surface = page.locator(".omp-work-card .omp-live-step").first();
+		const surface = page.locator('.omp-work-card[data-open="true"] .omp-live-step').first();
 		await expect(surface).toHaveAttribute("data-surface", "bash");
 		await expect(surface).toContainText("sleep 3 && wc -l alpha.txt");
 		await expect(cards.first()).not.toContainText("0 tools");
@@ -80,13 +80,18 @@ test("actual stock frames preserve live and completed agent replay without false
 		await expect(work.locator(".omp-live-step-scroll:visible")).toHaveCount(1);
 		// The open lane hangs its agent's surface directly beneath its own row.
 		await expect(work.locator('.omp-work-card[data-open="true"]')).toHaveCount(1);
-		const rowBox = await cards.first().boundingBox();
-		const surfaceBox = await surface.boundingBox();
-		if (!rowBox || !surfaceBox) throw new Error("Missing lane geometry");
-		expect(rowBox.y + rowBox.height).toBeLessThanOrEqual(surfaceBox.y);
-		const nextBox = await cards.nth(1).boundingBox();
-		if (!nextBox) throw new Error("Missing second lane");
-		expect(surfaceBox.y + surfaceBox.height).toBeLessThanOrEqual(nextBox.y);
+		// Polled: the lane eases open, so the geometry settles over its transition.
+		await expect
+			.poll(async () => {
+				const [rowBox, surfaceBox, nextBox] = await Promise.all([
+					cards.first().boundingBox(),
+					surface.boundingBox(),
+					cards.nth(1).boundingBox(),
+				]);
+				if (!rowBox || !surfaceBox || !nextBox) return false;
+				return rowBox.y + rowBox.height <= surfaceBox.y && surfaceBox.y + surfaceBox.height <= nextBox.y;
+			})
+			.toBe(true);
 		await capture("expanded-live");
 		await advance();
 		await expect(surface).toContainText("3 alpha.txt");
@@ -122,16 +127,16 @@ test("actual stock frames preserve live and completed agent replay without false
 		await cards.first().click();
 		await expect(surface).toBeVisible();
 		await expect(surface).toHaveAttribute("data-running", "false");
-		await expect(surface).toHaveAttribute("data-surface", "yield");
+		// The agent's yield submission is not a step: the lane opens on its last real command.
+		await expect(surface).toHaveAttribute("data-surface", "bash");
+		await expect(surface).toContainText("3 alpha.txt");
+		await expect(surface.locator(".omp-live-work-strip")).toHaveCount(0);
 		// A finished group keeps its outcome under an open lane.
 		await expect(work).toHaveAttribute("data-outcome", "true");
 		await expect(work.locator(":scope > .omp-work-outcome")).toBeVisible();
 		// Opening a lane is not a replay: no "back" control on the group.
 		await expect(work.locator(":scope > .omp-live-work-strip .omp-live-work-follow")).toHaveCount(0);
 		await capture("completed-last-step");
-		await surface.getByRole("button", { name: /Run command/ }).click();
-		await expect(surface).toHaveAttribute("data-surface", "bash");
-		await expect(surface).toContainText("3 alpha.txt");
 		await capture("completed-replay");
 		await cards.first().click();
 		await expect(work).toHaveAttribute("data-outcome", "true");
@@ -147,11 +152,8 @@ test("actual stock frames preserve live and completed agent replay without false
 		await cards.first().click();
 		await cards.first().click();
 		await cards.nth(1).click();
-		await page
-			.locator(".omp-work-card .omp-live-step")
-			.getByRole("button", { name: /Run command/ })
-			.click();
-		await expect(page.locator(".omp-work-card .omp-live-step")).toContainText("2 beta.txt");
+		// BetaCounter's one command is its whole lane: no strip, the terminal shows right away.
+		await expect(page.locator('.omp-work-card[data-open="true"] .omp-live-step')).toContainText("2 beta.txt");
 		const commands = (await fs.readFile(record, "utf8"))
 			.trim()
 			.split("\n")

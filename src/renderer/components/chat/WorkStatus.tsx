@@ -1,5 +1,7 @@
 import { Check, Minus, X } from "lucide-react";
 import { cx } from "../../lib/format";
+import type { ToolEntry } from "../../stores/tools";
+import { statusMeta } from "../panels/subagent-graph";
 
 export type WorkState = "running" | "pending" | "complete" | "failed" | "stopped";
 
@@ -7,33 +9,87 @@ export type WorkState = "running" | "pending" | "complete" | "failed" | "stopped
 export type WorkGroupState = "running" | "failed" | "interrupted" | "complete";
 
 export function agentGroupState(status: string | undefined): WorkGroupState {
-	switch (status) {
-		case "running":
-		case "pending":
-			return "running";
-		case "failed":
-			return "failed";
-		case "cancelled":
-			return "interrupted";
-		default:
-			return "complete";
-	}
+	const meta = statusMeta(status ?? "");
+	if (meta.live) return "running";
+	if (meta.variant === "error") return "failed";
+	if (meta.variant === "success") return "complete";
+	return "interrupted";
 }
 
-/** Maps a stock subagent status onto the four shapes the work view draws. */
-export function agentWorkState(status: string | undefined): WorkState {
-	switch (status) {
-		case "running":
-			return "running";
-		case "pending":
-			return "pending";
-		case "completed":
-			return "complete";
-		case "failed":
-			return "failed";
-		default:
-			return "stopped";
+/** One subagent of a group, with how its parent task call itself ended. */
+export interface GroupAgent {
+	status: string;
+	parent: "running" | "failed" | "interrupted" | "done";
+}
+
+export interface WorkGroupTally {
+	/** The turn is still producing this group (model streaming or preparing a step). */
+	live: boolean;
+	runningTools: number;
+	failedTools: number;
+	/** Failures reported for the group outside its tool entries. */
+	reportedFailures: number;
+	interruptedTools: number;
+	agents: readonly GroupAgent[];
+}
+
+export interface WorkGroupResolution {
+	state: WorkGroupState;
+	failed: number;
+	interrupted: number;
+	runningAgents: number;
+}
+
+/**
+ * The single rule for how a work group stands. Detached stock tasks return
+ * before their agents finish, so an agent's own end counts too, except when
+ * its parent call already reported the same failure or interruption.
+ */
+export function resolveWorkGroup(tally: WorkGroupTally): WorkGroupResolution {
+	let runningAgents = 0;
+	let failed = tally.failedTools + tally.reportedFailures;
+	let interrupted = tally.interruptedTools;
+	for (const agent of tally.agents) {
+		const state = agentGroupState(agent.status);
+		if (state === "running") runningAgents++;
+		else if (state === "failed" && agent.parent !== "failed") failed++;
+		else if (state === "interrupted" && agent.parent !== "interrupted" && agent.parent !== "failed") interrupted++;
 	}
+	const state: WorkGroupState =
+		tally.live || tally.runningTools > 0 || runningAgents > 0
+			? "running"
+			: failed > 0
+				? "failed"
+				: interrupted > 0
+					? "interrupted"
+					: "complete";
+	return { state, failed, interrupted, runningAgents };
+}
+
+/**
+ * Stock agent-loop.ts emits an empty aborted reply with Date.now() after a
+ * tool stop, but preserves partial content and its timestamp for a model stop.
+ * Only the former supplies stoppedAt. Explicit aborted calls are interrupted
+ * regardless of isError; a live turn without that reply keeps ordinary errors.
+ */
+export function isInterruptedError(
+	entry: Pick<ToolEntry, "status" | "isError" | "endTime">,
+	stoppedAt?: number,
+): boolean {
+	return (
+		entry.status === "aborted" ||
+		((entry.status === "error" || entry.isError) &&
+			stoppedAt !== undefined &&
+			entry.endTime !== null &&
+			entry.endTime >= stoppedAt - 1000)
+	);
+}
+
+/** Preserve the queued ring; map the canonical agent outcome for every other status. */
+export function agentWorkState(status: string | undefined): WorkState {
+	if (status === "pending") return "pending";
+	const state = agentGroupState(status);
+	return state === "interrupted" ? "stopped" : state;
 }
 
 /**

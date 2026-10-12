@@ -11,8 +11,11 @@ import { IconButton, Spinner } from "../../common";
 
 type GoalAction = "pause" | "resume" | "drop";
 
-/** Compact, persistent control strip for the session's active goal. */
-export function GoalDockBar() {
+/**
+ * Compact, persistent control strip for the session's active goal. `inline`
+ * drops the dock chrome for use as a row inside the running work card.
+ */
+export function GoalDockBar({ inline = false }: { inline?: boolean }) {
 	const t = useT();
 	const rpc = useTabRpc();
 	const tabId = useRuntimeTabId();
@@ -52,12 +55,32 @@ export function GoalDockBar() {
 	};
 
 	return (
-		<div className="flex min-w-0 items-center gap-2 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) py-1.5 pr-1.5 pl-3">
-			<Target aria-hidden="true" className="shrink-0 text-(--sc-text-muted)" size={16} />
-			<span className="shrink-0 text-sc-md font-medium text-(--sc-text)">
+		<div
+			className={
+				inline
+					? "omp-work-context-row flex min-w-0 items-center gap-2"
+					: "flex min-w-0 items-center gap-2 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) py-1.5 pr-1.5 pl-3"
+			}
+			data-goal-row={inline || undefined}
+		>
+			<Target aria-hidden="true" className="shrink-0 text-(--sc-text-muted)" size={inline ? 14 : 16} />
+			<span
+				className={
+					inline
+						? "shrink-0 text-sc-sm text-(--sc-text-muted)"
+						: "shrink-0 text-sc-md font-medium text-(--sc-text)"
+				}
+			>
 				{paused ? t("dock.goal.paused") : t("dock.goal.active")}
 			</span>
-			<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text-secondary)" title={objective}>
+			<span
+				className={
+					inline
+						? "min-w-0 flex-1 truncate text-sc-sm text-(--sc-text)"
+						: "min-w-0 flex-1 truncate text-sc-md text-(--sc-text-secondary)"
+				}
+				title={objective}
+			>
 				{objective}
 			</span>
 			<IconButton
