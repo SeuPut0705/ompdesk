@@ -39,9 +39,15 @@ function stockEntries(data: unknown, device?: string): InputHistoryEntry[] {
 		.map(entry => ({ prompt: entry.prompt, ts: entry.created_at * 1000, cwd: entry.cwd, device }));
 }
 
-// Whitespace-insensitive key for "stock already holds this prompt"; looser than stock's
-// own normalization on purpose, so a near-duplicate is skipped rather than re-stamped.
-const promptKey = (prompt: string) => prompt.replace(/\s+/g, " ").trim();
+// Copy of stock's private `normalizePrompt` (pi-coding-agent session/history-storage.ts),
+// the key its UNIQUE(prompt) upsert uses. It runs in the renderer, where stock cannot,
+// and must stay exact: a looser key would skip a distinct prompt and the migration
+// would then delete it with the legacy prefs copy.
+export const promptKey = (prompt: string) =>
+	prompt
+		.replace(/\r\n?/g, "\n")
+		.replace(/[^\S\n]+\n/g, "\n")
+		.trim();
 
 async function stockHolds(rpc: TabRpc, prompt: string, recent: Set<string>): Promise<boolean> {
 	const key = promptKey(prompt);

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSessionRpcClient } from "../../shared/rpc-client";
 import type { RpcResponse } from "../../shared/rpc-types";
-import { useInputHistoryStore } from "./input-history";
+import { promptKey, useInputHistoryStore } from "./input-history";
 import { useToastStore } from "./toast";
 
 beforeEach(() => {
@@ -51,23 +51,34 @@ describe("stock prompt history adapter", () => {
 		await useInputHistoryStore.getState().hydrate(rpc);
 		expect(history).toHaveLength(2);
 	});
-	it("never re-stamps a legacy prompt stock already holds, so newer prompts stay on top", async () => {
+	it("never re-stamps a legacy prompt stock already holds, and keeps whitespace-distinct prompts", async () => {
 		const { rpc, prefs, history, command } = installHistory([
-			{ prompt: "legacy only", ts: 2, cwd: "/repo" },
-			{ prompt: "typed  in\nterminal too", ts: 1, cwd: "/repo" },
+			{ prompt: "legacy only", ts: 3, cwd: "/repo" },
+			{ prompt: 'print("a  b")', ts: 2, cwd: "/repo" },
+			{ prompt: "line one  \r\nline two  ", ts: 1, cwd: "/repo" },
 		]);
 		history.push(
 			{ prompt: "newest real prompt", created_at: 30, cwd: "/repo" },
-			{ prompt: "typed in terminal too", created_at: 20, cwd: "/repo" },
+			{ prompt: 'print("a b")', created_at: 25, cwd: "/repo" },
+			{ prompt: "line one\nline two", created_at: 20, cwd: "/repo" },
 		);
 		await useInputHistoryStore.getState().hydrate(rpc);
-		expect(command.mock.calls.filter(([input]) => input.type === "history_record")).toHaveLength(1);
+		expect(
+			command.mock.calls.filter(([input]) => input.type === "history_record").map(([input]) => input.prompt),
+		).toEqual(['print("a  b")', "legacy only"]);
 		expect(history.map(entry => [entry.prompt, entry.created_at > 30])).toEqual([
 			["legacy only", true],
+			['print("a  b")', true],
 			["newest real prompt", false],
-			["typed in terminal too", false],
+			['print("a b")', false],
+			["line one\nline two", false],
 		]);
 		expect(prefs.set).toHaveBeenCalledWith("inputHistory", undefined);
+	});
+	it("keys prompts exactly as stock's normalizePrompt stores them", () => {
+		expect(promptKey("  a\r\nb\rc  ")).toBe("a\nb\nc");
+		expect(promptKey("a \t\nb")).toBe("a\nb");
+		expect(promptKey("a  b\n\n  c")).toBe("a  b\n\n  c");
 	});
 	it("retains legacy prefs if stock rejects migration", async () => {
 		const { rpc, prefs, command } = installHistory(["old"]);
