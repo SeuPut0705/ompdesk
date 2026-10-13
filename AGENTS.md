@@ -77,12 +77,15 @@ When an omp update breaks a bridge method, fix the method against the new intern
 
 ## Change workflow
 
-Every change ships, so the user can update right away from the app:
+Changes accumulate as local commits on `main` and ship together only when the user asks:
 
-1. `bun run gate` (types, biome, surface policy, vitest and build, then the full Playwright suite) — all green. CI runs only part of the e2e suite, so the full suite on this Mac is the release gate.
-2. Release it with the steps below: bump the version, add the dated Korean `CHANGELOG.md` section, commit `release: vX.Y.Z`, push to `main`, and watch the release run to the end.
+1. Each finished fix or feature: run its own checks, then commit it locally (a normal descriptive message; no version bump, no CHANGELOG release section). Do not push.
+2. When the user asks to release ("배포해줘"): `bun run gate` (types, biome, surface policy, vitest and build, then the full Playwright suite) — all green. CI runs only part of the e2e suite, so the full suite on this Mac is the release gate.
+3. Then release with the steps below: one dated Korean `CHANGELOG.md` section covering every local commit since the last release, bump the version once, commit `release: vX.Y.Z`, push everything to `main` in one push, and watch the release run to the end.
 
-Every release run bills about 17 weighted minutes (6-7 Linux minutes plus 5 Windows minutes weighted 2×; the `mac` job runs free on the maintainer's Mac, or adds about 20 on GitHub's macOS runner), so release once per finished request: several changes requested together, and fixes made while still working on them, go out as one release, never one per intermediate commit. Never leave an `Unreleased` section behind on `main`. Do not reinstall the local app unless the user asks — the in-app updater picks the release up.
+Exception: a defect in the released version that makes the app unusable ships right away on its own.
+
+Every release run bills about 17 weighted minutes (6-7 Linux minutes plus 5 Windows minutes weighted 2×; the `mac` job runs free on the maintainer's Mac, or adds about 20 on GitHub's macOS runner), which is why releases are batched; unpushed commits live only on this Mac, so tell the user when several are waiting. Never leave an `Unreleased` section behind on `main`. Do not reinstall the local app unless the user asks — the in-app updater picks the release up.
 
 ## Release
 
