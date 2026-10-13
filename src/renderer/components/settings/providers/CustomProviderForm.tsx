@@ -258,7 +258,6 @@ export function CustomProviderForm({ editing, existing, options, onSaved, onCanc
 			} catch (cause) {
 				toast({ variant: "warning", message: t("providerCfg.toast.refreshFailed"), detail: errorDetail(cause) });
 			}
-			toast({ variant: "success", message: t("providerCfg.toast.saved", { id: input.id }) });
 			onSaved(input.id);
 		} catch (cause) {
 			setSubmitError(inlineFailure(cause, t("providerCfg.toast.saveFailed")));

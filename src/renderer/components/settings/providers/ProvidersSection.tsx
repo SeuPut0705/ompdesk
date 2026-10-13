@@ -307,7 +307,8 @@ export function ProvidersSection({
 					options={catalog.options}
 					key={providerForm.edit?.id ?? "new"}
 					onCancel={closeProviderForm}
-					onSaved={() => {
+					onSaved={providerId => {
+						toast({ variant: "success", message: t("providerCfg.toast.saved", { id: providerId }) });
 						closeProviderForm();
 						void load();
 					}}
