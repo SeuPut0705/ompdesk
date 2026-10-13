@@ -103,8 +103,8 @@ const TEXT = {
 	},
 	// Stats bridge failures that reach the renderer (toasts, the stats page).
 	"stats.notReady": {
-		en: "The stats server is still starting. Try again in a moment.",
-		ko: "통계 서버가 아직 시작 중이에요. 잠시 후 다시 시도하세요.",
+		en: "OMPdesk keeps starting it in the background. Stats appear here as soon as it answers.",
+		ko: "OMPdesk가 백그라운드에서 계속 시작하고 있어요. 응답하면 바로 여기에 통계가 표시돼요.",
 	},
 	"stats.notRunning": {
 		en: "The stats server isn't running. Restart OMPdesk to bring it back.",

@@ -23,7 +23,7 @@ export function GainRoute({ range }: { range: StatsRange }) {
 		if (project) next.project = project;
 		return next;
 	}, [range, project]);
-	const { data, isLoading, error, refetch } = useStats<GainData>("/api/stats/gain", params);
+	const { data, isLoading, error, serverDown, refetch } = useStats<GainData>("/api/stats/gain", params);
 
 	const stats = data;
 	const overall = stats?.overall;
@@ -75,6 +75,7 @@ export function GainRoute({ range }: { range: StatsRange }) {
 			hasData={data !== null}
 			empty={!overall || overall.savedTokens === 0}
 			error={error}
+			serverDown={serverDown}
 			loading={isLoading}
 			onRetry={refetch}
 		>

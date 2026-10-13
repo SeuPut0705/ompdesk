@@ -16,7 +16,7 @@ export function ProvidersRoute({ range }: { range: StatsRange }) {
 	const t = useT();
 	const themeKey = useChartThemeKey();
 	const params = useMemo(() => ({ range }), [range]);
-	const { data, isLoading, error, refetch } = useStats<ProvidersData>("/api/stats/providers", params);
+	const { data, isLoading, error, serverDown, refetch } = useStats<ProvidersData>("/api/stats/providers", params);
 	const windows = useStats<ProviderWindowsData>("/api/stats/provider-windows", params);
 	const stats = data;
 	const windowInsights = windows.data?.windowInsights ?? [];
@@ -157,6 +157,7 @@ export function ProvidersRoute({ range }: { range: StatsRange }) {
 			hasData={data !== null}
 			empty={providers.length === 0}
 			error={error}
+			serverDown={serverDown}
 			loading={isLoading}
 			onRetry={refetch}
 		>

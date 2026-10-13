@@ -17,6 +17,7 @@ export function RouteFrame({
 	loading,
 	hasData = false,
 	error,
+	serverDown = false,
 	empty,
 	onRetry,
 	children,
@@ -24,6 +25,8 @@ export function RouteFrame({
 	loading: boolean;
 	hasData?: boolean;
 	error: string | null;
+	/** `error` is main's localized sentence for a stats server that isn't answering. */
+	serverDown?: boolean;
 	empty?: boolean;
 	onRetry: () => void;
 	children: ReactNode;
@@ -34,7 +37,10 @@ export function RouteFrame({
 			empty={empty}
 			emptyLabel={t("stats.emptyRange")}
 			error={error}
-			errorTitle={inlineFailure(error, t("stats.unavailable")).message}
+			errorTitle={serverDown ? t("stats.serverDown") : inlineFailure(error, t("stats.unavailable")).message}
+			errorDescription={
+				serverDown && error ? <span className="text-sc-sm text-(--sc-text-muted)">{error}</span> : undefined
+			}
 			hasData={hasData}
 			loading={loading}
 			loadingLabel={t("stats.loading")}

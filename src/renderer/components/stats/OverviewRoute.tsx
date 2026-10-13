@@ -36,7 +36,7 @@ export function OverviewRoute({ range }: { range: StatsRange }) {
 	const themeKey = useChartThemeKey();
 	const locale = uiLocale();
 	const params = useMemo(() => ({ range }), [range]);
-	const { data, isLoading, error, refetch } = useStats<OverviewData>("/api/stats/overview", params);
+	const { data, isLoading, error, serverDown, refetch } = useStats<OverviewData>("/api/stats/overview", params);
 
 	const stats = data;
 	const overall = stats?.overall;
@@ -103,6 +103,7 @@ export function OverviewRoute({ range }: { range: StatsRange }) {
 			hasData={data !== null}
 			empty={!overall || overall.totalRequests === 0}
 			error={error}
+			serverDown={serverDown}
 			loading={isLoading}
 			onRetry={refetch}
 		>

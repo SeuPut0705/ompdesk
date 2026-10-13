@@ -120,7 +120,7 @@ export function RequestsRoute({ range }: { range: StatsRange }) {
 	const page = cursors.length - 1;
 	const cursor = cursors[page];
 	const params = useMemo(() => ({ range, limit: String(PAGE_SIZE), ...(cursor ? { cursor } : {}) }), [range, cursor]);
-	const { data, isLoading, error, refetch } = useStats<RequestPage>("/api/stats/requests", params);
+	const { data, isLoading, error, serverDown, refetch } = useStats<RequestPage>("/api/stats/requests", params);
 	const [selected, setSelected] = useState<RequestRow | null>(null);
 
 	const rows = data?.rows ?? [];
@@ -187,7 +187,14 @@ export function RequestsRoute({ range }: { range: StatsRange }) {
 	);
 
 	return (
-		<RouteFrame hasData={data !== null} empty={rows.length === 0} error={error} loading={isLoading} onRetry={refetch}>
+		<RouteFrame
+			hasData={data !== null}
+			empty={rows.length === 0}
+			error={error}
+			serverDown={serverDown}
+			loading={isLoading}
+			onRetry={refetch}
+		>
 			<SectionTitle>{t("stats.requests.sectionTitle", { count: data?.total ?? 0 })}</SectionTitle>
 			<StatTable
 				columns={columns}
@@ -211,7 +218,7 @@ export function RequestsRoute({ range }: { range: StatsRange }) {
 						{t("stats.requests.prev")}
 					</Button>
 					<span className="text-sc-2xs tabular-nums text-(--sc-text-muted)">
-						{page + 1} / {pages}
+						{t("stats.requests.page", { page: page + 1, pages })}
 					</span>
 					<Button
 						disabled={!data?.nextCursor || isLoading}

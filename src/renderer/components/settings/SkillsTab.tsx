@@ -468,25 +468,31 @@ export function SkillsTab({ query }: { query: string }) {
 		);
 	}
 
+	// Nothing installed: one empty state carries the only "New" action, not an empty list beside an empty preview.
+	const nothingInstalled = !error && !loading && skills.length === 0 && !editor;
 	return (
 		<div className="flex flex-col gap-4">
 			<p className="max-w-2xl text-sc-sm text-(--sc-text-muted)">{t("settings.skills.description")}</p>
 			<div className="flex flex-wrap items-center gap-2">
-				<div className="w-44">
-					<Select
-						aria-label={t("settings.skills.filter.label")}
-						controlSize="sm"
-						onChange={event => setFilter(event.target.value as SkillFilter)}
-						options={FILTER_OPTIONS.map(option => ({
-							value: option,
-							label: t(`settings.skills.filter.${option}`),
-						}))}
-						value={filter}
-					/>
-				</div>
-				<span className="text-sc-xs tabular-nums text-(--sc-text-muted)">
-					{visible.length} / {skills.length}
-				</span>
+				{nothingInstalled ? null : (
+					<>
+						<div className="w-44">
+							<Select
+								aria-label={t("settings.skills.filter.label")}
+								controlSize="sm"
+								onChange={event => setFilter(event.target.value as SkillFilter)}
+								options={FILTER_OPTIONS.map(option => ({
+									value: option,
+									label: t(`settings.skills.filter.${option}`),
+								}))}
+								value={filter}
+							/>
+						</div>
+						<span className="text-sc-xs tabular-nums text-(--sc-text-muted)">
+							{t("settings.skills.count", { shown: visible.length, total: skills.length })}
+						</span>
+					</>
+				)}
 				<span className="flex-1" />
 				<IconButton
 					disabled={!sidecarReady || loading || !routeReady}
@@ -495,13 +501,14 @@ export function SkillsTab({ query }: { query: string }) {
 					onClick={() => void loadSkills()}
 					size="sm"
 				/>
-				<Button disabled={!sidecarReady || !routeReady} icon={<Plus />} onClick={startCreate} size="sm">
-					{t("settings.skills.new")}
-				</Button>
+				{nothingInstalled ? null : (
+					<Button disabled={!sidecarReady || !routeReady} icon={<Plus />} onClick={startCreate} size="sm">
+						{t("settings.skills.new")}
+					</Button>
+				)}
 			</div>
 
-			{!error && !loading && skills.length === 0 && !editor ? (
-				// Nothing installed: one empty state, not an empty list beside an empty preview.
+			{nothingInstalled ? (
 				<EmptyState
 					actions={
 						<Button disabled={!sidecarReady || !routeReady} icon={<Plus />} onClick={startCreate} size="sm">

@@ -28,7 +28,7 @@ export function ModelsRoute({ range }: { range: StatsRange }) {
 	const themeKey = useChartThemeKey();
 	const locale = uiLocale();
 	const params = useMemo(() => ({ range }), [range]);
-	const { data, isLoading, error, refetch } = useStats<ModelsData>("/api/stats/model-dashboard", params);
+	const { data, isLoading, error, serverDown, refetch } = useStats<ModelsData>("/api/stats/model-dashboard", params);
 
 	const stats = data;
 
@@ -154,6 +154,7 @@ export function ModelsRoute({ range }: { range: StatsRange }) {
 			hasData={data !== null}
 			empty={byModel.length === 0}
 			error={error}
+			serverDown={serverDown}
 			loading={isLoading}
 			onRetry={refetch}
 		>

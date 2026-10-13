@@ -17,7 +17,7 @@ export function CostsRoute({ range }: { range: StatsRange }) {
 	const themeKey = useChartThemeKey();
 	const locale = uiLocale();
 	const params = useMemo(() => ({ range }), [range]);
-	const { data, isLoading, error, refetch } = useStats<CostsData>("/api/stats/costs", params);
+	const { data, isLoading, error, serverDown, refetch } = useStats<CostsData>("/api/stats/costs", params);
 
 	const stats = data;
 	const series = stats?.costSeries ?? [];
@@ -71,6 +71,7 @@ export function CostsRoute({ range }: { range: StatsRange }) {
 			hasData={data !== null}
 			empty={series.length === 0}
 			error={error}
+			serverDown={serverDown}
 			loading={isLoading}
 			onRetry={refetch}
 		>

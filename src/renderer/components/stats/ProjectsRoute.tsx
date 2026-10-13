@@ -13,7 +13,7 @@ import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable }
 export function ProjectsRoute({ range }: { range: StatsRange }) {
 	const t = useT();
 	const params = useMemo(() => ({ range }), [range]);
-	const { data, isLoading, error, refetch } = useStatsList<FolderRow>("/api/stats/folders", params);
+	const { data, isLoading, error, serverDown, refetch } = useStatsList<FolderRow>("/api/stats/folders", params);
 
 	const rows = useMemo(() => {
 		const list = data ?? [];
@@ -68,7 +68,14 @@ export function ProjectsRoute({ range }: { range: StatsRange }) {
 	);
 
 	return (
-		<RouteFrame hasData={data !== null} empty={rows.length === 0} error={error} loading={isLoading} onRetry={refetch}>
+		<RouteFrame
+			hasData={data !== null}
+			empty={rows.length === 0}
+			error={error}
+			serverDown={serverDown}
+			loading={isLoading}
+			onRetry={refetch}
+		>
 			<SectionTitle>{t("stats.projects.sectionTitle", { count: rows.length })}</SectionTitle>
 			<StatTable columns={columns} keyFor={row => row.folder} rows={rows} />
 		</RouteFrame>

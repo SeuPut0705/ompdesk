@@ -14,7 +14,7 @@ import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable }
 export function ErrorsRoute({ range }: { range: StatsRange }) {
 	const t = useT();
 	const params = useMemo(() => ({ range, limit: "100" }), [range]);
-	const { data, isLoading, error, refetch } = useStatsList<ErrorRow>("/api/stats/errors", params);
+	const { data, isLoading, error, serverDown, refetch } = useStatsList<ErrorRow>("/api/stats/errors", params);
 
 	const rows = useMemo(() => {
 		const list = data ?? [];
@@ -72,7 +72,14 @@ export function ErrorsRoute({ range }: { range: StatsRange }) {
 	);
 
 	return (
-		<RouteFrame hasData={data !== null} empty={rows.length === 0} error={error} loading={isLoading} onRetry={refetch}>
+		<RouteFrame
+			hasData={data !== null}
+			empty={rows.length === 0}
+			error={error}
+			serverDown={serverDown}
+			loading={isLoading}
+			onRetry={refetch}
+		>
 			<SectionTitle>{t("stats.errors.sectionTitle", { count: rows.length })}</SectionTitle>
 			<StatTable columns={columns} keyFor={row => `${row.id ?? row.entryId ?? row.timestamp}`} rows={rows} />
 		</RouteFrame>

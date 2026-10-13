@@ -26,7 +26,7 @@ function rate(part: number, whole: number): string {
 export function FrustrationRoute({ range }: { range: StatsRange }) {
 	const t = useT();
 	const params = useMemo(() => ({ range }), [range]);
-	const { data, isLoading, error, refetch } = useStats<FrustrationData>("/api/stats/frustration", params);
+	const { data, isLoading, error, serverDown, refetch } = useStats<FrustrationData>("/api/stats/frustration", params);
 
 	const overall = data?.overall;
 	const rows = useMemo(() => [...(data?.byModel ?? [])].sort((a, b) => b.messages - a.messages), [data]);
@@ -86,6 +86,7 @@ export function FrustrationRoute({ range }: { range: StatsRange }) {
 			hasData={data !== null}
 			empty={!overall || overall.messages === 0}
 			error={error}
+			serverDown={serverDown}
 			loading={isLoading}
 			onRetry={refetch}
 		>

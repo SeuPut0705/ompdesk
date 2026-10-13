@@ -4,28 +4,27 @@ import { useFocusedTabDevice } from "../stores/remote";
 const POLL_INTERVAL_MS = 30_000;
 /** While the bundled stats server is still booting, retry quickly instead of waiting a full poll tick. */
 const STARTING_RETRY_MS = 2_000;
-/** Give up fast-retrying and show the dead-end error only after this long of continuous unavailability. */
-const STARTING_BUDGET_MS = 90_000;
+/** A normal boot answers within a few seconds; past this the section says the server is down. */
+const STARTING_BUDGET_MS = 8_000;
+/** Once the down state shows, keep asking (main revives the server on these reads) so a late server still appears. */
+const DOWN_RETRY_MS = 5_000;
 
 interface StatsState<T> {
 	key: string;
 	data: T | null;
 	isLoading: boolean;
 	error: string | null;
+	/** `error` is main's localized "stats server is not answering" sentence, not a raw failure. */
+	serverDown: boolean;
 	updatedAt: number | null;
 }
 
-function unavailableError(result: unknown): string | null {
-	if (
-		result &&
-		typeof result === "object" &&
-		"unavailable" in result &&
-		(result as { unavailable?: unknown }).unavailable === true
-	) {
-		const message = (result as { error?: unknown }).error;
-		return typeof message === "string" ? message : "unavailable";
-	}
-	return null;
+/** Main's down-state reply (`{error, unavailable, stopped?}`); `stopped` = no revive left this run. */
+function downReply(result: unknown): { message: string; stopped: boolean } | null {
+	if (!result || typeof result !== "object") return null;
+	const reply = result as { error?: unknown; unavailable?: unknown; stopped?: unknown };
+	if (reply.unavailable !== true && reply.stopped !== true) return null;
+	return { message: typeof reply.error === "string" ? reply.error : "", stopped: reply.stopped === true };
 }
 
 /**
@@ -45,6 +44,7 @@ function useStatsResource<T>(path: string, params: Record<string, string> | unde
 		data: null,
 		isLoading: true,
 		error: null,
+		serverDown: false,
 		updatedAt: null,
 	});
 	const fetchRef = useRef<() => void>(() => {});
@@ -54,30 +54,43 @@ function useStatsResource<T>(path: string, params: Record<string, string> | unde
 		let active = true;
 		let inFlight = false;
 		let retryTimer: number | undefined;
-		let unavailableSince: number | null = null;
-		const load = async () => {
+		let downSince: number | null = null;
+		/** `quiet`: a background read (poll, down-state retry) leaves the shown state alone until it answers. */
+		const load = async (quiet = false) => {
 			if (!active || inFlight) return;
 			inFlight = true;
-			setState(previous =>
-				previous.key === key
-					? { ...previous, isLoading: previous.data === null }
-					: { key, data: null, isLoading: true, error: null, updatedAt: null },
-			);
+			if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+			retryTimer = undefined;
+			if (!quiet) {
+				setState(previous =>
+					previous.key === key
+						? { ...previous, isLoading: previous.data === null }
+						: { key, data: null, isLoading: true, error: null, serverDown: false, updatedAt: null },
+				);
+			}
 			try {
 				const result = await window.omp.stats.fetch(path, queryParams, device);
-				const starting = unavailableError(result);
-				if (starting !== null) {
-					// Server still booting: stay in the loading state and retry quickly so
-					// the dashboard recovers on its own as soon as it is ready.
+				const down = downReply(result);
+				if (down) {
+					// Booting: stay in the loading state for a few seconds. Past that the
+					// section says so (with a retry), and the reads keep going in the
+					// background so a server that binds late still fills it on its own.
 					const now = Date.now();
-					if (unavailableSince === null) unavailableSince = now;
-					if (now - unavailableSince > STARTING_BUDGET_MS) {
-						if (active) setState(previous => ({ ...previous, isLoading: false, error: starting }));
-					} else if (active) {
-						setState(previous => ({ ...previous, isLoading: true, error: null }));
-						retryTimer = window.setTimeout(() => {
-							if (active) void load();
-						}, STARTING_RETRY_MS);
+					if (downSince === null) downSince = now;
+					const booting = !down.stopped && now - downSince <= STARTING_BUDGET_MS;
+					if (!active) return;
+					setState(previous =>
+						booting
+							? { ...previous, isLoading: true, error: null, serverDown: false }
+							: { ...previous, isLoading: false, error: down.message, serverDown: true },
+					);
+					if (!down.stopped) {
+						retryTimer = window.setTimeout(
+							() => {
+								if (active) void load(true);
+							},
+							booting ? STARTING_RETRY_MS : DOWN_RETRY_MS,
+						);
 					}
 					return;
 				}
@@ -85,18 +98,26 @@ function useStatsResource<T>(path: string, params: Record<string, string> | unde
 					throw new Error(result.error);
 				if (expectList && !Array.isArray(result))
 					throw new Error(`${path} did not return a list (${result === null ? "null" : typeof result})`);
-				unavailableSince = null;
-				if (active) setState({ key, data: result as T, isLoading: false, error: null, updatedAt: Date.now() });
+				downSince = null;
+				if (active)
+					setState({
+						key,
+						data: result as T,
+						isLoading: false,
+						error: null,
+						serverDown: false,
+						updatedAt: Date.now(),
+					});
 			} catch (cause) {
 				const message = cause instanceof Error ? cause.message : String(cause);
-				if (active) setState(previous => ({ ...previous, isLoading: false, error: message }));
+				if (active) setState(previous => ({ ...previous, isLoading: false, error: message, serverDown: false }));
 			} finally {
 				inFlight = false;
 			}
 		};
 		fetchRef.current = () => void load();
 		const refreshVisible = () => {
-			if (document.visibilityState !== "hidden") void load();
+			if (document.visibilityState !== "hidden") void load(true);
 		};
 		void load();
 		const timer = window.setInterval(refreshVisible, POLL_INTERVAL_MS);
@@ -111,7 +132,7 @@ function useStatsResource<T>(path: string, params: Record<string, string> | unde
 
 	return state.key === key
 		? { ...state, refetch }
-		: { key, data: null, isLoading: true, error: null, updatedAt: null, refetch };
+		: { key, data: null, isLoading: true, error: null, serverDown: false, updatedAt: null, refetch };
 }
 
 export function useStats<T>(path: string, params?: Record<string, string>) {

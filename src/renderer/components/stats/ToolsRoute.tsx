@@ -18,7 +18,7 @@ export function ToolsRoute({ range }: { range: StatsRange }) {
 	const t = useT();
 	const themeKey = useChartThemeKey();
 	const params = useMemo(() => ({ range }), [range]);
-	const { data, isLoading, error, refetch } = useStats<ToolsData>("/api/stats/tools", params);
+	const { data, isLoading, error, serverDown, refetch } = useStats<ToolsData>("/api/stats/tools", params);
 
 	const stats = data;
 
@@ -115,6 +115,7 @@ export function ToolsRoute({ range }: { range: StatsRange }) {
 			hasData={data !== null}
 			empty={byTool.length === 0}
 			error={error}
+			serverDown={serverDown}
 			loading={isLoading}
 			onRetry={refetch}
 		>
