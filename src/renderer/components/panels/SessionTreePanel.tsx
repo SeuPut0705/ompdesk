@@ -1066,8 +1066,13 @@ function SessionTreeView({
 							{isHead(selectedEntry) && <Badge variant="success">{t("sessionTree.head")}</Badge>}
 							{!selectedEntry.onActiveBranch && <Badge variant="muted">{t("sessionTree.inactiveBranch")}</Badge>}
 						</div>
-						<p className="text-sc-sm whitespace-pre-wrap break-words text-(--sc-text)">
-							{selectedEntry.textPreview}
+						<p
+							className={cx(
+								"text-sc-sm whitespace-pre-wrap break-words",
+								selectedEntry.textPreview ? "text-(--sc-text)" : "text-(--sc-text-subtle)",
+							)}
+						>
+							{selectedEntry.textPreview || t("sessionTree.noText")}
 						</p>
 						<div className="flex flex-wrap gap-1.5">
 							{selectedEntry.role === "user" && (

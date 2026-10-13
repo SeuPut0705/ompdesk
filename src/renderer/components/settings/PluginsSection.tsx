@@ -619,7 +619,7 @@ function MemoryTab({ resource, visible }: { resource: RpcResource<RpcMemoryRepor
 		<TabPanel
 			description={
 				<span className="font-medium text-(--sc-text)">
-					{report?.backend ?? t("invPanel.tabs.memory")}
+					{report ? t("invPanel.memory.backend", { backend: report.backend }) : t("invPanel.tabs.memory")}
 					{report?.entryCount !== undefined && (
 						<span className="ml-2 font-normal tabular-nums text-(--sc-text-muted)">
 							{t("invPanel.memory.entries", { count: report.entryCount })}
@@ -665,7 +665,10 @@ function MemoryTab({ resource, visible }: { resource: RpcResource<RpcMemoryRepor
 							</section>
 						)}
 						{!data.status && !data.stats && !data.diagnosis && (
-							<EmptyState icon={<PackageOpen />} size="sm" title={t("invPanel.memory.bare")} />
+							// Nothing to show is one quiet line, not an empty-state card under a settings row.
+							<p className="text-sc-sm text-(--sc-text-muted)" data-memory-bare>
+								{t("invPanel.memory.bare")}
+							</p>
 						)}
 					</div>
 				)}

@@ -93,9 +93,16 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 					</span>
 				)}
 			</div>
-			<p className="mt-1 line-clamp-2 min-h-0 flex-1 text-sc-sm whitespace-pre-wrap text-(--sc-text)">
-				{entry.textPreview}
-			</p>
+			{entry.textPreview ? (
+				<p className="mt-1 line-clamp-2 min-h-0 flex-1 text-sc-sm whitespace-pre-wrap text-(--sc-text)">
+					{entry.textPreview}
+				</p>
+			) : (
+				// A tool-call or thinking-only turn has no text: say so instead of an empty card.
+				<p className="mt-1 line-clamp-2 min-h-0 flex-1 text-sc-sm text-(--sc-text-subtle)" data-tree-node-empty>
+					{t("sessionTree.noText")}
+				</p>
+			)}
 			{/* Node actions: switch the active leaf here (any node), branch (user
 			    nodes only, server gate), or open an independent session from here
 			    in a new window (any node). The wrapper keeps the press from

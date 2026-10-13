@@ -271,6 +271,23 @@ describe("SessionTreePanel", () => {
 		expect(document.body.textContent).toContain("head");
 	});
 
+	it("names a textless turn instead of drawing an empty card", async () => {
+		installMockOmp({
+			getSessionTree: vi.fn(async () =>
+				linearTree([
+					{ entryId: "m1", text: "run the tests" },
+					{ entryId: "m2", text: "" },
+				]),
+			),
+		});
+		seedSession("tree-textless");
+		await mount(<SessionTreePanel />);
+		const card = nodeCards().find(el => el.getAttribute("data-tree-node") === "m2");
+		expect(card?.querySelector("[data-tree-node-empty]")?.textContent).toBe("No text, only tool calls or thinking");
+		const filled = nodeCards().find(el => el.getAttribute("data-tree-node") === "m1");
+		expect(filled?.querySelector("[data-tree-node-empty]")).toBeNull();
+	});
+
 	it("renders the rich get_session_tree with fork edges and active-branch highlight", async () => {
 		const tree: SessionTreeResult = {
 			activeLeafId: "c",

@@ -153,6 +153,9 @@ describe("InsightsPage", () => {
 		expect(useUiStore.getState().insightsStatsScope).toBe("all");
 		expect(document.body.textContent).toContain("Every project and session on this computer.");
 		expect(document.body.textContent).toContain("Overview");
+		// One name per concept: the page tab is not named after the dashboard's first section.
+		expect(tab("Activity")?.getAttribute("aria-selected")).toBe("true");
+		expect(tab("Overview")).toBeUndefined();
 	});
 
 	it("lands the Usage tab on provider quotas with a way to this session's usage", async () => {
