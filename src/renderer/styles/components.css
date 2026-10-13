@@ -956,21 +956,38 @@
 	font-size: var(--sc-font-xs);
 }
 
-/* Full width whenever the head has room. On a genuinely narrow card the token meter gives way
-   first, then the counts ellipsize inside the row, never past the card's edge. */
-.omp-execution-group-header--embedded .omp-execution-group-summary {
-	flex-shrink: 1;
+/* One line of whole parts: the run's time, the facts, the token meter. A part that no longer
+   fits wraps onto a second line the one-line box clips, so a narrow card drops the meter, then
+   the last facts, each whole, and never shows a figure cut mid-word ("2 age… · avg 46 …").
+   The parts align to the end, so the room a dropped part leaves stays on the narrative's side. */
+.omp-summary-line {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	column-gap: var(--sc-space-1);
+	height: 1lh;
 	min-width: 0;
 	overflow: hidden;
-	text-overflow: ellipsis;
+}
+
+.omp-summary-line :is(.omp-execution-group-summary, .omp-output-meter) {
+	display: contents;
+}
+
+.omp-execution-group-header--embedded .omp-execution-group-summary {
 	color: var(--sc-text-muted);
 }
 
-.omp-execution-group-header--embedded .omp-output-meter {
-	flex-shrink: 1000;
+.omp-summary-part {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* The time keeps the live clock's distance from the counts. */
+.omp-summary-line .omp-execution-group-duration {
+	margin-inline-end: var(--sc-space-1-5);
 }
 
 /* Goal and todo progress: quiet rows under the head, indented to the narrative. */
@@ -2136,8 +2153,12 @@
 .omp-work-motion .omp-bash-line {
 	animation: omp-work-arrival var(--sc-duration-slow) var(--sc-ease-standard);
 }
-.omp-work-motion[data-running="true"] .omp-bash-line:last-child::after,
-.omp-work-motion[data-running="true"]:is([data-surface="write"], [data-surface="edit"]) pre code::after {
+/* The caret belongs to the nearest card's own step: a lane's finished output inside a running
+   card ("exit 0") never shows it. */
+.omp-work-motion[data-running="true"] .omp-bash-line:last-child:not(.omp-live-step[data-running="false"] *)::after,
+.omp-work-motion[data-running="true"]:is([data-surface="write"], [data-surface="edit"])
+	pre
+	code:not(.omp-live-step[data-running="false"] *)::after {
 	content: "▏";
 	color: var(--sc-accent);
 	animation: omp-work-caret calc(var(--sc-duration-slow) * 2) steps(1, end) infinite;

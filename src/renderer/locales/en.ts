@@ -3752,6 +3752,7 @@ export const en: Record<string, string> = {
 	"tools.label.debug": "Debugger",
 	"tools.label.ask": "Ask",
 	"tools.label.wait": "Wait",
+	"tools.wait.target": "background activity",
 	"tools.label.goal": "Goal",
 	"tools.label.hub": "Coordination",
 	"tools.label.retain": "Remember",

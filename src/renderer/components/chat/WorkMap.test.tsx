@@ -292,4 +292,18 @@ describe("concurrent worker lanes", () => {
 		const elapsed = [...container.querySelectorAll(".omp-work-card-elapsed")].map(element => element.textContent);
 		expect(elapsed).toEqual(["", " · 3s", " · 810ms"]);
 	});
+
+	it("states no duration for a settled lane whose run recorded none (a reload of a detached agent)", async () => {
+		useSubagentsStore.getState().setSnapshots([
+			node("Reloaded", 0, { status: "completed", progress: undefined }),
+			node("Measured", 1, {
+				status: "completed",
+				progress: progress("Measured", { status: "completed", toolCount: 0, tokens: 0, durationMs: 1200 }),
+			}),
+		]);
+		await render();
+		const elapsed = [...container.querySelectorAll(".omp-work-card-elapsed")].map(element => element.textContent);
+		expect(elapsed).toEqual(["", "1.2s"]);
+		expect(container.textContent).not.toContain("0ms");
+	});
 });

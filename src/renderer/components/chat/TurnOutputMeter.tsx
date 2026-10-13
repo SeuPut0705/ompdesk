@@ -25,14 +25,23 @@ export function OutputMeter({
 	const rateText =
 		rate > 0 ? t(average ? "chat.meter.average" : "chat.meter.rate", { rate: formatTokenRate(rate) }) : null;
 	const count = formatTokens(tokens);
+	const tokensText =
+		tokens > 0 ? t(estimated ? "chat.meter.tokensEstimated" : "chat.meter.tokens", { tokens: count }) : null;
+	const title = t(estimated ? "chat.meter.estimatedTitle" : "chat.meter.reportedTitle");
+	// Separate parts in the summary line, so a card too narrow for the meter drops the rate, then
+	// the count, each whole instead of cutting it mid-figure.
 	return (
-		<span
-			className="omp-output-meter -ms-1 shrink-0 tabular-nums text-(--sc-text-subtle)"
-			title={t(estimated ? "chat.meter.estimatedTitle" : "chat.meter.reportedTitle")}
-		>
-			{"· "}
-			{tokens > 0 ? t(estimated ? "chat.meter.tokensEstimated" : "chat.meter.tokens", { tokens: count }) : rateText}
-			{tokens > 0 && rateText ? ` · ${rateText}` : null}
+		<span className="omp-output-meter tabular-nums text-(--sc-text-subtle)">
+			{tokensText ? (
+				<span className="omp-summary-part" title={title}>
+					· {tokensText}
+				</span>
+			) : null}
+			{rateText ? (
+				<span className="omp-summary-part" title={title}>
+					{tokensText ? ` · ${rateText}` : `· ${rateText}`}
+				</span>
+			) : null}
 		</span>
 	);
 }

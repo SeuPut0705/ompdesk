@@ -99,15 +99,35 @@ test("a steer sent mid-run stays inside the turn's one work card with every agen
 		await expect(page.locator(".omp-work-outcome")).toBeVisible();
 		await expectOneCard(page);
 		await expect(page.locator('.omp-live-step[data-state="running"]')).toHaveCount(0);
+		const summary = page.locator(".omp-execution-group-header");
+		const finishedSummary = await summary.getAttribute("aria-label");
+		const finishedLanes = await page.locator(".omp-work-card-name").allTextContents();
 		await capture("finished");
 
-		// A reloaded window hydrates the same single card from the transcript.
+		// A reloaded window hydrates the same single card from the transcript, with the same head.
 		await page.reload();
 		await expect
 			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 			.toBe("ready");
 		await expectOneCard(page);
+		await expect(page.locator(".omp-work-head [data-incoming] > .omp-work-narrative")).toHaveText("Work complete");
+		await expect(summary).toHaveAttribute("aria-label", finishedSummary ?? "");
+		await expect(page.locator(".omp-work-card-name")).toHaveText(finishedLanes);
 		await capture("hydrated");
+		const directory = process.env.OMP_GUI_WORK_SCREENSHOTS;
+		if (directory) {
+			await page.evaluate(() => window.omp.prefs.set("language", "ko"));
+			await page.reload();
+			await expectOneCard(page);
+			await expect(page.locator(".omp-work-head [data-incoming] > .omp-work-narrative")).toHaveText(
+				"작업을 완료했어요",
+			);
+			await page.screenshot({
+				path: path.join(directory, "steer-hydrated-ko-dark.png"),
+				animations: "disabled",
+				scale: "css",
+			});
+		}
 	} finally {
 		await exitApp(app);
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

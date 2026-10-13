@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { sanitizeToolText } from "../../lib/format";
+import { translate } from "../../lib/i18n";
 import { decodeXdevPayload, xdevDispatch, xdevInnerResult, xdevWriteTarget } from "../../lib/xdev";
 import { AskRenderer } from "./AskRenderer";
 import { AstEditRenderer } from "./AstEditRenderer";
@@ -240,7 +241,9 @@ const SUMMARIES: Record<string, (args: Record<string, unknown>) => string> = {
 	debug: args => [argLine(args, ["action"]), argLine(args, ["program", "file", "symbol"])].filter(Boolean).join(" "),
 	github: args => argLine(args, ["action", "repo", "url"]),
 	hub: args => argLine(args, ["op", "agent"]),
-	wait: () => "background activity",
+	// Stock's wait takes no arguments: the model's intent, else what every wait is for, in the UI
+	// language (a fixed English phrase read "대기 background activity" in a Korean card).
+	wait: args => argLine(args, ["i"]) || translate("tools.wait.target"),
 	ask: args => argLine(args, ["question", "i"]),
 	goal: args => argLine(args, ["objective", "op"]),
 	checkpoint: args => argLine(args, ["goal"]),

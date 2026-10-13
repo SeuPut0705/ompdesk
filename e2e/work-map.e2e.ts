@@ -138,21 +138,22 @@ test("inline work cards stream tool evidence, catch up and retain outcomes witho
 		expect(log.some(command => command.type === "set_subagent_subscription" && command.level === "progress")).toBe(
 			true,
 		);
-		// At normal width every finished head shows its whole summary row: counts, duration and meter,
-		// none of them ellipsized while the head has room.
-		await expect
-			.poll(() =>
-				page
-					.locator(".omp-work-head")
-					.evaluateAll(heads =>
-						heads.flatMap(head =>
-							[...head.querySelectorAll(".omp-execution-group-header > span")]
-								.filter(part => part.scrollWidth > part.clientWidth)
-								.map(part => part.textContent),
-						),
-					),
-			)
-			.toEqual([]);
+		// At normal width every finished head shows its whole summary row: duration, counts and meter,
+		// none of them ellipsized or dropped while the head has room.
+		const cutParts = () =>
+			page.locator(".omp-summary-line").evaluateAll(lines =>
+				lines.flatMap(line => {
+					const box = line.getBoundingClientRect();
+					return [...line.querySelectorAll(".omp-summary-part")].flatMap(part => {
+						const rect = part.getBoundingClientRect();
+						const shown = rect.top < box.bottom - 1;
+						return shown && part.scrollWidth <= part.clientWidth
+							? []
+							: [`${shown ? "cut" : "dropped"}: ${part.textContent}`];
+					});
+				}),
+			);
+		await expect.poll(cutParts).toEqual([]);
 		// At the narrowest window the finished head keeps a readable narrative and its summary row
 		// truncates inside the card instead of running past its edge.
 		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(800, 900));
@@ -173,7 +174,22 @@ test("inline work cards stream tool evidence, catch up and retain outcomes witho
 					}),
 			)
 			.toBe(true);
+		// Narrow, the row drops whole parts from its end and never shows a figure cut mid-word.
+		await expect.poll(async () => (await cutParts()).filter(part => part.startsWith("cut"))).toEqual([]);
 		await capture("narrow");
+		const directory = process.env.OMP_GUI_WORK_SCREENSHOTS;
+		if (directory) {
+			// The UI language applies on the next load: this is also the reload of a finished run.
+			await page.evaluate(() => window.omp.prefs.set("language", "ko"));
+			await page.reload();
+			await expect(page.locator(".omp-work-outcome summary").first()).toHaveText("결과", { timeout: 60_000 });
+			await expect.poll(async () => (await cutParts()).filter(part => part.startsWith("cut"))).toEqual([]);
+			await page.screenshot({
+				path: path.join(directory, "work-narrow-ko-dark.png"),
+				animations: "disabled",
+				scale: "css",
+			});
+		}
 	} finally {
 		await exitApp(app);
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

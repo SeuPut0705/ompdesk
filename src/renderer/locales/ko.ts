@@ -3742,6 +3742,7 @@ export const ko: Record<string, string> = {
 	"tools.label.debug": "디버거",
 	"tools.label.ask": "질문",
 	"tools.label.wait": "대기",
+	"tools.wait.target": "백그라운드 작업",
 	"tools.label.goal": "목표",
 	"tools.label.hub": "조율",
 	"tools.label.retain": "기억 저장",

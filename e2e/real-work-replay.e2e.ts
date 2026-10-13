@@ -104,7 +104,7 @@ test("actual stock frames preserve live and completed agent replay without false
 		await expect(page.locator('.omp-execution-group[data-state="failed"]')).toHaveCount(0);
 		// One run model: the head counts the whole run (main agent and its agents) once.
 		await expect(page.locator(".omp-execution-group-summary")).toContainText(/\b2 agents\b/);
-		await expect(page.locator(".omp-execution-group-duration")).toHaveText(/^· [1-9]\d*(?:\.\d+)?s$/);
+		await expect(page.locator(".omp-execution-group-duration")).toHaveText(/^[1-9]\d*(?:\.\d+)?s$/);
 		await expect(page.locator(".omp-execution-group-header")).toContainText("408 tokens");
 		await expect(work.locator(".omp-work-head [data-incoming] > .omp-work-narrative")).toHaveText("Work complete");
 		await expect(work).toHaveAttribute("data-state", "complete");

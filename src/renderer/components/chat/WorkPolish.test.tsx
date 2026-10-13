@@ -119,20 +119,15 @@ describe("work card on a narrow window (#21)", () => {
 			"grid-template-columns: var(--sc-icon-sm) minmax(min(10rem, 50%), 1fr) minmax(0, max-content)",
 		);
 		expect(rule(stylesheet, ".omp-work-head-side")).toContain("min-width: 0");
-		const summary = rule(stylesheet, ".omp-execution-group-header--embedded .omp-execution-group-summary");
-		expect(summary).toContain("flex-shrink: 1");
+		// The summary line drops whole parts instead of ellipsizing each (WorkCycle.test.tsx).
+		const summary = rule(stylesheet, ".omp-summary-line");
 		expect(summary).toContain("min-width: 0");
-		expect(summary).toContain("text-overflow: ellipsis");
-		expect(summary).not.toContain("overflow: visible");
+		expect(summary).toContain("overflow: hidden");
 		// The row's negative end margin is matched by its max width, or Chromium clamps it short of
 		// its content and cuts the counts at normal width (seen as "1 s… · 187 tokens").
 		const row = rule(stylesheet, ".omp-execution-group-header--embedded");
 		expect(row).toContain("margin-inline-end: calc(var(--sc-space-1-5) * -1)");
 		expect(row).toContain("max-width: calc(100% + var(--sc-space-1-5))");
-		// When the card is genuinely narrow the meter gives way before the counts.
-		const meter = rule(stylesheet, ".omp-execution-group-header--embedded .omp-output-meter");
-		expect(meter).toContain("flex-shrink: 1000");
-		expect(meter).toContain("min-width: 0");
 	});
 });
 

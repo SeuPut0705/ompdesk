@@ -193,7 +193,7 @@ export function ExecutionGroup({
 	const duration = state !== "running" && spanMs > 0 ? formatDuration(spanMs) : null;
 	// While running, the card's status mark and narrative already say what is running:
 	// the row keeps only the step count and the toggle.
-	const shownSummary = state === "running" ? t("chat.work.stepCount", { total: totalSteps, plural }) : summary;
+	const shownParts = state === "running" ? [t("chat.work.stepCount", { total: totalSteps, plural })] : facts;
 	const groupEntries = toolCallIds.flatMap(id => {
 		const entry = selectToolEntry(tools.getState(), id);
 		return entry ? [[id, entry] as const] : [];
@@ -217,24 +217,28 @@ export function ExecutionGroup({
 			type="button"
 			aria-label={`${t("chat.process.title")}: ${summary}${duration ? ` · ${duration}` : ""}`}
 		>
-			<span
-				aria-atomic="true"
-				aria-live="polite"
-				className="omp-execution-group-summary min-w-0 truncate"
-				role="status"
-			>
-				{shownSummary}
-			</span>
-			{duration ? (
-				<span className="omp-execution-group-duration -ms-1 shrink-0 tabular-nums text-(--sc-text-subtle)">
-					· {duration}
+			{/* One line of whole parts — the run's time first, where the live clock stood, then the
+			    facts, then the meter. A card too narrow for them all drops whole parts from the end
+			    (the button's label still reads every one) instead of cutting each one mid-word. */}
+			<span className="omp-summary-line">
+				{duration ? (
+					<span className="omp-summary-part omp-execution-group-duration tabular-nums text-(--sc-text-subtle)">
+						{duration}
+					</span>
+				) : null}
+				<span aria-atomic="true" aria-live="polite" className="omp-execution-group-summary" role="status">
+					{shownParts.map((part, index) => (
+						<span className="omp-summary-part" key={part}>
+							{index ? ` · ${part}` : part}
+						</span>
+					))}
 				</span>
-			) : null}
-			{state === "running" ? (
-				<LiveTurnMeter />
-			) : output ? (
-				<OutputMeter average estimated={false} rate={output.rate} tokens={output.tokens} />
-			) : null}
+				{state === "running" ? (
+					<LiveTurnMeter />
+				) : output ? (
+					<OutputMeter average estimated={false} rate={output.rate} tokens={output.tokens} />
+				) : null}
+			</span>
 			<ChevronRight
 				aria-hidden="true"
 				className={cx(

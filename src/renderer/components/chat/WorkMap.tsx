@@ -199,9 +199,14 @@ export function WorkMap({
 					// Settled lanes show what a reload can show too: stock's tokens exist only while running.
 					const tokens = running ? progress?.tokens || store.getState().observedTokens.get(node.id) || 0 : 0;
 					const plural = toolCount === 1 ? "" : "s";
+					// A settled lane whose run recorded no duration (a reloaded detached agent) states none,
+					// never a made-up "0ms".
+					const settledMs = running ? 0 : agentDurationMs(node, completion);
 					const elapsed = running
 						? formatElapsed(progress?.durationMs ?? 0)
-						: formatDuration(agentDurationMs(node, completion));
+						: settledMs > 0
+							? formatDuration(settledMs)
+							: "";
 					const open = expanded === node.id;
 					// One name for a user stop everywhere: "Interrupted", never stock's "cancelled".
 					const label = t(
