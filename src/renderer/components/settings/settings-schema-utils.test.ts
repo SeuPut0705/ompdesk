@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import type { SettingEntry } from "../../../shared/rpc-types";
 import { conditionParent, isSettingVisible } from "./settings-schema-utils";
 
@@ -89,7 +89,11 @@ function stockConditions(): StockConditions {
 }
 
 describe.skipIf(!stockAvailable)("settings condition gates against installed stock", () => {
-	const stock = stockConditions();
+	// A skipped describe still runs its body while collecting; only hooks and tests are skipped.
+	let stock: StockConditions = { names: [], results: {} };
+	beforeAll(() => {
+		stock = stockConditions();
+	});
 
 	it("covers every stock condition as a settings-backed gate or a host gate", () => {
 		expect(stock.names.filter(name => !HOST_GATES.includes(name)).sort()).toEqual(Object.keys(CASES).sort());
