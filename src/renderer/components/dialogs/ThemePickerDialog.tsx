@@ -6,7 +6,7 @@
  * settings window stay in sync.
  */
 
-import { Check, Monitor, Search } from "lucide-react";
+import { Check, Monitor } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -21,7 +21,7 @@ import {
 } from "../../lib/themes";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Modal } from "../common";
+import { Modal, SearchField } from "../common";
 
 const SWATCH_KEYS = ["--omp-accent", "--omp-syntax-string", "--omp-syntax-function", "--omp-syntax-number"] as const;
 
@@ -124,18 +124,17 @@ export function ThemePickerDialog() {
 			bodyClassName="p-0"
 		>
 			<div onKeyDown={onKey}>
-				<div className="flex min-h-16 items-center gap-2.5 border-b border-(--sc-divider) px-4 py-3">
-					<Search aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
-					<input
-						aria-label={t("themePicker.search")}
-						ref={inputRef}
-						value={query}
-						onChange={e => {
-							setQuery(e.target.value);
+				<div className="border-b border-(--sc-divider) p-4">
+					<SearchField
+						controlSize="lg"
+						label={t("themePicker.search")}
+						onValueChange={value => {
+							setQuery(value);
 							setActive(0);
 						}}
 						placeholder={t("themePicker.search")}
-						className="min-w-0 flex-1 rounded-(--sc-radius-sm) bg-transparent text-sc-lg text-(--sc-text) placeholder:text-(--sc-text-subtle)"
+						ref={inputRef}
+						value={query}
 					/>
 				</div>
 				<div ref={listRef} className="omp-command-list overflow-y-auto p-2">

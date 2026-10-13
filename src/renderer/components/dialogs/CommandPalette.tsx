@@ -54,7 +54,7 @@ import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, EmptyState, ErrorDetail, Kbd, Modal, Spinner } from "../common";
+import { Button, EmptyState, ErrorDetail, Kbd, Modal, SearchField, Spinner } from "../common";
 
 const RECENT_KEY = "omp.palette.recent";
 const RECENT_LIMIT = 5;
@@ -540,7 +540,7 @@ export function CommandPalette() {
 			size="picker"
 		>
 			<div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
-				<div className="flex min-h-16 items-center gap-2.5 border-b border-(--sc-divider) px-4 py-3">
+				<div className="flex items-center gap-2.5 border-b border-(--sc-divider) p-4">
 					{submenu && (
 						<button
 							aria-label={`${t("palette.hintBack")}: ${submenu.label}`}
@@ -552,19 +552,19 @@ export function CommandPalette() {
 							{submenu.label}
 						</button>
 					)}
-					<Search aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
-					<input
-						aria-label={t("palette.searchLabel")}
-						className="min-w-0 flex-1 rounded-(--sc-radius-sm) bg-transparent text-sc-lg text-(--sc-text) placeholder:text-(--sc-text-subtle)"
-						onChange={event => {
-							setQuery(event.target.value);
-							resetSelection();
-						}}
-						placeholder={submenu ? t("palette.searchSubmenu", { name: submenu.label }) : t("palette.search")}
-						ref={inputRef}
-						type="text"
-						value={query}
-					/>
+					<div className="min-w-0 flex-1">
+						<SearchField
+							controlSize="lg"
+							label={t("palette.searchLabel")}
+							onValueChange={value => {
+								setQuery(value);
+								resetSelection();
+							}}
+							placeholder={submenu ? t("palette.searchSubmenu", { name: submenu.label }) : t("palette.search")}
+							ref={inputRef}
+							value={query}
+						/>
+					</div>
 					{loading && <Spinner size="sm" />}
 				</div>
 				{commandsError !== null && (

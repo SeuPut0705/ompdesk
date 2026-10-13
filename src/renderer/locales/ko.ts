@@ -4120,7 +4120,7 @@ export const ko: Record<string, string> = {
 	"setup.custom.description":
 		"OpenAI·Anthropic 호환 서버(Ollama, LM Studio, 프록시 등)를 주소와 모델 ID로 추가하세요.",
 	"setup.configReadFailed": "models.yml을 읽을 수 없어요. 설정 › 모델 및 프로바이더에서 열어 고쳐 주세요.",
-	"setup.laterHint": "나중에 설정 › 모델 및 프로바이더에서 연결할 수 있어요.",
+	"setup.laterHint": "설정 › 모델 및 프로바이더에서 나중에 연결할 수 있어요.",
 	"setup.later": "나중에 설정",
 	"setup.model.title": "기본 모델 선택",
 	"setup.model.description": "새 세션은 이 모델로 시작해요. 컴포저의 모델 버튼으로 언제든 바꿀 수 있어요.",

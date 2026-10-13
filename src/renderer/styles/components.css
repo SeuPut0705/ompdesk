@@ -2704,6 +2704,19 @@
 	}
 }
 
+/* The model chip reads by name; its glyph stands in only once the narrow
+   toolbar hides that name (below), so the chip never collapses to nothing. */
+.omp-composer-model-icon {
+	display: none;
+}
+
+/* An empty composer is one line tall: a placeholder longer than the pane
+   stays on that line, clipped, instead of wrapping under a scrollbar. */
+.omp-composer-input:placeholder-shown {
+	overflow: hidden;
+	white-space: nowrap;
+}
+
 /* Composer toolbar at narrow widths (design-spec §2.2): one row that never
    overflows. Labels give way in order of how much the icon alone still says —
    send mode and modes first (icon + tooltip + accent stay), then the thinking
@@ -2725,6 +2738,10 @@
 	.omp-composer-chevron,
 	.omp-context-usage-label {
 		display: none !important;
+	}
+
+	.omp-composer-model-icon {
+		display: block;
 	}
 }
 

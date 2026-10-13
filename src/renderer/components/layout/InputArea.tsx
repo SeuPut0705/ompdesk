@@ -2,6 +2,7 @@ import {
 	ArrowUp,
 	ChevronDown,
 	CornerDownRight,
+	Cpu,
 	ExternalLink,
 	History,
 	ImagePlus,
@@ -1001,7 +1002,7 @@ export function InputArea() {
 								rows={expanded ? undefined : 2}
 								placeholder={placeholder}
 								className={cx(
-									"w-full resize-none bg-transparent text-sc-lg break-keep text-(--sc-text) outline-none placeholder:text-(--sc-text-subtle) focus-visible:outline-none",
+									"omp-composer-input w-full resize-none bg-transparent text-sc-lg break-keep text-(--sc-text) outline-none placeholder:text-(--sc-text-subtle) focus-visible:outline-none",
 									expanded ? "min-h-0 flex-1" : "max-h-[40vh] min-h-6",
 									composerMode && "font-mono",
 									showSuggestionHint && "pr-24",
@@ -1108,6 +1109,7 @@ export function InputArea() {
 										aria-label={t("input.modelLabel", { model: modelLabel })}
 										className="omp-composer-chip min-w-0 max-w-56"
 										data-model-chip
+										icon={<Cpu aria-hidden className="omp-composer-model-icon" />}
 										onClick={() => openModelPicker()}
 										size="sm"
 										trailingIcon={

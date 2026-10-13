@@ -498,7 +498,7 @@ export function ModelPicker() {
 					)}
 				</div>
 				<div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-(--sc-divider) px-4 py-3 text-sc-xs text-(--sc-text-muted)">
-					<span className="min-w-0 flex-1 truncate">
+					<span className="min-w-48 flex-1 text-pretty">
 						{forPool ? t("modelPool.pickerHint") : t("modelPicker.defaultHint")}
 					</span>
 					<span className="flex shrink-0 items-center gap-1.5 max-sm:hidden">
