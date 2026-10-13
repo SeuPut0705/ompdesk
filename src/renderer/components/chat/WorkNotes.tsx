@@ -6,6 +6,8 @@ import { useT } from "../../lib/i18n";
 import { messageText } from "../../lib/messages";
 import { Badge } from "../common/Badge";
 import { CustomMessageCard, workNoteSummary } from "./CustomMessageCard";
+import { TodoReminderNote } from "./TodoReminderNote";
+import { parseTodoReminder } from "./todo-reminder";
 
 /** A steer the user sent into this run (stock delivers it as a `steering` user message). */
 function isRunSteer(message: AgentMessage) {
@@ -61,8 +63,15 @@ export function WorkNotes({ messages, live = false }: { messages: readonly Agent
 							</li>
 						);
 					}
+					const reminder = parseTodoReminder(message);
+					if (reminder)
+						return (
+							<li key={key} className={itemClass}>
+								<TodoReminderNote message={message} reminder={reminder} />
+							</li>
+						);
 					const open = expanded.includes(key);
-					const { Icon, source, body, severity, variant } = workNoteSummary(message);
+					const { Icon, source, body, severity, variant, failed } = workNoteSummary(message);
 					const label =
 						source ??
 						(message.customType === "advisor"
@@ -87,7 +96,7 @@ export function WorkNotes({ messages, live = false }: { messages: readonly Agent
 									setExpanded(current => (open ? current.filter(value => value !== key) : [...current, key]))
 								}
 							>
-								<Icon size={12} aria-hidden="true" />
+								<Icon size={12} aria-hidden="true" className={failed ? "omp-work-notes-failed" : undefined} />
 								<span className="omp-work-notes-source">{label}</span>
 								{message.customType === "advisor" && severity && <Badge variant={variant}>{severity}</Badge>}
 								<span className="omp-work-notes-preview">{body.split(/\r?\n/)[0]}</span>

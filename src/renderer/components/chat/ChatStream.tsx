@@ -14,7 +14,7 @@ import {
 	SearchCode,
 	Sparkles,
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { loadOlderTranscript } from "../../hooks/session-hydration";
 import { useDisplayPreference } from "../../lib/display-preferences";
@@ -39,6 +39,7 @@ import { ToolCard } from "../tools/ToolCard";
 import { ConversationNavigator } from "./ConversationNavigator";
 import {
 	buildConversationAnchors,
+	buildHistoryRowKeys,
 	buildHistoryRows,
 	buildTranscriptRowKeys,
 	claimRowEntrances,
@@ -53,6 +54,7 @@ import {
 	type MountedTranscriptRow,
 	mergeTodoSnapshots,
 	type Row,
+	reuseTranscriptRows,
 	scrollTranscriptToTail,
 	shouldRePinTranscript,
 } from "./chat-stream-utils";
@@ -66,6 +68,16 @@ import { messageTimestampMs } from "./work-turn";
 // TanStack's end check needs one CSS pixel for fractional scrollTop rounding.
 // User intent is enforced separately by switching away from end anchoring.
 const LIVE_EDGE_THRESHOLD_PX = 1;
+
+/** The reader's place across a history page prepend. */
+interface PrependAnchor {
+	/** Mounted rows from the viewport top down, each with the viewport top's distance below its top. */
+	rows: { key: string; offset: number }[];
+	/** The first of `rows` still keyed in the rebuilt transcript. */
+	held?: { key: string; offset: number };
+	/** The scroll offset was moved to `held`. */
+	positioned?: boolean;
+}
 
 /**
  * Virtual-scroll message list. Stays pinned to the bottom while streaming
@@ -134,6 +146,9 @@ function SessionTranscript() {
 	const lastCompactionIndex = displayMessages.findLastIndex(message => message.role === "compactionSummary");
 	const hiddenCount = collapseCompacted && !preCompactionOpen && lastCompactionIndex > 0 ? lastCompactionIndex : 0;
 	const todoHistory = useTodoStore(s => s.history);
+	// The previous build's rows by key: rebuilt rows that did not change keep their
+	// object so the memoized row components skip them (see reuseTranscriptRows).
+	const builtRowsRef = useRef<ReadonlyMap<string, HistoryRow>>(new Map());
 	const historyRows = useMemo<HistoryRow[]>(() => {
 		const built = buildHistoryRows(
 			hiddenCount > 0 ? displayMessages.slice(hiddenCount) : displayMessages,
@@ -145,7 +160,11 @@ function SessionTranscript() {
 		// ALL consecutive tool work, so a second fold would nest redundantly.
 		const grouped = transcriptDetail === "compact" ? built : (groupReadRows(built) as HistoryRow[]);
 		// Archived todo changes interleave by timestamp (transcript archive rows).
-		return mergeTodoSnapshots(grouped, todoHistory);
+		const merged = mergeTodoSnapshots(grouped, todoHistory);
+		const keys = buildHistoryRowKeys(merged);
+		const reused = reuseTranscriptRows(builtRowsRef.current, merged, keys);
+		builtRowsRef.current = new Map(reused.map((row, index) => [keys[index] ?? "", row]));
+		return reused;
 	}, [displayMessages, hiddenCount, transcriptDetail, todoHistory, expandedProcessKeys]);
 
 	// The assistant message exists as an empty shell from message_start until
@@ -283,6 +302,9 @@ function SessionTranscript() {
 	/** No provider yet: the inline first-run setup takes the empty state's place. */
 	const firstRunActive = useFirstRunActive();
 
+	// A history page about to be prepended (see `capturePrependAnchor`): until the
+	// effect below has positioned it, the row the reader is on stays where it is.
+	const prependAnchorRef = useRef<PrependAnchor | null>(null);
 	const virtualizer = useVirtualizer({
 		count: rows.length,
 		initialOffset: restoreView?.scrollOffset ?? 0,
@@ -293,7 +315,12 @@ function SessionTranscript() {
 		// reconciles on every measurement, and one of those reconciliations landing in
 		// the same frame as a wheel-up drags the reader back to the live edge. Tail
 		// following is the explicit, gesture-vetoed effect below instead.
-		anchorTo: "start",
+		// The one exception is the render that prepends a history page: anchoring it
+		// moves the scroll offset with the page, so that render already lays out the
+		// rows the reader is looking at. Against the stale offset it mounted the new
+		// page's first rows instead, unmounted the reader's, and mounted them again
+		// once the anchor effect had scrolled back to them.
+		anchorTo: prependAnchorRef.current && !prependAnchorRef.current.positioned ? "end" : "start",
 		// Appends are followed by the explicit `pinned` effect below. Keeping the
 		// virtualizer's independent append follower enabled made a small manual
 		// scroll-up lose to streaming growth before React could unpin the view.
@@ -332,27 +359,18 @@ function SessionTranscript() {
 		revealedTodoFocus.current = dockFocus.seq;
 	}, [dockFocus, carriesContext, liveTail, tailRowIndex, rows, virtualizer]);
 	const totalSize = virtualizer.getTotalSize();
-	const prependAnchorRef = useRef<{ key: string; offset: number; positioned?: boolean } | null>(null);
 	const capturePrependAnchor = useCallback(() => {
-		// Capture immediately before applying the page, after pending scroll
-		// and measurement work has settled while its request was in flight.
-		const element = parentRef.current;
-		prependAnchorRef.current = null;
-		if (element) {
-			const top = element.getBoundingClientRect().top;
-			for (const row of element.querySelectorAll<HTMLElement>("[data-row-key]")) {
-				const box = row.getBoundingClientRect();
-				if (box.bottom > top + 4 && box.top < top + element.clientHeight && row.dataset.rowKey) {
-					prependAnchorRef.current = { key: row.dataset.rowKey, offset: top - box.top };
-					break;
-				}
-			}
-			if (!prependAnchorRef.current) {
-				const anchor = virtualizer.getVirtualItemForOffset(element.scrollTop);
-				if (anchor)
-					prependAnchorRef.current = { key: String(anchor.key), offset: element.scrollTop - anchor.start };
-			}
-		}
+		// Capture immediately before applying the page, after pending scroll and
+		// measurement work has settled while its request was in flight. Rows sit at
+		// the virtualizer's measured starts, so read those: a DOM read here forced a
+		// layout inside the page's task.
+		const scrollOffset = virtualizer.scrollOffset ?? 0;
+		const rows = virtualizer
+			.getVirtualItems()
+			.flatMap(item =>
+				item.end > scrollOffset + 4 ? [{ key: String(item.key), offset: scrollOffset - item.start }] : [],
+			);
+		prependAnchorRef.current = rows.length > 0 ? { rows } : null;
 	}, [virtualizer]);
 	const requestOlder = useCallback(async () => {
 		if (!prevCursor || isLoadingPage) return;
@@ -363,15 +381,21 @@ function SessionTranscript() {
 		if (!anchor || isLoadingPage || totalSize === 0) return;
 		const element = parentRef.current;
 		if (!element) return;
-		const index = rowKeys.indexOf(anchor.key);
-		if (index < 0) {
+		// The older page can fold the reader's top rows into an earlier one (a steer
+		// joins the work row of the turn it interrupted), so hold the first row on
+		// screen that kept its key. Holding none left the view at the page's top,
+		// where a wheel gesture scrolls nothing and so never asked for the next page.
+		anchor.held ??= anchor.rows.find(row => rowKeys.includes(row.key));
+		const held = anchor.held;
+		const index = held ? rowKeys.indexOf(held.key) : -1;
+		if (!held || index < 0) {
 			prependAnchorRef.current = null;
 			return;
 		}
 		if (!anchor.positioned) {
 			const offset = virtualizer.getOffsetForIndex(index, "start")?.[0];
 			if (offset !== undefined) {
-				virtualizer.scrollToOffset(offset + anchor.offset);
+				virtualizer.scrollToOffset(offset + held.offset);
 				anchor.positioned = true;
 			}
 		}
@@ -382,8 +406,8 @@ function SessionTranscript() {
 			if (prependAnchorRef.current !== anchor) return;
 			let delta: number | undefined;
 			for (const row of element.querySelectorAll<HTMLElement>("[data-row-key]")) {
-				if (row.dataset.rowKey === anchor.key) {
-					delta = row.getBoundingClientRect().top - element.getBoundingClientRect().top + anchor.offset;
+				if (row.dataset.rowKey === held.key) {
+					delta = row.getBoundingClientRect().top - element.getBoundingClientRect().top + held.offset;
 					break;
 				}
 			}
@@ -395,7 +419,9 @@ function SessionTranscript() {
 			if (settledFrames >= 2) prependAnchorRef.current = null;
 			else frame = requestAnimationFrame(restore);
 		};
-		restore();
+		// The anchored render already placed the held row; corrections for rows
+		// measured above it start next frame instead of forcing a layout here.
+		frame = requestAnimationFrame(restore);
 		return () => cancelAnimationFrame(frame);
 	}, [rowKeys, isLoadingPage, virtualizer, totalSize]);
 	useLayoutEffect(
@@ -774,8 +800,9 @@ function SessionTranscript() {
 										<ProcessGroup
 											expanded={expandedProcessKeys.has(rowKey)}
 											live={item.index === tailRowIndex}
-											onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
+											onExpandedChange={updateProcessExpanded}
 											row={row}
+											rowKey={rowKey}
 											superseded={item.index < currentWorkRow}
 										/>
 									) : row.kind === "streaming" ? (
@@ -865,11 +892,17 @@ function liveProcessParts(streamingMessage: AgentMessage, liveTools: ReadonlyMap
 	return { toolCalls, streamTools, allCards };
 }
 
-function ProcessGroup({
+/**
+ * Memoized: the transcript re-renders on every virtual range change while the
+ * reader scrolls, and an unchanged work row (same row object, see
+ * reuseTranscriptRows) has nothing new to show.
+ */
+const ProcessGroup = memo(function ProcessGroup({
 	expanded,
 	live = false,
 	onExpandedChange,
 	row,
+	rowKey,
 	superseded = false,
 }: {
 	expanded: boolean;
@@ -879,10 +912,12 @@ function ProcessGroup({
 	 * shows one live group (and one live log) instead of a new one per step.
 	 */
 	live?: boolean;
-	onExpandedChange: (expanded: boolean) => void;
+	onExpandedChange: (rowKey: string, expanded: boolean) => void;
 	row: Extract<HistoryRow, { kind: "process" }>;
+	rowKey: string;
 	superseded?: boolean;
 }) {
+	const changeExpanded = useCallback((next: boolean) => onExpandedChange(rowKey, next), [onExpandedChange, rowKey]);
 	const output = useMemo(() => summarizeMessagesOutput(row.messages), [row.messages]);
 	// Non-live rows select constants, so tool and token events never re-render them.
 	const streamingMessage = useMessagesStore(s => (live ? s.streamingMessage : null));
@@ -902,7 +937,7 @@ function ProcessGroup({
 				failureCount={row.failedEvents}
 				stoppedAt={row.stoppedAt}
 				live={live}
-				onExpandedChange={onExpandedChange}
+				onExpandedChange={changeExpanded}
 				output={output}
 				notes={row.notes}
 				superseded={superseded}
@@ -942,7 +977,7 @@ function ProcessGroup({
 			</ExecutionGroup>
 		</div>
 	);
-}
+});
 
 /**
  * The in-flight assistant turn: thinking block, any tool calls already
@@ -1226,7 +1261,7 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
  * shows the phase/task state at that time, read-only — the live dock card
  * above the composer carries the editable current list.
  */
-function TodoSnapshotCard({ entry }: { entry: TodoSnapshot }) {
+const TodoSnapshotCard = memo(function TodoSnapshotCard({ entry }: { entry: TodoSnapshot }) {
 	const t = useT();
 	const [expanded, setExpanded] = useState(false);
 	const total = entry.phases.reduce((n, phase) => n + phase.tasks.length, 0);
@@ -1301,7 +1336,7 @@ function TodoSnapshotCard({ entry }: { entry: TodoSnapshot }) {
 			)}
 		</div>
 	);
-}
+});
 
 export type { HistoryRow, Row, TimelineMarkerSeed } from "./chat-stream-utils";
 // Re-export transcript helpers for consumers/tests that import them from ChatStream.

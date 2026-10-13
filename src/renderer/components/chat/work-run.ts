@@ -78,6 +78,24 @@ export function parseTaskResults(text: string): Array<{ id: string } & AgentComp
 	return results;
 }
 
+type TaskResult = { id: string } & AgentCompletion;
+const NO_TASK_RESULTS: readonly TaskResult[] = [];
+const recordedTaskResults = new WeakMap<object, readonly TaskResult[]>();
+
+/**
+ * The `<task-result>` envelopes in one stock record (a transcript message or a tool
+ * result), parsed once. Every work card rescans the transcript after its spawn
+ * whenever the transcript changes, and stock records are never edited in place.
+ */
+function recordTaskResults(record: unknown, content: unknown): readonly TaskResult[] {
+	const cached = typeof record === "object" && record !== null ? recordedTaskResults.get(record) : undefined;
+	if (cached) return cached;
+	const text = resultText(content);
+	const results = text.includes("<task-result") ? parseTaskResults(text) : NO_TASK_RESULTS;
+	if (typeof record === "object" && record !== null) recordedTaskResults.set(record, results);
+	return results;
+}
+
 function singleResultCompletion(row: Record<string, unknown>): AgentCompletion {
 	const status: AgentCompletion["status"] =
 		row.aborted === true ? "aborted" : row.exitCode === 0 ? "completed" : "failed";
@@ -156,10 +174,9 @@ export function runTranscript(
 			if (row && typeof row.id === "string") settle(row.id, singleResultCompletion(row));
 		}
 	};
-	const settleFrom = (details: Record<string, unknown> | undefined, text: string) => {
+	const settleFrom = (details: Record<string, unknown> | undefined, record: unknown, content: unknown) => {
 		if (agents.size === 0) return;
-		if (text.includes("<task-result"))
-			for (const { id, ...completion } of parseTaskResults(text)) settle(id, completion);
+		for (const { id, ...completion } of recordTaskResults(record, content)) settle(id, completion);
 		// async-result: jobs[].agentId/jobId; wait: jobs[].id. Only task jobs settle agents.
 		for (const value of Array.isArray(details?.jobs) ? details.jobs : []) {
 			const job = asRecord(value);
@@ -174,7 +191,7 @@ export function runTranscript(
 	for (const call of taskCalls) {
 		const details = resultDetails(call.result);
 		recordTask(call.toolCallId, details, call.timestamp);
-		settleFrom(details, resultText(call.result));
+		settleFrom(details, call.result, call.result);
 	}
 	// Settlements follow the spawn; a transcript page without the spawning call still settles known agents.
 	const spawn = messages.findIndex(
@@ -192,7 +209,7 @@ export function runTranscript(
 			recordTask(message.toolCallId, details, messageSourceTimestamp(message) ?? 0);
 		}
 		if (message.role === "toolResult" || (message.role === "custom" && message.customType === "async-result"))
-			settleFrom(details, resultText(message.content));
+			settleFrom(details, message, message.content);
 	}
 	return { agents: [...agents.values()], completions };
 }

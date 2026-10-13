@@ -33,8 +33,49 @@ export function launchCompletionDaemons(message: AgentMessage): LaunchCompletion
 	});
 }
 
-export function launchCompletionFailureCount(message: AgentMessage): number {
-	return launchCompletionDaemons(message).filter(
-		daemon => daemon.state === "failed" || (daemon.exitCode !== undefined && daemon.exitCode !== 0),
-	).length;
+/**
+ * One delivered background job of stock's async-result notice (session/async-job-delivery.ts
+ * `details.jobs`). `status` is the job manager's verdict: a bash job whose command exits
+ * non-zero is "failed" (tools/bash.ts re-throws the completed result).
+ */
+export interface AsyncResultJob {
+	jobId?: string;
+	type?: string;
+	status?: string;
+	label?: string;
+	durationMs?: number;
+}
+
+export function asyncResultJobs(message: AgentMessage): AsyncResultJob[] {
+	if (message.customType !== "async-result" || typeof message.details !== "object" || message.details === null)
+		return [];
+	const jobs = "jobs" in message.details ? message.details.jobs : undefined;
+	if (!Array.isArray(jobs)) return [];
+	const text = (record: Record<string, unknown>, key: string) =>
+		typeof record[key] === "string" ? record[key] : undefined;
+	return jobs.flatMap(value => {
+		if (typeof value !== "object" || value === null) return [];
+		const job = value as Record<string, unknown>;
+		return [
+			{
+				jobId: text(job, "jobId"),
+				type: text(job, "type"),
+				status: text(job, "status"),
+				label: text(job, "label"),
+				durationMs: typeof job.durationMs === "number" ? job.durationMs : undefined,
+			},
+		];
+	});
+}
+
+/**
+ * Failures a completion notice reports: failed supervised processes and failed background jobs.
+ * A task job's own agent lane already reports its failure, so it is not counted twice.
+ */
+export function completionFailureCount(message: AgentMessage): number {
+	return (
+		launchCompletionDaemons(message).filter(
+			daemon => daemon.state === "failed" || (daemon.exitCode !== undefined && daemon.exitCode !== 0),
+		).length + asyncResultJobs(message).filter(job => job.status === "failed" && job.type !== "task").length
+	);
 }

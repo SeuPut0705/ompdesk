@@ -25,20 +25,29 @@ export function workNarrative(
 	for (const intent of [wireIntent, args.intent, progress?.currentToolIntent, progress?.lastIntent, args.i]) {
 		if (typeof intent === "string" && intent.trim() && !GENERIC_INTENT.test(intent.trim())) return intent.trim();
 	}
+	if (tool === "task") {
+		// Stock's task call is one spec (`name`, `agent`) or a batch (`tasks[]`); legacy specs carry a `description`.
+		const specs = Array.isArray(args.tasks) ? args.tasks.map(asRecord) : [args];
+		const names = [
+			...new Set(
+				specs.flatMap(spec => {
+					const name = [spec?.name, spec?.description, spec?.agent].find(
+						(value): value is string => typeof value === "string" && value.trim() !== "",
+					);
+					return name ? [name.trim()] : [];
+				}),
+			),
+		];
+		if (names.length === 0) return t("chat.work.runningSubagent");
+		const shown = names.slice(0, 3).join(", ");
+		return names.length > 3
+			? t("chat.work.runningAgentsMore", { names: shown, count: names.length - 3 })
+			: t("chat.work.runningAgents", { names: shown });
+	}
 	const header = getToolHeader(tool, args);
-	const taskNames =
-		tool === "task" && Array.isArray(args.tasks)
-			? args.tasks
-					.flatMap(task =>
-						task && typeof task === "object" && "name" in task && typeof task.name === "string"
-							? [task.name]
-							: [],
-					)
-					.join(", ")
-			: "";
 	return t("chat.work.activity", {
 		tool: header.labelKey ? t(header.labelKey) : header.tool,
-		target: header.path || header.target || taskNames || (typeof args.target === "string" ? args.target : ""),
+		target: header.path || header.target || (typeof args.target === "string" ? args.target : ""),
 	}).trim();
 }
 

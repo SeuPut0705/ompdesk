@@ -15,7 +15,7 @@ import { type MessagesStore, mergeFetchedTranscript, useMessagesStore } from "..
 import { useModelStore } from "../stores/model";
 import type { PendingPlanProposal, PlanApprovalStore } from "../stores/plan-approval";
 import { type QueueStore, useQueueStore } from "../stores/queue";
-import { type SessionStore, useSessionStore } from "../stores/session";
+import { type SessionStore, snapshotModeState, useSessionStore } from "../stores/session";
 import {
 	activeTabCommand,
 	focusedSessionRuntime,
@@ -63,6 +63,18 @@ function writeUsage(state: RpcSessionState): void {
 		contextUsage: state.contextUsage ?? null,
 		statsPulse: session.statsPulse + 1,
 	}));
+}
+
+/**
+ * Apply what a snapshot reports that no session event carries (usage and the
+ * composer modes), for a snapshot that events outdated while it was in flight.
+ * Dropping these with the rest left them stale with nothing to re-sync them:
+ * any frame landing mid-hydration kept plan mode off until the next turn.
+ * Caller must already be runtime-scoped.
+ */
+function writeEventlessState(state: RpcSessionState): void {
+	writeUsage(state);
+	useSessionStore.setState(snapshotModeState(state));
 }
 
 /**
@@ -118,11 +130,11 @@ export async function refreshSessionState(tabId = useTabsStore.getState().active
 			return;
 		const state = res.data as RpcSessionState;
 		// Events that landed during the round trip already updated the stores, so
-		// this snapshot is behind on everything they carry. Usage has no event
-		// carrier, so it stays the freshest reading we have either way.
+		// this snapshot is behind on everything they carry. Usage and the composer
+		// modes have no event carrier, so they stay the freshest reading either way.
 		const churned = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion !== eventVersion;
 		withSessionRuntime(tabId, () => {
-			if (churned) writeUsage(state);
+			if (churned) writeEventlessState(state);
 			else applySessionState(state);
 		});
 	} catch {
@@ -405,6 +417,8 @@ interface HydrationCommit {
 	focusUnchanged: boolean;
 	command: TabCommand;
 	applyState: (wire: RpcSessionState, turnStartedAt?: number) => void;
+	/** Lands the event-free part of a snapshot that events outdated in flight. */
+	applyEventlessState: (wire: RpcSessionState) => void;
 }
 
 /** Land a `get_state` + transcript-tail pair: the one commit path for tab and legacy hydration. */
@@ -416,6 +430,7 @@ function commitHydration({
 	focusUnchanged,
 	command,
 	applyState,
+	applyEventlessState,
 }: HydrationCommit): void {
 	const eventsUnchanged = session?.getState().eventVersion === before.eventVersion;
 	// `get_state` is the only witness to a live turn. A failed read counts as not
@@ -456,6 +471,8 @@ function commitHydration({
 		// background, whose frames would otherwise stay silent on return.
 		// Idempotent server-side.
 		void command({ type: "set_subagent_subscription", level: "progress" });
+	} else if (focusUnchanged && wire != null) {
+		applyEventlessState(wire);
 	}
 
 	if (!focusUnchanged || messagesResult.status !== "fulfilled" || !messagesResult.value.success) return;
@@ -510,6 +527,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 		focusUnchanged: !originRuntime || focusedSessionRuntime() === originRuntime,
 		command: activeTabCommand,
 		applyState: (wire, startedAt) => applySessionState(wire, fallbackName, startedAt),
+		applyEventlessState: writeEventlessState,
 	});
 	await subagents;
 	await secondary;
@@ -633,6 +651,7 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 			// An idle session has no retry outstanding, whatever end event was missed.
 			if (!wire.isStreaming) retryPendingTabs.delete(tabId);
 		},
+		applyEventlessState: wire => withSessionRuntime(tabId, () => writeEventlessState(wire)),
 	});
 
 	// Subagents and secondary chips do not hold the transcript hostage. Their

@@ -123,6 +123,23 @@ const initialState = {
 	modelPool: null,
 };
 
+/**
+ * The composer modes a `get_state` snapshot reports that no session event
+ * carries: plan mode, the prewalk arm and the agents pause gate change only
+ * through a snapshot or the GUI's own command replies, so events that landed
+ * while the snapshot was in flight cannot have outdated them.
+ */
+export function snapshotModeState(
+	state: RpcSessionState,
+): Pick<SessionStore, "planModeEnabled" | "prewalkArmed" | "agentsPaused" | "agentsPausedAt"> {
+	return {
+		planModeEnabled: state.planModeEnabled ?? false,
+		prewalkArmed: state.prewalkArmed ?? false,
+		agentsPaused: state.agentsPaused ?? false,
+		agentsPausedAt: state.agentsPausedAt ?? null,
+	};
+}
+
 export const createSessionStore = () =>
 	createStore<SessionStore>()(set => ({
 		...initialState,
@@ -151,10 +168,7 @@ export const createSessionStore = () =>
 				contextUsage: state.contextUsage ?? null,
 				messageCount: state.messageCount,
 				queuedMessageCount: state.queuedMessageCount,
-				planModeEnabled: state.planModeEnabled ?? false,
-				prewalkArmed: state.prewalkArmed ?? false,
-				agentsPaused: state.agentsPaused ?? false,
-				agentsPausedAt: state.agentsPausedAt ?? null,
+				...snapshotModeState(state),
 			}),
 		setStatus: (status, cwd) => set({ status, cwd }),
 		reset: () => set(initialState),

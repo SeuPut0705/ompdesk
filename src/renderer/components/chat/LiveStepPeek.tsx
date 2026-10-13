@@ -16,7 +16,7 @@ import type { StoreApi } from "zustand/vanilla";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
 import { useMediaQuery } from "../../hooks/use-media-query";
-import { cx, formatDuration, formatElapsed, resultDetails } from "../../lib/format";
+import { cx, formatDuration, formatElapsed, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
 import { type MessagesStore, useMessagesStore } from "../../stores/messages";
@@ -25,7 +25,7 @@ import { type SubagentNode, type SubagentsStore, useSubagentsStore } from "../..
 import { useTabsStore } from "../../stores/tabs";
 import type { TodoSnapshot } from "../../stores/todo";
 import { selectToolEntry, type ToolEntry, type ToolsStore, useToolsStore } from "../../stores/tools";
-import { getToolHeader, getToolRenderer } from "../tools/index";
+import { getToolHeader, getToolRenderer, type ToolHeader } from "../tools/index";
 import { ToolPathTarget } from "../tools/ToolCard";
 import { collapseWaitSteps, selectLiveStep, type WorkStripStep } from "./live-step";
 import { liveFocusTarget, revealLiveFocus, STAGE_SCROLL_KEYS } from "./stage-follow";
@@ -55,6 +55,22 @@ function settledArgs(entry: ToolEntry): Record<string, unknown> {
 	if (entry.status !== "pending" || !entry.streamingArgs || Object.keys(entry.args).at(-1) !== "i") return entry.args;
 	const { i: _unfinished, ...settled } = entry.args;
 	return settled;
+}
+
+/**
+ * The shown step's own words for the head's reserved sub line when nothing live is said there:
+ * its target (command, path, pattern) unless the narrative already names it, else the latest
+ * line of its progress output. Empty when the step has neither — nothing is made up.
+ */
+function stepDetail(header: ToolHeader | null, narrative: string, partial: unknown): string {
+	const target = (header?.path || header?.target || "").trim();
+	if (target && !narrative.includes(target)) return target;
+	return (
+		resultText(partial)
+			.split("\n")
+			.map(line => line.trim())
+			.findLast(Boolean) ?? ""
+	);
 }
 
 /**
@@ -487,8 +503,12 @@ export function LiveStepPeek({
 			if (chip.right > viewport.right) strip.scrollLeft += chip.right - viewport.right;
 			else if (chip.left < viewport.left) strip.scrollLeft -= viewport.left - chip.left;
 		};
-		revealCurrent();
-		if (typeof ResizeObserver === "undefined") return;
+		if (typeof ResizeObserver === "undefined") {
+			revealCurrent();
+			return;
+		}
+		// A new observer reports the strip once, after this frame's layout and before
+		// its paint: revealing then reads geometry the frame lays out anyway.
 		const observer = new ResizeObserver(revealCurrent);
 		observer.observe(strip);
 		return () => observer.disconnect();
@@ -515,7 +535,7 @@ export function LiveStepPeek({
 			: entry && surfaceKey !== "thinking"
 				? workNarrative(entry.toolName, settledArgs(entry), t, undefined, entry.intent)
 				: t("chat.thinking.live");
-	const sub =
+	const liveSub =
 		!following && !pinnedLive
 			? ""
 			: waitingFor && (kind === "wait" || kind === "task" || selected === "thinking")
@@ -527,6 +547,11 @@ export function LiveStepPeek({
 						: calmWait && live
 							? t("chat.work.waiting")
 							: "";
+	// The line is reserved all run long: with nothing live to say it names the shown step's own target
+	// or latest output rather than sitting as an empty gap.
+	const sub =
+		liveSub ||
+		(turnIsLive && !nested && entry && surfaceKey !== "thinking" ? stepDetail(header, narrative, partial) : "");
 	const headState: WorkState = state === "interrupted" ? "stopped" : state;
 	// The step's own clock, or the no-output warning for a silent command that has not exited yet.
 	const exited = typeof resultDetails(partial)?.exitCode === "number";
@@ -562,11 +587,14 @@ export function LiveStepPeek({
 	useLayoutEffect(() => {
 		if (stageOpen) setStagePresent(true);
 		else if (!motion) setStagePresent(false);
-		else {
+		// Only a present stage has a fade to wait out. Reading the motion token
+		// (getComputedStyle) forced a style and layout pass for every finished card
+		// a scroll mounted, whose stage never opened.
+		else if (stagePresent) {
 			const timer = setTimeout(() => setStagePresent(false), workMotionDuration(boxRef.current));
 			return () => clearTimeout(timer);
 		}
-	}, [stageOpen, motion]);
+	}, [stageOpen, motion, stagePresent]);
 	const settled =
 		thinkingBetween ||
 		(!nested && following && turnIsLive && !!entry && !running && !shownAgent) ||

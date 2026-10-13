@@ -67,6 +67,15 @@ import { useUiStore } from "../stores/ui";
  */
 const QUIET_NOTICE_SOURCES = new Set(["vision", "xdev"]);
 
+/**
+ * Frames that change nothing a `get_state` or transcript snapshot reports, so
+ * they never outdate one in flight. The bridge sends a `token_rate` the moment
+ * it connects, right as the boot hydration fetches: counted as churn, it threw
+ * away that whole snapshot (model, plan mode, todos) with nothing to re-sync it
+ * until the next turn.
+ */
+const SNAPSHOT_NEUTRAL_EVENTS: Partial<Record<AgentSessionEvent["type"], true>> = { token_rate: true };
+
 /** Schema defaults for the agent's notify settings (settings-schema.ts). */
 const NOTIFY_DEFAULTS = { completion: "on", error: "off", ask: "on" } as const;
 
@@ -281,10 +290,11 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 				// eventVersion lets an async snapshot (get_state, hydrate) tell whether
 				// events landed after it was taken. One bump per batch covers every
 				// snapshot started before it; a snapshot started by an event inside
-				// the batch needs one more bump if any event follows it.
+				// the batch needs one more bump if any event follows it. Frames no
+				// snapshot reports never bump.
 				let bumpVersion = true;
 				for (const event of events) {
-					if (bumpVersion) {
+					if (bumpVersion && !SNAPSHOT_NEUTRAL_EVENTS[event.type]) {
 						useSessionStore.setState(state => ({ eventVersion: state.eventVersion + 1 }));
 						bumpVersion = false;
 					}

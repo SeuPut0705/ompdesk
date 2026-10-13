@@ -590,31 +590,70 @@ describe("InputArea prompt history", () => {
 		expect(composerValue()).toBe("older prompt");
 	});
 
-	it("returns on ↓ only from the very end, and keeps cycling an unedited recalled entry", async () => {
+	function caret(): number | undefined {
+		const textarea: object = findTextarea();
+		return "selectionStart" in textarea && typeof textarea.selectionStart === "number"
+			? textarea.selectionStart
+			: undefined;
+	}
+
+	it("walks older on ↑ by placing the caret at position 0, and only there", async () => {
+		await mount();
+		await seedHistory("newest line one\nnewest line two", "middle prompt", "oldest prompt");
+		await typeInto(findTextarea(), "draft");
+		placeCaret(0);
+		expect((await pressKey({ key: "ArrowUp" })).defaultPrevented).toBe(true);
+		await flush();
+		expect(composerValue()).toBe("newest line one\nnewest line two");
+		expect(caret()).toBe(0);
+
+		// A recalled entry gets no exception: off position 0, ↑ is the caret's even on the first line.
+		placeCaret(3);
+		expect((await pressKey({ key: "ArrowUp" })).defaultPrevented).toBe(false);
+		expect(composerValue()).toBe("newest line one\nnewest line two");
+
+		// Back at 0 (where the recall left it), plain ↑ presses keep walking without a caret step.
+		placeCaret(0);
+		expect((await pressKey({ key: "ArrowUp" })).defaultPrevented).toBe(true);
+		await flush();
+		expect(composerValue()).toBe("middle prompt");
+		expect(caret()).toBe(0);
+		expect((await pressKey({ key: "ArrowUp" })).defaultPrevented).toBe(true);
+		await flush();
+		expect(composerValue()).toBe("oldest prompt");
+		expect(caret()).toBe(0);
+		// Nothing older: the key falls through to the caret.
+		expect((await pressKey({ key: "ArrowUp" })).defaultPrevented).toBe(false);
+		expect(composerValue()).toBe("oldest prompt");
+	});
+
+	it("walks newer on ↓ only from the very end, placing the caret back at the end", async () => {
 		await mount();
 		await seedHistory("newer line one\nnewer line two", "older prompt");
 		await typeInto(findTextarea(), "draft");
 		placeCaret(0);
 		await pressKey({ key: "ArrowUp" });
 		await flush();
-		expect(composerValue()).toBe("newer line one\nnewer line two");
-
-		// The recalled entry spans two lines: ↓ from its first line moves the caret.
-		placeCaret(3);
-		expect((await pressKey({ key: "ArrowDown" })).defaultPrevented).toBe(false);
-		expect(composerValue()).toBe("newer line one\nnewer line two");
-		// Browsing, ↑ from anywhere on the first line walks on to the older entry.
-		expect((await pressKey({ key: "ArrowUp" })).defaultPrevented).toBe(true);
+		await pressKey({ key: "ArrowUp" });
 		await flush();
+		expect(composerValue()).toBe("older prompt");
+
+		// ↑ left the caret at 0: ↓ there (or anywhere short of the end) is the caret's.
+		expect((await pressKey({ key: "ArrowDown" })).defaultPrevented).toBe(false);
+		placeCaret(5);
+		expect((await pressKey({ key: "ArrowDown" })).defaultPrevented).toBe(false);
 		expect(composerValue()).toBe("older prompt");
 
 		placeCaret("older prompt".length);
 		expect((await pressKey({ key: "ArrowDown" })).defaultPrevented).toBe(true);
 		await flush();
 		expect(composerValue()).toBe("newer line one\nnewer line two");
-		placeCaret("newer line one\nnewer line two".length);
+		expect(caret()).toBe("newer line one\nnewer line two".length);
+		// The caret already sits at the end, so the next ↓ returns the stashed draft directly.
 		expect((await pressKey({ key: "ArrowDown" })).defaultPrevented).toBe(true);
+		await flush();
 		expect(composerValue()).toBe("draft");
+		expect(caret()).toBe("draft".length);
 	});
 });
 

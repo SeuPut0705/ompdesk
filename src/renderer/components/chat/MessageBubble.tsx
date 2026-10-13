@@ -18,7 +18,9 @@ import { Badge, Button, IconButton, ZoomableImage } from "../common";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
 import { ThinkingBlock } from "./ThinkingBlock";
+import { TodoReminderNote } from "./TodoReminderNote";
 import { TurnErrorNotice } from "./TurnErrorNotice";
+import { parseTodoReminder } from "./todo-reminder";
 import { UsageRow } from "./UsageRow";
 
 export interface MessageBubbleProps {
@@ -305,6 +307,20 @@ export const MessageBubble = memo(function MessageBubble({
 		}
 	}
 	if (message.role === "toolResult") return null;
+	// A reminder no work run owns: the same line the live card showed, never stock's prompt text.
+	const reminder = parseTodoReminder(message);
+	if (reminder)
+		return (
+			<div className="omp-todo-reminder ps-(--omp-editorial-inset) pe-(--omp-editorial-edge)">
+				<ul className="omp-transcript-content omp-work-notes-list" aria-label={t("todoPanel.reminder")}>
+					<li className="omp-work-notes-item">
+						<TodoReminderNote message={message} reminder={reminder} />
+					</li>
+				</ul>
+			</div>
+		);
+	// Stock's other developer messages (plan-mode, checkpoint, auto-continue prompts) are for the model only.
+	if (message.role === "developer") return null;
 
 	const content: MessageContent[] = Array.isArray(message.content)
 		? message.content

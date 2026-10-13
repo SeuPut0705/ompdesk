@@ -2908,6 +2908,32 @@
 .omp-work-notes-body {
 	padding: var(--sc-space-2) 0;
 }
+/* A background job or process that ended in failure: only its mark turns red. */
+.omp-work-notes-failed {
+	color: var(--sc-danger);
+}
+/* Stock's todo reminder after a reload: the live card's reminder line; only its mark carries state color. */
+.omp-todo-reminder {
+	padding-block: var(--sc-space-1);
+}
+.omp-todo-reminder-icon {
+	color: var(--sc-warning);
+}
+.omp-todo-reminder-list {
+	margin: 0 0 var(--sc-space-1);
+	padding-inline-start: var(--sc-space-5);
+	color: var(--sc-text-secondary);
+	font-size: var(--sc-font-sm);
+	list-style: none;
+}
+.omp-todo-reminder-list ul {
+	margin: 0;
+	padding-inline-start: var(--sc-space-4);
+	list-style: disc;
+}
+.omp-todo-reminder-phase {
+	color: var(--sc-text-muted);
+}
 /* The user's own steer: their bubble's tone, full text, never folded behind "more". */
 .omp-work-steer {
 	display: flex;

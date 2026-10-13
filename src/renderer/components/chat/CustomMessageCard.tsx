@@ -26,7 +26,7 @@ import { cx, formatAgo, formatClock, formatDuration, headLines, resultDetails, r
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { Badge, type BadgeVariant } from "../common/Badge";
-import { launchCompletionDaemons } from "./completion-events";
+import { type AsyncResultJob, asyncResultJobs, launchCompletionDaemons } from "./completion-events";
 import { agentResultSummary } from "./work-view";
 
 /** customTypes with a dedicated card (the TUI dispatch set). */
@@ -63,21 +63,29 @@ export function workNoteSummary(message: AgentMessage) {
 			? "concern"
 			: str(advisorNotes[0]?.severity);
 	const type = message.customType;
+	const jobs = asyncResultJobs(message);
+	const job = jobs[0];
+	const daemon = launchCompletionDaemons(message)[0];
+	// A completion's mark states how the job ended: stock's own failed verdict or a non-zero exit.
+	const failed =
+		jobs.some(item => item.status === "failed") ||
+		launchCompletionDaemons(message).some(
+			item => item.state === "failed" || (item.exitCode !== undefined && item.exitCode !== 0),
+		);
 	const Icon =
 		type === "advisor"
 			? Lightbulb
 			: type?.startsWith("irc:") || type === "collab-prompt"
 				? MessagesSquare
 				: type === "async-result" || type === "launch-completion"
-					? CheckCircle2
+					? failed
+						? XCircle
+						: CheckCircle2
 					: type === "lsp-late-diagnostic"
 						? AlertTriangle
 						: type === "skill-prompt"
 							? Zap
 							: ArrowRightLeft;
-	const jobs = asyncJobs(details);
-	const job = jobs[0];
-	const daemon = launchCompletionDaemons(message)[0];
 	const source = type?.startsWith("irc:")
 		? (str(type === "irc:autoreply" ? details?.to : details?.from) ?? str(details?.to))
 		: type === "advisor"
@@ -103,7 +111,7 @@ export function workNoteSummary(message: AgentMessage) {
 	} else if (type === "launch-completion") {
 		body = completionNoticeText(rawBody);
 	}
-	return { Icon, source, body, severity, variant: advisorVariant(severity) };
+	return { Icon, source, body, severity, variant: advisorVariant(severity), failed };
 }
 
 export function CustomMessageCard({ message, inProcess = false }: { message: AgentMessage; inProcess?: boolean }) {
@@ -364,24 +372,10 @@ function AdvisorCard({ message }: { message: AgentMessage }) {
 // async-result — completed background bash/task job rows
 // ---------------------------------------------------------------------------
 
-interface AsyncJob {
-	jobId?: string;
-	type?: string;
-	label?: string;
-	durationMs?: number;
-}
-
-function asyncJobs(details: Record<string, unknown> | undefined): AsyncJob[] {
-	const jobsValue = details?.jobs;
-	if (!Array.isArray(jobsValue)) return [];
-	return jobsValue
-		.filter((job): job is Record<string, unknown> => typeof job === "object" && job !== null)
-		.map(job => ({
-			jobId: str(job.jobId),
-			type: str(job.type),
-			label: str(job.label),
-			durationMs: num(job.durationMs),
-		}));
+/** Stock's failure notice at the end of a failed bash job's delivered text (pi-tui tools/bash.ts `formatExitCodeNotice`). */
+function exitCodeOf(output: string | undefined): number | undefined {
+	const code = output?.match(/Command exited with code (\d+)/)?.[1];
+	return code === undefined ? undefined : Number(code);
 }
 
 /** Human delivery text shared by completion previews and expanded result parsing. */
@@ -395,7 +389,7 @@ function completionNoticeText(content: string) {
  * section headers). Best-effort: jobs without a recoverable section just
  * render their status row.
  */
-function asyncJobResults(content: string, jobs: AsyncJob[]): Map<string, string> {
+function asyncJobResults(content: string, jobs: AsyncResultJob[]): Map<string, string> {
 	const results = new Map<string, string>();
 	const body = completionNoticeText(content);
 	if (!body) return results;
@@ -422,7 +416,7 @@ function asyncJobResults(content: string, jobs: AsyncJob[]): Map<string, string>
 
 function AsyncResultCard({ message, inProcess }: { message: AgentMessage; inProcess: boolean }) {
 	const t = useT();
-	const jobs = asyncJobs(resultDetails(message));
+	const jobs = asyncResultJobs(message);
 	const results = asyncJobResults(resultText(message.content), jobs);
 
 	// A batch without job rows must not invent one: the delivery text is the
@@ -439,8 +433,12 @@ function AsyncResultCard({ message, inProcess }: { message: AgentMessage; inProc
 		<CompletionRows inProcess={inProcess}>
 			{jobs.map((job, index) => {
 				const id = job.jobId ?? "unknown";
+				const output = job.jobId ? results.get(job.jobId) : undefined;
+				const failed = job.status === "failed";
+				const exitCode = exitCodeOf(output);
 				const meta = [
-					t("chat.custom.asyncDone"),
+					t(failed ? "chat.custom.asyncFailed" : "chat.custom.asyncDone"),
+					exitCode !== undefined && exitCode !== 0 ? t("chat.exec.exit", { code: exitCode }) : undefined,
 					`[${job.type ?? "job"}]`,
 					job.label ? id : undefined,
 					job.durationMs != null ? formatDuration(job.durationMs) : undefined,
@@ -449,11 +447,11 @@ function AsyncResultCard({ message, inProcess }: { message: AgentMessage; inProc
 					.join(" · ");
 				return (
 					<CompletionRow
-						failed={false}
+						failed={failed}
 						key={job.jobId ?? index}
 						label={job.label ?? id}
 						meta={meta}
-						output={job.jobId ? results.get(job.jobId) : undefined}
+						output={output}
 					/>
 				);
 			})}

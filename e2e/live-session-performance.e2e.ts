@@ -114,12 +114,74 @@ async function measure(
 	seconds: number,
 	during?: () => Promise<void>,
 ) {
+	// Row churn inside the transcript canvas: how many row slots mount, how many
+	// of them had already been mounted in this window or were mounted when it
+	// began (remounts), the most mounted by one commit, and how many elements
+	// appear inside rows that stayed mounted.
+	await page.evaluate(() => {
+		const canvas = document.querySelector(".omp-transcript-canvas");
+		const mounted = canvas ? [...canvas.children].map(row => (row as HTMLElement).dataset.rowKey ?? "") : [];
+		const churn = {
+			rowMounts: 0,
+			rowRemounts: 0,
+			burst: 0,
+			innerElements: 0,
+			seen: new Set(mounted),
+			mounts: [] as { at: number; rows: number }[],
+		};
+		const observer = new MutationObserver(records => {
+			let batch = 0;
+			for (const record of records)
+				for (const node of record.addedNodes) {
+					if (!(node instanceof HTMLElement)) continue;
+					if (record.target === canvas) {
+						const key = node.dataset.rowKey ?? "";
+						batch++;
+						churn.rowMounts++;
+						if (churn.seen.has(key)) churn.rowRemounts++;
+						churn.seen.add(key);
+					} else churn.innerElements += 1 + node.getElementsByTagName("*").length;
+				}
+			churn.burst = Math.max(churn.burst, batch);
+			if (batch) churn.mounts.push({ at: performance.now(), rows: batch });
+		});
+		if (canvas) observer.observe(canvas, { childList: true, subtree: true });
+		Reflect.set(window, "__ompMounts", churn.mounts);
+		Reflect.set(window, "__ompChurn", { churn, observer });
+	});
 	const profileDir = process.env.OMP_GUI_LIVE_SESSION_PROFILE;
 	const cdp = profileDir ? await page.context().newCDPSession(page) : undefined;
 	if (cdp) {
 		await cdp.send("Profiler.enable");
 		await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
 		await cdp.send("Profiler.start");
+	}
+	// OMP_GUI_LIVE_SESSION_TRACE (a directory) writes the window's Chrome trace as
+	// `<name>.trace.json`: native work (IPC decode, GC, style, layout) by task.
+	const traceDir = process.env.OMP_GUI_LIVE_SESSION_TRACE;
+	const tracer = traceDir ? await page.context().newCDPSession(page) : undefined;
+	const traceEvents: unknown[] = [];
+	if (tracer) {
+		tracer.on("Tracing.dataCollected", ({ value }) => traceEvents.push(...value));
+		await tracer.send("Tracing.start", {
+			transferMode: "ReportEvents",
+			traceConfig: {
+				includedCategories: [
+					"toplevel",
+					"ipc",
+					"mojom",
+					"blink",
+					"devtools.timeline",
+					"disabled-by-default-devtools.timeline",
+					// Forced style and layout events then carry the JS stack that forced them.
+					"disabled-by-default-devtools.timeline.stack",
+					"v8",
+					"v8.execute",
+					"disabled-by-default-v8.gc",
+					"disabled-by-default-v8.cpu_profiler",
+				],
+			},
+		});
 	}
 	const before = await sample(app, page);
 	await Promise.all([during?.(), page.waitForTimeout(seconds * 1000)]);
@@ -130,10 +192,35 @@ async function measure(
 		await fs.writeFile(path.join(profileDir, `${name}.cpuprofile`), JSON.stringify(profile));
 		await cdp.detach();
 	}
+	if (tracer && traceDir) {
+		const { promise: complete, resolve } = Promise.withResolvers<void>();
+		tracer.once("Tracing.tracingComplete", () => resolve());
+		await tracer.send("Tracing.end");
+		await complete;
+		await fs.mkdir(traceDir, { recursive: true });
+		await fs.writeFile(path.join(traceDir, `${name}.trace.json`), JSON.stringify({ traceEvents }));
+		await tracer.detach();
+	}
 	const elapsed = (after.wall - before.wall) / 1000;
+	const churn = await page.evaluate(() => {
+		const { churn, observer } = Reflect.get(window, "__ompChurn") as {
+			churn: { rowMounts: number; rowRemounts: number; burst: number; innerElements: number; seen: Set<string> };
+			observer: MutationObserver;
+		};
+		observer.disconnect();
+		return {
+			rowMounts: churn.rowMounts,
+			rowRemounts: churn.rowRemounts,
+			largestMountBurst: churn.burst,
+			distinctRows: churn.seen.size,
+			innerElements: churn.innerElements,
+		};
+	});
 	const detail = await page.evaluate(
 		({ from, to }) => {
 			const perf = Reflect.get(window, "__ompPerf") as Probe;
+			// Commit times of row mounts, set when the window began (in-page probe state).
+			const mounts = Reflect.get(window, "__ompMounts") as { at: number; rows: number }[];
 			const frames = perf.frames.filter(frame => frame.at >= from && frame.at <= to);
 			const longtasks = perf.longtasks.filter(task => task.at >= from && task.at <= to);
 			const scripts = new Map<string, number>();
@@ -149,6 +236,22 @@ async function measure(
 				renderMs: Math.round(frames.reduce((sum, frame) => sum + frame.render, 0)),
 				styleLayoutMs: Math.round(frames.reduce((sum, frame) => sum + frame.styleLayout, 0)),
 				worstFrameMs: Math.round(Math.max(0, ...frames.map(frame => frame.duration))),
+				worstFrames: [...frames]
+					.sort((a, b) => b.duration - a.duration)
+					.slice(0, 3)
+					.map(frame => ({
+						ms: Math.round(frame.duration),
+						blocking: Math.round(frame.blocking),
+						render: Math.round(frame.render),
+						styleLayout: Math.round(frame.styleLayout),
+						// Row slots mounted by commits inside this frame.
+						rowsMounted: mounts
+							.filter(mount => mount.at >= frame.at && mount.at <= frame.at + frame.duration)
+							.reduce((sum, mount) => sum + mount.rows, 0),
+						scripts: frame.scripts.map(
+							script => `${Math.round(script.duration)}ms ${script.invoker} ${script.fn}@${script.source}`,
+						),
+					})),
 				longtasks: longtasks.length,
 				topScripts: [...scripts]
 					.sort((a, b) => b[1] - a[1])
@@ -189,6 +292,8 @@ async function measure(
 		longFramesPer10s: Math.round(detail.longFrames * per10 * 10) / 10,
 		blockingMsPer10s: Math.round(detail.blockingMs * per10),
 		worstFrameMs: detail.worstFrameMs,
+		worstFrames: detail.worstFrames,
+		churn,
 		// Of the long frames' time: total, rAF-onward, and style/layout/paint.
 		longFrameMsSplit: { total: detail.longFrameMs, render: detail.renderMs, styleLayout: detail.styleLayoutMs },
 		rendererMb: Math.round(after.rendererKb / 1024),
@@ -276,7 +381,8 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 						timeout: 120_000,
 					})
 					.toBe("ready");
-				// Test-only wrapping at the IPC seam: count messages per channel, never their content.
+				// Test-only wrapping at the IPC seam: count messages per channel (and an RPC
+				// command's `type`), never their content.
 				await app.evaluate(({ BrowserWindow, ipcMain }) => {
 					const counts: Record<string, number> = {};
 					Reflect.set(globalThis, "ompdeskIpcCounts", counts);
@@ -292,7 +398,11 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 					if (!(handlers instanceof Map)) throw new Error("Electron IPC measurement seam unavailable");
 					for (const [channel, original] of handlers)
 						handlers.set(channel, (...args: unknown[]) => {
-							const key = `invoke:${channel}`;
+							// RPC commands travel as `{ command }` (per tab) or bare.
+							const payload = args[1];
+							const command = Reflect.get(Object(payload), "command") ?? payload;
+							const type = Reflect.get(Object(command), "type");
+							const key = typeof type === "string" ? `invoke:${channel}:${type}` : `invoke:${channel}`;
 							counts[key] = (counts[key] ?? 0) + 1;
 							return original(...args);
 						});
@@ -310,54 +420,74 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 				await cdp.send("HeapProfiler.collectGarbage");
 				const openHeapMb = Math.round((await cdp.send("Runtime.getHeapUsage")).usedSize / 1048576);
 				await page.waitForTimeout(2000);
-				const idle = await measure(app, page, `${subject.name}-${run}-idle`, 10);
+				// OMP_GUI_LIVE_SESSION_PHASES=scroll measures only the history scroll.
+				const scrollOnly = process.env.OMP_GUI_LIVE_SESSION_PHASES === "scroll";
+				const idle = scrollOnly ? undefined : await measure(app, page, `${subject.name}-${run}-idle`, 10);
 				// Scroll up through history: the virtualizer mounts and measures new rows.
 				const scroller = page.locator(".omp-transcript-scroll").first();
 				const box = await scroller.boundingBox();
 				if (!box) throw new Error("No transcript scroller");
 				await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+				// OMP_GUI_LIVE_SESSION_WHEEL_STEPS shortens the scroll, e.g. to stop before
+				// history a baseline cannot reach.
+				const wheelSteps = Number(process.env.OMP_GUI_LIVE_SESSION_WHEEL_STEPS ?? 60);
 				const scroll = await measure(app, page, `${subject.name}-${run}-scroll`, 8, async () => {
-					for (let step = 0; step < 60; step++) {
+					for (let step = 0; step < wheelSteps; step++) {
 						await page.mouse.wheel(0, -700);
 						await page.waitForTimeout(100);
 					}
 				});
-				await page.getByRole("button", { name: "Jump to latest" }).click();
-				await expect(page.locator(`[data-row-key=${JSON.stringify(tailKey)}]`)).toBeVisible();
-				const control = (command: string) =>
-					page.evaluate(command => window.omp.rpc.command({ type: "bash", command }), command);
-				// The stock session keeps growing while the run streams; main's index watches it.
-				const appendJournal = async (seconds: number) => {
-					const until = Date.now() + seconds * 1000;
-					const line = journal[journal.length - 1];
-					while (Date.now() < until) {
-						await fs.appendFile(copy, `${line}\n`);
-						await delay(250);
-					}
-				};
-				const input = page.locator("textarea").first();
-				await input.fill("fixture work view");
-				await input.press("Enter");
-				await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible({ timeout: 30_000 });
-				await control("fixture:work-next");
-				const card = page.locator('.omp-execution-group > .omp-live-step[data-state="running"]');
-				await expect(card).toHaveAttribute("data-surface", "bash", { timeout: 30_000 });
-				await control("fixture:work-stream");
-				const streamOutput = await measure(app, page, `${subject.name}-${run}-stream-output`, 10, () =>
-					appendJournal(10),
-				);
-				for (let step = 0; step < 3; step++) await control("fixture:work-next");
-				await expect(card.locator('[data-step-id="work-view-3"]')).toHaveAttribute("aria-pressed", "true");
-				await control("fixture:work-output");
-				await page.waitForTimeout(1000);
-				const cardIdle = await measure(app, page, `${subject.name}-${run}-card-idle`, 10);
-				await control("fixture:work-stream");
-				const streamAgents = await measure(app, page, `${subject.name}-${run}-stream-agents`, 10, () =>
-					appendJournal(10),
-				);
+				// How far through history the scroll got (scrollTop / canvas height), so runs
+				// that loaded different pages are told apart. Read after the window: a
+				// read during it forces a layout of its own.
+				const reached = await page.evaluate(() => {
+					const element = document.querySelector(".omp-transcript-scroll");
+					const canvas = element?.querySelector<HTMLElement>(".omp-transcript-canvas");
+					return `${Math.round(element?.scrollTop ?? 0)}/${canvas?.style.height}`;
+				});
+				const live = scrollOnly
+					? undefined
+					: await (async () => {
+							await page.getByRole("button", { name: "Jump to latest" }).click();
+							await expect(page.locator(`[data-row-key=${JSON.stringify(tailKey)}]`)).toBeVisible();
+							const control = (command: string) =>
+								page.evaluate(command => window.omp.rpc.command({ type: "bash", command }), command);
+							// The stock session keeps growing while the run streams; main's index watches it.
+							const appendJournal = async (seconds: number) => {
+								const until = Date.now() + seconds * 1000;
+								const line = journal[journal.length - 1];
+								while (Date.now() < until) {
+									await fs.appendFile(copy, `${line}\n`);
+									await delay(250);
+								}
+							};
+							const input = page.locator("textarea").first();
+							await input.fill("fixture work view");
+							await input.press("Enter");
+							await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible({
+								timeout: 30_000,
+							});
+							await control("fixture:work-next");
+							const card = page.locator('.omp-execution-group > .omp-live-step[data-state="running"]');
+							await expect(card).toHaveAttribute("data-surface", "bash", { timeout: 30_000 });
+							await control("fixture:work-stream");
+							const streamOutput = await measure(app, page, `${subject.name}-${run}-stream-output`, 10, () =>
+								appendJournal(10),
+							);
+							for (let step = 0; step < 3; step++) await control("fixture:work-next");
+							await expect(card.locator('[data-step-id="work-view-3"]')).toHaveAttribute("aria-pressed", "true");
+							await control("fixture:work-output");
+							await page.waitForTimeout(1000);
+							const cardIdle = await measure(app, page, `${subject.name}-${run}-card-idle`, 10);
+							await control("fixture:work-stream");
+							const streamAgents = await measure(app, page, `${subject.name}-${run}-stream-agents`, 10, () =>
+								appendJournal(10),
+							);
+							return { streamOutput, cardIdle, streamAgents };
+						})();
 				await cdp.send("HeapProfiler.collectGarbage");
 				const endHeapMb = Math.round((await cdp.send("Runtime.getHeapUsage")).usedSize / 1048576);
-				await page.evaluate(() => window.omp.rpc.command({ type: "abort" }));
+				if (live) await page.evaluate(() => window.omp.rpc.command({ type: "abort" }));
 				await cdp.detach();
 				const result = {
 					subject: subject.name,
@@ -366,10 +496,8 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 					openHeapMb,
 					endHeapMb,
 					idle,
-					scroll,
-					streamOutput,
-					cardIdle,
-					streamAgents,
+					scroll: { ...scroll, reached },
+					...live,
 					errors,
 				};
 				results.push(result);

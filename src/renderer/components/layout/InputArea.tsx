@@ -631,11 +631,12 @@ export function InputArea() {
 			toggleExpanded(false);
 			return;
 		}
-		// Up/Down prompt-history recall, as in a terminal: Up only with the caret at the very start
-		// (or an empty composer) cycles to older entries, Down only at the very end cycles back to
-		// the stashed draft. Anywhere else the arrows move the caret through multi-line text. While
-		// an unedited recalled entry is shown (any edit resets navigation), its first and last lines
-		// keep cycling so ↑/↓ walk the history without a caret step in between.
+		// Up/Down prompt-history recall, as in a terminal: ↑ recalls an older entry only from an empty
+		// composer or with the caret at position 0, ↓ a newer entry (and finally the stashed draft) only
+		// with the caret at the very end. Anywhere else the arrows move the caret through the text.
+		// Browsing stays a run of plain presses because a recall places the caret on the edge the key
+		// came from — ↑ at position 0, ↓ at the end (stock pi-tui's directional anchor, #99) — so the
+		// next press in the same direction satisfies the same rule; turning around takes one caret move.
 		if (
 			!expanded &&
 			(e.key === "ArrowUp" || e.key === "ArrowDown") &&
@@ -650,21 +651,20 @@ export function InputArea() {
 				const caretEnd = el.selectionEnd ?? caretStart;
 				const history = useInputHistoryStore.getState();
 				const context = { cwd, owner: `${runtimeTabId}:${sessionId}`, device: historyDevice };
-				const browsing = history.navIndex !== -1 && history.navContext?.owner === context.owner;
 				const older = e.key === "ArrowUp";
-				let recalled: string | undefined;
-				if (older && (caretEnd === 0 || (browsing && !text.slice(0, caretStart).includes("\n")))) {
-					recalled = history.prev(text, context);
-				} else if (!older && (caretStart === text.length || (browsing && !text.slice(caretEnd).includes("\n")))) {
-					recalled = history.next(context);
-				}
+				const recalled =
+					older && caretEnd === 0
+						? history.prev(text, context)
+						: !older && caretStart === text.length
+							? history.next(context)
+							: undefined;
 				if (recalled !== undefined) {
 					e.preventDefault();
-					const recalledText = recalled;
-					setText(recalledText);
+					setText(recalled);
+					const caret = older ? 0 : recalled.length;
 					requestAnimationFrame(() => {
 						el.focus();
-						el.setSelectionRange(recalledText.length, recalledText.length);
+						el.setSelectionRange(caret, caret);
 					});
 					return;
 				}

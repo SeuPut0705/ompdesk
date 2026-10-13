@@ -158,7 +158,8 @@ test("real omp work scenarios on the small model", async () => {
 				// auto-continuation can append a later continuation card after it.
 				const ownGroupState = () =>
 					page.evaluate(prompt => {
-						const plain = (text: string | null) => (text ?? "").replace(/[`\s]+/g, " ").trim();
+						// The bubble renders `code` without its backticks: drop them, then fold whitespace.
+						const plain = (text: string | null) => (text ?? "").replaceAll("`", "").replace(/\s+/g, " ").trim();
 						const rows = [...document.querySelectorAll(".omp-user-bubble, .omp-execution-group")];
 						const asked = rows.findLastIndex(
 							row => row.matches(".omp-user-bubble") && plain(row.textContent).includes(plain(prompt)),
@@ -189,25 +190,70 @@ test("real omp work scenarios on the small model", async () => {
 			await page.getByRole("button", { name: /^Create the file notes\.txt/ }).click();
 		}
 		await expect(groups.first()).toBeVisible({ timeout: 30_000 });
-		// One capture per viewport from the top: the transcript is virtualized, so group
-		// locators detach while it scrolls. The theme the session last used is kept: the
-		// light/dark pass above already covered colour.
-		const scroll = page.locator(".omp-transcript-scroll");
-		await scroll.evaluate(element => element.scrollTo({ top: 0 }));
-		for (let index = 0; index < 12; index++) {
-			await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+		// One capture per viewport, top to bottom. The transcript is virtualized, so group
+		// locators detach while it scrolls, and a scroll without a reader gesture is undone by
+		// its tail follower: take the view the way a reader does (focus, Home), then step the
+		// virtualized scroller itself. The theme the session last used is kept: the light/dark
+		// pass above already covered colour.
+		const scroll = page.locator(".omp-transcript-scroll:visible");
+		await expect(scroll).toHaveCount(1);
+		const settle = () =>
+			page.evaluate(() => {
+				const { promise, resolve } = Promise.withResolvers<void>();
+				requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+				return promise;
+			});
+		await scroll.focus();
+		// Older pages load while the reader sits at the top: hold it there until the history stops growing.
+		let previousHeight = -1;
+		await expect
+			.poll(
+				async () => {
+					await page.keyboard.press("Home");
+					await scroll.evaluate(element => element.scrollTo({ top: 0 }));
+					await settle();
+					const { height, top } = await scroll.evaluate(element => ({
+						height: element.scrollHeight,
+						top: element.scrollTop,
+					}));
+					const loading = await page.getByTestId("transcript-history-status").count();
+					const stable = height === previousHeight && top === 0 && loading === 0;
+					previousHeight = height;
+					return stable;
+				},
+				{ timeout: 60_000 },
+			)
+			.toBe(true);
+		const plain = (text: string) => text.replaceAll("`", "").replace(/\s+/g, " ").trim();
+		const prompts = new Set<string>();
+		let reachedEnd = false;
+		for (let index = 0; index < 80 && !reachedEnd; index++) {
+			await settle();
+			const view = await scroll.evaluate(element => ({
+				text: element instanceof HTMLElement ? element.innerText : "",
+				prompts: [...element.querySelectorAll(".omp-user-bubble")].map(bubble => bubble.textContent ?? ""),
+			}));
+			for (const prompt of view.prompts) prompts.add(plain(prompt));
+			// Stock's persisted todo reminder reads as the reminder line, never as its prompt text.
+			expect(view.text).not.toMatch(/You stopped with \d+ incomplete todo|Please continue working on these tasks/);
 			await page.screenshot({
 				path: path.join(evidence, `ko-group-${index + 1}.png`),
 				animations: "disabled",
 				scale: "css",
 			});
-			const atEnd = await scroll.evaluate(element => {
-				const before = element.scrollTop;
-				element.scrollTo({ top: before + element.clientHeight * 0.9 });
-				return element.scrollTop === before;
+			reachedEnd = await scroll.evaluate(element => {
+				if (element.scrollTop + element.clientHeight >= element.scrollHeight - 2) return true;
+				element.scrollTop += Math.round(element.clientHeight * 0.9);
+				return false;
 			});
-			if (atEnd) break;
 		}
+		expect(reachedEnd).toBe(true);
+		// Every scenario's own prompt survives the reload as its user bubble.
+		for (const scenario of SCENARIOS)
+			expect(
+				[...prompts].some(prompt => prompt.includes(plain(scenario.prompt))),
+				scenario.name,
+			).toBe(true);
 	} finally {
 		await exitApp(app);
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

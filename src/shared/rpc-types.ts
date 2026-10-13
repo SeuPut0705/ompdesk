@@ -1585,6 +1585,8 @@ export interface AgentMessage {
 	role:
 		| "user"
 		| "assistant"
+		/** Stock's synthetic context message (todo reminder, auto-continue): never typed by the user. */
+		| "developer"
 		| "system"
 		| "toolResult"
 		| "bashExecution"

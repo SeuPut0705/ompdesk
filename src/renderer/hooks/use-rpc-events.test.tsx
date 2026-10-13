@@ -654,6 +654,90 @@ describe("useRpcEvents context usage sync", () => {
 	});
 });
 
+describe("useRpcEvents snapshot churn", () => {
+	/** Mount on a settled tab, then park every later get_state until the test answers it. */
+	async function holdNextState(tabId: string) {
+		const harness = installTabRoutedMockOmp();
+		const session = seedReadyTab(tabId);
+		await mount(<RpcEventsProbe />);
+		// Join the boot hydration so none of its reads reach the hold below.
+		await act(async () => {
+			await attachTabSession(tabId);
+		});
+		const state = Promise.withResolvers<RpcResponse>();
+		const original = harness.commandForTab.getMockImplementation()!;
+		harness.commandForTab.mockImplementation((id, command) =>
+			command.type === "get_state" ? state.promise : original(id, command),
+		);
+		const model = sessionRuntimeStore<ModelStore>(tabId, "model")!;
+		return { ...harness, session, model, state };
+	}
+
+	it("lands the boot snapshot when the bridge's first token_rate frame arrives mid-fetch", async () => {
+		const { emitTabBatch, session, model, state } = await holdNextState("t-boot");
+		let hydration = Promise.resolve();
+		await act(async () => {
+			hydration = hydrateTabSession("t-boot");
+		});
+		await act(async () => {
+			emitTabBatch([{ type: "token_rate", rate: null }], "t-boot");
+		});
+		state.resolve(settledState({ model: { provider: "p", id: "m" }, planModeEnabled: true }));
+		await act(async () => {
+			await hydration;
+		});
+
+		// A rate reading changes nothing the snapshot reports. Counted as churn it
+		// discarded the whole boot snapshot, so plan review stayed disabled.
+		expect(model.getState().model).toMatchObject({ provider: "p", id: "m" });
+		expect(session.getState().planModeEnabled).toBe(true);
+	});
+
+	it("keeps the composer modes of a hydration that a lifecycle frame outdated", async () => {
+		const { emitTabBatch, session, model, state } = await holdNextState("t-churn");
+		let hydration = Promise.resolve();
+		await act(async () => {
+			hydration = hydrateTabSession("t-churn");
+		});
+		await act(async () => {
+			emitTabBatch([{ type: "queue_update", steering: [], followUp: [] }], "t-churn");
+		});
+		state.resolve(
+			settledState({
+				model: { provider: "p", id: "m" },
+				planModeEnabled: true,
+				prewalkArmed: true,
+				agentsPaused: true,
+				agentsPausedAt: 42,
+			}),
+		);
+		await act(async () => {
+			await hydration;
+		});
+
+		// No event carries the modes, so the frame cannot have outdated them.
+		expect(session.getState()).toMatchObject({
+			planModeEnabled: true,
+			prewalkArmed: true,
+			agentsPaused: true,
+			agentsPausedAt: 42,
+		});
+		// What events do carry still waits for a snapshot taken after the frame.
+		expect(model.getState().model).toBeNull();
+	});
+
+	it("keeps plan mode from a turn-end refresh that a trailing frame outdated", async () => {
+		const { emitTabBatch, session, state } = await holdNextState("t-refresh");
+		await act(async () => {
+			emitTabBatch([{ type: "agent_end" }, { type: "queue_update", steering: [], followUp: [] }], "t-refresh");
+		});
+		state.resolve(settledState({ planModeEnabled: true }));
+		await flush();
+
+		expect(session.getState().planModeEnabled).toBe(true);
+	});
+});
+
 describe("useRpcEvents awaiting-model marker", () => {
 	it("arms on agent/turn start and clears when the assistant message finalizes", async () => {
 		const { emitBatch } = installMockOmp();

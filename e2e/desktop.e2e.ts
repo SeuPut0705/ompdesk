@@ -90,6 +90,13 @@ test("composer recalls shared history and restores its draft", async () => {
 	await composer.evaluate((element: HTMLTextAreaElement) => element.setSelectionRange(0, 0));
 	await composer.press("ArrowUp");
 	await expect(composer).toHaveValue("shared history recall regression");
+	// The recall leaves the caret at position 0, so ↓ there is the caret's; from the end it walks back.
+	expect(await composer.evaluate((element: HTMLTextAreaElement) => element.selectionStart)).toBe(0);
+	await composer.press("ArrowDown");
+	await expect(composer).toHaveValue("shared history recall regression");
+	await composer.evaluate((element: HTMLTextAreaElement) =>
+		element.setSelectionRange(element.value.length, element.value.length),
+	);
 	await composer.press("ArrowDown");
 	await expect(composer).toHaveValue("unfinished draft");
 	await composer.fill("");

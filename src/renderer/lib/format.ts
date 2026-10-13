@@ -46,6 +46,30 @@ export function formatAgo(value: number | string | undefined | null, now = Date.
 	return new Date(then).toLocaleDateString(uiLocale(), { month: "short", day: "numeric" });
 }
 
+const clockFormats = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * `toLocale*String` with options builds a new formatter on every call, and a
+ * transcript formats a clock for every step it mounts. Same options, same output.
+ */
+function clockFormat(locale: string, scope: "time" | "day" | "year"): Intl.DateTimeFormat {
+	const key = `${locale} ${scope}`;
+	let format = clockFormats.get(key);
+	if (!format) {
+		const time: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hour12: false };
+		format = new Intl.DateTimeFormat(
+			locale,
+			scope === "time"
+				? time
+				: scope === "day"
+					? { month: "short", day: "numeric", ...time }
+					: { year: "numeric", month: "short", day: "numeric", ...time },
+		);
+		clockFormats.set(key, format);
+	}
+	return format;
+}
+
 /** Compact clock label — no seconds; same-day times shrink to HH:MM. */
 export function formatClock(value: number | string | undefined | null): string {
 	const timestamp = toMs(value);
@@ -53,12 +77,8 @@ export function formatClock(value: number | string | undefined | null): string {
 	const date = new Date(timestamp);
 	const now = new Date();
 	const locale = uiLocale();
-	const time: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hour12: false };
-	if (date.toDateString() === now.toDateString()) return date.toLocaleTimeString(locale, time);
-	if (date.getFullYear() === now.getFullYear()) {
-		return date.toLocaleString(locale, { month: "short", day: "numeric", ...time });
-	}
-	return date.toLocaleString(locale, { year: "numeric", month: "short", day: "numeric", ...time });
+	if (date.toDateString() === now.toDateString()) return clockFormat(locale, "time").format(date);
+	return clockFormat(locale, date.getFullYear() === now.getFullYear() ? "day" : "year").format(date);
 }
 
 /** Compact hour/minute label for dense visual timelines. */

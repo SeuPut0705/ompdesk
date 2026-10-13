@@ -5,6 +5,7 @@
  */
 
 import type { AgentMessage, MessageContent } from "../../../shared/rpc-types";
+import { resultDetails } from "../../lib/format";
 import { messageIdentity } from "../../lib/message-identity";
 import { isRenderableMessageText, messageText, splitReaction } from "../../lib/messages";
 import type { ReadGroupEntry, ReadGroupUsage } from "../../lib/read-group";
@@ -12,7 +13,8 @@ import type { TodoSnapshot } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey } from "../../stores/tools";
 import type { TranscriptDetail } from "../../stores/ui";
 import { isCustomMessageCardType } from "./CustomMessageCard";
-import { isCompletionMessage, launchCompletionFailureCount } from "./completion-events";
+import { asyncResultJobs, completionFailureCount, isCompletionMessage } from "./completion-events";
+import { parseTodoReminder } from "./todo-reminder";
 import { isWorkReply, messageTimestampMs } from "./work-turn";
 
 interface ProcessMeta {
@@ -216,6 +218,37 @@ export function buildTranscriptRowKeys(rows: readonly Row[]): string[] {
 	});
 }
 
+function sameRowField(a: unknown, b: unknown): boolean {
+	return (
+		Object.is(a, b) ||
+		(Array.isArray(a) &&
+			Array.isArray(b) &&
+			a.length === b.length &&
+			a.every((value, index) => Object.is(value, b[index])))
+	);
+}
+
+/**
+ * Rebuilt rows that say exactly what their previous build said (same kind, every
+ * field the same value, arrays element for element) keep the previous object, so
+ * memoized row components skip them. A history page prepend or a live tail update
+ * rebuilds every row while the rows already on screen are unchanged.
+ */
+export function reuseTranscriptRows<T extends Row>(
+	previous: ReadonlyMap<string, T>,
+	rows: readonly T[],
+	keys: readonly string[],
+): T[] {
+	return rows.map((row, index) => {
+		const earlier = previous.get(keys[index] ?? "");
+		if (!earlier || earlier.kind !== row.kind) return row;
+		const fields = Object.keys(row);
+		if (fields.length !== Object.keys(earlier).length) return row;
+		for (const field of fields) if (!sameRowField(Reflect.get(earlier, field), Reflect.get(row, field))) return row;
+		return earlier;
+	});
+}
+
 /** One stable minimap anchor per user-authored turn in the rendered row set. */
 export function buildConversationAnchors(rows: readonly Row[], rowKeys: readonly string[]): ConversationAnchor[] {
 	const anchors: ConversationAnchor[] = [];
@@ -316,6 +349,9 @@ function hasProcessNarration(message: AgentMessage): boolean {
  */
 export function isVisibleTranscriptMessage(message: AgentMessage): boolean {
 	if (message.role === "toolResult") return false;
+	// Stock's model-facing developer messages are never shown (TUI ui-helpers renders none); its
+	// todo reminder is the one the live card showed, so it stays as that reminder.
+	if (message.role === "developer") return parseTodoReminder(message) !== null;
 	if ((message.role === "custom" || message.role === "hookMessage") && message.display === false) return false;
 	if (
 		message.role === "user" ||
@@ -367,7 +403,7 @@ function summarizeProcess(messages: AgentMessage[]): ProcessMeta {
 	const toolCallIds: string[] = [];
 	const toolNames: string[] = [];
 	for (const message of messages) {
-		failedEvents += launchCompletionFailureCount(message);
+		failedEvents += completionFailureCount(message);
 		for (const block of messageContent(message)) {
 			if (block.type === "thinking" && isRenderableMessageText(block.thinking)) thinkingCount++;
 			if (block.type !== "toolCall") continue;
@@ -392,6 +428,8 @@ export function buildHistoryRows(
 	const rows: HistoryRow[] = [];
 	// During-run notes and the run time each one is owned at (the shared run interval decides).
 	const duringRunNotes = new Map<AgentMessage, number>();
+	// Stock's persisted todo reminders, folded into the run they continued once rows exist.
+	const reminders = new Set<AgentMessage>();
 	let processMessages: AgentMessage[] = [];
 	let reactionTargetIndex: number | undefined;
 	let turnStartedAt: number | undefined;
@@ -438,6 +476,12 @@ export function buildHistoryRows(
 			// delivered after that step: own it from its delivery position.
 			const delivered = Math.max(...processMessages.map(entry => messageTimestampMs(entry)));
 			duringRunNotes.set(message, Math.max(messageTimestampMs(message), delivered));
+			continue;
+		}
+		// A todo reminder is not a phase boundary: the run it restarted continues the same card.
+		if (detail === "compact" && parseTodoReminder(message)) {
+			rows.push({ kind: "message", message });
+			reminders.add(message);
 			continue;
 		}
 		if (
@@ -510,7 +554,13 @@ export function buildHistoryRows(
 			stops.add(index + 1);
 		}
 	}
-	return foldWorkNotes(stops.size ? rows.filter((_, index) => !stops.has(index)) : rows, duringRunNotes);
+	return chargeJobFailures(
+		foldTodoReminders(
+			foldWorkNotes(stops.size ? rows.filter((_, index) => !stops.has(index)) : rows, duringRunNotes),
+			reminders,
+		),
+		messages,
+	);
 }
 
 /** One interval model for archived todos and custom notices. */
@@ -589,12 +639,78 @@ function foldWorkNotes(rows: readonly HistoryRow[], duringRunNotes: ReadonlyMap<
 		if (!run || work?.kind !== "process") continue;
 		folded[run.index] = {
 			...work,
-			failedEvents: work.failedEvents + launchCompletionFailureCount(row.message),
+			failedEvents: work.failedEvents + completionFailureCount(row.message),
 			notes: [...(work.notes ?? []), row.message],
 		};
 		removed.add(index);
 	}
 	return folded.filter((_, index) => !removed.has(index));
+}
+
+/**
+ * Stock persists its todo reminder between a run's stop and the run it restarts; live, the reminder
+ * shows inside the running card. It belongs to the next work run of its turn, else the one it
+ * followed; with neither (a text-only reply) it stays its own row.
+ */
+function foldTodoReminders(rows: readonly HistoryRow[], reminders: ReadonlySet<AgentMessage>): HistoryRow[] {
+	if (reminders.size === 0) return rows as HistoryRow[];
+	const folded = rows.slice();
+	const removed = new Set<number>();
+	for (const [index, row] of rows.entries()) {
+		if (row.kind !== "message" || !reminders.has(row.message)) continue;
+		const ownerToward = (step: 1 | -1) => {
+			for (let at = index + step; at >= 0 && at < rows.length; at += step) {
+				const candidate = rows[at];
+				if (candidate?.kind === "process") return at;
+				if (candidate?.kind === "message" && candidate.message.role === "user") return -1;
+			}
+			return -1;
+		};
+		const next = ownerToward(1);
+		const owner = next === -1 ? ownerToward(-1) : next;
+		const work = folded[owner];
+		if (work?.kind !== "process") continue;
+		const notes = work.notes ?? [];
+		folded[owner] = { ...work, notes: next === -1 ? [...notes, row.message] : [row.message, ...notes] };
+		removed.add(index);
+	}
+	return folded.filter((_, index) => !removed.has(index));
+}
+
+/**
+ * A background job that fails after its run ended is that run's failure: stock's async-result
+ * notice arrives later (usually waking a follow-up turn), so the run whose call started the job
+ * (its result's `details.async.jobId`, tools/bash.ts `#buildBackgroundStartResult`) counts it.
+ */
+function chargeJobFailures(rows: readonly HistoryRow[], messages: readonly AgentMessage[]): HistoryRow[] {
+	const failedJobs = rows.flatMap(row =>
+		row.kind === "message"
+			? asyncResultJobs(row.message).filter(job => job.status === "failed" && job.type !== "task")
+			: [],
+	);
+	if (failedJobs.length === 0) return rows as HistoryRow[];
+	const startedBy = new Map<string, string>();
+	for (const message of messages) {
+		if (message.role !== "toolResult" || !message.toolCallId) continue;
+		const async = resultDetails(message)?.async;
+		const jobId = typeof async === "object" && async !== null && "jobId" in async ? async.jobId : undefined;
+		if (typeof jobId === "string") startedBy.set(jobId, message.toolCallId);
+	}
+	const charged = rows.slice();
+	for (const job of failedJobs) {
+		const callId = job.jobId === undefined ? undefined : startedBy.get(job.jobId);
+		const owner = charged.findIndex(
+			row =>
+				row.kind === "process" &&
+				row.messages.some(message =>
+					messageContent(message).some(block => block.type === "toolCall" && block.id === callId),
+				),
+		);
+		const work = charged[owner];
+		if (callId === undefined || work?.kind !== "process") continue;
+		charged[owner] = { ...work, failedEvents: work.failedEvents + 1 };
+	}
+	return charged;
 }
 
 /**
@@ -669,7 +785,7 @@ export function buildTimelineMarkers(rows: readonly HistoryRow[]): Array<Timelin
 		if (row.kind === "message" && (row.message.errorMessage || isCompletionMessage(row.message))) {
 			phaseOwner = null;
 			markers[index] = {
-				state: row.message.errorMessage || launchCompletionFailureCount(row.message) > 0 ? "error" : "launch",
+				state: row.message.errorMessage || completionFailureCount(row.message) > 0 ? "error" : "launch",
 				timestamp: row.message.timestamp,
 				toolIds: messageToolIds(row.message),
 			};
