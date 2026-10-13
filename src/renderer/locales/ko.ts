@@ -2802,8 +2802,8 @@ export const ko: Record<string, string> = {
 	"logPanel.placeholder": "줄 필터…",
 	"logPanel.loadFailed": "로그를 불러오지 못했어요",
 	"logPanel.waiting": "로그 출력을 기다리고 있어요…",
-	"logPanel.noMatch": "필터와 일치하는 줄이 없어요.",
 	"logPanel.lineCount": "{count}줄",
+	"logPanel.noMatch": "필터와 일치하는 줄이 없어요.",
 	"logPanel.jumpLabel": "최신으로 이동",
 	"logPanel.latest": "최신",
 
