@@ -226,16 +226,35 @@ it("#29 never warns about silence once the terminal reported its exit", async ()
 	await tools([["run", bash("bun run check:types", { startTime: 10_000 })]]);
 	await show(<LiveStepPeek thinkingLive={false} toolCallIds={["run"]} />);
 	await act(async () => vi.advanceTimersByTime(12_000));
-	expect(container.querySelector(".omp-live-work-heading .omp-work-clock")?.textContent).toBe(
-		"Running for 12s without output",
-	);
-	expect(container.querySelector(".omp-work-head")?.textContent).not.toContain("without output");
+	expect(container.querySelector(".omp-live-work-heading .omp-work-clock")?.textContent).toBe("No output for 12s");
+	expect(container.querySelector(".omp-work-head")?.textContent).not.toContain("No output");
 	await tools(
 		[["run", bash("bun run check:types", { startTime: 10_000 })]],
 		new Map([["run", { content: [{ type: "text", text: "done" }], details: { exitCode: 0 } }]]),
 	);
 	await act(async () => vi.advanceTimersByTime(12_000));
+	expect(container.textContent).not.toContain("No output");
+});
+
+it("names a printed command's silence as no output since, never as a run without output", async () => {
+	await tools(
+		[["run", bash("bun run check:types", { startTime: 10_000 })]],
+		new Map([["run", { content: [{ type: "text", text: "Checking renderer components…" }] }]]),
+	);
+	await show(<LiveStepPeek thinkingLive={false} toolCallIds={["run"]} />);
+	await act(async () => vi.advanceTimersByTime(12_000));
+	expect(container.querySelector(".omp-live-work-heading .omp-work-clock")?.textContent).toBe("No output for 12s");
 	expect(container.textContent).not.toContain("without output");
+});
+
+it("never puts a read file's last line under the head", async () => {
+	await tools(
+		[["read", { ...bash(""), toolName: "read", args: { path: "src/workspace.ts" }, startTime: 10_000 }]],
+		new Map([["read", { content: [{ type: "text", text: "export const workspace = {\n\tready: true,\n};" }] }]]),
+	);
+	await show(<LiveStepPeek thinkingLive={false} toolCallIds={["read"]} />);
+	expect(narrative()).toBe("Read src/workspace.ts");
+	expect(container.querySelector(".omp-work-head .omp-work-sub")?.textContent).toBe("\u00a0");
 });
 
 it("#2 #3 opens the stage through a clip that can animate and closes it in the same move as the outcome", async () => {

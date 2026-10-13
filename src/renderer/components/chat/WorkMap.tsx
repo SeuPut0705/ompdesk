@@ -239,8 +239,15 @@ export function WorkMap({
 								</span>
 								<span className="omp-work-card-progress">
 									<span className="omp-work-card-count">
+										{/* A lane that has not called a tool yet states its tokens alone, never "0 tools". */}
 										{tokens > 0
-											? t("chat.work.progress", { tools: toolCount, plural, tokens: formatTokens(tokens) })
+											? toolCount > 0
+												? t("chat.work.progress", {
+														tools: toolCount,
+														plural,
+														tokens: formatTokens(tokens),
+													})
+												: t("chat.meter.tokens", { tokens: formatTokens(tokens) })
 											: toolCount > 0
 												? t("chat.work.toolsOnly", { tools: toolCount, plural })
 												: null}

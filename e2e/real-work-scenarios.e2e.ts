@@ -39,7 +39,7 @@ const SCENARIOS: ReadonlyArray<{ name: string; prompt: string; during?: (page: P
 			during: async (page, tab) => {
 				// Stock may move a long command to the background after a few seconds (18.10+),
 				// which ends the step before it can go silent; either outcome is a valid capture.
-				const clock = page.locator(".omp-live-step .omp-work-clock").filter({ hasText: "without output" });
+				const clock = page.locator(".omp-live-step .omp-work-clock").filter({ hasText: "No output for" });
 				const backgrounded = page.locator(".omp-live-step").filter({ hasText: /Background|백그라운드/ });
 				await expect(clock.or(backgrounded).first()).toBeVisible({ timeout: 120_000 });
 				await capture(page, "silent-running");

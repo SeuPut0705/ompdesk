@@ -60,11 +60,13 @@ function settledArgs(entry: ToolEntry): Record<string, unknown> {
 /**
  * The shown step's own words for the head's reserved sub line when nothing live is said there:
  * its target (command, path, pattern) unless the narrative already names it, else the latest
- * line of its progress output. Empty when the step has neither — nothing is made up.
+ * line of its progress output. A read's output is the file itself, not progress: its last line
+ * (a lone "};") says nothing about the step. Empty when the step has neither — nothing is made up.
  */
 function stepDetail(header: ToolHeader | null, narrative: string, partial: unknown): string {
 	const target = (header?.path || header?.target || "").trim();
 	if (target && !narrative.includes(target)) return target;
+	if (header?.activity === "read") return "";
 	return (
 		resultText(partial)
 			.split("\n")

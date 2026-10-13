@@ -697,7 +697,7 @@ describe("live work", () => {
 		useToolsStore.setState(toolEntriesState([["command", entry("bash", { command: "slow command" })]]));
 		await mount(["command"]);
 		await act(async () => vi.advanceTimersByTime(11_000));
-		expect(container.textContent).toContain("Running for 11s without output");
+		expect(container.textContent).toContain("No output for 11s");
 	});
 	it("warns about a silent command inside an open subagent lane too", async () => {
 		vi.useFakeTimers();
@@ -720,7 +720,7 @@ describe("live work", () => {
 		const lane = container.querySelector(".omp-work-stage .omp-live-step");
 		expect(lane?.getAttribute("data-surface")).toBe("bash");
 		const clock = lane?.querySelector(".omp-work-clock");
-		expect(clock?.textContent).toBe("Running for 11s without output");
+		expect(clock?.textContent).toBe("No output for 11s");
 		expect(clock?.getAttribute("data-stalled")).toBe("true");
 	});
 	it("counts only steps advanced outside visibility", async () => {

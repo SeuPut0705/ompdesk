@@ -306,4 +306,20 @@ describe("concurrent worker lanes", () => {
 		expect(elapsed).toEqual(["", "1.2s"]);
 		expect(container.textContent).not.toContain("0ms");
 	});
+
+	it("states a starting lane's tokens alone, never 0 tools", async () => {
+		useSubagentsStore.getState().setSnapshots([
+			node("Starting", 0, {
+				progress: progress("Starting", {
+					toolCount: 0,
+					tokens: 10,
+					currentTool: undefined,
+					currentToolArgs: undefined,
+				}),
+			}),
+		]);
+		await render();
+		expect(container.querySelector(".omp-work-card-count")?.textContent).toBe("10 tokens");
+		expect(container.textContent).not.toContain("0 tools");
+	});
 });

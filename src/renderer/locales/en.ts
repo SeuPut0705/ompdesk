@@ -2457,7 +2457,7 @@ export const en: Record<string, string> = {
 	"chat.work.map": "Work map",
 	"chat.work.progress": "{tools} tool{plural} · {tokens} tokens",
 	"chat.work.catchUp": "{count} step{plural} advanced while you were away",
-	"chat.work.stalled": "Running for {seconds}s without output",
+	"chat.work.stalled": "No output for {seconds}s",
 	"chat.work.outcome": "Outcome",
 	"chat.work.filesChanged": "{count} file{plural} changed",
 	"chat.work.commandsRun": "{count} command{plural}",

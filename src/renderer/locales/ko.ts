@@ -2450,7 +2450,7 @@ export const ko: Record<string, string> = {
 	"chat.work.map": "작업 지도",
 	"chat.work.progress": "도구 {tools}개 · {tokens} 토큰",
 	"chat.work.catchUp": "자리를 비운 동안 {count}단계 진행",
-	"chat.work.stalled": "출력 없이 {seconds}초째 실행 중",
+	"chat.work.stalled": "{seconds}초째 출력이 없어요",
 	"chat.work.outcome": "결과",
 	"chat.work.filesChanged": "파일 {count}개 변경",
 	"chat.work.commandsRun": "명령 {count}개",
