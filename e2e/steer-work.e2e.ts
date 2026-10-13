@@ -101,7 +101,11 @@ test("a steer sent mid-run stays inside the turn's one work card with every agen
 		await expect(page.locator('.omp-live-step[data-state="running"]')).toHaveCount(0);
 		const summary = page.locator(".omp-execution-group-header");
 		const finishedSummary = await summary.getAttribute("aria-label");
-		const finishedLanes = await page.locator(".omp-work-card-name").allTextContents();
+		// Whole lane rows: name, conclusion and duration, each from stock's transcript records.
+		const lanes = page.locator(".omp-work-card-button");
+		await expect(lanes.filter({ hasText: "LaneRace" })).toContainText("The lane conclusion race is fixed.");
+		await expect(lanes.filter({ hasText: "LaneRace" })).toContainText("2.4s");
+		const finishedLanes = await lanes.allTextContents();
 		await capture("finished");
 
 		// A reloaded window hydrates the same single card from the transcript, with the same head.
@@ -112,7 +116,7 @@ test("a steer sent mid-run stays inside the turn's one work card with every agen
 		await expectOneCard(page);
 		await expect(page.locator(".omp-work-head [data-incoming] > .omp-work-narrative")).toHaveText("Work complete");
 		await expect(summary).toHaveAttribute("aria-label", finishedSummary ?? "");
-		await expect(page.locator(".omp-work-card-name")).toHaveText(finishedLanes);
+		await expect(lanes).toHaveText(finishedLanes);
 		await capture("hydrated");
 		const directory = process.env.OMP_GUI_WORK_SCREENSHOTS;
 		if (directory) {

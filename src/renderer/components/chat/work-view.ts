@@ -15,6 +15,14 @@ type Translate = (key: string, params?: Record<string, string | number>) => stri
 const GENERIC_INTENT =
 	/^(?:running|run|executing|execute)\s+(?:the\s+)?(?:requested|given|provided|specified|user(?:'s)?)?\s*(?:shell\s+|bash\s+)?commands?\.?$/i;
 
+/** Stock eval's language tokens (`py`, `js` and their long forms) as people name them. */
+const EVAL_LANGUAGES: Record<string, string> = {
+	py: "Python",
+	python: "Python",
+	js: "JavaScript",
+	javascript: "JavaScript",
+};
+
 export function workNarrative(
 	tool: string,
 	args: Record<string, unknown>,
@@ -43,6 +51,13 @@ export function workNarrative(
 		return names.length > 3
 			? t("chat.work.runningAgentsMore", { names: shown, count: names.length - 3 })
 			: t("chat.work.runningAgents", { names: shown });
+	}
+	if (tool === "eval") {
+		// Stock labels a cell by its title, else "running <language>" (eval.ts): "Run code js"
+		// named the wire token, and "Run code Count rows" put a label before the title.
+		if (typeof args.title === "string" && args.title.trim()) return args.title.trim();
+		const language = typeof args.language === "string" ? args.language : "js";
+		return t("chat.work.runLanguage", { language: EVAL_LANGUAGES[language] ?? language });
 	}
 	const header = getToolHeader(tool, args);
 	return t("chat.work.activity", {

@@ -36,6 +36,11 @@ export interface WorkGroupTally {
 	 * were cut off; agents still running report on their own lanes, never as this card's state.
 	 */
 	superseded?: boolean;
+	/**
+	 * Stock's empty aborted reply follows the group: the user stopped the run. A stop while the
+	 * model's next request was pending cuts no call, yet the run did not complete.
+	 */
+	stopped?: boolean;
 }
 
 export interface WorkGroupResolution {
@@ -62,7 +67,13 @@ export function resolveWorkGroup(tally: WorkGroupTally): WorkGroupResolution {
 	}
 	const live = !tally.superseded && (tally.live || tally.runningTools > 0);
 	const state: WorkGroupState =
-		live || runningAgents > 0 ? "running" : failed > 0 ? "failed" : interrupted > 0 ? "interrupted" : "complete";
+		live || runningAgents > 0
+			? "running"
+			: failed > 0
+				? "failed"
+				: interrupted > 0 || tally.stopped
+					? "interrupted"
+					: "complete";
 	return { state, failed, interrupted, runningAgents };
 }
 

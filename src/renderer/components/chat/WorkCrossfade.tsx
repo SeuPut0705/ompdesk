@@ -34,16 +34,25 @@ interface Frame {
 export function WorkCrossfade({
 	identity,
 	motion,
+	handoff,
 	children,
 }: {
 	identity: string;
 	motion: boolean;
+	/** What a previous mount of the same card last showed: the first frame fades in over it. */
+	handoff?: Frame | null;
 	children: ReactNode;
 }) {
 	// What the last commit showed: the outgoing layer keeps showing exactly that.
 	const committed = useRef<Frame>({ identity, children });
 	const [shown, setShown] = useState(identity);
 	const [outgoing, setOutgoing] = useState<Frame | null>(null);
+	const [handedOff, setHandedOff] = useState(false);
+	if (handoff && !handedOff) {
+		// Keyed apart from the incoming frame even when both show the same step.
+		setHandedOff(true);
+		if (motion) setOutgoing({ identity: `${handoff.identity}\u0000handoff`, children: handoff.children });
+	}
 	if (shown !== identity) {
 		setShown(identity);
 		setOutgoing(motion ? committed.current : null);

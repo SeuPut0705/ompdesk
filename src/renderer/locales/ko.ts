@@ -2455,6 +2455,7 @@ export const ko: Record<string, string> = {
 	"chat.work.runningAgents": "{names} 실행 중",
 	"chat.work.runningAgentsMore": "{names} 외 {count}개 실행 중",
 	"chat.work.runningSubagent": "서브에이전트 실행 중",
+	"chat.work.runLanguage": "{language} 실행",
 	"chat.work.map": "작업 지도",
 	"chat.work.progress": "도구 {tools}개 · {tokens} 토큰",
 	"chat.work.catchUp": "자리를 비운 동안 {count}단계 진행",

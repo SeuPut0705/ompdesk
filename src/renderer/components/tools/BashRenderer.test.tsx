@@ -137,6 +137,33 @@ describe("BashRenderer", () => {
 		expect(container.querySelector(".omp-bash-notes")?.textContent).toBe("Background job bg-7");
 	});
 
+	// The same forms stock's own isBackgroundNotice accepts (pi-tui tools/bash.ts formatBackgroundNotice).
+	it.each([
+		"Backgrounded as job bg_1 (killed once it has run 120s in total; `timeout: 0` disables the deadline); its output is injected into the conversation as a follow-up the moment it finishes. Do NOT poll for it.",
+		"Backgrounded as job bg_1 (no deadline); its output is injected into the conversation as a follow-up the moment it finishes.",
+		"Backgrounded as job bg_1; result will be delivered automatically.",
+	])("strips stock's background notice in any of its wordings: %s", async notice => {
+		await mount(
+			<BashRenderer
+				args={{ command: "sleep 60" }}
+				result={bashResult(`started\n${notice}`, { async: { state: "running", jobId: "bg_1" } })}
+			/>,
+		);
+		expect(container.textContent).toContain("started");
+		expect(container.textContent).not.toContain("Backgrounded as job");
+		expect(container.querySelector(".omp-bash-notes")?.textContent).toBe("Background job bg_1");
+	});
+
+	it("keeps a line that only looks like another job's notice", async () => {
+		await mount(
+			<BashRenderer
+				args={{ command: "echo" }}
+				result={bashResult("Backgrounded as job bg_10; elsewhere", { async: { state: "running", jobId: "bg_1" } })}
+			/>,
+		);
+		expect(container.textContent).toContain("Backgrounded as job bg_10; elsewhere");
+	});
+
 	it("strips the wall-time and clamp notices when intermediate notices follow them", async () => {
 		// Wire order: wall time is appended BEFORE timeout/pty notices, so it
 		// sits mid-body — an end-anchored strip would leak it into the output.

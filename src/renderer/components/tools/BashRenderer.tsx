@@ -119,7 +119,6 @@ function asNumber(value: unknown): number | undefined {
  * `[Showing …]` limit line OUTERMOST. Strip in reverse wire order so each
  * end-anchored match sees the real end of the text.
  */
-const BACKGROUND_NOTICE_RE = /\n?Backgrounded as job [^\n]*; result will be delivered automatically\.\s*$/;
 const EXIT_CODE_NOTICE_RE = /\n?Command exited with code -?\d+\s*$/;
 const TIMED_OUT_NOTICE_RE = /\n?\[Command timed out(?: after \d+ seconds)?\]\s*$/;
 const TIMEOUT_CLAMP_NOTICE_RE = /\n?Timeout clamped to \d+s \(requested \d+s; [^)\n]*\)\./;
@@ -127,6 +126,21 @@ const WALL_TIME_NOTICE_RE = /\n?Wall time: \d+(?:\.\d+)? seconds/;
 
 function stripTrailer(text: string, re: RegExp): string {
 	return text.replace(re, "").trimEnd();
+}
+
+/**
+ * Stock's background-job footer is one line starting `Backgrounded as job <id>` then `;` or a
+ * space (its deadline), in every wording stock has used. Mirrors pi-tui tools/bash.ts
+ * `isBackgroundNotice`, which stock does not export; the renderer cannot import stock.
+ */
+export function stripBackgroundNotice(text: string, jobId: string): string {
+	const trimmed = text.trimEnd();
+	const lineStart = trimmed.lastIndexOf("\n") + 1;
+	const prefix = `Backgrounded as job ${jobId}`;
+	const next = trimmed[lineStart + prefix.length];
+	return trimmed.startsWith(prefix, lineStart) && (next === ";" || next === " ")
+		? trimmed.slice(0, lineStart).trimEnd()
+		: text;
 }
 
 /** Strip the LAST occurrence of a non-terminal notice (wall time). */
@@ -208,7 +222,7 @@ function parseBashResult(result: unknown): BashParsed {
 	}
 	if (timedOut) text = stripTrailer(text, TIMED_OUT_NOTICE_RE);
 	const backgrounded = asyncInfo?.state === "running" && backgroundJobId ? backgroundJobId : null;
-	if (backgrounded) text = stripTrailer(text, BACKGROUND_NOTICE_RE);
+	if (backgrounded) text = stripBackgroundNotice(text, backgrounded);
 	if (exitCode != null) text = stripTrailer(text, EXIT_CODE_NOTICE_RE);
 	const clamped =
 		timeoutSeconds != null && requestedTimeoutSeconds != null && requestedTimeoutSeconds !== timeoutSeconds

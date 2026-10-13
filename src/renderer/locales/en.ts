@@ -2462,6 +2462,7 @@ export const en: Record<string, string> = {
 	"chat.work.runningAgents": "Running {names}",
 	"chat.work.runningAgentsMore": "Running {names} and {count} more",
 	"chat.work.runningSubagent": "Running a subagent",
+	"chat.work.runLanguage": "Run {language}",
 	"chat.work.map": "Work map",
 	"chat.work.progress": "{tools} tool{plural} · {tokens} tokens",
 	"chat.work.catchUp": "{count} step{plural} advanced while you were away",

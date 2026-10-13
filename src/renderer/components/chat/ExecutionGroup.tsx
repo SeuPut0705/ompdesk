@@ -14,6 +14,7 @@ import { LiveTurnMeter, OutputMeter } from "./TurnOutputMeter";
 import { useRunOutcome, useRunStores } from "./use-work-run";
 import { type GroupAgent, isInterruptedError, resolveWorkGroup } from "./WorkStatus";
 import { finishedHeadline, parseTaskResults, runSpan, transcriptTodoSnapshot } from "./work-run";
+import { messageSourceTimestamp } from "./work-turn";
 import { isSkippedWork } from "./work-view";
 
 interface ExecutionGroupProps {
@@ -123,7 +124,13 @@ export function ExecutionGroup({
 			return toolCallIds.includes(entries.entryKeyForCallId(id)) ? [id] : [];
 		});
 		const { startedAt, spanMs } = runSpan([state.messages, state.liveMessages], callIds);
-		return `${startedAt ?? ""}:${spanMs}`;
+		// A live run still only thinking has no call yet: its clock starts with the reply streaming
+		// now, the same stock message whose first call the clock reads from then on.
+		const thinkingFrom =
+			startedAt === undefined && live && state.streamingMessage
+				? messageSourceTimestamp(state.streamingMessage)
+				: undefined;
+		return `${startedAt ?? thinkingFrom ?? ""}:${spanMs}`;
 	});
 	const [clockStart = "", clockSpan = "0"] = clockKey.split(":");
 	const clock = { startedAt: clockStart ? Number(clockStart) : undefined, spanMs: Number(clockSpan) };
@@ -151,6 +158,7 @@ export function ExecutionGroup({
 		interruptedTools,
 		agents: groupAgents,
 		superseded,
+		stopped: stoppedAt !== undefined,
 	});
 	const totalSteps = Math.max(0, stepCount - skipped);
 	const plural = totalSteps === 1 ? "" : "s";

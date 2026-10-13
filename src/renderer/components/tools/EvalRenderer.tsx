@@ -1,7 +1,9 @@
 import { Code2 } from "lucide-react";
-import { extractImageDataUrls, resultText } from "../../lib/format";
+import { extractImageDataUrls, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { asRecord } from "../../lib/wire-value";
 import { CodeBlock } from "../chat/CodeBlock";
+import { stripBackgroundNotice } from "./BashRenderer";
 import { ResultImages } from "./ResultImages";
 import type { ToolRendererProps } from "./ToolCard";
 import { ToolTextPreview } from "./ToolTextPreview";
@@ -14,7 +16,12 @@ export function EvalRenderer({ args, result, isError, isPartial, partialResult, 
 		typeof args.language === "string" ? (args.language === "py" ? "python" : args.language) : "javascript";
 	const title = typeof args.title === "string" ? args.title : "";
 	const effective = isPartial ? partialResult : result;
-	const output = resultText(effective);
+	// A cell stock moved to the background ends with the same notice as a command (eval.ts):
+	// restate it as the job note instead of printing the model-facing instructions.
+	const job = asRecord(resultDetails(effective)?.async);
+	const backgrounded = job?.state === "running" && typeof job.jobId === "string" ? job.jobId : null;
+	const text = resultText(effective);
+	const output = backgrounded ? stripBackgroundNotice(text, backgrounded) : text;
 	const images = extractImageDataUrls(effective);
 
 	return (
@@ -50,6 +57,11 @@ export function EvalRenderer({ args, result, isError, isPartial, partialResult, 
 				</div>
 			)}
 			<ResultImages images={images} livePreview={livePreview} />
+			{backgrounded ? (
+				<div className="omp-bash-notes text-sc-xs text-(--sc-text-subtle)">
+					{t("tools.bash.background", { id: backgrounded })}
+				</div>
+			) : null}
 			{isPartial && !output && images.length === 0 && (
 				<div className="text-omp-sm italic text-[var(--omp-accent)]">{t("tools.eval.evaluating")}</div>
 			)}

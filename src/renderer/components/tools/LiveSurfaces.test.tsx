@@ -191,6 +191,21 @@ describe("live tool screens", () => {
 		expect(container.textContent).not.toContain("Calculation");
 		expect(container.textContent).not.toContain("JavaScript");
 	});
+	it("restates a backgrounded cell as its job note, not stock's model-facing notice", async () => {
+		await mount(
+			<EvalRenderer
+				livePreview
+				args={{ code: "await sleep(60_000)" }}
+				result={result(
+					"warming up\n\nBackgrounded as job ev_2 (no deadline); its output is injected into the conversation as a follow-up the moment it finishes.",
+					{ async: { state: "running", jobId: "ev_2", type: "eval" } },
+				)}
+			/>,
+		);
+		expect(container.textContent).toContain("warming up");
+		expect(container.textContent).not.toContain("Backgrounded as job");
+		expect(container.querySelector(".omp-bash-notes")?.textContent).toBe("Background job ev_2");
+	});
 	it("keeps ranged read line numbers", async () => {
 		await mount(
 			<ReadRenderer

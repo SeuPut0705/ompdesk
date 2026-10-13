@@ -125,6 +125,50 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 	test.setTimeout(process.env.OMP_GUI_WORK_SCREENSHOTS ? 300_000 : 120_000);
 	await withLiveWorkApp(0, async page => {
 		const directory = process.env.OMP_GUI_WORK_SCREENSHOTS;
+		// Frame data for the live card: every painted frame records the head's and the open stage's
+		// heights and how much of the head's narrative shows (the opaque incoming layer over the
+		// outgoing one: in + out × (1 − in)).
+		await page.evaluate(() => {
+			const samples: {
+				at: number;
+				card: number;
+				head: number;
+				shell: number;
+				stage: number;
+				narrative: number;
+				step: string;
+			}[] = [];
+			const sampler = { samples, running: true };
+			Reflect.set(window, "__ompCardFrames", sampler);
+			// Which card element a frame saw: a remount shows up as a new number.
+			const cards = new WeakMap<Element, number>();
+			const tick = () => {
+				const card = document.querySelector<HTMLElement>(
+					'.omp-execution-group[data-state="running"] > .omp-live-step',
+				);
+				if (card) {
+					if (!cards.has(card)) cards.set(card, samples.length);
+					const shell = card.querySelector<HTMLElement>(':scope > .omp-work-stage-shell[data-open="true"]');
+					const opacity = (selector: string) => {
+						const layer = card.querySelector<HTMLElement>(`.omp-work-head .omp-work-frame${selector}`);
+						return layer ? Number(getComputedStyle(layer).opacity) : 0;
+					};
+					const incoming = opacity("[data-incoming]");
+					const narrative = incoming + opacity("[data-outgoing]") * (1 - incoming);
+					samples.push({
+						at: performance.now(),
+						card: cards.get(card) ?? -1,
+						head: card.querySelector<HTMLElement>(".omp-work-head")?.offsetHeight ?? 0,
+						shell: card.querySelector<HTMLElement>(":scope > .omp-work-stage-shell")?.offsetHeight ?? 0,
+						stage: shell?.querySelector<HTMLElement>(".omp-work-stage")?.offsetHeight ?? 0,
+						narrative,
+						step: card.dataset.surface ?? "",
+					});
+				}
+				if (sampler.running) requestAnimationFrame(tick);
+			};
+			requestAnimationFrame(tick);
+		});
 		const input = page.locator("textarea").first();
 		await input.fill("fixture work view");
 		await input.press("Enter");
@@ -292,6 +336,38 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 				await expect(surface).toHaveAttribute("data-surface", "read");
 			}
 		}
+		const frames = await page.evaluate(() => {
+			const sampler = Reflect.get(window, "__ompCardFrames") as {
+				running: boolean;
+				samples: {
+					at: number;
+					card: number;
+					head: number;
+					shell: number;
+					stage: number;
+					narrative: number;
+					step: string;
+				}[];
+			};
+			sampler.running = false;
+			return sampler.samples;
+		});
+		if (directory) await fs.writeFile(path.join(directory, "live-card-frames.json"), JSON.stringify(frames));
+		expect(frames.length).toBeGreaterThan(100);
+		// The head keeps one height all run long: the sub line is reserved from the first frame.
+		expect(new Set(frames.map(frame => frame.head)).size, "head heights").toBe(1);
+		// Once open, the stage holds one height for every tool kind.
+		const stages = frames.filter(frame => frame.stage > 0).map(frame => frame.stage);
+		expect(Math.max(...stages) - Math.min(...stages), "stage height range").toBeLessThanOrEqual(1);
+		// At most the one handoff remount (streaming row → history row), and a crossfade never
+		// blanks the narrative, across that handoff too: past the card's own entrance, the layers
+		// always show most of one line.
+		expect(new Set(frames.map(frame => frame.card)).size, "card mounts").toBeLessThanOrEqual(2);
+		const settled = frames.filter(frame => frame.at > (frames[0]?.at ?? 0) + 400);
+		expect(Math.min(...settled.map(frame => frame.narrative)), "narrative visibility").toBeGreaterThan(0.6);
+		// The stage opens by unfolding, never in one frame.
+		const opening = frames.findIndex(frame => frame.shell > 0);
+		expect(frames[opening]?.shell ?? 0, "stage first open frame").toBeLessThan(frames.at(-1)?.shell ?? 0);
 		await surface.locator('[data-step-id="work-view-1"]').click();
 		await expect(surface).toHaveAttribute("data-surface", "write");
 		// Exercise the exact drag-to-split path, including a 2×2 pane layout.

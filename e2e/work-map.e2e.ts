@@ -75,7 +75,10 @@ test("inline work cards stream tool evidence, catch up and retain outcomes witho
 			}
 		};
 		await advance();
-		await expect(page.locator(".omp-work-narrative")).toHaveText("Checking the workspace types");
+		// The shown narrative: the step before it fades out underneath for a moment.
+		await expect(page.locator(".omp-work-head [data-incoming] > .omp-work-narrative")).toHaveText(
+			"Checking the workspace types",
+		);
 		await capture("narrative");
 		await expect(page.locator(".omp-work-clock")).toContainText("No output for", { timeout: 15_000 });
 		await capture("stall");

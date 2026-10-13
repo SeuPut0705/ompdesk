@@ -42,6 +42,14 @@ const seenSteps = new WeakMap<
 	Map<string, { count: number; hydration: number; away: boolean; waitingForHydration: boolean }>
 >();
 
+/**
+ * The transcript moves a live card from its streaming row to its history row once the first
+ * call lands, which unmounts the card and mounts it anew in one commit. The departing mount
+ * leaves its head here for that commit only, so the new mount fades in over it instead of over
+ * nothing (the narrative blanked for a frame).
+ */
+const headHandoffs = new WeakMap<StoreApi<ToolsStore>, { identity: string; narrative: string }>();
+
 /** An auto-followed agent keeps the stage at least this long before a main step may take it. */
 const AGENT_DWELL_MS = 2000;
 /** Moving the stage from one auto-followed agent to another waits longer: lanes report in bursts. */
@@ -65,7 +73,8 @@ function settledArgs(entry: ToolEntry): Record<string, unknown> {
  */
 function stepDetail(header: ToolHeader | null, narrative: string, partial: unknown): string {
 	const target = (header?.path || header?.target || "").trim();
-	if (target && !narrative.includes(target)) return target;
+	// A code cell's target is its title or language, which its narrative already states.
+	if (target && header?.tool !== "eval" && !narrative.includes(target)) return target;
 	if (header?.activity === "read") return "";
 	return (
 		resultText(partial)
@@ -537,11 +546,19 @@ export function LiveStepPeek({
 			: entry && surfaceKey !== "thinking"
 				? workNarrative(entry.toolName, settledArgs(entry), t, undefined, entry.intent)
 				: t("chat.thinking.live");
+	const waitingNames = waitingFor ? waitingFor.split(", ") : [];
 	const liveSub =
 		!following && !pinnedLive
 			? ""
 			: waitingFor && (kind === "wait" || kind === "task" || selected === "thinking")
-				? t("chat.work.waitingFor", { names: waitingFor })
+				? // A narrative that already names every agent ("Running Scout, Review", a wait's own
+					// "Waiting for Sleeper") gets their count below it, not the same names again.
+					waitingNames.every(name => narrative.includes(name))
+					? t("chat.process.statusAgents", {
+							count: waitingNames.length,
+							plural: waitingNames.length === 1 ? "" : "s",
+						})
+					: t("chat.work.waitingFor", { names: waitingFor })
 				: selected === "thinking" && turnIsLive
 					? lastReasoningSentence(reasoning) || (thinkingBetween ? t("chat.thinking.live") : "")
 					: picks.length > 1 && overlapping
@@ -555,6 +572,31 @@ export function LiveStepPeek({
 		liveSub ||
 		(turnIsLive && !nested && entry && surfaceKey !== "thinking" ? stepDetail(header, narrative, partial) : "");
 	const headState: WorkState = state === "interrupted" ? "stopped" : state;
+	const headIdentity = outcomeMode ? "outcome" : surfaceKey;
+	const shownHead = useRef({ live: false, identity: headIdentity, narrative });
+	shownHead.current = { live: turnIsLive && !nested, identity: headIdentity, narrative };
+	const [handoff, setHandoff] = useState<{ identity: string; children: ReactNode } | null>(null);
+	useLayoutEffect(() => {
+		// A departing mount's cleanup runs in the same commit, before this mount's layout effects.
+		const left = headHandoffs.get(tools);
+		headHandoffs.delete(tools);
+		if (left && shownHead.current.live) {
+			setHandoff({
+				identity: left.identity,
+				children: <div className="omp-work-narrative">{left.narrative}</div>,
+			});
+		}
+		return () => {
+			const { live, identity, narrative } = shownHead.current;
+			if (!live) return;
+			const left = { identity, narrative };
+			headHandoffs.set(tools, left);
+			// Only a mount in this same commit takes it; layout effects run before any microtask.
+			queueMicrotask(() => {
+				if (headHandoffs.get(tools) === left) headHandoffs.delete(tools);
+			});
+		};
+	}, [tools]);
 	// The step's own clock, or the no-output warning for a silent command that has not exited yet.
 	const exited = typeof resultDetails(partial)?.exitCode === "number";
 	const stalled = running && !exited && (kind === "bash" || kind === "eval") && silentSeconds > 10;
@@ -634,7 +676,7 @@ export function LiveStepPeek({
 					/>
 					<div className="omp-work-head-text">
 						{/* Keyed by what is shown, never by state or output: one fade per step. */}
-						<WorkCrossfade identity={outcomeMode ? "outcome" : surfaceKey} motion={motion}>
+						<WorkCrossfade identity={headIdentity} motion={motion} handoff={handoff}>
 							<div className="omp-work-narrative" title={narrative}>
 								{narrative}
 							</div>
@@ -1026,7 +1068,9 @@ export function LiveStepPeek({
 		);
 	}
 	function renderCatchUp() {
-		return catchUp > 0 ? (
+		// Steps that advanced while the reader was away matter only while the run goes on:
+		// a finished card states its outcome instead.
+		return catchUp > 0 && turnIsLive ? (
 			<button
 				type="button"
 				className="omp-live-work-chip omp-work-catch-up"

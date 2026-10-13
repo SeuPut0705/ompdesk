@@ -1984,7 +1984,14 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		endCall("steer-bash", "bash", "12 pass\n0 fail", { exitCode: 0 });
 		startCall("steer-task-1", "task", { tasks: [{ name: "LaneRace", task: "Find the lane conclusion race" }] });
 		startAgent("LaneRace", "steer-task-1", "Find the lane conclusion race");
-		endCall("steer-task-1", "task", "LaneRace is working in the background");
+		// Stock's background spawn returns at once with the spawned agent's progress row.
+		endCall("steer-task-1", "task", "LaneRace is working in the background", {
+			results: [],
+			progress: [
+				{ id: "LaneRace", index: 0, agent: "debugger", status: "running", task: "Find the lane conclusion race" },
+			],
+			async: { state: "running", jobId: "LaneRace", type: "task" },
+		});
 		steerWork = {
 			// Stock: the queued steer enters the running loop as a `steering` user message.
 			deliver: () => {
@@ -2013,7 +2020,36 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						payload: { ...agent, agentSource: "bundled", status: "completed" },
 					});
 				}
-				endCall("steer-task-2", "task", "CiSpeed finished");
+				// Stock settles each agent in the transcript: CiSpeed through its task call's result
+				// rows, the detached LaneRace through an async-result delivery wrapping its
+				// <task-result> envelope. A reload replays the lanes from these records alone.
+				endCall("steer-task-2", "task", "CiSpeed finished", {
+					results: [
+						{
+							id: "CiSpeed",
+							agent: "debugger",
+							exitCode: 0,
+							output: "CI timing split into two jobs.",
+							durationMs: 1800,
+						},
+					],
+				});
+				const delivery: AgentMessage = {
+					role: "custom",
+					customType: "async-result",
+					content:
+						'<system-notice>\nBackground job LaneRace has completed. Resume your work using the result below.\n<task-result id="LaneRace" agent="debugger" status="completed" duration="2.4s">\n<output>\nThe lane conclusion race is fixed.\n</output>\n</task-result>\n</system-notice>',
+					display: true,
+					details: {
+						jobs: [
+							{ jobId: "LaneRace", type: "task", status: "completed", agentId: "LaneRace", durationMs: 2400 },
+						],
+					},
+					timestamp: Date.now(),
+				};
+				appendMessage(delivery);
+				write({ type: "message_end", message: delivery });
+				turn.push(delivery);
 				const answer: AgentMessage = {
 					role: "assistant",
 					content: [{ type: "text", text: "Lane race fixed and CI timing split." }],
