@@ -275,7 +275,8 @@ it("does not publish a half-written intent while tool arguments are streaming", 
 		]),
 	);
 	await render(["wait"]);
-	expect(container.querySelector(".omp-work-narrative")?.textContent).toBe("Wait");
+	// Neither the half-written intent nor the bare tool name: the card stays on "Thinking…".
+	expect(container.querySelector(".omp-work-narrative")?.textContent).toBe("Thinking…");
 	useToolsStore.setState(
 		toolEntriesState([["wait", { ...entry, toolName: "wait", args: { i: "Waiting for Sleeper" } }]]),
 	);

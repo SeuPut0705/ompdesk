@@ -136,7 +136,7 @@ export function UsageRow({ message }: { message: UsageSource }) {
 			{tokPerSec > 0 && (
 				<span className="flex items-center gap-1" title={t("chat.usage.throughput")}>
 					<Zap aria-hidden />
-					{tokPerSec.toFixed(1)}/s
+					{t("chat.meter.rate", { rate: tokPerSec.toFixed(1) })}
 				</span>
 			)}
 			{timeText && <span title={t("chat.usage.time")}>{timeText}</span>}

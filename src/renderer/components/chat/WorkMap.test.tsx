@@ -203,8 +203,8 @@ describe("concurrent worker lanes", () => {
 	});
 
 	it.each([
-		["en", "Work interrupted", "cancelled", "no turn"],
-		["ko", "작업이 중단됐어요", "취소됨", "턴 없음"],
+		["en", "Work interrupted", "Interrupted", "no turn"],
+		["ko", "작업이 중단됐어요", "중단됨", "턴 없음"],
 	])("labels aborted and stale workers as interrupted in %s", async (language, activity, abortedLabel, staleLabel) => {
 		vi.stubGlobal("localStorage", { getItem: () => language, setItem: vi.fn() });
 		useSubagentsStore

@@ -161,13 +161,14 @@ describe("ExecutionGroup", () => {
 				</I18nProvider>,
 			);
 		});
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 failed · 2 steps");
+		// One run model: the head counts the run once; failures are stated once, in the head.
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 failed · 2 commands");
 		const rows = [...container.querySelectorAll('.omp-work-outcome li[data-kind="command"]')];
 		expect(rows.map(row => row.querySelector('[role="img"]')?.getAttribute("aria-label"))).toEqual([
 			"Failed",
 			"Interrupted",
 		]);
-		expect(container.querySelector(".omp-work-outcome summary")?.textContent).toContain("1 failed");
+		expect(container.querySelector(".omp-work-outcome summary")?.textContent).toBe("Outcome");
 	});
 
 	it("counts a file written and then edited in one group as one edited file", async () => {
@@ -184,12 +185,12 @@ describe("ExecutionGroup", () => {
 			]),
 		);
 		await mount(["write", "edit"]);
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("Edited 1 file");
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 file changed +1 −0");
 	});
 
 	it("keeps completed work to one summary line until requested", async () => {
 		await mount();
-		expect(container.textContent).toContain("2 steps complete");
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("2 steps");
 		expect(container.querySelector('[data-testid="details"]')).toBeNull();
 
 		await act(async () => {
@@ -300,7 +301,9 @@ describe("ExecutionGroup", () => {
 				</I18nProvider>,
 			);
 		});
-		expect(container.querySelector(".omp-work-narrative")?.textContent).toBe("Thinking…");
+		// One narrative change per step: the finished step's line stays, the sub line says it is thinking.
+		expect(container.querySelector(".omp-work-narrative")?.textContent).toBe("Run command bun check");
+		expect(container.querySelector(".omp-work-sub")?.textContent).toBe("Thinking…");
 		const surface = container.querySelector(".omp-live-step-scroll");
 		expect(surface?.getAttribute("data-settled")).toBe("true");
 		expect(surface?.textContent).toContain("bun check");
@@ -357,7 +360,8 @@ describe("ExecutionGroup", () => {
 		);
 		await mount(["read-1", "read-2", "edit-1", "bash-1"]);
 
-		expect(container.textContent).toContain("Read 2 files · Edited 1 file · Ran 1 command");
+		// The same run model as the outcome: what changed and what ran, not one count per tool kind.
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 file changed · 1 command");
 		expect(container.textContent).toContain("16.0s");
 		expect(container.querySelector('[data-state="complete"]')).not.toBeNull();
 	});
@@ -616,14 +620,15 @@ describe("ExecutionGroup", () => {
 		const work = container.querySelector(".omp-live-step");
 		expect(work?.getAttribute("data-state")).toBe("stopped");
 		expect(work?.querySelector(".omp-work-narrative")?.textContent).toBe("Work interrupted");
-		expect(work?.querySelector(".omp-work-head [role='img']")?.getAttribute("aria-label")).toBe("cancelled");
+		// One name for a user stop: "Interrupted", never stock's "cancelled".
+		expect(work?.querySelector(".omp-work-head [role='img']")?.getAttribute("aria-label")).toBe("Interrupted");
 		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toMatch(/^1 interrupted · /);
 		expect(container.textContent).not.toContain("Work complete");
 	});
 
 	it.each([
 		["failed", "1 failed · ", "Work failed", "failed"],
-		["cancelled", "1 interrupted · ", "Work interrupted", "cancelled"],
+		["cancelled", "1 interrupted · ", "Work interrupted", "Interrupted"],
 	])(
 		"ends a detached task by its agent's own %s end, never with a success check",
 		async (status, summary, head, label) => {

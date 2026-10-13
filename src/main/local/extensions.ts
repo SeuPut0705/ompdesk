@@ -45,6 +45,7 @@ const BRIDGED = [
 	"get_agent_definition",
 	"get_agent_authoring",
 	"revive_subagent",
+	"get_subagent_transcript",
 	"get_theme_colors",
 ] as const;
 

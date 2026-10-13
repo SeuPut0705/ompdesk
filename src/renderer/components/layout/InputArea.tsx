@@ -631,8 +631,11 @@ export function InputArea() {
 			toggleExpanded(false);
 			return;
 		}
-		// Up/Down prompt-history recall: Up from the first line cycles to older
-		// entries, Down from the last line cycles back to the stashed draft.
+		// Up/Down prompt-history recall, as in a terminal: Up only with the caret at the very start
+		// (or an empty composer) cycles to older entries, Down only at the very end cycles back to
+		// the stashed draft. Anywhere else the arrows move the caret through multi-line text. While
+		// an unedited recalled entry is shown (any edit resets navigation), its first and last lines
+		// keep cycling so ↑/↓ walk the history without a caret step in between.
 		if (
 			!expanded &&
 			(e.key === "ArrowUp" || e.key === "ArrowDown") &&
@@ -646,11 +649,14 @@ export function InputArea() {
 				const caretStart = el.selectionStart ?? 0;
 				const caretEnd = el.selectionEnd ?? caretStart;
 				const history = useInputHistoryStore.getState();
+				const context = { cwd, owner: `${runtimeTabId}:${sessionId}`, device: historyDevice };
+				const browsing = history.navIndex !== -1 && history.navContext?.owner === context.owner;
+				const older = e.key === "ArrowUp";
 				let recalled: string | undefined;
-				if (e.key === "ArrowUp" && !text.slice(0, caretStart).includes("\n")) {
-					recalled = history.prev(text, { cwd, owner: `${runtimeTabId}:${sessionId}`, device: historyDevice });
-				} else if (e.key === "ArrowDown" && !text.slice(caretEnd).includes("\n")) {
-					recalled = history.next({ cwd, owner: `${runtimeTabId}:${sessionId}`, device: historyDevice });
+				if (older && (caretEnd === 0 || (browsing && !text.slice(0, caretStart).includes("\n")))) {
+					recalled = history.prev(text, context);
+				} else if (!older && (caretStart === text.length || (browsing && !text.slice(caretEnd).includes("\n")))) {
+					recalled = history.next(context);
 				}
 				if (recalled !== undefined) {
 					e.preventDefault();

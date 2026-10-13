@@ -390,7 +390,8 @@ export function buildHistoryRows(
 	preservedProcessStarts?: ReadonlySet<string>,
 ): HistoryRow[] {
 	const rows: HistoryRow[] = [];
-	const duringRunNotes = new Set<AgentMessage>();
+	// During-run notes and the run time each one is owned at (the shared run interval decides).
+	const duringRunNotes = new Map<AgentMessage, number>();
 	let processMessages: AgentMessage[] = [];
 	let reactionTargetIndex: number | undefined;
 	let turnStartedAt: number | undefined;
@@ -403,7 +404,11 @@ export function buildHistoryRows(
 	for (let index = 0; index < messages.length; index++) {
 		const incoming = messages[index];
 		if (!incoming) continue;
-		if (incoming.role === "user") {
+		// Stock delivers a queued steer as a `steering` user message inside the
+		// running loop. It redirects the open run instead of starting a turn.
+		const steersRun =
+			detail === "compact" && incoming.role === "user" && incoming.steering === true && processMessages.length > 0;
+		if (incoming.role === "user" && !steersRun) {
 			flushProcess();
 			turnStartedAt = messageTimestampMs(incoming);
 		}
@@ -424,15 +429,24 @@ export function buildHistoryRows(
 		// toolResult/display:false/empty-filler messages must not split a process
 		// run — they are invisible transport records, not transcript boundaries.
 		if (!isVisibleTranscriptMessage(message)) continue;
-		// Dedicated extension notices belong to work, not a new execution phase.
-		// Keep their transcript position until the shared run interval assigns ownership.
+		// Dedicated extension notices and mid-run steers belong to work, not a new
+		// execution phase. Keep their transcript position until the shared run
+		// interval assigns ownership.
+		if (steersRun) {
+			rows.push({ kind: "message", message });
+			// A steer typed before the step it follows began streaming is still
+			// delivered after that step: own it from its delivery position.
+			const delivered = Math.max(...processMessages.map(entry => messageTimestampMs(entry)));
+			duringRunNotes.set(message, Math.max(messageTimestampMs(message), delivered));
+			continue;
+		}
 		if (
 			detail === "compact" &&
 			isCustomMessageCardType(message.customType) &&
 			processMessages.some(entry => messageContent(entry).some(block => block.type === "toolCall"))
 		) {
 			rows.push({ kind: "message", message });
-			duringRunNotes.add(message);
+			duringRunNotes.set(message, messageTimestampMs(message));
 			continue;
 		}
 		if (
@@ -479,6 +493,9 @@ export function buildHistoryRows(
 		rows.push({ kind: "message", message });
 	}
 	flushProcess();
+	// Stock's empty aborted reply after a tool stop is the run's own end: the card states
+	// it as interrupted, so it never stands outside the card as a second "Stopped" row.
+	const stops = new Set<number>();
 	for (let index = 0; index < rows.length - 1; index++) {
 		const row = rows[index];
 		const next = rows[index + 1];
@@ -490,9 +507,10 @@ export function buildHistoryRows(
 			messageContent(next.message).length === 0
 		) {
 			rows[index] = { ...row, stoppedAt: messageTimestampMs(next.message) };
+			stops.add(index + 1);
 		}
 	}
-	return foldWorkNotes(rows, duringRunNotes);
+	return foldWorkNotes(stops.size ? rows.filter((_, index) => !stops.has(index)) : rows, duringRunNotes);
 }
 
 /** One interval model for archived todos and custom notices. */
@@ -503,11 +521,12 @@ interface ProcessRun {
 	end: number;
 	reply?: number;
 }
-function processRuns(rows: readonly HistoryRow[]) {
+function processRuns(rows: readonly HistoryRow[], notes?: ReadonlyMap<AgentMessage, number>) {
 	const runs: ProcessRun[] = [];
 	let turn = Number.NEGATIVE_INFINITY;
 	for (const [index, row] of rows.entries()) {
-		if (row.kind === "message" && row.message.role === "user") {
+		// A folded steer is part of its run, never a turn boundary.
+		if (row.kind === "message" && row.message.role === "user" && !notes?.has(row.message)) {
 			turn = messageTimestampMs(row.message);
 			const previous = runs.at(-1);
 			if (previous) previous.end = Math.min(previous.end, turn);
@@ -556,15 +575,16 @@ function ownsRun(
 	);
 }
 
-function foldWorkNotes(rows: readonly HistoryRow[], duringRunNotes: ReadonlySet<AgentMessage>): HistoryRow[] {
-	const runs = processRuns(rows);
+function foldWorkNotes(rows: readonly HistoryRow[], duringRunNotes: ReadonlyMap<AgentMessage, number>): HistoryRow[] {
+	const runs = processRuns(rows, duringRunNotes);
 	const folded = rows.slice();
 	const removed = new Set<number>();
 	for (const [index, row] of rows.entries()) {
-		if (row.kind !== "message" || !duringRunNotes.has(row.message)) continue;
+		const ownedAt = row.kind === "message" ? duringRunNotes.get(row.message) : undefined;
+		if (row.kind !== "message" || ownedAt === undefined) continue;
 		// Like todo.duringTurn, transcript-order evidence wins over a final
 		// reply's stream-start timestamp; finishing must never eject a note.
-		const run = runs.findLast(candidate => ownsRun(candidate, messageTimestampMs(row.message), true));
+		const run = runs.findLast(candidate => ownsRun(candidate, ownedAt, true));
 		const work = run ? folded[run.index] : undefined;
 		if (!run || work?.kind !== "process") continue;
 		folded[run.index] = {

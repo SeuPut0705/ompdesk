@@ -117,7 +117,9 @@ test("inline work cards stream tool evidence, catch up and retain outcomes witho
 		await expect(page.locator(".omp-work-outcome")).not.toContainText("exit 0");
 		// Agent conclusions live on their lanes, not repeated in the outcome.
 		await expect(page.locator(".omp-work-card-button").first()).toContainText("Workspace has 5 lines.");
-		await expect(page.locator(".omp-work-outcome summary")).toContainText("3 commands");
+		// Counts live once, in the card's head; the outcome keeps only its title and rows.
+		await expect(page.locator(".omp-execution-group-summary").last()).toContainText("3 commands");
+		await expect(page.locator(".omp-work-outcome summary")).toHaveText("Outcome");
 		await expect(page.locator(".omp-work-outcome li").filter({ hasText: "wc -l src/workspace.ts" })).toHaveCount(2);
 		await capture("outcome");
 		const commandTape = await fs.readFile(record, "utf8");
@@ -136,6 +138,42 @@ test("inline work cards stream tool evidence, catch up and retain outcomes witho
 		expect(log.some(command => command.type === "set_subagent_subscription" && command.level === "progress")).toBe(
 			true,
 		);
+		// At normal width every finished head shows its whole summary row: counts, duration and meter,
+		// none of them ellipsized while the head has room.
+		await expect
+			.poll(() =>
+				page
+					.locator(".omp-work-head")
+					.evaluateAll(heads =>
+						heads.flatMap(head =>
+							[...head.querySelectorAll(".omp-execution-group-header > span")]
+								.filter(part => part.scrollWidth > part.clientWidth)
+								.map(part => part.textContent),
+						),
+					),
+			)
+			.toEqual([]);
+		// At the narrowest window the finished head keeps a readable narrative and its summary row
+		// truncates inside the card instead of running past its edge.
+		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(800, 900));
+		await expect
+			.poll(() =>
+				page
+					.locator(".omp-live-step:not([data-nested='true'])")
+					.first()
+					.evaluate(card => {
+						const head = card.querySelector(".omp-work-head");
+						const narrative = card.querySelector(".omp-work-narrative")?.getBoundingClientRect();
+						const side = card.querySelector(".omp-work-head-side")?.getBoundingClientRect();
+						const bounds = card.getBoundingClientRect();
+						if (!head || !narrative || !side || bounds.width > 560) return "not narrow yet";
+						return (
+							narrative.width >= 120 && side.right <= bounds.right + 0.5 && head.scrollWidth <= head.clientWidth
+						);
+					}),
+			)
+			.toBe(true);
+		await capture("narrow");
 	} finally {
 		await exitApp(app);
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

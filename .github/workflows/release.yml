@@ -12,12 +12,14 @@
 # release (the packages stay as run artifacts) and works on any branch.
 #
 # Cost: a private repo bills macOS minutes at 10x Linux and Windows at 2x, and
-# every job rounds up to a whole minute. So each OS gets one job that installs
-# once and reuses the build packaging produced (`out/`) for its e2e, the
-# OS-independent checks run on Linux, and macOS runs only @smoke plus the
-# real-omp suite (the full suite runs locally before every release; manual on
-# CI: `gh workflow run ci.yml -f e2e=true`). After a flaky failure, rerun only
-# the failed job: `gh run rerun <id> --failed`.
+# every job rounds up to a whole minute. So Linux builds the app bundle
+# (`out/`) that Windows packages and runs the OS-independent checks; each
+# package's e2e runs on the out/ it packaged; Windows runs its platform tests
+# in a job of their own beside packaging (2 + 3 minutes; one job took 4); and
+# macOS runs only @smoke plus the real-omp suite (the full suite runs
+# locally before every release; manual on CI: `gh workflow run ci.yml -f
+# e2e=true`). After a flaky failure, rerun only the failed job: `gh run rerun
+# <id> --failed`.
 #
 # The mac job runs on the maintainer's own Mac (self-hosted runner, label
 # `ompdesk-mac`, free of Actions minutes) for runs on main only; other refs,
@@ -129,7 +131,41 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # OS-independent checks: typecheck, biome, surface policy, vitest.
+  # The app bundle (`out/`) is the same bytes whichever OS builds it (out/
+  # built on Linux, macOS and Windows diffed identical), so Linux builds it
+  # once, early, and `win` packages that instead of building its own (about
+  # 40 s of its critical path). The OS-independent checks follow the upload,
+  # off every critical path.
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+      # Nothing here launches Electron, and `win` waits on this job's upload.
+      - run: bun install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      - run: bun run build
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: out
+          path: out/
+          if-no-files-found: error
+          retention-days: 1
+          # A rerun after a failed check below uploads it again.
+          overwrite: true
+      - run: bun run check:types
+      - run: bunx biome check src e2e resources scripts
+      - run: node scripts/lint-surfaces.mjs
+
+  # vitest on its own runner: the longest OS-independent check. Two shards,
+  # one in each Linux job, billed more (each pays setup and install; the
+  # halves took 48-78 s, so `build` crossed 2 minutes).
   check:
     needs: prepare
     if: needs.prepare.outputs.release == 'true'
@@ -141,9 +177,6 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      - run: bun run check:types
-      - run: bunx biome check src e2e resources scripts
-      - run: node scripts/lint-surfaces.mjs
       - run: bunx vitest run
 
   # Package, verify the bundle, then launch the build packaging just made:
@@ -238,13 +271,41 @@ jobs:
           compression-level: 0
           retention-days: ${{ inputs.dry_run == true && 7 || 1 }}
 
-  # vitest on Windows (paths, PATH lookup, cmd.exe shim, named pipes), package,
-  # then @smoke on the fake omp against the build packaging just made.
+  # vitest on Windows covers only what can differ there: `bun run
+  # test:platform` is every test outside src/renderer (paths, PATH lookup,
+  # cmd.exe shims, spawn, named pipes, file modes); the renderer never sees the
+  # host OS and its tests run on Linux in `check`
+  # (src/main/platform-test-scope.test.ts keeps host-platform checks out of
+  # them). A job of its own beside `win`'s packaging: this 2-core runner
+  # took 62-66 s for the tests plus 83 s for electron-builder one after the
+  # other, and side by side 132 s with one test worker (with two, tests that
+  # wait on git missed their 1 s poll window).
+  win-test:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+      # bun's cache on the workspace volume (D:), as in `win`.
+      - name: Put bun's cache on the workspace volume
+        shell: bash
+        run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile
+      - run: bun run test:platform
+
+  # Package the `build` job's out/, then @smoke on the fake omp against it.
   win:
     needs: prepare
     if: needs.prepare.outputs.release == 'true'
     runs-on: windows-latest
     timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read # list this run's artifacts while `build` still runs
     env:
       V: ${{ needs.prepare.outputs.version }}
     steps:
@@ -252,9 +313,37 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
+      # bun's cache on the workspace volume (D:) instead of the profile on C:,
+      # so install never crosses volumes: 60-86 s became 28-41 s. Restoring it
+      # with actions/cache measured no faster (17 s restore + 18 s install) and
+      # its upload costs 42 s after every lockfile change, so it starts empty.
+      # (On Linux a cold install takes 5-10 s; a restored cache saved nothing.)
+      - name: Put bun's cache on the workspace volume
+        shell: bash
+        run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
       - run: bun install --frozen-lockfile
-      - run: bunx vitest run
-      - run: bun run package:win -- --publish never
+      # `build` uploads out/ about when this install ends; `needs: build`
+      # would instead start this job only once build's checks are done too.
+      - name: Wait for out/ from the build job
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run="repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          until [ "$(gh api "$run/artifacts?name=out" --jq .total_count)" -gt 0 ]; do
+            if [ "$(gh api "$run/jobs?filter=latest" --jq '.jobs[] | select(.name == "build") | .status')" = completed ]; then
+              echo "::error::The build job ended without uploading out/."
+              exit 1
+            fi
+            sleep 3
+          done
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: out
+          path: out
+      - name: Package
+        run: bunx electron-builder --config electron-builder.win.yml --win --x64 --publish never
       - name: Verify package
         shell: bash
         run: test -f dist/win-unpacked/resources/gui-bridge/index.ts
@@ -290,7 +379,7 @@ jobs:
 
   # Runs only when the checks and both platform jobs succeeded.
   publish:
-    needs: [prepare, check, mac, win]
+    needs: [prepare, build, check, mac, win-test, win]
     if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10

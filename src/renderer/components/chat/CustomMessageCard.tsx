@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { createContext, type ReactNode, useContext, useState } from "react";
 import type { AgentMessage } from "../../../shared/rpc-types";
-import { cx, formatDuration, formatTimeAgo, headLines, resultDetails, resultText } from "../../lib/format";
+import { cx, formatAgo, formatClock, formatDuration, headLines, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { Badge, type BadgeVariant } from "../common/Badge";
@@ -789,13 +789,8 @@ function IrcCard({ message }: { message: AgentMessage }) {
 	const to = str(details?.to) ?? "?";
 	const body = str(kind === "incoming" ? details?.message : details?.body) ?? "";
 	const title = kind === "incoming" ? `IRC ← ${from}` : kind === "autoreply" ? `IRC → ${to}` : `IRC ${from} → ${to}`;
-	// Relative age ("8m"); timestamp arrives as epoch ms or ISO.
-	const age =
-		message.timestamp == null
-			? ""
-			: formatTimeAgo(
-					typeof message.timestamp === "number" ? new Date(message.timestamp).toISOString() : message.timestamp,
-				);
+	// Relative age ("8m ago"), the absolute time on hover; timestamp arrives as epoch ms or ISO.
+	const age = formatAgo(message.timestamp);
 
 	return (
 		<CardFrame>
@@ -810,7 +805,12 @@ function IrcCard({ message }: { message: AgentMessage }) {
 				{kind === "autoreply" && <Badge variant="muted">{t("chat.custom.ircAuto")}</Badge>}
 				{str(details?.replyTo) && <Badge variant="muted">{t("chat.custom.ircReply")}</Badge>}
 				{age && (
-					<span className="ml-auto shrink-0 font-mono text-omp-xs font-normal text-[var(--omp-dim)]">{age}</span>
+					<time
+						className="ml-auto shrink-0 font-mono text-omp-xs font-normal text-[var(--omp-dim)]"
+						title={formatClock(message.timestamp)}
+					>
+						{age}
+					</time>
 				)}
 			</div>
 			{body && <MarkdownRenderer content={body} />}

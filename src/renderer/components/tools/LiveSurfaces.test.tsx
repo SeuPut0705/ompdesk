@@ -59,7 +59,7 @@ describe("live tool screens", () => {
 		expect(container.textContent?.match(/false/g)).toHaveLength(1);
 		expect(container.textContent?.match(/exit 1/g)).toHaveLength(1);
 		expect(container.textContent).not.toContain("Exit: 1");
-		expect(container.textContent).toContain("Wall: 0.42s");
+		expect(container.querySelector(".omp-bash-elapsed")?.textContent).toBe("420ms");
 		expect(container.querySelector(".omp-bash-line")?.textContent).toContain("failed");
 	});
 	it("reserves a live terminal output viewport before the first line", async () => {

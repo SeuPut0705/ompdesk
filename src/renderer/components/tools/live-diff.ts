@@ -1,4 +1,4 @@
-import { parseDiff } from "../../lib/diff";
+import { newestHunkFocusRow, parseDiff } from "../../lib/diff";
 
 /** Live editors show the newest changed region; transcript diffs stay complete. */
 export function liveDiffPreview(diff: string): string {
@@ -30,4 +30,10 @@ export function liveDiffPreview(diff: string): string {
 		if (row.type !== "remove" && row.newLine !== undefined) newCursor = row.newLine + 1;
 	}
 	return lines.join("\n");
+}
+
+/** A live editor's diff props: the newest changed region, its newest hunk's first change marked to stay in view. */
+export function liveDiffProps(diff: string): { diff: string; focusRow: number | undefined } {
+	const preview = liveDiffPreview(diff);
+	return { diff: preview, focusRow: newestHunkFocusRow(preview) };
 }

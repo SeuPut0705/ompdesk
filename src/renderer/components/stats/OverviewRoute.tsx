@@ -136,7 +136,9 @@ export function OverviewRoute({ range }: { range: StatsRange }) {
 							label={t("stats.overview.speed")}
 							sub={t("stats.overview.ttftSub", { time: formatMs(overall.avgTtft) })}
 							value={
-								overall.avgTokensPerSecond !== null ? `${Math.round(overall.avgTokensPerSecond)} tok/s` : "—"
+								overall.avgTokensPerSecond !== null
+									? t("stats.overview.tokensPerSecond", { rate: Math.round(overall.avgTokensPerSecond) })
+									: "—"
 							}
 						/>
 					</MetricGrid>

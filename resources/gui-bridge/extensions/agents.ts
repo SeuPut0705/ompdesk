@@ -9,6 +9,7 @@ import { formatModelString } from "@oh-my-pi/pi-coding-agent/config/model-resolv
 import { type ParsedAgentFields, parseAgentFields } from "@oh-my-pi/pi-coding-agent/discovery/helpers";
 import { resolveMemoryBackend } from "@oh-my-pi/pi-coding-agent/memory-backend/resolve";
 import { createAgentsHubDeps } from "@oh-my-pi/pi-coding-agent/modes/agents-hub-deps";
+import { readRpcSubagentTranscript } from "@oh-my-pi/pi-coding-agent/modes/rpc/rpc-subagents";
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
 import { AgentRegistry, MAIN_AGENT_ID } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
@@ -158,6 +159,24 @@ export const methods: BridgeMethods = {
 				// Aborted/tombstoned refs and refs never adopted have no reviver.
 				return { ok: false, reason: "not_parked" };
 			}
+		},
+
+		/**
+		 * A settled subagent's transcript after a relaunch. Stock's RPC registry learns
+		 * session files only from live lifecycle frames, while the executor writes every
+		 * child to `<artifactsDir>/<id>.jsonl`; stock's own reader parses it.
+		 */
+		get_subagent_transcript: async (params, env) => {
+			const p = paramsOf(params);
+			const subagentId = requireString(p, "subagentId");
+			if (subagentId !== path.basename(subagentId) || subagentId.startsWith("."))
+				throw new Error("Invalid subagent id");
+			const artifactsDir = env.session().sessionManager.getArtifactsDir();
+			if (!artifactsDir) throw new Error("Session is not persisted");
+			const sessionFile = path.join(artifactsDir, `${subagentId}.jsonl`);
+			if (!(await Bun.file(sessionFile).exists()))
+				throw new Error(`Unknown subagent or session file unavailable: ${subagentId}`);
+			return readRpcSubagentTranscript(sessionFile, typeof p.fromByte === "number" ? p.fromByte : 0);
 		},
 
 		/** Active backend, structured status, and the `/memory stats` / `/memory diagnose` markdown; each hook best-effort. */

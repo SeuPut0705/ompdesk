@@ -1,17 +1,19 @@
 import { ChevronRight } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useMemo } from "react";
 import type { AgentMessage } from "../../../shared/rpc-types";
-import { cx, formatDuration } from "../../lib/format";
+import { useFrameSelector } from "../../hooks/use-frame-selector";
+import { cx, formatDuration, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { asRecord } from "../../lib/wire-value";
 import { useSessionStore } from "../../stores/session";
-import { useSubagentsStore } from "../../stores/subagents";
 import type { TodoSnapshot } from "../../stores/todo";
 import { selectToolEntry, useToolsStore } from "../../stores/tools";
-import { editArgumentPaths, workFilePathKey } from "../tools/edit-args";
-import { getToolActivity, type ToolActivity } from "../tools/index";
+import { getToolActivity } from "../tools/index";
 import { LiveStepPeek } from "./LiveStepPeek";
 import { LiveTurnMeter, OutputMeter } from "./TurnOutputMeter";
+import { useRunOutcome, useRunStores } from "./use-work-run";
 import { type GroupAgent, isInterruptedError, resolveWorkGroup } from "./WorkStatus";
+import { finishedHeadline, parseTaskResults, runSpan, transcriptTodoSnapshot } from "./work-run";
 import { isSkippedWork } from "./work-view";
 
 interface ExecutionGroupProps {
@@ -31,21 +33,32 @@ interface ExecutionGroupProps {
 	stoppedAt?: number;
 	todoSnapshots?: readonly TodoSnapshot[];
 	notes?: readonly AgentMessage[];
+	/** A later work card exists in this session; this one never shows a running head. */
+	superseded?: boolean;
 }
 
-/** Order of the human summary: reads, edits, commands, searches, then the rest. */
-const ACTIVITY_ORDER: readonly ToolActivity[] = ["read", "edit", "run", "search", "other"];
-
-/** English plural suffix per activity key ("1 file" / "2 files", "1 search" / "2 searches"). */
-const PLURAL_SUFFIX: Record<ToolActivity, string> = { read: "s", edit: "s", run: "s", search: "es", other: "s" };
+/** A completion notice only for agents that have a lane: the lane already states it. */
+function settlesLanesOnly(message: AgentMessage, lanes: ReadonlySet<string>): boolean {
+	if (message.role !== "custom" || message.customType !== "async-result") return false;
+	const jobs = asRecord(message.details)?.jobs;
+	const ids = Array.isArray(jobs)
+		? jobs.map(job => {
+				const record = asRecord(job);
+				return record?.type === undefined || record.type === "task"
+					? [record?.agentId, record?.jobId].find(id => typeof id === "string" && lanes.has(id))
+					: undefined;
+			})
+		: parseTaskResults(resultText(message.content)).map(result => (lanes.has(result.id) ? result.id : undefined));
+	return ids.length > 0 && ids.every(id => id !== undefined);
+}
 
 /**
- * One quiet disclosure for a reasoning/tool phase, summarized the way a person
- * would say it ("Read 2 files · Edited 1 file · Ran 1 command · 16s"). Its
- * open state is owned by ChatStream so streaming updates and live-to-final row
- * replacement cannot override the user's choice. While running and collapsed
- * it previews the current step underneath and carries the turn's live output
- * meter; finished, it shows the group's output total and average rate.
+ * One work card for a reasoning/tool run. Its head carries the run's single
+ * summary: how it ended, then what the whole run (main agent and subagents)
+ * produced — the same ledger the outcome lists — and its span from stock's own
+ * timestamps, so a reloaded session reads exactly as it did live. Its open
+ * state is owned by ChatStream so streaming updates and live-to-final row
+ * replacement cannot override the user's choice.
  */
 export function ExecutionGroup({
 	children,
@@ -61,23 +74,22 @@ export function ExecutionGroup({
 	stoppedAt,
 	todoSnapshots,
 	notes,
+	superseded = false,
 }: ExecutionGroupProps) {
 	const t = useT();
-	const cwd = useSessionStore(state => state.cwd);
-	// Primitive selector: encode (running, failed, per-activity counts, span)
-	// so unrelated tool events — partial results on cards outside this group —
-	// never re-render the group.
+	const goal = useSessionStore(state => (live ? state.goal?.objective : undefined));
+	const { tools, messages } = useRunStores();
+	// Primitive selector: encode (running, failed, skipped, interrupted, span, reads, searches)
+	// so unrelated tool events — partial results on cards outside this group — never re-render it.
 	const encoded = useToolsStore(s => {
 		let running = 0;
 		let skipped = 0;
 		let interrupted = 0;
+		let failed = 0;
+		let reads = 0;
+		let searches = 0;
 		let start = Number.POSITIVE_INFINITY;
 		let end = 0;
-		let failed = 0;
-		const counts: Record<ToolActivity, number> = { read: 0, edit: 0, run: 0, search: 0, other: 0 };
-		// Files count once per group: writing a file and then editing it is one edited file, keyed
-		// like the outcome's ledger so `./a.ts` and `/repo/a.ts` are the same file.
-		const editedPaths = new Set<string>();
 		for (const id of toolCallIds) {
 			const entry = selectToolEntry(s, id);
 			if (!entry) continue;
@@ -91,90 +103,101 @@ export function ExecutionGroup({
 			else if (isInterruptedError(entry, stoppedAt)) interrupted++;
 			else if (entry.status === "error" || entry.isError) failed++;
 			const { activity } = getToolActivity(entry.toolName, entry.args);
-			if (activity === "edit") {
-				const paths = editArgumentPaths(entry.args);
-				if (paths.length === 0) counts.edit++;
-				for (const file of paths) editedPaths.add(workFilePathKey(file, cwd));
-			} else counts[activity]++;
+			if (activity === "read") reads++;
+			else if (activity === "search") searches++;
 			start = Math.min(start, entry.startTime);
 			end = Math.max(end, entry.endTime ?? 0);
 		}
-		counts.edit += editedPaths.size;
 		const span = Number.isFinite(start) && end > start ? end - start : 0;
-		return [running, failed, skipped, interrupted, span, ...ACTIVITY_ORDER.map(activity => counts[activity])].join(
-			":",
-		);
+		return [running, failed, skipped, interrupted, span, reads, searches].join(":");
 	});
-	const [running = 0, toolFailures = 0, skipped = 0, interruptedTools = 0, spanMs = 0, ...activityCounts] = encoded
-		.split(":")
-		.map(Number);
-	const resolveKey = useToolsStore(s => s.entryKeyForCallId);
-	// Primitive key: each agent of this group with how its parent call ended.
-	const agentKey = useSubagentsStore(s => {
-		const tools = useToolsStore.getState();
-		const rows: string[] = [];
-		for (const node of s.subagents.values()) {
-			if (!node.parentToolCallId) continue;
-			const key = resolveKey(node.parentToolCallId);
-			if (!toolCallIds.includes(key)) continue;
-			const parent = selectToolEntry(tools, key);
-			const parentState: GroupAgent["parent"] =
+	const [running = 0, toolFailures = 0, skipped = 0, interruptedTools = 0, toolSpanMs = 0, reads = 0, searches = 0] =
+		encoded.split(":").map(Number);
+	const { outcome, agents } = useRunOutcome(toolCallIds, stoppedAt);
+	const committed = useFrameSelector(messages, state => state.messages);
+	const liveMessages = useFrameSelector(messages, state => state.liveMessages);
+	const ids = toolCallIds.join("\u0000");
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `ids` is the content key of toolCallIds.
+	const clock = useMemo(() => {
+		const owns = (id: string) => toolCallIds.includes(tools.getState().entryKeyForCallId(id));
+		return runSpan(liveMessages.length ? [...committed, ...liveMessages] : committed, owns);
+	}, [committed, liveMessages, ids, tools]);
+	const groupAgents: GroupAgent[] = agents.map(node => {
+		const parent = node.parentToolCallId
+			? selectToolEntry(tools.getState(), tools.getState().entryKeyForCallId(node.parentToolCallId))
+			: undefined;
+		return {
+			status: node.status,
+			parent:
 				!parent || parent.status === "pending" || parent.status === "running"
 					? "running"
 					: isInterruptedError(parent, stoppedAt)
 						? "interrupted"
 						: parent.status === "error" || parent.isError
 							? "failed"
-							: "done";
-			rows.push(`${node.status}\u0000${parentState}`);
-		}
-		return rows.join("\u0001");
+							: "done",
+		};
 	});
-	const agents: GroupAgent[] = agentKey
-		? agentKey.split("\u0001").map(row => {
-				const [status = "", parent = "done"] = row.split("\u0000");
-				return { status, parent: parent as GroupAgent["parent"] };
-			})
-		: [];
 	const { state, failed, interrupted, runningAgents } = resolveWorkGroup({
 		live,
 		runningTools: running,
 		failedTools: toolFailures,
 		reportedFailures: failureCount,
 		interruptedTools,
-		agents,
+		agents: groupAgents,
+		superseded,
 	});
-
-	const activities = ACTIVITY_ORDER.flatMap((activity, index) => {
-		const count = activityCounts[index] ?? 0;
-		return count > 0
-			? [t(`chat.process.kind.${activity}`, { count, plural: count === 1 ? "" : PLURAL_SUFFIX[activity] })]
-			: [];
-	});
-	// `live` with nothing executing = the model is preparing the next step:
-	// keep the spinner, but don't claim a tool is running.
 	const totalSteps = Math.max(0, stepCount - skipped);
 	const plural = totalSteps === 1 ? "" : "s";
+	const countPlural = (count: number) => (count === 1 ? "" : "s");
+	// One fact line for every finished card: failures once, then what the whole run produced.
+	const facts: string[] = [];
+	if (failed > 0) facts.push(t("chat.work.commandsFailed", { count: failed }));
+	if (state === "interrupted" && interrupted > 0) facts.push(t("chat.work.interruptedCount", { count: interrupted }));
+	const produced = facts.length;
+	if (outcome.files.length) {
+		const hasStats = outcome.files.some(file => file.added !== undefined);
+		const added = outcome.files.reduce((sum, file) => sum + (file.added ?? 0), 0);
+		const removed = outcome.files.reduce((sum, file) => sum + (file.removed ?? 0), 0);
+		const files = t("chat.work.filesChanged", {
+			count: outcome.files.length,
+			plural: countPlural(outcome.files.length),
+		});
+		facts.push(hasStats ? `${files} +${added} −${removed}` : files);
+	}
+	if (outcome.commands.length)
+		facts.push(
+			t("chat.work.commandsRun", { count: outcome.commands.length, plural: countPlural(outcome.commands.length) }),
+		);
+	if (agents.length)
+		facts.push(t("chat.work.agentsDone", { count: agents.length, plural: countPlural(agents.length) }));
+	if (facts.length === produced) {
+		if (reads) facts.push(t("chat.process.kind.read", { count: reads, plural: countPlural(reads) }));
+		if (searches) facts.push(t("chat.process.kind.search", { count: searches, plural: searches === 1 ? "" : "es" }));
+	}
+	if (facts.length === produced) facts.push(t("chat.work.stepCount", { total: totalSteps, plural }));
 	const summary =
-		state === "failed"
-			? t("chat.process.statusFailed", { failed, total: totalSteps, plural })
-			: state === "running" && running > 0
-				? t("chat.process.statusRunning", { running, total: totalSteps, plural })
-				: state === "running" && runningAgents > 0
-					? t("chat.process.statusAgents", { count: runningAgents, plural: runningAgents === 1 ? "" : "s" })
-					: state === "interrupted"
-						? t("chat.process.statusInterrupted", { interrupted, total: totalSteps, plural })
-						: state === "complete" && activityCounts.slice(0, -1).every(count => count === 0)
-							? t("chat.process.statusComplete", { total: totalSteps, plural })
-							: activities.length > 0
-								? activities.join(" · ")
-								: state === "running"
-									? t("chat.process.statusWorking", { total: totalSteps, plural })
-									: t("chat.process.statusComplete", { total: totalSteps, plural });
+		state === "running" && running > 0
+			? t("chat.process.statusRunning", { running, total: totalSteps, plural })
+			: state === "running" && runningAgents > 0
+				? t("chat.process.statusAgents", { count: runningAgents, plural: countPlural(runningAgents) })
+				: state === "running"
+					? t("chat.process.statusWorking", { total: totalSteps, plural })
+					: facts.join(" · ");
+	const spanMs = clock.spanMs || toolSpanMs;
 	const duration = state !== "running" && spanMs > 0 ? formatDuration(spanMs) : null;
-	// While the work card shows, this summary row lives in the card's head: the card's status mark
-	// and narrative already say what is running, so the row keeps only the counts and the toggle.
+	// While running, the card's status mark and narrative already say what is running:
+	// the row keeps only the step count and the toggle.
 	const shownSummary = state === "running" ? t("chat.work.stepCount", { total: totalSteps, plural }) : summary;
+	const groupEntries = toolCallIds.flatMap(id => {
+		const entry = selectToolEntry(tools.getState(), id);
+		return entry ? [[id, entry] as const] : [];
+	});
+	// The run's todo as its own todo call recorded it, so a reload shows the same row as live.
+	const todo = transcriptTodoSnapshot(groupEntries) ?? todoSnapshots?.at(-1);
+	const headline = finishedHeadline({ goal, todo, agents });
+	const lanes = new Set(agents.map(agent => agent.id));
+	const shownNotes = notes?.filter(note => !settlesLanesOnly(note, lanes));
 	const header = (
 		<button
 			aria-expanded={expanded}
@@ -187,7 +210,7 @@ export function ExecutionGroup({
 			)}
 			onClick={() => onExpandedChange(!expanded)}
 			type="button"
-			aria-label={`${t("chat.process.title")}: ${summary}`}
+			aria-label={`${t("chat.process.title")}: ${summary}${duration ? ` · ${duration}` : ""}`}
 		>
 			<span
 				aria-atomic="true"
@@ -227,8 +250,10 @@ export function ExecutionGroup({
 				stoppedAt={stoppedAt}
 				stepsListed={expanded}
 				carriesContext={live}
-				todoSnapshots={todoSnapshots}
-				notes={notes}
+				todoSnapshots={todo ? [todo] : undefined}
+				notes={shownNotes}
+				headline={headline}
+				runStartedAt={clock.startedAt}
 			/>
 			{expanded ? <div className="omp-execution-group-body">{children}</div> : null}
 		</section>

@@ -1,5 +1,5 @@
 import { AnsiText, hasAnsi } from "../../lib/ansi";
-import { cx, extractImageDataUrls, resultText } from "../../lib/format";
+import { cx, extractImageDataUrls, formatDuration, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_MD } from "../../lib/preview";
 import { detectLocalPreviewUrls } from "../../lib/preview-browser";
@@ -65,9 +65,9 @@ function BashOutput({ text }: { text: string }) {
  *     timeoutDisabled?, wallTimeMs?, exitCode?, timedOut?, terminalId?,
  *     async?: { state, jobId } }
  * The text body carries the combined stdout/stderr stream plus LLM-facing
- * trailer notices (background / truncation / exit code / wall time / raw
- * artifact). Like the TUI, strip those notices and re-state them from
- * `details` as a stats line instead.
+ * trailer notices (background / timeout / truncation / exit code / wall time /
+ * raw artifact). Strip those notices and re-state them from `details`: exit,
+ * elapsed and timeout as badges on the command line, the rest as a quiet note.
  */
 
 /** Locale key + params for the truncation notice; the component translates it. */
@@ -79,7 +79,12 @@ interface TruncationNotice {
 interface BashParsed {
 	output: string;
 	exitCode: number | null;
-	stats: string[];
+	/** Stock's measured wall time; shown as the elapsed badge beside the command. */
+	wallTimeMs: number | null;
+	timedOut: boolean;
+	backgrounded: string | null;
+	clamped: { timeout: number; requested: number } | null;
+	artifactId: string | null;
 	truncation: TruncationNotice | null;
 }
 
@@ -101,6 +106,8 @@ function asNumber(value: unknown): number | undefined {
  */
 const BACKGROUND_NOTICE_RE = /\n?Backgrounded as job [^\n]*; result will be delivered automatically\.\s*$/;
 const EXIT_CODE_NOTICE_RE = /\n?Command exited with code -?\d+\s*$/;
+const TIMED_OUT_NOTICE_RE = /\n?\[Command timed out(?: after \d+ seconds)?\]\s*$/;
+const TIMEOUT_CLAMP_NOTICE_RE = /\n?Timeout clamped to \d+s \(requested \d+s; [^)\n]*\)\./;
 const WALL_TIME_NOTICE_RE = /\n?Wall time: \d+(?:\.\d+)? seconds/;
 
 function stripTrailer(text: string, re: RegExp): string {
@@ -147,15 +154,15 @@ function describeTruncation(truncation: Record<string, unknown>): TruncationNoti
 	return null;
 }
 
-function parseBashResult(result: unknown, isError: boolean | undefined): BashParsed {
+function parseBashResult(result: unknown): BashParsed {
 	const details = resultDetails(result);
 	let text = resultText(result);
 
 	const wallTimeMs = asNumber(details?.wallTimeMs);
 	const exitCode = asNumber(details?.exitCode) ?? null;
+	const timedOut = details?.timedOut === true;
 	const timeoutSeconds = asNumber(details?.timeoutSeconds);
 	const requestedTimeoutSeconds = asNumber(details?.requestedTimeoutSeconds);
-	const timeoutDisabled = details?.timeoutDisabled === true;
 	const asyncInfo =
 		details?.async != null && typeof details.async === "object"
 			? (details.async as { state?: unknown; jobId?: unknown })
@@ -171,7 +178,7 @@ function parseBashResult(result: unknown, isError: boolean | undefined): BashPar
 	// Strip trailer notices only when `details` confirms they were appended;
 	// re-stated below from the structured fields instead. Reverse wire order:
 	// wrappedExecute's notice, then the artifact footer, then the inner
-	// background/exit/wall lines.
+	// timeout/background/exit/clamp/wall lines.
 	if (meta) text = stripGeneratedOutputNotice(text);
 	let artifactId =
 		typeof details?.artifactId === "string"
@@ -184,40 +191,40 @@ function parseBashResult(result: unknown, isError: boolean | undefined): BashPar
 		artifactId = artifactMatch[1];
 		text = text.slice(0, artifactMatch.index).trimEnd();
 	}
-	if (asyncInfo?.state === "running" && backgroundJobId) {
-		text = stripTrailer(text, BACKGROUND_NOTICE_RE);
-	}
+	if (timedOut) text = stripTrailer(text, TIMED_OUT_NOTICE_RE);
+	const backgrounded = asyncInfo?.state === "running" && backgroundJobId ? backgroundJobId : null;
+	if (backgrounded) text = stripTrailer(text, BACKGROUND_NOTICE_RE);
 	if (exitCode != null) text = stripTrailer(text, EXIT_CODE_NOTICE_RE);
+	const clamped =
+		timeoutSeconds != null && requestedTimeoutSeconds != null && requestedTimeoutSeconds !== timeoutSeconds
+			? { timeout: timeoutSeconds, requested: requestedTimeoutSeconds }
+			: null;
+	if (clamped) text = stripLastOccurrence(text, TIMEOUT_CLAMP_NOTICE_RE);
 	if (wallTimeMs != null) text = stripLastOccurrence(text, WALL_TIME_NOTICE_RE);
-
-	const stats: string[] = [];
-	if (asyncInfo?.state === "running" && backgroundJobId) stats.push(`Backgrounded: ${backgroundJobId}`);
-	if (wallTimeMs != null) stats.push(`Wall: ${(wallTimeMs / 1000).toFixed(2)}s`);
-	if (timeoutDisabled) stats.push("Timeout: disabled");
-	if (timeoutSeconds != null) {
-		stats.push(
-			requestedTimeoutSeconds != null && requestedTimeoutSeconds !== timeoutSeconds
-				? `Timeout: ${timeoutSeconds}s (requested ${requestedTimeoutSeconds}s clamped)`
-				: `Timeout: ${timeoutSeconds}s`,
-		);
-	}
-	if (artifactId) stats.push(`Artifact: ${artifactId}`);
-	if (isError && exitCode != null) stats.push(`Exit: ${exitCode}`);
 
 	return {
 		output: text.trimEnd(),
 		exitCode,
-		stats,
+		wallTimeMs: wallTimeMs ?? null,
+		timedOut,
+		backgrounded,
+		clamped,
+		artifactId: artifactId ?? null,
 		truncation: truncation ? describeTruncation(truncation) : null,
 	};
 }
 
-/** Bash: command line, terminal-style output, exit-code badge, stats footer. */
+/** Bash: command line with exit/elapsed badges, terminal-style output, then any job/artifact note. */
 export function BashRenderer({ args, result, isError, isPartial, partialResult, livePreview }: ToolRendererProps) {
 	const t = useT();
 	const command = typeof args.command === "string" ? args.command : "";
 	const effective = isPartial ? partialResult : result;
-	const parsed = parseBashResult(effective, isError);
+	const parsed = parseBashResult(effective);
+	const notes = [
+		parsed.backgrounded ? t("tools.bash.background", { id: parsed.backgrounded }) : null,
+		parsed.clamped ? t("tools.bash.timeoutClamped", parsed.clamped) : null,
+		parsed.artifactId ? t("tools.bash.artifact", { id: parsed.artifactId }) : null,
+	].filter(note => note !== null);
 	const images = extractImageDataUrls(effective);
 	const hasOutput = parsed.output.length > 0;
 	const echo = `${command}\n`;
@@ -235,8 +242,9 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 			{/* One terminal surface: the command line, then its output under a hairline. */}
 			<div
 				className={cx(
-					"omp-bash-terminal overflow-hidden rounded-(--sc-radius-md) bg-(--omp-code-bg) font-mono text-sc-sm",
-					livePreview && "omp-bash-live",
+					"omp-bash-terminal rounded-(--sc-radius-md) bg-(--omp-code-bg) font-mono text-sc-sm",
+					// `clip`, not `hidden`: the live command line sticks to the scrolling surface above it.
+					livePreview ? "omp-bash-live overflow-clip" : "overflow-hidden",
 				)}
 			>
 				{/* A call whose arguments are still streaming has no command yet: no bare `$`. */}
@@ -246,10 +254,15 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 							$
 						</span>
 						<span className="min-w-0 flex-1 whitespace-pre-wrap break-all text-(--sc-text)">{command}</span>
+						{parsed.timedOut && (
+							<span className="omp-bash-badge shrink-0 rounded-(--sc-radius-xs) bg-(--sc-warning)/15 px-1 text-sc-2xs font-medium text-(--sc-warning)">
+								{t("tools.bash.timedOut")}
+							</span>
+						)}
 						{parsed.exitCode != null && (
 							<span
 								className={cx(
-									"shrink-0 rounded-(--sc-radius-xs) px-1 text-sc-2xs font-medium tabular-nums",
+									"omp-bash-badge shrink-0 rounded-(--sc-radius-xs) px-1 text-sc-2xs font-medium tabular-nums",
 									parsed.exitCode === 0 && !isError
 										? "bg-(--sc-success)/15 text-(--sc-success)"
 										: "bg-(--sc-danger)/15 text-(--sc-danger)",
@@ -258,7 +271,15 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 								{t("tools.bash.exit", { code: parsed.exitCode })}
 							</span>
 						)}
-						{isPartial && parsed.exitCode == null && (
+						{parsed.wallTimeMs != null && (
+							<span
+								className="omp-bash-elapsed shrink-0 text-sc-2xs tabular-nums text-(--sc-text-subtle)"
+								title={t("tools.bash.wallTime")}
+							>
+								{formatDuration(parsed.wallTimeMs)}
+							</span>
+						)}
+						{isPartial && parsed.exitCode == null && parsed.wallTimeMs == null && (
 							<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("tools.bash.running")}</span>
 						)}
 					</div>
@@ -286,10 +307,8 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 				)}
 			</div>
 			<ResultImages images={images} livePreview={livePreview} />
-			{parsed.stats.length > 0 && (
-				<div className="font-mono text-sc-xs text-(--sc-text-subtle)">
-					[{(livePreview ? parsed.stats.filter(stat => !stat.startsWith("Exit:")) : parsed.stats).join(" | ")}]
-				</div>
+			{notes.length > 0 && (
+				<div className="omp-bash-notes text-sc-xs text-(--sc-text-subtle)">{notes.join(" · ")}</div>
 			)}
 			{parsed.truncation && (
 				<div className="font-mono text-sc-xs text-(--sc-warning)">

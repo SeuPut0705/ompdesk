@@ -145,9 +145,16 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 			if (existing && (!missing || existing.completed || (!completed && existing.toolCount >= toolCount)))
 				return existing.load;
 			const load = Promise.resolve()
-				.then(() => command({ type: "get_subagent_messages", subagentId: id }))
+				.then(async () => {
+					const response = await command({ type: "get_subagent_messages", subagentId: id });
+					if (response.success) return response;
+					// Stock's RPC registry forgets settled agents across a relaunch; their
+					// transcripts stay in the session's artifacts dir.
+					const stored = await command({ type: "get_subagent_transcript", subagentId: id });
+					if (!stored.success) throw new Error(response.error);
+					return stored;
+				})
 				.then(response => {
-					if (!response.success) throw new Error(response.error);
 					const data = response.data as { messages?: AgentMessage[] } | undefined;
 					if (!data?.messages) return;
 					const status = get().subagents.get(id)?.status;

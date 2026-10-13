@@ -165,7 +165,9 @@ const api: OmpApi = {
 		onTabSidecarStatus: (callback: (status: IpcSidecarStatusPayload, tabId: string) => void) =>
 			subscribeTab<IpcSidecarStatusPayload>(IPC_EVENTS.SIDECAR_STATUS, callback),
 		onTabSubagentFrame: (callback: (frame: SubagentFrame, tabId: string) => void) =>
-			subscribeTab<SubagentFrame>(IPC_EVENTS.SUBAGENT_FRAME, callback),
+			subscribeTab<SubagentFrame[]>(IPC_EVENTS.SUBAGENT_FRAMES, (frames, tabId) => {
+				for (const frame of frames) callback(frame, tabId);
+			}),
 		onTabModelCatalogUpdate: (callback: (frame: ModelCatalogUpdateFrame, tabId: string) => void) =>
 			subscribeTab<ModelCatalogUpdateFrame>(IPC_EVENTS.MODEL_CATALOG_UPDATE, callback),
 		onTabCommandsUpdate: (callback: (commands: AvailableCommand[], tabId: string) => void) =>

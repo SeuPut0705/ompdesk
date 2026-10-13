@@ -102,7 +102,8 @@ test("actual stock frames preserve live and completed agent replay without false
 		await advance();
 		await expect(page.locator('.omp-execution-group[data-state="running"]')).toHaveCount(0);
 		await expect(page.locator('.omp-execution-group[data-state="failed"]')).toHaveCount(0);
-		await expect(page.locator(".omp-execution-group-summary")).toHaveText("2 steps complete");
+		// One run model: the head counts the whole run (main agent and its agents) once.
+		await expect(page.locator(".omp-execution-group-summary")).toContainText(/\b2 agents\b/);
 		await expect(page.locator(".omp-execution-group-duration")).toHaveText(/^· [1-9]\d*(?:\.\d+)?s$/);
 		await expect(page.locator(".omp-execution-group-header")).toContainText("408 tokens");
 		await expect(work.locator(".omp-work-head [data-incoming] > .omp-work-narrative")).toHaveText("Work complete");
@@ -117,7 +118,9 @@ test("actual stock frames preserve live and completed agent replay without false
 		await expect(work.locator(".omp-work-outcome")).toBeVisible();
 		const outcome = page.locator(".omp-work-outcome");
 		await expect(outcome).toBeVisible();
-		await expect(outcome.locator("summary")).toContainText("2 commands");
+		// Counts live once, in the card's head; the outcome keeps only its title and rows.
+		await expect(page.locator(".omp-execution-group-summary")).toContainText("2 commands");
+		await expect(outcome.locator("summary")).toHaveText("Outcome");
 		await outcome.locator("summary").click();
 		await expect(outcome).toContainText("AlphaCounter");
 		await expect(outcome).toContainText("BetaCounter");

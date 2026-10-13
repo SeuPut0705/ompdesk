@@ -46,8 +46,8 @@ export const IPC_EVENTS = {
 	TAB_STATUS: "tab:status",
 	/** Extension UI request from agent */
 	EXTENSION_UI: "extension-ui:request",
-	/** Subagent frame */
-	SUBAGENT_FRAME: "subagent:frame",
+	/** Subagent frames, in order, as one batch per presentation frame (main/subagent-frames.ts) */
+	SUBAGENT_FRAMES: "subagent:frames",
 	/** Available commands updated */
 	COMMANDS_UPDATE: "commands:update",
 	/** Agent config changed (set_setting, slash-command config edits) */
@@ -1193,6 +1193,7 @@ export interface OmpApi {
 		/** Full-stream variants keep the originating visible tab id. */
 		onTabBatch(callback: (events: AgentSessionEvent[], tabId: string) => void): () => void;
 		onTabSidecarStatus(callback: (status: IpcSidecarStatusPayload, tabId: string) => void): () => void;
+		/** Called once per frame; a batch's frames are delivered in one task (one React commit). */
 		onTabSubagentFrame(callback: (frame: SubagentFrame, tabId: string) => void): () => void;
 		onTabModelCatalogUpdate(callback: (frame: ModelCatalogUpdateFrame, tabId: string) => void): () => void;
 		onTabCommandsUpdate(callback: (commands: AvailableCommand[], tabId: string) => void): () => void;

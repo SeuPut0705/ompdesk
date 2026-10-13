@@ -1,8 +1,9 @@
 # Typecheck, lint, unit/component tests, build on every push and PR, on Linux
 # only: the cheapest runner (macOS minutes bill at 10x Linux, Windows at 2x).
 # Windows-specific paths (PATH lookup, cmd.exe shim, named pipes) are covered
-# where they ship: release.yml runs vitest, packaging and the @smoke e2e on
-# Windows, and packaging plus @smoke and the real-omp e2e on macOS.
+# where they ship: release.yml runs the tests outside src/renderer
+# (`bun run test:platform`), packaging and the @smoke e2e on Windows, and
+# packaging plus @smoke and the real-omp e2e on macOS.
 #
 # The full Playwright suite is manual (`gh workflow run ci.yml -f e2e=true`);
 # every release runs it locally first. On main it runs on the maintainer's

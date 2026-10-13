@@ -847,7 +847,8 @@
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
-	margin: var(--sc-space-1) 0 var(--sc-space-2) calc(var(--sc-space-1-5) + var(--sc-icon-sm) + var(--sc-space-2));
+	/* Flush with the reply text and the composer: the card has no icon column to indent for. */
+	margin: var(--sc-space-1) 0 var(--sc-space-2);
 	border: 1px solid var(--sc-divider);
 	border-radius: var(--sc-radius-lg);
 	overflow: hidden;
@@ -857,11 +858,11 @@
 .omp-live-step[data-state="running"]::before {
 	content: "";
 	position: absolute;
-	inset: 0 0 auto;
+	inset: 0 auto auto 0;
+	width: 40%;
 	height: 2px;
-	background: linear-gradient(90deg, transparent, var(--sc-accent), transparent) no-repeat;
-	background-size: 40% 100%;
-	background-position: 50% 0;
+	background: linear-gradient(90deg, transparent, var(--sc-accent), transparent);
+	transform: translateX(75%);
 	opacity: 0.55;
 	pointer-events: none;
 }
@@ -877,7 +878,8 @@
 .omp-work-head {
 	--omp-work-head-line: calc(var(--sc-font-lg) * var(--sc-leading-snug));
 	display: grid;
-	grid-template-columns: var(--sc-icon-sm) minmax(0, 1fr) auto;
+	/* The narrative keeps a readable minimum; the side takes its full width only from what is left. */
+	grid-template-columns: var(--sc-icon-sm) minmax(min(10rem, 50%), 1fr) minmax(0, max-content);
 	align-items: start;
 	column-gap: var(--sc-space-2);
 	padding: var(--sc-space-2) var(--sc-space-3);
@@ -901,16 +903,27 @@
 	white-space: nowrap;
 }
 
+/* One line, reserved for the whole run so the head never changes height between steps;
+   it folds away with the stage when the run ends. */
+.omp-work-sub-shell {
+	display: grid;
+	grid-template-rows: 1fr;
+	transition: grid-template-rows var(--sc-duration-med) var(--sc-ease-standard);
+}
+
+.omp-work-sub-shell[data-open="false"] {
+	grid-template-rows: 0fr;
+}
+
 .omp-work-sub {
-	display: -webkit-box;
-	margin-block-start: var(--sc-space-0-5);
+	min-height: 0;
+	padding-block-start: var(--sc-space-0-5);
 	overflow: hidden;
 	color: var(--sc-text-muted);
 	font-size: var(--sc-font-sm);
 	line-height: var(--sc-leading-snug);
-	overflow-wrap: anywhere;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 2;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 /* The group's summary row (counts, output meter, step-list toggle) rides on the head's right. */
@@ -919,34 +932,45 @@
 	align-items: center;
 	justify-content: flex-end;
 	gap: var(--sc-space-1);
+	min-width: 0;
 	min-height: var(--sc-control-sm);
 	margin-block-start: calc((var(--omp-work-head-line) - var(--sc-control-sm)) / 2);
 	white-space: nowrap;
 }
 
-.omp-work-head-side > .omp-work-head-meta {
-	margin-block-start: 0;
+/* The whole run's clock, in the summary row's own size. */
+.omp-work-head-clock {
+	flex-shrink: 0;
+	color: var(--sc-text-subtle);
+	font-size: var(--sc-font-xs);
+	font-variant-numeric: tabular-nums;
 }
 
-.omp-work-head-side > .omp-work-head-meta[data-stalled="true"] {
-	color: var(--sc-warning);
-}
-
+/* The row hangs past the side column by its own padding so the chevron lines up with the card
+   edge; its max width carries that overhang too, or the row would be clamped short of its content
+   and cut its counts even beside a short narrative. */
 .omp-execution-group-header--embedded {
 	min-height: var(--sc-control-sm);
+	max-width: calc(100% + var(--sc-space-1-5));
 	margin-inline-end: calc(var(--sc-space-1-5) * -1);
 	font-size: var(--sc-font-xs);
 }
 
-/* Short and sized by its content: it must never shrink away beside a long narrative. */
+/* Full width whenever the head has room. On a genuinely narrow card the token meter gives way
+   first, then the counts ellipsize inside the row, never past the card's edge. */
 .omp-execution-group-header--embedded .omp-execution-group-summary {
-	flex-shrink: 0;
-	overflow: visible;
+	flex-shrink: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
 	color: var(--sc-text-muted);
 }
 
-.omp-work-sub .omp-work-clock {
-	font-variant-numeric: tabular-nums;
+.omp-execution-group-header--embedded .omp-output-meter {
+	flex-shrink: 1000;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 /* Goal and todo progress: quiet rows under the head, indented to the narrative. */
@@ -1024,20 +1048,15 @@
 	border-inline-start: 1px solid var(--sc-divider);
 }
 
+/* Rides in the strip row like any chip: colorless, and never a row of its own. */
 .omp-work-catch-up {
-	align-self: flex-start;
-	margin: calc(var(--sc-space-1) * -1) var(--sc-space-3) var(--sc-space-2)
-		calc(var(--sc-space-3) + var(--sc-icon-sm) + var(--sc-space-2));
-	padding: var(--sc-space-0-5) var(--sc-space-2);
-	border-radius: var(--sc-radius-full);
-	background: var(--sc-accent-soft);
-	color: var(--sc-accent);
-	font-size: var(--sc-font-xs);
-	font-weight: var(--sc-weight-medium);
+	margin-inline-start: auto;
+	padding-inline: var(--sc-space-2);
+	white-space: nowrap;
 }
 
-.omp-work-catch-up:hover {
-	color: var(--sc-accent-hover);
+.omp-work-catch-up + .omp-live-work-follow {
+	margin-inline-start: 0;
 }
 
 /* Status mark (head, lanes, outcome rows) ────────────────────────────── */
@@ -1246,11 +1265,12 @@
 }
 
 
-/* The stage opens once, then every step shares exactly the same viewport. */
+/* The stage opens once, then every step shares exactly the same viewport. The clip is the
+   grid item: a fixed-height item would pin a 0fr track to its own height, so the open and
+   the close into the outcome would each land in a single frame. */
 .omp-work-stage-shell {
 	display: grid;
 	grid-template-rows: 0fr;
-	overflow: hidden;
 	transition: grid-template-rows var(--sc-duration-med) var(--sc-ease-standard);
 }
 .omp-work-stage-shell[data-open="true"] {
@@ -1258,6 +1278,10 @@
 }
 @starting-style {
 	.omp-work-stage-shell[data-open="true"] { grid-template-rows: 0fr; }
+}
+.omp-work-stage-clip {
+	min-height: 0;
+	overflow: hidden;
 }
 .omp-work-stage {
 	--omp-work-stage: clamp(9rem, 34cqh, 17rem);
@@ -1277,6 +1301,7 @@
 .omp-work-stage > .omp-work-crossfade {
 	flex: 1;
 	overflow: hidden;
+	transition: opacity var(--sc-duration-med) var(--sc-ease-standard);
 }
 .omp-work-stage[data-settled="true"] > .omp-work-crossfade {
 	opacity: 0.72;
@@ -1316,6 +1341,13 @@
 	flex: 1;
 	overflow: hidden;
 }
+/* The incoming frame paints an opaque surface above the fading outgoing one, so the two
+   never show through each other once the fade ends (the outgoing frame then unmounts). */
+.omp-work-frame[data-incoming] {
+	position: relative;
+	z-index: 1;
+	background: var(--omp-work-frame-bg, var(--sc-bg));
+}
 .omp-work-frame[data-outgoing] {
 	pointer-events: none;
 }
@@ -1334,7 +1366,10 @@
 	to { opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-	.omp-work-stage-shell { transition: none; }
+	.omp-work-stage-shell,
+	.omp-work-sub-shell,
+	.omp-work-stage > .omp-work-crossfade,
+	.omp-live-step-scroll { transition: none; }
 	.omp-work-crossfade > .omp-work-frame { animation: none; }
 }
 
@@ -1388,9 +1423,10 @@
 	overflow: auto;
 	overscroll-behavior: contain;
 	scrollbar-width: thin;
+	/* Between steps the last surface stays, quieter, until the next step replaces it. */
+	transition: opacity var(--sc-duration-med) var(--sc-ease-standard);
 }
 
-/* Between steps the last surface stays, quieter, until the next step replaces it. */
 .omp-live-step-scroll[data-settled="true"] {
 	opacity: 0.72;
 }
@@ -1406,7 +1442,8 @@
 	overflow-x: auto;
 	scrollbar-width: thin;
 }
-.omp-work-parallel > li { flex: 0 0 auto; max-width: 22rem; }
+/* Picks share the row and ellipsize their labels instead of running past the card's edge. */
+.omp-work-parallel > li { flex: 0 1 auto; min-width: min(9rem, 100%); max-width: 22rem; }
 
 .omp-work-parallel-row {
 	display: grid;
@@ -1493,9 +1530,16 @@
 	padding-inline: var(--sc-space-1-5);
 }
 
+/* A lane's placeholder line ("no entries yet", a load error) sits inside the stage's own inset. */
+.omp-work-stage .omp-work-frame > .omp-live-work-calm {
+	padding: var(--sc-space-2) var(--sc-space-3);
+}
+
 /* Replay strip ─────────────────────────────────────────────────────────── */
+/* One line always: older steps scroll off the start, the current one is kept in view. */
 .omp-live-work-strip {
 	display: flex;
+	flex-wrap: nowrap;
 	align-items: center;
 	gap: var(--sc-space-1);
 	min-width: 0;
@@ -1510,13 +1554,36 @@
 	border-top: 0;
 }
 
+/* An open lane's steps take the card's one strip row, named for their agent. */
+.omp-live-work-strip-label {
+	flex-shrink: 0;
+	max-width: 12ch;
+	overflow: hidden;
+	padding-inline: var(--sc-space-1) var(--sc-space-0-5);
+	color: var(--sc-text-secondary);
+	font-size: var(--sc-font-xs);
+	font-weight: var(--sc-weight-medium);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.omp-live-work-strip-lane {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	gap: var(--sc-space-1);
+	min-width: 0;
+}
+
 .omp-live-work-chips {
 	display: flex;
+	flex-wrap: nowrap;
 	align-items: center;
 	gap: 2px;
 	flex: 1;
 	min-width: 0;
 	overflow-x: auto;
+	overflow-y: hidden;
 	scrollbar-width: none;
 }
 
@@ -1614,8 +1681,26 @@
 	.omp-work-narrative {
 		font-size: var(--sc-font-md);
 	}
+	/* One constant line: the sub text rides on the narrative's line instead of a reserved row. */
+	.omp-work-head-text {
+		display: flex;
+		align-items: baseline;
+		gap: var(--sc-space-2);
+	}
+	.omp-work-head-text > .omp-work-crossfade {
+		flex: 0 1 auto;
+		width: auto;
+	}
+	.omp-work-sub-shell {
+		display: block;
+		flex: 1 1 0;
+		min-width: 0;
+	}
+	.omp-work-sub-shell[data-open="false"] {
+		display: none;
+	}
 	.omp-work-sub {
-		-webkit-line-clamp: 1;
+		padding-block-start: 0;
 	}
 	.omp-live-work-heading {
 		min-height: 24px;
@@ -1625,20 +1710,22 @@
 		min-height: 26px;
 		padding-block: 1px;
 	}
-	/* One compact row per worker keeps activity visible without crowding the surface. */
+	/* One compact row per worker, stacked: two stay in view and a third peeks in half a
+	   row so the list visibly scrolls. Every row keeps its counts, so no separator orphans. */
 	.omp-work-map {
-		padding-block-end: var(--sc-space-0-5);
+		padding-block-end: 0;
 	}
 	.omp-work-cards {
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 1px var(--sc-space-1);
-		max-height: 24px;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 1px;
+		max-height: calc(20px * 2.5 + 2px);
+		scrollbar-width: thin;
 	}
 	.omp-work-card-button {
 		grid-template-columns: var(--sc-icon-sm) minmax(0, max-content) minmax(0, 1fr) auto var(--sc-icon-sm);
 		row-gap: 0;
-		column-gap: var(--sc-space-1);
-		min-height: 24px;
+		column-gap: var(--sc-space-1-5);
+		min-height: 20px;
 		padding-block: 0;
 		font-size: var(--sc-font-xs);
 	}
@@ -1648,21 +1735,14 @@
 	}
 	.omp-work-card-progress {
 		display: flex;
-		max-width: none;
+		min-width: 0;
 	}
-	.omp-work-card-count {
-		display: none;
-	}
-	.omp-work-card-name {
-		max-width: 9ch;
+	/* A flex item drops its leading space; keep the one before " · elapsed". */
+	.omp-work-card-elapsed {
+		white-space: pre;
 	}
 }
 
-@container omp-workspace (max-width: 600px) {
-	.omp-live-step {
-		margin-inline-start: var(--sc-space-1);
-	}
-}
 
 /* Outcome ──────────────────────────────────────────────────────────────── */
 .omp-work-outcome {
@@ -1828,6 +1908,39 @@
 	color: var(--sc-danger);
 }
 
+/* A stopped command's name opens what it printed before the stop. */
+.omp-work-outcome-toggle {
+	text-align: start;
+	border-radius: var(--sc-radius-sm);
+	cursor: pointer;
+}
+
+.omp-work-outcome-toggle:hover {
+	background: var(--sc-hover);
+}
+
+.omp-work-outcome-toggle:focus-visible {
+	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
+	outline-offset: 1px;
+}
+
+.omp-work-outcome-output {
+	grid-column: 2 / -1;
+	max-height: calc(var(--sc-font-xs) * var(--sc-leading-normal) * 12);
+	margin: var(--sc-space-1) 0 0;
+	padding: var(--sc-space-1-5) var(--sc-space-2);
+	overflow: auto;
+	border: 1px solid var(--sc-divider);
+	border-radius: var(--sc-radius-sm);
+	background: var(--omp-code-bg);
+	color: var(--sc-text-secondary);
+	font-family: var(--sc-font-mono);
+	font-size: var(--sc-font-xs);
+	line-height: var(--sc-leading-normal);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
 /* Pictures the work made or read back: always visible thumbnails under the outcome. */
 .omp-work-images {
 	display: flex;
@@ -1925,12 +2038,13 @@
 		transform: scale(1.35);
 	}
 }
+/* Transform, not background-position: the compositor moves it; no main-thread repaint per frame. */
 @keyframes omp-work-sweep {
 	from {
-		background-position: -60% 0;
+		transform: translateX(-90%);
 	}
 	to {
-		background-position: 160% 0;
+		transform: translateX(240%);
 	}
 }
 @keyframes omp-work-caret {
@@ -1990,7 +2104,7 @@
 .omp-work-motion[data-running="true"]:is([data-surface="write"], [data-surface="edit"]) pre code::after {
 	content: "▏";
 	color: var(--sc-accent);
-	animation: omp-work-caret calc(var(--sc-duration-slow) * 2) var(--sc-ease-standard) infinite;
+	animation: omp-work-caret calc(var(--sc-duration-slow) * 2) steps(1, end) infinite;
 }
 @media (prefers-reduced-motion: reduce) {
 	.omp-work-pulse,
@@ -2674,9 +2788,15 @@
 	min-width: 0;
 	line-height: var(--sc-leading-normal);
 }
+/* The command stays pinned at the top of the surface while its output scrolls beneath it. */
 .omp-bash-live .omp-bash-prompt {
+	position: sticky;
+	top: 0;
+	z-index: 1;
 	align-items: center;
 	min-height: var(--sc-control-sm);
+	background: var(--omp-code-bg);
+	box-shadow: 0 1px 0 var(--sc-divider);
 }
 .omp-bash-live .omp-bash-prompt > span:nth-child(2) {
 	white-space: pre;
@@ -2788,6 +2908,43 @@
 .omp-work-notes-body {
 	padding: var(--sc-space-2) 0;
 }
+/* The user's own steer: their bubble's tone, full text, never folded behind "more". */
+.omp-work-steer {
+	display: flex;
+	align-items: baseline;
+	gap: var(--sc-space-2);
+	min-width: 0;
+	margin-block: var(--sc-space-1);
+	padding: var(--sc-space-1-5) var(--sc-space-2);
+	border-radius: var(--sc-radius-sm);
+	background: var(--sc-surface-2);
+	color: var(--sc-text);
+	font-size: var(--sc-font-sm);
+}
+.omp-work-steer-icon {
+	flex-shrink: 0;
+	align-self: center;
+	color: var(--sc-text-secondary);
+}
+.omp-work-steer-label {
+	flex-shrink: 0;
+	color: var(--sc-text-secondary);
+	font-weight: 500;
+}
+.omp-work-steer-text {
+	flex: 1;
+	min-width: 0;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+	overflow: hidden;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.omp-work-steer > .omp-work-notes-age {
+	flex-shrink: 0;
+	font-variant-numeric: tabular-nums;
+}
 .omp-work-notes-item--arriving {
 	animation: omp-work-notes-fade var(--omp-motion-fast) var(--omp-ease);
 }
@@ -2799,20 +2956,30 @@
 	.omp-work-notes-item--arriving { animation: none; }
 }
 
+/* A short pane keeps the notes to one row: the notes share its width, each ending in an
+   ellipsis, instead of a strip whose scroller cut the next note mid-word. */
 @container omp-workspace (max-height: 480px) {
 	.omp-work-notes {
-		padding-block: var(--sc-space-0-5);
+		padding-block: 0;
 	}
 	.omp-work-notes-line {
 		padding-block: 0;
+		font-size: var(--sc-font-xs);
 	}
 	.omp-work-notes:not(:has([aria-expanded="true"])) .omp-work-notes-list {
 		display: flex;
 		gap: var(--sc-space-3);
-		overflow-x: auto;
 	}
 	.omp-work-notes:not(:has([aria-expanded="true"])) .omp-work-notes-item {
-		flex: 0 0 min(100%, 20rem);
+		flex: 1 1 0;
 		min-width: 0;
+	}
+	.omp-work-steer {
+		margin-block: 0;
+		padding-block: 0;
+		font-size: var(--sc-font-xs);
+	}
+	.omp-work-steer-text {
+		-webkit-line-clamp: 1;
 	}
 }

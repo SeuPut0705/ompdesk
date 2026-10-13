@@ -5,7 +5,7 @@ import { useMessagesStore } from "../../stores/messages";
 
 /**
  * Quiet output-token figure for a work-summary row, in words rather than
- * glyphs: "12.4k tokens · 86/s" live, "12.4k tokens · avg 80/s" once
+ * glyphs: "12.4k tokens · 86 tok/s" live, "12.4k tokens · avg 80 tok/s" once
  * finished. An estimated count reads "~12.4k tokens" (the tooltip says where
  * the number comes from). Renders nothing without tokens.
  */

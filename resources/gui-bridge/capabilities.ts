@@ -507,6 +507,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/config/model-resolver`]: ["formatModelString()"],
 			[`${AGENT}/discovery/helpers`]: ["parseAgentFields()"],
 			[`${AGENT}/modes/agents-hub-deps`]: ["createAgentsHubDeps()"],
+			[`${AGENT}/modes/rpc/rpc-subagents`]: ["readRpcSubagentTranscript()"],
 			[`${AGENT}/task/agents`]: ["AgentParsingError"],
 			[UTILS]: ["parseFrontmatter()"],
 			[`${AGENT}/memory-backend/resolve`]: ["resolveMemoryBackend()"],

@@ -131,6 +131,13 @@ describe("get_transcript_page", () => {
 		expect(transcriptTurnStart(messages, 3, 4)).toBe(0);
 		expect(transcriptTurnStart(messages, 4, 5)).toBe(4);
 		expect(transcriptTurnStart(messages, 5, 5)).toBe(5);
+		const steered = [
+			{ role: "user" },
+			{ role: "assistant" },
+			{ role: "toolResult" },
+			{ role: "user", steering: true },
+		];
+		expect(transcriptTurnStart(steered, 3, 4)).toBe(0);
 	});
 });
 

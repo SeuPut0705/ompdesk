@@ -5,7 +5,8 @@
  */
 import type { AgentSessionEvent } from "../shared/rpc-types";
 
-const BATCH_INTERVAL_MS = 32;
+/** One ~30Hz presentation frame; subagent frames (subagent-frames.ts) share it. */
+export const BATCH_INTERVAL_MS = 32;
 const MAX_BUFFER_SIZE = 1000;
 
 type FlushCallback = (events: AgentSessionEvent[]) => void;

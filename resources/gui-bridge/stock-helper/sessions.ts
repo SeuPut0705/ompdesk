@@ -94,15 +94,31 @@ function paths(params: unknown): { sessionsRoot: string; sessionPath?: string } 
 const NO_MESSAGES = "(no messages)";
 /** Most bytes streamed to find a first prompt (stock's own header read bound). */
 const FIRST_PROMPT_READ_LIMIT = 1024 * 1024;
-/** First prompts found past stock's prefix window, keyed by path, valid for one `modified:size` stamp. */
-const firstPrompts = new Map<string, { stamp: string; text: string }>();
+/** Journal entries stock writes around a session that are not conversation (header, settings, hidden notices). */
+const HEADER_ENTRY_TYPES = new Set([
+	"title",
+	"session",
+	"thinking_level_change",
+	"service_tier_change",
+	"model_change",
+	"custom",
+	"custom_message",
+]);
+/**
+ * What a "(no messages)" row resolves to, keyed by path, valid for one `modified:size` stamp:
+ * the first prompt, "" for a file read to its end without one, or null to keep stock's row.
+ */
+const firstPrompts = new Map<string, { stamp: string; firstMessage: string | null }>();
 
 /**
  * Stock lists a session's first prompt from a 4 KB prefix only. Anything stock
- * persists before it, e.g. the xd:// device inventory notice that an MCP server
- * with many tools (the built-in REA has ~170) makes tens of KB long, hides the
- * prompt, and the row reads "(no messages)". Stream the journal with stock's
- * loader up to the first user message and take its text the way the listing does.
+ * persists before it, e.g. the xd:// device inventory notice an MCP server with
+ * many tools writes, hides the prompt, and the row reads "(no messages)". Stream
+ * the journal with stock's loader up to the first user message and take its text
+ * the way the listing does. A file read to its end without one is a header-only
+ * session (stock writes one when a chat is deleted and the next one starts):
+ * its first message becomes "", so the sidebar treats it as empty instead of
+ * listing the English placeholder as a conversation that comes back after every delete.
  */
 async function withFirstPrompts(rows: StockSessionInfo[]): Promise<StockSessionInfo[]> {
 	if (!rows.some(row => row.firstMessage === NO_MESSAGES)) return rows;
@@ -115,16 +131,30 @@ async function withFirstPrompts(rows: StockSessionInfo[]): Promise<StockSessionI
 			const stamp = `${new Date(row.modified).getTime()}:${row.size}`;
 			const cached = firstPrompts.get(row.path);
 			if (cached?.stamp === stamp) {
-				if (cached.text) row.firstMessage = cached.text;
+				if (cached.firstMessage !== null) row.firstMessage = cached.firstMessage;
 				return;
 			}
 			let text = "";
+			// Only a journal of header/settings entries is an empty session. A message of any role
+			// (an image-only prompt has no text), a shown custom message or an unknown entry type
+			// is conversation: stock's messageCount comes from the same 4 KB prefix, so clearing such
+			// a row would hide a real session.
+			let conversation = false;
 			try {
 				await stock.visitEntriesFromFileStream(
 					row.path,
 					entry => {
-						if (typeof entry !== "object" || entry === null || !("type" in entry) || entry.type !== "message")
+						if (typeof entry !== "object" || entry === null || !("type" in entry)) {
+							conversation = true;
 							return undefined;
+						}
+						if (entry.type !== "message") {
+							if (!HEADER_ENTRY_TYPES.has(String(entry.type))) conversation = true;
+							else if (entry.type === "custom_message" && !("display" in entry && entry.display === false))
+								conversation = true;
+							return undefined;
+						}
+						conversation = true;
 						if (!("message" in entry) || typeof entry.message !== "object" || entry.message === null)
 							return undefined;
 						const message = entry.message;
@@ -140,8 +170,9 @@ async function withFirstPrompts(rows: StockSessionInfo[]): Promise<StockSessionI
 				// Unreadable now (stock's own scan skips such files too): keep stock's row.
 				return;
 			}
-			firstPrompts.set(row.path, { stamp, text });
-			if (text) row.firstMessage = text;
+			const firstMessage = text || (!conversation && row.size <= FIRST_PROMPT_READ_LIMIT ? "" : null);
+			firstPrompts.set(row.path, { stamp, firstMessage });
+			if (firstMessage !== null) row.firstMessage = firstMessage;
 		}),
 	);
 	return rows;

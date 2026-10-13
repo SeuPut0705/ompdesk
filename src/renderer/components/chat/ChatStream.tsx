@@ -57,6 +57,7 @@ import {
 	shouldRePinTranscript,
 } from "./chat-stream-utils";
 import { ExecutionGroup } from "./ExecutionGroup";
+import { WorkCardPending } from "./LiveStepPeek";
 import { MessageBubble } from "./MessageBubble";
 import { StreamingText } from "./StreamingText";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -208,6 +209,11 @@ function SessionTranscript() {
 			rowKeys: buildTranscriptRowKeys(nextRows),
 		};
 	}, [hiddenCount, historyRows, showStreamingRow, showStatusRow, streamingMessage]);
+	// One live card per session: only the newest work row (the live tail, else the
+	// last process/streaming row) may still run; every earlier card is resolved.
+	const currentWorkRow = liveTail
+		? tailRowIndex
+		: rows.findLastIndex(row => row.kind === "process" || row.kind === "streaming");
 
 	const parentRef = useRef<HTMLDivElement>(null);
 	const canvasRef = useRef<HTMLDivElement>(null);
@@ -770,6 +776,7 @@ function SessionTranscript() {
 											live={item.index === tailRowIndex}
 											onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
 											row={row}
+											superseded={item.index < currentWorkRow}
 										/>
 									) : row.kind === "streaming" ? (
 										<StreamingRows
@@ -863,6 +870,7 @@ function ProcessGroup({
 	live = false,
 	onExpandedChange,
 	row,
+	superseded = false,
 }: {
 	expanded: boolean;
 	/**
@@ -873,6 +881,7 @@ function ProcessGroup({
 	live?: boolean;
 	onExpandedChange: (expanded: boolean) => void;
 	row: Extract<HistoryRow, { kind: "process" }>;
+	superseded?: boolean;
 }) {
 	const output = useMemo(() => summarizeMessagesOutput(row.messages), [row.messages]);
 	// Non-live rows select constants, so tool and token events never re-render them.
@@ -896,6 +905,7 @@ function ProcessGroup({
 				onExpandedChange={onExpandedChange}
 				output={output}
 				notes={row.notes}
+				superseded={superseded}
 				stepCount={row.stepCount + liveCards.length + (hasThinking ? 1 : 0)}
 				thinkingLive={hasThinking && !hasText}
 				toolCallIds={toolCallIds}
@@ -1157,18 +1167,18 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 		announcement = text;
 	} else if (awaitingModelSince != null) {
 		if (attached) return null;
+		// The card's own head in the exact frame the streaming work card mounts in
+		// (same turn, content and group wrappers), so the run fills it in place.
 		return (
-			<div className="omp-status-turn ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-2">
-				<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
-					{t("chat.awaitingModel.announcement")}
-				</span>
-				<span
-					aria-hidden
-					className="flex size-7 items-center justify-center px-1.5 text-(--sc-text-muted)"
-					data-awaiting-spinner
-				>
-					<Spinner size="sm" />
-				</span>
+			<div className="omp-streaming-turn group flex px-6 omp-assistant-turn--compact" data-awaiting-card>
+				<div className="omp-transcript-content min-w-0">
+					<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
+						{t("chat.awaitingModel.announcement")}
+					</span>
+					<section className="omp-execution-group" data-state="running">
+						<WorkCardPending />
+					</section>
+				</div>
 			</div>
 		);
 	} else {

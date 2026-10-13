@@ -31,6 +31,11 @@ export interface WorkGroupTally {
 	reportedFailures: number;
 	interruptedTools: number;
 	agents: readonly GroupAgent[];
+	/**
+	 * A later work card exists in the session: this one is resolved. Its unfinished calls
+	 * were cut off; agents still running report on their own lanes, never as this card's state.
+	 */
+	superseded?: boolean;
 }
 
 export interface WorkGroupResolution {
@@ -48,21 +53,16 @@ export interface WorkGroupResolution {
 export function resolveWorkGroup(tally: WorkGroupTally): WorkGroupResolution {
 	let runningAgents = 0;
 	let failed = tally.failedTools + tally.reportedFailures;
-	let interrupted = tally.interruptedTools;
+	let interrupted = tally.interruptedTools + (tally.superseded ? tally.runningTools : 0);
 	for (const agent of tally.agents) {
 		const state = agentGroupState(agent.status);
-		if (state === "running") runningAgents++;
+		if (state === "running") runningAgents += tally.superseded ? 0 : 1;
 		else if (state === "failed" && agent.parent !== "failed") failed++;
 		else if (state === "interrupted" && agent.parent !== "interrupted" && agent.parent !== "failed") interrupted++;
 	}
+	const live = !tally.superseded && (tally.live || tally.runningTools > 0);
 	const state: WorkGroupState =
-		tally.live || tally.runningTools > 0 || runningAgents > 0
-			? "running"
-			: failed > 0
-				? "failed"
-				: interrupted > 0
-					? "interrupted"
-					: "complete";
+		live || runningAgents > 0 ? "running" : failed > 0 ? "failed" : interrupted > 0 ? "interrupted" : "complete";
 	return { state, failed, interrupted, runningAgents };
 }
 

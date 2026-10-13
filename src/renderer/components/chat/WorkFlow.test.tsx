@@ -101,6 +101,11 @@ it("pins concurrent calls live and switches directly without losing the list or 
 	const lane = container.querySelector<HTMLButtonElement>(".omp-work-card-button");
 	await act(async () => lane?.click());
 	expect(lane?.getAttribute("aria-current")).toBe("true");
+	// An open lane owns the stage and the strip: the main calls' picks wait until it closes.
+	expect(container.querySelector(".omp-work-parallel")).toBeNull();
+	expect(container.querySelectorAll(".omp-live-work-strip")).toHaveLength(1);
+	expect(container.querySelector(".omp-live-work-strip-label")?.textContent).toBe("Scout");
+	await act(async () => lane?.click());
 	for (const index of [0, 1]) {
 		await act(async () =>
 			(container.querySelectorAll(".omp-work-parallel-row")[index] as unknown as { click(): void }).click(),

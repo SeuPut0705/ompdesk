@@ -92,6 +92,8 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/modes/loop-limit": () => import("@oh-my-pi/pi-coding-agent/modes/loop-limit"),
 	"@oh-my-pi/pi-coding-agent/modes/model-browser-source": () =>
 		import("@oh-my-pi/pi-coding-agent/modes/model-browser-source"),
+	"@oh-my-pi/pi-coding-agent/modes/rpc/rpc-subagents": () =>
+		import("@oh-my-pi/pi-coding-agent/modes/rpc/rpc-subagents"),
 	"@oh-my-pi/pi-coding-agent/modes/settings": () => import("@oh-my-pi/pi-coding-agent/modes/settings"),
 	"@oh-my-pi/pi-coding-agent/plan-mode/approved-plan": () =>
 		import("@oh-my-pi/pi-coding-agent/plan-mode/approved-plan"),

@@ -126,6 +126,24 @@ export function parseDiff(text: string): DiffLine[] {
 	return lines;
 }
 
+/**
+ * Row index (gap rows included, as DiffView paints them) of the first changed
+ * line in the diff's last hunk — where a live editor's newest change begins.
+ */
+export function newestHunkFocusRow(text: string): number | undefined {
+	const rows = parseDiffRows(text);
+	let focus: number | undefined;
+	for (let index = rows.length - 1; index >= 0; index--) {
+		const type = rows[index]!.type;
+		if (type === "gap") {
+			if (focus !== undefined) break;
+		} else if (type !== "context") {
+			focus = index;
+		}
+	}
+	return focus;
+}
+
 interface IntraSegment {
 	text: string;
 	changed: boolean;
@@ -322,6 +340,8 @@ interface DiffViewProps {
 	/** Path of the edited file — infers the context-line highlight language. */
 	filePath?: string;
 	className?: string;
+	/** Painted row (see `newestHunkFocusRow`) tagged `data-live-focus` for a live surface to keep in view. */
+	focusRow?: number;
 }
 
 /**
@@ -329,7 +349,7 @@ interface DiffViewProps {
  * intra-line highlight on single-line replacements, leading-whitespace
  * visualization, syntax-highlighted context lines, and gap ellipsis rows.
  */
-export function DiffView({ diff, filePath, className }: DiffViewProps) {
+export function DiffView({ diff, filePath, className, focusRow }: DiffViewProps) {
 	const t = useT();
 	const allRows = useMemo(() => parseDiffRows(diff), [diff]);
 	/**
@@ -470,7 +490,11 @@ export function DiffView({ diff, filePath, className }: DiffViewProps) {
 						);
 					}
 					return (
-						<div key={i} className={cx("whitespace-pre px-2", LINE_STYLES[row.type])}>
+						<div
+							key={i}
+							className={cx("whitespace-pre px-2", LINE_STYLES[row.type])}
+							data-live-focus={i === focusRow ? "start" : undefined}
+						>
 							{gutterWidth > 0 && (
 								<>
 									<span

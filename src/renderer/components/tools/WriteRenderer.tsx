@@ -9,7 +9,7 @@ import { MermaidBlock } from "../chat/MermaidBlock";
 import { type PreviewMode, PreviewModeTabs, SvgImage, useSanitizedSvg } from "../chat/SvgBlock";
 import { ProtocolWriteRenderer } from "./CoordinationRenderer";
 import { unifiedDiffStats } from "./diff-stats";
-import { liveDiffPreview } from "./live-diff";
+import { liveDiffProps } from "./live-diff";
 import { PathLink } from "./PathLink";
 import { DiffStatChip, ToolPathTarget, type ToolRendererProps } from "./ToolCard";
 
@@ -109,7 +109,7 @@ export function WriteRenderer({
 	const figure = writeFigure(path);
 	const codeView = diff ? (
 		<DiffView
-			diff={livePreview ? liveDiffPreview(diff) : diff}
+			{...(livePreview ? liveDiffProps(diff) : { diff })}
 			filePath={path}
 			className={cx("rounded", PREVIEW_SCROLL_LG)}
 		/>
@@ -133,7 +133,8 @@ export function WriteRenderer({
 	if (livePreview) {
 		if (isError) return <div className="whitespace-pre-wrap text-sc-sm text-(--sc-danger)">{errorText?.head}</div>;
 		return (
-			<div className="omp-tool-editor omp-tool-write">
+			// Streaming content follows its tail; a landed diff marks its newest hunk instead.
+			<div className="omp-tool-editor omp-tool-write" data-live-focus={diff || !content ? undefined : "end"}>
 				{codeView || (
 					<div className="text-sc-sm text-(--sc-text-muted)">
 						{isPartial ? t("tools.edit.applying") : t("tools.read.empty")}

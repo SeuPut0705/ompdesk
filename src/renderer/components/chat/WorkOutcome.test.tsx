@@ -132,7 +132,6 @@ describe("work outcome evidence", () => {
 				{ entry: aborted, agentName: "child" },
 				{ entry: failed, agentName: "child" },
 			],
-			[],
 			2,
 		);
 		expect(outcome.commands[0]).toMatchObject({ unknown: true, interrupted: true });
@@ -167,7 +166,7 @@ describe("work outcome evidence", () => {
 		const created = entry("write", { path, content: "alpha\n" }, { resolvedPath });
 		const edited = entry("edit", { path }, { path: resolvedPath, op: "update", diff: "-alpha\n+beta" });
 		expect(workFilePathKey(path, cwd)).toBe(workFilePathKey(resolvedPath, cwd));
-		expect(workOutcomes([created, edited], [], undefined, cwd).files).toEqual([{ path, added: 1, removed: 0 }]);
+		expect(workOutcomes([created, edited], undefined, cwd).files).toEqual([{ path, added: 1, removed: 0 }]);
 	});
 	it("does not merge equal basenames in different directories", () => {
 		expect(workFilePathKey("notes.txt", "/project")).not.toBe(workFilePathKey("/elsewhere/notes.txt", "/project"));
@@ -181,9 +180,10 @@ describe("work outcome evidence", () => {
 			{ path: "/project/notes.txt", diff: "-alpha\n+beta", op: "update" },
 		);
 		const view = await mount([created, edited]);
-		expect(view.querySelector("summary")?.textContent).toContain("1 file changed");
-		expect(view.querySelector("summary")?.textContent).toContain("+1 −0");
+		// Counts live once, in the card's head; the outcome lists the file, project-relative.
+		expect(view.querySelector("summary")?.textContent).toBe("Outcome");
 		expect(view.querySelectorAll('[data-kind="file"]')).toHaveLength(1);
+		expect(view.querySelector('[data-kind="file"]')?.textContent).toBe("notes.txt +1 −0");
 	});
 	it.each([
 		["/project/src", "../notes.txt", false],
@@ -222,7 +222,7 @@ describe("work outcome evidence", () => {
 	it("renders net line counts and preserves full path text on hover", async () => {
 		const path = "a/very/long/path/notes.txt";
 		const view = await mount([write(path), entry("edit", { path }, { diff: "-beta\n+updated" })]);
-		expect(view.querySelector("summary")?.textContent).toContain("+3 −0");
+		expect(view.querySelector('[data-kind="file"]')?.textContent).toContain("+3 −0");
 		expect(view.querySelector('[data-kind="file"] [title]')?.getAttribute("title")).toBe(path);
 	});
 	it("caps images and expands the remaining accessible zoom thumbnails on click", async () => {

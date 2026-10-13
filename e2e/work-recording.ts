@@ -98,3 +98,37 @@ export function rebaseWorkRecording(recording: RecordedWorkFrame[], started = Da
 	for (const [object, timestamp] of timestamps) object.timestamp = started + Math.round((timestamp - epoch) / 8);
 	return recording;
 }
+
+/** Play a recording in fixed segments: segment `n` ends at `stops[n]` (inclusive),
+ * the last one at the final frame. Each call plays the next segment and resolves
+ * whether it reached the end. A call made while an earlier segment still plays
+ * queues behind it: segments share one cursor, so overlapping loops would skip,
+ * repeat and reorder frames (a stale progress after completion, or the whole run
+ * at once when the cursor sat mid-segment). Calls past the end are no-ops. */
+export function createWorkReplay(
+	recording: readonly RecordedWorkFrame[],
+	stops: readonly number[],
+	emit: (frame: RecordedWorkFrame) => void,
+	wait: (ms: number) => Promise<void>,
+): () => Promise<boolean> {
+	let cursor = 0;
+	let segment = 0;
+	let playing = Promise.resolve(false);
+	const play = async (): Promise<boolean> => {
+		if (cursor >= recording.length) return false;
+		const end = Math.min(stops[segment++] ?? recording.length - 1, recording.length - 1);
+		let previous = recording[cursor].atMs;
+		for (; cursor <= end; cursor++) {
+			const item = recording[cursor];
+			const delay = item.atMs - previous;
+			if (delay > 0) await wait(delay);
+			previous = item.atMs;
+			emit(item);
+		}
+		return cursor === recording.length;
+	};
+	return () => {
+		playing = playing.then(play);
+		return playing;
+	};
+}

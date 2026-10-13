@@ -75,8 +75,11 @@ const ALLOW_IDENTICAL: Record<string, true> = {
 	"input.modes.tab.vibe": true, // Vibe — feature name
 	"input.mode.python.badge": true, // $ Python — prefix symbol + language name
 	"stats.col.ttft": true, // TTFT — latency acronym
-	"stats.col.tps": true, // Tok/s — unit symbol
 	"stats.overview.ttftSub": true, // TTFT {time} — acronym + placeholder
+	"stats.col.tps": true, // tok/s — unit symbol, the same in every language
+	"stats.overview.tokensPerSecond": true, // {rate} tok/s — placeholder + unit
+	"modelPicker.speed": true, // ~{value} tok/s — placeholder + unit
+	"chat.meter.rate": true, // {rate} tok/s — placeholder + unit
 	"stats.requests.detail.api": true, // API — protocol acronym
 	"chat.exec.python": true, // Python — language name
 	"chat.exec.shell": true, // Shell — universal term in dev UIs

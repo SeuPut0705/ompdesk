@@ -56,7 +56,11 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult, 
 	const { head, omitted } = headLines(rawText, READ_PREVIEW_LINES);
 
 	return (
-		<div className={livePreview ? "omp-tool-editor omp-tool-read flex flex-col gap-1.5" : "flex flex-col gap-1.5"}>
+		<div
+			className={livePreview ? "omp-tool-editor omp-tool-read flex flex-col gap-1.5" : "flex flex-col gap-1.5"}
+			// Live, the read text opens at its first line — the range start for a ranged read.
+			data-live-focus={livePreview && head && !image && !isError ? "start" : undefined}
+		>
 			{!livePreview && (
 				<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 					<FileText size={12} className="shrink-0 text-[var(--omp-dim)]" />

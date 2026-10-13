@@ -34,7 +34,8 @@ export function workTurnStartedAt(messages: readonly AgentMessage[]) {
 	for (let index = messages.length - 1; index >= 0; index--) {
 		const message = messages[index];
 		if (!message) continue;
-		if (message.role === "user" || isWorkReply(message)) break;
+		// A steer is delivered inside a running loop: it redirects work, never starts it.
+		if ((message.role === "user" && message.steering !== true) || isWorkReply(message)) break;
 		if (message.role !== "assistant") continue;
 		const hasWork =
 			Array.isArray(message.content) &&

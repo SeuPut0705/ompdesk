@@ -1,6 +1,87 @@
 import { asNonEmptyString } from "../../lib/wire-value";
 
-const PATCH_FILE_HEADER = /^(?:\[([^#\r\n]+)#[0-9A-F]{4}\][^\r\n]*|\*{3} (?:Add|Update|Delete) File: (.+))\r?$/gm;
+/** A complete `[path#TAG]` header followed by an inline op on the same line (older payloads). */
+const HASHLINE_INLINE_HEADER = /^\[([^\r\n#]+)#[0-9A-Fa-f]{4}\]\s/;
+
+const APPLY_PATCH_FILE = /^\*{3} (Add|Update|Delete) File: (.+?)\r?$/;
+const APPLY_PATCH_MOVE = /^\*{3} Move to: (.+?)\r?$/;
+
+/** One file a freeform edit `input` targets, with its file-level operation. */
+export interface EditInputSection {
+	path: string;
+	op?: "create" | "delete" | "update";
+	rename?: string;
+}
+
+/**
+ * Renderer counterpart of stock pi-tui `tools/edit.ts` `getHashlineInputSections`
+ * (and the header walk behind `getEditInputPaths`), which the renderer cannot import.
+ * Tolerant of a payload still streaming: a `[path` header counts before its `#TAG]`
+ * arrives, so the call names its file and REM/MV operation without ever showing the
+ * edit DSL itself. apply_patch payloads (`*** Add/Update/Delete File:`) keep their
+ * envelope headers. Pinned to stock by edit-input-stock.test.ts.
+ */
+export function editInputSections(input: string): EditInputSection[] {
+	const stripped = input.startsWith("\uFEFF") ? input.slice(1) : input;
+	const sections: EditInputSection[] = [];
+	let current: EditInputSection | undefined;
+	if (/^\*{3} (?:Add|Update|Delete) File:/m.test(stripped)) {
+		for (const line of stripped.split("\n")) {
+			const file = APPLY_PATCH_FILE.exec(line);
+			if (file?.[1] && file[2]) {
+				current = {
+					path: file[2].trim(),
+					op: file[1] === "Add" ? "create" : file[1] === "Delete" ? "delete" : "update",
+				};
+				sections.push(current);
+				continue;
+			}
+			const move = APPLY_PATCH_MOVE.exec(line);
+			if (current && move?.[1]) current.rename = move[1].trim();
+		}
+		return sections;
+	}
+	for (const rawLine of stripped.split("\n")) {
+		const line = rawLine.replace(/\r$/, "");
+		const headerPath = hashlineHeaderPath(line);
+		if (headerPath) {
+			current = { path: headerPath };
+			sections.push(current);
+			continue;
+		}
+		if (!current) continue;
+		const trimmed = line.trim();
+		if (trimmed === "REM") current.op = "delete";
+		else if (trimmed.startsWith("MV ")) current.rename = hashlinePreviewPath(trimmed.slice(3));
+	}
+	return sections;
+}
+
+/** Stock `normalizeHashlineInputPreviewPath`: drop the `#TAG` and matching quotes. */
+function hashlinePreviewPath(rawPath: string): string {
+	const trimmed = rawPath.trim();
+	const hashStart = /#[0-9a-fA-F]{4}$/u.exec(trimmed)?.index;
+	const withoutHash = hashStart === undefined ? trimmed : trimmed.slice(0, hashStart);
+	if (withoutHash.length < 2) return withoutHash;
+	const first = withoutHash[0];
+	if ((first === '"' || first === "'") && first === withoutHash.at(-1)) return withoutHash.slice(1, -1);
+	return withoutHash;
+}
+
+/**
+ * Stock `parseHashlineInputPreviewHeader`: `[path#TAG]`, tolerant while the bracket streams.
+ * Unlike stock it also reads a complete header that carries its op inline (`[a.ts#A1B2] PUT …`),
+ * which stock would take as part of the path.
+ */
+function hashlineHeaderPath(line: string): string | null {
+	const trimmed = line.trimEnd();
+	if (!trimmed.startsWith("[")) return null;
+	const inline = HASHLINE_INLINE_HEADER.exec(trimmed)?.[1];
+	if (inline) return hashlinePreviewPath(inline);
+	const bodyEnd = trimmed.endsWith("]") ? trimmed.length - 1 : trimmed.length;
+	const path = hashlinePreviewPath(trimmed.slice(1, bodyEnd).trim());
+	return path.length > 0 ? path : null;
+}
 
 /** Renderer-only lexical counterpart of node:path.resolve/normalize: stock write
  * exposes details.resolvedPath and edit exposes resolved details.path, while
@@ -59,8 +140,11 @@ export function editArgumentPaths(args: Record<string, unknown>): string[] {
 	const input =
 		typeof args.input === "string" ? args.input : typeof args._input === "string" ? args._input : undefined;
 	if (input) {
-		PATCH_FILE_HEADER.lastIndex = 0;
-		for (const match of input.matchAll(PATCH_FILE_HEADER)) add(match[1] ?? match[2]);
+		// Stock `getEditInputPaths`: every section's file, then its move destination.
+		for (const section of editInputSections(input)) {
+			add(section.path);
+			add(section.rename);
+		}
 	}
 
 	return paths;

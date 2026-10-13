@@ -70,6 +70,7 @@ import type { RpcClient } from "./rpc-client";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import { applyRunEvent, idleRun, type RunState, runBusy, settleRun } from "./sidecar-run-state";
 import { nextSnowflake } from "./snowflake";
+import { createSubagentFrameBatcher } from "./subagent-frames";
 import { type PersistedTabDescriptor, type PersistedTabLayout, TAB_LAYOUT_VERSION } from "./tab-layout";
 import type { TabSpawnFacts } from "./worktree-lifecycle";
 
@@ -125,7 +126,6 @@ function forwardToWindow(win: BrowserWindow, channel: string, data: unknown): vo
 
 /** Sidecar events a visible tab forwards to its window unchanged, as `{ tabId, payload }`. */
 const FORWARDED_TAB_EVENTS: ReadonlyArray<readonly [event: string, channel: string]> = [
-	["subagentFrame", IPC_EVENTS.SUBAGENT_FRAME],
 	["liveFrame", IPC_EVENTS.LIVE_FRAME],
 	["btwFrame", IPC_EVENTS.BTW_FRAME],
 	["modelCatalogUpdate", IPC_EVENTS.MODEL_CATALOG_UPDATE],
@@ -420,7 +420,7 @@ export class SidecarPool {
 		// stay on the full channel; the roster is re-read when the tab is shown.
 		sidecar.on("subagentFrame", (frame: SubagentFrame) => {
 			if (entry.detachFull || frame.type !== "subagent_lifecycle") return;
-			forwardToWindow(win, IPC_EVENTS.SUBAGENT_FRAME, { tabId: entry.tabId, payload: frame });
+			forwardToWindow(win, IPC_EVENTS.SUBAGENT_FRAMES, { tabId: entry.tabId, payload: [frame] });
 		});
 		const settle = (settled: boolean): void => {
 			const wasBusy = runBusy(entry.run);
@@ -489,7 +489,11 @@ export class SidecarPool {
 		// A fresh slimmer per attachment: the first update of each message after
 		// the tab becomes visible keeps its full snapshot (it missed message_start).
 		const slimMessageUpdates = createMessageUpdateSlimmer();
+		const subagentFrames = createSubagentFrameBatcher(frames => forwardActive(IPC_EVENTS.SUBAGENT_FRAMES, frames));
+		wire("subagentFrame", (frame: SubagentFrame) => subagentFrames.push(frame));
 		wire("events", (events: AgentSessionEvent[]) => {
+			// Subagent frames that arrived first leave first, as when each was sent alone.
+			subagentFrames.flush();
 			forwardActive(IPC_EVENTS.EVENTS_BATCH, slimMessageUpdates(events));
 		});
 		wire("status", (payload: SidecarStatusPayload) => {
@@ -513,6 +517,8 @@ export class SidecarPool {
 		entry.detachFull = () => {
 			entry.detachFull = null;
 			for (const remove of removers) remove();
+			// Already received while shown: deliver them, as when each was sent alone.
+			subagentFrames.flush();
 		};
 	}
 

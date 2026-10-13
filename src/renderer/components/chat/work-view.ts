@@ -1,7 +1,6 @@
-import type { AgentMessage, AgentProgress } from "../../../shared/rpc-types";
-import { extractImageDataUrls, resultDetails } from "../../lib/format";
+import type { AgentProgress } from "../../../shared/rpc-types";
+import { extractImageDataUrls, resultDetails, resultText } from "../../lib/format";
 import { asRecord } from "../../lib/wire-value";
-import type { SubagentNode } from "../../stores/subagents";
 import type { ToolEntry } from "../../stores/tools";
 import { toolDiffStats } from "../tools/diff-stats";
 import { asPerFileResults } from "../tools/EditRenderer";
@@ -12,6 +11,10 @@ import { isInterruptedError } from "./WorkStatus";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
+/** A model intent that names no target ("Running requested command") yields to the command itself. */
+const GENERIC_INTENT =
+	/^(?:running|run|executing|execute)\s+(?:the\s+)?(?:requested|given|provided|specified|user(?:'s)?)?\s*(?:shell\s+|bash\s+)?commands?\.?$/i;
+
 export function workNarrative(
 	tool: string,
 	args: Record<string, unknown>,
@@ -20,7 +23,7 @@ export function workNarrative(
 	wireIntent?: string,
 ): string {
 	for (const intent of [wireIntent, args.intent, progress?.currentToolIntent, progress?.lastIntent, args.i]) {
-		if (typeof intent === "string" && intent.trim()) return intent.trim();
+		if (typeof intent === "string" && intent.trim() && !GENERIC_INTENT.test(intent.trim())) return intent.trim();
 	}
 	const header = getToolHeader(tool, args);
 	const taskNames =
@@ -73,34 +76,6 @@ export function isSkippedWork(entry: ToolEntry | undefined): boolean {
 	return resultDetails(entry?.result)?.source === "interrupt_skipped";
 }
 
-/** Only a reply after this group's results, never a later turn's conclusion. */
-export function workConclusion(
-	messages: readonly AgentMessage[],
-	liveMessages: readonly AgentMessage[],
-	ownsCall: (id: string) => boolean,
-): string {
-	let matched = false;
-	let conclusion = "";
-	for (const source of [messages, liveMessages]) {
-		for (const message of source) {
-			if (message.role === "toolResult" && message.toolCallId && ownsCall(message.toolCallId)) {
-				matched = true;
-				conclusion = "";
-			} else if (matched && message.role === "user") {
-				return conclusion;
-			} else if (matched && message.role === "assistant" && Array.isArray(message.content)) {
-				if (message.content.some(block => block.type === "toolCall" && !ownsCall(block.id))) return conclusion;
-				const text = message.content
-					.filter(block => block.type === "text")
-					.map(block => block.text)
-					.join("\n");
-				if (text.trim()) conclusion = replyHeadline(text);
-			}
-		}
-	}
-	return conclusion;
-}
-
 /** Renderer-only excerpt of stock result/yield data, never a model-facing summary. */
 export function agentResultSummary(row: Record<string, unknown>): string | null {
 	const yields = normalizeYieldData(asRecord(row.extractedToolData)?.yield);
@@ -148,32 +123,45 @@ function removedPaths(command: string): string[] {
 	return paths;
 }
 
+/** One command a run ran, main agent or subagent. */
+export interface WorkCommandOutcome {
+	command: string;
+	exitCode: number | null;
+	failed: boolean;
+	agentName?: string;
+	unknown?: boolean;
+	interrupted?: boolean;
+	durationMs?: number;
+	/** What a stopped command printed before the stop, without stock's abort annotation. */
+	output?: string;
+}
+
+export interface WorkFileOutcome {
+	path: string;
+	added?: number;
+	removed?: number;
+	deleted?: boolean;
+}
+
+export interface WorkOutcomes {
+	files: WorkFileOutcome[];
+	commands: WorkCommandOutcome[];
+	images: Array<{ src: string; label: string }>;
+}
+
 /**
  * `stoppedAt`: the actual user-stop timestamp, used only for interrupted top-level calls.
+ * Agent conclusions are not outcome rows: the run's lanes carry them (work-run.ts).
  */
-export function workOutcomes(
-	entries: readonly WorkEvidence[],
-	agents: readonly SubagentNode[] = [],
-	stoppedAt?: number,
-	cwd = "",
-) {
-	const files = new Map<string, { path: string; added?: number; removed?: number; deleted?: boolean }>();
+export function workOutcomes(entries: readonly WorkEvidence[], stoppedAt?: number, cwd = ""): WorkOutcomes {
+	const files = new Map<string, WorkFileOutcome>();
 	// Stock write returns resolvedPath, not a diff or a creation flag. Its content
 	// establishes the post-write line count; stock edit's diff/op then gives net
 	// line deltas. Never cancel replacement lines for an ordinary pre-existing edit.
 	const written = new Set<string>();
 	const created = new Set<string>();
 	const netLines = new Map<string, number>();
-	const commands: Array<{
-		command: string;
-		exitCode: number | null;
-		failed: boolean;
-		agentName?: string;
-		unknown?: boolean;
-		interrupted?: boolean;
-		durationMs?: number;
-	}> = [];
-	const conclusions: Array<{ name: string; summary: string }> = [];
+	const commands: WorkCommandOutcome[] = [];
 	// Pictures the work produced or looked at (screenshots read back, browser captures, generated
 	// images): the reply often talks about them, so the outcome shows them without opening steps.
 	const images: Array<{ src: string; label: string }> = [];
@@ -280,6 +268,11 @@ export function workOutcomes(
 				}
 			}
 			const cut = isInterruptedError(entry, agentName ? undefined : stoppedAt);
+			const output = cut
+				? resultText(entry.result)
+						.replace(/\n*\[Command (?:aborted|cancelled)\]\s*$/, "")
+						.trim()
+				: "";
 			commands.push({
 				command: entry.args.command,
 				exitCode,
@@ -288,25 +281,9 @@ export function workOutcomes(
 				...(entry.status === "aborted" || entry.result == null ? { unknown: true } : {}),
 				...(cut ? { interrupted: true } : {}),
 				...(typeof details?.wallTimeMs === "number" ? { durationMs: details.wallTimeMs } : {}),
+				...(output && output !== "Command aborted" ? { output } : {}),
 			});
 		}
-		if (entry.toolName === "task" && Array.isArray(details?.results)) {
-			for (const result of details.results) {
-				if (!result || typeof result !== "object") continue;
-				const row = result as Record<string, unknown>;
-				const summary = agentResultSummary(row);
-				if (summary) conclusions.push({ name: String(row.name ?? row.id ?? row.agent ?? ""), summary });
-			}
-		}
 	}
-	// Detached stock tasks return before their final yields; progress carries the same result data.
-	for (const agent of agents) {
-		if (agent.status === "running" || agent.status === "pending") continue;
-		const summary = agentResultSummary({ ...agent.progress });
-		if (!summary) continue;
-		const existing = conclusions.find(item => item.name === agent.id);
-		if (existing) existing.summary = summary;
-		else conclusions.push({ name: agent.id, summary });
-	}
-	return { files: [...files.values()], commands, conclusions, images };
+	return { files: [...files.values()], commands, images };
 }

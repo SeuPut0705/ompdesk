@@ -37,8 +37,11 @@ const SCENARIOS: ReadonlyArray<{ name: string; prompt: string; during?: (page: P
 			name: "silent-then-interrupted",
 			prompt: "Run the bash command `sleep 40 && echo done` exactly once and wait for it.",
 			during: async (page, tab) => {
-				const clock = page.locator(".omp-live-step .omp-work-clock");
-				await expect(clock).toContainText("without output", { timeout: 120_000 });
+				// Stock may move a long command to the background after a few seconds (18.10+),
+				// which ends the step before it can go silent; either outcome is a valid capture.
+				const clock = page.locator(".omp-live-step .omp-work-clock").filter({ hasText: "without output" });
+				const backgrounded = page.locator(".omp-live-step").filter({ hasText: /Background|백그라운드/ });
+				await expect(clock.or(backgrounded).first()).toBeVisible({ timeout: 120_000 });
 				await capture(page, "silent-running");
 				await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "abort" }), tab);
 			},
@@ -151,10 +154,21 @@ test("real omp work scenarios on the small model", async () => {
 					await expect(page.getByPlaceholder(/Ask omp anything/)).toBeVisible({ timeout: 300_000 });
 				}
 				// Model-independent invariants: a stopped turn never claims success, a failing command fails.
-				const last = page.locator(".omp-execution-group").last();
-				if (scenario.name === "silent-then-interrupted")
-					await expect.soft(last).toHaveAttribute("data-state", "interrupted");
-				if (scenario.name === "failing-command") await expect.soft(last).toHaveAttribute("data-state", "failed");
+				// Assert on the group that answers this scenario's own prompt: stock's todo-reminder
+				// auto-continuation can append a later continuation card after it.
+				const ownGroupState = () =>
+					page.evaluate(prompt => {
+						const plain = (text: string | null) => (text ?? "").replace(/[`\s]+/g, " ").trim();
+						const rows = [...document.querySelectorAll(".omp-user-bubble, .omp-execution-group")];
+						const asked = rows.findLastIndex(
+							row => row.matches(".omp-user-bubble") && plain(row.textContent).includes(plain(prompt)),
+						);
+						if (asked === -1) return "prompt not rendered";
+						const group = rows.slice(asked + 1).find(row => row.matches(".omp-execution-group"));
+						return group?.getAttribute("data-state") ?? "no group";
+					}, scenario.prompt);
+				if (scenario.name === "silent-then-interrupted") await expect.soft.poll(ownGroupState).toBe("interrupted");
+				if (scenario.name === "failing-command") await expect.soft.poll(ownGroupState).toBe("failed");
 				await capture(page, scenario.name);
 			});
 		}
@@ -175,15 +189,24 @@ test("real omp work scenarios on the small model", async () => {
 			await page.getByRole("button", { name: /^Create the file notes\.txt/ }).click();
 		}
 		await expect(groups.first()).toBeVisible({ timeout: 30_000 });
-		// One capture per group in the theme the session last used: the theme picker lists
-		// itself differently in Korean, and the light/dark pass above already covered colour.
-		for (let index = 0; index < (await groups.count()); index++) {
-			await groups.nth(index).scrollIntoViewIfNeeded();
+		// One capture per viewport from the top: the transcript is virtualized, so group
+		// locators detach while it scrolls. The theme the session last used is kept: the
+		// light/dark pass above already covered colour.
+		const scroll = page.locator(".omp-transcript-scroll");
+		await scroll.evaluate(element => element.scrollTo({ top: 0 }));
+		for (let index = 0; index < 12; index++) {
+			await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 			await page.screenshot({
 				path: path.join(evidence, `ko-group-${index + 1}.png`),
 				animations: "disabled",
 				scale: "css",
 			});
+			const atEnd = await scroll.evaluate(element => {
+				const before = element.scrollTop;
+				element.scrollTo({ top: before + element.clientHeight * 0.9 });
+				return element.scrollTop === before;
+			});
+			if (atEnd) break;
 		}
 	} finally {
 		await exitApp(app);

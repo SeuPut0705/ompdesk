@@ -5,11 +5,10 @@ import { cx, headLines } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { asNonEmptyString } from "../../lib/wire-value";
-import { CodeBlock } from "../chat/CodeBlock";
 import { ErrorDetail } from "../common";
 import { unifiedDiffStats } from "./diff-stats";
-import { editArgumentPaths, editRecordDiff } from "./edit-args";
-import { liveDiffPreview } from "./live-diff";
+import { editArgumentPaths, editInputSections, editRecordDiff } from "./edit-args";
+import { liveDiffProps } from "./live-diff";
 import { PathLink } from "./PathLink";
 import { resultBodyText, resultDetails } from "./result";
 import { DiffStatChip, ToolPathTarget, type ToolRendererProps } from "./ToolCard";
@@ -120,11 +119,11 @@ function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError, 
 	);
 }
 
-/** A file's diff: the newest changed region on the live surface, the whole diff in the transcript. */
+/** A file's diff: the newest changed region on the live surface (its newest hunk kept in view), the whole diff in the transcript. */
 function EditDiff({ diff, path, livePreview }: { diff: string; path: string; livePreview?: boolean }) {
 	return (
 		<DiffView
-			diff={livePreview ? liveDiffPreview(diff) : diff}
+			{...(livePreview ? liveDiffProps(diff) : { diff })}
 			filePath={path}
 			className={cx("rounded", PREVIEW_SCROLL_LG)}
 		/>
@@ -394,29 +393,33 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 		);
 	}
 
-	if (patchInput) {
+	// Like stock's streaming edit call, the hashline/apply_patch DSL is never shown: until a diff
+	// exists, each target file with its operation. Live, the card heading already names the first.
+	const inputFiles = patchInput ? editInputSections(patchInput).slice(livePreview ? 1 : 0) : [];
+	const pending = isPartial ? (
+		<div className="flex items-center gap-1.5 text-omp-sm text-[var(--omp-dim)]">
+			<Circle aria-hidden size={7} className="fill-current text-[var(--omp-accent)]" />
+			{t("tools.edit.applying")}
+		</div>
+	) : null;
+	if (inputFiles.length > 0) {
 		return (
 			<div className="flex flex-col gap-1.5">
-				<EditHeader op={op} path={rawPath} moveTo={rename} />
-				<CodeBlock
-					code={patchInput}
-					language="diff"
-					showLanguage={false}
-					showCopy={false}
-					maxHeightClass="max-h-72"
-				/>
+				{inputFiles.map((file, index) => (
+					<EditHeader
+						key={`${index}:${file.path}`}
+						op={file.op}
+						title={file.rename && file.op !== "delete" ? t("tools.edit.op.move") : undefined}
+						path={file.path}
+						moveTo={file.rename}
+					/>
+				))}
+				{pending}
 			</div>
 		);
 	}
 
-	if (isPartial) {
-		return (
-			<div className="flex items-center gap-1.5 text-omp-sm text-[var(--omp-dim)]">
-				<Circle aria-hidden size={7} className="fill-current text-[var(--omp-accent)]" />
-				{t("tools.edit.applying")}
-			</div>
-		);
-	}
+	if (pending) return pending;
 	return (
 		<div className="flex flex-col gap-1.5">
 			<EditHeader op={op} path={rawPath} moveTo={rename} />

@@ -3,6 +3,10 @@
  * to show (prefer a skeleton for content, ProgressBar when progress is known).
  * Neutral (text-muted) on its own; `inheritColor` takes the surrounding text
  * color, e.g. inside a Button while it is loading. Always announced as status.
+ *
+ * The rotation runs on an HTML wrapper, not the <svg>: Chromium animates an
+ * SVG element's transform on the main thread (style and paint every frame for
+ * as long as a run shows the spinner), an HTML box's on the compositor.
  */
 
 import { useT } from "../../lib/i18n";
@@ -28,17 +32,15 @@ export function Spinner({ size = "md", label, inheritColor, className }: Spinner
 	const t = useT();
 	const { box, stroke } = SIZES[size];
 	const svg = (
-		<svg
+		<span
 			aria-hidden="true"
-			className={inheritColor ? "animate-spin" : "animate-spin text-(--sc-text-muted)"}
-			fill="none"
-			height={box}
-			viewBox="0 0 24 24"
-			width={box}
+			className={inheritColor ? "inline-flex animate-spin" : "inline-flex animate-spin text-(--sc-text-muted)"}
 		>
-			<circle cx="12" cy="12" r="9.5" stroke="currentColor" strokeOpacity="0.22" strokeWidth={stroke} />
-			<path d="M21.5 12a9.5 9.5 0 0 0-9.5-9.5" stroke="currentColor" strokeLinecap="round" strokeWidth={stroke} />
-		</svg>
+			<svg fill="none" height={box} viewBox="0 0 24 24" width={box}>
+				<circle cx="12" cy="12" r="9.5" stroke="currentColor" strokeOpacity="0.22" strokeWidth={stroke} />
+				<path d="M21.5 12a9.5 9.5 0 0 0-9.5-9.5" stroke="currentColor" strokeLinecap="round" strokeWidth={stroke} />
+			</svg>
+		</span>
 	);
 
 	if (!label) {

@@ -289,7 +289,7 @@ describe("SidecarPool tabs", () => {
 		// Background sidecar emits nothing on the remaining full channels.
 		b?.emit("subagentFrame", { type: "subagent_progress" });
 		b?.emit("promptResult", { type: "prompt_result" });
-		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAME)).toHaveLength(0);
+		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAMES)).toHaveLength(0);
 		expect(fw.sentTo(IPC_EVENTS.PROMPT_RESULT)).toHaveLength(0);
 		a?.emit("promptResult", { type: "prompt_result" });
 		expect(fw.sentTo(IPC_EVENTS.PROMPT_RESULT).map(entry => entry.data)).toEqual([
@@ -315,20 +315,22 @@ describe("SidecarPool tabs", () => {
 		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
 			{ tabId: "tab-b", payload: [proposal] },
 		]);
-		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAME).map(entry => entry.data)).toEqual([
-			{ tabId: "tab-b", payload: started },
+		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAMES).map(entry => entry.data)).toEqual([
+			{ tabId: "tab-b", payload: [started] },
 		]);
 
 		// Shown, B's full channel carries them: no second copy from the light one.
 		expect(pool.setActiveTab(fw.win, "tab-b")).toBe(true);
 		fw.sent.length = 0;
-		b?.emitEvents([proposal]);
 		b?.emit("subagentFrame", started);
+		b?.emitEvents([proposal]);
+		// Batched per frame; an agent-event batch sends the frames that came before it first.
+		expect(fw.sent.map(entry => entry.channel)).toEqual([IPC_EVENTS.SUBAGENT_FRAMES, IPC_EVENTS.EVENTS_BATCH]);
 		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
 			{ tabId: "tab-b", payload: [proposal] },
 		]);
-		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAME).map(entry => entry.data)).toEqual([
-			{ tabId: "tab-b", payload: started },
+		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAMES).map(entry => entry.data)).toEqual([
+			{ tabId: "tab-b", payload: [started] },
 		]);
 		// And A, now hidden, gets the light routing instead.
 		fw.sent.length = 0;

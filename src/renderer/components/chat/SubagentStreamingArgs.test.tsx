@@ -165,14 +165,15 @@ afterEach(async () => {
 });
 
 describe("an expanded agent lane while its bash call streams", () => {
-	it("shows the command as soon as the streamed arguments spell it", async () => {
+	it("shows the command as soon as the streamed arguments spell it, never an empty terminal first", async () => {
 		expect(commands.some(command => command.type === "get_subagent_messages")).toBe(true);
 		await stream(DELTAS.slice(0, 2));
-		expect(lane()?.getAttribute("data-surface")).toBe("bash");
-		// Nothing of the command has streamed yet: no bare `$` prompt line.
+		// Nothing of the command has streamed yet: no bash surface with a bare `$` prompt line.
+		expect(lane()?.getAttribute("data-surface")).not.toBe("bash");
 		expect(lane()?.querySelector(".omp-bash-prompt")).toBeNull();
 
 		await stream(DELTAS.slice(2, 11));
+		expect(lane()?.getAttribute("data-surface")).toBe("bash");
 		expect(lane()?.querySelector(".omp-bash-prompt")?.textContent).toContain("sleep");
 
 		await stream(DELTAS.slice(11));

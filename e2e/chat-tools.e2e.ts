@@ -149,7 +149,7 @@ test("a chat tab runs omp with every tool in the default workspace", async () =>
 
 test("stock metadata drives live token rate and read grouping", async () => {
 	await page.evaluate(() => window.omp.rpc.command({ type: "prompt", message: "fixture meter" }));
-	await expect(page.locator(".omp-thinking-gauge").last()).toContainText("64/s");
+	await expect(page.locator(".omp-thinking-gauge").last()).toContainText("64 tok/s");
 	await expect(page.locator(".omp-thinking-gauge").last()).not.toContainText("tokens");
 	await page.evaluate(() => window.omp.rpc.command({ type: "abort" }));
 	await page.evaluate(() => window.omp.rpc.command({ type: "prompt", message: "fixture reads" }));

@@ -214,10 +214,34 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 			} else if (kind === "wait") {
 				await expect(surface.locator(".omp-work-sub")).toContainText("Waiting for");
 				await expect(surface.locator(".omp-work-stage")).toBeVisible();
-				// The card's own strip; the followed agent's nested strip lives inside the stage.
+				// One strip: an auto-followed agent draws none of its own, the card's strip stays.
+				await expect(surface.locator(".omp-live-work-strip")).toHaveCount(1);
 				await expect(surface.locator(":scope > .omp-live-work-strip [data-step-id]")).toHaveCount(5);
 			} else if (kind === "browser" || kind === "computer") {
 				await expect(content.locator("img")).toBeVisible();
+			} else if (kind === "edit") {
+				// The stage follows the newest change to its first changed line — below the first
+				// change, above the tail — and holds it inside the stage's visible rect.
+				const changed = content.locator("[data-live-focus]").last();
+				await expect(changed).toContainText("export function start() {}");
+				await expect
+					.poll(async () => {
+						const [line, view] = await Promise.all([changed.boundingBox(), content.boundingBox()]);
+						return (
+							line !== null && view !== null && line.y >= view.y && line.y + line.height <= view.y + view.height
+						);
+					})
+					.toBe(true);
+				// Shown by following, not by an unscrolled stage: the scrollers between them moved.
+				const scrolled = await changed.evaluate(element => {
+					let total = 0;
+					for (let node = element.parentElement; node; node = node.parentElement) {
+						total += node.scrollTop;
+						if (node.classList.contains("omp-live-step-scroll")) break;
+					}
+					return total;
+				});
+				expect(scrolled).toBeGreaterThan(0);
 			} else if (kind === "web_search") {
 				await expect(content).toContainText("Keyboard accessibility");
 				await expect(content).toContainText("Make every control reachable with the keyboard.");

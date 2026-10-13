@@ -7,7 +7,7 @@ import * as net from "node:net";
 import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
 import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from "../src/shared/rpc-types";
-import { type RecordedWorkFrame, rebaseWorkRecording } from "./work-recording";
+import { createWorkReplay, type RecordedWorkFrame, rebaseWorkRecording } from "./work-recording";
 
 // A local stand-in for the system omp the GUI drives: stock `--mode rpc-ui` on
 // stdin/stdout, plus the gui-bridge extension's socket (loaded with `-e`,
@@ -329,6 +329,32 @@ if (process.argv[2] === "stats") {
 		persistSession();
 	};
 	if (process.env.OMP_GUI_TEST_LONG_SESSION === "1") seedLongSession();
+	/**
+	 * `OMP_GUI_TEST_SEED_SESSION=<file>`: the journal starts as a private copy of
+	 * a real stock session file (opt-in performance audits), so the transcript
+	 * the GUI pages through is real. Custom messages join the branch as stock's
+	 * session context lists them.
+	 */
+	if (process.env.OMP_GUI_TEST_SEED_SESSION) {
+		for (const line of fs.readFileSync(process.env.OMP_GUI_TEST_SEED_SESSION, "utf8").split("\n")) {
+			if (!line) continue;
+			const entry = JSON.parse(line) as Entry;
+			if (entry.type === "session" || entry.type === "title") continue;
+			if (entry.type !== "custom_message") {
+				entries.push(entry);
+				continue;
+			}
+			const { customType, content, display, details } = entry;
+			entries.push({
+				type: "message",
+				id: entry.id,
+				parentId: entry.parentId,
+				timestamp: entry.timestamp,
+				message: { role: "custom", customType, content, display, details, timestamp: Date.parse(entry.timestamp) },
+			});
+		}
+		activeLeafId = entries.at(-1)?.id ?? null;
+	}
 
 	const count = Math.min(50_000, Number(process.env.OMP_GUI_TEST_HISTORY ?? 0));
 	for (let index = 0; index < count; index++) {
@@ -1282,55 +1308,45 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 	// current surface. This avoids racing screenshots against fixture timers.
 	let advanceWork: (() => void) | undefined;
 	let appendWorkOutput: (() => void) | undefined;
-	let recording: RecordedWorkFrame[] = [];
-	let recordingCursor = 0;
+	/** `fixture:work-stream`: stream the current step's output and its subagents' events until the step moves on. */
+	let streamWork: (() => void) | undefined;
+	let workStreamTimer: Timer | undefined;
+	let replayRecordedWork: (() => void) | undefined;
 	const recordedMessages = new Map<string, AgentMessage[]>();
-	const replayRecordedWork = async () => {
-		const end = recordingCursor === 0 ? 260 : recordingCursor === 261 ? 284 : recording.length - 1;
-		let previous = recording[recordingCursor]?.atMs ?? 0;
-		for (; recordingCursor <= end; recordingCursor++) {
-			const item = recording[recordingCursor];
-			const delay = item.atMs - previous;
-			if (delay > 0) await new Promise<void>(resolve => setTimeout(resolve, delay));
-			previous = item.atMs;
-			if (item.channel === "main") {
-				for (const event of item.events) {
-					if (event.type === "message_end") appendMessage(event.message);
-					write(event);
-				}
-			} else {
-				const frame = item.frame;
-				if (frame.type === "subagent_lifecycle") {
-					const p = frame.payload;
-					const existing = subagentRoster.find(node => node.id === p.id);
-					const node: SubagentSnapshot = {
-						...existing,
-						id: p.id,
-						index: p.index,
-						agent: p.agent,
-						agentSource: p.agentSource,
-						status: p.status === "started" ? "running" : p.status,
-						parentToolCallId: p.parentToolCallId,
-						sessionFile: p.sessionFile,
-						lastUpdate: Date.now(),
-					};
-					if (existing) Object.assign(existing, node);
-					else subagentRoster.push(node);
-				} else if (frame.type === "subagent_progress") {
-					const node = subagentRoster.find(node => node.id === frame.payload.progress.id);
-					if (node)
-						Object.assign(node, { status: frame.payload.progress.status, progress: frame.payload.progress });
-				} else if (frame.payload.event.type === "message_end") {
-					const messages = recordedMessages.get(frame.payload.id) ?? [];
-					messages.push(frame.payload.event.message);
-					recordedMessages.set(frame.payload.id, messages);
-				}
-				write(frame);
+	const emitRecordedWork = (item: RecordedWorkFrame) => {
+		if (item.channel === "main") {
+			for (const event of item.events) {
+				if (event.type === "message_end") appendMessage(event.message);
+				write(event);
 			}
+			return;
 		}
-		// The audit captured both real yields but stopped before the main reply.
-		// Close fixture playback; never manufacture an assistant answer.
-		if (recordingCursor === recording.length) endTurn([]);
+		const frame = item.frame;
+		if (frame.type === "subagent_lifecycle") {
+			const p = frame.payload;
+			const existing = subagentRoster.find(node => node.id === p.id);
+			const node: SubagentSnapshot = {
+				...existing,
+				id: p.id,
+				index: p.index,
+				agent: p.agent,
+				agentSource: p.agentSource,
+				status: p.status === "started" ? "running" : p.status,
+				parentToolCallId: p.parentToolCallId,
+				sessionFile: p.sessionFile,
+				lastUpdate: Date.now(),
+			};
+			if (existing) Object.assign(existing, node);
+			else subagentRoster.push(node);
+		} else if (frame.type === "subagent_progress") {
+			const node = subagentRoster.find(node => node.id === frame.payload.progress.id);
+			if (node) Object.assign(node, { status: frame.payload.progress.status, progress: frame.payload.progress });
+		} else if (frame.payload.event.type === "message_end") {
+			const messages = recordedMessages.get(frame.payload.id) ?? [];
+			messages.push(frame.payload.event.message);
+			recordedMessages.set(frame.payload.id, messages);
+		}
+		write(frame);
 	};
 	const startWorkView = (user: AgentMessage) => {
 		const screenshot = Buffer.from(
@@ -1341,6 +1357,27 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			args: Record<string, unknown>;
 			result: { content: AgentMessage["content"]; details?: Record<string, unknown> };
 		};
+		// The edit step's two changes, each taller than the stage: following must land on the newest
+		// one's first changed line, which neither the stage's top nor its bottom shows.
+		const readyLines = ["  ready: false,", ...Array.from({ length: 16 }, (_, i) => `  check${i + 1}: true,`)];
+		const startLines = [
+			"export function start() {",
+			...Array.from({ length: 16 }, (_, i) => `  run('step ${i + 1}');`),
+			"}",
+		];
+		const editDiff = [
+			`@@ -1,4 +1,${3 + readyLines.length} @@`,
+			" export const workspace = {",
+			"   title: 'Live work',",
+			"-  ready: true,",
+			...readyLines.map(line => `+${line}`),
+			" };",
+			`@@ -30,3 +${29 + readyLines.length},${2 + startLines.length} @@`,
+			" // Starts the workspace.",
+			"-export function start() {}",
+			...startLines.map(line => `+${line}`),
+			" export default workspace;",
+		].join("\n");
 		const steps: WorkFixtureStep[] = [
 			{
 				name: "bash",
@@ -1416,12 +1453,16 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			},
 			{
 				name: "edit",
-				args: { path: "src/workspace.ts", edits: [{ old_text: "ready: true", new_text: "ready: false" }] },
+				args: {
+					path: "src/workspace.ts",
+					edits: [
+						{ old_text: "  ready: true,", new_text: readyLines.join("\n") },
+						{ old_text: "export function start() {}", new_text: startLines.join("\n") },
+					],
+				},
 				result: {
 					content: [{ type: "text", text: "Updated workspace state" }],
-					details: {
-						diff: "@@ -1,4 +1,4 @@\n export const workspace = {\n   title: 'Live work',\n-  ready: true,\n+  ready: false,\n };",
-					},
+					details: { diff: editDiff },
 				},
 			},
 			{
@@ -1474,6 +1515,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			},
 		});
 		const finishStep = () => {
+			clearInterval(workStreamTimer);
 			if (index < 0 || index >= steps.length) return;
 			const step = steps[index];
 			const id = `work-view-${index}`;
@@ -1557,6 +1599,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				endTurn([...turn, answer]);
 				advanceWork = undefined;
 				appendWorkOutput = undefined;
+				streamWork = undefined;
 				return;
 			}
 			const step = steps[index];
@@ -1614,7 +1657,8 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				toolCallId: id,
 				toolName: step.name,
 				args: step.args,
-				partialResult: step.result,
+				// Stock reports a command's exit code only with its end, never on a running update.
+				partialResult: step.name === "bash" ? { content: step.result.content } : step.result,
 			});
 			if (step.name === "task") {
 				subagentRoster = ["WorkspaceScout", "WorkspaceReview"].map((name, agentIndex) => ({
@@ -1764,8 +1808,218 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				toolCallId: "work-view-0",
 				toolName: "bash",
 				args: steps[0].args,
-				partialResult: steps[0].result,
+				partialResult: { content: steps[0].result.content },
 			});
+		};
+		streamWork = () => {
+			clearInterval(workStreamTimer);
+			const step = steps[index];
+			if (!step) return;
+			const id = `work-view-${index}`;
+			let tick = 0;
+			let output = "";
+			const agentOutput = new Map<string, string>();
+			const agentReply = new Map<string, string>();
+			const replyStart = Date.now();
+			// ~30 frames a second, the rate stock forwards a busy tool's partials.
+			workStreamTimer = setInterval(() => {
+				tick++;
+				output += `${step.name} output line ${tick}: ${"x".repeat(tick % 80)}\n`;
+				if (step.name === "bash")
+					write({
+						type: "tool_execution_update",
+						toolCallId: id,
+						toolName: step.name,
+						args: step.args,
+						partialResult: { content: [{ type: "text", text: output }] },
+					});
+				for (const agent of subagentRoster) {
+					const text = `${agentOutput.get(agent.id) ?? ""}${agent.id} line ${tick}\n`;
+					agentOutput.set(agent.id, text);
+					write({
+						type: "subagent_event",
+						payload: {
+							id: agent.id,
+							event: {
+								type: "tool_execution_update",
+								toolCallId: `${agent.id}-bash`,
+								toolName: "bash",
+								args: { command: "wc -l src/workspace.ts" },
+								partialResult: { content: [{ type: "text", text }] },
+							},
+						},
+					});
+					// Stock forwards a subagent's stream unfiltered ("full" message updates):
+					// every delta carries the whole reply so far, twice.
+					const delta = `Checking ${agent.id} step ${tick}. `;
+					const reply = `${agentReply.get(agent.id) ?? ""}${delta}`;
+					agentReply.set(agent.id, reply);
+					const message: AgentMessage = {
+						role: "assistant",
+						content: [{ type: "text", text: reply }],
+						timestamp: replyStart,
+					};
+					write({
+						type: "subagent_event",
+						payload: {
+							id: agent.id,
+							event: {
+								type: "message_update",
+								message,
+								assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta, partial: message },
+							},
+						},
+					});
+					if (agent.progress && tick % 10 === 0) {
+						agent.progress = { ...agent.progress, tokens: agent.progress.tokens + 40, durationMs: tick * 33 };
+						write({
+							type: "subagent_progress",
+							payload: {
+								index: agent.index,
+								agent: agent.agent,
+								agentSource: "bundled",
+								task: "Inspect workspace",
+								parentToolCallId: agent.parentToolCallId,
+								progress: agent.progress,
+							},
+						});
+					}
+				}
+			}, 33);
+		};
+	};
+	/** `fixture steer work`: one turn that takes a steer mid-run, driven by `fixture:steer-*` bash lines. */
+	let steerWork: { deliver: () => void; finish: () => void } | undefined;
+	const startSteerWork = (user: AgentMessage) => {
+		const turn: AgentMessage[] = [user];
+		subagentRoster = [];
+		const startCall = (id: string, name: string, args: Record<string, unknown>) => {
+			const call: AgentMessage = {
+				role: "assistant",
+				content: [{ type: "toolCall", id, name, arguments: args }],
+				timestamp: Date.now(),
+				provider: model.provider,
+				model: model.id,
+				stopReason: "toolUse",
+			};
+			write({ type: "message_start", message: call });
+			appendMessage(call);
+			write({ type: "message_end", message: call });
+			turn.push(call);
+			write({ type: "tool_execution_start", toolCallId: id, toolName: name, args });
+		};
+		const endCall = (id: string, name: string, text: string, details?: Record<string, unknown>) => {
+			const content: AgentMessage["content"] = [{ type: "text", text }];
+			write({
+				type: "tool_execution_end",
+				toolCallId: id,
+				toolName: name,
+				result: { content, details },
+				isError: false,
+			});
+			const result: AgentMessage = {
+				role: "toolResult",
+				toolCallId: id,
+				toolName: name,
+				content,
+				details,
+				isError: false,
+				timestamp: Date.now(),
+			};
+			appendMessage(result);
+			write({ type: "message_end", message: result });
+			turn.push(result);
+		};
+		const startAgent = (id: string, parentToolCallId: string, task: string) => {
+			const agent: SubagentSnapshot = {
+				id,
+				index: subagentRoster.length,
+				agent: "debugger",
+				status: "running",
+				live: true,
+				parentToolCallId,
+				lastUpdate: Date.now(),
+			};
+			subagentRoster.push(agent);
+			write({ type: "subagent_lifecycle", payload: { ...agent, agentSource: "bundled", status: "started" } });
+			write({
+				type: "subagent_progress",
+				payload: {
+					index: agent.index,
+					agent: agent.agent,
+					agentSource: "bundled",
+					task,
+					parentToolCallId,
+					progress: {
+						id,
+						index: agent.index,
+						agent: agent.agent,
+						agentSource: "bundled",
+						status: "running",
+						task,
+						lastIntent: task,
+						recentTools: [],
+						recentOutput: [],
+						toolCount: 0,
+						requests: 1,
+						tokens: 10,
+						cost: 0,
+						durationMs: 100,
+					},
+				},
+			});
+		};
+		// A command, then an agent whose task returns while the agent keeps working.
+		startCall("steer-bash", "bash", {
+			command: "bun test e2e/work-replay.test.ts",
+			intent: "Running the lane replay",
+		});
+		endCall("steer-bash", "bash", "12 pass\n0 fail", { exitCode: 0 });
+		startCall("steer-task-1", "task", { tasks: [{ name: "LaneRace", task: "Find the lane conclusion race" }] });
+		startAgent("LaneRace", "steer-task-1", "Find the lane conclusion race");
+		endCall("steer-task-1", "task", "LaneRace is working in the background");
+		steerWork = {
+			// Stock: the queued steer enters the running loop as a `steering` user message.
+			deliver: () => {
+				const steers = lanes.steering.splice(0);
+				emitQueue();
+				for (const text of steers) {
+					const message: AgentMessage = {
+						role: "user",
+						content: [{ type: "text", text }],
+						steering: true,
+						timestamp: Date.now(),
+					};
+					appendMessage(message);
+					write({ type: "message_start", message });
+					write({ type: "message_end", message });
+					turn.push(message);
+				}
+				startCall("steer-task-2", "task", { tasks: [{ name: "CiSpeed", task: "Split CI timing" }] });
+				startAgent("CiSpeed", "steer-task-2", "Split CI timing");
+			},
+			finish: () => {
+				for (const agent of subagentRoster) {
+					agent.status = "completed";
+					write({
+						type: "subagent_lifecycle",
+						payload: { ...agent, agentSource: "bundled", status: "completed" },
+					});
+				}
+				endCall("steer-task-2", "task", "CiSpeed finished");
+				const answer: AgentMessage = {
+					role: "assistant",
+					content: [{ type: "text", text: "Lane race fixed and CI timing split." }],
+					timestamp: Date.now(),
+					provider: model.provider,
+					model: model.id,
+					stopReason: "stop",
+				};
+				appendMessage(answer);
+				write({ type: "message_end", message: answer });
+				endTurn([...turn, answer]);
+				steerWork = undefined;
+			},
 		};
 	};
 	const prompt = (message: string, respond: () => void) => {
@@ -1795,13 +2049,28 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		write({ type: "message_end", message: user });
 		if (message === "fixture work view") {
 			startWorkView(user);
+		} else if (message === "fixture steer work") {
+			startSteerWork(user);
 		} else if (message === "fixture real work replay") {
-			recording = JSON.parse(
-				fs.readFileSync(nodePath.join(import.meta.dir, "fixtures/real-live-work.json"), "utf8"),
-			) as RecordedWorkFrame[];
-			rebaseWorkRecording(recording);
-			recordingCursor = 0;
-			void replayRecordedWork();
+			const recording = rebaseWorkRecording(
+				JSON.parse(
+					fs.readFileSync(nodePath.join(import.meta.dir, "fixtures/real-live-work.json"), "utf8"),
+				) as RecordedWorkFrame[],
+			);
+			// Held at AlphaCounter's `sleep 3 && wc -l` start (260) and its result (284).
+			const next = createWorkReplay(recording, [260, 284], emitRecordedWork, ms => {
+				const { promise, resolve } = Promise.withResolvers<void>();
+				setTimeout(resolve, ms);
+				return promise;
+			});
+			replayRecordedWork = () => {
+				// The audit captured both real yields but stopped before the main reply.
+				// Close fixture playback; never manufacture an assistant answer.
+				void next().then(finished => {
+					if (finished) endTurn([]);
+				});
+			};
+			replayRecordedWork();
 		} else if (message === "fixture reads") {
 			const targets = ["https://example.com/leaderboard", "xd://lsp", "src/a.ts"];
 			const answer: AgentMessage = {
@@ -2269,7 +2538,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			case "bash": {
 				const line = text("command");
 				if (line === "fixture:replay-next") {
-					void replayRecordedWork();
+					replayRecordedWork?.();
 					ok();
 					break;
 				}
@@ -2278,8 +2547,23 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					ok();
 					break;
 				}
+				if (line === "fixture:work-stream") {
+					streamWork?.();
+					ok();
+					break;
+				}
 				if (line === "fixture:work-output") {
 					appendWorkOutput?.();
+					ok();
+					break;
+				}
+				if (line === "fixture:steer-next" || line === "fixture:steer-finish") {
+					if (!steerWork) {
+						fail("Fixture has no steer work running");
+						break;
+					}
+					if (line === "fixture:steer-next") steerWork.deliver();
+					else steerWork.finish();
 					ok();
 					break;
 				}
@@ -2532,6 +2816,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			}
 			case "abort":
 				clearInterval(streamTimer);
+				clearInterval(workStreamTimer);
 				ok();
 				endTurn([]);
 				break;

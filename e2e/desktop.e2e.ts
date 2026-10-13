@@ -84,6 +84,10 @@ test("composer recalls shared history and restores its draft", async () => {
 	await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
 	const composer = page.locator("textarea").first();
 	await composer.fill("unfinished draft");
+	// ↑ inside a draft moves the caret; only from the very start does it reach history.
+	await composer.press("ArrowUp");
+	await expect(composer).toHaveValue("unfinished draft");
+	await composer.evaluate((element: HTMLTextAreaElement) => element.setSelectionRange(0, 0));
 	await composer.press("ArrowUp");
 	await expect(composer).toHaveValue("shared history recall regression");
 	await composer.press("ArrowDown");

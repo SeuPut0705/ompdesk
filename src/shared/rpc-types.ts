@@ -234,6 +234,8 @@ export type RpcCommand =
 	| { id?: string; type: "clear_context" }
 	| { id?: string; type: "abort_subagent"; agentId: string }
 	| { id?: string; type: "revive_subagent"; agentId: string }
+	/** A settled subagent's transcript from the session's artifacts dir, after stock's registry forgot it (relaunch). */
+	| { id?: string; type: "get_subagent_transcript"; subagentId: string; fromByte?: number }
 	| { id?: string; type: "write_local_paste"; content: string }
 	| { id?: string; type: "list_foreign_sessions"; source: "claude" | "codex" }
 	| { id?: string; type: "import_foreign_session"; source: "claude" | "codex"; foreignId: string }
@@ -1440,7 +1442,14 @@ export interface AgentProgress {
 	currentTool?: string;
 	currentToolArgs?: string;
 	currentToolStartMs?: number;
-	recentTools: Array<{ tool: string; args: string; endMs: number }>;
+	recentTools: Array<{
+		tool: string;
+		args: string;
+		argsKey?: string;
+		intent?: string;
+		isError?: boolean;
+		endMs: number;
+	}>;
 	recentOutput: string[];
 	toolCount: number;
 	requests: number;

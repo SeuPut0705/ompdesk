@@ -30,6 +30,22 @@ export function formatTimeAgo(iso: string | undefined | null): string {
 	return new Date(then).toLocaleDateString(uiLocale(), { month: "short", day: "numeric" });
 }
 
+/**
+ * When something happened, read as a past moment: "just now" / "8m ago" / "3h ago" /
+ * "2d ago" / "Aug 2". Unlike {@link formatTimeAgo}'s bare "8m" it never reads as a
+ * duration; pair it with {@link formatClock} in a hover title for the absolute time.
+ */
+export function formatAgo(value: number | string | undefined | null, now = Date.now()): string {
+	const then = toMs(value);
+	if (then == null) return "";
+	const seconds = Math.max(0, (now - then) / 1000);
+	if (seconds < 60) return translate("time.justNow");
+	if (seconds < 3600) return translate("time.minutesAgo", { count: Math.floor(seconds / 60) });
+	if (seconds < 86_400) return translate("time.hoursAgo", { count: Math.floor(seconds / 3600) });
+	if (seconds < 604_800) return translate("time.daysAgo", { count: Math.floor(seconds / 86_400) });
+	return new Date(then).toLocaleDateString(uiLocale(), { month: "short", day: "numeric" });
+}
+
 /** Compact clock label — no seconds; same-day times shrink to HH:MM. */
 export function formatClock(value: number | string | undefined | null): string {
 	const timestamp = toMs(value);

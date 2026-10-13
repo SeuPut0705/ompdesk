@@ -636,7 +636,33 @@ async function launchAuditApp(
 	});
 }
 
-test("deep GUI audit: settings rows, nested controls, and command discoverability", async () => {
+/**
+ * The settings rows are split across this many tests, each on its own profile
+ * and app, so they run side by side; together they exercise every schema entry
+ * (entry `i` belongs to shard `i % SETTINGS_SHARDS`). One run over all rows took
+ * 78 of the audit's 88 s and set the whole Playwright suite's wall time.
+ */
+const SETTINGS_SHARDS = 3;
+
+test.describe.configure({ mode: "parallel" });
+
+interface AuditSession {
+	page: Page;
+	profile: string;
+	settings: Locator;
+	schema: SettingsSchemaResult;
+	currentValues: JsonRecord;
+}
+
+/**
+ * Launch the app on a fresh profile against the system omp, open Settings and
+ * hand `body` the schema; then write `test-results/deep-audit/evidence-<name>.json`
+ * and fail on any failed setting write, missing command, or failed submenu.
+ */
+async function runAudit(
+	name: string,
+	body: (session: AuditSession, evidence: DeepAuditEvidence) => Promise<void>,
+): Promise<void> {
 	test.setTimeout(600_000);
 	const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-deep-audit-"));
 	const project = path.join(profile, "project");
@@ -664,6 +690,7 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 			"Destructive/external actions (delete, upload, login, publish, PR mutation) are enumerated but never confirmed in an audit profile.",
 		],
 	};
+	const evidenceFile = `test-results/deep-audit/evidence-${name}.json`;
 	let app: ElectronApplication | null = null;
 	try {
 		app = await launchAuditApp(profile, project, desktop, agent);
@@ -700,8 +727,28 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 			advanced: schema.entries.filter(entry => entry.tab === undefined).length,
 			tuiOnly: schema.entries.filter(entry => entry.tuiOnly === true).length,
 		};
+		await body({ page, profile, settings, schema, currentValues }, evidence);
+		evidence.finishedAt = new Date().toISOString();
+		await fs.mkdir("test-results/deep-audit", { recursive: true });
+		await fs.writeFile(evidenceFile, JSON.stringify(evidence, null, 2));
+		const failed = evidence.settings.filter(row => row.write === "failed");
+		expect(failed, JSON.stringify(failed, null, 2)).toEqual([]);
+		expect(evidence.commands.paletteSearchMissing, JSON.stringify(evidence.commands)).toEqual([]);
+		expect(evidence.commands.nestedSurfaces.filter(surface => surface.status === "failed")).toEqual([]);
+	} finally {
+		evidence.finishedAt ??= new Date().toISOString();
+		await fs.mkdir("test-results/deep-audit", { recursive: true });
+		await fs.writeFile(evidenceFile, JSON.stringify(evidence, null, 2));
+		if (app) {
+			await exitApp(app).catch(() => {});
+		}
+		await fs.rm(profile, { recursive: true, force: true }).catch(() => {});
+	}
+}
 
-		// Capture every settings section, and every Advanced category, before mutating values.
+test("deep GUI audit: settings pages and command discoverability", async () => {
+	await runAudit("pages-commands", async ({ page, settings }, evidence) => {
+		// Capture every settings section, and every Advanced category, on an unmutated profile.
 		const sectionIds = await settings
 			.locator("[data-settings-section]")
 			.evaluateAll(elements => elements.map(element => element.getAttribute("data-settings-section") ?? ""));
@@ -715,96 +762,6 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 			await settings.locator(`[data-settings-section="${id}"]`).click();
 			await capturePage("settings", id);
 		}
-
-		// Exercise every schema entry that the GUI claims to support. TUI-only and
-		// metadata-less entries remain explicit rows in the matrix instead of being silently dropped.
-		for (const entry of schema.entries) {
-			let initial = currentValues[entry.path] ?? entry.value;
-			const isTuiOnly = entry.tuiOnly === true;
-			const isTerminalOnly = TERMINAL_DISPLAY_PATHS.has(entry.path);
-			if (initial === undefined && !isTuiOnly && !isTerminalOnly) {
-				initial = await readSetting(page, entry.path);
-				initial ??= entry.default;
-			}
-			const base: SettingAuditRow = {
-				path: entry.path,
-				type: entry.type,
-				tab: entry.tab,
-				condition: entry.condition,
-				tuiOnly: isTuiOnly,
-				restartRequired: entry.restartRequired === true,
-				secret: entry.secret === true,
-				initial,
-				rowFound: false,
-				control: { buttons: [], inputs: [], selects: [], textareas: 0 },
-				visibility: isTuiOnly
-					? "filtered-tui-only"
-					: isTerminalOnly
-						? "filtered-terminal-only"
-						: entry.tab
-							? "hidden-by-condition"
-							: "advanced",
-				write: "not-run",
-				readback: "not-run",
-				restore: "not-run",
-				notes: [],
-			};
-			if (base.visibility === "filtered-tui-only" || base.visibility === "filtered-terminal-only") {
-				await clickSearchResult(page, entry.path);
-				await expect(page.locator(`[data-search-path="${entry.path}"]`)).toHaveCount(0);
-				base.notes.push("GUI search absence verified");
-				evidence.settings.push(base);
-				continue;
-			}
-			const gates = conditionGate(entry.condition);
-			const gateOriginals: Array<{ path: string; value: unknown }> = [];
-			try {
-				for (const gate of gates) {
-					const originalGate = await readSetting(page, gate.path);
-					gateOriginals.push({ path: gate.path, value: originalGate });
-					if (!equalJson(originalGate, gate.value)) {
-						await writeSetting(page, gate.path, gate.value);
-						await pollSetting(page, gate.path, gate.value);
-					}
-				}
-				// Search drives the same locator path a user sees, after the condition
-				// gate has been opened through the real settings RPC.
-				const found = await clickSearchResult(page, entry.path);
-				if (!found) {
-					base.notes.push("not in GUI search results after enabling its condition gate");
-					evidence.settings.push(base);
-					continue;
-				}
-				const row = settingRow(page, entry.path);
-				if ((await row.count()) === 0) {
-					base.notes.push("search result did not resolve to a setting row");
-					evidence.settings.push(base);
-					continue;
-				}
-				await expect(row).toBeVisible();
-				base.rowFound = true;
-				base.visibility = "visible";
-				base.control = await inspectRow(row);
-				const result = await mutateEntry(page, row, entry, initial, profile);
-				Object.assign(base, result);
-				base.initialAfter = await readSetting(page, entry.path).catch(() => undefined);
-				evidence.settings.push(base);
-			} catch (error) {
-				base.write = "failed";
-				base.readback = "failed";
-				base.restore = "failed";
-				base.error = String(error);
-				evidence.settings.push(base);
-			} finally {
-				for (const original of gateOriginals.reverse()) {
-					if (!equalJson(await readSetting(page, original.path).catch(() => undefined), original.value)) {
-						await writeSetting(page, original.path, original.value);
-						await pollSetting(page, original.path, original.value).catch(() => {});
-					}
-				}
-			}
-		}
-
 		// The command palette is the single discoverability surface for built-ins,
 		// slash commands, and native actions. Search every advertised command without
 		// executing it and retain the TUI-only negative contract.
@@ -918,20 +875,104 @@ test("deep GUI audit: settings rows, nested controls, and command discoverabilit
 			await expect(palette.locator('button[data-command-kind="submenu"]')).toHaveCount(submenuCount);
 		}
 		await page.keyboard.press("Escape");
-		evidence.finishedAt = new Date().toISOString();
-		await fs.mkdir("test-results/deep-audit", { recursive: true });
-		await fs.writeFile("test-results/deep-audit/evidence.json", JSON.stringify(evidence, null, 2));
-		const failed = evidence.settings.filter(row => row.write === "failed");
-		expect(failed, JSON.stringify(failed, null, 2)).toEqual([]);
-		expect(evidence.commands.paletteSearchMissing, JSON.stringify(evidence.commands)).toEqual([]);
-		expect(evidence.commands.nestedSurfaces.filter(surface => surface.status === "failed")).toEqual([]);
-	} finally {
-		evidence.finishedAt ??= new Date().toISOString();
-		await fs.mkdir("test-results/deep-audit", { recursive: true });
-		await fs.writeFile("test-results/deep-audit/evidence.json", JSON.stringify(evidence, null, 2));
-		if (app) {
-			await exitApp(app).catch(() => {});
-		}
-		await fs.rm(profile, { recursive: true, force: true }).catch(() => {});
-	}
+	});
 });
+
+for (let shard = 0; shard < SETTINGS_SHARDS; shard++) {
+	test(`deep GUI audit: settings rows and nested controls (${shard + 1}/${SETTINGS_SHARDS})`, async () => {
+		await runAudit(
+			`settings-${shard + 1}-of-${SETTINGS_SHARDS}`,
+			async ({ page, profile, schema, currentValues }, evidence) => {
+				// Exercise every schema entry that the GUI claims to support. TUI-only and
+				// metadata-less entries remain explicit rows in the matrix instead of being silently dropped.
+				for (const [index, entry] of schema.entries.entries()) {
+					if (index % SETTINGS_SHARDS !== shard) continue;
+					let initial = currentValues[entry.path] ?? entry.value;
+					const isTuiOnly = entry.tuiOnly === true;
+					const isTerminalOnly = TERMINAL_DISPLAY_PATHS.has(entry.path);
+					if (initial === undefined && !isTuiOnly && !isTerminalOnly) {
+						initial = await readSetting(page, entry.path);
+						initial ??= entry.default;
+					}
+					const base: SettingAuditRow = {
+						path: entry.path,
+						type: entry.type,
+						tab: entry.tab,
+						condition: entry.condition,
+						tuiOnly: isTuiOnly,
+						restartRequired: entry.restartRequired === true,
+						secret: entry.secret === true,
+						initial,
+						rowFound: false,
+						control: { buttons: [], inputs: [], selects: [], textareas: 0 },
+						visibility: isTuiOnly
+							? "filtered-tui-only"
+							: isTerminalOnly
+								? "filtered-terminal-only"
+								: entry.tab
+									? "hidden-by-condition"
+									: "advanced",
+						write: "not-run",
+						readback: "not-run",
+						restore: "not-run",
+						notes: [],
+					};
+					if (base.visibility === "filtered-tui-only" || base.visibility === "filtered-terminal-only") {
+						await clickSearchResult(page, entry.path);
+						await expect(page.locator(`[data-search-path="${entry.path}"]`)).toHaveCount(0);
+						base.notes.push("GUI search absence verified");
+						evidence.settings.push(base);
+						continue;
+					}
+					const gates = conditionGate(entry.condition);
+					const gateOriginals: Array<{ path: string; value: unknown }> = [];
+					try {
+						for (const gate of gates) {
+							const originalGate = await readSetting(page, gate.path);
+							gateOriginals.push({ path: gate.path, value: originalGate });
+							if (!equalJson(originalGate, gate.value)) {
+								await writeSetting(page, gate.path, gate.value);
+								await pollSetting(page, gate.path, gate.value);
+							}
+						}
+						// Search drives the same locator path a user sees, after the condition
+						// gate has been opened through the real settings RPC.
+						const found = await clickSearchResult(page, entry.path);
+						if (!found) {
+							base.notes.push("not in GUI search results after enabling its condition gate");
+							evidence.settings.push(base);
+							continue;
+						}
+						const row = settingRow(page, entry.path);
+						if ((await row.count()) === 0) {
+							base.notes.push("search result did not resolve to a setting row");
+							evidence.settings.push(base);
+							continue;
+						}
+						await expect(row).toBeVisible();
+						base.rowFound = true;
+						base.visibility = "visible";
+						base.control = await inspectRow(row);
+						const result = await mutateEntry(page, row, entry, initial, profile);
+						Object.assign(base, result);
+						base.initialAfter = await readSetting(page, entry.path).catch(() => undefined);
+						evidence.settings.push(base);
+					} catch (error) {
+						base.write = "failed";
+						base.readback = "failed";
+						base.restore = "failed";
+						base.error = String(error);
+						evidence.settings.push(base);
+					} finally {
+						for (const original of gateOriginals.reverse()) {
+							if (!equalJson(await readSetting(page, original.path).catch(() => undefined), original.value)) {
+								await writeSetting(page, original.path, original.value);
+								await pollSetting(page, original.path, original.value).catch(() => {});
+							}
+						}
+					}
+				}
+			},
+		);
+	});
+}

@@ -7,23 +7,39 @@ import { useMediaQuery } from "../../hooks/use-media-query";
 import { cx, formatDuration, formatElapsed, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { activeTabCommand, useSessionRuntime } from "../../stores/session-runtime-context";
-import { type SubagentsStore, useSubagentsStore } from "../../stores/subagents";
-import { selectToolEntry, type ToolsStore, useToolsStore } from "../../stores/tools";
+import type { SubagentsStore } from "../../stores/subagents";
 import { statusMeta } from "../panels/subagent-graph";
 import { getToolHeader } from "../tools/index";
 import { LiveStepPeek } from "./LiveStepPeek";
+import { useRunAgents, useRunStores } from "./use-work-run";
 import { agentGroupState, agentWorkState, WorkStatus } from "./WorkStatus";
-import { agentResultSummary, workNarrative, workOutcomes } from "./work-view";
+import { agentConclusion, agentDurationMs } from "./work-run";
+import { workNarrative } from "./work-view";
 
-function progressArgs(progress?: AgentProgress): Record<string, unknown> {
-	if (!progress?.currentToolArgs) return {};
+/** Stock progress carries a display preview of the call's arguments, sometimes JSON. */
+function progressArgs(preview: string | undefined): Record<string, unknown> {
+	if (!preview) return {};
 	try {
-		const value: unknown = JSON.parse(progress.currentToolArgs);
+		const value: unknown = JSON.parse(preview);
 		if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
 	} catch {
 		/* Stock also emits a human-readable args summary. */
 	}
-	return { target: progress.currentToolArgs };
+	return { target: preview };
+}
+
+/**
+ * What a running lane is doing: the call in flight (stock's currentTool), or
+ * between calls the one that just ended, so the lane names a tool from the
+ * moment the first one starts. Only the call's own intent counts: stock's
+ * `lastIntent` belongs to an earlier call, so it stands in only when stock
+ * counted calls without naming one.
+ */
+function laneCall(progress: AgentProgress | undefined): { tool: string; args: string; intent?: string } | null {
+	if (progress?.currentTool)
+		return { tool: progress.currentTool, args: progress.currentToolArgs ?? "", intent: progress.currentToolIntent };
+	const last = progress?.recentTools?.[0];
+	return last ? { tool: last.tool, args: last.args, intent: last.intent } : null;
 }
 
 export function SubagentSurface({ id, store }: { id: string; store: StoreApi<SubagentsStore> }) {
@@ -93,44 +109,18 @@ export function WorkMap({
 	const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 	const laneMotion = motion && !reducedMotion;
 	const runtime = useSessionRuntime();
-	const store = (runtime?.stores.get("subagents") as StoreApi<SubagentsStore> | undefined) ?? useSubagentsStore;
-	const tools = (runtime?.stores.get("tools") as StoreApi<ToolsStore> | undefined) ?? useToolsStore;
-	const key = useFrameSelector(store, state =>
-		[...state.subagents.values()]
-			.filter(
-				node =>
-					node.parentToolCallId && toolCallIds.includes(tools.getState().entryKeyForCallId(node.parentToolCallId)),
-			)
-			.map(node => {
-				const p = node.progress;
-				return [
-					node.id,
-					node.status,
-					node.description,
-					node.task,
-					p?.currentTool,
-					p?.currentToolArgs,
-					p?.currentToolIntent,
-					p?.lastIntent,
-					p?.toolCount,
-					p?.tokens,
-					p?.durationMs,
-					agentResultSummary({ ...p }),
-					state.surfaces.get(node.id)?.getState().liveTools.size,
-					state.surfaces.get(node.id)?.getState().finishedTools.size,
-					state.observedTokens.get(node.id),
-				].join("\u0000");
-			})
-			.join("\u0001"),
-	);
+	const { subagents: store } = useRunStores();
 	// Stock's spawn index, so lanes keep the order the task listed them in whichever reports first.
-	const nodes = [...store.getState().subagents.values()]
-		.filter(
-			node =>
-				node.parentToolCallId && toolCallIds.includes(tools.getState().entryKeyForCallId(node.parentToolCallId)),
-		)
-		.sort((a, b) => a.index - b.index);
-	void key;
+	const { agents: nodes, completions } = useRunAgents(toolCallIds, "progress");
+	const observedKey = useFrameSelector(store, state =>
+		nodes
+			.map(node => {
+				const surface = state.surfaces.get(node.id)?.getState();
+				return `${surface?.liveTools.size ?? 0}:${surface?.finishedTools.size ?? 0}`;
+			})
+			.join("|"),
+	);
+	void observedKey;
 	const lanesRef = useRef<HTMLUListElement>(null);
 	useLayoutEffect(() => {
 		if (!expanded) return;
@@ -142,13 +132,6 @@ export function WorkMap({
 		if (row.bottom > viewport.bottom) list.scrollTop += row.bottom - viewport.bottom;
 		else if (row.top < viewport.top) list.scrollTop -= viewport.top - row.top;
 	}, [expanded]);
-	const conclusions = workOutcomes(
-		toolCallIds.flatMap(id => {
-			const entry = selectToolEntry(tools.getState(), id);
-			return entry ? [entry] : [];
-		}),
-		nodes,
-	).conclusions;
 	const hasRunning = nodes.some(node => statusMeta(node.status).live);
 	const [streamError, setStreamError] = useState<string | null>(null);
 	useEffect(() => {
@@ -172,7 +155,7 @@ export function WorkMap({
 	}, [active, expanded, hasRunning, runtime, store]);
 	if (!nodes.length) return null;
 	return (
-		<div className="omp-work-map" data-expanded={expanded !== null} aria-label={t("chat.work.map")}>
+		<div className="omp-work-map" data-expanded={expanded !== null} role="group" aria-label={t("chat.work.map")}>
 			{streamError ? (
 				<div className="omp-live-work-calm" role="alert">
 					{t("subagent.transcriptFailed")}: {streamError}
@@ -184,21 +167,27 @@ export function WorkMap({
 					const meta = statusMeta(node.status);
 					const running = meta.live;
 					const groupState = agentGroupState(node.status);
-					const args = progressArgs(progress);
-					const activity = running
-						? progress?.currentTool
-							? workNarrative(progress.currentTool, args, t, progress)
-							: // The raw assignment is a model prompt, not a status line; its full text stays on the agent's page.
-								(progress?.lastIntent ?? node.description ?? t("chat.work.starting"))
-						: (conclusions.find(item => item.name === node.id)?.summary ??
-							t(
-								groupState === "failed"
-									? "chat.work.failed"
-									: groupState === "interrupted"
-										? "chat.work.interrupted"
-										: "chat.work.completed",
-							));
-					const header = running && progress?.currentTool ? getToolHeader(progress.currentTool, args) : null;
+					const completion = completions.get(node.id);
+					const call = running ? laneCall(progress) : null;
+					const args = progressArgs(call?.args);
+					const activity = call
+						? workNarrative(call.tool, args, t, undefined, call.intent)
+						: running
+							? // Before the first call only: the raw assignment is a model prompt, not a status line.
+								((progress?.toolCount ? progress.lastIntent : undefined) ??
+								node.description ??
+								t("chat.work.starting"))
+							: ((groupState === "complete" || groupState === "failed"
+									? agentConclusion(node, completion)
+									: undefined) ??
+								t(
+									groupState === "failed"
+										? "chat.work.failed"
+										: groupState === "interrupted"
+											? "chat.work.interrupted"
+											: "chat.work.completed",
+								));
+					const header = call ? getToolHeader(call.tool, args) : null;
 					const toolTarget =
 						header?.path || header?.target || (typeof args.target === "string" ? args.target : "");
 					const target = toolTarget && !activity.includes(toolTarget) ? toolTarget : "";
@@ -207,12 +196,17 @@ export function WorkMap({
 						progress?.toolCount ?? 0,
 						(observed?.liveTools.size ?? 0) + (observed?.finishedTools.size ?? 0),
 					);
-					const tokens = progress?.tokens || store.getState().observedTokens.get(node.id) || 0;
+					// Settled lanes show what a reload can show too: stock's tokens exist only while running.
+					const tokens = running ? progress?.tokens || store.getState().observedTokens.get(node.id) || 0 : 0;
 					const plural = toolCount === 1 ? "" : "s";
 					const elapsed = running
 						? formatElapsed(progress?.durationMs ?? 0)
-						: formatDuration(progress?.durationMs ?? 0);
+						: formatDuration(agentDurationMs(node, completion));
 					const open = expanded === node.id;
+					// One name for a user stop everywhere: "Interrupted", never stock's "cancelled".
+					const label = t(
+						meta.labelKey === "subagent.status.cancelled" ? "tools.status.interrupted" : meta.labelKey,
+					);
 					return (
 						<li
 							className="omp-work-card"
@@ -227,12 +221,12 @@ export function WorkMap({
 								aria-current={open || undefined}
 								onClick={() => onExpandedChange(open ? null : node.id)}
 							>
-								<WorkStatus state={agentWorkState(node.status)} label={t(meta.labelKey)} motion={laneMotion} />
+								<WorkStatus state={agentWorkState(node.status)} label={label} motion={laneMotion} />
 								<span className="omp-work-card-name">{node.id}</span>
 								<span className="omp-work-card-activity" title={target ? `${activity} · ${target}` : activity}>
 									<span
 										className="omp-work-card-activity-text"
-										key={`${progress?.currentTool ?? ""}\u0000${activity}\u0000${target}`}
+										key={`${call?.tool ?? ""}\u0000${activity}\u0000${target}`}
 									>
 										{activity}
 										{target ? <span className="omp-work-card-target">{target}</span> : null}

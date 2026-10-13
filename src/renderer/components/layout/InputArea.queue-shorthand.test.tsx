@@ -44,6 +44,11 @@ globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0
 const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
 if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
 if (typeof elementPrototype.scrollIntoView !== "function") elementPrototype.scrollIntoView = () => {};
+if (typeof elementPrototype.setSelectionRange !== "function")
+	elementPrototype.setSelectionRange = function (this: Record<string, unknown>, start: number, end: number) {
+		this.selectionStart = start;
+		this.selectionEnd = end;
+	};
 elementPrototype.getBoundingClientRect = () => ({
 	bottom: 0,
 	height: 0,
@@ -543,6 +548,73 @@ describe("InputArea prompt history", () => {
 		await mount();
 		await openAddMenuItem("History");
 		expect(document.querySelector('[role="dialog"][aria-label="History"]')).not.toBeNull();
+	});
+
+	/** linkedom keeps no caret: the composer reads these as the textarea's selection. */
+	function placeCaret(position: number): void {
+		Object.assign(findTextarea(), { selectionStart: position, selectionEnd: position });
+	}
+	function composerValue(): string {
+		const textarea: object = findTextarea();
+		if (!("value" in textarea) || typeof textarea.value !== "string") throw new Error("composer value not found");
+		return textarea.value;
+	}
+	async function seedHistory(...prompts: string[]): Promise<void> {
+		await act(async () =>
+			useInputHistoryStore.setState({
+				// Newest first; transient so the mount's stock hydrate keeps them.
+				entries: prompts.map((prompt, index) => ({ prompt, ts: 100 - index, cwd: "/tmp", transient: true })),
+			}),
+		);
+	}
+
+	it("recalls on ↑ only from an empty composer or the very start of the text", async () => {
+		await mount();
+		await seedHistory("older prompt");
+		await typeInto(findTextarea(), "first line\nsecond line");
+
+		// Inside multi-line text ↑ is the caret's: neither another line nor the first line's middle recalls.
+		placeCaret(15);
+		expect((await pressKey({ key: "ArrowUp" })).defaultPrevented).toBe(false);
+		placeCaret(4);
+		expect((await pressKey({ key: "ArrowUp" })).defaultPrevented).toBe(false);
+		expect(composerValue()).toBe("first line\nsecond line");
+
+		placeCaret(0);
+		expect((await pressKey({ key: "ArrowUp" })).defaultPrevented).toBe(true);
+		expect(composerValue()).toBe("older prompt");
+
+		await typeInto(findTextarea(), "");
+		placeCaret(0);
+		expect((await pressKey({ key: "ArrowUp" })).defaultPrevented).toBe(true);
+		expect(composerValue()).toBe("older prompt");
+	});
+
+	it("returns on ↓ only from the very end, and keeps cycling an unedited recalled entry", async () => {
+		await mount();
+		await seedHistory("newer line one\nnewer line two", "older prompt");
+		await typeInto(findTextarea(), "draft");
+		placeCaret(0);
+		await pressKey({ key: "ArrowUp" });
+		await flush();
+		expect(composerValue()).toBe("newer line one\nnewer line two");
+
+		// The recalled entry spans two lines: ↓ from its first line moves the caret.
+		placeCaret(3);
+		expect((await pressKey({ key: "ArrowDown" })).defaultPrevented).toBe(false);
+		expect(composerValue()).toBe("newer line one\nnewer line two");
+		// Browsing, ↑ from anywhere on the first line walks on to the older entry.
+		expect((await pressKey({ key: "ArrowUp" })).defaultPrevented).toBe(true);
+		await flush();
+		expect(composerValue()).toBe("older prompt");
+
+		placeCaret("older prompt".length);
+		expect((await pressKey({ key: "ArrowDown" })).defaultPrevented).toBe(true);
+		await flush();
+		expect(composerValue()).toBe("newer line one\nnewer line two");
+		placeCaret("newer line one\nnewer line two".length);
+		expect((await pressKey({ key: "ArrowDown" })).defaultPrevented).toBe(true);
+		expect(composerValue()).toBe("draft");
 	});
 });
 

@@ -138,7 +138,13 @@ function statusColor(status: JobStatus): string {
 }
 
 function StatusIcon({ status }: { status: JobStatus }) {
-	if (status === "running") return <Loader2 aria-hidden className="shrink-0 animate-spin" size={12} />;
+	// Spun on an HTML box (compositor), not the SVG (main thread every frame): see common/Spinner.
+	if (status === "running")
+		return (
+			<span aria-hidden className="inline-flex shrink-0 animate-spin">
+				<Loader2 size={12} />
+			</span>
+		);
 	if (status === "completed") return <CheckCircle2 aria-hidden className="shrink-0" size={12} />;
 	if (status === "failed") return <CircleX aria-hidden className="shrink-0" size={12} />;
 	return <Ban aria-hidden className="shrink-0" size={12} />;
@@ -498,7 +504,11 @@ export function ProtocolWriteRenderer({
 				<span className="min-w-0 truncate text-omp-xs text-[var(--omp-muted)]">
 					{isAgent ? shortText(targetId, 120) : shortText(id, 120)}
 				</span>
-				{isPartial && <Loader2 aria-hidden className="ml-auto animate-spin text-[var(--omp-accent)]" size={12} />}
+				{isPartial && (
+					<span aria-hidden className="ml-auto inline-flex animate-spin text-[var(--omp-accent)]">
+						<Loader2 size={12} />
+					</span>
+				)}
 			</div>
 			{content && (
 				<div className="whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 text-omp-sm text-[var(--omp-muted)]">

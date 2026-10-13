@@ -15,7 +15,7 @@ import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/to
 import { useUiStore } from "../../stores/ui";
 import { routeCommands } from "../../test-support/route-commands";
 import { WorkOutcome } from "./WorkOutcome";
-import { workConclusion, workNarrative, workOutcomes } from "./work-view";
+import { workNarrative, workOutcomes } from "./work-view";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document, window, Event, HTMLElement, Node, IS_REACT_ACT_ENVIRONMENT: true });
@@ -131,34 +131,6 @@ describe("live work", () => {
 		expect(workNarrative("bash", { target: "wc -l a.ts" }, t)).toContain("wc -l a.ts");
 		expect(workNarrative("task", { tasks: [{ name: "Counter" }] }, t)).toContain("Counter");
 	});
-	it("uses this group's final reply and never a later turn's text", () => {
-		expect(
-			workConclusion(
-				[
-					{ role: "toolResult", toolCallId: "parent", content: [] },
-					{ role: "assistant", content: [{ type: "text", text: "Inspected the file. It has twelve lines." }] },
-					{ role: "user", content: "Another task" },
-					{ role: "assistant", content: [{ type: "text", text: "A different conclusion." }] },
-				],
-				[],
-				id => id === "parent",
-			),
-		).toBe("Inspected the file.");
-	});
-	it("heads the outcome with the reply's opening as plain text, not its closing caveat", () => {
-		const reply =
-			"Both agents **finished**: `alpha.txt` has 3 lines.\n\n- Note: I could not confirm `@smol` was used.";
-		expect(
-			workConclusion(
-				[
-					{ role: "toolResult", toolCallId: "parent", content: [] },
-					{ role: "assistant", content: [{ type: "text", text: reply }] },
-				],
-				[],
-				id => id === "parent",
-			),
-		).toBe("Both agents finished: alpha.txt has 3 lines.");
-	});
 	it("uses observed tools and reported usage while stock progress still reports zero", async () => {
 		const store = useSubagentsStore.getState();
 		store.applyFrame({
@@ -258,7 +230,8 @@ describe("live work", () => {
 		Object.assign(window.omp.rpc, {
 			command: async (command: RpcCommand) => {
 				commands.push(command);
-				return command.type === "get_subagent_messages"
+				// Neither stock's registry nor the session's artifacts dir has the transcript.
+				return command.type === "get_subagent_messages" || command.type === "get_subagent_transcript"
 					? { success: false, error: "Snapshot unavailable" }
 					: { success: true };
 			},
@@ -405,7 +378,7 @@ describe("live work", () => {
 			),
 		);
 		expect(container.querySelector(".omp-execution-group")?.getAttribute("data-state")).toBe("complete");
-		expect(container.textContent).toContain("0 steps complete");
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("0 steps");
 	});
 	it("shows lifecycle-only workers as running after the detached task tool returned", async () => {
 		const subagents = useSubagentsStore.getState();
@@ -638,23 +611,22 @@ describe("live work", () => {
 			),
 		);
 		const rows = [...container.querySelectorAll('li[data-kind="command"]')];
+		// Stopped and failed commands lead: their output is what needs reading.
 		expect(rows.map(row => row.querySelector('[role="img"]')?.getAttribute("aria-label"))).toEqual([
-			"Succeeded",
 			"Interrupted",
+			"Succeeded",
 		]);
-		expect(rows[0]?.textContent).toBe("wc -l a.ts 3.0s");
-		expect(rows[1]?.textContent).toContain("Interrupted");
+		expect(rows[1]?.textContent).toBe("wc -l a.ts 3.0s");
+		expect(rows[0]?.textContent).toContain("Interrupted");
 		expect(container.textContent).not.toContain("exit 0");
 	});
-	it("summarizes changed files, exit statuses and task conclusions without a new diff engine", () => {
+	it("summarizes changed files and exit statuses without a new diff engine", () => {
 		const outcome = workOutcomes([
 			entry("write", { path: "a.ts", content: "one\ntwo" }, { content: [] }),
 			entry("bash", { command: "bun test" }, { details: { exitCode: 0 } }),
-			entry("task", {}, { details: { results: [{ id: "LineCounter", output: "Two lines.\nMore detail" }] } }),
 		]);
 		expect(outcome.files).toEqual([{ path: "a.ts", added: 2, removed: 0 }]);
 		expect(outcome.commands[0]).toEqual({ command: "bun test", exitCode: 0, failed: false });
-		expect(outcome.conclusions).toEqual([{ name: "LineCounter", summary: "Two lines." }]);
 		const child = workOutcomes([
 			{ entry: entry("bash", { command: "wc -l a.ts" }, { details: { exitCode: 0 } }), agentName: "LineCounter" },
 		]);
@@ -664,59 +636,6 @@ describe("live work", () => {
 			failed: false,
 			agentName: "LineCounter",
 		});
-	});
-	it("uses structured stock result summaries rather than a JSON opening brace", () => {
-		const outcome = workOutcomes([
-			entry(
-				"task",
-				{},
-				{
-					details: {
-						results: [
-							{ id: "AlphaCounter", output: '{\n"summary": "Alpha has three lines."\n}' },
-							{
-								id: "BetaCounter",
-								output: "Fallback",
-								extractedToolData: { yield: [{ type: "result", data: { summary: "Beta has two lines." } }] },
-							},
-						],
-					},
-				},
-			),
-		]);
-		expect(outcome.conclusions).toEqual([
-			{ name: "AlphaCounter", summary: "Alpha has three lines." },
-			{ name: "BetaCounter", summary: "Beta has two lines." },
-		]);
-	});
-	it("renders detached task conclusions from stock's completed progress yield", async () => {
-		useToolsStore.setState(
-			toolEntriesState([["parent", { ...entry("task", {}, { content: [] }), status: "done", endTime: Date.now() }]]),
-		);
-		useSubagentsStore.getState().applyFrame({
-			type: "subagent_progress",
-			payload: {
-				index: 0,
-				agent: "scout",
-				agentSource: "bundled",
-				task: progress.task,
-				parentToolCallId: "parent",
-				progress: {
-					...progress,
-					status: "completed",
-					extractedToolData: { yield: [{ data: { summary: "The file has twelve lines." }, status: "success" }] },
-				},
-			},
-		});
-		await mount([]);
-		await act(async () =>
-			root.render(
-				<I18nProvider>
-					<WorkOutcome toolCallIds={["parent"]} />
-				</I18nProvider>,
-			),
-		);
-		expect(container.textContent).toContain("The file has twelve lines.");
 	});
 	it("shows the screenshots the work read back without opening any step", async () => {
 		const picture = { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" };
@@ -759,14 +678,15 @@ describe("live work", () => {
 		expect(container.querySelector('li[data-kind="file"]')?.textContent).toBe("a.ts +2 −0");
 		const commands = [...container.querySelectorAll('li[data-kind="command"]')];
 		expect(commands.map(row => row.querySelector('[role="img"]')?.getAttribute("aria-label"))).toEqual([
-			"Passed",
 			"Failed",
+			"Passed",
 		]);
 		// Exit 0 is the check mark; only a failing code is spelled out.
-		expect(commands[0]?.textContent).toBe("bun test ");
-		expect(commands[1]?.textContent).toBe("false exit 1");
-		expect(container.querySelector("summary")?.textContent).toContain("1 failed");
-		expect(container.querySelector('li[data-kind="agent"]')?.textContent).toBe("LineCounter Two lines.");
+		expect(commands[1]?.textContent).toBe("bun test ");
+		expect(commands[0]?.textContent).toBe("false exit 1");
+		// Counts and conclusions live in the head and on lanes, never repeated in the outcome.
+		expect(container.querySelector("summary")?.textContent).toBe("Outcome");
+		expect(container.querySelector('li[data-kind="agent"]')).toBeNull();
 		expect(container.querySelector("details")?.hasAttribute("open")).toBe(false);
 		await act(async () => useUiStore.getState().setTranscriptDetail("full"));
 		expect(container.querySelector("details")?.hasAttribute("open")).toBe(true);

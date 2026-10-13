@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
@@ -82,18 +83,44 @@ describe("BashRenderer", () => {
 		expect(container.textContent).not.toContain("[32m");
 	});
 
-	it("strips the exit-code trailer and restates it as a stats line", async () => {
+	it("restates the exit and wall-time trailer as badges on the command line, never raw", async () => {
 		await mount(
 			<BashRenderer
 				args={{ command: "false" }}
-				result={bashResult("boom output\nCommand exited with code 1", { exitCode: 1, wallTimeMs: 420 })}
+				result={bashResult("boom output\n\nWall time: 0.42 seconds\n\nCommand exited with code 1", {
+					exitCode: 1,
+					wallTimeMs: 420,
+					timeoutSeconds: 300,
+				})}
 				isError
 			/>,
 		);
+		const prompt = container.querySelector(".omp-bash-prompt");
 		expect(container.textContent).toContain("boom output");
-		expect(container.textContent).not.toContain("Command exited with code 1");
-		expect(container.textContent).toContain("Wall: 0.42s");
-		expect(container.textContent).toContain("Exit: 1");
+		expect(prompt?.querySelector(".omp-bash-badge")?.textContent).toBe("exit 1");
+		expect(prompt?.querySelector(".omp-bash-elapsed")?.textContent).toBe("420ms");
+		expect(prompt?.querySelector(".omp-bash-elapsed")?.getAttribute("title")).toBe("Wall time");
+		for (const raw of ["Command exited with code", "Wall time:", "Wall:", "Timeout:", "Exit:", "["]) {
+			expect(container.textContent).not.toContain(raw);
+		}
+	});
+
+	it("states the timeout and elapsed time in the UI language", async () => {
+		setLanguage("ko");
+		await mount(
+			<BashRenderer
+				args={{ command: "sleep 9" }}
+				result={bashResult("tick\n\nWall time: 5.01 seconds\n\n[Command timed out after 5 seconds]", {
+					timedOut: true,
+					wallTimeMs: 5010,
+					timeoutSeconds: 5,
+				})}
+				isError
+			/>,
+		);
+		const badges = [...container.querySelectorAll(".omp-bash-prompt > span")].slice(2).map(el => el.textContent);
+		expect(badges).toEqual(["시간 초과", "5.0초"]);
+		expect(container.textContent).not.toContain("Command timed out");
 	});
 
 	it("strips the background-job trailer and restates the job id", async () => {
@@ -107,10 +134,10 @@ describe("BashRenderer", () => {
 		);
 		expect(container.textContent).toContain("server ready");
 		expect(container.textContent).not.toContain("result will be delivered automatically");
-		expect(container.textContent).toContain("Backgrounded: bg-7");
+		expect(container.querySelector(".omp-bash-notes")?.textContent).toBe("Background job bg-7");
 	});
 
-	it("strips the wall-time notice when intermediate notices follow it", async () => {
+	it("strips the wall-time and clamp notices when intermediate notices follow them", async () => {
 		// Wire order: wall time is appended BEFORE timeout/pty notices, so it
 		// sits mid-body — an end-anchored strip would leak it into the output.
 		await mount(
@@ -125,9 +152,10 @@ describe("BashRenderer", () => {
 		);
 		expect(container.textContent).toContain("done");
 		expect(container.textContent).not.toContain("Wall time:");
+		expect(container.textContent).not.toContain("Timeout clamped");
 		expect(container.textContent).not.toContain("Command exited with code");
-		expect(container.textContent).toContain("Wall: 0.42s");
-		expect(container.textContent).toContain("Exit: 2");
+		expect(container.querySelector(".omp-bash-badge")?.textContent).toBe("exit 2");
+		expect(container.querySelector(".omp-bash-notes")?.textContent).toBe("Timeout 5s (requested 999s)");
 	});
 
 	it("strips the exit-code trailer when the structured artifact id confirms the footer", async () => {
@@ -147,8 +175,28 @@ describe("BashRenderer", () => {
 		expect(container.textContent).toContain("tail of output");
 		expect(container.textContent).not.toContain("Command exited with code");
 		expect(container.textContent).not.toContain("[raw output: artifact://42]");
-		expect(container.textContent).toContain("Artifact: 42");
-		expect(container.textContent).toContain("Exit: 1");
+		expect(container.querySelector(".omp-bash-notes")?.textContent).toBe("Full output saved as artifact 42");
+		expect(container.querySelector(".omp-bash-badge")?.textContent).toBe("exit 1");
+	});
+
+	it("keeps the live command line on a clipped, not scrolling, terminal so it can stay pinned", async () => {
+		await mount(
+			<BashRenderer
+				livePreview
+				isPartial
+				args={{ command: "seq 1 400" }}
+				result={undefined}
+				partialResult={bashResult("1\n2\n3")}
+			/>,
+		);
+		const terminal = container.querySelector(".omp-bash-terminal");
+		expect(terminal?.className).toContain("overflow-clip");
+		expect(terminal?.className).not.toContain("overflow-hidden");
+		const stylesheet = readFileSync(new URL("../../styles/components.css", import.meta.url), "utf8");
+		const prompt = stylesheet.match(/\.omp-bash-live \.omp-bash-prompt \{([^}]+)\}/)?.[1] ?? "";
+		expect(prompt).toContain("position: sticky");
+		expect(prompt).toContain("top: 0");
+		expect(prompt).toContain("background: var(--omp-code-bg)");
 	});
 
 	it("keeps plain output as a single text node (no span explosion)", async () => {
