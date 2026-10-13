@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { transcriptTurnStart } from "../../../resources/gui-bridge/transcript-page";
+import { transcriptPageMessages, transcriptTurnStart } from "../../../resources/gui-bridge/transcript-page";
 import type { AgentMessage, MessagesPage } from "../../shared/rpc-types";
 import { GuiBridgeClient } from "../bridge-client";
 import { handlers } from "./sessions";
@@ -173,5 +173,26 @@ describe("switch_session", () => {
 		) => Promise<{ cancelled: boolean }>;
 		await switchSession({ type: "switch_session", sessionPath: "/s.jsonl", provider: "p", modelId: "m" }, ctx);
 		expect(sent).toEqual([{ type: "switch_session", sessionPath: "/s.jsonl", provider: "p", modelId: "m" }]);
+	});
+});
+
+describe("transcriptPageMessages", () => {
+	it("leaves provider request bookkeeping out of a page and keeps everything shown", () => {
+		const content = [{ type: "text" as const, text: "done" }];
+		const reply = {
+			role: "assistant",
+			content,
+			timestamp: 2,
+			usage: { input: 1 },
+			inputTransformations: [{ type: "thinking_dropped", path: "messages.4.content.0" }],
+			requestControls: { messageIndex: 2 },
+			contextSnapshot: { tokens: 10 },
+		};
+		const question = user("why", 1);
+		const [userRow, replyRow] = transcriptPageMessages([question, reply]);
+		expect(userRow).toBe(question);
+		expect(replyRow).toEqual({ role: "assistant", content, timestamp: 2, usage: { input: 1 } });
+		expect(replyRow?.content).toBe(content);
+		expect(reply.inputTransformations).toHaveLength(1);
 	});
 });

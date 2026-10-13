@@ -6,6 +6,7 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
+import { transcriptPageMessages, transcriptTurnStart } from "../resources/gui-bridge/transcript-page";
 import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from "../src/shared/rpc-types";
 import { createWorkReplay, type RecordedWorkFrame, rebaseWorkRecording } from "./work-recording";
 
@@ -1098,7 +1099,7 @@ if (process.argv[2] === "stats") {
 			const messages = activeBranch()
 				.filter(entry => entry.type === "message")
 				.map(entry => ({ ...(entry.message as AgentMessage), entryId: entry.id }));
-			let offset =
+			const offset =
 				typeof params.offset === "number" && Number.isInteger(params.offset) && params.offset >= 0
 					? Math.min(params.offset, messages.length)
 					: 0;
@@ -1107,9 +1108,8 @@ if (process.argv[2] === "stats") {
 					? params.limit
 					: messages.length;
 			const end = Math.min(messages.length, offset + limit);
-			if (params.snapToTurn === true && offset < end) {
-				while (offset > 0 && messages[offset]?.role !== "user") offset--;
-			}
+			// The bridge's own rule: a page starts at a turn, never at a steer inside one.
+			const start = params.snapToTurn === true ? transcriptTurnStart(messages, offset, end) : offset;
 			if (limit > 0 && failHistory) {
 				failHistory = false;
 				throw new Error("Fixture history page failed");
@@ -1117,8 +1117,8 @@ if (process.argv[2] === "stats") {
 			const result = {
 				leafId: activeLeafId,
 				total: messages.length,
-				startIndex: offset,
-				messages: messages.slice(offset, end),
+				startIndex: start,
+				messages: transcriptPageMessages(messages.slice(start, end)),
 			};
 			if (limit > 0 && holdHistory) {
 				holdHistory = false;

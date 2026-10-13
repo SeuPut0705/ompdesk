@@ -14,10 +14,33 @@ import { exitApp, fixtureOmp } from "./harness";
 // no model is called. OMP_GUI_BASELINE_DIR (a checkout root holding a built
 // `out/`) adds an interleaved "before" subject.
 
-/** Renderer probes installed before the app's scripts: long frames and React commits. */
+/**
+ * Renderer probes installed before the app's scripts: long frames, React commits,
+ * slow input events (Event Timing: input to the next paint) and the time of the
+ * latest key or pointer press, which interaction latencies are measured from.
+ */
 const PROBE = `(() => {
-	const perf = { commits: 0, longtasks: [], frames: [] };
+	const perf = { commits: 0, longtasks: [], frames: [], events: [], lastInput: 0 };
 	window.__ompPerf = perf;
+	for (const type of ["keydown", "pointerdown"])
+		window.addEventListener(type, event => { perf.lastInput = event.timeStamp; }, { capture: true });
+	window.__ompReady = {
+		// A tab's pane is on screen with transcript rows in it.
+		pane(tabId) {
+			const pane = document.querySelector('.omp-session-pane[data-tab-id="' + CSS.escape(tabId) + '"][data-active="true"]');
+			const rows = pane && pane.querySelector(".omp-transcript-rows");
+			return !!pane && pane.offsetWidth > 0 && !!rows && rows.childElementCount > 0;
+		},
+		// The right panel is open with its view routed, or gone.
+		panel(state) {
+			const panel = document.querySelector(".omp-inspector");
+			return state === "open" ? !!panel && panel.getAttribute("aria-busy") !== "true" : !panel;
+		},
+	};
+	new PerformanceObserver(list => {
+		for (const entry of list.getEntries())
+			perf.events.push({ at: entry.startTime, name: entry.name, duration: entry.duration });
+	}).observe({ type: "event", durationThreshold: 16, buffered: true });
 	window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
 		supportsFiber: true,
 		renderers: new Map(),
@@ -63,6 +86,14 @@ interface Probe {
 		styleLayout: number;
 		scripts: { duration: number; invoker: string; source: string; fn: string }[];
 	}[];
+	events: { at: number; name: string; duration: number }[];
+	lastInput: number;
+}
+
+/** The probe's interaction checks (`window.__ompReady`). */
+interface Ready {
+	pane(tabId: string): boolean;
+	panel(state: string): boolean;
 }
 
 interface Metrics {
@@ -150,6 +181,19 @@ async function measure(
 		if (canvas) observer.observe(canvas, { childList: true, subtree: true });
 		Reflect.set(window, "__ompMounts", churn.mounts);
 		Reflect.set(window, "__ompChurn", { churn, observer });
+	});
+	// Every frame's interval, end to end (scripts, style, layout, paint, raster
+	// waits): the gap between consecutive frame callbacks. A gap over 50 ms is a
+	// frame the reader saw stall, whatever the main thread did inside it.
+	await page.evaluate(() => {
+		const raf = { deltas: [] as [number, number][], last: 0, running: true };
+		const tick = (now: number) => {
+			if (raf.last) raf.deltas.push([raf.last, now - raf.last]);
+			raf.last = now;
+			if (raf.running) requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+		Reflect.set(window, "__ompRaf", raf);
 	});
 	// OMP_GUI_LIVE_SESSION_STABILITY: after every painted frame, read the transcript as
 	// it was painted (row transforms and the scroll offset; layout is clean then) and
@@ -319,6 +363,23 @@ async function measure(
 			innerElements: churn.innerElements,
 		};
 	});
+	const rafFrames = await page.evaluate(from => {
+		const raf = Reflect.get(window, "__ompRaf") as { deltas: [number, number][]; running: boolean };
+		raf.running = false;
+		const sorted = raf.deltas.map(([, ms]) => ms).sort((a, b) => a - b);
+		return {
+			count: sorted.length,
+			maxMs: Math.round(sorted.at(-1) ?? 0),
+			p99Ms: Math.round(sorted[Math.floor(sorted.length * 0.99)] ?? 0),
+			over33: sorted.filter(ms => ms > 34).length,
+			over50: sorted.filter(ms => ms > 50).length,
+			// The longest intervals, at their start (ms into the window).
+			worst: [...raf.deltas]
+				.sort((a, b) => b[1] - a[1])
+				.slice(0, 5)
+				.map(([at, ms]) => `${Math.round(ms)}ms@${Math.round(at - from)}`),
+		};
+	}, before.now);
 	const stability = await page.evaluate(() => {
 		const probe = Reflect.get(window, "__ompStability") as
 			| { running: boolean; heights: Map<string, { kind: string; h: number }> }
@@ -343,6 +404,7 @@ async function measure(
 			const mounts = Reflect.get(window, "__ompMounts") as { at: number; rows: number }[];
 			const frames = perf.frames.filter(frame => frame.at >= from && frame.at <= to);
 			const longtasks = perf.longtasks.filter(task => task.at >= from && task.at <= to);
+			const events = perf.events.filter(event => event.at >= from && event.at <= to);
 			const scripts = new Map<string, number>();
 			for (const frame of frames)
 				for (const script of frame.scripts) {
@@ -360,6 +422,7 @@ async function measure(
 					.sort((a, b) => b.duration - a.duration)
 					.slice(0, 3)
 					.map(frame => ({
+						at: Math.round(frame.at - from),
 						ms: Math.round(frame.duration),
 						blocking: Math.round(frame.blocking),
 						render: Math.round(frame.render),
@@ -378,6 +441,13 @@ async function measure(
 					.sort((a, b) => b[1] - a[1])
 					.slice(0, 6)
 					.map(([key, ms]) => `${Math.round(ms)}ms ${key}`),
+				// Input to next paint, for inputs slower than 16 ms.
+				inputMaxMs: Math.round(Math.max(0, ...events.map(event => event.duration))),
+				inputOver50: events.filter(event => event.duration > 50).length,
+				inputWorst: [...events]
+					.sort((a, b) => b.duration - a.duration)
+					.slice(0, 3)
+					.map(event => `${Math.round(event.duration)}ms ${event.name}@${Math.round(event.at - from)}`),
 				// What keeps compositing and painting while nothing else changes.
 				animations: Object.entries(
 					Object.groupBy(
@@ -416,6 +486,8 @@ async function measure(
 		blockingMsPer10s: Math.round(detail.blockingMs * per10),
 		worstFrameMs: detail.worstFrameMs,
 		worstFrames: detail.worstFrames,
+		rafFrames,
+		input: { maxMs: detail.inputMaxMs, over50: detail.inputOver50, worst: detail.inputWorst },
 		churn,
 		...(stability ? { stability } : {}),
 		// Of the long frames' time: total, rAF-onward, and style/layout/paint.
@@ -544,9 +616,12 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 				await cdp.send("HeapProfiler.collectGarbage");
 				const openHeapMb = Math.round((await cdp.send("Runtime.getHeapUsage")).usedSize / 1048576);
 				await page.waitForTimeout(2000);
-				// OMP_GUI_LIVE_SESSION_PHASES=scroll measures only the history scroll.
-				const scrollOnly = process.env.OMP_GUI_LIVE_SESSION_PHASES === "scroll";
-				const idle = scrollOnly ? undefined : await measure(app, page, `${subject.name}-${run}-idle`, 10);
+				// OMP_GUI_LIVE_SESSION_PHASES: a comma list of idle, scroll, stream, panel, type
+				// and tab (default all of them, in that order).
+				const phases = new Set(
+					(process.env.OMP_GUI_LIVE_SESSION_PHASES ?? "idle,scroll,stream,panel,type,tab").split(","),
+				);
+				const idle = phases.has("idle") ? await measure(app, page, `${subject.name}-${run}-idle`, 10) : undefined;
 				// Scroll up through history: the virtualizer mounts and measures new rows.
 				const scroller = page.locator(".omp-transcript-scroll").first();
 				const box = await scroller.boundingBox();
@@ -558,13 +633,15 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 				await page.mouse.move(pointer.x, pointer.y);
 				// OMP_GUI_LIVE_SESSION_WHEEL_STEPS shortens the scroll, e.g. to stop before
 				// history a baseline cannot reach.
-				const wheelSteps = Number(process.env.OMP_GUI_LIVE_SESSION_WHEEL_STEPS ?? 60);
-				const scroll = await measure(app, page, `${subject.name}-${run}-scroll`, 8, async () => {
-					for (let step = 0; step < wheelSteps; step++) {
-						await page.mouse.wheel(0, -700);
-						await page.waitForTimeout(100);
-					}
-				});
+				const wheelSteps = phases.has("scroll") ? Number(process.env.OMP_GUI_LIVE_SESSION_WHEEL_STEPS ?? 60) : 0;
+				const scroll = phases.has("scroll")
+					? await measure(app, page, `${subject.name}-${run}-scroll`, 8, async () => {
+							for (let step = 0; step < wheelSteps; step++) {
+								await page.mouse.wheel(0, -700);
+								await page.waitForTimeout(100);
+							}
+						})
+					: undefined;
 				// How far through history the scroll got (scrollTop / canvas height), so runs
 				// that loaded different pages are told apart. Read after the window: a
 				// read during it forces a layout of its own.
@@ -586,11 +663,13 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 					const status = document.querySelector("[data-testid=transcript-history-status]")?.textContent;
 					return `${Math.round(element?.scrollTop ?? 0)}/${canvas?.style.height} under=[${chain.join(",")}] status=${status}`;
 				}, pointer);
-				const live = scrollOnly
+				if (phases.has("scroll")) {
+					await page.getByRole("button", { name: "Jump to latest" }).click();
+					await expect(page.locator(`[data-row-key=${JSON.stringify(tailKey)}]`)).toBeVisible();
+				}
+				const live = !phases.has("stream")
 					? undefined
 					: await (async () => {
-							await page.getByRole("button", { name: "Jump to latest" }).click();
-							await expect(page.locator(`[data-row-key=${JSON.stringify(tailKey)}]`)).toBeVisible();
 							const control = (command: string) =>
 								page.evaluate(command => window.omp.rpc.command({ type: "bash", command }), command);
 							// The stock session keeps growing while the run streams; main's index watches it.
@@ -626,6 +705,84 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 							);
 							return { streamOutput, cardIdle, streamAgents };
 						})();
+				// Interaction latency: from the latest key or pointer press to the first frame
+				// (a frame callback, right before its paint) in which the probe's `ready`
+				// check holds.
+				const latency = async (check: keyof Ready, arg: string) =>
+					Math.round(
+						await (
+							await page.waitForFunction(
+								({ check, arg }) => {
+									if (!(Reflect.get(window, "__ompReady") as Ready)[check](arg)) return 0;
+									return performance.now() - (Reflect.get(window, "__ompPerf") as Probe).lastInput || 0.1;
+								},
+								{ check, arg },
+								{ polling: "raf", timeout: 60_000 },
+							)
+						).jsonValue(),
+					);
+				// The right panel: open and close it twice with its shortcut (⌘J).
+				const panelOpenMs: number[] = [];
+				const panel = phases.has("panel")
+					? await measure(app, page, `${subject.name}-${run}-panel`, 6, async () => {
+							for (let step = 0; step < 4; step++) {
+								const opening = step % 2 === 0;
+								await page.keyboard.press("ControlOrMeta+j");
+								const ms = await latency("panel", opening ? "open" : "closed");
+								if (opening) panelOpenMs.push(ms);
+								await page.waitForTimeout(1000);
+							}
+						})
+					: undefined;
+				// Typing in the composer, one key every 50 ms.
+				const typing = phases.has("type")
+					? await (async () => {
+							const input = page.locator("textarea").first();
+							await input.click();
+							const typed = await measure(app, page, `${subject.name}-${run}-type`, 6, () =>
+								input.pressSequentially("The transcript must stay still while I type this line. ", {
+									delay: 50,
+								}),
+							);
+							await input.fill("");
+							return typed;
+						})()
+					: undefined;
+				// Tabs: ⌘T opens a second tab (the fake omp seeds every tab with this
+				// session, so it opens the same long transcript), then ⌃⇥ switches
+				// between the two.
+				const tabs = phases.has("tab")
+					? await (async () => {
+							const list = () => page.evaluate(() => window.omp.tabs.list());
+							const first = (await list()).find(tab => tab.active)?.tabId;
+							if (!first) throw new Error("No active tab");
+							let second = "";
+							const openMs: number[] = [];
+							const switchMs: number[] = [];
+							const open = await measure(app, page, `${subject.name}-${run}-tab-open`, 6, async () => {
+								await page.keyboard.press("ControlOrMeta+t");
+								await expect.poll(async () => (await list()).length, { timeout: 60_000 }).toBe(2);
+								second = (await list()).find(tab => tab.tabId !== first)?.tabId ?? "";
+								openMs.push(await latency("pane", second));
+							});
+							const secondRows = await page.evaluate(
+								id =>
+									document.querySelector(
+										`.omp-session-pane[data-tab-id="${CSS.escape(id)}"] .omp-transcript-rows`,
+									)?.childElementCount ?? 0,
+								second,
+							);
+							await page.waitForTimeout(1000);
+							const switching = await measure(app, page, `${subject.name}-${run}-tab-switch`, 8, async () => {
+								for (const target of [first, second, first, second]) {
+									await page.keyboard.press("Control+Tab");
+									switchMs.push(await latency("pane", target));
+									await page.waitForTimeout(1000);
+								}
+							});
+							return { openMs, secondRows, open, switchMs, switching };
+						})()
+					: undefined;
 				await cdp.send("HeapProfiler.collectGarbage");
 				const endHeapMb = Math.round((await cdp.send("Runtime.getHeapUsage")).usedSize / 1048576);
 				if (live) await page.evaluate(() => window.omp.rpc.command({ type: "abort" }));
@@ -637,8 +794,11 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 					openHeapMb,
 					endHeapMb,
 					idle,
-					scroll: { ...scroll, reached },
+					scroll: scroll && { ...scroll, reached },
 					...live,
+					panel: panel && { openMs: panelOpenMs, ...panel },
+					typing,
+					tabs,
 					errors,
 				};
 				results.push(result);

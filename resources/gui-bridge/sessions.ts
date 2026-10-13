@@ -10,7 +10,7 @@ import { FileSessionStorage } from "@oh-my-pi/pi-coding-agent/session/session-st
 import { guard } from "./health";
 import { attachEntryIds, buildTranscript, flattenSessionTree } from "./session-display";
 import { setSessionPinned } from "./session-pins";
-import { transcriptTurnStart } from "./transcript-page";
+import { transcriptPageMessages, transcriptTurnStart } from "./transcript-page";
 import type { BridgeMethods } from "./types";
 
 function param(params: unknown, key: string): unknown {
@@ -70,7 +70,7 @@ export const methods: BridgeMethods = {
 				leafId,
 				total: messages.length,
 				startIndex: offset,
-				messages: decorateMessages(messages.slice(offset, end)),
+				messages: decorateMessages(transcriptPageMessages(messages.slice(offset, end))),
 			};
 		},
 		"sessions.attach_entry_ids": async (params, env) => {
