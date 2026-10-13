@@ -434,35 +434,40 @@ export function SecuritySection() {
 				<div className="security-master-detail overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
 					<section aria-label={t("security.currentRisk")} className="security-findings-pane min-w-0">
 						<div className="border-b border-(--sc-divider) px-3 py-3">
-							<div className="mb-2 flex items-center justify-between gap-3">
+							<div className="flex items-center justify-between gap-3">
 								<h3 className="text-sc-md font-semibold text-(--sc-text)">{t("security.currentRisk")}</h3>
 								{selectedScan && (
 									<span className="text-sc-xs text-(--sc-text-muted)">{selectedScan.scan.producer}</span>
 								)}
 							</div>
-							<div
-								aria-hidden
-								className="flex h-1.5 overflow-hidden rounded-(--sc-radius-full) bg-(--sc-surface-3)"
-							>
-								{SEVERITIES.map(severity => {
-									const count = counts[severity];
-									if (count === 0 || findings.length === 0) return null;
-									return (
-										<span
-											className={SEVERITY_FILL[severity]}
-											key={severity}
-											style={{ width: `${(count / findings.length) * 100}%` }}
-										/>
-									);
-								})}
-							</div>
-							<div className="mt-2 flex flex-wrap gap-1.5">
-								{SEVERITIES.filter(severity => counts[severity] > 0).map(severity => (
-									<Badge key={severity} variant={SEVERITY_BADGE[severity]}>
-										{t(`security.severity.${severity}`)} {counts[severity]}
-									</Badge>
-								))}
-							</div>
+							{findings.length > 0 && (
+								<>
+									<div
+										aria-hidden
+										className="mt-2 flex h-1.5 overflow-hidden rounded-(--sc-radius-full) bg-(--sc-surface-3)"
+										data-risk-gauge
+									>
+										{SEVERITIES.map(severity => {
+											const count = counts[severity];
+											if (count === 0) return null;
+											return (
+												<span
+													className={SEVERITY_FILL[severity]}
+													key={severity}
+													style={{ width: `${(count / findings.length) * 100}%` }}
+												/>
+											);
+										})}
+									</div>
+									<div className="mt-2 flex flex-wrap gap-1.5">
+										{SEVERITIES.filter(severity => counts[severity] > 0).map(severity => (
+											<Badge key={severity} variant={SEVERITY_BADGE[severity]}>
+												{t(`security.severity.${severity}`)} {counts[severity]}
+											</Badge>
+										))}
+									</div>
+								</>
+							)}
 						</div>
 						{findings.length === 0 ? (
 							<div role="status">
@@ -520,15 +525,20 @@ export function SecuritySection() {
 					</section>
 
 					<aside className="security-insights-pane min-w-0 p-3">
-						<h3 className="text-sc-sm font-semibold text-(--sc-text)">{t("security.why")}</h3>
-						<p className="mt-1.5 text-sc-sm text-(--sc-text-muted)">
-							{selectedFinding?.summary ?? t("security.whyDefault")}
-						</p>
-						<h3 className="mt-5 text-sc-sm font-semibold text-(--sc-text)">{t("security.suggestion")}</h3>
-						<p className="mt-1.5 text-sc-sm text-(--sc-text-muted)">
-							{selectedFinding?.remediation ?? t("security.suggestionDefault")}
-						</p>
-						<div className="mt-5 border-t border-(--sc-divider) pt-3">
+						{/* Why/fix explain a finding; with none there is nothing to explain. */}
+						{findings.length > 0 && (
+							<>
+								<h3 className="text-sc-sm font-semibold text-(--sc-text)">{t("security.why")}</h3>
+								<p className="mt-1.5 text-sc-sm text-(--sc-text-muted)">
+									{selectedFinding?.summary ?? t("security.whyDefault")}
+								</p>
+								<h3 className="mt-5 text-sc-sm font-semibold text-(--sc-text)">{t("security.suggestion")}</h3>
+								<p className="mt-1.5 text-sc-sm text-(--sc-text-muted)">
+									{selectedFinding?.remediation ?? t("security.suggestionDefault")}
+								</p>
+							</>
+						)}
+						<div className={cx(findings.length > 0 && "mt-5 border-t border-(--sc-divider) pt-3")}>
 							<h3 className="mb-2 text-sc-sm font-semibold text-(--sc-text)">{t("security.recentScans")}</h3>
 							{dashboard.scans.slice(0, 5).map(scan => (
 								<ListRow

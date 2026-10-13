@@ -143,3 +143,14 @@ describe("SecuritySection scan", () => {
 		expect(securityStart).toHaveBeenCalledWith({ kind: "working_tree" });
 	});
 });
+
+describe("SecuritySection with nothing found", () => {
+	it("shows no empty risk gauge and no finding-detail placeholders before there is a finding", async () => {
+		await mount();
+
+		expect(bodyText()).toContain(translate("security.noScans"));
+		expect(bodyText()).not.toContain(translate("security.whyDefault"));
+		expect(bodyText()).not.toContain(translate("security.suggestionDefault"));
+		expect(document.querySelector("[data-risk-gauge]")).toBeNull();
+	});
+});
