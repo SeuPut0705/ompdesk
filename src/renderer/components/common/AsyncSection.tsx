@@ -33,6 +33,8 @@ export interface AsyncSectionProps {
 	loadingLabel?: string;
 	/** Heading above the error message. */
 	errorTitle?: string;
+	/** Shown instead of the raw `ErrorDetail` line when the error is already a localized sentence. */
+	errorDescription?: ReactNode;
 	/** Banner label when stale rows stay visible under the error. */
 	staleLabel?: string;
 	emptyLabel?: string;
@@ -52,6 +54,7 @@ export function AsyncSection({
 	onRetry,
 	loadingLabel,
 	errorTitle,
+	errorDescription,
 	staleLabel,
 	emptyLabel,
 	retryLabel,
@@ -66,6 +69,7 @@ export function AsyncSection({
 			{retry}
 		</Button>
 	);
+	const detail = errorDescription ?? <ErrorDetail error={error} />;
 
 	if (loading && !hasData) {
 		return (
@@ -80,7 +84,7 @@ export function AsyncSection({
 			<EmptyState
 				actions={retryButton}
 				className={box}
-				description={<ErrorDetail error={error} />}
+				description={detail}
 				icon={<AlertTriangle />}
 				size="sm"
 				title={<span role="alert">{errorTitle ?? t("common.loadFailed")}</span>}
@@ -100,7 +104,7 @@ export function AsyncSection({
 					title={staleLabel ?? t("common.loadFailed")}
 					variant="warning"
 				>
-					<ErrorDetail error={error} />
+					{detail}
 				</Banner>
 			)}
 			{children}
