@@ -305,6 +305,14 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "model setup assistant 자동 설정 도우미",
 	},
 	{
+		// Row id `setting-gui-builtinRea` (BuiltinReaRow); `tools:mcp` opens its tab.
+		id: "builtinRea",
+		section: "tools",
+		sub: "mcp",
+		labelKey: "mcp.rea.title",
+		aliases: "rea mcp builtin built-in reverse engineering binary npx node 내장 리버스 엔지니어링 바이너리",
+	},
+	{
 		id: "ssh",
 		section: "connections",
 		sub: "ssh",

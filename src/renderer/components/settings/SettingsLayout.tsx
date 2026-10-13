@@ -51,21 +51,29 @@ export function SettingsSection({
 	const nested = useContext(SettingsGroupContext);
 	const scope = ownScope ?? inheritedScope;
 	const t = useT();
+	// A nested group's title stays implicit over bare rows, but names the
+	// description and actions it carries: they never float unlabeled.
+	const showTitle = Boolean(title) && (!nested || Boolean(description || actions));
 	return (
 		<section
-			aria-labelledby={title && !nested ? headingId : undefined}
+			aria-labelledby={showTitle ? headingId : undefined}
 			className={cx("settings-section scroll-mt-4", nested && "settings-section-nested", className)}
 			id={id}
 		>
-			{((title && !nested) || description || actions) && (
+			{(showTitle || description || actions) && (
 				<div className="mb-2 flex flex-wrap items-end gap-x-3 gap-y-2">
 					{/* Wide actions wrap under the text instead of squeezing it into a column. */}
 					<div className="min-w-[min(100%,12rem)] flex-1">
-						{title && !nested && (
-							<h3 className="text-sc-lg font-semibold text-(--sc-text)" id={headingId}>
-								{title}
-							</h3>
-						)}
+						{showTitle &&
+							(nested ? (
+								<h4 className="text-sc-md font-medium text-(--sc-text)" id={headingId}>
+									{title}
+								</h4>
+							) : (
+								<h3 className="text-sc-lg font-semibold text-(--sc-text)" id={headingId}>
+									{title}
+								</h3>
+							))}
 						{ownScope && ownScope !== inheritedScope && !nested && (
 							<p className="mt-0.5 text-sc-xs text-(--sc-text-muted)" data-settings-group-scope={scope}>
 								{t(`settings.navGroup.${scope === "host" ? "agent" : scope === "mixed" ? "system" : "app"}`)}

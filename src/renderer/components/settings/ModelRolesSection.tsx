@@ -16,22 +16,11 @@ import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
-import { Badge, type BadgeVariant, Button, EmptyState, IconButton, Spinner } from "../common";
+import { Badge, Button, EmptyState, IconButton, Spinner } from "../common";
 import { CompactsAt } from "./CompactsAt";
 import { InlineNotice } from "./InlineNotice";
 import { type ModelValueGroup, ModelValueSelect } from "./ModelValueSelect";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
-
-const BADGE_BY_COLOR: Record<string, BadgeVariant> = {
-	success: "success",
-	warning: "warning",
-	accent: "accent",
-	error: "error",
-	info: "info",
-	muted: "muted",
-	dim: "muted",
-	default: "default",
-};
 
 const KIND_ORDER: readonly ModelRoleCandidate["kind"][] = ["chat", "tiny", "image", "tts", "stt", "search", "judge"];
 
@@ -68,11 +57,8 @@ function RoleRow({
 	);
 	return (
 		<SettingsRow
-			badge={
-				role.tag ? (
-					<Badge variant={BADGE_BY_COLOR[role.color ?? "default"] ?? "default"}>{role.tag}</Badge>
-				) : undefined
-			}
+			// A role tag is a name, not a state: neutral like every other tag.
+			badge={role.tag ? <Badge>{role.tag}</Badge> : undefined}
 			control={
 				<ModelValueSelect
 					ariaLabel={t("modelRoles.select", { role: role.name })}
@@ -227,12 +213,12 @@ export function ModelRolesSection() {
 			)}
 			{sections.map(section => (
 				<div aria-labelledby={`model-roles-${section.key}`} key={section.key} role="group">
-					<h4
+					<h5
 						className="pt-3 pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase"
 						id={`model-roles-${section.key}`}
 					>
 						{t(`modelRoles.section.${section.key}`)}
-					</h4>
+					</h5>
 					<div className="divide-y divide-(--sc-divider)">
 						{section.roles.map(role => (
 							<RoleRow

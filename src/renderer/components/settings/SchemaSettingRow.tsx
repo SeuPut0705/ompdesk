@@ -8,7 +8,7 @@
  * (Advanced only) reveals where a configured value comes from.
  */
 
-import { Check, Eye, EyeOff } from "lucide-react";
+import { Check, ChevronRight, Eye, EyeOff } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import type { SettingEntry, SettingProvenance } from "../../../shared/rpc-types";
 import { useLang, useT } from "../../lib/i18n";
@@ -259,10 +259,13 @@ function SchemaSettingRow({
 				</p>
 			)}
 			{showSource && provenance && provenance.layers.length > 0 && (
-				<details className="mt-1 text-sc-xs text-(--sc-text-muted)">
-					<summary className="cursor-pointer select-none">
-						{t("settings.source.label")}:{" "}
-						{provenance.layers.map(layer => t(`settings.source.${layer}`)).join(" → ")}
+				<details className="group/source mt-1 text-sc-xs text-(--sc-text-muted)">
+					<summary className="flex min-h-(--sc-control-sm) w-fit max-w-full cursor-pointer list-none items-center gap-1 rounded-(--sc-radius-sm) select-none hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) [&::-webkit-details-marker]:hidden">
+						<ChevronRight aria-hidden className="size-3 shrink-0 group-open/source:rotate-90" />
+						<span className="min-w-0">
+							{t("settings.source.label")}:{" "}
+							{provenance.layers.map(layer => t(`settings.source.${layer}`)).join(" → ")}
+						</span>
 					</summary>
 					<p className="mt-1">{t("settings.source.saveGlobal")}</p>
 					<code className="mt-1 block font-mono break-words whitespace-pre-wrap">

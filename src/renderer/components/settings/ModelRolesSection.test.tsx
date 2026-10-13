@@ -33,6 +33,7 @@ Object.assign(globalThis as Record<string, unknown>, {
 // Loaded after the linkedom globals exist: react-dom reads `window`/`document` at import time.
 const { createRoot } = await import("react-dom/client");
 const { ModelRolesSection } = await import("./ModelRolesSection");
+const { SettingsSection } = await import("./SettingsLayout");
 
 let root: Root;
 
@@ -119,16 +120,40 @@ describe("ModelRolesSection", () => {
 		expect(bodyText()).not.toContain("Hidden role");
 	});
 
-	it("groups visible roles by backend section (chat vs kind)", async () => {
+	it("shows each role's tag as a neutral tag, whatever color the backend names", async () => {
 		installRpc();
 		useSessionStore.getState().setStatus("ready", "/repo");
 
 		await mount(<ModelRolesSection />);
 
-		const headings = [...document.body.querySelectorAll("h4")].map(heading => heading.textContent);
+		const tags = [...document.body.querySelectorAll("span")].filter(span =>
+			["DEFAULT", "IMAGE"].includes(span.textContent ?? ""),
+		);
+		expect(tags).toHaveLength(2);
+		for (const tag of tags) {
+			expect(tag.className).toContain("bg-(--sc-surface-3)");
+			expect(tag.className).not.toMatch(/--sc-(success|accent|info|warning|danger)/);
+		}
+	});
+
+	it("groups visible roles by backend section (chat vs kind) under the nested section's own title", async () => {
+		installRpc();
+		useSessionStore.getState().setStatus("ready", "/repo");
+
+		// Nested in Models › Model the way ModelsSection renders it.
+		await mount(
+			<SettingsSection title="Model">
+				<ModelRolesSection />
+			</SettingsSection>,
+		);
+
+		expect(document.body.querySelector("h3")?.textContent).toBe("Model");
+		// The description and refresh action carry the role section's name, never float unlabeled.
+		expect([...document.body.querySelectorAll("h4")].map(heading => heading.textContent)).toEqual([
+			translate("settings.models.roles"),
+		]);
+		const headings = [...document.body.querySelectorAll("h5")].map(heading => heading.textContent);
 		expect(headings).toEqual(["Chat roles", "Specialized roles"]);
-		// Under the section's own heading.
-		expect(document.body.querySelector("h3")?.textContent).toBe(translate("settings.models.roles"));
 	});
 
 	it("groups each role's candidates by model kind and preselects the saved selector by name", async () => {

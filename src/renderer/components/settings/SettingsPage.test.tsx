@@ -4,6 +4,7 @@
  * translations, row semantics, and search routing.
  */
 
+import { parseHTML } from "linkedom";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
@@ -287,6 +288,14 @@ describe("SchemaSettingRow", () => {
 		expect(render({ ...configured, provenance: { layers: [], globalValue: undefined } }, true)).not.toContain(
 			"<details",
 		);
+	});
+
+	it("opens the source with the app's chevron disclosure, not the native marker", () => {
+		const { document: doc } = parseHTML(render(configured, true));
+		const summary = doc.querySelector("details > summary");
+		expect(summary?.className).toContain("list-none");
+		expect(summary?.className).toContain("focus-visible:outline-(--sc-focus-ring)");
+		expect(summary?.querySelector("svg[aria-hidden]")).not.toBeNull();
 	});
 });
 

@@ -84,18 +84,15 @@ export function MetricCard({
 			>
 				{value}
 			</div>
-			{sub && (
-				<div className="truncate text-sc-xs text-(--sc-text-muted)" title={sub}>
-					{sub}
-				</div>
-			)}
+			{/* The detail wraps: a clipped "0 from you · 0 rep…" hides the figure it explains. */}
+			{sub && <div className="text-sc-xs break-words text-(--sc-text-muted)">{sub}</div>}
 		</div>
 	);
 }
 
-/** Responsive grid for MetricCards. */
+/** Grid for MetricCards: as many ≥9rem columns as the page's own width holds (not the window's). */
 export function MetricGrid({ children }: { children: ReactNode }) {
-	return <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">{children}</div>;
+	return <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">{children}</div>;
 }
 
 export interface StatColumn<T> {

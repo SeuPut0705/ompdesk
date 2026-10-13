@@ -1,10 +1,11 @@
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
 import { ko } from "../../locales/ko";
-import { RouteFrame } from "./shared";
+import { MetricCard, MetricGrid, RouteFrame } from "./shared";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -53,5 +54,20 @@ describe("RouteFrame", () => {
 		expect(container.textContent).toContain("Stats API error: 500 Internal Server Error");
 		expect(container.textContent).not.toContain("[stats_api_error]");
 		expect(container.textContent).not.toContain(ko["stats.unavailable"]);
+	});
+});
+
+describe("MetricCard", () => {
+	it("wraps its detail line instead of clipping it, in a grid sized by its own width", () => {
+		const { document: doc } = parseHTML(
+			renderToStaticMarkup(
+				<MetricGrid>
+					<MetricCard label="Messages" sub="12 from you · 14 replies" value="26" />
+				</MetricGrid>,
+			),
+		);
+		const sub = [...doc.querySelectorAll("div")].find(node => node.textContent === "12 from you · 14 replies");
+		expect(sub?.className).not.toContain("truncate");
+		expect(doc.querySelector("div")?.className).toContain("auto-fill");
 	});
 });

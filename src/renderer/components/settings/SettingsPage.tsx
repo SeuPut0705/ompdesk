@@ -380,7 +380,8 @@ export function SettingsPage() {
 											leading={<Icon aria-hidden />}
 											meta={SECTION_SCOPE[id] === "app" ? <ThisDeviceTag compact /> : undefined}
 											onClick={() => navigate(id)}
-											selected={id === section}
+											// Search results replace the section: no row claims the page meanwhile.
+											selected={results === null && id === section}
 											title={t(`settings.section.${id}`)}
 											rowProps={{ "data-settings-nav": id, "data-settings-scope": SECTION_SCOPE[id] }}
 										/>
@@ -404,21 +405,23 @@ export function SettingsPage() {
 										? t("settings.search.count", { count: results.length })
 										: t(`settings.section.${section}.desc`)}
 								</p>
-								<p
-									className="mt-2 text-sc-xs text-(--sc-text-muted)"
-									data-settings-section-scope={SECTION_SCOPE[section]}
-								>
-									{SECTION_SCOPE[section] === "app" && host ? (
-										<ThisDeviceTag />
-									) : (
-										<>
-											{t(
-												`settings.navGroup.${SECTION_SCOPE[section] === "host" ? "agent" : SECTION_SCOPE[section] === "mixed" ? "system" : "app"}`,
-											)}
-											{SECTION_SCOPE[section] === "host" && host?.name ? `: ${host.name}` : ""}
-										</>
-									)}
-								</p>
+								{!results && (
+									<p
+										className="mt-2 text-sc-xs text-(--sc-text-muted)"
+										data-settings-section-scope={SECTION_SCOPE[section]}
+									>
+										{SECTION_SCOPE[section] === "app" && host ? (
+											<ThisDeviceTag />
+										) : (
+											<>
+												{t(
+													`settings.navGroup.${SECTION_SCOPE[section] === "host" ? "agent" : SECTION_SCOPE[section] === "mixed" ? "system" : "app"}`,
+												)}
+												{SECTION_SCOPE[section] === "host" && host?.name ? `: ${host.name}` : ""}
+											</>
+										)}
+									</p>
+								)}
 							</header>
 							{agentSection && !data.sidecarReady && (
 								<SettingsConnectionBanner

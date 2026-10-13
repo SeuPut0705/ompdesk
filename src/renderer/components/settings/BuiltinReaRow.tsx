@@ -72,6 +72,7 @@ export function BuiltinReaRow({
 	return (
 		<div data-builtin-rea="true">
 			<SettingsSwitchRow
+				id="setting-gui-builtinRea"
 				label={t("mcp.rea.title")}
 				badge={<Badge>{REA_VERSION}</Badge>}
 				checked={state?.enabled ?? true}

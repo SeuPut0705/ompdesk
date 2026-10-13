@@ -159,6 +159,10 @@ describe("AgentsPage", () => {
 		await mount();
 		expect(document.body.textContent).toContain("scout");
 		expect(document.body.textContent).toContain("reviewer");
+		// Inspect uses the app's chevron disclosure, not the native triangle.
+		const inspect = queryAll("details > summary")[0];
+		expect(inspect?.getAttribute("class")).toContain("list-none");
+		expect(inspect?.querySelectorAll("svg[aria-hidden]")).toHaveLength(1);
 
 		// Rows sort by name: reviewer, scout.
 		const switches = queryAll('[role="switch"]');
