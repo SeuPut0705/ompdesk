@@ -106,10 +106,18 @@ function timestampMs(value: string | number | undefined, fallback: number): numb
  * routed through the queues below.
  */
 const callEntryKeys = new WeakMap<object, string>();
+const OCCURRENCE_KEY_PREFIX = "\u0000omp-tool:";
 
 /** Resolve the occurrence-specific store key for one transcript tool call. */
 export function toolEntryKey(call: { id: string }): string {
 	return callEntryKeys.get(call) ?? call.id;
+}
+
+/** The stock call id an occurrence-specific store key was allocated for. */
+export function callIdOfEntryKey(key: string): string {
+	if (!key.startsWith(OCCURRENCE_KEY_PREFIX)) return key;
+	const parsed: unknown = JSON.parse(key.slice(OCCURRENCE_KEY_PREFIX.length));
+	return Array.isArray(parsed) && typeof parsed[0] === "string" ? parsed[0] : key;
 }
 
 export const createToolsStore = () => {
@@ -145,7 +153,7 @@ export const createToolsStore = () => {
 	const allocateEntryKey = (callId: string): string => {
 		const occurrence = nextOccurrenceByCallId.get(callId) ?? 0;
 		nextOccurrenceByCallId.set(callId, occurrence + 1);
-		const key = occurrence === 0 ? callId : `\u0000omp-tool:${JSON.stringify([callId, occurrence])}`;
+		const key = occurrence === 0 ? callId : `${OCCURRENCE_KEY_PREFIX}${JSON.stringify([callId, occurrence])}`;
 		latestEntryKeyByCallId.set(callId, key);
 		return key;
 	};

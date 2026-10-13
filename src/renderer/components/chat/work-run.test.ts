@@ -88,8 +88,19 @@ describe("run transcript", () => {
 		expect(mergeRunAgents([live], runTranscript([spawn, taskResult], owns))).toEqual([live]);
 	});
 
+	it("settles only from records after its spawn, and reuses one index per transcript", () => {
+		const early = { ...completion("<output>\nstale\n</output>"), timestamp: 500 };
+		const transcript = [early, spawn, taskResult, completion("<output>\nfresh\n</output>")];
+		expect(runTranscript(transcript, owns).completions.get("Reader")?.summary).toBe("fresh");
+		// Same list, another card that owns nothing: no agents, nothing settled.
+		expect(runTranscript(transcript, () => false).agents).toEqual([]);
+	});
+
 	it("measures the run from stock message timestamps, live and hydrated alike", () => {
-		expect(runSpan([spawn, taskResult], owns)).toEqual({ startedAt: 1_000, spanMs: 100 });
+		expect(runSpan([[spawn, taskResult], []], ["task-1"])).toEqual({ startedAt: 1_000, spanMs: 100 });
+		// The live result lands in the second list; calls the run does not own never count.
+		expect(runSpan([[spawn], [taskResult]], ["task-1"])).toEqual({ startedAt: 1_000, spanMs: 100 });
+		expect(runSpan([[spawn, taskResult]], ["task-2"])).toEqual({ spanMs: 0 });
 	});
 });
 

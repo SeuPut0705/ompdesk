@@ -120,11 +120,57 @@ export interface TaskCallResult {
 	timestamp: number;
 }
 
+/** Where one message list spawned each task call, and which of its messages can settle an agent. */
+interface TaskIndex {
+	/** Stock task call id → the first assistant message calling it. */
+	spawns: ReadonlyMap<string, number>;
+	/** Task results and records carrying `<task-result>` envelopes or jobs, in order. */
+	records: readonly number[];
+}
+
+const taskIndexes = new WeakMap<readonly AgentMessage[], TaskIndex>();
+
+/**
+ * Each message list's task calls and settlement records, indexed once per list:
+ * every work card that spawned agents scans from its spawn to the end of the
+ * transcript, and for the cards at the top of a long session that was the whole
+ * transcript, once per card on every history page. Messages that carry nothing an
+ * agent settles on are skipped here rather than in every scan.
+ */
+function taskIndex(messages: readonly AgentMessage[]): TaskIndex {
+	const cached = taskIndexes.get(messages);
+	if (cached) return cached;
+	const spawns = new Map<string, number>();
+	const records: number[] = [];
+	messages.forEach((message, index) => {
+		if (message.role === "assistant" && Array.isArray(message.content)) {
+			for (const block of message.content)
+				if (block.type === "toolCall" && block.name === "task" && !spawns.has(block.id))
+					spawns.set(block.id, index);
+			return;
+		}
+		const settles =
+			message.role === "toolResult" || (message.role === "custom" && message.customType === "async-result");
+		if (!settles) return;
+		const jobs = asRecord(message.details)?.jobs;
+		if (
+			(message.role === "toolResult" && message.toolName === "task" && message.toolCallId) ||
+			(Array.isArray(jobs) && jobs.length > 0) ||
+			recordTaskResults(message, message.content).length > 0
+		)
+			records.push(index);
+	});
+	const index = { spawns, records };
+	taskIndexes.set(messages, index);
+	return index;
+}
+
 /**
  * Agents and their completions for the task calls this run owns. Completions
  * may land after the run's reply (a detached agent finishing in a follow-up
  * turn), so the scan runs to the end of the transcript; the first settlement
- * of an agent id after its spawn wins.
+ * of an agent id after its spawn wins. `messages` is indexed once per list (see
+ * taskIndex), so it must not be edited in place.
  */
 export function runTranscript(
 	messages: readonly AgentMessage[],
@@ -194,22 +240,19 @@ export function runTranscript(
 		settleFrom(details, call.result, call.result);
 	}
 	// Settlements follow the spawn; a transcript page without the spawning call still settles known agents.
-	const spawn = messages.findIndex(
-		message =>
-			message.role === "assistant" &&
-			Array.isArray(message.content) &&
-			message.content.some(block => block.type === "toolCall" && block.name === "task" && ownsCall(block.id)),
-	);
-	for (let index = Math.max(0, spawn); index < messages.length; index++) {
+	const { spawns, records } = taskIndex(messages);
+	let spawn = Number.POSITIVE_INFINITY;
+	for (const [id, index] of spawns) if (index < spawn && ownsCall(id)) spawn = index;
+	const from = Number.isFinite(spawn) ? spawn : 0;
+	for (const index of records) {
 		const message = messages[index];
-		if (!message) continue;
+		if (index < from || !message) continue;
 		const details = asRecord(message.details);
 		if (message.role === "toolResult" && message.toolName === "task" && message.toolCallId) {
 			if (!ownsCall(message.toolCallId)) continue;
 			recordTask(message.toolCallId, details, messageSourceTimestamp(message) ?? 0);
 		}
-		if (message.role === "toolResult" || (message.role === "custom" && message.customType === "async-result"))
-			settleFrom(details, message, message.content);
+		settleFrom(details, message, message.content);
 	}
 	return { agents: [...agents.values()], completions };
 }
@@ -246,27 +289,69 @@ export function agentDurationMs(node: SubagentNode, completion: AgentCompletion 
 	return completion?.durationMs ?? node.progress?.durationMs ?? 0;
 }
 
+/** When one stock tool call was made (its earliest call message) and last answered. */
+interface CallTimes {
+	calledAt: number;
+	answeredAt: number;
+}
+
+const transcriptCallTimes = new WeakMap<readonly AgentMessage[], ReadonlyMap<string, CallTimes>>();
+
 /**
- * The run's clock from stock message timestamps: its first tool call's message
- * to its last tool result, the same clock the transcript replays after a reload.
+ * Every tool call's times in one message list, indexed once per list: each work
+ * card on screen reads its run's clock from it, and a history page prepend made
+ * every one of them rescan the whole transcript.
  */
-export function runSpan(
-	messages: readonly AgentMessage[],
-	ownsCall: (id: string) => boolean,
-): { startedAt?: number; spanMs: number } {
-	let start = Number.POSITIVE_INFINITY;
-	let end = 0;
+function callTimes(messages: readonly AgentMessage[]): ReadonlyMap<string, CallTimes> {
+	const cached = transcriptCallTimes.get(messages);
+	if (cached) return cached;
+	const times = new Map<string, CallTimes>();
+	const timesOf = (id: string) => {
+		let entry = times.get(id);
+		if (!entry) {
+			entry = { calledAt: Number.POSITIVE_INFINITY, answeredAt: 0 };
+			times.set(id, entry);
+		}
+		return entry;
+	};
 	for (const message of messages) {
 		const timestamp = messageSourceTimestamp(message);
 		if (timestamp === undefined) continue;
-		if (
-			message.role === "assistant" &&
-			Array.isArray(message.content) &&
-			message.content.some(block => block.type === "toolCall" && ownsCall(block.id))
-		)
-			start = Math.min(start, timestamp);
-		else if (message.role === "toolResult" && message.toolCallId && ownsCall(message.toolCallId))
-			end = Math.max(end, timestamp);
+		if (message.role === "assistant" && Array.isArray(message.content)) {
+			for (const block of message.content) {
+				if (block.type !== "toolCall") continue;
+				const entry = timesOf(block.id);
+				entry.calledAt = Math.min(entry.calledAt, timestamp);
+			}
+		} else if (message.role === "toolResult" && message.toolCallId) {
+			const entry = timesOf(message.toolCallId);
+			entry.answeredAt = Math.max(entry.answeredAt, timestamp);
+		}
+	}
+	transcriptCallTimes.set(messages, times);
+	return times;
+}
+
+/**
+ * The run's clock from stock message timestamps: its first tool call's message
+ * to its last tool result, the same clock the transcript replays after a reload.
+ * `callIds` are the stock call ids the run owns; `lists` the committed and live
+ * messages (each list is indexed once, so lists must not be edited in place).
+ */
+export function runSpan(
+	lists: readonly (readonly AgentMessage[])[],
+	callIds: readonly string[],
+): { startedAt?: number; spanMs: number } {
+	let start = Number.POSITIVE_INFINITY;
+	let end = 0;
+	for (const messages of lists) {
+		const times = callTimes(messages);
+		for (const id of callIds) {
+			const entry = times.get(id);
+			if (!entry) continue;
+			start = Math.min(start, entry.calledAt);
+			end = Math.max(end, entry.answeredAt);
+		}
 	}
 	if (!Number.isFinite(start)) return { spanMs: 0 };
 	return { startedAt: start, spanMs: end > start ? end - start : 0 };

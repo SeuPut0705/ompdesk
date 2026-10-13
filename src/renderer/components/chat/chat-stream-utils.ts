@@ -95,6 +95,45 @@ export function scrollTranscriptToTail(
 }
 
 /**
+ * The rows to render for a virtual range: every row on screen, the overscan rows
+ * already mounted, and at most `budget` overscan rows not mounted yet, nearest to
+ * the viewport first (above before below at the same distance). `deferred` says
+ * overscan rows were held back for a later frame.
+ *
+ * A history page prepend or one long wheel step brings a whole overscan's worth of
+ * finished work cards into range at once, and mounting them all in one commit
+ * made a frame of their script, style and layout. On-screen rows never wait.
+ */
+export function progressiveRange(
+	range: { startIndex: number; endIndex: number; overscan: number; count: number },
+	keyAt: (index: number) => string,
+	mounted: ReadonlySet<string>,
+	budget: number,
+): { indexes: number[]; deferred: boolean } {
+	let admitted = 0;
+	let deferred = false;
+	const chosen = new Set<number>();
+	const consider = (index: number) => {
+		if (index < 0 || index >= range.count) return;
+		if (mounted.has(keyAt(index))) chosen.add(index);
+		else if (admitted < budget) {
+			admitted++;
+			chosen.add(index);
+		} else deferred = true;
+	};
+	for (let distance = 1; distance <= range.overscan; distance++) {
+		consider(range.startIndex - distance);
+		consider(range.endIndex + distance);
+	}
+	const indexes: number[] = [];
+	const first = Math.max(0, range.startIndex - range.overscan);
+	const last = Math.min(range.count - 1, range.endIndex + range.overscan);
+	for (let index = first; index <= last; index++)
+		if ((index >= range.startIndex && index <= range.endIndex) || chosen.has(index)) indexes.push(index);
+	return { indexes, deferred };
+}
+
+/**
  * How far from the end of the transcript a live commit can hand over rows, and
  * the largest growth that still reads as one turn. A wider jump is a hydrate or
  * a page of history arriving.

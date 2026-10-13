@@ -1,4 +1,4 @@
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { type Range, useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
 import {
 	ArrowDown,
 	BookOpen,
@@ -53,6 +53,7 @@ import {
 	liveWorkTail,
 	type MountedTranscriptRow,
 	mergeTodoSnapshots,
+	progressiveRange,
 	type Row,
 	reuseTranscriptRows,
 	scrollTranscriptToTail,
@@ -69,12 +70,22 @@ import { messageTimestampMs } from "./work-turn";
 // User intent is enforced separately by switching away from end anchoring.
 const LIVE_EDGE_THRESHOLD_PX = 1;
 
+/** Overscan rows not mounted yet that one commit may mount; on-screen rows never wait. */
+const OVERSCAN_MOUNTS_PER_FRAME = 2;
+
 /** The reader's place across a history page prepend. */
 interface PrependAnchor {
 	/** Mounted rows from the viewport top down, each with the viewport top's distance below its top. */
 	rows: { key: string; offset: number }[];
 	/** The first of `rows` still keyed in the rebuilt transcript. */
 	held?: { key: string; offset: number };
+	/** The scroll offset when the page was requested, where the element still sits. */
+	from: number;
+	/**
+	 * Where the prepend render read its range: an offset the anchor effect still
+	 * has to write to the element, or null when the element is already there.
+	 */
+	moveTo?: number | null;
 	/** The scroll offset was moved to `held`. */
 	positioned?: boolean;
 }
@@ -259,23 +270,46 @@ function SessionTranscript() {
 	);
 
 	const followedSizeRef = useRef(0);
+	const placeRowsPendingRef = useRef(false);
 	const handleVirtualizerChange = useCallback(
-		(instance: {
-			range: { startIndex: number; endIndex: number } | null;
-			getTotalSize: () => number;
-			scrollToOffset: (offset: number) => void;
-		}) => {
+		(instance: Virtualizer<HTMLDivElement, Element>) => {
+			// Measurements land in the virtualizer's ResizeObserver callback, after layout
+			// and before paint, and one above the viewport moves the scroll offset right
+			// there, while React places the rows a render later: the frame between painted
+			// rows at their old positions (overlapping, or over the moved offset, so the
+			// reader's rows jumped for a frame). Place the mounted rows before that paint,
+			// once per batch of measurements (each one reads layout, so writing between
+			// them made every read a layout). Only their transforms, which need no layout;
+			// the canvas height waits for React.
+			if (!placeRowsPendingRef.current) {
+				placeRowsPendingRef.current = true;
+				queueMicrotask(() => {
+					placeRowsPendingRef.current = false;
+					for (const item of instance.getVirtualItems()) {
+						const row = instance.elementsCache.get(item.key);
+						const transform = `translateY(${item.start}px)`;
+						if (row instanceof HTMLElement && row.style.transform !== transform) row.style.transform = transform;
+					}
+				});
+			}
 			const el = parentRef.current;
 			const range = instance.range;
-			if (range && el) {
-				const next = conversationReadingRowIndex(range, el);
+			const size = instance.getTotalSize();
+			if (range) {
+				// The virtualizer's own geometry, not the element's: this runs on every
+				// measurement and scroll event, and reading the element there forced a
+				// layout whenever a commit had just changed the rows.
+				const next = conversationReadingRowIndex(range, {
+					scrollHeight: size,
+					scrollTop: instance.scrollOffset ?? 0,
+					clientHeight: instance.scrollRect?.height ?? 0,
+				});
 				setVisibleRowIndex(current => (current === next ? current : next));
 			}
 			// A row measured taller (streamed text): pin in this same frame. The
 			// canvas observer below only sees the growth once React re-renders the
 			// sizer — a frame later, longer on a slow renderer — and meanwhile the
 			// new text is painted below the fold.
-			const size = instance.getTotalSize();
 			if (size === followedSizeRef.current) return;
 			followedSizeRef.current = size;
 			if (!el || userScrollIntentRef.current || !followsTail(el)) return;
@@ -305,6 +339,25 @@ function SessionTranscript() {
 	// A history page about to be prepended (see `capturePrependAnchor`): until the
 	// effect below has positioned it, the row the reader is on stays where it is.
 	const prependAnchorRef = useRef<PrependAnchor | null>(null);
+	// Overscan fills in over frames (see progressiveRange): the rows the last commit
+	// mounted, whether the range held rows back, and a round that asks for the next.
+	const mountedRowKeysRef = useRef<ReadonlySet<string>>(new Set());
+	const overscanDeferredRef = useRef(false);
+	const [overscanRound, setOverscanRound] = useState(0);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new round re-runs the range against the rows mounted since.
+	const rangeExtractor = useCallback(
+		(range: Range) => {
+			const { indexes, deferred } = progressiveRange(
+				range,
+				index => String(rowKeys[index] ?? index),
+				mountedRowKeysRef.current,
+				OVERSCAN_MOUNTS_PER_FRAME,
+			);
+			overscanDeferredRef.current = deferred;
+			return indexes;
+		},
+		[rowKeys, overscanRound],
+	);
 	const virtualizer = useVirtualizer({
 		count: rows.length,
 		initialOffset: restoreView?.scrollOffset ?? 0,
@@ -314,13 +367,9 @@ function SessionTranscript() {
 		// the tail, so the virtualizer never anchors on its own: an end anchor
 		// reconciles on every measurement, and one of those reconciliations landing in
 		// the same frame as a wheel-up drags the reader back to the live edge. Tail
-		// following is the explicit, gesture-vetoed effect below instead.
-		// The one exception is the render that prepends a history page: anchoring it
-		// moves the scroll offset with the page, so that render already lays out the
-		// rows the reader is looking at. Against the stale offset it mounted the new
-		// page's first rows instead, unmounted the reader's, and mounted them again
-		// once the anchor effect had scrolled back to them.
-		anchorTo: prependAnchorRef.current && !prependAnchorRef.current.positioned ? "end" : "start",
+		// following is the explicit, gesture-vetoed effect below instead, and the
+		// render that prepends a history page anchors itself (below this hook).
+		anchorTo: "start",
 		// Appends are followed by the explicit `pinned` effect below. Keeping the
 		// virtualizer's independent append follower enabled made a small manual
 		// scroll-up lose to streaming growth before React could unpin the view.
@@ -333,19 +382,57 @@ function SessionTranscript() {
 		getScrollElement: () => parentRef.current,
 		// TanStack rounds border-box heights down below .5px; that leaves the
 		// final absolute row outside its canvas and creates phantom scroll overflow.
-		measureElement: (element, entry) =>
-			Math.ceil(entry?.borderBoxSize[0]?.blockSize ?? element.getBoundingClientRect().height),
+		// A row mounting in a commit keeps the size the virtualizer already has: its
+		// ResizeObserver reports the laid-out size before the frame paints, while
+		// reading it here laid out every row the commit mounted inside the commit,
+		// adding the frame's layout to the task that rendered them.
+		measureElement: (element, entry, instance) => {
+			if (entry) return Math.ceil(entry.borderBoxSize[0]?.blockSize ?? element.getBoundingClientRect().height);
+			const size = instance.measurementsCache[instance.indexFromElement(element)]?.size;
+			return size !== undefined && typeof ResizeObserver !== "undefined"
+				? size
+				: Math.ceil(element.getBoundingClientRect().height);
+		},
+		// Estimates sit just under what rows usually measure (a finished work card is
+		// rarely under 130px): a row's range is read at estimates first, and an estimate
+		// a quarter of the size mounted four times the rows a screen needs.
 		estimateSize: i => {
 			const kind = rows[i]?.kind;
 			if (kind === "streaming") return 80;
 			if (kind === "pending") return 56;
-			if (kind === "expander" || kind === "process" || kind === "todoSnapshot") return 48;
+			if (kind === "process") return 128;
+			if (kind === "expander" || kind === "todoSnapshot") return 48;
 			if (kind === "message") return 72;
 			return 160;
 		},
 		overscan: 8,
+		rangeExtractor,
 		onChange: handleVirtualizerChange,
 	});
+	// The render that prepends a history page moves the scroll offset with the page
+	// before the range is read, so it lays out the rows the reader is looking at:
+	// against the stale offset it mounted the new page's first screenful and dropped
+	// the reader's rows, to mount them again once the offset caught up. It holds the
+	// first row on screen that kept its key: the older page can fold the reader's top
+	// rows into an earlier one (a steer joins the work row of the turn it
+	// interrupted). Holding none would leave the view at the page's top, where a
+	// wheel scrolls nothing and so never asks for the next page. The element itself
+	// is moved by the anchor effect below.
+	const pendingAnchor = prependAnchorRef.current;
+	if (pendingAnchor && !pendingAnchor.positioned && pendingAnchor.moveTo === undefined && !isLoadingPage) {
+		pendingAnchor.held ??= pendingAnchor.rows.find(row => rowKeys.includes(row.key));
+		const held = pendingAnchor.held;
+		// getTotalSize lays the rows out for this render's options first.
+		const start =
+			held && virtualizer.getTotalSize() > 0
+				? virtualizer.measurementsCache[rowKeys.indexOf(held.key)]?.start
+				: undefined;
+		if (held && start !== undefined) {
+			const target = Math.max(0, start + held.offset);
+			pendingAnchor.moveTo = Math.abs(target - pendingAnchor.from) >= 0.5 ? target : null;
+			virtualizer.scrollOffset = target;
+		}
+	}
 	const dockFocus = useUiStore(state => state.dockFocus);
 	const revealedTodoFocus = useRef(useUiStore.getState().dockFocus?.seq ?? null);
 	useLayoutEffect(() => {
@@ -359,6 +446,16 @@ function SessionTranscript() {
 		revealedTodoFocus.current = dockFocus.seq;
 	}, [dockFocus, carriesContext, liveTail, tailRowIndex, rows, virtualizer]);
 	const totalSize = virtualizer.getTotalSize();
+	const virtualItems = virtualizer.getVirtualItems();
+	useLayoutEffect(() => {
+		mountedRowKeysRef.current = new Set(virtualItems.map(item => String(item.key)));
+	}, [virtualItems]);
+	// Held-back overscan rows mount on the next frame, a few at a time.
+	useEffect(() => {
+		if (!overscanDeferredRef.current) return;
+		const frame = requestAnimationFrame(() => setOverscanRound(round => round + 1));
+		return () => cancelAnimationFrame(frame);
+	});
 	const capturePrependAnchor = useCallback(() => {
 		// Capture immediately before applying the page, after pending scroll and
 		// measurement work has settled while its request was in flight. Rows sit at
@@ -370,7 +467,7 @@ function SessionTranscript() {
 			.flatMap(item =>
 				item.end > scrollOffset + 4 ? [{ key: String(item.key), offset: scrollOffset - item.start }] : [],
 			);
-		prependAnchorRef.current = rows.length > 0 ? { rows } : null;
+		prependAnchorRef.current = rows.length > 0 ? { rows, from: scrollOffset } : null;
 	}, [virtualizer]);
 	const requestOlder = useCallback(async () => {
 		if (!prevCursor || isLoadingPage) return;
@@ -381,23 +478,26 @@ function SessionTranscript() {
 		if (!anchor || isLoadingPage || totalSize === 0) return;
 		const element = parentRef.current;
 		if (!element) return;
-		// The older page can fold the reader's top rows into an earlier one (a steer
-		// joins the work row of the turn it interrupted), so hold the first row on
-		// screen that kept its key. Holding none left the view at the page's top,
-		// where a wheel gesture scrolls nothing and so never asked for the next page.
-		anchor.held ??= anchor.rows.find(row => rowKeys.includes(row.key));
+		// No row kept its key (see the render above): nothing to hold.
 		const held = anchor.held;
 		const index = held ? rowKeys.indexOf(held.key) : -1;
 		if (!held || index < 0) {
 			prependAnchorRef.current = null;
 			return;
 		}
-		if (!anchor.positioned) {
-			const offset = virtualizer.getOffsetForIndex(index, "start")?.[0];
-			if (offset !== undefined) {
-				virtualizer.scrollToOffset(offset + held.offset);
-				anchor.positioned = true;
-			}
+		if (!anchor.positioned && anchor.moveTo !== undefined) {
+			// Write the offset the render read its range at (see the render above) on
+			// the next frame, before it paints: a scroll write lays the page out, and in
+			// this commit that added the whole page's layout to the task that rendered
+			// it. Not cancelled with this effect, since until it lands the element holds
+			// the new rows at the old offset; a wheel turned meanwhile already moved the
+			// element, and that movement is kept.
+			const { moveTo, from } = anchor;
+			if (moveTo !== null)
+				requestAnimationFrame(() => {
+					if (element.isConnected) virtualizer.scrollToOffset(moveTo + element.scrollTop - from);
+				});
+			anchor.positioned = true;
 		}
 		gestureAnchorRef.current = null;
 		let frame = 0;
@@ -419,8 +519,8 @@ function SessionTranscript() {
 			if (settledFrames >= 2) prependAnchorRef.current = null;
 			else frame = requestAnimationFrame(restore);
 		};
-		// The anchored render already placed the held row; corrections for rows
-		// measured above it start next frame instead of forcing a layout here.
+		// The prepend render already placed the held row; corrections for rows
+		// measured above it start next frame, after the offset write above.
 		frame = requestAnimationFrame(restore);
 		return () => cancelAnimationFrame(frame);
 	}, [rowKeys, isLoadingPage, virtualizer, totalSize]);
@@ -772,7 +872,7 @@ function SessionTranscript() {
 					className="omp-transcript-canvas"
 					style={{ height: totalSize, position: "relative", width: "100%" }}
 				>
-					{virtualizer.getVirtualItems().map(item => {
+					{virtualItems.map(item => {
 						const row = rows[item.index];
 						if (!row) return null;
 						const rowKey = rowKeys[item.index] ?? String(item.key);

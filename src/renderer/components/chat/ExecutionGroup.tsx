@@ -1,5 +1,5 @@
 import { ChevronRight } from "lucide-react";
-import { type ReactNode, useMemo } from "react";
+import type { ReactNode } from "react";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
 import { cx, formatDuration, resultText } from "../../lib/format";
@@ -7,7 +7,7 @@ import { useT } from "../../lib/i18n";
 import { asRecord } from "../../lib/wire-value";
 import { useSessionStore } from "../../stores/session";
 import type { TodoSnapshot } from "../../stores/todo";
-import { selectToolEntry, useToolsStore } from "../../stores/tools";
+import { callIdOfEntryKey, selectToolEntry, useToolsStore } from "../../stores/tools";
 import { getToolActivity } from "../tools/index";
 import { LiveStepPeek } from "./LiveStepPeek";
 import { LiveTurnMeter, OutputMeter } from "./TurnOutputMeter";
@@ -114,14 +114,19 @@ export function ExecutionGroup({
 	const [running = 0, toolFailures = 0, skipped = 0, interruptedTools = 0, toolSpanMs = 0, reads = 0, searches = 0] =
 		encoded.split(":").map(Number);
 	const { outcome, agents } = useRunOutcome(toolCallIds, stoppedAt);
-	const committed = useFrameSelector(messages, state => state.messages);
-	const liveMessages = useFrameSelector(messages, state => state.liveMessages);
-	const ids = toolCallIds.join("\u0000");
-	// biome-ignore lint/correctness/useExhaustiveDependencies: `ids` is the content key of toolCallIds.
-	const clock = useMemo(() => {
-		const owns = (id: string) => toolCallIds.includes(tools.getState().entryKeyForCallId(id));
-		return runSpan(liveMessages.length ? [...committed, ...liveMessages] : committed, owns);
-	}, [committed, liveMessages, ids, tools]);
+	// The run's clock as a primitive: a history page prepended or a message committed
+	// elsewhere re-renders only the cards whose own clock it moved.
+	const clockKey = useFrameSelector(messages, state => {
+		const entries = tools.getState();
+		const callIds = toolCallIds.flatMap(key => {
+			const id = callIdOfEntryKey(key);
+			return toolCallIds.includes(entries.entryKeyForCallId(id)) ? [id] : [];
+		});
+		const { startedAt, spanMs } = runSpan([state.messages, state.liveMessages], callIds);
+		return `${startedAt ?? ""}:${spanMs}`;
+	});
+	const [clockStart = "", clockSpan = "0"] = clockKey.split(":");
+	const clock = { startedAt: clockStart ? Number(clockStart) : undefined, spanMs: Number(clockSpan) };
 	const groupAgents: GroupAgent[] = agents.map(node => {
 		const parent = node.parentToolCallId
 			? selectToolEntry(tools.getState(), tools.getState().entryKeyForCallId(node.parentToolCallId))

@@ -149,6 +149,92 @@ async function measure(
 		Reflect.set(window, "__ompMounts", churn.mounts);
 		Reflect.set(window, "__ompChurn", { churn, observer });
 	});
+	// OMP_GUI_LIVE_SESSION_STABILITY: after every painted frame, read the transcript as
+	// it was painted (row transforms and the scroll offset; layout is clean then) and
+	// record viewport pixels no row covered, and visible rows that moved up on screen
+	// while the reader scrolls up (an anchoring jump). Off for timing runs: it reads
+	// layout every frame.
+	if (process.env.OMP_GUI_LIVE_SESSION_STABILITY)
+		await page.evaluate(() => {
+			const stability = {
+				frames: 0,
+				blankFrames: 0,
+				maxBlankPx: 0,
+				jumpFrames: 0,
+				maxJumpPx: 0,
+				events: [] as string[],
+				// Each row's last painted height by row kind, to compare with the estimates.
+				heights: new Map<string, { kind: string; h: number }>(),
+				running: true,
+			};
+			let last: Map<string, number> | null = null;
+			const channel = new MessageChannel();
+			channel.port1.onmessage = () => {
+				const scroller = document.querySelector<HTMLElement>(".omp-transcript-scroll");
+				const canvas = scroller?.querySelector<HTMLElement>(".omp-transcript-canvas");
+				if (scroller && canvas) {
+					const top = scroller.scrollTop;
+					const bottom = Math.min(top + scroller.clientHeight, canvas.offsetHeight);
+					const rows = [...canvas.children]
+						.map(node => {
+							const row = node as HTMLElement;
+							// Rows sit at a transform (translateY, or the virtualizer's direct
+							// translate3d) or at `top`.
+							const y = row.style.transform
+								? Number(
+										/translate(?:Y\(|3d\([^,]+,\s*)(-?[\d.]+)px/.exec(row.style.transform)?.[1] ?? Number.NaN,
+									)
+								: Number.parseFloat(row.style.top);
+							const sized = { key: row.dataset.rowKey ?? "", y, h: row.offsetHeight };
+							stability.heights.set(sized.key, { kind: row.dataset.transcriptKind ?? "", h: sized.h });
+							return sized;
+						})
+						.filter(row => Number.isFinite(row.y))
+						.sort((a, b) => a.y - b.y);
+					let covered = top;
+					let blank = 0;
+					let blankAt = -1;
+					for (const row of rows) {
+						if (row.y >= bottom) break;
+						if (row.y > covered) {
+							if (blankAt < 0) blankAt = covered - top;
+							blank += row.y - covered;
+						}
+						covered = Math.max(covered, row.y + row.h);
+					}
+					if (covered < bottom) {
+						if (blankAt < 0) blankAt = covered - top;
+						blank += bottom - covered;
+					}
+					const visible = new Map(
+						rows.filter(row => row.y + row.h > top && row.y < bottom).map(row => [row.key, row.y - top]),
+					);
+					let jump = 0;
+					let jumpKey = "";
+					if (last)
+						for (const [key, screen] of visible) {
+							const previous = last.get(key);
+							if (previous !== undefined && previous - screen > jump) {
+								jump = previous - screen;
+								jumpKey = key;
+							}
+						}
+					last = visible;
+					stability.frames++;
+					if (blank > 4) stability.blankFrames++;
+					stability.maxBlankPx = Math.max(stability.maxBlankPx, Math.round(blank));
+					if (jump > 2) stability.jumpFrames++;
+					stability.maxJumpPx = Math.max(stability.maxJumpPx, Math.round(jump));
+					if ((blank > 4 || jump > 2) && stability.events.length < 60)
+						stability.events.push(
+							`${Math.round(performance.now())} top=${Math.round(top)} rows=${rows.length}${blank > 4 ? ` blank=${Math.round(blank)}@${Math.round(blankAt)}` : ""}${jump > 2 ? ` jump=${Math.round(jump)} ${jumpKey}` : ""}`,
+						);
+				}
+				if (stability.running) requestAnimationFrame(() => channel.port2.postMessage(0));
+			};
+			requestAnimationFrame(() => channel.port2.postMessage(0));
+			Reflect.set(window, "__ompStability", stability);
+		});
 	const profileDir = process.env.OMP_GUI_LIVE_SESSION_PROFILE;
 	const cdp = profileDir ? await page.context().newCDPSession(page) : undefined;
 	if (cdp) {
@@ -216,6 +302,23 @@ async function measure(
 			innerElements: churn.innerElements,
 		};
 	});
+	const stability = await page.evaluate(() => {
+		const probe = Reflect.get(window, "__ompStability") as
+			| { running: boolean; heights: Map<string, { kind: string; h: number }> }
+			| undefined;
+		if (!probe) return undefined;
+		probe.running = false;
+		const { running: _running, heights, ...result } = probe;
+		const byKind = Object.groupBy(heights.values(), row => row.kind);
+		const sizes = Object.fromEntries(
+			Object.entries(byKind).map(([kind, rows = []]) => {
+				const sorted = rows.map(row => row.h).sort((a, b) => a - b);
+				const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+				return [kind, `n=${sorted.length} p10=${at(0.1)} p50=${at(0.5)} p90=${at(0.9)}`];
+			}),
+		);
+		return { ...result, sizes };
+	});
 	const detail = await page.evaluate(
 		({ from, to }) => {
 			const perf = Reflect.get(window, "__ompPerf") as Probe;
@@ -253,6 +356,7 @@ async function measure(
 						),
 					})),
 				longtasks: longtasks.length,
+				longtaskMs: longtasks.map(task => Math.round(task.duration)).sort((a, b) => b - a),
 				topScripts: [...scripts]
 					.sort((a, b) => b[1] - a[1])
 					.slice(0, 6)
@@ -289,11 +393,14 @@ async function measure(
 		gpuCpuPct: Math.round(((after.gpu - before.gpu) / elapsed) * 1000) / 10,
 		commitsPerSecond: Math.round(((after.commits - before.commits) / elapsed) * 10) / 10,
 		longtasksPer10s: Math.round(detail.longtasks * per10 * 10) / 10,
+		longtasks: detail.longtasks,
+		longtaskMs: detail.longtaskMs,
 		longFramesPer10s: Math.round(detail.longFrames * per10 * 10) / 10,
 		blockingMsPer10s: Math.round(detail.blockingMs * per10),
 		worstFrameMs: detail.worstFrameMs,
 		worstFrames: detail.worstFrames,
 		churn,
+		...(stability ? { stability } : {}),
 		// Of the long frames' time: total, rAF-onward, and style/layout/paint.
 		longFrameMsSplit: { total: detail.longFrameMs, render: detail.renderMs, styleLayout: detail.styleLayoutMs },
 		rendererMb: Math.round(after.rendererKb / 1024),
@@ -427,7 +534,11 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 				const scroller = page.locator(".omp-transcript-scroll").first();
 				const box = await scroller.boundingBox();
 				if (!box) throw new Error("No transcript scroller");
-				await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+				// Wheel in the transcript's left gutter: over the column a card's own scroller
+				// (overscroll-behavior: contain) can sit under the pointer and swallow the
+				// wheel once it reaches its top, which stalled the scroll mid-history.
+				const pointer = { x: box.x + 12, y: box.y + box.height / 2 };
+				await page.mouse.move(pointer.x, pointer.y);
 				// OMP_GUI_LIVE_SESSION_WHEEL_STEPS shortens the scroll, e.g. to stop before
 				// history a baseline cannot reach.
 				const wheelSteps = Number(process.env.OMP_GUI_LIVE_SESSION_WHEEL_STEPS ?? 60);
@@ -440,11 +551,24 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 				// How far through history the scroll got (scrollTop / canvas height), so runs
 				// that loaded different pages are told apart. Read after the window: a
 				// read during it forces a layout of its own.
-				const reached = await page.evaluate(() => {
+				const reached = await page.evaluate(({ x, y }) => {
 					const element = document.querySelector(".omp-transcript-scroll");
 					const canvas = element?.querySelector<HTMLElement>(".omp-transcript-canvas");
-					return `${Math.round(element?.scrollTop ?? 0)}/${canvas?.style.height}`;
-				});
+					const chain: string[] = [];
+					for (
+						let under = document.elementFromPoint(x, y);
+						under && under !== element;
+						under = under.parentElement
+					) {
+						const style = getComputedStyle(under);
+						if (style.overflowY === "auto" || style.overflowY === "scroll")
+							chain.push(
+								`${under.className.split(" ")[0]}:${under.scrollTop}/${under.scrollHeight}/${under.clientHeight}:${style.overscrollBehaviorY}`,
+							);
+					}
+					const status = document.querySelector("[data-testid=transcript-history-status]")?.textContent;
+					return `${Math.round(element?.scrollTop ?? 0)}/${canvas?.style.height} under=[${chain.join(",")}] status=${status}`;
+				}, pointer);
 				const live = scrollOnly
 					? undefined
 					: await (async () => {
