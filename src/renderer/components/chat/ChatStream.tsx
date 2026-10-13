@@ -71,7 +71,7 @@ import { messageTimestampMs } from "./work-turn";
 const LIVE_EDGE_THRESHOLD_PX = 1;
 
 /** Overscan rows not mounted yet that one commit may mount; on-screen rows never wait. */
-const OVERSCAN_MOUNTS_PER_FRAME = 2;
+const OVERSCAN_MOUNTS_PER_FRAME = 4;
 
 /** The reader's place across a history page prepend. */
 interface PrependAnchor {
@@ -347,11 +347,14 @@ function SessionTranscript() {
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new round re-runs the range against the rows mounted since.
 	const rangeExtractor = useCallback(
 		(range: Range) => {
+			// The commit that prepends a page mounts no new overscan rows: its task already
+			// receives and lays out the page; they follow from the next frame on.
+			const prepending = prependAnchorRef.current !== null && !prependAnchorRef.current.positioned;
 			const { indexes, deferred } = progressiveRange(
 				range,
 				index => String(rowKeys[index] ?? index),
 				mountedRowKeysRef.current,
-				OVERSCAN_MOUNTS_PER_FRAME,
+				prepending ? 0 : OVERSCAN_MOUNTS_PER_FRAME,
 			);
 			overscanDeferredRef.current = deferred;
 			return indexes;

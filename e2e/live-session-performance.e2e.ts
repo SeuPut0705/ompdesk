@@ -159,6 +159,7 @@ async function measure(
 			const stability = {
 				frames: 0,
 				blankFrames: 0,
+				paintedBlankFrames: 0,
 				maxBlankPx: 0,
 				jumpFrames: 0,
 				maxJumpPx: 0,
@@ -169,43 +170,54 @@ async function measure(
 			};
 			let last: Map<string, number> | null = null;
 			const channel = new MessageChannel();
+			// The viewport's uncovered pixels as the DOM stands now.
+			const coverage = (scroller: HTMLElement, canvas: HTMLElement) => {
+				const top = scroller.scrollTop;
+				const bottom = Math.min(top + scroller.clientHeight, canvas.offsetHeight);
+				const rows = [...canvas.children]
+					.map(node => {
+						const row = node as HTMLElement;
+						// Rows sit at a transform (translateY, or the virtualizer's direct
+						// translate3d) or at `top`.
+						const y = row.style.transform
+							? Number(/translate(?:Y\(|3d\([^,]+,\s*)(-?[\d.]+)px/.exec(row.style.transform)?.[1] ?? Number.NaN)
+							: Number.parseFloat(row.style.top);
+						const sized = { key: row.dataset.rowKey ?? "", y, h: row.offsetHeight };
+						stability.heights.set(sized.key, { kind: row.dataset.transcriptKind ?? "", h: sized.h });
+						return sized;
+					})
+					.filter(row => Number.isFinite(row.y))
+					.sort((a, b) => a.y - b.y);
+				let covered = top;
+				let blank = 0;
+				let blankAt = -1;
+				for (const row of rows) {
+					if (row.y >= bottom) break;
+					if (row.y > covered) {
+						if (blankAt < 0) blankAt = covered - top;
+						blank += row.y - covered;
+					}
+					covered = Math.max(covered, row.y + row.h);
+				}
+				if (covered < bottom) {
+					if (blankAt < 0) blankAt = covered - top;
+					blank += bottom - covered;
+				}
+				return { top, bottom, rows, blank, blankAt };
+			};
 			channel.port1.onmessage = () => {
 				const scroller = document.querySelector<HTMLElement>(".omp-transcript-scroll");
 				const canvas = scroller?.querySelector<HTMLElement>(".omp-transcript-canvas");
 				if (scroller && canvas) {
-					const top = scroller.scrollTop;
-					const bottom = Math.min(top + scroller.clientHeight, canvas.offsetHeight);
-					const rows = [...canvas.children]
-						.map(node => {
-							const row = node as HTMLElement;
-							// Rows sit at a transform (translateY, or the virtualizer's direct
-							// translate3d) or at `top`.
-							const y = row.style.transform
-								? Number(
-										/translate(?:Y\(|3d\([^,]+,\s*)(-?[\d.]+)px/.exec(row.style.transform)?.[1] ?? Number.NaN,
-									)
-								: Number.parseFloat(row.style.top);
-							const sized = { key: row.dataset.rowKey ?? "", y, h: row.offsetHeight };
-							stability.heights.set(sized.key, { kind: row.dataset.transcriptKind ?? "", h: sized.h });
-							return sized;
-						})
-						.filter(row => Number.isFinite(row.y))
-						.sort((a, b) => a.y - b.y);
-					let covered = top;
-					let blank = 0;
-					let blankAt = -1;
-					for (const row of rows) {
-						if (row.y >= bottom) break;
-						if (row.y > covered) {
-							if (blankAt < 0) blankAt = covered - top;
-							blank += row.y - covered;
-						}
-						covered = Math.max(covered, row.y + row.h);
-					}
-					if (covered < bottom) {
-						if (blankAt < 0) blankAt = covered - top;
-						blank += bottom - covered;
-					}
+					const { top, bottom, rows, blank, blankAt } = coverage(scroller, canvas);
+					// This sample runs after a paint, but a task may have changed the DOM since
+					// (a page commit whose offset lands on the next frame). Look again in a
+					// frame callback queued now, which runs after the app's and right before
+					// that frame paints: only a blank still there is one the reader saw.
+					if (blank > 4)
+						requestAnimationFrame(() => {
+							if (coverage(scroller, canvas).blank > 4) stability.paintedBlankFrames++;
+						});
 					const visible = new Map(
 						rows.filter(row => row.y + row.h > top && row.y < bottom).map(row => [row.key, row.y - top]),
 					);
