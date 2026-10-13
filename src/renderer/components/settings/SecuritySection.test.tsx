@@ -153,4 +153,11 @@ describe("SecuritySection with nothing found", () => {
 		expect(bodyText()).not.toContain(translate("security.suggestionDefault"));
 		expect(document.querySelector("[data-risk-gauge]")).toBeNull();
 	});
+
+	it("names the full repository path on hover where the row truncates it", async () => {
+		await mount();
+
+		const path = document.querySelector('[title="/tmp/omp-gui-fixtures/demo"]');
+		expect(path?.textContent).toBe("/tmp/omp-gui-fixtures/demo");
+	});
 });

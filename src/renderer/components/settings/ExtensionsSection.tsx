@@ -763,9 +763,11 @@ export function ExtensionsSection({ tab, onTabChange, query }: ExtensionsSection
 
 	return (
 		<div className="flex flex-col gap-4">
+			{/* A narrow column wraps the tab row instead of widening the page. */}
 			<Tabs
 				activeId={tab}
 				ariaLabel={t("extPanel.title")}
+				className="flex-wrap"
 				onChange={id => onTabChange(id as ExtensionsTab)}
 				tabs={tabs}
 			/>

@@ -330,7 +330,14 @@ export function RemoteSection() {
 					<div className="flex flex-col gap-px py-2" data-remote-hosts>
 						{hosts.map(entry => (
 							<ListRow
-								description={entry.home ? <span className="font-mono">{entry.home}</span> : undefined}
+								description={
+									entry.home ? (
+										// The row truncates the host's folder; hover names it in full.
+										<span className="font-mono" title={entry.home}>
+											{entry.home}
+										</span>
+									) : undefined
+								}
 								key={entry.deviceId}
 								leading={<Monitor aria-hidden />}
 								meta={

@@ -572,14 +572,9 @@ function MemoryStatus({ report }: { report: RpcMemoryReport }) {
 	return (
 		<div className="flex flex-col gap-3">
 			<div className="flex flex-wrap items-center gap-1.5">
-				{/* A backend the user turned off is a setting, not a failure: neutral, never red. */}
-				{report.backend === "off" ? (
-					<Badge variant="muted">{t("invPanel.memory.off")}</Badge>
-				) : (
-					<Badge dot variant={status.active ? "success" : "error"}>
-						{status.active ? t("invPanel.memory.active") : t("invPanel.memory.inactive")}
-					</Badge>
-				)}
+				<Badge dot variant={status.active ? "success" : "error"}>
+					{status.active ? t("invPanel.memory.active") : t("invPanel.memory.inactive")}
+				</Badge>
 				<Badge dot={status.writable} variant={status.writable ? "success" : "muted"}>
 					{t("invPanel.memory.writable")}: {t(status.writable ? "invPanel.memory.yes" : "invPanel.memory.no")}
 				</Badge>
@@ -620,11 +615,16 @@ function MemoryTab({ resource, visible }: { resource: RpcResource<RpcMemoryRepor
 	const [statsOpen, setStatsOpen] = useState(false);
 	useAutoLoad(resource, visible);
 	const report = resource.data;
+	// A backend the user turned off is a setting, not a failure: "Memory backend: Off" says it all,
+	// without a red "inactive", no/no capability chips or stock's English "Memory backend is off.".
+	const off = report?.backend === "off";
 	return (
 		<TabPanel
 			description={
 				<span className="font-medium text-(--sc-text)">
-					{report ? t("invPanel.memory.backend", { backend: report.backend }) : t("invPanel.tabs.memory")}
+					{report
+						? t("invPanel.memory.backend", { backend: off ? t("invPanel.memory.off") : report.backend })
+						: t("invPanel.tabs.memory")}
 					{report?.entryCount !== undefined && (
 						<span className="ml-2 font-normal tabular-nums text-(--sc-text-muted)">
 							{t("invPanel.memory.entries", { count: report.entryCount })}
@@ -633,51 +633,55 @@ function MemoryTab({ resource, visible }: { resource: RpcResource<RpcMemoryRepor
 				</span>
 			}
 			// A backend with nothing to show says so in one line; "read-only" would describe nothing.
-			footer={report && (report.status || report.stats || report.diagnosis) ? t("invPanel.readonlyNote") : null}
+			footer={
+				report && !off && (report.status || report.stats || report.diagnosis) ? t("invPanel.readonlyNote") : null
+			}
 			label={t("invPanel.tabs.memory")}
 			resource={resource}
 			visible={visible}
 		>
 			<ResourceGate resource={resource}>
-				{data => (
-					<div className="flex flex-col gap-5">
-						<MemoryStatus report={data} />
-						{data.stats && (
-							<section>
-								<Button
-									aria-expanded={statsOpen}
-									icon={statsOpen ? <ChevronDown /> : <ChevronRight />}
-									onClick={() => setStatsOpen(open => !open)}
-									size="sm"
-									variant="ghost"
-								>
-									{t("invPanel.memory.stats")}
-								</Button>
-								{statsOpen && (
-									<pre className="mt-2 max-h-64 overflow-auto rounded-(--sc-radius-md) bg-(--sc-surface-1) px-3 py-2 font-mono text-sc-xs break-words whitespace-pre-wrap text-(--sc-text-secondary)">
-										{data.stats}
-									</pre>
-								)}
-							</section>
-						)}
-						{data.diagnosis && (
-							<section>
-								<h3 className="mb-1.5 text-sc-xs font-semibold tracking-wide text-(--sc-text-muted) uppercase">
-									{t("invPanel.memory.diagnosis")}
-								</h3>
-								<div className="text-sc-md text-(--sc-text-secondary)">
-									<MarkdownRenderer content={data.diagnosis} />
-								</div>
-							</section>
-						)}
-						{!data.status && !data.stats && !data.diagnosis && (
-							// Nothing to show is one quiet line, not an empty-state card under a settings row.
-							<p className="text-sc-sm text-(--sc-text-muted)" data-memory-bare>
-								{t("invPanel.memory.bare")}
-							</p>
-						)}
-					</div>
-				)}
+				{data =>
+					off ? null : (
+						<div className="flex flex-col gap-5">
+							<MemoryStatus report={data} />
+							{data.stats && (
+								<section>
+									<Button
+										aria-expanded={statsOpen}
+										icon={statsOpen ? <ChevronDown /> : <ChevronRight />}
+										onClick={() => setStatsOpen(open => !open)}
+										size="sm"
+										variant="ghost"
+									>
+										{t("invPanel.memory.stats")}
+									</Button>
+									{statsOpen && (
+										<pre className="mt-2 max-h-64 overflow-auto rounded-(--sc-radius-md) bg-(--sc-surface-1) px-3 py-2 font-mono text-sc-xs break-words whitespace-pre-wrap text-(--sc-text-secondary)">
+											{data.stats}
+										</pre>
+									)}
+								</section>
+							)}
+							{data.diagnosis && (
+								<section>
+									<h3 className="mb-1.5 text-sc-xs font-semibold tracking-wide text-(--sc-text-muted) uppercase">
+										{t("invPanel.memory.diagnosis")}
+									</h3>
+									<div className="text-sc-md text-(--sc-text-secondary)">
+										<MarkdownRenderer content={data.diagnosis} />
+									</div>
+								</section>
+							)}
+							{!data.status && !data.stats && !data.diagnosis && (
+								// Nothing to show is one quiet line, not an empty-state card under a settings row.
+								<p className="text-sc-sm text-(--sc-text-muted)" data-memory-bare>
+									{t("invPanel.memory.bare")}
+								</p>
+							)}
+						</div>
+					)
+				}
 			</ResourceGate>
 		</TabPanel>
 	);
@@ -718,9 +722,11 @@ export function PluginsSection({ tab, onTabChange, query }: PluginsSectionProps)
 	return (
 		<div className="flex flex-col gap-4">
 			<p className="max-w-2xl text-sc-sm text-(--sc-text-muted)">{t("settings.resources.description")}</p>
+			{/* A narrow column wraps the tab row instead of widening the page. */}
 			<Tabs
 				activeId={tab}
 				ariaLabel={t("settings.resources.title")}
+				className="flex-wrap"
 				onChange={id => onTabChange(id as PluginsTab)}
 				tabs={tabs}
 			/>

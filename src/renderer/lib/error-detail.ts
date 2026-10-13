@@ -45,9 +45,11 @@ export interface InlineFailure {
 /**
  * Inline failure for a caught value or failed result: main's coded failures
  * get their own sentence, anything else the caller's `fallback` sentence. The
- * raw failure rides along as the cause.
+ * raw failure rides along as the cause, unless all it says is a bare code
+ * token (a host's `wrong_code`) that the coded sentence already words.
  */
 export function inlineFailure(error: unknown, fallback: string): InlineFailure {
 	const code = ipcErrorCode(error);
-	return { message: code ? translate(`ipcError.${code}`) : fallback, cause: error };
+	if (!code) return { message: fallback, cause: error };
+	return { message: translate(`ipcError.${code}`), cause: /^[a-z_]+$/.test(errorDetail(error)) ? undefined : error };
 }

@@ -12,7 +12,7 @@ import { RefreshCw, Tags } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CompactionPoint, ModelRoleCandidate, ModelRoleEntry, ModelRolesResult } from "../../../shared/rpc-types";
 import { useCompactionPoints } from "../../lib/compaction-limits";
-import { useT } from "../../lib/i18n";
+import { useLang, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
@@ -21,6 +21,7 @@ import { CompactsAt } from "./CompactsAt";
 import { InlineNotice } from "./InlineNotice";
 import { type ModelValueGroup, ModelValueSelect } from "./ModelValueSelect";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
+import { modelRoleName } from "./schema-i18n";
 
 const KIND_ORDER: readonly ModelRoleCandidate["kind"][] = ["chat", "tiny", "image", "tts", "stt", "search", "judge"];
 
@@ -39,6 +40,8 @@ function RoleRow({
 	compaction?: CompactionPoint;
 }) {
 	const t = useT();
+	const { lang } = useLang();
+	const name = modelRoleName(lang, role.name);
 	const candidates = role.candidates ?? [];
 	// Candidates grouped by model kind; display name first, selector beside it.
 	const groups = useMemo<ModelValueGroup[]>(
@@ -61,7 +64,7 @@ function RoleRow({
 			badge={role.tag ? <Badge>{role.tag}</Badge> : undefined}
 			control={
 				<ModelValueSelect
-					ariaLabel={t("modelRoles.select", { role: role.name })}
+					ariaLabel={t("modelRoles.select", { role: name })}
 					clearLabel={t("modelRoles.default")}
 					disabled={busy || !sidecarReady}
 					groups={groups}
@@ -82,7 +85,7 @@ function RoleRow({
 				) : undefined
 			}
 			id={`model-role-${role.id}`}
-			label={role.name}
+			label={name}
 		/>
 	);
 }
@@ -90,6 +93,7 @@ function RoleRow({
 export function ModelRolesSection() {
 	const tabRpc = useTabRpc();
 	const t = useT();
+	const { lang } = useLang();
 	const sidecarReady = useSessionStore(s => s.status) === "ready";
 	const compactionPoints = useCompactionPoints();
 
@@ -143,7 +147,7 @@ export function ModelRolesSection() {
 	const handleChange = async (role: string, modelId: string | null) => {
 		if (!sidecarReady) return;
 		const entry = roles.find(candidate => candidate.id === role);
-		const roleLabel = entry?.name ?? role;
+		const roleLabel = entry ? modelRoleName(lang, entry.name) : role;
 		const modelLabel =
 			entry?.candidates?.find(candidate => `${candidate.provider}/${candidate.id}` === modelId)?.name ?? modelId;
 		setBusyRole(role);

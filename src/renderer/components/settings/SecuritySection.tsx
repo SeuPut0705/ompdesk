@@ -419,7 +419,10 @@ export function SecuritySection() {
 
 				<div className="flex items-center gap-3 text-sc-sm">
 					<span className="font-medium text-(--sc-text)">{t("security.repository")}</span>
-					<span className="min-w-0 flex-1 truncate font-mono text-(--sc-text-muted)">
+					<span
+						className="min-w-0 flex-1 truncate font-mono text-(--sc-text-muted)"
+						title={dashboard.repositoryRoot ?? undefined}
+					>
 						{dashboard.repositoryRoot ?? "—"}
 					</span>
 					<span className="font-mono text-sc-xs text-(--sc-text-muted)">{dashboard.revision ?? "—"}</span>

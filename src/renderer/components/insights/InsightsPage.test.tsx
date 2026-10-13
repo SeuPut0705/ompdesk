@@ -143,6 +143,18 @@ describe("InsightsPage", () => {
 		expect(text).toContain("#0199aa00");
 	});
 
+	it("lets this session's columns shrink below their longest unbreakable value", async () => {
+		installOmp();
+		useSessionStore.getState().setStatus("ready", "/repo");
+		useUiStore.getState().openInsights("stats", "session");
+		await mount();
+
+		const heading = [...document.querySelectorAll("h3")].find(node => node.textContent === "Active context tokens");
+		// An implicit `auto` track grows to the widest min-content (a session id, a file path), so at
+		// 800px the whole page scrolled sideways; a minmax(0, 1fr) track keeps it in the column.
+		expect(heading?.closest("section")?.parentElement?.className).toContain("grid-cols-[minmax(0,1fr)]");
+	});
+
 	it("explains a missing session and switches scope to all sessions from the store", async () => {
 		installOmp();
 		useUiStore.getState().openInsights("stats", "session");

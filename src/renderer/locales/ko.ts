@@ -2809,6 +2809,8 @@ export const ko: Record<string, string> = {
 
 	// Files panel
 	"filesPanel.refresh": "파일 트리 새로고침",
+	"filesPanel.count": "파일 {count}개",
+	"filesPanel.countMore": "파일 {count}개 이상",
 	"filesPanel.scanning": "프로젝트 스캔 중…",
 	"filesPanel.unavailable": "프로젝트 파일 목록을 불러올 수 없어요.",
 	"filesPanel.empty": "프로젝트에 파일이 없어요.",
@@ -3993,7 +3995,7 @@ export const ko: Record<string, string> = {
 	"settings.search.count": "결과 {count}개",
 	"settings.search.emptyDesc": "다른 단어나 compaction.enabled 같은 설정 이름으로 검색해 보세요.",
 	"settings.search.everywhere": "모든 설정에서 “{query}” 찾기",
-	"settings.search.inSection": "{section} 검색…",
+	"settings.search.shortcuts": "단축키 검색",
 	"settings.gui.language": "언어",
 	"settings.gui.languageDesc": "OMPdesk의 메뉴와 메시지 언어예요.",
 	"settings.gui.replyLanguage": "대화 언어",

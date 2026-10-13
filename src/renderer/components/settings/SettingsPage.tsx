@@ -95,8 +95,8 @@ const AGENT_SECTIONS: Partial<Record<SettingsSectionId, true>> = {
 	advanced: true,
 };
 
-/** List sections filter their own rows with the page search instead of showing global results. */
-const LIST_SECTIONS: Partial<Record<SettingsSectionId, true>> = { keyboard: true };
+/** List sections filter their own rows with the page search instead of showing global results; value = its placeholder key. */
+const LIST_SECTIONS: Partial<Record<SettingsSectionId, string>> = { keyboard: "settings.search.shortcuts" };
 
 export function SettingsConnectionBanner({
 	status,
@@ -230,7 +230,8 @@ export function SettingsPage() {
 		return () => cancelAnimationFrame(frame);
 	}, [focusRowId, section, sub, query, data.loadState]);
 
-	const listSection = LIST_SECTIONS[section] === true;
+	const listPlaceholder = LIST_SECTIONS[section];
+	const listSection = listPlaceholder !== undefined;
 	const results = useMemo(() => {
 		if (!query.trim() || listSection) return null;
 		const tabs = data.schema?.tabs ?? [];
@@ -353,11 +354,7 @@ export function SettingsPage() {
 						<SearchField
 							label={t("settings.searchPlaceholder")}
 							onValueChange={setQuery}
-							placeholder={
-								listSection
-									? t("settings.search.inSection", { section: sectionTitle })
-									: t("settings.searchPlaceholder")
-							}
+							placeholder={listPlaceholder ? t(listPlaceholder) : t("settings.searchPlaceholder")}
 							ref={searchRef}
 							shortcut="⌘F"
 							spellCheck={false}

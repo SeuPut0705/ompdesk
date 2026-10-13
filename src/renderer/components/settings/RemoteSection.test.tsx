@@ -192,4 +192,15 @@ describe("RemoteSection", () => {
 		expect(useRemoteStore.getState().state?.host.keepAwake).toBe(false);
 		expect(keepAwakeRow()?.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("false");
 	});
+
+	it("names a paired host's full folder on hover where the row truncates it", async () => {
+		remote.getState.mockImplementation(async () => ({
+			...hostOn(),
+			hosts: [{ deviceId: "host-b", name: "Host B", state: "online", home: "/Users/someone-with-a-long-name" }],
+		}));
+		await mount();
+
+		const home = document.querySelector('[data-remote-host="host-b"] [title="/Users/someone-with-a-long-name"]');
+		expect(home?.textContent).toBe("/Users/someone-with-a-long-name");
+	});
 });

@@ -156,6 +156,33 @@ describe("ModelRolesSection", () => {
 		expect(headings).toEqual(["Chat roles", "Specialized roles"]);
 	});
 
+	it("names stock's built-in roles in Korean on a Korean UI, and keeps a custom role's own name", async () => {
+		installRpc(async () => ({
+			success: true,
+			data: {
+				roles: [
+					...ROLES,
+					{ id: "reviewer", name: "Reviewer", section: "chat", source: "settings", candidates: [] },
+				],
+			},
+		}));
+		useSessionStore.getState().setStatus("ready", "/repo");
+		const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+		Object.defineProperty(globalThis, "navigator", { configurable: true, value: { language: "ko-KR" } });
+		try {
+			await mount(<ModelRolesSection />);
+		} finally {
+			if (original) Object.defineProperty(globalThis, "navigator", original);
+		}
+
+		// Each role's picker is named after the role.
+		const pickers = [...document.body.querySelectorAll("button[aria-label]")].map(
+			button => button.getAttribute("aria-label") ?? "",
+		);
+		expect(pickers).toEqual(expect.arrayContaining(["기본 모델", "이미지 생성 모델", "Reviewer 모델"]));
+		expect(document.body.textContent).not.toContain("Image generation");
+	});
+
 	it("groups each role's candidates by model kind and preselects the saved selector by name", async () => {
 		installRpc();
 		useSessionStore.getState().setStatus("ready", "/repo");

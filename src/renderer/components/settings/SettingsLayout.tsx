@@ -79,9 +79,13 @@ export function SettingsSection({
 								{t(`settings.navGroup.${scope === "host" ? "agent" : scope === "mixed" ? "system" : "app"}`)}
 							</p>
 						)}
-						{description && <p className="mt-0.5 text-sc-sm break-keep text-(--sc-text-muted)">{description}</p>}
+						{/* keep-all keeps Korean words whole; break-words still wraps a long path inside the column. */}
+						{description && (
+							<p className="mt-0.5 text-sc-sm break-words break-keep text-(--sc-text-muted)">{description}</p>
+						)}
 					</div>
-					{actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+					{/* Two buttons wider than a narrow column wrap onto their own lines. */}
+					{actions && <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div>}
 				</div>
 			)}
 			<div className="settings-section-body">
@@ -137,7 +141,7 @@ export function SettingsRow({
 						{badge}
 					</div>
 					{description && (
-						<p className="mt-0.5 text-sc-sm break-keep text-(--sc-text-muted)" id={descriptionId}>
+						<p className="mt-0.5 text-sc-sm break-words break-keep text-(--sc-text-muted)" id={descriptionId}>
 							{description}
 						</p>
 					)}

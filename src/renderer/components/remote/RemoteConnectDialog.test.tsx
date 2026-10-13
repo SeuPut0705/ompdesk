@@ -165,9 +165,9 @@ describe("RemoteConnectDialog", () => {
 		);
 	});
 
-	it("shows the localized wrong-code reason and stays open", async () => {
+	it("shows the localized wrong-code reason without the host's bare code under it, and stays open", async () => {
 		remote.pair.mockRejectedValueOnce(
-			new Error("Error invoking remote method 'remote:pair': Error: [remote_wrong_code] wrong code"),
+			new Error("Error invoking remote method 'remote:pair': Error: [remote_wrong_code] wrong_code"),
 		);
 		await mount();
 		await type("[data-remote-address]", "192.168.0.12:47821");
@@ -178,6 +178,7 @@ describe("RemoteConnectDialog", () => {
 		const alert = document.body.querySelector("[data-remote-connect-error]")?.textContent ?? "";
 		expect(alert).toContain(translate("ipcError.remote_wrong_code"));
 		expect(alert).not.toContain(translate("remote.connect.failed"));
+		expect(alert).not.toContain("wrong_code");
 		expect(closeCount).toBe(0);
 		expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
 	});

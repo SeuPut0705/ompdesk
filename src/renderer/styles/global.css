@@ -716,12 +716,6 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	}
 }
 
-@media (max-width: 1000px) {
-	.settings-nav {
-		width: 12.5rem;
-	}
-}
-
 .settings-embedded-panel {
 	min-height: 0;
 }

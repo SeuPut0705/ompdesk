@@ -103,4 +103,19 @@ describe("settings search", () => {
 		expect(current()).toBeNull();
 		expect(document.querySelector("[data-settings-section-scope]")).toBeNull();
 	});
+
+	it("names the keyboard section's own search briefly enough to fit the field", async () => {
+		useSessionStore.setState({ status: "starting" });
+		useUiStore.setState({ settingsTab: "keyboard" });
+		root = createRoot(document.body as unknown as globalThis.Element);
+		await act(async () => {
+			root?.render(
+				<I18nProvider>
+					<SettingsPage />
+				</I18nProvider>,
+			);
+		});
+		// "Search Keyboard shortcuts…" ran under the ⌘F hint in the nav-width field.
+		expect(document.querySelector('input[type="search"]')?.getAttribute("placeholder")).toBe("Search shortcuts");
+	});
 });

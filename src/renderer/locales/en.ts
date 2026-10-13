@@ -2821,6 +2821,8 @@ export const en: Record<string, string> = {
 
 	// Files panel
 	"filesPanel.refresh": "Refresh file tree",
+	"filesPanel.count": "{count} files",
+	"filesPanel.countMore": "{count}+ files",
 	"filesPanel.scanning": "Scanning project…",
 	"filesPanel.unavailable": "Project files are unavailable.",
 	"filesPanel.empty": "No files found in the project.",
@@ -4007,7 +4009,7 @@ export const en: Record<string, string> = {
 	"settings.search.count": "{count} results",
 	"settings.search.emptyDesc": "Try another word, or a setting's name such as compaction.enabled.",
 	"settings.search.everywhere": "Search all settings for “{query}”",
-	"settings.search.inSection": "Search {section}…",
+	"settings.search.shortcuts": "Search shortcuts",
 	"settings.gui.language": "Language",
 	"settings.gui.languageDesc": "Language of menus and messages in OMPdesk.",
 	"settings.gui.replyLanguage": "Conversation language",

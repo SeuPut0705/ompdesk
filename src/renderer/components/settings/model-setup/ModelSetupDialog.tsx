@@ -28,6 +28,7 @@ import { toast } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { Badge, Button, ErrorDetail, Modal, SearchField, Select, Spinner, SwitchField } from "../../common";
 import { InlineNotice } from "../InlineNotice";
+import { modelRoleName } from "../schema-i18n";
 import {
 	baseSelector,
 	changedAssignments,
@@ -519,19 +520,20 @@ export function ModelSetupDialog() {
 								<tbody className="divide-y divide-(--sc-divider)">
 									{orderedAssignments.map(entry => {
 										const role = roles.find(candidate => candidate.id === entry.role);
+										const roleName = role ? modelRoleName(lang, role.name) : entry.role;
 										const current = baseSelector(role?.model);
 										const draft = drafts[entry.role] ?? entry.model;
 										return (
 											<tr data-model-setup-role={entry.role} key={entry.role}>
 												<td className="px-3 py-2 align-top">
-													<div className="font-medium text-(--sc-text)">{role?.name ?? entry.role}</div>
+													<div className="font-medium text-(--sc-text)">{roleName}</div>
 													<div className="text-sc-xs text-(--sc-text-muted)">
 														{t("modelSetup.review.current", { model: labelOf(current) })}
 													</div>
 												</td>
 												<td className="min-w-52 px-3 py-2 align-top">
 													<Select
-														aria-label={t("modelSetup.review.select", { role: role?.name ?? entry.role })}
+														aria-label={t("modelSetup.review.select", { role: roleName })}
 														controlSize="sm"
 														onChange={event =>
 															setDrafts(previous => ({ ...previous, [entry.role]: event.target.value }))

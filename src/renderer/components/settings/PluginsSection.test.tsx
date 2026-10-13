@@ -226,7 +226,7 @@ describe("PluginsSection", () => {
 		expect(text).not.toContain("Read-only: shows what omp found.");
 	});
 
-	it("shows a backend the user turned off as a neutral Off, not a red failure", async () => {
+	it("shows a backend the user turned off as one neutral Off line, without stock's English status", async () => {
 		const getMemoryReport = vi.fn(async () => ({
 			success: true as const,
 			data: {
@@ -257,7 +257,11 @@ describe("PluginsSection", () => {
 		await flush();
 
 		const text = document.body.textContent ?? "";
-		expect(text).toContain("Off");
+		expect(text).toContain("Memory backend: Off");
+		// Off says it all: no red "inactive", no writable/searchable chips, no stock message, no read-only note.
 		expect(text).not.toContain("inactive");
+		expect(text).not.toContain("writable");
+		expect(text).not.toContain("Memory backend is off.");
+		expect(text).not.toContain("Read-only: shows what omp found.");
 	});
 });

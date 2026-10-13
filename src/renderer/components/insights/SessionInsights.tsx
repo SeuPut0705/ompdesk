@@ -51,7 +51,8 @@ function FactList({ facts }: { facts: Fact[] }) {
 }
 
 function Columns({ children }: { children: ReactNode }) {
-	return <div className="grid gap-x-6 gap-y-8 lg:grid-cols-2">{children}</div>;
+	// minmax(0, 1fr): an implicit auto track would grow to the widest unbreakable value and scroll the page sideways.
+	return <div className="grid grid-cols-[minmax(0,1fr)] gap-x-6 gap-y-8 lg:grid-cols-2">{children}</div>;
 }
 
 function formatCredit(value: number): string {

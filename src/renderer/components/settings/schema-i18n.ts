@@ -47,6 +47,32 @@ export function schemaOptionText(lang: Lang, text: string): string {
 	return OPTION_TEXT[lang][text] ?? text;
 }
 
+// Stock MODEL_ROLES (pi-coding-agent config/model-roles.ts) names its built-in
+// roles in English only; keyed by that name, so a custom role keeps its own.
+const KO_ROLE_NAMES: Readonly<Record<string, string>> = {
+	Default: "기본",
+	Fast: "빠른 모델",
+	Thinking: "사고 모델",
+	Vision: "비전",
+	Architect: "설계",
+	Commit: "커밋",
+	Tiny: "초소형",
+	Memory: "메모리",
+	Subtask: "하위 작업",
+	Advisor: "어드바이저",
+	"Image generation": "이미지 생성",
+	"Web search": "웹 검색",
+	Speech: "음성 합성",
+	Dictation: "받아쓰기",
+	Judge: "평가",
+};
+const ROLE_NAMES: Record<Lang, Readonly<Record<string, string>>> = { en: {}, ko: KO_ROLE_NAMES };
+
+/** Display name of a model role: stock's English name, translated for a built-in role. */
+export function modelRoleName(lang: Lang, name: string): string {
+	return ROLE_NAMES[lang][name] ?? name;
+}
+
 /** Every translated label/description for a setting path, for language-agnostic search. */
 export function schemaSearchTexts(path: string): string[] {
 	const entry = KO_SETTINGS[path];

@@ -220,10 +220,12 @@ export function FilesPanel() {
 	return (
 		<div className="flex h-full min-h-0 min-w-0 flex-col">
 			<PanelToolbar>
-				<span className="px-1 text-sc-xs tabular-nums text-(--sc-text-subtle)">
-					{fileCount}
-					{truncated ? "+" : ""}
-				</span>
+				{/* The empty state already says there is nothing; a bare number never stands alone. */}
+				{fileCount > 0 && (
+					<span className="px-1 text-sc-xs tabular-nums text-(--sc-text-subtle)" data-file-count>
+						{t(truncated ? "filesPanel.countMore" : "filesPanel.count", { count: fileCount })}
+					</span>
+				)}
 				<IconButton
 					disabled={loading}
 					icon={<RefreshCw />}

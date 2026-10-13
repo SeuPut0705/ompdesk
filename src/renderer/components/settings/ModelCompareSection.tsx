@@ -33,7 +33,7 @@ import type {
 	UsageResult,
 } from "../../../shared/rpc-types";
 import { cx, formatTokens } from "../../lib/format";
-import { useT } from "../../lib/i18n";
+import { useLang, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
@@ -51,6 +51,7 @@ import {
 	Switch,
 } from "../common";
 import { InlineNotice } from "./InlineNotice";
+import { modelRoleName } from "./schema-i18n";
 
 // ============================================================================
 // Derived row + helpers
@@ -245,6 +246,7 @@ function AuthBadge({ row, t }: { row: Row; t: TFn }) {
 export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () => void }) {
 	const tabRpc = useTabRpc();
 	const t = useT();
+	const { lang } = useLang();
 	const authOnlyId = useId();
 	const sidecarReady = useSessionStore(s => s.status) === "ready";
 	const current = useModelStore(s => s.model);
@@ -618,7 +620,7 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 											{row.roles.map(role => {
 												const meta = metaById.get(role.id);
 												return (
-													<span key={role.id} title={meta?.name ?? role.name}>
+													<span key={role.id} title={modelRoleName(lang, meta?.name ?? role.name)}>
 														<Badge
 															variant={ROLE_BADGE[meta?.color ?? role.color ?? "default"] ?? "default"}
 														>
