@@ -426,7 +426,7 @@
 - **할 일·서브에이전트 카드**: 접힌 채로 진행률과 현재 항목을 한 줄로 보여 줘요. 카드가 생겨도 자동 스크롤이 풀리지 않아요.
 - **그 밖에**: "인사이트"를 "통계"로 바꾸고, 제목 표시줄·설정·통계·⌘K 팔레트·알림의 디자인을 다듬었어요. 모델 풀, 에이전트 편집기, 한국어 UI 등 아래의 전체 목록을 참고하세요.
 
-Developed as seucode (formerly omp GUI) and shipped as its own project, an unofficial desktop app for omp. Derived from [nornzach/oh-my-pi-gui](https://github.com/nornzach/oh-my-pi-gui) 0.9.16 (MIT); rebuilt to run on the user's stock omp instead of a bundled fork.
+Developed as seucode (formerly omp GUI) and shipped as its own project, an unofficial desktop app for omp, running on the user's stock omp.
 
 ### Identity
 
