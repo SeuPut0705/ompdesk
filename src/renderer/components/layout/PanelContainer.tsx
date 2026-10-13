@@ -1,4 +1,16 @@
-import { ChevronDown, Files, GitCompareArrows, GitFork, Hourglass, ListOrdered, ScrollText, X } from "lucide-react";
+import {
+	ClipboardList,
+	Files,
+	GitCompareArrows,
+	GitFork,
+	Globe,
+	Hourglass,
+	ListOrdered,
+	MoreVertical,
+	ScrollText,
+	Terminal,
+	X,
+} from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
@@ -6,7 +18,6 @@ import { useMediaQuery } from "../../hooks/use-media-query";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { actionShortcut } from "../../lib/keymap";
-import { useQueueStore } from "../../stores/queue";
 import { useTabsStore } from "../../stores/tabs";
 import { COMPACT_SHELL_QUERY, type PanelTab, useUiStore } from "../../stores/ui";
 import { IconButton, MenuButton, PanelErrorBoundary, Sheet } from "../common";
@@ -15,8 +26,11 @@ import { FilesPanel } from "../panels/FilesPanel";
 import { JobsPanel } from "../panels/JobsPanel";
 import { LogPanel } from "../panels/LogPanel";
 import { PanelActionsContext } from "../panels/PanelChrome";
+import { PlanPanel } from "../panels/PlanPanel";
+import { PreviewPanel } from "../panels/PreviewPanel";
 import { QueuePanel } from "../panels/QueuePanel";
 import { SessionTreePanel } from "../panels/SessionTreePanel";
+import { TerminalPanel } from "../panels/TerminalPanel";
 
 const MIN_WIDTH = 360;
 const MAX_WIDTH = 840;
@@ -32,56 +46,54 @@ function defaultPanelWidth(): number {
 }
 
 const VIEWS = [
+	{ id: "terminal", labelKey: "panel.tabs.terminal", icon: Terminal },
 	{ id: "diff", labelKey: "panel.tabs.diff", icon: GitCompareArrows },
+	{ id: "preview", labelKey: "panel.tabs.preview", icon: Globe },
 	{ id: "files", labelKey: "panel.tabs.files", icon: Files },
+	{ id: "jobs", labelKey: "panel.tabs.jobs", icon: Hourglass },
+	{ id: "plan", labelKey: "panel.tabs.plan", icon: ClipboardList },
 	{ id: "logs", labelKey: "panel.tabs.logs", icon: ScrollText },
 	{ id: "queue", labelKey: "panel.tabs.queue", icon: ListOrdered },
 	{ id: "tree", labelKey: "panel.tabs.tree", icon: GitFork },
-	{ id: "jobs", labelKey: "panel.tabs.jobs", icon: Hourglass },
 ] satisfies { id: PanelTab; labelKey: string; icon: typeof Files }[];
 
-function PanelHeader({ actionRef }: { actionRef: (element: HTMLDivElement | null) => void }) {
+function PanelHeader() {
 	const t = useT();
 	const panelTab = useUiStore(s => s.panelTab);
 	const setPanelTab = useUiStore(s => s.setPanelTab);
 	const togglePanel = useUiStore(s => s.togglePanel);
-	const queued = useQueueStore(s => s.steering.length + s.followUp.length);
 	const current = VIEWS.find(view => view.id === panelTab) ?? VIEWS[0];
-	const Icon = current.icon;
 	return (
 		<div className="omp-panel-topbar drag-region flex min-h-(--sc-space-12) shrink-0 items-center gap-1 px-3">
+			<span title={t(current.labelKey)} className="min-w-0 flex-1 truncate text-sc-sm font-medium text-(--sc-text)">
+				{t(current.labelKey)}
+			</span>
+			<div className="no-drag flex shrink-0 items-center" aria-label={t("panel.primaryViews")}>
+				{VIEWS.slice(0, 4).map(view => (
+					<IconButton
+						key={view.id}
+						icon={<view.icon />}
+						label={t(view.labelKey)}
+						aria-pressed={panelTab === view.id}
+						onClick={() => setPanelTab(view.id)}
+						size="sm"
+					/>
+				))}
+			</div>
 			<MenuButton
-				className="no-drag min-w-0"
-				icon={<Icon />}
-				label={t("panel.switchView")}
-				variant="ghost"
+				className="no-drag shrink-0"
+				icon={<MoreVertical />}
+				label={t("panel.viewOptions")}
 				size="sm"
-				items={VIEWS.map(view => ({
+				align="end"
+				items={VIEWS.slice(4).map(view => ({
 					id: view.id,
 					label: t(view.labelKey),
 					icon: view.icon,
 					checked: panelTab === view.id,
 					onSelect: () => setPanelTab(view.id),
 				}))}
-			>
-				<span className="truncate">{t(current.labelKey)}</span>
-				{panelTab === "queue" && queued > 0 && <span className="text-sc-xs text-(--sc-text-muted)">{queued}</span>}
-				<ChevronDown className="size-(--sc-icon-sm) text-(--sc-text-subtle)" />
-			</MenuButton>
-			<div className="no-drag flex shrink-0 items-center" aria-label={t("panel.primaryViews")}>
-				{VIEWS.slice(0, 2)
-					.filter(view => view.id !== panelTab)
-					.map(view => (
-						<IconButton
-							key={view.id}
-							icon={<view.icon />}
-							label={t(view.labelKey)}
-							onClick={() => setPanelTab(view.id)}
-							size="sm"
-						/>
-					))}
-			</div>
-			<div className="ml-auto flex min-w-0 items-center" ref={actionRef} />
+			/>
 			<IconButton
 				className="no-drag shrink-0"
 				icon={<X />}
@@ -94,12 +106,22 @@ function PanelHeader({ actionRef }: { actionRef: (element: HTMLDivElement | null
 	);
 }
 
-function SidePanelViews() {
+function SidePanelViews({ actionRef }: { actionRef: (element: HTMLDivElement | null) => void }) {
 	const panelTab = useUiStore(s => s.panelTab);
 	const activeTabId = useTabsStore(s => s.activeTabId);
 	return (
 		<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+			{panelTab !== "terminal" && panelTab !== "preview" && (
+				<div
+					className="flex min-h-(--sc-space-10) shrink-0 items-center justify-end gap-1 border-b border-(--sc-divider) px-3 py-2 empty:hidden"
+					data-panel-actions
+					ref={actionRef}
+				/>
+			)}
 			<PanelErrorBoundary key={`${activeTabId ?? "no-tab"}:${panelTab}`}>
+				{panelTab === "terminal" && <TerminalPanel />}
+				{panelTab === "preview" && <PreviewPanel />}
+				{panelTab === "plan" && <PlanPanel />}
 				{panelTab === "diff" && <DiffPanel />}
 				{panelTab === "files" && <FilesPanel />}
 				{panelTab === "logs" && <LogPanel />}
@@ -112,8 +134,8 @@ function SidePanelViews() {
 }
 
 /**
- * Side panel: contextual detail for the open session — Changes, Files, Logs,
- * Queue, Tree, Jobs. Docked (non-modal, resizable) at ≥ 1000px; below that it
+ * Side panel: contextual session detail with primary views and secondary tools.
+ * Docked (non-modal, resizable) at ≥ 1000px; below that it
  * is a right Sheet with a scrim (design-spec §3, §8). In a split view it
  * floats over the panes instead of squeezing both.
  */
@@ -200,17 +222,16 @@ export function PanelContainer() {
 				bodyClassName="flex flex-col"
 				onClose={togglePanel}
 				open
-				side="right"
 				size="md"
 				title={t("panel.title")}
-				header={<PanelHeader actionRef={setActionsTarget} />}
+				header={<PanelHeader />}
 			>
 				<div
 					className={cx("flex min-h-0 flex-1 flex-col", !routeReady && "pointer-events-none")}
 					aria-busy={!routeReady}
 				>
 					<PanelActionsContext.Provider value={actionsTarget}>
-						<SidePanelViews />
+						<SidePanelViews actionRef={setActionsTarget} />
 					</PanelActionsContext.Provider>
 				</div>
 			</Sheet>
@@ -237,9 +258,9 @@ export function PanelContainer() {
 					: width,
 			}}
 		>
-			<PanelHeader actionRef={setActionsTarget} />
+			<PanelHeader />
 			<PanelActionsContext.Provider value={actionsTarget}>
-				<SidePanelViews />
+				<SidePanelViews actionRef={setActionsTarget} />
 			</PanelActionsContext.Provider>
 			<div
 				role="separator"

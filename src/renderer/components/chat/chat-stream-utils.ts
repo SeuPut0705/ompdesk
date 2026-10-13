@@ -11,7 +11,9 @@ import type { ReadGroupEntry, ReadGroupUsage } from "../../lib/read-group";
 import type { TodoSnapshot } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey } from "../../stores/tools";
 import type { TranscriptDetail } from "../../stores/ui";
+import { isCustomMessageCardType } from "./CustomMessageCard";
 import { isCompletionMessage, launchCompletionFailureCount } from "./completion-events";
+import { isWorkReply, messageTimestampMs } from "./work-turn";
 
 interface ProcessMeta {
 	stepCount: number;
@@ -22,6 +24,7 @@ interface ProcessMeta {
 	stoppedAt?: number;
 	/** Todo changes belong to this work run permanently, including after completion. */
 	todoSnapshots?: readonly TodoSnapshot[];
+	notes?: readonly AgentMessage[];
 	/** User turn boundary, including user messages hidden from the rendered transcript. */
 	turnStartedAt?: number;
 }
@@ -341,16 +344,6 @@ export function isVisibleTranscriptMessage(message: AgentMessage): boolean {
 	});
 }
 
-export function messageTimestampMs(message: AgentMessage): number {
-	const timestamp = message.timestamp;
-	if (typeof timestamp === "number" && Number.isFinite(timestamp)) return timestamp;
-	if (typeof timestamp === "string") {
-		const parsed = Date.parse(timestamp);
-		if (Number.isFinite(parsed)) return parsed;
-	}
-	return 0;
-}
-
 /** Whether the in-flight turn owns a real visible row right now. */
 export function hasStreamingTranscriptContent(
 	message: AgentMessage | null,
@@ -397,6 +390,7 @@ export function buildHistoryRows(
 	preservedProcessStarts?: ReadonlySet<string>,
 ): HistoryRow[] {
 	const rows: HistoryRow[] = [];
+	const duringRunNotes = new Set<AgentMessage>();
 	let processMessages: AgentMessage[] = [];
 	let reactionTargetIndex: number | undefined;
 	let turnStartedAt: number | undefined;
@@ -430,11 +424,15 @@ export function buildHistoryRows(
 		// toolResult/display:false/empty-filler messages must not split a process
 		// run — they are invisible transport records, not transcript boundaries.
 		if (!isVisibleTranscriptMessage(message)) continue;
-		// Completion notifications are transport events inside the current run,
-		// not semantic phase boundaries. Keep them with the tools they report on;
-		// an out-of-band completion with no active run remains a standalone row.
-		if (detail === "compact" && processMessages.length > 0 && isCompletionMessage(message)) {
-			processMessages.push(message);
+		// Dedicated extension notices belong to work, not a new execution phase.
+		// Keep their transcript position until the shared run interval assigns ownership.
+		if (
+			detail === "compact" &&
+			isCustomMessageCardType(message.customType) &&
+			processMessages.some(entry => messageContent(entry).some(block => block.type === "toolCall"))
+		) {
+			rows.push({ kind: "message", message });
+			duringRunNotes.add(message);
 			continue;
 		}
 		if (
@@ -494,19 +492,19 @@ export function buildHistoryRows(
 			rows[index] = { ...row, stoppedAt: messageTimestampMs(next.message) };
 		}
 	}
-	return rows;
+	return foldWorkNotes(rows, duringRunNotes);
 }
 
-/**
- * Fold changes captured during a run permanently into its process row.
- * Idle edits remain standalone; for older snapshots the final reply closes ownership.
- */
-export function mergeTodoSnapshots(rows: readonly HistoryRow[], snapshots: readonly TodoSnapshot[]): HistoryRow[] {
-	if (snapshots.length === 0) return rows as HistoryRow[];
-	// Decide ownership against the complete transcript, not the row last visited
-	// while interleaving: an assistant's timestamp is its stream start, and user
-	// turn boundaries can be hidden from the rendered row set.
-	const runs: Array<{ index: number; start: number; turn: number; end: number; reply?: number }> = [];
+/** One interval model for archived todos and custom notices. */
+interface ProcessRun {
+	index: number;
+	start: number;
+	turn: number;
+	end: number;
+	reply?: number;
+}
+function processRuns(rows: readonly HistoryRow[]) {
+	const runs: ProcessRun[] = [];
 	let turn = Number.NEGATIVE_INFINITY;
 	for (const [index, row] of rows.entries()) {
 		if (row.kind === "message" && row.message.role === "user") {
@@ -525,23 +523,81 @@ export function mergeTodoSnapshots(rows: readonly HistoryRow[], snapshots: reado
 			const previous = runs.at(-1);
 			if (previous) previous.end = Math.min(previous.end, previous.turn === boundary ? start : boundary);
 			runs.push({ index, start: Math.max(start, boundary), turn: boundary, end: Number.POSITIVE_INFINITY });
-		} else if (row.kind === "message" && row.message.role === "assistant") {
+		} else if (row.kind === "message" && isWorkReply(row.message)) {
 			const run = runs.at(-1);
-			if (run) run.reply = messageTimestampMs(row.message);
+			if (run) run.reply ??= messageTimestampMs(row.message);
 		}
 	}
+	return runs;
+}
+
+function ownsRun(
+	run: ProcessRun,
+	timestamp: number,
+	duringTurn?: boolean,
+	capture?: Pick<TodoSnapshot, "turnStartedAt" | "endedAt">,
+) {
+	const capturedStart = capture?.turnStartedAt;
+	if (capturedStart !== undefined) {
+		// Capture provenance, not client receipt/assistant stream-start clocks,
+		// bounds this turn. A hidden todo may precede its first visible tool.
+		return (
+			duringTurn !== false &&
+			run.turn <= capturedStart &&
+			run.start >= capturedStart &&
+			run.start < (capture?.endedAt ?? Number.POSITIVE_INFINITY)
+		);
+	}
+	return (
+		duringTurn !== false &&
+		timestamp >= run.start &&
+		timestamp < run.end &&
+		(duringTurn === true || run.reply === undefined || timestamp <= run.reply)
+	);
+}
+
+function foldWorkNotes(rows: readonly HistoryRow[], duringRunNotes: ReadonlySet<AgentMessage>): HistoryRow[] {
+	const runs = processRuns(rows);
+	const folded = rows.slice();
+	const removed = new Set<number>();
+	for (const [index, row] of rows.entries()) {
+		if (row.kind !== "message" || !duringRunNotes.has(row.message)) continue;
+		// Like todo.duringTurn, transcript-order evidence wins over a final
+		// reply's stream-start timestamp; finishing must never eject a note.
+		const run = runs.findLast(candidate => ownsRun(candidate, messageTimestampMs(row.message), true));
+		const work = run ? folded[run.index] : undefined;
+		if (!run || work?.kind !== "process") continue;
+		folded[run.index] = {
+			...work,
+			failedEvents: work.failedEvents + launchCompletionFailureCount(row.message),
+			notes: [...(work.notes ?? []), row.message],
+		};
+		removed.add(index);
+	}
+	return folded.filter((_, index) => !removed.has(index));
+}
+
+/**
+ * Fold changes captured during a run permanently into its process row.
+ * Idle edits remain standalone; for older snapshots the final reply closes ownership.
+ */
+export function mergeTodoSnapshots(rows: readonly HistoryRow[], snapshots: readonly TodoSnapshot[]): HistoryRow[] {
+	if (snapshots.length === 0) return rows as HistoryRow[];
+	// Decide ownership against the complete transcript, not the row last visited
+	// while interleaving: an assistant's timestamp is its stream start, and user
+	// turn boundaries can be hidden from the rendered row set.
+	const runs = processRuns(rows);
 	const folded = rows.slice();
 	const standalone: TodoSnapshot[] = [];
 	for (const snapshot of snapshots) {
 		const run =
-			snapshot.duringTurn === false
+			runs.findLast(
+				candidate =>
+					candidate.start <= snapshot.ts && ownsRun(candidate, snapshot.ts, snapshot.duringTurn, snapshot),
+			) ??
+			(snapshot.turnStartedAt === undefined
 				? undefined
-				: runs.findLast(
-						candidate =>
-							snapshot.ts >= candidate.start &&
-							snapshot.ts < candidate.end &&
-							(snapshot.duringTurn === true || candidate.reply === undefined || snapshot.ts <= candidate.reply),
-					);
+				: runs.find(candidate => ownsRun(candidate, snapshot.ts, snapshot.duringTurn, snapshot)));
 		const row = run ? folded[run.index] : undefined;
 		if (run && row?.kind === "process") {
 			folded[run.index] = { ...row, todoSnapshots: [...(row.todoSnapshots ?? []), snapshot] };

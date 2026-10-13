@@ -4,7 +4,7 @@
  * stays in the `omp stats` web dashboard.
  */
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import type { FrustrationData, FrustrationModelRow } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
 import { formatPercent, formatTokens } from "../../lib/format";
@@ -23,14 +23,10 @@ function rate(part: number, whole: number): string {
 	return whole > 0 ? formatPercent((part / whole) * 100) : "—";
 }
 
-export function FrustrationRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
+export function FrustrationRoute({ range }: { range: StatsRange }) {
 	const t = useT();
 	const params = useMemo(() => ({ range }), [range]);
 	const { data, isLoading, error, refetch } = useStats<FrustrationData>("/api/stats/frustration", params);
-
-	useEffect(() => {
-		if (refreshKey > 0) refetch();
-	}, [refreshKey, refetch]);
 
 	const overall = data?.overall;
 	const rows = useMemo(() => [...(data?.byModel ?? [])].sort((a, b) => b.messages - a.messages), [data]);

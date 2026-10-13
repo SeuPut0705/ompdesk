@@ -202,7 +202,7 @@ function TabPanel({
 					<IconButton
 						disabled={!resource.ready || resource.loading}
 						icon={<RefreshCw className={cx(resource.loading && "animate-spin")} />}
-						label={!resource.ready ? t("invPanel.notConnected") : t("invPanel.refresh")}
+						label={!resource.ready ? t("invPanel.notConnected") : t("common.refresh")}
 						onClick={() => void resource.reload()}
 						size="sm"
 					/>
@@ -224,7 +224,7 @@ function ResourceGate<T>({ resource, children }: { resource: RpcResource<T>; chi
 			size="sm"
 			title={!resource.ready ? t("invPanel.notConnected") : undefined}
 		>
-			{t("invPanel.retry")}
+			{t("common.retry")}
 		</Button>
 	);
 	if (!resource.data) {

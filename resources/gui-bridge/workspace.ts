@@ -7,8 +7,8 @@
 import type { Stats } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { normalizeWorkspaceDirectory } from "@oh-my-pi/pi-coding-agent/session/session-workspace";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { normalizeWorkspaceDirectory } from "@oh-my-pi/pi-coding-agent/session/session-workspace";
 import { resolveToCwd } from "@oh-my-pi/pi-coding-agent/tools/path-utils";
 import { guard } from "./health";
 import type { BridgeMethods } from "./types";

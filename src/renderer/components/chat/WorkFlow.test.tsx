@@ -100,7 +100,7 @@ it("pins concurrent calls live and switches directly without losing the list or 
 	);
 	const lane = container.querySelector<HTMLButtonElement>(".omp-work-card-button");
 	await act(async () => lane?.click());
-	expect(lane?.getAttribute("aria-expanded")).toBe("true");
+	expect(lane?.getAttribute("aria-current")).toBe("true");
 	for (const index of [0, 1]) {
 		await act(async () =>
 			(container.querySelectorAll(".omp-work-parallel-row")[index] as unknown as { click(): void }).click(),
@@ -108,8 +108,10 @@ it("pins concurrent calls live and switches directly without losing the list or 
 		expect(container.querySelectorAll(".omp-work-parallel-row")).toHaveLength(2);
 		expect(container.querySelectorAll(".omp-work-parallel-row")[index]?.getAttribute("aria-current")).toBe("true");
 		expect(container.querySelector(".omp-live-step")?.getAttribute("data-running")).toBe("true");
-		expect(container.querySelector("[data-mode=replay]")).toBeNull();
-		expect(lane?.getAttribute("aria-expanded")).toBe("false");
+		expect(
+			container.querySelector(".omp-work-stage > .omp-work-crossfade > [data-incoming] [data-mode=replay]"),
+		).toBeNull();
+		expect(lane?.getAttribute("aria-current")).toBeNull();
 		expect(container.querySelector(".omp-work-clock")).not.toBeNull();
 		expect(container.textContent).toContain("2 running at once");
 	}
@@ -258,7 +260,9 @@ it("returns a finished parallel pin to following even when the replay strip is h
 	await flushFrame();
 	expect(container.querySelector(".omp-live-step")?.getAttribute("data-following")).toBe("true");
 	expect(container.querySelector(".omp-live-step")?.getAttribute("data-running")).toBe("true");
-	expect(container.querySelector("[data-mode=replay]")).toBeNull();
+	expect(
+		container.querySelector(".omp-work-stage > .omp-work-crossfade > [data-incoming] [data-mode=replay]"),
+	).toBeNull();
 	expect(container.querySelector(".omp-work-narrative")?.textContent).toContain("bun lint");
 });
 it("updates a step's narrative without remounting its animated heading", async () => {
@@ -309,7 +313,7 @@ it("keeps head and lane clocks out of live regions and announces the stall only 
 		announcements,
 	);
 });
-it("keeps archived todos inside a plain group's expanded body, with no raw disclosure in the collapsed row", async () => {
+it("keeps archived todos inside the finished work card across disclosure changes", async () => {
 	const snapshots = [
 		{
 			id: "finished-todos",
@@ -341,10 +345,10 @@ it("keeps archived todos inside a plain group's expanded body, with no raw discl
 		</I18nProvider>
 	);
 	await act(async () => root.render(renderGroup(false)));
-	expect(container.querySelector("[data-todo-snapshot]")).toBeNull();
-	expect(container.querySelector("details, summary")).toBeNull();
+	expect(container.querySelector(".omp-live-step [data-todo-snapshot]")).not.toBeNull();
+	expect(container.querySelector(".omp-work-stage")).toBeNull();
 	await act(async () => root.render(renderGroup(true)));
-	const context = container.querySelector(".omp-execution-group-body [data-todo-snapshot]");
+	const context = container.querySelector(".omp-live-step [data-todo-snapshot]");
 	expect(context).not.toBeNull();
 	const row = context?.querySelector<HTMLButtonElement>(".omp-work-context-row.omp-work-todo-toggle");
 	expect(row?.getAttribute("aria-label")).toBe("Todos: 3/3");

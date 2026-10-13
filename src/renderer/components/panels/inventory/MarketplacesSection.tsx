@@ -12,7 +12,6 @@ import { useTabRpc } from "../../../lib/tab-rpc";
 import { Check, ChevronDown, ChevronRight, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useCallback, useId, useState } from "react";
 import type { RpcMarketplaceInfo, RpcMarketplacePluginInfo } from "../../../../shared/rpc-types";
-import { uiLocale } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import {
@@ -23,12 +22,7 @@ import {
 import { Badge, Button, IconButton, Input, Spinner } from "../../common";
 import { shortenSource } from "../inventory-utils";
 import { CopyableError } from "./ErrorNote";
-import {
-	availablePluginActions,
-	classifyMarketplaceSource,
-	extractCacheTimestamp,
-	type MarketplacePluginAction,
-} from "./marketplace-source";
+import { availablePluginActions, classifyMarketplaceSource, type MarketplacePluginAction } from "./marketplace-source";
 import { listAvailablePlugins, mutationError } from "./rpc-result";
 
 // ============================================================================
@@ -398,12 +392,6 @@ export function MarketplaceCard({
 		}
 	};
 
-	const cacheTimestamp = extractCacheTimestamp(marketplace);
-	const cacheNote =
-		cacheTimestamp !== null
-			? t("marketplace.lastUpdated", { time: new Date(cacheTimestamp).toLocaleString(uiLocale()) })
-			: t("marketplace.cacheNote");
-
 	const actionsDisabled = busyAction !== null || !ready;
 
 	return (
@@ -427,9 +415,8 @@ export function MarketplaceCard({
 						) : (
 							<Badge variant="muted">{t("invPanel.marketplaces.notFetched")}</Badge>
 						)}
-						{/* Catalogs are cache-backed — the note is always visible; the
-						    timestamp rides along when the wire carries one. */}
-						<span className="text-sc-xs text-(--sc-text-muted)">{cacheNote}</span>
+						{/* Catalogs are cache-backed — the note is always visible. */}
+						<span className="text-sc-xs text-(--sc-text-muted)">{t("marketplace.cacheNote")}</span>
 					</div>
 					<span className="truncate font-mono text-sc-xs text-(--sc-text-muted)" title={marketplace.source}>
 						{shortenSource(marketplace.source)}
@@ -499,7 +486,7 @@ export function MarketplaceCard({
 									size="sm"
 									title={!ready ? t("invPanel.notConnected") : undefined}
 								>
-									{t("invPanel.retry")}
+									{t("common.retry")}
 								</Button>
 							</div>
 						</>

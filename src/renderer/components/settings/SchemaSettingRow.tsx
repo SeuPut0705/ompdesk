@@ -1,4 +1,3 @@
-import { type TabRpc, useTabRpc } from "../../lib/tab-rpc";
 /**
  * SchemaSettingRow: one agent-schema setting as a Settings row. Booleans are
  * a switch row; enums a Select; numbers/strings a field; arrays and records
@@ -14,63 +13,34 @@ import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 
 import type { SettingEntry, SettingProvenance } from "../../../shared/rpc-types";
 import { useLang, useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
-import {
-	applyThemeByName,
-	getPersistedThemeSelection,
-	getThemeSelectionVersion,
-	THEMES,
-	type ThemeName,
-} from "../../lib/themes";
+import { useTabRpc } from "../../lib/tab-rpc";
 import { toastError } from "../../stores/toast";
 import { Badge, Button, IconButton, Input, Select, Spinner, TextArea } from "../common";
 import { ArrayChipEditor } from "./editors/ArrayChipEditor";
-import { type EnumerableOption, EnumerableSelect } from "./editors/EnumerableSelect";
 import { ProviderLimitsEditor } from "./editors/ProviderLimitsEditor";
 import { RecordKvEditor } from "./editors/RecordKvEditor";
-import { ModelValueSelect, settingRefKind } from "./ModelValueSelect";
+import { type ModelValueGroup, ModelValueSelect, settingRefKind } from "./ModelValueSelect";
 import { SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
 import { schemaOptionText, schemaSettingText } from "./schema-i18n";
 
-let themePreviewActive = false;
-function previewAgentTheme(name: string | null): void {
-	if (name !== null && name !== "" && name in THEMES) {
-		themePreviewActive = true;
-		applyThemeByName(name as ThemeName, { persist: false });
-		return;
-	}
-	if (!themePreviewActive) return;
-	themePreviewActive = false;
-	const version = getThemeSelectionVersion();
-	void getPersistedThemeSelection().then(selection => {
-		if (!themePreviewActive && getThemeSelectionVersion() === version)
-			applyThemeByName(selection, { persist: false });
-	});
-}
-
-async function themeOptions(rpc: TabRpc): Promise<EnumerableOption[]> {
-	const res = await rpc.getThemes();
-	if (!res.success) throw new Error(res.error);
-	const data = res.data as { themes?: { name: string; path?: string }[] } | undefined;
-	return (data?.themes ?? []).map(theme => ({ value: theme.name, detail: theme.path ? "custom" : "builtin" }));
-}
-
-const COMMON_SHELLS = [
-	"/bin/zsh",
-	"/bin/bash",
-	"/bin/sh",
-	"/bin/fish",
-	"/usr/bin/zsh",
-	"/usr/bin/bash",
-	"/usr/local/bin/zsh",
-	"/usr/local/bin/bash",
-	"/opt/homebrew/bin/zsh",
-	"/opt/homebrew/bin/bash",
-	"/opt/homebrew/bin/fish",
+const COMMON_SHELLS: readonly ModelValueGroup[] = [
+	{
+		label: "",
+		options: [
+			"/bin/zsh",
+			"/bin/bash",
+			"/bin/sh",
+			"/bin/fish",
+			"/usr/bin/zsh",
+			"/usr/bin/bash",
+			"/usr/local/bin/zsh",
+			"/usr/local/bin/bash",
+			"/opt/homebrew/bin/zsh",
+			"/opt/homebrew/bin/bash",
+			"/opt/homebrew/bin/fish",
+		].map(path => ({ value: path })),
+	},
 ];
-
-function shellOptions(): Promise<EnumerableOption[]> {
-	return Promise.resolve(COMMON_SHELLS.map(path => ({ value: path })));
-}
 
 function SettingStatus({ dirty, saving, saved }: { dirty: boolean; saving: boolean; saved: boolean }) {
 	const t = useT();
@@ -140,7 +110,6 @@ function SchemaSettingRow({
 	useEffect(() => {
 		setSavedProvenance(undefined);
 	}, [entry.provenance]);
-	const fetchThemeOptions = useCallback(() => themeOptions(tabRpc), [tabRpc]);
 
 	useEffect(
 		() => () => {
@@ -529,26 +498,12 @@ function SchemaSettingRow({
 		// Enumerable string settings get dropdowns (never hand-typed); then
 		// model/provider references get searchable dropdowns; secrets stay text.
 		const refKind = entry.secret === true ? null : settingRefKind(entry.path);
-		const themeSetting = entry.secret !== true && /^theme\.(dark|light)$/.test(entry.path);
-		const shellSetting = entry.secret !== true && entry.path === "shellPath";
-		if (themeSetting) {
+		if (entry.secret !== true && entry.path === "shellPath") {
 			control = (
-				<EnumerableSelect
+				<ModelValueSelect
 					allowCustom
 					disabled={saving}
-					fetchOptions={fetchThemeOptions}
-					noun={t("settings.editors.themes")}
-					onCommit={next => void commit(next)}
-					onPreview={previewAgentTheme}
-					value={typeof value === "string" ? value : ""}
-				/>
-			);
-		} else if (shellSetting) {
-			control = (
-				<EnumerableSelect
-					allowCustom
-					disabled={saving}
-					fetchOptions={shellOptions}
+					groups={COMMON_SHELLS}
 					noun={t("settings.editors.shells")}
 					onCommit={next => void commit(next)}
 					value={typeof value === "string" ? value : ""}

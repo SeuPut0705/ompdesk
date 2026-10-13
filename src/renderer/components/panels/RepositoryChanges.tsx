@@ -7,8 +7,8 @@ import { copyText, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import type { TabRpc } from "../../lib/tab-rpc";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { EmptyState, IconButton, SearchField } from "../common";
-import { ChangeCounts, PanelActions, PanelListRow, PanelToolbar } from "./PanelChrome";
+import { Button, EmptyState, IconButton, SearchField } from "../common";
+import { ChangeCounts, PanelListRow, PanelToolbar } from "./PanelChrome";
 import { FileIcon } from "./viewers/FileViewer";
 
 type ChangedFile = RpcGitChanges["files"][number];
@@ -117,15 +117,6 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 	};
 	return (
 		<div className="omp-changes flex min-h-0 flex-1 flex-col">
-			<PanelActions>
-				<IconButton
-					disabled={loading}
-					icon={<RefreshCw />}
-					label={t("common.refresh")}
-					onClick={() => setRefresh(value => value + 1)}
-					size="sm"
-				/>
-			</PanelActions>
 			<PanelToolbar>
 				{sourceSelector}
 				{changes?.isRepo && (
@@ -141,6 +132,14 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 						<ChangeCounts {...totals} />
 					</>
 				)}
+				<IconButton
+					className="ml-auto"
+					disabled={loading}
+					icon={<RefreshCw />}
+					label={t("common.refresh")}
+					onClick={() => setRefresh(value => value + 1)}
+					size="sm"
+				/>
 				{changes?.truncated && (
 					<span className="text-sc-xs text-(--sc-text-muted)" role="status">
 						{t("diffPanel.listLimited")}
@@ -156,12 +155,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 			{loading && !changes ? (
 				<p className="px-3 py-2 text-sc-sm text-(--sc-text-muted)">{t("common.loading")}</p>
 			) : changes && !changes.isRepo ? (
-				<EmptyState
-					description={t("diffPanel.notRepoHint")}
-					icon={<FolderGit2 />}
-					size="sm"
-					title={t("diffPanel.notRepoTitle")}
-				/>
+				<EmptyState icon={<FolderGit2 />} size="sm" title={t("diffPanel.notRepoTitle")} />
 			) : changes?.files.length === 0 ? (
 				<EmptyState icon={<CheckCircle2 />} size="sm" title={t("diffPanel.clean")} />
 			) : (
@@ -210,7 +204,16 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 									);
 								})}
 								{files.length === 0 && (
-									<p className="px-2 py-3 text-sc-sm text-(--sc-text-muted)">{t("diffPanel.noMatch")}</p>
+									<EmptyState
+										icon={<FolderGit2 />}
+										size="sm"
+										title={t("diffPanel.noMatch")}
+										actions={
+											<Button size="sm" variant="secondary" onClick={() => setQuery("")}>
+												{t("common.clear")}
+											</Button>
+										}
+									/>
 								)}
 							</div>
 						</div>

@@ -49,6 +49,8 @@ test("dragging a session previews and splits on the hovered side", async () => {
 		await page.keyboard.press("ControlOrMeta+t");
 		await expect.poll(async () => (await tabs()).length).toBe(2);
 		await expect.poll(async () => (await tabs()).find(tab => tab.active)?.tabId).not.toBe(first);
+		// The new tab's omp must be up before the test talks to it.
+		await expect.poll(async () => (await tabs()).find(tab => tab.active)?.status).toBe("ready");
 
 		const row = page.locator(`[data-session-path="tab:${first}"]`);
 		await expect(row).toContainText("Refactor auth flow");

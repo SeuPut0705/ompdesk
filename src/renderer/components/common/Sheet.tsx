@@ -1,5 +1,5 @@
 /**
- * Sheet — a modal panel that slides in from a window edge over a scrim.
+ * Sheet — a modal panel that slides in from the right window edge over a scrim.
  *
  * Container policy (design-spec.md): use a Sheet for contextual detail that
  * needs more room than a popover but must not replace the page — the
@@ -7,8 +7,6 @@
  * narrow to dock it, a session's details, a filter panel. Same behavior as
  * Dialog: focus trapped, Escape and scrim click close, focus restored.
  * Never stack a Sheet on a Dialog or vice versa.
- * The header carries `.omp-sheet-header[data-side]` so the shell can keep a
- * left sheet's title clear of the macOS traffic lights (global.css).
  */
 
 import { X } from "lucide-react";
@@ -20,7 +18,6 @@ import { useT } from "../../lib/i18n";
 import { IconButton } from "./IconButton";
 import { useModalLayer } from "./use-modal-layer";
 
-export type SheetSide = "right" | "left";
 export type SheetSize = "sm" | "md" | "lg";
 
 const WIDTH: Record<SheetSize, string> = {
@@ -34,7 +31,6 @@ export interface SheetSurfaceProps {
 	titleId?: string;
 	description?: ReactNode;
 	onClose?: () => void;
-	side?: SheetSide;
 	footer?: ReactNode;
 	className?: string;
 	/** Body padding/layout; defaults to the standard inset. Pass e.g. "flex flex-col" for a full-bleed canvas. */
@@ -50,7 +46,6 @@ export function SheetSurface({
 	titleId,
 	description,
 	onClose,
-	side = "right",
 	footer,
 	className,
 	bodyClassName = "px-5 py-4",
@@ -61,8 +56,7 @@ export function SheetSurface({
 	return (
 		<div
 			className={cx(
-				"flex h-full flex-col bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-lg)",
-				side === "right" ? "border-l border-(--sc-border-subtle)" : "border-r border-(--sc-border-subtle)",
+				"flex h-full flex-col border-l border-(--sc-border-subtle) bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-lg)",
 				className,
 			)}
 		>
@@ -74,10 +68,7 @@ export function SheetSurface({
 					{header}
 				</>
 			) : (
-				<div
-					className="omp-sheet-header flex shrink-0 items-start justify-between gap-3 border-b border-(--sc-divider) py-3 pr-3 pl-5"
-					data-side={side}
-				>
+				<div className="flex shrink-0 items-start justify-between gap-3 border-b border-(--sc-divider) py-3 pr-3 pl-5">
 					<div className="min-w-0 pt-1">
 						<div className="text-sc-lg font-semibold tracking-(--sc-tracking-tight) break-words" id={titleId}>
 							{title}
@@ -105,7 +96,7 @@ export interface SheetProps extends Omit<SheetSurfaceProps, "titleId" | "onClose
 	size?: SheetSize;
 }
 
-export function Sheet({ open, onClose, size = "md", side = "right", ...surface }: SheetProps) {
+export function Sheet({ open, onClose, size = "md", ...surface }: SheetProps) {
 	const titleId = useId();
 	const panelRef = useRef<HTMLDivElement>(null);
 	const { mounted, closing } = useOverlayPresence(open);
@@ -114,8 +105,7 @@ export function Sheet({ open, onClose, size = "md", side = "right", ...surface }
 	return createPortal(
 		<div
 			className={cx(
-				"fixed inset-0 z-(--sc-z-dialog) flex bg-(--sc-overlay) backdrop-blur-[2px]",
-				side === "right" ? "justify-end" : "justify-start",
+				"fixed inset-0 z-(--sc-z-dialog) flex justify-end bg-(--sc-overlay) backdrop-blur-[2px]",
 				closing ? "omp-fade-out" : "omp-fade-in",
 			)}
 			inert={closing}
@@ -127,16 +117,12 @@ export function Sheet({ open, onClose, size = "md", side = "right", ...surface }
 			<div
 				aria-labelledby={titleId}
 				aria-modal={!closing}
-				className={cx(
-					"h-full outline-none",
-					WIDTH[size],
-					!closing && (side === "right" ? "omp-slide-in-right" : "omp-slide-in-left"),
-				)}
+				className={cx("h-full outline-none", WIDTH[size], !closing && "omp-slide-in-right")}
 				ref={panelRef}
 				role={closing ? "presentation" : "dialog"}
 				tabIndex={-1}
 			>
-				<SheetSurface {...surface} onClose={onClose} side={side} titleId={titleId} />
+				<SheetSurface {...surface} onClose={onClose} titleId={titleId} />
 			</div>
 		</div>,
 		document.body,

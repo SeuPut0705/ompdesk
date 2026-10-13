@@ -1,16 +1,18 @@
 /**
- * Searchable dropdown for values that reference a model or a provider.
+ * Searchable settings dropdown: values that reference a model or a provider,
+ * and caller-owned value lists (shell paths, plugin enums).
  *
  * Two sources of options:
- * - Fetched (default): string-typed settings such as
- *   providers.webSearchGeminiModel or mnemopi.llmModel. Options are fetched
- *   (forced) on every open through the model store, so credential and
- *   models.yml changes never leave a process-lifetime cache. Custom values
- *   stay allowed: the current value is pinned when it is not in the fetched
- *   list, and the search text can be committed verbatim.
- * - Static `groups`: a caller-owned candidate pool (model roles), grouped
- *   under headings. No fetch, no free-text entry; a saved value outside the
- *   pool is still pinned so it stays visible and clearable.
+ * - Fetched (`kind`, no `groups`): string-typed settings such as
+ *   mnemopi.llmModel. Options are fetched (forced) on every open through the
+ *   model store, so credential and models.yml changes never leave a
+ *   process-lifetime cache. Custom values stay allowed: the current value is
+ *   pinned when it is not in the fetched list, and the search text can be
+ *   committed verbatim.
+ * - Static `groups`: a caller-owned candidate pool (model roles, shells),
+ *   grouped under headings when labelled. No fetch; free-text entry only with
+ *   `allowCustom`. A saved value outside the pool is still pinned so it stays
+ *   visible and clearable.
  *
  * Models show their display name with the `provider/id` selector beside it.
  * Commits go through the caller (`""` clears).
@@ -24,6 +26,7 @@ import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { useModelStore } from "../../stores/model";
 import { Button, Spinner } from "../common";
+import { isTopmostDialog, registerDialogLayer } from "../common/dialog-layer";
 
 export type SettingRefKind = "model" | "provider";
 
@@ -110,8 +113,7 @@ const ROW_CLASS =
 const GROUP_LABEL_CLASS =
 	"px-2 pt-2 pb-0.5 text-sc-2xs font-semibold tracking-wide text-(--sc-text-muted) uppercase first:pt-1";
 
-export interface ModelValueSelectProps {
-	kind: SettingRefKind;
+interface ModelValueSelectBaseProps {
 	/** Current committed value; "" means unset. */
 	value: string;
 	disabled?: boolean;
@@ -119,8 +121,8 @@ export interface ModelValueSelectProps {
 	onCommit: (value: string) => void;
 	/** Trigger text shown while value is "" (defaults to the unset label). */
 	placeholder?: string;
-	/** Caller-owned grouped options; replaces the catalog fetch and free-text entry. */
-	groups?: readonly ModelValueGroup[];
+	/** Plural noun for the search and empty-state copy (defaults to the kind's noun). */
+	noun?: string;
 	/** Accessible name of the trigger when no visible label names it. */
 	ariaLabel?: string;
 	/** Trigger tooltip (e.g. why it is disabled). */
@@ -129,6 +131,18 @@ export interface ModelValueSelectProps {
 	clearLabel?: string;
 }
 
+type ModelValueSelectProps = ModelValueSelectBaseProps &
+	(
+		| { kind: SettingRefKind; groups?: undefined; allowCustom?: undefined }
+		| {
+				kind?: SettingRefKind;
+				/** Caller-owned grouped options; replaces the catalog fetch. */
+				groups: readonly ModelValueGroup[];
+				/** Let the search text be committed verbatim (fetched mode always does). */
+				allowCustom?: boolean;
+		  }
+	);
+
 export function ModelValueSelect({
 	kind,
 	value,
@@ -136,6 +150,8 @@ export function ModelValueSelect({
 	onCommit,
 	placeholder,
 	groups,
+	allowCustom,
+	noun: nounOverride,
 	ariaLabel,
 	title,
 	clearLabel,
@@ -152,6 +168,7 @@ export function ModelValueSelect({
 	const rootRef = useRef<HTMLDivElement>(null);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const searchRef = useRef<HTMLInputElement>(null);
+	const panelRef = useRef<HTMLDivElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
 	const requestIdRef = useRef(0);
 	const isStatic = groups !== undefined;
@@ -188,6 +205,27 @@ export function ModelValueSelect({
 	useEffect(() => {
 		if (!open) return;
 		requestAnimationFrame(() => searchRef.current?.focus());
+	}, [open]);
+
+	// Register the dropdown as an interaction layer before handling Escape.
+	// Capture listeners run in registration order, so propagation alone cannot
+	// protect it from an earlier Sheet/Modal listener on the same document.
+	useEffect(() => {
+		if (!open) return;
+		const panel = panelRef.current;
+		const unregister = registerDialogLayer(panel);
+		const onKey = (event: globalThis.KeyboardEvent) => {
+			if (event.key !== "Escape" || isImeKeyEvent(event) || !isTopmostDialog(panel)) return;
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			setOpen(false);
+			triggerRef.current?.focus();
+		};
+		document.addEventListener("keydown", onKey, true);
+		return () => {
+			document.removeEventListener("keydown", onKey, true);
+			unregister();
+		};
 	}, [open]);
 
 	// A control that becomes unusable (sidecar dropped) must not keep offering
@@ -237,11 +275,6 @@ export function ModelValueSelect({
 		setOpen(true);
 	};
 
-	const closePanel = () => {
-		setOpen(false);
-		triggerRef.current?.focus();
-	};
-
 	const choose = (next: string) => {
 		setOpen(false);
 		setQuery("");
@@ -269,12 +302,20 @@ export function ModelValueSelect({
 	// contain it (hand-written overrides stay selectable/clearable).
 	const currentOption = allOptions.find(option => option.value === value);
 	const currentIsCustom = value !== "" && ready && currentOption === undefined;
-	// In fetched mode the search text doubles as a custom-value entry when it is
-	// not an exact known option.
+	// In fetched mode (or with `allowCustom`) the search text doubles as a
+	// custom-value entry when it is not an exact known option.
 	const queryIsCustom =
-		!isStatic && trimmedQuery !== "" && !allOptions.some(option => option.value.toLowerCase() === loweredQuery);
+		(allowCustom ?? !isStatic) &&
+		trimmedQuery !== "" &&
+		!allOptions.some(option => option.value.toLowerCase() === loweredQuery);
 
-	const noun = kind === "model" ? t("modelValue.noun.models") : t("modelValue.noun.providers");
+	const noun =
+		nounOverride ??
+		(kind === "model"
+			? t("modelValue.noun.models")
+			: kind === "provider"
+				? t("modelValue.noun.providers")
+				: t("modelValue.noun.options"));
 	const triggerText = value === "" ? (placeholder ?? t("modelValue.unset")) : (currentOption?.label ?? value);
 	const triggerMono = value !== "" && currentOption?.label === undefined;
 
@@ -311,10 +352,6 @@ export function ModelValueSelect({
 		} else if (event.key === "End" && event.target !== searchRef.current) {
 			event.preventDefault();
 			moveFocus(-1, "last");
-		} else if (event.key === "Escape") {
-			event.preventDefault();
-			event.stopPropagation();
-			closePanel();
 		}
 	};
 
@@ -380,6 +417,7 @@ export function ModelValueSelect({
 				<div
 					className="fixed z-(--sc-z-popover) flex flex-col overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-md)"
 					onKeyDown={onListKeyDown}
+					ref={panelRef}
 					style={{ top: placement.top, left: placement.left, width: PANEL_WIDTH, maxHeight: PANEL_MAX_HEIGHT }}
 				>
 					<div className="flex items-center gap-2 border-b border-(--sc-divider) px-2.5 py-2">
@@ -400,7 +438,7 @@ export function ModelValueSelect({
 									{fetchError ?? t("modelValue.loadFailed", { noun })}
 								</span>
 								<Button icon={<RefreshCw />} onClick={() => void fetchOptions()} size="sm" variant="secondary">
-									{t("modelValue.retry")}
+									{t("common.retry")}
 								</Button>
 							</div>
 						) : !ready ? (

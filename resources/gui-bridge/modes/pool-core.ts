@@ -9,7 +9,14 @@
  * globals: the GUI's vitest exercises this file directly
  * (src/renderer/lib/model-pool.test.ts).
  */
-import { EMPTY_POOL, isPresetRole, normalizePool, POOL_ROLE_HINTS, type PoolState, poolIsActive } from "../pool-contracts";
+import {
+	EMPTY_POOL,
+	isPresetRole,
+	normalizePool,
+	POOL_ROLE_HINTS,
+	type PoolState,
+	poolIsActive,
+} from "../pool-contracts";
 
 /** `customType` of the journal entry recording the session's pool; the latest one on the branch wins. */
 export const POOL_ENTRY_TYPE = "ompdesk.model-pool";

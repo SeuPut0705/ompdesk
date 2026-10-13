@@ -52,10 +52,10 @@ describe("validatePluginThemeTokens", () => {
 		const { tokens, rejected } = validatePluginThemeTokens({
 			accent: "#ff0000", // not in TRANSCRIPT_OVERLAY_VARS — chrome stays host-owned
 			mdCode: "url(javascript:alert(1))",
-			toolSuccessBg: 42,
+			toolErrorBg: 42,
 			mdQuoteBorder: "#123456",
 		});
-		expect(rejected).toEqual(["accent", "mdCode", "toolSuccessBg"]);
+		expect(rejected).toEqual(["accent", "mdCode", "toolErrorBg"]);
 		expect(tokens).toEqual({ "--omp-md-quote-border": "#123456" });
 	});
 
@@ -79,12 +79,12 @@ describe("validatePluginThemeTokens", () => {
 
 	it("accepts nested functional colors and anchored var references", () => {
 		const { tokens, rejected } = validatePluginThemeTokens({
-			toolSuccessBg: "color-mix(in oklch, oklch(0.7 0.1 200), red)",
+			toolErrorBg: "color-mix(in oklch, oklch(0.7 0.1 200), red)",
 			mdLinkUrl: "var(--omp-md-link-url)",
 		});
 		expect(rejected).toEqual([]);
 		expect(tokens).toMatchObject({
-			"--omp-tool-success-bg": "color-mix(in oklch, oklch(0.7 0.1 200), red)",
+			"--omp-tool-error-bg": "color-mix(in oklch, oklch(0.7 0.1 200), red)",
 			"--omp-md-link-url": "var(--omp-md-link-url)",
 		});
 	});

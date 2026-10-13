@@ -1,7 +1,7 @@
 import { parseHTML } from "linkedom";
 import { act, type ReactNode, useState } from "react";
 import type { Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
 import { useSubagentsStore } from "../../stores/subagents";
@@ -241,6 +241,24 @@ describe("ExecutionGroup", () => {
 		expect(container.querySelector('[data-testid="details"]')).toBeNull();
 	});
 
+	it("shows no clock for a step that has not run a full second yet, then whole seconds", async () => {
+		// Frozen clock: the assertions must not depend on how long the runner takes.
+		const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+		try {
+			const running = (startTime: number) =>
+				toolEntriesState([["fresh", { ...toolEntry("running"), args: { command: "sleep 60" }, startTime }]]);
+			useToolsStore.setState(running(1_000_000 - 300));
+			await mount(["fresh"], true);
+			expect(container.querySelector(".omp-work-clock")).toBeNull();
+			expect(container.textContent).not.toMatch(/\dms\b/);
+			await act(async () => useToolsStore.setState(running(1_000_000 - 3_400)));
+			await flushFrame();
+			expect(container.querySelector(".omp-work-clock")?.textContent).toBe("3s");
+		} finally {
+			clock.mockRestore();
+		}
+	});
+
 	it("lists calls running at the same time, one row each, and opens the one picked", async () => {
 		useToolsStore.setState(
 			toolEntriesState([
@@ -394,7 +412,8 @@ describe("ExecutionGroup", () => {
 				]),
 			);
 		});
-		expect(container.querySelector(".omp-live-step")).toBeNull();
+		expect(container.querySelector(".omp-live-step")?.getAttribute("data-outcome")).toBe("true");
+		expect(container.querySelector(".omp-work-stage-shell")?.getAttribute("data-open")).toBe("false");
 	});
 
 	it("replays a past step and resumes live following using keyboard-reachable controls", async () => {

@@ -3,7 +3,7 @@
  * daily savings chart, and project filter.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Bar } from "react-chartjs-2";
 import { baseChartOptions, chartTheme, compact, useChartThemeKey, withAlpha } from "../../lib/chart";
 import "../../lib/chart";
@@ -14,7 +14,7 @@ import { useT } from "../../lib/i18n";
 import { Select } from "../common";
 import { ChartBox, MetricCard, MetricGrid, RouteFrame, SectionTitle, type StatsRange } from "./shared";
 
-export function GainRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
+export function GainRoute({ range }: { range: StatsRange }) {
 	const t = useT();
 	const themeKey = useChartThemeKey();
 	const [project, setProject] = useState<string>("");
@@ -24,10 +24,6 @@ export function GainRoute({ range, refreshKey }: { range: StatsRange; refreshKey
 		return next;
 	}, [range, project]);
 	const { data, isLoading, error, refetch } = useStats<GainData>("/api/stats/gain", params);
-
-	useEffect(() => {
-		if (refreshKey > 0) refetch();
-	}, [refreshKey, refetch]);
 
 	const stats = data;
 	const overall = stats?.overall;

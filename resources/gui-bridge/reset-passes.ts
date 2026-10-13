@@ -11,13 +11,9 @@
  */
 import { getOAuthCredentialProvider } from "@oh-my-pi/pi-ai/oauth";
 import { guard } from "./health";
+import { asRecord } from "./params";
 import { redeemResetPass } from "./reset-passes-core";
 import type { BridgeMethods } from "./types";
-
-type Rec = Record<string, unknown>;
-
-
-const asRecord = (value: unknown): Rec => (typeof value === "object" && value !== null ? (value as Rec) : {});
 
 export const methods: BridgeMethods = {
 	...guard("resetPasses", {

@@ -1,8 +1,7 @@
 /**
- * Side panel › Tree: visual branch graph of the session. Consumes the
- * `get_session_tree` RPC when the sidecar provides it (nodes with parent
- * links, roles, timestamps, active-branch + leaf markers) and otherwise falls
- * back to the flat `get_branch_messages` lineage adapted into a single chain.
+ * Side panel › Tree: visual branch graph of the session from the
+ * `get_session_tree` RPC (nodes with parent links, roles, timestamps,
+ * active-branch + leaf markers).
  *
  * Layout is a hand-rolled layered tidy tree (see session-tree-layout.ts):
  * depth rows top→bottom, parents centered on children, HTML cards over an
@@ -46,11 +45,10 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
 import { Badge, Button, EmptyState, ErrorDetail, IconButton, Input, Select, Sheet, Spinner } from "../common";
-import { PanelActions, PanelToolbar } from "./PanelChrome";
+import { PanelToolbar } from "./PanelChrome";
 import { RoleGlyph, roleMeta, SessionRootNode, SessionTreeNodeCard } from "./SessionTreeNodeCard";
 import {
 	buildSessionTreeLayout,
-	chainEntriesFromBranchMessages,
 	type SessionTreeEntry,
 	type SessionTreeLayout,
 	type SessionTreeLayoutNode,
@@ -61,12 +59,9 @@ import {
 	TREE_ROOT_HEIGHT,
 } from "./session-tree-layout";
 
-type TreeSource = "tree" | "chain";
-
 interface SessionTreeModel {
 	entries: SessionTreeEntry[];
 	activeLeafId: string | null;
-	source: TreeSource;
 }
 
 interface ViewTransform {
@@ -101,25 +96,11 @@ const VIEW_INSET = 16;
 const CULL_MARGIN = 160;
 const clampZoom = (k: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, k));
 
-/** Load the richest tree model available: get_session_tree if the sidecar has it, else the flat lineage. */
 async function loadSessionTreeModel(rpc: TabRpc): Promise<SessionTreeModel> {
-	if (typeof rpc.getSessionTree === "function") {
-		try {
-			const response = await rpc.getSessionTree();
-			if (response.success) {
-				const data = response.data as SessionTreeResult | undefined;
-				if (data && Array.isArray(data.tree)) {
-					return { entries: data.tree, activeLeafId: data.activeLeafId ?? null, source: "tree" };
-				}
-			}
-		} catch {
-			// Fall through to the flat lineage — the tree RPC is best-effort.
-		}
-	}
-	const response = await rpc.getBranchMessages();
+	const response = await rpc.getSessionTree();
 	if (!response.success) throw new Error(response.error);
-	const data = response.data as { messages?: Array<{ entryId: string; text: string }> } | undefined;
-	return { entries: chainEntriesFromBranchMessages(data?.messages ?? []), activeLeafId: null, source: "chain" };
+	const data = response.data as SessionTreeResult | undefined;
+	return { entries: data?.tree ?? [], activeLeafId: data?.activeLeafId ?? null };
 }
 
 /** Node subsets shown in the graph (TUI tree-selector filter-mode parity). */
@@ -773,7 +754,7 @@ function SessionTreeView({
 				event.preventDefault();
 				void context.switchToLeaf(context.selectedId, event.shiftKey);
 			} else if (event.key === "l" || event.key === "L") {
-				if (tag === "BUTTON" || !context.selectedId || context.model?.source !== "tree") return;
+				if (tag === "BUTTON" || !context.selectedId || !context.model) return;
 				event.preventDefault();
 				context.startLabelEdit(context.selectedId);
 			}
@@ -834,10 +815,13 @@ function SessionTreeView({
 		<div className="flex min-h-0 flex-1 flex-col" ref={rootRef}>
 			<PanelToolbar className="flex-col items-stretch">
 				<div className="flex min-w-0 items-center gap-2">
-					<span className="min-w-0 truncate text-sc-sm text-(--sc-text-muted)" title={tree.sessionId ?? undefined}>
+					<span
+						className="min-w-0 flex-1 truncate text-sc-sm text-(--sc-text-muted)"
+						title={tree.sessionName ?? tree.sessionId ?? undefined}
+					>
 						{tree.sessionName ?? t("sessionTree.untitled")}
 					</span>
-					{toolbarAction && <PanelActions>{toolbarAction}</PanelActions>}
+					{toolbarAction && <div className="flex shrink-0 items-center">{toolbarAction}</div>}
 				</div>
 				{model && model.entries.length > 0 && (
 					<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -864,7 +848,6 @@ function SessionTreeView({
 										count: layout.forkCount,
 										plural: layout.forkCount === 1 ? "" : "s",
 									})}`}
-								{model.source === "chain" && ` · ${t("sessionTree.lineageView")}`}
 							</span>
 						)}
 					</div>
@@ -912,7 +895,7 @@ function SessionTreeView({
 				<div
 					aria-label={t("sessionTree.canvasAria")}
 					className={cx(
-						"relative min-h-0 flex-1 touch-none overflow-hidden",
+						"relative min-h-0 flex-1 touch-none overflow-hidden focus-visible:outline-(length:--sc-focus-width) focus-visible:-outline-offset-(--sc-focus-width) focus-visible:outline-(--sc-focus-ring)",
 						activeDrag === "pan" ? "cursor-grabbing" : "cursor-grab",
 					)}
 					onDoubleClick={onDoubleClick}
@@ -1083,7 +1066,9 @@ function SessionTreeView({
 							{isHead(selectedEntry) && <Badge variant="success">{t("sessionTree.head")}</Badge>}
 							{!selectedEntry.onActiveBranch && <Badge variant="muted">{t("sessionTree.inactiveBranch")}</Badge>}
 						</div>
-						<p className="text-sc-sm whitespace-pre-wrap text-(--sc-text)">{selectedEntry.textPreview}</p>
+						<p className="text-sc-sm whitespace-pre-wrap break-words text-(--sc-text)">
+							{selectedEntry.textPreview}
+						</p>
 						<div className="flex flex-wrap gap-1.5">
 							{selectedEntry.role === "user" && (
 								<Button
@@ -1099,7 +1084,7 @@ function SessionTreeView({
 								</Button>
 							)}
 							<Button
-								disabled={!sidecarReady || model?.source !== "tree" || tree.savingLabel}
+								disabled={!sidecarReady || tree.savingLabel}
 								icon={<Tag />}
 								onClick={() => tree.startLabelEdit(selectedEntry.entryId)}
 								size="sm"
@@ -1112,7 +1097,7 @@ function SessionTreeView({
 					</div>
 				) : (
 					<p className="shrink-0 border-t border-(--sc-divider) px-3 py-1.5 text-sc-xs text-(--sc-text-muted)">
-						{model?.source === "chain" ? t("sessionTree.footerChain") : t("sessionTree.footerTree")}
+						{t("sessionTree.footerTree")}
 						{t("sessionTree.footerHint")}
 						{t("sessionTree.footerKeys")}
 					</p>

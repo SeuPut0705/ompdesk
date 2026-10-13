@@ -7,7 +7,7 @@
  */
 
 import { parseHTML } from "linkedom";
-import { act } from "react";
+import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -62,16 +62,15 @@ function rowFor(value: string): HTMLButtonElement {
 let root: Root | null = null;
 
 /** Mount the dropdown and open its panel, letting the fetch-on-open settle. */
-async function openDropdown(beforeOpen?: (trigger: HTMLButtonElement) => void): Promise<void> {
+async function openDropdown(
+	beforeOpen?: (trigger: HTMLButtonElement) => void,
+	select: ReactElement = <ModelValueSelect kind="provider" onCommit={() => {}} value="" />,
+): Promise<void> {
 	const container = document.createElement("div");
 	document.body.appendChild(container);
 	root = createRoot(container as unknown as Element);
 	await act(async () => {
-		root?.render(
-			<I18nProvider>
-				<ModelValueSelect kind="provider" onCommit={() => {}} value="" />
-			</I18nProvider>,
-		);
+		root?.render(<I18nProvider>{select}</I18nProvider>);
 	});
 	await act(async () => {
 		const trigger = container.querySelector("button") as HTMLButtonElement;
@@ -95,7 +94,7 @@ afterEach(async () => {
 
 describe("settingRefKind", () => {
 	it("classifies the string-typed model settings from the real schema", () => {
-		expect(settingRefKind("providers.webSearchGeminiModel")).toBe("model");
+		expect(settingRefKind("sharpshooter.model")).toBe("model");
 		expect(settingRefKind("mnemopi.llmModel")).toBe("model");
 		expect(settingRefKind("mnemopi.embeddingModel")).toBe("model");
 	});
@@ -118,8 +117,8 @@ describe("settingRefKind", () => {
 		expect(settingRefKind("images.describeForTextModels")).toBeNull();
 		expect(settingRefKind("model.loopGuard.enabled")).toBeNull();
 		expect(settingRefKind("providers.maxInFlightRequests")).toBeNull();
-		// "modelName" ends in Name, not Model.
-		expect(settingRefKind("stt.modelName")).toBeNull();
+		// "displayName" ends in Name, not Model.
+		expect(settingRefKind("collab.displayName")).toBeNull();
 	});
 });
 
@@ -190,5 +189,35 @@ describe("ModelValueSelect", () => {
 		top = 820;
 		await scroll();
 		expect(panelStyle()).toBeNull();
+	});
+
+	it("lists caller-owned options without a fetch, pins a custom value, and offers typed text only with allowCustom", async () => {
+		const shells = [{ label: "", options: [{ value: "/bin/zsh" }, { value: "/bin/bash" }] }];
+		const typeInto = async (custom: boolean) => {
+			await openDropdown(
+				undefined,
+				<ModelValueSelect allowCustom={custom} groups={shells} onCommit={() => {}} value="/opt/sh" />,
+			);
+			// linkedom has no input events: drive the search field's React onChange directly.
+			const input = document.body.querySelector("input") as unknown as Record<string, unknown>;
+			const propsKey = Object.getOwnPropertyNames(input).find(name => name.startsWith("__reactProps$"));
+			const props = propsKey ? (input[propsKey] as { onChange?: (event: unknown) => void }) : undefined;
+			await act(async () => props?.onChange?.({ target: { value: "/usr/bin/fish" } }));
+			const texts = optionRows().map(row => row.textContent);
+			const offered = Array.from(document.body.querySelectorAll("[role='listbox'] button")).some(button =>
+				(button.textContent ?? "").includes('Use "/usr/bin/fish"'),
+			);
+			await act(async () => {
+				root?.unmount();
+			});
+			root = null;
+			return { texts, offered };
+		};
+
+		const strict = await typeInto(false);
+		expect(command).not.toHaveBeenCalled();
+		expect(strict.texts).toContain("/opt/sh");
+		expect(strict.offered).toBe(false);
+		expect((await typeInto(true)).offered).toBe(true);
 	});
 });

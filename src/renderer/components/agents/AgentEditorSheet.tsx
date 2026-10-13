@@ -141,7 +141,7 @@ export function AgentEditorSheet({ target, definitions, onClose, onSaved }: Agen
 					<Banner
 						actions={
 							<Button onClick={authoring.reload} size="sm" variant="secondary">
-								{t("agentHub.retry")}
+								{t("common.retry")}
 							</Button>
 						}
 						title={authoring.error.message}

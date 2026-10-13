@@ -23,6 +23,7 @@ export async function fixtureOmp(dir: string): Promise<string> {
 			exports: {
 				"./session/session-listing": "./session-store.ts",
 				"./session/session-storage": "./session-store.ts",
+				"./session/session-loader": "./session-store.ts",
 				"./config/models-config-schema": "./models-config.ts",
 			},
 		}),
@@ -42,6 +43,17 @@ export async function fixtureOmp(dir: string): Promise<string> {
 		}),
 	);
 	await writeFile(path.join(catalog, "config.ts"), `export * from ${JSON.stringify(config)};\n`);
+	const tui = path.join(path.dirname(root), "pi-tui");
+	await mkdir(tui, { recursive: true });
+	await writeFile(
+		path.join(tui, "package.json"),
+		JSON.stringify({
+			name: "@oh-my-pi/pi-tui",
+			type: "module",
+			exports: { "./chat/transcript-entry": "./transcript-entry.ts" },
+		}),
+	);
+	await writeFile(path.join(tui, "transcript-entry.ts"), `export * from ${JSON.stringify(store)};\n`);
 	return bin;
 }
 

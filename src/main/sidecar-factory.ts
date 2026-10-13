@@ -5,9 +5,11 @@
  */
 import { app } from "electron";
 import { parseAccountRotationPref } from "../shared/account-rotation";
+import { reaExtensionArgs } from "../shared/builtin-mcp";
 import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../shared/reply-language";
 import { bootModelSelector } from "./boot-model";
 import type { BridgeConnectResult, BridgeHealth } from "./bridge-health";
+import { builtinReaState } from "./builtin-mcp";
 import { ompFailureText } from "./i18n";
 import { systemOmp } from "./omp-runtime";
 import { writeRuntimeLog } from "./runtime-log";
@@ -18,6 +20,8 @@ import { SidecarManager } from "./sidecar";
 export interface LocalSidecarDeps {
 	/** The gui-bridge extension directory. */
 	bridgeDir: string;
+	builtinDir: string;
+	builtinReaPref: () => unknown;
 	/** Proxy env per spawn (GUI pref → inherited env → system proxy). */
 	proxyEnv: () => Promise<Record<string, string>>;
 	bridgeHealth: BridgeHealth;
@@ -49,6 +53,10 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 					: { ...resolution, error: ompFailureText(resolution.reason) };
 			},
 			bridgeDir,
+			builtinMcp: async () => {
+				const args = reaExtensionArgs(deps.builtinDir, await builtinReaState(deps.builtinReaPref()));
+				return { args, ...(args.length ? { root: deps.builtinDir } : {}) };
+			},
 			cwd,
 			kind,
 			fresh,

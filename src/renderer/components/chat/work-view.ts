@@ -1,12 +1,13 @@
 import type { AgentMessage, AgentProgress } from "../../../shared/rpc-types";
 import { extractImageDataUrls, resultDetails } from "../../lib/format";
+import { asRecord } from "../../lib/wire-value";
 import type { SubagentNode } from "../../stores/subagents";
 import type { ToolEntry } from "../../stores/tools";
 import { toolDiffStats } from "../tools/diff-stats";
 import { asPerFileResults } from "../tools/EditRenderer";
 import { workFilePathKey } from "../tools/edit-args";
 import { getToolHeader } from "../tools/index";
-import { asRecord, normalizeYieldData } from "../tools/task-render-utils";
+import { normalizeYieldData } from "../tools/task-render-utils";
 import { isInterruptedError } from "./WorkStatus";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;

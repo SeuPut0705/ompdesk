@@ -129,79 +129,52 @@ export function useComposerSubmit({
 			// blocked send in the list, and a recalled entry replays a prompt that
 			// never ran.
 			const parsed = parseComposerMode(expandedMessage);
-			if (parsed?.mode === "bash" && parsed.body) {
-				const previousImages = images;
-				setText("");
-				setImages([]);
-				setMenu(null);
-				setSending(true);
-				let accepted = false;
-				const pending: AgentMessage = {
-					role: "bashExecution",
-					command: parsed.body,
-					excludeFromContext: parsed.excluded,
-					timestamp: Date.now(),
-					running: true,
-				};
-				originMessages?.getState().appendMessage(pending);
-				void rpc
-					.bash(parsed.body, parsed.excluded)
-					.then(async response => {
-						if (originStillActive()) originMessages?.getState().removeMessage(pending);
-						if (!response.success) {
-							if (response.code === "rpc_delivery_unknown") markUncertain();
-							restoreDraft(message, previousImages);
-							showSendError(t("input.bashFailed"), response);
-							return;
-						}
-						accepted = true;
-						useInputHistoryStore.getState().record(message, originCwd, rpc, originDevice);
-						if (!originStillActive()) return;
-						dropReferencedPastes(message);
-						await hydrateTabSession(originTabId);
-					})
-					.catch(error => {
-						if (accepted) {
-							toastError({ title: t("input.refreshFailed"), error });
-							return;
-						}
-						markUncertain();
-						if (originStillActive()) originMessages?.getState().removeMessage(pending);
-						restoreDraft(message, previousImages);
-						showSendError(t("input.bashFailed"), error);
-					})
-					.finally(() => {
-						if (originStillActive()) setSending(false);
-					});
-				return;
-			}
-
-			// `$ code` → python mode (TUI parity): run through the eval RPC, showing a
-			// running ExecutionBubble (cancel → abortEval) until the transcript record
-			// lands. Language is left to the sidecar — interactive eval is python-only
+			// `! cmd` → bash, `$ code` → python mode (TUI parity): a running
+			// ExecutionBubble stands in until the transcript record lands. Python's
+			// language is left to the sidecar — interactive eval is python-only
 			// today and the GUI tracks no kernel state to source it from.
-			if (parsed?.mode === "python" && parsed.body) {
+			const execution =
+				parsed?.body && parsed.mode === "bash"
+					? {
+							pending: {
+								role: "bashExecution",
+								command: parsed.body,
+								excludeFromContext: parsed.excluded,
+								timestamp: Date.now(),
+								running: true,
+							} satisfies AgentMessage,
+							run: () => rpc.bash(parsed.body, parsed.excluded),
+							failedTitle: t("input.bashFailed"),
+						}
+					: parsed?.body && parsed.mode === "python"
+						? {
+								pending: {
+									role: "pythonExecution",
+									code: parsed.body,
+									timestamp: Date.now(),
+									running: true,
+								} satisfies AgentMessage,
+								run: () => rpc.eval(parsed.body, undefined, parsed.excluded),
+								failedTitle: t("input.evalFailed"),
+							}
+						: undefined;
+			if (execution) {
+				const { pending, failedTitle } = execution;
 				const previousImages = images;
 				setText("");
 				setImages([]);
 				setMenu(null);
 				setSending(true);
 				let accepted = false;
-				const pending: AgentMessage = {
-					role: "pythonExecution",
-					code: parsed.body,
-					timestamp: Date.now(),
-					running: true,
-				};
 				originMessages?.getState().appendMessage(pending);
-				void rpc
-					.eval(parsed.body, undefined, parsed.excluded)
+				void execution
+					.run()
 					.then(async response => {
 						if (originStillActive()) originMessages?.getState().removeMessage(pending);
 						if (!response.success) {
 							if (response.code === "rpc_delivery_unknown") markUncertain();
 							restoreDraft(message, previousImages);
-							showSendError(t("input.evalFailed"), response);
+							showSendError(failedTitle, response);
 							return;
 						}
 						accepted = true;
@@ -218,7 +191,7 @@ export function useComposerSubmit({
 						markUncertain();
 						if (originStillActive()) originMessages?.getState().removeMessage(pending);
 						restoreDraft(message, previousImages);
-						showSendError(t("input.evalFailed"), error);
+						showSendError(failedTitle, error);
 					})
 					.finally(() => {
 						if (originStillActive()) setSending(false);

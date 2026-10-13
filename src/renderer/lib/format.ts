@@ -23,7 +23,7 @@ export function formatTimeAgo(iso: string | undefined | null): string {
 	const then = Date.parse(iso);
 	if (Number.isNaN(then)) return "";
 	const seconds = Math.max(0, (Date.now() - then) / 1000);
-	if (seconds < 45) return translate("time.justNow");
+	if (seconds < 60) return translate("time.justNow");
 	if (seconds < 3600) return translate("time.minutesShort", { count: Math.floor(seconds / 60) });
 	if (seconds < 86_400) return translate("time.hoursShort", { count: Math.floor(seconds / 3600) });
 	if (seconds < 604_800) return translate("time.daysShort", { count: Math.floor(seconds / 86_400) });
@@ -85,6 +85,18 @@ export function formatDuration(ms: number): string {
 		minutes: minutes + carried,
 		seconds: carried ? 0 : seconds,
 	});
+}
+
+/**
+ * A ticking clock for running work: whole seconds from the first second on, nothing before it.
+ * The shared tick advances once a second, so sub-second values were stale ("0ms", "810ms")
+ * and decimals jittered between ticks.
+ */
+export function formatElapsed(ms: number): string {
+	if (!(ms >= 1000)) return "";
+	const seconds = Math.floor(ms / 1000);
+	if (seconds < 60) return translate("time.secondsShort", { count: seconds });
+	return translate("time.minutesSecondsShort", { minutes: Math.floor(seconds / 60), seconds: seconds % 60 });
 }
 
 const EXT_LANG: Record<string, string> = {

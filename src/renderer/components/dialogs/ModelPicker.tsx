@@ -342,7 +342,7 @@ export function ModelPicker() {
 								size="sm"
 								title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
 							>
-								{t("modelPicker.retry")}
+								{t("common.retry")}
 							</Button>
 						</div>
 					) : loading ? (

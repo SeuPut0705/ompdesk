@@ -176,7 +176,7 @@ export function SessionInsights() {
 					className="ml-auto"
 					disabled={loading}
 					icon={<RefreshCw className={loading ? "animate-spin" : undefined} />}
-					label={t("usage.refresh")}
+					label={t("common.refresh")}
 					onClick={refresh}
 				/>
 			</div>

@@ -5,7 +5,7 @@ import {
 	sessionRuntimeStore,
 	withSessionRuntime,
 } from "../stores/session-runtime-context";
-import { createTabRpc } from "./tab-rpc";
+import { createTabRpc, type TabRpc } from "./tab-rpc";
 
 /**
  * Declarative command registry: maps every known slash command to a typed
@@ -115,16 +115,12 @@ export interface CommandRegistryContext {
 	fastModeEnabled: boolean;
 	autoCompaction: boolean;
 	autoRetry: boolean;
-	steeringMode: "all" | "one-at-a-time";
-	followUpMode: "all" | "one-at-a-time";
-	interruptMode: "immediate" | "wait";
 	planModeEnabled: boolean;
 	prewalkArmed: boolean;
 	availableCommands: AvailableCommand[];
 	openModelPicker: () => void;
 	openSettings: (tab?: string) => void;
 	openProviders: () => void;
-	openCommandPalette: () => void;
 	openFeedback: () => void;
 	openRenameDialog: () => void;
 	openSessionPicker: () => void;
@@ -154,17 +150,10 @@ export interface CommandRegistryContext {
 		setFastMode: (enabled: boolean) => Promise<RpcResponse>;
 		setAutoCompaction: (enabled: boolean) => Promise<RpcResponse>;
 		setAutoRetry: (enabled: boolean) => Promise<RpcResponse>;
-		setSteeringMode: (mode: "all" | "one-at-a-time") => Promise<unknown>;
-		setFollowUpMode: (mode: "all" | "one-at-a-time") => Promise<unknown>;
-		setInterruptMode: (mode: "immediate" | "wait") => Promise<unknown>;
 		compact: (instructions?: string) => Promise<RpcResponse>;
 		newSession: () => Promise<unknown>;
-		handoff: () => Promise<unknown>;
-		prompt: (message: string) => Promise<unknown>;
 		setPlanMode: (enabled: boolean) => Promise<RpcResponse>;
 		setPrewalk: (enabled: boolean) => Promise<RpcResponse>;
-		exportHtml: (path?: string) => Promise<unknown>;
-		setSessionName: (name: string) => Promise<unknown>;
 		cycleModel: () => Promise<unknown>;
 		cycleThinkingLevel: () => Promise<unknown>;
 	};
@@ -1262,6 +1251,22 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		category: "panel",
 		affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab("diff") },
 	});
+	for (const view of ["terminal", "preview", "files", "logs", "queue"] as const) {
+		add({
+			name: view,
+			label: t(`panel.tabs.${view}`),
+			description: t("panel.title"),
+			category: "panel",
+			affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab(view) },
+		});
+	}
+	add({
+		name: "plan-panel",
+		label: t("panel.tabs.plan"),
+		description: t("panel.title"),
+		category: "panel",
+		affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab("plan") },
+	});
 
 	// ═══════════════════════════════════════════════════════════════════
 	// VIEW
@@ -1628,9 +1633,7 @@ async function forgeTtsrRule(complaint?: string): Promise<void> {
 	}
 }
 
-export async function retryFailedTurn(): Promise<void> {
-	const runtime = focusedSessionRuntime();
-	const rpc = runtime ? createTabRpc(runtime.command) : window.omp.rpc;
+export async function retryFailedTurn(rpc: TabRpc): Promise<void> {
 	const response = await rpc.retry();
 	if (!response.success) throw new Error(response.error);
 	const data = response.data as { retried?: boolean } | undefined;
@@ -1674,34 +1677,30 @@ export async function forkSessionFromGui(): Promise<void> {
 	toast({ variant: "success", message: translate("fork.success") });
 }
 
-/**
- * Build the same canonical affordance list used by CommandPalette from the
- * live stores. Non-component submit paths use this to execute GUI-native
- * builtins instead of forwarding TUI-only command text to the model.
- */
-export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): CommandMenuItem[] {
-	const runtime = focusedSessionRuntime();
-	const rpc = runtime ? createTabRpc(runtime.command) : window.omp.rpc;
-	const session = useSessionStore.getState();
-	const model = useModelStore.getState();
-	const settings = useSettingsStore.getState();
+/** Live session state a command menu reflects: the palette subscribes to it, other callers read it once. */
+type CommandContextSnapshot = Pick<
+	CommandRegistryContext,
+	| "isStreaming"
+	| "fastModeEnabled"
+	| "autoCompaction"
+	| "autoRetry"
+	| "planModeEnabled"
+	| "prewalkArmed"
+	| "availableCommands"
+>;
+
+/** The one assembly of a command context: UI openers, shared session actions, and RPCs bound to `rpc`. */
+export function createCommandContext(
+	snapshot: CommandContextSnapshot,
+	{ t, rpc, hydrateSession }: Pick<CommandRegistryContext, "t" | "hydrateSession"> & { rpc: TabRpc },
+): CommandRegistryContext {
 	const ui = useUiStore.getState();
-	return buildCommandMenu({
-		t: translate,
-		isStreaming: session.isStreaming,
-		fastModeEnabled: model.fastModeEnabled,
-		autoCompaction: settings.autoCompaction,
-		autoRetry: settings.autoRetry,
-		steeringMode: settings.steeringMode,
-		followUpMode: settings.followUpMode,
-		interruptMode: settings.interruptMode,
-		planModeEnabled: session.planModeEnabled,
-		prewalkArmed: session.prewalkArmed,
-		availableCommands,
+	return {
+		...snapshot,
+		t,
 		openModelPicker: ui.openModelPicker,
 		openSettings: ui.openSettings,
 		openProviders: ui.openProviders,
-		openCommandPalette: ui.openCommandPalette,
 		openFeedback: ui.openFeedback,
 		openRenameDialog: ui.openRenameDialog,
 		openSessionPicker: ui.openSessionPicker,
@@ -1716,38 +1715,55 @@ export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): 
 		openImportDialog: ui.openImportDialog,
 		openProviderConfig: ui.openProviderConfig,
 		focusDockCard: ui.focusDockCard,
-		retryTurn: retryFailedTurn,
+		retryTurn: () => retryFailedTurn(rpc),
 		retryLastTurn: () =>
 			retryLastTurnShared(() =>
-				toast({
-					variant: "warning",
-					title: translate("palette.retryNothing"),
-					message: translate("palette.retryNothingDesc"),
-				}),
+				toast({ variant: "warning", title: t("palette.retryNothing"), message: t("palette.retryNothingDesc") }),
 			),
 		forkSession: forkSessionFromGui,
-		hydrateSession: () => (runtime ? hydrateTabSession(runtime.tabId) : hydrateSession()),
+		hydrateSession,
 		rpc: {
 			setFastMode: enabled => rpc.setFastMode(enabled),
 			setAutoCompaction: enabled => rpc.setAutoCompaction(enabled),
 			setAutoRetry: enabled => rpc.setAutoRetry(enabled),
-			setSteeringMode: mode => rpc.setSteeringMode(mode),
-			setFollowUpMode: mode => rpc.setFollowUpMode(mode),
-			setInterruptMode: mode => rpc.setInterruptMode(mode),
 			compact: instructions => rpc.compact(instructions),
-			newSession: async () => {
-				return newSessionNow();
-			},
-			handoff: () => rpc.handoff(),
-			prompt: message => rpc.prompt(message),
+			newSession: newSessionNow,
 			setPlanMode: enabled => rpc.setPlanMode(enabled),
 			setPrewalk: enabled => rpc.setPrewalk(enabled),
-			exportHtml: path => rpc.exportHtml(path),
-			setSessionName: name => rpc.setSessionName(name),
 			cycleModel: () => rpc.cycleModel(),
 			cycleThinkingLevel: () => rpc.cycleThinkingLevel(),
 		},
-	});
+	};
+}
+
+/**
+ * Build the same canonical affordance list used by CommandPalette from the
+ * live stores. Non-component submit paths use this to execute GUI-native
+ * builtins instead of forwarding TUI-only command text to the model.
+ */
+export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): CommandMenuItem[] {
+	const runtime = focusedSessionRuntime();
+	const session = useSessionStore.getState();
+	const model = useModelStore.getState();
+	const settings = useSettingsStore.getState();
+	return buildCommandMenu(
+		createCommandContext(
+			{
+				isStreaming: session.isStreaming,
+				fastModeEnabled: model.fastModeEnabled,
+				autoCompaction: settings.autoCompaction,
+				autoRetry: settings.autoRetry,
+				planModeEnabled: session.planModeEnabled,
+				prewalkArmed: session.prewalkArmed,
+				availableCommands,
+			},
+			{
+				t: translate,
+				rpc: runtime ? createTabRpc(runtime.command) : window.omp.rpc,
+				hydrateSession: () => (runtime ? hydrateTabSession(runtime.tabId) : hydrateSession()),
+			},
+		),
+	);
 }
 
 /**

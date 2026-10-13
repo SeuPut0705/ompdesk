@@ -313,7 +313,6 @@ async function downloadMacAsset(
 	}
 
 	const total = asset.size;
-	const startedAt = performance.now();
 	let transferred = plan.offset;
 	let lastProgressAt = 0;
 	const file = await fs.promises.open(partialPath, plan.append ? "a" : "w");
@@ -331,15 +330,11 @@ async function downloadMacAsset(
 			transferred += value.byteLength;
 			const now = performance.now();
 			if (now - lastProgressAt >= PROGRESS_INTERVAL_MS || (total > 0 && transferred === total)) {
-				const elapsedSeconds = Math.max((now - startedAt) / 1000, 0.001);
 				broadcast({
 					state: "downloading",
 					version,
 					mode,
 					percent: total > 0 ? Math.min(100, Math.round((transferred / total) * 100)) : 0,
-					bytesPerSecond: Math.round(transferred / elapsedSeconds),
-					transferred,
-					total,
 				});
 				lastProgressAt = now;
 			}
@@ -403,15 +398,7 @@ function startMacDownload(
 	mode: "manual" | "relaunch",
 ): Promise<void> {
 	return macTransfer.start(() => {
-		broadcast({
-			state: "downloading",
-			version,
-			mode,
-			percent: 0,
-			bytesPerSecond: 0,
-			transferred: 0,
-			total: asset.size,
-		});
+		broadcast({ state: "downloading", version, mode, percent: 0 });
 		return downloadMacAsset(version, asset, token, mode);
 	});
 }
@@ -577,9 +564,6 @@ export function setupUpdater(): void {
 			version: activeUpdate?.version ?? appVersion(),
 			mode: "automatic",
 			percent: Math.round(progress.percent),
-			bytesPerSecond: progress.bytesPerSecond,
-			transferred: progress.transferred,
-			total: progress.total,
 		});
 	});
 	autoUpdater.on("update-downloaded", info =>

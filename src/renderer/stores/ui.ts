@@ -5,8 +5,14 @@ import { readPrepaintThemeMode, type ThemeMode } from "../lib/theme";
 
 export type { ThemeMode };
 
-/** Side panel views (design-spec §2.2): Changes · Files · Logs · Queue · Tree · Jobs. */
-export type PanelTab = "diff" | "files" | "logs" | "queue" | "tree" | "jobs";
+/** Primary and secondary session inspector views. */
+export const PANEL_TABS = ["terminal", "diff", "preview", "files", "jobs", "plan", "logs", "queue", "tree"] as const;
+export type PanelTab = (typeof PANEL_TABS)[number];
+
+/** Existing diff/files/logs preferences retain their meaning; unknown values use Changes. */
+export function migrateDefaultPanelTab(value: unknown): PanelTab {
+	return PANEL_TABS.find(tab => tab === value) ?? "diff";
+}
 /**
  * What fills the main area: the open session (transcript + composer) or one
  * of the three destination pages. The sidebar stays visible for all of them.
@@ -59,6 +65,7 @@ interface UiStore {
 	sidebarVisible: boolean;
 	panelVisible: boolean;
 	panelTab: PanelTab;
+	previewUrl: string | null;
 	/** Local file currently shown in the Files drawer. */
 	filePreviewPath: string | null;
 	/** The Files drawer's viewer asked for a wider docked panel (not persisted; the drag width stays the pref). */
@@ -128,6 +135,7 @@ interface UiStore {
 	togglePanel: () => void;
 	toggleToolsExpandAll: () => void;
 	setPanelTab: (tab: PanelTab) => void;
+	openPreview: (url: string) => void;
 	openFilePreview: (path: string) => void;
 	closeFilePreview: () => void;
 	toggleFilePreviewExpanded: () => void;
@@ -236,6 +244,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	panelTab: "diff",
 	filePreviewPath: null,
 	filePreviewExpanded: false,
+	previewUrl: null,
 	commandPaletteOpen: false,
 	modelPickerOpen: false,
 	modelPickerPurpose: "session",
@@ -258,6 +267,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	toggleToolsExpandAll: () =>
 		set({ toolsExpandAll: { expanded: !get().toolsExpandAll.expanded, seq: get().toolsExpandAll.seq + 1 } }),
 	setPanelTab: tab => set({ panelTab: tab, panelVisible: true }),
+	openPreview: url => set({ previewUrl: url, panelTab: "preview", panelVisible: true }),
 	openFilePreview: path => set({ filePreviewPath: path, panelTab: "files", panelVisible: true }),
 	closeFilePreview: () => set({ filePreviewPath: null, filePreviewExpanded: false }),
 	toggleFilePreviewExpanded: () => set({ filePreviewExpanded: !get().filePreviewExpanded }),

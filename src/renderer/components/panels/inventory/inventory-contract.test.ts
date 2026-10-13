@@ -12,8 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { RpcMarketplaceInfo } from "../../../../shared/rpc-types";
-import { availablePluginActions, classifyMarketplaceSource, extractCacheTimestamp } from "./marketplace-source";
+import { availablePluginActions, classifyMarketplaceSource } from "./marketplace-source";
 import {
 	assembleFieldValue,
 	isFieldDirty,
@@ -70,31 +69,6 @@ describe("availablePluginActions (installed-flag mapping)", () => {
 	});
 });
 
-describe("extractCacheTimestamp", () => {
-	/** Spread bypasses excess-property checks — the wire may carry timestamps additively. */
-	const marketplaceWith = (extra: Record<string, unknown>): RpcMarketplaceInfo => ({
-		name: "m",
-		source: "https://x/y.git",
-		...extra,
-	});
-
-	it("returns null when the wire carries no timestamp", () => {
-		expect(extractCacheTimestamp(marketplaceWith({}))).toBeNull();
-	});
-
-	it("accepts epoch seconds, epoch ms, and date strings additively", () => {
-		expect(extractCacheTimestamp(marketplaceWith({ lastUpdated: 1_700_000_000 }))).toBe(1_700_000_000_000);
-		expect(extractCacheTimestamp(marketplaceWith({ updatedAt: 1_700_000_000_000 }))).toBe(1_700_000_000_000);
-		expect(extractCacheTimestamp(marketplaceWith({ cachedAt: "2026-01-01T00:00:00Z" }))).toBe(
-			Date.parse("2026-01-01T00:00:00Z"),
-		);
-	});
-
-	it("rejects garbage", () => {
-		expect(extractCacheTimestamp(marketplaceWith({ lastUpdated: "not a date" }))).toBeNull();
-	});
-});
-
 describe("isMaskedSettingKey (/key|token|secret|password/i)", () => {
 	it("masks keys containing key/token/secret/password in any case", () => {
 		expect(isMaskedSettingKey("apiKey")).toBe(true);
@@ -132,17 +106,6 @@ describe("parsePluginSettingsSchema", () => {
 		expect(fieldFor("mode", schema, {}).options).toEqual(["fast", "slow"]);
 		expect(fieldFor("name", schema, {}).kind).toBe("string");
 		expect(fieldFor("workers", schema, {}).kind).toBe("number");
-	});
-
-	it("accepts a JSON-Schema properties wrapper and array/object kinds", () => {
-		const schema = {
-			properties: {
-				tags: { type: "array", items: { type: "string" } },
-				labels: { type: "object" },
-			},
-		};
-		expect(fieldFor("tags", schema, {}).kind).toBe("stringArray");
-		expect(fieldFor("labels", schema, {}).kind).toBe("record");
 	});
 
 	it("derives kinds from stored values when the schema is absent", () => {

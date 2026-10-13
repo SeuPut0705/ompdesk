@@ -332,7 +332,7 @@ export function ProvidersSection({
 					<IconButton
 						disabled={!catalog.sidecarReady || catalog.loading}
 						icon={catalog.loading ? <Spinner inheritColor size="sm" /> : <RefreshCw />}
-						label={catalog.sidecarReady ? t("providers.refresh") : t("providers.notConnected")}
+						label={catalog.sidecarReady ? t("common.refresh") : t("providers.notConnected")}
 						onClick={() => void load(true)}
 						size="sm"
 					/>
@@ -351,7 +351,7 @@ export function ProvidersSection({
 								size="sm"
 								variant="ghost"
 							>
-								{t("providerCfg.list.retry")}
+								{t("common.retry")}
 							</Button>
 						}
 						detail={catalog.error}

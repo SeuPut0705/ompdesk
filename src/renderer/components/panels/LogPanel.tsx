@@ -11,7 +11,7 @@ import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { toast } from "../../stores/toast";
 import { Button, EmptyState, IconButton, SearchField, Select } from "../common";
-import { PanelActions, PanelToolbar } from "./PanelChrome";
+import { PanelToolbar } from "./PanelChrome";
 
 const MAX_LINES = 1000;
 
@@ -24,10 +24,10 @@ interface LogLine {
 }
 
 const LEVEL_CLASS: Record<LogLevel, string> = {
-	info: "text-(--omp-muted)",
-	warn: "text-(--omp-warning)",
-	error: "text-(--omp-error)",
-	other: "text-(--omp-dim)",
+	info: "text-(--sc-text-muted)",
+	warn: "text-(--sc-warning)",
+	error: "text-(--sc-danger)",
+	other: "text-(--sc-text-subtle)",
 };
 
 const LEVEL_LABEL_KEY = {
@@ -120,7 +120,7 @@ export function LogPanel() {
 	};
 
 	return (
-		<div className="flex h-full flex-col">
+		<div className="flex h-full min-h-0 min-w-0 flex-col">
 			<PanelToolbar>
 				<Select
 					value={levelFilter}
@@ -133,7 +133,7 @@ export function LogPanel() {
 					}))}
 				/>
 				<span className="text-sc-xs tabular-nums text-(--sc-text-subtle)">{filtered.length}</span>
-				<PanelActions>
+				<div className="ml-auto flex shrink-0 items-center gap-1">
 					<IconButton
 						disabled={filtered.length === 0}
 						icon={<Copy />}
@@ -152,7 +152,7 @@ export function LogPanel() {
 						onClick={exportLogs}
 						size="sm"
 					/>
-				</PanelActions>
+				</div>
 			</PanelToolbar>
 			<div className="px-3 pb-1.5">
 				<SearchField
@@ -166,7 +166,7 @@ export function LogPanel() {
 			</div>
 			<div className="relative min-h-0 flex-1">
 				<div
-					className="h-full overflow-y-auto px-3 py-1 font-mono text-omp-xs leading-[1.5]"
+					className="h-full overflow-y-auto px-3 py-1 font-mono text-sc-xs leading-(--sc-leading-normal)"
 					onScroll={onScroll}
 					ref={scrollRef}
 				>
@@ -180,9 +180,24 @@ export function LogPanel() {
 						</div>
 					) : filtered.length === 0 ? (
 						<EmptyState
+							className="font-sans"
 							icon={<ScrollText />}
 							size="sm"
 							title={lines.length === 0 ? t("logPanel.waiting") : t("logPanel.noMatch")}
+							actions={
+								lines.length > 0 ? (
+									<Button
+										size="sm"
+										variant="secondary"
+										onClick={() => {
+											setQuery("");
+											setLevelFilter("all");
+										}}
+									>
+										{t("common.clear")}
+									</Button>
+								) : undefined
+							}
 						/>
 					) : (
 						filtered.map(line => (
@@ -193,15 +208,15 @@ export function LogPanel() {
 					)}
 				</div>
 				{!pinned && (
-					<button
-						aria-label={t("logPanel.jumpLabel")}
-						className="absolute right-3 bottom-3 flex items-center gap-1 rounded-full border border-(--omp-border-muted) bg-(--omp-bg-elevated) px-2 py-1 text-omp-xs text-(--omp-muted) shadow-(--omp-shadow-sm) transition-colors hover:text-(--omp-text)"
+					<Button
+						className="absolute right-3 bottom-3"
+						icon={<ArrowDown />}
 						onClick={jumpToBottom}
-						type="button"
+						size="sm"
+						variant="secondary"
 					>
-						<ArrowDown size={10} />
 						{t("logPanel.latest")}
-					</button>
+					</Button>
 				)}
 			</div>
 		</div>

@@ -6,7 +6,7 @@ import { useTabRpc } from "../../../lib/tab-rpc";
  * - Enabled switch: same set_plugin_enabled RPC the list-row switch uses.
  * - Features: checkbox list staged locally, saved via set_plugin_features.
  * - Settings: schema-driven single form (not stepped) reusing the Settings
- *   editors — EnumerableSelect for enums, ArrayChipEditor for string
+ *   editors — ModelValueSelect for enums, ArrayChipEditor for string
  *   arrays, RecordKvEditor for flat records, boolean row switches, and a
  *   validated JSON textarea for complex/unknown shapes. Field-level
  *   validation errors from the server (set_plugin_setting `{ok:false,
@@ -44,8 +44,8 @@ import {
 	TextArea,
 } from "../../common";
 import { ArrayChipEditor } from "../../settings/editors/ArrayChipEditor";
-import { EnumerableSelect } from "../../settings/editors/EnumerableSelect";
 import { RecordKvEditor } from "../../settings/editors/RecordKvEditor";
+import { type ModelValueGroup, ModelValueSelect } from "../../settings/ModelValueSelect";
 import { CopyableError } from "./ErrorNote";
 import {
 	type AssembleError,
@@ -105,9 +105,8 @@ function SettingFieldRow({
 }) {
 	const t = useT();
 	const hasValue = hasStoredValue;
-	// Static enum options, memoized so EnumerableSelect's fetcher cache holds.
-	const fetchEnumOptions = useCallback(
-		() => Promise.resolve((field.options ?? []).map(option => ({ value: option }))),
+	const enumGroups = useMemo<readonly ModelValueGroup[]>(
+		() => [{ label: "", options: (field.options ?? []).map(option => ({ value: option })) }],
 		[field.options],
 	);
 
@@ -221,9 +220,9 @@ function SettingFieldRow({
 	} else if (field.kind === "enum") {
 		control =
 			field.options !== undefined && field.options.length > 0 ? (
-				<EnumerableSelect
+				<ModelValueSelect
 					disabled={saving}
-					fetchOptions={fetchEnumOptions}
+					groups={enumGroups}
 					onCommit={next => onDraft(next)}
 					value={typeof draft === "string" ? draft : typeof value === "string" ? value : ""}
 				/>
@@ -624,7 +623,7 @@ export function PluginDetailBody({
 			size="sm"
 			title={!sidecarReady ? t("common.notConnected") : undefined}
 		>
-			{t("invPanel.retry")}
+			{t("common.retry")}
 		</Button>
 	);
 	const groupLabel = "mb-1 text-sc-xs font-semibold tracking-wide text-(--sc-text-muted) uppercase";

@@ -26,6 +26,10 @@ export interface TodoSnapshot {
 	duringTurn?: boolean;
 	/** Separates runs and idle periods when coalescing progress updates. */
 	epoch?: number;
+	/** Capture-time run identity; independent of projected/hidden transcript messages. */
+	turnStartedAt?: number;
+	/** Closed by agent_end; a later todo-only turn cannot borrow this run's card. */
+	endedAt?: number;
 }
 
 /** Archive cap — the transcript keeps the newest snapshots, drops the oldest. */
@@ -41,6 +45,9 @@ export interface TodoStore {
 	historyHydrated: boolean;
 	/** Mirrors the session's agent run (agent_start → agent_end, or a get_state snapshot). */
 	turnActive: boolean;
+	turnStartedAt: number | null;
+	/** A wire message/authoritative transcript replaced the provisional receipt clock. */
+	turnSourceKnown: boolean;
 	historyEpoch: number;
 	/**
 	 * Keep an all-closed list on the dock: set when the running turn finishes it
@@ -48,7 +55,7 @@ export interface TodoStore {
 	 */
 	keepClosedVisible: boolean;
 	setPhases: (phases: TodoPhase[]) => void;
-	setTurnActive: (active: boolean) => void;
+	setTurnActive: (active: boolean, turnStartedAt?: number) => void;
 	revealClosed: () => void;
 	autoClearCompleted: () => void;
 	showReminder: (todos: TodoTask[]) => void;
@@ -63,6 +70,8 @@ const initialState = {
 	history: [] as TodoSnapshot[],
 	historyHydrated: false,
 	turnActive: false,
+	turnStartedAt: null as number | null,
+	turnSourceKnown: false,
 	historyEpoch: 0,
 	keepClosedVisible: false,
 };
@@ -138,19 +147,53 @@ export const createTodoStore = () =>
 							phases: archivedPhases,
 							duringTurn: state.turnActive,
 							epoch: state.historyEpoch,
+							turnStartedAt: state.turnActive ? (state.turnStartedAt ?? undefined) : undefined,
 						};
 			const history =
 				previous?.id === snapshot.id ? [...state.history.slice(0, -1), snapshot] : [...state.history, snapshot];
 			if (history.length > HISTORY_LIMIT) history.shift();
 			set({ ...live, history });
 		},
-		setTurnActive: active =>
-			set(state => ({
-				turnActive: active,
-				historyEpoch: state.historyEpoch + Number(active !== state.turnActive),
-				// The end of a turn releases the finished list it held; an idle reveal survives idle re-syncs.
-				keepClosedVisible: state.keepClosedVisible && (active || !state.turnActive),
-			})),
+		setTurnActive: (active, sourceTimestamp) =>
+			set(state => {
+				const changed = active !== state.turnActive;
+				const sourceStart = Number.isFinite(sourceTimestamp) ? sourceTimestamp : undefined;
+				const sourceKnown = active && (sourceStart !== undefined || (!changed && state.turnSourceKnown));
+				const startedAt = !active
+					? null
+					: changed
+						? (sourceStart ?? Date.now())
+						: sourceStart === undefined
+							? state.turnStartedAt
+							: Math.min(state.turnStartedAt ?? sourceStart, sourceStart);
+				if (!changed && startedAt === state.turnStartedAt && sourceKnown === state.turnSourceKnown) return state;
+				const epoch = state.historyEpoch + Number(changed);
+				const endedAt = active ? undefined : Date.now();
+				const history = state.history.map(snapshot => {
+					if (!active && snapshot.duringTurn && snapshot.epoch === state.historyEpoch) {
+						return { ...snapshot, endedAt };
+					}
+					if (active && startedAt !== null) {
+						if (snapshot.epoch === epoch && snapshot.duringTurn && snapshot.turnStartedAt !== startedAt) {
+							return { ...snapshot, turnStartedAt: startedAt };
+						}
+						// A source timestamp can precede its presentation-frame receipt.
+						if (snapshot.endedAt !== undefined && snapshot.endedAt > startedAt) {
+							return { ...snapshot, endedAt: startedAt };
+						}
+					}
+					return snapshot;
+				});
+				return {
+					turnActive: active,
+					turnStartedAt: startedAt,
+					turnSourceKnown: sourceKnown,
+					historyEpoch: epoch,
+					history,
+					// Timestamp refinement does not release a finished list.
+					keepClosedVisible: changed ? state.keepClosedVisible && active : state.keepClosedVisible,
+				};
+			}),
 		revealClosed: () => set(state => ({ keepClosedVisible: state.phases.some(phase => phase.tasks.length > 0) })),
 		autoClearCompleted: () =>
 			set({

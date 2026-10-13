@@ -5,8 +5,7 @@
  * viewport culling, and pan/zoom at render time.
  *
  * Data source is the `get_session_tree` RPC (nodes carry parentId, role,
- * timestamp, active-branch and leaf markers). A flat `get_branch_messages`
- * fallback is adapted into a single chain via {@link chainEntriesFromBranchMessages}.
+ * timestamp, active-branch and leaf markers).
  */
 
 /** Synthetic node anchoring every root (or unresolved-parent) message. */
@@ -180,23 +179,6 @@ export function buildSessionTreeLayout(entries: SessionTreeEntry[]): SessionTree
 		forkCount,
 		nodeCount: entries.length,
 	};
-}
-
-/**
- * Adapt the flat `get_branch_messages` result (user messages in session
- * order) into a single chain: each message parents to the previous one and
- * the last is HEAD. Same lineage semantics as the pre-visual dialog.
- */
-export function chainEntriesFromBranchMessages(messages: Array<{ entryId: string; text: string }>): SessionTreeEntry[] {
-	return messages.map((message, index) => ({
-		entryId: message.entryId,
-		parentId: index === 0 ? null : (messages[index - 1]?.entryId ?? null),
-		role: "user",
-		textPreview: message.text,
-		timestamp: 0,
-		onActiveBranch: true,
-		isLeaf: index === messages.length - 1,
-	}));
 }
 
 /** Vertical cubic edge from parent bottom-center to child top-center. */

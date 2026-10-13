@@ -88,7 +88,9 @@ test("inline work cards stream tool evidence, catch up and retain outcomes witho
 		await capture("cards");
 		await cards.first().click();
 		await output();
-		await expect(page.locator(".omp-work-card .omp-bash-terminal")).toContainText("5 src/workspace.ts");
+		await expect(
+			page.locator(".omp-work-stage > .omp-work-crossfade > [data-incoming] .omp-bash-terminal"),
+		).toContainText("5 src/workspace.ts");
 		await expect(cards.first()).toContainText("Counting source lines");
 		await expect(cards.first()).toContainText("2 tools · 84 tokens");
 		await capture("expanded");
@@ -99,6 +101,9 @@ test("inline work cards stream tool evidence, catch up and retain outcomes witho
 		await advance();
 		await page.locator(`[data-session-path="tab:${tab}"]`).click();
 		await expect(page.locator(".omp-work-catch-up")).toContainText(/steps? advanced while you were away/);
+		await expect(
+			page.locator(".omp-work-stage > .omp-work-crossfade > [data-incoming] .omp-bash-terminal"),
+		).toContainText("5 src/workspace.ts");
 		await capture("catch-up");
 		await page.locator(".omp-work-catch-up").click();
 		for (let index = 0; index < 8; index++) await advance();
@@ -115,11 +120,16 @@ test("inline work cards stream tool evidence, catch up and retain outcomes witho
 		await expect(page.locator(".omp-work-outcome summary")).toContainText("3 commands");
 		await expect(page.locator(".omp-work-outcome li").filter({ hasText: "wc -l src/workspace.ts" })).toHaveCount(2);
 		await capture("outcome");
-		const log = (await fs.readFile(record, "utf8"))
+		const commandTape = await fs.readFile(record, "utf8");
+		await test.info().attach("bridge-commands", { body: commandTape, contentType: "application/x-ndjson" });
+		const log = commandTape
 			.trim()
 			.split("\n")
 			.map(line => JSON.parse(line) as { type: string; level?: string });
-		expect(log.filter(command => command.type === "get_subagent_messages")).toHaveLength(3);
+		// Showing/replaying a surface and outcome hydration are bounded; auto-follow never polls.
+		const hydrations = log.filter(command => command.type === "get_subagent_messages").length;
+		expect(hydrations).toBeGreaterThanOrEqual(3);
+		expect(hydrations).toBeLessThanOrEqual(4);
 		expect(log.some(command => command.type === "set_subagent_subscription" && command.level === "events")).toBe(
 			true,
 		);

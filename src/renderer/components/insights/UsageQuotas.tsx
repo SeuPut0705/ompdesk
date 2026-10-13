@@ -210,7 +210,7 @@ export function UsageQuotas() {
 					title={!ready ? t("usage.notConnected") : undefined}
 					variant="secondary"
 				>
-					{t("usage.refresh")}
+					{t("common.refresh")}
 				</Button>
 			</div>
 

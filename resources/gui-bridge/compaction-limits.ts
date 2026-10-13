@@ -79,22 +79,27 @@ export const methods: BridgeMethods = {
 			const input = params as { values?: unknown; key?: string; input?: string };
 			if (input.input !== undefined) {
 				let value: number | string | null;
-				try { value = parseCompactionPointInput(input.input); }
-				catch (error) {
+				try {
+					value = parseCompactionPointInput(input.input);
+				} catch (error) {
 					return { ok: false, limitError: String(error).includes("percentage must") ? "percent" : "invalid" };
 				}
 				if (value === null) return { ok: false, limitError: "invalid" };
 				if (!input.key) return { ok: false, modelError: "empty" };
-				try { validateModelCompactionThresholds({ [input.key]: value }); }
-				catch (error) {
+				try {
+					validateModelCompactionThresholds({ [input.key]: value });
+				} catch (error) {
 					return { ok: false, modelError: String(error).includes("last character") ? "star" : "shape" };
 				}
 				return { ok: true, value };
 			}
 			const thresholds = validateModelCompactionThresholds(input.values);
 			const values = input.values as Record<string, number | string>;
-			return { rows: Object.entries(thresholds).sort(([a], [b]) => a.localeCompare(b))
-				.map(([key, threshold]) => ({ key, value: values[key], text: formatCompactionPointInput(threshold) })) };
+			return {
+				rows: Object.entries(thresholds)
+					.sort(([a], [b]) => a.localeCompare(b))
+					.map(([key, threshold]) => ({ key, value: values[key], text: formatCompactionPointInput(threshold) })),
+			};
 		},
 	}),
 };

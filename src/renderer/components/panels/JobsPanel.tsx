@@ -5,16 +5,16 @@
  * a 1s clock keeps running durations live.
  */
 
-import { Hourglass, RotateCw } from "lucide-react";
+import { ChevronRight, Hourglass, RotateCw } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import type { RpcAsyncJobItem, RpcJobsResult } from "../../../shared/rpc-types";
 import { AnsiText } from "../../lib/ansi";
-import { formatClock, formatDuration } from "../../lib/format";
+import { formatClock, formatDuration, formatElapsed } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { Badge, type BadgeVariant, Banner, Button, EmptyState, ErrorDetail, IconButton, Spinner } from "../common";
-import { PANEL_ROW_SURFACE, PanelActions, PanelToolbar } from "./PanelChrome";
+import { Badge, type BadgeVariant, Banner, Button, EmptyState, ErrorDetail, Spinner } from "../common";
+import { PANEL_ROW_SURFACE, PanelToolbar } from "./PanelChrome";
 
 const STATUS_VARIANT: Record<RpcAsyncJobItem["status"], BadgeVariant> = {
 	running: "success",
@@ -32,6 +32,7 @@ export function JobsPanel() {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [attempt, setAttempt] = useState(0);
+	const [cancelling, setCancelling] = useState<string | null>(null);
 	const sectionId = useId();
 
 	/* The retry button's bump is the only reason this effect re-runs on `attempt`. */
@@ -79,9 +80,15 @@ export function JobsPanel() {
 		const live = job.status === "running" || job.cancellationPending === true;
 		const preview = job.errorPreview ?? job.resultPreview;
 		return (
-			<li className={`${PANEL_ROW_SURFACE} mx-1`} data-job-id={job.id} key={job.id} title={job.id}>
+			<li
+				className={`${PANEL_ROW_SURFACE} mx-3 mb-2 border border-(--sc-border-subtle) bg-(--sc-surface-1)`}
+				data-job-id={job.id}
+				key={job.id}
+			>
 				<div className="flex min-w-0 items-start gap-2">
-					<span className="line-clamp-2 min-w-0 flex-1 text-sc-sm break-words text-(--sc-text)">{job.label}</span>
+					<span title={job.label} className="line-clamp-2 min-w-0 flex-1 text-sc-sm break-words text-(--sc-text)">
+						{job.label}
+					</span>
 					<Badge dot pulse={job.status === "running"} variant={STATUS_VARIANT[job.status]}>
 						{t(job.cancellationPending ? "jobs.cancelling" : `jobs.status.${job.status}`)}
 					</Badge>
@@ -91,13 +98,38 @@ export function JobsPanel() {
 					<span aria-hidden>·</span>
 					<span className="shrink-0 tabular-nums">
 						{live || job.endedAt !== undefined
-							? formatDuration(Math.max(0, (job.endedAt ?? now) - job.startTime))
+							? live
+								? formatElapsed(Math.max(0, now - job.startTime))
+								: formatDuration(Math.max(0, (job.endedAt ?? now) - job.startTime))
 							: t("jobs.durationUnavailable")}
 					</span>
+					{job.status === "running" && (
+						<Button
+							className="ml-auto shrink-0"
+							size="sm"
+							variant="secondary"
+							disabled={job.cancellationPending || cancelling === job.id}
+							onClick={async () => {
+								setCancelling(job.id);
+								try {
+									const response = await rpc.command({ type: "cancel_job", jobId: job.id });
+									if (!response.success) throw new Error(response.error);
+									setAttempt(count => count + 1);
+								} catch (cause) {
+									setError(cause instanceof Error ? cause.message : String(cause));
+								} finally {
+									setCancelling(null);
+								}
+							}}
+						>
+							{t("common.cancel")}
+						</Button>
+					)}
 				</div>
 				{preview && (
-					<details className="mt-1.5">
-						<summary className="cursor-pointer text-sc-xs text-(--sc-text-muted) hover:text-(--sc-text)">
+					<details className="group/job mt-1.5" open={live}>
+						<summary className="flex min-h-(--sc-control-sm) cursor-pointer list-none items-center gap-1 rounded-(--sc-radius-sm) text-sc-xs text-(--sc-text-muted) hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) [&::-webkit-details-marker]:hidden">
+							<ChevronRight aria-hidden className="size-3 shrink-0 group-open/job:rotate-90" />
 							{t("jobs.result")}
 						</summary>
 						<pre
@@ -130,15 +162,6 @@ export function JobsPanel() {
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-3">
-			<PanelActions>
-				<IconButton
-					disabled={loading}
-					icon={<RotateCw />}
-					label={t("common.refresh")}
-					onClick={() => setAttempt(count => count + 1)}
-					size="sm"
-				/>
-			</PanelActions>
 			{error && (
 				<Banner
 					actions={
@@ -164,15 +187,7 @@ export function JobsPanel() {
 					<Spinner label={t("jobs.loading")} size="sm" />
 				</div>
 			) : jobs.length === 0 ? (
-				!error && (
-					<EmptyState
-						className="flex-1"
-						description={t("jobs.emptyHint")}
-						icon={<Hourglass />}
-						size="sm"
-						title={t("jobs.empty")}
-					/>
-				)
+				!error && <EmptyState className="flex-1" icon={<Hourglass />} size="sm" title={t("jobs.empty")} />
 			) : (
 				<>
 					{updatedAt && (

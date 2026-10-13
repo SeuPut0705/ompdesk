@@ -189,7 +189,7 @@ export function ModelRolesSection() {
 				<IconButton
 					disabled={!sidecarReady || loading}
 					icon={loading ? <Spinner inheritColor size="sm" /> : <RefreshCw />}
-					label={sidecarReady ? t("modelRoles.refresh") : t("modelRoles.notConnected")}
+					label={sidecarReady ? t("common.refresh") : t("modelRoles.notConnected")}
 					onClick={() => void load()}
 					size="sm"
 				/>

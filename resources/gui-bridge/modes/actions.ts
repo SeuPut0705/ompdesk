@@ -101,7 +101,8 @@ async function runOmfg(
 			// Regenerating cannot conjure a judge; let the user decide on this candidate.
 			if (validated.validation.judgeUnavailable) return { ...validated.candidate, validated: false };
 			last = validated.candidate;
-			const reason = validated.validation.feedback ?? "The rule condition did not match any earlier assistant output.";
+			const reason =
+				validated.validation.feedback ?? "The rule condition did not match any earlier assistant output.";
 			failed.push(
 				`Attempt ${attempt} failed validation:\n${reason}\nFailed candidate:\n${validated.candidate.fileContent}`,
 			);
@@ -114,7 +115,10 @@ async function runOmfg(
 	for (;;) {
 		if (!candidate) throw new Error("The model did not return a valid TTSR rule.");
 		if (!candidate.validated) {
-			const save = await ui.confirm("Validation", "Couldn't confirm this rule matches the conversation. Save anyway?");
+			const save = await ui.confirm(
+				"Validation",
+				"Couldn't confirm this rule matches the conversation. Save anyway?",
+			);
 			if (!save) return { state: "rejected" };
 		}
 		const location = await ui.select("Save TTSR rule where?", [PROJECT_OPTION, GLOBAL_OPTION, AMEND_OPTION]);

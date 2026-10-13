@@ -2,20 +2,20 @@
  * useCompletionMenu: derives the completion menu from the draft around the
  * caret. Provider chain (TUI getSuggestions order): slash-arg → github-ref →
  * slash names → @mention → emoji. First provider with items wins; async
- * providers (emoji buckets, dynamic arg RPC) resolve through a cancel token
- * + debounce. Extracted verbatim from InputArea.
+ * providers (emoji buckets, the builtin argument RPC) resolve through a cancel
+ * token + debounce. A builtin's argument candidates and its inline argument
+ * hint come from stock (`get_command_arg_completions`); other commands show
+ * their advertised input hint until an argument is typed.
  */
 
 import { useEffect, useState } from "react";
 import type { AvailableCommand, AvailableModelsResult, ModelInfo } from "../../../shared/rpc-types";
 import { getEmojiSuggestions } from "../../lib/emoji";
+import { fuzzyScore } from "../../lib/fuzzy-score";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useModelStore } from "../../stores/model";
-import { fuzzyScore, MAX_MENTION_FILE_ITEMS, MAX_MENU_ITEMS, MENTION_SCHEMES } from "./input-area-utils";
-
-/** Builtins whose arguments get candidates from get_command_arg_completions (MCP server names, /move dirs). */
-const DYNAMIC_ARG_BUILTINS: Readonly<Record<string, true>> = { mcp: true, move: true };
+import { MAX_MENTION_FILE_ITEMS, MAX_MENU_ITEMS, MENTION_SCHEMES } from "./input-area-utils";
 
 export interface CompletionItem {
 	value: string;
@@ -60,6 +60,8 @@ export function useCompletionMenu({
 	const t = useT();
 	const rpc = useTabRpc();
 	const models = useModelStore(state => state.availableModels);
+	/** Contextual argument hint under the composer (TUI ghost-text parity). */
+	const [argHint, setArgHint] = useState("");
 	const [selection, setSelection] = useState("");
 	useEffect(() => {
 		const el = textareaRef.current;
@@ -89,17 +91,19 @@ export function useCompletionMenu({
 		let timer: number | undefined;
 		const cursor = el.selectionStart ?? text.length;
 		const before = text.slice(0, cursor);
+		const live = () => !cancelled && (el.selectionStart ?? text.length) === cursor;
 		const apply = (result: Omit<CompletionMenu, "index" | "rangeEnd"> | null) => {
-			if (cancelled || (el.selectionStart ?? text.length) !== cursor) return;
+			if (!live()) return;
 			setMenu(result && result.items.length > 0 ? { ...result, rangeEnd: cursor, index: 0 } : null);
 		};
+		setArgHint("");
 		if (el.selectionEnd !== cursor) {
 			apply(null);
 			return;
 		}
 
 		// 1. Slash-command ARGUMENTS: "/cmd <args>" with the slash at buffer start.
-		const argMatch = /^\/([a-z-]+)\s(.+)$/i.exec(before);
+		const argMatch = /^\/([a-z-]+)\s(.*)$/i.exec(before);
 		if (argMatch) {
 			const name = (argMatch[1] ?? "").toLowerCase();
 			const command = commands.find(
@@ -115,45 +119,29 @@ export function useCompletionMenu({
 			if (command) {
 				const argPrefix = argMatch[2] ?? "";
 				const rangeStart = cursor - argPrefix.length;
-				if (!argPrefix.includes(" ")) {
-					// Still typing the subcommand (or a one-word arg): static list first.
-					if (command.subcommands?.length) {
-						const lower = argPrefix.toLowerCase();
-						const items = command.subcommands
-							.filter(sub => sub.name.startsWith(lower))
-							.map(sub => ({
-								value: `${sub.name} `,
-								label: sub.name,
-								description: sub.description,
-								hint: sub.usage,
-							}));
-						if (items.length > 0) {
-							apply({ source: "slash-arg", rangeStart, items });
-							return () => {
-								cancelled = true;
-							};
-						}
-					}
-				}
-				if (command.source === "builtin" && DYNAMIC_ARG_BUILTINS[command.name] === true) {
-					timer = window.setTimeout(() => {
-						void rpc.getCommandArgCompletions(command.name, argPrefix).then(response => {
-							if (!response.success) {
-								apply(null);
-								return;
-							}
-							const data = response.data as { items?: CompletionItem[] } | undefined;
-							apply(data?.items?.length ? { source: "slash-arg", rangeStart, items: data.items } : null);
-						});
-					}, 120);
+				const atEnd = cursor === text.length;
+				// Stock's static inline hint: the advertised input hint until an argument is typed.
+				const staticHint = atEnd && argPrefix.trim() === "" ? (command.input?.hint ?? "") : "";
+				if (command.source !== "builtin") {
+					setArgHint(staticHint);
+					apply(null);
 					return () => {
 						cancelled = true;
-						clearTimeout(timer);
 					};
 				}
-				apply(null);
+				timer = window.setTimeout(() => {
+					void rpc.getCommandArgCompletions(command.name, argPrefix).then(response => {
+						if (!live()) return;
+						const data = response.success
+							? (response.data as { items?: CompletionItem[]; hint?: string | null } | undefined)
+							: undefined;
+						setArgHint(atEnd ? (data?.hint ?? staticHint) : "");
+						apply(data?.items?.length ? { source: "slash-arg", rangeStart, items: data.items } : null);
+					});
+				}, 120);
 				return () => {
 					cancelled = true;
+					clearTimeout(timer);
 				};
 			}
 		}
@@ -309,4 +297,5 @@ export function useCompletionMenu({
 			cancelled = true;
 		};
 	}, [text, selection, models, filePaths, commands, emojiAutocomplete, textareaRef, setMenu, t, rpc]);
+	return argHint;
 }

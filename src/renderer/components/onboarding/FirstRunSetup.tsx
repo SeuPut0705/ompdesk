@@ -11,6 +11,7 @@ import type { ModelInfo } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { modelSelector } from "../../lib/model-pool";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { type FirstRunPhase, useFirstRunStore } from "../../stores/first-run";
 import { useModelStore } from "../../stores/model";
@@ -25,7 +26,6 @@ import {
 	canServe,
 	hasUsableModelProvider,
 	modelDisplayName,
-	modelSelector,
 	pickDefaultModel,
 	servingProviderIds,
 } from "../settings/providers/provider-catalog";
@@ -130,7 +130,7 @@ function ConnectStep() {
 							size="sm"
 							variant="secondary"
 						>
-							{t("providerCfg.list.retry")}
+							{t("common.retry")}
 						</Button>
 					}
 					live

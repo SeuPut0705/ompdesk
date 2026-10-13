@@ -14,6 +14,7 @@ import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { cx, formatDuration, resultDetails, resultText, sanitizeToolText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_SM } from "../../lib/preview";
+import { asArray, asNonEmptyString, asRecord } from "../../lib/wire-value";
 import type { ToolRendererProps } from "./ToolCard";
 
 type JobStatus = "running" | "completed" | "failed" | "cancelled";
@@ -52,20 +53,6 @@ interface MessageRow {
 	ts?: number;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-	return value != null && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: undefined;
-}
-
-function asArray(value: unknown): unknown[] {
-	return Array.isArray(value) ? value : [];
-}
-
-function asString(value: unknown): string | undefined {
-	return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
 function asJob(value: unknown): JobRow | undefined {
 	const row = asRecord(value);
 	if (!row || typeof row.id !== "string") return undefined;
@@ -74,13 +61,13 @@ function asJob(value: unknown): JobRow | undefined {
 		return undefined;
 	return {
 		id: row.id,
-		type: asString(row.type),
+		type: asNonEmptyString(row.type),
 		status,
-		label: asString(row.label),
+		label: asNonEmptyString(row.label),
 		durationMs: typeof row.durationMs === "number" ? Math.max(0, row.durationMs) : undefined,
 		exitCode: typeof row.exitCode === "number" ? row.exitCode : undefined,
-		resultText: asString(row.resultText),
-		errorText: asString(row.errorText),
+		resultText: asNonEmptyString(row.resultText),
+		errorText: asNonEmptyString(row.errorText),
 	};
 }
 
@@ -96,7 +83,7 @@ function asAgent(value: unknown): AgentRow | undefined {
 	return {
 		id: row.id,
 		live: row.live !== false,
-		activity: asString(row.activity),
+		activity: asNonEmptyString(row.activity),
 		ageMs: typeof row.ageMs === "number" ? Math.max(0, row.ageMs) : undefined,
 	};
 }
@@ -112,7 +99,7 @@ function asDaemon(value: unknown): DaemonRow | undefined {
 	if (!row || typeof row.name !== "string") return undefined;
 	return {
 		name: row.name,
-		state: asString(row.state),
+		state: asNonEmptyString(row.state),
 		pid: typeof row.pid === "number" ? row.pid : undefined,
 		startedAt: typeof row.startedAt === "number" ? row.startedAt : undefined,
 		exitedAt: typeof row.exitedAt === "number" ? row.exitedAt : undefined,
@@ -130,7 +117,11 @@ function asDaemons(value: unknown): DaemonRow[] {
 function asMessage(value: unknown): MessageRow | undefined {
 	const row = asRecord(value);
 	if (!row) return undefined;
-	return { from: asString(row.from), body: asString(row.body), ts: typeof row.ts === "number" ? row.ts : undefined };
+	return {
+		from: asNonEmptyString(row.from),
+		body: asNonEmptyString(row.body),
+		ts: typeof row.ts === "number" ? row.ts : undefined,
+	};
 }
 
 function statusColor(status: JobStatus): string {
@@ -384,7 +375,7 @@ export function ProcReadRenderer({
 	const daemon = asDaemon(proc?.daemon);
 	const daemons = asDaemons(proc?.daemons);
 	const lines = asArray(proc?.terminalRows).filter((line): line is string => typeof line === "string");
-	const procLog = asString(proc?.log);
+	const procLog = asNonEmptyString(proc?.log);
 	const log = procLog ?? resultText(effective);
 	const daemonOutput = lines.length > 0 ? lines.join("\n") : log;
 	const title = id ? `${t("tools.coordination.process")} ${shortText(id, 120)}` : t("tools.coordination.processes");

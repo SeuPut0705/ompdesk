@@ -3,7 +3,7 @@ import { createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../../lib/format";
 
-/** Actions stay owned by the view; the container supplies their header slot. */
+/** Actions stay owned by the view; the container supplies a slim view-toolbar slot. */
 export const PanelActionsContext = createContext<HTMLElement | null>(null);
 
 export function PanelActions({ children }: { children: ReactNode }) {
@@ -13,7 +13,16 @@ export function PanelActions({ children }: { children: ReactNode }) {
 }
 
 export function PanelToolbar({ children, className }: { children: ReactNode; className?: string }) {
-	return <div className={cx("flex shrink-0 flex-wrap items-center gap-2 px-3 py-2", className)}>{children}</div>;
+	return (
+		<div
+			className={cx(
+				"flex min-h-(--sc-space-10) shrink-0 flex-wrap items-center gap-2 border-b border-(--sc-divider) px-3 py-2",
+				className,
+			)}
+		>
+			{children}
+		</div>
+	);
 }
 
 export const PANEL_ROW_SURFACE =

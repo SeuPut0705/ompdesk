@@ -300,7 +300,8 @@ export const MessageBubble = memo(function MessageBubble({
 		// Dedicated cards for the TUI customType set; unknown types fall through
 		// to the generic label + content bubble below.
 		if (isCustomMessageCardType(message.customType)) {
-			return <CustomMessageCard inProcess={compact} message={message} />;
+			// Cards inside a work run live in its notes (WorkNotes); here they stand alone.
+			return <CustomMessageCard message={message} />;
 		}
 	}
 	if (message.role === "toolResult") return null;

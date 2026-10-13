@@ -1,9 +1,10 @@
 import { Radio, Send, SquareTerminal, Users } from "lucide-react";
-import { AnsiText, hasAnsi } from "../../lib/ansi";
-import { cx, formatDuration, resultText } from "../../lib/format";
+import { formatDuration, resultText } from "../../lib/format";
 import { translate, useT } from "../../lib/i18n";
+import { asArray, asRecord } from "../../lib/wire-value";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
+import { ToolTextPreview } from "./ToolTextPreview";
 
 /**
  * Hub wire shape: `{ content: [{ type: "text", text }], details }` where
@@ -47,16 +48,6 @@ interface ProcRow {
 	pid?: number;
 	exitCode?: number;
 	restartCount?: number;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-	return value != null && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: undefined;
-}
-
-function asArray(value: unknown): unknown[] {
-	return Array.isArray(value) ? value : [];
 }
 
 function extractPeers(details: Record<string, unknown> | undefined): RosterPeer[] {
@@ -436,27 +427,10 @@ export function HubRenderer({ args, result, isError, isPartial, partialResult }:
 			)}
 
 			{terminalRows.length > 0 && (
-				<pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
-					{hasAnsi(terminalRows.join("\n")) ? (
-						<AnsiText text={terminalRows.join("\n")} />
-					) : (
-						terminalRows.join("\n")
-					)}
-				</pre>
+				<ToolTextPreview text={terminalRows.join("\n")} scrollClass="max-h-56 overflow-auto" />
 			)}
 
-			{!hasStructured && text && (
-				<pre
-					className={cx(
-						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
-						isError
-							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
-							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",
-					)}
-				>
-					{text}
-				</pre>
-			)}
+			{!hasStructured && text && <ToolTextPreview text={text} isError={isError} />}
 		</div>
 	);
 }

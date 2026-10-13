@@ -72,12 +72,15 @@ type BatchHandler = (events: AgentSessionEvent[]) => void;
 type CommandOutputHandler = (frame: CommandOutputFrame) => void;
 type PromptResultHandler = (frame: PromptResultFrame) => void;
 type ModelCatalogUpdateHandler = (frame: ModelCatalogUpdateFrame) => void;
+type Stamped<T extends (...args: never[]) => void> = (...args: [...Parameters<T>, tabId: string]) => void;
 
 interface MockOmp {
 	tabs: {
 		setActive: Mock<(tabId: string) => Promise<boolean>>;
 	};
 	rpc: {
+		command: Mock<(command: RpcCommand) => Promise<RpcResponse>>;
+		commandForTab: Mock<(tabId: string, command: RpcCommand) => Promise<RpcResponse>>;
 		getState: Mock<() => Promise<RpcResponse>>;
 		getTranscriptPage: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
@@ -85,20 +88,20 @@ interface MockOmp {
 		getLoopMode: Mock<() => Promise<RpcResponse>>;
 		getVibeMode: Mock<() => Promise<RpcResponse>>;
 		getQueue: Mock<() => Promise<RpcResponse>>;
-		getSettings: Mock<(keys: string[]) => Promise<RpcResponse>>;
+		getSettings: Mock<(keys?: string[]) => Promise<RpcResponse>>;
 		setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
 	};
 	events: {
-		onBatch: Mock<(callback: BatchHandler) => () => void>;
-		onSidecarStatus: Mock<() => () => void>;
-		onSubagentFrame: Mock<() => () => void>;
-		onModelCatalogUpdate: Mock<(callback: ModelCatalogUpdateHandler) => () => void>;
-		onConfigUpdate: Mock<() => () => void>;
+		onTabBatch: Mock<(callback: Stamped<BatchHandler>) => () => void>;
+		onTabSidecarStatus: Mock<() => () => void>;
+		onTabSubagentFrame: Mock<() => () => void>;
+		onTabModelCatalogUpdate: Mock<(callback: Stamped<ModelCatalogUpdateHandler>) => () => void>;
+		onTabConfigUpdate: Mock<() => () => void>;
 		onExtensionUi: Mock<() => () => void>;
-		onPromptResult: Mock<(callback: PromptResultHandler) => () => void>;
-		onCommandOutput: Mock<(callback: CommandOutputHandler) => () => void>;
-		onSessionInfoUpdate: Mock<(callback: (frame: SessionInfoUpdateFrame) => void) => () => void>;
-		onExtensionError: Mock<(callback: (frame: ExtensionErrorFrame) => void) => () => void>;
+		onTabPromptResult: Mock<(callback: Stamped<PromptResultHandler>) => () => void>;
+		onTabCommandOutput: Mock<(callback: Stamped<CommandOutputHandler>) => () => void>;
+		onTabSessionInfoUpdate: Mock<(callback: (frame: SessionInfoUpdateFrame, tabId: string) => void) => () => void>;
+		onTabExtensionError: Mock<(callback: (frame: ExtensionErrorFrame, tabId: string) => void) => () => void>;
 	};
 	sidecar: { getStatus: Mock<() => Promise<unknown>> };
 	sessions: { consumePendingOpen: Mock<() => Promise<unknown>> };
@@ -109,17 +112,19 @@ interface MockOmp {
 	};
 }
 
+/** Frames this harness emits belong to the focused tab, as main stamps them. */
+const focusedTab = (): string => useTabsStore.getState().activeTabId ?? "";
 function installMockOmp(): {
 	omp: MockOmp;
 	emitBatch: BatchHandler;
-	emitCommandOutput: CommandOutputHandler;
+	emitCommandOutput: (frame: CommandOutputFrame, tabId?: string) => void;
 	emitPromptResult: PromptResultHandler;
 	emitModelCatalogUpdate: ModelCatalogUpdateHandler;
 } {
-	let batchHandler: BatchHandler = () => {};
-	let commandOutputHandler: CommandOutputHandler = () => {};
-	let promptResultHandler: PromptResultHandler = () => {};
-	let modelCatalogUpdateHandler: ModelCatalogUpdateHandler = () => {};
+	let batchHandler: Stamped<BatchHandler> = () => {};
+	let commandOutputHandler: Stamped<CommandOutputHandler> = () => {};
+	let promptResultHandler: Stamped<PromptResultHandler> = () => {};
+	let modelCatalogUpdateHandler: Stamped<ModelCatalogUpdateHandler> = () => {};
 	// Mirror the real server: get_state reports isStreaming=true mid-run, and
 	// agent_start triggers refreshSessionState — a static mock would overwrite
 	// the event-set flag with stale state and test a race production never has.
@@ -127,6 +132,37 @@ function installMockOmp(): {
 	const omp: MockOmp = {
 		tabs: { setActive: vi.fn(async () => true) },
 		rpc: {
+			// Commands reach the per-method doubles below, so assertions read them directly.
+			command: vi.fn((command: RpcCommand) => {
+				switch (command.type) {
+					case "get_state":
+						return omp.rpc.getState();
+					case "get_transcript_page":
+						return omp.rpc.getTranscriptPage();
+					case "get_subagents":
+						return omp.rpc.getSubagents();
+					case "get_goal":
+						return omp.rpc.getGoal();
+					case "get_loop_mode":
+						return omp.rpc.getLoopMode();
+					case "get_vibe_mode":
+						return omp.rpc.getVibeMode();
+					case "get_queue":
+						return omp.rpc.getQueue();
+					case "get_settings":
+						return omp.rpc.getSettings(command.paths);
+					case "set_subagent_subscription":
+						return omp.rpc.setSubagentSubscription(command.level);
+					default:
+						return Promise.resolve({
+							type: "response",
+							command: command.type,
+							success: false,
+							error: `Unsupported command: ${command.type}`,
+						});
+				}
+			}),
+			commandForTab: vi.fn((_tabId: string, command: RpcCommand) => omp.rpc.command(command)),
 			getState: vi.fn(async () =>
 				success({
 					sessionId: "s1",
@@ -152,28 +188,28 @@ function installMockOmp(): {
 			setSubagentSubscription: vi.fn(async () => success({})),
 		},
 		events: {
-			onBatch: vi.fn((callback: BatchHandler) => {
+			onTabBatch: vi.fn((callback: Stamped<BatchHandler>) => {
 				batchHandler = callback;
 				return () => {};
 			}),
-			onSidecarStatus: vi.fn(() => () => {}),
-			onSubagentFrame: vi.fn(() => () => {}),
-			onModelCatalogUpdate: vi.fn((callback: ModelCatalogUpdateHandler) => {
+			onTabSidecarStatus: vi.fn(() => () => {}),
+			onTabSubagentFrame: vi.fn(() => () => {}),
+			onTabModelCatalogUpdate: vi.fn((callback: Stamped<ModelCatalogUpdateHandler>) => {
 				modelCatalogUpdateHandler = callback;
 				return () => {};
 			}),
-			onConfigUpdate: vi.fn(() => () => {}),
+			onTabConfigUpdate: vi.fn(() => () => {}),
 			onExtensionUi: vi.fn(() => () => {}),
-			onPromptResult: vi.fn((callback: PromptResultHandler) => {
+			onTabPromptResult: vi.fn((callback: Stamped<PromptResultHandler>) => {
 				promptResultHandler = callback;
 				return () => {};
 			}),
-			onCommandOutput: vi.fn((callback: CommandOutputHandler) => {
+			onTabCommandOutput: vi.fn((callback: Stamped<CommandOutputHandler>) => {
 				commandOutputHandler = callback;
 				return () => {};
 			}),
-			onSessionInfoUpdate: vi.fn(() => () => {}),
-			onExtensionError: vi.fn(() => () => {}),
+			onTabSessionInfoUpdate: vi.fn(() => () => {}),
+			onTabExtensionError: vi.fn(() => () => {}),
 		},
 		sidecar: { getStatus: vi.fn(async () => ({ status: "ready", cwd: "/tmp" })) },
 		// Boot pulls the pending "open in new window" session before hydrating;
@@ -192,14 +228,14 @@ function installMockOmp(): {
 			if (event.type === "agent_start") mockStreaming = true;
 			if (event.type === "agent_end") mockStreaming = false;
 		}
-		batchHandler(events);
+		batchHandler(events, focusedTab());
 	};
 	return {
 		omp,
 		emitBatch,
-		emitCommandOutput: frame => commandOutputHandler(frame),
-		emitPromptResult: frame => promptResultHandler(frame),
-		emitModelCatalogUpdate: frame => modelCatalogUpdateHandler(frame),
+		emitCommandOutput: (frame, tabId = focusedTab()) => commandOutputHandler(frame, tabId),
+		emitPromptResult: frame => promptResultHandler(frame, focusedTab()),
+		emitModelCatalogUpdate: frame => modelCatalogUpdateHandler(frame, focusedTab()),
 	};
 }
 
@@ -853,6 +889,85 @@ describe("useRpcEvents todo lifecycle", () => {
 		expect(state.history[0]?.phases).toEqual(pending);
 	});
 
+	it("archives the wire turn timestamp instead of its later presentation-frame receipt", async () => {
+		const { emitBatch } = installMockOmp();
+		vi.spyOn(Date, "now").mockReturnValue(1791827442700);
+		await mount(<RpcEventsProbe />);
+		const message: AgentMessage = {
+			role: "assistant",
+			timestamp: 1791827438373,
+			content: [{ type: "toolCall", id: "todo-source-clock", name: "todo", arguments: {} }],
+		};
+		const phases: TodoPhase[] = [{ name: "Work", tasks: [{ content: "Read", status: "in_progress" }] }];
+		await act(async () =>
+			emitBatch([
+				{ type: "agent_start" },
+				{ type: "message_start", message },
+				{ type: "message_end", message },
+				{
+					type: "tool_execution_end",
+					toolCallId: "todo-source-clock",
+					toolName: "todo",
+					result: { content: [{ type: "text", text: "Todos updated" }], details: { phases } },
+					isError: false,
+				},
+			]),
+		);
+		expect(useTodoStore.getState().turnSourceKnown).toBe(true);
+		expect(useTodoStore.getState().history[0]?.turnStartedAt).toBe(1791827438373);
+		expect(useTodoStore.getState().history[0]?.duringTurn).toBe(true);
+	});
+
+	it("recovers a missed turn boundary from the authoritative transcript on mid-run hydration", async () => {
+		const { omp } = installMockOmp();
+		vi.spyOn(Date, "now").mockReturnValue(1791827442700);
+		omp.rpc.getState.mockResolvedValue(
+			success({
+				sessionId: "s1",
+				sessionName: null,
+				sessionFile: null,
+				cwd: "/tmp",
+				isStreaming: true,
+				isCompacting: false,
+				contextUsage: null,
+				messageCount: 3,
+				queuedMessageCount: 0,
+				planModeEnabled: false,
+				todoPhases: [],
+			}),
+		);
+		omp.rpc.getTranscriptPage.mockResolvedValue(
+			success({
+				messages: [
+					{ role: "user", entryId: "earlier-user", timestamp: 1791827421351, content: "Edit notes.txt" },
+					{ role: "user", entryId: "todo-user", timestamp: 1791827436493, content: "Use your todo tool" },
+					{
+						role: "assistant",
+						entryId: "todo-call",
+						timestamp: 1791827438373,
+						content: [{ type: "toolCall", id: "todo-call", name: "todo", arguments: {} }],
+					},
+				],
+				totalMessages: 3,
+			}),
+		);
+		await mount(<RpcEventsProbe />);
+		await act(async () => hydrateSession());
+		expect(useTodoStore.getState().turnStartedAt).toBe(1791827438373);
+		expect(useTodoStore.getState().turnSourceKnown).toBe(true);
+		useTodoStore.getState().setPhases([{ name: "Work", tasks: [{ content: "Read", status: "in_progress" }] }]);
+		expect(useTodoStore.getState().history[0]?.turnStartedAt).toBe(1791827438373);
+		// A subsequent refresh must not backdate a source-known run into older input.
+		omp.rpc.getTranscriptPage.mockResolvedValue(
+			success({
+				messages: [{ role: "user", entryId: "earlier-user", timestamp: 1791827421351, content: "Edit notes.txt" }],
+				totalMessages: 1,
+			}),
+		);
+		await act(async () => hydrateSession());
+		expect(useTodoStore.getState().turnStartedAt).toBe(1791827438373);
+	});
+
 	it("keeps one completed snapshot when automatic cleanup clears the live todos", async () => {
 		const { emitBatch } = installMockOmp();
 		await mount(<RpcEventsProbe />);
@@ -1024,7 +1139,7 @@ describe("useRpcEvents non-transcript frames", () => {
 		});
 	});
 
-	it("drops session events while the selected tab and main-process route disagree", async () => {
+	it("keeps the outgoing tab's frames out of the selected tab while the route catches up", async () => {
 		const { omp, emitCommandOutput } = installMockOmp();
 		await mount(<RpcEventsProbe />);
 		useTabsStore.setState({
@@ -1035,19 +1150,20 @@ describe("useRpcEvents non-transcript frames", () => {
 			activeTabId: "t0",
 			bundles: new Map(),
 		});
+		ensureTabRuntime("t0");
 		const route = Promise.withResolvers<boolean>();
 		omp.tabs.setActive.mockReturnValueOnce(route.promise);
 
 		const switching = useTabsStore.getState().switchTab("t1");
 		await act(async () => {
-			emitCommandOutput({ type: "command_output", text: "belongs to t0" });
+			emitCommandOutput({ type: "command_output", text: "belongs to t0" }, "t0");
 		});
 		expect(useMessagesStore.getState().messages).toEqual([]);
 
 		route.resolve(true);
 		await act(async () => switching);
 		await act(async () => {
-			emitCommandOutput({ type: "command_output", text: "belongs to t1" });
+			emitCommandOutput({ type: "command_output", text: "belongs to t1" }, "t1");
 		});
 
 		expect(useMessagesStore.getState().messages).toContainEqual(
@@ -1385,7 +1501,7 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 		const tail: AgentMessage = { role: "user", content: "tail", timestamp: 2, entryId: "tail" };
 		const live: AgentMessage = { role: "assistant", content: "live", timestamp: 3, entryId: "live" };
 		const messages = sessionRuntimeStore<MessagesStore>("t-stale", "messages")!;
-		messages.getState().loadPage({ messages: [tail], totalMessages: 2, prevCursor: "stale" });
+		messages.setState({ messages: [tail], prevCursor: "stale" });
 		messages.getState().applyEvents([{ type: "agent_end", messages: [live] }]);
 		const original = commandForTab.getMockImplementation()!;
 		commandForTab.mockImplementation(async (tabId, command) => {
@@ -1411,7 +1527,7 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 			entryId: id,
 		});
 		const messages = sessionRuntimeStore<MessagesStore>("t-shift", "messages")!;
-		messages.getState().loadPage({ messages: [row("c", 3), row("d", 4)], totalMessages: 4, prevCursor: "stale" });
+		messages.setState({ messages: [row("c", 3), row("d", 4)], prevCursor: "stale" });
 		messages.getState().applyEvents([{ type: "agent_end", messages: [row("e", 5)] }]);
 		const original = commandForTab.getMockImplementation()!;
 		commandForTab.mockImplementation(async (tabId, command) => {

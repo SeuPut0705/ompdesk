@@ -70,10 +70,6 @@
 	font-weight: 600;
 }
 
-:root[data-theme="light"] .omp-hl {
-	color: var(--omp-accent-bright);
-}
-
 /* ---------------------------------------------------------------------------
  * Thinking block live state
  * ------------------------------------------------------------------------- */
@@ -1112,6 +1108,9 @@
 	margin: 0;
 	padding: 0;
 	list-style: none;
+	max-height: 8rem;
+	overflow-y: auto;
+	overscroll-behavior: contain;
 }
 
 .omp-work-card {
@@ -1182,7 +1181,6 @@
 	.omp-work-card[data-motion="true"] .omp-work-card-activity-text {
 		animation: none;
 	}
-	.omp-work-lane-surface[data-motion],
 	.omp-work-card[data-motion] .omp-work-card-chevron,
 	.omp-work-card[data-motion] .omp-work-card-button {
 		transition: none;
@@ -1247,31 +1245,97 @@
 	}
 }
 
-/* An open lane hangs its agent's surface off a hairline under the status mark. */
-.omp-work-lane-surface {
+
+/* The stage opens once, then every step shares exactly the same viewport. */
+.omp-work-stage-shell {
 	display: grid;
 	grid-template-rows: 0fr;
-	margin-inline-start: calc(var(--sc-space-1-5) + var(--sc-icon-sm) / 2);
+	overflow: hidden;
 	transition: grid-template-rows var(--sc-duration-med) var(--sc-ease-standard);
 }
-
-.omp-work-lane-surface[data-open="true"] {
+.omp-work-stage-shell[data-open="true"] {
 	grid-template-rows: 1fr;
 }
-
-.omp-work-lane-surface[data-motion="false"] {
-	transition: none;
+@starting-style {
+	.omp-work-stage-shell[data-open="true"] { grid-template-rows: 0fr; }
 }
-
-.omp-work-lane-surface-content {
+.omp-work-stage {
+	--omp-work-stage: clamp(9rem, 34cqh, 17rem);
+	display: flex;
+	flex-direction: column;
+	height: var(--omp-work-stage);
 	min-height: 0;
 	overflow: hidden;
 }
-
-.omp-work-lane-surface-content > * {
-	margin-block: var(--sc-space-1) var(--sc-space-1-5);
-	padding-inline-start: calc(var(--sc-icon-sm) / 2 + var(--sc-space-2));
-	border-inline-start: 1px solid var(--sc-divider);
+.omp-work-crossfade {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	width: 100%;
+	min-width: 0;
+	min-height: 0;
+}
+.omp-work-stage > .omp-work-crossfade {
+	flex: 1;
+	overflow: hidden;
+}
+.omp-work-stage[data-settled="true"] > .omp-work-crossfade {
+	opacity: 0.72;
+}
+.omp-work-frame {
+	grid-area: 1 / 1;
+	min-height: 0;
+	min-width: 0;
+	width: 100%;
+}
+.omp-work-stage .omp-work-frame > :is(.omp-work-surface, .omp-live-step) {
+	height: 100%;
+}
+.omp-work-stage .omp-work-surface {
+	flex: 1;
+	overflow: hidden;
+}
+.omp-work-stage .omp-live-step-scroll {
+	flex: 1;
+	min-height: 0;
+	max-height: none;
+	height: auto;
+}
+.omp-work-stage .omp-work-surface-content {
+	display: flex;
+	flex-direction: column;
+	min-height: 100%;
+}
+.omp-work-stage .omp-work-surface-content > *,
+.omp-work-stage .omp-bash-terminal {
+	flex: 1;
+}
+.omp-work-stage .omp-live-step[data-nested="true"] {
+	padding-inline: var(--sc-space-3);
+}
+.omp-work-stage .omp-live-step[data-nested="true"] > .omp-work-crossfade {
+	flex: 1;
+	overflow: hidden;
+}
+.omp-work-frame[data-outgoing] {
+	pointer-events: none;
+}
+.omp-work-crossfade[data-motion="true"] > [data-incoming] {
+	animation: omp-work-stage-in var(--sc-duration-med) var(--sc-ease-standard);
+}
+.omp-work-crossfade[data-motion="true"] > [data-outgoing] {
+	animation: omp-work-stage-out var(--sc-duration-med) var(--sc-ease-standard) forwards;
+}
+@keyframes omp-work-stage-in {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+@keyframes omp-work-stage-out {
+	from { opacity: 1; }
+	to { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+	.omp-work-stage-shell { transition: none; }
+	.omp-work-crossfade > .omp-work-frame { animation: none; }
 }
 
 /* Current step surface ─────────────────────────────────────────────────── */
@@ -1331,14 +1395,18 @@
 	opacity: 0.72;
 }
 
-/* Calls running at once, one quiet row each; the shown one is marked. */
+/* Concurrent calls are compact picks inside the stage, never another growing list. */
 .omp-work-parallel {
-	display: grid;
-	gap: 1px;
+	display: flex;
+	flex-shrink: 0;
+	gap: var(--sc-space-1);
 	margin: 0;
 	padding: 0 var(--sc-space-1-5) var(--sc-space-1-5);
 	list-style: none;
+	overflow-x: auto;
+	scrollbar-width: thin;
 }
+.omp-work-parallel > li { flex: 0 0 auto; max-width: 22rem; }
 
 .omp-work-parallel-row {
 	display: grid;
@@ -1532,15 +1600,16 @@
 /* A short pane (split view) keeps the card under half its height, the surface
    still showing several lines. */
 @container omp-workspace (max-height: 480px) {
-	.omp-live-step-scroll {
-		max-height: max(6rem, 23cqh);
-	}
-	.omp-live-step:is([data-surface="browser"], [data-surface="computer"]) .omp-live-step-scroll {
-		height: max(6rem, 23cqh);
+	.omp-work-stage {
+		--omp-work-stage: 6rem;
 	}
 	.omp-work-head {
 		--omp-work-head-line: calc(var(--sc-font-md) * var(--sc-leading-snug));
-		padding-block: var(--sc-space-1);
+		padding-block: var(--sc-space-0-5);
+	}
+	.omp-work-head-side,
+	.omp-execution-group-header--embedded {
+		min-height: 24px;
 	}
 	.omp-work-narrative {
 		font-size: var(--sc-font-md);
@@ -1563,9 +1632,7 @@
 	.omp-work-cards {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 1px var(--sc-space-1);
-	}
-	.omp-work-card[data-open="true"] {
-		grid-column: 1 / -1;
+		max-height: 24px;
 	}
 	.omp-work-card-button {
 		grid-template-columns: var(--sc-icon-sm) minmax(0, max-content) minmax(0, 1fr) auto var(--sc-icon-sm);
@@ -1604,7 +1671,19 @@
 	font-size: var(--sc-font-sm);
 }
 
-.omp-live-step > .omp-work-outcome {
+.omp-work-outcome-shell {
+	display: grid;
+	grid-template-rows: 1fr;
+	transition: grid-template-rows var(--sc-duration-med) var(--sc-ease-standard);
+}
+.omp-work-outcome-content {
+	min-height: 0;
+	overflow: hidden;
+}
+@starting-style {
+	.omp-work-motion .omp-work-outcome-shell { grid-template-rows: 0fr; }
+}
+.omp-work-outcome-content > .omp-work-outcome {
 	margin: 0;
 	padding: var(--sc-space-1) var(--sc-space-3) var(--sc-space-1-5);
 	border-top: 1px solid var(--sc-divider);
@@ -1761,7 +1840,7 @@
 	margin: var(--sc-space-1) 0 var(--sc-space-2) calc(var(--sc-space-1-5) + var(--sc-icon-sm) + var(--sc-space-2));
 }
 
-.omp-live-step > .omp-work-images {
+.omp-work-outcome-content > .omp-work-images {
 	margin: 0;
 	padding: var(--sc-space-1-5) var(--sc-space-3) var(--sc-space-2);
 	border-top: 1px solid var(--sc-divider);
@@ -1876,31 +1955,8 @@
 	animation: omp-work-sweep calc(var(--sc-duration-slow) * 6) linear infinite;
 }
 .omp-work-motion .omp-work-card,
-.omp-work-motion .omp-work-lane-surface,
 .omp-work-motion .omp-work-parallel > li {
 	animation: omp-work-fade var(--sc-duration-med) var(--sc-ease-enter);
-}
-/* One step flows into the next: the narrative rises into place, the new step's output slides in,
-   and the surface eases to its new height instead of jumping. */
-@keyframes omp-work-rise {
-	from {
-		opacity: 0;
-		transform: translateY(6px);
-	}
-	to {
-		opacity: 1;
-		transform: none;
-	}
-}
-@keyframes omp-work-step-in {
-	from {
-		opacity: 0.15;
-		transform: translateX(8px);
-	}
-	to {
-		opacity: 1;
-		transform: none;
-	}
 }
 @keyframes omp-work-pop {
 	from {
@@ -1911,17 +1967,6 @@
 		opacity: 1;
 		transform: none;
 	}
-}
-.omp-work-motion .omp-work-narrative {
-	animation: omp-work-rise var(--sc-duration-slow) var(--sc-ease-enter);
-}
-.omp-work-motion .omp-work-surface-content > * {
-	animation: omp-work-step-in var(--sc-duration-slow) var(--sc-ease-enter);
-}
-.omp-work-motion .omp-live-step-scroll[data-height-transition="true"] {
-	transition:
-		height var(--sc-duration-slow) var(--sc-ease-standard),
-		opacity var(--sc-duration-med) var(--sc-ease-standard);
 }
 .omp-work-motion .omp-live-work-chip {
 	animation: omp-work-pop var(--sc-duration-med) var(--sc-ease-enter);
@@ -1954,7 +1999,6 @@
 	.omp-work-motion .omp-work-narrative,
 	.omp-work-motion .omp-work-surface-content > *,
 	.omp-work-motion .omp-work-card,
-	.omp-work-motion .omp-work-lane-surface,
 	.omp-work-motion .omp-work-parallel > li,
 	.omp-work-motion .omp-live-work-chip,
 	.omp-work-motion .omp-live-work-chip.omp-work-pulse,
@@ -2690,4 +2734,85 @@
 	object-fit: contain;
 	border-color: var(--sc-divider);
 	border-radius: var(--sc-radius-sm);
+}
+
+/* Embedded work notices: neutral hairlines, state color only in badges. */
+.omp-work-notes {
+	border-top: 1px solid var(--sc-divider);
+	padding: var(--sc-space-2) var(--sc-space-3);
+}
+.omp-work-notes-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+.omp-work-notes-line {
+	display: flex;
+	align-items: center;
+	gap: var(--sc-space-2);
+	width: 100%;
+	min-width: 0;
+	padding: var(--sc-space-1) 0;
+	text-align: start;
+	color: var(--sc-text-muted);
+	font-size: var(--sc-font-sm);
+}
+.omp-work-notes-source,
+.omp-work-notes-age,
+.omp-work-notes-line > svg {
+	flex-shrink: 0;
+}
+.omp-work-notes-source {
+	max-width: 25%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.omp-work-notes-preview {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.omp-work-notes-age,
+.omp-work-notes-more {
+	font-size: var(--sc-font-xs);
+	color: var(--sc-text-muted);
+}
+.omp-work-notes-line:focus-visible,
+.omp-work-notes-more:focus-visible {
+	outline: 2px solid var(--sc-focus-ring);
+	outline-offset: 2px;
+}
+.omp-work-notes-body {
+	padding: var(--sc-space-2) 0;
+}
+.omp-work-notes-item--arriving {
+	animation: omp-work-notes-fade var(--omp-motion-fast) var(--omp-ease);
+}
+@keyframes omp-work-notes-fade {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+	.omp-work-notes-item--arriving { animation: none; }
+}
+
+@container omp-workspace (max-height: 480px) {
+	.omp-work-notes {
+		padding-block: var(--sc-space-0-5);
+	}
+	.omp-work-notes-line {
+		padding-block: 0;
+	}
+	.omp-work-notes:not(:has([aria-expanded="true"])) .omp-work-notes-list {
+		display: flex;
+		gap: var(--sc-space-3);
+		overflow-x: auto;
+	}
+	.omp-work-notes:not(:has([aria-expanded="true"])) .omp-work-notes-item {
+		flex: 0 0 min(100%, 20rem);
+		min-width: 0;
+	}
 }

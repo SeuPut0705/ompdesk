@@ -77,8 +77,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/mcp/oauth-flow": () => import("@oh-my-pi/pi-coding-agent/mcp/oauth-flow"),
 	"@oh-my-pi/pi-coding-agent/mcp/settings": () => import("@oh-my-pi/pi-coding-agent/mcp/settings"),
 	"@oh-my-pi/pi-coding-agent/memory-backend/resolve": () => import("@oh-my-pi/pi-coding-agent/memory-backend/resolve"),
-	"@oh-my-pi/pi-coding-agent/modes/agents-hub-deps": () =>
-		import("@oh-my-pi/pi-coding-agent/modes/agents-hub-deps"),
+	"@oh-my-pi/pi-coding-agent/modes/agents-hub-deps": () => import("@oh-my-pi/pi-coding-agent/modes/agents-hub-deps"),
 	"@oh-my-pi/pi-coding-agent/modes/controllers/mcp-command-controller": () =>
 		import("@oh-my-pi/pi-coding-agent/modes/controllers/mcp-command-controller"),
 	"@oh-my-pi/pi-coding-agent/modes/components/extensions/mcp-runtime": () =>
@@ -146,8 +145,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/task/settings": () => import("@oh-my-pi/pi-coding-agent/task/settings"),
 	"@oh-my-pi/pi-coding-agent/tools/builtin-names": () => import("@oh-my-pi/pi-coding-agent/tools/builtin-names"),
 	"@oh-my-pi/pi-coding-agent/tools/debug": () => import("@oh-my-pi/pi-coding-agent/tools/debug"),
-	"@oh-my-pi/pi-coding-agent/tools/gh-pr-checkout": () =>
-		import("@oh-my-pi/pi-coding-agent/tools/gh-pr-checkout"),
+	"@oh-my-pi/pi-coding-agent/tools/gh-pr-checkout": () => import("@oh-my-pi/pi-coding-agent/tools/gh-pr-checkout"),
 	"@oh-my-pi/pi-coding-agent/tools/path-utils": () => import("@oh-my-pi/pi-coding-agent/tools/path-utils"),
 	"@oh-my-pi/pi-coding-agent/tools/resolve": () => import("@oh-my-pi/pi-coding-agent/tools/resolve"),
 	"@oh-my-pi/pi-coding-agent/tts/models": () => import("@oh-my-pi/pi-coding-agent/tts/models"),
@@ -161,11 +159,9 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-tui/overlays/copy-targets": () => import("@oh-my-pi/pi-tui/overlays/copy-targets"),
 	"@oh-my-pi/pi-tui/overlays/model-browser": () => import("@oh-my-pi/pi-tui/overlays/model-browser"),
 	"@oh-my-pi/pi-tui/overlays/settings-defs": () => import("@oh-my-pi/pi-tui/overlays/settings-defs"),
-	"@oh-my-pi/pi-tui/overlays/usage-display": () => import("@oh-my-pi/pi-tui/overlays/usage-display"),
 	"@oh-my-pi/pi-tui/theme": () => import("@oh-my-pi/pi-tui/theme"),
 	"@oh-my-pi/pi-tui/tools/resolve": () => import("@oh-my-pi/pi-tui/tools/resolve"),
-	"@oh-my-pi/pi-tui/overlays/extensions/mcp-runtime": () =>
-		import("@oh-my-pi/pi-tui/overlays/extensions/mcp-runtime"),
+	"@oh-my-pi/pi-tui/overlays/extensions/mcp-runtime": () => import("@oh-my-pi/pi-tui/overlays/extensions/mcp-runtime"),
 	"@oh-my-pi/pi-utils": () => import("@oh-my-pi/pi-utils"),
 };
 

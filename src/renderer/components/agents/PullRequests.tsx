@@ -184,7 +184,7 @@ export function PullRequests() {
 					<IconButton
 						disabled={listLoading}
 						icon={<RefreshCw className={listLoading ? "animate-spin" : undefined} />}
-						label={t("prCenter.refresh")}
+						label={t("common.refresh")}
 						onClick={() => void usePrCenterStore.getState().refresh()}
 					/>
 					<Button icon={<Plus />} onClick={() => setCreateOpen(true)} size="sm" variant="secondary">

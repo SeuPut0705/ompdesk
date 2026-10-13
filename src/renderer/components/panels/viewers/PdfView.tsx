@@ -100,7 +100,7 @@ function PdfDocumentView({ data }: { data: Uint8Array }) {
 			<ViewerToolbar label={t("fileViewer.toolbar")}>
 				<ZoomControls index={zoomIndex} onChange={setZoomIndex} />
 				{doc && (
-					<span className="ms-auto pe-1 text-omp-xs text-(--omp-dim) tabular-nums">
+					<span className="ms-auto pe-1 text-sc-xs text-(--sc-text-muted) tabular-nums">
 						{t("fileViewer.pdfPages", { count: doc.numPages })}
 					</span>
 				)}

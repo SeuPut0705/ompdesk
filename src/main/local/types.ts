@@ -31,13 +31,10 @@ export interface LocalCommandContext {
 	cwd: string;
 	/** Live session file, when the session is persisted. */
 	sessionFile?: string;
-	sessionId?: string;
 	omp: OmpRuntime;
 	/** Forward to the stock sidecar; resolves with response.data, rejects with Error(response.error). */
 	send<T = unknown>(command: { type: string; [k: string]: unknown }): Promise<T>;
 	bridge: BridgeClient;
-	/** Deliver a frame to the renderer exactly as if the sidecar had emitted it. */
-	emit(frame: { type: string; [k: string]: unknown }): void;
 }
 
 /** The returned value becomes `response.data`; a throw becomes `success: false` with the error message. */

@@ -1,7 +1,7 @@
 /**
- * Wire types for the bundled stats dashboard HTTP API (`packages/stats/src/server.ts`).
- * Hand-written like `rpc-types.ts` — no runtime dependency on @oh-my-pi/pi-stats —
- * and checked against the server's own types by `scripts/check-protocol.ts`.
+ * Wire types for the stats dashboard HTTP API (stock `@oh-my-pi/omp-stats`
+ * `src/server.ts`, served by resources/gui-bridge/stats-host.ts). Hand-written
+ * like `rpc-types.ts` — no runtime dependency on @oh-my-pi/omp-stats.
  * Each type declares only the fields the GUI reads.
  */
 
@@ -296,9 +296,4 @@ export interface LiveSyncStatus {
 	processed: number;
 	lastSyncedAt: number | null;
 	error: string | null;
-}
-
-export interface LiveStatus {
-	version: number;
-	sync: LiveSyncStatus;
 }

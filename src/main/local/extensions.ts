@@ -11,6 +11,8 @@
  * (resources/gui-bridge/extensions/*), with the same result shapes the fork
  * returned. `abort_subagent` maps onto stock `cancel_subagent`.
  */
+
+import type { RpcMcpServersResult } from "../../shared/rpc-types";
 import { type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
 
 /** Forward a command to the bridge method of the same name, params minus the frame envelope. */
@@ -43,7 +45,6 @@ const BRIDGED = [
 	"get_agent_definition",
 	"get_agent_authoring",
 	"revive_subagent",
-	"get_themes",
 	"get_theme_colors",
 ] as const;
 
@@ -71,8 +72,18 @@ async function mcpReauth(command: Parameters<LocalHandler>[0], ctx: LocalCommand
 	return result;
 }
 
+/** Built-in declarations are read-only; only OMPdesk prefs control their next-session launch. */
+const mcpAction: LocalHandler = async (command, ctx) => {
+	if (typeof command.name !== "string" || !command.name.trim())
+		throw new LocalCommandError("MCP server name must be a non-empty string", "invalid_params");
+	const { servers } = await ctx.bridge.request<RpcMcpServersResult>("get_mcp_servers");
+	if (servers.some(server => server.name === command.name && server.builtin === "rea"))
+		throw new LocalCommandError("Use the built-in REA toggle; changes apply to new sessions", "invalid_params");
+	return viaBridge(command, ctx);
+};
 export const handlers: Record<string, LocalHandler> = {
 	...Object.fromEntries(BRIDGED.map(type => [type, viaBridge])),
 	abort_subagent: abortSubagent,
 	mcp_reauth: mcpReauth,
+	mcp_action: mcpAction,
 };

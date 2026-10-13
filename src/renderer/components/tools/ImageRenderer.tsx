@@ -3,6 +3,7 @@ import { extractImageDataUrls, resultDetails, resultText } from "../../lib/forma
 import { useT } from "../../lib/i18n";
 import { ZoomableImage } from "../common/ZoomableImage";
 import type { ToolRendererProps } from "./ToolCard";
+import { ToolTextPreview } from "./ToolTextPreview";
 
 function firstStringList(value: unknown): string {
 	return Array.isArray(value) && typeof value[0] === "string" ? value[0] : "";
@@ -49,18 +50,7 @@ export function ImageRenderer({ args, result, isError, isPartial, partialResult 
 					))}
 				</div>
 			) : (
-				caption && (
-					<pre
-						className={
-							"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45] " +
-							(isError
-								? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
-								: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]")
-						}
-					>
-						{caption}
-					</pre>
-				)
+				caption && <ToolTextPreview text={caption} isError={isError} />
 			)}
 			{isPartial && images.length === 0 && !caption && (
 				<div className="text-omp-sm italic text-[var(--omp-accent)]">{t("tools.image.generating")}</div>

@@ -32,12 +32,12 @@ import {
 	type SubagentFrame,
 	type TodoPhase,
 } from "../../shared/rpc-types";
+import { messageSourceTimestamp } from "../components/chat/work-turn";
 import { errorDetail } from "../lib/error-detail";
 import { formatClock } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { normalizeLoopUpdate } from "../lib/loop-mode";
 import { describeTurnError, turnErrorToast } from "../lib/messages";
-import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
@@ -268,12 +268,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		const focusedTabId = () => useTabsStore.getState().activeTabId ?? "";
 		let disposed = false;
 		let statusVersion = 0;
-		const unsubscribe =
-			typeof window.omp.events.onTabBatch === "function"
-				? window.omp.events.onTabBatch(reduceEvents)
-				: window.omp.events.onBatch(events => {
-						if (acceptsActiveTabEvents()) reduceEvents(events, focusedTabId());
-					});
+		const unsubscribe = window.omp.events.onTabBatch(reduceEvents);
 		function reduceEvents(events: AgentSessionEvent[], tabId: string): void {
 			// Incoming session events belong to the target sidecar. Drop them
 			// during an in-place session switch, but never suppress the other pane.
@@ -313,13 +308,18 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							useSessionStore.setState({ awaitingModelSince: Date.now() });
 							break;
 						}
+						case "message_start":
 						case "message_end": {
+							const todo = useTodoStore.getState();
+							if (todo.turnActive && (event.message.role === "assistant" || event.message.role === "user")) {
+								todo.setTurnActive(true, messageSourceTimestamp(event.message));
+							}
 							// The finalized assistant message replaces the pending
 							// indicator — tools run next and their cards carry the
 							// activity signal. message_start is NOT the clear point: it
 							// fires with an empty shell before the first token streams,
 							// and clearing there would reopen the dead-air window.
-							if (event.message.role === "assistant") {
+							if (event.type === "message_end" && event.message.role === "assistant") {
 								useSessionStore.setState({ awaitingModelSince: null });
 							}
 							break;
@@ -667,10 +667,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			}
 		};
 
-		const unsubStatus =
-			typeof window.omp.events.onTabSidecarStatus === "function"
-				? window.omp.events.onTabSidecarStatus(handleStatus)
-				: window.omp.events.onSidecarStatus(payload => handleStatus(payload, focusedTabId()));
+		const unsubStatus = window.omp.events.onTabSidecarStatus(handleStatus);
 		const snapshotTabId = focusedTabId();
 		const snapshotRuntime = sessionRuntime(snapshotTabId);
 		const snapshotVersion = statusVersion;
@@ -696,19 +693,13 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			if (closedTabFrame(tabId)) return;
 			withSessionRuntime(tabId, () => useSubagentsStore.getState().applyFrame(frame));
 		};
-		const unsubSubagent =
-			typeof window.omp.events.onTabSubagentFrame === "function"
-				? window.omp.events.onTabSubagentFrame(handleSubagent)
-				: window.omp.events.onSubagentFrame(frame => handleSubagent(frame, focusedTabId()));
+		const unsubSubagent = window.omp.events.onTabSubagentFrame(handleSubagent);
 
 		const handleModelCatalog = (frame: ModelCatalogUpdateFrame, tabId: string) => {
 			if (closedTabFrame(tabId)) return;
 			withSessionRuntime(tabId, () => useModelStore.getState().applyCatalogUpdate(frame));
 		};
-		const unsubModelCatalog =
-			typeof window.omp.events.onTabModelCatalogUpdate === "function"
-				? window.omp.events.onTabModelCatalogUpdate(handleModelCatalog)
-				: window.omp.events.onModelCatalogUpdate(frame => handleModelCatalog(frame, focusedTabId()));
+		const unsubModelCatalog = window.omp.events.onTabModelCatalogUpdate(handleModelCatalog);
 
 		// Agent config edits (set_setting from any client, slash-command config
 		// changes) push config_update — re-read the thinking-display settings so
@@ -723,20 +714,14 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 				void useSettingsStore.getState().syncApproval();
 			});
 		};
-		const unsubConfig =
-			typeof window.omp.events.onTabConfigUpdate === "function"
-				? window.omp.events.onTabConfigUpdate(handleConfig)
-				: window.omp.events.onConfigUpdate(frame => handleConfig(frame, focusedTabId()));
+		const unsubConfig = window.omp.events.onTabConfigUpdate(handleConfig);
 		// Extension slash commands can settle locally after the prompt response
 		// has already resolved; prompt_result carries the deferred rehydrate signal.
 		const handlePromptResult = (frame: PromptResultFrame, tabId: string) => {
 			if (closedTabFrame(tabId)) return;
 			if (!frame.agentInvoked) void (sessionRuntime(tabId) ? hydrateTabSession(tabId) : hydrateLegacySession());
 		};
-		const unsubPromptResult =
-			typeof window.omp.events.onTabPromptResult === "function"
-				? window.omp.events.onTabPromptResult(handlePromptResult)
-				: window.omp.events.onPromptResult(frame => handlePromptResult(frame, focusedTabId()));
+		const unsubPromptResult = window.omp.events.onTabPromptResult(handlePromptResult);
 		// Text-mode slash commands write outside the transcript. Surface their
 		// output as local custom messages instead of silently dropping the frame.
 		const handleCommandOutput = (frame: CommandOutputFrame, tabId: string) => {
@@ -750,12 +735,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 				});
 			});
 		};
-		const unsubCommandOutput =
-			typeof window.omp.events.onTabCommandOutput === "function"
-				? window.omp.events.onTabCommandOutput(handleCommandOutput)
-				: window.omp.events.onCommandOutput(frame => {
-						if (acceptsActiveTabEvents()) handleCommandOutput(frame, focusedTabId());
-					});
+		const unsubCommandOutput = window.omp.events.onTabCommandOutput(handleCommandOutput);
 
 		const handleSessionInfo = (frame: SessionInfoUpdateFrame, tabId: string) => {
 			if (closedTabFrame(tabId)) return;
@@ -766,10 +746,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 				}));
 			});
 		};
-		const unsubSessionInfo =
-			typeof window.omp.events.onTabSessionInfoUpdate === "function"
-				? window.omp.events.onTabSessionInfoUpdate(handleSessionInfo)
-				: window.omp.events.onSessionInfoUpdate(frame => handleSessionInfo(frame, focusedTabId()));
+		const unsubSessionInfo = window.omp.events.onTabSessionInfoUpdate(handleSessionInfo);
 
 		const handleExtensionError = (frame: ExtensionErrorFrame) => {
 			useToastStore.getState().push({
@@ -779,10 +756,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 				detail: errorDetail(frame.error),
 			});
 		};
-		const unsubExtensionError =
-			typeof window.omp.events.onTabExtensionError === "function"
-				? window.omp.events.onTabExtensionError(handleExtensionError)
-				: window.omp.events.onExtensionError(handleExtensionError);
+		const unsubExtensionError = window.omp.events.onTabExtensionError(handleExtensionError);
 
 		// Ask/extension-UI requests that block for input (ask tool, approvals,
 		// confirms, …) from any tab, background ones included — notify when the

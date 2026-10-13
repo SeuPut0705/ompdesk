@@ -14,6 +14,7 @@ import {
 	isAccountRotationMode,
 	parseAccountRotationPref,
 } from "../shared/account-rotation";
+import type { BuiltinReaState } from "../shared/builtin-mcp";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -24,12 +25,14 @@ import type {
 } from "../shared/ipc-types";
 import { MODEL_SETUP_TIMEOUT_MS, type ModelSetupRequest, type ModelSetupStatus } from "../shared/model-setup";
 import { BENCHMARK_TIMEOUT_MS, BenchmarkRunner } from "./benchmark-runner";
+import { builtinReaState } from "./builtin-mcp";
 import { ModelSetupRunner } from "./model-setup-runner";
 import { deleteModelsProvider, listModelsProviders, upsertModelsProvider } from "./models-config";
 import { modelsConfigMetadata } from "./models-config-stock";
 import type { OmpResolution } from "./omp-runtime";
 import {
 	AccountRotationStateSchema,
+	BuiltinReaStateSchema,
 	HOST_STATS_TIMEOUT_MS,
 	LINK_SLACK_MS,
 	ModelSetupStatusSchema,
@@ -58,6 +61,8 @@ export interface MachineServices {
 	accountRotation(): Promise<AccountRotationState>;
 	/** Store the mode; every session this machine runs follows from its next prompt. */
 	setAccountRotation(mode: AccountRotationMode): Promise<AccountRotationState>;
+	builtinRea(): Promise<BuiltinReaState>;
+	setBuiltinRea(enabled: boolean): Promise<BuiltinReaState>;
 }
 
 /** The stats server's down-state texts, in this computer's UI language. */
@@ -103,6 +108,7 @@ export interface LocalMachineDeps {
 	benchmarkOmp: () => Promise<OmpResolution>;
 	benchmarkEnv: () => Promise<NodeJS.ProcessEnv>;
 	accountRotation: AccountRotationDeps;
+	builtinRea: { read(): unknown; write(enabled: boolean): void };
 }
 
 export interface AccountRotationDeps {
@@ -212,6 +218,16 @@ export class LocalMachine implements MachineServices {
 		this.#deps.accountRotation.write(mode);
 		return this.accountRotation();
 	}
+
+	async builtinRea(): Promise<BuiltinReaState> {
+		return builtinReaState(this.#deps.builtinRea.read());
+	}
+
+	async setBuiltinRea(enabled: boolean): Promise<BuiltinReaState> {
+		if (typeof enabled !== "boolean") throw codedError("invalid_preference_key", "Invalid built-in REA preference");
+		this.#deps.builtinRea.write(enabled);
+		return this.builtinRea();
+	}
 }
 
 /** One host-level call on a paired host (RemoteDevices.request). */
@@ -297,6 +313,14 @@ export class RemoteMachine implements MachineServices {
 
 	async setAccountRotation(mode: AccountRotationMode): Promise<AccountRotationState> {
 		return AccountRotationStateSchema.parse(await this.#request<unknown>("host.accountRotation.set", { mode }));
+	}
+
+	async builtinRea(): Promise<BuiltinReaState> {
+		return BuiltinReaStateSchema.parse(await this.#request<unknown>("host.builtinRea.get", {}));
+	}
+
+	async setBuiltinRea(enabled: boolean): Promise<BuiltinReaState> {
+		return BuiltinReaStateSchema.parse(await this.#request<unknown>("host.builtinRea.set", { enabled }));
 	}
 }
 

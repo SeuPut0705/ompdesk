@@ -565,7 +565,7 @@ export function AgentDefinitions() {
 					<IconButton
 						disabled={!rpc.ready || rpc.loading}
 						icon={<RefreshCw className={rpc.loading ? "motion-safe:animate-spin" : undefined} />}
-						label={notConnected ?? t("agentHub.refresh")}
+						label={notConnected ?? t("common.refresh")}
 						onClick={rpc.refresh}
 					/>
 					<Button
@@ -605,7 +605,7 @@ export function AgentDefinitions() {
 								title={notConnected}
 								variant="secondary"
 							>
-								{t("agentHub.retry")}
+								{t("common.retry")}
 							</Button>
 						}
 						description={<span role="alert">{rpc.error}</span>}

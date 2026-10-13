@@ -11,6 +11,8 @@ files:
 extraResources:
   - from: resources/gui-bridge
     to: gui-bridge
+  - from: resources/omp-builtin
+    to: omp-builtin
 protocols:
   - name: omp
     schemes:

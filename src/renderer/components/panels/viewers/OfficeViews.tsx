@@ -5,6 +5,7 @@
  * JSZip-based readers in xlsx.ts and pptx.ts for the others. Nothing a
  * document references outside its own package is fetched.
  */
+import { ChevronRight } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
 import { cx } from "../../../lib/format";
@@ -45,14 +46,14 @@ function OfficeFrame({ path, tabId, children }: OfficeViewProps & { children: (d
 
 type Parsed<T> = { status: "loading" } | { status: "error"; failure: InlineFailure } | { status: "ready"; value: T };
 
-/** Runs a lazily loaded parser over the bytes; `parse` must be stable (module scope). */
-function useParsed<T>(data: Uint8Array, parse: (data: Uint8Array) => Promise<T>): Parsed<T> {
+/** Runs an async parser over `source`; `parse` must be stable (module scope, or a stable object's own function). */
+function useParsed<S, T>(source: S, parse: (source: S) => Promise<T>): Parsed<T> {
 	const t = useT();
 	const [state, setState] = useState<Parsed<T>>({ status: "loading" });
 	useEffect(() => {
 		let cancelled = false;
 		setState({ status: "loading" });
-		parse(data).then(
+		parse(source).then(
 			value => {
 				if (!cancelled) setState({ status: "ready", value });
 			},
@@ -63,7 +64,7 @@ function useParsed<T>(data: Uint8Array, parse: (data: Uint8Array) => Promise<T>)
 		return () => {
 			cancelled = true;
 		};
-	}, [data, parse, t]);
+	}, [source, parse, t]);
 	return state;
 }
 
@@ -219,20 +220,20 @@ function SheetTable({ grid }: { grid: SheetGrid }) {
 	const t = useT();
 	if (grid.rows.length === 0) {
 		return (
-			<p className="p-4 text-omp-sm text-(--omp-dim)" data-sheet-empty>
+			<p className="p-4 text-sc-sm text-(--sc-text-muted)" data-sheet-empty>
 				{t("fileViewer.sheetEmpty")}
 			</p>
 		);
 	}
 	return (
 		<>
-			<table className="min-w-full border-separate border-spacing-0 text-omp-sm" data-sheet-grid>
-				<thead className="sticky top-0 z-10">
+			<table className="min-w-full border-separate border-spacing-0 text-sc-sm" data-sheet-grid>
+				<thead className="sticky top-0 z-(--sc-z-sticky)">
 					<tr>
-						<th className="sticky left-0 border-b border-(--omp-border-muted) bg-(--omp-code-bg) px-2 py-1" />
+						<th className="sticky left-0 border-b border-(--sc-border-subtle) bg-(--sc-surface-2) px-2 py-1" />
 						{Array.from({ length: grid.columns }, (_, c) => (
 							<th
-								className="border-b border-l border-(--omp-border-muted) bg-(--omp-code-bg) px-2 py-1 text-center font-normal text-(--omp-dim)"
+								className="border-b border-l border-(--sc-border-subtle) bg-(--sc-surface-2) px-2 py-1 text-center font-normal text-(--sc-text-muted)"
 								key={c}
 								scope="col"
 							>
@@ -245,7 +246,7 @@ function SheetTable({ grid }: { grid: SheetGrid }) {
 					{grid.rows.map((row, r) => (
 						<tr key={r}>
 							<th
-								className="sticky left-0 border-b border-(--omp-border-muted)/50 bg-(--omp-code-bg) px-2 py-0.5 text-right font-normal text-(--omp-dim) tabular-nums"
+								className="sticky left-0 border-b border-(--sc-divider) bg-(--sc-surface-2) px-2 py-0.5 text-right font-normal text-(--sc-text-muted) tabular-nums"
 								scope="row"
 							>
 								{r + 1}
@@ -253,7 +254,7 @@ function SheetTable({ grid }: { grid: SheetGrid }) {
 							{row.map((cell, c) => (
 								<td
 									className={cx(
-										"max-w-96 truncate border-b border-l border-(--omp-border-muted)/50 px-2 py-0.5 whitespace-pre text-(--omp-text)",
+										"max-w-96 truncate border-b border-l border-(--sc-divider) px-2 py-0.5 whitespace-pre text-(--sc-text)",
 										cell.numeric && "text-right tabular-nums",
 									)}
 									key={c}
@@ -267,7 +268,7 @@ function SheetTable({ grid }: { grid: SheetGrid }) {
 				</tbody>
 			</table>
 			{(grid.clippedRows || grid.clippedColumns) && (
-				<p className="px-3 py-2 text-omp-xs text-(--omp-dim)" data-table-clipped>
+				<p className="px-3 py-2 text-sc-xs text-(--sc-text-muted)" data-table-clipped>
 					{[
 						grid.clippedRows ? t("fileViewer.tableClipped", { rows: grid.rows.length }) : null,
 						grid.clippedColumns ? t("fileViewer.sheetColumnsClipped", { columns: grid.columns }) : null,
@@ -280,35 +281,14 @@ function SheetTable({ grid }: { grid: SheetGrid }) {
 	);
 }
 
-type SheetState =
-	| { status: "loading" }
-	| { status: "error"; failure: InlineFailure }
-	| { status: "ready"; grid: SheetGrid };
-
 function WorkbookView({ workbook }: { workbook: WorkbookFile }) {
 	const t = useT();
 	const [active, setActive] = useState(0);
-	const [sheet, setSheet] = useState<SheetState>({ status: "loading" });
+	const sheet = useParsed(active, workbook.readSheet);
 	const current = workbook.sheets[active];
 
-	useEffect(() => {
-		let cancelled = false;
-		setSheet({ status: "loading" });
-		workbook.readSheet(active).then(
-			grid => {
-				if (!cancelled) setSheet({ status: "ready", grid });
-			},
-			(error: unknown) => {
-				if (!cancelled) setSheet({ status: "error", failure: inlineFailure(error, t("fileViewer.officeFailed")) });
-			},
-		);
-		return () => {
-			cancelled = true;
-		};
-	}, [workbook, active, t]);
-
 	if (workbook.sheets.length === 0) {
-		return <p className="p-4 text-omp-sm text-(--omp-dim)">{t("fileViewer.workbookEmpty")}</p>;
+		return <p className="p-4 text-sc-sm text-(--sc-text-muted)">{t("fileViewer.workbookEmpty")}</p>;
 	}
 	const sheetLabel = (index: number) =>
 		workbook.sheets[index]?.name || t("fileViewer.sheetUntitled", { number: index + 1 });
@@ -325,13 +305,13 @@ function WorkbookView({ workbook }: { workbook: WorkbookFile }) {
 			</div>
 			<div aria-label={sheetLabel(active)} className="min-h-0 flex-1 overflow-auto" role="tabpanel">
 				{current?.path === null ? (
-					<p className="p-4 text-omp-sm text-(--omp-dim)">{t("fileViewer.sheetChart")}</p>
+					<p className="p-4 text-sc-sm text-(--sc-text-muted)">{t("fileViewer.sheetChart")}</p>
 				) : sheet.status === "loading" ? (
 					<ViewerLoading />
 				) : sheet.status === "error" ? (
 					<ViewerFailure failure={sheet.failure} />
 				) : (
-					<SheetTable grid={sheet.grid} />
+					<SheetTable grid={sheet.value} />
 				)}
 			</div>
 		</div>
@@ -379,7 +359,7 @@ function SlideImages({ slide }: { slide: Slide }) {
 			{urls.map((url, index) => (
 				<img
 					alt={t("fileViewer.slideImage", { slide: slide.number, index: index + 1 })}
-					className="max-h-64 max-w-full rounded-sm border border-(--omp-border-muted) object-contain"
+					className="max-h-64 max-w-full rounded-(--sc-radius-sm) border border-(--sc-border-subtle) object-contain"
 					data-slide-image
 					key={url}
 					src={url}
@@ -397,22 +377,24 @@ function SlideCard({ slide }: { slide: Slide }) {
 		<li>
 			<article
 				aria-label={label}
-				className="rounded-md border border-(--omp-border-muted) p-3"
+				className="rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3"
 				data-slide={slide.number}
 			>
-				<p className="flex items-center gap-2 text-omp-xs text-(--omp-dim)">
+				<p className="flex items-center gap-2 text-sc-xs text-(--sc-text-muted)">
 					<span className="tabular-nums">{label}</span>
 					{slide.hidden && (
-						<span className="rounded-sm border border-(--omp-border-muted) px-1">
+						<span className="rounded-(--sc-radius-sm) border border-(--sc-border-subtle) px-1">
 							{t("fileViewer.slideHidden")}
 						</span>
 					)}
 				</p>
 				{slide.title !== null && (
-					<h3 className="mt-1 text-omp-md font-semibold whitespace-pre-wrap text-(--omp-text)">{slide.title}</h3>
+					<h3 className="mt-1 text-sc-md font-semibold whitespace-pre-wrap break-words text-(--sc-text)">
+						{slide.title}
+					</h3>
 				)}
 				{slide.paragraphs.length > 0 && (
-					<div className="mt-2 flex flex-col gap-1 text-omp-sm text-(--omp-text)">
+					<div className="mt-2 flex flex-col gap-1 text-sc-sm break-words text-(--sc-text)">
 						{slide.paragraphs.map((paragraph, index) => (
 							<p
 								className="whitespace-pre-wrap"
@@ -424,19 +406,20 @@ function SlideCard({ slide }: { slide: Slide }) {
 						))}
 					</div>
 				)}
-				{empty && <p className="mt-1 text-omp-sm text-(--omp-dim)">{t("fileViewer.slideEmpty")}</p>}
+				{empty && <p className="mt-1 text-sc-sm text-(--sc-text-muted)">{t("fileViewer.slideEmpty")}</p>}
 				<SlideImages slide={slide} />
 				{slide.skippedImages > 0 && (
-					<p className="mt-2 text-omp-xs text-(--omp-dim)">
+					<p className="mt-2 text-sc-xs text-(--sc-text-muted)">
 						{t("fileViewer.slideImagesSkipped", { count: slide.skippedImages })}
 					</p>
 				)}
 				{slide.notes.length > 0 && (
-					<details className="mt-3 border-t border-(--omp-border-muted) pt-2" data-slide-notes>
-						<summary className="cursor-pointer text-omp-xs text-(--omp-dim) hover:text-(--omp-text)">
+					<details className="group/notes mt-3 border-t border-(--sc-divider) pt-2" data-slide-notes>
+						<summary className="flex min-h-(--sc-control-sm) cursor-pointer list-none items-center gap-1 rounded-(--sc-radius-sm) text-sc-xs text-(--sc-text-muted) hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) [&::-webkit-details-marker]:hidden">
+							<ChevronRight aria-hidden className="size-(--sc-icon-sm) group-open/notes:rotate-90" />
 							{t("fileViewer.slideNotes")}
 						</summary>
-						<div className="mt-1 flex flex-col gap-1 text-omp-sm text-(--omp-text)">
+						<div className="mt-1 flex flex-col gap-1 text-sc-sm break-words text-(--sc-text)">
 							{slide.notes.map((note, index) => (
 								<p className="whitespace-pre-wrap" key={index}>
 									{note}
@@ -459,10 +442,10 @@ function SlidesLoader({ data }: { data: Uint8Array }) {
 	return (
 		<div className="flex h-full min-h-0 flex-col" data-viewer="pptx">
 			<ViewerToolbar label={t("fileViewer.toolbar")}>
-				<span className="ps-1 text-omp-xs text-(--omp-dim)" data-slides-simplified>
+				<span className="ps-1 text-sc-xs text-(--sc-text-muted)" data-slides-simplified>
 					{t("fileViewer.slidesSimplified")}
 				</span>
-				<span className="ms-auto pe-1 text-omp-xs text-(--omp-dim) tabular-nums">
+				<span className="ms-auto pe-1 text-sc-xs text-(--sc-text-muted) tabular-nums">
 					{t("fileViewer.slideCount", { count: slides.length })}
 				</span>
 			</ViewerToolbar>

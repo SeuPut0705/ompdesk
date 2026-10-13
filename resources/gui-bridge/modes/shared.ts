@@ -103,6 +103,7 @@ export function onHostInput(listener: InputListener): void {
 export function attach(env: BridgeEnv): AgentSession {
 	attachedEnv = env;
 	if (!extensionHooked) {
+		extensionHooked = true;
 		env.pi.on("session_switch", event => {
 			for (const listener of switchListeners) listener(event.reason);
 		});

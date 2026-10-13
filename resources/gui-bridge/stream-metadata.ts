@@ -20,10 +20,13 @@ export function readGroupTarget(args: Record<string, unknown>): { path: string; 
 export function decorateMessages<T extends { content?: unknown }>(messages: T[]): T[] {
 	return messages.map(message => {
 		if (!Array.isArray(message.content)) return message;
-		return { ...message, content: message.content.map(block => {
-			if (block.type !== "toolCall" || block.name !== "read") return block;
-			return { ...block, arguments: { ...block.arguments, __ompReadGroup: readGroupTarget(block.arguments) } };
-		}) };
+		return {
+			...message,
+			content: message.content.map(block => {
+				if (block.type !== "toolCall" || block.name !== "read") return block;
+				return { ...block, arguments: { ...block.arguments, __ompReadGroup: readGroupTarget(block.arguments) } };
+			}),
+		};
 	});
 }
 
@@ -41,12 +44,19 @@ export const methods: BridgeMethods = guard("streamMetadata", {
 		};
 		const unsubscribe = session.subscribe(event => {
 			if (event.type === "tool_execution_start" && event.toolName === "read") {
-				env.emit({ type: "read_group_metadata", toolCallId: event.toolCallId, target: readGroupTarget(event.args) });
+				env.emit({
+					type: "read_group_metadata",
+					toolCallId: event.toolCallId,
+					target: readGroupTarget(event.args),
+				});
 			}
 		});
 		const timer = setInterval(rate, 500);
 		timer.unref();
-		stop = () => { clearInterval(timer); unsubscribe(); };
+		stop = () => {
+			clearInterval(timer);
+			unsubscribe();
+		};
 		rate();
 		return null;
 	},

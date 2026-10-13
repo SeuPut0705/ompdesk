@@ -1,3 +1,4 @@
+import type { StoreApi } from "zustand";
 import type {
 	AgentMessage,
 	MessagesPage,
@@ -9,6 +10,7 @@ import type {
 	RpcSessionState,
 	RpcVibeModeState,
 } from "../../shared/rpc-types";
+import { workTurnStartedAt } from "../components/chat/work-turn";
 import { type MessagesStore, mergeFetchedTranscript, useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
 import type { PendingPlanProposal, PlanApprovalStore } from "../stores/plan-approval";
@@ -74,7 +76,7 @@ export function applyUsageSnapshot(state: RpcSessionState, tabId: string): void 
 }
 
 /** Apply a get_state snapshot to every state-derived store. */
-export function applySessionState(state: RpcSessionState, fallbackName?: string): void {
+export function applySessionState(state: RpcSessionState, fallbackName?: string, turnStartedAt?: number): void {
 	const runtime = focusedSessionRuntime();
 	if (runtime) runtime.recovering = false;
 	if (useSessionStore.getState().sessionId !== state.sessionId) useSubagentGraphStore.getState().reset();
@@ -86,7 +88,8 @@ export function applySessionState(state: RpcSessionState, fallbackName?: string)
 	}
 	useSettingsStore.getState().setFromState(state);
 	// Turn first: a mid-run attach missed agent_start, and setPhases reads it.
-	useTodoStore.getState().setTurnActive(state.isStreaming);
+	const todo = useTodoStore.getState();
+	todo.setTurnActive(state.isStreaming, todo.turnSourceKnown ? undefined : turnStartedAt);
 	useTodoStore.getState().setPhases(state.todoPhases);
 }
 
@@ -361,8 +364,119 @@ export async function loadOlderTranscript(tabId?: string, beforePrepend?: () => 
 		store.setState({ isLoadingPage: false });
 	}
 }
+
 const hydrationVersions = new WeakMap<SessionRuntime, number>();
 let legacyHydrationVersion = 0;
+
+/** The stores one hydration writes: a tab runtime's own, or the focus-following hooks on the legacy path. */
+interface HydrationStores {
+	messages: StoreApi<MessagesStore> | null;
+	session: StoreApi<SessionStore> | null;
+	tools: StoreApi<ToolsStore> | null;
+}
+
+/**
+ * Captured before the fetch: committed agent_end rows arriving while the
+ * transcript RPC is in flight must survive the merge in `commitHydration`.
+ */
+interface HydrationBaseline {
+	messages: AgentMessage[];
+	liveMessages: AgentMessage[];
+	eventVersion: number | undefined;
+	toolsRevision: number | undefined;
+}
+
+function captureHydrationBaseline({ messages, session, tools }: HydrationStores): HydrationBaseline {
+	const transcript = messages?.getState();
+	return {
+		messages: transcript?.messages ?? [],
+		liveMessages: transcript?.liveMessages ?? [],
+		eventVersion: session?.getState().eventVersion,
+		toolsRevision: tools?.getState().revision,
+	};
+}
+
+interface HydrationCommit {
+	stores: HydrationStores;
+	before: HydrationBaseline;
+	stateResult: PromiseSettledResult<RpcResponse>;
+	messagesResult: PromiseSettledResult<RpcResponse>;
+	/** False when the snapshot was fetched for a pane the user switched away from meanwhile. */
+	focusUnchanged: boolean;
+	command: TabCommand;
+	applyState: (wire: RpcSessionState, turnStartedAt?: number) => void;
+}
+
+/** Land a `get_state` + transcript-tail pair: the one commit path for tab and legacy hydration. */
+function commitHydration({
+	stores: { messages, session, tools },
+	before,
+	stateResult,
+	messagesResult,
+	focusUnchanged,
+	command,
+	applyState,
+}: HydrationCommit): void {
+	const eventsUnchanged = session?.getState().eventVersion === before.eventVersion;
+	// `get_state` is the only witness to a live turn. A failed read counts as not
+	// live: a card left spinning never resolves, while a wrongly aborted card is
+	// repaired by the next execution event.
+	const wire =
+		stateResult.status === "fulfilled" && stateResult.value.success
+			? (stateResult.value.data as RpcSessionState | null)
+			: null;
+	const stateIsStreaming = wire?.isStreaming === true;
+	const stateIsIdle = wire != null && !stateIsStreaming;
+	const page =
+		messagesResult.status === "fulfilled" && messagesResult.value.success
+			? (messagesResult.value.data as MessagesPage | undefined)
+			: undefined;
+	const turnStartedAt = page ? workTurnStartedAt(page.messages) : undefined;
+
+	if (eventsUnchanged && focusUnchanged && wire != null) {
+		applyState(wire, turnStartedAt);
+		// Mid-run attach (launch/reconnect/session switch while the agent is
+		// streaming) missed the agent_start that arms the status row — re-arm
+		// it like the TUI's ensureLoadingAnimation on guest attach, unless a
+		// live marker already carries a more accurate start time. When content
+		// is actively streaming the row stays hidden behind StreamingRows.
+		if (wire.isStreaming && session?.getState().awaitingModelSince === null) {
+			session.setState({ awaitingModelSince: Date.now() });
+		}
+		// Zombie settle: the run finished while this tab sat in the
+		// background, so its message_end/agent_end never forwarded and the
+		// restored bundle still paints partial assistant content. Clear only
+		// those stream buffers here; the transcript merge below separately
+		// removes delivered live rows while preserving an unsent local prompt.
+		if (!wire.isStreaming) messages?.getState().clearStreaming();
+		// Per-tab subagent subscription (F-HYDRATE), re-asserted on every
+		// successful hydrate: the command channel routes to THIS tab's
+		// sidecar. Tabs that report ready while active also subscribe via the
+		// status handlers — this covers tabs that booted or settled in the
+		// background, whose frames would otherwise stay silent on return.
+		// Idempotent server-side.
+		void command({ type: "set_subagent_subscription", level: "progress" });
+	}
+
+	if (!focusUnchanged || messagesResult.status !== "fulfilled" || !messagesResult.value.success) return;
+	const fetched = page?.messages ?? [];
+	const current = messages?.getState().messages ?? [];
+	const merged = mergeFetchedTranscript(fetched, before.messages, current);
+	const retained = retainLoadedHistory(merged, current);
+	const prevCursor = retained.length > merged.length ? messages?.getState().prevCursor : page?.prevCursor;
+	messages?.getState().reconcileFetched(retained);
+	messages?.setState({ prevCursor, pageError: null });
+	if (eventsUnchanged && stateIsIdle && messages?.getState().liveMessages === before.liveMessages) {
+		messages.getState().clearDeliveredLiveMessages();
+	}
+	// Always rebuild: a tab that returns mid-run has live events flowing,
+	// but cards whose end events it missed in the background would spin
+	// forever. Entries live events wrote during the fetch survive it.
+	tools?.getState().hydrateMessages(messages?.getState().messages ?? [], {
+		turnIsLive: eventsUnchanged ? stateIsStreaming : session?.getState().isStreaming === true,
+		keepChangedSince: before.toolsRevision,
+	});
+}
 
 export async function hydrateLegacySession(fallbackName?: string, initialState?: RpcResponse): Promise<void> {
 	const version = ++legacyHydrationVersion;
@@ -371,10 +485,8 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	// focus at apply time. Remember who we fetched for and refuse to write that
 	// snapshot into a pane the user switched to while the RPC was in flight.
 	const originRuntime = focusedSessionRuntime();
-	const beforeMessages = useMessagesStore.getState().messages;
-	const beforeLiveMessages = useMessagesStore.getState().liveMessages;
-	const beforeEventVersion = useSessionStore.getState().eventVersion;
-	const beforeTools = useToolsStore.getState().revision;
+	const stores: HydrationStores = { messages: useMessagesStore, session: useSessionStore, tools: useToolsStore };
+	const before = captureHydrationBaseline(stores);
 	const core = Promise.allSettled([
 		initialState ? Promise.resolve(initialState) : activeTabCommand({ type: "get_state" }),
 		fetchTranscriptTail(activeTabCommand),
@@ -390,58 +502,15 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	]);
 	const [stateResult, messagesResult] = await core;
 	if (!isCurrent()) return;
-	const eventsUnchanged = useSessionStore.getState().eventVersion === beforeEventVersion;
-	const focusUnchanged = !originRuntime || focusedSessionRuntime() === originRuntime;
-	// `get_state` is the only witness to a live turn. A failed read counts as not
-	// live: a card left spinning never resolves, while a wrongly aborted card is
-	// repaired by the next execution event.
-	const stateIsStreaming =
-		stateResult.status === "fulfilled" &&
-		stateResult.value.success &&
-		(stateResult.value.data as RpcSessionState | null)?.isStreaming === true;
-	const stateIsIdle =
-		stateResult.status === "fulfilled" &&
-		stateResult.value.success &&
-		stateResult.value.data != null &&
-		!stateIsStreaming;
-	if (
-		eventsUnchanged &&
-		focusUnchanged &&
-		stateResult.status === "fulfilled" &&
-		stateResult.value.success &&
-		stateResult.value.data != null
-	) {
-		const wire = stateResult.value.data as RpcSessionState;
-		applySessionState(wire, fallbackName);
-		if (wire.isStreaming && useSessionStore.getState().awaitingModelSince === null) {
-			useSessionStore.setState({ awaitingModelSince: Date.now() });
-		}
-		if (!wire.isStreaming) useMessagesStore.getState().clearStreaming();
-		void activeTabCommand({ type: "set_subagent_subscription", level: "progress" });
-	}
-	if (focusUnchanged && messagesResult.status === "fulfilled" && messagesResult.value.success) {
-		const fetched = (messagesResult.value.data as { messages?: AgentMessage[] } | undefined)?.messages ?? [];
-		const current = useMessagesStore.getState().messages;
-		const page = messagesResult.value.data as MessagesPage;
-		const merged = mergeFetchedTranscript(fetched, beforeMessages, current);
-		const retained = retainLoadedHistory(merged, current);
-		const prevCursor = retained.length > merged.length ? useMessagesStore.getState().prevCursor : page.prevCursor;
-		useMessagesStore.getState().reconcileFetched(retained);
-		useMessagesStore.setState({
-			prevCursor,
-			totalMessages: page.totalMessages + merged.length - fetched.length,
-			pageError: null,
-		});
-		if (eventsUnchanged && stateIsIdle && useMessagesStore.getState().liveMessages === beforeLiveMessages) {
-			useMessagesStore.getState().clearDeliveredLiveMessages();
-		}
-		// Always rebuild, or cards whose end events were missed spin forever;
-		// entries live events wrote during the fetch survive it.
-		useToolsStore.getState().hydrateMessages(useMessagesStore.getState().messages, {
-			turnIsLive: eventsUnchanged ? stateIsStreaming : useSessionStore.getState().isStreaming,
-			keepChangedSince: beforeTools,
-		});
-	}
+	commitHydration({
+		stores,
+		before,
+		stateResult,
+		messagesResult,
+		focusUnchanged: !originRuntime || focusedSessionRuntime() === originRuntime,
+		command: activeTabCommand,
+		applyState: (wire, startedAt) => applySessionState(wire, fallbackName, startedAt),
+	});
 	await subagents;
 	await secondary;
 }
@@ -512,13 +581,12 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 	const version = (hydrationVersions.get(runtime) ?? 0) + 1;
 	hydrationVersions.set(runtime, version);
 	const isCurrent = (): boolean => hydrationVersions.get(runtime) === version && sessionRuntime(tabId) === runtime;
-	// Capture before the fetch: committed agent_end rows arriving while the
-	// transcript RPC is in flight must survive the merge below.
-	const initialMessagesStore = sessionRuntimeStore<MessagesStore>(tabId, "messages")?.getState();
-	const beforeMessages = initialMessagesStore?.messages ?? [];
-	const beforeLiveMessages = initialMessagesStore?.liveMessages ?? [];
-	const beforeEventVersion = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion;
-	const beforeTools = sessionRuntimeStore<ToolsStore>(tabId, "tools")?.getState().revision;
+	const stores: HydrationStores = {
+		messages: sessionRuntimeStore<MessagesStore>(tabId, "messages"),
+		session: sessionRuntimeStore<SessionStore>(tabId, "session"),
+		tools: sessionRuntimeStore<ToolsStore>(tabId, "tools"),
+	};
+	const before = captureHydrationBaseline(stores);
 
 	const coreResult = Promise.allSettled([
 		runtime.command({ type: "get_state" }),
@@ -553,96 +621,28 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 	]);
 	const [stateResult, messagesResult] = await coreResult;
 	if (!isCurrent()) return;
-	const eventsUnchanged =
-		sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion === beforeEventVersion;
-	// `get_state` is the only witness to a live turn. A failed read counts as not
-	// live: a card left spinning never resolves, while a wrongly aborted card is
-	// repaired by the next execution event.
-	const stateIsStreaming =
-		stateResult.status === "fulfilled" &&
-		stateResult.value.success &&
-		(stateResult.value.data as RpcSessionState | null)?.isStreaming === true;
-	const stateIsIdle =
-		stateResult.status === "fulfilled" &&
-		stateResult.value.success &&
-		stateResult.value.data != null &&
-		!stateIsStreaming;
-
-	if (
-		eventsUnchanged &&
-		stateResult.status === "fulfilled" &&
-		stateResult.value.success &&
-		stateResult.value.data != null
-	) {
-		const wire = stateResult.value.data as RpcSessionState;
-		withSessionRuntime(tabId, () => applySessionState(wire, fallbackName));
-		// Mid-run attach (launch/reconnect/session switch while the agent is
-		// streaming) missed the agent_start that arms the status row — re-arm
-		// it like the TUI's ensureLoadingAnimation on guest attach, unless a
-		// live marker already carries a more accurate start time. When content
-		// is actively streaming the row stays hidden behind StreamingRows.
-		const session = sessionRuntimeStore<SessionStore>(tabId, "session");
-		const messages = sessionRuntimeStore<MessagesStore>(tabId, "messages");
-		if (wire.isStreaming && session?.getState().awaitingModelSince === null) {
-			session.setState({ awaitingModelSince: Date.now() });
-		}
-		if (!wire.isStreaming) {
+	commitHydration({
+		stores,
+		before,
+		stateResult,
+		messagesResult,
+		focusUnchanged: true,
+		command: runtime.command,
+		applyState: (wire, startedAt) => {
+			withSessionRuntime(tabId, () => applySessionState(wire, fallbackName, startedAt));
 			// An idle session has no retry outstanding, whatever end event was missed.
-			retryPendingTabs.delete(tabId);
-			// Zombie settle: the run finished while this tab sat in the
-			// background, so its message_end/agent_end never forwarded and the
-			// restored bundle still paints partial assistant content. Clear only
-			// those stream buffers here; the transcript merge below separately
-			// removes delivered live rows while preserving an unsent local prompt.
-			messages?.getState().clearStreaming();
-		}
-		// Per-tab subagent subscription (F-HYDRATE), re-asserted on every
-		// successful hydrate: the runtime's command channel routes to THIS tab's
-		// sidecar. Tabs that report ready while active also subscribe via the
-		// status handlers — this covers tabs that booted or settled in the
-		// background, whose frames would otherwise stay silent on return.
-		// Idempotent server-side.
-		void runtime.command({ type: "set_subagent_subscription", level: "progress" });
-	}
-
-	if (messagesResult.status === "fulfilled" && messagesResult.value.success) {
-		const data = messagesResult.value.data as { messages?: AgentMessage[] } | undefined;
-		const fetched = data?.messages ?? [];
-		const messages = sessionRuntimeStore<MessagesStore>(tabId, "messages");
-		const tools = sessionRuntimeStore<ToolsStore>(tabId, "tools");
-		const current = messages?.getState().messages ?? [];
-		const page = messagesResult.value.data as MessagesPage;
-		const merged = mergeFetchedTranscript(fetched, beforeMessages, current);
-		const retained = retainLoadedHistory(merged, current);
-		const prevCursor = retained.length > merged.length ? messages?.getState().prevCursor : page.prevCursor;
-		messages?.getState().reconcileFetched(retained);
-		messages?.setState({
-			prevCursor,
-			totalMessages: page.totalMessages + merged.length - fetched.length,
-			pageError: null,
-		});
-		if (eventsUnchanged && stateIsIdle && messages?.getState().liveMessages === beforeLiveMessages) {
-			messages.getState().clearDeliveredLiveMessages();
-		}
-		// Always rebuild: a tab that returns mid-run has live events flowing,
-		// but cards whose end events it missed in the background would spin
-		// forever. Entries live events wrote during the fetch survive it.
-		tools?.getState().hydrateMessages(messages?.getState().messages ?? [], {
-			turnIsLive: eventsUnchanged
-				? stateIsStreaming
-				: sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().isStreaming === true,
-			keepChangedSince: beforeTools,
-		});
-	}
+			if (!wire.isStreaming) retryPendingTabs.delete(tabId);
+		},
+	});
 
 	// Subagents and secondary chips do not hold the transcript hostage. Their
 	// requests still begin in parallel, but the core session can paint first.
 	// A proposal can only be pending while plan mode is on.
-	const wireState =
+	const wire =
 		stateResult.status === "fulfilled" && stateResult.value.success
 			? (stateResult.value.data as RpcSessionState | null)
 			: null;
-	if (wireState?.planModeEnabled) await syncPlanProposal(tabId, runtime.command, isCurrent);
+	if (wire?.planModeEnabled) await syncPlanProposal(tabId, runtime.command, isCurrent);
 	await subagentsResult;
 	await secondaryResult;
 }

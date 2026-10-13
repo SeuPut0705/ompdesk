@@ -77,11 +77,6 @@ export function canServe(model: ModelInfo, serving: ReadonlySet<string>): boolea
 	return model.contextWindow == null || model.contextWindow >= MIN_SERVING_CONTEXT;
 }
 
-/** `provider/id`: the selector omp stores in `modelRoles.*`. */
-export function modelSelector(model: Pick<ModelInfo, "provider" | "id">): string {
-	return `${model.provider}/${model.id}`;
-}
-
 /** Display name for a model: its catalog name, else its id. */
 export function modelDisplayName(model: Pick<ModelInfo, "id" | "name">): string {
 	return model.name?.trim() || model.id;

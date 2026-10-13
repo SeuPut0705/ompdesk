@@ -1,11 +1,10 @@
 import { Code2 } from "lucide-react";
-import { AnsiText, hasAnsi } from "../../lib/ansi";
-import { cx, extractImageDataUrls, resultText } from "../../lib/format";
+import { extractImageDataUrls, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { PREVIEW_SCROLL_SM } from "../../lib/preview";
 import { CodeBlock } from "../chat/CodeBlock";
 import { ResultImages } from "./ResultImages";
 import type { ToolRendererProps } from "./ToolCard";
+import { ToolTextPreview } from "./ToolTextPreview";
 
 /** Eval: code cell with language badge + output below. */
 export function EvalRenderer({ args, result, isError, isPartial, partialResult, livePreview }: ToolRendererProps) {
@@ -47,17 +46,7 @@ export function EvalRenderer({ args, result, isError, isPartial, partialResult, 
 							{isError ? t("tools.eval.error") : t("tools.eval.output")}
 						</div>
 					)}
-					<pre
-						className={cx(
-							"whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
-							PREVIEW_SCROLL_SM,
-							isError
-								? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
-								: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",
-						)}
-					>
-						{hasAnsi(output) ? <AnsiText text={output} /> : output}
-					</pre>
+					<ToolTextPreview text={output} isError={isError} />
 				</div>
 			)}
 			<ResultImages images={images} livePreview={livePreview} />

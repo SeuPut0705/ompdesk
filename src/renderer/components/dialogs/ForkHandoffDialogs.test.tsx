@@ -14,6 +14,7 @@ import { I18nProvider, translate } from "../../lib/i18n";
 import { closeHandoffDialog, openHandoffDialog, useForkHandoffStore } from "../../stores/fork-handoff";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
+import { routeCommands } from "../../test-support/route-commands";
 import { HandoffDialog } from "./HandoffDialog";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -70,7 +71,7 @@ function installMockOmp(overrides: Partial<MockRpc> = {}): MockRpc {
 	};
 	// linkedom's window lacks the preload bridge; install the mock OmpApi on it.
 	const ompWindow = window as unknown as { omp: { rpc: MockRpc } };
-	ompWindow.omp = { rpc };
+	ompWindow.omp = { rpc: routeCommands(rpc) };
 	return rpc;
 }
 

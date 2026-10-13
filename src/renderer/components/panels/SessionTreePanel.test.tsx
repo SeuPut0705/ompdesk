@@ -15,6 +15,7 @@ import { I18nProvider, translate } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { useToastStore } from "../../stores/toast";
+import { routeCommands } from "../../test-support/route-commands";
 import { SessionTreePanel } from "./SessionTreePanel";
 import type { SessionTreeResult } from "./session-tree-layout";
 
@@ -67,8 +68,22 @@ function failure(error: string): RpcResponse {
 	return { type: "response", command: "test", success: false, error };
 }
 
+/** A linear session tree: each user message parents to the previous one, the last is the leaf. */
+function linearTree(messages: Array<{ entryId: string; text: string }>): RpcResponse {
+	const tree: SessionTreeResult["tree"] = messages.map((message, index) => ({
+		entryId: message.entryId,
+		parentId: index === 0 ? null : (messages[index - 1]?.entryId ?? null),
+		role: "user",
+		textPreview: message.text,
+		timestamp: 0,
+		onActiveBranch: true,
+		isLeaf: index === messages.length - 1,
+	}));
+	return success({ tree, activeLeafId: null });
+}
+
 interface MockRpc {
-	getBranchMessages: Mock<() => Promise<RpcResponse>>;
+	getSessionTree: Mock<() => Promise<RpcResponse>>;
 	branch: Mock<(entryId: string) => Promise<RpcResponse>>;
 	getState: Mock<() => Promise<RpcResponse>>;
 	switchLeaf: Mock<
@@ -78,12 +93,11 @@ interface MockRpc {
 	getTranscriptPage: Mock<() => Promise<RpcResponse>>;
 	getSubagents: Mock<() => Promise<RpcResponse>>;
 	setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
-	getSessionTree?: Mock<() => Promise<RpcResponse>>;
 }
 
 function installMockOmp(overrides: Partial<MockRpc> = {}): MockRpc {
 	const rpc: MockRpc = {
-		getBranchMessages: vi.fn(async () => success({ messages: [] })),
+		getSessionTree: vi.fn(async () => linearTree([])),
 		branch: vi.fn(async () => success({ text: "", cancelled: false })),
 		getState: vi.fn(async () => success({ sessionId: "s2", todoPhases: [], messageCount: 3, queuedMessageCount: 0 })),
 		switchLeaf: vi.fn(async () => success({ cancelled: false, activeLeafId: "m1" })),
@@ -95,7 +109,7 @@ function installMockOmp(overrides: Partial<MockRpc> = {}): MockRpc {
 	};
 	// linkedom's window lacks the preload bridge; install the mock OmpApi on it.
 	const ompWindow = window as unknown as { omp: { rpc: MockRpc } };
-	ompWindow.omp = { rpc };
+	ompWindow.omp = { rpc: routeCommands(rpc) };
 	return rpc;
 }
 
@@ -237,27 +251,24 @@ describe("SessionTreePanel", () => {
 		expect(document.body.textContent).toContain("No messages in this session yet.");
 	});
 
-	it("falls back to a flat chain over get_branch_messages when no tree RPC exists", async () => {
+	it("draws a linear session as a chain from the session root", async () => {
 		const rpc = installMockOmp({
-			getBranchMessages: vi.fn(async () =>
-				success({
-					messages: [
-						{ entryId: "m1", text: "first prompt" },
-						{ entryId: "m2", text: "second prompt" },
-						{ entryId: "m3", text: "third prompt" },
-					],
-				}),
+			getSessionTree: vi.fn(async () =>
+				linearTree([
+					{ entryId: "m1", text: "first prompt" },
+					{ entryId: "m2", text: "second prompt" },
+					{ entryId: "m3", text: "third prompt" },
+				]),
 			),
 		});
 		seedSession("tree-chain");
 		await mount(<SessionTreePanel />);
-		expect(rpc.getBranchMessages).toHaveBeenCalledTimes(1);
+		expect(rpc.getSessionTree).toHaveBeenCalledTimes(1);
 		// Root anchor + three cards + three edges (root→m1→m2→m3), HEAD on the last.
 		expect(document.body.textContent).toContain("session start");
 		expect(nodeCards().map(card => card.getAttribute("data-tree-node"))).toEqual(["m1", "m2", "m3"]);
 		expect(edgePaths()).toHaveLength(3);
 		expect(document.body.textContent).toContain("head");
-		expect(document.body.textContent).toContain("lineage view");
 	});
 
 	it("renders the rich get_session_tree with fork edges and active-branch highlight", async () => {
@@ -321,13 +332,11 @@ describe("SessionTreePanel", () => {
 
 	it("drags a node to a cosmetic offset that survives re-render", async () => {
 		installMockOmp({
-			getBranchMessages: vi.fn(async () =>
-				success({
-					messages: [
-						{ entryId: "m1", text: "alpha" },
-						{ entryId: "m2", text: "beta" },
-					],
-				}),
+			getSessionTree: vi.fn(async () =>
+				linearTree([
+					{ entryId: "m1", text: "alpha" },
+					{ entryId: "m2", text: "beta" },
+				]),
 			),
 		});
 		seedSession("tree-drag");
@@ -352,7 +361,7 @@ describe("SessionTreePanel", () => {
 
 	it("pans the canvas by dragging the background", async () => {
 		installMockOmp({
-			getBranchMessages: vi.fn(async () => success({ messages: [{ entryId: "m1", text: "alpha" }] })),
+			getSessionTree: vi.fn(async () => linearTree([{ entryId: "m1", text: "alpha" }])),
 		});
 		seedSession("tree-pan");
 		await mount(<SessionTreePanel />);
@@ -370,7 +379,7 @@ describe("SessionTreePanel", () => {
 
 	it("zooms on wheel and reports the percentage", async () => {
 		installMockOmp({
-			getBranchMessages: vi.fn(async () => success({ messages: [{ entryId: "m1", text: "alpha" }] })),
+			getSessionTree: vi.fn(async () => linearTree([{ entryId: "m1", text: "alpha" }])),
 		});
 		seedSession("tree-zoom");
 		await mount(<SessionTreePanel />);
@@ -384,13 +393,11 @@ describe("SessionTreePanel", () => {
 
 	it("branches from a node via the footer detail and stays in the panel", async () => {
 		const rpc = installMockOmp({
-			getBranchMessages: vi.fn(async () =>
-				success({
-					messages: [
-						{ entryId: "m1", text: "alpha prompt" },
-						{ entryId: "m2", text: "beta prompt" },
-					],
-				}),
+			getSessionTree: vi.fn(async () =>
+				linearTree([
+					{ entryId: "m1", text: "alpha prompt" },
+					{ entryId: "m2", text: "beta prompt" },
+				]),
 			),
 			branch: vi.fn(async () => success({ text: "restored branch draft", cancelled: false })),
 		});
@@ -428,7 +435,7 @@ describe("SessionTreePanel", () => {
 
 	it("surfaces a branch failure as a toast and stays open", async () => {
 		const rpc = installMockOmp({
-			getBranchMessages: vi.fn(async () => success({ messages: [{ entryId: "m1", text: "alpha" }] })),
+			getSessionTree: vi.fn(async () => linearTree([{ entryId: "m1", text: "alpha" }])),
 			branch: vi.fn(async () => failure("nope")),
 		});
 		seedSession("tree-branch-fail");
@@ -450,7 +457,7 @@ describe("SessionTreePanel", () => {
 	});
 	it("switches the leaf in place and rehydrates", async () => {
 		const rpc = installMockOmp({
-			getBranchMessages: vi.fn(async () => success({ messages: [{ entryId: "m1", text: "choose again" }] })),
+			getSessionTree: vi.fn(async () => linearTree([{ entryId: "m1", text: "choose again" }])),
 		});
 		seedSession("tree-switch");
 		await mount(<SessionTreePanel />);
@@ -473,7 +480,7 @@ describe("SessionTreePanel", () => {
 
 	it("keeps main's failure code on a switch failure toast", async () => {
 		installMockOmp({
-			getBranchMessages: vi.fn(async () => success({ messages: [{ entryId: "m1", text: "alpha" }] })),
+			getSessionTree: vi.fn(async () => linearTree([{ entryId: "m1", text: "alpha" }])),
 			switchLeaf: vi.fn(async () => ({ ...failure("Sidecar not ready"), code: "sidecar_not_ready" })),
 		});
 		seedSession("tree-switch-coded");
@@ -495,7 +502,7 @@ describe("SessionTreePanel", () => {
 
 	it("defers switch-leaf to the owning tab when the session file is owned elsewhere (F-OWN)", async () => {
 		const rpc = installMockOmp({
-			getBranchMessages: vi.fn(async () => success({ messages: [{ entryId: "m1", text: "alpha" }] })),
+			getSessionTree: vi.fn(async () => linearTree([{ entryId: "m1", text: "alpha" }])),
 		});
 		// The attached session file is owned by a DIFFERENT tab (diverged state).
 		const { getSessionOwner, setActive, openInNewWindow } = installOwnerMocks({ tabId: "t-owner", winId: 1 });
@@ -523,7 +530,7 @@ describe("SessionTreePanel", () => {
 
 	it("focuses the foreign owner window for switch-leaf when the owner is in another window", async () => {
 		const rpc = installMockOmp({
-			getBranchMessages: vi.fn(async () => success({ messages: [{ entryId: "m1", text: "alpha" }] })),
+			getSessionTree: vi.fn(async () => linearTree([{ entryId: "m1", text: "alpha" }])),
 		});
 		const { getSessionOwner, setActive, openInNewWindow } = installOwnerMocks({ tabId: "t-elsewhere", winId: 9 });
 		useSessionStore.setState({ sessionFile: "/sessions/x.jsonl" });
@@ -546,7 +553,7 @@ describe("SessionTreePanel", () => {
 
 	it("proceeds with switch-leaf when the current tab owns the session file", async () => {
 		const rpc = installMockOmp({
-			getBranchMessages: vi.fn(async () => success({ messages: [{ entryId: "m1", text: "alpha" }] })),
+			getSessionTree: vi.fn(async () => linearTree([{ entryId: "m1", text: "alpha" }])),
 		});
 		installOwnerMocks({ tabId: "t-me", winId: 1 });
 		useSessionStore.setState({ sessionFile: "/sessions/x.jsonl" });
@@ -566,7 +573,7 @@ describe("SessionTreePanel", () => {
 
 	it("opens the wide view in a Sheet and closes it after a switch, keeping the panel", async () => {
 		const rpc = installMockOmp({
-			getBranchMessages: vi.fn(async () => success({ messages: [{ entryId: "m1", text: "alpha" }] })),
+			getSessionTree: vi.fn(async () => linearTree([{ entryId: "m1", text: "alpha" }])),
 		});
 		seedSession("tree-wide");
 		await mount(<SessionTreePanel />);

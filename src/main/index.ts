@@ -9,6 +9,7 @@ import { join, resolve, sep } from "node:path";
 import { app, BrowserWindow, globalShortcut, ipcMain, nativeImage, powerSaveBlocker, session } from "electron";
 import Store from "electron-store";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
+import { REA_PREF } from "../shared/builtin-mcp";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
@@ -391,6 +392,8 @@ app.whenReady().then(() => {
 	ipcMain.handle(IPC_COMMANDS.BRIDGE_HEALTH_TAKE, () => bridgeHealth.take());
 	const createLocalSidecar = localSidecarFactory({
 		bridgeDir,
+		builtinDir: app.isPackaged ? join(process.resourcesPath, "omp-builtin") : join(devResourcesDir, "omp-builtin"),
+		builtinReaPref: () => prefsStore().get(REA_PREF),
 		proxyEnv: resolveProxyEnvForSpawn,
 		bridgeHealth,
 		sessionKinds,
@@ -398,13 +401,7 @@ app.whenReady().then(() => {
 		accountRotationPref: () => prefsStore().get(ACCOUNT_ROTATION_PREF),
 		accountRotationLedger: join(app.getPath("userData"), ACCOUNT_ROTATION_LEDGER_FILE),
 	});
-	sessionIndex = new SessionIndex(
-		undefined,
-		initialCwd,
-		sessionId => sessionKinds.isChat(sessionId),
-		undefined,
-		bridgeDir,
-	);
+	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId), bridgeDir);
 	sidecarPool = new SidecarPool((cwd, kind, fresh, device, tabId) => {
 		if (!device) return createLocalSidecar(cwd, kind, fresh);
 		// The host runs its own health check, session-kind record and bridge
@@ -446,6 +443,10 @@ app.whenReady().then(() => {
 		statsText: mainT,
 		benchmarkOmp: systemOmp,
 		benchmarkEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
+		builtinRea: {
+			read: () => prefsStore().get(REA_PREF),
+			write: enabled => prefsStore().set(REA_PREF, enabled),
+		},
 		accountRotation: accountRotationDeps({
 			prefs: { get: key => prefsStore().get(key), set: (key, value) => prefsStore().set(key, value) },
 			tabs: () => sidecarPool.allSidecars(),
@@ -580,9 +581,6 @@ app.whenReady().then(() => {
 	createMenu(windowManager, spawnWindow);
 	setupDeepLinks(windowManager, spawnWindow);
 	setupUpdater();
-
-	// Probe stats server (non-blocking)
-	statsClient.probe().catch(() => {});
 });
 
 // macOS: re-create window on dock click

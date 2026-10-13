@@ -6,7 +6,7 @@
 import { join } from "node:path";
 import { z } from "zod";
 import { isRawKey } from "./crypto";
-import { readJson, writeSecureJson } from "./secure-file";
+import { TrustStore } from "./trust-store";
 
 export interface PeerInfo {
 	deviceId: string;
@@ -25,61 +25,9 @@ const StoredPeer = z.object({
 	pairedAt: z.number(),
 	lastSeenAt: z.number().optional(),
 });
-const StoredPeers = z.object({ v: z.literal(1), peers: z.array(z.unknown()) });
 
-export class PeerStore {
-	readonly #file: string;
-	#peers: Map<string, PeerInfo> | null = null;
-
+export class PeerStore extends TrustStore<PeerInfo> {
 	constructor(userData: string) {
-		this.#file = join(userData, "remote-peers.json");
-	}
-
-	#load(): Map<string, PeerInfo> {
-		if (this.#peers) return this.#peers;
-		this.#peers = new Map();
-		const stored = StoredPeers.safeParse(readJson(this.#file));
-		if (stored.success) {
-			for (const raw of stored.data.peers) {
-				const peer = StoredPeer.safeParse(raw);
-				if (peer.success) this.#peers.set(peer.data.deviceId, peer.data);
-			}
-		}
-		return this.#peers;
-	}
-
-	#save(): void {
-		writeSecureJson(this.#file, { v: 1, peers: [...this.#load().values()] });
-	}
-
-	list(): PeerInfo[] {
-		return [...this.#load().values()].map(peer => ({ ...peer }));
-	}
-
-	get(deviceId: string): PeerInfo | undefined {
-		const peer = this.#load().get(deviceId);
-		return peer && { ...peer };
-	}
-
-	/** Add or replace (re-pair) a peer. */
-	put(peer: PeerInfo): void {
-		this.#load().set(peer.deviceId, { ...peer });
-		this.#save();
-	}
-
-	update(deviceId: string, patch: { name?: string; lastSeenAt?: number }): PeerInfo | undefined {
-		const peers = this.#load();
-		const current = peers.get(deviceId);
-		if (!current) return undefined;
-		const next = { ...current, ...patch };
-		peers.set(deviceId, next);
-		this.#save();
-		return { ...next };
-	}
-
-	remove(deviceId: string): boolean {
-		if (!this.#load().delete(deviceId)) return false;
-		this.#save();
-		return true;
+		super(join(userData, "remote-peers.json"), "peers", StoredPeer, peer => ({ ...peer }));
 	}
 }

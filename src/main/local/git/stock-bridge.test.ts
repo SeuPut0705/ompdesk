@@ -119,7 +119,6 @@ describe.skipIf(!existsSync(omp) || process.platform === "win32")("installed sto
 			const ctx: LocalCommandContext = {
 				cwd: repo,
 				bridge,
-				emit() {},
 				omp: {
 					bin: omp,
 					version: "18.8.7",

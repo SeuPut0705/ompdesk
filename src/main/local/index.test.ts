@@ -7,7 +7,6 @@ const ctx: LocalCommandContext = {
 	cwd: "/tmp",
 	omp: { bin: "omp", version: "18.6.1", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
 	bridge: new GuiBridgeClient(""),
-	emit: () => {},
 	send: async () => {
 		throw new Error("not used");
 	},

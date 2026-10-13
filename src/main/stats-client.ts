@@ -1,11 +1,10 @@
 /**
- * HTTP client for the private, bundled omp stats dashboard API.
- * Polls GET endpoints; discovers availability via x-omp-stats-dashboard header.
+ * HTTP client for the private, bundled omp stats dashboard API. Readiness is
+ * StatsServerManager's call: `port` stays 0 until its server is up.
  */
 
 import { codedError } from "../shared/ipc-error-codes";
 
-const DEFAULT_PORT = 0;
 // Above stock omp-stats' 5s SQLite busy_timeout plus the query: a read that
 // waits on the background ingest's lock (the first queries after the server
 // starts, notably on Windows) must not be aborted before the server can answer.
@@ -19,14 +18,11 @@ export const VALID_PATHS: Record<string, true> = {
 	"/api/stats/tools": true,
 	"/api/stats/providers": true,
 	"/api/stats/provider-windows": true,
-	"/api/stats/recent": true,
 	"/api/stats/requests": true,
 	"/api/stats/errors": true,
 	"/api/stats/models": true,
 	"/api/stats/folders": true,
-	"/api/stats/timeseries": true,
 	"/api/stats/gain": true,
-	"/api/stats": true,
 	"/api/status": true,
 	"/api/sync": true,
 };
@@ -37,46 +33,10 @@ export const POST_PATHS: Record<string, true> = {
 };
 
 export class StatsClient {
-	#port: number;
-	#available = false;
+	port: number;
 
-	constructor(port = DEFAULT_PORT) {
-		this.#port = port;
-	}
-
-	get port(): number {
-		return this.#port;
-	}
-
-	set port(value: number) {
-		this.#port = value;
-		this.#available = false;
-	}
-
-	get available(): boolean {
-		return this.#available;
-	}
-
-	/**
-	 * Probe the stats server by hitting /api/stats/models
-	 * and checking for the x-omp-stats-dashboard header.
-	 */
-	async probe(): Promise<boolean> {
-		if (this.#port === 0) return false;
-		const controller = new AbortController();
-		const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-		try {
-			const resp = await fetch(`http://127.0.0.1:${this.#port}/api/stats/models`, {
-				signal: controller.signal,
-			});
-			this.#available = resp.headers.has("x-omp-stats-dashboard");
-			return this.#available;
-		} catch {
-			this.#available = false;
-			return false;
-		} finally {
-			clearTimeout(timer);
-		}
+	constructor(port = 0) {
+		this.port = port;
 	}
 
 	/**
@@ -84,7 +44,7 @@ export class StatsClient {
 	 * /api/request/:id is also allowed (dynamic path prefix).
 	 */
 	async fetch(path: string, params?: Record<string, string>): Promise<unknown> {
-		if (this.#port === 0)
+		if (this.port === 0)
 			throw codedError("stats_not_ready", "The bundled stats server is not ready. Please retry shortly.");
 		// Validate path: allow known paths or /api/request/:id pattern
 		const isRequestPath = /^\/api\/request\/\d+$/.test(path);
@@ -92,27 +52,18 @@ export class StatsClient {
 			throw codedError("invalid_stats_path", `Invalid stats path: ${path}`);
 		}
 
-		const url = new URL(`http://127.0.0.1:${this.#port}${path}`);
+		const url = new URL(`http://127.0.0.1:${this.port}${path}`);
 		if (params) {
 			for (const [key, value] of Object.entries(params)) {
 				url.searchParams.set(key, value);
 			}
 		}
 
-		const controller = new AbortController();
-		const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-		try {
-			const resp = await fetch(url.toString(), {
-				method: POST_PATHS[path] ? "POST" : "GET",
-				signal: controller.signal,
-			});
-			if (!resp.ok) {
-				throw codedError("stats_api_error", `Stats API error: ${resp.status} ${resp.statusText}`);
-			}
-			return await resp.json();
-		} finally {
-			clearTimeout(timer);
-		}
+		const resp = await fetch(url.toString(), {
+			method: POST_PATHS[path] ? "POST" : "GET",
+			signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+		});
+		if (!resp.ok) throw codedError("stats_api_error", `Stats API error: ${resp.status} ${resp.statusText}`);
+		return await resp.json();
 	}
 }

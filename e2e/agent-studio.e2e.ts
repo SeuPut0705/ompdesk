@@ -178,7 +178,11 @@ test("agent editor and template gallery write definitions omp discovers", async 
 		expect(probe).toContain("thinking-level: low");
 		expect(probe).toContain("Read the files and answer briefly.");
 		await expect.poll(() => discovered("probe")).toMatchObject({ source: "project", scope: "project" });
-		expect((await discovered("probe"))?.tools).toEqual([
+		// Discovery reports the frontmatter list as written. omp before 18.10.2
+		// appended `yield` to explicit lists; 18.10.2+ adds it only to
+		// `task.structured` spawns. Both are supported (MIN_OMP_VERSION 18.8.7).
+		const tools = (await discovered("probe"))?.tools ?? [];
+		expect(tools.filter(tool => tool !== "yield")).toEqual([
 			"read",
 			"grep",
 			"glob",
@@ -186,7 +190,6 @@ test("agent editor and template gallery write definitions omp discovers", async 
 			"lsp",
 			"ast_grep",
 			"web_search",
-			"yield",
 		]);
 		await shoot(page, "definitions-en");
 

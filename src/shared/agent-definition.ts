@@ -97,7 +97,7 @@ export function draftFromFields(fields: RpcParsedAgentDefinition["fields"], body
 		name: fields.name,
 		description: fields.description,
 		instructions: body.replace(/^\s*\n/, "").trimEnd(),
-		// Stock adds yield; the editor hides it rather than offering a toggle.
+		// Stock decides `yield` per spawn; the editor hides it rather than offering a toggle.
 		tools: fields.tools?.filter(tool => tool !== "yield") ?? null,
 		spawns: fields.spawns ?? [],
 		model: fields.model ?? [],
@@ -135,7 +135,7 @@ function frontmatterValues(draft: AgentDraft): Record<FieldId, unknown> {
 	return {
 		name: draft.name.trim(),
 		description: draft.description.trim(),
-		// omp adds `yield` to every explicit list itself.
+		// omp gives `yield` to structured spawns itself and drops it from the rest.
 		tools: draft.tools?.filter(tool => tool !== "yield"),
 		spawns: draft.spawns === "*" ? "*" : list(draft.spawns),
 		model: draft.model.length === 1 ? draft.model[0] : list(draft.model),

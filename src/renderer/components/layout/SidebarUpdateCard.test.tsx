@@ -70,9 +70,6 @@ describe("SidebarUpdateCard", () => {
 					version: "0.8.5",
 					mode: "relaunch",
 					percent: 40,
-					bytesPerSecond: 1,
-					transferred: 40,
-					total: 100,
 				},
 			});
 		});
@@ -109,9 +106,6 @@ describe("SidebarUpdateCard", () => {
 					version: "0.8.5",
 					mode: "manual",
 					percent: 42,
-					bytesPerSecond: 1,
-					transferred: 42,
-					total: 100,
 				},
 			});
 		});
@@ -183,9 +177,6 @@ describe("SidebarUpdateCard", () => {
 						version: "0.15.0",
 						mode: "relaunch",
 						percent: 30,
-						bytesPerSecond: 1,
-						transferred: 30,
-						total: 100,
 					},
 				});
 			});

@@ -1,3 +1,5 @@
+import { asNonEmptyString } from "../../lib/wire-value";
+
 const PATCH_FILE_HEADER = /^(?:\[([^#\r\n]+)#[0-9A-F]{4}\][^\r\n]*|\*{3} (?:Add|Update|Delete) File: (.+))\r?$/gm;
 
 /** Renderer-only lexical counterpart of node:path.resolve/normalize: stock write
@@ -69,4 +71,26 @@ export function editArgumentSummary(args: Record<string, unknown>): string {
 	const paths = editArgumentPaths(args);
 	if (paths.length === 0) return "";
 	return paths.length === 1 ? paths[0] : `${paths[0]} +${paths.length - 1}`;
+}
+
+/** Replace-mode text pair of one edit record (`old_text`/`new_text` and their
+ * `old_string`/`oldText` aliases); undefined when the record states neither side. */
+export function editTextPair(record: Record<string, unknown>): { oldText?: string; newText?: string } | undefined {
+	const oldText =
+		asNonEmptyString(record.old_text) ?? asNonEmptyString(record.old_string) ?? asNonEmptyString(record.oldText);
+	const newText =
+		asNonEmptyString(record.new_text) ?? asNonEmptyString(record.new_string) ?? asNonEmptyString(record.newText);
+	return oldText == null && newText == null ? undefined : { oldText, newText };
+}
+
+/** The diff one edit record states: its own patch, else its replace pair as removed then added lines. */
+export function editRecordDiff(record: Record<string, unknown>): string | undefined {
+	const diff = asNonEmptyString(record.diff);
+	if (diff) return diff;
+	const pair = editTextPair(record);
+	if (!pair) return undefined;
+	const lines: string[] = [];
+	if (pair.oldText != null) for (const line of pair.oldText.split("\n")) lines.push(`-${line}`);
+	if (pair.newText != null) for (const line of pair.newText.split("\n")) lines.push(`+${line}`);
+	return lines.join("\n");
 }

@@ -1,7 +1,7 @@
 /**
- * Shared MCP feedback blocks: copy-to-clipboard button, copyable error box,
- * and the connection-test result view (success tool list / failure error).
- * Used by the add-server wizard pre-check and the server-card inline test.
+ * Shared MCP feedback: the connection-test result view (success tool list /
+ * failure error). Used by the add-server wizard pre-check and the server-card
+ * inline test.
  *
  * `summarizeMcpTestData` maps the raw mcp_test wire payload
  * ({ ok, toolNames?, toolCount?, error? }) onto a render-ready view model:
@@ -9,11 +9,10 @@
  * also respects a toolCount larger than the returned name list.
  */
 
-import { Check, Copy, X } from "lucide-react";
-import { useState } from "react";
-import { copyText, cx } from "../../../lib/format";
+import { X } from "lucide-react";
+import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { Button, IconButton, Spinner } from "../../common";
+import { IconButton, Spinner } from "../../common";
 
 /** Tool names rendered before the "+N more" remainder kicks in. */
 export const MCP_TEST_SHOWN_LIMIT = 10;
@@ -34,49 +33,6 @@ export function summarizeMcpTestData(data: unknown): McpTestView {
 	const shown = names.slice(0, MCP_TEST_SHOWN_LIMIT);
 	const extra = Math.max(0, Math.max(names.length, toolCount) - shown.length);
 	return { kind: "ok", toolCount, shown, extra };
-}
-
-/** Small copy button with a transient check confirmation (CodeBlock pattern). */
-export function CopyButton({ text, className }: { text: string; className?: string }) {
-	const t = useT();
-	const [copied, setCopied] = useState(false);
-	return (
-		<Button
-			className={cx(copied && "text-(--sc-success)", className)}
-			icon={copied ? <Check /> : <Copy />}
-			onClick={() => {
-				void copyText(text).then(ok => {
-					if (!ok) return;
-					setCopied(true);
-					window.setTimeout(() => setCopied(false), 1400);
-				});
-			}}
-			size="sm"
-			variant="ghost"
-		>
-			{copied ? t("mcp.card.copied") : t("mcp.card.copy")}
-		</Button>
-	);
-}
-
-const DANGER_BOX =
-	"rounded-(--sc-radius-md) border border-[color-mix(in_srgb,var(--sc-danger)_28%,transparent)] bg-(--sc-danger-soft) px-3 py-2";
-
-/** Danger box whose message can be copied verbatim (server-side errors). */
-export function CopyableError({ title, text, className }: { title?: string; text: string; className?: string }) {
-	return (
-		<div className={cx(DANGER_BOX, className)} role="alert">
-			<div className="flex items-start gap-2">
-				<div className="min-w-0 flex-1">
-					{title && <span className="mb-0.5 block text-sc-sm font-medium text-(--sc-danger)">{title}</span>}
-					<span className="block font-mono text-sc-xs break-all whitespace-pre-wrap text-(--sc-text-secondary)">
-						{text}
-					</span>
-				</div>
-				<CopyButton className="-my-1" text={text} />
-			</div>
-		</div>
-	);
 }
 
 /**
@@ -110,7 +66,12 @@ export function McpTestResultView({
 	) : null;
 	if (view.kind === "error") {
 		return (
-			<div className={cx(DANGER_BOX, className)}>
+			<div
+				className={cx(
+					"rounded-(--sc-radius-md) border border-[color-mix(in_srgb,var(--sc-danger)_28%,transparent)] bg-(--sc-danger-soft) px-3 py-2",
+					className,
+				)}
+			>
 				<div className="flex items-start gap-2">
 					<div className="min-w-0 flex-1">
 						<span className="mb-0.5 block text-sc-sm font-medium text-(--sc-danger)">{t("mcp.test.failed")}</span>

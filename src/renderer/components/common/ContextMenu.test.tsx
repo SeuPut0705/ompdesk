@@ -50,6 +50,20 @@ async function mount(element: ReactElement): Promise<void> {
 /** Drive the menu's own keydown and report what the handler claimed. */
 async function menuKeyDown(key: string): Promise<{ prevented: boolean; stopped: boolean }> {
 	const outcome = { prevented: false, stopped: false };
+	if (key === "Escape") {
+		const event = new Event("keydown", { bubbles: true, cancelable: true });
+		Object.assign(event, { key });
+		const stop = event.stopImmediatePropagation.bind(event);
+		event.stopImmediatePropagation = () => {
+			outcome.stopped = true;
+			stop();
+		};
+		await act(async () => {
+			document.dispatchEvent(event);
+		});
+		outcome.prevented = event.defaultPrevented;
+		return outcome;
+	}
 	const menu = document.body.querySelector('[role="menu"]') as unknown as Record<string, unknown>;
 	const propsKey = Object.getOwnPropertyNames(menu).find(name => name.startsWith("__reactProps$"));
 	const props = propsKey

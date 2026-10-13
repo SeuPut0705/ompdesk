@@ -29,7 +29,6 @@ export const KO_GROUP_TITLES: Record<string, string> = {
 	Collab: "협업",
 	"Magic Keywords": "매직 키워드",
 	"Startup & Updates": "시작 및 업데이트",
-	"Power (macOS)": "전원(macOS)",
 	Power: "전원",
 	Agent: "에이전트",
 	Git: "Git",
@@ -75,6 +74,62 @@ export const KO_GROUP_TITLES: Record<string, string> = {
 
 /** Per-setting row text, keyed by schema setting path. */
 export const KO_SETTINGS: Record<string, { label: string; description?: string }> = {
+	"auth.accountPolicies": { label: "계정별 인증 정책" },
+	modelPresets: { label: "모델 프리셋" },
+	"terminal.programStatus": {
+		label: "프로그램 상태 (OSC 7501)",
+		description: "터미널 탭 표시와 에이전트 수신함을 위해 작업 중, 입력 대기, 완료, 실패 상태를 OSC 7501로 알려요.",
+	},
+	"composer.predictions": {
+		label: "다음 메시지 예측",
+		description:
+			"턴이 끝나면 현재 모델이 다음 메시지를 예측해 빈 입력창에 흐린 텍스트로 보여줘요. Tab이나 오른쪽 화살표로 전송 없이 입력할 수 있어요. 추가 사용량: 완료된 턴마다 전체 대화를 포함한 유료 요청이 한 번 더 발생해요 (/stats에 집계돼요).",
+	},
+	"retry.fallbackOn": {
+		label: "폴백 전환 조건",
+		description: "어떤 요청 실패 시 설정된 폴백 모델로 전환할지 정해요.",
+	},
+	"providers.anthropic.slowMode": { label: "Anthropic 저속 모드" },
+	"tts.localSpeed": {
+		label: "로컬 TTS 속도",
+		description: "로컬 TTS 백엔드의 말하기 속도예요 (tts 도구, omp say). 1은 보통 속도이며 0.5–2.5 범위로 제한돼요.",
+	},
+	"speech.speed": {
+		label: "응답 읽기 속도",
+		description: "어시스턴트 출력을 소리 내어 읽는 속도예요. 1은 보통 속도이며 0.5–2.5 범위로 제한돼요.",
+	},
+	"contextFiles.extra": {
+		label: "추가 컨텍스트 파일",
+		description:
+			'AGENTS.md와 함께 불러올 추가 지침 파일 이름이에요. 경로가 아닌 이름의 JSON 목록을 사용해요 (예: ["AGENTS.local.md"]). []로 설정하면 추가 파일을 불러오지 않아요. 새 세션을 시작해야 적용돼요.',
+	},
+	"compaction.modelThresholds": { label: "모델별 압축 임계값" },
+	"compaction.modelThresholdsEnabled": { label: "모델별 압축 임계값 사용" },
+	"edit.modelVariants": { label: "모델별 편집 방식" },
+	"bash.gitGuard": {
+		label: "Git 보호",
+		description:
+			"bash 도구에서 공유 작업을 버리거나 이동하는 git 명령을 거부해요. stash, reset --hard 또는 다른 커밋으로의 reset, 병합·리베이스 충돌 해결 외의 checkout/switch/restore가 대상이에요.",
+	},
+	"worktree.onStart": {
+		label: "시작 시 워크트리",
+		description: "새 대화형 세션을 새 연결 워크트리에서 시작할지 정해요.",
+	},
+	"worktree.onExit": {
+		label: "종료 시 워크트리",
+		description: "omp 시작 이후 만들어진 워크트리(시작 시 또는 `/wt`로 생성)를 종료 시 어떻게 처리할지 정해요.",
+	},
+	"task.structured": {
+		label: "구조화된 작업 결과",
+		description:
+			"task 도구에 outputSchema/schemaMode를 제공하고, 호출자 또는 에이전트의 출력 스키마로 검증한 하위 에이전트 결과를 yield 도구로 반환해요. 끄면 task 하위 에이전트는 yield 도구 없이 마지막 메시지를 일반 텍스트로 반환해요. Eval의 agent()/workpool로 실행한 에이전트는 항상 구조화된 결과를 사용해요.",
+	},
+	"task.agentCompactionThresholdOverrides": { label: "에이전트별 압축 임계값 재정의" },
+	"task.agentAccountPools": { label: "에이전트별 계정 풀" },
+	"task.agentSoftRequestBudget": { label: "에이전트별 요청 예산" },
+	"gc.stale": { label: "오래된 세션 정리" },
+	"gc.staleRetainNewest": { label: "최근 세션 보관 수" },
+	"gc.staleRetainDays": { label: "오래된 세션 보관 일수" },
 	"providers.openai-codex.codeMode": {
 		label: "Codex 코드 모드",
 		description:
@@ -170,11 +225,6 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 			"경로와 URL을 OSC 8 하이퍼링크로 감싸 터미널에서 바로 클릭해 열 수 있게 해요(auto: 지원 감지, off: 사용 안 함, always: 항상)",
 	},
 	"tui.tight": { label: "촘촘한 UI 밀도", description: "TUI 출력과 GUI 인터페이스 간격을 줄여요" },
-	"tui.scrollbackRebuild": {
-		label: "스크롤백 다시 쓰기",
-		description:
-			"블록의 최종 형태가 실시간 미리보기를 대체할 때 터미널 스크롤백을 지우고 다시 재생해요. 끄면(기본값) 오래된 미리보기 사본이 기록에 남고 최종 내용은 그 아래에 추가돼요.",
-	},
 	"display.shimmer": { label: "쉬머 애니메이션", description: "작업 중/로딩 메시지의 애니메이션 스타일" },
 	"display.smoothStreaming": {
 		label: "부드러운 스트리밍",
@@ -385,11 +435,6 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"Claude Fable 5 / Mythos 5 요청이 Anthropic 안전 분류기에 막히면 서버 측에서 Claude Opus 4.8로 재시도해요(Anthropic `server-side-fallback-2026-06-01` 베타). 직접 켜야 하며, 꺼 두면 모든 요청이 폴백 이전 동작을 유지해요.",
 	},
-	"providers.autoThinkingModel": {
-		label: "자동 사고 모델",
-		description:
-			"`auto` 사고 수준의 난이도 분류기: 기본 온라인(/models의 TINY 역할, 없으면 smol) 또는 로컬 온디바이스 모델",
-	},
 	"providers.autoThinkingMaxEffort": {
 		label: "자동 사고 최대 강도",
 		description:
@@ -497,11 +542,6 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description: "업로드 전에 /share 스냅샷에 비밀 정보 난독화기를 실행(secrets.* 설정 사용)",
 	},
 	"stt.enabled": { label: "음성 인식", description: "마이크를 통한 음성 텍스트 변환 입력 사용" },
-	"stt.modelName": {
-		label: "음성 인식 모델",
-		description:
-			"로컬 온디바이스 음성 모델이에요. Parakeet TDT v3(sherpa-onnx)가 SoTA 기본값이고, Whisper base/small/large-v3-turbo 단계(transformers.js)는 크기 대신 다국어 지원을 늘려요. 처음 사용할 때 내려받아요.",
-	},
 	"stt.submitTrigger": {
 		label: "음성 받아쓰기 제출 트리거",
 		description:
@@ -736,11 +776,6 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"세션 시작 시 메모리 뱅크에 아직 없는 내장 멘탈 모델(project-conventions, project-decisions, user-preferences)을 만들어요.",
 	},
-	"providers.memoryModel": {
-		label: "메모리 모델",
-		description:
-			"Mnemopi가 사실 추출과 통합에 쓰는 LLM: 기본 온라인(/models의 TINY 역할, 없으면 smol/원격) 또는 로컬 온디바이스 모델",
-	},
 
 	// ── files ───────────────────────────────────────────────────────────────
 	"edit.mode": { label: "편집 모드", description: "편집 도구 변형 선택(replace, patch, hashline, apply_patch)" },
@@ -867,8 +902,6 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "Workpool에 새 에이전트 사용",
 		description: "workpool 항목마다 새 서브에이전트를 시작하고 worker 재사용이나 대기 항목 일괄 처리를 하지 않아요",
 	},
-	"eval.rb": { label: "Ruby Eval 백엔드", description: "eval 도구가 Ruby 셀을 영구 Ruby 커널로 보내도록 허용" },
-	"eval.jl": { label: "Julia Eval 백엔드", description: "eval 도구가 Julia 셀을 영구 Julia 커널로 보내도록 허용" },
 	"python.kernelMode": {
 		label: "Python 커널 모드",
 		description: "eval 호출 사이에 IPython 커널을 유지하거나 매번 새로 시작",
@@ -876,14 +909,6 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"python.interpreter": {
 		label: "Python 인터프리터",
 		description: "정확한 Python 실행 파일을 가리키는 선택적 경로예요. 설정하면 Python 런타임 자동 탐지를 건너뛰어요.",
-	},
-	"ruby.interpreter": {
-		label: "Ruby 인터프리터",
-		description: "정확한 Ruby 실행 파일을 가리키는 선택적 경로예요. 설정하면 Ruby 런타임 자동 탐지를 건너뛰어요.",
-	},
-	"julia.interpreter": {
-		label: "Julia 인터프리터",
-		description: "정확한 Julia 실행 파일을 가리키는 선택적 경로예요. 설정하면 Julia 런타임 자동 탐지를 건너뛰어요.",
 	},
 
 	// ── tools ───────────────────────────────────────────────────────────────
@@ -936,10 +961,6 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"computer.enabled": {
 		label: "데스크톱 제어",
 		description: "OpenAI computer use를 위한 네이티브 데스크톱 스크린샷과 입력 사용",
-	},
-	"computer.backend": {
-		label: "데스크톱 제어 백엔드",
-		description: "플랫폼 네이티브 데스크톱 캡처와 입력을 자동 또는 명시적으로 선택",
 	},
 	"computer.display": {
 		label: "데스크톱 제어 디스플레이",
@@ -1024,15 +1045,6 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description: "에이전트가 도구에 설정할 수 있는 최대 타임아웃(초, 0 = 무제한)",
 	},
 	"async.enabled": { label: "비동기 실행", description: "비동기 bash 명령과 백그라운드 실행을 활성화해요" },
-	"async.pollWaitDuration": {
-		label: "최대 폴링 시간",
-		description:
-			"`hub`가 감시 중인 백그라운드 실행을 기다리는 시간이에요. 고정값은 매번 그만큼 기다려요. `smart`는 적응형으로, 5초에서 시작해 연속 대기 시 점점 늘리고(최대 5분) 약 1분간 대기가 없으면 5초로 초기화해요.",
-	},
-	"irc.timeoutMs": {
-		label: "IRC 타임아웃",
-		description: "hub 메시지 대기(및 send await:true)의 기본 타임아웃(밀리초). 0이면 타임아웃을 비활성화해요",
-	},
 	"tools.xdev": {
 		label: "xd:// 도구",
 		description:
@@ -1215,37 +1227,12 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"프로세스별 Ollama Cloud 서브에이전트 동시 실행 상한이에요. 0이면 이 프로바이더 전용 제한을 비활성화해요",
 	},
-	"providers.webSearchOrder": {
-		label: "웹 검색 프로바이더 순서",
-		description: "web_search 도구의 우선 프로바이더 순서예요. 목록에 없는 프로바이더는 기본 순서로 뒤에 붙어요",
-	},
-	"providers.webSearchExclude": {
-		label: "제외할 웹 검색 프로바이더",
-		description: "web_search가 대체 수단으로도 절대 쓰지 않을 프로바이더",
-	},
-	"providers.webSearchGeminiModel": {
-		label: "Gemini web_search 모델",
-		description: "Gemini Google 검색 그라운딩에 쓸 모델 ID예요. 기본값은 gemini-2.5-flash예요.",
-	},
 	"providers.antigravityEndpoint": {
 		label: "Antigravity 엔드포인트 모드",
 		description: "google-antigravity 프로바이더의 엔드포인트 라우팅 전략(chat, search, image, discovery)",
 	},
-	"providers.imageOrder": {
-		label: "이미지 생성 프로바이더 순서",
-		description:
-			"이미지 생성의 우선 프로바이더 순서예요. 목록에 없는 프로바이더는 현재 세션 프로바이더와 내장 순서를 따라요",
-	},
 	"providers.fireworksTier": { label: "Fireworks 등급", description: "기본 서비스 경로(service_tier 없음)" },
 	"live.voice": { label: "실시간 음성 목소리", description: "Codex 기반 실시간 음성 세션에서 쓸 목소리" },
-	"providers.tts": {
-		label: "텍스트 음성 변환 프로바이더",
-		description: "tts 도구 백엔드: 로컬 온디바이스 신경망 TTS(Kokoro-82M) 또는 xAI Grok Voice",
-	},
-	"tts.localModel": {
-		label: "로컬 TTS 모델",
-		description: "로컬 TTS 백엔드가 쓰는 온디바이스 신경망 TTS 모델(Kokoro-82M)",
-	},
 	"tts.localVoice": {
 		label: "로컬 TTS 목소리",
 		description: "로컬 TTS 백엔드가 쓰는 Kokoro 목소리(미국/영국식, 여성/남성)",
@@ -1261,10 +1248,6 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 			"합성 전에 tiny/smol 모델로 어시스턴트 출력을 자연스러운 구어체로 바꿔요(코드를 설명하고 링크와 markdown을 제거). 실패하면 기계적 정리로 대체해요",
 	},
 	"speech.voice": { label: "음성 읽기 목소리", description: "어시스턴트 출력을 읽을 때 쓸 Kokoro 목소리" },
-	"providers.tinyModel": {
-		label: "Tiny 모델",
-		description: "세션 제목 모델: 기본은 온라인(/models의 TINY 역할, 없으면 @smol) 또는 로컬 온디바이스 모델",
-	},
 	"providers.tinyModelDevice": {
 		label: "Tiny 모델 디바이스",
 		description:
@@ -1274,11 +1257,6 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "Tiny 모델 정밀도",
 		description:
 			"로컬 tiny 모델의 ONNX 양자화/정밀도예요. 기본은 각 모델의 dtype(q4)을 써요. 낮은 정밀도는 더 빠르고 높은 정밀도는 더 정확해요. PI_TINY_DTYPE 환경 변수로 덮어쓸 수 있어요.",
-	},
-	"providers.unexpectedStopModel": {
-		label: "예기치 않은 중단 감지 모델",
-		description:
-			"예기치 않은 중단 감지 분류기: 기본은 온라인(/models의 TINY 역할, 없으면 smol) 또는 로컬 온디바이스 모델이에요.",
 	},
 	"providers.kimiApiFormat": {
 		label: "Kimi API 형식",
@@ -1328,19 +1306,10 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 			"시스템 프롬프트와 도구 스펙을 캐시하고 메시지 로그를 추가 전용으로 유지해 프로바이더 프리픽스 캐시(DeepSeek, Xiaomi/SGLang, Anthropic) 적중률을 최대화해요. Auto는 프리픽스 캐시를 지원하는 것으로 알려진 프로바이더에서 활성화해요.",
 	},
 	"exa.enabled": { label: "Exa", description: "모든 Exa 검색 도구의 전체 스위치" },
-	"exa.enableSearch": {
-		label: "Exa 검색",
-		description: "Exa 기본 검색, 심층 검색, 코드 검색, 가져오기 도구를 활성화해요",
-	},
 	"exa.searchDelayMs": {
 		label: "Exa 검색 지연",
 		description: "Exa 웹 검색 요청 사이의 최소 지연(밀리초). 0이면 제한을 비활성화해요",
 	},
-	"exa.enableResearcher": {
-		label: "Exa 리서처",
-		description: "AI 기반 심층 조사를 위한 Exa researcher 도구를 활성화해요",
-	},
-	"exa.enableWebsets": { label: "Exa Websets", description: "Exa webset 관리 및 보강 도구를 활성화해요" },
 	"searxng.endpoint": {
 		label: "SearXNG 엔드포인트",
 		description: "웹 검색에 쓸 자체 호스팅 SearXNG 인스턴스 기본 URL",
@@ -1598,10 +1567,6 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "Hindsight 보존 타임아웃",
 		description: "Hindsight 보존 요청 타임아웃(밀리초, 기본 60000)",
 	},
-	"hindsight.mentalModelRefreshIntervalMs": {
-		label: "Hindsight 멘탈 모델 갱신 간격",
-		description: "멘탈 모델을 다시 읽는 간격(밀리초, 기본 5분)",
-	},
 	"hindsight.mentalModelMaxRenderChars": {
 		label: "Hindsight 멘탈 모델 렌더링 상한",
 		description: "멘탈 모델을 지시문에 렌더링할 때의 최대 문자 수(기본 16000)",
@@ -1711,22 +1676,6 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"commit.mapReduceEnabled": {
 		label: "커밋 분석 Map-Reduce",
 		description: "큰 diff의 커밋 메시지 생성을 파일별 병렬 분석 후 취합하는 map-reduce 흐름으로 바꿔요",
-	},
-	"commit.mapReduceMinFiles": {
-		label: "Map-Reduce 최소 파일 수",
-		description: "변경 파일 수가 이 값 이상이면 map-reduce 분석을 써요(기본 4)",
-	},
-	"commit.mapReduceMaxFileTokens": {
-		label: "Map-Reduce 파일당 토큰 상한",
-		description: "파일 하나의 diff가 이 토큰 수를 넘으면 map-reduce 분석을 써요(기본 50000)",
-	},
-	"commit.mapReduceTimeoutMs": {
-		label: "Map-Reduce 타임아웃",
-		description: "map-reduce 분석 타임아웃(밀리초, 기본 120000)",
-	},
-	"commit.mapReduceMaxConcurrency": {
-		label: "Map-Reduce 최대 동시 실행",
-		description: "map-reduce 파일별 분석의 동시 실행 상한(기본 5)",
 	},
 	"commit.changelogMaxDiffChars": {
 		label: "변경 로그 Diff 문자 상한",

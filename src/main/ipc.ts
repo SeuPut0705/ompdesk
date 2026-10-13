@@ -14,6 +14,7 @@ import path from "node:path";
 import { BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from "electron";
 import Store from "electron-store";
 import { ACCOUNT_ROTATION_PREF, isAccountRotationMode } from "../shared/account-rotation";
+import { REA_PREF } from "../shared/builtin-mcp";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -33,9 +34,6 @@ import type {
 	IpcFsReadResult,
 	IpcGetLaunchProfilePayload,
 	IpcGetSessionOwnerPayload,
-	IpcHostToolResultPayload,
-	IpcHostToolUpdatePayload,
-	IpcHostUriResultPayload,
 	IpcModelSetupRunResult,
 	IpcNotifyPayload,
 	IpcOpenPathResult,
@@ -62,7 +60,7 @@ import type {
 import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from "../shared/ipc-types";
 import type { ModelSetupRequest } from "../shared/model-setup";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
-import type { HostToolResult, HostToolUpdate, RpcCommand, RpcSessionState } from "../shared/rpc-types";
+import type { RpcCommand, RpcSessionState } from "../shared/rpc-types";
 import { isUiLanguage } from "../shared/ui-language";
 import { requestQuit } from "./app-quit";
 import { ensureDefaultWorkspace } from "./default-workspace";
@@ -75,14 +73,17 @@ import { type LocalMachine, type MachineServices, machineFor as pickMachine } fr
 import { createMenu } from "./menu";
 import { modelsPath } from "./models-config";
 import { systemOmp } from "./omp-runtime";
+import { registerPreviewHost } from "./preview/host";
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS } from "./remote/app-protocol";
 import type { RemoteDevices } from "./remote/devices";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import type { SessionIndex } from "./session-index";
+import { deleteSession, renameSession } from "./session-mutations";
 import { resolveEditorCommand } from "./shell-env";
 import { deviceLanguage } from "./sidecar-factory";
 import type { SidecarLike, SidecarPool } from "./sidecar-pool";
 import { spawnTabForWindow } from "./tab-spawn";
+import { closeTabTerminals, registerTerminalIpc } from "./terminal/ipc";
 import { setTrayState } from "./tray";
 import { aggregateTrayStatus } from "./tray-labels";
 import { appVersion } from "./updater";
@@ -186,6 +187,11 @@ function aggregateProgress(states: RunProgressState[]): RunProgressState {
 }
 
 export function registerIpcHandlers(deps: IpcDeps): void {
+	registerTerminalIpc(deps.sidecarPool);
+	registerPreviewHost(senderId => {
+		const win = BrowserWindow.getAllWindows().find(window => window.webContents.id === senderId);
+		return Boolean(win && deps.sidecarPool.tabTarget(win)?.device);
+	});
 	/** The paired host a window's running benchmark is on, so closing the window stops it there. */
 	const remoteBenchmarks = new Map<number, string>();
 	/** The same for a window's model setup research. */
@@ -230,21 +236,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				.catch(() => false);
 	});
 
-	// Sidecar → owning-window event forwarding (events/status/extensionUi/
-	// hostUriRequest/subagentFrame/commandsUpdate/configUpdate) is wired by
-	// SidecarPool at acquire time. hostToolCall needs the main-process executor,
-	// so the pool routes it through this callback (set once at startup). The
-	// boolean tells the pool whether the tool was answered inline; only
-	// renderer-forwarded calls get request-id → origin tracking (F-UI-ORIGIN).
-	sidecarPool.hostToolExecutor = (sidecar, request, win) => {
+	// Sidecar → owning-window event forwarding is wired by SidecarPool at
+	// acquire time. GUI host tools need Electron, so the pool calls this
+	// executor (set once at startup); unknown tools fail with stock's wording.
+	sidecarPool.hostToolExecutor = (sidecar, request) => {
 		const result = executeGuiHostTool(request.toolName, request.arguments);
-		if (result !== undefined) {
-			sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, result: textToolResult(result) });
-			return true;
-		}
-		// Unknown host tools → forward to the owning renderer.
-		if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.HOST_TOOL_CALL, { request });
-		return false;
+		sidecar.sendSideChannel({
+			type: "host_tool_result",
+			id: request.id,
+			result: textToolResult(result ?? `Host tool "${request.toolName}" is not registered`),
+			...(result === undefined ? { isError: true } : {}),
+		});
 	};
 
 	// Session index changes: this window set, and every device using this
@@ -487,39 +489,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (typeof tabId === "string") {
 			const win = BrowserWindow.fromWebContents(event.sender);
 			if (!win || !sidecarPool.sidecarForTab(win, tabId)) return;
-			if (typeof response?.id === "string") sidecarPool.routeSideChannel(response.id, response, true, tabId);
+			if (typeof response?.id === "string") sidecarPool.routeSideChannel(response.id, response, tabId);
 			return;
 		}
-		if (typeof response?.id === "string" && sidecarPool.routeSideChannel(response.id, response, true)) return;
+		if (typeof response?.id === "string" && sidecarPool.routeSideChannel(response.id, response)) return;
 		sidecarFor(deps, event)?.sendSideChannel(response);
-	});
-
-	// Host tool result — same origin routing as extension UI (verified: the
-	// raise path is per-sidecar, but a naive sidecarFor response route would
-	// misroute to the active tab after a switch).
-	ipcMain.handle(IPC_COMMANDS.HOST_TOOL_RESULT, (event, payload: IpcHostToolResultPayload) => {
-		const { result } = payload;
-		if (typeof result?.id !== "string") return;
-		const frame = stockHostToolResult(result);
-		if (sidecarPool.routeSideChannel(result.id, frame, true)) return;
-		sidecarFor(deps, event)?.sendSideChannel(frame);
-	});
-
-	// Host tool update — origin routing without unregistering: the result
-	// frame follows and still needs the route.
-	ipcMain.handle(IPC_COMMANDS.HOST_TOOL_UPDATE, (event, payload: IpcHostToolUpdatePayload) => {
-		const { update } = payload;
-		if (typeof update?.id !== "string") return;
-		const frame = stockHostToolUpdate(update);
-		if (sidecarPool.routeSideChannel(update.id, frame, false)) return;
-		sidecarFor(deps, event)?.sendSideChannel(frame);
-	});
-
-	// Host URI result — same origin routing as extension UI.
-	ipcMain.handle(IPC_COMMANDS.HOST_URI_RESULT, (event, payload: IpcHostUriResultPayload) => {
-		const { result } = payload;
-		if (typeof result?.id === "string" && sidecarPool.routeSideChannel(result.id, result, true)) return;
-		sidecarFor(deps, event)?.sendSideChannel(result);
 	});
 
 	// Sessions. `device` names the paired host whose session index answers;
@@ -538,59 +512,28 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			throw codedError("invalid_session_path", "Invalid session path");
 		}
 		const device = deviceOf(payload.device);
-		const owner = sidecarPool.sessionOwner(payload.sessionPath, device);
-		if (owner && sidecarPool.sessionOwnerIsLive(payload.sessionPath, device)) {
-			const response = await sidecarPool.commandForIdleSession(
-				payload.sessionPath,
-				{ type: "drop_session" },
-				device,
-			);
-			if (!response) throw codedError("session_running", "Session is currently running");
-			if (!response.success) throw new Error(response.error);
-			const cancelled = (response.data as { cancelled?: boolean } | undefined)?.cancelled ?? false;
-			if (cancelled) throw codedError("session_delete_cancelled", "Session deletion was cancelled");
-			// The owner moved on to a fresh, not-yet-saved session.
-			sidecarPool.noteSessionFile(owner.tabId, null);
-			return;
-		}
-		// Either no tab claims the file, or the claiming tab has no process (a
-		// restored tab that was never shown). Nothing is loaded anywhere, so the
-		// file IS the session — drop the tab's claim first so it cannot wake into
-		// a path that no longer exists.
-		if (owner) sidecarPool.noteSessionFile(owner.tabId, null);
-		if (device) await remoteDevices.request(device, "sessions.delete", { sessionPath: payload.sessionPath });
-		else await sessionIndex.deleteSession(payload.sessionPath);
+		await deleteSession(sidecarPool, payload.sessionPath, device, () =>
+			device
+				? remoteDevices.request(device, "sessions.delete", { sessionPath: payload.sessionPath })
+				: sessionIndex.deleteSession(payload.sessionPath),
+		);
 	});
 
 	ipcMain.handle(IPC_COMMANDS.SESSIONS_RENAME, async (_event, payload: IpcSessionsRenamePayload) => {
 		if (typeof payload.sessionPath !== "string" || !payload.sessionPath.endsWith(".jsonl")) {
 			throw codedError("invalid_session_path", "Invalid session path");
 		}
-		const name = typeof payload.name === "string" ? payload.name.trim() : "";
-		if (!name) throw codedError("session_name_empty", "Session name cannot be empty");
 		const device = deviceOf(payload.device);
-		if (
-			sidecarPool.sessionOwner(payload.sessionPath, device) &&
-			sidecarPool.sessionOwnerIsLive(payload.sessionPath, device)
-		) {
-			// The owner's in-memory title must change with the file. Stock renames
-			// mid-run (a user title also locks out the pending auto-title), so
-			// unlike delete this does not wait for the tab to go idle.
-			const command: RpcCommand = { type: "set_session_name", name, sessionPath: payload.sessionPath };
-			const response = await sidecarPool.commandForSession(payload.sessionPath, command, device);
-			if (!response) throw codedError("session_starting", "Session is still starting");
-			if (!response.success) throw new Error(response.error);
-			return;
-		}
-		// An owner with no process has no in-memory title to keep in step, so the
-		// rename is the same stored-file edit it is for an unowned session.
-		if (device) {
-			await remoteDevices.request(device, "sessions.rename", { sessionPath: payload.sessionPath, name });
-			return;
-		}
-		const omp = await systemOmp();
-		if (!omp.ok) throw new Error(omp.error);
-		await renameStoredSession(omp.runtime, payload.sessionPath, name);
+		await renameSession(sidecarPool, payload.sessionPath, payload.name, {
+			device,
+			renameStored: async name => {
+				if (device)
+					return remoteDevices.request(device, "sessions.rename", { sessionPath: payload.sessionPath, name });
+				const omp = await systemOmp();
+				if (!omp.ok) throw new Error(omp.error);
+				await renameStoredSession(omp.runtime, payload.sessionPath, name);
+			},
+		});
 	});
 
 	// Open a session (or a fresh project window) in a NEW parallel window with
@@ -684,6 +627,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const sidecar = deps.sidecarPool.sidecarForTab(win, payload.tabId);
 		if (!sidecar) return false;
 		await deps.worktreeLifecycle.refreshExitPolicy(payload.tabId, () => readLiveLifecycleSettings(sidecar));
+		closeTabTerminals(event.sender.id, payload.tabId);
 		return deps.sidecarPool.releaseTab(payload.tabId);
 	});
 
@@ -756,19 +700,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			const id = deviceOf(device);
 			const senderId = event.sender.id;
 			if (!id) return deps.machine.runBenchmark(benchCaller(senderId), options, cwdFor(deps, event));
-			remoteBenchmarks.set(senderId, id);
-			try {
-				return await machineFor(event, id).runBenchmark(benchCaller(senderId), options, null);
-			} catch (err) {
-				const code = ipcErrorCode(err);
-				return {
-					success: false,
-					error: err instanceof Error ? err.message : String(err),
-					...(code ? { code } : {}),
-				};
-			} finally {
-				if (remoteBenchmarks.get(senderId) === id) remoteBenchmarks.delete(senderId);
-			}
+			return runTracked(remoteBenchmarks, senderId, id, () =>
+				machineFor(event, id).runBenchmark(benchCaller(senderId), options, null),
+			);
 		},
 	);
 	ipcMain.handle(IPC_COMMANDS.BENCH_ABORT, (event, device?: unknown) =>
@@ -782,19 +716,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			const id = deviceOf(device);
 			const senderId = event.sender.id;
 			if (!id) return deps.machine.runModelSetup(benchCaller(senderId), request);
-			remoteModelSetups.set(senderId, id);
-			try {
-				return await machineFor(event, id).runModelSetup(benchCaller(senderId), request);
-			} catch (err) {
-				const code = ipcErrorCode(err);
-				return {
-					success: false,
-					error: err instanceof Error ? err.message : String(err),
-					...(code ? { code } : {}),
-				};
-			} finally {
-				if (remoteModelSetups.get(senderId) === id) remoteModelSetups.delete(senderId);
-			}
+			return runTracked(remoteModelSetups, senderId, id, () =>
+				machineFor(event, id).runModelSetup(benchCaller(senderId), request),
+			);
 		},
 	);
 	ipcMain.handle(IPC_COMMANDS.MODEL_SETUP_STATUS, (event, device?: unknown) =>
@@ -859,10 +783,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			} catch {
 				return { ok: false, error: "File not found", code: "file_not_found" };
 			}
-			const openError = await shell.openPath(resolved);
-			if (!openError) return { ok: true, resolvedPath: resolved };
-			shell.showItemInFolder(resolved);
-			return { ok: true, resolvedPath: resolved };
+			if (await shell.openPath(resolved)) shell.showItemInFolder(resolved);
+			return { ok: true };
 		},
 	);
 
@@ -882,7 +804,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				return { ok: false, error: "File not found", code: "file_not_found" };
 			}
 			shell.showItemInFolder(target);
-			return { ok: true, resolvedPath: target };
+			return { ok: true };
 		},
 	);
 
@@ -919,10 +841,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return result.canceled ? null : result.filePaths;
 		},
 	);
-
-	ipcMain.handle(IPC_COMMANDS.SYSTEM_CLIPBOARD_READ, () => {
-		return clipboard.readText();
-	});
 
 	ipcMain.handle(IPC_COMMANDS.SYSTEM_NOTIFY, (event, payload: IpcNotifyPayload) => {
 		if (typeof payload.title === "string") {
@@ -961,6 +879,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			}
 			// Same path as Settings' own control: store, then push to the live sessions.
 			return deps.machine.setAccountRotation(payload.value).then(() => undefined);
+		}
+		if (payload.key === REA_PREF) {
+			if (typeof payload.value !== "boolean")
+				throw codedError("invalid_preference_key", "Invalid built-in REA preference");
+			return deps.machine.setBuiltinRea(payload.value).then(() => undefined);
 		}
 		// `undefined` clears the key: electron-store rejects set(key, undefined) with
 		// "Use `delete()` to clear values", which broke the one-time prompt-history
@@ -1090,6 +1013,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipcMain.handle(IPC_COMMANDS.ACCOUNT_ROTATION_SET, (event, mode: unknown, device?: unknown) => {
 		if (!isAccountRotationMode(mode)) throw codedError("invalid_preference_key", "Invalid account rotation");
 		return machineFor(event, device).setAccountRotation(mode);
+	});
+
+	ipcMain.handle(IPC_COMMANDS.BUILTIN_REA_GET, (event, device?: unknown) => machineFor(event, device).builtinRea());
+	ipcMain.handle(IPC_COMMANDS.BUILTIN_REA_SET, (event, enabled: unknown, device?: unknown) => {
+		if (typeof enabled !== "boolean") throw codedError("invalid_preference_key", "Invalid built-in REA preference");
+		return machineFor(event, device).setBuiltinRea(enabled);
 	});
 
 	// "Edit config" — open the agent's models.yml in the system editor. The
@@ -1290,27 +1219,9 @@ function broadcast(windowManager: WindowManager, channel: string, data: unknown)
 	}
 }
 
-/**
- * Stock omp's `AgentToolResult` (`{ content, isError }`) built from the GUI's
- * plain-text host tool outcome; the renderer IPC keeps its `result`/`error`
- * string shape and main translates at the wire.
- */
+/** Stock omp's `AgentToolResult` content for a GUI host tool's plain-text outcome. */
 function textToolResult(text: string): { content: Array<{ type: "text"; text: string }> } {
 	return { content: [{ type: "text", text }] };
-}
-
-function stockHostToolResult(frame: HostToolResult): object {
-	const failed = frame.error !== undefined;
-	return {
-		type: "host_tool_result",
-		id: frame.id,
-		result: textToolResult(failed ? (frame.error ?? "") : (frame.result ?? "")),
-		...(failed ? { isError: true } : {}),
-	};
-}
-
-function stockHostToolUpdate(frame: HostToolUpdate): object {
-	return { type: "host_tool_update", id: frame.id, partialResult: textToolResult(frame.update) };
 }
 
 /** Execute GUI-registered host tools. Returns undefined for unknown tools. */
@@ -1335,5 +1246,27 @@ function executeGuiHostTool(name: string, args: Record<string, unknown>): string
 		}
 		default:
 			return undefined;
+	}
+}
+
+/**
+ * One window's benchmark or model setup research on a paired host: `running`
+ * remembers the host so closing the window aborts it there, and a link
+ * failure comes back as the result's error.
+ */
+async function runTracked<T>(
+	running: Map<number, string>,
+	senderId: number,
+	device: string,
+	run: () => Promise<T>,
+): Promise<T | { success: false; error: string; code?: IpcErrorCode }> {
+	running.set(senderId, device);
+	try {
+		return await run();
+	} catch (err) {
+		const code = ipcErrorCode(err);
+		return { success: false, error: err instanceof Error ? err.message : String(err), ...(code ? { code } : {}) };
+	} finally {
+		if (running.get(senderId) === device) running.delete(senderId);
 	}
 }

@@ -1,20 +1,12 @@
 import { FileText } from "lucide-react";
-import {
-	basename,
-	dirname,
-	extractImageDataUrl,
-	headLines,
-	languageFromPath,
-	resultDetails,
-	resultText,
-} from "../../lib/format";
+import { extractImageDataUrl, headLines, languageFromPath, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_HEIGHT_LG, PREVIEW_SCROLL_LG, READ_PREVIEW_LINES } from "../../lib/preview";
 import { CodeBlock } from "../chat/CodeBlock";
 import { ZoomableImage } from "../common/ZoomableImage";
 import { ProcReadRenderer } from "./CoordinationRenderer";
 import { PathLink } from "./PathLink";
-import type { ToolRendererProps } from "./ToolCard";
+import { ToolPathTarget, type ToolRendererProps } from "./ToolCard";
 
 /**
  * File read: path header + syntax-highlighted preview. Prefers the sidecar's
@@ -69,8 +61,7 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult, 
 				<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 					<FileText size={12} className="shrink-0 text-[var(--omp-dim)]" />
 					<PathLink path={basePath} className="truncate">
-						<span className="text-[var(--omp-text)]">{basename(basePath)}</span>
-						<span className="text-[var(--omp-dim)]"> {dirname(basePath)}</span>
+						<ToolPathTarget path={basePath} />
 					</PathLink>
 				</div>
 			)}

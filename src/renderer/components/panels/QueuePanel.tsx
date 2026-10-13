@@ -14,7 +14,7 @@ import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { formatShortcut, onEscape } from "../../lib/keymap";
 import { type QueueLane, useQueuedMessages } from "../../stores/queue";
-import { Badge, EmptyState, IconButton } from "../common";
+import { Badge, Button, EmptyState, IconButton, TextArea } from "../common";
 import { PANEL_ROW_SURFACE } from "./PanelChrome";
 import { useQueueActions } from "./use-queue-actions";
 
@@ -56,7 +56,7 @@ const QueuedRow = memo(function QueuedRow({
 		<div className={`group flex items-start gap-2 ${PANEL_ROW_SURFACE}`}>
 			{editing ? (
 				<div className="min-w-0 flex-1">
-					<textarea
+					<TextArea
 						aria-label={t("queuePanel.editInput")}
 						autoFocus
 						className="w-full resize-y rounded-(--sc-radius-md) border border-(--sc-accent-border) bg-(--sc-field) px-2 py-1 text-sc-sm leading-(--sc-leading-snug) text-(--sc-text)"
@@ -155,17 +155,16 @@ function LaneSection({
 				</span>
 				<Badge variant="muted">{items.length}</Badge>
 				{items.length > 0 && (
-					<button
-						aria-label={t("queuePanel.clearLane")}
-						className="omp-pressable flex items-center gap-1 rounded-md px-2 py-1 text-omp-xs text-(--omp-dim) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-error) disabled:opacity-40"
+					<Button
+						icon={<ListX />}
+						size="sm"
+						variant="ghost"
 						disabled={!ready}
 						onClick={() => onClear(lane)}
 						title={!ready ? t("common.notConnected") : undefined}
-						type="button"
 					>
-						<ListX size={12} />
 						{t("queuePanel.clearLane")}
-					</button>
+					</Button>
 				)}
 			</div>
 			<div className="flex flex-col gap-1.5 px-1">
@@ -182,7 +181,7 @@ function LaneSection({
 					/>
 				))}
 				{items.length === 0 && (
-					<div className="py-1 text-omp-sm text-(--omp-dim) italic">{t("queuePanel.laneEmpty")}</div>
+					<div className="py-1 text-sc-sm text-(--sc-text-muted)">{t("queuePanel.laneEmpty")}</div>
 				)}
 			</div>
 		</section>
@@ -196,10 +195,10 @@ export function QueuePanel() {
 	const { ready: sidecarReady, remove: removeItem, edit: editItem, moveToLane, clearLane } = useQueueActions();
 
 	return (
-		<div className="flex h-full flex-col">
+		<div className="flex h-full min-h-0 min-w-0 flex-col">
 			{!sidecarReady && (
 				<div
-					className="mx-2 mt-2 rounded-md border border-(--omp-border-muted) px-2.5 py-2 text-omp-xs text-(--omp-muted)"
+					className="mx-3 mt-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-2.5 py-2 text-sc-xs text-(--sc-text-muted)"
 					role="status"
 				>
 					{t("common.notConnected")}
@@ -207,12 +206,7 @@ export function QueuePanel() {
 			)}
 			<div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
 				{total === 0 ? (
-					<EmptyState
-						icon={<ListX />}
-						size="sm"
-						title={t("queuePanel.empty")}
-						description={t("queuePanel.emptyHint")}
-					/>
+					<EmptyState icon={<ListX />} size="sm" title={t("queuePanel.empty")} />
 				) : (
 					<>
 						<LaneSection

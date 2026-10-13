@@ -22,6 +22,7 @@ import { setFocusedSessionRuntime } from "../../../stores/session-runtime-contex
 import { useTabsStore } from "../../../stores/tabs";
 import { useToastStore } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
+import { routeCommands } from "../../../test-support/route-commands";
 import { SettingsDataProvider } from "../settings-data";
 import { SettingsNavigationProvider } from "../settings-navigation";
 import { ProviderRow } from "./ProviderList";
@@ -92,7 +93,7 @@ const accountRotationGet = vi.fn(async () => ({ mode: "quota" as const, evenSupp
 
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
-		rpc: { getProviders, logout, disconnectProvider, login, getProviderAccounts },
+		rpc: routeCommands({ getProviders, logout, disconnectProvider, login, getProviderAccounts }),
 		models: { listProviders },
 		ui: { respondExtensionUi },
 		system: { openExternal },

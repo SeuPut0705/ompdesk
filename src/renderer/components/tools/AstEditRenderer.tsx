@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { cx, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import type { ToolRendererProps } from "./ToolCard";
+import { ToolTextPreview } from "./ToolTextPreview";
 
 /**
  * ast_edit: staged AST rewrite preview. Reads the structured details envelope
@@ -244,11 +245,7 @@ export function AstEditRenderer({ args, result, isError, isPartial, partialResul
 
 			{/* States */}
 			{isPartial && <div className="text-omp-sm italic text-[var(--omp-dim)]">{t("tools.astedit.editing")}</div>}
-			{isError && (
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-error)]">
-					{text || t("tools.astedit.failed")}
-				</pre>
-			)}
+			{isError && <ToolTextPreview text={text || t("tools.astedit.failed")} isError />}
 			{!isPartial && !isError && zeroResult && parseErrors.length === 0 && (
 				<div className="text-omp-sm italic text-[var(--omp-dim)]">{t("tools.astedit.noReplacements")}</div>
 			)}

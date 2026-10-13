@@ -8,6 +8,7 @@ import { I18nProvider } from "../../lib/i18n";
 import { preloadMarkdownPipeline } from "../../lib/markdown";
 import { useToolsStore } from "../../stores/tools";
 
+import { CustomMessageCard } from "./CustomMessageCard";
 import { MessageBubble } from "./MessageBubble";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -262,11 +263,12 @@ describe("MessageBubble compaction summaries", () => {
 });
 
 describe("MessageBubble completion events", () => {
-	it("renders supervised-process failures as one compact status row without the wire type", () => {
+	// Inside a work run the card is a note: WorkNotes renders it through CustomMessageCard inProcess.
+	it("renders supervised-process failures inside a run as one compact status row without the wire type", () => {
 		const html = renderToStaticMarkup(
 			<I18nProvider>
-				<MessageBubble
-					compact
+				<CustomMessageCard
+					inProcess
 					message={{
 						role: "custom",
 						customType: "launch-completion",

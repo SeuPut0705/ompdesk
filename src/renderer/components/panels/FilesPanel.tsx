@@ -27,7 +27,7 @@ import { COMPACT_SHELL_QUERY, useUiStore } from "../../stores/ui";
 import { Button, EmptyState, ErrorDetail, IconButton, SearchField, Spinner } from "../common";
 import { type TreeNode, TreeView } from "../common/TreeView";
 import { PathLink } from "../tools/PathLink";
-import { PanelActions, PanelToolbar } from "./PanelChrome";
+import { PanelToolbar } from "./PanelChrome";
 import { FileIcon, FileViewer } from "./viewers/FileViewer";
 import { viewerKind } from "./viewers/file-kind";
 import type { FileInfo } from "./viewers/viewer-chrome";
@@ -72,18 +72,18 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 
 	const kindLabel = t(`fileViewer.kind.${viewerKind(path)}`);
 	return (
-		<div className="omp-slide-in-right flex h-full min-h-0 flex-col">
-			<div className="shrink-0 px-3 py-2">
+		<div className="omp-slide-in-right flex h-full min-h-0 min-w-0 flex-col">
+			<div className="min-h-(--sc-space-10) shrink-0 border-b border-(--sc-divider) px-3 py-2">
 				<div className="flex min-w-0 items-center gap-2">
 					<IconButton icon={<ArrowLeft />} label={t("filesPanel.back")} onClick={closeFilePreview} size="sm" />
 					<FileIcon className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)" path={path} />
 					<span className="min-w-0 flex-1 truncate text-sc-sm" title={path}>
 						{path}
 					</span>
-					<PanelActions>
+					<div className="flex shrink-0 items-center gap-0.5">
 						<PathLink
 							path={path}
-							className="flex size-(--sc-control-sm) shrink-0 items-center justify-center rounded-(--sc-radius-md) text-(--sc-text-muted) hover:bg-(--sc-hover)"
+							className="flex size-(--sc-control-sm) shrink-0 items-center justify-center rounded-(--sc-radius-md) text-(--sc-text-muted) hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
 						>
 							<ExternalLinkIcon className="size-(--sc-icon-sm)" />
 							<span className="sr-only">{t("filesPanel.openExternal")}</span>
@@ -103,7 +103,7 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 								size="sm"
 							/>
 						)}
-					</PanelActions>
+					</div>
 				</div>
 				<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 ps-9">
 					<span
@@ -218,8 +218,8 @@ export function FilesPanel() {
 	if (filePreviewPath) return <FilePreview key={filePreviewPath} path={filePreviewPath} tabId={tabId ?? undefined} />;
 
 	return (
-		<div className="flex h-full flex-col">
-			<PanelActions>
+		<div className="flex h-full min-h-0 min-w-0 flex-col">
+			<PanelToolbar>
 				<span className="px-1 text-sc-xs tabular-nums text-(--sc-text-subtle)">
 					{fileCount}
 					{truncated ? "+" : ""}
@@ -231,9 +231,7 @@ export function FilesPanel() {
 					onClick={() => void load()}
 					size="sm"
 				/>
-			</PanelActions>
-			<PanelToolbar>
-				<div className="w-full">
+				<div className="min-w-0 flex-1">
 					<SearchField
 						controlSize="sm"
 						label={t("filesPanel.search")}
@@ -242,7 +240,7 @@ export function FilesPanel() {
 						onValueChange={setQuery}
 					/>
 					{truncated && (
-						<p className="mt-1 text-omp-xs text-(--omp-muted)">
+						<p className="mt-1 text-sc-xs text-(--sc-text-muted)">
 							{t("filesPanel.searchLimit", { files: MAX_FILES, depth: MAX_DEPTH })}
 						</p>
 					)}
@@ -252,20 +250,31 @@ export function FilesPanel() {
 				{loading && tree.length === 0 ? (
 					<div className="flex items-center justify-center gap-2 py-8">
 						<Spinner size="sm" />
-						<span className="text-omp-sm text-(--omp-dim)">{t("filesPanel.scanning")}</span>
+						<span className="text-sc-sm text-(--sc-text-muted)">{t("filesPanel.scanning")}</span>
 					</div>
 				) : error !== null ? (
-					<div className="px-4 py-8 text-center text-omp-sm leading-relaxed text-(--omp-dim)">
+					<div className="px-4 py-8 text-center text-sc-sm leading-relaxed text-(--sc-text-muted)">
 						{ipcErrorCode(error) ? errorMessage(error) : t("filesPanel.unavailable")}
 						<ErrorDetail className="mt-1" error={error} />
 						<div className="mt-2">
 							<Button onClick={() => void load()} size="sm" variant="ghost">
-								{t("filesPanel.retry")}
+								{t("common.retry")}
 							</Button>
 						</div>
 					</div>
 				) : nodes.length === 0 ? (
-					<EmptyState icon={<Folder />} size="sm" title={t("filesPanel.empty")} />
+					<EmptyState
+						icon={<Folder />}
+						size="sm"
+						title={t(query.trim() ? "filesPanel.noMatch" : "filesPanel.empty")}
+						actions={
+							query.trim() ? (
+								<Button size="sm" variant="secondary" onClick={() => setQuery("")}>
+									{t("common.clear")}
+								</Button>
+							) : undefined
+						}
+					/>
 				) : (
 					<TreeView
 						emptyMessage={t("filesPanel.empty")}

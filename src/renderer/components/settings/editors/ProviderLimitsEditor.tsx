@@ -1,11 +1,12 @@
 /**
  * Dedicated editor for providers.maxInFlightRequests (TUI
- * ProviderLimitsSubmenu parity): one row per provider id with a positive
- * integer concurrency cap, plus a provider dropdown (fed by get_providers
- * through ModelValueSelect) to add rows. Clearing a row's field or clicking
- * remove makes that provider unlimited; picking a provider from the dropdown
- * adds it capped at 1. Commits the whole record on every change (the parent
- * writes via setSetting).
+ * ProviderLimitsSubmenu parity): one row per provider id with a concurrency
+ * cap, plus a provider dropdown (fed by get_providers through
+ * ModelValueSelect) to add rows. Clearing a row's field or clicking remove
+ * makes that provider unlimited; picking a provider from the dropdown adds it
+ * capped at 1. Commits the whole record on every change (the parent writes via
+ * setSetting); stock's `validateProviderMaxInFlightRequests` normalizer floors
+ * every write to a whole number ≥ 1, and the row shows the value read back.
  */
 
 import { X } from "lucide-react";
@@ -48,8 +49,7 @@ function LimitInput({
 			toast({ variant: "warning", message: t("settings.editors.errPositive") });
 			return;
 		}
-		const next = Math.max(1, Math.floor(num));
-		if (next !== limit) onCommit(next);
+		if (num !== limit) onCommit(num);
 	};
 
 	return (
@@ -79,8 +79,7 @@ function LimitInput({
 
 export function ProviderLimitsEditor({ value, onCommit, disabled }: ProviderLimitsEditorProps) {
 	const t = useT();
-	// Only finite positive numbers render as rows; anything else is dropped on
-	// the next commit, mirroring the agent's normalize/validate helpers.
+	// Only finite numbers render as rows; stock normalizes whatever the next commit writes.
 	const entries = Object.entries(value)
 		.filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]))
 		.sort(([a], [b]) => a.localeCompare(b));

@@ -2,8 +2,10 @@ import { List, Rocket, Send, Skull, Tv } from "lucide-react";
 import { cx, formatDuration, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
+import { asArray, asNumber, asRecord, asString } from "../../lib/wire-value";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
+import { ToolTextPreview } from "./ToolTextPreview";
 
 /**
  * Vibe tools (vibe_spawn/vibe_send/vibe_wait/vibe_kill/vibe_list): the
@@ -43,24 +45,6 @@ interface VibeSettled {
 	id: string;
 	jobId?: string;
 	status?: string;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-	return value != null && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: undefined;
-}
-
-function asArray(value: unknown): unknown[] {
-	return Array.isArray(value) ? value : [];
-}
-
-function asString(value: unknown): string | undefined {
-	return typeof value === "string" ? value : undefined;
-}
-
-function asNumber(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function asStringArray(value: unknown): string[] {
@@ -467,18 +451,7 @@ function VibeView({ op, args, result, isError, isPartial, partialResult }: ToolR
 				</div>
 			)}
 
-			{(!hasStructured || isError) && text && (
-				<pre
-					className={cx(
-						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
-						isError
-							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
-							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",
-					)}
-				>
-					{text}
-				</pre>
-			)}
+			{(!hasStructured || isError) && text && <ToolTextPreview text={text} isError={isError} />}
 		</div>
 	);
 }

@@ -1,5 +1,6 @@
-import { ChevronRight, CircleCheck, CircleSlash, CircleX } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
+import type { AgentMessage } from "../../../shared/rpc-types";
 import { cx, formatDuration } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
@@ -10,8 +11,6 @@ import { editArgumentPaths, workFilePathKey } from "../tools/edit-args";
 import { getToolActivity, type ToolActivity } from "../tools/index";
 import { LiveStepPeek } from "./LiveStepPeek";
 import { LiveTurnMeter, OutputMeter } from "./TurnOutputMeter";
-import { WorkContext } from "./WorkContext";
-import { WorkOutcome } from "./WorkOutcome";
 import { type GroupAgent, isInterruptedError, resolveWorkGroup } from "./WorkStatus";
 import { isSkippedWork } from "./work-view";
 
@@ -31,6 +30,7 @@ interface ExecutionGroupProps {
 	/** Timestamp of stock's empty aborted reply after this group. */
 	stoppedAt?: number;
 	todoSnapshots?: readonly TodoSnapshot[];
+	notes?: readonly AgentMessage[];
 }
 
 /** Order of the human summary: reads, edits, commands, searches, then the rest. */
@@ -60,6 +60,7 @@ export function ExecutionGroup({
 	thinkingLive = false,
 	stoppedAt,
 	todoSnapshots,
+	notes,
 }: ExecutionGroupProps) {
 	const t = useT();
 	const cwd = useSessionStore(state => state.cwd);
@@ -135,7 +136,6 @@ export function ExecutionGroup({
 				return { status, parent: parent as GroupAgent["parent"] };
 			})
 		: [];
-	const agentCount = agents.length;
 	const { state, failed, interrupted, runningAgents } = resolveWorkGroup({
 		live,
 		runningTools: running,
@@ -174,15 +174,13 @@ export function ExecutionGroup({
 	const duration = state !== "running" && spanMs > 0 ? formatDuration(spanMs) : null;
 	// While the work card shows, this summary row lives in the card's head: the card's status mark
 	// and narrative already say what is running, so the row keeps only the counts and the toggle.
-	const carded = state === "running" || agentCount > 0;
-	const shownSummary =
-		carded && state === "running" ? t("chat.work.stepCount", { total: totalSteps, plural }) : summary;
+	const shownSummary = state === "running" ? t("chat.work.stepCount", { total: totalSteps, plural }) : summary;
 	const header = (
 		<button
 			aria-expanded={expanded}
 			className={cx(
 				"omp-execution-group-header flex min-h-7 w-fit max-w-full min-w-0 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-left text-sc-sm transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover)",
-				carded && "omp-execution-group-header--embedded",
+				"omp-execution-group-header--embedded",
 				state === "failed"
 					? "text-(--sc-danger)"
 					: "text-(--sc-text-muted) hover:text-(--sc-text) aria-expanded:text-(--sc-text-secondary)",
@@ -191,22 +189,10 @@ export function ExecutionGroup({
 			type="button"
 			aria-label={`${t("chat.process.title")}: ${summary}`}
 		>
-			{carded ? null : (
-				<span
-					aria-hidden
-					className="flex size-(--sc-icon-sm) shrink-0 items-center justify-center [&>svg]:size-(--sc-icon-sm)"
-				>
-					{state === "failed" ? <CircleX /> : state === "interrupted" ? <CircleSlash /> : <CircleCheck />}
-				</span>
-			)}
 			<span
 				aria-atomic="true"
 				aria-live="polite"
-				className={cx(
-					"omp-execution-group-summary min-w-0 truncate",
-					carded ? null : "font-medium",
-					state === "running" && !carded && "omp-thinking-shimmer",
-				)}
+				className="omp-execution-group-summary min-w-0 truncate"
 				role="status"
 			>
 				{shownSummary}
@@ -233,29 +219,18 @@ export function ExecutionGroup({
 
 	return (
 		<section className={cx("omp-execution-group", className)} data-state={state}>
-			{carded ? (
-				<LiveStepPeek
-					summaryRow={header}
-					thinkingLive={thinkingLive}
-					toolCallIds={toolCallIds}
-					state={state}
-					stoppedAt={stoppedAt}
-					stepsListed={expanded}
-					carriesContext={live}
-					todoSnapshots={todoSnapshots}
-				/>
-			) : (
-				header
-			)}
-			{expanded ? (
-				<div className="omp-execution-group-body">
-					{!carded ? <WorkContext live={false} snapshot={todoSnapshots?.at(-1)} /> : null}
-					{children}
-				</div>
-			) : null}
-			{state !== "running" && agentCount === 0 ? (
-				<WorkOutcome toolCallIds={toolCallIds} stoppedAt={stoppedAt} />
-			) : null}
+			<LiveStepPeek
+				summaryRow={header}
+				thinkingLive={thinkingLive}
+				toolCallIds={toolCallIds}
+				state={state}
+				stoppedAt={stoppedAt}
+				stepsListed={expanded}
+				carriesContext={live}
+				todoSnapshots={todoSnapshots}
+				notes={notes}
+			/>
+			{expanded ? <div className="omp-execution-group-body">{children}</div> : null}
 		</section>
 	);
 }

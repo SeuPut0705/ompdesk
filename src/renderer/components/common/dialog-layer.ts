@@ -1,9 +1,9 @@
-// DOM order is not a reliable overlay order: some dialogs render in-place and
-// others portal to document.body. Track mount/open order explicitly so an
-// overlay opened from Settings owns Escape even when Settings is later in DOM.
+// DOM order is not a reliable overlay order: some layers render in-place and
+// others portal to document.body. Dialogs, popovers, menus and dropdowns all
+// register here so earlier document capture listeners defer to the open child.
 const dialogLayers: HTMLElement[] = [];
 
-/** Register a visible dialog as the newest interaction layer. */
+/** Register a visible dialog, popover, menu or dropdown as the newest interaction layer. */
 export function registerDialogLayer(dialog: HTMLElement | null): () => void {
 	if (!dialog) return () => {};
 	const existing = dialogLayers.lastIndexOf(dialog);

@@ -161,7 +161,7 @@ describe("compact transcript rows", () => {
 		expect(process.stepCount).toBe(5);
 		expect(process.failedEvents).toBe(1);
 		expect(process.toolNames).toEqual(["bash", "bash", "bash", "hub"]);
-		expect(process.messages.map(message => message.customType).filter(Boolean)).toEqual([
+		expect(process.notes?.map(message => message.customType).filter(Boolean)).toEqual([
 			"launch-completion",
 			"async-result",
 		]);

@@ -6,16 +6,16 @@
 import path from "node:path";
 import { findAllNearestProjectConfigDirs, getConfigDirs } from "@oh-my-pi/pi-coding-agent/config";
 import { formatModelString } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
-import { parseAgentFields, type ParsedAgentFields } from "@oh-my-pi/pi-coding-agent/discovery/helpers";
-import { createAgentsHubDeps } from "@oh-my-pi/pi-coding-agent/modes/agents-hub-deps";
-import { AgentParsingError } from "@oh-my-pi/pi-coding-agent/task/agents";
+import { type ParsedAgentFields, parseAgentFields } from "@oh-my-pi/pi-coding-agent/discovery/helpers";
 import { resolveMemoryBackend } from "@oh-my-pi/pi-coding-agent/memory-backend/resolve";
+import { createAgentsHubDeps } from "@oh-my-pi/pi-coding-agent/modes/agents-hub-deps";
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
 import { AgentRegistry, MAIN_AGENT_ID } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
+import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { AgentParsingError } from "@oh-my-pi/pi-coding-agent/task/agents";
 import { discoverAgents } from "@oh-my-pi/pi-coding-agent/task/discovery";
 import { BUILTIN_TOOL_NAMES, HIDDEN_TOOL_NAMES } from "@oh-my-pi/pi-coding-agent/tools/builtin-names";
-import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
-import { getAvailableThemesWithPaths, getResolvedThemeColors } from "@oh-my-pi/pi-tui/theme";
+import { getResolvedThemeColors } from "@oh-my-pi/pi-tui/theme";
 import { parseFrontmatter } from "@oh-my-pi/pi-utils";
 import { guard } from "../health";
 import type { BridgeMethods } from "../types";
@@ -214,9 +214,6 @@ export const methods: BridgeMethods = {
 	}),
 
 	...guard("themes", {
-		/** Built-in theme names plus `<agentDir>/themes/*.json`, sorted by name. */
-		get_themes: async () => ({ themes: await getAvailableThemesWithPaths() }),
-
 		/** Resolved CSS colors (variable refs and ANSI-256 indices resolved) keyed by theme token. */
 		get_theme_colors: async params => {
 			const name = requireString(paramsOf(params), "name");

@@ -59,10 +59,6 @@ export function storePaste(content: string): PasteBlob {
 	return blob;
 }
 
-export function getPaste(id: number): PasteBlob | undefined {
-	return blobs.get(id);
-}
-
 export function dropPaste(id: number): void {
 	blobs.delete(id);
 }

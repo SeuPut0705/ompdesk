@@ -9,7 +9,7 @@ import { codedError } from "../shared/ipc-error-codes";
 import type { SessionInfo, SessionKind } from "../shared/ipc-types";
 import { agentDir } from "./agent-paths";
 import { StampedLru } from "./session-cache";
-import { type SessionStore, StockSessionStore } from "./session-store";
+import { StockSessionStore } from "./session-store";
 
 /** Per-file cap for full-content search reads; larger sessions match on this prefix. */
 const SEARCH_READ_BYTES = 8 * 1024 * 1024;
@@ -29,7 +29,7 @@ export class SessionIndex {
 	#cwd: string;
 	/** GUI-side chat labels for sessions whose header carries no kind (stock omp writes none). */
 	#isChat: (sessionId: string) => boolean;
-	#store: SessionStore;
+	#store: StockSessionStore;
 
 	onChange: (() => void) | null = null;
 
@@ -37,13 +37,12 @@ export class SessionIndex {
 		sessionsDir: string | undefined,
 		cwd: string,
 		isChat: (sessionId: string) => boolean = () => false,
-		store?: SessionStore,
 		bridgeDir = resolve("resources/gui-bridge"),
 	) {
 		this.#sessionsDir = sessionsDir ?? join(agentDir(), "sessions");
 		this.#cwd = resolve(cwd);
 		this.#isChat = isChat;
-		this.#store = store ?? new StockSessionStore(this.#sessionsDir, bridgeDir);
+		this.#store = new StockSessionStore(this.#sessionsDir, bridgeDir);
 	}
 
 	/** Sessions root watched by this index (plan files live in per-session artifact dirs beneath it). */

@@ -2,16 +2,17 @@
  * Skills, hooks and prompt templates for the GUI's extension pages. Ported
  * from the omp-gui fork's rpc-domains / rpc-skills / rpc-actions.
  */
-import { loadCapability } from "@oh-my-pi/pi-coding-agent/capability";
-import { type Hook, hookCapability } from "@oh-my-pi/pi-coding-agent/capability/hook";
+
 import {
 	deleteManagedSkill,
 	MANAGED_SKILLS_PROVIDER_ID,
 	sanitizeSkillName,
 	writeManagedSkill,
 } from "@oh-my-pi/pi-coding-agent/autolearn/managed-skills";
-import { templateUsesInlineArgPlaceholders } from "@oh-my-pi/pi-coding-agent/config/prompt-templates";
+import { loadCapability } from "@oh-my-pi/pi-coding-agent/capability";
+import { type Hook, hookCapability } from "@oh-my-pi/pi-coding-agent/capability/hook";
 import type { Skill } from "@oh-my-pi/pi-coding-agent/capability/skill";
+import { templateUsesInlineArgPlaceholders } from "@oh-my-pi/pi-coding-agent/config/prompt-templates";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { parseFrontmatter } from "@oh-my-pi/pi-utils";
 import { guard } from "../health";

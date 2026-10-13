@@ -1,11 +1,11 @@
 /**
  * Recursive tree with expand/collapse, indent guides, and full keyboard
  * navigation (Up/Down move, Right expand/first-child, Left collapse/parent,
- * Enter/Space activate).
+ * Enter/Space activate). Expansion is controlled by the caller.
  */
 
 import { ChevronRight } from "lucide-react";
-import { type CSSProperties, type KeyboardEvent, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type KeyboardEvent, type ReactNode, useMemo, useRef } from "react";
 import { useT } from "../../lib/i18n";
 
 export interface TreeNode {
@@ -21,13 +21,8 @@ export interface TreeNode {
 
 export interface TreeViewProps {
 	nodes: TreeNode[];
-	/** Ids expanded on first render (uncontrolled initial state). */
-	defaultExpanded?: string[];
-	/** Controlled expansion; omit for uncontrolled. */
-	expanded?: Set<string>;
-	onExpandedChange?: (expanded: Set<string>) => void;
-	/** Currently selected id (highlighted row). */
-	selectedId?: string | null;
+	expanded: Set<string>;
+	onExpandedChange: (expanded: Set<string>) => void;
 	/** Empty-state message when `nodes` is empty. */
 	emptyMessage?: string;
 	className?: string;
@@ -40,51 +35,30 @@ interface FlatRow {
 	isExpanded: boolean;
 }
 
-export function TreeView({
-	nodes,
-	defaultExpanded,
-	expanded: controlledExpanded,
-	onExpandedChange,
-	selectedId,
-	emptyMessage,
-	className,
-}: TreeViewProps) {
+export function TreeView({ nodes, expanded, onExpandedChange, emptyMessage, className }: TreeViewProps) {
 	const t = useT();
-	const [internalExpanded, setInternalExpanded] = useState<Set<string>>(() => new Set(defaultExpanded ?? []));
-	const expandedSet = controlledExpanded ?? internalExpanded;
 	const listRef = useRef<HTMLDivElement>(null);
 
-	const setExpanded = useCallback(
-		(next: Set<string>) => {
-			if (controlledExpanded === undefined) setInternalExpanded(next);
-			onExpandedChange?.(next);
-		},
-		[controlledExpanded, onExpandedChange],
-	);
-
-	const toggle = useCallback(
-		(id: string) => {
-			const next = new Set(expandedSet);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			setExpanded(next);
-		},
-		[expandedSet, setExpanded],
-	);
+	const toggle = (id: string) => {
+		const next = new Set(expanded);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		onExpandedChange(next);
+	};
 
 	const rows = useMemo<FlatRow[]>(() => {
 		const out: FlatRow[] = [];
 		const walk = (list: TreeNode[], depth: number) => {
 			for (const node of list) {
 				const hasChildren = (node.children?.length ?? 0) > 0;
-				const isExpanded = hasChildren && expandedSet.has(node.id);
+				const isExpanded = hasChildren && expanded.has(node.id);
 				out.push({ node, depth, hasChildren, isExpanded });
 				if (isExpanded && node.children) walk(node.children, depth + 1);
 			}
 		};
 		walk(nodes, 0);
 		return out;
-	}, [nodes, expandedSet]);
+	}, [nodes, expanded]);
 
 	const parentOf = useMemo(() => {
 		const map = new Map<string, string | null>();
@@ -144,7 +118,7 @@ export function TreeView({
 
 	if (nodes.length === 0) {
 		return (
-			<div className={`px-3 py-6 text-center text-omp-sm text-(--omp-dim) ${className ?? ""}`.trim()}>
+			<div className={`px-3 py-6 text-center text-sc-sm text-(--sc-text-muted) ${className ?? ""}`.trim()}>
 				{emptyMessage ?? t("tree.empty")}
 			</div>
 		);
@@ -153,16 +127,11 @@ export function TreeView({
 	return (
 		<div className={`py-1 ${className ?? ""}`.trim()} ref={listRef} role="tree">
 			{rows.map((row, index) => {
-				const selected = selectedId === row.node.id;
 				return (
 					<div
 						aria-expanded={row.hasChildren ? row.isExpanded : undefined}
-						aria-selected={selected}
-						className={`group flex cursor-default items-center gap-1 rounded-sm pr-2 text-xs transition-colors duration-75 ${
-							selected
-								? "bg-(--omp-selected-bg) text-(--omp-text)"
-								: "text-(--omp-muted) hover:bg-(--omp-bg-tertiary) hover:text-(--omp-text)"
-						} ${row.node.className ?? ""}`.trim()}
+						aria-selected={false}
+						className={`group flex min-h-(--sc-control-sm) cursor-default items-center gap-1 rounded-(--sc-radius-sm) pr-2 text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) motion-reduce:transition-none ${row.node.className ?? ""}`.trim()}
 						data-tree-id={row.node.id}
 						key={row.node.id}
 						onClick={() => row.node.onClick?.()}
@@ -174,12 +143,12 @@ export function TreeView({
 								"--tree-depth": row.depth,
 							} as CSSProperties
 						}
-						tabIndex={selectedId == null ? (index === 0 ? 0 : -1) : selected ? 0 : -1}
+						tabIndex={index === 0 ? 0 : -1}
 					>
 						{row.hasChildren ? (
 							<button
 								aria-label={row.isExpanded ? t("tree.collapse") : t("tree.expand")}
-								className="omp-disclosure-chevron flex size-4 shrink-0 items-center justify-center rounded text-(--omp-dim) hover:text-(--omp-text)"
+								className="omp-disclosure-chevron flex size-(--sc-icon-md) shrink-0 items-center justify-center rounded-(--sc-radius-sm) text-(--sc-text-muted) hover:text-(--sc-text)"
 								onClick={event => {
 									event.stopPropagation();
 									toggle(row.node.id);
@@ -188,15 +157,22 @@ export function TreeView({
 								tabIndex={-1}
 								type="button"
 							>
-								<ChevronRight size={12} />
+								<ChevronRight className="size-(--sc-icon-sm)" />
 							</button>
 						) : (
-							<span className="size-4 shrink-0" />
+							<span className="size-(--sc-icon-md) shrink-0" />
 						)}
 						{row.node.icon && (
-							<span className="shrink-0 text-(--omp-dim) group-hover:text-(--omp-muted)">{row.node.icon}</span>
+							<span className="shrink-0 text-(--sc-text-subtle) group-hover:text-(--sc-text-muted)">
+								{row.node.icon}
+							</span>
 						)}
-						<span className="min-w-0 flex-1 truncate">{row.node.label}</span>
+						<span
+							title={typeof row.node.label === "string" ? row.node.label : undefined}
+							className="min-w-0 flex-1 truncate"
+						>
+							{row.node.label}
+						</span>
 					</div>
 				);
 			})}

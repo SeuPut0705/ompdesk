@@ -3,16 +3,17 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoreApi } from "zustand/vanilla";
-import type { AgentProgress, RpcCommand, SubagentFrame } from "../../../shared/rpc-types";
+import type { AgentProgress, RpcCommand, RpcResponse, SubagentFrame } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { deleteSessionRuntime, SessionRuntimeProvider } from "../../stores/session-runtime-context";
 import type { SubagentsStore } from "../../stores/subagents";
-import { useSubagentsStore } from "../../stores/subagents";
+import { createSubagentsStore, useSubagentsStore } from "../../stores/subagents";
 import { createTabRuntime } from "../../stores/tab-runtime";
 import { useTabsStore } from "../../stores/tabs";
 import type { ToolsStore } from "../../stores/tools";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
+import { routeCommands } from "../../test-support/route-commands";
 import { WorkOutcome } from "./WorkOutcome";
 import { workConclusion, workNarrative, workOutcomes } from "./work-view";
 
@@ -85,12 +86,12 @@ beforeEach(() => {
 		},
 		cancelAnimationFrame: (id: number) => frames.delete(id),
 		omp: {
-			rpc: {
+			rpc: routeCommands({
 				command: async (command: RpcCommand) => {
 					commands.push(command);
 					return { success: true, data: { messages: [] } };
 				},
-			},
+			}),
 		},
 	});
 	useToolsStore.setState(toolEntriesState([["parent", entry("task", { intent: "Delegating line counts" })]]));
@@ -273,13 +274,15 @@ describe("live work", () => {
 		await act(async () => container.querySelector<HTMLButtonElement>(".omp-work-card-button")?.click());
 		await flush();
 		expect(container.querySelector('[role="alert"]')?.textContent).toContain("Snapshot unavailable");
-		expect(container.querySelector(".omp-work-card .omp-live-step")?.getAttribute("data-surface")).toBe("bash");
+		expect(container.querySelector(".omp-work-stage .omp-live-step")?.getAttribute("data-surface")).toBe("bash");
 	});
-	it("builds cards from progress and subscribes only while expanded without polling", async () => {
+	it("auto-follows an active agent and leases events only while a surface is shown without polling", async () => {
 		await mount();
 		expect(container.textContent).toContain("Counting file lines");
 		expect(container.textContent).toContain("3 tools · 42 tokens");
-		expect(commands).toEqual([]);
+		expect(commands.filter(command => command.type === "set_subagent_subscription")).toEqual([
+			{ type: "set_subagent_subscription", level: "events" },
+		]);
 		const card = container.querySelector<HTMLButtonElement>(".omp-work-card-button");
 		await act(async () => card?.click());
 		expect(commands.filter(command => command.type === "set_subagent_subscription")).toEqual([
@@ -318,7 +321,11 @@ describe("live work", () => {
 		await flush();
 		expect(container.textContent).toContain("12 a.ts");
 		await act(async () => card?.click());
-		expect(commands.at(-1)).toEqual({ type: "set_subagent_subscription", level: "progress" });
+		// Returning to auto-follow keeps the shown agent's event lease alive.
+		expect(commands.filter(command => command.type === "set_subagent_subscription").at(-1)).toEqual({
+			type: "set_subagent_subscription",
+			level: "events",
+		});
 		expect(commands.filter(command => command.type === "get_subagent_messages")).toHaveLength(1);
 		await act(async () => card?.click());
 		await act(async () =>
@@ -361,11 +368,11 @@ describe("live work", () => {
 		);
 		await act(async () => container.querySelector<HTMLButtonElement>(".omp-work-card-button")?.click());
 		await flush();
-		expect(container.querySelector(".omp-work-card .omp-live-step")).not.toBeNull();
+		expect(container.querySelector(".omp-work-stage .omp-live-step")).not.toBeNull();
 		expect(container.textContent).toContain("12 a.ts");
-		expect(container.querySelector(".omp-work-card .omp-live-step")?.getAttribute("data-surface")).toBe("bash");
+		expect(container.querySelector(".omp-work-stage .omp-live-step")?.getAttribute("data-surface")).toBe("bash");
 		// One step has nothing to replay: the lane draws no strip of its own.
-		expect(container.querySelector(".omp-work-card .omp-live-work-strip")).toBeNull();
+		expect(container.querySelector(".omp-work-stage .omp-live-work-strip")).toBeNull();
 		expect(
 			commands.filter(command => command.type === "set_subagent_subscription" && command.level === "events"),
 		).toHaveLength(0);
@@ -471,6 +478,62 @@ describe("live work", () => {
 		const row = container.querySelector('li[data-kind="command"]');
 		expect(row?.querySelector('[role="img"]')?.getAttribute("aria-label")).toBe("Succeeded");
 		expect(row?.textContent).toBe("wc -l a.ts 3.0s");
+	});
+	it.each([true, false])("shares a pending replay and follows only a still-missing gap (served=%s)", async served => {
+		const replies = [Promise.withResolvers<RpcResponse>(), Promise.withResolvers<RpcResponse>()];
+		const followUpStarted = Promise.withResolvers<void>();
+		let request = 0;
+		const command = vi.fn(() => {
+			const reply = replies[request++];
+			if (request === 2) followUpStarted.resolve();
+			return reply.promise;
+		});
+		const store = createSubagentsStore(command);
+		const snapshot = (status: "running" | "completed", toolCount: number) => ({
+			id: progress.id,
+			index: 0,
+			agent: "scout",
+			status,
+			lastUpdate: toolCount,
+			progress: { ...progress, status, toolCount },
+		});
+		store.getState().setSnapshots([snapshot("running", 1)]);
+		const first = store.getState().hydrateSurface(progress.id);
+		await Promise.resolve();
+		store.getState().setSnapshots([snapshot("running", 2)]);
+		expect(store.getState().hydrateSurface(progress.id)).toBe(first);
+		store.getState().setSnapshots([snapshot("completed", 3)]);
+		expect(store.getState().hydrateSurface(progress.id)).toBe(first);
+		expect(command).toHaveBeenCalledTimes(1);
+		if (served) {
+			const surface = store.getState().surface(progress.id);
+			for (let index = 0; index < 3; index++)
+				surface.getState().applyEvents([
+					{ type: "tool_execution_start", toolCallId: `observed-${index}`, toolName: "bash", args: {} },
+					{
+						type: "tool_execution_end",
+						toolCallId: `observed-${index}`,
+						toolName: "bash",
+						result: { content: [] },
+						isError: false,
+					},
+				]);
+		}
+		replies[0].resolve({ type: "response", command: "get_subagent_messages", success: true, data: { messages: [] } });
+		if (!served) {
+			await followUpStarted.promise;
+			expect(store.getState().hydrateSurface(progress.id)).not.toBe(first);
+			expect(command).toHaveBeenCalledTimes(2);
+			replies[1].resolve({
+				type: "response",
+				command: "get_subagent_messages",
+				success: true,
+				data: { messages: [] },
+			});
+		}
+		await first;
+		await store.getState().hydrateSurface(progress.id);
+		expect(command).toHaveBeenCalledTimes(served ? 1 : 2);
 	});
 	it.each([true, false])(
 		"hydrates a completion gap once, but not fully observed events (missing=%s)",
@@ -734,7 +797,7 @@ describe("live work", () => {
 		await mount();
 		await act(async () => container.querySelector<HTMLButtonElement>(".omp-work-card-button")?.click());
 		await act(async () => vi.advanceTimersByTime(11_000));
-		const lane = container.querySelector(".omp-work-card .omp-live-step");
+		const lane = container.querySelector(".omp-work-stage .omp-live-step");
 		expect(lane?.getAttribute("data-surface")).toBe("bash");
 		const clock = lane?.querySelector(".omp-work-clock");
 		expect(clock?.textContent).toBe("Running for 11s without output");

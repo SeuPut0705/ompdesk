@@ -141,6 +141,102 @@ function replaceFocusedSplitTab(split: SplitLayout | null, focusedTabId: string 
 	return asSplitLayout(mapSplitLeaves(split, tabId => ({ tabId: tabId === focusedTabId ? nextTabId : tabId })));
 }
 
+/** A session field only proves a session change once both sides know it. */
+function tabSessionChanged(previous: SessionTab | undefined, info: IpcTabStatusPayload): boolean {
+	return (
+		(previous?.sessionId !== undefined && info.sessionId !== undefined && previous.sessionId !== info.sessionId) ||
+		(previous?.sessionPath !== undefined &&
+			info.sessionPath !== undefined &&
+			previous.sessionPath !== info.sessionPath)
+	);
+}
+
+/**
+ * Project a main-process tab snapshot (GET_TABS entry or TAB_STATUS push) over
+ * the renderer's previous entry, keeping local flags (unreadDone,
+ * pendingSessionPath). A session change drops what belonged to the old session.
+ */
+function projectSessionTab(
+	info: IpcTabStatusPayload,
+	previous: SessionTab | undefined,
+	sessionChanged: boolean,
+	completedInBackground: boolean,
+): SessionTab {
+	return {
+		id: info.tabId,
+		cwd: info.cwd || previous?.cwd || "",
+		status: info.status,
+		compacting: info.compacting ?? previous?.compacting ?? false,
+		kind: info.kind ?? previous?.kind ?? "agent",
+		placeholder: info.placeholder ?? previous?.placeholder,
+		worktree: info.worktree ?? previous?.worktree,
+		device: info.device ?? previous?.device,
+		title: info.title === undefined ? (sessionChanged ? undefined : previous?.title) : (info.title ?? undefined),
+		sessionPath: info.sessionPath === undefined ? previous?.sessionPath : (info.sessionPath ?? undefined),
+		sessionId: info.sessionId ?? previous?.sessionId,
+		unreadDone: sessionChanged ? false : completedInBackground || (previous?.unreadDone ?? false),
+		pendingSessionPath: previous?.pendingSessionPath,
+		awaitingInput: sessionChanged ? undefined : previous?.awaitingInput,
+	};
+}
+
+/**
+ * Hand window focus to `id` with `split` (null = single view) and route main's
+ * views to match. The previously focused pane leaves the foreground role, so
+ * its overlays and live voice must not linger (voice control RPCs route to the
+ * newly focused pane's sidecar).
+ */
+async function focusTab(
+	previousTabId: string | null,
+	id: string,
+	split: SplitLayout | null,
+	tabs: SessionTab[],
+): Promise<void> {
+	const version = ++switchVersion;
+	beginTabRoute(previousTabId, id);
+	const ui = useUiStore.getState();
+	const stopLive = ui.liveOpen ? window.omp.rpc.liveStop() : null;
+	ui.closeSessionOverlays();
+	useForkHandoffStore.getState().closeHandoffDialog();
+	useTabsStore.setState({ activeTabId: id, split, tabs });
+	setFocusedSessionRuntime(id);
+	try {
+		if (stopLive) {
+			const stopped = await stopLive;
+			if (!stopped.success) {
+				toastError({ title: translate("tabs.switchFailed"), error: stopped });
+			}
+		}
+		const routed = await routeTabView(id, split ? splitTabIds(split) : [id], split);
+		if (!routed) throw new Error(`Tab ${id} is no longer available`);
+	} catch (error) {
+		if (version !== switchVersion) return;
+		// Routing never re-pointed: main still forwards the PREVIOUS tab's
+		// events, so hydrating here would pull that sidecar's session into
+		// this tab's restored stores. Surface the failure and re-converge
+		// from GET_TABS — reconcile also retries SET_ACTIVE_TAB for the
+		// renderer's pick, re-pointing routing when the failure was
+		// transient — instead of silently diverging.
+		toastError({ title: translate("tabs.switchFailed"), error });
+		const converged = await useTabsStore.getState().reconcileTabs();
+		if (version !== switchVersion) return;
+		if (converged && useTabsStore.getState().activeTabId === id) await attachTabSession(id);
+		return;
+	}
+	if (version !== switchVersion) return;
+	settleTabRoute(id);
+	// A freshly spawned sidecar can become ready on the light TAB_STATUS
+	// channel before SET_ACTIVE_TAB wires its full status channel. In that
+	// case no ready event will replay after routing, so hydrate from the
+	// tab's latest status here. A still-starting sidecar will deliver its
+	// normal full ready event after the route is attached.
+	const routedTab = useTabsStore.getState().tabs.find(tab => tab.id === id);
+	if (routedTab?.status === "ready" || routedTab?.status === "running") {
+		sessionRuntimeStore<SessionStore>(id, "session")?.getState().setStatus("ready", routedTab.cwd);
+		await attachTabSession(id);
+	}
+}
+
 /**
  * Chip label for the tab strip (F-HYDRATE): session title when known, else
  * the cwd basename (both empty → the localized "New session"). Identical
@@ -250,34 +346,12 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			const merged: SessionTab[] = list.map(info => {
 				const existing = leftovers.get(info.tabId);
 				leftovers.delete(info.tabId);
-				const sessionChanged =
-					(existing?.sessionId !== undefined &&
-						info.sessionId !== undefined &&
-						existing.sessionId !== info.sessionId) ||
-					(existing?.sessionPath !== undefined &&
-						info.sessionPath !== undefined &&
-						existing.sessionPath !== info.sessionPath);
+				const sessionChanged = tabSessionChanged(existing, info);
 				if (sessionChanged) {
 					replaceTabRuntime(info.tabId);
 				}
 				ensureTabRuntime(info.tabId);
-				return {
-					id: info.tabId,
-					cwd: info.cwd || existing?.cwd || "",
-					status: info.status,
-					compacting: info.compacting ?? existing?.compacting ?? false,
-					kind: info.kind ?? existing?.kind ?? "agent",
-					placeholder: info.placeholder ?? existing?.placeholder,
-					worktree: info.worktree ?? existing?.worktree,
-					device: info.device ?? existing?.device,
-					title:
-						info.title === undefined ? (sessionChanged ? undefined : existing?.title) : (info.title ?? undefined),
-					sessionPath: info.sessionPath === undefined ? existing?.sessionPath : (info.sessionPath ?? undefined),
-					sessionId: info.sessionId ?? existing?.sessionId,
-					unreadDone: sessionChanged ? false : (existing?.unreadDone ?? false),
-					pendingSessionPath: existing?.pendingSessionPath,
-					awaitingInput: sessionChanged ? undefined : existing?.awaitingInput,
-				};
+				return projectSessionTab(info, existing, sessionChanged, false);
 			});
 			// Entries the reply doesn't know (a spawn reply raced this reconcile)
 			// survive appended at the end.
@@ -409,61 +483,18 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	switchTab: async id => {
 		const state = get();
 		if (id === state.activeTabId) return;
-		const target = state.tabs.find(tab => tab.id === id);
-		if (!target) return;
-		const version = ++switchVersion;
+		if (!state.tabs.some(tab => tab.id === id)) return;
 		ensureTabRuntime(id);
-		beginTabRoute(state.activeTabId, id);
-		const ui = useUiStore.getState();
-		const stopLive = ui.liveOpen ? window.omp.rpc.liveStop() : null;
-		ui.closeSessionOverlays();
-		useForkHandoffStore.getState().closeHandoffDialog();
-		const split = replaceFocusedSplitTab(state.split, state.activeTabId, id);
 		const outgoingStreaming = useSessionStore.getState().isStreaming;
-		set({
-			activeTabId: id,
-			split,
-			tabs: state.tabs.map(tab => {
+		await focusTab(
+			state.activeTabId,
+			id,
+			replaceFocusedSplitTab(state.split, state.activeTabId, id),
+			state.tabs.map(tab => {
 				if (tab.id === id) return { ...tab, unreadDone: false };
 				return tab.id === state.activeTabId && outgoingStreaming ? { ...tab, status: "running" } : tab;
 			}),
-		});
-		setFocusedSessionRuntime(id);
-		try {
-			if (stopLive) {
-				const stopped = await stopLive;
-				if (!stopped.success) {
-					toastError({ title: translate("tabs.switchFailed"), error: stopped });
-				}
-			}
-			const routed = await routeTabView(id, split ? splitTabIds(split) : [id], split);
-			if (!routed) throw new Error(`Tab ${id} is no longer available`);
-		} catch (error) {
-			if (version !== switchVersion) return;
-			// Routing never re-pointed: main still forwards the PREVIOUS tab's
-			// events, so hydrating here would pull that sidecar's session into
-			// this tab's restored stores. Surface the failure and re-converge
-			// from GET_TABS — reconcile also retries SET_ACTIVE_TAB for the
-			// renderer's pick, re-pointing routing when the failure was
-			// transient — instead of silently diverging.
-			toastError({ title: translate("tabs.switchFailed"), error });
-			const converged = await get().reconcileTabs();
-			if (version !== switchVersion) return;
-			if (converged && get().activeTabId === id) await attachTabSession(id);
-			return;
-		}
-		if (version !== switchVersion) return;
-		settleTabRoute(id);
-		// A freshly spawned sidecar can become ready on the light TAB_STATUS
-		// channel before SET_ACTIVE_TAB wires its full status channel. In that
-		// case no ready event will replay after routing, so hydrate from the
-		// tab's latest status here. A still-starting sidecar will deliver its
-		// normal full ready event after the route is attached.
-		const routedTab = get().tabs.find(tab => tab.id === id);
-		if (routedTab?.status === "ready" || routedTab?.status === "running") {
-			sessionRuntimeStore<SessionStore>(id, "session")?.getState().setStatus("ready", routedTab.cwd);
-			await attachTabSession(id);
-		}
+		);
 	},
 
 	splitTab: async (id, placement, targetTabId) => {
@@ -485,40 +516,12 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					),
 				)!
 			: splitForPlacement(target, id, placement);
-		const version = ++switchVersion;
-		beginTabRoute(activeTabId, id);
-		// Same surface handoff as switchTab: the previously focused pane leaves
-		// the foreground role, so its overlays and live voice must not linger
-		// (voice control RPCs route to the newly focused pane's sidecar).
-		const ui = useUiStore.getState();
-		const stopLive = ui.liveOpen ? window.omp.rpc.liveStop() : null;
-		ui.closeSessionOverlays();
-		useForkHandoffStore.getState().closeHandoffDialog();
-		set({
-			activeTabId: id,
+		await focusTab(
+			activeTabId,
+			id,
 			split,
-			tabs: state.tabs.map(tab => (tab.id === id ? { ...tab, unreadDone: false } : tab)),
-		});
-		setFocusedSessionRuntime(id);
-		try {
-			if (stopLive) {
-				const stopped = await stopLive;
-				if (!stopped.success) {
-					toastError({ title: translate("tabs.switchFailed"), error: stopped });
-				}
-			}
-			const routed = await routeTabView(id, splitTabIds(split), split);
-			if (!routed) throw new Error(`Tab ${id} is no longer available`);
-		} catch (error) {
-			if (version !== switchVersion) return;
-			toastError({ title: translate("tabs.switchFailed"), error });
-			await get().reconcileTabs();
-			return;
-		}
-		if (version !== switchVersion) return;
-		settleTabRoute(id);
-		const tab = get().tabs.find(entry => entry.id === id);
-		if (tab?.status === "ready" || tab?.status === "running") await attachTabSession(id);
+			state.tabs.map(tab => (tab.id === id ? { ...tab, unreadDone: false } : tab)),
+		);
 	},
 
 	removePane: async tabId => {
@@ -606,13 +609,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		if (payload.status === "starting" || payload.status === "restarting") {
 			ensureTabRuntime(payload.tabId).recovering = true;
 		}
-		const sessionChanged =
-			(previous?.sessionId !== undefined &&
-				payload.sessionId !== undefined &&
-				previous.sessionId !== payload.sessionId) ||
-			(previous?.sessionPath !== undefined &&
-				payload.sessionPath !== undefined &&
-				previous.sessionPath !== payload.sessionPath);
+		const sessionChanged = tabSessionChanged(previous, payload);
 		// Rebuild the runtime OUTSIDE the set() updater (deleteSessionRuntime
 		// synchronously fires focus listeners), and immediately re-point focus at
 		// the fresh runtime — otherwise static store access falls through to the
@@ -627,27 +624,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			!visibleTabIds(state).includes(payload.tabId) && previous?.status === "running" && payload.status === "ready";
 		set(current => {
 			const index = current.tabs.findIndex(tab => tab.id === payload.tabId);
-			const next: SessionTab = {
-				id: payload.tabId,
-				cwd: payload.cwd || previous?.cwd || "",
-				status: payload.status,
-				compacting: payload.compacting ?? previous?.compacting ?? false,
-				kind: payload.kind ?? previous?.kind ?? "agent",
-				placeholder: payload.placeholder ?? previous?.placeholder,
-				worktree: payload.worktree ?? previous?.worktree,
-				device: payload.device ?? previous?.device,
-				title:
-					payload.title === undefined
-						? sessionChanged
-							? undefined
-							: previous?.title
-						: (payload.title ?? undefined),
-				sessionPath: payload.sessionPath === undefined ? previous?.sessionPath : (payload.sessionPath ?? undefined),
-				sessionId: payload.sessionId ?? previous?.sessionId,
-				unreadDone: sessionChanged ? false : completedInBackground ? true : (previous?.unreadDone ?? false),
-				pendingSessionPath: previous?.pendingSessionPath,
-				awaitingInput: sessionChanged ? undefined : previous?.awaitingInput,
-			};
+			const next = projectSessionTab(payload, previous, sessionChanged, completedInBackground);
 			if (index === -1) return { tabs: [...current.tabs, next] };
 			const tabs = [...current.tabs];
 			tabs[index] = next;

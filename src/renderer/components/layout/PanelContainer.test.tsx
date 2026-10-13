@@ -14,10 +14,14 @@ import { I18nProvider } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
-import { useUiStore } from "../../stores/ui";
+import { migrateDefaultPanelTab, PANEL_TABS, useUiStore } from "../../stores/ui";
 import { PanelContainer } from "./PanelContainer";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
+Object.defineProperties(window, {
+	innerWidth: { configurable: true, value: 1440 },
+	innerHeight: { configurable: true, value: 900 },
+});
 
 const globals = globalThis as Record<string, unknown>;
 globals.document = document;
@@ -80,8 +84,8 @@ function seedActiveTab(kind: "agent" | "chat"): void {
 }
 
 async function openViewMenu(): Promise<void> {
-	const button = document.querySelector('button[aria-label="Switch panel view"]') as HTMLElement;
-	button.getBoundingClientRect = () => ({ left: 0, bottom: 48 }) as DOMRect;
+	const button = document.querySelector('button[aria-label="View options"]') as HTMLElement;
+	button.getBoundingClientRect = () => ({ left: 0, right: 32, bottom: 48 }) as DOMRect;
 	await act(async () => {
 		const event = new Event("click", { bubbles: true });
 		Object.defineProperty(event, "eventPhase", { value: 0, writable: true });
@@ -114,12 +118,20 @@ describe("PanelContainer", () => {
 			seedActiveTab(kind);
 			useUiStore.setState({ panelTab: "files", panelVisible: true });
 			await mount(<PanelContainer />);
+			expect(document.querySelector(".omp-panel-topbar")?.querySelectorAll("button")).toHaveLength(6);
+			expect(document.querySelector(".omp-panel-topbar")?.querySelector('[aria-label="Refresh"]')).toBeNull();
+			expect(document.querySelector("[data-panel-actions]")).not.toBeNull();
 
 			await openViewMenu();
 			const views = [...document.querySelectorAll('[role="menuitemcheckbox"]')].map(button =>
 				button.textContent?.trim(),
 			);
-			expect(views).toEqual(["Changes", "Files", "Logs", "Queue", "Tree", "Jobs"]);
+			expect(views).toEqual(["Background tasks", "Plan", "Logs", "Queue", "Tree"]);
+			for (const label of ["Terminal", "Changes", "Preview", "Files"]) {
+				const button = document.querySelector(`button[aria-label="${label}"]`);
+				expect(button).not.toBeNull();
+				expect(button?.getAttribute("aria-pressed")).toBe(String(label === "Files"));
+			}
 			const tree = document.querySelectorAll('[role="menuitemcheckbox"]')[4]!;
 			await act(async () => {
 				const event = new Event("click", { bubbles: true });
@@ -127,7 +139,9 @@ describe("PanelContainer", () => {
 				tree.dispatchEvent(event);
 			});
 			expect(useUiStore.getState().panelTab).toBe("tree");
-			expect(document.querySelector('button[aria-label="Switch panel view"]')?.textContent).toContain("Tree");
+			expect(document.querySelector(".omp-panel-topbar")?.textContent).toContain("Tree");
+			await openViewMenu();
+			expect(document.querySelectorAll('[role="menuitemcheckbox"]')[4]?.getAttribute("aria-checked")).toBe("true");
 			expect(document.querySelector("aside")?.getAttribute("aria-label")).toBe("Side panel");
 			expect(document.querySelector('button[aria-label="Close side panel"]')).not.toBeNull();
 		});
@@ -145,6 +159,34 @@ describe("PanelContainer", () => {
 		expect(useUiStore.getState().panelTab).toBe("diff");
 		useUiStore.getState().setPanelTab("queue");
 		expect(useUiStore.getState().panelTab).toBe("queue");
+		useUiStore.getState().openPreview("http://localhost:3000");
+		expect(useUiStore.getState()).toMatchObject({
+			panelTab: "preview",
+			panelVisible: true,
+			previewUrl: "http://localhost:3000",
+		});
+	});
+
+	it("keeps legacy default views and accepts every current view", () => {
+		for (const view of PANEL_TABS) expect(migrateDefaultPanelTab(view)).toBe(view);
+		expect(migrateDefaultPanelTab("retired")).toBe("diff");
+		expect(migrateDefaultPanelTab(null)).toBe("diff");
+	});
+
+	it("reaches secondary views with menu keyboard navigation", async () => {
+		seedActiveTab("agent");
+		useUiStore.setState({ panelTab: "files" });
+		await mount(<PanelContainer />);
+		await openViewMenu();
+		const menu = document.querySelector('[role="menu"]')!;
+		for (const key of ["ArrowDown", "Enter"]) {
+			await act(async () => {
+				const event = new Event("keydown", { bubbles: true, cancelable: true });
+				Object.defineProperty(event, "key", { value: key });
+				menu.dispatchEvent(event);
+			});
+		}
+		expect(useUiStore.getState().panelTab).toBe("plan");
 	});
 
 	it("defaults to the docked 360–460px range on wide windows", async () => {

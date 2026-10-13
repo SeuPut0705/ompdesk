@@ -4,6 +4,8 @@
  * warnings. Extracted verbatim from TaskRenderer.tsx.
  */
 
+import { asArray, asNumber, asRecord, asString } from "../../lib/wire-value";
+
 export const MAX_NESTED_DEPTH = 8;
 export const OUTPUT_PREVIEW_LINES = 3;
 export const YIELD_CAP = 3;
@@ -18,24 +20,6 @@ export const PRIORITY_COLOR: Record<string, string> = {
 };
 
 export const PRIORITY_ORD: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
-
-export function asRecord(value: unknown): Record<string, unknown> | undefined {
-	return value != null && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: undefined;
-}
-
-export function asArray(value: unknown): unknown[] {
-	return Array.isArray(value) ? value : [];
-}
-
-export function asString(value: unknown): string | undefined {
-	return typeof value === "string" ? value : undefined;
-}
-
-export function asNumber(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
 
 /** Ids are name-based with "." separating nesting levels; render as a breadcrumb. */
 export function formatTaskId(id: string): string {
@@ -129,14 +113,28 @@ export function normalizeFindingPriority(value: unknown): string | undefined {
 	return undefined;
 }
 
+/** A finding stock's `parseFindingDetails` (pi-tui/src/tools/task.ts) accepts, reduced to what the card shows. */
 export function parseFinding(value: unknown): ReviewFinding | undefined {
 	const r = asRecord(value);
 	if (!r) return undefined;
 	const title = asString(r.title);
 	const priority = normalizeFindingPriority(r.priority);
+	const confidence = asNumber(r.confidence);
 	const filePath = asString(r.file_path);
 	const lineStart = asNumber(r.line_start);
-	if (!title || !priority || !filePath || lineStart == null) return undefined;
+	if (
+		title === undefined ||
+		asString(r.body) === undefined ||
+		!priority ||
+		confidence === undefined ||
+		confidence < 0 ||
+		confidence > 1 ||
+		!filePath ||
+		lineStart === undefined ||
+		asNumber(r.line_end) === undefined
+	) {
+		return undefined;
+	}
 	return { title: title.replace(/^\[P\d\]\s*/, ""), priority, filePath, lineStart };
 }
 
@@ -147,35 +145,49 @@ export interface ReviewResult {
 	findings: ReviewFinding[];
 }
 
+/** Stock's REVIEWER_SECTION_SHAPES (pi-tui/src/tools/task.ts): findings always a list, verdict fields the latest yield. */
+const REVIEW_SECTION_SHAPES: Readonly<Record<string, "array" | "scalar">> = {
+	findings: "array",
+	overall_correctness: "scalar",
+	explanation: "scalar",
+	confidence: "scalar",
+};
+
 /**
- * Assemble a review verdict from yield items: an explicit terminal payload
- * wins; otherwise incremental (array-typed) sections merge, with `findings`
- * accumulating into a list. Returns undefined when no review-shaped data.
+ * Stock `assembleYieldResult` (pi-tui/src/tools/task-yield-assembly.ts) as
+ * stock's task renderer calls it for a review: reviewer section shapes and no
+ * last-assistant-turn fallback. The renderer cannot load stock modules, so
+ * this copy is pinned to stock by task-review-stock.test.ts. An explicit
+ * terminal payload (the last non-incremental yield, when it carries data)
+ * wins; otherwise incremental (array-typed) sections merge.
  */
-export function extractReviewResult(items: RenderYieldItem[]): ReviewResult | undefined {
-	const sections: Record<string, unknown> = {};
-	let hasSections = false;
+export function assembleReviewYield(items: RenderYieldItem[]): unknown {
+	const incremental = (item: RenderYieldItem): boolean => Array.isArray(item.type) && item.type.length > 0;
 	let terminal: RenderYieldItem | undefined;
+	for (let index = items.length - 1; index >= 0 && !terminal; index--) {
+		if (!incremental(items[index])) terminal = items[index];
+	}
+	if (terminal?.data !== undefined) return terminal.data;
+	const sections: Record<string, unknown> = {};
+	const counts = new Map<string, number>();
 	for (const item of items) {
-		if (item.status === "aborted") continue;
-		if (Array.isArray(item.type)) {
-			for (const label of yieldLabels(item.type)) {
-				if (label === "findings") {
-					const prev = sections.findings;
-					const acc = Array.isArray(prev) ? prev : prev !== undefined ? [prev] : [];
-					acc.push(...(Array.isArray(item.data) ? item.data : [item.data]));
-					sections.findings = acc;
-				} else {
-					sections[label] = item.data;
-				}
-				hasSections = true;
-			}
-		} else if (item.data !== undefined) {
-			terminal = item;
+		if (item.status === "aborted" || !incremental(item)) continue;
+		for (const label of yieldLabels(item.type)) {
+			const shape = REVIEW_SECTION_SHAPES[label];
+			const count = counts.get(label) ?? 0;
+			const existing = sections[label];
+			if (shape === "scalar") sections[label] = item.data;
+			else if (count === 0) sections[label] = shape === "array" ? [item.data] : item.data;
+			else sections[label] = Array.isArray(existing) ? [...existing, item.data] : [existing, item.data];
+			counts.set(label, count + 1);
 		}
 	}
-	const data = terminal !== undefined ? terminal.data : hasSections ? sections : undefined;
-	const record = asRecord(data);
+	return counts.size > 0 ? sections : undefined;
+}
+
+/** The review verdict stock's task renderer shows, or undefined when the yields carry none. */
+export function extractReviewResult(items: RenderYieldItem[]): ReviewResult | undefined {
+	const record = asRecord(assembleReviewYield(items));
 	if (!record) return undefined;
 	const correctness = record.overall_correctness;
 	const explanation = record.explanation;

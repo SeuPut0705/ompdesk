@@ -12,11 +12,6 @@ const latch = new QuitLatch();
 let asking = false;
 let inventory: () => WindowTabFact[] = () => [];
 
-/** True after the user (or a restart prompt) approved the quit. */
-export function isQuitting(): boolean {
-	return latch.approved;
-}
-
 export function requestQuit(): void {
 	latch.approve();
 	app.quit();

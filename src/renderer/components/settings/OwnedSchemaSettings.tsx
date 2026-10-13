@@ -14,20 +14,7 @@ import {
 } from "./settings-catalog";
 import { useSettingsData } from "./settings-data";
 import { useSettingsNavigate } from "./settings-navigation";
-import { isSettingSupportedInGui, isSettingVisible } from "./settings-schema-utils";
-
-const CONDITION_PARENT: Record<string, string> = {
-	advisorEnabled: "advisor.enabled",
-	hindsightActive: "memory.backend",
-	mnemopiActive: "memory.backend",
-	autolearnActive: "autolearn.enabled",
-	autoThinkingActive: "defaultThinkingLevel",
-	usageAwareFallbackEnabled: "retry.usageAwareFallback",
-	planModeEnabled: "plan.enabled",
-	vimModeEnabled: "tui.vimMode",
-	planAutosaveEnabled: "plan.autosave",
-	unexpectedStopDetection: "features.unexpectedStopDetection",
-};
+import { conditionParent, isSettingSupportedInGui, isSettingVisible } from "./settings-schema-utils";
 
 /** The sole schema editor for non-curated settings belonging to this section. */
 export function OwnedSchemaSettings({
@@ -78,7 +65,7 @@ export function OwnedSchemaSettings({
 									value={values[entry.path]}
 								/>
 							);
-						const parent = CONDITION_PARENT[entry.condition ?? ""];
+						const parent = conditionParent(entry.condition);
 						return (
 							<SettingsRow
 								key={entry.path}

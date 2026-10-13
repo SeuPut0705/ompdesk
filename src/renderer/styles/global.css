@@ -243,10 +243,6 @@ html[data-platform="win32"] {
 	padding-left: max(var(--sc-space-3), var(--sc-traffic-lights));
 }
 
-.omp-sheet-header[data-side="left"] {
-	padding-left: max(var(--sc-space-5), var(--sc-traffic-lights));
-}
-
 .omp-shell[data-sidebar="hidden"] .omp-topbar {
 	padding-left: max(var(--sc-space-2), var(--sc-traffic-lights));
 }
@@ -357,18 +353,6 @@ html[data-platform="win32"] {
 	}
 }
 
-
-@keyframes omp-tab-title-scroll {
-	0%,
-	15% {
-		transform: translateX(0);
-	}
-	85%,
-	100% {
-		transform: translateX(calc(-1 * var(--omp-tab-title-overflow, 0px)));
-	}
-}
-
 @keyframes omp-indeterminate-progress {
 	from {
 		transform: translateX(-100%);
@@ -416,21 +400,6 @@ html[data-platform="win32"] {
 	animation: omp-slide-in-right var(--omp-motion-med) var(--omp-ease-enter) both;
 }
 
-.omp-slide-in-left {
-	animation: omp-slide-in-left var(--omp-motion-med) var(--omp-ease-enter) both;
-}
-
-@keyframes omp-slide-in-left {
-	from {
-		opacity: 0;
-		transform: translateX(-28px);
-	}
-	to {
-		opacity: 1;
-		transform: translateX(0);
-	}
-}
-
 /* The exit half of the enter utilities above. Keyframes alone are not a class:
  * an overlay that swaps to `omp-scale-out` gets `animation: none` unless the
  * utility exists, which is why every exit silently snapped instead of fading. */
@@ -476,17 +445,6 @@ html[data-platform="win32"] {
 
 .omp-pulse-dot {
 	animation: omp-pulse-dot 1.6s ease-in-out infinite; /* motion-ok: waiting signal */
-}
-
-@media (hover: hover) and (prefers-reduced-motion: no-preference) {
-	[data-tab-title-wrap][data-overflowing="true"]:hover [data-tab-title] {
-		visibility: hidden;
-	}
-
-	[data-tab-title-wrap][data-overflowing="true"]:hover .omp-tab-title-scroll {
-		visibility: visible;
-		animation: omp-tab-title-scroll 5s ease-in-out infinite alternate; /* motion-ok: user-triggered title reveal */
-	}
 }
 
 .omp-indeterminate-progress {

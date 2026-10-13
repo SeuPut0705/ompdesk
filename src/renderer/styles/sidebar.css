@@ -1,8 +1,4 @@
 /* Sidebar-only polish; shared controls and the theme scales stay unchanged. */
-.omp-session-sidebar {
-	--sc-sidebar-row-selected: var(--sc-selected);
-}
-
 .omp-session-sidebar .omp-sidebar-session-row {
 	min-height: var(--sc-control-lg);
 }

@@ -3,6 +3,10 @@
  * accounts' chat candidates, the preselection is the default model plus the
  * strongest model of each other provider, and only real changes are written.
  */
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ModelInfo, ModelRoleCandidate, ModelRoleEntry } from "../../../../shared/rpc-types";
 import {
@@ -111,5 +115,40 @@ describe("model setup logic", () => {
 			via: "advisor",
 		});
 		expect(effectiveAdvisorModel([role("default")])).toBeUndefined();
+	});
+});
+
+const stockSelector = path.join(
+	os.homedir(),
+	".bun/install/global/node_modules/@oh-my-pi/pi-tui/src/overlays/model-selector.ts",
+);
+
+describe.skipIf(!existsSync(stockSelector))("baseSelector against installed stock", () => {
+	it("strips the same suffixes as stock splitThinkingSuffix with every effort selector enabled", () => {
+		const selectors = [
+			"openai/gpt-5.2:xhigh",
+			"p/m:off",
+			"p/m:minimal",
+			"p/m:low",
+			"p/m:medium",
+			"p/m:high",
+			"p/m:max",
+			"p/m:auto",
+			"p/m",
+			"ollama/llama3:8b",
+			"p/m:HIGH",
+		];
+		// Stock imports Bun-native modules; evaluate it in Bun.
+		const result = spawnSync(
+			"bun",
+			[
+				"--eval",
+				`const { splitThinkingSuffix, MAX_THINKING_SUFFIX_OPTIONS } = await import(${JSON.stringify(stockSelector)});
+				console.log(JSON.stringify(${JSON.stringify(selectors)}.map(s => splitThinkingSuffix(s, -1, MAX_THINKING_SUFFIX_OPTIONS).base)));`,
+			],
+			{ encoding: "utf8" },
+		);
+		if (result.status !== 0) throw new Error(result.stderr);
+		expect(selectors.map(baseSelector)).toEqual(JSON.parse(result.stdout));
 	});
 });

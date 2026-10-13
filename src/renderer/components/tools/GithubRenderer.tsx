@@ -2,6 +2,7 @@ import { CircleDot, ExternalLink, GitPullRequest } from "lucide-react";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { asArray, asRecord } from "../../lib/wire-value";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -77,16 +78,6 @@ const FAILURE_CONCLUSIONS: Record<string, true> = {
 	action_required: true,
 	startup_failure: true,
 };
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-	return value != null && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: undefined;
-}
-
-function asArray(value: unknown): unknown[] {
-	return Array.isArray(value) ? value : [];
-}
 
 function jobColor(job: GhJob): string {
 	if (job.conclusion && SUCCESS_CONCLUSIONS[job.conclusion]) return "var(--omp-success)";

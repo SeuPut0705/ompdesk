@@ -15,7 +15,6 @@ function context(cancelled: boolean, failTransition = false): { ctx: LocalComman
 		cwd: "/tmp",
 		omp: { bin: "omp", version: "18.8.7", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
 		bridge,
-		emit: () => {},
 		send: async <T>(command: { type: string }) => {
 			calls.push(command.type);
 			if (command.type === "get_state")

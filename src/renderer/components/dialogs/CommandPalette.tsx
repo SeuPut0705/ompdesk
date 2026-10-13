@@ -33,7 +33,6 @@ import {
 import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AvailableCommand } from "../../../shared/rpc-types";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
-import { newSessionNow } from "../../hooks/use-session-switch";
 import {
 	buildCommandMenu,
 	type CommandAffordance,
@@ -41,7 +40,7 @@ import {
 	type CommandMenuItem,
 	commandArgPrefill,
 	commandGuard,
-	forkSessionFromGui,
+	createCommandContext,
 	groupByCategory,
 	prefillComposer,
 } from "../../lib/command-registry";
@@ -50,15 +49,12 @@ import { errorDetail, type InlineFailure, inlineFailure } from "../../lib/error-
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
-import { retryLastTurn as retryLastTurnShared } from "../../lib/messages";
-import { openHandoffDialog } from "../../stores/fork-handoff";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, EmptyState, ErrorDetail, Kbd, Spinner } from "../common";
-import { isTopmostDialog, registerDialogLayer } from "../common/dialog-layer";
+import { Button, EmptyState, ErrorDetail, Kbd, Modal, Spinner } from "../common";
 
 const RECENT_KEY = "omp.palette.recent";
 const RECENT_LIMIT = 5;
@@ -175,30 +171,10 @@ export function CommandPalette() {
 	const t = useT();
 	const open = useUiStore(state => state.commandPaletteOpen);
 	const close = useUiStore(state => state.closeCommandPalette);
-	const openModelPicker = useUiStore(state => state.openModelPicker);
-	const openSettings = useUiStore(state => state.openSettings);
-	const openProviders = useUiStore(state => state.openProviders);
-	const openFeedback = useUiStore(state => state.openFeedback);
-	const openRenameDialog = useUiStore(state => state.openRenameDialog);
-	const openSessionPicker = useUiStore(state => state.openSessionPicker);
-	const openBranchPicker = useUiStore(state => state.openBranchPicker);
-	const openSessionTree = useUiStore(state => state.openSessionTree);
-	const openBenchmark = useUiStore(state => state.openBenchmark);
-	const openThemePicker = useUiStore(state => state.openThemePicker);
-	const openModes = useUiStore(state => state.openModes);
-	const openAgents = useUiStore(state => state.openAgents);
-	const openInsights = useUiStore(state => state.openInsights);
-	const openImportDialog = useUiStore(state => state.openImportDialog);
-	const openProviderConfig = useUiStore(state => state.openProviderConfig);
-	const focusDockCard = useUiStore(state => state.focusDockCard);
-
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const fastModeEnabled = useModelStore(s => s.fastModeEnabled);
 	const autoCompaction = useSettingsStore(s => s.autoCompaction);
 	const autoRetry = useSettingsStore(s => s.autoRetry);
-	const steeringMode = useSettingsStore(s => s.steeringMode);
-	const followUpMode = useSettingsStore(s => s.followUpMode);
-	const interruptMode = useSettingsStore(s => s.interruptMode);
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
 	const prewalkArmed = useSessionStore(s => s.prewalkArmed);
 	const sidecarReady = useSessionStore(s => s.status) === "ready";
@@ -219,7 +195,6 @@ export function CommandPalette() {
 	const [submenu, setSubmenu] = useState<CommandMenuItem | null>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
-	const dialogRef = useRef<HTMLDivElement>(null);
 	const fetchSeq = useRef(0);
 
 	const refreshCommands = useCallback(() => {
@@ -254,175 +229,47 @@ export function CommandPalette() {
 
 	useEffect(() => {
 		if (!open) return;
-		const panel = dialogRef.current;
-		const unregisterLayer = registerDialogLayer(panel);
-		// Trap + restore: without this, Tab reaches controls behind the
-		// aria-modal overlay and Escape stops working once focus escapes.
-		const restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 		setQuery("");
 		setActiveIndex(0);
 		setExplicitSelection(false);
 		setArmed(null);
 		setSubmenu(null);
+		// The modal layer focuses the first control, which on the opening render
+		// may still be the previous session's submenu chip: the search owns focus.
 		requestAnimationFrame(() => inputRef.current?.focus());
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== "Tab") return;
-			if (!panel) return;
-			const focusables = [
-				...panel.querySelectorAll<HTMLElement>("button, input, [tabindex]:not([tabindex='-1'])"),
-			].filter(el => !el.hasAttribute("disabled"));
-			if (focusables.length === 0) {
-				event.preventDefault();
-				inputRef.current?.focus();
-				return;
-			}
-			const first = focusables[0]!;
-			const last = focusables[focusables.length - 1]!;
-			if (event.shiftKey && document.activeElement === first) {
-				event.preventDefault();
-				last.focus();
-			} else if (!event.shiftKey && document.activeElement === last) {
-				event.preventDefault();
-				first.focus();
-			}
-		};
-		document.addEventListener("keydown", onKey, true);
 		refreshCommands();
-		return () => {
-			document.removeEventListener("keydown", onKey, true);
-			// Restore only while this palette is still the top surface: closing
-			// it beneath a newer modal must not yank focus out of that modal.
-			const wasTop = isTopmostDialog(panel);
-			unregisterLayer();
-			if (wasTop) restoreFocus?.focus();
-		};
 	}, [open, refreshCommands]);
-	/** Retry: re-send the most recent user message; interrupt the active turn when streaming. */
-	const retryLastTurn = useCallback(
-		() =>
-			retryLastTurnShared(() =>
-				toast({ variant: "warning", title: t("palette.retryNothing"), message: t("palette.retryNothingDesc") }),
-			),
-		[t],
-	);
-
-	/** Retry the last FAILED turn via the retry RPC (TUI /retry parity). */
-	const retryTurn = useCallback(async () => {
-		if (!sidecarReady) {
-			toast({ variant: "warning", message: t("common.notConnected") });
-			return;
-		}
-		const response = await tabRpc.retry();
-		if (!response.success) {
-			toastError({ title: t("palette.failed"), error: response });
-			return;
-		}
-		const data = response.data as { retried?: boolean } | undefined;
-		if (!data?.retried) {
-			toast({ variant: "warning", title: t("palette.retryNothing"), message: t("palette.retryNothingDesc") });
-		}
-	}, [sidecarReady, t, tabRpc.retry]);
 
 	const menuItems = useMemo(
 		() =>
-			buildCommandMenu({
-				t,
-				isStreaming,
-				fastModeEnabled,
-				autoCompaction,
-				autoRetry,
-				steeringMode,
-				followUpMode,
-				interruptMode,
-				planModeEnabled,
-				prewalkArmed,
-				availableCommands,
-				openModelPicker,
-				openSettings,
-				openProviders,
-				openFeedback,
-				openRenameDialog,
-				openSessionPicker,
-				openBranchPicker,
-				openSessionTree,
-				openBenchmark,
-				openHandoffDialog,
-				forkSession: forkSessionFromGui,
-				hydrateSession: () => (tabId ? hydrateTabSession(tabId) : hydrateSession()),
-				openThemePicker,
-				openModes,
-				openAgents,
-				openInsights,
-				openImportDialog,
-				openProviderConfig,
-				focusDockCard,
-				openCommandPalette: () => {},
-				retryTurn,
-				retryLastTurn,
-				rpc: {
-					setFastMode: enabled => tabRpc.setFastMode(enabled),
-					setAutoCompaction: enabled => tabRpc.setAutoCompaction(enabled),
-					setAutoRetry: enabled => tabRpc.setAutoRetry(enabled),
-					setSteeringMode: mode => tabRpc.setSteeringMode(mode),
-					setFollowUpMode: mode => tabRpc.setFollowUpMode(mode),
-					setInterruptMode: mode => tabRpc.setInterruptMode(mode),
-					compact: instructions => tabRpc.compact(instructions),
-					newSession: newSessionNow,
-					handoff: () => tabRpc.handoff(),
-					prompt: message => tabRpc.prompt(message),
-					setPlanMode: enabled => tabRpc.setPlanMode(enabled),
-					setPrewalk: enabled => tabRpc.setPrewalk(enabled),
-					exportHtml: path => tabRpc.exportHtml(path),
-					setSessionName: name => tabRpc.setSessionName(name),
-					cycleModel: () => tabRpc.cycleModel(),
-					cycleThinkingLevel: () => tabRpc.cycleThinkingLevel(),
-				},
-			}),
+			buildCommandMenu(
+				createCommandContext(
+					{
+						isStreaming,
+						fastModeEnabled,
+						autoCompaction,
+						autoRetry,
+						planModeEnabled,
+						prewalkArmed,
+						availableCommands,
+					},
+					{
+						t,
+						rpc: tabRpc,
+						hydrateSession: () => (tabId ? hydrateTabSession(tabId) : hydrateSession()),
+					},
+				),
+			),
 		[
 			t,
 			isStreaming,
 			fastModeEnabled,
 			autoCompaction,
 			autoRetry,
-			steeringMode,
-			followUpMode,
-			interruptMode,
 			planModeEnabled,
 			prewalkArmed,
 			availableCommands,
-			openModelPicker,
-			openSettings,
-			openProviders,
-			openFeedback,
-			openRenameDialog,
-			openSessionPicker,
-			openBranchPicker,
-			openSessionTree,
-			retryLastTurn,
-			retryTurn,
-			openModes,
-			openProviderConfig,
-			focusDockCard,
-			openBenchmark,
-			openAgents,
-			openInsights,
-			openImportDialog,
-			openThemePicker,
-			tabRpc.setPrewalk,
-			tabRpc.setSteeringMode,
-			tabRpc.setSessionName,
-			tabRpc.setPlanMode,
-			tabRpc.setInterruptMode,
-			tabRpc.setFollowUpMode,
-			tabRpc.setFastMode,
-			tabRpc.prompt,
-			tabRpc.setAutoRetry,
-			tabRpc.handoff,
-			tabRpc.cycleModel,
-			tabRpc.setAutoCompaction,
-			tabRpc.exportHtml,
-			tabRpc.cycleThinkingLevel,
-			tabRpc.compact,
+			tabRpc,
 			tabId,
 		],
 	);
@@ -527,8 +374,9 @@ export function CommandPalette() {
 		resetSelection();
 	};
 
-	// Bound to the dialog panel, not the input: after clicking a row, focus sits
-	// on that button, and Escape/arrow keys held only by the input stop working.
+	// Bound to the palette body, not the input: after clicking a row, focus sits
+	// on that button, and arrow keys held only by the input stop working.
+	// Escape belongs to the modal layer (`onClose` below).
 	const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
 		if (isImeKeyEvent(event)) return;
 		switch (event.key) {
@@ -565,11 +413,6 @@ export function CommandPalette() {
 				execute(item);
 				break;
 			}
-			case "Escape":
-				event.preventDefault();
-				if (submenu) leaveSubmenu();
-				else close();
-				break;
 		}
 	};
 
@@ -686,21 +529,17 @@ export function CommandPalette() {
 	};
 
 	return (
-		<div
-			className="omp-dialog-overlay omp-fade-in fixed inset-0 z-(--sc-z-dialog) flex items-start justify-center bg-(--sc-overlay) p-4 pt-[12dvh] backdrop-blur-[2px]"
-			onMouseDown={event => {
-				if (event.target === event.currentTarget) close();
-			}}
-			role="presentation"
+		<Modal
+			ariaLabel={t("palette.searchLabel")}
+			bodyClassName="flex flex-col p-0"
+			chromeless
+			// Escape inside a submenu steps back to the root list before it closes.
+			onClose={submenu ? leaveSubmenu : close}
+			open
+			placement="top"
+			size="picker"
 		>
-			<div
-				aria-label={t("palette.searchLabel")}
-				aria-modal="true"
-				className="omp-dialog-panel omp-dialog-size-picker flex flex-col overflow-hidden rounded-(--sc-radius-xl) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-lg)"
-				onKeyDown={onKeyDown}
-				ref={dialogRef}
-				role="dialog"
-			>
+			<div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
 				<div className="flex min-h-16 items-center gap-2.5 border-b border-(--sc-divider) px-4 py-3">
 					{submenu && (
 						<button
@@ -803,6 +642,6 @@ export function CommandPalette() {
 					{armedMessage}
 				</div>
 			</div>
-		</div>
+		</Modal>
 	);
 }

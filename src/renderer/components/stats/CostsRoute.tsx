@@ -2,7 +2,7 @@
  * Costs: stacked daily cost line chart by provider + total card.
  */
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { Line } from "react-chartjs-2";
 import { baseChartOptions, bucketLabels, chartColors, formatUsd, useChartThemeKey, withAlpha } from "../../lib/chart";
 import "../../lib/chart";
@@ -12,16 +12,12 @@ import { uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { ChartBox, MetricCard, MetricGrid, RouteFrame, SectionTitle, type StatsRange } from "./shared";
 
-export function CostsRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
+export function CostsRoute({ range }: { range: StatsRange }) {
 	const t = useT();
 	const themeKey = useChartThemeKey();
 	const locale = uiLocale();
 	const params = useMemo(() => ({ range }), [range]);
 	const { data, isLoading, error, refetch } = useStats<CostsData>("/api/stats/costs", params);
-
-	useEffect(() => {
-		if (refreshKey > 0) refetch();
-	}, [refreshKey, refetch]);
 
 	const stats = data;
 	const series = stats?.costSeries ?? [];

@@ -95,7 +95,10 @@ function sameValue(a: unknown, b: unknown): boolean {
 
 export const createSubagentsStore = (command: TabCommand = activeTabCommand) => {
 	let refreshVersion = 0;
-	const hydrations = new Map<string, { completed: boolean; toolCount: number; load: Promise<void> }>();
+	const hydrations = new Map<
+		string,
+		{ completed: boolean; toolCount: number; pending: boolean; load: Promise<void> }
+	>();
 	const observedUsage = new Map<string, Map<AgentMessage["timestamp"], number>>();
 	const captureOutput = (id: string, message: AgentMessage): number => {
 		if (message.role !== "assistant") return 0;
@@ -134,29 +137,52 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 			const missing =
 				toolCount > observed.finishedTools.size + observed.liveTools.size ||
 				(completed && observed.liveTools.size > 0);
+			// A newer snapshot may arrive while replay is loading. Share that load;
+			// after it settles, inspect the latest gap and replay it once if needed.
+			if (existing?.pending) return existing.load;
 			// Snapshot once on first expansion; replay a gap only at a new mount or completion.
 			// No timer, no progress-frame polling, and no repeated completion fetch.
 			if (existing && (!missing || existing.completed || (!completed && existing.toolCount >= toolCount)))
 				return existing.load;
-			const load = command({ type: "get_subagent_messages", subagentId: id }).then(response => {
-				if (!response.success) throw new Error(response.error);
-				const data = response.data as { messages?: AgentMessage[] } | undefined;
-				if (!data?.messages) return;
-				const status = get().subagents.get(id)?.status;
-				tools.getState().hydrateMessages(data.messages, {
-					// Persisted messages can lag events already observed before this one-time fetch.
-					keepChangedSince: 0,
-					turnIsLive: status === "running" || status === "pending",
+			const load = Promise.resolve()
+				.then(() => command({ type: "get_subagent_messages", subagentId: id }))
+				.then(response => {
+					if (!response.success) throw new Error(response.error);
+					const data = response.data as { messages?: AgentMessage[] } | undefined;
+					if (!data?.messages) return;
+					const status = get().subagents.get(id)?.status;
+					tools.getState().hydrateMessages(data.messages, {
+						// Persisted messages can lag events already observed before this one-time fetch.
+						keepChangedSince: 0,
+						turnIsLive: status === "running" || status === "pending",
+					});
+					const tokens = data.messages.reduce((total, message) => total + captureOutput(id, message), 0);
+					set(state => ({
+						surfaceVersion: state.surfaceVersion + 1,
+						observedTokens: tokens
+							? new Map(state.observedTokens).set(id, (state.observedTokens.get(id) ?? 0) + tokens)
+							: state.observedTokens,
+					}));
+				})
+				.then(() => {
+					hydration.pending = false;
+					const latest = get().subagents.get(id);
+					const nowCompleted = !!latest && latest.status !== "running" && latest.status !== "pending";
+					const latestCount = latest?.progress?.toolCount ?? 0;
+					const surface = tools.getState();
+					const gap =
+						latestCount > surface.finishedTools.size + surface.liveTools.size ||
+						(nowCompleted && surface.liveTools.size > 0);
+					if (gap && (latestCount > toolCount || (nowCompleted && !completed))) {
+						hydrations.delete(id);
+						return get().hydrateSurface(id);
+					}
+				})
+				.finally(() => {
+					hydration.pending = false;
 				});
-				const tokens = data.messages.reduce((total, message) => total + captureOutput(id, message), 0);
-				set(state => ({
-					surfaceVersion: state.surfaceVersion + 1,
-					observedTokens: tokens
-						? new Map(state.observedTokens).set(id, (state.observedTokens.get(id) ?? 0) + tokens)
-						: state.observedTokens,
-				}));
-			});
-			hydrations.set(id, { completed, toolCount, load });
+			const hydration = { completed, toolCount, pending: true, load };
+			hydrations.set(id, hydration);
 			return load;
 		},
 		error: null,

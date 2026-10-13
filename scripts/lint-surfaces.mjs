@@ -9,7 +9,7 @@
  *    (hover:/focus:/group-hover:/…). Content surfaces are transparent; only
  *    the canvas, chrome tokens, floating overlays, states, and semantic
  *    fills may paint.
- *  - raw pixel font class `text-[<N>px]` below 16px — use the text-omp-*
+ *  - raw pixel font class `text-[<N>px]` below 16px — use the text-sc-*
  *    scale (global.css @theme). Display sizes ≥16px are exempt.
  *
  * A deliberate exception carries `surface-ok` on the same line (spell the
@@ -17,9 +17,9 @@
  * for fill/type checks.
  *
  * Motion (styles/*.css only): interaction durations must use
- * var(--omp-motion-fast) or var(--omp-motion-med). Bare Nms values are
- * errors unless the line has `motion-ok` (loops like caret) or is the
- * token definition itself.
+ * var(--sc-duration-fast) or var(--sc-duration-med) (the legacy
+ * --omp-motion-fast/-med aliases still pass). Bare Nms values are errors unless
+ * the line has `motion-ok` (loops like caret, token definitions).
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -76,12 +76,14 @@ for (const name of readdirSync(STYLES)) {
 	const lines = readFileSync(file, "utf8").split("\n");
 	lines.forEach((line, index) => {
 		if (line.includes("motion-ok")) return;
-		if (line.includes("--omp-motion-fast") || line.includes("--omp-motion-med")) return;
+		if (/--(sc-duration|omp-motion)-(fast|med)\b/.test(line)) return;
 		BARE_MS.lastIndex = 0;
 		for (const match of line.matchAll(BARE_MS)) {
 			const ms = Number.parseFloat(match[1]);
 			if (ms === 0 || ms === 0.01) continue;
-			violations.push(`styles/${name}:${index + 1}  bare motion duration  ${match[0]}  (use --omp-motion-*)`);
+			violations.push(
+				`styles/${name}:${index + 1}  bare motion duration  ${match[0]}  (use --sc-duration-fast/-med)`,
+			);
 		}
 	});
 }

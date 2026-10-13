@@ -46,6 +46,7 @@ function localMachine(
 		benchmarkOmp: async () => ({ ok: false, error: "omp missing" }),
 		benchmarkEnv: async () => ({}),
 		accountRotation,
+		builtinRea: { read: () => undefined, write: () => {} },
 	});
 }
 
@@ -145,6 +146,27 @@ describe("machineFor", () => {
 			statsText,
 		});
 		await expect(garbled.accountRotation()).rejects.toThrow();
+	});
+
+	it("routes built-in REA to the paired host and validates its reply", async () => {
+		const host = fakeHost((method, params) =>
+			method === "host.builtinRea.set" && typeof params === "object" && params !== null && "enabled" in params
+				? { enabled: params.enabled, available: false, reason: "node-missing" }
+				: { enabled: true, available: true, nodeVersion: "v26.0.0" },
+		);
+		const remote = new RemoteMachine({ request: host.request, device: "host-b", statsText });
+		await expect(remote.builtinRea()).resolves.toMatchObject({ enabled: true, available: true });
+		await expect(remote.setBuiltinRea(false)).resolves.toMatchObject({ enabled: false, reason: "node-missing" });
+		expect(host.calls.map(({ method, params }) => ({ method, params }))).toEqual([
+			{ method: "host.builtinRea.get", params: {} },
+			{ method: "host.builtinRea.set", params: { enabled: false } },
+		]);
+		const garbled = new RemoteMachine({
+			request: fakeHost(() => ({ enabled: "yes" })).request,
+			device: "host-b",
+			statsText,
+		});
+		await expect(garbled.builtinRea()).rejects.toThrow();
 	});
 });
 

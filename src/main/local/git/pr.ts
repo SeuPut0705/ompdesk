@@ -239,26 +239,40 @@ export async function prDraft(
 	return { title: draft.title.trim(), body: draft.body.trim() };
 }
 
-export async function prCreate(
-	cwd: string,
-	input: { title: string; body: string; base?: string; head?: string; draft?: boolean },
-): Promise<RpcPrCreateResult> {
+type PrCreateInput = { title: string; body: string; base?: string; head?: string; draft?: boolean };
+
+/**
+ * `gh pr create` argv, the flags stock tools/gh-pr-checkout.ts#executePrCreate
+ * passes for the same input. Stock needs a live ToolSession (so the bridge) and
+ * adds a best-effort `gh pr view`; PR Center creates from main with no session,
+ * so this named counterpart stays, pinned to stock by pr-create-stock.test.ts.
+ */
+export function prCreateArgs(repo: string, input: PrCreateInput, bodyFile: string): string[] {
+	const args = ["pr", "create", "--repo", repo, "--title", input.title, "--body-file", bodyFile];
+	if (input.base) args.push("--base", input.base);
+	if (input.head) args.push("--head", input.head);
+	if (input.draft) args.push("--draft");
+	return args;
+}
+
+/** The PR `gh pr create` printed (its URL line, like stock), or null when there is none. */
+export function createdPr(output: string): RpcPrCreateResult | null {
+	const url = output.match(/https:\/\/\S+\/pull\/\d+/)?.[0];
+	return url ? { url, number: Number(url.split("/").pop()) } : null;
+}
+
+export async function prCreate(cwd: string, input: PrCreateInput): Promise<RpcPrCreateResult> {
 	const { ghBin, root, repo } = await requireGithubRepo(cwd);
 	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-pr-body-"));
 	try {
 		const bodyFile = path.join(tempDir, "body.md");
 		await fs.writeFile(bodyFile, input.body);
-		const args = ["pr", "create", "--repo", repo, "--title", input.title, "--body-file", bodyFile];
-		if (input.base) args.push("--base", input.base);
-		if (input.head) args.push("--head", input.head);
-		if (input.draft) args.push("--draft");
-		const output = await gh(root, ghBin, args, { timeoutMs: PR_CREATE_TIMEOUT_MS });
-		const url = output.match(/https:\/\/\S+\/pull\/\d+/)?.[0];
-		const number = url ? Number(url.split("/").pop()) : Number.NaN;
-		if (!url || !Number.isFinite(number)) {
+		const output = await gh(root, ghBin, prCreateArgs(repo, input, bodyFile), { timeoutMs: PR_CREATE_TIMEOUT_MS });
+		const created = createdPr(output);
+		if (!created) {
 			throw new LocalCommandError(`gh pr create returned no PR URL: ${output.slice(0, 300)}`, "pr_create_failed");
 		}
-		return { url, number };
+		return created;
 	} catch (error) {
 		if (error instanceof LocalCommandError) throw error;
 		throw new LocalCommandError(errorText(error), "pr_create_failed");

@@ -114,9 +114,9 @@ test("renders only the tail, anchors older pages, reaches the first turn and app
 	expect(bodies.every(call => call.offset === 1300 && call.limit === 200 && call.snapToTurn === true)).toBe(true);
 	await expect(page.getByText("Long session turn 000", { exact: true })).toHaveCount(0);
 	expect(await page.locator("[data-transcript-kind]").count()).toBeLessThan(150);
+	// The rail carries only turns: older ones load when the reader scrolls to the top.
 	const nav = page.getByRole("navigation", { name: "Turn navigation" });
-	const older = nav.getByRole("button", { name: "Load earlier conversation turns" });
-	await expect(older).toBeVisible();
+	await expect(nav).toBeVisible();
 	await fixture("fixture:hold-history");
 	const scroll = page.locator(".omp-transcript-scroll");
 	await scroll.focus();
@@ -149,14 +149,13 @@ test("renders only the tail, anchors older pages, reaches the first turn and app
 		})
 		.toBeLessThan(5);
 	await capture("anchored-prepend");
-	for (let index = 0; index < 12 && (await older.count()); index++) {
+	const firstTurn = nav.getByRole("button", { name: /Jump to turn .*Long session turn 000/ });
+	for (let index = 0; index < 12 && (await firstTurn.count()) === 0; index++) {
 		const count = await nav.locator("button").count();
 		await scroll.focus();
 		await page.keyboard.press("Home");
 		await expect.poll(async () => await nav.locator("button").count()).toBeGreaterThan(count);
 	}
-	await expect(older).toHaveCount(0);
-	const firstTurn = nav.getByRole("button", { name: /Jump to turn .*Long session turn 000/ });
 	await firstTurn.click();
 	await expect(scroll.getByText("Long session turn 000", { exact: true })).toBeVisible();
 	const input = page.locator("textarea").first();

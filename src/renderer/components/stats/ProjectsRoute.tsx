@@ -2,7 +2,7 @@
  * Projects: per-folder usage breakdown with share bars.
  */
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import type { FolderRow } from "../../../shared/stats-types";
 import { useStatsList } from "../../hooks/use-stats";
 import { compact, formatUsd } from "../../lib/chart";
@@ -10,14 +10,10 @@ import { useT } from "../../lib/i18n";
 import { ProgressBar } from "../common";
 import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
 
-export function ProjectsRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
+export function ProjectsRoute({ range }: { range: StatsRange }) {
 	const t = useT();
 	const params = useMemo(() => ({ range }), [range]);
 	const { data, isLoading, error, refetch } = useStatsList<FolderRow>("/api/stats/folders", params);
-
-	useEffect(() => {
-		if (refreshKey > 0) refetch();
-	}, [refreshKey, refetch]);
 
 	const rows = useMemo(() => {
 		const list = data ?? [];

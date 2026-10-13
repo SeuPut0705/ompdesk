@@ -115,8 +115,10 @@ const ROMAN_PAIRS: Array<[number, string]> = [
 	[1, "I"],
 ];
 
-/** One-based ASCII roman numeral for display (I, II, III, IV, …), as in the TUI. */
-function phaseRomanNumeral(oneBasedIndex: number): string {
+/** One-based ASCII roman numeral for display (I, II, III, IV, …). A copy of
+ * stock `phaseRomanNumeral` (pi-tui/src/tools/todo.ts), which the renderer
+ * cannot import; todo-stock.test.ts pins it to stock. */
+export function phaseRomanNumeral(oneBasedIndex: number): string {
 	if (oneBasedIndex <= 0) return "";
 	let out = "";
 	let rem = oneBasedIndex;

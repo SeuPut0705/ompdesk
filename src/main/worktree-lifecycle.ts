@@ -41,8 +41,6 @@ import type { BridgeClient } from "./local/types";
 import type { RpcClient } from "./rpc-client";
 import type { SidecarStartGate } from "./sidecar";
 
-export type WorktreeOnStart = "off" | "ask" | "create";
-
 const settingsSchema = z.object({
 	onStart: z.enum(["off", "ask", "create"]),
 	onExit: z.enum(["keep", "ask", "remove"]),

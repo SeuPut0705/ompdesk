@@ -4,10 +4,9 @@
  * Kept DOM-free so the contract tests exercise them directly.
  *
  * The wire shape (RpcPluginDetail.settingsSchema) is `unknown` — the agent
- * sends the plugin manifest's `settings` record (PluginSettingSchema:
- * string/number/boolean/enum + description/secret/default/values), but the
- * form also tolerates JSON-Schema-ish entries (array/object/enum) and
- * missing schemas entirely (kind derived from the stored value's shape).
+ * sends the plugin manifest's `settings` record (stock PluginSettingSchema:
+ * string/number/boolean/enum + description/secret/default/values). Keys
+ * without a usable entry take their kind from the stored value's shape.
  */
 
 /** Keys whose values are write-only in the UI (spec: /key|token|secret|password/i). */
@@ -57,40 +56,23 @@ export function isFlatRecord(value: unknown): value is Record<string, unknown> {
 	return Object.values(value).every(item => item === null || ["string", "number", "boolean"].includes(typeof item));
 }
 
-/** Loose view over one schema entry across the tolerated wire shapes. */
+/** Loose view over one manifest setting entry. */
 interface SchemaEntryView {
 	type?: unknown;
 	description?: unknown;
 	secret?: unknown;
 	default?: unknown;
 	values?: unknown;
-	enum?: unknown;
-	items?: unknown;
 }
 
 function entryStrings(list: unknown): string[] | undefined {
 	return Array.isArray(list) && list.every(item => typeof item === "string") ? (list as string[]) : undefined;
 }
 
-/**
- * Resolve the editor kind for one setting. Schema discriminator wins; the
- * stored value's shape is the fallback when the schema is silent or the
- * declared shape is open-ended (object/array without item detail).
- */
+/** The manifest type wins; the stored value's shape decides when the entry is missing or unrecognized. */
 function resolveKind(entry: SchemaEntryView | undefined, value: unknown): SettingFieldKind {
 	const type = entry?.type;
-	if (type === "boolean") return "boolean";
-	if (type === "enum" || entryStrings(entry?.enum) !== undefined || entryStrings(entry?.values) !== undefined)
-		return "enum";
-	if (type === "number" || type === "integer") return "number";
-	if (type === "string") return "string";
-	if (type === "array") {
-		const items = entry?.items;
-		const itemType = items !== null && typeof items === "object" ? (items as SchemaEntryView).type : undefined;
-		return itemType === "string" || isFlatStringArray(value) ? "stringArray" : "json";
-	}
-	if (type === "object") return value === undefined || isFlatRecord(value) ? "record" : "json";
-	// No usable schema entry — derive from the stored value.
+	if (type === "boolean" || type === "enum" || type === "number" || type === "string") return type;
 	if (typeof value === "boolean") return "boolean";
 	if (typeof value === "number") return "number";
 	if (typeof value === "string" || value === undefined || value === null) return "string";
@@ -100,33 +82,27 @@ function resolveKind(entry: SchemaEntryView | undefined, value: unknown): Settin
 }
 
 /**
- * Normalize the wire settingsSchema + current values into form fields.
- * Accepts either a bare `Record<key, entry>` or a JSON-Schema wrapper with
- * a `properties` map. Keys present only in configured storage are appended
- * after schema-declared keys; their value may be absent because secret values
- * never cross the RPC boundary.
+ * Normalize the wire settingsSchema + current values into form fields. Keys
+ * present only in configured storage are appended after schema-declared keys;
+ * their value may be absent because secret values never cross the RPC
+ * boundary.
  */
 export function parsePluginSettingsSchema(
 	schema: unknown,
 	values: Record<string, unknown>,
 	configuredKeys: readonly string[] = Object.keys(values),
 ): SettingField[] {
-	let entries: Record<string, unknown> = {};
-	if (schema !== null && typeof schema === "object" && !Array.isArray(schema)) {
-		const view = schema as { properties?: unknown };
-		const source =
-			view.properties !== null && typeof view.properties === "object" && !Array.isArray(view.properties)
-				? (view.properties as Record<string, unknown>)
-				: (schema as Record<string, unknown>);
-		entries = source;
-	}
+	const entries: Record<string, unknown> =
+		schema !== null && typeof schema === "object" && !Array.isArray(schema)
+			? (schema as Record<string, unknown>)
+			: {};
 	const fields: SettingField[] = [];
 	const seen = new Set<string>();
 	for (const [key, raw] of Object.entries(entries)) {
 		seen.add(key);
 		const entry =
 			raw !== null && typeof raw === "object" && !Array.isArray(raw) ? (raw as SchemaEntryView) : undefined;
-		const options = entryStrings(entry?.values) ?? entryStrings(entry?.enum);
+		const options = entryStrings(entry?.values);
 		fields.push({
 			key,
 			kind: resolveKind(entry, values[key]),

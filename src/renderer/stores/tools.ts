@@ -1,6 +1,7 @@
 import { createStore } from "zustand/vanilla";
 import type { AgentMessage, AgentSessionEvent } from "../../shared/rpc-types";
 import { resultDetails } from "../lib/format";
+import { parseStreamingArgs, streamingParseStep } from "../lib/streaming-json";
 import { createScopedStoreHook } from "./session-runtime-context";
 
 export interface ToolEntry {
@@ -369,15 +370,23 @@ export const createToolsStore = () => {
 							}
 							bindCallEntryKey(block, block.id, key);
 							const existing = lookup(key);
+							const previous = existing?.streamingArgs ?? "";
+							const streamingArgs = previous + (ame.delta ?? "");
+							// The deltas are the wire's only source of a streaming call's arguments
+							// (`partial.arguments` stays `{}` for short calls): show them as they arrive.
+							const args =
+								streamingParseStep(streamingArgs.length) === streamingParseStep(previous.length)
+									? undefined
+									: parseStreamingArgs(streamingArgs);
 							if (existing) {
-								put(key, { ...existing, streamingArgs: existing.streamingArgs + (ame.delta ?? "") });
+								put(key, { ...existing, ...(args ? { args } : {}), streamingArgs });
 							} else {
 								put(key, {
 									toolName: block.name ?? "unknown",
-									args: {},
+									args: args ?? {},
 									intent: block.intent,
 									status: "pending",
-									streamingArgs: ame.delta ?? "",
+									streamingArgs,
 									result: null,
 									isError: false,
 									startTime: Date.now(),

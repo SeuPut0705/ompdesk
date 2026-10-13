@@ -3,7 +3,7 @@
  * top-tools call-volume bar chart.
  */
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { Bar } from "react-chartjs-2";
 import { baseChartOptions, chartColors, compact, formatUsd, useChartThemeKey, withAlpha } from "../../lib/chart";
 import "../../lib/chart";
@@ -14,15 +14,11 @@ import { useT } from "../../lib/i18n";
 import { Badge } from "../common";
 import { ChartBox, RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
 
-export function ToolsRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
+export function ToolsRoute({ range }: { range: StatsRange }) {
 	const t = useT();
 	const themeKey = useChartThemeKey();
 	const params = useMemo(() => ({ range }), [range]);
 	const { data, isLoading, error, refetch } = useStats<ToolsData>("/api/stats/tools", params);
-
-	useEffect(() => {
-		if (refreshKey > 0) refetch();
-	}, [refreshKey, refetch]);
 
 	const stats = data;
 

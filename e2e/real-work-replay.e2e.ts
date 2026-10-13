@@ -71,14 +71,16 @@ test("actual stock frames preserve live and completed agent replay without false
 		await expect(cards.first()).toContainText("Count lines in alpha.txt");
 		await capture("running");
 		await cards.first().click();
-		const surface = page.locator('.omp-work-card[data-open="true"] .omp-live-step').first();
+		const surface = page.locator(".omp-work-stage > .omp-work-crossfade > [data-incoming] .omp-live-step").first();
 		await expect(surface).toHaveAttribute("data-surface", "bash");
 		await expect(surface).toContainText("sleep 3 && wc -l alpha.txt");
 		await expect(cards.first()).not.toContainText("0 tools");
 		await expect(cards.first()).not.toContainText("0 tokens");
 		const work = page.locator(".omp-execution-group > .omp-live-step");
-		await expect(work.locator(".omp-live-step-scroll:visible")).toHaveCount(1);
-		// The open lane hangs its agent's surface directly beneath its own row.
+		await expect(
+			work.locator(".omp-work-stage > .omp-work-crossfade > [data-incoming] .omp-live-step-scroll:visible"),
+		).toHaveCount(1);
+		// Every lane stays above the single stage; selecting one never inserts an inline surface.
 		await expect(work.locator('.omp-work-card[data-open="true"]')).toHaveCount(1);
 		// Polled: the lane eases open, so the geometry settles over its transition.
 		await expect
@@ -89,7 +91,7 @@ test("actual stock frames preserve live and completed agent replay without false
 					cards.nth(1).boundingBox(),
 				]);
 				if (!rowBox || !surfaceBox || !nextBox) return false;
-				return rowBox.y + rowBox.height <= surfaceBox.y && surfaceBox.y + surfaceBox.height <= nextBox.y;
+				return rowBox.y + rowBox.height <= nextBox.y && nextBox.y + nextBox.height <= surfaceBox.y;
 			})
 			.toBe(true);
 		await capture("expanded-live");
@@ -103,7 +105,7 @@ test("actual stock frames preserve live and completed agent replay without false
 		await expect(page.locator(".omp-execution-group-summary")).toHaveText("2 steps complete");
 		await expect(page.locator(".omp-execution-group-duration")).toHaveText(/^· [1-9]\d*(?:\.\d+)?s$/);
 		await expect(page.locator(".omp-execution-group-header")).toContainText("408 tokens");
-		await expect(work.locator(".omp-work-head .omp-work-narrative")).toHaveText("Work complete");
+		await expect(work.locator(".omp-work-head [data-incoming] > .omp-work-narrative")).toHaveText("Work complete");
 		await expect(work).toHaveAttribute("data-state", "complete");
 		await expect(cards.first()).toContainText("alpha.txt contains 3 lines.");
 		await expect(cards.nth(1)).toContainText("beta.txt contains 2 lines.");
@@ -133,9 +135,9 @@ test("actual stock frames preserve live and completed agent replay without false
 		await expect(surface.locator(".omp-live-work-strip")).toHaveCount(0);
 		// A finished group keeps its outcome under an open lane.
 		await expect(work).toHaveAttribute("data-outcome", "true");
-		await expect(work.locator(":scope > .omp-work-outcome")).toBeVisible();
-		// Opening a lane is not a replay: no "back" control on the group.
-		await expect(work.locator(":scope > .omp-live-work-strip .omp-live-work-follow")).toHaveCount(0);
+		await expect(work.locator(".omp-work-outcome")).toBeVisible();
+		// A lane pick exposes a keyboard-reachable return to the finished outcome.
+		await expect(work.locator(":scope > .omp-live-work-strip .omp-live-work-follow")).toHaveCount(1);
 		await capture("completed-last-step");
 		await capture("completed-replay");
 		await cards.first().click();
@@ -143,9 +145,9 @@ test("actual stock frames preserve live and completed agent replay without false
 		await expect(surface).toHaveCount(0);
 		await work.locator(":scope > .omp-live-work-strip .omp-live-work-chips button").last().click();
 		await expect(work).toHaveAttribute("data-outcome", "false");
-		await expect(work.locator(":scope > .omp-work-surface .omp-live-step-scroll")).toContainText(
-			"Waiting for background activity",
-		);
+		await expect(
+			work.locator(".omp-work-stage > .omp-work-crossfade > [data-incoming] .omp-live-step-scroll"),
+		).toContainText("Waiting for background activity");
 		await expect(work).not.toContainText("Skipped due to");
 		await work.locator(":scope > .omp-live-work-strip .omp-live-work-follow").click();
 		await expect(work).toHaveAttribute("data-outcome", "true");
@@ -153,17 +155,22 @@ test("actual stock frames preserve live and completed agent replay without false
 		await cards.first().click();
 		await cards.nth(1).click();
 		// BetaCounter's one command is its whole lane: no strip, the terminal shows right away.
-		await expect(page.locator('.omp-work-card[data-open="true"] .omp-live-step')).toContainText("2 beta.txt");
+		await expect(
+			page.locator(".omp-work-stage > .omp-work-crossfade > [data-incoming] .omp-live-step"),
+		).toContainText("2 beta.txt");
 		const commands = (await fs.readFile(record, "utf8"))
 			.trim()
 			.split("\n")
 			.map(line => JSON.parse(line) as { type: string; subagentId?: string; level?: string });
-		expect(
-			commands.filter(command => command.type === "get_subagent_messages" && command.subagentId === "AlphaCounter"),
-		).toHaveLength(2);
-		expect(
-			commands.filter(command => command.type === "get_subagent_messages" && command.subagentId === "BetaCounter"),
-		).toHaveLength(1);
+		// Each transcript hydrates once, with at most one catch-up after a missed event gap.
+		// Keeping the last surface mounted can eliminate that catch-up fetch entirely.
+		for (const id of ["AlphaCounter", "BetaCounter"]) {
+			const hydrations = commands.filter(
+				command => command.type === "get_subagent_messages" && command.subagentId === id,
+			).length;
+			expect(hydrations).toBeGreaterThanOrEqual(1);
+			expect(hydrations).toBeLessThanOrEqual(2);
+		}
 		expect(commands.some(command => command.type === "set_subagent_subscription" && command.level === "events")).toBe(
 			true,
 		);

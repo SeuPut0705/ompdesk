@@ -28,7 +28,6 @@ function fakeContext(
 			return stock[command.type] as T;
 		},
 		bridge,
-		emit: () => {},
 	};
 }
 
@@ -130,17 +129,41 @@ describe("composer actions", () => {
 		const ctx = fakeContext({
 			bridge: {
 				"composer.jobs": [
-					{ id: "j1", type: "bash", status: "running", label: "sleep", startTime: 1, command: "sleep 9" },
+					{
+						id: "j1",
+						type: "bash",
+						status: "running",
+						label: "sleep",
+						startTime: 1,
+						command: "sleep 9",
+						resultPreview: "live output",
+						cancellationPending: true,
+						previewTruncated: true,
+					},
 					{ id: "j2", type: "task", status: "completed", label: "t", startTime: 2, endTime: 5, agentId: "a" },
 				],
 			},
 		});
 		await expect(handlers.get_jobs({ type: "get_jobs" }, ctx)).resolves.toEqual({
 			jobs: [
-				{ id: "j1", type: "bash", status: "running", label: "sleep", startTime: 1 },
+				{
+					id: "j1",
+					type: "bash",
+					status: "running",
+					label: "sleep",
+					startTime: 1,
+					resultPreview: "live output",
+					cancellationPending: true,
+					previewTruncated: true,
+				},
 				{ id: "j2", type: "task", status: "completed", label: "t", startTime: 2, endedAt: 5, agentId: "a" },
 			],
 		});
+	});
+
+	it("routes cancellation to stock through the bridge", async () => {
+		const ctx = fakeContext({ bridge: { "composer.cancel_job": { cancelled: true } } });
+		await expect(handlers.cancel_job({ type: "cancel_job", jobId: "j1" }, ctx)).resolves.toEqual({ cancelled: true });
 	});
 
 	it("refuses /fresh with code busy while streaming", async () => {

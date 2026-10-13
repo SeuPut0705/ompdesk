@@ -39,7 +39,7 @@ export function RouteFrame({
 			loading={loading}
 			loadingLabel={t("stats.loading")}
 			onRetry={onRetry}
-			retryLabel={t("stats.retry")}
+			retryLabel={t("common.retry")}
 			staleLabel={t("stats.stale")}
 		>
 			{children}

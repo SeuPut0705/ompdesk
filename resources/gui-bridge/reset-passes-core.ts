@@ -24,7 +24,6 @@ export interface ResetCreditsInfo {
 	credits?: ResetCreditDetail[];
 }
 
-
 /** Wire shape: `ResetPasses` in src/shared/rpc-types.ts. */
 export interface ResetPasses {
 	count: number;
@@ -162,10 +161,7 @@ export async function redeemResetPass(surface: ResetPassSurface, request: Redeem
 		);
 	}
 	if (request.creditId !== undefined && account.target.creditId !== request.creditId) {
-		return refusal(
-			"offer_changed",
-			`${label}: the reset offer changed — nothing was spent; check it and try again.`,
-		);
+		return refusal("offer_changed", `${label}: the reset offer changed — nothing was spent; check it and try again.`);
 	}
 	const outcome = await surface.redeem(account.target);
 	return {

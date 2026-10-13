@@ -7,7 +7,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { AgentMessage, RpcResponse } from "../../../shared/rpc-types";
+import type { AgentMessage, RpcCommand, RpcResponse } from "../../../shared/rpc-types";
 import { resetSessionSurface } from "../../hooks/use-session-switch";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { pasteMarkerText, storePaste } from "../../lib/paste-blobs";
@@ -149,7 +149,7 @@ async function mount(withRuntime = false): Promise<void> {
 	const history: Array<{ prompt: string; cwd?: string; created_at: number }> = [];
 	(window as unknown as Record<string, unknown>).omp = {
 		fs: { list: vi.fn(async () => ({ entries: [] })) },
-		events: { onCommandsUpdate: vi.fn(() => () => {}) },
+		events: { onTabCommandsUpdate: vi.fn(() => () => {}) },
 		prefs: { set: vi.fn(async () => ({})), get: vi.fn(async () => []) },
 		rpc: {
 			historyRecord: vi.fn(async (prompt: string, cwd?: string) => {
@@ -159,7 +159,11 @@ async function mount(withRuntime = false): Promise<void> {
 			historyRecent: vi.fn(async () => ok(history)),
 			historySearch: vi.fn(async () => ok(history)),
 			getAvailableCommands: vi.fn(async () => ok({ commands: [] })),
-			getQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
+			command: vi.fn(async (command: RpcCommand) => {
+				if (command.type === "get_queue") return ok({ steering: [], followUp: [] });
+				if (command.type === "set_setting") return setSetting(command.path, command.value);
+				return ok();
+			}),
 			followUp,
 			steer,
 			prompt,
@@ -592,10 +596,19 @@ describe("InputArea next-prompt suggestion", () => {
 	// its widget: gray placeholder, Tab on an empty composer takes it. The GUI
 	// remembers it per session until a submit or a new run makes it stale.
 	const SUGGESTION = "ompdesk로 가자";
-	const showSuggestion = (text = SUGGESTION) =>
-		act(async () => useExtensionUiStore.getState().setWidget("next-prompt", [`\x1b[2m↹ Tab  ${text}\x1b[22m`]));
+	const pushWidget = (widgetLines?: string[]) =>
+		act(async () =>
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "widget-next-prompt",
+				method: "setWidget",
+				widgetKey: "next-prompt",
+				widgetLines,
+			}),
+		);
+	const showSuggestion = (text = SUGGESTION) => pushWidget([`\x1b[2m↹ Tab  ${text}\x1b[22m`]);
 	/** The extension clears its widget on input, agent_start and session_start. */
-	const extensionClears = () => act(async () => useExtensionUiStore.getState().setWidget("next-prompt", undefined));
+	const extensionClears = () => pushWidget(undefined);
 	const placeholder = () => findTextarea().getAttribute("placeholder");
 	const hintText = () =>
 		document.getElementById(findTextarea().getAttribute("aria-describedby") ?? "")?.textContent ?? null;

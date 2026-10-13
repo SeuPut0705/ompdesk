@@ -9,8 +9,8 @@
 import { createHash } from "node:crypto";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import type { AgentMessage } from "../../src/shared/rpc-types";
-import { buildCopyTargets } from "./copy-targets";
 import { requireFn } from "./capabilities";
+import { buildCopyTargets } from "./copy-targets";
 import { guard } from "./health";
 import type { BridgeMethods } from "./types";
 
@@ -46,7 +46,8 @@ async function setForcedTool(session: Session, tool: string): Promise<{ tool: st
 	const toolChoice = await import("@oh-my-pi/pi-coding-agent/utils/tool-choice");
 	requireFn(toolChoice, "buildNamedToolChoice", "composer", "utils/tool-choice");
 	const forced = toolChoice.buildNamedToolChoice(tool, session.model);
-	if (!forced || typeof forced === "string") throw new Error("Current model does not support forcing a specific tool.");
+	if (!forced || typeof forced === "string")
+		throw new Error("Current model does not support forcing a specific tool.");
 	const settle = (choice: unknown) => {
 		if (choice === forced && pendingForce.get(session) === tool) pendingForce.delete(session);
 	};
@@ -120,116 +121,163 @@ async function sharePreview(session: Session) {
 }
 
 // ── Methods ──────────────────────────────────────────────────────────────────
-export const methods: BridgeMethods = guard("composer", {
-	/** The get_state fields stock omits. */
-	"composer.state": async (_params, env) => {
-		const session = env.session() as Session;
-		const { agentPauseGate } = await import("@oh-my-pi/pi-agent-core");
-		return {
-			cwd: session.sessionManager.getCwd(),
-			autoRetryEnabled: session.autoRetryEnabled,
-			thinkingConfigured: session.configuredThinkingLevel(),
-			planModeEnabled: session.getPlanModeState?.()?.enabled ?? false,
-			prewalkArmed: session.getPrewalkState?.() !== undefined,
-			agentsPaused: agentPauseGate?.paused === true,
-			agentsPausedAt: agentPauseGate?.pausedAt,
-		};
-	},
+export const methods: BridgeMethods = {
+	...guard("composer", {
+		/** The get_state fields stock omits. */
+		"composer.state": async (_params, env) => {
+			const session = env.session() as Session;
+			const { agentPauseGate } = await import("@oh-my-pi/pi-agent-core");
+			return {
+				cwd: session.sessionManager.getCwd(),
+				autoRetryEnabled: session.autoRetryEnabled,
+				thinkingConfigured: session.configuredThinkingLevel(),
+				planModeEnabled: session.getPlanModeState?.()?.enabled ?? false,
+				prewalkArmed: session.getPrewalkState?.() !== undefined,
+				agentsPaused: agentPauseGate?.paused === true,
+				agentsPausedAt: agentPauseGate?.pausedAt,
+			};
+		},
 
-	"composer.eval": async (params, env) => {
-		const session = env.session() as Session;
-		requireFn(session, "executePython", "composer");
-		const { code, excluded } = record(params);
-		if (typeof code !== "string") throw new Error("eval requires code");
-		const result = await session.executePython(code, undefined, { excludeFromContext: excluded === true });
-		return { output: result.output, exitCode: result.exitCode, cancelled: result.cancelled, truncated: result.truncated };
-	},
+		"composer.eval": async (params, env) => {
+			const session = env.session() as Session;
+			requireFn(session, "executePython", "composer");
+			const { code, excluded } = record(params);
+			if (typeof code !== "string") throw new Error("eval requires code");
+			const result = await session.executePython(code, undefined, { excludeFromContext: excluded === true });
+			return {
+				output: result.output,
+				exitCode: result.exitCode,
+				cancelled: result.cancelled,
+				truncated: result.truncated,
+			};
+		},
 
-	"composer.abort_eval": async (_params, env) => {
-		const session = env.session() as Session;
-		requireFn(session, "abortEval", "composer");
-		session.abortEval();
-		return null;
-	},
+		"composer.abort_eval": async (_params, env) => {
+			const session = env.session() as Session;
+			requireFn(session, "abortEval", "composer");
+			session.abortEval();
+			return null;
+		},
 
-	/** Bash whose output stays out of model context (`!!`). */
-	"composer.bash_excluded": async (params, env) => {
-		const session = env.session() as Session;
-		requireFn(session, "executeBash", "composer");
-		const { command } = record(params);
-		if (typeof command !== "string") throw new Error("bash requires command");
-		return session.executeBash(command, undefined, { excludeFromContext: true });
-	},
+		/** Bash whose output stays out of model context (`!!`). */
+		"composer.bash_excluded": async (params, env) => {
+			const session = env.session() as Session;
+			requireFn(session, "executeBash", "composer");
+			const { command } = record(params);
+			if (typeof command !== "string") throw new Error("bash requires command");
+			return session.executeBash(command, undefined, { excludeFromContext: true });
+		},
 
-	/** Null while streaming or a foreground bash/eval runs (the caller maps it to `busy`). */
-	"composer.clear_context": async (_params, env) => {
-		const session = env.session() as Session;
-		requireFn(session, "resetSessionContext", "composer");
-		const result = await session.resetSessionContext();
-		return result ? { droppedCount: result.droppedCount } : null;
-	},
+		/** Null while streaming or a foreground bash/eval runs (the caller maps it to `busy`). */
+		"composer.clear_context": async (_params, env) => {
+			const session = env.session() as Session;
+			requireFn(session, "resetSessionContext", "composer");
+			const result = await session.resetSessionContext();
+			return result ? { droppedCount: result.droppedCount } : null;
+		},
 
-	"composer.get_force_tool": async (_params, env) => ({ tool: forcedTool(env.session() as Session) }),
+		"composer.get_force_tool": async (_params, env) => ({ tool: forcedTool(env.session() as Session) }),
 
-	"composer.set_force_tool": async (params, env) => {
-		const session = env.session() as Session;
-		const { tool, clear } = record(params);
-		if (clear === true) return clearForcedTool(session);
-		if (typeof tool !== "string" || !tool.trim()) throw new Error("set_force_tool takes exactly one of tool or clear.");
-		return setForcedTool(session, tool.trim());
-	},
+		"composer.set_force_tool": async (params, env) => {
+			const session = env.session() as Session;
+			const { tool, clear } = record(params);
+			if (clear === true) return clearForcedTool(session);
+			if (typeof tool !== "string" || !tool.trim())
+				throw new Error("set_force_tool takes exactly one of tool or clear.");
+			return setForcedTool(session, tool.trim());
+		},
 
-	"composer.disarm_prewalk": async (_params, env) => {
-		const session = env.session() as Session;
-		// Stock `/prewalk off`: drops only this session's pending hand-off, settings untouched.
-		requireFn(session, "disarmPrewalk", "composer");
-		session.disarmPrewalk();
-		return { enabled: false };
-	},
+		"composer.disarm_prewalk": async (_params, env) => {
+			const session = env.session() as Session;
+			// Stock `/prewalk off`: drops only this session's pending hand-off, settings untouched.
+			requireFn(session, "disarmPrewalk", "composer");
+			session.disarmPrewalk();
+			return { enabled: false };
+		},
 
-	"composer.prewalk_armed": async (_params, env) => {
-		const session = env.session() as Session;
-		requireFn(session, "getPrewalkState", "composer");
-		return { armed: session.getPrewalkState() !== undefined };
-	},
+		"composer.prewalk_armed": async (_params, env) => {
+			const session = env.session() as Session;
+			requireFn(session, "getPrewalkState", "composer");
+			return { armed: session.getPrewalkState() !== undefined };
+		},
 
-	/** Stock get_state supplies top-level tool descriptions; only provenance and xd:// entries are extras. */
-	"composer.tool_extras": async (_params, env) => {
-		const session = env.session() as Session;
-		const source = (name: string) =>
-			name.startsWith("mcp__")
-				? "mcp"
-				: session.hasBuiltInTool(name)
-					? "builtin"
-					: "extension";
-		const sources = Object.fromEntries(session.agent.state.tools.map(tool => [tool.name, source(tool.name)]));
-		const mounted = session.getXdevToolEntries();
-		return {
-			sources,
-			mounted: mounted.map(entry => ({ name: entry.name, description: entry.summary, source: source(entry.name) })),
-		};
-	},
+		/** Stock get_state supplies top-level tool descriptions; only provenance and xd:// entries are extras. */
+		"composer.tool_extras": async (_params, env) => {
+			const session = env.session() as Session;
+			const source = (name: string) =>
+				name.startsWith("mcp__") ? "mcp" : session.hasBuiltInTool(name) ? "builtin" : "extension";
+			const sources = Object.fromEntries(session.agent.state.tools.map(tool => [tool.name, source(tool.name)]));
+			const mounted = session.getXdevToolEntries();
+			return {
+				sources,
+				mounted: mounted.map(entry => ({
+					name: entry.name,
+					description: entry.summary,
+					source: source(entry.name),
+				})),
+			};
+		},
 
-	/** `/context` parity. */
-	"composer.context_report": async (_params, env) => {
-		const session = env.session() as Session;
-		requireFn(session, "getContextBreakdown", "composer");
-		const breakdown = session.getContextBreakdown();
-		return {
-			breakdown,
-			contextWindow: breakdown?.contextWindow ?? session.model?.contextWindow ?? 0,
-			model: session.model?.id ?? "",
-		};
-	},
+		/** `/context` parity. */
+		"composer.context_report": async (_params, env) => {
+			const session = env.session() as Session;
+			requireFn(session, "getContextBreakdown", "composer");
+			const breakdown = session.getContextBreakdown();
+			return {
+				breakdown,
+				contextWindow: breakdown?.contextWindow ?? session.model?.contextWindow ?? 0,
+				model: session.model?.id ?? "",
+			};
+		},
 
-	/** `/jobs` parity: running, then the 5 most recent. */
-	"composer.jobs": async (_params, env) => {
-		const session = env.session() as Session;
-		requireFn(session, "getAsyncJobSnapshot", "composer");
-		const snapshot = session.getAsyncJobSnapshot({ recentLimit: 5 });
-		return snapshot ? [...snapshot.running, ...snapshot.recent] : [];
-	},
+		/** `/jobs` parity: running, then the 5 most recent. */
+		"composer.jobs": async (_params, env) => {
+			const session = env.session() as Session;
+			requireFn(session, "getAsyncJobSnapshot", "composer");
+			requireFn(session, "inspectAsyncJob", "composer");
+			const snapshot = session.getAsyncJobSnapshot({ recentLimit: 5 });
+			return snapshot
+				? [...snapshot.running, ...snapshot.recent].map(job => {
+						const inspection = session.inspectAsyncJob(job.id);
+						return {
+							...job,
+							resultPreview: inspection?.output,
+							previewTruncated: inspection?.artifactId !== undefined,
+						};
+					})
+				: [];
+		},
 
+		"composer.cancel_job": async (params, env) => {
+			const session = env.session() as Session;
+			requireFn(session, "cancelAsyncJob", "composer");
+			const { id } = record(params);
+			if (typeof id !== "string" || !id) throw new Error("cancel_job requires id");
+			return { cancelled: session.cancelAsyncJob(id) };
+		},
+
+		/** Stock RPC owns forward cycling; only the missing backward direction needs the bridge. */
+		"composer.cycle_model_backward": async (_params, env) => {
+			const session = env.session() as Session;
+			requireFn(session, "cycleModel", "composer");
+			return (await session.cycleModel("backward")) ?? null;
+		},
+
+		"composer.skill_count": async (_params, env) => ({ skills: (env.session() as Session).skills?.length ?? 0 }),
+
+		/** Pop the newest user-queued message back to the composer (TUI dequeue). */
+		"composer.dequeue": async (_params, env) => {
+			const session = env.session() as Session;
+			requireFn(session, "popLastQueuedMessage", "composer");
+			requireFn(session, "getQueuedMessages", "composer");
+			const before = session.getQueuedMessages();
+			const popped = session.popLastQueuedMessage();
+			if (!popped) return null;
+			const after = session.getQueuedMessages();
+			const mode = after.steering.length < before.steering.length ? "steer" : "followUp";
+			return { text: popped.text, images: popped.images, mode };
+		},
+	}),
 	...guard("share", {
 		"composer.share_preview": async (_params, env) => sharePreview(env.session() as Session),
 
@@ -245,14 +293,6 @@ export const methods: BridgeMethods = guard("composer", {
 			return result.truncated || prepared.truncated ? { url: result.url, truncated: true } : { url: result.url };
 		},
 	}),
-
-	/** Stock RPC owns forward cycling; only the missing backward direction needs the bridge. */
-	"composer.cycle_model_backward": async (_params, env) => {
-		const session = env.session() as Session;
-		requireFn(session, "cycleModel", "composer");
-		return (await session.cycleModel("backward")) ?? null;
-	},
-
 	...guard(["composer", "sessionTree"], {
 		"composer.copy_targets": async (_params, env) => {
 			// Late imports isolate moved stock internals from the other composer adapters.
@@ -268,19 +308,4 @@ export const methods: BridgeMethods = guard("composer", {
 			};
 		},
 	}),
-
-	"composer.skill_count": async (_params, env) => ({ skills: (env.session() as Session).skills?.length ?? 0 }),
-
-	/** Pop the newest user-queued message back to the composer (TUI dequeue). */
-	"composer.dequeue": async (_params, env) => {
-		const session = env.session() as Session;
-		requireFn(session, "popLastQueuedMessage", "composer");
-		requireFn(session, "getQueuedMessages", "composer");
-		const before = session.getQueuedMessages();
-		const popped = session.popLastQueuedMessage();
-		if (!popped) return null;
-		const after = session.getQueuedMessages();
-		const mode = after.steering.length < before.steering.length ? "steer" : "followUp";
-		return { text: popped.text, images: popped.images, mode };
-	},
-});
+};

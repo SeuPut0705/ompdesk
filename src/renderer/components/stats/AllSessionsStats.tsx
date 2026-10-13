@@ -114,7 +114,7 @@ export function AllSessionsStats() {
 			<EmptyState
 				actions={
 					<Button icon={<RefreshCw />} loading={syncing} onClick={() => void sync()} size="sm" variant="secondary">
-						{t("stats.retry")}
+						{t("common.retry")}
 					</Button>
 				}
 				description={t("stats.stopped.desc")}
@@ -172,7 +172,7 @@ export function AllSessionsStats() {
 				<p className="mt-1 mb-6 text-sc-xs text-(--sc-text-muted)">
 					{t("stats.scope", { range: t(`stats.range.${range}`) })}
 				</p>
-				<View key={`${route}:${refreshKey}`} range={range} refreshKey={refreshKey} />
+				<View key={`${route}:${refreshKey}`} range={range} />
 			</section>
 		</div>
 	);

@@ -93,7 +93,7 @@ class FakeSidecar extends EventEmitter {
 		this.emit("hostToolCall", { type: "host_tool_call", id, name: "gui_tool", args: {} });
 	}
 	emitHostUriRequest(id: string): void {
-		this.emit("hostUriRequest", { type: "host_uri_request", id, operation: "read", uri: "https://example.com" });
+		this.emit("hostUriRequest", { type: "host_uri_request", id, operation: "read", url: "https://example.com" });
 	}
 	emitUiRequest(request: Record<string, unknown>): void {
 		this.emit("extensionUi", { type: "extension_ui_request", ...request });
@@ -1118,7 +1118,7 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 
 		sidecars[0]?.emitEditorText("update-1");
 		expect(fw.sentTo(IPC_EVENTS.EXTENSION_UI)).toHaveLength(1);
-		expect(pool.routeSideChannel("update-1", { type: "extension_ui_response", id: "update-1" }, true)).toBe(false);
+		expect(pool.routeSideChannel("update-1", { type: "extension_ui_response", id: "update-1" })).toBe(false);
 	});
 
 	it("routes an extension-ui response to the raising sidecar even after a tab switch", () => {
@@ -1147,12 +1147,12 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 		// A's sidecar — B never saw the request and would drop/misroute it.
 		expect(pool.setActiveTab(fw.win, "tab-b")).toBe(true);
 		const response = { type: "extension_ui_response", id: "req-1", confirmed: true };
-		expect(pool.routeSideChannel("req-1", response, true)).toBe(true);
+		expect(pool.routeSideChannel("req-1", response)).toBe(true);
 		expect(a?.sentFrames).toEqual([response]);
 		expect(b?.sentFrames).toEqual([]);
 
 		// Final responses consume the route — a repeat id falls back to the caller.
-		expect(pool.routeSideChannel("req-1", response, true)).toBe(false);
+		expect(pool.routeSideChannel("req-1", response)).toBe(false);
 	});
 
 	it("routes identical request ids independently when panes provide their tab owner", () => {
@@ -1165,13 +1165,13 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 		b?.emitExtensionUi("same-id");
 		const yes = { type: "extension_ui_response", id: "same-id", confirmed: true };
 		const no = { type: "extension_ui_response", id: "same-id", confirmed: false };
-		expect(pool.routeSideChannel("same-id", yes, true, "tab-a")).toBe(true);
-		expect(pool.routeSideChannel("same-id", no, true, "tab-b")).toBe(true);
+		expect(pool.routeSideChannel("same-id", yes, "tab-a")).toBe(true);
+		expect(pool.routeSideChannel("same-id", no, "tab-b")).toBe(true);
 		expect(a?.sentFrames).toEqual([yes]);
 		expect(b?.sentFrames).toEqual([no]);
 	});
 
-	it("routes host-uri results to the origin sidecar", () => {
+	it("fails host-uri requests on the raising sidecar instead of forwarding them", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a");
@@ -1179,53 +1179,30 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 		const [a, b] = sidecars;
 
 		a?.emitHostUriRequest("uri-1");
-		expect(fw.sentTo(IPC_EVENTS.HOST_URI_REQUEST)).toHaveLength(1);
-		pool.setActiveTab(fw.win, "tab-b");
-
-		const result = { type: "host_uri_result", id: "uri-1", content: "data" };
-		expect(pool.routeSideChannel("uri-1", result, true)).toBe(true);
-		expect(a?.sentFrames).toEqual([result]);
+		expect(a?.sentFrames).toEqual([
+			{
+				type: "host_uri_result",
+				id: "uri-1",
+				isError: true,
+				error: "OMPdesk serves no host URI for https://example.com",
+			},
+		]);
 		expect(b?.sentFrames).toEqual([]);
+		expect(pool.routeSideChannel("uri-1", { type: "host_uri_result", id: "uri-1" })).toBe(false);
 	});
 
-	it("keeps the route across non-final host-tool updates and consumes it on the result", () => {
-		const { pool, sidecars } = fakePool();
-		const fw = fakeWindow(1);
-		pool.acquire("/a", fw.win, "tab-a");
-		pool.acquire("/b", fw.win, "tab-b");
-		const [a, b] = sidecars;
-		// Unknown tool → forwarded to the renderer (executor returns false).
-		pool.hostToolExecutor = () => false;
-
-		a?.emitHostToolCall("tool-1");
-		expect(fw.sentTo(IPC_EVENTS.HOST_TOOL_CALL)).toHaveLength(0); // fake executor sends nothing
-		pool.setActiveTab(fw.win, "tab-b");
-
-		const update = { type: "host_tool_update", id: "tool-1", update: "working…" };
-		expect(pool.routeSideChannel("tool-1", update, false)).toBe(true);
-		// Still registered: the result follows the update stream.
-		const result = { type: "host_tool_result", id: "tool-1", result: "done" };
-		expect(pool.routeSideChannel("tool-1", result, true)).toBe(true);
-		expect(a?.sentFrames).toEqual([update, result]);
-		expect(b?.sentFrames).toEqual([]);
-		expect(pool.routeSideChannel("tool-1", result, true)).toBe(false);
-	});
-
-	it("does not track host tools answered inline", () => {
+	it("answers host tools through the executor without tracking a route", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a");
 		const [a] = sidecars;
-		// GUI-registered tool: the executor answers on the spot, nothing is
-		// forwarded to the renderer, so no response will ever arrive to route.
 		pool.hostToolExecutor = (sidecar, request) => {
 			sidecar.sendSideChannel({ type: "host_tool_result", id: request.id, result: "inline" });
-			return true;
 		};
 
 		a?.emitHostToolCall("tool-inline");
 		expect(a?.sentFrames).toEqual([{ type: "host_tool_result", id: "tool-inline", result: "inline" }]);
-		expect(pool.routeSideChannel("tool-inline", { type: "host_tool_result", id: "tool-inline" }, true)).toBe(false);
+		expect(pool.routeSideChannel("tool-inline", { type: "host_tool_result", id: "tool-inline" })).toBe(false);
 	});
 
 	it("drops pending routes when the owning tab is released", () => {
@@ -1238,9 +1215,7 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 		a?.emitExtensionUi("req-doomed");
 		expect(pool.releaseTab("tab-a")).toBe(true);
 		// A late response falls back instead of writing to a disposed sidecar.
-		expect(pool.routeSideChannel("req-doomed", { type: "extension_ui_response", id: "req-doomed" }, true)).toBe(
-			false,
-		);
+		expect(pool.routeSideChannel("req-doomed", { type: "extension_ui_response", id: "req-doomed" })).toBe(false);
 		expect(a?.sentFrames).toEqual([]);
 		expect(b?.sentFrames).toEqual([]);
 	});
@@ -1297,7 +1272,7 @@ describe("SidecarPool background tabs", () => {
 		]);
 
 		const response = { type: "extension_ui_response", id: "ask-b", cancelled: true };
-		expect(pool.routeSideChannel("ask-b", response, true)).toBe(true);
+		expect(pool.routeSideChannel("ask-b", response)).toBe(true);
 		expect(b?.sentFrames).toEqual([response]);
 		expect(a?.sentFrames).toEqual([]);
 	});
@@ -1316,7 +1291,7 @@ describe("SidecarPool background tabs", () => {
 			request: { method: "cancel", targetId: "confirm-b" },
 		});
 		// A late answer no longer has a live request to reach.
-		expect(pool.routeSideChannel("confirm-b", { type: "extension_ui_response", id: "confirm-b" }, true)).toBe(false);
+		expect(pool.routeSideChannel("confirm-b", { type: "extension_ui_response", id: "confirm-b" })).toBe(false);
 		expect(b?.sentFrames).toEqual([]);
 	});
 

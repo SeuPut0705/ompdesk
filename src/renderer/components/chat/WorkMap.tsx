@@ -1,10 +1,10 @@
 import { ChevronRight } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
 import type { AgentProgress } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
 import { useMediaQuery } from "../../hooks/use-media-query";
-import { cx, formatDuration, formatTokens } from "../../lib/format";
+import { cx, formatDuration, formatElapsed, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { activeTabCommand, useSessionRuntime } from "../../stores/session-runtime-context";
 import { type SubagentsStore, useSubagentsStore } from "../../stores/subagents";
@@ -26,7 +26,7 @@ function progressArgs(progress?: AgentProgress): Record<string, unknown> {
 	return { target: progress.currentToolArgs };
 }
 
-function SubagentSurface({ id, store }: { id: string; store: StoreApi<SubagentsStore> }) {
+export function SubagentSurface({ id, store }: { id: string; store: StoreApi<SubagentsStore> }) {
 	const t = useT();
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
@@ -72,45 +72,9 @@ function SubagentSurface({ id, store }: { id: string; store: StoreApi<SubagentsS
 	);
 }
 
-/** Keep the closing surface mounted until its grid track finishes easing shut. */
-function LaneSurface({
-	id,
-	store,
-	open,
-	motion,
-}: {
-	id: string;
-	store: StoreApi<SubagentsStore>;
-	open: boolean;
-	motion: boolean;
-}) {
-	const [present, setPresent] = useState(open);
-	useEffect(() => {
-		if (open) setPresent(true);
-		else if (!motion) setPresent(false);
-	}, [open, motion]);
-	return (
-		<div
-			className="omp-work-lane-surface"
-			data-open={open && present}
-			data-motion={motion}
-			aria-hidden={!open}
-			inert={!open}
-			onTransitionEnd={event => {
-				if (event.target === event.currentTarget && !open) setPresent(false);
-			}}
-		>
-			<div className="omp-work-lane-surface-content">
-				{present ? <SubagentSurface id={id} store={store} /> : null}
-			</div>
-		</div>
-	);
-}
-
 /**
- * One lane per subagent of this group: status, name, what it is doing now (its
- * conclusion once done) and its counts. A lane opens its agent's own live
- * surface in place; only an open lane subscribes to per-event frames.
+ * Stable agent lanes select a surface in the shared stage. Only the selected
+ * agent leases per-event frames; closing it restores progress subscriptions.
  */
 export function WorkMap({
 	toolCallIds,
@@ -167,6 +131,17 @@ export function WorkMap({
 		)
 		.sort((a, b) => a.index - b.index);
 	void key;
+	const lanesRef = useRef<HTMLUListElement>(null);
+	useLayoutEffect(() => {
+		if (!expanded) return;
+		const list = lanesRef.current;
+		const current = list?.querySelector<HTMLElement>('[aria-current="true"]');
+		if (!list || !current) return;
+		const viewport = list.getBoundingClientRect();
+		const row = current.getBoundingClientRect();
+		if (row.bottom > viewport.bottom) list.scrollTop += row.bottom - viewport.bottom;
+		else if (row.top < viewport.top) list.scrollTop -= viewport.top - row.top;
+	}, [expanded]);
 	const conclusions = workOutcomes(
 		toolCallIds.flatMap(id => {
 			const entry = selectToolEntry(tools.getState(), id);
@@ -203,7 +178,7 @@ export function WorkMap({
 					{t("subagent.transcriptFailed")}: {streamError}
 				</div>
 			) : null}
-			<ul className="omp-work-cards">
+			<ul className="omp-work-cards" ref={lanesRef}>
 				{nodes.map(node => {
 					const progress = node.progress;
 					const meta = statusMeta(node.status);
@@ -234,6 +209,9 @@ export function WorkMap({
 					);
 					const tokens = progress?.tokens || store.getState().observedTokens.get(node.id) || 0;
 					const plural = toolCount === 1 ? "" : "s";
+					const elapsed = running
+						? formatElapsed(progress?.durationMs ?? 0)
+						: formatDuration(progress?.durationMs ?? 0);
 					const open = expanded === node.id;
 					return (
 						<li
@@ -246,7 +224,7 @@ export function WorkMap({
 							<button
 								type="button"
 								className="omp-work-card-button"
-								aria-expanded={open}
+								aria-current={open || undefined}
 								onClick={() => onExpandedChange(open ? null : node.id)}
 							>
 								<WorkStatus state={agentWorkState(node.status)} label={t(meta.labelKey)} motion={laneMotion} />
@@ -269,13 +247,12 @@ export function WorkMap({
 												: null}
 									</span>
 									<span className="omp-work-card-elapsed">
-										{tokens > 0 || toolCount > 0 ? " · " : ""}
-										{formatDuration(progress?.durationMs ?? 0)}
+										{elapsed && (tokens > 0 || toolCount > 0) ? " · " : ""}
+										{elapsed}
 									</span>
 								</span>
 								<ChevronRight aria-hidden className={cx("omp-work-card-chevron", open && "rotate-90")} />
 							</button>
-							<LaneSurface id={node.id} store={store} open={open} motion={laneMotion} />
 						</li>
 					);
 				})}

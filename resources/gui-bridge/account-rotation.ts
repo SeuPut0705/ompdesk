@@ -91,7 +91,9 @@ export function install(pi: ExtensionAPI): void {
 			rotateBeforePrompt(() => promptOf(pi, ctx), STOCK, LEDGER, Date.now());
 		} catch (err) {
 			// Stock selection still runs; the prompt must not fail over a rotation hint.
-			pi.logger.warn("gui-bridge: account rotation skipped", { error: err instanceof Error ? err.message : String(err) });
+			pi.logger.warn("gui-bridge: account rotation skipped", {
+				error: err instanceof Error ? err.message : String(err),
+			});
 		}
 		return undefined;
 	});

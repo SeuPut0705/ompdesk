@@ -20,7 +20,7 @@ import { PREVIEW_TEXT_CHARS } from "../../lib/preview";
 import { useSessionStore } from "../../stores/session";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { EmptyState, IconButton, Select } from "../common";
-import { PanelActions, PanelToolbar } from "./PanelChrome";
+import { PANEL_ROW, PanelToolbar } from "./PanelChrome";
 import { RepositoryChanges } from "./RepositoryChanges";
 
 const DIFF_TOOLS = new Set(["edit", "apply_patch", "ast_edit", "write"]);
@@ -166,10 +166,10 @@ function EditPreview({ entry }: { entry: DiffCandidate }) {
 	const t = useT();
 	return entry.isContent ? (
 		<div>
-			<p className={`text-omp-xs ${entry.isError ? "text-(--omp-error)" : "text-(--omp-muted)"}`}>
+			<p className={`text-sc-xs ${entry.isError ? "text-(--sc-danger)" : "text-(--sc-text-muted)"}`}>
 				{t(entry.isError ? "diffPanel.failedEdit" : "diffPanel.writtenContent")}
 			</p>
-			<pre className="overflow-auto whitespace-pre-wrap break-words font-mono text-omp-sm">
+			<pre className="overflow-auto whitespace-pre-wrap break-words font-mono text-sc-sm">
 				{entry.diff.slice(0, PREVIEW_TEXT_CHARS)}
 			</pre>
 			{entry.diff.length > PREVIEW_TEXT_CHARS && <p>{t("diffPanel.previewLimited")}</p>}
@@ -213,17 +213,17 @@ function toSplitRows(lines: DiffLine[]): { left: DiffLine | null; right: DiffLin
 }
 
 const LINE_CLASS: Record<DiffLine["type"], string> = {
-	add: "bg-[color-mix(in_srgb,var(--omp-diff-added)_12%,transparent)] text-(--omp-diff-added)",
-	remove: "bg-[color-mix(in_srgb,var(--omp-diff-removed)_12%,transparent)] text-(--omp-diff-removed)",
-	context: "text-(--omp-diff-context)",
+	add: "bg-(--sc-success-soft) text-(--sc-success)",
+	remove: "bg-(--sc-danger-soft) text-(--sc-danger)",
+	context: "text-(--sc-text-muted)",
 };
 
 function SplitDiff({ diff }: { diff: string }) {
 	const rows = useMemo(() => toSplitRows(parseDiff(diff)), [diff]);
 	return (
-		<div className="grid grid-cols-2 gap-px overflow-x-auto rounded-md border border-(--omp-border-muted) bg-(--omp-border-muted) font-mono text-omp-sm leading-[1.45]">
+		<div className="grid grid-cols-2 gap-px overflow-x-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-border-subtle) font-mono text-sc-sm leading-(--sc-leading-normal)">
 			{(["left", "right"] as const).map(side => (
-				<div className="min-w-0 bg-(--omp-code-bg)" key={side}>
+				<div className="min-w-0 bg-(--sc-surface-2)" key={side}>
 					{rows.map((row, index) => {
 						const line = row[side];
 						return (
@@ -321,14 +321,11 @@ function EditActivityStrip({ edits }: { edits: DiffCandidate[] }) {
 					>
 						{total > 0 && (
 							<div
-								className="flex w-full flex-col overflow-hidden rounded-[2px]"
+								className="flex w-full flex-col overflow-hidden rounded-(--sc-radius-sm)"
 								style={{ height: `${Math.max(15, (total / activity.peak) * 100)}%` }}
 							>
-								<div
-									className="bg-(--omp-diff-removed)"
-									style={{ height: `${(bin.removes / total) * 100}%` }}
-								/>
-								<div className="bg-(--omp-diff-added)" style={{ height: `${(bin.adds / total) * 100}%` }} />
+								<div className="bg-(--sc-danger)" style={{ height: `${(bin.removes / total) * 100}%` }} />
+								<div className="bg-(--sc-success)" style={{ height: `${(bin.adds / total) * 100}%` }} />
 							</div>
 						)}
 					</div>
@@ -352,27 +349,21 @@ function FileGroupHeader({
 	// dirname() returns "/" for directory-less relative paths — hide it there.
 	const dirPrefix = dir === "/" ? (group.file.startsWith("/") ? "/" : "") : `${dir}/`;
 	return (
-		<button
-			aria-expanded={!collapsed}
-			className="flex w-full items-center gap-1.5 rounded px-1 py-1.5 text-left transition-colors hover:bg-(--omp-selected-bg)"
-			onClick={onToggle}
-			title={group.file}
-			type="button"
-		>
+		<button aria-expanded={!collapsed} className={PANEL_ROW} onClick={onToggle} title={group.file} type="button">
 			{collapsed ? (
-				<ChevronRight className="shrink-0 text-(--omp-dim)" size={12} />
+				<ChevronRight className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 			) : (
-				<ChevronDown className="shrink-0 text-(--omp-dim)" size={12} />
+				<ChevronDown className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 			)}
-			<FileCode2 className="shrink-0 text-(--omp-dim)" size={12} />
-			<span className="min-w-0 truncate font-mono text-omp-sm text-(--omp-text)">
-				{dirPrefix && <span className="text-(--omp-dim)">{dirPrefix}</span>}
+			<FileCode2 className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+			<span className="min-w-0 truncate font-mono text-sc-sm text-(--sc-text)">
+				{dirPrefix && <span className="text-(--sc-text-muted)">{dirPrefix}</span>}
 				{base}
 			</span>
-			<span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-omp-xs">
-				<span className="text-(--omp-diff-added)">+{group.adds}</span>
-				<span className="text-(--omp-diff-removed)">-{group.removes}</span>
-				<span className="px-1 py-px text-omp-xxs text-(--omp-dim)">×{group.edits.length}</span>
+			<span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-sc-xs">
+				<span className="text-(--sc-success)">+{group.adds}</span>
+				<span className="text-(--sc-danger)">-{group.removes}</span>
+				<span className="px-1 py-px text-sc-2xs text-(--sc-text-muted)">×{group.edits.length}</span>
 			</span>
 		</button>
 	);
@@ -390,33 +381,26 @@ function EditTimelineRow({
 	const t = useT();
 	return (
 		<div className="pb-0.5 pl-4">
-			<button
-				aria-expanded={expanded}
-				className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left transition-colors hover:bg-(--omp-selected-bg)"
-				onClick={onToggle}
-				type="button"
-			>
+			<button aria-expanded={expanded} className={PANEL_ROW} onClick={onToggle} type="button">
 				{expanded ? (
-					<ChevronDown className="shrink-0 text-(--omp-dim)" size={12} />
+					<ChevronDown className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 				) : (
-					<ChevronRight className="shrink-0 text-(--omp-dim)" size={12} />
+					<ChevronRight className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 				)}
-				<span className="flex shrink-0 items-center gap-1 font-mono text-omp-xs">
-					<span className="text-(--omp-diff-added)">+{entry.adds}</span>
-					<span className="text-(--omp-diff-removed)">-{entry.removes}</span>
+				<span className="flex shrink-0 items-center gap-1 font-mono text-sc-xs">
+					<span className="text-(--sc-success)">+{entry.adds}</span>
+					<span className="text-(--sc-danger)">-{entry.removes}</span>
 				</span>
-				<span className="shrink-0 px-1.5 py-px text-omp-xxs text-(--omp-dim)">{entry.toolName}</span>
+				<span className="shrink-0 px-1.5 py-px text-sc-2xs text-(--sc-text-muted)">{entry.toolName}</span>
 				{entry.isError && (
-					<span className="shrink-0 px-1 py-px text-omp-xxs text-(--omp-diff-removed)">
-						{t("diffPanel.error")}
-					</span>
+					<span className="shrink-0 px-1 py-px text-sc-2xs text-(--sc-danger)">{t("diffPanel.error")}</span>
 				)}
-				<span className="ml-auto shrink-0 text-omp-xs text-(--omp-dim)" title={formatClock(entry.timestamp)}>
+				<span className="ml-auto shrink-0 text-sc-xs text-(--sc-text-muted)" title={formatClock(entry.timestamp)}>
 					{formatTimeAgo(new Date(entry.timestamp).toISOString())}
 				</span>
 			</button>
 			{expanded && (
-				<div className="mt-0.5 overflow-hidden rounded-md border border-(--omp-border-muted) bg-(--omp-code-bg) py-1">
+				<div className="mt-0.5 overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-2) py-1">
 					<EditPreview entry={entry} />
 				</div>
 			)}
@@ -474,7 +458,7 @@ function DiffTimeline({ candidates }: { candidates: DiffCandidate[] }) {
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<div className="space-y-1.5 px-3 pb-2">
-				<div className="flex items-center gap-2 text-omp-xs text-(--omp-dim)">
+				<div className="flex flex-wrap items-center gap-2 text-sc-xs text-(--sc-text-muted)">
 					<span>
 						{t("diffPanel.summary", {
 							edits: candidates.length,
@@ -484,8 +468,8 @@ function DiffTimeline({ candidates }: { candidates: DiffCandidate[] }) {
 						})}
 					</span>
 					<span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono">
-						<span className="text-(--omp-diff-added)">+{totals.adds}</span>
-						<span className="text-(--omp-diff-removed)">-{totals.removes}</span>
+						<span className="text-(--sc-success)">+{totals.adds}</span>
+						<span className="text-(--sc-danger)">-{totals.removes}</span>
 					</span>
 				</div>
 				<EditActivityStrip edits={candidates} />
@@ -567,12 +551,12 @@ export function DiffPanel() {
 	);
 
 	return (
-		<div className="flex h-full flex-col">
+		<div className="flex h-full min-h-0 min-w-0 flex-col">
 			{mode !== "repository" && (
 				<PanelToolbar>
 					{sourceSelector}
 					{mode === "current" && (
-						<PanelActions>
+						<div className="ml-auto flex shrink-0 items-center gap-1">
 							<IconButton
 								icon={<Rows3 />}
 								label={t("diffPanel.unified")}
@@ -587,7 +571,7 @@ export function DiffPanel() {
 								pressed={split}
 								size="sm"
 							/>
-						</PanelActions>
+						</div>
 					)}
 				</PanelToolbar>
 			)}
@@ -596,12 +580,7 @@ export function DiffPanel() {
 				<RepositoryChanges key={sessionId} sourceSelector={sourceSelector} />
 			) : candidates.length === 0 ? (
 				<div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-					<EmptyState
-						description={t("diffPanel.emptyHint")}
-						icon={<FileCode2 />}
-						size="sm"
-						title={t("diffPanel.empty")}
-					/>
+					<EmptyState icon={<FileCode2 />} size="sm" title={t("diffPanel.empty")} />
 				</div>
 			) : mode === "timeline" || mode === "artifacts" ? (
 				<DiffTimeline candidates={candidates} />
@@ -609,28 +588,29 @@ export function DiffPanel() {
 				<>
 					{candidates.length > 1 && (
 						<div className="px-3 pb-1.5">
-							<select
+							<Select
 								aria-label={t("diffPanel.selectFile")}
-								className="w-full rounded-md border border-(--omp-border-muted) bg-(--omp-input-bg) px-2 py-1 font-mono text-omp-sm text-(--omp-text) focus:border-(--omp-border-accent) focus:outline-none"
+								controlSize="sm"
+								className="w-full"
 								onChange={event => setSelectedId(event.target.value)}
 								value={selected?.id ?? ""}
-							>
-								{candidates.map(candidate => (
-									<option key={candidate.id} value={candidate.id}>
-										{candidate.file} — {candidate.toolName}
-									</option>
-								))}
-							</select>
+								options={candidates.map(candidate => ({
+									value: candidate.id,
+									label: `${candidate.file} — ${candidate.toolName}`,
+								}))}
+							/>
 						</div>
 					)}
 
 					<div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
 						{selected && (
 							<div className="space-y-1.5">
-								<div className="flex items-center gap-1.5 text-omp-sm text-(--omp-muted)">
-									<FileCode2 className="shrink-0 text-(--omp-dim)" size={12} />
-									<span className="truncate font-mono">{selected.file}</span>
-									<span className="ml-auto shrink-0 px-1.5 py-px text-omp-xxs text-(--omp-dim)">
+								<div className="flex min-w-0 items-center gap-1.5 text-sc-sm text-(--sc-text-muted)">
+									<FileCode2 className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+									<span className="min-w-0 truncate font-mono" title={selected.file}>
+										{selected.file}
+									</span>
+									<span className="ml-auto shrink-0 px-1.5 py-px text-sc-2xs text-(--sc-text-muted)">
 										{selected.toolName}
 									</span>
 								</div>

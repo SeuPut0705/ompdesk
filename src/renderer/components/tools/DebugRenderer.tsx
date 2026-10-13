@@ -1,10 +1,11 @@
 import { Bug, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
-import { AnsiText, hasAnsi } from "../../lib/ansi";
-import { cx, resultText } from "../../lib/format";
+import { resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { asArray, asRecord } from "../../lib/wire-value";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
+import { ToolTextPreview } from "./ToolTextPreview";
 
 /**
  * Debug wire shape: `{ content: [{ type: "text", text }], details }` where
@@ -33,16 +34,6 @@ interface BreakpointRow {
 	verified?: boolean;
 	condition?: string;
 	message?: string;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-	return value != null && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: undefined;
-}
-
-function asArray(value: unknown): unknown[] {
-	return Array.isArray(value) ? value : [];
 }
 
 function extractFrames(details: Record<string, unknown> | undefined): StackFrame[] {
@@ -245,24 +236,9 @@ export function DebugRenderer({ args, result, isError, isPartial, partialResult 
 				</div>
 			)}
 
-			{output && (
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
-					{hasAnsi(output) ? <AnsiText text={output} /> : output}
-				</pre>
-			)}
+			{output && <ToolTextPreview text={output} />}
 
-			{!hasStructured && !output && text && (
-				<pre
-					className={cx(
-						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
-						isError
-							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
-							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",
-					)}
-				>
-					{text}
-				</pre>
-			)}
+			{!hasStructured && !output && text && <ToolTextPreview text={text} isError={isError} />}
 		</div>
 	);
 }

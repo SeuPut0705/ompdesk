@@ -7,6 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RpcResponse } from "../../shared/rpc-types";
+import { routeCommands } from "../test-support/route-commands";
 import { useSettingsStore } from "./settings";
 
 const getSettings = vi.fn<(paths?: string[]) => Promise<RpcResponse>>();
@@ -14,7 +15,7 @@ const getSettings = vi.fn<(paths?: string[]) => Promise<RpcResponse>>();
 // linkedom-less store test: install a minimal omp bridge on the global scope
 // (node env has no `window`; the store resolves it via globalThis).
 const ompGlobal = globalThis as unknown as { window: { omp: { rpc: { getSettings: typeof getSettings } } } };
-ompGlobal.window = { omp: { rpc: { getSettings } } };
+ompGlobal.window = { omp: { rpc: routeCommands({ getSettings }) } };
 
 function success(values: Record<string, unknown>): Promise<RpcResponse> {
 	return Promise.resolve({ type: "response", command: "get_settings", success: true, data: { values } });

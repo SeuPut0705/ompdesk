@@ -1,7 +1,9 @@
 import { Braces } from "lucide-react";
 import { resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { PREVIEW_SCROLL_MD } from "../../lib/preview";
 import type { ToolRendererProps } from "./ToolCard";
+import { ToolTextPreview } from "./ToolTextPreview";
 
 /** AST grep: pattern header + match results. */
 export function AstGrepRenderer({ args, result, isPartial, partialResult }: ToolRendererProps) {
@@ -16,9 +18,7 @@ export function AstGrepRenderer({ args, result, isPartial, partialResult }: Tool
 				<span className="truncate text-[var(--omp-text)]">{pattern || t("tools.astgrep.fallback")}</span>
 			</div>
 			{text ? (
-				<pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]">
-					{text}
-				</pre>
+				<ToolTextPreview text={text} scrollClass={PREVIEW_SCROLL_MD} />
 			) : (
 				<div className="text-omp-sm italic text-[var(--omp-dim)]">
 					{isPartial ? t("tools.astgrep.matching") : t("tools.astgrep.noMatches")}

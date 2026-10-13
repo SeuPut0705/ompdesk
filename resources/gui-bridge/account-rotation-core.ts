@@ -163,7 +163,9 @@ export function rotateBeforePrompt(
 	const blocked = new Set(
 		auth.blocks
 			.list(accounts.map(account => account.credentialId))
-			.filter(block => block.providerKey === providerKey && scopes.has(block.blockScope) && block.blockedUntilMs > nowMs)
+			.filter(
+				block => block.providerKey === providerKey && scopes.has(block.blockScope) && block.blockedUntilMs > nowMs,
+			)
 			.map(block => block.credentialId),
 	);
 	const assigned = ledger.read();

@@ -79,7 +79,14 @@ describe("JobsPanel", () => {
 	it("groups running and cancelling jobs above recent ones", async () => {
 		const start = Date.now() - 5000;
 		const getJobs = installJobs([
-			{ id: "j1", type: "bash", status: "running", label: "bun test --watch", startTime: start },
+			{
+				id: "j1",
+				type: "bash",
+				status: "running",
+				label: "bun test --watch",
+				startTime: start,
+				resultPreview: "\u001b[32mWatching changes\u001b[0m",
+			},
 			{
 				id: "j2",
 				type: "task",
@@ -109,6 +116,27 @@ describe("JobsPanel", () => {
 		expect(container.textContent).toContain("Stopping…");
 		expect(container.textContent).toContain("Result / error");
 		expect(container.textContent).toContain("Updated");
+		expect(container.textContent).toContain("Watching changes");
+		expect(container.querySelectorAll("details[open]")).toHaveLength(1);
+		expect(container.querySelectorAll("summary svg")).toHaveLength(2);
+		expect(headings[1]).toBe("Recent1");
+		const rows = container.querySelectorAll("[data-job-id]");
+		expect(rows.every(row => row.getAttribute("class") === rows[0]?.getAttribute("class"))).toBe(true);
+	});
+
+	it("cancels a running stock job and refreshes its snapshot", async () => {
+		const job = { id: "running", type: "bash", status: "running", label: "build", startTime: Date.now() } as const;
+		const getJobs = installJobs([job]);
+		const command = vi.fn(async () => ({ success: true, data: { cancelled: true } }));
+		Object.assign(window, { omp: { rpc: { getJobs, command } } });
+		await mount();
+		const cancel = [...document.querySelectorAll("button")].find(button => button.textContent === "Cancel");
+		expect(cancel).toBeDefined();
+		await act(async () => {
+			cancel?.dispatchEvent(new Event("click", { bubbles: true }));
+		});
+		expect(command).toHaveBeenCalledWith({ type: "cancel_job", jobId: "running" });
+		expect(getJobs.mock.calls.length).toBeGreaterThan(1);
 	});
 
 	it("shows the empty state when there are no jobs", async () => {
@@ -116,7 +144,7 @@ describe("JobsPanel", () => {
 		await mount();
 
 		expect(container.textContent).toContain("No background jobs running.");
-		expect(container.textContent).toContain("Background jobs run async tools");
+		expect(container.querySelectorAll('button[aria-label="Refresh"]')).toHaveLength(0);
 		expect(container.querySelectorAll("section")).toHaveLength(0);
 	});
 });

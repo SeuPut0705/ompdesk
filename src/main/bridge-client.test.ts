@@ -1,5 +1,5 @@
 import * as net from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import { LocalCommandError } from "./local/types";
 
@@ -10,6 +10,7 @@ afterEach(async () => {
 	await new Promise<void>(resolve => (server ? server.close(() => resolve()) : resolve()));
 	server = null;
 	if (address) removeBridgeAddress(address);
+	vi.restoreAllMocks();
 });
 
 /** A stand-in for resources/gui-bridge: answers `echo`, fails `boom` (coded for `old`), pushes one event per connection. */
@@ -48,6 +49,19 @@ async function startFakeBridge(): Promise<string> {
 	});
 	await new Promise<void>(resolve => server?.listen(address, resolve));
 	return address;
+}
+
+/** Keep the real Socket/readline emitters, but let each test control connect/error ordering. */
+function pauseSocketConnection(): () => net.Socket {
+	let socket: net.Socket | undefined;
+	vi.spyOn(net.Socket.prototype, "connect").mockImplementation(function (this: net.Socket) {
+		socket = this;
+		return this;
+	});
+	return () => {
+		if (!socket) throw new Error("Bridge did not create its connecting socket");
+		return socket;
+	};
 }
 
 describe("GuiBridgeClient", () => {
@@ -94,6 +108,49 @@ describe("GuiBridgeClient", () => {
 	it("rejects requests when no bridge ever listened", async () => {
 		const client = new GuiBridgeClient(newBridgeAddress());
 		await expect(client.connect(500)).rejects.toThrow();
-		await expect(client.request("ping")).rejects.toMatchObject({ code: "bridge_unavailable" });
+		await expect(client.request("capabilities")).rejects.toMatchObject({ code: "bridge_unavailable" });
+	});
+
+	it("propagates input errors from both the socket and readline to the caller", async () => {
+		const connectingSocket = pauseSocketConnection();
+		const client = new GuiBridgeClient(newBridgeAddress());
+		const connecting = client.connect();
+		const socket = connectingSocket();
+		const failed = expect(connecting).rejects.toThrow("missing bridge socket");
+		socket.emit("error", new Error("missing bridge socket"));
+		await failed;
+		expect(socket.destroyed).toBe(true);
+		expect(client.connected).toBe(false);
+		client.close();
+	});
+
+	it("cancels and destroys an in-flight socket when closed before connecting", async () => {
+		const connectingSocket = pauseSocketConnection();
+		const client = new GuiBridgeClient(newBridgeAddress());
+		const failed = expect(client.connect()).rejects.toThrow("GUI bridge is closed");
+		const socket = connectingSocket();
+		client.close();
+		await failed;
+		expect(socket.destroyed).toBe(true);
+		expect(client.connected).toBe(false);
+		await expect(client.connect()).rejects.toThrow("GUI bridge is closed");
+	});
+
+	it("rejects outstanding requests when an established socket fails", async () => {
+		const connectingSocket = pauseSocketConnection();
+		const client = new GuiBridgeClient(newBridgeAddress());
+		const connecting = client.connect();
+		const socket = connectingSocket();
+		vi.spyOn(socket, "write").mockReturnValue(true);
+		socket.emit("connect");
+		await connecting;
+		const failed = expect(client.request("capabilities")).rejects.toMatchObject({
+			code: "bridge_unavailable",
+			message: "bridge transport failed",
+		});
+		socket.emit("error", new Error("bridge transport failed"));
+		await failed;
+		expect(client.connected).toBe(false);
+		client.close();
 	});
 });

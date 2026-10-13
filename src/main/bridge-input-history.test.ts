@@ -71,6 +71,8 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 				});
 			});
 			await client.connect();
+			// Every area loads and every REQUIREMENTS entry resolves on the installed omp.
+			expect(await client.request("capabilities")).toMatchObject({ unavailable: [] });
 			expect(await client.request("history_record", { prompt: "from OMPdesk", cwd: profile })).toEqual({
 				skipped: false,
 			});

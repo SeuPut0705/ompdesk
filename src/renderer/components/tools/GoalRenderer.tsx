@@ -3,6 +3,7 @@ import { cx, formatDuration, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { resultBodyText, resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
+import { ToolTextPreview } from "./ToolTextPreview";
 
 /**
  * Goal tool: objective, op, and token budget. Live results carry
@@ -78,9 +79,7 @@ export function GoalRenderer({ args, result, isError, isPartial, partialResult }
 					<span className="font-semibold text-[var(--omp-text)]">{t("tools.goal.title")}</span>
 					<span className="text-[var(--omp-muted)]">{describeOp(t, op)}</span>
 				</div>
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-error)]">
-					{fallback || t("tools.goal.failed")}
-				</pre>
+				<ToolTextPreview text={fallback || t("tools.goal.failed")} isError />
 			</div>
 		);
 	}

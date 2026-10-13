@@ -93,8 +93,4 @@ export class RpcClient {
 		}
 		this.#pending.clear();
 	}
-
-	get pendingCount(): number {
-		return this.#pending.size;
-	}
 }

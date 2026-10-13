@@ -18,8 +18,6 @@ export interface ExtensionUiStore extends ExtensionUiSnapshot {
 	setInlineLogin: (active: boolean) => void;
 	pushRequest: (request: ExtensionUIRequest) => void;
 	removeRequest: (id: string) => void;
-	setStatus: (key: string, text: string | undefined) => void;
-	setWidget: (key: string, lines: string[] | undefined) => void;
 	clearAll: () => void;
 }
 
@@ -81,24 +79,6 @@ export const createExtensionUiStore = () =>
 		setInlineLogin: active => set({ inlineLogin: active }),
 		pushRequest: request => set(state => applyExtensionUiRequest(state, request)),
 		removeRequest: id => set({ pendingRequests: get().pendingRequests.filter(r => r.id !== id) }),
-		setStatus: (key, text) => {
-			const next = { ...get().statusWidgets };
-			if (text) {
-				next[key] = text;
-			} else {
-				delete next[key];
-			}
-			set({ statusWidgets: next });
-		},
-		setWidget: (key, lines) => {
-			const next = { ...get().widgetPanels };
-			if (lines && lines.length > 0) {
-				next[key] = lines;
-			} else {
-				delete next[key];
-			}
-			set({ widgetPanels: next });
-		},
 		clearAll: () => set({ pendingRequests: [], statusWidgets: {}, widgetPanels: {} }),
 	}));
 

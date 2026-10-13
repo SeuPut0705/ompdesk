@@ -18,17 +18,19 @@
  */
 
 import { CheckCircle2, Circle, ClipboardList, FileWarning, MessageSquare, RefreshCw, Send } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ComponentProps, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlanModeState } from "../../../../shared/rpc-types";
 import { useTabGuard } from "../../../hooks/use-tab-guard";
 import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { MarkdownRenderer } from "../../../lib/markdown";
 import { type TabRpc, useTabRpc } from "../../../lib/tab-rpc";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { toast, toastError } from "../../../stores/toast";
-import { Badge, Button, ErrorDetail, IconButton, Spinner, Switch, Tabs, TextArea } from "../../common";
+import { Badge, Button, EmptyState, ErrorDetail, IconButton, Spinner, Switch, Tabs, TextArea } from "../../common";
+import { PanelActions } from "../../panels/PanelChrome";
 import { DockCard } from "./DockCard";
 
 const POLL_STREAMING_MS = 3000;
@@ -129,7 +131,7 @@ interface StepFeedbackState {
 	sending: boolean;
 }
 
-export function PlanDockCard() {
+export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" | "panel" }) {
 	const t = useT();
 	const rpc = useTabRpc();
 	const tabId = useRuntimeTabId();
@@ -169,7 +171,7 @@ export function PlanDockCard() {
 				const mode = modeResponse.data as PlanModeState | undefined;
 				const path = mode?.planFilePath ?? null;
 				setPlanFilePath(path);
-				if (!mode?.enabled || !path) {
+				if (!path || (presentation === "dock" && !mode?.enabled)) {
 					setPlanFile(null);
 					setLocalRoot(null);
 					setContent(null);
@@ -211,12 +213,12 @@ export function PlanDockCard() {
 				}
 			}
 		},
-		[capture, isActive, rpc, t, sessionStore, tabId],
+		[capture, isActive, rpc, t, sessionStore, tabId, presentation],
 	);
 
 	// Initial load + reset when plan mode flips.
 	useEffect(() => {
-		if (planModeEnabled) {
+		if (planModeEnabled || presentation === "panel") {
 			void load();
 		} else {
 			setPlanFilePath(null);
@@ -227,7 +229,7 @@ export function PlanDockCard() {
 			setLoaded(false);
 			setStepFeedback(null);
 		}
-	}, [planModeEnabled, load]);
+	}, [planModeEnabled, load, presentation]);
 
 	// The agent writes the plan during its turn — refresh when a turn ends…
 	const wasStreaming = useRef(isStreaming);
@@ -328,14 +330,15 @@ export function PlanDockCard() {
 
 	const reviewable = planModeEnabled && content != null && content.trim().length > 0;
 
-	if (!planModeEnabled) return null;
+	if (!planModeEnabled && presentation === "dock") return null;
 
+	const Frame = presentation === "panel" ? PlanPanelFrame : DockCard;
 	return (
-		<DockCard
+		<Frame
 			actions={
 				<>
 					<IconButton
-						className={cx(loading && "[&>svg]:animate-spin")}
+						className={cx(loading && "[&>svg]:animate-spin motion-reduce:[&>svg]:animate-none")}
 						disabled={loading}
 						icon={<RefreshCw />}
 						label={t("planPanel.refresh")}
@@ -376,23 +379,27 @@ export function PlanDockCard() {
 					<div className="text-sc-sm leading-snug text-(--sc-text-muted)">{error.message}</div>
 					<ErrorDetail error={error.cause} />
 					<Button onClick={() => void load()} size="sm">
-						{t("planPanel.retry")}
+						{t("common.retry")}
 					</Button>
 				</div>
 			) : content == null ? (
-				<div className="flex flex-col items-center justify-center gap-2 px-6 py-4 text-center">
-					<ClipboardList aria-hidden="true" className="text-(--sc-text-subtle)" size={20} />
-					<div className="text-sc-md font-medium text-(--sc-text)">{t("planPanel.emptyTitle")}</div>
-					<div className="text-sc-sm leading-snug text-(--sc-text-muted)">{t("planPanel.emptyDesc")}</div>
-					{displayPath && (
-						<div
-							className="max-w-full truncate font-mono text-sc-2xs text-(--sc-text-subtle)"
-							title={displayPath}
-						>
-							{displayPath}
-						</div>
-					)}
-				</div>
+				presentation === "panel" ? (
+					<EmptyState icon={<ClipboardList />} size="sm" title={t("planPanel.emptyTitle")} />
+				) : (
+					<div className="flex flex-col items-center justify-center gap-2 px-6 py-4 text-center">
+						<ClipboardList aria-hidden="true" className="text-(--sc-text-subtle)" size={20} />
+						<div className="text-sc-md font-medium text-(--sc-text)">{t("planPanel.emptyTitle")}</div>
+						<div className="text-sc-sm leading-snug text-(--sc-text-muted)">{t("planPanel.emptyDesc")}</div>
+						{displayPath && (
+							<div
+								className="max-w-full truncate font-mono text-sc-2xs text-(--sc-text-subtle)"
+								title={displayPath}
+							>
+								{displayPath}
+							</div>
+						)}
+					</div>
+				)
 			) : (
 				<>
 					<Tabs
@@ -408,9 +415,7 @@ export function PlanDockCard() {
 					/>
 					<div className="px-2 py-1.5">
 						{tab === "raw" ? (
-							<pre className="font-mono text-sc-sm leading-relaxed whitespace-pre-wrap text-(--sc-text)">
-								{content}
-							</pre>
+							<MarkdownRenderer content={content} />
 						) : sections.length === 0 ? (
 							<div className="px-2 py-4 text-center text-sc-sm text-(--sc-text-muted)">
 								{content.trim().length === 0 ? t("planPanel.emptySoFar") : t("planPanel.noSteps")}
@@ -425,7 +430,10 @@ export function PlanDockCard() {
 								{sections.map((section, sectionIndex) => (
 									<section className="mb-1.5" key={sectionIndex}>
 										{section.heading && (
-											<div className="truncate px-1 py-1 text-sc-sm font-medium text-(--sc-text-secondary)">
+											<div
+												title={section.heading}
+												className="truncate px-1 py-1 text-sc-sm font-medium text-(--sc-text-secondary)"
+											>
 												{section.heading}
 											</div>
 										)}
@@ -449,7 +457,7 @@ export function PlanDockCard() {
 														)}
 														<span
 															className={cx(
-																"min-w-0 flex-1 text-sc-md leading-snug",
+																"min-w-0 flex-1 break-words text-sc-md leading-snug",
 																step.done ? "text-(--sc-text-muted) line-through" : "text-(--sc-text)",
 															)}
 														>
@@ -466,6 +474,9 @@ export function PlanDockCard() {
 													{stepFeedback?.step.index === step.index && (
 														<div className="mb-1 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-transparent p-1.5">
 															<TextArea
+																aria-label={t("planPanel.stepFeedbackPlaceholder", {
+																	index: step.index,
+																})}
 																autoFocus
 																onChange={event =>
 																	setStepFeedback({ ...stepFeedback, draft: event.target.value })
@@ -505,13 +516,14 @@ export function PlanDockCard() {
 					{/* Review footer: approve / request changes, all as chat messages. */}
 					<div className="shrink-0 border-t border-(--sc-border-subtle) p-2">
 						<TextArea
+							aria-label={t("planPanel.feedbackPlaceholder")}
 							disabled={!reviewable}
 							onChange={event => setPlanFeedback(event.target.value)}
 							placeholder={t("planPanel.feedbackPlaceholder")}
 							rows={2}
 							value={planFeedback}
 						/>
-						<div className="mt-1.5 flex items-center gap-1.5">
+						<div className="mt-1.5 flex flex-wrap items-center gap-1.5">
 							<Button
 								disabled={!reviewable}
 								icon={<CheckCircle2 />}
@@ -537,6 +549,16 @@ export function PlanDockCard() {
 					</div>
 				</>
 			)}
-		</DockCard>
+		</Frame>
+	);
+}
+
+/** Reuse the dock's stock plan data and review actions without duplicate polling logic. */
+function PlanPanelFrame({ actions, children }: ComponentProps<typeof DockCard>) {
+	return (
+		<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-2">
+			<PanelActions>{actions}</PanelActions>
+			{children}
+		</div>
 	);
 }

@@ -162,6 +162,8 @@ function fakeMachine() {
 		setAccountRotation: vi.fn(
 			async (mode: AccountRotationMode): Promise<AccountRotationState> => ({ mode, evenSupported: true }),
 		),
+		builtinRea: vi.fn(async () => ({ enabled: true, available: true })),
+		setBuiltinRea: vi.fn(async (enabled: boolean) => ({ enabled, available: true })),
 	} satisfies MachineServices;
 }
 
@@ -578,6 +580,26 @@ describe("LocalHostServices host.* calls", () => {
 			);
 		}
 		expect(machine.setAccountRotation).toHaveBeenCalledTimes(1);
+	});
+
+	it("reads the host's built-in REA preference and validates writes", async () => {
+		const { services, machine } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await expect(services.call(x.peer, "host.builtinRea.get", {}, x)).resolves.toEqual({
+			enabled: true,
+			available: true,
+		});
+		await expect(services.call(x.peer, "host.builtinRea.set", { enabled: false }, x)).resolves.toEqual({
+			enabled: false,
+			available: true,
+		});
+		expect(machine.setBuiltinRea).toHaveBeenCalledWith(false);
+		for (const bad of [{}, { enabled: "false" }, { enabled: 1 }]) {
+			await expect(services.call(x.peer, "host.builtinRea.set", bad, x)).rejects.toThrow(
+				/Invalid host.builtinRea.set/,
+			);
+		}
+		expect(machine.setBuiltinRea).toHaveBeenCalledTimes(1);
 	});
 
 	it("reads this machine's stats server", async () => {

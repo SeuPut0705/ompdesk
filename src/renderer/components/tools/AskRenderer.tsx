@@ -1,8 +1,8 @@
 import { Check, MessageCircleQuestion } from "lucide-react";
 import { resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { asArray, asRecord, asString } from "../../lib/wire-value";
 import type { ToolRendererProps } from "./ToolCard";
-import { asArray, asRecord, asString } from "./task-render-utils";
 
 interface AskOption {
 	label: string;

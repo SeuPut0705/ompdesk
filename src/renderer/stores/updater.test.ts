@@ -34,15 +34,7 @@ describe("useUpdaterStore", () => {
 		const { setStatus } = useUpdaterStore.getState();
 		setStatus({ state: "available", version: "0.4.1", mode: "automatic" });
 		expect(useUpdaterStore.getState().status).toEqual({ state: "available", version: "0.4.1", mode: "automatic" });
-		setStatus({
-			state: "downloading",
-			version: "0.4.1",
-			mode: "automatic",
-			percent: 42,
-			bytesPerSecond: 1,
-			transferred: 42,
-			total: 100,
-		});
+		setStatus({ state: "downloading", version: "0.4.1", mode: "automatic", percent: 42 });
 		expect(useUpdaterStore.getState().status.state).toBe("downloading");
 		setStatus({ state: "downloaded", version: "0.4.1", mode: "automatic" });
 		expect(useUpdaterStore.getState().status).toEqual({ state: "downloaded", version: "0.4.1", mode: "automatic" });

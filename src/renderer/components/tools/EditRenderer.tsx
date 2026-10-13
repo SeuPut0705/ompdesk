@@ -1,16 +1,18 @@
 import { ArrowRightLeft, Circle, FilePlus2, Pencil, Trash2 } from "lucide-react";
+import type { ReactNode } from "react";
 import { DiffView } from "../../lib/diff";
-import { basename, cx, dirname, headLines } from "../../lib/format";
+import { cx, headLines } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
+import { asNonEmptyString } from "../../lib/wire-value";
 import { CodeBlock } from "../chat/CodeBlock";
 import { ErrorDetail } from "../common";
 import { unifiedDiffStats } from "./diff-stats";
-import { editArgumentPaths } from "./edit-args";
+import { editArgumentPaths, editRecordDiff } from "./edit-args";
 import { liveDiffPreview } from "./live-diff";
 import { PathLink } from "./PathLink";
 import { resultBodyText, resultDetails } from "./result";
-import type { ToolRendererProps } from "./ToolCard";
+import { DiffStatChip, ToolPathTarget, type ToolRendererProps } from "./ToolCard";
 
 type EditOp = "create" | "delete" | "update";
 
@@ -30,11 +32,6 @@ interface EditPerFileResult {
 	displayErrorText?: string;
 }
 
-/** Non-empty string or undefined — the wire shape's optional string fields. */
-function asString(value: unknown): string | undefined {
-	return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
 function asOp(value: unknown): EditOp | undefined {
 	return value === "create" || value === "delete" || value === "update" ? value : undefined;
 }
@@ -51,22 +48,14 @@ export function asPerFileResults(value: unknown): EditPerFileResult[] {
 			diff: typeof record.diff === "string" ? record.diff : "",
 			firstChangedLine: typeof record.firstChangedLine === "number" ? record.firstChangedLine : undefined,
 			op: asOp(record.op),
-			move: asString(record.move),
-			sourcePath: asString(record.sourcePath),
+			move: asNonEmptyString(record.move),
+			sourcePath: asNonEmptyString(record.sourcePath),
 			isError: record.isError === true,
-			errorText: asString(record.errorText),
-			displayErrorText: asString(record.displayErrorText),
+			errorText: asNonEmptyString(record.errorText),
+			displayErrorText: asNonEmptyString(record.displayErrorText),
 		});
 	}
 	return out;
-}
-
-/** Synthesize a unified-diff-shaped block from an old/new text pair (args fallback). */
-function oldNewDiff(oldStr: string | null | undefined, newStr: string | null | undefined): string {
-	const lines: string[] = [];
-	if (oldStr != null) for (const line of oldStr.split("\n")) lines.push(`-${line}`);
-	if (newStr != null) for (const line of newStr.split("\n")) lines.push(`+${line}`);
-	return lines.join("\n");
 }
 
 interface EditHeaderProps {
@@ -114,32 +103,50 @@ function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError, 
 				</>
 			)}
 			{path && (
-				<>
-					<PathLink path={path} className="truncate text-[var(--omp-text)]">
-						{basename(path)}
-						{firstChangedLine ? `:${firstChangedLine}` : ""}
-					</PathLink>
-					<span className="truncate text-[var(--omp-dim)]">{dirname(path)}</span>
-				</>
+				<PathLink path={path} className="truncate">
+					<ToolPathTarget path={path} suffix={firstChangedLine ? `:${firstChangedLine}` : undefined} />
+				</PathLink>
 			)}
 			{moveTo && (
 				<>
 					<span className="shrink-0 text-[var(--omp-dim)]">→</span>
-					<PathLink path={moveTo} className="truncate text-[var(--omp-text)]">
-						{basename(moveTo)}
+					<PathLink path={moveTo} className="truncate">
+						<ToolPathTarget path={moveTo} />
 					</PathLink>
-					<span className="truncate text-[var(--omp-dim)]">{dirname(moveTo)}</span>
 				</>
 			)}
-			{stats && (stats.added > 0 || stats.removed > 0) && (
-				<span className="shrink-0 text-omp-xxs tabular-nums">
-					<span className="text-[var(--omp-dim)]">[</span>
-					{stats.added > 0 && <span className="text-[var(--omp-diff-added)]">+{stats.added}</span>}
-					{stats.added > 0 && stats.removed > 0 && <span className="text-[var(--omp-dim)]">/</span>}
-					{stats.removed > 0 && <span className="text-[var(--omp-diff-removed)]">-{stats.removed}</span>}
-					<span className="text-[var(--omp-dim)]">]</span>
-				</span>
-			)}
+			{stats && (stats.added > 0 || stats.removed > 0) && <DiffStatChip stats={stats} />}
+		</div>
+	);
+}
+
+/** A file's diff: the newest changed region on the live surface, the whole diff in the transcript. */
+function EditDiff({ diff, path, livePreview }: { diff: string; path: string; livePreview?: boolean }) {
+	return (
+		<DiffView
+			diff={livePreview ? liveDiffPreview(diff) : diff}
+			filePath={path}
+			className={cx("rounded", PREVIEW_SCROLL_LG)}
+		/>
+	);
+}
+
+/** Header (null on the live surface, where the card heading already names the file) above one diff. */
+function FileEditPreview({
+	header,
+	diff,
+	path,
+	livePreview,
+}: {
+	header: ReactNode;
+	diff: string;
+	path: string;
+	livePreview?: boolean;
+}) {
+	return (
+		<div className="flex flex-col gap-1.5">
+			{header}
+			<EditDiff diff={diff} path={path} livePreview={livePreview} />
 		</div>
 	);
 }
@@ -181,22 +188,23 @@ function PerFileEditBlock({ file, livePreview }: { file: EditPerFileResult; live
 		);
 	}
 
+	// Live, the card names the operation: each file keeps only its name and stats.
 	return (
-		<div className="flex flex-col gap-1.5">
-			<EditHeader
-				op={file.op}
-				path={displayPath}
-				moveTo={file.move}
-				firstChangedLine={file.firstChangedLine}
-				diff={file.diff}
-				bare={livePreview}
-			/>
-			<DiffView
-				diff={livePreview ? liveDiffPreview(file.diff) : file.diff}
-				filePath={displayPath}
-				className={cx("rounded", PREVIEW_SCROLL_LG)}
-			/>
-		</div>
+		<FileEditPreview
+			header={
+				<EditHeader
+					op={file.op}
+					path={displayPath}
+					moveTo={file.move}
+					firstChangedLine={file.firstChangedLine}
+					diff={file.diff}
+					bare={livePreview}
+				/>
+			}
+			diff={file.diff}
+			path={displayPath}
+			livePreview={livePreview}
+		/>
 	);
 }
 
@@ -232,9 +240,12 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 	const totalFiles = argPaths.length;
 
 	const op = asOp(args.op) ?? asOp(firstEdit?.op) ?? asOp(details?.op);
-	const rawPath = asString(details?.sourcePath) ?? argPaths[0] ?? asString(details?.path) ?? "";
+	const rawPath = asNonEmptyString(details?.sourcePath) ?? argPaths[0] ?? asNonEmptyString(details?.path) ?? "";
 	const rename =
-		asString(args.rename) ?? asString(firstEdit?.rename) ?? asString(firstEdit?.move) ?? asString(details?.move);
+		asNonEmptyString(args.rename) ??
+		asNonEmptyString(firstEdit?.rename) ??
+		asNonEmptyString(firstEdit?.move) ??
+		asNonEmptyString(details?.move);
 	const detailDiff = typeof details?.diff === "string" ? details.diff : "";
 	const firstChangedLine = typeof details?.firstChangedLine === "number" ? details.firstChangedLine : undefined;
 
@@ -259,7 +270,7 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 
 	if (isError) {
 		const bodyText = (resultBodyText(result) || resultBodyText(partialResult)).trim();
-		const rawError = asString(details?.displayErrorText) ?? asString(details?.errorText) ?? bodyText;
+		const rawError = asNonEmptyString(details?.displayErrorText) ?? asNonEmptyString(details?.errorText) ?? bodyText;
 		// Hashline-mismatch errors embed source context; a single minified line
 		// can be enormous — cap before it enters the DOM.
 		const { head: cappedError, omitted } = headLines(rawError, EDIT_ERROR_LINES);
@@ -279,40 +290,49 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 		);
 	}
 
-	// Authoritative single-file result.
-	if (details) {
-		// Delete / move-only: no diff to box — an inline status row.
-		if (!detailDiff && (op === "delete" || rename)) {
-			return (
-				<EditHeader
-					op={op}
-					title={op === "delete" ? undefined : t("tools.edit.op.move")}
-					path={rawPath}
-					moveTo={rename}
-				/>
-			);
-		}
-		if (detailDiff) {
-			return (
-				<div className="flex flex-col gap-1.5">
-					{/* Live, the card heading already names the file and the diff shows its +/−. */}
-					{livePreview ? null : (
+	// Delete / move-only results: no diff to box — an inline status row, kept on the live surface too.
+	if (details && !detailDiff && (op === "delete" || rename)) {
+		return (
+			<EditHeader
+				op={op}
+				title={op === "delete" ? undefined : t("tools.edit.op.move")}
+				path={rawPath}
+				moveTo={rename}
+			/>
+		);
+	}
+
+	// apply_patch mode: the raw input is a patch document, not a unified diff.
+	const patchInput = asNonEmptyString(args.input) ?? asNonEmptyString(args._input);
+	// One diff for the whole call: the authoritative result, else (streaming or
+	// legacy history) the args' patch, else a top-level legacy old/new pair.
+	const singleDiff = details
+		? detailDiff
+		: (asNonEmptyString(args.diff) ??
+			asNonEmptyString(args.previewDiff) ??
+			(argEdits.length === 0 && !patchInput ? editRecordDiff(args) : undefined));
+	if (singleDiff) {
+		return (
+			<FileEditPreview
+				header={
+					livePreview ? null : (
 						<EditHeader
 							op={op}
 							path={rawPath}
 							moveTo={rename}
 							firstChangedLine={firstChangedLine}
-							diff={detailDiff}
+							diff={singleDiff}
 						/>
-					)}
-					<DiffView
-						diff={livePreview ? liveDiffPreview(detailDiff) : detailDiff}
-						filePath={rawPath}
-						className={cx("rounded", PREVIEW_SCROLL_LG)}
-					/>
-				</div>
-			);
-		}
+					)
+				}
+				diff={singleDiff}
+				path={rawPath}
+				livePreview={livePreview}
+			/>
+		);
+	}
+
+	if (details) {
 		// No textual diff: a create (header says it all) or a genuine no-op.
 		return (
 			<div className="flex flex-col gap-1.5">
@@ -326,80 +346,34 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 		);
 	}
 
-	// ── No details yet (streaming) or legacy history: reconstruct from args. ──
-	const argDiff = asString(args.diff) ?? asString(args.previewDiff);
-	if (argDiff) {
-		return (
-			<div className="flex flex-col gap-1.5">
-				{livePreview ? null : <EditHeader op={op} path={rawPath} moveTo={rename} diff={argDiff} />}
-				<DiffView
-					diff={livePreview ? liveDiffPreview(argDiff) : argDiff}
-					filePath={rawPath}
-					className={cx("rounded", PREVIEW_SCROLL_LG)}
-				/>
-			</div>
-		);
-	}
-
 	if (argEdits.length > 0) {
 		// Hashline-style batches span files: no single header path, every
 		// entry gets its own path label. A single entry's diff also feeds the
 		// header stats.
 		const multiFileArgs = totalFiles > 1;
-		const single = argEdits.length === 1 ? argEdits[0] : undefined;
-		const singleOld = single
-			? (asString(single.old_text) ?? asString(single.old_string) ?? asString(single.oldText))
-			: undefined;
-		const singleNew = single
-			? (asString(single.new_text) ?? asString(single.new_string) ?? asString(single.newText))
-			: undefined;
-		const singleDiff = single
-			? (asString(single.diff) ??
-				(singleOld != null || singleNew != null ? oldNewDiff(singleOld, singleNew) : undefined))
-			: undefined;
 		return (
 			<div className="flex flex-col gap-1.5">
 				{livePreview ? null : (
-					<EditHeader op={op} path={multiFileArgs ? "" : rawPath} moveTo={rename} diff={singleDiff} />
+					<EditHeader
+						op={op}
+						path={multiFileArgs ? "" : rawPath}
+						moveTo={rename}
+						diff={argEdits.length === 1 ? editRecordDiff(argEdits[0]) : undefined}
+					/>
 				)}
 				{argEdits.map((entry, index) => {
-					const entryPath = asString(entry.path);
-					const entryDiff = asString(entry.diff);
-					const entryOld = asString(entry.old_text) ?? asString(entry.old_string) ?? asString(entry.oldText);
-					const entryNew = asString(entry.new_text) ?? asString(entry.new_string) ?? asString(entry.newText);
+					const entryPath = asNonEmptyString(entry.path);
+					const entryDiff = editRecordDiff(entry);
 					const entryOp = asOp(entry.op);
-					const entryRename = asString(entry.rename) ?? asString(entry.move);
+					const entryRename = asNonEmptyString(entry.rename) ?? asNonEmptyString(entry.move);
 					const key = `${index}:${entryPath ?? ""}`;
-					const showPathLabel = entryPath !== undefined && (multiFileArgs || entryPath !== rawPath);
 					if (entryDiff) {
 						return (
 							<div key={key} className="flex flex-col gap-1">
-								{showPathLabel && (
+								{entryPath !== undefined && (multiFileArgs || entryPath !== rawPath) && (
 									<div className="truncate font-mono text-omp-xs text-[var(--omp-dim)]">{entryPath}</div>
 								)}
-								<DiffView
-									diff={livePreview ? liveDiffPreview(entryDiff) : entryDiff}
-									filePath={entryPath ?? rawPath}
-									className={cx("rounded", PREVIEW_SCROLL_LG)}
-								/>
-							</div>
-						);
-					}
-					if (entryOld != null || entryNew != null) {
-						return (
-							<div key={key} className="flex flex-col gap-1">
-								{showPathLabel && (
-									<div className="truncate font-mono text-omp-xs text-[var(--omp-dim)]">{entryPath}</div>
-								)}
-								<DiffView
-									diff={
-										livePreview
-											? liveDiffPreview(oldNewDiff(entryOld, entryNew))
-											: oldNewDiff(entryOld, entryNew)
-									}
-									filePath={entryPath ?? rawPath}
-									className={cx("rounded", PREVIEW_SCROLL_LG)}
-								/>
+								<EditDiff diff={entryDiff} path={entryPath ?? rawPath} livePreview={livePreview} />
 							</div>
 						);
 					}
@@ -420,8 +394,6 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 		);
 	}
 
-	// apply_patch mode: the raw input is a patch document, not a unified diff.
-	const patchInput = asString(args.input) ?? asString(args._input);
 	if (patchInput) {
 		return (
 			<div className="flex flex-col gap-1.5">
@@ -432,23 +404,6 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 					showLanguage={false}
 					showCopy={false}
 					maxHeightClass="max-h-72"
-				/>
-			</div>
-		);
-	}
-
-	// Single old/new pair (legacy replace args).
-	const oldStr = asString(args.old_string) ?? asString(args.old_text) ?? asString(args.oldText);
-	const newStr = asString(args.new_string) ?? asString(args.new_text) ?? asString(args.newText);
-	if (oldStr != null || newStr != null) {
-		const fallbackDiff = oldNewDiff(oldStr, newStr);
-		return (
-			<div className="flex flex-col gap-1.5">
-				{livePreview ? null : <EditHeader op={op} path={rawPath} moveTo={rename} diff={fallbackDiff} />}
-				<DiffView
-					diff={livePreview ? liveDiffPreview(fallbackDiff) : fallbackDiff}
-					filePath={rawPath}
-					className={cx("rounded", PREVIEW_SCROLL_LG)}
 				/>
 			</div>
 		);

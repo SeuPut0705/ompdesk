@@ -119,7 +119,7 @@ describe("buildModelRows", () => {
 		expect(rows[1].roles).toEqual([]);
 	});
 
-	it("picks the tightest usage limit per provider, preferring usedFraction then used/limit", () => {
+	it("picks the tightest bridge-normalized usage limit per provider, skipping limits without a fraction", () => {
 		const usage = [
 			report({
 				provider: "anthropic",
@@ -128,7 +128,13 @@ describe("buildModelRows", () => {
 					{ id: "hourly", label: "Hourly", usedFraction: 0.9 },
 				],
 			}),
-			report({ provider: "openai", limits: [{ id: "req", label: "Requests", used: 30, limit: 60 }] }),
+			report({
+				provider: "openai",
+				limits: [
+					{ id: "req", label: "Requests", used: 30, limit: 60, usedFraction: 0.5 },
+					{ id: "unknown", label: "Unknown", used: 99 },
+				],
+			}),
 		];
 		const rows = buildModelRows({
 			models: [model({ provider: "anthropic", id: "a" }), model({ provider: "openai", id: "b" })],

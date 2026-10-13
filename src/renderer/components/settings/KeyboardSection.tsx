@@ -275,7 +275,7 @@ export function KeyboardSection({ query }: { query: string }) {
 												/>
 											</>
 										)}
-										<span className="ml-1" data-hotkey-keys="">
+										<span className="ml-1" data-hotkey-keys="" data-hotkey-action={actionId ?? undefined}>
 											<Kbd shortcut={row.shortcut} />
 										</span>
 									</span>

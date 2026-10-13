@@ -97,7 +97,7 @@ export function MarkdownFileView({ path, tabId }: TextViewProps) {
 			path={path}
 			render={content =>
 				mode === "rendered" ? (
-					<div className="p-4 text-omp-md text-(--omp-text)" data-markdown-rendered>
+					<div className="p-4 text-sc-md text-(--sc-text)" data-markdown-rendered>
 						<MarkdownRenderer content={content} />
 					</div>
 				) : (
@@ -183,7 +183,7 @@ function JsonBody({ content, lines, wrap }: { content: string; lines: boolean; w
 	if (pretty !== null) return <CodeView code={pretty} language="json" wrap={wrap} />;
 	return (
 		<>
-			<p className="px-3 pt-2 text-omp-xs text-(--omp-dim)" data-json-invalid>
+			<p className="px-3 pt-2 text-sc-xs text-(--sc-text-muted)" data-json-invalid>
 				{t("fileViewer.jsonInvalid")}
 			</p>
 			<CodeView code={content} language="plaintext" wrap={wrap} />
@@ -209,17 +209,17 @@ function TableBody({ content, delimiter }: { content: string; delimiter: string 
 	const t = useT();
 	const table = useMemo(() => parseDelimited(content, delimiter, TABLE_ROW_CAP + 1), [content, delimiter]);
 	const [header, ...body] = table.rows;
-	if (!header) return <p className="p-4 text-omp-sm text-(--omp-dim)">{t("fileViewer.tableEmpty")}</p>;
+	if (!header) return <p className="p-4 text-sc-sm text-(--sc-text-muted)">{t("fileViewer.tableEmpty")}</p>;
 	const columns = Math.max(header.length, ...body.map(row => row.length));
 	return (
 		<>
-			<table className="min-w-full border-separate border-spacing-0 font-mono text-omp-sm" data-table-view>
-				<thead className="sticky top-0 z-10">
+			<table className="min-w-full border-separate border-spacing-0 font-mono text-sc-sm" data-table-view>
+				<thead className="sticky top-0 z-(--sc-z-sticky)">
 					<tr>
-						<th className="sticky left-0 border-b border-(--omp-border-muted) bg-(--omp-code-bg) px-2 py-1" />
+						<th className="sticky left-0 border-b border-(--sc-border-subtle) bg-(--sc-surface-2) px-2 py-1" />
 						{Array.from({ length: columns }, (_, c) => (
 							<th
-								className="border-b border-(--omp-border-muted) bg-(--omp-code-bg) px-2 py-1 text-left font-semibold whitespace-nowrap text-(--omp-text)"
+								className="border-b border-(--sc-border-subtle) bg-(--sc-surface-2) px-2 py-1 text-left font-semibold whitespace-nowrap text-(--sc-text)"
 								key={c}
 								scope="col"
 							>
@@ -232,14 +232,14 @@ function TableBody({ content, delimiter }: { content: string; delimiter: string 
 					{body.map((row, r) => (
 						<tr key={r}>
 							<th
-								className="sticky left-0 border-b border-(--omp-border-muted)/50 bg-(--omp-code-bg) px-2 py-0.5 text-right font-normal text-(--omp-dim)"
+								className="sticky left-0 border-b border-(--sc-divider) bg-(--sc-surface-2) px-2 py-0.5 text-right font-normal text-(--sc-text-muted)"
 								scope="row"
 							>
 								{r + 1}
 							</th>
 							{Array.from({ length: columns }, (_, c) => (
 								<td
-									className="max-w-96 truncate border-b border-(--omp-border-muted)/50 px-2 py-0.5 whitespace-pre text-(--omp-text)"
+									className="max-w-96 truncate border-b border-(--sc-divider) px-2 py-0.5 whitespace-pre text-(--sc-text)"
 									key={c}
 									title={row[c]}
 								>
@@ -251,7 +251,7 @@ function TableBody({ content, delimiter }: { content: string; delimiter: string 
 				</tbody>
 			</table>
 			{table.clipped && (
-				<p className="px-3 py-2 text-omp-xs text-(--omp-dim)" data-table-clipped>
+				<p className="px-3 py-2 text-sc-xs text-(--sc-text-muted)" data-table-clipped>
 					{t("fileViewer.tableClipped", { rows: TABLE_ROW_CAP })}
 				</p>
 			)}
@@ -276,7 +276,7 @@ function NotebookBody({ content }: { content: string }) {
 	if (!notebook) {
 		return (
 			<>
-				<p className="px-3 pt-2 text-omp-xs text-(--omp-dim)" data-notebook-invalid>
+				<p className="px-3 pt-2 text-sc-xs text-(--sc-text-muted)" data-notebook-invalid>
 					{t("fileViewer.notebookInvalid")}
 				</p>
 				<CodeView code={content} language="json" wrap={false} />
@@ -284,18 +284,18 @@ function NotebookBody({ content }: { content: string }) {
 		);
 	}
 	if (notebook.cells.length === 0) {
-		return <p className="p-4 text-omp-sm text-(--omp-dim)">{t("fileViewer.notebookEmpty")}</p>;
+		return <p className="p-4 text-sc-sm text-(--sc-text-muted)">{t("fileViewer.notebookEmpty")}</p>;
 	}
 	return (
 		<div className="flex flex-col gap-3 p-3" data-notebook-view>
 			{notebook.cells.map((cell, index) =>
 				cell.kind === "markdown" ? (
-					<div className="px-1 text-omp-md text-(--omp-text)" data-cell="markdown" key={index}>
+					<div className="px-1 text-sc-md text-(--sc-text)" data-cell="markdown" key={index}>
 						<MarkdownRenderer content={cell.source} />
 					</div>
 				) : cell.kind === "code" ? (
 					<div className="flex min-w-0 flex-col gap-1.5" data-cell="code" key={index}>
-						<span className="font-mono text-omp-xs text-(--omp-dim)">{`In [${cell.executionCount ?? " "}]`}</span>
+						<span className="font-mono text-sc-xs text-(--sc-text-muted)">{`In [${cell.executionCount ?? " "}]`}</span>
 						<CodeBlock code={cell.source} language={notebook.language} showLanguage={false} />
 						{cell.outputs.map((output, k) =>
 							output.kind === "image" ? (
@@ -308,7 +308,7 @@ function NotebookBody({ content }: { content: string }) {
 								</div>
 							) : (
 								<pre
-									className="overflow-x-auto px-1 font-mono text-omp-sm leading-[1.5] whitespace-pre-wrap text-(--omp-text)"
+									className="overflow-x-auto px-1 font-mono text-sc-sm leading-(--sc-leading-normal) whitespace-pre-wrap break-words text-(--sc-text)"
 									data-cell-output="text"
 									key={k}
 								>
@@ -319,7 +319,7 @@ function NotebookBody({ content }: { content: string }) {
 					</div>
 				) : (
 					<pre
-						className="overflow-x-auto px-1 font-mono text-omp-sm whitespace-pre-wrap text-(--omp-muted)"
+						className="overflow-x-auto px-1 font-mono text-sc-sm whitespace-pre-wrap break-words text-(--sc-text-muted)"
 						data-cell="raw"
 						key={index}
 					>

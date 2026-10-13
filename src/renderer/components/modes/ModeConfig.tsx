@@ -257,7 +257,7 @@ function ModeFrame<T>({ rpc, children }: { rpc: ModeRpc<T>; children: (state: T)
 				title={!rpc.ready ? t("modesPanel.notConnected") : undefined}
 				variant="secondary"
 			>
-				{t("modesPanel.retry")}
+				{t("common.retry")}
 			</Button>
 		</div>
 	);

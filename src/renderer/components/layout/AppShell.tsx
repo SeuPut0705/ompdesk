@@ -78,6 +78,29 @@ function PageTopBar({ showSidebarToggle }: { showSidebarToggle: boolean }) {
 	);
 }
 
+/**
+ * Selecting a session (another tab, a switch in place, a new session) returns
+ * from a destination page to the session view. A tab's first session arriving
+ * (sessionId "" → id once get_state lands, after the sidecar reports ready) is
+ * startup, not a selection: a page the user opened meanwhile stays open.
+ * Returns the unsubscribe.
+ */
+export function leavePageOnSessionSelect(): () => void {
+	const leave = () => {
+		if (useUiStore.getState().destination !== "session") useUiStore.getState().closeDestination();
+	};
+	const unsubscribeTabs = useTabsStore.subscribe((next, previous) => {
+		if (next.activeTabId !== previous.activeTabId) leave();
+	});
+	const unsubscribeSession = useSessionStore.subscribe((next, previous) => {
+		if (previous.sessionId !== "" && next.sessionId !== previous.sessionId) leave();
+	});
+	return () => {
+		unsubscribeTabs();
+		unsubscribeSession();
+	};
+}
+
 export function AppShell() {
 	const t = useT();
 	const destination = useUiStore(s => s.destination);
@@ -102,23 +125,7 @@ export function AppShell() {
 		if (ui.panelVisible) ui.togglePanel();
 	}, [compact]);
 
-	// Selecting a session (another tab, a switch in place, a new session)
-	// returns from a destination page to the session view.
-	useEffect(() => {
-		const leave = () => {
-			if (useUiStore.getState().destination !== "session") useUiStore.getState().closeDestination();
-		};
-		const unsubscribeTabs = useTabsStore.subscribe((next, previous) => {
-			if (next.activeTabId !== previous.activeTabId) leave();
-		});
-		const unsubscribeSession = useSessionStore.subscribe((next, previous) => {
-			if (previous.sessionId !== null && next.sessionId !== previous.sessionId) leave();
-		});
-		return () => {
-			unsubscribeTabs();
-			unsubscribeSession();
-		};
-	}, []);
+	useEffect(leavePageOnSessionSelect, []);
 
 	// Esc on a page goes back to the session, unless something on the page
 	// (a search field, a menu) or an overlay already used the keystroke.

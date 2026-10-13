@@ -26,6 +26,7 @@ import { useToastStore } from "../stores/toast";
 import { selectTodoCardVisible, useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
 import { useUiStore } from "../stores/ui";
+import { routeCommands } from "../test-support/route-commands";
 import { dropSessionNow, newSessionNow, switchSessionNow } from "./use-session-switch";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -108,7 +109,7 @@ function installMockOmp(): MockOmp {
 		sessions: {
 			openInNewWindow: vi.fn(async () => true),
 		},
-		rpc: {
+		rpc: routeCommands({
 			dropSession: vi.fn(async () => ok({ cancelled: false })),
 			newSession: vi.fn(async () => ok({ cancelled: false })),
 			getState: vi.fn(async () => ok(serverState())),
@@ -120,7 +121,7 @@ function installMockOmp(): MockOmp {
 			getQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
 			switchSession: vi.fn(async () => ok({})),
 			setSubagentSubscription: vi.fn(async () => ok({})),
-		},
+		}),
 	};
 	(window as unknown as { omp: MockOmp }).omp = omp;
 	return omp;
@@ -283,7 +284,6 @@ describe("switchSessionNow F-OWN owner guard", () => {
 		});
 		useMessagesStore.setState({
 			messages: [{ role: "user", content: [{ type: "text", text: "old session" }], timestamp: 1 }],
-			totalMessages: 1,
 		});
 		useToolsStore.setState({
 			finishedTools: new Map([
@@ -397,7 +397,7 @@ describe("switchSessionNow F-OWN owner guard", () => {
 	it("keeps the outgoing transcript when switch_session fails", async () => {
 		seedTabs();
 		const kept = { role: "user" as const, content: "stay", timestamp: 1 };
-		useMessagesStore.setState({ messages: [kept], totalMessages: 1 });
+		useMessagesStore.setState({ messages: [kept] });
 		omp.rpc.switchSession.mockResolvedValue({
 			type: "response",
 			command: "switch_session",

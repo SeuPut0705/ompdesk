@@ -31,7 +31,7 @@ describe("older transcript pages", () => {
 	it("prepends in transcript order and dedupes entry ids without a live-arrival signal", () => {
 		const store = createMessagesStore();
 		const newest = userMessage("newest");
-		store.getState().loadPage({ messages: [userMessage("middle"), newest], totalMessages: 4, prevCursor: "older" });
+		store.setState({ messages: [userMessage("middle"), newest], prevCursor: "older" });
 		store.getState().prependPage({
 			messages: [userMessage("first"), userMessage("first"), userMessage("second"), userMessage("middle")],
 			totalMessages: 4,
@@ -77,16 +77,6 @@ describe("messages streaming snapshots", () => {
 				streamingText: "new reply",
 			});
 		}
-	});
-	it("resumes the accumulated prefix after switching away and back", () => {
-		useMessagesStore.getState().applyEvents([{ type: "message_start", message: streamingMessage }, delta("hel")]);
-		const snapshot = useMessagesStore.getState().snapshot();
-
-		useMessagesStore.getState().applyEvents([delta("discarded")]);
-		useMessagesStore.getState().restoreSnapshot(snapshot);
-		useMessagesStore.getState().applyEvents([delta("lo")]);
-
-		expect(useMessagesStore.getState().streamingText).toBe("hello");
 	});
 
 	it("starts a new stream from an empty buffer even when the start and delta share a batch", () => {
@@ -247,7 +237,6 @@ describe("committed transcript ownership", () => {
 		useMessagesStore.getState().applyEvents([{ type: "agent_end", messages: [rewritten] }]);
 
 		expect(useMessagesStore.getState().messages).toEqual([rewritten]);
-		expect(useMessagesStore.getState().totalMessages).toBe(1);
 	});
 
 	it("does not erase a live response without a persisted replacement", () => {
@@ -301,7 +290,7 @@ describe("transcript hydration", () => {
 		};
 		const delivered: AgentMessage = { role: "user", content: "new question", timestamp: 3 };
 		const persisted = { ...delivered, entryId: "current-entry" };
-		useMessagesStore.setState({ messages: [previous], totalMessages: 1 });
+		useMessagesStore.setState({ messages: [previous] });
 		useMessagesStore.getState().appendLiveMessage(optimistic);
 		useMessagesStore.getState().applyEvents([{ type: "message_end", message: delivered }]);
 
@@ -313,7 +302,7 @@ describe("transcript hydration", () => {
 
 	it("replaces a different persisted branch instead of guessing by content or timestamp", () => {
 		const a = userMessage("a");
-		useMessagesStore.setState({ messages: [a], totalMessages: 1 });
+		useMessagesStore.setState({ messages: [a] });
 		const next = userMessage("other");
 		useMessagesStore.getState().reconcileFetched([next]);
 		expect(useMessagesStore.getState().messages).toEqual([next]);

@@ -57,8 +57,8 @@ describe("todo snapshot archive", () => {
 		store.setPhases([phase("Build", ["scaffold", "pending"], ["wire", "pending"])]);
 		store.setTurnActive(true);
 		store.setPhases([phase("Build", ["scaffold", "completed"], ["wire", "pending"])]);
-		const final = useTodoStore.getState().history.at(-1);
 		store.setTurnActive(false);
+		const final = useTodoStore.getState().history.at(-1);
 		store.setPhases([phase("Build", ["scaffold", "completed"], ["wire", "completed"])]);
 		const history = useTodoStore.getState().history;
 		expect(history).toHaveLength(2);

@@ -70,7 +70,7 @@ export function ImageView({ path, tabId }: MediaViewProps) {
 				src={state.src}
 			/>
 			{dimensions && (
-				<p className="mt-2 text-omp-xs text-(--omp-dim) tabular-nums" data-image-info>
+				<p className="mt-2 text-sc-xs text-(--sc-text-muted) tabular-nums" data-image-info>
 					{t("fileViewer.imageInfo", { width: dimensions.width, height: dimensions.height })}
 				</p>
 			)}

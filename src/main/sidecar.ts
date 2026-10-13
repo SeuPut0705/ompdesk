@@ -14,31 +14,16 @@ import { DEFAULT_ROLE_MODEL_SELECTOR, parseModelRestoreFailure } from "../shared
 import type {
 	AgentMessage,
 	AgentSessionEvent,
-	CommandOutputFrame,
-	ConfigUpdateFrame,
-	ExtensionErrorFrame,
-	ExtensionUIRequest,
-	HostToolCallRequest,
-	HostUriRequest,
-	ModelCatalogUpdateFrame,
-	OutboundFrame,
-	PromptResultFrame,
-	RpcBtwFrame,
 	RpcCommand,
-	RpcLiveFrame,
 	RpcReadyFrame,
 	RpcResponse,
-	SessionInfoUpdateFrame,
-	SessionSettledFrame,
 	SidecarRestartProgress,
 	SidecarStatus,
 	SidecarStatusPayload,
-	SubagentFrame,
 } from "../shared/rpc-types";
 import { BTW_FRAME_TYPES, LIVE_FRAME_TYPES } from "../shared/rpc-types";
 import { isNoModelBootFailure } from "./boot-model";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
-import type { BridgeConnectResult } from "./bridge-health";
 import { EventBatcher } from "./event-batcher";
 import { localHandlerFor, runLocalCommand } from "./local";
 import { projectQueueUpdate } from "./local/queue";
@@ -46,6 +31,7 @@ import type { BridgeClient, LocalCommandContext, OmpRuntime } from "./local/type
 import { type OmpResolution, ompNeedsShell, ompPathEnv, ompSpawnArgs, ompSpawnCommand } from "./omp-runtime";
 import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
 import { RpcClient } from "./rpc-client";
+import { completeRunMessages } from "./run-messages";
 
 const MAX_RESTART_ATTEMPTS = 3;
 const RESTART_DELAYS = [1000, 2000, 4000];
@@ -151,6 +137,30 @@ const AGENT_EVENT_TYPES: Record<string, true> = {
 	read_group_metadata: true,
 };
 
+/**
+ * Stock frame type → the event that re-emits the frame itself (pool wiring,
+ * remote hosts). Every frame also goes out as `frame`; `ready`, `response`,
+ * `available_commands_update` (emits its `commands`) and the batched agent
+ * events are dispatched on their own.
+ */
+const FRAME_EVENTS: Record<string, string> = {
+	extension_ui_request: "extensionUi",
+	host_tool_call: "hostToolCall",
+	host_uri_request: "hostUriRequest",
+	subagent_lifecycle: "subagentFrame",
+	subagent_progress: "subagentFrame",
+	subagent_event: "subagentFrame",
+	model_catalog_update: "modelCatalogUpdate",
+	config_update: "configUpdate",
+	prompt_result: "promptResult",
+	session_settled: "sessionSettled",
+	command_output: "commandOutput",
+	session_info_update: "sessionInfoUpdate",
+	extension_error: "extensionError",
+	...Object.fromEntries([...LIVE_FRAME_TYPES].map(type => [type, "liveFrame"])),
+	...Object.fromEntries(Object.keys(BTW_FRAME_TYPES).map(type => [type, "btwFrame"])),
+};
+
 type Frame = Record<string, unknown>;
 
 /** The live session's identity as last reported by `get_state`. */
@@ -164,6 +174,8 @@ export interface SidecarOptions {
 	omp: () => Promise<OmpResolution>;
 	/** The gui-bridge extension directory. Absent: no `-e`, no bridge (tests). */
 	bridgeDir?: string;
+	/** Optional app-only MCP root, resolved before a spawn; never touches stock config. */
+	builtinMcp?: () => Promise<{ args: string[]; root?: string }>;
 	cwd: string;
 	extraFlags?: string[];
 	/** Fresh GUI tabs must not inherit the CLI's persistent autoResume setting. */
@@ -260,25 +272,6 @@ function loadLaunchProfileFlags(cwd: string): string[] {
 	}
 }
 
-export interface SidecarEvents {
-	status: (payload: SidecarStatusPayload) => void;
-	events: (events: AgentSessionEvent[]) => void;
-	extensionUi: (request: ExtensionUIRequest) => void;
-	hostToolCall: (request: HostToolCallRequest) => void;
-	hostUriRequest: (request: HostUriRequest) => void;
-	subagentFrame: (frame: SubagentFrame) => void;
-	liveFrame: (frame: RpcLiveFrame) => void;
-	btwFrame: (frame: RpcBtwFrame) => void;
-	modelCatalogUpdate: (frame: ModelCatalogUpdateFrame) => void;
-	commandsUpdate: (commands: unknown[]) => void;
-	sessionSettled: (frame: SessionSettledFrame) => void;
-	frame: (frame: OutboundFrame) => void;
-	/** The live session's id/file changed (observed through `get_state`). */
-	session: (identity: SidecarSessionIdentity) => void;
-	/** The gui-bridge connect settled for this spawn (bridge-health.ts checks it). */
-	bridge: (result: BridgeConnectResult) => void;
-}
-
 /**
  * Runs once, between a fresh tab's first bridge connect and its `ready`, while
  * the tab still reports `starting` (src/main/worktree-lifecycle.ts). Resolves
@@ -328,6 +321,7 @@ export class SidecarManager extends EventEmitter {
 	#options: SidecarOptions;
 	#runtime: OmpRuntime | null = null;
 	#proxyEnvVars: Record<string, string> = {};
+	#builtinMcp: { args: string[]; root?: string } = { args: [] };
 	#shellEnvVars: Record<string, string> = {};
 	#resumeSessionPath: string | null = null;
 	#freshLaunchPending: boolean;
@@ -354,6 +348,8 @@ export class SidecarManager extends EventEmitter {
 	 * (`agent_end` before `prompt_result`/`session_settled`) intact.
 	 */
 	#held: { event: Frame; frames: Frame[] } | null = null;
+	/** Messages delivered by `message_end` since the last `agent_end`; completes that end's commit. */
+	#runMessages: AgentMessage[] = [];
 	#disposed = false;
 	/** One-shot gate held until the first spawn's `ready` (see SidecarStartGate). */
 	#startGate: SidecarStartGate | null = null;
@@ -406,7 +402,8 @@ export class SidecarManager extends EventEmitter {
 			),
 			proxyEnv ? proxyEnv().catch(fallback) : Promise.resolve({}),
 			shellEnv ? shellEnv().catch(fallback) : Promise.resolve({}),
-		]).then(([resolution, proxyVars, shellVars]) => {
+			this.#options.builtinMcp?.().catch(() => ({ args: [] })) ?? Promise.resolve({ args: [] }),
+		]).then(([resolution, proxyVars, shellVars, builtinMcp]) => {
 			if (this.#disposed || seq !== this.#startSeq) return;
 			if (!resolution.ok) {
 				this.#setStatus("error", resolution.error);
@@ -415,6 +412,7 @@ export class SidecarManager extends EventEmitter {
 			this.#runtime = resolution.runtime;
 			this.#proxyEnvVars = proxyVars;
 			this.#shellEnvVars = shellVars;
+			this.#builtinMcp = builtinMcp;
 			this.#spawn();
 		});
 	}
@@ -446,6 +444,7 @@ export class SidecarManager extends EventEmitter {
 		else if (this.#bootModelFallback) args.push("--model", DEFAULT_ROLE_MODEL_SELECTOR);
 		const bridgeAddress = bridgeDir ? newBridgeAddress() : null;
 		if (bridgeDir) args.push("-e", join(bridgeDir, BRIDGE_ENTRY));
+		args.push(...this.#builtinMcp.args);
 		// User-controllable flags ride the extraFlags seam + the launch profile.
 		// Strip the code-controlled-flag denylist (pair-aware) over BOTH, then
 		// append: neither can override the code-controlled argv above, while a
@@ -471,6 +470,7 @@ export class SidecarManager extends EventEmitter {
 					...(replyLanguage ? { OMP_GUI_REPLY_LANGUAGE: replyLanguage } : {}),
 					...(accountRotation ? { OMP_GUI_ACCOUNT_ROTATION: accountRotation } : {}),
 					...(accountRotationLedger ? { OMP_GUI_ACCOUNT_ROTATION_STATE: accountRotationLedger } : {}),
+					...(this.#builtinMcp.root ? { OMP_GUI_REA_ROOT: this.#builtinMcp.root } : {}),
 					PI_RPC_EMIT_TITLE: "1",
 					PI_NO_PTY: "1",
 					PI_NOTIFICATIONS: "off",
@@ -579,12 +579,10 @@ export class SidecarManager extends EventEmitter {
 		if (!this.#session) await client.stock({ type: "get_state" }).catch(() => undefined);
 		return {
 			cwd: this.#options.cwd,
-			sessionId: this.#session?.sessionId,
 			sessionFile: this.#session?.sessionFile,
 			omp: runtime,
 			send,
 			bridge,
-			emit: frame => this.#routeFrame(frame),
 		};
 	}
 
@@ -605,6 +603,7 @@ export class SidecarManager extends EventEmitter {
 			}
 		} else if (SESSION_CHANGING_COMMANDS[command.type] === true) {
 			this.#session = null;
+			this.#runMessages = [];
 		}
 	}
 
@@ -619,9 +618,17 @@ export class SidecarManager extends EventEmitter {
 				this.#held.frames.push(obj);
 				return;
 			}
-			if (obj.type === "agent_end" && Array.isArray(obj.messages) && this.#rpcClient) {
-				this.#holdForEntryIds(obj);
-				return;
+			if (obj.type === "message_end" && typeof obj.message === "object" && obj.message !== null) {
+				this.#runMessages.push(obj.message as AgentMessage);
+			}
+			if (obj.type === "agent_end") {
+				const delivered = this.#runMessages;
+				this.#runMessages = [];
+				// Stock's agent_end can omit part of the run it already streamed (run-messages.ts).
+				if (Array.isArray(obj.messages) && this.#rpcClient) {
+					this.#holdForEntryIds({ ...obj, messages: completeRunMessages(delivered, obj.messages) });
+					return;
+				}
 			}
 			if (obj.type === "session_info_update") this.#session = null;
 		}
@@ -666,106 +673,19 @@ export class SidecarManager extends EventEmitter {
 	}
 
 	#dispatchFrame(obj: Frame): void {
-		// Ready frame
-		if (obj.type === "ready") {
+		const type = obj.type as string;
+		if (type === "ready") {
 			this.#handleReady(obj as unknown as RpcReadyFrame);
 			return;
 		}
-
-		// Response frame → route to RPC client
-		if (obj.type === "response") {
-			const handled = this.#rpcClient?.onResponse(obj as unknown as RpcResponse);
-			if (handled) return;
-		}
-
-		// Extension UI request
-		if (obj.type === "extension_ui_request") {
-			this.emit("extensionUi", obj as ExtensionUIRequest);
-			this.emit("frame", obj);
-			return;
-		}
-
-		// Host tool/URI requests
-		if (obj.type === "host_tool_call") {
-			this.emit("hostToolCall", obj as unknown as HostToolCallRequest);
-			this.emit("frame", obj);
-			return;
-		}
-		if (obj.type === "host_uri_request") {
-			this.emit("hostUriRequest", obj as unknown as HostUriRequest);
-			this.emit("frame", obj);
-			return;
-		}
-
-		// Subagent frames
-		if (obj.type === "subagent_lifecycle" || obj.type === "subagent_progress" || obj.type === "subagent_event") {
-			this.emit("subagentFrame", obj as unknown as SubagentFrame);
-			this.emit("frame", obj);
-			return;
-		}
-
-		// Available commands update
-		if (obj.type === "available_commands_update") {
-			this.emit("commandsUpdate", (obj as { commands: unknown[] }).commands);
-			this.emit("frame", obj);
-			return;
-		}
-		if (obj.type === "model_catalog_update") {
-			this.emit("modelCatalogUpdate", obj as unknown as ModelCatalogUpdateFrame);
-			this.emit("frame", obj);
-			return;
-		}
-
-		// Config update (set_setting, slash-command config edits)
-		if (obj.type === "config_update") {
-			this.emit("configUpdate", obj as unknown as ConfigUpdateFrame);
-			this.emit("frame", obj);
-			return;
-		}
-		if (obj.type === "prompt_result") {
-			this.emit("promptResult", obj as unknown as PromptResultFrame);
-			this.emit("frame", obj);
-			return;
-		}
-		if (obj.type === "session_settled") {
-			this.emit("sessionSettled", obj as unknown as SessionSettledFrame);
-			this.emit("frame", obj);
-			return;
-		}
-		if (obj.type === "command_output") {
-			this.emit("commandOutput", obj as unknown as CommandOutputFrame);
-			this.emit("frame", obj);
-			return;
-		}
-		if (obj.type === "session_info_update") {
-			this.emit("sessionInfoUpdate", obj as unknown as SessionInfoUpdateFrame);
-			this.emit("frame", obj);
-			return;
-		}
-		if (obj.type === "extension_error") {
-			this.emit("extensionError", obj as unknown as ExtensionErrorFrame);
-			this.emit("frame", obj);
-			return;
-		}
-		if (LIVE_FRAME_TYPES.has(obj.type as string)) {
-			this.emit("liveFrame", obj as unknown as RpcLiveFrame);
-			this.emit("frame", obj);
-			return;
-		}
-		if (BTW_FRAME_TYPES[obj.type as string] === true) {
-			this.emit("btwFrame", obj as unknown as RpcBtwFrame);
-			this.emit("frame", obj);
-			return;
-		}
-
-		// Agent session events → batcher
-		if (AGENT_EVENT_TYPES[obj.type as string] === true) {
+		if (type === "response" && this.#rpcClient?.onResponse(obj as unknown as RpcResponse)) return;
+		if (AGENT_EVENT_TYPES[type] === true) {
 			this.#batcher?.push(obj as AgentSessionEvent);
-			this.emit("frame", obj);
-			return;
+		} else if (type === "available_commands_update") {
+			this.emit("commandsUpdate", obj.commands);
+		} else if (Object.hasOwn(FRAME_EVENTS, type)) {
+			this.emit(FRAME_EVENTS[type], obj);
 		}
-
-		// Other extension/host frames not consumed directly by the renderer.
 		this.emit("frame", obj);
 	}
 
@@ -940,6 +860,7 @@ export class SidecarManager extends EventEmitter {
 		this.#detachParser?.();
 		this.#detachParser = null;
 		this.#releaseHeld();
+		this.#runMessages = [];
 		this.#batcher?.flushNow();
 		this.#batcher?.dispose();
 		this.#batcher = null;

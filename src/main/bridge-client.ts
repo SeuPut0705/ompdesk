@@ -10,6 +10,7 @@ import { rmSync } from "node:fs";
 import * as net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import { type BridgeClient, LocalCommandError } from "./local/types";
 
 type BridgeEvent = { type: string; [k: string]: unknown };
@@ -37,10 +38,10 @@ export class GuiBridgeClient implements BridgeClient {
 	readonly #address: string;
 	#socket: net.Socket | null = null;
 	#connecting: Promise<void> | null = null;
+	#cancelConnect: (() => void) | null = null;
 	#pending = new Map<number, Pending>();
 	#listeners = new Set<(event: BridgeEvent) => void>();
 	#nextId = 0;
-	#buffer = "";
 	#closed = false;
 
 	constructor(address: string) {
@@ -58,32 +59,50 @@ export class GuiBridgeClient implements BridgeClient {
 		if (this.#connecting) return this.#connecting;
 		const { promise, resolve, reject } = Promise.withResolvers<void>();
 		const socket = net.connect(this.#address);
-		const timer = setTimeout(() => {
+		const reader = createInterface({ input: socket, crlfDelay: Number.POSITIVE_INFINITY });
+		const fail = (error: Error): void => {
+			clearTimeout(timer);
+			reader.close();
 			socket.destroy();
-			reject(new Error(`GUI bridge did not accept a connection within ${timeoutMs}ms`));
-		}, timeoutMs);
+			if (this.#socket === socket) {
+				this.#socket = null;
+				this.#rejectAll(error.message);
+			}
+			reject(error);
+		};
+		const timer = setTimeout(
+			() => fail(new Error(`GUI bridge did not accept a connection within ${timeoutMs}ms`)),
+			timeoutMs,
+		);
+		this.#cancelConnect = () => fail(new Error("GUI bridge is closed"));
 		socket.once("connect", () => {
 			clearTimeout(timer);
 			if (this.#closed) {
-				socket.destroy();
-				reject(new Error("GUI bridge is closed"));
+				fail(new Error("GUI bridge is closed"));
 				return;
 			}
 			this.#socket = socket;
 			resolve();
 		});
-		socket.once("error", err => {
-			clearTimeout(timer);
-			reject(err);
+		// readline forwards input errors on its own emitter. Both emitters must
+		// route failures to the connecting caller (or outstanding requests).
+		socket.on("error", fail);
+		reader.on("error", fail);
+		reader.on("line", line => {
+			if (line.trim()) this.#onFrame(line);
 		});
-		socket.setEncoding("utf8");
-		socket.on("data", (chunk: string) => this.#onData(chunk));
 		socket.on("close", () => {
-			if (this.#socket === socket) this.#socket = null;
-			this.#rejectAll("GUI bridge disconnected");
+			clearTimeout(timer);
+			reader.close();
+			if (this.#socket === socket) {
+				this.#socket = null;
+				this.#rejectAll("GUI bridge disconnected");
+			}
+			reject(new Error("GUI bridge disconnected"));
 		});
 		this.#connecting = promise.finally(() => {
 			this.#connecting = null;
+			this.#cancelConnect = null;
 		});
 		return this.#connecting;
 	}
@@ -106,29 +125,12 @@ export class GuiBridgeClient implements BridgeClient {
 
 	close(): void {
 		this.#closed = true;
+		this.#cancelConnect?.();
+		this.#cancelConnect = null;
 		this.#socket?.destroy();
 		this.#socket = null;
 		this.#rejectAll("GUI bridge closed");
 		this.#listeners.clear();
-	}
-
-	#onData(chunk: string): void {
-		// Look for the newline in the new chunk only: rescanning the whole buffer per
-		// chunk made a multi-MB reply cost quadratic time and stalled every request behind it.
-		let newline = chunk.indexOf("\n");
-		if (newline === -1) {
-			this.#buffer += chunk;
-			return;
-		}
-		let rest = chunk;
-		while (newline !== -1) {
-			const line = this.#buffer + rest.slice(0, newline);
-			this.#buffer = "";
-			rest = rest.slice(newline + 1);
-			if (line.trim()) this.#onFrame(line);
-			newline = rest.indexOf("\n");
-		}
-		this.#buffer = rest;
 	}
 
 	#onFrame(line: string): void {

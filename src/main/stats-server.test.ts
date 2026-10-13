@@ -36,7 +36,6 @@ await Bun.sleep(5000);
 test("stats does not contact an unrelated default server before its own listener is ready", async () => {
 	const fetch = vi.spyOn(globalThis, "fetch");
 	const client = new StatsClient();
-	expect(await client.probe()).toBe(false);
 	await expect(client.fetch("/api/stats/requests")).rejects.toThrow("not ready");
 	expect(fetch).not.toHaveBeenCalled();
 });

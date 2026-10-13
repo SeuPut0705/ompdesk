@@ -42,8 +42,10 @@ import { canonicalCwd } from "../canonical-cwd";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
 import type { MachineServices } from "../machine-services";
 import type { SessionIndex } from "../session-index";
+import { deleteSession, renameSession } from "../session-mutations";
 import type { SidecarSessionIdentity } from "../sidecar";
 import type { SidecarLike, SidecarPool } from "../sidecar-pool";
+import { applyRunEvent, idleRun, type RunState, runBusy, settleRun } from "../sidecar-run-state";
 import {
 	FS_BINARY_REMOTE_MAX_BYTES,
 	listDirectories,
@@ -112,53 +114,7 @@ interface HostTab {
 	/** Session file the sidecar last reported (live-owner checks for delete/rename). */
 	sessionFile: string | undefined;
 	graceTimer: NodeJS.Timeout | undefined;
-	run: HostTabRun;
-}
-
-/** A host tab's turn state, read from its sidecar's events like the local pool's `running`. */
-interface HostTabRun {
-	/** agent_start seen, its run not yet over. */
-	running: boolean;
-	/** The prompt yielded while background work can still wake the session. */
-	awaitingSettled: boolean;
-	/** Inside an auto-retry saga: its coalesced agent_end is not the end of the run. */
-	retrying: boolean;
-	endedWhileRetrying: boolean;
-	compacting: boolean;
-}
-
-const IDLE_RUN: Readonly<HostTabRun> = {
-	running: false,
-	awaitingSettled: false,
-	retrying: false,
-	endedWhileRetrying: false,
-	compacting: false,
-};
-
-function runEvent(run: HostTabRun, event: AgentSessionEvent): void {
-	switch (event.type) {
-		case "agent_start":
-			run.running = true;
-			break;
-		case "agent_end":
-			if (run.retrying) run.endedWhileRetrying = true;
-			else if (!run.awaitingSettled) run.running = false;
-			break;
-		case "auto_retry_start":
-			run.retrying = true;
-			break;
-		case "auto_retry_end":
-			run.retrying = false;
-			if (!event.success && run.endedWhileRetrying && !run.awaitingSettled) run.running = false;
-			run.endedWhileRetrying = false;
-			break;
-		case "auto_compaction_start":
-			run.compacting = true;
-			break;
-		case "auto_compaction_end":
-			run.compacting = false;
-			break;
-	}
+	run: RunState;
 }
 
 const Rtab = z.string().min(1).max(128);
@@ -170,7 +126,6 @@ const RtabParams = z.object({ rtab: Rtab });
 const OpenParams = z.object({
 	rtab: Rtab,
 	cwd: AbsolutePath.optional(),
-	defaultWorkspace: z.boolean().optional(),
 	kind: z.enum(["agent", "chat"]).optional(),
 	fresh: z.boolean().optional(),
 	sessionPath: SessionPath.optional(),
@@ -209,6 +164,7 @@ const StatsFetchParams = z.object({ path: z.string().min(1).max(512), params: z.
 const BenchRunParams = z.object({ ...FsRoot, options: BenchmarkOptionsSchema });
 const ModelSetupRunParams = z.object({ request: ModelSetupRequestSchema });
 const AccountRotationSetParams = z.object({ mode: z.enum(ACCOUNT_ROTATION_MODES) });
+const BuiltinReaSetParams = z.object({ enabled: z.boolean() });
 
 function parse<T extends z.ZodTypeAny>(schema: T, method: string, params: unknown): z.infer<T> {
 	const parsed = schema.safeParse(params ?? {});
@@ -242,7 +198,7 @@ export class LocalHostServices implements HostServices {
 	/** Paired devices with a host tab running a turn here (connected or in their grace period). */
 	runningPeers(): string[] {
 		const peers = new Set<string>();
-		for (const tab of this.#tabs.values()) if (isBusy(tab.run)) peers.add(tab.peerId);
+		for (const tab of this.#tabs.values()) if (runBusy(tab.run)) peers.add(tab.peerId);
 		return [...peers];
 	}
 
@@ -380,6 +336,10 @@ export class LocalHostServices implements HostServices {
 				return this.#deps.machine.accountRotation();
 			case "host.accountRotation.set":
 				return this.#deps.machine.setAccountRotation(parse(AccountRotationSetParams, method, params).mode);
+			case "host.builtinRea.get":
+				return this.#deps.machine.builtinRea();
+			case "host.builtinRea.set":
+				return this.#deps.machine.setBuiltinRea(parse(BuiltinReaSetParams, method, params).enabled);
 			default:
 				throw codedError("unsupported", `Unknown method ${method}`);
 		}
@@ -457,15 +417,10 @@ export class LocalHostServices implements HostServices {
 				this.#emit(existing, "status", this.#statusArg(existing.sidecar, existing.sidecar.statusPayload));
 			return { cwd: existing.sidecar.cwd, kind: existing.sidecar.kind, attached };
 		}
-		let cwd: string;
-		if (params.defaultWorkspace) cwd = canonicalCwd(this.#deps.defaultWorkspace());
-		else if (params.cwd) cwd = await directory(params.cwd);
-		else throw codedError("no_workspace", "No workspace");
+		if (!params.cwd) throw codedError("no_workspace", "No workspace");
+		const cwd = await directory(params.cwd);
 		const kind =
-			params.defaultWorkspace === true
-				? "agent"
-				: (params.kind ??
-					(params.sessionPath ? await this.#deps.sessionIndex.kindFor(params.sessionPath) : "agent"));
+			params.kind ?? (params.sessionPath ? await this.#deps.sessionIndex.kindFor(params.sessionPath) : "agent");
 		// A concurrent open for the same rtab may have finished while this one awaited.
 		const raced = this.#tabs.get(key);
 		if (raced) return this.#open(peer, params, conn);
@@ -478,7 +433,7 @@ export class LocalHostServices implements HostServices {
 			resumeSessionPath: params.sessionPath,
 			sessionFile: params.sessionPath,
 			graceTimer: undefined,
-			run: { ...IDLE_RUN },
+			run: idleRun(),
 		};
 		this.#tabs.set(key, tab);
 		this.#wire(tab);
@@ -515,32 +470,26 @@ export class LocalHostServices implements HostServices {
 	/** Keep `tab.run` current from the sidecar's own events; a busy flip notifies the listeners. */
 	#trackRun(tab: HostTab): void {
 		const { sidecar } = tab;
-		const change = (apply: (run: HostTabRun) => void): void => {
-			const was = isBusy(tab.run);
-			apply(tab.run);
-			if (isBusy(tab.run) !== was) this.#runningChanged();
+		const change = (apply: () => void): void => {
+			const was = runBusy(tab.run);
+			apply();
+			if (runBusy(tab.run) !== was) this.#runningChanged();
 		};
 		// "Running" only means something on a live connection: a restart or crash ends the run.
 		sidecar.on("status", (payload: SidecarStatusPayload) => {
-			if (payload.status !== "ready") change(run => Object.assign(run, IDLE_RUN));
+			if (payload.status !== "ready")
+				change(() => {
+					tab.run = idleRun();
+				});
 		});
 		sidecar.on("promptResult", (frame: PromptResultFrame) => {
-			if (typeof frame.sessionSettled !== "boolean") return;
 			const settled = frame.sessionSettled;
-			change(run => {
-				run.awaitingSettled = !settled;
-				run.running = !settled;
-			});
+			if (typeof settled === "boolean") change(() => settleRun(tab.run, settled));
 		});
-		sidecar.on("sessionSettled", () =>
-			change(run => {
-				run.awaitingSettled = false;
-				run.running = false;
-			}),
-		);
+		sidecar.on("sessionSettled", () => change(() => settleRun(tab.run, true)));
 		sidecar.on("events", (events: AgentSessionEvent[]) =>
-			change(run => {
-				for (const event of events) runEvent(run, event);
+			change(() => {
+				for (const event of events) applyRunEvent(tab.run, event);
 			}),
 		);
 	}
@@ -590,49 +539,25 @@ export class LocalHostServices implements HostServices {
 		return undefined;
 	}
 
-	/**
-	 * Delete a stored session the way this machine's own sidebar does: a live
-	 * owner gives it up through `drop_session`, otherwise the file goes.
-	 */
+	/** This machine's sidebar policy (session-mutations.ts); a device tab holding the session refuses. */
 	async #deleteSession(sessionPath: string): Promise<null> {
 		if (this.#liveOwner(sessionPath)) throw codedError("session_running", "Session is open on the host");
-		const { localTabs } = this.#deps;
-		const local = localTabs.sessionOwner(sessionPath);
-		if (local && localTabs.sessionOwnerIsLive(sessionPath)) {
-			const response = await localTabs.commandForIdleSession(sessionPath, { type: "drop_session" });
-			if (!response) throw codedError("session_running", "Session is currently running");
-			if (!response.success) throw new Error(response.error);
-			const cancelled = (response.data as { cancelled?: boolean } | undefined)?.cancelled ?? false;
-			if (cancelled) throw codedError("session_delete_cancelled", "Session deletion was cancelled");
-			localTabs.noteSessionFile(local.tabId, null);
-			return null;
-		}
-		// A local tab claiming the file without a process must not wake into a deleted path.
-		if (local) localTabs.noteSessionFile(local.tabId, null);
-		await this.#deps.sessionIndex.deleteSession(sessionPath);
+		await deleteSession(this.#deps.localTabs, sessionPath, undefined, () =>
+			this.#deps.sessionIndex.deleteSession(sessionPath),
+		);
 		return null;
 	}
 
-	/** Rename through the live owner (its in-memory title must follow), else the stored file. */
-	async #renameSession(sessionPath: string, rawName: string): Promise<null> {
-		const name = rawName.trim();
-		if (!name) throw codedError("session_name_empty", "Session name cannot be empty");
-		const command: RpcCommand = { type: "set_session_name", name, sessionPath };
-		const owner = this.#liveOwner(sessionPath);
-		const { localTabs } = this.#deps;
-		let response: RpcResponse | null | undefined;
-		if (owner) {
-			const client = owner.sidecar.status === "ready" ? owner.sidecar.rpcClient : null;
-			response = client ? await client.command(command) : null;
-		} else if (localTabs.sessionOwner(sessionPath) && localTabs.sessionOwnerIsLive(sessionPath)) {
-			response = await localTabs.commandForSession(sessionPath, command);
-		}
-		if (response === null) throw codedError("session_starting", "Session is still starting");
-		if (response) {
-			if (!response.success) throw new Error(response.error);
-			return null;
-		}
-		await this.#deps.renameStoredSession(sessionPath, name);
+	/** This machine's sidebar policy, with a device tab holding the session as the first live owner. */
+	async #renameSession(sessionPath: string, name: string): Promise<null> {
+		await renameSession(this.#deps.localTabs, sessionPath, name, {
+			renameStored: name => this.#deps.renameStoredSession(sessionPath, name),
+			otherOwner: () => {
+				const owner = this.#liveOwner(sessionPath);
+				if (!owner) return undefined;
+				return owner.sidecar.status === "ready" ? owner.sidecar.rpcClient : null;
+			},
+		});
 		return null;
 	}
 
@@ -649,12 +574,8 @@ export class LocalHostServices implements HostServices {
 		tab.conn = null;
 		tab.sidecar.removeAllListeners();
 		tab.sidecar.dispose();
-		if (isBusy(tab.run)) this.#runningChanged();
+		if (runBusy(tab.run)) this.#runningChanged();
 	}
-}
-
-function isBusy(run: HostTabRun): boolean {
-	return run.running || run.compacting;
 }
 
 /** The benchmark and research slot of a paired device on this machine (windows here use `window:<id>`). */

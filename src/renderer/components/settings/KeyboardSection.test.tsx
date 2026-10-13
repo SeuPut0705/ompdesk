@@ -64,11 +64,10 @@ describe("KeyboardSection", () => {
 		await mount();
 		const chords = displayedChords();
 		for (const action of KEYMAP_ACTIONS) {
-			const displayed = action.defaults.join(" / ");
-			expect(
-				chords.filter(chord => chord === displayed),
-				action.id,
-			).toHaveLength(1);
+			const rows = document.querySelectorAll(`[data-hotkey-action="${action.id}"]`);
+			expect(rows, action.id).toHaveLength(1);
+			const displayed = [...rows[0]!.querySelectorAll("kbd")].map(chip => chip.textContent ?? "").join(" / ");
+			expect(displayed, action.id).toBe(action.defaults.join(" / "));
 		}
 		for (const entry of RESERVED_CHORDS) {
 			expect(

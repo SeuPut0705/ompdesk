@@ -49,6 +49,10 @@ interface StockJobItem {
 	startTime: number;
 	endTime?: number;
 	agentId?: string;
+	cancellationPending?: boolean;
+	resultPreview?: string;
+	errorPreview?: string;
+	previewTruncated?: boolean;
 }
 
 /** Bridge extras, or undefined when the bridge is down, fails or stalls. */
@@ -234,10 +238,17 @@ export const handlers: Record<string, LocalHandler> = {
 				startTime: item.startTime,
 				...(item.endTime === undefined ? {} : { endedAt: item.endTime }),
 				...(item.agentId === undefined ? {} : { agentId: item.agentId }),
+				cancellationPending: item.cancellationPending,
+				resultPreview: item.resultPreview,
+				errorPreview: item.errorPreview,
+				previewTruncated: item.previewTruncated,
 			})),
 		};
 		return result;
 	},
+
+	cancel_job: async (command, ctx) =>
+		ctx.bridge.request("composer.cancel_job", { id: z.string().min(1).parse(command.jobId) }),
 
 	preview_share_session: async (_command, ctx) => ctx.bridge.request("composer.share_preview"),
 

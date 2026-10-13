@@ -5,16 +5,14 @@ import { useFrameSelector } from "../../hooks/use-frame-selector";
 import { basename, cx, formatDuration, formatTokens, headLines, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
+import { asArray, asNumber, asRecord, asString } from "../../lib/wire-value";
 import { useSessionRuntime } from "../../stores/session-runtime-context";
 import { type SubagentsStore, useSubagentsStore } from "../../stores/subagents";
 import { ErrorDetail } from "../common";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
+import { ToolTextPreview } from "./ToolTextPreview";
 import {
-	asArray,
-	asNumber,
-	asRecord,
-	asString,
 	extractMissingYieldWarning,
 	extractReviewResult,
 	FINDING_CAP,
@@ -829,18 +827,7 @@ export function TaskRenderer({
 				<div className="text-omp-sm text-[var(--omp-dim)]">{t("tools.task.noResults")}</div>
 			)}
 
-			{details == null && text && (
-				<pre
-					className={cx(
-						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
-						isError
-							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
-							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",
-					)}
-				>
-					{text}
-				</pre>
-			)}
+			{details == null && text && <ToolTextPreview text={text} isError={isError} />}
 		</div>
 	);
 }

@@ -243,9 +243,7 @@ async function approve(session: AgentSession, params: Record<string, unknown>): 
 		// Pin the reference before compaction so queued turns see the approved plan.
 		session.setPlanReferencePath(planFilePath);
 		try {
-			await session.compact(
-				prompt.render(ompPrompt("system/plan-mode-compact-instructions.md"), { planFilePath }),
-			);
+			await session.compact(prompt.render(ompPrompt("system/plan-mode-compact-instructions.md"), { planFilePath }));
 		} catch (error) {
 			// Approval stands; execution waits for the host's next prompt (TUI cancelled branch).
 			return { approved: true, dispatched: false, reason: `compaction failed: ${errorMessage(error)}` };

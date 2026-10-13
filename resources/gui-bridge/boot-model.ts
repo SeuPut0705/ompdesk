@@ -22,7 +22,8 @@ const defaults =
 	typeof catalog === "object" && catalog !== null && "DEFAULT_MODEL_PER_PROVIDER" in catalog
 		? catalog.DEFAULT_MODEL_PER_PROVIDER
 		: null;
-if (typeof defaults !== "object" || defaults === null) throw new Error("omp's catalog has no DEFAULT_MODEL_PER_PROVIDER");
+if (typeof defaults !== "object" || defaults === null)
+	throw new Error("omp's catalog has no DEFAULT_MODEL_PER_PROVIDER");
 const DEFAULT_MODEL_PER_PROVIDER = Object.fromEntries(
 	Object.entries(defaults).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
 );

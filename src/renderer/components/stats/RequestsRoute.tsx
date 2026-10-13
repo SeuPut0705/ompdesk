@@ -26,7 +26,6 @@ function RequestDetailSheet({ row, onClose }: { row: RequestRow | null; onClose:
 			description={shown ? new Date(shown.timestamp).toLocaleString(uiLocale()) : undefined}
 			onClose={onClose}
 			open={row !== null}
-			side="right"
 			size="lg"
 			title={shown?.model ?? ""}
 		>
@@ -115,7 +114,7 @@ function RequestDetailBody({ row }: { row: RequestRow }) {
 	);
 }
 
-export function RequestsRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
+export function RequestsRoute({ range }: { range: StatsRange }) {
 	const t = useT();
 	const [cursors, setCursors] = useState<(string | null)[]>([null]);
 	const page = cursors.length - 1;
@@ -123,9 +122,7 @@ export function RequestsRoute({ range, refreshKey }: { range: StatsRange; refres
 	const params = useMemo(() => ({ range, limit: String(PAGE_SIZE), ...(cursor ? { cursor } : {}) }), [range, cursor]);
 	const { data, isLoading, error, refetch } = useStats<RequestPage>("/api/stats/requests", params);
 	const [selected, setSelected] = useState<RequestRow | null>(null);
-	useEffect(() => {
-		if (refreshKey > 0) refetch();
-	}, [refreshKey, refetch]);
+
 	const rows = data?.rows ?? [];
 	const pages = Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE));
 

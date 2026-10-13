@@ -28,7 +28,7 @@ function Fallback({ error, onRetry }: { error: Error; onRetry: () => void }) {
 				onClick={onRetry}
 				className="omp-pressable mt-1 rounded-lg border border-[var(--omp-border)] px-3 py-1 text-omp-sm font-medium text-[var(--omp-muted)] hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-text)]"
 			>
-				{t("errorBoundary.retry")}
+				{t("common.retry")}
 			</button>
 		</div>
 	);

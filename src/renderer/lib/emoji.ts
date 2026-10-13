@@ -1,9 +1,8 @@
 // Stock pi-tui/prompt/emoji-autocomplete stays synchronous per keystroke with lazy browser data; omp is not shipped in the renderer.
 /**
- * Emoji completion, ported from the TUI (`packages/coding-agent/src/modes/
- * emoji-autocomplete.ts`). The shortcode bucket JSON (32.7 KB, built offline
- * by scripts/build-emojis.py — keep in sync with
- * packages/coding-agent/src/modes/data/emojis.json) is lazy-loaded on first
+ * Emoji completion, ported from the TUI (stock `pi-tui/src/prompt/
+ * emoji-autocomplete.ts`). The shortcode bucket JSON (32.7 KB, a byte-for-byte
+ * copy of stock `pi-tui/src/prompt/data/emojis.json`) is lazy-loaded on first
  * trigger so it never enters the eager chunk; the emoticon table and
  * submit-time expansion are static and synchronous.
  *

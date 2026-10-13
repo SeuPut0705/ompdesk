@@ -13,7 +13,7 @@ import { useEffect } from "react";
 import type { AgentSessionEvent } from "../../shared/rpc-types";
 import { usePlanApprovalStore } from "../stores/plan-approval";
 import { withSessionRuntime } from "../stores/session-runtime-context";
-import { isTabClosed, useTabsStore } from "../stores/tabs";
+import { isTabClosed } from "../stores/tabs";
 
 export function usePlanApproval(): void {
 	useEffect(() => {
@@ -32,10 +32,6 @@ export function usePlanApproval(): void {
 				}
 			});
 		};
-		const unsubscribe =
-			typeof window.omp.events.onTabBatch === "function"
-				? window.omp.events.onTabBatch(reduce)
-				: window.omp.events.onBatch(events => reduce(events, useTabsStore.getState().activeTabId ?? ""));
-		return unsubscribe;
+		return window.omp.events.onTabBatch(reduce);
 	}, []);
 }

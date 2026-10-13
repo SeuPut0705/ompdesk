@@ -14,6 +14,7 @@ import type { RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
+import { routeCommands } from "../../test-support/route-commands";
 import { WorkspaceSection } from "./WorkspaceSection";
 
 const { document, window, Event, CustomEvent, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -91,7 +92,7 @@ function installMockOmp(overrides: { rpc?: Partial<MockRpc>; pickedPath?: string
 		...overrides.rpc,
 	};
 	const omp: MockOmp = {
-		rpc,
+		rpc: routeCommands(rpc),
 		system: {
 			showOpenDialog: vi.fn(async () => (overrides.pickedPath === null ? null : [overrides.pickedPath ?? EXTRA])),
 		},

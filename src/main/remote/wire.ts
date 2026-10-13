@@ -170,10 +170,6 @@ export class Link {
 		return this.#closed;
 	}
 
-	get remoteAddress(): string | undefined {
-		return this.#socket.remoteAddress;
-	}
-
 	/** Send one message, encrypted once `secure()` ran. Throws when it exceeds the frame cap. */
 	send(message: object): void {
 		if (this.#closed) return;

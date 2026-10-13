@@ -1,6 +1,7 @@
 import { resultDetails, resultText } from "../../lib/format";
 import { xdevWriteTarget } from "../../lib/xdev";
 import { parseChangeGroups } from "./AstEditRenderer";
+import { editTextPair } from "./edit-args";
 
 export interface DiffStats {
 	added: number;
@@ -59,16 +60,10 @@ function resultDiffStats(details: Record<string, unknown> | undefined): DiffStat
 function oldNewArgStats(args: Record<string, unknown>): DiffStats | null {
 	const pairs = Array.isArray(args.edits) ? args.edits : [args];
 	const parts: DiffStats[] = [];
-	for (const pair of pairs) {
-		if (pair == null || typeof pair !== "object") continue;
-		const record = pair as Record<string, unknown>;
-		const oldText = record.old_text ?? record.oldText ?? record.old_string;
-		const newText = record.new_text ?? record.newText ?? record.new_string;
-		if (typeof oldText !== "string" && typeof newText !== "string") continue;
-		parts.push({
-			added: typeof newText === "string" ? lineCount(newText) : 0,
-			removed: typeof oldText === "string" ? lineCount(oldText) : 0,
-		});
+	for (const record of pairs) {
+		if (record == null || typeof record !== "object") continue;
+		const pair = editTextPair(record as Record<string, unknown>);
+		if (pair) parts.push({ added: lineCount(pair.newText ?? ""), removed: lineCount(pair.oldText ?? "") });
 	}
 	return sum(parts);
 }

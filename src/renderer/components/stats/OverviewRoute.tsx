@@ -3,7 +3,7 @@
  * type breakdown.
  */
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { Line } from "react-chartjs-2";
 import {
 	baseChartOptions,
@@ -31,16 +31,12 @@ import {
 	StatTable,
 } from "./shared";
 
-export function OverviewRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
+export function OverviewRoute({ range }: { range: StatsRange }) {
 	const t = useT();
 	const themeKey = useChartThemeKey();
 	const locale = uiLocale();
 	const params = useMemo(() => ({ range }), [range]);
 	const { data, isLoading, error, refetch } = useStats<OverviewData>("/api/stats/overview", params);
-
-	useEffect(() => {
-		if (refreshKey > 0) refetch();
-	}, [refreshKey, refetch]);
 
 	const stats = data;
 	const overall = stats?.overall;

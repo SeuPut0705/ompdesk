@@ -20,13 +20,14 @@ import {
 	XCircle,
 	Zap,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { createContext, type ReactNode, useContext, useState } from "react";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { cx, formatDuration, formatTimeAgo, headLines, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { Badge, type BadgeVariant } from "../common/Badge";
 import { launchCompletionDaemons } from "./completion-events";
+import { agentResultSummary } from "./work-view";
 
 /** customTypes with a dedicated card (the TUI dispatch set). */
 const CARD_TYPES: Record<string, true> = {
@@ -47,7 +48,73 @@ export function isCustomMessageCardType(customType: string | undefined): boolean
 	return customType != null && CARD_TYPES[customType] === true;
 }
 
+const EmbeddedCard = createContext(false);
+
+/** The same type marks and metadata are used by standalone cards and the work feed. */
+export function workNoteSummary(message: AgentMessage) {
+	const details = resultDetails(message);
+	const notes = Array.isArray(details?.notes) ? details.notes : [];
+	const advisorNotes = notes.filter(
+		(note): note is Record<string, unknown> => typeof note === "object" && note !== null,
+	);
+	const severity = advisorNotes.some(note => note.severity === "blocker")
+		? "blocker"
+		: advisorNotes.some(note => note.severity === "concern")
+			? "concern"
+			: str(advisorNotes[0]?.severity);
+	const type = message.customType;
+	const Icon =
+		type === "advisor"
+			? Lightbulb
+			: type?.startsWith("irc:") || type === "collab-prompt"
+				? MessagesSquare
+				: type === "async-result" || type === "launch-completion"
+					? CheckCircle2
+					: type === "lsp-late-diagnostic"
+						? AlertTriangle
+						: type === "skill-prompt"
+							? Zap
+							: ArrowRightLeft;
+	const jobs = asyncJobs(details);
+	const job = jobs[0];
+	const daemon = launchCompletionDaemons(message)[0];
+	const source = type?.startsWith("irc:")
+		? (str(type === "irc:autoreply" ? details?.to : details?.from) ?? str(details?.to))
+		: type === "advisor"
+			? advisorNotes[0]?.advisor === "default"
+				? undefined
+				: str(advisorNotes[0]?.advisor)
+			: (job?.label ??
+				job?.jobId ??
+				daemon?.name ??
+				str(details?.jobId) ??
+				str(details?.job) ??
+				str(details?.from) ??
+				str(details?.name));
+	const rawBody = resultText(message);
+	let body = str(advisorNotes[0]?.note) ?? str(details?.message) ?? str(details?.body) ?? rawBody;
+	if (type === "async-result") {
+		const delivered =
+			(job?.jobId ? asyncJobResults(rawBody, jobs).get(job.jobId) : undefined) ?? completionNoticeText(rawBody);
+		// Stock task/result-summary.ts emits this envelope; only its output is
+		// preview text. The renderer cannot import the stock runtime formatter.
+		const output = delivered.match(/<output>([\s\S]*?)<\/output>/)?.[1] ?? delivered;
+		body = agentResultSummary({ output }) ?? completionNoticeText(rawBody);
+	} else if (type === "launch-completion") {
+		body = completionNoticeText(rawBody);
+	}
+	return { Icon, source, body, severity, variant: advisorVariant(severity) };
+}
+
 export function CustomMessageCard({ message, inProcess = false }: { message: AgentMessage; inProcess?: boolean }) {
+	return (
+		<EmbeddedCard.Provider value={inProcess}>
+			<CustomMessageBody message={message} inProcess={inProcess} />
+		</EmbeddedCard.Provider>
+	);
+}
+
+function CustomMessageBody({ message, inProcess }: { message: AgentMessage; inProcess: boolean }) {
 	switch (message.customType) {
 		case "advisor":
 			return <AdvisorCard message={message} />;
@@ -90,6 +157,8 @@ const HEADER_META_CLASS = "font-medium normal-case tracking-normal text-[var(--o
 
 /** Card frame matching ContextBubble: rounded custom-message background on the chat gutter. */
 function CardFrame({ children }: { children: ReactNode }) {
+	const embedded = useContext(EmbeddedCard);
+	if (embedded) return <div className="omp-work-notes-body">{children}</div>;
 	return (
 		<div className="omp-custom-turn omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-3">
 			<div className="omp-transcript-content rounded-[10px] border border-[var(--omp-border-muted)] bg-[var(--omp-custom-msg-bg)] px-3.5 py-3 shadow-[var(--omp-shadow-sm)]">
@@ -273,7 +342,7 @@ function AdvisorCard({ message }: { message: AgentMessage }) {
 							{note.advisor && note.advisor !== "default" && (
 								<span className="mr-1.5 font-mono text-omp-xs text-[var(--omp-dim)]">[{note.advisor}]</span>
 							)}
-							<span className="whitespace-pre-wrap">{note.note}</span>
+							<MarkdownRenderer content={note.note} />
 						</div>
 					</div>
 				))}
@@ -315,6 +384,11 @@ function asyncJobs(details: Record<string, unknown> | undefined): AsyncJob[] {
 		}));
 }
 
+/** Human delivery text shared by completion previews and expanded result parsing. */
+function completionNoticeText(content: string) {
+	return content.replace(/<\/?system-notice\s*>/g, "").trim();
+}
+
 /**
  * Recover each job's result text from the agent-facing message content (a
  * `<system-notice>` block; multi-job batches split on `── Job <id> ──`
@@ -323,7 +397,7 @@ function asyncJobs(details: Record<string, unknown> | undefined): AsyncJob[] {
  */
 function asyncJobResults(content: string, jobs: AsyncJob[]): Map<string, string> {
 	const results = new Map<string, string>();
-	const body = content.replace(/<\/?system-notice\s*>/g, "").trim();
+	const body = completionNoticeText(content);
 	if (!body) return results;
 	const sectionRe = /^── Job (\S+)(?:\s+\([^)]*\))? ──\s*$/gm;
 	const matches = [...body.matchAll(sectionRe)];
@@ -607,7 +681,8 @@ function LateDiagnosticsCard({ message }: { message: AgentMessage }) {
 
 function SkillCard({ message }: { message: AgentMessage }) {
 	const t = useT();
-	const [open, setOpen] = useState(false);
+	const embedded = useContext(EmbeddedCard);
+	const [open, setOpen] = useState(embedded);
 	const details = resultDetails(message);
 	const name = str(details?.name) ?? "unknown";
 	// Collapse args to one line: a stray newline/tab would split the header.
@@ -666,12 +741,30 @@ function SkillCard({ message }: { message: AgentMessage }) {
 // ---------------------------------------------------------------------------
 
 function CollabCard({ message }: { message: AgentMessage }) {
+	const embedded = useContext(EmbeddedCard);
 	const from = str(resultDetails(message)?.from) ?? "guest";
 	const text = resultText(message.content).trim();
 	return (
-		<div className="omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-3">
-			<div className="omp-transcript-content rounded-xl border border-[var(--omp-user-msg-border)] bg-[var(--omp-user-msg-bg)] px-3.5 py-3 shadow-[var(--omp-shadow-sm)]">
-				<div className="mb-1.5 text-omp-md font-bold text-[var(--omp-accent)]">«{from}» ›</div>
+		<div
+			className={
+				embedded ? "omp-work-notes-body" : "omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-3"
+			}
+		>
+			<div
+				className={
+					embedded
+						? ""
+						: "omp-transcript-content rounded-xl border border-[var(--omp-user-msg-border)] bg-[var(--omp-user-msg-bg)] px-3.5 py-3 shadow-[var(--omp-shadow-sm)]"
+				}
+			>
+				<div
+					className={cx(
+						"mb-1.5 text-omp-md font-bold",
+						embedded ? "text-(--sc-text-muted)" : "text-[var(--omp-accent)]",
+					)}
+				>
+					«{from}» ›
+				</div>
 				{text && <MarkdownRenderer content={text} singleDollarTextMath={false} />}
 			</div>
 		</div>
@@ -684,6 +777,7 @@ function CollabCard({ message }: { message: AgentMessage }) {
 
 function IrcCard({ message }: { message: AgentMessage }) {
 	const t = useT();
+	const embedded = useContext(EmbeddedCard);
 	const details = resultDetails(message);
 	const kind =
 		message.customType === "irc:incoming"
@@ -705,7 +799,12 @@ function IrcCard({ message }: { message: AgentMessage }) {
 
 	return (
 		<CardFrame>
-			<div className="mb-1.5 flex items-center gap-1.5 text-omp-sm font-semibold text-[var(--omp-custom-msg-label)]">
+			<div
+				className={cx(
+					"mb-1.5 flex items-center gap-1.5 text-omp-sm font-semibold",
+					embedded ? "text-(--sc-text-secondary)" : "text-[var(--omp-custom-msg-label)]",
+				)}
+			>
 				<MessagesSquare size={12} className="shrink-0" />
 				<span className="min-w-0 truncate">{title}</span>
 				{kind === "autoreply" && <Badge variant="muted">{t("chat.custom.ircAuto")}</Badge>}
@@ -714,7 +813,7 @@ function IrcCard({ message }: { message: AgentMessage }) {
 					<span className="ml-auto shrink-0 font-mono text-omp-xs font-normal text-[var(--omp-dim)]">{age}</span>
 				)}
 			</div>
-			{body && <CollapsibleText text={body} lines={3} />}
+			{body && <MarkdownRenderer content={body} />}
 		</CardFrame>
 	);
 }

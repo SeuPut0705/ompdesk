@@ -1,10 +1,12 @@
 /**
  * Session side methods that need omp's own machinery: Claude/Codex session
- * import (stock foreign-session stores), journal-wide usage totals, and
- * slash-command argument completions. Spread into `sessions.ts`.
+ * import (stock foreign-session stores), journal-wide usage totals, large pastes
+ * in the session's local:// store, and slash-command argument completions.
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { resolveLocalRoot } from "@oh-my-pi/pi-coding-agent/internal-urls/local-protocol";
+import { MCPManager } from "@oh-my-pi/pi-coding-agent/mcp/manager";
 import {
 	createForeignSessionStore,
 	persistForeignSession,
@@ -12,17 +14,10 @@ import {
 import type { ForeignSessionInfo, ForeignSessionSource } from "@oh-my-pi/pi-coding-agent/session/foreign-session-store";
 import { loadSessionFile } from "@oh-my-pi/pi-coding-agent/session/session-loader";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
-import { resolveLocalRoot } from "@oh-my-pi/pi-coding-agent/internal-urls/local-protocol";
-import { MCPManager } from "@oh-my-pi/pi-coding-agent/mcp/manager";
+import { buildMcpArgumentCompletions } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-completions";
+import { BUILTIN_SLASH_COMMANDS } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
 import type { TuiSlashCommandRuntime } from "@oh-my-pi/pi-coding-agent/slash-commands/types";
-import {
-	buildArgumentCompletions,
-	buildDirectoryArgumentCompletions,
-	buildMcpArgumentCompletions,
-} from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-completions";
-import { BUILTIN_SLASH_COMMANDS_INTERNAL } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
 import { directoryExists, getProjectDir, isEexist, withFileLock } from "@oh-my-pi/pi-utils";
-import { requireFn } from "./capabilities";
 import { guard } from "./health";
 import type { BridgeMethods } from "./types";
 
@@ -59,25 +54,34 @@ interface ArgCompletionItem {
 	hint?: string;
 }
 
-async function argCompletions(cwd: string, commandName: string, prefix: string): Promise<ArgCompletionItem[] | null> {
-	const spec = BUILTIN_SLASH_COMMANDS_INTERNAL.find(
-		command => command.name === commandName || command.aliases?.includes(commandName),
+/**
+ * A builtin's argument candidates and editor inline hint for `prefix`, from
+ * stock's materialized `BUILTIN_SLASH_COMMANDS` (the declarative subcommand,
+ * directory and static-hint builders the TUI editor uses).
+ */
+async function argCompletions(
+	cwd: string,
+	commandName: string,
+	prefix: string,
+): Promise<{ items: ArgCompletionItem[]; hint: string | null }> {
+	const command = BUILTIN_SLASH_COMMANDS.find(
+		candidate => candidate.name === commandName || candidate.aliases?.includes(commandName),
 	);
-	if (!spec) return null;
-	if (spec.subcommands) {
-		if (spec.name !== "mcp") return buildArgumentCompletions(spec.subcommands)(prefix);
-		// Stock completion disk reads use the live process project directory.
-		// Main always requests this sidecar's cwd; reject other directories
-		// instead of changing the process-global cwd during concurrent calls.
-		if (path.resolve(cwd) !== path.resolve(getProjectDir())) {
-			throw new Error("MCP completions require the live session project directory");
-		}
-		// The MCP builder reads only ctx.mcpManager, not terminal widgets.
-		const runtime = { ctx: { mcpManager: MCPManager.instance() } } as TuiSlashCommandRuntime;
-		return buildMcpArgumentCompletions(spec.subcommands, runtime)(prefix);
+	if (!command) return { items: [], hint: null };
+	const hint = command.getInlineHint?.(prefix) ?? null;
+	if (command.name !== "mcp" || !command.subcommands) {
+		return { items: (await command.getArgumentCompletions?.(prefix)) ?? [], hint };
 	}
-	if (spec.name === "move") return await buildDirectoryArgumentCompletions()(prefix);
-	return null;
+	// /mcp narrows its subcommands to configured servers, as the TUI does with
+	// a live runtime. Stock completion disk reads use the live process project
+	// directory. Main always requests this sidecar's cwd; reject other
+	// directories instead of changing the process-global cwd during concurrent calls.
+	if (path.resolve(cwd) !== path.resolve(getProjectDir())) {
+		throw new Error("MCP completions require the live session project directory");
+	}
+	// The MCP builder reads only ctx.mcpManager, not terminal widgets.
+	const runtime = { ctx: { mcpManager: MCPManager.instance() } } as TuiSlashCommandRuntime;
+	return { items: (await buildMcpArgumentCompletions(command.subcommands, runtime)(prefix)) ?? [], hint };
 }
 
 export const methods: BridgeMethods = {
@@ -98,7 +102,9 @@ export const methods: BridgeMethods = {
 			const foreignId = param(params, "foreignId");
 			if (typeof foreignId !== "string" || !foreignId) throw new Error("import requires a foreignId");
 			const store = createForeignSessionStore(source);
-			const info = (await store.list()).find(candidate => candidate.id === foreignId || candidate.path === foreignId);
+			const info = (await store.list()).find(
+				candidate => candidate.id === foreignId || candidate.path === foreignId,
+			);
 			if (!info) throw new Error(`Foreign session not found: ${foreignId}`);
 			const cwd = (await directoryExists(info.cwd)) ? info.cwd : env.session().sessionManager.getCwd();
 			const sessionDir = SessionManager.getDefaultSessionDir(cwd);
@@ -129,47 +135,48 @@ export const methods: BridgeMethods = {
 		},
 	}),
 
-	/**
-	 * `{content}` → write a large paste into the live session's local:// store (the read
-	 * tool's own root). `wx` claims paste-N.md exclusively, so concurrent writers never collide.
-	 */
-	"sessions.write_local_paste": async (params, env) => {
-		const content = param(params, "content");
-		if (typeof content !== "string") throw new Error("write_local_paste requires string content");
-		const manager = env.session().sessionManager;
-		const localRoot = resolveLocalRoot({
-			getArtifactsDir: () => manager.getArtifactsDir(),
-			getSessionId: () => manager.getSessionId(),
-		});
-		await fs.mkdir(localRoot, { recursive: true });
-		for (let counter = 1; ; counter++) {
-			const name = `paste-${counter}.md`;
-			try {
-				await fs.writeFile(path.join(localRoot, name), content, { encoding: "utf8", flag: "wx", mode: 0o600 });
-				return { name, url: `local://${name}` };
-			} catch (error) {
-				if (!isEexist(error)) throw error;
-			}
-		}
-	},
-
 	/** Usage totals across the whole live journal (pre-compaction history and sibling branches included). */
-	"sessions.usage_history": async (_params, env) => {
-		const manager = env.session().sessionManager;
-		requireFn(manager, "getUsageStatistics", "usage", "SessionManager");
-		return { ...manager.getUsageStatistics(), sampledAt: Date.now() };
-	},
+	...guard("usage", {
+		"sessions.usage_history": async (_params, env) => ({
+			...env.session().sessionManager.getUsageStatistics(),
+			sampledAt: Date.now(),
+		}),
+	}),
 
 	...guard("composer", {
-	/** `{cwd, command, prefix}` → argument candidates for a builtin slash command, or `[]`. */
-	"sessions.arg_completions": async params => {
-		const cwd = param(params, "cwd");
-		const command = param(params, "command");
-		const prefix = param(params, "prefix");
-		if (typeof cwd !== "string" || typeof command !== "string" || typeof prefix !== "string") {
-			throw new Error("arg_completions requires string cwd, command, prefix");
-		}
-		return { items: (await argCompletions(cwd, command, prefix)) ?? [] };
-	},
+		/**
+		 * `{content}` → write a large paste into the live session's local:// store (the read
+		 * tool's own root). `wx` claims paste-N.md exclusively, so concurrent writers never collide.
+		 */
+		"sessions.write_local_paste": async (params, env) => {
+			const content = param(params, "content");
+			if (typeof content !== "string") throw new Error("write_local_paste requires string content");
+			const manager = env.session().sessionManager;
+			const localRoot = resolveLocalRoot({
+				getArtifactsDir: () => manager.getArtifactsDir(),
+				getSessionId: () => manager.getSessionId(),
+			});
+			await fs.mkdir(localRoot, { recursive: true });
+			for (let counter = 1; ; counter++) {
+				const name = `paste-${counter}.md`;
+				try {
+					await fs.writeFile(path.join(localRoot, name), content, { encoding: "utf8", flag: "wx", mode: 0o600 });
+					return { name, url: `local://${name}` };
+				} catch (error) {
+					if (!isEexist(error)) throw error;
+				}
+			}
+		},
+
+		/** `{cwd, command, prefix}` → a builtin slash command's argument candidates and inline hint. */
+		"sessions.arg_completions": async params => {
+			const cwd = param(params, "cwd");
+			const command = param(params, "command");
+			const prefix = param(params, "prefix");
+			if (typeof cwd !== "string" || typeof command !== "string" || typeof prefix !== "string") {
+				throw new Error("arg_completions requires string cwd, command, prefix");
+			}
+			return argCompletions(cwd, command, prefix);
+		},
 	}),
 };

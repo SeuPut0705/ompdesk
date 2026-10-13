@@ -61,7 +61,7 @@ type SaveDialogFn = (
 	defaultPath?: string,
 	filters?: { name: string; extensions: string[] }[],
 ) => Promise<string | null>;
-type BatchListener = (events: AgentSessionEvent[]) => void;
+type BatchListener = (events: AgentSessionEvent[], tabId: string) => void;
 
 let batchListener: BatchListener | null = null;
 
@@ -73,7 +73,7 @@ function installMockOmp(
 	const ompWindow = window as unknown as {
 		omp: {
 			rpc: { planApproval: Mock<PlanApprovalFn> };
-			events: { onBatch: (callback: BatchListener) => () => void };
+			events: { onTabBatch: (callback: BatchListener) => () => void };
 			system: { showSaveDialog: Mock<SaveDialogFn> };
 		};
 	};
@@ -81,7 +81,7 @@ function installMockOmp(
 		rpc: { planApproval },
 		system: { showSaveDialog },
 		events: {
-			onBatch: callback => {
+			onTabBatch: callback => {
 				batchListener = callback;
 				return () => {
 					batchListener = null;
@@ -139,7 +139,7 @@ async function mount(element: ReactElement): Promise<void> {
 
 async function emit(events: AgentSessionEvent[]): Promise<void> {
 	await act(async () => {
-		batchListener?.(events);
+		batchListener?.(events, "");
 	});
 	await flush();
 }

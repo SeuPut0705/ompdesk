@@ -4,7 +4,7 @@
  * A's tabId; the host scopes it to the calling peer.
  *
  * Requests (A → B), served by host-services.ts:
- * - `tab.open {rtab, cwd?, defaultWorkspace?, kind?, fresh, sessionPath?}` → TabOpenResult
+ * - `tab.open {rtab, cwd?, kind?, fresh, sessionPath?}` → TabOpenResult
  * - `tab.start {rtab}`, `tab.restart {rtab, cwd?, sessionPath?}`, `tab.adoptCwd {rtab, cwd}`, `tab.close {rtab}`
  * - `tab.command {rtab, command, timeoutMs?}` → RpcResponse
  * - `tab.sideChannel {rtab, frame}`, `tab.syncImageGeneration {rtab}`
@@ -27,6 +27,7 @@
  */
 import { z } from "zod";
 import { ACCOUNT_ROTATION_MODES, type AccountRotationState } from "../../shared/account-rotation";
+import type { BuiltinReaState } from "../../shared/builtin-mcp";
 import { codedError, isIpcErrorCode } from "../../shared/ipc-error-codes";
 import type {
 	CustomModelEffort,
@@ -104,16 +105,6 @@ export const TabBridgeArg = z.discriminatedUnion("connected", [
 	z.object({ connected: z.literal(false), ompVersion: z.string(), error: z.string() }),
 ]);
 export type TabBridgeArg = z.infer<typeof TabBridgeArg>;
-
-export interface TabOpenParams {
-	rtab: string;
-	cwd?: string;
-	defaultWorkspace?: boolean;
-	kind?: "agent" | "chat";
-	fresh: boolean;
-	/** Resumed by the first `tab.start`. */
-	sessionPath?: string;
-}
 
 export const TabOpenResult = z.object({
 	/** Canonical cwd on the host. */
@@ -199,6 +190,13 @@ export const BenchmarkOptionsSchema: z.ZodType<IpcBenchmarkRunOptions> = z.objec
 export const AccountRotationStateSchema: z.ZodType<AccountRotationState> = z.object({
 	mode: z.enum(ACCOUNT_ROTATION_MODES),
 	evenSupported: z.boolean().nullable(),
+});
+
+export const BuiltinReaStateSchema: z.ZodType<BuiltinReaState> = z.object({
+	enabled: z.boolean(),
+	available: z.boolean(),
+	nodeVersion: z.string().optional(),
+	reason: z.enum(["node-missing", "npx-missing", "node-version", "node-failed", "npx-failed"]).optional(),
 });
 
 /** `host.modelSetup.status` reply: whether this device's research runs on the host, and its last tool call. */

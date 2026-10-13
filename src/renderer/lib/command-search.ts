@@ -13,7 +13,7 @@
  * moved the selection onto it explicitly, or after a second confirming Enter.
  */
 
-import { fuzzyScore } from "./session-search";
+import { fuzzyScore } from "./fuzzy-score";
 
 export const MatchTier = {
 	none: 0,

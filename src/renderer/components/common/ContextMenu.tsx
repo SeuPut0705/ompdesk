@@ -22,6 +22,7 @@ import { createPortal } from "react-dom";
 import { cx } from "../../lib/format";
 import { isImeKeyEvent } from "../../lib/ime";
 import { Button, type ButtonSize, type ButtonVariant } from "./Button";
+import { isTopmostDialog, registerDialogLayer } from "./dialog-layer";
 import { IconButton } from "./IconButton";
 import { Kbd } from "./Kbd";
 
@@ -79,21 +80,14 @@ export function MenuItemView({ item }: { item: Omit<ContextMenuItem, "onSelect" 
 	const showCheckColumn = item.checked !== undefined;
 	return (
 		<>
-			{showCheckColumn ? (
-				<Check
+			{Icon && (
+				<Icon
 					aria-hidden
-					className={cx("size-(--sc-icon-sm) shrink-0 text-(--sc-text-secondary)", !item.checked && "invisible")}
+					className={cx(
+						"size-(--sc-icon-sm) shrink-0",
+						item.danger ? "text-(--sc-danger)" : "text-(--sc-text-muted)",
+					)}
 				/>
-			) : (
-				Icon && (
-					<Icon
-						aria-hidden
-						className={cx(
-							"size-(--sc-icon-sm) shrink-0",
-							item.danger ? "text-(--sc-danger)" : "text-(--sc-text-muted)",
-						)}
-					/>
-				)
 			)}
 			<span className="min-w-0 flex-1">
 				<span className="block truncate">{item.label}</span>
@@ -101,6 +95,12 @@ export function MenuItemView({ item }: { item: Omit<ContextMenuItem, "onSelect" 
 					<span className="mt-0.5 block text-sc-xs font-normal text-(--sc-text-muted)">{item.description}</span>
 				)}
 			</span>
+			{showCheckColumn && (
+				<Check
+					aria-hidden
+					className={cx("size-(--sc-icon-sm) shrink-0 text-(--sc-text-secondary)", !item.checked && "invisible")}
+				/>
+			)}
 			{item.hint && <span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{item.hint}</span>}
 			{item.shortcut && <Kbd shortcut={item.shortcut} />}
 		</>
@@ -141,6 +141,8 @@ export function ContextMenu({ items, x, y, align = "start", ariaLabel, onClose }
 		// on unmount (onClose is read through a ref): re-running per render
 		// would steal focus back to the trigger while the menu stays open.
 		const restore = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+		const panel = menuRef.current;
+		const unregisterLayer = registerDialogLayer(panel);
 		const onDown = (event: PointerEvent) => {
 			// The trigger opens this menu from `click`, so its preceding pointerdown
 			// has already finished before this effect is installed. Listening for the
@@ -149,7 +151,13 @@ export function ContextMenu({ items, x, y, align = "start", ariaLabel, onClose }
 			if (!menuRef.current?.contains(event.target as globalThis.Node | null)) onCloseRef.current();
 		};
 		const onKey = (event: KeyboardEvent) => {
-			if (isImeKeyEvent(event)) return;
+			if (isImeKeyEvent(event) || !isTopmostDialog(panel)) return;
+			if (event.key === "Escape") {
+				event.preventDefault();
+				event.stopImmediatePropagation();
+				onCloseRef.current();
+				return;
+			}
 			// Tab leaves an open menu for background controls while it stays
 			// visible — close instead, per menu-button behavior.
 			if (event.key === "Tab") {
@@ -162,6 +170,7 @@ export function ContextMenu({ items, x, y, align = "start", ariaLabel, onClose }
 		return () => {
 			document.removeEventListener("pointerdown", onDown);
 			document.removeEventListener("keydown", onKey, true);
+			unregisterLayer();
 			if (restore?.isConnected) restore.focus();
 		};
 	}, []);
@@ -186,13 +195,8 @@ export function ContextMenu({ items, x, y, align = "start", ariaLabel, onClose }
 			aria-label={ariaLabel}
 			className="omp-pop-in fixed z-(--sc-z-popover)"
 			onKeyDown={event => {
-				if (event.key === "Escape") {
-					event.preventDefault();
-					// The menu owns this keypress: without stopping it, a dialog behind
-					// the menu takes the same Escape and closes with it.
-					event.stopPropagation();
-					onClose();
-				} else if (event.key === "ArrowDown") {
+				if (isImeKeyEvent(event)) return;
+				if (event.key === "ArrowDown") {
 					event.preventDefault();
 					step(1);
 				} else if (event.key === "ArrowUp") {

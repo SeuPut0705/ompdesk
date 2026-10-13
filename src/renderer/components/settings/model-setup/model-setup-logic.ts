@@ -27,6 +27,13 @@ export interface SetupProviderGroup {
 	models: SetupModelOption[];
 }
 
+/**
+ * Renderer counterpart of stock `splitThinkingSuffix(value, -1,
+ * MAX_THINKING_SUFFIX_OPTIONS).base` (pi-tui overlays/model-selector.ts),
+ * pinned by model-setup-logic.test.ts. Stock's resolver additionally keeps a
+ * suffix that belongs to a literal catalog id (`glm-4.7:max`); that catalog
+ * lookup is not applied here.
+ */
 const THINKING_SUFFIX = /:(?:off|minimal|low|medium|high|xhigh|max|auto)$/;
 
 /** A role value without its `:thinking` suffix, so `p/m:high` and the proposal `p/m` compare equal. */

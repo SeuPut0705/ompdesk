@@ -4,27 +4,6 @@ import { messageIdentity, sameMessageContent } from "../lib/message-identity";
 import { applyTurnMeterEvent, EMPTY_TURN_METER, type TurnMeter } from "../lib/turn-meter";
 import { createScopedStoreHook } from "./session-runtime-context";
 
-/**
- * Session-tab snapshot of committed history plus the active run overlay. The
- * accumulated strings are sufficient
- * to resume after a tab switch; keeping a second chunk-array copy only made
- * every snapshot and every join progressively more expensive.
- */
-export interface MessagesSnapshot {
-	messages: AgentMessage[];
-	liveMessages: AgentMessage[];
-	lastAppended: AgentMessage[];
-	streamingMessage: AgentMessage | null;
-	streamingText: string;
-	streamingThinking: string;
-	totalMessages: number;
-	nextCursor: string | undefined;
-	prevCursor: string | undefined;
-	pageError: string | null;
-	isLoadingPage: boolean;
-	turnMeter: TurnMeter;
-}
-
 export interface MessagesStore {
 	messages: AgentMessage[];
 	/** Uncommitted local echo and message_end deliveries for the active run. */
@@ -39,15 +18,12 @@ export interface MessagesStore {
 	streamingMessage: AgentMessage | null;
 	streamingText: string;
 	streamingThinking: string;
-	totalMessages: number;
-	nextCursor: string | undefined;
 	prevCursor: string | undefined;
 	pageError: string | null;
 	isLoadingPage: boolean;
 	/** Output-token meter for the running (or last) agent run; lib/turn-meter. */
 	turnMeter: TurnMeter;
 	applyEvents: (events: AgentSessionEvent[]) => void;
-	loadPage: (page: MessagesPage) => void;
 	prependPage: (page: MessagesPage) => void;
 	appendMessage: (message: AgentMessage) => void;
 	removeMessage: (message: AgentMessage) => void;
@@ -62,10 +38,6 @@ export interface MessagesStore {
 	 * mergeFetchedTranscript before this replacement.
 	 */
 	reconcileFetched: (fetched: AgentMessage[]) => void;
-	/** Capture the full stream state (fields + buffers) for a session-tab switch. */
-	snapshot: () => MessagesSnapshot;
-	/** Restore a captured snapshot; null resets to the empty initial state. */
-	restoreSnapshot: (snapshot: MessagesSnapshot | null) => void;
 	reset: () => void;
 }
 
@@ -76,8 +48,6 @@ const initialState = {
 	streamingMessage: null as AgentMessage | null,
 	streamingText: "",
 	streamingThinking: "",
-	totalMessages: 0,
-	nextCursor: undefined as string | undefined,
 	prevCursor: undefined as string | undefined,
 	pageError: null as string | null,
 	isLoadingPage: false,
@@ -254,23 +224,9 @@ export const createMessagesStore = () =>
 				streamingText,
 				streamingThinking,
 				turnMeter,
-				...(messages !== state.messages
-					? { totalMessages: state.totalMessages + messages.length - state.messages.length }
-					: {}),
 				...(appended.length > 0 ? { lastAppended: appended } : {}),
 			});
 		},
-		loadPage: page =>
-			set({
-				messages: page.messages,
-				liveMessages: [],
-				lastAppended: [],
-				totalMessages: page.totalMessages,
-				nextCursor: page.nextCursor,
-				prevCursor: page.prevCursor,
-				pageError: null,
-				isLoadingPage: false,
-			}),
 		prependPage: page =>
 			set(state => {
 				const ids = new Set(state.messages.flatMap(message => (message.entryId ? [message.entryId] : [])));
@@ -282,25 +238,17 @@ export const createMessagesStore = () =>
 				});
 				return {
 					messages: [...older, ...state.messages],
-					totalMessages: Math.max(page.totalMessages, state.totalMessages),
 					prevCursor: page.prevCursor,
 					isLoadingPage: false,
 					pageError: null,
 				};
 			}),
-		appendMessage: message =>
-			set(s => ({
-				messages: [...s.messages, message],
-				lastAppended: [message],
-				totalMessages: s.totalMessages + 1,
-			})),
+		appendMessage: message => set(s => ({ messages: [...s.messages, message], lastAppended: [message] })),
 		/** Drop a locally appended placeholder (e.g. the composer's running-eval bubble) by identity. */
 		removeMessage: message =>
 			set(s => {
 				const messages = s.messages.filter(entry => entry !== message);
-				const removed = s.messages.length - messages.length;
-				if (removed === 0) return s;
-				return { messages, totalMessages: Math.max(0, s.totalMessages - removed) };
+				return messages.length === s.messages.length ? s : { messages };
 			}),
 		appendLiveMessage: message => set(s => ({ liveMessages: [...s.liveMessages, message] })),
 		removeLiveMessage: message => set(s => ({ liveMessages: s.liveMessages.filter(entry => entry !== message) })),
@@ -336,44 +284,6 @@ export const createMessagesStore = () =>
 			set({
 				messages: fetched,
 				liveMessages: liveMessages.length === state.liveMessages.length ? state.liveMessages : liveMessages,
-				totalMessages: fetched.length,
-			});
-		},
-		snapshot: () => {
-			const state = get();
-			return {
-				messages: state.messages,
-				liveMessages: state.liveMessages,
-				lastAppended: state.lastAppended,
-				streamingMessage: state.streamingMessage,
-				streamingText: state.streamingText,
-				streamingThinking: state.streamingThinking,
-				totalMessages: state.totalMessages,
-				nextCursor: state.nextCursor,
-				prevCursor: state.prevCursor,
-				pageError: state.pageError,
-				isLoadingPage: state.isLoadingPage,
-				turnMeter: state.turnMeter,
-			};
-		},
-		restoreSnapshot: snapshot => {
-			if (!snapshot) {
-				get().reset();
-				return;
-			}
-			set({
-				messages: snapshot.messages,
-				liveMessages: snapshot.liveMessages,
-				lastAppended: snapshot.lastAppended,
-				streamingMessage: snapshot.streamingMessage,
-				streamingText: snapshot.streamingText,
-				streamingThinking: snapshot.streamingThinking,
-				totalMessages: snapshot.totalMessages,
-				nextCursor: snapshot.nextCursor,
-				prevCursor: snapshot.prevCursor,
-				pageError: snapshot.pageError,
-				isLoadingPage: snapshot.isLoadingPage,
-				turnMeter: snapshot.turnMeter,
 			});
 		},
 		reset: () => set(initialState),

@@ -16,20 +16,12 @@ const sessionRows = z.array(
 		messageCount: z.number(),
 		size: z.number(),
 		status: z.enum(["complete", "interrupted", "aborted", "error", "pending", "unknown"]).default("unknown"),
-		parentSessionPath: z.string().optional(),
 		firstMessage: z.string(),
 	}),
 );
 
-export interface SessionStore {
-	list(): Promise<SessionInfo[]>;
-	listDirectory(sessionPath: string): Promise<SessionInfo[]>;
-	delete(sessionPath: string): Promise<void>;
-	stop(): void;
-}
-
 /** Session wire adaptation only. Listing/deletion share the app's stock helper. */
-export class StockSessionStore implements SessionStore {
+export class StockSessionStore {
 	readonly #sessionsRoot: string;
 
 	constructor(sessionsRoot: string, bridgeDir: string) {

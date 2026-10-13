@@ -99,7 +99,7 @@ async function keyDown(element: TestElement, key: string): Promise<void> {
 
 /** Type into the search field the way React sees it (native setter + input event). */
 async function typeQuery(text: string): Promise<void> {
-	const input = container.querySelector("input");
+	const input = palette().querySelector("input");
 	if (!input) throw new Error("search input not found");
 	// React-DOM loads before this file installs the linkedom globals, so it
 	// takes its input-event polyfill: it watches the focused field (focusin) and
@@ -120,7 +120,7 @@ async function typeQuery(text: string): Promise<void> {
 
 /** Press a key in the search field (the input owns Enter). */
 async function pressInInput(key: string): Promise<void> {
-	const input = container.querySelector("input");
+	const input = palette().querySelector("input");
 	if (!input) throw new Error("search input not found");
 	await keyDown(input, key);
 }
@@ -147,8 +147,15 @@ async function mount(): Promise<void> {
 	await flush();
 }
 
+/** The palette renders through the modal portal into document.body, not into the mount container. */
+function palette(): TestElement {
+	return document.body as unknown as TestElement;
+}
+
 function rows(): TestElement[] {
-	return container.querySelectorAll("button").filter(row => row.getAttribute("data-palette-index") !== null);
+	return palette()
+		.querySelectorAll("button")
+		.filter(row => row.getAttribute("data-palette-index") !== null);
 }
 
 function rowByLabel(label: string): TestElement {
@@ -217,13 +224,27 @@ describe("row availability", () => {
 });
 
 describe("panel keyboard handling", () => {
-	it("closes on Escape from a row, not only from the search input", async () => {
-		// Clicking a row leaves focus on its button; an input-only handler made the
-		// palette uncloseable by the keyboard after that.
+	/** The modal layer listens on the document, so Escape closes wherever focus sits inside the palette. */
+	async function pressEscape(): Promise<void> {
+		await keyDown(document as unknown as TestElement, "Escape");
+	}
+
+	it("closes on Escape", async () => {
 		seedTab("agent");
 		await mount();
 		expect(useUiStore.getState().commandPaletteOpen).toBe(true);
-		await keyDown(rows()[3], "Escape");
+		await pressEscape();
+		expect(useUiStore.getState().commandPaletteOpen).toBe(false);
+	});
+
+	it("steps out of a submenu on the first Escape and closes on the second", async () => {
+		seedTab("agent");
+		await mount();
+		await click(rowByLabel(translate("cmd.security")));
+		await pressEscape();
+		expect(useUiStore.getState().commandPaletteOpen).toBe(true);
+		expect(rows().some(row => row.textContent?.includes(translate("cmd.plan")))).toBe(true);
+		await pressEscape();
 		expect(useUiStore.getState().commandPaletteOpen).toBe(false);
 	});
 });
@@ -319,18 +340,18 @@ describe("sidecar command fetch failure", () => {
 		await mount();
 
 		// Localized headline first; the raw cause only as the quiet detail line.
-		const alert = container.querySelector('[role="alert"]');
+		const alert = palette().querySelector('[role="alert"]');
 		expect(alert?.querySelector("span")?.textContent).toBe(translate("palette.commandsFailed"));
 		expect(alert?.querySelector("[data-error-detail]")?.textContent).toBe("sidecar not ready");
 		expect(alert?.getAttribute("title")).toBe("sidecar not ready");
 
-		const retry = container
+		const retry = palette()
 			.querySelectorAll("button")
 			.find(button => button.textContent?.trim() === translate("common.retry"));
 		if (!retry) throw new Error("retry button not found");
 		await click(retry);
 
 		expect(rpc.getAvailableCommands).toHaveBeenCalledTimes(2);
-		expect(container.querySelector('[role="alert"]')).toBeNull();
+		expect(palette().querySelector('[role="alert"]')).toBeNull();
 	});
 });

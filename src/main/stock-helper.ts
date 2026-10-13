@@ -89,7 +89,7 @@ class StockHelper {
 			this.#pending.delete(id);
 			reject(new Error("omp stock helper request timed out"));
 			// Avoid queued mutations executing after their caller has timed out.
-			child.kill();
+			child.stdin.end();
 		}, 30_000);
 		this.#pending.set(id, { resolve, reject, timer });
 		child.stdin.write(`${JSON.stringify({ id, method, params })}\n`, error => {
@@ -104,7 +104,6 @@ class StockHelper {
 	stop(): void {
 		this.#stopped = true;
 		this.#child?.stdin.end();
-		this.#child?.kill();
 		for (const pending of this.#pending.values()) {
 			clearTimeout(pending.timer);
 			pending.reject(new Error("Stock helper stopped"));

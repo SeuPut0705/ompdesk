@@ -85,19 +85,15 @@ export interface Row {
 	quota: { limit: UsageLimit; fraction: number } | null;
 }
 
-function limitFraction(limit: UsageLimit): number | null {
-	if (limit.usedFraction !== undefined) return limit.usedFraction;
-	if (limit.used !== undefined && limit.limit !== undefined && limit.limit > 0) return limit.used / limit.limit;
-	if (limit.remainingFraction !== undefined) return 1 - limit.remainingFraction;
-	return null;
-}
-
-/** The most-consumed limit in a provider report — the one that gates usage first. */
+/**
+ * The most-consumed limit in a provider report — the one that gates usage
+ * first. The bridge normalizes `usedFraction` with stock `resolveUsedFraction`.
+ */
 function tightestLimit(report: UsageReport): { limit: UsageLimit; fraction: number } | null {
 	let best: { limit: UsageLimit; fraction: number } | null = null;
 	for (const limit of report.limits) {
-		const fraction = limitFraction(limit);
-		if (fraction === null) continue;
+		const fraction = limit.usedFraction;
+		if (fraction === undefined) continue;
 		if (!best || fraction > best.fraction) best = { limit, fraction };
 	}
 	return best;
@@ -688,7 +684,7 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 				<InlineNotice
 					action={
 						<Button icon={<RefreshCw />} onClick={() => void load()} size="sm" variant="ghost">
-							{t("modelCompare.retry")}
+							{t("common.retry")}
 						</Button>
 					}
 					detail={fatalError}
@@ -701,7 +697,7 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 				<InlineNotice
 					action={
 						<Button icon={<RefreshCw />} onClick={() => void load()} size="sm" variant="ghost">
-							{t("modelCompare.retry")}
+							{t("common.retry")}
 						</Button>
 					}
 					title={t("modelCompare.partialWarning", { what: failedSections.join(", ") })}
@@ -746,7 +742,7 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 					<IconButton
 						disabled={!sidecarReady || loading}
 						icon={loading ? <Spinner inheritColor size="sm" /> : <RefreshCw />}
-						label={t("modelCompare.refresh")}
+						label={t("common.refresh")}
 						onClick={() => void load()}
 						size="sm"
 					/>

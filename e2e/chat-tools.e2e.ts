@@ -138,12 +138,12 @@ test("a chat tab runs omp with every tool in the default workspace", async () =>
 
 	const aside = page.locator("aside[data-docked]");
 	await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
-	await aside.getByRole("button", { name: "Switch panel view", exact: true }).click();
-	for (const name of ["Changes", "Files", "Logs", "Queue", "Tree", "Jobs"]) {
+	await aside.getByRole("button", { name: "View options", exact: true }).click();
+	for (const name of ["Background tasks", "Plan", "Logs", "Queue", "Tree"]) {
 		await expect(page.getByRole("menuitemcheckbox", { name, exact: true })).toBeVisible();
 	}
 	await page.getByRole("menuitemcheckbox", { name: "Tree", exact: true }).click();
-	await expect(aside.getByRole("button", { name: "Switch panel view", exact: true })).toContainText("Tree");
+	await expect(aside.locator(".omp-panel-topbar")).toContainText("Tree");
 	expect(errors).toEqual([]);
 });
 

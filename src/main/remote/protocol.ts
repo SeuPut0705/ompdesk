@@ -11,7 +11,6 @@ export const PROTOCOL_VERSION = 1;
 
 /** Pairing failures the host reports in `pair-fail`. */
 export const PAIR_FAIL_CODES = ["wrong_code", "expired", "locked"] as const;
-export type PairFailCode = (typeof PAIR_FAIL_CODES)[number];
 
 const rawKey = z.string().refine(isRawKey, "not a raw X25519 key");
 const deviceId = z.string().min(1).max(64);

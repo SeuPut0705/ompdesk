@@ -30,7 +30,6 @@ function pagedBridge(entries: ReturnType<typeof message>[], leaf: () => string) 
 		cwd: "/tmp",
 		omp: { bin: "omp", version: "18.8.7", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
 		bridge,
-		emit: () => {},
 		send: async () => {
 			throw new Error("Transcript must not request raw entries");
 		},
@@ -156,7 +155,6 @@ describe("switch_session", () => {
 			cwd: "/tmp",
 			omp: { bin: "omp", version: "18.7.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
 			bridge: new GuiBridgeClient(""),
-			emit: () => {},
 			send: async <T>(command: { type: string }) => {
 				sent.push(command);
 				return { cancelled: false } as T;

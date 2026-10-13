@@ -6,7 +6,10 @@ import { sameMessageContent, sessionMessagePersistenceKey } from "@oh-my-pi/pi-c
 
 type DisplayMessage = AgentMessage & { entryId?: string };
 
-export function attachEntryIds(messages: readonly DisplayMessage[], entries: readonly SessionEntry[]): DisplayMessage[] {
+export function attachEntryIds(
+	messages: readonly DisplayMessage[],
+	entries: readonly SessionEntry[],
+): DisplayMessage[] {
 	const byKey = new Map<string, Array<{ id: string; message: AgentMessage }>>();
 	for (const entry of entries) {
 		if (entry.type !== "message") continue;
@@ -91,13 +94,19 @@ export function flattenSessionTree(
 	const hasChild = new Set<string>();
 	const visibleIds = new Set<string>();
 	const appendNode = (entry: SessionEntry, parentId: string | null, label?: string): string | null => {
-		if (entry.type !== "message" || (entry.message.role !== "user" && entry.message.role !== "assistant")) return parentId;
+		if (entry.type !== "message" || (entry.message.role !== "user" && entry.message.role !== "assistant"))
+			return parentId;
 		const content = entry.message.content;
 		const text = (
 			typeof content === "string"
 				? content
-				: content.filter(block => block.type === "text").map(block => block.text).join(" ")
-		).replace(/\s+/g, " ").trim();
+				: content
+						.filter(block => block.type === "text")
+						.map(block => block.text)
+						.join(" ")
+		)
+			.replace(/\s+/g, " ")
+			.trim();
 		if (parentId) hasChild.add(parentId);
 		visibleIds.add(entry.id);
 		tree.push({
@@ -118,7 +127,8 @@ export function flattenSessionTree(
 		if (!item) break;
 		const { node } = item;
 		const parentId = appendNode(node.entry, item.parentId, node.label);
-		for (let index = node.children.length - 1; index >= 0; index--) stack.push({ node: node.children[index], parentId });
+		for (let index = node.children.length - 1; index >= 0; index--)
+			stack.push({ node: node.children[index], parentId });
 	}
 	// Stock's indexed tree has no root for a corrupt parent cycle. Its getBranch()
 	// still returns the bounded active path; keep that selection visible in the GUI.

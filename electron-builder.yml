@@ -16,6 +16,8 @@ files:
 extraResources:
   - from: resources/gui-bridge
     to: gui-bridge
+  - from: resources/omp-builtin
+    to: omp-builtin
 # `omp://` deep links only work if LaunchServices sees CFBundleURLTypes, which
 # this block is the only thing that writes. Without it `open-url` never fires in
 # an installed build and the handler in src/main/deep-link.ts is dead code.

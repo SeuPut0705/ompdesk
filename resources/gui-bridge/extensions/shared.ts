@@ -9,7 +9,10 @@ import {
 	resolveActiveProjectRegistryPath,
 	resolveOrDefaultProjectRegistryPath,
 } from "@oh-my-pi/pi-coding-agent/discovery/helpers";
-import { resolvePluginManifestEntries, type ScopedInstalledPlugin } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/loader";
+import {
+	resolvePluginManifestEntries,
+	type ScopedInstalledPlugin,
+} from "@oh-my-pi/pi-coding-agent/extensibility/plugins/loader";
 import {
 	getInstalledPluginsRegistryPath,
 	getMarketplacesCacheDir,
@@ -59,7 +62,7 @@ export async function setExtensionDisabled(
 	setting.setMember(session.settings, extensionId, { member: !enabled });
 	await session.settings.flush();
 	return {
-		enabled: !((setting.get(session.settings) as string[]).includes(extensionId)),
+		enabled: !(setting.get(session.settings) as string[]).includes(extensionId),
 		provenance: setting.provenance(session.settings),
 	};
 }
@@ -97,9 +100,7 @@ export type PluginActivation = "live" | "restart-required";
  * skills hot-reload.
  */
 function pluginRequiresRestart(plugin: ScopedInstalledPlugin): boolean {
-	return (["extensions", "tools", "hooks"] as const).some(
-		key => resolvePluginManifestEntries(plugin, key).length > 0,
-	);
+	return (["extensions", "tools", "hooks"] as const).some(key => resolvePluginManifestEntries(plugin, key).length > 0);
 }
 
 function sameFeatures(left: string[] | null, right: string[] | null): boolean {
@@ -128,10 +129,7 @@ export function classifyPluginActivation(
 		) {
 			continue;
 		}
-		if (
-			(previous && pluginRequiresRestart(previous)) ||
-			(next && pluginRequiresRestart(next))
-		) {
+		if ((previous && pluginRequiresRestart(previous)) || (next && pluginRequiresRestart(next))) {
 			return "restart-required";
 		}
 	}

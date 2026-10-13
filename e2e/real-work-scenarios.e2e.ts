@@ -50,7 +50,9 @@ const SCENARIOS: ReadonlyArray<{ name: string; prompt: string; during?: (page: P
 			during: async (page, tab) => {
 				await expect(page.locator(".omp-work-card-button")).toHaveCount(1, { timeout: 120_000 });
 				await page.locator(".omp-work-card-button").first().click();
-				await expect(page.locator('.omp-work-card[data-open="true"] .omp-live-step')).toBeVisible({
+				await expect(
+					page.locator(".omp-work-stage > .omp-work-crossfade > [data-incoming] .omp-live-step"),
+				).toBeVisible({
 					timeout: 120_000,
 				});
 				await capture(page, "agent-running");

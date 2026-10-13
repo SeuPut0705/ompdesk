@@ -399,7 +399,7 @@ if (process.argv[2] === "stats") {
 	};
 	const lanes: Record<"steering" | "followUp", string[]> = { steering: [], followUp: [] };
 	let isStreaming = false;
-	let planModeEnabled = false;
+	let planModeEnabled = Boolean(process.env.OMP_GUI_TEST_PANEL_PLAN);
 	/** Stock `/btw` history, newest first. */
 	const btwRecords: object[] = [];
 	// Stock `get_state`: cwd, plan mode and the pause gate come from the bridge's `composer.state`.
@@ -845,7 +845,6 @@ if (process.argv[2] === "stats") {
 	const promptHistory: Array<{ prompt: string; created_at: number; cwd?: string }> = [];
 	/** A handler returning `undefined` replies itself (deferred, or ahead of the events it pushes). */
 	const bridgeMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
-		ping: () => ({ version: "18.8.7" }),
 		capabilities: () => ({ ompVersion: "18.8.7", unavailable: [] }),
 		history_recent: params =>
 			promptHistory.filter(entry => !params.cwd || entry.cwd === params.cwd).slice(0, Number(params.limit ?? 200)),
@@ -915,6 +914,18 @@ if (process.argv[2] === "stats") {
 			},
 		}),
 		"composer.jobs": () => [
+			...(process.env.OMP_GUI_TEST_PANEL_PLAN
+				? [
+						{
+							id: "watch",
+							type: "bash",
+							label: "Watching the delivery build",
+							status: "running",
+							startTime: Date.now() - 12_000,
+							resultPreview: "\u001b[32mCompiled renderer\u001b[0m\nWatching for file changes…",
+						},
+					]
+				: []),
 			{
 				id: "done",
 				type: "bash",
@@ -922,8 +933,10 @@ if (process.argv[2] === "stats") {
 				status: "completed",
 				startTime: 1000,
 				endTime: 3000,
+				resultPreview: process.env.OMP_GUI_TEST_PANEL_PLAN ? "Build completed successfully." : undefined,
 			},
 		],
+		"composer.cancel_job": () => ({ cancelled: true }),
 		"composer.tool_extras": () => ({ sources: {}, mounted: [] }),
 		"composer.skill_count": () => ({ skills: 0 }),
 		"composer.share_preview": () => ({
@@ -1168,7 +1181,14 @@ if (process.argv[2] === "stats") {
 		image_generation_sync: () => ({}),
 		reply_language_set: params => ({ language: typeof params.language === "string" ? params.language : null }),
 		account_rotation_set: params => ({ mode: params.mode === "even" ? "even" : "quota" }),
-		"modes.get_plan_mode": () => ({ enabled: planModeEnabled, proposal: planProposal }),
+		"modes.get_plan_mode": () => {
+			let planFilePath: string | undefined;
+			if (process.env.OMP_GUI_TEST_PANEL_PLAN) {
+				planFilePath = nodePath.join(process.cwd(), "panel-fixture-plan.md");
+				fs.copyFileSync(process.env.OMP_GUI_TEST_PANEL_PLAN, planFilePath);
+			}
+			return { enabled: planModeEnabled || Boolean(planFilePath), planFilePath, proposal: planProposal };
+		},
 		"modes.set_plan_mode": params => {
 			planModeEnabled = params.enabled === true;
 			if (!planModeEnabled) planProposal = undefined;
@@ -1177,7 +1197,6 @@ if (process.argv[2] === "stats") {
 		"modes.get_loop_mode": () => ({ enabled: false, state: "off" }),
 		"modes.get_vibe_mode": () => ({ enabled: false }),
 		get_gui_themes: () => ({ themes: [] }),
-		get_themes: () => ({ themes: [] }),
 		get_plugins: () => ({ plugins: [] }),
 		get_marketplaces: () => ({ marketplaces: [] }),
 		get_prompt_templates: () => ({ templates: [] }),
@@ -1554,6 +1573,41 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			appendMessage(call);
 			write({ type: "message_end", message: call });
 			turn.push(call);
+			if (index === 0) {
+				const notices: AgentMessage[] = [
+					{
+						role: "custom",
+						id: "work-view-irc",
+						customType: "irc:incoming",
+						content: "Workspace coordination from ReaMcp",
+						details: {
+							from: "ReaMcp",
+							message: "Workspace coordination is ready.\n**IRC details stay inside this work card.**",
+						},
+						timestamp: Date.now(),
+					},
+					{
+						role: "custom",
+						id: "work-view-advisor",
+						customType: "advisor",
+						content: "Advisor notes",
+						details: {
+							notes: [
+								{
+									note: "Check keyboard reachability before finishing.\n**Advisor details stay inside this work card.**",
+									severity: "concern",
+								},
+							],
+						},
+						timestamp: Date.now(),
+					},
+				];
+				for (const notice of notices) {
+					appendMessage(notice);
+					write({ type: "message_end", message: notice });
+					turn.push(notice);
+				}
+			}
 			write({ type: "tool_execution_start", toolCallId: id, toolName: step.name, args: step.args });
 			write({
 				type: "tool_execution_update",
@@ -1576,6 +1630,28 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					write({ type: "subagent_lifecycle", payload: { ...agent, agentSource: "bundled", status: "started" } });
 				for (const agent of subagentRoster) {
 					recordedMessages.set(agent.id, [
+						// Progress counts the completed read, then the wc execution below.
+						// Keep that first call in the transcript so catch-up has no phantom gap.
+						{
+							role: "assistant",
+							timestamp: Date.now() - 2,
+							content: [
+								{
+									type: "toolCall",
+									id: `${agent.id}-read`,
+									name: "read",
+									arguments: { path: "src/workspace.ts" },
+								},
+							],
+						},
+						{
+							role: "toolResult",
+							toolCallId: `${agent.id}-read`,
+							toolName: "read",
+							content: [{ type: "text", text: "export const workspace = { ready: true };" }],
+							isError: false,
+							timestamp: Date.now() - 1,
+						},
 						{
 							role: "assistant",
 							timestamp: Date.now(),
@@ -1839,7 +1915,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				}, 400);
 			};
 			step(0);
-		} else if (message === "fixture edits") {
+		} else if (message === "fixture edits" || message === "fixture panel edits") {
 			// Commands with output lines alternating with file edits, whose diff
 			// stats carry an `sr-only` label, so the live log fills well past its
 			// window; the last command is left running and the turn never ends.
@@ -1848,7 +1924,13 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				const toolName = index % 2 === 1 ? "edit" : "bash";
 				const args =
 					toolName === "edit"
-						? { path: `src/module-${index}.ts`, edits: [{ old_text: "a", new_text: "b\nc" }] }
+						? {
+								path:
+									message === "fixture panel edits" && index === 5
+										? "local://review.md"
+										: `src/module-${index}.ts`,
+								edits: [{ old_text: "a", new_text: "b\nc" }],
+							}
 						: { command: `run step ${index + 1}` };
 				const call: AgentMessage = {
 					role: "assistant",
@@ -2015,8 +2097,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				break;
 			case "set_event_filter":
 			case "set_ask_dialog":
-			case "set_host_tools":
-			case "set_host_uri_schemes":
 				ok();
 				break;
 			case "set_subagent_subscription":
@@ -2041,9 +2121,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				else ok({ entries: entries.slice(index + 1), leafId });
 				break;
 			}
-			case "get_messages":
-				ok({ messages: activeBranch().flatMap(entry => (entry.type === "message" ? [entry.message] : [])) });
-				break;
 			case "get_subagents":
 				ok({ subagents: subagentRoster });
 				break;

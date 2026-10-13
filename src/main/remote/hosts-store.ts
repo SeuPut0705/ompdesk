@@ -6,7 +6,7 @@
 import { join } from "node:path";
 import { z } from "zod";
 import { isRawKey } from "./crypto";
-import { readJson, writeSecureJson } from "./secure-file";
+import { TrustStore } from "./trust-store";
 
 export interface PairedHost {
 	deviceId: string;
@@ -28,74 +28,27 @@ const StoredHost = z.object({
 	addresses: z.array(z.string()),
 	pairedAt: z.number(),
 });
-const StoredHosts = z.object({ v: z.literal(1), hosts: z.array(z.unknown()) });
 
 function copy(host: PairedHost): PairedHost {
 	return { ...host, addresses: [...host.addresses] };
 }
 
-export class HostStore {
-	readonly #file: string;
-	#hosts: Map<string, PairedHost> | null = null;
-
+export class HostStore extends TrustStore<PairedHost> {
 	constructor(userData: string) {
-		this.#file = join(userData, "remote-hosts.json");
+		super(join(userData, "remote-hosts.json"), "hosts", StoredHost, copy);
 	}
 
-	#load(): Map<string, PairedHost> {
-		if (this.#hosts) return this.#hosts;
-		this.#hosts = new Map();
-		const stored = StoredHosts.safeParse(readJson(this.#file));
-		if (stored.success) {
-			for (const raw of stored.data.hosts) {
-				const host = StoredHost.safeParse(raw);
-				if (host.success) this.#hosts.set(host.data.deviceId, host.data);
-			}
-		}
-		return this.#hosts;
-	}
-
-	#save(): void {
-		writeSecureJson(this.#file, { v: 1, hosts: [...this.#load().values()] });
-	}
-
-	list(): PairedHost[] {
-		return [...this.#load().values()].map(copy);
-	}
-
-	get(deviceId: string): PairedHost | undefined {
-		const host = this.#load().get(deviceId);
-		return host && copy(host);
-	}
-
-	/** Add or replace (re-pair) a host. */
-	put(host: PairedHost): void {
-		this.#load().set(host.deviceId, copy(host));
-		this.#save();
-	}
-
-	update(deviceId: string, patch: { name?: string; addresses?: string[] }): PairedHost | undefined {
-		const hosts = this.#load();
-		const current = hosts.get(deviceId);
+	override update(deviceId: string, patch: Partial<Omit<PairedHost, "deviceId">>): PairedHost | undefined {
+		const current = this.get(deviceId);
 		if (!current) return undefined;
-		const next = copy({ ...current, ...patch });
-		next.addresses = next.addresses.slice(0, MAX_HOST_ADDRESSES);
-		hosts.set(deviceId, next);
-		this.#save();
-		return copy(next);
+		const addresses = (patch.addresses ?? current.addresses).slice(0, MAX_HOST_ADDRESSES);
+		return super.update(deviceId, { ...patch, addresses });
 	}
 
 	/** Move (or add) a working address to the front; no write when it already leads. */
 	rememberAddress(deviceId: string, address: string): PairedHost | undefined {
-		const current = this.#load().get(deviceId);
-		if (!current) return undefined;
-		if (current.addresses[0] === address) return copy(current);
+		const current = this.get(deviceId);
+		if (!current || current.addresses[0] === address) return current;
 		return this.update(deviceId, { addresses: [address, ...current.addresses.filter(a => a !== address)] });
-	}
-
-	remove(deviceId: string): boolean {
-		if (!this.#load().delete(deviceId)) return false;
-		this.#save();
-		return true;
 	}
 }

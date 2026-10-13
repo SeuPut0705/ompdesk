@@ -256,6 +256,63 @@ describe("SidecarManager", () => {
 		}
 	});
 
+	it("commits every message a deferred or compacted agent_end left out, with entry ids, in stream order", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-run-"));
+		// Stock's real order for "Use your todo tool …": run 1 (user prompt, todo/bash/todo/bash) ends,
+		// a todo reminder continues it as run 2, and only run 2's deferred agent_end reaches the wire.
+		const script = [
+			'import { createInterface } from "node:readline";',
+			'import * as net from "node:net";',
+			"const out = (frame: unknown) => process.stdout.write(JSON.stringify(frame) + '\\n');",
+			'const call = (timestamp: number, name: string) => ({ role: "assistant", content: [{ type: "toolCall", id: "c" + timestamp, name, arguments: {} }], stopReason: "toolUse", timestamp });',
+			'const result = (timestamp: number, name: string) => ({ role: "toolResult", toolCallId: "c" + (timestamp - 1), toolName: name, content: [{ type: "text", text: name }], isError: false, timestamp });',
+			'const run1 = [{ role: "user", content: "Use your todo tool", timestamp: 100 }, call(101, "todo"), result(102, "todo"), call(103, "bash"), result(104, "bash"), call(105, "todo"), result(106, "todo"), call(107, "bash"), result(108, "bash"), { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop", timestamp: 109 }];',
+			'const run2 = [{ role: "custom", customType: "todo-reminder", content: "finish todos", display: false, timestamp: 110 }, call(111, "todo"), result(112, "todo"), call(113, "todo"), result(114, "todo"), { role: "assistant", content: [{ type: "text", text: "all done" }], stopReason: "stop", timestamp: 115 }];',
+			'const deliver = (messages: unknown[]) => { for (const message of messages) { out({ type: "message_start", message }); out({ type: "message_end", message }); } };',
+			'const answer = (request) => request.method === "sessions.attach_entry_ids" ? { messages: request.params.messages.map(message => ({ ...message, entryId: "e" + message.timestamp })) } : null;',
+			'net.createServer(socket => { socket.setEncoding("utf8"); let buffer = ""; socket.on("data", chunk => { buffer += chunk; for (let i = buffer.indexOf("\\n"); i !== -1; i = buffer.indexOf("\\n")) { const request = JSON.parse(buffer.slice(0, i)); buffer = buffer.slice(i + 1); socket.write(JSON.stringify({ id: request.id, ok: true, result: answer(request) }) + "\\n"); } }); }).listen(process.env.OMP_GUI_BRIDGE, () => out({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }));',
+			"createInterface({ input: process.stdin }).on('line', line => {",
+			"\tconst command = JSON.parse(line);",
+			'\tout({ type: "response", id: command.id, command: command.type, success: true });',
+			'\tif (command.type !== "prompt") return;',
+			'\tout({ type: "agent_start" });',
+			"\tdeliver(run1);",
+			'\tout({ type: "agent_start" });',
+			"\tdeliver(run2);",
+			// Deferred: run 1's agent_end was replaced. Compacted: stock also drops run 2's delivered prefix.
+			'\tout(command.message === "compact" ? { type: "agent_end", messages: run2.slice(3), messageCount: run2.length } : { type: "agent_end", messages: run2 });',
+			'\tout({ type: "prompt_result", id: command.id, agentInvoked: true });',
+			"});",
+			'process.stdin.on("end", () => process.exit(0));',
+		].join("\n");
+		const binaryPath = await writeFakeOmp(tempDir, script);
+
+		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, bridgeDir: tempDir });
+		const ends: Array<Array<{ entryId?: string }>> = [];
+		sidecar.on("frame", (frame: { type: string; messages?: Array<{ entryId?: string }> }) => {
+			if (frame.type === "agent_end") ends.push(frame.messages ?? []);
+		});
+		const wholeRun = Array.from({ length: 16 }, (_, index) => `e${100 + index}`);
+		try {
+			const ready = waitForReady(sidecar);
+			sidecar.start();
+			await ready;
+			const client = sidecar.rpcClient;
+			if (!client) throw new Error("no rpc client");
+
+			await client.command({ type: "prompt", message: "defer" });
+			await expect.poll(() => ends.length).toBe(1);
+			expect(ends[0]?.map(message => message.entryId)).toEqual(wholeRun);
+
+			await client.command({ type: "prompt", message: "compact" });
+			await expect.poll(() => ends.length).toBe(2);
+			expect(ends[1]?.map(message => message.entryId)).toEqual(wholeRun);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
 	it("appends the workspace launch profile flags at spawn, denylist-proof", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-profile-"));
 		const fakeHome = path.join(tempDir, "home");

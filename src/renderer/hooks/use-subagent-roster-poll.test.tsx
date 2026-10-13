@@ -13,6 +13,7 @@ import { useSessionStore } from "../stores/session";
 import { setFocusedSessionRuntime } from "../stores/session-runtime-context";
 import { useSubagentsStore } from "../stores/subagents";
 import { useTabsStore } from "../stores/tabs";
+import { routeCommands } from "../test-support/route-commands";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -38,7 +39,7 @@ const getSubagents: Mock = vi.fn(async () => ({
 }));
 // Window carries the omp bridge at runtime; named cast keeps the mock wiring typed.
 const ompWindow = window as unknown as { omp: { rpc: { getSubagents: Mock } } };
-ompWindow.omp = { rpc: { getSubagents } };
+ompWindow.omp = { rpc: routeCommands({ getSubagents }) };
 
 function snap(overrides: Partial<SubagentSnapshot>): SubagentSnapshot {
 	return { id: "a1", index: 1, agent: "scout", status: "running", lastUpdate: Date.now(), ...overrides };

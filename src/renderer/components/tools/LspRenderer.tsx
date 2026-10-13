@@ -1,9 +1,10 @@
 import { Braces } from "lucide-react";
-import { cx, resultText } from "../../lib/format";
+import { resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { CodeBlock } from "../chat/CodeBlock";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
+import { ToolTextPreview } from "./ToolTextPreview";
 
 /**
  * LSP wire shape: `{ content: [{ type: "text", text }], details }` where
@@ -331,18 +332,7 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 				</div>
 			)}
 
-			{parsed.kind === "generic" && text && (
-				<pre
-					className={cx(
-						"max-h-40 overflow-auto whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
-						isError
-							? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
-							: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",
-					)}
-				>
-					{text}
-				</pre>
-			)}
+			{parsed.kind === "generic" && text && <ToolTextPreview text={text} isError={isError} />}
 		</div>
 	);
 }

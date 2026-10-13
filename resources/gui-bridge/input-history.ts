@@ -18,7 +18,8 @@ export const methods: BridgeMethods = guard("inputHistory", {
 		const input = params as { prompt: string; cwd?: string };
 		const { shouldSkipHistory } = await import("@oh-my-pi/pi-coding-agent/modes/controllers/input-controller");
 		const skipped = shouldSkipHistory(input.prompt);
-		if (!skipped) await HistoryStorage.open().add(input.prompt, input.cwd, env.session().sessionManager.getSessionId());
+		if (!skipped)
+			await HistoryStorage.open().add(input.prompt, input.cwd, env.session().sessionManager.getSessionId());
 		return { skipped };
 	},
 });

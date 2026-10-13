@@ -1,9 +1,9 @@
-import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { cx, extractImageDataUrl, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_SM } from "../../lib/preview";
 import { ZoomableImage } from "../common/ZoomableImage";
 import type { ToolRendererProps } from "./ToolCard";
+import { ToolTextPreview } from "./ToolTextPreview";
 
 function toJson(value: unknown): string {
 	if (value == null) return "—";
@@ -120,18 +120,8 @@ export function GenericRenderer({ args, result, isError, isPartial, partialResul
 						className="max-h-72 rounded-md border border-[var(--omp-border-muted)] object-contain"
 					/>
 				) : (
-					<pre
-						className={cx(
-							"whitespace-pre-wrap rounded px-2 py-1.5 font-mono text-omp-sm leading-[1.45]",
-							PREVIEW_SCROLL_SM,
-							isError
-								? "bg-[var(--omp-tool-error-bg)] text-[var(--omp-error)]"
-								: "bg-[var(--omp-code-bg)] text-[var(--omp-tool-output)]",
-						)}
-					>
-						{/* Unmapped tools commonly return captured subprocess output. */}
-						{body ? hasAnsi(body) ? <AnsiText text={body} /> : body : "—"}
-					</pre>
+					/* Unmapped tools commonly return captured subprocess output. */
+					<ToolTextPreview text={body || "—"} isError={isError} />
 				)}
 			</div>
 			{hasDetails && (

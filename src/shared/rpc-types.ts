@@ -29,8 +29,6 @@ export type RpcCommand =
 	| { id?: string; type: "set_fast_mode"; enabled: boolean }
 	| { id?: string; type: "get_available_commands" }
 	| { id?: string; type: "set_todos"; phases: TodoPhase[] }
-	| { id?: string; type: "set_host_tools"; tools: HostToolDefinition[] }
-	| { id?: string; type: "set_host_uri_schemes"; schemes: HostUriSchemeDefinition[] }
 	| { id?: string; type: "set_subagent_subscription"; level: SubagentSubscriptionLevel }
 	| { id?: string; type: "set_event_filter"; events: string[] | null }
 	/** Opts the host into upstream's `ask` extension-dialog protocol (`answers` responses). */
@@ -50,7 +48,6 @@ export type RpcCommand =
 	| { id?: string; type: "set_auto_retry"; enabled: boolean }
 	| { id?: string; type: "abort_retry" }
 	| { id?: string; type: "bash"; command: string; excluded?: boolean }
-	| { id?: string; type: "abort_bash" }
 	| { id?: string; type: "eval"; language?: "python" | "js" | "ruby" | "julia"; code: string; excluded?: boolean }
 	| { id?: string; type: "abort_eval" }
 	| { id?: string; type: "dequeue" }
@@ -70,12 +67,9 @@ export type RpcCommand =
 	| { id?: string; type: "branch"; entryId: string }
 	| { id?: string; type: "fork" }
 	| { id?: string; type: "get_branch_messages" }
-	| { id?: string; type: "get_last_assistant_text" }
 	| { id?: string; type: "set_session_name"; name: string; sessionPath?: string }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }
 	| { id?: string; type: "handoff"; customInstructions?: string }
-	| { id?: string; type: "get_messages" }
-	| { id?: string; type: "get_messages_page"; cursor?: string; limit?: number }
 	| { id?: string; type: "get_login_providers" }
 	| { id?: string; type: "login"; providerId: string }
 	/** One stored account (stock `logout`), or every account of the provider with `all`. */
@@ -137,6 +131,7 @@ export type RpcCommand =
 	| { id?: string; type: "preview_share_session" }
 	| { id?: string; type: "share_session"; snapshotId?: string }
 	| { id?: string; type: "get_jobs" }
+	| { id?: string; type: "cancel_job"; jobId: string }
 	| { id?: string; type: "set_session_pinned"; sessionId: string; pinned: boolean }
 
 	// One-shot session actions (TUI /prewalk /fresh /shake /reload-plugins
@@ -149,7 +144,6 @@ export type RpcCommand =
 	| { id?: string; type: "set_force_tool"; tool?: string; clear?: boolean }
 	| { id?: string; type: "get_force_tool" }
 	| { id?: string; type: "get_session_tree" }
-	| { id?: string; type: "get_themes" }
 	| { id?: string; type: "get_theme_colors"; name: string }
 	| { id?: string; type: "get_transcript" }
 	| { id?: string; type: "get_transcript_page"; cursor?: string; limit?: number; fromEnd?: boolean }
@@ -375,16 +369,6 @@ export interface RpcActiveToolsResult {
 	tools: RpcActiveTool[];
 }
 
-/** Result of set_prewalk: the armed state after the toggle. */
-export interface RpcPrewalkState {
-	enabled: boolean;
-}
-
-/** Result of shake_context. `removed` is the one-line operator summary (TUI formatShakeSummary). */
-export interface RpcShakeContextResult {
-	removed: string;
-}
-
 /** Result of reload_plugins: post-reload inventory counts. */
 export interface RpcReloadPluginsResult {
 	plugins: number;
@@ -597,25 +581,10 @@ export interface RpcGetQueueResult {
 	followUp: RpcQueuedMessage[];
 }
 
-/** queue_edit result. */
-export interface RpcQueueEditResult {
-	updated: true;
-}
-
-/** queue_remove result. */
-export interface RpcQueueRemoveResult {
-	removed: true;
-}
-
 /** queue_move result: the entry's lane and final visible index. */
 export interface RpcQueueMoveResult {
 	lane: "steering" | "followUp";
 	index: number;
-}
-
-/** queue_clear result: count of user-restorable messages removed. */
-export interface RpcQueueClearResult {
-	removed: number;
 }
 
 /** One queued message stock handed back: its chip text and attached images. */
@@ -671,10 +640,6 @@ export interface RpcSkillsResult {
 export interface RpcSkillDetail extends RpcSkillInfo {
 	body: string;
 }
-export interface RpcManageSkillResult {
-	action: "create" | "update" | "delete";
-	name: string;
-}
 
 /** A discovered pre/post tool hook. */
 export interface RpcHookInfo {
@@ -699,6 +664,8 @@ export interface RpcMcpServerInfo {
 	toolCount: number;
 	enabled: boolean;
 	authed: boolean;
+	/** True only for OMPdesk's session-local REA declaration, never a user's same-name server. */
+	builtin?: "rea";
 	/** Config provenance (C1). */
 	scope?: "user" | "project";
 	/** stdio only. */
@@ -747,17 +714,6 @@ export interface RpcPluginDetail {
 	values: Record<string, unknown>;
 	/** Keys with persisted values, including write-only secret settings. */
 	configuredKeys: string[];
-}
-
-/** Theme tokens contributed by one enabled plugin's gui.theme asset. */
-export interface RpcGuiThemeInfo {
-	id: string;
-	tokens: Record<string, string>;
-}
-
-/** Result of `get_gui_themes`: declarative GUI theme tokens from enabled plugins. */
-export interface RpcGuiThemesResult {
-	themes: RpcGuiThemeInfo[];
 }
 
 /** An installed plugin (npm package or marketplace install). */
@@ -1043,14 +999,6 @@ export interface RpcSessionTreeResult {
 	activeLeafId: string | null;
 }
 
-export interface RpcThemeInfo {
-	name: string;
-	path?: string;
-}
-export interface RpcThemesResult {
-	themes: RpcThemeInfo[];
-}
-
 /** A UI theme's resolved colors as CSS hex strings, keyed by theme token (accent, statusLineBg, …). */
 export interface RpcThemeColorsResult {
 	name: string;
@@ -1332,13 +1280,6 @@ export type ExtensionUIResponse =
 // Host Tools & URIs
 // ============================================================================
 
-export interface HostToolDefinition {
-	name: string;
-	label?: string;
-	description: string;
-	parameters: Record<string, unknown>;
-}
-
 export interface HostToolCallRequest {
 	type: "host_tool_call";
 	/** Snowflake request id the host echoes back in host_tool_result. */
@@ -1354,31 +1295,6 @@ export interface HostToolCancelRequest {
 	targetId: string;
 }
 
-/**
- * Renderer → main: completes a pending host tool call with plain text. Main
- * wraps it into omp's `AgentToolResult` (`{ result: { content }, isError }`).
- */
-export interface HostToolResult {
-	type: "host_tool_result";
-	id: string;
-	result?: string;
-	error?: string;
-}
-
-/** Renderer → main: a partial host tool update; main sends it to omp as `partialResult`. */
-export interface HostToolUpdate {
-	type: "host_tool_update";
-	id: string;
-	update: string;
-}
-
-export interface HostUriSchemeDefinition {
-	scheme: string;
-	description: string;
-	writable?: boolean;
-	immutable?: boolean;
-}
-
 export interface HostUriRequest {
 	type: "host_uri_request";
 	id: string;
@@ -1392,14 +1308,6 @@ export interface HostUriCancelRequest {
 	type: "host_uri_cancel";
 	id: string;
 	targetId: string;
-}
-
-/** Sent by the host to complete a pending URI request. */
-export interface HostUriResult {
-	type: "host_uri_result";
-	id: string;
-	content?: string;
-	error?: string;
 }
 
 // ============================================================================
@@ -1516,10 +1424,6 @@ export interface RpcAgentTemplatesInstallResult {
 	dir: string;
 	installed: string[];
 	skipped: string[];
-}
-
-export interface RpcAgentDefinitionsResult {
-	agents: RpcAgentDefinitionInfo[];
 }
 
 export interface AgentProgress {
@@ -2039,10 +1943,6 @@ export interface ModelRoleMetadata {
 	color?: string;
 	hidden?: boolean;
 	section: "chat" | "kind";
-}
-
-export interface ModelRoleMetadataResult {
-	roles: ModelRoleMetadata[];
 }
 
 /** Where auto-compaction triggers for one model (stock `describeModelCompactionPoint`, omp 18.8.5+). */

@@ -4,7 +4,7 @@
  * array-of-strings shape: existing items as removable chips, an input that
  * appends on Enter/comma/blur, Backspace-on-empty removes the last chip.
  * Commits the whole array on every change (the parent writes via setSetting).
- * Ordered settings (webSearchOrder, imageOrder — TUI MultiSelectSubmenu
+ * Ordered settings (compaction.methodOrder, images.urls.backends — TUI MultiSelectSubmenu
  * ordered parity) additionally render each chip's position and move up/down
  * controls, since their array order carries priority semantics.
  */

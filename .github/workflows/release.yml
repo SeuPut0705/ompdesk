@@ -142,7 +142,7 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun run check:types
-      - run: bunx biome check src e2e
+      - run: bunx biome check src e2e resources scripts
       - run: node scripts/lint-surfaces.mjs
       - run: bunx vitest run
 

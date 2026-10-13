@@ -52,7 +52,6 @@ import {
 	liveWorkTail,
 	type MountedTranscriptRow,
 	mergeTodoSnapshots,
-	messageTimestampMs,
 	type Row,
 	scrollTranscriptToTail,
 	shouldRePinTranscript,
@@ -61,6 +60,7 @@ import { ExecutionGroup } from "./ExecutionGroup";
 import { MessageBubble } from "./MessageBubble";
 import { StreamingText } from "./StreamingText";
 import { ThinkingBlock } from "./ThinkingBlock";
+import { messageTimestampMs } from "./work-turn";
 
 // TanStack's end check needs one CSS pixel for fractional scrollTop rounding.
 // User intent is enforced separately by switching away from end anchoring.
@@ -686,7 +686,7 @@ function SessionTranscript() {
 							<>
 								<span>{t("chat.history.failed")}</span>
 								<Button size="sm" onClick={() => void requestOlder()}>
-									{t("chat.history.retry")}
+									{t("common.retry")}
 								</Button>
 							</>
 						)}
@@ -814,15 +814,6 @@ function SessionTranscript() {
 				activeIndex={activeConversationIndex}
 				anchors={conversationAnchors}
 				onNavigate={jumpToConversation}
-				onLoadOlder={
-					prevCursor
-						? () => {
-								jumpToConversation(0);
-								void requestOlder();
-							}
-						: undefined
-				}
-				loadingOlder={isLoadingPage}
 			/>
 		</div>
 	);
@@ -904,6 +895,7 @@ function ProcessGroup({
 				live={live}
 				onExpandedChange={onExpandedChange}
 				output={output}
+				notes={row.notes}
 				stepCount={row.stepCount + liveCards.length + (hasThinking ? 1 : 0)}
 				thinkingLive={hasThinking && !hasText}
 				toolCallIds={toolCallIds}

@@ -30,6 +30,7 @@ import type {
 import { readSplitNode, type SplitLayout, type SplitPlacement, splitTabIds } from "../../shared/split-layout";
 import { translate } from "../lib/i18n";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
+import { routeCommands } from "../test-support/route-commands";
 import { useComposerStore } from "./composer";
 import { useExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
@@ -138,7 +139,7 @@ function installMockOmp(): { omp: MockOmp; emitTabStatus: TabStatusHandler } {
 				return () => {};
 			}),
 		},
-		rpc: {
+		rpc: routeCommands({
 			getState: vi.fn(async () => ok(serverState())),
 			getTranscriptPage: vi.fn(async () => ok({ messages: [], totalMessages: 0 })),
 			getSubagents: vi.fn(async () => ok({ subagents: [] })),
@@ -148,7 +149,7 @@ function installMockOmp(): { omp: MockOmp; emitTabStatus: TabStatusHandler } {
 			getQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
 			switchSession: vi.fn(async () => ok({})),
 			setSubagentSubscription: vi.fn(async () => ok({})),
-		},
+		}),
 	};
 	(window as unknown as { omp: MockOmp }).omp = omp;
 	return { omp, emitTabStatus: payload => tabStatusHandler(payload) };
@@ -180,7 +181,7 @@ function fillLiveStores(tag: string): void {
 		planModeEnabled: true,
 		goal: { objective: `goal-${tag}` },
 	});
-	useMessagesStore.setState({ messages: [msg(`hello-${tag}`)], totalMessages: 1 });
+	useMessagesStore.setState({ messages: [msg(`hello-${tag}`)] });
 	useTodoStore.getState().setPhases([{ name: `phase-${tag}`, tasks: [] } as TodoPhase]);
 	useQueueStore.setState({
 		steering: [{ id: `q-${tag}`, text: `steer-${tag}`, editable: true, timestamp: 1 }],
@@ -214,8 +215,20 @@ function fillLiveStores(tag: string): void {
 		title: `Confirm ${tag}`,
 		message: `Message ${tag}`,
 	});
-	useExtensionUiStore.getState().setStatus(`status-${tag}`, `Status ${tag}`);
-	useExtensionUiStore.getState().setWidget(`widget-${tag}`, [`Widget ${tag}`]);
+	useExtensionUiStore.getState().pushRequest({
+		type: "extension_ui_request",
+		id: `status-${tag}`,
+		method: "setStatus",
+		statusKey: `status-${tag}`,
+		statusText: `Status ${tag}`,
+	});
+	useExtensionUiStore.getState().pushRequest({
+		type: "extension_ui_request",
+		id: `widget-${tag}`,
+		method: "setWidget",
+		widgetKey: `widget-${tag}`,
+		widgetLines: [`Widget ${tag}`],
+	});
 }
 
 let omp: MockOmp;

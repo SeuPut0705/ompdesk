@@ -1,9 +1,10 @@
 import { Brain, CornerDownLeft } from "lucide-react";
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
+import type { AgentMessage } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
 import { useMediaQuery } from "../../hooks/use-media-query";
-import { cx, formatDuration } from "../../lib/format";
+import { cx, formatDuration, formatElapsed } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
 import { type MessagesStore, useMessagesStore } from "../../stores/messages";
@@ -16,7 +17,9 @@ import { getToolHeader, getToolRenderer } from "../tools/index";
 import { ToolPathTarget } from "../tools/ToolCard";
 import { collapseWaitSteps, selectLiveStep } from "./live-step";
 import { WorkContext } from "./WorkContext";
-import { WorkMap } from "./WorkMap";
+import { WorkCrossfade, workMotionDuration } from "./WorkCrossfade";
+import { SubagentSurface, WorkMap } from "./WorkMap";
+import { WorkNotes } from "./WorkNotes";
 import { WorkOutcome } from "./WorkOutcome";
 import { isInterruptedError, type WorkGroupState, type WorkState, WorkStatus } from "./WorkStatus";
 import { isSkippedWork, lastReasoningSentence, workConclusion, workNarrative } from "./work-view";
@@ -27,10 +30,8 @@ const seenSteps = new WeakMap<
 >();
 
 /**
- * The live work card inside a running group: a head that says what is happening
- * now, one lane per subagent, the current step's own surface (terminal, editor,
- * capture…) sized to its content, and a replay strip rather than an accumulating
- * log. Nested inside an agent lane it renders only that agent's surface and strip.
+ * One head, stable agent lanes, and a fixed-height stage shared by every step.
+ * Nested agent views retain their own clock, stall warning and replay strip.
  */
 export function LiveStepPeek({
 	thinkingLive,
@@ -43,6 +44,7 @@ export function LiveStepPeek({
 	summaryRow,
 	carriesContext = false,
 	todoSnapshots,
+	notes,
 }: {
 	thinkingLive: boolean;
 	toolCallIds: readonly string[];
@@ -59,6 +61,7 @@ export function LiveStepPeek({
 	/** Only the transcript's live-tail group carries the session context. */
 	carriesContext?: boolean;
 	todoSnapshots?: readonly TodoSnapshot[];
+	notes?: readonly AgentMessage[];
 }) {
 	const turnIsLive = state === "running";
 	const t = useT();
@@ -137,7 +140,6 @@ export function LiveStepPeek({
 	const partial = useFrameSelector(tools, s => (surfaceKey ? s.partialResults.get(surfaceKey) : undefined));
 	const reasoning = useFrameSelector(messages, s => (selected === "thinking" ? s.streamingThinking.slice(-600) : ""));
 	const scrollRef = useRef<HTMLDivElement>(null);
-	const contentRef = useRef<HTMLDivElement>(null);
 	const stripRef = useRef<HTMLDivElement>(null);
 	const stickRef = useRef(true);
 	const previousStep = useRef(selected);
@@ -190,6 +192,64 @@ export function LiveStepPeek({
 					toolCallIds.includes(tools.getState().entryKeyForCallId(node.parentToolCallId)),
 			),
 	);
+	const activityKey = useFrameSelector(subagents, s =>
+		[...s.subagents.values()]
+			.filter(
+				node =>
+					node.parentToolCallId && toolCallIds.includes(tools.getState().entryKeyForCallId(node.parentToolCallId)),
+			)
+			.map(node => `${node.id}:${node.status}:${node.lastUpdate}:${node.progress?.currentTool}`)
+			.join("|"),
+	);
+	const canAutoFollow =
+		!nested && turnIsLive && following && expandedAgent === null && (kind === "task" || kind === "wait");
+	const chooseAgent = useCallback(
+		(previous: string | null) => {
+			let latest: { id: string; lastUpdate: number } | null = null;
+			let active: { id: string; lastUpdate: number } | null = null;
+			for (const node of subagents.getState().subagents.values()) {
+				if (
+					!node.parentToolCallId ||
+					!toolCallIds.includes(tools.getState().entryKeyForCallId(node.parentToolCallId))
+				)
+					continue;
+				if (!latest || node.lastUpdate > latest.lastUpdate) latest = node;
+				if (
+					(node.status === "running" || node.status === "pending") &&
+					(!active || node.lastUpdate > active.lastUpdate)
+				)
+					active = node;
+			}
+			// A rehydrated live wait may have only finished workers: restore its last real output,
+			// not an empty stage. A running worker always takes precedence.
+			return (
+				active?.id ?? (previous && subagents.getState().subagents.has(previous) ? previous : latest?.id) ?? null
+			);
+		},
+		[subagents, tools, toolCallIds],
+	);
+	const [autoAgent, setAutoAgent] = useState<string | null>(() => (canAutoFollow ? chooseAgent(null) : null));
+	const lastFollow = useRef(0);
+	if (!lastFollow.current) lastFollow.current = Date.now();
+	useEffect(() => {
+		void activityKey;
+		if (!canAutoFollow) return;
+		const follow = () => {
+			const candidate = chooseAgent(autoAgent);
+			if (candidate !== autoAgent) {
+				lastFollow.current = Date.now();
+				setAutoAgent(candidate);
+			}
+		};
+		const delay = autoAgent ? Math.max(0, 3000 - (Date.now() - lastFollow.current)) : 0;
+		if (!delay) {
+			follow();
+			return;
+		}
+		const timer = setTimeout(follow, delay);
+		return () => clearTimeout(timer);
+	}, [activityKey, canAutoFollow, autoAgent, chooseAgent]);
+	const shownAgent = expandedAgent ?? (canAutoFollow ? autoAgent : null);
 	const groupKey = toolCallIds[0] ?? "thinking";
 	useEffect(() => {
 		if (typeof IntersectionObserver === "undefined") return;
@@ -254,7 +314,14 @@ export function LiveStepPeek({
 		}
 		const element = scrollRef.current;
 		if (!element) return;
-		if (!latest) {
+		const shownTool = element.parentElement?.dataset.tool;
+		const keepNewest =
+			shownTool === "bash" ||
+			shownTool === "eval" ||
+			shownTool === "write" ||
+			shownTool === "edit" ||
+			shownTool === "ast_edit";
+		if (!latest && !keepNewest) {
 			element.scrollTop = 0;
 			return;
 		}
@@ -283,8 +350,6 @@ export function LiveStepPeek({
 		observer.observe(strip);
 		return () => observer.disconnect();
 	}, [selected, stripKey]);
-	const Renderer = entry ? getToolRenderer(entry.toolName) : null;
-	const Icon = header?.icon ?? Brain;
 	const calmWait = kind === "wait" && !entry?.isError && entry?.status !== "error" && entry?.status !== "aborted";
 	const motion = !reducedMotion;
 	// Top level, the head carries thinking and calm waits, and agent lanes are the task's own surface:
@@ -305,7 +370,11 @@ export function LiveStepPeek({
 		!nested && !turnIsLive
 			? completion
 			: entry && selected !== "thinking"
-				? workNarrative(entry.toolName, entry.args, t, undefined, entry.intent)
+				? entry.status === "pending" && entry.streamingArgs
+					? header?.labelKey
+						? t(header.labelKey)
+						: (header?.tool ?? t("chat.thinking.live"))
+					: workNarrative(entry.toolName, entry.args, t, undefined, entry.intent)
 				: t("chat.thinking.live");
 	const sub =
 		!following && !pinnedLive
@@ -325,36 +394,29 @@ export function LiveStepPeek({
 	const headMeta = running
 		? stalled
 			? t("chat.work.stalled", { seconds: silentSeconds })
-			: formatDuration(Math.max(0, now - startTime))
+			: formatElapsed(now - startTime)
 		: "";
-	// Resize output directly without a React render. Only step changes ease the height;
-	// streaming growth writes immediately so transcript measurements do not chase an animation.
-	const smoothHeight = showSurface && motion && kind !== "browser" && kind !== "computer";
-	const measuredStep = useRef(surfaceKey);
+	// A calm wait's own clock: ticking while live, the exact span once it ended.
+	const waited = !calmWait
+		? ""
+		: live
+			? formatElapsed(now - startTime)
+			: formatDuration(Math.max(0, (entry?.endTime ?? now) - startTime));
+	// Once real output opens the stage, thinking never collapses it between steps.
+	const openedStage = useRef(false);
+	if (showSurface || hasLanes) openedStage.current = true;
+	const stageOpen = !nested && (shownAgent !== null || (!outcomeMode && openedStage.current));
+	const [stagePresent, setStagePresent] = useState(stageOpen);
+	const retainedSurface = useRef<ReactNode>(null);
+	const retainedFrame = useRef<{ identity: string; agent: string | null; tool: string | null } | null>(null);
 	useLayoutEffect(() => {
-		const content = contentRef.current;
-		const scroll = scrollRef.current;
-		if (!scroll) return;
-		if (!smoothHeight || !content || typeof ResizeObserver === "undefined") {
-			scroll.style.height = "";
-			delete scroll.dataset.heightTransition;
-			return;
+		if (stageOpen) setStagePresent(true);
+		else if (!motion) setStagePresent(false);
+		else {
+			const timer = setTimeout(() => setStagePresent(false), workMotionDuration(boxRef.current));
+			return () => clearTimeout(timer);
 		}
-		const style = getComputedStyle(scroll);
-		const padding = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
-		const changedStep = measuredStep.current !== surfaceKey;
-		measuredStep.current = surfaceKey;
-		const measure = (animate: boolean) => {
-			const height = `${Math.ceil(content.getBoundingClientRect().height + padding)}px`;
-			if (scroll.style.height === height) return;
-			scroll.dataset.heightTransition = String(animate);
-			scroll.style.height = height;
-		};
-		measure(changedStep);
-		const observer = new ResizeObserver(() => measure(false));
-		observer.observe(content);
-		return () => observer.disconnect();
-	}, [smoothHeight, surfaceKey]);
+	}, [stageOpen, motion]);
 	return (
 		<div
 			className={cx("omp-live-step", motion && "omp-work-motion")}
@@ -382,9 +444,11 @@ export function LiveStepPeek({
 						motion={motion}
 					/>
 					<div className="omp-work-head-text">
-						<div className="omp-work-narrative" key={`narrative-${surfaceKey}`} title={narrative}>
-							{narrative}
-						</div>
+						<WorkCrossfade identity={`${surfaceKey}:${state}`} motion={motion}>
+							<div className="omp-work-narrative" title={narrative}>
+								{narrative}
+							</div>
+						</WorkCrossfade>
 						{sub ? (
 							<div className="omp-work-sub" title={headMeta ? `${sub} · ${headMeta}` : sub}>
 								{sub}
@@ -414,6 +478,7 @@ export function LiveStepPeek({
 				{stalled ? t("chat.work.stalled", { seconds: 10 }) : ""}
 			</span>
 			{!nested ? <WorkContext live={carriesContext} snapshot={todoSnapshots?.at(-1)} /> : null}
+			{!nested && notes?.length ? <WorkNotes messages={notes} live={turnIsLive} /> : null}
 			{catchUp > 0 ? (
 				<button
 					type="button"
@@ -432,179 +497,247 @@ export function LiveStepPeek({
 					toolCallIds={toolCallIds}
 					active={turnIsLive && focused && visible}
 					motion={motion}
-					expanded={expandedAgent}
-					onExpandedChange={setExpandedAgent}
+					expanded={shownAgent}
+					onExpandedChange={id => {
+						setExpandedAgent(id ?? (expandedAgent === null ? shownAgent : null));
+					}}
 				/>
 			) : null}
-			{concurrent.length > 1 ? (
-				<ul className="omp-work-parallel" aria-label={t("chat.work.parallel", { count: concurrent.length })}>
-					{concurrent.map(step => {
+			{!nested && (stageOpen || stagePresent) ? (
+				<div className="omp-work-stage-shell" data-open={stageOpen} aria-hidden={!stageOpen} inert={!stageOpen}>
+					<div
+						className="omp-work-stage"
+						role="region"
+						aria-label={t("chat.work.surface")}
+						data-settled={
+							thinkingBetween ||
+							(!shownAgent && !showSurface) ||
+							(canAutoFollow && !!shownAgent && !waitingFor) ||
+							undefined
+						}
+					>
+						{stageOpen ? renderStage() : retainedSurface.current}
+					</div>
+				</div>
+			) : null}
+			{nested ? (
+				<WorkCrossfade identity={surfaceKey} motion={motion}>
+					{renderSurface()}
+				</WorkCrossfade>
+			) : null}
+			{outcomeMode ? (
+				<div className="omp-work-outcome-shell">
+					<div className="omp-work-outcome-content">
+						<WorkOutcome toolCallIds={toolCallIds} showConclusions={false} stoppedAt={stoppedAt} />
+					</div>
+				</div>
+			) : null}
+			{renderStrip()}
+		</div>
+	);
+
+	function renderStage() {
+		if (shownAgent || showSurface) {
+			retainedFrame.current = {
+				identity: shownAgent ? `agent:${shownAgent}` : surfaceKey,
+				agent: shownAgent,
+				tool: shownAgent ? null : surfaceKey,
+			};
+		}
+		const frame = retainedFrame.current;
+		const surface = frame ? (
+			<WorkCrossfade identity={frame.identity} motion={motion}>
+				{frame.agent ? (
+					<SubagentSurface id={frame.agent} store={subagents} />
+				) : (
+					renderSurface(frame.tool ?? surfaceKey)
+				)}
+			</WorkCrossfade>
+		) : null;
+		const stage = (
+			<>
+				{renderConcurrent()}
+				{surface}
+			</>
+		);
+		retainedSurface.current = stage;
+		return stage;
+	}
+	function renderConcurrent() {
+		return concurrent.length > 1 ? (
+			<ul className="omp-work-parallel" aria-label={t("chat.work.parallel", { count: concurrent.length })}>
+				{concurrent.map(step => {
+					const item = selectToolEntry(tools.getState(), step.id);
+					if (!item) return null;
+					const meta = getToolHeader(item.toolName, item.args);
+					const StepIcon = meta.icon;
+					const shown = step.ids.includes(surfaceKey);
+					return (
+						<li key={step.ids[0]}>
+							<button
+								type="button"
+								className="omp-work-parallel-row"
+								aria-current={shown || undefined}
+								onClick={() => {
+									pinnedFromParallel.current = !(shown && following);
+									setReplay(shown && following ? null : step.id);
+									setExpandedAgent(null);
+								}}
+							>
+								<WorkStatus state="running" label={t("subagent.status.started")} motion={motion} />
+								<StepIcon aria-hidden className="omp-live-step-icon" />
+								<span className="omp-work-parallel-label">
+									{workNarrative(item.toolName, item.args, t, undefined, item.intent)}
+								</span>
+								<span className="omp-work-card-progress">{formatElapsed(now - step.startedAt)}</span>
+							</button>
+						</li>
+					);
+				})}
+			</ul>
+		) : null;
+	}
+	function renderSurface(id = surfaceKey) {
+		const entry = selectToolEntry(tools.getState(), id);
+		const partial = tools.getState().partialResults.get(id);
+		const header = entry ? getToolHeader(entry.toolName, entry.args) : null;
+		const Renderer = entry ? getToolRenderer(entry.toolName) : null;
+		const Icon = header?.icon ?? Brain;
+		const kind = header?.tool ?? "thinking";
+		const calmWait = kind === "wait" && !entry?.isError && entry?.status !== "error" && entry?.status !== "aborted";
+		return showSurface || id !== surfaceKey ? (
+			<div className="omp-work-surface" data-tool={kind}>
+				<div className="omp-live-work-heading">
+					<Icon aria-hidden className="omp-live-step-icon" />
+					<span className="shrink-0">
+						{header?.labelKey ? t(header.labelKey) : (header?.tool ?? t("chat.thinking.live"))}
+					</span>
+					{header?.path ? (
+						<ToolPathTarget path={header.path} />
+					) : header?.target && kind !== "bash" && kind !== "eval" ? (
+						<span className="min-w-0 truncate font-mono" title={header.target}>
+							{header.target}
+						</span>
+					) : null}
+					{!following && !pinnedLive ? (
+						<span className="omp-live-work-mode" data-mode="replay">
+							{t("chat.work.replay")}
+						</span>
+					) : thinkingBetween ? (
+						<span className="omp-live-work-mode">{t("chat.work.justDone")}</span>
+					) : nested && headMeta ? (
+						// A lane has no head of its own: its clock and no-output warning sit on the step line.
+						<span className="omp-live-work-mode omp-work-clock" data-stalled={stalled}>
+							{headMeta}
+						</span>
+					) : null}
+				</div>
+				<div
+					className="omp-live-step-scroll"
+					ref={scrollRef}
+					tabIndex={0}
+					role="region"
+					aria-label={t("chat.work.surface")}
+					data-settled={thinkingBetween || undefined}
+					onScroll={event => {
+						const element = event.currentTarget;
+						stickRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 8;
+					}}
+				>
+					<div className="omp-work-surface-content">
+						{calmWait ? (
+							<div className="omp-live-work-calm" data-wait-line>
+								{t("chat.work.waiting")}
+								{waited ? <span className="tabular-nums"> · {waited}</span> : null}
+							</div>
+						) : Renderer && entry ? (
+							<Renderer
+								key={id}
+								args={entry.args}
+								result={entry.result}
+								partialResult={partial}
+								isPartial={entry.status === "pending" || entry.status === "running"}
+								isError={entry.isError || entry.status === "error"}
+								interrupted={entry.status === "aborted"}
+								livePreview
+								toolCallId={id}
+							/>
+						) : (
+							<div className="omp-live-work-calm">
+								{lastReasoningSentence(reasoning) || t("chat.thinking.live")}
+							</div>
+						)}
+					</div>
+				</div>
+			</div>
+		) : null;
+	}
+	function renderStrip() {
+		return steps.length === 0 || stepsListed || (nested && following && steps.length <= 1) ? null : (
+			<div className="omp-live-work-strip" role="group" aria-label={t("chat.work.steps")}>
+				<div className="omp-live-work-chips" ref={stripRef}>
+					{steps.map((step, index) => {
 						const item = selectToolEntry(tools.getState(), step.id);
 						if (!item) return null;
 						const meta = getToolHeader(item.toolName, item.args);
 						const StepIcon = meta.icon;
-						const shown = step.ids.includes(surfaceKey);
+						const label = `${index + 1}. ${meta.labelKey ? t(meta.labelKey) : meta.tool}${meta.path || meta.target ? ` · ${meta.path ?? meta.target}` : ""}`;
+						const current = step.ids.includes(selected);
+						const errored = item.status === "error" || (item.isError && item.status !== "aborted");
+						const state =
+							item.status === "pending" || item.status === "running"
+								? "running"
+								: isInterruptedError(item, stoppedAt)
+									? "stopped"
+									: errored
+										? "failed"
+										: "done";
 						return (
-							<li key={step.ids[0]}>
-								<button
-									type="button"
-									className="omp-work-parallel-row"
-									aria-current={shown || undefined}
-									onClick={() => {
-										pinnedFromParallel.current = !(shown && following);
-										setReplay(shown && following ? null : step.id);
-										setExpandedAgent(null);
-									}}
-								>
-									<WorkStatus state="running" label={t("subagent.status.started")} motion={motion} />
-									<StepIcon aria-hidden className="omp-live-step-icon" />
-									<span className="omp-work-parallel-label">
-										{workNarrative(item.toolName, item.args, t, undefined, item.intent)}
-									</span>
-									<span className="omp-work-card-progress">
-										{formatDuration(Math.max(0, now - step.startedAt))}
-									</span>
-								</button>
-							</li>
+							<button
+								type="button"
+								key={step.ids[0]}
+								className={cx(
+									"omp-live-work-chip",
+									state !== "running" && "omp-live-work-chip--finished",
+									live && current && motion && "omp-work-pulse",
+								)}
+								data-state={state}
+								aria-label={label}
+								title={label}
+								aria-pressed={current}
+								data-step-id={step.id}
+								onClick={() => {
+									pinnedFromParallel.current = false;
+									setReplay(step.id);
+									setExpandedAgent(null);
+								}}
+							>
+								<StepIcon aria-hidden className="omp-live-step-icon" />
+							</button>
 						);
 					})}
-				</ul>
-			) : null}
-			{showSurface ? (
-				<div className="omp-work-surface">
-					<div className="omp-live-work-heading">
-						<Icon aria-hidden className="omp-live-step-icon" />
-						<span className="shrink-0">
-							{header?.labelKey ? t(header.labelKey) : (header?.tool ?? t("chat.thinking.live"))}
-						</span>
-						{header?.path ? (
-							<ToolPathTarget path={header.path} />
-						) : header?.target && kind !== "bash" && kind !== "eval" ? (
-							<span className="min-w-0 truncate font-mono" title={header.target}>
-								{header.target}
-							</span>
-						) : null}
-						{!following && !pinnedLive ? (
-							<span className="omp-live-work-mode" data-mode="replay">
-								{t("chat.work.replay")}
-							</span>
-						) : thinkingBetween ? (
-							<span className="omp-live-work-mode">{t("chat.work.justDone")}</span>
-						) : nested && headMeta ? (
-							// A lane has no head of its own: its clock and no-output warning sit on the step line.
-							<span className="omp-live-work-mode omp-work-clock" data-stalled={stalled}>
-								{headMeta}
-							</span>
-						) : null}
-					</div>
-					<div
-						className="omp-live-step-scroll"
-						ref={scrollRef}
-						tabIndex={0}
-						role="region"
-						aria-label={t("chat.work.surface")}
-						data-settled={thinkingBetween || undefined}
-						onScroll={event => {
-							const element = event.currentTarget;
-							stickRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 8;
+				</div>
+				{following && expandedAgent === null ? null : (
+					<button
+						type="button"
+						className="omp-live-work-chip omp-live-work-follow"
+						onClick={() => {
+							pinnedFromParallel.current = false;
+							setReplay(null);
+							setExpandedAgent(null);
 						}}
 					>
-						<div className="omp-work-surface-content" ref={contentRef}>
-							{calmWait ? (
-								<div className="omp-live-work-calm" data-wait-line>
-									{t("chat.work.waiting")}{" "}
-									<span className="tabular-nums">
-										· {formatDuration(Math.max(0, (live ? now : (entry?.endTime ?? now)) - startTime))}
-									</span>
-								</div>
-							) : Renderer && entry ? (
-								<Renderer
-									key={surfaceKey}
-									args={entry.args}
-									result={entry.result}
-									partialResult={partial}
-									isPartial={entry.status === "pending" || entry.status === "running"}
-									isError={entry.isError || entry.status === "error"}
-									interrupted={entry.status === "aborted"}
-									livePreview
-									toolCallId={surfaceKey}
-								/>
-							) : (
-								<div className="omp-live-work-calm">
-									{lastReasoningSentence(reasoning) || t("chat.thinking.live")}
-								</div>
-							)}
-						</div>
-					</div>
-				</div>
-			) : null}
-			{outcomeMode ? <WorkOutcome toolCallIds={toolCallIds} showConclusions={false} stoppedAt={stoppedAt} /> : null}
-			{steps.length === 0 || stepsListed || (nested && following && steps.length <= 1) ? null : (
-				<div className="omp-live-work-strip" role="group" aria-label={t("chat.work.steps")}>
-					<div className="omp-live-work-chips" ref={stripRef}>
-						{steps.map((step, index) => {
-							const item = selectToolEntry(tools.getState(), step.id);
-							if (!item) return null;
-							const meta = getToolHeader(item.toolName, item.args);
-							const StepIcon = meta.icon;
-							const label = `${index + 1}. ${meta.labelKey ? t(meta.labelKey) : meta.tool}${meta.path || meta.target ? ` · ${meta.path ?? meta.target}` : ""}`;
-							const current = step.ids.includes(selected);
-							const errored = item.status === "error" || (item.isError && item.status !== "aborted");
-							const state =
-								item.status === "pending" || item.status === "running"
-									? "running"
-									: isInterruptedError(item, stoppedAt)
-										? "stopped"
-										: errored
-											? "failed"
-											: "done";
-							return (
-								<button
-									type="button"
-									key={step.ids[0]}
-									className={cx(
-										"omp-live-work-chip",
-										state !== "running" && "omp-live-work-chip--finished",
-										live && current && motion && "omp-work-pulse",
-									)}
-									data-state={state}
-									aria-label={label}
-									title={label}
-									aria-pressed={current}
-									data-step-id={step.id}
-									onClick={() => {
-										pinnedFromParallel.current = false;
-										setReplay(step.id);
-										setExpandedAgent(null);
-									}}
-								>
-									<StepIcon aria-hidden className="omp-live-step-icon" />
-								</button>
-							);
-						})}
-					</div>
-					{following ? null : (
-						<button
-							type="button"
-							className="omp-live-work-chip omp-live-work-follow"
-							onClick={() => {
-								pinnedFromParallel.current = false;
-								setReplay(null);
-								setExpandedAgent(null);
-							}}
-						>
-							<CornerDownLeft aria-hidden className="omp-live-step-icon" />
-							{t(
-								!nested && !turnIsLive
-									? "chat.work.backToOutcome"
-									: turnIsLive
-										? "chat.work.backToCurrent"
-										: "chat.work.backToLatest",
-							)}
-						</button>
-					)}
-				</div>
-			)}
-		</div>
-	);
+						<CornerDownLeft aria-hidden className="omp-live-step-icon" />
+						{t(
+							!nested && !turnIsLive
+								? "chat.work.backToOutcome"
+								: turnIsLive
+									? "chat.work.backToCurrent"
+									: "chat.work.backToLatest",
+						)}
+					</button>
+				)}
+			</div>
+		);
+	}
 }

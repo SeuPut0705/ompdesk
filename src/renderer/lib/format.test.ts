@@ -6,10 +6,11 @@
  * details — never the raw JSON of the envelope itself.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	extractImageDataUrl,
 	extractImageDataUrls,
+	formatElapsed,
 	formatShortClock,
 	formatTimeAgo,
 	resultDetails,
@@ -17,6 +18,30 @@ import {
 	sanitizeToolText,
 	uiLocale,
 } from "./format";
+
+describe("formatElapsed", () => {
+	it("shows nothing before the first second, then whole seconds and minutes", () => {
+		expect([0, 810, -50, Number.NaN].map(formatElapsed)).toEqual(["", "", "", ""]);
+		expect([1000, 1999, 59_999, 60_000, 125_400].map(formatElapsed)).toEqual(["1s", "1s", "59s", "1m 0s", "2m 5s"]);
+	});
+});
+
+it("never rounds a relative age down to zero minutes", () => {
+	vi.useFakeTimers();
+	try {
+		const now = Date.parse("2026-10-13T00:00:00Z");
+		vi.setSystemTime(now);
+		expect([0, 44_000, 45_000, 59_999].map(age => formatTimeAgo(new Date(now - age).toISOString()))).toEqual([
+			"just now",
+			"just now",
+			"just now",
+			"just now",
+		]);
+		expect(formatTimeAgo(new Date(now - 60_000).toISOString())).toBe("1m");
+	} finally {
+		vi.useRealTimers();
+	}
+});
 
 describe("UI-language dates", () => {
 	const realLocalStorage = (globalThis as Record<string, unknown>).localStorage;

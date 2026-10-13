@@ -10,8 +10,8 @@ import { resolveUsedFraction, type UsageLimit, type UsageReport } from "@oh-my-p
 import { getOAuthCredentialProvider, getOAuthProviders } from "@oh-my-pi/pi-ai/oauth";
 import { modelKind } from "@oh-my-pi/pi-catalog/types";
 import { orderedSettings } from "@oh-my-pi/pi-coding-agent/config/all-settings";
-import { getKnownRoleIds, getRoleInfo, roleCandidatePool } from "@oh-my-pi/pi-coding-agent/config/model-roles";
 import { extractExplicitThinkingSelector } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
+import { getKnownRoleIds, getRoleInfo, roleCandidatePool } from "@oh-my-pi/pi-coding-agent/config/model-roles";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import {
@@ -23,6 +23,7 @@ import { SETTING_TABS, TAB_GROUPS, TAB_METADATA } from "@oh-my-pi/pi-tui/overlay
 import { getAgentDir, MAIN_CONFIG_FILENAMES } from "@oh-my-pi/pi-utils";
 import { matchReportAccount, type StoredAccount } from "./accounts-core";
 import { guard, probe } from "./health";
+import { asRecord, requiredString } from "./params";
 import { type ResetPasses, shapeResetPasses } from "./reset-passes-core";
 import { shownRoleValue, storedRoleValue } from "./role-values";
 import { releaseThinkingDefaultFor, syncThinkingDefault } from "./thinking-default";
@@ -30,8 +31,6 @@ import type { BridgeEnv, BridgeMethods } from "./types";
 
 type Rec = Record<string, unknown>;
 type Layer = "global" | "project" | "overlay" | "runtime";
-
-const asRecord = (value: unknown): Rec => (typeof value === "object" && value !== null ? (value as Rec) : {});
 
 // ============================================================================
 // Settings
@@ -441,14 +440,16 @@ async function resetProjector(
 	const { toResetUsageAccounts } = await import("@oh-my-pi/pi-coding-agent/slash-commands/helpers/reset-usage");
 	return (report, account) => {
 		if (!report.resetCredits) return undefined;
-		const [selected] = toResetUsageAccounts([{
-			...report.resetCredits,
-			provider: report.provider,
-			credentialId: account?.credentialId ?? 0,
-			...account,
-			active: account?.active ?? false,
-			credits: report.resetCredits.credits ?? [],
-		}]);
+		const [selected] = toResetUsageAccounts([
+			{
+				...report.resetCredits,
+				provider: report.provider,
+				credentialId: account?.credentialId ?? 0,
+				...account,
+				active: account?.active ?? false,
+				credits: report.resetCredits.credits ?? [],
+			},
+		]);
 		return shapeResetPasses(selected);
 	};
 }
@@ -471,7 +472,12 @@ async function usage(env: BridgeEnv, session: AgentSession) {
 				accounts = oauth.accounts(report.provider, session.sessionId);
 				accountsByProvider.set(report.provider, accounts);
 			}
-			const account = matchReportAccount(report, accounts, reportCount.get(report.provider) ?? 0, reportMatchesActiveAccount);
+			const account = matchReportAccount(
+				report,
+				accounts,
+				reportCount.get(report.provider) ?? 0,
+				reportMatchesActiveAccount,
+			);
 			const limits = report.limits.map(shapeLimit);
 			const resetPasses = projectReset?.(report, account);
 			reports.push({
@@ -479,7 +485,9 @@ async function usage(env: BridgeEnv, session: AgentSession) {
 				fetchedAt: report.fetchedAt,
 				limits,
 				notes: report.notes,
-				account: formatActiveAccountLabel(account) ?? (account ? `#${account.credentialId}` : formatActiveAccountLabel(report.metadata)),
+				account:
+					formatActiveAccountLabel(account) ??
+					(account ? `#${account.credentialId}` : formatActiveAccountLabel(report.metadata)),
 				...(account ? { credentialId: account.credentialId } : {}),
 				...(account?.active ? { active: true } : {}),
 				...(resetPasses ? { resetPasses } : {}),
@@ -566,7 +574,9 @@ async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProv
 			const report = await reporter.report(provider, row.credential).catch(() => null);
 			const accountHealth = healthById.get(row.id);
 			const limits = report ? report.limits.map(shapeLimit) : [];
-			const stored = authStorage.oauth.accounts(provider, sessionId).find(account => account.credentialId === row.id);
+			const stored = authStorage.oauth
+				.accounts(provider, sessionId)
+				.find(account => account.credentialId === row.id);
 			const resetPasses = report && projectReset?.(report, stored);
 			return {
 				credentialId: row.id,
@@ -618,14 +628,9 @@ function modelRoles(session: AgentSession) {
 // Methods
 // ============================================================================
 
-const str = (params: unknown, key: string): string => {
-	const value = asRecord(params)[key];
-	if (typeof value !== "string" || !value) throw new Error(`Missing ${key}`);
-	return value;
-};
-
 export const methods: BridgeMethods = {
-	...guard("settings", {
+	// Schema, reads and writes re-check OMPdesk's thinking defaults (syncThinkingDefault).
+	...guard(["settings", "thinkingDefault"], {
 		settings_schema: async (_params, env) => settingsSchema(env.session()),
 		settings_get: async (params, env) => {
 			const paths = asRecord(params).paths;
@@ -634,7 +639,10 @@ export const methods: BridgeMethods = {
 				Array.isArray(paths) ? paths.filter((path): path is string => typeof path === "string") : undefined,
 			);
 		},
-		settings_set: async (params, env) => setSetting(env, env.session(), str(params, "path"), asRecord(params).value),
+		settings_set: async (params, env) =>
+			setSetting(env, env.session(), requiredString(params, "path"), asRecord(params).value),
+	}),
+	...guard("settings", {
 		/** Main calls this when the bridge connects and after any tab's login or logout. */
 		image_generation_sync: async (_params, env) => {
 			await refreshImageGeneration(env.session());
@@ -642,8 +650,7 @@ export const methods: BridgeMethods = {
 		},
 	}),
 	...guard("models", {
-		models_catalog: async (params, env) =>
-			refreshCatalog(env, env.session(), asRecord(params).forceRefresh === true),
+		models_catalog: async (params, env) => refreshCatalog(env, env.session(), asRecord(params).forceRefresh === true),
 	}),
 	...guard(["models", "providers"], {
 		providers: async (params, env) => {
@@ -654,7 +661,7 @@ export const methods: BridgeMethods = {
 		/** Explicit "disconnect the provider": removes every stored account (one account: stock `logout`). */
 		provider_logout: async (params, env) => {
 			const session = env.session();
-			const providerId = str(params, "providerId");
+			const providerId = requiredString(params, "providerId");
 			const accounts = await listLogoutAccounts(session.modelRegistry.authStorage, providerId, session.sessionId);
 			for (const account of accounts) {
 				await logoutCredential(session.modelRegistry, providerId, account.credentialId, session.sessionId);
@@ -664,7 +671,8 @@ export const methods: BridgeMethods = {
 		},
 	}),
 	...guard(["providers", "usage"], {
-		provider_accounts: async (params, env) => providerAccounts(env, env.session(), str(params, "providerId")),
+		provider_accounts: async (params, env) =>
+			providerAccounts(env, env.session(), requiredString(params, "providerId")),
 	}),
 	...guard("usage", {
 		usage: async (_params, env) => usage(env, env.session()),
@@ -674,17 +682,19 @@ export const methods: BridgeMethods = {
 		model_role_metadata: async (_params, env) => ({ roles: roleMetadata(env.session()) }),
 		model_role_set: async (params, env) => {
 			const session = env.session();
-			const role = str(params, "role");
+			const role = requiredString(params, "role");
 			const modelId = asRecord(params).modelId;
-			session.settings.setModelRole(role, storedRoleValue(
+			session.settings.setModelRole(
 				role,
-				typeof modelId === "string" && modelId ? modelId : undefined,
-				value => extractExplicitThinkingSelector(value, session.settings, {
-					isLiteralModelId: (provider, id) => session.modelRegistry.getAll().some(
-						model => (provider === undefined || model.provider === provider) && model.id === id,
-					),
-				}),
-			));
+				storedRoleValue(role, typeof modelId === "string" && modelId ? modelId : undefined, value =>
+					extractExplicitThinkingSelector(value, session.settings, {
+						isLiteralModelId: (provider, id) =>
+							session.modelRegistry
+								.getAll()
+								.some(model => (provider === undefined || model.provider === provider) && model.id === id),
+					}),
+				),
+			);
 			await session.settings.flush();
 			env.emit({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
 			return { role, modelId: typeof modelId === "string" ? modelId : null };

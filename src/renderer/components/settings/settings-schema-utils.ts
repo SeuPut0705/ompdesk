@@ -1,40 +1,49 @@
-/**
- * Settings schema helpers: condition-gated visibility and tab/group
- * bucketing, mirroring the TUI's settings-defs.ts.
- */
+/** Settings schema helpers: condition-gated visibility and GUI support. */
 
 import type { SettingEntry } from "../../../shared/rpc-types";
 import { GUI_DISPLAY_LEGACY_PATHS } from "../../lib/display-preferences";
 
 /**
- * Client-evaluable visibility gates, mirroring the TUI's CONDITIONS table
- * (settings-defs.ts). Each key is a `condition` name carried on the schema
- * entry; the predicate reads the current settings values. Gates that depend
- * on terminal capabilities (hasImageProtocol) are intentionally absent:
- * unresolvable conditions keep the entry visible.
+ * Renderer counterpart of stock's private `CONDITIONS` table
+ * (pi-coding-agent config/settings-ui.ts): the settings-backed visibility
+ * gates a schema entry names in `condition`. Stock evaluates them against its
+ * global settings instance, so the GUI re-evaluates them against its live
+ * values; settings-schema-utils.test.ts pins each one to stock. `parent` is
+ * the setting that opens the gate (the inactive row's "Configure" link).
+ * Host gates (macOS, hasImageProtocol, nativeRendering) and the provenance
+ * gate contextFilesExtraNotProject are not value-evaluable: unknown gates
+ * keep the entry visible.
  */
-const CONDITION_EVALUATORS: Record<string, (values: Record<string, unknown>) => boolean> = {
-	advisorEnabled: values => values["advisor.enabled"] === true,
-	hindsightActive: values => values["memory.backend"] === "hindsight",
-	mnemopiActive: values => values["memory.backend"] === "mnemopi",
-	autolearnActive: values => values["autolearn.enabled"] === true,
-	autoThinkingActive: values => values.defaultThinkingLevel === "auto",
-	usageAwareFallbackEnabled: values => values["retry.usageAwareFallback"] === true,
-	planModeEnabled: values => values["plan.enabled"] === true,
-	vimModeEnabled: values => values["tui.vimMode"] === true,
-	planAutosaveEnabled: values => values["plan.enabled"] === true && values["plan.autosave"] === true,
-	unexpectedStopDetection: values => values["features.unexpectedStopDetection"] === true,
+const SETTING_CONDITIONS: Record<string, { parent: string; visible: (values: Record<string, unknown>) => boolean }> = {
+	advisorEnabled: { parent: "advisor.enabled", visible: values => values["advisor.enabled"] === true },
+	hindsightActive: { parent: "memory.backend", visible: values => values["memory.backend"] === "hindsight" },
+	mnemopiActive: { parent: "memory.backend", visible: values => values["memory.backend"] === "mnemopi" },
+	autolearnActive: { parent: "autolearn.enabled", visible: values => values["autolearn.enabled"] === true },
+	autoThinkingActive: {
+		parent: "defaultThinkingLevel",
+		visible: values => values.defaultThinkingLevel === "auto",
+	},
+	usageAwareFallbackEnabled: {
+		parent: "retry.usageAwareFallback",
+		visible: values => values["retry.usageAwareFallback"] === true,
+	},
+	planModeEnabled: { parent: "plan.enabled", visible: values => values["plan.enabled"] === true },
+	vimModeEnabled: { parent: "tui.vimMode", visible: values => values["tui.vimMode"] === true },
+	planAutosaveEnabled: {
+		parent: "plan.autosave",
+		visible: values => values["plan.enabled"] === true && values["plan.autosave"] === true,
+	},
 };
 
-/**
- * Condition-gated visibility (TUI #defToItem parity): an entry is hidden only
- * when its condition names a known, client-evaluable gate that currently
- * resolves false. Unknown gates fail open (visible).
- */
+/** An entry is hidden only while its condition names a settings-backed gate that resolves false. */
 export function isSettingVisible(entry: SettingEntry, values: Record<string, unknown>): boolean {
 	if (entry.condition === undefined) return true;
-	const evaluate = CONDITION_EVALUATORS[entry.condition];
-	return evaluate === undefined ? true : evaluate(values);
+	return SETTING_CONDITIONS[entry.condition]?.visible(values) ?? true;
+}
+
+/** The setting that enables a condition gate, for linking an inactive row to it. */
+export function conditionParent(condition: string | undefined): string | undefined {
+	return condition === undefined ? undefined : SETTING_CONDITIONS[condition]?.parent;
 }
 
 /** Terminal display settings and equivalents owned by GUI preferences. */
@@ -69,41 +78,4 @@ export function isSettingSupportedInGui(entry: { path?: string; tuiOnly?: boolea
 
 export function isSettingVisibleInGui(entry: SettingEntry, values: Record<string, unknown>): boolean {
 	return isSettingSupportedInGui(entry) && isSettingVisible(entry, values);
-}
-
-/**
- * Bucket one tab's entries for rendering: ungrouped settings first (no
- * heading), then groups in the schema-declared order, with groups missing
- * from the declared order appended defensively at the end.
- */
-export function groupSchemaEntries(
-	entries: SettingEntry[],
-	tabId: string,
-	groups: string[],
-): {
-	tabEntries: SettingEntry[];
-	ungrouped: SettingEntry[];
-	orderedGroups: { name: string; entries: SettingEntry[] }[];
-} {
-	const tabEntries = entries.filter(entry => entry.tab === tabId);
-	const byGroup = new Map<string, SettingEntry[]>();
-	const ungrouped: SettingEntry[] = [];
-	for (const entry of tabEntries) {
-		if (entry.group === undefined) {
-			ungrouped.push(entry);
-			continue;
-		}
-		const list = byGroup.get(entry.group) ?? [];
-		list.push(entry);
-		byGroup.set(entry.group, list);
-	}
-	const ordered = groups.filter(group => byGroup.has(group));
-	for (const name of byGroup.keys()) {
-		if (!ordered.includes(name)) ordered.push(name);
-	}
-	return {
-		tabEntries,
-		ungrouped,
-		orderedGroups: ordered.map(name => ({ name, entries: byGroup.get(name) ?? [] })),
-	};
 }

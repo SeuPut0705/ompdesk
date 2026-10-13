@@ -92,7 +92,7 @@ async function readSetting(path: string): Promise<unknown> {
 }
 
 // ---------------------------------------------------------------------------
-// Mic dictation (stt.enabled, stt.modelName, stt.submitTrigger)
+// Mic dictation (stt.enabled, stt.submitTrigger)
 // ---------------------------------------------------------------------------
 
 interface ActiveVoiceRecording {
@@ -217,7 +217,7 @@ export function evaluateSttSubmitTrigger(
 }
 
 // ---------------------------------------------------------------------------
-// Speech output (speech.enabled, speech.mode, speech.voice, tts.localModel)
+// Speech output (speech.enabled, speech.mode, speech.voice)
 // ---------------------------------------------------------------------------
 
 let speaking = false;

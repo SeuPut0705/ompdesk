@@ -153,7 +153,6 @@
 	--omp-btn-primary-bg: var(--sc-accent);
 	--omp-btn-primary-text: var(--sc-accent-fg);
 	--omp-btn-secondary-bg: var(--sc-surface-3);
-	--omp-btn-secondary-text: var(--sc-text);
 	--omp-btn-danger-bg: var(--sc-danger);
 	--omp-btn-danger-text: var(--sc-danger-fg);
 	--omp-badge-bg: var(--sc-surface-3);
@@ -171,7 +170,6 @@
 	--omp-sidebar-item-hover: var(--sc-hover);
 	--omp-sidebar-item-active: var(--sc-selected);
 	--omp-selection-bg: var(--sc-selection);
-	--omp-selection-text: var(--sc-text);
 	--omp-panel-bg: var(--sc-surface-1);
 	--omp-panel-border: var(--sc-divider);
 	--omp-panel-header: var(--sc-text-muted);
@@ -181,5 +179,56 @@
 	--omp-shadow-sm: var(--sc-shadow-sm);
 	--omp-shadow-md: var(--sc-shadow-md);
 	--omp-shadow-lg: var(--sc-shadow-lg);
-	--omp-shadow-glow: 0 0 0 1px var(--sc-accent-border);
+
+	/* ── Domain tokens shared by both default palettes; theme-*.css holds the rest ── */
+	/* Transcript surfaces */
+	--omp-user-msg-border: var(--sc-border-subtle);
+	--omp-custom-msg-bg: var(--sc-surface-2);
+	--omp-custom-msg-label: var(--sc-accent);
+	--omp-code-bg: var(--sc-surface-1);
+	/* Tool cards */
+	--omp-tool-pending-bg: var(--sc-surface-2);
+	--omp-tool-output: var(--sc-text-secondary);
+	--omp-tool-rail-running: var(--omp-accent);
+	--omp-tool-rail-done: var(--sc-success);
+	--omp-tool-rail-error: var(--sc-danger);
+	/* Markdown */
+	--omp-md-heading: var(--sc-text);
+	--omp-md-link: var(--sc-accent);
+	--omp-md-link-url: var(--sc-text-muted);
+	--omp-md-code-block: var(--sc-text);
+	--omp-md-code-block-border: var(--sc-border-subtle);
+	--omp-md-quote: var(--sc-text-secondary);
+	--omp-md-hr: var(--sc-divider);
+	--omp-md-list-bullet: var(--sc-text-muted);
+	/* Diff */
+	--omp-diff-added: var(--sc-success);
+	--omp-diff-removed: var(--sc-danger);
+	--omp-diff-context: var(--sc-text-muted);
+	/* Syntax highlighting */
+	--omp-syntax-comment: var(--sc-text-subtle);
+	--omp-syntax-variable: var(--sc-text);
+	--omp-syntax-operator: var(--sc-text-secondary);
+	--omp-syntax-punctuation: var(--sc-text-muted);
+	/* Thinking levels */
+	--omp-thinking-off: var(--sc-text-subtle);
+	--omp-thinking-minimal: var(--sc-text-muted);
+	--omp-thinking-low: var(--sc-text-secondary);
+	--omp-thinking-medium: var(--sc-accent);
+	--omp-thinking-high: var(--sc-accent-hover);
+	--omp-thinking-xhigh: var(--sc-text);
+	/* Status line */
+	--omp-status-model: var(--sc-text-secondary);
+	--omp-status-path: var(--sc-text-muted);
+	--omp-status-git-clean: var(--sc-success);
+	--omp-status-git-dirty: var(--sc-warning);
+	--omp-status-context: var(--sc-text-secondary);
+	--omp-status-spend: var(--sc-text-secondary);
+	--omp-status-subagents: var(--omp-accent);
+	--omp-status-muted: var(--sc-text-muted);
+	--omp-status-dim: var(--sc-text-subtle);
+	--omp-status-text: var(--sc-text);
+	/* Misc */
+	--omp-scrollbar-track: transparent;
+	--omp-streaming-cursor: var(--omp-accent);
 }

@@ -50,7 +50,9 @@ let instruction = replyLanguageInstruction(process.env.OMP_GUI_REPLY_LANGUAGE);
 
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: ReplyLanguageHost): void {
-	pi.on("before_agent_start", event => (instruction ? { systemPrompt: [...event.systemPrompt, instruction] } : undefined));
+	pi.on("before_agent_start", event =>
+		instruction ? { systemPrompt: [...event.systemPrompt, instruction] } : undefined,
+	);
 }
 
 /**
@@ -67,7 +69,8 @@ export function setReplyLanguage(params: unknown): { language: string | null } {
 	if (typeof language !== "string") throw new Error("reply_language_set needs {language: string | null}");
 	const name = language.trim();
 	const next = replyLanguageInstruction(name);
-	if (!next && name && name.toLowerCase() !== "english") throw new Error(`Not a language name: ${JSON.stringify(name.slice(0, 80))}`);
+	if (!next && name && name.toLowerCase() !== "english")
+		throw new Error(`Not a language name: ${JSON.stringify(name.slice(0, 80))}`);
 	instruction = next;
 	return { language: name || null };
 }

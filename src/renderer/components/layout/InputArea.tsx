@@ -200,43 +200,12 @@ export function InputArea() {
 		return items.length > 1 ? items.length : 0;
 	}, [queueBody]);
 
-	// Contextual argument hint (TUI ghost-text parity): the command's usage
-	// hint, or the unique-matching subcommand's remainder + usage. Rendered as
-	// a dim row under the textarea — an inline-after-cursor ghost needs
-	// pixel-aligned overlay metrics that break with auto-grow/IME (same
-	// tradeoff as the queue highlight).
-	const argHint = useMemo(() => {
-		if (menu || !text.startsWith("/")) return "";
-		const cursor = textareaRef.current?.selectionStart ?? text.length;
-		if (cursor !== text.length) return "";
-		const match = /^\/([a-z-]+)(?:\s(\S*))?$/i.exec(text);
-		if (!match) return "";
-		const name = (match[1] ?? "").toLowerCase();
-		const command = commands.find(
-			candidate =>
-				candidate.name.toLowerCase() === name || candidate.aliases?.some(alias => alias.toLowerCase() === name),
-		);
-		if (!command) return "";
-		const argPrefix = match[2] ?? "";
-		if (argPrefix === "") return command.input?.hint ?? "";
-		if (command.subcommands?.length) {
-			const lower = argPrefix.toLowerCase();
-			const sub = command.subcommands.find(candidate => candidate.name.startsWith(lower));
-			if (sub) return [sub.name.slice(lower.length), sub.usage].filter(Boolean).join(" ");
-		}
-		return "";
-	}, [text, menu, commands]);
-
 	// Keep slash commands current across sidecar startup and extension reloads.
 	useEffect(() => {
 		let cancelled = false;
-		const applyCommands = (next: AvailableCommand[], tabId: string | null) => {
+		const unsubscribe = window.omp.events.onTabCommandsUpdate((next, tabId) => {
 			if (!cancelled && tabId === runtimeTabId) setCommands(withGuiCommands(next));
-		};
-		const unsubscribe =
-			typeof window.omp.events.onTabCommandsUpdate === "function"
-				? window.omp.events.onTabCommandsUpdate(applyCommands)
-				: window.omp.events.onCommandsUpdate(next => applyCommands(next, runtimeTabId));
+		});
 		const load = () => {
 			if (status !== "ready" || !runtimeTabId) return;
 			void rpc.getAvailableCommands().then(res => {
@@ -272,7 +241,11 @@ export function InputArea() {
 		el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
 	}, [text, expanded]);
 
-	useCompletionMenu({
+	// Contextual argument hint (TUI ghost-text parity), from stock for builtins.
+	// Rendered as a dim row under the textarea — an inline-after-cursor ghost
+	// needs pixel-aligned overlay metrics that break with auto-grow/IME (same
+	// tradeoff as the queue highlight).
+	const argHint = useCompletionMenu({
 		text,
 		filePaths,
 		commands,
@@ -1040,7 +1013,7 @@ export function InputArea() {
 							)}
 						</div>
 
-						{argHint && (
+						{!menu && argHint && (
 							<div className="truncate px-4 pb-1 font-mono text-sc-xs text-(--sc-text-muted)">{argHint}</div>
 						)}
 

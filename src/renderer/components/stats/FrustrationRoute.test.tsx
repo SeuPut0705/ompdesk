@@ -34,7 +34,7 @@ async function mount(): Promise<string> {
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<FrustrationRoute range="30d" refreshKey={0} />
+				<FrustrationRoute range="30d" />
 			</I18nProvider>,
 		);
 	});

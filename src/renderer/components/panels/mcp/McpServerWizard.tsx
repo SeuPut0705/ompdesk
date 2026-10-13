@@ -31,7 +31,8 @@ import { toast } from "../../../stores/toast";
 import { Button, Input, Modal } from "../../common";
 import { ArrayChipEditor } from "../../settings/editors/ArrayChipEditor";
 import { RecordKvEditor } from "../../settings/editors/RecordKvEditor";
-import { CopyableError, McpTestResultView, type McpTestView, summarizeMcpTestData } from "./McpFeedback";
+import { CopyableError } from "../inventory/ErrorNote";
+import { McpTestResultView, type McpTestView, summarizeMcpTestData } from "./McpFeedback";
 
 // ---------------------------------------------------------------------------
 // Pure form model + validation (unit-tested; no React)
@@ -387,7 +388,9 @@ export function McpServerWizardForm({ onCancel, onAdded, initialValues }: McpSer
 				</div>
 
 				{(testing || testView) && <McpTestResultView testing={testing} view={testView} />}
-				{submitError && <CopyableError text={submitError} title={t("mcp.wizard.addFailed")} />}
+				{submitError && (
+					<CopyableError copyLabel={t("mcp.card.copy")} message={submitError} title={t("mcp.wizard.addFailed")} />
+				)}
 			</div>
 
 			<div className="flex shrink-0 items-center gap-2 border-t border-(--omp-border-muted) px-4 py-3">

@@ -15,6 +15,7 @@ import { I18nProvider, translate } from "../../../lib/i18n";
 import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
 import { useToastStore } from "../../../stores/toast";
+import { routeCommands } from "../../../test-support/route-commands";
 import { UsageQuotas } from "../../insights/UsageQuotas";
 import { ProvidersSection } from "./ProvidersSection";
 import { resetPassSummary } from "./ResetPasses";
@@ -89,7 +90,7 @@ const getUsage = vi.fn(async (): Promise<RpcResponse> => ok("get_usage"));
 
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
-		rpc: { getProviders, getProviderAccounts, redeemResetPass, getUsage },
+		rpc: routeCommands({ getProviders, getProviderAccounts, redeemResetPass, getUsage }),
 		models: { listProviders: vi.fn(async () => ({ providers: [], options: fixtureProviderOptions })) },
 		ui: { respondExtensionUi: vi.fn() },
 		system: { openExternal: vi.fn(async () => {}) },

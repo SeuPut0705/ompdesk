@@ -5,90 +5,7 @@ import type { OmpFailure } from "./omp-runtime";
 
 export type MainLanguage = UiLanguage;
 
-export type MainTextKey =
-	| "dialog.openProject"
-	| "menu.about"
-	| "menu.checkUpdates"
-	| "menu.services"
-	| "menu.hide"
-	| "menu.hideOthers"
-	| "menu.showAll"
-	| "menu.quit"
-	| "menu.addToDictionary"
-	| "menu.closeTab"
-	| "menu.closeWindow"
-	| "menu.commandCenter"
-	| "menu.capabilities"
-	| "menu.importSession"
-	| "menu.branchPicker"
-	| "menu.sessionTree"
-	| "menu.modelPicker"
-	| "menu.usage"
-	| "menu.workspaceChanges"
-	| "menu.restartCore"
-	| "menu.contextReport"
-	| "menu.debugConsole"
-	| "crash.body"
-	| "crash.close"
-	| "crash.title"
-	| "menu.documentation"
-	| "menu.edit"
-	| "menu.exportHtml"
-	| "menu.file"
-	| "menu.handoff"
-	| "menu.help"
-	| "menu.hotkeys"
-	| "menu.jobs"
-	| "menu.agentHub"
-	| "menu.extensions"
-	| "menu.inventory"
-	| "menu.modes"
-	| "menu.modelRoles"
-	| "menu.newChatTab"
-	| "menu.newSession"
-	| "menu.newTab"
-	| "menu.newWindow"
-	| "menu.openProject"
-	| "menu.prCenter"
-	| "menu.providers"
-	| "menu.reportIssue"
-	| "menu.session"
-	| "menu.sessionInfo"
-	| "menu.shareSession"
-	| "menu.settings"
-	| "menu.stats"
-	| "menu.togglePanel"
-	| "menu.toggleSidebar"
-	| "menu.tools"
-	| "menu.view"
-	| "menu.window"
-	| "menu.workspaceDirs"
-	| "omp.cannotRun"
-	| "omp.notFound"
-	| "omp.overrideMissing"
-	| "omp.tooOld"
-	| "quit.keepWorking"
-	| "quit.quitAnyway"
-	| "quit.workingBody"
-	| "quit.workingTitle"
-	| "remote.offline"
-	| "restart.body"
-	| "restart.later"
-	| "restart.now"
-	| "restart.title"
-	| "stats.notReady"
-	| "stats.notRunning"
-	| "updates.checkFailed"
-	| "updates.downloadFailed"
-	| "updates.failed"
-	| "updates.hashMismatch"
-	| "updates.installerMissing"
-	| "updates.noResult"
-	| "updates.openInstallerFailed"
-	| "updates.releaseInvalid"
-	| "updates.unsupportedArchitecture";
-
-const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
+const TEXT = {
 	"dialog.openProject": { en: "Open project", ko: "프로젝트 열기" },
 	"menu.about": { en: "About OMPdesk", ko: "OMPdesk 정보" },
 	"menu.checkUpdates": { en: "Check for Updates…", ko: "업데이트 확인…" },
@@ -229,7 +146,9 @@ const TEXT: Record<MainTextKey, Record<MainLanguage, string>> = {
 		en: "This Mac architecture does not have a supported installer.",
 		ko: "이 Mac 아키텍처를 지원하는 설치 프로그램이 없어요.",
 	},
-};
+} satisfies Record<string, Record<MainLanguage, string>>;
+
+export type MainTextKey = keyof typeof TEXT;
 
 const prefs = new Store<{ language?: MainLanguage }>({ name: "prefs" });
 

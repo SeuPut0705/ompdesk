@@ -4,12 +4,13 @@
  */
 
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
+import type { BuiltinReaState } from "./builtin-mcp";
 import type { IpcErrorCode } from "./ipc-error-codes";
 import type { LaunchProfile } from "./launch-profile";
-import type { SessionModelOverride } from "./model-restore";
 import type { ModelSetupPlan, ModelSetupRequest, ModelSetupStatus } from "./model-setup";
+import type { PreviewApi } from "./preview";
+import type { SessionRpcClient } from "./rpc-client";
 import type {
-	AgentFileScope,
 	AgentSessionEvent,
 	AvailableCommand,
 	CommandOutputFrame,
@@ -17,32 +18,19 @@ import type {
 	ExtensionErrorFrame,
 	ExtensionUIRequest,
 	ExtensionUIResponse,
-	HostToolCallRequest,
-	HostToolResult,
-	HostToolUpdate,
-	HostUriRequest,
-	HostUriResult,
-	ImageContent,
 	ModelCatalogUpdateFrame,
 	PromptResultFrame,
 	RpcBtwFrame,
 	RpcCommand,
-	RpcDebugParams,
 	RpcLiveFrame,
-	RpcMcpServerInput,
-	RpcModelPoolState,
 	RpcResponse,
-	RpcSecurityDispositionStatus,
-	RpcSecurityTargetInput,
-	RpcSshHostInput,
 	SessionInfoUpdateFrame,
 	SidecarStatus,
 	SidecarStatusPayload,
 	SubagentFrame,
-	ThinkingLevel,
-	TodoPhase,
 } from "./rpc-types";
 import type { SplitLayout } from "./split-layout";
+import type { TerminalApi } from "./terminal-types";
 import type { UiLanguage } from "./ui-language";
 
 // ============================================================================
@@ -58,10 +46,6 @@ export const IPC_EVENTS = {
 	TAB_STATUS: "tab:status",
 	/** Extension UI request from agent */
 	EXTENSION_UI: "extension-ui:request",
-	/** Host tool call request */
-	HOST_TOOL_CALL: "host-tool:call",
-	/** Host URI request */
-	HOST_URI_REQUEST: "host-uri:request",
 	/** Subagent frame */
 	SUBAGENT_FRAME: "subagent:frame",
 	/** Available commands updated */
@@ -86,8 +70,6 @@ export const IPC_EVENTS = {
 	SESSIONS_CHANGED: "sessions:changed",
 	/** Log line appended */
 	LOG_LINE: "log:line",
-	/** Stats data ready */
-	STATS_DATA: "stats:data",
 	/** Native application menu action */
 	MENU_ACTION: "menu:action",
 	/** omp:// deep link (new session / switch session) */
@@ -131,12 +113,6 @@ export const IPC_COMMANDS = {
 	RPC_COMMAND_FOR_TAB: "rpc:command-for-tab",
 	/** Respond to extension UI request */
 	EXTENSION_UI_RESPOND: "extension-ui:respond",
-	/** Send host tool result */
-	HOST_TOOL_RESULT: "host-tool:result",
-	/** Send host tool update */
-	HOST_TOOL_UPDATE: "host-tool:update",
-	/** Send host URI result */
-	HOST_URI_RESULT: "host-uri:result",
 	/** Get session list */
 	SESSIONS_LIST: "sessions:list",
 	/** Delete a session file */
@@ -165,8 +141,6 @@ export const IPC_COMMANDS = {
 	SYSTEM_SAVE_DIALOG: "system:save-dialog",
 	/** Show open dialog */
 	SYSTEM_OPEN_DIALOG: "system:open-dialog",
-	/** Read clipboard */
-	SYSTEM_CLIPBOARD_READ: "system:clipboard-read",
 	/** Show notification */
 	SYSTEM_NOTIFY: "system:notify",
 	/** Get GUI preferences */
@@ -197,6 +171,8 @@ export const IPC_COMMANDS = {
 	ACCOUNT_ROTATION_GET: "account-rotation:get",
 	/** Store the account-rotation pref there; its live sessions follow from their next prompt */
 	ACCOUNT_ROTATION_SET: "account-rotation:set",
+	BUILTIN_REA_GET: "builtin-rea:get",
+	BUILTIN_REA_SET: "builtin-rea:set",
 	/** List workspace files as a tree (main-process readdir, no sidecar needed) */
 	FS_LIST: "fs:list",
 	/** Read a workspace file with a byte cap */
@@ -319,15 +295,7 @@ export type UpdateStatus =
 	| { state: "idle" }
 	| { state: "checking" }
 	| { state: "available"; version: string; notes?: string; mode: UpdateInstallMode }
-	| {
-			state: "downloading";
-			version: string;
-			mode: UpdateInstallMode;
-			percent: number;
-			bytesPerSecond: number;
-			transferred: number;
-			total: number;
-	  }
+	| { state: "downloading"; version: string; mode: UpdateInstallMode; percent: number }
 	| { state: "downloaded"; version: string; mode: UpdateInstallMode }
 	| { state: "not-available"; version: string }
 	/** `message` is user-facing copy in the UI language; `detail` keeps the raw
@@ -523,49 +491,12 @@ export interface IpcRpcCommandForTabPayload {
 	timeoutMs?: number;
 }
 
-export interface IpcEventsBatchPayload {
-	events: AgentSessionEvent[];
-}
-
 /** The sidecar's `status` event forwarded verbatim (the pool re-stamps `cwd`). */
 export type IpcSidecarStatusPayload = SidecarStatusPayload;
-
-export interface IpcExtensionUiPayload {
-	tabId: string;
-	request: ExtensionUIRequest;
-}
 
 export interface IpcExtensionUiRespondPayload {
 	response: ExtensionUIResponse;
 	tabId?: string;
-}
-
-export interface IpcHostToolCallPayload {
-	request: HostToolCallRequest;
-}
-
-export interface IpcHostToolResultPayload {
-	result: HostToolResult;
-}
-
-export interface IpcHostToolUpdatePayload {
-	update: HostToolUpdate;
-}
-
-export interface IpcHostUriRequestPayload {
-	request: HostUriRequest;
-}
-
-export interface IpcHostUriResultPayload {
-	result: HostUriResult;
-}
-
-export interface IpcSubagentFramePayload {
-	frame: SubagentFrame;
-}
-
-export interface IpcCommandsUpdatePayload {
-	commands: AvailableCommand[];
 }
 
 /** DTO types only. Installed stock ModelsConfigSchema supplies all runtime vocabularies. */
@@ -809,8 +740,6 @@ export interface IpcFsReadResult {
 
 export interface IpcOpenPathResult {
 	ok: boolean;
-	/** The absolute path that was opened/revealed, when successful. */
-	resolvedPath?: string;
 	error?: string;
 	/** Stable failure code for the renderer's localized message (shared/ipc-error-codes). */
 	code?: IpcErrorCode;
@@ -1117,7 +1046,6 @@ export interface SessionInfo {
 	status: "complete" | "interrupted" | "aborted" | "error" | "pending" | "unknown";
 	/** Session kind read from the file header; absent = agent (legacy sessions). */
 	kind?: "chat";
-	parentSessionPath?: string;
 	firstMessage: string;
 	/** Paired host deviceId the session file lives on; absent = this device. */
 	device?: string;
@@ -1234,6 +1162,8 @@ export interface SystemInfo {
 }
 
 export interface OmpApi {
+	terminal: TerminalApi;
+	preview: PreviewApi;
 	runtime: {
 		/** Best-effort fire-and-forget reporting so fatal render paths never wait on IPC. */
 		report(error: RuntimeErrorReport): void;
@@ -1250,259 +1180,16 @@ export interface OmpApi {
 		 */
 		quit(): void;
 	};
-	rpc: {
-		command(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse>;
+	rpc: SessionRpcClient & {
 		commandForTab(tabId: string, cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse>;
-		getState(): Promise<RpcResponse>;
-		prompt(message: string, images?: ImageContent[], streamingBehavior?: "steer" | "followUp"): Promise<RpcResponse>;
-		steer(message: string, images?: ImageContent[]): Promise<RpcResponse>;
-		followUp(message: string, images?: ImageContent[]): Promise<RpcResponse>;
-		abort(): Promise<RpcResponse>;
-		abortAndPrompt(message: string): Promise<RpcResponse>;
-		/** Stop the turn the TUI Esc way: the queued user input comes back (RpcAbortAndRestoreQueueResult). */
-		abortAndRestoreQueue(): Promise<RpcResponse>;
-		/** Stock removal by chip text + lane (RpcRemoveQueuedMessageResult). */
-		removeQueuedMessage(message: string, queue: "steering" | "followUp"): Promise<RpcResponse>;
-		/** Stock follow-up → steer promotion by chip text (RpcPromoteQueuedMessageResult). */
-		promoteQueuedMessage(message: string): Promise<RpcResponse>;
-		newSession(parentSession?: string): Promise<RpcResponse>;
-		dropSession(): Promise<RpcResponse>;
-		switchSession(sessionPath: string, model?: SessionModelOverride): Promise<RpcResponse>;
-		branch(entryId: string): Promise<RpcResponse>;
-		fork(): Promise<RpcResponse>;
-		eval(code: string, language?: "python" | "js" | "ruby" | "julia", excluded?: boolean): Promise<RpcResponse>;
-		abortEval(): Promise<RpcResponse>;
-		dequeue(): Promise<RpcResponse>;
-		getQueue(): Promise<RpcResponse>;
-		queueEdit(queueId: string, text: string): Promise<RpcResponse>;
-		queueRemove(queueId: string): Promise<RpcResponse>;
-		queueMove(queueId: string, toIndex: number, toLane?: "steering" | "followUp"): Promise<RpcResponse>;
-		queueClear(lane?: "steering" | "followUp"): Promise<RpcResponse>;
-		setModel(provider: string, modelId: string): Promise<RpcResponse>;
-		cycleModel(direction?: "forward" | "backward"): Promise<RpcResponse>;
-		retry(): Promise<RpcResponse>;
-		clearContext(): Promise<RpcResponse>;
-		abortSubagent(agentId: string): Promise<RpcResponse>;
-		reviveSubagent(agentId: string): Promise<RpcResponse>;
-		writeLocalPaste(content: string): Promise<RpcResponse>;
-		getActiveTools(): Promise<RpcResponse>;
-		setPrewalk(enabled: boolean): Promise<RpcResponse>;
-		fresh(): Promise<RpcResponse>;
-		shakeContext(mode: "elide" | "images" | "thinking"): Promise<RpcResponse>;
-		reloadPlugins(): Promise<RpcResponse>;
-		setForceTool(payload: { tool: string } | { clear: true }): Promise<RpcResponse>;
-		getForceTool(): Promise<RpcResponse>;
-		listForeignSessions(source: "claude" | "codex"): Promise<RpcResponse>;
-		importForeignSession(source: "claude" | "codex", foreignId: string): Promise<RpcResponse>;
-		forkFrom(entryId: string): Promise<RpcResponse>;
-		switchLeaf(entryId: string, options?: { summarize?: boolean; customInstructions?: string }): Promise<RpcResponse>;
-		getCommandArgCompletions(command: string, prefix: string): Promise<RpcResponse>;
-		mcpAdd(name: string, config: RpcMcpServerInput, scope?: "user" | "project"): Promise<RpcResponse>;
-		mcpTest(probe: { name?: string; config?: RpcMcpServerInput }): Promise<RpcResponse>;
-		mcpReauth(name: string): Promise<RpcResponse>;
-		mcpReauthCancel(name: string): Promise<RpcResponse>;
-		marketplaceAction(payload: {
-			action: "add" | "remove" | "update" | "install" | "uninstall" | "upgrade" | "list_available";
-			marketplace?: string;
-			plugin?: string;
-			source?: string;
-		}): Promise<RpcResponse>;
-		getPluginDetail(pluginId: string): Promise<RpcResponse>;
-		setPluginFeatures(pluginId: string, features: string[]): Promise<RpcResponse>;
-		setPluginSetting(pluginId: string, key: string, value: unknown): Promise<RpcResponse>;
-		deletePluginSetting(pluginId: string, key: string): Promise<RpcResponse>;
-		getDirectories(): Promise<RpcResponse>;
-		addDirectory(path: string): Promise<RpcResponse>;
-		removeDirectory(path: string): Promise<RpcResponse>;
-		moveSession(path: string): Promise<RpcResponse>;
-		getGitStatus(): Promise<RpcResponse>;
-		getGitChanges(): Promise<RpcResponse>;
-		getGitDiff(path: string): Promise<RpcResponse>;
-		worktreeCreate(name: string, options?: { baseCwd?: string; baseRef?: "HEAD" | "default" }): Promise<RpcResponse>;
-		worktreeRemove(path: string, force?: boolean): Promise<RpcResponse>;
-		prRepo(): Promise<RpcResponse>;
-		prList(state?: "open" | "closed" | "merged" | "all", limit?: number): Promise<RpcResponse>;
-		prGet(number: number): Promise<RpcResponse>;
-		prDiff(number: number, path: string): Promise<RpcResponse>;
-		prDraft(options?: { base?: string; head?: string }): Promise<RpcResponse>;
-		prCreate(input: {
-			title: string;
-			body: string;
-			base?: string;
-			head?: string;
-			draft?: boolean;
-		}): Promise<RpcResponse>;
-		prCheckout(number: number): Promise<RpcResponse>;
-		liveStart(options?: { voice?: string; instructions?: string }): Promise<RpcResponse>;
-		liveMute(muted?: boolean): Promise<RpcResponse>;
-		liveStop(): Promise<RpcResponse>;
-		debug(params: RpcDebugParams): Promise<RpcResponse>;
-		getAvailableModels(forceRefresh?: boolean): Promise<RpcResponse>;
-		setThinkingLevel(level: ThinkingLevel | "auto"): Promise<RpcResponse>;
-		cycleThinkingLevel(): Promise<RpcResponse>;
-		setFastMode(enabled: boolean): Promise<RpcResponse>;
-		setSteeringMode(mode: "all" | "one-at-a-time"): Promise<RpcResponse>;
-		setFollowUpMode(mode: "all" | "one-at-a-time"): Promise<RpcResponse>;
-		setInterruptMode(mode: "immediate" | "wait"): Promise<RpcResponse>;
-		compact(customInstructions?: string): Promise<RpcResponse>;
-		setAutoCompaction(enabled: boolean): Promise<RpcResponse>;
-		setAutoRetry(enabled: boolean): Promise<RpcResponse>;
-		abortRetry(): Promise<RpcResponse>;
-		bash(command: string, excluded?: boolean): Promise<RpcResponse>;
-		abortBash(): Promise<RpcResponse>;
-		getSessionStats(): Promise<RpcResponse>;
-		setSessionPinned(sessionId: string, pinned: boolean): Promise<RpcResponse>;
-		exportHtml(outputPath?: string): Promise<RpcResponse>;
-		getBranchMessages(): Promise<RpcResponse>;
-		getLastAssistantText(): Promise<RpcResponse>;
-		getCopyTargets(): Promise<RpcResponse>;
-		setSessionName(name: string): Promise<RpcResponse>;
-		setEntryLabel(entryId: string, label?: string): Promise<RpcResponse>;
-		handoff(customInstructions?: string): Promise<RpcResponse>;
-		getMessages(): Promise<RpcResponse>;
-		getMessagesPage(cursor?: string, limit?: number): Promise<RpcResponse>;
-		getLoginProviders(): Promise<RpcResponse>;
-		login(providerId: string): Promise<RpcResponse>;
-		/** Removes one stored account; the provider stays connected while another remains. */
-		logout(providerId: string, credentialId: number): Promise<RpcResponse>;
-		/** Removes every stored account of the provider. */
-		disconnectProvider(providerId: string): Promise<RpcResponse>;
-		getProviderAccounts(providerId: string): Promise<RpcResponse>;
-		/** Spends one saved rate-limit reset of one stored account (stock `/usage reset`). */
-		redeemResetPass(providerId: string, credentialId: number, creditId?: string): Promise<RpcResponse>;
-		getUsage(): Promise<RpcResponse>;
-		getSettingsSchema(): Promise<RpcResponse>;
-		getSettings(paths?: string[]): Promise<RpcResponse>;
-		setSetting(path: string, value: unknown): Promise<RpcResponse>;
-		getProviders(forceRefresh?: boolean): Promise<RpcResponse>;
-		setPlanMode(enabled: boolean): Promise<RpcResponse>;
-		getPlanMode(): Promise<RpcResponse>;
-		getModelRoles(): Promise<RpcResponse>;
-		setModelRole(role: string, modelId: string | null): Promise<RpcResponse>;
-		getModelRoleMetadata(): Promise<RpcResponse>;
-		/** Per-model compaction points (omp 18.8.5+; older omp answers `unsupported_omp`). */
-		getCompactionPoints(): Promise<RpcResponse>;
-		compactionLimits(params: { values?: unknown; key?: string; input?: string }): Promise<RpcResponse>;
-		historyRecent(limit?: number, cwd?: string): Promise<RpcResponse>;
-		historySearch(query: string, limit?: number, cwd?: string): Promise<RpcResponse>;
-		historyRecord(prompt: string, cwd?: string): Promise<RpcResponse>;
-		getAvailableCommands(): Promise<RpcResponse>;
-		getSkills(): Promise<RpcResponse>;
-		getSkillDetail(name: string): Promise<RpcResponse>;
-		getAgentDefinitions(): Promise<RpcResponse>;
-		getAgentDefinition(name: string): Promise<RpcResponse>;
-		getAgentAuthoring(): Promise<RpcResponse>;
-		readAgentFile(filePath: string): Promise<RpcResponse>;
-		writeAgentFile(params: {
-			scope: AgentFileScope;
-			name: string;
-			content: string;
-			replacePath?: string;
-		}): Promise<RpcResponse>;
-		deleteAgentFile(filePath: string): Promise<RpcResponse>;
-		installAgentTemplates(scope: AgentFileScope, names?: string[]): Promise<RpcResponse>;
-		getHooks(): Promise<RpcResponse>;
-		getMcpServers(): Promise<RpcResponse>;
-		getGuiThemes(): Promise<RpcResponse>;
-		getPlugins(): Promise<RpcResponse>;
-		getMarketplaces(): Promise<RpcResponse>;
-		getPromptTemplates(): Promise<RpcResponse>;
-		getMemoryReport(): Promise<RpcResponse>;
-		getSecurityDashboard(): Promise<RpcResponse>;
-		getSecurityScan(scanId: string): Promise<RpcResponse>;
-		securityStart(target: RpcSecurityTargetInput): Promise<RpcResponse>;
-		securityCancel(operationId: string): Promise<RpcResponse>;
-		securityValidate(scanId: string, findingId: string): Promise<RpcResponse>;
-		securitySetDisposition(
-			scanId: string,
-			findingId: string,
-			status: RpcSecurityDispositionStatus,
-			rationale?: string,
-		): Promise<RpcResponse>;
-		getSshHosts(): Promise<RpcResponse>;
-		sshManage(payload: {
-			action: "create" | "update" | "delete";
-			scope: "user" | "project";
-			name: string;
-			previousName?: string;
-			previousScope?: "user" | "project";
-			host?: RpcSshHostInput;
-		}): Promise<RpcResponse>;
-		sshTest(host: RpcSshHostInput & { name: string }): Promise<RpcResponse>;
-		getOmpUpdate(): Promise<RpcResponse>;
-		ompUpdate(): Promise<RpcResponse>;
-		getContextReport(): Promise<RpcResponse>;
-		previewShareSession(): Promise<RpcResponse>;
-		shareSession(snapshotId?: string): Promise<RpcResponse>;
-		getJobs(): Promise<RpcResponse>;
-		getSessionTree(): Promise<RpcResponse>;
-		getThemes(): Promise<RpcResponse>;
-		getThemeColors(name: string): Promise<RpcResponse>;
-		getTranscript(): Promise<RpcResponse>;
-		getTranscriptPage(cursor?: string, limit?: number, fromEnd?: boolean): Promise<RpcResponse>;
-		planApproval(
-			approved: boolean,
-			option?: "execute" | "compact" | "keep_context" | "save",
-			feedback?: string,
-			savePath?: string,
-		): Promise<RpcResponse>;
-		getVibeMode(): Promise<RpcResponse>;
-		setVibeMode(enabled: boolean): Promise<RpcResponse>;
-		getGoal(): Promise<RpcResponse>;
-		guidedGoal(initial?: string): Promise<RpcResponse>;
-		setAgentsPaused(enabled: boolean): Promise<RpcResponse>;
-		setGoal(args: {
-			objective?: string;
-			tokenBudget?: number | null;
-			action?: "pause" | "resume" | "drop";
-		}): Promise<RpcResponse>;
-		tan(work: string): Promise<RpcResponse>;
-		omfg(complaint: string): Promise<RpcResponse>;
-		getLoopMode(): Promise<RpcResponse>;
-		setLoopMode(enabled: boolean, args?: string): Promise<RpcResponse>;
-		getModelPool(): Promise<RpcResponse>;
-		setModelPool(state: RpcModelPoolState): Promise<RpcResponse>;
-		setSkillEnabled(name: string, enabled: boolean): Promise<RpcResponse>;
-		manageSkill(args: {
-			action: "create" | "update" | "delete";
-			name: string;
-			description?: string;
-			body?: string;
-		}): Promise<RpcResponse>;
-		setHookEnabled(hookId: string, enabled: boolean): Promise<RpcResponse>;
-		setPluginEnabled(pluginId: string, enabled: boolean, scope?: "user" | "project"): Promise<RpcResponse>;
-		mcpAction(
-			name: string,
-			action: "enable" | "disable" | "reconnect" | "remove",
-			scope?: "user" | "project",
-		): Promise<RpcResponse>;
-		setTodos(phases: TodoPhase[]): Promise<RpcResponse>;
-		setSubagentSubscription(level: "off" | "progress" | "events"): Promise<RpcResponse>;
-		getSubagents(): Promise<RpcResponse>;
-		getSubagentMessages(subagentId?: string, sessionFile?: string, fromByte?: number): Promise<RpcResponse>;
-		setHostTools(tools: unknown[]): Promise<RpcResponse>;
-		setHostUriSchemes(schemes: unknown[]): Promise<RpcResponse>;
-		// Voice (speech in/out): audio is canonical PCM16 mono 16 kHz WAV, base64.
-		transcribeAudio(audioBase64: string, mimeType: string): Promise<RpcResponse>;
-		synthesizeSpeech(text: string): Promise<RpcResponse>;
 	};
 	events: {
 		onBatch(callback: (events: AgentSessionEvent[]) => void): () => void;
-		onSidecarStatus(callback: (status: IpcSidecarStatusPayload) => void): () => void;
 		onTabStatus(callback: (payload: IpcTabStatusPayload) => void): () => void;
 		onExtensionUi(callback: (request: ExtensionUIRequest, tabId: string) => void): () => void;
-		onHostToolCall(callback: (request: HostToolCallRequest) => void): () => void;
-		onHostUriRequest(callback: (request: HostUriRequest) => void): () => void;
 		onLiveFrame(callback: (frame: RpcLiveFrame) => void): () => void;
 		onBtwFrame(callback: (frame: RpcBtwFrame) => void): () => void;
-		onModelCatalogUpdate(callback: (frame: ModelCatalogUpdateFrame) => void): () => void;
-		onSubagentFrame(callback: (frame: SubagentFrame) => void): () => void;
-		onCommandsUpdate(callback: (commands: AvailableCommand[]) => void): () => void;
 		onConfigUpdate(callback: (payload: ConfigUpdateFrame) => void): () => void;
-		onPromptResult(callback: (frame: PromptResultFrame) => void): () => void;
-		onCommandOutput(callback: (frame: CommandOutputFrame) => void): () => void;
-		onSessionInfoUpdate(callback: (frame: SessionInfoUpdateFrame) => void): () => void;
-		onExtensionError(callback: (frame: ExtensionErrorFrame) => void): () => void;
 		/** Full-stream variants keep the originating visible tab id. */
 		onTabBatch(callback: (events: AgentSessionEvent[], tabId: string) => void): () => void;
 		onTabSidecarStatus(callback: (status: IpcSidecarStatusPayload, tabId: string) => void): () => void;
@@ -1516,7 +1203,6 @@ export interface OmpApi {
 		onTabExtensionError(callback: (frame: ExtensionErrorFrame, tabId: string) => void): () => void;
 		onSessionsChanged(callback: () => void): () => void;
 		onLogBatch(callback: (batch: LogBatch) => void): () => void;
-		onLogLines(callback: (lines: string[]) => void): () => void;
 		onMenuAction(callback: (action: MenuAction, payload?: MenuActionPayload) => void): () => void;
 		onDeepLink(callback: (link: DeepLinkPayload) => void): () => void;
 		onUpdaterStatus(callback: (status: UpdateStatus) => void): () => void;
@@ -1540,9 +1226,6 @@ export interface OmpApi {
 	};
 	ui: {
 		respondExtensionUi(response: ExtensionUIResponse, tabId?: string): void;
-		sendHostToolResult(result: HostToolResult): void;
-		sendHostToolUpdate(update: HostToolUpdate): void;
-		sendHostUriResult(result: HostUriResult): void;
 	};
 	sessions: {
 		/** `device` = paired host deviceId; absent = this device. Remote results carry `device`. */
@@ -1626,7 +1309,6 @@ export interface OmpApi {
 			filters?: { name: string; extensions: string[] }[],
 			options?: { directory?: boolean; title?: string; buttonLabel?: string },
 		): Promise<string[] | null>;
-		clipboardRead(): Promise<string>;
 		notify(title: string, body?: string): void;
 	};
 	prefs: {
@@ -1665,6 +1347,11 @@ export interface OmpApi {
 	accountRotation: {
 		get(device?: string): Promise<AccountRotationState>;
 		set(mode: AccountRotationMode, device?: string): Promise<AccountRotationState>;
+	};
+	/** OMPdesk's built-in MCP preference of the machine that runs the focused session. */
+	builtinRea: {
+		get(device?: string): Promise<BuiltinReaState>;
+		set(enabled: boolean, device?: string): Promise<BuiltinReaState>;
 	};
 	fs: {
 		list(path?: string, maxDepth?: number, maxEntries?: number, tabId?: string): Promise<IpcFsListResult>;

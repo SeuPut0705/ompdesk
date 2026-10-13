@@ -88,6 +88,24 @@ describe("mac bundle configs", () => {
 		expect(config.extraResources).toContainEqual({ from: "resources/gui-bridge", to: "gui-bridge" });
 	});
 
+	it("ships the built-in REA relay and declaration outside the asar on both platforms", () => {
+		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
+			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
+			expect(config.extraResources, file).toContainEqual({ from: "resources/omp-builtin", to: "omp-builtin" });
+			for (const name of [".mcp.json", "rea-relay.mjs", "rea-config.json"]) {
+				expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/omp-builtin", name)), `${file} omits ${name}`).toBe(
+					true,
+				);
+			}
+		}
+		const declaration: unknown = JSON.parse(
+			fs.readFileSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/.mcp.json"), "utf8"),
+		);
+		expect(declaration).toEqual({
+			mcpServers: { rea: { type: "stdio", command: "node", args: ["$" + "{OMP_PLUGIN_ROOT}/rea-relay.mjs"] } },
+		});
+	});
+
 	it("ships the shared pool contract inside the bridge on macOS and Windows", () => {
 		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
 			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;

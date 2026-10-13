@@ -7,7 +7,6 @@ import { createPlanApprovalStore } from "./plan-approval";
 import { createQueueStore } from "./queue";
 import { createSessionStore, type SessionStore } from "./session";
 import {
-	activeTabCommand,
 	addRuntimeStore,
 	deleteSessionRuntime,
 	registerSessionRuntime,
@@ -60,10 +59,7 @@ export function createTabRuntime(tabId: string): SessionRuntime {
 		if (changesSession) generation++;
 		const requestGeneration = generation;
 		const origin = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId;
-		const response =
-			typeof window.omp.rpc.commandForTab === "function"
-				? await window.omp.rpc.commandForTab(tabId, rpcCommand, timeoutMs)
-				: await activeTabCommand(rpcCommand, timeoutMs);
+		const response = await window.omp.rpc.commandForTab(tabId, rpcCommand, timeoutMs);
 		// Session metadata can retire this runtime before its own lifecycle ACK.
 		// Preserve the execution outcome; callers guard any subsequent UI writes.
 		if (changesSession) return response;

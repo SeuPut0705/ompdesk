@@ -44,7 +44,10 @@ const AREAS: readonly Area[] = [
 		features: ["settings", "models", "providers", "usage", "modelRoles"],
 		load: () => import("./settings"),
 	},
-	{ name: "misc", features: ["voice", "debug", "security", "ssh"], load: () => import("./misc") },
+	{ name: "voice", features: ["voice"], load: () => import("./voice") },
+	{ name: "debug", features: ["debug"], load: () => import("./debug") },
+	{ name: "security", features: ["security"], load: () => import("./security") },
+	{ name: "ssh", features: ["ssh"], load: () => import("./ssh") },
 	{ name: "reset-passes", features: ["resetPasses"], load: () => import("./reset-passes") },
 	{ name: "extensions/agents", features: ["agents", "themes"], load: () => import("./extensions/agents") },
 	{ name: "extensions/mcp", features: ["mcp"], load: () => import("./extensions/mcp") },
@@ -66,7 +69,6 @@ const AREAS: readonly Area[] = [
 
 function builtins(failures: readonly AreaFailure[]): BridgeMethods {
 	return {
-		ping: async (_params, env) => ({ version: env.pi.pi.VERSION }),
 		/** Startup compatibility self-check: which GUI features this omp cannot serve, and why. */
 		capabilities: async (_params, env) => ({
 			ompVersion: env.pi.pi.VERSION,

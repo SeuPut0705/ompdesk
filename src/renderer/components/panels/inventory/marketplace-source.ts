@@ -8,8 +8,6 @@
  * the add-marketplace form before the RPC ever fires.
  */
 
-import type { RpcMarketplaceInfo } from "../../../../shared/rpc-types";
-
 export type MarketplaceSourceKind = "url" | "git" | "github" | "local";
 
 /**
@@ -64,31 +62,4 @@ export type MarketplacePluginAction = "install" | "upgrade" | "uninstall";
  */
 export function availablePluginActions(installed: boolean): readonly MarketplacePluginAction[] {
 	return installed ? ["upgrade", "uninstall"] : ["install"];
-}
-
-/** Cache-freshness fields the wire may carry additively (not yet in the shared types). */
-interface MarketplaceCacheFields {
-	lastUpdated?: unknown;
-	updatedAt?: unknown;
-	cachedAt?: unknown;
-}
-
-/**
- * Epoch-ms timestamp for the card's cache note when the wire carries one.
- * Accepts epoch numbers (seconds or ms) or date strings; null when the
- * field is absent or unparseable (the note falls back to a static
- * "cache-backed" label).
- */
-export function extractCacheTimestamp(marketplace: RpcMarketplaceInfo): number | null {
-	const extra = marketplace as RpcMarketplaceInfo & MarketplaceCacheFields;
-	const candidate = extra.lastUpdated ?? extra.updatedAt ?? extra.cachedAt;
-	if (typeof candidate === "number" && Number.isFinite(candidate)) {
-		const ms = candidate < 1e12 ? candidate * 1000 : candidate;
-		return ms > 0 ? ms : null;
-	}
-	if (typeof candidate === "string" && candidate.trim() !== "") {
-		const ms = Date.parse(candidate);
-		return Number.isNaN(ms) ? null : ms;
-	}
-	return null;
 }

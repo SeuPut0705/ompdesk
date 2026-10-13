@@ -6,10 +6,11 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RpcResponse } from "../../shared/rpc-types";
+import { routeCommands } from "../test-support/route-commands";
 import { useQueueStore } from "./queue";
 
 const getQueue = vi.fn();
-(globalThis as Record<string, unknown>).window = { omp: { rpc: { getQueue } } };
+(globalThis as Record<string, unknown>).window = { omp: { rpc: routeCommands({ getQueue }) } };
 
 function queued(id: string, text: string) {
 	return { id, text, editable: true, timestamp: 1 };

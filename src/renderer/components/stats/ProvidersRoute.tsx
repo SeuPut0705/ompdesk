@@ -3,7 +3,7 @@
  * aggregate table with usage-window insights.
  */
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { Bar, Pie } from "react-chartjs-2";
 import { baseChartOptions, chartColors, compact, formatUsd, useChartThemeKey, withAlpha } from "../../lib/chart";
 import "../../lib/chart";
@@ -12,21 +12,12 @@ import { useStats } from "../../hooks/use-stats";
 import { useT } from "../../lib/i18n";
 import { ChartBox, RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
 
-export function ProvidersRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
+export function ProvidersRoute({ range }: { range: StatsRange }) {
 	const t = useT();
 	const themeKey = useChartThemeKey();
 	const params = useMemo(() => ({ range }), [range]);
 	const { data, isLoading, error, refetch } = useStats<ProvidersData>("/api/stats/providers", params);
 	const windows = useStats<ProviderWindowsData>("/api/stats/provider-windows", params);
-	const refetchWindows = windows.refetch;
-
-	useEffect(() => {
-		if (refreshKey > 0) {
-			refetch();
-			refetchWindows();
-		}
-	}, [refreshKey, refetch, refetchWindows]);
-
 	const stats = data;
 	const windowInsights = windows.data?.windowInsights ?? [];
 

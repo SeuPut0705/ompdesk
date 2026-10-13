@@ -13,6 +13,7 @@ import type { AvailableCommand, RpcResponse } from "../../shared/rpc-types";
 import { useSessionStore } from "../stores/session";
 import { useToastStore } from "../stores/toast";
 import { useUiStore } from "../stores/ui";
+import { routeCommands } from "../test-support/route-commands";
 import { withGuiCommands } from "./command-registry";
 import { planComposerSubmit, settleComposerResponse } from "./composer-submit";
 
@@ -43,7 +44,7 @@ interface MockOmp {
 
 function installMockOmp(): MockOmp {
 	const omp: MockOmp = {
-		rpc: {
+		rpc: routeCommands({
 			prompt: vi.fn(async () => success({})),
 			compact: vi.fn(async () => ({ ...success({}), command: "compact" })),
 			steer: vi.fn(async () => success({})),
@@ -72,7 +73,7 @@ function installMockOmp(): MockOmp {
 			getTranscriptPage: vi.fn(async () => success({ messages: [], totalMessages: 0 })),
 			getSubagents: vi.fn(async () => success({ subagents: [] })),
 			setSubagentSubscription: vi.fn(async () => success({})),
-		},
+		}),
 		sessions: { consumePendingOpen: vi.fn(async () => null) },
 		app: { quit: vi.fn() },
 	};

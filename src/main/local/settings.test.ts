@@ -31,7 +31,6 @@ function fakeCtx(send: Fake, request: Fake): LocalCommandContext {
 			onEvent: vi.fn(() => () => {}),
 			connected: true,
 		},
-		emit: vi.fn(),
 	};
 }
 

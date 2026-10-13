@@ -13,6 +13,7 @@ import type { AgentProgress, SubagentSnapshot } from "../../../shared/rpc-types"
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";
+import { routeCommands } from "../../test-support/route-commands";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -56,7 +57,7 @@ function installOmpMock(overrides: Partial<OmpMock> = {}): OmpMock {
 		abortAndRestoreQueue: vi.fn(async () => ok({ steering: [], followUp: [] })),
 		...overrides,
 	};
-	(window as unknown as { omp: { rpc: OmpMock } }).omp = { rpc: mock };
+	(window as unknown as { omp: { rpc: OmpMock } }).omp = { rpc: routeCommands(mock) };
 	return mock;
 }
 

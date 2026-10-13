@@ -143,7 +143,7 @@ describe("concurrent worker lanes", () => {
 		expect(row?.textContent).toContain("Inspecting the implementation");
 		expect(row?.textContent).toContain("src/alpha.ts");
 		expect(row?.textContent).toContain("1 tool · 12 tokens");
-		expect(row?.textContent).toContain("2.0s");
+		expect(row?.textContent).toContain("2s");
 		expect(container.textContent).not.toContain("Raw model prompt");
 		useSubagentsStore.getState().setSnapshots(
 			Array.from({ length: 8 }, (_, index) =>
@@ -163,7 +163,7 @@ describe("concurrent worker lanes", () => {
 		expect(row?.querySelector(".omp-work-card-activity-text")).not.toBe(activity);
 		expect(row?.textContent).toContain("Running component tests");
 		expect(row?.textContent).toContain("2 tools · 12 tokens");
-		expect(row?.textContent).toContain("5.0s");
+		expect(row?.textContent).toContain("5s");
 		const currentActivity = row?.querySelector(".omp-work-card-activity-text");
 		useSubagentsStore.getState().setSnapshots([
 			node("Worker0", 0, {
@@ -242,22 +242,18 @@ describe("concurrent worker lanes", () => {
 		expect(useSubagentsStore.getState().eventConsumers).toBe(1);
 	});
 
-	it("opens one lane, retains only the closing animation, and releases the unchanged event lease", async () => {
+	it("selects one lane in the stage and releases the unchanged event lease", async () => {
 		useSubagentsStore.getState().setSnapshots([node("First", 0), node("Second", 1)]);
 		await render();
 		expect(command).not.toHaveBeenCalled();
 		await click(0);
-		expect(buttons()[0]?.getAttribute("aria-expanded")).toBe("true");
+		expect(buttons()[0]?.getAttribute("aria-current")).toBe("true");
 		expect(useSubagentsStore.getState().eventConsumers).toBe(1);
 		expect(command).toHaveBeenCalledWith({ type: "set_subagent_subscription", level: "events" }, undefined);
 		await click(1);
-		expect(buttons().map(button => button.getAttribute("aria-expanded"))).toEqual(["false", "true"]);
+		expect(buttons().map(button => button.getAttribute("aria-current"))).toEqual([null, "true"]);
 		expect(useSubagentsStore.getState().eventConsumers).toBe(1);
-		const closing = container.querySelector<HTMLDivElement>(".omp-work-lane-surface");
-		expect(closing?.getAttribute("aria-hidden")).toBe("true");
-		expect(closing?.textContent).not.toBe("");
-		await act(async () => closing?.dispatchEvent(new Event("transitionend", { bubbles: true })));
-		expect(closing?.textContent).toBe("");
+		expect(container.querySelector(".omp-work-lane-surface")).toBeNull();
 		await click(1);
 		expect(useSubagentsStore.getState().eventConsumers).toBe(0);
 		expect(command).toHaveBeenLastCalledWith({ type: "set_subagent_subscription", level: "progress" }, undefined);
@@ -272,7 +268,7 @@ describe("concurrent worker lanes", () => {
 		expect(container.querySelector(".omp-work-card")?.getAttribute("data-motion")).toBe("false");
 		await click(0);
 		await click(0);
-		expect(container.querySelector(".omp-work-lane-surface")?.textContent).toBe("");
+		expect(container.querySelector(".omp-work-lane-surface")).toBeNull();
 	});
 
 	it("never leases events for an inactive work map", async () => {
@@ -281,5 +277,19 @@ describe("concurrent worker lanes", () => {
 		await click(0);
 		expect(useSubagentsStore.getState().eventConsumers).toBe(0);
 		expect(command.mock.calls.some(([request]) => request.type === "set_subagent_subscription")).toBe(false);
+	});
+
+	it("uses whole-second live lane clocks and precise finished durations", async () => {
+		useSubagentsStore.getState().setSnapshots([
+			node("Fresh", 0, { progress: progress("Fresh", { durationMs: 300 }) }),
+			node("Running", 1, { progress: progress("Running", { durationMs: 3400 }) }),
+			node("Finished", 2, {
+				status: "completed",
+				progress: progress("Finished", { status: "completed", durationMs: 810 }),
+			}),
+		]);
+		await render();
+		const elapsed = [...container.querySelectorAll(".omp-work-card-elapsed")].map(element => element.textContent);
+		expect(elapsed).toEqual(["", " · 3s", " · 810ms"]);
 	});
 });

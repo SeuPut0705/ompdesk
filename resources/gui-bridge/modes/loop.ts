@@ -15,9 +15,10 @@
  * Kept: stock InteractiveMode owns the private TUI loop scheduler; its
  * exported parser/condition helpers cannot supply the GUI event lifecycle.
  */
-import type { LoopConditionConfig, LoopLimitRuntime } from "@oh-my-pi/pi-tui/status-line/loop";
+
 import type { LoopConditionVerdict } from "@oh-my-pi/pi-coding-agent/modes/loop-condition";
 import type { AgentSession, AgentSessionEvent } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import type { LoopConditionConfig, LoopLimitRuntime } from "@oh-my-pi/pi-tui/status-line/loop";
 import { guard } from "../health";
 import type { BridgeMethods } from "../types";
 import { attach, emit, errorMessage, onHostInput, onSessionEvent, onSessionSwitch, record } from "./shared";

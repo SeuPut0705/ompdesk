@@ -38,14 +38,14 @@ export function HexView({
 			/>
 			{state.status === "ready" && (
 				<>
-					<p className="px-3 pb-1 text-omp-xs text-(--omp-dim)">
+					<p className="px-3 pb-1 text-sc-xs text-(--sc-text-muted)">
 						{state.truncated
 							? t("fileViewer.hexPrefix", { shown: formatBytes(state.data.length) })
 							: t("fileViewer.hexAll")}
 					</p>
 					<div className="min-h-0 flex-1 overflow-auto">
 						<pre
-							className="m-0 w-max px-3 pb-3 font-mono text-omp-sm leading-[1.5] text-(--omp-text)"
+							className="m-0 w-max px-3 pb-3 font-mono text-sc-sm leading-(--sc-leading-normal) text-(--sc-text)"
 							data-hex-dump
 						>
 							{dump}

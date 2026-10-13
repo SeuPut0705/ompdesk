@@ -8,14 +8,12 @@ import { useId } from "react";
 import { isUiLanguage, UI_LANGUAGE_NAMES, UI_LANGUAGES } from "../../../shared/ui-language";
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { useLang, useT } from "../../lib/i18n";
-import { type PanelTab, useUiStore } from "../../stores/ui";
+import { PANEL_TABS, type PanelTab, useUiStore } from "../../stores/ui";
 import { Select } from "../common";
 import { DisplayPreferenceRow } from "./AppearanceSection";
 import { ProxyRow } from "./LaunchSettings";
 import { ReplyLanguageRow } from "./ReplyLanguageRow";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
-
-const PANEL_DEFAULTS: readonly PanelTab[] = ["diff", "files", "logs"];
 
 export function GeneralSection() {
 	const t = useT();
@@ -63,8 +61,8 @@ export function GeneralSection() {
 								const next = event.target.value as PanelTab;
 								void saveGuiPreference("defaultPanelTab", next, () => useUiStore.getState().setPanelTab(next));
 							}}
-							options={PANEL_DEFAULTS.map(value => ({ value, label: t(`settings.gui.panel.${value}`) }))}
-							value={PANEL_DEFAULTS.includes(panelTab) ? panelTab : "diff"}
+							options={PANEL_TABS.map(value => ({ value, label: t(`panel.tabs.${value}`) }))}
+							value={panelTab}
 						/>
 					}
 					description={t("settings.gui.panelDefaultDesc")}

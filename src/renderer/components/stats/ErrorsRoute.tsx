@@ -2,7 +2,7 @@
  * Errors: failed requests with messages, newest first.
  */
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import type { ErrorRow } from "../../../shared/stats-types";
 import { useStatsList } from "../../hooks/use-stats";
 import { compact } from "../../lib/chart";
@@ -11,14 +11,10 @@ import { useT } from "../../lib/i18n";
 import { Badge } from "../common";
 import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
 
-export function ErrorsRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
+export function ErrorsRoute({ range }: { range: StatsRange }) {
 	const t = useT();
 	const params = useMemo(() => ({ range, limit: "100" }), [range]);
 	const { data, isLoading, error, refetch } = useStatsList<ErrorRow>("/api/stats/errors", params);
-
-	useEffect(() => {
-		if (refreshKey > 0) refetch();
-	}, [refreshKey, refetch]);
 
 	const rows = useMemo(() => {
 		const list = data ?? [];

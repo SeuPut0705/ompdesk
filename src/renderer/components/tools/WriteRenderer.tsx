@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronRight, FilePlus2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { DiffView } from "../../lib/diff";
-import { basename, cx, dirname, headLines, languageFromPath, resultDetails, resultText } from "../../lib/format";
+import { cx, headLines, languageFromPath, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_LG, PREVIEW_TEXT_CHARS } from "../../lib/preview";
 import { CodeBlock } from "../chat/CodeBlock";
@@ -11,7 +11,7 @@ import { ProtocolWriteRenderer } from "./CoordinationRenderer";
 import { unifiedDiffStats } from "./diff-stats";
 import { liveDiffPreview } from "./live-diff";
 import { PathLink } from "./PathLink";
-import type { ToolRendererProps } from "./ToolCard";
+import { DiffStatChip, ToolPathTarget, type ToolRendererProps } from "./ToolCard";
 
 /** Written files drawn as a figure, as stock omp draws their fence in a reply. */
 type WriteFigure = "svg" | "mermaid";
@@ -159,16 +159,10 @@ export function WriteRenderer({
 					<FilePlus2 size={12} className="shrink-0 text-[var(--omp-dim)]" />
 				</button>
 				<PathLink path={openPath} className="truncate">
-					<span className="text-[var(--omp-text)]">{basename(path)}</span>
-					<span className="text-[var(--omp-dim)]"> {dirname(path)}</span>
+					<ToolPathTarget path={path} />
 				</PathLink>
 				<span className="ml-auto flex shrink-0 items-center gap-1.5 text-omp-xs text-[var(--omp-dim)]">
-					{stats && (
-						<span className="tabular-nums">
-							<span className="text-[var(--omp-diff-added)]">+{stats.added}</span>{" "}
-							<span className="text-[var(--omp-diff-removed)]">−{stats.removed}</span>
-						</span>
-					)}
+					{stats && <DiffStatChip stats={stats} />}
 					{overwritten && !diff && (
 						<span className="text-[var(--omp-warning)]">{t("tools.write.overwritten")}</span>
 					)}

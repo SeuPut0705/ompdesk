@@ -41,10 +41,10 @@ import {
 } from "@oh-my-pi/pi-coding-agent/mcp/oauth-flow";
 import { cfgMcpEnableProjectConfig } from "@oh-my-pi/pi-coding-agent/mcp/settings";
 import type { MCPServerConfig, MCPServerConnection } from "@oh-my-pi/pi-coding-agent/mcp/types";
-import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
-import { MCPCommandController } from "@oh-my-pi/pi-coding-agent/modes/controllers/mcp-command-controller";
 import { applyMcpToggleRuntime } from "@oh-my-pi/pi-coding-agent/modes/components/extensions/mcp-runtime";
+import { MCPCommandController } from "@oh-my-pi/pi-coding-agent/modes/controllers/mcp-command-controller";
 import type { InteractiveModeContext } from "@oh-my-pi/pi-coding-agent/modes/types";
+import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import type { Component } from "@oh-my-pi/pi-tui";
 import { inferMcpTransport } from "@oh-my-pi/pi-tui/overlays/extensions/mcp-runtime";
 import { getMCPConfigPath, Snowflake } from "@oh-my-pi/pi-utils";
@@ -182,9 +182,11 @@ async function listMcpServers(session: AgentSession) {
 	const tools = manager?.getTools() ?? [];
 	const servers = [...names].map(name => {
 		const server = configured.get(name);
-		const config = active.configs[name] ?? (server
-			? ({ ...server, type: inferMcpTransport(server) } as MCPServerConfig)
-			: manager?.getServerConfig(name));
+		const config =
+			active.configs[name] ??
+			(server
+				? ({ ...server, type: inferMcpTransport(server) } as MCPServerConfig)
+				: manager?.getServerConfig(name));
 		const scope = projectConfig.mcpServers?.[name] ? "project" : userConfig.mcpServers?.[name] ? "user" : undefined;
 		const credential = config ? lookupMcpOAuthCredential(authStorage, config) : undefined;
 		const headerAuth = config ? hasMcpAuthorizationHeader(config) : false;
@@ -206,6 +208,11 @@ async function listMcpServers(session: AgentSession) {
 			toolCount: tools.filter(tool => tool.mcpServerName === name).length,
 			enabled: Object.hasOwn(active.configs, name),
 			authed: credential !== undefined || headerAuth,
+			...(name === "rea" &&
+			process.env.OMP_GUI_REA_ROOT &&
+			server?._source.path === path.join(process.env.OMP_GUI_REA_ROOT, ".mcp.json")
+				? { builtin: "rea" as const }
+				: {}),
 			...(scope !== undefined ? { scope } : {}),
 			...(config && "command" in config && config.command ? { command: config.command } : {}),
 			...(config && "url" in config && config.url ? { url: config.url } : {}),
@@ -240,15 +247,21 @@ async function mcpAction(session: AgentSession, name: string, action: unknown, s
 			}
 			if (!manager) throw new Error("MCP manager not available.");
 			await setMcpServerEnabled({ userPath, projectPath, name, enabled });
-			await serializeMcpReload(() => applyMcpToggleRuntime({
-				name, enabled, cwd, manager, session,
-				discovery: {
-					enableProjectConfig: cfgMcpEnableProjectConfig.get(session.settings),
-					filterExa: true,
-					filterBrowser: session.getEvalPreludes().some(definition => definition.name === "browser"),
-					extensionRoots: session.effectiveExtensionRoots,
-				},
-			}));
+			await serializeMcpReload(() =>
+				applyMcpToggleRuntime({
+					name,
+					enabled,
+					cwd,
+					manager,
+					session,
+					discovery: {
+						enableProjectConfig: cfgMcpEnableProjectConfig.get(session.settings),
+						filterExa: true,
+						filterBrowser: session.getEvalPreludes().some(definition => definition.name === "browser"),
+						extensionRoots: session.effectiveExtensionRoots,
+					},
+				}),
+			);
 			return { name, action, status: manager?.getConnectionStatus(name) ?? "disconnected" };
 		}
 		case "reconnect": {

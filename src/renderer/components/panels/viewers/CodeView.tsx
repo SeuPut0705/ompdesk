@@ -76,7 +76,7 @@ export function CodeView({ code, language, wrap }: { code: string; language: str
 			<span className="flex" key={i}>
 				<span
 					aria-hidden
-					className="sticky left-0 shrink-0 select-none bg-(--omp-code-bg) pr-3 pl-2 text-right text-(--omp-dim)"
+					className="sticky left-0 shrink-0 select-none bg-(--sc-surface-2) pr-3 pl-2 text-right text-(--sc-text-muted)"
 					data-line-number
 					style={{ width: gutterWidth }}
 				>
@@ -109,7 +109,7 @@ export function CodeView({ code, language, wrap }: { code: string; language: str
 		<>
 			<pre
 				className={cx(
-					"m-0 py-2 font-mono text-omp-sm leading-[1.5] text-(--omp-text)",
+					"m-0 py-2 font-mono text-sc-sm leading-(--sc-leading-normal) text-(--sc-text)",
 					wrap ? "w-full" : "w-max min-w-full",
 				)}
 				data-code-view

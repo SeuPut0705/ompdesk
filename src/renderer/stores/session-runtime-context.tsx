@@ -19,51 +19,9 @@ export type RuntimeStoreKey =
 
 export type TabCommand = (command: RpcCommand, timeoutMs?: number) => Promise<RpcResponse>;
 
-/** Active-tab fallback for tests, startup races, and an older preload bridge. */
+/** Active-tab fallback for tests and startup races, before a tab runtime exists. */
 export function activeTabCommand(command: RpcCommand, timeoutMs?: number): Promise<RpcResponse> {
-	const rpc = window.omp.rpc;
-	if (typeof rpc.command === "function") return rpc.command(command, timeoutMs);
-	switch (command.type) {
-		case "get_state":
-			return rpc.getState();
-		case "get_transcript":
-			return rpc.getTranscript();
-		case "get_transcript_page":
-			return rpc.getTranscriptPage(command.cursor, command.limit, command.fromEnd);
-		case "get_subagents":
-			return rpc.getSubagents();
-		case "get_queue":
-			return rpc.getQueue();
-		case "get_goal":
-			return rpc.getGoal();
-		case "get_loop_mode":
-			return rpc.getLoopMode();
-		case "get_vibe_mode":
-			return rpc.getVibeMode();
-		case "get_settings":
-			return rpc.getSettings(command.paths);
-		case "set_setting":
-			return rpc.setSetting(command.path, command.value);
-		case "get_available_models":
-			return rpc.getAvailableModels(command.forceRefresh);
-		case "get_providers":
-			return rpc.getProviders(command.forceRefresh);
-		case "set_fast_mode":
-			return rpc.setFastMode(command.enabled);
-		case "set_subagent_subscription":
-			return rpc.setSubagentSubscription(command.level);
-		case "switch_session":
-			return command.provider && command.modelId
-				? rpc.switchSession(command.sessionPath, { provider: command.provider, modelId: command.modelId })
-				: rpc.switchSession(command.sessionPath);
-		default:
-			return Promise.resolve({
-				type: "response",
-				command: command.type,
-				success: false,
-				error: `Unsupported active-tab command: ${command.type}`,
-			});
-	}
+	return window.omp.rpc.command(command, timeoutMs);
 }
 
 export interface SessionRuntime {

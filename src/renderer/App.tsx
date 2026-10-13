@@ -73,7 +73,7 @@ import { useSettingsStore } from "./stores/settings";
 import { ensureTabRuntime } from "./stores/tab-runtime";
 import { useSessionTabs, useTabsStore, visibleTabIds } from "./stores/tabs";
 import { toast, toastError } from "./stores/toast";
-import { type PanelTab, useUiStore } from "./stores/ui";
+import { migrateDefaultPanelTab, useUiStore } from "./stores/ui";
 import { checkForUpdatesInPlace, subscribeUpdaterStatus } from "./stores/updater";
 
 // Heavy overlays code-split: they render null while closed, so they download
@@ -205,12 +205,8 @@ export function App() {
 					useUiStore.setState({ transcriptDetail: prefs.transcriptDetail });
 				}
 				// Restore the default workspace panel tab (written by Settings → GUI).
-				if (
-					!changedPreferences.has("panelTab") &&
-					typeof prefs.defaultPanelTab === "string" &&
-					["diff", "files", "logs"].includes(prefs.defaultPanelTab)
-				) {
-					useUiStore.setState({ panelTab: prefs.defaultPanelTab as PanelTab });
+				if (!changedPreferences.has("panelTab") && prefs.defaultPanelTab !== undefined) {
+					useUiStore.setState({ panelTab: migrateDefaultPanelTab(prefs.defaultPanelTab) });
 				}
 			})
 			.catch(() => {})
@@ -326,7 +322,7 @@ export function App() {
 					// ⌥R — retry the last failed turn (TUI app.retry) via the retry RPC.
 					// Distinct from the palette's re-send-last-message action: this knows
 					// what "failed turn" means server-side.
-					void retryFailedTurn().catch(error => toastError({ title: t("palette.failed"), error }));
+					void retryFailedTurn(focusedTabRpc()).catch(error => toastError({ title: t("palette.failed"), error }));
 					return;
 				case "dequeue":
 					// ⌥↑ — restore queued messages to the composer (TUI app.message.dequeue):
@@ -404,6 +400,17 @@ export function App() {
 					return;
 				case "panel.toggle":
 					ui.togglePanel();
+					return;
+				case "panel.terminal":
+				case "panel.diff":
+				case "panel.preview":
+				case "panel.files":
+				case "panel.jobs":
+				case "panel.plan":
+				case "panel.logs":
+				case "panel.queue":
+				case "panel.tree":
+					ui.setPanelTab(migrateDefaultPanelTab(actionId.slice("panel.".length)));
 					return;
 				case "hotkeys":
 					// ⌘/ or ⌃/ — Settings › Keyboard (/hotkeys parity); again returns.

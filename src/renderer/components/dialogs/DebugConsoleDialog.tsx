@@ -37,6 +37,7 @@ import type { RpcDebugAction, RpcDebugParams } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { cx, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { asNumber, asRecord, asString } from "../../lib/wire-value";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 import { Badge, type BadgeVariant, Button, ErrorDetail, Modal, Spinner, TextArea } from "../common";
@@ -78,20 +79,6 @@ interface DebugStackFrame {
 interface DebugResultData {
 	action: RpcDebugAction;
 	data: unknown;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-	return value != null && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: undefined;
-}
-
-function asString(value: unknown): string | undefined {
-	return typeof value === "string" ? value : undefined;
-}
-
-function asNumber(value: unknown): number | undefined {
-	return typeof value === "number" ? value : undefined;
 }
 
 function asSummary(value: unknown): DebugSessionSummary | undefined {
@@ -628,7 +615,7 @@ export function DebugConsoleDialog() {
 							variant="ghost"
 							title={!sidecarReady ? t("common.notConnected") : undefined}
 						>
-							{t("debug.refresh")}
+							{t("common.refresh")}
 						</Button>
 					</div>
 					{sessions === null ? (
@@ -649,7 +636,7 @@ export function DebugConsoleDialog() {
 									variant="secondary"
 									title={!sidecarReady ? t("common.notConnected") : undefined}
 								>
-									{t("debug.refresh")}
+									{t("common.refresh")}
 								</Button>
 							</div>
 						) : (

@@ -1,6 +1,6 @@
 import { Check, Copy } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { copyText, cx, escapeHtml, escapeRegExp } from "../../lib/format";
+import { copyText, cx, escapeHtml } from "../../lib/format";
 import { getLoadedHljs, HIGHLIGHT_CHAR_CAP, loadHljs } from "../../lib/highlight";
 import { useT } from "../../lib/i18n";
 import { IconButton } from "../common";
@@ -11,16 +11,12 @@ export interface CodeBlockProps {
 	code?: string;
 	/** Language hint for highlighting and the badge. */
 	language?: string;
-	/** Pre-highlighted HTML (hljs output) — rendered verbatim. */
-	highlightedHtml?: string;
 	/** Show the language badge. */
 	showLanguage?: boolean;
 	/** Show the copy button. */
 	showCopy?: boolean;
 	/** Show the line-number gutter. */
 	showLineNumbers?: boolean;
-	/** Highlight these literal strings inside the code (e.g. grep pattern). */
-	highlightPattern?: string;
 	/** Number shown on the first gutter line (ranged reads start past 1). */
 	startLine?: number;
 	/** Explicit per-row numbers for non-contiguous reads. */
@@ -81,13 +77,11 @@ function languageLabel(lang: string): string {
 export function CodeBlock({
 	code,
 	language,
-	highlightedHtml,
 	showLanguage = true,
 	showCopy = true,
 	showLineNumbers = true,
 	startLine,
 	lineNumbers,
-	highlightPattern,
 	maxHeightClass,
 	className,
 }: CodeBlockProps) {
@@ -95,7 +89,7 @@ export function CodeBlock({
 	const lang = normalizeLanguage(language);
 	const [copied, setCopied] = useState(false);
 	const [hlHtml, setHlHtml] = useState<string | null>(() => {
-		if (highlightedHtml || !code || code.length > HIGHLIGHT_CHAR_CAP) return null;
+		if (!code || code.length > HIGHLIGHT_CHAR_CAP) return null;
 		const hljs = getLoadedHljs();
 		if (!hljs) return null;
 		return lang !== "plaintext" && hljs.getLanguage(lang)
@@ -104,7 +98,7 @@ export function CodeBlock({
 	});
 
 	useEffect(() => {
-		if (highlightedHtml || !code || code.length > HIGHLIGHT_CHAR_CAP) return;
+		if (!code || code.length > HIGHLIGHT_CHAR_CAP) return;
 
 		let cancelled = false;
 		void loadHljs().then(hljs => {
@@ -118,28 +112,19 @@ export function CodeBlock({
 		return () => {
 			cancelled = true;
 		};
-	}, [code, lang, highlightedHtml]);
+	}, [code, lang]);
 
-	// Final rendered HTML: pre-highlighted input, lazy hljs output, or escaped
-	// plain code — with optional pattern matches wrapped in <mark>. Pattern
-	// highlighting runs on the rendered HTML (works for both raw and
-	// pre-highlighted sources). hljs output never contains a bare "<" in text,
-	// so wrapping text-level matches cannot split a tag.
+	// Lazy hljs output, or escaped plain code. Over-cap code must ignore any
+	// cached highlight from a previous shorter value — otherwise the old source
+	// displays while Copy takes the new one.
 	const html = useMemo(() => {
-		// Over-cap code must ignore any cached highlight from a previous
-		// shorter value — otherwise the old source displays while Copy takes
-		// the new one.
-		const overCap = code != null && code.length > HIGHLIGHT_CHAR_CAP;
-		const base = overCap ? escapeHtml(code) : (highlightedHtml ?? hlHtml ?? (code != null ? escapeHtml(code) : null));
-		if (base == null) return null;
-		if (!highlightPattern) return base;
-		const re = new RegExp(escapeRegExp(highlightPattern), "gi");
-		return base.replace(re, m => `<mark class="omp-hl">${escapeHtml(m)}</mark>`);
-	}, [highlightedHtml, hlHtml, code, highlightPattern]);
+		if (code == null) return null;
+		return code.length > HIGHLIGHT_CHAR_CAP ? escapeHtml(code) : (hlHtml ?? escapeHtml(code));
+	}, [hlHtml, code]);
 
 	const codeElement =
 		html != null ? (
-			// biome-ignore lint/security/noDangerouslySetInnerHtml: hljs/escapeHtml output only; pattern matches are escapeHtml'd before the <mark> wrap
+			// biome-ignore lint/security/noDangerouslySetInnerHtml: hljs/escapeHtml output only
 			<code className={`language-${lang}`} dangerouslySetInnerHTML={{ __html: html }} />
 		) : (
 			<code className={`language-${lang}`}>{code ?? ""}</code>

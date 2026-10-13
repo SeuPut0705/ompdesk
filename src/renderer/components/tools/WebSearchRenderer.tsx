@@ -2,6 +2,7 @@ import { Globe } from "lucide-react";
 import { resultText } from "../../lib/format";
 import { translate, useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
+import { asRecord } from "../../lib/wire-value";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -31,12 +32,6 @@ interface SearchParsed {
 	query?: string;
 	answer: string;
 	sources: SearchSource[];
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-	return value != null && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: undefined;
 }
 
 /** Mirrors formatAge in packages/utils/src/format.ts. */

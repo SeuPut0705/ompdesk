@@ -5,6 +5,7 @@
  */
 import { contextBridge, ipcRenderer } from "electron";
 import type { AccountRotationMode, AccountRotationState } from "../shared/account-rotation";
+import type { BuiltinReaState } from "../shared/builtin-mcp";
 import type {
 	CustomProviderInput,
 	CustomProvidersConfig,
@@ -50,6 +51,7 @@ import type {
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import type { ModelSetupRequest, ModelSetupStatus } from "../shared/model-setup";
+import { PREVIEW_COMMAND, PREVIEW_STATE, type PreviewState } from "../shared/preview";
 import { createSessionRpcClient, timeoutForCommand } from "../shared/rpc-client";
 import type {
 	AgentSessionEvent,
@@ -59,11 +61,6 @@ import type {
 	ExtensionErrorFrame,
 	ExtensionUIRequest,
 	ExtensionUIResponse,
-	HostToolCallRequest,
-	HostToolResult,
-	HostToolUpdate,
-	HostUriRequest,
-	HostUriResult,
 	ModelCatalogUpdateFrame,
 	PromptResultFrame,
 	RpcBtwFrame,
@@ -117,6 +114,13 @@ function subscribeTab<T>(channel: string, callback: (data: T, tabId: string) => 
 }
 
 const api: OmpApi = {
+	terminal: {
+		request: (tabId, operation) => ipcRenderer.invoke("terminal:request", tabId, operation),
+	},
+	preview: {
+		command: request => ipcRenderer.invoke(PREVIEW_COMMAND, request),
+		onState: callback => subscribe<PreviewState>(PREVIEW_STATE, callback),
+	},
 	runtime: {
 		report: (error: RuntimeErrorReport) => ipcRenderer.send(IPC_COMMANDS.RUNTIME_ERROR_REPORT, error),
 		logPath: () => ipcRenderer.invoke(IPC_COMMANDS.RUNTIME_LOG_PATH) as Promise<string>,
@@ -142,42 +146,20 @@ const api: OmpApi = {
 	events: {
 		onBatch: (callback: (events: AgentSessionEvent[]) => void) =>
 			subscribeActiveTab<AgentSessionEvent[]>(IPC_EVENTS.EVENTS_BATCH, callback),
-		onSidecarStatus: (callback: (status: IpcSidecarStatusPayload) => void) =>
-			subscribeActiveTab<IpcSidecarStatusPayload>(IPC_EVENTS.SIDECAR_STATUS, callback),
 		onTabStatus: (callback: (payload: IpcTabStatusPayload) => void) =>
 			subscribe<IpcTabStatusPayload>(IPC_EVENTS.TAB_STATUS, callback),
 		onExtensionUi: (callback: (request: ExtensionUIRequest, tabId: string) => void) =>
 			subscribe<{ request: ExtensionUIRequest; tabId: string }>(IPC_EVENTS.EXTENSION_UI, data =>
 				callback(data.request, data.tabId),
 			),
-		onHostToolCall: (callback: (request: HostToolCallRequest) => void) =>
-			subscribe<{ request: HostToolCallRequest }>(IPC_EVENTS.HOST_TOOL_CALL, data => callback(data.request)),
-		onHostUriRequest: (callback: (request: HostUriRequest) => void) =>
-			subscribe<{ request: HostUriRequest }>(IPC_EVENTS.HOST_URI_REQUEST, data => callback(data.request)),
-		onSubagentFrame: (callback: (frame: SubagentFrame) => void) =>
-			subscribeActiveTab<SubagentFrame>(IPC_EVENTS.SUBAGENT_FRAME, callback),
 		onLiveFrame: (callback: (frame: RpcLiveFrame) => void) =>
 			subscribeActiveTab<RpcLiveFrame>(IPC_EVENTS.LIVE_FRAME, callback),
 		onBtwFrame: (callback: (frame: RpcBtwFrame) => void) =>
 			subscribeActiveTab<RpcBtwFrame>(IPC_EVENTS.BTW_FRAME, callback),
-		onModelCatalogUpdate: (callback: (frame: ModelCatalogUpdateFrame) => void) =>
-			subscribeActiveTab<ModelCatalogUpdateFrame>(IPC_EVENTS.MODEL_CATALOG_UPDATE, callback),
-		onCommandsUpdate: (callback: (commands: AvailableCommand[]) => void) =>
-			subscribeActiveTab<AvailableCommand[]>(IPC_EVENTS.COMMANDS_UPDATE, callback),
 		onConfigUpdate: (callback: (payload: ConfigUpdateFrame) => void) =>
 			subscribeActiveTab<ConfigUpdateFrame>(IPC_EVENTS.CONFIG_UPDATE, callback),
 		onSessionsChanged: (callback: () => void) => subscribe<undefined>(IPC_EVENTS.SESSIONS_CHANGED, () => callback()),
-		onLogLines: (callback: (lines: string[]) => void) =>
-			subscribe<LogBatch>(IPC_EVENTS.LOG_LINE, batch => callback(batch.lines)),
 		onLogBatch: (callback: (batch: LogBatch) => void) => subscribe<LogBatch>(IPC_EVENTS.LOG_LINE, callback),
-		onPromptResult: (callback: (frame: PromptResultFrame) => void) =>
-			subscribeActiveTab<PromptResultFrame>(IPC_EVENTS.PROMPT_RESULT, callback),
-		onCommandOutput: (callback: (frame: CommandOutputFrame) => void) =>
-			subscribeActiveTab<CommandOutputFrame>(IPC_EVENTS.COMMAND_OUTPUT, callback),
-		onSessionInfoUpdate: (callback: (frame: SessionInfoUpdateFrame) => void) =>
-			subscribeActiveTab<SessionInfoUpdateFrame>(IPC_EVENTS.SESSION_INFO_UPDATE, callback),
-		onExtensionError: (callback: (frame: ExtensionErrorFrame) => void) =>
-			subscribeActiveTab<ExtensionErrorFrame>(IPC_EVENTS.EXTENSION_ERROR, callback),
 		onTabBatch: (callback: (events: AgentSessionEvent[], tabId: string) => void) =>
 			subscribeTab<AgentSessionEvent[]>(IPC_EVENTS.EVENTS_BATCH, callback),
 		onTabSidecarStatus: (callback: (status: IpcSidecarStatusPayload, tabId: string) => void) =>
@@ -228,15 +210,6 @@ const api: OmpApi = {
 	ui: {
 		respondExtensionUi: (response: ExtensionUIResponse, tabId?: string) => {
 			ipcRenderer.invoke(IPC_COMMANDS.EXTENSION_UI_RESPOND, { response, tabId });
-		},
-		sendHostToolResult: (result: HostToolResult) => {
-			ipcRenderer.invoke(IPC_COMMANDS.HOST_TOOL_RESULT, { result });
-		},
-		sendHostToolUpdate: (update: HostToolUpdate) => {
-			ipcRenderer.invoke(IPC_COMMANDS.HOST_TOOL_UPDATE, { update });
-		},
-		sendHostUriResult: (result: HostUriResult) => {
-			ipcRenderer.invoke(IPC_COMMANDS.HOST_URI_RESULT, { result });
 		},
 	},
 
@@ -333,7 +306,6 @@ const api: OmpApi = {
 			filters?: { name: string; extensions: string[] }[],
 			options?: { directory?: boolean; title?: string; buttonLabel?: string },
 		) => ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_OPEN_DIALOG, filters, options),
-		clipboardRead: () => ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_CLIPBOARD_READ),
 		notify: (title: string, body?: string) => {
 			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_NOTIFY, { title, body });
 		},
@@ -383,6 +355,11 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.ACCOUNT_ROTATION_GET, device) as Promise<AccountRotationState>,
 		set: (mode: AccountRotationMode, device?: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.ACCOUNT_ROTATION_SET, mode, device) as Promise<AccountRotationState>,
+	},
+	builtinRea: {
+		get: (device?: string) => ipcRenderer.invoke(IPC_COMMANDS.BUILTIN_REA_GET, device) as Promise<BuiltinReaState>,
+		set: (enabled: boolean, device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.BUILTIN_REA_SET, enabled, device) as Promise<BuiltinReaState>,
 	},
 
 	fs: {

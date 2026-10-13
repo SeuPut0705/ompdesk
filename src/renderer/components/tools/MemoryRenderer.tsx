@@ -3,6 +3,7 @@ import { resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
+import { ToolTextPreview } from "./ToolTextPreview";
 
 /**
  * Memory tools wire shape (retain / recall / reflect — see
@@ -102,15 +103,7 @@ export function MemoryRenderer({
 			)}
 
 			{!isRetain && (recallBody || text) ? (
-				<pre
-					className={
-						isError
-							? "max-h-48 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-error)]"
-							: "max-h-48 overflow-auto whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45] text-[var(--omp-tool-output)]"
-					}
-				>
-					{recallBody || text}
-				</pre>
+				<ToolTextPreview text={recallBody || text} isError={isError} scrollClass="max-h-48 overflow-auto" />
 			) : null}
 
 			{!isRetain && !recallBody && !text && (

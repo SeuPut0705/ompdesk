@@ -33,14 +33,14 @@ export function ViewerLoading() {
 	return (
 		<div className="flex items-center gap-2 p-4" role="status">
 			<Spinner size="sm" />
-			<span className="text-omp-sm text-(--omp-dim)">{t("filesPanel.reading")}</span>
+			<span className="text-sc-sm text-(--sc-text-muted)">{t("filesPanel.reading")}</span>
 		</div>
 	);
 }
 
 export function ViewerFailure({ failure }: { failure: InlineFailure }) {
 	return (
-		<div className="p-4 text-omp-sm text-(--omp-error)" role="alert">
+		<div className="p-4 text-sc-sm break-words text-(--sc-danger)" role="alert">
 			{failure.message}
 			<ErrorDetail className="mt-1" error={failure.cause} />
 		</div>
@@ -51,14 +51,14 @@ export function ViewerFailure({ failure }: { failure: InlineFailure }) {
 export function ViewerFallbackCard({ path, title, detail }: { path: string; title: string; detail?: ReactNode }) {
 	const t = useT();
 	return (
-		<div className="m-3 rounded-md border border-(--omp-border-muted) p-4" data-viewer-fallback>
-			<p className="text-omp-sm text-(--omp-text)">{title}</p>
-			{detail && <p className="mt-1 text-omp-xs text-(--omp-dim)">{detail}</p>}
+		<div className="m-3 rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-4" data-viewer-fallback>
+			<p className="text-sc-sm break-words text-(--sc-text)">{title}</p>
+			{detail && <p className="mt-1 text-sc-xs break-words text-(--sc-text-muted)">{detail}</p>}
 			<PathLink
 				path={path}
-				className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-(--omp-border-muted) px-2 py-1 text-omp-xs text-(--omp-text) hover:bg-(--omp-bg-tertiary)"
+				className="mt-3 inline-flex min-h-(--sc-control-sm) items-center gap-1.5 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-2 py-1 text-sc-xs text-(--sc-text) hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
 			>
-				<ExternalLinkIcon size={12} />
+				<ExternalLinkIcon className="size-(--sc-icon-sm)" />
 				<span>{t("fileViewer.openDefault")}</span>
 			</PathLink>
 		</div>
@@ -93,7 +93,7 @@ export function TruncatedNote({
 	const t = useT();
 	return (
 		<div
-			className="flex flex-wrap items-center gap-2 border-t border-(--omp-border-muted) px-3 py-2 text-omp-xs text-(--omp-dim)"
+			className="flex flex-wrap items-center gap-2 border-t border-(--sc-border-subtle) px-3 py-2 text-sc-xs text-(--sc-text-muted)"
 			data-truncated-note
 		>
 			<span>{t("fileViewer.truncated", { shown: formatBytes(shownBytes), size: formatBytes(size) })}</span>
@@ -111,7 +111,7 @@ export function ViewerToolbar({ children, label }: { children: ReactNode; label:
 	return (
 		<div
 			aria-label={label}
-			className="flex min-h-9 shrink-0 flex-wrap items-center gap-1.5 border-b border-(--omp-border-muted) px-2 py-1"
+			className="flex min-h-(--sc-space-10) shrink-0 flex-wrap items-center gap-1.5 border-b border-(--sc-divider) px-3 py-2"
 			role="toolbar"
 		>
 			{children}

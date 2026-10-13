@@ -18,6 +18,7 @@ import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
 import { useToastStore } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
+import { routeCommands } from "../../../test-support/route-commands";
 import { MODEL_SETUP_PREFS_KEY } from "./model-setup-logic";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -95,7 +96,7 @@ type RunResearch = (request: ModelSetupRequest, device?: string) => Promise<IpcM
 
 function install({ advisorEnabled = false, stored }: { advisorEnabled?: boolean; stored?: unknown } = {}) {
 	let pending = Promise.withResolvers<IpcModelSetupRunResult>();
-	const rpc = {
+	const rpc = routeCommands({
 		getModelRoles: vi.fn(async () => ({ success: true, data: { roles: ROLES } })),
 		getSettings: vi.fn(async () => ({ success: true, data: { values: { "advisor.enabled": advisorEnabled } } })),
 		getAvailableModels: vi.fn(async () => ({
@@ -106,7 +107,7 @@ function install({ advisorEnabled = false, stored }: { advisorEnabled?: boolean;
 		})),
 		setModelRole: vi.fn(async () => ({ success: true })),
 		setSetting: vi.fn(async () => ({ success: true, data: { advisorEnabled: true, advisorActive: true } })),
-	};
+	});
 	const run = vi.fn<RunResearch>(() => {
 		pending = Promise.withResolvers<IpcModelSetupRunResult>();
 		return pending.promise;

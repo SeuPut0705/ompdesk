@@ -8,6 +8,7 @@ import { I18nProvider, translate } from "../../../lib/i18n";
 import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
 import { useToastStore } from "../../../stores/toast";
+import { routeCommands } from "../../../test-support/route-commands";
 import { AGENT_ACCOUNT_POOLS_PATH } from "./account-pools";
 import { ProvidersSection } from "./ProvidersSection";
 
@@ -76,7 +77,7 @@ const writeText = vi.fn(async (_text: string) => {});
 
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
-		rpc: { getProviders, getProviderAccounts, getSettings, setSetting, getAgentDefinitions },
+		rpc: routeCommands({ getProviders, getProviderAccounts, getSettings, setSetting, getAgentDefinitions }),
 		models: { listProviders: vi.fn(async () => ({ providers: [], options: fixtureProviderOptions })) },
 		ui: { respondExtensionUi: vi.fn() },
 		system: { openExternal: vi.fn(async () => {}) },

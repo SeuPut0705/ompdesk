@@ -2,7 +2,7 @@
  * Models: usage bar chart, performance series, and per-model table.
  */
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { Bar, Line } from "react-chartjs-2";
 import {
 	baseChartOptions,
@@ -23,16 +23,12 @@ import { ChartBox, RouteFrame, SectionTitle, type StatColumn, type StatsRange, S
 
 const tokenCountFormatter = new Intl.NumberFormat("en-US");
 
-export function ModelsRoute({ range, refreshKey }: { range: StatsRange; refreshKey: number }) {
+export function ModelsRoute({ range }: { range: StatsRange }) {
 	const t = useT();
 	const themeKey = useChartThemeKey();
 	const locale = uiLocale();
 	const params = useMemo(() => ({ range }), [range]);
 	const { data, isLoading, error, refetch } = useStats<ModelsData>("/api/stats/model-dashboard", params);
-
-	useEffect(() => {
-		if (refreshKey > 0) refetch();
-	}, [refreshKey, refetch]);
 
 	const stats = data;
 

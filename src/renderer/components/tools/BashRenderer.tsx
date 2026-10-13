@@ -2,10 +2,62 @@ import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { cx, extractImageDataUrls, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_MD } from "../../lib/preview";
+import { detectLocalPreviewUrls } from "../../lib/preview-browser";
+import { useUiStore } from "../../stores/ui";
 import { ResultImages } from "./ResultImages";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
 
+function BashOutput({ text }: { text: string }) {
+	const openPreview = useUiStore(s => s.openPreview);
+	if (hasAnsi(text)) {
+		const urls = detectLocalPreviewUrls(text);
+		return (
+			<span
+				onClickCapture={event => {
+					const anchor = event.target instanceof Element ? event.target.closest("a") : null;
+					const url = anchor?.getAttribute("href");
+					if (!url || !detectLocalPreviewUrls(url).length) return;
+					event.preventDefault();
+					event.stopPropagation();
+					openPreview(url);
+				}}
+			>
+				<AnsiText text={text} />
+				{urls.map(url => (
+					<a
+						key={url}
+						href={url}
+						className="mt-1 block underline underline-offset-2"
+						onClick={event => {
+							event.preventDefault();
+							openPreview(url);
+						}}
+					>
+						{url}
+					</a>
+				))}
+			</span>
+		);
+	}
+	return text.split(/(https?:\/\/[^\s<>\x1b"'`]+)/g).map((part, index) => {
+		const url = detectLocalPreviewUrls(part)[0];
+		if (!url) return part;
+		return (
+			<a
+				key={index}
+				href={url}
+				className="underline underline-offset-2 focus-visible:outline focus-visible:outline-(--sc-focus-ring)"
+				onClick={event => {
+					event.preventDefault();
+					openPreview(url);
+				}}
+			>
+				{part}
+			</a>
+		);
+	});
+}
 /**
  * Bash wire shape: `{ content: [{ type: "text", text }], details }` where
  * `details` is `BashToolDetails` (packages/coding-agent/src/tools/bash.ts):
@@ -187,31 +239,35 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 					livePreview && "omp-bash-live",
 				)}
 			>
-				<div className="omp-bash-prompt flex items-start gap-2 px-2.5 py-1.5 leading-normal">
-					<span aria-hidden className="shrink-0 select-none text-(--sc-text-subtle)">
-						$
-					</span>
-					<span className="min-w-0 flex-1 whitespace-pre-wrap break-all text-(--sc-text)">{command}</span>
-					{parsed.exitCode != null && (
-						<span
-							className={cx(
-								"shrink-0 rounded-(--sc-radius-xs) px-1 text-sc-2xs font-medium tabular-nums",
-								parsed.exitCode === 0 && !isError
-									? "bg-(--sc-success)/15 text-(--sc-success)"
-									: "bg-(--sc-danger)/15 text-(--sc-danger)",
-							)}
-						>
-							{t("tools.bash.exit", { code: parsed.exitCode })}
+				{/* A call whose arguments are still streaming has no command yet: no bare `$`. */}
+				{command ? (
+					<div className="omp-bash-prompt flex items-start gap-2 px-2.5 py-1.5 leading-normal">
+						<span aria-hidden className="shrink-0 select-none text-(--sc-text-subtle)">
+							$
 						</span>
-					)}
-					{isPartial && parsed.exitCode == null && (
-						<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("tools.bash.running")}</span>
-					)}
-				</div>
+						<span className="min-w-0 flex-1 whitespace-pre-wrap break-all text-(--sc-text)">{command}</span>
+						{parsed.exitCode != null && (
+							<span
+								className={cx(
+									"shrink-0 rounded-(--sc-radius-xs) px-1 text-sc-2xs font-medium tabular-nums",
+									parsed.exitCode === 0 && !isError
+										? "bg-(--sc-success)/15 text-(--sc-success)"
+										: "bg-(--sc-danger)/15 text-(--sc-danger)",
+								)}
+							>
+								{t("tools.bash.exit", { code: parsed.exitCode })}
+							</span>
+						)}
+						{isPartial && parsed.exitCode == null && (
+							<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("tools.bash.running")}</span>
+						)}
+					</div>
+				) : null}
 				{(hasOutput || livePreview) && (
 					<div
 						className={cx(
-							"border-t border-(--sc-divider) px-2.5 py-1.5 leading-normal text-(--omp-tool-output)",
+							"px-2.5 py-1.5 leading-normal text-(--omp-tool-output)",
+							command && "border-t border-(--sc-divider)",
 							PREVIEW_SCROLL_MD,
 						)}
 					>
@@ -219,13 +275,11 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 							{outputLines ? (
 								outputLines.map((line, index) => (
 									<span className="omp-bash-line" key={index}>
-										{hasAnsi(line) ? <AnsiText text={line} /> : line}
+										<BashOutput text={line} />
 									</span>
 								))
-							) : hasAnsi(parsed.output) ? (
-								<AnsiText text={parsed.output} />
 							) : (
-								parsed.output
+								<BashOutput text={parsed.output} />
 							)}
 						</div>
 					</div>

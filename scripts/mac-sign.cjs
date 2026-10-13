@@ -34,7 +34,7 @@ async function credentials() {
  * electron-builder `mac.sign`. Signs the bundle with OMPdesk's own
  * self-signed certificate (`mac-signing.json`), so every build has the same
  * designated requirement (`identifier "com.seuput.ompdesk" and certificate
- * leaf = H"…"`). macOS keys privacy grants (folders, local network,
+ * root = H"…"`). macOS keys privacy grants (folders, local network,
  * microphone) to that requirement; an ad-hoc signature's requirement is the
  * build's cdhash, so each update looked like a new app and asked again.
  *

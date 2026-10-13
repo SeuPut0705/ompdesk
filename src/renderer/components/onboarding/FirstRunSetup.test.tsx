@@ -10,6 +10,7 @@ import { useFirstRunStore } from "../../stores/first-run";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
+import { routeCommands } from "../../test-support/route-commands";
 import { FirstRunGate } from "./FirstRunGate";
 import { FirstRunSetup } from "./FirstRunSetup";
 
@@ -43,14 +44,14 @@ const opus: ModelInfo = { provider: "acme", id: "acme-opus-5", name: "Acme Opus 
 
 let catalog: ProvidersResult = { providers: [], models: [], discoveryStates: [], refreshPending: false, generation: 1 };
 let defaultRole: string | undefined;
-const rpc = {
+const rpc = routeCommands({
 	getProviders: vi.fn(async () => ok("get_providers", catalog)),
 	getAvailableModels: vi.fn(async () => ok("get_available_models", catalog)),
 	getModelRoles: vi.fn(async () => ok("get_model_roles", { roles: [{ id: "default", model: defaultRole }] })),
 	setModel: vi.fn(async (provider: string, id: string) => ok("set_model", { provider, id })),
 	setModelRole: vi.fn(async () => ok("set_model_role", {})),
 	login: vi.fn(async () => ok("login", {})),
-};
+});
 const listProviders = vi.fn(
 	async (): Promise<CustomProvidersConfig> => ({ providers: [], options: fixtureProviderOptions }),
 );

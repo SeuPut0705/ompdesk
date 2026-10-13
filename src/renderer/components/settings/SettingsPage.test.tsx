@@ -1,7 +1,7 @@
 /**
  * Settings page contracts: deep-link resolution, the store routing that
- * opens the page, schema bucketing and GUI visibility, schema-tab rendering
- * (Advanced) including translations, row semantics, and search routing.
+ * opens the page, GUI visibility, schema-tab rendering (Advanced) including
+ * translations, row semantics, and search routing.
  */
 
 import type { ReactNode } from "react";
@@ -23,7 +23,7 @@ import {
 } from "./settings-catalog";
 import { type SettingsData, SettingsDataProvider } from "./settings-data";
 import { SettingsNavigationProvider } from "./settings-navigation";
-import { groupSchemaEntries, isSettingVisibleInGui } from "./settings-schema-utils";
+import { isSettingVisibleInGui } from "./settings-schema-utils";
 import { searchSettings } from "./settings-search";
 
 function entry(partial: Partial<SettingEntry> & { path: string }): SettingEntry {
@@ -109,39 +109,6 @@ describe("openSettings routing", () => {
 		useUiStore.setState({ destination: "session", settingsTab: "ssh" });
 		useUiStore.getState().openSettings();
 		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "general" });
-	});
-});
-
-describe("groupSchemaEntries", () => {
-	const entries: SettingEntry[] = [
-		entry({ path: "a.loose", tab: "appearance" }),
-		entry({ path: "a.theme", tab: "appearance", group: "Theme" }),
-		entry({ path: "a.display", tab: "appearance", group: "Display" }),
-		entry({ path: "a.status", tab: "appearance", group: "Status Line" }),
-		entry({ path: "a.mystery", tab: "appearance", group: "Undeclared" }),
-		entry({ path: "m.other", tab: "model", group: "Thinking" }),
-	];
-
-	it("filters to the requested tab only", () => {
-		const { tabEntries } = groupSchemaEntries(entries, "appearance", []);
-		expect(tabEntries.map(e => e.path)).not.toContain("m.other");
-		expect(tabEntries).toHaveLength(5);
-	});
-
-	it("orders groups by the declared TAB_GROUPS order and appends undeclared groups", () => {
-		const { orderedGroups } = groupSchemaEntries(entries, "appearance", [
-			"Theme",
-			"Status Line",
-			"Display",
-			"Images",
-		]);
-		expect(orderedGroups.map(group => group.name)).toEqual(["Theme", "Status Line", "Display", "Undeclared"]);
-	});
-
-	it("separates ungrouped entries and omits empty declared groups", () => {
-		const { ungrouped, orderedGroups } = groupSchemaEntries(entries, "appearance", ["Images", "Theme"]);
-		expect(ungrouped.map(e => e.path)).toEqual(["a.loose"]);
-		expect(orderedGroups.map(group => group.name)).not.toContain("Images");
 	});
 });
 
