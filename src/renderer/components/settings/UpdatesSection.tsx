@@ -62,6 +62,35 @@ export function updateOverviewState(
 	return "healthy";
 }
 
+/**
+ * One line per component under the failed-check banner: the app's and omp's
+ * localized sentences read as text, each raw cause quieter beneath it.
+ */
+export function UpdateFailureLines({
+	app,
+	core,
+}: {
+	app: Extract<UpdateStatus, { state: "error" }> | null;
+	core: InlineFailure | undefined;
+}) {
+	return (
+		<>
+			{app && (
+				<>
+					<span className="block">{app.message}</span>
+					{app.detail && <ErrorDetail error={app.detail} />}
+				</>
+			)}
+			{core && (
+				<>
+					<span className="mt-0.5 block">omp: {core.message}</span>
+					{core.cause !== undefined && <ErrorDetail error={core.cause} />}
+				</>
+			)}
+		</>
+	);
+}
+
 export function UpdatesSection() {
 	const tabRpc = useTabRpc();
 	const t = useT();
@@ -133,7 +162,7 @@ export function UpdatesSection() {
 	}, [check, t, tabRpc.ompUpdate]);
 
 	const overview = updateOverviewState(status, core, coreError?.message, checking);
-	const appError = status.state === "error" ? status.message : null;
+	const appError = status.state === "error" ? status : null;
 
 	return (
 		<SettingsSection
@@ -145,16 +174,7 @@ export function UpdatesSection() {
 		>
 			<Banner className="my-3" live title={t(OVERVIEW_TITLE[overview])} variant={OVERVIEW_BANNER[overview]}>
 				{overview === "error" && (appError || coreError) ? (
-					// One line per component: the app's message, then omp's own (often raw CLI) error, quieter.
-					<>
-						{appError && <ErrorDetail error={appError} />}
-						{coreError && (
-							<>
-								<ErrorDetail className="mt-0.5" error={`omp: ${coreError.message}`} />
-								{coreError.cause !== undefined && <ErrorDetail className="mt-0.5" error={coreError.cause} />}
-							</>
-						)}
-					</>
+					<UpdateFailureLines app={appError} core={coreError} />
 				) : status.state === "auth-required" ? (
 					t(ACCESS_MESSAGE[status.reason])
 				) : (

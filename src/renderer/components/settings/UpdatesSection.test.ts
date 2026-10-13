@@ -1,6 +1,9 @@
+import { parseHTML } from "linkedom";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { RpcOmpUpdateResult } from "../../../shared/rpc-types";
-import { updateOverviewState } from "./UpdatesSection";
+import { UpdateFailureLines, updateOverviewState } from "./UpdatesSection";
 
 const CURRENT_CORE: RpcOmpUpdateResult = {
 	currentVersion: "17.2.10",
@@ -49,5 +52,21 @@ describe("updates overview state", () => {
 		expect(updateOverviewState({ state: "not-available", version: "0.7.1" }, CURRENT_CORE, undefined, false)).toBe(
 			"healthy",
 		);
+	});
+});
+
+describe("UpdateFailureLines", () => {
+	it("reads the localized sentences as text and keeps only the raw causes in the code-styled detail", () => {
+		const html = renderToStaticMarkup(
+			createElement(UpdateFailureLines, {
+				app: { state: "error", message: "Couldn't finish the update check.", detail: "net::ERR_TIMED_OUT" },
+				core: { message: "Couldn't check omp.", cause: "omp update --check exited 1" },
+			}),
+		);
+		const root = parseHTML(`<div id="root">${html}</div>`).document.getElementById("root");
+		const details = [...(root?.querySelectorAll("[data-error-detail]") ?? [])].map(node => node.textContent);
+		expect(details).toEqual(["net::ERR_TIMED_OUT", "omp update --check exited 1"]);
+		expect(root?.textContent).toContain("Couldn't finish the update check.");
+		expect(root?.textContent).toContain("omp: Couldn't check omp.");
 	});
 });

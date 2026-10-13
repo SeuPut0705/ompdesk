@@ -298,11 +298,14 @@ function ListFrame({ tabId, rpc, query, visible, actions, emptyAction, children 
 	const trimmed = query.trim();
 	const loaded = rpc.data !== null;
 	const total = rpc.data?.length ?? 0;
-	const countText = loaded
-		? trimmed
-			? t(`extPanel.countFiltered.${tabId}`, { shown: visible, total })
-			: t(`extPanel.count.${tabId}`, { count: total })
-		: null;
+	// An empty list's own state says "none" and carries the fixing action: the toolbar repeats neither.
+	const empty = loaded && total === 0;
+	const countText =
+		loaded && !empty
+			? trimmed
+				? t(`extPanel.countFiltered.${tabId}`, { shown: visible, total })
+				: t(`extPanel.count.${tabId}`, { count: total })
+			: null;
 	const retry = (
 		<Button
 			disabled={!rpc.ready}
@@ -345,7 +348,7 @@ function ListFrame({ tabId, rpc, query, visible, actions, emptyAction, children 
 				</p>
 				<div className="flex shrink-0 items-center gap-2">
 					{countText && <span className="text-sc-xs tabular-nums text-(--sc-text-muted)">{countText}</span>}
-					{actions}
+					{empty && emptyAction ? null : actions}
 					<IconButton
 						disabled={!rpc.ready || rpc.loading}
 						icon={<RefreshCw className={cx(rpc.loading && "animate-spin")} />}

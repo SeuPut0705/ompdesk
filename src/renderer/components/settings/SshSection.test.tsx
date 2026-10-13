@@ -145,4 +145,22 @@ describe("SshSection", () => {
 
 		expect(detailHeaderText()).toContain(translate("ssh.health.healthy"));
 	});
+
+	it("with no hosts shows one empty state with the only Add action, and the editor only once adding", async () => {
+		getSshHosts.mockResolvedValueOnce(ok("get_ssh_hosts", hostsResult([])));
+		await mount();
+
+		const addButtons = () => buttons().filter(button => (button.textContent ?? "").trim() === translate("ssh.add"));
+		expect(document.body.textContent ?? "").toContain(translate("ssh.empty.title"));
+		expect(addButtons()).toHaveLength(1);
+		expect(document.querySelector("aside")).toBeNull();
+		expect(buttonWithLabel(translate("ssh.save"))).toBeUndefined();
+		expect(document.body.textContent ?? "").not.toContain(translate("ssh.ready.hosts", { count: 0 }));
+
+		await act(async () => {
+			addButtons()[0]?.click();
+		});
+		expect(detailHeaderText()).toContain(translate("ssh.newHost"));
+		expect(buttonWithLabel(translate("ssh.save"))).toBeDefined();
+	});
 });

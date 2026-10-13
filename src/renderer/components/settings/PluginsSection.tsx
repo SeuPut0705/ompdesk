@@ -331,7 +331,7 @@ function PluginsTab({
 
 	return (
 		<TabPanel
-			count={resource.loaded ? t("invPanel.count", { shown: plugins.length, total }) : undefined}
+			count={resource.loaded && total > 0 ? t("invPanel.count", { shown: plugins.length, total }) : undefined}
 			footer={t("invPanel.footer.plugins")}
 			label={t("invPanel.tabs.plugins")}
 			resource={resource}
@@ -434,7 +434,7 @@ function MarketplacesTab({
 	const total = resource.data?.marketplaces.length ?? 0;
 	return (
 		<TabPanel
-			count={resource.loaded ? t("invPanel.count", { shown: marketplaces.length, total }) : undefined}
+			count={resource.loaded && total > 0 ? t("invPanel.count", { shown: marketplaces.length, total }) : undefined}
 			footer={t("marketplace.footerNote")}
 			label={t("invPanel.tabs.marketplaces")}
 			resource={resource}
@@ -512,7 +512,7 @@ function TemplatesTab({
 	const total = resource.data?.templates.length ?? 0;
 	return (
 		<TabPanel
-			count={resource.loaded ? t("invPanel.count", { shown: templates.length, total }) : undefined}
+			count={resource.loaded && total > 0 ? t("invPanel.count", { shown: templates.length, total }) : undefined}
 			footer={t("invPanel.readonlyNote")}
 			label={t("invPanel.tabs.templates")}
 			resource={resource}

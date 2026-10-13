@@ -256,6 +256,23 @@ export function SshSection() {
 	const detailHealth = hostHealth(selected, tests[draft.name]);
 	const testResult = tests[draft.name];
 	const hostCount = data?.hosts.length ?? 0;
+	// The editor is for a host being added or the selected one; with no hosts the empty state is the
+	// whole section and carries the only Add action.
+	const editing = creating || selected !== undefined;
+	const empty = !loading && !loadError && hostCount === 0;
+	const addButton = (
+		<Button disabled={!sidecarReady} icon={<Plus />} onClick={addHost} size="sm" title={notConnectedTitle}>
+			{t("ssh.add")}
+		</Button>
+	);
+	const emptyState = empty && (
+		<EmptyState
+			actions={creating ? undefined : addButton}
+			description={t("ssh.empty.description")}
+			icon={<Server />}
+			title={t("ssh.empty.title")}
+		/>
+	);
 
 	return (
 		<SettingsSection
@@ -268,9 +285,7 @@ export function SshSection() {
 						onClick={() => void load()}
 						size="sm"
 					/>
-					<Button disabled={!sidecarReady} icon={<Plus />} onClick={addHost} size="sm" title={notConnectedTitle}>
-						{t("ssh.add")}
-					</Button>
+					{empty && !creating ? null : addButton}
 				</>
 			}
 		>
@@ -285,8 +300,8 @@ export function SshSection() {
 							<Badge dot variant={data.openSshAvailable ? "success" : "error"}>
 								{data.openSshAvailable ? t("ssh.ready.available") : t("ssh.ready.missing")}
 							</Badge>
-							<Badge>{t("ssh.ready.hosts", { count: hostCount })}</Badge>
-							<Badge>{t("ssh.ready.reachable", { count: reachable })}</Badge>
+							{hostCount > 0 && <Badge>{t("ssh.ready.hosts", { count: hostCount })}</Badge>}
+							{hostCount > 0 && <Badge>{t("ssh.ready.reachable", { count: reachable })}</Badge>}
 						</div>
 					)}
 
@@ -315,183 +330,172 @@ export function SshSection() {
 						</Banner>
 					)}
 
-					<div className="ssh-master-detail overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
-						<section aria-label={t("ssh.title")} className="ssh-list-pane min-w-0 overflow-y-auto p-1.5">
-							{data?.hosts.map(host => {
-								const health = hostHealth(host, tests[host.name]);
-								return (
-									<ListRow
-										description={[targetText(host), host.scope, host.os, host.shell]
-											.filter(value => value && value !== "unknown")
-											.join(" · ")}
-										key={`${host.scope}:${host.name}:${host.source}`}
-										leading={<Server />}
-										meta={
-											<Badge dot variant={HEALTH_BADGE[health]}>
-												{t(`ssh.health.${health}`)}
-											</Badge>
-										}
-										onClick={() => chooseHost(host)}
-										selected={selected?.name === host.name && selected.scope === host.scope}
-										title={host.name}
-										titleText={host.name}
-									/>
-								);
-							})}
-							{!loading && !loadError && hostCount === 0 && (
-								<EmptyState
-									actions={
-										<Button
-											disabled={!sidecarReady}
-											icon={<Plus />}
-											onClick={addHost}
-											size="sm"
-											title={notConnectedTitle}
-										>
-											{t("ssh.add")}
-										</Button>
-									}
-									description={t("ssh.empty.description")}
-									icon={<Server />}
-									title={t("ssh.empty.title")}
-								/>
-							)}
-						</section>
+					{!editing ? (
+						emptyState
+					) : (
+						<div className="ssh-master-detail overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
+							<section aria-label={t("ssh.title")} className="ssh-list-pane min-w-0 overflow-y-auto p-1.5">
+								{data?.hosts.map(host => {
+									const health = hostHealth(host, tests[host.name]);
+									return (
+										<ListRow
+											description={[targetText(host), host.scope, host.os, host.shell]
+												.filter(value => value && value !== "unknown")
+												.join(" · ")}
+											key={`${host.scope}:${host.name}:${host.source}`}
+											leading={<Server />}
+											meta={
+												<Badge dot variant={HEALTH_BADGE[health]}>
+													{t(`ssh.health.${health}`)}
+												</Badge>
+											}
+											onClick={() => chooseHost(host)}
+											selected={selected?.name === host.name && selected.scope === host.scope}
+											title={host.name}
+											titleText={host.name}
+										/>
+									);
+								})}
+								{emptyState}
+							</section>
 
-						<aside className="ssh-detail-pane min-w-0 overflow-y-auto p-4">
-							<div className="mb-4 flex items-start gap-2 border-b border-(--sc-divider) pb-3">
-								<div className="min-w-0 flex-1">
-									<h3 className="truncate text-sc-md font-semibold text-(--sc-text)">
-										{creating ? t("ssh.newHost") : draft.name || t("ssh.selectHost")}
-									</h3>
-									{!creating && selected && (
-										<p className="mt-0.5 truncate font-mono text-sc-xs text-(--sc-text-muted)">
-											{targetText(selected)}
-										</p>
-									)}
+							<aside className="ssh-detail-pane min-w-0 overflow-y-auto p-4">
+								<div className="mb-4 flex items-start gap-2 border-b border-(--sc-divider) pb-3">
+									<div className="min-w-0 flex-1">
+										<h3 className="truncate text-sc-md font-semibold text-(--sc-text)">
+											{creating ? t("ssh.newHost") : draft.name || t("ssh.selectHost")}
+										</h3>
+										{!creating && selected && (
+											<p className="mt-0.5 truncate font-mono text-sc-xs text-(--sc-text-muted)">
+												{targetText(selected)}
+											</p>
+										)}
+									</div>
+									<Badge dot variant={HEALTH_BADGE[detailHealth]}>
+										{testResult?.ok === true ? t("ssh.connected") : t(`ssh.health.${detailHealth}`)}
+									</Badge>
 								</div>
-								<Badge dot variant={HEALTH_BADGE[detailHealth]}>
-									{testResult?.ok === true ? t("ssh.connected") : t(`ssh.health.${detailHealth}`)}
-								</Badge>
-							</div>
 
-							<div className="flex flex-col gap-3">
-								<Input
-									label={t("ssh.form.alias")}
-									onChange={event => setDraft(current => ({ ...current, name: event.target.value }))}
-									value={draft.name}
-								/>
-								<Input
-									label={t("ssh.form.host")}
-									mono
-									onChange={event => setDraft(current => ({ ...current, host: event.target.value }))}
-									placeholder="build.example.com"
-									value={draft.host}
-								/>
-								<div className="grid grid-cols-[1fr_6rem] gap-2">
+								<div className="flex flex-col gap-3">
 									<Input
-										label={t("ssh.form.user")}
-										onChange={event => setDraft(current => ({ ...current, username: event.target.value }))}
-										value={draft.username ?? ""}
+										label={t("ssh.form.alias")}
+										onChange={event => setDraft(current => ({ ...current, name: event.target.value }))}
+										value={draft.name}
 									/>
 									<Input
-										label={t("ssh.form.port")}
-										max={65535}
-										min={1}
+										label={t("ssh.form.host")}
+										mono
+										onChange={event => setDraft(current => ({ ...current, host: event.target.value }))}
+										placeholder="build.example.com"
+										value={draft.host}
+									/>
+									<div className="grid grid-cols-[1fr_6rem] gap-2">
+										<Input
+											label={t("ssh.form.user")}
+											onChange={event => setDraft(current => ({ ...current, username: event.target.value }))}
+											value={draft.username ?? ""}
+										/>
+										<Input
+											label={t("ssh.form.port")}
+											max={65535}
+											min={1}
+											onChange={event =>
+												setDraft(current => ({ ...current, port: Number(event.target.value) || undefined }))
+											}
+											type="number"
+											value={draft.port ?? ""}
+										/>
+									</div>
+									<Select
+										label={t("ssh.form.scope")}
 										onChange={event =>
-											setDraft(current => ({ ...current, port: Number(event.target.value) || undefined }))
+											setDraft(current => ({ ...current, scope: event.target.value as "user" | "project" }))
 										}
-										type="number"
-										value={draft.port ?? ""}
+										options={[
+											{ value: "project", label: t("ssh.scope.project") },
+											{ value: "user", label: t("ssh.scope.user") },
+										]}
+										value={draft.scope}
+									/>
+									<Input
+										label={t("ssh.form.key")}
+										mono
+										onChange={event => setDraft(current => ({ ...current, keyPath: event.target.value }))}
+										placeholder="~/.ssh/id_ed25519"
+										trailing={
+											remote ? undefined : (
+												<IconButton
+													disabled={!sidecarReady}
+													icon={<FolderOpen />}
+													label={t("ssh.chooseKey")}
+													onClick={() => void chooseKey()}
+													size="sm"
+												/>
+											)
+										}
+										value={draft.keyPath ?? ""}
+									/>
+									<TextArea
+										label={t("ssh.form.description")}
+										onChange={event => setDraft(current => ({ ...current, description: event.target.value }))}
+										rows={2}
+										value={draft.description ?? ""}
+									/>
+									<SwitchField
+										checked={draft.compat === true}
+										description={t("ssh.form.compatDesc")}
+										label={t("ssh.form.compat")}
+										onCheckedChange={compat => setDraft(current => ({ ...current, compat }))}
 									/>
 								</div>
-								<Select
-									label={t("ssh.form.scope")}
-									onChange={event =>
-										setDraft(current => ({ ...current, scope: event.target.value as "user" | "project" }))
-									}
-									options={[
-										{ value: "project", label: t("ssh.scope.project") },
-										{ value: "user", label: t("ssh.scope.user") },
-									]}
-									value={draft.scope}
-								/>
-								<Input
-									label={t("ssh.form.key")}
-									mono
-									onChange={event => setDraft(current => ({ ...current, keyPath: event.target.value }))}
-									placeholder="~/.ssh/id_ed25519"
-									trailing={
-										remote ? undefined : (
-											<IconButton
-												disabled={!sidecarReady}
-												icon={<FolderOpen />}
-												label={t("ssh.chooseKey")}
-												onClick={() => void chooseKey()}
-												size="sm"
-											/>
-										)
-									}
-									value={draft.keyPath ?? ""}
-								/>
-								<TextArea
-									label={t("ssh.form.description")}
-									onChange={event => setDraft(current => ({ ...current, description: event.target.value }))}
-									rows={2}
-									value={draft.description ?? ""}
-								/>
-								<SwitchField
-									checked={draft.compat === true}
-									description={t("ssh.form.compatDesc")}
-									label={t("ssh.form.compat")}
-									onCheckedChange={compat => setDraft(current => ({ ...current, compat }))}
-								/>
-							</div>
 
-							<div className="mt-4 flex items-center justify-end gap-2 border-t border-(--sc-divider) pt-3">
-								{selected?.editable && !creating && (
-									<IconButton
-										disabled={!sidecarReady || saving || testing || loading || deleting}
-										icon={<Trash2 />}
-										label={t("ssh.delete")}
-										onClick={() => setConfirmDelete(true)}
+								<div className="mt-4 flex items-center justify-end gap-2 border-t border-(--sc-divider) pt-3">
+									{selected?.editable && !creating && (
+										<IconButton
+											disabled={!sidecarReady || saving || testing || loading || deleting}
+											icon={<Trash2 />}
+											label={t("ssh.delete")}
+											onClick={() => setConfirmDelete(true)}
+											size="sm"
+										/>
+									)}
+									<Button
+										disabled={!sidecarReady || saving || deleting || loading}
+										icon={<FileKey2 />}
+										loading={testing}
+										onClick={() => void test()}
 										size="sm"
-									/>
-								)}
-								<Button
-									disabled={!sidecarReady || saving || deleting || loading}
-									icon={<FileKey2 />}
-									loading={testing}
-									onClick={() => void test()}
-									size="sm"
-								>
-									{t("ssh.test")}
-								</Button>
-								<Button
-									disabled={!sidecarReady || testing || deleting || loading}
-									loading={saving}
-									onClick={() => void save()}
-									size="sm"
-									variant="primary"
-								>
-									{t("ssh.save")}
-								</Button>
-							</div>
+									>
+										{t("ssh.test")}
+									</Button>
+									<Button
+										disabled={!sidecarReady || testing || deleting || loading}
+										loading={saving}
+										onClick={() => void save()}
+										size="sm"
+										variant="primary"
+									>
+										{t("ssh.save")}
+									</Button>
+								</div>
 
-							{testResult && (
-								<Banner
-									className="mt-3"
-									live
-									title={testResult.ok ? t("ssh.test.success") : t("ssh.test.failed")}
-									variant={testResult.ok ? "success" : "danger"}
-								>
-									{testResult.ok
-										? [testResult.os, testResult.shell, testResult.transferShell].filter(Boolean).join(" · ")
-										: testResult.error}
-								</Banner>
-							)}
-						</aside>
-					</div>
+								{testResult && (
+									<Banner
+										className="mt-3"
+										live
+										title={testResult.ok ? t("ssh.test.success") : t("ssh.test.failed")}
+										variant={testResult.ok ? "success" : "danger"}
+									>
+										{testResult.ok
+											? [testResult.os, testResult.shell, testResult.transferShell]
+													.filter(Boolean)
+													.join(" · ")
+											: testResult.error}
+									</Banner>
+								)}
+							</aside>
+						</div>
+					)}
 				</div>
 			)}
 

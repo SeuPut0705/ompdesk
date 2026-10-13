@@ -176,6 +176,8 @@ describe("PluginsSection", () => {
 
 		expect(getPlugins).toHaveBeenCalledTimes(1);
 		expect(document.body.textContent).toContain("No plugins installed.");
+		// The empty state says it; no "0 of 0" beside the refresh button.
+		expect(document.body.textContent).not.toContain("0 of 0");
 		const browse = (Array.from(document.querySelectorAll("button")) as unknown as TestElement[]).find(
 			button => button.textContent?.trim() === "Browse marketplaces",
 		);
