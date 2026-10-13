@@ -7,6 +7,11 @@ import type { SettingEntry } from "../../../shared/rpc-types";
 import { conditionParent, isSettingVisible } from "./settings-schema-utils";
 
 const stockRoot = path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-coding-agent");
+// Gate on the exact modules evaluated below: a CI runner can carry the package
+// directory without its sources, and an older omp may lay them out differently.
+const stockAvailable = ["settings.ts", "settings-ui.ts", "all-settings.ts"].every(file =>
+	existsSync(path.join(stockRoot, "src", "config", file)),
+);
 
 const gated = (condition: string): SettingEntry => ({
 	path: "x",
@@ -83,7 +88,7 @@ function stockConditions(): StockConditions {
 	return JSON.parse(result.stdout) as StockConditions;
 }
 
-describe.skipIf(!existsSync(stockRoot))("settings condition gates against installed stock", () => {
+describe.skipIf(!stockAvailable)("settings condition gates against installed stock", () => {
 	const stock = stockConditions();
 
 	it("covers every stock condition as a settings-backed gate or a host gate", () => {
