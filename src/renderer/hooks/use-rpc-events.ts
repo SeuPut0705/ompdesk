@@ -453,6 +453,11 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 						}
 						case "todo_reminder": {
 							useTodoStore.getState().showReminder(event.todos);
+							// Stock records the reminder as a developer message without message events
+							// (session/todo-tracker.ts): fetch it, so the card shows the reminder line live
+							// exactly as it will after a reload.
+							void (tabId && sessionRuntime(tabId) ? hydrateTabSession(tabId) : hydrateSession());
+							bumpVersion = true;
 							break;
 						}
 						case "todo_auto_clear": {

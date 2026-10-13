@@ -612,9 +612,12 @@ export function buildHistoryRows(
 		}
 	}
 	return chargeJobFailures(
-		foldTodoReminders(
-			foldWorkNotes(stops.size ? rows.filter((_, index) => !stops.has(index)) : rows, duringRunNotes),
-			reminders,
+		foldJobDeliveries(
+			foldTodoReminders(
+				foldWorkNotes(stops.size ? rows.filter((_, index) => !stops.has(index)) : rows, duringRunNotes),
+				reminders,
+			),
+			messages,
 		),
 		messages,
 	);
@@ -734,6 +737,65 @@ function foldTodoReminders(rows: readonly HistoryRow[], reminders: ReadonlySet<A
 	return folded.filter((_, index) => !removed.has(index));
 }
 
+/** Which call started each background job: its result's `details.async.jobId` (tools/bash.ts, task). */
+function jobStarters(messages: readonly AgentMessage[]): ReadonlyMap<string, string> {
+	const startedBy = new Map<string, string>();
+	for (const message of messages) {
+		if (message.role !== "toolResult" || !message.toolCallId) continue;
+		const async = resultDetails(message)?.async;
+		const jobId = typeof async === "object" && async !== null && "jobId" in async ? async.jobId : undefined;
+		if (typeof jobId === "string") startedBy.set(jobId, message.toolCallId);
+	}
+	return startedBy;
+}
+
+/** The process row whose calls include `callId`. */
+function runOfCall(rows: readonly HistoryRow[], callId: string | undefined): number {
+	return rows.findIndex(
+		row =>
+			row.kind === "process" &&
+			row.messages.some(message =>
+				messageContent(message).some(block => block.type === "toolCall" && block.id === callId),
+			),
+	);
+}
+
+/**
+ * Stock delivers a background job's result (async-result) after the run that started it, to wake
+ * a follow-up turn. Right below that run's card (the run stopped before it replied) it is the
+ * card's own record: it joins the card as a note, where a finished agent's lane already states
+ * it. After the run's reply it opens the follow-up and keeps its place, as does a delivery for
+ * jobs of several runs.
+ */
+function foldJobDeliveries(rows: readonly HistoryRow[], messages: readonly AgentMessage[]): HistoryRow[] {
+	if (!rows.some(row => row.kind === "message" && asyncResultJobs(row.message).length > 0))
+		return rows as HistoryRow[];
+	const startedBy = jobStarters(messages);
+	const folded = rows.slice();
+	const removed = new Set<number>();
+	for (const [index, row] of rows.entries()) {
+		if (row.kind !== "message") continue;
+		const jobs = asyncResultJobs(row.message);
+		const owners = new Set(
+			jobs.map(job => runOfCall(folded, job.jobId === undefined ? undefined : startedBy.get(job.jobId))),
+		);
+		const [owner = -1] = owners;
+		// The row right above, past deliveries already folded into the same card.
+		let above = index - 1;
+		while (removed.has(above)) above--;
+		if (jobs.length === 0 || owners.size !== 1 || owner !== above) continue;
+		const work = folded[owner];
+		if (work?.kind !== "process") continue;
+		folded[owner] = {
+			...work,
+			failedEvents: work.failedEvents + completionFailureCount(row.message),
+			notes: [...(work.notes ?? []), row.message],
+		};
+		removed.add(index);
+	}
+	return folded.filter((_, index) => !removed.has(index));
+}
+
 /**
  * A background job that fails after its run ended is that run's failure: stock's async-result
  * notice arrives later (usually waking a follow-up turn), so the run whose call started the job
@@ -746,23 +808,11 @@ function chargeJobFailures(rows: readonly HistoryRow[], messages: readonly Agent
 			: [],
 	);
 	if (failedJobs.length === 0) return rows as HistoryRow[];
-	const startedBy = new Map<string, string>();
-	for (const message of messages) {
-		if (message.role !== "toolResult" || !message.toolCallId) continue;
-		const async = resultDetails(message)?.async;
-		const jobId = typeof async === "object" && async !== null && "jobId" in async ? async.jobId : undefined;
-		if (typeof jobId === "string") startedBy.set(jobId, message.toolCallId);
-	}
+	const startedBy = jobStarters(messages);
 	const charged = rows.slice();
 	for (const job of failedJobs) {
 		const callId = job.jobId === undefined ? undefined : startedBy.get(job.jobId);
-		const owner = charged.findIndex(
-			row =>
-				row.kind === "process" &&
-				row.messages.some(message =>
-					messageContent(message).some(block => block.type === "toolCall" && block.id === callId),
-				),
-		);
+		const owner = runOfCall(charged, callId);
 		const work = charged[owner];
 		if (callId === undefined || work?.kind !== "process") continue;
 		charged[owner] = { ...work, failedEvents: work.failedEvents + 1 };

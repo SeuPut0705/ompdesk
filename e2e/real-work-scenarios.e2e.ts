@@ -102,6 +102,52 @@ async function capture(page: Page, name: string): Promise<void> {
 	}
 }
 
+interface CardProbe {
+	/** Distinct running card elements (the pending head excluded) seen since the last reset. */
+	mounts: number;
+	/** The thinnest the running head's narrative got: the incoming layer over the outgoing one. */
+	minNarrative: number;
+	frames: number;
+}
+
+/** Per-frame probe of the running work card, read and reset once per scenario. */
+async function installCardProbe(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		const probe = { mounts: 0, minNarrative: 1, frames: 0 };
+		Reflect.set(window, "__ompCardProbe", probe);
+		const seen = new WeakSet<Element>();
+		const tick = () => {
+			const card = document.querySelector<HTMLElement>(
+				'.omp-execution-group[data-state="running"] > .omp-live-step:not([data-pending])',
+			);
+			if (card) {
+				if (!seen.has(card)) {
+					seen.add(card);
+					probe.mounts++;
+				}
+				const opacity = (selector: string) => {
+					const layer = card.querySelector<HTMLElement>(`.omp-work-head .omp-work-frame${selector}`);
+					return layer ? Number(getComputedStyle(layer).opacity) : 0;
+				};
+				const incoming = opacity("[data-incoming]");
+				probe.minNarrative = Math.min(probe.minNarrative, incoming + opacity("[data-outgoing]") * (1 - incoming));
+				probe.frames++;
+			}
+			requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+	});
+}
+
+async function takeCardProbe(page: Page): Promise<CardProbe> {
+	return page.evaluate(() => {
+		const probe = Reflect.get(window, "__ompCardProbe") as CardProbe;
+		const taken = { ...probe };
+		Object.assign(probe, { mounts: 0, minNarrative: 1, frames: 0 });
+		return taken;
+	});
+}
+
 async function launch(
 	desktop: string,
 	project: string,
@@ -119,12 +165,28 @@ async function launch(
 	return [app, page];
 }
 
+/** The shown transcript's mounted rows (a hidden tab's transcript has no layout): row key → row kind. */
+async function transcriptRows(page: Page): Promise<Record<string, string>> {
+	return page.evaluate(() =>
+		Object.fromEntries(
+			[...document.querySelectorAll<HTMLElement>("[data-row-key]")]
+				.filter(row => row.offsetParent !== null)
+				.map(row => [row.dataset.rowKey ?? "", row.dataset.transcriptKind ?? ""]),
+		),
+	);
+}
+
 test("real omp work scenarios on the small model", async () => {
 	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
 	test.setTimeout(1_800_000);
 	await fs.rm(evidence, { recursive: true, force: true });
 	const { profile, project, desktop, env } = await realOmpProfile();
 	let [app, page] = await launch(desktop, project, env);
+	await installCardProbe(page);
+	const probes: Record<string, CardProbe> = {};
+	// Every transcript row seen live and after the relaunch, by row key: a reload shows the same rows.
+	const liveRows: Record<string, string> = {};
+	const reloadRows: Record<string, string> = {};
 	try {
 		// One session, one turn per scenario: each finished group stays above the next.
 		const tab = (await page.evaluate(() => window.omp.tabs.list())).find(row => row.active);
@@ -170,11 +232,21 @@ test("real omp work scenarios on the small model", async () => {
 					}, scenario.prompt);
 				if (scenario.name === "silent-then-interrupted") await expect.soft.poll(ownGroupState).toBe("interrupted");
 				if (scenario.name === "failing-command") await expect.soft.poll(ownGroupState).toBe("failed");
+				probes[scenario.name] = await takeCardProbe(page);
+				Object.assign(liveRows, await transcriptRows(page));
 				await capture(page, scenario.name);
 			});
 		}
+		Object.assign(liveRows, await transcriptRows(page));
+		await fs.writeFile(path.join(evidence, "card-probes.json"), JSON.stringify(probes, null, 2));
+		// Whatever the model does, the running head never thins below one full line.
+		for (const [name, probe] of Object.entries(probes))
+			expect.soft(probe.minNarrative, `${name} narrative visibility`).toBeGreaterThanOrEqual(0.999);
 		const tabs = await page.evaluate(() => window.omp.tabs.list());
 		await fs.writeFile(path.join(evidence, "tabs.json"), JSON.stringify(tabs, null, 2));
+		// Stock's own record of the run, for comparing the live cards with the reloaded ones.
+		const sessionPath = tabs.find(row => row.tabId === tab.tabId)?.sessionPath;
+		if (sessionPath) await fs.copyFile(sessionPath, path.join(evidence, "session.jsonl"));
 		await exitApp(app);
 
 		// The same finished session, reopened in Korean: each work group in view once.
@@ -234,6 +306,7 @@ test("real omp work scenarios on the small model", async () => {
 				prompts: [...element.querySelectorAll(".omp-user-bubble")].map(bubble => bubble.textContent ?? ""),
 			}));
 			for (const prompt of view.prompts) prompts.add(plain(prompt));
+			Object.assign(reloadRows, await transcriptRows(page));
 			// Stock's persisted todo reminder reads as the reminder line, never as its prompt text.
 			expect(view.text).not.toMatch(/You stopped with \d+ incomplete todo|Please continue working on these tasks/);
 			await page.screenshot({
@@ -248,6 +321,14 @@ test("real omp work scenarios on the small model", async () => {
 			});
 		}
 		expect(reachedEnd).toBe(true);
+		// Reload parity: the reopened transcript has exactly the rows the live one had, each the same kind.
+		const onlyLive = Object.keys(liveRows).filter(key => reloadRows[key] !== liveRows[key]);
+		const onlyReload = Object.keys(reloadRows).filter(key => liveRows[key] !== reloadRows[key]);
+		await fs.writeFile(
+			path.join(evidence, "row-parity.json"),
+			JSON.stringify({ onlyLive, onlyReload, liveRows, reloadRows }, null, 2),
+		);
+		expect.soft({ onlyLive, onlyReload }, "rows live vs reload").toEqual({ onlyLive: [], onlyReload: [] });
 		// Every scenario's own prompt survives the reload as its user bubble.
 		for (const scenario of SCENARIOS)
 			expect(
