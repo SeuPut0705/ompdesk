@@ -12,7 +12,13 @@ import type {
 } from "../../shared/rpc-types";
 import { workTurnStartedAt } from "../components/chat/work-turn";
 import { type MessagesStore, mergeFetchedTranscript, useMessagesStore } from "../stores/messages";
-import { useModelStore } from "../stores/model";
+import {
+	type ModelSelection,
+	type ModelStore,
+	sameModelSelection,
+	snapshotModelSelection,
+	useModelStore,
+} from "../stores/model";
 import type { PendingPlanProposal, PlanApprovalStore } from "../stores/plan-approval";
 import { type QueueStore, useQueueStore } from "../stores/queue";
 import { type SessionStore, snapshotModeState, useSessionStore } from "../stores/session";
@@ -70,11 +76,15 @@ function writeUsage(state: RpcSessionState): void {
  * composer modes), for a snapshot that events outdated while it was in flight.
  * Dropping these with the rest left them stale with nothing to re-sync them:
  * any frame landing mid-hydration kept plan mode off until the next turn.
+ * The model selection lands too unless something wrote it meanwhile
+ * (`thinking_level_changed`, a config frame, a pick): dropped, a relaunch
+ * into a busy session showed "Choose model" and thinking off for good.
  * Caller must already be runtime-scoped.
  */
-function writeEventlessState(state: RpcSessionState): void {
+function writeEventlessState(state: RpcSessionState, selectionUntouched: boolean): void {
 	writeUsage(state);
 	useSessionStore.setState(snapshotModeState(state));
+	if (selectionUntouched) useModelStore.setState(snapshotModelSelection(state));
 }
 
 /**
@@ -119,6 +129,7 @@ export async function refreshSessionState(tabId = useTabsStore.getState().active
 	if (!runtime) return;
 	const sessionId = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId;
 	const eventVersion = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion;
+	const selection = sessionRuntimeStore<ModelStore>(tabId, "model")?.getState();
 	try {
 		const res = await runtime.command({ type: "get_state" });
 		if (
@@ -131,10 +142,16 @@ export async function refreshSessionState(tabId = useTabsStore.getState().active
 		const state = res.data as RpcSessionState;
 		// Events that landed during the round trip already updated the stores, so
 		// this snapshot is behind on everything they carry. Usage and the composer
-		// modes have no event carrier, so they stay the freshest reading either way.
+		// modes have no event carrier, so they stay the freshest reading either way;
+		// the model selection too, unless something wrote it meanwhile.
 		const churned = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().eventVersion !== eventVersion;
+		const current = sessionRuntimeStore<ModelStore>(tabId, "model")?.getState();
 		withSessionRuntime(tabId, () => {
-			if (churned) writeEventlessState(state);
+			if (churned)
+				writeEventlessState(
+					state,
+					selection !== undefined && current !== undefined && sameModelSelection(selection, current),
+				);
 			else applySessionState(state);
 		});
 	} catch {
@@ -417,6 +434,7 @@ interface HydrationStores {
 	messages: StoreApi<MessagesStore> | null;
 	session: StoreApi<SessionStore> | null;
 	tools: StoreApi<ToolsStore> | null;
+	model: StoreApi<ModelStore> | null;
 }
 
 /**
@@ -428,15 +446,17 @@ interface HydrationBaseline {
 	liveMessages: AgentMessage[];
 	eventVersion: number | undefined;
 	toolsRevision: number | undefined;
+	selection: ModelSelection | undefined;
 }
 
-function captureHydrationBaseline({ messages, session, tools }: HydrationStores): HydrationBaseline {
+function captureHydrationBaseline({ messages, session, tools, model }: HydrationStores): HydrationBaseline {
 	const transcript = messages?.getState();
 	return {
 		messages: transcript?.messages ?? [],
 		liveMessages: transcript?.liveMessages ?? [],
 		eventVersion: session?.getState().eventVersion,
 		toolsRevision: tools?.getState().revision,
+		selection: model?.getState(),
 	};
 }
 
@@ -450,12 +470,12 @@ interface HydrationCommit {
 	command: TabCommand;
 	applyState: (wire: RpcSessionState, turnStartedAt?: number) => void;
 	/** Lands the event-free part of a snapshot that events outdated in flight. */
-	applyEventlessState: (wire: RpcSessionState) => void;
+	applyEventlessState: (wire: RpcSessionState, selectionUntouched: boolean) => void;
 }
 
 /** Land a `get_state` + transcript-tail pair: the one commit path for tab and legacy hydration. */
 function commitHydration({
-	stores: { messages, session, tools },
+	stores: { messages, session, tools, model },
 	before,
 	stateResult,
 	messagesResult,
@@ -504,7 +524,11 @@ function commitHydration({
 		// Idempotent server-side.
 		void command({ type: "set_subagent_subscription", level: "progress" });
 	} else if (focusUnchanged && wire != null) {
-		applyEventlessState(wire);
+		const selection = model?.getState();
+		applyEventlessState(
+			wire,
+			before.selection !== undefined && selection !== undefined && sameModelSelection(before.selection, selection),
+		);
 	}
 
 	if (!focusUnchanged || messagesResult.status !== "fulfilled" || !messagesResult.value.success) return;
@@ -534,7 +558,12 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	// focus at apply time. Remember who we fetched for and refuse to write that
 	// snapshot into a pane the user switched to while the RPC was in flight.
 	const originRuntime = focusedSessionRuntime();
-	const stores: HydrationStores = { messages: useMessagesStore, session: useSessionStore, tools: useToolsStore };
+	const stores: HydrationStores = {
+		messages: useMessagesStore,
+		session: useSessionStore,
+		tools: useToolsStore,
+		model: useModelStore,
+	};
 	const before = captureHydrationBaseline(stores);
 	const core = Promise.allSettled([
 		initialState ? Promise.resolve(initialState) : activeTabCommand({ type: "get_state" }),
@@ -635,6 +664,7 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 		messages: sessionRuntimeStore<MessagesStore>(tabId, "messages"),
 		session: sessionRuntimeStore<SessionStore>(tabId, "session"),
 		tools: sessionRuntimeStore<ToolsStore>(tabId, "tools"),
+		model: sessionRuntimeStore<ModelStore>(tabId, "model"),
 	};
 	const before = captureHydrationBaseline(stores);
 
@@ -683,7 +713,8 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 			// An idle session has no retry outstanding, whatever end event was missed.
 			if (!wire.isStreaming) retryPendingTabs.delete(tabId);
 		},
-		applyEventlessState: wire => withSessionRuntime(tabId, () => writeEventlessState(wire)),
+		applyEventlessState: (wire, selectionUntouched) =>
+			withSessionRuntime(tabId, () => writeEventlessState(wire, selectionUntouched)),
 	});
 
 	// Subagents and secondary chips do not hold the transcript hostage. Their

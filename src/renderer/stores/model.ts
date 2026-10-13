@@ -48,6 +48,35 @@ export interface ModelStore {
 	reset: () => void;
 }
 
+/** What the composer's model chip, thinking control and fast-mode switch read. */
+const SELECTION_KEYS = [
+	"model",
+	"thinkingLevel",
+	"thinkingConfigured",
+	"availableThinkingLevels",
+	"fastModeEnabled",
+	"fastModeActive",
+] as const satisfies readonly (keyof ModelStore)[];
+
+export type ModelSelection = Pick<ModelStore, (typeof SELECTION_KEYS)[number]>;
+
+/** The selection half of a `get_state` snapshot. */
+export function snapshotModelSelection(state: RpcSessionState): ModelSelection {
+	return {
+		model: state.model ?? null,
+		thinkingLevel: state.thinkingLevel,
+		thinkingConfigured: state.thinkingConfigured,
+		availableThinkingLevels: state.availableThinkingLevels ?? [],
+		fastModeEnabled: state.fastModeEnabled,
+		fastModeActive: state.fastModeActive,
+	};
+}
+
+/** True when nothing wrote the selection between two reads of one store. */
+export function sameModelSelection(before: ModelSelection, after: ModelSelection): boolean {
+	return SELECTION_KEYS.every(key => before[key] === after[key]);
+}
+
 interface CatalogSnapshot {
 	models?: ModelInfo[];
 	providers?: ProviderInfo[];
@@ -108,16 +137,7 @@ export const createModelStore = (command: TabCommand = activeTabCommand) =>
 		};
 		return {
 			...initialState,
-			setFromState: state =>
-				set({
-					model: state.model ?? null,
-					thinkingLevel: state.thinkingLevel,
-					thinkingConfigured: state.thinkingConfigured,
-					availableThinkingLevels: state.availableThinkingLevels ?? [],
-					fastModeEnabled: state.fastModeEnabled,
-					fastModeActive: state.fastModeActive,
-					tokensPerSecond: state.tokensPerSecond,
-				}),
+			setFromState: state => set({ ...snapshotModelSelection(state), tokensPerSecond: state.tokensPerSecond }),
 			/** Both catalog reads describe the same generation axis, so they commit
 			 * through one path: whatever a response actually carried is applied, and
 			 * anything older than the applied generation is dropped. */

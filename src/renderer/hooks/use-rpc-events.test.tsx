@@ -693,7 +693,7 @@ describe("useRpcEvents snapshot churn", () => {
 		expect(session.getState().planModeEnabled).toBe(true);
 	});
 
-	it("keeps the composer modes of a hydration that a lifecycle frame outdated", async () => {
+	it("keeps the composer modes and model selection of a hydration that a lifecycle frame outdated", async () => {
 		const { emitTabBatch, session, model, state } = await holdNextState("t-churn");
 		let hydration = Promise.resolve();
 		await act(async () => {
@@ -705,6 +705,8 @@ describe("useRpcEvents snapshot churn", () => {
 		state.resolve(
 			settledState({
 				model: { provider: "p", id: "m" },
+				thinkingLevel: "high",
+				thinkingConfigured: "auto",
 				planModeEnabled: true,
 				prewalkArmed: true,
 				agentsPaused: true,
@@ -722,8 +724,33 @@ describe("useRpcEvents snapshot churn", () => {
 			agentsPaused: true,
 			agentsPausedAt: 42,
 		});
-		// What events do carry still waits for a snapshot taken after the frame.
-		expect(model.getState().model).toBeNull();
+		// Nor the model: dropped, a relaunch into a busy session showed
+		// "Choose model" and thinking off until the next model switch.
+		expect(model.getState()).toMatchObject({
+			model: { provider: "p", id: "m" },
+			thinkingLevel: "high",
+			thinkingConfigured: "auto",
+		});
+	});
+
+	it("keeps a thinking change that landed while an outdated snapshot was in flight", async () => {
+		const { emitTabBatch, model, state } = await holdNextState("t-thinking");
+		let hydration = Promise.resolve();
+		await act(async () => {
+			hydration = hydrateTabSession("t-thinking");
+		});
+		await act(async () => {
+			emitTabBatch([{ type: "thinking_level_changed", thinkingLevel: "low" }], "t-thinking");
+		});
+		state.resolve(
+			settledState({ model: { provider: "p", id: "m" }, thinkingLevel: "high", thinkingConfigured: "high" }),
+		);
+		await act(async () => {
+			await hydration;
+		});
+
+		// The event is newer than the snapshot, so its level stands.
+		expect(model.getState()).toMatchObject({ thinkingLevel: "low", thinkingConfigured: "low" });
 	});
 
 	it("keeps plan mode from a turn-end refresh that a trailing frame outdated", async () => {
