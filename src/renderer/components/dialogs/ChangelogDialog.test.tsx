@@ -65,14 +65,17 @@ describe("ChangelogDialog", () => {
 		expect(document.body.textContent ?? "").toContain(firstRelease);
 	});
 
-	it("renders the bundled changelog as sanitized markdown", async () => {
+	it("renders the bundled changelog as sanitized markdown under the window's one title", async () => {
 		useUiStore.getState().openChangelog();
 		await mount(<ChangelogDialog />);
 		const text = document.body.textContent ?? "";
-		expect(text).toContain("Changelog");
+		// The help menu's item and the window share one name.
+		expect(text).toContain("What's new");
 		expect(text).toContain(firstRelease);
 		// The markdown pipeline renders headings as elements, not literal "#".
-		expect(document.querySelector("h1, h2")).not.toBeNull();
+		expect(document.querySelector("h2")).not.toBeNull();
+		// The file's own "# Changelog" heading would repeat the window title.
+		expect(text).not.toContain("Changelog");
 	});
 
 	it("closes back to an empty body", async () => {

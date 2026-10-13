@@ -11,13 +11,16 @@ import { MarkdownRenderer } from "../../lib/markdown";
 import { useUiStore } from "../../stores/ui";
 import { Modal } from "../common";
 
+/** The file's own "# Changelog" heading: the window title already names it. */
+const releases = changelogMarkdown.replace(/^# [^\n]*\n+/, "");
+
 export function ChangelogDialog() {
 	const t = useT();
 	const open = useUiStore(state => state.changelogOpen);
 	const close = useUiStore(state => state.closeChangelog);
 	return (
 		<Modal onClose={close} open={open} size="lg" title={t("changelog.title")}>
-			<MarkdownRenderer content={changelogMarkdown} />
+			<MarkdownRenderer content={releases} />
 		</Modal>
 	);
 }

@@ -11,7 +11,7 @@
 import { Check, Folder, FolderPlus } from "lucide-react";
 import { useMemo } from "react";
 import { useSessionList } from "../../hooks/use-session-list";
-import { basename, cx } from "../../lib/format";
+import { basename, cx, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { pickWorkspaceDirectory, selectFocusedTabProject } from "../../lib/workspace-dirs";
 import { useFocusedTabDevice } from "../../stores/remote";
@@ -176,7 +176,10 @@ export function WorkspaceDialog({
 												</span>
 											)}
 										</span>
-										<span className="block truncate text-sc-xs text-(--sc-text-muted)">{ws.cwd}</span>
+										{/* Middle-truncated: two projects deep under one parent differ only at the tail. */}
+										<span className="block truncate text-sc-xs text-(--sc-text-muted)" title={ws.cwd}>
+											{shortenPath(ws.cwd)}
+										</span>
 									</span>
 									{isCurrent ? (
 										<span className="flex shrink-0 items-center gap-1 text-sc-xs font-medium text-(--sc-text-secondary)">

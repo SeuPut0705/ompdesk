@@ -258,7 +258,7 @@ export const en: Record<string, string> = {
 	"input.history.includesLegacy": "Includes history saved before projects were tracked",
 	"input.history.legacy": "Older history · project unknown",
 	"input.history.menuDesc": "Search earlier prompts",
-	"input.history.hint": "↑↓ navigate · Enter insert · Esc close",
+	"input.history.hintInsert": "Insert",
 	"input.mode.bash.title": "Shell mode: Enter runs the command locally (!cmd)",
 	"input.mode.python.title": "Python mode: runs through the agent's Python tool ($ code)",
 	"input.agentConnecting": "The agent is still connecting.",
@@ -1364,6 +1364,8 @@ export const en: Record<string, string> = {
 	"import.title": "Import external session",
 	"import.search": "Filter sessions…",
 	"import.empty": "No sessions found",
+	"import.noMatch": 'No session matches "{query}"',
+	"import.source": "Source",
 	"import.untitled": "Untitled session",
 	"import.messages": "{count} msgs",
 	"import.copyNote": "Importing creates a copy — the original data is never modified.",
@@ -1846,7 +1848,7 @@ export const en: Record<string, string> = {
 	"workspaceDirs.busy": "Unavailable while a response is in progress.",
 
 	// Changelog window
-	"changelog.title": "Changelog",
+	"changelog.title": "What's new",
 
 	// /dump clipboard flow
 	"dump.copied": "Transcript copied to clipboard ({count} messages)",

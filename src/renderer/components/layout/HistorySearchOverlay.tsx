@@ -10,7 +10,7 @@ import { useInputHistoryStore } from "../../stores/input-history";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
-import { Tabs } from "../common";
+import { Kbd, Tabs } from "../common";
 
 /**
  * Ctrl+R history search overlay (GUI counterpart of the TUI
@@ -248,8 +248,20 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 				)}
 			</div>
 
-			<div className="border-t border-(--sc-divider) px-3 py-1.5 text-sc-xs text-(--sc-text-muted)">
-				{t("input.history.hint")}
+			<div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-(--sc-divider) px-3 py-1.5 text-sc-xs text-(--sc-text-muted)">
+				<span className="flex items-center gap-1.5">
+					<Kbd shortcut="↑" />
+					<Kbd shortcut="↓" />
+					{t("palette.hintMove")}
+				</span>
+				<span className="flex items-center gap-1.5">
+					<Kbd shortcut="↵" />
+					{t("input.history.hintInsert")}
+				</span>
+				<span className="ml-auto flex items-center gap-1.5">
+					<Kbd shortcut="⎋" />
+					{t("palette.hintClose")}
+				</span>
 			</div>
 		</div>
 	);

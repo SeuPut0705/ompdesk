@@ -9,7 +9,7 @@ import { parseHTML } from "linkedom";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RemoteDirListing } from "../../../shared/ipc-types";
+import type { RemoteDirListing, SessionInfo } from "../../../shared/ipc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useRemotePickerStore, useRemoteStore } from "../../stores/remote";
 import { setFocusedSessionRuntime } from "../../stores/session-runtime-context";
@@ -36,7 +36,7 @@ const HOME: RemoteDirListing = {
 };
 
 const omp = {
-	sessions: { list: vi.fn(async (_scope: string, _device?: string) => []) },
+	sessions: { list: vi.fn(async (_scope: string, _device?: string): Promise<SessionInfo[]> => []) },
 	events: { onSessionsChanged: vi.fn(() => () => {}) },
 	sidecar: {
 		selectProject: vi.fn(async (): Promise<string | null> => "/work/local"),
@@ -185,5 +185,32 @@ describe("WorkspaceDialog folder picker", () => {
 			expect.objectContaining({ cwd: "/Users/kim/code", kind: "agent", device: "dev-studio" }),
 		);
 		expect(omp.sidecar.setProject).not.toHaveBeenCalled();
+	});
+});
+
+describe("WorkspaceDialog rows", () => {
+	it("keeps the tail of a long project path, where sibling projects differ", async () => {
+		seedTab();
+		const parent = "/private/var/folders/0m/4j2lsbfs0xg1gnc95z_6g_sc0000gn/T/omp-gui-shell-audit-goZQw";
+		const session = (cwd: string): SessionInfo => ({
+			path: `${cwd}/s.jsonl`,
+			id: cwd,
+			title: null,
+			cwd,
+			created: "2026-10-13T00:00:00Z",
+			modified: "2026-10-13T00:00:00Z",
+			messageCount: 1,
+			size: 1,
+			status: "complete",
+			firstMessage: "",
+		});
+		omp.sessions.list.mockResolvedValue([session(`${parent}/project`), session(`${parent}/website`)]);
+		await mount("switch");
+		const text = document.body.textContent ?? "";
+		expect(text).toContain("…");
+		expect(text).toContain("goZQw/project");
+		expect(text).toContain("goZQw/website");
+		expect(document.body.querySelector(`[title="${parent}/website"]`)).not.toBeNull();
+		omp.sessions.list.mockImplementation(async () => []);
 	});
 });

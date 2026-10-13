@@ -19,6 +19,7 @@ import {
 	type ReactNode,
 	type TextareaHTMLAttributes,
 	useCallback,
+	useId,
 	useLayoutEffect,
 	useRef,
 } from "react";
@@ -44,30 +45,60 @@ export function fieldStateClasses(error: boolean): string {
 		: "border-(--sc-border) hover:border-(--sc-border-strong) focus:border-(--sc-accent) focus:shadow-[0_0_0_3px_var(--sc-focus-glow)] disabled:hover:border-(--sc-border)";
 }
 
+/**
+ * Ids that tie a field's label and its hint or error to the control. The
+ * label names the control alone: wrapping the control in a <label> would fold
+ * the hint and any trailing button ("Show API key") into its name.
+ */
+export function useFieldIds(
+	id: string | undefined,
+	describedBy: string | undefined,
+	note: boolean,
+): { controlId: string; noteId: string; describedBy: string | undefined } {
+	const autoId = useId();
+	const controlId = id ?? autoId;
+	const noteId = `${controlId}-note`;
+	return { controlId, noteId, describedBy: cx(describedBy, note && noteId) || undefined };
+}
+
 /** Label above, hint or error below. Used by every field primitive. */
 export function FieldShell({
 	label,
 	error,
 	hint,
+	controlId,
+	noteId,
 	className,
 	children,
 }: {
 	label?: ReactNode;
 	error?: string;
 	hint?: ReactNode;
+	/** The control's id (`useFieldIds`): the label points at it. */
+	controlId: string;
+	/** The hint or error's id, which the control lists in aria-describedby. */
+	noteId: string;
 	className?: string;
 	children: ReactNode;
 }) {
 	return (
-		<label className={cx("block", className)}>
-			{label && <span className="mb-1.5 block text-sc-sm font-medium text-(--sc-text-secondary)">{label}</span>}
+		<div className={className}>
+			{label && (
+				<label className="mb-1.5 block text-sc-sm font-medium text-(--sc-text-secondary)" htmlFor={controlId}>
+					{label}
+				</label>
+			)}
 			{children}
 			{error ? (
-				<span className="mt-1.5 block text-sc-sm text-(--sc-danger)">{error}</span>
+				<span className="mt-1.5 block text-sc-sm text-(--sc-danger)" id={noteId}>
+					{error}
+				</span>
 			) : hint ? (
-				<span className="mt-1.5 block text-sc-sm text-(--sc-text-muted)">{hint}</span>
+				<span className="mt-1.5 block text-sc-sm text-(--sc-text-muted)" id={noteId}>
+					{hint}
+				</span>
 			) : null}
-		</label>
+		</div>
 	);
 }
 
@@ -85,9 +116,10 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-	{ label, error, hint, mono, controlSize = "md", leadingIcon, trailing, className, ...rest },
+	{ label, error, hint, mono, controlSize = "md", leadingIcon, trailing, className, id, ...rest },
 	ref,
 ) {
+	const ids = useFieldIds(id, rest["aria-describedby"], Boolean(error || hint));
 	const input = (
 		<input
 			aria-invalid={error ? true : undefined}
@@ -102,10 +134,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 			)}
 			ref={ref}
 			{...rest}
+			aria-describedby={ids.describedBy}
+			id={ids.controlId}
 		/>
 	);
 	return (
-		<FieldShell error={error} hint={hint} label={label}>
+		<FieldShell controlId={ids.controlId} error={error} hint={hint} label={label} noteId={ids.noteId}>
 			{leadingIcon || trailing ? (
 				<span className="relative block">
 					{leadingIcon && (
@@ -133,10 +167,11 @@ export interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElemen
 }
 
 export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function TextArea(
-	{ label, error, hint, mono, autoGrow, className, rows = 3, onInput, ...rest },
+	{ label, error, hint, mono, autoGrow, className, rows = 3, onInput, id, ...rest },
 	ref,
 ) {
 	const innerRef = useRef<HTMLTextAreaElement | null>(null);
+	const ids = useFieldIds(id, rest["aria-describedby"], Boolean(error || hint));
 
 	const resize = useCallback(() => {
 		const el = innerRef.current;
@@ -148,7 +183,7 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
 	useLayoutEffect(resize, [resize]);
 
 	return (
-		<FieldShell error={error} hint={hint} label={label}>
+		<FieldShell controlId={ids.controlId} error={error} hint={hint} label={label} noteId={ids.noteId}>
 			<textarea
 				aria-invalid={error ? true : undefined}
 				className={cx(
@@ -169,6 +204,8 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
 				}}
 				rows={rows}
 				{...rest}
+				aria-describedby={ids.describedBy}
+				id={ids.controlId}
 			/>
 		</FieldShell>
 	);

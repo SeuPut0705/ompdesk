@@ -8,29 +8,18 @@
  * stores. Follows the ModelPicker overlay pattern.
  */
 
-import {
-	ArrowDownAZ,
-	Check,
-	Clock,
-	Folder,
-	FolderTree,
-	Globe,
-	History,
-	MessageCircle,
-	RotateCw,
-	Search,
-} from "lucide-react";
+import { ArrowDownAZ, Check, Clock, Folder, FolderTree, Globe, History, MessageCircle, RotateCw } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { SessionInfo } from "../../../shared/ipc-types";
 import { requestSessionSwitch, switchSessionNow } from "../../hooks/use-session-switch";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
-import { basename, cx, formatTimeAgo } from "../../lib/format";
+import { basename, formatTimeAgo, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { mergeContentMatches, rankSessions, type SessionSortMode } from "../../lib/session-search";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, ErrorDetail, Kbd, Modal, Spinner } from "../common";
+import { Badge, Button, ErrorDetail, IconButton, Kbd, Modal, SearchField, Spinner } from "../common";
 
 type SessionScope = "local" | "global";
 
@@ -210,9 +199,6 @@ export function SessionPickerDialog() {
 	// empty states are plain status blocks, not listbox children).
 	const showOptions = !error && !loading && filtered.length > 0;
 
-	const toggleButton =
-		"flex size-(--sc-hit-min) shrink-0 items-center justify-center rounded-(--sc-radius-md) text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text) [&>svg]:size-(--sc-icon-sm)";
-
 	return (
 		<Modal
 			ariaLabel={t("sessionPicker.searchLabel")}
@@ -224,48 +210,37 @@ export function SessionPickerDialog() {
 			size="picker"
 		>
 			<div className="flex h-full flex-col">
-				<div className="flex min-h-16 items-center gap-2.5 border-b border-(--sc-divider) px-4 py-3">
-					<Search aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
-					<input
-						aria-activedescendant={filtered.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
-						aria-controls={listboxId}
-						aria-label={t("sessionPicker.searchLabel")}
-						className="min-w-0 flex-1 rounded-(--sc-radius-sm) bg-transparent text-sc-lg text-(--sc-text) placeholder:text-(--sc-text-subtle)"
-						onChange={event => setQuery(event.target.value)}
-						onKeyDown={onKeyDown}
-						placeholder={t("sessionPicker.placeholder")}
-						ref={inputRef}
-						value={query}
-					/>
-					<button
-						aria-label={scope === "local" ? t("sessionPicker.scopeToGlobal") : t("sessionPicker.scopeToLocal")}
-						aria-pressed={scope === "global"}
-						className={cx(toggleButton, scope === "global" && "bg-(--sc-selected) text-(--sc-text)")}
+				<div className="flex items-center gap-2.5 border-b border-(--sc-divider) p-4">
+					<div className="min-w-0 flex-1">
+						<SearchField
+							aria-activedescendant={filtered.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
+							aria-controls={listboxId}
+							controlSize="lg"
+							label={t("sessionPicker.searchLabel")}
+							onKeyDown={onKeyDown}
+							onValueChange={setQuery}
+							placeholder={t("sessionPicker.placeholder")}
+							ref={inputRef}
+							value={query}
+						/>
+					</div>
+					<IconButton
+						icon={scope === "local" ? <Folder /> : <Globe />}
+						label={scope === "local" ? t("sessionPicker.scopeToGlobal") : t("sessionPicker.scopeToLocal")}
 						onClick={() => void switchScope(scope === "local" ? "global" : "local")}
-						title={scope === "local" ? t("sessionPicker.scopeToGlobal") : t("sessionPicker.scopeToLocal")}
-						type="button"
-					>
-						{scope === "local" ? <Folder size={11} /> : <Globe size={11} />}
-					</button>
-					<button
-						aria-label={sortMode === "recent" ? t("sessionPicker.sortAlpha") : t("sessionPicker.sortRecent")}
-						className={toggleButton}
+						pressed={scope === "global"}
+					/>
+					<IconButton
+						icon={sortMode === "recent" ? <Clock /> : <ArrowDownAZ />}
+						label={sortMode === "recent" ? t("sessionPicker.sortAlpha") : t("sessionPicker.sortRecent")}
 						onClick={() => setSortMode(mode => (mode === "recent" ? "alpha" : "recent"))}
-						title={sortMode === "recent" ? t("sessionPicker.sortAlpha") : t("sessionPicker.sortRecent")}
-						type="button"
-					>
-						{sortMode === "recent" ? <Clock size={11} /> : <ArrowDownAZ size={11} />}
-					</button>
-					<button
-						aria-label={effectiveShowPath ? t("sessionPicker.hidePaths") : t("sessionPicker.showPaths")}
-						aria-pressed={effectiveShowPath}
-						className={cx(toggleButton, effectiveShowPath && "bg-(--sc-selected) text-(--sc-text)")}
+					/>
+					<IconButton
+						icon={<FolderTree />}
+						label={effectiveShowPath ? t("sessionPicker.hidePaths") : t("sessionPicker.showPaths")}
 						onClick={() => setShowPath(!effectiveShowPath)}
-						title={effectiveShowPath ? t("sessionPicker.hidePaths") : t("sessionPicker.showPaths")}
-						type="button"
-					>
-						<FolderTree size={11} />
-					</button>
+						pressed={effectiveShowPath}
+					/>
 					<Kbd shortcut="⎋" />
 				</div>
 				<div
@@ -336,7 +311,7 @@ export function SessionPickerDialog() {
 											{title}
 										</span>
 										<span className="block truncate text-sc-xs text-(--sc-text-muted)">
-											{effectiveShowPath && session.cwd ? session.cwd : basename(session.cwd)} ·{" "}
+											{effectiveShowPath && session.cwd ? shortenPath(session.cwd) : basename(session.cwd)} ·{" "}
 											{t("sessionPicker.messageCount", { count: session.messageCount })} ·{" "}
 											{formatTimeAgo(session.modified)}
 										</span>

@@ -7,17 +7,17 @@ import { useTabRpc } from "../../lib/tab-rpc";
  * Backs the `list_foreign_sessions` / `import_foreign_session` RPCs.
  */
 
-import { Download } from "lucide-react";
+import { Download, Inbox, RotateCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcForeignSessionInfo, RpcResponse } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
-import { cx, formatTimeAgo } from "../../lib/format";
+import { formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, ErrorDetail, Input, Modal, Spinner } from "../common";
+import { Button, EmptyState, ErrorDetail, IconButton, Modal, SearchField, Spinner, Tabs } from "../common";
 
 type Source = "claude" | "codex";
 
@@ -210,34 +210,36 @@ export function ImportForeignDialog() {
 			}
 		>
 			<div className="mb-3 flex flex-wrap items-center gap-2">
-				{SOURCES.map(candidate => (
-					<button
-						key={candidate}
-						type="button"
-						disabled={importing}
-						aria-pressed={source === candidate}
-						onClick={() => {
-							setSource(candidate);
-							setSelected(new Set());
-						}}
-						className={cx(
-							"min-h-8 rounded-(--sc-radius-md) px-3 py-1.5 text-sc-md font-medium capitalize disabled:opacity-50",
-							source === candidate
-								? "bg-(--sc-selected) text-(--sc-text)"
-								: "text-(--sc-text-muted) hover:bg-(--sc-hover)",
-						)}
-					>
-						{candidate === "claude" ? "Claude" : "Codex"}
-					</button>
-				))}
-				<span className="ml-auto">
-					<Input
-						aria-label={t("import.search")}
-						value={query}
-						onChange={event => setQuery(event.target.value)}
-						placeholder={t("import.search")}
+				<Tabs
+					activeId={source}
+					ariaLabel={t("import.source")}
+					onChange={id => {
+						setSource(id as Source);
+						setSelected(new Set());
+					}}
+					tabs={SOURCES.map(candidate => ({
+						id: candidate,
+						label: candidate === "claude" ? "Claude" : "Codex",
+						disabled: importing,
+					}))}
+					variant="segmented"
+				/>
+				<div className="ml-auto flex min-w-48 flex-1 items-center gap-1 sm:max-w-72">
+					<div className="min-w-0 flex-1">
+						<SearchField
+							label={t("import.search")}
+							onValueChange={setQuery}
+							placeholder={t("import.search")}
+							value={query}
+						/>
+					</div>
+					<IconButton
+						disabled={!sidecarReady || importing || state?.loading}
+						icon={<RotateCw />}
+						label={sidecarReady ? t("common.refresh") : t("import.notConnected")}
+						onClick={() => void load(source, true)}
 					/>
-				</span>
+				</div>
 			</div>
 
 			{importError && (
@@ -246,15 +248,7 @@ export function ImportForeignDialog() {
 					<ErrorDetail className="mt-0.5" error={importError.cause} />
 				</p>
 			)}
-			<Button
-				disabled={!sidecarReady || importing || state?.loading}
-				onClick={() => void load(source, true)}
-				size="sm"
-				title={!sidecarReady ? t("import.notConnected") : undefined}
-			>
-				{t("common.refresh")}
-			</Button>
-			<div className="mt-2 max-h-[46vh] min-h-48 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
+			<div className="max-h-[46vh] min-h-48 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
 				{state?.loading && (
 					<div className="flex h-32 items-center justify-center text-(--sc-text-muted)">
 						<Spinner label={t("common.loading")} />
@@ -267,7 +261,11 @@ export function ImportForeignDialog() {
 					</div>
 				)}
 				{!state?.loading && !state?.error && filtered.length === 0 && (
-					<div className="px-4 py-6 text-center text-sc-md text-(--sc-text-muted)">{t("import.empty")}</div>
+					<EmptyState
+						icon={<Inbox />}
+						size="sm"
+						title={query ? t("import.noMatch", { query }) : t("import.empty")}
+					/>
 				)}
 				{!state?.loading &&
 					!state?.error &&

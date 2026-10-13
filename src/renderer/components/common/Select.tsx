@@ -12,7 +12,7 @@
 import { ChevronDown } from "lucide-react";
 import { forwardRef, type ReactNode, type SelectHTMLAttributes } from "react";
 import { cx } from "../../lib/format";
-import { FieldShell, type FieldSize, fieldStateClasses } from "./Input";
+import { FieldShell, type FieldSize, fieldStateClasses, useFieldIds } from "./Input";
 
 const SIZE: Record<FieldSize, string> = {
 	sm: "h-(--sc-control-sm) pl-2.5 pr-8 text-sc-sm",
@@ -36,11 +36,12 @@ export interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
-	{ label, hint, error, controlSize = "md", options, className, children, ...rest },
+	{ label, hint, error, controlSize = "md", options, className, children, id, ...rest },
 	ref,
 ) {
+	const ids = useFieldIds(id, rest["aria-describedby"], Boolean(error || hint));
 	return (
-		<FieldShell error={error} hint={hint} label={label}>
+		<FieldShell controlId={ids.controlId} error={error} hint={hint} label={label} noteId={ids.noteId}>
 			<span className="relative block">
 				<select
 					aria-invalid={error ? true : undefined}
@@ -52,6 +53,8 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
 					)}
 					ref={ref}
 					{...rest}
+					aria-describedby={ids.describedBy}
+					id={ids.controlId}
 				>
 					{options?.map(option => (
 						<option disabled={option.disabled} key={option.value} value={option.value}>

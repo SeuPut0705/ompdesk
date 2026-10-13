@@ -719,7 +719,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
 		await fire(menuItem("Rename"), "onClick");
 		const input = document.body.querySelector('input[value="Session /work/alpha/one.jsonl"]');
-		const wrapper = input?.closest("label")?.parentElement;
+		const wrapper = input?.parentElement?.parentElement;
 		expect(wrapper?.classList.contains("omp-sidebar-session-rename")).toBe(true);
 		const sidebarCss = readFileSync(new URL("../../styles/sidebar.css", import.meta.url), "utf8");
 		// One rule sizes both, so the rename can never drift from the row height.

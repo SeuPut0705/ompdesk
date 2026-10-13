@@ -129,6 +129,34 @@ describe("picker search fields", () => {
 		expect(input?.className).toContain("bg-(--sc-field)");
 	});
 
+	it.each(["BranchPickerDialog", "SessionPickerDialog"])("the %s searches through the shared search field", name => {
+		const source = readFileSync(new URL(`../dialogs/${name}.tsx`, import.meta.url), "utf8");
+		expect(source).toContain("<SearchField");
+		expect(source).not.toMatch(/<input\b/);
+	});
+
+	it("the session picker's toggles are shared IconButtons with tooltips, not bare title buttons", () => {
+		const source = readFileSync(new URL("../dialogs/SessionPickerDialog.tsx", import.meta.url), "utf8");
+		expect(source.match(/<IconButton\b/g)).toHaveLength(3);
+		expect(source).not.toMatch(/\btitle=\{/);
+		// A long project path keeps its tail, so the message count and age after it stay visible.
+		expect(source).toContain("shortenPath(session.cwd)");
+	});
+
+	it("the import dialog switches source with shared Tabs and filters through the shared search field", () => {
+		const source = readFileSync(new URL("../dialogs/ImportForeignDialog.tsx", import.meta.url), "utf8");
+		expect(source).toContain("<Tabs");
+		expect(source).toContain("<SearchField");
+		expect(source).toContain("<EmptyState");
+		expect(source).not.toMatch(/<Input\b|aria-pressed=/);
+	});
+
+	it("the history search footer shows its keys as Kbd chips like the palette, not as one plain sentence", () => {
+		const source = readFileSync(new URL("./HistorySearchOverlay.tsx", import.meta.url), "utf8");
+		expect(source.match(/<Kbd shortcut=/g)?.length).toBeGreaterThanOrEqual(3);
+		expect(source).not.toContain('t("input.history.hint")');
+	});
+
 	it("the model picker's default hint wraps instead of cutting the sentence", () => {
 		const picker = readFileSync(new URL("../dialogs/ModelPicker.tsx", import.meta.url), "utf8");
 		const hint = /<span className="([^"]*)">\s*\{forPool \? t\("modelPool\.pickerHint"\)/.exec(picker);

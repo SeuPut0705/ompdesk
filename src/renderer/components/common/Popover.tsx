@@ -70,15 +70,18 @@ export function Popover({
 		}
 		const place = () => {
 			const anchor = anchorRef.current?.getBoundingClientRect();
-			const panel = panelRef.current?.getBoundingClientRect();
+			const panel = panelRef.current;
 			if (!anchor || !panel) return;
-			let left = placement.endsWith("end") ? anchor.right - panel.width : anchor.left;
-			let top = placement.startsWith("top") ? anchor.top - panel.height - GAP : anchor.bottom + GAP;
+			// The layout box, not the bounding box: the pop-in animation starts
+			// scaled down, and a scaled measure lets the grown panel overrun the edge.
+			const { offsetWidth: width = 0, offsetHeight: height = 0 } = panel;
+			let left = placement.endsWith("end") ? anchor.right - width : anchor.left;
+			let top = placement.startsWith("top") ? anchor.top - height - GAP : anchor.bottom + GAP;
 			// Flip vertically when the preferred side has no room.
-			if (top + panel.height > window.innerHeight - MARGIN) top = anchor.top - panel.height - GAP;
+			if (top + height > window.innerHeight - MARGIN) top = anchor.top - height - GAP;
 			if (top < MARGIN) top = anchor.bottom + GAP;
-			left = Math.min(Math.max(MARGIN, left), window.innerWidth - panel.width - MARGIN);
-			top = Math.min(Math.max(MARGIN, top), window.innerHeight - panel.height - MARGIN);
+			left = Math.min(Math.max(MARGIN, left), window.innerWidth - width - MARGIN);
+			top = Math.min(Math.max(MARGIN, top), window.innerHeight - height - MARGIN);
 			setPosition({ left, top });
 		};
 		place();

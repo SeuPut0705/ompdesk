@@ -5,7 +5,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
  * rpc.branch(entryId). Follows the ModelPicker overlay pattern.
  */
 
-import { GitBranch, RotateCw, Search } from "lucide-react";
+import { GitBranch, RotateCw } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
@@ -14,7 +14,7 @@ import { branchSessionFromEntry } from "../../lib/messages";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, ErrorDetail, Kbd, Modal, Spinner } from "../common";
+import { Button, ErrorDetail, Kbd, Modal, SearchField, Spinner } from "../common";
 
 interface BranchEntry {
 	entryId: string;
@@ -155,19 +155,20 @@ export function BranchPickerDialog() {
 			size="picker"
 		>
 			<div className="flex h-full flex-col">
-				<div className="flex min-h-16 items-center gap-2.5 border-b border-(--sc-divider) px-4 py-3">
-					<Search aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
-					<input
-						aria-activedescendant={filtered.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
-						aria-controls={listboxId}
-						aria-label={t("branchPicker.searchLabel")}
-						className="min-w-0 flex-1 rounded-(--sc-radius-sm) bg-transparent text-sc-lg text-(--sc-text) placeholder:text-(--sc-text-subtle)"
-						onChange={event => setQuery(event.target.value)}
-						onKeyDown={onKeyDown}
-						placeholder={t("branchPicker.placeholder")}
-						ref={inputRef}
-						value={query}
-					/>
+				<div className="flex items-center gap-2.5 border-b border-(--sc-divider) p-4">
+					<div className="min-w-0 flex-1">
+						<SearchField
+							aria-activedescendant={filtered.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
+							aria-controls={listboxId}
+							controlSize="lg"
+							label={t("branchPicker.searchLabel")}
+							onKeyDown={onKeyDown}
+							onValueChange={setQuery}
+							placeholder={t("branchPicker.placeholder")}
+							ref={inputRef}
+							value={query}
+						/>
+					</div>
 					<Kbd shortcut="⎋" />
 				</div>
 				<div

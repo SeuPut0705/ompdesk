@@ -143,6 +143,35 @@ async function inspect(page: Page, shot: string): Promise<Finding[]> {
 			if (overflowing && style.textOverflow !== "ellipsis" && style.overflowX === "hidden")
 				out.push({ kind: "clipped", detail: describe(element) });
 		}
+		// Popups stay inside the window and never cover the control that opened them.
+		const trigger = document.querySelector('[aria-expanded="true"][aria-haspopup]');
+		for (const popup of document.querySelectorAll("[role=menu], [role=listbox], [role=dialog]")) {
+			const box = popup.getBoundingClientRect();
+			if (box.width === 0 || box.height === 0) continue;
+			if (box.left < -1 || box.top < -1 || box.right > innerWidth + 1 || box.bottom > innerHeight + 1)
+				out.push({
+					kind: "popup-outside",
+					detail: `${describe(popup)} ${Math.round(box.left)},${Math.round(box.top)}..${Math.round(box.right)},${Math.round(box.bottom)} in ${innerWidth}x${innerHeight}`,
+				});
+			if (popup.getAttribute("role") !== "menu" || !trigger) continue;
+			const anchor = trigger.getBoundingClientRect();
+			const overlapX = Math.min(box.right, anchor.right) - Math.max(box.left, anchor.left);
+			const overlapY = Math.min(box.bottom, anchor.bottom) - Math.max(box.top, anchor.top);
+			if (overlapX > 2 && overlapY > 2) out.push({ kind: "menu-covers-trigger", detail: describe(trigger) });
+		}
+		// Reduced motion: nothing animates longer than a frame.
+		if (matchMedia("(prefers-reduced-motion: reduce)").matches)
+			for (const animation of document.getAnimations()) {
+				const timing = animation.effect?.getComputedTiming();
+				const duration = typeof timing?.duration === "number" ? timing.duration : 0;
+				if (animation.playState === "running" && duration > 20 && timing?.iterations !== Number.POSITIVE_INFINITY) {
+					const target = animation.effect instanceof KeyframeEffect ? animation.effect.target : null;
+					out.push({
+						kind: "motion-under-reduce",
+						detail: `${target ? describe(target) : "?"} ${Math.round(duration)}ms ${animation instanceof CSSAnimation ? animation.animationName : animation instanceof CSSTransition ? animation.transitionProperty : ""}`,
+					});
+				}
+			}
 		return out;
 	});
 	return found.map(entry => ({ shot, ...entry }));
@@ -257,6 +286,80 @@ for (const language of ["en", "ko"] as const)
 					await page.waitForTimeout(150);
 				}
 
+				// Every dialog the titlebar ⋯ menu and the help menu open.
+				const closeDialogs = async () => {
+					for (let i = 0; i < 4 && (await page.getByRole("dialog").count()) > 0; i++) {
+						await page.keyboard.press("Escape");
+						await page.waitForTimeout(200);
+					}
+				};
+				const actions = main.getByRole("button", { name: /Session actions|세션 메뉴/ }).first();
+				const help = page.getByRole("complementary").getByRole("button", { name: /^(Help|도움말)$/ });
+				for (const [opener, items] of [
+					[actions, [1, 2, 3, 4, 5]],
+					[help, [3, 4]],
+				] as const) {
+					for (const index of items) {
+						await opener.click();
+						const item = page.getByRole("menuitem").nth(index);
+						const label = (await item.innerText()).split("\n")[0]?.trim().replace(/\W+/g, "-") || String(index);
+						await item.click();
+						await page.waitForTimeout(400);
+						await shoot(`dialog-${label.toLowerCase()}`);
+						await closeDialogs();
+					}
+				}
+				await main
+					.getByRole("button", { name: /Session actions|세션 메뉴/ })
+					.first()
+					.click();
+				await page.getByRole("menuitem").first().click();
+				await page.waitForTimeout(150);
+				await shoot("titlebar-rename");
+				await page.keyboard.press("Escape");
+				await main.locator("nav button").first().click();
+				await page.waitForTimeout(300);
+				await shoot("dialog-workspace");
+				await closeDialogs();
+				await composer.fill("/resume");
+				await page.getByRole("button", { name: COPY[language].send, exact: true }).first().click();
+				await page.waitForTimeout(400);
+				await shoot("dialog-resume");
+				await page.keyboard.type("zzqx");
+				await page.waitForTimeout(200);
+				await shoot("dialog-resume-no-match");
+				await closeDialogs();
+
+				// Menus at the minimum window size, then with reduced motion mid-open.
+				await resize(app, 800, 600);
+				await page.waitForTimeout(300);
+				for (const [name, trigger] of [
+					["narrow-actions", actions],
+					["narrow-help", help],
+				] as const) {
+					await trigger.click();
+					await page.waitForTimeout(250);
+					await shoot(name);
+					await page.keyboard.press("Escape");
+					await page.waitForTimeout(150);
+				}
+				await resize(app, 1440, 900);
+				await page.emulateMedia({ reducedMotion: "reduce" });
+				await page.waitForTimeout(200);
+				for (const [name, open] of [
+					["reduced-help", () => help.click()],
+					["reduced-palette", () => pressShortcutUntilVisible(page, "ControlOrMeta+k", page.getByRole("dialog"))],
+					["reduced-model", () => page.locator("button[data-model-chip]").first().click()],
+				] as const) {
+					await open();
+					await page.waitForTimeout(40);
+					await shoot(name);
+					await closeDialogs();
+					await page.keyboard.press("Escape");
+					await page.waitForTimeout(150);
+				}
+				await page.emulateMedia({ reducedMotion: null });
+
 				// Sidebar filter: a match, then nothing; the chat lane; keyboard focus.
 				const filter = page.getByRole("complementary").getByRole("searchbox").first();
 				await filter.fill("auth");
@@ -364,6 +467,18 @@ for (const language of ["en", "ko"] as const)
 				await resize(app, 1000, 760);
 				await page.waitForTimeout(400);
 				await shoot("split-4-narrow");
+				// Popovers opened from a quarter pane: the bottom-right composer.
+				const corner = page.locator(".omp-session-pane").nth(3);
+				const cornerTriggers = corner.locator("button[aria-haspopup], button[data-model-chip]");
+				for (let i = 0; i < (await cornerTriggers.count()); i++) {
+					const trigger = cornerTriggers.nth(i);
+					if (!(await trigger.isVisible()) || (await trigger.isDisabled())) continue;
+					await trigger.click();
+					await page.waitForTimeout(250);
+					await shoot(`split-4-popover-${i}`);
+					await page.keyboard.press("Escape");
+					await page.waitForTimeout(150);
+				}
 				await resize(app, 1440, 900);
 			} finally {
 				if (directory)
@@ -376,30 +491,50 @@ for (const language of ["en", "ko"] as const)
 			}
 		});
 
-for (const [language, theme] of [
-	["en", "light"],
-	["ko", "dark"],
-] as const)
-	test(`first run audit ${language} ${theme}`, async () => {
-		test.setTimeout(180_000);
-		const { app, page, profile } = await launch(language, theme, { real: true });
-		const findings: Finding[] = [];
-		const shoot = capturer(page, `firstrun-${language}-${theme}`, findings);
-		try {
-			const setup = page.locator("section[aria-label], [role=region]").first();
-			await expect(setup).toBeVisible({ timeout: 60_000 });
-			await page.waitForTimeout(500);
-			await shoot("setup");
-			await resize(app, 640, 760);
-			await page.waitForTimeout(400);
-			await shoot("setup-narrow");
-		} finally {
-			if (directory)
-				await fs.writeFile(
-					path.join(directory, `firstrun-${language}-${theme}-findings.json`),
-					JSON.stringify({ findings }, null, 2),
-				);
-			await exitApp(app);
-			await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-		}
-	});
+for (const language of ["en", "ko"] as const)
+	for (const theme of ["light", "dark"] as const)
+		test(`first run audit ${language} ${theme}`, async () => {
+			test.setTimeout(180_000);
+			const { app, page, profile } = await launch(language, theme, { real: true });
+			const findings: Finding[] = [];
+			const shoot = capturer(page, `firstrun-${language}-${theme}`, findings);
+			try {
+				const setup = page.locator("section[aria-label], [role=region]").first();
+				await expect(setup).toBeVisible({ timeout: 60_000 });
+				await page.waitForTimeout(500);
+				await shoot("setup");
+				// A custom endpoint is the one connect path that needs no account: it
+				// carries the setup on to the model step.
+				await page
+					.getByRole("button", { name: /^(Add custom endpoint|엔드포인트 직접 추가)$/ })
+					.first()
+					.click();
+				await page.waitForTimeout(300);
+				await shoot("custom-form");
+				await page.getByLabel(/^(Provider ID|프로바이더 ID)/).fill("audit-proxy");
+				await page.getByLabel(/^(Base URL|기본 URL)/).fill("http://127.0.0.1:9/v1");
+				await page.getByRole("textbox", { name: /^(API key|API 키)/ }).fill("sk-audit");
+				await page
+					.getByLabel(/^(Model ID|모델 ID)/)
+					.first()
+					.fill("audit-model");
+				await page.getByRole("button", { name: /^(Add provider|프로바이더 추가)$/ }).click();
+				await expect(page.getByRole("radiogroup")).toBeVisible({ timeout: 30_000 });
+				await page.waitForTimeout(400);
+				await shoot("model-step");
+				await resize(app, 640, 760);
+				await page.waitForTimeout(400);
+				await shoot("model-step-narrow");
+				await page.getByRole("button", { name: /^(Start with this model|이 모델로 시작)$/ }).click();
+				await page.waitForTimeout(800);
+				await shoot("setup-done-narrow");
+			} finally {
+				if (directory)
+					await fs.writeFile(
+						path.join(directory, `firstrun-${language}-${theme}-findings.json`),
+						JSON.stringify({ findings }, null, 2),
+					);
+				await exitApp(app);
+				await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+			}
+		});
