@@ -272,6 +272,9 @@ export function compact(value: number): string {
 
 export function formatUsd(value: number): string {
 	if (value === 0) return "$0";
+	// Past a thousand the figure is grouped ($2,888.15), like the counts beside it.
+	if (Math.abs(value) >= 1000)
+		return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 	return formatCost(value, Math.abs(value) < 0.01 ? 4 : 2);
 }
 

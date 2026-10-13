@@ -9,7 +9,7 @@ import { compact } from "../../lib/chart";
 import { uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { Badge } from "../common";
-import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
+import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable, stopReasonLabel } from "./shared";
 
 export function ErrorsRoute({ range }: { range: StatsRange }) {
 	const t = useT();
@@ -42,7 +42,7 @@ export function ErrorsRoute({ range }: { range: StatsRange }) {
 				label: t("stats.col.model"),
 				render: row => (
 					<span>
-						<span className="block font-mono text-(--sc-text)">{row.model}</span>
+						<span className="block font-mono whitespace-nowrap text-(--sc-text)">{row.model}</span>
 						<span className="block text-sc-2xs text-(--sc-text-subtle)">{row.provider}</span>
 					</span>
 				),
@@ -50,7 +50,7 @@ export function ErrorsRoute({ range }: { range: StatsRange }) {
 			{
 				key: "reason",
 				label: t("stats.errors.col.stop"),
-				render: row => <Badge variant="error">{row.stopReason || "error"}</Badge>,
+				render: row => <Badge variant="error">{stopReasonLabel(t, row)}</Badge>,
 			},
 			{
 				key: "message",

@@ -233,6 +233,8 @@ async function resolveProxyEnvForSpawn(): Promise<Record<string, string>> {
 let windowManager: WindowManager;
 let sidecarPool: SidecarPool;
 let statsServer: StatsServerManager | null = null;
+/** The startup omp resolution that creates `statsServer` has finished (with or without one). */
+let statsLaunchSettled = false;
 let sessionIndex: SessionIndex;
 let statsClient: StatsClient;
 let logWatcher: LogWatcher;
@@ -439,7 +441,9 @@ app.whenReady().then(() => {
 	statsClient = new StatsClient();
 	const machine = new LocalMachine({
 		stats: statsClient,
-		statsRestart: () => statsServer?.ensureRunning() ?? "exhausted",
+		// Until omp is resolved below there is no manager yet, but one is coming: a read in
+		// that window waits like a booting server instead of hearing "stopped for good".
+		statsRestart: () => statsServer?.ensureRunning() ?? (statsLaunchSettled ? "exhausted" : "already-pending"),
 		statsText: mainT,
 		benchmarkOmp: systemOmp,
 		benchmarkEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
@@ -502,26 +506,30 @@ app.whenReady().then(() => {
 	// Stats dashboard: omp's own dashboard API from the user's omp install. A
 	// missing or too-old omp already surfaces on every tab; the dashboard just
 	// stays unavailable.
-	void Promise.all([systemOmp(), spawnPath()]).then(([resolution, basePath]) => {
-		if (!resolution.ok || statsServer) return;
-		const packageRoot = ompPackageRoot(resolution.runtime.bin);
-		if (!packageRoot) {
-			console.warn(`[stats-server] cannot locate the omp package behind ${resolution.runtime.bin}`);
-			return;
-		}
-		statsServer = new StatsServerManager({
-			command: "bun",
-			args: [join(bridgeDir, "stats-host.ts"), "127.0.0.1", "0"],
-			env: { PATH: ompPathEnv(resolution.runtime.bin, basePath), OMP_PACKAGE_ROOT: packageRoot },
+	void Promise.all([systemOmp(), spawnPath()])
+		.then(([resolution, basePath]) => {
+			if (!resolution.ok || statsServer) return;
+			const packageRoot = ompPackageRoot(resolution.runtime.bin);
+			if (!packageRoot) {
+				console.warn(`[stats-server] cannot locate the omp package behind ${resolution.runtime.bin}`);
+				return;
+			}
+			statsServer = new StatsServerManager({
+				command: "bun",
+				args: [join(bridgeDir, "stats-host.ts"), "127.0.0.1", "0"],
+				env: { PATH: ompPathEnv(resolution.runtime.bin, basePath), OMP_PACKAGE_ROOT: packageRoot },
+			});
+			statsServer.on("ready", (port: number) => {
+				statsClient.port = port;
+			});
+			statsServer.on("exit", () => {
+				statsClient.port = 0;
+			});
+			statsServer.start();
+		})
+		.finally(() => {
+			statsLaunchSettled = true;
 		});
-		statsServer.on("ready", (port: number) => {
-			statsClient.port = port;
-		});
-		statsServer.on("exit", () => {
-			statsClient.port = 0;
-		});
-		statsServer.start();
-	});
 	logWatcher = new LogWatcher();
 
 	// Register all handlers and sidecar listeners before loading the renderer.

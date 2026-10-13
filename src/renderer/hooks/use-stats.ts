@@ -8,6 +8,13 @@ const STARTING_RETRY_MS = 2_000;
 const STARTING_BUDGET_MS = 8_000;
 /** Once the down state shows, keep asking (main revives the server on these reads) so a late server still appears. */
 const DOWN_RETRY_MS = 5_000;
+/**
+ * Each machine's current stats outage (first and latest down reply), shared by
+ * every section: one opened while the server is known to be down says so at
+ * once instead of spinning through the boot budget again. Cleared by any
+ * answer; an outage nobody has asked about for a poll interval is over.
+ */
+const outageByDevice = new Map<string, { since: number; seen: number }>();
 
 interface StatsState<T> {
 	key: string;
@@ -54,7 +61,7 @@ function useStatsResource<T>(path: string, params: Record<string, string> | unde
 		let active = true;
 		let inFlight = false;
 		let retryTimer: number | undefined;
-		let downSince: number | null = null;
+		const deviceKey = device ?? "";
 		/** `quiet`: a background read (poll, down-state retry) leaves the shown state alone until it answers. */
 		const load = async (quiet = false) => {
 			if (!active || inFlight) return;
@@ -76,8 +83,10 @@ function useStatsResource<T>(path: string, params: Record<string, string> | unde
 					// section says so (with a retry), and the reads keep going in the
 					// background so a server that binds late still fills it on its own.
 					const now = Date.now();
-					if (downSince === null) downSince = now;
-					const booting = !down.stopped && now - downSince <= STARTING_BUDGET_MS;
+					const outage = outageByDevice.get(deviceKey);
+					const since = outage && now - outage.seen <= POLL_INTERVAL_MS ? outage.since : now;
+					if (!down.stopped) outageByDevice.set(deviceKey, { since, seen: now });
+					const booting = !down.stopped && now - since <= STARTING_BUDGET_MS;
 					if (!active) return;
 					setState(previous =>
 						booting
@@ -98,7 +107,7 @@ function useStatsResource<T>(path: string, params: Record<string, string> | unde
 					throw new Error(result.error);
 				if (expectList && !Array.isArray(result))
 					throw new Error(`${path} did not return a list (${result === null ? "null" : typeof result})`);
-				downSince = null;
+				outageByDevice.delete(deviceKey);
 				if (active)
 					setState({
 						key,

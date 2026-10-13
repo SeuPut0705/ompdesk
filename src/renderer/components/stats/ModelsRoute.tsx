@@ -39,7 +39,7 @@ export function ModelsRoute({ range }: { range: StatsRange }) {
 				label: t("stats.col.model"),
 				render: row => (
 					<span>
-						<span className="block font-mono font-medium text-(--sc-text)">{row.model}</span>
+						<span className="block font-mono font-medium whitespace-nowrap text-(--sc-text)">{row.model}</span>
 						<span className="block text-sc-2xs text-(--sc-text-subtle)">{row.provider}</span>
 					</span>
 				),

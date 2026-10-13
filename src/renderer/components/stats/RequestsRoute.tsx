@@ -13,10 +13,9 @@ import { uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useFocusedTabDevice } from "../../stores/remote";
 import { Badge, Button, ErrorDetail, Sheet, Spinner } from "../common";
-import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
+import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable, stopReasonLabel } from "./shared";
 
 const PAGE_SIZE = 25;
-
 /** Request detail sheet; keeps the last row mounted while the sheet animates closed. */
 function RequestDetailSheet({ row, onClose }: { row: RequestRow | null; onClose: () => void }) {
 	const [shown, setShown] = useState(row);
@@ -73,7 +72,7 @@ function RequestDetailBody({ row }: { row: RequestRow }) {
 				{[
 					[t("stats.col.provider"), row.provider],
 					[t("stats.requests.detail.api"), row.api],
-					[t("stats.requests.detail.stopReason"), row.stopReason],
+					[t("stats.requests.detail.stopReason"), stopReasonLabel(t, row)],
 					[t("stats.col.duration"), formatMs(row.duration)],
 					[t("stats.col.ttft"), formatMs(row.ttft)],
 					[t("stats.col.cost"), formatUsd(row.usage?.cost?.total ?? 0)],
@@ -148,7 +147,7 @@ export function RequestsRoute({ range }: { range: StatsRange }) {
 				label: t("stats.col.model"),
 				render: row => (
 					<span>
-						<span className="block font-mono text-(--sc-text)">{row.model}</span>
+						<span className="block font-mono whitespace-nowrap text-(--sc-text)">{row.model}</span>
 						<span className="block text-sc-2xs text-(--sc-text-subtle)">{row.provider}</span>
 					</span>
 				),
@@ -156,12 +155,7 @@ export function RequestsRoute({ range }: { range: StatsRange }) {
 			{
 				key: "status",
 				label: t("stats.col.status"),
-				render: row =>
-					row.errorMessage ? (
-						<Badge variant="error">{row.stopReason || "error"}</Badge>
-					) : (
-						<Badge variant="success">{row.stopReason || "ok"}</Badge>
-					),
+				render: row => <Badge variant={row.errorMessage ? "error" : "success"}>{stopReasonLabel(t, row)}</Badge>,
 			},
 			{ key: "duration", label: t("stats.col.duration"), align: "right", render: row => formatMs(row.duration) },
 			{ key: "ttft", label: t("stats.col.ttft"), align: "right", render: row => formatMs(row.ttft) },
@@ -195,7 +189,9 @@ export function RequestsRoute({ range }: { range: StatsRange }) {
 			loading={isLoading}
 			onRetry={refetch}
 		>
-			<SectionTitle>{t("stats.requests.sectionTitle", { count: data?.total ?? 0 })}</SectionTitle>
+			<SectionTitle>
+				{t("stats.requests.sectionTitle", { count: (data?.total ?? 0).toLocaleString(uiLocale()) })}
+			</SectionTitle>
 			<StatTable
 				columns={columns}
 				keyFor={row => `${row.id ?? row.entryId}-${row.timestamp}`}

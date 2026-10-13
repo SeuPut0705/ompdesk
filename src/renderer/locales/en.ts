@@ -2339,6 +2339,11 @@ export const en: Record<string, string> = {
 	"stats.requests.detail.output": "Output",
 	"stats.requests.detail.cacheRead": "Cache read",
 	"stats.requests.detail.cacheWrite": "Cache write",
+	"stats.stopReason.stop": "Done",
+	"stats.stopReason.length": "Length limit",
+	"stats.stopReason.toolUse": "Tool call",
+	"stats.stopReason.error": "Error",
+	"stats.stopReason.aborted": "Stopped",
 
 	// Chat stream / message chrome
 	"chat.copyCode": "Copy code",

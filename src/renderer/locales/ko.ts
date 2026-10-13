@@ -2327,6 +2327,11 @@ export const ko: Record<string, string> = {
 	"stats.requests.detail.output": "출력",
 	"stats.requests.detail.cacheRead": "캐시 읽기",
 	"stats.requests.detail.cacheWrite": "캐시 쓰기",
+	"stats.stopReason.stop": "완료",
+	"stats.stopReason.length": "길이 한도",
+	"stats.stopReason.toolUse": "도구 호출",
+	"stats.stopReason.error": "오류",
+	"stats.stopReason.aborted": "중단됨",
 
 	// Chat stream / message chrome
 	"chat.copyCode": "코드 복사",

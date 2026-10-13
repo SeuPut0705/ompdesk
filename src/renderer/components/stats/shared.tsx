@@ -13,6 +13,24 @@ import { AsyncSection } from "../common";
 export const STATS_RANGES = ["1h", "24h", "7d", "30d", "90d", "all"] as const;
 export type StatsRange = (typeof STATS_RANGES)[number];
 
+/** Stock pi-ai `StopReason` ids with a label of their own. */
+const STOP_REASON_KEY: Record<string, string> = {
+	stop: "stats.stopReason.stop",
+	length: "stats.stopReason.length",
+	toolUse: "stats.stopReason.toolUse",
+	error: "stats.stopReason.error",
+	aborted: "stats.stopReason.aborted",
+};
+
+/** A request's stop reason in words; an id a newer omp adds shows as is. */
+export function stopReasonLabel(
+	t: (key: string) => string,
+	row: { stopReason: string; errorMessage: string | null },
+): string {
+	const reason = row.stopReason || (row.errorMessage ? "error" : "stop");
+	return Object.hasOwn(STOP_REASON_KEY, reason) ? t(STOP_REASON_KEY[reason]) : reason;
+}
+
 export function RouteFrame({
 	loading,
 	hasData = false,
