@@ -2419,7 +2419,7 @@ export const ko: Record<string, string> = {
 	"chat.custom.severity.concern": "우려",
 	"chat.custom.severity.blocker": "블로커",
 	"chat.custom.moreNotes": "… 노트 {count}개 더",
-	"chat.custom.asyncDone": "백그라운드 실행 완료",
+	"chat.custom.asyncDone": "백그라운드 작업 완료",
 	"chat.custom.asyncFailed": "백그라운드 작업 실패",
 	"chat.custom.moreLines": "{count}줄 더",
 	"chat.custom.showLess": "접기",

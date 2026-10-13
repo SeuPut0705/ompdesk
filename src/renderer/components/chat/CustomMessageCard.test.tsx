@@ -28,7 +28,7 @@ function html(message: AgentMessage): string {
 }
 
 describe("async-result card", () => {
-	it("renders one row per delivered job", () => {
+	it("renders one row per delivered job, its kind in words", () => {
 		const markup = html(
 			asyncResult({
 				jobs: [
@@ -40,8 +40,17 @@ describe("async-result card", () => {
 
 		expect(markup).toContain("gui tests");
 		expect(markup).toContain("audit sweep");
-		expect(markup).toContain("[bash]");
-		expect(markup).toContain("[task]");
+		expect(markup).toContain("Background job completed · Run command · batch-1 · 1.2s");
+		expect(markup).toContain("Background job completed · Subagent · batch-2 · 4.2s");
+		expect(markup).not.toContain("[bash]");
+		expect(markup).not.toContain("[task]");
+	});
+
+	it("names a subagent job once when its id is its label", () => {
+		const markup = html(
+			asyncResult({ jobs: [{ jobId: "Sleeper", type: "task", label: "Sleeper", durationMs: 67_000 }] }),
+		);
+		expect(markup.replace(/<[^>]+>/g, " ").match(/Sleeper/g)).toHaveLength(1);
 	});
 
 	it("shows the delivery text instead of inventing a job row when no jobs arrived", () => {

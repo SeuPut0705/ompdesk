@@ -249,7 +249,7 @@ function CompletionRow({
 				size={13}
 			/>
 			<span className="min-w-0 truncate text-omp-md font-medium text-[var(--omp-text)]">{label}</span>
-			{meta && <span className="min-w-0 truncate font-mono text-omp-xs text-[var(--omp-dim)]">{meta}</span>}
+			{meta && <span className="min-w-0 truncate text-omp-xs text-[var(--omp-dim)] tabular-nums">{meta}</span>}
 		</>
 	);
 	const rowClass = "flex min-h-8 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left";
@@ -426,6 +426,13 @@ function asyncJobResults(content: string, jobs: AsyncResultJob[]): Map<string, s
 	return results;
 }
 
+/** Stock's background job kinds (pi-tui `JobSnapshot["type"]`), named like the tool that started them. */
+const JOB_KIND_LABELS: Record<string, string> = {
+	bash: "tools.label.bash",
+	task: "tools.label.task",
+	eval: "tools.label.eval",
+};
+
 function AsyncResultCard({ message, inProcess }: { message: AgentMessage; inProcess: boolean }) {
 	const t = useT();
 	const jobs = asyncResultJobs(message);
@@ -448,11 +455,13 @@ function AsyncResultCard({ message, inProcess }: { message: AgentMessage; inProc
 				const output = job.jobId ? results.get(job.jobId) : undefined;
 				const failed = job.status === "failed";
 				const exitCode = exitCodeOf(output);
+				// Stock's TUI writes the kind as a "[task]" token; here it reads as the tool's own name.
+				const kind = job.type ? JOB_KIND_LABELS[job.type] : undefined;
 				const meta = [
 					t(failed ? "chat.custom.asyncFailed" : "chat.custom.asyncDone"),
 					exitCode !== undefined && exitCode !== 0 ? t("chat.exec.exit", { code: exitCode }) : undefined,
-					`[${job.type ?? "job"}]`,
-					job.label ? id : undefined,
+					kind ? t(kind) : undefined,
+					job.label && job.label !== id ? id : undefined,
 					job.durationMs != null ? formatDuration(job.durationMs) : undefined,
 				]
 					.filter(Boolean)
