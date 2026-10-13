@@ -42,14 +42,6 @@ const seenSteps = new WeakMap<
 	Map<string, { count: number; hydration: number; away: boolean; waitingForHydration: boolean }>
 >();
 
-/**
- * The transcript moves a live card from its streaming row to its history row once the first
- * call lands, which unmounts the card and mounts it anew in one commit. The departing mount
- * leaves its head here for that commit only, so the new mount fades in over it instead of over
- * nothing (the narrative blanked for a frame).
- */
-const headHandoffs = new WeakMap<StoreApi<ToolsStore>, { identity: string; narrative: string }>();
-
 /** An auto-followed agent keeps the stage at least this long before a main step may take it. */
 const AGENT_DWELL_MS = 2000;
 /** Moving the stage from one auto-followed agent to another waits longer: lanes report in bursts. */
@@ -572,31 +564,6 @@ export function LiveStepPeek({
 		liveSub ||
 		(turnIsLive && !nested && entry && surfaceKey !== "thinking" ? stepDetail(header, narrative, partial) : "");
 	const headState: WorkState = state === "interrupted" ? "stopped" : state;
-	const headIdentity = outcomeMode ? "outcome" : surfaceKey;
-	const shownHead = useRef({ live: false, identity: headIdentity, narrative });
-	shownHead.current = { live: turnIsLive && !nested, identity: headIdentity, narrative };
-	const [handoff, setHandoff] = useState<{ identity: string; children: ReactNode } | null>(null);
-	useLayoutEffect(() => {
-		// A departing mount's cleanup runs in the same commit, before this mount's layout effects.
-		const left = headHandoffs.get(tools);
-		headHandoffs.delete(tools);
-		if (left && shownHead.current.live) {
-			setHandoff({
-				identity: left.identity,
-				children: <div className="omp-work-narrative">{left.narrative}</div>,
-			});
-		}
-		return () => {
-			const { live, identity, narrative } = shownHead.current;
-			if (!live) return;
-			const left = { identity, narrative };
-			headHandoffs.set(tools, left);
-			// Only a mount in this same commit takes it; layout effects run before any microtask.
-			queueMicrotask(() => {
-				if (headHandoffs.get(tools) === left) headHandoffs.delete(tools);
-			});
-		};
-	}, [tools]);
 	// The step's own clock, or the no-output warning for a silent command that has not exited yet.
 	const exited = typeof resultDetails(partial)?.exitCode === "number";
 	const stalled = running && !exited && (kind === "bash" || kind === "eval") && silentSeconds > 10;
@@ -676,7 +643,7 @@ export function LiveStepPeek({
 					/>
 					<div className="omp-work-head-text">
 						{/* Keyed by what is shown, never by state or output: one fade per step. */}
-						<WorkCrossfade identity={headIdentity} motion={motion} handoff={handoff}>
+						<WorkCrossfade identity={outcomeMode ? "outcome" : surfaceKey} motion={motion}>
 							<div className="omp-work-narrative" title={narrative}>
 								{narrative}
 							</div>
@@ -697,8 +664,14 @@ export function LiveStepPeek({
 					) : null}
 				</div>
 			) : null}
+			{/* A silent command's stall, and how a run the reader watched ended: the head's mark and
+			    narrative state it visually, and neither is a live region. */}
 			<span className="sr-only" role="status">
-				{stalled ? t("chat.work.stalled", { seconds: 10 }) : ""}
+				{stalled
+					? t("chat.work.stalled", { seconds: 10 })
+					: !nested && wasLive.current && !turnIsLive
+						? narrative
+						: ""}
 			</span>
 			{!nested ? <WorkContext live={carriesContext} snapshot={todoSnapshots?.at(-1)} /> : null}
 			{!nested && notes?.length ? <WorkNotes messages={notes} live={turnIsLive} /> : null}

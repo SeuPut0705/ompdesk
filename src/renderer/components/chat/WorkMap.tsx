@@ -224,6 +224,8 @@ export function WorkMap({
 								type="button"
 								className="omp-work-card-button"
 								aria-current={open || undefined}
+								// The lane opens its transcript in the card's stage: a disclosure.
+								aria-expanded={open}
 								onClick={() => onExpandedChange(open ? null : node.id)}
 							>
 								<WorkStatus state={agentWorkState(node.status)} label={label} motion={laneMotion} />

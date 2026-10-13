@@ -1369,12 +1369,22 @@
 	pointer-events: none;
 }
 /* A frame fades in over the one it replaces; a card's first frame only when the card arrives live. */
-.omp-work-motion .omp-work-crossfade[data-motion="true"] > [data-incoming],
+.omp-work-motion .omp-work-crossfade[data-motion="true"]:not(.omp-work-head-text > *) > [data-incoming],
 .omp-work-crossfade[data-motion="true"] > [data-incoming]:not(:last-child) {
 	animation: omp-work-stage-in var(--sc-duration-med) var(--sc-ease-standard);
 }
 .omp-work-crossfade[data-motion="true"] > [data-outgoing] {
 	animation: omp-work-stage-out var(--sc-duration-med) var(--sc-ease-standard) forwards;
+}
+/* The head's narrative never thins: a card's first line is there at once (the pending head
+   showed it in the same place), and between steps the departing line holds full opacity under
+   the opaque incoming one, so the two dissolve into each other instead of both half-fading. */
+.omp-work-head-text > .omp-work-crossfade[data-motion="true"] > [data-outgoing] {
+	animation-name: omp-work-stage-hold;
+}
+@keyframes omp-work-stage-hold {
+	from { opacity: 1; }
+	to { opacity: 1; }
 }
 @keyframes omp-work-stage-in {
 	from { opacity: 0; }

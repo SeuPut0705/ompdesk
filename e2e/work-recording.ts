@@ -76,8 +76,10 @@ export function scrubWorkRecording(source: readonly RecordedWorkFrame[], private
 	return recording.map(frame => ({ ...(scrub(frame) as RecordedWorkFrame), atMs: Math.round(frame.atMs / 8) }));
 }
 
-/** Rebase an owned decoded fixture, never the on-disk real recording. Keep
- * measured wall/progress durations intact; only transcript clock origins move. */
+/** Rebase an owned decoded fixture, never the on-disk real recording. Transcript clocks move to
+ * `started` and run 8× faster, like the replay itself; measured wall/progress durations stay as
+ * recorded. So a replayed card's run clock (stock message timestamps: 16.9 s recorded → 2.1 s)
+ * reads shorter than its lanes' measured times (10.9 s, 9.9 s); a live run shows no such gap. */
 export function rebaseWorkRecording(recording: RecordedWorkFrame[], started = Date.now()): RecordedWorkFrame[] {
 	const timestamps = new Map<Record<string, unknown>, number>();
 	let epoch = Number.POSITIVE_INFINITY;

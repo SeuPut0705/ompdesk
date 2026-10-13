@@ -929,12 +929,20 @@ function SessionTranscript() {
 												rowKey={rowKey}
 												superseded={item.index < currentWorkRow}
 											/>
-										) : row.kind === "streaming" ? (
-											<StreamingRows
+										) : row.kind === "streaming" && transcriptDetail === "compact" && !liveTail ? (
+											// The in-flight reply's work renders through the same component and
+											// frame, under the same row key, as the process row it finalizes into:
+											// the card keeps its React identity across message_end.
+											<ProcessGroup
 												expanded={expandedProcessKeys.has(rowKey)}
-												onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
-												processInTail={liveTail}
+												live
+												onExpandedChange={updateProcessExpanded}
+												row={STREAMING_WORK_ROW}
+												rowKey={rowKey}
+												streaming
 											/>
+										) : row.kind === "streaming" ? (
+											<StreamingRows />
 										) : row.kind === "todoSnapshot" ? (
 											<TodoSnapshotCard entry={row.entry} />
 										) : row.kind === "expander" ? (
@@ -1017,18 +1025,48 @@ function liveProcessParts(streamingMessage: AgentMessage, liveTools: ReadonlyMap
 	return { toolCalls, streamTools, allCards };
 }
 
+/** A work row's turn frame; the pending card takes the same one so the run fills it in place. */
+const WORK_TURN_CLASS =
+	"omp-process-turn ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) pt-(--omp-prompt-gap) pb-0.5";
+
+/** The in-flight reply's row before message_end: nothing finalized yet, its work is all live. */
+export const STREAMING_WORK_ROW: Extract<HistoryRow, { kind: "process" }> = {
+	kind: "process",
+	messages: [],
+	stepCount: 0,
+	failedEvents: 0,
+	toolCallIds: [],
+	toolNames: [],
+};
+
+/** The in-flight reply's text as its own answer turn, where its finalized answer row lands. */
+function StreamingReply() {
+	return (
+		<div className="omp-streaming-turn omp-assistant-turn group flex px-6">
+			<div className="omp-transcript-content min-w-0">
+				<StreamingText />
+			</div>
+		</div>
+	);
+}
+
 /**
  * Memoized: the transcript re-renders on every virtual range change while the
  * reader scrolls, and an unchanged work row (same row object, see
  * reuseTranscriptRows) has nothing new to show.
+ *
+ * The streaming row renders here too (`streaming`, with STREAMING_WORK_ROW), so a
+ * work card that starts in the in-flight reply is the same element once that
+ * reply finalizes into this row.
  */
-const ProcessGroup = memo(function ProcessGroup({
+export const ProcessGroup = memo(function ProcessGroup({
 	expanded,
 	live = false,
 	onExpandedChange,
 	row,
 	rowKey,
 	superseded = false,
+	streaming = false,
 }: {
 	expanded: boolean;
 	/**
@@ -1041,6 +1079,8 @@ const ProcessGroup = memo(function ProcessGroup({
 	row: Extract<HistoryRow, { kind: "process" }>;
 	rowKey: string;
 	superseded?: boolean;
+	/** The in-flight reply's own row: its streamed text follows the card as the answer turn. */
+	streaming?: boolean;
 }) {
 	const changeExpanded = useCallback((next: boolean) => onExpandedChange(rowKey, next), [onExpandedChange, rowKey]);
 	const output = useMemo(() => summarizeMessagesOutput(row.messages), [row.messages]);
@@ -1055,101 +1095,86 @@ const ProcessGroup = memo(function ProcessGroup({
 		liveCards.length === 0
 			? row.toolCallIds
 			: [...row.toolCallIds, ...liveCards.map(card => card.id).filter(id => !known.has(id))];
+	const hasWork = row.messages.length > 0 || liveCards.length > 0 || hasThinking;
 	return (
-		<div className="omp-process-turn ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) pt-(--omp-prompt-gap) pb-0.5">
-			<ExecutionGroup
-				expanded={expanded}
-				failureCount={row.failedEvents}
-				stoppedAt={row.stoppedAt}
-				live={live}
-				onExpandedChange={changeExpanded}
-				output={output}
-				notes={row.notes}
-				superseded={superseded}
-				stepCount={row.stepCount + liveCards.length + (hasThinking ? 1 : 0)}
-				thinkingLive={hasThinking && !hasText}
-				toolCallIds={toolCallIds}
-				todoSnapshots={row.todoSnapshots}
-			>
-				<div className="omp-process-group">
-					{row.messages.map((message, index) => (
-						<MessageBubble
-							compact
-							key={
-								typeof message.id === "string"
-									? message.id
-									: `${String(message.timestamp ?? "process")}-${index}`
-							}
-							message={message}
-							runningIndicator="dot"
-						/>
-					))}
-					{hasThinking || liveCards.length > 0 ? (
-						<div className="omp-process-group--live">
-							{hasThinking ? <ThinkingBlock live /> : null}
-							{liveCards.map(card => (
-								<ToolCard
-									args={card.args}
-									key={card.id}
+		<>
+			{hasWork ? (
+				<div className={WORK_TURN_CLASS}>
+					<ExecutionGroup
+						expanded={expanded}
+						failureCount={row.failedEvents}
+						stoppedAt={row.stoppedAt}
+						live={live}
+						onExpandedChange={changeExpanded}
+						output={output}
+						notes={row.notes}
+						superseded={superseded}
+						stepCount={row.stepCount + liveCards.length + (hasThinking ? 1 : 0)}
+						thinkingLive={hasThinking && !hasText}
+						toolCallIds={toolCallIds}
+						todoSnapshots={row.todoSnapshots}
+					>
+						<div className="omp-process-group">
+							{row.messages.map((message, index) => (
+								<MessageBubble
+									compact
+									key={
+										typeof message.id === "string"
+											? message.id
+											: `${String(message.timestamp ?? "process")}-${index}`
+									}
+									message={message}
 									runningIndicator="dot"
-									toolCallId={card.id}
-									toolName={card.name}
 								/>
 							))}
+							{hasThinking || liveCards.length > 0 ? (
+								<div className="omp-process-group--live">
+									{hasThinking ? <ThinkingBlock live /> : null}
+									{liveCards.map(card => (
+										<ToolCard
+											args={card.args}
+											key={card.id}
+											runningIndicator="dot"
+											toolCallId={card.id}
+											toolName={card.name}
+										/>
+									))}
+								</div>
+							) : null}
 						</div>
-					) : null}
+					</ExecutionGroup>
 				</div>
-			</ExecutionGroup>
-		</div>
+			) : null}
+			{streaming && hasText ? <StreamingReply /> : null}
+		</>
 	);
 });
 
 /**
- * The in-flight assistant turn: thinking block, any tool calls already
- * emitted, and the live text tail. Replaces itself with a finalized
- * MessageBubble on message_end. With `processInTail` the turn's latest work
- * row (ProcessGroup) already shows this message's work, so only the text
- * streams here.
+ * The in-flight assistant turn outside a compact work card. Full detail shows
+ * its thinking block, any tool calls already emitted and the live text tail;
+ * compact detail streams only the text here, because the turn's work row
+ * (ProcessGroup, the streaming row's own or the live tail) shows the work.
+ * Replaces itself with a finalized MessageBubble on message_end.
  */
-export function StreamingRows({
-	expanded,
-	onExpandedChange,
-	processInTail = false,
-}: {
-	expanded: boolean;
-	onExpandedChange: (expanded: boolean) => void;
-	processInTail?: boolean;
-}) {
+export function StreamingRows() {
 	const streamingMessage = useMessagesStore(s => s.streamingMessage);
 	const streamingThinking = useMessagesStore(s => s.streamingThinking);
 	const hasText = useMessagesStore(s => isRenderableMessageText(s.streamingText));
-	// Live-set subscription is intentional here: this ONE live row renders
-	// every pending/running card. Per-row isolation lives in
-	// ExecutionGroup/ToolCard.
-	const liveTools = useToolsStore(s => (processInTail ? NO_LIVE_TOOLS : s.liveTools));
 	const transcriptDetail = useUiStore(s => s.transcriptDetail);
+	// Live-set subscription is intentional here: this ONE live row renders
+	// every pending/running card. Per-row isolation lives in ToolCard.
+	const liveTools = useToolsStore(s => (transcriptDetail === "full" ? s.liveTools : NO_LIVE_TOOLS));
 	if (!streamingMessage) return null;
-	if (processInTail) {
-		return (
-			<div className="omp-streaming-turn omp-assistant-turn group flex px-6">
-				<div className="omp-transcript-content min-w-0">
-					<StreamingText />
-				</div>
-			</div>
-		);
-	}
+	if (transcriptDetail !== "full") return <StreamingReply />;
 	const { toolCalls, streamTools, allCards } = liveProcessParts(streamingMessage, liveTools);
 
 	const hasThinking = isRenderableMessageText(streamingThinking);
-	const hasProcess = hasThinking || toolCalls.length > 0 || streamTools.length > 0;
-	const compactChrome = transcriptDetail === "compact" ? !hasText : !hasText && !hasThinking;
-	const turnClass = compactChrome ? "omp-assistant-turn--compact" : "omp-assistant-turn";
+	const turnClass = !hasText && !hasThinking ? "omp-assistant-turn--compact" : "omp-assistant-turn";
 
 	// Live read grouping (same predicate as the finalized path): consecutive
-	// collapsible reads fold into one ReadGroupCard even mid-turn. Compact
-	// detail keeps the same plain execution rows used by ProcessGroup.
+	// collapsible reads fold into one ReadGroupCard even mid-turn.
 	const groupedLiveCards = (() => {
-		if (transcriptDetail === "compact") return null;
 		const segments: Array<
 			{ type: "group"; entries: ReadGroupEntry[] } | { type: "card"; card: (typeof allCards)[number] }
 		> = [];
@@ -1211,42 +1236,15 @@ export function StreamingRows({
 		</>
 	);
 
-	if (transcriptDetail === "full") {
-		return (
-			<div className={cx("omp-streaming-turn group flex px-6", turnClass)}>
-				<div className="omp-transcript-content min-w-0">
-					{/* streamingMessage.content only fills at message_end; mid-stream the
-				    thinking deltas accumulate in the streamingThinking buffer, which
-				    ThinkingBlock reads itself when live. */}
-					{hasThinking ? <ThinkingBlock live /> : null}
-					{toolCards}
-					<StreamingText />
-				</div>
-			</div>
-		);
-	}
-
 	return (
 		<div className={cx("omp-streaming-turn group flex px-6", turnClass)}>
 			<div className="omp-transcript-content min-w-0">
-				{hasProcess ? (
-					<ExecutionGroup
-						expanded={expanded}
-						live
-						onExpandedChange={onExpandedChange}
-						stepCount={toolCalls.length + streamTools.length + (hasThinking ? 1 : 0)}
-						thinkingLive={hasThinking && !hasText}
-						toolCallIds={allCards.map(card => card.id)}
-					>
-						<div className="omp-process-group omp-process-group--live">
-							{hasThinking ? <ThinkingBlock live /> : null}
-							{toolCalls.length + streamTools.length > 0 ? <div>{toolCards}</div> : null}
-						</div>
-					</ExecutionGroup>
-				) : null}
-				<div className={hasProcess ? "mt-1" : undefined}>
-					<StreamingText />
-				</div>
+				{/* streamingMessage.content only fills at message_end; mid-stream the
+				    thinking deltas accumulate in the streamingThinking buffer, which
+				    ThinkingBlock reads itself when live. */}
+				{hasThinking ? <ThinkingBlock live /> : null}
+				{toolCards}
+				<StreamingText />
 			</div>
 		</div>
 	);
@@ -1327,18 +1325,16 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 		announcement = text;
 	} else if (awaitingModelSince != null) {
 		if (attached) return null;
-		// The card's own head in the exact frame the streaming work card mounts in
-		// (same turn, content and group wrappers), so the run fills it in place.
+		// The card's own head in the exact frame the work card mounts in (the work row's
+		// turn and group wrappers), so the run fills it in place.
 		return (
-			<div className="omp-streaming-turn group flex px-6 omp-assistant-turn--compact" data-awaiting-card>
-				<div className="omp-transcript-content min-w-0">
-					<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
-						{t("chat.awaitingModel.announcement")}
-					</span>
-					<section className="omp-execution-group" data-state="running">
-						<WorkCardPending />
-					</section>
-				</div>
+			<div className={WORK_TURN_CLASS} data-awaiting-card>
+				<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
+					{t("chat.awaitingModel.announcement")}
+				</span>
+				<section className="omp-execution-group" data-state="running">
+					<WorkCardPending />
+				</section>
 			</div>
 		);
 	} else {

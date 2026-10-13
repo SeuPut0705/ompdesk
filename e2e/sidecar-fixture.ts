@@ -1611,15 +1611,24 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			}
 			const step = steps[index];
 			const id = `work-view-${index}`;
+			// Like stock, the first call ends the reply whose thinking streamed since message_start:
+			// one assistant message (same timestamp) carries the thinking and the call.
+			const toolCall = { type: "toolCall" as const, id, name: step.name, arguments: step.args };
 			const call: AgentMessage = {
 				role: "assistant",
-				content: [{ type: "toolCall", id, name: step.name, arguments: step.args }],
-				timestamp: Date.now(),
+				content:
+					index === 0
+						? [
+								{ type: "thinking", thinking: "Preparing the workspace and checking the implementation." },
+								toolCall,
+							]
+						: [toolCall],
+				timestamp: index === 0 ? shell.timestamp : Date.now(),
 				provider: model.provider,
 				model: model.id,
 				stopReason: "toolUse",
 			};
-			write({ type: "message_start", message: call });
+			if (index > 0) write({ type: "message_start", message: call });
 			appendMessage(call);
 			write({ type: "message_end", message: call });
 			turn.push(call);

@@ -74,7 +74,7 @@ describe("StreamingText presentation", () => {
 			streamingMessage: { role: "assistant", content: [], timestamp: "2026-08-22T00:00:00Z" },
 		});
 		useUiStore.setState({ transcriptDetail: "full" });
-		await mount("Live answer", <StreamingRows expanded={false} onExpandedChange={() => {}} />);
+		await mount("Live answer", <StreamingRows />);
 
 		const turn = container.querySelector(".omp-streaming-turn");
 		expect(turn?.getAttribute("class")).toContain("omp-assistant-turn");

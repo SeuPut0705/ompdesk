@@ -130,8 +130,10 @@ function stripTrailer(text: string, re: RegExp): string {
 
 /**
  * Stock's background-job footer is one line starting `Backgrounded as job <id>` then `;` or a
- * space (its deadline), in every wording stock has used. Mirrors pi-tui tools/bash.ts
- * `isBackgroundNotice`, which stock does not export; the renderer cannot import stock.
+ * space (its deadline), in every wording stock has used. A renderer copy of pi-tui tools/bash.ts
+ * `stripTrailingNotice(text, line => isBackgroundNotice(line, jobId))`: `isBackgroundNotice` is
+ * not exported and the renderer cannot import stock. bash-notice-stock.test.ts pins it to every
+ * notice stock's `formatBackgroundNotice` writes.
  */
 export function stripBackgroundNotice(text: string, jobId: string): string {
 	const trimmed = text.trimEnd();

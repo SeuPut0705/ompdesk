@@ -26,6 +26,7 @@ Object.assign(window, {
 const { createRoot } = await import("react-dom/client");
 const { LiveStepPeek } = await import("./LiveStepPeek");
 const { ExecutionGroup } = await import("./ExecutionGroup");
+const { ProcessGroup, STREAMING_WORK_ROW } = await import("./ChatStream");
 let root: Root;
 let container: HTMLElement;
 
@@ -176,28 +177,35 @@ describe("stop between steps", () => {
 	});
 });
 
-describe("streaming row to history row handoff", () => {
-	it("fades the new mount's head in over the departing one, never over nothing", async () => {
-		await tools([]);
-		await show(<LiveStepPeek key="streaming" thinkingLive toolCallIds={[]} />);
+describe("streaming row to history row", () => {
+	it("keeps one card element when the in-flight reply finalizes into its work row", async () => {
+		const reply: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
+		const props = { expanded: false, live: true, onExpandedChange: () => {}, rowKey: "message-live" };
+		await act(async () => useMessagesStore.setState({ streamingMessage: reply, streamingThinking: "Planning." }));
+		await show(<ProcessGroup {...props} row={STREAMING_WORK_ROW} streaming />);
+		const card = container.querySelector(".omp-live-step");
+		expect(card).not.toBeNull();
 		expect(narrative()).toBe("Thinking…");
-		await tools([["first", call("bash", { command: "ls", intent: "Listing files" })]]);
-		// The transcript remounts the card under its history row in one commit.
-		await show(<LiveStepPeek key="history" thinkingLive={false} toolCallIds={["first"]} />);
-		expect(narrative()).toBe("Listing files");
-		const outgoing = container.querySelector(".omp-work-head [data-outgoing] .omp-work-narrative");
-		expect(outgoing?.textContent).toBe("Thinking…");
-		// Like any outgoing frame, it leaves once its fade ends.
-		await act(async () => vi.advanceTimersByTime(400));
+		// message_end, in one commit: the reply leaves the stream and its call lands in the row
+		// the transcript renders at the same key.
+		const args = { command: "ls", intent: "Listing files" };
+		await tools([["first", call("bash", args)]]);
+		const finalized: AgentMessage = {
+			...reply,
+			content: [{ type: "toolCall", id: "first", name: "bash", arguments: args }],
+		};
+		const row = { ...STREAMING_WORK_ROW, messages: [finalized], stepCount: 1, toolCallIds: ["first"] };
+		await act(async () => {
+			useMessagesStore.setState({ streamingMessage: null, streamingThinking: "" });
+			root.render(
+				<I18nProvider>
+					<ProcessGroup {...props} row={{ ...row, toolNames: ["bash"] }} />
+				</I18nProvider>,
+			);
+		});
 		await flush();
-		expect(container.querySelector(".omp-work-head [data-outgoing]")).toBeNull();
-	});
-
-	it("starts fresh when a finished card mounts", async () => {
-		await tools([["done", call("bash", { command: "ls" }, { status: "done", endTime: 2 })]]);
-		await show(<LiveStepPeek key="one" thinkingLive={false} toolCallIds={["done"]} state="complete" />);
-		await show(<LiveStepPeek key="two" thinkingLive={false} toolCallIds={["done"]} state="complete" />);
-		expect(container.querySelector(".omp-work-head [data-outgoing]")).toBeNull();
+		expect(container.querySelector(".omp-live-step")).toBe(card);
+		expect(narrative()).toBe("Listing files");
 	});
 });
 
@@ -212,5 +220,23 @@ describe("run clock", () => {
 		);
 		// The clock no longer pops in with the first call: it counts from the same message.
 		expect(container.querySelector(".omp-work-head-clock")?.textContent).toBe("6s");
+	});
+});
+
+describe("screen reader outcome", () => {
+	const status = () => container.querySelector(".omp-live-step > [role='status']")?.textContent;
+	it("announces how a watched run ended, in the head's own words", async () => {
+		await tools([["one", call("bash", { command: "ls" })]]);
+		await show(<LiveStepPeek thinkingLive={false} toolCallIds={["one"]} state="running" />);
+		expect(status()).toBe("");
+		await tools([["one", call("bash", { command: "ls" }, { status: "done", endTime: 2 })]]);
+		await show(<LiveStepPeek thinkingLive={false} toolCallIds={["one"]} state="interrupted" />);
+		expect(status()).toBe(narrative());
+		expect(status()).toBeTruthy();
+	});
+	it("stays silent for a card that mounts finished", async () => {
+		await tools([["one", call("bash", { command: "ls" }, { status: "done", endTime: 2 })]]);
+		await show(<LiveStepPeek thinkingLive={false} toolCallIds={["one"]} state="complete" />);
+		expect(status()).toBe("");
 	});
 });

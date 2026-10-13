@@ -24,7 +24,7 @@ Object.assign(window, {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { StreamingRows, TurnStatusRow } = await import("./ChatStream");
+const { ProcessGroup, STREAMING_WORK_ROW, TurnStatusRow } = await import("./ChatStream");
 
 let container: HTMLElement;
 let root: Root;
@@ -82,7 +82,16 @@ describe("TurnStatusRow", () => {
 			streamingMessage: { role: "assistant", content: [], timestamp: Date.now() },
 			streamingThinking: "Planning the first step.",
 		});
-		await mount(<StreamingRows expanded={false} onExpandedChange={() => {}} />);
+		await mount(
+			<ProcessGroup
+				expanded={false}
+				live
+				onExpandedChange={() => {}}
+				row={STREAMING_WORK_ROW}
+				rowKey="message-live"
+				streaming
+			/>,
+		);
 		const streaming = frameOf(container.querySelector(".omp-live-step"));
 		expect(streaming.length).toBeGreaterThan(0);
 		expect(pending).toEqual(streaming);

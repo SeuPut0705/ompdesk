@@ -40,8 +40,8 @@ async function withLiveWorkApp(history: number, body: (page: Page) => Promise<vo
 	}
 }
 
-// A multi-step turn must keep one running work group and at most one
-// streaming-to-history handoff of its work surface.
+// A multi-step turn must keep one running work group and one work card: the
+// pending head, then the run's card, which its streaming row hands to its history row intact.
 test("a multi-step turn keeps one live work group and work surface", async () => {
 	await withLiveWorkApp(0, async page => {
 		await page.evaluate(() => {
@@ -76,7 +76,7 @@ test("a multi-step turn keeps one live work group and work surface", async () =>
 			const w = window as unknown as { __probe: string[]; __panels: number };
 			return { probe: w.__probe, panelMounts: w.__panels };
 		});
-		// Never two work groups, at most one handoff remount (streaming row → history row).
+		// Never two work groups; the pending head and one card, never a remount.
 		expect(result.probe.filter(state => !state.startsWith("groups=0") && !state.startsWith("groups=1"))).toEqual([]);
 		expect(result.panelMounts).toBeLessThanOrEqual(2);
 	});
@@ -136,6 +136,7 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 				shell: number;
 				stage: number;
 				narrative: number;
+				pending: boolean;
 				step: string;
 			}[] = [];
 			const sampler = { samples, running: true };
@@ -162,6 +163,7 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 						shell: card.querySelector<HTMLElement>(":scope > .omp-work-stage-shell")?.offsetHeight ?? 0,
 						stage: shell?.querySelector<HTMLElement>(".omp-work-stage")?.offsetHeight ?? 0,
 						narrative,
+						pending: card.hasAttribute("data-pending"),
 						step: card.dataset.surface ?? "",
 					});
 				}
@@ -346,6 +348,7 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 					shell: number;
 					stage: number;
 					narrative: number;
+					pending: boolean;
 					step: string;
 				}[];
 			};
@@ -359,12 +362,12 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 		// Once open, the stage holds one height for every tool kind.
 		const stages = frames.filter(frame => frame.stage > 0).map(frame => frame.stage);
 		expect(Math.max(...stages) - Math.min(...stages), "stage height range").toBeLessThanOrEqual(1);
-		// At most the one handoff remount (streaming row → history row), and a crossfade never
-		// blanks the narrative, across that handoff too: past the card's own entrance, the layers
-		// always show most of one line.
-		expect(new Set(frames.map(frame => frame.card)).size, "card mounts").toBeLessThanOrEqual(2);
-		const settled = frames.filter(frame => frame.at > (frames[0]?.at ?? 0) + 400);
-		expect(Math.min(...settled.map(frame => frame.narrative)), "narrative visibility").toBeGreaterThan(0.6);
+		// One card for the whole run: the streaming row finalizes into its history row under the
+		// same element (the pending head before it is a separate placeholder in the same frame).
+		expect(new Set(frames.filter(frame => !frame.pending).map(frame => frame.card)).size, "card mounts").toBe(1);
+		// The head's narrative is never thinner than one full line, from the pending head through
+		// every step change: the incoming line dissolves over the departing one held at full opacity.
+		expect(Math.min(...frames.map(frame => frame.narrative)), "narrative visibility").toBeGreaterThanOrEqual(0.999);
 		// The stage opens by unfolding, never in one frame.
 		const opening = frames.findIndex(frame => frame.shell > 0);
 		expect(frames[opening]?.shell ?? 0, "stage first open frame").toBeLessThan(frames.at(-1)?.shell ?? 0);
