@@ -1534,7 +1534,24 @@
 .omp-live-step:is([data-surface="browser"], [data-surface="computer"]) [data-zoomable-image] img {
 	height: 100%;
 	width: 100%;
+	max-height: none;
 	object-fit: contain;
+}
+
+/* In the fixed-height stage the capture takes the stage's height, not its own 20rem: the whole
+   picture shows above the strip instead of a cropped one under a scrollbar. */
+.omp-work-stage .omp-live-step-scroll:has(.omp-tool-capture) {
+	height: auto;
+}
+
+.omp-work-stage .omp-tool-capture {
+	min-height: 0;
+}
+
+/* The stage is the one scroller: a code, diff or read box drops its own height cap there, so a
+   long diff never shows two scrollbars side by side. */
+.omp-work-stage .omp-tool-editor :is(.overflow-auto, .overflow-y-auto) {
+	max-height: none;
 }
 
 .omp-live-work-calm {

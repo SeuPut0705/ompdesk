@@ -160,8 +160,22 @@ function capturer(page: Page, prefix: string, findings: Finding[]) {
 }
 
 const COPY = {
-	en: { send: "Send", rename: "Rename session", delete: "Delete", pin: "Pin to top", splitRight: "Split right" },
-	ko: { send: "보내기", rename: "세션 이름 변경", delete: "삭제", pin: "맨 위에 고정", splitRight: "오른쪽으로 분할" },
+	en: {
+		send: "Send",
+		rename: "Rename session",
+		delete: "Delete",
+		pin: "Pin to top",
+		splitRight: "Split right",
+		splitBelow: "Split below",
+	},
+	ko: {
+		send: "보내기",
+		rename: "세션 이름 변경",
+		delete: "삭제",
+		pin: "맨 위에 고정",
+		splitRight: "오른쪽으로 분할",
+		splitBelow: "아래로 분할",
+	},
 } as const;
 for (const language of ["en", "ko"] as const)
 	for (const theme of ["light", "dark"] as const)
@@ -226,6 +240,42 @@ for (const language of ["en", "ko"] as const)
 				await shoot("palette-empty");
 				await page.keyboard.press("Escape");
 				await expect(palette).toHaveCount(0);
+
+				// Titlebar popovers, the context popover and the help menu.
+				const main = page.getByRole("main");
+				for (const [name, trigger] of [
+					["titlebar-status", main.getByRole("button", { name: /Session status|세션 상태/ })],
+					["titlebar-actions", main.getByRole("button", { name: /Session actions|세션 메뉴/ })],
+					["context-usage", page.getByRole("toolbar").first().locator("button").filter({ hasText: "%" })],
+					["help-menu", page.getByRole("complementary").getByRole("button", { name: /^(Help|도움말)$/ })],
+				] as const) {
+					if ((await trigger.count()) === 0) continue;
+					await trigger.first().click();
+					await page.waitForTimeout(250);
+					await shoot(name);
+					await page.keyboard.press("Escape");
+					await page.waitForTimeout(150);
+				}
+
+				// Sidebar filter: a match, then nothing; the chat lane; keyboard focus.
+				const filter = page.getByRole("complementary").getByRole("searchbox").first();
+				await filter.fill("auth");
+				await page.waitForTimeout(250);
+				await shoot("filter-match");
+				await filter.fill("zzqx");
+				await page.waitForTimeout(250);
+				await shoot("filter-empty");
+				await filter.fill("");
+				await page.getByRole("complementary").getByRole("tab").nth(1).click();
+				await page.waitForTimeout(300);
+				await shoot("chat-lane");
+				await page.getByRole("complementary").getByRole("tab").nth(0).click();
+				await filter.focus();
+				await page.keyboard.press("Tab");
+				await page.keyboard.press("Tab");
+				await page.waitForTimeout(150);
+				await shoot("sidebar-keyboard-focus");
+				await page.keyboard.press("Escape");
 
 				// Sidebar rows: hover, context menu, inline rename, delete confirm.
 				const stored = page.locator("[data-session-path]").filter({ hasText: "Refactor the authentication" });
@@ -298,11 +348,17 @@ for (const language of ["en", "ko"] as const)
 				await expect(page.locator(".omp-session-pane")).toHaveCount(2);
 				await page.waitForTimeout(400);
 				await shoot("split-2");
-				for (const title of ["Third pane", "Fourth pane"]) {
-					await (await spawn(title)).click({ button: "right" });
-					const items = page.getByRole("menuitem").filter({ hasText: /split|분할/i });
-					await items.nth((await items.count()) > 1 ? 1 : 0).click();
+				// Split below each column's top pane: (first / third) | (second / fourth).
+				for (const [title, column] of [
+					["Third pane", "Audit the app shell"],
+					["Fourth pane", "Second pane"],
+				] as const) {
+					const row = await spawn(title);
+					await page.locator(`.omp-session-pane[aria-label*="${column}"] textarea`).first().click();
+					await row.click({ button: "right" });
+					await page.getByRole("menuitem", { name: COPY[language].splitBelow }).click();
 				}
+				await expect(page.locator(".omp-session-pane")).toHaveCount(4);
 				await page.waitForTimeout(500);
 				await shoot("split-4");
 				await resize(app, 1000, 760);

@@ -205,3 +205,68 @@ describe("ContextMenu", () => {
 		expect(onA).not.toHaveBeenCalled();
 	});
 });
+
+describe("ContextMenu placement", () => {
+	/** A 200×240 menu whose pop-in scale(0.95) still shrinks its bounding box at mount. */
+	function stubLayout(): () => void {
+		const proto = HTMLElement.prototype as unknown as Record<string, unknown>;
+		const saved = ["offsetWidth", "offsetHeight", "getBoundingClientRect"].map(
+			key => [key, Object.getOwnPropertyDescriptor(proto, key)] as const,
+		);
+		Object.defineProperty(proto, "offsetWidth", { configurable: true, get: () => 200 });
+		Object.defineProperty(proto, "offsetHeight", { configurable: true, get: () => 240 });
+		Object.defineProperty(proto, "getBoundingClientRect", {
+			configurable: true,
+			value: () => ({ width: 190, height: 228, left: 0, top: 0, right: 190, bottom: 228 }),
+		});
+		Object.defineProperty(window, "innerWidth", { configurable: true, value: 1440 });
+		Object.defineProperty(window, "innerHeight", { configurable: true, value: 900 });
+		return () => {
+			for (const [key, descriptor] of saved) {
+				if (descriptor) Object.defineProperty(proto, key, descriptor);
+				else Reflect.deleteProperty(proto, key);
+			}
+		};
+	}
+
+	function menuBox(): { left: string; top: string } {
+		const menu = document.body.querySelector('[role="menu"]') as unknown as { style: { left: string; top: string } };
+		return { left: menu.style.left, top: menu.style.top };
+	}
+
+	it("sizes from the layout box, so an end-aligned menu never runs past the window edge", async () => {
+		const restore = stubLayout();
+		try {
+			await mount(
+				<ContextMenu
+					align="end"
+					items={[{ id: "a", label: "A", onSelect() {} }]}
+					onClose={() => {}}
+					x={1396}
+					y={40}
+				/>,
+			);
+			expect(menuBox()).toEqual({ left: "1196px", top: "40px" });
+		} finally {
+			restore();
+		}
+	});
+
+	it("opens above its trigger when there is no room below instead of covering it", async () => {
+		const restore = stubLayout();
+		try {
+			await mount(
+				<ContextMenu
+					above={862}
+					items={[{ id: "a", label: "A", onSelect() {} }]}
+					onClose={() => {}}
+					x={20}
+					y={892}
+				/>,
+			);
+			expect(menuBox()).toEqual({ left: "20px", top: "622px" });
+		} finally {
+			restore();
+		}
+	});
+});

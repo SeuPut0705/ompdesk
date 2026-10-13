@@ -835,7 +835,10 @@ export function Sidebar() {
 		if (renamingSessionPath === session.path) {
 			return (
 				<div
-					className={cx("py-0.5 pr-1", nested ? "omp-sidebar-session-rename-nested" : "pl-1")}
+					className={cx(
+						"omp-sidebar-session-rename grid content-center py-0.5 pr-1",
+						nested ? "omp-sidebar-session-rename-nested" : "pl-1",
+					)}
 					key={session.path}
 				>
 					<Input

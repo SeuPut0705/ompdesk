@@ -55,6 +55,8 @@ interface ContextMenuProps {
 	/** Viewport x of the menu's left edge (align "start") or right edge (align "end"). */
 	x: number;
 	y: number;
+	/** Viewport y the menu's bottom edge may rest on when it does not fit below `y` (its trigger's top). */
+	above?: number;
 	align?: MenuAlign;
 	ariaLabel?: string;
 	onClose: () => void;
@@ -117,20 +119,32 @@ export function menuItemClasses(item: Pick<ContextMenuItem, "danger" | "disabled
 	);
 }
 
-export function ContextMenu({ items, x, y, align = "start", ariaLabel, onClose }: ContextMenuProps) {
+export function ContextMenu({ items, x, y, above, align = "start", ariaLabel, onClose }: ContextMenuProps) {
 	const menuRef = useRef<HTMLDivElement>(null);
 	const [activeIndex, setActiveIndex] = useState(() => items.findIndex(item => !item.disabled));
-	const [pos, setPos] = useState({ left: x, top: y });
 
-	// Clamp inside the viewport once mounted (menu height is content-driven).
+	// Place inside the viewport before paint (menu size is content-driven). It
+	// renders at the origin first so its width is never squeezed by the space
+	// right of the anchor, and is measured by its layout box: the pop-in
+	// animation starts scaled down, and a scaled measure lets the grown menu
+	// overrun the edge. React never rewrites the constant origin style, so the
+	// position set here stands.
 	useLayoutEffect(() => {
 		const el = menuRef.current;
 		if (!el) return;
-		const rect = el.getBoundingClientRect();
-		const left = Math.min(align === "end" ? x - rect.width : x, window.innerWidth - rect.width - 8);
-		const top = Math.min(y, window.innerHeight - rect.height - 8);
-		setPos({ left: Math.max(8, left), top: Math.max(8, top) });
-	}, [x, y, align]);
+		el.style.left = "0px";
+		el.style.top = "0px";
+		// DOMs without layout (linkedom) leave these undefined: treat as 0.
+		const { offsetWidth: width = 0, offsetHeight: height = 0 } = el;
+		const left = Math.min(align === "end" ? x - width : x, window.innerWidth - width - 8);
+		const fitsBelow = y + height <= window.innerHeight - 8;
+		const top =
+			!fitsBelow && above !== undefined && above - height >= 8
+				? above - height
+				: Math.min(y, window.innerHeight - height - 8);
+		el.style.left = `${Math.max(8, left)}px`;
+		el.style.top = `${Math.max(8, top)}px`;
+	}, [x, y, above, align]);
 
 	const onCloseRef = useRef(onClose);
 	onCloseRef.current = onClose;
@@ -210,7 +224,7 @@ export function ContextMenu({ items, x, y, align = "start", ariaLabel, onClose }
 			}}
 			ref={menuRef}
 			role="menu"
-			style={{ left: pos.left, top: pos.top }}
+			style={{ left: 0, top: 0 }}
 		>
 			<MenuSurface className={items.some(item => item.description) ? "min-w-64" : undefined}>
 				{items.map((item, index) => (
@@ -288,7 +302,7 @@ export function MenuButton({
 	disabled,
 	className,
 }: MenuButtonProps) {
-	const [anchor, setAnchor] = useState<ContextMenuAnchor | null>(null);
+	const [anchor, setAnchor] = useState<(ContextMenuAnchor & { above: number }) | null>(null);
 	// A press on the trigger while open closes the menu (outside press); the
 	// click that follows must not reopen it.
 	const swallowClickRef = useRef(false);
@@ -307,7 +321,7 @@ export function MenuButton({
 				return;
 			}
 			const rect = event.currentTarget.getBoundingClientRect();
-			setAnchor({ x: align === "end" ? rect.right : rect.left, y: rect.bottom + 4 });
+			setAnchor({ x: align === "end" ? rect.right : rect.left, y: rect.bottom + 4, above: rect.top - 4 });
 		},
 	};
 	return (
@@ -321,6 +335,7 @@ export function MenuButton({
 			)}
 			{anchor && (
 				<ContextMenu
+					above={anchor.above}
 					align={align}
 					ariaLabel={label}
 					items={items.map(item => ({

@@ -8,6 +8,7 @@
  * Same linkedom + react-dom harness as TabBar.test.tsx.
  */
 
+import { readFileSync } from "node:fs";
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -709,6 +710,22 @@ describe("Sidebar menus and pinned ordering", () => {
 		);
 		await fire(pinItem as Element, "onClick");
 		expect(omp.rpc.setSessionPinned).toHaveBeenCalledWith("/work/alpha/one.jsonl", true);
+	});
+
+	it("an inline rename keeps the row's height so the rows below never shift", async () => {
+		installMockOmp(LIST.map(entry => ({ ...entry })));
+		seedStores();
+		await mount(<Sidebar />);
+		await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
+		await fire(menuItem("Rename"), "onClick");
+		const input = document.body.querySelector('input[value="Session /work/alpha/one.jsonl"]');
+		const wrapper = input?.closest("label")?.parentElement;
+		expect(wrapper?.classList.contains("omp-sidebar-session-rename")).toBe(true);
+		const sidebarCss = readFileSync(new URL("../../styles/sidebar.css", import.meta.url), "utf8");
+		// One rule sizes both, so the rename can never drift from the row height.
+		expect(sidebarCss).toMatch(
+			/\.omp-sidebar-session-row,\s*\.omp-sidebar-session-rename\s*\{[^}]*min-height:\s*var\(--sc-control-lg\)/,
+		);
 	});
 
 	it("a running task can be renamed but not deleted; idle siblings stay fully editable", async () => {
