@@ -46,7 +46,7 @@ export function WorkOutcome({
 			{images.map(image => (
 				<figure key={image.key} className="omp-work-image" title={image.label}>
 					<ToolImage src={image.src} path={image.path} loading="lazy" decoding="async" />
-					<figcaption className="font-mono">{image.label.split("/").at(-1)}</figcaption>
+					<figcaption className="font-mono">{image.caption}</figcaption>
 				</figure>
 			))}
 			{outcome.images.length > VISIBLE_IMAGES ? (

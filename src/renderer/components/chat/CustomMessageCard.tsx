@@ -305,6 +305,18 @@ function advisorRailColor(severity: string | undefined): string {
 	}
 }
 
+const ADVISOR_SEVERITY_KEYS: Record<string, string> = {
+	nit: "chat.custom.severity.nit",
+	concern: "chat.custom.severity.concern",
+	blocker: "chat.custom.severity.blocker",
+};
+
+/** Stock's advisor severity (`nit` | `concern` | `blocker`) in the UI language; anything else as sent. */
+export function advisorSeverityLabel(severity: string, t: (key: string) => string): string {
+	const key = ADVISOR_SEVERITY_KEYS[severity];
+	return key ? t(key) : severity;
+}
+
 function AdvisorCard({ message }: { message: AgentMessage }) {
 	const t = useT();
 	const [expanded, setExpanded] = useState(false);
@@ -343,7 +355,7 @@ function AdvisorCard({ message }: { message: AgentMessage }) {
 					>
 						{note.severity && (
 							<Badge variant={advisorVariant(note.severity)} className="mt-0.5">
-								{note.severity}
+								{advisorSeverityLabel(note.severity, t)}
 							</Badge>
 						)}
 						<div className="min-w-0 flex-1 text-omp-md leading-[1.55] text-[var(--omp-text)]">
@@ -802,7 +814,8 @@ function IrcCard({ message }: { message: AgentMessage }) {
 				<span className="min-w-0 truncate">{title}</span>
 				{kind === "autoreply" && <Badge variant="muted">{t("chat.custom.ircAuto")}</Badge>}
 				{str(details?.replyTo) && <Badge variant="muted">{t("chat.custom.ircReply")}</Badge>}
-				{age && (
+				{/* Inside a work note the note's own line already carries the time. */}
+				{age && !embedded && (
 					<time
 						className="ml-auto shrink-0 font-mono text-omp-xs font-normal text-[var(--omp-dim)]"
 						title={formatClock(message.timestamp)}

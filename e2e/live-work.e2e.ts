@@ -221,6 +221,21 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 				await expect(surface.locator(":scope > .omp-live-work-strip [data-step-id]")).toHaveCount(5);
 			} else if (kind === "browser" || kind === "computer") {
 				await expect(content.locator("img")).toBeVisible();
+				// The capture fits the stage whole: nothing to scroll, its bottom above the strip.
+				await expect
+					.poll(() =>
+						content.evaluate(scroller => {
+							const image = scroller.querySelector("img")?.getBoundingClientRect();
+							const view = scroller.getBoundingClientRect();
+							return (
+								image !== undefined &&
+								image.height > 40 &&
+								scroller.scrollHeight <= scroller.clientHeight + 1 &&
+								image.bottom <= view.bottom + 0.5
+							);
+						}),
+					)
+					.toBe(true);
 			} else if (kind === "edit") {
 				// The stage follows the newest change to its first changed line — below the first
 				// change, above the tail — and holds it inside the stage's visible rect.
@@ -248,6 +263,19 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 				await expect(content).toContainText("Keyboard accessibility");
 				await expect(content).toContainText("Make every control reachable with the keyboard.");
 			}
+			// One scroller per stage: a renderer's own capped box never scrolls inside a scrolling stage
+			// (seen as two scrollbars side by side on a long diff).
+			const scrollers = await surface
+				.locator(".omp-work-stage > .omp-work-crossfade > [data-incoming]")
+				.evaluate(frame =>
+					[...frame.querySelectorAll("*")]
+						.filter(element => {
+							const style = getComputedStyle(element);
+							return /auto|scroll/.test(style.overflowY) && element.scrollHeight > element.clientHeight + 1;
+						})
+						.map(element => element.className),
+				);
+			expect(scrollers.length, `${kind}: ${scrollers.join(" | ")}`).toBeLessThanOrEqual(1);
 			if (index !== 5) await capture(kind);
 			if (index === 2) {
 				const past = surface.locator('[data-step-id="work-view-0"]');

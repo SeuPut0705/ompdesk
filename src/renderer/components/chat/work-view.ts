@@ -160,7 +160,23 @@ export interface WorkImageOutcome {
 	key: string;
 	src: string | null;
 	path: string;
+	/** The whole source (file path, page URL or the call's target), for the tooltip. */
 	label: string;
+	/** The short name under the thumbnail: a file's name, a page's host and path. */
+	caption: string;
+}
+
+/** "https://example.com/workspace?x" → "example.com/workspace"; a path → its file name. */
+function imageCaption(label: string): string {
+	if (/^https?:\/\//i.test(label)) {
+		try {
+			const url = new URL(label);
+			return `${url.host}${url.pathname === "/" ? "" : url.pathname}`;
+		} catch {
+			return label;
+		}
+	}
+	return label.split(/[\\/]/).at(-1) ?? label;
 }
 
 export interface WorkOutcomes {
@@ -207,9 +223,12 @@ export function workOutcomes(entries: readonly WorkEvidence[], stoppedAt?: numbe
 				if (seenImages.has(image.key)) continue;
 				seenImages.add(image.key);
 				const header = getToolHeader(entry.toolName, entry.args);
-				// Stock's read names the file it showed in `details.mediaPath` (absolute).
+				// Stock's read names the file it showed in `details.mediaPath` (absolute); stock's browser
+				// the page it captured in `details.url`, which says more than its action ("run").
 				const path = typeof details?.mediaPath === "string" ? details.mediaPath : (header.path ?? "");
-				images.push({ key: image.key, src: image.src, path, label: path || header.target || entry.toolName });
+				const url = typeof details?.url === "string" ? details.url : "";
+				const label = path || url || header.target || entry.toolName;
+				images.push({ key: image.key, src: image.src, path, label, caption: imageCaption(label) });
 			}
 		}
 		if (["write", "edit", "ast_edit", "apply_patch"].includes(entry.toolName) && !entry.isError) {

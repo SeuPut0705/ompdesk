@@ -3,13 +3,14 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
+import type { AgentMessage } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { ko } from "../../locales/ko";
 import { useMessagesStore } from "../../stores/messages";
 import { useSubagentsStore } from "../../stores/subagents";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
 import { getToolSummary } from "../tools/index";
-import { workNarrative } from "./work-view";
+import { workNarrative, workOutcomes } from "./work-view";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -26,6 +27,7 @@ Object.assign(window, { requestAnimationFrame: () => 0, cancelAnimationFrame: ()
 // React DOM must initialize after linkedom globals; static imports initialize it too early.
 const { createRoot } = await import("react-dom/client");
 const { ExecutionGroup } = await import("./ExecutionGroup");
+const { WorkNotes } = await import("./WorkNotes");
 
 const stylesheet = readFileSync(new URL("../../styles/components.css", import.meta.url), "utf8");
 let container: HTMLElement;
@@ -132,5 +134,83 @@ describe("Korean narrative", () => {
 		} finally {
 			(globalThis as Record<string, unknown>).localStorage = realLocalStorage;
 		}
+	});
+});
+
+describe("Korean advisor note", () => {
+	it("states stock's severity in the UI language on the note's badge", async () => {
+		const realLocalStorage = (globalThis as Record<string, unknown>).localStorage;
+		(globalThis as Record<string, unknown>).localStorage = {
+			getItem: (key: string) => (key === "omp.lang" ? "ko" : null),
+			setItem: () => {},
+		};
+		try {
+			container = document.createElement("div") as unknown as HTMLElement;
+			document.body.appendChild(container as never);
+			root = createRoot(container as unknown as Element);
+			const advisor: AgentMessage = {
+				role: "custom",
+				customType: "advisor",
+				id: "advisor",
+				content: "Advisor content",
+				details: { notes: [{ note: "Check access", severity: "concern" }] },
+				timestamp: 1,
+			};
+			await act(async () =>
+				root?.render(
+					<I18nProvider>
+						<WorkNotes messages={[advisor]} />
+					</I18nProvider>,
+				),
+			);
+			// Seen as an English "concern" badge in an otherwise Korean card.
+			expect(container.querySelector(".omp-work-notes-line")?.textContent).toContain("우려");
+			expect(container.textContent).not.toContain("concern");
+		} finally {
+			(globalThis as Record<string, unknown>).localStorage = realLocalStorage;
+		}
+	});
+});
+
+describe("expanded work note", () => {
+	it("states its time once, on the note's line, not again in the opened message", async () => {
+		container = document.createElement("div") as unknown as HTMLElement;
+		document.body.appendChild(container as never);
+		root = createRoot(container as unknown as Element);
+		const irc: AgentMessage = {
+			role: "custom",
+			customType: "irc:incoming",
+			id: "irc",
+			content: "Workspace coordination is ready.",
+			details: { from: "ReaMcp", to: "main", message: "Workspace coordination is ready." },
+			timestamp: Date.now() - 120_000,
+		};
+		await act(async () =>
+			root?.render(
+				<I18nProvider>
+					<WorkNotes messages={[irc]} />
+				</I18nProvider>,
+			),
+		);
+		await act(async () => (container.querySelector(".omp-work-notes-line") as HTMLButtonElement | null)?.click());
+		expect(container.querySelector(".omp-work-notes-body")).not.toBeNull();
+		// Seen as "just now" twice, the second in a different (mono) face.
+		expect(container.querySelectorAll("time")).toHaveLength(1);
+	});
+});
+
+describe("outcome picture caption", () => {
+	it("names a browser capture by the page it shows, not by its action", () => {
+		const capture: ToolEntry = {
+			...done("browser", { action: "run", code: "await tab.screenshot()" }, 1, 2),
+			result: {
+				content: [{ type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" }],
+				details: { url: "https://example.com/workspace?tab=1" },
+			},
+		};
+		const [image] = workOutcomes([capture]).images;
+		// Seen as "run" under the thumbnail.
+		expect(image?.caption).toBe("example.com/workspace");
+		expect(image?.label).toBe("https://example.com/workspace?tab=1");
 	});
 });

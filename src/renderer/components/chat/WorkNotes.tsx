@@ -5,7 +5,7 @@ import { formatAgo, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { messageText } from "../../lib/messages";
 import { Badge } from "../common/Badge";
-import { CustomMessageCard, workNoteSummary } from "./CustomMessageCard";
+import { advisorSeverityLabel, CustomMessageCard, workNoteSummary } from "./CustomMessageCard";
 import { TodoReminderNote } from "./TodoReminderNote";
 import { parseTodoReminder } from "./todo-reminder";
 
@@ -98,7 +98,9 @@ export function WorkNotes({ messages, live = false }: { messages: readonly Agent
 							>
 								<Icon size={12} aria-hidden="true" className={failed ? "omp-work-notes-failed" : undefined} />
 								<span className="omp-work-notes-source">{label}</span>
-								{message.customType === "advisor" && severity && <Badge variant={variant}>{severity}</Badge>}
+								{message.customType === "advisor" && severity && (
+									<Badge variant={variant}>{advisorSeverityLabel(severity, t)}</Badge>
+								)}
 								<span className="omp-work-notes-preview">{body.split(/\r?\n/)[0]}</span>
 								{age && (
 									<time
