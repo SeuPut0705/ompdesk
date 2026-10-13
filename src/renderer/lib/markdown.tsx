@@ -4,6 +4,7 @@ import {
 	createContext,
 	isValidElement,
 	memo,
+	type ReactElement,
 	type ReactNode,
 	useContext,
 	useEffect,
@@ -604,6 +605,46 @@ const COMPONENTS: Components = {
 };
 
 /**
+ * Rendered markdown by pipeline and source, most recent last. A history page
+ * mounts its replies in the commit that shows it; `prewarmMarkdown` renders the
+ * ones that commit will need in an earlier, idle task, so the commit reuses them.
+ */
+const rendered = new Map<string, ReactElement>();
+const RENDERED_LIMIT = 64;
+
+function renderMarkdown(
+	content: string,
+	singleDollarTextMath: boolean,
+	rawHtml: RehypePlugin | undefined,
+	katex: RehypePlugin | undefined,
+): ReactElement {
+	const key = `${singleDollarTextMath ? "$" : "-"}${rawHtml ? "h" : "-"}${katex ? "k" : "-"}${content}`;
+	const cached = rendered.get(key);
+	if (cached) {
+		rendered.delete(key);
+		rendered.set(key, cached);
+		return cached;
+	}
+	// react-markdown's component is a plain function of its props: calling it keeps the
+	// element tree it returns, which every later mount of the same source reuses.
+	const element = ReactMarkdown({
+		children: content,
+		remarkPlugins: singleDollarTextMath ? REMARK_PLUGINS : REMARK_PLUGINS_LITERAL_SINGLE_DOLLAR,
+		rehypePlugins: [...(rawHtml ? [rawHtml] : []), SANITIZE_STEP, ...(katex ? [katex] : [])],
+		components: COMPONENTS,
+		urlTransform: URL_TRANSFORM,
+	});
+	rendered.set(key, element);
+	if (rendered.size > RENDERED_LIMIT) rendered.delete(rendered.keys().next().value ?? "");
+	return element;
+}
+
+/** Render `content` now, with the pipeline steps loaded so far, for a `MarkdownRenderer` about to mount. */
+export function prewarmMarkdown(content: string, singleDollarTextMath = true): void {
+	renderMarkdown(content, singleDollarTextMath, RAW_HTML_STEP.plugin, KATEX_STEP.plugin);
+}
+
+/**
  * Renders markdown content with GFM, a sanitized raw-HTML subset, KaTeX math,
  * and syntax highlighting. Memoized: re-parses only when `content` changes
  * (or a lazy pipeline step it needs finishes loading).
@@ -615,22 +656,13 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
 }: MarkdownRendererProps) {
 	const rawHtml = useLazyRehypeStep(RAW_HTML_STEP, content);
 	const katex = useLazyRehypeStep(KATEX_STEP, content);
-	const rehypePlugins = useMemo(
-		() => [...(rawHtml ? [rawHtml] : []), SANITIZE_STEP, ...(katex ? [katex] : [])],
-		[rawHtml, katex],
+	const element = useMemo(
+		() => renderMarkdown(content, singleDollarTextMath, rawHtml, katex),
+		[content, singleDollarTextMath, rawHtml, katex],
 	);
 	return (
 		<div className="markdown-body text-[1em] leading-[1.5]">
-			<CodeLineNumbersOverride.Provider value={codeLineNumbers}>
-				<ReactMarkdown
-					remarkPlugins={singleDollarTextMath ? REMARK_PLUGINS : REMARK_PLUGINS_LITERAL_SINGLE_DOLLAR}
-					rehypePlugins={rehypePlugins}
-					components={COMPONENTS}
-					urlTransform={URL_TRANSFORM}
-				>
-					{content}
-				</ReactMarkdown>
-			</CodeLineNumbersOverride.Provider>
+			<CodeLineNumbersOverride.Provider value={codeLineNumbers}>{element}</CodeLineNumbersOverride.Provider>
 		</div>
 	);
 });

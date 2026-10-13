@@ -15,11 +15,12 @@ import {
 	Sparkles,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AgentMessage } from "../../../shared/rpc-types";
+import type { AgentMessage, MessagesPage } from "../../../shared/rpc-types";
 import { loadOlderTranscript } from "../../hooks/session-hydration";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { cx, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { prewarmMarkdown } from "../../lib/markdown";
 import { abortActiveTurn, describeTurnError, isRenderableMessageText } from "../../lib/messages";
 import { collapsibleReadTarget, groupReadRows, type ReadGroupEntry } from "../../lib/read-group";
 import { useTabRpc } from "../../lib/tab-rpc";
@@ -55,6 +56,7 @@ import {
 	mergeTodoSnapshots,
 	progressiveRange,
 	type Row,
+	replyMarkdownTail,
 	reuseTranscriptRows,
 	scrollTranscriptToTail,
 	shouldRePinTranscript,
@@ -72,6 +74,15 @@ const LIVE_EDGE_THRESHOLD_PX = 1;
 
 /** Overscan rows not mounted yet that one commit may mount; on-screen rows never wait. */
 const OVERSCAN_MOUNTS_PER_FRAME = 4;
+
+/**
+ * Rendered ahead of a history page's commit, one reply per task: the replies at the
+ * page's end are the rows that commit mounts on screen when the page refolds the
+ * rows the reader was on into an earlier card, and their markdown was most of it.
+ */
+function prewarmPageTail(page: MessagesPage): (() => void)[] {
+	return replyMarkdownTail(page.messages, 6).map(source => () => prewarmMarkdown(source));
+}
 
 /** The reader's place across a history page prepend. */
 interface PrependAnchor {
@@ -397,15 +408,17 @@ function SessionTranscript() {
 				: Math.ceil(element.getBoundingClientRect().height);
 		},
 		// Estimates sit just under what rows usually measure (a finished work card is
-		// rarely under 130px): a row's range is read at estimates first, and an estimate
-		// a quarter of the size mounted four times the rows a screen needs.
+		// rarely under 136px, an assistant reply under 145px, a user turn is about 63px):
+		// a row's range is read at estimates first, and an estimate a quarter of the size
+		// mounted four times the rows a screen needs. That is the page commit's own cost
+		// when an older page refolds the rows on screen into an earlier card.
 		estimateSize: i => {
-			const kind = rows[i]?.kind;
-			if (kind === "streaming") return 80;
-			if (kind === "pending") return 56;
-			if (kind === "process") return 128;
-			if (kind === "expander" || kind === "todoSnapshot") return 48;
-			if (kind === "message") return 72;
+			const row = rows[i];
+			if (row?.kind === "streaming") return 80;
+			if (row?.kind === "pending") return 56;
+			if (row?.kind === "process") return 136;
+			if (row?.kind === "expander" || row?.kind === "todoSnapshot") return 48;
+			if (row?.kind === "message") return row.message.role === "user" ? 64 : 144;
 			return 160;
 		},
 		overscan: 8,
@@ -474,7 +487,7 @@ function SessionTranscript() {
 	}, [virtualizer]);
 	const requestOlder = useCallback(async () => {
 		if (!prevCursor || isLoadingPage) return;
-		await loadOlderTranscript(tabId ?? undefined, capturePrependAnchor);
+		await loadOlderTranscript(tabId ?? undefined, capturePrependAnchor, prewarmPageTail);
 	}, [prevCursor, isLoadingPage, tabId, capturePrependAnchor]);
 	useLayoutEffect(() => {
 		const anchor = prependAnchorRef.current;
@@ -561,10 +574,11 @@ function SessionTranscript() {
 		void tailRowKey;
 		const frame = requestAnimationFrame(() => {
 			const el = parentRef.current;
-			if (!el) return;
+			// A wheel gesture can arrive before React cleans up this queued frame. Checked
+			// first: the edge test reads layout, and every measurement while the reader
+			// scrolls history re-ran this frame.
+			if (!el || userScrollIntentRef.current) return;
 			if (!followsTail(el)) return;
-			// A wheel gesture can arrive before React cleans up this queued frame.
-			if (userScrollIntentRef.current) return;
 			scrollTranscriptToTail(virtualizer, el);
 		});
 		return () => cancelAnimationFrame(frame);
@@ -875,64 +889,72 @@ function SessionTranscript() {
 					className="omp-transcript-canvas"
 					style={{ height: totalSize, position: "relative", width: "100%" }}
 				>
-					{virtualItems.map(item => {
-						const row = rows[item.index];
-						if (!row) return null;
-						const rowKey = rowKeys[item.index] ?? String(item.key);
-						return (
-							<div
-								key={item.key}
-								data-index={item.index}
-								data-row-key={rowKey}
-								data-transcript-kind={row.kind}
-								ref={virtualizer.measureElement}
-								style={{
-									position: "absolute",
-									top: 0,
-									left: 0,
-									width: "100%",
-									transform: `translateY(${item.start}px)`,
-								}}
-							>
-								<div className="omp-transcript-row w-full">
-									{row.kind === "message" ? (
-										<MessageBubble message={row.message} reaction={row.reaction} runningIndicator="dot" />
-									) : row.kind === "readGroup" ? (
-										<ReadGroupCard entries={row.entries} runningIndicator="dot" usage={row.usage} />
-									) : row.kind === "process" ? (
-										<ProcessGroup
-											expanded={expandedProcessKeys.has(rowKey)}
-											live={item.index === tailRowIndex}
-											onExpandedChange={updateProcessExpanded}
-											row={row}
-											rowKey={rowKey}
-											superseded={item.index < currentWorkRow}
-										/>
-									) : row.kind === "streaming" ? (
-										<StreamingRows
-											expanded={expandedProcessKeys.has(rowKey)}
-											onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
-											processInTail={liveTail}
-										/>
-									) : row.kind === "todoSnapshot" ? (
-										<TodoSnapshotCard entry={row.entry} />
-									) : row.kind === "expander" ? (
-										<Button
-											className="omp-history-expander"
-											icon={<History />}
-											onClick={() => setPreCompactionOpen(true)}
-											size="sm"
-											variant="secondary"
-										>
-											{t("chat.compaction.showEarlier", { count: row.count })}
-										</Button>
-									) : (
-										<TurnStatusRow attached={liveTail} />
-									)}
+					{/* The rows' containing block keeps one size: the canvas height changes with every
+					    measurement and page, and as the rows' containing block it laid every mounted
+					    row out again each time. */}
+					<div
+						className="omp-transcript-rows"
+						style={{ position: "absolute", top: 0, left: 0, width: "100%", height: 0 }}
+					>
+						{virtualItems.map(item => {
+							const row = rows[item.index];
+							if (!row) return null;
+							const rowKey = rowKeys[item.index] ?? String(item.key);
+							return (
+								<div
+									key={item.key}
+									data-index={item.index}
+									data-row-key={rowKey}
+									data-transcript-kind={row.kind}
+									ref={virtualizer.measureElement}
+									style={{
+										position: "absolute",
+										top: 0,
+										left: 0,
+										width: "100%",
+										transform: `translateY(${item.start}px)`,
+									}}
+								>
+									<div className="omp-transcript-row w-full">
+										{row.kind === "message" ? (
+											<MessageBubble message={row.message} reaction={row.reaction} runningIndicator="dot" />
+										) : row.kind === "readGroup" ? (
+											<ReadGroupCard entries={row.entries} runningIndicator="dot" usage={row.usage} />
+										) : row.kind === "process" ? (
+											<ProcessGroup
+												expanded={expandedProcessKeys.has(rowKey)}
+												live={item.index === tailRowIndex}
+												onExpandedChange={updateProcessExpanded}
+												row={row}
+												rowKey={rowKey}
+												superseded={item.index < currentWorkRow}
+											/>
+										) : row.kind === "streaming" ? (
+											<StreamingRows
+												expanded={expandedProcessKeys.has(rowKey)}
+												onExpandedChange={expanded => updateProcessExpanded(rowKey, expanded)}
+												processInTail={liveTail}
+											/>
+										) : row.kind === "todoSnapshot" ? (
+											<TodoSnapshotCard entry={row.entry} />
+										) : row.kind === "expander" ? (
+											<Button
+												className="omp-history-expander"
+												icon={<History />}
+												onClick={() => setPreCompactionOpen(true)}
+												size="sm"
+												variant="secondary"
+											>
+												{t("chat.compaction.showEarlier", { count: row.count })}
+											</Button>
+										) : (
+											<TurnStatusRow attached={liveTail} />
+										)}
+									</div>
 								</div>
-							</div>
-						);
-					})}
+							);
+						})}
+					</div>
 				</div>
 			</div>
 			<button

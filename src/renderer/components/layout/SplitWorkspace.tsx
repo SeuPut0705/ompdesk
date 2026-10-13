@@ -305,11 +305,16 @@ export function SplitWorkspace() {
 	if (!activeTabId) return null;
 	const visible = split ? splitTabIds(split) : [activeTabId];
 	const canDrop = dragTabId !== null && !visible.includes(dragTabId);
+	// Every grid around a pane has definite tracks: the pane is a size container
+	// (`omp-workspace`), and an auto track laid it out at an indefinite height to
+	// size itself first. Its height queries then matched a short pane and unmatched
+	// again in the same layout, so every work card in the transcript was restyled
+	// twice per frame.
 	const renderPane = (tabId: string) => (
 		<div
 			key={tabId}
 			data-split={split ? "pane" : undefined}
-			className="relative grid min-h-0 min-w-0"
+			className="relative grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
 			onDragOver={event => {
 				if (!canDrop) return;
 				event.preventDefault();
@@ -344,7 +349,7 @@ export function SplitWorkspace() {
 	);
 	const dragLabel = dragTabId ? labelFor(dragTabId) : null;
 	return (
-		<div className="omp-split-workspace relative grid min-h-0 min-w-0 flex-1">
+		<div className="omp-split-workspace relative grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]">
 			<SplitBranch node={split ?? { tabId: activeTabId }} path={[]} renderPane={renderPane} />
 			{dragLabel !== null && <DragChip title={dragLabel} />}
 		</div>

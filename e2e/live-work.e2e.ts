@@ -100,7 +100,9 @@ test("the live work surface never stretches the transcript below its rows", asyn
 			page.evaluate(() => {
 				const scroll = document.querySelector<HTMLElement>(".omp-transcript-scroll");
 				const canvas = document.querySelector<HTMLElement>(".omp-transcript-canvas");
-				const rows = [...(canvas?.querySelectorAll<HTMLElement>(":scope > [data-index]") ?? [])];
+				const rows = [
+					...(canvas?.querySelectorAll<HTMLElement>(":scope > .omp-transcript-rows > [data-index]") ?? []),
+				];
 				if (!scroll || !canvas || rows.length === 0) return null;
 				const contentBottom = Math.max(...rows.map(row => row.getBoundingClientRect().bottom));
 				return {

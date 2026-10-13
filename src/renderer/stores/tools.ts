@@ -1,5 +1,5 @@
 import { createStore } from "zustand/vanilla";
-import type { AgentMessage, AgentSessionEvent } from "../../shared/rpc-types";
+import type { AgentMessage, AgentSessionEvent, ToolCallContent } from "../../shared/rpc-types";
 import { resultDetails } from "../lib/format";
 import { parseStreamingArgs, streamingParseStep } from "../lib/streaming-json";
 import { createScopedStoreHook } from "./session-runtime-context";
@@ -26,6 +26,43 @@ export interface ToolEntry {
 
 function resultStatus(result: unknown, isError: boolean | undefined): ToolEntry["status"] {
 	return resultDetails(result)?.__interrupted === true ? "aborted" : isError ? "error" : "done";
+}
+
+/** A transcript call's entry: its result, when the transcript has one, else terminal `aborted`. */
+function transcriptEntry(
+	block: ToolCallContent,
+	message: AgentMessage,
+	result: AgentMessage | undefined,
+	now: number,
+): ToolEntry {
+	const startTime = timestampMs(message.timestamp, now);
+	return {
+		toolName: block.name,
+		args: block.arguments,
+		intent: block.intent,
+		status: result ? resultStatus(result, result.isError) : "aborted",
+		streamingArgs: "",
+		// Keep the same `{content, details}` envelope as the live path so
+		// renderers read history identically (details: diffs, exit codes,
+		// todo phases, counts — previously dropped here). It points at
+		// the transcript message, so the payload is held once.
+		result: result ? { content: result.content ?? null, details: result.details ?? null } : null,
+		isError: result?.isError ?? false,
+		startTime,
+		endTime: result ? timestampMs(result.timestamp, startTime) : null,
+	};
+}
+
+/** Results by call id, in transcript order: repeated raw ids pair by occurrence. */
+function resultsByCallId(messages: readonly AgentMessage[]): Map<string, AgentMessage[]> {
+	const results = new Map<string, AgentMessage[]>();
+	for (const message of messages) {
+		if (message.role !== "toolResult" || !message.toolCallId) continue;
+		const list = results.get(message.toolCallId);
+		if (list) list.push(message);
+		else results.set(message.toolCallId, [message]);
+	}
+	return results;
 }
 
 export interface ToolsStore {
@@ -61,6 +98,19 @@ export interface ToolsStore {
 	 * routing. Everything else is rebuilt from the transcript.
 	 */
 	hydrateMessages: (messages: AgentMessage[], options?: { turnIsLive?: boolean; keepChangedSince?: number }) => void;
+	/**
+	 * Add an older history page, `older`, in front of the transcript the entries
+	 * were hydrated from, `loaded`. Entries already there keep their objects, so
+	 * nothing on screen re-renders for a page prepended above it. A page that could
+	 * re-pair the loaded calls with results (a call id seen before, a result for a
+	 * call outside the page, a call answered outside it) rebuilds from the whole
+	 * transcript instead, as `hydrateMessages` with the same options.
+	 */
+	prependMessages: (
+		older: AgentMessage[],
+		loaded: AgentMessage[],
+		options?: { turnIsLive?: boolean; keepChangedSince?: number },
+	) => void;
 	applyEvents: (events: AgentSessionEvent[]) => void;
 	/** Resolve a stock call id to its latest occurrence-specific entry key. */
 	entryKeyForCallId: (id: string) => string;
@@ -212,13 +262,7 @@ export const createToolsStore = () => {
 			resetEntryKeyTracking();
 
 			// Pair repeated raw ids by occurrence, not with a last-write-wins map.
-			const results = new Map<string, AgentMessage[]>();
-			for (const message of messages) {
-				if (message.role !== "toolResult" || !message.toolCallId) continue;
-				const list = results.get(message.toolCallId);
-				if (list) list.push(message);
-				else results.set(message.toolCallId, [message]);
-			}
+			const results = resultsByCallId(messages);
 			const resultIndexes = new Map<string, number>();
 
 			const tools = new Map<string, ToolEntry>();
@@ -237,23 +281,8 @@ export const createToolsStore = () => {
 					const resultIndex = resultIndexes.get(block.id) ?? 0;
 					const result = results.get(block.id)?.[resultIndex];
 					resultIndexes.set(block.id, resultIndex + 1);
-					const startTime = timestampMs(message.timestamp, now);
 					if (!result) unanswered.push(key);
-					tools.set(key, {
-						toolName: block.name,
-						args: block.arguments,
-						intent: block.intent,
-						status: result ? resultStatus(result, result.isError) : "aborted",
-						streamingArgs: "",
-						// Keep the same `{content, details}` envelope as the live path so
-						// renderers read history identically (details: diffs, exit codes,
-						// todo phases, counts — previously dropped here). It points at
-						// the transcript message, so the payload is held once.
-						result: result ? { content: result.content ?? null, details: result.details ?? null } : null,
-						isError: result?.isError ?? false,
-						startTime,
-						endTime: result ? timestampMs(result.timestamp, startTime) : null,
-					});
+					tools.set(key, transcriptEntry(block, message, result, now));
 				}
 				if (unanswered.length > 0) {
 					trailingUnanswered = unanswered;
@@ -307,6 +336,50 @@ export const createToolsStore = () => {
 				finishedVersion: state.finishedVersion + 1,
 				hydrationVersion: state.hydrationVersion + 1,
 				partialResults,
+			});
+		},
+		prependMessages: (older, loaded, options) => {
+			const rebuild = () => get().hydrateMessages([...older, ...loaded], options);
+			if (loaded.length === 0) return rebuild();
+			const results = resultsByCallId(older);
+			const calls = new Map<string, number>();
+			for (const message of older) {
+				if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+				for (const block of message.content) {
+					if (block.type !== "toolCall") continue;
+					// The same raw id again would shift the occurrence keys of the loaded calls.
+					if (nextOccurrenceByCallId.has(block.id)) return rebuild();
+					calls.set(block.id, (calls.get(block.id) ?? 0) + 1);
+				}
+			}
+			for (const callId of results.keys()) if (!calls.has(callId)) return rebuild();
+			const unanswered = new Set<string>();
+			for (const [callId, count] of calls) if ((results.get(callId)?.length ?? 0) < count) unanswered.add(callId);
+			if (
+				unanswered.size > 0 &&
+				loaded.some(message => message.role === "toolResult" && unanswered.has(message.toolCallId ?? ""))
+			)
+				return rebuild();
+			const now = Date.now();
+			const resultIndexes = new Map<string, number>();
+			const entries: [string, ToolEntry][] = [];
+			for (const message of older) {
+				if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+				for (const block of message.content) {
+					if (block.type !== "toolCall") continue;
+					const key = allocateEntryKey(block.id);
+					bindCallEntryKey(block, block.id, key);
+					const resultIndex = resultIndexes.get(block.id) ?? 0;
+					resultIndexes.set(block.id, resultIndex + 1);
+					entries.push([key, transcriptEntry(block, message, results.get(block.id)?.[resultIndex], now)]);
+				}
+			}
+			if (entries.length === 0) return;
+			// Older calls are never the streaming turn's: every one is terminal.
+			const state = get();
+			set({
+				finishedTools: new Map([...entries, ...state.finishedTools]),
+				finishedVersion: state.finishedVersion + 1,
 			});
 		},
 		applyEvents: events => {

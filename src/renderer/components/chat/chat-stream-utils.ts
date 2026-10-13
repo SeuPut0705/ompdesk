@@ -366,6 +366,24 @@ function splitMessageReaction(message: AgentMessage): { message: AgentMessage; r
 	return { message: { ...message, content }, reaction: split.emoji };
 }
 
+/**
+ * The markdown sources of the last `limit` replies in `messages`, as their rows
+ * render them: an older history page's end is what the commit that prepends it
+ * mounts first (the rows a refold puts on screen).
+ */
+export function replyMarkdownTail(messages: readonly AgentMessage[], limit: number): string[] {
+	const sources: string[] = [];
+	let replies = 0;
+	for (let index = messages.length - 1; index >= 0 && replies < limit; index--) {
+		const message = messages[index];
+		if (message?.role !== "assistant" || messageContent(message).some(block => block.type === "toolCall")) continue;
+		replies++;
+		for (const block of messageContent(splitMessageReaction(message).message))
+			if (block.type === "text" && isRenderableMessageText(block.text)) sources.push(block.text);
+	}
+	return sources;
+}
+
 function messageToolIds(message: AgentMessage): string[] {
 	return messageContent(message)
 		.filter(block => block.type === "toolCall")

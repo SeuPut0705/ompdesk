@@ -119,7 +119,9 @@ async function measure(
 	// began (remounts), the most mounted by one commit, and how many elements
 	// appear inside rows that stayed mounted.
 	await page.evaluate(() => {
-		const canvas = document.querySelector(".omp-transcript-canvas");
+		// Rows sit in the canvas, or in its rows layer (a fixed-size containing block).
+		const outer = document.querySelector(".omp-transcript-canvas");
+		const canvas = outer?.querySelector(":scope > .omp-transcript-rows") ?? outer;
 		const mounted = canvas ? [...canvas.children].map(row => (row as HTMLElement).dataset.rowKey ?? "") : [];
 		const churn = {
 			rowMounts: 0,
@@ -174,7 +176,7 @@ async function measure(
 			const coverage = (scroller: HTMLElement, canvas: HTMLElement) => {
 				const top = scroller.scrollTop;
 				const bottom = Math.min(top + scroller.clientHeight, canvas.offsetHeight);
-				const rows = [...canvas.children]
+				const rows = [...(canvas.querySelector(":scope > .omp-transcript-rows") ?? canvas).children]
 					.map(node => {
 						const row = node as HTMLElement;
 						// Rows sit at a transform (translateY, or the virtualizer's direct
@@ -183,7 +185,10 @@ async function measure(
 							? Number(/translate(?:Y\(|3d\([^,]+,\s*)(-?[\d.]+)px/.exec(row.style.transform)?.[1] ?? Number.NaN)
 							: Number.parseFloat(row.style.top);
 						const sized = { key: row.dataset.rowKey ?? "", y, h: row.offsetHeight };
-						stability.heights.set(sized.key, { kind: row.dataset.transcriptKind ?? "", h: sized.h });
+						stability.heights.set(sized.key, {
+							kind: `${row.dataset.transcriptKind ?? ""}${row.querySelector(".omp-user-turn") ? ":user" : ""}`,
+							h: sized.h,
+						});
 						return sized;
 					})
 					.filter(row => Number.isFinite(row.y))

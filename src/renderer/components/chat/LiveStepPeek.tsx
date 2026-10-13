@@ -602,7 +602,11 @@ export function LiveStepPeek({
 		(canAutoFollow && !!shownAgent && !waitingFor);
 	return (
 		<div
-			className={cx("omp-live-step", motion && "omp-work-motion")}
+			// Entrance motion (chips popping in, lanes fading in, the outcome unfolding) is for
+			// work that arrives while the reader watches. A card that mounts finished, as
+			// history does on every scroll, appears as it is: its animations restyled and
+			// re-laid out the transcript every frame while a scroll mounted cards.
+			className={cx("omp-live-step", motion && wasLive.current && "omp-work-motion")}
 			ref={boxRef}
 			data-following={live}
 			data-running={running}

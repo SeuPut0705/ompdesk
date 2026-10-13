@@ -314,13 +314,34 @@ async function fetchTranscriptTail(command: TabCommand): Promise<RpcResponse> {
 	return !response.success && response.code === "stale_cursor" ? command(request) : response;
 }
 
+/**
+ * Resolves in a task of its own right after the next frame paints. A history page
+ * received (IPC, deserializing a few MB) and rendered in one task made the longest
+ * task of a history scroll, and the frame that painted it the longest frame.
+ */
+function afterNextPaint(): Promise<void> {
+	const { promise, resolve } = Promise.withResolvers<void>();
+	requestAnimationFrame(() => setTimeout(resolve, 0));
+	return promise;
+}
+
 function retainLoadedHistory(fetched: AgentMessage[], current: AgentMessage[]): AgentMessage[] {
 	const firstId = fetched[0]?.entryId;
 	const overlap = firstId ? current.findIndex(message => message.entryId === firstId) : -1;
 	return overlap > 0 ? [...current.slice(0, overlap), ...fetched] : fetched;
 }
 
-export async function loadOlderTranscript(tabId?: string, beforePrepend?: () => void): Promise<boolean> {
+/**
+ * Load the history page before the loaded transcript. The page is received, then
+ * `prepare`'s jobs run one task each after that frame paints (work the commit
+ * would otherwise do itself), then the page is committed in a task of its own
+ * after the next paint, `beforePrepend` first.
+ */
+export async function loadOlderTranscript(
+	tabId?: string,
+	beforePrepend?: () => void,
+	prepare?: (page: MessagesPage) => (() => void)[],
+): Promise<boolean> {
 	const runtime = tabId ? sessionRuntime(tabId) : focusedSessionRuntime();
 	const store = tabId ? sessionRuntimeStore<MessagesStore>(tabId, "messages") : useMessagesStore;
 	if (!store?.getState().prevCursor || store.getState().isLoadingPage) return false;
@@ -360,11 +381,22 @@ export async function loadOlderTranscript(tabId?: string, beforePrepend?: () => 
 			}
 		}
 		if (!response.success) throw new Error(response.error ?? "Transcript page could not be loaded");
+		const jobs = prepare?.(response.data as MessagesPage) ?? [];
+		if (jobs.length > 0) await afterNextPaint();
+		for (const job of jobs) {
+			job();
+			const { promise, resolve } = Promise.withResolvers<void>();
+			setTimeout(resolve, 0);
+			await promise;
+		}
+		await afterNextPaint();
 		if ((tabId && sessionRuntime(tabId) !== runtime) || store.getState().messages[0] !== before[0]) return false;
 		beforePrepend?.();
+		const loaded = store.getState().messages;
 		store.getState().prependPage(response.data as MessagesPage);
+		const messages = store.getState().messages;
 		const session = tabId ? sessionRuntimeStore<SessionStore>(tabId, "session") : useSessionStore;
-		tools?.getState().hydrateMessages(store.getState().messages, {
+		tools?.getState().prependMessages(messages.slice(0, messages.length - loaded.length), loaded, {
 			turnIsLive: session?.getState().isStreaming === true,
 			keepChangedSince: beforeTools,
 		});

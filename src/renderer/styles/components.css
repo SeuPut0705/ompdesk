@@ -1181,7 +1181,7 @@
 	text-overflow: ellipsis;
 }
 
-.omp-work-card[data-motion="true"] .omp-work-card-activity-text {
+.omp-work-motion .omp-work-card[data-motion="true"] .omp-work-card-activity-text {
 	animation: omp-work-lane-activity var(--sc-duration-med) var(--sc-ease-enter);
 }
 
@@ -1351,7 +1351,9 @@
 .omp-work-frame[data-outgoing] {
 	pointer-events: none;
 }
-.omp-work-crossfade[data-motion="true"] > [data-incoming] {
+/* A frame fades in over the one it replaces; a card's first frame only when the card arrives live. */
+.omp-work-motion .omp-work-crossfade[data-motion="true"] > [data-incoming],
+.omp-work-crossfade[data-motion="true"] > [data-incoming]:not(:last-child) {
 	animation: omp-work-stage-in var(--sc-duration-med) var(--sc-ease-standard);
 }
 .omp-work-crossfade[data-motion="true"] > [data-outgoing] {
