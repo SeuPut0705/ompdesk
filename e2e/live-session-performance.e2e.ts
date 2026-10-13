@@ -363,23 +363,29 @@ async function measure(
 			innerElements: churn.innerElements,
 		};
 	});
-	const rafFrames = await page.evaluate(from => {
-		const raf = Reflect.get(window, "__ompRaf") as { deltas: [number, number][]; running: boolean };
-		raf.running = false;
-		const sorted = raf.deltas.map(([, ms]) => ms).sort((a, b) => a - b);
-		return {
-			count: sorted.length,
-			maxMs: Math.round(sorted.at(-1) ?? 0),
-			p99Ms: Math.round(sorted[Math.floor(sorted.length * 0.99)] ?? 0),
-			over33: sorted.filter(ms => ms > 34).length,
-			over50: sorted.filter(ms => ms > 50).length,
-			// The longest intervals, at their start (ms into the window).
-			worst: [...raf.deltas]
-				.sort((a, b) => b[1] - a[1])
-				.slice(0, 5)
-				.map(([at, ms]) => `${Math.round(ms)}ms@${Math.round(at - from)}`),
-		};
-	}, before.now);
+	const rafFrames = await page.evaluate(
+		({ from, to }) => {
+			const raf = Reflect.get(window, "__ompRaf") as { deltas: [number, number][]; running: boolean };
+			raf.running = false;
+			// Only intervals inside the window: the ones around it span the harness's own
+			// setup and teardown (starting and flushing a trace stalls the renderer).
+			const deltas = raf.deltas.filter(([at, ms]) => at >= from && at + ms <= to);
+			const sorted = deltas.map(([, ms]) => ms).sort((a, b) => a - b);
+			return {
+				count: sorted.length,
+				maxMs: Math.round(sorted.at(-1) ?? 0),
+				p99Ms: Math.round(sorted[Math.floor(sorted.length * 0.99)] ?? 0),
+				over33: sorted.filter(ms => ms > 34).length,
+				over50: sorted.filter(ms => ms > 50).length,
+				// The longest intervals, at their start (ms into the window).
+				worst: [...deltas]
+					.sort((a, b) => b[1] - a[1])
+					.slice(0, 5)
+					.map(([at, ms]) => `${Math.round(ms)}ms@${Math.round(at - from)}`),
+			};
+		},
+		{ from: before.now, to: after.now },
+	);
 	const stability = await page.evaluate(() => {
 		const probe = Reflect.get(window, "__ompStability") as
 			| { running: boolean; heights: Map<string, { kind: string; h: number }> }

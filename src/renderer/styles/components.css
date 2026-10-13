@@ -2167,7 +2167,9 @@
 	display: block;
 	min-height: 1lh;
 }
-.omp-work-motion .omp-bash-line {
+/* Only lines that arrived on screen: a surface mounting with a log in it marks none of it.
+   `:where` keeps the reduced-motion override below winning. */
+.omp-work-motion .omp-bash-line:where([data-arrived]) {
 	animation: omp-work-arrival var(--sc-duration-slow) var(--sc-ease-standard);
 }
 /* The caret belongs to the nearest card's own step: a lane's finished output inside a running

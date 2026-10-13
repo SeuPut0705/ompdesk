@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext, useLayoutEffect, useRef, useState } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 /** Read the same token CSS uses, with its default for DOM-only test environments. */
 export function workMotionDuration(element: Element | null) {
@@ -17,10 +17,19 @@ export function useWorkFrameOutgoing() {
 	return useContext(OutgoingFrame);
 }
 
+interface Frame {
+	identity: string;
+	children: ReactNode;
+}
+
 /**
  * The incoming frame fades in on an opaque surface above the previous one, which fades out
  * underneath and unmounts when its fade ends. A step arriving mid-fade drops the older frame
  * at once: at most two layers ever exist, and none outlives its fade.
+ *
+ * Both layers keep one element shape keyed by identity, and the outgoing layer is chosen in
+ * the same render that changes the identity: the departing frame's DOM stays where it is and
+ * only turns outgoing, instead of being torn down and built again for its fade.
  */
 export function WorkCrossfade({
 	identity,
@@ -31,40 +40,52 @@ export function WorkCrossfade({
 	motion: boolean;
 	children: ReactNode;
 }) {
-	const frame = useRef({ identity, children });
-	const [outgoing, setOutgoing] = useState<{ identity: string; children: ReactNode } | null>(null);
+	// What the last commit showed: the outgoing layer keeps showing exactly that.
+	const committed = useRef<Frame>({ identity, children });
+	const [shown, setShown] = useState(identity);
+	const [outgoing, setOutgoing] = useState<Frame | null>(null);
+	if (shown !== identity) {
+		setShown(identity);
+		setOutgoing(motion ? committed.current : null);
+	} else if (!motion && outgoing) setOutgoing(null);
+	useLayoutEffect(() => {
+		committed.current = { identity, children };
+	});
 	const element = useRef<HTMLDivElement>(null);
-	useLayoutEffect(() => {
-		if (frame.current.identity !== identity && motion) setOutgoing(frame.current);
-		else if (!motion) setOutgoing(null);
-		frame.current = { identity, children };
-	}, [identity, motion, children]);
-	useLayoutEffect(() => {
+	useEffect(() => {
 		if (!outgoing) return;
-		// Fallback for an animation that never reports its end (hidden tab, no CSS).
+		// Fallback for an animation that never reports its end (hidden tab, no CSS). Read after
+		// the frame painted: style is clean then, so reading the token costs nothing.
 		const timer = setTimeout(() => setOutgoing(null), workMotionDuration(element.current));
 		return () => clearTimeout(timer);
 	}, [outgoing]);
+	const layers =
+		outgoing && outgoing.identity !== identity ? [{ identity, children }, outgoing] : [{ identity, children }];
 	return (
 		<div className="omp-work-crossfade" ref={element} data-motion={motion}>
 			{/* First in the DOM for readers and queries; CSS stacks it above the outgoing layer. */}
-			<div className="omp-work-frame" key={identity} data-incoming>
-				{children}
-			</div>
-			{outgoing ? (
-				<div
-					className="omp-work-frame"
-					key={`out:${outgoing.identity}`}
-					data-outgoing
-					aria-hidden
-					inert
-					onAnimationEnd={event => {
-						if (event.target === event.currentTarget) setOutgoing(null);
-					}}
-				>
-					<OutgoingFrame.Provider value>{outgoing.children}</OutgoingFrame.Provider>
-				</div>
-			) : null}
+			{layers.map(layer => {
+				const out = layer !== layers[0];
+				return (
+					<div
+						className="omp-work-frame"
+						key={layer.identity}
+						data-incoming={out ? undefined : true}
+						data-outgoing={out ? true : undefined}
+						aria-hidden={out || undefined}
+						inert={out || undefined}
+						onAnimationEnd={
+							out
+								? event => {
+										if (event.target === event.currentTarget) setOutgoing(null);
+									}
+								: undefined
+						}
+					>
+						<OutgoingFrame.Provider value={out}>{layer.children}</OutgoingFrame.Provider>
+					</div>
+				);
+			})}
 		</div>
 	);
 }

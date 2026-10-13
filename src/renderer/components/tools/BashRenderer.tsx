@@ -1,3 +1,4 @@
+import { memo, useState } from "react";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { cx, extractImageDataUrls, formatDuration, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -58,6 +59,20 @@ function BashOutput({ text }: { text: string }) {
 		);
 	});
 }
+
+/**
+ * One live terminal line. Lines that did not change skip rendering while output streams in,
+ * and only a line that arrived while the surface was on screen plays the arrival mark: a
+ * surface mounting with a long log already in it (a tab switch, a lane taking the stage)
+ * would otherwise start one animation per line.
+ */
+const LiveLine = memo(function LiveLine({ text, arrived }: { text: string; arrived: boolean }) {
+	return (
+		<span className="omp-bash-line" data-arrived={arrived || undefined}>
+			<BashOutput text={text} />
+		</span>
+	);
+});
 /**
  * Bash wire shape: `{ content: [{ type: "text", text }], details }` where
  * `details` is `BashToolDetails` (packages/coding-agent/src/tools/bash.ts):
@@ -236,6 +251,8 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 				? parsed.output.slice(promptEcho.length)
 				: parsed.output;
 	const outputLines = livePreview ? liveOutput.split("\n") : null;
+	// Lines complete when the surface mounted; the open last line still counts as arriving.
+	const [settledLines] = useState(() => (outputLines?.length ?? 1) - 1);
 
 	return (
 		<div className="flex flex-col gap-1.5">
@@ -295,9 +312,7 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 						<div className="whitespace-pre-wrap">
 							{outputLines ? (
 								outputLines.map((line, index) => (
-									<span className="omp-bash-line" key={index}>
-										<BashOutput text={line} />
-									</span>
+									<LiveLine key={index} text={line} arrived={index >= settledLines} />
 								))
 							) : (
 								<BashOutput text={parsed.output} />
