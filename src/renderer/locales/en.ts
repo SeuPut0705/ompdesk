@@ -952,6 +952,7 @@ export const en: Record<string, string> = {
 	"invPanel.memory.backend": "Memory backend: {backend}",
 	"invPanel.memory.active": "active",
 	"invPanel.memory.inactive": "inactive",
+	"invPanel.memory.off": "Off",
 	"invPanel.memory.writable": "writable",
 	"invPanel.memory.searchable": "searchable",
 	"invPanel.memory.working": "working",

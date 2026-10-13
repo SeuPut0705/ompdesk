@@ -122,13 +122,11 @@ export function FrustrationRoute({ range }: { range: StatsRange }) {
 								index % 2 === 1 ? (
 									<code
 										className="rounded-(--sc-radius-xs) bg-(--sc-surface-3) px-1 font-mono text-(--sc-text-secondary)"
-										// biome-ignore lint/suspicious/noArrayIndexKey: parts of one fixed sentence, never reordered.
 										key={index}
 									>
 										{part}
 									</code>
 								) : (
-									// biome-ignore lint/suspicious/noArrayIndexKey: parts of one fixed sentence, never reordered.
 									<Fragment key={index}>{part}</Fragment>
 								),
 							)}

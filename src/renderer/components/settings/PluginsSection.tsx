@@ -572,9 +572,14 @@ function MemoryStatus({ report }: { report: RpcMemoryReport }) {
 	return (
 		<div className="flex flex-col gap-3">
 			<div className="flex flex-wrap items-center gap-1.5">
-				<Badge dot variant={status.active ? "success" : "error"}>
-					{status.active ? t("invPanel.memory.active") : t("invPanel.memory.inactive")}
-				</Badge>
+				{/* A backend the user turned off is a setting, not a failure: neutral, never red. */}
+				{report.backend === "off" ? (
+					<Badge variant="muted">{t("invPanel.memory.off")}</Badge>
+				) : (
+					<Badge dot variant={status.active ? "success" : "error"}>
+						{status.active ? t("invPanel.memory.active") : t("invPanel.memory.inactive")}
+					</Badge>
+				)}
 				<Badge dot={status.writable} variant={status.writable ? "success" : "muted"}>
 					{t("invPanel.memory.writable")}: {t(status.writable ? "invPanel.memory.yes" : "invPanel.memory.no")}
 				</Badge>

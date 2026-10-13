@@ -945,6 +945,7 @@ export const ko: Record<string, string> = {
 	"invPanel.memory.backend": "메모리 백엔드: {backend}",
 	"invPanel.memory.active": "활성",
 	"invPanel.memory.inactive": "비활성",
+	"invPanel.memory.off": "꺼짐",
 	"invPanel.memory.writable": "쓰기 가능",
 	"invPanel.memory.searchable": "검색 가능",
 	"invPanel.memory.working": "워킹 메모리",

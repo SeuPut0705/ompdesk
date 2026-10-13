@@ -225,4 +225,39 @@ describe("PluginsSection", () => {
 		// Nothing shown, so no "read-only" note under it.
 		expect(text).not.toContain("Read-only: shows what omp found.");
 	});
+
+	it("shows a backend the user turned off as a neutral Off, not a red failure", async () => {
+		const getMemoryReport = vi.fn(async () => ({
+			success: true as const,
+			data: {
+				backend: "off",
+				status: { active: false, writable: false, searchable: false, message: "Memory backend is off." },
+			},
+		}));
+		(window as unknown as { omp: { rpc: { getMemoryReport: typeof getMemoryReport } } }).omp = {
+			rpc: { getMemoryReport },
+		};
+		useSessionStore.setState({ status: "ready", cwd: "/repo" });
+		useTabsStore.setState({
+			activeTabId: "tab-1",
+			tabs: [{ id: "tab-1", cwd: "/repo", status: "ready", kind: "agent", unreadDone: false }],
+			bundles: new Map(),
+		});
+		resetTabRoute();
+		container = document.createElement("div") as unknown as TestElement;
+		document.body.appendChild(container as never);
+		root = createRoot(container as unknown as Element);
+		await act(async () => {
+			root?.render(
+				<I18nProvider>
+					<MemoryReportSection />
+				</I18nProvider>,
+			);
+		});
+		await flush();
+
+		const text = document.body.textContent ?? "";
+		expect(text).toContain("Off");
+		expect(text).not.toContain("inactive");
+	});
 });
