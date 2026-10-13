@@ -4,7 +4,7 @@ import { formatDuration } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { ZoomableImage } from "../common/ZoomableImage";
+import { ToolImage } from "../tools/ToolImage";
 import { useRunOutcome } from "./use-work-run";
 import { WorkStatus } from "./WorkStatus";
 import { projectPath } from "./work-run";
@@ -44,8 +44,8 @@ export function WorkOutcome({
 	const imageRow = outcome.images.length ? (
 		<div className="omp-work-images" aria-label={t("chat.work.images")}>
 			{images.map(image => (
-				<figure key={image.src} className="omp-work-image" title={image.label}>
-					<ZoomableImage alt={image.label} src={image.src} loading="lazy" decoding="async" />
+				<figure key={image.key} className="omp-work-image" title={image.label}>
+					<ToolImage src={image.src} path={image.path} loading="lazy" decoding="async" />
 					<figcaption className="font-mono">{image.label.split("/").at(-1)}</figcaption>
 				</figure>
 			))}

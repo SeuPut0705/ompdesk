@@ -335,20 +335,33 @@ export function resultBodyText(result: unknown): string {
 
 const SINGLE_IMAGE_KEYS = ["image", "screenshot", "dataUrl", "data_url", "content"] as const;
 const MULTI_IMAGE_KEYS = [...SINGLE_IMAGE_KEYS, "images", "details"] as const;
+/**
+ * Stock's persisted stand-in for image bytes it moved to its blob store. Main
+ * restores the bytes before a transcript reaches the renderer; one still here
+ * means the blob itself is gone.
+ */
+const BLOB_REF_PREFIX = "blob:sha256:";
 
-function collectImageDataUrls(value: unknown, keys: readonly string[], depth = 0): string[] {
+/**
+ * An image payload's source: its data URL, or the payload itself when it holds
+ * no bytes to draw (a blob reference whose blob is gone, or empty data).
+ */
+function imageSource(data: string, mimeType: string): string {
+	return data && !data.startsWith(BLOB_REF_PREFIX) ? `data:${mimeType};base64,${data}` : data;
+}
+
+function collectImageSources(value: unknown, keys: readonly string[], depth = 0): string[] {
 	if (value == null || depth > 4) return [];
 	if (typeof value === "string") {
 		return value.startsWith("data:image/") ? [value] : [];
 	}
 	if (Array.isArray(value)) {
-		return value.flatMap(item => collectImageDataUrls(item, keys, depth + 1));
+		return value.flatMap(item => collectImageSources(item, keys, depth + 1));
 	}
 	if (typeof value === "object") {
 		const r = value as Record<string, unknown>;
 		if (r.type === "image" && typeof r.data === "string") {
-			const media = typeof r.mimeType === "string" ? r.mimeType : "image/png";
-			return [`data:${media};base64,${r.data}`];
+			return [imageSource(r.data, typeof r.mimeType === "string" ? r.mimeType : "image/png")];
 		}
 		if (r.type === "image" && r.source && typeof r.source === "object") {
 			const src = r.source as Record<string, unknown>;
@@ -363,16 +376,41 @@ function collectImageDataUrls(value: unknown, keys: readonly string[], depth = 0
 		if (typeof r.data === "string" && typeof r.mimeType === "string" && r.mimeType.startsWith("image/")) {
 			// `generate_image` reports its pictures as bare `{ data, mimeType }`
 			// pairs under `details.images` — same bytes, no content-block tag.
-			return [`data:${r.mimeType};base64,${r.data}`];
+			return [imageSource(r.data, r.mimeType)];
 		}
-		return keys.flatMap(key => collectImageDataUrls(r[key], keys, depth + 1));
+		return keys.flatMap(key => collectImageSources(r[key], keys, depth + 1));
 	}
 	return [];
 }
 
+/**
+ * One picture a tool result or message carries. `src` is its inline-renderable
+ * data URL, or `null` when the bytes are unavailable (only stock's blob
+ * reference survived, or the payload is empty); `key` identifies it either way.
+ */
+export interface ResultImage {
+	key: string;
+	src: string | null;
+}
+
+function resultImage(source: string): ResultImage {
+	return { key: source, src: source.startsWith("data:") ? source : null };
+}
+
+/** Every picture inside an unknown tool result, drawable or not. */
+export function extractResultImages(value: unknown): ResultImage[] {
+	return [...new Set(collectImageSources(value, MULTI_IMAGE_KEYS))].map(resultImage);
+}
+
+/** The first picture of a single-image result (a read, a screenshot), drawable or not. */
+export function extractResultImage(value: unknown): ResultImage | null {
+	const source = collectImageSources(value, SINGLE_IMAGE_KEYS)[0];
+	return source === undefined ? null : resultImage(source);
+}
+
 /** Find every inline-renderable image inside an unknown tool result. */
 export function extractImageDataUrls(value: unknown): string[] {
-	return [...new Set(collectImageDataUrls(value, MULTI_IMAGE_KEYS))];
+	return extractResultImages(value).flatMap(image => (image.src === null ? [] : [image.src]));
 }
 
 /**
@@ -380,7 +418,7 @@ export function extractImageDataUrls(value: unknown): string[] {
  * Remote URLs are not returned — the renderer CSP only allows 'self', data:, blob:.
  */
 export function extractImageDataUrl(value: unknown): string | null {
-	return collectImageDataUrls(value, SINGLE_IMAGE_KEYS)[0] ?? null;
+	return collectImageSources(value, SINGLE_IMAGE_KEYS).find(source => source.startsWith("data:")) ?? null;
 }
 
 /** Copy text to the clipboard (Chromium renderer). Resolves true on success. */

@@ -1,5 +1,5 @@
 import type { AgentProgress } from "../../../shared/rpc-types";
-import { extractImageDataUrls, resultDetails, resultText } from "../../lib/format";
+import { extractResultImages, resultDetails, resultText } from "../../lib/format";
 import { asRecord } from "../../lib/wire-value";
 import type { ToolEntry } from "../../stores/tools";
 import { toolDiffStats } from "../tools/diff-stats";
@@ -152,10 +152,21 @@ export interface WorkFileOutcome {
 	deleted?: boolean;
 }
 
+/**
+ * A picture in the outcome row. `src` is null when its bytes are unavailable;
+ * `path` is the file it came from (empty when none), which the row opens instead.
+ */
+export interface WorkImageOutcome {
+	key: string;
+	src: string | null;
+	path: string;
+	label: string;
+}
+
 export interface WorkOutcomes {
 	files: WorkFileOutcome[];
 	commands: WorkCommandOutcome[];
-	images: Array<{ src: string; label: string }>;
+	images: WorkImageOutcome[];
 }
 
 /**
@@ -173,7 +184,7 @@ export function workOutcomes(entries: readonly WorkEvidence[], stoppedAt?: numbe
 	const commands: WorkCommandOutcome[] = [];
 	// Pictures the work produced or looked at (screenshots read back, browser captures, generated
 	// images): the reply often talks about them, so the outcome shows them without opening steps.
-	const images: Array<{ src: string; label: string }> = [];
+	const images: WorkImageOutcome[] = [];
 	const seenImages = new Set<string>();
 	for (const evidence of [...entries].sort((a, b) => {
 		const left = "entry" in a ? a.entry : a;
@@ -192,11 +203,13 @@ export function workOutcomes(entries: readonly WorkEvidence[], stoppedAt?: numbe
 		const details = resultDetails(entry.result);
 		if (details?.source === "interrupt_skipped") continue;
 		if (!entry.isError) {
-			for (const src of extractImageDataUrls(entry.result)) {
-				if (seenImages.has(src)) continue;
-				seenImages.add(src);
+			for (const image of extractResultImages(entry.result)) {
+				if (seenImages.has(image.key)) continue;
+				seenImages.add(image.key);
 				const header = getToolHeader(entry.toolName, entry.args);
-				images.push({ src, label: header.path || header.target || entry.toolName });
+				// Stock's read names the file it showed in `details.mediaPath` (absolute).
+				const path = typeof details?.mediaPath === "string" ? details.mediaPath : (header.path ?? "");
+				images.push({ key: image.key, src: image.src, path, label: path || header.target || entry.toolName });
 			}
 		}
 		if (["write", "edit", "ast_edit", "apply_patch"].includes(entry.toolName) && !entry.isError) {

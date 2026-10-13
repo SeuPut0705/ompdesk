@@ -266,6 +266,9 @@ const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
 	redeem_reset_pass: 120_000,
 	get_transcript: 30_000,
 	get_transcript_page: 30_000,
+	// Subagent transcripts also read back every image blob the journal references.
+	get_subagent_messages: 30_000,
+	get_subagent_transcript: 30_000,
 	// Git/gh commands main runs itself: at least main's own answer budget
 	// (src/main/local/git/{worktree,pr}.ts), or the renderer reports a failure
 	// while the worktree, checkout, or PR still lands.

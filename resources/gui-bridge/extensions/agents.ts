@@ -1,7 +1,7 @@
 /**
- * Agent definitions, subagent revive, memory backend report, and TUI themes.
- * Ported from the omp-gui fork's rpc-agents / rpc-domains / rpc-mode theme
- * cases onto stock omp internals.
+ * Agent definitions, subagent revive and transcripts, memory backend report,
+ * and TUI themes. Ported from the omp-gui fork's rpc-agents / rpc-domains /
+ * rpc-mode theme cases onto stock omp internals.
  */
 import path from "node:path";
 import { findAllNearestProjectConfigDirs, getConfigDirs } from "@oh-my-pi/pi-coding-agent/config";
@@ -13,11 +13,12 @@ import { readRpcSubagentTranscript } from "@oh-my-pi/pi-coding-agent/modes/rpc/r
 import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-lifecycle";
 import { AgentRegistry, MAIN_AGENT_ID } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { BlobStore, parseBlobRef } from "@oh-my-pi/pi-coding-agent/session/blob-store";
 import { AgentParsingError } from "@oh-my-pi/pi-coding-agent/task/agents";
 import { discoverAgents } from "@oh-my-pi/pi-coding-agent/task/discovery";
 import { BUILTIN_TOOL_NAMES, HIDDEN_TOOL_NAMES } from "@oh-my-pi/pi-coding-agent/tools/builtin-names";
 import { getResolvedThemeColors } from "@oh-my-pi/pi-tui/theme";
-import { parseFrontmatter } from "@oh-my-pi/pi-utils";
+import { getBlobsDir, parseFrontmatter } from "@oh-my-pi/pi-utils";
 import { guard } from "../health";
 import type { BridgeMethods } from "../types";
 import { errorMessage, paramsOf, requireString } from "./shared";
@@ -177,6 +178,19 @@ export const methods: BridgeMethods = {
 			if (!(await Bun.file(sessionFile).exists()))
 				throw new Error(`Unknown subagent or session file unavailable: ${subagentId}`);
 			return readRpcSubagentTranscript(sessionFile, typeof p.fromByte === "number" ? p.fromByte : 0);
+		},
+
+		/**
+		 * The bytes behind one persisted image reference (`blob:sha256:<hex>`), base64, or
+		 * `null` once the blob is gone. Stock externalizes image data to its blob store and
+		 * resolves it only when it loads a session itself; transcripts parsed straight from a
+		 * JSONL (subagents) keep the reference. The store is the one stock's session manager uses.
+		 */
+		read_image_blob: async params => {
+			const hash = parseBlobRef(requireString(paramsOf(params), "ref"));
+			if (!hash) throw new Error("Invalid image blob reference");
+			const bytes = await new BlobStore(getBlobsDir()).get(hash);
+			return { data: bytes ? bytes.toString("base64") : null };
 		},
 
 		/** Active backend, structured status, and the `/memory stats` / `/memory diagnose` markdown; each hook best-effort. */

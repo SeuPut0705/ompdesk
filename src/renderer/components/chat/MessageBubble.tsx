@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { memo, useState } from "react";
 import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from "../../../shared/rpc-types";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
-import { copyText, cx, formatClock, formatTokens, uiLocale } from "../../lib/format";
+import { copyText, cx, extractResultImage, formatClock, formatTokens, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { forkSessionFromMessageInNewTab, isRenderableMessageText } from "../../lib/messages";
@@ -14,8 +14,9 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
-import { Badge, Button, IconButton, ZoomableImage } from "../common";
+import { Badge, Button, IconButton } from "../common";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
+import { ToolImage } from "../tools/ToolImage";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { TodoReminderNote } from "./TodoReminderNote";
@@ -41,13 +42,18 @@ const COMPACTION_METHOD_KEYS: Record<string, string> = {
 	shake: "chat.context.compactionMethod.shake",
 };
 
+/**
+ * An attached picture. Stock restores a journal's blob references when it loads
+ * the session; one that survives (its blob was collected), empty data, or bytes
+ * that do not decode show as the unavailable-image chip, never a broken image.
+ */
 function InlineImage({ image }: { image: ImageContent }) {
 	const t = useT();
-	const src = `data:${image.mimeType};base64,${image.data}`;
 	return (
-		<ZoomableImage
-			src={src}
-			alt={t("chat.attachedImage")}
+		<ToolImage
+			src={extractResultImage(image)?.src ?? null}
+			path=""
+			label={t("chat.attachedImage")}
 			className="my-1 max-h-48 max-w-64 rounded-(--sc-radius-md) border border-(--sc-border-subtle) object-contain"
 		/>
 	);

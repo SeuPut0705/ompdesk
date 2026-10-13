@@ -300,7 +300,7 @@ describe("SidebarSubagents", () => {
 		expect(commandForTab).toHaveBeenCalledWith(
 			TAB,
 			expect.objectContaining({ type: "get_subagent_messages", subagentId: "r1", sessionFile: "/tmp/r1.jsonl" }),
-			undefined,
+			expect.any(Number),
 		);
 		// The opened subagent's row reads as the selected one.
 		expect(row("r1").querySelector("button")?.getAttribute("aria-current")).toBe("true");

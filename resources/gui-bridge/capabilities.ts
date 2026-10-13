@@ -508,8 +508,9 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/discovery/helpers`]: ["parseAgentFields()"],
 			[`${AGENT}/modes/agents-hub-deps`]: ["createAgentsHubDeps()"],
 			[`${AGENT}/modes/rpc/rpc-subagents`]: ["readRpcSubagentTranscript()"],
+			[`${AGENT}/session/blob-store`]: ["BlobStore()", "BlobStore.prototype.get()", "parseBlobRef()"],
 			[`${AGENT}/task/agents`]: ["AgentParsingError"],
-			[UTILS]: ["parseFrontmatter()"],
+			[UTILS]: ["parseFrontmatter()", "getBlobsDir()"],
 			[`${AGENT}/memory-backend/resolve`]: ["resolveMemoryBackend()"],
 			[`${AGENT}/registry/agent-lifecycle`]: [
 				"AgentLifecycleManager.global()",

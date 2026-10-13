@@ -1,12 +1,12 @@
 import { FileText } from "lucide-react";
-import { extractImageDataUrl, headLines, languageFromPath, resultDetails, resultText } from "../../lib/format";
+import { basename, extractResultImage, headLines, languageFromPath, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_HEIGHT_LG, PREVIEW_SCROLL_LG, READ_PREVIEW_LINES } from "../../lib/preview";
 import { CodeBlock } from "../chat/CodeBlock";
-import { ZoomableImage } from "../common/ZoomableImage";
 import { ProcReadRenderer } from "./CoordinationRenderer";
 import { PathLink } from "./PathLink";
 import { ToolPathTarget, type ToolRendererProps } from "./ToolCard";
+import { ToolImage } from "./ToolImage";
 
 /**
  * File read: path header + syntax-highlighted preview. Prefers the sidecar's
@@ -16,6 +16,8 @@ import { ToolPathTarget, type ToolRendererProps } from "./ToolCard";
  */
 interface ReadToolDetails {
 	resolvedPath?: string;
+	/** Stock read's absolute path of the image or video it showed. */
+	mediaPath?: string;
 	url?: string;
 	finalUrl?: string;
 	displayContent?: { text: string; startLine: number; lineNumbers?: Array<number | null> };
@@ -51,7 +53,7 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult, 
 	const structuredPath = details.resolvedPath ?? details.finalUrl ?? details.url;
 	const basePath = typeof structuredPath === "string" && structuredPath ? structuredPath : stripReadSelector(path);
 	const display = details.displayContent;
-	const image = extractImageDataUrl(effective);
+	const image = extractResultImage(effective);
 	const rawText = display?.text ?? resultText(effective);
 	const { head, omitted } = headLines(rawText, READ_PREVIEW_LINES);
 
@@ -70,9 +72,10 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult, 
 				</div>
 			)}
 			{image ? (
-				<ZoomableImage
-					src={image}
-					alt={path || t("tools.image.alt")}
+				<ToolImage
+					src={image.src}
+					path={details.mediaPath ?? basePath}
+					label={basename(path)}
 					className={`${PREVIEW_HEIGHT_LG} rounded-md border border-[var(--omp-border-muted)] object-contain`}
 				/>
 			) : isError ? (

@@ -869,9 +869,16 @@ if (process.argv[2] === "stats") {
 		},
 	};
 	const promptHistory: Array<{ prompt: string; created_at: number; cwd?: string }> = [];
+	/** Stock's blob store: base64 bytes by sha256 hex, behind the `blob:sha256:` refs a journal persists. */
+	const imageBlobs = new Map<string, string>();
 	/** A handler returning `undefined` replies itself (deferred, or ahead of the events it pushes). */
 	const bridgeMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
 		capabilities: () => ({ ompVersion: "18.8.7", unavailable: [] }),
+		read_image_blob: params => {
+			const hash = /^blob:sha256:([a-f0-9]{64})$/.exec(String(params.ref))?.[1];
+			if (!hash) throw new Error("Invalid image blob reference");
+			return { data: imageBlobs.get(hash) ?? null };
+		},
 		history_recent: params =>
 			promptHistory.filter(entry => !params.cwd || entry.cwd === params.cwd).slice(0, Number(params.limit ?? 200)),
 		history_search: params =>
@@ -2104,6 +2111,105 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				results.push(result);
 			}
 			endTurn([answer, ...results]);
+		} else if (message === "fixture subagent screenshots") {
+			// A subagent reads two PNGs back. Its transcript comes from its JSONL the way
+			// stock serves it: image bytes persisted as `blob:sha256:` references. One
+			// blob is in the store; the other was collected.
+			const png = fs.readFileSync(nodePath.join(import.meta.dir, "../resources/icon.png")).toString("base64");
+			const hash = createHash("sha256").update(Buffer.from(png, "base64")).digest("hex");
+			imageBlobs.set(hash, png);
+			const shots = [
+				{ path: nodePath.join(process.cwd(), "screenshots", "home.png"), ref: `blob:sha256:${hash}` },
+				{ path: nodePath.join(process.cwd(), "screenshots", "gone.png"), ref: `blob:sha256:${"0".repeat(64)}` },
+			];
+			const agentId = "ShotReader";
+			const taskId = "fixture-shots-task";
+			const now = Date.now();
+			recordedMessages.set(
+				agentId,
+				shots.flatMap((shot, index): AgentMessage[] => [
+					{
+						role: "assistant",
+						timestamp: now + index * 2,
+						content: [
+							{ type: "toolCall", id: `${agentId}-read-${index}`, name: "read", arguments: { path: shot.path } },
+						],
+					},
+					{
+						role: "toolResult",
+						toolCallId: `${agentId}-read-${index}`,
+						toolName: "read",
+						content: [
+							{ type: "text", text: "Read image file [image/png]" },
+							{ type: "image", data: shot.ref, mimeType: "image/png" },
+						],
+						details: {
+							fileSize: 1024,
+							meta: { source: { type: "path", value: shot.path } },
+							mediaPath: shot.path,
+						},
+						isError: false,
+						timestamp: now + index * 2 + 1,
+					},
+				]),
+			);
+			const args = { tasks: [{ name: agentId, task: "Look at the screenshots" }] };
+			const call: AgentMessage = {
+				role: "assistant",
+				timestamp: now,
+				content: [{ type: "toolCall", id: taskId, name: "task", arguments: args }],
+				provider: model.provider,
+				model: model.id,
+				stopReason: "toolUse",
+			};
+			write({ type: "message_start", message: call });
+			appendMessage(call);
+			write({ type: "message_end", message: call });
+			write({ type: "tool_execution_start", toolCallId: taskId, toolName: "task", args });
+			const agent: SubagentSnapshot = {
+				id: agentId,
+				index: 0,
+				agent: "scout",
+				status: "completed",
+				live: false,
+				parentToolCallId: taskId,
+				lastUpdate: now,
+			};
+			subagentRoster = [agent];
+			write({ type: "subagent_lifecycle", payload: { ...agent, agentSource: "bundled", status: "started" } });
+			write({ type: "subagent_lifecycle", payload: { ...agent, agentSource: "bundled", status: "completed" } });
+			const taskResult = {
+				content: [{ type: "text" as const, text: "ShotReader looked at both screenshots." }],
+				details: { results: [{ id: agentId, agent: "scout", output: "Both screenshots read.", exitCode: 0 }] },
+			};
+			write({
+				type: "tool_execution_end",
+				toolCallId: taskId,
+				toolName: "task",
+				result: taskResult,
+				isError: false,
+			});
+			const result: AgentMessage = {
+				role: "toolResult",
+				toolCallId: taskId,
+				toolName: "task",
+				...taskResult,
+				isError: false,
+				timestamp: Date.now(),
+			};
+			appendMessage(result);
+			write({ type: "message_end", message: result });
+			const answer: AgentMessage = {
+				role: "assistant",
+				content: [{ type: "text", text: "Screenshots checked" }],
+				timestamp: Date.now(),
+				provider: model.provider,
+				model: model.id,
+				stopReason: "stop",
+			};
+			appendMessage(answer);
+			write({ type: "message_end", message: answer });
+			endTurn([user, call, result, answer]);
 		} else if (message === "fixture stream" || message === "fixture meter") {
 			const answer: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
 			write({ type: "message_start", message: answer });

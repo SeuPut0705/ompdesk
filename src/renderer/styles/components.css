@@ -2002,6 +2002,40 @@
 	white-space: nowrap;
 }
 
+/* The chip stands in for the thumbnail and already names the file. */
+.omp-work-image:has(> [data-image-unavailable]) figcaption {
+	display: none;
+}
+
+/* A tool picture whose bytes are gone: its file, openable, never a broken-image icon. */
+.omp-image-file-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--sc-space-1-5);
+	max-width: 100%;
+	min-width: 0;
+	min-height: var(--sc-control-sm);
+	padding: var(--sc-space-1) var(--sc-space-2);
+	border: 1px solid var(--sc-divider);
+	border-radius: var(--sc-radius-md);
+	color: var(--sc-text-muted);
+	font-size: var(--sc-font-xs);
+	justify-self: start;
+}
+
+.omp-image-file-chip-icon {
+	flex: none;
+	width: var(--sc-icon-sm);
+	height: var(--sc-icon-sm);
+	color: var(--sc-text-subtle);
+}
+
+.omp-image-file-chip-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .omp-work-outcome-more {
 	margin: var(--sc-space-1) 0 0 calc(var(--sc-icon-sm) + var(--sc-space-2));
 	color: var(--sc-accent);

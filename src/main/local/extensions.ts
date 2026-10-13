@@ -9,10 +9,13 @@
  * headless `/mcp` edits config files without touching live connections. So
  * the gui-bridge extension answers them in-process against the live session
  * (resources/gui-bridge/extensions/*), with the same result shapes the fork
- * returned. `abort_subagent` maps onto stock `cancel_subagent`.
+ * returned. `abort_subagent` maps onto stock `cancel_subagent`. Subagent
+ * transcripts (stock `get_subagent_messages`, the bridge's
+ * `get_subagent_transcript`) come back with their image bytes restored.
  */
 
 import type { RpcMcpServersResult } from "../../shared/rpc-types";
+import { resolveImageBlobs } from "./image-blobs";
 import { type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
 
 /** Forward a command to the bridge method of the same name, params minus the frame envelope. */
@@ -45,7 +48,6 @@ const BRIDGED = [
 	"get_agent_definition",
 	"get_agent_authoring",
 	"revive_subagent",
-	"get_subagent_transcript",
 	"get_theme_colors",
 ] as const;
 
@@ -59,6 +61,16 @@ async function abortSubagent(command: Parameters<LocalHandler>[0], ctx: LocalCom
 	});
 	// Stock refuses anything it does not list as a live subagent of this session (main, advisors, unknown, parked).
 	return cancelled ? { ok: true } : { ok: false, reason: "not_found" };
+}
+
+/** A transcript read whose `messages` carry their image bytes rather than stock's blob references. */
+async function withImageBytes<T extends { messages?: unknown }>(
+	read: Promise<T>,
+	ctx: LocalCommandContext,
+): Promise<T> {
+	const transcript = await read;
+	await resolveImageBlobs(transcript.messages, ctx.bridge);
+	return transcript;
 }
 
 /** A second reauth while one is in flight fails with the fork's `oauth_busy` code. */
@@ -87,4 +99,8 @@ export const handlers: Record<string, LocalHandler> = {
 	abort_subagent: abortSubagent,
 	mcp_reauth: mcpReauth,
 	mcp_action: mcpAction,
+	get_subagent_messages: ({ id: _id, ...command }, ctx) =>
+		withImageBytes(ctx.send<{ messages?: unknown }>(command), ctx),
+	get_subagent_transcript: ({ type, id: _id, ...params }, ctx) =>
+		withImageBytes(ctx.bridge.request<{ messages?: unknown }>(type, params), ctx),
 };

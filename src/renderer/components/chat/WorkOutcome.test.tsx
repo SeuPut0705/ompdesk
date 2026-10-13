@@ -245,7 +245,34 @@ describe("work outcome evidence", () => {
 		expect(view.querySelectorAll("[data-zoomable-image]")).toHaveLength(5);
 		expect(more?.getAttribute("aria-expanded")).toBe("true");
 		expect(imageExtractions).toBe(initialExtractions);
-		expect(view.querySelector("img")?.getAttribute("alt")).toBe("shots/image-0.png");
+		// Named by the file, never a raw path as alt text.
+		expect(view.querySelector("img")?.getAttribute("alt")).toBe("image-0.png");
 		expect(view.querySelector("details")).toBeNull();
+	});
+	it("draws a stored read image and shows one whose bytes are gone as its file, never a broken image", async () => {
+		// Stock's read of a PNG as a subagent journal persists it: the bytes live in the blob store.
+		const read = (path: string, data: string): ToolEntry => ({
+			...entry("read", { path }),
+			result: {
+				content: [
+					{ type: "text", text: "Read image file [image/png]" },
+					{ type: "image", data, mimeType: "image/png" },
+				],
+				details: { fileSize: 120207, meta: { source: { type: "path", value: path } }, mediaPath: path },
+			},
+		});
+		const view = await mount([
+			read("/tmp/ReloadTruth-real/scenarios/ko-group-1.png", "iVBORw0KGgo="),
+			read("/tmp/final2/real/scenarios/ko-group-1.png", `blob:sha256:${"0".repeat(64)}`),
+		]);
+		const images = [...view.querySelectorAll(".omp-work-images img")];
+		expect(images.map(image => image.getAttribute("src"))).toEqual(["data:image/png;base64,iVBORw0KGgo="]);
+		for (const image of view.querySelectorAll("img")) {
+			expect(image.getAttribute("src")).not.toContain("blob:sha256:");
+			expect(image.getAttribute("alt")).not.toContain("/");
+		}
+		const chip = view.querySelector(".omp-work-images [data-image-unavailable]");
+		expect(chip?.textContent).toContain("ko-group-1.png");
+		expect(chip?.querySelector("button")?.getAttribute("title")).toBe("/tmp/final2/real/scenarios/ko-group-1.png");
 	});
 });

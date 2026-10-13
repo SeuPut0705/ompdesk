@@ -511,3 +511,29 @@ describe("MessageBubble noise filtering", () => {
 		expect(html).toContain("Copy message text");
 	});
 });
+
+describe("MessageBubble attached images", () => {
+	it("draws attached bytes and shows a collected blob or empty data as a chip, never a broken data URL", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{
+						role: "user",
+						content: [
+							{ type: "text", text: "Look at these" },
+							{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" },
+							// Stock left the reference: its blob is gone from the store.
+							{ type: "image", data: `blob:sha256:${"0".repeat(64)}`, mimeType: "image/png" },
+							{ type: "image", data: "", mimeType: "image/png" },
+						],
+						timestamp: "2026-08-02T12:00:00.000Z",
+					}}
+				/>
+			</I18nProvider>,
+		);
+		const sources = [...html.matchAll(/<img[^>]*src="([^"]*)"/g)].map(match => match[1]);
+		expect(sources).toEqual(["data:image/png;base64,iVBORw0KGgo="]);
+		expect(html).not.toContain("blob:sha256:");
+		expect(html.match(/data-image-unavailable/g)).toHaveLength(2);
+	});
+});

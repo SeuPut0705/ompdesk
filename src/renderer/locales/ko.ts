@@ -2673,6 +2673,7 @@ export const ko: Record<string, string> = {
 	"tools.image.generating": "생성 중…",
 	"tools.image.alt": "이미지",
 	"tools.image.count": "×{count}",
+	"tools.image.unavailable": "이미지를 불러올 수 없어요",
 	"tools.astgrep.fallback": "AST 검색",
 	"tools.astgrep.matching": "매칭 중…",
 	"tools.astgrep.noMatches": "일치 항목 없음",
