@@ -13,6 +13,7 @@ import { uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useFocusedTabDevice } from "../../stores/remote";
 import { Badge, Button, ErrorDetail, Sheet, Spinner } from "../common";
+import { projectLabel } from "./ProjectsRoute";
 import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable, stopReasonLabel } from "./shared";
 
 const PAGE_SIZE = 25;
@@ -174,7 +175,11 @@ export function RequestsRoute({ range }: { range: StatsRange }) {
 			{
 				key: "folder",
 				label: t("stats.col.project"),
-				render: row => <span className="text-sc-2xs text-(--sc-text-subtle)">{row.folder}</span>,
+				render: row => (
+					<span className="text-sc-2xs break-all text-(--sc-text-subtle)" title={row.folder}>
+						{projectLabel(row.folder)}
+					</span>
+				),
 			},
 		],
 		[t],

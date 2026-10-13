@@ -2813,6 +2813,7 @@ export const en: Record<string, string> = {
 	"logPanel.loadFailed": "Couldn't load the logs",
 	"logPanel.waiting": "Waiting for log output…",
 	"logPanel.noMatch": "No lines match the filter.",
+	"logPanel.lineCount": "{count} lines",
 	"logPanel.jumpLabel": "Jump to latest",
 	"logPanel.latest": "latest",
 

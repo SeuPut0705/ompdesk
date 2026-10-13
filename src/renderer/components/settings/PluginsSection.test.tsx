@@ -222,5 +222,7 @@ describe("PluginsSection", () => {
 		);
 		// No promise of a future update in the UI.
 		expect(text).not.toContain("future update");
+		// Nothing shown, so no "read-only" note under it.
+		expect(text).not.toContain("Read-only: shows what omp found.");
 	});
 });

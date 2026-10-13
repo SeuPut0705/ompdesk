@@ -209,7 +209,7 @@ function TabPanel({
 				</div>
 			</div>
 			{children}
-			<p className="text-sc-xs text-(--sc-text-muted)">{footer}</p>
+			{footer && <p className="text-sc-xs text-(--sc-text-muted)">{footer}</p>}
 		</div>
 	);
 }
@@ -627,7 +627,8 @@ function MemoryTab({ resource, visible }: { resource: RpcResource<RpcMemoryRepor
 					)}
 				</span>
 			}
-			footer={t("invPanel.readonlyNote")}
+			// A backend with nothing to show says so in one line; "read-only" would describe nothing.
+			footer={report && (report.status || report.stats || report.diagnosis) ? t("invPanel.readonlyNote") : null}
 			label={t("invPanel.tabs.memory")}
 			resource={resource}
 			visible={visible}
@@ -681,7 +682,8 @@ export function MemoryReportSection() {
 	const tabRpc = useTabRpc();
 	const memory = useRpcResource<RpcMemoryReport>(() => tabRpc.getMemoryReport());
 	return (
-		<div id="settings-agent-memory-report">
+		// Same vertical rhythm as the settings rows around it.
+		<div className="settings-row py-3" id="settings-agent-memory-report">
 			<MemoryTab resource={memory} visible />
 		</div>
 	);

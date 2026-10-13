@@ -81,6 +81,9 @@ describe("FrustrationRoute", () => {
 		expect(text).toContain("10.0%"); // annoyed 20/200
 		expect(text).toContain("5.0%"); // at the assistant 10/200
 		expect(text).toContain("50 of 200 messages have a model verdict");
+		// The command reads as inline code, not with literal backticks.
+		expect(text).not.toContain("`");
+		expect(container.querySelector("code")?.textContent).toBe("omp stats");
 		// busiest model first; merged spellings listed under the label
 		expect(text.indexOf("gpt 5.6")).toBeLessThan(text.indexOf("opus 5"));
 		expect(text).toContain("gpt-5.6, openai/gpt-5.6");

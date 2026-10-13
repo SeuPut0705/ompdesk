@@ -11,6 +11,7 @@ import { afterEach, expect, it } from "vitest";
 import type { RequestPage, RequestRow } from "../../../shared/stats-types";
 import { formatUsd } from "../../lib/chart";
 import { I18nProvider } from "../../lib/i18n";
+import { projectLabel } from "./ProjectsRoute";
 import { RequestsRoute } from "./RequestsRoute";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -86,4 +87,11 @@ it("groups dollar amounts past a thousand", () => {
 	expect(formatUsd(2888.15)).toBe("$2,888.15");
 	expect(formatUsd(12.5)).toBe("$12.50");
 	expect(formatUsd(0.004)).toBe("$0.0040");
+});
+
+it("reads a stats folder without stock's scope dashes or path noise, never splitting hyphenated names", () => {
+	expect(projectLabel("-Desktop-GitHub-omgdesk")).toBe("Desktop-GitHub-omgdesk");
+	expect(projectLabel("--work--pi--")).toBe("work--pi");
+	expect(projectLabel("/private-tmp/")).toBe("private-tmp");
+	expect(projectLabel("/home/dev/projects/workspace-alpha")).toBe("workspace-alpha");
 });

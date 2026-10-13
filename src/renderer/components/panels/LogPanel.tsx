@@ -132,7 +132,12 @@ export function LogPanel() {
 						label: t(LEVEL_LABEL_KEY[level]),
 					}))}
 				/>
-				<span className="text-sc-xs tabular-nums text-(--sc-text-subtle)">{filtered.length}</span>
+				{/* The empty state already says there is nothing; a count needs its unit. */}
+				{filtered.length > 0 && (
+					<span className="text-sc-xs whitespace-nowrap tabular-nums text-(--sc-text-subtle)" data-log-count>
+						{t("logPanel.lineCount", { count: filtered.length })}
+					</span>
+				)}
 				<div className="ml-auto flex shrink-0 items-center gap-1">
 					<IconButton
 						disabled={filtered.length === 0}
