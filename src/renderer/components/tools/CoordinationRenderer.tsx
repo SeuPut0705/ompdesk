@@ -15,6 +15,7 @@ import { cx, formatDuration, resultDetails, resultText, sanitizeToolText } from 
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_SM } from "../../lib/preview";
 import { asArray, asNonEmptyString, asRecord } from "../../lib/wire-value";
+import { ProgressBar } from "../common/ProgressBar";
 import type { ToolRendererProps } from "./ToolCard";
 
 type JobStatus = "running" | "completed" | "failed" | "cancelled";
@@ -28,6 +29,10 @@ interface JobRow {
 	exitCode?: number;
 	resultText?: string;
 	errorText?: string;
+	/** The task agent's own completion estimate (0–100) while running. */
+	completionPercent?: number;
+	resolvedModel?: string;
+	advisor?: boolean;
 }
 
 interface AgentRow {
@@ -35,6 +40,7 @@ interface AgentRow {
 	live: boolean;
 	activity?: string;
 	ageMs?: number;
+	parentId?: string;
 }
 
 interface DaemonRow {
@@ -51,6 +57,7 @@ interface MessageRow {
 	from?: string;
 	body?: string;
 	ts?: number;
+	replyTo?: string;
 }
 
 function asJob(value: unknown): JobRow | undefined {
@@ -68,6 +75,10 @@ function asJob(value: unknown): JobRow | undefined {
 		exitCode: typeof row.exitCode === "number" ? row.exitCode : undefined,
 		resultText: asNonEmptyString(row.resultText),
 		errorText: asNonEmptyString(row.errorText),
+		completionPercent:
+			typeof row.completionPercent === "number" ? Math.min(100, Math.max(0, row.completionPercent)) : undefined,
+		resolvedModel: asNonEmptyString(row.resolvedModel),
+		advisor: row.advisor === true,
 	};
 }
 
@@ -85,6 +96,7 @@ function asAgent(value: unknown): AgentRow | undefined {
 		live: row.live !== false,
 		activity: asNonEmptyString(row.activity),
 		ageMs: typeof row.ageMs === "number" ? Math.max(0, row.ageMs) : undefined,
+		parentId: asNonEmptyString(row.parentId),
 	};
 }
 
@@ -121,6 +133,7 @@ function asMessage(value: unknown): MessageRow | undefined {
 		from: asNonEmptyString(row.from),
 		body: asNonEmptyString(row.body),
 		ts: typeof row.ts === "number" ? row.ts : undefined,
+		replyTo: asNonEmptyString(row.replyTo),
 	};
 }
 
@@ -175,6 +188,23 @@ function JobRowView({ job, t }: { job: JobRow; t: (key: string, params?: Record<
 					{shortText(job.label)}
 				</span>
 			)}
+			{job.status === "running" && job.completionPercent !== undefined && (
+				<ProgressBar
+					ariaLabel={t("tools.coordination.estimate")}
+					className="w-20 shrink-0"
+					color="var(--sc-accent)"
+					height={4}
+					value={job.completionPercent / 100}
+				/>
+			)}
+			{job.resolvedModel && (
+				<span className="max-w-40 shrink-0 truncate text-omp-xs text-[var(--omp-dim)]" title={job.resolvedModel}>
+					{job.resolvedModel}
+				</span>
+			)}
+			{job.advisor && (
+				<span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">{t("tools.coordination.advisor")}</span>
+			)}
 			<span className="shrink-0 text-omp-xs" style={{ color: statusColor(job.status) }}>
 				{statusLabel(t, job.status)}
 			</span>
@@ -224,6 +254,9 @@ function AgentRowView({
 			<span className="shrink-0 font-semibold text-[var(--omp-text)]">{shortText(agent.id, 120)}</span>
 			{agent.activity && (
 				<span className="min-w-0 flex-1 truncate text-[var(--omp-muted)]">{shortText(agent.activity)}</span>
+			)}
+			{agent.parentId && (
+				<span className="shrink-0 text-omp-xs text-[var(--omp-dim)]">← {shortText(agent.parentId, 80)}</span>
 			)}
 			<span
 				className="shrink-0 text-omp-xs"
@@ -295,6 +328,9 @@ export function WaitRenderer({ result, isPartial, partialResult }: ToolRendererP
 			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
 				<Icon aria-hidden className="shrink-0 text-[var(--omp-status-subagents)]" size={12} />
 				<span className="font-semibold text-[var(--omp-text)]">{t("tools.coordination.wait")}</span>
+				{details?.interrupted === true && (
+					<span className="text-omp-xs text-[var(--omp-dim)]">{t("tools.coordination.interrupted")}</span>
+				)}
 				{jobs.length > 0 && (
 					<span className="text-omp-xs text-[var(--omp-dim)]">
 						{t("tools.coordination.jobs", { count: jobs.length })}
@@ -316,6 +352,7 @@ export function WaitRenderer({ result, isPartial, partialResult }: ToolRendererP
 						{waited.from && (
 							<span className="font-semibold text-[var(--omp-text)]">{shortText(waited.from, 120)}</span>
 						)}
+						{waited.replyTo && <span>{t("tools.coordination.reply")}</span>}
 					</div>
 					{waited.body && (
 						<div className="mt-0.5 whitespace-pre-wrap text-[var(--omp-muted)]">

@@ -2,6 +2,7 @@ import { Search } from "lucide-react";
 import { cx, escapeHtml, escapeRegExp, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { GREP_PREVIEW_MATCHES, PREVIEW_SCROLL_MD, PREVIEW_SCROLL_SM } from "../../lib/preview";
+import { asArray, asRecord } from "../../lib/wire-value";
 import { PathLink } from "./PathLink";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -20,14 +21,16 @@ const HEADER_SUFFIX_RE = /\s+\([^)]*\)\s*$/;
 const HEADER_HASH_TAG_RE = /#[0-9a-f]+$/i;
 const FRAME_LINE_RE = /^\s*(\*?)\s*(\d+)│(.*)$/;
 const GAP_LINE_RE = /^\s*│/;
+/** ast-grep's metavariable bindings under a match (`  meta: $A=""`). */
+const META_LINE_RE = /^\s+meta:\s(.*)$/;
 
 interface FrameLine {
-	kind: "match" | "context" | "gap";
+	kind: "match" | "context" | "gap" | "meta";
 	line?: number;
 	content?: string;
 }
 
-interface FileGroup {
+export interface FileGroup {
 	file: string;
 	lines: FrameLine[];
 }
@@ -43,7 +46,7 @@ function joinFolded(parent: string | undefined, name: string): string {
 }
 
 /** Parse grouped display content into per-file groups of code-frame lines. */
-function parseDisplayGroups(text: string, fallbackFile: string | undefined): FileGroup[] {
+export function parseDisplayGroups(text: string, fallbackFile: string | undefined): FileGroup[] {
 	const groups: FileGroup[] = [];
 	const dirAtDepth = new Map<number, string>();
 	let current: FileGroup | null = null;
@@ -79,6 +82,11 @@ function parseDisplayGroups(text: string, fallbackFile: string | undefined): Fil
 		}
 		if (GAP_LINE_RE.test(raw)) {
 			ensureCurrent().lines.push({ kind: "gap" });
+			continue;
+		}
+		const meta = META_LINE_RE.exec(raw);
+		if (meta) {
+			ensureCurrent().lines.push({ kind: "meta", content: meta[1] });
 			continue;
 		}
 		const frame = FRAME_LINE_RE.exec(raw);
@@ -122,7 +130,7 @@ function legacyToGroups(matches: LegacyMatch[]): FileGroup[] {
 	return groups;
 }
 
-function countMatches(groups: FileGroup[]): number {
+export function countMatches(groups: FileGroup[]): number {
 	let n = 0;
 	for (const group of groups) {
 		for (const line of group.lines) {
@@ -146,28 +154,22 @@ function HighlightedContent({ content, pattern }: { content: string; pattern: st
 	);
 }
 
-/** Grep: match/file counts + truncation meta, grouped per-file match list. */
-export function GrepRenderer({ args, result, isPartial, partialResult, livePreview }: ToolRendererProps) {
+/**
+ * Grouped per-file match rows (grep and ast-grep `displayContent`): file
+ * headers, numbered match/context lines, elisions, ast-grep metavariable
+ * bindings, capped at GREP_PREVIEW_MATCHES rows with "N more".
+ */
+export function GroupedMatchList({
+	groups,
+	matchCount,
+	pattern = "",
+}: {
+	groups: FileGroup[];
+	matchCount: number;
+	/** Literal text to mark in match lines (grep); none for structural patterns. */
+	pattern?: string;
+}) {
 	const t = useT();
-	const pattern = typeof args.pattern === "string" ? args.pattern : "";
-	const effective = isPartial ? partialResult : result;
-	const details = resultDetails(effective);
-	const displayContent = typeof details?.displayContent === "string" ? details.displayContent : "";
-	const text = displayContent || resultText(effective);
-
-	const files = Array.isArray(details?.files) ? details.files.filter((f): f is string => typeof f === "string") : [];
-	let groups = parseDisplayGroups(text, files[0]);
-	if (groups.length === 0 && text) {
-		// History from before the grouped format: fall back to file:line:content.
-		groups = legacyToGroups(parseLegacyMatches(text));
-	}
-
-	const parsedCount = countMatches(groups);
-	const matchCount = typeof details?.matchCount === "number" ? details.matchCount : parsedCount;
-	const fileCount = typeof details?.fileCount === "number" ? details.fileCount : groups.length;
-	const truncated = details?.truncated === true || details?.truncation != null;
-	const scope = typeof details?.scopePath === "string" ? details.scopePath : undefined;
-
 	// Cap rendered rows — matches AND context/gap lines: a large context
 	// setting (or context-only groups) previously appended unbounded rows
 	// after the last budgeted match. Once the budget is spent, drop whole
@@ -187,7 +189,83 @@ export function GrepRenderer({ args, result, isPartial, partialResult, livePrevi
 		if (lines.length > 0) renderedGroups.push({ ...group, lines });
 	}
 	const hidden = Math.max(matchCount - shown, 0);
+	if (renderedGroups.length === 0) return null;
+	return (
+		<div
+			className={cx("rounded bg-[var(--omp-code-bg)] py-1 font-mono text-omp-sm leading-[1.5]", PREVIEW_SCROLL_MD)}
+		>
+			{renderedGroups.map((group, gi) => (
+				<div key={gi}>
+					{group.file && (
+						<PathLink path={group.file} className="block truncate px-2 pt-1 text-[var(--omp-status-path)]">
+							{group.file}
+						</PathLink>
+					)}
+					{group.lines.map((line, li) =>
+						line.kind === "gap" ? (
+							<div key={li} className="px-2 text-[var(--omp-dim)]">
+								…
+							</div>
+						) : line.kind === "meta" ? (
+							<div key={li} className="flex gap-2 px-2 text-[var(--omp-dim)]">
+								<span className="w-8 shrink-0" />
+								<span className="min-w-0 flex-1 whitespace-pre">{line.content}</span>
+							</div>
+						) : (
+							<div key={li} className="flex gap-2 px-2 transition-colors hover:bg-[var(--omp-selected-bg)]/50">
+								<span className="w-8 shrink-0 text-right tabular-nums text-[var(--omp-dim)]">{line.line}</span>
+								<span
+									className={
+										line.kind === "match"
+											? "min-w-0 flex-1 whitespace-pre text-[var(--omp-muted)]"
+											: "min-w-0 flex-1 whitespace-pre text-[var(--omp-dim)]"
+									}
+								>
+									<HighlightedContent content={line.content ?? ""} pattern={pattern} />
+								</span>
+							</div>
+						),
+					)}
+				</div>
+			))}
+			{hidden > 0 && (
+				<div className="px-2 pt-0.5 text-[var(--omp-dim)]">
+					{t("tools.read.more", { count: hidden, plural: hidden === 1 ? "" : "s" })}
+				</div>
+			)}
+		</div>
+	);
+}
 
+/** Grep: match/file counts + truncation meta, grouped per-file match list. */
+export function GrepRenderer({ args, result, isPartial, partialResult, livePreview }: ToolRendererProps) {
+	const t = useT();
+	const pattern = typeof args.pattern === "string" ? args.pattern : "";
+	const effective = isPartial ? partialResult : result;
+	const details = resultDetails(effective);
+	const displayContent = typeof details?.displayContent === "string" ? details.displayContent : "";
+	const text = displayContent || resultText(effective);
+
+	const files = Array.isArray(details?.files) ? details.files.filter((f): f is string => typeof f === "string") : [];
+	let groups = parseDisplayGroups(text, files[0]);
+	if (groups.length === 0 && text) {
+		// History from before the grouped format: fall back to file:line:content.
+		groups = legacyToGroups(parseLegacyMatches(text));
+	}
+
+	const parsedCount = countMatches(groups);
+	const matchCount = typeof details?.matchCount === "number" ? details.matchCount : parsedCount;
+	const fileCount = typeof details?.fileCount === "number" ? details.fileCount : groups.length;
+	const meta = asRecord(details?.meta);
+	// Stock grep.ts: the result limit, the spill wrapper, or over-long lines cut at the column cap.
+	const truncated =
+		details?.truncated === true ||
+		details?.truncation != null ||
+		meta?.truncation != null ||
+		asRecord(meta?.limits)?.columnTruncated != null;
+	const scope = typeof details?.scopePath === "string" ? details.scopePath : undefined;
+	const missingPaths = asArray(details?.missingPaths).filter((entry): entry is string => typeof entry === "string");
+	const hasGroups = groups.some(group => group.lines.length > 0);
 	return (
 		<div className={livePreview ? "omp-tool-results flex flex-col gap-1" : "flex flex-col gap-1"}>
 			{!livePreview && (
@@ -214,55 +292,13 @@ export function GrepRenderer({ args, result, isPartial, partialResult, livePrevi
 					</span>
 				</div>
 			)}
-			{renderedGroups.length > 0 && (
-				<div
-					className={cx(
-						"rounded bg-[var(--omp-code-bg)] py-1 font-mono text-omp-sm leading-[1.5]",
-						PREVIEW_SCROLL_MD,
-					)}
-				>
-					{renderedGroups.map((group, gi) => (
-						<div key={gi}>
-							{group.file && (
-								<PathLink path={group.file} className="block truncate px-2 pt-1 text-[var(--omp-status-path)]">
-									{group.file}
-								</PathLink>
-							)}
-							{group.lines.map((line, li) =>
-								line.kind === "gap" ? (
-									<div key={li} className="px-2 text-[var(--omp-dim)]">
-										…
-									</div>
-								) : (
-									<div
-										key={li}
-										className="flex gap-2 px-2 transition-colors hover:bg-[var(--omp-selected-bg)]/50"
-									>
-										<span className="w-8 shrink-0 text-right tabular-nums text-[var(--omp-dim)]">
-											{line.line}
-										</span>
-										<span
-											className={
-												line.kind === "match"
-													? "min-w-0 flex-1 whitespace-pre text-[var(--omp-muted)]"
-													: "min-w-0 flex-1 whitespace-pre text-[var(--omp-dim)]"
-											}
-										>
-											<HighlightedContent content={line.content ?? ""} pattern={pattern} />
-										</span>
-									</div>
-								),
-							)}
-						</div>
-					))}
-					{hidden > 0 && (
-						<div className="px-2 pt-0.5 text-[var(--omp-dim)]">
-							{t("tools.read.more", { count: hidden, plural: hidden === 1 ? "" : "s" })}
-						</div>
-					)}
+			<GroupedMatchList groups={groups} matchCount={matchCount} pattern={pattern} />
+			{missingPaths.length > 0 && !isPartial && (
+				<div className="text-sc-xs text-(--sc-warning)">
+					{t("tools.search.missingPaths", { paths: missingPaths.join(", ") })}
 				</div>
 			)}
-			{renderedGroups.length === 0 &&
+			{!hasGroups &&
 				(!isPartial || livePreview) &&
 				(text ? (
 					<pre

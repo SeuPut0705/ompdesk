@@ -78,7 +78,7 @@ export function parseChangeGroups(text: string): ChangeGroup[] {
 	return groups;
 }
 
-function Chip({ children, title, warning }: { children: ReactNode; title?: string; warning?: boolean }) {
+export function Chip({ children, title, warning }: { children: ReactNode; title?: string; warning?: boolean }) {
 	return (
 		<span
 			title={title}
@@ -91,6 +91,39 @@ function Chip({ children, title, warning }: { children: ReactNode; title?: strin
 		>
 			{children}
 		</span>
+	);
+}
+
+/** ast-grep/ast-edit `parseErrors` (capped at stock's PARSE_ERRORS_LIMIT, `parseErrorsTotal` before the cap). */
+export function ParseIssues({ details }: { details: Record<string, unknown> | undefined }) {
+	const t = useT();
+	const parseErrors = Array.isArray(details?.parseErrors)
+		? details.parseErrors.filter((e): e is string => typeof e === "string")
+		: [];
+	if (parseErrors.length === 0) return null;
+	const parseErrorsTotal =
+		typeof details?.parseErrorsTotal === "number" ? details.parseErrorsTotal : parseErrors.length;
+	return (
+		<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45]">
+			<div className="text-[var(--omp-warning)]">
+				{parseErrorsTotal > parseErrors.length
+					? t("tools.astedit.parseIssuesCapped", { shown: parseErrors.length, total: parseErrorsTotal })
+					: t("tools.astedit.parseIssues", {
+							count: parseErrors.length,
+							plural: parseErrors.length === 1 ? "" : "s",
+						})}
+			</div>
+			{parseErrors.map((err, i) => (
+				<div key={i} className="whitespace-pre-wrap text-[var(--omp-warning)]">
+					- {err}
+				</div>
+			))}
+			{parseErrorsTotal > parseErrors.length && (
+				<div className="text-[var(--omp-dim)]">
+					{t("tools.astedit.parseMore", { count: parseErrorsTotal - parseErrors.length })}
+				</div>
+			)}
+		</div>
 	);
 }
 
@@ -115,11 +148,7 @@ export function AstEditRenderer({ args, result, isError, isPartial, partialResul
 	const limitReached = details?.limitReached === true;
 	const staged = details?.applied === false;
 	const scope = typeof details?.scopePath === "string" && details.scopePath ? details.scopePath : argPaths.join(", ");
-	const parseErrors = Array.isArray(details?.parseErrors)
-		? details.parseErrors.filter((e): e is string => typeof e === "string")
-		: [];
-	const parseErrorsTotal =
-		typeof details?.parseErrorsTotal === "number" ? details.parseErrorsTotal : parseErrors.length;
+	const parseErrorCount = Array.isArray(details?.parseErrors) ? details.parseErrors.length : 0;
 	const displayContent = typeof details?.displayContent === "string" ? details.displayContent : "";
 
 	const hasDetails = details != null;
@@ -129,11 +158,6 @@ export function AstEditRenderer({ args, result, isError, isPartial, partialResul
 	// tree — their text is just "No replacements made" + parse issues — and error
 	// results render their message in the error block below, not as pseudo-changes.
 	const groups = isError || zeroResult ? [] : parseChangeGroups(displayContent || text);
-
-	const parseLabel =
-		parseErrorsTotal > parseErrors.length
-			? t("tools.astedit.parseIssuesCapped", { shown: parseErrors.length, total: parseErrorsTotal })
-			: t("tools.astedit.parseIssues", { count: parseErrors.length, plural: parseErrors.length === 1 ? "" : "s" });
 
 	return (
 		<div className="flex flex-col gap-1.5">
@@ -227,26 +251,12 @@ export function AstEditRenderer({ args, result, isError, isPartial, partialResul
 			)}
 
 			{/* Parse issues: count label + capped bullet list + overflow note */}
-			{parseErrors.length > 0 && !isPartial && !isError && (
-				<div className="rounded bg-[var(--omp-code-bg)] px-2 py-1.5 font-mono text-omp-sm leading-[1.45]">
-					<div className="text-[var(--omp-warning)]">{parseLabel}</div>
-					{parseErrors.map((err, i) => (
-						<div key={i} className="whitespace-pre-wrap text-[var(--omp-warning)]">
-							- {err}
-						</div>
-					))}
-					{parseErrorsTotal > parseErrors.length && (
-						<div className="text-[var(--omp-dim)]">
-							{t("tools.astedit.parseMore", { count: parseErrorsTotal - parseErrors.length })}
-						</div>
-					)}
-				</div>
-			)}
+			{!isPartial && !isError && <ParseIssues details={details} />}
 
 			{/* States */}
 			{isPartial && <div className="text-omp-sm italic text-[var(--omp-dim)]">{t("tools.astedit.editing")}</div>}
 			{isError && <ToolTextPreview text={text || t("tools.astedit.failed")} isError />}
-			{!isPartial && !isError && zeroResult && parseErrors.length === 0 && (
+			{!isPartial && !isError && zeroResult && parseErrorCount === 0 && (
 				<div className="text-omp-sm italic text-[var(--omp-dim)]">{t("tools.astedit.noReplacements")}</div>
 			)}
 		</div>

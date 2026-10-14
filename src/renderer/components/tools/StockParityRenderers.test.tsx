@@ -3,9 +3,15 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
+import { AstGrepRenderer } from "./AstGrepRenderer";
+import { WaitRenderer } from "./CoordinationRenderer";
 import { EditRenderer } from "./EditRenderer";
+import { EvalRenderer } from "./EvalRenderer";
 import { GenericRenderer } from "./GenericRenderer";
+import { GlobRenderer } from "./GlobRenderer";
+import { GrepRenderer } from "./GrepRenderer";
 import { getToolHeader, getToolRenderer } from "./index";
+import { LspRenderer } from "./LspRenderer";
 import { McpRenderer, parseMcpToolName } from "./McpRenderer";
 import { ReadRenderer } from "./ReadRenderer";
 import { ThinkRenderer } from "./ThinkRenderer";
@@ -346,5 +352,228 @@ describe("read extras (stock tools/read.ts, tools/fetch.ts)", () => {
 			"corrected from src/sesion.ts · summary: 3 elided spans",
 		);
 		expect(container.textContent).toContain("2 conflicts");
+	});
+});
+
+describe("ast_grep (stock tools/ast-grep.ts, gallery fixture)", () => {
+	const display = [
+		"# packages/tui/src/components/",
+		"## SearchBox.tsx",
+		'*18│  const [query, setQuery] = useState("");',
+		'  meta: $A=""',
+		"## StatusBar.tsx",
+		"*27│  const [expanded, setExpanded] = useState(false);",
+		"  meta: $A=false",
+	].join("\n");
+
+	it("states counts, scope and searched files, and keeps metavariable bindings", async () => {
+		await mount(
+			<AstGrepRenderer
+				args={{ pat: "useState($A)", path: "packages/tui/src/components" }}
+				result={{
+					content: [{ type: "text", text: "model text" }],
+					details: {
+						matchCount: 2,
+						fileCount: 2,
+						filesSearched: 14,
+						limitReached: true,
+						scopePath: "packages/tui/src/components",
+						displayContent: display,
+					},
+				}}
+			/>,
+		);
+		const text = container.textContent ?? "";
+		expect(text).toContain("2 matches");
+		expect(text).toContain("2 files");
+		expect(text).toContain("in packages/tui/src/components");
+		expect(text).toContain("searched 14");
+		expect(text).toContain("packages/tui/src/components/SearchBox.tsx");
+		expect(text).toContain('$A=""');
+		expect(text).toContain("limit reached; narrow path or increase limit");
+		expect(text).not.toContain("model text");
+	});
+
+	it("warns that an empty result with parse errors may be mis-scoped", async () => {
+		await mount(
+			<AstGrepRenderer
+				args={{ pat: "foo(" }}
+				result={{
+					content: [{ type: "text", text: "No matches" }],
+					details: {
+						matchCount: 0,
+						fileCount: 0,
+						filesSearched: 3,
+						limitReached: false,
+						parseErrors: ["a.ts: bad"],
+					},
+				}}
+			/>,
+		);
+		expect(container.textContent).toContain("may be mis-scoped");
+		expect(container.textContent).toContain("1 parse issue");
+	});
+});
+
+describe("glob and grep limits (stock tools/glob.ts, tools/grep.ts)", () => {
+	it("calls an empty timed-out glob incomplete and names skipped paths", async () => {
+		await mount(
+			<GlobRenderer
+				args={{ pattern: "**/*.ts" }}
+				result={{
+					content: [{ type: "text", text: "" }],
+					details: { fileCount: 0, files: [], timedOut: true, missingPaths: ["vendor/"] },
+				}}
+			/>,
+		);
+		expect(container.textContent).toContain("scan incomplete");
+		expect(container.textContent).toContain("timed out");
+		expect(container.textContent).toContain("Skipped missing paths: vendor/");
+	});
+
+	it("says why a glob listing was cut", async () => {
+		await mount(
+			<GlobRenderer
+				args={{ pattern: "**/*" }}
+				result={{
+					content: [{ type: "text", text: "a.ts" }],
+					details: { fileCount: 1, files: ["a.ts"], resultLimitReached: 1000, truncated: true },
+				}}
+			/>,
+		);
+		expect(container.textContent).toContain("Truncated: limit 1000 results");
+	});
+
+	it("marks grep output cut at the column cap and names missing paths", async () => {
+		await mount(
+			<GrepRenderer
+				args={{ pattern: "retry" }}
+				result={{
+					content: [{ type: "text", text: "" }],
+					details: {
+						matchCount: 1,
+						fileCount: 1,
+						files: ["src/a.ts"],
+						displayContent: "*3│const retry = 1;",
+						missingPaths: ["gone/"],
+						meta: { limits: { columnTruncated: { maxColumn: 500 } } },
+					},
+				}}
+			/>,
+		);
+		expect(container.textContent).toContain("truncated");
+		expect(container.textContent).toContain("Skipped missing paths: gone/");
+	});
+});
+
+describe("lsp server failures (stock tools/lsp.ts)", () => {
+	it("shows a failed server instead of a clean result", async () => {
+		await mount(
+			<LspRenderer
+				args={{ action: "diagnostics", file: "src/a.ts" }}
+				result={{
+					content: [{ type: "text", text: "✗ src/a.ts: all language servers failed (spawn ENOENT)" }],
+				}}
+			/>,
+		);
+		const status = container.querySelector("[data-lsp-server-status]");
+		expect(status?.textContent).toBe("src/a.ts: all language servers failed (spawn ENOENT)");
+		expect(container.querySelector("pre")).toBeNull();
+	});
+});
+
+describe("wait job details (stock tools/wait.ts JobSnapshot)", () => {
+	it("shows a running agent's estimate, model and parent, and an interrupted wait", async () => {
+		await mount(
+			<WaitRenderer
+				args={{}}
+				result={{
+					content: [{ type: "text", text: "1 job running." }],
+					details: {
+						op: "wait",
+						interrupted: true,
+						jobs: [
+							{
+								id: "job_b2",
+								type: "task",
+								status: "running",
+								label: "Migrate rate limiter",
+								durationMs: 9_000,
+								completionPercent: 40,
+								resolvedModel: "anthropic/claude-sonnet-4-5",
+							},
+						],
+						agents: [{ id: "Scout", parentId: "Main", ageMs: 3_000, live: true }],
+					},
+				}}
+			/>,
+		);
+		expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("0.4");
+		expect(container.textContent).toContain("anthropic/claude-sonnet-4-5");
+		expect(container.textContent).toContain("← Main");
+		expect(container.textContent).toContain("interrupted by a message");
+	});
+});
+
+describe("prose devices (stock tools/resolve.ts, report-tool-issue.ts)", () => {
+	it("renders a pending propose write as the plan, not key/value rows", async () => {
+		const Renderer = getToolRenderer("write");
+		const args = { path: "xd://propose", content: "## Plan\n\n- **step** one" };
+		await mount(<Renderer args={args} isPartial result={undefined} />);
+		expect(container.querySelector("[data-tool-device-note] strong")?.textContent).toBe("step");
+		const header = getToolHeader("write", args);
+		expect(header.labelKey).toBe("tools.label.propose");
+		expect(header.target).toBe("## Plan");
+	});
+});
+
+describe("eval cells (stock tools/eval.ts EvalToolDetails)", () => {
+	it("gives each cell its code, status, time and output, and display values a tree", async () => {
+		await mount(
+			<EvalRenderer
+				args={{
+					cells: [
+						{ language: "py", title: "load", code: "x = 1" },
+						{ language: "py", title: "print", code: "print(x)" },
+					],
+				}}
+				result={{
+					content: [{ type: "text", text: "1" }],
+					details: {
+						languages: ["python"],
+						jsonOutputs: [{ rows: 3 }],
+						notice: "Fell back to the subprocess kernel",
+						cells: [
+							{
+								index: 0,
+								title: "load",
+								code: "x = 1",
+								language: "python",
+								output: "",
+								status: "complete",
+								durationMs: 12,
+							},
+							{
+								index: 1,
+								title: "print",
+								code: "print(x)",
+								language: "python",
+								output: "1",
+								status: "error",
+								exitCode: 1,
+							},
+						],
+					},
+				}}
+			/>,
+		);
+		const cells = container.querySelectorAll("[data-eval-cell]");
+		expect(cells.length).toBe(2);
+		expect(cells[0]?.textContent).toContain("load");
+		expect(cells[1]?.textContent).toContain("exit 1");
+		expect(container.textContent).toContain("2 cells");
+		expect(container.textContent).toContain("Fell back to the subprocess kernel");
+		expect(treeText()).toEqual(["rows: 3"]);
+		expect(getToolHeader("eval", { cells: [{ language: "py", title: "load" }] }).target).toBe("load");
 	});
 });

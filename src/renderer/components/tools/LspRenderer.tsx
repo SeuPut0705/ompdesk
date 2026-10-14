@@ -178,6 +178,10 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 	const details = resultDetails(effective);
 	const text = resultText(effective);
 	const parsed = parseLspText(text);
+	// Stock tools/lsp.ts parseLspDiagnostics: server status lines matched by wording, never by glyph.
+	const statusLines = text.split("\n").map(line => line.trim().replace(/^[✗✘×⚠!]\s*/u, ""));
+	const serverFailures = statusLines.filter(line => /\ball language servers failed\b/.test(line));
+	const serverWarnings = statusLines.filter(line => /\bsome servers failed\b/.test(line));
 	const operation = (
 		typeof args.action === "string"
 			? args.action
@@ -262,7 +266,7 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 								{t("tools.lsp.warnings", { count: parsed.warnings })}
 							</span>
 						)}
-						{parsed.errors === 0 && parsed.warnings === 0 && (
+						{parsed.errors === 0 && parsed.warnings === 0 && serverFailures.length === 0 && (
 							<span className="text-[var(--omp-dim)]">{text.trim() || "OK"}</span>
 						)}
 					</div>
@@ -332,7 +336,24 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 				</div>
 			)}
 
-			{parsed.kind === "generic" && text && <ToolTextPreview text={text} isError={isError} />}
+			{(serverFailures.length > 0 || serverWarnings.length > 0) && (
+				<div className="flex flex-col gap-0.5 text-omp-sm" data-lsp-server-status>
+					{serverFailures.map((line, i) => (
+						<div key={`f${i}`} className="text-[var(--omp-error)]">
+							{line}
+						</div>
+					))}
+					{serverWarnings.map((line, i) => (
+						<div key={`w${i}`} className="text-[var(--omp-warning)]">
+							{line}
+						</div>
+					))}
+				</div>
+			)}
+
+			{parsed.kind === "generic" && text && serverFailures.length === 0 && (
+				<ToolTextPreview text={text} isError={isError} />
+			)}
 		</div>
 	);
 }

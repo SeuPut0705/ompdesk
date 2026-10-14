@@ -7,6 +7,7 @@ import {
 	Brain,
 	Bug,
 	CheckCheck,
+	ClipboardList,
 	Code2,
 	FileCode2,
 	FilePlus2,
@@ -22,6 +23,7 @@ import {
 	ListTodo,
 	type LucideIcon,
 	MessageCircleQuestion,
+	MessageSquareWarning,
 	MousePointer2,
 	Network,
 	Pencil,
@@ -49,6 +51,7 @@ import { BrowserRenderer } from "./BrowserRenderer";
 import { ComputerRenderer } from "./ComputerRenderer";
 import { WaitRenderer } from "./CoordinationRenderer";
 import { DebugRenderer } from "./DebugRenderer";
+import { DeviceNoteRenderer } from "./DeviceNoteRenderer";
 import { EditRenderer } from "./EditRenderer";
 import { EvalRenderer } from "./EvalRenderer";
 import { editArgumentPaths, editArgumentSummary } from "./edit-args";
@@ -89,6 +92,12 @@ function clipCardText(text: string): string {
 	return text.length > CARD_TEXT_MAX_CHARS ? `${text.slice(0, CARD_TEXT_MAX_CHARS)}…` : text;
 }
 
+/** Device writes whose payload is prose (a plan, an issue report) rather than JSON arguments. */
+const NOTE_DEVICES: Record<string, ComponentType<ToolRendererProps>> = {
+	propose: (props: ToolRendererProps) => <DeviceNoteRenderer {...props} markdown />,
+	report_issue: DeviceNoteRenderer,
+};
+
 /**
  * `write` carries two different things: a file write, and the device call the
  * sidecar routes through it (`write xd://<tool>`, see `lib/xdev`). A device call
@@ -109,6 +118,18 @@ function WriteRendererOrDevice(props: ToolRendererProps) {
 	if (!dispatch) {
 		const raw = typeof args.content === "string" ? args.content : "";
 		const decoded = decodeXdevPayload(raw);
+		// Prose devices stream plain text, not JSON: show the text as it arrives.
+		const NoteRenderer = NOTE_DEVICES[device];
+		if (NoteRenderer) {
+			return (
+				<NoteRenderer
+					args={Object.keys(decoded).length > 0 ? decoded : { content: raw }}
+					isError={isError}
+					isPartial={isPartial}
+					result={envelope}
+				/>
+			);
+		}
 		return (
 			<GenericRenderer
 				args={Object.keys(decoded).length > 0 ? decoded : { content: clipCardText(raw) }}
@@ -185,6 +206,7 @@ const REGISTRY: Record<string, ComponentType<ToolRendererProps>> = {
 	reject: (props: ToolRendererProps) => <ResolveRenderer {...props} operation="reject" />,
 	think: ThinkRenderer,
 	yield: YieldRenderer,
+	...NOTE_DEVICES,
 };
 
 export function getToolRenderer(name: string): ComponentType<ToolRendererProps> {
@@ -344,6 +366,8 @@ const TOOL_META: Record<string, ToolMeta> = {
 	vibe_list: VIBE,
 	think: { label: "think", icon: Brain, activity: "other" },
 	yield: { label: "yield", icon: Send, activity: "other" },
+	propose: { label: "propose", icon: ClipboardList, activity: "other" },
+	report_issue: { label: "report_issue", icon: MessageSquareWarning, activity: "other" },
 };
 
 /** Stock eval's language tokens (`py`, `js` and their long forms) as people name them. */
@@ -397,8 +421,10 @@ export function getToolHeader(name: string, args: Record<string, unknown>): Tool
 	}
 	if (device) {
 		const payload = decodeXdevPayload(args.content);
+		// A prose device (propose, report_issue) heads with its first line, as stock's device call preview does.
+		const prose = NOTE_DEVICES[device] && Object.keys(payload).length === 0 ? argLine(args, ["content"]) : "";
 		header.target = clipCardText(
-			[argLine(payload, DEVICE_VERB_KEYS), argLine(payload, DEVICE_OBJECT_KEYS)].filter(Boolean).join(" "),
+			prose || [argLine(payload, DEVICE_VERB_KEYS), argLine(payload, DEVICE_OBJECT_KEYS)].filter(Boolean).join(" "),
 		);
 		return header;
 	}
@@ -415,10 +441,13 @@ export function getToolHeader(name: string, args: Record<string, unknown>): Tool
 	if (name === "eval") {
 		// A code cell is named by the language it runs ("Run JavaScript"), never the wire token
 		// ("Run code js"); its target is its title alone.
-		const language = typeof args.language === "string" ? args.language : "js";
+		// A multi-cell call names its first cell.
+		const first = Array.isArray(args.cells) ? args.cells[0] : undefined;
+		const cell = first != null && typeof first === "object" ? (first as Record<string, unknown>) : args;
+		const language = typeof cell.language === "string" ? cell.language : "js";
 		header.labelKey = "chat.work.runLanguage";
 		header.labelParams = { language: EVAL_LANGUAGES[language] ?? language };
-		header.target = clipCardText(argLine(args, ["title"]));
+		header.target = clipCardText(argLine(cell, ["title"]));
 		return header;
 	}
 	header.target = getToolSummary(name, args);
