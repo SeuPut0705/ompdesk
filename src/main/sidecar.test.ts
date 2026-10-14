@@ -256,6 +256,53 @@ describe("SidecarManager", () => {
 		}
 	});
 
+	it("delivers the events omp sent before a response ahead of that response", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-order-"));
+		const script = [
+			'import { createInterface } from "node:readline";',
+			'import * as net from "node:net";',
+			"const out = (frame: unknown) => process.stdout.write(JSON.stringify(frame) + '\\n');",
+			'const answer = (request) => request.method === "sessions.transcript" ? { leafId: "e1", total: 0, messages: [] } : null;',
+			'net.createServer(socket => { socket.setEncoding("utf8"); let buffer = ""; socket.on("data", chunk => { buffer += chunk; for (let i = buffer.indexOf("\\n"); i !== -1; i = buffer.indexOf("\\n")) { const request = JSON.parse(buffer.slice(0, i)); buffer = buffer.slice(i + 1); socket.write(JSON.stringify({ id: request.id, ok: true, result: answer(request) }) + "\\n"); } }); }).listen(process.env.OMP_GUI_BRIDGE, () => out({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }));',
+			"createInterface({ input: process.stdin }).on('line', line => {",
+			"\tconst command = JSON.parse(line);",
+			// A step the agent took before this answer, as a run streams between commands.
+			'\tif (command.type === "abort") out({ type: "tool_execution_start", toolCallId: "c1", toolName: "wait", args: {} });',
+			'\tout({ type: "response", id: command.id, command: command.type, success: true, data: { sessionId: "s1" } });',
+			// One it took right after: still batched when main answers the next command itself.
+			'\tif (command.type === "abort") out({ type: "tool_execution_end", toolCallId: "c1", toolName: "wait", result: {}, isError: false });',
+			"});",
+			'process.stdin.on("end", () => process.exit(0));',
+		].join("\n");
+		const binaryPath = await writeFakeOmp(tempDir, script);
+
+		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, bridgeDir: tempDir });
+		const order: string[] = [];
+		sidecar.on("events", (events: Array<{ type: string }>) => {
+			for (const event of events) order.push(event.type);
+		});
+		try {
+			const ready = waitForReady(sidecar);
+			sidecar.start();
+			await ready;
+			const client = sidecar.rpcClient;
+			if (!client) throw new Error("no rpc client");
+			// Connects the bridge and learns the session, so the snapshot below is one quick bridge reply.
+			await client.command({ type: "get_transcript" });
+
+			// A response omp sends itself.
+			await client.command({ type: "abort" });
+			order.push("abort response");
+			// A response main answers from a bridge snapshot.
+			await client.command({ type: "get_transcript" });
+			order.push("transcript response");
+			expect(order).toEqual(["tool_execution_start", "abort response", "tool_execution_end", "transcript response"]);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
 	it("commits every message a deferred or compacted agent_end left out, with entry ids, in stream order", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-run-"));
 		// Stock's real order for "Use your todo tool …": run 1 (user prompt, todo/bash/todo/bash) ends,

@@ -510,7 +510,13 @@ export class SidecarManager extends EventEmitter {
 			local: command => {
 				const handler = localHandlerFor(command.type);
 				if (!handler) return undefined;
-				return this.#localContext(rpcClient, runtime, bridge).then(ctx => runLocalCommand(handler, command, ctx));
+				return this.#localContext(rpcClient, runtime, bridge)
+					.then(ctx => runLocalCommand(handler, command, ctx))
+					.then(response => {
+						// Same as an omp response (#dispatchFrame): the events read before it go first.
+						this.#batcher?.flushNow();
+						return response;
+					});
 			},
 			observe: (command, response) => {
 				this.#observeResponse(command, response);
@@ -681,7 +687,14 @@ export class SidecarManager extends EventEmitter {
 			this.#handleReady(obj as unknown as RpcReadyFrame);
 			return;
 		}
-		if (type === "response" && this.#rpcClient?.onResponse(obj as unknown as RpcResponse)) return;
+		if (type === "response") {
+			// Events omp sent before this response go out first: it can be a snapshot
+			// (`get_state`, a transcript page) that already holds them, and the batcher
+			// would deliver them after it, replayed on top of that snapshot in the
+			// renderer (a tool call committed twice, the copy it hydrated never ending).
+			this.#batcher?.flushNow();
+			if (this.#rpcClient?.onResponse(obj as unknown as RpcResponse)) return;
+		}
 		if (AGENT_EVENT_TYPES[type] === true) {
 			this.#batcher?.push(obj as AgentSessionEvent);
 		} else if (type === "available_commands_update") {
