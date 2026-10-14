@@ -5,7 +5,7 @@
  */
 
 import { parseHTML } from "linkedom";
-import { act } from "react";
+import { act, Profiler } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IpcFsListResult } from "../../../shared/ipc-types";
@@ -59,7 +59,7 @@ async function settle(): Promise<void> {
 	});
 }
 
-async function mount(): Promise<void> {
+async function mount(onCommit?: () => void): Promise<void> {
 	useTabsStore.setState({
 		tabs: [{ id: "t1", cwd: "/work/app", status: "ready", kind: "agent", unreadDone: false }],
 		activeTabId: "t1",
@@ -70,7 +70,9 @@ async function mount(): Promise<void> {
 	await act(async () => {
 		root?.render(
 			<I18nProvider>
-				<QuickOpenDialog />
+				<Profiler id="quick-open" onRender={() => onCommit?.()}>
+					<QuickOpenDialog />
+				</Profiler>
 			</I18nProvider>,
 		);
 	});
@@ -128,6 +130,28 @@ describe("QuickOpenDialog", () => {
 		expect(useUiStore.getState().filePreviewPath).toBe("src/router.ts");
 		expect(useUiStore.getState().panelTab).toBe("files");
 		expect(useUiStore.getState().quickOpenOpen).toBe(false);
+	});
+
+	it("reopens on an empty query from its first frame after a pick", async () => {
+		// Every commit's field value: the reopened dialog must never paint (and take
+		// keystrokes on) the last query, not even for the one commit before effects.
+		const painted: string[] = [];
+		await mount(() => {
+			const input = document.body.querySelector(`input[aria-label="${translate("quickOpen.title")}"]`);
+			if (input) painted.push((input as unknown as HTMLInputElement).value);
+		});
+		await type("rout");
+		await press("Enter");
+		expect(useUiStore.getState().quickOpenOpen).toBe(false);
+		await settle();
+
+		painted.length = 0;
+		await act(async () => useUiStore.getState().openQuickOpen());
+		await settle();
+		expect(painted.length).toBeGreaterThan(0);
+		expect(painted.every(value => value === "")).toBe(true);
+		expect(field().value).toBe("");
+		expect(options()).toEqual(["README.md", "src/app.ts", "src/router.ts"]);
 	});
 
 	it("says when nothing matches", async () => {

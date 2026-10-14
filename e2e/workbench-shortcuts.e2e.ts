@@ -141,9 +141,16 @@ for (const [language, theme] of [
 				await resize(app, 560, 760);
 				await expect(hit).toBeVisible();
 				await shot("session-search-narrow");
+				// The first Escape clears the picker's query, the second closes it.
 				await page.keyboard.press("Escape");
+				await page.keyboard.press("Escape");
+				await expect(picker).toBeHidden();
 				await pressShortcutUntilVisible(page, "ControlOrMeta+p", quickOpen);
-				await quickOpen.getByRole("searchbox").fill("alpha");
+				// Reopened ⌘P starts empty: typing lands on a fresh query, not "gamma".
+				const field = quickOpen.getByRole("searchbox");
+				await expect(field).toHaveValue("");
+				await expect(field).toBeFocused();
+				await page.keyboard.type("alpha");
 				await expect(quickOpen.locator('[data-path$="alpha.ts"]')).toBeVisible();
 				await shot("quick-open-narrow");
 			}

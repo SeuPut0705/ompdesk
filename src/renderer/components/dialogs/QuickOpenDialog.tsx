@@ -50,11 +50,18 @@ export function QuickOpenDialog() {
 	const listRef = useRef<HTMLDivElement>(null);
 	const listboxId = useId();
 
+	// ⌘P always opens on an empty query (VS Code's default, `preserveInput` off).
+	// The reset runs when the dialog closes, not when it opens: an opening reset
+	// lands one commit late, so the reopened field first showed the last query and
+	// a keystroke typed into it appended to that ("gamma" + "alpha"). The closing
+	// panel animates out from the Modal's frozen snapshot, so nothing flickers.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the retry button's bump re-lists.
 	useEffect(() => {
-		if (!open) return;
-		setQuery("");
-		setActiveIndex(0);
+		if (!open) {
+			setQuery("");
+			setActiveIndex(0);
+			return;
+		}
 		requestAnimationFrame(() => inputRef.current?.focus());
 		if (isChat || !tabId) {
 			setListing({ state: "no-folder" });
