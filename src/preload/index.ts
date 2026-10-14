@@ -40,6 +40,7 @@ import type {
 	LogBatch,
 	MenuAction,
 	MenuActionPayload,
+	NotificationClickPayload,
 	OmpApi,
 	RemoteDirListing,
 	RemoteDiscoveredDevice,
@@ -199,6 +200,8 @@ const api: OmpApi = {
 			),
 		onDeepLink: (callback: (link: DeepLinkPayload) => void) =>
 			subscribe<DeepLinkPayload>(IPC_EVENTS.DEEP_LINK, callback),
+		onNotificationClick: (callback: (payload: NotificationClickPayload) => void) =>
+			subscribe<NotificationClickPayload>(IPC_EVENTS.NOTIFICATION_CLICK, callback),
 		onUpdaterStatus: (callback: (status: UpdateStatus) => void) =>
 			subscribe<UpdateStatus>(IPC_EVENTS.UPDATER_STATUS, callback),
 		onBridgeHealth: (callback: () => void) => subscribe<undefined>(IPC_EVENTS.BRIDGE_HEALTH, () => callback()),
@@ -342,8 +345,8 @@ const api: OmpApi = {
 			filters?: { name: string; extensions: string[] }[],
 			options?: { directory?: boolean; title?: string; buttonLabel?: string },
 		) => ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_OPEN_DIALOG, filters, options),
-		notify: (title: string, body?: string) => {
-			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_NOTIFY, { title, body });
+		notify: (title: string, body?: string, tabId?: string) => {
+			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_NOTIFY, { title, body, tabId });
 		},
 	},
 

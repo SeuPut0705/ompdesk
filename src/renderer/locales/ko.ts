@@ -1811,6 +1811,24 @@ export const ko: Record<string, string> = {
 	"settings.gui.notifications": "데스크톱 알림",
 	"settings.gui.notificationsDesc":
 		"창에 포커스가 없을 때 턴이 완료되거나 실패하거나 입력을 기다리면 시스템 알림을 표시해요.",
+	"settings.gui.notificationSound": "알림 소리",
+	"settings.gui.notificationSoundDesc": "데스크톱 알림이 뜰 때 짧은 알림음을 들려줘요.",
+	"settings.gui.notificationSoundTest": "들어 보기",
+	"settings.gui.notificationVolume": "소리 크기",
+	"settings.gui.notificationVolumeDesc": "슬라이더에서 손을 떼면 바뀐 크기로 알림음을 들려줘요.",
+	"settings.gui.linkPreview": "링크를 미리보기에서 열기",
+	"settings.gui.linkPreviewDesc":
+		"답변 속 웹 링크를 사이드 패널의 미리보기에서 열고, 다음 링크가 그 페이지를 대신해요. ⌘-클릭(Ctrl-클릭)하면 브라우저에서 열려요.",
+	"settings.gui.panelSide": "사이드 패널 위치",
+	"settings.gui.panelSideDesc": "사이드 패널이 붙는 쪽이에요. 세션 목록은 왼쪽에 그대로 있어요.",
+	"settings.gui.panelSide.right": "오른쪽",
+	"settings.gui.panelSide.left": "왼쪽",
+	"settings.gui.closeToTray": "창을 닫아도 트레이에서 계속 실행",
+	"settings.gui.closeToTrayDesc":
+		"마지막 창을 닫으면 트레이로 숨겨서 탭이 계속 작업해요. 종료는 트레이 메뉴에서 해요.",
+	"settings.gui.keepAwakeWorking": "작업 중에는 잠자기 막기",
+	"settings.gui.keepAwakeWorkingDesc":
+		"이 컴퓨터의 탭이 턴을 실행하는 동안 시스템이 잠자기에 들어가지 않아요. 화면은 꺼질 수 있어요.",
 	"settings.gui.thinkingExpanded": "사고 과정 기본으로 펼치기",
 	"settings.gui.thinkingExpandedDesc":
 		"블록을 하나씩 클릭하지 않아도 모델의 사고 과정을 보여줘요. 블록은 하나씩 접을 수 있어요.",

@@ -1826,6 +1826,24 @@ export const en: Record<string, string> = {
 	"settings.gui.notifications": "Desktop notifications",
 	"settings.gui.notificationsDesc":
 		"Show a system notification when a turn completes, fails, or waits for input while the window is unfocused.",
+	"settings.gui.notificationSound": "Notification sound",
+	"settings.gui.notificationSoundDesc": "Play a short chime with each desktop notification.",
+	"settings.gui.notificationSoundTest": "Play",
+	"settings.gui.notificationVolume": "Sound volume",
+	"settings.gui.notificationVolumeDesc": "Letting go of the slider plays the chime at the new volume.",
+	"settings.gui.linkPreview": "Open links in Preview",
+	"settings.gui.linkPreviewDesc":
+		"Web links in replies open in the side panel's Preview, and the next link replaces the page. ⌘-click (Ctrl-click) still opens the browser.",
+	"settings.gui.panelSide": "Side panel position",
+	"settings.gui.panelSideDesc": "The edge the side panel docks to. The session list stays on the left.",
+	"settings.gui.panelSide.right": "Right",
+	"settings.gui.panelSide.left": "Left",
+	"settings.gui.closeToTray": "Keep running in the tray when closed",
+	"settings.gui.closeToTrayDesc":
+		"Closing the last window hides it to the tray so its tabs keep working. Quit from the tray menu.",
+	"settings.gui.keepAwakeWorking": "Keep this computer awake while working",
+	"settings.gui.keepAwakeWorkingDesc":
+		"While any tab on this computer is running a turn, the system does not go to sleep. The display can still turn off.",
 	"settings.gui.thinkingExpanded": "Expand reasoning by default",
 	"settings.gui.thinkingExpandedDesc":
 		"Show the model's reasoning trace without clicking each block; blocks can still be collapsed individually.",

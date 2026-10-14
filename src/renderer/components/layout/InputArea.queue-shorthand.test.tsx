@@ -11,6 +11,7 @@ import type { AgentMessage, RpcCommand, RpcResponse } from "../../../shared/rpc-
 import { resetSessionSurface } from "../../hooks/use-session-switch";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { expandPasteMarkers, pasteMarkerText, storePaste } from "../../lib/paste-blobs";
+import { METER_BARS } from "../../lib/voice";
 import { useComposerStore } from "../../stores/composer";
 import { useExtensionUiStore } from "../../stores/extension-ui";
 import { useFirstRunStore } from "../../stores/first-run";
@@ -31,6 +32,7 @@ import { createTabRuntime, replaceTabRuntime } from "../../stores/tab-runtime";
 import { pushTabExtensionUiRequest, useTabsStore } from "../../stores/tabs";
 import { useToastStore } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
+import { type FakeMic, FakeStream, installFakeMic, uninstallFakeMic } from "../../test-support/dictation";
 import { InputArea } from "./InputArea";
 
 const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -1310,5 +1312,93 @@ describe("InputArea run settings and modes", () => {
 
 		expect(setPlanMode).toHaveBeenCalledWith(true);
 		expect(useSessionStore.getState().planModeEnabled).toBe(true);
+	});
+});
+
+describe("InputArea dictation", () => {
+	let transcribeAudio: Mock;
+	let mic: FakeMic;
+
+	async function mountWithMic(): Promise<void> {
+		mic = installFakeMic();
+		await mount();
+		transcribeAudio = vi.fn(async () => ok({ text: "hello there" }));
+		Object.assign(window.omp.rpc, { transcribeAudio, getSettings: vi.fn(async () => ok({ values: {} })) });
+		await act(async () => {
+			useSessionStore.setState({ isStreaming: false });
+			useSettingsStore.setState({ sttEnabled: true });
+		});
+	}
+
+	/** A key on the window, where the dictation handler listens in the capture phase. */
+	async function windowKey(key: string): Promise<void> {
+		const event = new Event("keydown", { bubbles: true, cancelable: true });
+		Object.assign(event, { key, shiftKey: false, keyCode: key === "Enter" ? 13 : 27, isComposing: false });
+		await act(async () => {
+			window.dispatchEvent(event);
+		});
+		await flush();
+	}
+
+	function phase(): string | null {
+		return document.querySelector("[data-dictation]")?.getAttribute("data-dictation") ?? null;
+	}
+
+	/** Click the mic; "Starting the microphone…" holds until the device opens. */
+	async function startTake(): Promise<void> {
+		const opened = Promise.withResolvers<FakeStream>();
+		mic.getUserMedia.mockImplementationOnce(() => opened.promise);
+		const button = document.querySelector(
+			`button[aria-label="${translate("voice.mic.start")}"]`,
+		) as unknown as TestElement | null;
+		if (!button) throw new Error("mic button missing");
+		await click(button);
+		expect(phase()).toBe("starting");
+		expect(document.querySelector("button[data-dictation-send]")).toBeNull();
+		opened.resolve(new FakeStream());
+		await flush();
+		expect(phase()).toBe("recording");
+	}
+
+	afterEach(() => uninstallFakeMic());
+
+	it("shows the meter while recording, and Enter ends the take into the draft at the caret", async () => {
+		await mountWithMic();
+		await typeInto(findTextarea(), "note:");
+		await startTake();
+		expect(document.querySelector('[data-dictation="recording"]')?.textContent).toContain(
+			translate("voice.dictation.listening"),
+		);
+		expect(document.querySelectorAll("[data-dictation] span[style]")).toHaveLength(METER_BARS);
+		// The send button becomes "Stop and send" while the mic is open.
+		expect(document.querySelector("button[data-dictation-send]")).not.toBeNull();
+
+		await windowKey("Enter");
+		expect(transcribeAudio).toHaveBeenCalledTimes(1);
+		expect(phase()).toBeNull();
+		expect(useComposerStore.getState().draft).toBe("note: hello there ");
+		expect(prompt).not.toHaveBeenCalled();
+	});
+
+	it("discards the take on Esc and keeps the draft", async () => {
+		await mountWithMic();
+		await typeInto(findTextarea(), "keep me");
+		await startTake();
+		await windowKey("Escape");
+		expect(phase()).toBeNull();
+		expect(transcribeAudio).not.toHaveBeenCalled();
+		expect(useComposerStore.getState().draft).toBe("keep me");
+	});
+
+	it("sends the draft with the transcript from Stop and send", async () => {
+		await mountWithMic();
+		await startTake();
+		const stopAndSend = document.querySelector("button[data-dictation-send]") as unknown as TestElement | null;
+		if (!stopAndSend) throw new Error("Stop and send missing");
+		expect(stopAndSend.getAttribute("aria-label")).toBe(translate("voice.dictation.stopAndSend"));
+		await click(stopAndSend);
+		await flush();
+		expect(prompt).toHaveBeenCalledTimes(1);
+		expect(prompt.mock.calls[0]?.[0]).toBe("hello there");
 	});
 });
