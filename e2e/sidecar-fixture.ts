@@ -1067,6 +1067,15 @@ if (process.argv[2] === "stats") {
 					description: "Isolated numeric audit setting",
 					default: 8192,
 				},
+				// A safeguard the user turned on: Settings › Permissions asks before turning it off.
+				{
+					path: "secrets.enabled",
+					type: "boolean",
+					tab: "interaction",
+					label: "Hide secrets",
+					description: "Obfuscate configured secrets before sending to AI providers",
+					default: true,
+				},
 				// Settings › Features renders the advisor row only when the schema has the setting.
 				...(modelsData
 					? [

@@ -293,13 +293,17 @@ async function mutateEntry(
 			if ((await toggle.count()) === 0)
 				return { write: "skipped-no-control", readback: "not-run", restore: "not-run", notes };
 			const next = initial !== true;
+			// A risky value (secret masking off, git guard off) waits for Accept risk.
+			const acceptRisk = row.locator("[data-risk-accept]");
 			await toggle.click();
+			if (await acceptRisk.isVisible()) await acceptRisk.click();
 			const readbackValue = await pollSetting(page, entry.path, next);
 			if (initial === undefined) {
 				const restore = await restoreInitial(page, entry.path, initial);
 				return { write: "passed", readback: "passed", restore, changedTo: next, readbackValue, notes };
 			}
 			await toggle.click();
+			if (await acceptRisk.isVisible()) await acceptRisk.click();
 			await pollSetting(page, entry.path, initial);
 			return { write: "passed", readback: "passed", restore: "passed", changedTo: next, readbackValue, notes };
 		}

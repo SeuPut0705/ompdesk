@@ -207,6 +207,7 @@ export function SettingsSwitchRow({
 							actions={
 								<>
 									<Button
+										data-risk-accept
 										onClick={() => {
 											setAsking(false);
 											onCheckedChange(risk.value);

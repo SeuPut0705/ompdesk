@@ -138,7 +138,9 @@ describe("picker search fields", () => {
 	it("the session picker's toggles are shared IconButtons with tooltips, not bare title buttons", () => {
 		const source = readFileSync(new URL("../dialogs/SessionPickerDialog.tsx", import.meta.url), "utf8");
 		expect(source.match(/<IconButton\b/g)).toHaveLength(3);
-		expect(source).not.toMatch(/\btitle=\{/);
+		// No native title tooltips; the failure notice's `title` is its heading, not a tooltip.
+		expect(source.match(/\btitle=\{[^}]*\}/g)).toEqual(["title={error.message}"]);
+		expect(source).toMatch(/<InlineNotice[^]*?title=\{error\.message\}/);
 		// A long project path keeps its tail, so the message count and age after it stay visible.
 		expect(source).toContain("shortenPath(session.cwd)");
 	});
