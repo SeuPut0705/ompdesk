@@ -2135,13 +2135,19 @@ export interface ExtensionErrorFrame {
 	error: string;
 }
 
+/** Stock read-tool grouping for one read call (gui-bridge stream-metadata.ts `readGroupTarget`). */
+export interface ReadGroupTarget {
+	path: string;
+	selector?: string;
+}
+
 // ============================================================================
 // AgentSessionEvent (24 types)
 // ============================================================================
 
 export type AgentSessionEvent =
 	| { type: "token_rate"; rate: number | null }
-	| { type: "read_group_metadata"; toolCallId: string; target: { path: string; selector?: string } | null }
+	| { type: "read_group_metadata"; toolCallId: string; target: ReadGroupTarget | null }
 	| { type: "agent_start"; sessionId?: string }
 	| { type: "agent_end"; messages?: AgentMessage[]; isTerminal?: boolean; telemetry?: unknown; coverage?: unknown }
 	| { type: "turn_start" }

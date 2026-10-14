@@ -1,5 +1,5 @@
 import { createStore } from "zustand/vanilla";
-import type { AgentMessage, AgentSessionEvent, MessagesPage } from "../../shared/rpc-types";
+import type { AgentMessage, AgentSessionEvent, MessagesPage, ReadGroupTarget } from "../../shared/rpc-types";
 import { messageIdentity, sameDelivery, sameMessageContent } from "../lib/message-identity";
 import { applyTurnMeterEvent, EMPTY_TURN_METER, type TurnMeter } from "../lib/turn-meter";
 import { createScopedStoreHook } from "./session-runtime-context";
@@ -23,6 +23,12 @@ export interface MessagesStore {
 	isLoadingPage: boolean;
 	/** Output-token meter for the running (or last) agent run; lib/turn-meter. */
 	turnMeter: TurnMeter;
+	/**
+	 * Stock read metadata (gui-bridge stream-metadata.ts) by call id for the running turn's
+	 * delivered messages, which carry none: transcripts and committed `agent_end` messages
+	 * have it on the call itself. Read grouping falls back to it (lib/read-group.ts).
+	 */
+	readTargets: ReadonlyMap<string, ReadGroupTarget | null>;
 	applyEvents: (events: AgentSessionEvent[]) => void;
 	prependPage: (page: MessagesPage) => void;
 	appendMessage: (message: AgentMessage) => void;
@@ -52,6 +58,7 @@ const initialState = {
 	pageError: null as string | null,
 	isLoadingPage: false,
 	turnMeter: EMPTY_TURN_METER,
+	readTargets: new Map() as ReadonlyMap<string, ReadGroupTarget | null>,
 };
 
 function isOptimisticUser(message: AgentMessage): boolean {
@@ -159,7 +166,8 @@ export const createMessagesStore = () =>
 		...initialState,
 		applyEvents: events => {
 			const state = get();
-			let { messages, liveMessages, streamingMessage, streamingText, streamingThinking, turnMeter } = state;
+			let { messages, liveMessages, streamingMessage, streamingText, streamingThinking, turnMeter, readTargets } =
+				state;
 			const now = Date.now();
 			for (const event of events) {
 				// A frame for a message that already ended changes nothing: neither the rows,
@@ -192,6 +200,15 @@ export const createMessagesStore = () =>
 				}
 				turnMeter = applyTurnMeterEvent(turnMeter, event, now);
 				switch (event.type) {
+					case "read_group_metadata": {
+						const known = readTargets.get(event.toolCallId);
+						const same =
+							readTargets.has(event.toolCallId) &&
+							known?.path === event.target?.path &&
+							known?.selector === event.target?.selector;
+						if (!same) readTargets = new Map(readTargets).set(event.toolCallId, event.target);
+						break;
+					}
 					case "message_start":
 						// Only assistant messages stream. Other deliveries are atomic.
 						if (event.message.role !== "assistant") break;
@@ -244,6 +261,8 @@ export const createMessagesStore = () =>
 										!message.optimisticDelivered &&
 										!optimisticUserWasCommitted(message, messages),
 								);
+								// The committed messages carry their read metadata themselves.
+								if (readTargets.size > 0) readTargets = new Map();
 							}
 						}
 						streamingMessage = null;
@@ -258,7 +277,8 @@ export const createMessagesStore = () =>
 				streamingMessage === state.streamingMessage &&
 				streamingText === state.streamingText &&
 				streamingThinking === state.streamingThinking &&
-				turnMeter === state.turnMeter
+				turnMeter === state.turnMeter &&
+				readTargets === state.readTargets
 			)
 				return;
 			// Preserve wire order above; publish only once per presentation frame.
@@ -270,6 +290,7 @@ export const createMessagesStore = () =>
 				streamingText,
 				streamingThinking,
 				turnMeter,
+				readTargets,
 				...(appended.length > 0 ? { lastAppended: appended } : {}),
 			});
 		},

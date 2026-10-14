@@ -13,7 +13,7 @@
  * StreamingRows path groups its read cards using the same host metadata.
  */
 
-import type { AgentMessage, MessageContent } from "../../shared/rpc-types";
+import type { AgentMessage, MessageContent, ReadGroupTarget } from "../../shared/rpc-types";
 import { toolEntryKey } from "../stores/tools";
 import { isRenderableMessageText } from "./messages";
 
@@ -84,7 +84,11 @@ interface ReadGroupableRow {
  * assistant messages into `readGroup` rows that accrete across messages.
  * Messages left with remaining visible content keep rendering (trimmed).
  */
-export function groupReadRows<R extends ReadGroupableRow>(rows: R[]): Array<R | ReadGroupRow> {
+export function groupReadRows<R extends ReadGroupableRow>(
+	rows: R[],
+	/** Metadata for live calls whose message carries none yet (messages store `readTargets`). */
+	readTargets?: ReadonlyMap<string, ReadGroupTarget | null>,
+): Array<R | ReadGroupRow> {
 	const out: Array<R | ReadGroupRow> = [];
 	let run: ReadGroupEntry[] = [];
 	let runUsage: ReadGroupUsage[] = [];
@@ -113,7 +117,11 @@ export function groupReadRows<R extends ReadGroupableRow>(rows: R[]): Array<R | 
 		const kept: MessageContent[] = [];
 		for (const block of message.content) {
 			if (block.type === "toolCall" && block.name === "read") {
-				const read = collapsibleReadTarget(block.arguments);
+				const read = collapsibleReadTarget(
+					"__ompReadGroup" in block.arguments || !readTargets?.has(block.id)
+						? block.arguments
+						: { __ompReadGroup: readTargets.get(block.id) },
+				);
 				if (read) {
 					run.push({
 						callId: block.id,

@@ -317,6 +317,23 @@ describe("late and replayed deliveries", () => {
 
 		expect(store.getState().liveMessages).toEqual([read, other]);
 	});
+
+	it("keeps the bridge's read metadata for the running turn until its messages commit", () => {
+		const store = createMessagesStore();
+		const metadata: Extract<AgentSessionEvent, { type: "read_group_metadata" }> = {
+			type: "read_group_metadata",
+			toolCallId: "r1",
+			target: { path: "a.ts" },
+		};
+		store.getState().applyEvents([{ type: "message_end", message: read }, metadata]);
+		expect(store.getState().readTargets.get("r1")).toEqual({ path: "a.ts" });
+		const targets = store.getState().readTargets;
+		store.getState().applyEvents([{ ...metadata, target: { path: "a.ts" } }]);
+		expect(store.getState().readTargets).toBe(targets);
+
+		store.getState().applyEvents([{ type: "agent_end", messages: [committedRead] }]);
+		expect(store.getState().readTargets.size).toBe(0);
+	});
 });
 
 describe("transcript hydration", () => {

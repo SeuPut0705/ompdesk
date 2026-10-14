@@ -42,13 +42,13 @@ export const methods: BridgeMethods = guard("streamMetadata", {
 			previousRate = current;
 			env.emit({ type: "token_rate", rate: current });
 		};
+		// At the message's end, not the call's execution start: the GUI receives the metadata with
+		// the message (one batch), so live reads group as they will after the run commits.
 		const unsubscribe = session.subscribe(event => {
-			if (event.type === "tool_execution_start" && event.toolName === "read") {
-				env.emit({
-					type: "read_group_metadata",
-					toolCallId: event.toolCallId,
-					target: readGroupTarget(event.args),
-				});
+			if (event.type !== "message_end" || event.message.role !== "assistant") return;
+			for (const block of Array.isArray(event.message.content) ? event.message.content : []) {
+				if (block.type !== "toolCall" || block.name !== "read") continue;
+				env.emit({ type: "read_group_metadata", toolCallId: block.id, target: readGroupTarget(block.arguments) });
 			}
 		});
 		const timer = setInterval(rate, 500);

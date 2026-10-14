@@ -50,6 +50,24 @@ describe("groupReadRows", () => {
 		}
 	});
 
+	it("groups a live delivery's reads from the metadata the bridge sent beside it", () => {
+		// Stock's message_end carries no read metadata; transcripts and committed ends do.
+		const live = (id: string, path: string) => ({ type: "toolCall" as const, id, name: "read", arguments: { path } });
+		const rows = [{ kind: "message" as const, message: assistant(live("r1", "a.ts"), live("r2", "skill://x")) }];
+		expect(groupReadRows(rows).map(row => row.kind)).toEqual(["message"]);
+
+		const grouped = groupReadRows(
+			rows,
+			new Map([
+				["r1", { path: "a.ts" }],
+				["r2", null],
+			]),
+		);
+		// r1 groups; r2, which stock keeps out of groups, stays a full card.
+		expect(grouped.map(row => row.kind)).toEqual(["readGroup", "message"]);
+		if (grouped[0]?.kind === "readGroup") expect(grouped[0].entries.map(entry => entry.callId)).toEqual(["r1"]);
+	});
+
 	it("keeps remaining visible content in the trimmed message", () => {
 		const rows = [{ kind: "message" as const, message: assistant(readCall("r1", "a.ts"), text("explanation")) }];
 		const grouped = groupReadRows(rows);

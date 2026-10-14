@@ -168,6 +168,7 @@ function SessionTranscript() {
 	const lastCompactionIndex = displayMessages.findLastIndex(message => message.role === "compactionSummary");
 	const hiddenCount = collapseCompacted && !preCompactionOpen && lastCompactionIndex > 0 ? lastCompactionIndex : 0;
 	const todoHistory = useTodoStore(s => s.history);
+	const readTargets = useMessagesStore(s => s.readTargets);
 	// The previous build's rows by key: rebuilt rows that did not change keep their
 	// object so the memoized row components skip them (see reuseTranscriptRows).
 	const builtRowsRef = useRef<ReadonlyMap<string, HistoryRow>>(new Map());
@@ -180,14 +181,14 @@ function SessionTranscript() {
 		// Read-tool grouping (TUI parity) folds consecutive collapsible reads into
 		// one card — only in full mode; compact mode's ProcessGroup already folds
 		// ALL consecutive tool work, so a second fold would nest redundantly.
-		const grouped = transcriptDetail === "compact" ? built : (groupReadRows(built) as HistoryRow[]);
+		const grouped = transcriptDetail === "compact" ? built : (groupReadRows(built, readTargets) as HistoryRow[]);
 		// Archived todo changes interleave by timestamp (transcript archive rows).
 		const merged = mergeTodoSnapshots(grouped, todoHistory);
 		const keys = buildHistoryRowKeys(merged);
 		const reused = reuseTranscriptRows(builtRowsRef.current, merged, keys);
 		builtRowsRef.current = new Map(reused.map((row, index) => [keys[index] ?? "", row]));
 		return reused;
-	}, [displayMessages, hiddenCount, transcriptDetail, todoHistory, expandedProcessKeys]);
+	}, [displayMessages, hiddenCount, transcriptDetail, todoHistory, expandedProcessKeys, readTargets]);
 
 	// The assistant message exists as an empty shell from message_start until
 	// the first delta — only real content swaps the status row for the

@@ -599,22 +599,20 @@ export const createToolsStore = () => {
 							queueExecutionKey(block.id, key);
 							if (identity) endedCallKeys.set(identity, key);
 							const existing = lookup(key);
+							// Bridge read metadata travels beside the message and can arrive first.
+							const readGroup = readTargets.has(block.id)
+								? readTargets.get(block.id)
+								: existing?.args.__ompReadGroup;
+							const args =
+								readGroup !== undefined && !("__ompReadGroup" in block.arguments)
+									? { ...block.arguments, __ompReadGroup: readGroup }
+									: block.arguments;
 							if (existing) {
-								// Bridge read metadata can reach the call before its message ends.
-								const readGroup = existing.args.__ompReadGroup;
-								put(key, {
-									...existing,
-									toolName: block.name,
-									args:
-										readGroup !== undefined && !("__ompReadGroup" in block.arguments)
-											? { ...block.arguments, __ompReadGroup: readGroup }
-											: block.arguments,
-									intent: block.intent ?? existing.intent,
-								});
+								put(key, { ...existing, toolName: block.name, args, intent: block.intent ?? existing.intent });
 							} else {
 								put(key, {
 									toolName: block.name,
-									args: block.arguments,
+									args,
 									intent: block.intent,
 									status: "pending",
 									streamingArgs: "",

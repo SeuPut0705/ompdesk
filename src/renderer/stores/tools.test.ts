@@ -43,6 +43,16 @@ describe("stock read metadata ordering", () => {
 		store.getState().applyEvents(before ? [metadata, start("read-1")] : [start("read-1"), metadata]);
 		expect(entryOf(store, "read-1")?.args.__ompReadGroup).toEqual({ path: "https://example.com" });
 	});
+	it("joins metadata that arrives before the call's message ends", () => {
+		const store = createToolsStore();
+		store.getState().applyEvents([
+			{ type: "read_group_metadata", toolCallId: "read-1", target: { path: "read-1.ts" } },
+			{ type: "message_end", message: call("read-1", 3) },
+		]);
+		expect(entryOf(store, "read-1")?.args.__ompReadGroup).toEqual({ path: "read-1.ts" });
+		store.getState().applyEvents([start("read-1")]);
+		expect(entryOf(store, "read-1")?.args.__ompReadGroup).toEqual({ path: "read-1.ts" });
+	});
 	it("preserves transcript metadata when execution begins after hydration", () => {
 		const store = createToolsStore();
 		const message: AgentMessage = {
@@ -120,18 +130,16 @@ describe("tools store history rebuild", () => {
 		store.getState().hydrateMessages([call("read:0"), result("read:0")]);
 		// A start with no message_end of its own is late behind the snapshot that holds the
 		// result, or a replay: a new call with a reused id ends its message first.
-		store
-			.getState()
-			.applyEvents([
-				start("read:0"),
-				{
-					type: "tool_execution_end",
-					toolCallId: "read:0",
-					toolName: "read",
-					result: { content: [] },
-					isError: false,
-				},
-			]);
+		store.getState().applyEvents([
+			start("read:0"),
+			{
+				type: "tool_execution_end",
+				toolCallId: "read:0",
+				toolName: "read",
+				result: { content: [] },
+				isError: false,
+			},
+		]);
 
 		expect(entryCount(store.getState())).toBe(1);
 		expect(store.getState().liveTools.size).toBe(0);

@@ -1187,13 +1187,16 @@ if (process.argv[2] === "stats") {
 			}
 			return result;
 		},
+		// Like the bridge: stock entries match the delivered message, and the reply carries the
+		// read metadata the transcript has (the live delivery never does).
 		"sessions.attach_entry_ids": params => ({
 			messages: (params.messages as AgentMessage[]).map(message => {
+				const bare = (value: unknown) =>
+					JSON.stringify(value, (key, field) => (key === "__ompReadGroup" ? undefined : field));
 				const entry = entries.find(
-					candidate =>
-						candidate.type === "message" && JSON.stringify(candidate.message) === JSON.stringify(message),
+					candidate => candidate.type === "message" && bare(candidate.message) === bare(message),
 				);
-				return entry ? { ...message, entryId: entry.id } : message;
+				return entry ? { ...(entry.message as AgentMessage), entryId: entry.id } : message;
 			}),
 		}),
 		"sessions.tree": () => {
@@ -2489,17 +2492,28 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					type: "toolCall",
 					id: `fixture-read-${index}`,
 					name: "read",
-					arguments: { path, __ompReadGroup: { path } },
+					arguments: { path },
 				})),
 			};
+			// As stock and the bridge: the live message carries no read metadata, the transcript
+			// does, and the bridge sends it beside the message's end.
 			write({ type: "message_start", message: answer });
-			appendMessage(answer);
+			appendMessage({
+				...answer,
+				content: targets.map((path, index) => ({
+					type: "toolCall",
+					id: `fixture-read-${index}`,
+					name: "read",
+					arguments: { path, __ompReadGroup: { path } },
+				})),
+			});
 			write({ type: "message_end", message: answer });
+			for (const [index, path] of targets.entries())
+				write({ type: "read_group_metadata", toolCallId: `fixture-read-${index}`, target: { path } });
 			const results: AgentMessage[] = [];
 			for (const [index, path] of targets.entries()) {
 				const toolCallId = `fixture-read-${index}`;
 				write({ type: "tool_execution_start", toolCallId, toolName: "read", args: { path } });
-				write({ type: "read_group_metadata", toolCallId, target: { path } });
 				const content = [{ type: "text" as const, text: "fixture read output" }];
 				write({ type: "tool_execution_end", toolCallId, toolName: "read", result: { content }, isError: false });
 				const result: AgentMessage = {
