@@ -18,6 +18,7 @@ import {
 	SetupManualSteps,
 	SetupMark,
 	SetupOutput,
+	SetupProgressLine,
 	setupFailureText,
 	setupPhaseText,
 	setupPresenceNote,
@@ -52,6 +53,7 @@ function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolea
 						{setupPhaseText(t, item)}
 						{note && <span className="text-(--sc-text-muted)"> · {note}</span>}
 					</p>
+					<SetupProgressLine className="mt-1.5" item={item} />
 					{path && (
 						<p className="mt-0.5 font-mono text-sc-xs break-all text-(--sc-text-muted) select-text">{path}</p>
 					)}

@@ -10,6 +10,8 @@
  * (`<userData>/setup-state.json`). A retry from the user always runs.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import {
 	isSetupItemId,
 	SETUP_ITEMS,
@@ -24,8 +26,17 @@ import {
 import { ompNeedsShell, ompSpawnArgs, ompSpawnCommand } from "../omp-runtime";
 import { type FetchText, fetchText, resolveArchiveRelease } from "./archives";
 import { type Detection, detectMachine } from "./detect";
+import { DownloadError, type DownloadFetch, downloadVerified } from "./download";
 import { refreshPath } from "./paths";
-import { type ArchiveRelease, buildPlan, manualSteps, type PlanContext, type SpawnSpec, selectMethod } from "./plans";
+import {
+	type ArchiveRelease,
+	buildPlan,
+	manualSteps,
+	type PlanContext,
+	type PlanDownload,
+	type SpawnSpec,
+	selectMethod,
+} from "./plans";
 import { type RunOutcome, SetupRunner } from "./runner";
 
 /** Automatic attempts before an item waits BACKOFF_MS between automatic attempts. */
@@ -58,11 +69,15 @@ export interface SetupServiceDeps {
 	detect?: (platform: SetupPlatform, bunInstall: string) => Promise<Detection>;
 	runner?: SetupRunner;
 	fetchText?: FetchText;
+	/** Downloads main runs itself (download.ts). */
+	fetch?: DownloadFetch;
+	/** `OMP_GUI_TEST_DOWNLOAD(_SHA256)`: under the test installer, every plan first downloads this (e2e progress). */
+	testDownload?: { url: string; sha256: string } | null;
 	refreshPath?: (platform: SetupPlatform, toolsDir: string) => Promise<void>;
 	now?: () => number;
 }
 
-/** Placeholder release for archive plans under OMP_GUI_TEST_INSTALLER, which never downloads. */
+/** Placeholder release for archive plans under OMP_GUI_TEST_INSTALLER, which never downloads it. */
 const TEST_RELEASE = { version: "0.0.0", file: "test", url: "https://example.invalid/test", sha256: "0".repeat(64) };
 
 export class SetupService {
@@ -76,6 +91,8 @@ export class SetupService {
 	#disposed = false;
 	#attemptedThisLaunch = new Set<SetupItemId>();
 	#emitTimer: NodeJS.Timeout | null = null;
+	/** The download main runs right now, if any; a cancel aborts it. */
+	#download: AbortController | null = null;
 
 	constructor(deps: SetupServiceDeps) {
 		this.#deps = deps;
@@ -92,6 +109,7 @@ export class SetupService {
 					command: null,
 					location: null,
 					prompt: null,
+					progress: null,
 					output: "",
 					failure: null,
 					manualCommands: manual.commands,
@@ -139,17 +157,23 @@ export class SetupService {
 		});
 	}
 
-	/** Cancel the running install and the rest of its pipeline. */
+	/** Cancel the running install (its download or its process) and the rest of its pipeline. */
 	cancel(): boolean {
+		if (this.#download) {
+			this.#stopPipeline = true;
+			this.#download.abort();
+			return true;
+		}
 		if (!this.#runner.running) return false;
 		this.#stopPipeline = true;
 		return this.#runner.cancel();
 	}
 
-	/** App quit: stop the running installer's tree and start nothing new. */
+	/** App quit: stop the running download or installer tree and start nothing new. */
 	dispose(): void {
 		this.#disposed = true;
 		this.#stopPipeline = true;
+		this.#download?.abort();
 		this.#runner.cancel();
 		clearTimeout(this.#emitTimer ?? undefined);
 	}
@@ -210,12 +234,8 @@ export class SetupService {
 	async #runRequired(manual: boolean): Promise<void> {
 		const wasReady = this.#items.omp.presence?.kind === "present";
 		const items = this.#requiredItems();
-		this.#markQueued(items, manual);
 		try {
-			for (const id of items) {
-				if (this.#stopPipeline || this.#disposed) break;
-				await this.#ensure(id, manual);
-			}
+			await this.#installEach(items, manual);
 		} finally {
 			this.#requiredRunning = false;
 			for (const id of items) if (this.#items[id].phase === "queued") this.#items[id].phase = "idle";
@@ -235,20 +255,26 @@ export class SetupService {
 	}
 
 	async #runOptional(items: SetupItemId[], manual: boolean): Promise<void> {
-		this.#markQueued(items, manual);
 		try {
-			for (const id of items) {
-				if (this.#stopPipeline || this.#disposed) break;
-				await this.#ensure(id, manual);
-			}
+			await this.#installEach(items, manual);
 		} finally {
 			for (const id of items) if (this.#items[id].phase === "queued") this.#items[id].phase = "idle";
 			this.#emit();
 		}
 	}
 
+	/** Queue `items`, then install them in order; each running one knows its place among the queued ones. */
+	async #installEach(items: SetupItemId[], manual: boolean): Promise<void> {
+		this.#markQueued(items, manual);
+		const run = items.filter(id => this.#items[id].phase === "queued");
+		for (const id of items) {
+			if (this.#stopPipeline || this.#disposed) break;
+			await this.#ensure(id, manual, { step: run.indexOf(id) + 1, steps: run.length });
+		}
+	}
+
 	/** Install `id` if it is missing and allowed to run now. */
-	async #ensure(id: SetupItemId, manual: boolean): Promise<void> {
+	async #ensure(id: SetupItemId, manual: boolean, place: { step: number; steps: number }): Promise<void> {
 		const item = this.#items[id];
 		const detection = this.#detection;
 		if (!detection || !item.presence || item.presence.kind === "present") return;
@@ -290,14 +316,69 @@ export class SetupService {
 		item.output = "";
 		item.failure = null;
 		item.phase = "running";
+		const download = this.#deps.testInstaller ? this.#testDownload() : plan.download;
+		item.progress = {
+			...place,
+			startedAt: (this.#deps.now ?? Date.now)(),
+			download: download ? { received: 0, total: null } : null,
+		};
 		this.#attemptedThisLaunch.add(id);
 		this.#recordAttempt(id);
 		this.#emit();
-		const outcome = await this.#runner.run(this.#spec(plan.spawn, id, method), await this.#installEnv(), chunk => {
-			item.output = (item.output + chunk).slice(-SETUP_OUTPUT_TAIL);
-			this.#emitSoon();
-		});
-		await this.#settle(id, outcome);
+		try {
+			if (download && !(await this.#fetch(id, download))) return;
+			const outcome = await this.#runner.run(this.#spec(plan.spawn, id, method), await this.#installEnv(), chunk => {
+				item.output = (item.output + chunk).slice(-SETUP_OUTPUT_TAIL);
+				this.#emitSoon();
+			});
+			item.progress = null;
+			await this.#settle(id, outcome);
+		} finally {
+			item.progress = null;
+			if (download) await rm(download.file, { force: true });
+		}
+	}
+
+	/** The test download every plan runs first under the test installer, if one is set. */
+	#testDownload(): PlanDownload | null {
+		const test = this.#deps.testDownload;
+		return test ? { ...test, file: join(this.#deps.toolsDir, ".downloads", "test-download") } : null;
+	}
+
+	/** Download the plan's file in main with byte progress; false when it failed or was cancelled (already reported). */
+	async #fetch(id: SetupItemId, download: PlanDownload): Promise<boolean> {
+		const item = this.#items[id];
+		const controller = new AbortController();
+		this.#download = controller;
+		try {
+			await downloadVerified({
+				...download,
+				signal: controller.signal,
+				onProgress: value => {
+					if (item.progress) item.progress = { ...item.progress, download: { ...value } };
+					this.#emitSoon();
+				},
+				...(this.#deps.fetch ? { fetch: this.#deps.fetch } : {}),
+			});
+		} catch (error) {
+			item.progress = null;
+			if (controller.signal.aborted) {
+				item.phase = "cancelled";
+				item.failure = null;
+				this.#emit();
+			} else {
+				this.#fail(id, {
+					reason: error instanceof DownloadError ? error.reason : "download",
+					detail: error instanceof Error ? error.message : String(error),
+				});
+			}
+			return false;
+		} finally {
+			this.#download = null;
+		}
+		if (item.progress) item.progress = { ...item.progress, download: null };
+		this.#emit();
+		return true;
 	}
 
 	async #settle(id: SetupItemId, outcome: RunOutcome): Promise<void> {

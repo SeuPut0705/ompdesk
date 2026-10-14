@@ -27,6 +27,7 @@ export function setupItem(
 		command: null,
 		location: null,
 		prompt: null,
+		progress: null,
 		output: "",
 		failure: null,
 		manualCommands: [],

@@ -26,7 +26,7 @@ interface BuilderConfig {
 	};
 	dmg?: { artifactName?: string };
 	win?: { target?: { target?: string; arch?: string[] }[] };
-	nsis?: { artifactName?: string };
+	nsis?: Record<string, unknown> & { artifactName?: string; include?: string };
 }
 
 interface ReleaseWorkflow {
@@ -245,6 +245,78 @@ describe("Windows package config", () => {
 		).toContain("omp");
 		expect(config.extraResources).toContainEqual({ from: "resources/gui-bridge", to: "gui-bridge" });
 		expect(config.win?.target).toEqual([{ target: "nsis", arch: ["x64"] }]);
+	});
+
+	it("installs per user in one click: no page, no question, no UAC, a progress bar, then OMPdesk starts", () => {
+		const config = parse(
+			fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.win.yml"), "utf8"),
+		) as BuilderConfig;
+		expect(config.nsis).toMatchObject({
+			oneClick: true,
+			perMachine: false,
+			runAfterFinish: true,
+			deleteAppDataOnUninstall: false,
+			createDesktopShortcut: true,
+			createStartMenuShortcut: true,
+			shortcutName: "OMPdesk",
+			include: "resources/installer.nsh",
+		});
+		// Assisted-installer options electron-builder refuses (or ignores) with oneClick.
+		for (const key of ["allowToChangeInstallationDirectory", "allowElevation", "selectPerMachineByDefault"]) {
+			expect(config.nsis, key).not.toHaveProperty(key);
+		}
+	});
+
+	it("removes an all-users copy from the assisted installer first, and only that", () => {
+		const script = fs.readFileSync(path.join(PACKAGE_ROOT, "resources/installer.nsh"), "utf8");
+		const init = /!macro customInit\n([\s\S]*?)!macroend/.exec(script)?.[1] ?? "";
+		// `${NAME}` as NSIS writes it (a define or macro), built so it never reads as a template slot.
+		const nsis = (name: string) => `$${"{"}${name}}`;
+		const lines = [
+			// Only an HKLM registration (the assisted installer's "Anyone who uses this computer") triggers it.
+			`ReadRegStr $R1 HKLM "${nsis("UNINSTALL_REGISTRY_KEY")}" UninstallString`,
+			`ReadRegStr $R0 HKLM "${nsis("INSTALL_REGISTRY_KEY")}" InstallLocation`,
+			// Its own uninstaller, from a temp copy, elevated once, all-users mode, app data kept; waited for.
+			`CopyFiles /SILENT "$R0\\${nsis("UNINSTALL_FILENAME")}" "$PLUGINSDIR\\all-users-uninstaller.exe"`,
+			`${nsis("StdUtils.ExecShellWaitEx")} $R2 $R3 "$PLUGINSDIR\\all-users-uninstaller.exe" "runas" "/S /allusers /KEEP_APP_DATA _?=$R0"`,
+			`${nsis("StdUtils.WaitForProcEx")} $R4 $R3`,
+		];
+		for (const line of lines) expect(init).toContain(line);
+		// Asked first only when someone is watching; a copy that is still registered stops the install.
+		expect(init).toMatch(/\$\{IfNot\} \$\{Silent\}\n\s+MessageBox MB_OKCANCEL/);
+		expect(init).toMatch(/SetErrorLevel 2\n\s+Quit/);
+		expect(script).not.toMatch(/customInstallMode|RequestExecutionLevel admin/);
+	});
+});
+
+describe("workflows", () => {
+	const workflows = fs
+		.readdirSync(path.join(PACKAGE_ROOT, ".github", "workflows"))
+		.map(name => ({ name, text: fs.readFileSync(path.join(PACKAGE_ROOT, ".github", "workflows", name), "utf8") }));
+
+	it("pins every action to a commit SHA", () => {
+		for (const { name, text } of workflows) {
+			for (const [, ref] of text.matchAll(/^\s*(?:-\s+)?uses:\s*(\S+)/gm)) {
+				expect(ref, name).toMatch(/^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[0-9a-f]{40}$/);
+			}
+		}
+	});
+
+	it("checks the built setup on Windows silently, as a double-click and over an all-users install", () => {
+		const ci = parse(workflows.find(entry => entry.name === "ci.yml")?.text ?? "") as {
+			on: { workflow_dispatch: { inputs: Record<string, unknown> } };
+			jobs: Record<string, { "runs-on": string; if?: string; steps: { run?: string }[] }>;
+		};
+		expect(ci.on.workflow_dispatch.inputs).toHaveProperty("installer_check");
+		const job = ci.jobs["installer-check"];
+		expect(job?.if).toBe("inputs.installer_check");
+		expect(job?.["runs-on"]).toBe("windows-latest");
+		const runs = job?.steps.map(step => step.run ?? "").join("\n") ?? "";
+		expect(runs).toContain("ompdesk-windows-setup.exe");
+		for (const mode of ["silent", "ui", "legacy"]) {
+			expect(runs).toContain(`scripts/windows-installer-check.ps1 -Setup ompdesk-windows-setup.exe -Mode ${mode}`);
+		}
+		expect(fs.existsSync(path.join(PACKAGE_ROOT, "scripts/windows-installer-check.ps1"))).toBe(true);
 	});
 });
 

@@ -59,6 +59,14 @@ export interface SpawnSpec {
 	shell: boolean;
 }
 
+/** A file main downloads and checks (download.ts) before the plan's process runs, so its bytes can show as progress. */
+export interface PlanDownload {
+	url: string;
+	sha256: string;
+	/** Where it lands: `<tools>/.downloads/<name>`, removed again once the install ended. */
+	file: string;
+}
+
 export interface InstallPlan {
 	item: SetupItemId;
 	method: SetupMethod;
@@ -67,6 +75,7 @@ export interface InstallPlan {
 	command: string;
 	location: string;
 	prompt: "uac" | "dialog" | null;
+	download: PlanDownload | null;
 }
 
 /** How `item` installs here, or null when nothing can install it automatically. */
@@ -117,53 +126,53 @@ function powershellScript(ctx: PlanContext, script: string): SpawnSpec {
 	};
 }
 
-/** Download, verify and extract PortableGit into `<tools>\git`, replacing a previous copy only once the new one is complete. */
-export function portableGitScript(dest: string, arch: string): string {
+/** First line of a script whose input main downloaded: what came from where, checked against which hash. */
+function downloadedLine(download: PlanDownload): string {
+	return `# OMPdesk downloaded ${download.url} (SHA-256 ${download.sha256}) to ${download.file}`;
+}
+
+function portableGitDownload(toolsDir: string, arch: string): PlanDownload {
 	const pin = arch === "arm64" ? PORTABLE_GIT.arm64 : PORTABLE_GIT.x64;
+	return { url: pin.url, sha256: pin.sha256, file: join(toolsDir, ".downloads", pin.url.split("/").at(-1) ?? "") };
+}
+
+/** Verify the PortableGit main downloaded and extract it into `<tools>\git`, replacing a previous copy only once the new one is complete. */
+export function portableGitScript(dest: string, download: PlanDownload): string {
 	return [
+		downloadedLine(download),
 		"$ErrorActionPreference = 'Stop'",
-		"$ProgressPreference = 'SilentlyContinue'",
-		"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
 		`$dest = ${psQuote(dest)}`,
+		`$file = ${psQuote(download.file)}`,
 		"$part = $dest + '.partial'",
-		"$tmp = Join-Path ([IO.Path]::GetTempPath()) ('ompdesk-git-' + [guid]::NewGuid())",
-		"New-Item -ItemType Directory -Force -Path $tmp | Out-Null",
-		"try {",
-		"  $file = Join-Path $tmp 'PortableGit.7z.exe'",
-		`  Write-Output ('Downloading ' + ${psQuote(pin.url)})`,
-		`  Invoke-WebRequest -UseBasicParsing -Uri ${psQuote(pin.url)} -OutFile $file`,
-		"  $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()",
-		`  if ($hash -ne ${psQuote(pin.sha256)}) { throw ('SHA-256 mismatch: expected ${pin.sha256}, got ' + $hash) }`,
-		"  Write-Output 'SHA-256 verified'",
-		"  if (Test-Path -LiteralPath $part) { Remove-Item -Recurse -Force -LiteralPath $part }",
-		"  $proc = Start-Process -FilePath $file -ArgumentList @('-y', ('-o\"' + $part + '\"')) -Wait -PassThru -WindowStyle Hidden",
-		"  if ($proc.ExitCode -ne 0) { throw ('PortableGit extraction exited with ' + $proc.ExitCode) }",
-		"  if (-not (Test-Path -LiteralPath (Join-Path $part 'bin\\bash.exe'))) { throw 'bash.exe is missing after extraction' }",
-		"  if (Test-Path -LiteralPath $dest) { Remove-Item -Recurse -Force -LiteralPath $dest }",
-		"  Move-Item -LiteralPath $part -Destination $dest",
-		"  Write-Output ('Git for Windows ' + " + psQuote(PORTABLE_GIT.version) + " + ' is in ' + $dest)",
-		"} finally {",
-		"  Remove-Item -Recurse -Force -LiteralPath $tmp -ErrorAction SilentlyContinue",
-		"}",
+		"$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()",
+		`if ($hash -ne ${psQuote(download.sha256)}) { throw ('SHA-256 mismatch: expected ${download.sha256}, got ' + $hash) }`,
+		"Write-Output 'SHA-256 verified'",
+		"if (Test-Path -LiteralPath $part) { Remove-Item -Recurse -Force -LiteralPath $part }",
+		"$proc = Start-Process -FilePath $file -ArgumentList @('-y', ('-o\"' + $part + '\"')) -Wait -PassThru -WindowStyle Hidden",
+		"if ($proc.ExitCode -ne 0) { throw ('PortableGit extraction exited with ' + $proc.ExitCode) }",
+		"if (-not (Test-Path -LiteralPath (Join-Path $part 'bin\\bash.exe'))) { throw 'bash.exe is missing after extraction' }",
+		"if (Test-Path -LiteralPath $dest) { Remove-Item -Recurse -Force -LiteralPath $dest }",
+		"Move-Item -LiteralPath $part -Destination $dest",
+		"Write-Output ('Git for Windows ' + " + psQuote(PORTABLE_GIT.version) + " + ' is in ' + $dest)",
 	].join("\n");
 }
 
-/** Download `release`, check its SHA-256, and unpack it into `<tools>/<item>` (bash, macOS). */
-export function archiveScript(release: ArchiveRelease, toolsDir: string): string {
+/** Check the SHA-256 of the `release` main downloaded and unpack it into `<tools>/<item>` (bash, macOS). */
+export function archiveScript(release: ArchiveRelease, toolsDir: string, download: PlanDownload): string {
 	const dest = join(toolsDir, release.item);
+	const archive = shQuote(download.file);
 	const unpack =
 		release.item === "node"
-			? `tar -xzf "$tmp/archive" -C "$tmp/x" --strip-components 1`
+			? `tar -xzf ${archive} -C "$tmp/x" --strip-components 1`
 			: // gh's zip holds one gh_<version>_macOS_<arch>/ directory.
-				`ditto -x -k "$tmp/archive" "$tmp/zip" && mv "$tmp"/zip/*/* "$tmp/x/"`;
+				`ditto -x -k ${archive} "$tmp/zip" && mv "$tmp"/zip/*/* "$tmp/x/"`;
 	return [
+		downloadedLine(download),
 		"set -euo pipefail",
+		`echo ${shQuote(`${download.sha256}  ${download.file}`)} | shasum -a 256 -c -`,
 		'tmp="$(mktemp -d)"',
 		`trap 'rm -rf "$tmp"' EXIT`,
 		'mkdir -p "$tmp/x" "$tmp/zip"',
-		`echo "Downloading ${release.url}"`,
-		`curl -fL --retry 2 --proto '=https' -o "$tmp/archive" ${shQuote(release.url)}`,
-		`echo ${shQuote(`${release.sha256}  `)}"$tmp/archive" | shasum -a 256 -c -`,
 		unpack,
 		`mkdir -p ${shQuote(toolsDir)}`,
 		`rm -rf ${shQuote(dest)}`,
@@ -197,6 +206,7 @@ export function buildPlan(
 						command: 'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm bun.sh/install.ps1 | iex"',
 						location: ctx.bunInstall,
 						prompt: null,
+						download: null,
 					}
 				: {
 						item,
@@ -209,6 +219,7 @@ export function buildPlan(
 						command: "curl -fsSL https://bun.sh/install | bash",
 						location: ctx.bunInstall,
 						prompt: null,
+						download: null,
 					};
 		case "bun-global":
 			if (!ctx.bun) return null;
@@ -219,6 +230,7 @@ export function buildPlan(
 				command: `"${ctx.bun}" install -g ${OMP_PACKAGE}`,
 				location: join(ctx.bunInstall, "install", "global", "node_modules", "@oh-my-pi", "pi-coding-agent"),
 				prompt: null,
+				download: null,
 			};
 		case "omp-update":
 			if (!ctx.omp) return null;
@@ -233,11 +245,21 @@ export function buildPlan(
 				command: `"${ctx.omp}" update`,
 				location: ctx.omp,
 				prompt: null,
+				download: null,
 			};
 		case "portable-git": {
 			const dest = managedGitRoot(ctx.toolsDir);
-			const script = portableGitScript(dest, ctx.arch);
-			return { item, method, spawn: powershellScript(ctx, script), command: script, location: dest, prompt: null };
+			const download = portableGitDownload(ctx.toolsDir, ctx.arch);
+			const script = portableGitScript(dest, download);
+			return {
+				item,
+				method,
+				spawn: powershellScript(ctx, script),
+				command: script,
+				location: dest,
+				prompt: null,
+				download,
+			};
 		}
 		case "xcode-select":
 			return {
@@ -247,6 +269,7 @@ export function buildPlan(
 				command: "xcode-select --install",
 				location: "/Library/Developer/CommandLineTools",
 				prompt: "dialog",
+				download: null,
 			};
 		case "brew": {
 			if (!ctx.brew) return null;
@@ -258,6 +281,7 @@ export function buildPlan(
 				command: `"${ctx.brew}" install ${formula}`,
 				location: join(ctx.brew, "..", ".."),
 				prompt: null,
+				download: null,
 			};
 		}
 		case "winget": {
@@ -277,11 +301,17 @@ export function buildPlan(
 				command: `winget ${args.join(" ")}`,
 				location: item === "node" ? "C:\\Program Files\\nodejs" : "C:\\Program Files",
 				prompt: "uac",
+				download: null,
 			};
 		}
 		case "archive": {
 			if (!release || release.item !== item) return null;
-			const script = archiveScript(release, ctx.toolsDir);
+			const download = {
+				url: release.url,
+				sha256: release.sha256,
+				file: join(ctx.toolsDir, ".downloads", release.file),
+			};
+			const script = archiveScript(release, ctx.toolsDir, download);
 			return {
 				item,
 				method,
@@ -289,6 +319,7 @@ export function buildPlan(
 				command: script,
 				location: join(ctx.toolsDir, release.item),
 				prompt: null,
+				download,
 			};
 		}
 	}

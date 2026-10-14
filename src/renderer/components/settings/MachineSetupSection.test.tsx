@@ -107,6 +107,24 @@ describe("MachineSetupSection", () => {
 		expect(row("bun")?.querySelector('[data-testid="setup-cancel"]')).toBeNull();
 	});
 
+	it("shows a background install's place in its run and its download percent", async () => {
+		await mount(
+			setupState("darwin", {
+				gh: {
+					phase: "running",
+					presence: { kind: "missing" },
+					method: "archive",
+					progress: { step: 1, steps: 2, startedAt: Date.now(), download: { received: 250, total: 1000 } },
+				},
+				node: { phase: "queued", presence: { kind: "missing" } },
+			}),
+		);
+		expect(row("gh")?.textContent).toContain(translate("machineSetup.progress.step", { step: 1, steps: 2 }));
+		expect(row("gh")?.textContent).toContain("25%");
+		expect(row("gh")?.querySelector("[role='progressbar']")?.getAttribute("aria-valuenow")).toBe("0.25");
+		expect(row("node")?.querySelector("[role='progressbar']")).toBeNull();
+	});
+
 	it("is hidden where OMPdesk doesn't set the machine up", async () => {
 		await mount(setupState("other"));
 		expect(document.body.querySelector('[data-testid="machine-setup-settings"]')).toBeNull();

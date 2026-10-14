@@ -68,7 +68,7 @@ OMPdesk는 [omp](https://github.com/can1357/oh-my-pi) 코딩 에이전트를 위
 | 운영체제 | 설치 방법 |
 |---|---|
 | macOS | DMG를 열고 **OMPdesk**를 **응용 프로그램** 폴더로 옮긴 뒤 실행하세요. DMG 안에서 바로 실행하면 자동 업데이트가 동작하지 않아요. |
-| Windows | `ompdesk-windows-setup.exe`를 실행하고 안내를 따라가세요. |
+| Windows | `ompdesk-windows-setup.exe`를 더블클릭하세요. 질문이나 관리자 권한 요청 없이 진행 막대만 보이며 내 계정(`%LOCALAPPDATA%\Programs\ompdesk`)에 설치되고, 끝나면 OMPdesk가 열려요. 예전에 "모든 사용자"용으로 설치했다면 그 사본을 먼저 지울지 한 번 묻고, 이때만 Windows 권한 확인이 떠요. |
 
 첫 실행 때 보안 경고가 나오면 [문제 해결](#문제-해결)을 참고하세요.
 

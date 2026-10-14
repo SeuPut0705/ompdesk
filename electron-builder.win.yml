@@ -31,13 +31,21 @@ win:
   # a stable certificate identity for an update check.
   verifyUpdateCodeSignature: false
 
+# One click, per user: a double-click installs into %LOCALAPPDATA%\Programs\ompdesk
+# (or the folder an earlier per-user install recorded in HKCU) with no page,
+# no question and no UAC; the window shows one progress bar, then OMPdesk
+# starts. resources/installer.nsh removes an all-users copy the old assisted
+# installer may have left in Program Files (the only case that asks anything).
+# `gh workflow run ci.yml -f installer_check=true` checks it on windows-latest.
 nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
+  oneClick: true
+  perMachine: false
+  runAfterFinish: true
   deleteAppDataOnUninstall: false
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: OMPdesk
+  include: resources/installer.nsh
   artifactName: ompdesk-${version}-setup.${ext}
 
 publish:

@@ -4434,3 +4434,8 @@ export const en: Record<string, string> = {
 	"machineSetup.settings.description":
 		"OMPdesk installs what it needs on its own. Optional tools install in the background and never block you.",
 };
+	"machineSetup.phase.downloading": "Downloading…",
+	"machineSetup.progress.label": "{name} install progress",
+	"machineSetup.progress.step": "Step {step} of {steps}",
+	"machineSetup.progress.download": "{received} of {total}",
+	"machineSetup.progress.downloaded": "{received} downloaded",

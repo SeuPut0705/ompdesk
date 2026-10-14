@@ -13,7 +13,12 @@
 #
 # The real Windows install of the app's automatic setup is manual too
 # (`gh workflow run ci.yml -f install_check=true`): Bun's installer, the
-# pinned PortableGit and `bun install -g` omp into a temp USERPROFILE.
+# pinned PortableGit (downloaded by main with byte progress) and
+# `bun install -g` omp into a temp USERPROFILE.
+#
+# The packaged one-click Windows setup is checked by hand as well
+# (`gh workflow run ci.yml -f installer_check=true`): silently, as a
+# double-click, and over an all-users install from the assisted installer.
 name: ci
 
 on:
@@ -32,6 +37,14 @@ on:
         description: "Also run the real automatic-setup install (Bun, PortableGit, omp) on Windows"
         type: boolean
         default: false
+      installer_check:
+        description: "Also package the Windows setup and install it (silent, double-click, over an all-users install)"
+        type: boolean
+        default: false
+      legacy_tag:
+        description: "Release whose assisted-installer setup the installer check installs for all users first"
+        type: string
+        default: v0.26.0
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -109,3 +122,56 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun scripts/setup-install-check.ts --hide-system-git
+
+  # The packaged one-click, per-user setup (electron-builder.win.yml +
+  # resources/installer.nsh) on a real Windows: scripts/windows-installer-check.ps1
+  # runs `setup /S`, then the setup as a double-click runs it (no arguments;
+  # it must finish with only a progress bar and start OMPdesk), then an
+  # all-users install from `legacy_tag`'s assisted installer that the new
+  # setup must remove. Each checks the install folder, the Start-menu and
+  # desktop shortcuts, the uninstall entry (HKCU only), the app's first
+  # window, and the uninstall. Captures land in the `installer-check` artifact.
+  installer-check:
+    if: inputs.installer_check
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+      # See release.yml's win job: bun's cache on the workspace volume.
+      - name: Put bun's cache on the workspace volume
+        shell: bash
+        run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Package
+        run: bunx electron-builder --config electron-builder.win.yml --win --x64 --publish never
+      - name: Stage the setup under its release name and the assisted-installer release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cp "dist/ompdesk-$(node -p 'require("./package.json").version')-setup.exe" ompdesk-windows-setup.exe
+          gh release download "${{ inputs.legacy_tag }}" --pattern ompdesk-windows-setup.exe --output legacy-setup.exe
+          ls -l ompdesk-windows-setup.exe legacy-setup.exe
+      - name: Silent install
+        shell: pwsh
+        run: ./scripts/windows-installer-check.ps1 -Setup ompdesk-windows-setup.exe -Mode silent
+      - name: Double-click install
+        shell: pwsh
+        run: ./scripts/windows-installer-check.ps1 -Setup ompdesk-windows-setup.exe -Mode ui -Captures installer-captures
+      - name: Over an all-users install
+        shell: pwsh
+        run: ./scripts/windows-installer-check.ps1 -Setup ompdesk-windows-setup.exe -Mode legacy -LegacySetup legacy-setup.exe
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: installer-check
+          path: installer-captures/
+          if-no-files-found: ignore
+          retention-days: 7

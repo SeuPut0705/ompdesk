@@ -1,0 +1,75 @@
+# Weekly check that every download machine setup (src/main/setup/) can start
+# on a user's first launch still resolves and still matches its SHA-256: the
+# PortableGit pinned in plans.ts (x64, arm64) and the gh and Node.js archives
+# a Mac without Homebrew installs (archives.ts). scripts/setup-assets-health.ts
+# downloads each in full through the app's own downloader. While it fails, one
+# issue ("Setup downloads health check failed") stays open with the report; a
+# passing run closes it. Linux, no `bun install` (the script imports only
+# Node built-ins), about one billed minute.
+#
+# Run it now: gh workflow run setup-assets-health.yml
+name: setup-assets-health
+
+on:
+  schedule:
+    - cron: "23 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: setup-assets-health
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+      - name: Download and verify every setup asset
+        id: check
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun scripts/setup-assets-health.ts --report setup-assets-health.md
+      - name: Open or update the health issue
+        if: steps.check.outcome == 'failure'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const fs = require("node:fs");
+            const title = "Setup downloads health check failed";
+            const body = fs.existsSync("setup-assets-health.md")
+              ? fs.readFileSync("setup-assets-health.md", "utf8")
+              : `The check stopped before writing its report: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const { owner, repo } = context.repo;
+            const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: "all", per_page: 100 });
+            const existing = issues.find(issue => !issue.pull_request && issue.title === title);
+            if (existing) {
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, body, state: "open" });
+              core.info(`Updated #${existing.number}`);
+            } else {
+              const created = await github.rest.issues.create({ owner, repo, title, body });
+              core.info(`Opened #${created.data.number}`);
+            }
+      - name: Close the health issue once everything passes
+        if: steps.check.outcome == 'success'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const title = "Setup downloads health check failed";
+            const { owner, repo } = context.repo;
+            const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: "open", per_page: 100 });
+            for (const issue of issues.filter(entry => !entry.pull_request && entry.title === title)) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `Every setup download passed again: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}` });
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: "closed" });
+            }
+      - name: Fail the run while anything is broken
+        if: steps.check.outcome == 'failure'
+        run: exit 1

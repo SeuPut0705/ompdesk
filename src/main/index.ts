@@ -575,6 +575,10 @@ app.whenReady().then(() => {
 		spawnEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
 		onState: state => {
 			for (const win of BrowserWindow.getAllWindows()) {
+		testDownload:
+			testInstaller && process.env.OMP_GUI_TEST_DOWNLOAD
+				? { url: process.env.OMP_GUI_TEST_DOWNLOAD, sha256: process.env.OMP_GUI_TEST_DOWNLOAD_SHA256 ?? "" }
+				: null,
 				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.SETUP_STATE, state);
 			}
 		},

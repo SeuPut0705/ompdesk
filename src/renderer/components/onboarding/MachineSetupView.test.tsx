@@ -8,7 +8,8 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SetupState } from "../../../shared/setup";
+import type { SetupItemState, SetupState } from "../../../shared/setup";
+import { formatElapsed } from "../../lib/format";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useFirstRunStore } from "../../stores/first-run";
 import { useMachineSetupStore } from "../../stores/machine-setup";
@@ -165,6 +166,71 @@ describe("MachineSetupView", () => {
 		}
 		await act(async () => query('[data-testid="setup-cancel"]')?.click());
 		expect(fake.api.cancel).toHaveBeenCalledTimes(1);
+	});
+
+	it("shows the running step's place, elapsed time and download percent, indeterminate when no size is known", async () => {
+		const now = 1_800_000_000_000;
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(now);
+		try {
+			const withProgress = (progress: SetupItemState["progress"]) =>
+				setupState(
+					"win32",
+					{
+						bun: { phase: "present" },
+						git: { phase: "running", presence: { kind: "missing" }, method: "portable-git", progress },
+						omp: { phase: "queued", presence: { kind: "missing" } },
+					},
+					{ ompReady: false, requiredRunning: true },
+				);
+			const mb = 1_048_576;
+			await mount(
+				<MachineSetupView />,
+				withProgress({
+					step: 1,
+					steps: 2,
+					startedAt: now - 65_000,
+					download: { received: 30 * mb, total: 60 * mb },
+				}),
+			);
+			const row = () => query('[data-setup-item="git"]');
+			const bar = () => row()?.querySelector("[role='progressbar']");
+			expect(row()?.textContent).toContain(translate("machineSetup.phase.downloading"));
+			expect(row()?.textContent).toContain(translate("machineSetup.progress.step", { step: 1, steps: 2 }));
+			expect(row()?.textContent).toContain(formatElapsed(65_000));
+			expect(row()?.textContent).toContain(
+				translate("machineSetup.progress.download", { received: "30.0 MB", total: "60.0 MB" }),
+			);
+			expect(row()?.textContent).toContain("50%");
+			expect(bar()?.getAttribute("aria-valuenow")).toBe("0.5");
+			expect(bar()?.getAttribute("aria-label")).toBe(translate("machineSetup.progress.label", { name: "Git" }));
+			// Only the running item shows progress.
+			expect(document.body.querySelectorAll("[role='progressbar']")).toHaveLength(1);
+
+			// No announced size: bytes so far, no percent claimed.
+			await act(async () =>
+				fake.push(
+					withProgress({
+						step: 1,
+						steps: 2,
+						startedAt: now - 65_000,
+						download: { received: 3 * mb, total: null },
+					}),
+				),
+			);
+			expect(row()?.textContent).toContain(translate("machineSetup.progress.downloaded", { received: "3.0 MB" }));
+			expect(bar()?.hasAttribute("aria-valuenow")).toBe(false);
+			expect(row()?.textContent).not.toContain("%");
+
+			// The installer itself: indeterminate, still with its place and clock.
+			await act(async () => fake.push(withProgress({ step: 1, steps: 2, startedAt: now - 2000, download: null })));
+			expect(row()?.textContent).toContain(translate("machineSetup.phase.running"));
+			expect(row()?.textContent).toContain(translate("machineSetup.progress.step", { step: 1, steps: 2 }));
+			expect(row()?.textContent).toContain(formatElapsed(2000));
+			expect(bar()?.hasAttribute("aria-valuenow")).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("explains a failure with its reason and manual steps, and Retry retries omp", async () => {

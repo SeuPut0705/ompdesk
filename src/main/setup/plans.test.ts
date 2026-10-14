@@ -125,25 +125,39 @@ describe("buildPlan", () => {
 		expect(buildPlan("omp", "omp-update", mac)).toBeNull();
 	});
 
-	it("downloads the pinned PortableGit, checks its published SHA-256, and extracts it without admin", () => {
+	it("has main download the pinned PortableGit, re-checks its published SHA-256, and extracts it without admin", () => {
 		const plan = buildPlan("git", "portable-git", win);
 		expect(plan?.prompt).toBeNull();
 		expect(plan?.location).toBe(join(win.toolsDir, "git"));
+		const file = join(win.toolsDir, ".downloads", "PortableGit-2.56.0.2-64-bit.7z.exe");
+		expect(plan?.download).toEqual({ url: PORTABLE_GIT.x64.url, sha256: PORTABLE_GIT.x64.sha256, file });
 		const script = decodePowerShell(plan?.spawn.args ?? []);
 		expect(plan?.command).toBe(script);
-		expect(script).toContain(PORTABLE_GIT.x64.url);
-		expect(script).toContain(PORTABLE_GIT.x64.sha256);
+		// The shown command names what main downloaded; the script itself never fetches.
+		expect(script.split("\n")[0]).toBe(
+			`# OMPdesk downloaded ${PORTABLE_GIT.x64.url} (SHA-256 ${PORTABLE_GIT.x64.sha256}) to ${file}`,
+		);
+		expect(script).not.toMatch(/Invoke-WebRequest|ProgressPreference/);
+		expect(script).toContain(`$file = '${file}'`);
 		expect(script).toContain("Get-FileHash -Algorithm SHA256");
+		expect(script.indexOf("Get-FileHash")).toBeLessThan(script.indexOf("Start-Process"));
 		expect(script).toContain(`$dest = '${join(win.toolsDir, "git")}'`);
 		expect(script).not.toMatch(/RunAs|winget/);
-		expect(decodePowerShell(buildPlan("git", "portable-git", { ...win, arch: "arm64" })?.spawn.args ?? [])).toContain(
-			PORTABLE_GIT.arm64.sha256,
-		);
+		const arm = buildPlan("git", "portable-git", { ...win, arch: "arm64" });
+		expect(arm?.download?.sha256).toBe(PORTABLE_GIT.arm64.sha256);
+		expect(decodePowerShell(arm?.spawn.args ?? [])).toContain(PORTABLE_GIT.arm64.sha256);
 		// A quote in the profile path cannot end the PowerShell string.
 		const quoted = decodePowerShell(
 			buildPlan("git", "portable-git", { ...win, toolsDir: "C:\\Users\\O'Brien\\tools" })?.spawn.args ?? [],
 		);
 		expect(quoted).toContain(`'${join("C:\\Users\\O''Brien\\tools", "git")}'`);
+	});
+
+	it("downloads nothing itself for the other methods", () => {
+		expect(buildPlan("bun", "bun-script", win)?.download).toBeNull();
+		expect(buildPlan("omp", "bun-global", mac)?.download).toBeNull();
+		expect(buildPlan("gh", "brew", mac)?.download).toBeNull();
+		expect(buildPlan("gh", "winget", win)?.download).toBeNull();
 	});
 
 	it("asks macOS for the Command Line Tools, which shows its own dialog", () => {
@@ -181,7 +195,7 @@ describe("buildPlan", () => {
 		});
 	});
 
-	it("unpacks an archive into the managed tools dir only after its SHA-256 matched", () => {
+	it("unpacks an archive main downloaded into the managed tools dir only after its SHA-256 matched", () => {
 		const release: ArchiveRelease = {
 			item: "node",
 			version: "v24.11.0",
@@ -191,13 +205,19 @@ describe("buildPlan", () => {
 		};
 		expect(buildPlan("node", "archive", mac)).toBeNull();
 		const plan = buildPlan("node", "archive", mac, release);
+		const file = "/data/tools/.downloads/node-v24.11.0-darwin-arm64.tar.gz";
+		expect(plan?.download).toEqual({ url: release.url, sha256: release.sha256, file });
 		const script = plan?.spawn.args[1] ?? "";
+		expect(plan?.command).toBe(script);
 		expect(plan?.location).toBe("/data/tools/node");
-		expect(script.startsWith("set -euo pipefail")).toBe(true);
+		expect(script.split("\n")[0]).toBe(`# OMPdesk downloaded ${release.url} (SHA-256 ${release.sha256}) to ${file}`);
+		expect(script).toContain("set -euo pipefail");
+		expect(script).not.toContain("curl");
 		const verify = script.indexOf("shasum -a 256 -c -");
-		expect(verify).toBeGreaterThan(script.indexOf(release.url));
+		expect(verify).toBeGreaterThan(0);
+		expect(script.indexOf("tar -xzf")).toBeGreaterThan(verify);
 		expect(script.indexOf("mv ")).toBeGreaterThan(verify);
-		expect(script).toContain(`'${"a".repeat(64)}  '`);
+		expect(script).toContain(`echo '${"a".repeat(64)}  ${file}' | shasum -a 256 -c -`);
 		expect(buildPlan("gh", "archive", mac, release)).toBeNull();
 	});
 });

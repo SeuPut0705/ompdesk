@@ -123,6 +123,19 @@ async function check(root: string): Promise<void> {
 	console.log(`  installed by the runner: ${[...ran].join(", ") || "nothing"}`);
 	if (!ran.has("bun") || !ran.has("omp")) fail("the runner did not install both Bun and omp");
 	if (!state.ompReady) fail("omp is not detected after setup");
+	if (ran.has("git")) {
+		// Main downloads PortableGit itself: the screen must have shown its bytes against the announced size.
+		const seen = states.flatMap(entry => {
+			const download = entry.items.find(item => item.id === "git")?.progress?.download;
+			return download?.total ? [download] : [];
+		});
+		const received = new Set(seen.map(download => download.received));
+		if (received.size < 2) fail("the PortableGit download reported no byte progress against its size");
+		const total = seen[0]?.total ?? 0;
+		console.log(
+			`✓ PortableGit download progress: ${received.size} updates, up to ${Math.max(...received)} of ${total} bytes`,
+		);
+	}
 
 	applyManagedToolEnv(toolsDir, platform);
 	const omp = await resolveOmp();

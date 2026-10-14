@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SetupItemId, SetupPlatform, SetupPresence, SetupState } from "../../shared/setup";
 import { RM_TEMP } from "../test-fake-omp";
 import type { Detection } from "./detect";
+import type { DownloadFetch } from "./download";
 import type { SpawnSpec } from "./plans";
 import { SetupRunner, type SupervisedChild } from "./runner";
 import { BACKOFF_MS, SetupService, type SetupServiceDeps } from "./service";
@@ -54,6 +57,8 @@ function harness(
 		stillMissing?: SetupItemId[];
 		hold?: SetupItemId;
 		now?: () => number;
+		testDownload?: { url: string; sha256: string };
+		fetch?: DownloadFetch;
 	} = {},
 ) {
 	const spawned: { spec: SpawnSpec; env: NodeJS.ProcessEnv }[] = [];
@@ -103,6 +108,12 @@ function harness(
 		fetchText: async url => {
 			throw new Error(`no network in tests: ${url}`);
 		},
+		fetch:
+			options.fetch ??
+			(async url => {
+				throw new Error(`no network in tests: ${url}`);
+			}),
+		...(options.testDownload ? { testDownload: options.testDownload } : {}),
 		...(options.now ? { now: options.now } : {}),
 	};
 	const service = new SetupService(deps);
@@ -292,6 +303,117 @@ describe("SetupService", () => {
 			method: "archive",
 			failure: { reason: "download" },
 		});
+	});
+
+	it("numbers each install in its run and stamps when it started, then clears that once it ended", async () => {
+		const h = harness(machine({ omp: missing, gh: missing, node: missing }), { now: () => 5000 });
+		await h.service.start();
+		const progressWhileRunning = (id: SetupItemId) =>
+			h.states.map(state => state.items.find(item => item.id === id)).find(item => item?.phase === "running")
+				?.progress;
+		// omp is the required run's only install; gh and Node are the background run's two.
+		expect(progressWhileRunning("omp")).toEqual({ step: 1, steps: 1, startedAt: 5000, download: null });
+		expect(progressWhileRunning("gh")).toEqual({ step: 1, steps: 2, startedAt: 5000, download: null });
+		expect(progressWhileRunning("node")).toEqual({ step: 2, steps: 2, startedAt: 5000, download: null });
+		expect(h.service.state().items.map(item => item.progress)).toEqual([null, null, null, null, null]);
+	});
+
+	it("downloads a plan's file itself with byte progress before its installer runs, then removes it", async () => {
+		const a = new Uint8Array(3000).fill(1);
+		const b = new Uint8Array(1000).fill(2);
+		const sha256 = createHash("sha256")
+			.update(new Uint8Array([...a, ...b]))
+			.digest("hex");
+		const rest = Promise.withResolvers<void>();
+		const requested: string[] = [];
+		const fetch: DownloadFetch = async url => {
+			requested.push(url);
+			let pulls = 0;
+			const body = new ReadableStream<Uint8Array>({
+				async pull(controller) {
+					pulls += 1;
+					if (pulls === 1) return controller.enqueue(a);
+					await rest.promise;
+					controller.enqueue(b);
+					controller.close();
+				},
+			});
+			return new Response(body, { headers: { "content-length": "4000" } });
+		};
+		const h = harness(machine({ omp: missing }), {
+			testDownload: { url: "https://example.test/omp.bin", sha256 },
+			fetch,
+			hold: "omp",
+		});
+		const run = h.service.start();
+		const omp = () => h.service.state().items.find(item => item.id === "omp");
+		await vi.waitFor(() => expect(omp()?.progress?.download).toEqual({ received: 3000, total: 4000 }));
+		expect(omp()).toMatchObject({ phase: "running", progress: { step: 1, steps: 1 } });
+		expect(h.spawned).toEqual([]);
+		rest.resolve();
+		// The installer runs only once the file is complete and verified.
+		await vi.waitFor(() => expect(h.items()).toEqual(["omp"]));
+		expect(omp()?.progress).toMatchObject({ step: 1, steps: 1, download: null });
+		const file = join(dir, "tools", ".downloads", "test-download");
+		expect(existsSync(file)).toBe(true);
+		expect(requested).toEqual(["https://example.test/omp.bin"]);
+		h.service.cancel();
+		await run;
+		expect(existsSync(file)).toBe(false);
+	});
+
+	it("fails a download that answers an error or does not match its SHA-256, without running anything", async () => {
+		const respond = (status: number) => async () => new Response("bytes", { status });
+		const refused = harness(machine({ omp: missing }), {
+			testDownload: { url: "https://example.test/omp.bin", sha256: "0".repeat(64) },
+			fetch: respond(404),
+		});
+		await refused.service.start();
+		expect(refused.spawned).toEqual([]);
+		expect(refused.service.state().items.find(item => item.id === "omp")).toMatchObject({
+			phase: "failed",
+			progress: null,
+			failure: { reason: "download", detail: "https://example.test/omp.bin answered 404" },
+		});
+		const tampered = harness(machine({ omp: missing }), {
+			testDownload: { url: "https://example.test/omp.bin", sha256: "0".repeat(64) },
+			fetch: respond(200),
+		});
+		await tampered.service.start();
+		expect(tampered.spawned).toEqual([]);
+		expect(tampered.service.state().items.find(item => item.id === "omp")).toMatchObject({
+			phase: "failed",
+			failure: { reason: "checksum", detail: expect.stringMatching(/^SHA-256 mismatch: expected 0{64}, got /) },
+		});
+	});
+
+	it("cancels a running download as cancelled, and runs nothing after it", async () => {
+		const fetch: DownloadFetch = async (_url, init) => {
+			const body = new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.enqueue(new Uint8Array(10));
+					init.signal?.addEventListener("abort", () => controller.error(init.signal?.reason));
+				},
+			});
+			return new Response(body, { headers: { "content-length": "100" } });
+		};
+		const h = harness(machine({ bun: missing, omp: missing }), {
+			testDownload: { url: "https://example.test/x", sha256: "0".repeat(64) },
+			fetch,
+		});
+		const run = h.service.start();
+		await vi.waitFor(() =>
+			expect(h.service.state().items.find(item => item.id === "bun")?.progress?.download?.received).toBe(10),
+		);
+		expect(h.service.cancel()).toBe(true);
+		await run;
+		expect(h.spawned).toEqual([]);
+		expect(h.service.state().items.find(item => item.id === "bun")).toMatchObject({
+			phase: "cancelled",
+			failure: null,
+			progress: null,
+		});
+		expect(h.phase("omp")).toBe("idle");
 	});
 
 	it("refuses an unknown item id", async () => {

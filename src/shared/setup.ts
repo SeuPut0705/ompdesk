@@ -80,6 +80,23 @@ export interface SetupFailure {
 	detail?: string;
 }
 
+/** Bytes of a download main runs itself; `total` is the size the server announced, null when it announced none. */
+export interface SetupDownloadProgress {
+	received: number;
+	total: number | null;
+}
+
+/** How far a running install got. */
+export interface SetupProgress {
+	/** This item's place in the install run it belongs to (1-based), and how many items that run installs. */
+	step: number;
+	steps: number;
+	/** When this item's install started (ms since the epoch, main's clock). */
+	startedAt: number;
+	/** While main downloads the item's file; null once its installer runs, or when it downloads nothing itself. */
+	download: SetupDownloadProgress | null;
+}
+
 export interface SetupItemState {
 	id: SetupItemId;
 	required: boolean;
@@ -93,6 +110,8 @@ export interface SetupItemState {
 	location: string | null;
 	/** `uac`: Windows asks for permission; `dialog`: macOS shows its own installer dialog. */
 	prompt: "uac" | "dialog" | null;
+	/** Set while `phase` is `running`, null otherwise. */
+	progress: SetupProgress | null;
 	/** Installer output so far (stdout and stderr, ANSI kept), the last SETUP_OUTPUT_TAIL characters. */
 	output: string;
 	failure: SetupFailure | null;

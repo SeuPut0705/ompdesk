@@ -24,13 +24,14 @@ import {
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import type { SetupFailure, SetupItemId, SetupItemPhase, SetupItemState, SetupState } from "../../../shared/setup";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
-import { cx } from "../../lib/format";
+import { cx, formatBytes, formatElapsed } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useNowTick } from "../../lib/now-tick";
 import { useMachineSetupStore } from "../../stores/machine-setup";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
-import { Banner, Button, CopyButton, Spinner } from "../common";
+import { Banner, Button, CopyButton, ProgressBar, Spinner } from "../common";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -85,7 +86,49 @@ export function setupPhaseText(t: Translate, item: SetupItemState): string {
 		return version ? t("machineSetup.phase.presentVersion", { version }) : t("machineSetup.phase.present");
 	}
 	if (item.phase === "running" && item.method === "omp-update") return t("machineSetup.phase.updating");
+	if (item.phase === "running" && item.progress?.download) return t("machineSetup.phase.downloading");
 	return t(`machineSetup.phase.${item.phase}`);
+}
+
+/**
+ * A running item's progress: its place in the install run, how long it has
+ * run, and, while main downloads its file, the bytes against the announced
+ * size. The bar is determinate only then; an installer's own work has no
+ * honest percent, so it slides.
+ */
+export function SetupProgressLine({ item, className }: { item: SetupItemState; className?: string }) {
+	const t = useT();
+	const progress = item.phase === "running" ? item.progress : null;
+	const now = useNowTick(progress !== null);
+	if (!progress) return null;
+	const { download } = progress;
+	const total = download?.total ?? null;
+	const bytes =
+		download === null
+			? ""
+			: total === null
+				? t("machineSetup.progress.downloaded", { received: formatBytes(download.received) })
+				: t("machineSetup.progress.download", {
+						received: formatBytes(download.received),
+						total: formatBytes(total),
+					});
+	const parts = [
+		t("machineSetup.progress.step", { step: progress.step, steps: progress.steps }),
+		bytes,
+		formatElapsed(now - progress.startedAt),
+	];
+	return (
+		<div className={cx("flex min-w-0 flex-col gap-1", className)} data-setup-progress>
+			<ProgressBar
+				ariaLabel={t("machineSetup.progress.label", { name: SETUP_ITEM_NAMES[item.id] })}
+				tone="progress"
+				value={download && total !== null ? download.received / total : undefined}
+			/>
+			<p className="text-sc-xs break-words text-(--sc-text-muted) tabular-nums">
+				{parts.filter(Boolean).join(" · ")}
+			</p>
+		</div>
+	);
 }
 
 /** What detection found beyond the phase: an old version or a broken install. */
@@ -382,6 +425,7 @@ export function MachineSetupView() {
 								{setupPhaseText(t, item)}
 								{note && <span className="text-(--sc-text-muted)"> · {note}</span>}
 							</span>
+							<SetupProgressLine className="basis-full" item={item} />
 						</li>
 					);
 				})}

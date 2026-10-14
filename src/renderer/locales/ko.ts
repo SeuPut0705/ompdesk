@@ -4409,3 +4409,8 @@ export const ko: Record<string, string> = {
 	"machineSetup.settings.description":
 		"OMPdesk가 필요한 것을 알아서 설치해요. 선택 도구는 백그라운드에서 설치되고 작업을 막지 않아요.",
 };
+	"machineSetup.phase.downloading": "내려받고 있어요…",
+	"machineSetup.progress.label": "{name} 설치 진행률",
+	"machineSetup.progress.step": "{steps}단계 중 {step}단계",
+	"machineSetup.progress.download": "{total} 중 {received}",
+	"machineSetup.progress.downloaded": "{received} 받음",
