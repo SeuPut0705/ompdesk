@@ -262,7 +262,7 @@ afterEach(async () => {
 	useTabsStore.getState().reset();
 	useFirstRunStore.getState().reset();
 	useToastStore.setState({ toasts: [], heldSince: null });
-	useUiStore.setState({ panelTab: "diff", branchPickerOpen: false });
+	useUiStore.setState({ panelTab: "diff", branchPickerOpen: false, modesOpen: false, destination: "session" });
 	setWindowWidth(1200);
 	vi.restoreAllMocks();
 });
@@ -1186,6 +1186,33 @@ describe("InputArea composer keys", () => {
 		await flush();
 		expect(document.querySelector('[role="option"]')).toBeNull();
 		expect(container.textContent).toContain(translate("input.skills.none"));
+	});
+
+	it("lists Set a goal, the skills that are on and Manage in the + menu", async () => {
+		await mountIdle();
+		const subscribe = window.omp.events.onTabCommandsUpdate as unknown as Mock;
+		const deliver = subscribe.mock.calls.at(-1)?.[0] as (commands: unknown[], tabId: string) => void;
+		await act(async () =>
+			deliver(
+				[
+					{ name: "compact", description: "Compact" },
+					{ name: "skill:review", description: "Review a change", source: "skill" },
+				],
+				"t0",
+			),
+		);
+		await typeInto(findTextarea(), "fix this");
+		setCaret(8);
+		await openAddMenuItem("review");
+		expect(useComposerStore.getState().draft).toBe("fix this /skill:review ");
+
+		// The goal tab of the modes popover listens to session events.
+		Object.assign(window.omp.events, { onBatch: vi.fn(() => () => {}) });
+		await openAddMenuItem("Set a goal");
+		expect(useUiStore.getState()).toMatchObject({ modesOpen: true, modesTab: "goal" });
+		await act(async () => useUiStore.setState({ modesOpen: false }));
+		await openAddMenuItem("Manage skills, plugins and MCP");
+		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "tools:skills" });
 	});
 });
 

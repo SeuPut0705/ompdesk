@@ -11,7 +11,10 @@ import {
 	Minimize2,
 	Paperclip,
 	Plus,
+	Puzzle,
+	Sparkles,
 	Square,
+	Target,
 	X,
 } from "lucide-react";
 import type { ClipboardEvent, DragEvent, KeyboardEvent } from "react";
@@ -104,6 +107,8 @@ export function InputArea() {
 	const model = useModelStore(s => s.model);
 	const settingUp = useFirstRunStore(s => s.phase !== "idle");
 	const openModelPicker = useUiStore(s => s.openModelPicker);
+	const openModes = useUiStore(s => s.openModes);
+	const openSettings = useUiStore(s => s.openSettings);
 	/** Agent `stt.enabled` setting: microphone dictation button in the composer. */
 	const sttEnabled = useSettingsStore(s => s.sttEnabled);
 	/** Agent `paste.largeMenuThreshold` setting: line count that triggers the paste menu. */
@@ -1266,6 +1271,33 @@ export function InputArea() {
 										icon: expanded ? Minimize2 : Maximize2,
 										shortcut: "⌃G",
 										onSelect: () => toggleExpanded(),
+									},
+									{
+										id: "goal",
+										label: t("input.addMenu.goal"),
+										description: t("input.addMenu.goalDesc"),
+										icon: Target,
+										separatorBefore: true,
+										onSelect: () => openModes("goal"),
+									},
+									// Stock's skills, inserted as its mid-prompt `/skill:<name>` token like the `$` palette.
+									...commands
+										.filter(command => command.name.startsWith("skill:"))
+										.sort((a, b) => a.name.localeCompare(b.name))
+										.map((command, index) => ({
+											id: command.name,
+											label: command.name.slice("skill:".length),
+											description: command.description || undefined,
+											icon: Sparkles,
+											separatorBefore: index === 0,
+											onSelect: () => insertAtCaret(`/${command.name}`),
+										})),
+									{
+										id: "manage",
+										label: t("input.addMenu.manage"),
+										icon: Puzzle,
+										separatorBefore: true,
+										onSelect: () => openSettings("tools:skills"),
 									},
 								]}
 								label={t("input.addMenu")}
