@@ -7,7 +7,7 @@
  * paint in a first batch the reader can extend.
  */
 import { WrapText } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { cx } from "../../../lib/format";
 import { getLoadedHljs, type HighlightToken, loadHljs, splitHighlightedLines } from "../../../lib/highlight";
 import { useT } from "../../../lib/i18n";
@@ -47,10 +47,22 @@ export function useWrapToggle(): { wrap: boolean; toggle: ReactNode } {
 	};
 }
 
-export function CodeView({ code, language, wrap }: { code: string; language: string; wrap: boolean }) {
+export function CodeView({
+	code,
+	language,
+	wrap,
+	targetLine,
+}: {
+	code: string;
+	language: string;
+	wrap: boolean;
+	/** 1-based line to scroll to and mark (a `path:line` link); beyond the end marks the last line. */
+	targetLine?: number | null;
+}) {
 	const t = useT();
 	const [hljsReady, setHljsReady] = useState(() => getLoadedHljs() !== null);
 	const [showAll, setShowAll] = useState(false);
+	const targetRef = useRef<HTMLSpanElement>(null);
 
 	useEffect(() => {
 		if (hljsReady || language === "plaintext" || code.length > CODE_HIGHLIGHT_CHAR_CAP) return;
@@ -66,17 +78,32 @@ export function CodeView({ code, language, wrap }: { code: string; language: str
 	const highlighted = useMemo(() => (hljsReady ? highlightLines(code, language) : null), [code, language, hljsReady]);
 	const plainLines = useMemo(() => (highlighted ? null : code.split("\n")), [code, highlighted]);
 	const lineCount = highlighted ? highlighted.length : (plainLines?.length ?? 0);
-	const visible = showAll ? lineCount : Math.min(lineCount, INITIAL_LINES);
+	const target = targetLine && lineCount > 0 ? Math.min(targetLine, lineCount) : null;
+	const visible = showAll || (target ?? 0) > INITIAL_LINES ? lineCount : Math.min(lineCount, INITIAL_LINES);
 	const gutterWidth = `calc(${String(lineCount).length}ch + 1.5rem)`;
+
+	// Centre the marked line once it is painted; a new target (same file, another link) scrolls again.
+	useEffect(() => {
+		if (target !== null) targetRef.current?.scrollIntoView?.({ block: "center" });
+	}, [target]);
 
 	const rows = [];
 	for (let i = 0; i < visible; i++) {
 		const tokens = highlighted?.[i];
+		const isTarget = target === i + 1;
 		rows.push(
-			<span className="flex" key={i}>
+			<span
+				className={cx("flex", isTarget && "bg-(--sc-accent-soft)")}
+				data-target-line={isTarget ? "true" : undefined}
+				key={i}
+				ref={isTarget ? targetRef : undefined}
+			>
 				<span
 					aria-hidden
-					className="sticky left-0 shrink-0 select-none bg-(--sc-surface-2) pr-3 pl-2 text-right text-(--sc-text-muted)"
+					className={cx(
+						"sticky left-0 shrink-0 select-none pr-3 pl-2 text-right",
+						isTarget ? "bg-(--sc-selection) text-(--sc-text)" : "bg-(--sc-surface-2) text-(--sc-text-muted)",
+					)}
 					data-line-number
 					style={{ width: gutterWidth }}
 				>

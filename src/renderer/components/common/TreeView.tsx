@@ -5,7 +5,7 @@
  */
 
 import { ChevronRight } from "lucide-react";
-import { type CSSProperties, type KeyboardEvent, type ReactNode, useMemo, useRef } from "react";
+import { type CSSProperties, type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef } from "react";
 import { useT } from "../../lib/i18n";
 
 export interface TreeNode {
@@ -26,6 +26,8 @@ export interface TreeViewProps {
 	/** Empty-state message when `nodes` is empty. */
 	emptyMessage?: string;
 	className?: string;
+	/** Row marked selected (aria-selected, tab stop) and scrolled into view whenever it changes. */
+	selectedId?: string | null;
 }
 
 interface FlatRow {
@@ -35,9 +37,17 @@ interface FlatRow {
 	isExpanded: boolean;
 }
 
-export function TreeView({ nodes, expanded, onExpandedChange, emptyMessage, className }: TreeViewProps) {
+export function TreeView({ nodes, expanded, onExpandedChange, emptyMessage, className, selectedId }: TreeViewProps) {
 	const t = useT();
 	const listRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		if (!selectedId) return;
+		const rows = listRef.current?.querySelectorAll<HTMLElement>("[data-tree-id]") ?? [];
+		Array.from(rows)
+			.find(row => row.getAttribute("data-tree-id") === selectedId)
+			?.scrollIntoView?.({ block: "nearest" });
+	}, [selectedId]);
 
 	const toggle = (id: string) => {
 		const next = new Set(expanded);
@@ -124,14 +134,16 @@ export function TreeView({ nodes, expanded, onExpandedChange, emptyMessage, clas
 		);
 	}
 
+	const selectedVisible = rows.some(row => row.node.id === selectedId);
 	return (
 		<div className={`py-1 ${className ?? ""}`.trim()} ref={listRef} role="tree">
 			{rows.map((row, index) => {
+				const selected = row.node.id === selectedId;
 				return (
 					<div
 						aria-expanded={row.hasChildren ? row.isExpanded : undefined}
-						aria-selected={false}
-						className={`group flex min-h-(--sc-control-sm) cursor-default items-center gap-1 rounded-(--sc-radius-sm) pr-2 text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) motion-reduce:transition-none ${row.node.className ?? ""}`.trim()}
+						aria-selected={selected}
+						className={`group flex min-h-(--sc-control-sm) cursor-default items-center gap-1 rounded-(--sc-radius-sm) pr-2 text-sc-sm transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) motion-reduce:transition-none ${selected ? "bg-(--sc-selected) text-(--sc-text)" : "text-(--sc-text-muted)"} ${row.node.className ?? ""}`.trim()}
 						data-tree-id={row.node.id}
 						key={row.node.id}
 						onClick={() => row.node.onClick?.()}
@@ -143,7 +155,7 @@ export function TreeView({ nodes, expanded, onExpandedChange, emptyMessage, clas
 								"--tree-depth": row.depth,
 							} as CSSProperties
 						}
-						tabIndex={index === 0 ? 0 : -1}
+						tabIndex={(selectedVisible ? selected : index === 0) ? 0 : -1}
 					>
 						{row.hasChildren ? (
 							<button

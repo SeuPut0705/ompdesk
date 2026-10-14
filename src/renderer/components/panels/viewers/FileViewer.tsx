@@ -36,26 +36,29 @@ import { type FileInfo, FileInfoContext } from "./viewer-chrome";
 export function FileViewer({
 	path,
 	tabId,
+	line,
 	onInfo,
 }: {
 	path: string;
 	tabId: string | undefined;
+	/** 1-based line text views scroll to and mark (a `path:line` link). */
+	line?: number;
 	/** Must be stable (views report from effects). */
 	onInfo: (info: FileInfo) => void;
 }) {
 	const kind = viewerKind(path);
 	const views: Record<ViewerKind, ReactNode> = {
-		markdown: <MarkdownFileView path={path} tabId={tabId} />,
-		code: <CodeFileView path={path} tabId={tabId} />,
+		markdown: <MarkdownFileView line={line} path={path} tabId={tabId} />,
+		code: <CodeFileView line={line} path={path} tabId={tabId} />,
 		image: <ImageView path={path} tabId={tabId} />,
 		pdf: <PdfView path={path} tabId={tabId} />,
 		audio: <AvView kind="audio" path={path} tabId={tabId} />,
 		video: <AvView kind="video" path={path} tabId={tabId} />,
 		csv: <CsvFileView path={path} tabId={tabId} />,
-		json: <JsonFileView path={path} tabId={tabId} />,
-		html: <HtmlFileView path={path} tabId={tabId} />,
+		json: <JsonFileView line={line} path={path} tabId={tabId} />,
+		html: <HtmlFileView line={line} path={path} tabId={tabId} />,
 		notebook: <NotebookFileView path={path} tabId={tabId} />,
-		mermaid: <MermaidFileView path={path} tabId={tabId} />,
+		mermaid: <MermaidFileView line={line} path={path} tabId={tabId} />,
 		docx: <DocxView path={path} tabId={tabId} />,
 		xlsx: <XlsxView path={path} tabId={tabId} />,
 		pptx: <PptxView path={path} tabId={tabId} />,

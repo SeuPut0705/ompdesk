@@ -1,16 +1,20 @@
 /**
  * Viewers fed by `fs.read`: code/text, Markdown, JSON, CSV/TSV, HTML, Mermaid
  * and Jupyter notebooks. TextFileFrame owns the read and its end states; a NUL
- * byte in the content hands the file to the hex view instead.
+ * byte in the content hands the file to the hex view instead. A `line` (from a
+ * `path:line` link) opens documents on their source and marks that line; the
+ * rendered/source choice is otherwise remembered per path (stores/ui).
  */
-import { type ReactNode, useMemo, useState } from "react";
+import { ListTree } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { AnsiText } from "../../../lib/ansi";
 import { languageFromPath } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
+import { useUiStore } from "../../../stores/ui";
 import { CodeBlock } from "../../chat/CodeBlock";
 import { MermaidBlock } from "../../chat/MermaidBlock";
-import { Tabs, ZoomableImage } from "../../common";
+import { IconButton, Tabs, ZoomableImage } from "../../common";
 import { CodeView, useWrapToggle } from "./CodeView";
 import { fileExtension } from "./file-kind";
 import { HexView } from "./HexView";
@@ -24,6 +28,8 @@ export const TABLE_ROW_CAP = 2000;
 interface TextViewProps {
 	path: string;
 	tabId: string | undefined;
+	/** 1-based line to open at (a `path:line` link). */
+	line?: number;
 }
 
 function TextFileFrame({
@@ -56,13 +62,26 @@ function TextFileFrame({
 	);
 }
 
-export function CodeFileView({ path, tabId }: TextViewProps) {
+export function CodeFileView({ path, tabId, line }: TextViewProps) {
 	const t = useT();
 	const { wrap, toggle } = useWrapToggle();
+	const log = fileExtension(path) === "log";
 	return (
 		<TextFileFrame
 			path={path}
-			render={content => <CodeView code={content} language={languageFromPath(path)} wrap={wrap} />}
+			render={content =>
+				// A captured terminal log carries SGR colour escapes: paint them instead of showing ESC bytes.
+				log && !line && content.includes("\u001b[") ? (
+					<pre
+						className={`m-0 p-3 font-mono text-sc-sm leading-(--sc-leading-normal) text-(--sc-text) ${wrap ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "w-max min-w-full whitespace-pre"}`}
+						data-ansi-log
+					>
+						<AnsiText text={content} />
+					</pre>
+				) : (
+					<CodeView code={content} language={languageFromPath(path)} targetLine={line} wrap={wrap} />
+				)
+			}
 			tabId={tabId}
 			toolbar={<ViewerToolbar label={t("fileViewer.toolbar")}>{toggle}</ViewerToolbar>}
 		/>
@@ -70,6 +89,83 @@ export function CodeFileView({ path, tabId }: TextViewProps) {
 }
 
 type DocumentMode = "rendered" | "source";
+
+/** Source when a line is targeted, else the path's remembered mode (rendered by default). */
+function useDocumentMode(path: string, line: number | undefined): [DocumentMode, (mode: DocumentMode) => void] {
+	const [mode, setLocalMode] = useState<DocumentMode>(() =>
+		line ? "source" : (useUiStore.getState().fileViewModes.get(path) ?? "rendered"),
+	);
+	useEffect(() => {
+		if (line) setLocalMode("source");
+	}, [line]);
+	const setMode = (next: DocumentMode) => {
+		setLocalMode(next);
+		useUiStore.getState().setFileViewMode(path, next);
+	};
+	return [mode, setMode];
+}
+
+interface OutlineHeading {
+	id: string;
+	text: string;
+	level: number;
+}
+
+/** Rendered Markdown with an optional heading outline read from the rendered ids (GitHub slugs). */
+function MarkdownBody({ content, outline }: { content: string; outline: boolean }) {
+	const t = useT();
+	const ref = useRef<HTMLDivElement>(null);
+	const [headings, setHeadings] = useState<OutlineHeading[]>([]);
+	useEffect(() => {
+		const root = ref.current;
+		if (!outline || !root || !content) return;
+		setHeadings(
+			Array.from(root.querySelectorAll<HTMLElement>("h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]"), heading => ({
+				id: heading.id,
+				text: heading.textContent ?? "",
+				level: Number(heading.tagName.slice(1)),
+			})),
+		);
+	}, [outline, content]);
+	return (
+		<>
+			{outline && (
+				<nav
+					aria-label={t("fileViewer.outline")}
+					className="max-h-48 overflow-y-auto border-b border-(--sc-divider) px-2 py-1.5"
+					data-markdown-outline
+				>
+					{headings.length === 0 ? (
+						<p className="px-1.5 py-1 text-sc-xs text-(--sc-text-muted)">{t("fileViewer.outlineEmpty")}</p>
+					) : (
+						<ul className="m-0 list-none p-0">
+							{headings.map(heading => (
+								<li key={heading.id}>
+									<button
+										className="w-full truncate rounded-(--sc-radius-sm) py-0.5 pe-1.5 text-start text-sc-sm text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
+										onClick={() =>
+											Array.from(ref.current?.querySelectorAll<HTMLElement>("[id]") ?? [])
+												.find(element => element.id === heading.id)
+												?.scrollIntoView?.({ block: "start" })
+										}
+										style={{ paddingInlineStart: `${0.375 + (heading.level - 1) * 0.75}rem` }}
+										title={heading.text}
+										type="button"
+									>
+										{heading.text}
+									</button>
+								</li>
+							))}
+						</ul>
+					)}
+				</nav>
+			)}
+			<div className="p-4 text-sc-md text-(--sc-text)" data-markdown-rendered ref={ref}>
+				<MarkdownRenderer content={content} />
+			</div>
+		</>
+	);
+}
 
 function ModeTabs({ mode, onChange }: { mode: DocumentMode; onChange: (mode: DocumentMode) => void }) {
 	const t = useT();
@@ -88,36 +184,45 @@ function ModeTabs({ mode, onChange }: { mode: DocumentMode; onChange: (mode: Doc
 	);
 }
 
-export function MarkdownFileView({ path, tabId }: TextViewProps) {
+export function MarkdownFileView({ path, tabId, line }: TextViewProps) {
 	const t = useT();
-	const [mode, setMode] = useState<DocumentMode>("rendered");
+	const [mode, setMode] = useDocumentMode(path, line);
+	const [outline, setOutline] = useState(false);
 	const { wrap, toggle } = useWrapToggle();
 	return (
 		<TextFileFrame
 			path={path}
 			render={content =>
 				mode === "rendered" ? (
-					<div className="p-4 text-sc-md text-(--sc-text)" data-markdown-rendered>
-						<MarkdownRenderer content={content} />
-					</div>
+					<MarkdownBody content={content} outline={outline} />
 				) : (
-					<CodeView code={content} language="markdown" wrap={wrap} />
+					<CodeView code={content} language="markdown" targetLine={line} wrap={wrap} />
 				)
 			}
 			tabId={tabId}
 			toolbar={
 				<ViewerToolbar label={t("fileViewer.toolbar")}>
 					<ModeTabs mode={mode} onChange={setMode} />
-					{mode === "source" && toggle}
+					{mode === "source" ? (
+						toggle
+					) : (
+						<IconButton
+							icon={<ListTree />}
+							label={t("fileViewer.outline")}
+							onClick={() => setOutline(open => !open)}
+							pressed={outline}
+							size="sm"
+						/>
+					)}
 				</ViewerToolbar>
 			}
 		/>
 	);
 }
 
-export function HtmlFileView({ path, tabId }: TextViewProps) {
+export function HtmlFileView({ path, tabId, line }: TextViewProps) {
 	const t = useT();
-	const [mode, setMode] = useState<DocumentMode>("rendered");
+	const [mode, setMode] = useDocumentMode(path, line);
 	const { wrap, toggle } = useWrapToggle();
 	return (
 		<TextFileFrame
@@ -135,7 +240,7 @@ export function HtmlFileView({ path, tabId }: TextViewProps) {
 						title={t("fileViewer.htmlFrame", { name: path })}
 					/>
 				) : (
-					<CodeView code={content} language="xml" wrap={wrap} />
+					<CodeView code={content} language="xml" targetLine={line} wrap={wrap} />
 				)
 			}
 			tabId={tabId}
@@ -150,9 +255,9 @@ export function HtmlFileView({ path, tabId }: TextViewProps) {
 }
 
 /** .mmd/.mermaid: the diagram (MermaidBlock falls back to the source when it does not parse), or the source. */
-export function MermaidFileView({ path, tabId }: TextViewProps) {
+export function MermaidFileView({ path, tabId, line }: TextViewProps) {
 	const t = useT();
-	const [mode, setMode] = useState<DocumentMode>("rendered");
+	const [mode, setMode] = useDocumentMode(path, line);
 	const { wrap, toggle } = useWrapToggle();
 	return (
 		<TextFileFrame
@@ -163,7 +268,7 @@ export function MermaidFileView({ path, tabId }: TextViewProps) {
 						<MermaidBlock code={content} />
 					</div>
 				) : (
-					<CodeView code={content} language="plaintext" wrap={wrap} />
+					<CodeView code={content} language="plaintext" targetLine={line} wrap={wrap} />
 				)
 			}
 			tabId={tabId}
@@ -177,10 +282,22 @@ export function MermaidFileView({ path, tabId }: TextViewProps) {
 	);
 }
 
-function JsonBody({ content, lines, wrap }: { content: string; lines: boolean; wrap: boolean }) {
+function JsonBody({
+	content,
+	lines,
+	wrap,
+	targetLine,
+}: {
+	content: string;
+	lines: boolean;
+	wrap: boolean;
+	targetLine: number | undefined;
+}) {
 	const t = useT();
-	const pretty = useMemo(() => prettyJson(content, lines), [content, lines]);
+	// A targeted line refers to the file as written, so it skips pretty-printing.
+	const pretty = useMemo(() => (targetLine ? null : prettyJson(content, lines)), [content, lines, targetLine]);
 	if (pretty !== null) return <CodeView code={pretty} language="json" wrap={wrap} />;
+	if (targetLine) return <CodeView code={content} language="json" targetLine={targetLine} wrap={wrap} />;
 	return (
 		<>
 			<p className="px-3 pt-2 text-sc-xs text-(--sc-text-muted)" data-json-invalid>
@@ -191,14 +308,16 @@ function JsonBody({ content, lines, wrap }: { content: string; lines: boolean; w
 	);
 }
 
-export function JsonFileView({ path, tabId }: TextViewProps) {
+export function JsonFileView({ path, tabId, line }: TextViewProps) {
 	const t = useT();
 	const { wrap, toggle } = useWrapToggle();
 	const ext = fileExtension(path);
 	return (
 		<TextFileFrame
 			path={path}
-			render={content => <JsonBody content={content} lines={ext === "jsonl" || ext === "ndjson"} wrap={wrap} />}
+			render={content => (
+				<JsonBody content={content} lines={ext === "jsonl" || ext === "ndjson"} targetLine={line} wrap={wrap} />
+			)}
 			tabId={tabId}
 			toolbar={<ViewerToolbar label={t("fileViewer.toolbar")}>{toggle}</ViewerToolbar>}
 		/>

@@ -23,6 +23,7 @@ import { errorMessage } from "../../lib/error-detail";
 import { formatBytes } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
+import { useTabsStore } from "../../stores/tabs";
 import { COMPACT_SHELL_QUERY, useUiStore } from "../../stores/ui";
 import { Button, EmptyState, ErrorDetail, IconButton, SearchField, Spinner } from "../common";
 import { type TreeNode, TreeView } from "../common/TreeView";
@@ -56,6 +57,22 @@ export function searchFiles(entries: FsTreeEntry[], query: string): FsTreeEntry[
 	);
 }
 
+/**
+ * `path` as a workspace-relative POSIX path ("" for the root itself), or null
+ * when it lies outside `cwd`. Accepts tab-relative (`./src/`), absolute and
+ * Windows-separated forms.
+ */
+export function workspaceRelativePath(path: string, cwd: string): string | null {
+	const clean = (value: string) => value.replaceAll("\\", "/").replace(/\/+$/, "");
+	const target = clean(path);
+	const root = clean(cwd);
+	const absolute = target.startsWith("/") || /^[A-Za-z]:\//.test(target);
+	if (!absolute) return target.replace(/^(\.\/)+/, "").replace(/^\.$/, "");
+	if (!root) return null;
+	if (target === root) return "";
+	return target.startsWith(`${root}/`) ? target.slice(root.length + 1) : null;
+}
+
 /** Keyed by path in FilesPanel: a new file starts with fresh header info and views. */
 function FilePreview({ path, tabId }: { path: string; tabId: string | undefined }) {
 	const t = useT();
@@ -63,6 +80,7 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 	const expanded = useUiStore(s => s.filePreviewExpanded);
 	const toggleExpanded = useUiStore(s => s.toggleFilePreviewExpanded);
 	const compact = useMediaQuery(COMPACT_SHELL_QUERY);
+	const line = useUiStore(s => s.filePreviewLine);
 	const [info, setInfo] = useState<FileInfo | null>(null);
 
 	const insertMention = () => {
@@ -116,7 +134,7 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 				</div>
 			</div>
 			<div className="min-h-0 flex-1 bg-(--sc-surface-1)">
-				<FileViewer onInfo={setInfo} path={path} tabId={tabId} />
+				<FileViewer line={line ?? undefined} onInfo={setInfo} path={path} tabId={tabId} />
 			</div>
 		</div>
 	);
@@ -127,6 +145,8 @@ export function FilesPanel() {
 	const tabId = useRuntimeTabId();
 	const filePreviewPath = useUiStore(s => s.filePreviewPath);
 	const openFilePreview = useUiStore(s => s.openFilePreview);
+	const revealPath = useUiStore(s => s.filesRevealPath);
+	const cwd = useTabsStore(s => s.tabs.find(tab => tab.id === tabId)?.cwd ?? "");
 	const listVersion = useRef(0);
 	const [query, setQuery] = useState("");
 	const [tree, setTree] = useState<FsTreeEntry[]>([]);
@@ -135,6 +155,8 @@ export function FilesPanel() {
 	/** The failed list result or thrown cause; null when the tree loaded. */
 	const [error, setError] = useState<unknown>(null);
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
+	/** Folder a reply's link revealed (or the last folder clicked); marked in the tree. */
+	const [selectedId, setSelectedId] = useState<string | null>(null);
 
 	const load = useCallback(async () => {
 		const version = ++listVersion.current;
@@ -166,17 +188,33 @@ export function FilesPanel() {
 	useEffect(() => {
 		setTree([]);
 		setExpanded(new Set());
+		setSelectedId(null);
 		void load();
 		return () => {
 			listVersion.current++;
 		};
 	}, [load]);
 
+	// A folder link in a reply: once the tree is loaded, expand down to the
+	// folder, select it and scroll it into view, then clear the request.
+	useEffect(() => {
+		if (!revealPath || loading) return;
+		useUiStore.setState({ filesRevealPath: null });
+		const relative = workspaceRelativePath(revealPath, cwd);
+		if (!relative) return;
+		const segments = relative.split("/");
+		const ids = segments.map((_, index) => `dir:${segments.slice(0, index + 1).join("/")}`);
+		setQuery("");
+		setExpanded(prev => new Set([...prev, ...ids]));
+		setSelectedId(ids[ids.length - 1]);
+	}, [revealPath, loading, cwd]);
+
 	// Wire file activation: clicking a file previews it, clicking a dir toggles.
 	const onNodeClick = useCallback(
 		(id: string) => {
 			if (id.startsWith("file:")) openFilePreview(id.slice(5));
 			else if (id.startsWith("dir:")) {
+				setSelectedId(id);
 				setExpanded(prev => {
 					const next = new Set(prev);
 					if (next.has(id)) next.delete(id);
@@ -281,6 +319,7 @@ export function FilesPanel() {
 						expanded={expanded}
 						nodes={nodes}
 						onExpandedChange={setExpanded}
+						selectedId={selectedId}
 					/>
 				)}
 			</div>

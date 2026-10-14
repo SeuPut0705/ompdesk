@@ -12,6 +12,7 @@ import { tinyPptx, tinyXlsx } from "../../../../../e2e/file-viewer-fixtures";
 import type { IpcFsMediaStreamResult, IpcFsReadBinaryResult, IpcFsReadResult } from "../../../../shared/ipc-types";
 import { loadHljs } from "../../../lib/highlight";
 import { I18nProvider } from "../../../lib/i18n";
+import { useUiStore } from "../../../stores/ui";
 import { FileViewer } from "./FileViewer";
 import { fileIconKind, viewerKind } from "./file-kind";
 import { hexDump, parseDelimited, prettyJson } from "./parse";
@@ -99,8 +100,8 @@ function installFs(fs: { read?: ReadFn; readBinary?: ReadBinaryFn; mediaStream?:
 	return { read, readBinary, mediaStream };
 }
 
-function view(path: string) {
-	return <FileViewer onInfo={() => {}} path={path} tabId={undefined} />;
+function view(path: string, line?: number) {
+	return <FileViewer line={line} onInfo={() => {}} path={path} tabId={undefined} />;
 }
 
 beforeAll(async () => {
@@ -220,6 +221,70 @@ describe("code view", () => {
 		});
 		await mount(view("weird.txt"));
 		expect(container.querySelector("[data-hex-dump]")?.textContent).toContain("00 01 02 03");
+	});
+
+	it("marks and scrolls to the linked line, past the first painted batch", async () => {
+		const scrolled: string[] = [];
+		const proto = HTMLElement.prototype as unknown as { scrollIntoView?: (this: TestElement) => void };
+		proto.scrollIntoView = function () {
+			scrolled.push(this.textContent ?? "");
+		};
+		try {
+			const lines = Array.from({ length: 6000 }, (_, index) => `row ${index + 1}`).join("\n");
+			installFs({ read: async () => textResult(lines) });
+			await mount(view("big.txt", 5500));
+			const marked = container.querySelectorAll("[data-target-line]");
+			expect(marked.map(row => row.querySelector("[data-line-number]")?.textContent)).toEqual(["5500"]);
+			expect(scrolled).toEqual(["5500row 5500\n"]);
+			expect(container.textContent).not.toContain("Show all");
+		} finally {
+			delete proto.scrollIntoView;
+		}
+	});
+
+	it("paints ANSI colours in a .log file", async () => {
+		installFs({ read: async () => textResult("\u001b[31mfailed\u001b[0m ok") });
+		await mount(view("build.log"));
+		const log = container.querySelector("[data-ansi-log]");
+		expect(log?.textContent).toBe("failed ok");
+		expect(container.querySelector("[data-code-view]")).toBeNull();
+	});
+});
+
+describe("document modes", () => {
+	afterEach(() => useUiStore.setState({ fileViewModes: new Map() }));
+
+	it("opens a linked Markdown line in source and remembers a chosen mode per path", async () => {
+		installFs({ read: async () => textResult("# Title\n\nbody\n") });
+		await mount(view("README.md", 3));
+		expect(container.querySelector("[data-target-line]")?.textContent).toContain("body");
+		root?.unmount();
+		root = null;
+		container.remove();
+
+		useUiStore.getState().setFileViewMode("README.md", "source");
+		installFs({ read: async () => textResult("# Title\n") });
+		await mount(view("README.md"));
+		expect(container.querySelector("[data-code-view]")).not.toBeNull();
+		expect(container.querySelector("[data-markdown-rendered]")).toBeNull();
+	});
+
+	it("keeps at most 200 remembered paths, dropping the oldest", () => {
+		for (let i = 0; i < 205; i++) useUiStore.getState().setFileViewMode(`doc${i}.md`, "source");
+		const modes = useUiStore.getState().fileViewModes;
+		expect(modes.size).toBe(200);
+		expect(modes.has("doc4.md")).toBe(false);
+		expect(modes.has("doc5.md")).toBe(true);
+	});
+
+	it("lists rendered headings as an outline", async () => {
+		installFs({ read: async () => textResult("# Intro\n\n## Setup steps\n\ntext\n") });
+		await mount(view("guide.md"));
+		const outline = container.querySelector('button[aria-label="Outline"]') as unknown as HTMLElement;
+		await act(async () => outline.click());
+		await flush();
+		const items = container.querySelectorAll("[data-markdown-outline] button");
+		expect(items.map(item => item.textContent)).toEqual(["Intro", "Setup steps"]);
 	});
 });
 

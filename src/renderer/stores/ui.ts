@@ -26,6 +26,8 @@ const AGENTS_TABS: readonly string[] = ["live", "definitions", "prs"] satisfies 
 const INSIGHTS_TABS: readonly string[] = ["stats", "usage"] satisfies InsightsTab[];
 /** Settings section a cold ⌘, lands on (SettingsPage maps legacy ids). */
 const DEFAULT_SETTINGS_TAB = "general";
+/** Documents whose rendered/source choice the Files viewer remembers. */
+const FILE_VIEW_MODE_CAP = 200;
 /** Below this width the side panel becomes a sheet (design-spec §8); the sidebar never folds on its own. */
 export const COMPACT_SHELL_QUERY = "(max-width: 999px)";
 
@@ -74,6 +76,8 @@ interface UiStore {
 	filesRevealPath: string | null;
 	/** The Files drawer's viewer asked for a wider docked panel (not persisted; the drag width stays the pref). */
 	filePreviewExpanded: boolean;
+	/** Rendered/source choice per previewed document path, least recent first (capped; not persisted). */
+	fileViewModes: ReadonlyMap<string, "rendered" | "source">;
 	commandPaletteOpen: boolean;
 	modelPickerOpen: boolean;
 	/** "pool" adds the picked model to the session's model pool instead of switching to it. */
@@ -149,6 +153,7 @@ interface UiStore {
 	revealInFiles: (path: string) => void;
 	closeFilePreview: () => void;
 	toggleFilePreviewExpanded: () => void;
+	setFileViewMode: (path: string, mode: "rendered" | "source") => void;
 	/** Per-card collapse overrides for the center dock (absent = the card's default, see `isDockCardCollapsed`). */
 	dockCollapsed: Partial<Record<DockCardId, boolean>>;
 	toggleDockCard: (id: DockCardId) => void;
@@ -259,6 +264,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	filePreviewLine: null,
 	filesRevealPath: null,
 	filePreviewExpanded: false,
+	fileViewModes: new Map(),
 	previewUrl: null,
 	commandPaletteOpen: false,
 	modelPickerOpen: false,
@@ -295,6 +301,16 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 		}),
 	closeFilePreview: () => set({ filePreviewPath: null, filePreviewLine: null, filePreviewExpanded: false }),
 	toggleFilePreviewExpanded: () => set({ filePreviewExpanded: !get().filePreviewExpanded }),
+	setFileViewMode: (path, mode) => {
+		const next = new Map(get().fileViewModes);
+		next.delete(path);
+		next.set(path, mode);
+		for (const key of next.keys()) {
+			if (next.size <= FILE_VIEW_MODE_CAP) break;
+			next.delete(key);
+		}
+		set({ fileViewModes: next });
+	},
 	dockCollapsed: {},
 	toggleDockCard: id =>
 		set({
