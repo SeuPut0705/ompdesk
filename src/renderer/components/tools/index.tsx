@@ -4,6 +4,7 @@ import {
 	BookMarked,
 	Bot,
 	Braces,
+	Brain,
 	Bug,
 	CheckCheck,
 	Code2,
@@ -24,8 +25,10 @@ import {
 	MousePointer2,
 	Network,
 	Pencil,
+	Plug,
 	Search,
 	SearchCode,
+	Send,
 	ShieldCheck,
 	Sparkles,
 	StickyNote,
@@ -58,10 +61,12 @@ import { GrepRenderer } from "./GrepRenderer";
 import { HubRenderer } from "./HubRenderer";
 import { ImageRenderer } from "./ImageRenderer";
 import { LspRenderer } from "./LspRenderer";
+import { MCP_TOOL_NAME_PREFIX, McpRenderer, parseMcpToolName } from "./McpRenderer";
 import { MemoryRenderer } from "./MemoryRenderer";
 import { ReadRenderer } from "./ReadRenderer";
 import { ResolveRenderer } from "./ResolveRenderer";
 import { TaskRenderer } from "./TaskRenderer";
+import { ThinkRenderer } from "./ThinkRenderer";
 import { TodoRenderer } from "./TodoRenderer";
 import type { ToolRendererProps } from "./ToolCard";
 import {
@@ -73,6 +78,7 @@ import {
 } from "./VibeRenderer";
 import { WebSearchRenderer } from "./WebSearchRenderer";
 import { WriteRenderer } from "./WriteRenderer";
+import { YieldRenderer } from "./YieldRenderer";
 
 export type { ToolRendererProps };
 
@@ -177,10 +183,12 @@ const REGISTRY: Record<string, ComponentType<ToolRendererProps>> = {
 	// A pending reject carries only a reason — the wrapper pins the operation
 	// so the card never renders as "Resolving".
 	reject: (props: ToolRendererProps) => <ResolveRenderer {...props} operation="reject" />,
+	think: ThinkRenderer,
+	yield: YieldRenderer,
 };
 
 export function getToolRenderer(name: string): ComponentType<ToolRendererProps> {
-	return REGISTRY[name] ?? GenericRenderer;
+	return REGISTRY[name] ?? (name.startsWith(MCP_TOOL_NAME_PREFIX) ? McpRenderer : GenericRenderer);
 }
 
 /** Keys tried in order for a device call's header: the verb, then its object. */
@@ -334,6 +342,8 @@ const TOOL_META: Record<string, ToolMeta> = {
 	vibe_wait: VIBE,
 	vibe_kill: VIBE,
 	vibe_list: VIBE,
+	think: { label: "think", icon: Brain, activity: "other" },
+	yield: { label: "yield", icon: Send, activity: "other" },
 };
 
 /** Stock eval's language tokens (`py`, `js` and their long forms) as people name them. */
@@ -378,6 +388,13 @@ export function getToolHeader(name: string, args: Record<string, unknown>): Tool
 		activity: meta?.activity ?? "other",
 		target: "",
 	};
+	// `mcp__server_tool` (direct or as an `xd://` device) reads as "server · tool" with a plug.
+	const mcp = meta ? null : parseMcpToolName(tool);
+	if (mcp) {
+		header.labelKey = "tools.label.mcpTool";
+		header.labelParams = mcp;
+		header.icon = Plug;
+	}
 	if (device) {
 		const payload = decodeXdevPayload(args.content);
 		header.target = clipCardText(

@@ -67,7 +67,6 @@ const BUILTIN_TOOL_NAMES = [
  * an oversight: the coverage test below fails for any other canonical name.
  */
 const GENERIC_BY_DESIGN = [
-	"ask",
 	"checkpoint",
 	"context_notes",
 	"learn",
@@ -75,9 +74,7 @@ const GENERIC_BY_DESIGN = [
 	"new_context",
 	"rewind",
 	"security_scan",
-	"think",
 	"tts",
-	"yield",
 ] as const;
 
 /**

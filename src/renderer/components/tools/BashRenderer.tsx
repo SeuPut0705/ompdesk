@@ -5,6 +5,7 @@ import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_MD } from "../../lib/preview";
 import { detectLocalPreviewUrls } from "../../lib/preview-browser";
 import { useUiStore } from "../../stores/ui";
+import { describeTruncation, stripGeneratedOutputNotice, TruncationNote, type TruncationNotice } from "./output-meta";
 import { ResultImages } from "./ResultImages";
 import { resultDetails } from "./result";
 import type { ToolRendererProps } from "./ToolCard";
@@ -85,12 +86,6 @@ const LiveLine = memo(function LiveLine({ text, arrived }: { text: string; arriv
  * elapsed and timeout as badges on the command line, the rest as a quiet note.
  */
 
-/** Locale key + params for the truncation notice; the component translates it. */
-interface TruncationNotice {
-	key: string;
-	params?: Record<string, number>;
-}
-
 interface BashParsed {
 	output: string;
 	exitCode: number | null;
@@ -155,35 +150,6 @@ function stripLastOccurrence(text: string, re: RegExp): string {
 }
 
 const RAW_ARTIFACT_RE = /\n?\[raw output: artifact:\/\/(\d+)\]\s*$/;
-/** Trailing `[Showing …]` / limits notice line appended by wrappedExecute. */
-const GENERATED_NOTICE_RE =
-	/^\[(?:Showing .+|\d+ (?:matches|results) limit reached\. .+|Some lines truncated to .+)\]$/;
-
-function stripGeneratedOutputNotice(text: string): string {
-	const trimmed = text.trimEnd();
-	const lineStart = trimmed.lastIndexOf("\n");
-	const candidate = trimmed.slice(lineStart === -1 ? 0 : lineStart + 1);
-	if (!GENERATED_NOTICE_RE.test(candidate)) return text;
-	return trimmed.slice(0, lineStart === -1 ? 0 : lineStart).trimEnd();
-}
-
-function describeTruncation(truncation: Record<string, unknown>): TruncationNotice | null {
-	const total = asNumber(truncation.totalLines);
-	const count = asNumber(truncation.outputLines);
-	const shownRange = truncation.shownRange as { start?: unknown; end?: unknown } | undefined;
-	if (truncation.direction === "middle") {
-		return total != null && count != null
-			? { key: "tools.bash.truncation.middleCount", params: { count, total } }
-			: { key: "tools.bash.truncation.middle" };
-	}
-	const start = asNumber(shownRange?.start);
-	const end = asNumber(shownRange?.end);
-	if (start != null && end != null && total != null) {
-		return { key: "tools.bash.truncation.range", params: { start, end, total } };
-	}
-	if (count != null && total != null) return { key: "tools.bash.truncation.count", params: { count, total } };
-	return null;
-}
 
 function parseBashResult(result: unknown): BashParsed {
 	const details = resultDetails(result);
@@ -357,11 +323,7 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 			{notes.length > 0 && (
 				<div className="omp-bash-notes text-sc-xs text-(--sc-text-subtle)">{notes.join(" · ")}</div>
 			)}
-			{parsed.truncation && (
-				<div className="font-mono text-sc-xs text-(--sc-warning)">
-					[{t(parsed.truncation.key, parsed.truncation.params)}]
-				</div>
-			)}
+			{parsed.truncation && <TruncationNote notice={parsed.truncation} />}
 			{isError && !hasOutput && <div className="text-sc-sm text-(--sc-danger)">{t("tools.bash.failed")}</div>}
 		</div>
 	);
