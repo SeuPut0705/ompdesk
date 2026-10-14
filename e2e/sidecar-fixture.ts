@@ -3817,6 +3817,17 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				ok({ enabled: slowModeEnabled });
 				break;
 			case "abort_bash":
+			// Stock's manual `/compact`: one compaction entry keeping the last message (context popover e2e).
+			case "compact": {
+				const compaction = {
+					summary: "Compacted on request.",
+					firstKeptEntryId: entries.at(-1)?.id,
+					tokensBefore: 74_800,
+				};
+				append({ type: "compaction", ...compaction }, Date.now());
+				ok(compaction);
+				break;
+			}
 				heldBash?.({ output: "held output\n", exitCode: undefined, cancelled: true, truncated: false });
 				heldBash = undefined;
 				ok();

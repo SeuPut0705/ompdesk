@@ -697,8 +697,11 @@ export function InputArea() {
 			const end = el.selectionEnd ?? start;
 			const from = e.key === "j" || start !== end ? start : text.lastIndexOf("\n", start - 1) + 1;
 			const insert = e.key === "j" ? "\n" : "";
-			setText(`${text.slice(0, from)}${insert}${text.slice(end)}`);
-			requestAnimationFrame(() => el.setSelectionRange(from + insert.length, from + insert.length));
+			// Edit the DOM value in place so the caret lands before the next keystroke; React
+			// then sees the same value and leaves the caret alone.
+			el.value = `${text.slice(0, from)}${insert}${text.slice(end)}`;
+			el.setSelectionRange(from + insert.length, from + insert.length);
+			setText(el.value);
 			return;
 		}
 		// Esc: a selection collapses first. While no turn runs, a draft clears on a
