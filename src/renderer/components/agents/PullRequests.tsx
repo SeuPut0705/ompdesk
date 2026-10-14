@@ -22,6 +22,7 @@ import { PrDetail } from "./pr/PrDetail";
 
 const GH_INSTALL_URL = "https://cli.github.com";
 const LIST_STATES = ["open", "closed", "merged", "all"] as const;
+const LIST_VIEWS = ["all", "review", "mine"] as const;
 
 /** CI rollup: failure wins, then pending, then success; nothing reported is neutral. */
 function ChecksIcon({ item }: { item: RpcPrListItem }) {
@@ -80,6 +81,7 @@ export function PullRequests() {
 	const repo = usePrCenterStore(state => state.repo);
 	const list = usePrCenterStore(state => state.list);
 	const listState = usePrCenterStore(state => state.listState);
+	const listView = usePrCenterStore(state => state.listView);
 	const listLoading = usePrCenterStore(state => state.listLoading);
 	const selected = usePrCenterStore(state => state.selected);
 	const error = usePrCenterStore(state => state.error);
@@ -199,6 +201,13 @@ export function PullRequests() {
 					ariaLabel={t("prCenter.stateFilter")}
 					onChange={id => usePrCenterStore.getState().setListState(id as (typeof LIST_STATES)[number])}
 					tabs={LIST_STATES.map(state => ({ id: state, label: t(`prCenter.state.${state}`) }))}
+					variant="segmented"
+				/>
+				<Tabs
+					activeId={listView}
+					ariaLabel={t("prCenter.viewFilter")}
+					onChange={id => usePrCenterStore.getState().setListView(id as (typeof LIST_VIEWS)[number])}
+					tabs={LIST_VIEWS.map(view => ({ id: view, label: t(`prCenter.view.${view}`) }))}
 					variant="segmented"
 				/>
 				<div className="ml-auto flex items-center gap-2">

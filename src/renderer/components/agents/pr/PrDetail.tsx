@@ -23,6 +23,7 @@ import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
 import { usePrCenterStore } from "../../../stores/pr-center";
 import { Badge, Button, EmptyState, ErrorDetail, InlineNotice, Spinner } from "../../common";
+import { PrConversation, PrEditButton, PrMergeButton } from "./PrActions";
 
 const BODY_COLLAPSE_LINES = 12;
 
@@ -198,6 +199,13 @@ export function PrDetail({ onCreateOpen }: { onCreateOpen: () => void }) {
 					>
 						{t("prCenter.openInBrowser")}
 					</Button>
+					<PrEditButton detail={detail} />
+					<PrMergeButton detail={detail} />
+					{detail.state && detail.state !== "OPEN" && (
+						<Badge variant={detail.state === "MERGED" ? "accent" : "muted"}>
+							{t(`prCenter.state.${detail.state.toLowerCase()}`)}
+						</Badge>
+					)}
 				</div>
 			</header>
 
@@ -241,6 +249,8 @@ export function PrDetail({ onCreateOpen }: { onCreateOpen: () => void }) {
 					))}
 				</ul>
 			</Section>
+
+			<PrConversation detail={detail} />
 		</article>
 	);
 }

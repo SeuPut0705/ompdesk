@@ -299,12 +299,57 @@ export type RpcCommand =
 	// Pull requests (PR Center, plan/21). pr_diff is per-file (lazy), pr_draft
 	// is a model call, pr_checkout lands the PR in a worktree (plan/20 scheme).
 	| { id?: string; type: "pr_repo" }
-	| { id?: string; type: "pr_list"; state?: "open" | "closed" | "merged" | "all"; limit?: number }
+	| {
+			id?: string;
+			type: "pr_list";
+			state?: "open" | "closed" | "merged" | "all";
+			limit?: number;
+			view?: RpcPrListView;
+	  }
 	| { id?: string; type: "pr_get"; number: number }
 	| { id?: string; type: "pr_diff"; number: number; path: string }
 	| { id?: string; type: "pr_draft"; base?: string; head?: string }
 	| { id?: string; type: "pr_create"; title: string; body: string; base?: string; head?: string; draft?: boolean }
-	| { id?: string; type: "pr_checkout"; number: number };
+	| { id?: string; type: "pr_checkout"; number: number }
+	| { id?: string; type: "pr_merge"; number: number; method: RpcPrMergeMethod; deleteBranch?: boolean }
+	| { id?: string; type: "pr_review"; number: number; event: RpcPrReviewEvent; body: string }
+	| { id?: string; type: "pr_comment"; number: number; body: string }
+	| { id?: string; type: "pr_comments"; number: number }
+	| { id?: string; type: "pr_edit"; number: number; title?: string; body?: string; base?: string }
+	// Source control in the Changes panel (src/main/local/git/scm.ts): plain git
+	// mutations on the session checkout; git_commit_message runs stock
+	// `omp commit --dry-run` and never commits.
+	| { id?: string; type: "git_stage"; paths: string[] | "all" }
+	| { id?: string; type: "git_unstage"; paths: string[] | "all" }
+	| { id?: string; type: "git_discard"; paths: string[] }
+	| { id?: string; type: "git_commit"; message: string; amend?: boolean }
+	| { id?: string; type: "git_commit_message" }
+	| { id?: string; type: "git_last_commit_message" }
+	| { id?: string; type: "git_undo_commit" }
+	| { id?: string; type: "git_remote"; action: "push" | "pull" | "fetch" }
+	| { id?: string; type: "git_stash"; action: "push" | "pop"; message?: string }
+	| { id?: string; type: "git_operation"; action: "continue" | "abort" }
+	| { id?: string; type: "git_branches" }
+	| {
+			id?: string;
+			type: "git_branch";
+			action: "switch" | "create" | "rename" | "delete" | "merge";
+			name: string;
+			newName?: string;
+			base?: string;
+			force?: boolean;
+	  }
+	| { id?: string; type: "git_log"; limit?: number; skip?: number; query?: string }
+	| { id?: string; type: "git_commit_detail"; sha: string }
+	| { id?: string; type: "git_commit_diff"; sha: string; path: string }
+	| {
+			id?: string;
+			type: "git_history_action";
+			action: "checkout" | "branch" | "cherry_pick" | "revert" | "reset" | "tag" | "delete_tag";
+			sha: string;
+			mode?: "soft" | "mixed" | "hard";
+			name?: string;
+	  };
 
 // ============================================================================
 // RPC Responses (omp stdout → GUI)
@@ -772,6 +817,74 @@ export interface RpcGitChanges {
 	base: string | null;
 	files: { path: string; oldPath?: string; status: string; added?: number; removed?: number }[];
 	truncated: boolean;
+	/** Branch, upstream and in-progress operation of the checkout, for the source-control header. */
+	head?: RpcGitHead;
+}
+
+export interface RpcGitHead {
+	/** Current branch, or null on a detached HEAD. */
+	branch: string | null;
+	/** `remote/branch` the branch tracks, or null when it has none. */
+	upstream: string | null;
+	ahead: number;
+	behind: number;
+	/** A merge, rebase, cherry-pick or revert that stopped and waits for continue/abort. */
+	operation: "merge" | "rebase" | "cherry-pick" | "revert" | null;
+	/** Entries in `git stash list`. */
+	stashes: number;
+	/** Whether the repository has at least one remote to push to. */
+	hasRemote: boolean;
+}
+
+/** git_remote result: what the push/pull/fetch did, as git printed it. */
+export interface RpcGitRemoteResult {
+	/** The branch push published with `--set-upstream` (no upstream before). */
+	published?: string;
+	output: string;
+}
+
+/** git_branch merge / git_operation / git_history_action results that may stop on conflicts. */
+export interface RpcGitMutationResult {
+	conflicts: number;
+}
+
+export interface RpcGitBranch {
+	/** Short ref name: `main`, or `origin/main` for a remote-tracking branch. */
+	name: string;
+	remote: boolean;
+	current: boolean;
+	upstream: string | null;
+	/** Another worktree that has this branch checked out (absolute path). */
+	worktree: string | null;
+	sha: string;
+	/** Committer date, epoch seconds. */
+	date: number;
+}
+
+export interface RpcGitCommit {
+	sha: string;
+	shortSha: string;
+	author: string;
+	/** Author date, epoch seconds. */
+	date: number;
+	subject: string;
+	/** Branch and tag names pointing here (`git log %D`, `HEAD -> ` stripped). */
+	refs: string[];
+	tags: string[];
+}
+
+export interface RpcGitLog {
+	commits: RpcGitCommit[];
+	/** More commits exist past this page. */
+	more: boolean;
+	/** Web URL of a commit on the hosted remote, with `{sha}` to substitute; null without one. */
+	commitUrl: string | null;
+}
+
+export interface RpcGitCommitDetail extends RpcGitCommit {
+	body: string;
+	parents: string[];
+	files: { path: string; oldPath?: string; status: string; added?: number; removed?: number }[];
 }
 
 export interface RpcGitDiff {
@@ -828,11 +941,33 @@ export interface RpcPrDetail {
 	baseRefName: string;
 	headRefName: string;
 	mergeStateStatus: string;
+	/** gh's `state`: OPEN, CLOSED or MERGED. */
+	state?: string;
 	additions: number;
 	deletions: number;
 	reviewDecision: string | null;
 	files: Array<{ path: string; changeType: string; additions: number; deletions: number }>;
 	checks: Array<{ name: string; status: string; conclusion: string | null }>;
+}
+
+export type RpcPrMergeMethod = "merge" | "squash" | "rebase";
+/** PR Center list view: every PR, those waiting on your review, or yours. */
+export type RpcPrListView = "all" | "review" | "mine";
+export type RpcPrReviewEvent = "approve" | "request_changes" | "comment";
+
+export interface RpcPrComments {
+	entries: Array<{
+		kind: "comment" | "review" | "inline";
+		author: string;
+		body: string;
+		createdAt: string;
+		url?: string;
+		/** Review verdict: APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED. */
+		state?: string;
+		/** File and line an inline review comment sits on. */
+		path?: string;
+		line?: number;
+	}>;
 }
 
 /** pr_draft / pr_create results. */

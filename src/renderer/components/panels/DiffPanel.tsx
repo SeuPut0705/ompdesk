@@ -22,6 +22,7 @@ import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { EmptyState, IconButton, Select } from "../common";
 import { PANEL_ROW, PanelToolbar } from "./PanelChrome";
 import { RepositoryChanges } from "./RepositoryChanges";
+import { CommitHistory } from "./scm/CommitHistory";
 
 const DIFF_TOOLS = new Set(["edit", "apply_patch", "ast_edit", "write"]);
 
@@ -529,7 +530,7 @@ export function DiffPanel() {
 	const allCandidates = useEditCandidates();
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [split, setSplit] = useState(false);
-	const [mode, setMode] = useState<"repository" | "current" | "timeline" | "artifacts">("repository");
+	const [mode, setMode] = useState<"repository" | "commits" | "current" | "timeline" | "artifacts">("repository");
 	const sessionId = useSessionStore(state => state.sessionId);
 	const candidates = useMemo(
 		() => allCandidates.filter(entry => (mode === "artifacts" ? entry.isVirtual : !entry.isVirtual)),
@@ -543,7 +544,7 @@ export function DiffPanel() {
 			controlSize="sm"
 			value={mode}
 			onChange={event => setMode(event.target.value as typeof mode)}
-			options={(["repository", "current", "timeline", "artifacts"] as const).map(value => ({
+			options={(["repository", "commits", "current", "timeline", "artifacts"] as const).map(value => ({
 				value,
 				label: t(`diffPanel.mode.${value}`),
 			}))}
@@ -552,7 +553,7 @@ export function DiffPanel() {
 
 	return (
 		<div className="flex h-full min-h-0 min-w-0 flex-col">
-			{mode !== "repository" && (
+			{mode !== "repository" && mode !== "commits" && (
 				<PanelToolbar>
 					{sourceSelector}
 					{mode === "current" && (
@@ -578,6 +579,8 @@ export function DiffPanel() {
 
 			{mode === "repository" ? (
 				<RepositoryChanges key={sessionId} sourceSelector={sourceSelector} />
+			) : mode === "commits" ? (
+				<CommitHistory key={sessionId} sourceSelector={sourceSelector} />
 			) : candidates.length === 0 ? (
 				<div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
 					<EmptyState icon={<FileCode2 />} size="sm" title={t("diffPanel.empty")} />

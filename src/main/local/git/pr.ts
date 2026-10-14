@@ -1,17 +1,22 @@
 /**
  * PR Center commands over the `gh` CLI (port of fork rpc-pr.ts). Failures map to
  * typed codes: gh_missing / gh_unauthenticated / not_a_repo / no_github_remote / pr_not_found /
- * pr_create_failed / pr_checkout_failed / pr_draft_failed.
+ * pr_create_failed / pr_checkout_failed / pr_draft_failed / pr_merge_failed / pr_review_failed /
+ * pr_edit_failed.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type {
+	RpcPrComments,
 	RpcPrCreateResult,
 	RpcPrDetail,
 	RpcPrDraftResult,
 	RpcPrListItem,
+	RpcPrListView,
+	RpcPrMergeMethod,
 	RpcPrRepo,
+	RpcPrReviewEvent,
 } from "../../../shared/rpc-types";
 import { ghAuthStatus } from "../../github-auth/cli";
 import type { BridgeClient, OmpRuntime } from "../types";
@@ -39,6 +44,7 @@ interface GhPrListRow {
 
 interface GhPrDetailRow extends GhPrListRow {
 	body?: string | null;
+	state?: string;
 	mergeStateStatus?: string;
 	files?: Array<{ path?: string; additions?: number; deletions?: number; changeType?: string }> | null;
 }
@@ -46,9 +52,10 @@ interface GhPrDetailRow extends GhPrListRow {
 const PR_LIST_FIELDS =
 	"number,title,url,isDraft,author,headRefName,baseRefName,additions,deletions,updatedAt,reviewDecision,statusCheckRollup";
 const PR_DETAIL_FIELDS =
-	"number,title,url,isDraft,author,body,baseRefName,headRefName,mergeStateStatus,additions,deletions,reviewDecision,files,statusCheckRollup";
+	"number,title,url,isDraft,author,body,state,baseRefName,headRefName,mergeStateStatus,additions,deletions,reviewDecision,files,statusCheckRollup";
 const DRAFT_TIMEOUT_MS = 170_000;
 const PR_CREATE_TIMEOUT_MS = 110_000;
+const PR_MERGE_TIMEOUT_MS = 110_000;
 
 /**
  * Longest each command runs before main answers, counting every git/gh step on
@@ -66,6 +73,11 @@ export const PR_COMMAND_BUDGETS_MS = {
 	pr_create: 2 * DEFAULT_TIMEOUT_MS + PR_CREATE_TIMEOUT_MS,
 	// Preflight plus the bridge's bounded stock checkout (including clone/fetch).
 	pr_checkout: 2 * DEFAULT_TIMEOUT_MS + 600_000,
+	pr_merge: 2 * DEFAULT_TIMEOUT_MS + PR_MERGE_TIMEOUT_MS,
+	pr_review: 3 * DEFAULT_TIMEOUT_MS,
+	pr_comments: 4 * DEFAULT_TIMEOUT_MS,
+	pr_edit: 3 * DEFAULT_TIMEOUT_MS,
+	pr_comment: 3 * DEFAULT_TIMEOUT_MS,
 } as const;
 
 interface GithubRepo {
@@ -115,12 +127,21 @@ export async function prRepo(cwd: string): Promise<RpcPrRepo> {
 	}
 }
 
+/** gh search qualifier per PR Center view; "all" lists by state alone. */
+const LIST_VIEW_SEARCH: Record<RpcPrListView, string | null> = {
+	all: null,
+	review: "review-requested:@me",
+	mine: "author:@me",
+};
+
 export async function prList(
 	cwd: string,
-	input: { state?: "open" | "closed" | "merged" | "all"; limit?: number },
+	input: { state?: "open" | "closed" | "merged" | "all"; limit?: number; view?: RpcPrListView },
 ): Promise<RpcPrListItem[]> {
 	const { ghBin, root, repo } = await requireGithubRepo(cwd);
 	const args = ["pr", "list", "--repo", repo, "--state", input.state ?? "open", "--limit", String(input.limit ?? 50)];
+	const search = LIST_VIEW_SEARCH[input.view ?? "all"];
+	if (search) args.push("--search", search);
 	const rows: GhPrListRow[] = JSON.parse(await gh(root, ghBin, [...args, "--json", PR_LIST_FIELDS]));
 	return rows.map(row => ({
 		number: row.number ?? 0,
@@ -158,6 +179,7 @@ export async function prGet(cwd: string, input: { number: number }): Promise<Rpc
 		baseRefName: row.baseRefName ?? "",
 		headRefName: row.headRefName ?? "",
 		mergeStateStatus: row.mergeStateStatus ?? "",
+		state: row.state ?? "",
 		additions: row.additions ?? 0,
 		deletions: row.deletions ?? 0,
 		reviewDecision: row.reviewDecision ?? null,
@@ -305,4 +327,176 @@ export async function prCheckout(
 	} catch (error) {
 		throw new LocalCommandError(errorText(error), "pr_checkout_failed");
 	}
+}
+
+function checkPrNumber(number: number, code: string): number {
+	if (!Number.isSafeInteger(number) || number <= 0)
+		throw new LocalCommandError(`Invalid PR number: ${String(number)}`, code);
+	return number;
+}
+
+/** Run `fn` with `text` in a private temp file (gh `--body-file`), removed afterwards. */
+async function withBodyFile<T>(text: string, fn: (file: string) => Promise<T>): Promise<T> {
+	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-pr-body-"));
+	try {
+		const file = path.join(tempDir, "body.md");
+		await fs.writeFile(file, text);
+		return await fn(file);
+	} finally {
+		await fs.rm(tempDir, { recursive: true, force: true });
+	}
+}
+
+/**
+ * Merge on GitHub with the chosen method. `--repo` keeps gh from touching the
+ * local checkout: with it, `--delete-branch` removes only the remote head branch.
+ */
+export async function prMerge(
+	cwd: string,
+	input: { number: number; method: RpcPrMergeMethod; deleteBranch?: boolean },
+): Promise<{ merged: true }> {
+	const number = checkPrNumber(input.number, "pr_merge_failed");
+	const { ghBin, root, repo } = await requireGithubRepo(cwd);
+	const args = ["pr", "merge", String(number), "--repo", repo, `--${input.method}`];
+	if (input.deleteBranch) args.push("--delete-branch");
+	try {
+		await gh(root, ghBin, args, { timeoutMs: PR_MERGE_TIMEOUT_MS });
+	} catch (error) {
+		throw new LocalCommandError(errorText(error), "pr_merge_failed");
+	}
+	return { merged: true };
+}
+
+export async function prReview(
+	cwd: string,
+	input: { number: number; event: RpcPrReviewEvent; body: string },
+): Promise<{ submitted: true }> {
+	const number = checkPrNumber(input.number, "pr_review_failed");
+	const body = input.body.trim();
+	if (input.event !== "approve" && !body)
+		throw new LocalCommandError("A comment or change request needs text", "pr_review_failed");
+	const { ghBin, root, repo } = await requireGithubRepo(cwd);
+	const flag = { approve: "--approve", request_changes: "--request-changes", comment: "--comment" }[input.event];
+	try {
+		await withBodyFile(body, file =>
+			gh(root, ghBin, [
+				"pr",
+				"review",
+				String(number),
+				"--repo",
+				repo,
+				flag,
+				...(body ? ["--body-file", file] : []),
+			]),
+		);
+	} catch (error) {
+		throw new LocalCommandError(errorText(error), "pr_review_failed");
+	}
+	return { submitted: true };
+}
+
+export async function prComment(cwd: string, input: { number: number; body: string }): Promise<{ submitted: true }> {
+	const number = checkPrNumber(input.number, "pr_review_failed");
+	const body = input.body.trim();
+	if (!body) throw new LocalCommandError("A comment needs text", "pr_review_failed");
+	const { ghBin, root, repo } = await requireGithubRepo(cwd);
+	try {
+		await withBodyFile(body, file =>
+			gh(root, ghBin, ["pr", "comment", String(number), "--repo", repo, "--body-file", file]),
+		);
+	} catch (error) {
+		throw new LocalCommandError(errorText(error), "pr_review_failed");
+	}
+	return { submitted: true };
+}
+
+interface GhCommentRow {
+	author?: { login?: string } | null;
+	body?: string;
+	createdAt?: string;
+	submittedAt?: string;
+	state?: string;
+	url?: string;
+}
+
+interface GhInlineRow {
+	user?: { login?: string } | null;
+	body?: string;
+	path?: string;
+	line?: number | null;
+	original_line?: number | null;
+	created_at?: string;
+	html_url?: string;
+}
+
+/** Conversation comments, reviews and inline review comments, oldest first. */
+export async function prComments(cwd: string, input: { number: number }): Promise<RpcPrComments> {
+	const number = checkPrNumber(input.number, "pr_not_found");
+	const { ghBin, root, repo } = await requireGithubRepo(cwd);
+	let view: { comments?: GhCommentRow[]; reviews?: GhCommentRow[] };
+	let inline: GhInlineRow[];
+	try {
+		[view, inline] = await Promise.all([
+			gh(root, ghBin, ["pr", "view", String(number), "--repo", repo, "--json", "comments,reviews"]).then(
+				text => JSON.parse(text) as { comments?: GhCommentRow[]; reviews?: GhCommentRow[] },
+			),
+			gh(root, ghBin, ["api", `repos/${repo}/pulls/${number}/comments?per_page=100`]).then(
+				text => JSON.parse(text) as GhInlineRow[],
+			),
+		]);
+	} catch (error) {
+		throw new LocalCommandError(`PR #${number}: ${errorText(error)}`, "pr_not_found");
+	}
+	const entries: RpcPrComments["entries"] = [
+		...(view.comments ?? []).map(row => ({
+			kind: "comment" as const,
+			author: row.author?.login ?? "ghost",
+			body: row.body ?? "",
+			createdAt: row.createdAt ?? "",
+			url: row.url,
+		})),
+		...(view.reviews ?? [])
+			// A bare "COMMENTED" review without text only wraps inline comments, listed below.
+			.filter(row => row.body?.trim() || row.state !== "COMMENTED")
+			.map(row => ({
+				kind: "review" as const,
+				author: row.author?.login ?? "ghost",
+				body: row.body ?? "",
+				createdAt: row.submittedAt ?? row.createdAt ?? "",
+				state: row.state,
+			})),
+		...inline.map(row => ({
+			kind: "inline" as const,
+			author: row.user?.login ?? "ghost",
+			body: row.body ?? "",
+			createdAt: row.created_at ?? "",
+			url: row.html_url,
+			path: row.path,
+			line: row.line ?? row.original_line ?? undefined,
+		})),
+	];
+	entries.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+	return { entries };
+}
+
+export async function prEdit(
+	cwd: string,
+	input: { number: number; title?: string; body?: string; base?: string },
+): Promise<{ edited: true }> {
+	const number = checkPrNumber(input.number, "pr_edit_failed");
+	const { ghBin, root, repo } = await requireGithubRepo(cwd);
+	const args = ["pr", "edit", String(number), "--repo", repo];
+	if (input.title !== undefined) {
+		if (!input.title.trim()) throw new LocalCommandError("A pull request needs a title", "pr_edit_failed");
+		args.push("--title", input.title.trim());
+	}
+	if (input.base) args.push("--base", input.base);
+	try {
+		await withBodyFile(input.body ?? "", file =>
+			gh(root, ghBin, input.body === undefined ? args : [...args, "--body-file", file]),
+		);
+	} catch (error) {
+		throw new LocalCommandError(errorText(error), "pr_edit_failed");
+	}
+	return { edited: true };
 }

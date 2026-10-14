@@ -1,13 +1,14 @@
 /** `get_git_status`, `get_git_changes`, `get_git_diff` over the git CLI (port of fork rpc-git-diff.ts / buildRpcGitStatus). */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { RpcGitChanges, RpcGitDiff, RpcGitStatus } from "../../../shared/rpc-types";
+import type { RpcGitChanges, RpcGitDiff, RpcGitHead, RpcGitStatus } from "../../../shared/rpc-types";
 import { git, gitRaw } from "./exec";
 import {
 	isInside,
 	isProbablyBinaryHeader,
 	isSafeRelativePath,
 	newFileDiff,
+	parseBranchHeaders,
 	parseGitStatus,
 	parseStatusV2,
 } from "./parse";
@@ -42,14 +43,48 @@ export async function getGitStatus(cwd: string): Promise<RpcGitStatus> {
 	return { isRepo: true, ...parseStatusV2(result.stdout.toString("utf8")) };
 }
 
+/** Which stopped operation (merge, rebase, cherry-pick, revert) waits in `gitDir`, if any. */
+async function pendingOperation(gitDir: string): Promise<RpcGitHead["operation"]> {
+	const exists = (name: string) =>
+		fs.stat(path.join(gitDir, name)).then(
+			() => true,
+			() => false,
+		);
+	const [rebaseMerge, rebaseApply, merge, cherryPick, revert] = await Promise.all(
+		["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"].map(exists),
+	);
+	if (rebaseMerge || rebaseApply) return "rebase";
+	if (merge) return "merge";
+	if (cherryPick) return "cherry-pick";
+	if (revert) return "revert";
+	return null;
+}
+
+/** Branch, upstream, ahead/behind, stopped operation and stash count of the checkout at `root`. */
+export async function getGitHead(root: string): Promise<RpcGitHead> {
+	const [branchStatus, gitDir, stashes, remotes] = await Promise.all([
+		git(root, ["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=no"]),
+		git(root, ["rev-parse", "--absolute-git-dir"]),
+		gitRaw(root, ["stash", "list", "--format=%H"]),
+		git(root, ["remote"]),
+	]);
+	return {
+		...parseBranchHeaders(branchStatus),
+		operation: await pendingOperation(gitDir.trim()),
+		stashes: stashes.code === 0 ? stashes.stdout.toString("utf8").split("\n").filter(Boolean).length : 0,
+		hasRemote: remotes.trim().length > 0,
+	};
+}
+
 export async function getGitChanges(cwd: string): Promise<RpcGitChanges> {
 	const root = await repoRoot(cwd);
 	if (!root) return { isRepo: false, root: null, base: null, files: [], truncated: false };
 	const base = await headSha(root);
-	const [status, changed, numstat] = await Promise.all([
+	const [status, changed, numstat, head] = await Promise.all([
 		git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
 		base ? git(root, ["diff", "--name-only", "-z", "--no-renames", base]) : Promise.resolve(null),
 		base ? git(root, ["diff", "--numstat", "-z", "--find-renames", "--no-ext-diff", base]) : Promise.resolve(""),
+		getGitHead(root),
 	]);
 	const counts = new Map<string, { added: number; removed: number }>();
 	const records = numstat.split("\0");
@@ -62,12 +97,13 @@ export async function getGitChanges(cwd: string): Promise<RpcGitChanges> {
 		if (filePath && match[1] !== "-" && match[2] !== "-")
 			counts.set(filePath, { added: Number(match[1]), removed: Number(match[2]) });
 	}
-	// Net change vs HEAD: a file staged then reverted in the worktree shows in status but not here.
+	// Net change vs HEAD: a file edited then reverted in the worktree shows in status but not here.
+	// A staged path stays: the next commit would record it.
 	const net = changed === null ? null : new Set(changed.split("\0").filter(Boolean));
 	const files = parseGitStatus(status)
 		.filter(
 			entry =>
-				entry.index === "?" ||
+				entry.index !== " " ||
 				entry.oldPath !== undefined ||
 				(net
 					? net.has(entry.path) || (entry.oldPath !== undefined && net.has(entry.oldPath))
@@ -85,6 +121,7 @@ export async function getGitChanges(cwd: string): Promise<RpcGitChanges> {
 		base,
 		files: files.slice(0, MAX_FILES),
 		truncated: files.length > MAX_FILES,
+		head,
 	};
 }
 

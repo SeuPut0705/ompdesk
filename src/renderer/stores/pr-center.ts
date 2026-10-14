@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { RpcPrDetail, RpcPrListItem, RpcPrRepo } from "../../shared/rpc-types";
+import type { RpcPrDetail, RpcPrListItem, RpcPrListView, RpcPrRepo } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
 import { useTabsStore } from "./tabs";
 import { toast, toastError } from "./toast";
@@ -12,6 +12,8 @@ import { toast, toastError } from "./toast";
 interface PrCenterStore {
 	repo: RpcPrRepo | null;
 	listState: "open" | "closed" | "merged" | "all";
+	/** Every PR, those waiting on your review, or yours. */
+	listView: RpcPrListView;
 	list: RpcPrListItem[];
 	listLoading: boolean;
 	selected: number | null;
@@ -24,6 +26,9 @@ interface PrCenterStore {
 	probe: () => Promise<void>;
 	refresh: () => Promise<void>;
 	setListState: (state: "open" | "closed" | "merged" | "all") => void;
+	setListView: (view: RpcPrListView) => void;
+	/** Re-read the selected PR and the list after an action changed it (merge, review, edit). */
+	reloadSelected: () => Promise<void>;
 	select: (number: number) => Promise<void>;
 	toggleFile: (path: string) => Promise<void>;
 	checkout: (number: number) => Promise<void>;
@@ -33,6 +38,7 @@ interface PrCenterStore {
 const initialState = {
 	repo: null,
 	listState: "open" as const,
+	listView: "all" as const,
 	list: [],
 	listLoading: false,
 	selected: null,
@@ -65,7 +71,7 @@ export const usePrCenterStore = create<PrCenterStore>()((set, get) => ({
 		if (get().listLoading) return;
 		set({ listLoading: true, error: null });
 		try {
-			const response = await window.omp.rpc.prList(get().listState, 50);
+			const response = await window.omp.rpc.prList(get().listState, 50, get().listView);
 			if (!response.success) {
 				set({ error: response.error, listLoading: false });
 				return;
@@ -80,6 +86,17 @@ export const usePrCenterStore = create<PrCenterStore>()((set, get) => ({
 		if (state === get().listState) return;
 		set({ listState: state, selected: null, detail: null, expandedFiles: {} });
 		void get().refresh();
+	},
+
+	setListView: view => {
+		if (view === get().listView) return;
+		set({ listView: view, selected: null, detail: null, expandedFiles: {} });
+		void get().refresh();
+	},
+
+	reloadSelected: async () => {
+		const number = get().selected;
+		await Promise.all([get().refresh(), number === null ? undefined : get().select(number)]);
 	},
 
 	select: async number => {

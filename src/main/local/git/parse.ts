@@ -53,6 +53,94 @@ export function parseStatusV2(text: string): GitStatusSummary {
 	return summary;
 }
 
+/** Branch, upstream and ahead/behind from the `# branch.*` headers of `git status --porcelain=v2 --branch -z`. */
+export function parseBranchHeaders(text: string): {
+	branch: string | null;
+	upstream: string | null;
+	ahead: number;
+	behind: number;
+} {
+	const head = { branch: null as string | null, upstream: null as string | null, ahead: 0, behind: 0 };
+	for (const record of text.split("\0")) {
+		if (record.startsWith("# branch.head ")) {
+			const name = record.slice("# branch.head ".length);
+			head.branch = name === "(detached)" ? null : name;
+		} else if (record.startsWith("# branch.upstream ")) {
+			head.upstream = record.slice("# branch.upstream ".length);
+		} else if (record.startsWith("# branch.ab ")) {
+			const match = /^\+(\d+) -(\d+)$/.exec(record.slice("# branch.ab ".length));
+			if (match) {
+				head.ahead = Number(match[1]);
+				head.behind = Number(match[2]);
+			}
+		}
+	}
+	return head;
+}
+
+/** Branch/tag names from `git log --format=%D` (`HEAD -> main, tag: v1, origin/main`). */
+export function parseDecorations(decoration: string): { refs: string[]; tags: string[] } {
+	const refs: string[] = [];
+	const tags: string[] = [];
+	for (const raw of decoration.split(", ")) {
+		const entry = raw.trim();
+		if (!entry || entry === "HEAD") continue;
+		if (entry.startsWith("tag: ")) tags.push(entry.slice("tag: ".length));
+		else refs.push(entry.startsWith("HEAD -> ") ? entry.slice("HEAD -> ".length) : entry);
+	}
+	return { refs, tags };
+}
+
+/**
+ * Web base of a hosted remote (`https://host/owner/repo`) from its fetch URL:
+ * https, ssh `git@host:owner/repo.git` and `ssh://git@host/owner/repo` forms.
+ * Null for local paths and anything else that has no web page.
+ */
+export function remoteWebBase(url: string): string | null {
+	const trimmed = url
+		.trim()
+		.replace(/\.git$/, "")
+		.replace(/\/$/, "");
+	let host: string;
+	let repoPath: string;
+	const scp = /^[\w.-]+@([\w.-]+):(?!\/)(.+)$/.exec(trimmed);
+	if (scp) {
+		host = scp[1]!;
+		repoPath = scp[2]!;
+	} else {
+		let parsed: URL;
+		try {
+			parsed = new URL(trimmed);
+		} catch {
+			return null;
+		}
+		if (!["https:", "http:", "ssh:", "git:"].includes(parsed.protocol)) return null;
+		host = parsed.hostname;
+		repoPath = parsed.pathname.replace(/^\//, "");
+	}
+	if (!host || repoPath.split("/").filter(Boolean).length < 2) return null;
+	return `https://${host}/${repoPath}`;
+}
+
+/** A branch or tag name git accepts (`git check-ref-format --branch` rules, checked without spawning git). */
+export function isValidRefName(name: string): boolean {
+	return (
+		name.length > 0 &&
+		name.length <= 200 &&
+		!name.startsWith("-") &&
+		!name.startsWith("/") &&
+		!name.endsWith("/") &&
+		!name.endsWith(".") &&
+		!name.endsWith(".lock") &&
+		!name.includes("..") &&
+		!name.includes("//") &&
+		!name.includes("@{") &&
+		name !== "@" &&
+		!/[\s~^:?*[\\\x00-\x1f\x7f]/.test(name) &&
+		!name.split("/").some(part => part.startsWith("."))
+	);
+}
+
 /** Validate a repository-relative path from the renderer (no absolute, NUL, or `..` segment). */
 export function isSafeRelativePath(filePath: string): boolean {
 	return !(

@@ -87,7 +87,11 @@ export interface SessionRpcClient {
 	worktreeCreate(name: string, options?: { baseCwd?: string; baseRef?: "HEAD" | "default" }): Promise<RpcResponse>;
 	worktreeRemove(path: string, force?: boolean): Promise<RpcResponse>;
 	prRepo(): Promise<RpcResponse>;
-	prList(state?: "open" | "closed" | "merged" | "all", limit?: number): Promise<RpcResponse>;
+	prList(
+		state?: "open" | "closed" | "merged" | "all",
+		limit?: number,
+		view?: "all" | "review" | "mine",
+	): Promise<RpcResponse>;
 	prGet(number: number): Promise<RpcResponse>;
 	prDiff(number: number, path: string): Promise<RpcResponse>;
 	prDraft(options?: { base?: string; head?: string }): Promise<RpcResponse>;
@@ -293,6 +297,28 @@ const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
 	pr_draft: 650_000,
 	pr_create: 230_000,
 	pr_checkout: 770_000,
+	pr_merge: 230_000,
+	pr_review: 180_000,
+	pr_comment: 180_000,
+	pr_comments: 240_000,
+	pr_edit: 180_000,
+	// Source control (src/main/local/git/scm.ts SCM_COMMAND_BUDGETS_MS): hooks and network round trips.
+	git_stage: 70_000,
+	git_unstage: 70_000,
+	git_discard: 130_000,
+	git_commit: 360_000,
+	git_commit_message: 240_000,
+	git_last_commit_message: 70_000,
+	git_undo_commit: 70_000,
+	git_remote: 360_000,
+	git_stash: 360_000,
+	git_operation: 360_000,
+	git_branches: 70_000,
+	git_branch: 360_000,
+	git_log: 130_000,
+	git_commit_detail: 70_000,
+	git_commit_diff: 70_000,
+	git_history_action: 360_000,
 };
 
 export function timeoutForCommand(cmd: RpcCommand): number | undefined {
@@ -413,7 +439,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 			rpcCommand({ type: "worktree_create", name, baseCwd: options?.baseCwd, baseRef: options?.baseRef }),
 		worktreeRemove: (path, force) => rpcCommand({ type: "worktree_remove", path, force }),
 		prRepo: () => rpcCommand({ type: "pr_repo" }),
-		prList: (state, limit) => rpcCommand({ type: "pr_list", state, limit }),
+		prList: (state, limit, view) => rpcCommand({ type: "pr_list", state, limit, view }),
 		prGet: number => rpcCommand({ type: "pr_get", number }),
 		prDiff: (number, path) => rpcCommand({ type: "pr_diff", number, path }),
 		prDraft: options => rpcCommand({ type: "pr_draft", base: options?.base, head: options?.head }),

@@ -1,10 +1,25 @@
-/** Git / worktree / PR commands (rpc-map §5), answered in main over the git and gh CLIs. */
+/** Git / worktree / PR / source-control commands (rpc-map §5), answered in main over the git and gh CLIs. */
 import { getGitChanges, getGitDiff, getGitStatus } from "./git/changes";
-import { prCheckout, prCreate, prDiff, prDraft, prGet, prList, prRepo } from "./git/pr";
+import {
+	prCheckout,
+	prComment,
+	prComments,
+	prCreate,
+	prDiff,
+	prDraft,
+	prEdit,
+	prGet,
+	prList,
+	prMerge,
+	prRepo,
+	prReview,
+} from "./git/pr";
+import * as scm from "./git/scm";
 import { createWorktree, removeWorktree } from "./git/worktree";
 import type { LocalHandler } from "./types";
 
 const str = (value: unknown) => (typeof value === "string" ? value : undefined);
+const pathsOrAll = (value: unknown) => (value === "all" ? "all" : Array.isArray(value) ? (value as string[]) : []);
 
 export const handlers: Record<string, LocalHandler> = {
 	get_git_status: (_command, ctx) => getGitStatus(ctx.cwd),
@@ -29,6 +44,7 @@ export const handlers: Record<string, LocalHandler> = {
 		prList(ctx.cwd, {
 			state: command.state as "open" | "closed" | "merged" | "all" | undefined,
 			limit: typeof command.limit === "number" ? command.limit : undefined,
+			view: command.view === "review" || command.view === "mine" ? command.view : "all",
 		}),
 	pr_get: (command, ctx) => prGet(ctx.cwd, { number: Number(command.number) }),
 	pr_diff: (command, ctx) => prDiff(ctx.cwd, { number: Number(command.number), path: str(command.path) ?? "" }),
@@ -42,4 +58,67 @@ export const handlers: Record<string, LocalHandler> = {
 			draft: command.draft === true,
 		}),
 	pr_checkout: (command, ctx) => prCheckout(ctx.cwd, { number: Number(command.number) }, ctx.bridge),
+	pr_merge: (command, ctx) =>
+		prMerge(ctx.cwd, {
+			number: Number(command.number),
+			method: command.method === "squash" || command.method === "rebase" ? command.method : "merge",
+			deleteBranch: command.deleteBranch === true,
+		}),
+	pr_review: (command, ctx) =>
+		prReview(ctx.cwd, {
+			number: Number(command.number),
+			event: command.event === "approve" || command.event === "request_changes" ? command.event : "comment",
+			body: str(command.body) ?? "",
+		}),
+	pr_comment: (command, ctx) => prComment(ctx.cwd, { number: Number(command.number), body: str(command.body) ?? "" }),
+	pr_comments: (command, ctx) => prComments(ctx.cwd, { number: Number(command.number) }),
+	pr_edit: (command, ctx) =>
+		prEdit(ctx.cwd, {
+			number: Number(command.number),
+			title: str(command.title),
+			body: str(command.body),
+			base: str(command.base),
+		}),
+	git_stage: (command, ctx) => scm.stage(ctx.cwd, pathsOrAll(command.paths)),
+	git_unstage: (command, ctx) => scm.unstage(ctx.cwd, pathsOrAll(command.paths)),
+	git_discard: (command, ctx) => scm.discard(ctx.cwd, Array.isArray(command.paths) ? command.paths : []),
+	git_commit: (command, ctx) =>
+		scm.commit(ctx.cwd, { message: str(command.message) ?? "", amend: command.amend === true }),
+	git_commit_message: (_command, ctx) => scm.commitMessage(ctx.cwd, ctx.omp),
+	git_last_commit_message: (_command, ctx) => scm.lastCommitMessage(ctx.cwd),
+	git_undo_commit: (_command, ctx) => scm.undoCommit(ctx.cwd),
+	git_remote: (command, ctx) =>
+		scm.remote(ctx.cwd, command.action === "push" || command.action === "pull" ? command.action : "fetch"),
+	git_stash: (command, ctx) => scm.stash(ctx.cwd, command.action === "pop" ? "pop" : "push", str(command.message)),
+	git_operation: (command, ctx) => scm.operation(ctx.cwd, command.action === "abort" ? "abort" : "continue"),
+	git_branches: (_command, ctx) => scm.branches(ctx.cwd),
+	git_branch: (command, ctx) =>
+		scm.branch(ctx.cwd, {
+			action:
+				(["switch", "create", "rename", "delete", "merge"] as const).find(a => a === command.action) ?? "switch",
+			name: str(command.name) ?? "",
+			newName: str(command.newName),
+			base: str(command.base),
+			force: command.force === true,
+		}),
+	git_log: (command, ctx) =>
+		scm.log(ctx.cwd, {
+			limit: typeof command.limit === "number" ? command.limit : undefined,
+			skip: typeof command.skip === "number" ? command.skip : undefined,
+			query: str(command.query),
+		}),
+	git_commit_detail: (command, ctx) => scm.commitDetail(ctx.cwd, str(command.sha) ?? ""),
+	git_commit_diff: (command, ctx) => scm.commitDiff(ctx.cwd, str(command.sha) ?? "", str(command.path) ?? ""),
+	git_history_action: (command, ctx) => {
+		const action = (["checkout", "branch", "cherry_pick", "revert", "reset", "tag", "delete_tag"] as const).find(
+			a => a === command.action,
+		);
+		if (!action) throw new Error(`Unknown history action: ${String(command.action)}`);
+		return scm.historyAction(ctx.cwd, {
+			action,
+			sha: str(command.sha) ?? "",
+			mode: command.mode === "soft" || command.mode === "hard" ? command.mode : "mixed",
+			name: str(command.name),
+		});
+	},
 };

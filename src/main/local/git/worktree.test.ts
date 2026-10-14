@@ -6,6 +6,7 @@ import { timeoutForCommand } from "../../../shared/rpc-client";
 import type { RpcCommand } from "../../../shared/rpc-types";
 import type { BridgeClient } from "../types";
 import { PR_COMMAND_BUDGETS_MS } from "./pr";
+import { SCM_COMMAND_BUDGETS_MS } from "./scm";
 import { gitSync, initRepo, pathExists, stockShapedWorktree } from "./test-repos";
 import { createWorktree, removableWorktreePath, removeWorktree, WORKTREE_COMMAND_BUDGETS_MS } from "./worktree";
 
@@ -93,8 +94,12 @@ describe("removeWorktree", () => {
 });
 
 describe("renderer RPC timeouts", () => {
-	it("wait at least as long as main can take to answer each worktree and PR command", () => {
-		const budgets: Record<string, number> = { ...WORKTREE_COMMAND_BUDGETS_MS, ...PR_COMMAND_BUDGETS_MS };
+	it("wait at least as long as main can take to answer each worktree, PR and source-control command", () => {
+		const budgets: Record<string, number> = {
+			...WORKTREE_COMMAND_BUDGETS_MS,
+			...PR_COMMAND_BUDGETS_MS,
+			...SCM_COMMAND_BUDGETS_MS,
+		};
 		for (const [type, budget] of Object.entries(budgets)) {
 			// Only the type selects the timeout; the rest of the command is irrelevant here.
 			const command = { type } as RpcCommand;
