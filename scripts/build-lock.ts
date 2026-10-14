@@ -13,13 +13,17 @@
  *
  * runs one command inside the lock. Every child gets `OMPDESK_BUILD_LOCK_HELD=1`,
  * so a nested locked command (the gate's own steps) runs without waiting on
- * its parent. Interrupting this process stops the command's whole process
- * group (Electron and its helpers included) and releases the lock.
+ * its parent, and logs nothing. Interrupting this process stops the command's
+ * whole process group (Electron and its helpers included) and releases the lock.
+ *
+ * Each release appends the holder, command, wait and hold times and exit code
+ * to `scripts/lock-log.ts`'s log; `bun run lock-stats` summarizes it.
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { appendLockLog, commandKind } from "./lock-log";
 
 const LOCK_DIR =
 	process.platform === "win32" ? path.join(os.tmpdir(), "ompdesk-build.lock") : "/tmp/ompdesk-build.lock";
@@ -28,20 +32,36 @@ const HELD_ENV = "OMPDESK_BUILD_LOCK_HELD";
 const POLL_MS = 5_000;
 const HEARTBEAT_MS = 60_000;
 const STALE_MS = 15 * 60_000;
+/** Shorter waits are not worth a line on the terminal. */
+const REPORT_WAIT_MS = 1_000;
 
 const children = new Set<ChildProcess>();
-let held = false;
 let heartbeat: NodeJS.Timeout | undefined;
+/** The lock this process holds, for the log line written when it is released. */
+let holding: { command: string; time: string; waitedMs: number; acquiredAt: number } | undefined;
 
-function ownerName(): string {
-	const who = process.env.OMPDESK_LOCK_OWNER || `${os.userInfo().username}@${path.basename(process.cwd())}`;
-	return `${who} ${new Date().toTimeString().slice(0, 8)} pid ${process.pid}`;
-}
+const ownerId = () => process.env.OMPDESK_LOCK_OWNER || `${os.userInfo().username}@${path.basename(process.cwd())}`;
 
-function releaseLock(): void {
-	if (!held) return;
-	held = false;
+function releaseLock(exit: number): void {
+	if (!holding) return;
+	const { command, time, waitedMs, acquiredAt } = holding;
+	holding = undefined;
 	clearInterval(heartbeat);
+	try {
+		// Written while the lock is still held, so holders never append at once.
+		appendLockLog({
+			time,
+			owner: ownerId(),
+			command,
+			kind: commandKind(command),
+			cwd: process.cwd(),
+			waitedMs: Math.round(waitedMs),
+			heldMs: Math.round(performance.now() - acquiredAt),
+			exit,
+		});
+	} catch (error) {
+		console.error(`[build-lock] could not write the lock log: ${(error as Error).message}`);
+	}
 	fs.rmSync(OWNER, { force: true });
 	try {
 		fs.rmdirSync(LOCK_DIR);
@@ -66,30 +86,43 @@ export function killChildren(): void {
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
 	process.on(signal, () => {
 		killChildren();
-		releaseLock();
+		releaseLock(130);
 		process.exit(130);
 	});
 }
-process.on("exit", () => {
+process.on("exit", code => {
 	killChildren();
-	releaseLock();
+	releaseLock(code);
 });
 
-/** Take the lock unless an ancestor already holds it; waits as long as it takes. */
-export async function acquireLock(): Promise<void> {
+/**
+ * Take the lock for `command` unless an ancestor already holds it; waits as
+ * long as it takes.
+ */
+export async function acquireLock(command: readonly string[]): Promise<void> {
 	if (process.env[HELD_ENV] === "1") return;
+	const started = performance.now();
 	let reported = "";
 	for (;;) {
 		try {
 			fs.mkdirSync(LOCK_DIR);
-			fs.writeFileSync(OWNER, `${ownerName()}\n`);
-			held = true;
+			fs.writeFileSync(OWNER, `${ownerId()} ${new Date().toTimeString().slice(0, 8)} pid ${process.pid}\n`);
+			const acquiredAt = performance.now();
+			holding = {
+				command: command.join(" "),
+				time: new Date().toISOString(),
+				waitedMs: acquiredAt - started,
+				acquiredAt,
+			};
 			process.env[HELD_ENV] = "1";
 			heartbeat = setInterval(() => {
 				const now = new Date();
 				fs.utimesSync(OWNER, now, now);
 			}, HEARTBEAT_MS);
 			heartbeat.unref();
+			if (holding.waitedMs > REPORT_WAIT_MS) {
+				console.error(`[lock] waited ${(holding.waitedMs / 1000).toFixed(1)}s for ${reported || "another holder"}`);
+			}
 			return;
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
@@ -154,7 +187,7 @@ if (import.meta.main) {
 		console.error("usage: bun scripts/build-lock.ts <command> [args…]");
 		process.exit(2);
 	}
-	await acquireLock();
+	await acquireLock(command);
 	const { code } = await run(command);
 	process.exit(code);
 }

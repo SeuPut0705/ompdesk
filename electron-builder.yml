@@ -13,6 +13,8 @@ directories:
 files:
   - out/**/*
   - "!node_modules/**/*"
+  # scripts/build-cache.ts's reuse stamp; the app never reads it.
+  - "!out/.build-stamp.json"
 extraResources:
   - from: resources/gui-bridge
     to: gui-bridge

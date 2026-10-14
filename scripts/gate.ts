@@ -5,8 +5,9 @@
  *   bun run gate
  *
  * 1. Side by side: typecheck, biome, the surface policy, the full vitest suite
- *    and the app build. None of them reads what another writes, so their order
- *    never changes a result.
+ *    and the app build (`bun run build`, which reuses an out/ built from the
+ *    same inputs; `scripts/build-cache.ts`). None of them reads what another
+ *    writes, so their order never changes a result.
  * 2. Only when all of them passed: the full Playwright suite against that build.
  *
  * A failed step prints its output and the gate exits non-zero; the side-by-side
@@ -25,7 +26,7 @@ const E2E = ["bunx", "playwright", "test"];
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
-await acquireLock();
+await acquireLock(["bun", "run", "gate"]);
 const started = performance.now();
 console.log(`[gate] ${CHECKS.map(([name]) => name).join(", ")} side by side`);
 const results = await Promise.all(

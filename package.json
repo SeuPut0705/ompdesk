@@ -10,7 +10,7 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build && bun scripts/check-main-bundle.ts",
+    "build": "bun scripts/build-cache.ts",
     "preview": "electron-vite preview",
     "package": "bun run build && electron-builder",
     "package:mac": "bun run build && electron-builder --mac --arm64",
@@ -27,6 +27,7 @@
     "test:e2e": "playwright test",
     "gate": "bun scripts/gate.ts",
     "locked": "bun scripts/build-lock.ts",
+    "lock-stats": "bun scripts/lock-stats.ts",
     "bench": "vitest bench",
     "package:win:dir": "bun run build && electron-builder --config electron-builder.win.yml --win --x64 --dir"
   },
