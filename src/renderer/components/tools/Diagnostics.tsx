@@ -29,6 +29,21 @@ const SEVERITY_COLOR: Record<string, string> = {
 	info: "var(--omp-link)",
 };
 
+/** Severity words and the parts of stock's `summarizeDiagnosticMessages` summary (`2 error(s)`), in the UI language. */
+const SEVERITY_LABEL_KEYS: Record<string, string> = {
+	error: "tools.diagnostics.error",
+	warning: "tools.diagnostics.warning",
+	info: "tools.diagnostics.info",
+	hint: "tools.diagnostics.hint",
+};
+const SUMMARY_COUNT_KEYS: Record<string, string> = {
+	error: "tools.diagnostics.errors",
+	warning: "tools.diagnostics.warnings",
+	info: "tools.diagnostics.infos",
+	hint: "tools.diagnostics.hints",
+};
+const SUMMARY_PART_RE = /^(\d+) (\w+)\(s\)$/;
+
 interface DiagEntry {
 	line: number;
 	col: number;
@@ -156,7 +171,9 @@ export function DiagnosticsList({ files, showPaths }: { files: readonly FileDiag
 									className="shrink-0 font-semibold"
 									style={{ color: SEVERITY_COLOR[item.diag.severity] ?? "var(--omp-dim)" }}
 								>
-									{item.diag.severity}
+									{SEVERITY_LABEL_KEYS[item.diag.severity]
+										? t(SEVERITY_LABEL_KEYS[item.diag.severity])
+										: item.diag.severity}
 								</span>
 								<span className="min-w-0 break-words text-[var(--omp-text)]">
 									{item.diag.text}
@@ -204,9 +221,16 @@ export function DiagnosticsSection({ files }: { files: readonly FileDiagnostics[
 	const t = useT();
 	if (diagnosticsCount(files) === 0) return null;
 	const errored = files.some(file => file.errored);
+	// Stock words the summary for the model; a part it shapes as `N severity(s)` reads in the UI language.
 	const summary = files
-		.map(file => file.summary)
-		.filter(Boolean)
+		.flatMap(file => file.summary?.split(", ") ?? [])
+		.map(part => {
+			const match = SUMMARY_PART_RE.exec(part);
+			const key = match ? SUMMARY_COUNT_KEYS[match[2]] : undefined;
+			if (!match || !key) return part;
+			const count = Number(match[1]);
+			return t(key, { count, plural: count === 1 ? "" : "s" });
+		})
 		.join(", ");
 	const Icon = errored ? XCircle : AlertTriangle;
 	return (

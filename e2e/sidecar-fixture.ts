@@ -2201,7 +2201,9 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 							: running.get(id) === "bash"
 								? { exitCode: spec.error ? 1 : 0 }
 								: undefined;
-						end(id, String(spec.text ?? "done"), spec.error === true, details);
+						// A renderer audit passes the tool's own `details` (stock's result shape) with `end`.
+						const given = spec.details as Record<string, unknown> | undefined;
+						end(id, String(spec.text ?? "done"), spec.error === true, given ?? details);
 						return undefined;
 					}
 					// Stock delivers queued steers into the running loop as `steering` user messages.

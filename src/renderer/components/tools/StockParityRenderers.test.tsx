@@ -231,7 +231,8 @@ describe("LSP diagnostics after a file change (stock native-view diagnosticsSect
 		);
 		const section = container.querySelector("[data-tool-diagnostics]");
 		expect(section?.textContent).toContain("Diagnostics");
-		expect(section?.textContent).toContain("1 error(s), 1 warning(s)");
+		// Stock's model-facing `1 error(s), 1 warning(s)` reads as UI text.
+		expect(section?.textContent).toContain("1 error, 1 warning");
 		const rows = section?.textContent ?? "";
 		expect(rows.indexOf("Cannot find name")).toBeLessThan(rows.indexOf("declared but never used"));
 		expect(rows).toContain("4:1");
