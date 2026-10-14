@@ -11,7 +11,11 @@
    row paints (hover wash, focus ring, actions) stays inside its box. */
 .omp-session-sidebar .omp-sidebar-session-row {
 	content-visibility: auto;
-	contain-intrinsic-size: auto var(--sc-control-lg);
+	/* The size is the content box's; ListRow's py-1 padding comes on top. As
+	   `auto var(--sc-control-lg)` a row never rendered stood 44px against a
+	   rendered 36px, and with the list's scroll anchoring off, each row above the
+	   view that rendered while scrolling up moved the rows on screen by 8px. */
+	contain-intrinsic-size: auto calc(var(--sc-control-lg) - 2 * var(--sc-space-1));
 }
 
 .omp-session-sidebar .omp-sidebar-session-nested,

@@ -315,6 +315,16 @@ function SidebarFooter() {
 }
 
 /**
+ * Focus a roving item and bring its whole row into view. focus() alone reveals
+ * only the row's title button, while the focus ring (the button's ::after) spans
+ * the row, so a row reached at the list's edge stayed cut off under it.
+ */
+function focusRovingItem(item: HTMLElement) {
+	item.focus({ preventScroll: true });
+	(item.closest(".omp-sidebar-session-row") ?? item).scrollIntoView?.({ block: "nearest" });
+}
+
+/**
  * Sessions-first sidebar (design-spec §2.1) and the app's only session
  * navigator: Code/Work lanes, New session, a filter, sessions grouped by
  * project (newest first, status as icon + text; every open tab keeps a row),
@@ -793,7 +803,8 @@ export function Sidebar() {
 				: event.key === "End"
 					? items.length - 1
 					: Math.min(items.length - 1, Math.max(0, index + (event.key === "ArrowDown" ? 1 : -1)));
-		items[next]?.focus();
+		const item = items[next];
+		if (item) focusRovingItem(item);
 	};
 	// After render, exactly one roving item is tabbable: the remembered one,
 	// else the current session, else the first row.
@@ -816,9 +827,10 @@ export function Sidebar() {
 		const active = document.activeElement;
 		const leaving = active instanceof HTMLElement && active.dataset.rovingItem === pending.leaving;
 		if (active && active !== document.body && !leaving) return;
-		[...(listRef.current?.querySelectorAll<HTMLElement>("[data-roving-item]") ?? [])]
-			.find(item => item.dataset.rovingItem === pending.key)
-			?.focus();
+		const target = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-roving-item]") ?? [])].find(
+			item => item.dataset.rovingItem === pending.key,
+		);
+		if (target) focusRovingItem(target);
 	});
 
 	const renderSessionRow = (session: SidebarSession, nested = false) => {
