@@ -64,6 +64,7 @@ import {
 import { ExecutionGroup } from "./ExecutionGroup";
 import { WorkCardPending } from "./LiveStepPeek";
 import { MessageBubble } from "./MessageBubble";
+import { installPaneKeys } from "./pane-keys";
 import { StreamingText } from "./StreamingText";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { messageTimestampMs } from "./work-turn";
@@ -761,6 +762,22 @@ function SessionTranscript() {
 		},
 		[beginGesture],
 	);
+
+	// Printable keys typed on transcript chrome go to the composer; PageUp/PageDown in the composer page here.
+	useEffect(() => {
+		const pane = parentRef.current?.closest<HTMLElement>(".omp-session-pane");
+		if (!pane) return;
+		return installPaneKeys(pane, (direction, event) => {
+			const scroller = parentRef.current;
+			if (!scroller) return;
+			event.preventDefault();
+			if (direction === "up") {
+				beginGesture(false);
+				setPinned(false);
+			} else gestureTowardTailRef.current = true;
+			scroller.scrollBy({ top: (direction === "up" ? -1 : 1) * scroller.clientHeight * 0.9 });
+		});
+	}, [beginGesture]);
 
 	const jumpToLatest = useCallback(() => {
 		prependAnchorRef.current = null;

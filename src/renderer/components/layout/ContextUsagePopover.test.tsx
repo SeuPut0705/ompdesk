@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcContextReportResult, RpcResponse } from "../../../shared/rpc-types";
 import { OVERLAY_EXIT_MS } from "../../hooks/use-overlay-presence";
 import { I18nProvider, translate } from "../../lib/i18n";
+import { useForkHandoffStore } from "../../stores/fork-handoff";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 
@@ -303,5 +304,45 @@ describe("ContextUsagePopover", () => {
 		expect(ui.destination).toBe("insights");
 		expect(ui.insightsTab).toBe("stats");
 		expect(ui.insightsStatsScope).toBe("session");
+	});
+
+	async function openPinned(): Promise<void> {
+		useSessionStore.setState({
+			contextUsage: { contextWindow: 1_000_000, percent: 16.19, tokens: 161_900 },
+			sessionId: "session-actions",
+			status: "ready",
+		});
+		await mount();
+		await act(async () => {
+			(container.querySelector("button") as unknown as HTMLButtonElement).click();
+			await Promise.resolve();
+		});
+	}
+
+	function buttonNamed(label: string): HTMLButtonElement | undefined {
+		return Array.from(document.querySelectorAll("button")).find(button => button.textContent?.includes(label)) as
+			| HTMLButtonElement
+			| undefined;
+	}
+
+	it("hands the conversation off to a new session from the popover", async () => {
+		await openPinned();
+		await act(async () => buttonNamed(translate("contextUsage.handoff"))?.click());
+		expect(useForkHandoffStore.getState().handoffDialogOpen).toBe(true);
+		useForkHandoffStore.setState({ handoffDialogOpen: false });
+	});
+
+	it("compacts through stock's compact once, and not while a compaction runs", async () => {
+		const compact = vi.fn(async () => ({ type: "response", command: "compact", success: true }));
+		(window.omp.rpc as unknown as Record<string, unknown>).compact = compact;
+		await openPinned();
+		await act(async () => useSessionStore.setState({ isCompacting: true }));
+		expect(buttonNamed(translate("contextUsage.compact"))?.disabled).toBe(true);
+		await act(async () => useSessionStore.setState({ isCompacting: false }));
+		await act(async () => {
+			buttonNamed(translate("contextUsage.compact"))?.click();
+			await Promise.resolve();
+		});
+		expect(compact).toHaveBeenCalledTimes(1);
 	});
 });

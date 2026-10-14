@@ -1,13 +1,16 @@
-import { ArrowUpRight, BarChart3, RotateCw } from "lucide-react";
+import { ArrowUpRight, BarChart3, GitFork, Minimize2, RotateCw } from "lucide-react";
 import { type CSSProperties, type FocusEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { RpcContextReportResult } from "../../../shared/rpc-types";
 import { useOverlayPresence } from "../../hooks/use-overlay-presence";
+import { buildCurrentCommandMenu } from "../../lib/command-registry";
 import { contextUsageView, formatContextUsage } from "../../lib/context-usage";
 import { cx, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { openHandoffDialog } from "../../stores/fork-handoff";
 import { useSessionStore } from "../../stores/session";
+import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, Spinner } from "../common";
 
@@ -43,6 +46,7 @@ export function ContextUsagePopover() {
 	const contextUsage = useSessionStore(state => state.contextUsage);
 	const sessionId = useSessionStore(state => state.sessionId);
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
+	const compacting = useSessionStore(state => state.isCompacting);
 	const [open, setOpen] = useState(false);
 	const [pinned, setPinned] = useState(false);
 	const [anchor, setAnchor] = useState<AnchorPosition | null>(null);
@@ -179,6 +183,18 @@ export function ContextUsagePopover() {
 			{ color: "var(--sc-accent)", key: "messages", tokens: breakdown.messagesTokens },
 		].filter(category => category.tokens > 0) as UsageCategory[];
 	}, [breakdown]);
+
+	/** One action at a time: the registry's own `/compact` (maintenance guard, hydrate, toasts). */
+	const compactNow = async () => {
+		const compact = buildCurrentCommandMenu([]).find(item => item.name === "compact");
+		if (compact?.affordance.kind !== "action") return;
+		dismiss();
+		try {
+			await compact.affordance.run();
+		} catch (cause) {
+			toastError({ title: t("contextUsage.compactFailed"), error: cause });
+		}
+	};
 
 	if (!contextUsage) return null;
 
@@ -335,7 +351,29 @@ export function ContextUsagePopover() {
 							</div>
 						)}
 						<p className="mt-3 text-sc-xs text-(--sc-text-muted)">{t("contextUsage.baselineHint")}</p>
-						<div className="-mx-4 mt-3 border-t border-(--sc-divider) px-2 pt-2">
+						<div className="-mx-4 mt-3 flex flex-wrap gap-1 border-t border-(--sc-divider) px-2 pt-2">
+							<Button
+								disabled={compacting || !sidecarReady}
+								icon={<Minimize2 aria-hidden className="text-(--sc-text-muted)" />}
+								loading={compacting}
+								onClick={() => void compactNow()}
+								size="sm"
+								variant="ghost"
+							>
+								{t("contextUsage.compact")}
+							</Button>
+							<Button
+								disabled={compacting || !sidecarReady}
+								icon={<GitFork aria-hidden className="text-(--sc-text-muted)" />}
+								onClick={() => {
+									dismiss();
+									openHandoffDialog();
+								}}
+								size="sm"
+								variant="ghost"
+							>
+								{t("contextUsage.handoff")}
+							</Button>
 							<Button
 								className="w-full justify-start"
 								icon={<BarChart3 aria-hidden className="text-(--sc-text-muted)" />}
