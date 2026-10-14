@@ -1,0 +1,92 @@
+import { parseHTML } from "linkedom";
+import { act } from "react";
+import type { Root } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { I18nProvider } from "../../lib/i18n";
+import { toast, useToastStore } from "../../stores/toast";
+
+const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
+Object.assign(globalThis as Record<string, unknown>, {
+	document,
+	window,
+	Event,
+	HTMLElement,
+	Element,
+	Node,
+	IS_REACT_ACT_ENVIRONMENT: true,
+});
+
+// After the DOM globals: react-dom reads `document`/`window` when it loads.
+const { createRoot } = await import("react-dom/client");
+const { ToastStack } = await import("./Toast");
+
+let container: HTMLElement;
+let root: Root;
+
+async function mount(): Promise<void> {
+	container = document.createElement("div") as unknown as HTMLElement;
+	document.body.appendChild(container as never);
+	root = createRoot(container as unknown as Element);
+	await act(async () => {
+		root.render(
+			<I18nProvider>
+				<ToastStack />
+			</I18nProvider>,
+		);
+	});
+}
+
+async function advance(ms: number): Promise<void> {
+	await act(async () => {
+		vi.advanceTimersByTime(ms);
+	});
+}
+
+const cards = () => [...document.querySelectorAll('[role="status"]')];
+
+afterEach(async () => {
+	await act(async () => root?.unmount());
+	container?.remove();
+	vi.useRealTimers();
+	useToastStore.setState({ toasts: [] });
+});
+
+describe("ToastStack", () => {
+	it("holds every toast while the pointer rests on the stack, and lets them expire after it leaves", async () => {
+		vi.useFakeTimers();
+		await mount();
+		await act(async () => {
+			toast({ message: "Session exported" });
+			toast({ message: "Copied" });
+		});
+		const stack = document.querySelector('[aria-live="polite"]');
+		await act(async () => {
+			stack?.firstElementChild?.dispatchEvent(new Event("mouseover", { bubbles: true }));
+		});
+		await advance(8_000);
+		// Being read: nothing may slide away under the pointer.
+		expect(cards()).toHaveLength(2);
+
+		await act(async () => {
+			const leave = new Event("mouseout", { bubbles: true });
+			Object.defineProperty(leave, "relatedTarget", { value: document.body });
+			stack?.firstElementChild?.dispatchEvent(leave);
+		});
+		await advance(8_000);
+		expect(cards()).toHaveLength(0);
+	});
+
+	it("holds them while keyboard focus is on a toast's control", async () => {
+		vi.useFakeTimers();
+		await mount();
+		await act(async () => {
+			toast({ message: "Couldn't copy", variant: "warning" });
+		});
+		const close = document.querySelector('[aria-live="polite"] button');
+		await act(async () => {
+			close?.dispatchEvent(new Event("focusin", { bubbles: true }));
+		});
+		await advance(8_000);
+		expect(cards()).toHaveLength(1);
+	});
+});

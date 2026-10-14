@@ -1,5 +1,5 @@
 import { ArrowUpRight, BarChart3, RotateCw } from "lucide-react";
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type FocusEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { RpcContextReportResult } from "../../../shared/rpc-types";
 import { useOverlayPresence } from "../../hooks/use-overlay-presence";
@@ -98,6 +98,13 @@ export function ContextUsagePopover() {
 
 	useEffect(() => () => cancelScheduledClose(), [cancelScheduledClose]);
 
+	/** Focus leaving for somewhere outside the trigger and the breakdown closes a revealed popover. */
+	const closeOnFocusOut = (event: FocusEvent<HTMLElement>) => {
+		const next = event.relatedTarget as Node | null;
+		if (buttonRef.current?.contains(next) || popoverRef.current?.contains(next)) return;
+		scheduleClose();
+	};
+
 	useEffect(() => {
 		if (!open) return;
 		const onViewportChange = () => updateAnchor();
@@ -195,7 +202,7 @@ export function ContextUsagePopover() {
 						? "bg-(--sc-selected) text-(--sc-text)"
 						: "text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text)",
 				)}
-				onBlur={scheduleClose}
+				onBlur={closeOnFocusOut}
 				onClick={() => {
 					if (open && pinned) {
 						dismiss();
@@ -226,6 +233,8 @@ export function ContextUsagePopover() {
 						)}
 						id="omp-context-usage-popover"
 						inert={closing}
+						onBlur={closeOnFocusOut}
+						onFocus={cancelScheduledClose}
 						onMouseEnter={cancelScheduledClose}
 						onMouseLeave={scheduleClose}
 						ref={popoverRef}

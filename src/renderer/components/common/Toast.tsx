@@ -13,7 +13,7 @@
  */
 
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -111,6 +111,22 @@ export function ToastStack() {
 	const toasts = useToastStore(state => state.toasts);
 	const dismiss = useToastStore(state => state.dismiss);
 	const pruneExpired = useToastStore(state => state.pruneExpired);
+	const hold = useToastStore(state => state.hold);
+	// A toast being read never expires under the pointer or keyboard focus.
+	const [pointerOver, setPointerOver] = useState(false);
+	const [focusWithin, setFocusWithin] = useState(false);
+	const count = useRef(toasts.length);
+
+	useEffect(() => {
+		// A toast removed under the pointer fires no mouseleave: drop the hover
+		// whenever one goes, so a stale hover never holds the rest forever.
+		if (toasts.length < count.current) setPointerOver(false);
+		if (toasts.length === 0) setFocusWithin(false);
+		count.current = toasts.length;
+	}, [toasts.length]);
+
+	useEffect(() => hold(pointerOver || focusWithin), [hold, pointerOver, focusWithin]);
+	useEffect(() => () => hold(false), [hold]);
 
 	useEffect(() => {
 		if (toasts.length === 0) return;
@@ -124,6 +140,12 @@ export function ToastStack() {
 		<div
 			aria-live="polite"
 			className="pointer-events-none fixed top-28 right-4 z-(--sc-z-toast) flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
+			onBlur={event => {
+				if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusWithin(false);
+			}}
+			onFocus={() => setFocusWithin(true)}
+			onMouseEnter={() => setPointerOver(true)}
+			onMouseLeave={() => setPointerOver(false)}
 		>
 			{toasts.map(entry => (
 				<ToastCard

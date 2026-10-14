@@ -87,6 +87,7 @@ async function settleExit(): Promise<void> {
 }
 
 afterEach(async () => {
+	vi.useRealTimers();
 	await act(async () => root?.unmount());
 	container?.remove();
 	getContextReport.mockReset();
@@ -178,6 +179,53 @@ describe("ContextUsagePopover", () => {
 		});
 		expect(document.querySelector("#omp-context-usage-popover")).not.toBeNull();
 		expect(getContextReport).toHaveBeenCalledTimes(1);
+	});
+
+	it("stays open while Tab moves focus into it and closes once focus leaves both", async () => {
+		useSessionStore.setState({
+			contextUsage: { contextWindow: 100_000, percent: 10, tokens: 10_000 },
+			sessionId: "session-focus",
+			status: "ready",
+		});
+		await mount();
+		vi.useFakeTimers();
+		const outside = document.createElement("button");
+		document.body.appendChild(outside);
+		const trigger = container.querySelector("button") as unknown as HTMLButtonElement;
+		/** One Tab press: focusout on the element left, focusin on the element reached. */
+		const moveFocus = async (from: unknown, to: unknown) => {
+			await act(async () => {
+				const out = new Event("focusout", { bubbles: true });
+				Object.defineProperty(out, "relatedTarget", { value: to });
+				(from as HTMLElement | null)?.dispatchEvent(out);
+				const into = new Event("focusin", { bubbles: true });
+				Object.defineProperty(into, "relatedTarget", { value: from });
+				(to as HTMLElement).dispatchEvent(into);
+			});
+		};
+		const popover = () => document.querySelector("#omp-context-usage-popover");
+		// Past the 120 ms close delay a blur schedules.
+		const hold = async () => {
+			await act(async () => {
+				vi.advanceTimersByTime(200);
+			});
+		};
+
+		await moveFocus(outside, trigger);
+		expect(trigger.getAttribute("aria-expanded")).toBe("true");
+		const inside = [...(popover()?.querySelectorAll("button") ?? [])].at(-1);
+		expect(inside).toBeDefined();
+		await moveFocus(trigger, inside);
+		await hold();
+		// Focus inside the breakdown keeps it open: its link is reachable by keyboard.
+		expect(trigger.getAttribute("aria-expanded")).toBe("true");
+		expect(popover()?.getAttribute("aria-hidden")).toBeNull();
+
+		await moveFocus(inside, outside);
+		await hold();
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		vi.useRealTimers();
+		outside.remove();
 	});
 
 	it("closes a pinned popover from its trigger, Escape, and an outside pointer", async () => {
