@@ -248,7 +248,7 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 									{t("chat.context.details")}
 								</button>
 								{expanded && (
-									<div className={cx("mt-1", PREVIEW_SCROLL_LG)}>
+									<div className={cx("mt-2", PREVIEW_SCROLL_LG)}>
 										<MarkdownRenderer content={message.summary} />
 									</div>
 								)}

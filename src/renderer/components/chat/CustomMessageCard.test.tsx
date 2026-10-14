@@ -64,6 +64,39 @@ describe("async-result card", () => {
 	});
 });
 
+describe("standalone cards", () => {
+	const card = (customType: string, details: unknown, content = "") =>
+		html({ role: "custom", customType, content, details, display: true, timestamp: 1 });
+
+	it("frame advisor, skill and handoff as colorless hairline cards with cased labels", () => {
+		const advisor = card("advisor", { notes: [{ note: "Pin the server.", severity: "concern" }] });
+		const skill = card("skill-prompt", { name: "release-checklist" }, "Run the checklist.");
+		const handoff = card("handoff", {}, "<handoff-context>Carry on.</handoff-context>");
+		for (const markup of [advisor, skill, handoff]) {
+			expect(markup).toContain("border-(--sc-border-subtle)");
+			expect(markup).not.toContain("--omp-custom-msg");
+			expect(markup).not.toContain("uppercase");
+			expect(markup).not.toContain("shadow");
+		}
+		expect(advisor).toContain(">Advisor<");
+		expect(advisor).toContain(">Concern<");
+		// The severity is the one state mark that keeps its color.
+		expect(advisor).toContain("--sc-warning-soft");
+		expect(skill).toContain(">Skill<");
+		expect(skill).toContain('aria-expanded="false"');
+		expect(skill).toContain("omp-disclosure-chevron");
+		expect(handoff).toContain(">Handoff<");
+	});
+
+	it("names no skill rather than an English placeholder when stock sent none", () => {
+		const skill = card("skill-prompt", {});
+		expect(skill).toContain(">Skill<");
+		expect(skill).not.toContain("unknown");
+		// Nothing to open: the header is not a button.
+		expect(skill).not.toContain("<button");
+	});
+});
+
 it("previews the human summary inside stock task completion envelopes", () => {
 	const message = asyncResult(
 		{ jobs: [{ jobId: "AlphaCounter", type: "task", label: "AlphaCounter" }] },

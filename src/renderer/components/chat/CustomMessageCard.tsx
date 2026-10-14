@@ -688,7 +688,7 @@ function SkillCard({ message }: { message: AgentMessage }) {
 	const embedded = useContext(EmbeddedCard);
 	const [open, setOpen] = useState(embedded);
 	const details = resultDetails(message);
-	const name = str(details?.name) ?? "unknown";
+	const name = str(details?.name);
 	// Collapse args to one line: a stray newline/tab would split the header.
 	const args = str(details?.args)?.replace(/\s+/g, " ");
 	const path = str(details?.path);
@@ -699,7 +699,7 @@ function SkillCard({ message }: { message: AgentMessage }) {
 		<>
 			<Zap aria-hidden className={HEADER_ICON_CLASS} />
 			<span className="shrink-0">{t("chat.custom.skill")}</span>
-			<span className="shrink-0 font-medium text-(--sc-text)">{name}</span>
+			{name && <span className="shrink-0 font-medium text-(--sc-text)">{name}</span>}
 			{args && <span className="min-w-0 flex-1 truncate font-mono text-sc-xs text-(--sc-text-subtle)">{args}</span>}
 			{text && (
 				<ChevronRight
