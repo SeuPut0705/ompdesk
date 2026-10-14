@@ -1,5 +1,5 @@
 import { ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, Copy, FolderGit2, RefreshCw } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcGitChanges, RpcGitDiff } from "../../../shared/rpc-types";
 import { parseDiff } from "../../lib/diff";
 import { errorDetail } from "../../lib/error-detail";
@@ -115,6 +115,10 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 		added: lines.filter(line => line.type === "add").length,
 		removed: lines.filter(line => line.type === "remove").length,
 	};
+	// Both gutters fit the longest line number, so a 4-digit number never wraps.
+	const gutterDigits = String(
+		lines.reduce((max, line) => Math.max(max, line.oldLine ?? 0, line.newLine ?? 0), 0),
+	).length;
 	return (
 		<div className="omp-changes flex min-h-0 flex-1 flex-col">
 			<PanelToolbar>
@@ -260,7 +264,10 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 								{!preview && !error ? (
 									<p className="p-3 text-sc-sm text-(--sc-text-muted)">{t("common.loading")}</p>
 								) : preview?.kind === "text" ? (
-									<div className="omp-pane-diff font-mono text-sc-xs leading-(--sc-leading-relaxed)">
+									<div
+										className="omp-pane-diff font-mono text-sc-xs leading-(--sc-leading-relaxed)"
+										style={{ "--omp-gutter-digits": gutterDigits } as CSSProperties}
+									>
 										{lines.map((line, index) => (
 											<div
 												className={cx(

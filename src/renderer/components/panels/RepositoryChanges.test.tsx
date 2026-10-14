@@ -146,6 +146,26 @@ describe("RepositoryChanges", () => {
 		expect(document.querySelector(".omp-changes-preview")).toBeNull();
 		expect(document.querySelector('button[title="src/a.ts"]')).not.toBeNull();
 	});
+
+	it("sizes both line-number gutters for the diff's longest number", async () => {
+		const getGitDiff = vi.fn(async (path: string) => ({
+			success: true,
+			data: {
+				path,
+				kind: "text",
+				truncated: false,
+				diff: "--- a/big.ts\n+++ b/big.ts\n@@ -1523,2 +1523,2 @@\n ctx\n-old\n+new\n",
+			},
+		}));
+		Object.assign(window, {
+			omp: { rpc: { getGitChanges: vi.fn(async () => ({ success: true, data: changes("big.ts") })), getGitDiff } },
+		});
+		await mount();
+		await click(queryAll("button").find(button => button.getAttribute("title") === "big.ts")!);
+		await flush();
+		// 1524 needs four digits; a three-digit gutter wrapped it onto a second line.
+		expect(document.querySelector(".omp-pane-diff")?.getAttribute("style")).toContain("--omp-gutter-digits:4");
+	});
 	it("keeps the loaded file list on screen when a refresh fails", async () => {
 		installMockOmp(async () => ({
 			type: "response",

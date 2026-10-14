@@ -113,7 +113,7 @@ describe("JobsPanel", () => {
 		const headings = Array.from(container.querySelectorAll("h3")).map(heading => heading.textContent);
 		expect(headings[0]).toBe("Running2");
 		expect(headings[1]).toContain("1");
-		expect(container.textContent).toContain("Stopping…");
+		expect(container.textContent).toContain("Cancelling…");
 		expect(container.textContent).toContain("Result / error");
 		expect(container.textContent).toContain("Updated");
 		expect(container.textContent).toContain("Watching changes");
@@ -124,26 +124,39 @@ describe("JobsPanel", () => {
 		expect(rows.every(row => row.getAttribute("class") === rows[0]?.getAttribute("class"))).toBe(true);
 	});
 
-	it("cancels a running stock job and refreshes its snapshot", async () => {
+	it("cancels a running stock job and re-reads its snapshot without blanking the list", async () => {
 		const job = { id: "running", type: "bash", status: "running", label: "build", startTime: Date.now() } as const;
 		const getJobs = installJobs([job]);
 		const command = vi.fn(async () => ({ success: true, data: { cancelled: true } }));
 		Object.assign(window, { omp: { rpc: { getJobs, command } } });
 		await mount();
+		const reread = Promise.withResolvers<RpcResponse>();
+		getJobs.mockReturnValueOnce(reread.promise);
 		const cancel = [...document.querySelectorAll("button")].find(button => button.textContent === "Cancel");
 		expect(cancel).toBeDefined();
 		await act(async () => {
 			cancel?.dispatchEvent(new Event("click", { bubbles: true }));
 		});
 		expect(command).toHaveBeenCalledWith({ type: "cancel_job", jobId: "running" });
-		expect(getJobs.mock.calls.length).toBeGreaterThan(1);
+		expect(getJobs).toHaveBeenCalledTimes(2);
+		// While the re-read is in flight the row stays; a reload from empty flashed a spinner here.
+		expect(container.querySelectorAll('[data-job-id="running"]')).toHaveLength(1);
+		await act(async () => {
+			reread.resolve({
+				type: "response",
+				command: "get_jobs",
+				success: true,
+				data: { jobs: [{ ...job, cancellationPending: true }] },
+			});
+		});
+		expect(container.textContent).toContain("Cancelling…");
 	});
 
 	it("shows the empty state when there are no jobs", async () => {
 		installJobs([]);
 		await mount();
 
-		expect(container.textContent).toContain("No background jobs running.");
+		expect(container.textContent).toContain("No background tasks running.");
 		expect(container.querySelectorAll('button[aria-label="Refresh"]')).toHaveLength(0);
 		expect(container.querySelectorAll("section")).toHaveLength(0);
 	});

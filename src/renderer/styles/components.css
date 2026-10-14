@@ -2835,7 +2835,10 @@
 	flex: 1;
 }
 .omp-pane-gutter {
-	width: calc(var(--sc-space-8) + var(--sc-space-1));
+	/* The diff sets --omp-gutter-digits to its longest line number; .omp-pane-diff breaks anywhere, a number never. */
+	width: max(calc(var(--sc-space-8) + var(--sc-space-1)), calc(var(--omp-gutter-digits, 3) * 1ch + var(--sc-space-2)));
+	overflow-wrap: normal;
+	white-space: nowrap;
 }
 .omp-pane-diff {
 	padding-block: var(--sc-space-2);

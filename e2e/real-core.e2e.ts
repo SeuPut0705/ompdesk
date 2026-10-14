@@ -220,6 +220,10 @@ test("system omp persists settings and sessions and serves every stats route", a
 		await page.locator('[data-sidebar-destinations] button[data-destination="insights"]').click();
 		const stats = page.locator('section[data-destination="insights"]');
 		await expect(stats).toBeVisible();
+		// Stats open on This session. The drop replaced the tab's runtime without a
+		// tab switch; the page must read the new session, not refuse as the old one.
+		await expect(stats.getByText("Total tokens", { exact: true })).toBeVisible({ timeout: 15000 });
+		await expect(stats).not.toContainText("Couldn't load session stats");
 		// The global dashboard sections live under Stats › All sessions (default scope is This session).
 		await stats.getByRole("tab", { name: "Activity", exact: true }).click();
 		await stats.getByRole("tab", { name: "All sessions", exact: true }).click();

@@ -195,7 +195,8 @@ export function PullRequests() {
 			<div className="flex min-h-0 flex-1">
 				<nav
 					aria-label={t("prCenter.listLabel")}
-					className="flex w-80 shrink-0 flex-col overflow-y-auto border-r border-(--sc-divider) p-2 min-[1280px]:w-96"
+					// A share of the page, not a fixed 20rem: at the smallest window that left the detail a word per line.
+					className="flex w-[clamp(14rem,40%,24rem)] shrink-0 flex-col overflow-y-auto border-r border-(--sc-divider) p-2"
 				>
 					{error && list.length > 0 && (
 						<Banner className="mb-2" live title={t("prCenter.loadFailed")} variant="warning">

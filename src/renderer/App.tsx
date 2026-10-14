@@ -52,6 +52,7 @@ import { watchPluginActivation } from "./lib/plugin-activation";
 import { closeActiveTab } from "./lib/tab-close";
 import { acceptsActiveTabEvents, onActiveTabRouteSettled, onActiveTabRouteState } from "./lib/tab-routing";
 import { focusedTabRpc } from "./lib/tab-rpc";
+import { TabRuntimeProvider } from "./lib/tab-runtime-provider";
 import { applyFontSize, watchSystemTheme } from "./lib/theme";
 import {
 	applyThemeByName,
@@ -68,9 +69,7 @@ import { openHandoffDialog } from "./stores/fork-handoff";
 import { useModelStore } from "./stores/model";
 import { useRemoteStateSync } from "./stores/remote";
 import { useSessionStore } from "./stores/session";
-import { SessionRuntimeProvider } from "./stores/session-runtime-context";
 import { useSettingsStore } from "./stores/settings";
-import { ensureTabRuntime } from "./stores/tab-runtime";
 import { useSessionTabs, useTabsStore, visibleTabIds } from "./stores/tabs";
 import { toast, toastError } from "./stores/toast";
 import { migrateDefaultPanelTab, useUiStore } from "./stores/ui";
@@ -676,18 +675,17 @@ export function App() {
 		return window.omp.events.onMenuAction((action, payload) => void run(action, payload));
 	}, [lang, setLang, t]);
 
-	const focusedRuntime = activeTabId ? ensureTabRuntime(activeTabId) : null;
 	const surface = (
 		<div className="flex h-screen w-screen overflow-hidden text-(--sc-text)">
-			{focusedRuntime && <FocusedSessionEffects />}
+			{activeTabId && <FocusedSessionEffects />}
 			<AppShell />
 
 			<CommandPalette />
 			{visibleTabIds({ activeTabId, split }).map(tabId => (
-				<SessionRuntimeProvider key={tabId} runtime={ensureTabRuntime(tabId)}>
+				<TabRuntimeProvider key={tabId} tabId={tabId}>
 					<ExtensionDialog />
 					<PlanApprovalDialog />
-				</SessionRuntimeProvider>
+				</TabRuntimeProvider>
 			))}
 			<FirstRunGate />
 			<ModelPicker />
@@ -719,9 +717,5 @@ export function App() {
 			<ToastStack />
 		</div>
 	);
-	return focusedRuntime ? (
-		<SessionRuntimeProvider runtime={focusedRuntime}>{surface}</SessionRuntimeProvider>
-	) : (
-		surface
-	);
+	return activeTabId ? <TabRuntimeProvider tabId={activeTabId}>{surface}</TabRuntimeProvider> : surface;
 }

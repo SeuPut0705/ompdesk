@@ -6,13 +6,14 @@
  */
 
 import { ChevronRight, Hourglass, RotateCw } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { RpcAsyncJobItem, RpcJobsResult } from "../../../shared/rpc-types";
 import { AnsiText } from "../../lib/ansi";
 import { formatClock, formatDuration, formatElapsed } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { toastError } from "../../stores/toast";
 import { Badge, type BadgeVariant, Banner, Button, EmptyState, ErrorDetail, Spinner } from "../common";
 import { PANEL_ROW_SURFACE, PanelToolbar } from "./PanelChrome";
 
@@ -33,6 +34,8 @@ export function JobsPanel() {
 	const [error, setError] = useState<string | null>(null);
 	const [attempt, setAttempt] = useState(0);
 	const [cancelling, setCancelling] = useState<string | null>(null);
+	// The open poll's own refresh: a cancel re-reads in place instead of reloading the list from empty.
+	const refreshRef = useRef<() => Promise<void>>(async () => {});
 	const sectionId = useId();
 
 	/* The retry button's bump is the only reason this effect re-runs on `attempt`. */
@@ -61,6 +64,7 @@ export function JobsPanel() {
 				if (!cancelled) setLoading(false);
 			}
 		};
+		refreshRef.current = refresh;
 		void refresh();
 		const poll = window.setInterval(() => void refresh(), 2000);
 		const clock = window.setInterval(() => setNow(Date.now()), 1000);
@@ -114,9 +118,10 @@ export function JobsPanel() {
 								try {
 									const response = await rpc.command({ type: "cancel_job", jobId: job.id });
 									if (!response.success) throw new Error(response.error);
-									setAttempt(count => count + 1);
+									await refreshRef.current();
 								} catch (cause) {
-									setError(cause instanceof Error ? cause.message : String(cause));
+									// A refused cancel is not a failed list: the rows stay, a toast names the action.
+									toastError({ title: t("jobs.cancelFailed"), error: cause });
 								} finally {
 									setCancelling(null);
 								}
@@ -187,7 +192,15 @@ export function JobsPanel() {
 					<Spinner label={t("jobs.loading")} size="sm" />
 				</div>
 			) : jobs.length === 0 ? (
-				!error && <EmptyState className="flex-1" icon={<Hourglass />} size="sm" title={t("jobs.empty")} />
+				!error && (
+					<EmptyState
+						className="flex-1"
+						description={t("jobs.emptyHint")}
+						icon={<Hourglass />}
+						size="sm"
+						title={t("jobs.empty")}
+					/>
+				)
 			) : (
 				<>
 					{updatedAt && (

@@ -77,3 +77,60 @@ test("settings fit the smallest window", async () => {
 		await fs.rm(profile, { recursive: true, force: true });
 	}
 });
+
+// The pull request center at the same width: the selected PR's detail keeps a
+// readable column beside the list instead of a word per line.
+test("pull requests fit the smallest window", async () => {
+	test.setTimeout(120_000);
+	const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-narrow-prs-"));
+	const [desktop, project, agent, bin] = ["desktop", "project", "agent", "bin"].map(name => path.join(profile, name));
+	await Promise.all([fs.mkdir(desktop), fs.mkdir(project), fs.mkdir(agent), fs.mkdir(bin)]);
+	execFileSync("git", ["init", "--quiet"], { cwd: project });
+	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
+	const title = "Keep the selected pull request readable beside the list at the smallest window";
+	const pr = { number: 7, title, url: "https://github.com/o/r/pull/7", author: { login: "dev" }, headRefName: "fix" };
+	await fs.writeFile(path.join(bin, "list.json"), JSON.stringify([pr]));
+	await fs.writeFile(path.join(bin, "view.json"), JSON.stringify({ ...pr, baseRefName: "main", body: "Body" }));
+	// A stand-in `gh` ahead of the real one on PATH (main puts the inherited PATH first).
+	await fs.writeFile(
+		path.join(bin, "gh"),
+		`#!/bin/sh\ncase "$1 $2" in\n"repo view") echo '{"nameWithOwner":"o/r","defaultBranchRef":{"name":"main"}}' ;;\n"pr list") cat "${bin}/list.json" ;;\n"pr view") cat "${bin}/view.json" ;;\n*) exit 1 ;;\nesac\n`,
+		{ mode: 0o755 },
+	);
+	const env = {
+		...process.env,
+		PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+		PI_CODING_AGENT_DIR: agent,
+		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
+		OMP_PROFILE: "",
+		PI_PROFILE: "",
+		OMP_GUI_OMP: await fixtureOmp(profile),
+	};
+	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
+	const app = await electron.launch({
+		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
+		env,
+	});
+	try {
+		const page = await app.firstWindow();
+		await page.waitForFunction(() => window.omp?.rpc != null);
+		await expect
+			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
+			.toBe("ready");
+		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(800, 640));
+		await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(800);
+		await page.locator('[data-sidebar-destinations] button[data-destination="agents"]').click();
+		const agents = page.locator('section[data-destination="agents"]');
+		await agents.getByRole("tab", { name: "Pull requests", exact: true }).click();
+		await agents.getByRole("button", { name: title }).click();
+		await expect(agents.getByRole("heading", { name: title })).toBeVisible();
+		// 18rem of detail holds this title in a few lines; the fixed 20rem list left about 14rem.
+		const detailWidth = await agents
+			.getByRole("navigation", { name: "Pull requests" })
+			.evaluate(list => list.nextElementSibling?.getBoundingClientRect().width ?? 0);
+		expect(detailWidth).toBeGreaterThan(288);
+	} finally {
+		await exitApp(app);
+		await fs.rm(profile, { recursive: true, force: true });
+	}
+});
