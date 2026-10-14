@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as net from "node:net";
+import * as os from "node:os";
 import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
 import { transcriptPageMessages, transcriptTurnStart } from "../resources/gui-bridge/transcript-page";
@@ -249,6 +250,14 @@ if (process.argv[2] === "stats") {
 		}
 		return branch.reverse();
 	};
+	/** A message's text blocks joined by `separator` (stock's branch picker joins with none). */
+	const messageText = (message: AgentMessage, separator: string) =>
+		typeof message.content === "string"
+			? message.content
+			: (message.content ?? [])
+					.filter(block => block.type === "text")
+					.map(block => block.text)
+					.join(separator);
 	/**
 	 * `OMP_GUI_TEST_SESSION_FILES=1`: the journal is also a stock session file
 	 * (title slot, header, entries) under `$PI_CODING_AGENT_DIR/sessions/`,
@@ -331,13 +340,15 @@ if (process.argv[2] === "stats") {
 	};
 	if (process.env.OMP_GUI_TEST_LONG_SESSION === "1") seedLongSession();
 	/**
-	 * `OMP_GUI_TEST_SEED_SESSION=<file>`: the journal starts as a private copy of
-	 * a real stock session file (opt-in performance audits), so the transcript
-	 * the GUI pages through is real. Custom messages join the branch as stock's
-	 * session context lists them.
+	 * A stock session file becomes the journal (its last entry the leaf). Custom
+	 * messages join the branch as stock's session context lists them.
+	 * `OMP_GUI_TEST_SEED_SESSION=<file>` starts from a private copy of one (opt-in
+	 * audits), so the transcript the GUI pages through is real; `switch_session`
+	 * loads the file it is given.
 	 */
-	if (process.env.OMP_GUI_TEST_SEED_SESSION) {
-		for (const line of fs.readFileSync(process.env.OMP_GUI_TEST_SEED_SESSION, "utf8").split("\n")) {
+	const loadJournal = (file: string) => {
+		entries.length = 0;
+		for (const line of fs.readFileSync(file, "utf8").split("\n")) {
 			if (!line) continue;
 			const entry = JSON.parse(line) as Entry;
 			if (entry.type === "session" || entry.type === "title") continue;
@@ -355,7 +366,8 @@ if (process.argv[2] === "stats") {
 			});
 		}
 		activeLeafId = entries.at(-1)?.id ?? null;
-	}
+	};
+	if (process.env.OMP_GUI_TEST_SEED_SESSION) loadJournal(process.env.OMP_GUI_TEST_SEED_SESSION);
 
 	const count = Math.min(50_000, Number(process.env.OMP_GUI_TEST_HISTORY ?? 0));
 	for (let index = 0; index < count; index++) {
@@ -1153,14 +1165,7 @@ if (process.argv[2] === "stats") {
 				activeLeafId,
 				tree: visible.map(entry => {
 					const message = entry.message as AgentMessage;
-					const content = message.content;
-					const text =
-						typeof content === "string"
-							? content
-							: (content ?? [])
-									.filter(block => block.type === "text")
-									.map(block => block.text)
-									.join(" ");
+					const text = messageText(message, " ");
 					return {
 						entryId: entry.id,
 						parentId: visibleParent(entry),
@@ -1179,6 +1184,33 @@ if (process.argv[2] === "stats") {
 			}
 			activeLeafId = params.entryId;
 			return { cancelled: false, activeLeafId };
+		},
+		// Stock `fork_from`: a new session file holding the root→entry path.
+		"sessions.fork_from": params => {
+			const byId = new Map(entries.map(entry => [entry.id, entry]));
+			const path: Entry[] = [];
+			for (
+				let entry = byId.get(String(params.entryId));
+				entry;
+				entry = entry.parentId ? byId.get(entry.parentId) : undefined
+			)
+				path.unshift(entry);
+			if (path.length === 0) throw new Error("Unknown session entry");
+			const forkId = `fixture-fork-${process.pid}-${Date.now()}`;
+			const dir = sessionFile
+				? nodePath.dirname(sessionFile)
+				: fs.mkdtempSync(nodePath.join(os.tmpdir(), "omp-fork-"));
+			const sessionPath = nodePath.join(dir, `${forkId}.jsonl`);
+			const header = {
+				type: "session",
+				version: 3,
+				id: forkId,
+				timestamp: new Date().toISOString(),
+				cwd: process.cwd(),
+			};
+			fs.mkdirSync(dir, { recursive: true });
+			fs.writeFileSync(sessionPath, `${[header, ...path].map(line => JSON.stringify(line)).join("\n")}\n`);
+			return { sessionPath, sessionId: forkId };
 		},
 		"sessions.delete": params => {
 			const target = params.sessionPath;
@@ -2963,6 +2995,38 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				clearInterval(streamTimer);
 				ok(restored);
 				if (isStreaming) endTurn([]);
+				break;
+			}
+			// Stock `getUserMessagesForBranching` / `branch`: the leaf moves to the
+			// picked user message's parent and its text comes back for the editor.
+			case "get_branch_messages":
+				ok({
+					messages: activeBranch()
+						.filter(entry => entry.type === "message" && (entry.message as AgentMessage).role === "user")
+						.map(entry => ({ entryId: entry.id, text: messageText(entry.message as AgentMessage, "") })),
+				});
+				break;
+			case "branch": {
+				const target = entries.find(entry => entry.id === command.entryId);
+				const message = target?.type === "message" ? (target.message as AgentMessage) : undefined;
+				if (!target || message?.role !== "user") {
+					fail("Invalid entry ID for branching");
+					break;
+				}
+				activeLeafId = target.parentId;
+				persistSession();
+				ok({ text: messageText(message, ""), cancelled: false });
+				break;
+			}
+			// Stock `switch_session`: the journal becomes the stored session's.
+			case "switch_session": {
+				const sessionPath = text("sessionPath");
+				if (!fs.existsSync(sessionPath)) {
+					fail(`Session file not found: ${sessionPath}`);
+					break;
+				}
+				loadJournal(sessionPath);
+				ok({ cancelled: false });
 				break;
 			}
 			case "abort":
