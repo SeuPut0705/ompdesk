@@ -3,6 +3,7 @@ import * as os from "node:os";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
 import type { UserProfile } from "../../resources/gui-bridge/user-profile-contracts";
 import type { AccountRotationMode } from "../shared/account-rotation";
 import {
@@ -396,6 +397,36 @@ describe("SidecarManager spawn env", () => {
 				{ name: "Sam", experience: "junior" },
 				{ name: "", experience: null },
 			]);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
+	it("passes a chosen delegation strength as OMP_GUI_DELEGATION, read on every spawn, and nothing for default", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-delegation-"));
+		const envPath = path.join(tempDir, "delegation.txt");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, process.env.OMP_GUI_DELEGATION ?? "unset");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		);
+		let mode: DelegationMode = "swarm";
+		const sidecar = new SidecarManager({
+			omp: async () => ({
+				ok: true,
+				runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+			}),
+			cwd: tempDir,
+			delegation: () => mode,
+		});
+		const written = () => fs.readFile(envPath, "utf8").catch(() => "");
+		try {
+			sidecar.start();
+			await expect.poll(written, { timeout: 5_000, interval: 25 }).toBe("swarm");
+			await fs.rm(envPath);
+			mode = "default";
+			sidecar.restart();
+			await expect.poll(written, { timeout: 5_000, interval: 25 }).toBe("unset");
 		} finally {
 			sidecar.dispose();
 			await fs.rm(tempDir, RM_TEMP);

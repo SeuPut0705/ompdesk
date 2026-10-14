@@ -99,6 +99,8 @@ export const handlers: Record<string, LocalHandler> = {
 	get_model_pool: viaBridge,
 	set_model_pool: viaBridge,
 	set_agents_paused: viaBridge,
+	get_delegation: viaBridge,
+	set_delegation: viaBridge,
 	tan: viaBridge,
 	omfg: viaBridge,
 };

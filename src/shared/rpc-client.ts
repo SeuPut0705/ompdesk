@@ -1,3 +1,4 @@
+import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
 import type { SessionModelOverride } from "./model-restore";
 import type {
 	AgentFileScope,
@@ -212,6 +213,8 @@ export interface SessionRpcClient {
 	getGoal(): Promise<RpcResponse>;
 	guidedGoal(initial?: string): Promise<RpcResponse>;
 	setAgentsPaused(enabled: boolean): Promise<RpcResponse>;
+	getDelegation(): Promise<RpcResponse>;
+	setDelegation(mode: DelegationMode): Promise<RpcResponse>;
 	setGoal(args: {
 		objective?: string;
 		tokenBudget?: number | null;
@@ -507,6 +510,8 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 			rpcCommand({ type: "plan_approval", approved, option, feedback, savePath }),
 		getVibeMode: () => rpcCommand({ type: "get_vibe_mode" }),
 		setVibeMode: enabled => rpcCommand({ type: "set_vibe_mode", enabled }),
+		getDelegation: () => rpcCommand({ type: "get_delegation" }),
+		setDelegation: mode => rpcCommand({ type: "set_delegation", mode }),
 		getGoal: () => rpcCommand({ type: "get_goal" }),
 		guidedGoal: initial => rpcCommand({ type: "guided_goal", initial }),
 		setAgentsPaused: enabled => rpcCommand({ type: "set_agents_paused", enabled }),

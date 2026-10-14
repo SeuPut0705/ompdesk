@@ -8,6 +8,7 @@ import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import Store from "electron-store";
+import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
 import type { UserProfile } from "../../resources/gui-bridge/user-profile-contracts";
 import type { AccountRotationMode } from "../shared/account-rotation";
 import { parseLaunchProfile, profileToFlags, stripDenylistedFlags } from "../shared/launch-profile";
@@ -222,6 +223,13 @@ export interface SidecarOptions {
 	 * replyLanguage). Absent or empty: no profile section.
 	 */
 	userProfile?: () => UserProfile;
+	/**
+	 * The delegation strength this tab starts with (prefs `delegationMode`, the
+	 * composer chip's last choice), passed as `OMP_GUI_DELEGATION` on every
+	 * spawn; a live change goes straight to the tab's bridge. Absent or
+	 * `default`: the user's own task settings.
+	 */
+	delegation?: () => DelegationMode;
 	/**
 	 * The Settings › Models & providers account-rotation mode, passed to omp as
 	 * `OMP_GUI_ACCOUNT_ROTATION` and pushed by `syncAccountRotation()` (same
@@ -448,6 +456,7 @@ export class SidecarManager extends EventEmitter {
 		const { bridgeDir, cwd, extraFlags } = this.#options;
 		const replyLanguage = this.#options.replyLanguage?.();
 		const userProfile = this.#options.userProfile?.();
+		const delegation = this.#options.delegation?.();
 		const accountRotation = this.#options.accountRotation?.();
 		const accountRotationLedger = this.#options.accountRotationLedger;
 
@@ -485,6 +494,7 @@ export class SidecarManager extends EventEmitter {
 					...(userProfile && (userProfile.name || userProfile.experience)
 						? { OMP_GUI_USER_PROFILE: JSON.stringify(userProfile) }
 						: {}),
+					...(delegation && delegation !== "default" ? { OMP_GUI_DELEGATION: delegation } : {}),
 					...(accountRotation ? { OMP_GUI_ACCOUNT_ROTATION: accountRotation } : {}),
 					...(accountRotationLedger ? { OMP_GUI_ACCOUNT_ROTATION_STATE: accountRotationLedger } : {}),
 					...(this.#builtinMcp.root ? { OMP_GUI_REA_ROOT: this.#builtinMcp.root } : {}),

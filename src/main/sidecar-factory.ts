@@ -4,6 +4,7 @@
  * both come from here, so a session runs the same way whoever opened it.
  */
 import { app } from "electron";
+import { isDelegationMode } from "../../resources/gui-bridge/delegation-contracts";
 import { normalizeUserProfile } from "../../resources/gui-bridge/user-profile-contracts";
 import { parseAccountRotationPref } from "../shared/account-rotation";
 import { reaExtensionArgs } from "../shared/builtin-mcp";
@@ -31,6 +32,8 @@ export interface LocalSidecarDeps {
 	replyLanguagePref: () => unknown;
 	/** The stored Settings › General profile pref (`userProfile`), read per use. */
 	userProfilePref: () => unknown;
+	/** The composer delegation chip's last choice (`delegationMode`), read per spawn. */
+	delegationPref: () => unknown;
 	/** The stored Settings › Models & providers account-rotation pref (`accountRotation`), read per use. */
 	accountRotationPref: () => unknown;
 	/** The even-rotation ledger file every omp on this machine shares. */
@@ -67,6 +70,10 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			shellEnv: shellSpawnEnv,
 			replyLanguage: () => resolveReplyLanguage(deps.replyLanguagePref(), replyLanguageName(deviceLanguage())),
 			userProfile: () => normalizeUserProfile(deps.userProfilePref()),
+			delegation: () => {
+				const stored = deps.delegationPref();
+				return isDelegationMode(stored) ? stored : "default";
+			},
 			accountRotation: () => parseAccountRotationPref(deps.accountRotationPref()),
 			accountRotationLedger: deps.accountRotationLedger,
 			bootModel: runtime => bootModelSelector(runtime, bridgeDir),

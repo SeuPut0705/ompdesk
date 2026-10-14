@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from "electron";
 import Store from "electron-store";
+import { DELEGATION_PREF, isDelegationMode } from "../../resources/gui-bridge/delegation-contracts";
 import { isUserProfile, USER_PROFILE_PREF } from "../../resources/gui-bridge/user-profile-contracts";
 import { ACCOUNT_ROTATION_PREF, isAccountRotationMode } from "../shared/account-rotation";
 import { REA_PREF } from "../shared/builtin-mcp";
@@ -882,6 +883,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const userProfile = payload.key === USER_PROFILE_PREF;
 		if (userProfile && !isUserProfile(payload.value)) {
 			throw codedError("invalid_preference_key", "Invalid profile");
+		}
+		if (payload.key === DELEGATION_PREF && !isDelegationMode(payload.value)) {
+			throw codedError("invalid_preference_key", "Invalid delegation strength");
 		}
 		if (payload.key === ACCOUNT_ROTATION_PREF) {
 			if (!isAccountRotationMode(payload.value)) {

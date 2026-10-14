@@ -64,6 +64,7 @@ import { AskDockSlot, BelowEditorDockSlot } from "../dialogs/ask-dock";
 import { ComposerModes } from "./ComposerModes";
 import { ComposerQueue } from "./ComposerQueue";
 import { ContextUsagePopover } from "./ContextUsagePopover";
+import { DelegationControl } from "./DelegationControl";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-utils";
 import { RunSettings } from "./RunSettings";
@@ -1075,6 +1076,7 @@ export function InputArea() {
 
 							<ComposerModes />
 							<RunSettings />
+							<DelegationControl />
 
 							{composerMode && (
 								<Tooltip

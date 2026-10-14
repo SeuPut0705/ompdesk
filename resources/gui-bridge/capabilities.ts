@@ -31,6 +31,7 @@ export const FEATURES = {
 	visuals: "Diagram instructions (Mermaid, SVG)",
 	accountRotation: "Even account rotation",
 	thinkingDefault: "Auto thinking by default",
+	delegation: "Delegation strength (Solo to Swarm)",
 	mcp: "MCP servers",
 	plugins: "Plugins & marketplaces",
 	skills: "Skills, hooks & prompt templates",
@@ -355,6 +356,22 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			],
 			"@oh-my-pi/pi-ai/usage/registry": ["defaultRankingStrategy()"],
 			[`${AGENT}/session/credential-pin`]: ["credentialPinHash()"],
+		},
+	},
+	/** modes/delegation.ts: runtime overrides of stock's task settings; each handle is reached through `lookup`. */
+	delegation: {
+		pkg: ["Settings.instance"],
+		session: ["settings"],
+		modules: {
+			[`${AGENT}/config/registry`]: ["lookup()"],
+			[`${AGENT}/task/settings`]: [
+				"cfgTaskEager.override()",
+				"cfgTaskEager.clearOverride()",
+				"cfgTaskMaxConcurrency.override()",
+				"cfgTaskMaxConcurrency.clearOverride()",
+				"cfgTaskMaxRecursionDepth.override()",
+				"cfgTaskMaxRecursionDepth.clearOverride()",
+			],
 		},
 	},
 	/**

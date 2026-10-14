@@ -933,6 +933,8 @@ if (process.argv[2] === "stats") {
 	const promptHistory: Array<{ prompt: string; created_at: number; cwd?: string }> = [];
 	/** Stock's blob store: base64 bytes by sha256 hex, behind the `blob:sha256:` refs a journal persists. */
 	const imageBlobs = new Map<string, string>();
+	/** The delegation strength the GUI holds on this tab (gui-bridge modes/delegation.ts); spawn env first. */
+	let delegationMode = process.env.OMP_GUI_DELEGATION ?? "default";
 	/** A handler returning `undefined` replies itself (deferred, or ahead of the events it pushes). */
 	const bridgeMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
 		capabilities: () => ({ ompVersion: "18.8.7", unavailable: [] }),
@@ -1322,6 +1324,11 @@ if (process.argv[2] === "stats") {
 		"workspace.resolve_path": params => ({ path: nodePath.resolve(process.cwd(), String(params.path)) }),
 		image_generation_sync: () => ({}),
 		reply_language_set: params => ({ language: typeof params.language === "string" ? params.language : null }),
+		"modes.get_delegation": () => ({ mode: delegationMode }),
+		"modes.set_delegation": params => {
+			delegationMode = typeof params.mode === "string" ? params.mode : "default";
+			return { mode: delegationMode };
+		},
 		user_profile_set: params => ({
 			name: typeof params.name === "string" ? params.name : "",
 			experience: typeof params.experience === "string" ? params.experience : null,

@@ -23,6 +23,7 @@ import { SETTING_TABS, TAB_GROUPS, TAB_METADATA } from "@oh-my-pi/pi-tui/overlay
 import { getAgentDir, MAIN_CONFIG_FILENAMES } from "@oh-my-pi/pi-utils";
 import { matchReportAccount, type StoredAccount } from "./accounts-core";
 import { guard, probe } from "./health";
+import { releaseDelegationForWrite } from "./modes/delegation";
 import { asRecord, requiredString } from "./params";
 import { type ResetPasses, shapeResetPasses } from "./reset-passes-core";
 import { shownRoleValue, storedRoleValue } from "./role-values";
@@ -93,10 +94,11 @@ export function syncImageGeneration(session: AgentSession): void {
 	autoImageOverrides.add(scope);
 }
 
-/** The user's own write replaces an automatic choice (image tool, thinking default) instead of hiding under it. */
+/** The user's own write replaces an automatic choice (image tool, thinking default, delegation strength) instead of hiding under it. */
 function releaseAutoOverride(session: AgentSession, setting: SettingLike): void {
 	const scope = session.settings as unknown as object;
 	releaseThinkingDefaultFor(setting.id, scope);
+	releaseDelegationForWrite(setting.id, scope);
 	if (setting.id !== IMAGE_SETTING || !autoImageOverrides.has(scope)) return;
 	setting.clearOverride?.(scope);
 	autoImageOverrides.delete(scope);

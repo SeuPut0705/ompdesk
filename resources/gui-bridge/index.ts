@@ -60,6 +60,7 @@ const AREAS: readonly Area[] = [
 	{ name: "modes/pool", features: ["modelPool"], load: () => import("./modes/pool") },
 	{ name: "modes/reply-language", features: ["replyLanguage"], load: () => import("./modes/reply-language") },
 	{ name: "modes/user-profile", features: ["userProfile"], load: () => import("./modes/user-profile") },
+	{ name: "modes/delegation", features: ["delegation"], load: () => import("./modes/delegation") },
 	{ name: "modes/visuals", features: ["visuals"], load: () => import("./modes/visuals") },
 	{ name: "account-rotation", features: ["accountRotation"], load: () => import("./account-rotation") },
 	{ name: "modes/actions", features: ["tan", "omfg", "agentPause"], load: () => import("./modes/actions") },
@@ -129,6 +130,10 @@ export default async function guiBridge(pi: ExtensionAPI): Promise<void> {
 	await import("./thinking-default")
 		.then(module => module.applyGuiThinkingDefault(pi))
 		.catch(err => pi.logger.error("gui-bridge: thinking default failed", { error: String(err) }));
+	// Same timing for the delegation strength new tabs start with (the first prompt and tool set follow it).
+	await import("./modes/delegation")
+		.then(module => module.applyGuiDelegation(pi))
+		.catch(err => pi.logger.error("gui-bridge: delegation strength failed", { error: String(err) }));
 
 	const loading = loadMethods(pi);
 	// Requests rethrow it; this only keeps a broken table from being an unhandled rejection.

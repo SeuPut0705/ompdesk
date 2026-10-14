@@ -3,6 +3,8 @@
  * Hand-written from verified source (rpc-types.ts, rpc-mode.ts).
  * These are the wire types — no runtime dependency on @oh-my-pi/*.
  */
+
+import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
 import type { PoolMember, PoolState } from "../../resources/gui-bridge/pool-contracts";
 
 // ============================================================================
@@ -172,6 +174,9 @@ export type RpcCommand =
 	| { id?: string; type: "get_goal" }
 	| { id?: string; type: "guided_goal"; initial?: string }
 	| { id?: string; type: "set_agents_paused"; enabled: boolean }
+	// Delegation strength (composer chip): gui-bridge modes/delegation.ts
+	| { id?: string; type: "get_delegation" }
+	| { id?: string; type: "set_delegation"; mode: DelegationMode }
 	// Side questions (/btw); answers stream as `btw_delta` / `btw_record` frames
 	| { id?: string; type: "btw"; question: string; recordId?: string }
 	| { id?: string; type: "btw_cancel"; recordId?: string }
