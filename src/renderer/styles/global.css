@@ -13,6 +13,8 @@
 	--font-display: var(--sc-font-sans);
 	--font-body: var(--sc-font-sans);
 	--font-mono: var(--sc-font-mono);
+	/* `animate-spin` turns on the shared spinner clock (tokens.css). */
+	--animate-spin: spin var(--sc-motion-spin) linear infinite;
 
 	/* ompdesk type scale — `text-sc-*` sets size and its paired line-height.
 	   New and migrated surfaces use these steps; see design-spec.md. */
@@ -677,7 +679,7 @@ html[data-platform="darwin"] .omp-sidebar-search {
 
 /* Rows inside a section are separated by hairlines, never boxes. */
 .settings-section-body > [data-setting-row] + [data-setting-row] {
-	border-top: 1px solid var(--sc-divider);
+	border-top: var(--sc-hairline) solid var(--sc-divider);
 }
 
 .settings-field-row {

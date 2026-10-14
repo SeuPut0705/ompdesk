@@ -599,7 +599,7 @@
 
 /* Surface policy card: the single content-card recipe (hairline, no fill). */
 .omp-card {
-	border: 1px solid var(--sc-divider);
+	border: var(--sc-hairline) solid var(--sc-divider);
 	border-radius: var(--sc-radius-lg);
 	background: transparent;
 }
@@ -913,7 +913,7 @@
 
 .omp-execution-group-body {
 	margin: var(--sc-space-0-5) 0 var(--sc-space-1) var(--omp-step-rule-inset);
-	border-left: 1px solid var(--sc-divider);
+	border-left: var(--sc-hairline) solid var(--sc-divider);
 	padding-left: var(--sc-space-2);
 }
 
@@ -934,7 +934,7 @@
 .omp-read-group-body {
 	min-width: 0;
 	margin: var(--sc-space-0-5) 0 var(--sc-space-1-5) var(--omp-step-rule-inset, 13px);
-	border-left: 1px solid var(--sc-divider);
+	border-left: var(--sc-hairline) solid var(--sc-divider);
 	padding: var(--sc-space-1) 0 var(--sc-space-1) var(--sc-space-3);
 }
 
@@ -964,7 +964,7 @@
 	min-width: 0;
 	/* Flush with the reply text and the composer: the card has no icon column to indent for. */
 	margin: var(--sc-space-1) 0 var(--sc-space-2);
-	border: 1px solid var(--sc-divider);
+	border: var(--sc-hairline) solid var(--sc-divider);
 	border-radius: var(--sc-radius-lg);
 	overflow: hidden;
 }
@@ -1177,7 +1177,7 @@
 	padding-inline-start: calc(var(--sc-icon-sm) / 2 + var(--sc-space-2));
 	overflow: auto;
 	overscroll-behavior: contain;
-	border-inline-start: 1px solid var(--sc-divider);
+	border-inline-start: var(--sc-hairline) solid var(--sc-divider);
 }
 
 /* Rides in the strip row like any chip: colorless, and never a row of its own. */
@@ -1543,7 +1543,7 @@
 	flex-direction: column;
 	min-width: 0;
 	min-height: 0;
-	border-top: 1px solid var(--sc-divider);
+	border-top: var(--sc-hairline) solid var(--sc-divider);
 }
 
 .omp-live-step[data-nested="true"] > .omp-work-surface {
@@ -1727,7 +1727,7 @@
 	min-height: var(--sc-control-md);
 	flex-shrink: 0;
 	padding: var(--sc-space-0-5) var(--sc-space-1-5) var(--sc-space-0-5) var(--sc-space-2);
-	border-top: 1px solid var(--sc-divider);
+	border-top: var(--sc-hairline) solid var(--sc-divider);
 }
 
 .omp-live-step[data-nested="true"] > .omp-live-work-strip {
@@ -1947,7 +1947,7 @@
 .omp-work-outcome-content > .omp-work-outcome {
 	margin: 0;
 	padding: var(--sc-space-1) var(--sc-space-3) var(--sc-space-1-5);
-	border-top: 1px solid var(--sc-divider);
+	border-top: var(--sc-hairline) solid var(--sc-divider);
 }
 
 .omp-work-outcome summary {
@@ -2111,7 +2111,7 @@
 	margin: var(--sc-space-1) 0 0;
 	padding: var(--sc-space-1-5) var(--sc-space-2);
 	overflow: auto;
-	border: 1px solid var(--sc-divider);
+	border: var(--sc-hairline) solid var(--sc-divider);
 	border-radius: var(--sc-radius-sm);
 	background: var(--omp-code-bg);
 	color: var(--sc-text-secondary);
@@ -2137,7 +2137,7 @@
 .omp-work-outcome-content > .omp-work-images {
 	margin: 0;
 	padding: var(--sc-space-1-5) var(--sc-space-3) var(--sc-space-2);
-	border-top: 1px solid var(--sc-divider);
+	border-top: var(--sc-hairline) solid var(--sc-divider);
 }
 
 .omp-work-image {
@@ -2156,7 +2156,7 @@
 	width: 100%;
 	aspect-ratio: 16 / 10;
 	overflow: hidden;
-	border: 1px solid var(--sc-divider);
+	border: var(--sc-hairline) solid var(--sc-divider);
 	border-radius: var(--sc-radius-md);
 	background: var(--sc-code-bg);
 }
@@ -2198,7 +2198,7 @@
 	min-width: 0;
 	min-height: var(--sc-control-sm);
 	padding: var(--sc-space-1) var(--sc-space-2);
-	border: 1px solid var(--sc-divider);
+	border: var(--sc-hairline) solid var(--sc-divider);
 	border-radius: var(--sc-radius-md);
 	color: var(--sc-text-muted);
 	font-size: var(--sc-font-xs);
@@ -2246,7 +2246,7 @@ button.omp-file-chip-name:hover {
 	width: 100%;
 	aspect-ratio: 16 / 9;
 	overflow: hidden;
-	border: 1px solid var(--sc-divider);
+	border: var(--sc-hairline) solid var(--sc-divider);
 	border-radius: var(--sc-radius-md);
 }
 
@@ -2267,7 +2267,7 @@ button.omp-file-chip-name:hover {
 
 .omp-chat-media-audio-slot {
 	justify-content: center;
-	border: 1px solid var(--sc-divider);
+	border: var(--sc-hairline) solid var(--sc-divider);
 	border-radius: var(--sc-radius-md);
 }
 
@@ -2338,7 +2338,7 @@ button.omp-file-chip-name:hover {
 	width: 100%;
 	aspect-ratio: 16 / 10;
 	overflow: hidden;
-	border: 1px solid var(--sc-divider);
+	border: var(--sc-hairline) solid var(--sc-divider);
 	border-radius: var(--sc-radius-md);
 }
 
@@ -2384,7 +2384,7 @@ button.omp-file-chip-name:hover {
 	display: block;
 	width: 100%;
 	height: 18rem;
-	border: 1px solid var(--sc-divider);
+	border: var(--sc-hairline) solid var(--sc-divider);
 	border-radius: var(--sc-radius-md);
 }
 
@@ -2567,7 +2567,7 @@ button.omp-file-chip-name:hover {
 	overflow-y: auto;
 	overscroll-behavior: contain;
 	margin: var(--sc-space-0-5) 0 var(--sc-space-1) var(--omp-step-rule-inset, 13px);
-	border-left: 1px solid var(--sc-divider);
+	border-left: var(--sc-hairline) solid var(--sc-divider);
 	padding: var(--sc-space-1) 0 var(--sc-space-1) var(--sc-space-3);
 	line-height: var(--sc-leading-normal);
 }
@@ -2727,7 +2727,7 @@ button.omp-file-chip-name:hover {
 .omp-transcript-editorial .markdown-body :is(th, td) {
 	padding: 0.5em 0.9em 0.5em 0;
 	border: 0;
-	border-bottom: 1px solid var(--sc-divider);
+	border-bottom: var(--sc-hairline) solid var(--sc-divider);
 	vertical-align: top;
 	/* Words stay whole: the column's break-anywhere wrapping shrank cells to
 	   one syllable ("Maintai / ner"); a table too wide scrolls instead. */
@@ -3199,7 +3199,7 @@ button.omp-file-chip-name:hover {
 	.omp-changes-body[data-open="true"] .omp-changes-list {
 		display: block;
 		flex: 0 0 40%;
-		border-right: 1px solid var(--sc-divider);
+		border-right: var(--sc-hairline) solid var(--sc-divider);
 	}
 }
 .omp-files-tree [role="treeitem"] {
@@ -3311,7 +3311,7 @@ button.omp-file-chip-name:hover {
 
 /* Embedded work notices: neutral hairlines, state color only in badges. */
 .omp-work-notes {
-	border-top: 1px solid var(--sc-divider);
+	border-top: var(--sc-hairline) solid var(--sc-divider);
 	padding: var(--sc-space-2) var(--sc-space-3);
 }
 .omp-work-notes-list {

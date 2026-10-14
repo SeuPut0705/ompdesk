@@ -77,12 +77,17 @@
 	--sc-icon-sm: 14px;
 	--sc-icon-md: 16px;
 	--sc-icon-lg: 20px;
+	/* Divider and card rule width: one CSS pixel, one device pixel on dense
+	   (2dppx) screens below, so hairlines stay hairline-thin on Retina. */
+	--sc-hairline: 1px;
 
 	/* ── Motion ───────────────────────────────────────────────────────── */
 	--sc-duration-instant: 90ms; /* motion-ok: token definition */
 	--sc-duration-fast: 150ms; /* motion-ok: token definition */
 	--sc-duration-med: 220ms; /* motion-ok: token definition */
 	--sc-duration-slow: 320ms; /* motion-ok: token definition */
+	/* One clock for every spinner (Tailwind's animate-spin reads it). */
+	--sc-motion-spin: 900ms; /* motion-ok: token definition */
 	--sc-ease-standard: cubic-bezier(0.25, 1, 0.35, 1);
 	--sc-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
 	--sc-ease-exit: cubic-bezier(0.4, 0, 1, 1);
@@ -231,4 +236,10 @@
 	/* Misc */
 	--omp-scrollbar-track: transparent;
 	--omp-streaming-cursor: var(--omp-accent);
+}
+
+@media (min-resolution: 2dppx) {
+	:root {
+		--sc-hairline: 0.5px;
+	}
 }

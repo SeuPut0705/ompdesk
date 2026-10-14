@@ -139,3 +139,23 @@ describe("named themes on the --sc-* layer", () => {
 		}
 	});
 });
+
+describe("hairline and spinner clock tokens", () => {
+	const tokens = readFileSync(join(dir, "tokens.css"), "utf8");
+	const global = readFileSync(join(dir, "global.css"), "utf8");
+	const components = readFileSync(join(dir, "components.css"), "utf8");
+
+	it("draws hairlines one device pixel thin on dense screens", () => {
+		expect(SHARED["--sc-hairline"]).toBe("1px");
+		const dense = /@media \(min-resolution: 2dppx\) \{\s*:root \{\s*--sc-hairline: 0\.5px;/.exec(tokens);
+		expect(dense, "a 2dppx override of --sc-hairline").not.toBeNull();
+		// Every divider rule in the component sheet uses the token, not a literal 1px.
+		expect(components).not.toMatch(/\b1px solid var\(--sc-divider\)/);
+		expect(components).toMatch(/var\(--sc-hairline\) solid var\(--sc-divider\)/);
+	});
+
+	it("turns every spinner on one clock", () => {
+		expect(SHARED["--sc-motion-spin"]).toMatch(/^\d+ms$/);
+		expect(global).toMatch(/--animate-spin: spin var\(--sc-motion-spin\) linear infinite;/);
+	});
+});
