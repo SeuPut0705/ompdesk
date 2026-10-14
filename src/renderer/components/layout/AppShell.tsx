@@ -15,7 +15,7 @@
  */
 
 import { ArrowLeft, PanelLeft } from "lucide-react";
-import { lazy, type ReactNode, Suspense, useEffect, useLayoutEffect, useRef } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useT } from "../../lib/i18n";
 import { actionShortcut } from "../../lib/keymap";
@@ -24,6 +24,7 @@ import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { COMPACT_SHELL_QUERY, type PageDestination, useUiStore } from "../../stores/ui";
 import { Button, IconButton, Spinner, Tooltip } from "../common";
+import type { SettingsPage as LoadedSettingsPage } from "../settings/SettingsPage";
 import { PanelContainer } from "./PanelContainer";
 import { Sidebar } from "./Sidebar";
 import { SplitWorkspace } from "./SplitWorkspace";
@@ -34,6 +35,8 @@ import { UpdateBanner } from "./UpdateBanner";
 const AgentsPage = lazy(() => import("../agents/AgentsPage").then(m => ({ default: m.AgentsPage })));
 const InsightsPage = lazy(() => import("../insights/InsightsPage").then(m => ({ default: m.InsightsPage })));
 const SettingsPage = lazy(() => import("../settings/SettingsPage").then(m => ({ default: m.SettingsPage })));
+/** Settings from the idle-time preload in AppShell, once it has loaded. */
+let preloadedSettingsPage: typeof LoadedSettingsPage | undefined;
 
 const PAGE_LABEL_KEY: Record<PageDestination, string> = {
 	agents: "destination.agents",
@@ -41,10 +44,22 @@ const PAGE_LABEL_KEY: Record<PageDestination, string> = {
 	settings: "destination.settings",
 };
 
+/**
+ * Settings, from the preloaded module when there is one. Through lazy() the
+ * first open suspends even with the chunk already loaded, and React holds the
+ * revealed page back behind the fallback for its Suspense throttle (~300 ms).
+ * Picked once per mount, so a preload landing while the page is open never
+ * remounts it.
+ */
+function SettingsDestination() {
+	const [Page] = useState(() => preloadedSettingsPage ?? SettingsPage);
+	return <Page />;
+}
+
 function DestinationPage({ destination }: { destination: PageDestination }): ReactNode {
 	if (destination === "agents") return <AgentsPage />;
 	if (destination === "insights") return <InsightsPage />;
-	return <SettingsPage />;
+	return <SettingsDestination />;
 }
 
 /** Thin bar above a destination page: window drag area, sidebar toggle, back to the session. */
@@ -170,6 +185,20 @@ export function AppShell() {
 	useEffect(leavePageOnSessionSelect, []);
 	const pageRef = useRef<HTMLElement>(null);
 	useEffect(() => followPageFocus(() => pageRef.current), []);
+	// Settings opened ~300 ms after ⌘, (see SettingsDestination). Load its chunk
+	// (~460 KB) in an idle moment after startup, so the first open renders it
+	// directly; the same specifier as the lazy() above, so both resolve to one
+	// module record.
+	useEffect(() => {
+		const idle = requestIdleCallback(
+			() =>
+				void import("../settings/SettingsPage").then(module => {
+					preloadedSettingsPage = module.SettingsPage;
+				}),
+			{ timeout: 10_000 },
+		);
+		return () => cancelIdleCallback(idle);
+	}, []);
 
 	// Esc on a page goes back to the session, unless something on the page
 	// (a search field, a menu) or an overlay already used the keystroke.
