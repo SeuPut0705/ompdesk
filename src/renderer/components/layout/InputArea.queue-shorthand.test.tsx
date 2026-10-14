@@ -1140,6 +1140,51 @@ describe("InputArea composer keys", () => {
 		await pressKey({ key: "PageUp" });
 		expect(selected()).toBe(0);
 	});
+
+	it("offers skills after $ anywhere and inserts stock's /skill: token; warns for a skill that is off", async () => {
+		await mountIdle();
+		const subscribe = window.omp.events.onTabCommandsUpdate as unknown as Mock;
+		const deliver = subscribe.mock.calls.at(-1)?.[0] as (commands: unknown[], tabId: string) => void;
+		await act(async () =>
+			deliver(
+				[
+					{ name: "compact", description: "Compact" },
+					{ name: "skill:release-notes", description: "Write notes", source: "skill" },
+					{ name: "skill:review", description: "Review a change", source: "skill" },
+				],
+				"t0",
+			),
+		);
+		setCaret(15);
+		await typeInto(findTextarea(), "check this $rev");
+		await flush();
+		const options = Array.from(document.querySelectorAll('[role="option"]')).map(option => option.textContent);
+		expect(options).toHaveLength(1);
+		expect(options[0]).toContain("$review");
+		await pressKey({ key: "Enter" });
+		expect(useComposerStore.getState().draft).toBe("check this /skill:review ");
+
+		await typeInto(findTextarea(), "use /skill:gone here");
+		await flush();
+		await pressKey({ key: "Enter" });
+		await flush();
+		expect(prompt).toHaveBeenCalledWith("use /skill:gone here", []);
+		expect(useToastStore.getState().toasts.map(toast => toast.message)).toContain(
+			translate("input.skills.off", { name: "gone" }),
+		);
+	});
+
+	it("says no skill is on when $ finds none", async () => {
+		await mountIdle();
+		const subscribe = window.omp.events.onTabCommandsUpdate as unknown as Mock;
+		const deliver = subscribe.mock.calls.at(-1)?.[0] as (commands: unknown[], tabId: string) => void;
+		await act(async () => deliver([{ name: "compact", description: "Compact" }], "t0"));
+		setCaret(1);
+		await typeInto(findTextarea(), "$");
+		await flush();
+		expect(document.querySelector('[role="option"]')).toBeNull();
+		expect(container.textContent).toContain(translate("input.skills.none"));
+	});
 });
 
 describe("InputArea run settings and modes", () => {

@@ -14,6 +14,7 @@ import { toast, toastError } from "../stores/toast";
 import { buildCurrentCommandMenu, type CommandAffordance } from "./command-registry";
 import { translate } from "./i18n";
 import { runManualMaintenance } from "./messages";
+import { unavailableSkillTokens } from "./skill-tokens";
 import { parseSlashCommand } from "./slash-command";
 import type { TabRpc } from "./tab-rpc";
 
@@ -132,6 +133,9 @@ export function planComposerSubmit(input: {
 	}
 	const guiHandled = isSlashCommand ? runGuiOnlyBuiltin(message, commands) : undefined;
 	if (guiHandled !== undefined) return { kind: guiHandled ? "handled" : "blocked" };
+	// Stock sends a `/skill:<name>` token for a skill that is off (or missing) as plain text: say so.
+	for (const name of unavailableSkillTokens(message, commands))
+		toast({ variant: "warning", message: translate("input.skills.off", { name }) });
 	if (!isSlashCommand && isStreaming) {
 		return {
 			kind: "send",

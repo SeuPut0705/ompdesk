@@ -382,6 +382,8 @@ export const en: Record<string, string> = {
 	"input.approval.always-ask.desc": "Prompt before any tool runs",
 	"input.goal.label": "Goal",
 	"input.escAgainToClear": "Press Esc again to clear the draft. ↑ brings it back.",
+	"input.skills.none": "No skills are on. Turn them on in Settings › Extensions.",
+	"input.skills.off": "The {name} skill isn't on, so it goes as plain text.",
 	"input.modes.title": "Session mode",
 	"input.modes.activeTitle": "Session mode: {modes}",
 	"input.modes.label": "Mode",

@@ -1,7 +1,7 @@
 /**
  * useCompletionMenu: derives the completion menu from the draft around the
  * caret. Provider chain (TUI getSuggestions order): slash-arg → github-ref →
- * slash names → @mention → emoji. First provider with items wins; async
+ * slash names → `$` skills → @mention → ^model → emoji. First provider with items wins; async
  * providers (emoji buckets, the builtin argument RPC) resolve through a cancel
  * token + debounce. A builtin's argument candidates and its inline argument
  * hint come from stock (`get_command_arg_completions`); other commands show
@@ -26,7 +26,7 @@ export interface CompletionItem {
 
 /** Completion menu state: the winning provider's items + replace range. */
 export interface CompletionMenu {
-	source: "slash-arg" | "github-ref" | "command" | "mention" | "model" | "emoji";
+	source: "slash-arg" | "github-ref" | "command" | "skill" | "mention" | "model" | "emoji";
 	rangeStart: number;
 	rangeEnd: number;
 	items: CompletionItem[];
@@ -205,7 +205,36 @@ export function useCompletionMenu({
 			};
 		}
 
-		// 4. @ mention: workspace files (fuzzy) above internal URL schemes.
+		// 4. `$` skill palette anywhere in the draft: picks insert stock's own
+		// mid-prompt `/skill:<name>` token, which stock invokes with the
+		// surrounding prose as its arguments. No skill on → a hint, no menu.
+		const skillMatch = /(^|\s)\$([\w.~/-]*)$/.exec(before);
+		if (skillMatch) {
+			const query = (skillMatch[2] ?? "").toLowerCase();
+			const skills = commands.filter(command => command.name.startsWith("skill:"));
+			if (skills.length === 0 && commands.length > 0) setArgHint(t("input.skills.none"));
+			// Name prefix first, then substring; stock's list order within each.
+			const items = skills
+				.map(command => {
+					const bare = command.name.slice("skill:".length);
+					const lower = bare.toLowerCase();
+					return { command, bare, rank: lower.startsWith(query) ? 0 : lower.includes(query) ? 1 : -1 };
+				})
+				.filter(skill => skill.rank >= 0)
+				.sort((a, b) => a.rank - b.rank)
+				.slice(0, MAX_MENU_ITEMS)
+				.map(({ command, bare }) => ({
+					value: `/skill:${bare} `,
+					label: `$${bare}`,
+					description: command.description,
+				}));
+			apply({ source: "skill", rangeStart: cursor - query.length - 1, items });
+			return () => {
+				cancelled = true;
+			};
+		}
+
+		// 5. @ mention: workspace files (fuzzy) above internal URL schemes.
 		const mentionMatch = /(^|\s)@([\w./-]*)$/.exec(before);
 		if (mentionMatch) {
 			const q = mentionMatch[2] ?? "";
@@ -229,7 +258,7 @@ export function useCompletionMenu({
 			};
 		}
 
-		// 5. Model delegation uses the same whitespace-delimited ^selector syntax
+		// 6. Model delegation uses the same whitespace-delimited ^selector syntax
 		// as tui/prompt/model-mention-syntax.ts. The sidecar owns model scope and
 		// identity policy; never infer selectors from display names in the GUI.
 		const modelMatch = /(?:^|\s)(\^[^\s^]*)$/.exec(before);
@@ -278,7 +307,7 @@ export function useCompletionMenu({
 			};
 		}
 
-		// 6. Emoji (async; the bucket JSON lazy-loads on first trigger).
+		// 7. Emoji (async; the bucket JSON lazy-loads on first trigger).
 		if (emojiAutocomplete) {
 			void getEmojiSuggestions(before).then(result => {
 				if (!result) {

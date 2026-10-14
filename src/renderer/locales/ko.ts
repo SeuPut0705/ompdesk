@@ -376,6 +376,8 @@ export const ko: Record<string, string> = {
 	"input.approval.always-ask.desc": "도구를 실행하기 전에 항상 물어봐요",
 	"input.goal.label": "목표",
 	"input.escAgainToClear": "Esc를 한 번 더 누르면 초안을 지워요. ↑로 다시 불러올 수 있어요.",
+	"input.skills.none": "켜진 스킬이 없어요. 설정 › 확장에서 켤 수 있어요.",
+	"input.skills.off": "{name} 스킬이 꺼져 있어서 일반 텍스트로 보내요.",
 	"input.modes.title": "세션 모드",
 	"input.modes.activeTitle": "세션 모드: {modes}",
 	"input.modes.label": "모드",
