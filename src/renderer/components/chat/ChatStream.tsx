@@ -1118,18 +1118,7 @@ export const ProcessGroup = memo(function ProcessGroup({
 						todoSnapshots={row.todoSnapshots}
 					>
 						<div className="omp-process-group">
-							{row.messages.map((message, index) => (
-								<MessageBubble
-									compact
-									key={
-										typeof message.id === "string"
-											? message.id
-											: `${String(message.timestamp ?? "process")}-${index}`
-									}
-									message={message}
-									runningIndicator="dot"
-								/>
-							))}
+							<ProcessMessages messages={row.messages} />
 							{hasThinking || liveCards.length > 0 ? (
 								<div className="omp-process-group--live">
 									{hasThinking ? <ThinkingBlock live /> : null}
@@ -1152,6 +1141,36 @@ export const ProcessGroup = memo(function ProcessGroup({
 		</>
 	);
 });
+
+/** Messages an expanded work card mounts per task (about 7 ms of render, style and layout). */
+const PROCESS_SLICE = 60;
+
+/**
+ * An expanded work card's steps, mounted a slice per task after the click's
+ * frame: all 490 messages of a 245-step card in one commit made a 60 ms frame.
+ * Once every message is in, new ones (a live card) mount as they arrive.
+ */
+function ProcessMessages({ messages }: { messages: readonly AgentMessage[] }) {
+	const [limit, setLimit] = useState(() =>
+		messages.length <= PROCESS_SLICE ? Number.POSITIVE_INFINITY : PROCESS_SLICE,
+	);
+	useEffect(() => {
+		if (limit >= messages.length) {
+			if (limit !== Number.POSITIVE_INFINITY) setLimit(Number.POSITIVE_INFINITY);
+			return;
+		}
+		const timer = setTimeout(() => setLimit(value => value + PROCESS_SLICE), 0);
+		return () => clearTimeout(timer);
+	}, [limit, messages.length]);
+	return (limit >= messages.length ? messages : messages.slice(0, limit)).map((message, index) => (
+		<MessageBubble
+			compact
+			key={typeof message.id === "string" ? message.id : `${String(message.timestamp ?? "process")}-${index}`}
+			message={message}
+			runningIndicator="dot"
+		/>
+	));
+}
 
 /**
  * The in-flight assistant turn outside a compact work card. Full detail shows
