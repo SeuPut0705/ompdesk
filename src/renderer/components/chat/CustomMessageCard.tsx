@@ -24,7 +24,9 @@ import type { AgentMessage } from "../../../shared/rpc-types";
 import { cx, formatAgo, formatClock, formatDuration, headLines, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
+import { asArray } from "../../lib/wire-value";
 import { Badge, type BadgeVariant } from "../common/Badge";
+import { asFileDiagnostics, DiagnosticsList, diagnosticsCount, type FileDiagnostics } from "../tools/Diagnostics";
 import { type AsyncResultJob, asyncResultJobs, launchCompletionDaemons } from "./completion-events";
 import { agentResultSummary } from "./work-view";
 
@@ -499,126 +501,18 @@ function LaunchCompletionCard({ message, inProcess }: { message: AgentMessage; i
 // lsp-late-diagnostic — diagnostics that arrived after edit/write returned
 // ---------------------------------------------------------------------------
 
-/** TUI diagnostic line format: `path:line:col [severity] [source]? message (code)?`. */
-const DIAG_LINE_RE = /^(.+?):(\d+):(\d+)\s+\[(\w+)\]\s+(?:\[([^\]]+)\]\s+)?(.+?)(?:\s+\(([^)]+)\))?$/;
-const COLLAPSED_DIAGS = 5;
-
-interface DiagEntry {
-	line: number;
-	col: number;
-	severity: string;
-	source?: string;
-	text: string;
-	code?: string;
-}
-
-type DiagItem = { kind: "diag"; diag: DiagEntry } | { kind: "raw"; text: string };
-
-interface DiagGroup {
-	path?: string;
-	items: DiagItem[];
-}
-
-function severityRank(severity: string): number {
-	switch (severity) {
-		case "error":
-			return 0;
-		case "warning":
-			return 1;
-		case "info":
-			return 2;
-		case "hint":
-			return 3;
-		default:
-			return 4;
-	}
-}
-
-function severityColor(severity: string): string {
-	switch (severity) {
-		case "error":
-			return "var(--omp-error)";
-		case "warning":
-			return "var(--omp-warning)";
-		case "info":
-			return "var(--omp-link)";
-		default:
-			return "var(--omp-dim)";
-	}
-}
-
-function diagGroups(details: Record<string, unknown> | undefined): DiagGroup[] {
-	const filesValue = details?.files;
-	const files = Array.isArray(filesValue) ? filesValue : [];
-	const groups: DiagGroup[] = [];
-	for (const file of files) {
-		if (typeof file !== "object" || file === null) continue;
-		const record = file as Record<string, unknown>;
-		const messages = Array.isArray(record.messages) ? record.messages.filter(m => typeof m === "string") : [];
-		if (messages.length === 0) continue;
-		const diags: DiagEntry[] = [];
-		const raws: string[] = [];
-		for (const message of messages as string[]) {
-			const match = message.match(DIAG_LINE_RE);
-			if (!match) {
-				raws.push(message);
-				continue;
-			}
-			diags.push({
-				line: Number.parseInt(match[2], 10),
-				col: Number.parseInt(match[3], 10),
-				severity: match[4],
-				source: match[5],
-				text: match[6],
-				code: match[7],
-			});
-		}
-		diags.sort(
-			(a, b) =>
-				severityRank(a.severity) - severityRank(b.severity) ||
-				a.line - b.line ||
-				a.col - b.col ||
-				a.text.localeCompare(b.text),
-		);
-		const items: DiagItem[] = [
-			...diags.map(diag => ({ kind: "diag", diag }) as DiagItem),
-			...raws.map(text => ({ kind: "raw", text }) as DiagItem),
-		];
-		groups.push({ path: str(record.path), items });
-	}
-	return groups;
-}
-
 function LateDiagnosticsCard({ message }: { message: AgentMessage }) {
 	const t = useT();
-	const [expanded, setExpanded] = useState(false);
-	const details = resultDetails(message);
-	const filesValue = details?.files;
-	const files = Array.isArray(filesValue) ? filesValue : [];
-	const errored = files.some(
-		file => typeof file === "object" && file !== null && (file as Record<string, unknown>).errored === true,
-	);
+	const files = asArray(resultDetails(message)?.files)
+		.map(file => asFileDiagnostics(file))
+		.filter((file): file is FileDiagnostics => file !== undefined);
+	const errored = files.some(file => file.errored);
 	const summary = files
-		.map(file =>
-			typeof file === "object" && file !== null ? str((file as Record<string, unknown>).summary) : undefined,
-		)
+		.map(file => file.summary)
 		.filter(Boolean)
 		.join(", ");
-	const groups = diagGroups(details);
-	const total = groups.reduce((sum, group) => sum + group.items.length, 0);
 	// TUI renders nothing when no diagnostics survived; keep that.
-	if (total === 0) return null;
-
-	let budget = expanded ? Number.POSITIVE_INFINITY : COLLAPSED_DIAGS;
-	const rendered = groups
-		.map(group => {
-			const take = Math.max(0, Math.min(group.items.length, budget));
-			budget -= take;
-			return { path: group.path, items: group.items.slice(0, take) };
-		})
-		.filter(group => group.items.length > 0);
-	const hidden = total - rendered.reduce((sum, group) => sum + group.items.length, 0);
-
+	if (diagnosticsCount(files) === 0) return null;
 	return (
 		<CardFrame>
 			<div className={HEADER_CLASS}>
@@ -630,51 +524,7 @@ function LateDiagnosticsCard({ message }: { message: AgentMessage }) {
 				<span className="shrink-0">{t("chat.custom.lateDiagnostics")}</span>
 				{summary && <span className={HEADER_META_CLASS}>({summary})</span>}
 			</div>
-			<div className="space-y-2">
-				{rendered.map((group, gi) => (
-					<div key={group.path ?? gi}>
-						{group.path && (
-							<div className="mb-0.5 font-mono text-omp-sm text-[var(--omp-status-path)]">{group.path}</div>
-						)}
-						{group.items.map((item, ii) =>
-							item.kind === "raw" ? (
-								<div
-									key={ii}
-									className="font-mono text-omp-sm leading-[1.55] break-words whitespace-pre-wrap text-[var(--omp-muted)]"
-								>
-									{item.text}
-								</div>
-							) : (
-								<div key={ii} className="flex items-baseline gap-1.5 font-mono text-omp-sm leading-[1.55]">
-									<span className="shrink-0 tabular-nums text-[var(--omp-dim)]">
-										{item.diag.line}:{item.diag.col}
-									</span>
-									<span
-										className="shrink-0 font-semibold"
-										style={{ color: severityColor(item.diag.severity) }}
-									>
-										{item.diag.severity}
-									</span>
-									<span className="min-w-0 break-words text-[var(--omp-text)]">
-										{item.diag.text}
-										{item.diag.code && <span className="text-[var(--omp-dim)]"> ({item.diag.code})</span>}
-										{item.diag.source && <span className="text-[var(--omp-dim)]"> [{item.diag.source}]</span>}
-									</span>
-								</div>
-							),
-						)}
-					</div>
-				))}
-				{hidden > 0 && (
-					<button
-						type="button"
-						onClick={() => setExpanded(true)}
-						className="omp-pressable text-omp-xs font-medium text-[var(--omp-dim)] hover:text-[var(--omp-text)]"
-					>
-						{t("chat.custom.moreDiagnostics", { count: hidden, plural: hidden === 1 ? "" : "s" })}
-					</button>
-				)}
-			</div>
+			<DiagnosticsList files={files} showPaths />
 		</CardFrame>
 	);
 }

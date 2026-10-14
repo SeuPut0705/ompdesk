@@ -6,6 +6,7 @@ import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_LG } from "../../lib/preview";
 import { asNonEmptyString } from "../../lib/wire-value";
 import { ErrorDetail } from "../common";
+import { DiagnosticsSection, diagnosticsCount, resultDiagnostics } from "./Diagnostics";
 import { unifiedDiffStats } from "./diff-stats";
 import { editArgumentPaths, editInputSections, editRecordDiff } from "./edit-args";
 import { liveDiffProps } from "./live-diff";
@@ -215,7 +216,16 @@ function PerFileEditBlock({ file, livePreview }: { file: EditPerFileResult; live
  * while streaming or for history entries without details.
  */
 export function EditRenderer(props: ToolRendererProps) {
-	if (!props.livePreview) return <EditContent {...props} />;
+	if (!props.livePreview) {
+		const diagnostics = props.isError ? [] : resultDiagnostics(resultDetails(props.result));
+		if (diagnosticsCount(diagnostics) === 0) return <EditContent {...props} />;
+		return (
+			<div className="flex flex-col gap-2">
+				<EditContent {...props} />
+				<DiagnosticsSection files={diagnostics} />
+			</div>
+		);
+	}
 	return (
 		<div className="omp-tool-editor omp-tool-edit">
 			<EditContent {...props} />

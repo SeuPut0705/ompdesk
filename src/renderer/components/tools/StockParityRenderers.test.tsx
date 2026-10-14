@@ -3,10 +3,13 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
+import { EditRenderer } from "./EditRenderer";
 import { GenericRenderer } from "./GenericRenderer";
 import { getToolHeader, getToolRenderer } from "./index";
 import { McpRenderer, parseMcpToolName } from "./McpRenderer";
+import { ReadRenderer } from "./ReadRenderer";
 import { ThinkRenderer } from "./ThinkRenderer";
+import { WriteRenderer } from "./WriteRenderer";
 import { YieldRenderer } from "./YieldRenderer";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -195,5 +198,153 @@ describe("MCP tools (stock tools/mcp.ts)", () => {
 			/>,
 		);
 		expect(container.querySelector("pre")?.textContent).toBe("server exited");
+	});
+});
+
+// `FileDiagnosticsResult` as pi-coding-agent `lsp/writethrough.ts` builds it, messages from `lsp/utils.ts` formatDiagnostic.
+const diagnostics = {
+	server: "typescript-language-server",
+	messages: [
+		"src/auth.ts:12:5 [warning] [ts] 'token' is declared but never used. (6133)",
+		"src/auth.ts:4:1 [error] [ts] Cannot find name 'Session'. (2304)",
+	],
+	summary: "1 error(s), 1 warning(s)",
+	errored: true,
+};
+
+describe("LSP diagnostics after a file change (stock native-view diagnosticsSection)", () => {
+	it("lists an edit's diagnostics most severe first", async () => {
+		await mount(
+			<EditRenderer
+				args={{ path: "src/auth.ts" }}
+				result={{
+					content: [{ type: "text", text: "Updated src/auth.ts" }],
+					details: { diff: "@@ -1 +1 @@\n-a\n+b", diagnostics },
+				}}
+			/>,
+		);
+		const section = container.querySelector("[data-tool-diagnostics]");
+		expect(section?.textContent).toContain("Diagnostics");
+		expect(section?.textContent).toContain("1 error(s), 1 warning(s)");
+		const rows = section?.textContent ?? "";
+		expect(rows.indexOf("Cannot find name")).toBeLessThan(rows.indexOf("declared but never used"));
+		expect(rows).toContain("4:1");
+	});
+
+	it("marks an executable write and counts its diagnostics", async () => {
+		await mount(
+			<WriteRenderer
+				args={{ path: "bin/run.sh", content: "#!/bin/sh\necho hi" }}
+				result={{
+					content: [{ type: "text", text: "Wrote bin/run.sh" }],
+					details: { madeExecutable: true, diagnostics },
+				}}
+			/>,
+		);
+		expect(container.textContent).toContain("executable");
+		expect(container.querySelector(".omp-tool-diagnostics")?.textContent).toBe("2 diagnostics");
+	});
+});
+
+describe("cfg:// settings (stock tools/cfg-render.ts)", () => {
+	it("shows a write's scope, outcome and previous → value", async () => {
+		await mount(
+			<WriteRenderer
+				args={{ path: "cfg://advisor/enabled/save", content: "true" }}
+				result={{
+					content: [{ type: "text", text: "advisor.enabled = true (saved)" }],
+					details: {
+						cfg: {
+							path: "advisor.enabled",
+							save: true,
+							previous: "false",
+							value: "true",
+							outcome: "applied",
+							effective: "false",
+						},
+					},
+				}}
+			/>,
+		);
+		const card = container.querySelector("[data-tool-cfg-write]");
+		expect(card?.textContent).toContain("advisor.enabled");
+		expect(card?.textContent).toContain("saved");
+		expect(card?.textContent).toContain("false → true");
+		expect(card?.textContent).toContain("a higher-precedence layer overrides the saved value");
+	});
+
+	it("says when the user declined", async () => {
+		await mount(
+			<WriteRenderer
+				args={{ path: "cfg://theme", content: "dark" }}
+				result={{
+					content: [{ type: "text", text: "declined" }],
+					details: { cfg: { path: "theme", save: false, previous: "light", value: "dark", outcome: "declined" } },
+				}}
+			/>,
+		);
+		expect(container.textContent).toContain("this session");
+		expect(container.textContent).toContain("declined");
+	});
+
+	it("reads a settings listing as YAML with its counts", async () => {
+		await mount(
+			<ReadRenderer
+				args={{ path: "cfg://advisor" }}
+				result={{
+					content: [{ type: "text", text: "advisor:\n  enabled: true\n  model: smol" }],
+					details: { cfg: { path: "advisor", count: 2, modified: 1 } },
+				}}
+			/>,
+		);
+		expect(container.querySelector("[data-read-meta]")?.textContent).toBe("2 settings · 1 modified");
+		expect(container.textContent).toContain("advisor");
+	});
+});
+
+describe("read extras (stock tools/read.ts, tools/fetch.ts)", () => {
+	it("states a URL's redirect, content type and method", async () => {
+		await mount(
+			<ReadRenderer
+				args={{ path: "http://example.com/docs" }}
+				result={{
+					content: [{ type: "text", text: "# Docs" }],
+					details: {
+						kind: "url",
+						url: "http://example.com/docs",
+						finalUrl: "https://www.example.com/docs/",
+						contentType: "text/html",
+						method: "readability",
+						notes: ["converted to markdown"],
+						truncated: true,
+					},
+				}}
+			/>,
+		);
+		expect(container.querySelector("[data-read-meta]")?.textContent).toBe(
+			"from example.com · text/html · readability · converted to markdown",
+		);
+		expect(container.textContent).toContain("[Output truncated]");
+	});
+
+	it("names a corrected path, elided spans and conflicts", async () => {
+		await mount(
+			<ReadRenderer
+				args={{ path: "src/sesion.ts" }}
+				result={{
+					content: [{ type: "text", text: "export {}" }],
+					details: {
+						resolvedPath: "/repo/src/session.ts",
+						suffixResolution: { from: "src/sesion.ts", to: "src/session.ts" },
+						summary: { lines: 120, elidedSpans: 3, elidedLines: 80 },
+						conflictCount: 2,
+					},
+				}}
+			/>,
+		);
+		expect(container.querySelector("[data-read-meta]")?.textContent).toBe(
+			"corrected from src/sesion.ts · summary: 3 elided spans",
+		);
+		expect(container.textContent).toContain("2 conflicts");
 	});
 });

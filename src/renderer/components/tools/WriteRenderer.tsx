@@ -1,13 +1,15 @@
-import { ChevronDown, ChevronRight, FilePlus2 } from "lucide-react";
+import { ChevronDown, ChevronRight, FilePlus2, Settings2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { DiffView } from "../../lib/diff";
 import { cx, headLines, languageFromPath, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_SCROLL_LG, PREVIEW_TEXT_CHARS } from "../../lib/preview";
+import { asRecord, asString } from "../../lib/wire-value";
 import { CodeBlock } from "../chat/CodeBlock";
 import { MermaidBlock } from "../chat/MermaidBlock";
 import { type PreviewMode, PreviewModeTabs, SvgImage, useSanitizedSvg } from "../chat/SvgBlock";
 import { ProtocolWriteRenderer } from "./CoordinationRenderer";
+import { DiagnosticsChip, DiagnosticsSection, resultDiagnostics } from "./Diagnostics";
 import { unifiedDiffStats } from "./diff-stats";
 import { liveDiffProps } from "./live-diff";
 import { PathLink } from "./PathLink";
@@ -55,6 +57,72 @@ function WriteFigurePreview({
 }
 
 /**
+ * `write cfg://path[/save]` (stock pi-tui `tools/cfg-render.ts` describeCfgWrite):
+ * the setting, its scope (session or saved), the outcome of the user's
+ * approval, and `previous → value`; a saved value a higher layer still
+ * shadows says so. `details.cfg` is `CfgWriteDetails` (values display-formatted, secrets redacted).
+ */
+function CfgWriteView({
+	path,
+	content,
+	result,
+	isError,
+}: {
+	path: string;
+	content: string;
+	result: unknown;
+	isError?: boolean;
+}) {
+	const t = useT();
+	const cfg = asRecord(resultDetails(result)?.cfg);
+	const segments = path
+		.trim()
+		.slice("cfg://".length)
+		.replace(/[?#].*$/s, "")
+		.split(/[/.]/)
+		.filter(Boolean);
+	const urlSave = segments.length > 1 && segments.at(-1) === "save";
+	if (urlSave) segments.pop();
+	const settingPath = asString(cfg?.path) ?? segments.join(".");
+	const save = typeof cfg?.save === "boolean" ? cfg.save : urlSave;
+	const outcome = asString(cfg?.outcome);
+	const value = asString(cfg?.value) ?? (content.trim() || "…");
+	const previous = asString(cfg?.previous);
+	const effective = asString(cfg?.effective);
+	return (
+		<div className="flex flex-col gap-1" data-tool-cfg-write>
+			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
+				<Settings2 size={12} className="shrink-0 text-[var(--omp-dim)]" />
+				<span className="min-w-0 truncate text-[var(--omp-muted)]">{settingPath}</span>
+				<span className={cx("shrink-0 text-sc-xs", save ? "text-(--sc-accent)" : "text-(--sc-text-subtle)")}>
+					{t(save ? "tools.cfg.persist" : "tools.cfg.session")}
+				</span>
+				{outcome === "declined" && (
+					<span className="shrink-0 text-sc-xs text-(--sc-warning)">{t("tools.cfg.declined")}</span>
+				)}
+				{outcome === "unchanged" && (
+					<span className="shrink-0 text-sc-xs text-(--sc-text-subtle)">{t("tools.cfg.unchanged")}</span>
+				)}
+			</div>
+			{isError ? (
+				<div className="whitespace-pre-wrap text-sc-sm text-(--sc-danger)">
+					{resultText(result).trim() || t("tools.cfg.writeFailed")}
+				</div>
+			) : (
+				<div className="break-words font-mono text-omp-sm">
+					{previous !== undefined && <span className="text-[var(--omp-dim)]">{previous} </span>}
+					<span className="text-[var(--omp-dim)]">→ </span>
+					<span className="text-[var(--omp-tool-output)]">{value}</span>
+				</div>
+			)}
+			{effective !== undefined && (
+				<div className="text-sc-xs text-(--sc-warning)">{t("tools.cfg.shadowed", { value: effective })}</div>
+			)}
+		</div>
+	);
+}
+
+/**
  * File write: path header + collapsible preview. When the write overwrote an
  * existing file and the sidecar captured the pre-write content, the detail
  * view is the old→new diff (same format the edit tool emits); creates and
@@ -89,6 +157,9 @@ export function WriteRenderer({
 			/>
 		);
 	}
+	if (/^cfg:\/\//i.test(path)) {
+		return <CfgWriteView content={content} isError={isError} path={path} result={result} />;
+	}
 	const lineCount = content ? content.split("\n").length : 0;
 	// Preview ceiling: the full written file must not enter the DOM — the
 	// height class only clips after layout. Copy stays available via the file.
@@ -102,6 +173,7 @@ export function WriteRenderer({
 	const overwritten = details?.overwritten === true;
 	const openPath = typeof details?.resolvedPath === "string" ? details.resolvedPath : path;
 	const stats = diff ? unifiedDiffStats(diff) : null;
+	const diagnostics = isError ? [] : resultDiagnostics(details);
 	// Failed writes must surface the reason (permission/conflict), not a
 	// success-style preview of the requested content.
 	const errorText = isError ? headLines(resultText(result), WRITE_PREVIEW_LINES) : null;
@@ -167,6 +239,10 @@ export function WriteRenderer({
 					{overwritten && !diff && (
 						<span className="text-[var(--omp-warning)]">{t("tools.write.overwritten")}</span>
 					)}
+					{details?.madeExecutable === true && (
+						<span className="text-[var(--omp-success)]">{t("tools.write.executable")}</span>
+					)}
+					<DiagnosticsChip files={diagnostics} />
 					<span>{t("tools.write.lines", { count: lineCount, plural: lineCount === 1 ? "" : "s" })}</span>
 				</span>
 			</div>
@@ -188,6 +264,7 @@ export function WriteRenderer({
 				) : (
 					codeView
 				))}
+			<DiagnosticsSection files={diagnostics} />
 		</div>
 	);
 }

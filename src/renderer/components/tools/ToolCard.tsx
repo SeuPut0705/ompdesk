@@ -1,11 +1,12 @@
 import { Ban, ChevronRight, CircleX } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { basename, cx, dirname, durationBetween } from "../../lib/format";
+import { basename, cx, dirname, durationBetween, resultDetails } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
 import { selectToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { Spinner } from "../common";
+import { DiagnosticsChip, type FileDiagnostics, resultDiagnostics } from "./Diagnostics";
 import { type DiffStats, toolDiffStats } from "./diff-stats";
 import { GenericRenderer } from "./GenericRenderer";
 import { getToolHeader, getToolRenderer } from "./index";
@@ -35,6 +36,9 @@ export interface ToolCardProps {
 	/** A parent activity indicator can own animation for a live tool group. */
 	runningIndicator?: RunningIndicator;
 }
+
+/** File-changing tools whose results carry stock's LSP `diagnostics`. */
+const DIAGNOSTIC_TOOLS: Record<string, true> = { edit: true, write: true, apply_patch: true };
 
 export type RunningIndicator = "spinner" | "dot";
 
@@ -153,6 +157,12 @@ export function ToolCard({ toolCallId, toolName, args, runningIndicator = "spinn
 		() => (isAborted ? null : toolDiffStats(toolName, args, result, failed)),
 		[toolName, args, result, failed, isAborted],
 	);
+	// Stock's head chip for LSP diagnostics after a file change (`2 diagnostics`).
+	const diagnostics = useMemo(
+		(): FileDiagnostics[] =>
+			DIAGNOSTIC_TOOLS[toolName] && !failed && result != null ? resultDiagnostics(resultDetails(result)) : [],
+		[toolName, result, failed],
+	);
 
 	return (
 		<div className="omp-tool-card min-w-0" data-tool-status={status} data-tool-error={isError ? "true" : undefined}>
@@ -186,6 +196,7 @@ export function ToolCard({ toolCallId, toolName, args, runningIndicator = "spinn
 					</span>
 				) : null}
 				{diffStats && (diffStats.added > 0 || diffStats.removed > 0) ? <DiffStatChip stats={diffStats} /> : null}
+				<DiagnosticsChip files={diagnostics} />
 				{failed ? (
 					<span className="omp-tool-state shrink-0 text-sc-xs font-medium text-(--sc-danger)">
 						{t("tools.status.failed")}
