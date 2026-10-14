@@ -150,13 +150,15 @@ export function InputArea() {
 	const mountedRef = useRef(true);
 
 	// New and empty sessions start with the caret in the composer, unless
-	// something else (a dialog, another field) already holds focus.
+	// something else (a dialog, another field) already holds focus. The end of
+	// first-run setup counts as a new start: its button unmounted with focus on it.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: setup ending re-runs the check
 	useEffect(() => {
 		if (!routeReady || !focusedPane || !isEmptySession || !sessionId) return;
 		const active = document.activeElement;
 		if (active && active !== document.body) return;
 		textareaRef.current?.focus();
-	}, [routeReady, focusedPane, isEmptySession, sessionId]);
+	}, [routeReady, focusedPane, isEmptySession, sessionId, settingUp]);
 
 	// A large-paste choice stays reversible until the user explicitly chooses a
 	// representation. Outside click cancels it instead of silently inserting

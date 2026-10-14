@@ -13,6 +13,7 @@ import { I18nProvider, translate } from "../../lib/i18n";
 import { pasteMarkerText, storePaste } from "../../lib/paste-blobs";
 import { useComposerStore } from "../../stores/composer";
 import { useExtensionUiStore } from "../../stores/extension-ui";
+import { useFirstRunStore } from "../../stores/first-run";
 import { useInputHistoryStore } from "../../stores/input-history";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
@@ -255,6 +256,7 @@ afterEach(async () => {
 	useQueueStore.getState().setFromFrame({ steering: [], followUp: [] });
 	useSettingsStore.getState().reset();
 	useTabsStore.getState().reset();
+	useFirstRunStore.getState().reset();
 	setWindowWidth(1200);
 	vi.restoreAllMocks();
 });
@@ -998,6 +1000,16 @@ describe("InputArea run settings and modes", () => {
 	it("names the composer field for assistive tech", async () => {
 		await mount();
 		expect(findTextarea().getAttribute("aria-label")).toBe("Message");
+	});
+
+	it("takes the caret back when first-run setup hands over to the empty session", async () => {
+		await act(async () => useFirstRunStore.getState().setPhase("model", "audit"));
+		await mount();
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		const focus = vi.spyOn(findTextarea() as unknown as HTMLElement, "focus");
+		// "Start with this model" unmounts the setup button that held focus.
+		await act(async () => useFirstRunStore.getState().setPhase("idle", null));
+		expect(focus).toHaveBeenCalled();
 	});
 
 	it("applies a thinking level picked inside the run settings popover", async () => {
