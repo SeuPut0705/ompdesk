@@ -249,6 +249,8 @@ export function CommandPalette() {
 		refreshCommands();
 	}, [open, refreshCommands]);
 
+	// Rows backed by a shortcut show the user's remapped chord.
+	const keymapOverrides = useUiStore(state => state.keymapOverrides);
 	const menuItems = useMemo(
 		() =>
 			buildCommandMenu(
@@ -261,6 +263,7 @@ export function CommandPalette() {
 						planModeEnabled,
 						prewalkArmed,
 						availableCommands,
+						keymapOverrides,
 					},
 					{
 						t,
@@ -280,6 +283,7 @@ export function CommandPalette() {
 			availableCommands,
 			tabRpc,
 			tabId,
+			keymapOverrides,
 		],
 	);
 

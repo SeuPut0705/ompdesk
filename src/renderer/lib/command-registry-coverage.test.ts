@@ -1,0 +1,175 @@
+/**
+ * The command palette reaches every command the app has: each native menu
+ * item and each remappable shortcut has a palette row, and the row shows the
+ * chord that actually fires it (the user's remap, not the default).
+ */
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { MenuAction } from "../../shared/ipc-types";
+import { buildCommandMenu, type CommandMenuItem, type CommandRegistryContext } from "./command-registry";
+import { translate } from "./i18n";
+import { actionKbd, KEYMAP_ACTIONS, type KeymapActionId } from "./keymap";
+
+const ok = () => ({ type: "response" as const, command: "x", success: true as const });
+
+const ctx: CommandRegistryContext = {
+	t: translate,
+	isStreaming: false,
+	fastModeEnabled: false,
+	autoCompaction: false,
+	autoRetry: false,
+	planModeEnabled: false,
+	prewalkArmed: false,
+	availableCommands: [],
+	openModelPicker: () => {},
+	openSettings: () => {},
+	openProviders: () => {},
+	openFeedback: () => {},
+	openRenameDialog: () => {},
+	openSessionPicker: () => {},
+	openBranchPicker: () => {},
+	openSessionTree: () => {},
+	openBenchmark: () => {},
+	openHandoffDialog: () => {},
+	openThemePicker: () => {},
+	openModes: () => {},
+	openAgents: () => {},
+	openInsights: () => {},
+	openImportDialog: () => {},
+	openProviderConfig: () => {},
+	focusDockCard: () => {},
+	retryTurn: async () => {},
+	retryLastTurn: async () => {},
+	forkSession: async () => {},
+	hydrateSession: async () => {},
+	rpc: {
+		setFastMode: async () => ok(),
+		setAutoCompaction: async () => ok(),
+		setAutoRetry: async () => ok(),
+		compact: async () => ok(),
+		newSession: async () => {},
+		setPlanMode: async () => ok(),
+		setPrewalk: async () => ok(),
+		cycleModel: async () => {},
+		cycleThinkingLevel: async () => {},
+	},
+};
+
+/** Palette row for each native menu action; null where the palette itself is the target. */
+const MENU_ROWS: Record<MenuAction, string | null> = {
+	"new-session": "new",
+	"new-tab": "new-tab",
+	"new-chat-tab": "new-chat-tab",
+	"close-tab": "close-tab",
+	"open-project": "open-project",
+	"toggle-sidebar": "toggle-sidebar",
+	"toggle-panel": "toggle-panel",
+	"open-settings": "settings",
+	"check-updates": "check-updates",
+	"open-usage": "usage",
+	"open-command-center": null,
+	"open-context-report": "context",
+	"open-jobs": "jobs",
+	"open-stats": "stats",
+	"open-feedback": "feedback",
+	"open-hotkeys": "hotkeys",
+	"open-session-info": "session",
+	"open-share-session": "share",
+	"open-import": "import",
+	"open-branch-picker": "branch",
+	"open-session-tree": "tree",
+	"open-capabilities": "settings",
+	"open-model-picker": "model",
+	"open-git": "git",
+	"restart-sidecar": "restart",
+	"open-workspace-dirs": "dirs",
+	"open-agent-hub": "agents",
+	"open-modes": "modes",
+	"open-providers": "providers",
+	"open-model-roles": "model-roles",
+	"open-extensions": "extensions",
+	"open-inventory": "plugins",
+	"open-pr-center": "prs",
+	"open-debug": "debug",
+	"export-html": "export",
+	handoff: "handoff",
+	"toggle-fast": "fast",
+	"cycle-thinking": "thinking cycle",
+	"set-approval": null,
+	"toggle-language": null,
+	"switch-project": null,
+};
+
+/** Palette row for each remappable shortcut; null where a palette row makes no sense. */
+const SHORTCUT_ROWS: Record<KeymapActionId, string | null> = {
+	"model.cycleForward": "model cycle",
+	"model.cycleBackward": null,
+	retry: "retry",
+	"pr.center": "prs",
+	dequeue: "dequeue",
+	"plan.toggle": "plan",
+	"tools.expand": "expand-tools",
+	"thinking.toggle": "toggle-thinking-blocks",
+	"model.select": "model",
+	"agents.hub": "hub",
+	palette: null,
+	"tab.new": "new-tab",
+	"tab.newChat": "new-chat-tab",
+	"tab.newWorktree": "new-worktree-tab",
+	"tab.close": "close-tab",
+	"tab.next": null,
+	"tab.prev": null,
+	settings: "settings",
+	"sidebar.toggle": "toggle-sidebar",
+	"panel.toggle": "toggle-panel",
+	"panel.terminal": "terminal",
+	"panel.diff": "git",
+	"panel.preview": "preview",
+	"panel.files": "files",
+	"panel.jobs": "jobs",
+	"panel.plan": "plan-panel",
+	"panel.logs": "logs",
+	"panel.queue": "queue-panel",
+	"panel.tree": "tree-panel",
+	hotkeys: "hotkeys",
+};
+
+const row = (items: CommandMenuItem[], name: string) => items.find(item => item.name === name);
+
+beforeEach(() => {
+	(globalThis as Record<string, unknown>).window = { omp: { rpc: {} } };
+});
+afterEach(() => {
+	delete (globalThis as Record<string, unknown>).window;
+});
+
+describe("command palette coverage", () => {
+	it("has a row for every native menu item", () => {
+		const items = buildCommandMenu(ctx);
+		for (const [action, name] of Object.entries(MENU_ROWS)) {
+			if (name === null) continue;
+			expect(row(items, name), `${action} → ${name}`).toBeDefined();
+		}
+	});
+
+	it("has a row for every remappable shortcut and shows its default chord", () => {
+		const items = buildCommandMenu(ctx);
+		for (const action of KEYMAP_ACTIONS) {
+			const name = SHORTCUT_ROWS[action.id];
+			if (name === null) continue;
+			const item = row(items, name);
+			expect(item, `${action.id} → ${name}`).toBeDefined();
+			// Panel views have no default chord until the user binds one.
+			expect(item?.shortcut ?? "", action.id).toBe(actionKbd(action.id));
+		}
+	});
+
+	it("shows the user's remapped chord instead of the default", () => {
+		const items = buildCommandMenu({
+			...ctx,
+			keymapOverrides: { "tab.new": ["⌥⌘N"], "panel.terminal": ["⌃`"], hotkeys: ["⌥/"] },
+		});
+		expect(row(items, "new-tab")?.shortcut).toBe("⌥⌘N");
+		expect(row(items, "terminal")?.shortcut).toBe("⌃`");
+		expect(row(items, "hotkeys")?.shortcut).toBe("⌥/");
+	});
+});

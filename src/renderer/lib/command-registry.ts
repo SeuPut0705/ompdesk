@@ -33,18 +33,27 @@ import { useTabsStore } from "../stores/tabs";
 import { toast, toastError } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { type AgentsTab, type DockCardId, type InsightsStatsScope, type InsightsTab, useUiStore } from "../stores/ui";
+import { checkForUpdatesInPlace } from "../stores/updater";
 import type { CommandGuard } from "./command-search";
+import { readDisplayPreference, setDisplayPreference } from "./display-preferences";
 import { exportSessionHtml } from "./export-session";
 import { copyText } from "./format";
 import { translate } from "./i18n";
-import { clearSessionContext, retryLastTurn as retryLastTurnShared } from "./messages";
+import { actionKbd, type KeymapActionId, type KeymapOverrides } from "./keymap";
+import { clearSessionContext, restoreQueuedMessages, retryLastTurn as retryLastTurnShared } from "./messages";
 import {
 	capturePluginActivationOrigin,
 	handlePluginActivation,
 	isPluginActivationOriginActive,
 } from "./plugin-activation";
+import { closeActiveTab } from "./tab-close";
 import { copyTodosToClipboard, dumpTranscriptToClipboard, exportTodos, importTodosFromFile } from "./transcript-copy";
-import { addWorkspaceDirectory, moveSessionTo, pickFocusedTabDirectory } from "./workspace-dirs";
+import {
+	addWorkspaceDirectory,
+	moveSessionTo,
+	pickFocusedTabDirectory,
+	selectFocusedTabProject,
+} from "./workspace-dirs";
 
 /**
  * `action` and `prompt` carry `argUsage` when the command needs user text
@@ -118,6 +127,8 @@ export interface CommandRegistryContext {
 	planModeEnabled: boolean;
 	prewalkArmed: boolean;
 	availableCommands: AvailableCommand[];
+	/** The user's remapped chords; rows backed by a shortcut show the chord that fires it. */
+	keymapOverrides?: KeymapOverrides;
 	openModelPicker: () => void;
 	openSettings: (tab?: string) => void;
 	openProviders: () => void;
@@ -245,6 +256,8 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		for (const alias of item.aliases ?? []) claimed.add(alias);
 		items.push(item);
 	};
+	/** The chord that fires a remappable action now (the user's remap first); none when unbound. */
+	const kbd = (id: KeymapActionId) => actionKbd(id, ctx.keymapOverrides) || undefined;
 
 	/** Helper to build a submenu item; the label resolves through the ctx translator. */
 	const sub = (name: string, text: string, argUsage?: string): CommandMenuItem => ({
@@ -440,7 +453,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.newTab"),
 		description: t("cmd.newTab.desc"),
 		category: "session",
-		shortcut: "⌘T",
+		shortcut: kbd("tab.new"),
 		affordance: { kind: "action", run: () => useTabsStore.getState().openTab() },
 	});
 	add({
@@ -448,8 +461,23 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.newChatTab"),
 		description: t("cmd.newChatTab.desc"),
 		category: "session",
-		shortcut: "⇧⌘T",
+		shortcut: kbd("tab.newChat"),
 		affordance: { kind: "action", run: () => useTabsStore.getState().openTab({ kind: "chat" }) },
+	});
+	add({
+		name: "new-worktree-tab",
+		label: t("hotkeys.row.tabNewWorktree"),
+		category: "session",
+		shortcut: kbd("tab.newWorktree"),
+		affordance: { kind: "window", open: () => useUiStore.getState().openWorktreeDialog() },
+	});
+	add({
+		name: "close-tab",
+		label: t("hotkeys.row.tabClose"),
+		category: "session",
+		shortcut: kbd("tab.close"),
+		// A live run arms the tab chip's inline confirm instead of closing.
+		affordance: { kind: "action", run: () => closeActiveTab() },
 	});
 	add({
 		name: "clear",
@@ -590,7 +618,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.retry"),
 		description: t("cmd.retry.desc"),
 		category: "session",
-		shortcut: "⌥R",
+		shortcut: kbd("retry"),
 		affordance: { kind: "action", run: () => ctx.retryTurn() },
 		guard: "turn",
 	});
@@ -612,6 +640,16 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		category: "session",
 		affordance: { kind: "action", run: () => prefillQueueShorthand() },
 	});
+	add({
+		name: "dequeue",
+		label: t("hotkeys.row.dequeue"),
+		category: "session",
+		shortcut: kbd("dequeue"),
+		affordance: {
+			kind: "action",
+			run: () => restoreQueuedMessages(() => toast({ variant: "info", message: t("input.dequeueEmpty") })),
+		},
+	});
 
 	// ═══════════════════════════════════════════════════════════════════
 	// MODEL
@@ -622,6 +660,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: t("cmd.model.desc"),
 		category: "model",
 		aliases: ["models"],
+		shortcut: kbd("model.select"),
 		affordance: { kind: "picker", open: ctx.openModelPicker },
 	});
 	add({
@@ -636,7 +675,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.model.cycle"),
 		description: t("cmd.model.cycle.desc"),
 		category: "model",
-		shortcut: "⌃P",
+		shortcut: kbd("model.cycleForward"),
 		affordance: { kind: "action", run: () => ctx.rpc.cycleModel() },
 	});
 	add({
@@ -1149,7 +1188,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.plan"),
 		description: t("cmd.plan.desc"),
 		category: "modes",
-		shortcut: "⌥⇧P",
+		shortcut: kbd("plan.toggle"),
 		affordance: {
 			kind: "toggle",
 			get: () => ctx.planModeEnabled,
@@ -1237,6 +1276,25 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		category: "workspace",
 		affordance: { kind: "window", open: () => ctx.openSettings("workspace") },
 	});
+	const openProjectBusy = (): boolean => {
+		if (!useSessionStore.getState().isStreaming) return false;
+		toast({ variant: "warning", message: t("sessionSwitch.busyBlocked") });
+		return true;
+	};
+	add({
+		name: "open-project",
+		label: t("sidebar.project.open"),
+		category: "workspace",
+		affordance: {
+			kind: "picker",
+			open: () => {
+				if (openProjectBusy()) return;
+				void selectFocusedTabProject().catch(error =>
+					toastError({ title: t("titlebar.openProjectFailed"), error }),
+				);
+			},
+		},
+	});
 	add({
 		name: "dirs",
 		label: t("cmd.dirs"),
@@ -1249,23 +1307,36 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.git"),
 		description: t("cmd.git.desc"),
 		category: "panel",
+		shortcut: kbd("panel.diff"),
 		affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab("diff") },
 	});
-	for (const view of ["terminal", "preview", "files", "logs", "queue"] as const) {
+	for (const view of ["terminal", "preview", "files", "logs"] as const) {
 		add({
 			name: view,
 			label: t(`panel.tabs.${view}`),
 			description: t("panel.title"),
 			category: "panel",
+			shortcut: kbd(`panel.${view}`),
+			affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab(view) },
+		});
+	}
+	// `plan`, `queue` and `tree` already name commands; their panel views take a suffix.
+	for (const view of ["plan", "queue", "tree"] as const) {
+		add({
+			name: `${view}-panel`,
+			label: t(`panel.tabs.${view}`),
+			description: t("panel.title"),
+			category: "panel",
+			shortcut: kbd(`panel.${view}`),
 			affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab(view) },
 		});
 	}
 	add({
-		name: "plan-panel",
-		label: t("panel.tabs.plan"),
-		description: t("panel.title"),
+		name: "toggle-panel",
+		label: t("hotkeys.row.panel"),
 		category: "panel",
-		affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab("plan") },
+		shortcut: kbd("panel.toggle"),
+		affordance: { kind: "action", run: () => useUiStore.getState().togglePanel() },
 	});
 
 	// ═══════════════════════════════════════════════════════════════════
@@ -1279,11 +1350,35 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		affordance: { kind: "picker", open: ctx.openThemePicker },
 	});
 	add({
+		name: "toggle-sidebar",
+		label: t("hotkeys.row.sidebar"),
+		category: "settings",
+		shortcut: kbd("sidebar.toggle"),
+		affordance: { kind: "action", run: () => useUiStore.getState().toggleSidebar() },
+	});
+	add({
+		name: "toggle-thinking-blocks",
+		label: t("hotkeys.row.thinkingToggle"),
+		category: "settings",
+		shortcut: kbd("thinking.toggle"),
+		affordance: {
+			kind: "action",
+			run: () => setDisplayPreference("hideThinkingBlock", !readDisplayPreference("hideThinkingBlock")),
+		},
+	});
+	add({
+		name: "expand-tools",
+		label: t("hotkeys.row.expandTools"),
+		category: "settings",
+		shortcut: kbd("tools.expand"),
+		affordance: { kind: "action", run: () => useUiStore.getState().toggleToolsExpandAll() },
+	});
+	add({
 		name: "settings",
 		label: t("cmd.settings"),
 		description: t("cmd.settings.desc"),
 		category: "settings",
-		shortcut: "⌘,",
+		shortcut: kbd("settings"),
 		affordance: { kind: "window", open: () => ctx.openSettings() },
 	});
 	add({
@@ -1305,6 +1400,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.jobs"),
 		description: t("cmd.jobs.desc"),
 		category: "panel",
+		shortcut: kbd("panel.jobs"),
 		affordance: { kind: "window", open: () => useUiStore.getState().openJobs() },
 	});
 	add({
@@ -1313,6 +1409,13 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: t("cmd.changelog.desc"),
 		category: "help",
 		affordance: { kind: "window", open: () => useUiStore.getState().openChangelog() },
+	});
+	add({
+		name: "check-updates",
+		label: t("cmd.checkUpdates"),
+		description: t("cmd.checkUpdates.desc"),
+		category: "help",
+		affordance: { kind: "action", run: () => checkForUpdatesInPlace() },
 	});
 	add({
 		name: "copy",
@@ -1326,6 +1429,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.hotkeys"),
 		description: t("cmd.hotkeys.desc"),
 		category: "help",
+		shortcut: kbd("hotkeys"),
 		affordance: { kind: "window", open: () => ctx.openSettings("keyboard") },
 	});
 	add({
@@ -1348,6 +1452,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.hub"),
 		description: t("cmd.hub.desc"),
 		category: "agents",
+		shortcut: kbd("agents.hub"),
 		affordance: { kind: "window", open: () => ctx.openAgents("live") },
 	});
 	add({
@@ -1355,6 +1460,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.prCenter"),
 		description: t("cmd.prCenter.desc"),
 		category: "agents",
+		shortcut: kbd("pr.center"),
 		affordance: { kind: "window", open: () => ctx.openAgents("prs") },
 	});
 
@@ -1687,6 +1793,7 @@ type CommandContextSnapshot = Pick<
 	| "planModeEnabled"
 	| "prewalkArmed"
 	| "availableCommands"
+	| "keymapOverrides"
 >;
 
 /** The one assembly of a command context: UI openers, shared session actions, and RPCs bound to `rpc`. */
