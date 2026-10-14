@@ -132,7 +132,7 @@ describe("resolveOmp", () => {
 			expect(resolution).toMatchObject({
 				ok: false,
 				error: expect.stringContaining("omp update"),
-				reason: { kind: "too-old", version: "18.6.3", minimum: MIN_OMP_VERSION },
+				reason: { kind: "too-old", version: "18.6.3", minimum: MIN_OMP_VERSION, bin },
 			});
 		} finally {
 			await fs.rm(dir, RM_TEMP);

@@ -54,23 +54,14 @@ OMPdesk는 [omp](https://github.com/can1357/oh-my-pi) 코딩 에이전트를 위
 | 항목 | 내용 |
 |---|---|
 | 컴퓨터 | macOS Apple Silicon(M1 이상) 또는 Windows 10/11 x64 |
-| omp | 18.8.7 이상 (설치에 [Bun](https://bun.sh) 필요) |
+| omp | 18.8.7 이상. 없으면 OMPdesk가 첫 실행 때 [Bun](https://bun.sh)과 함께 알아서 설치해요. |
 | 모델 | 사용할 프로바이더의 로그인 또는 API 키 |
-| 선택 | Git 작업에는 Git, GitHub PR 기능에는 [GitHub CLI](https://cli.github.com)(`gh`) 로그인 |
+| 선택 | Git 작업에는 Git, GitHub PR 기능에는 [GitHub CLI](https://cli.github.com)(`gh`) 로그인, 내장 REA 도구에는 Node.js. 없으면 OMPdesk가 백그라운드에서 설치해요. |
 | 다운로드·업데이트 | 이 저장소에 접근할 수 있는 GitHub 계정 |
 
 ## 시작하기
 
-### 1. omp 설치
-
-```bash
-bun install -g @oh-my-pi/pi-coding-agent
-omp --version
-```
-
-이미 설치했는데 18.8.7보다 낮다면 `omp update`를 실행하세요.
-
-### 2. OMPdesk 설치
+### 1. OMPdesk 설치
 
 맨 위 다운로드 버튼을 누르거나 [Releases 페이지](https://github.com/SeuPut0705/ompdesk/releases)에서 받으세요.
 
@@ -80,6 +71,30 @@ omp --version
 | Windows | `ompdesk-windows-setup.exe`를 실행하고 안내를 따라가세요. |
 
 첫 실행 때 보안 경고가 나오면 [문제 해결](#문제-해결)을 참고하세요.
+
+### 2. 첫 실행: 필요한 도구는 앱이 설치해요
+
+터미널을 열 필요가 없어요. 처음 켜면 OMPdesk가 이 컴퓨터를 확인하고 빠진 것을 바로 설치해요. 진행 상황은 설치 화면에 단계별로 보이고, 출력은 펼쳐서 볼 수 있어요. 실패하면 이유와 직접 설치하는 방법이 나오고 **다시 시도**할 수 있어요.
+
+| 항목 | 설치 방법 |
+|---|---|
+| Bun (필수) | Bun 공식 설치 스크립트로 사용자 폴더(`~/.bun`)에 설치해요. 관리자 권한이 필요 없어요. |
+| omp (필수) | `bun install -g @oh-my-pi/pi-coding-agent`. 18.8.7보다 낮으면 `omp update`를 실행해요. |
+| Git for Windows (Windows 필수) | omp의 셸 도구가 Git Bash를 써요. 이미 설치돼 있으면 그대로 쓰고, 없으면 고정된 PortableGit 릴리스를 SHA-256으로 확인한 뒤 `%LOCALAPPDATA%\ompdesk\tools\git`에 풀어요. 관리자 권한이 필요 없어요. WSL은 쓰지 않아요. |
+| Git (macOS, 선택) | `xcode-select --install`. macOS의 설치 창이 떠요. |
+| GitHub CLI, Node.js (선택) | macOS는 Homebrew가 있으면 `brew install`, 없으면 공식 압축 파일을 체크섬으로 확인해 OMPdesk 도구 폴더에 풀어요. Windows는 `winget`을 쓰고, 이때 Windows가 권한을 물어볼 수 있어요. |
+
+필수 항목이 끝나면 omp를 다시 찾아 바로 다음 단계로 넘어가요. 선택 항목은 그 뒤 백그라운드에서 설치되고, 상태와 다시 시도는 **설정 › 일반 › 이 컴퓨터**에서 볼 수 있어요. 이미 있는 항목은 건너뛰고, 실패한 항목은 다음 실행 때 다시 시도해요(계속 실패하면 하루에 한 번).
+
+직접 설치하고 싶다면 터미널에서 이렇게 하세요.
+
+```bash
+curl -fsSL https://bun.sh/install | bash        # Windows: powershell -c "irm bun.sh/install.ps1 | iex"
+bun install -g @oh-my-pi/pi-coding-agent
+omp --version
+```
+
+이미 설치했는데 18.8.7보다 낮다면 `omp update`를 실행하세요.
 
 ### 3. 모델 연결하고 첫 작업 보내기
 
@@ -150,7 +165,7 @@ omp update
 
 다른 컴퓨터의 omp, 파일, Git, 계정으로 작업할 수 있어요.
 
-1. 양쪽 컴퓨터에 OMPdesk와 omp를 설치하세요.
+1. 양쪽 컴퓨터에 OMPdesk를 설치하세요. omp는 각 컴퓨터에서 첫 실행 때 설치돼요.
 2. **작업을 실행할 컴퓨터**에서 **설정 › 기기 및 연결 › OMPdesk 공유 › 다른 기기에서 이 컴퓨터 사용 허용**을 켜고, 표시된 연결 코드(`XXXX-XXXX`)를 확인하세요. 코드는 10분 동안 한 번만 쓸 수 있어요.
 3. **지금 쓰는 컴퓨터**에서 **기기 연결**을 누르고 같은 네트워크의 기기를 고르거나 주소를 입력한 뒤 코드를 넣으세요. Tailscale 같은 네트워크에서는 주소를 직접 입력하세요.
 4. 사이드바에서 연결한 기기의 프로젝트와 세션을 열어요.
@@ -169,8 +184,8 @@ omp update
 | 다운로드 링크가 404예요 | 저장소 초대를 수락했는지, 권한 있는 GitHub 계정으로 로그인했는지 확인하세요. |
 | macOS에서 개발자 확인 경고가 나와요 | Apple 공증을 받지 않은 빌드예요. Finder에서 앱을 **우클릭 → 열기**로 한 번 실행하세요. 계속 막히면 **시스템 설정 › 개인정보 보호 및 보안**에서 허용하세요. |
 | Windows SmartScreen이 막아요 | **추가 정보 → 실행**을 누르세요. 회사 정책으로 막히면 관리자에게 문의하세요. |
-| omp를 찾을 수 없어요 | 터미널에서 `omp --version`을 확인하세요. 다른 경로에 설치했다면 `OMP_GUI_OMP` 환경 변수에 실행 파일 경로를 지정하세요. |
-| omp 버전이 낮다고 나와요 | `omp update` 후 앱을 다시 켜세요. 18.8.7 이상이 필요해요. |
+| omp를 찾을 수 없어요 | 설치 화면이나 **설정 › 일반 › 이 컴퓨터**에서 실패 이유를 확인하고 **다시 시도**를 누르세요. 직접 설치했다면 터미널에서 `omp --version`을 확인하세요. 다른 경로에 설치했다면 `OMP_GUI_OMP` 환경 변수에 실행 파일 경로를 지정하세요. |
+| omp 버전이 낮다고 나와요 | OMPdesk가 `omp update`를 알아서 실행해요. 실패했다면 터미널에서 `omp update` 후 **다시 시작**을 누르세요. 18.8.7 이상이 필요해요. |
 | 앱 업데이트에 로그인이 필요해요 | `gh auth status` 또는 설정의 **GitHub 접근 › 접근 확인**으로 확인하세요. |
 | PR 기능이 동작하지 않아요 | Git 저장소를 열었는지, `gh auth status`가 로그인 상태인지 확인하세요. |
 

@@ -10,6 +10,10 @@
 # own Mac (self-hosted `ompdesk-mac`, see release.yml for the rules that
 # runner imposes); other refs use GitHub's macOS runner (about 60 billed
 # minutes).
+#
+# The real Windows install of the app's automatic setup is manual too
+# (`gh workflow run ci.yml -f install_check=true`): Bun's installer, the
+# pinned PortableGit and `bun install -g` omp into a temp USERPROFILE.
 name: ci
 
 on:
@@ -22,6 +26,10 @@ on:
     inputs:
       e2e:
         description: "Also run the full Playwright e2e suite on macOS"
+        type: boolean
+        default: false
+      install_check:
+        description: "Also run the real automatic-setup install (Bun, PortableGit, omp) on Windows"
         type: boolean
         default: false
 
@@ -82,3 +90,22 @@ jobs:
             playwright-report/
           if-no-files-found: ignore
           retention-days: 3
+
+  # The app's automatic setup (src/main/setup/) for real on a fresh Windows
+  # profile: scripts/setup-install-check.ts runs Bun's installer, PortableGit
+  # (the runner's preinstalled Git for Windows hidden, so the managed copy is
+  # what omp finds) and `bun install -g` omp through the app's runner into a
+  # temp USERPROFILE/BUN_INSTALL, then asserts omp is detected at the minimum
+  # version, the registry PATH refresh saw Bun, and stock omp's shell is that
+  # Git Bash, not cmd.exe.
+  install-check:
+    if: inputs.install_check
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/setup-install-check.ts --hide-system-git

@@ -1,0 +1,156 @@
+/**
+ * Settings › General › This computer: every tool OMPdesk sets up on this
+ * machine (SETUP_ITEMS order), what detection found, and what main is doing
+ * about it. Main installs on its own; this only shows it, with Cancel while an
+ * item runs and Retry after a failure, a cancel or a backoff.
+ */
+
+import { ExternalLink, RefreshCw } from "lucide-react";
+import type { SetupItemState } from "../../../shared/setup";
+import { useT } from "../../lib/i18n";
+import { useMachineSetupStore } from "../../stores/machine-setup";
+import { Badge, Button } from "../common";
+import {
+	SETUP_DETAILED,
+	SETUP_ITEM_NAMES,
+	SETUP_RETRYABLE,
+	SetupItemDetails,
+	SetupManualSteps,
+	SetupMark,
+	SetupOutput,
+	setupFailureText,
+	setupPhaseText,
+	setupPresenceNote,
+	setupPresencePath,
+	useMachineSetupState,
+} from "../onboarding/MachineSetupView";
+import { InlineNotice } from "./InlineNotice";
+import { SettingsSection } from "./SettingsLayout";
+
+function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolean }) {
+	const t = useT();
+	const retry = useMachineSetupStore(store => store.retry);
+	const cancel = useMachineSetupStore(store => store.cancel);
+	const name = SETUP_ITEM_NAMES[item.id];
+	const note = setupPresenceNote(t, item);
+	const path = setupPresencePath(item);
+	const purpose = item.id === "git" && windows ? "gitWindows" : item.id;
+	return (
+		<div className="settings-row min-w-0 py-3" data-phase={item.phase} data-setup-item={item.id}>
+			<div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-2">
+				<div className="min-w-0 flex-1">
+					<div className="flex flex-wrap items-center gap-2">
+						<SetupMark phase={item.phase} />
+						<span className="text-sc-md font-medium text-(--sc-text)">{name}</span>
+						<Badge variant="muted">
+							{item.required ? t("machineSetup.required") : t("machineSetup.optional")}
+						</Badge>
+					</div>
+					<p className="mt-0.5 text-sc-sm break-words break-keep text-(--sc-text-muted)">
+						{t(`machineSetup.purpose.${purpose}`)}
+					</p>
+					<p className="mt-0.5 text-sc-sm break-words text-(--sc-text-secondary)">
+						{setupPhaseText(t, item)}
+						{note && <span className="text-(--sc-text-muted)"> · {note}</span>}
+					</p>
+					{path && (
+						<p className="mt-0.5 font-mono text-sc-xs break-all text-(--sc-text-muted) select-text">{path}</p>
+					)}
+				</div>
+				{(item.phase === "running" || SETUP_RETRYABLE.includes(item.phase)) && (
+					<div className="flex max-w-full flex-wrap items-center gap-2">
+						{item.phase === "running" && (
+							<Button data-testid="setup-cancel" onClick={() => void cancel()} size="sm" variant="secondary">
+								{t("common.cancel")}
+							</Button>
+						)}
+						{SETUP_RETRYABLE.includes(item.phase) && (
+							<Button
+								data-testid="setup-retry"
+								icon={<RefreshCw />}
+								onClick={() => void retry(item.id)}
+								size="sm"
+								variant="secondary"
+							>
+								{t("common.retry")}
+							</Button>
+						)}
+					</div>
+				)}
+			</div>
+			{item.phase === "unavailable" && (
+				<InlineNotice
+					action={
+						item.manualUrl ? (
+							<Button
+								icon={<ExternalLink />}
+								onClick={() => void window.omp.system.openExternal(item.manualUrl)}
+								size="sm"
+								variant="ghost"
+							>
+								{t("machineSetup.manual.open")}
+							</Button>
+						) : undefined
+					}
+					title={t("machineSetup.unavailableHint", { name })}
+					tone="info"
+				/>
+			)}
+			{item.phase === "backoff" && (
+				<InlineNotice
+					detail={item.failure ? setupFailureText(t, item, item.failure) : undefined}
+					title={t("machineSetup.backoffHint")}
+					tone="warning"
+				/>
+			)}
+			{item.phase === "failed" && (
+				<InlineNotice
+					detail={item.failure?.detail}
+					title={item.failure ? setupFailureText(t, item, item.failure) : t("machineSetup.reason.unknown")}
+					tone="danger"
+				/>
+			)}
+			{item.phase === "cancelled" && <InlineNotice title={t("machineSetup.cancelledHint")} tone="warning" />}
+			{SETUP_DETAILED.includes(item.phase) && (
+				<div className="mt-2 flex min-w-0 flex-col gap-2">
+					<SetupItemDetails item={item} />
+					<SetupOutput item={item} />
+					{item.phase !== "running" && <SetupManualSteps item={item} />}
+				</div>
+			)}
+		</div>
+	);
+}
+
+export function MachineSetupSection() {
+	const t = useT();
+	const state = useMachineSetupState();
+	const loadError = useMachineSetupStore(store => store.loadError);
+	if (state?.platform === "other") return null;
+	return (
+		<div className="min-w-0" data-testid="machine-setup-settings">
+			<SettingsSection
+				description={t("machineSetup.settings.description")}
+				id="setting-machine-setup"
+				title={t("machineSetup.settings.title")}
+			>
+				{state ? (
+					state.items.map(item => <SetupItemRow item={item} key={item.id} windows={state.platform === "win32"} />)
+				) : loadError ? (
+					<InlineNotice
+						action={
+							<Button onClick={() => void useMachineSetupStore.getState().load()} size="sm" variant="ghost">
+								{t("common.retry")}
+							</Button>
+						}
+						detail={loadError}
+						title={t("machineSetup.loadFailed")}
+						tone="danger"
+					/>
+				) : (
+					<InlineNotice title={t("machineSetup.checking")} tone="pending" />
+				)}
+			</SettingsSection>
+		</div>
+	);
+}

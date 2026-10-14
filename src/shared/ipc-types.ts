@@ -29,6 +29,7 @@ import type {
 	SidecarStatusPayload,
 	SubagentFrame,
 } from "./rpc-types";
+import type { SetupItemId, SetupState } from "./setup";
 import type { SplitLayout } from "./split-layout";
 import type { TerminalApi } from "./terminal-types";
 import type { UiLanguage } from "./ui-language";
@@ -92,6 +93,8 @@ export const IPC_EVENTS = {
 	WORKTREE_PROMPTS: "worktree-lifecycle:prompts",
 	/** A worktree-lifecycle step the user should hear about (IpcWorktreeNotice). */
 	WORKTREE_NOTICE: "worktree-lifecycle:notice",
+	/** This machine's automatic setup changed (src/main/setup/); payload is the whole SetupState. */
+	SETUP_STATE: "setup:state",
 } as const;
 
 // ============================================================================
@@ -221,6 +224,12 @@ export const IPC_COMMANDS = {
 	UPDATER_AUTH_CLEAR: "updater:authClear",
 	/** Pending gui-bridge compatibility warnings, handed to exactly one caller */
 	BRIDGE_HEALTH_TAKE: "bridge-health:take",
+	/** This machine's automatic setup (src/main/setup/): whole SetupState snapshot */
+	SETUP_GET_STATE: "setup:get-state",
+	/** Retry one setup item by id (a SetupItemId; anything else is refused). Never takes a command. */
+	SETUP_RETRY: "setup:retry",
+	/** Cancel the running setup install (kills its process tree) */
+	SETUP_CANCEL: "setup:cancel",
 	/** Remote devices: whole RemoteState snapshot */
 	REMOTE_GET_STATE: "remote:get-state",
 	/** Turn the host role (other devices may use this computer) on or off; persisted in prefs */
@@ -1227,6 +1236,15 @@ export interface OmpApi {
 	bridgeHealth: {
 		/** Pending warnings; each is handed to one window only. */
 		take(): Promise<BridgeHealthWarning[]>;
+	};
+	/** This machine's automatic setup; remote tabs never use it (their host sets itself up). */
+	setup: {
+		getState(): Promise<SetupState>;
+		/** Retry `item` now (a required item retries every missing required item in order). Rejects an unknown id. */
+		retry(item: SetupItemId): Promise<void>;
+		/** Cancel the running install; false when nothing runs. */
+		cancel(): Promise<boolean>;
+		onState(callback: (state: SetupState) => void): () => void;
 	};
 	ui: {
 		respondExtensionUi(response: ExtensionUIResponse, tabId?: string): void;

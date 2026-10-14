@@ -1,7 +1,8 @@
 /**
  * Settings › General: language, conversation language, notifications, side
  * panel default (this device's app preferences), then messages sent mid-turn
- * and long-session compaction (the focused tab's agent — a paired host's own).
+ * and long-session compaction (the focused tab's agent — a paired host's own),
+ * then the tools OMPdesk sets up on this computer.
  */
 
 import { useId } from "react";
@@ -12,6 +13,7 @@ import { PANEL_TABS, type PanelTab, useUiStore } from "../../stores/ui";
 import { Select } from "../common";
 import { DisplayPreferenceRow } from "./AppearanceSection";
 import { ProxyRow } from "./LaunchSettings";
+import { MachineSetupSection } from "./MachineSetupSection";
 import { ReplyLanguageRow } from "./ReplyLanguageRow";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
@@ -74,6 +76,7 @@ export function GeneralSection() {
 				<DisplayPreferenceRow field="showProgress" />
 				<ProxyRow />
 			</SettingsSection>
+			<MachineSetupSection />
 		</>
 	);
 }

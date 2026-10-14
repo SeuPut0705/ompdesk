@@ -84,20 +84,20 @@ export const MAIN_TEXT = {
 	"menu.zoom": { en: "Zoom", ko: "확대/축소" },
 	"menu.bringAllToFront": { en: "Bring All to Front", ko: "모두 앞으로 가져오기" },
 	"omp.cannotRun": {
-		en: "omp at {bin} could not run ({detail}). Reinstall it with `bun install -g @oh-my-pi/pi-coding-agent`, then press Restart.",
-		ko: "{bin}의 omp를 실행할 수 없어요 ({detail}). `bun install -g @oh-my-pi/pi-coding-agent`로 다시 설치한 뒤 다시 시작을 눌러 주세요.",
+		en: "omp at {bin} could not run ({detail}). OMPdesk reinstalls it on its own; to do it yourself, run `bun install -g @oh-my-pi/pi-coding-agent`, then press Restart.",
+		ko: "{bin}의 omp를 실행할 수 없어요 ({detail}). OMPdesk가 알아서 다시 설치해요. 직접 하려면 `bun install -g @oh-my-pi/pi-coding-agent`를 실행한 뒤 다시 시작을 눌러 주세요.",
 	},
 	"omp.notFound": {
-		en: "omp is not installed. Install it in a terminal with `bun install -g @oh-my-pi/pi-coding-agent`, then press Restart.",
-		ko: "omp가 설치되어 있지 않아요. 터미널에서 `bun install -g @oh-my-pi/pi-coding-agent`로 설치한 뒤 다시 시작을 눌러 주세요.",
+		en: "omp is not installed. OMPdesk installs it on its own; to do it yourself, run `bun install -g @oh-my-pi/pi-coding-agent`, then press Restart.",
+		ko: "omp가 설치되어 있지 않아요. OMPdesk가 알아서 설치해요. 직접 하려면 `bun install -g @oh-my-pi/pi-coding-agent`를 실행한 뒤 다시 시작을 눌러 주세요.",
 	},
 	"omp.overrideMissing": {
 		en: "OMP_GUI_OMP points at a missing file ({path}). Fix or unset it, then press Restart.",
 		ko: "OMP_GUI_OMP가 가리키는 파일이 없어요 ({path}). 값을 고치거나 지운 뒤 다시 시작을 눌러 주세요.",
 	},
 	"omp.tooOld": {
-		en: "omp {version} is too old; this app needs {minimum} or newer. Run `omp update` in a terminal, then press Restart.",
-		ko: "omp {version}은 너무 오래된 버전이에요. 이 앱은 {minimum} 이상이 필요해요. 터미널에서 `omp update`를 실행한 뒤 다시 시작을 눌러 주세요.",
+		en: "omp {version} is too old; this app needs {minimum} or newer. OMPdesk updates it on its own; to do it yourself, run `omp update`, then press Restart.",
+		ko: "omp {version}은 너무 오래된 버전이에요. 이 앱은 {minimum} 이상이 필요해요. OMPdesk가 알아서 업데이트해요. 직접 하려면 `omp update`를 실행한 뒤 다시 시작을 눌러 주세요.",
 	},
 	"quit.keepWorking": { en: "Keep working", ko: "계속 사용" },
 	"quit.quitAnyway": { en: "Quit anyway", ko: "그래도 종료" },

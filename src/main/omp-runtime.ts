@@ -33,7 +33,7 @@ export type OmpFailure =
 	| { kind: "not-found" }
 	| { kind: "override-missing"; path: string }
 	| { kind: "cannot-run"; bin: string; detail: string }
-	| { kind: "too-old"; version: string; minimum: string };
+	| { kind: "too-old"; version: string; minimum: string; bin: string };
 
 export type OmpResolution = { ok: true; runtime: OmpRuntime } | { ok: false; error: string; reason?: OmpFailure };
 
@@ -220,7 +220,7 @@ export async function resolveOmp(): Promise<OmpResolution> {
 		return {
 			ok: false,
 			error: `omp ${version} is too old; this GUI needs omp ${MIN_OMP_VERSION} or newer. Run \`omp update\`, then relaunch.`,
-			reason: { kind: "too-old", version, minimum: MIN_OMP_VERSION },
+			reason: { kind: "too-old", version, minimum: MIN_OMP_VERSION, bin },
 		};
 	}
 	return {

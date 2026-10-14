@@ -33,6 +33,9 @@ import { LocalHostServices } from "./remote/host-services";
 import { writeRuntimeLog } from "./runtime-log";
 import { SessionIndex } from "./session-index";
 import { SessionKindStore } from "./session-kinds";
+import { registerSetupIpc } from "./setup/ipc";
+import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } from "./setup/paths";
+import { SetupService } from "./setup/service";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
 import { localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
@@ -241,6 +244,7 @@ let logWatcher: LogWatcher;
 let remoteDevices: RemoteDevices | null = null;
 let worktreePrompts: WorktreePrompts | null = null;
 let worktreeLifecycle: WorktreeLifecycle | null = null;
+let setupService: SetupService | null = null;
 
 function errorMessage(value: unknown): { message: string; stack?: string } {
 	if (value instanceof Error) return { message: value.message, stack: value.stack };
@@ -383,6 +387,12 @@ app.whenReady().then(() => {
 	installMainRuntimeLogging();
 	windowManager = new WindowManager();
 
+	// Tools setup installed into the managed dir (PortableGit, Node/gh archives)
+	// reach every process spawned from here on, sidecars included.
+	const platform = setupPlatform();
+	const toolsDir = managedToolsDir(platform, process.env, homedir(), app.getPath("userData"));
+	applyManagedToolEnv(toolsDir, platform);
+
 	const initialCwd = resolveInitialCwd();
 	const explicitStartupCwd = resolveExplicitStartupCwd();
 	const bridgeDir = app.isPackaged ? join(process.resourcesPath, "gui-bridge") : join(devResourcesDir, "gui-bridge");
@@ -505,31 +515,66 @@ app.whenReady().then(() => {
 	});
 	// Stats dashboard: omp's own dashboard API from the user's omp install. A
 	// missing or too-old omp already surfaces on every tab; the dashboard just
-	// stays unavailable.
-	void Promise.all([systemOmp(), spawnPath()])
-		.then(([resolution, basePath]) => {
-			if (!resolution.ok || statsServer) return;
-			const packageRoot = ompPackageRoot(resolution.runtime.bin);
-			if (!packageRoot) {
-				console.warn(`[stats-server] cannot locate the omp package behind ${resolution.runtime.bin}`);
-				return;
+	// stays unavailable until setup installs omp (launchStats runs again then).
+	const launchStats = () =>
+		Promise.all([systemOmp(), spawnPath()])
+			.then(([resolution, basePath]) => {
+				if (!resolution.ok || statsServer) return;
+				const packageRoot = ompPackageRoot(resolution.runtime.bin);
+				if (!packageRoot) {
+					console.warn(`[stats-server] cannot locate the omp package behind ${resolution.runtime.bin}`);
+					return;
+				}
+				statsServer = new StatsServerManager({
+					command: "bun",
+					args: [join(bridgeDir, "stats-host.ts"), "127.0.0.1", "0"],
+					env: { PATH: ompPathEnv(resolution.runtime.bin, basePath), OMP_PACKAGE_ROOT: packageRoot },
+				});
+				statsServer.on("ready", (port: number) => {
+					statsClient.port = port;
+				});
+				statsServer.on("exit", () => {
+					statsClient.port = 0;
+				});
+				statsServer.start();
+			})
+			.finally(() => {
+				statsLaunchSettled = true;
+			});
+	void launchStats();
+
+	// This machine's setup: detect Bun/omp/Git/gh/Node and, in a packaged app,
+	// install what is missing on its own (src/main/setup/). Tests opt in with a
+	// fake installer (OMP_GUI_TEST_INSTALLER); headless test runs never install.
+	const testInstaller = process.env.OMP_GUI_TEST_INSTALLER || null;
+	const setup = new SetupService({
+		platform,
+		arch: process.arch,
+		systemRoot: process.env.SystemRoot || "C:\\Windows",
+		toolsDir,
+		bunInstall: bunInstallDir(process.env, homedir()),
+		statePath: join(app.getPath("userData"), "setup-state.json"),
+		automatic: testInstaller !== null || (app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1"),
+		testInstaller,
+		spawnEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
+		onState: state => {
+			for (const win of BrowserWindow.getAllWindows()) {
+				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.SETUP_STATE, state);
 			}
-			statsServer = new StatsServerManager({
-				command: "bun",
-				args: [join(bridgeDir, "stats-host.ts"), "127.0.0.1", "0"],
-				env: { PATH: ompPathEnv(resolution.runtime.bin, basePath), OMP_PACKAGE_ROOT: packageRoot },
-			});
-			statsServer.on("ready", (port: number) => {
-				statsClient.port = port;
-			});
-			statsServer.on("exit", () => {
-				statsClient.port = 0;
-			});
-			statsServer.start();
-		})
-		.finally(() => {
-			statsLaunchSettled = true;
-		});
+		},
+		onOmpReady: () => {
+			void launchStats();
+			// Local tabs that failed for lack of omp start now; tabs on paired hosts are theirs.
+			for (const sidecar of sidecarPool.allSidecars()) {
+				if (sidecar.device === undefined && (sidecar.status === "error" || sidecar.status === "exited")) {
+					sidecar.restart();
+				}
+			}
+		},
+	});
+	setupService = setup;
+	registerSetupIpc(ipcMain, setup);
+	void setup.start();
 	logWatcher = new LogWatcher();
 
 	// Register all handlers and sidecar listeners before loading the renderer.
@@ -613,6 +658,7 @@ installQuitGuard(
 	() => (sidecarPool ? sidecarPool.tabInventory() : []),
 	() => {
 		statsServer?.kill();
+		setupService?.dispose();
 		sidecarPool?.disposeAll();
 		void remoteDevices?.dispose();
 		sessionIndex?.stop();

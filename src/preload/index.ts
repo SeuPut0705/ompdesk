@@ -70,6 +70,7 @@ import type {
 	SessionInfoUpdateFrame,
 	SubagentFrame,
 } from "../shared/rpc-types";
+import type { SetupItemId, SetupState } from "../shared/setup";
 
 function rpcCommand(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse> {
 	return ipcRenderer.invoke(IPC_COMMANDS.RPC_COMMAND, {
@@ -207,6 +208,13 @@ const api: OmpApi = {
 
 	bridgeHealth: {
 		take: () => ipcRenderer.invoke(IPC_COMMANDS.BRIDGE_HEALTH_TAKE),
+	},
+
+	setup: {
+		getState: () => ipcRenderer.invoke(IPC_COMMANDS.SETUP_GET_STATE) as Promise<SetupState>,
+		retry: (item: SetupItemId) => ipcRenderer.invoke(IPC_COMMANDS.SETUP_RETRY, item) as Promise<void>,
+		cancel: () => ipcRenderer.invoke(IPC_COMMANDS.SETUP_CANCEL) as Promise<boolean>,
+		onState: (callback: (state: SetupState) => void) => subscribe<SetupState>(IPC_EVENTS.SETUP_STATE, callback),
 	},
 
 	ui: {

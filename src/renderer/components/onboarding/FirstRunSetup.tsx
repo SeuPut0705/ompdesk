@@ -1,8 +1,10 @@
 /**
- * First-run setup, inline in the empty main area (design-spec §2.2): connect
- * a provider (search, recommended first, sign-in or API key inline, or a
- * custom endpoint) → choose the default model (optionally verified with one
- * short test request) → ready to prompt. `FirstRunGate` decides when it shows.
+ * First-run setup, inline in the empty main area (design-spec §2.2): omp is
+ * installed on this machine (main does it on its own; `MachineSetupView` only
+ * shows it) → connect a provider (search, recommended first, sign-in or API
+ * key inline, or a custom endpoint) → choose the default model (optionally
+ * verified with one short test request) → ready to prompt. `FirstRunGate`
+ * decides when the provider steps show; `useMachineSetupNeeded` the install step.
  */
 
 import { ArrowLeft, Check, CheckCircle2, Plus, Sparkles } from "lucide-react";
@@ -30,15 +32,23 @@ import {
 	servingProviderIds,
 } from "../settings/providers/provider-catalog";
 import { applyDefaultModel } from "./default-model";
+import { MachineSetupView, useMachineSetupNeeded } from "./MachineSetupView";
 
-/** True while the first-run setup replaces the empty-session hero. */
+/**
+ * True while the first-run setup replaces the empty-session hero: a provider
+ * step is open, or this local tab's omp is not usable yet because machine
+ * setup is still installing it.
+ */
 export function useFirstRunActive(): boolean {
-	return useFirstRunStore(state => state.phase !== "idle");
+	const phase = useFirstRunStore(state => state.phase);
+	const installing = useMachineSetupNeeded();
+	return phase !== "idle" || installing;
 }
 
-const STEPS = ["connect", "model", "prompt"] as const;
+const STEPS = ["install", "connect", "model", "prompt"] as const;
+type SetupStep = Exclude<FirstRunPhase, "idle"> | "install";
 
-function StepList({ phase }: { phase: Exclude<FirstRunPhase, "idle"> }) {
+function StepList({ phase }: { phase: SetupStep }) {
 	const t = useT();
 	const current = STEPS.indexOf(phase);
 	return (
@@ -380,10 +390,27 @@ function ModelStep() {
 	);
 }
 
+function InstallStep() {
+	const t = useT();
+	return (
+		<div className="mt-8 flex flex-col gap-4">
+			<div>
+				<h2 className="text-sc-xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">
+					{t("machineSetup.install.title")}
+				</h2>
+				<p className="mt-1 text-sc-md text-(--sc-text-secondary)">{t("machineSetup.install.description")}</p>
+			</div>
+			<MachineSetupView />
+		</div>
+	);
+}
+
 export function FirstRunSetup() {
 	const t = useT();
 	const phase = useFirstRunStore(state => state.phase);
-	if (phase === "idle") return null;
+	const installing = useMachineSetupNeeded();
+	if (phase === "idle" && !installing) return null;
+	const step: SetupStep = installing ? "install" : phase === "idle" ? "connect" : phase;
 	return (
 		<section
 			aria-labelledby="first-run-title"
@@ -396,9 +423,11 @@ export function FirstRunSetup() {
 			>
 				{t("setup.title")}
 			</h1>
-			<p className="mt-2 text-sc-lg text-(--sc-text-muted)">{t("setup.subtitle")}</p>
-			<StepList phase={phase} />
-			{phase === "connect" ? <ConnectStep /> : <ModelStep />}
+			<p className="mt-2 text-sc-lg text-(--sc-text-muted)">
+				{step === "install" ? t("machineSetup.install.subtitle") : t("setup.subtitle")}
+			</p>
+			<StepList phase={step} />
+			{step === "install" ? <InstallStep /> : step === "connect" ? <ConnectStep /> : <ModelStep />}
 		</section>
 	);
 }
