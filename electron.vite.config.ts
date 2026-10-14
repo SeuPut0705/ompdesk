@@ -73,7 +73,10 @@ const RUNTIME_HELPER = /^\0(vite\/preload-helper|commonjsHelpers)/;
 
 function manualChunks(id: string): string | undefined {
 	if (RUNTIME_HELPER.test(id)) return "react";
-	if (!id.includes("node_modules")) return undefined;
+	// A vendor stylesheet stays with the module that imports it. Assigned to its
+	// package's chunk, TerminalPanel's static `@xterm/xterm/css/xterm.css` import
+	// made the entry import the whole lazy xterm chunk (416 KB) on every launch.
+	if (!id.includes("node_modules") || id.endsWith(".css")) return undefined;
 	for (const [pattern, chunk] of VENDOR_CHUNK_RULES) {
 		if (pattern.test(id)) return chunk;
 	}
