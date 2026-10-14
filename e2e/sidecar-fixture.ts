@@ -348,9 +348,12 @@ if (process.argv[2] === "stats") {
 	 */
 	const loadJournal = (file: string) => {
 		entries.length = 0;
+		const header: { id?: string; title?: string } = {};
 		for (const line of fs.readFileSync(file, "utf8").split("\n")) {
 			if (!line) continue;
 			const entry = JSON.parse(line) as Entry;
+			if (entry.type === "session") header.id = entry.id;
+			if (entry.type === "title") header.title = String(entry.title ?? "");
 			if (entry.type === "session" || entry.type === "title") continue;
 			if (entry.type !== "custom_message") {
 				entries.push(entry);
@@ -366,6 +369,7 @@ if (process.argv[2] === "stats") {
 			});
 		}
 		activeLeafId = entries.at(-1)?.id ?? null;
+		return header;
 	};
 	if (process.env.OMP_GUI_TEST_SEED_SESSION) loadJournal(process.env.OMP_GUI_TEST_SEED_SESSION);
 
@@ -437,6 +441,8 @@ if (process.argv[2] === "stats") {
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 	};
 	const lanes: Record<"steering" | "followUp", string[]> = { steering: [], followUp: [] };
+	/** The stored session `switch_session` opened (a relaunch reopening a run it cut off). */
+	let resumed: { id: string; file: string } | undefined;
 	let isStreaming = false;
 	let planModeEnabled = Boolean(process.env.OMP_GUI_TEST_PANEL_PLAN);
 	/** Stock `/btw` history, newest first. */
@@ -450,8 +456,8 @@ if (process.argv[2] === "stats") {
 		steeringMode: "all",
 		followUpMode: "all",
 		interruptMode: "immediate",
-		sessionId,
-		...(sessionFile ? { sessionFile } : {}),
+		sessionId: resumed?.id ?? sessionId,
+		...(resumed ? { sessionFile: resumed.file } : sessionFile ? { sessionFile } : {}),
 		sessionName: sessionTitle || "Audit session",
 		autoCompactionEnabled: true,
 		queuedMessageCount: lanes.steering.length + lanes.followUp.length,
@@ -1259,6 +1265,29 @@ if (process.argv[2] === "stats") {
 			if (!planModeEnabled) planProposal = undefined;
 			return { enabled: planModeEnabled };
 		},
+		// Approving keeps the context: plan mode ends and stock's synthetic prompt starts the
+		// execution turn (a `fixture flow` run, driven like any other).
+		"modes.plan_approval": params => {
+			if (!planProposal) throw new Error("No plan is awaiting approval");
+			planProposal = undefined;
+			if (params.approved !== true) return { approved: false, dispatched: false, reason: "rejected" };
+			planModeEnabled = false;
+			setTimeout(() => {
+				isStreaming = true;
+				const developer: AgentMessage = {
+					role: "developer",
+					content: [{ type: "text", text: "Execute the approved plan." }],
+					attribution: "agent",
+					synthetic: true,
+					timestamp: Date.now(),
+				};
+				appendMessage(developer);
+				write({ type: "agent_start" });
+				write({ type: "message_end", message: developer });
+				startFlow(developer);
+			}, 0);
+			return { approved: true, dispatched: true };
+		},
 		"modes.get_loop_mode": () => ({ enabled: false, state: "off" }),
 		"modes.get_vibe_mode": () => ({ enabled: false }),
 		get_gui_themes: () => ({ themes: [] }),
@@ -1936,6 +1965,255 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			}, 33);
 		};
 	};
+	/**
+	 * `fixture flow`: one turn played op by op through `fixture:flow:<json>` bash lines, in stock's
+	 * event order, so an audit can stage a real run's sequence: calls and their agents, steers and
+	 * follow-ups, a question, a mid-turn compaction, a plan proposal (stock's silent abort), a stop.
+	 */
+	let flow:
+		| {
+				op: (spec: Record<string, unknown>) => string | undefined;
+				answer: (command: Record<string, unknown>) => boolean;
+				abort: () => boolean;
+		  }
+		| undefined;
+	const startFlow = (user: AgentMessage) => {
+		const turn: AgentMessage[] = [user];
+		const running = new Map<string, string>();
+		subagentRoster = [];
+		let pendingAsk: string | undefined;
+		let asks = 0;
+		const say = (message: AgentMessage) => {
+			appendMessage(message);
+			write({ type: "message_start", message });
+			write({ type: "message_end", message });
+			turn.push(message);
+		};
+		const call = (id: string, name: string, args: Record<string, unknown>) => {
+			say({
+				role: "assistant",
+				content: [{ type: "toolCall", id, name, arguments: args }],
+				timestamp: Date.now(),
+				provider: model.provider,
+				model: model.id,
+				stopReason: "toolUse",
+			});
+			running.set(id, name);
+			write({ type: "tool_execution_start", toolCallId: id, toolName: name, args });
+		};
+		const end = (id: string, text: string, isError: boolean, details?: Record<string, unknown>) => {
+			const name = running.get(id) ?? "bash";
+			running.delete(id);
+			const content: AgentMessage["content"] = [{ type: "text", text }];
+			write({ type: "tool_execution_end", toolCallId: id, toolName: name, result: { content, details }, isError });
+			const result: AgentMessage = {
+				role: "toolResult",
+				toolCallId: id,
+				toolName: name,
+				content,
+				details,
+				isError,
+				timestamp: Date.now(),
+			};
+			appendMessage(result);
+			write({ type: "message_end", message: result });
+			turn.push(result);
+		};
+		const settle = (agent: SubagentSnapshot, status: "completed" | "aborted") => {
+			agent.status = status;
+			agent.live = false;
+			agent.lastUpdate = Date.now();
+			write({ type: "subagent_lifecycle", payload: { ...agent, agentSource: "bundled", status } });
+		};
+		const finish = (last: AgentMessage) => {
+			say(last);
+			endTurn([...turn]);
+			flow = undefined;
+		};
+		flow = {
+			op: spec => {
+				const id = typeof spec.id === "string" ? spec.id : "";
+				switch (spec.op) {
+					case "call": {
+						const name = String(spec.name);
+						call(id, name, (spec.args as Record<string, unknown> | undefined) ?? {});
+						for (const agentId of (spec.agents as string[] | undefined) ?? []) {
+							const agent: SubagentSnapshot = {
+								id: agentId,
+								index: subagentRoster.length,
+								agent: "explore",
+								description: `${agentId} task`,
+								status: "running",
+								live: true,
+								parentToolCallId: id,
+								lastUpdate: Date.now(),
+							};
+							subagentRoster.push(agent);
+							write({
+								type: "subagent_lifecycle",
+								payload: { ...agent, agentSource: "bundled", status: "started" },
+							});
+						}
+						return undefined;
+					}
+					case "output":
+						write({
+							type: "tool_execution_update",
+							toolCallId: id,
+							toolName: running.get(id) ?? "bash",
+							partialResult: { content: [{ type: "text", text: String(spec.text) }] },
+						});
+						return undefined;
+					case "end": {
+						if (!running.has(id)) return `Flow has no running call ${id}`;
+						const agents = subagentRoster.filter(agent => agent.parentToolCallId === id);
+						for (const agent of agents) if (agent.live) settle(agent, "completed");
+						const details = agents.length
+							? {
+									results: agents.map(agent => ({
+										id: agent.id,
+										agent: agent.agent,
+										exitCode: 0,
+										output: `${agent.id} finished its part.`,
+										durationMs: 1500,
+									})),
+								}
+							: running.get(id) === "bash"
+								? { exitCode: spec.error ? 1 : 0 }
+								: undefined;
+						end(id, String(spec.text ?? "done"), spec.error === true, details);
+						return undefined;
+					}
+					// Stock delivers queued steers into the running loop as `steering` user messages.
+					case "steer": {
+						const steers = lanes.steering.splice(0);
+						emitQueue();
+						for (const text of steers)
+							say({ role: "user", content: [{ type: "text", text }], steering: true, timestamp: Date.now() });
+						return steers.length ? undefined : "No steer queued";
+					}
+					case "ask": {
+						asks++;
+						const askId = `flow-ask-${asks}`;
+						const questions = [
+							{
+								id: "target",
+								header: "Target",
+								question: "Which environment should the checks use?",
+								options: [{ label: "Staging" }, { label: "Production" }],
+								recommended: 0,
+							},
+						];
+						call(askId, "ask", { questions });
+						pendingAsk = askId;
+						write({ type: "extension_ui_request", id: askId, method: "ask", questions });
+						return undefined;
+					}
+					// Stock's mid-turn maintenance: start, the compaction entry, end (the loop goes on).
+					case "compact-start":
+						write({ type: "auto_compaction_start", reason: "threshold", action: "context-full" });
+						return undefined;
+					case "compact-end": {
+						const kept = entries.find(entry => entry.message === user)?.id;
+						const compaction = {
+							summary: "Compacted the run so far.",
+							firstKeptEntryId: kept,
+							tokensBefore: 182_000,
+							tokensAfter: 24_000,
+						};
+						append({ type: "compaction", ...compaction }, Date.now());
+						write({
+							type: "auto_compaction_end",
+							action: "context-full",
+							result: compaction,
+							aborted: false,
+							willRetry: false,
+						});
+						return undefined;
+					}
+					// The plan proposal: the bridge pushes the frame, then stock's silent abort ends the turn.
+					case "propose": {
+						planModeEnabled = true;
+						planProposal = {
+							planFilePath: `${process.cwd()}/.omp/plans/flow-plan.md`,
+							title: "Flow rollout plan",
+							suggestedFileName: "FLOW_PLAN.md",
+							planContent: "## Steps\n\n1. Split the checks.\n2. Run them in parallel.",
+							options: ["execute", "compact", "keep_context", "save", "refine"],
+						};
+						const frame = `${JSON.stringify({ event: { type: "plan_proposal", ...planProposal } })}\n`;
+						for (const socket of bridgeClients) socket.write(frame);
+						finish({
+							role: "assistant",
+							content: [],
+							stopReason: "aborted",
+							errorMessage: "__omp.silent_abort__",
+							errorId: 0x0200_0000,
+							timestamp: Date.now(),
+							provider: model.provider,
+							model: model.id,
+						});
+						return undefined;
+					}
+					// The reply; queued follow-ups then enter the same run as new user turns.
+					case "reply": {
+						const answer: AgentMessage = {
+							role: "assistant",
+							content: [{ type: "text", text: String(spec.text ?? "Flow finished") }],
+							timestamp: Date.now(),
+							provider: model.provider,
+							model: model.id,
+							stopReason: "stop",
+						};
+						const followUps = lanes.followUp.splice(0);
+						if (!followUps.length) {
+							finish(answer);
+							return undefined;
+						}
+						say(answer);
+						emitQueue();
+						for (const text of followUps)
+							say({ role: "user", content: [{ type: "text", text }], timestamp: Date.now() });
+						return undefined;
+					}
+					default:
+						return `Unknown flow op ${String(spec.op)}`;
+				}
+			},
+			answer: command => {
+				if (!pendingAsk || command.id !== pendingAsk) return false;
+				const answer = JSON.stringify(command.answers ?? command.value ?? null);
+				end(pendingAsk, `User answered: ${answer}`, false);
+				pendingAsk = undefined;
+				return true;
+			},
+			// Stock's stop: running calls end aborted, live agents with them, then the empty aborted reply.
+			abort: () => {
+				for (const agent of subagentRoster) if (agent.live) settle(agent, "aborted");
+				for (const [id, name] of [...running]) {
+					// Stock's task returns its partial results, each cut-off agent marked aborted.
+					if (name !== "task") {
+						end(id, "Command aborted", true);
+						continue;
+					}
+					const results = subagentRoster
+						.filter(agent => agent.parentToolCallId === id)
+						.map(agent => ({ id: agent.id, agent: agent.agent, aborted: true, exitCode: 1, output: "" }));
+					end(id, "Tasks aborted", false, { results });
+				}
+				finish({
+					role: "assistant",
+					content: [],
+					stopReason: "aborted",
+					errorMessage: "Interrupted by user",
+					timestamp: Date.now(),
+					provider: model.provider,
+					model: model.id,
+				});
+				return true;
+			},
+		};
+	};
 	/** `fixture steer work`: one turn that takes a steer mid-run, driven by `fixture:steer-*` bash lines. */
 	let steerWork: { deliver: () => void; finish: () => void } | undefined;
 	const startSteerWork = (user: AgentMessage) => {
@@ -2135,6 +2413,8 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			startWorkView(user);
 		} else if (message === "fixture steer work") {
 			startSteerWork(user);
+		} else if (message === "fixture flow") {
+			startFlow(user);
 		} else if (message === "fixture real work replay") {
 			const recording = rebaseWorkRecording(
 				JSON.parse(
@@ -2715,11 +2995,24 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					pendingLogin.finish(command.cancelled === true ? undefined : text("value"));
 					break;
 				}
+				// A question inside a flow run answers its ask call; the run goes on.
+				if (flow?.answer(command)) {
+					ok();
+					break;
+				}
 				ok();
 				endTurn([]);
 				break;
 			case "bash": {
 				const line = text("command");
+				if (line.startsWith("fixture:flow:")) {
+					const error = flow
+						? flow.op(JSON.parse(line.slice("fixture:flow:".length)) as Record<string, unknown>)
+						: "Fixture has no flow running";
+					if (error) fail(error);
+					else ok();
+					break;
+				}
 				if (line === "fixture:replay-next") {
 					replayRecordedWork?.();
 					ok();
@@ -2994,7 +3287,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				if (hadQueue) emitQueue();
 				clearInterval(streamTimer);
 				ok(restored);
-				if (isStreaming) endTurn([]);
+				if (!flow?.abort() && isStreaming) endTurn([]);
 				break;
 			}
 			// Stock `getUserMessagesForBranching` / `branch`: the leaf moves to the
@@ -3025,7 +3318,10 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					fail(`Session file not found: ${sessionPath}`);
 					break;
 				}
-				loadJournal(sessionPath);
+				// The stored file becomes the live journal, as it was written.
+				const header = loadJournal(sessionPath);
+				resumed = { id: header.id ?? sessionId, file: sessionPath };
+				sessionTitle = header.title ?? "";
 				ok({ cancelled: false });
 				break;
 			}
@@ -3033,7 +3329,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				clearInterval(streamTimer);
 				clearInterval(workStreamTimer);
 				ok();
-				endTurn([]);
+				if (!flow?.abort()) endTurn([]);
 				break;
 			case "prompt":
 				if (text("message") === "fixture uncertain") {
