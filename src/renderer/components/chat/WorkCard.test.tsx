@@ -124,11 +124,58 @@ describe("head sub line", () => {
 		await tools([["eval", call("eval", { code: "1 + 1", language: "js" })]]);
 		await show(<LiveStepPeek thinkingLive={false} toolCallIds={["eval"]} />);
 		expect(narrative()).toBe("Run JavaScript");
+		// The stage heading and the replay chip call the step by the head's own words.
+		const heading = () => container.querySelector(".omp-live-work-heading > span.shrink-0")?.textContent;
+		const chip = () => container.querySelector(".omp-live-work-chip[data-step-id]")?.getAttribute("aria-label");
+		expect(heading()).toBe("Run JavaScript");
+		expect(chip()).toBe("1. Run JavaScript");
 		// Its sub line never repeats the language or title the narrative already states.
 		expect(sub()).not.toContain("js");
 		await tools([["eval", call("eval", { code: "1 + 1", language: "py", title: "Count rows" })]]);
 		expect(narrative()).toBe("Count rows");
+		expect(heading()).toBe("Run Python");
+		expect(chip()).toBe("1. Run Python · Count rows");
 		expect(sub()).not.toContain("Count rows");
+	});
+});
+
+describe("silent command", () => {
+	const silent = () => container.querySelector(".omp-work-stage .omp-work-silent");
+	it("rests its command line and clock at the stage centre until it prints, never an empty terminal", async () => {
+		await tools([["sleep", call("bash", { command: "sleep 60" }, { startTime: 8_000 })]]);
+		await show(<LiveStepPeek thinkingLive={false} toolCallIds={["sleep"]} />);
+		expect(silent()?.querySelector(".omp-bash-prompt")?.textContent).toContain("sleep 60");
+		expect(silent()?.querySelector(".omp-bash-terminal")?.children).toHaveLength(1);
+		// One clock for the step, beside its command line, not again on the heading.
+		expect(silent()?.querySelector(".omp-work-clock")?.textContent).toBe("2s");
+		expect(container.querySelector(".omp-live-work-heading .omp-work-clock")).toBeNull();
+		await act(async () => vi.advanceTimersByTime(12_000));
+		expect(silent()?.querySelector(".omp-work-clock")?.textContent).toBe("No output for 12s");
+		// The first output ends the silent state: the terminal fills the stage again.
+		await act(async () =>
+			useToolsStore.setState({
+				...toolEntriesState([["sleep", call("bash", { command: "sleep 60" }, { startTime: 8_000 })]]),
+				partialResults: new Map([["sleep", { content: [{ type: "text", text: "tick" }] }]]),
+			}),
+		);
+		await flush();
+		expect(silent()).toBeNull();
+		expect(container.querySelector(".omp-live-work-heading .omp-work-clock")?.textContent).toBe("14s");
+	});
+
+	it("states a finished silent command by its exit, never stock's (no output) stand-in", async () => {
+		const result = {
+			content: [{ type: "text", text: "(no output)\n\nCommand exited with code 3" }],
+			details: { exitCode: 3, wallTimeMs: 16 },
+		};
+		await tools([
+			["exit", call("bash", { command: "exit 3" }, { status: "error", isError: true, endTime: 2, result })],
+		]);
+		await show(<LiveStepPeek thinkingLive={false} toolCallIds={["exit"]} />);
+		expect(silent()?.textContent).toContain("exit 3");
+		expect(silent()?.querySelector(".omp-bash-badge")?.textContent).toBe("exit 3");
+		expect(container.querySelector(".omp-work-stage")?.textContent).not.toContain("(no output)");
+		expect(silent()?.querySelector(".omp-work-clock")).toBeNull();
 	});
 });
 

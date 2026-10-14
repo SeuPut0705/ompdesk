@@ -336,11 +336,20 @@ const TOOL_META: Record<string, ToolMeta> = {
 	vibe_list: VIBE,
 };
 
+/** Stock eval's language tokens (`py`, `js` and their long forms) as people name them. */
+const EVAL_LANGUAGES: Record<string, string> = {
+	py: "Python",
+	python: "Python",
+	js: "JavaScript",
+	javascript: "JavaScript",
+};
+
 export interface ToolHeader {
 	/** Tool the row is labelled as — the device for an `xd://` call routed through write. */
 	tool: string;
-	/** `tools.label.*` key, or null for an unknown tool (show `tool` itself). */
+	/** Label key (`tools.label.*`, or a parameterized one with `labelParams`), or null for an unknown tool (show `tool` itself). */
 	labelKey: string | null;
+	labelParams?: Record<string, string>;
 	icon: LucideIcon;
 	activity: ToolActivity;
 	/** Visible target text (command, pattern, query…); for file tools, the full path. */
@@ -385,6 +394,15 @@ export function getToolHeader(name: string, args: Record<string, unknown>): Tool
 			if (paths.length > 1) header.moreFiles = paths.length - 1;
 			return header;
 		}
+	}
+	if (name === "eval") {
+		// A code cell is named by the language it runs ("Run JavaScript"), never the wire token
+		// ("Run code js"); its target is its title alone.
+		const language = typeof args.language === "string" ? args.language : "js";
+		header.labelKey = "chat.work.runLanguage";
+		header.labelParams = { language: EVAL_LANGUAGES[language] ?? language };
+		header.target = clipCardText(argLine(args, ["title"]));
+		return header;
 	}
 	header.target = getToolSummary(name, args);
 	return header;

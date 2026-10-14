@@ -25,6 +25,7 @@ import { type SubagentNode, type SubagentsStore, useSubagentsStore } from "../..
 import { useTabsStore } from "../../stores/tabs";
 import type { TodoSnapshot } from "../../stores/todo";
 import { selectToolEntry, type ToolEntry, type ToolsStore, useToolsStore } from "../../stores/tools";
+import { isSilentCommand } from "../tools/BashRenderer";
 import { getToolHeader, getToolRenderer, type ToolHeader } from "../tools/index";
 import { ToolPathTarget } from "../tools/ToolCard";
 import { collapseWaitSteps, selectLiveStep, type WorkStripStep } from "./live-step";
@@ -818,12 +819,39 @@ export function LiveStepPeek({
 		const Icon = header?.icon ?? Brain;
 		const kind = header?.tool ?? "thinking";
 		const calmWait = kind === "wait" && !entry?.isError && entry?.status !== "error" && entry?.status !== "aborted";
+		const isPartial = entry?.status === "pending" || entry?.status === "running";
+		// A command that has printed nothing keeps the stage calm: its command line and clock at the
+		// centre of the same fixed stage, instead of an empty terminal filling it.
+		const silent = kind === "bash" && !!entry && isSilentCommand(entry.args, isPartial ? partial : entry.result);
+		const clock =
+			(following || pinnedLive) && !thinkingBetween && stepClock && id === surfaceKey ? (
+				// The head counts the run; the step keeps this step's clock and no-output warning.
+				<span className="omp-live-work-mode omp-work-clock" data-stalled={stalled}>
+					{stepClock}
+				</span>
+			) : null;
+		const rendered =
+			Renderer && entry ? (
+				<Renderer
+					key={id}
+					args={entry.args}
+					result={entry.result}
+					partialResult={partial}
+					isPartial={isPartial}
+					isError={entry.isError || entry.status === "error"}
+					interrupted={entry.status === "aborted"}
+					livePreview
+					toolCallId={id}
+				/>
+			) : null;
 		return showSurface || id !== surfaceKey ? (
 			<div className="omp-work-surface" data-tool={kind}>
 				<div className="omp-live-work-heading">
 					<Icon aria-hidden className="omp-live-step-icon" />
 					<span className="shrink-0">
-						{header?.labelKey ? t(header.labelKey) : (header?.tool ?? t("chat.thinking.live"))}
+						{header?.labelKey
+							? t(header.labelKey, header.labelParams)
+							: (header?.tool ?? t("chat.thinking.live"))}
 					</span>
 					{header?.path ? (
 						<ToolPathTarget path={header.path} />
@@ -838,12 +866,9 @@ export function LiveStepPeek({
 						</span>
 					) : thinkingBetween ? (
 						<span className="omp-live-work-mode">{t("chat.work.justDone")}</span>
-					) : stepClock && id === surfaceKey ? (
-						// The head counts the run; the step line keeps this step's clock and no-output warning.
-						<span className="omp-live-work-mode omp-work-clock" data-stalled={stalled}>
-							{stepClock}
-						</span>
-					) : null}
+					) : silent ? null : (
+						clock
+					)}
 				</div>
 				<div
 					className="omp-live-step-scroll"
@@ -886,18 +911,13 @@ export function LiveStepPeek({
 								{t("chat.work.waiting")}
 								{waited ? <span className="tabular-nums"> · {waited}</span> : null}
 							</div>
-						) : Renderer && entry ? (
-							<Renderer
-								key={id}
-								args={entry.args}
-								result={entry.result}
-								partialResult={partial}
-								isPartial={entry.status === "pending" || entry.status === "running"}
-								isError={entry.isError || entry.status === "error"}
-								interrupted={entry.status === "aborted"}
-								livePreview
-								toolCallId={id}
-							/>
+						) : rendered && silent ? (
+							<div className="omp-work-silent" data-silent>
+								{rendered}
+								{clock}
+							</div>
+						) : rendered ? (
+							rendered
 						) : (
 							<div className="omp-live-work-calm">
 								{lastReasoningSentence(reasoning) || t("chat.thinking.live")}
@@ -990,7 +1010,7 @@ export function LiveStepPeek({
 						if (!item) return null;
 						const meta = getToolHeader(item.toolName, item.args);
 						const StepIcon = meta.icon;
-						const label = `${index + 1}. ${meta.labelKey ? t(meta.labelKey) : meta.tool}${meta.path || meta.target ? ` · ${meta.path ?? meta.target}` : ""}`;
+						const label = `${index + 1}. ${meta.labelKey ? t(meta.labelKey, meta.labelParams) : meta.tool}${meta.path || meta.target ? ` · ${meta.path || meta.target}` : ""}`;
 						const current = step.ids.includes(selected);
 						const errored = item.status === "error" || (item.isError && item.status !== "aborted");
 						const state =

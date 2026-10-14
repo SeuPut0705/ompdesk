@@ -245,6 +245,26 @@ function parseBashResult(result: unknown): BashParsed {
 	};
 }
 
+/**
+ * What a command printed, as the live stage shows it: without the command line a shell echoed
+ * first and without stock's "(no output)" stand-in for a command that printed nothing (bash.ts).
+ */
+function liveOutputOf(command: string, output: string): string {
+	const echo = [`${command}\n`, `$ ${command}\n`].find(prefix => output.startsWith(prefix));
+	const shown = echo ? output.slice(echo.length) : output;
+	return shown === "(no output)" ? "" : shown;
+}
+
+/** A command that has printed nothing (yet): the live stage shows its command line alone. */
+export function isSilentCommand(args: Record<string, unknown>, result: unknown): boolean {
+	const command = typeof args.command === "string" ? args.command : "";
+	return (
+		command !== "" &&
+		liveOutputOf(command, parseBashResult(result).output) === "" &&
+		extractImageDataUrls(result).length === 0
+	);
+}
+
 /** Bash: command line with exit/elapsed badges, terminal-style output, then any job/artifact note. */
 export function BashRenderer({ args, result, isError, isPartial, partialResult, livePreview }: ToolRendererProps) {
 	const t = useT();
@@ -258,14 +278,9 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 	].filter(note => note !== null);
 	const images = extractImageDataUrls(effective);
 	const hasOutput = parsed.output.length > 0;
-	const echo = `${command}\n`;
-	const promptEcho = `$ ${command}\n`;
-	const liveOutput =
-		livePreview && parsed.output.startsWith(echo)
-			? parsed.output.slice(echo.length)
-			: livePreview && parsed.output.startsWith(promptEcho)
-				? parsed.output.slice(promptEcho.length)
-				: parsed.output;
+	const liveOutput = livePreview ? liveOutputOf(command, parsed.output) : parsed.output;
+	// Nothing printed yet: the live stage shows the command line alone, never an empty terminal.
+	const silent = !!livePreview && command !== "" && liveOutput === "" && images.length === 0;
 	const outputLines = livePreview ? liveOutput.split("\n") : null;
 	// Lines complete when the surface mounted; the open last line still counts as arriving.
 	const [settledLines] = useState(() => (outputLines?.length ?? 1) - 1);
@@ -279,6 +294,7 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 					// `clip`, not `hidden`: the live command line sticks to the scrolling surface above it.
 					livePreview ? "omp-bash-live overflow-clip" : "overflow-hidden",
 				)}
+				data-silent={silent || undefined}
 			>
 				{/* A call whose arguments are still streaming has no command yet: no bare `$`. */}
 				{command ? (
@@ -317,7 +333,7 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 						)}
 					</div>
 				) : null}
-				{(hasOutput || livePreview) && (
+				{(hasOutput || livePreview) && !silent && (
 					<div
 						className={cx(
 							"px-2.5 py-1.5 leading-normal text-(--omp-tool-output)",

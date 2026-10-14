@@ -208,7 +208,7 @@ it("#16 counts the whole run in the head and the step on its heading", async () 
 	await show(<LiveStepPeek thinkingLive={false} toolCallIds={["one", "two"]} summaryRow={<span>2 steps</span>} />);
 	expect(container.querySelector(".omp-work-head-clock")?.textContent).toBe("9s");
 	expect(container.querySelector(".omp-work-head .omp-work-clock")).toBeNull();
-	expect(container.querySelector(".omp-live-work-heading .omp-work-clock")?.textContent).toBe("2s");
+	expect(container.querySelector(".omp-work-surface .omp-work-clock")?.textContent).toBe("2s");
 	await show(
 		<LiveStepPeek
 			thinkingLive={false}
@@ -226,7 +226,7 @@ it("#29 never warns about silence once the terminal reported its exit", async ()
 	await tools([["run", bash("bun run check:types", { startTime: 10_000 })]]);
 	await show(<LiveStepPeek thinkingLive={false} toolCallIds={["run"]} />);
 	await act(async () => vi.advanceTimersByTime(12_000));
-	expect(container.querySelector(".omp-live-work-heading .omp-work-clock")?.textContent).toBe("No output for 12s");
+	expect(container.querySelector(".omp-work-surface .omp-work-clock")?.textContent).toBe("No output for 12s");
 	expect(container.querySelector(".omp-work-head")?.textContent).not.toContain("No output");
 	await tools(
 		[["run", bash("bun run check:types", { startTime: 10_000 })]],

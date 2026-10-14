@@ -167,7 +167,7 @@ export function ToolCard({ toolCallId, toolName, args, runningIndicator = "spinn
 						failed ? "text-(--sc-danger)" : "text-(--sc-text-secondary)",
 					)}
 				>
-					{header.labelKey ? t(header.labelKey) : header.tool}
+					{header.labelKey ? t(header.labelKey, header.labelParams) : header.tool}
 				</span>
 				{status === "running" && !failed ? <span className="sr-only">{t("chat.exec.running")}</span> : null}
 				{header.path ? (
