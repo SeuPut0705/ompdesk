@@ -2,7 +2,8 @@
  * Sidebar integration contracts: sessions-first layout (project switcher,
  * New session, filter, sessions by project, Agents/Insights/Settings + help
  * footer), Code/Work lanes, first-class global chats, project group context
- * menu (5 items), session row context menu (6 items), pinned-first ordering,
+ * menu (8 items), session row context menu (11 items), archive/restore,
+ * recent grouping, move to project, pinned-first ordering,
  * per-session busy gates, status as icon + text, and tab-first opening (an
  * untouched empty tab is replaced instead of left behind).
  * Same linkedom + react-dom harness as TabBar.test.tsx.
@@ -62,6 +63,7 @@ interface MockOmp {
 		rename: Mock<(path: string, name: string) => Promise<void>>;
 		search: Mock<(query: string, scope: string) => Promise<string[]>>;
 		openInNewWindow: Mock<(payload: { sessionPath?: string }) => Promise<boolean>>;
+		move: Mock<(path: string, cwd: string) => Promise<string>>;
 	};
 	events: {
 		onSessionsChanged: Mock<() => () => void>;
@@ -81,6 +83,7 @@ interface MockOmp {
 	};
 	system: {
 		showOpenDialog: Mock<(filters?: unknown, options?: unknown) => Promise<string[] | null>>;
+		revealPath: Mock<(path: string) => Promise<{ ok: boolean }>>;
 	};
 	rpc: Record<string, Mock<(...args: unknown[]) => Promise<unknown>>>;
 }
@@ -98,6 +101,7 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 			rename: vi.fn(async () => {}),
 			search: vi.fn(async () => []),
 			openInNewWindow: vi.fn(async () => true),
+			move: vi.fn(async (path: string, cwd: string) => `${cwd}/${path.slice(path.lastIndexOf("/") + 1)}`),
 		},
 		events: {
 			onSessionsChanged: vi.fn(() => () => {}),
@@ -120,6 +124,7 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 		},
 		system: {
 			showOpenDialog: vi.fn(async () => null),
+			revealPath: vi.fn(async () => ({ ok: true })),
 		},
 		rpc: new Proxy({} as MockOmp["rpc"], {
 			get: (target, prop) => {
@@ -658,8 +663,9 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(labels.some(label => label.includes("Move up"))).toBe(true);
 		expect(labels.some(label => label.includes("Move down"))).toBe(true);
 		expect(labels.some(label => label.includes("Pin to top"))).toBe(true);
+		expect(labels.some(label => label.includes("Archive all"))).toBe(true);
 		expect(labels.some(label => label.includes("Delete"))).toBe(true);
-		expect(labels).toHaveLength(7);
+		expect(labels).toHaveLength(8);
 	});
 
 	it("each project header offers + in place of a count, and Move moves the project", async () => {
@@ -689,7 +695,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(omp.prefs.set).toHaveBeenCalledWith("sidebar", expect.objectContaining({ groupOrder: expect.any(Array) }));
 	});
 
-	it("right-click on a session row opens the 6-item session menu", async () => {
+	it("right-click on a session row opens the 11-item session menu", async () => {
 		const omp = installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
@@ -697,13 +703,19 @@ describe("Sidebar menus and pinned ordering", () => {
 		await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
 
 		const labels = menuItemLabels();
-		for (const expected of ["Open", "Open in new tab", "Open in new window", "Rename", "Pin to top", "Delete"]) {
-			expect(
-				labels.some(label => label.includes(expected)),
-				`missing item: ${expected}`,
-			).toBe(true);
-		}
-		expect(labels).toHaveLength(6);
+		expect(labels.map(label => label.replace(/⌘.*$/, ""))).toEqual([
+			"Open",
+			"Open in new tab",
+			"Open in split view",
+			"Open in new window",
+			"Rename session",
+			"Pin to top",
+			"Move to project…",
+			"Archive",
+			"Copy file path",
+			"Show in folder",
+			"Delete",
+		]);
 
 		const pinItem = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
 			(button.textContent ?? "").includes("Pin to top"),
@@ -1428,5 +1440,219 @@ describe("Sidebar device sections", () => {
 		expect(section?.querySelector("[data-device-session]")).toBeNull();
 		expect(omp.sessions.list).not.toHaveBeenCalledWith("global", "dev-studio");
 		expect(section?.querySelector('[data-sidebar-device-add="dev-studio"]')?.getAttribute("disabled")).not.toBeNull();
+	});
+});
+
+describe("Sidebar archive, grouping and move", () => {
+	const archivedSection = () => container.querySelector("[data-sidebar-archived]");
+	const archivedHeader = () => archivedSection()?.querySelector("button[aria-expanded]") ?? null;
+	// Stored rows only: the focused tab's untouched session keeps a live `tab:` row of its own.
+	const groupRows = (cwd: string) =>
+		[...container.querySelectorAll(`[data-session-group="${cwd}"] .omp-sidebar-session-row`)]
+			.map(row => row.getAttribute("data-session-path") ?? "")
+			.filter(path => !path.startsWith("tab:"));
+
+	it("archives a stored session from its row into a folded Archived section and restores it", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true });
+		await mount(<Sidebar />);
+		expect(archivedSection()).toBeNull();
+
+		await fire(rowFor("Session /work/alpha/one").querySelector("[data-sidebar-archive]"), "onClick");
+		expect(useSidebarPrefs.getState().archivedSessions).toEqual(["/work/alpha/one.jsonl"]);
+		expect(omp.prefs.set).toHaveBeenCalledWith(
+			"sidebar",
+			expect.objectContaining({ archivedSessions: ["/work/alpha/one.jsonl"] }),
+		);
+		expect(groupRows("/work/alpha")).toEqual(["/work/alpha/two.jsonl"]);
+		expect(archivedHeader()?.textContent).toContain("Archived (1)");
+		expect(archivedHeader()?.getAttribute("aria-expanded")).toBe("false");
+		expect(archivedSection()?.querySelector("[data-archived-list]")).toBeNull();
+
+		await fire(archivedHeader(), "onClick");
+		const archivedRow = archivedSection()?.querySelector('[data-session-path="/work/alpha/one.jsonl"]');
+		expect(archivedRow).not.toBeNull();
+		expect(archivedRow?.querySelector("[data-sidebar-archive]")).toBeNull();
+
+		await fire(archivedRow?.querySelector("[data-sidebar-restore]") ?? null, "onClick");
+		expect(useSidebarPrefs.getState().archivedSessions).toEqual([]);
+		expect(archivedSection()).toBeNull();
+		expect(groupRows("/work/alpha")).toEqual(["/work/alpha/one.jsonl", "/work/alpha/two.jsonl"]);
+	});
+
+	it("keeps an archived session a tab holds in its list, and refuses to archive an open session", async () => {
+		installMockOmp(LIST);
+		useSessionStore.setState({ sessionId: "/work/alpha/one.jsonl", cwd: "/work/alpha", isStreaming: false });
+		useTabsStore.setState({
+			tabs: [
+				{
+					id: "t0",
+					cwd: "/work/alpha",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: "/work/alpha/one.jsonl",
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		useSidebarPrefs.setState({ hydrated: true, archivedSessions: ["/work/alpha/one.jsonl"] });
+		await mount(<Sidebar />);
+
+		expect(groupRows("/work/alpha")).toContain("/work/alpha/one.jsonl");
+		expect(archivedSection()).toBeNull();
+		expect(rowFor("Session /work/alpha/one").querySelector("[data-sidebar-archive]")).toBeNull();
+		await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
+		expect(menuItem("Archive").hasAttribute("disabled")).toBe(true);
+		expect(menuItem("Move to project…").hasAttribute("disabled")).toBe(true);
+		expect(menuItemLabels().some(label => label.includes("Open in split view"))).toBe(false);
+	});
+
+	it("Archive all on a project archives every session no tab holds", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false },
+				{
+					id: "t1",
+					cwd: "/work/alpha",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: "/work/alpha/two.jsonl",
+				},
+			],
+		});
+		useSidebarPrefs.setState({ hydrated: true });
+		await mount(<Sidebar />);
+
+		await fire(container.querySelector('[data-workspace-group="/work/alpha"]'), "onContextMenu");
+		await fire(menuItem("Archive all"), "onClick");
+		expect(useSidebarPrefs.getState().archivedSessions).toEqual(["/work/alpha/one.jsonl"]);
+		expect(groupRows("/work/alpha")).toEqual(["/work/alpha/two.jsonl"]);
+	});
+
+	it("Delete all archived confirms, deletes every archived file and forgets the ids", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		useSidebarPrefs.setState({
+			hydrated: true,
+			archivedSessions: ["/work/alpha/two.jsonl", "/work/beta/three.jsonl"],
+		});
+		await mount(<Sidebar />);
+		expect(archivedHeader()?.textContent).toContain("Archived (2)");
+
+		await fire(archivedSection()?.querySelector("div") ?? null, "onContextMenu");
+		expect(menuItemLabels()).toEqual(["Restore all", "Delete all archived"]);
+		await fire(menuItem("Delete all archived"), "onClick");
+		expect(omp.sessions.delete).not.toHaveBeenCalled();
+		const dialog = document.body.querySelector('[role="dialog"]');
+		expect(dialog?.textContent).toContain("Delete all 2 archived sessions");
+		await fire(
+			[...document.body.querySelectorAll('[role="dialog"] button')].find(
+				button => (button.textContent ?? "").trim() === "Delete",
+			) as unknown as Element,
+			"onClick",
+		);
+		expect(omp.sessions.delete).toHaveBeenCalledWith("/work/beta/three.jsonl");
+		expect(omp.sessions.delete).toHaveBeenCalledWith("/work/alpha/two.jsonl");
+		expect(useSidebarPrefs.getState().archivedSessions).toEqual([]);
+	});
+
+	it("the grouping toggle lists Code sessions by recent activity, each naming its project", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true, groupAliases: { "/work/beta": "Beta app" } });
+		await mount(<Sidebar />);
+		const toggle = container.querySelector("[data-sidebar-grouping]");
+		expect(toggle?.getAttribute("aria-pressed")).toBe("false");
+
+		await fire(toggle, "onClick");
+		expect(useSidebarPrefs.getState().grouping).toBe("recent");
+		expect(omp.prefs.set).toHaveBeenCalledWith("sidebar", expect.objectContaining({ grouping: "recent" }));
+		expect(container.querySelector("[data-workspace-group]")).toBeNull();
+		const rows = [...container.querySelectorAll("[data-recent-lane] .omp-sidebar-session-row")].filter(
+			row => row.getAttribute("data-live") === null,
+		);
+		expect(rows.map(row => row.getAttribute("data-session-path"))).toEqual([
+			"/work/beta/three.jsonl",
+			"/work/alpha/one.jsonl",
+			"/work/alpha/two.jsonl",
+		]);
+		expect(rows.map(row => row.querySelector("[data-sidebar-row-project]")?.textContent)).toEqual([
+			"Beta app",
+			"alpha",
+			"alpha",
+		]);
+		expect(container.querySelector("[data-sidebar-grouping]")?.getAttribute("aria-pressed")).toBe("true");
+
+		await fire(container.querySelector("[data-sidebar-grouping]"), "onClick");
+		expect(container.querySelector("[data-recent-lane]")).toBeNull();
+		expect(container.querySelector("[data-workspace-group]")).not.toBeNull();
+	});
+
+	it("Move to project… moves a stored session through sessions.move and keeps its pin", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true, pinnedSessions: ["/work/alpha/one.jsonl"] });
+		await mount(<Sidebar />);
+
+		await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
+		await fire(menuItem("Move to project…"), "onClick");
+		expect(menuItemLabels()).toEqual(["beta", "Other folder…"]);
+		await fire(menuItem("beta"), "onClick");
+		expect(omp.sessions.move).toHaveBeenCalledWith("/work/alpha/one.jsonl", "/work/beta");
+		expect(useSidebarPrefs.getState().pinnedSessions).toEqual(["/work/beta/one.jsonl"]);
+		expect(document.body.querySelector('[role="menu"]')).toBeNull();
+	});
+
+	it("Move to project… reports a refused move instead of dropping it", async () => {
+		const omp = installMockOmp(LIST);
+		omp.sessions.move.mockRejectedValueOnce(new Error("disk full"));
+		seedStores();
+		await mount(<Sidebar />);
+
+		await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
+		await fire(menuItem("Move to project…"), "onClick");
+		await fire(menuItem("beta"), "onClick");
+		expect(omp.sessions.move).toHaveBeenCalledTimes(1);
+		expect(useSidebarPrefs.getState().pinnedSessions).toEqual([]);
+	});
+
+	it("opens a stored session in split view and shows its file in the folder", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		const original = useTabsStore.getState();
+		const openTab = vi.fn(async () => "t-new");
+		const switchTab = vi.fn(async () => {});
+		const splitTab = vi.fn(async () => {});
+		useTabsStore.setState({ openTab, switchTab, splitTab });
+		try {
+			await mount(<Sidebar />);
+
+			await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
+			await fire(menuItem("Show in folder"), "onClick");
+			expect(omp.system.revealPath).toHaveBeenCalledWith("/work/alpha/one.jsonl");
+
+			await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
+			await fire(menuItem("Open in split view"), "onClick");
+			expect(openTab).toHaveBeenCalledWith({
+				cwd: "/work/alpha",
+				sessionPath: "/work/alpha/one.jsonl",
+				kind: "agent",
+			});
+			// The new tab goes in beside the tab that was focused.
+			expect(switchTab).toHaveBeenCalledWith("t0");
+			expect(splitTab).toHaveBeenCalledWith("t-new", "right");
+		} finally {
+			useTabsStore.setState({
+				openTab: original.openTab,
+				switchTab: original.switchTab,
+				splitTab: original.splitTab,
+			});
+		}
 	});
 });

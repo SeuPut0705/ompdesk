@@ -3,6 +3,8 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import {
 	AlertTriangle,
+	Archive,
+	ArchiveRestore,
 	ArrowDown,
 	ArrowUp,
 	BarChart3,
@@ -12,12 +14,16 @@ import {
 	CircleHelp,
 	Columns2,
 	Compass,
+	Copy,
 	ExternalLink,
 	Folder,
+	FolderInput,
 	FolderOpen,
 	FolderPlus,
+	FolderSearch,
 	GitBranch,
 	GitBranchPlus,
+	History,
 	Info,
 	Keyboard,
 	MessageCircle,
@@ -59,7 +65,7 @@ import { useAwaitedInput } from "../../hooks/use-awaited-input";
 import { useSessionList } from "../../hooks/use-session-list";
 import { dropSessionNow, requestSessionSwitch } from "../../hooks/use-session-switch";
 import { hideNativeDragImage } from "../../lib/drag-image";
-import { basename, cx, formatTimeAgo } from "../../lib/format";
+import { basename, copyText, cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { actionKbd, onEscape } from "../../lib/keymap";
@@ -122,7 +128,10 @@ interface WorkspaceGroup {
 }
 
 /** A delete the row or context menu queued, awaiting the confirmation dialog. */
-type PendingDelete = { kind: "session"; session: SidebarSession } | { kind: "group"; group: WorkspaceGroup };
+type PendingDelete =
+	| { kind: "session"; session: SidebarSession }
+	| { kind: "group"; group: WorkspaceGroup }
+	| { kind: "archived"; sessions: SidebarSession[] };
 
 /**
  * Sidebar lanes. Code: project sessions grouped by folder. Chat: conversations
@@ -385,6 +394,11 @@ export function Sidebar() {
 	const [renameDraft, setRenameDraft] = useState("");
 	const [groupMenu, setGroupMenu] = useState<{ anchor: ContextMenuAnchor; group: WorkspaceGroup } | null>(null);
 	const [sessionMenu, setSessionMenu] = useState<{ anchor: ContextMenuAnchor; session: SidebarSession } | null>(null);
+	// "Move to project…": the second menu listing the projects a stored session can go to.
+	const [moveMenu, setMoveMenu] = useState<{ anchor: ContextMenuAnchor; session: SidebarSession } | null>(null);
+	// The Archived section starts folded: archived sessions are out of the way by design.
+	const [archivedOpen, setArchivedOpen] = useState(false);
+	const [archivedMenu, setArchivedMenu] = useState<ContextMenuAnchor | null>(null);
 	// Project display alias rename (group header inline input).
 	const [renamingGroupCwd, setRenamingGroupCwd] = useState<string | null>(null);
 	const [groupRenameDraft, setGroupRenameDraft] = useState("");
@@ -406,6 +420,8 @@ export function Sidebar() {
 	const groupOrder = useSidebarPrefs(s => s.groupOrder);
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
+	const archivedSessions = useSidebarPrefs(s => s.archivedSessions);
+	const grouping = useSidebarPrefs(s => s.grouping);
 	const { sessions, isLoading, error: listError, refresh, deleteSession, renameSession } = useSessionList("global");
 	// Stock lists a fork under its parent's title and marks it (`fork`, "Forked from …"); a fork's
 	// `parentSessionPath` holds the parent's file path or, after a move, its id.
@@ -471,7 +487,30 @@ export function Sidebar() {
 	// session" row (not deletable), and an orphaned one is not listed at all —
 	// otherwise deleting the last chat leaves an "Untitled" row whose deletion
 	// starts the next one.
-	const listedSessions = useMemo(() => sessions.filter(sessionHasContent), [sessions]);
+	// Archived sessions leave the lists for the Archived section, except one an
+	// open tab holds: every open tab keeps its row.
+	const heldByTab = useMemo(() => {
+		const held = new Set<string>();
+		for (const tab of localTabs) {
+			if (tab.sessionPath) held.add(tab.sessionPath);
+			if (tab.sessionId) held.add(tab.sessionId);
+		}
+		if (!activeTabRemote) {
+			if (sessionFile) held.add(sessionFile);
+			if (sessionId) held.add(sessionId);
+		}
+		return held;
+	}, [localTabs, activeTabRemote, sessionFile, sessionId]);
+	const archivedIds = useMemo(() => new Set(archivedSessions), [archivedSessions]);
+	const listedSessions = useMemo(
+		() =>
+			sessions.filter(
+				session =>
+					sessionHasContent(session) &&
+					(!archivedIds.has(session.id) || heldByTab.has(session.path) || heldByTab.has(session.id)),
+			),
+		[sessions, archivedIds, heldByTab],
+	);
 	// Every open tab keeps a row even before the index lists its session (a
 	// brand-new session has no file yet): synthesize it from the tab and, for
 	// the focused tab, the attached session's live identity.
@@ -557,12 +596,31 @@ export function Sidebar() {
 				: allGroups,
 		[allGroups, matchesFilter, query],
 	);
-	const totalCount = mode === "chat" ? chatLaneSessions.length : groups.length;
+	// Recent grouping: the Code lane as one list by last activity, project shown per row.
+	const recentCodeSessions = useMemo(
+		() => (grouping === "recent" ? codeSessions.filter(matchesFilter).toSorted(byPinThenRecency) : []),
+		[grouping, codeSessions, matchesFilter, byPinThenRecency],
+	);
+	// Archived sessions of this lane that no tab holds, newest first.
+	const archivedRows = sessions
+		.filter(
+			session =>
+				archivedIds.has(session.id) &&
+				sessionHasContent(session) &&
+				!heldByTab.has(session.path) &&
+				!heldByTab.has(session.id) &&
+				(session.kind === "chat" || (defaultWorkspace !== null && session.cwd === defaultWorkspace)) ===
+					(mode === "chat"),
+		)
+		.filter(matchesFilter)
+		.toSorted((a, b) => modifiedAt(b) - modifiedAt(a));
+	const totalCount =
+		mode === "chat" ? chatLaneSessions.length : grouping === "recent" ? recentCodeSessions.length : groups.length;
 	// An empty lane must not read as "no sessions at all" while the other lane
 	// holds some (e.g. the open code session while 채팅 is selected).
 	const codeTotal = codeSessions.length;
 	const otherModeCount = mode === "chat" ? codeTotal : allSessions.length - codeTotal;
-	const visibleGroups = mode === "code" ? groups : [];
+	const visibleGroups = mode === "code" && grouping === "projects" ? groups : [];
 	// Projects with an open tab start expanded so every open session is in view.
 	const openTabCwds = useMemo(
 		() => new Set(localTabs.filter(tab => tab.kind !== "chat").map(tab => tab.cwd)),
@@ -698,6 +756,72 @@ export function Sidebar() {
 			return;
 		}
 	};
+	/** Open a stored session in a new tab placed beside the focused one. */
+	const openSessionInSplit = async (session: SessionInfo) => {
+		useUiStore.getState().closeDestination();
+		const anchorTabId = useTabsStore.getState().activeTabId;
+		const opened = await openTab({ cwd: session.cwd, sessionPath: session.path, kind: session.kind ?? "agent" });
+		if (!opened || !anchorTabId || opened === anchorTabId) return;
+		// openTab focused the new tab: bring the previous one back, then split the new one in beside it.
+		await useTabsStore.getState().switchTab(anchorTabId);
+		await useTabsStore.getState().splitTab(opened, "right");
+	};
+	/** Archive or restore sessions (prefs only: the files stay); a row that leaves hands focus to its neighbor. */
+	const setArchived = (rows: readonly SidebarSession[], archived: boolean) => {
+		const items = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-roving-item]") ?? [])];
+		const leaving = items.find(item => item === document.activeElement)?.dataset.rovingItem;
+		if (leaving && rows.some(row => `session:${row.path}` === leaving)) {
+			const index = items.findIndex(item => item.dataset.rovingItem === leaving);
+			const neighbor = (items[index + 1] ?? items[index - 1])?.dataset.rovingItem;
+			if (neighbor) refocusRow.current = { key: neighbor, leaving };
+		}
+		void useSidebarPrefs.getState().setSessionsArchived(
+			rows.map(row => row.id),
+			archived,
+		);
+	};
+	/** Move a stored session's file to another project folder (stock SessionManager.moveTo in main). */
+	const moveStoredSession = async (session: SidebarSession, target: string) => {
+		setMoveMenu(null);
+		try {
+			const movedPath = await window.omp.sessions.move(session.path, target);
+			// Pins are kept by file path, which the move changed.
+			if (movedPath !== session.path && useSidebarPrefs.getState().pinnedSessions.includes(session.path)) {
+				await useSidebarPrefs.getState().toggleSessionPin(session.path);
+				await useSidebarPrefs.getState().toggleSessionPin(movedPath);
+			}
+			toast({
+				variant: "success",
+				message: t("sidebar.moved", { name: groupAliases[target] ?? (basename(target) || target) }),
+			});
+		} catch (error) {
+			toastError({ title: t("sidebar.moveFailed"), error });
+		}
+	};
+	const moveToOtherFolder = async (session: SidebarSession) => {
+		setMoveMenu(null);
+		try {
+			const picked = await pickWorkspaceDirectory({
+				title: t("sidebar.move.pickTitle"),
+				buttonLabel: t("sidebar.move.pickButton"),
+			});
+			if (picked && picked !== session.cwd) await moveStoredSession(session, picked);
+		} catch (error) {
+			toastError({ title: t("sidebar.moveFailed"), error });
+		}
+	};
+	const copySessionPath = async (session: SessionInfo) => {
+		if (await copyText(session.path)) toast({ variant: "success", message: t("sidebar.pathCopied") });
+		else toast({ variant: "error", message: t("sidebar.copyPathFailed") });
+	};
+	const revealSession = async (session: SessionInfo) => {
+		try {
+			const result = await window.omp.system.revealPath(session.path);
+			if (!result.ok) toastError({ title: t("sidebar.revealFailed"), error: result.error ? result : session.path });
+		} catch (error) {
+			toastError({ title: t("sidebar.revealFailed"), error });
+		}
+	};
 
 	const startRename = (session: SessionInfo) => {
 		setRenameDraft(session.title || session.firstMessage || "");
@@ -790,6 +914,25 @@ export function Sidebar() {
 		}
 	};
 
+	const confirmDeleteArchived = async (rows: readonly SidebarSession[]) => {
+		setDeleting(true);
+		const deleted: string[] = [];
+		try {
+			for (const session of rows) {
+				// eslint-disable-next-line no-await-in-loop -- sequential, keep FS load bounded
+				await deleteSession(session.path);
+				deleted.push(session.id);
+			}
+			setPendingDelete(null);
+		} catch (error) {
+			toastError({ title: t("sidebar.deleteFailed"), error });
+		} finally {
+			// Forget the ids whose files are gone, also when a later delete failed.
+			if (deleted.length > 0) void useSidebarPrefs.getState().setSessionsArchived(deleted, false);
+			setDeleting(false);
+		}
+	};
+
 	/** Context-menu position for a keyboard-opened menu: under the focused element. */
 	const anchorBelow = (element: HTMLElement): ContextMenuAnchor => {
 		const rect = element.getBoundingClientRect();
@@ -846,7 +989,8 @@ export function Sidebar() {
 		if (target) focusRovingItem(target);
 	});
 
-	const renderSessionRow = (session: SidebarSession, nested = false) => {
+	/** `archived`: a row of the Archived section; `recent`: a row of the flat recent list, which names its project. */
+	const renderSessionRow = (session: SidebarSession, nested = false, variant?: "archived" | "recent") => {
 		const key = `session:${session.path}`;
 		const isCurrent = isCurrentSession(session);
 		const active = isCurrent && destination === "session";
@@ -887,6 +1031,8 @@ export function Sidebar() {
 		const pinned = pinnedSessions.includes(session.path);
 		// Renaming is safe mid-run (stock applies it live); deleting is not.
 		const deletable = indexed && !busy;
+		// Archiving hides a stored session no tab holds (an open tab always keeps its row).
+		const archivable = indexed && tab === undefined && variant !== "archived";
 		const tabIndex = -1;
 		if (renamingSessionPath === session.path) {
 			return (
@@ -962,6 +1108,26 @@ export function Sidebar() {
 									size="sm"
 									tabIndex={-1}
 								/>
+								{archivable && (
+									<IconButton
+										data-sidebar-archive
+										icon={<Archive />}
+										label={t("sidebar.menu.archive")}
+										onClick={() => setArchived([session], true)}
+										size="sm"
+										tabIndex={-1}
+									/>
+								)}
+								{variant === "archived" && (
+									<IconButton
+										data-sidebar-restore
+										icon={<ArchiveRestore />}
+										label={t("sidebar.menu.restore")}
+										onClick={() => setArchived([session], false)}
+										size="sm"
+										tabIndex={-1}
+									/>
+								)}
 								{deletable && (
 									<IconButton
 										icon={<Trash2 />}
@@ -1002,6 +1168,13 @@ export function Sidebar() {
 						},
 					}}
 					className={cx("omp-sidebar-session-row", nested && "omp-sidebar-session-nested")}
+					description={
+						variant === "recent" && session.cwd ? (
+							<span data-sidebar-row-project>
+								{groupAliases[session.cwd] ?? (basename(session.cwd) || session.cwd)}
+							</span>
+						) : undefined
+					}
 					leading={leading}
 					meta={
 						waiting ? (
@@ -1247,13 +1420,25 @@ export function Sidebar() {
 							</span>
 						</Button>
 						{mode === "code" && (
-							<IconButton
-								data-sidebar-open-project
-								icon={<FolderPlus />}
-								label={t("sidebar.project.newFolder")}
-								onClick={() => void openProjectFolder()}
-								variant="ghost"
-							/>
+							<>
+								<IconButton
+									data-sidebar-grouping
+									icon={<History />}
+									label={t("sidebar.grouping.recent")}
+									onClick={() =>
+										void useSidebarPrefs.getState().setGrouping(grouping === "recent" ? "projects" : "recent")
+									}
+									pressed={grouping === "recent"}
+									variant="ghost"
+								/>
+								<IconButton
+									data-sidebar-open-project
+									icon={<FolderPlus />}
+									label={t("sidebar.project.newFolder")}
+									onClick={() => void openProjectFolder()}
+									variant="ghost"
+								/>
+							</>
 						)}
 					</div>
 					<SearchField
@@ -1409,6 +1594,66 @@ export function Sidebar() {
 							</SortableContext>
 						</DndContext>
 					)}
+					{mode === "code" && grouping === "recent" && recentCodeSessions.length > 0 && (
+						<div className="space-y-px" data-recent-lane>
+							{recentCodeSessions.map(session => renderSessionRow(session, false, "recent"))}
+						</div>
+					)}
+					{archivedRows.length > 0 && (
+						<section className="mt-3" data-sidebar-archived>
+							<div
+								className="group/head relative flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+								onContextMenu={event => setArchivedMenu(anchorFromEvent(event))}
+							>
+								<button
+									aria-expanded={archivedOpen || query.length > 0}
+									className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+									data-roving-item="archived"
+									onClick={() => setArchivedOpen(open => !open)}
+									onFocus={() => setFocusKey("archived")}
+									onKeyDown={event => {
+										if (opensMenu(event)) {
+											event.preventDefault();
+											setArchivedMenu(anchorBelow(event.currentTarget));
+										} else if (event.key === "ArrowRight" && !archivedOpen) {
+											event.preventDefault();
+											setArchivedOpen(true);
+										} else if (event.key === "ArrowLeft" && archivedOpen) {
+											event.preventDefault();
+											setArchivedOpen(false);
+										}
+									}}
+									tabIndex={-1}
+									type="button"
+								>
+									{archivedOpen || query ? (
+										<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+									) : (
+										<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+									)}
+									<Archive aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+									<span className="min-w-0 flex-1 truncate">
+										{t("sidebar.archived", { count: archivedRows.length })}
+									</span>
+								</button>
+								<span className="relative flex shrink-0 items-center pr-1">
+									<IconButton
+										className="pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100"
+										icon={<MoreHorizontal />}
+										label={t("sidebar.archivedMenu")}
+										onClick={event => setArchivedMenu(anchorBelow(event.currentTarget))}
+										size="sm"
+										tabIndex={-1}
+									/>
+								</span>
+							</div>
+							{(archivedOpen || query.length > 0) && (
+								<div className="space-y-px" data-archived-list>
+									{archivedRows.map(session => renderSessionRow(session, true, "archived"))}
+								</div>
+							)}
+						</section>
+					)}
 					{hosts.map(host => (
 						<SidebarDeviceSection host={host} key={host.deviceId} mode={mode} query={query} />
 					))}
@@ -1516,6 +1761,22 @@ export function Sidebar() {
 										setGroupMenu(null);
 									},
 								},
+								(() => {
+									const archivable = groupMenu.group.sessions.filter(
+										session => session.liveTabId === undefined && tabForSession(session) === undefined,
+									);
+									return {
+										id: "group-archive-all",
+										label: t("sidebar.menu.archiveAll"),
+										icon: Archive,
+										disabled: archivable.length === 0,
+										disabledReason: t("sidebar.archiveAllNone"),
+										onSelect: () => {
+											setGroupMenu(null);
+											setArchived(archivable, true);
+										},
+									};
+								})(),
 								{
 									id: "group-delete",
 									separatorBefore: true,
@@ -1621,6 +1882,20 @@ export function Sidebar() {
 													});
 												},
 											},
+											// An open session splits through its tab items below instead.
+											...(targetTab === undefined
+												? [
+														{
+															id: "session-open-split",
+															label: t("sidebar.menu.openSplit"),
+															icon: Columns2,
+															onSelect: () => {
+																setSessionMenu(null);
+																void openSessionInSplit(sessionMenu.session);
+															},
+														},
+													]
+												: []),
 											{
 												id: "session-open-window",
 												label: t("sidebar.openInNewWindow"),
@@ -1662,6 +1937,61 @@ export function Sidebar() {
 													});
 												},
 											},
+											...(sessionMenu.session.kind === "chat"
+												? []
+												: [
+														{
+															id: "session-move",
+															label: t("sidebar.menu.moveToProject"),
+															icon: FolderInput,
+															disabled: targetTab !== undefined,
+															disabledReason: t("sidebar.moveOpenTab"),
+															onSelect: () => {
+																setMoveMenu(sessionMenu);
+																setSessionMenu(null);
+															},
+														},
+													]),
+											archivedIds.has(sessionMenu.session.id) && targetTab === undefined
+												? {
+														id: "session-restore",
+														label: t("sidebar.menu.restore"),
+														icon: ArchiveRestore,
+														onSelect: () => {
+															setSessionMenu(null);
+															setArchived([sessionMenu.session], false);
+														},
+													}
+												: {
+														id: "session-archive",
+														label: t("sidebar.menu.archive"),
+														icon: Archive,
+														disabled: targetTab !== undefined,
+														disabledReason: t("sidebar.archiveOpenTab"),
+														onSelect: () => {
+															setSessionMenu(null);
+															setArchived([sessionMenu.session], true);
+														},
+													},
+											{
+												id: "session-copy-path",
+												separatorBefore: true,
+												label: t("sidebar.menu.copyPath"),
+												icon: Copy,
+												onSelect: () => {
+													setSessionMenu(null);
+													void copySessionPath(sessionMenu.session);
+												},
+											},
+											{
+												id: "session-reveal",
+												label: t("sidebar.menu.reveal"),
+												icon: FolderSearch,
+												onSelect: () => {
+													setSessionMenu(null);
+													void revealSession(sessionMenu.session);
+												},
+											},
 											{
 												id: "session-delete",
 												separatorBefore: true,
@@ -1682,25 +2012,92 @@ export function Sidebar() {
 					);
 				})()}
 
+			{/* Move to project: every other project in the list, then any folder. */}
+			{moveMenu && (
+				<ContextMenu
+					ariaLabel={t("sidebar.menu.moveToProject")}
+					x={moveMenu.anchor.x}
+					y={moveMenu.anchor.y}
+					onClose={() => setMoveMenu(null)}
+					items={[
+						...allGroups
+							.filter(group => group.cwd !== moveMenu.session.cwd)
+							.map(group => ({
+								id: `move-${group.cwd}`,
+								label: group.name,
+								icon: Folder,
+								onSelect: () => void moveStoredSession(moveMenu.session, group.cwd),
+							})),
+						{
+							id: "move-other",
+							separatorBefore: true,
+							label: t("sidebar.move.otherFolder"),
+							icon: FolderOpen,
+							onSelect: () => void moveToOtherFolder(moveMenu.session),
+						},
+					]}
+				/>
+			)}
+
+			{archivedMenu && (
+				<ContextMenu
+					ariaLabel={t("sidebar.archivedMenu")}
+					x={archivedMenu.x}
+					y={archivedMenu.y}
+					onClose={() => setArchivedMenu(null)}
+					items={[
+						{
+							id: "archived-restore-all",
+							label: t("sidebar.menu.restoreAll"),
+							icon: ArchiveRestore,
+							onSelect: () => {
+								setArchivedMenu(null);
+								setArchived(archivedRows, false);
+							},
+						},
+						{
+							id: "archived-delete-all",
+							separatorBefore: true,
+							label: t("sidebar.menu.deleteArchived"),
+							icon: Trash2,
+							danger: true,
+							onSelect: () => {
+								setArchivedMenu(null);
+								setPendingDelete({ kind: "archived", sessions: archivedRows });
+							},
+						},
+					]}
+				/>
+			)}
+
 			<ConfirmDialog
 				open={pendingDelete !== null}
-				title={pendingDelete?.kind === "group" ? t("sidebar.deleteGroupConfirm") : t("sidebar.deleteConfirm")}
+				title={
+					pendingDelete?.kind === "group"
+						? t("sidebar.deleteGroupConfirm")
+						: pendingDelete?.kind === "archived"
+							? t("sidebar.deleteArchivedConfirm")
+							: t("sidebar.deleteConfirm")
+				}
 				message={
 					pendingDelete?.kind === "group"
 						? t("sidebar.deleteGroupMessage", {
 								name: pendingDelete.group.name,
 								count: pendingDelete.group.sessions.filter(session => session.liveTabId === undefined).length,
 							})
-						: pendingDelete?.kind === "session"
-							? t("sidebar.deleteMessage", {
-									name: sessionDisplayTitle(pendingDelete.session, t("sidebar.untitled")),
-								})
-							: ""
+						: pendingDelete?.kind === "archived"
+							? t("sidebar.deleteArchivedMessage", { count: pendingDelete.sessions.length })
+							: pendingDelete?.kind === "session"
+								? t("sidebar.deleteMessage", {
+										name: sessionDisplayTitle(pendingDelete.session, t("sidebar.untitled")),
+									})
+								: ""
 				}
-				warning={pendingDelete?.kind === "group" ? t("sidebar.deleteGroupWarning") : undefined}
+				warning={pendingDelete && pendingDelete.kind !== "session" ? t("sidebar.deleteGroupWarning") : undefined}
 				busy={deleting}
 				onConfirm={() => {
 					if (pendingDelete?.kind === "group") void confirmDeleteGroup(pendingDelete.group);
+					else if (pendingDelete?.kind === "archived") void confirmDeleteArchived(pendingDelete.sessions);
 					else if (pendingDelete) void confirmDeleteSession(pendingDelete.session);
 				}}
 				onCancel={() => setPendingDelete(null)}
