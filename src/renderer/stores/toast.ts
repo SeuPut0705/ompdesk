@@ -42,11 +42,15 @@ export interface ToastInput {
 
 interface ToastStore {
 	toasts: Toast[];
+	/** When the user started reading the stack (pointer or focus on it); null while nobody is. */
+	heldSince: number | null;
 	/** Push a toast; returns its id. */
 	push: (toast: ToastInput) => number;
 	dismiss: (id: number) => void;
 	/** Drop every toast whose expiry has passed. */
 	pruneExpired: () => void;
+	/** Pause expiry while the stack is being read; releasing gives each toast back the time it had left. */
+	hold: (held: boolean) => void;
 }
 
 let nextId = 1;
@@ -55,6 +59,7 @@ const TOAST_EXIT_MS = 200;
 
 export const useToastStore = create<ToastStore>()(set => ({
 	toasts: [],
+	heldSince: null,
 	push: toast => {
 		const now = Date.now();
 		const variant = toast.variant ?? "info";
@@ -93,6 +98,18 @@ export const useToastStore = create<ToastStore>()(set => ({
 		});
 		return resultId;
 	},
+	hold: held =>
+		set(state => {
+			if (held) return state.heldSince === null ? { heldSince: Date.now() } : state;
+			if (state.heldSince === null) return state;
+			const paused = Date.now() - state.heldSince;
+			return {
+				heldSince: null,
+				toasts: state.toasts.map(toast =>
+					toast.exitingAt === undefined ? { ...toast, expiresAt: toast.expiresAt + paused } : toast,
+				),
+			};
+		}),
 	dismiss: id =>
 		set(state => ({
 			toasts: state.toasts.map(toast =>
@@ -108,7 +125,8 @@ export const useToastStore = create<ToastStore>()(set => ({
 			// auto-expired toast vanished with no animation at all.
 			let changed = false;
 			const marked = state.toasts.map(toast => {
-				if (toast.exitingAt === undefined && toast.expiresAt <= now) {
+				// A held stack only finishes the exits already under way.
+				if (toast.exitingAt === undefined && state.heldSince === null && toast.expiresAt <= now) {
 					changed = true;
 					return { ...toast, exitingAt: now };
 				}

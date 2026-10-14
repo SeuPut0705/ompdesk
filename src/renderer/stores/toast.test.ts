@@ -1,8 +1,31 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useToastStore } from "./toast";
 
-beforeEach(() => useToastStore.setState({ toasts: [] }));
-afterEach(() => useToastStore.setState({ toasts: [] }));
+beforeEach(() => useToastStore.setState({ toasts: [], heldSince: null }));
+afterEach(() => {
+	vi.useRealTimers();
+	useToastStore.setState({ toasts: [], heldSince: null });
+});
+
+describe("toast hold", () => {
+	it("never expires a held toast and gives back the time it had left on release", () => {
+		vi.useFakeTimers();
+		const store = useToastStore.getState();
+		store.push({ message: "Copied", durationMs: 1_000 });
+		vi.advanceTimersByTime(400);
+		store.hold(true);
+		vi.advanceTimersByTime(5_000);
+		store.pruneExpired();
+		expect(useToastStore.getState().toasts[0]?.exitingAt).toBeUndefined();
+		store.hold(false);
+		vi.advanceTimersByTime(500);
+		store.pruneExpired();
+		expect(useToastStore.getState().toasts[0]?.exitingAt).toBeUndefined();
+		vi.advanceTimersByTime(200);
+		store.pruneExpired();
+		expect(useToastStore.getState().toasts[0]?.exitingAt).toBeDefined();
+	});
+});
 
 describe("toast dedupe", () => {
 	it("coalesces an identical visible notice and refreshes its lifetime", () => {
