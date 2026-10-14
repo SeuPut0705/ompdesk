@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { AgentMessage, RpcCommand, RpcResponse } from "../../../shared/rpc-types";
 import { resetSessionSurface } from "../../hooks/use-session-switch";
 import { I18nProvider, translate } from "../../lib/i18n";
-import { pasteMarkerText, storePaste } from "../../lib/paste-blobs";
+import { expandPasteMarkers, pasteMarkerText, storePaste } from "../../lib/paste-blobs";
 import { useComposerStore } from "../../stores/composer";
 import { useExtensionUiStore } from "../../stores/extension-ui";
 import { useFirstRunStore } from "../../stores/first-run";
@@ -29,6 +29,7 @@ import {
 import { useSettingsStore } from "../../stores/settings";
 import { createTabRuntime, replaceTabRuntime } from "../../stores/tab-runtime";
 import { pushTabExtensionUiRequest, useTabsStore } from "../../stores/tabs";
+import { useToastStore } from "../../stores/toast";
 import { InputArea } from "./InputArea";
 
 const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -257,6 +258,7 @@ afterEach(async () => {
 	useSettingsStore.getState().reset();
 	useTabsStore.getState().reset();
 	useFirstRunStore.getState().reset();
+	useToastStore.setState({ toasts: [], heldSince: null });
 	setWindowWidth(1200);
 	vi.restoreAllMocks();
 });
@@ -958,6 +960,70 @@ describe("InputArea expanded composer", () => {
 
 		expect(openExternal).toHaveBeenCalledWith("summary alpha\nbravo");
 		expect(useComposerStore.getState().draft).toBe("edited outside");
+	});
+});
+
+describe("InputArea file intake", () => {
+	function reactProps<T>(element: unknown): T {
+		const record = element as Record<string, unknown>;
+		const key = Object.getOwnPropertyNames(record).find(name => name.startsWith("__reactProps$"));
+		if (!key) throw new Error("react props not found");
+		return record[key] as T;
+	}
+
+	async function mountWithPaths(paths: Record<string, string>): Promise<void> {
+		await mount();
+		(window.omp.fs as unknown as Record<string, unknown>).pathForFile = (file: File) => paths[file.name] ?? "";
+	}
+
+	it("turns files and folders dropped from the OS into @path mentions, relative inside the project", async () => {
+		await mountWithPaths({
+			"spec.pdf": "/tmp/docs/spec.pdf",
+			"deck.pptx": "/Users/me/My Deck.pptx",
+			src: "/tmp/src",
+		});
+		const box = document.querySelector(".omp-composer-box");
+		const { onDrop } = reactProps<{ onDrop: (event: object) => void }>(box);
+		const files = [
+			new File([new Uint8Array([37, 80, 68, 70, 0])], "spec.pdf", { type: "application/pdf" }),
+			new File([new Uint8Array([80, 75, 3, 4])], "deck.pptx"),
+			new File([], "src"),
+		];
+		await act(async () => onDrop({ dataTransfer: { types: ["Files"], files }, preventDefault: () => {} }));
+		await flush();
+		expect(useComposerStore.getState().draft).toBe('@docs/spec.pdf @"/Users/me/My Deck.pptx" @src ');
+	});
+
+	it("pastes a clipboard file without a path as its text and refuses a pathless binary", async () => {
+		await mountWithPaths({});
+		const { onPaste } = reactProps<{ onPaste: (event: object) => void }>(findTextarea());
+		const files = [
+			new File(["line one\nline two"], "notes.txt", { type: "text/plain" }),
+			new File([new Uint8Array([0, 1])], "blob.bin"),
+		];
+		let prevented = false;
+		await act(async () =>
+			onPaste({
+				clipboardData: { files, getData: () => "" },
+				preventDefault: () => {
+					prevented = true;
+				},
+			}),
+		);
+		await flush();
+		expect(prevented).toBe(true);
+		const draft = useComposerStore.getState().draft;
+		expect(draft).toMatch(/^\[Paste #\d+, \d+ chars\] $/);
+		expect(expandPasteMarkers(draft)).toBe(`<attachment name="notes.txt">\nline one\nline two\n</attachment> `);
+		expect(useToastStore.getState().toasts.map(item => item.message)).toEqual([
+			translate("input.files.noPath", { name: "blob.bin" }),
+		]);
+	});
+
+	it("offers every file type in the + menu picker", async () => {
+		await mount();
+		const input = document.querySelector('input[type="file"]');
+		expect(input?.getAttribute("accept")).toBeNull();
 	});
 });
 

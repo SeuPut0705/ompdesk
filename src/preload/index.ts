@@ -3,7 +3,7 @@
  * All RPC commands delegate to ipcRenderer.invoke(IPC_COMMANDS.RPC_COMMAND, ...).
  * Event subscriptions return unsubscribe functions.
  */
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { AccountRotationMode, AccountRotationState } from "../shared/account-rotation";
 import type { BuiltinReaState } from "../shared/builtin-mcp";
 import type { GithubAuthState } from "../shared/github-auth";
@@ -402,6 +402,7 @@ const api: OmpApi = {
 		mediaStream: (path: string, tabId?: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.FS_MEDIA_STREAM, { path, tabId }) as Promise<IpcFsMediaStreamResult>,
 		releaseMediaStream: (url: string) => ipcRenderer.send(IPC_COMMANDS.FS_MEDIA_RELEASE, url),
+		pathForFile: (file: File) => webUtils.getPathForFile(file),
 	},
 
 	editor: {

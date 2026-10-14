@@ -1431,6 +1431,8 @@ export interface OmpApi {
 		/** A seekable `omp-media://` URL for a local tab's audio/video file; release it when done. */
 		mediaStream(path: string, tabId?: string): Promise<IpcFsMediaStreamResult>;
 		releaseMediaStream(url: string): void;
+		/** This machine's absolute path of a dropped, pasted or picked `File` (Electron `webUtils.getPathForFile`); "" when it has none. */
+		pathForFile(file: File): string;
 	};
 	editor: {
 		openExternal(content: string): Promise<{

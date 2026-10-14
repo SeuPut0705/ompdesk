@@ -5,7 +5,6 @@ import {
 	Cpu,
 	ExternalLink,
 	History,
-	ImagePlus,
 	ListPlus,
 	Maximize2,
 	Mic,
@@ -64,6 +63,7 @@ import { AskDockSlot, BelowEditorDockSlot } from "../dialogs/ask-dock";
 import { ComposerModes } from "./ComposerModes";
 import { ComposerQueue } from "./ComposerQueue";
 import { ContextUsagePopover } from "./ContextUsagePopover";
+import { fileTextAttachment, intakeComposerFiles } from "./composer-files";
 import { DelegationControl } from "./DelegationControl";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-utils";
@@ -686,10 +686,10 @@ export function InputArea() {
 	};
 
 	const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-		const files = Array.from(e.clipboardData.files).filter(f => f.type.startsWith("image/"));
+		const files = Array.from(e.clipboardData.files);
 		if (files.length > 0) {
 			e.preventDefault();
-			void Promise.all(files.map(fileToImage)).then(pasted => setImages(prev => [...prev, ...pasted]));
+			attachFiles(files);
 			return;
 		}
 		// Large TEXT paste (TUI editor.ts:1996-2044 parity): sanitize, then collapse
@@ -714,14 +714,63 @@ export function InputArea() {
 
 	const modeLabel = mode === "followUp" ? t("input.followUp") : t("input.steer");
 
-	const addImageFiles = (files: readonly File[]) => {
-		const imageFiles = files.filter(file => file.type.startsWith("image/"));
-		if (imageFiles.length === 0) return;
-		void Promise.all(imageFiles.map(fileToImage)).then(added => setImages(previous => [...previous, ...added]));
+	/** Splice text in at the caret (replacing a selection), space-separated from its neighbours. */
+	const insertAtCaret = (insert: string) => {
+		const el = textareaRef.current;
+		const current = el?.value ?? text;
+		const start = el?.selectionStart ?? current.length;
+		const end = el?.selectionEnd ?? start;
+		const before = current.slice(0, start);
+		const after = current.slice(end);
+		const inserted = `${before && !/\s$/.test(before) ? " " : ""}${insert}${/^\s/.test(after) ? "" : " "}`;
+		setText(`${before}${inserted}${after}`);
+		requestAnimationFrame(() => {
+			const target = textareaRef.current;
+			if (!target) return;
+			target.focus();
+			const caret = start + inserted.length;
+			target.setSelectionRange(caret, caret);
+		});
 	};
 
-	// Image files dropped on the composer attach like a paste; anything else
-	// keeps the browser default (text drops insert into the field).
+	/**
+	 * Picker, drop and clipboard files (composer-files.ts): images attach, other
+	 * files and folders become `@path` mentions stock reads at send time (PDF and
+	 * Office through its read tool), and a file this tab's machine cannot reach by
+	 * path goes in as its text; the rest are refused with a reason.
+	 */
+	const attachFiles = (files: readonly File[]) => {
+		if (files.length === 0) return;
+		void intakeComposerFiles(files, {
+			cwd,
+			pathFor: file => window.omp.fs.pathForFile(file),
+			remote: historyDevice !== undefined,
+		}).then(async intake => {
+			if (!mountedRef.current) return;
+			const pieces = [
+				...intake.mentions,
+				...intake.texts.map(file => {
+					const blob = storePaste(fileTextAttachment(file.name, file.content));
+					return pasteMarkerText(blob.id, blob.content);
+				}),
+			];
+			if (pieces.length > 0) insertAtCaret(pieces.join(" "));
+			const reasons = {
+				empty: "input.files.empty",
+				tooLarge: "input.files.tooLarge",
+				binary: historyDevice === undefined ? "input.files.noPath" : "input.files.remoteBinary",
+				unreadable: "input.files.unreadable",
+			} as const;
+			for (const rejection of intake.rejected)
+				toast({ variant: "warning", message: t(reasons[rejection.reason], { name: rejection.name }) });
+			if (intake.images.length === 0) return;
+			const added = await Promise.all(intake.images.map(fileToImage));
+			setImages(previous => [...previous, ...added]);
+		});
+	};
+
+	// Files dropped on the composer go through attachFiles like a paste; anything
+	// else keeps the browser default (text drops insert into the field).
 	const draggingFiles = (event: DragEvent<HTMLElement>) => Array.from(event.dataTransfer.types).includes("Files");
 	const dropProps = {
 		onDragEnter: (event: DragEvent<HTMLDivElement>) => {
@@ -739,7 +788,7 @@ export function InputArea() {
 			setDragActive(false);
 			if (!draggingFiles(event)) return;
 			event.preventDefault();
-			addImageFiles(Array.from(event.dataTransfer.files));
+			attachFiles(Array.from(event.dataTransfer.files));
 		},
 	};
 
@@ -887,8 +936,8 @@ export function InputArea() {
 					>
 						{dragActive && (
 							<div aria-hidden className="omp-composer-drop omp-fade-in">
-								<ImagePlus aria-hidden className="size-(--sc-icon-md)" />
-								{t("input.dropImages")}
+								<Paperclip aria-hidden className="size-(--sc-icon-md)" />
+								{t("input.dropFiles")}
 							</div>
 						)}
 						{expanded && (
@@ -1065,11 +1114,10 @@ export function InputArea() {
 							<input
 								ref={fileInputRef}
 								type="file"
-								accept="image/*"
 								multiple
 								className="hidden"
 								onChange={event => {
-									addImageFiles(Array.from(event.target.files ?? []));
+									attachFiles(Array.from(event.target.files ?? []));
 									event.target.value = "";
 								}}
 							/>
