@@ -17,6 +17,7 @@ import { basename, formatTimeAgo, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { mergeContentMatches, rankSessions, type SessionSortMode } from "../../lib/session-search";
+import { sessionDisplayTitle } from "../../lib/session-title";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, IconButton, InlineNotice, Kbd, Modal, SearchField, Spinner } from "../common";
@@ -291,7 +292,8 @@ export function SessionPickerDialog() {
 							const snippet = contentOnly.has(session.path) ? contentHits.get(session.path) : undefined;
 							const isCurrent = session.id === sessionId;
 							const isActive = index === activeIndex;
-							const title = session.title ?? session.firstMessage ?? t("sessionPicker.untitled");
+							// A blank stored title falls back like the sidebar's, never to an empty row.
+							const title = sessionDisplayTitle(session, t("sessionPicker.untitled"));
 							return (
 								<button
 									aria-selected={isCurrent}

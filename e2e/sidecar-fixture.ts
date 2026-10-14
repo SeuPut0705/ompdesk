@@ -186,6 +186,19 @@ if (process.argv[2] === "stats") {
 	lines.on("close", () => process.exit(0));
 } else if (process.argv[2] === "update" && process.argv.includes("--check")) {
 	console.log("Current version: 18.8.7\nAlready up to date");
+} else if (process.argv[2] === "-p") {
+	// Print mode (scheduled runs): the prompt arrives on stdin; "fixture hang" keeps running until killed.
+	const prompt = await Bun.stdin.text();
+	if (process.env.OMP_GUI_TEST_RECORD) {
+		const frame = { type: "print", argv: process.argv.slice(2), cwd: process.cwd(), prompt };
+		fs.appendFileSync(process.env.OMP_GUI_TEST_RECORD, `${JSON.stringify(frame)}\n`);
+	}
+	console.log(`fixture print: ${prompt.trim()}`);
+	if (prompt.includes("fixture hang")) setInterval(() => {}, 1000);
+	else if (prompt.includes("fixture fail")) {
+		console.error("fixture print failed");
+		process.exit(4);
+	}
 } else if (!process.argv.includes("--mode")) {
 	// Other CLI calls have no local stand-in.
 	console.error(`fixture: unsupported invocation: ${process.argv.slice(2).join(" ")}`);
