@@ -6,7 +6,7 @@ import type { BrowserWindow } from "electron";
 import { describe, expect, it } from "vitest";
 import { IPC_EVENTS, type IpcTabStatusPayload } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse, SessionInfoUpdateFrame, SidecarStatus } from "../shared/rpc-types";
-import type { SidecarStartGate } from "./sidecar";
+import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import { type SidecarLike, SidecarPool } from "./sidecar-pool";
 import type { PersistedTabLayout } from "./tab-layout";
 
@@ -98,7 +98,7 @@ class FakeSidecar extends EventEmitter {
 	emitUiRequest(request: Record<string, unknown>): void {
 		this.emit("extensionUi", { type: "extension_ui_request", ...request });
 	}
-	emitSessionIdentity(identity: { sessionId?: string; sessionFile?: string }): void {
+	emitSessionIdentity(identity: SidecarSessionIdentity): void {
 		this.emit("session", identity);
 	}
 	emitEvents(events: Array<Record<string, unknown>>): void {
@@ -1372,6 +1372,25 @@ describe("SidecarPool background tabs", () => {
 		a?.emitSessionInfo({ sessionId: "two", title: "Second" });
 		expect(pool.sessionOwner("/sessions/two.jsonl")).toEqual({ tabId: "tab-a", winId: 1 });
 		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ sessionId: "two", title: "Second" });
+	});
+
+	it("drops the old session's title when another session takes the tab, and keeps a same-session one", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/one.jsonl");
+		const a = sidecars[0];
+		a?.emitSessionInfo({ sessionId: "one", title: "Refactor auth flow" });
+		// The same session re-reported (heartbeat get_state) keeps its title.
+		a?.emitSessionIdentity({ sessionId: "one", sessionFile: "/sessions/one.jsonl" });
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ title: "Refactor auth flow" });
+
+		// A new session (or a project switch) is unnamed: stock sends no
+		// session_info_update for it, so the old name must not stick to the tab.
+		a?.emitSessionIdentity({ sessionId: "two" });
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).not.toHaveProperty("title");
+		// A switch to a named session shows that name at once.
+		a?.emitSessionIdentity({ sessionId: "three", sessionFile: "/sessions/three.jsonl", sessionName: "Docs search" });
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ sessionId: "three", title: "Docs search" });
 	});
 
 	it("removes the window-closed listener when a tab is released", () => {

@@ -378,6 +378,8 @@ export function Sidebar() {
 	// Roving focus: the session list is one tab stop; arrows move inside it.
 	const [focusKey, setFocusKey] = useState<string | null>(null);
 	const listRef = useRef<HTMLDivElement>(null);
+	/** A row to focus after the next render, if focus is lost or still on the row `leaving`. */
+	const refocusRow = useRef<{ key: string; leaving?: string } | null>(null);
 	const openTab = useTabsStore(s => s.openTab);
 	const tabs = useTabsStore(s => s.tabs);
 	const activeTabId = useTabsStore(s => s.activeTabId);
@@ -702,12 +704,18 @@ export function Sidebar() {
 			return;
 		}
 		setDeleting(true);
+		// The row's neighbor (below, else above) takes focus once it is gone.
+		const items = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-roving-item]") ?? [])];
+		const leaving = `session:${session.path}`;
+		const index = items.findIndex(item => item.dataset.rovingItem === leaving);
+		const neighbor = index === -1 ? undefined : (items[index + 1] ?? items[index - 1])?.dataset.rovingItem;
 		try {
 			if (session.id === sessionId) {
 				await dropSessionNow();
 			} else {
 				await deleteSession(session.path);
 			}
+			if (neighbor) refocusRow.current = { key: neighbor, leaving };
 			setPendingDelete(null);
 		} catch (error) {
 			toastError({ title: t("sidebar.deleteFailed"), error });
@@ -798,6 +806,20 @@ export function Sidebar() {
 			items[0];
 		for (const item of items) item.tabIndex = item === preferred ? 0 : -1;
 	});
+	// Hand focus back to the list when the focused control goes away: a rename
+	// field ended by keyboard (back to its row), or a deleted row (on to its
+	// neighbor; the confirm dialog hands focus back to the row it is removing).
+	useEffect(() => {
+		const pending = refocusRow.current;
+		if (!pending || renamingSessionPath !== null || renamingGroupCwd !== null || pendingDelete !== null) return;
+		refocusRow.current = null;
+		const active = document.activeElement;
+		const leaving = active instanceof HTMLElement && active.dataset.rovingItem === pending.leaving;
+		if (active && active !== document.body && !leaving) return;
+		[...(listRef.current?.querySelectorAll<HTMLElement>("[data-roving-item]") ?? [])]
+			.find(item => item.dataset.rovingItem === pending.key)
+			?.focus();
+	});
 
 	const renderSessionRow = (session: SidebarSession, nested = false) => {
 		const key = `session:${session.path}`;
@@ -853,8 +875,17 @@ export function Sidebar() {
 						onFocus={event => event.currentTarget.select()}
 						onKeyDown={event => {
 							if (isImeKeyEvent(event)) return;
-							if (event.key === "Enter") commitRename(session, event.currentTarget.value);
-							onEscape(event, () => setRenamingSessionPath(null));
+							// The field unmounts on Enter/Escape: hand focus back to the row. The
+							// Enter is spent here, so it must not go on to press the row it lands on.
+							if (event.key === "Enter") {
+								event.preventDefault();
+								refocusRow.current = { key };
+								commitRename(session, event.currentTarget.value);
+							}
+							onEscape(event, () => {
+								refocusRow.current = { key };
+								setRenamingSessionPath(null);
+							});
 						}}
 						value={renameDraft}
 					/>
@@ -1021,10 +1052,15 @@ export function Sidebar() {
 										onKeyDown={event => {
 											if (isImeKeyEvent(event)) return;
 											if (event.key === "Enter") {
+												event.preventDefault();
+												refocusRow.current = { key };
 												useSidebarPrefs.getState().setGroupAlias(group.cwd, groupRenameDraft);
 												setRenamingGroupCwd(null);
 											}
-											onEscape(event, () => setRenamingGroupCwd(null));
+											onEscape(event, () => {
+												refocusRow.current = { key };
+												setRenamingGroupCwd(null);
+											});
 										}}
 										value={groupRenameDraft}
 									/>

@@ -15,7 +15,7 @@
  */
 
 import { ArrowLeft, PanelLeft } from "lucide-react";
-import { lazy, type ReactNode, Suspense, useEffect, useLayoutEffect } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useLayoutEffect, useRef } from "react";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useT } from "../../lib/i18n";
 import { actionShortcut } from "../../lib/keymap";
@@ -101,6 +101,48 @@ export function leavePageOnSessionSelect(): () => void {
 	};
 }
 
+/**
+ * Focus follows the main area. The session view is hidden, not unmounted, while
+ * a page shows, so whatever had focus there (usually the composer) drops it:
+ * opening a page lands focus on the page itself, and going back returns it to
+ * where it was (else the active pane's composer). Focus the user already moved
+ * elsewhere (a sidebar row, a dialog) is left alone. Returns the unsubscribe.
+ */
+export function followPageFocus(page: () => HTMLElement | null): () => void {
+	let returnTo: HTMLElement | null = null;
+	let frame = 0;
+	const unsubscribe = useUiStore.subscribe((next, previous) => {
+		if (next.destination === previous.destination) return;
+		if (previous.destination === "session") {
+			const active = document.activeElement;
+			returnTo = active instanceof HTMLElement && active !== document.body ? active : null;
+		}
+		cancelAnimationFrame(frame);
+		// After React commits the page (or reveals the session view again).
+		frame = requestAnimationFrame(() => {
+			const active = document.activeElement;
+			const lost = !active || active === document.body;
+			if (next.destination !== "session") {
+				const section = page();
+				if (section && (lost || !section.contains(active))) section.focus({ preventScroll: true });
+				return;
+			}
+			const target = returnTo;
+			returnTo = null;
+			if (!lost) return;
+			const back =
+				target?.isConnected && target.getClientRects().length > 0
+					? target
+					: document.querySelector<HTMLElement>('.omp-session-pane[data-active="true"] textarea');
+			back?.focus();
+		});
+	});
+	return () => {
+		cancelAnimationFrame(frame);
+		unsubscribe();
+	};
+}
+
 export function AppShell() {
 	const t = useT();
 	const destination = useUiStore(s => s.destination);
@@ -126,6 +168,8 @@ export function AppShell() {
 	}, [compact]);
 
 	useEffect(leavePageOnSessionSelect, []);
+	const pageRef = useRef<HTMLElement>(null);
+	useEffect(() => followPageFocus(() => pageRef.current), []);
 
 	// Esc on a page goes back to the session, unless something on the page
 	// (a search field, a menu) or an overlay already used the keystroke.
@@ -154,8 +198,10 @@ export function AppShell() {
 				{onPage && (
 					<section
 						aria-label={t(PAGE_LABEL_KEY[destination])}
-						className="flex min-h-0 flex-1 flex-col"
+						className="flex min-h-0 flex-1 flex-col outline-none"
 						data-destination={destination}
+						ref={pageRef}
+						tabIndex={-1}
 					>
 						<PageTopBar showSidebarToggle={!sidebarVisible} />
 						<Suspense

@@ -396,6 +396,11 @@ export class SidecarPool {
 			const previousId = entry.sessionId;
 			const previousFile = entry.sessionFile;
 			if (identity.sessionId) entry.sessionId = identity.sessionId;
+			// Another session now runs under this tab (new session, switch, project
+			// change): its name replaces the old one's, since stock sends
+			// session_info_update only when a name changes. A first report keeps the
+			// title seeded at acquire.
+			if (previousId !== undefined && entry.sessionId !== previousId) entry.title = identity.sessionName;
 			if (identity.sessionFile) this.#registerSessionFile(entry, identity.sessionFile);
 			else this.#unregisterSessionFile(entry);
 			if (entry.sessionId === previousId && entry.sessionFile === previousFile) return;

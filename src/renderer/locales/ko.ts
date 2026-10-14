@@ -3966,6 +3966,7 @@ export const ko: Record<string, string> = {
 	"remote.tab.chip": "{name}에서 실행 중",
 	"remote.tab.unknownDevice": "알 수 없는 기기",
 	"remote.tab.statusReconnecting": "다시 연결 중",
+	"remote.tab.statusRemoved": "페어링 해제됨",
 	"remote.tab.reconnecting": "{name}에 다시 연결하고 있어요…",
 	"remote.tab.reconnectingDesc": "세션은 그 기기에서 계속 실행되고, 연결이 돌아오면 여기서 이어져요.",
 	"remote.tab.removed": "더 이상 페어링된 기기가 아니에요",

@@ -94,6 +94,7 @@ export type TabStatusArg = z.infer<typeof TabStatusArg>;
 export const TabSessionArg = z.object({
 	sessionId: z.string().optional(),
 	sessionFile: z.string().optional(),
+	sessionName: z.string().optional(),
 });
 
 /**

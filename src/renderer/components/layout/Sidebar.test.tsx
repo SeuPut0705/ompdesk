@@ -728,6 +728,45 @@ describe("Sidebar menus and pinned ordering", () => {
 		);
 	});
 
+	it("hands focus back to the row when a rename ends by Enter or Escape", async () => {
+		installMockOmp(LIST.map(entry => ({ ...entry })));
+		seedStores();
+		await mount(<Sidebar />);
+		const focused: string[] = [];
+		const focus = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: Element) {
+			focused.push(this.getAttribute("data-roving-item") ?? this.tagName);
+		});
+		try {
+			for (const key of ["Enter", "Escape"]) {
+				await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
+				await fire(menuItem("Rename"), "onClick");
+				const input = document.body.querySelector('input[value="Session /work/alpha/one.jsonl"]');
+				if (!input) throw new Error("rename input missing");
+				focused.length = 0;
+				const preventDefault = vi.fn();
+				const props = reactProps<{
+					onKeyDown: (event: Record<string, unknown>) => void;
+				}>(input);
+				await act(async () => {
+					props.onKeyDown({
+						key,
+						currentTarget: { value: "Session /work/alpha/one.jsonl" },
+						nativeEvent: { isComposing: false },
+						preventDefault,
+						stopPropagation: () => {},
+					});
+				});
+				await flush();
+				expect(document.body.querySelector('input[value="Session /work/alpha/one.jsonl"]')).toBeNull();
+				expect(focused, key).toEqual(["session:/work/alpha/one.jsonl"]);
+				// The Enter that committed must not go on to press (open) the row it lands on.
+				expect(preventDefault).toHaveBeenCalled();
+			}
+		} finally {
+			focus.mockRestore();
+		}
+	});
+
 	it("a running task can be renamed but not deleted; idle siblings stay fully editable", async () => {
 		const attached = session("/work/alpha/mine.jsonl", "/work/alpha", { id: "attached-id" });
 		const list = [attached, ...LIST.map(entry => ({ ...entry }))];
@@ -787,6 +826,46 @@ describe("Sidebar menus and pinned ordering", () => {
 			});
 		});
 		expect(document.body.textContent).toContain("Delete this session permanently?");
+	});
+
+	it("moves focus to the next row when the focused row is deleted", async () => {
+		const list = LIST.map(entry => ({ ...entry }));
+		const omp = installMockOmp(list);
+		omp.sessions.delete.mockImplementation(async path => {
+			list.splice(
+				list.findIndex(entry => entry.path === path),
+				1,
+			);
+		});
+		seedStores();
+		await mount(<Sidebar />);
+		const order = [...container.querySelectorAll("[data-roving-item]")].map(item =>
+			item.getAttribute("data-roving-item"),
+		);
+		const target = "session:/work/alpha/one.jsonl";
+		const next = order[order.indexOf(target) + 1];
+		expect(next).toBeDefined();
+		const focused: string[] = [];
+		const focus = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: Element) {
+			focused.push(this.getAttribute("data-roving-item") ?? this.tagName);
+		});
+		try {
+			await act(async () => {
+				reactProps<{ onKeyDown: (event: { key: string; preventDefault: () => void }) => void }>(
+					rowButton("Session /work/alpha/one"),
+				).onKeyDown({ key: "Delete", preventDefault: () => {} });
+			});
+			const confirm = [...document.body.querySelectorAll('[role="dialog"] button')].find(
+				button => (button.textContent ?? "").trim() === "Delete",
+			);
+			focused.length = 0;
+			await fire(confirm ?? null, "onClick");
+			await flush();
+			expect(omp.sessions.delete).toHaveBeenCalledWith("/work/alpha/one.jsonl");
+			expect(focused.at(-1)).toBe(next);
+		} finally {
+			focus.mockRestore();
+		}
 	});
 
 	it("clicking an idle task opens it in a new tab by default", async () => {

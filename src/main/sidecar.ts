@@ -167,6 +167,8 @@ type Frame = Record<string, unknown>;
 export interface SidecarSessionIdentity {
 	sessionId?: string;
 	sessionFile?: string;
+	/** The session's name; read only when the id changes, since a rename arrives as session_info_update. */
+	sessionName?: string;
 }
 
 export interface SidecarOptions {
@@ -595,6 +597,7 @@ export class SidecarManager extends EventEmitter {
 			const next: SidecarSessionIdentity = {
 				sessionId: "sessionId" in data && typeof data.sessionId === "string" ? data.sessionId : undefined,
 				sessionFile: "sessionFile" in data && typeof data.sessionFile === "string" ? data.sessionFile : undefined,
+				sessionName: "sessionName" in data && typeof data.sessionName === "string" ? data.sessionName : undefined,
 			};
 			const previous = this.#session;
 			this.#session = next;

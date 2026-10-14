@@ -2,9 +2,19 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { RemoteState } from "../../../shared/ipc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
+import type { ExtensionUiStore } from "../../stores/extension-ui";
 import { useMessagesStore } from "../../stores/messages";
+import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
+import {
+	deleteSessionRuntime,
+	SessionRuntimeProvider,
+	sessionRuntimeStore,
+} from "../../stores/session-runtime-context";
+import { ensureTabRuntime } from "../../stores/tab-runtime";
+import { useTabsStore } from "../../stores/tabs";
 import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { TitleBar } from "./TitleBar";
@@ -66,16 +76,19 @@ const setSessionName = vi.fn(async (_name: string) => ({
 let container: TestElement;
 let root: Root;
 
-async function mount(): Promise<void> {
+async function mount(tabId?: string): Promise<void> {
 	container = document.createElement("div") as unknown as TestElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as globalThis.Element);
+	const bar = tabId ? (
+		<SessionRuntimeProvider runtime={ensureTabRuntime(tabId)}>
+			<TitleBar />
+		</SessionRuntimeProvider>
+	) : (
+		<TitleBar />
+	);
 	await act(async () => {
-		root.render(
-			<I18nProvider>
-				<TitleBar />
-			</I18nProvider>,
-		);
+		root.render(<I18nProvider>{bar}</I18nProvider>);
 	});
 }
 
@@ -90,6 +103,8 @@ afterEach(async () => {
 	useMessagesStore.getState().reset();
 	useToolsStore.getState().reset();
 	useUiStore.getState().closeSessionOverlays();
+	useTabsStore.getState().reset();
+	useRemoteStore.getState().reset();
 	getSessionStats.mockRestore();
 	vi.clearAllMocks();
 });
@@ -316,5 +331,47 @@ describe("TitleBar", () => {
 		expect(importItem).toBeDefined();
 		await act(async () => importItem?.click());
 		expect(useUiStore.getState().importDialogOpen).toBe(true);
+	});
+
+	it("names what a blocked session waits for, and a removed host as no longer paired", async () => {
+		useTabsStore.setState({
+			tabs: [{ id: "t1", cwd: "/tmp/project", status: "ready", kind: "agent", device: "host-b", unreadDone: false }],
+			activeTabId: "t1",
+		});
+		useRemoteStore.setState({
+			state: { hosts: [{ deviceId: "host-b", name: "Studio", state: "online" }] } as unknown as RemoteState,
+		});
+		await mount("t1");
+		const extensionUi = sessionRuntimeStore<ExtensionUiStore>("t1", "extensionUi");
+		await act(async () => {
+			extensionUi?.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "ask",
+				method: "ask",
+				questions: [],
+			});
+		});
+		// A question is not an approval.
+		expect(container.textContent).toContain(translate("titlebar.status.needsInput"));
+		expect(container.textContent).not.toContain(translate("titlebar.status.needsApproval"));
+		await act(async () => {
+			extensionUi?.getState().removeRequest("ask");
+			extensionUi?.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "approval",
+				method: "select",
+				title: "Allow tool: bash\nls",
+				options: ["Approve", "Deny"],
+			});
+		});
+		expect(container.textContent).toContain(translate("titlebar.status.needsApproval"));
+
+		// Unpaired in Settings: the host is gone for good, not reconnecting.
+		await act(async () => {
+			useRemoteStore.setState({ state: { hosts: [] } as unknown as RemoteState });
+		});
+		expect(container.textContent).toContain(translate("remote.tab.statusRemoved"));
+		expect(container.textContent).not.toContain(translate("remote.tab.statusReconnecting"));
+		deleteSessionRuntime("t1");
 	});
 });

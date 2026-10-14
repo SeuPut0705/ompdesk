@@ -3980,6 +3980,7 @@ export const en: Record<string, string> = {
 	"remote.tab.chip": "Runs on {name}",
 	"remote.tab.unknownDevice": "Unknown device",
 	"remote.tab.statusReconnecting": "Reconnecting",
+	"remote.tab.statusRemoved": "Not paired",
 	"remote.tab.reconnecting": "Reconnecting to {name}…",
 	"remote.tab.reconnectingDesc": "The session keeps running there and picks up here when the link is back.",
 	"remote.tab.removed": "This device is no longer paired",
