@@ -228,9 +228,10 @@ for (const [language, theme] of VARIANTS) {
 			await page.waitForTimeout(400);
 			notes.push(`rows rendered at launch: ${await rows.count()}`);
 			await shoot("loaded");
-			// Expand every project, then scroll to the end of the list.
-			for (const header of await sidebar.locator('[data-workspace-group] button[aria-expanded="false"]').all())
-				await header.click();
+			// Expand every project, then scroll to the end of the list. Each click
+			// re-renders the headers, so always take the first collapsed one afresh.
+			const collapsed = sidebar.locator('[data-workspace-group] button[aria-expanded="false"]');
+			for (let guard = 0; guard < 12 && (await collapsed.count()) > 0; guard++) await collapsed.first().click();
 			await page.waitForTimeout(300);
 			notes.push(`rows with every project expanded: ${await rows.count()}`);
 			const list = sidebar.locator("[data-session-group]").last();
@@ -455,6 +456,66 @@ for (const [language, theme] of VARIANTS) {
 		});
 	});
 
+	test(`page focus flow ${language}`, async () => {
+		test.setTimeout(180_000);
+		await flow("page-focus", language, theme, { sessions: 8 }, async ({ page, app, shoot, notes, findings }) => {
+			const composer = page.locator("textarea").first();
+			const pages: [string, () => Promise<void>][] = [
+				["settings", () => page.keyboard.press("Meta+,")],
+				["agents", () => page.keyboard.press("Alt+a")],
+				[
+					"stats",
+					async () => {
+						await app.evaluate(({ BrowserWindow }) =>
+							BrowserWindow.getAllWindows()[0]?.webContents.send("menu:action", { action: "open-stats" }),
+						);
+					},
+				],
+			];
+			for (const [name, open] of pages) {
+				for (const back of ["Escape", "button"] as const) {
+					await composer.focus();
+					const before = await focusReport(page);
+					await open();
+					await expect(
+						page.locator(`section[data-destination="${name === "stats" ? "insights" : name}"]`),
+					).toBeVisible();
+					await page.waitForTimeout(600);
+					const opened = await focusReport(page);
+					await shoot(`${name}-${back}-opened`);
+					if (back === "Escape") {
+						// Escape inside a focused search field may clear it first.
+						await page.keyboard.press("Escape");
+						if (await page.locator("section[data-destination]").count()) await page.keyboard.press("Escape");
+					} else
+						await page
+							.getByRole("button", { name: /^(Back to session|세션으로 돌아가기)$/ })
+							.first()
+							.click();
+					await expect(page.locator("section[data-destination]")).toHaveCount(0);
+					await page.waitForTimeout(300);
+					const returned = await focusReport(page);
+					await shoot(`${name}-${back}-returned`);
+					notes.push(
+						`${name} via ${back}: before=${JSON.stringify(before)} opened=${JSON.stringify(opened)} returned=${JSON.stringify(returned)}`,
+					);
+					if (opened.lost)
+						findings.push({
+							shot: `${name}-${back}-opened`,
+							kind: "focus-lost",
+							detail: `${name} page left focus on body`,
+						});
+					if (returned.lost || returned.role !== "textarea")
+						findings.push({
+							shot: `${name}-${back}-returned`,
+							kind: "focus-not-restored",
+							detail: `back from ${name} by ${back}: ${JSON.stringify(returned)}`,
+						});
+				}
+			}
+		});
+	});
+
 	test(`palette and toasts flow ${language}`, async () => {
 		test.setTimeout(240_000);
 		await flow("palette", language, theme, { sessions: 8 }, async ({ page, app, shoot, notes }) => {
@@ -538,12 +599,57 @@ for (const [language, theme] of VARIANTS) {
 					`tabs after open-project: ${JSON.stringify((await tabs()).map(tab => [tab.cwd, tab.active, tab.status]))}`,
 				);
 
-				// Split by dragging the first tab's row into the workspace, then a third.
-				await page.keyboard.press("Meta+t");
-				await expect.poll(async () => (await tabs()).length).toBeGreaterThanOrEqual(3);
-				await expect.poll(async () => (await tabs()).find(tab => tab.active)?.status).toBe("ready");
+				// The project opened into the same tab, a new session: the old title must
+				// not stick to its row or pane while the title bar names the new one.
+				const reused = (await tabs()).find(tab => tab.active)?.tabId;
+				const staleTitle = await page
+					.locator("[data-session-path]")
+					.filter({ hasText: "Refactor auth flow" })
+					.count();
+				notes.push(`rows still titled "Refactor auth flow" after the project switch: ${staleTitle}`);
+				if (staleTitle > 0)
+					findings.push({
+						shot: "project-opened",
+						kind: "stale-title",
+						detail: "old session title kept after open-project",
+					});
+				// Two more tabs by ⌘T; every tab titled so its sidebar row can be dragged.
+				const titles = new Map<string, string>();
+				if (reused) {
+					titles.set(reused, "Refactor auth flow");
+					await page.evaluate(
+						id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Refactor auth flow" }),
+						reused,
+					);
+				}
+				for (const title of ["Billing export", "Docs search"]) {
+					const count = (await tabs()).length;
+					await page.keyboard.press("Meta+t");
+					await expect.poll(async () => (await tabs()).length).toBe(count + 1);
+					await expect.poll(async () => (await tabs()).find(tab => tab.active)?.status).toBe("ready");
+					const id = (await tabs()).find(tab => tab.active)?.tabId;
+					if (!id) continue;
+					titles.set(id, title);
+					await page.evaluate(
+						([tabId, name]) =>
+							window.omp.rpc.commandForTab(tabId, { type: "bash", command: `fixture:title:${name}` }),
+						[id, title] as const,
+					);
+				}
+				await page.waitForTimeout(600);
+				await shoot("three-tabs");
+				notes.push(
+					`tabs before splitting: ${JSON.stringify((await tabs()).map(tab => [tab.tabId.slice(-4), titles.get(tab.tabId), tab.active, tab.visible]))}`,
+					`sidebar rows: ${JSON.stringify(await page.locator("[data-session-path]").evaluateAll(nodes => nodes.slice(0, 8).map(node => `${node.getAttribute("data-session-path")?.slice(-24)}=${(node.textContent ?? "").slice(0, 30)}`)))}`,
+				);
+				// A tab's row is keyed `tab:<id>` until its session has a file, then by that file.
+				const rowOf = (tabId: string) => {
+					const byTab = page.locator(`[data-session-path="tab:${tabId}"]`);
+					const title = titles.get(tabId);
+					return title ? byTab.or(page.locator("[data-session-path]").filter({ hasText: title })).first() : byTab;
+				};
 				const drag = async (tabId: string, fx: number, fy: number) => {
-					const row = page.locator(`[data-session-path="tab:${tabId}"]`);
+					const row = rowOf(tabId);
 					const rowBox = await row.boundingBox();
 					const box = await page.locator(".omp-split-workspace").boundingBox();
 					if (!rowBox || !box) throw new Error(`no boxes for ${tabId}`);
@@ -556,7 +662,9 @@ for (const [language, theme] of VARIANTS) {
 					await page.mouse.up();
 					await page.waitForTimeout(500);
 				};
-				await drag(first, 0.92, 0.5);
+				const hiddenFirst = (await tabs()).find(tab => !tab.visible);
+				if (!hiddenFirst) throw new Error("no background tab to drag");
+				await drag(hiddenFirst.tabId, 0.92, 0.5);
 				await expect(page.locator(".omp-session-pane")).toHaveCount(2);
 				await shoot("split-2");
 				const others = (await tabs()).filter(tab => !tab.visible);
@@ -564,6 +672,15 @@ for (const [language, theme] of VARIANTS) {
 				await page.waitForTimeout(400);
 				await shoot("split-3");
 				notes.push(`panes after second drag: ${await page.locator(".omp-session-pane").count()}`);
+				// And back: drag a pane's own row to the opposite edge, which moves it.
+				const visibleOther = (await tabs()).find(tab => tab.visible && !tab.active);
+				if (visibleOther) {
+					await drag(visibleOther.tabId, 0.08, 0.5);
+					await shoot("split-moved");
+					notes.push(
+						`panes after dragging a visible pane to the left edge: ${await page.locator(".omp-session-pane").count()} order=${JSON.stringify(await page.locator(".omp-session-pane").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-tab-id")?.slice(-4))))}`,
+					);
+				}
 
 				// Keyboard resize of a divider, then close panes one by one with the ×, then ⌘W.
 				const divider = page.getByRole("separator").first();
@@ -574,7 +691,7 @@ for (const [language, theme] of VARIANTS) {
 				await shoot("divider-keyboard");
 				notes.push(`divider focus: ${JSON.stringify(await focusReport(page))}`);
 				const closeButtons = page.getByRole("button", {
-					name: /^(Close pane|Remove pane|창 닫기|분할 닫기|패널 닫기|칸 닫기)$/,
+					name: /^(Remove this pane from split view|분할 보기에서 이 창 제거)$/,
 				});
 				notes.push(`pane close buttons: ${await closeButtons.count()}`);
 				if ((await closeButtons.count()) > 0) {
