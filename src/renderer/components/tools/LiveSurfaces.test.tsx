@@ -193,6 +193,12 @@ describe("live tool screens", () => {
 		expect(container.textContent).not.toContain("Calculation");
 		expect(container.textContent).not.toContain("JavaScript");
 	});
+	it("states a cell still evaluating in muted text, never an accent", async () => {
+		await mount(<EvalRenderer livePreview isPartial args={{ code: "1 + 1" }} result={undefined} />);
+		const line = [...container.querySelectorAll("div")].find(node => node.textContent === "Evaluating…");
+		expect(line?.getAttribute("class")).toContain("--sc-text-muted");
+		expect(line?.getAttribute("class")).not.toMatch(/accent|italic/);
+	});
 	it("restates a backgrounded cell as its job note, not stock's model-facing notice", async () => {
 		await mount(
 			<EvalRenderer

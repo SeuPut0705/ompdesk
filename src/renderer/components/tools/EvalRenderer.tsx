@@ -63,7 +63,7 @@ export function EvalRenderer({ args, result, isError, isPartial, partialResult, 
 				</div>
 			) : null}
 			{isPartial && !output && images.length === 0 && (
-				<div className="text-omp-sm italic text-[var(--omp-accent)]">{t("tools.eval.evaluating")}</div>
+				<div className="text-sc-xs text-(--sc-text-muted)">{t("tools.eval.evaluating")}</div>
 			)}
 		</div>
 	);

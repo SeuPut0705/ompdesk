@@ -7,7 +7,8 @@ import { exitApp, fixtureOmp } from "./harness";
 
 // Opt-in audit of the work card through whole flows on the fake omp's `fixture flow` run:
 // steers and queue changes, stop and resume, plan approval, a question, a mid-run compaction,
-// a tab switch, four live cards in a 2×2 split, a relaunch mid-run and a remote tab.
+// a tab switch, four live cards in a 2×2 split, a relaunch mid-run, a remote tab, and quiet
+// steps (a code cell, a silent command, a lone agent) in both themes and languages.
 // OMP_GUI_CARD_FLOWS=<dir> enables it and receives captures plus per-flow card probes.
 const OUT = process.env.OMP_GUI_CARD_FLOWS ?? "";
 test.skip(!OUT, "OMP_GUI_CARD_FLOWS=<dir> runs the work card flow audit");
@@ -693,6 +694,64 @@ test("relaunching the app mid-run", async () => {
 		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 });
+
+for (const [language, theme] of [
+	["en", "light"],
+	["en", "dark"],
+	["ko", "light"],
+	["ko", "dark"],
+] as const)
+	test(`quiet steps: a code cell, a silent command and a lone agent (${language} ${theme})`, async () => {
+		test.setTimeout(180_000);
+		const root = await profileDir(`quiet-${language}-${theme}`);
+		await fs.mkdir(path.join(root, "desktop"), { recursive: true });
+		await fs.writeFile(
+			path.join(root, "desktop", "prefs.json"),
+			JSON.stringify({ language, themeName: theme, firstRunComplete: true }),
+		);
+		const { app, page, errors } = await launch(root);
+		const name = `quiet-${language}-${theme}`;
+		try {
+			await startFlow(page);
+			const run = driver(page, await activeTab(page));
+			const stage = page.locator(".omp-work-stage .omp-live-work-heading > span.shrink-0").last();
+			await run.op({ op: "call", id: "e1", name: "eval", args: { code: "1 + 1", language: "js" } });
+			await expect(head(page)).toHaveText(await stage.textContent().then(text => text ?? ""));
+			await capture(page, `${name}-1-eval`);
+			await run.op({ op: "end", id: "e1", text: "2" });
+			await run.op({ op: "call", id: "s1", name: "bash", args: { command: "sleep 60" } });
+			const silent = page.locator(".omp-work-stage .omp-work-silent");
+			await expect(silent).toBeVisible();
+			await capture(page, `${name}-2-silent`);
+			await expect(silent.locator(".omp-work-clock[data-stalled='true']")).toBeVisible({ timeout: 15_000 });
+			await capture(page, `${name}-3-stalled`);
+			await run.op({ op: "end", id: "s1", text: "(no output)" });
+			await run.op({
+				op: "call",
+				id: "t1",
+				name: "task",
+				args: { tasks: [{ name: "Scout", task: "Map the code" }] },
+				agents: ["Scout"],
+			});
+			await run.op({ op: "end", id: "t1", text: "Scout finished" });
+			await run.op({ op: "reply", text: "Mapped the code." });
+			await expect(cards(page).first()).toHaveAttribute("data-state", "complete");
+			await capture(page, `${name}-4-done`);
+			const done = await cards(page).evaluateAll(groups =>
+				groups.map(group => ({
+					state: (group as HTMLElement).dataset.state,
+					head: group.querySelector(".omp-work-head .omp-work-narrative")?.textContent,
+					summary: group.querySelector(".omp-execution-group-header")?.getAttribute("aria-label"),
+					lanes: [...group.querySelectorAll(".omp-work-card-name")].map(lane => lane.textContent),
+				})),
+			);
+			await saveProbe(page, name);
+			await fs.writeFile(path.join(OUT, `${name}-summary.json`), JSON.stringify({ done, errors }, null, 1));
+		} finally {
+			await exitApp(app);
+			await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+		}
+	});
 
 test("a remote tab on a paired host", async () => {
 	test.setTimeout(240_000);
