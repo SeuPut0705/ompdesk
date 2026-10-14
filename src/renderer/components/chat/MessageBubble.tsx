@@ -1,4 +1,4 @@
-import { Archive, Check, Copy, FileText, GitBranch, Terminal } from "lucide-react";
+import { Archive, Check, ChevronRight, Copy, FileText, GitBranch, Terminal } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useState } from "react";
 import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from "../../../shared/rpc-types";
@@ -23,6 +23,7 @@ import { TodoReminderNote } from "./TodoReminderNote";
 import { TurnErrorNotice } from "./TurnErrorNotice";
 import { parseTodoReminder } from "./todo-reminder";
 import { UsageRow } from "./UsageRow";
+import { isSilentAbort } from "./work-turn";
 
 export interface MessageBubbleProps {
 	message: AgentMessage;
@@ -187,16 +188,22 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 					<div className="space-y-1.5">
 						{(message.files ?? []).map(file => (
 							<details
-								className="overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-1)"
+								className="group overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-1)"
 								key={file.path}
 							>
-								<summary className="cursor-pointer px-3 py-2 font-mono text-sc-sm text-(--sc-text)">
-									{file.path}
-									{file.skippedReason ? (
-										<span className="font-(family-name:--sc-font-sans) text-(--sc-text-muted)">
-											{` — ${file.skippedReason}`}
-										</span>
-									) : null}
+								<summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 font-mono text-sc-sm text-(--sc-text) [&::-webkit-details-marker]:hidden">
+									<ChevronRight
+										aria-hidden
+										className="omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle) group-open:rotate-90"
+									/>
+									<span className="min-w-0 break-all">
+										{file.path}
+										{file.skippedReason ? (
+											<span className="font-(family-name:--sc-font-sans) text-(--sc-text-muted)">
+												{` — ${file.skippedReason}`}
+											</span>
+										) : null}
+									</span>
 								</summary>
 								<pre
 									className={cx(
@@ -210,6 +217,11 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 							</details>
 						))}
 					</div>
+				) : message.role === "branchSummary" ? (
+					// The summary is the whole card: stock's branch summary has no short form.
+					<div className={PREVIEW_SCROLL_LG}>
+						<MarkdownRenderer content={message.summary ?? ""} />
+					</div>
 				) : (
 					<>
 						{message.shortSummary && <MarkdownRenderer content={message.shortSummary} />}
@@ -218,16 +230,30 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 								{message.warning}
 							</p>
 						)}
-						<details onToggle={event => setExpanded(event.currentTarget.open)}>
-							<summary className="cursor-pointer py-1.5 text-sc-sm text-(--sc-text-muted) hover:text-(--sc-text)">
-								{t("chat.context.details")}
-							</summary>
-							{expanded && (
-								<div className={PREVIEW_SCROLL_LG}>
-									<MarkdownRenderer content={message.summary ?? ""} />
-								</div>
-							)}
-						</details>
+						{message.summary && (
+							<>
+								<button
+									type="button"
+									aria-expanded={expanded}
+									onClick={() => setExpanded(open => !open)}
+									className="-ms-1.5 mt-1 flex min-h-7 w-fit max-w-full items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-left text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary) aria-expanded:text-(--sc-text-secondary)"
+								>
+									<ChevronRight
+										aria-hidden
+										className={cx(
+											"omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
+											expanded && "rotate-90",
+										)}
+									/>
+									{t("chat.context.details")}
+								</button>
+								{expanded && (
+									<div className={cx("mt-1", PREVIEW_SCROLL_LG)}>
+										<MarkdownRenderer content={message.summary} />
+									</div>
+								)}
+							</>
+						)}
 					</>
 				)}
 			</div>
@@ -337,7 +363,9 @@ export const MessageBubble = memo(function MessageBubble({
 	const isUser = message.role === "user";
 	const isAssistant = message.role === "assistant";
 	const isSteering = Boolean(message.steering);
-	const stopped = isAssistant && message.stopReason === "aborted";
+	// Stock renders nothing for a silent abort (pi-tui transcript-render-helpers): no "Stopped", no error.
+	const silentAbort = isAssistant && isSilentAbort(message);
+	const stopped = isAssistant && !silentAbort && message.stopReason === "aborted";
 	const timestamp = formatClock(message.timestamp);
 	// User delegations (`^provider/model`, persisted as <model …/> tags) render
 	// as atomic chips; the raw tags/selectors are stripped from the body text.
@@ -468,7 +496,7 @@ export const MessageBubble = memo(function MessageBubble({
 		}
 	}
 
-	const failure = Boolean(message.errorMessage) || stopped;
+	const failure = (Boolean(message.errorMessage) && !silentAbort) || stopped;
 	if (blocks.length === 0 && !failure && !customLabel && !isSteering) return null;
 
 	// Tool-only messages and messages nested inside an expanded Process group

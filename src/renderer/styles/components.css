@@ -534,6 +534,13 @@
 	overflow-anchor: none;
 }
 
+/* The scroller fills its pane, whose edges clip an outset ring to one line
+   along the bottom: draw the ring inside so all four sides show. */
+.omp-transcript-scroll:focus-visible {
+	outline-offset: calc(-1 * var(--sc-focus-width));
+	border-radius: var(--sc-radius-md);
+}
+
 /* Conversation navigator: one short tick per user turn, hung in the reading
    column's left gutter (its right edge sits a step left of the text edge), so
    it reads as part of the transcript rather than a detached window control.
@@ -2337,15 +2344,22 @@
 
 /* A reply's outer edges carry no paragraph margin — the turn padding owns the
    rhythm (the rule above otherwise outranks `.markdown-body > :first-child`).
-   The first streaming block follows suit so promotion never shifts text. */
+   The first streaming block follows suit so promotion never shifts text; so do
+   the markdown blocks inside hairline cards, whose padding owns their rhythm. */
 .omp-transcript-editorial .omp-transcript-content > .markdown-body:first-child > :first-child,
 .omp-transcript-editorial .omp-streaming > .omp-streaming-block:first-child > .markdown-body > :first-child,
-.omp-transcript-editorial :is(.omp-user-bubble, .omp-tool-body, .omp-thinking-body) .markdown-body > :first-child {
+.omp-transcript-editorial
+	:is(.omp-user-bubble, .omp-tool-body, .omp-thinking-body, .omp-custom-turn, .omp-context-turn)
+	.markdown-body
+	> :first-child {
 	margin-top: 0;
 }
 
 .omp-transcript-editorial .omp-transcript-content > .markdown-body:last-child > :last-child,
-.omp-transcript-editorial :is(.omp-user-bubble, .omp-tool-body, .omp-thinking-body) .markdown-body > :last-child {
+.omp-transcript-editorial
+	:is(.omp-user-bubble, .omp-tool-body, .omp-thinking-body, .omp-custom-turn, .omp-context-turn)
+	.markdown-body
+	> :last-child {
 	margin-bottom: 0;
 }
 

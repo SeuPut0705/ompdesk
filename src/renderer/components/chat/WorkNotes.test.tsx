@@ -101,8 +101,8 @@ it("shows the latest two notes, expands older ones and a full sanitized card bod
 	expect(container.querySelectorAll("li").length).toBe(2);
 	expect(container.textContent).toContain("1 more");
 	expect(container.textContent).not.toContain("Older note");
-	expect(container.textContent).toContain("concern");
-	expect(container.querySelector('[class*="--sc-warning-soft"]')?.textContent).toBe("concern");
+	expect(container.textContent).toContain("Concern");
+	expect(container.querySelector('[class*="--sc-warning-soft"]')?.textContent).toBe("Concern");
 	const line = container.querySelector(".omp-work-notes-line");
 	await act(async () => line?.dispatchEvent(new Event("click", { bubbles: true })));
 	expect(line?.getAttribute("aria-expanded")).toBe("true");

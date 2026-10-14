@@ -374,6 +374,7 @@ const COPY = {
 		details: "Context details",
 		splitRight: "Split right",
 		splitBelow: "Split below",
+		openFailed: "Couldn't open session",
 	},
 	ko: {
 		send: "보내기",
@@ -382,6 +383,7 @@ const COPY = {
 		details: "컨텍스트 상세 보기",
 		splitRight: "오른쪽으로 분할",
 		splitBelow: "아래로 분할",
+		openFailed: /세션을 열 수 없어요|세션을 열지 못했어요/,
 	},
 } as const;
 
@@ -544,7 +546,7 @@ for (const language of ["en", "ko"] as const)
 
 				// Context cards opened.
 				await toTop();
-				const details = page.locator("summary").filter({ hasText: copy.details });
+				const details = page.getByRole("button", { name: copy.details });
 				for (let index = 0; index < (await details.count()); index++) await details.nth(index).click();
 				await details.first().scrollIntoViewIfNeeded();
 				await page.waitForTimeout(300);
@@ -575,12 +577,26 @@ for (const language of ["en", "ko"] as const)
 				await page.waitForTimeout(400);
 
 				// Branch from a reply into a new tab.
+				const activeSession = async () =>
+					(await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.sessionPath ?? "";
+				const origin = await activeSession();
 				await toTop();
 				await reveal(firstAnswer);
 				await firstAnswer.getByRole("button", { name: copy.branch }).click();
+				// The new tab is the active one and sits on the forked session file.
+				await expect.poll(activeSession).toContain("fixture-fork-");
 				await page.waitForTimeout(1500);
 				await shoot("branched-new-tab");
-				// The fake omp seeds every spawn with the same journal, so the new tab carries on.
+				// No "Couldn't open session" toast; the fork holds the path up to that reply and nothing after it.
+				await expect(page.getByText(copy.openFailed)).toHaveCount(0);
+				await expect(
+					page.locator(".omp-assistant-turn").filter({ hasText: "Release plan comparison" }),
+				).toBeVisible();
+				await expect(page.getByText("Both installers are signed with the rotated certificate.")).toHaveCount(0);
+				// Back to the original session for the rest of the flows.
+				await page.locator(`[data-session-path="${origin}"]`).first().click();
+				await expect.poll(activeSession).toBe(origin);
+				await page.waitForTimeout(800);
 
 				// Edit and resend: /branch picks the RTL prompt; its text returns to the composer.
 				await send("/branch");

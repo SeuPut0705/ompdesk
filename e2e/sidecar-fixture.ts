@@ -445,6 +445,13 @@ if (process.argv[2] === "stats") {
 	let resumed: { id: string; file: string } | undefined;
 	let isStreaming = false;
 	let planModeEnabled = Boolean(process.env.OMP_GUI_TEST_PANEL_PLAN);
+	// Stock `--session <file>`: the process boots on that stored session (a tab
+	// opened on a fork, a restored tab), so get_state already names it.
+	if (flags["--session"] && fs.existsSync(flags["--session"])) {
+		const header = loadJournal(flags["--session"]);
+		resumed = { id: header.id ?? sessionId, file: flags["--session"] };
+		sessionTitle = header.title ?? "";
+	}
 	/** Stock `/btw` history, newest first. */
 	const btwRecords: object[] = [];
 	// Stock `get_state`: cwd, plan mode and the pause gate come from the bridge's `composer.state`.

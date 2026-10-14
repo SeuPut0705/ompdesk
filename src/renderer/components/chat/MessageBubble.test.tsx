@@ -260,6 +260,52 @@ describe("MessageBubble compaction summaries", () => {
 
 		expect(html).toContain("future · 0 → 12");
 	});
+
+	it("opens the full summary from a chevron disclosure button", async () => {
+		const container = document.createElement("div");
+		document.body.append(container);
+		const root = createRoot(container);
+		await act(async () =>
+			root.render(
+				<I18nProvider>
+					<MessageBubble
+						message={{
+							role: "compactionSummary",
+							summary: "Long archived context details.",
+							shortSummary: "Kept the active work.",
+							timestamp: "2026-08-20T00:00:00.000Z",
+						}}
+					/>
+				</I18nProvider>,
+			),
+		);
+		const toggle = container.querySelector("button[aria-expanded]");
+		expect(toggle?.textContent).toBe("View context details");
+		expect(toggle?.querySelector(".omp-disclosure-chevron")).not.toBeNull();
+		expect(container.querySelector("details")).toBeNull();
+		await act(async () => toggle?.dispatchEvent(new Event("click", { bubbles: true })));
+		expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+		expect(container.textContent).toContain("Long archived context details.");
+		await act(async () => root.unmount());
+		container.remove();
+	});
+
+	it("shows a branch summary's text in the card", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{
+						role: "branchSummary",
+						summary: "Tried the thumbprint cache; dropped it.",
+						timestamp: "2026-08-20T00:00:00.000Z",
+					}}
+				/>
+			</I18nProvider>,
+		);
+		expect(html).toContain("Branch summary");
+		expect(html).toContain("Tried the thumbprint cache; dropped it.");
+		expect(html).not.toContain("View context details");
+	});
 });
 
 describe("MessageBubble completion events", () => {
@@ -454,6 +500,28 @@ describe("MessageBubble noise filtering", () => {
 		expect(html).toContain("omp-turn-stopped");
 		expect(html).toContain("Stopped");
 		expect(html).not.toContain("omp-message-error");
+		expect(html).not.toContain('role="alert"');
+	});
+
+	it("shows no notice for stock's silent abort, like stock", () => {
+		const silent = (content: AgentMessage["content"]) =>
+			renderToStaticMarkup(
+				<I18nProvider>
+					<MessageBubble
+						message={{
+							role: "assistant",
+							content,
+							stopReason: "aborted",
+							errorMessage: "__omp.silent_abort__",
+							timestamp: at,
+						}}
+					/>
+				</I18nProvider>,
+			);
+		expect(silent([])).toBe("");
+		const html = silent([{ type: "text", text: "Plan ready for review" }]);
+		expect(html).toContain("Plan ready for review");
+		expect(html).not.toContain("omp-turn-stopped");
 		expect(html).not.toContain('role="alert"');
 	});
 

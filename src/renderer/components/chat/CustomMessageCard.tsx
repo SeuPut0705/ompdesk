@@ -13,7 +13,6 @@ import {
 	AlertTriangle,
 	ArrowRightLeft,
 	CheckCircle2,
-	ChevronDown,
 	ChevronRight,
 	Lightbulb,
 	MessagesSquare,
@@ -159,17 +158,18 @@ function num(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-const HEADER_CLASS =
-	"mb-2 flex items-center gap-1.5 text-omp-xs font-bold uppercase tracking-[0.12em] text-[var(--omp-custom-msg-label)]";
-const HEADER_META_CLASS = "font-medium normal-case tracking-normal text-[var(--omp-dim)]";
+/** Card header: a neutral sentence-case label like the context cards'; color stays on state marks. */
+const HEADER_CLASS = "mb-2 flex min-w-0 items-center gap-1.5 text-sc-sm font-medium text-(--sc-text-muted)";
+const HEADER_ICON_CLASS = "size-(--sc-icon-sm) shrink-0";
+const HEADER_META_CLASS = "min-w-0 truncate font-normal text-(--sc-text-subtle)";
 
-/** Card frame matching ContextBubble: rounded custom-message background on the chat gutter. */
+/** Colorless hairline card, the same frame as the context and execution cards (MessageBubble). */
 function CardFrame({ children }: { children: ReactNode }) {
 	const embedded = useContext(EmbeddedCard);
 	if (embedded) return <div className="omp-work-notes-body">{children}</div>;
 	return (
 		<div className="omp-custom-turn omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-3">
-			<div className="omp-transcript-content rounded-[10px] border border-[var(--omp-border-muted)] bg-[var(--omp-custom-msg-bg)] px-3.5 py-3 shadow-[var(--omp-shadow-sm)]">
+			<div className="omp-transcript-content min-w-0 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-3.5 py-3">
 				{children}
 			</div>
 		</div>
@@ -241,7 +241,7 @@ function CompletionRow({
 				className={cx(
 					"shrink-0",
 					failed === undefined
-						? "text-[var(--omp-custom-msg-label)]"
+						? "text-(--sc-text-muted)"
 						: failed
 							? "text-[var(--omp-error)]"
 							: "text-[var(--omp-success)]",
@@ -294,17 +294,6 @@ function advisorVariant(severity: string | undefined): BadgeVariant {
 	}
 }
 
-function advisorRailColor(severity: string | undefined): string {
-	switch (severity) {
-		case "blocker":
-			return "var(--omp-error)";
-		case "concern":
-			return "var(--omp-warning)";
-		default:
-			return "var(--omp-dim)";
-	}
-}
-
 const ADVISOR_SEVERITY_KEYS: Record<string, string> = {
 	nit: "chat.custom.severity.nit",
 	concern: "chat.custom.severity.concern",
@@ -334,12 +323,12 @@ function AdvisorCard({ message }: { message: AgentMessage }) {
 	return (
 		<CardFrame>
 			<div className={HEADER_CLASS}>
-				<Lightbulb size={12} />
-				<span>{t("chat.custom.advisor")}</span>
+				<Lightbulb aria-hidden className={HEADER_ICON_CLASS} />
+				<span className="shrink-0">{t("chat.custom.advisor")}</span>
 				<span className={HEADER_META_CLASS}>
-					{t("chat.custom.advisorNotes", { count: notes.length, plural: notes.length === 1 ? "" : "s" })}
+					· {t("chat.custom.advisorNotes", { count: notes.length, plural: notes.length === 1 ? "" : "s" })}
 					{blockers > 0 && (
-						<span className="text-[var(--omp-error)]">
+						<span className="text-(--sc-danger)">
 							{" "}
 							· {t("chat.custom.blockers", { count: blockers, plural: blockers === 1 ? "" : "s" })}
 						</span>
@@ -348,19 +337,15 @@ function AdvisorCard({ message }: { message: AgentMessage }) {
 			</div>
 			<div className="space-y-2">
 				{shown.map((note, i) => (
-					<div
-						key={i}
-						className="flex items-start gap-2 border-l-2 pl-2.5"
-						style={{ borderLeftColor: advisorRailColor(note.severity) }}
-					>
+					<div key={i} className="flex items-start gap-2">
 						{note.severity && (
 							<Badge variant={advisorVariant(note.severity)} className="mt-0.5">
 								{advisorSeverityLabel(note.severity, t)}
 							</Badge>
 						)}
-						<div className="min-w-0 flex-1 text-omp-md leading-[1.55] text-[var(--omp-text)]">
+						<div className="min-w-0 flex-1 text-sc-md text-(--sc-text)">
 							{note.advisor && note.advisor !== "default" && (
-								<span className="mr-1.5 font-mono text-omp-xs text-[var(--omp-dim)]">[{note.advisor}]</span>
+								<span className="me-1.5 font-mono text-sc-xs text-(--sc-text-muted)">[{note.advisor}]</span>
 							)}
 							<MarkdownRenderer content={note.note} />
 						</div>
@@ -370,7 +355,7 @@ function AdvisorCard({ message }: { message: AgentMessage }) {
 					<button
 						type="button"
 						onClick={() => setExpanded(true)}
-						className="omp-pressable border-l-2 border-[var(--omp-border-muted)] pl-2.5 text-omp-sm font-medium text-[var(--omp-dim)] hover:text-[var(--omp-text)]"
+						className="omp-pressable rounded-(--sc-radius-sm) text-sc-sm font-medium text-(--sc-text-muted) hover:text-(--sc-text)"
 					>
 						{t("chat.custom.moreNotes", { count: hidden, plural: hidden === 1 ? "" : "s" })}
 					</button>
@@ -638,11 +623,11 @@ function LateDiagnosticsCard({ message }: { message: AgentMessage }) {
 		<CardFrame>
 			<div className={HEADER_CLASS}>
 				{errored ? (
-					<XCircle size={12} className="text-[var(--omp-error)]" />
+					<XCircle aria-hidden className={cx(HEADER_ICON_CLASS, "text-(--sc-danger)")} />
 				) : (
-					<AlertTriangle size={12} className="text-[var(--omp-warning)]" />
+					<AlertTriangle aria-hidden className={cx(HEADER_ICON_CLASS, "text-(--sc-warning)")} />
 				)}
-				<span>{t("chat.custom.lateDiagnostics")}</span>
+				<span className="shrink-0">{t("chat.custom.lateDiagnostics")}</span>
 				{summary && <span className={HEADER_META_CLASS}>({summary})</span>}
 			</div>
 			<div className="space-y-2">
@@ -710,44 +695,56 @@ function SkillCard({ message }: { message: AgentMessage }) {
 	const lineCount = num(details?.lineCount);
 	const text = resultText(message.content).trim();
 
+	const head = (
+		<>
+			<Zap aria-hidden className={HEADER_ICON_CLASS} />
+			<span className="shrink-0">{t("chat.custom.skill")}</span>
+			<span className="shrink-0 font-medium text-(--sc-text)">{name}</span>
+			{args && <span className="min-w-0 flex-1 truncate font-mono text-sc-xs text-(--sc-text-subtle)">{args}</span>}
+			{text && (
+				<ChevronRight
+					aria-hidden
+					className={cx(
+						"omp-disclosure-chevron ms-auto size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
+						open && "rotate-90",
+					)}
+				/>
+			)}
+		</>
+	);
+	const headClass = "flex w-full min-w-0 items-center gap-1.5 text-left text-sc-sm font-medium text-(--sc-text-muted)";
+
 	return (
 		<CardFrame>
-			<button
-				type="button"
-				onClick={() => text && setOpen(v => !v)}
-				className={cx("flex w-full items-center gap-1.5 text-left", text && "cursor-pointer")}
-			>
-				<Zap size={12} className="shrink-0 text-[var(--omp-custom-msg-label)]" />
-				<span className="text-omp-xs font-bold uppercase tracking-[0.12em] text-[var(--omp-custom-msg-label)]">
-					{t("chat.custom.skill")}
-				</span>
-				<span className="shrink-0 text-omp-md font-semibold text-[var(--omp-text)]">{name}</span>
-				{args && (
-					<span className="min-w-0 flex-1 truncate font-mono text-omp-sm text-[var(--omp-dim)]">{args}</span>
-				)}
-				{text &&
-					(open ? (
-						<ChevronDown size={13} className="ml-auto shrink-0 text-[var(--omp-dim)]" />
-					) : (
-						<ChevronRight size={13} className="ml-auto shrink-0 text-[var(--omp-dim)]" />
-					))}
-			</button>
+			{text ? (
+				<button
+					type="button"
+					aria-expanded={open}
+					onClick={() => setOpen(v => !v)}
+					className={cx(
+						headClass,
+						"-mx-1.5 -my-0.5 w-[calc(100%+0.75rem)] rounded-(--sc-radius-sm) px-1.5 py-0.5 transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary)",
+					)}
+				>
+					{head}
+				</button>
+			) : (
+				<div className={headClass}>{head}</div>
+			)}
 			{(path || lineCount != null) && (
-				<div className="mt-1 flex items-center gap-1.5 font-mono text-omp-xs">
-					{path && <span className="min-w-0 truncate text-[var(--omp-accent)]">{path}</span>}
-					{path && lineCount != null && <span className="text-[var(--omp-dim)]">·</span>}
+				<div className="mt-1 flex min-w-0 items-center gap-1.5 font-mono text-sc-xs text-(--sc-text-subtle)">
+					{path && <span className="min-w-0 truncate text-(--sc-text-muted)">{path}</span>}
+					{path && lineCount != null && <span aria-hidden>·</span>}
 					{lineCount != null && (
-						<span className="shrink-0 text-[var(--omp-muted)]">
+						<span className="shrink-0">
 							{t("chat.custom.skillLines", { count: lineCount, plural: lineCount === 1 ? "" : "s" })}
 						</span>
 					)}
 				</div>
 			)}
 			{open && text && (
-				<div className="omp-fade-in mt-2 border-t border-[var(--omp-border-muted)]/70 pt-2">
-					<div className="mb-1 text-omp-xs font-bold uppercase tracking-[0.12em] text-[var(--omp-muted)]">
-						{t("chat.custom.prompt")}
-					</div>
+				<div className="omp-fade-in mt-2 border-t border-(--sc-divider) pt-2">
+					<div className="mb-1 text-sc-xs font-medium text-(--sc-text-muted)">{t("chat.custom.prompt")}</div>
 					<MarkdownRenderer content={text} />
 				</div>
 			)}
@@ -813,13 +810,8 @@ function IrcCard({ message }: { message: AgentMessage }) {
 
 	return (
 		<CardFrame>
-			<div
-				className={cx(
-					"mb-1.5 flex items-center gap-1.5 text-omp-sm font-semibold",
-					embedded ? "text-(--sc-text-secondary)" : "text-[var(--omp-custom-msg-label)]",
-				)}
-			>
-				<MessagesSquare size={12} className="shrink-0" />
+			<div className="mb-1.5 flex min-w-0 items-center gap-1.5 text-sc-sm font-medium text-(--sc-text-secondary)">
+				<MessagesSquare aria-hidden className={HEADER_ICON_CLASS} />
 				<span className="min-w-0 truncate">{title}</span>
 				{kind === "autoreply" && <Badge variant="muted">{t("chat.custom.ircAuto")}</Badge>}
 				{str(details?.replyTo) && <Badge variant="muted">{t("chat.custom.ircReply")}</Badge>}
@@ -859,7 +851,7 @@ function HandoffCard({ message }: { message: AgentMessage }) {
 	return (
 		<CardFrame>
 			<div className={HEADER_CLASS}>
-				<ArrowRightLeft size={12} />
+				<ArrowRightLeft aria-hidden className={HEADER_ICON_CLASS} />
 				<span>{t("chat.custom.handoff")}</span>
 			</div>
 			<MarkdownRenderer content={doc || t("chat.custom.handoffEmpty")} />

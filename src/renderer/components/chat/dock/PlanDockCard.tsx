@@ -150,6 +150,8 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 	const [toggling, setToggling] = useState(false);
 	const [tab, setTab] = useState<"steps" | "raw">("steps");
 	const [approving, setApproving] = useState(false);
+	const approvingRef = useRef(false);
+	const [approvedContent, setApprovedContent] = useState<string | null>(null);
 	const [planFeedback, setPlanFeedback] = useState("");
 	const [sendingPlan, setSendingPlan] = useState(false);
 	const [stepFeedback, setStepFeedback] = useState<StepFeedbackState | null>(null);
@@ -276,15 +278,23 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 	}, [planFile, localRoot, planFilePath]);
 
 	const approve = useCallback(async () => {
+		// One approval per plan: a second press before the first lands never sends a duplicate.
+		if (approvingRef.current) return;
+		approvingRef.current = true;
+		const planText = content;
 		setApproving(true);
 		try {
 			const target = displayPath ?? t("planPanel.fallbackTarget");
 			const ok = await sendPlanMessage(t("planPanel.approveMessage", { target }), t, rpc, isStreaming);
-			if (ok) toast({ variant: "success", message: t("planPanel.approvalSent") });
+			if (ok) {
+				setApprovedContent(planText);
+				toast({ variant: "success", message: t("planPanel.approvalSent") });
+			}
 		} finally {
+			approvingRef.current = false;
 			setApproving(false);
 		}
-	}, [displayPath, rpc, t, isStreaming]);
+	}, [content, displayPath, rpc, t, isStreaming]);
 
 	const requestChanges = useCallback(async () => {
 		const text = planFeedback.trim();
@@ -329,6 +339,8 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 	const hasChecklist = useMemo(() => sections.some(s => s.steps.some(step => step.checkbox)), [sections]);
 
 	const reviewable = planModeEnabled && content != null && content.trim().length > 0;
+	// Approval covers this plan text; a rewritten plan is up for review again.
+	const approved = approvedContent !== null && approvedContent === content;
 
 	if (!planModeEnabled && presentation === "dock") return null;
 
@@ -524,16 +536,26 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 							value={planFeedback}
 						/>
 						<div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-							<Button
-								disabled={!reviewable}
-								icon={<CheckCircle2 />}
-								loading={approving}
-								onClick={() => void approve()}
-								size="sm"
-								variant="primary"
-							>
-								{t("planPanel.approve")}
-							</Button>
+							{approved ? (
+								<span
+									role="status"
+									className="inline-flex min-h-(--sc-control-sm) items-center gap-1.5 px-1 text-sc-sm font-medium text-(--sc-text-secondary)"
+								>
+									<CheckCircle2 aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-success)" />
+									{t("planPanel.approved")}
+								</span>
+							) : (
+								<Button
+									disabled={!reviewable}
+									icon={<CheckCircle2 />}
+									loading={approving}
+									onClick={() => void approve()}
+									size="sm"
+									variant="primary"
+								>
+									{t("planPanel.approve")}
+								</Button>
+							)}
 							<Button
 								disabled={!reviewable || !planFeedback.trim()}
 								loading={sendingPlan}
