@@ -536,6 +536,34 @@ describe("ProvidersSection", () => {
 		).toContain(translate("providers.loginSuccess", { provider: "DeepSeek" }));
 	});
 
+	it("shows the sign-in's latest progress notice in the panel's status line", async () => {
+		login.mockReturnValueOnce(Promise.withResolvers<RpcResponse>().promise);
+		getProviders.mockResolvedValue(
+			providersResponse(
+				snapshot([row("anthropic", { name: "Anthropic", authenticated: false, loginAvailable: true })]),
+			),
+		);
+		useSessionStore.setState({ status: "ready" });
+		await mount(<ProvidersSection />);
+		await act(async () => button(translate("providerList.connect"))?.click());
+		const status = () => document.querySelector("[data-login-progress]")?.textContent ?? "";
+		expect(status()).toBe(translate("providerList.login.starting"));
+
+		await act(async () => {
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "progress-1",
+				method: "notify",
+				message: "Exchanging authorization code…",
+				notifyType: "info",
+			});
+		});
+		expect(status()).toBe("Exchanging authorization code…");
+		// Consumed here, so no toast repeats it.
+		expect(useExtensionUiStore.getState().pendingRequests).toEqual([]);
+		expect(document.querySelector('[data-login-progress] [role="status"]')).toBeTruthy();
+	});
+
 	it("folds the picker away once a provider found there is connected", async () => {
 		const pending = Promise.withResolvers<RpcResponse>();
 		login.mockReturnValueOnce(pending.promise);

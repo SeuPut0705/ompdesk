@@ -33,8 +33,13 @@ export interface ExtensionUiStore extends ExtensionUiSnapshot {
 	clearAll: () => void;
 }
 
-/** Requests an inline provider sign-in answers itself. */
+/**
+ * Requests an inline provider sign-in answers itself. Stock's `login` reports
+ * its progress (`onProgress`) as info-level `notify`; the panel shows it in its
+ * status line instead of a toast. Warnings and errors still toast.
+ */
 export function isInlineLoginRequest(request: ExtensionUIRequest): boolean {
+	if (request.method === "notify") return (request.notifyType ?? "info") === "info";
 	return request.method === "open_url" || request.method === "input";
 }
 

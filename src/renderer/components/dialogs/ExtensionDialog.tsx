@@ -844,6 +844,8 @@ export function ExtensionDialog() {
 	// GUI surfaces directly; dispatching listenerless events drops them.
 	useEffect(() => {
 		for (const req of pending) {
+			// The inline sign-in panel shows its own progress notices.
+			if (inlineLogin && isInlineLoginRequest(req)) continue;
 			if (req.method === "notify") {
 				// Suppress xdev mount notifications — they are startup-time
 				// informational messages that don't need user attention.
@@ -868,7 +870,7 @@ export function ExtensionDialog() {
 				removeRequest(req.id);
 			}
 		}
-	}, [pending, removeRequest, tabId]);
+	}, [pending, removeRequest, tabId, inlineLogin]);
 
 	// Timeout: auto-cancel with timedOut marker.
 	useEffect(() => {

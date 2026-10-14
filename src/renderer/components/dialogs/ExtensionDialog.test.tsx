@@ -755,6 +755,35 @@ describe("ExtensionDialog non-dialog mutations", () => {
 		expect(Number.isFinite(toasts.find(toast => toast.message === "Indexed")?.expiresAt)).toBe(true);
 	});
 
+	it("leaves a sign-in's progress notices to the inline login panel; warnings still toast", async () => {
+		useExtensionUiStore.getState().setInlineLogin(true);
+		try {
+			await mount();
+			await push(
+				{
+					type: "extension_ui_request",
+					id: "p-1",
+					method: "notify",
+					message: "Waiting for browser…",
+					notifyType: "info",
+				},
+				{
+					type: "extension_ui_request",
+					id: "p-2",
+					method: "notify",
+					message: "Slow network",
+					notifyType: "warning",
+				},
+			);
+			const messages = useToastStore.getState().toasts.map(toast => toast.message);
+			expect(messages).not.toContain("Waiting for browser…");
+			expect(messages).toContain("Slow network");
+			expect(useExtensionUiStore.getState().pendingRequests.map(request => request.id)).toEqual(["p-1"]);
+		} finally {
+			useExtensionUiStore.getState().setInlineLogin(false);
+		}
+	});
+
 	it("fills the composer for set_editor_text and keeps the extension title with its tab", async () => {
 		await mount();
 		let editorDetail: { text?: string; images?: unknown[]; prepend?: boolean } | undefined;

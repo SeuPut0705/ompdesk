@@ -18,7 +18,7 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import { useExtensionUiResponder } from "../../../hooks/use-extension-ui";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { openUrlTarget, useExtensionUiStore } from "../../../stores/extension-ui";
+import { isInlineLoginRequest, openUrlTarget, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useFocusedHost, useFocusedTabDevice } from "../../../stores/remote";
 import { Banner, Button, IconButton, Input, Spinner } from "../../common";
 
@@ -36,10 +36,19 @@ export interface ProviderLoginState {
 	link: { url: string; instructions?: string; oauth: boolean } | null;
 	/** omp is waiting for a pasted key / code. */
 	prompt: LoginPrompt | null;
+	/** Stock's latest progress line for this sign-in (`onProgress`, an info `notify`). */
+	progress: string | null;
 	error: string | null;
 }
 
-const IDLE: ProviderLoginState = { providerId: null, running: false, link: null, prompt: null, error: null };
+const IDLE: ProviderLoginState = {
+	providerId: null,
+	running: false,
+	link: null,
+	prompt: null,
+	progress: null,
+	error: null,
+};
 
 export interface ProviderLogin {
 	state: ProviderLoginState;
@@ -89,9 +98,12 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 					...prev,
 					prompt: { id: request.id, title: request.title, placeholder: request.placeholder },
 				}));
+			} else if (request.method === "notify" && isInlineLoginRequest(request)) {
+				setState(prev => ({ ...prev, progress: request.message }));
+				removeRequest(request.id);
 			}
 		}
-	}, [pending, remote, respond, state.running]);
+	}, [pending, remote, removeRequest, respond, state.running]);
 
 	const finish = useCallback(() => {
 		setInlineLogin(false);
@@ -258,10 +270,15 @@ export function ProviderLoginPanel({
 					</Button>
 				</form>
 			) : (
-				<div className="flex items-center gap-2 text-sc-sm text-(--sc-text-muted)" role="status">
-					<Spinner size="sm" />
-					<span className="min-w-0 flex-1">
-						{state.link ? t("providerList.login.waiting") : t("providerList.login.starting")}
+				<div className="flex items-center gap-2">
+					<span className="min-w-0 flex-1" data-login-progress="true">
+						<Spinner
+							label={
+								state.progress ??
+								(state.link ? t("providerList.login.waiting") : t("providerList.login.starting"))
+							}
+							size="sm"
+						/>
 					</span>
 					<Button onClick={login.cancel} size="sm" variant="ghost">
 						{t("common.cancel")}
