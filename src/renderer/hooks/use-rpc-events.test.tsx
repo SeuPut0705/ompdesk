@@ -693,6 +693,26 @@ describe("useRpcEvents snapshot churn", () => {
 		expect(session.getState().planModeEnabled).toBe(true);
 	});
 
+	it("lands the boot snapshot when the bridge's read metadata arrives mid-fetch", async () => {
+		const { emitTabBatch, session, model, state } = await holdNextState("t-read-meta");
+		let hydration = Promise.resolve();
+		await act(async () => {
+			hydration = hydrateTabSession("t-read-meta");
+		});
+		await act(async () => {
+			emitTabBatch([{ type: "read_group_metadata", toolCallId: "r1", target: { path: "a.ts" } }], "t-read-meta");
+		});
+		state.resolve(settledState({ model: { provider: "p", id: "m" }, planModeEnabled: true }));
+		await act(async () => {
+			await hydration;
+		});
+
+		// The metadata joins its call in the tools store whichever lands first; it is no reason
+		// to drop the snapshot's model and modes.
+		expect(model.getState().model).toMatchObject({ provider: "p", id: "m" });
+		expect(session.getState().planModeEnabled).toBe(true);
+	});
+
 	it("keeps the composer modes and model selection of a hydration that a lifecycle frame outdated", async () => {
 		const { emitTabBatch, session, model, state } = await holdNextState("t-churn");
 		let hydration = Promise.resolve();

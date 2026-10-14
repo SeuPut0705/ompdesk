@@ -303,6 +303,86 @@ describe("SidecarManager", () => {
 		}
 	});
 
+	it("keeps every response behind an agent_end that waits for its entry ids", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-held-"));
+		const answered = path.join(tempDir, "transcript-answered");
+		const script = [
+			'import * as fs from "node:fs";',
+			'import { createInterface } from "node:readline";',
+			'import * as net from "node:net";',
+			"const line = (frame: unknown) => JSON.stringify(frame) + '\\n';",
+			"const out = (frame: unknown) => process.stdout.write(line(frame));",
+			'const message = { role: "assistant", content: [{ type: "text", text: "done" }], timestamp: 7 };',
+			// The entry ids wait for the test's second abort: until then the agent_end stays held.
+			"let aborts = 0;",
+			"let pendingIds: (() => void) | undefined;",
+			"let bridgeSocket;",
+			'const reply = (socket, request) => socket.write(JSON.stringify({ id: request.id, ok: true, result: request.method === "sessions.attach_entry_ids" ? { messages: request.params.messages.map(m => ({ ...m, entryId: "e7" })) } : request.method === "sessions.transcript" ? { leafId: "e7", total: 1, messages: [{ ...message, entryId: "e7" }] } : null }) + "\\n");',
+			"const answer = (socket, request) => {",
+			'\tif (request.method === "sessions.attach_entry_ids") return void (pendingIds = () => reply(socket, request));',
+			"\treply(socket, request);",
+			`\tif (aborts === 1 && request.method === "sessions.transcript") fs.writeFileSync(${JSON.stringify(answered)}, "");`,
+			"};",
+			'net.createServer(socket => { bridgeSocket = socket; socket.setEncoding("utf8"); let buffer = ""; socket.on("data", chunk => { buffer += chunk; for (let i = buffer.indexOf("\\n"); i !== -1; i = buffer.indexOf("\\n")) { const request = JSON.parse(buffer.slice(0, i)); buffer = buffer.slice(i + 1); answer(socket, request); } }); }).listen(process.env.OMP_GUI_BRIDGE, () => out({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }));',
+			"createInterface({ input: process.stdin }).on('line', input => {",
+			"\tconst command = JSON.parse(input);",
+			'\tconst response = { type: "response", id: command.id, command: command.type, success: true, data: { sessionId: "s1" } };',
+			'\tif (command.type !== "abort") return out(response);',
+			"\taborts++;",
+			// One write: main reads the run's end and the response behind it together.
+			'\tif (aborts === 1) return process.stdout.write(line({ type: "agent_start" }) + line({ type: "message_end", message }) + line({ type: "agent_end", messages: [message] }) + line(response));',
+			"\tpendingIds?.();",
+			"\tout(response);",
+			"});",
+			'process.stdin.on("end", () => { bridgeSocket?.destroy(); process.exit(0); });',
+		].join("\n");
+		const binaryPath = await writeFakeOmp(tempDir, script);
+
+		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, bridgeDir: tempDir });
+		const order: string[] = [];
+		sidecar.on("events", (events: Array<{ type: string; messages?: Array<{ entryId?: string }> }>) => {
+			for (const event of events)
+				order.push(event.messages ? `${event.type} ${event.messages[0]?.entryId}` : event.type);
+		});
+		try {
+			const ready = waitForReady(sidecar);
+			sidecar.start();
+			await ready;
+			const client = sidecar.rpcClient;
+			if (!client) throw new Error("no rpc client");
+			// Connects the bridge and learns the session.
+			await client.command({ type: "get_transcript" });
+			order.length = 0;
+
+			const held = Promise.withResolvers<void>();
+			sidecar.on("frame", (frame: { type: string }) => {
+				if (frame.type === "message_end") held.resolve();
+			});
+			// omp's own response, sent right behind the run's end.
+			const first = client.command({ type: "abort" }).then(() => order.push("abort response"));
+			await held.promise;
+			// One main answers from a bridge snapshot while the end still waits: the bridge has
+			// answered it well before the entry ids are released below.
+			const transcript = client.command({ type: "get_transcript" }).then(() => order.push("transcript response"));
+			await expect
+				.poll(() =>
+					fs.stat(answered).then(
+						() => true,
+						() => false,
+					),
+				)
+				.toBe(true);
+			const second = client.command({ type: "abort" }).then(() => order.push("second abort response"));
+			await Promise.all([first, transcript, second]);
+
+			expect(order.slice(0, 4)).toEqual(["agent_start", "message_end", "agent_end e7", "abort response"]);
+			expect(order.indexOf("transcript response")).toBeGreaterThan(order.indexOf("agent_end e7"));
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
 	it("commits every message a deferred or compacted agent_end left out, with entry ids, in stream order", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-run-"));
 		// Stock's real order for "Use your todo tool …": run 1 (user prompt, todo/bash/todo/bash) ends,

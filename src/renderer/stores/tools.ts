@@ -163,11 +163,26 @@ export function toolEntryKey(call: { id: string }): string {
 	return callEntryKeys.get(call) ?? call.id;
 }
 
+/** The stock call id and the occurrence an entry key was allocated for. */
+function parseEntryKey(key: string): { callId: string; occurrence: number } {
+	if (!key.startsWith(OCCURRENCE_KEY_PREFIX)) return { callId: key, occurrence: 0 };
+	const parsed: unknown = JSON.parse(key.slice(OCCURRENCE_KEY_PREFIX.length));
+	return Array.isArray(parsed) && typeof parsed[0] === "string" && typeof parsed[1] === "number"
+		? { callId: parsed[0], occurrence: parsed[1] }
+		: { callId: key, occurrence: 0 };
+}
+
 /** The stock call id an occurrence-specific store key was allocated for. */
 export function callIdOfEntryKey(key: string): string {
-	if (!key.startsWith(OCCURRENCE_KEY_PREFIX)) return key;
-	const parsed: unknown = JSON.parse(key.slice(OCCURRENCE_KEY_PREFIX.length));
-	return Array.isArray(parsed) && typeof parsed[0] === "string" ? parsed[0] : key;
+	return parseEntryKey(key).callId;
+}
+
+/**
+ * One call of one stock message: the message's creation timestamp (the identity the messages
+ * store and the transcript share) with the call id, unique inside a message.
+ */
+function callIdentity(message: AgentMessage, callId: string): string | undefined {
+	return message.timestamp === undefined ? undefined : `${String(message.timestamp)}\u0000${callId}`;
 }
 
 export const createToolsStore = () => {
@@ -187,6 +202,17 @@ export const createToolsStore = () => {
 	 * messages so the event's own copy of the payload can be released.
 	 */
 	let uncommittedKeysByCallId = new Map<string, string[]>();
+	/**
+	 * Keys of calls whose assistant message has ended (its `message_end`, or a transcript),
+	 * by `callIdentity`. A late frame behind a snapshot, or a replayed one, finds the call's
+	 * entry here instead of opening a second entry that would take its execution events.
+	 */
+	let endedCallKeys = new Map<string, string>();
+	/**
+	 * Timestamps of the assistant messages that ended. Their late or replayed stream frames
+	 * change nothing, nor the stream of the message after them.
+	 */
+	let endedMessages = new Set<string>();
 
 	const resetEntryKeyTracking = (): void => {
 		nextOccurrenceByCallId = new Map();
@@ -197,6 +223,8 @@ export const createToolsStore = () => {
 		runningEntryKeyByCallId = new Map();
 		writtenAt = new Map();
 		uncommittedKeysByCallId = new Map();
+		endedCallKeys = new Map();
+		endedMessages = new Set();
 		readTargets = new Map();
 	};
 
@@ -225,7 +253,15 @@ export const createToolsStore = () => {
 		else uncommittedKeysByCallId.set(callId, [key]);
 	};
 
-	const takeExecutionKey = (callId: string, lookup: (key: string) => ToolEntry | undefined): string => {
+	/**
+	 * The entry a `tool_execution_start` runs: the call its message queued, else the latest call
+	 * with this id that has no result yet — including the `aborted` placeholders a history
+	 * rebuild leaves behind, so a late start promotes that card instead of opening a second one
+	 * for the same invocation. Undefined when that call already reported its result: a start
+	 * behind a snapshot that holds the result, or a replay (a new call always ends its message
+	 * first, and a tab that missed that end rebuilds from the transcript on return).
+	 */
+	const takeExecutionKey = (callId: string, lookup: (key: string) => ToolEntry | undefined): string | undefined => {
 		const queue = queuedExecutionKeysByCallId.get(callId);
 		const queued = queue?.shift();
 		if (queue?.length === 0) queuedExecutionKeysByCallId.delete(callId);
@@ -233,12 +269,29 @@ export const createToolsStore = () => {
 
 		const latest = latestEntryKeyByCallId.get(callId);
 		const latestEntry = latest ? lookup(latest) : undefined;
-		// Claim any call that has not reported a result yet — including the
-		// `aborted` placeholders a history rebuild leaves behind, so a late
-		// `tool_execution_start` promotes that card instead of opening a second
-		// one for the same invocation.
-		if (latest && latestEntry && latestEntry.status !== "done" && latestEntry.status !== "error") return latest;
-		return allocateEntryKey(callId);
+		if (!latest || !latestEntry) return allocateEntryKey(callId);
+		return latestEntry.status === "done" || latestEntry.status === "error" ? undefined : latest;
+	};
+
+	/**
+	 * Join stock read metadata (gui-bridge stream-metadata.ts) to its call. It travels on the
+	 * bridge socket, not stdout, so it can come before or after the call's own frames, and no
+	 * snapshot reports a call that has not started yet: a call without an entry takes it at
+	 * execution start, and a rebuild joins it again.
+	 */
+	const joinReadTarget = (
+		callId: string,
+		target: { path: string; selector?: string } | null,
+		lookup: (key: string) => ToolEntry | undefined,
+		write: (key: string, entry: ToolEntry) => void,
+	): void => {
+		readTargets.set(callId, target);
+		const running = runningEntryKeyByCallId.get(callId);
+		const key = running ?? latestEntryKeyByCallId.get(callId);
+		const existing = key ? lookup(key) : undefined;
+		if (!key || !existing) return;
+		write(key, { ...existing, args: { ...existing.args, __ompReadGroup: target } });
+		if (running) readTargets.delete(callId);
 	};
 
 	return createStore<ToolsStore>()((set, get) => ({
@@ -259,6 +312,9 @@ export const createToolsStore = () => {
 			const previousStreamTimestamp = streamMessageTimestamp;
 			const previousWritten = writtenAt;
 			const previousUncommitted = uncommittedKeysByCallId;
+			const previousEnded = endedCallKeys;
+			const previousEndedMessages = endedMessages;
+			const previousReadTargets = readTargets;
 			resetEntryKeyTracking();
 
 			// Pair repeated raw ids by occurrence, not with a last-write-wins map.
@@ -268,16 +324,20 @@ export const createToolsStore = () => {
 			const tools = new Map<string, ToolEntry>();
 			// A committed assistant message whose calls were never answered is a
 			// dead letter — unless the turn that produced it is still running and
-			// nothing was committed after it. Only that trailing case stays live.
+			// nothing but its calls' results was committed after it (parallel calls
+			// answer one by one). Only that trailing case stays live.
 			let trailingUnanswered: string[] = [];
 			let trailingMessage: AgentMessage | null = null;
 			for (const message of messages) {
 				if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+				if (message.timestamp !== undefined) endedMessages.add(String(message.timestamp));
 				const unanswered: string[] = [];
 				for (const block of message.content) {
 					if (block.type !== "toolCall") continue;
 					const key = allocateEntryKey(block.id);
 					bindCallEntryKey(block, block.id, key);
+					const identity = callIdentity(message, block.id);
+					if (identity) endedCallKeys.set(identity, key);
 					const resultIndex = resultIndexes.get(block.id) ?? 0;
 					const result = results.get(block.id)?.[resultIndex];
 					resultIndexes.set(block.id, resultIndex + 1);
@@ -289,7 +349,12 @@ export const createToolsStore = () => {
 					trailingMessage = message;
 				}
 			}
-			if (options?.turnIsLive && trailingMessage === messages[messages.length - 1]) {
+			const trailingIndex = trailingMessage ? messages.lastIndexOf(trailingMessage) : -1;
+			if (
+				options?.turnIsLive &&
+				trailingIndex >= 0 &&
+				messages.slice(trailingIndex + 1).every(message => message.role === "toolResult")
+			) {
 				for (const key of trailingUnanswered) {
 					const entry = tools.get(key);
 					if (entry) tools.set(key, { ...entry, status: "running" });
@@ -298,6 +363,7 @@ export const createToolsStore = () => {
 			const partialResults = new Map<string, unknown>();
 			if (since !== undefined) {
 				const kept = new Set<string>();
+				const transcriptKeys = new Set(tools.keys());
 				const keep = (key: string, entry: ToolEntry): void => {
 					kept.add(key);
 					tools.set(key, entry);
@@ -305,13 +371,29 @@ export const createToolsStore = () => {
 				for (const [key, revision] of previousWritten) {
 					if (revision <= since) continue;
 					const entry = selectToolEntry(state, key);
-					// A persisted terminal result settles a call whose end event was missed.
-					// Preserve fresher wire evidence, not an earlier in-flight placeholder.
+					// A persisted result settles a call that has none of its own (an end event
+					// was missed). Preserve fresher wire evidence, not an in-flight placeholder.
 					const settled = tools.get(key)?.result;
-					if (entry && !(settled && (entry.status === "running" || entry.status === "pending"))) keep(key, entry);
+					if (entry && !(settled && entry.result == null)) keep(key, entry);
 				}
 				// In-flight calls the transcript does not contain yet.
 				for (const [key, entry] of state.liveTools) if (!kept.has(key) && !tools.has(key)) keep(key, entry);
+				// A call that reported its result live while the snapshot does not hold the result
+				// message yet (stock persists it right after the end event): that result stands.
+				for (const [identity, key] of previousEnded) {
+					if (kept.has(key) || endedCallKeys.get(identity) !== key || tools.get(key)?.result != null) continue;
+					const entry = selectToolEntry(state, key);
+					if (entry?.status === "done" || entry?.status === "error") keep(key, entry);
+				}
+				// Kept calls the transcript does not hold keep their keys: later frames for them
+				// resolve there, and the next call with the same id gets the next key, not theirs.
+				for (const key of kept) {
+					if (transcriptKeys.has(key)) continue;
+					const { callId, occurrence } = parseEntryKey(key);
+					if (occurrence < (nextOccurrenceByCallId.get(callId) ?? 0)) continue;
+					nextOccurrenceByCallId.set(callId, occurrence + 1);
+					latestEntryKeyByCallId.set(callId, key);
+				}
 				for (const [callId, key] of previousRunning) {
 					if (!kept.has(key)) continue;
 					runningEntryKeyByCallId.set(callId, key);
@@ -323,6 +405,9 @@ export const createToolsStore = () => {
 				for (const [callId, keys] of previousUncommitted) {
 					for (const key of keys) if (kept.has(key)) queueUncommittedKey(callId, key);
 				}
+				for (const [identity, key] of previousEnded)
+					if (kept.has(key) && !endedCallKeys.has(identity)) endedCallKeys.set(identity, key);
+				for (const timestamp of previousEndedMessages) endedMessages.add(timestamp);
 				for (const key of kept)
 					if (state.partialResults.has(key)) partialResults.set(key, state.partialResults.get(key));
 				const streaming = [...previousStreaming].filter(([, key]) => kept.has(key));
@@ -330,6 +415,14 @@ export const createToolsStore = () => {
 					streamEntryKeysByIndex = new Map(streaming);
 					streamMessageTimestamp = previousStreamTimestamp;
 				}
+				// Read metadata no snapshot carries for a call that has not started yet.
+				for (const [callId, target] of previousReadTargets)
+					joinReadTarget(
+						callId,
+						target,
+						key => tools.get(key),
+						(key, entry) => tools.set(key, entry),
+					);
 			}
 			set({
 				...toolEntriesState(tools),
@@ -365,10 +458,13 @@ export const createToolsStore = () => {
 			const entries: [string, ToolEntry][] = [];
 			for (const message of older) {
 				if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+				if (message.timestamp !== undefined) endedMessages.add(String(message.timestamp));
 				for (const block of message.content) {
 					if (block.type !== "toolCall") continue;
 					const key = allocateEntryKey(block.id);
 					bindCallEntryKey(block, block.id, key);
+					const identity = callIdentity(message, block.id);
+					if (identity) endedCallKeys.set(identity, key);
 					const resultIndex = resultIndexes.get(block.id) ?? 0;
 					resultIndexes.set(block.id, resultIndex + 1);
 					entries.push([key, transcriptEntry(block, message, results.get(block.id)?.[resultIndex], now)]);
@@ -411,23 +507,26 @@ export const createToolsStore = () => {
 
 			for (const event of events) {
 				switch (event.type) {
-					case "read_group_metadata": {
-						readTargets.set(event.toolCallId, event.target);
-						const key =
-							runningEntryKeyByCallId.get(event.toolCallId) ?? latestEntryKeyByCallId.get(event.toolCallId);
-						const existing = key ? lookup(key) : undefined;
-						if (key && existing) {
-							put(key, { ...existing, args: { ...existing.args, __ompReadGroup: event.target } });
-							if (runningEntryKeyByCallId.has(event.toolCallId)) readTargets.delete(event.toolCallId);
-						}
+					case "read_group_metadata":
+						joinReadTarget(event.toolCallId, event.target, lookup, put);
 						break;
-					}
 					case "message_start": {
+						// Only assistant messages stream. A late or replayed start of an ended message,
+						// or of the one streaming now, leaves the stream's call keys alone.
+						const timestamp = event.message.timestamp;
+						if (
+							event.message.role !== "assistant" ||
+							timestamp === streamMessageTimestamp ||
+							endedMessages.has(String(timestamp))
+						)
+							break;
 						streamEntryKeysByIndex.clear();
-						streamMessageTimestamp = event.message.timestamp;
+						streamMessageTimestamp = timestamp;
 						break;
 					}
 					case "message_update": {
+						// Its message ended already (a snapshot holds it, or this is a replay): nothing streams.
+						if (endedMessages.has(String(event.message.timestamp))) break;
 						// A tab that sat in the background missed this message's
 						// message_start (and maybe the previous one's message_end), so
 						// the index → key map can still hold the last message's calls.
@@ -479,17 +578,37 @@ export const createToolsStore = () => {
 					}
 					case "message_end": {
 						if (event.message.role !== "assistant" || !Array.isArray(event.message.content)) break;
+						const timestamp = String(event.message.timestamp);
+						if (endedMessages.has(timestamp)) {
+							// A late or replayed end of a message the store already holds: its entries
+							// keep their state and execution routes, and the stream after it its keys;
+							// this copy's calls only resolve to those entries.
+							for (const block of event.message.content) {
+								if (block.type !== "toolCall") continue;
+								const ended = endedCallKeys.get(callIdentity(event.message, block.id) ?? "");
+								if (ended) callEntryKeys.set(block, ended);
+							}
+							break;
+						}
+						if (event.message.timestamp !== undefined) endedMessages.add(timestamp);
 						for (const [contentIndex, block] of event.message.content.entries()) {
 							if (block.type !== "toolCall") continue;
+							const identity = callIdentity(event.message, block.id);
 							const key = streamEntryKeysByIndex.get(contentIndex) ?? allocateEntryKey(block.id);
 							bindCallEntryKey(block, block.id, key);
 							queueExecutionKey(block.id, key);
+							if (identity) endedCallKeys.set(identity, key);
 							const existing = lookup(key);
 							if (existing) {
+								// Bridge read metadata can reach the call before its message ends.
+								const readGroup = existing.args.__ompReadGroup;
 								put(key, {
 									...existing,
 									toolName: block.name,
-									args: block.arguments,
+									args:
+										readGroup !== undefined && !("__ompReadGroup" in block.arguments)
+											? { ...block.arguments, __ompReadGroup: readGroup }
+											: block.arguments,
 									intent: block.intent ?? existing.intent,
 								});
 							} else {
@@ -511,9 +630,11 @@ export const createToolsStore = () => {
 					}
 					case "tool_execution_start": {
 						const key = takeExecutionKey(event.toolCallId, lookup);
+						if (!key) break;
 						latestEntryKeyByCallId.set(event.toolCallId, key);
 						runningEntryKeyByCallId.set(event.toolCallId, key);
-						const existingArgs = lookup(key)?.args;
+						const existing = lookup(key);
+						const existingArgs = existing?.args;
 						put(key, {
 							toolName: event.toolName,
 							intent: event.intent,
@@ -526,7 +647,8 @@ export const createToolsStore = () => {
 							streamingArgs: "",
 							result: null,
 							isError: false,
-							startTime: Date.now(),
+							// A replayed start leaves the running clock where it was.
+							startTime: existing?.status === "running" ? existing.startTime : Date.now(),
 							endTime: null,
 						});
 						readTargets.delete(event.toolCallId);
@@ -535,7 +657,8 @@ export const createToolsStore = () => {
 					case "tool_execution_update": {
 						const key =
 							runningEntryKeyByCallId.get(event.toolCallId) ?? latestEntryKeyByCallId.get(event.toolCallId);
-						if (key && lookup(key)) {
+						const status = key ? lookup(key)?.status : undefined;
+						if (key && (status === "running" || status === "pending")) {
 							partials ??= new Map(state.partialResults);
 							partials.set(key, event.partialResult);
 							writtenAt.set(key, revision);
@@ -547,7 +670,8 @@ export const createToolsStore = () => {
 						const key =
 							runningEntryKeyByCallId.get(event.toolCallId) ?? latestEntryKeyByCallId.get(event.toolCallId);
 						const existing = key ? lookup(key) : undefined;
-						if (key && existing) {
+						// A settled call keeps its result and its end time: this end is late or a replay.
+						if (key && existing && existing.status !== "done" && existing.status !== "error") {
 							put(key, {
 								...existing,
 								status: resultStatus(event.result, event.isError),

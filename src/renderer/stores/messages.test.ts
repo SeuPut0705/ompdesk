@@ -249,6 +249,76 @@ describe("committed transcript ownership", () => {
 	});
 });
 
+describe("late and replayed deliveries", () => {
+	const read: AgentMessage = {
+		role: "assistant",
+		content: [{ type: "toolCall", id: "r1", name: "read", arguments: { path: "a.ts" } }],
+		timestamp: 30,
+		usage: { output: 12 },
+	};
+	// The transcript and agent_end carry the bridge's read metadata; live message_end does not.
+	const committedRead: AgentMessage = {
+		...read,
+		content: [
+			{ type: "toolCall", id: "r1", name: "read", arguments: { path: "a.ts", __ompReadGroup: { path: "a.ts" } } },
+		],
+		entryId: "read-entry",
+	};
+
+	it("drops a message_end for a message the snapshot already holds", () => {
+		const store = createMessagesStore();
+		store.getState().reconcileFetched([committedRead]);
+		const meter = store.getState().turnMeter;
+		store.getState().applyEvents([
+			{ type: "message_start", message: { ...read, content: [] } },
+			{ type: "message_end", message: read },
+		]);
+
+		expect(store.getState().messages).toEqual([committedRead]);
+		expect(store.getState().liveMessages).toEqual([]);
+		expect(store.getState().streamingMessage).toBeNull();
+		// Its tokens were counted once, when it first ended.
+		expect(store.getState().turnMeter).toBe(meter);
+	});
+
+	it("delivers a replayed message_end once", () => {
+		const store = createMessagesStore();
+		store.getState().applyEvents([{ type: "message_end", message: read }]);
+		store.getState().applyEvents([
+			{ type: "message_end", message: read },
+			{ type: "message_end", message: read },
+		]);
+
+		expect(store.getState().liveMessages).toEqual([read]);
+	});
+
+	it("never reopens the stream of a message that already ended", () => {
+		const store = createMessagesStore();
+		store.getState().applyEvents([{ type: "message_end", message: read }]);
+		store.getState().applyEvents([
+			{
+				type: "message_update",
+				message: read,
+				assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "late", partial: read },
+			},
+		]);
+
+		expect(store.getState().streamingMessage).toBeNull();
+		expect(store.getState().streamingText).toBe("");
+	});
+
+	it("still delivers a different message that shares the timestamp", () => {
+		const store = createMessagesStore();
+		const other: AgentMessage = { ...read, content: [{ type: "text", text: "other" }] };
+		store.getState().applyEvents([
+			{ type: "message_end", message: read },
+			{ type: "message_end", message: other },
+		]);
+
+		expect(store.getState().liveMessages).toEqual([read, other]);
+	});
+});
+
 describe("transcript hydration", () => {
 	it("preserves a committed tail that arrived while the snapshot was in flight", () => {
 		const a = userMessage("a");

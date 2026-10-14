@@ -345,11 +345,14 @@ export class SidecarManager extends EventEmitter {
 	/** Last session identity `get_state` reported; null when a session change made it unknown. */
 	#session: SidecarSessionIdentity | null = null;
 	/**
-	 * An `agent_end` waiting for its entry ids, and every non-response frame that
-	 * arrived behind it. Holding the tail keeps the renderer's frame order
-	 * (`agent_end` before `prompt_result`/`session_settled`) intact.
+	 * An `agent_end` waiting for its entry ids, and every frame that arrived behind
+	 * it, responses included. Holding the tail keeps the renderer's frame order
+	 * (`agent_end` before `prompt_result`/`session_settled`) intact, and a response
+	 * (`get_state`, a transcript page) never overtakes the run it already reports.
+	 * The entry ids come over the bridge socket, so no held response is awaited.
+	 * `released` settles once the frames have gone out.
 	 */
-	#held: { event: Frame; frames: Frame[] } | null = null;
+	#held: { event: Frame; frames: Frame[]; released: PromiseWithResolvers<void> } | null = null;
 	/** Messages delivered by `message_end` since the last `agent_end`; completes that end's commit. */
 	#runMessages: AgentMessage[] = [];
 	#disposed = false;
@@ -512,8 +515,10 @@ export class SidecarManager extends EventEmitter {
 				if (!handler) return undefined;
 				return this.#localContext(rpcClient, runtime, bridge)
 					.then(ctx => runLocalCommand(handler, command, ctx))
-					.then(response => {
-						// Same as an omp response (#dispatchFrame): the events read before it go first.
+					.then(async response => {
+						// Same as an omp response (#routeFrame): the frames omp sent before it go first,
+						// an `agent_end` held for its entry ids and its tail included.
+						while (this.#held) await this.#held.released.promise;
 						this.#batcher?.flushNow();
 						return response;
 					});
@@ -619,14 +624,13 @@ export class SidecarManager extends EventEmitter {
 	#routeFrame(frame: unknown): void {
 		if (typeof frame !== "object" || frame === null) return;
 		let obj = frame as Frame;
-		// Responses never wait: the held `agent_end` is itself awaiting one.
+		// Stock queue lanes are bare text; ids are assigned on arrival, in stream order.
+		if (obj.type === "queue_update" && this.#bridge) obj = projectQueueUpdate(this.#bridge, obj);
+		if (this.#held) {
+			this.#held.frames.push(obj);
+			return;
+		}
 		if (obj.type !== "response") {
-			// Stock queue lanes are bare text; ids are assigned on arrival, in stream order.
-			if (obj.type === "queue_update" && this.#bridge) obj = projectQueueUpdate(this.#bridge, obj);
-			if (this.#held) {
-				this.#held.frames.push(obj);
-				return;
-			}
 			if (obj.type === "message_end" && typeof obj.message === "object" && obj.message !== null) {
 				this.#runMessages.push(obj.message as AgentMessage);
 			}
@@ -650,7 +654,7 @@ export class SidecarManager extends EventEmitter {
 	 * persistence helpers, then release the event and everything behind it.
 	 */
 	#holdForEntryIds(event: Frame): void {
-		const held = { event, frames: [] as Frame[] };
+		const held = { event, frames: [] as Frame[], released: Promise.withResolvers<void>() };
 		this.#held = held;
 		const generation = this.#generation;
 		const timeout = Promise.withResolvers<never>();
@@ -669,6 +673,7 @@ export class SidecarManager extends EventEmitter {
 				this.#held = null;
 				this.#dispatchFrame(enriched);
 				for (const frame of held.frames) this.#routeFrame(frame);
+				held.released.resolve();
 			});
 	}
 
@@ -679,6 +684,7 @@ export class SidecarManager extends EventEmitter {
 		this.#held = null;
 		this.#dispatchFrame(held.event);
 		for (const frame of held.frames) this.#dispatchFrame(frame);
+		held.released.resolve();
 	}
 
 	#dispatchFrame(obj: Frame): void {

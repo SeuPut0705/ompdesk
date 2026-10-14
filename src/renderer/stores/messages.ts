@@ -1,6 +1,6 @@
 import { createStore } from "zustand/vanilla";
 import type { AgentMessage, AgentSessionEvent, MessagesPage } from "../../shared/rpc-types";
-import { messageIdentity, sameMessageContent } from "../lib/message-identity";
+import { messageIdentity, sameDelivery, sameMessageContent } from "../lib/message-identity";
 import { applyTurnMeterEvent, EMPTY_TURN_METER, type TurnMeter } from "../lib/turn-meter";
 import { createScopedStoreHook } from "./session-runtime-context";
 
@@ -56,6 +56,24 @@ const initialState = {
 
 function isOptimisticUser(message: AgentMessage): boolean {
 	return message.role === "user" && message.optimistic === true;
+}
+
+/**
+ * Whether `list` already holds the stock message a frame carries: a snapshot overtook the
+ * frame, or the frame is a replay. Stream frames carry a partial, so `partial` matches the
+ * identity alone; `message_end` carries the final message, which must match in content too.
+ * A local echo still waiting for its delivery is not one.
+ */
+function holds(list: readonly AgentMessage[], message: AgentMessage, partial: boolean): boolean {
+	const identity = messageIdentity(message);
+	if (identity === undefined) return false;
+	for (let index = list.length - 1; index >= 0; index--) {
+		const entry = list[index];
+		if (entry?.role !== message.role || entry.timestamp !== message.timestamp) continue;
+		if (isOptimisticUser(entry) && !entry.optimisticDelivered) continue;
+		if (partial ? messageIdentity(entry) === identity : sameDelivery(entry, message)) return true;
+	}
+	return false;
 }
 
 function appendLiveMessages(messages: AgentMessage[], delivered: AgentMessage[]): AgentMessage[] {
@@ -144,6 +162,34 @@ export const createMessagesStore = () =>
 			let { messages, liveMessages, streamingMessage, streamingText, streamingThinking, turnMeter } = state;
 			const now = Date.now();
 			for (const event of events) {
+				// A frame for a message that already ended changes nothing: neither the rows,
+				// the stream nor the meter (a late frame behind a snapshot, or a replay). Nor
+				// does a replayed start of the message streaming now.
+				const streamingThis =
+					(event.type === "message_start" || event.type === "message_update" || event.type === "message_end") &&
+					streamingMessage !== null &&
+					streamingMessage.timestamp === event.message.timestamp;
+				let redelivered = false;
+				if (event.type === "message_end") {
+					redelivered = holds(messages, event.message, false) || holds(liveMessages, event.message, false);
+				} else if (
+					(event.type === "message_start" || event.type === "message_update") &&
+					event.message.role === "assistant"
+				) {
+					redelivered = streamingThis
+						? event.type === "message_start"
+						: holds(messages, event.message, true) || holds(liveMessages, event.message, true);
+				}
+				if (redelivered) {
+					// A snapshot's copy overtook the end of the stream shown here: that stream closes.
+					if (event.type === "message_end" && streamingThis) {
+						turnMeter = applyTurnMeterEvent(turnMeter, event, now);
+						streamingMessage = null;
+						streamingText = "";
+						streamingThinking = "";
+					}
+					continue;
+				}
 				turnMeter = applyTurnMeterEvent(turnMeter, event, now);
 				switch (event.type) {
 					case "message_start":

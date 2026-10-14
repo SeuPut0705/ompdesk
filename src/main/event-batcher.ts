@@ -5,8 +5,12 @@
  */
 import type { AgentSessionEvent } from "../shared/rpc-types";
 
-/** One ~30Hz presentation frame; subagent frames (subagent-frames.ts) share it. */
-export const BATCH_INTERVAL_MS = 32;
+/**
+ * One ~30Hz presentation frame; subagent frames (subagent-frames.ts) share it.
+ * `OMP_GUI_TEST_BATCH_INTERVAL_MS` widens it for e2e/event-replay.e2e.ts, which
+ * needs frames to sit in a batch while snapshot responses go past them.
+ */
+export const BATCH_INTERVAL_MS = Number(process.env.OMP_GUI_TEST_BATCH_INTERVAL_MS) || 32;
 const MAX_BUFFER_SIZE = 1000;
 
 type FlushCallback = (events: AgentSessionEvent[]) => void;

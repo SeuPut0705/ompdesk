@@ -72,9 +72,14 @@ const QUIET_NOTICE_SOURCES = new Set(["vision", "xdev"]);
  * they never outdate one in flight. The bridge sends a `token_rate` the moment
  * it connects, right as the boot hydration fetches: counted as churn, it threw
  * away that whole snapshot (model, plan mode, todos) with nothing to re-sync it
- * until the next turn.
+ * until the next turn. `read_group_metadata` likewise: the transcript carries the
+ * same metadata for every committed call, and the tools store joins it to a call
+ * the transcript does not hold yet across the rebuild.
  */
-const SNAPSHOT_NEUTRAL_EVENTS: Partial<Record<AgentSessionEvent["type"], true>> = { token_rate: true };
+const SNAPSHOT_NEUTRAL_EVENTS: Partial<Record<AgentSessionEvent["type"], true>> = {
+	token_rate: true,
+	read_group_metadata: true,
+};
 
 /** Schema defaults for the agent's notify settings (settings-schema.ts). */
 const NOTIFY_DEFAULTS = { completion: "on", error: "off", ask: "on" } as const;

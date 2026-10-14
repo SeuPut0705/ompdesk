@@ -118,11 +118,119 @@ describe("tools store history rebuild", () => {
 	it("does not resurrect an already answered call", () => {
 		const store = createToolsStore();
 		store.getState().hydrateMessages([call("read:0"), result("read:0")]);
-		store.getState().applyEvents([start("read:0")]);
+		// A start with no message_end of its own is late behind the snapshot that holds the
+		// result, or a replay: a new call with a reused id ends its message first.
+		store
+			.getState()
+			.applyEvents([
+				start("read:0"),
+				{
+					type: "tool_execution_end",
+					toolCallId: "read:0",
+					toolName: "read",
+					result: { content: [] },
+					isError: false,
+				},
+			]);
 
-		// The finished call keeps its result; the new event opens its own card.
+		expect(entryCount(store.getState())).toBe(1);
+		expect(store.getState().liveTools.size).toBe(0);
+		expect(entryOf(store, "read:0")).toMatchObject({ status: "done", endTime: 2 });
+	});
+
+	it("opens a new card for a reused id once its own message ends", () => {
+		const store = createToolsStore();
+		store.getState().hydrateMessages([call("read:0"), result("read:0")]);
+		store.getState().applyEvents([{ type: "message_end", message: call("read:0", 5) }, start("read:0")]);
+
 		expect(entryCount(store.getState())).toBe(2);
 		expect(entryOf(store, "read:0")).toMatchObject({ status: "done" });
+		expect(store.getState().liveTools.size).toBe(1);
+	});
+});
+
+describe("tools store behind a snapshot", () => {
+	const end = (toolCallId: string): AgentSessionEvent => ({
+		type: "tool_execution_end",
+		toolCallId,
+		toolName: "read",
+		result: { content: [] },
+		isError: false,
+	});
+
+	it("keeps one entry when the call's message_end arrives after a snapshot that holds it", () => {
+		const store = createToolsStore();
+		const message = call("wait", 5);
+		// The snapshot holds the running call (the turn is live); the batch behind it then
+		// delivers the same call's end and execution.
+		store.getState().hydrateMessages([{ ...message, entryId: "e5" }], { turnIsLive: true, keepChangedSince: 0 });
+		store.getState().applyEvents([{ type: "message_end", message }, start("wait")]);
+		expect(entryCount(store.getState())).toBe(1);
+		expect(entryOf(store, "wait")).toMatchObject({ status: "running" });
+
+		store.getState().applyEvents([end("wait")]);
+		expect(entryCount(store.getState())).toBe(1);
+		expect(store.getState().liveTools.size).toBe(0);
+		expect(entryOf(store, "wait")).toMatchObject({ status: "done" });
+	});
+
+	it("delivers a replayed call stream once", () => {
+		const store = createToolsStore();
+		const message = call("r1", 5);
+		const run: AgentSessionEvent[] = [{ type: "message_end", message }, start("r1"), end("r1")];
+		store.getState().applyEvents(run);
+		const settled = entryOf(store, "r1");
+		store.getState().applyEvents([...run, ...run]);
+
+		expect(entryCount(store.getState())).toBe(1);
+		expect(store.getState().liveTools.size).toBe(0);
+		// The replay changes neither the result nor the timing.
+		expect(entryOf(store, "r1")).toBe(settled);
+	});
+
+	it("joins read metadata to a call the snapshot does not hold yet", () => {
+		const store = createToolsStore();
+		store.getState().applyEvents([{ type: "read_group_metadata", toolCallId: "r2", target: { path: "r2.ts" } }]);
+		// The snapshot was read before the call's message ended.
+		store.getState().hydrateMessages([call("r1", 1), result("r1")], {
+			turnIsLive: true,
+			keepChangedSince: store.getState().revision,
+		});
+		store.getState().applyEvents([{ type: "message_end", message: call("r2", 3) }, start("r2")]);
+
+		expect(entryOf(store, "r2")?.args.__ompReadGroup).toEqual({ path: "r2.ts" });
+	});
+
+	it("keeps a parallel call running while its sibling's result is already committed", () => {
+		const store = createToolsStore();
+		const parallel: AgentMessage = {
+			role: "assistant",
+			content: [
+				{ type: "toolCall", id: "a", name: "read", arguments: {} },
+				{ type: "toolCall", id: "b", name: "bash", arguments: {} },
+			],
+			timestamp: 1,
+		};
+		store.getState().hydrateMessages([parallel, result("a")], { turnIsLive: true });
+
+		expect(entryOf(store, "a")).toMatchObject({ status: "done" });
+		// Not interrupted: it answers after its sibling.
+		expect(entryOf(store, "b")).toMatchObject({ status: "running" });
+	});
+
+	it("keeps a result reported live when the snapshot does not hold its result message yet", () => {
+		const store = createToolsStore();
+		const message = call("w", 5);
+		store.getState().applyEvents([{ type: "message_end", message }, start("w"), end("w")]);
+		// Read between the end event and the result message stock persists right after it.
+		store.getState().hydrateMessages([message], { turnIsLive: true, keepChangedSince: store.getState().revision });
+
+		expect(entryOf(store, "w")).toMatchObject({ status: "done" });
+		expect(store.getState().liveTools.size).toBe(0);
+		// A replayed start of that call still changes nothing.
+		store.getState().applyEvents([start("w")]);
+		expect(entryCount(store.getState())).toBe(1);
+		expect(entryOf(store, "w")).toMatchObject({ status: "done" });
 	});
 });
 

@@ -573,6 +573,15 @@ describe("live work", () => {
 				result: { content: [] },
 				isError: false,
 			},
+			// A reused id is a new call only once its own message ends (a start alone is a replay).
+			{
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{ type: "toolCall", id: "parent", name: "task", arguments: {} }],
+					timestamp: 2,
+				},
+			},
 			{ type: "tool_execution_start", toolCallId: "parent", toolName: "task", args: {} },
 		]);
 		const key = useToolsStore.getState().entryKeyForCallId("parent");

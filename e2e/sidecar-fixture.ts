@@ -568,12 +568,25 @@ if (process.argv[2] === "stats") {
 	const CHUNK_PAYLOAD_BYTES = 262_144;
 	let protocolVersion = 1;
 	let chunkSequence = 0;
+	/**
+	 * `OMP_GUI_TEST_REPLAY_FRAMES` (e2e/event-replay.e2e.ts): every message and tool frame goes
+	 * out a second time behind the next frame, so the GUI sees each one late and twice.
+	 */
+	const replayFrames = process.env.OMP_GUI_TEST_REPLAY_FRAMES === "1";
+	let pendingReplay = "";
 	const write = (frame: object) => {
 		if ("type" in frame && frame.type === "subagent_event" && subagentSubscription !== "events") return;
 		const json = JSON.stringify(frame);
 		const bytes = Buffer.from(json, "utf8");
 		if (protocolVersion < 2 || bytes.byteLength <= MAX_FRAME_BYTES) {
-			process.stdout.write(`${json}\n`);
+			if (!replayFrames) {
+				process.stdout.write(`${json}\n`);
+				return;
+			}
+			process.stdout.write(`${json}\n${pendingReplay}`);
+			const replayable =
+				"type" in frame && typeof frame.type === "string" && /^(message|tool_execution)_/.test(frame.type);
+			pendingReplay = replayable ? `${json}\n` : "";
 			return;
 		}
 		const chunkId = `fixture-${++chunkSequence}`;
