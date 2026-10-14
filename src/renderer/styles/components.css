@@ -3462,3 +3462,49 @@ button.omp-file-chip-name:hover {
 		-webkit-line-clamp: 1;
 	}
 }
+
+/* Getting-started spotlight (onboarding/StarterTour.tsx). The hole's own
+   box-shadow is the scrim; the transparent shield above it takes every click
+   but the hole's (clip-path), so the real control stays usable. The accent
+   ring is the only color: the control is the state being pointed at. */
+.omp-starter-tour {
+	position: fixed;
+	inset: 0;
+	z-index: var(--sc-z-popover);
+	pointer-events: none;
+}
+.omp-starter-tour-shield {
+	position: absolute;
+	inset: 0;
+	pointer-events: auto;
+}
+.omp-starter-tour-shield[data-dimmed="true"] {
+	background: var(--omp-overlay-bg);
+}
+.omp-starter-tour-hole {
+	position: fixed;
+	border-radius: var(--sc-radius-md);
+	box-shadow: 0 0 0 9999px var(--omp-overlay-bg);
+	outline: var(--sc-focus-width) solid var(--sc-accent);
+	pointer-events: none;
+	transition:
+		left var(--sc-duration-fast) var(--sc-ease-standard),
+		top var(--sc-duration-fast) var(--sc-ease-standard),
+		width var(--sc-duration-fast) var(--sc-ease-standard),
+		height var(--sc-duration-fast) var(--sc-ease-standard);
+}
+.omp-starter-tour-card {
+	position: fixed;
+	width: min(300px, calc(100vw - 16px));
+	padding: var(--sc-space-3) var(--sc-space-4);
+	border: var(--sc-hairline) solid var(--sc-border-subtle);
+	border-radius: var(--sc-radius-lg);
+	background: var(--omp-modal-bg);
+	box-shadow: var(--sc-shadow-lg);
+	pointer-events: auto;
+}
+.omp-starter-tour-card[data-placement="center"] {
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+}

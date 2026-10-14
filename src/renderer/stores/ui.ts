@@ -89,6 +89,8 @@ interface UiStore {
 	importDialogOpen: boolean;
 	copySelectorOpen: boolean;
 	changelogOpen: boolean;
+	/** The changelog window shows only this version's notes ("What's new" after an update). */
+	changelogVersion: string | null;
 	activeToolsOpen: boolean;
 	shareSessionOpen: boolean;
 	forceToolOpen: boolean;
@@ -181,6 +183,7 @@ interface UiStore {
 	closeCopySelector: () => void;
 	openChangelog: () => void;
 	closeChangelog: () => void;
+	openWhatsNew: (version: string) => void;
 	openActiveTools: () => void;
 	closeActiveTools: () => void;
 	openShareSession: () => void;
@@ -338,7 +341,9 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	openCopySelector: () => set({ copySelectorOpen: true }),
 	closeCopySelector: () => set({ copySelectorOpen: false }),
 	changelogOpen: false,
-	openChangelog: () => set({ changelogOpen: true }),
+	changelogVersion: null,
+	openChangelog: () => set({ changelogOpen: true, changelogVersion: null }),
+	openWhatsNew: version => set({ changelogOpen: true, changelogVersion: version }),
 	closeChangelog: () => set({ changelogOpen: false }),
 	activeToolsOpen: false,
 	openActiveTools: () => set({ activeToolsOpen: true }),

@@ -430,6 +430,7 @@ export function TitleBar() {
 				</Button>
 				<MenuButton align="end" icon={<MoreHorizontal />} items={sessionMenuItems} label={t("titlebar.actions")} />
 				<IconButton
+					data-tour="panel"
 					icon={<PanelRight />}
 					label={t("titlebar.sidePanel")}
 					onClick={() => ui().togglePanel()}

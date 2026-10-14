@@ -5,7 +5,7 @@ import { ToastStack } from "./components/common";
 import { ActiveToolsDialog } from "./components/dialogs/ActiveToolsDialog";
 import { BranchPickerDialog } from "./components/dialogs/BranchPickerDialog";
 import { BtwDialog } from "./components/dialogs/BtwDialog";
-import { ChangelogDialog } from "./components/dialogs/ChangelogDialog";
+import { ChangelogDialog, WhatsNewNotice } from "./components/dialogs/ChangelogDialog";
 import { CommandPalette } from "./components/dialogs/CommandPalette";
 import { CopySelectorDialog } from "./components/dialogs/CopySelectorDialog";
 import { DebugConsoleDialog } from "./components/dialogs/DebugConsoleDialog";
@@ -27,6 +27,7 @@ import { WorktreeDialog } from "./components/dialogs/WorktreeDialog";
 import { WorktreeLifecycleDialog } from "./components/dialogs/WorktreeLifecycleDialog";
 import { AppShell } from "./components/layout/AppShell";
 import { FirstRunGate } from "./components/onboarding/FirstRunGate";
+import { StarterTour } from "./components/onboarding/StarterTour";
 import { RemoteFolderPickerHost } from "./components/remote/RemoteFolderPicker";
 import { useAwaitedInput } from "./hooks/use-awaited-input";
 import { useExtensionUi } from "./hooks/use-extension-ui";
@@ -708,6 +709,8 @@ export function App() {
 			<ActiveToolsDialog />
 			<ShareSessionDialog />
 			<ChangelogDialog />
+			<WhatsNewNotice />
+			<StarterTour />
 			<ForceToolDialog />
 			<HandoffDialog />
 			<RemoteFolderPickerHost />

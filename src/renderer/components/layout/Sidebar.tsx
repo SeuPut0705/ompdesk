@@ -100,6 +100,7 @@ import {
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../common/ContextMenu";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
+import { StarterGuide } from "../onboarding/StarterGuide";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarSubagents, SidebarSubagentsToggle, sidebarSubagentCount } from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
@@ -1266,6 +1267,7 @@ export function Sidebar() {
 
 				<div
 					aria-label={t("sidebar.sessions")}
+					data-tour="sessions"
 					className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 pb-2 [overflow-anchor:none]"
 					onKeyDown={onListKeyDown}
 					ref={listRef}
@@ -1413,6 +1415,7 @@ export function Sidebar() {
 				</div>
 
 				<SidebarUpdateCard />
+				<StarterGuide projectOpened={codeSessions.length > 0} promptSent={listedSessions.length > 0} />
 				<SidebarFooter />
 				<div
 					aria-hidden
