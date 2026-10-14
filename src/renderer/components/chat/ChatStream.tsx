@@ -16,6 +16,7 @@ import {
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage, MessagesPage } from "../../../shared/rpc-types";
 import { loadOlderTranscript } from "../../hooks/session-hydration";
+import { compactionActionKey } from "../../lib/compaction-action";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { cx, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -1346,15 +1347,7 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 	} else if (compactionInfo) {
 		const compactionReason =
 			compactionInfo.reason === "threshold" ? "" : t(`chat.compaction.reason.${compactionInfo.reason}`);
-		const actionKey =
-			compactionInfo.action === "handoff"
-				? "chat.compaction.action.handoff"
-				: compactionInfo.action === "shake"
-					? "chat.compaction.action.shake"
-					: compactionInfo.action === "snapcompact"
-						? "chat.compaction.action.snapcompact"
-						: "chat.compaction.action.default";
-		text = `${compactionReason}${t(actionKey)}…`;
+		text = `${compactionReason}${t(compactionActionKey(compactionInfo.action))}…`;
 		announcement = text;
 	} else if (awaitingModelSince != null) {
 		if (attached) return null;

@@ -33,6 +33,7 @@ import {
 	type TodoPhase,
 } from "../../shared/rpc-types";
 import { messageSourceTimestamp } from "../components/chat/work-turn";
+import { compactionActionKey } from "../lib/compaction-action";
 import { errorDetail } from "../lib/error-detail";
 import { formatClock } from "../lib/format";
 import { translate } from "../lib/i18n";
@@ -378,11 +379,29 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 								void (tabId && sessionRuntime(tabId) ? hydrateTabSession(tabId) : hydrateSession());
 								bumpVersion = true;
 							}
-							if (event.aborted) {
-								useToastStore
-									.getState()
-									.push({ variant: "warning", message: translate("events.compactionAborted") });
-							}
+							// Outcomes as stock's event-controller words them; a benign skip and a
+							// compaction result say nothing (the transcript shows the result).
+							const action = translate(compactionActionKey(event.action));
+							const push = useToastStore.getState().push;
+							if (event.aborted)
+								push({ variant: "info", message: translate("events.maintenanceCancelled", { action }) });
+							else if (event.action === "shake") {
+								if (event.errorMessage)
+									push({ variant: "warning", title: action, message: event.errorMessage });
+								else if (!event.skipped)
+									push({ variant: "info", message: translate("events.maintenanceCompleted", { action }) });
+							} else if (event.result) {
+								// The compacted transcript is the outcome.
+							} else if (event.errorMessage)
+								push({
+									variant: "warning",
+									message: translate("events.maintenanceFailed", { action }),
+									detail: event.errorMessage,
+								});
+							else if (event.action === "handoff")
+								push({ variant: "info", message: translate("events.maintenanceCompleted", { action }) });
+							else if (!event.skipped)
+								push({ variant: "warning", message: translate("events.maintenanceFailed", { action }) });
 							break;
 						}
 						case "auto_retry_start": {
@@ -444,8 +463,9 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 						}
 						case "retry_fallback_applied": {
 							useToastStore.getState().push({
-								variant: "info",
+								variant: "warning",
 								message: translate("events.fallbackApplied", { from: event.from, to: event.to }),
+								...(event.reason ? { detail: event.reason } : {}),
 							});
 							break;
 						}
@@ -513,10 +533,14 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							break;
 						}
 						case "ttsr_triggered": {
+							const rules = event.rules.filter(rule => typeof rule?.name === "string");
+							const detail = rules
+								.map(rule => (rule.description ? `${rule.name}: ${rule.description}` : rule.name))
+								.join("\n");
 							useToastStore.getState().push({
 								variant: "info",
-								message: translate("events.ttsrInjected"),
-								durationMs: 3000,
+								message: translate("events.ttsrRules", { rules: rules.map(rule => rule.name).join(", ") }),
+								...(detail ? { detail } : {}),
 							});
 							break;
 						}

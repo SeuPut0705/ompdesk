@@ -1122,13 +1122,13 @@ export interface RpcSessionState {
 	sessionName?: string | null;
 	fastModeEnabled: boolean;
 	fastModeActive: boolean;
-	tokensPerSecond: number | null;
 	/** `/slow` applies to the active model (flex tier on OpenAI/Google, low priority on Claude subscriptions). */
 	slowModeSupported?: boolean;
 	/** `/slow` is on for the active model; always false when unsupported. */
 	slowModeEnabled?: boolean;
 	/** `global` (persisted config, e.g. Claude low priority) or `session` (this session's flex tier). */
 	slowModeScope?: "session" | "global";
+	tokensPerSecond: number | null;
 	autoCompactionEnabled: boolean;
 	autoRetryEnabled: boolean;
 	messageCount: number;
@@ -2205,10 +2205,12 @@ export type AgentSessionEvent =
 			errorId?: number;
 	  }
 	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string; recoveredErrors?: unknown[] }
-	| { type: "retry_fallback_applied"; from: string; to: string; role: string }
+	/** `reason`: why the primary model failed (stock shows it under the fallback line). */
+	| { type: "retry_fallback_applied"; from: string; to: string; role: string; reason?: string }
 	| { type: "retry_fallback_succeeded"; model: string; role: string }
 	| { type: "model_changed" }
-	| { type: "ttsr_triggered"; rules: unknown[] }
+	/** Stock `Rule`s (capability/rule.ts); only the fields the GUI shows are named. */
+	| { type: "ttsr_triggered"; rules: { name: string; description?: string }[] }
 	| { type: "todo_reminder"; todos: TodoTask[]; attempt: number; maxAttempts: number }
 	| { type: "todo_auto_clear" }
 	| { type: "irc_message"; message: unknown }
