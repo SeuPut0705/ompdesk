@@ -64,6 +64,12 @@ export const ko: Record<string, string> = {
 	// TitleBar
 	"titlebar.actions": "세션 메뉴",
 	"settings.restoreUnset": "전역 재정의 제거",
+	"settings.risk.title": "보호 장치를 끄는 설정이에요",
+	"settings.risk.accept": "위험을 알고 적용",
+	"settings.risk.secrets": "비밀 정보와 자격 증명처럼 보이는 토큰이 가려지지 않은 채 AI 프로바이더로 전송돼요.",
+	"settings.risk.shareRedact": "공유 세션 링크에 비밀 정보가 그대로 올라가서, 링크가 있는 누구나 볼 수 있어요.",
+	"settings.risk.gitGuard":
+		"에이전트가 reset --hard, stash, checkout처럼 공유 작업을 버리거나 옮기는 git 명령을 실행할 수 있어요.",
 	"titlebar.rename": "세션 이름 변경",
 	"titlebar.openProject": "프로젝트 열기",
 	"titlebar.abortHint": "프로젝트를 바꾸기 전에 현재 턴을 중단하세요.",

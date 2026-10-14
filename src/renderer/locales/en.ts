@@ -65,6 +65,14 @@ export const en: Record<string, string> = {
 	// TitleBar
 	"titlebar.actions": "Session actions",
 	"settings.restoreUnset": "Remove global override",
+	"settings.risk.title": "This turns off a safeguard",
+	"settings.risk.accept": "Accept risk and apply",
+	"settings.risk.secrets":
+		"Secrets and credential-shaped tokens will reach your AI provider as written, without masking.",
+	"settings.risk.shareRedact":
+		"Shared session links will upload secrets as written, readable by anyone with the link.",
+	"settings.risk.gitGuard":
+		"The agent can run git commands that discard or move shared work, such as reset --hard, stash and checkout.",
 	"titlebar.rename": "Rename session",
 	"titlebar.openProject": "Open project",
 	"titlebar.abortHint": "Stop the current turn before switching projects.",

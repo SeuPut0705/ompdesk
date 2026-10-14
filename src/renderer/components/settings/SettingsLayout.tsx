@@ -10,15 +10,16 @@
  *   focuses/toggles it. Free-form content (lists, editors) goes in
  *   `children` below the label instead of `control`.
  * - `SettingsSwitchRow`: a boolean row — `SettingsRow` + `Switch`, the whole
- *   label clickable.
+ *   label clickable. With `risk`, flipping to the risky value only asks: an
+ *   inline warning holds the switch until the user accepts the risk.
  *
  * Rows use `id` (e.g. `setting-<path>`) as the search-navigation target.
  */
 
-import { createContext, type ReactNode, useContext, useId } from "react";
+import { createContext, type ReactNode, useContext, useId, useState } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { Switch } from "../common";
+import { Banner, Button, Switch } from "../common";
 
 type SettingsScope = "app" | "host" | "mixed";
 const SettingsScopeContext = createContext<SettingsScope | null>(null);
@@ -165,6 +166,8 @@ export interface SettingsSwitchRowProps {
 	footer?: ReactNode;
 	/** Extra right-column content before the switch (a "reset" ghost button). */
 	extra?: ReactNode;
+	/** The value that needs an explicit "Accept risk" before it is written, and why. */
+	risk?: { value: boolean; warning: ReactNode };
 }
 
 export function SettingsSwitchRow({
@@ -177,8 +180,15 @@ export function SettingsSwitchRow({
 	disabled,
 	footer,
 	extra,
+	risk,
 }: SettingsSwitchRowProps) {
+	const t = useT();
 	const switchId = useId();
+	const [asking, setAsking] = useState(false);
+	const change = (next: boolean) => {
+		if (risk && next === risk.value) setAsking(true);
+		else onCheckedChange(next);
+	};
 	return (
 		<SettingsRow
 			badge={badge}
@@ -186,11 +196,42 @@ export function SettingsSwitchRow({
 			control={
 				<span className="flex items-center justify-end gap-2">
 					{extra}
-					<Switch checked={checked} disabled={disabled} id={switchId} onCheckedChange={onCheckedChange} />
+					<Switch checked={checked} disabled={disabled || asking} id={switchId} onCheckedChange={change} />
 				</span>
 			}
 			description={description}
-			footer={footer}
+			footer={
+				<>
+					{asking && risk && (
+						<Banner
+							actions={
+								<>
+									<Button
+										onClick={() => {
+											setAsking(false);
+											onCheckedChange(risk.value);
+										}}
+										size="sm"
+										variant="danger"
+									>
+										{t("settings.risk.accept")}
+									</Button>
+									<Button autoFocus onClick={() => setAsking(false)} size="sm" variant="ghost">
+										{t("common.cancel")}
+									</Button>
+								</>
+							}
+							className="mt-2"
+							live
+							title={t("settings.risk.title")}
+							variant="warning"
+						>
+							{risk.warning}
+						</Banner>
+					)}
+					{footer}
+				</>
+			}
 			htmlFor={switchId}
 			id={id}
 			label={label}

@@ -63,6 +63,16 @@ function draftFor(entry: SettingEntry, value: unknown): string {
 	return value === undefined || value === null ? "" : String(value);
 }
 
+/**
+ * Boolean settings whose one direction lowers a safeguard: the switch asks to
+ * accept the risk before it writes that value (`SettingsSwitchRow` `risk`).
+ */
+export const RISKY_SETTINGS: Readonly<Record<string, { value: boolean; warning: string }>> = {
+	"secrets.enabled": { value: false, warning: "settings.risk.secrets" },
+	"share.redactSecrets": { value: false, warning: "settings.risk.shareRedact" },
+	"bash.gitGuard": { value: false, warning: "settings.risk.gitGuard" },
+};
+
 function SchemaSettingRow({
 	entry,
 	value,
@@ -280,6 +290,7 @@ function SchemaSettingRow({
 
 	// Boolean settings write immediately; the switch position is the feedback.
 	if (entry.type === "boolean") {
+		const risk = RISKY_SETTINGS[entry.path];
 		return (
 			<SettingsSwitchRow
 				badge={badge}
@@ -290,6 +301,7 @@ function SchemaSettingRow({
 				id={rowId}
 				label={<span title={entry.path}>{label}</span>}
 				onCheckedChange={next => void commit(next)}
+				risk={risk && { value: risk.value, warning: t(risk.warning) }}
 			/>
 		);
 	}
