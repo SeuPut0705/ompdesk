@@ -3,7 +3,7 @@ import { useState } from "react";
 import { basename } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { ZoomableImage, type ZoomableImageProps } from "../common/ZoomableImage";
-import { PathLink } from "./PathLink";
+import { FileChip } from "./ToolMedia";
 
 /**
  * A picture a tool read or made that cannot be drawn — its bytes are gone (the
@@ -12,15 +12,14 @@ import { PathLink } from "./PathLink";
  */
 export function ImageFileChip({ path, label }: { path: string; label?: string }) {
 	const t = useT();
-	const name = label || basename(path) || t("tools.image.alt");
 	return (
-		<span className="omp-image-file-chip" data-image-unavailable title={t("tools.image.unavailable")}>
-			<ImageOff aria-hidden className="omp-image-file-chip-icon" />
-			<PathLink path={path} className="omp-image-file-chip-name font-mono">
-				<span className="sr-only">{t("tools.image.unavailable")}: </span>
-				{name}
-			</PathLink>
-		</span>
+		<FileChip
+			data-image-unavailable
+			icon={<ImageOff aria-hidden className="omp-file-chip-icon" />}
+			label={label || basename(path) || t("tools.image.alt")}
+			note={t("tools.image.unavailable")}
+			path={path}
+		/>
 	);
 }
 

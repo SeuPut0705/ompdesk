@@ -2527,6 +2527,93 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				results.push(result);
 			}
 			endTurn([answer, ...results]);
+		} else if (message === "fixture media") {
+			// The agent renders a clip with ffmpeg, reads it back and speaks a narration with
+			// stock tts. Stock results name those files only by path (read's mediaPath, tts's
+			// "Saved … to"); the reply links one, quotes another and names a file that is gone.
+			const out = nodePath.join(process.cwd(), "out");
+			fs.mkdirSync(out, { recursive: true });
+			for (const name of ["clip.webm", "tone.mp3"])
+				fs.copyFileSync(nodePath.join(import.meta.dir, "media", name), nodePath.join(out, name));
+			const steps = [
+				{
+					id: "fixture-media-bash",
+					name: "bash",
+					args: { command: "ffmpeg -f lavfi -i testsrc2=size=160x90 -t 1.5 out/clip.webm" },
+					result: { content: [{ type: "text" as const, text: "" }], details: { exitCode: 0 } },
+				},
+				{
+					id: "fixture-media-read",
+					name: "read",
+					args: { path: "out/clip.webm" },
+					result: {
+						content: [{ type: "text" as const, text: "Video file [video/webm], 1.5s, 160x90" }],
+						details: { mediaPath: nodePath.join(out, "clip.webm"), contentType: "video/webm" },
+					},
+				},
+				{
+					id: "fixture-media-tts",
+					name: "tts",
+					args: { text: "Hello from the fixture", output_path: "out/tone.mp3" },
+					result: {
+						content: [
+							{
+								type: "text" as const,
+								text: "Saved 6392 bytes to out/tone.mp3 (model=fixture/tts, voice=default, codec=mp3).",
+							},
+						],
+						details: { bytes: 6392, voiceId: "default", codec: "mp3", backend: "openai-speech" },
+					},
+				},
+			];
+			const call: AgentMessage = {
+				role: "assistant",
+				timestamp: Date.now(),
+				content: steps.map(step => ({ type: "toolCall", id: step.id, name: step.name, arguments: step.args })),
+				provider: model.provider,
+				model: model.id,
+				stopReason: "toolUse",
+			};
+			write({ type: "message_start", message: call });
+			appendMessage(call);
+			write({ type: "message_end", message: call });
+			const results: AgentMessage[] = steps.map(step => {
+				write({ type: "tool_execution_start", toolCallId: step.id, toolName: step.name, args: step.args });
+				write({
+					type: "tool_execution_end",
+					toolCallId: step.id,
+					toolName: step.name,
+					result: step.result,
+					isError: false,
+				});
+				const result: AgentMessage = {
+					role: "toolResult",
+					toolCallId: step.id,
+					toolName: step.name,
+					...step.result,
+					isError: false,
+					timestamp: Date.now(),
+				};
+				appendMessage(result);
+				write({ type: "message_end", message: result });
+				return result;
+			});
+			const answer: AgentMessage = {
+				role: "assistant",
+				content: [
+					{
+						type: "text",
+						text: "Rendered [the clip](out/clip.webm) with a narration in `out/tone.mp3`. The first draft `out/draft.mp4` is gone.",
+					},
+				],
+				timestamp: Date.now(),
+				provider: model.provider,
+				model: model.id,
+				stopReason: "stop",
+			};
+			appendMessage(answer);
+			write({ type: "message_end", message: answer });
+			endTurn([user, call, ...results, answer]);
 		} else if (message === "fixture subagent screenshots") {
 			// A subagent reads two PNGs back. Its transcript comes from its JSONL the way
 			// stock serves it: image bytes persisted as `blob:sha256:` references. One

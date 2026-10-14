@@ -2,6 +2,7 @@ import type { AgentProgress } from "../../../shared/rpc-types";
 import { extractResultImages, resultDetails, resultText } from "../../lib/format";
 import { asRecord } from "../../lib/wire-value";
 import type { ToolEntry } from "../../stores/tools";
+import { type ChatMediaKind, toolResultMedia } from "../tools/chat-media";
 import { toolDiffStats } from "../tools/diff-stats";
 import { asPerFileResults } from "../tools/EditRenderer";
 import { workFilePathKey } from "../tools/edit-args";
@@ -183,10 +184,17 @@ function imageCaption(label: string): string {
 	return label.split(/[\\/]/).at(-1) ?? label;
 }
 
+/** An audio or video file the work wrote, recorded or read back; the row plays it in place. */
+export interface WorkMediaOutcome {
+	path: string;
+	kind: ChatMediaKind;
+}
+
 export interface WorkOutcomes {
 	files: WorkFileOutcome[];
 	commands: WorkCommandOutcome[];
 	images: WorkImageOutcome[];
+	media: WorkMediaOutcome[];
 }
 
 /**
@@ -206,6 +214,7 @@ export function workOutcomes(entries: readonly WorkEvidence[], stoppedAt?: numbe
 	// images): the reply often talks about them, so the outcome shows them without opening steps.
 	const images: WorkImageOutcome[] = [];
 	const seenImages = new Set<string>();
+	const media = new Map<string, WorkMediaOutcome>();
 	for (const evidence of [...entries].sort((a, b) => {
 		const left = "entry" in a ? a.entry : a;
 		const right = "entry" in b ? b.entry : b;
@@ -233,6 +242,10 @@ export function workOutcomes(entries: readonly WorkEvidence[], stoppedAt?: numbe
 				const url = typeof details?.url === "string" ? details.url : "";
 				const label = path || url || header.target || entry.toolName;
 				images.push({ key: image.key, src: image.src, path, label, caption: imageCaption(label) });
+			}
+			for (const item of toolResultMedia(entry.toolName, entry.args, entry.result)) {
+				const key = workFilePathKey(item.path, cwd);
+				if (!media.has(key)) media.set(key, item);
 			}
 		}
 		if (["write", "edit", "ast_edit", "apply_patch"].includes(entry.toolName) && !entry.isError) {
@@ -330,5 +343,5 @@ export function workOutcomes(entries: readonly WorkEvidence[], stoppedAt?: numbe
 			});
 		}
 	}
-	return { files: [...files.values()], commands, images };
+	return { files: [...files.values()], commands, images, media: [...media.values()] };
 }

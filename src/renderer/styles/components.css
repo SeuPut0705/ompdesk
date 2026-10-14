@@ -2087,8 +2087,9 @@
 	display: none;
 }
 
-/* A tool picture whose bytes are gone: its file, openable, never a broken-image icon. */
-.omp-image-file-chip {
+/* A file the transcript names without drawing it (a picture whose bytes are gone, a missing or
+   oversized recording, a PDF or page): its file, openable, never a broken-media icon. */
+.omp-file-chip {
 	display: inline-flex;
 	align-items: center;
 	gap: var(--sc-space-1-5);
@@ -2101,19 +2102,125 @@
 	color: var(--sc-text-muted);
 	font-size: var(--sc-font-xs);
 	justify-self: start;
+	vertical-align: middle;
 }
 
-.omp-image-file-chip-icon {
+.omp-file-chip-icon {
 	flex: none;
 	width: var(--sc-icon-sm);
 	height: var(--sc-icon-sm);
 	color: var(--sc-text-subtle);
 }
 
-.omp-image-file-chip-name {
+.omp-file-chip-name {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+button.omp-file-chip-name:hover {
+	color: var(--sc-accent);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+/* A local audio or video file in the transcript: native player, then its name and the Files viewer. */
+.omp-chat-media {
+	display: inline-grid;
+	gap: var(--sc-space-1);
+	width: min(28rem, 100%);
+	min-width: 0;
+	margin: var(--sc-space-1) 0;
+	vertical-align: top;
+}
+
+.omp-chat-media[data-chat-media="audio"] {
+	width: min(22rem, 100%);
+}
+
+.omp-chat-media-frame {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	aspect-ratio: 16 / 9;
+	overflow: hidden;
+	border: 1px solid var(--sc-divider);
+	border-radius: var(--sc-radius-md);
+}
+
+.omp-chat-media-frame video {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+}
+
+.omp-chat-media audio,
+.omp-chat-media-audio-slot {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	height: 3.375rem;
+}
+
+.omp-chat-media-audio-slot {
+	justify-content: center;
+	border: 1px solid var(--sc-divider);
+	border-radius: var(--sc-radius-md);
+}
+
+.omp-chat-media-placeholder {
+	width: var(--sc-icon-lg);
+	height: var(--sc-icon-lg);
+	color: var(--sc-text-subtle);
+}
+
+.omp-chat-media-caption {
+	display: flex;
+	align-items: center;
+	gap: var(--sc-space-1);
+	min-width: 0;
+	color: var(--sc-text-subtle);
+	font-size: var(--sc-font-2xs);
+}
+
+.omp-chat-media-name {
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Files a reply names: under the reply, in the order it names them. */
+.omp-chat-media-list {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: start;
+	gap: var(--sc-space-2);
+	margin-top: var(--sc-space-2);
+}
+
+.omp-chat-media-list > .omp-chat-media {
+	margin: 0;
+}
+
+.omp-tool-media {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--sc-space-2);
+	margin-top: var(--sc-space-2);
+}
+
+/* In the outcome row a player sits beside the thumbnails, a little wider than one. */
+.omp-work-images > .omp-chat-media {
+	flex: 0 0 min(16rem, 100%);
+	width: min(16rem, 100%);
+	margin: 0;
+}
+
+.omp-work-images > .omp-chat-media .omp-chat-media-frame {
+	aspect-ratio: 16 / 10;
 }
 
 .omp-work-outcome-more {

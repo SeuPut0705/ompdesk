@@ -15,8 +15,10 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
 import { Badge, Button, IconButton } from "../common";
+import { referencedFiles } from "../tools/chat-media";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { ToolImage } from "../tools/ToolImage";
+import { ReferencedFiles } from "../tools/ToolMedia";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { TodoReminderNote } from "./TodoReminderNote";
@@ -495,6 +497,15 @@ export const MessageBubble = memo(function MessageBubble({
 			}
 		}
 	}
+	// Media and documents the reply links or quotes play or open under it, once each
+	// (an image embed or a raw <video> already renders in place).
+	const references = isAssistant
+		? referencedFiles(
+				content
+					.flatMap(block => (block.type === "text" && isRenderableMessageText(block.text) ? [block.text] : []))
+					.join("\n\n"),
+			)
+		: [];
 
 	const failure = (Boolean(message.errorMessage) && !silentAbort) || stopped;
 	if (blocks.length === 0 && !failure && !customLabel && !isSteering) return null;
@@ -521,6 +532,7 @@ export const MessageBubble = memo(function MessageBubble({
 					</div>
 				)}
 				{blocks}
+				<ReferencedFiles references={references} />
 				{failure && <TurnErrorNotice errorMessage={message.errorMessage} stopReason={message.stopReason} />}
 				<UsageRow message={message} />
 			</div>

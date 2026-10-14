@@ -9,6 +9,7 @@ import { Spinner } from "../common";
 import { type DiffStats, toolDiffStats } from "./diff-stats";
 import { GenericRenderer } from "./GenericRenderer";
 import { getToolHeader, getToolRenderer } from "./index";
+import { ToolResultMedia } from "./ToolMedia";
 
 export interface ToolRendererProps {
 	args: Record<string, unknown>;
@@ -214,14 +215,19 @@ export function ToolCard({ toolCallId, toolName, args, runningIndicator = "spinn
 					{isAborted && entry?.result == null && partialResult == null ? (
 						<GenericRenderer args={args} result={null} interrupted />
 					) : (
-						<Renderer
-							args={args}
-							result={entry?.result}
-							isError={isError}
-							isPartial={isPartial}
-							partialResult={partialResult}
-							interrupted={isAborted}
-						/>
+						<>
+							<Renderer
+								args={args}
+								result={entry?.result}
+								isError={isError}
+								isPartial={isPartial}
+								partialResult={partialResult}
+								interrupted={isAborted}
+							/>
+							{!isError && !isPartial && entry?.result != null ? (
+								<ToolResultMedia args={args} result={entry.result} toolName={toolName} />
+							) : null}
+						</>
 					)}
 				</div>
 			)}

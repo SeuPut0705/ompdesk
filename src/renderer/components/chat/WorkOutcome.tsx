@@ -5,6 +5,7 @@ import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 import { ToolImage } from "../tools/ToolImage";
+import { ChatMedia } from "../tools/ToolMedia";
 import { useRunOutcome } from "./use-work-run";
 import { WorkStatus } from "./WorkStatus";
 import { projectPath } from "./work-run";
@@ -41,28 +42,32 @@ export function WorkOutcome({
 	const [showAllImages, setShowAllImages] = useState(false);
 	const [openOutput, setOpenOutput] = useState<number[]>([]);
 	const images = showAllImages ? outcome.images : outcome.images.slice(0, VISIBLE_IMAGES);
-	const imageRow = outcome.images.length ? (
-		<div className="omp-work-images" aria-label={t("chat.work.images")}>
-			{images.map(image => (
-				<figure key={image.key} className="omp-work-image" title={image.label}>
-					<ToolImage src={image.src} path={image.path} loading="lazy" decoding="async" />
-					<figcaption className="font-mono">{image.caption}</figcaption>
-				</figure>
-			))}
-			{outcome.images.length > VISIBLE_IMAGES ? (
-				<button
-					type="button"
-					className="omp-work-outcome-more"
-					aria-expanded={showAllImages}
-					onClick={() => setShowAllImages(value => !value)}
-				>
-					{showAllImages
-						? t("chat.work.fewer")
-						: t("chat.work.moreImages", { count: outcome.images.length - VISIBLE_IMAGES })}
-				</button>
-			) : null}
-		</div>
-	) : null;
+	const imageRow =
+		outcome.media.length || outcome.images.length ? (
+			<div className="omp-work-images" aria-label={t("chat.work.images")}>
+				{outcome.media.map(item => (
+					<ChatMedia key={item.path} kind={item.kind} path={item.path} />
+				))}
+				{images.map(image => (
+					<figure key={image.key} className="omp-work-image" title={image.label}>
+						<ToolImage src={image.src} path={image.path} loading="lazy" decoding="async" />
+						<figcaption className="font-mono">{image.caption}</figcaption>
+					</figure>
+				))}
+				{outcome.images.length > VISIBLE_IMAGES ? (
+					<button
+						type="button"
+						className="omp-work-outcome-more"
+						aria-expanded={showAllImages}
+						onClick={() => setShowAllImages(value => !value)}
+					>
+						{showAllImages
+							? t("chat.work.fewer")
+							: t("chat.work.moreImages", { count: outcome.images.length - VISIBLE_IMAGES })}
+					</button>
+				) : null}
+			</div>
+		) : null;
 	if (!outcome.files.length && !outcome.commands.length) return imageRow;
 	// Indexes into outcome.commands keep each row's identity stable across the reorder.
 	const commandRows = outcome.commands.map((command, index) => ({ command, index }));

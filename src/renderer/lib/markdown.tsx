@@ -20,6 +20,8 @@ import { CodeBlock as SharedCodeBlock } from "../components/chat/CodeBlock";
 import { MermaidBlock } from "../components/chat/MermaidBlock";
 import { SvgBlock } from "../components/chat/SvgBlock";
 import { ZoomableImage } from "../components/common/ZoomableImage";
+import { chatMediaKind, chatReferenceKind, fileUrlPath, localFilePath } from "../components/tools/chat-media";
+import { ChatMedia, ViewerFileChip } from "../components/tools/ToolMedia";
 import { useRuntimeTabId } from "../stores/session-runtime-context";
 import { useUiStore } from "../stores/ui";
 import { saveGuiPreference } from "./display-preferences";
@@ -109,6 +111,11 @@ const SANITIZE_SCHEMA: SanitizeSchema = {
 		"tr",
 		"th",
 		"td",
+		// A raw `<video src>`/`<audio src>` renders as the chat's own player
+		// (MarkdownMedia): only `src` survives, so no autoplay, loop, poster
+		// fetch or handler ever reaches the DOM.
+		"video",
+		"audio",
 	],
 	attributes: {
 		a: ["href"],
@@ -125,6 +132,8 @@ const SANITIZE_SCHEMA: SanitizeSchema = {
 		ol: ["start"],
 		td: ["align"],
 		th: ["align"],
+		video: ["src"],
+		audio: ["src"],
 	},
 	protocols: {
 		href: ["http", "https", "mailto", "file"],
@@ -216,28 +225,12 @@ export function preloadMarkdownPipeline(): Promise<unknown> {
 // resolved via IPC), so let image-bearing protocols through for <img src> and
 // defer to the default everywhere else.
 const URL_TRANSFORM: NonNullable<Options["urlTransform"]> = (url, key, node) => {
-	if (key === "src" && node?.tagName === "img" && /^(data|blob|file):/i.test(url)) return url;
-	if (key === "href" && node?.tagName === "a" && /^file:/i.test(url)) return url;
+	const tag = node?.tagName;
+	if (key === "src" && tag === "img" && /^(data|blob|file):/i.test(url)) return url;
+	if (key === "src" && (tag === "video" || tag === "audio") && /^file:/i.test(url)) return url;
+	if (key === "href" && tag === "a" && /^file:/i.test(url)) return url;
 	return defaultUrlTransform(url);
 };
-
-function filePathFromHref(href: string): string | null {
-	if (/^(?:https?:|mailto:|#|\/\/)/i.test(href)) return null;
-	if (/^file:\/\//i.test(href)) {
-		const classified = classifyImageSrc(href);
-		return classified.kind === "local" ? classified.path : null;
-	}
-	// Preserve non-file schemes such as local:// and artifact:// for their own
-	// handlers; a Windows drive prefix is a path, not a URL scheme.
-	if (/^[a-z][a-z0-9+.-]*:/i.test(href) && !/^[a-z]:[\\/]/i.test(href)) return null;
-	const raw = href.replace(/[?#].*$/, "");
-	if (!raw) return null;
-	try {
-		return decodeURIComponent(raw);
-	} catch {
-		return raw;
-	}
-}
 
 function ExternalLink({ href, children, ...props }: ComponentPropsWithoutRef<"a">) {
 	return (
@@ -247,7 +240,7 @@ function ExternalLink({ href, children, ...props }: ComponentPropsWithoutRef<"a"
 			onClick={e => {
 				if (!href || href.startsWith("#")) return;
 				e.preventDefault();
-				const filePath = filePathFromHref(href);
+				const filePath = localFilePath(href);
 				if (filePath) useUiStore.getState().openFilePreview(filePath);
 				else window.omp.system.openExternal(href);
 			}}
@@ -486,15 +479,7 @@ export function classifyImageSrc(src: string | undefined): MarkdownImageSrc {
 	if (src.startsWith("data:") || src.startsWith("blob:")) return { kind: "direct", src };
 	if (/^https?:\/\//i.test(src)) return { kind: "remote", src };
 	if (src.startsWith("//")) return { kind: "remote", src: `https:${src}` };
-	if (/^file:\/\//i.test(src)) {
-		let raw = src.replace(/^file:\/\//i, "");
-		try {
-			raw = decodeURIComponent(raw);
-		} catch {
-			// Malformed escapes — resolve the raw string rather than failing the image.
-		}
-		return { kind: "local", path: raw };
-	}
+	if (/^file:\/\//i.test(src)) return { kind: "local", path: fileUrlPath(src) };
 	// Bare paths — absolute (/…, ~\…, C:\…), relative (./…, ../…), or plain
 	// filenames — all resolve through the workspace/absolute read.
 	return { kind: "local", path: src };
@@ -515,10 +500,11 @@ function MarkdownImageFallback({ alt, path }: { alt: string; path?: string }) {
 }
 
 /**
- * A remote image is never fetched: the request would leak this viewer's IP and
- * reading to the host the model named. The source stays one explicit click away.
+ * A remote image or media file is never fetched: the request would leak this
+ * viewer's IP and reading to the host the model named. The source stays one
+ * explicit click away.
  */
-function RemoteMarkdownImage({ src, alt }: { src: string; alt: string }) {
+function RemoteMarkdownImage({ src, alt, media }: { src: string; alt: string; media?: boolean }) {
 	const t = useT();
 	return (
 		<span
@@ -526,7 +512,7 @@ function RemoteMarkdownImage({ src, alt }: { src: string; alt: string }) {
 			className="my-1 inline-flex max-w-full items-center gap-1.5 rounded-md border border-[var(--omp-border-muted)] px-2 py-1 text-omp-md text-[var(--omp-dim)]"
 		>
 			<ImageOff size={13} className="shrink-0" aria-hidden />
-			<span className="truncate">{alt || t("markdown.remoteImage")}</span>
+			<span className="truncate">{alt || t(media ? "markdown.remoteMedia" : "markdown.remoteImage")}</span>
 			<a
 				href={src}
 				onClick={event => {
@@ -575,6 +561,14 @@ function MarkdownImage({ src, alt, title, ...props }: ComponentPropsWithoutRef<"
 	const altText = typeof alt === "string" ? alt : "";
 	if (classified.kind === "none") return <MarkdownImageFallback alt={altText} />;
 	if (classified.kind === "local") {
+		// `![demo](out/demo.mp4)` asks for the file in place: a player, or a
+		// document's chip — never an image read that can only fail.
+		const media = chatMediaKind(classified.path);
+		if (media) return <ChatMedia kind={media} label={altText || undefined} path={classified.path} />;
+		const fileKind = chatReferenceKind(classified.path);
+		if (fileKind && fileKind !== "svg") {
+			return <ViewerFileChip kind={fileKind} label={altText || undefined} path={classified.path} />;
+		}
 		return (
 			<LocalMarkdownImage
 				path={classified.path}
@@ -587,6 +581,18 @@ function MarkdownImage({ src, alt, title, ...props }: ComponentPropsWithoutRef<"
 	return (
 		<ZoomableImage {...props} src={classified.src} alt={altText} title={title} className={MARKDOWN_IMAGE_CLASS} />
 	);
+}
+
+/**
+ * Raw `<video src>`/`<audio src>` in model output (only `src` survives
+ * sanitize): a local file plays in the chat's own player; a remote one stays a
+ * link; inline data has no safe player (CSP `media-src` takes blobs only).
+ */
+function MarkdownMedia({ src, kind }: { src: unknown; kind: "video" | "audio" }) {
+	const classified = classifyImageSrc(typeof src === "string" ? src : undefined);
+	if (classified.kind === "local") return <ChatMedia kind={kind} path={classified.path} />;
+	if (classified.kind === "remote") return <RemoteMarkdownImage media src={classified.src} alt="" />;
+	return null;
 }
 
 const COMPONENTS: Components = {
@@ -602,6 +608,8 @@ const COMPONENTS: Components = {
 	pre: Pre,
 	input: TaskCheckbox,
 	img: MarkdownImage,
+	video: ({ src }) => <MarkdownMedia kind="video" src={src} />,
+	audio: ({ src }) => <MarkdownMedia kind="audio" src={src} />,
 };
 
 /**

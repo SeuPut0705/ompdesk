@@ -28,3 +28,9 @@ export const GREP_PREVIEW_MATCHES = 200;
 export const GLOB_PREVIEW_PATHS = 300;
 /** Maximum characters inserted into any line-bounded text preview. */
 export const PREVIEW_TEXT_CHARS = 20_000;
+/**
+ * Largest audio/video file a chat player loads (bytes travel IPC into a blob).
+ * Bigger files show their chip and open in the Files viewer or their own app.
+ * A paired host's tab is capped lower by the host itself (11 MB per read).
+ */
+export const CHAT_MEDIA_MAX_BYTES = 32 * 1024 * 1024;
