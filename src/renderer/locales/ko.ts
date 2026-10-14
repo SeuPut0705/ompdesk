@@ -296,6 +296,7 @@ export const ko: Record<string, string> = {
 	"input.thinking.unsupported": "현재 모델은 사고 수준을 지원하지 않아요.",
 	"input.thinking.name.off": "끔",
 	"input.thinking.name.auto": "자동",
+	"input.thinking.autoResolved": "자동 · {level}",
 	"input.thinking.name.minimal": "최소",
 	"input.thinking.name.low": "낮음",
 	"input.thinking.name.medium": "보통",

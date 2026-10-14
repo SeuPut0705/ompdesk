@@ -503,6 +503,9 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							useModelStore.setState({
 								thinkingLevel: event.thinkingLevel,
 								thinkingConfigured: configured,
+								// Stock's auto classification names the effort it picked for this turn.
+								thinkingAutoResolved:
+									configured === "auto" && isThinkingLevel(event.resolved) ? event.resolved : undefined,
 							});
 							break;
 						}

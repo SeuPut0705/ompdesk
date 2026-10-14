@@ -76,9 +76,11 @@ export function ThinkingLevelField() {
 						useSessionStore.getState().sessionId !== fallbackSessionId)
 				)
 					return;
+				// A new pick starts over: auto names its effort again after the next turn.
 				(modelStore ?? useModelStore).setState({
 					thinkingLevel: state.thinkingLevel,
 					thinkingConfigured: state.thinkingConfigured,
+					thinkingAutoResolved: undefined,
 				});
 			})
 			.catch(error => {

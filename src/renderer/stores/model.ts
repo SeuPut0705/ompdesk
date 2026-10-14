@@ -18,6 +18,8 @@ export interface ModelStore {
 	thinkingLevel: ThinkingLevel | undefined;
 	/** Configured selector ("auto" or a level) — what the composer picker checks, vs the effective `thinkingLevel`. */
 	thinkingConfigured: ThinkingLevel | "auto" | undefined;
+	/** The effort stock's auto classification picked for the latest turn (`thinking_level_changed.resolved`); unknown until a turn classifies. */
+	thinkingAutoResolved: ThinkingLevel | undefined;
 	/** Levels the active model supports; empty = model does not reason. */
 	availableThinkingLevels: ThinkingLevel[];
 	fastModeEnabled: boolean;
@@ -104,6 +106,7 @@ const initialState = {
 	model: null as ModelInfo | null,
 	thinkingLevel: undefined as ThinkingLevel | undefined,
 	thinkingConfigured: undefined as ThinkingLevel | "auto" | undefined,
+	thinkingAutoResolved: undefined as ThinkingLevel | undefined,
 	availableThinkingLevels: [] as ThinkingLevel[],
 	fastModeEnabled: false,
 	fastModeActive: false,
@@ -153,7 +156,16 @@ export const createModelStore = (command: TabCommand = activeTabCommand) =>
 		};
 		return {
 			...initialState,
-			setFromState: state => set({ ...snapshotModelSelection(state), tokensPerSecond: state.tokensPerSecond }),
+			// A re-read keeps the classified effort only while auto still runs at that effort.
+			setFromState: state =>
+				set(current => ({
+					...snapshotModelSelection(state),
+					thinkingAutoResolved:
+						state.thinkingConfigured === "auto" && state.thinkingLevel === current.thinkingAutoResolved
+							? current.thinkingAutoResolved
+							: undefined,
+					tokensPerSecond: state.tokensPerSecond,
+				})),
 			/** Both catalog reads describe the same generation axis, so they commit
 			 * through one path: whatever a response actually carried is applied, and
 			 * anything older than the applied generation is dropped. */

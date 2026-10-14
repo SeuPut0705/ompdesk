@@ -301,6 +301,7 @@ export const en: Record<string, string> = {
 	"input.thinking.unsupported": "The current model does not support reasoning.",
 	"input.thinking.name.off": "Off",
 	"input.thinking.name.auto": "Auto",
+	"input.thinking.autoResolved": "Auto · {level}",
 	"input.thinking.name.minimal": "Minimal",
 	"input.thinking.name.low": "Low",
 	"input.thinking.name.medium": "Medium",

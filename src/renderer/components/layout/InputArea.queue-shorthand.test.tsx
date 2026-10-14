@@ -1223,6 +1223,18 @@ describe("InputArea run settings and modes", () => {
 		await mount();
 	});
 
+	it("names the effort auto picked for the latest turn on the run settings chip", async () => {
+		await mount();
+		const chip = () => document.querySelector("button[data-run-settings-trigger]")?.textContent;
+		await act(async () => useModelStore.setState({ thinkingConfigured: "auto" }));
+		expect(chip()).toContain(translate("input.thinking.name.auto"));
+		expect(chip()).not.toContain("·");
+		await act(async () => useModelStore.setState({ thinkingAutoResolved: "xhigh" }));
+		expect(chip()).toContain(
+			translate("input.thinking.autoResolved", { level: translate("input.thinking.name.xhigh") }),
+		);
+	});
+
 	it("names the composer field for assistive tech", async () => {
 		await mount();
 		expect(findTextarea().getAttribute("aria-label")).toBe("Message");

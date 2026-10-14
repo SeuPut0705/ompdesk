@@ -85,13 +85,19 @@ export function RunSettings() {
 	const [open, setOpen] = useState(false);
 	const [confirmFullAccess, setConfirmFullAccess] = useState(false);
 	const thinking = useThinkingSelector();
+	const autoResolved = useModelStore(s => s.thinkingAutoResolved);
 	const supportsThinking = useModelStore(s => s.availableThinkingLevels.length > 0);
 	const fastEnabled = useModelStore(s => s.fastModeEnabled);
 	const slowEnabled = useModelStore(s => s.slowModeEnabled);
 	const approvalMode = useSettingsStore(s => s.approvalMode);
 	const strictApproval = approvalMode !== "yolo";
 
-	const thinkingName = t(`input.thinking.name.${supportsThinking ? thinking : "off"}`);
+	// Auto names the effort it picked for the latest turn once stock has classified one.
+	const thinkingName = !supportsThinking
+		? t("input.thinking.name.off")
+		: thinking === "auto" && autoResolved
+			? t("input.thinking.autoResolved", { level: t(`input.thinking.name.${autoResolved}`) })
+			: t(`input.thinking.name.${thinking}`);
 	const summary = [
 		t("input.runSettings.summaryThinking", { level: thinkingName }),
 		fastEnabled ? t("input.fast.on") : null,

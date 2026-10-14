@@ -453,6 +453,29 @@ describe("useRpcEvents thinking selection sync", () => {
 		expect(useModelStore.getState().thinkingLevel).toBe("xhigh");
 		expect(useModelStore.getState().thinkingConfigured).toBe("auto");
 	});
+
+	it("remembers the effort auto picked for the turn until the selection changes", async () => {
+		const { emitBatch } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+		useModelStore.setState({ thinkingLevel: "medium", thinkingConfigured: "auto" });
+
+		await act(async () => {
+			emitBatch([{ type: "thinking_level_changed", thinkingLevel: "high", configured: "auto", resolved: "high" }]);
+		});
+		expect(useModelStore.getState().thinkingAutoResolved).toBe("high");
+
+		// A same-session re-read at that effort keeps it; any other effort or selector drops it.
+		const state = { thinkingLevel: "high", thinkingConfigured: "auto", tokensPerSecond: null } as const;
+		useModelStore.getState().setFromState(state as never);
+		expect(useModelStore.getState().thinkingAutoResolved).toBe("high");
+		useModelStore.getState().setFromState({ ...state, thinkingLevel: "low" } as never);
+		expect(useModelStore.getState().thinkingAutoResolved).toBeUndefined();
+
+		await act(async () => {
+			emitBatch([{ type: "thinking_level_changed", thinkingLevel: "low", configured: "auto" }]);
+		});
+		expect(useModelStore.getState().thinkingAutoResolved).toBeUndefined();
+	});
 });
 
 describe("useRpcEvents model switch sync", () => {
