@@ -228,6 +228,16 @@ test("agent editor and template gallery write definitions omp discovers", async 
 		await confirm.getByRole("button", { name: "Delete", exact: true }).click();
 		await expect.poll(() => discovered("scout")).toMatchObject({ source: "bundled" });
 		await expect(fs.access(path.join(userAgents, "scout.md"))).rejects.toThrow();
+		// The save and delete toasts stack over the header's Templates button (and a
+		// pointer on them holds their expiry): close them instead of waiting them out.
+		await expect(page.getByRole("status").filter({ hasText: "Deleted scout" })).toBeVisible();
+		await page
+			.locator(".omp-toast-in")
+			.getByRole("button", { name: "Close", exact: true })
+			.evaluateAll(buttons => {
+				for (const button of buttons) if (button instanceof HTMLButtonElement) button.click();
+			});
+		await expect(page.locator(".omp-toast-in, .omp-toast-out")).toHaveCount(0);
 
 		// --- Add all: every other template lands; frontend.md is left alone.
 		await page.getByRole("button", { name: "Templates", exact: true }).click();

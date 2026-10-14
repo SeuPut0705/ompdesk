@@ -39,6 +39,8 @@ interface SettingAuditRow {
 	readbackValue?: unknown;
 	error?: string;
 	notes: string[];
+	/** Wall time this row took in its shard; the shard cost model is derived from it. */
+	durationMs?: number;
 }
 
 interface SurfaceControl {
@@ -638,11 +640,45 @@ async function launchAuditApp(
 
 /**
  * The settings rows are split across this many tests, each on its own profile
- * and app, so they run side by side; together they exercise every schema entry
- * (entry `i` belongs to shard `i % SETTINGS_SHARDS`). One run over all rows took
- * 78 of the audit's 88 s and set the whole Playwright suite's wall time.
+ * and app, so they run side by side; together they exercise every schema entry.
+ * Each row is two config.yml writes through omp (~180 ms in a full run) and each
+ * shard pays ~8 s to launch the app on the system omp; real-omp apps running at
+ * once slow each other's rows. In full 4-worker runs 3 shards took ~42 s each
+ * (120 s in all) and 6 shards ~24 s each (146 s in all) at the same suite wall
+ * time: the suite is bound by its total work, not by this test. Raise the count
+ * only once these shards end the run.
  */
 const SETTINGS_SHARDS = 3;
+
+/**
+ * Estimated cost (ms, during a full 4-worker run) of one schema entry, from the
+ * rows' `durationMs` evidence: a GUI write and its restore cost ~180 ms whatever
+ * the control, each condition gate ~40 ms more, a secret or unsafe row that is
+ * only inspected ~100 ms, and a row the GUI filters out ~20 ms.
+ */
+function auditCost(entry: SettingEntry): number {
+	if (entry.tuiOnly === true || TERMINAL_DISPLAY_PATHS.has(entry.path)) return 20;
+	if (isUnsafeString(entry)) return 100;
+	return 180 + 40 * conditionGate(entry.condition).length;
+}
+
+/**
+ * Longest-first greedy split of the schema by `auditCost`, so shards finish
+ * together. It reads only the schema, so every shard derives the same split.
+ */
+function settingShards(entries: SettingEntry[]): number[] {
+	const loads = new Array<number>(SETTINGS_SHARDS).fill(0);
+	const shards = new Array<number>(entries.length);
+	const byCost = entries
+		.map((entry, index) => ({ index, cost: auditCost(entry) }))
+		.sort((left, right) => right.cost - left.cost || left.index - right.index);
+	for (const { index, cost } of byCost) {
+		const lightest = loads.indexOf(Math.min(...loads));
+		shards[index] = lightest;
+		loads[lightest] += cost;
+	}
+	return shards;
+}
 
 test.describe.configure({ mode: "parallel" });
 
@@ -696,7 +732,7 @@ async function runAudit(
 		app = await launchAuditApp(profile, project, desktop, agent);
 		const page = await app.firstWindow();
 		await expect
-			.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 90_000 })
+			.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 90_000, intervals: [100, 250] })
 			.toMatchObject({ status: "ready" });
 		evidence.runtime = await app.evaluate(({ app }) => ({
 			isPackaged: app.isPackaged,
@@ -885,8 +921,14 @@ for (let shard = 0; shard < SETTINGS_SHARDS; shard++) {
 			async ({ page, profile, schema, currentValues }, evidence) => {
 				// Exercise every schema entry that the GUI claims to support. TUI-only and
 				// metadata-less entries remain explicit rows in the matrix instead of being silently dropped.
+				const shards = settingShards(schema.entries);
 				for (const [index, entry] of schema.entries.entries()) {
-					if (index % SETTINGS_SHARDS !== shard) continue;
+					if (shards[index] !== shard) continue;
+					const rowStarted = performance.now();
+					const record = (row: SettingAuditRow) => {
+						row.durationMs = Math.round(performance.now() - rowStarted);
+						evidence.settings.push(row);
+					};
 					let initial = currentValues[entry.path] ?? entry.value;
 					const isTuiOnly = entry.tuiOnly === true;
 					const isTerminalOnly = TERMINAL_DISPLAY_PATHS.has(entry.path);
@@ -921,7 +963,7 @@ for (let shard = 0; shard < SETTINGS_SHARDS; shard++) {
 						await clickSearchResult(page, entry.path);
 						await expect(page.locator(`[data-search-path="${entry.path}"]`)).toHaveCount(0);
 						base.notes.push("GUI search absence verified");
-						evidence.settings.push(base);
+						record(base);
 						continue;
 					}
 					const gates = conditionGate(entry.condition);
@@ -940,13 +982,13 @@ for (let shard = 0; shard < SETTINGS_SHARDS; shard++) {
 						const found = await clickSearchResult(page, entry.path);
 						if (!found) {
 							base.notes.push("not in GUI search results after enabling its condition gate");
-							evidence.settings.push(base);
+							record(base);
 							continue;
 						}
 						const row = settingRow(page, entry.path);
 						if ((await row.count()) === 0) {
 							base.notes.push("search result did not resolve to a setting row");
-							evidence.settings.push(base);
+							record(base);
 							continue;
 						}
 						await expect(row).toBeVisible();
@@ -956,13 +998,13 @@ for (let shard = 0; shard < SETTINGS_SHARDS; shard++) {
 						const result = await mutateEntry(page, row, entry, initial, profile);
 						Object.assign(base, result);
 						base.initialAfter = await readSetting(page, entry.path).catch(() => undefined);
-						evidence.settings.push(base);
+						record(base);
 					} catch (error) {
 						base.write = "failed";
 						base.readback = "failed";
 						base.restore = "failed";
 						base.error = String(error);
-						evidence.settings.push(base);
+						record(base);
 					} finally {
 						for (const original of gateOriginals.reverse()) {
 							if (!equalJson(await readSetting(page, original.path).catch(() => undefined), original.value)) {

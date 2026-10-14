@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -24,6 +25,28 @@ async function recorded(type: string) {
 		.filter(Boolean)
 		.map(line => JSON.parse(line))
 		.filter(command => command.type === type);
+}
+
+/**
+ * Live processes under the app's main process: renderers, helpers and every
+ * tab's sidecar (an exited child is reaped, so zombies are not counted).
+ */
+function descendants(root: number): number {
+	const children = new Map<number, number[]>();
+	for (const line of execFileSync("ps", ["-A", "-o", "pid=,ppid=,stat="], { encoding: "utf8" }).split("\n")) {
+		const [pid, ppid, stat] = line.trim().split(/\s+/);
+		if (!pid || stat?.startsWith("Z")) continue;
+		children.set(Number(ppid), [...(children.get(Number(ppid)) ?? []), Number(pid)]);
+	}
+	let count = 0;
+	const queue = [root];
+	for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
+		for (const child of children.get(next) ?? []) {
+			count++;
+			queue.push(child);
+		}
+	}
+	return count;
 }
 
 test.beforeAll(async () => {
@@ -429,15 +452,17 @@ test("security distinguishes unavailable, disabled, unscanned, running, failed a
 });
 
 test("repeated modal and task lifecycles release sidecars and document listeners", async () => {
-	test.setTimeout(360_000);
+	test.setTimeout(120_000);
 	await page.emulateMedia({ reducedMotion: "reduce" });
 	const cdp = await page.context().newCDPSession(page);
 	const listeners = async () => {
 		const { result } = await cdp.send("Runtime.evaluate", { expression: "document" });
 		return (await cdp.send("DOMDebugger.getEventListeners", { objectId: result.objectId! })).listeners.length;
 	};
-	const before = await listeners();
-	for (let index = 0; index < 100; index++) {
+	const pid = app.process().pid;
+	const checkProcesses = pid !== undefined && process.platform !== "win32";
+	const processes = () => (checkProcesses ? descendants(pid) : 0);
+	const cycle = async (whileOpen?: () => Promise<void>) => {
 		await command("/tools");
 		await expect(page.getByRole("dialog")).toBeVisible();
 		await page.keyboard.press("Escape");
@@ -445,21 +470,35 @@ test("repeated modal and task lifecycles release sidecars and document listeners
 		await page.keyboard.press("ControlOrMeta+t");
 		await expect.poll(() => page.evaluate(() => window.omp.tabs.list())).toHaveLength(2);
 		await expect.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).at(-1)?.status).toBe("ready");
+		await whileOpen?.();
 		await page.keyboard.press("ControlOrMeta+w");
 		await expect.poll(() => page.evaluate(() => window.omp.tabs.list())).toHaveLength(1);
-	}
+	};
+	// Both checks are exact, so one leaked listener or sidecar per cycle fails at any
+	// count; 20 cycles still pass Node's 10-listener warning twice. The open tab's
+	// sidecar must show up in the process count, or the count would guard nothing.
+	const cycles = 20;
+	const before = await listeners();
+	const processesBefore = processes();
+	await cycle(async () => {
+		if (checkProcesses) expect(processes()).toBeGreaterThan(processesBefore);
+	});
+	for (let index = 1; index < cycles; index++) await cycle();
 	const after = await listeners();
 	expect(after).toBeLessThanOrEqual(before);
 	expect(await page.evaluate(() => window.omp.tabs.list())).toHaveLength(1);
+	// A closed tab's sidecar exits once its stdin closes; wait for that, never for a fixed time.
+	await expect.poll(processes).toBeLessThanOrEqual(processesBefore);
 	await fs.writeFile(
 		"test-results/lifecycle.json",
 		JSON.stringify(
 			{
-				modalCycles: 100,
-				taskCycles: 100,
+				modalCycles: cycles,
+				taskCycles: cycles,
 				documentListenersBefore: before,
 				documentListenersAfter: after,
 				tabsAfter: 1,
+				processesBefore,
 			},
 			null,
 			2,
