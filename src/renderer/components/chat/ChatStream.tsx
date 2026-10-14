@@ -449,6 +449,17 @@ function SessionTranscript() {
 			virtualizer.scrollOffset = target;
 		}
 	}
+	// A pinned view without a saved position (a session opened, a window reloaded)
+	// reads the first rows it gets from the tail. Ranged at offset 0, that commit
+	// mounted and laid out the top of the page only for the tail follow a frame
+	// later to replace them with the rows the reader sees. The follow below still
+	// moves the element there before the frame paints.
+	const tailStartPendingRef = useRef(restoreView === null && pinned);
+	if (tailStartPendingRef.current && rows.length > 0) {
+		tailStartPendingRef.current = false;
+		if (!userScrollIntentRef.current)
+			virtualizer.scrollOffset = Math.max(0, virtualizer.getTotalSize() - (virtualizer.scrollRect?.height ?? 0));
+	}
 	const dockFocus = useUiStore(state => state.dockFocus);
 	const revealedTodoFocus = useRef(useUiStore.getState().dockFocus?.seq ?? null);
 	useLayoutEffect(() => {
