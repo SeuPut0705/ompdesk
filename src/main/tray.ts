@@ -235,6 +235,11 @@ export function setTrayState(state: TrayState): void {
 	installMenu();
 }
 
+/** The tray item exists (never in headless test runs): a hidden window can come back from it. */
+export function hasTray(): boolean {
+	return tray !== null;
+}
+
 export function destroyTray(): void {
 	tray?.destroy();
 	tray = null;

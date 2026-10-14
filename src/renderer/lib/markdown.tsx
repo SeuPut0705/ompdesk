@@ -386,7 +386,14 @@ function MarkdownLink({ href, children, node: _node, ...props }: ComponentPropsW
 		if (filePath) {
 			const location = pathLocation(filePath, href);
 			void openLocalPath(location.path, tabId, location.line);
-		} else window.omp.system.openExternal(href);
+			return;
+		}
+		// Settings › General › "Open links in Preview": a web link reuses the side
+		// panel's Preview (the next link replaces the page); ⌘/Ctrl-click still
+		// goes to the browser.
+		const ui = useUiStore.getState();
+		if (ui.linkPreview && /^https?:\/\//i.test(href) && !event.metaKey && !event.ctrlKey) ui.openPreview(href);
+		else window.omp.system.openExternal(href);
 	};
 	// Web, mail and local-file links get the link menu; `#fragment` and `local://` keep none.
 	const onContextMenu = (event: MouseEvent<HTMLAnchorElement>) => {

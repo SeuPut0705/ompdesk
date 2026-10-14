@@ -222,6 +222,8 @@ export class SidecarPool {
 	hostToolExecutor: ((sidecar: SidecarLike, request: HostToolCallRequest) => void) | null = null;
 	/** Main-process persistence hook. The primary window installs this at startup. */
 	onWindowTabsChanged: ((win: BrowserWindow, layout: PersistedTabLayout | null) => void) | null = null;
+	/** Some tab may have started or finished running a turn (keep-awake while working). */
+	onRunningChange: (() => void) | null = null;
 	/**
 	 * `worktree.onStart` (worktree-lifecycle.ts): the gate for a new tab, or null
 	 * when the tab is not a candidate. Installed at startup.
@@ -350,6 +352,7 @@ export class SidecarPool {
 			// A restart/exit kills any in-flight run along with the process.
 			if (payload.status !== "ready") entry.run = idleRun();
 			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			this.onRunningChange?.();
 		});
 		sidecar.on("sessionInfoUpdate", (frame: SessionInfoUpdateFrame) => {
 			if (frame.title !== undefined) entry.title = frame.title;
@@ -410,7 +413,9 @@ export class SidecarPool {
 		const settle = (settled: boolean): void => {
 			const wasBusy = runBusy(entry.run);
 			settleRun(entry.run, settled);
-			if (runBusy(entry.run) !== wasBusy) forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			if (runBusy(entry.run) === wasBusy) return;
+			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			this.onRunningChange?.();
 		};
 		sidecar.on("promptResult", (frame: PromptResultFrame) => {
 			if (typeof frame.sessionSettled === "boolean") settle(frame.sessionSettled);
@@ -442,6 +447,7 @@ export class SidecarPool {
 			if (busy !== wasBusy || entry.placeholder !== wasPlaceholder) {
 				forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			}
+			if (busy !== wasBusy) this.onRunningChange?.();
 			if (entry.placeholder !== wasPlaceholder) this.#notifyWindowTabsChanged(win);
 			if (hiddenProposals) {
 				forwardToWindow(win, IPC_EVENTS.EVENTS_BATCH, { tabId: entry.tabId, payload: hiddenProposals });
@@ -528,6 +534,7 @@ export class SidecarPool {
 	#releaseEntry(entry: PoolEntry): Promise<void> {
 		if (!this.#entries.delete(entry)) return Promise.resolve();
 		this.#byTabId.delete(entry.tabId);
+		this.onRunningChange?.();
 		this.#unregisterSessionFile(entry);
 		// Drop pending request-id routes pointing at the released entry — a
 		// late renderer response must fall back, never write to a dead sidecar.

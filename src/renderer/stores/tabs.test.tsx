@@ -978,12 +978,13 @@ describe("tabs store background tab signals", () => {
 			expect(notify).toHaveBeenCalledWith(
 				"Beta job",
 				translate("events.notificationErrorDetail", { error: "boom" }),
+				"t1",
 			);
 
 			status({ status: "running" });
 			status({ lastRun: { stopReason: "stop" } });
 			await vi.waitFor(() => expect(notify).toHaveBeenCalledTimes(2));
-			expect(notify).toHaveBeenLastCalledWith("Beta job", translate("events.notificationComplete"));
+			expect(notify).toHaveBeenLastCalledWith("Beta job", translate("events.notificationComplete"), "t1");
 
 			// A run the user aborted stays quiet.
 			status({ status: "running" });

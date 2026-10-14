@@ -59,6 +59,7 @@ import type {
 	IpcStatsFetchPayload,
 	IpcUpdateLaunchProfilePayload,
 	IpcWorktreePromptAnswer,
+	NotificationClickPayload,
 	SessionContentMatch,
 	SessionInfo,
 	SessionKind,
@@ -128,6 +129,8 @@ export interface IpcDeps {
 	worktreePrompts: WorktreePrompts;
 	/** `omp-media://` URLs handed to players (registered as a protocol in index.ts). */
 	mediaStreams: MediaStreams;
+	/** A preference was written through PREFS_SET (main-side effects such as keep-awake). */
+	onPrefChanged?: (key: string) => void;
 }
 
 /**
@@ -219,6 +222,8 @@ interface PrefsSchema {
 // Dedupe state for SYSTEM_NOTIFY across multiple windows (see the handler).
 let lastNotifyKey = "";
 let lastNotifyAt = 0;
+/** Shown notifications that switch to a tab on click, kept alive until then. */
+const liveNotifications = new Set<Notification>();
 
 // Per-window tray/progress snapshots, aggregated for the app-global tray/dock.
 const trayStates = new Map<number, TrayState>();
@@ -888,13 +893,30 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			// Dedupe within a window (a turn can emit the same notification from
 			// several renderers), but NOT across windows — two parallel sessions
 			// finishing in different windows are distinct events the user wants.
-			const winId = BrowserWindow.fromWebContents(event.sender)?.webContents.id ?? 0;
+			const win = BrowserWindow.fromWebContents(event.sender);
+			const winId = win?.webContents.id ?? 0;
 			const key = `${winId}${payload.title}${payload.body ?? ""}`;
 			const now = Date.now();
 			if (key === lastNotifyKey && now - lastNotifyAt < 1500) return;
 			lastNotifyKey = key;
 			lastNotifyAt = now;
-			new Notification({ title: payload.title, body: payload.body ?? "" }).show();
+			const notification = new Notification({ title: payload.title, body: payload.body ?? "" });
+			const tabId = typeof payload.tabId === "string" ? payload.tabId : null;
+			if (win && tabId) {
+				// Held until clicked or dismissed: a collected Notification drops its click.
+				liveNotifications.add(notification);
+				const release = () => liveNotifications.delete(notification);
+				notification.on("close", release);
+				notification.on("click", () => {
+					release();
+					if (win.isDestroyed()) return;
+					if (win.isMinimized()) win.restore();
+					win.show();
+					win.focus();
+					win.webContents.send(IPC_EVENTS.NOTIFICATION_CLICK, { tabId } satisfies NotificationClickPayload);
+				});
+			}
+			notification.show();
 		}
 	});
 
@@ -950,6 +972,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (payload.key === "language" && isUiLanguage(payload.value)) {
 			createMenu(windowManager, deps.spawnWindow);
 		}
+		deps.onPrefChanged?.(payload.key);
 	});
 
 	// Launch profiles live with the machine that spawns omp: a tab's paired

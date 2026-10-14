@@ -4,7 +4,9 @@
  * must not sleep. The blocker is acquired at once and released after a quiet
  * period, so a device that drops and reconnects does not flap it; turning the
  * option off releases it immediately. No Electron imports — the caller injects
- * `powerSaveBlocker.start('prevent-app-suspension')` and `stop`.
+ * `powerSaveBlocker.start('prevent-app-suspension')` and `stop`. index.ts runs a
+ * second instance for "keep awake while working": this computer's own tabs,
+ * `connected` always false.
  */
 
 /** Quiet period after the last use before the blocker goes. */

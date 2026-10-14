@@ -152,6 +152,18 @@ body {
 	background: var(--omp-bg-primary);
 }
 
+/* Windows 11 Mica (B79, `html[data-mica]` from lib/window-chrome.ts): the
+   window's backdrop shows through the canvas behind the sidebar chrome, which
+   keeps a tint of its own colour; the workspace above still paints its canvas. */
+html[data-mica="true"],
+html[data-mica="true"] body {
+	background: transparent;
+}
+
+html[data-mica="true"] .omp-session-sidebar {
+	background: color-mix(in srgb, var(--sc-surface-1) 62%, transparent);
+}
+
 
 
 /* ============================================================================
@@ -252,6 +264,25 @@ html[data-platform="win32"] {
 .omp-shell:not(:has(> .omp-inspector)) .omp-topbar,
 .omp-panel-topbar {
 	padding-right: calc(var(--sc-space-2) + var(--sc-caption-buttons));
+}
+
+/* Side panel docked left (Settings › General › Window): it takes the
+   top-left corner from the session view when the sidebar is hidden, and
+   gives the top-right corner (Windows caption buttons) back to it. */
+.omp-shell[data-sidebar="hidden"] .omp-inspector[data-side="left"] .omp-panel-topbar {
+	padding-left: max(var(--sc-space-2), var(--sc-traffic-lights));
+}
+
+.omp-shell[data-sidebar="hidden"]:has(> .omp-inspector[data-side="left"]) .omp-topbar {
+	padding-left: var(--sc-space-2);
+}
+
+.omp-shell:has(> .omp-inspector[data-side="left"]) .omp-topbar {
+	padding-right: calc(var(--sc-space-2) + var(--sc-caption-buttons));
+}
+
+.omp-inspector[data-side="left"] .omp-panel-topbar {
+	padding-right: var(--sc-space-2);
 }
 
 /* ============================================================================

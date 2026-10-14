@@ -36,6 +36,7 @@ export function editLabels(language = getMainLanguage()): EditLabels {
 		paste: mainT("menu.paste", language),
 		selectAll: mainT("menu.selectAll", language),
 		addToDictionary: mainT("menu.addToDictionary", language),
+		copyImage: mainT("menu.copyImage", language),
 	};
 }
 

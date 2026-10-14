@@ -8,6 +8,8 @@
  *   (snap layouts, accessibility) over the top-right corner; their colors
  *   follow the theme through {@link sanitizeChromeColors} pushes from the
  *   renderer.
+ * - Windows 11 (build 22621+): the Mica backdrop (`backgroundMaterial`); the
+ *   renderer, loaded with `?mica=1`, lets it show through the sidebar.
  */
 
 import type { BrowserWindowConstructorOptions } from "electron";
@@ -22,10 +24,19 @@ const DEFAULT_COLORS: Record<"light" | "dark", WindowChromeColors> = {
 	dark: { color: "#19191c", symbolColor: "#ededf0" },
 };
 
+/** Windows 11 22H2 (build 22621) is the first build Electron's Mica material draws on. */
+export function micaSupported(platform: NodeJS.Platform, release: string): boolean {
+	return platform === "win32" && Number(release.split(".")[2] ?? 0) >= 22621;
+}
+
 export function windowChromeOptions(
 	platform: NodeJS.Platform,
 	dark: boolean,
-): Pick<BrowserWindowConstructorOptions, "titleBarStyle" | "trafficLightPosition" | "titleBarOverlay"> {
+	mica = false,
+): Pick<
+	BrowserWindowConstructorOptions,
+	"titleBarStyle" | "trafficLightPosition" | "titleBarOverlay" | "backgroundMaterial"
+> {
 	if (platform === "darwin") {
 		return { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 17 } };
 	}
@@ -33,6 +44,7 @@ export function windowChromeOptions(
 		return {
 			titleBarStyle: "hidden",
 			titleBarOverlay: { ...DEFAULT_COLORS[dark ? "dark" : "light"], height: TOP_BAR_HEIGHT },
+			...(mica ? { backgroundMaterial: "mica" as const } : {}),
 		};
 	}
 	return {};

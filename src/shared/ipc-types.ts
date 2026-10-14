@@ -77,6 +77,8 @@ export const IPC_EVENTS = {
 	MENU_ACTION: "menu:action",
 	/** omp:// deep link (new session / switch session) */
 	DEEP_LINK: "deep-link",
+	/** A click on a desktop notification that named its tab: bring that tab forward */
+	NOTIFICATION_CLICK: "notification:click",
 	/** Renderer → main fire-and-forget tray-state snapshot */
 	TRAY_STATE_PUSH: "tray:state-push",
 	/** Renderer → main fire-and-forget run-progress state (dock badge + progress bar) */
@@ -703,6 +705,12 @@ export interface IpcStatsFetchPayload {
 export interface IpcNotifyPayload {
 	title: string;
 	body?: string;
+	/** The tab the notification is about; a click on it switches to that tab. */
+	tabId?: string;
+}
+
+export interface NotificationClickPayload {
+	tabId: string;
 }
 
 export interface IpcPrefsGetPayload {
@@ -1271,6 +1279,7 @@ export interface OmpApi {
 		onLogBatch(callback: (batch: LogBatch) => void): () => void;
 		onMenuAction(callback: (action: MenuAction, payload?: MenuActionPayload) => void): () => void;
 		onDeepLink(callback: (link: DeepLinkPayload) => void): () => void;
+		onNotificationClick(callback: (payload: NotificationClickPayload) => void): () => void;
 		onUpdaterStatus(callback: (status: UpdateStatus) => void): () => void;
 		/** Fires when gui-bridge compatibility warnings are pending; take them with `bridgeHealth.take()`. */
 		onBridgeHealth(callback: () => void): () => void;
@@ -1397,7 +1406,7 @@ export interface OmpApi {
 			filters?: { name: string; extensions: string[] }[],
 			options?: { directory?: boolean; title?: string; buttonLabel?: string },
 		): Promise<string[] | null>;
-		notify(title: string, body?: string): void;
+		notify(title: string, body?: string, tabId?: string): void;
 	};
 	prefs: {
 		get(key?: string): Promise<unknown>;

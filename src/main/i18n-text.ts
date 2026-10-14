@@ -15,6 +15,7 @@ export const MAIN_TEXT = {
 	"menu.showAll": { en: "Show All", ko: "모두 보기" },
 	"menu.quit": { en: "Quit OMPdesk", ko: "OMPdesk 종료" },
 	"menu.addToDictionary": { en: "Add to dictionary", ko: "사전에 추가" },
+	"menu.copyImage": { en: "Copy Image", ko: "이미지 복사" },
 	"menu.closeTab": { en: "Close Tab", ko: "탭 닫기" },
 	"menu.closeWindow": { en: "Close Window", ko: "창 닫기" },
 	"menu.commandCenter": { en: "Command Palette", ko: "명령 팔레트" },

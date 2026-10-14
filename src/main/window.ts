@@ -4,6 +4,7 @@
  */
 
 import * as fs from "node:original-fs";
+import { release } from "node:os";
 import { join } from "node:path";
 import { app, BrowserWindow, dialog, Menu, type MessageBoxOptions, nativeTheme, screen, shell } from "electron";
 import Store from "electron-store";
@@ -20,7 +21,7 @@ import {
 } from "./renderer-recovery";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { type Rect, restoreWithinDisplays } from "./window-bounds";
-import { windowChromeOptions } from "./window-chrome";
+import { micaSupported, windowChromeOptions } from "./window-chrome";
 
 interface WindowState {
 	x?: number;
@@ -39,6 +40,8 @@ const DEFAULT_WIDTH = 1400;
 const DEFAULT_HEIGHT = 900;
 const MIN_WIDTH = 800;
 const MIN_HEIGHT = 600;
+/** Windows 11 windows get the Mica backdrop (B79); decided once per launch. */
+const MICA = micaSupported(process.platform, release());
 
 /** Work areas with the primary display first — it is the recentering target. */
 function displayWorkAreas(): Rect[] {
@@ -92,6 +95,9 @@ export class WindowManager {
 		return () => this.#windowClosedListeners.delete(listener);
 	}
 
+	/** Installed at startup: true when closing the last shown window should hide it (close to tray). */
+	closeHidesLastWindow: (() => boolean) | null = null;
+
 	constructor() {
 		this.#store = new Store<StoreSchema>({ name: "window-state" });
 	}
@@ -128,7 +134,7 @@ export class WindowManager {
 			minHeight: MIN_HEIGHT,
 			show: false,
 			autoHideMenuBar: process.platform === "win32",
-			...windowChromeOptions(process.platform, nativeTheme.shouldUseDarkColors),
+			...windowChromeOptions(process.platform, nativeTheme.shouldUseDarkColors, MICA),
 			webPreferences: {
 				contextIsolation: true,
 				nodeIntegration: false,
@@ -142,6 +148,7 @@ export class WindowManager {
 			const template = editableContextMenuTemplate(params, editLabels(), {
 				replaceMisspelling: suggestion => win.webContents.replaceMisspelling(suggestion),
 				addToDictionary: word => win.webContents.session.addWordToSpellCheckerDictionary(word),
+				copyImageAt: (x, y) => win.webContents.copyImageAt(x, y),
 			});
 			if (template.length > 0) Menu.buildFromTemplate(template).popup({ window: win });
 		});
@@ -173,9 +180,14 @@ export class WindowManager {
 		// and dropped documents must not replace it with arbitrary page content.
 		win.webContents.on("will-navigate", event => event.preventDefault());
 
-		// Persist state on close
-		win.on("close", () => {
+		// Persist state on close. With "close to tray" on, closing the last shown
+		// window hides it instead, so its tabs keep working; the tray brings it back.
+		win.on("close", event => {
 			this.#persistState(win);
+			if (!this.closeHidesLastWindow?.()) return;
+			if (this.getAllWindows().some(other => other !== win && other.isVisible())) return;
+			event.preventDefault();
+			win.hide();
 		});
 
 		win.on("closed", () => {
@@ -281,10 +293,15 @@ export class WindowManager {
 	#loadRenderer(win: BrowserWindow): void {
 		// OMP_GUI_STYLEGUIDE=1 opens the internal design style guide instead of the app.
 		const hash = process.env.OMP_GUI_STYLEGUIDE === "1" ? "/styleguide" : undefined;
+		// `mica=1`: the window has the Mica backdrop, so the renderer lets it through.
+		const query: Record<string, string> = MICA ? { mica: "1" } : {};
 		if (process.env.ELECTRON_RENDERER_URL) {
-			void win.loadURL(hash ? `${process.env.ELECTRON_RENDERER_URL}#${hash}` : process.env.ELECTRON_RENDERER_URL);
+			const url = new URL(process.env.ELECTRON_RENDERER_URL);
+			for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+			if (hash) url.hash = hash;
+			void win.loadURL(url.toString());
 		} else {
-			void win.loadFile(join(__dirname, "../renderer/index.html"), { hash });
+			void win.loadFile(join(__dirname, "../renderer/index.html"), { hash, query });
 		}
 	}
 

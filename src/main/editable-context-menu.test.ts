@@ -10,6 +10,7 @@ const LABELS: EditLabels = {
 	paste: "붙여넣기",
 	selectAll: "전체 선택",
 	addToDictionary: "사전에 추가",
+	copyImage: "이미지 복사",
 };
 
 function params(overrides: Partial<ContextMenuParams> = {}): ContextMenuParams {
@@ -28,6 +29,7 @@ describe("editableContextMenuTemplate", () => {
 		const menu = editableContextMenuTemplate(params(), LABELS, {
 			replaceMisspelling,
 			addToDictionary,
+			copyImageAt: vi.fn(),
 		});
 
 		expect(menu.slice(0, 3).map(item => item.label)).toEqual(["the", "tech", "사전에 추가"]);
@@ -45,7 +47,20 @@ describe("editableContextMenuTemplate", () => {
 			editableContextMenuTemplate(params({ isEditable: false }), LABELS, {
 				replaceMisspelling: vi.fn(),
 				addToDictionary: vi.fn(),
+				copyImageAt: vi.fn(),
 			}),
 		).toEqual([]);
+	});
+
+	it("offers Copy image on an image and copies the one under the pointer", () => {
+		const copyImageAt = vi.fn();
+		const menu = editableContextMenuTemplate(
+			params({ isEditable: false, mediaType: "image", hasImageContents: true, x: 40, y: 72 }),
+			LABELS,
+			{ replaceMisspelling: vi.fn(), addToDictionary: vi.fn(), copyImageAt },
+		);
+		expect(menu.map(item => item.label)).toEqual(["이미지 복사"]);
+		menu[0]?.click?.(undefined as never, undefined as never, undefined as never);
+		expect(copyImageAt).toHaveBeenCalledWith(40, 72);
 	});
 });

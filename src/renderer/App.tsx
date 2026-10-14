@@ -175,6 +175,10 @@ export function App() {
 				"followAgentTheme",
 				"fontSize",
 				"notifications",
+				"notificationSound",
+				"notificationVolume",
+				"linkPreview",
+				"panelSide",
 				"thinkingExpanded",
 				"transcriptDetail",
 				"panelTab",
@@ -197,7 +201,13 @@ export function App() {
 						theme: selection === "system" ? "system" : resolveThemeSelection(selection).scheme,
 					});
 				}
-				for (const key of ["compactDensity", "colorBlindMode", "followAgentTheme"] as const) {
+				for (const key of [
+					"compactDensity",
+					"colorBlindMode",
+					"followAgentTheme",
+					"notificationSound",
+					"linkPreview",
+				] as const) {
 					if (typeof prefs[key] === "boolean" && !changedPreferences.has(key))
 						useUiStore.setState({ [key]: prefs[key] });
 				}
@@ -206,6 +216,17 @@ export function App() {
 				}
 				if (typeof prefs.notifications === "boolean" && !changedPreferences.has("notifications")) {
 					useUiStore.setState({ notifications: prefs.notifications });
+				}
+				if (
+					typeof prefs.notificationVolume === "number" &&
+					prefs.notificationVolume >= 0 &&
+					prefs.notificationVolume <= 100 &&
+					!changedPreferences.has("notificationVolume")
+				) {
+					useUiStore.setState({ notificationVolume: prefs.notificationVolume });
+				}
+				if ((prefs.panelSide === "left" || prefs.panelSide === "right") && !changedPreferences.has("panelSide")) {
+					useUiStore.setState({ panelSide: prefs.panelSide });
 				}
 				if (typeof prefs.thinkingExpanded === "boolean" && !changedPreferences.has("thinkingExpanded")) {
 					useUiStore.setState({ thinkingExpanded: prefs.thinkingExpanded });
@@ -270,6 +291,19 @@ export function App() {
 	// Font changes do not participate in theme resolution.
 	useEffect(() => watchSystemTheme(theme, () => applyThemeByName("system", { persist: false })), [theme]);
 	useEffect(() => applyFontSize(fontSize), [fontSize]);
+
+	// A clicked notification about a tab (finished, failed, waiting for input)
+	// brings that tab forward; main already raised the window.
+	useEffect(
+		() =>
+			window.omp.events.onNotificationClick(({ tabId }) => {
+				const tabs = useTabsStore.getState();
+				if (!tabs.tabs.some(tab => tab.id === tabId)) return;
+				useUiStore.getState().closeDestination();
+				void tabs.switchTab(tabId);
+			}),
+		[],
+	);
 
 	// Handle omp:// deep links (omp://new → new session; omp://session/<id> → switch).
 	useEffect(() => {

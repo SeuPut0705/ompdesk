@@ -15,10 +15,17 @@ export function chromePlatform(): ChromePlatform {
 	return "other";
 }
 
-/** Mark the root once so stylesheets can reserve room for the window controls. */
+/**
+ * Mark the root once so stylesheets can reserve room for the window controls.
+ * `data-mica`: main gave this Windows 11 window the Mica backdrop (`?mica=1`),
+ * so the canvas behind the sidebar turns transparent and lets it through.
+ */
 export function markChromePlatform(root: HTMLElement = document.documentElement): ChromePlatform {
 	const platform = chromePlatform();
 	root.dataset.platform = platform;
+	if (platform === "win32" && new URLSearchParams(window.location.search).get("mica") === "1") {
+		root.dataset.mica = "true";
+	}
 	return platform;
 }
 

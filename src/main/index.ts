@@ -21,12 +21,13 @@ import { DELEGATION_PREF } from "../../resources/gui-bridge/delegation-contracts
 import { USER_PROFILE_PREF } from "../../resources/gui-bridge/user-profile-contracts";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { REA_PREF } from "../shared/builtin-mcp";
+import { CLOSE_TO_TRAY_PREF, KEEP_AWAKE_WORKING_PREF } from "../shared/desktop-prefs";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import { SCHEDULES_STATE } from "../shared/schedules";
 import { accountRotationDeps } from "./account-rotation";
-import { installQuitGuard, requestQuit } from "./app-quit";
+import { installQuitGuard, quitApproved, requestQuit } from "./app-quit";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
@@ -45,6 +46,7 @@ import { createMenu } from "./menu";
 import { ompPackageRoot, ompPathEnv, systemOmp } from "./omp-runtime";
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
+import { KeepAwakePolicy } from "./remote/keep-awake";
 import { writeRuntimeLog } from "./runtime-log";
 import { ompRunLauncher, registerSchedulesIpc, ScheduleService } from "./schedules";
 import { SessionIndex } from "./session-index";
@@ -58,7 +60,7 @@ import { SidecarPool } from "./sidecar-pool";
 import { StatsClient } from "./stats-client";
 import { StatsServerManager } from "./stats-server";
 import { type PersistedTabLayout, sanitizePersistedTabLayouts } from "./tab-layout";
-import { createTray, destroyTray } from "./tray";
+import { createTray, destroyTray, hasTray } from "./tray";
 import { setupUpdater } from "./updater";
 import { WindowManager } from "./window";
 import { resolveWindowSpawnTarget } from "./window-spawn-target";
@@ -269,6 +271,8 @@ let worktreeLifecycle: WorktreeLifecycle | null = null;
 let setupService: SetupService | null = null;
 let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
+/** Keep-awake while this computer's own tabs run a turn (Settings › General › Window). */
+let workAwakePolicy: KeepAwakePolicy | null = null;
 
 function errorMessage(value: unknown): { message: string; stack?: string } {
 	if (value instanceof Error) return { message: value.message, stack: value.stack };
@@ -628,6 +632,26 @@ app.whenReady().then(() => {
 	void scheduleService.start();
 	logWatcher = new LogWatcher();
 
+	// Settings › General › Window: closing the last window hides it to the tray
+	// (Windows; macOS keeps running with no window anyway), and this computer
+	// stays awake while any of its own tabs runs a turn.
+	windowManager.closeHidesLastWindow = () =>
+		process.platform !== "darwin" && hasTray() && !quitApproved() && prefs.get(CLOSE_TO_TRAY_PREF) === true;
+	const workAwake = new KeepAwakePolicy({
+		blocker: {
+			start: () => powerSaveBlocker.start("prevent-app-suspension"),
+			stop: id => powerSaveBlocker.stop(id),
+		},
+	});
+	workAwakePolicy = workAwake;
+	const syncWorkAwake = () =>
+		workAwake.update({
+			enabled: prefs.get(KEEP_AWAKE_WORKING_PREF) === true,
+			connected: false,
+			running: sidecarPool.tabInventory().some(tab => tab.inFlight),
+		});
+	sidecarPool.onRunningChange = syncWorkAwake;
+
 	// Register all handlers and sidecar listeners before loading the renderer.
 	registerIpcHandlers({
 		sidecarPool,
@@ -641,6 +665,9 @@ app.whenReady().then(() => {
 		worktreeLifecycle: lifecycle,
 		worktreePrompts: prompts,
 		mediaStreams,
+		onPrefChanged: key => {
+			if (key === KEEP_AWAKE_WORKING_PREF) syncWorkAwake();
+		},
 	});
 	protocol.handle(MEDIA_SCHEME, request => mediaStreams.handle(request));
 	// Before the first window: a restored remote tab needs its host's link to exist.
@@ -714,6 +741,7 @@ installQuitGuard(
 		setupService?.dispose();
 		githubAuthService?.dispose();
 		scheduleService?.dispose();
+		workAwakePolicy?.dispose();
 		sidecarPool?.disposeAll();
 		void remoteDevices?.dispose();
 		sessionIndex?.stop();

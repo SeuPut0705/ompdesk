@@ -17,6 +17,11 @@ export function requestQuit(): void {
 	app.quit();
 }
 
+/** A quit is underway (approved): windows must close, not hide to the tray. */
+export function quitApproved(): boolean {
+	return latch.approved;
+}
+
 /** What a quit right now would cost. The resource-change restart quotes it. */
 export function quitRisk(): QuitRisk {
 	return assessQuitRisk(inventory());

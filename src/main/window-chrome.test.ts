@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeChromeColors, TOP_BAR_HEIGHT, windowChromeOptions } from "./window-chrome";
+import { micaSupported, sanitizeChromeColors, TOP_BAR_HEIGHT, windowChromeOptions } from "./window-chrome";
 
 describe("windowChromeOptions", () => {
 	it("insets the macOS traffic lights into the top bar", () => {
@@ -15,6 +15,15 @@ describe("windowChromeOptions", () => {
 			titleBarOverlay: { color: "#19191c", symbolColor: "#ededf0", height: TOP_BAR_HEIGHT },
 		});
 		expect(windowChromeOptions("win32", false).titleBarOverlay).toMatchObject({ color: "#ffffff" });
+	});
+
+	it("adds the Mica backdrop on Windows 11 builds only", () => {
+		expect(windowChromeOptions("win32", true, true).backgroundMaterial).toBe("mica");
+		expect(windowChromeOptions("win32", true).backgroundMaterial).toBeUndefined();
+		expect(micaSupported("win32", "10.0.22631")).toBe(true);
+		expect(micaSupported("win32", "10.0.22621")).toBe(true);
+		expect(micaSupported("win32", "10.0.19045")).toBe(false);
+		expect(micaSupported("darwin", "24.0.0")).toBe(false);
 	});
 
 	it("leaves other platforms on the native frame", () => {

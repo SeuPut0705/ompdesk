@@ -2022,7 +2022,7 @@ describe("useRpcEvents background tabs", () => {
 				});
 			await finish();
 			await flush();
-			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationComplete"));
+			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationComplete"), "t-back");
 
 			// No title of its own: the app name, never the focused tab's session.
 			notify.mockClear();
@@ -2031,7 +2031,30 @@ describe("useRpcEvents background tabs", () => {
 			}));
 			await finish();
 			await flush();
-			expect(notify).toHaveBeenCalledWith("OMPdesk", translate("events.notificationComplete"));
+			expect(notify).toHaveBeenCalledWith("OMPdesk", translate("events.notificationComplete"), "t-back");
+
+			// A reply with prose: the banner reads its opening, Markdown removed.
+			notify.mockClear();
+			await act(async () => {
+				emitTabBatch(
+					[
+						{
+							type: "agent_end",
+							isTerminal: true,
+							messages: [
+								{
+									role: "assistant",
+									content: [{ type: "text", text: "## Done\n\n**Fixed** the `parser`." }],
+									stopReason: "stop",
+								},
+							],
+						},
+					],
+					"t-back",
+				);
+			});
+			await flush();
+			expect(notify).toHaveBeenCalledWith("OMPdesk", "Done. Fixed the parser.", "t-back");
 		} finally {
 			restoreFocus();
 		}
@@ -2055,7 +2078,7 @@ describe("useRpcEvents background tabs", () => {
 				onExtensionUi({ type: "extension_ui_request", id: "ask-1", method: "ask", questions: [] }, "t-back");
 			});
 			await flush();
-			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationAsk"));
+			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationAsk"), "t-back");
 		} finally {
 			restoreFocus();
 		}

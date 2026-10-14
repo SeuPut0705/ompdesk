@@ -38,7 +38,9 @@ import { errorDetail } from "../lib/error-detail";
 import { formatClock } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { normalizeLoopUpdate } from "../lib/loop-mode";
-import { describeTurnError, turnErrorToast } from "../lib/messages";
+import { describeTurnError, messageText, turnErrorToast } from "../lib/messages";
+import { playNotificationSound } from "../lib/notification-sound";
+import { notificationSummary } from "../lib/notification-summary";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
@@ -147,6 +149,7 @@ function closedTabFrame(tabId: string): boolean {
  */
 async function maybeNotify(
 	kind: NotifyKind,
+	tabId: string,
 	title: string,
 	body: string,
 	command: TabCommand = (rpcCommand, timeoutMs) => window.omp.rpc.command(rpcCommand, timeoutMs),
@@ -160,7 +163,9 @@ async function maybeNotify(
 		const setting = values?.[key];
 		const effective = typeof setting === "string" ? setting : NOTIFY_DEFAULTS[kind];
 		if (effective === "off") return;
-		window.omp.system.notify(title, body);
+		// The tab rides along so a click on the banner brings that tab forward.
+		window.omp.system.notify(title, body, tabId);
+		playNotificationSound();
 	} catch {
 		// Best-effort: a failed notification must never break event dispatch.
 	}
@@ -180,7 +185,10 @@ function notificationTitle(tabId: string): string {
  * settled run. Aborted runs are user-initiated and stay quiet, as do the
  * intermediate settles of a live auto-retry saga.
  */
-export function notifyRunEnd(tabId: string, outcome: { stopReason?: string; errorMessage?: unknown }): void {
+export function notifyRunEnd(
+	tabId: string,
+	outcome: { stopReason?: string; errorMessage?: unknown; reply?: string },
+): void {
 	if (retryPendingTabs.has(tabId)) return;
 	if (outcome.stopReason === "aborted") return;
 	// A settle arriving after the tab closed has no runtime to query settings
@@ -195,10 +203,12 @@ export function notifyRunEnd(tabId: string, outcome: { stopReason?: string; erro
 						error: outcome.errorMessage.replace(/\s+/g, " ").slice(0, 120),
 					})
 				: translate("events.notificationError");
-		void maybeNotify("error", title, message, runtime.command);
+		void maybeNotify("error", tabId, title, message, runtime.command);
 		return;
 	}
-	void maybeNotify("completion", title, translate("events.notificationComplete"), runtime.command);
+	// The banner reads the reply's opening prose; a reply with none says "Complete".
+	const summary = outcome.reply ? notificationSummary(outcome.reply) : "";
+	void maybeNotify("completion", tabId, title, summary || translate("events.notificationComplete"), runtime.command);
 }
 
 /**
@@ -210,7 +220,11 @@ function notifyOnAgentEnd(tabId: string, event: Extract<AgentSessionEvent, { typ
 	// `isTerminal === false` marks a deferred mid-run settle, not the final one.
 	if (event.isTerminal === false) return;
 	const last = event.messages?.findLast(message => message.role === "assistant");
-	notifyRunEnd(tabId, { stopReason: last?.stopReason, errorMessage: last?.errorMessage });
+	notifyRunEnd(tabId, {
+		stopReason: last?.stopReason,
+		errorMessage: last?.errorMessage,
+		reply: last ? messageText(last) : undefined,
+	});
 }
 
 /**
@@ -815,7 +829,13 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 				"title" in request && typeof request.title === "string" && request.title
 					? request.title
 					: translate("events.notificationAsk");
-			void maybeNotify("ask", notificationTitle(tabId), body, sessionRuntime(tabId)?.command ?? activeTabCommand);
+			void maybeNotify(
+				"ask",
+				tabId,
+				notificationTitle(tabId),
+				body,
+				sessionRuntime(tabId)?.command ?? activeTabCommand,
+			);
 		});
 
 		return () => {

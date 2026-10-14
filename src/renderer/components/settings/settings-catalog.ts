@@ -4,6 +4,7 @@
  */
 
 import { GUI_DISPLAY_BOOL_FIELDS, GUI_DISPLAY_LEGACY_PATHS } from "../../lib/display-preferences";
+import { PLATFORM } from "../../lib/keymap";
 
 export const SETTINGS_SECTION_IDS = [
 	"general",
@@ -211,6 +212,41 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		section: "general",
 		labelKey: "settings.gui.panelDefault",
 		aliases: "panelTab side panel 사이드 패널",
+	},
+	{
+		id: "notificationSound",
+		section: "general",
+		labelKey: "settings.gui.notificationSound",
+		aliases: "notification sound chime volume test 알림 소리 알림음 볼륨",
+	},
+	{
+		id: "linkPreview",
+		section: "general",
+		labelKey: "settings.gui.linkPreview",
+		aliases: "link preview browser open links 링크 미리보기 브라우저",
+	},
+	{
+		id: "panelSide",
+		section: "general",
+		labelKey: "settings.gui.panelSide",
+		aliases: "side panel left right flip position 사이드 패널 왼쪽 오른쪽 위치",
+	},
+	// The row exists on Windows only (macOS keeps running with no window anyway).
+	...(PLATFORM === "windows"
+		? [
+				{
+					id: "closeToTray",
+					section: "general",
+					labelKey: "settings.gui.closeToTray",
+					aliases: "close window tray hide quit 창 닫기 트레이 숨기기 종료",
+				} satisfies GuiSearchItem,
+			]
+		: []),
+	{
+		id: "keepAwakeWorking",
+		section: "general",
+		labelKey: "settings.gui.keepAwakeWorking",
+		aliases: "keep awake sleep power prevent 잠자기 절전 깨어 있기",
 	},
 	{
 		id: "githubAccount",

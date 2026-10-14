@@ -163,6 +163,7 @@ export function AppShell() {
 	const destination = useUiStore(s => s.destination);
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
 	const panelVisible = useUiStore(s => s.panelVisible);
+	const panelSide = useUiStore(s => s.panelSide);
 	const compact = useMediaQuery(COMPACT_SHELL_QUERY);
 	const onPage = destination !== "session";
 	const panelOpen = !onPage && panelVisible;
@@ -172,7 +173,8 @@ export function AppShell() {
 		markChromePlatform();
 	}, []);
 	// Windows caption buttons sit over the top-right corner: match its surface.
-	useEffect(() => syncWindowControls(panelDocked ? "--sc-surface-1" : "--sc-bg"), [panelDocked]);
+	const panelAtRight = panelDocked && panelSide === "right";
+	useEffect(() => syncWindowControls(panelAtRight ? "--sc-surface-1" : "--sc-bg"), [panelAtRight]);
 
 	// Entering compact width: a docked side panel would turn into a modal sheet
 	// the user never asked for, so close it.
@@ -216,6 +218,7 @@ export function AppShell() {
 	return (
 		<div className="omp-shell flex min-w-0 flex-1" data-sidebar={sidebarVisible ? "docked" : "hidden"}>
 			{sidebarVisible && <Sidebar />}
+			{panelOpen && panelSide === "left" && <PanelContainer />}
 
 			<main aria-label={t("shell.main")} className="omp-workspace-main relative flex min-w-0 flex-1 flex-col">
 				<div className={onPage ? "hidden" : "flex min-h-0 flex-1 flex-col"} data-session-view>
@@ -246,7 +249,7 @@ export function AppShell() {
 				)}
 			</main>
 
-			{panelOpen && <PanelContainer />}
+			{panelOpen && panelSide === "right" && <PanelContainer />}
 		</div>
 	);
 }

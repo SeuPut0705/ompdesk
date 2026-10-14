@@ -8,6 +8,8 @@ export type { ThemeMode };
 /** Primary and secondary session inspector views. */
 export const PANEL_TABS = ["terminal", "diff", "preview", "files", "jobs", "plan", "logs", "queue", "tree"] as const;
 export type PanelTab = (typeof PANEL_TABS)[number];
+/** Edge the side panel docks to; the session sidebar stays at the left edge either way. */
+export type PanelSide = "right" | "left";
 
 /** Existing diff/files/logs preferences retain their meaning; unknown values use Changes. */
 export function migrateDefaultPanelTab(value: unknown): PanelTab {
@@ -136,6 +138,14 @@ interface UiStore {
 	followAgentTheme: boolean;
 	/** Master switch for desktop notifications (Settings → GUI, default on). */
 	notifications: boolean;
+	/** Chime with each desktop notification (Settings › General, default off). */
+	notificationSound: boolean;
+	/** Chime volume, 0–100. */
+	notificationVolume: number;
+	/** Left-clicked web links in replies open in the Preview panel instead of the browser. */
+	linkPreview: boolean;
+	/** Which edge the side panel docks to (Settings › General › Window). */
+	panelSide: PanelSide;
 	/** Expand reasoning (thinking) blocks by default (Settings → GUI, default off). */
 	thinkingExpanded: boolean;
 	/** Transcript density: compact folds reasoning/tools; full shows every step. */
@@ -280,6 +290,10 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	colorBlindMode: false,
 	followAgentTheme: false,
 	notifications: true,
+	notificationSound: false,
+	notificationVolume: 60,
+	linkPreview: false,
+	panelSide: "right",
 	thinkingExpanded: false,
 	transcriptDetail: "compact",
 	toggleSidebar: () => set({ sidebarVisible: !get().sidebarVisible }),

@@ -143,6 +143,7 @@ export function PanelContainer() {
 	const t = useT();
 	const togglePanel = useUiStore(s => s.togglePanel);
 	const split = useTabsStore(s => s.split);
+	const panelSide = useUiStore(s => s.panelSide);
 	const routeReady = useActiveTabRouteReady();
 	const compact = useMediaQuery(COMPACT_SHELL_QUERY);
 
@@ -206,9 +207,11 @@ export function PanelContainer() {
 
 	const onDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
 		if (!dragging.current) return;
-		// Panel is right-anchored: dragging left grows it.
+		// A right-docked panel grows as the edge moves left; a left-docked one as it moves right.
+		const left = useUiStore.getState().panelSide === "left";
+		const anchor = left ? (e.currentTarget.parentElement?.getBoundingClientRect().left ?? 0) : window.innerWidth;
 		const hostLimit = Math.min(MAX_WIDTH, Math.round(window.innerWidth * 0.55));
-		const next = Math.min(hostLimit, Math.max(MIN_WIDTH, window.innerWidth - e.clientX));
+		const next = Math.min(hostLimit, Math.max(MIN_WIDTH, left ? e.clientX - anchor : anchor - e.clientX));
 		setWidth(next);
 	}, []);
 
@@ -238,16 +241,21 @@ export function PanelContainer() {
 		);
 	}
 
+	// Docked at the left (Settings › General › Window), the panel never floats:
+	// over a split it would cover the session list.
+	const floating = split !== null && panelSide === "right";
 	return (
 		<aside
 			aria-busy={!routeReady}
 			aria-label={t("panel.title")}
 			className={cx(
-				"omp-inspector relative flex h-full flex-col border-l border-(--sc-border-subtle) bg-(--sc-surface-1)",
-				split ? "absolute inset-y-0 right-0 z-(--sc-z-drawer) shadow-(--sc-shadow-lg)" : "shrink-0",
+				"omp-inspector relative flex h-full flex-col border-(--sc-border-subtle) bg-(--sc-surface-1)",
+				panelSide === "left" ? "border-r" : "border-l",
+				floating ? "absolute inset-y-0 right-0 z-(--sc-z-drawer) shadow-(--sc-shadow-lg)" : "shrink-0",
 				!routeReady && "pointer-events-none",
 			)}
-			data-docked={split ? "floating" : "docked"}
+			data-docked={floating ? "floating" : "docked"}
+			data-side={panelSide}
 			data-expanded={viewerExpanded || undefined}
 			style={{
 				width: viewerExpanded
@@ -283,10 +291,19 @@ export function PanelContainer() {
 							? MIN_WIDTH
 							: event.key === "End"
 								? max
-								: Math.min(max, Math.max(MIN_WIDTH, current + (event.key === "ArrowLeft" ? 24 : -24))),
+								: Math.min(
+										max,
+										Math.max(
+											MIN_WIDTH,
+											current + ((event.key === "ArrowLeft") === (panelSide === "right") ? 24 : -24),
+										),
+									),
 					);
 				}}
-				className="absolute inset-y-0 left-0 z-(--sc-z-raised) w-1 -translate-x-1/2 cursor-col-resize transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-accent-border) focus-visible:bg-(--sc-accent) active:bg-(--sc-accent)"
+				className={cx(
+					"absolute inset-y-0 z-(--sc-z-raised) w-1 cursor-col-resize transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-accent-border) focus-visible:bg-(--sc-accent) active:bg-(--sc-accent)",
+					panelSide === "left" ? "right-0 translate-x-1/2" : "left-0 -translate-x-1/2",
+				)}
 			/>
 		</aside>
 	);
