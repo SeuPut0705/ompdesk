@@ -34,7 +34,7 @@ import { routeCommands } from "../test-support/route-commands";
 import { useComposerStore } from "./composer";
 import { useExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
-import { useMessagesStore } from "./messages";
+import { type MessagesStore, useMessagesStore } from "./messages";
 import { useModelStore } from "./model";
 import { usePlanApprovalStore } from "./plan-approval";
 import { useQueueStore } from "./queue";
@@ -426,7 +426,7 @@ describe("tabs store switch", () => {
 		expect(omp.rpc.getState).toHaveBeenCalled();
 	});
 
-	it("reports the pool cap without mutating the tab list", async () => {
+	it("reports a failed spawn as an error toast without mutating the tab list", async () => {
 		seedTabs();
 		omp.tabs.spawn.mockResolvedValue(null);
 
@@ -434,6 +434,7 @@ describe("tabs store switch", () => {
 
 		expect(tabId).toBeNull();
 		expect(useTabsStore.getState().tabs).toHaveLength(3);
+		expect(useToastStore.getState().toasts.some(toast => toast.variant === "error")).toBe(true);
 		expect(useTabsStore.getState().activeTabId).toBe("t0");
 		expect(omp.tabs.setActive).not.toHaveBeenCalled();
 	});
@@ -623,24 +624,46 @@ describe("tabs store switch", () => {
 		expect(useComposerStore.getState().images.map(image => image.content.data)).toEqual(["failed-image", "image-t0"]);
 	});
 
-	it("derives run state from the tab entry when restoring a background-running tab", async () => {
+	it("paints a tab that ran in the background at its present, not the moment it was left", async () => {
+		seedTabs();
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
+		omp.rpc.getTranscriptPage.mockResolvedValueOnce(ok({ messages: [msg("advanced")], totalMessages: 1 }));
+		let painted: AgentMessage[] | undefined;
+		const unsubscribe = useTabsStore.subscribe(state => {
+			if (state.activeTabId !== "t1" || painted) return;
+			painted = sessionRuntimeStore<MessagesStore>("t1", "messages")?.getState().messages ?? [];
+		});
+		await useTabsStore.getState().switchTab("t1");
+		unsubscribe();
+		expect(JSON.stringify(painted)).toContain("advanced");
+	});
+
+	it("paints a background-running tab from its entry when its present is slow, then refetches", async () => {
 		seedTabs();
 		// t1's run kept going in the background; the pool reported it.
 		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
-
-		// Gate the hydrate so the restored (pre-hydrate) state is observable.
-		const gate = Promise.withResolvers<RpcResponse>();
-		omp.rpc.getTranscriptPage.mockReturnValueOnce(gate.promise);
-		const switching = useTabsStore.getState().switchTab("t1");
-
-		// Restore paints the run live before hydrate's get_state confirms it.
-		expect(useSessionStore.getState().isStreaming).toBe(true);
-		expect(useSessionStore.getState().status).toBe("ready");
-
-		gate.resolve(ok({ messages: [] }));
-		await switching;
-		// Hydrate's get_state (mock: not streaming) is authoritative afterwards.
-		expect(useSessionStore.getState().isStreaming).toBe(false);
+		vi.useFakeTimers();
+		try {
+			const gate = Promise.withResolvers<RpcResponse>();
+			omp.rpc.getTranscriptPage.mockReturnValueOnce(gate.promise);
+			const switching = useTabsStore.getState().switchTab("t1");
+			await vi.advanceTimersByTimeAsync(0);
+			// Its present is on the way: the tab being left stays in view meanwhile.
+			expect(useTabsStore.getState().activeTabId).toBe("t0");
+			await vi.advanceTimersByTimeAsync(100);
+			// The wait is short: the run paints live from the tab entry before get_state confirms it.
+			expect(useTabsStore.getState().activeTabId).toBe("t1");
+			expect(useSessionStore.getState().isStreaming).toBe(true);
+			expect(useSessionStore.getState().status).toBe("ready");
+			gate.resolve(ok({ messages: [] }));
+			await switching;
+			// Hydrate's get_state (mock: not streaming) is authoritative afterwards…
+			expect(useSessionStore.getState().isStreaming).toBe(false);
+			// …from a fetch begun after the route attached: the early one could miss events.
+			expect(omp.rpc.getTranscriptPage).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("stamps the outgoing tab's chip when it was streaming in the foreground", async () => {

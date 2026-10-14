@@ -103,6 +103,10 @@ export interface SessionTab {
 let switchVersion = 0;
 let routingChain: Promise<void> = Promise.resolve();
 let ratioFlushTimer: ReturnType<typeof setTimeout> | null = null;
+/** Bumped by every `switchTab`: a switch still waiting on its tab's session yields to a newer one. */
+let switchRequest = 0;
+/** How long a switch to a tab that ran out of view waits for its present before painting anyway. */
+const RETURN_HYDRATION_WAIT_MS = 100;
 
 /**
  * Tabs the user closed in this window. Late IPC frames for these ids must be
@@ -298,7 +302,7 @@ export interface TabsStore {
 	 * id, preserving local flags (unreadDone, pendingSessionPath). */
 	reconcileTabs: () => Promise<boolean>;
 	/** Spawn a new background tab (same cwd unless given) and switch to it.
-	 * Returns the tabId, or null at the pool cap. `kind` is immutable once
+	 * Returns the tabId, or null when the tab cannot be opened. `kind` is immutable once
 	 * the tab's sidecar is spawned ("agent" default; "chat" = a conversation
 	 * outside any project, run in the GUI's default workspace).
 	 * `worktree` binds the tab to a git worktree created by a prior
@@ -415,7 +419,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			return null;
 		}
 		if (!result) {
-			toast({ variant: "warning", message: translate("tabs.parallelCap") });
+			toast({ variant: "error", message: translate("tabs.newFailed") });
 			return null;
 		}
 		// Cross-kind refusal: the target session file carries a different kind —
@@ -481,10 +485,37 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	},
 
 	switchTab: async id => {
-		const state = get();
-		if (id === state.activeTabId) return;
-		if (!state.tabs.some(tab => tab.id === id)) return;
+		const before = get();
+		if (id === before.activeTabId) return;
+		const target = before.tabs.find(tab => tab.id === id);
+		if (!target) return;
 		ensureTabRuntime(id);
+		const request = ++switchRequest;
+		// Main forwards session events only for visible tabs, so a tab that ran out of view
+		// still holds the moment it was left. Fetch its present before it paints (one short
+		// wait at most): the run shows where it is, not its old step and then a jump.
+		let early: Promise<void> | undefined;
+		if (
+			!visibleTabIds(before).includes(id) &&
+			(target.status === "running" || sessionRuntimeStore<SessionStore>(id, "session")?.getState().isStreaming)
+		) {
+			let landed = false;
+			const { promise: waited, resolve: stopWaiting } = Promise.withResolvers<void>();
+			const cap = setTimeout(stopWaiting, RETURN_HYDRATION_WAIT_MS);
+			const hydration = hydrateTabSession(id).then(
+				() => {
+					landed = true;
+				},
+				() => undefined,
+			);
+			void hydration.then(stopWaiting);
+			await waited;
+			clearTimeout(cap);
+			const now = get();
+			if (request !== switchRequest || now.activeTabId !== before.activeTabId || now.split !== before.split) return;
+			if (!landed) early = hydration;
+		}
+		const state = get();
 		const outgoingStreaming = useSessionStore.getState().isStreaming;
 		await focusTab(
 			state.activeTabId,
@@ -495,6 +526,9 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				return tab.id === state.activeTabId && outgoingStreaming ? { ...tab, status: "running" } : tab;
 			}),
 		);
+		// A fetch still in flight when the route attached began before it: events in between
+		// never reached this tab, and the route's attach joined that fetch instead of starting one.
+		if (early && get().activeTabId === id) await hydrateTabSession(id);
 	},
 
 	splitTab: async (id, placement, targetTabId) => {
