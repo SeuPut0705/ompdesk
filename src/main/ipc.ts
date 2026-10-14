@@ -233,9 +233,11 @@ function aggregateProgress(states: RunProgressState[]): RunProgressState {
 
 export function registerIpcHandlers(deps: IpcDeps): void {
 	registerTerminalIpc(deps.sidecarPool);
-	registerPreviewHost(senderId => {
+	registerPreviewHost((senderId, tabId) => {
 		const win = BrowserWindow.getAllWindows().find(window => window.webContents.id === senderId);
-		return Boolean(win && deps.sidecarPool.tabTarget(win)?.device);
+		const target = win ? deps.sidecarPool.tabTarget(win, tabId) : null;
+		// A named tab this window does not own counts as remote: agent browsing refuses it.
+		return tabId ? !target || Boolean(target.device) : Boolean(target?.device);
 	});
 	/** The paired host a window's running benchmark is on, so closing the window stops it there. */
 	const remoteBenchmarks = new Map<number, string>();

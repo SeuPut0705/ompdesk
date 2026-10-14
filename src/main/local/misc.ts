@@ -76,6 +76,9 @@ export const handlers: Record<string, LocalHandler> = {
 	transcribe_audio: viaBridge("transcribe_audio"),
 	synthesize_speech: viaBridge("synthesize_speech"),
 	debug: viaBridge("debug"),
+	// Preview panel agent browsing: stock's browser relay inside this tab's omp (gui-bridge browser-relay.ts).
+	browser_relay_start: viaBridge("browser.relay_start"),
+	browser_relay_stop: viaBridge("browser.relay_stop"),
 	get_security_dashboard: viaBridge("security_dashboard"),
 	get_security_scan: viaBridge("security_scan"),
 	security_start: viaBridge("security_start"),

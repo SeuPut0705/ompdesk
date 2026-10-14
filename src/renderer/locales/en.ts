@@ -3470,6 +3470,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.worktreeLifecycle": "Per-session worktrees",
 	"bridgeHealth.feature.resetPasses": "Reset passes",
 	"bridgeHealth.feature.streamMetadata": "Read grouping and token rate",
+	"bridgeHealth.feature.agentBrowser": "Agent browsing in the preview",
 	"bridgeHealth.feature.visuals": "Diagram instructions (Mermaid, SVG)",
 
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
@@ -3671,6 +3672,12 @@ export const en: Record<string, string> = {
 	"panel.preview.failed": "Couldn't load this page",
 	"panel.preview.enterUrl": "Enter URL",
 	"panel.preview.empty": "Start a local development server or enter its URL.",
+	"panel.preview.agent.allow": "Let the agent use this page",
+	"panel.preview.agent.takeOver": "Take over",
+	"panel.preview.agent.driving": "The agent is using this page. You can watch, click along, or take over.",
+	"panel.preview.agent.waiting": "The agent may use this page on its next browser step.",
+	"panel.preview.agent.localOnly": "Only tabs on this computer can use the preview",
+	"panel.preview.agent.failed": "Couldn't let the agent use the preview",
 	"shell.main": "Main area",
 	"shell.backToSession": "Back to session",
 	"destination.agents": "Agents",

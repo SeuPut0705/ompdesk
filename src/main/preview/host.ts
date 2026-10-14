@@ -9,17 +9,45 @@ import {
 	type PreviewState,
 	previewUrl,
 } from "../../shared/preview";
+import { PreviewRelayExtension, relayExtensionUrl } from "./agent-relay";
 import { applyPreviewLayout } from "./layout";
 
-/** No preload, no shell IPC, and a fresh in-memory partition for each window. */
-export function registerPreviewHost(isRemote: (senderId: number) => boolean): void {
-	const hosts = new Map<number, { view: WebContentsView; state: PreviewState }>();
+/** Activity marks reach the panel at most this often while the agent works. */
+const AGENT_ACTIVITY_MS = 250;
+
+interface AgentLink {
+	socket: WebSocket;
+	extension: PreviewRelayExtension;
+}
+
+interface PreviewHost {
+	view: WebContentsView;
+	state: PreviewState;
+	agent: AgentLink | null;
+	publish: (patch?: Partial<PreviewState>) => void;
+}
+
+/**
+ * No preload, no shell IPC, and a fresh in-memory partition for each window.
+ * `isRemote(senderId, tabId?)`: the window's active tab (or `tabId`) runs on a paired host.
+ */
+export function registerPreviewHost(isRemote: (senderId: number, tabId?: string) => boolean): void {
+	const hosts = new Map<number, PreviewHost>();
+	const stopAgent = (host: PreviewHost) => {
+		const link = host.agent;
+		if (!link) return;
+		host.agent = null;
+		link.extension.dispose();
+		link.socket.close();
+		host.publish({ agent: null });
+	};
 	ipcMain.handle(PREVIEW_COMMAND, async (event, request: PreviewRequest) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win || win.webContents !== event.sender) throw new Error("Invalid preview owner");
 		let host = hosts.get(event.sender.id);
 		if (request.action === "dispose") {
 			if (host) {
+				stopAgent(host);
 				win.contentView.removeChildView(host.view);
 				host.view.webContents.close();
 				hosts.delete(event.sender.id);
@@ -43,22 +71,28 @@ export function registerPreviewHost(isRemote: (senderId: number) => boolean): vo
 			});
 			view.setVisible(false);
 			win.contentView.addChildView(view);
-			host = { view, state: { ...EMPTY_PREVIEW } };
-			hosts.set(event.sender.id, host);
-			const current = host;
 			const contents = view.webContents;
-			const publish = (patch: Partial<PreviewState> = {}) => {
-				current.state = {
-					...current.state,
-					url: contents.getURL() || current.state.url,
-					title: contents.getTitle(),
-					loading: contents.isLoading(),
-					canGoBack: contents.navigationHistory.canGoBack(),
-					canGoForward: contents.navigationHistory.canGoForward(),
-					...patch,
-				};
-				if (!event.sender.isDestroyed()) event.sender.send(PREVIEW_STATE, current.state);
+			const created: PreviewHost = {
+				view,
+				state: { ...EMPTY_PREVIEW },
+				agent: null,
+				publish: (patch = {}) => {
+					created.state = {
+						...created.state,
+						url: contents.getURL() || created.state.url,
+						title: contents.getTitle(),
+						loading: contents.isLoading(),
+						canGoBack: contents.navigationHistory.canGoBack(),
+						canGoForward: contents.navigationHistory.canGoForward(),
+						...patch,
+					};
+					if (!event.sender.isDestroyed()) event.sender.send(PREVIEW_STATE, created.state);
+				},
 			};
+			host = created;
+			hosts.set(event.sender.id, created);
+			const publish = created.publish;
+			const pageUpdated = () => created.agent?.extension.pageUpdated();
 			contents.setWindowOpenHandler(({ url }) => {
 				const safe = previewUrl(url);
 				if (safe && !(isRemote(event.sender.id) && isLoopbackUrl(safe))) void shell.openExternal(safe);
@@ -72,9 +106,18 @@ export function registerPreviewHost(isRemote: (senderId: number) => boolean): vo
 			contents.on("will-attach-webview", event => event.preventDefault());
 			contents.on("did-start-loading", () => publish({ error: null }));
 			contents.on("did-stop-loading", () => publish());
-			contents.on("did-navigate", () => publish());
-			contents.on("did-navigate-in-page", () => publish());
-			contents.on("page-title-updated", () => publish());
+			contents.on("did-navigate", () => {
+				publish();
+				pageUpdated();
+			});
+			contents.on("did-navigate-in-page", () => {
+				publish();
+				pageUpdated();
+			});
+			contents.on("page-title-updated", () => {
+				publish();
+				pageUpdated();
+			});
 			contents.on("did-fail-load", (_event, code, description, _url, mainFrame) => {
 				if (mainFrame && code !== -3) publish({ error: description, loading: false });
 			});
@@ -83,10 +126,12 @@ export function registerPreviewHost(isRemote: (senderId: number) => boolean): vo
 				publish({ error: "Preview renderer stopped", loading: false });
 			});
 			win.once("closed", () => {
+				stopAgent(created);
 				if (!contents.isDestroyed()) contents.close();
 				hosts.delete(event.sender.id);
 			});
 			event.sender.once("did-start-navigation", () => {
+				stopAgent(created);
 				if (!contents.isDestroyed()) {
 					win.contentView.removeChildView(view);
 					contents.close();
@@ -95,6 +140,64 @@ export function registerPreviewHost(isRemote: (senderId: number) => boolean): vo
 			});
 		}
 		const { view } = host;
+		if (request.action === "agentStart") {
+			if (isRemote(event.sender.id, request.tabId)) throw new Error("Agent browsing is for tabs on this computer");
+			const target = relayExtensionUrl(request.url, request.token);
+			if (!target) throw new Error("Invalid browser relay endpoint");
+			stopAgent(host);
+			const current = host;
+			const contents = view.webContents;
+			const socket = new WebSocket(target);
+			let lastPublished = 0;
+			let latest = "";
+			let pending: NodeJS.Timeout | undefined;
+			const flushActivity = () => {
+				pending = undefined;
+				lastPublished = Date.now();
+				const agent = current.state.agent;
+				if (current.agent?.socket !== socket || !agent) return;
+				current.publish({
+					agent: { ...agent, attached: current.agent.extension.attached, lastAction: latest || agent.lastAction },
+				});
+			};
+			const extension = new PreviewRelayExtension(
+				{
+					id: contents.id,
+					url: () => contents.getURL(),
+					title: () => contents.getTitle(),
+					userAgent: () => contents.getUserAgent(),
+					debugger: contents.debugger,
+					ensureRenderer: async () => {
+						if (!contents.getURL()) await contents.loadURL("about:blank").catch(() => {});
+					},
+				},
+				message => {
+					if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+				},
+				// "" = the agent let go of the debugger; the mark keeps its last action.
+				method => {
+					if (method) latest = method;
+					if (pending) return;
+					const wait = AGENT_ACTIVITY_MS - (Date.now() - lastPublished);
+					if (wait <= 0) flushActivity();
+					else pending = setTimeout(flushActivity, wait);
+				},
+			);
+			current.agent = { socket, extension };
+			const instanceId = `ompdesk-preview-${randomUUID()}`;
+			socket.addEventListener("open", () => socket.send(JSON.stringify(extension.hello(instanceId))));
+			socket.addEventListener("message", message => extension.handle(String(message.data)));
+			socket.addEventListener("close", () => {
+				clearTimeout(pending);
+				if (current.agent?.socket === socket) stopAgent(current);
+			});
+			current.publish({ agent: { tabId: request.tabId, attached: false, lastAction: "" } });
+			return current.state;
+		}
+		if (request.action === "agentStop") {
+			stopAgent(host);
+			return host.state;
+		}
 		if (request.action === "layout") {
 			const [width, height] = win.getContentSize();
 			applyPreviewLayout(view, request.bounds, request.visible, { width, height });

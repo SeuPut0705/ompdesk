@@ -36,6 +36,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-ai": () => import("@oh-my-pi/pi-ai"),
 	"@oh-my-pi/pi-ai/auth-storage": () => import("@oh-my-pi/pi-ai/auth-storage"),
 	"@oh-my-pi/pi-ai/auth/blocks": () => import("@oh-my-pi/pi-ai/auth/blocks"),
+	"@oh-my-pi/pi-ai/auth/usage-report": () => import("@oh-my-pi/pi-ai/auth/usage-report"),
 	"@oh-my-pi/pi-ai/oauth": () => import("@oh-my-pi/pi-ai/oauth"),
 	"@oh-my-pi/pi-ai/usage/registry": () => import("@oh-my-pi/pi-ai/usage/registry"),
 	"@oh-my-pi/pi-catalog/types": () => import("@oh-my-pi/pi-catalog/types"),
@@ -146,6 +147,10 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/task/discovery": () => import("@oh-my-pi/pi-coding-agent/task/discovery"),
 	"@oh-my-pi/pi-coding-agent/task/agents": () => import("@oh-my-pi/pi-coding-agent/task/agents"),
 	"@oh-my-pi/pi-coding-agent/task/settings": () => import("@oh-my-pi/pi-coding-agent/task/settings"),
+	"@oh-my-pi/pi-coding-agent/tools/browser/attach": () => import("@oh-my-pi/pi-coding-agent/tools/browser/attach"),
+	"@oh-my-pi/pi-coding-agent/tools/browser/relay/server": () =>
+		import("@oh-my-pi/pi-coding-agent/tools/browser/relay/server"),
+	"@oh-my-pi/pi-coding-agent/tools/browser/settings": () => import("@oh-my-pi/pi-coding-agent/tools/browser/settings"),
 	"@oh-my-pi/pi-coding-agent/tools/builtin-names": () => import("@oh-my-pi/pi-coding-agent/tools/builtin-names"),
 	"@oh-my-pi/pi-coding-agent/tools/debug": () => import("@oh-my-pi/pi-coding-agent/tools/debug"),
 	"@oh-my-pi/pi-coding-agent/tools/gh-pr-checkout": () => import("@oh-my-pi/pi-coding-agent/tools/gh-pr-checkout"),

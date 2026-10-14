@@ -177,6 +177,9 @@ export type RpcCommand =
 	// Delegation strength (composer chip): gui-bridge modes/delegation.ts
 	| { id?: string; type: "get_delegation" }
 	| { id?: string; type: "set_delegation"; mode: DelegationMode }
+	// Preview agent browsing: stock's browser relay in the tab's omp (gui-bridge browser-relay.ts)
+	| { id?: string; type: "browser_relay_start" }
+	| { id?: string; type: "browser_relay_stop" }
 	// Side questions (/btw); answers stream as `btw_delta` / `btw_record` frames
 	| { id?: string; type: "btw"; question: string; recordId?: string }
 	| { id?: string; type: "btw_cancel"; recordId?: string }
@@ -1879,6 +1882,8 @@ export interface UsageReport {
 	fetchedAt: number;
 	limits: UsageLimit[];
 	notes?: string[];
+	/** When every exhausted window of this account has reset, epoch ms (stock `usageResetAtMs`); absent while it is not limited. */
+	resetAt?: number;
 	account?: string;
 	/** Stored credential the report belongs to, when its identity names one. */
 	credentialId?: number;

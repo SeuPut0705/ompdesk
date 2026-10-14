@@ -55,6 +55,7 @@ export const FEATURES = {
 	worktreeLifecycle: "Per-session worktrees (worktree.onStart / onExit)",
 	resetPasses: "Saved rate-limit resets (reset passes)",
 	streamMetadata: "Stock read grouping and live token rate",
+	agentBrowser: "Agent browsing in the Preview panel (stock browser relay)",
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -91,6 +92,24 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			],
 			"@oh-my-pi/pi-tui/tools/url-scheme-host": ["splitUrlScheme()"],
 			"@oh-my-pi/pi-tui/tools/read": ["splitPathAndSel()"],
+		},
+	},
+	/**
+	 * browser-relay.ts: stock's `omp browser-relay` server inside the session, with
+	 * `browser.relay`/`browser.relayUrl` held as runtime overrides (handles via `lookup`).
+	 */
+	agentBrowser: {
+		session: ["settings"],
+		modules: {
+			[`${AGENT}/config/registry`]: ["lookup()"],
+			[`${AGENT}/tools/browser/attach`]: ["findFreeCdpPort()"],
+			[`${AGENT}/tools/browser/relay/server`]: ["startRelayServer()"],
+			[`${AGENT}/tools/browser/settings`]: [
+				"cfgBrowserRelay.override()",
+				"cfgBrowserRelay.clearOverride()",
+				"cfgBrowserRelayUrl.override()",
+				"cfgBrowserRelayUrl.clearOverride()",
+			],
 		},
 	},
 	composer: {
@@ -642,6 +661,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		],
 		modules: {
 			"@oh-my-pi/pi-ai": ["resolveUsedFraction()"],
+			"@oh-my-pi/pi-ai/auth/usage-report": ["usageResetAtMs()"],
 			"@oh-my-pi/pi-ai/oauth": ["getOAuthCredentialProvider()"],
 			[`${AGENT}/slash-commands/helpers/active-oauth-account`]: [
 				"reportMatchesActiveAccount()",

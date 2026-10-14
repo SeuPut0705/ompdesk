@@ -950,9 +950,44 @@ if (process.argv[2] === "stats") {
 	const imageBlobs = new Map<string, string>();
 	/** The delegation strength the GUI holds on this tab (gui-bridge modes/delegation.ts); spawn env first. */
 	let delegationMode = process.env.OMP_GUI_DELEGATION ?? "default";
+	/** Stock's relay server while a spec lets the agent into the preview (browser.relay_start). */
+	let relayServer: { server: { stop(): void }; url: string; token: string } | null = null;
 	/** A handler returning `undefined` replies itself (deferred, or ahead of the events it pushes). */
 	const bridgeMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
 		capabilities: () => ({ ompVersion: "18.8.7", unavailable: [] }),
+		// gui-bridge browser-relay.ts: stock's own relay server, loaded from the installed omp
+		// only when a spec names it (OMP_E2E_STOCK_RELAY = stock's tools/browser/relay/server.ts).
+		// The endpoint lands in OMP_E2E_RELAY_FILE so the spec can connect puppeteer to it.
+		"browser.relay_start": (_params, reply) => {
+			void (async () => {
+				const modulePath = process.env.OMP_E2E_STOCK_RELAY;
+				if (!modulePath) throw new Error("OMP_E2E_STOCK_RELAY is not set");
+				if (!relayServer) {
+					const { startRelayServer } = await import(modulePath);
+					const probe = net.createServer();
+					const listening = Promise.withResolvers<void>();
+					probe.listen(0, "127.0.0.1", () => listening.resolve());
+					await listening.promise;
+					const address = probe.address();
+					const port = typeof address === "object" && address ? address.port : 0;
+					probe.close();
+					const token = createHash("sha256").update(String(Math.random())).digest("base64url");
+					relayServer = {
+						server: startRelayServer({ port, token, group: false }),
+						url: `http://127.0.0.1:${port}`,
+						token,
+					};
+					if (process.env.OMP_E2E_RELAY_FILE)
+						fs.writeFileSync(process.env.OMP_E2E_RELAY_FILE, JSON.stringify({ url: relayServer.url }));
+				}
+				reply({ url: relayServer.url, token: relayServer.token });
+			})();
+		},
+		"browser.relay_stop": () => {
+			relayServer?.server.stop();
+			relayServer = null;
+			return {};
+		},
 		read_image_blob: params => {
 			const hash = /^blob:sha256:([a-f0-9]{64})$/.exec(String(params.ref))?.[1];
 			if (!hash) throw new Error("Invalid image blob reference");

@@ -3454,6 +3454,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.worktreeLifecycle": "세션별 워크트리",
 	"bridgeHealth.feature.resetPasses": "초기화권",
 	"bridgeHealth.feature.streamMetadata": "읽기 묶음과 토큰 속도",
+	"bridgeHealth.feature.agentBrowser": "미리보기에서 에이전트 브라우징",
 	"bridgeHealth.feature.visuals": "다이어그램 지침(Mermaid, SVG)",
 
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
@@ -3655,6 +3656,12 @@ export const ko: Record<string, string> = {
 	"panel.preview.failed": "페이지를 불러오지 못했어요",
 	"panel.preview.enterUrl": "URL 입력하기",
 	"panel.preview.empty": "로컬 개발 서버를 실행하거나 URL을 입력해요.",
+	"panel.preview.agent.allow": "에이전트가 이 페이지를 쓰게 하기",
+	"panel.preview.agent.takeOver": "직접 조작하기",
+	"panel.preview.agent.driving": "에이전트가 이 페이지를 쓰고 있어요. 지켜보거나 함께 클릭하거나 직접 조작할 수 있어요.",
+	"panel.preview.agent.waiting": "에이전트가 다음 브라우저 단계에서 이 페이지를 쓸 수 있어요.",
+	"panel.preview.agent.localOnly": "이 컴퓨터의 탭만 미리보기를 쓸 수 있어요",
+	"panel.preview.agent.failed": "에이전트가 미리보기를 쓰게 하지 못했어요",
 	"shell.main": "본문",
 	"shell.backToSession": "세션으로 돌아가기",
 	"destination.agents": "에이전트",
