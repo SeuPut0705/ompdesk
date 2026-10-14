@@ -557,6 +557,46 @@ export async function readWorkspaceBinary(
 	}
 }
 
+export type WorkspaceMediaResult =
+	| { ok: true; abs: string; mime: string; size: number }
+	| { ok: false; error: string; code?: IpcErrorCode };
+
+/**
+ * The file an audio/video stream serves: resolved like `readWorkspaceBinary`
+ * (relative paths confined to `cwd`, absolute and `~/` paths as the viewer
+ * reads them), a regular file, and sniffed as audio or video — a stream never
+ * hands out any other kind of file.
+ */
+export async function resolveWorkspaceMedia(cwd: string | null, target: unknown): Promise<WorkspaceMediaResult> {
+	if (typeof target !== "string" || target.length === 0)
+		return { ok: false, error: "Invalid path", code: "invalid_path" };
+	const resolved = resolveReadPath(cwd, target);
+	if ("error" in resolved) return { ok: false, error: resolved.error, code: resolved.code };
+	try {
+		const stat = await fsp.stat(resolved.abs);
+		if (!stat.isFile()) return { ok: false, error: "Not a file", code: "not_a_file" };
+		const handle = await fsp.open(resolved.abs, "r");
+		let mime: string;
+		try {
+			const header = new Uint8Array(Math.min(stat.size, SNIFF_HEADER_BYTES));
+			const read = await readInto(handle, header);
+			mime = sniffMime(header.subarray(0, read), resolved.abs);
+		} finally {
+			await handle.close();
+		}
+		if (!/^(?:audio|video)\//.test(mime))
+			return { ok: false, error: `Not audio or video (${mime})`, code: "unsupported" };
+		return { ok: true, abs: resolved.abs, mime, size: stat.size };
+	} catch (err) {
+		const missing = err instanceof Error && "code" in err && err.code === "ENOENT";
+		return {
+			ok: false,
+			error: err instanceof Error ? err.message : String(err),
+			...(missing ? { code: "file_not_found" as const } : {}),
+		};
+	}
+}
+
 /**
  * Markdown-image read: model output references images by path (`![alt](…)`)
  * and the renderer turns them into data URLs for <img>. Relative paths stay

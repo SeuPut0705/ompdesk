@@ -1,11 +1,14 @@
 /**
- * Audio and video the agent made play in the chat. The fake omp copies a tiny
- * WebM clip and an MP3 into the project, reads the clip back (stock read's
- * `details.mediaPath`), speaks the MP3 with tts ("Saved … to out/tone.mp3"),
- * and its reply links the clip, quotes the MP3 and names a file that is gone.
- * The work outcome row and the reply each show players whose metadata loads
- * through the Files viewer's read, nothing autoplays, and the missing file is
- * a chip. Captures: light/dark × en/ko, a narrow window, a 2×2 split.
+ * Media and documents the agent made show in the chat. The fake omp writes a
+ * tiny WebM clip, an MP3, a 40 MB MP4, a PNG, an SVG, a PDF and a page into the
+ * project, reads the clip and the PNG back (stock read's `details.mediaPath`),
+ * speaks the MP3 with tts ("Saved … to out/tone.mp3"), and its reply names them
+ * all plus a file that is gone; a finished subagent made media of its own.
+ * Players stream from main's `omp-media://` (metadata loads, the 40 MB file
+ * seeks, nothing autoplays), the picture a tool already showed is not drawn
+ * twice, the PDF shows its first page, the page previews only on request in an
+ * empty sandbox, the missing file is a chip, and the subagent transcript sheet
+ * shows the same. Captures: light/dark × en/ko, a narrow window, a 2×2 split.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -79,7 +82,7 @@ function playerState(player: Locator): Promise<PlayerState> {
 	});
 }
 
-/** Metadata loads (duration known) through a blob URL, and the player sits paused at the start. */
+/** Metadata loads (duration known) through main's stream, and the player sits paused at the start. */
 async function expectLoadedAndIdle(player: Locator, kind: "video" | "audio"): Promise<PlayerState> {
 	await expect
 		.poll(async () => {
@@ -88,7 +91,7 @@ async function expectLoadedAndIdle(player: Locator, kind: "video" | "audio"): Pr
 		})
 		.toBe(true);
 	const state = await playerState(player);
-	expect(state.src).toMatch(/^blob:/);
+	expect(state.src).toMatch(/^omp-media:\/\/stream\//);
 	expect(state).toMatchObject({ paused: true, autoplay: false, loop: false, currentTime: 0 });
 	if (kind === "video") expect(state.muted).toBe(true);
 	return state;
@@ -127,31 +130,77 @@ for (const language of ["en", "ko"] as const)
 				await input.fill("fixture media");
 				await input.press("Enter");
 
-				// The reply: the linked clip and the quoted narration play; the gone draft is a chip.
+				// The reply: the linked clip, the quoted narration and the long take play; the gone draft is a chip.
 				const reply = page.locator(".omp-chat-media-list").last();
 				await expect(reply).toBeVisible({ timeout: 30_000 });
-				const replyVideo = reply.locator("[data-chat-media='video'] video");
-				const replyAudio = reply.locator("[data-chat-media='audio'] audio");
+				const playerNamed = (name: string) => reply.locator(".omp-chat-media").filter({ hasText: name });
+				const replyVideo = playerNamed("clip.webm").locator("video");
 				await expectLoadedAndIdle(replyVideo, "video");
-				await expectLoadedAndIdle(replyAudio, "audio");
+				await expectLoadedAndIdle(playerNamed("tone.mp3").locator("audio"), "audio");
 				const gone = reply.locator("[data-chat-media-unavailable='video']");
 				await expect(gone).toContainText("draft.mp4");
 				await expect(gone.locator("video")).toHaveCount(0);
+				// 40 MB: over any IPC cap, it streams with range requests and seeks.
+				const long = playerNamed("long.mp4").locator("video");
+				await long.scrollIntoViewIfNeeded();
+				await expectLoadedAndIdle(long, "video");
+				await long.evaluate(element => {
+					(element as HTMLVideoElement).currentTime = 1;
+				});
+				await expect
+					.poll(() =>
+						long.evaluate(element => {
+							const video = element as HTMLVideoElement;
+							return !video.seeking && video.currentTime >= 0.9 && video.paused;
+						}),
+					)
+					.toBe(true);
+				expect((await fs.stat(path.join(project, "out", "long.mp4"))).size).toBeGreaterThan(40 * 1024 * 1024);
 
-				// The work outcome row plays the same two files beside its pictures.
+				// Pictures: the chart draws; the frame the read already showed is not drawn again.
+				const chart = reply.locator("[data-chat-file='image']");
+				await expect(chart).toHaveCount(1);
+				await expect(chart).toContainText("chart.svg");
+				await expect
+					.poll(() => chart.locator("img").evaluate(image => (image as HTMLImageElement).naturalWidth))
+					.toBeGreaterThan(0);
+				// The PDF's first page.
+				const pdf = reply.locator("[data-chat-file='pdf']");
+				await pdf.scrollIntoViewIfNeeded();
+				await expect(pdf).toHaveAttribute("data-state", "ready");
+				expect(await pdf.locator("canvas").evaluate(canvas => (canvas as HTMLCanvasElement).width)).toBeGreaterThan(
+					0,
+				);
+				// The page previews only on request, in an empty sandbox whose script never runs.
+				const page_ = reply.locator("[data-chat-file='html']");
+				await expect(page_.locator("iframe")).toHaveCount(0);
+				await page_.getByRole("button", { name: language === "en" ? "Preview" : "미리보기" }).click();
+				const frame = page_.locator("iframe");
+				await expect(frame).toHaveAttribute("sandbox", "");
+				await expect(page_.frameLocator("iframe").locator("h1")).toHaveText("Fixture page");
+				await expect(page_.frameLocator("iframe").locator("body")).not.toHaveAttribute("data-ran", "yes");
+				await page_.scrollIntoViewIfNeeded();
+				await capture(page, `${language}-${theme}-documents`);
+
+				// The work outcome row plays the clip and the narration beside the frame it read.
 				const row = page.locator(".omp-work-images").last();
+				// Players load only near the viewport; the row sits above the long reply.
+				await row.scrollIntoViewIfNeeded();
 				await expect(row.locator(".omp-chat-media")).toHaveCount(2);
+				await expect(row.locator(".omp-work-image img")).toHaveCount(1);
 				await expectLoadedAndIdle(row.locator("video"), "video");
 				await expectLoadedAndIdle(row.locator("audio"), "audio");
-				// Every player in the window is still idle: nothing started on its own.
+				// Every player in the window is idle: nothing started on its own.
 				const players = page.locator(".omp-chat-media video, .omp-chat-media audio");
 				for (const player of await players.all()) expect((await playerState(player)).paused).toBe(true);
 
+				await row.scrollIntoViewIfNeeded();
 				await capture(page, `${language}-${theme}`);
+				await reply.scrollIntoViewIfNeeded();
+				await capture(page, `${language}-${theme}-reply`);
 
-				// Open in Files: the Files viewer plays the file through its own reader.
-				await reply
-					.locator("[data-chat-media='video']")
+				// Open in Files: the Files viewer streams the same file.
+				await playerNamed("clip.webm")
 					.getByRole("button", { name: language === "en" ? "Open in Files" : "파일 패널에서 열기" })
 					.click();
 				const viewer = page.locator("[data-viewer='video'] video");
@@ -159,6 +208,7 @@ for (const language of ["en", "ko"] as const)
 				await expect
 					.poll(() => viewer.evaluate(element => (element as HTMLVideoElement).readyState))
 					.toBeGreaterThanOrEqual(1);
+				expect(await viewer.evaluate(element => (element as HTMLVideoElement).currentSrc)).toMatch(/^omp-media:/);
 				await capture(page, `${language}-${theme}-files-viewer`);
 
 				if (language === "en" && theme === "dark") {
@@ -192,7 +242,24 @@ for (const language of ["en", "ko"] as const)
 					if (!paneBox || !videoBox) throw new Error("Missing split geometry");
 					expect(videoBox.x + videoBox.width).toBeLessThanOrEqual(paneBox.x + paneBox.width + 1);
 					await capture(page, "split-2x2-en-dark");
+					// The agents hub follows the focused pane: focus the one that ran the work again.
+					await pane.locator("textarea").click();
+					await expect(pane).toHaveAttribute("data-active", "true");
 				}
+				// The subagent transcript sheet: its read's contact sheet, the clip it read, and the
+				// files its reply names.
+				await page.locator('[data-destination="agents"]').click();
+				await page
+					.getByRole("button", { name: language === "en" ? "View messages" : "메시지 보기" })
+					.first()
+					.click();
+				const sheet = page.locator(".omp-subagent-media");
+				await expect(sheet.locator("img").first()).toBeVisible();
+				await expectLoadedAndIdle(sheet.locator("[data-chat-media='video'] video").first(), "video");
+				await expectLoadedAndIdle(sheet.locator("[data-chat-media='audio'] audio").first(), "audio");
+				await expect(sheet.locator("[data-chat-file='image']")).toContainText("chart.svg");
+				await capture(page, `${language}-${theme}-subagent-sheet`);
+
 				// The project still holds what the agent wrote; the player read it, never moved it.
 				await expect(fs.stat(path.join(project, "out", "clip.webm"))).resolves.toBeTruthy();
 				expect(errors).toEqual([]);

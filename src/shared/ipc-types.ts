@@ -186,6 +186,10 @@ export const IPC_COMMANDS = {
 	FS_READ_IMAGE: "fs:read-image",
 	/** Read a file's bytes for the file viewer (sniffed mime, local/remote size caps) */
 	FS_READ_BINARY: "fs:read-binary",
+	/** An `omp-media://` stream URL for an audio/video file (range requests; this device's tabs only) */
+	FS_MEDIA_STREAM: "fs:media-stream",
+	/** Forget a stream URL the renderer no longer plays (send, no reply) */
+	FS_MEDIA_RELEASE: "fs:media-release",
 	/** Open a session (or a fresh window) in a new parallel window with its own sidecar */
 	SESSION_OPEN_NEW_WINDOW: "session:open-new-window",
 	/** Fresh window pulls the session it was opened for (one-shot) */
@@ -816,6 +820,22 @@ export interface IpcFsReadBinaryResult {
 	code?: IpcErrorCode;
 }
 
+export interface IpcFsMediaStreamPayload {
+	/** Visible tab whose workspace resolves relative paths. */
+	tabId?: string;
+	/** Workspace-relative path, or an absolute/~/ path; resolved like `fs.readBinary`. */
+	path: string;
+}
+
+/**
+ * `url` streams the file with range requests until released. Fails `unsupported`
+ * for anything that does not sniff as audio/video, and `remote_path_native` for
+ * a paired host's tab, whose file the renderer reads with `readBinary` instead.
+ */
+export type IpcFsMediaStreamResult =
+	| { ok: true; url: string; mime: string; size: number }
+	| { ok: false; error: string; code?: IpcErrorCode };
+
 export interface IpcFsReadPlanResult {
 	ok: boolean;
 	/** The file actually read (fsPath or the fallback pick); null when no plan file exists. */
@@ -1382,6 +1402,9 @@ export interface OmpApi {
 		readImage(path: string, tabId?: string): Promise<IpcFsReadImageResult>;
 		/** File bytes for the viewer: 100 MB cap on this device, 11 MB for a paired host's tab. */
 		readBinary(path: string, maxBytes?: number, tabId?: string): Promise<IpcFsReadBinaryResult>;
+		/** A seekable `omp-media://` URL for a local tab's audio/video file; release it when done. */
+		mediaStream(path: string, tabId?: string): Promise<IpcFsMediaStreamResult>;
+		releaseMediaStream(url: string): void;
 	};
 	editor: {
 		openExternal(content: string): Promise<{

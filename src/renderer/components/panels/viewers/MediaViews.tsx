@@ -1,7 +1,8 @@
 /**
  * Images through `fs.readImage` (sniffed data URL) shown with ZoomableImage;
- * audio and video through `fs.readBinary` as a blob URL (CSP `media-src
- * blob:`), revoked when the view unmounts or the file changes.
+ * audio and video through the shared media source (media-source.ts): a
+ * seekable `omp-media://` stream for this device's tabs, a blob from
+ * `fs.readBinary` for a paired host's.
  */
 import { useEffect, useState } from "react";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
@@ -9,7 +10,7 @@ import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
 import { basename } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { ZoomableImage } from "../../common";
-import { useBinaryFile } from "./use-file-read";
+import { useMediaSource } from "./media-source";
 import { useReportFileInfo, ViewerFailure, ViewerLoading, ViewerTooLarge } from "./viewer-chrome";
 
 interface MediaViewProps {
@@ -79,32 +80,23 @@ export function ImageView({ path, tabId }: MediaViewProps) {
 }
 
 export function AvView({ path, tabId, kind }: MediaViewProps & { kind: "audio" | "video" }) {
-	const state = useBinaryFile(path, tabId);
-	const [url, setUrl] = useState<string | null>(null);
-	useEffect(() => {
-		if (state.status !== "ready") return;
-		// IPC structured clone always backs the bytes with a plain ArrayBuffer, never a shared one.
-		const bytes = state.data as Uint8Array<ArrayBuffer>;
-		const next = URL.createObjectURL(new Blob([bytes], { type: state.mime || `${kind}/*` }));
-		setUrl(next);
-		return () => {
-			URL.revokeObjectURL(next);
-			setUrl(null);
-		};
-	}, [state, kind]);
+	const t = useT();
+	const state = useMediaSource(path, tabId, kind);
 	useReportFileInfo(
 		state.status === "ready" || state.status === "tooLarge" ? state.size : null,
 		state.status === "ready" || state.status === "tooLarge" ? state.mime : undefined,
 	);
-	if (state.status === "loading") return <ViewerLoading />;
-	if (state.status === "error") return <ViewerFailure failure={state.failure} />;
+	if (state.status === "loading" || state.status === "idle") return <ViewerLoading />;
+	if (state.status === "unavailable") {
+		return <ViewerFailure failure={inlineFailure(state.error, t("filesPanel.readFailed"))} />;
+	}
 	if (state.status === "tooLarge") return <ViewerTooLarge path={path} size={state.size} />;
 	return (
 		<div className="flex h-full items-start justify-center overflow-auto p-3" data-viewer={kind}>
 			{kind === "audio" ? (
-				<audio className="w-full" controls src={url ?? undefined} />
+				<audio className="w-full" controls src={state.url} />
 			) : (
-				<video className="max-h-full max-w-full" controls src={url ?? undefined} />
+				<video className="max-h-full max-w-full" controls src={state.url} />
 			)}
 		</div>
 	);

@@ -9,11 +9,11 @@
  */
 import { resultDetails, resultText } from "../../lib/format";
 import { asRecord } from "../../lib/wire-value";
-import { fileExtension, viewerKind } from "../panels/viewers/file-kind";
+import { viewerKind } from "../panels/viewers/file-kind";
 
 export type ChatMediaKind = "video" | "audio";
-/** Files the chat names with a chip that opens the Files viewer (no inline preview). */
-export type ChatFileKind = "pdf" | "html" | "svg";
+/** Files the chat previews without playing: a picture's thumbnail, a PDF's first page, a page in a sandbox. */
+export type ChatFileKind = "image" | "pdf" | "html";
 export type ChatReferenceKind = ChatMediaKind | ChatFileKind;
 
 export interface ChatFileReference {
@@ -27,12 +27,10 @@ export function chatMediaKind(path: string): ChatMediaKind | null {
 	return kind === "video" || kind === "audio" ? kind : null;
 }
 
+/** Media, pictures (SVG included), PDFs and pages by the Files viewer's extension table. */
 export function chatReferenceKind(path: string): ChatReferenceKind | null {
-	const media = chatMediaKind(path);
-	if (media) return media;
 	const kind = viewerKind(path);
-	if (kind === "pdf" || kind === "html") return kind;
-	return fileExtension(path) === "svg" ? "svg" : null;
+	return kind === "video" || kind === "audio" || kind === "image" || kind === "pdf" || kind === "html" ? kind : null;
 }
 
 /** `file:///a/b%20c.mp4` → `/a/b c.mp4` (malformed escapes stay as written). */

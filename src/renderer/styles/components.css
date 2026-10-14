@@ -2223,6 +2223,83 @@ button.omp-file-chip-name:hover {
 	aspect-ratio: 16 / 10;
 }
 
+/* A picture or a PDF's first page the reply names: a thumbnail like the outcome row's. */
+.omp-chat-thumb {
+	display: inline-grid;
+	vertical-align: top;
+}
+
+.omp-chat-thumb-slot,
+.omp-chat-thumb-page {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	aspect-ratio: 16 / 10;
+	overflow: hidden;
+	border: 1px solid var(--sc-divider);
+	border-radius: var(--sc-radius-md);
+}
+
+.omp-chat-thumb-page:has(> canvas:not([hidden])) {
+	align-items: start;
+	aspect-ratio: auto;
+	max-height: 15rem;
+}
+
+.omp-chat-thumb-page canvas {
+	display: block;
+	width: 100%;
+	height: auto;
+}
+
+.omp-chat-thumb-page:focus-visible {
+	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
+	outline-offset: -2px;
+}
+
+.omp-chat-thumb-caption {
+	overflow: hidden;
+	color: var(--sc-text-subtle);
+	font-size: var(--sc-font-2xs);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.omp-chat-thumb:has(> [data-image-unavailable]) .omp-chat-thumb-caption {
+	display: none;
+}
+
+/* A page the reply names: its name and a Preview toggle; open, an empty-sandbox frame above them. */
+.omp-chat-html {
+	display: inline-grid;
+	gap: var(--sc-space-1);
+	width: min(32rem, 100%);
+	min-width: 0;
+	vertical-align: top;
+}
+
+.omp-chat-html-frame {
+	display: block;
+	width: 100%;
+	height: 18rem;
+	border: 1px solid var(--sc-divider);
+	border-radius: var(--sc-radius-md);
+}
+
+/* Pictures, players and named files under a message in the subagent transcript sheet. */
+.omp-subagent-media {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: start;
+	gap: var(--sc-space-2);
+	margin-top: var(--sc-space-1-5);
+}
+
+.omp-subagent-media > .omp-chat-media-list {
+	margin-top: 0;
+}
+
 .omp-work-outcome-more {
 	margin: var(--sc-space-1) 0 0 calc(var(--sc-icon-sm) + var(--sc-space-2));
 	color: var(--sc-accent);

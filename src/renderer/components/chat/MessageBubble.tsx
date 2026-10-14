@@ -18,8 +18,8 @@ import { Badge, Button, IconButton } from "../common";
 import { referencedFiles } from "../tools/chat-media";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { ToolImage } from "../tools/ToolImage";
-import { ReferencedFiles } from "../tools/ToolMedia";
 import { CustomMessageCard, isCustomMessageCardType } from "./CustomMessageCard";
+import { ReplyFiles } from "./ReplyFiles";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { TodoReminderNote } from "./TodoReminderNote";
 import { TurnErrorNotice } from "./TurnErrorNotice";
@@ -532,7 +532,7 @@ export const MessageBubble = memo(function MessageBubble({
 					</div>
 				)}
 				{blocks}
-				<ReferencedFiles references={references} />
+				<ReplyFiles references={references} />
 				{failure && <TurnErrorNotice errorMessage={message.errorMessage} stopReason={message.stopReason} />}
 				<UsageRow message={message} />
 			</div>

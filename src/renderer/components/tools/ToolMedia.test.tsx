@@ -1,23 +1,32 @@
 /**
- * The chat's audio/video player and file chips: bytes come only through the
- * Files viewer's `fs.readBinary` for the tab (a paired host's tab reads on the
- * host), only once the player nears the viewport and under the size cap;
- * missing, refused, oversized and undecodable files show their chip; the
- * player never autoplays or loops and starts muted.
+ * The chat's players, thumbnails and previews. A local tab's audio/video plays
+ * from main's `omp-media://` stream (any size, seekable); a paired host's tab
+ * reads its bytes through `fs.readBinary` under the host's cap. Everything
+ * reads only once it nears the viewport, for the tab it belongs to; missing,
+ * refused, oversized and undecodable files show their chip; a player never
+ * autoplays or loops and starts muted; a page previews only on request, in an
+ * empty sandbox; a picture a tool already showed is not drawn twice.
  */
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { IpcFsReadBinaryResult } from "../../../shared/ipc-types";
+import type {
+	IpcFsMediaStreamResult,
+	IpcFsReadBinaryResult,
+	IpcFsReadImageResult,
+	IpcFsReadResult,
+} from "../../../shared/ipc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { MarkdownRenderer, preloadMarkdownPipeline } from "../../lib/markdown";
-import { CHAT_MEDIA_MAX_BYTES } from "../../lib/preview";
+import { useSessionStore } from "../../stores/session";
 import { SessionRuntimeProvider } from "../../stores/session-runtime-context";
+import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { MessageBubble } from "../chat/MessageBubble";
-import { ChatMedia, ToolResultMedia } from "./ToolMedia";
+import { ReplyFiles } from "../chat/ReplyFiles";
+import { ChatMedia, HtmlPreview, PdfThumb, ToolResultMedia } from "./ToolMedia";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -30,15 +39,31 @@ Object.assign(globalThis as Record<string, unknown>, {
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
 
+type MediaStream = (path: string, tabId?: string) => Promise<IpcFsMediaStreamResult>;
 type ReadBinary = (path: string, maxBytes?: number, tabId?: string) => Promise<IpcFsReadBinaryResult>;
+type ReadImage = (path: string, tabId?: string) => Promise<IpcFsReadImageResult>;
+type ReadText = (path: string, maxBytes?: number, tabId?: string) => Promise<IpcFsReadResult>;
 
-const WEBM = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, ...new Array(600).fill(0)]);
-
-function ok(data: Uint8Array, size: number, mime: string, truncated = false): IpcFsReadBinaryResult {
-	return { ok: true, data, mime, size, truncated };
+interface FsMock {
+	mediaStream: Mock<MediaStream>;
+	releaseMediaStream: Mock<(url: string) => void>;
+	readBinary: Mock<ReadBinary>;
+	readImage: Mock<ReadImage>;
+	read: Mock<ReadText>;
 }
 
-function failed(code: string, size = 0, mime = "application/octet-stream"): IpcFsReadBinaryResult {
+const PNG = "data:image/png;base64,iVBORw0KGgo=";
+
+function streams(files: Record<string, { mime: string; size: number }>) {
+	return vi.fn<MediaStream>(async path => {
+		const file = files[path];
+		if (path.startsWith("../")) return { ok: false, error: "escape", code: "path_escapes_workspace" };
+		if (!file) return { ok: false, error: "missing", code: "file_not_found" };
+		return { ok: true, url: `omp-media://stream/${encodeURIComponent(path)}`, ...file };
+	});
+}
+
+function binaryFailure(code: string, size = 0, mime = "application/octet-stream"): IpcFsReadBinaryResult {
 	return {
 		ok: false,
 		data: new Uint8Array(0),
@@ -50,27 +75,36 @@ function failed(code: string, size = 0, mime = "application/octet-stream"): IpcF
 	} as IpcFsReadBinaryResult;
 }
 
-/** A file system holding `files`; a prefix read of a bigger file comes back truncated, as main does. */
-function fakeFs(files: Record<string, { bytes: Uint8Array; mime: string } | IpcFsReadBinaryResult>) {
-	return vi.fn<ReadBinary>(async (path, maxBytes) => {
-		const file = files[path];
-		if (!file) return failed("file_not_found");
-		if ("ok" in file) return file;
-		const take = maxBytes === undefined ? file.bytes.length : Math.min(maxBytes, file.bytes.length);
-		return ok(file.bytes.slice(0, take), file.bytes.length, file.mime, take < file.bytes.length);
-	});
-}
-
-let readBinary: Mock<ReadBinary>;
+let fs: FsMock;
 let container: HTMLElement;
 let root: Root;
 
-function install(read: Mock<ReadBinary>) {
-	readBinary = read;
+function install(overrides: Partial<FsMock> = {}): FsMock {
+	fs = {
+		mediaStream: streams({}),
+		releaseMediaStream: vi.fn(),
+		readBinary: vi.fn<ReadBinary>(async () => binaryFailure("file_not_found")),
+		readImage: vi.fn<ReadImage>(async () => ({ ok: true, dataUrl: PNG, mime: "image/png", size: 8 })),
+		read: vi.fn<ReadText>(
+			async () =>
+				({
+					ok: true,
+					content: "<h1>Page</h1><script>alert(1)</script>",
+					truncated: false,
+					size: 40,
+				}) as IpcFsReadResult,
+		),
+		...overrides,
+	};
 	(window as unknown as Record<string, unknown>).omp = {
-		fs: { readBinary: read },
+		fs,
 		system: { openPath: vi.fn(async () => ({ ok: true })) },
 	};
+	return fs;
+}
+
+async function settle(): Promise<void> {
+	for (let i = 0; i < 6; i += 1) await act(async () => {});
 }
 
 async function mount(element: ReactElement): Promise<void> {
@@ -80,8 +114,13 @@ async function mount(element: ReactElement): Promise<void> {
 	await act(async () => {
 		root.render(<I18nProvider>{element}</I18nProvider>);
 	});
-	// Two reads (probe, then the whole file) settle over a few microtasks.
-	for (let i = 0; i < 4; i += 1) await act(async () => {});
+	await settle();
+}
+
+async function unmount(): Promise<void> {
+	await act(async () => root.unmount());
+	container.remove();
+	await settle();
 }
 
 beforeEach(() => {
@@ -93,113 +132,118 @@ afterEach(async () => {
 	await act(async () => root?.unmount());
 	container?.remove();
 	useUiStore.setState({ filePreviewPath: null });
+	useToolsStore.getState().reset();
+	useSessionStore.setState({ cwd: "" });
 	vi.restoreAllMocks();
 	Reflect.deleteProperty(globalThis, "IntersectionObserver");
 });
 
 describe("chat media player", () => {
-	it("plays a local video through readBinary: controls, first frame, muted, no autoplay or loop", async () => {
-		install(fakeFs({ "out/demo.webm": { bytes: WEBM, mime: "video/webm" } }));
+	it("streams a local video from main: controls, first frame, muted, no autoplay or loop, no bytes in the renderer", async () => {
+		install({ mediaStream: streams({ "out/demo.webm": { mime: "video/webm", size: 600 } }) });
 		await mount(<ChatMedia kind="video" path="out/demo.webm" />);
 		const video = container.querySelector("video") as unknown as HTMLVideoElement | null;
-		expect(video).not.toBeNull();
-		expect(video?.getAttribute("src")).toMatch(/^blob:/);
+		expect(video?.getAttribute("src")).toBe("omp-media://stream/out%2Fdemo.webm");
 		expect(video?.hasAttribute("controls")).toBe(true);
 		expect(video?.getAttribute("preload")).toBe("metadata");
 		expect(video?.muted).toBe(true);
 		expect(video?.hasAttribute("autoplay")).toBe(false);
 		expect(video?.hasAttribute("loop")).toBe(false);
-		// The probe asks for a prefix; the whole file follows once it fits the cap.
-		expect(readBinary.mock.calls.map(call => call[1])).toEqual([512, undefined]);
+		expect(fs.readBinary).not.toHaveBeenCalled();
+		expect(URL.createObjectURL).not.toHaveBeenCalled();
 		expect(container.querySelector(".omp-chat-media-name")?.textContent).toBe("demo.webm");
 	});
 
+	it("plays a file of any size on this device: the stream has no cap", async () => {
+		install({ mediaStream: streams({ "long.mp4": { mime: "video/mp4", size: 4 * 1024 ** 3 } }) });
+		await mount(<ChatMedia kind="video" path="long.mp4" />);
+		expect(container.querySelector("video")).not.toBeNull();
+		expect(container.querySelector("[data-chat-media-too-large]")).toBeNull();
+	});
+
 	it("plays audio with native controls and no autoplay", async () => {
-		install(fakeFs({ "tone.mp3": { bytes: new Uint8Array([0x49, 0x44, 0x33, 4, 0]), mime: "audio/mpeg" } }));
+		install({ mediaStream: streams({ "tone.mp3": { mime: "audio/mpeg", size: 5 } }) });
 		await mount(<ChatMedia kind="audio" path="tone.mp3" />);
 		const audio = container.querySelector("audio");
 		expect(audio?.hasAttribute("controls")).toBe(true);
 		expect(audio?.hasAttribute("autoplay")).toBe(false);
-		// A file inside the probe came back whole: one read.
-		expect(readBinary).toHaveBeenCalledTimes(1);
 	});
 
-	it("waits for the viewport before reading anything", async () => {
-		const observers: { callback: IntersectionObserverCallback; observed: unknown[] }[] = [];
+	it("waits for the viewport before asking for anything", async () => {
+		const observers: { callback: IntersectionObserverCallback }[] = [];
 		class FakeObserver {
-			observed: unknown[] = [];
 			constructor(public callback: IntersectionObserverCallback) {
 				observers.push(this);
 			}
-			observe(element: unknown) {
-				this.observed.push(element);
-			}
+			observe() {}
 			disconnect() {}
 		}
 		(globalThis as Record<string, unknown>).IntersectionObserver = FakeObserver;
-		install(fakeFs({ "out/demo.webm": { bytes: WEBM, mime: "video/webm" } }));
+		install({ mediaStream: streams({ "out/demo.webm": { mime: "video/webm", size: 600 } }) });
 		await mount(<ChatMedia kind="video" path="out/demo.webm" />);
-		expect(readBinary).not.toHaveBeenCalled();
-		expect(container.querySelector("video")).toBeNull();
+		expect(fs.mediaStream).not.toHaveBeenCalled();
 		expect(container.querySelector("[data-chat-media='video']")?.getAttribute("data-state")).toBe("idle");
 		await act(async () => {
 			observers[0]?.callback([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
 		});
-		for (let i = 0; i < 4; i += 1) await act(async () => {});
-		expect(readBinary).toHaveBeenCalled();
+		await settle();
+		expect(fs.mediaStream).toHaveBeenCalledTimes(1);
 		expect(container.querySelector("video")).not.toBeNull();
 	});
 
 	it("shows a missing file, or one outside the workspace, as its chip", async () => {
-		install(fakeFs({ "../escape.mp4": failed("path_escapes_workspace") }));
+		install();
 		for (const path of ["gone.mp4", "../escape.mp4"]) {
 			await mount(<ChatMedia kind="video" path={path} />);
 			expect(container.querySelector("video")).toBeNull();
 			const chip = container.querySelector("[data-chat-media-unavailable='video']");
 			expect(chip?.textContent).toContain(path.split("/").at(-1));
 			expect(chip?.getAttribute("title")).toContain("File unavailable");
-			await act(async () => root.unmount());
-			container.remove();
+			await unmount();
 		}
 	});
 
-	it("never reads a file over the cap: the probe's size decides", async () => {
-		const size = CHAT_MEDIA_MAX_BYTES + 1;
-		install(fakeFs({ "big.mp4": ok(new Uint8Array(512), size, "video/mp4", true) }));
-		await mount(<ChatMedia kind="video" path="big.mp4" />);
-		expect(readBinary).toHaveBeenCalledTimes(1);
-		expect(container.querySelector("video")).toBeNull();
-		expect(container.querySelector("[data-chat-media-too-large='video']")?.getAttribute("title")).toContain(
-			"Too large to play here (32.0 MB)",
-		);
-	});
-
-	it("reads a remote tab's file on its host and shows the host's cap as too large", async () => {
-		install(
-			vi.fn<ReadBinary>(async (_path, maxBytes) =>
-				maxBytes === undefined
-					? failed("file_too_large", 12_000_000, "video/mp4")
-					: ok(new Uint8Array(512), 12_000_000, "video/mp4", true),
+	it("reads a remote tab's file on its host: a blob under the host's cap, the cap as a chip", async () => {
+		const remote = vi.fn<MediaStream>(async () => ({ ok: false, error: "remote", code: "remote_path_native" }));
+		install({
+			mediaStream: remote,
+			readBinary: vi.fn<ReadBinary>(async path =>
+				path === "big.mp4"
+					? binaryFailure("file_too_large", 12_000_000, "video/mp4")
+					: {
+							ok: true,
+							data: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]),
+							mime: "video/webm",
+							size: 4,
+							truncated: false,
+						},
 			),
-		);
+		});
 		const runtime = { tabId: "remote-tab", command: vi.fn(), stores: new Map() };
 		await mount(
 			<SessionRuntimeProvider runtime={runtime}>
-				<ChatMedia kind="video" path="clip.mp4" />
+				<ChatMedia kind="video" path="clip.webm" />
+				<ChatMedia kind="video" path="big.mp4" />
 			</SessionRuntimeProvider>,
 		);
-		expect(readBinary.mock.calls).toEqual([
-			["clip.mp4", 512, "remote-tab"],
-			["clip.mp4", undefined, "remote-tab"],
+		expect(remote.mock.calls).toEqual([
+			["clip.webm", "remote-tab"],
+			["big.mp4", "remote-tab"],
 		]);
-		expect(container.querySelector("[data-chat-media-too-large='video']")).not.toBeNull();
+		expect(fs.readBinary.mock.calls).toEqual([
+			["clip.webm", undefined, "remote-tab"],
+			["big.mp4", undefined, "remote-tab"],
+		]);
+		expect(container.querySelector("video")?.getAttribute("src")).toMatch(/^blob:test\//);
+		expect(container.querySelector("[data-chat-media-too-large='video']")?.getAttribute("title")).toContain(
+			"Too large to play here (11.4 MB)",
+		);
 	});
 
 	it("falls back to the chip when the file does not decode", async () => {
-		install(fakeFs({ "odd.mkv": { bytes: WEBM, mime: "video/x-matroska" } }));
+		install({ mediaStream: streams({ "odd.mkv": { mime: "video/x-matroska", size: 10 } }) });
 		await mount(<ChatMedia kind="video" path="odd.mkv" />);
-		const video = container.querySelector("video");
-		await act(async () => video?.dispatchEvent(new Event("error")));
+		await act(async () => container.querySelector("video")?.dispatchEvent(new Event("error")));
 		expect(container.querySelector("video")).toBeNull();
 		expect(container.querySelector("[data-chat-media-unavailable='video']")?.getAttribute("title")).toContain(
 			"Can't play this file here",
@@ -207,15 +251,15 @@ describe("chat media player", () => {
 	});
 
 	it("opens the file in the Files viewer", async () => {
-		install(fakeFs({ "out/demo.webm": { bytes: WEBM, mime: "video/webm" } }));
+		install({ mediaStream: streams({ "out/demo.webm": { mime: "video/webm", size: 600 } }) });
 		await mount(<ChatMedia kind="video" path="out/demo.webm" />);
 		const open = container.querySelector("button[aria-label='Open in Files']") as unknown as HTMLButtonElement;
 		await act(async () => open.dispatchEvent(new Event("click", { bubbles: true })));
 		expect(useUiStore.getState().filePreviewPath).toBe("out/demo.webm");
 	});
 
-	it("shares one read between players of the same file and revokes it after the last", async () => {
-		install(fakeFs({ "/w/out/demo.webm": { bytes: WEBM, mime: "video/webm" } }));
+	it("shares one stream between players of the same file and releases it after the last", async () => {
+		install({ mediaStream: streams({ "/w/out/demo.webm": { mime: "video/webm", size: 600 } }) });
 		const read = { content: [], details: { mediaPath: "/w/out/demo.webm" } };
 		await mount(
 			<>
@@ -224,15 +268,76 @@ describe("chat media player", () => {
 			</>,
 		);
 		expect(container.querySelectorAll("video")).toHaveLength(2);
-		expect(readBinary).toHaveBeenCalledTimes(2);
-		expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
-		await act(async () => root.unmount());
-		await act(async () => {});
-		expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
+		expect(fs.mediaStream).toHaveBeenCalledTimes(1);
+		await unmount();
+		expect(fs.releaseMediaStream.mock.calls).toEqual([["omp-media://stream/%2Fw%2Fout%2Fdemo.webm"]]);
 	});
 });
 
-describe("media in markdown and replies", () => {
+describe("document previews", () => {
+	it("previews a page only on request, in an empty sandbox", async () => {
+		install();
+		await mount(<HtmlPreview path="site/index.html" />);
+		expect(fs.read).not.toHaveBeenCalled();
+		expect(container.querySelector("iframe")).toBeNull();
+		const toggle = container.querySelector("button[aria-label='Preview']") as unknown as HTMLButtonElement;
+		await act(async () => toggle.dispatchEvent(new Event("click", { bubbles: true })));
+		await settle();
+		const frame = container.querySelector("iframe");
+		expect(frame?.getAttribute("sandbox")).toBe("");
+		// linkedom keeps React's attribute spelling; a real DOM lowercases it to `srcdoc`.
+		expect(frame?.getAttribute("srcDoc")).toContain("<h1>Page</h1>");
+		expect(fs.read).toHaveBeenCalledWith("site/index.html", 200_000);
+		await act(async () =>
+			container
+				.querySelector("button[aria-label='Close preview']")
+				?.dispatchEvent(new Event("click", { bubbles: true })),
+		);
+		expect(container.querySelector("iframe")).toBeNull();
+	});
+
+	it("falls back to the chip for a page it cannot read", async () => {
+		install({
+			read: vi.fn<ReadText>(async () => ({ ok: false, content: "", truncated: false, size: 0 }) as IpcFsReadResult),
+		});
+		await mount(<HtmlPreview path="../outside.html" />);
+		await act(async () =>
+			container.querySelector("button[aria-label='Preview']")?.dispatchEvent(new Event("click", { bubbles: true })),
+		);
+		await settle();
+		expect(container.querySelector("iframe")).toBeNull();
+		expect(container.querySelector("[data-chat-file='html'].omp-file-chip")?.textContent).toContain("outside.html");
+	});
+
+	it("keeps a PDF it cannot read, or one too large to thumbnail, as its chip", async () => {
+		install({
+			readBinary: vi.fn<ReadBinary>(async path =>
+				path === "huge.pdf"
+					? {
+							ok: true,
+							data: new Uint8Array(512),
+							mime: "application/pdf",
+							size: 64 * 1024 * 1024,
+							truncated: true,
+						}
+					: binaryFailure("path_escapes_workspace"),
+			),
+		});
+		await mount(
+			<>
+				<PdfThumb path="../outside.pdf" />
+				<PdfThumb path="huge.pdf" />
+			</>,
+		);
+		const chips = [...container.querySelectorAll("[data-chat-file='pdf'].omp-file-chip")];
+		expect(chips.map(chip => chip.textContent)).toEqual(["outside.pdf", expect.stringContaining("huge.pdf")]);
+		expect(chips[1]?.getAttribute("title")).toContain("Too large to preview here (64.0 MB)");
+		// Only the size probe was read for the huge one.
+		expect(fs.readBinary.mock.calls.filter(call => call[0] === "huge.pdf")).toEqual([["huge.pdf", 512]]);
+	});
+});
+
+describe("files a reply names", () => {
 	beforeAll(() => preloadMarkdownPipeline());
 
 	const render = (content: string) =>
@@ -242,11 +347,14 @@ describe("media in markdown and replies", () => {
 			</I18nProvider>,
 		);
 
-	it("embeds a local video image as the player and a PDF as a viewer chip", () => {
-		const html = parseHTML(`<div>${render("![demo](out/demo.mp4)\n\n![report](docs/report.pdf)")}</div>`).document;
+	it("embeds a local video image as the player, a PDF as its first page and a page as its preview", () => {
+		const html = parseHTML(
+			`<div>${render("![demo](out/demo.mp4)\n\n![report](docs/report.pdf)\n\n![site](site/index.html)")}</div>`,
+		).document;
 		expect(html.querySelector("[data-chat-media='video']")).not.toBeNull();
 		expect(html.querySelector("img")).toBeNull();
-		expect(html.querySelector("[data-chat-file='pdf']")?.textContent).toBe("report");
+		expect(html.querySelector("[data-chat-file='pdf'] .omp-chat-thumb-caption")?.textContent).toBe("report");
+		expect(html.querySelector("[data-chat-file='html'] .omp-chat-media-name")?.textContent).toBe("site");
 	});
 
 	it("renders raw <video>/<audio> only as the chat player: no autoplay, loop, poster or handlers survive", () => {
@@ -277,7 +385,7 @@ describe("media in markdown and replies", () => {
 						content: [
 							{
 								type: "text",
-								text: "Saved [the demo](out/demo.webm), `out/demo.webm`, `tone.mp3` and [the page](site/index.html).",
+								text: "Saved [the demo](out/demo.webm), `out/demo.webm`, `tone.mp3`, `report.pdf` and [the page](site/index.html).",
 							},
 						],
 						timestamp: "2026-10-14T00:00:00Z",
@@ -288,6 +396,53 @@ describe("media in markdown and replies", () => {
 		const list = parseHTML(`<div>${html}</div>`).document.querySelector("[aria-label='Files in this reply']");
 		expect(list?.querySelectorAll("[data-chat-media='video']")).toHaveLength(1);
 		expect(list?.querySelectorAll("[data-chat-media='audio']")).toHaveLength(1);
-		expect(list?.querySelector("[data-chat-file='html']")?.textContent).toBe("index.html");
+		expect(list?.querySelector("[data-chat-file='pdf']")).not.toBeNull();
+		expect(list?.querySelector("[data-chat-file='html'] .omp-chat-media-name")?.textContent).toBe("index.html");
+	});
+
+	it("draws pictures the reply names, except one a tool of this tab already showed", async () => {
+		install();
+		useSessionStore.setState({ cwd: "/w" });
+		const shot: ToolEntry = {
+			toolName: "read",
+			args: { path: "shots/home.png" },
+			status: "done",
+			streamingArgs: "",
+			isError: false,
+			startTime: 1,
+			endTime: 2,
+			result: {
+				content: [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }],
+				details: { mediaPath: "/w/shots/home.png" },
+			},
+		};
+		useToolsStore.setState({ finishedTools: new Map([["read-1", shot]]), finishedVersion: 1 });
+		await mount(
+			<ReplyFiles
+				references={[
+					{ path: "shots/home.png", kind: "image" },
+					{ path: "./out/chart.svg", kind: "image" },
+				]}
+			/>,
+		);
+		const thumbs = [...container.querySelectorAll("[data-chat-file='image']")];
+		expect(thumbs).toHaveLength(1);
+		expect(thumbs[0]?.querySelector("img")?.getAttribute("src")).toBe(PNG);
+		expect(fs.readImage.mock.calls).toEqual([["./out/chart.svg"]]);
+	});
+
+	it("shows a picture it cannot read as its chip", async () => {
+		install({
+			readImage: vi.fn<ReadImage>(async () => ({
+				ok: false,
+				dataUrl: null,
+				mime: null,
+				size: 0,
+				code: "file_not_found",
+			})),
+		});
+		await mount(<ReplyFiles references={[{ path: "gone.png", kind: "image" }]} />);
+		expect(container.querySelector("img")).toBeNull();
+		expect(container.querySelector("[data-image-unavailable]")?.textContent).toContain("gone.png");
 	});
 });

@@ -15,6 +15,7 @@ import type {
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
 	IpcFsListResult,
+	IpcFsMediaStreamResult,
 	IpcFsReadBinaryResult,
 	IpcFsReadImageResult,
 	IpcFsReadPlanPayload,
@@ -383,6 +384,9 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.FS_READ_IMAGE, { path, tabId }) as Promise<IpcFsReadImageResult>,
 		readBinary: (path: string, maxBytes?: number, tabId?: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.FS_READ_BINARY, { path, maxBytes, tabId }) as Promise<IpcFsReadBinaryResult>,
+		mediaStream: (path: string, tabId?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.FS_MEDIA_STREAM, { path, tabId }) as Promise<IpcFsMediaStreamResult>,
+		releaseMediaStream: (url: string) => ipcRenderer.send(IPC_COMMANDS.FS_MEDIA_RELEASE, url),
 	},
 
 	editor: {

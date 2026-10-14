@@ -6,7 +6,16 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { app, BrowserWindow, globalShortcut, ipcMain, nativeImage, powerSaveBlocker, session } from "electron";
+import {
+	app,
+	BrowserWindow,
+	globalShortcut,
+	ipcMain,
+	nativeImage,
+	powerSaveBlocker,
+	protocol,
+	session,
+} from "electron";
 import Store from "electron-store";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { REA_PREF } from "../shared/builtin-mcp";
@@ -26,6 +35,7 @@ import { migrateLegacyUserData } from "./legacy-user-data";
 import { renameStoredSession } from "./local/session-files";
 import { LogWatcher } from "./log-watcher";
 import { LocalMachine } from "./machine-services";
+import { MEDIA_SCHEME, MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
 import { ompPackageRoot, ompPathEnv, systemOmp } from "./omp-runtime";
 import { RemoteDevices } from "./remote/devices";
@@ -87,6 +97,12 @@ if (userDataDirectory) {
 // Software-rendering escape hatch (must precede whenReady): a crashed GPU
 // process leaves every window black — the marker relaunches without it.
 applyGpuFallbackIfNeeded();
+
+// Players stream audio/video through `omp-media://` (range requests); privileges must precede whenReady.
+protocol.registerSchemesAsPrivileged([
+	{ scheme: MEDIA_SCHEME, privileges: { standard: true, secure: true, stream: true } },
+]);
+const mediaStreams = new MediaStreams();
 
 // Single instance lock
 const gotLock = app.requestSingleInstanceLock();
@@ -589,7 +605,9 @@ app.whenReady().then(() => {
 		initialCwd: resolveInitialCwd,
 		worktreeLifecycle: lifecycle,
 		worktreePrompts: prompts,
+		mediaStreams,
 	});
+	protocol.handle(MEDIA_SCHEME, request => mediaStreams.handle(request));
 	// Before the first window: a restored remote tab needs its host's link to exist.
 	devices.start();
 

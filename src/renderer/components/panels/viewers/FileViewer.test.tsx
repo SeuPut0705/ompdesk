@@ -9,7 +9,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { tinyPptx, tinyXlsx } from "../../../../../e2e/file-viewer-fixtures";
-import type { IpcFsReadBinaryResult, IpcFsReadResult } from "../../../../shared/ipc-types";
+import type { IpcFsMediaStreamResult, IpcFsReadBinaryResult, IpcFsReadResult } from "../../../../shared/ipc-types";
 import { loadHljs } from "../../../lib/highlight";
 import { I18nProvider } from "../../../lib/i18n";
 import { FileViewer } from "./FileViewer";
@@ -75,18 +75,28 @@ function binaryResult(data: Uint8Array, extra: Partial<IpcFsReadBinaryResult> = 
 
 type ReadFn = (path: string, maxBytes?: number) => Promise<IpcFsReadResult>;
 type ReadBinaryFn = (path: string, maxBytes?: number) => Promise<IpcFsReadBinaryResult>;
+type MediaStreamFn = (path: string) => Promise<IpcFsMediaStreamResult>;
 
 /** Installs the fake `window.omp.fs`; unset reads stay pending forever (loading state). */
-function installFs(fs: { read?: ReadFn; readBinary?: ReadBinaryFn }) {
+function installFs(fs: { read?: ReadFn; readBinary?: ReadBinaryFn; mediaStream?: MediaStreamFn }) {
 	const read = vi.fn<ReadFn>(fs.read ?? (async () => textResult("")));
 	const readBinary = vi.fn<ReadBinaryFn>(
 		fs.readBinary ?? (() => Promise.withResolvers<IpcFsReadBinaryResult>().promise),
 	);
+	const mediaStream = vi.fn<MediaStreamFn>(
+		fs.mediaStream ?? (() => Promise.withResolvers<IpcFsMediaStreamResult>().promise),
+	);
 	ompWindow.omp = {
-		fs: { read, readBinary, readImage: vi.fn(() => Promise.withResolvers<never>().promise) },
+		fs: {
+			read,
+			readBinary,
+			mediaStream,
+			releaseMediaStream: vi.fn(),
+			readImage: vi.fn(() => Promise.withResolvers<never>().promise),
+		},
 		system: { openPath: vi.fn(async () => ({ ok: true })) },
 	};
-	return { read, readBinary };
+	return { read, readBinary, mediaStream };
 }
 
 function view(path: string) {
@@ -300,8 +310,23 @@ describe("binary fallback", () => {
 		expect(card?.textContent).toContain("Open with default app");
 	});
 
-	it("shows the too-large card when main refuses the whole file", async () => {
+	it("streams a video of any size on this device, with no read into the renderer", async () => {
+		const fs = installFs({
+			mediaStream: async () => ({
+				ok: true,
+				url: "omp-media://stream/t",
+				mime: "video/mp4",
+				size: 300 * 1024 * 1024,
+			}),
+		});
+		await mount(view("movie.mp4"));
+		expect(container.querySelector("video")?.getAttribute("src")).toBe("omp-media://stream/t");
+		expect(fs.readBinary).not.toHaveBeenCalled();
+	});
+
+	it("shows the too-large card when a paired host refuses the whole file", async () => {
 		installFs({
+			mediaStream: async () => ({ ok: false, error: "remote", code: "remote_path_native" }),
 			readBinary: async () => ({
 				ok: false,
 				data: new Uint8Array(),

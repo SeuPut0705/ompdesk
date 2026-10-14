@@ -7,11 +7,16 @@ import { useRuntimeTabId, withSessionRuntime } from "../../stores/session-runtim
  */
 
 import { FileWarning, RefreshCw } from "lucide-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
 import { errorDetail } from "../../lib/error-detail";
+import { basename, extractResultImages, resultDetails } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { ReplyFiles } from "../chat/ReplyFiles";
 import { Banner, Button, EmptyState, Spinner } from "../common";
+import { referencedFiles } from "../tools/chat-media";
+import { ToolImage } from "../tools/ToolImage";
+import { ToolResultMedia } from "../tools/ToolMedia";
 import { registerTranscriptToolCalls } from "./subagent-graph";
 
 function messageText(message: AgentMessage): string {
@@ -22,6 +27,69 @@ function messageText(message: AgentMessage): string {
 		.map(part => (part.type === "text" ? part.text : ""))
 		.join("\n")
 		.trim();
+}
+
+/** Characters of a message's text the sheet shows. */
+const TEXT_LIMIT = 1200;
+/** The main transcript's attached-picture size (MessageBubble's InlineImage). */
+const PICTURE_CLASS = "max-h-48 max-w-64 rounded-(--sc-radius-md) border border-(--sc-border-subtle) object-contain";
+
+/**
+ * What the main transcript shows beside a message's text, in the sheet too:
+ * attached and tool-result pictures, the audio/video a tool produced or read,
+ * and the files a reply names.
+ */
+function MessageMedia({
+	message,
+	callArgs,
+}: {
+	message: AgentMessage;
+	callArgs: ReadonlyMap<string, Record<string, unknown>>;
+}): ReactNode {
+	const t = useT();
+	const parts: ReactNode[] = [];
+	if (message.role === "toolResult") {
+		if (message.isError) return null;
+		const mediaPath = resultDetails(message)?.mediaPath;
+		const path = typeof mediaPath === "string" ? mediaPath : "";
+		for (const image of extractResultImages(message)) {
+			parts.push(
+				<ToolImage
+					className={PICTURE_CLASS}
+					key={image.key}
+					label={basename(path) || undefined}
+					path={path}
+					src={image.src}
+				/>,
+			);
+		}
+		parts.push(
+			<ToolResultMedia
+				args={callArgs.get(message.toolCallId ?? "") ?? {}}
+				key="media"
+				result={message}
+				toolName={message.toolName ?? ""}
+			/>,
+		);
+	} else if (Array.isArray(message.content)) {
+		for (const [index, part] of message.content.entries()) {
+			if (part.type !== "image") continue;
+			const src = extractResultImages(part)[0]?.src ?? null;
+			parts.push(
+				<ToolImage
+					className={PICTURE_CLASS}
+					key={`image-${index}`}
+					label={t("chat.attachedImage")}
+					path=""
+					src={src}
+				/>,
+			);
+		}
+		if (message.role === "assistant") {
+			parts.push(<ReplyFiles key="files" references={referencedFiles(messageText(message))} />);
+		}
+	}
+	return parts.length ? <div className="omp-subagent-media">{parts}</div> : null;
 }
 
 interface TranscriptState {
@@ -44,6 +112,15 @@ export const SubagentTranscript = memo(function SubagentTranscript({ agent }: { 
 		hasMore: true,
 	});
 	const loadingRef = useRef(false);
+	// Tool results name their call; its arguments say what a tts or write produced.
+	const callArgs = useMemo(() => {
+		const args = new Map<string, Record<string, unknown>>();
+		for (const message of state.messages) {
+			if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+			for (const part of message.content) if (part.type === "toolCall") args.set(part.id, part.arguments);
+		}
+		return args;
+	}, [state.messages]);
 	// `agent.status` changes arrive via prop updates after `load` has memoized —
 	// track it in a ref so a running agent keeps a refresh affordance without
 	// recreating `load` (which would re-run load(0) and duplicate messages).
@@ -141,15 +218,22 @@ export const SubagentTranscript = memo(function SubagentTranscript({ agent }: { 
 			)}
 			{state.messages.map((message, index) => {
 				const text = messageText(message);
-				if (!text) return null;
+				const media = <MessageMedia callArgs={callArgs} message={message} />;
+				const hasPictures =
+					message.role === "toolResult" ||
+					(Array.isArray(message.content) && message.content.some(part => part.type === "image"));
+				if (!text && !hasPictures) return null;
 				return (
 					<div className="rounded-sm border-l-2 border-(--omp-border-muted) px-2 py-1" key={index}>
 						<div className="mb-0.5 text-omp-xxs font-semibold tracking-wider text-(--omp-dim) uppercase">
 							{message.role}
 						</div>
-						<div className="text-omp-sm leading-snug break-words whitespace-pre-wrap text-(--omp-muted)">
-							{text.length > 1200 ? `${text.slice(0, 1200)}…` : text}
-						</div>
+						{text ? (
+							<div className="text-omp-sm leading-snug break-words whitespace-pre-wrap text-(--omp-muted)">
+								{text.length > TEXT_LIMIT ? `${text.slice(0, TEXT_LIMIT)}…` : text}
+							</div>
+						) : null}
+						{media}
 					</div>
 				);
 			})}

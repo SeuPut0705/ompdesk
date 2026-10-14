@@ -18,8 +18,9 @@ describe("chat media kinds", () => {
 		expect(chatMediaKind("notes.md")).toBeNull();
 		expect(chatReferenceKind("report.pdf")).toBe("pdf");
 		expect(chatReferenceKind("site/index.html")).toBe("html");
-		expect(chatReferenceKind("chart.svg")).toBe("svg");
-		expect(chatReferenceKind("shot.png")).toBeNull();
+		expect(chatReferenceKind("chart.svg")).toBe("image");
+		expect(chatReferenceKind("shot.png")).toBe("image");
+		expect(chatReferenceKind("src/app.ts")).toBeNull();
 	});
 
 	it("reads local paths out of hrefs and leaves web and other schemes alone", () => {

@@ -21,7 +21,7 @@ import { MermaidBlock } from "../components/chat/MermaidBlock";
 import { SvgBlock } from "../components/chat/SvgBlock";
 import { ZoomableImage } from "../components/common/ZoomableImage";
 import { chatMediaKind, chatReferenceKind, fileUrlPath, localFilePath } from "../components/tools/chat-media";
-import { ChatMedia, ViewerFileChip } from "../components/tools/ToolMedia";
+import { ChatMedia, HtmlPreview, PdfThumb } from "../components/tools/ToolMedia";
 import { useRuntimeTabId } from "../stores/session-runtime-context";
 import { useUiStore } from "../stores/ui";
 import { saveGuiPreference } from "./display-preferences";
@@ -566,9 +566,8 @@ function MarkdownImage({ src, alt, title, ...props }: ComponentPropsWithoutRef<"
 		const media = chatMediaKind(classified.path);
 		if (media) return <ChatMedia kind={media} label={altText || undefined} path={classified.path} />;
 		const fileKind = chatReferenceKind(classified.path);
-		if (fileKind && fileKind !== "svg") {
-			return <ViewerFileChip kind={fileKind} label={altText || undefined} path={classified.path} />;
-		}
+		if (fileKind === "pdf") return <PdfThumb label={altText || undefined} path={classified.path} />;
+		if (fileKind === "html") return <HtmlPreview label={altText || undefined} path={classified.path} />;
 		return (
 			<LocalMarkdownImage
 				path={classified.path}

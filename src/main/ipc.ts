@@ -24,6 +24,8 @@ import type {
 	IpcExtensionUiRespondPayload,
 	IpcFsListPayload,
 	IpcFsListResult,
+	IpcFsMediaStreamPayload,
+	IpcFsMediaStreamResult,
 	IpcFsReadBinaryPayload,
 	IpcFsReadBinaryResult,
 	IpcFsReadImagePayload,
@@ -70,6 +72,7 @@ import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from 
 import { renameStoredSession } from "./local/session-files";
 import type { LogWatcher } from "./log-watcher";
 import { type LocalMachine, type MachineServices, machineFor as pickMachine } from "./machine-services";
+import type { MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
 import { modelsPath } from "./models-config";
 import { systemOmp } from "./omp-runtime";
@@ -96,6 +99,7 @@ import {
 	readWorkspaceFile,
 	readWorkspaceImage,
 	resolveWithin,
+	resolveWorkspaceMedia,
 } from "./workspace-fs";
 import { readLiveLifecycleSettings, type WorktreeLifecycle, type WorktreePrompts } from "./worktree-lifecycle";
 
@@ -117,6 +121,8 @@ export interface IpcDeps {
 	worktreeLifecycle: WorktreeLifecycle;
 	/** The questions it asks in the windows. */
 	worktreePrompts: WorktreePrompts;
+	/** `omp-media://` URLs handed to players (registered as a protocol in index.ts). */
+	mediaStreams: MediaStreams;
 }
 
 /**
@@ -1138,6 +1144,37 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return readWorkspaceBinary(cwdFor(deps, event, payload?.tabId), request);
 		},
 	);
+
+	// A player's stream URL: same resolution and roots as FS_READ_BINARY, audio/video only.
+	// A paired host's tab has none (`remote_path_native`): the renderer reads it through
+	// `host.fs.readBinary` under the host's cap instead.
+	const streamOwners = new Set<number>();
+	ipcMain.handle(
+		IPC_COMMANDS.FS_MEDIA_STREAM,
+		async (event, payload: IpcFsMediaStreamPayload): Promise<IpcFsMediaStreamResult> => {
+			const target = targetFor(deps, event, payload?.tabId);
+			if (target?.device) {
+				return { ok: false, error: "This file is on a paired device", code: "remote_path_native" };
+			}
+			const media = await resolveWorkspaceMedia(cwdFor(deps, event, payload?.tabId), payload?.path);
+			if (!media.ok) return media;
+			const owner = event.sender.id;
+			if (!streamOwners.has(owner)) {
+				streamOwners.add(owner);
+				event.sender.once("destroyed", () => {
+					streamOwners.delete(owner);
+					deps.mediaStreams.releaseOwner(owner);
+				});
+			}
+			return {
+				ok: true,
+				url: deps.mediaStreams.open(media.abs, media.mime, owner),
+				mime: media.mime,
+				size: media.size,
+			};
+		},
+	);
+	ipcMain.on(IPC_COMMANDS.FS_MEDIA_RELEASE, (event, url: unknown) => deps.mediaStreams.release(url, event.sender.id));
 
 	ipcMain.handle(
 		IPC_COMMANDS.FS_READ_PLAN,

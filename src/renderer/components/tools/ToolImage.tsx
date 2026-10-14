@@ -3,7 +3,7 @@ import { useState } from "react";
 import { basename } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { ZoomableImage, type ZoomableImageProps } from "../common/ZoomableImage";
-import { FileChip } from "./ToolMedia";
+import { FileChip } from "./FileChip";
 
 /**
  * A picture a tool read or made that cannot be drawn — its bytes are gone (the

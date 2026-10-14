@@ -276,4 +276,8 @@ describe("renderer content security policy", () => {
 		expect(sources("script-src")).toEqual(["'self'"]);
 		expect(sources("connect-src")).toEqual(["'self'"]);
 	});
+
+	it("plays media only from the app, blobs and main's token-gated omp-media streams", () => {
+		expect(sources("media-src")).toEqual(["'self'", "blob:", "omp-media:"]);
+	});
 });

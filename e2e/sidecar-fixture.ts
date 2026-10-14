@@ -9,6 +9,7 @@ import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
 import { transcriptPageMessages, transcriptTurnStart } from "../resources/gui-bridge/transcript-page";
 import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from "../src/shared/rpc-types";
+import { tinyPdf } from "./tiny-pdf";
 import { createWorkReplay, type RecordedWorkFrame, rebaseWorkRecording } from "./work-recording";
 
 // A local stand-in for the system omp the GUI drives: stock `--mode rpc-ui` on
@@ -2530,11 +2531,80 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		} else if (message === "fixture media") {
 			// The agent renders a clip with ffmpeg, reads it back and speaks a narration with
 			// stock tts. Stock results name those files only by path (read's mediaPath, tts's
-			// "Saved … to"); the reply links one, quotes another and names a file that is gone.
+			// "Saved … to"); the reply links one, quotes others (a long recording past any IPC
+			// cap, a picture, a frame the read already showed, a PDF, a page) and names a file
+			// that is gone. A finished subagent made media of its own.
 			const out = nodePath.join(process.cwd(), "out");
 			fs.mkdirSync(out, { recursive: true });
 			for (const name of ["clip.webm", "tone.mp3"])
 				fs.copyFileSync(nodePath.join(import.meta.dir, "media", name), nodePath.join(out, name));
+			// 40 MB: an MP4 followed by a top-level `free` box, valid and seekable, over the old blob cap.
+			const longClip = fs.readFileSync(nodePath.join(import.meta.dir, "media", "clip.mp4"));
+			const padding = 40 * 1024 * 1024;
+			const free = Buffer.alloc(8);
+			free.writeUInt32BE(padding + 8, 0);
+			free.write("free", 4, "latin1");
+			fs.writeFileSync(nodePath.join(out, "long.mp4"), Buffer.concat([longClip, free, Buffer.alloc(padding)]));
+			const png = fs.readFileSync(nodePath.join(import.meta.dir, "../resources/icon.png"));
+			fs.writeFileSync(nodePath.join(out, "frame.png"), png);
+			fs.writeFileSync(
+				nodePath.join(out, "chart.svg"),
+				'<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#5b5bd6"/><circle cx="80" cy="50" r="30" fill="#fff"/></svg>',
+			);
+			fs.writeFileSync(nodePath.join(out, "report.pdf"), tinyPdf());
+			fs.writeFileSync(
+				nodePath.join(out, "page.html"),
+				'<!doctype html><html><body><h1>Fixture page</h1><script>document.body.dataset.ran = "yes"</script><img src="https://example.com/beacon.png" alt=""></body></html>',
+			);
+			const mediaAgent = "MediaMaker";
+			recordedMessages.set(mediaAgent, [
+				{
+					role: "assistant",
+					timestamp: Date.now(),
+					content: [
+						{ type: "toolCall", id: `${mediaAgent}-read`, name: "read", arguments: { path: "out/clip.webm" } },
+					],
+				},
+				{
+					role: "toolResult",
+					toolCallId: `${mediaAgent}-read`,
+					toolName: "read",
+					content: [
+						{ type: "text", text: "Video file [video/webm], contact sheet" },
+						{ type: "image", data: png.toString("base64"), mimeType: "image/png" },
+					],
+					details: { mediaPath: nodePath.join(out, "clip.webm"), contentType: "video/webm" },
+					isError: false,
+					timestamp: Date.now(),
+				},
+				{
+					role: "assistant",
+					timestamp: Date.now(),
+					content: [
+						{
+							type: "text",
+							text: "Checked the clip; the narration is `out/tone.mp3`, the chart `out/chart.svg`.",
+						},
+					],
+				},
+			]);
+			const mediaSnapshot: SubagentSnapshot = {
+				id: mediaAgent,
+				index: 0,
+				agent: "task",
+				status: "completed",
+				live: false,
+				lastUpdate: Date.now(),
+			};
+			subagentRoster = [mediaSnapshot];
+			write({
+				type: "subagent_lifecycle",
+				payload: { ...mediaSnapshot, agentSource: "bundled", status: "started" },
+			});
+			write({
+				type: "subagent_lifecycle",
+				payload: { ...mediaSnapshot, agentSource: "bundled", status: "completed" },
+			});
 			const steps = [
 				{
 					id: "fixture-media-bash",
@@ -2563,6 +2633,18 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 							},
 						],
 						details: { bytes: 6392, voiceId: "default", codec: "mp3", backend: "openai-speech" },
+					},
+				},
+				{
+					id: "fixture-media-frame",
+					name: "read",
+					args: { path: "out/frame.png" },
+					result: {
+						content: [
+							{ type: "text" as const, text: "Read image file [image/png]" },
+							{ type: "image" as const, data: png.toString("base64"), mimeType: "image/png" },
+						],
+						details: { mediaPath: nodePath.join(out, "frame.png") },
 					},
 				},
 			];
@@ -2603,7 +2685,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				content: [
 					{
 						type: "text",
-						text: "Rendered [the clip](out/clip.webm) with a narration in `out/tone.mp3`. The first draft `out/draft.mp4` is gone.",
+						text: "Rendered [the clip](out/clip.webm) with a narration in `out/tone.mp3`; the full take is `out/long.mp4`. Frame `out/frame.png`, chart `out/chart.svg`, report `out/report.pdf` and page `out/page.html`. The first draft `out/draft.mp4` is gone.",
 					},
 				],
 				timestamp: Date.now(),
