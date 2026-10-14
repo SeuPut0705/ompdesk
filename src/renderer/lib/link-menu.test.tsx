@@ -96,6 +96,8 @@ describe("link menu", () => {
 		await choose("Open in Preview");
 		expect(useUiStore.getState()).toMatchObject({ previewUrl: "https://example.com/a", panelTab: "preview" });
 		expect(parentClick).not.toHaveBeenCalled();
+		// A choice closes the menu.
+		expect(document.querySelector('[role="menu"]')).toBeNull();
 	});
 
 	it("offers the mail app for a mail link", async () => {

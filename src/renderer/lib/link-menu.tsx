@@ -141,7 +141,14 @@ export function useLinkMenu(tabId: string | null): {
 			>
 				<ContextMenu
 					ariaLabel={t("markdown.link.menu")}
-					items={items(open.target)}
+					// ContextMenu leaves closing to its owner: a choice closes the menu first.
+					items={items(open.target).map(item => ({
+						...item,
+						onSelect: () => {
+							setOpen(null);
+							item.onSelect();
+						},
+					}))}
 					onClose={() => setOpen(null)}
 					x={open.anchor.x}
 					y={open.anchor.y}

@@ -458,7 +458,9 @@ if (process.argv[2] === "stats") {
 	// Stock `get_state`: cwd, plan mode and the pause gate come from the bridge's `composer.state`.
 	const state = () => ({
 		model,
-		thinkingLevel: "medium",
+	/** The thinking selector and effort; `fixture reply actions` turns stock auto on and classifies the turn high. */
+	let thinking = { level: "medium", configured: "medium" };
+		thinkingLevel: thinking.level,
 		isStreaming,
 		isCompacting: false,
 		steeringMode: "all",
@@ -977,7 +979,7 @@ if (process.argv[2] === "stats") {
 		"composer.state": () => ({
 			cwd: process.cwd(),
 			autoRetryEnabled: true,
-			thinkingConfigured: "medium",
+			thinkingConfigured: thinking.configured,
 			planModeEnabled,
 			prewalkArmed: false,
 			agentsPaused: false,
@@ -1461,6 +1463,17 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		"",
 		"| Step | Count | Owner |",
 		"|:-----|:-----:|------:|",
+	// Reply actions (MixA A113/A114, A118, A120): a web, a mail and a path link,
+	// Korean glued to bold and to a bare URL, and a shell fence.
+	const ACTIONS_REPLY = [
+		"Read [the docs](http://127.0.0.1:9/docs), write to [the team](mailto:team@example.com) or open src/app.ts.",
+		"",
+		"결과는 **0.118%**이며 자세한 내용은 https://example.com/report에서 확인해요.",
+		"",
+		"```bash",
+		"echo ompdesk-run-in-terminal",
+		"```",
+	].join("\n");
 		"| Build | 3 | ci |",
 		"| Review | 12 | Kim |",
 		"",
@@ -3147,10 +3160,17 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 									: message === "fixture svg"
 										? SVG_REPLY
 										: message === "fixture markdown"
+			if (message === "fixture reply actions") {
+				// Stock auto thinking names the effort it classified for this turn.
+				thinking = { level: "high", configured: "auto" };
+				write({ type: "thinking_level_changed", thinkingLevel: "high", configured: "auto", resolved: "high" });
+			}
 											? MARKDOWN_REPLY
 											: message === "fixture paths"
 												? PATHS_REPLY
-											: "Local fixture reply",
+												: message === "fixture reply actions"
+													? ACTIONS_REPLY
+													: "Local fixture reply",
 					},
 				],
 				timestamp: Date.now(),
@@ -3393,7 +3413,16 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						"providers",
 						"modes",
 						"hotkeys",
-					].map(name => ({ name, source: "builtin", textModeExecutable: false, description: name })),
+					]
+						.map(name => ({ name, source: "builtin", textModeExecutable: false, description: name }))
+						.concat([
+							{
+								name: "skill:review",
+								source: "skill",
+								textModeExecutable: false,
+								description: "Review the working tree",
+							},
+						]),
 				});
 				break;
 			case "get_session_stats":
