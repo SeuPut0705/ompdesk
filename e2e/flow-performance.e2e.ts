@@ -215,8 +215,12 @@ async function reloadToTail(page: Page, key: string) {
 	const paintedAt = await frameWhen(
 		page,
 		key => {
+			// Mounted is not enough: the row must sit inside the window, at the scroll
+			// position this frame paints.
 			const row = document.querySelector(`[data-row-key=${JSON.stringify(key)}]`);
-			return row instanceof HTMLElement && row.offsetHeight > 0 ? performance.now() : 0;
+			if (!(row instanceof HTMLElement) || row.offsetHeight === 0) return 0;
+			const box = row.getBoundingClientRect();
+			return box.top < window.innerHeight && box.bottom > 0 ? performance.now() : 0;
 		},
 		key,
 	);
@@ -224,7 +228,7 @@ async function reloadToTail(page: Page, key: string) {
 	return { openMs, paintedAt };
 }
 
-async function heap(page: Page) {
+async function heap(page: Page, snapshot?: string) {
 	const cdp = await page.context().newCDPSession(page);
 	await cdp.send("HeapProfiler.collectGarbage");
 	const used = (await cdp.send("Runtime.getHeapUsage")).usedSize;
@@ -233,6 +237,12 @@ async function heap(page: Page) {
 		nodes: number;
 		jsEventListeners: number;
 	};
+	if (snapshot) {
+		const chunks: string[] = [];
+		cdp.on("HeapProfiler.addHeapSnapshotChunk", ({ chunk }) => chunks.push(chunk));
+		await cdp.send("HeapProfiler.takeHeapSnapshot", { reportProgress: false });
+		await fs.writeFile(snapshot, chunks.join(""));
+	}
 	await cdp.detach();
 	const attached = await page.evaluate(() => document.getElementsByTagName("*").length);
 	return {
@@ -407,11 +417,24 @@ test.describe("flow performance", () => {
 					const entry = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
 					return { domContentLoaded: Math.round(entry?.domContentLoadedEventEnd ?? 0) };
 				});
+				// Where the view settles a second later: the transcript scroller's distance
+				// from its bottom edge (0 = on the tail).
+				await page.waitForTimeout(1000);
+				const settledGap = await page.evaluate(key => {
+					let node = document.querySelector(`[data-row-key=${JSON.stringify(key)}]`)?.parentElement ?? null;
+					while (node && !/auto|scroll/.test(getComputedStyle(node).overflowY)) node = node.parentElement;
+					return node ? Math.round(node.scrollHeight - node.clientHeight - node.scrollTop) : -1;
+				}, key);
+				if (process.env.OMP_GUI_FLOW_SHOTS)
+					await page.screenshot({
+						path: path.join(process.env.OMP_GUI_FLOW_SHOTS, `open-${subject.name}-${run}.png`),
+					});
 				return {
 					coldMs: cold.openMs,
 					coldPaintedAt: cold.paintedAt,
 					warmMs: warm.openMs,
 					warmPaintedAt: warm.paintedAt,
+					settledGap,
 					nav,
 					cold: coldFrames,
 					warm: await bootFrames(page, warm.paintedAt),
@@ -845,7 +868,89 @@ test.describe("flow performance", () => {
 					}
 				});
 				await page.evaluate(() => window.omp.rpc.command({ type: "abort" }));
-				return { openMs, paintedAt, rowsAt, boot, scroll, typing, stream };
+				// Rows out of view skip rendering (content-visibility): a row must still
+				// paint its hover wash, keyboard focus ring and switch-pending mark, and
+				// arrow keys must bring an off-screen row into view.
+				const shots = process.env.OMP_GUI_FLOW_SHOTS;
+				let rows: object | undefined;
+				if (shots) {
+					const list = page.locator('.omp-session-sidebar [role="group"][aria-label="Sessions"]');
+					const shot = (name: string) =>
+						page.locator(".omp-session-sidebar").screenshot({
+							path: path.join(shots, `sidebar-${subject.name}-${run}-${name}.png`),
+						});
+					// Whether the focused row lies fully inside the list's viewport.
+					const focusInView = () =>
+						list.evaluate(scroller => {
+							const focused = document.activeElement?.closest(".omp-sidebar-session-row");
+							if (!focused || !scroller.contains(focused)) return "no focused row";
+							const box = focused.getBoundingClientRect();
+							const view = scroller.getBoundingClientRect();
+							return box.top >= view.top - 1 && box.bottom <= view.bottom + 1
+								? "in view"
+								: `out of view (${Math.round(box.top - view.top)}px)`;
+						});
+					await list.evaluate(scroller => scroller.scrollTo(0, 0));
+					await list.locator(".omp-sidebar-session-row button[data-roving-item]").first().focus();
+					for (let step = 0; step < 60; step++) await page.keyboard.press("ArrowDown");
+					const afterArrows = await focusInView();
+					await shot("focus-arrows");
+					await page.keyboard.press("End");
+					const afterEnd = await focusInView();
+					await shot("focus-end");
+					await page.keyboard.press("Home");
+					for (let step = 0; step < 3; step++) await page.keyboard.press("ArrowDown");
+					const afterHome = await focusInView();
+					// A stretch of rows that was skipped until now: hover one, then mark one switch-pending.
+					await list.evaluate(scroller => scroller.scrollTo(0, 9000));
+					await page.waitForTimeout(300);
+					// Tag the 4th and 8th rows fully on screen (a test-only attribute).
+					await list.evaluate(scroller => {
+						const view = scroller.getBoundingClientRect();
+						const onScreen = [...scroller.querySelectorAll(".omp-sidebar-session-row")].filter(row => {
+							const box = row.getBoundingClientRect();
+							return box.top >= view.top && box.bottom <= view.bottom;
+						});
+						onScreen[3]?.setAttribute("data-flow-target", "hover");
+						onScreen[7]?.setAttribute("data-flow-target", "pending");
+					});
+					const target = list.locator('[data-flow-target="hover"]');
+					await target.hover();
+					await page.waitForTimeout(300);
+					// The wash, and the room the title makes for the revealed actions (the meta hides).
+					const hoverWash = await target.evaluate(row => ({
+						hovered: row.matches(":hover"),
+						wash: getComputedStyle(row).backgroundColor,
+						titlePadding: getComputedStyle(row.querySelector("button")?.parentElement ?? row).paddingRight,
+						metaDisplay: getComputedStyle(row.querySelector("time")?.parentElement ?? row).display,
+					}));
+					await shot("hover");
+					await page.mouse.move(5, 5);
+					const pending = list.locator('[data-flow-target="pending"]');
+					await pending.evaluate(row => row.setAttribute("data-switch-pending", "true"));
+					const pendingMark = await pending.evaluate(row => getComputedStyle(row).boxShadow);
+					await shot("switch-pending");
+					await pending.evaluate(row => row.removeAttribute("data-switch-pending"));
+					// Heights of plain session rows (no description) that skip rendering and
+					// that render: a mismatch moves the rows on screen as rows above render
+					// (the list turns off scroll anchoring).
+					const heights = await list.evaluate(scroller => {
+						const plain = [...scroller.querySelectorAll<HTMLElement>(".omp-sidebar-session-row")].filter(
+							row => !row.querySelector(".text-sc-sm"),
+						);
+						const height = (rendered: boolean) =>
+							[
+								...new Set(
+									plain
+										.filter(row => row.checkVisibility({ contentVisibilityAuto: true }) === rendered)
+										.map(row => row.getBoundingClientRect().height),
+								),
+							].slice(0, 4);
+						return { skipped: height(false), rendered: height(true) };
+					});
+					rows = { afterArrows, afterEnd, afterHome, hoverWash, pendingMark, heights };
+				}
+				return { openMs, paintedAt, rowsAt, boot, scroll, typing, stream, rows };
 			} finally {
 				await exitApp(app);
 			}
@@ -856,18 +961,31 @@ test.describe("flow performance", () => {
 		test.skip(!flows.has("memory"));
 		const minutes = Number(process.env.OMP_GUI_FLOW_MEMORY_MINUTES ?? 30);
 		test.setTimeout((minutes + 10) * 60_000 * runs * subjects.length);
-		await eachRun("memory", async (subject, _run, where) => {
+		await eachRun("memory", async (subject, run, where) => {
 			const seed = cloneSource(where);
 			const key = await tailKey(seed);
 			const { app, page } = await launch(subject.root, where, { seed });
 			try {
 				await sidecarReady(page);
-				await reloadToTail(page, key);
+				// No frame probes in this document: the boot probe keeps one record per
+				// frame (~4,000 arrays a cycle at 120 Hz) and was most of the heap growth
+				// this flow measured.
+				await frameWhen(
+					page,
+					key => (document.querySelector(`[data-row-key=${JSON.stringify(key)}]`) ? performance.now() : 0),
+					key,
+				);
 				await page.waitForTimeout(2000);
 				const control = (command: string) =>
 					page.evaluate(command => window.omp.rpc.command({ type: "bash", command }), command);
 				const stop = page.getByRole("button", { name: "Stop", exact: true });
 				const samples: object[] = [{ minute: 0, cycles: 0, ...(await heap(page)) }];
+				// OMP_GUI_FLOW_HEAP_SNAPSHOTS: a directory for two heap snapshots, one
+				// after the first few cycles and one at the end, to diff what grows.
+				const snapshots = process.env.OMP_GUI_FLOW_HEAP_SNAPSHOTS;
+				const snapshotPath = (name: string) =>
+					snapshots ? path.join(snapshots, `memory-${subject.name}-${run}-${name}.heapsnapshot`) : undefined;
+				let earlySnapshot = false;
 				const started = Date.now();
 				let cycles = 0;
 				let nextSample = 1;
@@ -890,14 +1008,23 @@ test.describe("flow performance", () => {
 					await expect(stop).toBeHidden({ timeout: 30_000 });
 					cycles++;
 					if (Date.now() - started >= nextSample * 60_000) {
+						const snapshot = !earlySnapshot && cycles >= 3 ? snapshotPath("early") : undefined;
+						if (snapshot) earlySnapshot = true;
 						samples.push({
 							minute: Math.round((Date.now() - started) / 6000) / 10,
 							cycles,
-							...(await heap(page)),
+							...(await heap(page, snapshot)),
 						});
 						nextSample = Math.floor((Date.now() - started) / 60_000) + 1;
 					}
 				}
+				const late = snapshotPath("late");
+				if (late)
+					samples.push({
+						minute: Math.round((Date.now() - started) / 6000) / 10,
+						cycles,
+						...(await heap(page, late)),
+					});
 				const metrics = await app.evaluate(({ app }) =>
 					app
 						.getAppMetrics()
