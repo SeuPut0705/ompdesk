@@ -4,6 +4,16 @@
 	min-height: var(--sc-control-lg);
 }
 
+/* A session row out of view skips style, layout and paint. With 500 stored
+   sessions, every frame of a streaming card re-layerized the paint chunks of
+   hundreds of rows no one could see (the renderer near 100% CPU), and a filter
+   keystroke that brought 400 rows back spent ~33 ms styling them. Everything a
+   row paints (hover wash, focus ring, actions) stays inside its box. */
+.omp-session-sidebar .omp-sidebar-session-row {
+	content-visibility: auto;
+	contain-intrinsic-size: auto var(--sc-control-lg);
+}
+
 .omp-session-sidebar .omp-sidebar-session-nested,
 .omp-sidebar-session-rename-nested {
 	padding-left: var(--sc-space-3);
