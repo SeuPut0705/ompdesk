@@ -1,20 +1,56 @@
-import { ArrowLeft, ArrowRight, Bot, ExternalLink, Globe, RotateCw, Square } from "lucide-react";
+import {
+	AlertTriangle,
+	ArrowLeft,
+	ArrowRight,
+	Bot,
+	ExternalLink,
+	FileDown,
+	Globe,
+	Laptop,
+	Maximize,
+	MoreHorizontal,
+	RotateCw,
+	Smartphone,
+	Square,
+	Tablet,
+	XCircle,
+	ZoomIn,
+	ZoomOut,
+} from "lucide-react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
+	clampPreviewZoom,
 	EMPTY_PREVIEW,
 	isLoopbackUrl,
+	PREVIEW_VIEWPORTS,
+	PREVIEW_ZOOM_MAX,
+	PREVIEW_ZOOM_MIN,
 	type PreviewRequest,
-	previewUrl,
+	type PreviewViewport,
+	previewAddress,
 	reducePreviewState,
 } from "../../../shared/preview";
 import { useT } from "../../lib/i18n";
 import { latestBashPreviewUrl } from "../../lib/preview-browser";
 import { sessionRuntime, useRuntimeTabId, useSessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
-import { toastError } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
-import { Button, EmptyState, ErrorDetail, IconButton, Spinner } from "../common";
+import {
+	Banner,
+	Button,
+	type ContextMenuItem,
+	CopyButton,
+	EmptyState,
+	ErrorDetail,
+	IconButton,
+	MenuButton,
+	Popover,
+	Spinner,
+} from "../common";
+
+const VIEWPORT_ICONS = { fill: Maximize, phone: Smartphone, tablet: Tablet, laptop: Laptop } as const;
 
 /** Stop `tabId`'s relay so its browser tool falls back to its configured browser (best effort: the tab may be gone). */
 function releaseAgentRelay(tabId: string): void {
@@ -35,7 +71,10 @@ export function PreviewPanel() {
 	const [invalid, setInvalid] = useState(false);
 	const surface = useRef<HTMLDivElement>(null);
 	const urlInput = useRef<HTMLInputElement>(null);
-	const remoteBlocked = remote && isLoopbackUrl(input);
+	const address = previewAddress(input);
+	const remoteBlocked = remote && isLoopbackUrl(address ?? "");
+	const [problemsOpen, setProblemsOpen] = useState(false);
+	const problemsAnchor = useRef<HTMLButtonElement>(null);
 	const [agentStarting, setAgentStarting] = useState(false);
 	const command = useCallback((request: PreviewRequest) => {
 		void window.omp.preview.command(request).catch(error => dispatch({ loading: false, error: String(error) }));
@@ -115,7 +154,7 @@ export function PreviewPanel() {
 				command({
 					action: "layout",
 					bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
-					visible: visible && !covered && !remoteBlocked && Boolean(state.url) && !state.error,
+					visible: visible && !covered && !remoteBlocked && Boolean(state.url) && !state.error && !state.crashed,
 				});
 			});
 		};
@@ -139,7 +178,7 @@ export function PreviewPanel() {
 			window.removeEventListener("scroll", update, true);
 			command({ action: "layout", bounds: { x: 0, y: 0, width: 0, height: 0 }, visible: false });
 		};
-	}, [visible, remoteBlocked, state.url, state.error, command]);
+	}, [visible, remoteBlocked, state.url, state.error, state.crashed, command]);
 	useEffect(
 		() => () => {
 			if (agentTab.current) releaseAgentRelay(agentTab.current);
@@ -148,13 +187,71 @@ export function PreviewPanel() {
 		[],
 	);
 	const agentHere = state.agent !== null && state.agent.tabId === tabId;
+	const pageReady = Boolean(state.url) && !state.crashed && !remoteBlocked;
+	const zoomTo = (zoom: number) => command({ action: "zoom", zoom: clampPreviewZoom(zoom) });
+	const percent = `${Math.round(state.zoom * 100)}%`;
+	const savePdf = async () => {
+		try {
+			const saved = await window.omp.preview.savePdf();
+			if (saved) toast({ variant: "success", title: t("panel.preview.savedPdf"), message: saved });
+		} catch (error) {
+			toastError({ title: t("panel.preview.savePdfFailed"), error });
+		}
+	};
+	const pageItems: ContextMenuItem[] = [
+		{
+			id: "zoom-in",
+			label: t("panel.preview.zoomIn"),
+			icon: ZoomIn,
+			disabled: !pageReady || state.zoom >= PREVIEW_ZOOM_MAX,
+			onSelect: () => zoomTo(state.zoom + 0.1),
+		},
+		{
+			id: "zoom-out",
+			label: t("panel.preview.zoomOut"),
+			icon: ZoomOut,
+			disabled: !pageReady || state.zoom <= PREVIEW_ZOOM_MIN,
+			onSelect: () => zoomTo(state.zoom - 0.1),
+		},
+		{
+			id: "zoom-reset",
+			label: t("panel.preview.zoomReset", { percent }),
+			disabled: state.zoom === 1,
+			onSelect: () => zoomTo(1),
+		},
+		...(Object.keys(PREVIEW_VIEWPORTS) as PreviewViewport[]).map(
+			(viewport, index): ContextMenuItem => ({
+				id: `viewport-${viewport}`,
+				label: t(`panel.preview.viewport.${viewport}`),
+				icon: VIEWPORT_ICONS[viewport],
+				checked: state.viewport === viewport,
+				separatorBefore: index === 0,
+				onSelect: () => command({ action: "viewport", viewport }),
+			}),
+		),
+		{
+			id: "save-pdf",
+			label: t("panel.preview.savePdf"),
+			icon: FileDown,
+			disabled: !pageReady || state.loading,
+			separatorBefore: true,
+			onSelect: () => void savePdf(),
+		},
+	];
+	const problemsText = () =>
+		state.problems
+			.map(
+				problem =>
+					`[${problem.level}] ${problem.message}${problem.source ? ` (${problem.source}:${problem.line})` : ""}`,
+			)
+			.join("\n");
 	return (
 		<div className="flex h-full min-h-0 min-w-0 flex-col" data-preview-panel>
 			<form
 				className="flex min-h-(--sc-space-10) min-w-0 shrink-0 items-center gap-1 border-b border-(--sc-divider) px-3 py-2"
 				onSubmit={event => {
 					event.preventDefault();
-					const url = previewUrl(input);
+					const url = previewAddress(input);
 					setInvalid(!url);
 					if (url && !remoteBlocked) command({ action: "load", url });
 				}}
@@ -189,20 +286,41 @@ export function PreviewPanel() {
 					spellCheck={false}
 					className="h-(--sc-control-sm) min-w-0 flex-1 rounded-(--sc-radius-sm) border border-(--sc-border) bg-(--sc-field) px-2 text-sc-sm text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
 					value={input}
-					placeholder="http://localhost:3000"
+					placeholder={t("panel.preview.placeholder")}
 					onChange={event => {
 						setInput(event.target.value);
 						setInvalid(false);
 					}}
 				/>
-				<IconButton
-					label={t("panel.preview.load")}
-					icon={<Globe />}
-					size="sm"
-					type="submit"
-					disabled={remoteBlocked}
-				/>
 				<div className="flex shrink-0 items-center">
+					{state.zoom !== 1 && (
+						<Button
+							aria-label={t("panel.preview.zoomReset", { percent })}
+							size="sm"
+							variant="ghost"
+							className="tabular-nums"
+							data-preview-zoom
+							onClick={() => zoomTo(1)}
+						>
+							{percent}
+						</Button>
+					)}
+					{state.problems.length > 0 && (
+						<Button
+							ref={problemsAnchor}
+							aria-label={t("panel.preview.problems", { count: state.problems.length })}
+							aria-expanded={problemsOpen}
+							aria-haspopup="dialog"
+							icon={<AlertTriangle />}
+							size="sm"
+							variant="ghost"
+							className="tabular-nums"
+							data-preview-problems
+							onClick={() => setProblemsOpen(open => !open)}
+						>
+							{state.problems.length}
+						</Button>
+					)}
 					<IconButton
 						label={t(agentHere ? "panel.preview.agent.takeOver" : "panel.preview.agent.allow")}
 						title={remote ? t("panel.preview.agent.localOnly") : undefined}
@@ -212,18 +330,78 @@ export function PreviewPanel() {
 						disabled={remote || !runtime || agentStarting}
 						onClick={() => (agentHere ? takeOver() : void letAgentIn())}
 					/>
+					<MenuButton
+						align="end"
+						icon={<MoreHorizontal />}
+						items={pageItems}
+						label={t("panel.preview.more")}
+						size="sm"
+					/>
 					<IconButton
 						label={t("panel.preview.external")}
 						icon={<ExternalLink />}
 						size="sm"
-						disabled={!previewUrl(input) || remoteBlocked}
+						disabled={!address || remoteBlocked}
 						onClick={() => {
-							const safe = previewUrl(input);
-							if (safe) void window.omp.system.openExternal(safe);
+							if (address) void window.omp.system.openExternal(address);
 						}}
 					/>
 				</div>
 			</form>
+			<Popover
+				anchorRef={problemsAnchor}
+				ariaLabel={t("panel.preview.problemsTitle")}
+				className="w-96 max-w-[calc(100vw-2rem)] p-3"
+				onClose={() => setProblemsOpen(false)}
+				open={problemsOpen && state.problems.length > 0}
+				placement="bottom-end"
+			>
+				<div className="flex items-start gap-2 pb-2">
+					<div className="min-w-0 flex-1">
+						<div className="text-sc-md font-semibold text-(--sc-text)">{t("panel.preview.problemsTitle")}</div>
+						<p className="text-sc-xs text-(--sc-text-muted)">{t("panel.preview.problemsHint")}</p>
+					</div>
+					<CopyButton label={t("panel.preview.problemsCopy")} size="sm" text={problemsText} />
+					<Button
+						size="sm"
+						variant="secondary"
+						onClick={() => {
+							command({ action: "clearProblems" });
+							setProblemsOpen(false);
+						}}
+					>
+						{t("common.clear")}
+					</Button>
+				</div>
+				<ol className="max-h-[50vh] overflow-y-auto border-t border-(--sc-divider)" data-preview-problem-list>
+					{state.problems.map((problem, index) => (
+						<li
+							// Rows only append, or all drop at once, so a position names one problem while it shows.
+							key={`${index}:${problem.message.slice(0, 40)}`}
+							className="flex gap-2 border-b border-(--sc-divider) py-1.5 text-sc-xs"
+						>
+							{problem.level === "error" ? (
+								<XCircle aria-hidden className="mt-px size-(--sc-icon-sm) shrink-0 text-(--sc-danger)" />
+							) : (
+								<AlertTriangle aria-hidden className="mt-px size-(--sc-icon-sm) shrink-0 text-(--sc-warning)" />
+							)}
+							<span className="sr-only">
+								{t(problem.level === "error" ? "panel.preview.problemError" : "panel.preview.problemWarning")}
+							</span>
+							<div className="min-w-0 flex-1">
+								<div className="whitespace-pre-wrap break-words font-mono text-(--sc-text)">
+									{problem.message}
+								</div>
+								{problem.source && (
+									<div className="truncate text-(--sc-text-muted)" title={problem.source}>
+										{problem.source}:{problem.line}
+									</div>
+								)}
+							</div>
+						</li>
+					))}
+				</ol>
+			</Popover>
 			{state.agent && (
 				<div
 					className="flex min-w-0 shrink-0 items-center gap-2 border-b border-(--sc-divider) bg-(--sc-accent-soft) px-3 py-1.5 text-sc-xs text-(--sc-text)"
@@ -267,9 +445,61 @@ export function PreviewPanel() {
 					{t("panel.preview.invalid")}
 				</p>
 			)}
+			{state.notice && (
+				<div className="shrink-0 px-3 pb-2">
+					{state.notice.kind === "download" ? (
+						<Banner
+							live
+							onDismiss={() => command({ action: "dismissNotice" })}
+							actions={
+								<Button
+									size="sm"
+									variant="secondary"
+									icon={<ExternalLink />}
+									onClick={() => {
+										if (state.notice?.kind === "download")
+											void window.omp.system.openExternal(state.notice.url);
+										command({ action: "dismissNotice" });
+									}}
+								>
+									{t("panel.preview.external")}
+								</Button>
+							}
+						>
+							{t("panel.preview.download", { name: state.notice.filename })}
+						</Banner>
+					) : (
+						<Banner
+							live
+							variant="warning"
+							onDismiss={() => command({ action: "dismissNotice" })}
+							actions={
+								<Button size="sm" variant="secondary" onClick={() => command({ action: "reload" })}>
+									{t("panel.preview.reload")}
+								</Button>
+							}
+						>
+							{t("panel.preview.unresponsive")}
+						</Banner>
+					)}
+				</div>
+			)}
 			<div ref={surface} className="relative min-h-0 flex-1" data-preview-surface>
 				{remoteBlocked ? (
 					<EmptyState icon={<Globe />} size="sm" title={t("panel.preview.remote")} />
+				) : state.crashed ? (
+					<div role="alert" className="p-4">
+						<EmptyState
+							icon={<Globe />}
+							size="sm"
+							title={t("panel.preview.crashed")}
+							actions={
+								<Button size="sm" variant="secondary" onClick={() => command({ action: "reload" })}>
+									{t("panel.preview.restore")}
+								</Button>
+							}
+						/>
+					</div>
 				) : state.error ? (
 					<div role="alert" className="p-4">
 						<EmptyState

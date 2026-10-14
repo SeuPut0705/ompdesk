@@ -1,6 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { EMPTY_PREVIEW, isLoopbackUrl, previewUrl, reducePreviewState } from "../../../shared/preview";
+import {
+	clampPreviewZoom,
+	EMPTY_PREVIEW,
+	isLoopbackUrl,
+	previewAddress,
+	previewUrl,
+	reducePreviewState,
+} from "../../../shared/preview";
 import { I18nProvider } from "../../lib/i18n";
 import { detectLocalPreviewUrls, latestBashPreviewUrl } from "../../lib/preview-browser";
 import type { ToolEntry } from "../../stores/tools";
@@ -88,5 +95,24 @@ describe("browser preview", () => {
 			expect(previewUrl(value)).toBeNull();
 		expect(previewUrl("https://example.com")).toBe("https://example.com/");
 		expect(isLoopbackUrl("http://[::1]:3000")).toBe(true);
+	});
+	it("reads the address bar as a URL, a host or a web search", () => {
+		expect(previewAddress("localhost:3000")).toBe("http://localhost:3000/");
+		expect(previewAddress("127.0.0.1:8080/app?x=1")).toBe("http://127.0.0.1:8080/app?x=1");
+		expect(previewAddress("[::1]:5173")).toBe("http://[::1]:5173/");
+		expect(previewAddress("example.com/docs")).toBe("https://example.com/docs");
+		expect(previewAddress("  https://example.org  ")).toBe("https://example.org/");
+		expect(previewAddress("react hooks")).toBe("https://www.google.com/search?q=react%20hooks");
+		expect(previewAddress("javascript:alert(1)")).toBe("https://www.google.com/search?q=javascript%3Aalert(1)");
+		expect(previewAddress("a@b.com")).toBe("https://www.google.com/search?q=a%40b.com");
+		expect(previewAddress("file:///etc/passwd")).toBeNull();
+		expect(previewAddress("http://user:pw@localhost")).toBeNull();
+		expect(previewAddress("   ")).toBeNull();
+	});
+	it("keeps zoom on 10 % steps inside 50–200 %", () => {
+		expect(clampPreviewZoom(1.1 + 0.1)).toBe(1.2);
+		expect(clampPreviewZoom(0.3)).toBe(0.5);
+		expect(clampPreviewZoom(5)).toBe(2);
+		expect(clampPreviewZoom(Number.NaN)).toBe(1);
 	});
 });

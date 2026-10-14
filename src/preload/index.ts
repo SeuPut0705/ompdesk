@@ -54,7 +54,7 @@ import type {
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import type { ModelSetupRequest, ModelSetupStatus } from "../shared/model-setup";
-import { PREVIEW_COMMAND, PREVIEW_STATE, type PreviewState } from "../shared/preview";
+import { PREVIEW_COMMAND, PREVIEW_SAVE_PDF, PREVIEW_STATE, type PreviewState } from "../shared/preview";
 import { createSessionRpcClient, timeoutForCommand } from "../shared/rpc-client";
 import type {
 	AgentSessionEvent,
@@ -125,6 +125,7 @@ const api: OmpApi = {
 	preview: {
 		command: request => ipcRenderer.invoke(PREVIEW_COMMAND, request),
 		onState: callback => subscribe<PreviewState>(PREVIEW_STATE, callback),
+		savePdf: () => ipcRenderer.invoke(PREVIEW_SAVE_PDF),
 	},
 	schedules: {
 		command: request => ipcRenderer.invoke(SCHEDULES_COMMAND, request),

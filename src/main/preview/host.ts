@@ -1,19 +1,28 @@
 import { randomUUID } from "node:crypto";
-import { BrowserWindow, ipcMain, session, shell, WebContentsView } from "electron";
+import { writeFile } from "node:fs/promises";
+import * as path from "node:path";
+import { app, BrowserWindow, dialog, ipcMain, session, shell, WebContentsView } from "electron";
 import {
+	clampPreviewZoom,
 	EMPTY_PREVIEW,
 	isLoopbackUrl,
 	PREVIEW_COMMAND,
+	PREVIEW_PROBLEM_LIMIT,
+	PREVIEW_SAVE_PDF,
 	PREVIEW_STATE,
+	PREVIEW_VIEWPORTS,
+	type PreviewBounds,
 	type PreviewRequest,
 	type PreviewState,
 	previewUrl,
 } from "../../shared/preview";
 import { PreviewRelayExtension, relayExtensionUrl } from "./agent-relay";
-import { applyPreviewLayout } from "./layout";
+import { applyPreviewLayout, fitPreviewFrame, MIN_FRAME_SCALE } from "./layout";
 
-/** Activity marks reach the panel at most this often while the agent works. */
+/** Activity marks and console problems reach the panel at most this often. */
 const AGENT_ACTIVITY_MS = 250;
+/** Longest console message kept per problem. */
+const PROBLEM_TEXT_MAX = 2000;
 
 interface AgentLink {
 	socket: WebSocket;
@@ -24,7 +33,13 @@ interface PreviewHost {
 	view: WebContentsView;
 	state: PreviewState;
 	agent: AgentLink | null;
+	/** The panel's last surface box, kept to re-fit the page when the viewport frame changes. */
+	layout: { bounds: PreviewBounds; visible: boolean } | null;
+	/** Zoom factor last given to the page (user zoom × frame fit). */
+	factor: number;
 	publish: (patch?: Partial<PreviewState>) => void;
+	/** Size the page to the panel and the chosen frame, and zoom it. */
+	place: () => void;
 }
 
 /**
@@ -58,7 +73,6 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 			const isolated = session.fromPartition(`preview-${randomUUID()}`);
 			isolated.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 			isolated.setPermissionCheckHandler(() => false);
-			isolated.on("will-download", event => event.preventDefault());
 			const view = new WebContentsView({
 				webPreferences: {
 					session: isolated,
@@ -76,6 +90,8 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 				view,
 				state: { ...EMPTY_PREVIEW },
 				agent: null,
+				layout: null,
+				factor: 1,
 				publish: (patch = {}) => {
 					created.state = {
 						...created.state,
@@ -88,11 +104,47 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 					};
 					if (!event.sender.isDestroyed()) event.sender.send(PREVIEW_STATE, created.state);
 				},
+				place: () => {
+					if (!created.layout) return;
+					const [width, height] = win.getContentSize();
+					const fitted = fitPreviewFrame(created.layout.bounds, PREVIEW_VIEWPORTS[created.state.viewport]);
+					applyPreviewLayout(view, fitted.bounds, created.layout.visible, { width, height });
+					const factor = Math.max(MIN_FRAME_SCALE, created.state.zoom * fitted.scale);
+					if (factor !== created.factor || contents.getZoomFactor() !== factor) {
+						created.factor = factor;
+						contents.setZoomFactor(factor);
+					}
+				},
 			};
 			host = created;
 			hosts.set(event.sender.id, created);
 			const publish = created.publish;
 			const pageUpdated = () => created.agent?.extension.pageUpdated();
+			// The partition stays download-free; the user may hand the file to the system browser instead.
+			isolated.on("will-download", (download, item) => {
+				download.preventDefault();
+				const url = previewUrl(item.getURL());
+				if (url && !(isRemote(event.sender.id) && isLoopbackUrl(url)))
+					publish({ notice: { kind: "download", url, filename: item.getFilename() } });
+			});
+			let problemsPending: NodeJS.Timeout | undefined;
+			contents.on("console-message", ({ level, message, lineNumber, sourceId }) => {
+				if (level !== "error" && level !== "warning") return;
+				const problem = { level, message: message.slice(0, PROBLEM_TEXT_MAX), source: sourceId, line: lineNumber };
+				created.state = {
+					...created.state,
+					problems: [...created.state.problems, problem].slice(-PREVIEW_PROBLEM_LIMIT),
+				};
+				if (problemsPending) return;
+				problemsPending = setTimeout(() => {
+					problemsPending = undefined;
+					if (!contents.isDestroyed()) publish();
+				}, AGENT_ACTIVITY_MS);
+			});
+			contents.on("unresponsive", () => publish({ notice: { kind: "unresponsive" } }));
+			contents.on("responsive", () => {
+				if (created.state.notice?.kind === "unresponsive") publish({ notice: null });
+			});
 			contents.setWindowOpenHandler(({ url }) => {
 				const safe = previewUrl(url);
 				if (safe && !(isRemote(event.sender.id) && isLoopbackUrl(safe))) void shell.openExternal(safe);
@@ -104,10 +156,12 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 			contents.on("will-frame-navigate", details => guard(details, details.url));
 			contents.on("will-redirect", guard);
 			contents.on("will-attach-webview", event => event.preventDefault());
-			contents.on("did-start-loading", () => publish({ error: null }));
+			contents.on("did-start-loading", () => publish({ error: null, crashed: false }));
 			contents.on("did-stop-loading", () => publish());
 			contents.on("did-navigate", () => {
-				publish();
+				// Chromium keeps zoom per origin; the user's level follows the page across origins.
+				created.place();
+				publish({ problems: [] });
 				pageUpdated();
 			});
 			contents.on("did-navigate-in-page", () => {
@@ -123,7 +177,7 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 			});
 			contents.on("render-process-gone", () => {
 				view.setVisible(false);
-				publish({ error: "Preview renderer stopped", loading: false });
+				publish({ crashed: true, loading: false, notice: null });
 			});
 			win.once("closed", () => {
 				stopAgent(created);
@@ -199,9 +253,20 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 			return host.state;
 		}
 		if (request.action === "layout") {
-			const [width, height] = win.getContentSize();
-			applyPreviewLayout(view, request.bounds, request.visible, { width, height });
-		} else if (request.action === "load") {
+			host.layout = { bounds: request.bounds, visible: request.visible };
+			host.place();
+		} else if (request.action === "zoom") {
+			host.state = { ...host.state, zoom: clampPreviewZoom(request.zoom) };
+			host.place();
+			host.publish();
+		} else if (request.action === "viewport") {
+			if (!Object.hasOwn(PREVIEW_VIEWPORTS, request.viewport)) throw new Error("Unknown preview viewport");
+			host.state = { ...host.state, viewport: request.viewport };
+			host.place();
+			host.publish();
+		} else if (request.action === "clearProblems") host.publish({ problems: [] });
+		else if (request.action === "dismissNotice") host.publish({ notice: null });
+		else if (request.action === "load") {
 			const url = previewUrl(request.url);
 			if (!url || (isRemote(event.sender.id) && isLoopbackUrl(url))) throw new Error("Preview URL unavailable");
 			host.state = { ...host.state, url, title: "", loading: true, error: null };
@@ -215,5 +280,26 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 		else if (request.action === "reload") view.webContents.reload();
 		else if (request.action === "stop") view.webContents.stop();
 		return host.state;
+	});
+	ipcMain.handle(PREVIEW_SAVE_PDF, async event => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		const host = hosts.get(event.sender.id);
+		if (!win || win.webContents !== event.sender) throw new Error("Invalid preview owner");
+		if (!host?.state.url || host.state.crashed) throw new Error("No page to save");
+		const contents = host.view.webContents;
+		const name =
+			contents
+				.getTitle()
+				.replace(/[\\/:*?"<>|]+/g, " ")
+				.replace(/\p{Cc}+/gu, " ")
+				.trim()
+				.slice(0, 100) || "page";
+		const choice = await dialog.showSaveDialog(win, {
+			defaultPath: path.join(app.getPath("downloads"), `${name}.pdf`),
+			filters: [{ name: "PDF", extensions: ["pdf"] }],
+		});
+		if (choice.canceled || !choice.filePath) return null;
+		await writeFile(choice.filePath, await contents.printToPDF({ printBackground: true }));
+		return choice.filePath;
 	});
 }
