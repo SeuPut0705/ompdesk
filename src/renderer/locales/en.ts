@@ -224,6 +224,7 @@ export const en: Record<string, string> = {
 	"input.thinking.level.xhigh": "Very deep reasoning — slower and costlier.",
 	"input.thinking.level.max": "Maximum reasoning effort.",
 	"input.fast.on": "Fast mode on",
+	"input.slow.on": "Slow mode on",
 	"input.send": "Send",
 	"input.abort": "Stop",
 	"input.steer": "Steer",
@@ -304,6 +305,10 @@ export const en: Record<string, string> = {
 	"input.runSettings.fast": "Fast mode",
 	"input.runSettings.fastDesc": "Use the model's faster service tier when it has one.",
 	"input.runSettings.fastInactive": "Not on this model",
+	"input.runSettings.slow": "Slow mode",
+	"input.runSettings.slowDescSession": "Use the model's flex tier in this session: lower cost, slower replies.",
+	"input.runSettings.slowDescGlobal":
+		"At your Claude session limit, keep going at low priority. Applies to every session.",
 	"input.runSettings.advanced": "Advanced",
 	"input.runSettings.modelRoles": "Model roles",
 	"input.runSettings.failed": "Couldn't change the setting",
@@ -505,6 +510,8 @@ export const en: Record<string, string> = {
 	"cmd.thinking.cycle.desc": "Switch to the next thinking level",
 	"cmd.fast": "Fast mode",
 	"cmd.fast.desc": "Toggle priority service tier",
+	"cmd.slow": "Slow mode",
+	"cmd.slow.desc": "Toggle the flex tier, or low priority at the usage limit",
 	"cmd.prewalk": "Prewalk",
 	"cmd.prewalk.desc": "Switch to fast model at next edit/write",
 	"cmd.advisor": "Advisor",
@@ -684,6 +691,16 @@ export const en: Record<string, string> = {
 	"cmd.checkUpdates.desc": "Look for a newer OMPdesk",
 	"cmd.copy": "Copy from session",
 	"cmd.copy.desc": "Pick text or code to copy",
+	"cmd.open": "Open last link",
+	"cmd.open.desc": "Open the conversation's newest link in your browser",
+	"cmd.open.usage": "Usage: /open [link]. To pick a specific link, use /copy.",
+	"cmd.open.none": "No link to open.",
+	"cmd.open.opening": "Opening {href}",
+	"cmd.collab.desc": "Share this session live through a relay",
+	"cmd.join.desc": "Join a live session from its link",
+	"cmd.leave.desc": "Leave a live session, or stop sharing",
+	"cmd.record.desc": "Record the terminal screen",
+	"cmd.cleanse.desc": "Find and fix project diagnostics with parallel agents",
 	"cmd.hotkeys": "Keyboard shortcuts",
 	"cmd.hotkeys.desc": "Show all shortcuts",
 	"cmd.extensions": "Extensions",
@@ -719,6 +736,16 @@ export const en: Record<string, string> = {
 
 	// Unavailable reason
 	"unavailable.tuiOnly": "Only available in the omp terminal app for now",
+	"unavailable.collab": "Live collaboration (/collab, /join, /leave) works only in the omp terminal app.",
+	"unavailable.record": "/record records the terminal screen, so it works only in the omp terminal.",
+	"unavailable.cleanse": "/cleanse runs its board in a terminal. Run `omp cleanse` there.",
+
+	// Steering a running subagent (Agents › Live, sidebar subagent sheet)
+	"subagent.steer.label": "Message to {name}",
+	"subagent.steer.placeholder": "Steer this agent…",
+	"subagent.steer.send": "Send",
+	"subagent.steer.sent": "Sent to {name}.",
+	"subagent.steer.failed": "Couldn't steer the agent",
 
 	// Insights › Usage (+ shared usage figures)
 	"usage.noApi": "None of your providers reports quotas. This session's tokens and cost are under Stats.",
@@ -1771,6 +1798,7 @@ export const en: Record<string, string> = {
 	"approval.noArgs": "No arguments to preview.",
 	"approval.waiting": "The agent waits until you decide.",
 	"approval.deny": "Deny",
+	"approval.waitedFor": "Waiting {time}",
 	"approval.approve": "Approve",
 	"approval.unknownTool": "unknown tool",
 
@@ -1789,6 +1817,8 @@ export const en: Record<string, string> = {
 	"extDialog.editor.hintSubmit": "Submit",
 	"extDialog.editor.hintNewline": "New line",
 
+	"extDialog.waiting": "+{count} waiting",
+	"extDialog.status": "Extension status",
 	// Session picker dialog
 	"sessionPicker.searchLabel": "Search sessions",
 	"sessionPicker.placeholder": "Search sessions…",

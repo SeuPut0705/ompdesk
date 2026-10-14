@@ -36,7 +36,7 @@ export interface ToastInput {
 	/** Raw technical cause, kept available under the localized message (see lib/error-detail). */
 	detail?: string;
 	action?: ToastAction;
-	/** Auto-dismiss delay in ms (default 5000). */
+	/** Auto-dismiss delay in ms (default 5000); `Infinity` keeps the toast until the user dismisses it. */
 	durationMs?: number;
 }
 
@@ -94,7 +94,14 @@ export const useToastStore = create<ToastStore>()(set => ({
 				count: 1,
 			};
 			resultId = entry.id;
-			return { toasts: [...state.toasts, entry].slice(-8) };
+			const toasts = [...state.toasts, entry];
+			// Cap the stack at 8, dropping the oldest timed toast first: one that
+			// waits for a dismissal must not vanish because newer notices arrived.
+			while (toasts.length > 8) {
+				const timed = toasts.findIndex(item => Number.isFinite(item.expiresAt));
+				toasts.splice(timed >= 0 ? timed : 0, 1);
+			}
+			return { toasts };
 		});
 		return resultId;
 	},

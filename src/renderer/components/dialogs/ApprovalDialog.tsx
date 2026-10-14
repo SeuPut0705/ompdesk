@@ -7,11 +7,12 @@
  */
 
 import { ShieldAlert } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { formatElapsed } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { APPROVAL_TITLE_PREFIX, type ApprovalSelect } from "../../stores/extension-ui";
 import { Badge, type BadgeVariant } from "../common";
-import { ChoiceList, PromptCard } from "./PromptCard";
+import { ChoiceList, PromptCard, TimeoutFooter } from "./PromptCard";
 
 export type ApprovalResponse = { value: string } | { confirmed: boolean } | { cancelled: true };
 
@@ -50,12 +51,34 @@ function tierFor(toolName: string): { key: string; variant: BadgeVariant } {
 	return { key: "approval.tier.exec", variant: "error" };
 }
 
+/** How long the agent has waited on this approval, counted from its arrival (queued time included). */
+function WaitedFor({ since }: { since: number }) {
+	const t = useT();
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		const timer = setInterval(() => setNow(Date.now()), 1000);
+		return () => clearInterval(timer);
+	}, []);
+	const elapsed = formatElapsed(now - since);
+	if (!elapsed) return null;
+	return (
+		<span className="text-sc-xs tabular-nums text-(--sc-text-muted)" data-approval-waited>
+			{t("approval.waitedFor", { time: elapsed })}
+		</span>
+	);
+}
+
 export function ApprovalDialog({
 	request,
 	onRespond,
+	remaining,
+	arrivedAt,
 }: {
 	request: ApprovalSelect;
 	onRespond: (response: ApprovalResponse) => void;
+	/** Milliseconds before omp stops waiting; null without a timeout. */
+	remaining: number | null;
+	arrivedAt: number | undefined;
 }) {
 	const t = useT();
 	const { toolName, body } = useMemo(() => {
@@ -71,7 +94,15 @@ export function ApprovalDialog({
 
 	return (
 		<PromptCard
-			footer={<span className="text-sc-xs text-(--sc-text-muted)">{t("approval.waiting")}</span>}
+			footer={
+				<>
+					<span className="text-sc-xs text-(--sc-text-muted)">{t("approval.waiting")}</span>
+					<span className="flex items-center gap-3">
+						{arrivedAt !== undefined && <WaitedFor since={arrivedAt} />}
+						<TimeoutFooter remaining={remaining} />
+					</span>
+				</>
+			}
 			headerAside={
 				<Badge dot variant={tier.variant}>
 					{t(tier.key)}

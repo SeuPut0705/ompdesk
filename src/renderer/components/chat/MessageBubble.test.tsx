@@ -165,6 +165,52 @@ describe("MessageBubble tool messages", () => {
 	});
 });
 
+describe("MessageBubble user executions", () => {
+	it.each([
+		["bashExecution", { command: "sleep 60" }, "abort_bash"],
+		["pythonExecution", { code: "while True: pass" }, "abort_eval"],
+	] as const)("Cancel on a running %s stops it with %s", async (role, input, expected) => {
+		const sent: string[] = [];
+		// linkedom's window has no preload bridge; the card reaches its rpc through `window.omp`.
+		const ompWindow: { omp?: unknown } = window;
+		ompWindow.omp = {
+			rpc: {
+				abortBash: async () => {
+					sent.push("abort_bash");
+					return { type: "response", command: "abort_bash", success: true };
+				},
+				abortEval: async () => {
+					sent.push("abort_eval");
+					return { type: "response", command: "abort_eval", success: true };
+				},
+			},
+		};
+		const message = { role, ...input, running: true, timestamp: "2026-10-14T12:00:00.000Z" } as AgentMessage;
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		try {
+			await act(async () =>
+				root.render(
+					<I18nProvider>
+						<MessageBubble message={message} />
+					</I18nProvider>,
+				),
+			);
+			const cancel = Array.from(container.querySelectorAll("button")).find(button =>
+				button.textContent?.includes("Cancel"),
+			);
+			if (!cancel) throw new Error("running execution has no Cancel");
+			await act(async () => cancel.dispatchEvent(new Event("click", { bubbles: true, cancelable: true })));
+			expect(sent).toEqual([expected]);
+		} finally {
+			await act(async () => root.unmount());
+			container.remove();
+			delete ompWindow.omp;
+		}
+	});
+});
+
 describe("MessageBubble user content", () => {
 	it("shows an assistant reaction on the user bubble", () => {
 		const html = renderToStaticMarkup(

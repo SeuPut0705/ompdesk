@@ -222,6 +222,7 @@ export const ko: Record<string, string> = {
 	"input.thinking.level.xhigh": "매우 깊은 사고 — 더 느리고 비용이 커요.",
 	"input.thinking.level.max": "사고를 최대한 깊게 해요.",
 	"input.fast.on": "빠른 모드 켜짐",
+	"input.slow.on": "느린 모드 켜짐",
 	"input.send": "보내기",
 	"input.abort": "중단",
 	"input.steer": "방향 조정",
@@ -301,6 +302,9 @@ export const ko: Record<string, string> = {
 	"input.runSettings.fast": "빠른 모드",
 	"input.runSettings.fastDesc": "모델이 지원하면 더 빠른 처리 등급을 사용해요.",
 	"input.runSettings.fastInactive": "이 모델은 미지원",
+	"input.runSettings.slow": "느린 모드",
+	"input.runSettings.slowDescSession": "이 세션에서 모델의 flex 등급을 써요. 비용은 낮고 응답은 느려요.",
+	"input.runSettings.slowDescGlobal": "Claude 세션 한도에 닿으면 낮은 우선순위로 계속해요. 모든 세션에 적용돼요.",
 	"input.runSettings.advanced": "고급",
 	"input.runSettings.modelRoles": "모델 역할 설정",
 	"input.runSettings.failed": "설정을 바꾸지 못했어요",
@@ -500,6 +504,8 @@ export const ko: Record<string, string> = {
 	"cmd.thinking.cycle.desc": "사고 수준을 차례로 바꾸기",
 	"cmd.fast": "빠른 모드",
 	"cmd.fast.desc": "우선 서비스 티어 전환",
+	"cmd.slow": "느린 모드",
+	"cmd.slow.desc": "flex 등급, 또는 한도 도달 시 낮은 우선순위 전환",
 	"cmd.prewalk": "사전 탐색",
 	"cmd.prewalk.desc": "다음 편집/쓰기 시 빠른 모델로 전환",
 	"cmd.advisor": "어드바이저",
@@ -680,6 +686,16 @@ export const ko: Record<string, string> = {
 	"cmd.checkUpdates.desc": "새 OMPdesk 버전 확인",
 	"cmd.copy": "세션에서 복사",
 	"cmd.copy.desc": "복사할 텍스트나 코드 선택",
+	"cmd.open": "마지막 링크 열기",
+	"cmd.open.desc": "대화의 가장 최근 링크를 브라우저에서 열기",
+	"cmd.open.usage": "사용법: /open [link]. 특정 링크를 고르려면 /copy를 써요.",
+	"cmd.open.none": "열 링크가 없어요.",
+	"cmd.open.opening": "{href} 링크를 열고 있어요",
+	"cmd.collab.desc": "릴레이로 이 세션을 실시간 공유",
+	"cmd.join.desc": "링크로 실시간 세션에 참여",
+	"cmd.leave.desc": "실시간 세션에서 나가거나 공유 중지",
+	"cmd.record.desc": "터미널 화면 녹화",
+	"cmd.cleanse.desc": "병렬 에이전트로 프로젝트 진단을 찾아 고치기",
 	"cmd.hotkeys": "키보드 단축키",
 	"cmd.hotkeys.desc": "모든 단축키 보기",
 	"cmd.extensions": "확장",
@@ -715,6 +731,16 @@ export const ko: Record<string, string> = {
 
 	// Unavailable reason
 	"unavailable.tuiOnly": "지금은 omp 터미널 앱에서만 사용할 수 있어요",
+	"unavailable.collab": "실시간 협업(/collab, /join, /leave)은 omp 터미널 앱에서만 쓸 수 있어요.",
+	"unavailable.record": "/record는 터미널 화면을 녹화해서 omp 터미널에서만 쓸 수 있어요.",
+	"unavailable.cleanse": "/cleanse는 터미널 보드에서 실행돼요. 터미널에서 `omp cleanse`를 실행해 주세요.",
+
+	// Steering a running subagent (Agents › Live, sidebar subagent sheet)
+	"subagent.steer.label": "{name}에게 보낼 메시지",
+	"subagent.steer.placeholder": "이 에이전트에게 방향 지시하기…",
+	"subagent.steer.send": "보내기",
+	"subagent.steer.sent": "{name}에게 보냈어요.",
+	"subagent.steer.failed": "에이전트에게 지시하지 못했어요",
 
 	// Insights › Usage (+ shared usage figures)
 	"usage.noApi": "할당량을 알려 주는 프로바이더가 없어요. 이 세션의 토큰과 비용은 통계에서 볼 수 있어요.",
@@ -1760,6 +1786,7 @@ export const ko: Record<string, string> = {
 	"approval.noArgs": "미리 볼 인수가 없어요.",
 	"approval.waiting": "결정할 때까지 에이전트가 기다려요.",
 	"approval.deny": "거부",
+	"approval.waitedFor": "{time}째 기다리는 중",
 	"approval.approve": "승인",
 	"approval.unknownTool": "알 수 없는 도구",
 
@@ -1778,6 +1805,8 @@ export const ko: Record<string, string> = {
 	"extDialog.editor.hintSubmit": "제출",
 	"extDialog.editor.hintNewline": "줄바꿈",
 
+	"extDialog.waiting": "+{count}개 대기 중",
+	"extDialog.status": "확장 상태",
 	// Session picker dialog
 	"sessionPicker.searchLabel": "세션 검색",
 	"sessionPicker.placeholder": "세션 검색…",

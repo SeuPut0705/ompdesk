@@ -22,6 +22,11 @@ export interface ModelStore {
 	availableThinkingLevels: ThinkingLevel[];
 	fastModeEnabled: boolean;
 	fastModeActive: boolean;
+	/** Stock `/slow` applies to the active model (flex tier on OpenAI/Google, low priority on Claude subscriptions). */
+	slowModeSupported: boolean;
+	slowModeEnabled: boolean;
+	/** `global` (persisted config, e.g. Claude low priority) or `session` (this session's flex tier). */
+	slowModeScope: "session" | "global" | undefined;
 	tokensPerSecond: number | null;
 	availableModels: ModelInfo[];
 	/** Configured providers with auth state and model counts, from the same
@@ -45,6 +50,8 @@ export interface ModelStore {
 	/** Toggle fast mode via RPC and apply the returned {enabled, active} (fixes
 	 * call sites that fired setFastMode and ignored the response, desyncing the store). */
 	toggleFastMode: () => Promise<void>;
+	/** Stock `set_slow_mode`; applies the returned `enabled`. */
+	toggleSlowMode: () => Promise<void>;
 	reset: () => void;
 }
 
@@ -56,6 +63,9 @@ const SELECTION_KEYS = [
 	"availableThinkingLevels",
 	"fastModeEnabled",
 	"fastModeActive",
+	"slowModeSupported",
+	"slowModeEnabled",
+	"slowModeScope",
 ] as const satisfies readonly (keyof ModelStore)[];
 
 export type ModelSelection = Pick<ModelStore, (typeof SELECTION_KEYS)[number]>;
@@ -69,6 +79,9 @@ export function snapshotModelSelection(state: RpcSessionState): ModelSelection {
 		availableThinkingLevels: state.availableThinkingLevels ?? [],
 		fastModeEnabled: state.fastModeEnabled,
 		fastModeActive: state.fastModeActive,
+		slowModeSupported: state.slowModeSupported ?? false,
+		slowModeEnabled: state.slowModeEnabled ?? false,
+		slowModeScope: state.slowModeScope,
 	};
 }
 
@@ -94,6 +107,9 @@ const initialState = {
 	availableThinkingLevels: [] as ThinkingLevel[],
 	fastModeEnabled: false,
 	fastModeActive: false,
+	slowModeSupported: false,
+	slowModeEnabled: false,
+	slowModeScope: undefined as "session" | "global" | undefined,
 	tokensPerSecond: null as number | null,
 	availableModels: [] as ModelInfo[],
 	providers: [] as ProviderInfo[],
@@ -177,6 +193,15 @@ export const createModelStore = (command: TabCommand = activeTabCommand) =>
 					set({ fastModeEnabled: data?.enabled ?? false, fastModeActive: data?.active ?? false });
 				} else {
 					toastError({ title: translate("model.fastMode"), error: res });
+				}
+			},
+			toggleSlowMode: async () => {
+				const res = await command({ type: "set_slow_mode", enabled: !get().slowModeEnabled });
+				if (res.success) {
+					const data = res.data as { enabled?: boolean } | undefined;
+					set({ slowModeEnabled: data?.enabled ?? false });
+				} else {
+					toastError({ title: translate("input.runSettings.slow"), error: res });
 				}
 			},
 			reset: () => set(initialState),

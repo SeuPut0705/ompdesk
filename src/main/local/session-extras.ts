@@ -44,6 +44,8 @@ export const handlers: Record<string, LocalHandler> = {
 	// Stock stats cover the active context; `history` adds whole-journal totals for the title bar and usage window.
 	get_session_stats: async (_command, ctx) => {
 		const [stats, history] = await Promise.all([
+	get_last_link: async (_command, ctx) => ctx.bridge.request("composer.last_link"),
+
 			ctx.send<SessionStats>({ type: "get_session_stats" }),
 			ctx.bridge.request<SessionStats["history"]>("sessions.usage_history"),
 		]);

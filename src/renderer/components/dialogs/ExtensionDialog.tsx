@@ -3,13 +3,14 @@
  * as a non-modal card docked above the composer (select / confirm / input /
  * editor / open_url / ask), routes tool-approval selects to ApprovalDialog,
  * turns `notify` into a toast, and enforces request timeouts with a visible
- * countdown.
+ * countdown. Stock answers one dialog at a time; the rest wait in the queue
+ * and the card says how many follow.
  *
- * `setStatus` / `setWidget` are captured by the extension-ui store and
- * surfaced here as floating status segments / widget panels.
- * `setTitle` / `set_editor_text` / `cancel` are consumed by the store /
- * event router and never render here; if one slips into the queue it is
- * dropped silently.
+ * `setStatus` / `setWidget` / `setTitle` are captured by the extension-ui
+ * store: widgets render above or under the input box by their placement,
+ * status texts as one line under it (where stock's TUI status line sits), and
+ * the title per tab through the window title. `set_editor_text` / `cancel`
+ * are consumed here or by the store and never render.
  */
 
 import {
@@ -22,9 +23,13 @@ import {
 	SquarePen,
 	TextCursorInput,
 } from "lucide-react";
-import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Fragment, type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { ExtensionAskDialogResult, ExtensionUIRequest } from "../../../shared/rpc-types";
+import type {
+	ExtensionAskDialogResult,
+	ExtensionAskDialogResultItem,
+	ExtensionUIRequest,
+} from "../../../shared/rpc-types";
 import { useExtensionUiResponder } from "../../hooks/use-extension-ui";
 import { AnsiText } from "../../lib/ansi";
 import { cx } from "../../lib/format";
@@ -39,93 +44,144 @@ import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { Badge, Button, Input, Kbd, TextArea } from "../common";
 import { ApprovalDialog } from "./ApprovalDialog";
-import { useAskDock } from "./ask-dock";
-import { ChoiceList, PromptCard } from "./PromptCard";
+import { useAskDock, useBelowEditorDock } from "./ask-dock";
+import { ChoiceList, PromptCard, PromptQueueContext, TimeoutFooter } from "./PromptCard";
 
 /** Requests handled elsewhere (store/router) — never rendered as dialogs. */
 const NON_DIALOG_METHODS = new Set(["notify", "setStatus", "setWidget", "setTitle", "set_editor_text", "cancel"]);
 
-/**
- * Floating surface for extension-pushed widgets. Transient `setStatus` text is
- * intentionally not rendered: the GUI has no status line, and floating pills
- * obscure composer controls. The `next-prompt` widget is the composer's
- * placeholder (InputArea), not a panel.
- */
-function ExtensionSurfaces() {
-	const dock = useAskDock();
-	const widgetPanels = useExtensionUiStore(state => state.widgetPanels);
-	const widgets = Object.entries(widgetPanels).filter(([key]) => key !== NEXT_PROMPT_WIDGET);
-	if (widgets.length === 0) return null;
-	const surface = (
+function WidgetPanel({ name, lines }: { name: string; lines: string[] }) {
+	return (
 		<div
-			className={cx(
-				"pointer-events-none flex max-h-[40vh] flex-col gap-1.5 overflow-y-auto",
-				dock ? "mb-2" : "fixed bottom-9 left-1/2 z-40 w-[min(560px,92vw)] -translate-x-1/2",
-			)}
+			aria-label={name}
+			className="pointer-events-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) px-3 py-2 shadow-(--sc-shadow-md)"
+			role="region"
 		>
-			{widgets.map(([key, lines]) => (
+			<div className="mb-1 text-sc-xs font-medium text-(--sc-text-muted)">{name}</div>
+			{lines.map((line, index) => (
 				<div
-					aria-label={key}
-					className="pointer-events-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) px-3 py-2 shadow-(--sc-shadow-md)"
-					key={key}
-					role="region"
+					className="font-mono text-sc-xs leading-snug break-words whitespace-pre-wrap text-(--sc-text)"
+					key={index}
 				>
-					<div className="mb-1 text-sc-xs font-medium text-(--sc-text-muted)">{key}</div>
-					{lines.map((line, index) => (
-						<div
-							className="font-mono text-sc-xs leading-snug break-words whitespace-pre-wrap text-(--sc-text)"
-							key={index}
-						>
-							{line === "" ? "\u00A0" : <AnsiText text={line} />}
-						</div>
-					))}
+					{line === "" ? "\u00A0" : <AnsiText text={line} />}
 				</div>
 			))}
 		</div>
 	);
-	return dock ? createPortal(surface, dock) : surface;
 }
 
-function useCountdown(request: ExtensionUIRequest | null): number | null {
-	const requestId = request?.id ?? null;
-	const timeout =
-		request && request.method === "select"
-			? request.timeout
-			: request && request.method === "confirm"
-				? request.timeout
-				: request && (request.method === "input" || request.method === "ask")
-					? request.timeout
-					: undefined;
-	// Remaining time is derived PER REQUEST at render: a state-only countdown
-	// leaked the previous request's last value (0ms) into the next commit,
-	// whose auto-cancel effect then answered the new request as timed out
-	// before the reset could render.
-	const [, setTick] = useState(0);
-	const startedAtRef = useRef<{ id: string | null; at: number }>({ id: null, at: 0 });
-	if (startedAtRef.current.id !== requestId) {
-		startedAtRef.current = { id: requestId, at: Date.now() };
-	}
-	const startedAt = startedAtRef.current.at;
+/**
+ * Stock's status line (pi-tui status-line `hookStatuses`): every `setStatus`
+ * text, ordered by key, on one row joined by dots, with runs of whitespace
+ * collapsed like stock's `sanitizeStatusText`. SGR colors stay (AnsiText).
+ */
+function ExtensionStatusLine({ statuses }: { statuses: Record<string, string> }) {
+	const t = useT();
+	const texts = Object.keys(statuses)
+		.sort((a, b) => a.localeCompare(b))
+		.map(key => (statuses[key] ?? "").replace(/\s+/g, " ").trim())
+		.filter(text => text !== "");
+	if (texts.length === 0) return null;
+	return (
+		<div
+			aria-label={t("extDialog.status")}
+			className="flex min-w-0 items-center gap-1.5 overflow-hidden px-3 pt-1.5 text-sc-xs whitespace-nowrap text-(--sc-text-muted)"
+			data-extension-status
+			role="group"
+		>
+			{texts.map((text, index) => (
+				<Fragment key={index}>
+					{index > 0 && (
+						<span aria-hidden className="text-(--sc-text-subtle)">
+							·
+						</span>
+					)}
+					<span className="min-w-0 truncate">
+						<AnsiText text={text} />
+					</span>
+				</Fragment>
+			))}
+		</div>
+	);
+}
 
+/**
+ * Extension-pushed widgets and status texts, where stock's TUI draws them:
+ * above-editor widgets in the dock above the composer, below-editor widgets
+ * and the status line under the input box. The `next-prompt` widget is the
+ * composer's placeholder (InputArea), not a panel. Without a mounted composer
+ * (Settings open) widgets float at the bottom and the status line waits.
+ */
+function ExtensionSurfaces() {
+	const above = useAskDock();
+	const below = useBelowEditorDock();
+	const widgetPanels = useExtensionUiStore(state => state.widgetPanels);
+	const placements = useExtensionUiStore(state => state.widgetPlacements);
+	const statuses = useExtensionUiStore(state => state.statusWidgets);
+	const widgets = Object.entries(widgetPanels).filter(([key]) => key !== NEXT_PROMPT_WIDGET);
+	const belowWidgets = below ? widgets.filter(([key]) => placements[key] === "belowEditor") : [];
+	const aboveWidgets = below ? widgets.filter(([key]) => placements[key] !== "belowEditor") : widgets;
+	const aboveSurface =
+		aboveWidgets.length === 0 ? null : (
+			<div
+				className={cx(
+					"pointer-events-none flex max-h-[40vh] flex-col gap-1.5 overflow-y-auto",
+					above ? "mb-2" : "fixed bottom-9 left-1/2 z-40 w-[min(560px,92vw)] -translate-x-1/2",
+				)}
+			>
+				{aboveWidgets.map(([key, lines]) => (
+					<WidgetPanel key={key} lines={lines} name={key} />
+				))}
+			</div>
+		);
+	const belowSurface = below
+		? createPortal(
+				<>
+					{belowWidgets.length > 0 && (
+						<div className="mt-2 flex max-h-[30vh] flex-col gap-1.5 overflow-y-auto">
+							{belowWidgets.map(([key, lines]) => (
+								<WidgetPanel key={key} lines={lines} name={key} />
+							))}
+						</div>
+					)}
+					<ExtensionStatusLine statuses={statuses} />
+				</>,
+				below,
+			)
+		: null;
+	return (
+		<>
+			{aboveSurface && above ? createPortal(aboveSurface, above) : aboveSurface}
+			{belowSurface}
+		</>
+	);
+}
+
+/**
+ * Milliseconds left before stock gives up on the request. Stock starts the
+ * timer when it sends the request, so the countdown runs from its arrival,
+ * not from when the card got its turn on screen.
+ */
+function useCountdown(request: ExtensionUIRequest | null, arrivedAt: number | undefined): number | null {
+	const timeout =
+		request &&
+		(request.method === "select" ||
+			request.method === "confirm" ||
+			request.method === "input" ||
+			request.method === "ask")
+			? request.timeout
+			: undefined;
+	const [, setTick] = useState(0);
 	useEffect(() => {
 		if (timeout === undefined) return;
 		const timer = setInterval(() => setTick(v => v + 1), 200);
 		return () => clearInterval(timer);
 	}, [timeout]);
-
+	// Derived per request at render: a state-held countdown leaked the previous
+	// request's last value (0 ms) into the next commit, whose auto-cancel effect
+	// then answered the new request as timed out.
 	if (timeout === undefined) return null;
-	const remaining = Math.max(0, timeout - (Date.now() - startedAt));
-	return remaining;
-}
-
-function TimeoutFooter({ remaining }: { remaining: number | null }) {
-	const t = useT();
-	if (remaining === null) return null;
-	return (
-		<span className="text-sc-xs tabular-nums text-(--sc-text-muted)">
-			{t("extDialog.autoDismiss", { seconds: Math.ceil(remaining / 1000) })}
-		</span>
-	);
+	return Math.max(0, timeout - (Date.now() - (arrivedAt ?? Date.now())));
 }
 
 /** First line names the prompt; any following lines are its body. */
@@ -192,7 +248,14 @@ function ConfirmDialog({
 	const t = useT();
 	return (
 		<PromptCard
-			footer={remaining !== null ? <TimeoutFooter remaining={remaining} /> : undefined}
+			footer={
+				<>
+					<TimeoutFooter remaining={remaining} />
+					<Button className="ml-auto" onClick={onCancel} size="sm" variant="ghost">
+						{t("common.cancel")}
+					</Button>
+				</>
+			}
 			icon={ShieldQuestion}
 			label={request.title}
 			onCancel={onCancel}
@@ -516,7 +579,12 @@ function looksLikeJson(text: string): boolean {
 	return (trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"));
 }
 
-/** Multi-line answer: Cmd/Ctrl+Enter submits, Enter adds a newline, Escape cancels. */
+/**
+ * Multi-line answer: Cmd/Ctrl+Enter submits, Enter adds a newline, Escape
+ * cancels. With `promptStyle` (stock's one-line prompt editor, pi-tui
+ * hook-editor) Enter submits and Shift+Enter adds the newline; Cmd/Ctrl+Enter
+ * still submits.
+ */
 function EditorDialog({
 	request,
 	onValue,
@@ -530,6 +598,7 @@ function EditorDialog({
 	const tabId = useRuntimeTabId();
 	const fieldRef = useRef<HTMLTextAreaElement>(null);
 	const prefill = request.prefill ?? "";
+	const promptStyle = request.promptStyle === true;
 	const { label, body } = splitTitle(request.title);
 	useEffect(() => {
 		if (tabId && useTabsStore.getState().activeTabId !== tabId) return;
@@ -537,7 +606,9 @@ function EditorDialog({
 	}, [tabId]);
 	const submit = () => onValue(fieldRef.current?.value ?? "");
 	const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-		if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || isImeKeyEvent(event.nativeEvent)) return;
+		if (event.key !== "Enter" || isImeKeyEvent(event.nativeEvent)) return;
+		const submits = event.metaKey || event.ctrlKey || (promptStyle && !event.shiftKey);
+		if (!submits) return;
 		event.preventDefault();
 		submit();
 	};
@@ -547,11 +618,11 @@ function EditorDialog({
 				<>
 					<span className="flex items-center gap-3 text-sc-xs text-(--sc-text-muted)">
 						<span className="flex items-center gap-1.5">
-							<Kbd shortcut="⌘↵" />
+							<Kbd shortcut={promptStyle ? "↵" : "⌘↵"} />
 							{t("extDialog.editor.hintSubmit")}
 						</span>
 						<span className="flex items-center gap-1.5">
-							<Kbd shortcut="↵" />
+							<Kbd shortcut={promptStyle ? "⇧↵" : "↵"} />
 							{t("extDialog.editor.hintNewline")}
 						</span>
 					</span>
@@ -578,7 +649,7 @@ function EditorDialog({
 				mono={looksLikeJson(prefill)}
 				onKeyDown={onKeyDown}
 				ref={fieldRef}
-				rows={4}
+				rows={promptStyle ? 1 : 4}
 				spellCheck={false}
 			/>
 		</PromptCard>
@@ -635,7 +706,40 @@ function OpenUrlDialog({
 	);
 }
 
-function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; remaining: number | null }) {
+/**
+ * One `ask` answer as the rpc wire carries it. The wire has only
+ * `selectedOptions` and `customInput` (stock rpc-mode `parseAskDialogResponse`),
+ * so a note rides in `customInput`, worded like stock's own ask result
+ * (`formatQuestionResult`'s ` (note: …)` suffix). Stock rejects a
+ * single-select answer that carries both an option and text, so there the
+ * picked option moves into the text with the note.
+ */
+function askWireAnswer(item: ExtensionAskDialogResultItem): {
+	id: string;
+	selectedOptions: string[];
+	customInput?: string;
+} {
+	const note = item.note?.trim() ?? "";
+	if (note === "") return { id: item.id, selectedOptions: item.selectedOptions, customInput: item.customInput };
+	const custom = item.customInput?.trim() ?? "";
+	const foldOption = !item.multi && custom === "" && item.selectedOptions.length > 0;
+	const base = foldOption ? (item.selectedOptions[0] ?? "") : custom;
+	return {
+		id: item.id,
+		selectedOptions: foldOption ? [] : item.selectedOptions,
+		customInput: base === "" ? `(note: ${note})` : `${base} (note: ${note})`,
+	};
+}
+
+function ActiveDialog({
+	request,
+	remaining,
+	arrivedAt,
+}: {
+	request: ExtensionUIRequest;
+	remaining: number | null;
+	arrivedAt: number | undefined;
+}) {
 	const sendResponse = useExtensionUiResponder();
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
 
@@ -654,7 +758,7 @@ function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; rem
 	switch (request.method) {
 		case "select":
 			return isApprovalRequest(request) ? (
-				<ApprovalDialog onRespond={respond} request={request} />
+				<ApprovalDialog arrivedAt={arrivedAt} onRespond={respond} remaining={remaining} request={request} />
 			) : (
 				<SelectDialog
 					onCancel={cancel}
@@ -694,15 +798,7 @@ function ActiveDialog({ request, remaining }: { request: ExtensionUIRequest; rem
 					onCancel={cancel}
 					onSubmit={result =>
 						respond(
-							result.kind === "submit"
-								? {
-										answers: result.results.map(item => ({
-											id: item.id,
-											selectedOptions: item.selectedOptions,
-											customInput: item.customInput,
-										})),
-									}
-								: { cancelled: true },
+							result.kind === "submit" ? { answers: result.results.map(askWireAnswer) } : { cancelled: true },
 						)
 					}
 					remaining={remaining}
@@ -732,29 +828,32 @@ export function ExtensionDialog() {
 	const sendResponse = useExtensionUiResponder();
 	const tabId = useRuntimeTabId();
 	const pending = useExtensionUiStore(state => state.pendingRequests);
+	const arrivals = useExtensionUiStore(state => state.arrivedAt);
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
 	const inlineLogin = useExtensionUiStore(state => state.inlineLogin);
 
-	const request = useMemo(
-		() =>
-			pending.find(req => !NON_DIALOG_METHODS.has(req.method) && !(inlineLogin && isInlineLoginRequest(req))) ??
-			null,
+	const dialogs = useMemo(
+		() => pending.filter(req => !NON_DIALOG_METHODS.has(req.method) && !(inlineLogin && isInlineLoginRequest(req))),
 		[pending, inlineLogin],
 	);
-	const remaining = useCountdown(request);
+	const request = dialogs[0] ?? null;
+	const arrivedAt = request ? arrivals[request.id] : undefined;
+	const remaining = useCountdown(request, arrivedAt);
 
-	// Consume non-dialog requests in place. Editor/title mutations must target
-	// real GUI surfaces directly; dispatching listenerless events drops them.
+	// Consume non-dialog requests in place. Editor mutations must target real
+	// GUI surfaces directly; dispatching listenerless events drops them.
 	useEffect(() => {
 		for (const req of pending) {
 			if (req.method === "notify") {
 				// Suppress xdev mount notifications — they are startup-time
 				// informational messages that don't need user attention.
 				if (!req.message.startsWith("xd://: mounted")) {
+					const variant = req.notifyType ?? "info";
+					// Stock's TUI keeps an error in the transcript; here it stays until dismissed.
 					toast({
-						variant: req.notifyType ?? "info",
+						variant,
 						message: req.message,
-						durationMs: 6000,
+						durationMs: variant === "error" ? Number.POSITIVE_INFINITY : 6000,
 					});
 				}
 				removeRequest(req.id);
@@ -764,9 +863,6 @@ export function ExtensionDialog() {
 						detail: { text: req.text, images: req.images, prepend: req.prepend, tabId },
 					}),
 				);
-				removeRequest(req.id);
-			} else if (req.method === "setTitle") {
-				if (!tabId || useTabsStore.getState().activeTabId === tabId) document.title = req.title;
 				removeRequest(req.id);
 			} else if (NON_DIALOG_METHODS.has(req.method)) {
 				removeRequest(req.id);
@@ -789,7 +885,11 @@ export function ExtensionDialog() {
 	return (
 		<>
 			<ExtensionSurfaces />
-			{request && <ActiveDialog remaining={remaining} request={request} />}
+			{request && (
+				<PromptQueueContext.Provider value={dialogs.length - 1}>
+					<ActiveDialog arrivedAt={arrivedAt} remaining={remaining} request={request} />
+				</PromptQueueContext.Provider>
+			)}
 		</>
 	);
 }

@@ -123,7 +123,12 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		],
 		modules: {
 			"@oh-my-pi/pi-agent-core": ["agentPauseGate.paused", "agentPauseGate.pausedAt"],
-			"@oh-my-pi/pi-tui/overlays/copy-targets": ["extractBlocks()", "commandFromToolCall()", "assistantText()"],
+			"@oh-my-pi/pi-tui/overlays/copy-targets": [
+				"extractBlocks()",
+				"commandFromToolCall()",
+				"assistantText()",
+				"extractLastLink()",
+			],
 			[`${AGENT}/utils/tool-choice`]: ["buildNamedToolChoice()"],
 			[`${AGENT}/internal-urls/local-protocol`]: ["resolveLocalRoot()"],
 			[`${AGENT}/slash-commands/builtin-completions`]: ["buildMcpArgumentCompletions()"],

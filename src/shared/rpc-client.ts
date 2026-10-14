@@ -45,7 +45,10 @@ export interface SessionRpcClient {
 	clearContext(): Promise<RpcResponse>;
 	abortSubagent(agentId: string): Promise<RpcResponse>;
 	reviveSubagent(agentId: string): Promise<RpcResponse>;
+	steerSubagent(subagentId: string, message: string): Promise<RpcResponse>;
 	writeLocalPaste(content: string): Promise<RpcResponse>;
+	/** `local://…` → `{path}` in the session's local root (stock resolution through the bridge). */
+	resolveLocalUrl(url: string): Promise<RpcResponse>;
 	getActiveTools(): Promise<RpcResponse>;
 	setPrewalk(enabled: boolean): Promise<RpcResponse>;
 	fresh(): Promise<RpcResponse>;
@@ -100,6 +103,7 @@ export interface SessionRpcClient {
 	setThinkingLevel(level: ThinkingLevel | "auto"): Promise<RpcResponse>;
 	cycleThinkingLevel(): Promise<RpcResponse>;
 	setFastMode(enabled: boolean): Promise<RpcResponse>;
+	setSlowMode(enabled: boolean): Promise<RpcResponse>;
 	setSteeringMode(mode: "all" | "one-at-a-time"): Promise<RpcResponse>;
 	setFollowUpMode(mode: "all" | "one-at-a-time"): Promise<RpcResponse>;
 	setInterruptMode(mode: "immediate" | "wait"): Promise<RpcResponse>;
@@ -108,11 +112,13 @@ export interface SessionRpcClient {
 	setAutoRetry(enabled: boolean): Promise<RpcResponse>;
 	abortRetry(): Promise<RpcResponse>;
 	bash(command: string, excluded?: boolean): Promise<RpcResponse>;
+	abortBash(): Promise<RpcResponse>;
 	getSessionStats(): Promise<RpcResponse>;
 	setSessionPinned(sessionId: string, pinned: boolean): Promise<RpcResponse>;
 	exportHtml(outputPath?: string): Promise<RpcResponse>;
 	getBranchMessages(): Promise<RpcResponse>;
 	getCopyTargets(): Promise<RpcResponse>;
+	getLastLink(): Promise<RpcResponse>;
 	setSessionName(name: string): Promise<RpcResponse>;
 	setEntryLabel(entryId: string, label?: string): Promise<RpcResponse>;
 	handoff(customInstructions?: string): Promise<RpcResponse>;
@@ -269,6 +275,8 @@ const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
 	// Subagent transcripts also read back every image blob the journal references.
 	get_subagent_messages: 30_000,
 	get_subagent_transcript: 30_000,
+	// Stock answers once the subagent queued the message or started its turn; a parked one is revived first.
+	steer_subagent: 30_000,
 	// Git/gh commands main runs itself: at least main's own answer budget
 	// (src/main/local/git/{worktree,pr}.ts), or the renderer reports a failure
 	// while the worktree, checkout, or PR still lands.
@@ -362,7 +370,9 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		clearContext: () => rpcCommand({ type: "clear_context" }),
 		abortSubagent: agentId => rpcCommand({ type: "abort_subagent", agentId }),
 		reviveSubagent: agentId => rpcCommand({ type: "revive_subagent", agentId }),
+		steerSubagent: (subagentId, message) => rpcCommand({ type: "steer_subagent", subagentId, message }),
 		writeLocalPaste: content => rpcCommand({ type: "write_local_paste", content }),
+		resolveLocalUrl: url => rpcCommand({ type: "resolve_local_url", url }),
 		getActiveTools: () => rpcCommand({ type: "get_active_tools" }),
 		setPrewalk: enabled => rpcCommand({ type: "set_prewalk", enabled }),
 		fresh: () => rpcCommand({ type: "fresh" }),
@@ -410,6 +420,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		setThinkingLevel: level => rpcCommand({ type: "set_thinking_level", level }),
 		cycleThinkingLevel: () => rpcCommand({ type: "cycle_thinking_level" }),
 		setFastMode: enabled => rpcCommand({ type: "set_fast_mode", enabled }),
+		setSlowMode: enabled => rpcCommand({ type: "set_slow_mode", enabled }),
 		setSteeringMode: mode => rpcCommand({ type: "set_steering_mode", mode }),
 		setFollowUpMode: mode => rpcCommand({ type: "set_follow_up_mode", mode }),
 		setInterruptMode: mode => rpcCommand({ type: "set_interrupt_mode", mode }),
@@ -418,11 +429,13 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		setAutoRetry: enabled => rpcCommand({ type: "set_auto_retry", enabled }),
 		abortRetry: () => rpcCommand({ type: "abort_retry" }),
 		bash: (command, excluded) => rpcCommand({ type: "bash", command, excluded }),
+		abortBash: () => rpcCommand({ type: "abort_bash" }),
 		getSessionStats: () => rpcCommand({ type: "get_session_stats" }),
 		setSessionPinned: (sessionId, pinned) => rpcCommand({ type: "set_session_pinned", sessionId, pinned }),
 		exportHtml: outputPath => rpcCommand({ type: "export_html", outputPath }),
 		getBranchMessages: () => rpcCommand({ type: "get_branch_messages" }),
 		getCopyTargets: () => rpcCommand({ type: "get_copy_targets" }),
+		getLastLink: () => rpcCommand({ type: "get_last_link" }),
 		setSessionName: name => rpcCommand({ type: "set_session_name", name }),
 		setEntryLabel: (entryId, label) => rpcCommand({ type: "set_entry_label", entryId, label }),
 		handoff: customInstructions => rpcCommand({ type: "handoff", customInstructions }),

@@ -702,6 +702,21 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		},
 	});
 	add({
+		name: "slow",
+		label: t("cmd.slow"),
+		description: t("cmd.slow.desc"),
+		category: "model",
+		affordance: {
+			kind: "toggle",
+			get: () => useModelStore.getState().slowModeEnabled,
+			set: e =>
+				runSessionCommand(boundRpc.setSlowMode(e), t("cmd.slow"), data => {
+					const d = data as { enabled?: boolean } | undefined;
+					useModelStore.setState({ slowModeEnabled: d?.enabled ?? e });
+				}),
+		},
+	});
+	add({
 		name: "prewalk",
 		label: t("cmd.prewalk"),
 		description: t("cmd.prewalk.desc"),
@@ -1514,6 +1529,50 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		affordance: { kind: "window", open: () => useUiStore.getState().openLive() },
 	});
 	add({
+		name: "open",
+		label: t("cmd.open"),
+		description: t("cmd.open.desc"),
+		category: "session",
+		affordance: {
+			kind: "action",
+			// Stock `/open [link]` (builtin-collaboration.ts) opens the newest
+			// http(s) link of an assistant message; stock's extractor runs in the bridge.
+			run: async args => {
+				const arg = args?.trim().toLowerCase() ?? "";
+				if (arg && arg !== "link" && arg !== "url") {
+					toast({ variant: "info", message: translate("cmd.open.usage") });
+					return;
+				}
+				const response = await boundRpc.getLastLink();
+				if (!response.success) throw new Error(response.error);
+				const href = (response.data as { href?: string | null } | undefined)?.href;
+				if (!href) {
+					toast({ variant: "info", message: translate("cmd.open.none") });
+					return;
+				}
+				await window.omp.system.openExternal(href);
+				toast({ variant: "info", message: translate("cmd.open.opening", { href }) });
+			},
+		},
+	});
+	// Stock serves these only in its terminal UI (a `handleTui` without `handle`),
+	// so RPC would hand the text to the model. Say where they run instead.
+	for (const [name, reason] of [
+		["collab", "unavailable.collab"],
+		["join", "unavailable.collab"],
+		["leave", "unavailable.collab"],
+		["record", "unavailable.record"],
+		["cleanse", "unavailable.cleanse"],
+	] as const) {
+		add({
+			name,
+			label: `/${name}`,
+			description: t(`cmd.${name}.desc`),
+			category: "other",
+			affordance: { kind: "unavailable", reason: t(reason) },
+		});
+	}
+	add({
 		name: "pause",
 		label: t("cmd.pause"),
 		description: t("cmd.pause.desc"),
@@ -1876,16 +1935,18 @@ export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): 
 /**
  * Stock omp's `get_available_commands` lists only its own builtins, not the
  * modes and windows the GUI serves itself (/plan, /loop, /goal, /btw, /tan,
- * /settings, …). Append those as GUI-only builtins so slash completion offers
- * them and composer submit runs their affordance instead of sending the text
- * to the model.
+ * /settings, …) nor its terminal-only commands (/collab, /record, …). Append
+ * those as GUI-only builtins so slash completion offers them and composer
+ * submit runs their affordance (or says where they run) instead of sending
+ * the text to the model.
  */
 export function withGuiCommands(stock: AvailableCommand[]): AvailableCommand[] {
 	const advertised = new Set(stock.flatMap(command => [command.name, ...(command.aliases ?? [])]));
 	const gui: AvailableCommand[] = [];
 	for (const item of buildCurrentCommandMenu(stock)) {
 		const kind = item.affordance.kind;
-		if (kind !== "action" && kind !== "toggle" && kind !== "picker" && kind !== "window") continue;
+		if (kind !== "action" && kind !== "toggle" && kind !== "picker" && kind !== "window" && kind !== "unavailable")
+			continue;
 		if (advertised.has(item.name) || item.aliases?.some(alias => advertised.has(alias))) continue;
 		gui.push({
 			name: item.name,

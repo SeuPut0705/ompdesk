@@ -2,10 +2,11 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { ExtensionUIResponse } from "../../../shared/rpc-types";
+import type { ExtensionUIRequest, ExtensionUIResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useExtensionUiStore } from "../../stores/extension-ui";
-import { AskDockSlot } from "./ask-dock";
+import { useToastStore } from "../../stores/toast";
+import { AskDockSlot, BelowEditorDockSlot } from "./ask-dock";
 import { ExtensionDialog } from "./ExtensionDialog";
 
 const { document, window, Event, CustomEvent, HTMLElement, HTMLTextAreaElement, Node } =
@@ -79,10 +80,18 @@ async function mount({ withComposerDock = false }: { withComposerDock?: boolean 
 		root.render(
 			<I18nProvider>
 				{withComposerDock && <AskDockSlot />}
+				{withComposerDock && <BelowEditorDockSlot />}
 				<ExtensionDialog />
 			</I18nProvider>,
 		);
 	});
+}
+
+async function push(...requests: ExtensionUIRequest[]): Promise<void> {
+	await act(async () => {
+		for (const request of requests) useExtensionUiStore.getState().pushRequest(request);
+	});
+	await flush();
 }
 
 function buttonWithText(text: string): TestElement | undefined {
@@ -124,6 +133,8 @@ afterEach(async () => {
 	}
 	container?.remove();
 	useExtensionUiStore.getState().clearAll();
+	useToastStore.setState({ toasts: [] });
+	vi.useRealTimers();
 	vi.restoreAllMocks();
 	document.title = "";
 });
@@ -274,6 +285,82 @@ describe("ExtensionDialog ask", () => {
 			],
 		});
 	});
+
+	it.each([
+		{
+			name: "a single-select pick",
+			multi: false,
+			pick: "Production",
+			custom: "",
+			expected: { selectedOptions: [], customInput: "Production (note: after the freeze)" },
+		},
+		{
+			name: "a multi-select pick",
+			multi: true,
+			pick: "Production",
+			custom: "",
+			expected: { selectedOptions: ["Production"], customInput: "(note: after the freeze)" },
+		},
+		{
+			name: "a custom answer",
+			multi: false,
+			pick: null,
+			custom: "Canary",
+			expected: { selectedOptions: [], customInput: "Canary (note: after the freeze)" },
+		},
+	])(
+		"folds the note into customInput for $name, the only free text the wire carries",
+		async ({ multi, pick, custom, expected }) => {
+			await mount({ withComposerDock: true });
+			await push({
+				type: "extension_ui_request",
+				id: "ask-note",
+				method: "ask",
+				questions: [
+					{ id: "env", question: "Where?", multi, options: [{ label: "Staging" }, { label: "Production" }] },
+				],
+			});
+			const card = dockedCard() as TestElement & Element;
+			if (pick) {
+				const option = buttonWithText(pick);
+				if (!option) throw new Error(`missing ${pick}`);
+				await click(option);
+			}
+			// React's value tracker ignores linkedom input events; call the field's onChange the way ForceToolDialog.test does.
+			const typeInto = async (field: HTMLInputElement, value: string) => {
+				field.value = value;
+				const record: Record<string, unknown> = Object(field);
+				const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+				const props = propsKey ? (record[propsKey] as { onChange?: (event: object) => void }) : undefined;
+				await act(async () => props?.onChange?.({ target: field, currentTarget: field }));
+			};
+			if (custom) {
+				const customField = card.querySelector(
+					'input[aria-label="Custom answer (optional)"]',
+				) as unknown as HTMLInputElement | null;
+				if (!customField) throw new Error("missing custom field");
+				await typeInto(customField, custom);
+			}
+			const addNote = buttonWithText("Add a note");
+			if (!addNote) throw new Error("missing Add a note");
+			await click(addNote);
+			const noteField = card.querySelector(
+				'input[aria-label="Add a note (optional)"]',
+			) as unknown as HTMLInputElement | null;
+			if (!noteField) throw new Error("missing note field");
+			await typeInto(noteField, "after the freeze");
+			const form = card.querySelector("form") as unknown as TestElement;
+			await act(async () => {
+				form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+			});
+			await flush();
+			expect(respondExtensionUi).toHaveBeenCalledWith({
+				type: "extension_ui_response",
+				id: "ask-note",
+				answers: [{ id: "env", ...expected }],
+			});
+		},
+	);
 });
 
 describe("ExtensionDialog docked prompts", () => {
@@ -302,6 +389,83 @@ describe("ExtensionDialog docked prompts", () => {
 			id: "confirm-1",
 			confirmed: true,
 		});
+	});
+
+	it("offers a visible Cancel on a confirm", async () => {
+		await mount({ withComposerDock: true });
+		await push({
+			type: "extension_ui_request",
+			id: "confirm-cancel",
+			method: "confirm",
+			title: "Deploy to staging?",
+			message: "",
+		});
+		const cancel = buttonWithText("Cancel");
+		if (!cancel) throw new Error("confirm has no visible Cancel");
+		await click(cancel);
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "confirm-cancel",
+			cancelled: true,
+		});
+	});
+
+	it("shows one prompt at a time with a +N waiting badge, then the next one", async () => {
+		await mount({ withComposerDock: true });
+		await push(
+			{ type: "extension_ui_request", id: "c1", method: "confirm", title: "First?", message: "" },
+			{ type: "extension_ui_request", id: "c2", method: "confirm", title: "Second?", message: "" },
+			{ type: "extension_ui_request", id: "s1", method: "setStatus", statusKey: "k", statusText: "busy" },
+			{ type: "extension_ui_request", id: "c3", method: "confirm", title: "Third?", message: "" },
+		);
+		expect(document.querySelectorAll("[data-prompt-card]")).toHaveLength(1);
+		expect(dockedCard().textContent).toContain("First?");
+		expect(document.querySelector("[data-prompt-waiting]")?.textContent).toBe("+2 waiting");
+		await press(dockedCard(), "1");
+		expect(dockedCard().textContent).toContain("Second?");
+		expect(document.querySelector("[data-prompt-waiting]")?.textContent).toBe("+1 waiting");
+		await press(dockedCard(), "2");
+		expect(dockedCard().textContent).toContain("Third?");
+		expect(document.querySelector("[data-prompt-waiting]")).toBeNull();
+	});
+
+	it("counts a queued request's timeout from its arrival, like stock's timer", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+		await mount({ withComposerDock: true });
+		await push(
+			{ type: "extension_ui_request", id: "first", method: "confirm", title: "First?", message: "" },
+			{
+				type: "extension_ui_request",
+				id: "queued",
+				method: "confirm",
+				title: "Queued?",
+				message: "",
+				timeout: 10_000,
+			},
+		);
+		vi.setSystemTime(new Date("2026-10-14T12:00:04Z"));
+		await press(dockedCard(), "1");
+		expect(dockedCard().textContent).toContain("Queued?");
+		expect(document.querySelector("[data-prompt-countdown]")?.textContent).toBe("auto-dismiss in 6s");
+	});
+
+	it("shows an approval's countdown and how long the agent has waited on it", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+		// Arrived while the tab was in the background: the card shows up 12 s later.
+		useExtensionUiStore.getState().pushRequest({
+			type: "extension_ui_request",
+			id: "approval-timed",
+			method: "select",
+			title: "Allow tool: bash\nls",
+			options: ["Approve", "Deny"],
+			timeout: 30_000,
+		});
+		vi.setSystemTime(new Date("2026-10-14T12:00:12Z"));
+		await mount({ withComposerDock: true });
+		expect(document.querySelector("[data-prompt-countdown]")?.textContent).toBe("auto-dismiss in 18s");
+		expect(document.querySelector("[data-approval-waited]")?.textContent).toBe("Waiting 12s");
 	});
 
 	it("keeps the full approval operation visible, never focuses Approve, and Escape denies", async () => {
@@ -453,6 +617,35 @@ describe("ExtensionDialog editor", () => {
 			cancelled: true,
 		});
 	});
+
+	it("with promptStyle, Enter submits and Shift+Enter keeps the newline, like stock's prompt editor", async () => {
+		await mount({ withComposerDock: true });
+		await push({
+			type: "extension_ui_request",
+			id: "editor-prompt",
+			method: "editor",
+			title: "Goal objective",
+			promptStyle: true,
+		});
+		const field = document.querySelector(
+			".omp-ask-dock [data-prompt-card] textarea",
+		) as unknown as HTMLTextAreaElement;
+		field.value = "ship it";
+		const shiftEnter = new Event("keydown", { bubbles: true, cancelable: true });
+		Object.assign(shiftEnter, { key: "Enter", shiftKey: true, metaKey: false, ctrlKey: false, altKey: false });
+		await act(async () => {
+			(field as unknown as TestElement).dispatchEvent(shiftEnter);
+		});
+		expect(shiftEnter.defaultPrevented).toBe(false);
+		expect(respondExtensionUi).not.toHaveBeenCalled();
+		expect(Array.from(document.querySelectorAll("kbd")).map(kbd => kbd.textContent)).toContain("↵");
+		await press(field, "Enter");
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "editor-prompt",
+			value: "ship it",
+		});
+	});
 });
 
 describe("ExtensionDialog open_url", () => {
@@ -498,31 +691,71 @@ describe("ExtensionDialog open_url", () => {
 });
 
 describe("ExtensionDialog non-dialog mutations", () => {
-	it("hides transient extension status and renders widget ANSI without control codes", async () => {
-		await mount();
-		await act(async () => {
-			useExtensionUiStore.getState().pushRequest({
+	it("shows extension status under the input box, key-sorted on one line, without control codes", async () => {
+		await mount({ withComposerDock: true });
+		await push(
+			{
 				type: "extension_ui_request",
 				id: "status-ansi",
 				method: "setStatus",
 				statusKey: "mode",
 				statusText: "\x1b[38;5;39m●\x1b[39m ponytail: \x1b[1mFULL\x1b[0m",
-			});
-			useExtensionUiStore.getState().pushRequest({
+			},
+			{
+				type: "extension_ui_request",
+				id: "status-a",
+				method: "setStatus",
+				statusKey: "a-index",
+				statusText: "Indexer\nready",
+			},
+		);
+		const line = document.querySelector(".omp-below-editor-dock [data-extension-status]");
+		expect(line?.textContent).toBe("Indexer ready·● ponytail: FULL");
+		expect(document.querySelector(".omp-ask-dock")?.textContent).toBe("");
+
+		await push({ type: "extension_ui_request", id: "status-clear", method: "setStatus", statusKey: "a-index" });
+		expect(document.querySelector("[data-extension-status]")?.textContent).toBe("● ponytail: FULL");
+	});
+
+	it("places widgets above or under the input box by their placement", async () => {
+		await mount({ withComposerDock: true });
+		await push(
+			{
 				type: "extension_ui_request",
 				id: "widget-ansi",
 				method: "setWidget",
 				widgetKey: "progress",
 				widgetLines: ["\x1b[32mPASS\x1b[0m"],
-			});
-		});
-
-		expect(document.body.textContent).not.toContain("ponytail");
-		expect(document.body.textContent).toContain("PASS");
-		expect(document.body.textContent).not.toContain("[32m");
+			},
+			{
+				type: "extension_ui_request",
+				id: "widget-below",
+				method: "setWidget",
+				widgetKey: "hints",
+				widgetLines: ["below the editor"],
+				widgetPlacement: "belowEditor",
+			},
+		);
+		const above = document.querySelector(".omp-ask-dock")?.textContent ?? "";
+		const below = document.querySelector(".omp-below-editor-dock")?.textContent ?? "";
+		expect(above).toContain("PASS");
+		expect(above).not.toContain("[32m");
+		expect(above).not.toContain("below the editor");
+		expect(below).toContain("below the editor");
 	});
 
-	it("fills the composer for set_editor_text and applies extension window titles", async () => {
+	it("keeps an error notification until it is dismissed; other notices expire", async () => {
+		await mount();
+		await push(
+			{ type: "extension_ui_request", id: "n-err", method: "notify", message: "Index failed", notifyType: "error" },
+			{ type: "extension_ui_request", id: "n-info", method: "notify", message: "Indexed", notifyType: "info" },
+		);
+		const toasts = useToastStore.getState().toasts;
+		expect(toasts.find(toast => toast.message === "Index failed")?.expiresAt).toBe(Number.POSITIVE_INFINITY);
+		expect(Number.isFinite(toasts.find(toast => toast.message === "Indexed")?.expiresAt)).toBe(true);
+	});
+
+	it("fills the composer for set_editor_text and keeps the extension title with its tab", async () => {
 		await mount();
 		let editorDetail: { text?: string; images?: unknown[]; prepend?: boolean } | undefined;
 		window.addEventListener(
@@ -533,23 +766,17 @@ describe("ExtensionDialog non-dialog mutations", () => {
 			{ once: true },
 		);
 
-		await act(async () => {
-			useExtensionUiStore.getState().pushRequest({
+		await push(
+			{
 				type: "extension_ui_request",
 				id: "editor-1",
 				method: "set_editor_text",
 				text: "restored draft",
 				images: [{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" }],
 				prepend: true,
-			});
-			useExtensionUiStore.getState().pushRequest({
-				type: "extension_ui_request",
-				id: "title-1",
-				method: "setTitle",
-				title: "Extension task",
-			});
-		});
-		await flush();
+			},
+			{ type: "extension_ui_request", id: "title-1", method: "setTitle", title: "Extension task" },
+		);
 
 		expect(editorDetail).toEqual({
 			text: "restored draft",
@@ -557,7 +784,8 @@ describe("ExtensionDialog non-dialog mutations", () => {
 			prepend: true,
 			tabId: null,
 		});
-		expect(document.title).toBe("Extension task");
+		// The title lives in the tab's store; the focused tab's title names the window (App).
+		expect(useExtensionUiStore.getState().title).toBe("Extension task");
 		expect(useExtensionUiStore.getState().pendingRequests).toEqual([]);
 	});
 });

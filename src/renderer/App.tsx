@@ -65,6 +65,7 @@ import {
 } from "./lib/themes";
 import { startVoiceAutoSpeak } from "./lib/voice";
 import { selectFocusedTabProject } from "./lib/workspace-dirs";
+import { useExtensionUiStore } from "./stores/extension-ui";
 import { openHandoffDialog } from "./stores/fork-handoff";
 import { useModelStore } from "./stores/model";
 import { useRemoteStateSync } from "./stores/remote";
@@ -93,6 +94,9 @@ function FocusedSessionEffects() {
 	const titleRunState = useDisplayPreference("titleState");
 	const titleStreaming = useSessionStore(s => s.isStreaming);
 	const titleSessionName = useSessionStore(s => s.sessionName);
+	// An extension's `setTitle` (stock rpc `PI_RPC_EMIT_TITLE`) names the window
+	// while its tab is in front; each tab keeps its own.
+	const titleExtension = useExtensionUiStore(s => s.title);
 	const titleAwaiting = useAwaitedInput();
 	const progressEnabled = useDisplayPreference("showProgress");
 	const progressStreaming = useSessionStore(s => s.isStreaming);
@@ -101,9 +105,9 @@ function FocusedSessionEffects() {
 	const colorBlindMode = useUiStore(s => s.colorBlindMode);
 
 	useEffect(() => {
-		const name = titleSessionName ?? "OMPdesk";
+		const name = titleExtension ?? titleSessionName ?? "OMPdesk";
 		document.title = !titleRunState ? name : titleAwaiting ? `! ${name}` : titleStreaming ? `● ${name}` : `› ${name}`;
-	}, [titleRunState, titleAwaiting, titleStreaming, titleSessionName]);
+	}, [titleRunState, titleAwaiting, titleStreaming, titleSessionName, titleExtension]);
 	useEffect(() => startVoiceAutoSpeak(), []);
 	useEffect(() => {
 		const state: RunProgressState = !progressEnabled

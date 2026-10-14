@@ -307,5 +307,15 @@ export const methods: BridgeMethods = {
 				}),
 			};
 		},
+		/** `/open`: stock's TUI command opens the newest http(s) link of an assistant message.
+		 * Late imports for the same reason as `composer.copy_targets`. */
+		"composer.last_link": async (_params, env) => {
+			const stock = await import("@oh-my-pi/pi-tui/overlays/copy-targets");
+			const { buildTranscript } = await import("./session-display");
+			const messages = buildTranscript(env.session().sessionManager).messages as unknown as Parameters<
+				typeof stock.extractLastLink
+			>[0];
+			return { href: stock.extractLastLink(messages)?.href ?? null };
+		},
 	}),
 };

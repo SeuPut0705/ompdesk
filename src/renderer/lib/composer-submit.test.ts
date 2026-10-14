@@ -37,9 +37,11 @@ interface MockOmp {
 		getTranscriptPage: Mock<() => Promise<RpcResponse>>;
 		getSubagents: Mock<() => Promise<RpcResponse>>;
 		setSubagentSubscription: Mock<(level: string) => Promise<RpcResponse>>;
+		getLastLink: Mock<() => Promise<RpcResponse>>;
 	};
 	app: { quit: Mock<() => void> };
 	sessions: { consumePendingOpen: Mock<() => Promise<unknown>> };
+	system: { openExternal: Mock<(url: string) => Promise<void>> };
 }
 
 function installMockOmp(): MockOmp {
@@ -73,9 +75,11 @@ function installMockOmp(): MockOmp {
 			getTranscriptPage: vi.fn(async () => success({ messages: [], totalMessages: 0 })),
 			getSubagents: vi.fn(async () => success({ subagents: [] })),
 			setSubagentSubscription: vi.fn(async () => success({})),
+			getLastLink: vi.fn(async () => success({ href: "https://example.com/report" })),
 		}),
 		sessions: { consumePendingOpen: vi.fn(async () => null) },
 		app: { quit: vi.fn() },
+		system: { openExternal: vi.fn(async () => {}) },
 	};
 	(globalThis as Record<string, unknown>).window = { omp, confirm: vi.fn(() => true), close: vi.fn() };
 	return omp;
@@ -448,6 +452,68 @@ describe("planComposerSubmit GUI-only routing", () => {
 		expect(submit.kind).toBe("blocked");
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();
 		expect(useToastStore.getState().toasts.some(toast => toast.variant === "warning")).toBe(true);
+	});
+
+	it.each([
+		["/collab start", "terminal app"],
+		["/join https://relay.example/s/abc", "terminal app"],
+		["/leave", "terminal app"],
+		["/record", "terminal"],
+		["/cleanse --all", "omp cleanse"],
+	])("keeps %s away from the model and says where it runs", (message, hint) => {
+		const omp = installMockOmp();
+		// Stock lists none of them: they only have a TUI handler.
+		const submit = planComposerSubmit({
+			message,
+			images: [],
+			isStreaming: false,
+			mode: "prompt",
+			commands: withGuiCommands([]),
+		});
+		expect(submit.kind).toBe("blocked");
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+		const warning = useToastStore.getState().toasts.find(toast => toast.variant === "warning");
+		expect(warning?.message).toContain(hint);
+	});
+
+	it("opens the conversation's newest link for typed /open, like stock's TUI command", async () => {
+		const omp = installMockOmp();
+		const submit = planComposerSubmit({
+			message: "/open",
+			images: [],
+			isStreaming: false,
+			mode: "prompt",
+			commands: withGuiCommands([]),
+		});
+		expect(submit.kind).toBe("handled");
+		await vi.waitFor(() => expect(omp.system.openExternal).toHaveBeenCalledWith("https://example.com/report"));
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+		expect(useToastStore.getState().toasts.at(-1)?.message).toContain("https://example.com/report");
+	});
+
+	it("says there is no link for /open when the conversation has none, and rejects other arguments", async () => {
+		const omp = installMockOmp();
+		omp.rpc.getLastLink.mockResolvedValueOnce(success({ href: null }));
+		planComposerSubmit({
+			message: "/open",
+			images: [],
+			isStreaming: false,
+			mode: "prompt",
+			commands: withGuiCommands([]),
+		});
+		await vi.waitFor(() => expect(useToastStore.getState().toasts).toHaveLength(1));
+		expect(useToastStore.getState().toasts[0]?.message).toBe("No link to open.");
+		planComposerSubmit({
+			message: "/open docs",
+			images: [],
+			isStreaming: false,
+			mode: "prompt",
+			commands: withGuiCommands([]),
+		});
+		await vi.waitFor(() => expect(useToastStore.getState().toasts).toHaveLength(2));
+		expect(omp.system.openExternal).not.toHaveBeenCalled();
+		expect(omp.rpc.getLastLink).toHaveBeenCalledTimes(1);
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
 	});
 });
 

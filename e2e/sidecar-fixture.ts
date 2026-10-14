@@ -476,12 +476,20 @@ if (process.argv[2] === "stats") {
 		fastModeEnabled: false,
 		tokensPerSecond: null,
 		fastModeActive: false,
+		slowModeSupported,
+		slowModeEnabled,
+		...(slowModeSupported ? { slowModeScope: "session" } : {}),
 		messageCount: entries.length,
 		systemPrompt: [],
 		dumpTools: [],
 		contextUsage: { tokens: 74_800, contextWindow: 128_000, percent: 58 },
 	});
 	let securityMode = "disabled";
+	/** Stock `/slow` applies to the model only with `OMP_GUI_TEST_SLOW_MODE=1` (other suites keep their Run settings). */
+	const slowModeSupported = process.env.OMP_GUI_TEST_SLOW_MODE === "1";
+	let slowModeEnabled = false;
+	/** A user `!` bash held open by `fixture:hold-bash` until `abort_bash` settles it. */
+	let heldBash: ((data: unknown) => void) | undefined;
 	let streamTimer: Timer | undefined;
 	let streamChunks = 0;
 	let streamTick: (() => void) | undefined;
@@ -976,6 +984,8 @@ if (process.argv[2] === "stats") {
 			model.id = model.id === "local-fixture" ? "local-fixture-alt" : "local-fixture";
 			return { model, thinkingLevel: "medium", isScoped: false };
 		},
+		// `/open`: no assistant link in the fixture transcript (opening one would start the user's browser).
+		"composer.last_link": () => ({ href: null }),
 		"composer.copy_targets": () => ({
 			targets: [
 				{
@@ -3595,6 +3605,52 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					messages: activeBranch()
 						.filter(entry => entry.type === "message" && (entry.message as AgentMessage).role === "user")
 						.map(entry => ({ entryId: entry.id, text: messageText(entry.message as AgentMessage, "") })),
+				// A user `!` bash that runs until stock's `abort_bash` stops it.
+				if (line === "fixture:hold-bash") {
+					heldBash = ok;
+					break;
+				}
+				// Extension UI an rpc-ui host gets at once: status texts, a widget
+				// under the editor, a window title, an error notice, an editor in
+				// prompt style and two confirms queued behind it (the last one timed).
+				if (line === "fixture:ext-ui") {
+					const ui = (request: Record<string, unknown>) =>
+						write({ type: "extension_ui_request", id: `ext-${Date.now()}-${Math.random()}`, ...request });
+					ui({ method: "setStatus", statusKey: "b-tests", statusText: "\x1b[32m✓\x1b[39m 128 tests" });
+					ui({ method: "setStatus", statusKey: "a-index", statusText: "Indexer ready" });
+					ui({
+						method: "setWidget",
+						widgetKey: "review",
+						widgetLines: ["2 files changed since the last review"],
+						widgetPlacement: "belowEditor",
+					});
+					ui({ method: "setTitle", title: "Fixture extension title" });
+					ui({ method: "notify", message: "Fixture index failed to refresh", notifyType: "error" });
+					write({
+						type: "extension_ui_request",
+						id: "ext-editor",
+						method: "editor",
+						title: "Goal objective",
+						promptStyle: true,
+					});
+					write({
+						type: "extension_ui_request",
+						id: "ext-confirm-1",
+						method: "confirm",
+						title: "Deploy to staging?",
+						message: "The agent wants to run the staging deploy script.",
+					});
+					write({
+						type: "extension_ui_request",
+						id: "ext-confirm-2",
+						method: "confirm",
+						title: "Notify the team?",
+						message: "",
+						timeout: 600_000,
+					});
+					ok();
+					break;
+				}
 				});
 				break;
 			case "branch": {
@@ -3636,6 +3692,28 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				}
 				prompt(text("message"), ok);
 				break;
+			case "set_slow_mode":
+				if (!slowModeSupported) {
+					fail("Slow mode is unavailable for the current model.");
+					break;
+				}
+				slowModeEnabled = command.enabled === true;
+				ok({ enabled: slowModeEnabled });
+				break;
+			case "abort_bash":
+				heldBash?.({ output: "held output\n", exitCode: undefined, cancelled: true, truncated: false });
+				heldBash = undefined;
+				ok();
+				break;
+			case "steer_subagent": {
+				const target = subagentRoster.find(agent => agent.id === command.subagentId);
+				if (target?.status !== "running") {
+					fail(`Subagent not running: ${text("subagentId")}`);
+					break;
+				}
+				ok();
+				break;
+			}
 			default:
 				fail(`Fixture does not implement ${type}`);
 		}

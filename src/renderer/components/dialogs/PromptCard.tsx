@@ -9,13 +9,30 @@
  */
 
 import type { LucideIcon } from "lucide-react";
-import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject, useEffect, useRef } from "react";
+import {
+	createContext,
+	type KeyboardEvent as ReactKeyboardEvent,
+	type ReactNode,
+	type RefObject,
+	useContext,
+	useEffect,
+	useRef,
+} from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../../lib/format";
+import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { useSessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
+import { Badge } from "../common";
 import { useAskDock } from "./ask-dock";
+
+/**
+ * How many prompts wait behind the card on screen. Stock answers one dialog at
+ * a time and queues the rest; ExtensionDialog provides the count so the card
+ * says that more follow.
+ */
+export const PromptQueueContext = createContext(0);
 
 function PromptDock({ children }: { children: ReactNode }) {
 	const dock = useAskDock();
@@ -72,6 +89,8 @@ export function PromptCard({
 	children,
 	footer,
 }: PromptCardProps) {
+	const t = useT();
+	const waiting = useContext(PromptQueueContext);
 	const tabId = useSessionRuntime()?.tabId;
 	const focusPane = () => {
 		if (tabId) void useTabsStore.getState().switchTab(tabId);
@@ -108,6 +127,11 @@ export function PromptCard({
 				<div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-2">
 					<Icon aria-hidden className={cx("size-(--sc-icon-md) shrink-0 text-(--sc-accent)", iconClassName)} />
 					<span className="min-w-0 flex-1 truncate text-sc-md font-semibold">{label}</span>
+					{waiting > 0 && (
+						<span className="inline-flex" data-prompt-waiting>
+							<Badge variant="muted">{t("extDialog.waiting", { count: waiting })}</Badge>
+						</span>
+					)}
 					{headerAside}
 				</div>
 				<div className="min-h-0 flex-1 overflow-y-auto px-4 pb-3">{children}</div>
@@ -118,6 +142,17 @@ export function PromptCard({
 				)}
 			</section>
 		</PromptDock>
+	);
+}
+
+/** Seconds left before omp stops waiting for the answer; nothing when the request has no timeout. */
+export function TimeoutFooter({ remaining }: { remaining: number | null }) {
+	const t = useT();
+	if (remaining === null) return null;
+	return (
+		<span className="text-sc-xs tabular-nums text-(--sc-text-muted)" data-prompt-countdown>
+			{t("extDialog.autoDismiss", { seconds: Math.ceil(remaining / 1000) })}
+		</span>
 	);
 }
 

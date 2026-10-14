@@ -27,6 +27,7 @@ export type RpcCommand =
 	| { id?: string; type: "drop_session" }
 	| { id?: string; type: "get_state" }
 	| { id?: string; type: "set_fast_mode"; enabled: boolean }
+	| { id?: string; type: "set_slow_mode"; enabled: boolean }
 	| { id?: string; type: "get_available_commands" }
 	| { id?: string; type: "set_todos"; phases: TodoPhase[] }
 	| { id?: string; type: "set_subagent_subscription"; level: SubagentSubscriptionLevel }
@@ -48,6 +49,8 @@ export type RpcCommand =
 	| { id?: string; type: "set_auto_retry"; enabled: boolean }
 	| { id?: string; type: "abort_retry" }
 	| { id?: string; type: "bash"; command: string; excluded?: boolean }
+	/** Stops the user's running `!` bash (stock `session.abortBash()`); the agent's bash tool is unaffected. */
+	| { id?: string; type: "abort_bash" }
 	| { id?: string; type: "eval"; language?: "python" | "js" | "ruby" | "julia"; code: string; excluded?: boolean }
 	| { id?: string; type: "abort_eval" }
 	| { id?: string; type: "dequeue" }
@@ -148,6 +151,8 @@ export type RpcCommand =
 	| { id?: string; type: "get_transcript" }
 	| { id?: string; type: "get_transcript_page"; cursor?: string; limit?: number; fromEnd?: boolean }
 	| { id?: string; type: "get_copy_targets" }
+	/** The newest http(s) link in an assistant message (stock `extractLastLink`), for `/open`. */
+	| { id?: string; type: "get_last_link" }
 
 	// Plan approval (structured)
 	| {
@@ -234,6 +239,8 @@ export type RpcCommand =
 	| { id?: string; type: "clear_context" }
 	| { id?: string; type: "abort_subagent"; agentId: string }
 	| { id?: string; type: "revive_subagent"; agentId: string }
+	/** Steer a running subagent this session owns (stock RPC `steer_subagent`). */
+	| { id?: string; type: "steer_subagent"; subagentId: string; message: string }
 	/** A settled subagent's transcript from the session's artifacts dir, after stock's registry forgot it (relaunch). */
 	| { id?: string; type: "get_subagent_transcript"; subagentId: string; fromByte?: number }
 	| { id?: string; type: "write_local_paste"; content: string }
@@ -1113,6 +1120,12 @@ export interface RpcSessionState {
 	fastModeEnabled: boolean;
 	fastModeActive: boolean;
 	tokensPerSecond: number | null;
+	/** `/slow` applies to the active model (flex tier on OpenAI/Google, low priority on Claude subscriptions). */
+	slowModeSupported?: boolean;
+	/** `/slow` is on for the active model; always false when unsupported. */
+	slowModeEnabled?: boolean;
+	/** `global` (persisted config, e.g. Claude low priority) or `session` (this session's flex tier). */
+	slowModeScope?: "session" | "global";
 	autoCompactionEnabled: boolean;
 	autoRetryEnabled: boolean;
 	messageCount: number;

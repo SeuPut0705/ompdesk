@@ -1,15 +1,19 @@
 /**
- * Dock for the non-modal `ask` card: InputArea renders an `AskDockSlot` at the
- * top of its composer shell, and ExtensionDialog portals the card into the slot
- * that belongs to the same session runtime (tab). The card then sits in flow
+ * Docks beside the composer. InputArea renders an `AskDockSlot` at the top of
+ * its composer shell and a `BelowEditorDockSlot` under the input box;
+ * ExtensionDialog portals into the slots that belong to the same session
+ * runtime (tab). The ask card and above-editor widgets then sit in flow
  * directly above the composer, matching its width, while the transcript stays
- * visible and scrollable above it.
+ * visible and scrollable above it; the extension status line and below-editor
+ * widgets sit under the input box, where stock's TUI draws them.
  */
 
 import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { useSessionRuntime } from "../../stores/session-runtime-context";
 
-const docks = new Map<string | null, HTMLElement>();
+type DockPlace = "above" | "below";
+
+const docks: Record<DockPlace, Map<string | null, HTMLElement>> = { above: new Map(), below: new Map() };
 const listeners = new Set<() => void>();
 
 function notify(): void {
@@ -19,6 +23,22 @@ function notify(): void {
 function subscribe(listener: () => void): () => void {
 	listeners.add(listener);
 	return () => listeners.delete(listener);
+}
+
+function useDockRegistration(place: DockPlace) {
+	const tabId = useSessionRuntime()?.tabId ?? null;
+	const ref = useRef<HTMLDivElement>(null);
+	useLayoutEffect(() => {
+		const element = ref.current;
+		if (!element) return;
+		docks[place].set(tabId, element);
+		notify();
+		return () => {
+			if (docks[place].get(tabId) === element) docks[place].delete(tabId);
+			notify();
+		};
+	}, [place, tabId]);
+	return ref;
 }
 
 /** Transcript height kept visible above a docked card, so the card never takes the whole pane. */
@@ -48,18 +68,7 @@ function measurePromptRoom(dock: HTMLElement): number | null {
 
 /** Mount point for the ask card; renders nothing visible while empty. */
 export function AskDockSlot() {
-	const tabId = useSessionRuntime()?.tabId ?? null;
-	const ref = useRef<HTMLDivElement>(null);
-	useLayoutEffect(() => {
-		const element = ref.current;
-		if (!element) return;
-		docks.set(tabId, element);
-		notify();
-		return () => {
-			if (docks.get(tabId) === element) docks.delete(tabId);
-			notify();
-		};
-	}, [tabId]);
+	const ref = useDockRegistration("above");
 	useLayoutEffect(() => {
 		const element = ref.current;
 		const pane = element?.closest<HTMLElement>(".omp-session-pane");
@@ -76,12 +85,24 @@ export function AskDockSlot() {
 		observer.observe(region);
 		update();
 		return () => observer.disconnect();
-	}, []);
+	}, [ref]);
 	return <div className="omp-ask-dock" ref={ref} />;
 }
 
-/** The composer dock of the current session runtime, or null when none is mounted. */
+/** Mount point under the input box for the extension status line and below-editor widgets. */
+export function BelowEditorDockSlot() {
+	const ref = useDockRegistration("below");
+	return <div className="omp-below-editor-dock" ref={ref} />;
+}
+
+/** The composer dock above the input box of the current session runtime, or null when none is mounted. */
 export function useAskDock(): HTMLElement | null {
 	const tabId = useSessionRuntime()?.tabId ?? null;
-	return useSyncExternalStore(subscribe, () => docks.get(tabId) ?? null);
+	return useSyncExternalStore(subscribe, () => docks.above.get(tabId) ?? null);
+}
+
+/** The dock under the input box of the current session runtime, or null when none is mounted. */
+export function useBelowEditorDock(): HTMLElement | null {
+	const tabId = useSessionRuntime()?.tabId ?? null;
+	return useSyncExternalStore(subscribe, () => docks.below.get(tabId) ?? null);
 }

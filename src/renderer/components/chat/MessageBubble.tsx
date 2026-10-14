@@ -83,9 +83,9 @@ const CONTEXT_CARD_CLASS =
 function ExecutionBubble({ message }: { message: AgentMessage }) {
 	const t = useT();
 	const rpc = useTabRpc();
-	// Local placeholder appended by the composer while an `$` eval is in flight
-	// (InputArea): offers abortEval; the hydrated transcript record replaces it
-	// on completion, mirroring the bash flow.
+	// Local placeholder appended by the composer while a `!` bash or `$` eval
+	// is in flight (use-composer-submit): Cancel stops it the way stock's Esc
+	// does (abortBash / abortEval); the hydrated transcript record replaces it.
 	const running = message.running === true;
 	const [abortSent, setAbortSent] = useState(false);
 	const python = message.role === "pythonExecution";
@@ -116,7 +116,7 @@ function ExecutionBubble({ message }: { message: AgentMessage }) {
 								disabled={abortSent}
 								onClick={() => {
 									setAbortSent(true);
-									void rpc.abortEval();
+									void (python ? rpc.abortEval() : rpc.abortBash());
 								}}
 								size="sm"
 								variant="ghost"

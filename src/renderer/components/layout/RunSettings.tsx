@@ -13,7 +13,16 @@
  * first and then confirms in a Dialog.
  */
 
-import { ArrowUpRight, Brain, ChevronDown, ChevronRight, ShieldCheck, SlidersHorizontal, Zap } from "lucide-react";
+import {
+	ArrowUpRight,
+	Brain,
+	ChevronDown,
+	ChevronRight,
+	ShieldCheck,
+	SlidersHorizontal,
+	Snail,
+	Zap,
+} from "lucide-react";
 import { useRef, useState } from "react";
 import type { RpcResponse, RpcSessionState } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
@@ -78,6 +87,7 @@ export function RunSettings() {
 	const thinking = useThinkingSelector();
 	const supportsThinking = useModelStore(s => s.availableThinkingLevels.length > 0);
 	const fastEnabled = useModelStore(s => s.fastModeEnabled);
+	const slowEnabled = useModelStore(s => s.slowModeEnabled);
 	const approvalMode = useSettingsStore(s => s.approvalMode);
 	const strictApproval = approvalMode !== "yolo";
 
@@ -85,6 +95,7 @@ export function RunSettings() {
 	const summary = [
 		t("input.runSettings.summaryThinking", { level: thinkingName }),
 		fastEnabled ? t("input.fast.on") : null,
+		slowEnabled ? t("input.slow.on") : null,
 		t("input.approval.title", { mode: t(`input.approval.${approvalMode}`) }),
 	]
 		.filter(Boolean)
@@ -108,6 +119,7 @@ export function RunSettings() {
 				>
 					<span className="omp-composer-control-label">{thinkingName}</span>
 					{fastEnabled && <Zap aria-hidden className="text-(--sc-accent)" />}
+					{slowEnabled && <Snail aria-hidden className="text-(--sc-text-muted)" />}
 					{strictApproval && <ShieldCheck aria-hidden className="text-(--sc-text-muted)" />}
 				</Button>
 			</Tooltip>
@@ -138,6 +150,10 @@ function RunSettingsPanel({ onClose, onRequestFullAccess }: { onClose: () => voi
 	const fastEnabled = useModelStore(s => s.fastModeEnabled);
 	const fastActive = useModelStore(s => s.fastModeActive);
 	const toggleFastMode = useModelStore(s => s.toggleFastMode);
+	const slowSupported = useModelStore(s => s.slowModeSupported);
+	const slowEnabled = useModelStore(s => s.slowModeEnabled);
+	const slowScope = useModelStore(s => s.slowModeScope);
+	const toggleSlowMode = useModelStore(s => s.toggleSlowMode);
 	const autoCompaction = useSettingsStore(s => s.autoCompaction);
 	const autoRetry = useSettingsStore(s => s.autoRetry);
 	const steeringMode = useSettingsStore(s => s.steeringMode);
@@ -173,6 +189,19 @@ function RunSettingsPanel({ onClose, onRequestFullAccess }: { onClose: () => voi
 					onCheckedChange={() => void toggleFastMode()}
 					size="sm"
 				/>
+				{slowSupported && (
+					<SwitchField
+						checked={slowEnabled}
+						className="-mx-2"
+						data-slow-mode
+						description={t(
+							slowScope === "global" ? "input.runSettings.slowDescGlobal" : "input.runSettings.slowDescSession",
+						)}
+						label={t("input.runSettings.slow")}
+						onCheckedChange={() => void toggleSlowMode()}
+						size="sm"
+					/>
+				)}
 				<ApprovalModeField onRequestFullAccess={onRequestFullAccess} />
 			</div>
 			<div className="-mx-3 mt-3 border-t border-(--sc-divider) px-1 pt-1">

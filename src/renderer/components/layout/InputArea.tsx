@@ -60,7 +60,7 @@ import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Tooltip } from "../common";
-import { AskDockSlot } from "../dialogs/ask-dock";
+import { AskDockSlot, BelowEditorDockSlot } from "../dialogs/ask-dock";
 import { ComposerModes } from "./ComposerModes";
 import { ComposerQueue } from "./ComposerQueue";
 import { ContextUsagePopover } from "./ContextUsagePopover";
@@ -1189,6 +1189,7 @@ export function InputArea() {
 						</div>
 					</div>
 				</div>
+				<BelowEditorDockSlot />
 			</div>
 		</div>
 	);
