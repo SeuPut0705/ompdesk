@@ -24,7 +24,7 @@ import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { parseComposerMode } from "../../lib/input-modes";
-import { formatShortcut } from "../../lib/keymap";
+import { formatShortcut, PLATFORM } from "../../lib/keymap";
 import { abortActiveTurn } from "../../lib/messages";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
 import {
@@ -681,8 +681,15 @@ export function InputArea() {
 			toggleExpanded(false);
 			return;
 		}
-		// ⌃J inserts a newline at the caret; ⌃U deletes the selection, or back to the start of the line.
-		if ((e.key === "j" || e.key === "u") && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+		// ⌃J inserts a newline at the caret (macOS: on Windows Ctrl+J toggles the panel);
+		// ⌃U deletes the selection, or back to the start of the line.
+		if (
+			((e.key === "j" && PLATFORM === "mac") || e.key === "u") &&
+			e.ctrlKey &&
+			!e.metaKey &&
+			!e.altKey &&
+			!e.shiftKey
+		) {
 			const el = textareaRef.current;
 			if (!el) return;
 			e.preventDefault();
