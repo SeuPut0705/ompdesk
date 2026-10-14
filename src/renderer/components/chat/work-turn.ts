@@ -15,6 +15,19 @@ export function messageTimestampMs(message: AgentMessage): number {
 	return messageSourceTimestamp(message) ?? 0;
 }
 
+/** pi-tui chat/messages.ts `SILENT_ABORT_MARKER`, and pi-ai `AIError.Flag.SilentAbort`. */
+const SILENT_ABORT_MARKER = "__omp.silent_abort__";
+const SILENT_ABORT_FLAG = 0x0200_0000;
+
+/**
+ * Stock's own abort of a turn it ends on purpose: a plan proposal awaiting approval, a TTSR
+ * rule re-running the step. Never a stop the user made. Kept: the renderer cannot import
+ * stock's `isSilentAbort` (pi-tui chat/messages.ts); silent-abort-stock.test.ts pins it.
+ */
+export function isSilentAbort(message: Pick<AgentMessage, "errorId" | "errorMessage">): boolean {
+	return ((message.errorId ?? 0) & SILENT_ABORT_FLAG) !== 0 || message.errorMessage === SILENT_ABORT_MARKER;
+}
+
 /** The final reply that closes compact work, including an automatic follow-up boundary. */
 export function isWorkReply(message: AgentMessage) {
 	if (message.role !== "assistant") return false;

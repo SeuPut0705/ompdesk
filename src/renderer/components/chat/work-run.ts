@@ -335,6 +335,7 @@ function callTimes(messages: readonly AgentMessage[]): ReadonlyMap<string, CallT
 /**
  * The run's clock from stock message timestamps: its first tool call's message
  * to its last tool result, the same clock the transcript replays after a reload.
+ * A call stock never answered (a run cut off by a quit) still ran from its call.
  * `callIds` are the stock call ids the run owns; `lists` the committed and live
  * messages (each list is indexed once, so lists must not be edited in place).
  */
@@ -350,7 +351,7 @@ export function runSpan(
 			const entry = times.get(id);
 			if (!entry) continue;
 			start = Math.min(start, entry.calledAt);
-			end = Math.max(end, entry.answeredAt);
+			end = Math.max(end, entry.answeredAt, Number.isFinite(entry.calledAt) ? entry.calledAt : 0);
 		}
 	}
 	if (!Number.isFinite(start)) return { spanMs: 0 };

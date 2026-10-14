@@ -243,7 +243,16 @@ export function LiveStepPeek({
 	// Between steps the model thinks: the surface and narrative keep the step that just finished
 	// instead of collapsing and growing back, so one step flows into the next.
 	const thinkingBetween = selected === "thinking" && following && !nested && steps.length > 0;
-	const surfaceKey = thinkingBetween ? (steps.at(-1)?.id ?? selected) : selected;
+	// A task spawned beside a command that still runs never takes the stage from it: its agents
+	// have their lanes above, the command's output stays in view, and the parallel list names both.
+	const companion =
+		following && !nested && turnIsLive && selectToolEntry(tools.getState(), selected)?.toolName === "task"
+			? steps.findLast(step => {
+					const item = selectToolEntry(tools.getState(), step.id);
+					return item?.toolName !== "task" && (item?.status === "running" || item?.status === "pending");
+				})?.id
+			: undefined;
+	const surfaceKey = thinkingBetween ? (steps.at(-1)?.id ?? selected) : (companion ?? selected);
 	// Only the shown entry/result is subscribed: unrelated partial results are ignored.
 	const entry = useFrameSelector(tools, s => (surfaceKey ? selectToolEntry(s, surfaceKey) : undefined));
 	const partial = useFrameSelector(tools, s => (surfaceKey ? s.partialResults.get(surfaceKey) : undefined));
@@ -542,22 +551,25 @@ export function LiveStepPeek({
 	const liveSub =
 		!following && !pinnedLive
 			? ""
-			: waitingFor && (kind === "wait" || kind === "task" || selected === "thinking")
-				? // A narrative that already names every agent ("Running Scout, Review", a wait's own
-					// "Waiting for Sleeper") gets their count below it, not the same names again.
-					waitingNames.every(name => narrative.includes(name))
-					? t("chat.process.statusAgents", {
-							count: waitingNames.length,
-							plural: waitingNames.length === 1 ? "" : "s",
-						})
-					: t("chat.work.waitingFor", { names: waitingFor })
-				: selected === "thinking" && turnIsLive
-					? lastReasoningSentence(reasoning) || (thinkingBetween ? t("chat.thinking.live") : "")
-					: picks.length > 1 && overlapping
-						? t("chat.work.parallel", { count: concurrent.length })
-						: calmWait && live
-							? t("chat.work.waiting")
-							: "";
+			: // The run is blocked on the person, not working: say so where the progress line stands.
+				kind === "ask" && running
+				? t("chat.work.waitingForAnswer")
+				: waitingFor && (kind === "wait" || kind === "task" || selected === "thinking")
+					? // A narrative that already names every agent ("Running Scout, Review", a wait's own
+						// "Waiting for Sleeper") gets their count below it, not the same names again.
+						waitingNames.every(name => narrative.includes(name))
+						? t("chat.process.statusAgents", {
+								count: waitingNames.length,
+								plural: waitingNames.length === 1 ? "" : "s",
+							})
+						: t("chat.work.waitingFor", { names: waitingFor })
+					: selected === "thinking" && turnIsLive
+						? lastReasoningSentence(reasoning) || (thinkingBetween ? t("chat.thinking.live") : "")
+						: picks.length > 1 && overlapping
+							? t("chat.work.parallel", { count: concurrent.length })
+							: calmWait && live
+								? t("chat.work.waiting")
+								: "";
 	// The line is reserved all run long: with nothing live to say it names the shown step's own target
 	// or latest output rather than sitting as an empty gap.
 	const sub =

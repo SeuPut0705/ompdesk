@@ -15,7 +15,7 @@ import type { TranscriptDetail } from "../../stores/ui";
 import { isCustomMessageCardType } from "./CustomMessageCard";
 import { asyncResultJobs, completionFailureCount, isCompletionMessage } from "./completion-events";
 import { parseTodoReminder } from "./todo-reminder";
-import { isWorkReply, messageTimestampMs } from "./work-turn";
+import { isSilentAbort, isWorkReply, messageTimestampMs } from "./work-turn";
 
 interface ProcessMeta {
 	stepCount: number;
@@ -596,6 +596,8 @@ export function buildHistoryRows(
 	flushProcess();
 	// Stock's empty aborted reply after a tool stop is the run's own end: the card states
 	// it as interrupted, so it never stands outside the card as a second "Stopped" row.
+	// A silent abort (stock ending the turn itself, e.g. for a plan proposal) folds the same
+	// way but is no stop.
 	const stops = new Set<number>();
 	for (let index = 0; index < rows.length - 1; index++) {
 		const row = rows[index];
@@ -607,7 +609,7 @@ export function buildHistoryRows(
 			next.message.stopReason === "aborted" &&
 			messageContent(next.message).length === 0
 		) {
-			rows[index] = { ...row, stoppedAt: messageTimestampMs(next.message) };
+			if (!isSilentAbort(next.message)) rows[index] = { ...row, stoppedAt: messageTimestampMs(next.message) };
 			stops.add(index + 1);
 		}
 	}
