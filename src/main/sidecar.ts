@@ -519,7 +519,7 @@ export class SidecarManager extends EventEmitter {
 						// Same as an omp response (#routeFrame): the frames omp sent before it go first,
 						// an `agent_end` held for its entry ids and its tail included.
 						while (this.#held) await this.#held.released.promise;
-						this.#batcher?.flushNow();
+						this.#flushBeforeResponse();
 						return response;
 					});
 			},
@@ -687,6 +687,18 @@ export class SidecarManager extends EventEmitter {
 		held.released.resolve();
 	}
 
+	/**
+	 * Frames omp sent before a response go out first: it can be a snapshot
+	 * (`get_state`, a transcript page, a subagent's messages) that already holds
+	 * them, and a batch would deliver them after it, replayed on top of that
+	 * snapshot in the renderer. Agent events leave the batcher here;
+	 * `beforeResponse` lets the pool send the subagent frames it batches.
+	 */
+	#flushBeforeResponse(): void {
+		this.#batcher?.flushNow();
+		this.emit("beforeResponse");
+	}
+
 	#dispatchFrame(obj: Frame): void {
 		const type = obj.type as string;
 		if (type === "ready") {
@@ -694,11 +706,7 @@ export class SidecarManager extends EventEmitter {
 			return;
 		}
 		if (type === "response") {
-			// Events omp sent before this response go out first: it can be a snapshot
-			// (`get_state`, a transcript page) that already holds them, and the batcher
-			// would deliver them after it, replayed on top of that snapshot in the
-			// renderer (a tool call committed twice, the copy it hydrated never ending).
-			this.#batcher?.flushNow();
+			this.#flushBeforeResponse();
 			if (this.#rpcClient?.onResponse(obj as unknown as RpcResponse)) return;
 		}
 		if (AGENT_EVENT_TYPES[type] === true) {

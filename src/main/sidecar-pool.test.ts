@@ -332,6 +332,14 @@ describe("SidecarPool tabs", () => {
 		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAMES).map(entry => entry.data)).toEqual([
 			{ tabId: "tab-b", payload: [started] },
 		]);
+		// A response leaves after the frames batched before it, agent events or not.
+		fw.sent.length = 0;
+		b?.emit("subagentFrame", started);
+		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAMES)).toHaveLength(0);
+		b?.emit("beforeResponse");
+		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAMES).map(entry => entry.data)).toEqual([
+			{ tabId: "tab-b", payload: [started] },
+		]);
 		// And A, now hidden, gets the light routing instead.
 		fw.sent.length = 0;
 		a?.emitEvents([proposal]);

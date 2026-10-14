@@ -479,6 +479,8 @@ export class SidecarPool {
 			subagentFrames.flush();
 			forwardActive(IPC_EVENTS.EVENTS_BATCH, slimMessageUpdates(events));
 		});
+		// A response (a subagent's messages, a transcript) can hold frames still batched here.
+		wire("beforeResponse", () => subagentFrames.flush());
 		wire("status", (payload: SidecarStatusPayload) => {
 			forwardActive(IPC_EVENTS.SIDECAR_STATUS, { ...payload, cwd: sidecar.cwd });
 		});
