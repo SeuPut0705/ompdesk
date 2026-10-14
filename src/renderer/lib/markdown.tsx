@@ -48,6 +48,7 @@ import {
 	rehypeHeadingIds,
 } from "./markdown-rehype";
 import { PREVIEW_HEIGHT_LG, PREVIEW_SCROLL_CODE } from "./preview";
+import { remarkCjkAutolink, remarkCjkStrong } from "./remark-cjk";
 import { remarkLatexMath } from "./remark-latex-math";
 import { useTabRpc } from "./tab-rpc";
 
@@ -76,12 +77,21 @@ interface MarkdownRendererProps {
 // Hoisted to module scope: stable plugin arrays and component maps keep
 // ReactMarkdown from treating the pipeline as changed on every render.
 // remark-math must precede rehype-katex: it parses $...$/$$...$$ into math
-// nodes that rehype-katex (rehype chain below) then renders.
-const REMARK_PLUGINS: Options["remarkPlugins"] = [remarkGfm, remarkMath, remarkLatexMath];
+// nodes that rehype-katex (rehype chain below) then renders. The CJK passes
+// bold `**0.1%**이며` and cut bare URLs at glued Korean text.
+const REMARK_PLUGINS: Options["remarkPlugins"] = [
+	remarkGfm,
+	remarkMath,
+	remarkLatexMath,
+	remarkCjkStrong,
+	remarkCjkAutolink,
+];
 const REMARK_PLUGINS_LITERAL_SINGLE_DOLLAR: Options["remarkPlugins"] = [
 	remarkGfm,
 	[remarkMath, { singleDollarTextMath: false }],
 	remarkLatexMath,
+	remarkCjkStrong,
+	remarkCjkAutolink,
 ];
 
 type SanitizeSchema = NonNullable<Parameters<typeof rehypeSanitize>[0]>;
