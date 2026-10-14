@@ -648,10 +648,16 @@ for (const [language, theme] of VARIANTS) {
 					const title = titles.get(tabId);
 					return title ? byTab.or(page.locator("[data-session-path]").filter({ hasText: title })).first() : byTab;
 				};
-				const drag = async (tabId: string, fx: number, fy: number) => {
+				// Fractions are of `within` (the whole workspace by default).
+				const drag = async (
+					tabId: string,
+					fx: number,
+					fy: number,
+					within = page.locator(".omp-split-workspace"),
+				) => {
 					const row = rowOf(tabId);
 					const rowBox = await row.boundingBox();
-					const box = await page.locator(".omp-split-workspace").boundingBox();
+					const box = await within.boundingBox();
 					if (!rowBox || !box) throw new Error(`no boxes for ${tabId}`);
 					await page.mouse.move(rowBox.x + rowBox.width / 2, rowBox.y + rowBox.height / 2);
 					await page.mouse.down();
@@ -667,12 +673,14 @@ for (const [language, theme] of VARIANTS) {
 				await drag(hiddenFirst.tabId, 0.92, 0.5);
 				await expect(page.locator(".omp-session-pane")).toHaveCount(2);
 				await shoot("split-2");
+				// A split adds to the pane under the cursor: aim at the left pane's bottom
+				// edge. The workspace's own (0.5, 0.92) is the 5px divider between the two
+				// columns, which takes no drop.
 				const others = (await tabs()).filter(tab => !tab.visible);
-				if (others[0]) await drag(others[0].tabId, 0.5, 0.92);
-				await page.waitForTimeout(400);
+				if (others[0]) await drag(others[0].tabId, 0.5, 0.92, page.locator("[data-split]").first());
+				await expect(page.locator(".omp-session-pane")).toHaveCount(3);
 				await shoot("split-3");
-				notes.push(`panes after second drag: ${await page.locator(".omp-session-pane").count()}`);
-				// And back: drag a pane's own row to the opposite edge, which moves it.
+				// A visible pane's row dropped on another edge is refused: the layout stays.
 				const visibleOther = (await tabs()).find(tab => tab.visible && !tab.active);
 				if (visibleOther) {
 					await drag(visibleOther.tabId, 0.08, 0.5);
