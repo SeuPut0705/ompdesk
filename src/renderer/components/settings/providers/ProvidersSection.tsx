@@ -137,7 +137,13 @@ function CustomEndpoints({
 							{t("providers.editConfig")}
 						</Button>
 					)}
-					<Button icon={<Plus />} onClick={() => openProviderConfig()} size="sm" variant="secondary">
+					<Button
+						data-custom-add
+						icon={<Plus />}
+						onClick={() => openProviderConfig()}
+						size="sm"
+						variant="secondary"
+					>
 						{t("providerList.addCustom")}
 					</Button>
 				</>
@@ -197,6 +203,7 @@ function CustomEndpoints({
 									}
 									meta={busyProvider === config.id ? <Spinner size="sm" /> : undefined}
 									onClick={() => onEdit(config)}
+									rowProps={{ "data-custom-provider": config.id }}
 									title={config.id}
 								/>
 							</li>
@@ -245,14 +252,39 @@ export function ProvidersSection({
 
 	const onConnected = useCallback(
 		async (providerId: string) => {
+			const before = providers.find(provider => provider.id === providerId);
 			await load(true);
 			setAccountsRevision(revision => revision + 1);
-			const name = providers.find(provider => provider.id === providerId)?.name ?? providerId;
-			toast({ variant: "success", message: t("providers.loginSuccess", { provider: name }) });
+			// A provider connected from the picker now sits under Connected; the picker
+			// (and a search that only it matched) folds away instead of saying nothing matches.
+			if (!before?.authenticated) setPickerOpen(null);
+			toast({ variant: "success", message: t("providers.loginSuccess", { provider: before?.name ?? providerId }) });
 		},
 		[load, providers, t],
 	);
 	const login = useProviderLogin(onConnected);
+	/**
+	 * The form stands in for the whole section, so closing it lands back at the
+	 * top. This is the endpoint it saved or edited ("" after cancelling an add):
+	 * once the list shows it, it scrolls into view and takes focus.
+	 */
+	const [returnTo, setReturnTo] = useState<string | null>(null);
+	const customConfigs = catalog.customConfigs;
+	const reloading = catalog.loading;
+	useEffect(() => {
+		if (providerForm || returnTo === null || reloading) return;
+		// After the reload a save starts: the rows above have settled, and a new endpoint is listed.
+		if (returnTo && !customConfigs.some(config => config.id === returnTo)) return;
+		const section = document.getElementById("settings-models-custom");
+		const target = returnTo
+			? Array.from(section?.querySelectorAll<HTMLElement>("[data-custom-provider]") ?? [])
+					.find(row => row.dataset.customProvider === returnTo)
+					?.querySelector<HTMLElement>("button")
+			: section?.querySelector<HTMLElement>("[data-custom-add]");
+		target?.scrollIntoView({ block: "nearest" });
+		target?.focus();
+		setReturnTo(null);
+	}, [providerForm, returnTo, customConfigs, reloading]);
 
 	/** Provider-wide sign-out: every stored account. One account is removed from its own row. */
 	const logout = async (provider: ProviderInfo) => {
@@ -306,11 +338,16 @@ export function ProvidersSection({
 					existing={catalog.customConfigs}
 					options={catalog.options}
 					key={providerForm.edit?.id ?? "new"}
-					onCancel={closeProviderForm}
+					onCancel={() => {
+						setReturnTo(providerForm.edit?.id ?? "");
+						closeProviderForm();
+					}}
 					onSaved={providerId => {
 						toast({ variant: "success", message: t("providerCfg.toast.saved", { id: providerId }) });
-						closeProviderForm();
+						setReturnTo(providerId);
+						// Reload first: the list that replaces the form then waits for it before scrolling.
 						void load();
+						closeProviderForm();
 					}}
 				/>
 			</SettingsSection>

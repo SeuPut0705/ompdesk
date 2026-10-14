@@ -2,7 +2,7 @@
  * Offline state of a remote tab: while the link to its host is down the tab
  * says it is reconnecting (the host keeps the session alive and main resumes
  * the tab when the link returns); a host that was removed says so and points
- * at Settings › Remote devices. Local tabs and online hosts render nothing.
+ * at Settings › Devices & connections. Local tabs and online hosts render nothing.
  */
 import { useT } from "../../lib/i18n";
 import { useRemoteStore } from "../../stores/remote";

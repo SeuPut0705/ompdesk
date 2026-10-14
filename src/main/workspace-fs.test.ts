@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readWorkspaceBinary, readWorkspaceImage, sniffMime } from "./workspace-fs";
+import { listDirectories, listWorkspace, readWorkspaceBinary, readWorkspaceImage, sniffMime } from "./workspace-fs";
 
 const ascii = (text: string) => [...text].map(char => char.charCodeAt(0));
 /** A file's leading bytes followed by filler, so nothing depends on the exact header length. */
@@ -155,5 +155,22 @@ describe("readWorkspaceImage", () => {
 			ok: false,
 			code: "unsupported_image",
 		});
+	});
+});
+
+describe("natural name order", () => {
+	it("lists numbered names by their number, directories first", async () => {
+		for (const name of ["file-10.txt", "file-2.txt", "file-1.txt", "Notes.md"]) writeFileSync(join(root, name), "");
+		for (const name of ["step-10", "step-9"]) mkdirSync(join(root, name));
+		const result = await listWorkspace(root, {});
+		expect(result.entries.map(entry => entry.name)).toEqual([
+			"step-9",
+			"step-10",
+			"file-1.txt",
+			"file-2.txt",
+			"file-10.txt",
+			"Notes.md",
+		]);
+		expect((await listDirectories(root)).entries.map(entry => entry.name)).toEqual(["step-9", "step-10"]);
 	});
 });

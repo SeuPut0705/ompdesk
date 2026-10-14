@@ -41,6 +41,7 @@ Object.assign(globalThis as Record<string, unknown>, {
 });
 const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
 if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
+if (typeof elementPrototype.scrollIntoView !== "function") elementPrototype.scrollIntoView = () => {};
 
 function row(id: string, overrides: Partial<ProviderInfo> = {}): ProviderInfo {
 	return { id, name: id, authenticated: true, loginAvailable: false, disabled: false, modelCount: 0, ...overrides };
@@ -433,6 +434,29 @@ describe("ProvidersSection", () => {
 		expect(useUiStore.getState().providerForm).toBeNull();
 	});
 
+	it("brings the edited endpoint, or Add custom endpoint, back into view when the form closes", async () => {
+		listProviders.mockResolvedValue({ providers: [config("my-proxy")], options: fixtureProviderOptions });
+		useSessionStore.setState({ status: "ready" });
+		const shown: Element[] = [];
+		const originalScroll = elementPrototype.scrollIntoView;
+		elementPrototype.scrollIntoView = function (this: Element) {
+			shown.push(this);
+		};
+		try {
+			await mount(<ProvidersSection />);
+			await act(async () => button(translate("providers.edit"))?.click());
+			expect(text()).toContain(translate("providerCfg.title.edit"));
+			await act(async () => button(translate("providerCfg.form.cancel"))?.click());
+			expect(shown.at(-1)?.closest("[data-custom-provider]")?.getAttribute("data-custom-provider")).toBe("my-proxy");
+
+			await act(async () => button(translate("providerList.addCustom"))?.click());
+			await act(async () => button(translate("providerCfg.form.cancel"))?.click());
+			expect(shown.at(-1)?.hasAttribute("data-custom-add")).toBe(true);
+		} finally {
+			elementPrototype.scrollIntoView = originalScroll;
+		}
+	});
+
 	it("signs in inline: the key prompt renders masked in the row and answers omp directly", async () => {
 		const pending = Promise.withResolvers<RpcResponse>();
 		login.mockReturnValueOnce(pending.promise);
@@ -491,6 +515,45 @@ describe("ProvidersSection", () => {
 				.toasts.map(entry => entry.message)
 				.join("\n"),
 		).toContain(translate("providers.loginSuccess", { provider: "DeepSeek" }));
+	});
+
+	it("folds the picker away once a provider found there is connected", async () => {
+		const pending = Promise.withResolvers<RpcResponse>();
+		login.mockReturnValueOnce(pending.promise);
+		const deepseek = row("deepseek", { name: "DeepSeek", authenticated: false, loginAvailable: true });
+		getProviders.mockResolvedValue(providersResponse(snapshot([row("anthropic"), deepseek])));
+		useSessionStore.setState({ status: "ready" });
+		await mount(<ProvidersSection />);
+
+		const add = button(translate("providers.add"));
+		await act(async () => add?.click());
+		expect(add?.getAttribute("aria-expanded")).toBe("true");
+		await act(async () => button(translate("providerList.connect"))?.click());
+		await act(async () => {
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "key-1",
+				method: "input",
+				title: "Paste your DeepSeek API key",
+			});
+		});
+		await typeInto(document.querySelector('input[type="password"]'), "sk-test");
+		await act(async () => {
+			document
+				.querySelector('input[type="password"]')
+				?.closest("form")
+				?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+		});
+		getProviders.mockResolvedValue(
+			providersResponse(snapshot([row("anthropic"), { ...deepseek, authenticated: true, authKind: "apikey" }])),
+		);
+		await act(async () => {
+			pending.resolve({ type: "response", command: "login", success: true });
+		});
+
+		expect(add?.getAttribute("aria-expanded")).toBe("false");
+		expect(text()).not.toContain(translate("providerList.noMatch", { query: "" }).split('"')[0]);
+		expect(text()).toContain("DeepSeek");
 	});
 
 	it("shows a failed sign-in inline with a retry", async () => {

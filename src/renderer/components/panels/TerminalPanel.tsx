@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import type { TerminalOperation, TerminalSnapshot } from "../../../shared/terminal-types";
 import { useT } from "../../lib/i18n";
 import { useTabsStore } from "../../stores/tabs";
-import { Button, EmptyState, IconButton } from "../common";
+import { Banner, Button, EmptyState, ErrorDetail, IconButton } from "../common";
 import "@xterm/xterm/css/xterm.css";
 
 export function terminalTheme(element: HTMLElement): ITheme {
@@ -332,15 +332,24 @@ function LocalTerminalPanel({ tabId }: { tabId: string }) {
 				</div>
 			</div>
 			{error && (
-				<div
-					role="alert"
-					className="flex min-w-0 shrink-0 items-start gap-2 px-3 py-2 text-sc-xs text-(--sc-danger)"
+				<Banner
+					actions={
+						<Button
+							icon={<RotateCw />}
+							onClick={() => setAttempt(value => value + 1)}
+							size="sm"
+							variant="secondary"
+						>
+							{t("common.retry")}
+						</Button>
+					}
+					className="mx-3 mt-3"
+					live
+					title={t("panel.terminal.failed")}
+					variant="danger"
 				>
-					<span className="min-w-0 flex-1 break-words">{error}</span>
-					<Button size="sm" onClick={() => setAttempt(value => value + 1)}>
-						{t("common.retry")}
-					</Button>
-				</div>
+					<ErrorDetail error={error} />
+				</Banner>
 			)}
 			{loading ? (
 				<p role="status" className="p-3 text-sc-sm text-(--sc-text-muted)">

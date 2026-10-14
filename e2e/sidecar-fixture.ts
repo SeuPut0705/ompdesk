@@ -507,6 +507,12 @@ if (process.argv[2] === "stats") {
 				{ credentialId: 2, label: "home@example.com", detail: "Claude Pro", type: "oauth", active: false },
 			]
 		: [];
+	/** Long-tail providers connected through the API-key sign-in below (`login` with an `input` for the key). */
+	const apiKeyProviders = new Set<string>();
+	/** Ids a later "Add another account" sign-in hands out, after the two seeded accounts. */
+	let nextCredentialId = 3;
+	/** Background jobs `composer.cancel_job` stopped; they then list as cancelled, the way stock reports them. */
+	const cancelledJobs = new Set<string>();
 	/** The `login` in flight: its open_url and input request ids, and how it ends. */
 	let pendingLogin: { urlId: string; inputId: string; finish: (value: string | undefined) => void } | undefined;
 	const values: Record<string, unknown> = {
@@ -847,6 +853,7 @@ if (process.argv[2] === "stats") {
 				anthropicAccounts = [];
 				anthropicSignedIn = false;
 			}
+			apiKeyProviders.delete(String(params.providerId));
 			return { providerId: params.providerId };
 		},
 	};
@@ -972,30 +979,34 @@ if (process.argv[2] === "stats") {
 				messagesTokens: 61_530,
 			},
 		}),
-		"composer.jobs": () => [
-			...(process.env.OMP_GUI_TEST_PANEL_PLAN
-				? [
-						{
-							id: "watch",
-							type: "bash",
-							label: "Watching the delivery build",
-							status: "running",
-							startTime: Date.now() - 12_000,
-							resultPreview: "\u001b[32mCompiled renderer\u001b[0m\nWatching for file changes…",
-						},
-					]
-				: []),
-			{
-				id: "done",
-				type: "bash",
-				label: "Completed local job",
-				status: "completed",
-				startTime: 1000,
-				endTime: 3000,
-				resultPreview: process.env.OMP_GUI_TEST_PANEL_PLAN ? "Build completed successfully." : undefined,
-			},
-		],
-		"composer.cancel_job": () => ({ cancelled: true }),
+		"composer.jobs": () =>
+			[
+				...(process.env.OMP_GUI_TEST_PANEL_PLAN
+					? [
+							{
+								id: "watch",
+								type: "bash",
+								label: "Watching the delivery build",
+								status: "running",
+								startTime: Date.now() - 12_000,
+								resultPreview: "\u001b[32mCompiled renderer\u001b[0m\nWatching for file changes…",
+							},
+						]
+					: []),
+				{
+					id: "done",
+					type: "bash",
+					label: "Completed local job",
+					status: "completed",
+					startTime: 1000,
+					endTime: 3000,
+					resultPreview: process.env.OMP_GUI_TEST_PANEL_PLAN ? "Build completed successfully." : undefined,
+				},
+			].map(job => (cancelledJobs.has(job.id) ? { ...job, status: "cancelled", endTime: Date.now() } : job)),
+		"composer.cancel_job": params => {
+			cancelledJobs.add(String(params.id));
+			return { cancelled: true };
+		},
 		"composer.tool_extras": () => ({ sources: {}, mounted: [] }),
 		"composer.skill_count": () => ({ skills: 0 }),
 		"composer.share_preview": () => ({
@@ -1108,7 +1119,11 @@ if (process.argv[2] === "stats") {
 								disabled: false,
 								modelCount: modelsData && anthropicSignedIn ? 2 : 0,
 							},
-							...(modelsData ? MODELS_PAGE_PROVIDERS : []),
+							...(modelsData
+								? MODELS_PAGE_PROVIDERS.map(row =>
+										apiKeyProviders.has(row.id) ? { ...row, authenticated: true, authKind: "apikey" } : row,
+									)
+								: []),
 						]
 					: []),
 			],
@@ -2896,6 +2911,40 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			// redirect URL (raced against the host's callback server, which never
 			// fires here). The command answers once that input does.
 			case "login": {
+				// An API-key provider of the long tail (stock's DeepSeek-style flow): the
+				// key page as open_url without a callback server, then the pasted key.
+				const keyProvider = MODELS_PAGE_PROVIDERS.find(row => row.id === command.providerId);
+				if (modelsData && keyProvider) {
+					const urlId = `fixture-key-url-${Date.now()}`;
+					const inputId = `fixture-key-input-${Date.now()}`;
+					write({
+						type: "extension_ui_request",
+						id: urlId,
+						method: "open_url",
+						url: `https://${keyProvider.id}.example/api_keys`,
+						instructions: `Create or copy your API key from the ${keyProvider.name} dashboard`,
+					});
+					write({
+						type: "extension_ui_request",
+						id: inputId,
+						method: "input",
+						title: `Paste your ${keyProvider.name} API key`,
+						placeholder: "sk-...",
+						timeout: 600_000,
+					});
+					pendingLogin = {
+						urlId,
+						inputId,
+						finish: value => {
+							pendingLogin = undefined;
+							if (value?.trim()) {
+								apiKeyProviders.add(keyProvider.id);
+								ok({ providerId: keyProvider.id });
+							} else fail("Login cancelled");
+						},
+					};
+					break;
+				}
 				if (command.providerId !== "anthropic") {
 					fail(`Unknown OAuth provider: ${text("providerId")}`);
 					break;
@@ -2923,6 +2972,29 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					finish: value => {
 						pendingLogin = undefined;
 						if (value?.trim()) {
+							// With the seeded accounts, each further sign-in stores one more account, as stock does.
+							if (modelsData) {
+								const credentialId = nextCredentialId++;
+								anthropicAccounts = [
+									...anthropicAccounts.map(account => ({ ...account, active: false })),
+									{
+										credentialId,
+										label: `added-${credentialId}@example.com`,
+										detail: "Claude Pro",
+										type: "oauth",
+										active: true,
+									},
+								];
+								accountQuota[credentialId] = {
+									credentialId,
+									state: "healthy",
+									remainingFraction: 1,
+									limits: [
+										{ id: "5h", label: "5h", usedFraction: 0, windowLabel: "5 hours" },
+										{ id: "7d", label: "Week", usedFraction: 0, windowLabel: "7 days" },
+									],
+								};
+							}
 							anthropicSignedIn = true;
 							ok({ providerId: "anthropic" });
 						} else fail("Login cancelled");

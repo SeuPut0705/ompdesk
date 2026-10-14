@@ -129,16 +129,59 @@ describe("RemoteSection", () => {
 		expect(remote.rotateCode).not.toHaveBeenCalled();
 	});
 
-	it("revokes a paired device through revokePeer", async () => {
+	it("revokes a paired device through revokePeer once the removal is confirmed", async () => {
 		await mount();
 
 		await act(async () => {
 			buttonLabeled(translate("remote.removeLabel", { name: "laptop" }))?.click();
 		});
+		expect(remote.revokePeer).not.toHaveBeenCalled();
+		expect(document.body.textContent).toContain(translate("remote.removeTitle", { name: "laptop" }));
+		expect(document.body.textContent).toContain(translate("remote.removePeerBody", { name: "laptop" }));
+		await act(async () => {
+			const dialog = document.body.querySelector('[role="dialog"], [role="alertdialog"]');
+			(Array.from(dialog?.querySelectorAll("button") ?? []) as HTMLButtonElement[])
+				.find(button => (button.textContent ?? "").trim() === translate("remote.remove"))
+				?.click();
+		});
 
 		expect(remote.revokePeer).toHaveBeenCalledWith("peer-laptop");
 		expect(document.body.querySelector("[data-remote-peer]")).toBeNull();
 		expect(document.body.textContent).toContain(translate("remote.host.noPeers"));
+	});
+
+	it("keeps a paired host when its removal is cancelled", async () => {
+		remote.getState.mockImplementation(async () => ({
+			...hostOn(),
+			hosts: [{ deviceId: "host-studio", name: "Studio", state: "online" }],
+		}));
+		await mount();
+
+		await act(async () => {
+			buttonLabeled(translate("remote.removeLabel", { name: "Studio" }))?.click();
+		});
+		expect(document.body.textContent).toContain(translate("remote.removeHostBody", { name: "Studio" }));
+		await act(async () => {
+			buttonLabeled(translate("common.cancel"))?.click();
+		});
+		expect(remote.removeHost).not.toHaveBeenCalled();
+		expect(document.body.querySelector('[data-remote-host="host-studio"]')).not.toBeNull();
+	});
+
+	it("counts a new code down from its full lifetime, however long the page has been open", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			await mount();
+			vi.setSystemTime(Date.now() + 700);
+			await act(async () => {
+				buttonLabeled(translate("remote.host.newCode"))?.click();
+			});
+			expect(document.body.querySelector("[data-remote-code-expiry]")?.textContent).toBe(
+				translate("remote.host.expiresIn", { time: "10:00" }),
+			);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("replaces an expired code on its own, once", async () => {

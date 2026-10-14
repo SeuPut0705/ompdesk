@@ -1,5 +1,5 @@
 /**
- * Settings › Remote devices. Two roles on one page:
+ * Settings › Devices & connections, OMPdesk sharing. Two roles on one page:
  *
  * - This computer (B, host): "Let other devices use this computer". While on,
  *   it shows "Keep this computer awake while a device is using it" (on by
@@ -10,6 +10,8 @@
  *   replaced on its own.
  * - Other devices (A, client): the hosts this computer can run sessions on,
  *   with their link state and Remove, plus "Connect to a device".
+ *
+ * Either Remove asks first: the pair only comes back with a new code.
  *
  * Main owns the state; every action answers with the whole new RemoteState.
  */
@@ -22,7 +24,7 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { onEscape } from "../../lib/keymap";
 import { loadRemoteState, useRemoteStore } from "../../stores/remote";
 import { toast, toastError } from "../../stores/toast";
-import { Badge, Banner, Button, ErrorDetail, IconButton, Input, ListRow, Spinner } from "../common";
+import { Badge, Banner, Button, ConfirmDialog, ErrorDetail, IconButton, Input, ListRow, Spinner } from "../common";
 import { LINK_BADGE } from "../remote/DeviceChip";
 import { RemoteConnectDialog } from "../remote/RemoteConnectDialog";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
@@ -78,13 +80,15 @@ function remaining(expiresAt: number, now: number): string {
 /** The pairing code, its countdown, and the refresh; an expired code is replaced automatically. */
 function PairingCode({ code, expiresAt }: { code: string | null; expiresAt: number | null }) {
 	const t = useT();
-	const [now, setNow] = useState(() => Date.now());
+	// Re-renders every second; the countdown itself reads the clock at render time,
+	// so a code that just arrived never shows more than its lifetime.
+	const [, setTick] = useState(0);
 	const [rotating, setRotating] = useState(false);
 	/** The expiry already handed to an automatic refresh, so a slow reply is not asked for twice. */
 	const rotatedFor = useRef<number | null>(null);
 
 	useEffect(() => {
-		const timer = window.setInterval(() => setNow(Date.now()), 1000);
+		const timer = window.setInterval(() => setTick(tick => tick + 1), 1000);
 		return () => window.clearInterval(timer);
 	}, []);
 
@@ -95,7 +99,7 @@ function PairingCode({ code, expiresAt }: { code: string | null; expiresAt: numb
 	};
 
 	useEffect(() => {
-		if (expiresAt === null || now < expiresAt || rotatedFor.current === expiresAt) return;
+		if (expiresAt === null || Date.now() < expiresAt || rotatedFor.current === expiresAt) return;
 		rotatedFor.current = expiresAt;
 		void rotate();
 	});
@@ -106,7 +110,7 @@ function PairingCode({ code, expiresAt }: { code: string | null; expiresAt: numb
 				{code ? <CopyableValue large value={code} /> : <Spinner size="sm" />}
 				{expiresAt !== null && (
 					<span className="text-sc-sm text-(--sc-text-muted) tabular-nums" data-remote-code-expiry>
-						{t("remote.host.expiresIn", { time: remaining(expiresAt, now) })}
+						{t("remote.host.expiresIn", { time: remaining(expiresAt, Date.now()) })}
 					</span>
 				)}
 				<Button
@@ -203,6 +207,25 @@ export function RemoteSection() {
 	const loadError = useRemoteStore(store => store.loadError);
 	const [toggling, setToggling] = useState(false);
 	const [connectOpen, setConnectOpen] = useState(false);
+	/** The device a Remove is waiting to be confirmed for; it can only come back with a new code. */
+	const [pendingRemove, setPendingRemove] = useState<{
+		kind: "peer" | "host";
+		deviceId: string;
+		name: string;
+	} | null>(null);
+
+	const confirmRemove = () => {
+		const target = pendingRemove;
+		setPendingRemove(null);
+		if (!target) return;
+		void mutate(
+			() =>
+				target.kind === "peer"
+					? window.omp.remote.revokePeer(target.deviceId)
+					: window.omp.remote.removeHost(target.deviceId),
+			t("remote.removeFailed"),
+		);
+	};
 
 	useEffect(() => {
 		void loadRemoteState();
@@ -289,10 +312,7 @@ export function RemoteSection() {
 												<Button
 													aria-label={t("remote.removeLabel", { name: peer.name })}
 													onClick={() =>
-														void mutate(
-															() => window.omp.remote.revokePeer(peer.deviceId),
-															t("remote.removeFailed"),
-														)
+														setPendingRemove({ kind: "peer", deviceId: peer.deviceId, name: peer.name })
 													}
 													size="sm"
 													variant="ghost"
@@ -351,10 +371,7 @@ export function RemoteSection() {
 									<Button
 										aria-label={t("remote.removeLabel", { name: entry.name })}
 										onClick={() =>
-											void mutate(
-												() => window.omp.remote.removeHost(entry.deviceId),
-												t("remote.removeFailed"),
-											)
+											setPendingRemove({ kind: "host", deviceId: entry.deviceId, name: entry.name })
 										}
 										size="sm"
 										variant="ghost"
@@ -370,6 +387,16 @@ export function RemoteSection() {
 				)}
 			</SettingsSection>
 			<RemoteConnectDialog onClose={() => setConnectOpen(false)} open={connectOpen} />
+			<ConfirmDialog
+				confirmLabel={t("remote.remove")}
+				message={t(pendingRemove?.kind === "host" ? "remote.removeHostBody" : "remote.removePeerBody", {
+					name: pendingRemove?.name ?? "",
+				})}
+				onCancel={() => setPendingRemove(null)}
+				onConfirm={confirmRemove}
+				open={pendingRemove !== null}
+				title={t("remote.removeTitle", { name: pendingRemove?.name ?? "" })}
+			/>
 		</div>
 	);
 }

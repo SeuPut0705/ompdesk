@@ -2,7 +2,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { useTabsStore } from "../../stores/tabs";
 import { type TerminalMount, TerminalPanel, TerminalViewport } from "./TerminalPanel";
 
@@ -97,14 +97,23 @@ describe("TerminalPanel", () => {
 	});
 	it("shows an actionable startup error instead of an endless loading state", async () => {
 		Reflect.set(window, "omp", {
-			terminal: { request: vi.fn().mockRejectedValue(new Error("Stock PTY unavailable")) },
+			terminal: {
+				request: vi
+					.fn()
+					.mockRejectedValue(
+						new Error("Error invoking remote method 'terminal:request': Error: Stock PTY unavailable"),
+					),
+			},
 		});
 		useTabsStore.setState({
 			activeTabId: "local",
 			tabs: [{ id: "local", cwd: "/project", status: "ready", kind: "agent", unreadDone: false }],
 		});
 		await mount(<TerminalPanel />);
+		expect(container.textContent).toContain(translate("panel.terminal.failed"));
+		// The detail drops Electron's IPC wrapper.
 		expect(container.textContent).toContain("Stock PTY unavailable");
+		expect(container.textContent).not.toContain("Error invoking remote method");
 		expect(container.textContent).toContain("Retry");
 		expect(container.textContent).not.toContain("Starting your shell");
 	});

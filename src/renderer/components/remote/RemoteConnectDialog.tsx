@@ -2,7 +2,7 @@
  * "Connect to a device": pairs this computer (A) with another OMPdesk (B).
  * LAN discovery runs only while the dialog is open; a discovered device fills
  * the address, and a typed `host` / `host:port` works without discovery (VPNs,
- * Tailscale). The code is the one B shows in Settings › Remote devices.
+ * Tailscale). The code is the one B shows in Settings › Devices & connections.
  * Pairing failures show B's localized reason (wrong code, expired, locked,
  * unreachable, version mismatch); success closes the dialog.
  */

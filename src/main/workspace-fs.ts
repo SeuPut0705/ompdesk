@@ -213,7 +213,14 @@ interface WalkState {
 	truncated: boolean;
 }
 
-/** Recursive readdir → sorted tree (dirs first, then files, each alphabetical). */
+/**
+ * Name order for every listing here: numeric runs compare as numbers, so
+ * `file-2` sorts before `file-10`. Stock omp exports no name comparator (its
+ * only one is inline in `ida/install.ts`), so this is the platform's own.
+ */
+const NAME_ORDER = new Intl.Collator(undefined, { numeric: true });
+
+/** Recursive readdir → sorted tree (dirs first, then files, each in natural name order). */
 async function walkWorkspace(
 	dirAbs: string,
 	relPrefix: string,
@@ -228,7 +235,7 @@ async function walkWorkspace(
 	}
 	const dirs: FsTreeEntry[] = [];
 	const files: FsTreeEntry[] = [];
-	const sorted = dirents.filter(dirent => !dirent.isSymbolicLink()).sort((a, b) => a.name.localeCompare(b.name));
+	const sorted = dirents.filter(dirent => !dirent.isSymbolicLink()).sort((a, b) => NAME_ORDER.compare(a.name, b.name));
 	for (const dirent of sorted) {
 		if (state.truncated) break;
 		const isDir = dirent.isDirectory();
@@ -653,7 +660,7 @@ export async function listDirectories(target: string | undefined): Promise<Remot
 	const entries = dirents
 		.filter(dirent => dirent.isDirectory() && !dirent.name.startsWith("."))
 		.map(dirent => dirent.name)
-		.sort((a, b) => a.localeCompare(b))
+		.sort(NAME_ORDER.compare)
 		.slice(0, LIST_DIRS_MAX_ENTRIES)
 		.map(name => ({ name, path: path.join(abs, name) }));
 	const parent = path.dirname(abs);
