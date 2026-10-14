@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from "electron";
 import Store from "electron-store";
+import { isUserProfile, USER_PROFILE_PREF } from "../../resources/gui-bridge/user-profile-contracts";
 import { ACCOUNT_ROTATION_PREF, isAccountRotationMode } from "../shared/account-rotation";
 import { REA_PREF } from "../shared/builtin-mcp";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
@@ -878,6 +879,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (replyLanguage && !isReplyLanguagePref(payload.value)) {
 			throw codedError("invalid_preference_key", "Invalid reply language");
 		}
+		const userProfile = payload.key === USER_PROFILE_PREF;
+		if (userProfile && !isUserProfile(payload.value)) {
+			throw codedError("invalid_preference_key", "Invalid profile");
+		}
 		if (payload.key === ACCOUNT_ROTATION_PREF) {
 			if (!isAccountRotationMode(payload.value)) {
 				throw codedError("invalid_preference_key", "Invalid account rotation");
@@ -899,6 +904,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			// Every open session's next turn follows; paired hosts keep their own setting.
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncReplyLanguage();
 			remoteDevices.hostReplyLanguageChanged();
+		}
+		if (userProfile) {
+			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncUserProfile();
+			remoteDevices.hostUserProfileChanged();
 		}
 		if (payload.key === "language" && isUiLanguage(payload.value)) {
 			createMenu(windowManager, deps.spawnWindow);

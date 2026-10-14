@@ -186,6 +186,18 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "reply language conversation answer agent 대화 언어 답변",
 	},
 	{
+		id: "profileName",
+		section: "general",
+		labelKey: "settings.gui.profileName",
+		aliases: "profile name nickname title address call me 프로필 이름 호칭 별명",
+	},
+	{
+		id: "profileExperience",
+		section: "general",
+		labelKey: "settings.gui.profileExperience",
+		aliases: "profile experience level beginner expert vibe coder junior 프로필 경험 입문자 전문가",
+	},
+	{
 		id: "notifications",
 		section: "general",
 		labelKey: "settings.gui.notifications",

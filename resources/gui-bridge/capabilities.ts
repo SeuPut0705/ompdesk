@@ -27,6 +27,7 @@ export const FEATURES = {
 	agentPause: "Agent pause",
 	modelPool: "Model pool",
 	replyLanguage: "Reply language",
+	userProfile: "User profile (name, experience)",
 	visuals: "Diagram instructions (Mermaid, SVG)",
 	accountRotation: "Even account rotation",
 	thinkingDefault: "Auto thinking by default",
@@ -325,6 +326,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** Only the public `before_agent_start` hook; no internals to probe. */
 	replyLanguage: {},
+	/** modes/user-profile.ts: the same public hook as the reply language. */
+	userProfile: {},
 	/** modes/visuals.ts: stock's Visuals prompt section, rendered with the tui.renderMermaid / tui.renderSvg settings. */
 	visuals: {
 		pkg: ["Settings.instance"],

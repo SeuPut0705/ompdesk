@@ -1322,6 +1322,10 @@ if (process.argv[2] === "stats") {
 		"workspace.resolve_path": params => ({ path: nodePath.resolve(process.cwd(), String(params.path)) }),
 		image_generation_sync: () => ({}),
 		reply_language_set: params => ({ language: typeof params.language === "string" ? params.language : null }),
+		user_profile_set: params => ({
+			name: typeof params.name === "string" ? params.name : "",
+			experience: typeof params.experience === "string" ? params.experience : null,
+		}),
 		account_rotation_set: params => ({ mode: params.mode === "even" ? "even" : "quota" }),
 		"modes.get_plan_mode": () => {
 			let planFilePath: string | undefined;

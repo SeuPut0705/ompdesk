@@ -3,6 +3,7 @@ import * as os from "node:os";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { UserProfile } from "../../resources/gui-bridge/user-profile-contracts";
 import type { AccountRotationMode } from "../shared/account-rotation";
 import {
 	resetLoginShellEnvCache,
@@ -360,6 +361,41 @@ describe("SidecarManager spawn env", () => {
 			await expect
 				.poll(rotationRequests, { timeout: 5_000, interval: 25 })
 				.toEqual([{ mode: "even" }, { mode: "quota" }]);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
+	it("passes a set profile as OMP_GUI_USER_PROFILE and pushes it on connect and on syncUserProfile()", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-profile-"));
+		const logPath = path.join(tempDir, "bridge.jsonl");
+		const envPath = path.join(tempDir, "profile.txt");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`${loggingBridgeOmp(logPath)}\nfs.writeFileSync(${JSON.stringify(envPath)}, process.env.OMP_GUI_USER_PROFILE ?? "");`,
+		);
+		let profile: UserProfile = { name: "Sam", experience: "junior" };
+		const sidecar = new SidecarManager({
+			omp: async () => ({
+				ok: true,
+				runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+			}),
+			cwd: tempDir,
+			bridgeDir: tempDir,
+			userProfile: () => profile,
+		});
+		const profileRequests = () => bridgeRequests(logPath, "user_profile_set");
+		try {
+			sidecar.start();
+			await expect.poll(profileRequests, { timeout: 5_000, interval: 25 }).toEqual([profile]);
+			expect(JSON.parse(await fs.readFile(envPath, "utf8"))).toEqual({ name: "Sam", experience: "junior" });
+			profile = { name: "", experience: null };
+			sidecar.syncUserProfile();
+			await expect.poll(profileRequests, { timeout: 5_000, interval: 25 }).toEqual([
+				{ name: "Sam", experience: "junior" },
+				{ name: "", experience: null },
+			]);
 		} finally {
 			sidecar.dispose();
 			await fs.rm(tempDir, RM_TEMP);

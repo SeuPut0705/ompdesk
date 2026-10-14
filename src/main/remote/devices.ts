@@ -291,6 +291,11 @@ export class RemoteDevices {
 		this.#deps.services.syncReplyLanguage();
 	}
 
+	/** This machine's profile setting changed: tabs it hosts for devices follow it. */
+	hostUserProfileChanged(): void {
+		this.#deps.services.syncUserProfile();
+	}
+
 	/** This machine's account-rotation setting changed: tabs it hosts for devices follow it. */
 	hostAccountRotationChanged(): void {
 		this.#deps.services.syncAccountRotation();

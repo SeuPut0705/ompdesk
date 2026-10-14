@@ -94,6 +94,8 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	syncImageGeneration(): void;
 	/** Push this machine's reply-language setting to the live session (the omp's own machine decides). */
 	syncReplyLanguage(): void;
+	/** Push this machine's profile setting to the live session (the omp's own machine decides). */
+	syncUserProfile(): void;
 	/** Push this machine's account-rotation setting to the live omp (the omp's own machine decides). */
 	syncAccountRotation(): void;
 	dispose(): void;

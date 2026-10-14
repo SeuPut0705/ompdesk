@@ -8,6 +8,7 @@ import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import Store from "electron-store";
+import type { UserProfile } from "../../resources/gui-bridge/user-profile-contracts";
 import type { AccountRotationMode } from "../shared/account-rotation";
 import { parseLaunchProfile, profileToFlags, stripDenylistedFlags } from "../shared/launch-profile";
 import { DEFAULT_ROLE_MODEL_SELECTOR, parseModelRestoreFailure } from "../shared/model-restore";
@@ -214,6 +215,13 @@ export interface SidecarOptions {
 	 * session. Undefined: no instruction.
 	 */
 	replyLanguage?: () => string | undefined;
+	/**
+	 * Settings › General › Profile (how the agent addresses the user, their
+	 * development experience), passed to omp as JSON in `OMP_GUI_USER_PROFILE`
+	 * and pushed by `syncUserProfile()` (same point-of-use pattern as
+	 * replyLanguage). Absent or empty: no profile section.
+	 */
+	userProfile?: () => UserProfile;
 	/**
 	 * The Settings › Models & providers account-rotation mode, passed to omp as
 	 * `OMP_GUI_ACCOUNT_ROTATION` and pushed by `syncAccountRotation()` (same
@@ -439,6 +447,7 @@ export class SidecarManager extends EventEmitter {
 		this.#session = null;
 		const { bridgeDir, cwd, extraFlags } = this.#options;
 		const replyLanguage = this.#options.replyLanguage?.();
+		const userProfile = this.#options.userProfile?.();
 		const accountRotation = this.#options.accountRotation?.();
 		const accountRotationLedger = this.#options.accountRotationLedger;
 
@@ -473,6 +482,9 @@ export class SidecarManager extends EventEmitter {
 					PATH: ompPathEnv(bin, this.#shellEnvVars.PATH ?? process.env.PATH ?? ""),
 					...(bridgeAddress ? { OMP_GUI_BRIDGE: bridgeAddress } : {}),
 					...(replyLanguage ? { OMP_GUI_REPLY_LANGUAGE: replyLanguage } : {}),
+					...(userProfile && (userProfile.name || userProfile.experience)
+						? { OMP_GUI_USER_PROFILE: JSON.stringify(userProfile) }
+						: {}),
 					...(accountRotation ? { OMP_GUI_ACCOUNT_ROTATION: accountRotation } : {}),
 					...(accountRotationLedger ? { OMP_GUI_ACCOUNT_ROTATION_STATE: accountRotationLedger } : {}),
 					...(this.#builtinMcp.root ? { OMP_GUI_REA_ROOT: this.#builtinMcp.root } : {}),
@@ -751,6 +763,7 @@ export class SidecarManager extends EventEmitter {
 							this.syncImageGeneration();
 							// The setting may have changed between spawn (env) and connect.
 							this.syncReplyLanguage();
+							this.syncUserProfile();
 							this.syncAccountRotation();
 							void bridge
 								.request("stream_metadata.start")
@@ -920,6 +933,16 @@ export class SidecarManager extends EventEmitter {
 	syncReplyLanguage(): void {
 		const language = this.#options.replyLanguage?.() ?? null;
 		void this.#bridge?.request("reply_language_set", { language }).catch(() => {});
+	}
+
+	/**
+	 * Push the current profile to this omp (gui-bridge `user_profile_set`);
+	 * its next turn's system prompt follows. Fire-and-forget like
+	 * syncReplyLanguage: an unconnected bridge syncs on connect.
+	 */
+	syncUserProfile(): void {
+		const profile = this.#options.userProfile?.();
+		if (profile) void this.#bridge?.request("user_profile_set", profile).catch(() => {});
 	}
 
 	/**

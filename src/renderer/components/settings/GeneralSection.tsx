@@ -1,6 +1,7 @@
 /**
- * Settings › General: language, conversation language, notifications, side
- * panel default (this device's app preferences), then messages sent mid-turn
+ * Settings › General: language, conversation language, notifications, the
+ * profile the agent addresses (name, development experience), side panel
+ * default (this device's app preferences), then messages sent mid-turn
  * and long-session compaction (the focused tab's agent — a paired host's own),
  * then the tools OMPdesk sets up on this computer.
  */
@@ -15,6 +16,7 @@ import { DisplayPreferenceRow } from "./AppearanceSection";
 import { GithubAccountSection } from "./GithubAccountSection";
 import { ProxyRow } from "./LaunchSettings";
 import { MachineSetupSection } from "./MachineSetupSection";
+import { ProfileSection } from "./ProfileSection";
 import { ReplyLanguageRow } from "./ReplyLanguageRow";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
@@ -55,6 +57,7 @@ export function GeneralSection() {
 					}
 				/>
 			</SettingsSection>
+			<ProfileSection />
 			<SettingsSection title={t("settings.general.window")}>
 				<SettingsRow
 					control={

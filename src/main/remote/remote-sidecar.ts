@@ -154,6 +154,9 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	/** The host's own reply-language setting applies to the omp it runs; this machine's is not sent. */
 	syncReplyLanguage(): void {}
 
+	/** The host's own profile setting applies to the omp it runs; this machine's is not sent. */
+	syncUserProfile(): void {}
+
 	/** The host's own account-rotation setting applies to the omp it runs; this machine's is not sent. */
 	syncAccountRotation(): void {}
 

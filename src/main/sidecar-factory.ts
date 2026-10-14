@@ -4,6 +4,7 @@
  * both come from here, so a session runs the same way whoever opened it.
  */
 import { app } from "electron";
+import { normalizeUserProfile } from "../../resources/gui-bridge/user-profile-contracts";
 import { parseAccountRotationPref } from "../shared/account-rotation";
 import { reaExtensionArgs } from "../shared/builtin-mcp";
 import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../shared/reply-language";
@@ -28,6 +29,8 @@ export interface LocalSidecarDeps {
 	sessionKinds: SessionKindStore;
 	/** The stored Settings › General conversation-language pref (`replyLanguage`), read per use. */
 	replyLanguagePref: () => unknown;
+	/** The stored Settings › General profile pref (`userProfile`), read per use. */
+	userProfilePref: () => unknown;
 	/** The stored Settings › Models & providers account-rotation pref (`accountRotation`), read per use. */
 	accountRotationPref: () => unknown;
 	/** The even-rotation ledger file every omp on this machine shares. */
@@ -63,6 +66,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			proxyEnv: deps.proxyEnv,
 			shellEnv: shellSpawnEnv,
 			replyLanguage: () => resolveReplyLanguage(deps.replyLanguagePref(), replyLanguageName(deviceLanguage())),
+			userProfile: () => normalizeUserProfile(deps.userProfilePref()),
 			accountRotation: () => parseAccountRotationPref(deps.accountRotationPref()),
 			accountRotationLedger: deps.accountRotationLedger,
 			bootModel: runtime => bootModelSelector(runtime, bridgeDir),

@@ -35,6 +35,7 @@ class FakeHostSidecar extends EventEmitter {
 	sideFrames: object[] = [];
 	imageSyncs = 0;
 	replyLanguageSyncs = 0;
+	userProfileSyncs = 0;
 	accountRotationSyncs = 0;
 	commands: RpcCommand[] = [];
 	readonly rpcClient = {
@@ -72,6 +73,9 @@ class FakeHostSidecar extends EventEmitter {
 	}
 	syncReplyLanguage(): void {
 		this.replyLanguageSyncs++;
+	}
+	syncUserProfile(): void {
+		this.userProfileSyncs++;
 	}
 	syncAccountRotation(): void {
 		this.accountRotationSyncs++;
@@ -307,6 +311,17 @@ describe("LocalHostServices", () => {
 		services.syncReplyLanguage();
 		expect(sidecars.map(sidecar => sidecar.replyLanguageSyncs)).toEqual([1, 1]);
 		expect(local.tab.replyLanguageSyncs).toBe(0);
+	});
+
+	it("pushes this machine's profile setting to every tab it hosts, leaving the local pool to ipc", async () => {
+		const { services, sidecars, local } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await services.call(y.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, y);
+		services.syncUserProfile();
+		expect(sidecars.map(sidecar => sidecar.userProfileSyncs)).toEqual([1, 1]);
+		expect(local.tab.userProfileSyncs).toBe(0);
 	});
 
 	it("pushes this machine's account-rotation setting to every tab it hosts, leaving the local pool to its own fan-out", async () => {

@@ -17,6 +17,7 @@ import {
 	session,
 } from "electron";
 import Store from "electron-store";
+import { USER_PROFILE_PREF } from "../../resources/gui-bridge/user-profile-contracts";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { REA_PREF } from "../shared/builtin-mcp";
 import { nativeAccelerator } from "../shared/hotkeys";
@@ -429,6 +430,7 @@ app.whenReady().then(() => {
 		bridgeHealth,
 		sessionKinds,
 		replyLanguagePref: () => prefsStore().get(REPLY_LANGUAGE_PREF),
+		userProfilePref: () => prefsStore().get(USER_PROFILE_PREF),
 		accountRotationPref: () => prefsStore().get(ACCOUNT_ROTATION_PREF),
 		accountRotationLedger: join(app.getPath("userData"), ACCOUNT_ROTATION_LEDGER_FILE),
 	});
