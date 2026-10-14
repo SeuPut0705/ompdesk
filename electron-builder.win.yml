@@ -15,6 +15,11 @@ extraResources:
     to: gui-bridge
   - from: resources/omp-builtin
     to: omp-builtin
+  # Third-party attribution (Apache-2.0 section 4) and the license texts it names.
+  - from: NOTICE
+    to: NOTICE
+  - from: LICENSES
+    to: LICENSES
 protocols:
   - name: omp
     schemes:

@@ -68,6 +68,10 @@ interface UiStore {
 	previewUrl: string | null;
 	/** Local file currently shown in the Files drawer. */
 	filePreviewPath: string | null;
+	/** 1-based line the Files viewer scrolls to and marks for `filePreviewPath` (a `path:line` link); null = top. */
+	filePreviewLine: number | null;
+	/** Folder (tab-relative or absolute) the Files tree expands, selects and scrolls to; the panel clears it once shown. */
+	filesRevealPath: string | null;
 	/** The Files drawer's viewer asked for a wider docked panel (not persisted; the drag width stays the pref). */
 	filePreviewExpanded: boolean;
 	commandPaletteOpen: boolean;
@@ -106,6 +110,8 @@ interface UiStore {
 	/** Close-time cleanup prompt for a worktree-bound tab (plan/20): the tab
 	 * awaiting the user's delete/keep decision before closeTab proceeds. */
 	worktreeClosePrompt: { tabId: string } | null;
+	/** ⌘P quick open over the focused tab's workspace files. */
+	quickOpenOpen: boolean;
 	/** Live tab whose close is armed for confirmation: set by the chip's ×, ⌘W or
 	 * the menu, so all three share one inline confirm (the second commit closes). */
 	armedCloseTab: { tabId: string } | null;
@@ -138,7 +144,9 @@ interface UiStore {
 	toggleToolsExpandAll: () => void;
 	setPanelTab: (tab: PanelTab) => void;
 	openPreview: (url: string) => void;
-	openFilePreview: (path: string) => void;
+	openFilePreview: (path: string, options?: { line?: number }) => void;
+	/** Show a folder in the Files tree (a folder link in a reply). */
+	revealInFiles: (path: string) => void;
 	closeFilePreview: () => void;
 	toggleFilePreviewExpanded: () => void;
 	/** Per-card collapse overrides for the center dock (absent = the card's default, see `isDockCardCollapsed`). */
@@ -207,6 +215,8 @@ interface UiStore {
 	closeWorktreeDialog: () => void;
 	openWorktreeClosePrompt: (tabId: string) => void;
 	closeWorktreeClosePrompt: () => void;
+	openQuickOpen: () => void;
+	closeQuickOpen: () => void;
 	armCloseTab: (tabId: string) => void;
 	cancelCloseTab: () => void;
 	openSessionPicker: () => void;
@@ -246,6 +256,8 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	panelVisible: false,
 	panelTab: "diff",
 	filePreviewPath: null,
+	filePreviewLine: null,
+	filesRevealPath: null,
 	filePreviewExpanded: false,
 	previewUrl: null,
 	commandPaletteOpen: false,
@@ -271,8 +283,17 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 		set({ toolsExpandAll: { expanded: !get().toolsExpandAll.expanded, seq: get().toolsExpandAll.seq + 1 } }),
 	setPanelTab: tab => set({ panelTab: tab, panelVisible: true }),
 	openPreview: url => set({ previewUrl: url, panelTab: "preview", panelVisible: true }),
-	openFilePreview: path => set({ filePreviewPath: path, panelTab: "files", panelVisible: true }),
-	closeFilePreview: () => set({ filePreviewPath: null, filePreviewExpanded: false }),
+	openFilePreview: (path, options) =>
+		set({ filePreviewPath: path, filePreviewLine: options?.line ?? null, panelTab: "files", panelVisible: true }),
+	revealInFiles: path =>
+		set({
+			filesRevealPath: path,
+			filePreviewPath: null,
+			filePreviewLine: null,
+			panelTab: "files",
+			panelVisible: true,
+		}),
+	closeFilePreview: () => set({ filePreviewPath: null, filePreviewLine: null, filePreviewExpanded: false }),
 	toggleFilePreviewExpanded: () => set({ filePreviewExpanded: !get().filePreviewExpanded }),
 	dockCollapsed: {},
 	toggleDockCard: id =>
@@ -379,6 +400,9 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	worktreeClosePrompt: null,
 	openWorktreeClosePrompt: tabId => set({ worktreeClosePrompt: { tabId } }),
 	closeWorktreeClosePrompt: () => set({ worktreeClosePrompt: null }),
+	quickOpenOpen: false,
+	openQuickOpen: () => set({ quickOpenOpen: true }),
+	closeQuickOpen: () => set({ quickOpenOpen: false }),
 	armedCloseTab: null,
 	armCloseTab: tabId => set({ armedCloseTab: { tabId } }),
 	cancelCloseTab: () => set({ armedCloseTab: null }),
@@ -398,6 +422,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	closeSessionOverlays: () =>
 		set({
 			commandPaletteOpen: false,
+			quickOpenOpen: false,
 			modelPickerOpen: false,
 			modesOpen: false,
 			importDialogOpen: false,
@@ -413,6 +438,8 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 			worktreeClosePrompt: null,
 			armedCloseTab: null,
 			filePreviewPath: null,
+			filePreviewLine: null,
+			filesRevealPath: null,
 			filePreviewExpanded: false,
 			sessionPickerOpen: false,
 			branchPickerOpen: false,

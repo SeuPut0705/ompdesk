@@ -1441,6 +1441,13 @@ TPS_{\\text{decode}}
 \\[
 T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\text{输入预处理}} + T_{\\text{输入分词}} + T_{\\text{首令牌等待}} + \\frac{N_{\\text{输出令牌总数}}-1}{TPS_{\\text{decode}}} + T_{\\text{结果后处理}} + T_{\\text{客户端渲染}}
 \\]`;
+	// Bare path mentions (MixA A116/A117): a file with a line, a folder in inline
+	// code, a Korean line reference, and a path that does not exist.
+	const PATHS_REPLY = [
+		"Updated local/PLAN.md:3 and wrote the notes into `local/`.",
+		"",
+		"local/PLAN.md 1번 줄 is the title; src/gone.ts was never created.",
+	].join("\n");
 	// GitHub-flavored structure as a model writes it: anchors, local/mail links,
 	// task list, aligned table, the five alerts, a plain quote, unlabeled and
 	// labeled fences, a mermaid fence and footnotes.
@@ -3141,6 +3148,8 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 										? SVG_REPLY
 										: message === "fixture markdown"
 											? MARKDOWN_REPLY
+											: message === "fixture paths"
+												? PATHS_REPLY
 											: "Local fixture reply",
 					},
 				],

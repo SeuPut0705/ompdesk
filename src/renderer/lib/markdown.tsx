@@ -32,11 +32,14 @@ import { ZoomableImage } from "../components/common/ZoomableImage";
 import { chatMediaKind, chatReferenceKind, fileUrlPath, localFilePath } from "../components/tools/chat-media";
 import { ChatMedia, HtmlPreview, PdfThumb } from "../components/tools/ToolMedia";
 import { useRuntimeTabId } from "../stores/session-runtime-context";
+import { useTabsStore } from "../stores/tabs";
 import { toastError } from "../stores/toast";
 import { useUiStore } from "../stores/ui";
 import { saveGuiPreference } from "./display-preferences";
 import { cx } from "./format";
 import { useT } from "./i18n";
+import { openLocalPath, PathMentionLink, pathLocation } from "./markdown-path-link";
+import { rehypeLocalPaths } from "./markdown-paths";
 import {
 	isMarkdownAlertKind,
 	MARKDOWN_ID_PREFIX,
@@ -337,6 +340,20 @@ function scrollToFragment(from: Element, fragment: string): void {
 function MarkdownLink({ href, children, node: _node, ...props }: ComponentPropsWithoutRef<"a"> & { node?: unknown }) {
 	const t = useT();
 	const rpc = useTabRpc();
+	const runtimeTabId = useRuntimeTabId();
+	const activeTabId = useTabsStore(state => state.activeTabId);
+	const tabId = runtimeTabId ?? activeTabId;
+	const mentionedPath = (props as Record<string, unknown>)["data-path"];
+	if (typeof mentionedPath === "string" && !href)
+		return (
+			<PathMentionLink
+				className="text-[var(--omp-md-link)] underline decoration-[var(--omp-md-link-url)] hover:decoration-[var(--omp-md-link)]"
+				line={Number((props as Record<string, unknown>)["data-line"]) || undefined}
+				path={mentionedPath}
+			>
+				{children}
+			</PathMentionLink>
+		);
 	const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
 		if (!href) return;
 		event.preventDefault();
@@ -354,8 +371,10 @@ function MarkdownLink({ href, children, node: _node, ...props }: ComponentPropsW
 			return;
 		}
 		const filePath = localFilePath(href);
-		if (filePath) useUiStore.getState().openFilePreview(filePath);
-		else window.omp.system.openExternal(href);
+		if (filePath) {
+			const location = pathLocation(filePath, href);
+			void openLocalPath(location.path, tabId, location.line);
+		} else window.omp.system.openExternal(href);
 	};
 	return (
 		<a
@@ -803,6 +822,7 @@ function buildMarkdown(
 			rehypeHeadingIds,
 			SANITIZE_STEP,
 			rehypeAlerts,
+			rehypeLocalPaths,
 			...(katex ? [katex] : []),
 		],
 		components: COMPONENTS,

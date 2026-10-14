@@ -1,0 +1,17 @@
+OMPdesk
+Copyright (c) 2026 SeuPut
+
+OMPdesk is licensed under the MIT License (see LICENSE).
+
+This product includes software adapted from Mixdog
+(https://github.com/tribgames/mixdog), Copyright (c) 2026 tribgames,
+licensed under the Apache License, Version 2.0 (see LICENSES/Apache-2.0.txt).
+The adapted parts were modified for OMPdesk. Source revision read:
+c088221d889a9ca2d8a3366b878df97604de5f5e.
+
+Ported files (OMPdesk file <- Mixdog file, both relative to their repo root):
+
+- src/renderer/lib/markdown-paths.ts
+  <- apps/desktop/src/renderer/markdown-plugins.ts (path mention grammar:
+     prose/inline-code path patterns, trailing line references, known file
+     names and extensions)

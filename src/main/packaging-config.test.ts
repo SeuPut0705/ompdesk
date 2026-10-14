@@ -106,6 +106,17 @@ describe("mac bundle configs", () => {
 		});
 	});
 
+	it("ships the third-party NOTICE and the license texts it names on both platforms", () => {
+		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
+			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
+			expect(config.extraResources, file).toContainEqual({ from: "NOTICE", to: "NOTICE" });
+			expect(config.extraResources, file).toContainEqual({ from: "LICENSES", to: "LICENSES" });
+		}
+		const notice = fs.readFileSync(path.join(PACKAGE_ROOT, "NOTICE"), "utf8");
+		expect(notice).toContain("LICENSES/Apache-2.0.txt");
+		expect(fs.existsSync(path.join(PACKAGE_ROOT, "LICENSES/Apache-2.0.txt"))).toBe(true);
+	});
+
 	it("ships the shared pool contract inside the bridge on macOS and Windows", () => {
 		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
 			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
