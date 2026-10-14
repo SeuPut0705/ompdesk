@@ -1,9 +1,16 @@
 import { Ban } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { UsageReport } from "../../../shared/rpc-types";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
+import { formatClock, formatDuration } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { describeTurnError, retryLastTurn, runManualMaintenance, type TurnErrorAction } from "../../lib/messages";
+import { useNowTick } from "../../lib/now-tick";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { useMessagesStore } from "../../stores/messages";
+import { useModelStore } from "../../stores/model";
+import { quotaResetAt, useQuotaResumeStore } from "../../stores/quota-resume";
+import { useSessionStore } from "../../stores/session";
 import { sessionRuntime, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
@@ -22,13 +29,51 @@ const ACTION_LABEL_KEYS: Record<TurnErrorAction, string> = {
  * an inline danger card that says what happened and what to do, in the user's
  * language, with the recovery actions that fit (retry, change model, open
  * providers, compact context); the raw provider text stays behind a disclosure.
+ * The session's latest turn stopped by a usage limit also names when the
+ * provider's limit resets and can book the turn to resume then.
  */
-export function TurnErrorNotice({ errorMessage, stopReason }: { errorMessage?: string; stopReason?: string }) {
+export function TurnErrorNotice({
+	errorMessage,
+	stopReason,
+	timestamp,
+}: {
+	errorMessage?: string;
+	stopReason?: string;
+	/** The failed message's timestamp: the reset time shows only on the session's latest turn. */
+	timestamp?: string | number;
+}) {
 	const t = useT();
 	const rpc = useTabRpc();
 	const tabId = useRuntimeTabId();
 	const [pending, setPending] = useState<TurnErrorAction | null>(null);
 	const description = describeTurnError(errorMessage, stopReason);
+	const latest = useMessagesStore(state => timestamp !== undefined && state.messages.at(-1)?.timestamp === timestamp);
+	const quota = description.kind === "rateLimit" && latest;
+	const provider = useModelStore(state => state.model?.provider);
+	const sessionId = useSessionStore(state => state.sessionId);
+	const booked = useQuotaResumeStore(state => (sessionId ? state.reservations[sessionId] : undefined));
+	const [resetAt, setResetAt] = useState<number>();
+	const now = useNowTick(quota && (resetAt !== undefined || booked !== undefined));
+
+	useEffect(() => {
+		if (!quota) return;
+		let live = true;
+		void rpc
+			.getUsage()
+			.then(response => {
+				const data: unknown = response.success ? response.data : undefined;
+				const reports: UsageReport[] =
+					typeof data === "object" && data !== null && "reports" in data && Array.isArray(data.reports)
+						? data.reports
+						: [];
+				if (live) setResetAt(quotaResetAt(reports, provider, Date.now()));
+			})
+			// Best effort: without a usage report the card keeps its plain guidance.
+			.catch(() => undefined);
+		return () => {
+			live = false;
+		};
+	}, [quota, rpc, provider]);
 
 	if (description.kind === "aborted") {
 		return (
@@ -74,25 +119,54 @@ export function TurnErrorNotice({ errorMessage, stopReason }: { errorMessage?: s
 		}
 	};
 
+	const resumeAt = booked ?? resetAt;
+	const showReset = quota && resumeAt !== undefined && resumeAt > now;
 	return (
 		<Banner
-			actions={description.actions.map((action, index) => (
-				<Button
-					disabled={pending !== null && pending !== action}
-					key={action}
-					loading={pending === action}
-					onClick={() => void run(action)}
-					size="sm"
-					variant={index === 0 ? "secondary" : "ghost"}
-				>
-					{t(ACTION_LABEL_KEYS[action])}
-				</Button>
-			))}
+			actions={[
+				...description.actions.map((action, index) => (
+					<Button
+						disabled={pending !== null && pending !== action}
+						key={action}
+						loading={pending === action}
+						onClick={() => void run(action)}
+						size="sm"
+						variant={index === 0 ? "secondary" : "ghost"}
+					>
+						{t(ACTION_LABEL_KEYS[action])}
+					</Button>
+				)),
+				showReset && sessionId ? (
+					<Button
+						data-quota-resume={booked !== undefined ? "booked" : "offer"}
+						key="resume"
+						onClick={() =>
+							booked !== undefined
+								? useQuotaResumeStore.getState().cancel(sessionId)
+								: useQuotaResumeStore.getState().reserve(sessionId, resumeAt)
+						}
+						size="sm"
+						variant="ghost"
+					>
+						{booked !== undefined
+							? t("turnError.resume.cancel")
+							: t("turnError.resume.book", { time: formatClock(resumeAt) })}
+					</Button>
+				) : null,
+			]}
 			className="omp-message-error mt-3 flex-wrap"
 			title={t(description.titleKey)}
 			variant="danger"
 		>
 			<p>{t(description.guidanceKey)}</p>
+			{showReset ? (
+				<p className="omp-quota-reset tabular-nums" data-quota-reset>
+					{t(booked !== undefined ? "turnError.resume.booked" : "turnError.resume.resetsAt", {
+						time: formatClock(resumeAt),
+						countdown: formatDuration(resumeAt - now),
+					})}
+				</p>
+			) : null}
 			{description.detail ? (
 				<details className="omp-message-error-detail mt-1.5">
 					<summary className="cursor-pointer text-sc-sm text-(--sc-text-muted) hover:text-(--sc-text)">

@@ -519,7 +519,13 @@ export const MessageBubble = memo(function MessageBubble({
 				)}
 				{blocks}
 				<ReplyFiles references={references} />
-				{failure && <TurnErrorNotice errorMessage={message.errorMessage} stopReason={message.stopReason} />}
+				{failure && (
+					<TurnErrorNotice
+						errorMessage={message.errorMessage}
+						stopReason={message.stopReason}
+						timestamp={message.timestamp}
+					/>
+				)}
 				<UsageRow message={message} />
 			</div>
 			{!compactChrome && (

@@ -7,6 +7,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { resolveUsedFraction, type UsageLimit, type UsageReport } from "@oh-my-pi/pi-ai";
+import { usageResetAtMs } from "@oh-my-pi/pi-ai/auth/usage-report";
 import { getOAuthCredentialProvider, getOAuthProviders } from "@oh-my-pi/pi-ai/oauth";
 import { modelKind } from "@oh-my-pi/pi-catalog/types";
 import { orderedSettings } from "@oh-my-pi/pi-coding-agent/config/all-settings";
@@ -487,6 +488,8 @@ async function usage(env: BridgeEnv, session: AgentSession) {
 				provider: report.provider,
 				fetchedAt: report.fetchedAt,
 				limits,
+				// When every exhausted window has reset (stock's own rule); absent while not limited.
+				resetAt: usageResetAtMs(report.limits, Date.now()),
 				notes: report.notes,
 				account:
 					formatActiveAccountLabel(account) ??

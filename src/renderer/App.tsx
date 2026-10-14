@@ -33,6 +33,7 @@ import { RemoteFolderPickerHost } from "./components/remote/RemoteFolderPicker";
 import { useAwaitedInput } from "./hooks/use-awaited-input";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { usePlanApproval } from "./hooks/use-plan-approval";
+import { useQuotaResume } from "./hooks/use-quota-resume";
 import { useRpcEvents } from "./hooks/use-rpc-events";
 import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch";
 import { useTraySync } from "./hooks/use-tray-sync";
@@ -126,6 +127,12 @@ function FocusedSessionEffects() {
 		document.documentElement.dataset.density = compactDensity ? "tight" : "comfortable";
 		document.documentElement.dataset.colorblind = colorBlindMode ? "true" : "false";
 	}, [compactDensity, colorBlindMode]);
+	return null;
+}
+
+/** Usage-limit resume bookings; its own component so tab updates never re-render App. */
+function QuotaResumeEffects() {
+	useQuotaResume();
 	return null;
 }
 
@@ -709,6 +716,7 @@ export function App() {
 	const surface = (
 		<div className="flex h-screen w-screen overflow-hidden text-(--sc-text)">
 			{activeTabId && <FocusedSessionEffects />}
+			<QuotaResumeEffects />
 			<AppShell />
 
 			<CommandPalette />

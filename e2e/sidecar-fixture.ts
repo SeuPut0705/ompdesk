@@ -458,6 +458,10 @@ if (process.argv[2] === "stats") {
 	/** The stored session `switch_session` opened (a relaunch reopening a run it cut off). */
 	let resumed: { id: string; file: string } | undefined;
 	let isStreaming = false;
+	/** The thinking selector and effort; `fixture reply actions` turns stock auto on and classifies the turn high. */
+	let thinking = { level: "medium", configured: "medium" };
+	/** `fixture usage limit` stops a turn on the provider's quota; its account resets at this time. */
+	let usageLimitResetAt: number | undefined;
 	let planModeEnabled = Boolean(process.env.OMP_GUI_TEST_PANEL_PLAN);
 	// Stock `--session <file>`: the process boots on that stored session (a tab
 	// opened on a fork, a restored tab), so get_state already names it.
@@ -471,8 +475,6 @@ if (process.argv[2] === "stats") {
 	// Stock `get_state`: cwd, plan mode and the pause gate come from the bridge's `composer.state`.
 	const state = () => ({
 		model,
-	/** The thinking selector and effort; `fixture reply actions` turns stock auto on and classifies the turn high. */
-	let thinking = { level: "medium", configured: "medium" };
 		thinkingLevel: thinking.level,
 		isStreaming,
 		isCompacting: false,
@@ -1440,6 +1442,23 @@ if (process.argv[2] === "stats") {
 				candidates: [{ provider: "fixture", id: "local-fixture", name: "Local fixture", kind: "chat" }],
 			})),
 		}),
+		// Stock `fetchUsageReports` for the fixture provider: limited only after `fixture usage limit`.
+		usage: () => ({
+			reports:
+				usageLimitResetAt === undefined
+					? []
+					: [{ provider: "fixture", fetchedAt: Date.now(), limits: [], resetAt: usageLimitResetAt }],
+			session: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				orchestrationTokens: 0,
+				premiumRequests: 0,
+				cost: 0,
+			},
+		}),
 		...(modelsData ? modelsPageMethods : {}),
 		...(modelsData && process.env.OMP_GUI_TEST_RESET_PASSES === "1" ? resetPassMethods : {}),
 		...(worktreeLifecycle ? worktreeLifecycleMethods : {}),
@@ -1498,6 +1517,17 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		"",
 		"local/PLAN.md 1번 줄 is the title; src/gone.ts was never created.",
 	].join("\n");
+	// Reply actions (MixA A113/A114, A118, A120): a web, a mail and a path link,
+	// Korean glued to bold and to a bare URL, and a shell fence.
+	const ACTIONS_REPLY = [
+		"Read [the docs](http://127.0.0.1:9/docs), write to [the team](mailto:team@example.com) or open src/app.ts.",
+		"",
+		"결과는 **0.118%**이며 자세한 내용은 https://example.com/report에서 확인해요.",
+		"",
+		"```bash",
+		"echo ompdesk-run-in-terminal",
+		"```",
+	].join("\n");
 	// GitHub-flavored structure as a model writes it: anchors, local/mail links,
 	// task list, aligned table, the five alerts, a plain quote, unlabeled and
 	// labeled fences, a mermaid fence and footnotes.
@@ -1511,17 +1541,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		"",
 		"| Step | Count | Owner |",
 		"|:-----|:-----:|------:|",
-	// Reply actions (MixA A113/A114, A118, A120): a web, a mail and a path link,
-	// Korean glued to bold and to a bare URL, and a shell fence.
-	const ACTIONS_REPLY = [
-		"Read [the docs](http://127.0.0.1:9/docs), write to [the team](mailto:team@example.com) or open src/app.ts.",
-		"",
-		"결과는 **0.118%**이며 자세한 내용은 https://example.com/report에서 확인해요.",
-		"",
-		"```bash",
-		"echo ompdesk-run-in-terminal",
-		"```",
-	].join("\n");
 		"| Build | 3 | ci |",
 		"| Review | 12 | Kim |",
 		"",
@@ -2957,8 +2976,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			appendMessage(answer);
 			write({ type: "message_end", message: answer });
 			endTurn([user, call, result, answer]);
-		} else if (message === "fixture stream" || message === "fixture meter") {
-			const answer: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
 		} else if (message === "fixture markdown stream") {
 			// Streams MARKDOWN_STREAM in small deltas, then holds the turn open
 			// (`fixture:finish` ends it) so the live tail can be inspected.
@@ -2980,6 +2997,8 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta, partial: answer },
 				});
 			}, 16);
+		} else if (message === "fixture stream" || message === "fixture meter") {
+			const answer: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
 			write({ type: "message_start", message: answer });
 			streamChunks = 0;
 			streamTick = () => {
@@ -3194,7 +3213,27 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			appendMessage(answer);
 			write({ type: "message_end", message: answer });
 			endTurn([user, answer]);
+		} else if (message === "fixture usage limit") {
+			// The provider's quota stops the turn; the limit resets a few seconds later.
+			usageLimitResetAt = Date.now() + Number(process.env.OMP_GUI_TEST_USAGE_RESET_MS ?? 90_000);
+			const answer: AgentMessage = {
+				role: "assistant",
+				content: [],
+				timestamp: Date.now(),
+				provider: model.provider,
+				model: model.id,
+				stopReason: "error",
+				errorMessage: "429 usage limit reached for this account",
+			};
+			appendMessage(answer);
+			write({ type: "message_end", message: answer });
+			endTurn([user, answer]);
 		} else if (message !== "fixture running") {
+			if (message === "fixture reply actions") {
+				// Stock auto thinking names the effort it classified for this turn.
+				thinking = { level: "high", configured: "auto" };
+				write({ type: "thinking_level_changed", thinkingLevel: "high", configured: "auto", resolved: "high" });
+			}
 			const answer: AgentMessage = {
 				role: "assistant",
 				content: [
@@ -3208,11 +3247,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 									: message === "fixture svg"
 										? SVG_REPLY
 										: message === "fixture markdown"
-			if (message === "fixture reply actions") {
-				// Stock auto thinking names the effort it classified for this turn.
-				thinking = { level: "high", configured: "auto" };
-				write({ type: "thinking_level_changed", thinkingLevel: "high", configured: "auto", resolved: "high" });
-			}
 											? MARKDOWN_REPLY
 											: message === "fixture paths"
 												? PATHS_REPLY
@@ -3461,6 +3495,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						"providers",
 						"modes",
 						"hotkeys",
+						"retry",
 					]
 						.map(name => ({ name, source: "builtin", textModeExecutable: false, description: name }))
 						.concat([
@@ -3713,91 +3748,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					ok();
 					break;
 				}
-				// A todo tool call settling mid-run: the workspace dock appears above
-				// the composer and takes height from the transcript viewport.
-				if (line === "fixture:todo") {
-					const tool = { toolCallId: `todo-${Date.now()}`, toolName: "todo" };
-					const tasks = Array.from({ length: 6 }, (_, index) => ({
-						content: `Fixture task ${index + 1}`,
-						status: index === 0 ? "in_progress" : "pending",
-					}));
-					write({ type: "tool_execution_start", ...tool, args: {} });
-					write({
-						type: "tool_execution_end",
-						...tool,
-						result: {
-							content: [{ type: "text", text: "todo updated" }],
-							details: { phases: [{ name: "Fixture", tasks }] },
-						},
-						isError: false,
-					});
-					ok();
-					break;
-				}
-				if (line === "fixture:large-tool") {
-					const tool = { toolCallId: "large-tool", toolName: "bash" };
-					write({ type: "tool_execution_start", ...tool, args: { command: "local audit fixture" } });
-					write({
-						type: "tool_execution_end",
-						...tool,
-						result: { content: [{ type: "text", text: "bounded output line\n".repeat(25000) }] },
-						isError: false,
-					});
-					ok();
-					break;
-				}
-				if (line.startsWith("fixture:security:")) {
-					securityMode = line.slice("fixture:security:".length);
-					ok();
-					break;
-				}
-				ok({ output: "", exitCode: 0, cancelled: false, truncated: false });
-				break;
-			}
-			case "steer":
-			case "follow_up":
-				lanes[type === "steer" ? "steering" : "followUp"].push(text("message"));
-				ok();
-				emitQueue();
-				break;
-			case "remove_queued_message": {
-				const lane = command.queue === "steering" ? lanes.steering : lanes.followUp;
-				const index = lane.indexOf(text("message"));
-				if (index !== -1) lane.splice(index, 1);
-				ok({ removed: index !== -1 });
-				emitQueue();
-				break;
-			}
-			case "promote_queued_message": {
-				// Stock: the first matching follow-up moves to the end of the steering lane.
-				const index = lanes.followUp.indexOf(text("message"));
-				if (index !== -1) lanes.steering.push(...lanes.followUp.splice(index, 1));
-				ok({ promoted: index !== -1 });
-				if (index !== -1) emitQueue();
-				break;
-			}
-			case "abort_and_restore_queue": {
-				// Stock (TUI Esc parity): withdraw the queued input first, then abort.
-				const restored = {
-					steering: lanes.steering.map(message => ({ text: message })),
-					followUp: lanes.followUp.map(message => ({ text: message })),
-				};
-				const hadQueue = lanes.steering.length + lanes.followUp.length > 0;
-				lanes.steering = [];
-				lanes.followUp = [];
-				if (hadQueue) emitQueue();
-				clearInterval(streamTimer);
-				ok(restored);
-				if (!flow?.abort() && isStreaming) endTurn([]);
-				break;
-			}
-			// Stock `getUserMessagesForBranching` / `branch`: the leaf moves to the
-			// picked user message's parent and its text comes back for the editor.
-			case "get_branch_messages":
-				ok({
-					messages: activeBranch()
-						.filter(entry => entry.type === "message" && (entry.message as AgentMessage).role === "user")
-						.map(entry => ({ entryId: entry.id, text: messageText(entry.message as AgentMessage, "") })),
 				// A user `!` bash that runs until stock's `abort_bash` stops it.
 				if (line === "fixture:hold-bash") {
 					heldBash = ok;
@@ -3844,6 +3794,113 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					ok();
 					break;
 				}
+				// A todo tool call settling mid-run: the workspace dock appears above
+				// the composer and takes height from the transcript viewport.
+				if (line === "fixture:todo") {
+					const tool = { toolCallId: `todo-${Date.now()}`, toolName: "todo" };
+					const tasks = Array.from({ length: 6 }, (_, index) => ({
+						content: `Fixture task ${index + 1}`,
+						status: index === 0 ? "in_progress" : "pending",
+					}));
+					write({ type: "tool_execution_start", ...tool, args: {} });
+					write({
+						type: "tool_execution_end",
+						...tool,
+						result: {
+							content: [{ type: "text", text: "todo updated" }],
+							details: { phases: [{ name: "Fixture", tasks }] },
+						},
+						isError: false,
+					});
+					ok();
+					break;
+				}
+				if (line === "fixture:large-tool") {
+					const tool = { toolCallId: "large-tool", toolName: "bash" };
+					write({ type: "tool_execution_start", ...tool, args: { command: "local audit fixture" } });
+					write({
+						type: "tool_execution_end",
+						...tool,
+						result: { content: [{ type: "text", text: "bounded output line\n".repeat(25000) }] },
+						isError: false,
+					});
+					ok();
+					break;
+				}
+				if (line.startsWith("fixture:security:")) {
+					securityMode = line.slice("fixture:security:".length);
+					ok();
+					break;
+				}
+				ok({ output: "", exitCode: 0, cancelled: false, truncated: false });
+				break;
+			}
+			case "set_slow_mode":
+				if (!slowModeSupported) {
+					fail("Slow mode is unavailable for the current model.");
+					break;
+				}
+				slowModeEnabled = command.enabled === true;
+				ok({ enabled: slowModeEnabled });
+				break;
+			case "abort_bash":
+				heldBash?.({ output: "held output\n", exitCode: undefined, cancelled: true, truncated: false });
+				heldBash = undefined;
+				ok();
+				break;
+			case "steer_subagent": {
+				const target = subagentRoster.find(agent => agent.id === command.subagentId);
+				if (target?.status !== "running") {
+					fail(`Subagent not running: ${text("subagentId")}`);
+					break;
+				}
+				ok();
+				break;
+			}
+			case "steer":
+			case "follow_up":
+				lanes[type === "steer" ? "steering" : "followUp"].push(text("message"));
+				ok();
+				emitQueue();
+				break;
+			case "remove_queued_message": {
+				const lane = command.queue === "steering" ? lanes.steering : lanes.followUp;
+				const index = lane.indexOf(text("message"));
+				if (index !== -1) lane.splice(index, 1);
+				ok({ removed: index !== -1 });
+				emitQueue();
+				break;
+			}
+			case "promote_queued_message": {
+				// Stock: the first matching follow-up moves to the end of the steering lane.
+				const index = lanes.followUp.indexOf(text("message"));
+				if (index !== -1) lanes.steering.push(...lanes.followUp.splice(index, 1));
+				ok({ promoted: index !== -1 });
+				if (index !== -1) emitQueue();
+				break;
+			}
+			case "abort_and_restore_queue": {
+				// Stock (TUI Esc parity): withdraw the queued input first, then abort.
+				const restored = {
+					steering: lanes.steering.map(message => ({ text: message })),
+					followUp: lanes.followUp.map(message => ({ text: message })),
+				};
+				const hadQueue = lanes.steering.length + lanes.followUp.length > 0;
+				lanes.steering = [];
+				lanes.followUp = [];
+				if (hadQueue) emitQueue();
+				clearInterval(streamTimer);
+				ok(restored);
+				if (!flow?.abort() && isStreaming) endTurn([]);
+				break;
+			}
+			// Stock `getUserMessagesForBranching` / `branch`: the leaf moves to the
+			// picked user message's parent and its text comes back for the editor.
+			case "get_branch_messages":
+				ok({
+					messages: activeBranch()
+						.filter(entry => entry.type === "message" && (entry.message as AgentMessage).role === "user")
+						.map(entry => ({ entryId: entry.id, text: messageText(entry.message as AgentMessage, "") })),
 				});
 				break;
 			case "branch": {
@@ -3872,28 +3929,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				ok({ cancelled: false });
 				break;
 			}
-			case "abort":
-				clearInterval(streamTimer);
-				clearInterval(workStreamTimer);
-				ok();
-				if (!flow?.abort()) endTurn([]);
-				break;
-			case "prompt":
-				if (text("message") === "fixture uncertain") {
-					prompt(text("message"), () => fail("Isolated lost acknowledgement", "rpc_delivery_unknown"));
-					break;
-				}
-				prompt(text("message"), ok);
-				break;
-			case "set_slow_mode":
-				if (!slowModeSupported) {
-					fail("Slow mode is unavailable for the current model.");
-					break;
-				}
-				slowModeEnabled = command.enabled === true;
-				ok({ enabled: slowModeEnabled });
-				break;
-			case "abort_bash":
 			// Stock's manual `/compact`: one compaction entry keeping the last message (context popover e2e).
 			case "compact": {
 				const compaction = {
@@ -3905,19 +3940,40 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				ok(compaction);
 				break;
 			}
-				heldBash?.({ output: "held output\n", exitCode: undefined, cancelled: true, truncated: false });
-				heldBash = undefined;
+			case "abort":
+				clearInterval(streamTimer);
+				clearInterval(workStreamTimer);
 				ok();
+				if (!flow?.abort()) endTurn([]);
 				break;
-			case "steer_subagent": {
-				const target = subagentRoster.find(agent => agent.id === command.subagentId);
-				if (target?.status !== "running") {
-					fail(`Subagent not running: ${text("subagentId")}`);
+			case "prompt":
+				if (text("message") === "/retry") {
+					// Stock `/retry` (main's `retry` handler sends it): the failed turn runs again, here answering.
+					const failed = usageLimitResetAt !== undefined;
+					usageLimitResetAt = undefined;
+					ok({ agentInvoked: failed });
+					if (!failed) break;
+					isStreaming = true;
+					write({ type: "agent_start" });
+					const answer: AgentMessage = {
+						role: "assistant",
+						content: [{ type: "text", text: "Resumed after the usage limit reset." }],
+						timestamp: Date.now(),
+						provider: model.provider,
+						model: model.id,
+						stopReason: "stop",
+					};
+					appendMessage(answer);
+					write({ type: "message_end", message: answer });
+					endTurn([answer]);
 					break;
 				}
-				ok();
+				if (text("message") === "fixture uncertain") {
+					prompt(text("message"), () => fail("Isolated lost acknowledgement", "rpc_delivery_unknown"));
+					break;
+				}
+				prompt(text("message"), ok);
 				break;
-			}
 			default:
 				fail(`Fixture does not implement ${type}`);
 		}
