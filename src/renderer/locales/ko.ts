@@ -3908,7 +3908,8 @@ export const ko: Record<string, string> = {
 	"remote.removeLabel": "{name} 제거",
 	"remote.removeFailed": "기기를 제거하지 못했어요",
 	"remote.removeTitle": "{name} 기기를 제거할까요?",
-	"remote.removePeerBody": "{name}에서 더 이상 이 컴퓨터의 세션을 열 수 없어요. 다시 쓰려면 새 코드로 페어링해야 해요.",
+	"remote.removePeerBody":
+		"{name}에서 더 이상 이 컴퓨터의 세션을 열 수 없어요. 다시 쓰려면 새 코드로 페어링해야 해요.",
 	"remote.removeHostBody":
 		"이 기기에서 더 이상 {name}의 세션을 실행할 수 없어요. 다시 쓰려면 {name}에 표시된 새 코드로 페어링해야 해요.",
 	"remote.openSettings": "설정 열기",

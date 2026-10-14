@@ -3921,7 +3921,8 @@ export const en: Record<string, string> = {
 	"remote.removeLabel": "Remove {name}",
 	"remote.removeFailed": "Couldn't remove the device",
 	"remote.removeTitle": "Remove {name}?",
-	"remote.removePeerBody": "{name} can no longer open sessions on this computer. To use it again, pair it with a new code.",
+	"remote.removePeerBody":
+		"{name} can no longer open sessions on this computer. To use it again, pair it with a new code.",
 	"remote.removeHostBody":
 		"This device stops running sessions on {name}. To use it again, pair with a new code shown on {name}.",
 	"remote.openSettings": "Open settings",
