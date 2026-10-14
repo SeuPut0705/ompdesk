@@ -13,8 +13,10 @@ import { cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { selectFocusedTabProject } from "../../lib/workspace-dirs";
 import { usePrCenterStore } from "../../stores/pr-center";
+import { focusedTabDevice } from "../../stores/remote";
 import { toastError } from "../../stores/toast";
 import { Banner, Button, EmptyState, ErrorDetail, IconButton, Spinner, Tabs } from "../common";
+import { GithubSignIn } from "../onboarding/GithubSignIn";
 import { PrCreateDialog } from "./pr/PrCreateDialog";
 import { PrDetail } from "./pr/PrDetail";
 
@@ -141,6 +143,25 @@ export function PullRequests() {
 
 	if (!repo.available) {
 		const reason = repo.reason;
+		// Signed out: sign in right here when the tab runs on this computer (its gh is ours).
+		if (reason === "gh_unauthenticated") {
+			const local = focusedTabDevice() === undefined;
+			return (
+				<div className="flex flex-1 flex-col items-center justify-center overflow-y-auto">
+					<EmptyState
+						actions={retry}
+						description={t(
+							local
+								? "prCenter.unavailableHint.gh_unauthenticated"
+								: "prCenter.unavailableHint.gh_unauthenticated_remote",
+						)}
+						icon={<GitPullRequest />}
+						title={t("prCenter.unavailable.gh_unauthenticated")}
+					/>
+					{local && <GithubSignIn className="mb-8 w-full max-w-lg" onSignedIn={() => void probe()} />}
+				</div>
+			);
+		}
 		return (
 			<EmptyState
 				actions={

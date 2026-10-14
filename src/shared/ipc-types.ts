@@ -5,6 +5,7 @@
 
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
 import type { BuiltinReaState } from "./builtin-mcp";
+import type { GithubAuthState } from "./github-auth";
 import type { IpcErrorCode } from "./ipc-error-codes";
 import type { LaunchProfile } from "./launch-profile";
 import type { ModelSetupPlan, ModelSetupRequest, ModelSetupStatus } from "./model-setup";
@@ -95,6 +96,8 @@ export const IPC_EVENTS = {
 	WORKTREE_NOTICE: "worktree-lifecycle:notice",
 	/** This machine's automatic setup changed (src/main/setup/); payload is the whole SetupState. */
 	SETUP_STATE: "setup:state",
+	/** This machine's GitHub CLI sign-in changed (src/main/github-auth/); payload is the whole GithubAuthState. */
+	GITHUB_AUTH_STATE: "github-auth:state",
 } as const;
 
 // ============================================================================
@@ -234,6 +237,18 @@ export const IPC_COMMANDS = {
 	SETUP_RETRY: "setup:retry",
 	/** Cancel the running setup install (kills its process tree) */
 	SETUP_CANCEL: "setup:cancel",
+	/** GitHub sign-in on this machine: whole GithubAuthState, re-checked when stale (`force` re-checks now) */
+	GITHUB_AUTH_REFRESH: "github-auth:refresh",
+	/** Start `gh auth login --web` (ends any live sign-in) */
+	GITHUB_AUTH_LOGIN_START: "github-auth:login-start",
+	/** The user opened the GitHub page: release gh's "Press Enter to open" pause */
+	GITHUB_AUTH_LOGIN_OPEN: "github-auth:login-open",
+	GITHUB_AUTH_LOGIN_CANCEL: "github-auth:login-cancel",
+	GITHUB_AUTH_LOGOUT: "github-auth:logout",
+	/** Make another signed-in account active; only a login `otherAccounts` lists is accepted */
+	GITHUB_AUTH_SWITCH: "github-auth:switch",
+	/** Fill empty git user.name / user.email from the signed-in account */
+	GITHUB_AUTH_FILL_IDENTITY: "github-auth:fill-identity",
 	/** Remote devices: whole RemoteState snapshot */
 	REMOTE_GET_STATE: "remote:get-state",
 	/** Turn the host role (other devices may use this computer) on or off; persisted in prefs */
@@ -1265,6 +1280,17 @@ export interface OmpApi {
 		/** Cancel the running install; false when nothing runs. */
 		cancel(): Promise<boolean>;
 		onState(callback: (state: SetupState) => void): () => void;
+	};
+	/** This machine's GitHub CLI sign-in; remote tabs never use it (their host signs in on its own). */
+	githubAuth: {
+		refresh(force?: boolean): Promise<GithubAuthState>;
+		startLogin(): Promise<GithubAuthState>;
+		openLogin(): Promise<GithubAuthState>;
+		cancelLogin(): Promise<GithubAuthState>;
+		logout(): Promise<GithubAuthState>;
+		switchAccount(login: string): Promise<GithubAuthState>;
+		fillIdentity(): Promise<GithubAuthState>;
+		onState(callback: (state: GithubAuthState) => void): () => void;
 	};
 	ui: {
 		respondExtensionUi(response: ExtensionUIResponse, tabId?: string): void;

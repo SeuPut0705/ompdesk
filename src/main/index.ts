@@ -27,6 +27,8 @@ import { installQuitGuard, requestQuit } from "./app-quit";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
+import { createGithubAuthService, registerGithubAuthIpc } from "./github-auth/ipc";
+import type { GithubAuthService } from "./github-auth/service";
 import { applyGpuFallbackIfNeeded, handleGpuProcessGone } from "./gpu-fallback";
 import { mainT } from "./i18n";
 import { firstUsableCwd } from "./initial-cwd";
@@ -261,6 +263,7 @@ let remoteDevices: RemoteDevices | null = null;
 let worktreePrompts: WorktreePrompts | null = null;
 let worktreeLifecycle: WorktreeLifecycle | null = null;
 let setupService: SetupService | null = null;
+let githubAuthService: GithubAuthService | null = null;
 
 function errorMessage(value: unknown): { message: string; stack?: string } {
 	if (value instanceof Error) return { message: value.message, stack: value.stack };
@@ -595,6 +598,12 @@ app.whenReady().then(() => {
 	setupService = setup;
 	registerSetupIpc(ipcMain, setup);
 	void setup.start();
+	githubAuthService = createGithubAuthService(state => {
+		for (const win of BrowserWindow.getAllWindows()) {
+			if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.GITHUB_AUTH_STATE, state);
+		}
+	});
+	registerGithubAuthIpc(ipcMain, githubAuthService);
 	logWatcher = new LogWatcher();
 
 	// Register all handlers and sidecar listeners before loading the renderer.
@@ -681,6 +690,7 @@ installQuitGuard(
 	() => {
 		statsServer?.kill();
 		setupService?.dispose();
+		githubAuthService?.dispose();
 		sidecarPool?.disposeAll();
 		void remoteDevices?.dispose();
 		sessionIndex?.stop();

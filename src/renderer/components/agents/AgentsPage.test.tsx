@@ -9,11 +9,13 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
+import { useGithubAuthStore } from "../../stores/github-auth";
 import { usePrCenterStore } from "../../stores/pr-center";
 import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";
 import { useUiStore } from "../../stores/ui";
+import { fakeGithubAuth, githubState } from "../../test-support/github-auth";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -189,6 +191,44 @@ describe("AgentsPage", () => {
 		expect(document.body.textContent).toContain("GitHub CLI (gh) is not installed");
 		await fire(byText("button", "Install GitHub CLI")!, "click");
 		expect(omp.openExternal).toHaveBeenCalledWith("https://cli.github.com");
+	});
+
+	it("signs in to GitHub right in the PR center and checks the repo again once signed in", async () => {
+		const omp = installOmp();
+		omp.prRepo.mockImplementation(async () => ok("pr_repo", { available: false, reason: "gh_unauthenticated" }));
+		const github = fakeGithubAuth();
+		Object.assign(window.omp, { githubAuth: github.api });
+		Object.assign(window.omp.rpc, { prList: vi.fn(async () => ok("pr_list", [])) });
+		try {
+			useUiStore.getState().openAgents("prs");
+			await mount();
+			expect(document.body.textContent).toContain(translate("prCenter.unavailable.gh_unauthenticated"));
+			expect(document.querySelector('[data-testid="github-sign-in"]')).not.toBeNull();
+			await fire(byText("button", translate("githubAuth.signIn"))!, "click");
+			expect(github.api.startLogin).toHaveBeenCalledOnce();
+
+			const probes = omp.prRepo.mock.calls.length;
+			omp.prRepo.mockImplementation(async () =>
+				ok("pr_repo", { available: true, repo: "octo/hello", defaultBranch: "main" }),
+			);
+			await act(async () =>
+				github.push(
+					githubState({
+						status: {
+							installed: true,
+							version: "2.62.0",
+							authenticated: true,
+							login: "octocat",
+							otherAccounts: [],
+						},
+					}),
+				),
+			);
+			await flush();
+			expect(omp.prRepo.mock.calls.length).toBeGreaterThan(probes);
+		} finally {
+			useGithubAuthStore.getState().reset();
+		}
 	});
 
 	it("offers edit and delete only for files in the agent folders, and deletes through the main process", async () => {

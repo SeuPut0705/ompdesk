@@ -6,6 +6,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { AccountRotationMode, AccountRotationState } from "../shared/account-rotation";
 import type { BuiltinReaState } from "../shared/builtin-mcp";
+import type { GithubAuthState } from "../shared/github-auth";
 import type {
 	CustomProviderInput,
 	CustomProvidersConfig,
@@ -216,6 +217,20 @@ const api: OmpApi = {
 		retry: (item: SetupItemId) => ipcRenderer.invoke(IPC_COMMANDS.SETUP_RETRY, item) as Promise<void>,
 		cancel: () => ipcRenderer.invoke(IPC_COMMANDS.SETUP_CANCEL) as Promise<boolean>,
 		onState: (callback: (state: SetupState) => void) => subscribe<SetupState>(IPC_EVENTS.SETUP_STATE, callback),
+	},
+
+	githubAuth: {
+		refresh: (force?: boolean) =>
+			ipcRenderer.invoke(IPC_COMMANDS.GITHUB_AUTH_REFRESH, force === true) as Promise<GithubAuthState>,
+		startLogin: () => ipcRenderer.invoke(IPC_COMMANDS.GITHUB_AUTH_LOGIN_START) as Promise<GithubAuthState>,
+		openLogin: () => ipcRenderer.invoke(IPC_COMMANDS.GITHUB_AUTH_LOGIN_OPEN) as Promise<GithubAuthState>,
+		cancelLogin: () => ipcRenderer.invoke(IPC_COMMANDS.GITHUB_AUTH_LOGIN_CANCEL) as Promise<GithubAuthState>,
+		logout: () => ipcRenderer.invoke(IPC_COMMANDS.GITHUB_AUTH_LOGOUT) as Promise<GithubAuthState>,
+		switchAccount: (login: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.GITHUB_AUTH_SWITCH, login) as Promise<GithubAuthState>,
+		fillIdentity: () => ipcRenderer.invoke(IPC_COMMANDS.GITHUB_AUTH_FILL_IDENTITY) as Promise<GithubAuthState>,
+		onState: (callback: (state: GithubAuthState) => void) =>
+			subscribe<GithubAuthState>(IPC_EVENTS.GITHUB_AUTH_STATE, callback),
 	},
 
 	ui: {

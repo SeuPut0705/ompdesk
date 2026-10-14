@@ -34,6 +34,18 @@ export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 			rows: 24,
 		});
 	},
+	/** One command (not the login shell) in a PTY, e.g. `gh auth login`, which needs a TTY. Main supplies the whole env. */
+	"pty.request": async params => {
+		const { owner, application, args, cwd, env, operation } = params as {
+			owner: string;
+			application: string;
+			args: string[];
+			cwd: string;
+			env: Record<string, string>;
+			operation: TerminalOperation;
+		};
+		return (await terminals()).request(owner, operation, { application, args, cwd, env, cols: 120, rows: 30 });
+	},
 	"terminal.dispose": async params => {
 		const { owner } = params as { owner: string };
 		service?.dispose(owner);

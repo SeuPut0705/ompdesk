@@ -1,7 +1,8 @@
 /**
  * Once per launch, when the sidecar first reports ready: with no provider
  * that can serve, start the inline first-run setup (the empty main area
- * renders it); otherwise make sure new sessions start on a model that can
+ * renders it); a setup left at a later step (model, GitHub) before a relaunch
+ * resumes there; otherwise make sure new sessions start on a model that can
  * serve (`ensureServingDefault`). Renders nothing.
  */
 
@@ -9,7 +10,7 @@ import { useEffect, useRef } from "react";
 import type { ProviderInfo } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { useFirstRunStore } from "../../stores/first-run";
+import { FIRST_RUN_STEP_PREF, isResumableFirstRunStep, useFirstRunStore } from "../../stores/first-run";
 import { useModelStore } from "../../stores/model";
 import { focusedTabDevice } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
@@ -29,9 +30,10 @@ export function FirstRunGate() {
 		if (status !== "ready" || checkedThisLaunch.current) return;
 		let cancelled = false;
 		void (async () => {
-			const [catalogResult, configResult] = await Promise.allSettled([
+			const [catalogResult, configResult, savedStep] = await Promise.allSettled([
 				refreshProviders(false),
 				window.omp.models.listProviders(focusedTabDevice()),
+				window.omp.prefs.get(FIRST_RUN_STEP_PREF),
 			]);
 			// A failed catalog read is transient (sidecar/transport): stay
 			// unlatched so the next ready transition checks again.
@@ -43,6 +45,11 @@ export function FirstRunGate() {
 			const configs = configResult.status === "fulfilled" ? configResult.value.providers : [];
 			if (!hasUsableModelProvider(providers, configs)) {
 				useFirstRunStore.getState().setPhase("connect", null);
+				return;
+			}
+			const resume = savedStep.status === "fulfilled" ? savedStep.value : undefined;
+			if (isResumableFirstRunStep(resume)) {
+				useFirstRunStore.getState().setPhase(resume, null);
 				return;
 			}
 			try {

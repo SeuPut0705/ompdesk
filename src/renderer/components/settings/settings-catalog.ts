@@ -197,6 +197,13 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		labelKey: "settings.gui.panelDefault",
 		aliases: "panelTab side panel 사이드 패널",
 	},
+	{
+		id: "githubAccount",
+		section: "general",
+		rowId: "setting-github-account",
+		labelKey: "githubAuth.settings.title",
+		aliases: "github gh login sign in sign out account switch git identity user.name user.email 깃허브 로그인 계정",
+	},
 	{ id: "theme", section: "appearance", labelKey: "settings.gui.theme", aliases: "theme dark light 테마 다크 라이트" },
 	{
 		id: "followAgentTheme",

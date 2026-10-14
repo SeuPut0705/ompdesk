@@ -446,6 +446,11 @@ for (const language of ["en", "ko"] as const)
 				await shoot("model-step-narrow");
 				await page.getByRole("button", { name: /^(Start with this model|이 모델로 시작)$/ }).click();
 				await page.waitForTimeout(800);
+				// GitHub is optional and machine-dependent (skipped when this computer's gh is signed in).
+				if (await page.locator('[data-first-run-step="github"]').count()) {
+					await shoot("github-step-narrow");
+					await page.getByRole("button", { name: /^(Skip for now|지금은 건너뛰기)$/ }).click();
+				}
 				await shoot("setup-done-narrow");
 			} finally {
 				if (directory)

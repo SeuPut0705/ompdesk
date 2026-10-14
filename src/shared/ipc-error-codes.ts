@@ -53,6 +53,7 @@ export const IPC_ERROR_CODES = [
 	// LocalCommandError codes (src/main/local) that reach toasts unchanged.
 	"busy",
 	"gh_missing",
+	"gh_unauthenticated",
 	"no_github_remote",
 	"not_a_repo",
 	"exists",

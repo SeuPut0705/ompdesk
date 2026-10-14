@@ -3,24 +3,28 @@
  * installed on this machine (main does it on its own; `MachineSetupView` only
  * shows it) → connect a provider (search, recommended first, sign-in or API
  * key inline, or a custom endpoint) → choose the default model (optionally
- * verified with one short test request) → ready to prompt. `FirstRunGate`
- * decides when the provider steps show; `useMachineSetupNeeded` the install step.
+ * verified with one short test request) → optionally sign in to GitHub → ready
+ * to prompt. `FirstRunGate` decides when the provider steps show (and resumes a
+ * step left before a relaunch); `useMachineSetupNeeded` the install step.
+ * ⌘/Ctrl+Enter runs the step's primary action; Esc asks before leaving setup.
  */
 
 import { ArrowLeft, Check, CheckCircle2, Plus, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ModelInfo } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { isImeKeyEvent } from "../../lib/ime";
 import { modelSelector } from "../../lib/model-pool";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { type FirstRunPhase, useFirstRunStore } from "../../stores/first-run";
+import { useGithubAuthStore } from "../../stores/github-auth";
 import { useModelStore } from "../../stores/model";
 import { focusedTabDevice } from "../../stores/remote";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
-import { Badge, Banner, BrandMark, Button, EmptyState, ErrorDetail, ListRow, Spinner } from "../common";
+import { Badge, Banner, BrandMark, Button, EmptyState, ErrorDetail, Kbd, ListRow, Modal, Spinner } from "../common";
 import { CustomProviderForm } from "../settings/providers/CustomProviderForm";
 import { ProviderList, useProviderCatalog } from "../settings/providers/ProviderList";
 import { useProviderLogin } from "../settings/providers/ProviderLogin";
@@ -32,6 +36,7 @@ import {
 	servingProviderIds,
 } from "../settings/providers/provider-catalog";
 import { applyDefaultModel } from "./default-model";
+import { GithubSignIn, useGithubAuth } from "./GithubSignIn";
 import { MachineSetupView, useMachineSetupNeeded } from "./MachineSetupView";
 
 /**
@@ -45,7 +50,20 @@ export function useFirstRunActive(): boolean {
 	return phase !== "idle" || installing;
 }
 
-const STEPS = ["install", "connect", "model", "prompt"] as const;
+const STEPS = ["install", "connect", "model", "github", "prompt"] as const;
+
+/** The step's primary action, which ⌘/Ctrl+Enter runs; null while it has none. */
+const PrimaryActionContext = createContext<{ current: (() => void) | null }>({ current: null });
+
+function usePrimaryAction(action: (() => void) | null): void {
+	const ref = useContext(PrimaryActionContext);
+	useEffect(() => {
+		ref.current = action;
+		return () => {
+			if (ref.current === action) ref.current = null;
+		};
+	});
+}
 type SetupStep = Exclude<FirstRunPhase, "idle"> | "install";
 
 function StepList({ phase }: { phase: SetupStep }) {
@@ -193,6 +211,8 @@ function ModelStep() {
 
 	useEffect(() => {
 		void refreshAvailableModels(false).catch(() => {});
+		// Warm the GitHub step's check while the model list is on screen.
+		void useGithubAuthStore.getState().refresh();
 	}, [refreshAvailableModels]);
 
 	const serving = useMemo(
@@ -258,7 +278,10 @@ function ModelStep() {
 		setError(null);
 		try {
 			await applyDefaultModel(tabRpc, useTabsStore.getState().activeTabId, model);
-			setPhase("idle", null);
+			// GitHub is optional: an account already signed in with a full Git identity skips the step.
+			const github = useGithubAuthStore.getState().state;
+			const githubReady = github.status?.authenticated && github.identity?.name && github.identity.email;
+			setPhase(githubReady ? "idle" : "github", null);
 			toast({
 				variant: "success",
 				title: t("setup.ready.title"),
@@ -270,6 +293,8 @@ function ModelStep() {
 			setSaving(false);
 		}
 	};
+
+	usePrimaryAction(chosen && !saving ? () => void finish(chosen) : null);
 
 	return (
 		<div className="mt-8 flex flex-col gap-3">
@@ -390,6 +415,34 @@ function ModelStep() {
 	);
 }
 
+function GithubStep() {
+	const t = useT();
+	const setPhase = useFirstRunStore(state => state.setPhase);
+	const signedIn = useGithubAuth().status?.authenticated === true;
+	const leave = () => setPhase("idle", null);
+	usePrimaryAction(leave);
+	return (
+		<div className="mt-8 flex flex-col gap-3" data-testid="first-run-github">
+			<div>
+				<h2 className="text-sc-xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">
+					{t("setup.github.title")}
+				</h2>
+				<p className="mt-1 text-sc-md text-(--sc-text-secondary)">{t("setup.github.description")}</p>
+			</div>
+			<GithubSignIn />
+			<div className="mt-4 flex flex-wrap items-center gap-2 border-t border-(--sc-divider) pt-4">
+				<Button icon={<ArrowLeft />} onClick={() => setPhase("model")} variant="ghost">
+					{t("setup.model.back")}
+				</Button>
+				<span className="flex-1" />
+				<Button onClick={leave} variant={signedIn ? "primary" : "secondary"}>
+					{signedIn ? t("setup.github.done") : t("setup.github.skip")}
+				</Button>
+			</div>
+		</div>
+	);
+}
+
 function InstallStep() {
 	const t = useT();
 	return (
@@ -405,29 +458,111 @@ function InstallStep() {
 	);
 }
 
+function LeaveConfirm({ open, onClose }: { open: boolean; onClose: () => void }) {
+	const t = useT();
+	const setPhase = useFirstRunStore(state => state.setPhase);
+	return (
+		<Modal
+			footer={
+				<>
+					<Button autoFocus onClick={onClose} variant="secondary">
+						{t("setup.leave.stay")}
+					</Button>
+					<Button
+						onClick={() => {
+							onClose();
+							setPhase("idle", null);
+						}}
+						variant="primary"
+					>
+						{t("setup.later")}
+					</Button>
+				</>
+			}
+			onClose={onClose}
+			open={open}
+			size="sm"
+			title={t("setup.leave.title")}
+		>
+			<p className="text-sc-md break-keep text-(--sc-text-secondary)">{t("setup.leave.message")}</p>
+		</Modal>
+	);
+}
+
 export function FirstRunSetup() {
 	const t = useT();
 	const phase = useFirstRunStore(state => state.phase);
 	const installing = useMachineSetupNeeded();
-	if (phase === "idle" && !installing) return null;
+	const primary = useRef<(() => void) | null>(null);
+	const [leaving, setLeaving] = useState(false);
+	const active = phase !== "idle" || installing;
 	const step: SetupStep = installing ? "install" : phase === "idle" ? "connect" : phase;
+
+	// Bubbling on document: a field, popover or the composer that handles a key
+	// first (and prevents it) keeps it; a dialog above setup owns its own keys.
+	useEffect(() => {
+		if (!active || step === "install") return;
+		const onKey = (event: KeyboardEvent) => {
+			if (event.repeat || event.defaultPrevented || isImeKeyEvent(event)) return;
+			if (event.altKey || event.shiftKey || document.querySelector('[role="dialog"]')) return;
+			if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+				const action = primary.current;
+				if (!action) return;
+				event.preventDefault();
+				action();
+			} else if (event.key === "Escape" && !event.metaKey && !event.ctrlKey) {
+				event.preventDefault();
+				setLeaving(true);
+			}
+		};
+		document.addEventListener("keydown", onKey);
+		return () => document.removeEventListener("keydown", onKey);
+	}, [active, step]);
+
+	if (!active) return null;
 	return (
-		<section
-			aria-labelledby="first-run-title"
-			className="mx-auto flex w-full max-w-2xl flex-col px-4 py-8 sm:px-6 sm:py-10"
-		>
-			<BrandMark size={48} />
-			<h1
-				className="mt-5 text-sc-3xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
-				id="first-run-title"
+		<PrimaryActionContext.Provider value={primary}>
+			<section
+				aria-labelledby="first-run-title"
+				className="mx-auto flex w-full max-w-2xl flex-col px-4 py-8 sm:px-6 sm:py-10"
+				data-first-run-step={step}
 			>
-				{t("setup.title")}
-			</h1>
-			<p className="mt-2 text-sc-lg text-(--sc-text-muted)">
-				{step === "install" ? t("machineSetup.install.subtitle") : t("setup.subtitle")}
-			</p>
-			<StepList phase={step} />
-			{step === "install" ? <InstallStep /> : step === "connect" ? <ConnectStep /> : <ModelStep />}
-		</section>
+				<BrandMark size={48} />
+				<h1
+					className="mt-5 text-sc-3xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
+					id="first-run-title"
+				>
+					{t("setup.title")}
+				</h1>
+				<p className="mt-2 text-sc-lg text-(--sc-text-muted)">
+					{step === "install" ? t("machineSetup.install.subtitle") : t("setup.subtitle")}
+				</p>
+				<StepList phase={step} />
+				{step === "install" ? (
+					<InstallStep />
+				) : step === "connect" ? (
+					<ConnectStep />
+				) : step === "model" ? (
+					<ModelStep />
+				) : (
+					<GithubStep />
+				)}
+				{step !== "install" && (
+					<p className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-sc-xs text-(--sc-text-muted)">
+						{step !== "connect" && (
+							<span className="inline-flex items-center gap-1.5">
+								<Kbd shortcut="⌘↵" />
+								{t("setup.keys.advance")}
+							</span>
+						)}
+						<span className="inline-flex items-center gap-1.5">
+							<Kbd shortcut="⎋" />
+							{t("setup.later")}
+						</span>
+					</p>
+				)}
+				<LeaveConfirm onClose={() => setLeaving(false)} open={leaving} />
+			</section>
+		</PrimaryActionContext.Provider>
 	);
 }

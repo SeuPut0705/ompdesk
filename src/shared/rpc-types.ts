@@ -794,7 +794,7 @@ export interface RpcWorktreeCreateResult {
 /** pr_repo: gh availability + the session cwd's GitHub repo, or the typed reason it's unusable. */
 export type RpcPrRepo =
 	| { available: true; repo: string; defaultBranch: string | null }
-	| { available: false; reason: "gh_missing" | "not_a_repo" | "no_github_remote" };
+	| { available: false; reason: "gh_missing" | "gh_unauthenticated" | "not_a_repo" | "no_github_remote" };
 
 /** pr_list row: one PR with rollup CI counts. */
 export interface RpcPrListItem {

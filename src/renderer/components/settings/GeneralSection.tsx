@@ -12,6 +12,7 @@ import { useLang, useT } from "../../lib/i18n";
 import { PANEL_TABS, type PanelTab, useUiStore } from "../../stores/ui";
 import { Select } from "../common";
 import { DisplayPreferenceRow } from "./AppearanceSection";
+import { GithubAccountSection } from "./GithubAccountSection";
 import { ProxyRow } from "./LaunchSettings";
 import { MachineSetupSection } from "./MachineSetupSection";
 import { ReplyLanguageRow } from "./ReplyLanguageRow";
@@ -77,6 +78,7 @@ export function GeneralSection() {
 				<ProxyRow />
 			</SettingsSection>
 			<MachineSetupSection />
+			<GithubAccountSection />
 		</>
 	);
 }

@@ -163,6 +163,20 @@ export async function gh(
 	return result.stdout.toString("utf8");
 }
 
+/** Run gh (or git) with gh's non-interactive env to completion as text; never rejects on a non-zero exit. */
+export async function ghText(
+	cwd: string,
+	bin: string,
+	args: string[],
+): Promise<{ code: number; stdout: string; stderr: string }> {
+	const result = await execBin(bin, args, {
+		cwd,
+		timeoutMs: 30_000,
+		env: { GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", NO_COLOR: "1" },
+	});
+	return { code: result.code, stdout: result.stdout.toString("utf8"), stderr: result.stderr };
+}
+
 /** Per-repository mutex for worktree/branch/config mutations (git uses O_EXCL lock files with no waiter). */
 const repoLocks = new Map<string, Promise<unknown>>();
 

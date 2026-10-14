@@ -1,6 +1,6 @@
 /**
  * PR Center commands over the `gh` CLI (port of fork rpc-pr.ts). Failures map to
- * typed codes: gh_missing / not_a_repo / no_github_remote / pr_not_found /
+ * typed codes: gh_missing / gh_unauthenticated / not_a_repo / no_github_remote / pr_not_found /
  * pr_create_failed / pr_checkout_failed / pr_draft_failed.
  */
 import * as fs from "node:fs/promises";
@@ -13,10 +13,11 @@ import type {
 	RpcPrListItem,
 	RpcPrRepo,
 } from "../../../shared/rpc-types";
+import { ghAuthStatus } from "../../github-auth/cli";
 import type { BridgeClient, OmpRuntime } from "../types";
 import { LocalCommandError } from "../types";
 import { repoRoot } from "./changes";
-import { DEFAULT_TIMEOUT_MS, gh, git, gitRaw, resolveBin } from "./exec";
+import { DEFAULT_TIMEOUT_MS, gh, ghText, git, gitRaw, resolveBin } from "./exec";
 import { extractDraftJson, parsePrUnifiedDiff, renderPrompt, rollupCounts } from "./parse";
 import prDraftSystemPrompt from "./pr-draft-system.md?raw";
 import prDraftUserPrompt from "./pr-draft-user.md?raw";
@@ -87,6 +88,10 @@ async function requireGithubRepo(cwd: string): Promise<GithubRepo> {
 	try {
 		view = JSON.parse(await gh(root, ghBin, ["repo", "view", "--json", "nameWithOwner,defaultBranchRef"]));
 	} catch (error) {
+		// gh cannot read any repo while signed out; say that instead of "no GitHub remote".
+		const auth = await ghAuthStatus((bin, args) => ghText(root, bin, args), ghBin).catch(() => null);
+		if (auth && !auth.authenticated)
+			throw new LocalCommandError(`GitHub CLI is not signed in: ${errorText(error)}`, "gh_unauthenticated");
 		throw new LocalCommandError(`No GitHub remote for ${root}: ${errorText(error)}`, "no_github_remote");
 	}
 	if (!view.nameWithOwner) throw new LocalCommandError(`No GitHub remote for ${root}`, "no_github_remote");
@@ -100,7 +105,10 @@ export async function prRepo(cwd: string): Promise<RpcPrRepo> {
 	} catch (error) {
 		if (
 			error instanceof LocalCommandError &&
-			(error.code === "gh_missing" || error.code === "not_a_repo" || error.code === "no_github_remote")
+			(error.code === "gh_missing" ||
+				error.code === "gh_unauthenticated" ||
+				error.code === "not_a_repo" ||
+				error.code === "no_github_remote")
 		)
 			return { available: false, reason: error.code };
 		throw error;

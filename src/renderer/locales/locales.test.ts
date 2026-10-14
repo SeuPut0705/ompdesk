@@ -81,6 +81,7 @@ const ALLOW_IDENTICAL: Record<string, true> = {
 	"modelPicker.speed": true, // ~{value} tok/s — placeholder + unit
 	"chat.meter.rate": true, // {rate} tok/s — placeholder + unit
 	"stats.requests.detail.api": true, // API — protocol acronym
+	"githubAuth.version": true, // gh {version} — CLI name + placeholder
 	"chat.exec.python": true, // Python — language name
 	"chat.exec.shell": true, // Shell — universal term in dev UIs
 	"tools.label.github": true, // GitHub — brand name
