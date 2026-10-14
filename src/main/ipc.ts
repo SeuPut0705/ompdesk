@@ -168,6 +168,40 @@ function cwdOnDevice(deps: IpcDeps, event: Electron.IpcMainInvokeEvent, device: 
 	return target?.device === device ? target.sidecar.cwd : null;
 }
 
+/**
+ * The existing local file behind a path from a tool card or reply: "~"
+ * expands, relative paths resolve inside the calling tab's workspace (escapes
+ * refused), absolute paths pass through (the agent can legitimately touch
+ * files outside it). A paired host's path means nothing here
+ * (`remote_path_native`; the renderer falls back to the forwarded preview),
+ * and a missing file fails loudly, since both shell calls fail silently.
+ */
+async function existingLocalPath(
+	deps: IpcDeps,
+	event: Electron.IpcMainInvokeEvent,
+	target: unknown,
+	tabId?: string,
+): Promise<{ ok: true; path: string } | IpcOpenPathResult> {
+	if (targetFor(deps, event, tabId)?.device) {
+		return { ok: false, error: "The file is on another device", code: "remote_path_native" };
+	}
+	if (typeof target !== "string" || !target.trim()) return { ok: false, error: "Empty path", code: "empty_path" };
+	let resolved = target.startsWith("~/") ? path.join(os.homedir(), target.slice(2)) : target;
+	if (!path.isAbsolute(resolved)) {
+		const rootAbs = cwdFor(deps, event, tabId);
+		if (!rootAbs) return { ok: false, error: "No workspace", code: "no_workspace" };
+		const within = resolveWithin(rootAbs, resolved);
+		if (!within) return { ok: false, error: "Path escapes the workspace", code: "path_escapes_workspace" };
+		resolved = within;
+	}
+	try {
+		await fsp.access(resolved);
+	} catch {
+		return { ok: false, error: "File not found", code: "file_not_found" };
+	}
+	return { ok: true, path: resolved };
+}
+
 /** A payload's paired-host deviceId; anything else means this machine. */
 function deviceOf(value: unknown): string | undefined {
 	return typeof value === "string" && value ? value : undefined;
@@ -790,58 +824,25 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (isOpenableExternalUrl(url)) await shell.openExternal(url);
 	});
 
-	// Tool-card path links — open a file in the system editor. "~" expands,
-	// relative paths resolve inside the calling window's workspace (escapes
-	// refused), absolute paths pass through: the agent can legitimately touch
-	// files outside the workspace. When no editor association exists, reveal
-	// the file in the file manager instead of failing.
+	// Tool-card and reply path links: open in the system editor, or reveal the
+	// file in the file manager when no editor association exists.
 	ipcMain.handle(
 		IPC_COMMANDS.SYSTEM_OPEN_PATH,
 		async (event, target: string, tabId?: string): Promise<IpcOpenPathResult> => {
-			// A paired host's path means nothing to this machine's editor; the
-			// renderer falls back to the in-app preview (forwarded fs read).
-			if (targetFor(deps, event, tabId)?.device) {
-				return { ok: false, error: "The file is on another device", code: "remote_path_native" };
-			}
-			if (typeof target !== "string" || !target.trim())
-				return { ok: false, error: "Empty path", code: "empty_path" };
-			let resolved = target.startsWith("~/") ? path.join(os.homedir(), target.slice(2)) : target;
-			if (!path.isAbsolute(resolved)) {
-				const rootAbs = cwdFor(deps, event, tabId);
-				if (!rootAbs) return { ok: false, error: "No workspace", code: "no_workspace" };
-				const within = resolveWithin(rootAbs, resolved);
-				if (!within) return { ok: false, error: "Path escapes the workspace", code: "path_escapes_workspace" };
-				resolved = within;
-			}
-			// A stale tool card can reference a file that no longer exists (or never
-			// did outside the workspace). Both openPath and showItemInFolder fail
-			// silently on missing paths, so detect it here and let the link toast.
-			try {
-				await fsp.access(resolved);
-			} catch {
-				return { ok: false, error: "File not found", code: "file_not_found" };
-			}
-			if (await shell.openPath(resolved)) shell.showItemInFolder(resolved);
+			const local = await existingLocalPath(deps, event, target, tabId);
+			if (!("path" in local)) return local;
+			if (await shell.openPath(local.path)) shell.showItemInFolder(local.path);
 			return { ok: true };
 		},
 	);
 
-	// "Show in Finder" for an absolute path the renderer already knows (agent definition files).
+	// "Show in Finder" for a path the renderer knows (agent definition files, reply links).
 	ipcMain.handle(
 		IPC_COMMANDS.SYSTEM_REVEAL_PATH,
 		async (event, target: string, tabId?: string): Promise<IpcOpenPathResult> => {
-			if (targetFor(deps, event, tabId)?.device) {
-				return { ok: false, error: "The file is on another device", code: "remote_path_native" };
-			}
-			if (typeof target !== "string" || !path.isAbsolute(target)) {
-				return { ok: false, error: "Not an absolute path", code: "not_absolute_path" };
-			}
-			try {
-				await fsp.access(target);
-			} catch {
-				return { ok: false, error: "File not found", code: "file_not_found" };
-			}
-			shell.showItemInFolder(target);
+			const local = await existingLocalPath(deps, event, target, tabId);
+			if (!("path" in local)) return local;
+			shell.showItemInFolder(local.path);
 			return { ok: true };
 		},
 	);

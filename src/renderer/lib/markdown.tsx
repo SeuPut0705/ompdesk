@@ -38,7 +38,8 @@ import { useUiStore } from "../stores/ui";
 import { saveGuiPreference } from "./display-preferences";
 import { cx } from "./format";
 import { useT } from "./i18n";
-import { openLocalPath, PathMentionLink, pathLocation } from "./markdown-path-link";
+import { useLinkMenu } from "./link-menu";
+import { openLocalPath, PathMentionLink, pathLocation, verifyPath } from "./markdown-path-link";
 import { rehypeLocalPaths } from "./markdown-paths";
 import {
 	isMarkdownAlertKind,
@@ -353,6 +354,7 @@ function MarkdownLink({ href, children, node: _node, ...props }: ComponentPropsW
 	const runtimeTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const tabId = runtimeTabId ?? activeTabId;
+	const linkMenu = useLinkMenu(tabId);
 	const mentionedPath = (props as Record<string, unknown>)["data-path"];
 	if (typeof mentionedPath === "string" && !href)
 		return (
@@ -386,15 +388,35 @@ function MarkdownLink({ href, children, node: _node, ...props }: ComponentPropsW
 			void openLocalPath(location.path, tabId, location.line);
 		} else window.omp.system.openExternal(href);
 	};
+	// Web, mail and local-file links get the link menu; `#fragment` and `local://` keep none.
+	const onContextMenu = (event: MouseEvent<HTMLAnchorElement>) => {
+		if (!href || href.startsWith("#") || /^local:/i.test(href)) return;
+		const filePath = localFilePath(href);
+		if (!filePath) {
+			linkMenu.onContextMenu(event, { kind: "web", url: href });
+			return;
+		}
+		const location = pathLocation(filePath, href);
+		linkMenu.onContextMenu(
+			event,
+			verifyPath(location.path, tabId).then(kind =>
+				kind === "missing" ? null : { kind: "path", ...location, dir: kind === "dir" },
+			),
+		);
+	};
 	return (
-		<a
-			{...props}
-			href={href}
-			onClick={onClick}
-			className="text-[var(--omp-md-link)] underline decoration-[var(--omp-md-link-url)] hover:decoration-[var(--omp-md-link)]"
-		>
-			{children}
-		</a>
+		<>
+			<a
+				{...props}
+				href={href}
+				onClick={onClick}
+				onContextMenu={onContextMenu}
+				className="text-[var(--omp-md-link)] underline decoration-[var(--omp-md-link-url)] hover:decoration-[var(--omp-md-link)]"
+			>
+				{children}
+			</a>
+			{linkMenu.menu}
+		</>
 	);
 }
 

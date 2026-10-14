@@ -143,7 +143,7 @@ export const IPC_COMMANDS = {
 	SYSTEM_OPEN_EXTERNAL: "system:open-external",
 	/** Open a file path in the system editor (relative resolves against the workspace) */
 	SYSTEM_OPEN_PATH: "system:open-path",
-	/** Reveal an absolute file path in the file manager (Finder / Explorer) */
+	/** Reveal a file in the file manager (Finder / Explorer); relative paths resolve in the tab's workspace */
 	SYSTEM_REVEAL_PATH: "system:reveal-path",
 	/** Show save dialog */
 	SYSTEM_SAVE_DIALOG: "system:save-dialog",
@@ -1387,7 +1387,7 @@ export interface OmpApi {
 		 * fails with code `remote_path_native`.
 		 */
 		openPath(path: string, tabId?: string): Promise<IpcOpenPathResult>;
-		/** Reveal an absolute path in the file manager; fails when the file is missing, or `remote_path_native` for a paired host's tab. */
+		/** Reveal a path in the file manager (relative paths resolve like `openPath`); fails when the file is missing, or `remote_path_native` for a paired host's tab. */
 		revealPath(path: string, tabId?: string): Promise<IpcOpenPathResult>;
 		showSaveDialog(defaultPath?: string, filters?: { name: string; extensions: string[] }[]): Promise<string | null>;
 		showOpenDialog(

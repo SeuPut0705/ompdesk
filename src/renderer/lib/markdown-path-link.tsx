@@ -8,6 +8,7 @@ import { type MouseEvent, type ReactNode, useEffect, useState } from "react";
 import { useRuntimeTabId } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
 import { useUiStore } from "../stores/ui";
+import { useLinkMenu } from "./link-menu";
 
 export type PathKind = "file" | "dir" | "missing";
 
@@ -79,6 +80,7 @@ export function PathMentionLink({
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const tabId = runtimeTabId ?? activeTabId;
 	const [kind, setKind] = useState<PathKind | undefined>(() => settled.get(`${tabId ?? ""}\0${path}`));
+	const linkMenu = useLinkMenu(tabId);
 	useEffect(() => {
 		let live = true;
 		void verifyPath(path, tabId).then(next => {
@@ -95,14 +97,18 @@ export function PathMentionLink({
 		else useUiStore.getState().openFilePreview(path, line ? { line } : undefined);
 	};
 	return (
-		<a
-			className={className}
-			data-path-link={kind}
-			href={path}
-			onClick={onClick}
-			title={line ? `${path}:${line}` : path}
-		>
-			{children}
-		</a>
+		<>
+			<a
+				className={className}
+				data-path-link={kind}
+				href={path}
+				onClick={onClick}
+				onContextMenu={event => linkMenu.onContextMenu(event, { kind: "path", path, line, dir: kind === "dir" })}
+				title={line ? `${path}:${line}` : path}
+			>
+				{children}
+			</a>
+			{linkMenu.menu}
+		</>
 	);
 }
