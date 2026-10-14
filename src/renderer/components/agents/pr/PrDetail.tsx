@@ -22,7 +22,7 @@ import { DiffView } from "../../../lib/diff";
 import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
 import { usePrCenterStore } from "../../../stores/pr-center";
-import { Badge, Button, EmptyState, ErrorDetail, Spinner } from "../../common";
+import { Badge, Button, EmptyState, ErrorDetail, InlineNotice, Spinner } from "../../common";
 
 const BODY_COLLAPSE_LINES = 12;
 
@@ -70,9 +70,12 @@ function FileRow({ path, additions, deletions }: { path: string; additions: numb
 				</div>
 			)}
 			{expanded?.phase === "error" && (
-				<div className="border-t border-(--sc-divider) px-3 py-2 text-sc-sm text-(--sc-danger)" role="alert">
-					{t("prCenter.diffFailed")}
-				</div>
+				<InlineNotice
+					className="border-t border-(--sc-divider) px-3"
+					live
+					title={t("prCenter.diffFailed")}
+					tone="danger"
+				/>
 			)}
 			{expanded?.phase === "ready" && (
 				<div className="overflow-x-auto border-t border-(--sc-divider) bg-(--sc-surface-1) py-1">

@@ -28,10 +28,9 @@ import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useSessionStore } from "../../../stores/session";
 import { toast } from "../../../stores/toast";
-import { Button, Input, Modal } from "../../common";
+import { Button, InlineNotice, Input, Modal } from "../../common";
 import { ArrayChipEditor } from "../../settings/editors/ArrayChipEditor";
 import { RecordKvEditor } from "../../settings/editors/RecordKvEditor";
-import { CopyableError } from "../inventory/ErrorNote";
 import { McpTestResultView, type McpTestView, summarizeMcpTestData } from "./McpFeedback";
 
 // ---------------------------------------------------------------------------
@@ -389,7 +388,13 @@ export function McpServerWizardForm({ onCancel, onAdded, initialValues }: McpSer
 
 				{(testing || testView) && <McpTestResultView testing={testing} view={testView} />}
 				{submitError && (
-					<CopyableError copyLabel={t("mcp.card.copy")} message={submitError} title={t("mcp.wizard.addFailed")} />
+					<InlineNotice
+						copyLabel={t("mcp.card.copy")}
+						detail={submitError}
+						live
+						title={t("mcp.wizard.addFailed")}
+						tone="danger"
+					/>
 				)}
 			</div>
 

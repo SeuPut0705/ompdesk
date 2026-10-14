@@ -11,7 +11,7 @@ import { BookOpen, FileText, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-r
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcSkillDetail, RpcSkillInfo, RpcSkillsResult } from "../../../shared/rpc-types";
 import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
-import { cx, shortenPath } from "../../lib/format";
+import { shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { useTabRpc } from "../../lib/tab-rpc";
@@ -495,9 +495,10 @@ export function SkillsTab({ query }: { query: string }) {
 				)}
 				<span className="flex-1" />
 				<IconButton
-					disabled={!sidecarReady || loading || !routeReady}
-					icon={<RefreshCw className={cx(loading && "animate-spin")} />}
+					disabled={!sidecarReady || !routeReady}
+					icon={<RefreshCw />}
 					label={notConnected ?? t("settings.skills.refresh")}
+					loading={loading}
 					onClick={() => void loadSkills()}
 					size="sm"
 				/>

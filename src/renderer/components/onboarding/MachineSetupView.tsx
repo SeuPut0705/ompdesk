@@ -16,7 +16,6 @@ import {
 	Circle,
 	CircleSlash,
 	Clock,
-	Copy,
 	ExternalLink,
 	Info,
 	RefreshCw,
@@ -25,14 +24,13 @@ import {
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import type { SetupFailure, SetupItemId, SetupItemPhase, SetupItemState, SetupState } from "../../../shared/setup";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
-import { copyText, cx } from "../../lib/format";
+import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useMachineSetupStore } from "../../stores/machine-setup";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
-import { toast } from "../../stores/toast";
-import { Banner, Button, IconButton, Spinner } from "../common";
+import { Banner, Button, CopyButton, Spinner } from "../common";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -156,20 +154,7 @@ function CodeLine({ value, label }: { value: string; label?: string }) {
 			>
 				{value}
 			</code>
-			<IconButton
-				icon={<Copy />}
-				label={t("machineSetup.copy")}
-				onClick={() =>
-					void copyText(value).then(ok =>
-						toast(
-							ok
-								? { variant: "success", message: t("machineSetup.copied") }
-								: { variant: "error", message: t("machineSetup.copyFailed") },
-						),
-					)
-				}
-				size="sm"
-			/>
+			<CopyButton label={t("machineSetup.copy")} text={value} />
 		</div>
 	);
 }

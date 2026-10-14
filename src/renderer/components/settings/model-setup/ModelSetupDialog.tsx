@@ -26,8 +26,17 @@ import { useFocusedTabDevice } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
 import { toast } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Badge, Button, ErrorDetail, Modal, SearchField, Select, Spinner, SwitchField } from "../../common";
-import { InlineNotice } from "../InlineNotice";
+import {
+	Badge,
+	Button,
+	ErrorDetail,
+	InlineNotice,
+	Modal,
+	SearchField,
+	Select,
+	Spinner,
+	SwitchField,
+} from "../../common";
 import { modelRoleName } from "../schema-i18n";
 import {
 	baseSelector,

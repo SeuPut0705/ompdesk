@@ -23,8 +23,7 @@ import { useModelStore } from "../../../stores/model";
 import { useFocusedTabDevice } from "../../../stores/remote";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Button, ConfirmDialog, IconButton, ListRow, Spinner } from "../../common";
-import { InlineNotice } from "../InlineNotice";
+import { Button, ConfirmDialog, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { SettingsSection } from "../SettingsLayout";
 import { AccountPoolsEditor } from "./AccountPoolsEditor";
 import { CustomProviderForm } from "./CustomProviderForm";
@@ -376,9 +375,10 @@ export function ProvidersSection({
 			<SettingsSection
 				actions={
 					<IconButton
-						disabled={!catalog.sidecarReady || catalog.loading}
-						icon={catalog.loading ? <Spinner inheritColor size="sm" /> : <RefreshCw />}
+						disabled={!catalog.sidecarReady}
+						icon={<RefreshCw />}
 						label={catalog.sidecarReady ? t("common.refresh") : t("providers.notConnected")}
+						loading={catalog.loading}
 						onClick={() => void load(true)}
 						size="sm"
 					/>

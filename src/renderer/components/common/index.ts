@@ -23,6 +23,7 @@ export { CopyButton, type CopyButtonProps } from "./CopyButton";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
 export { ErrorDetail } from "./ErrorDetail";
 export { IconButton, type IconButtonProps, type IconButtonSize } from "./IconButton";
+export { InlineNotice, type InlineNoticeTone } from "./InlineNotice";
 export {
 	type FieldSize,
 	Input,
@@ -39,9 +40,10 @@ export { Modal, type ModalPlacement, type ModalProps, type ModalSize } from "./M
 export { PageLayout, type PageLayoutProps } from "./PageLayout";
 export { PanelErrorBoundary } from "./PanelErrorBoundary";
 export { Popover, type PopoverPlacement, type PopoverProps } from "./Popover";
-export { ProgressBar, type ProgressBarProps } from "./ProgressBar";
+export { ProgressBar, type ProgressBarProps, type ProgressBarTone } from "./ProgressBar";
 export { Select, type SelectOption, type SelectProps } from "./Select";
 export { Sheet, type SheetProps, type SheetSize } from "./Sheet";
+export { Skeleton, SkeletonRows } from "./Skeleton";
 export { Spinner, type SpinnerProps, type SpinnerSize } from "./Spinner";
 export { Switch, SwitchField, type SwitchFieldProps, type SwitchProps, type SwitchSize } from "./Switch";
 export { type TabItem, Tabs, type TabsProps, type TabsVariant } from "./Tabs";

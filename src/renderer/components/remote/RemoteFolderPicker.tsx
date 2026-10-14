@@ -14,7 +14,7 @@ import type { RemoteDirListing } from "../../../shared/ipc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { settleRemoteDirectory, useHostView, useRemotePickerStore } from "../../stores/remote";
-import { Button, ErrorDetail, IconButton, ListRow, Modal, Spinner } from "../common";
+import { Button, IconButton, InlineNotice, ListRow, Modal, Spinner } from "../common";
 
 export function RemoteFolderPickerHost() {
 	const t = useT();
@@ -124,15 +124,22 @@ export function RemoteFolderPicker({ open, deviceId, deviceName, onClose, onPick
 					{loading && listing && <Spinner size="sm" />}
 				</div>
 				{error && (
-					<div className="flex items-start justify-between gap-2" role="alert">
-						<p className="min-w-0 text-sc-sm break-words text-(--sc-danger)">
-							{error.message}
-							<ErrorDetail className="mt-0.5" error={error.cause} />
-						</p>
-						<Button icon={<RefreshCw />} onClick={() => void load(listing?.path)} size="sm" variant="secondary">
-							{t("common.retry")}
-						</Button>
-					</div>
+					<InlineNotice
+						action={
+							<Button
+								icon={<RefreshCw />}
+								onClick={() => void load(listing?.path)}
+								size="sm"
+								variant="secondary"
+							>
+								{t("common.retry")}
+							</Button>
+						}
+						detail={error.cause}
+						live
+						title={error.message}
+						tone="danger"
+					/>
 				)}
 				<div
 					aria-busy={loading}

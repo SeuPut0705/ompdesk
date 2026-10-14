@@ -321,11 +321,7 @@ export function SecuritySection() {
 
 	let body: ReactNode;
 	if (loading && !dashboard) {
-		body = (
-			<div className="flex justify-center py-16">
-				<Spinner />
-			</div>
-		);
+		body = <Spinner className="w-full justify-center py-16" label={t("common.loading")} />;
 	} else if (!dashboard) {
 		body = (
 			<div className="py-3">
@@ -582,10 +578,7 @@ export function SecuritySection() {
 								live
 								variant="warning"
 							>
-								<span className="flex items-center gap-2">
-									<Spinner inheritColor size="sm" />
-									{t(`security.phase.${activeOperation.phase}`)}
-								</span>
+								<Spinner inheritColor label={t(`security.phase.${activeOperation.phase}`)} size="sm" />
 							</Banner>
 						)}
 					</aside>

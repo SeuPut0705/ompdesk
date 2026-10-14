@@ -3,14 +3,12 @@
  * with search filtering, level filter, and pin-aware auto-scroll.
  */
 
-import { ArrowDown, Copy, Download, RotateCw, ScrollText } from "lucide-react";
+import { ArrowDown, Download, RotateCw, ScrollText } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LogBatch } from "../../../shared/ipc-types";
 import { errorDetail } from "../../lib/error-detail";
-import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { toast } from "../../stores/toast";
-import { Button, EmptyState, IconButton, SearchField, Select } from "../common";
+import { Button, CopyButton, EmptyState, IconButton, InlineNotice, SearchField, Select } from "../common";
 import { PanelToolbar } from "./PanelChrome";
 
 const MAX_LINES = 1000;
@@ -139,16 +137,10 @@ export function LogPanel() {
 					</span>
 				)}
 				<div className="ml-auto flex shrink-0 items-center gap-1">
-					<IconButton
+					<CopyButton
 						disabled={filtered.length === 0}
-						icon={<Copy />}
 						label={t("logPanel.copy")}
-						onClick={() =>
-							void copyText(filtered.map(line => line.text).join("\n")).then(ok => {
-								if (!ok) toast({ variant: "error", message: t("copySelector.failed") });
-							})
-						}
-						size="sm"
+						text={() => filtered.map(line => line.text).join("\n")}
 					/>
 					<IconButton
 						disabled={filtered.length === 0}
@@ -176,13 +168,18 @@ export function LogPanel() {
 					ref={scrollRef}
 				>
 					{error ? (
-						<div className="flex flex-col items-center gap-2 py-8 text-center font-sans" role="alert">
-							<p className="text-sc-sm font-medium text-(--sc-text)">{t("logPanel.loadFailed")}</p>
-							<p className="max-w-full font-mono text-sc-xs break-words text-(--sc-text-muted)">{error}</p>
-							<Button icon={<RotateCw />} onClick={reload} size="sm" variant="secondary">
-								{t("common.retry")}
-							</Button>
-						</div>
+						<InlineNotice
+							action={
+								<Button icon={<RotateCw />} onClick={reload} size="sm" variant="secondary">
+									{t("common.retry")}
+								</Button>
+							}
+							className="px-2 font-sans"
+							detail={error}
+							live
+							title={t("logPanel.loadFailed")}
+							tone="danger"
+						/>
 					) : filtered.length === 0 ? (
 						<EmptyState
 							className="font-sans"

@@ -1,9 +1,8 @@
 import { diffWords } from "diff";
 import type { HLJSApi } from "highlight.js";
-import { Check, Copy } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { IconButton } from "../components/common";
-import { copyText, cx, languageFromPath } from "./format";
+import { CopyButton } from "../components/common";
+import { cx, languageFromPath } from "./format";
 import { getLoadedHljs, type HighlightToken, loadHljs, splitHighlightedLines } from "./highlight";
 import { useT } from "./i18n";
 
@@ -365,15 +364,6 @@ export function DiffView({ diff, filePath, className, focusRow }: DiffViewProps)
 	const intra = useMemo(() => computeIntraLine(rows), [rows]);
 	const lang = languageFromPath(filePath);
 
-	const [copied, setCopied] = useState(false);
-	const handleCopy = () => {
-		void copyText(diff).then(ok => {
-			if (!ok) return;
-			setCopied(true);
-			window.setTimeout(() => setCopied(false), 1400);
-		});
-	};
-
 	const [hljs, setHljs] = useState(getLoadedHljs);
 	useEffect(() => {
 		if (hljs || lang === "plaintext") return;
@@ -454,12 +444,10 @@ export function DiffView({ diff, filePath, className, focusRow }: DiffViewProps)
 		// The copy affordance hangs off this box, not the scroller below, so it
 		// stays put while the patch scrolls.
 		<div className="group/diff relative">
-			<IconButton
-				className="absolute top-0 right-0 z-10 bg-(--sc-surface-1) opacity-0 focus-visible:opacity-100 group-hover/diff:opacity-100"
-				icon={copied ? <Check className="text-(--sc-success)" /> : <Copy />}
-				label={t(copied ? "diff.copied" : "diff.copy")}
-				onClick={handleCopy}
-				size="sm"
+			<CopyButton
+				className="absolute top-0 right-0 z-10 bg-(--sc-surface-1) opacity-0 focus-visible:opacity-100 group-hover/diff:opacity-100 data-copied:opacity-100"
+				label={t("diff.copy")}
+				text={diff}
 			/>
 			<div
 				className={cx("overflow-x-auto font-mono text-sc-sm leading-(--sc-leading-normal) [tab-size:4]", className)}

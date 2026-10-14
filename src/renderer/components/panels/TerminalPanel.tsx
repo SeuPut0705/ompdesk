@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import type { TerminalOperation, TerminalSnapshot } from "../../../shared/terminal-types";
 import { useT } from "../../lib/i18n";
 import { useTabsStore } from "../../stores/tabs";
-import { Banner, Button, EmptyState, ErrorDetail, IconButton } from "../common";
+import { Banner, Button, EmptyState, ErrorDetail, IconButton, Spinner } from "../common";
 import "@xterm/xterm/css/xterm.css";
 
 export function terminalTheme(element: HTMLElement): ITheme {
@@ -352,9 +352,7 @@ function LocalTerminalPanel({ tabId }: { tabId: string }) {
 				</Banner>
 			)}
 			{loading ? (
-				<p role="status" className="p-3 text-sc-sm text-(--sc-text-muted)">
-					{t("panel.terminal.starting")}
-				</p>
+				<Spinner className="p-3" label={t("panel.terminal.starting")} size="sm" />
 			) : selected ? (
 				<TerminalViewport
 					handle={handle}

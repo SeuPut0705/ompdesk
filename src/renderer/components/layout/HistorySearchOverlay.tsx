@@ -10,7 +10,7 @@ import { useInputHistoryStore } from "../../stores/input-history";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
-import { Kbd, Tabs } from "../common";
+import { Kbd, Spinner, Tabs } from "../common";
 
 /**
  * Ctrl+R history search overlay (GUI counterpart of the TUI
@@ -200,13 +200,13 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 				aria-busy={loading}
 			>
 				{results.length === 0 ? (
-					<div className="px-3 py-2.5 text-sc-sm text-(--sc-text-muted)">
-						{loading
-							? t("common.loading")
-							: tokens.length > 0
-								? t("input.history.empty")
-								: t("input.history.none")}
-					</div>
+					loading ? (
+						<Spinner className="px-3 py-2.5" label={t("common.loading")} size="sm" />
+					) : (
+						<div className="px-3 py-2.5 text-sc-sm text-(--sc-text-muted)">
+							{tokens.length > 0 ? t("input.history.empty") : t("input.history.none")}
+						</div>
+					)
 				) : (
 					results.map((entry, rowIndex) => (
 						<button

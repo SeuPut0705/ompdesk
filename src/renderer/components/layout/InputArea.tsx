@@ -59,7 +59,7 @@ import { useSettingsStore } from "../../stores/settings";
 import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Spinner, Tooltip } from "../common";
+import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Tooltip } from "../common";
 import { AskDockSlot } from "../dialogs/ask-dock";
 import { ComposerModes } from "./ComposerModes";
 import { ComposerQueue } from "./ComposerQueue";
@@ -899,8 +899,8 @@ export function InputArea() {
 									{t("input.expanded.hint", { send: formatShortcut("⌘↵") })}
 								</span>
 								<Button
-									disabled={externalBusy}
-									icon={externalBusy ? <Spinner inheritColor size="sm" /> : <ExternalLink aria-hidden />}
+									icon={<ExternalLink aria-hidden />}
+									loading={externalBusy}
 									onClick={() => void openExternalEditor()}
 									size="sm"
 									variant="ghost"

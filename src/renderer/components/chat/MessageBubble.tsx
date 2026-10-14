@@ -1,9 +1,9 @@
-import { Archive, Check, ChevronRight, Copy, FileText, GitBranch, Terminal } from "lucide-react";
+import { Archive, ChevronRight, FileText, GitBranch, Terminal } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useState } from "react";
 import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from "../../../shared/rpc-types";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
-import { copyText, cx, extractResultImage, formatClock, formatTokens, uiLocale } from "../../lib/format";
+import { cx, extractResultImage, formatClock, formatTokens, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { forkSessionFromMessageInNewTab, isRenderableMessageText } from "../../lib/messages";
@@ -14,7 +14,7 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
-import { Badge, Button, IconButton } from "../common";
+import { Badge, Button, CopyButton, IconButton } from "../common";
 import { referencedFiles } from "../tools/chat-media";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { ToolImage } from "../tools/ToolImage";
@@ -270,16 +270,15 @@ function ContextBubble({ message }: { message: AgentMessage }) {
  */
 function MessageActions({
 	className,
-	copied,
+	copyText,
 	onBranch,
-	onCopy,
 	branchDisabled,
 	timestamp,
 }: {
 	className: string;
-	copied: boolean;
+	/** The message's text, built when the user copies it. */
+	copyText: () => string;
 	onBranch?: () => void;
-	onCopy: () => void;
 	branchDisabled: boolean;
 	timestamp: string;
 }) {
@@ -288,12 +287,7 @@ function MessageActions({
 		// select-none: a selection through the turn copies the message, never its clock.
 		<div className={cx("omp-message-actions flex select-none items-center gap-0.5", className)}>
 			{timestamp && <time className="px-1 text-sc-xs tabular-nums text-(--sc-text-subtle)">{timestamp}</time>}
-			<IconButton
-				icon={copied ? <Check className="text-(--sc-success)" /> : <Copy />}
-				label={t("chat.copyMessage")}
-				onClick={onCopy}
-				size="sm"
-			/>
+			<CopyButton label={t("chat.copyMessage")} text={copyText} />
 			{onBranch && (
 				<IconButton
 					className="disabled:cursor-wait"
@@ -323,7 +317,6 @@ export const MessageBubble = memo(function MessageBubble({
 	const t = useT();
 	const rpc = useTabRpc();
 	const tabId = useRuntimeTabId();
-	const [copied, setCopied] = useState(false);
 	const [branching, setBranching] = useState(false);
 	const switchPending = useSessionStore(state => state.switchPending !== null);
 	if (message.role === "bashExecution" || message.role === "pythonExecution") {
@@ -388,17 +381,11 @@ export const MessageBubble = memo(function MessageBubble({
 			? (message.customType ?? t("chat.extensionMessage"))
 			: null;
 
-	const handleCopy = () => {
-		const text = content
+	const messageText = () =>
+		content
 			.filter((block): block is Extract<MessageContent, { type: "text" }> => block.type === "text")
 			.map(block => block.text)
 			.join("\n\n");
-		void copyText(text).then(ok => {
-			if (!ok) return;
-			setCopied(true);
-			window.setTimeout(() => setCopied(false), 1400);
-		});
-	};
 
 	const handleBranch = async () => {
 		if (branching || switchPending) return;
@@ -455,9 +442,8 @@ export const MessageBubble = memo(function MessageBubble({
 					<MessageActions
 						branchDisabled={branching || switchPending}
 						className="omp-user-actions"
-						copied={copied}
+						copyText={messageText}
 						onBranch={() => void handleBranch()}
-						onCopy={handleCopy}
 						timestamp={timestamp}
 					/>
 				</div>
@@ -540,9 +526,8 @@ export const MessageBubble = memo(function MessageBubble({
 				<MessageActions
 					branchDisabled={branching || switchPending}
 					className="omp-assistant-actions"
-					copied={copied}
+					copyText={messageText}
 					onBranch={isAssistant ? () => void handleBranch() : undefined}
-					onCopy={handleCopy}
 					timestamp={timestamp}
 				/>
 			)}

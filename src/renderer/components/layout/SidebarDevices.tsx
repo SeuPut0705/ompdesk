@@ -18,7 +18,7 @@ import { tabSignalPresentation } from "../../lib/tab-signal";
 import { pickRemoteDirectory } from "../../stores/remote";
 import { type SessionTab, tabChipLabel, useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { Button, ErrorDetail, IconButton, ListRow, Spinner } from "../common";
+import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../common";
 
 export type SidebarDeviceMode = "code" | "chat";
 
@@ -276,13 +276,18 @@ function DeviceSessions({
 
 	if (error && rows.length === 0) {
 		return (
-			<div className="flex flex-col items-start gap-1 px-2.5 py-1.5 text-sc-xs" role="alert">
-				<p className="font-medium text-(--sc-text)">{t("sidebar.loadFailed")}</p>
-				<ErrorDetail error={error} />
-				<Button onClick={() => refresh(true)} size="sm" variant="ghost">
-					{t("common.retry")}
-				</Button>
-			</div>
+			<InlineNotice
+				action={
+					<Button onClick={() => refresh(true)} size="sm" variant="ghost">
+						{t("common.retry")}
+					</Button>
+				}
+				className="px-2.5 py-1.5"
+				detail={error}
+				live
+				title={t("sidebar.loadFailed")}
+				tone="danger"
+			/>
 		);
 	}
 	if (isLoading && rows.length === 0) {

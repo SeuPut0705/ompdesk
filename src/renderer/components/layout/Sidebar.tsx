@@ -93,6 +93,7 @@ import {
 	ListRow,
 	MenuButton,
 	SearchField,
+	SkeletonRows,
 	Spinner,
 	Tabs,
 } from "../common";
@@ -1301,17 +1302,7 @@ export function Sidebar() {
 							/>
 						))}
 					{isLoading && !listError && allSessions.length === 0 && (
-						<div aria-label={t("sidebar.loading")} className="space-y-px" role="status">
-							{[72, 54, 64, 46].map(width => (
-								<div aria-hidden className="flex h-8 items-center gap-2.5 px-2.5" key={width}>
-									<span className="size-3.5 shrink-0 rounded-(--sc-radius-xs) bg-(--sc-surface-3) motion-safe:animate-pulse" />
-									<span
-										className="h-2.5 rounded-(--sc-radius-full) bg-(--sc-surface-3) motion-safe:animate-pulse"
-										style={{ width: `${width}%` }}
-									/>
-								</div>
-							))}
-						</div>
+						<SkeletonRows label={t("sidebar.loading")} widths={[72, 54, 64, 46]} />
 					)}
 					{!isLoading &&
 						!listError &&

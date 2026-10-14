@@ -13,7 +13,7 @@ import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { toast } from "../../stores/toast";
-import { Badge, Button, ErrorDetail, Input, ListRow, Modal, Spinner } from "../common";
+import { Badge, Button, ErrorDetail, InlineNotice, Input, ListRow, Modal, Spinner } from "../common";
 
 /** Codes are 8 Crockford base32 characters shown as XXXX-XXXX; accept any case and spacing. */
 function formatCode(raw: string): string {
@@ -174,10 +174,9 @@ export function RemoteConnectDialog({ open, onClose }: { open: boolean; onClose:
 					value={code}
 				/>
 				{error && (
-					<p className="text-sc-sm break-words text-(--sc-danger)" data-remote-connect-error role="alert">
-						{error.message}
-						<ErrorDetail className="mt-0.5" error={error.cause} />
-					</p>
+					<div data-remote-connect-error>
+						<InlineNotice detail={error.cause} live title={error.message} tone="danger" />
+					</div>
 				)}
 			</div>
 		</Modal>

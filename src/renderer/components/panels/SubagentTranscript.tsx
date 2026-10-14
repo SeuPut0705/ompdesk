@@ -184,12 +184,7 @@ export const SubagentTranscript = memo(function SubagentTranscript({ agent }: { 
 	}, [load]);
 
 	if (state.loading && state.messages.length === 0) {
-		return (
-			<div className="flex items-center gap-2 px-2 py-3">
-				<Spinner size="sm" />
-				<span className="text-omp-sm text-(--omp-dim)">{t("subagent.loadingTranscript")}</span>
-			</div>
-		);
+		return <Spinner className="px-2 py-3" label={t("subagent.loadingTranscript")} size="sm" />;
 	}
 
 	return (

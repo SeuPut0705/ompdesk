@@ -45,13 +45,13 @@ import {
 	Button,
 	EmptyState,
 	IconButton,
+	InlineNotice,
 	ProgressBar,
 	SearchField,
 	Select,
 	Spinner,
 	Switch,
 } from "../common";
-import { InlineNotice } from "./InlineNotice";
 import { modelRoleName } from "./schema-i18n";
 
 // ============================================================================
@@ -461,11 +461,7 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 	if (fatalError !== null && rows.length === 0) {
 		body = null; // the danger banner above says what failed and offers the retry
 	} else if (loading && rows.length === 0) {
-		body = (
-			<div className="flex justify-center py-12">
-				<Spinner />
-			</div>
-		);
+		body = <Spinner className="w-full justify-center py-12" label={t("common.loading")} />;
 	} else if (rows.length === 0) {
 		body = sidecarReady ? <EmptyState size="sm" title={t("modelCompare.emptyCatalog")} /> : null;
 	} else if (visibleRows.length === 0) {
@@ -743,9 +739,10 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 						</span>
 					)}
 					<IconButton
-						disabled={!sidecarReady || loading}
-						icon={loading ? <Spinner inheritColor size="sm" /> : <RefreshCw />}
+						disabled={!sidecarReady}
+						icon={<RefreshCw />}
 						label={t("common.refresh")}
+						loading={loading}
 						onClick={() => void load()}
 						size="sm"
 					/>

@@ -5,13 +5,17 @@
  * `shortcut` to show the chord too). Square hit targets on the control
  * scale — sm 28px (dense rows, dialog close), md 32px (toolbars, default),
  * lg 36px — with icons at 14 / 16 / 20px; the icon's own size is overridden.
- * `pressed` makes it a toggle (aria-pressed). Defaults to the ghost variant;
+ * `pressed` makes it a toggle (aria-pressed). `loading` swaps the icon for a
+ * Spinner in the icon's place (same box, so nothing shifts), marks the button
+ * busy and disables it — the one way a refresh or row action shows it is
+ * running. Defaults to the ghost variant;
  * use `primary` only for the single main action of a surface (send).
  */
 
 import type { ComponentProps, ReactNode } from "react";
 import { cx } from "../../lib/format";
 import { BUTTON_VARIANT_CLASSES, type ButtonVariant } from "./Button";
+import { Spinner } from "./Spinner";
 import { Tooltip, type TooltipSide } from "./Tooltip";
 
 export type IconButtonSize = "sm" | "md" | "lg";
@@ -35,6 +39,8 @@ export interface IconButtonProps extends Omit<ComponentProps<"button">, "childre
 	tooltipSide?: TooltipSide;
 	/** Toggle state; renders aria-pressed and the selected wash. */
 	pressed?: boolean;
+	/** The action is running: spinner instead of the icon, aria-busy, disabled. */
+	loading?: boolean;
 }
 
 export function IconButton({
@@ -46,12 +52,15 @@ export function IconButton({
 	tooltip = true,
 	tooltipSide,
 	pressed,
+	loading,
+	disabled,
 	className,
 	type,
 	...rest
 }: IconButtonProps) {
 	const button = (
 		<button
+			aria-busy={loading || undefined}
 			aria-label={label}
 			aria-pressed={pressed}
 			className={cx(
@@ -62,10 +71,11 @@ export function IconButton({
 				SIZE_CLASSES[size],
 				className,
 			)}
+			disabled={disabled || loading}
 			type={type ?? "button"}
 			{...rest}
 		>
-			{icon}
+			{loading ? <Spinner inheritColor size="sm" /> : icon}
 		</button>
 	);
 	if (!tooltip) return button;

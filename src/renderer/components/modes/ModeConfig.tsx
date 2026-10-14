@@ -33,7 +33,7 @@ import {
 	Badge,
 	type BadgeVariant,
 	Button,
-	ErrorDetail,
+	InlineNotice,
 	Input,
 	ProgressBar,
 	Spinner,
@@ -246,20 +246,24 @@ function ModeFrame<T>({ rpc, children }: { rpc: ModeRpc<T>; children: (state: T)
 		);
 	}
 	return (
-		<div className="flex flex-col items-start gap-2 py-1" role="alert">
-			<span className="text-sc-sm font-medium text-(--sc-danger)">{t("modesPanel.loadFailed")}</span>
-			<ErrorDetail error={rpc.error} />
-			<Button
-				disabled={!rpc.ready}
-				icon={<RefreshCw />}
-				onClick={rpc.refresh}
-				size="sm"
-				title={!rpc.ready ? t("modesPanel.notConnected") : undefined}
-				variant="secondary"
-			>
-				{t("common.retry")}
-			</Button>
-		</div>
+		<InlineNotice
+			action={
+				<Button
+					disabled={!rpc.ready}
+					icon={<RefreshCw />}
+					onClick={rpc.refresh}
+					size="sm"
+					title={!rpc.ready ? t("modesPanel.notConnected") : undefined}
+					variant="secondary"
+				>
+					{t("common.retry")}
+				</Button>
+			}
+			detail={rpc.error}
+			live
+			title={t("modesPanel.loadFailed")}
+			tone="danger"
+		/>
 	);
 }
 
@@ -275,12 +279,7 @@ function FieldLabel({ children }: { children: ReactNode }) {
 function MutationError({ error }: { error: string | null }) {
 	const t = useT();
 	if (!error) return null;
-	return (
-		<div className="text-sc-xs" role="alert">
-			<p className="text-(--sc-danger)">{t("modesPanel.actionFailed")}</p>
-			<ErrorDetail error={error} />
-		</div>
-	);
+	return <InlineNotice detail={error} live title={t("modesPanel.actionFailed")} tone="danger" />;
 }
 
 // ---------------------------------------------------------------------------

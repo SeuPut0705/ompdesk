@@ -22,7 +22,7 @@ import { useTabRpc } from "../../../lib/tab-rpc";
 import { Check, RefreshCw, RotateCcw, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcPluginDetail, RpcPluginInfo } from "../../../../shared/rpc-types";
-import { errorDetail, type InlineFailure } from "../../../lib/error-detail";
+import type { InlineFailure } from "../../../lib/error-detail";
 import { useT } from "../../../lib/i18n";
 import {
 	capturePluginActivationOrigin,
@@ -37,6 +37,7 @@ import {
 	Button,
 	ErrorDetail,
 	IconButton,
+	InlineNotice,
 	Input,
 	Sheet,
 	Spinner,
@@ -46,7 +47,6 @@ import {
 import { ArrayChipEditor } from "../../settings/editors/ArrayChipEditor";
 import { RecordKvEditor } from "../../settings/editors/RecordKvEditor";
 import { type ModelValueGroup, ModelValueSelect } from "../../settings/ModelValueSelect";
-import { CopyableError } from "./ErrorNote";
 import {
 	type AssembleError,
 	assembleFieldValue,
@@ -116,9 +116,9 @@ function SettingFieldRow({
 		) : (
 			<span className="flex shrink-0 items-center gap-0.5">
 				<IconButton
-					disabled={resetState === "busy"}
-					icon={resetState === "busy" ? <Spinner size="sm" /> : <Check />}
+					icon={<Check />}
 					label={t("pluginDetail.resetConfirm")}
+					loading={resetState === "busy"}
 					onClick={onResetConfirm}
 					size="sm"
 					variant="danger"
@@ -638,11 +638,13 @@ export function PluginDetailBody({
 	if (detail === null && loadError !== null) {
 		return (
 			<div className="flex flex-col items-start gap-3">
-				<CopyableError
+				<InlineNotice
 					className="w-full"
 					copyLabel={t("pluginDetail.copyError")}
-					message={loadError}
+					detail={loadError}
+					live
 					title={t("pluginDetail.loadFailed")}
+					tone="danger"
 				/>
 				{retry}
 			</div>
@@ -697,15 +699,13 @@ export function PluginDetailBody({
 								))}
 							</div>
 							{featuresError && (
-								<CopyableError
+								<InlineNotice
 									className="mt-2"
 									copyLabel={t("pluginDetail.copyError")}
-									message={
-										featuresError.cause === undefined
-											? featuresError.message
-											: errorDetail(featuresError.cause)
-									}
-									title={featuresError.cause === undefined ? undefined : featuresError.message}
+									detail={featuresError.cause}
+									live
+									title={featuresError.message}
+									tone="danger"
 								/>
 							)}
 							<div className="mt-2 flex justify-end">
@@ -760,10 +760,12 @@ export function PluginDetailBody({
 								))}
 							</div>
 							{failedCount > 0 && (
-								<CopyableError
+								<InlineNotice
 									className="mt-2"
 									copyLabel={t("pluginDetail.copyError")}
-									message={t("pluginDetail.someFailed", { count: failedCount })}
+									live
+									title={t("pluginDetail.someFailed", { count: failedCount })}
+									tone="danger"
 								/>
 							)}
 							<div className="mt-2 flex items-center justify-end gap-2">

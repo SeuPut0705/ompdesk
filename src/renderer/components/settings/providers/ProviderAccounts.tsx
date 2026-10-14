@@ -13,17 +13,16 @@
  * saved rate-limit resets shows them and can spend one (ResetPasses.tsx).
  */
 
-import { Copy, RefreshCw, Trash2, UserPlus } from "lucide-react";
+import { RefreshCw, Trash2, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProviderAccount, ProviderAccountsResult, ProviderInfo, UsageLimit } from "../../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
-import { copyText, formatClock } from "../../../lib/format";
+import { formatClock } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { usageLimitLabel } from "../../../lib/usage-labels";
 import { toast, toastError } from "../../../stores/toast";
-import { Badge, Button, ConfirmDialog, IconButton, ProgressBar, Spinner } from "../../common";
-import { InlineNotice } from "../InlineNotice";
+import { Badge, Button, ConfirmDialog, CopyButton, IconButton, InlineNotice, ProgressBar, Spinner } from "../../common";
 import { ResetPassControl } from "./ResetPasses";
 
 type TFn = (key: string, params?: Record<string, string | number>) => string;
@@ -181,22 +180,10 @@ function AccountRow({
 			) : (
 				<>
 					{typeof account.identityKey === "string" && (
-						<IconButton
-							icon={<Copy />}
+						// Token-free: the key is the pool name `omp usage accounts` prints.
+						<CopyButton
 							label={t("providers.accounts.copyKey", { account: account.label })}
-							onClick={() => {
-								// Token-free: the key is the pool name `omp usage accounts` prints.
-								const key = account.identityKey;
-								if (typeof key !== "string") return;
-								void copyText(key).then(ok =>
-									toast(
-										ok
-											? { variant: "success", message: t("providers.accounts.keyCopied") }
-											: { variant: "error", message: t("providers.accounts.keyCopyFailed") },
-									),
-								);
-							}}
-							size="sm"
+							text={account.identityKey}
 						/>
 					)}
 					<IconButton

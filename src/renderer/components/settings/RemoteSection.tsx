@@ -15,16 +15,16 @@
  *
  * Main owns the state; every action answers with the whole new RemoteState.
  */
-import { Copy, Monitor, Plus, RefreshCw } from "lucide-react";
+import { Monitor, Plus, RefreshCw } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { RemoteHostState, RemoteState } from "../../../shared/ipc-types";
-import { copyText, formatTimeAgo } from "../../lib/format";
+import { formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { onEscape } from "../../lib/keymap";
 import { loadRemoteState, useRemoteStore } from "../../stores/remote";
-import { toast, toastError } from "../../stores/toast";
-import { Badge, Banner, Button, ConfirmDialog, ErrorDetail, IconButton, Input, ListRow, Spinner } from "../common";
+import { toastError } from "../../stores/toast";
+import { Badge, Banner, Button, ConfirmDialog, CopyButton, ErrorDetail, Input, ListRow, Spinner } from "../common";
 import { LINK_BADGE } from "../remote/DeviceChip";
 import { RemoteConnectDialog } from "../remote/RemoteConnectDialog";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
@@ -53,20 +53,7 @@ function CopyableValue({ value, large }: { value: string; large?: boolean }) {
 			>
 				{value}
 			</span>
-			<IconButton
-				icon={<Copy />}
-				label={t("remote.copy", { value })}
-				onClick={() =>
-					void copyText(value).then(ok =>
-						toast(
-							ok
-								? { variant: "success", message: t("remote.copied") }
-								: { variant: "error", message: t("remote.copyFailed") },
-						),
-					)
-				}
-				size="sm"
-			/>
+			<CopyButton label={t("remote.copy", { value })} text={value} />
 		</span>
 	);
 }

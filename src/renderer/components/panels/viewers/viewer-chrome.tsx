@@ -9,7 +9,7 @@ import { createContext, type ReactNode, useContext, useEffect } from "react";
 import type { InlineFailure } from "../../../lib/error-detail";
 import { formatBytes } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { Button, ErrorDetail, IconButton, Spinner } from "../../common";
+import { Button, IconButton, InlineNotice, Spinner } from "../../common";
 import { PathLink } from "../../tools/PathLink";
 
 export interface FileInfo {
@@ -30,21 +30,11 @@ export function useReportFileInfo(size: number | null, mime?: string): void {
 
 export function ViewerLoading() {
 	const t = useT();
-	return (
-		<div className="flex items-center gap-2 p-4" role="status">
-			<Spinner size="sm" />
-			<span className="text-sc-sm text-(--sc-text-muted)">{t("filesPanel.reading")}</span>
-		</div>
-	);
+	return <Spinner className="p-4" label={t("filesPanel.reading")} size="sm" />;
 }
 
 export function ViewerFailure({ failure }: { failure: InlineFailure }) {
-	return (
-		<div className="p-4 text-sc-sm break-words text-(--sc-danger)" role="alert">
-			{failure.message}
-			<ErrorDetail className="mt-1" error={failure.cause} />
-		</div>
-	);
+	return <InlineNotice className="p-4" detail={failure.cause} live title={failure.message} tone="danger" />;
 }
 
 /** A file this view can't show: too large, or a format with no in-app viewer. */

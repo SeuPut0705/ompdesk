@@ -44,7 +44,7 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
-import { Badge, Button, EmptyState, ErrorDetail, IconButton, Input, Select, Sheet, Spinner } from "../common";
+import { Badge, Button, EmptyState, IconButton, InlineNotice, Input, Select, Sheet, Spinner } from "../common";
 import { PanelToolbar } from "./PanelChrome";
 import { RoleGlyph, roleMeta, SessionRootNode, SessionTreeNodeCard } from "./SessionTreeNodeCard";
 import {
@@ -854,22 +854,25 @@ function SessionTreeView({
 				)}
 			</PanelToolbar>
 			{tree.error ? (
-				<div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
-					<div role="alert">
-						<p className="text-sc-sm text-(--sc-danger)">{t("sessionTree.loadFailed")}</p>
-						<ErrorDetail className="mt-1" error={tree.error} />
-					</div>
-					<Button
-						disabled={!sidecarReady}
-						icon={<RotateCw />}
-						onClick={tree.retry}
-						size="sm"
-						title={!sidecarReady ? t("sessionTree.notConnected") : undefined}
-						variant="secondary"
-					>
-						{t("common.retry")}
-					</Button>
-				</div>
+				<InlineNotice
+					action={
+						<Button
+							disabled={!sidecarReady}
+							icon={<RotateCw />}
+							onClick={tree.retry}
+							size="sm"
+							title={!sidecarReady ? t("sessionTree.notConnected") : undefined}
+							variant="secondary"
+						>
+							{t("common.retry")}
+						</Button>
+					}
+					className="px-4"
+					detail={tree.error}
+					live
+					title={t("sessionTree.loadFailed")}
+					tone="danger"
+				/>
 			) : tree.loading || !layout ? (
 				<div className="flex flex-1 items-center justify-center">
 					<Spinner label={t("sessionTree.loading")} size="sm" />

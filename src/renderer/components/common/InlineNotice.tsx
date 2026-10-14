@@ -1,17 +1,20 @@
 /**
- * InlineNotice — one quiet line inside a Settings section about that part
- * only: a read that failed (with its Retry), a degraded read, a pending one.
- * It sits where the content would be and never grows into a boxed alarm, so
- * two parts failing at once read as two small rows, not two stacked Banners.
- * The cause is the muted secondary line (ErrorDetail), clipped to two lines
- * with the whole text on hover. Page-wide conditions stay Banners.
+ * InlineNotice — one quiet line about one part of a surface: a read that
+ * failed (with its Retry), a degraded read, a pending one. It sits where the
+ * content would be and never grows into a boxed alarm, so two parts failing
+ * at once read as two small rows, not two stacked Banners. The cause is the
+ * muted secondary line (ErrorDetail), clipped to two lines with the whole
+ * text on hover; `copyLabel` adds a CopyButton for a cause the user may need
+ * to paste into a report. Page-wide conditions stay Banners.
  */
 
 import { AlertTriangle, Info, XCircle } from "lucide-react";
 import type { ReactNode } from "react";
 import { errorDetail } from "../../lib/error-detail";
 import { cx } from "../../lib/format";
-import { ErrorDetail, Spinner } from "../common";
+import { CopyButton } from "./CopyButton";
+import { ErrorDetail } from "./ErrorDetail";
+import { Spinner } from "./Spinner";
 
 export type InlineNoticeTone = "danger" | "warning" | "info" | "pending";
 
@@ -26,6 +29,7 @@ export function InlineNotice({
 	title,
 	detail,
 	action,
+	copyLabel,
 	live = false,
 	className,
 }: {
@@ -35,6 +39,8 @@ export function InlineNotice({
 	detail?: unknown;
 	/** One small Button (the fix, usually Retry). */
 	action?: ReactNode;
+	/** Accessible name of a copy control for the cause (or the title when there is none). */
+	copyLabel?: string;
 	/** Announce on appearance: the user is waiting on this read. */
 	live?: boolean;
 	className?: string;
@@ -61,7 +67,19 @@ export function InlineNotice({
 					</span>
 				)}
 			</div>
-			{action && <div className="-my-0.5 flex shrink-0 items-center">{action}</div>}
+			{(action || copyLabel) && (
+				<div className="-my-0.5 flex shrink-0 items-center gap-1">
+					{action}
+					{copyLabel && (
+						<CopyButton
+							label={copyLabel}
+							text={() =>
+								detail === undefined ? (typeof title === "string" ? title : "") : errorDetail(detail)
+							}
+						/>
+					)}
+				</div>
+			)}
 		</div>
 	);
 }

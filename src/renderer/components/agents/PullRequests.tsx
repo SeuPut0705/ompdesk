@@ -182,9 +182,9 @@ export function PullRequests() {
 				/>
 				<div className="ml-auto flex items-center gap-2">
 					<IconButton
-						disabled={listLoading}
-						icon={<RefreshCw className={listLoading ? "animate-spin" : undefined} />}
+						icon={<RefreshCw />}
 						label={t("common.refresh")}
+						loading={listLoading}
 						onClick={() => void usePrCenterStore.getState().refresh()}
 					/>
 					<Button icon={<Plus />} onClick={() => setCreateOpen(true)} size="sm" variant="secondary">

@@ -2,13 +2,16 @@
  * Spinner — indeterminate progress for a wait under ~10s with nothing better
  * to show (prefer a skeleton for content, ProgressBar when progress is known).
  * Neutral (text-muted) on its own; `inheritColor` takes the surrounding text
- * color, e.g. inside a Button while it is loading. Always announced as status.
+ * color for the ring and its label, e.g. inside a Button or a Banner. Pass
+ * `label` instead of a sibling text node: the label is what gets announced.
+ * Always announced as status.
  *
  * The rotation runs on an HTML wrapper, not the <svg>: Chromium animates an
  * SVG element's transform on the main thread (style and paint every frame for
  * as long as a run shows the spinner), an HTML box's on the compositor.
  */
 
+import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 
 const SIZES = {
@@ -53,7 +56,11 @@ export function Spinner({ size = "md", label, inheritColor, className }: Spinner
 
 	return (
 		<span
-			className={`inline-flex items-center gap-2 text-sc-sm text-(--sc-text-muted) ${className ?? ""}`.trim()}
+			className={cx(
+				"inline-flex items-center gap-2 text-sc-sm",
+				!inheritColor && "text-(--sc-text-muted)",
+				className,
+			)}
 			role="status"
 		>
 			{svg}

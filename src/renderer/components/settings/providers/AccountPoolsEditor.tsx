@@ -20,8 +20,7 @@ import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { toastError } from "../../../stores/toast";
-import { Badge, Button, ListRow } from "../../common";
-import { InlineNotice } from "../InlineNotice";
+import { Badge, Button, InlineNotice, ListRow } from "../../common";
 import { SettingsSection } from "../SettingsLayout";
 import {
 	AGENT_ACCOUNT_POOLS_PATH,

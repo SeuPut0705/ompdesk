@@ -9,7 +9,7 @@ import { ExternalLink, RefreshCw } from "lucide-react";
 import type { SetupItemState } from "../../../shared/setup";
 import { useT } from "../../lib/i18n";
 import { useMachineSetupStore } from "../../stores/machine-setup";
-import { Badge, Button } from "../common";
+import { Badge, Button, InlineNotice } from "../common";
 import {
 	SETUP_DETAILED,
 	SETUP_ITEM_NAMES,
@@ -24,7 +24,6 @@ import {
 	setupPresencePath,
 	useMachineSetupState,
 } from "../onboarding/MachineSetupView";
-import { InlineNotice } from "./InlineNotice";
 import { SettingsSection } from "./SettingsLayout";
 
 function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolean }) {

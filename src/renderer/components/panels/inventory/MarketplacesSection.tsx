@@ -19,9 +19,8 @@ import {
 	handlePluginActivation,
 	isPluginActivationOriginActive,
 } from "../../../lib/plugin-activation";
-import { Badge, Button, IconButton, Input, Spinner } from "../../common";
+import { Badge, Button, IconButton, InlineNotice, Input, Spinner } from "../../common";
 import { shortenSource } from "../inventory-utils";
-import { CopyableError } from "./ErrorNote";
 import { availablePluginActions, classifyMarketplaceSource, type MarketplacePluginAction } from "./marketplace-source";
 import { listAvailablePlugins, mutationError } from "./rpc-result";
 
@@ -104,9 +103,22 @@ export function AddMarketplaceForm({ onAdded, ready = true }: { onAdded: () => P
 			<p className="text-sc-sm text-(--sc-text-muted)" id={hintId}>
 				{t("marketplace.sourceHint")}
 			</p>
-			{invalid && <CopyableError copyLabel={t("marketplace.copyError")} message={t("marketplace.sourceInvalid")} />}
+			{invalid && (
+				<InlineNotice
+					copyLabel={t("marketplace.copyError")}
+					live
+					title={t("marketplace.sourceInvalid")}
+					tone="danger"
+				/>
+			)}
 			{error && (
-				<CopyableError copyLabel={t("marketplace.copyError")} message={error} title={t("marketplace.addFailed")} />
+				<InlineNotice
+					copyLabel={t("marketplace.copyError")}
+					detail={error}
+					live
+					title={t("marketplace.addFailed")}
+					tone="danger"
+				/>
 			)}
 		</div>
 	);
@@ -424,8 +436,9 @@ export function MarketplaceCard({
 				</div>
 				<IconButton
 					disabled={actionsDisabled}
-					icon={busyAction === "update" ? <Spinner size="sm" /> : <RefreshCw />}
+					icon={<RefreshCw />}
 					label={!ready ? t("invPanel.notConnected") : t("marketplace.refresh")}
+					loading={busyAction === "update"}
 					onClick={() => void refreshCatalog()}
 					size="sm"
 				/>
@@ -433,8 +446,9 @@ export function MarketplaceCard({
 					<span className="flex shrink-0 items-center gap-0.5">
 						<IconButton
 							disabled={actionsDisabled}
-							icon={busyAction === "remove" ? <Spinner size="sm" /> : <Check />}
+							icon={<Check />}
 							label={t("marketplace.removeConfirm")}
+							loading={busyAction === "remove"}
 							onClick={() => void removeMarketplace()}
 							size="sm"
 							variant="danger"
@@ -458,11 +472,13 @@ export function MarketplaceCard({
 				)}
 			</div>
 			{cardError && (
-				<CopyableError
+				<InlineNotice
 					className="mb-2"
 					copyLabel={t("marketplace.copyError")}
-					message={cardError}
+					detail={cardError}
+					live
 					title={t("marketplace.actionFailed")}
+					tone="danger"
 				/>
 			)}
 			{expanded && (
@@ -473,10 +489,12 @@ export function MarketplaceCard({
 						</div>
 					) : available === null && listError !== null ? (
 						<>
-							<CopyableError
+							<InlineNotice
 								copyLabel={t("marketplace.copyError")}
-								message={listError}
+								detail={listError}
+								live
 								title={t("marketplace.listFailed")}
+								tone="danger"
 							/>
 							<div>
 								<Button
@@ -507,11 +525,13 @@ export function MarketplaceCard({
 											plugin={plugin}
 										/>
 										{pluginErrors[plugin.name] && (
-											<CopyableError
+											<InlineNotice
 												className="mb-2.5"
 												copyLabel={t("marketplace.copyError")}
-												message={pluginErrors[plugin.name]}
+												detail={pluginErrors[plugin.name]}
+												live
 												title={t("marketplace.actionFailed")}
+												tone="danger"
 											/>
 										)}
 									</div>
@@ -519,10 +539,12 @@ export function MarketplaceCard({
 							</div>
 							{listLoading && <Spinner label={t("common.loading")} size="sm" />}
 							{listError && (
-								<CopyableError
+								<InlineNotice
 									copyLabel={t("marketplace.copyError")}
-									message={listError}
+									detail={listError}
+									live
 									title={t("marketplace.listFailed")}
+									tone="danger"
 								/>
 							)}
 						</>

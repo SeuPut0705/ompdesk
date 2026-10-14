@@ -1,14 +1,14 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, Copy, FolderGit2, RefreshCw } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, FolderGit2, RefreshCw } from "lucide-react";
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcGitChanges, RpcGitDiff } from "../../../shared/rpc-types";
 import { parseDiff } from "../../lib/diff";
 import { errorDetail } from "../../lib/error-detail";
-import { copyText, cx } from "../../lib/format";
+import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import type { TabRpc } from "../../lib/tab-rpc";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { Button, EmptyState, IconButton, SearchField } from "../common";
+import { Button, CopyButton, EmptyState, IconButton, InlineNotice, SearchField, Spinner } from "../common";
 import { ChangeCounts, PanelListRow, PanelToolbar } from "./PanelChrome";
 import { FileIcon } from "./viewers/FileViewer";
 
@@ -199,8 +199,8 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 				)}
 				<IconButton
 					className="ml-auto"
-					disabled={loading}
 					icon={<RefreshCw />}
+					loading={loading}
 					label={t("common.refresh")}
 					onClick={() => setRefresh(value => value + 1)}
 					size="sm"
@@ -212,13 +212,21 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 				)}
 			</PanelToolbar>
 			{error && (
-				<div className="mx-3 rounded-(--sc-radius-md) bg-(--sc-danger-soft) p-2 text-sc-sm" role="alert">
-					<p>{t("diffPanel.loadFailed")}</p>
-					<p className="mt-1 break-words text-sc-xs text-(--sc-text-muted)">{error}</p>
-				</div>
+				<InlineNotice
+					action={
+						<Button onClick={() => setRefresh(value => value + 1)} size="sm" variant="ghost">
+							{t("common.retry")}
+						</Button>
+					}
+					className="px-3"
+					detail={error}
+					live
+					title={t("diffPanel.loadFailed")}
+					tone="danger"
+				/>
 			)}
 			{loading && !changes ? (
-				<p className="px-3 py-2 text-sc-sm text-(--sc-text-muted)">{t("common.loading")}</p>
+				<Spinner className="px-3 py-2" label={t("common.loading")} size="sm" />
 			) : changes && !changes.isRepo ? (
 				<EmptyState icon={<FolderGit2 />} size="sm" title={t("diffPanel.notRepoTitle")} />
 			) : changes?.files.length === 0 ? (
@@ -315,16 +323,10 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 										onClick={() => setSelected(files[position + 1]!.path)}
 										size="sm"
 									/>
-									<IconButton
-										icon={<Copy />}
-										label={t("diff.copy")}
-										disabled={!preview?.diff}
-										onClick={() => void copyText(preview?.diff ?? "")}
-										size="sm"
-									/>
+									<CopyButton disabled={!preview?.diff} label={t("diff.copy")} text={preview?.diff ?? ""} />
 								</div>
 								{!preview && !error ? (
-									<p className="p-3 text-sc-sm text-(--sc-text-muted)">{t("common.loading")}</p>
+									<Spinner className="p-3" label={t("common.loading")} size="sm" />
 								) : preview?.kind === "text" ? (
 									<div
 										className="omp-pane-diff font-mono text-sc-xs leading-(--sc-leading-relaxed)"

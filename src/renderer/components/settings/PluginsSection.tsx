@@ -200,9 +200,10 @@ function TabPanel({
 						<span className="text-sc-xs whitespace-nowrap tabular-nums text-(--sc-text-muted)">{count}</span>
 					)}
 					<IconButton
-						disabled={!resource.ready || resource.loading}
-						icon={<RefreshCw className={cx(resource.loading && "animate-spin")} />}
+						disabled={!resource.ready}
+						icon={<RefreshCw />}
 						label={!resource.ready ? t("invPanel.notConnected") : t("common.refresh")}
+						loading={resource.loading}
 						onClick={() => void resource.reload()}
 						size="sm"
 					/>

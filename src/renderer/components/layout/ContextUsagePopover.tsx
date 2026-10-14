@@ -300,10 +300,7 @@ export function ContextUsagePopover() {
 						)}
 
 						{loading && categories.length === 0 ? (
-							<div className="flex items-center gap-2 py-5 text-sc-sm text-(--sc-text-muted)">
-								<Spinner size="sm" />
-								{t("contextUsage.loading")}
-							</div>
+							<Spinner className="py-5" label={t("contextUsage.loading")} size="sm" />
 						) : error && categories.length === 0 ? (
 							<div className="flex flex-col items-start gap-2 py-4">
 								<p role="alert" className="text-sc-sm text-(--sc-text-muted)">

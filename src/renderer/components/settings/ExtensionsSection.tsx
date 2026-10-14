@@ -28,7 +28,7 @@ import type {
 	RpcResponse,
 } from "../../../shared/rpc-types";
 import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
-import { cx, shortenPath } from "../../lib/format";
+import { shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { type TabRpc as SessionRpc, useTabRpc as useSessionRpc } from "../../lib/tab-rpc";
 import { useFocusedTabDevice } from "../../stores/remote";
@@ -350,9 +350,10 @@ function ListFrame({ tabId, rpc, query, visible, actions, emptyAction, children 
 					{countText && <span className="text-sc-xs tabular-nums text-(--sc-text-muted)">{countText}</span>}
 					{empty && emptyAction ? null : actions}
 					<IconButton
-						disabled={!rpc.ready || rpc.loading}
-						icon={<RefreshCw className={cx(rpc.loading && "animate-spin")} />}
+						disabled={!rpc.ready}
+						icon={<RefreshCw />}
 						label={!rpc.ready ? t("extPanel.notConnected") : t("common.refresh")}
+						loading={rpc.loading}
 						onClick={() => void rpc.refresh()}
 						size="sm"
 					/>

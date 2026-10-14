@@ -565,9 +565,10 @@ export function AgentDefinitions() {
 				/>
 				<div className="ml-auto flex flex-wrap items-center gap-2">
 					<IconButton
-						disabled={!rpc.ready || rpc.loading}
-						icon={<RefreshCw className={rpc.loading ? "motion-safe:animate-spin" : undefined} />}
+						disabled={!rpc.ready}
+						icon={<RefreshCw />}
 						label={notConnected ?? t("common.refresh")}
+						loading={rpc.loading}
 						onClick={rpc.refresh}
 					/>
 					<Button

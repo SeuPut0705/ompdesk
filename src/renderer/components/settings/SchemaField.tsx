@@ -8,6 +8,7 @@
 
 import type { ReactNode } from "react";
 import { useT } from "../../lib/i18n";
+import { Skeleton } from "../common";
 import { SchemaSettingRow } from "./SchemaSettingRow";
 import { SettingsRow, SettingsSection, type SettingsSectionProps } from "./SettingsLayout";
 import { useSettingsData } from "./settings-data";
@@ -49,7 +50,7 @@ export function SchemaField({ path, action }: { path: string; action?: ReactNode
 		if (loadState === "error" && sidecarReady) return null;
 		return (
 			<SettingsRow
-				control={<div aria-hidden className="omp-skeleton h-(--sc-control-md) w-full rounded-(--sc-radius-md)" />}
+				control={<Skeleton className="h-(--sc-control-md) w-full rounded-(--sc-radius-md)" />}
 				description={description}
 				id={`setting-${path}`}
 				label={label}

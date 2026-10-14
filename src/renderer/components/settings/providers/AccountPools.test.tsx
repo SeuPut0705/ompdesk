@@ -183,8 +183,8 @@ describe("Copy identity key", () => {
 		await act(async () => button(translate("providers.accounts.copyKey", { account: "work@example.com" }))?.click());
 		await flush();
 		expect(writeText).toHaveBeenCalledWith(WORK);
-		expect(useToastStore.getState().toasts.map(toast => toast.message)).toContain(
-			translate("providers.accounts.keyCopied"),
+		expect(button(translate("providers.accounts.copyKey", { account: "work@example.com" }))?.dataset.copied).toBe(
+			"true",
 		);
 	});
 

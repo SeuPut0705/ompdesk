@@ -353,10 +353,9 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 			actions={
 				<>
 					<IconButton
-						className={cx(loading && "[&>svg]:animate-spin motion-reduce:[&>svg]:animate-none")}
-						disabled={loading}
 						icon={<RefreshCw />}
 						label={t("planPanel.refresh")}
+						loading={loading}
 						onClick={() => void load()}
 						size="sm"
 					/>
@@ -385,9 +384,7 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 			title={t("dock.plan")}
 		>
 			{loading && !loaded ? (
-				<div className="flex items-center justify-center py-6">
-					<Spinner />
-				</div>
+				<Spinner className="w-full justify-center py-6" label={t("common.loading")} />
 			) : error ? (
 				<div className="flex flex-col items-center justify-center gap-2 px-6 py-4 text-center">
 					<FileWarning aria-hidden="true" className="text-(--sc-warning)" size={20} />

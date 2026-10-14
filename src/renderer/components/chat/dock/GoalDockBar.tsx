@@ -108,8 +108,9 @@ export function GoalDockBar({ inline = false }: { inline?: boolean }) {
 			<IconButton
 				className="hover:text-(--sc-danger)"
 				disabled={busy !== null}
-				icon={busy === "drop" ? <Spinner inheritColor size="sm" /> : <Trash2 />}
+				icon={<Trash2 />}
 				label={t("modesPanel.goal.drop")}
+				loading={busy === "drop"}
 				onClick={() => void runAction("drop")}
 				size="sm"
 			/>

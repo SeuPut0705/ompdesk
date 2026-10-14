@@ -22,7 +22,7 @@ import { useFocusedTabDevice } from "../../stores/remote";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toastError } from "../../stores/toast";
-import { Button, ErrorDetail, IconButton, Input, ListRow, Select, SwitchField } from "../common";
+import { Button, IconButton, InlineNotice, Input, ListRow, Select, SwitchField } from "../common";
 
 const CUSTOM_ROLE = "custom";
 
@@ -311,12 +311,7 @@ export function ModelPoolConfig({ onAddModel }: { onAddModel: () => void }) {
 				members={pool.members}
 				onApply={members => void update({ enabled: pool.enabled && members.length >= 2, members })}
 			/>
-			{error && (
-				<div className="text-sc-xs" role="alert">
-					<p className="text-(--sc-danger)">{t("modelPool.updateFailed")}</p>
-					<ErrorDetail error={error} />
-				</div>
-			)}
+			{error && <InlineNotice detail={error} live title={t("modelPool.updateFailed")} tone="danger" />}
 		</div>
 	);
 }

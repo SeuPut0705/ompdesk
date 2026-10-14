@@ -250,10 +250,7 @@ export function FilesPanel() {
 			</PanelToolbar>
 			<div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
 				{loading && tree.length === 0 ? (
-					<div className="flex items-center justify-center gap-2 py-8">
-						<Spinner size="sm" />
-						<span className="text-sc-sm text-(--sc-text-muted)">{t("filesPanel.scanning")}</span>
-					</div>
+					<Spinner className="w-full justify-center py-8" label={t("filesPanel.scanning")} size="sm" />
 				) : error !== null ? (
 					<div className="px-4 py-8 text-center text-sc-sm leading-relaxed text-(--sc-text-muted)">
 						{ipcErrorCode(error) ? errorMessage(error) : t("filesPanel.unavailable")}

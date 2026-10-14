@@ -9,7 +9,6 @@ import {
 	Languages,
 	Lightbulb,
 	ListTodo,
-	Loader2,
 	PenLine,
 	SearchCode,
 	Sparkles,
@@ -835,14 +834,11 @@ function SessionTranscript() {
 				{(isLoadingPage || pageError) && (
 					<div
 						data-testid="transcript-history-status"
-						role={pageError ? "alert" : "status"}
+						role={pageError ? "alert" : undefined}
 						className="absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 bg-(--sc-surface-1) py-2 text-sc-sm text-(--sc-text-muted)"
 					>
 						{isLoadingPage ? (
-							<>
-								<Spinner size="sm" />
-								{t("chat.history.loading")}
-							</>
+							<Spinner label={t("chat.history.loading")} size="sm" />
 						) : (
 							<>
 								<span>{t("chat.history.failed")}</span>
@@ -854,9 +850,7 @@ function SessionTranscript() {
 					</div>
 				)}
 				{status === "starting" && rows.length === 0 && !switchPending && (
-					<div className="flex justify-center py-3">
-						<Loader2 size={16} className="animate-spin text-[var(--omp-muted)]" />
-					</div>
+					<Spinner className="flex justify-center py-3" />
 				)}
 				{status !== "starting" && rows.length === 0 && !isStreaming && !switchPending && firstRunActive && (
 					<FirstRunSetup />

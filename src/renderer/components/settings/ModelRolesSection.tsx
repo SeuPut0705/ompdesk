@@ -16,9 +16,8 @@ import { useLang, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
-import { Badge, Button, EmptyState, IconButton, Spinner } from "../common";
+import { Badge, Button, EmptyState, IconButton, InlineNotice, Spinner } from "../common";
 import { CompactsAt } from "./CompactsAt";
-import { InlineNotice } from "./InlineNotice";
 import { type ModelValueGroup, ModelValueSelect } from "./ModelValueSelect";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 import { modelRoleName } from "./schema-i18n";
@@ -177,9 +176,10 @@ export function ModelRolesSection() {
 		<SettingsSection
 			actions={
 				<IconButton
-					disabled={!sidecarReady || loading}
-					icon={loading ? <Spinner inheritColor size="sm" /> : <RefreshCw />}
+					disabled={!sidecarReady}
+					icon={<RefreshCw />}
 					label={sidecarReady ? t("common.refresh") : t("modelRoles.notConnected")}
+					loading={loading}
 					onClick={() => void load()}
 					size="sm"
 				/>
@@ -207,11 +207,7 @@ export function ModelRolesSection() {
 					tone="danger"
 				/>
 			)}
-			{loading && !hasRows && (
-				<div className="flex justify-center py-6">
-					<Spinner />
-				</div>
-			)}
+			{loading && !hasRows && <Spinner className="w-full justify-center py-6" label={t("common.loading")} />}
 			{sidecarReady && loaded && !loading && error === null && !hasRows && (
 				<EmptyState icon={<Tags />} size="sm" title={t("modelRoles.empty")} />
 			)}
