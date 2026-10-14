@@ -42,6 +42,7 @@ const SECTION_ALIASES: Record<SettingsSectionId, string> = {
 	agent: "agent behavior plan goal loop ttsr advisor memory compaction retry speech",
 	tools: "tools extensions skills mcp servers hooks commands plugins marketplace templates resources",
 	workspace: "workspace project folders directories dirs launch profile",
+	schedules: "schedules scheduled runs timer cron daily interval omp -p print 예약 실행",
 	connections: "ssh remote devices pair pairing code host connect other computer 원격 기기 연결 페어링",
 	updates: "updates version upgrade omp update",
 	advanced: "advanced proxy launch profile system prompt schema",

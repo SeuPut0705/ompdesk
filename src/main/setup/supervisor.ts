@@ -7,8 +7,9 @@
  * whole tree when its stdin closes — a cancel (main ends stdin), an app quit,
  * or a crash of the app that skips every quit handler.
  *
- * The installer command comes from `OMPDESK_SETUP_SPEC` (`{file, args, shell}`
- * JSON), never from argv, so runtimes that parse argv differently agree.
+ * The installer command comes from `OMPDESK_SETUP_SPEC` (`{file, args, shell,
+ * inputFile?}` JSON), never from argv, so runtimes that parse argv differently
+ * agree. `inputFile` becomes the child's stdin (else it gets none).
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import type { SpawnSpec } from "./plans";
@@ -28,7 +29,7 @@ let stopping = false;
 let child;
 try {
 	child = spawn(spec.file, spec.args, {
-		stdio: ["ignore", "inherit", "inherit"],
+		stdio: [spec.inputFile ? require("node:fs").openSync(spec.inputFile, "r") : "ignore", "inherit", "inherit"],
 		detached: !windows,
 		shell: spec.shell === true,
 		windowsHide: true,
@@ -69,11 +70,12 @@ child.on("exit", (code, signal) => {
 });
 `;
 
-/** Start `spec` under the supervisor with `env`; stdin stays open until a cancel. */
-export function spawnSupervised(spec: SpawnSpec, env: NodeJS.ProcessEnv): ChildProcess {
+/** Start `spec` under the supervisor with `env` (in `cwd`, else main's); stdin stays open until a cancel. */
+export function spawnSupervised(spec: SpawnSpec, env: NodeJS.ProcessEnv, cwd?: string): ChildProcess {
 	return spawn(process.execPath, ["-e", SUPERVISOR_SOURCE], {
 		env: { ...env, ELECTRON_RUN_AS_NODE: "1", [SUPERVISOR_SPEC_ENV]: JSON.stringify(spec) },
 		stdio: ["pipe", "pipe", "pipe"],
 		windowsHide: true,
+		...(cwd ? { cwd } : {}),
 	});
 }

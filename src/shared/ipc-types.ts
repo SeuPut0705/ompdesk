@@ -30,6 +30,7 @@ import type {
 	SidecarStatusPayload,
 	SubagentFrame,
 } from "./rpc-types";
+import type { SchedulesApi } from "./schedules";
 import type { SetupItemId, SetupState } from "./setup";
 import type { SplitLayout } from "./split-layout";
 import type { TerminalApi } from "./terminal-types";
@@ -1226,6 +1227,8 @@ export interface SystemInfo {
 export interface OmpApi {
 	terminal: TerminalApi;
 	preview: PreviewApi;
+	/** Scheduled `omp -p` runs on this machine (Settings › Schedules). */
+	schedules: SchedulesApi;
 	runtime: {
 		/** Best-effort fire-and-forget reporting so fatal render paths never wait on IPC. */
 		report(error: RuntimeErrorReport): void;

@@ -57,6 +57,8 @@ export interface SpawnSpec {
 	args: string[];
 	/** Only for a Windows `.cmd` shim; args are then already quoted for cmd.exe. */
 	shell: boolean;
+	/** A file the supervisor hands the child as stdin (scheduled runs pipe their prompt this way). */
+	inputFile?: string;
 }
 
 /** A file main downloads and checks (download.ts) before the plan's process runs, so its bytes can show as progress. */

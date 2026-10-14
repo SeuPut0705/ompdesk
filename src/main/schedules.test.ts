@@ -1,0 +1,297 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Schedule, ScheduleDraft, SchedulesState } from "../shared/schedules";
+import type { OmpResolution } from "./omp-runtime";
+import { ompRunLauncher, type RunLauncher, type RunProcess, SCHEDULE_TICK_MS, ScheduleService } from "./schedules";
+import { SUPERVISOR_STOPPED_CODE } from "./setup/supervisor";
+import { RM_TEMP, writeFakeOmp } from "./test-fake-omp";
+
+const dirs: string[] = [];
+async function tempDir(): Promise<string> {
+	const dir = await mkdtemp(join(tmpdir(), "ompdesk-schedules-"));
+	dirs.push(dir);
+	return dir;
+}
+
+afterEach(async () => {
+	vi.useRealTimers();
+	for (const dir of dirs.splice(0)) await rm(dir, RM_TEMP);
+});
+
+/** A launcher whose runs end when the test says so; `launched(n)` settles once `n` runs started. */
+function fakeLauncher() {
+	const runs: {
+		prompt: string;
+		finish: (code: number | null) => void;
+		stopped: boolean;
+		stopSignal: Promise<void>;
+	}[] = [];
+	const waiters: { count: number; resolve: () => void }[] = [];
+	const launch = vi.fn(async (_schedule: Schedule, files: { log: string; prompt: string }): Promise<RunProcess> => {
+		const { promise, resolve } = Promise.withResolvers<{ code: number | null }>();
+		const stopSignal = Promise.withResolvers<void>();
+		const entry = {
+			prompt: await readFile(files.prompt, "utf8"),
+			finish: (code: number | null) => resolve({ code }),
+			stopped: false,
+			stopSignal: stopSignal.promise,
+		};
+		runs.push(entry);
+		for (const waiter of waiters.filter(item => runs.length >= item.count)) waiter.resolve();
+		return {
+			stop: () => {
+				entry.stopped = true;
+				stopSignal.resolve();
+				resolve({ code: SUPERVISOR_STOPPED_CODE });
+			},
+			done: promise,
+		};
+	});
+	const launched = (count: number): Promise<void> => {
+		if (runs.length >= count) return Promise.resolve();
+		const { promise, resolve } = Promise.withResolvers<void>();
+		waiters.push({ count, resolve });
+		return promise;
+	};
+	return { launch, runs, launched };
+}
+
+/** A service on `dir` whose `until(predicate)` settles with the first pushed state that matches. */
+function harness(dir: string, launch: RunLauncher) {
+	const listeners = new Set<(state: SchedulesState) => void>();
+	const service = new ScheduleService({
+		file: join(dir, "schedules.json"),
+		logDir: join(dir, "runs"),
+		launch,
+		onState: state => {
+			for (const listener of [...listeners]) listener(state);
+		},
+	});
+	const until = (predicate: (state: SchedulesState) => boolean): Promise<SchedulesState> => {
+		const current = service.state();
+		if (predicate(current)) return Promise.resolve(current);
+		const { promise, resolve } = Promise.withResolvers<SchedulesState>();
+		const listener = (state: SchedulesState) => {
+			if (!predicate(state)) return;
+			listeners.delete(listener);
+			resolve(state);
+		};
+		listeners.add(listener);
+		return promise;
+	};
+	return { service, until };
+}
+
+function draft(cwd: string, overrides: Partial<ScheduleDraft> = {}): ScheduleDraft {
+	return {
+		name: "Tidy",
+		prompt: "Tidy the README",
+		cwd,
+		frequency: { kind: "interval", minutes: 60 },
+		model: null,
+		autoApprove: false,
+		enabled: true,
+		...overrides,
+	};
+}
+
+/** The schedule clock (its tick and `Date`) runs fake; promises and file I/O stay real. */
+function fakeClock(now?: Date): void {
+	vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"], ...(now ? { now } : {}) });
+}
+
+describe("ScheduleService", () => {
+	it("starts a due schedule, records its outcome, and skips a start while the previous run still goes", async () => {
+		fakeClock(new Date(2026, 9, 15, 12, 0));
+		const dir = await tempDir();
+		const { launch, runs, launched } = fakeLauncher();
+		const { service, until } = harness(dir, launch);
+		await service.start();
+		const saved = await service.command({ action: "save", draft: draft(dir) });
+		const id = saved.schedules[0]?.id ?? "";
+		expect(saved.nextRuns[id]).toBe(new Date(2026, 9, 15, 13, 0).toISOString());
+
+		await vi.advanceTimersByTimeAsync(60 * 60_000);
+		await launched(1);
+		expect(runs[0]?.prompt).toBe("Tidy the README");
+		expect(service.state().runs[0]).toMatchObject({ scheduleId: id, status: "running", trigger: "schedule" });
+
+		// Still running an hour later: that start is skipped, not stacked.
+		await vi.advanceTimersByTimeAsync(60 * 60_000);
+		await until(state => state.runs[0]?.status === "skipped");
+		expect(launch).toHaveBeenCalledTimes(1);
+
+		runs[0]?.finish(0);
+		const finished = await until(state => state.runs.some(run => run.status === "succeeded"));
+		expect(finished.runs.find(run => run.status === "succeeded")).toMatchObject({ exitCode: 0, trigger: "schedule" });
+		service.dispose();
+	});
+
+	it("runs on demand, stops on request, and reports a failing exit", async () => {
+		fakeClock();
+		const dir = await tempDir();
+		const { launch, runs, launched } = fakeLauncher();
+		const { service, until } = harness(dir, launch);
+		await service.start();
+		const id = (await service.command({ action: "save", draft: draft(dir) })).schedules[0]?.id ?? "";
+
+		await service.command({ action: "runNow", id });
+		await launched(1);
+		await expect(service.command({ action: "runNow", id })).rejects.toThrow("already running");
+		const runId = service.state().runs[0]?.id ?? "";
+		await service.command({ action: "stop", runId });
+		const stopped = await until(state => state.runs[0]?.status === "stopped");
+		expect(runs[0]?.stopped).toBe(true);
+		expect(stopped.runs[0]).toMatchObject({ id: runId, trigger: "manual", error: null });
+
+		await service.command({ action: "runNow", id });
+		await launched(2);
+		runs[1]?.finish(2);
+		const failed = await until(state => state.runs[0]?.status === "failed");
+		expect(failed.runs[0]).toMatchObject({ exitCode: 2, error: "omp exited with code 2" });
+		service.dispose();
+	});
+
+	it("a missing project folder fails the run without launching omp", async () => {
+		fakeClock();
+		const dir = await tempDir();
+		const { launch } = fakeLauncher();
+		const { service, until } = harness(dir, launch);
+		await service.start();
+		const id = (await service.command({ action: "save", draft: draft(join(dir, "gone")) })).schedules[0]?.id ?? "";
+		await service.command({ action: "runNow", id });
+		const failed = await until(state => state.runs[0]?.status === "failed");
+		expect(launch).not.toHaveBeenCalled();
+		expect(failed.runs[0]?.error).toContain("Project folder not found");
+		service.dispose();
+	});
+
+	it("a disabled schedule or a paused list has no next start", async () => {
+		fakeClock();
+		const dir = await tempDir();
+		const { launch } = fakeLauncher();
+		const { service } = harness(dir, launch);
+		await service.start();
+		const id = (await service.command({ action: "save", draft: draft(dir) })).schedules[0]?.id ?? "";
+		expect((await service.command({ action: "setEnabled", id, enabled: false })).nextRuns[id]).toBeNull();
+		expect((await service.command({ action: "setEnabled", id, enabled: true })).nextRuns[id]).not.toBeNull();
+		expect((await service.command({ action: "setPaused", paused: true })).nextRuns[id]).toBeNull();
+		await vi.advanceTimersByTimeAsync(3 * 60 * 60_000 + SCHEDULE_TICK_MS);
+		expect(launch).not.toHaveBeenCalled();
+		expect(service.state().runs).toEqual([]);
+		await expect(service.command({ action: "save", draft: draft("relative") })).rejects.toThrow("cwd");
+		service.dispose();
+	});
+
+	it("quitting stops a running omp and records it; a run left running by a crash loads as stopped", async () => {
+		fakeClock();
+		const dir = await tempDir();
+		const file = join(dir, "schedules.json");
+		const { launch, runs, launched } = fakeLauncher();
+		const { service } = harness(dir, launch);
+		await service.start();
+		const id = (await service.command({ action: "save", draft: draft(dir) })).schedules[0]?.id ?? "";
+		await service.command({ action: "runNow", id });
+		await launched(1);
+		service.dispose();
+		// The launch was still returning when the quit came: the stop follows as soon as it has the process.
+		await runs[0]?.stopSignal;
+		const saved = JSON.parse(await readFile(file, "utf8")) as { runs: { status: string; error: string }[] };
+		expect(saved.runs[0]).toMatchObject({ status: "stopped", error: "OMPdesk closed during the run" });
+
+		const crashed = { ...saved, runs: [{ ...saved.runs[0], status: "running", error: null }] };
+		await writeFile(file, JSON.stringify(crashed));
+		const { service: reloaded } = harness(dir, launch);
+		await reloaded.start();
+		expect(reloaded.state().runs[0]).toMatchObject({ status: "stopped" });
+		expect(reloaded.state().schedules.map(schedule => schedule.id)).toEqual([id]);
+		reloaded.dispose();
+	});
+});
+
+describe("ompRunLauncher", () => {
+	const FAKE = `
+const prompt = await Bun.stdin.text();
+console.log("args:" + JSON.stringify(process.argv.slice(2)));
+console.log("prompt:" + prompt);
+console.log("cwd:" + process.cwd());
+if (prompt.includes("hang")) {
+	await Bun.write(process.env.FAKE_PID_FILE, String(process.pid));
+	setInterval(() => {}, 1000);
+} else {
+	console.error("warning on stderr");
+	process.exit(3);
+}
+`;
+
+	async function launch(dir: string, prompt: string) {
+		const bin = await writeFakeOmp(dir, FAKE);
+		const omp: OmpResolution = {
+			ok: true,
+			runtime: { bin, version: "99.0.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+		};
+		const files = { log: join(dir, "run.log"), prompt: join(dir, "run.prompt") };
+		await writeFile(files.prompt, prompt);
+		const run = await ompRunLauncher({
+			omp: async () => omp,
+			env: async () => ({ ...process.env, FAKE_PID_FILE: join(dir, "pid") }),
+		})(
+			{
+				...draft(dir, { prompt, model: "anthropic/claude-x", autoApprove: true }),
+				id: "s1",
+				createdAt: new Date().toISOString(),
+			},
+			files,
+		);
+		return { run, files };
+	}
+
+	it("runs omp -p in the project folder with the prompt on stdin and both streams in the log", async () => {
+		const dir = await tempDir();
+		const { run, files } = await launch(dir, "line one\nline two");
+		expect(await run.done).toEqual({ code: 3 });
+		const log = await readFile(files.log, "utf8");
+		expect(log).toContain('args:["-p","--model","anthropic/claude-x","--yolo"]');
+		expect(log).toContain("prompt:line one\nline two");
+		expect(log).toContain("warning on stderr");
+		expect(log).toContain("cwd:");
+	});
+
+	/**
+	 * Another process's start and death have no event this process can await,
+	 * so this one integration test polls them against the real clock.
+	 */
+	async function pollUntil(check: () => Promise<boolean> | boolean): Promise<boolean> {
+		for (let attempt = 0; attempt < 200; attempt++) {
+			if (await check()) return true;
+			const { promise, resolve } = Promise.withResolvers<void>();
+			setTimeout(resolve, 25);
+			await promise;
+		}
+		return false;
+	}
+
+	it("stop kills omp's process tree through the supervisor", async () => {
+		const dir = await tempDir();
+		const { run } = await launch(dir, "hang please");
+		let pid = 0;
+		await pollUntil(async () => {
+			pid = Number(await readFile(join(dir, "pid"), "utf8").catch(() => "0"));
+			return pid > 0;
+		});
+		expect(pid).toBeGreaterThan(0);
+		run.stop();
+		expect(await run.done).toEqual({ code: SUPERVISOR_STOPPED_CODE });
+		const gone = await pollUntil(() => {
+			try {
+				process.kill(pid, 0);
+				return false;
+			} catch {
+				return true;
+			}
+		});
+		expect(gone).toBe(true);
+	});
+});

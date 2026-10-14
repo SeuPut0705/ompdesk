@@ -17,6 +17,7 @@
 import {
 	Blocks,
 	Bot,
+	CalendarClock,
 	FolderOpen,
 	HardDriveDownload,
 	Keyboard,
@@ -51,6 +52,7 @@ import { OwnedSchemaSettings } from "./OwnedSchemaSettings";
 import { PermissionsSection } from "./PermissionsSection";
 import { PluginsSection } from "./PluginsSection";
 import { RemoteSection } from "./RemoteSection";
+import { SchedulesSection } from "./SchedulesSection";
 import { SettingsScopeProvider, SettingsSection } from "./SettingsLayout";
 import { SshSection } from "./SshSection";
 import { schemaSettingText } from "./schema-i18n";
@@ -81,6 +83,7 @@ const SECTION_ICONS: Record<SettingsSectionId, LucideIcon> = {
 	agent: Sparkles,
 	tools: Blocks,
 	workspace: FolderOpen,
+	schedules: CalendarClock,
 	connections: MonitorSmartphone,
 	updates: HardDriveDownload,
 	advanced: Wrench,
@@ -303,6 +306,8 @@ export function SettingsPage() {
 						<OwnedSchemaSettings section="workspace" />
 					</>
 				);
+			case "schedules":
+				return <SchedulesSection />;
 			case "connections":
 				return (
 					<>

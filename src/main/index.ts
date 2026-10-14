@@ -24,6 +24,7 @@ import { REA_PREF } from "../shared/builtin-mcp";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
+import { SCHEDULES_STATE } from "../shared/schedules";
 import { accountRotationDeps } from "./account-rotation";
 import { installQuitGuard, requestQuit } from "./app-quit";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
@@ -45,6 +46,7 @@ import { ompPackageRoot, ompPathEnv, systemOmp } from "./omp-runtime";
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
 import { writeRuntimeLog } from "./runtime-log";
+import { ompRunLauncher, registerSchedulesIpc, ScheduleService } from "./schedules";
 import { SessionIndex } from "./session-index";
 import { SessionKindStore } from "./session-kinds";
 import { registerSetupIpc } from "./setup/ipc";
@@ -266,6 +268,7 @@ let worktreePrompts: WorktreePrompts | null = null;
 let worktreeLifecycle: WorktreeLifecycle | null = null;
 let setupService: SetupService | null = null;
 let githubAuthService: GithubAuthService | null = null;
+let scheduleService: ScheduleService | null = null;
 
 function errorMessage(value: unknown): { message: string; stack?: string } {
 	if (value instanceof Error) return { message: value.message, stack: value.stack };
@@ -608,6 +611,21 @@ app.whenReady().then(() => {
 		}
 	});
 	registerGithubAuthIpc(ipcMain, githubAuthService);
+	scheduleService = new ScheduleService({
+		file: join(app.getPath("userData"), "schedules.json"),
+		logDir: join(app.getPath("userData"), "schedule-runs"),
+		launch: ompRunLauncher({
+			omp: systemOmp,
+			env: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
+		}),
+		onState: state => {
+			for (const win of BrowserWindow.getAllWindows()) {
+				if (!win.isDestroyed()) win.webContents.send(SCHEDULES_STATE, state);
+			}
+		},
+	});
+	registerSchedulesIpc(ipcMain, scheduleService);
+	void scheduleService.start();
 	logWatcher = new LogWatcher();
 
 	// Register all handlers and sidecar listeners before loading the renderer.
@@ -695,6 +713,7 @@ installQuitGuard(
 		statsServer?.kill();
 		setupService?.dispose();
 		githubAuthService?.dispose();
+		scheduleService?.dispose();
 		sidecarPool?.disposeAll();
 		void remoteDevices?.dispose();
 		sessionIndex?.stop();

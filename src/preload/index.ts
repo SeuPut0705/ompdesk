@@ -73,6 +73,7 @@ import type {
 	SessionInfoUpdateFrame,
 	SubagentFrame,
 } from "../shared/rpc-types";
+import { SCHEDULES_COMMAND, SCHEDULES_LOG, SCHEDULES_STATE, type SchedulesState } from "../shared/schedules";
 import type { SetupItemId, SetupState } from "../shared/setup";
 
 function rpcCommand(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse> {
@@ -124,6 +125,11 @@ const api: OmpApi = {
 	preview: {
 		command: request => ipcRenderer.invoke(PREVIEW_COMMAND, request),
 		onState: callback => subscribe<PreviewState>(PREVIEW_STATE, callback),
+	},
+	schedules: {
+		command: request => ipcRenderer.invoke(SCHEDULES_COMMAND, request),
+		readLog: runId => ipcRenderer.invoke(SCHEDULES_LOG, runId),
+		onState: callback => subscribe<SchedulesState>(SCHEDULES_STATE, callback),
 	},
 	runtime: {
 		report: (error: RuntimeErrorReport) => ipcRenderer.send(IPC_COMMANDS.RUNTIME_ERROR_REPORT, error),
