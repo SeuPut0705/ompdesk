@@ -36,7 +36,10 @@ function state(overrides: Partial<TrayState> = {}): TrayState {
 describe("tray status surface", () => {
 	it("names the run state in the hover text, in the language the renderer reports", () => {
 		expect(trayTooltip(state({ status: "streaming" }))).toBe("OMPdesk — alpha · Working");
-		expect(trayTooltip(state({ status: "waiting", language: "ko" }))).toBe("OMPdesk — alpha · 승인 필요");
+		expect(trayTooltip(state({ status: "approval", language: "ko" }))).toBe("OMPdesk — alpha · 승인 필요");
+		// A question is not an approval.
+		expect(trayTooltip(state({ status: "input" }))).toBe("OMPdesk — alpha · Needs input");
+		expect(trayTooltip(state({ status: "input", language: "ko" }))).toBe("OMPdesk — alpha · 입력 필요");
 		expect(trayTooltip(state({ status: "streaming", language: "ko" }))).toBe("OMPdesk — alpha · 작업 중");
 		expect(trayTooltip(state({ status: "error" }))).toContain("Error");
 		expect(trayTooltip(state({ status: "idle" }))).toContain("Ready");
@@ -99,7 +102,8 @@ describe("menuSignature", () => {
 
 describe("statusLabel", () => {
 	it("gives every status its own text", () => {
-		expect(new Set((["idle", "streaming", "waiting", "error"] as const).map(s => statusLabel("en", s))).size).toBe(4);
+		const statuses = ["idle", "streaming", "approval", "input", "error"] as const;
+		expect(new Set(statuses.map(s => statusLabel("en", s))).size).toBe(statuses.length);
 	});
 });
 
@@ -109,8 +113,12 @@ describe("aggregateTrayStatus", () => {
 		// A streaming window pushed before an erroring one must not mask the error.
 		expect(aggregateTrayStatus(windows(["streaming", "error"]))).toBe("error");
 		expect(aggregateTrayStatus(windows(["idle", "error"]))).toBe("error");
-		expect(aggregateTrayStatus(windows(["waiting", "streaming"]))).toBe("streaming");
-		expect(aggregateTrayStatus(windows(["idle", "waiting"]))).toBe("waiting");
+		expect(aggregateTrayStatus(windows(["approval", "streaming"]))).toBe("streaming");
+		expect(aggregateTrayStatus(windows(["idle", "approval"]))).toBe("approval");
+		expect(aggregateTrayStatus(windows(["idle", "input"]))).toBe("input");
+		// Windows waiting on different things read neutral.
+		expect(aggregateTrayStatus(windows(["approval", "input"]))).toBe("input");
+		expect(aggregateTrayStatus(windows(["approval", "approval"]))).toBe("approval");
 	});
 
 	it("is idle with nothing to aggregate", () => {

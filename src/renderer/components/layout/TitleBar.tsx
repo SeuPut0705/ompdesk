@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionStats } from "../../../shared/rpc-types";
-import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
+import { useAwaitedInput } from "../../hooks/use-awaited-input";
 import { useSessionList } from "../../hooks/use-session-list";
 import { basename, cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -165,7 +165,7 @@ export function TitleBar() {
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const isCompacting = useSessionStore(s => s.isCompacting);
 	const statsPulse = useSessionStore(s => s.statsPulse);
-	const awaiting = useAwaitingConfirmation();
+	const awaiting = useAwaitedInput();
 	const isChat = useActiveTabKind() === "chat";
 	// A remote tab names its host; while the link is down the tab is reconnecting, not failed.
 	const device = useTabsStore(s => s.tabs.find(tab => tab.id === tabId)?.device);
@@ -267,7 +267,7 @@ export function TitleBar() {
 	const [tone, statusLabel]: [StatusTone, string] = reconnecting
 		? ["busy", t("remote.tab.statusReconnecting")]
 		: awaiting
-			? ["attention", t("titlebar.status.needsApproval")]
+			? ["attention", t(awaiting === "approval" ? "titlebar.status.needsApproval" : "titlebar.status.needsInput")]
 			: working
 				? ["busy", t("titlebar.status.working")]
 				: status === "ready"

@@ -153,8 +153,8 @@ test("a background tab's confirm flags its sidebar row, shows on switch, and the
 
 	await fixtureCommand(background, "fixture:confirm");
 	const row = sidebarRow(background);
-	await expect(row).toContainText("Needs approval");
-	await expect(sidebarRow(front)).not.toContainText("Needs approval");
+	await expect(row).toContainText("Needs input");
+	await expect(sidebarRow(front)).not.toContainText("Needs input");
 	// The dialog belongs to the background tab, not the one in front.
 	await expect(page.getByRole("dialog")).toHaveCount(0);
 
@@ -168,7 +168,7 @@ test("a background tab's confirm flags its sidebar row, shows on switch, and the
 	await expect
 		.poll(async () => (await recorded("extension_ui_response")).filter(entry => entry.id === "fixture-confirm"))
 		.toEqual([{ type: "extension_ui_response", id: "fixture-confirm", confirmed: true, recordedBy: owner }]);
-	await expect(row).not.toContainText("Needs approval");
+	await expect(row).not.toContainText("Needs input");
 	// The answer let the turn finish.
 	await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
 	expect(errors).toEqual([]);
@@ -292,9 +292,9 @@ test("a background session's sidebar row follows its run, dialogs, title, plan a
 	await expect(row).toContainText("Release prep");
 
 	await fixtureCommand(background, "fixture:confirm");
-	await expect(row).toContainText("Needs approval");
+	await expect(row).toContainText("Needs input");
 	await fixtureCommand(background, "fixture:confirm:cancel");
-	await expect(row).not.toContainText("Needs approval");
+	await expect(row).not.toContainText("Needs input");
 	await expect(row).toContainText("Running");
 
 	const subagents = page.locator(`[data-sidebar-subagents-toggle="${sessionPath}"]`);

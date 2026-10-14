@@ -37,14 +37,38 @@ export function openUrlTarget(request: Extract<ExtensionUIRequest, { method: "op
 }
 
 /**
- * The session blocks on the user: a response-bearing request is pending. A
- * provider sign-in answered inline is the user's own action, not the session
- * waiting on them.
+ * Tool approval reaches the GUI as a plain `select` with exactly
+ * ["Approve", "Deny"] and a title "Allow tool: <name>\n<details>".
  */
-export function awaitsUserInput(state: Pick<ExtensionUiStore, "pendingRequests" | "inlineLogin">): boolean {
-	return state.pendingRequests.some(
+export const APPROVAL_TITLE_PREFIX = "Allow tool: ";
+
+export type ApprovalSelect = Extract<ExtensionUIRequest, { method: "select" }>;
+
+export function isApprovalRequest(request: ExtensionUIRequest): request is ApprovalSelect {
+	return (
+		request.method === "select" &&
+		request.options.length === 2 &&
+		request.options[0] === "Approve" &&
+		request.options[1] === "Deny" &&
+		request.title.startsWith(APPROVAL_TITLE_PREFIX)
+	);
+}
+
+/** What a session blocked on the user waits for: a real approval, or any other answer. */
+export type AwaitedInput = "approval" | "input";
+
+/**
+ * The session blocks on the user when a response-bearing request is pending;
+ * the first such request decides whether that is an approval. A provider
+ * sign-in answered inline is the user's own action, not the session waiting
+ * on them.
+ */
+export function awaitedInput(state: Pick<ExtensionUiStore, "pendingRequests" | "inlineLogin">): AwaitedInput | null {
+	const blocking = state.pendingRequests.find(
 		request => BLOCKING_UI_METHODS[request.method] === true && !(state.inlineLogin && isInlineLoginRequest(request)),
 	);
+	if (!blocking) return null;
+	return isApprovalRequest(blocking) ? "approval" : "input";
 }
 
 /** Pure request reducer shared by the visible store and parked tab bundles. */

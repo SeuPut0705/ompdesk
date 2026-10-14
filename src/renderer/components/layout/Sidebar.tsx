@@ -54,7 +54,7 @@ import {
 } from "react";
 import type { SessionInfo } from "../../../shared/ipc-types";
 import { splitTabIds } from "../../../shared/split-layout";
-import { useAwaitingConfirmation } from "../../hooks/use-awaiting-confirmation";
+import { useAwaitedInput } from "../../hooks/use-awaited-input";
 import { useSessionList } from "../../hooks/use-session-list";
 import { dropSessionNow, requestSessionSwitch } from "../../hooks/use-session-switch";
 import { hideNativeDragImage } from "../../lib/drag-image";
@@ -401,7 +401,7 @@ export function Sidebar() {
 	const destination = useUiStore(s => s.destination);
 	// A blocking confirmation (plan approval / ask / permission) on the
 	// attached session outranks "running": it needs the user, not just time.
-	const awaitingConfirmation = useAwaitingConfirmation();
+	const awaitedInput = useAwaitedInput();
 
 	useEffect(() => {
 		void window.omp.sidecar
@@ -581,7 +581,7 @@ export function Sidebar() {
 		return tab ? tabSignalPresentation(tab, isCurrentSession(session) && (isStreaming || isCompacting)) : null;
 	};
 	const isSessionBusy = (session: SidebarSession) => {
-		if (isCurrentSession(session) && awaitingConfirmation) return true;
+		if (isCurrentSession(session) && awaitedInput) return true;
 		const signal = sessionTabSignal(session);
 		if (signal) return signal.active;
 		if (isCurrentSession(session) && (isStreaming || isCompacting)) return true;
@@ -807,7 +807,7 @@ export function Sidebar() {
 		const tab = tabForSession(session);
 		const tabSignal = sessionTabSignal(session);
 		// Background tabs park their dialogs in their own runtime; the tab entry carries the flag.
-		const waiting = (isCurrent && awaitingConfirmation) || tab?.awaitingInput === true;
+		const waiting = (isCurrent ? awaitedInput : null) ?? tab?.awaitingInput;
 		const running = !waiting && (tabSignal?.running === true || (tabSignal === null && isSessionBusy(session)));
 		const failed =
 			!waiting &&
@@ -815,10 +815,13 @@ export function Sidebar() {
 			(tabSignal ? tabSignal.labelKey === "titlebar.status.error" : session.status === "error");
 		const done = !waiting && !running && !failed && tabSignal?.labelKey === "tabs.done";
 		const openElsewhere = tab !== undefined && !isCurrent;
-		const busy = waiting || running || tabSignal?.active === true;
-		const statusLabel = waiting
-			? t("sidebar.row.needsApproval")
-			: running
+		const busy = waiting !== undefined || running || tabSignal?.active === true;
+		const waitingLabel = waiting
+			? t(waiting === "approval" ? "sidebar.row.needsApproval" : "sidebar.row.needsInput")
+			: null;
+		const statusLabel =
+			waitingLabel ??
+			(running
 				? t("sidebar.signal.running")
 				: failed
 					? t("sidebar.row.failed")
@@ -826,7 +829,7 @@ export function Sidebar() {
 						? t("tabs.done")
 						: openElsewhere
 							? t("sidebar.row.open")
-							: null;
+							: null);
 		const title = sessionDisplayTitle(session, indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
 		const pinned = pinnedSessions.includes(session.path);
 		// Renaming is safe mid-run (stock applies it live); deleting is not.
@@ -939,7 +942,7 @@ export function Sidebar() {
 					meta={
 						waiting ? (
 							<Badge className="omp-sidebar-approval" variant="warning">
-								{t("sidebar.row.needsApproval")}
+								{waitingLabel}
 							</Badge>
 						) : indexed ? (
 							<time className="text-(--sc-text-subtle)" dateTime={session.modified}>

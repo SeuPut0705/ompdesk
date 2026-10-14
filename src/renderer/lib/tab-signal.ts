@@ -11,7 +11,8 @@ export function tabSignalPresentation(tab: SessionTab, activeRuntime = false): T
 	const running = tab.status === "running" || tab.compacting === true || activeRuntime;
 	// A session blocked on the user outranks "running": it needs the user, not just time.
 	if (tab.awaitingInput) {
-		return { active: true, color: "var(--omp-warning)", labelKey: "sidebar.row.needsApproval", running };
+		const labelKey = tab.awaitingInput === "approval" ? "sidebar.row.needsApproval" : "sidebar.row.needsInput";
+		return { active: true, color: "var(--omp-warning)", labelKey, running };
 	}
 	if (running) {
 		return { active: true, color: "var(--omp-accent)", labelKey: "titlebar.status.working", running: true };

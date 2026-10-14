@@ -1,35 +1,19 @@
 /**
- * Tool-approval card. The sidecar routes tool approval through a plain
- * `select` extension-UI request with exactly ["Approve", "Deny"] options and
- * a title of the form "Allow tool: <name>\n<details>". It renders as the
- * docked prompt card above the composer (like the Claude app's permission
- * prompt): tool name, capability tier badge, a monospace args preview, then
- * numbered choices. Focus lands on the card, never on Approve; Deny (or
- * Escape) answers "Deny".
+ * Tool-approval card for the sidecar's approval `select` (see
+ * `isApprovalRequest`). It renders as the docked prompt card above the
+ * composer (like the Claude app's permission prompt): tool name, capability
+ * tier badge, a monospace args preview, then numbered choices. Focus lands on
+ * the card, never on Approve; Deny (or Escape) answers "Deny".
  */
 
 import { ShieldAlert } from "lucide-react";
 import { useMemo } from "react";
-import type { ExtensionUIRequest } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
+import { APPROVAL_TITLE_PREFIX, type ApprovalSelect } from "../../stores/extension-ui";
 import { Badge, type BadgeVariant } from "../common";
 import { ChoiceList, PromptCard } from "./PromptCard";
 
-const APPROVAL_TITLE_PREFIX = "Allow tool: ";
-
-type ApprovalSelect = Extract<ExtensionUIRequest, { method: "select" }>;
-
 export type ApprovalResponse = { value: string } | { confirmed: boolean } | { cancelled: true };
-
-export function isApprovalRequest(request: ExtensionUIRequest): request is ApprovalSelect {
-	return (
-		request.method === "select" &&
-		request.options.length === 2 &&
-		request.options[0] === "Approve" &&
-		request.options[1] === "Deny" &&
-		request.title.startsWith(APPROVAL_TITLE_PREFIX)
-	);
-}
 
 const READ_TOOLS = new Set([
 	"read",

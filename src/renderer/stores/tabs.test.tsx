@@ -917,11 +917,11 @@ describe("tabs store background tab signals", () => {
 			title: "Proceed?",
 			message: "ok?",
 		});
-		expect(tabOf("t1")?.awaitingInput).toBe(true);
-		expect(tabOf("t0")?.awaitingInput).not.toBe(true);
+		expect(tabOf("t1")?.awaitingInput).toBe("input");
+		expect(tabOf("t0")?.awaitingInput).toBeUndefined();
 		// Status pushes rebuild the entry; the flag survives them.
 		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
-		expect(tabOf("t1")?.awaitingInput).toBe(true);
+		expect(tabOf("t1")?.awaitingInput).toBe("input");
 
 		pushTabExtensionUiRequest("t1", {
 			type: "extension_ui_request",
@@ -929,7 +929,19 @@ describe("tabs store background tab signals", () => {
 			method: "cancel",
 			targetId: "confirm-bg",
 		});
-		expect(tabOf("t1")?.awaitingInput).toBe(false);
+		expect(tabOf("t1")?.awaitingInput).toBeUndefined();
+	});
+
+	it("tells a background tool approval from a question", () => {
+		seedTabs();
+		pushTabExtensionUiRequest("t1", {
+			type: "extension_ui_request",
+			id: "approval-bg",
+			method: "select",
+			title: "Allow tool: bash\nrm -rf build",
+			options: ["Approve", "Deny"],
+		});
+		expect(tabOf("t1")?.awaitingInput).toBe("approval");
 	});
 });
 

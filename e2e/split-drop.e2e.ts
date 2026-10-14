@@ -153,13 +153,13 @@ test("dragging a session previews and splits on the hovered side", async () => {
 		const confirm = unfocusedPane.getByRole("region", { name: "Deploy to staging?", exact: true });
 		await expect(confirm).toContainText("The agent wants to run the staging deploy script.");
 		await expect(unfocusedPane).toHaveAttribute("data-active", "false");
-		await expect(page.locator(`[data-session-path="tab:${unfocused}"]`)).toContainText("Needs approval");
+		await expect(page.locator(`[data-session-path="tab:${unfocused}"]`)).toContainText("Needs input");
 		await confirm.getByRole("button", { name: "Approve", exact: true }).click();
 		await expect(confirm).toHaveCount(0);
 		await expect
 			.poll(() => recorded("fixture-confirm"))
 			.toEqual([{ type: "extension_ui_response", id: "fixture-confirm", confirmed: true, recordedBy: owner }]);
-		await expect(page.locator(`[data-session-path="tab:${unfocused}"]`)).not.toContainText("Needs approval");
+		await expect(page.locator(`[data-session-path="tab:${unfocused}"]`)).not.toContainText("Needs input");
 		// Background spawns leave the visible tree intact while providing sidebar
 		// rows for the third, fourth and replacement sessions.
 		const addSession = async (title: string) => {

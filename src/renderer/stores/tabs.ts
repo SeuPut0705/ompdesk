@@ -44,7 +44,7 @@ import { translate } from "../lib/i18n";
 import { sessionDisplayTitle } from "../lib/session-title";
 import { beginTabRoute, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
 import { type ComposerImage, type ComposerStore, useComposerStore } from "./composer";
-import { awaitsUserInput, type ExtensionUiStore } from "./extension-ui";
+import { type AwaitedInput, awaitedInput, type ExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
 import {
 	type PendingPlanProposal,
@@ -94,8 +94,8 @@ export interface SessionTab {
 	 * open-session-in-new-tab flow — the sidecar starts on a fresh session and
 	 * must be switched over before its transcript hydrates). */
 	pendingSessionPath?: string;
-	/** The tab's session blocks on the user: a pending ask/confirm/… or plan proposal. */
-	awaitingInput?: boolean;
+	/** What the tab's session blocks on: a tool or plan approval, or any other answer (ask, confirm, …). */
+	awaitingInput?: AwaitedInput;
 }
 
 // Focus routing is window-global. Serialize changes so rapid tab clicks cannot
@@ -701,10 +701,11 @@ function watchTabAwaitingInput(tabId: string): void {
 	if (!runtime || !extensionUi || !plan) return;
 	const sync = () => {
 		if (sessionRuntime(tabId) !== runtime) return;
-		const awaiting = awaitsUserInput(extensionUi.getState()) || plan.getState().pending !== null;
+		const awaiting =
+			awaitedInput(extensionUi.getState()) ?? (plan.getState().pending !== null ? "approval" : undefined);
 		useTabsStore.setState(state => {
 			const tab = state.tabs.find(entry => entry.id === tabId);
-			if (!tab || (tab.awaitingInput === true) === awaiting) return state;
+			if (!tab || tab.awaitingInput === awaiting) return state;
 			return { tabs: state.tabs.map(entry => (entry.id === tabId ? { ...entry, awaitingInput: awaiting } : entry)) };
 		});
 	};

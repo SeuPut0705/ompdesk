@@ -36,7 +36,8 @@ export const TRAY_LABELS = {
 	noModel: { en: "No model", ko: "모델 없음" },
 	statusIdle: { en: "Ready", ko: "준비됨" },
 	statusStreaming: { en: "Working", ko: "작업 중" },
-	statusWaiting: { en: "Needs approval", ko: "승인 필요" },
+	statusApproval: { en: "Needs approval", ko: "승인 필요" },
+	statusInput: { en: "Needs input", ko: "입력 필요" },
 	statusError: { en: "Error", ko: "오류" },
 	// Thinking levels by the names the composer's thinking control uses.
 	thinkingOff: { en: "Off", ko: "끔" },
@@ -59,22 +60,27 @@ export function t(lang: TrayLang, key: TrayLabelKey): string {
 export function statusLabel(lang: TrayLang, status: TrayStatus): string {
 	if (status === "error") return t(lang, "statusError");
 	if (status === "streaming") return t(lang, "statusStreaming");
-	if (status === "waiting") return t(lang, "statusWaiting");
+	if (status === "approval") return t(lang, "statusApproval");
+	if (status === "input") return t(lang, "statusInput");
 	return t(lang, "statusIdle");
 }
 
-/** Collapse per-window statuses to one: any error > streaming > waiting > idle. */
+/**
+ * Collapse per-window statuses to one: any error > streaming > waiting > idle.
+ * Windows waiting on different things read as the neutral `input`.
+ */
 export function aggregateTrayStatus(states: Iterable<TrayState>): TrayStatus {
 	// Precedence is app-global, so a single early return on the first window's
 	// streaming would hide a later window's error.
 	let streaming = false;
-	let waiting = false;
+	let waiting: "approval" | "input" | null = null;
 	for (const { status } of states) {
 		if (status === "error") return "error";
 		if (status === "streaming") streaming = true;
-		if (status === "waiting") waiting = true;
+		if (status === "approval" || status === "input")
+			waiting = waiting === null || waiting === status ? status : "input";
 	}
-	return streaming ? "streaming" : waiting ? "waiting" : "idle";
+	return streaming ? "streaming" : (waiting ?? "idle");
 }
 
 export function approvalLabel(lang: TrayLang, mode: TrayApprovalMode): string {

@@ -15,7 +15,7 @@ import { useLang } from "../lib/i18n";
 import { useModelStore } from "../stores/model";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
-import { useAwaitingConfirmation } from "./use-awaiting-confirmation";
+import { useAwaitedInput } from "./use-awaited-input";
 import { useSessionList } from "./use-session-list";
 
 export function useTraySync(): void {
@@ -26,7 +26,7 @@ export function useTraySync(): void {
 	const approvalMode = useSettingsStore(s => s.approvalMode);
 	const cwd = useSessionStore(s => s.cwd);
 	const isStreaming = useSessionStore(s => s.isStreaming);
-	const awaitingConfirmation = useAwaitingConfirmation();
+	const awaitedInput = useAwaitedInput();
 	const status = useSessionStore(s => s.status);
 	const contextUsage = useSessionStore(s => s.contextUsage);
 	// Primitives so the push effect re-runs on a real change, not a new object.
@@ -49,7 +49,7 @@ export function useTraySync(): void {
 			.map(wsCwd => ({ cwd: wsCwd, name: basename(wsCwd) || wsCwd, current: wsCwd === cwd }));
 
 		const trayStatus: TrayState["status"] =
-			status === "error" ? "error" : awaitingConfirmation ? "waiting" : isStreaming ? "streaming" : "idle";
+			status === "error" ? "error" : (awaitedInput ?? (isStreaming ? "streaming" : "idle"));
 
 		window.omp.tray.pushState({
 			status: trayStatus,
@@ -72,7 +72,7 @@ export function useTraySync(): void {
 		approvalMode,
 		cwd,
 		isStreaming,
-		awaitingConfirmation,
+		awaitedInput,
 		status,
 		contextPercent,
 		contextTokens,

@@ -28,7 +28,7 @@ import { WorktreeLifecycleDialog } from "./components/dialogs/WorktreeLifecycleD
 import { AppShell } from "./components/layout/AppShell";
 import { FirstRunGate } from "./components/onboarding/FirstRunGate";
 import { RemoteFolderPickerHost } from "./components/remote/RemoteFolderPicker";
-import { useAwaitingConfirmation } from "./hooks/use-awaiting-confirmation";
+import { useAwaitedInput } from "./hooks/use-awaited-input";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { usePlanApproval } from "./hooks/use-plan-approval";
 import { useRpcEvents } from "./hooks/use-rpc-events";
@@ -94,10 +94,10 @@ function FocusedSessionEffects() {
 	const titleRunState = useDisplayPreference("titleState");
 	const titleStreaming = useSessionStore(s => s.isStreaming);
 	const titleSessionName = useSessionStore(s => s.sessionName);
-	const titleAwaiting = useAwaitingConfirmation();
+	const titleAwaiting = useAwaitedInput();
 	const progressEnabled = useDisplayPreference("showProgress");
 	const progressStreaming = useSessionStore(s => s.isStreaming);
-	const progressAwaiting = useAwaitingConfirmation();
+	const progressAwaiting = useAwaitedInput();
 	const compactDensity = useUiStore(s => s.compactDensity);
 	const colorBlindMode = useUiStore(s => s.colorBlindMode);
 

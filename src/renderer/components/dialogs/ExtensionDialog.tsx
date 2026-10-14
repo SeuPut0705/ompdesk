@@ -32,13 +32,13 @@ import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
-import { isInlineLoginRequest, openUrlTarget, useExtensionUiStore } from "../../stores/extension-ui";
+import { isApprovalRequest, isInlineLoginRequest, openUrlTarget, useExtensionUiStore } from "../../stores/extension-ui";
 import { useFocusedTabDevice } from "../../stores/remote";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { Badge, Button, Input, Kbd, TextArea } from "../common";
-import { ApprovalDialog, isApprovalRequest } from "./ApprovalDialog";
+import { ApprovalDialog } from "./ApprovalDialog";
 import { useAskDock } from "./ask-dock";
 import { ChoiceList, PromptCard } from "./PromptCard";
 
