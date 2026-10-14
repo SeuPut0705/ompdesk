@@ -74,6 +74,10 @@ import { useComposerSubmit } from "./use-composer-submit";
 type SendMode = "prompt" | "steer" | "followUp";
 
 const MENTION_FS_DEBOUNCE_MS = 150;
+/** Rows PageUp/PageDown move through the completion menu. */
+const MENU_PAGE = 5;
+/** Second Esc within this window clears the draft or runs the double-Esc action (stock uses 500 ms; a hint needs reading time). */
+const DOUBLE_ESC_MS = 1500;
 
 /**
  * Composer: auto-growing textarea, Enter to send / Shift+Enter for newline,
@@ -143,6 +147,9 @@ export function InputArea() {
 	const [expanded, setExpanded] = useState(false);
 	const [externalBusy, setExternalBusy] = useState(false);
 	const [dragActive, setDragActive] = useState(false);
+	/** First Esc of a double-Esc, and whether its "Esc again" hint shows. */
+	const escArmedAt = useRef<number | null>(null);
+	const [escHint, setEscHint] = useState(false);
 	const isEmptySession = useMessagesStore(s => s.messages.length === 0);
 	const focusedPane = contextTabId === null || contextTabId === activeTabId;
 
@@ -183,6 +190,29 @@ export function InputArea() {
 			cancelVoiceRecording();
 		};
 	}, []);
+
+	// The "Esc again to clear" hint lasts as long as the second press counts; any edit disarms it.
+	useEffect(() => {
+		if (!escHint) return;
+		const timer = setTimeout(() => setEscHint(false), DOUBLE_ESC_MS);
+		return () => clearTimeout(timer);
+	}, [escHint]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: an edit of the draft disarms a pending Esc
+	useEffect(() => {
+		escArmedAt.current = null;
+		setEscHint(false);
+	}, [text]);
+
+	/** Stock `doubleEscapeAction` (default `rewind`): the rewind picker, the session tree, or nothing. */
+	const runDoubleEscapeAction = async () => {
+		const response = await rpc.getSettings(["doubleEscapeAction"]).catch(() => undefined);
+		const values = response?.success
+			? (response.data as { values?: Record<string, unknown> } | undefined)?.values
+			: undefined;
+		const action = values?.doubleEscapeAction ?? "rewind";
+		if (action === "tree") useUiStore.getState().openSessionTree();
+		else if (action === "rewind") useUiStore.getState().openBranchPicker();
+	};
 
 	// Refresh from this tab's omp machine when its bridge is ready.
 	useEffect(() => {
@@ -588,12 +618,28 @@ export function InputArea() {
 			setText(nextPrompt);
 			return;
 		}
-		if (menu && ["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(e.key)) {
+		if (menu && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
 			setMenu(null);
 			return;
 		}
 		if (menu) {
 			const count = menu.items.length;
+			// Home/End jump to the ends, PageUp/PageDown move a page; the caret stays put.
+			const paged =
+				e.key === "Home"
+					? 0
+					: e.key === "End"
+						? count - 1
+						: e.key === "PageUp"
+							? Math.max(0, menu.index - MENU_PAGE)
+							: e.key === "PageDown"
+								? Math.min(count - 1, menu.index + MENU_PAGE)
+								: undefined;
+			if (paged !== undefined) {
+				e.preventDefault();
+				setMenu({ ...menu, index: Math.max(0, paged) });
+				return;
+			}
 			if (e.key === "ArrowDown") {
 				e.preventDefault();
 				setMenu({ ...menu, index: (menu.index + 1) % Math.max(1, count) });
@@ -634,6 +680,51 @@ export function InputArea() {
 			e.stopPropagation();
 			toggleExpanded(false);
 			return;
+		}
+		// ⌃J inserts a newline at the caret; ⌃U deletes the selection, or back to the start of the line.
+		if ((e.key === "j" || e.key === "u") && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+			const el = textareaRef.current;
+			if (!el) return;
+			e.preventDefault();
+			const start = el.selectionStart ?? text.length;
+			const end = el.selectionEnd ?? start;
+			const from = e.key === "j" || start !== end ? start : text.lastIndexOf("\n", start - 1) + 1;
+			const insert = e.key === "j" ? "\n" : "";
+			setText(`${text.slice(0, from)}${insert}${text.slice(end)}`);
+			requestAnimationFrame(() => el.setSelectionRange(from + insert.length, from + insert.length));
+			return;
+		}
+		// Esc: a selection collapses first. While no turn runs, a draft clears on a
+		// second Esc (the first shows a hint; the cleared draft stays in ↑ history),
+		// and an empty composer runs stock's `doubleEscapeAction` (rewind picker or
+		// session tree, as in the TUI). A running turn keeps the app-wide stop.
+		if (e.key === "Escape" && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+			const el = textareaRef.current;
+			if (el && el.selectionStart !== el.selectionEnd) {
+				e.preventDefault();
+				el.setSelectionRange(el.selectionEnd, el.selectionEnd);
+				return;
+			}
+			if (!isStreaming) {
+				e.preventDefault();
+				const now = Date.now();
+				const armed = escArmedAt.current !== null && now - escArmedAt.current < DOUBLE_ESC_MS;
+				escArmedAt.current = armed ? null : now;
+				if (text.trim() === "" && images.length === 0) {
+					if (armed) void runDoubleEscapeAction();
+					return;
+				}
+				if (!armed) {
+					setEscHint(true);
+					return;
+				}
+				useInputHistoryStore.getState().record(expandPasteMarkers(text), cwd, rpc, historyDevice);
+				dropReferencedPastes(text);
+				setText("");
+				setImages([]);
+				setEscHint(false);
+				return;
+			}
 		}
 		// Up/Down prompt-history recall, as in a terminal: ↑ recalls an older entry only from an empty
 		// composer or with the caret at position 0, ↓ a newer entry (and finally the stashed draft) only
@@ -678,6 +769,8 @@ export function InputArea() {
 			// Expanded: plain Enter is a newline; ⌘↵ sends and collapses.
 			if (expanded && !e.metaKey && !e.ctrlKey) return;
 			e.preventDefault();
+			// A held Enter sends once, never again on auto-repeat.
+			if (e.repeat) return;
 			if (expanded) setExpanded(false);
 			// ⌃Enter — send as follow-up, queueing behind the current yield (TUI
 			// app.message.followUp). Idle sessions start immediately either way.
@@ -1072,8 +1165,15 @@ export function InputArea() {
 							)}
 						</div>
 
-						{!menu && argHint && (
-							<div className="truncate px-4 pb-1 font-mono text-sc-xs text-(--sc-text-muted)">{argHint}</div>
+						{escHint ? (
+							<div className="truncate px-4 pb-1 text-sc-xs text-(--sc-text-muted)" data-esc-hint role="status">
+								{t("input.escAgainToClear")}
+							</div>
+						) : (
+							!menu &&
+							argHint && (
+								<div className="truncate px-4 pb-1 font-mono text-sc-xs text-(--sc-text-muted)">{argHint}</div>
+							)
 						)}
 
 						<div

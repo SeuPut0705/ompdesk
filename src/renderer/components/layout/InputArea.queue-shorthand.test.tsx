@@ -30,6 +30,7 @@ import { useSettingsStore } from "../../stores/settings";
 import { createTabRuntime, replaceTabRuntime } from "../../stores/tab-runtime";
 import { pushTabExtensionUiRequest, useTabsStore } from "../../stores/tabs";
 import { useToastStore } from "../../stores/toast";
+import { useUiStore } from "../../stores/ui";
 import { InputArea } from "./InputArea";
 
 const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -259,6 +260,7 @@ afterEach(async () => {
 	useTabsStore.getState().reset();
 	useFirstRunStore.getState().reset();
 	useToastStore.setState({ toasts: [], heldSince: null });
+	useUiStore.setState({ panelTab: "diff", branchPickerOpen: false });
 	setWindowWidth(1200);
 	vi.restoreAllMocks();
 });
@@ -1024,6 +1026,119 @@ describe("InputArea file intake", () => {
 		await mount();
 		const input = document.querySelector('input[type="file"]');
 		expect(input?.getAttribute("accept")).toBeNull();
+	});
+});
+
+describe("InputArea composer keys", () => {
+	function setCaret(start: number, end = start): void {
+		const textarea = findTextarea() as unknown as { selectionStart: number; selectionEnd: number };
+		textarea.selectionStart = start;
+		textarea.selectionEnd = end;
+	}
+
+	async function mountIdle(doubleEscapeAction?: string): Promise<void> {
+		await mount();
+		(window.omp.rpc as unknown as Record<string, unknown>).getSettings = vi.fn(async () =>
+			ok({ values: doubleEscapeAction === undefined ? {} : { doubleEscapeAction } }),
+		);
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+	}
+
+	it("inserts a newline with ⌃J and deletes back to the line start with ⌃U", async () => {
+		await mountIdle();
+		await typeInto(findTextarea(), "first\nsecond line");
+		setCaret(12);
+		await pressKey({ key: "j", ctrlKey: true });
+		expect(useComposerStore.getState().draft).toBe("first\nsecond\n line");
+		await typeInto(findTextarea(), "first\nsecond line");
+		setCaret(12);
+		await pressKey({ key: "u", ctrlKey: true });
+		expect(useComposerStore.getState().draft).toBe("first\n line");
+		setCaret(0, 5);
+		await pressKey({ key: "u", ctrlKey: true });
+		expect(useComposerStore.getState().draft).toBe("\n line");
+	});
+
+	it("sends once while Enter is held down", async () => {
+		await mountIdle();
+		await typeInto(findTextarea(), "hello");
+		const held = await pressKey({ key: "Enter", repeat: true });
+		expect(held.defaultPrevented).toBe(true);
+		await flush();
+		expect(prompt).not.toHaveBeenCalled();
+		await pressKey({ key: "Enter" });
+		await flush();
+		expect(prompt).toHaveBeenCalledTimes(1);
+	});
+
+	it("collapses a selection on Esc, then clears the draft on a second Esc into ↑ history", async () => {
+		await mountIdle();
+		await typeInto(findTextarea(), "keep this draft");
+		setCaret(0, 4);
+		await pressKey({ key: "Escape" });
+		expect(useComposerStore.getState().draft).toBe("keep this draft");
+		expect(document.querySelector("[data-esc-hint]")).toBeNull();
+
+		setCaret(15);
+		const first = await pressKey({ key: "Escape" });
+		expect(first.defaultPrevented).toBe(true);
+		expect(useComposerStore.getState().draft).toBe("keep this draft");
+		expect(document.querySelector("[data-esc-hint]")?.textContent).toBe(translate("input.escAgainToClear"));
+
+		await pressKey({ key: "Escape" });
+		expect(useComposerStore.getState().draft).toBe("");
+		expect(useInputHistoryStore.getState().entries[0]?.prompt).toBe("keep this draft");
+		expect(document.querySelector("[data-esc-hint]")).toBeNull();
+	});
+
+	it("leaves Esc to the app-wide stop while a turn runs", async () => {
+		await mount();
+		await typeInto(findTextarea(), "steer later");
+		const stop = await pressKey({ key: "Escape" });
+		expect(stop.defaultPrevented).toBe(false);
+		expect(useComposerStore.getState().draft).toBe("steer later");
+	});
+
+	it("runs stock's double-Esc action from an empty composer", async () => {
+		await mountIdle();
+		await pressKey({ key: "Escape" });
+		await pressKey({ key: "Escape" });
+		await flush();
+		expect(useUiStore.getState().branchPickerOpen).toBe(true);
+		await act(async () => useUiStore.getState().closeBranchPicker());
+		await act(async () => root.unmount());
+		container.remove();
+
+		await mountIdle("tree");
+		await pressKey({ key: "Escape" });
+		await pressKey({ key: "Escape" });
+		await flush();
+		expect(useUiStore.getState().panelTab).toBe("tree");
+	});
+
+	it("moves through the completion menu with Home, End, PageUp and PageDown", async () => {
+		await mountIdle();
+		const subscribe = window.omp.events.onTabCommandsUpdate as unknown as Mock;
+		const deliver = subscribe.mock.calls.at(-1)?.[0] as (commands: unknown[], tabId: string) => void;
+		const commands = Array.from({ length: 8 }, (_, index) => ({
+			name: `cmd${index}`,
+			description: `Command ${index}`,
+		}));
+		await act(async () => deliver(commands, "t0"));
+		setCaret(1);
+		await typeInto(findTextarea(), "/");
+		await flush();
+		const options = () => Array.from(document.querySelectorAll('[role="option"]'));
+		const selected = () => options().findIndex(option => option.getAttribute("aria-selected") === "true");
+		expect(options().length).toBeGreaterThan(6);
+		await pressKey({ key: "End" });
+		expect(selected()).toBe(options().length - 1);
+		await pressKey({ key: "Home" });
+		expect(selected()).toBe(0);
+		await pressKey({ key: "PageDown" });
+		expect(selected()).toBe(5);
+		await pressKey({ key: "PageUp" });
+		expect(selected()).toBe(0);
 	});
 });
 
