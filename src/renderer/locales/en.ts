@@ -3822,6 +3822,12 @@ export const en: Record<string, string> = {
 	"voice.mic.failed": "Dictation failed",
 	"voice.mic.busy": "Recording already in progress",
 	"voice.mic.empty": "No audio was captured",
+	"voice.dictation.starting": "Starting the microphone…",
+	"voice.dictation.listening": "Listening",
+	"voice.dictation.insert": "insert",
+	"voice.dictation.discard": "discard",
+	"voice.dictation.transcribing": "Transcribing…",
+	"voice.dictation.stopAndSend": "Stop and send",
 	"voice.speak.failed": "Couldn't play speech",
 
 	// MCP server management (C1: add wizard, test connection, re-authorize)

@@ -41,6 +41,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import {
 	cancelVoiceRecording,
 	evaluateSttSubmitTrigger,
+	METER_BARS,
 	readSttSubmitTrigger,
 	recordAndTranscribe,
 	stopVoiceRecording,
@@ -65,6 +66,7 @@ import { ComposerQueue } from "./ComposerQueue";
 import { ContextUsagePopover } from "./ContextUsagePopover";
 import { fileTextAttachment, intakeComposerFiles } from "./composer-files";
 import { DelegationControl } from "./DelegationControl";
+import { DictationOverlay, type DictationPhase } from "./DictationOverlay";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-utils";
 import { RunSettings } from "./RunSettings";
@@ -139,7 +141,12 @@ export function InputArea() {
 	const setSubmissionUncertain = useComposerStore(state => state.setSubmissionUncertain);
 	const [filePaths, setFilePaths] = useState<string[]>([]);
 	const [historySearchOpen, setHistorySearchOpen] = useState(false);
-	const [recording, setRecording] = useState(false);
+	const [dictation, setDictation] = useState<DictationPhase>("idle");
+	const [dictationLevels, setDictationLevels] = useState<readonly number[]>(() => Array(METER_BARS).fill(0));
+	const [dictationStartedAt, setDictationStartedAt] = useState<number | null>(null);
+	/** "Stop and send": submit the draft once the take is transcribed into it. */
+	const sendAfterDictationRef = useRef(false);
+	const recording = dictation !== "idle";
 	/** Pending large-paste choice: the paste already happened, this picks the form. */
 	const [pasteMenu, setPasteMenu] = useState<{ content: string; lineCount: number } | null>(null);
 	const pasteMenuRef = useRef<HTMLDivElement>(null);
@@ -510,30 +517,53 @@ export function InputArea() {
 		[dispatchSend, runtimeTabId, images.length, nextPromptKey],
 	);
 
-	// Mic dictation (stt.enabled): click starts capture, click again stops and
-	// transcribes; the transcript inserts at the textarea caret. The
-	// stt.submitTrigger setting can auto-submit the utterance (TUI parity).
+	// Mic dictation (stt.enabled): click starts capture, click again (or Enter)
+	// stops and transcribes, Esc discards; the transcript inserts at the
+	// textarea caret. The send button's "Stop and send" and the
+	// stt.submitTrigger setting submit the utterance (TUI parity).
 	const handleMicClick = useCallback(() => {
 		if (recording) {
-			stopVoiceRecording();
+			if (dictation === "starting") cancelVoiceRecording();
+			else stopVoiceRecording();
 			return;
 		}
-		setRecording(true);
-		void recordAndTranscribe().then(async result => {
+		setDictation("starting");
+		sendAfterDictationRef.current = false;
+		void recordAndTranscribe({
+			onRecording: () => {
+				if (!mountedRef.current) return;
+				setDictationStartedAt(Date.now());
+				setDictation("recording");
+			},
+			onLevels: levels => {
+				if (mountedRef.current) setDictationLevels(levels);
+			},
+			onTranscribing: () => {
+				if (mountedRef.current) setDictation("transcribing");
+			},
+		}).then(async result => {
 			if (!mountedRef.current) return;
-			setRecording(false);
+			const sendAfter = sendAfterDictationRef.current;
+			sendAfterDictationRef.current = false;
+			setDictation("idle");
+			setDictationStartedAt(null);
+			setDictationLevels(Array(METER_BARS).fill(0));
 			if ("error" in result) {
 				if (result.error) toastError({ title: t("voice.mic.failed"), error: result });
 				return;
 			}
 			const utterance = result.text.trim();
-			if (!utterance) return;
 			const trigger = await readSttSubmitTrigger();
 			const evaluation = evaluateSttSubmitTrigger(utterance, trigger);
 			const insert = (
 				evaluation.trimTrailing > 0 ? utterance.slice(0, utterance.length - evaluation.trimTrailing) : utterance
 			).trimEnd();
-			if (!insert || !mountedRef.current) return;
+			if (!mountedRef.current) return;
+			if (!insert) {
+				// Nothing heard: "Stop and send" still sends what the draft already holds.
+				if (sendAfter && textareaRef.current?.value.trim()) send();
+				return;
+			}
 			// Read the live DOM value/caret: the user may have typed mid-recording.
 			const el = textareaRef.current;
 			const current = el?.value ?? "";
@@ -553,9 +583,26 @@ export function InputArea() {
 				const caret = start + insertedText.length;
 				target.setSelectionRange(caret, caret);
 			});
-			if (evaluation.submit) send(next);
+			if (evaluation.submit || sendAfter) send(next);
 		});
-	}, [recording, send, t, setText]);
+	}, [recording, dictation, send, t, setText]);
+
+	// While the mic is open, Enter ends the take (transcribe and insert) and Esc
+	// discards it, before any other key handler (the composer's, App's abort).
+	useEffect(() => {
+		if (dictation !== "starting" && dictation !== "recording") return;
+		const onKey = (event: globalThis.KeyboardEvent) => {
+			if (isImeKeyEvent(event)) return;
+			const finish = event.key === "Enter" && !event.shiftKey && dictation === "recording";
+			if (event.key !== "Escape" && !finish) return;
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			if (finish) stopVoiceRecording();
+			else cancelVoiceRecording();
+		};
+		window.addEventListener("keydown", onKey, true);
+		return () => window.removeEventListener("keydown", onKey, true);
+	}, [dictation]);
 
 	/**
 	 * Expanded composer (TUI app.editor.external parity, GUI-native form): ⌃G
@@ -1163,6 +1210,9 @@ export function InputArea() {
 									showSuggestionHint && "pr-24",
 								)}
 							/>
+							{dictation !== "idle" && (
+								<DictationOverlay levels={dictationLevels} phase={dictation} startedAt={dictationStartedAt} />
+							)}
 							{showSuggestionHint && (
 								<span
 									className="pointer-events-none absolute top-3 right-4 flex h-6 items-center gap-1.5 text-sc-xs text-(--sc-text-subtle)"
@@ -1327,22 +1377,37 @@ export function InputArea() {
 											variant={showSend ? "secondary" : "primary"}
 										/>
 									)}
-									{showSend && (
+									{dictation === "recording" ? (
 										<IconButton
 											className="omp-composer-action"
-											disabled={sendDisabled}
+											data-dictation-send
+											disabled={!routeReady}
 											icon={<ArrowUp strokeWidth={2.25} />}
-											label={t("input.send")}
+											label={t("voice.dictation.stopAndSend")}
 											onClick={() => {
-												if (expanded) setExpanded(false);
-												send();
-												// The button disables itself once the draft clears; a disabled
-												// focused control swallows keystrokes (⌘, and friends), so keep
-												// typing focus in the composer like Enter does.
-												textareaRef.current?.focus();
+												sendAfterDictationRef.current = true;
+												stopVoiceRecording();
 											}}
 											variant="primary"
 										/>
+									) : (
+										showSend && (
+											<IconButton
+												className="omp-composer-action"
+												disabled={sendDisabled}
+												icon={<ArrowUp strokeWidth={2.25} />}
+												label={t("input.send")}
+												onClick={() => {
+													if (expanded) setExpanded(false);
+													send();
+													// The button disables itself once the draft clears; a disabled
+													// focused control swallows keystrokes (⌘, and friends), so keep
+													// typing focus in the composer like Enter does.
+													textareaRef.current?.focus();
+												}}
+												variant="primary"
+											/>
+										)
 									)}
 								</div>
 							</div>

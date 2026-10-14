@@ -3806,6 +3806,12 @@ export const ko: Record<string, string> = {
 	"voice.mic.failed": "받아쓰기에 실패했어요",
 	"voice.mic.busy": "이미 녹음 중이에요",
 	"voice.mic.empty": "녹음된 오디오가 없어요",
+	"voice.dictation.starting": "마이크를 켜는 중이에요…",
+	"voice.dictation.listening": "듣는 중",
+	"voice.dictation.insert": "넣기",
+	"voice.dictation.discard": "버리기",
+	"voice.dictation.transcribing": "받아 적는 중이에요…",
+	"voice.dictation.stopAndSend": "멈추고 보내기",
 	"voice.speak.failed": "음성을 재생하지 못했어요",
 
 	// MCP server management (C1: add wizard, test connection, re-authorize)

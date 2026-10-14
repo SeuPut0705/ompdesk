@@ -103,15 +103,65 @@ interface ActiveVoiceRecording {
 }
 
 let activeRecording: ActiveVoiceRecording | null = null;
+/** `getUserMedia` is still opening the mic; a cancel then lands once it has. */
+let startPending = false;
+let cancelBeforeStart = false;
+
+/** What the composer shows while dictating (all optional). */
+export interface DictationListener {
+	/** The mic is open and capturing (after the permission prompt and device start). */
+	onRecording?: () => void;
+	/** Mic level as {@link METER_BARS} bars in 0–1, a few times a second while capturing. */
+	onLevels?: (levels: readonly number[]) => void;
+	/** Capture ended with audio; the take is being transcribed. */
+	onTranscribing?: () => void;
+}
+
+/** Bars in the dictation level meter. */
+export const METER_BARS = 5;
+/** How often the meter publishes a level (ms): smooth enough, without a render per frame. */
+const METER_INTERVAL_MS = 60;
+
+/**
+ * Publish the stream's level as {@link METER_BARS} bands of the speech range
+ * (≈ 0–4 kHz of an AnalyserNode's spectrum). Returns the stop function.
+ */
+function startLevelMeter(stream: MediaStream, onLevels: (levels: readonly number[]) => void): () => void {
+	const context = new AudioContext();
+	const analyser = context.createAnalyser();
+	analyser.fftSize = 256;
+	analyser.smoothingTimeConstant = 0.6;
+	context.createMediaStreamSource(stream).connect(analyser);
+	const bins = new Uint8Array(analyser.frequencyBinCount);
+	const speechBins = Math.max(METER_BARS, Math.round((4000 / (context.sampleRate / 2)) * bins.length));
+	const perBar = Math.floor(speechBins / METER_BARS);
+	const timer = setInterval(() => {
+		analyser.getByteFrequencyData(bins);
+		const levels: number[] = [];
+		for (let bar = 0; bar < METER_BARS; bar++) {
+			let sum = 0;
+			for (let index = bar * perBar; index < (bar + 1) * perBar; index++) sum += bins[index] ?? 0;
+			levels.push(Math.min(1, sum / perBar / 200));
+		}
+		onLevels(levels);
+	}, METER_INTERVAL_MS);
+	return () => {
+		clearInterval(timer);
+		void context.close();
+	};
+}
 
 /** Stop the active recording; the pending {@link recordAndTranscribe} then resolves with the transcript. */
 export function stopVoiceRecording(): void {
 	if (activeRecording && activeRecording.recorder.state !== "inactive") activeRecording.recorder.stop();
 }
 
-/** Abort the active recording without transcribing (composer unmount). */
+/** Discard the take without transcribing (Esc while dictating, composer unmount); also while the mic still opens. */
 export function cancelVoiceRecording(): void {
-	if (!activeRecording) return;
+	if (!activeRecording) {
+		if (startPending) cancelBeforeStart = true;
+		return;
+	}
 	activeRecording.cancelled = true;
 	stopVoiceRecording();
 }
@@ -120,10 +170,14 @@ export function cancelVoiceRecording(): void {
  * Capture mic audio until {@link stopVoiceRecording} fires, resample to the
  * STT pipeline's 16 kHz mono PCM, and transcribe via the sidecar. Resolves
  * with `{ text }` (possibly empty) or `{ error }` (empty string when the
- * recording was cancelled while the composer unmounted).
+ * take was discarded). `listener` follows the phases for the composer's overlay.
  */
-export async function recordAndTranscribe(): Promise<{ text: string } | { error: string }> {
-	if (activeRecording) return { error: translate("voice.mic.busy") };
+export async function recordAndTranscribe(
+	listener: DictationListener = {},
+): Promise<{ text: string } | { error: string }> {
+	if (activeRecording || startPending) return { error: translate("voice.mic.busy") };
+	startPending = true;
+	cancelBeforeStart = false;
 	let stream: MediaStream;
 	try {
 		stream = await navigator.mediaDevices.getUserMedia({
@@ -131,6 +185,12 @@ export async function recordAndTranscribe(): Promise<{ text: string } | { error:
 		});
 	} catch (cause) {
 		return { error: cause instanceof Error ? cause.message : String(cause) };
+	} finally {
+		startPending = false;
+	}
+	if (cancelBeforeStart) {
+		for (const track of stream.getTracks()) track.stop();
+		return { error: "" };
 	}
 	const recorder = new MediaRecorder(stream);
 	const state: ActiveVoiceRecording = { recorder, stream, chunks: [], cancelled: false };
@@ -142,11 +202,15 @@ export async function recordAndTranscribe(): Promise<{ text: string } | { error:
 	recorder.onerror = () => stopped.resolve();
 	recorder.onstop = () => stopped.resolve();
 	recorder.start();
+	const stopMeter = listener.onLevels ? startLevelMeter(stream, listener.onLevels) : undefined;
+	listener.onRecording?.();
 	await stopped.promise;
+	stopMeter?.();
 	for (const track of stream.getTracks()) track.stop();
 	if (activeRecording === state) activeRecording = null;
 	if (state.cancelled) return { error: "" };
 	if (state.chunks.length === 0) return { error: translate("voice.mic.empty") };
+	listener.onTranscribing?.();
 	try {
 		const encoded = await new Blob(state.chunks, { type: recorder.mimeType || "audio/webm" }).arrayBuffer();
 		const context = new AudioContext();
