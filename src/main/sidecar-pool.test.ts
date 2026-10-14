@@ -150,13 +150,13 @@ function fakeWindow(id: number): FakeWindow {
 	};
 }
 
-function fakePool(max = 10): { pool: SidecarPool; sidecars: FakeSidecar[] } {
+function fakePool(): { pool: SidecarPool; sidecars: FakeSidecar[] } {
 	const sidecars: FakeSidecar[] = [];
 	const pool = new SidecarPool(cwd => {
 		const sidecar = new FakeSidecar(cwd);
 		sidecars.push(sidecar);
 		return sidecar as unknown as SidecarLike;
-	}, max);
+	});
 	return { pool, sidecars };
 }
 
@@ -767,20 +767,20 @@ describe("SidecarPool tabs", () => {
 		expect(pool.tabsForWindow(fw.win)).toEqual([]);
 	});
 
-	it("counts tabs across windows against the cap", () => {
-		const { pool } = fakePool(2);
+	it("has no limit on tabs: an 11th, 12th… tab still acquires, and a restore keeps them all", () => {
+		const { pool } = fakePool();
 		const fw1 = fakeWindow(1);
 		const fw2 = fakeWindow(2);
-		expect(pool.acquire("/a", fw1.win, "tab-a")).not.toBeNull();
-		expect(pool.acquire("/b", fw1.win, "tab-b")).not.toBeNull();
-		expect(pool.atCap).toBe(true);
-		// A second window gets no slot either — the cap is pool-wide over tabs.
-		expect(pool.acquire("/c", fw2.win, "tab-c")).toBeNull();
-		expect(pool.size).toBe(2);
+		for (let index = 0; index < 12; index++) {
+			expect(pool.acquire(`/w-${index}`, index % 2 ? fw2.win : fw1.win, `tab-${index}`)).not.toBeNull();
+		}
+		expect(pool.size).toBe(12);
 
-		pool.releaseTab("tab-b");
-		expect(pool.atCap).toBe(false);
-		expect(pool.acquire("/c", fw2.win, "tab-c")).not.toBeNull();
+		const fw3 = fakeWindow(3);
+		const tabs = Array.from({ length: 12 }, (_, index) => ({ cwd: `/r-${index}`, kind: "agent" as const }));
+		expect(pool.restoreLayout(fw3.win, { version: 1, activeIndex: 11, tabs })).toBe(12);
+		expect(pool.tabsForWindow(fw3.win)).toHaveLength(12);
+		expect(pool.size).toBe(24);
 	});
 
 	it("releases every tab of a closed window", () => {

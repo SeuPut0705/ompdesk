@@ -393,7 +393,7 @@ function useSessionTreeController(onNavigated: () => void): SessionTreeControlle
 			if (!data?.sessionPath) return;
 			const opened = await window.omp.sessions.openInNewWindow({ sessionPath: data.sessionPath });
 			if (!opened) {
-				toast({ variant: "warning", message: t("sidebar.parallelCap") });
+				toast({ variant: "error", message: t("sidebar.openFailed") });
 				return;
 			}
 			toast({ variant: "success", message: t("sessionTree.forkedOpened") });

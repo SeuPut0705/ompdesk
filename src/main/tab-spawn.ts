@@ -32,7 +32,7 @@ export interface SpawnTabRemote {
 }
 
 export type SpawnTabDeps = {
-	sidecarPool: Pick<SidecarPool, "sessionOwner" | "atCap" | "acquire">;
+	sidecarPool: Pick<SidecarPool, "sessionOwner" | "acquire">;
 	sessionIndex: Pick<SessionIndex, "kindFor">;
 	/**
 	 * The caller's cwd when its tab runs on `device` (undefined = this
@@ -69,7 +69,6 @@ export async function spawnTabForWindow(
 		}
 		kind = fileKind;
 	}
-	if (deps.sidecarPool.atCap) return null;
 	const requested = typeof payload?.cwd === "string" && payload.cwd.length > 0 ? payload.cwd : undefined;
 	const neutral = payload.defaultWorkspace === true || kind === "chat";
 	// A host's paths are canonicalized by the host; with no explicit or

@@ -44,7 +44,7 @@ export function SessionSwitchDialog() {
 		try {
 			const ok = await window.omp.sessions.openInNewWindow({ sessionPath: session.path, cwd: session.cwd });
 			if (!ok) {
-				toast({ variant: "warning", message: t("sidebar.parallelCap") });
+				toast({ variant: "error", message: t("sidebar.openFailed") });
 				return;
 			}
 			dismiss();

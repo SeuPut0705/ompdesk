@@ -89,7 +89,6 @@ export const ko: Record<string, string> = {
 	"split.resize": "세션 창 크기 조절",
 	"tabs.done": "실행 완료",
 	"tabs.newFailed": "탭을 열 수 없어요",
-	"tabs.parallelCap": "병렬 세션 한도(10개)에 도달했어요. 먼저 탭이나 창을 닫으세요.",
 	"tabs.switchFailed": "탭을 전환할 수 없어요",
 	"tabs.confirmClose": "실행 중인 세션이에요. 한 번 더 누르면 턴을 중단하고 닫아요.",
 
@@ -363,7 +362,6 @@ export const ko: Record<string, string> = {
 	"modelRestore.bootFallback": "세션 모델 {model}을(를) 사용할 수 없어 기본 모델로 재개했어요.",
 	"sidebar.openFailed": "세션을 열 수 없어요",
 	"sidebar.openInNewWindow": "새 창에서 열기",
-	"sidebar.parallelCap": "병렬 세션 한도(10개)에 도달했어요. 먼저 창을 닫으세요.",
 	"sidebar.deleteFailed": "세션을 삭제할 수 없어요",
 	"sidebar.chats": "채팅",
 	"sidebar.rename": "세션 이름 변경",

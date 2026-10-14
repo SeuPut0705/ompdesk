@@ -3,7 +3,6 @@ import type { IpcTabWorktree, SessionKind } from "../shared/ipc-types";
 import { asSplitLayout, mapSplitLeaves, readSplitNode, type SplitLayout, splitTabIds } from "../shared/split-layout";
 
 export const TAB_LAYOUT_VERSION = 1;
-export const MAX_PERSISTED_TABS = 10;
 /** A persisted title is display data only — bound it so prefs cannot grow. */
 export const MAX_PERSISTED_TITLE = 120;
 
@@ -125,7 +124,6 @@ export function sanitizePersistedTabLayout(
 	const sessionPaths = new Set<string>();
 
 	for (const [sourceIndex, candidate] of value.tabs.entries()) {
-		if (retained.length >= MAX_PERSISTED_TABS) break;
 		if (!isRecord(candidate)) continue;
 		const cwd = nonEmptyString(candidate.cwd);
 		const kind = parseKind(candidate.kind);
@@ -201,9 +199,9 @@ export function sanitizePersistedTabLayout(
  * The whole session: one layout per window, in window order.
  *
  * Accepts the current array and the pre-multi-window shape (a bare layout
- * object), so an upgrade restores what the last version saved. The pool caps
- * sidecars at `MAX_PERSISTED_TABS` in total, so a restored set is trimmed to
- * that budget — otherwise every window past the cap silently lost its tabs.
+ * object), so an upgrade restores what the last version saved. Every tab
+ * comes back: the pool restores them with `deferStart`, so a tab spawns its
+ * process only once it is viewed.
  */
 export function sanitizePersistedTabLayouts(
 	value: unknown,
@@ -211,19 +209,9 @@ export function sanitizePersistedTabLayouts(
 ): PersistedTabLayout[] {
 	const candidates = Array.isArray(value) ? value : [value];
 	const layouts: PersistedTabLayout[] = [];
-	let budget = MAX_PERSISTED_TABS;
 	for (const candidate of candidates) {
-		if (budget <= 0) break;
 		const layout = sanitizePersistedTabLayout(candidate, paths);
-		if (!layout) continue;
-		if (layout.tabs.length > budget) {
-			const activeIndex = Math.min(layout.activeIndex, budget - 1);
-			layout.tabs = layout.tabs.slice(0, budget);
-			if (layout.split) delete layout.split;
-			layout.activeIndex = activeIndex;
-		}
-		budget -= layout.tabs.length;
-		layouts.push(layout);
+		if (layout) layouts.push(layout);
 	}
 	return layouts;
 }

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-	MAX_PERSISTED_TABS,
 	MAX_PERSISTED_TITLE,
 	sanitizePersistedTabLayout,
 	sanitizePersistedTabLayouts,
@@ -227,19 +226,19 @@ describe("persisted tab layout", () => {
 		).toEqual(value);
 	});
 
-	it("rejects malformed or empty snapshots and enforces the sidecar cap", () => {
+	it("rejects malformed or empty snapshots and keeps every tab past ten", () => {
 		expect(sanitizePersistedTabLayout(null, pathChecks([], []))).toBeNull();
 		expect(sanitizePersistedTabLayout({ version: 2, tabs: [] }, pathChecks([], []))).toBeNull();
 		expect(sanitizePersistedTabLayout({ version: 1, activeIndex: 0, tabs: [] }, pathChecks([], []))).toBeNull();
 
-		const tabs = Array.from({ length: MAX_PERSISTED_TABS + 2 }, (_, index) => ({
+		const tabs = Array.from({ length: 12 }, (_, index) => ({
 			cwd: `/workspace-${index}`,
 			kind: "agent",
 		}));
 		const directories = tabs.map(tab => tab.cwd);
-		expect(
-			sanitizePersistedTabLayout({ version: 1, activeIndex: 11, tabs }, pathChecks(directories, []))?.tabs,
-		).toHaveLength(MAX_PERSISTED_TABS);
+		const restored = sanitizePersistedTabLayout({ version: 1, activeIndex: 11, tabs }, pathChecks(directories, []));
+		expect(restored?.tabs).toHaveLength(12);
+		expect(restored?.activeIndex).toBe(11);
 	});
 
 	it("keeps remote descriptors without checking this disk, and dedupes sessions per device", () => {
@@ -311,26 +310,18 @@ describe("persisted session (all windows)", () => {
 		expect(restored).toEqual([second]);
 	});
 
-	it("shares the sidecar budget across windows and stops once it is spent", () => {
+	it("restores every window's tabs with no total limit", () => {
 		const paths = pathChecks(dirs("a", "b"), []);
-
-		// Window 1 alone consumes the pool's capacity: window 2 restores nothing.
-		const full = sanitizePersistedTabLayouts([layout(MAX_PERSISTED_TABS, "a"), layout(2, "b")], paths);
-		expect(full.map(entry => entry.tabs.length)).toEqual([MAX_PERSISTED_TABS]);
-
-		// A partial overflow trims the last window's tabs, clamps its focus, and
-		// drops a split whose panes no longer both exist.
-		const overflowing = sanitizePersistedTabLayouts(
+		const restored = sanitizePersistedTabLayouts(
 			[
-				layout(MAX_PERSISTED_TABS - 2, "a"),
+				layout(12, "a"),
 				{ ...layout(4, "b", 3), split: { axis: "rows", firstIndex: 2, secondIndex: 3, ratio: 0.5 } },
 			],
 			paths,
 		);
-		expect(overflowing.map(entry => entry.tabs.length)).toEqual([MAX_PERSISTED_TABS - 2, 2]);
-		expect(overflowing[1]?.tabs.map(tab => tab.cwd)).toEqual(["/b-0", "/b-1"]);
-		expect(overflowing[1]?.activeIndex).toBe(1);
-		expect(overflowing[1]?.split).toBeUndefined();
+		expect(restored.map(entry => entry.tabs.length)).toEqual([12, 4]);
+		expect(restored[1]?.activeIndex).toBe(3);
+		expect(restored[1]?.split).toBeDefined();
 	});
 
 	it("returns nothing for a session with no restorable window", () => {

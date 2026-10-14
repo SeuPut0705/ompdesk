@@ -1,13 +1,10 @@
 /**
- * Pool of per-tab sidecar processes, bounded at a hard cap.
+ * Pool of per-tab sidecar processes, with no limit on their number.
  *
  * Each TAB owns one sidecar (a local SidecarManager, or a RemoteSidecar for a
- * tab on a paired host); a window holds N tabs. The pool enforces
- * the concurrency cap atomically (a slot is reserved synchronously before the
- * async spawn, so N concurrent acquires cannot overshoot — and the cap now
- * counts tabs across all windows), wires each sidecar's events to its owning
- * window, and releases the sidecar (listeners first, then dispose) when its
- * tab closes or its window closes.
+ * tab on a paired host); a window holds N tabs. The pool wires each sidecar's
+ * events to its owning window, and releases the sidecar (listeners first,
+ * then dispose) when its tab closes or its window closes.
  *
  * Event routing: the full event channels (events batch, status, subagent,
  * live, commands, config, prompt result, command output, session info,
@@ -212,14 +209,6 @@ export class SidecarPool {
 	 * released.
 	 */
 	#requestOwners = new Map<string, PoolEntry>();
-	/**
-	 * Synchronously-reserved spawn slots. An acquire claims one before the
-	 * (synchronous-but-fragile) SidecarManager.start(), and releases it if the
-	 * start throws. This is what makes the cap atomic: a concurrent acquire
-	 * sees the reservation and is refused even before the child exists.
-	 */
-	#reserved = 0;
-	readonly #max: number;
 	readonly #factory: SidecarFactory;
 	/** Suppress partial snapshots while a saved layout is being reconstructed. */
 	#restoringWindows = new Set<number>();
@@ -239,24 +228,19 @@ export class SidecarPool {
 	/** A tab was released (closed, or its window closed); `exited` settles once its omp is gone. */
 	onTabReleased: ((tabId: string, exited: Promise<void>) => void) | null = null;
 
-	constructor(factory: SidecarFactory, max = 10) {
+	constructor(factory: SidecarFactory) {
 		this.#factory = factory;
-		this.#max = max;
 	}
 
 	get size(): number {
-		return this.#entries.size + this.#reserved;
-	}
-
-	/** True when the pool is full — single source of truth for the cap. */
-	get atCap(): boolean {
-		return this.size >= this.#max;
+		return this.#entries.size;
 	}
 
 	/**
-	 * Spawn + bind a sidecar for `cwd` to `win` as a tab. Returns null at the
-	 * cap. `tabId` defaults to a fresh snowflake (the window's initial sidecar
-	 * is minted here too); `sessionPath` resumes that session on first start.
+	 * Spawn + bind a sidecar for `cwd` to `win` as a tab. Returns null when
+	 * creating or starting the sidecar throws. `tabId` defaults to a fresh
+	 * snowflake (the window's initial sidecar is minted here too); `sessionPath`
+	 * resumes that session on first start.
 	 * `kind` defaults to "agent"; "chat" marks a session outside any project.
 	 * The first tab of a window becomes its active tab; later tabs start in
 	 * the background (light TAB_STATUS wiring only). Removes the entry when
@@ -286,8 +270,6 @@ export class SidecarPool {
 		title?: string,
 		device?: string,
 	): SidecarLike | null {
-		if (this.atCap) return null;
-		this.#reserved++;
 		try {
 			// One spelling per directory: the sidecar reports its realpath'd cwd.
 			const sidecar = this.#factory(device ? cwd : canonicalCwd(cwd), kind, fresh, device, tabId);
@@ -340,10 +322,6 @@ export class SidecarPool {
 			return sidecar;
 		} catch {
 			return null;
-		} finally {
-			// Release the synchronous reservation exactly once: on success the
-			// slot is now the live entry; on failure the pool never held it.
-			this.#reserved--;
 		}
 	}
 

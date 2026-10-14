@@ -27,7 +27,7 @@ interface Harness {
 /** acquire's placeholder/deferStart/title arguments for an explicit spawn; the device follows them. */
 const SPAWNED = [false, false, undefined] as const;
 
-function harness(options: { atCap?: boolean } = {}): Harness {
+function harness(): Harness {
 	const acquire = vi.fn(() => ({}) as SidecarLike);
 	const kindFor = vi.fn(async (_path: string): Promise<SessionKind> => "agent");
 	const remoteKindFor = vi.fn(async (_device: string, _path: string): Promise<SessionKind> => "agent");
@@ -42,11 +42,7 @@ function harness(options: { atCap?: boolean } = {}): Harness {
 		sessionOwner,
 		fallbackCwd,
 		deps: {
-			sidecarPool: {
-				sessionOwner,
-				atCap: options.atCap ?? false,
-				acquire,
-			} as unknown as Pick<SidecarPool, "sessionOwner" | "atCap" | "acquire">,
+			sidecarPool: { sessionOwner, acquire } as unknown as Pick<SidecarPool, "sessionOwner" | "acquire">,
 			sessionIndex: { kindFor },
 			fallbackCwd,
 			initialCwd: () => "/initial",
@@ -123,14 +119,6 @@ describe("spawnTabForWindow refusal contracts", () => {
 
 		expect(result).toEqual({ tabId: null, ownerTabId: "t-owner", ownerWinId: 7, refusal: "owned" });
 		expect(kindFor).not.toHaveBeenCalled();
-		expect(acquire).not.toHaveBeenCalled();
-	});
-
-	it("returns null at the pool cap", async () => {
-		const { deps, acquire } = harness({ atCap: true });
-		const result = await spawnTabForWindow(deps, fakeWindow(), {});
-
-		expect(result).toBeNull();
 		expect(acquire).not.toHaveBeenCalled();
 	});
 

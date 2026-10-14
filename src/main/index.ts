@@ -316,7 +316,7 @@ function spawnWindowWithLayout(layout: PersistedTabLayout): BrowserWindow | null
 	return null;
 }
 
-/** Spawn a window with its own sidecar (the pool's 1:1 owner). Null at cap.
+/** Spawn a window with its own sidecar (the pool's 1:1 owner). Null when the sidecar cannot be created.
  *  With no target, start a fresh agent in the default workspace; explicit
  *  workspace/session requests retain their selected/fallback cwd and requested
  *  session kind. `device` runs the window's tab on that paired host, at its `cwd`. */
@@ -411,7 +411,7 @@ app.whenReady().then(() => {
 		const sc = devices.createSidecar(device, tabId, cwd, kind, fresh);
 		sc.on("bridge", (result: BridgeConnectResult) => void bridgeHealth.observe(result));
 		return sc;
-	}, 10);
+	});
 	// omp's `worktree.onStart` / `worktree.onExit` (omp 18.8.6+), which stock runs only in its TUI.
 	const worktreeWindows: WorktreeWindows = {
 		live: () => {

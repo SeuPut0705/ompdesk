@@ -538,7 +538,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	// Open a session (or a fresh project window) in a NEW parallel window with
 	// its own sidecar. The calling window's sidecar is left running untouched —
-	// this is the explicit parallel action. Returns false at the pool cap.
+	// this is the explicit parallel action. Returns false when the window's
+	// sidecar cannot be created.
 	// F-OWN: when the session is already attached to a tab, focus the owner
 	// window (win.show()+win.focus() — the codebase's focus pattern, see
 	// deep-link.ts/tray.ts) instead of spawning a second sidecar for the same
@@ -553,7 +554,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			const owner = deps.sidecarPool.sessionOwner(sessionPath, device);
 			if (owner && deps.windowManager.focusWindowById(owner.winId)) return true;
 		}
-		if (deps.sidecarPool.atCap) return false;
 		// The new window's sidecar must spawn with the target file's kind, or the
 		// boot-time switch_session hits the agent-side kind guard and the pool
 		// entry would lie about its kind (I1).
@@ -590,7 +590,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// from event.sender, so a renderer can only touch its own window's tabs.
 	// ========================================================================
 
-	// Spawn a background tab. Null at the pool cap; the renderer decides
+	// Spawn a background tab. Null when its sidecar cannot be created; the renderer decides
 	// whether to activate it (SET_ACTIVE_TAB) — spawn itself never switches.
 	// F-OWN: a sessionPath already attached to a tab returns
 	// { tabId: null, ownerTabId, ownerWinId, refusal: "owned" } — the renderer

@@ -90,7 +90,6 @@ export const en: Record<string, string> = {
 	"split.resize": "Resize session panes",
 	"tabs.done": "Run completed",
 	"tabs.newFailed": "Couldn't open tab",
-	"tabs.parallelCap": "You've reached the limit of 10 parallel sessions. Close a tab or window first.",
 	"tabs.switchFailed": "Couldn't switch tab",
 	"tabs.confirmClose": "This session is running. Press again to stop its turn and close it.",
 
@@ -368,7 +367,6 @@ export const en: Record<string, string> = {
 	"modelRestore.bootFallback": "Session model {model} is unavailable — resumed on your default model instead.",
 	"sidebar.openFailed": "Couldn't open session",
 	"sidebar.openInNewWindow": "Open in new window",
-	"sidebar.parallelCap": "You've reached the limit of 10 parallel sessions. Close a window first.",
 	"sidebar.deleteFailed": "Couldn't delete session",
 	"sidebar.chats": "Chats",
 	"sidebar.rename": "Rename session",

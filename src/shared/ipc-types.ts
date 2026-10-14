@@ -1237,7 +1237,7 @@ export interface OmpApi {
 		search(query: string, scope: "local" | "global", device?: string): Promise<string[]>;
 		/**
 		 * Open a session (or a fresh project window) in a new parallel window.
-		 * False at the cap. When `sessionPath` is already attached to a tab,
+		 * False when its sidecar cannot be created. When `sessionPath` is already attached to a tab,
 		 * the owner window is focused instead of spawning (F-OWN) and the
 		 * call resolves true — the session is foregrounded either way.
 		 */
@@ -1249,7 +1249,7 @@ export interface OmpApi {
 		/** The calling window's tabs in acquisition order (boot reconciliation). */
 		list(): Promise<IpcTabInfo[]>;
 		/**
-		 * Spawn a background tab bound to this window. Null at the pool cap.
+		 * Spawn a background tab bound to this window. Null when its sidecar cannot be created.
 		 * When `sessionPath` is already attached to a tab, resolves with
 		 * `{ tabId: null, ownerTabId, ownerWinId }` instead of spawning (F-OWN).
 		 */
