@@ -67,7 +67,7 @@ export function ToastCard({
 				<div className="text-sc-sm break-words break-keep text-(--sc-text-secondary)">{message}</div>
 				{detail && (
 					<div
-						className="mt-1 line-clamp-3 font-mono text-sc-xs break-all text-(--sc-text-subtle) select-text"
+						className="mt-1 line-clamp-3 font-mono text-sc-xs [overflow-wrap:anywhere] text-(--sc-text-subtle) select-text"
 						data-toast-detail
 						title={detail}
 					>
