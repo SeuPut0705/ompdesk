@@ -42,7 +42,7 @@ import { canonicalCwd } from "../canonical-cwd";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
 import type { MachineServices } from "../machine-services";
 import type { SessionIndex } from "../session-index";
-import { deleteSession, renameSession } from "../session-mutations";
+import { deleteSession, moveSession, renameSession } from "../session-mutations";
 import type { SidecarSessionIdentity } from "../sidecar";
 import type { SidecarLike, SidecarPool } from "../sidecar-pool";
 import { applyRunEvent, idleRun, type RunState, runBusy, settleRun } from "../sidecar-run-state";
@@ -79,7 +79,10 @@ const SESSIONS_CHANGED_DEBOUNCE_MS = 300;
 export interface HostServicesDeps {
 	/** This machine's sidecar factory — the one the local pool uses. */
 	createSidecar: (cwd: string, kind: "agent" | "chat", fresh: boolean) => SidecarLike;
-	sessionIndex: Pick<SessionIndex, "list" | "searchContent" | "kindFor" | "deleteSession" | "sessionsDir">;
+	sessionIndex: Pick<
+		SessionIndex,
+		"list" | "searchContent" | "kindFor" | "deleteSession" | "moveSession" | "sessionsDir"
+	>;
 	/** Stored-file rename for a session no live tab holds (`omp` on this machine). */
 	renameStoredSession: (sessionPath: string, name: string) => Promise<void>;
 	/** The GUI-owned Work workspace, created on demand. */
@@ -144,6 +147,7 @@ const SessionsListParams = z.object({ scope: Scope, cwd: AbsolutePath.optional()
 const SessionsSearchParams = z.object({ query: z.string(), scope: Scope, cwd: AbsolutePath.optional() });
 const SessionPathParams = z.object({ sessionPath: SessionPath });
 const RenameParams = z.object({ sessionPath: SessionPath, name: z.string() });
+const MoveParams = z.object({ sessionPath: SessionPath, cwd: AbsolutePath });
 /** fs reads root at the tab's cwd; `cwd` covers a tab the host has not opened yet. */
 const FsRoot = { rtab: Rtab.optional(), cwd: AbsolutePath.optional() };
 const FsListParams = z.object({
@@ -268,6 +272,13 @@ export class LocalHostServices implements HostServices {
 			case "sessions.rename": {
 				const { sessionPath, name } = parse(RenameParams, method, params);
 				return this.#renameSession(sessionPath, name);
+			}
+			case "sessions.move": {
+				const { sessionPath, cwd } = parse(MoveParams, method, params);
+				if (this.#liveOwner(sessionPath)) throw codedError("session_open_in_tab", "Session is open on the host");
+				return moveSession(this.#deps.localTabs, sessionPath, undefined, () =>
+					this.#deps.sessionIndex.moveSession(sessionPath, cwd),
+				);
 			}
 			case "fs.list": {
 				const { rtab, cwd, ...payload } = parse(FsListParams, method, params);

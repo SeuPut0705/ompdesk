@@ -291,6 +291,18 @@ export function useActiveTabKind(): SessionKind {
 	return useTabsStore(state => state.tabs.find(tab => tab.id === (tabId ?? state.activeTabId))?.kind ?? "agent");
 }
 
+/** A closed tab whose saved session can be opened again (⌥⌘T). */
+export interface ClosedTab {
+	sessionPath: string;
+	cwd: string;
+	kind: SessionKind;
+	device?: string;
+	title?: string;
+}
+
+/** Closed tabs remembered for reopening, oldest dropped first. */
+const CLOSED_TAB_LIMIT = 20;
+
 export interface TabsStore {
 	tabs: SessionTab[];
 	activeTabId: string | null;
@@ -329,6 +341,13 @@ export interface TabsStore {
 	/** Merge a TAB_STATUS push: upsert the entry, stamp unreadDone when a
 	 * background run settles (running → ready while not active). */
 	applyTabStatus: (payload: IpcTabStatusPayload) => void;
+	/** Saved sessions of closed tabs, most recent last (unsaved sessions have nothing to reopen). */
+	closedTabs: ClosedTab[];
+	/** Reopen the most recently closed tab's session where it ran. The entry stays when the
+	 * reopen fails, so the user can retry. Returns the tab id, or null. */
+	reopenClosedTab: () => Promise<string | null>;
+	/** Focus the tab at a 1-based strip position (⌘1…⌘8) or the last one (⌘9). */
+	switchTabAt: (position: number | "last") => Promise<void>;
 	reset: () => void;
 }
 
@@ -625,7 +644,22 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			const neighbor = state.tabs[index + 1] ?? state.tabs[index - 1];
 			if (neighbor) await get().switchTab(neighbor.id);
 		}
-		set(current => ({ tabs: current.tabs.filter(tab => tab.id !== id) }));
+		set(current => {
+			const closed = state.tabs[index];
+			const closedTabs = closed?.sessionPath
+				? [
+						...current.closedTabs.filter(entry => entry.sessionPath !== closed.sessionPath),
+						{
+							sessionPath: closed.sessionPath,
+							cwd: closed.cwd,
+							kind: closed.kind,
+							...(closed.device === undefined ? {} : { device: closed.device }),
+							...(closed.title ? { title: closed.title } : {}),
+						},
+					].slice(-CLOSED_TAB_LIMIT)
+				: current.closedTabs;
+			return { tabs: current.tabs.filter(tab => tab.id !== id), closedTabs };
+		});
 		closedTabIds.add(id);
 		deleteSessionRuntime(id);
 		try {
@@ -633,6 +667,31 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		} catch {
 			// Pre-tabs main (dev mismatch) tolerance; the entry is already gone.
 		}
+	},
+
+	closedTabs: [],
+
+	reopenClosedTab: async () => {
+		const entry = get().closedTabs.at(-1);
+		if (!entry) {
+			toast({ variant: "info", message: translate("tabs.reopenNone") });
+			return null;
+		}
+		const tabId = await get().openTab({
+			cwd: entry.cwd || undefined,
+			sessionPath: entry.sessionPath,
+			kind: entry.kind,
+			...(entry.device === undefined ? {} : { device: entry.device }),
+		});
+		if (tabId !== null)
+			set(current => ({ closedTabs: current.closedTabs.filter(item => item.sessionPath !== entry.sessionPath) }));
+		return tabId;
+	},
+
+	switchTabAt: async position => {
+		const { tabs } = get();
+		const target = position === "last" ? tabs.at(-1) : tabs[position - 1];
+		if (target) await get().switchTab(target.id);
 	},
 
 	applyTabStatus: payload => {
@@ -702,7 +761,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		closedTabIds.clear();
 		setFocusedSessionRuntime(null);
 		resetTabRoute();
-		set({ tabs: [], activeTabId: null, bundles: new Map(), split: null });
+		set({ tabs: [], activeTabId: null, bundles: new Map(), split: null, closedTabs: [] });
 	},
 }));
 

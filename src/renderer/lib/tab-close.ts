@@ -69,3 +69,26 @@ export function closeActiveTab(): TabCloseOutcome {
 	}
 	return performTabClose(target);
 }
+
+/**
+ * "Close other tabs": focus `keepId`, then close every other tab that can go
+ * without asking. A live run or a worktree checkout needs its own decision, so
+ * those tabs stay open; returns how many stayed.
+ */
+export async function closeOtherTabs(keepId: string): Promise<number> {
+	const store = useTabsStore.getState();
+	if (!store.tabs.some(tab => tab.id === keepId)) return 0;
+	const session = useSessionStore.getState();
+	const live: LiveTabRuntime = {
+		activeTabId: store.activeTabId,
+		streaming: session.isStreaming,
+		compacting: session.isCompacting,
+	};
+	const others = store.tabs.filter(tab => tab.id !== keepId);
+	const closable = others.filter(
+		tab => !tabNeedsCloseConfirm(tab, live) && !(tab.worktree && !tab.worktree.lifecycle),
+	);
+	if (store.activeTabId !== keepId) await store.switchTab(keepId);
+	for (const tab of closable) await useTabsStore.getState().closeTab(tab.id);
+	return others.length - closable.length;
+}

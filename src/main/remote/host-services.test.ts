@@ -197,6 +197,7 @@ function setup(graceMs = 60_000) {
 			searchContent: async () => [],
 			kindFor: async () => "chat",
 			deleteSession,
+			moveSession: async (path: string) => path,
 			sessionsDir: join(workDir, "sessions"),
 		},
 		renameStoredSession,

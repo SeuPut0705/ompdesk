@@ -6,9 +6,10 @@ import { open, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { type FSWatcher, watch } from "chokidar";
 import { codedError } from "../shared/ipc-error-codes";
-import type { SessionInfo, SessionKind } from "../shared/ipc-types";
+import type { SessionContentMatch, SessionInfo, SessionKind } from "../shared/ipc-types";
 import { agentDir } from "./agent-paths";
 import { StampedLru } from "./session-cache";
+import { contentSnippet } from "./session-snippet";
 import { StockSessionStore } from "./session-store";
 
 /** Per-file cap for full-content search reads; larger sessions match on this prefix. */
@@ -24,7 +25,10 @@ const SEARCH_BATCH = 16;
 
 export class SessionIndex {
 	#watcher: FSWatcher | null = null;
-	#textCache = new StampedLru<string>(SEARCH_CACHE_BYTES, text => text.length);
+	#textCache = new StampedLru<{ raw: string; lower: string }>(
+		SEARCH_CACHE_BYTES,
+		text => text.raw.length + text.lower.length,
+	);
 	#sessionsDir: string;
 	#cwd: string;
 	/** GUI-side chat labels for sessions whose header carries no kind (stock omp writes none). */
@@ -128,26 +132,45 @@ export class SessionIndex {
 		this.#notifyChange();
 	}
 
+	/** Move a stored session to another project folder (stock `SessionManager.moveTo`); returns its new path. */
+	async moveSession(sessionPath: string, cwd: string): Promise<string> {
+		const source = resolve(sessionPath);
+		const root = `${resolve(this.#sessionsDir)}${sep}`;
+		if (!source.startsWith(root) || !source.endsWith(".jsonl")) {
+			throw codedError("invalid_session_path", "Invalid session path");
+		}
+		const target = resolve(cwd);
+		const info = await stat(target).catch(() => null);
+		if (!info?.isDirectory()) throw codedError("not_a_directory", `Not a directory: ${target}`);
+		const moved = await this.#store.move(source, target);
+		this.#textCache.delete(source);
+		this.#textCache.delete(moved);
+		this.#notifyChange();
+		return moved;
+	}
+
 	/**
-	 * Full-content search: paths of the given session files whose raw JSONL
-	 * text contains every query token (case-insensitive). Deliberately a raw
-	 * grep — no JSON parsing — because tokens are matched individually, so
-	 * JSON escaping rarely breaks them. Lowercased file text is cached by
-	 * mtime:size so debounced keystrokes only re-read files that changed.
+	 * Full-content search: the given session files whose raw JSONL text
+	 * contains every query token (case-insensitive), each with an excerpt of
+	 * the conversation around the first token. The match is deliberately a raw
+	 * grep — no JSON parsing — because tokens are matched individually, so JSON
+	 * escaping rarely breaks them. File text is cached by mtime:size so
+	 * debounced keystrokes only re-read files that changed.
 	 */
-	async searchContent(query: string, candidatePaths: string[]): Promise<string[]> {
+	async searchContent(query: string, candidatePaths: string[]): Promise<SessionContentMatch[]> {
 		const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
 		if (tokens.length === 0 || candidatePaths.length === 0) return [];
-		const matches: string[] = [];
+		const matches: SessionContentMatch[] = [];
 		for (let i = 0; i < candidatePaths.length; i += SEARCH_BATCH) {
 			const batch = await Promise.all(
-				candidatePaths.slice(i, i + SEARCH_BATCH).map(async path => {
+				candidatePaths.slice(i, i + SEARCH_BATCH).map(async (path): Promise<SessionContentMatch | null> => {
 					const text = await this.#searchText(path);
 					if (text === null) return null;
 					for (const token of tokens) {
-						if (!text.includes(token)) return null;
+						if (!text.lower.includes(token)) return null;
 					}
-					return path;
+					const snippet = contentSnippet(text.raw, text.lower, tokens);
+					return snippet === undefined ? { path } : { path, snippet };
 				}),
 			);
 			for (const hit of batch) {
@@ -157,8 +180,8 @@ export class SessionIndex {
 		return matches;
 	}
 
-	/** Lowercased session-file text (capped at SEARCH_READ_BYTES), LRU-cached by mtime:size. */
-	async #searchText(filePath: string): Promise<string | null> {
+	/** Session-file text and its lowercase twin (capped at SEARCH_READ_BYTES), LRU-cached by mtime:size. */
+	async #searchText(filePath: string): Promise<{ raw: string; lower: string } | null> {
 		try {
 			const fileStat = await stat(filePath);
 			const signature = `${fileStat.mtimeMs}:${fileStat.size}`;
@@ -169,7 +192,8 @@ export class SessionIndex {
 				const length = Math.min(fileStat.size, SEARCH_READ_BYTES);
 				const buffer = Buffer.alloc(length);
 				await fh.read(buffer, 0, length, 0);
-				const text = buffer.toString("utf-8").toLowerCase();
+				const raw = buffer.toString("utf-8");
+				const text = { raw, lower: raw.toLowerCase() };
 				this.#textCache.set(filePath, signature, text);
 				return text;
 			} finally {

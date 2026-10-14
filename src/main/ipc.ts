@@ -49,6 +49,7 @@ import type {
 	IpcSessionOpenNewWindowPayload,
 	IpcSessionsDeletePayload,
 	IpcSessionsListPayload,
+	IpcSessionsMovePayload,
 	IpcSessionsRenamePayload,
 	IpcSessionsSearchPayload,
 	IpcSetActiveTabPayload,
@@ -58,6 +59,7 @@ import type {
 	IpcStatsFetchPayload,
 	IpcUpdateLaunchProfilePayload,
 	IpcWorktreePromptAnswer,
+	SessionContentMatch,
 	SessionInfo,
 	SessionKind,
 } from "../shared/ipc-types";
@@ -84,7 +86,7 @@ import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS } from "./remote/app-p
 import type { RemoteDevices } from "./remote/devices";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import type { SessionIndex } from "./session-index";
-import { deleteSession, renameSession } from "./session-mutations";
+import { deleteSession, moveSession, renameSession } from "./session-mutations";
 import { resolveEditorCommand } from "./shell-env";
 import { deviceLanguage } from "./sidecar-factory";
 import type { SidecarLike, SidecarPool } from "./sidecar-pool";
@@ -545,6 +547,24 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		});
 	});
 
+	ipcMain.handle(IPC_COMMANDS.SESSIONS_MOVE, async (_event, payload: IpcSessionsMovePayload): Promise<string> => {
+		if (typeof payload.sessionPath !== "string" || !payload.sessionPath.endsWith(".jsonl")) {
+			throw codedError("invalid_session_path", "Invalid session path");
+		}
+		if (typeof payload.cwd !== "string" || !path.isAbsolute(payload.cwd)) {
+			throw codedError("not_absolute_path", "Not an absolute path");
+		}
+		const device = deviceOf(payload.device);
+		return moveSession(sidecarPool, payload.sessionPath, device, () =>
+			device
+				? remoteDevices.request<string>(device, "sessions.move", {
+						sessionPath: payload.sessionPath,
+						cwd: payload.cwd,
+					})
+				: sessionIndex.moveSession(payload.sessionPath, payload.cwd),
+		);
+	});
+
 	// Open a session (or a fresh project window) in a NEW parallel window with
 	// its own sidecar. The calling window's sidecar is left running untouched —
 	// this is the explicit parallel action. Returns false when the window's
@@ -684,18 +704,29 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	// Full-content search over session files (raw JSONL grep on the machine
 	// holding them, scoped to the same candidate set the list view would show).
-	ipcMain.handle(IPC_COMMANDS.SESSIONS_SEARCH, async (event, payload: IpcSessionsSearchPayload) => {
-		const scope = payload.scope === "local" ? "local" : "global";
-		const query = typeof payload.query === "string" ? payload.query : "";
-		const device = deviceOf(payload.device);
-		const cwd = cwdOnDevice(deps, event, device) ?? undefined;
-		if (device) return remoteDevices.request<string[]>(device, "sessions.search", { query, scope, cwd });
-		const candidates = await sessionIndex.list(scope, cwd);
-		return sessionIndex.searchContent(
-			query,
-			candidates.map(info => info.path),
-		);
-	});
+	ipcMain.handle(
+		IPC_COMMANDS.SESSIONS_SEARCH,
+		async (event, payload: IpcSessionsSearchPayload): Promise<SessionContentMatch[]> => {
+			const scope = payload.scope === "local" ? "local" : "global";
+			const query = typeof payload.query === "string" ? payload.query : "";
+			const device = deviceOf(payload.device);
+			const cwd = cwdOnDevice(deps, event, device) ?? undefined;
+			if (device) {
+				// A host on an older OMPdesk answers bare paths (no excerpt).
+				const hits = await remoteDevices.request<(string | SessionContentMatch)[]>(device, "sessions.search", {
+					query,
+					scope,
+					cwd,
+				});
+				return hits.map(hit => (typeof hit === "string" ? { path: hit } : hit));
+			}
+			const candidates = await sessionIndex.list(scope, cwd);
+			return sessionIndex.searchContent(
+				query,
+				candidates.map(info => info.path),
+			);
+		},
+	);
 
 	// Stats: the stats server of the machine the caller's focused tab runs on.
 	ipcMain.handle(IPC_COMMANDS.STATS_FETCH, (event, payload: IpcStatsFetchPayload) =>

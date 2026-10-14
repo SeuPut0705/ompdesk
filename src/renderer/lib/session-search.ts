@@ -74,7 +74,7 @@ export function rankSessions(sessions: SessionInfo[], query: string, sort: Sessi
 export function mergeContentMatches(
 	ranked: SessionInfo[],
 	sessions: SessionInfo[],
-	contentPaths: ReadonlySet<string>,
+	contentPaths: Pick<ReadonlySet<string>, "has" | "size">,
 ): SessionInfo[] {
 	if (contentPaths.size === 0) return ranked;
 	const seen = new Set(ranked.map(session => session.path));

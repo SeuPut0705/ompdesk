@@ -10,7 +10,7 @@ import type { IpcSpawnTabPayload, IpcTabInfo } from "../../shared/ipc-types";
 import { useSessionStore } from "../stores/session";
 import { type SessionTab, useTabsStore } from "../stores/tabs";
 import { useUiStore } from "../stores/ui";
-import { closeActiveTab, performTabClose, tabNeedsCloseConfirm } from "./tab-close";
+import { closeActiveTab, closeOtherTabs, performTabClose, tabNeedsCloseConfirm } from "./tab-close";
 
 interface MockOmp {
 	tabs: {
@@ -168,5 +168,25 @@ describe("performTabClose", () => {
 		expect(performTabClose(tab("b"))).toBe("closed");
 		expect(useUiStore.getState().armedCloseTab).toBeNull();
 		await vi.waitFor(() => expect(omp.tabs.close).toHaveBeenCalledWith("b"));
+	});
+});
+
+describe("closeOtherTabs", () => {
+	it("closes every idle tab but the kept one and leaves running and worktree tabs open", async () => {
+		useTabsStore.setState({
+			tabs: [
+				tab("keep"),
+				tab("idle"),
+				tab("running", { status: "running" }),
+				tab("wt", { worktree: { name: "fix", branch: "omp/gui/fix", baseCwd: "/w", path: "/wt/fix" } }),
+				tab("idle2"),
+			],
+			activeTabId: "idle",
+		});
+
+		expect(await closeOtherTabs("keep")).toBe(2);
+		expect(useTabsStore.getState().tabs.map(entry => entry.id)).toEqual(["keep", "running", "wt"]);
+		expect(omp.tabs.close.mock.calls.map(([id]) => id)).toEqual(["idle", "idle2"]);
+		expect(useTabsStore.getState().activeTabId).toBe("keep");
 	});
 });

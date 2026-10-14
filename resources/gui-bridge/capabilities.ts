@@ -773,6 +773,13 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		modules: {
 			[`${AGENT}/session/session-workspace`]: ["normalizeWorkspaceDirectory()"],
 			[`${AGENT}/tools/path-utils`]: ["resolveToCwd()"],
+			// The sidebar's "Move to project" moves a stored session in the stock helper.
+			[`${AGENT}/session/session-manager`]: [
+				"SessionManager.open()",
+				"SessionManager.prototype.moveTo()",
+				"SessionManager.prototype.getSessionFile()",
+				"SessionManager.prototype.close()",
+			],
 		},
 	},
 	inputHistory: {

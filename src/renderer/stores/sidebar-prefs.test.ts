@@ -92,6 +92,31 @@ describe("sidebar-prefs store", () => {
 		expect(useSidebarPrefs.getState().pinnedGroups).toEqual([]);
 	});
 
+	it("archives and restores sessions by id, persisting the set and the flat-recent grouping", async () => {
+		await useSidebarPrefs.getState().setSessionsArchived(["s1", "s2"], true);
+		await useSidebarPrefs.getState().setSessionsArchived(["s2", "s3"], true);
+		expect(useSidebarPrefs.getState().archivedSessions).toEqual(["s1", "s2", "s3"]);
+		await useSidebarPrefs.getState().setSessionsArchived(["s2"], false);
+		expect(useSidebarPrefs.getState().archivedSessions).toEqual(["s1", "s3"]);
+		expect(set).toHaveBeenLastCalledWith("sidebar", expect.objectContaining({ archivedSessions: ["s1", "s3"] }));
+
+		await useSidebarPrefs.getState().setGrouping("recent");
+		expect(set).toHaveBeenLastCalledWith("sidebar", expect.objectContaining({ grouping: "recent" }));
+
+		useSidebarPrefs.getState().reset();
+		get.mockResolvedValueOnce({ archivedSessions: ["s9", 4], grouping: "sideways" });
+		await useSidebarPrefs.getState().hydrate();
+		expect(useSidebarPrefs.getState().archivedSessions).toEqual(["s9"]);
+		expect(useSidebarPrefs.getState().grouping).toBe("projects");
+	});
+
+	it("rolls back an archive the prefs store refused to save", async () => {
+		set.mockRejectedValueOnce(new Error("disk full"));
+		await useSidebarPrefs.getState().setSessionsArchived(["s1"], true);
+		expect(useSidebarPrefs.getState().archivedSessions).toEqual([]);
+		expect(useToastStore.getState().toasts.map(toast => toast.title)).toEqual([translate("sidebar.archiveFailed")]);
+	});
+
 	it("rolls back a group pin when the prefs write is rejected", async () => {
 		useSidebarPrefs.setState({ pinnedGroups: ["/work/kept"] });
 		set.mockRejectedValueOnce(new Error("disk full"));

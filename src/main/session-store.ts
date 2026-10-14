@@ -21,6 +21,8 @@ const sessionRows = z.array(
 	}),
 );
 
+const movedSession = z.object({ sessionPath: z.string() });
+
 /** Session wire adaptation only. Listing/deletion share the app's stock helper. */
 export class StockSessionStore {
 	readonly #sessionsRoot: string;
@@ -42,6 +44,14 @@ export class StockSessionStore {
 
 	async delete(sessionPath: string): Promise<void> {
 		await stockHelperRequest("sessions.delete", { sessionsRoot: this.#sessionsRoot, sessionPath });
+	}
+
+	/** Stock `SessionManager.moveTo` in the helper; returns the session's new path. */
+	async move(sessionPath: string, cwd: string): Promise<string> {
+		const result = movedSession.parse(
+			await stockHelperRequest("sessions.move", { sessionsRoot: this.#sessionsRoot, sessionPath, cwd }),
+		);
+		return result.sessionPath;
 	}
 
 	stop(): void {

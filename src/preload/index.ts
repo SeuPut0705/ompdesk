@@ -46,6 +46,7 @@ import type {
 	RemoteState,
 	RunProgressState,
 	RuntimeErrorReport,
+	SessionContentMatch,
 	SessionInfo,
 	SystemInfo,
 	TrayState,
@@ -247,7 +248,9 @@ const api: OmpApi = {
 		rename: (sessionPath: string, name: string, device?: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_RENAME, { sessionPath, name, device }) as Promise<void>,
 		search: (query: string, scope: "local" | "global", device?: string) =>
-			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_SEARCH, { query, scope, device }) as Promise<string[]>,
+			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_SEARCH, { query, scope, device }) as Promise<SessionContentMatch[]>,
+		move: (sessionPath: string, cwd: string, device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.SESSIONS_MOVE, { sessionPath, cwd, device }) as Promise<string>,
 		openInNewWindow: (payload: IpcSessionOpenNewWindowPayload) =>
 			ipcRenderer.invoke(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, payload) as Promise<boolean>,
 		consumePendingOpen: () => ipcRenderer.invoke(IPC_COMMANDS.SESSION_CONSUME_PENDING) as Promise<string | null>,

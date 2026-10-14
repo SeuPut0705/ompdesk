@@ -125,8 +125,10 @@ export const IPC_COMMANDS = {
 	SESSIONS_DELETE: "sessions:delete",
 	/** Rename a saved session without switching the active tab */
 	SESSIONS_RENAME: "sessions:rename",
-	/** Full-content search over session files; returns matching paths */
+	/** Full-content search over session files; returns matching paths with an excerpt */
 	SESSIONS_SEARCH: "sessions:search",
+	/** Move a stored session (no tab holds it) to another project folder */
+	SESSIONS_MOVE: "sessions:move",
 	/** Fetch stats endpoint */
 	STATS_FETCH: "stats:fetch",
 	/** Run/cancel an isolated bundled `omp bench --json` process. */
@@ -671,10 +673,23 @@ export interface IpcSessionsRenamePayload {
 	device?: string;
 }
 
+export interface IpcSessionsMovePayload {
+	sessionPath: string;
+	/** Absolute target project folder on the session's device. */
+	cwd: string;
+	device?: string;
+}
+
 export interface IpcSessionsSearchPayload {
 	query: string;
 	scope: "local" | "global";
 	device?: string;
+}
+
+/** One full-content session search hit: the session file and the conversation text around the match. */
+export interface SessionContentMatch {
+	path: string;
+	snippet?: string;
 }
 
 export interface IpcStatsFetchPayload {
@@ -1300,7 +1315,9 @@ export interface OmpApi {
 		list(scope: "local" | "global", device?: string): Promise<SessionInfo[]>;
 		delete(sessionPath: string, device?: string): Promise<void>;
 		rename(sessionPath: string, name: string, device?: string): Promise<void>;
-		search(query: string, scope: "local" | "global", device?: string): Promise<string[]>;
+		search(query: string, scope: "local" | "global", device?: string): Promise<SessionContentMatch[]>;
+		/** Move a stored session to `cwd`; resolves with its new path. */
+		move(sessionPath: string, cwd: string, device?: string): Promise<string>;
 		/**
 		 * Open a session (or a fresh project window) in a new parallel window.
 		 * False when its sidecar cannot be created. When `sessionPath` is already attached to a tab,

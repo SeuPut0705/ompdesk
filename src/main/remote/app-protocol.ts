@@ -8,7 +8,7 @@
  * - `tab.start {rtab}`, `tab.restart {rtab, cwd?, sessionPath?}`, `tab.adoptCwd {rtab, cwd}`, `tab.close {rtab}`
  * - `tab.command {rtab, command, timeoutMs?}` → RpcResponse
  * - `tab.sideChannel {rtab, frame}`, `tab.syncImageGeneration {rtab}`
- * - `sessions.list|search|kindFor|delete|rename`, `fs.list|read|readImage|readPlan|listDirs`,
+ * - `sessions.list|search|kindFor|delete|rename|move`, `fs.list|read|readImage|readPlan|listDirs`,
  *   `workspace.default`, `launchProfile.get|update`
  * - `host.fs.readBinary {rtab?, cwd?, path, maxBytes?}` → HostFsReadBinaryReply: the file
  *   viewer's bytes, base64 on the link, capped at FS_BINARY_REMOTE_MAX_BYTES by the host

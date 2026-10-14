@@ -51,7 +51,7 @@ import {
 	handlePluginActivation,
 	isPluginActivationOriginActive,
 } from "./plugin-activation";
-import { closeActiveTab } from "./tab-close";
+import { closeActiveTab, closeOtherTabs } from "./tab-close";
 import { copyTodosToClipboard, dumpTranscriptToClipboard, exportTodos, importTodosFromFile } from "./transcript-copy";
 import {
 	addWorkspaceDirectory,
@@ -485,6 +485,35 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		affordance: { kind: "action", run: () => closeActiveTab() },
 	});
 	add({
+		name: "reopen-tab",
+		label: t("hotkeys.row.tabReopen"),
+		category: "session",
+		shortcut: kbd("tab.reopen"),
+		affordance: { kind: "action", run: () => useTabsStore.getState().reopenClosedTab() },
+	});
+	add({
+		name: "quick-open",
+		label: t("quickOpen.title"),
+		description: t("quickOpen.placeholder"),
+		category: "session",
+		shortcut: kbd("quickOpen"),
+		affordance: { kind: "picker", open: () => useUiStore.getState().openQuickOpen() },
+	});
+	add({
+		name: "close-other-tabs",
+		label: t("tabs.menu.closeOthers"),
+		category: "session",
+		affordance: {
+			kind: "action",
+			run: async () => {
+				const keep = useTabsStore.getState().activeTabId;
+				if (!keep) return;
+				const kept = await closeOtherTabs(keep);
+				if (kept > 0) toast({ variant: "info", message: t("tabs.closeOthersKept", { count: kept }) });
+			},
+		},
+	});
+	add({
 		name: "clear",
 		label: t("cmd.clear"),
 		description: t("cmd.clear.desc"),
@@ -497,6 +526,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.resume"),
 		description: t("cmd.resume.desc"),
 		category: "session",
+		shortcut: kbd("sessions.search"),
 		affordance: { kind: "picker", open: ctx.openSessionPicker },
 	});
 	add({

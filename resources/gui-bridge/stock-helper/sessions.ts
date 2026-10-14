@@ -27,6 +27,16 @@ interface StockFirstPrompt {
 	textContent(content: string | readonly unknown[], separator: string): string;
 }
 
+/** The stock SessionManager surface `sessions.move` uses. */
+interface StockSessionManagerStatic {
+	open(
+		filePath: string,
+		sessionDir: undefined,
+		storage: undefined,
+		options: { throwIfMissing: boolean },
+	): Promise<{ moveTo(cwd: string): Promise<void>; getSessionFile(): string | undefined; close(): Promise<void> }>;
+}
+
 /** Runtime-selected installed paths: static imports would use the app's resolver. */
 function importFromOmp(specifier: string): Promise<Record<string, unknown>> {
 	const root = process.env.OMP_PACKAGE_ROOT;
@@ -199,5 +209,26 @@ export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 		const { storage } = await stockSessions();
 		await storage.deleteSessionWithArtifacts(sessionPath);
 		return null;
+	},
+	/**
+	 * Move a stored session (no live tab holds it) to another project folder:
+	 * stock `SessionManager.moveTo`, the same relocation `/move` runs, artifacts
+	 * included. Stock refuses while another live omp writes the session.
+	 */
+	"sessions.move": async params => {
+		const { sessionPath } = paths(params);
+		if (!sessionPath) throw new Error("Invalid session path");
+		const cwd = typeof params === "object" && params !== null && "cwd" in params ? params.cwd : undefined;
+		if (typeof cwd !== "string" || !isAbsolute(cwd)) throw new Error("Invalid target folder");
+		const { SessionManager } = (await importFromOmp("@oh-my-pi/pi-coding-agent/session/session-manager")) as {
+			SessionManager: StockSessionManagerStatic;
+		};
+		const manager = await SessionManager.open(sessionPath, undefined, undefined, { throwIfMissing: true });
+		try {
+			await manager.moveTo(resolve(cwd));
+			return { sessionPath: manager.getSessionFile() ?? sessionPath };
+		} finally {
+			await manager.close();
+		}
 	},
 };

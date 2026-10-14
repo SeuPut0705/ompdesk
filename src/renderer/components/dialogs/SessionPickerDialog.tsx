@@ -44,7 +44,9 @@ export function SessionPickerDialog() {
 	const [switching, setSwitching] = useState<string | null>(null);
 	const [error, setError] = useState<InlineFailure | null>(null);
 	const [activeIndex, setActiveIndex] = useState(0);
-	const [contentPaths, setContentPaths] = useState<ReadonlySet<string>>(new Set());
+	/** Transcript-only hits from the main-process grep: path → excerpt of the matching text. */
+	const [contentHits, setContentHits] = useState<ReadonlyMap<string, string | undefined>>(new Map());
+	const [contentPending, setContentPending] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
 	const listboxId = useId();
@@ -69,7 +71,8 @@ export function SessionPickerDialog() {
 		setError(null);
 		setSwitching(null);
 		setActiveIndex(0);
-		setContentPaths(new Set());
+		setContentHits(new Map());
+		setContentPending(false);
 		searchGenerationRef.current++;
 		listsRef.current = {};
 		requestAnimationFrame(() => inputRef.current?.focus());
@@ -114,31 +117,37 @@ export function SessionPickerDialog() {
 	useEffect(() => {
 		const q = query.trim();
 		if (q.length < CONTENT_SEARCH_MIN_QUERY) {
-			setContentPaths(new Set());
+			setContentHits(new Map());
+			setContentPending(false);
 			return;
 		}
 		const generation = ++searchGenerationRef.current;
 		const timer = setTimeout(() => {
+			setContentPending(true);
 			window.omp.sessions
 				.search(q, scope)
-				.then(paths => {
-					if (searchGenerationRef.current === generation) setContentPaths(new Set(paths));
+				.then(hits => {
+					if (searchGenerationRef.current === generation)
+						setContentHits(new Map(hits.map(hit => [hit.path, hit.snippet])));
 				})
-				.catch(() => {});
+				.catch(() => {})
+				.finally(() => {
+					if (searchGenerationRef.current === generation) setContentPending(false);
+				});
 		}, CONTENT_SEARCH_DEBOUNCE_MS);
 		return () => clearTimeout(timer);
 	}, [query, scope]);
 
 	const { filtered, contentOnly } = useMemo(() => {
 		const ranked = rankSessions(sessions, query, sortMode);
-		const merged = mergeContentMatches(ranked, sessions, contentPaths);
+		const merged = mergeContentMatches(ranked, sessions, contentHits);
 		const metaPaths = new Set(ranked.map(session => session.path));
 		const only = new Set<string>();
 		for (const session of merged) {
 			if (!metaPaths.has(session.path)) only.add(session.path);
 		}
 		return { filtered: merged, contentOnly: only };
-	}, [sessions, query, sortMode, contentPaths]);
+	}, [sessions, query, sortMode, contentHits]);
 
 	// Clamp the highlight when the visible list shrinks (search, reload).
 	useEffect(() => {
@@ -269,7 +278,7 @@ export function SessionPickerDialog() {
 						/>
 					) : loading ? (
 						<Spinner className="w-full justify-center py-10" label={t("sessionPicker.loading")} size="sm" />
-					) : filtered.length === 0 ? (
+					) : filtered.length === 0 && !contentPending ? (
 						<div className="py-10 text-center text-sc-sm text-(--sc-text-muted)">
 							{sessions.length === 0
 								? scope === "local"
@@ -279,6 +288,7 @@ export function SessionPickerDialog() {
 						</div>
 					) : (
 						filtered.map((session, index) => {
+							const snippet = contentOnly.has(session.path) ? contentHits.get(session.path) : undefined;
 							const isCurrent = session.id === sessionId;
 							const isActive = index === activeIndex;
 							const title = session.title ?? session.firstMessage ?? t("sessionPicker.untitled");
@@ -315,6 +325,11 @@ export function SessionPickerDialog() {
 											{t("sessionPicker.messageCount", { count: session.messageCount })} ·{" "}
 											{formatTimeAgo(session.modified)}
 										</span>
+										{snippet && (
+											<span className="mt-0.5 block truncate text-sc-xs text-(--sc-text-secondary)">
+												{snippet}
+											</span>
+										)}
 									</span>
 									{contentOnly.has(session.path) && (
 										<Badge className="shrink-0" variant="info">
@@ -328,6 +343,13 @@ export function SessionPickerDialog() {
 								</button>
 							);
 						})
+					)}
+					{contentPending && !error && !loading && (
+						<Spinner
+							className="w-full justify-center py-3"
+							label={t("sessionPicker.searchingContent")}
+							size="sm"
+						/>
 					)}
 				</div>
 			</div>

@@ -1,11 +1,12 @@
 /**
- * Deleting and renaming a stored session, the same for this machine's own
- * sidebar (ipc.ts) and for a paired device using it as host
+ * Deleting, renaming and moving a stored session, the same for this machine's
+ * own sidebar (ipc.ts) and for a paired device using it as host
  * (remote/host-services.ts). A tab whose process has the session loaded gives
  * it up through `drop_session` / renames it in memory; otherwise the stored
  * file is the session, and any process-less tab's claim on it is dropped first
- * so that tab cannot wake into a path that no longer exists. Callers keep
- * their own path validation, device routing and peer ownership checks.
+ * so that tab cannot wake into a path that no longer exists. A move needs the
+ * session closed: an open tab moves its own session with stock `/move`.
+ * Callers keep their own path validation, device routing and peer ownership checks.
  */
 import { codedError } from "../shared/ipc-error-codes";
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
@@ -68,4 +69,15 @@ export async function renameSession(
 	if (response === null) throw codedError("session_starting", "Session is still starting");
 	if (response === undefined) await options.renameStored(name);
 	else if (!response.success) throw new Error(response.error);
+}
+
+/** Move a stored session no tab holds; returns its new path. */
+export async function moveSession(
+	tabs: Pick<SessionTabs, "sessionOwner">,
+	sessionPath: string,
+	device: string | undefined,
+	moveStored: () => Promise<string>,
+): Promise<string> {
+	if (tabs.sessionOwner(sessionPath, device)) throw codedError("session_open_in_tab", "Session is open in a tab");
+	return moveStored();
 }

@@ -17,6 +17,7 @@ import { LiveVoiceDialog } from "./components/dialogs/LiveVoiceDialog";
 import { ModelPicker } from "./components/dialogs/ModelPicker";
 import { ModelRestoreDialog } from "./components/dialogs/ModelRestoreDialog";
 import { PlanApprovalDialog } from "./components/dialogs/PlanApprovalDialog";
+import { QuickOpenDialog } from "./components/dialogs/QuickOpenDialog";
 import { RenameSessionDialog } from "./components/dialogs/RenameSessionDialog";
 import { SessionPickerDialog } from "./components/dialogs/SessionPickerDialog";
 import { SessionSwitchDialog } from "./components/dialogs/SessionSwitchDialog";
@@ -380,6 +381,30 @@ export function App() {
 					void state.switchTab(ids[(index + step + ids.length) % ids.length]);
 					return;
 				}
+				case "tab.goto1":
+				case "tab.goto2":
+				case "tab.goto3":
+				case "tab.goto4":
+				case "tab.goto5":
+				case "tab.goto6":
+				case "tab.goto7":
+				case "tab.goto8":
+					// ⌘1…⌘8 — the tab at that strip position (no-op past the end).
+					void useTabsStore.getState().switchTabAt(Number(actionId.slice("tab.goto".length)));
+					return;
+				case "tab.gotoLast":
+					void useTabsStore.getState().switchTabAt("last");
+					return;
+				case "tab.reopen":
+					void useTabsStore.getState().reopenClosedTab();
+					return;
+				case "quickOpen":
+					ui.openQuickOpen();
+					return;
+				case "sessions.search":
+					// ⇧⌘F — the session picker searches titles, prompts and transcript text.
+					ui.openSessionPicker();
+					return;
 				case "pr.center":
 					// ⌥P — Agents › Pull requests.
 					ui.openAgents("prs");
@@ -435,7 +460,8 @@ export function App() {
 				ui.benchmarkOpen ||
 				ui.modelSetupOpen ||
 				ui.sessionPickerOpen ||
-				ui.branchPickerOpen;
+				ui.branchPickerOpen ||
+				ui.quickOpenOpen;
 			if (event.key === "Escape") {
 				// Don't abort when an overlay/dropdown already consumed this Escape to
 				// dismiss itself (its handler ran first + preventDefault).
@@ -699,6 +725,7 @@ export function App() {
 			<WorktreeCloseDialog />
 			<WorktreeLifecycleDialog />
 			<SessionPickerDialog />
+			<QuickOpenDialog />
 			<SessionSwitchDialog />
 			<ModelRestoreDialog />
 			<BranchPickerDialog />

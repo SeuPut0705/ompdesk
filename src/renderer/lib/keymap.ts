@@ -86,6 +86,8 @@ export interface ReservedChord {
 	readonly labelKey: string;
 	readonly chord: string;
 	readonly hotkeyGroup: ReservedChordGroup;
+	/** Bound on macOS only: on Windows the same ⌃ chord is a ⌘→⌃ default of an action. */
+	readonly macOnly?: true;
 }
 
 /** actionId → replacement chord list (canonical or aliased; sanitized on hydration). */
@@ -130,6 +132,8 @@ const NAMED_KEY_ALIASES: Record<string, string> = {
 	backspace: "⌫",
 	delete: "⌦",
 	del: "⌦",
+	pageup: "⇞",
+	pagedown: "⇟",
 };
 
 function normalizeBaseKey(raw: string): string | null {
@@ -210,6 +214,8 @@ const WINDOWS_KEY_NAMES: Record<string, string> = {
 	"⎋": "Esc",
 	"⌫": "Backspace",
 	"⌦": "Delete",
+	"⇞": "PageUp",
+	"⇟": "PageDown",
 };
 
 /**
@@ -298,6 +304,8 @@ const EVENT_KEY_GLYPHS: Record<string, string> = {
 	Escape: "⎋",
 	Backspace: "⌫",
 	Delete: "⌦",
+	PageUp: "⇞",
+	PageDown: "⇟",
 };
 
 /** Physical-code → base key for punctuation (layout-independent, immune to ⌥ composition). */
@@ -413,7 +421,32 @@ export const KEYMAP_ACTIONS = [
 		overlaySafe: false,
 		hotkeyGroup: "session",
 	},
-	{ id: "palette", labelKey: "hotkeys.row.palette", defaults: ["⌘K", "⌃K"], overlaySafe: true, hotkeyGroup: "view" },
+	{
+		// ⇧⌘P is the VS Code spelling; on Windows ⇧⌃P stays model.cycleBackward.
+		id: "palette",
+		labelKey: "hotkeys.row.palette",
+		defaults: ["⌘K", "⌃K", "⇧⌘P"],
+		windowsDefaults: ["⌃K"],
+		overlaySafe: true,
+		hotkeyGroup: "view",
+	},
+	{
+		// ⌘P quick open (workspace files). Windows: ⌃P is model.cycleForward.
+		id: "quickOpen",
+		labelKey: "hotkeys.row.quickOpen",
+		defaults: ["⌘P"],
+		windowsDefaults: ["⌥⌃P"],
+		overlaySafe: false,
+		hotkeyGroup: "view",
+	},
+	{
+		// ⇧⌘F — search every session's conversation (title, prompt and transcript text).
+		id: "sessions.search",
+		labelKey: "hotkeys.row.sessionSearch",
+		defaults: ["⇧⌘F"],
+		overlaySafe: false,
+		hotkeyGroup: "session",
+	},
 	{ id: "tab.new", labelKey: "hotkeys.row.tabNew", defaults: ["⌘T"], overlaySafe: false, hotkeyGroup: "session" },
 	{
 		id: "tab.newChat",
@@ -430,6 +463,15 @@ export const KEYMAP_ACTIONS = [
 		hotkeyGroup: "session",
 	},
 	{
+		// Reopen the most recently closed session tab. Windows: ⌥⌃T is thinking.toggle.
+		id: "tab.reopen",
+		labelKey: "hotkeys.row.tabReopen",
+		defaults: ["⌥⌘T"],
+		windowsDefaults: ["⌥⇧⌃T"],
+		overlaySafe: false,
+		hotkeyGroup: "session",
+	},
+	{
 		// ⌘W closes the active TAB (⇧⌘W closes the window — shared/hotkeys.ts).
 		id: "tab.close",
 		labelKey: "hotkeys.row.tabClose",
@@ -438,17 +480,33 @@ export const KEYMAP_ACTIONS = [
 		hotkeyGroup: "session",
 	},
 	{
-		// No tab strip: ⌃⇥ / ⌃⇧⇥ cycle the open session tabs.
+		// ⌃⇥ / ⌃⇧⇥ cycle the open session tabs; ⇧⌘] / ⇧⌘[ and ⌘PageDown / ⌘PageUp
+		// are the browser and editor spellings of the same step.
 		id: "tab.next",
 		labelKey: "hotkeys.row.tabNext",
-		defaults: ["⌃⇥"],
+		defaults: ["⌃⇥", "⇧⌘]", "⌘⇟"],
 		overlaySafe: false,
 		hotkeyGroup: "session",
 	},
 	{
 		id: "tab.prev",
 		labelKey: "hotkeys.row.tabPrev",
-		defaults: ["⇧⌃⇥"],
+		defaults: ["⇧⌃⇥", "⇧⌘[", "⌘⇞"],
+		overlaySafe: false,
+		hotkeyGroup: "session",
+	},
+	// ⌘1…⌘8 focus the tab in that strip position, ⌘9 the last one (browser convention).
+	...([1, 2, 3, 4, 5, 6, 7, 8] as const).map(n => ({
+		id: `tab.goto${n}` as const,
+		labelKey: `hotkeys.row.tabGoto${n}`,
+		defaults: [`⌘${n}`],
+		overlaySafe: false,
+		hotkeyGroup: "session" as const,
+	})),
+	{
+		id: "tab.gotoLast",
+		labelKey: "hotkeys.row.tabGotoLast",
+		defaults: ["⌘9"],
 		overlaySafe: false,
 		hotkeyGroup: "session",
 	},
@@ -467,9 +525,10 @@ export const KEYMAP_ACTIONS = [
 		hotkeyGroup: "view",
 	},
 	{
+		// ⌃J is the composer's newline on macOS (emacs line editing), so only ⌘J toggles there.
 		id: "panel.toggle",
 		labelKey: "hotkeys.row.panel",
-		defaults: ["⌘J", "⌃J"],
+		defaults: ["⌘J"],
 		overlaySafe: true,
 		hotkeyGroup: "view",
 	},
@@ -488,6 +547,15 @@ export const KEYMAP_ACTIONS = [
 const COMPOSER_CHORDS: readonly ReservedChord[] = [
 	{ id: "composer.history", labelKey: "hotkeys.row.history", chord: "⌃R", hotkeyGroup: "input" },
 	{ id: "composer.editor", labelKey: "hotkeys.row.composerEditor", chord: "⌃G", hotkeyGroup: "input" },
+	// Windows reads ⌘J as ⌃J (panel.toggle), so the newline chord is macOS-only.
+	{
+		id: "composer.newline",
+		labelKey: "hotkeys.row.composerNewline",
+		chord: "⌃J",
+		hotkeyGroup: "input",
+		macOnly: true,
+	},
+	{ id: "composer.deleteLine", labelKey: "hotkeys.row.composerDeleteLine", chord: "⌃U", hotkeyGroup: "input" },
 ];
 
 /** Every chord the GUI already owns that the registry cannot dispatch (macOS spelling). */
@@ -504,7 +572,10 @@ export const RESERVED_CHORDS: readonly ReservedChord[] = [
 /** RESERVED_CHORDS as they bind on `platform` (the native menu registers CmdOrCtrl). */
 export function reservedChords(platform: KeymapPlatform = PLATFORM): readonly ReservedChord[] {
 	if (platform === "mac") return RESERVED_CHORDS;
-	return RESERVED_CHORDS.map(entry => ({ ...entry, chord: platformChord(entry.chord, platform) }));
+	return RESERVED_CHORDS.filter(entry => !entry.macOnly).map(entry => ({
+		...entry,
+		chord: platformChord(entry.chord, platform),
+	}));
 }
 
 /** An action's default chords as they bind on `platform` (⌘→⌃ on Windows, deduped). */

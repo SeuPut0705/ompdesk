@@ -1,11 +1,13 @@
 /**
  * Sidebar presentation prefs: pinned workspaces/sessions, workspace display
- * aliases (rename), the dragged project order, and the workspace MRU clock
- * the workspace picker sorts by. Persisted as one JSON blob under the
- * "sidebar" prefs key via window.omp.prefs (electron-store in main); hydrate
- * once at App mount. Recency bookkeeping writes fire-and-forget; the pins and
- * aliases the user can SEE are optimistic writes that roll back when the
- * persist rejects, so a row never stays pinned across a restart.
+ * aliases (rename), the dragged project order, archived sessions (by id; stock
+ * has no archive flag, so archiving only hides a session from the lists), the
+ * projects-or-recent grouping, and the workspace MRU clock the workspace
+ * picker sorts by. Persisted as one JSON blob under the "sidebar" prefs key
+ * via window.omp.prefs (electron-store in main); hydrate once at App mount.
+ * Recency bookkeeping writes fire-and-forget; the pins, aliases and archive
+ * the user can SEE are optimistic writes that roll back when the persist
+ * rejects, so a row never stays pinned across a restart.
  */
 import { create } from "zustand";
 import { translate } from "../lib/i18n";
@@ -20,7 +22,12 @@ interface SidebarPrefsBlob {
 	groupAliases?: Record<string, string>;
 	workspaceLastUsed?: Record<string, number>;
 	groupOrder?: string[];
+	archivedSessions?: string[];
+	grouping?: SidebarGrouping;
 }
+
+/** Code sessions grouped under their project, or one list by recent activity. */
+export type SidebarGrouping = "projects" | "recent";
 
 interface SidebarPrefsStore {
 	pinnedGroups: string[];
@@ -29,12 +36,17 @@ interface SidebarPrefsStore {
 	workspaceLastUsed: Record<string, number>;
 	/** Project order the user set by dragging (cwds, top first); empty = by recency. */
 	groupOrder: string[];
+	/** Ids of sessions hidden from the lists until restored. */
+	archivedSessions: string[];
+	grouping: SidebarGrouping;
 	hydrated: boolean;
 	hydrate: () => Promise<void>;
 	toggleGroupPin: (cwd: string) => Promise<void>;
 	toggleSessionPin: (path: string) => Promise<void>;
 	setGroupAlias: (cwd: string, alias: string | null) => Promise<void>;
 	setGroupOrder: (order: string[]) => Promise<void>;
+	setSessionsArchived: (ids: readonly string[], archived: boolean) => Promise<void>;
+	setGrouping: (grouping: SidebarGrouping) => Promise<void>;
 	touchWorkspace: (cwd: string) => void;
 	reset: () => void;
 }
@@ -75,6 +87,8 @@ function prefsBlob(state: SidebarPrefsStore): SidebarPrefsBlob {
 		groupAliases: state.groupAliases,
 		workspaceLastUsed: state.workspaceLastUsed,
 		groupOrder: state.groupOrder,
+		archivedSessions: state.archivedSessions,
+		grouping: state.grouping,
 	};
 }
 
@@ -99,6 +113,8 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 	groupAliases: {},
 	workspaceLastUsed: {},
 	groupOrder: [],
+	archivedSessions: [],
+	grouping: "projects",
 	hydrated: false,
 
 	hydrate: async () => {
@@ -113,6 +129,10 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 				groupOrder: Array.isArray(blob?.groupOrder)
 					? blob.groupOrder.filter((cwd): cwd is string => typeof cwd === "string" && cwd.length > 0)
 					: [],
+				archivedSessions: Array.isArray(blob?.archivedSessions)
+					? blob.archivedSessions.filter((id): id is string => typeof id === "string" && id.length > 0)
+					: [],
+				grouping: blob?.grouping === "recent" ? "recent" : "projects",
 				hydrated: true,
 			});
 		} catch {
@@ -165,6 +185,26 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 			onFailure: failure => toastError({ title: translate("sidebar.reorderFailed"), error: failure }),
 		}),
 
+	setSessionsArchived: (ids, archived) =>
+		optimisticWrite({
+			store: { getState: get, setState: set },
+			mutate: state => ({
+				archivedSessions: archived
+					? [...new Set([...state.archivedSessions, ...ids])]
+					: state.archivedSessions.filter(id => !ids.includes(id)),
+			}),
+			persist: () => writePrefs(get),
+			onFailure: failure => toastError({ title: translate("sidebar.archiveFailed"), error: failure }),
+		}),
+
+	setGrouping: grouping =>
+		optimisticWrite({
+			store: { getState: get, setState: set },
+			mutate: () => ({ grouping }),
+			persist: () => writePrefs(get),
+			onFailure: failure => toastError({ title: translate("sidebar.groupingFailed"), error: failure }),
+		}),
+
 	touchWorkspace: cwd => {
 		if (!cwd) return;
 		const state = get();
@@ -180,6 +220,8 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 			groupAliases: {},
 			workspaceLastUsed: {},
 			groupOrder: [],
+			archivedSessions: [],
+			grouping: "projects",
 			hydrated: false,
 		}),
 }));

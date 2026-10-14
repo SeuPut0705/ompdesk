@@ -766,6 +766,72 @@ describe("tabs store close", () => {
 		expect(omp.tabs.setActive).not.toHaveBeenCalled();
 		expect(omp.tabs.close).toHaveBeenCalledWith("t1");
 	});
+
+	it("remembers saved sessions it closes and reopens the most recent one where it ran", async () => {
+		seedTabs("t0");
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab =>
+				tab.id === "t1"
+					? { ...tab, sessionPath: "/s/beta.jsonl", title: "Beta plan", device: "host-b" }
+					: tab.id === "t2"
+						? { ...tab, sessionPath: "/s/gamma.jsonl", kind: "chat" }
+						: tab,
+			),
+		}));
+		await useTabsStore.getState().closeTab("t1");
+		await useTabsStore.getState().closeTab("t2");
+		expect(useTabsStore.getState().closedTabs.map(tab => tab.sessionPath)).toEqual([
+			"/s/beta.jsonl",
+			"/s/gamma.jsonl",
+		]);
+
+		omp.tabs.spawn.mockResolvedValue({ tabId: "t9", cwd: "/gamma" });
+		expect(await useTabsStore.getState().reopenClosedTab()).toBe("t9");
+		expect(omp.tabs.spawn).toHaveBeenLastCalledWith({ sessionPath: "/s/gamma.jsonl", kind: "chat" });
+		expect(useTabsStore.getState().closedTabs.map(tab => tab.sessionPath)).toEqual(["/s/beta.jsonl"]);
+
+		omp.tabs.spawn.mockResolvedValue({ tabId: "t8", cwd: "/beta" });
+		await useTabsStore.getState().reopenClosedTab();
+		expect(omp.tabs.spawn).toHaveBeenLastCalledWith({
+			cwd: "/beta",
+			sessionPath: "/s/beta.jsonl",
+			kind: "agent",
+			device: "host-b",
+		});
+	});
+
+	it("forgets an unsaved session on close and says so when nothing is left to reopen", async () => {
+		seedTabs("t0");
+		useToastStore.setState({ toasts: [] });
+		await useTabsStore.getState().closeTab("t1");
+		expect(useTabsStore.getState().closedTabs).toEqual([]);
+		expect(await useTabsStore.getState().reopenClosedTab()).toBeNull();
+		expect(omp.tabs.spawn).not.toHaveBeenCalled();
+		expect(useToastStore.getState().toasts.map(toast => toast.message)).toEqual(["No closed tab to reopen"]);
+	});
+
+	it("keeps a reopen entry when the reopen fails so the user can retry", async () => {
+		seedTabs("t0");
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, sessionPath: "/s/beta.jsonl" } : tab)),
+		}));
+		await useTabsStore.getState().closeTab("t1");
+		omp.tabs.spawn.mockResolvedValue(null);
+		expect(await useTabsStore.getState().reopenClosedTab()).toBeNull();
+		expect(useTabsStore.getState().closedTabs.map(tab => tab.sessionPath)).toEqual(["/s/beta.jsonl"]);
+	});
+});
+
+describe("tabs store position jumps", () => {
+	it("focuses the tab at a strip position and the last tab, ignoring positions past the end", async () => {
+		seedTabs("t0");
+		await useTabsStore.getState().switchTabAt(2);
+		expect(useTabsStore.getState().activeTabId).toBe("t1");
+		await useTabsStore.getState().switchTabAt("last");
+		expect(useTabsStore.getState().activeTabId).toBe("t2");
+		await useTabsStore.getState().switchTabAt(7);
+		expect(useTabsStore.getState().activeTabId).toBe("t2");
+	});
 });
 
 describe("tabs store applyTabStatus", () => {

@@ -313,6 +313,51 @@ describe("shortcut labels", () => {
 	});
 });
 
+describe("workbench navigation chords", () => {
+	it("jumps to tab 1–8 with ⌘1…⌘8 and to the last tab with ⌘9", () => {
+		const mac = compileKeymap(KEYMAP_ACTIONS, {}, "mac");
+		for (let n = 1; n <= 8; n++) expect(mac.get(`⌘${n}`)).toBe(`tab.goto${n}`);
+		expect(mac.get("⌘9")).toBe("tab.gotoLast");
+		const windows = compileKeymap(KEYMAP_ACTIONS, {}, "windows");
+		expect(windows.get("⌃1")).toBe("tab.goto1");
+		expect(windows.get("⌃9")).toBe("tab.gotoLast");
+		expect(chordFromEvent({ key: "3", code: "Digit3", ...NO_MODS, metaKey: true })).toBe("⌘3");
+	});
+
+	it("cycles tabs with ⇧⌘[ / ⇧⌘] and ⌘PageUp / ⌘PageDown besides ⌃Tab", () => {
+		const mac = compileKeymap(KEYMAP_ACTIONS, {}, "mac");
+		expect(mac.get("⇧⌘]")).toBe("tab.next");
+		expect(mac.get("⇧⌘[")).toBe("tab.prev");
+		expect(mac.get("⌘⇟")).toBe("tab.next");
+		expect(mac.get("⌘⇞")).toBe("tab.prev");
+		expect(mac.get("⌃⇥")).toBe("tab.next");
+		expect(chordFromEvent({ key: "PageDown", code: "PageDown", ...NO_MODS, metaKey: true })).toBe("⌘⇟");
+		expect(chordFromEvent({ key: "}", code: "BracketRight", ...NO_MODS, metaKey: true, shiftKey: true })).toBe("⇧⌘]");
+		expect(canonical("ctrl+pageup")).toBe("⌃⇞");
+		expect(formatChord("⌃⇟", "windows")).toBe("Ctrl+PageDown");
+		const windows = compileKeymap(KEYMAP_ACTIONS, {}, "windows");
+		expect(windows.get("⇧⌃]")).toBe("tab.next");
+		expect(windows.get("⌃⇞")).toBe("tab.prev");
+	});
+
+	it("opens quick open, session search, reopen and the palette on the workbench chords", () => {
+		const mac = compileKeymap(KEYMAP_ACTIONS, {}, "mac");
+		expect(mac.get("⌘P")).toBe("quickOpen");
+		expect(mac.get("⇧⌘F")).toBe("sessions.search");
+		expect(mac.get("⌥⌘T")).toBe("tab.reopen");
+		expect(mac.get("⇧⌘P")).toBe("palette");
+		expect(mac.get("⌃P")).toBe("model.cycleForward");
+		// Windows: ⌃P / ⇧⌃P stay model cycling (TUI parity), ⌥⌃T stays thinking.toggle.
+		const windows = compileKeymap(KEYMAP_ACTIONS, {}, "windows");
+		expect(windows.get("⌃P")).toBe("model.cycleForward");
+		expect(windows.get("⇧⌃P")).toBe("model.cycleBackward");
+		expect(windows.get("⌥⌃P")).toBe("quickOpen");
+		expect(windows.get("⇧⌃F")).toBe("sessions.search");
+		expect(windows.get("⌥⇧⌃T")).toBe("tab.reopen");
+		expect(windows.get("⌥⌃T")).toBe("thinking.toggle");
+	});
+});
+
 describe("sanitizeOverrides", () => {
 	it("drops unknown actions, non-arrays, unparsable and duplicate chords", () => {
 		const raw = {
