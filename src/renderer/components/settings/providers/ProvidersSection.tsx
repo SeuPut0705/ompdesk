@@ -276,13 +276,14 @@ export function ProvidersSection({
 		// After the reload a save starts: the rows above have settled, and a new endpoint is listed.
 		if (returnTo && !customConfigs.some(config => config.id === returnTo)) return;
 		const section = document.getElementById("settings-models-custom");
-		const target = returnTo
-			? Array.from(section?.querySelectorAll<HTMLElement>("[data-custom-provider]") ?? [])
-					.find(row => row.dataset.customProvider === returnTo)
-					?.querySelector<HTMLElement>("button")
+		const row = returnTo
+			? Array.from(section?.querySelectorAll<HTMLElement>("[data-custom-provider]") ?? []).find(
+					item => item.dataset.customProvider === returnTo,
+				)
 			: section?.querySelector<HTMLElement>("[data-custom-add]");
-		target?.scrollIntoView({ block: "nearest" });
-		target?.focus();
+		// Centered, so the whole row stays clear of the window edge and the toasts it raised.
+		row?.scrollIntoView({ block: "center" });
+		(returnTo ? row?.querySelector<HTMLElement>("button") : row)?.focus({ preventScroll: true });
 		setReturnTo(null);
 	}, [providerForm, returnTo, customConfigs, reloading]);
 

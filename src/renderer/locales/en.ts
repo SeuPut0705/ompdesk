@@ -3910,8 +3910,6 @@ export const en: Record<string, string> = {
 	"settings.section.workspace.desc": "Project folders, launch profiles and workspace defaults on the selected host.",
 	"settings.section.ssh": "SSH hosts",
 	"settings.section.ssh.desc": "Remote machines the agent can run commands on.",
-	"settings.section.remote": "Remote devices",
-	"settings.section.remote.desc": "Run sessions on another computer that has OMPdesk.",
 	"remote.loadFailed": "Couldn't load remote devices",
 	"remote.state.online": "Online",
 	"remote.state.connecting": "Connecting…",

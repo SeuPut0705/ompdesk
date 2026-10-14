@@ -36,6 +36,8 @@ interface LaunchOptions {
 	env?: Record<string, string>;
 	/** Extra prefs merged into the first launch's prefs.json (a relaunch keeps the file). */
 	prefs?: Record<string, unknown>;
+	/** Leave out the stock natives, so the terminal's PTY cannot start. */
+	withoutNatives?: boolean;
 }
 
 /** The fake omp with the stock natives beside it, so the terminal's PTY runs (as in panel-views). */
@@ -72,7 +74,7 @@ async function launch(root: string, options: LaunchOptions = {}): Promise<Instan
 		PI_CONFIG_DIR: path.relative(os.homedir(), root),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmpWithNatives(root),
+		OMP_GUI_OMP: options.withoutNatives ? await fixtureOmp(root) : await fixtureOmpWithNatives(root),
 		OMP_GUI_REMOTE_PORT: "0",
 		...options.env,
 	};
@@ -416,7 +418,7 @@ test("provider and account flows", async () => {
 		expect(await fs.readFile(modelsYml, "utf8")).toContain("sk-custom");
 		// Back from the form at the endpoint it saved, with focus on it.
 		const savedRow = custom.locator('[data-custom-provider="audit-proxy"]');
-		await expect(savedRow).toBeInViewport();
+		await expect(savedRow).toBeInViewport({ ratio: 1 });
 		await expect(savedRow.locator("button").first()).toBeFocused();
 		await rec.shoot("custom-added");
 		await custom.getByRole("button", { name: "Edit provider" }).click();
@@ -432,7 +434,8 @@ test("provider and account flows", async () => {
 		await expect.poll(async () => fs.readFile(modelsYml, "utf8")).toContain("Audit model");
 		expect(await fs.readFile(modelsYml, "utf8")).not.toContain("sk-custom");
 		await page.waitForTimeout(800);
-		await expect(savedRow).toBeInViewport();
+		await expect(savedRow).toBeInViewport({ ratio: 1 });
+		await expect(savedRow.locator("button").first()).toBeFocused();
 		await rec.shoot("custom-saved");
 		await custom.getByRole("button", { name: "Delete" }).click();
 		const del = page.getByRole("alertdialog").or(page.getByRole("dialog", { name: "Delete provider" }));
@@ -526,6 +529,41 @@ test("keyboard remap round trip", async () => {
 		await cleanup(root);
 	}
 });
+
+// ── A terminal that cannot start: a titled banner with the cleaned-up cause and a retry ──
+for (const [language, theme] of [
+	["en", "light"],
+	["ko", "dark"],
+] as const) {
+	test(`terminal failure banner ${language}-${theme}`, async () => {
+		test.setTimeout(120_000);
+		const root = await tempRoot(`terminal-${language}`);
+		const instance = await launch(root, { language, theme, withoutNatives: true });
+		const rec = recorder(instance.page, `terminal-failed-${language}-${theme}`);
+		try {
+			const aside = instance.page.locator("aside[data-docked]");
+			await pressShortcutUntilVisible(instance.page, "ControlOrMeta+j", aside);
+			// The view buttons lead the header; Terminal is the first.
+			await aside.locator(".omp-panel-topbar").getByRole("button").first().click();
+			const banner = aside.locator('[role="alert"], [role="status"]').filter({
+				hasText: language === "en" ? "The terminal didn't respond" : /터미널/,
+			});
+			await expect(banner.first()).toBeVisible({ timeout: 30_000 });
+			const text = (await banner.first().innerText()).replace(/\s+/g, " ");
+			rec.notes.push(`banner: ${text}`);
+			expect(text).not.toContain("Error invoking remote method");
+			await rec.shoot("banner");
+			await aside.getByRole("button", { name: language === "en" ? "Retry" : "다시 시도" }).click();
+			await expect(banner.first()).toBeVisible({ timeout: 30_000 });
+			await rec.shoot("banner-after-retry");
+			expect(instance.errors).toEqual([]);
+		} finally {
+			await rec.finish(instance.errors);
+			await exitApp(instance.app);
+			await cleanup(root);
+		}
+	});
+}
 
 /** A git project with numbered files, a 1,200-line rewrite and a plan, behind a stand-in `gh`. */
 async function seedProject(root: string): Promise<{ plan: string; bin: string }> {
@@ -626,14 +664,18 @@ for (const [language, theme] of [
 				await rec.shoot(`agents-tab-${index}`);
 			}
 			await resize(app, 800, 640);
-			const prTab = agents.getByRole("tab", { name: /Pull requests|풀 리퀘스트|PR/ }).first();
-			if (await prTab.isVisible()) {
-				await prTab.click();
-				const prButton = agents.getByRole("button", { name: /Keep the selected pull request/ });
-				if (await prButton.isVisible().catch(() => false)) await prButton.click();
-				await page.waitForTimeout(500);
-				await rec.shoot("pr-detail-800");
-			}
+			// The pull request detail beside its list at the smallest window.
+			await agents.getByRole("tab", { name: /^(Pull requests|풀 리퀘스트)$/ }).click();
+			// The row's name also carries its state, number and branch.
+			const prTitle = /Keep the selected pull request readable/;
+			await agents.getByRole("button", { name: prTitle }).click({ timeout: 20_000 });
+			await expect(agents.getByRole("heading", { name: prTitle })).toBeVisible();
+			const detailWidth = await agents
+				.getByRole("navigation", { name: /^(Pull requests|풀 리퀘스트)$/ })
+				.evaluate(list => Math.round(list.nextElementSibling?.getBoundingClientRect().width ?? 0));
+			rec.notes.push(`pr detail width at 800: ${detailWidth}`);
+			await page.waitForTimeout(400);
+			await rec.shoot("pr-detail-800");
 			await resize(app, 1440, 900);
 			await page.keyboard.press("Escape");
 

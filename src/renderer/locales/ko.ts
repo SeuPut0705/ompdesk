@@ -3897,8 +3897,6 @@ export const ko: Record<string, string> = {
 	"settings.section.workspace.desc": "선택한 호스트의 프로젝트 폴더, 실행 프로필과 작업 공간 기본값을 관리해요.",
 	"settings.section.ssh": "SSH 호스트",
 	"settings.section.ssh.desc": "에이전트가 명령을 실행할 수 있는 원격 컴퓨터예요.",
-	"settings.section.remote": "원격 기기",
-	"settings.section.remote.desc": "OMPdesk가 설치된 다른 컴퓨터에서 세션을 실행해요.",
 	"remote.loadFailed": "원격 기기 정보를 불러오지 못했어요",
 	"remote.state.online": "온라인",
 	"remote.state.connecting": "연결 중…",
