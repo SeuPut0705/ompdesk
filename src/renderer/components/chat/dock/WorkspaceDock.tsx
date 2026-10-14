@@ -5,9 +5,10 @@
  * the plan-mode card; otherwise it shows the todo list (collapsed to one line)
  * and the goal strip. A plan proposal awaiting a decision carries the plan and
  * its choices itself, so the plan card steps aside until it is answered.
- * Subagents never get a dock surface of their own: their
- * lanes live in the work card and the roster in the sidebar. The dock still
- * owns the stream-time roster poll, since it is mounted in every tab.
+ * Subagents never get a card of their own: while a turn runs their lanes live
+ * in the work card and the roster in the sidebar; between turns the island
+ * row sums up agents still working or waiting and running background shells.
+ * The dock still owns the stream-time roster poll, since it is mounted in every tab.
  * Each card self-gates its visibility, so the region collapses to zero height
  * on an idle session; the stack scrolls within a capped height so the composer
  * is never pushed off-screen, and every card sits behind its own error
@@ -29,6 +30,7 @@ import { GoalDockBar } from "./GoalDockBar";
 import { PlanDockCard } from "./PlanDockCard";
 import { TodoDockCard } from "./TodoDockCard";
 import { useWorkspaceDockFocus, WorkspaceDockFocusProvider } from "./WorkspaceDockFocus";
+import { WorkspaceIsland } from "./WorkspaceIsland";
 
 function clampFocusHeight(height: number): number {
 	return Math.round(Math.min(Math.max(200, window.innerHeight - 220), Math.max(200, height)));
@@ -103,10 +105,15 @@ function WorkspaceDockContent() {
 		persistHeight(next);
 	};
 
-	if (!cardsVisible && !goalVisible) return null;
+	if (!cardsVisible && !goalVisible && carriedByWork) return null;
 
 	return (
-		<div className="flex flex-col gap-2 pb-2" data-focused-card={focusedCard ?? undefined}>
+		<div className="flex flex-col gap-2 pb-2 empty:hidden" data-focused-card={focusedCard ?? undefined}>
+			{!carriedByWork && (
+				<PanelErrorBoundary>
+					<WorkspaceIsland />
+				</PanelErrorBoundary>
+			)}
 			{cardsVisible && (
 				<>
 					{focusedCard && (
