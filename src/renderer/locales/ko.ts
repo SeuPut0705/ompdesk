@@ -1905,6 +1905,8 @@ export const ko: Record<string, string> = {
 	"codeblock.lineNumbersDesc": "마크다운 메시지의 코드 블록에 줄 번호를 표시해요.",
 	"codeblock.plainText": "일반 텍스트",
 	"codeblock.wrap": "줄 바꿈",
+	"codeblock.runInTerminal": "터미널에서 실행",
+	"codeblock.runFailed": "터미널에서 실행하지 못했어요",
 	// Tool approval dialog
 	"approval.title": "도구 승인",
 	"approval.tier.read": "읽기",

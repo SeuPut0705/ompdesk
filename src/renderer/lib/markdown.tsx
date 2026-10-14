@@ -665,6 +665,7 @@ function Pre({ children }: ComponentPropsWithoutRef<"pre">) {
 			guessLanguage={false}
 			highlight={!streaming}
 			showWrap
+			showRun={!streaming}
 		/>
 	);
 }

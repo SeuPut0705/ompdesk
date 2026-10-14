@@ -1,9 +1,13 @@
 import type { HLJSApi } from "highlight.js";
-import { WrapText } from "lucide-react";
+import { SquareTerminal, WrapText } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { cx, escapeHtml } from "../../lib/format";
 import { getLoadedHljs, HIGHLIGHT_CHAR_CAP, loadHljs } from "../../lib/highlight";
 import { useT } from "../../lib/i18n";
+import { runInTerminal, SHELL_LANGUAGES } from "../../lib/run-in-terminal";
+import { useRuntimeTabId } from "../../stores/session-runtime-context";
+import { useTabsStore } from "../../stores/tabs";
+import { toastError } from "../../stores/toast";
 import { CopyButton, IconButton } from "../common";
 import { LineNumberGutter } from "./LineNumberGutter";
 
@@ -33,6 +37,8 @@ export interface CodeBlockProps {
 	highlight?: boolean;
 	/** Offer the line-wrap toggle in the header. */
 	showWrap?: boolean;
+	/** Offer "Run in terminal" for a shell block (a finished reply fence on this machine's tab). */
+	showRun?: boolean;
 	className?: string;
 }
 
@@ -102,11 +108,19 @@ export function CodeBlock({
 	guessLanguage = true,
 	highlight = true,
 	showWrap = false,
+	showRun = false,
 	className,
 }: CodeBlockProps) {
 	const t = useT();
 	const lang = normalizeLanguage(language);
 	const [wrap, setWrap] = useState(false);
+	const runtimeTabId = useRuntimeTabId();
+	const tabId = useTabsStore(state => {
+		const id = runtimeTabId ?? state.activeTabId;
+		// The terminal is this machine's: a paired host's tab has none here.
+		return state.tabs.some(tab => tab.id === id && tab.device === undefined) ? id : null;
+	});
+	const runnable = showRun && SHELL_LANGUAGES[lang] === true && !!code?.trim() && tabId !== null;
 	const highlightable = highlight && !!code && code.length <= HIGHLIGHT_CHAR_CAP;
 	const [hlHtml, setHlHtml] = useState<string | null>(() => {
 		if (!highlightable || !code) return null;
@@ -164,7 +178,7 @@ export function CodeBlock({
 				className,
 			)}
 		>
-			{(showLanguage || showCopy || showWrap) && (
+			{(showLanguage || showCopy || showWrap || runnable) && (
 				<div className="flex h-8 items-center gap-1 border-b border-(--sc-divider) ps-3 pe-1">
 					{showLanguage && (
 						<span className="me-auto min-w-0 truncate text-sc-xs text-(--sc-text-muted)">
@@ -182,9 +196,23 @@ export function CodeBlock({
 							size="sm"
 						/>
 					)}
+					{runnable && tabId && (
+						<IconButton
+							className={showLanguage || showWrap ? undefined : "ms-auto"}
+							data-code-run
+							icon={<SquareTerminal />}
+							label={t("codeblock.runInTerminal")}
+							onClick={() =>
+								void runInTerminal(tabId, code ?? "").catch(error =>
+									toastError({ title: t("codeblock.runFailed"), error }),
+								)
+							}
+							size="sm"
+						/>
+					)}
 					{showCopy && (
 						<CopyButton
-							className={showLanguage || showWrap ? undefined : "ms-auto"}
+							className={showLanguage || showWrap || runnable ? undefined : "ms-auto"}
 							label={t("chat.copyCode")}
 							text={code ?? ""}
 						/>

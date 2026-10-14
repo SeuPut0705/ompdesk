@@ -1920,6 +1920,8 @@ export const en: Record<string, string> = {
 	"codeblock.lineNumbersDesc": "Show a line-number gutter on code blocks in markdown messages.",
 	"codeblock.plainText": "Plain text",
 	"codeblock.wrap": "Wrap lines",
+	"codeblock.runInTerminal": "Run in terminal",
+	"codeblock.runFailed": "Couldn't run it in the terminal",
 	// Tool approval dialog
 	"approval.title": "Tool approval",
 	"approval.tier.read": "read",
