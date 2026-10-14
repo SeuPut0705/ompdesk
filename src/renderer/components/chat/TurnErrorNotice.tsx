@@ -2,7 +2,7 @@ import { Ban } from "lucide-react";
 import { useState } from "react";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
 import { useT } from "../../lib/i18n";
-import { describeTurnError, retryLastTurn, type TurnErrorAction } from "../../lib/messages";
+import { describeTurnError, retryLastTurn, runManualMaintenance, type TurnErrorAction } from "../../lib/messages";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { sessionRuntime, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
@@ -56,7 +56,11 @@ export function TurnErrorNotice({ errorMessage, stopReason }: { errorMessage?: s
 				await retryLastTurn(onEmpty, rpc, tabId);
 				return;
 			}
-			const response = await rpc.compact();
+			const { response, cancelled } = await runManualMaintenance("compact", () => rpc.compact(), tabId);
+			if (cancelled) {
+				toast({ variant: "info", message: t("command.compactCancelled") });
+				return;
+			}
 			if (!response.success) throw new Error(response.error);
 			await (tabId && sessionRuntime(tabId) ? hydrateTabSession(tabId) : hydrateSession());
 			toast({ variant: "success", title: t("command.compactedTitle"), message: t("command.compactedMessage") });

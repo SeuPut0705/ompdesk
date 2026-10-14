@@ -1338,6 +1338,11 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 		reason = cause.kind === "unknown" ? null : t(cause.titleKey);
 		detail = retryInfo.errorMessage || null;
 		announcement = t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts });
+	} else if (compactionInfo?.reason === "manual") {
+		text = compactionInfo.cancelling
+			? t("chat.compaction.cancelling")
+			: `${t(compactionInfo.action === "handoff" ? "chat.compaction.manual.handoff" : "chat.compaction.manual.compact")}…`;
+		announcement = text;
 	} else if (compactionInfo) {
 		const compactionReason =
 			compactionInfo.reason === "threshold" ? "" : t(`chat.compaction.reason.${compactionInfo.reason}`);
@@ -1380,14 +1385,28 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 				</span>
 				<span className="text-(--sc-text-secondary)">{text}</span>
 				{reason ? <span>· {reason}</span> : null}
-				<span className="flex items-center gap-1.5 text-sc-sm text-(--sc-text-subtle)">
-					<Kbd shortcut="Esc" />
-					{t("chat.interruptHint")}
-				</span>
+				{compactionInfo?.cancelling ? null : (
+					<span className="flex items-center gap-1.5 text-sc-sm text-(--sc-text-subtle)">
+						<Kbd shortcut="Esc" />
+						{t("chat.interruptHint")}
+					</span>
+				)}
 			</div>
 			{detail ? (
 				<div className="max-w-full truncate ps-6 text-sc-xs text-(--sc-text-subtle)" title={detail}>
 					{detail}
+				</div>
+			) : null}
+			{compactionInfo?.reason === "manual" && !retryInfo ? (
+				<div className="flex flex-wrap items-center gap-2 ps-6">
+					<Button
+						disabled={compactionInfo.cancelling === true}
+						onClick={() => void abortActiveTurn(rpc, tabId)}
+						size="sm"
+						variant="ghost"
+					>
+						{t("common.cancel")}
+					</Button>
 				</div>
 			) : null}
 			{retryInfo ? (

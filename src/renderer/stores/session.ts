@@ -54,9 +54,15 @@ export interface SessionStore {
 	 * inline retry row with a live countdown. `startedAt` is the client clock
 	 * at event time so the countdown survives re-renders. */
 	retryInfo: { attempt: number; maxAttempts: number; delayMs: number; errorMessage: string; startedAt: number } | null;
-	/** Live auto-compaction window (auto_compaction_start → auto_compaction_end):
-	 * carries the TUI loader's reason/action text for the inline status row. */
-	compactionInfo: { reason: "threshold" | "overflow" | "idle" | "incomplete"; action: string } | null;
+	/** Live compaction window: auto (auto_compaction_start → auto_compaction_end) carries the TUI
+	 * loader's reason/action text for the inline status row; `manual` is a /compact (`compact`) or
+	 * handoff (`handoff`) the GUI started, held for as long as its request runs, and `cancelling`
+	 * once the reader stopped it. */
+	compactionInfo: {
+		reason: "threshold" | "overflow" | "idle" | "incomplete" | "manual";
+		action: string;
+		cancelling?: boolean;
+	} | null;
 	status: SidecarStatus;
 	contextUsage: ContextUsage | null;
 	/** Bumped every time a get_state snapshot actually carries fresh context

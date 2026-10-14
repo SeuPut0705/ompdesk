@@ -53,6 +53,8 @@ export type RpcCommand =
 	| { id?: string; type: "abort_bash" }
 	| { id?: string; type: "eval"; language?: "python" | "js" | "ruby" | "julia"; code: string; excluded?: boolean }
 	| { id?: string; type: "abort_eval" }
+	/** Cancels a running manual `/compact` or handoff (stock `abortCompaction`/`abortHandoff`); `{aborted}`. */
+	| { id?: string; type: "abort_maintenance" }
 	| { id?: string; type: "dequeue" }
 	// Queue management (answered in main over stock omp's text lanes, see
 	// src/main/local/queue.ts): queueId is the stable id main assigns each chip;

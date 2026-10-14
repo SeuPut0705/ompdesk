@@ -138,6 +138,9 @@ export const handlers: Record<string, LocalHandler> = {
 		return undefined;
 	},
 
+	// Esc during a manual /compact or handoff (stock's serial queue holds a plain `abort` behind it).
+	abort_maintenance: (_command, ctx) => ctx.bridge.request("composer.abort_maintenance"),
+
 	// Stock `bash` ignores `excluded`; only the context-excluded (`!!`) form needs the session.
 	bash: async (command, ctx) => {
 		const { command: line, excluded } = bashCommand.parse(command);

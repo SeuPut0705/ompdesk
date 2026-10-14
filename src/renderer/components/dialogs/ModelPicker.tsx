@@ -29,6 +29,7 @@ import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { cx, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
+import { runManualMaintenance } from "../../lib/messages";
 import { addPoolMember, EMPTY_MODEL_POOL, modelSelector } from "../../lib/model-pool";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useModelStore } from "../../stores/model";
@@ -229,7 +230,15 @@ export function ModelPicker() {
 			// switches. The row carries the over-context warning before the pick.
 			const overContext = target !== undefined && isOverContext(target);
 			if (overContext) {
-				const compactRes = await tabRpc.compact();
+				const { response: compactRes, cancelled } = await runManualMaintenance(
+					"compact",
+					() => tabRpc.compact(),
+					tabId,
+				);
+				if (cancelled) {
+					toast({ variant: "info", message: t("command.compactCancelled") });
+					return;
+				}
 				if (!compactRes.success) {
 					toastError({ title: t("modelPicker.compactFailed"), error: compactRes });
 					return;

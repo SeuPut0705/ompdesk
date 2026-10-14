@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
+import { abortActiveTurn, runManualMaintenance } from "../../lib/messages";
 import { useForkHandoffStore } from "../../stores/fork-handoff";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
@@ -49,10 +50,17 @@ export function HandoffDialog() {
 		requestAnimationFrame(() => textRef.current?.focus());
 	}, [open]);
 
-	// The handoff RPC cannot be cancelled from the GUI — block dismissal while
-	// the agent is generating the handoff document.
+	// Generating the handoff document can be cancelled (stock abortHandoff, as Esc does in the
+	// TUI); once the new session is being created, dismissal waits for it.
+	const [cancelling, setCancelling] = useState(false);
 	const requestClose = () => {
-		if (!running) close();
+		if (!running) {
+			close();
+			return;
+		}
+		if (stage !== "summary" || cancelling) return;
+		setCancelling(true);
+		void abortActiveTurn(tabRpc, originTabId);
 	};
 
 	const blockedReason = isStreaming
@@ -64,24 +72,29 @@ export function HandoffDialog() {
 	const submit = async () => {
 		if (!sidecarReady || running || blockedReason !== null) return;
 		setRunning(true);
+		setCancelling(false);
 		setError(null);
 		try {
 			const trimmed = instructions.trim();
 			let result = prepared?.sessionId === sessionId ? prepared : null;
 			if (!result) {
 				setStage("summary");
-				const response = await tabRpc.handoff(trimmed.length > 0 ? trimmed : undefined);
-				if (!response.success) {
-					setError(inlineFailure(response, t("handoff.failed")));
-					return;
-				}
-				const handoffResult = response.data as HandoffResult | null | undefined;
-				if (handoffResult == null) {
-					// null data = the agent-side handoff was cancelled.
+				const { response, cancelled } = await runManualMaintenance(
+					"handoff",
+					() => tabRpc.handoff(trimmed.length > 0 ? trimmed : undefined),
+					originTabId,
+				);
+				// null data = the agent-side handoff was cancelled.
+				if (cancelled || (response.success && response.data == null)) {
 					close();
 					toast({ variant: "info", message: t("handoff.cancelled") });
 					return;
 				}
+				if (!response.success) {
+					setError(inlineFailure(response, t("handoff.failed")));
+					return;
+				}
+				const handoffResult = response.data as HandoffResult;
 				result = { ...handoffResult, sessionId };
 				setPrepared(result);
 			}
@@ -136,7 +149,12 @@ export function HandoffDialog() {
 			size="md"
 			footer={
 				<>
-					<Button disabled={running} onClick={requestClose} type="button" variant="secondary">
+					<Button
+						disabled={running && (stage !== "summary" || cancelling)}
+						onClick={requestClose}
+						type="button"
+						variant="secondary"
+					>
 						{t("common.cancel")}
 					</Button>
 					<Button
@@ -173,10 +191,14 @@ export function HandoffDialog() {
 					</Banner>
 				)}
 				{running && (
-					<div className="flex items-center gap-2 text-sc-sm text-(--sc-text-muted)" role="status">
-						<Spinner size="sm" />
-						{t(stage === "summary" ? "handoff.generating" : "handoff.creating")}
-					</div>
+					<Spinner
+						label={
+							cancelling
+								? t("chat.compaction.cancelling")
+								: t(stage === "summary" ? "handoff.generating" : "handoff.creating")
+						}
+						size="sm"
+					/>
 				)}
 			</div>
 		</Modal>

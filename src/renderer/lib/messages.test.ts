@@ -10,6 +10,7 @@ import {
 	forkSessionFromEntryInNewTab,
 	forkSessionFromMessageInNewTab,
 	restoreQueuedMessages,
+	runManualMaintenance,
 	splitReaction,
 } from "./messages";
 
@@ -35,6 +36,7 @@ function installWindow(messages: Array<{ text: string }>) {
 			}),
 		),
 		abortRetry: vi.fn(async () => ({ success: true as const })),
+		abortMaintenance: vi.fn(async () => ({ success: true as const, data: { aborted: true } })),
 		dequeue: vi.fn(async () => ({ success: true as const, data: { messages } })),
 		steer: vi.fn(async (text: string) => {
 			deliveryOrder.push(`steer:${text}`);
@@ -316,6 +318,36 @@ describe("abortActiveTurn", () => {
 		await abortActiveTurn();
 		expect(useComposerStore.getState().draft).toBe("first\n\nkeep me");
 		expect(useToastStore.getState().toasts.map(toast => toast.variant)).toEqual(["warning"]);
+	});
+
+	it("cancels a manual /compact through abort_maintenance, which stock's serial queue cannot hold back", async () => {
+		const harness = installWindow([]);
+		const compact = Promise.withResolvers<{ type: "response"; command: string; success: false; error: string }>();
+		const running = runManualMaintenance("compact", () => compact.promise);
+		expect(useSessionStore.getState().compactionInfo).toEqual({ reason: "manual", action: "compact" });
+		expect(useSessionStore.getState().isCompacting).toBe(true);
+
+		await abortActiveTurn();
+
+		expect(harness.rpc.abortMaintenance).toHaveBeenCalledTimes(1);
+		expect(harness.rpc.abortAndRestoreQueue).not.toHaveBeenCalled();
+		expect(useSessionStore.getState().compactionInfo?.cancelling).toBe(true);
+		compact.resolve({ type: "response", command: "compact", success: false, error: "Compaction cancelled" });
+		expect((await running).cancelled).toBe(true);
+		expect(useSessionStore.getState().compactionInfo).toBeNull();
+		expect(useSessionStore.getState().isCompacting).toBe(false);
+	});
+
+	it("ends a manual handoff's row on its own when nobody stopped it", async () => {
+		installWindow([]);
+		const result = await runManualMaintenance("handoff", async () => ({
+			type: "response" as const,
+			command: "handoff",
+			success: true as const,
+			data: { savedPath: "/tmp/handoff.md" },
+		}));
+		expect(result.cancelled).toBe(false);
+		expect(useSessionStore.getState().compactionInfo).toBeNull();
 	});
 });
 

@@ -40,7 +40,12 @@ import { exportSessionHtml } from "./export-session";
 import { copyText } from "./format";
 import { translate } from "./i18n";
 import { actionKbd, type KeymapActionId, type KeymapOverrides } from "./keymap";
-import { clearSessionContext, restoreQueuedMessages, retryLastTurn as retryLastTurnShared } from "./messages";
+import {
+	clearSessionContext,
+	restoreQueuedMessages,
+	retryLastTurn as retryLastTurnShared,
+	runManualMaintenance,
+} from "./messages";
 import {
 	capturePluginActivationOrigin,
 	handlePluginActivation,
@@ -782,7 +787,11 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		affordance: {
 			kind: "action",
 			run: async () => {
-				const res = await ctx.rpc.compact();
+				const { response: res, cancelled } = await runManualMaintenance("compact", () => ctx.rpc.compact());
+				if (cancelled) {
+					toast({ variant: "info", message: t("command.compactCancelled") });
+					return;
+				}
 				if (!res.success) throw new Error(res.error);
 				await ctx.hydrateSession();
 				toast({ variant: "success", title: t("command.compactedTitle"), message: t("command.compactedMessage") });

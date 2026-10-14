@@ -11,7 +11,7 @@ import { hydrateSession, resetRetryPending } from "../hooks/use-rpc-events";
 import { type ComposerStore, useComposerStore } from "../stores/composer";
 import { useMessagesStore } from "../stores/messages";
 import { type SessionStore, useSessionStore } from "../stores/session";
-import { sessionRuntimeStore, withSessionRuntime } from "../stores/session-runtime-context";
+import { focusedRuntimeTabId, sessionRuntimeStore, withSessionRuntime } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
 import { toast, toastError } from "../stores/toast";
 import { translate } from "./i18n";
@@ -249,20 +249,49 @@ export function restoreAbortedQueue(composer: ComposerStore, restored: RpcAbortA
 }
 
 /**
+ * Manual `/compact` and handoff: stock sends no auto_compaction events for them, so the tab's
+ * status row (Esc, Cancel) stands here for as long as the request runs. The tab's store is bound
+ * before the await, so a tab switch meanwhile leaves every other tab's row alone. `cancelled`
+ * says the reader stopped it (Esc or Cancel), so its failure is no error.
+ */
+export async function runManualMaintenance(
+	action: "compact" | "handoff",
+	request: () => Promise<RpcResponse>,
+	tabId?: string | null,
+): Promise<{ response: RpcResponse; cancelled: boolean }> {
+	const session = sessionRuntimeStore<SessionStore>(tabId ?? focusedRuntimeTabId(), "session") ?? useSessionStore;
+	session.setState({ isCompacting: true, compactionInfo: { reason: "manual", action } });
+	try {
+		const response = await request();
+		return { response, cancelled: session.getState().compactionInfo?.cancelling === true };
+	} finally {
+		if (session.getState().compactionInfo?.reason === "manual")
+			session.setState({ isCompacting: false, compactionInfo: null });
+	}
+}
+
+/**
  * Stop the active turn the way the TUI's Esc does: stock withdraws the queued
  * user input before aborting (`abort_and_restore_queue`), so nothing queued
  * runs afterwards, and it comes back into this tab's composer. Any live retry
- * UI retires synchronously first.
+ * UI retires synchronously first. A manual /compact or handoff is cancelled
+ * through `abort_maintenance` instead: stock's serial queue would hold a plain
+ * abort until it finished on its own.
  */
 export async function abortActiveTurn(
-	rpc: Pick<TabRpc, "abortAndRestoreQueue" | "abortRetry"> = window.omp.rpc,
+	rpc: Pick<TabRpc, "abortAndRestoreQueue" | "abortRetry" | "abortMaintenance"> = window.omp.rpc,
 	tabId?: string | null,
 ): Promise<RpcResponse> {
 	// Bind the composer before any await: the user may switch tabs meanwhile.
 	const composer =
 		(tabId ? sessionRuntimeStore<ComposerStore>(tabId, "composer")?.getState() : undefined) ??
 		useComposerStore.getState();
-	const session = (tabId ? sessionRuntimeStore<SessionStore>(tabId, "session") : null) ?? useSessionStore;
+	const session = sessionRuntimeStore<SessionStore>(tabId ?? focusedRuntimeTabId(), "session") ?? useSessionStore;
+	const maintenance = session.getState().compactionInfo;
+	if (maintenance?.reason === "manual") {
+		session.setState({ compactionInfo: { ...maintenance, cancelling: true } });
+		return rpc.abortMaintenance();
+	}
 	const retrying = session.getState().retryInfo !== null;
 	if (retrying) {
 		resetRetryPending(tabId ?? undefined);

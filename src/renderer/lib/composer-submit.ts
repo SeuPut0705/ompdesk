@@ -13,6 +13,7 @@ import { hydrateSession } from "../hooks/use-rpc-events";
 import { toast, toastError } from "../stores/toast";
 import { buildCurrentCommandMenu, type CommandAffordance } from "./command-registry";
 import { translate } from "./i18n";
+import { runManualMaintenance } from "./messages";
 import { parseSlashCommand } from "./slash-command";
 import type { TabRpc } from "./tab-rpc";
 
@@ -115,9 +116,19 @@ export function planComposerSubmit(input: {
 	}
 	// Manual compaction can spend minutes in provider summarization. Route the
 	// exact command through its dedicated RPC so it gets the compact timeout
-	// instead of timing out as an 8s prompt while still blocking the RPC queue.
+	// instead of timing out as an 8s prompt while still blocking the RPC queue;
+	// the status row shows it running with Esc and Cancel.
 	if (isSlashCommand && message.trim() === "/compact") {
-		return { kind: "send", request: () => rpc.compact() };
+		return {
+			kind: "send",
+			request: async () => {
+				const { response, cancelled } = await runManualMaintenance("compact", () => rpc.compact());
+				if (!cancelled) return response;
+				// The reader stopped it: the command ran its course, so no draft comes back and no failure shows.
+				toast({ variant: "info", message: translate("command.compactCancelled") });
+				return { type: "response", command: "compact", success: true, data: { cancelled: true } };
+			},
+		};
 	}
 	const guiHandled = isSlashCommand ? runGuiOnlyBuiltin(message, commands) : undefined;
 	if (guiHandled !== undefined) return { kind: guiHandled ? "handled" : "blocked" };

@@ -33,6 +33,7 @@ export interface SessionRpcClient {
 	fork(): Promise<RpcResponse>;
 	eval(code: string, language?: "python" | "js" | "ruby" | "julia", excluded?: boolean): Promise<RpcResponse>;
 	abortEval(): Promise<RpcResponse>;
+	abortMaintenance(): Promise<RpcResponse>;
 	dequeue(): Promise<RpcResponse>;
 	getQueue(): Promise<RpcResponse>;
 	queueEdit(queueId: string, text: string): Promise<RpcResponse>;
@@ -358,6 +359,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		fork: () => rpcCommand({ type: "fork" }),
 		eval: (code, language, excluded) => rpcCommand({ type: "eval", code, language, excluded }),
 		abortEval: () => rpcCommand({ type: "abort_eval" }),
+		abortMaintenance: () => rpcCommand({ type: "abort_maintenance" }),
 		dequeue: () => rpcCommand({ type: "dequeue" }),
 		getQueue: () => rpcCommand({ type: "get_queue" }),
 		queueEdit: (queueId, text) => rpcCommand({ type: "queue_edit", queueId, text }),
