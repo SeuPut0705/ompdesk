@@ -1,8 +1,17 @@
-import { ImageOff } from "lucide-react";
+import {
+	ImageOff,
+	Info,
+	Lightbulb,
+	type LucideIcon,
+	MessageSquareWarning,
+	OctagonAlert,
+	TriangleAlert,
+} from "lucide-react";
 import {
 	type ComponentPropsWithoutRef,
 	createContext,
 	isValidElement,
+	type MouseEvent,
 	memo,
 	type ReactElement,
 	type ReactNode,
@@ -18,16 +27,26 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { CodeBlock as SharedCodeBlock } from "../components/chat/CodeBlock";
 import { MermaidBlock } from "../components/chat/MermaidBlock";
-import { SvgBlock } from "../components/chat/SvgBlock";
+import { type PreviewMode, PreviewModeTabs, SvgBlock } from "../components/chat/SvgBlock";
 import { ZoomableImage } from "../components/common/ZoomableImage";
 import { chatMediaKind, chatReferenceKind, fileUrlPath, localFilePath } from "../components/tools/chat-media";
 import { ChatMedia, HtmlPreview, PdfThumb } from "../components/tools/ToolMedia";
 import { useRuntimeTabId } from "../stores/session-runtime-context";
+import { toastError } from "../stores/toast";
 import { useUiStore } from "../stores/ui";
 import { saveGuiPreference } from "./display-preferences";
+import { cx } from "./format";
 import { useT } from "./i18n";
+import {
+	isMarkdownAlertKind,
+	MARKDOWN_ID_PREFIX,
+	type MarkdownAlertKind,
+	rehypeAlerts,
+	rehypeHeadingIds,
+} from "./markdown-rehype";
 import { PREVIEW_HEIGHT_LG, PREVIEW_SCROLL_CODE } from "./preview";
 import { remarkLatexMath } from "./remark-latex-math";
+import { useTabRpc } from "./tab-rpc";
 
 interface MarkdownRendererProps {
 	content: string;
@@ -43,6 +62,12 @@ interface MarkdownRendererProps {
 	 * SSR/tests pass this — the pref store's server snapshot is always off.
 	 */
 	codeLineNumbers?: boolean;
+	/**
+	 * Source still streaming (the live tail): fences stay plain code — no
+	 * highlighting, no diagram or figure — until the block is complete, and
+	 * the render skips the shared cache it would only churn.
+	 */
+	streaming?: boolean;
 }
 
 // Hoisted to module scope: stable plugin arrays and component maps keep
@@ -93,6 +118,8 @@ const SANITIZE_SCHEMA: SanitizeSchema = {
 		"sup",
 		"u",
 		"ul",
+		// GFM footnotes: `<section data-footnotes class="footnotes">`.
+		"section",
 		// Markdown/GFM block structure that must survive sanitation.
 		"h1",
 		"h2",
@@ -118,25 +145,52 @@ const SANITIZE_SCHEMA: SanitizeSchema = {
 		"audio",
 	],
 	attributes: {
-		a: ["href"],
+		// `id` everywhere it is allowed is clobber-prefixed below. Footnote refs
+		// and backrefs carry their GFM markers, an aria label and the reference
+		// to the (prefixed) footnote heading.
+		a: [
+			"href",
+			"id",
+			"ariaDescribedBy",
+			"ariaLabel",
+			"dataFootnoteRef",
+			"dataFootnoteBackref",
+			["className", "data-footnote-backref"],
+		],
 		abbr: ["title"],
 		// `language-*` on code carries the fence's language tag for the Pre swap.
 		// Value-checked: raw HTML must not smuggle arbitrary classes (compiled
 		// Tailwind utilities like `fixed inset-0` would let model text overlay
 		// the whole app). Spans get no className at all — nothing consumes one.
+		// The other class pins below are the GFM markers, styled in components.css.
 		code: [["className", /^language-[a-zA-Z0-9_-]+$/]],
+		h1: ["id"],
+		h2: ["id"],
+		h3: ["id"],
+		h4: ["id"],
+		h5: ["id"],
+		h6: ["id"],
 		img: ["src", "alt", "title"],
 		// Value-pinned: only type="checkbox" survives; any other type value is
 		// dropped with the attribute. checked/disabled carry the GFM state.
 		input: [["type", "checkbox"], "checked", "disabled"],
-		ol: ["start"],
+		li: ["id", ["className", "task-list-item"]],
+		ol: ["start", ["className", "contains-task-list"]],
+		section: ["dataFootnotes", ["className", "footnotes"]],
 		td: ["align"],
 		th: ["align"],
+		ul: [["className", "contains-task-list"]],
 		video: ["src"],
 		audio: ["src"],
 	},
+	// Every id (and the aria references to one) gets this prefix, so model
+	// output can never shadow an app element or a `window` global; in-page
+	// links resolve it (MarkdownLink), as GitHub's do.
+	clobber: ["id", "ariaDescribedBy", "ariaLabelledBy", "name"],
+	clobberPrefix: MARKDOWN_ID_PREFIX,
 	protocols: {
-		href: ["http", "https", "mailto", "file"],
+		// local: is the session's local:// store, resolved by stock through the bridge.
+		href: ["http", "https", "mailto", "file", "local"],
 		// data: keeps inline base64 images; file: is resolved to a workspace /
 		// absolute read by the MarkdownImage component (protocol stripped).
 		src: ["http", "https", "data", "file"],
@@ -146,16 +200,22 @@ const SANITIZE_SCHEMA: SanitizeSchema = {
 	strip: ["script", "style", "iframe", "object", "embed", "title", "textarea"],
 };
 
-// Order matters: rehype-raw parses embedded HTML into the tree, rehype-sanitize
-// then filters the whole tree against the strict schema, and katex runs last so
-// its generated MathML is not sanitized away. Fenced code is NOT highlighted in
-// this pipeline: the `pre` component swaps every fence for the shared CodeBlock
-// (same lazy hljs path as the tool cards), which also owns the language badge,
-// copy button, and line-number gutter — one code chrome across the whole GUI.
-// Code `language-*` classes survive sanitize for that detection.
+// Order matters: rehype-raw parses embedded HTML into the tree, headings get
+// their ids, rehype-sanitize then filters the whole tree against the strict
+// schema (prefixing every id), alerts are marked on the safe tree, and katex
+// runs last so its generated MathML is not sanitized away. Fenced code is NOT
+// highlighted in this pipeline: the `pre` component swaps every fence for the
+// shared CodeBlock (same lazy hljs path as the tool cards), which also owns the
+// language badge, copy button, wrap toggle and line-number gutter — one code
+// chrome across the whole GUI. Code `language-*` classes survive sanitize for
+// that detection.
 type RehypePlugin = NonNullable<Options["rehypePlugins"]>[number];
 
 const SANITIZE_STEP: RehypePlugin = [rehypeSanitize, SANITIZE_SCHEMA];
+
+// Footnote ids leave remark-rehype bare (`fn-1`, href `#fn-1`) so sanitize's
+// clobber prefix is the only one, as on GitHub: `id="user-content-fn-1"`.
+const REMARK_REHYPE_OPTIONS: Options["remarkRehypeOptions"] = { clobberPrefix: "" };
 
 /**
  * Pipeline steps too heavy for startup (rehype-raw pulls parse5; KaTeX is
@@ -228,22 +288,80 @@ const URL_TRANSFORM: NonNullable<Options["urlTransform"]> = (url, key, node) => 
 	const tag = node?.tagName;
 	if (key === "src" && tag === "img" && /^(data|blob|file):/i.test(url)) return url;
 	if (key === "src" && (tag === "video" || tag === "audio") && /^file:/i.test(url)) return url;
-	if (key === "href" && tag === "a" && /^file:/i.test(url)) return url;
+	if (key === "href" && tag === "a" && /^(file|local):/i.test(url)) return url;
 	return defaultUrlTransform(url);
 };
 
-function ExternalLink({ href, children, ...props }: ComponentPropsWithoutRef<"a">) {
+/**
+ * The element an in-page `#fragment` names: the prefixed id (sanitize's
+ * clobber prefix), looked up in the same message first, then the turn, then
+ * the session pane — every reply numbers its own footnotes from 1.
+ */
+function fragmentTarget(from: Element, fragment: string): HTMLElement | null {
+	let id = fragment;
+	try {
+		id = decodeURIComponent(fragment);
+	} catch {
+		// A stray `%` stays literal.
+	}
+	if (!id) return null;
+	const prefixed = id.startsWith(MARKDOWN_ID_PREFIX) ? id : `${MARKDOWN_ID_PREFIX}${id}`;
+	const selector = `[id="${prefixed.replace(/["\\]/g, "\\$&")}"]`;
+	for (const scope of [
+		from.closest(".markdown-body"),
+		from.closest(".omp-assistant-turn"),
+		from.closest(".omp-session-pane"),
+		from.ownerDocument,
+	]) {
+		const target = scope?.querySelector<HTMLElement>(selector);
+		if (target) return target;
+	}
+	return null;
+}
+
+function scrollToFragment(from: Element, fragment: string): void {
+	const target = fragmentTarget(from, fragment);
+	if (!target) return;
+	const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+	target.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+	// Keyboard and screen-reader users land where the eye does.
+	if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+	target.focus({ preventScroll: true });
+}
+
+/**
+ * Every markdown link: `#fragment` scrolls within the transcript, `local://`
+ * opens the session file stock resolves, a file path opens the preview, and
+ * web and mail links go to the system (main admits only http(s) and mailto).
+ */
+function MarkdownLink({ href, children, node: _node, ...props }: ComponentPropsWithoutRef<"a"> & { node?: unknown }) {
+	const t = useT();
+	const rpc = useTabRpc();
+	const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
+		if (!href) return;
+		event.preventDefault();
+		if (href.startsWith("#")) {
+			scrollToFragment(event.currentTarget, href.slice(1));
+			return;
+		}
+		if (/^local:/i.test(href)) {
+			const failed = (error: unknown) => toastError({ title: t("markdown.localLinkFailed", { url: href }), error });
+			rpc.resolveLocalUrl(href).then(response => {
+				const path = response.success ? (response.data as { path?: unknown } | undefined)?.path : undefined;
+				if (typeof path === "string") useUiStore.getState().openFilePreview(path);
+				else failed(new Error(response.success ? "no path" : response.error));
+			}, failed);
+			return;
+		}
+		const filePath = localFilePath(href);
+		if (filePath) useUiStore.getState().openFilePreview(filePath);
+		else window.omp.system.openExternal(href);
+	};
 	return (
 		<a
 			{...props}
 			href={href}
-			onClick={e => {
-				if (!href || href.startsWith("#")) return;
-				e.preventDefault();
-				const filePath = localFilePath(href);
-				if (filePath) useUiStore.getState().openFilePreview(filePath);
-				else window.omp.system.openExternal(href);
-			}}
+			onClick={onClick}
 			className="text-[var(--omp-md-link)] underline decoration-[var(--omp-md-link-url)] hover:decoration-[var(--omp-md-link)]"
 		>
 			{children}
@@ -311,6 +429,9 @@ export async function setCodeLineNumbersPref(next: boolean): Promise<boolean> {
 /** MarkdownRenderer prop → Pre, threading around the static components map. */
 const CodeLineNumbersOverride = createContext<boolean | undefined>(undefined);
 
+/** The MarkdownRenderer `streaming` prop → Pre: fences stay plain until complete. */
+const MarkdownStreaming = createContext(false);
+
 function useCodeLineNumbers(): boolean {
 	const override = useContext(CodeLineNumbersOverride);
 	const pref = useSyncExternalStore(
@@ -323,7 +444,7 @@ function useCodeLineNumbers(): boolean {
 
 const MERMAID_CLASS = /(?:^|\s)language-mermaid(?:\s|$)/;
 
-/** Plain-text content of a rendered node (mermaid fences are never highlighted). */
+/** Plain-text content of a rendered node (fences reach Pre unhighlighted). */
 function textOf(node: ReactNode): string {
 	if (node == null || typeof node === "boolean") return "";
 	if (typeof node === "string" || typeof node === "number") return String(node);
@@ -332,19 +453,12 @@ function textOf(node: ReactNode): string {
 	return "";
 }
 
-function isMermaidCodeElement(node: ReactNode): boolean {
-	return (
-		isValidElement<{ className?: unknown }>(node) &&
-		typeof node.props.className === "string" &&
-		MERMAID_CLASS.test(node.props.className)
-	);
-}
-
-function CodeBlock({ className, children, ...props }: ComponentPropsWithoutRef<"code">) {
-	// Mermaid fences render as diagrams; MermaidBlock falls back to source on error.
-	if (typeof className === "string" && MERMAID_CLASS.test(className)) {
-		return <MermaidBlock code={textOf(children)} />;
-	}
+function CodeBlock({
+	className,
+	children,
+	node: _node,
+	...props
+}: ComponentPropsWithoutRef<"code"> & { node?: unknown }) {
 	// Fenced (className-carrying) code reaches here only as Pre's child — Pre
 	// swaps the wrapper for the shared CodeBlock chrome and reads the language
 	// off this className, so keep it intact and unstyled.
@@ -389,12 +503,35 @@ function H3({ children, ...props }: ComponentPropsWithoutRef<"h3">) {
 	);
 }
 
-function Blockquote({ children, ...props }: ComponentPropsWithoutRef<"blockquote">) {
+const ALERT_ICONS: Record<MarkdownAlertKind, LucideIcon> = {
+	note: Info,
+	tip: Lightbulb,
+	important: MessageSquareWarning,
+	warning: TriangleAlert,
+	caution: OctagonAlert,
+};
+
+/**
+ * A quote, or a GitHub alert (`> [!NOTE]`, marked by rehypeAlerts): the
+ * state color sits only on its rule and label; the body reads as prose.
+ */
+function Blockquote({ children, node: _node, ...props }: ComponentPropsWithoutRef<"blockquote"> & { node?: unknown }) {
+	const t = useT();
+	const alert = (props as Record<string, unknown>)["data-alert"];
+	if (isMarkdownAlertKind(alert)) {
+		const Icon = ALERT_ICONS[alert];
+		return (
+			<blockquote {...props} className="omp-md-alert">
+				<p className="omp-md-alert-title" data-alert-title>
+					<Icon aria-hidden className="size-[1.05em] shrink-0" />
+					{t(`markdown.alert.${alert}`)}
+				</p>
+				{children}
+			</blockquote>
+		);
+	}
 	return (
-		<blockquote
-			{...props}
-			className="border-l-2 border-[var(--omp-md-quote-border)] pl-3 text-[var(--omp-md-quote)] italic"
-		>
+		<blockquote {...props} className="border-l-2 border-[var(--omp-md-quote-border)] pl-3 text-[var(--omp-md-quote)]">
 			{children}
 		</blockquote>
 	);
@@ -404,11 +541,35 @@ function Hr(props: ComponentPropsWithoutRef<"hr">) {
 	return <hr {...props} className="border-[var(--omp-md-hr)] my-4" />;
 }
 
-function Li({ children, ...props }: ComponentPropsWithoutRef<"li">) {
+function Li({ children, className, node: _node, ...props }: ComponentPropsWithoutRef<"li"> & { node?: unknown }) {
+	// `task-list-item` (GFM, sanitize-pinned) trades the bullet for its checkbox in components.css.
 	return (
-		<li {...props} className="ml-4 [&::marker]:text-[var(--omp-md-list-bullet)]">
+		<li {...props} className={cx("ml-4 [&::marker]:text-[var(--omp-md-list-bullet)]", className)}>
 			{children}
 		</li>
+	);
+}
+
+/** A ```mermaid fence: the diagram (zoomable), with its source one switch away. */
+function MermaidFence({ code, showLineNumbers }: { code: string; showLineNumbers: boolean }) {
+	const [mode, setMode] = useState<PreviewMode>("preview");
+	return (
+		<div className="my-2 flex flex-col items-start gap-1.5" data-mermaid-fence>
+			<PreviewModeTabs mode={mode} onChange={setMode} />
+			<div className="self-stretch">
+				{mode === "preview" ? (
+					<MermaidBlock code={code} />
+				) : (
+					<SharedCodeBlock
+						code={code}
+						language="mermaid"
+						showLineNumbers={showLineNumbers}
+						maxHeightClass={PREVIEW_SCROLL_CODE}
+						showWrap
+					/>
+				)}
+			</div>
+		</div>
 	);
 }
 
@@ -416,29 +577,31 @@ const FENCE_LANGUAGE_RE = /(?:^|\s)language-(\S+)/;
 
 function Pre({ children }: ComponentPropsWithoutRef<"pre">) {
 	const showLineNumbers = useCodeLineNumbers();
-	// A mermaid fence swaps the whole block for a diagram with its own chrome —
-	// skip the <pre> wrapper so the diagram is not boxed like code.
-	if (isMermaidCodeElement(children)) return <>{children}</>;
-	// Every other fence renders through the shared CodeBlock: same language
-	// badge, copy button, gutter, and lazy highlighting as the tool cards. The
-	// fence's trailing newline never paints a visible line — strip it.
+	const streaming = useContext(MarkdownStreaming);
+	// Every fence renders through the shared CodeBlock: same language badge,
+	// copy button, gutter, and lazy highlighting as the tool cards. The fence's
+	// trailing newline never paints a visible line — strip it.
 	const codeClass =
 		isValidElement<{ className?: unknown }>(children) && typeof children.props.className === "string"
 			? children.props.className
 			: "";
 	const language = FENCE_LANGUAGE_RE.exec(codeClass)?.[1] ?? "plaintext";
 	const code = textOf(children).replace(/\n$/, "");
-	// ```svg (any case, as stock's TUI matches it) draws the figure; a fence
-	// still streaming stays code until the document parses.
-	if (language.toLowerCase() === "svg") {
-		return (
-			<SvgBlock
-				code={code}
-				showLineNumbers={showLineNumbers}
-				maxHeightClass={PREVIEW_SCROLL_CODE}
-				className="my-2"
-			/>
-		);
+	if (!streaming) {
+		// A mermaid fence draws its diagram with its own chrome, not boxed like code.
+		if (MERMAID_CLASS.test(codeClass)) return <MermaidFence code={code} showLineNumbers={showLineNumbers} />;
+		// ```svg (any case, as stock's TUI matches it) draws the figure; source
+		// that does not parse yet stays code until it does.
+		if (language.toLowerCase() === "svg") {
+			return (
+				<SvgBlock
+					code={code}
+					showLineNumbers={showLineNumbers}
+					maxHeightClass={PREVIEW_SCROLL_CODE}
+					className="my-2"
+				/>
+			);
+		}
 	}
 	return (
 		<SharedCodeBlock
@@ -447,6 +610,10 @@ function Pre({ children }: ComponentPropsWithoutRef<"pre">) {
 			showLineNumbers={showLineNumbers}
 			maxHeightClass={PREVIEW_SCROLL_CODE}
 			className="my-2"
+			// An unlabeled fence is plain text, as in stock's TUI: no hljs guess.
+			guessLanguage={false}
+			highlight={!streaming}
+			showWrap
 		/>
 	);
 }
@@ -595,7 +762,7 @@ function MarkdownMedia({ src, kind }: { src: unknown; kind: "video" | "audio" })
 }
 
 const COMPONENTS: Components = {
-	a: ExternalLink,
+	a: MarkdownLink,
 	table: StyledTable,
 	code: CodeBlock,
 	h1: H1,
@@ -619,6 +786,30 @@ const COMPONENTS: Components = {
 const rendered = new Map<string, ReactElement>();
 const RENDERED_LIMIT = 64;
 
+function buildMarkdown(
+	content: string,
+	singleDollarTextMath: boolean,
+	rawHtml: RehypePlugin | undefined,
+	katex: RehypePlugin | undefined,
+): ReactElement {
+	// react-markdown's component is a plain function of its props: calling it keeps the
+	// element tree it returns, which every later mount of the same source reuses.
+	return ReactMarkdown({
+		children: content,
+		remarkPlugins: singleDollarTextMath ? REMARK_PLUGINS : REMARK_PLUGINS_LITERAL_SINGLE_DOLLAR,
+		remarkRehypeOptions: REMARK_REHYPE_OPTIONS,
+		rehypePlugins: [
+			...(rawHtml ? [rawHtml] : []),
+			rehypeHeadingIds,
+			SANITIZE_STEP,
+			rehypeAlerts,
+			...(katex ? [katex] : []),
+		],
+		components: COMPONENTS,
+		urlTransform: URL_TRANSFORM,
+	});
+}
+
 function renderMarkdown(
 	content: string,
 	singleDollarTextMath: boolean,
@@ -632,15 +823,7 @@ function renderMarkdown(
 		rendered.set(key, cached);
 		return cached;
 	}
-	// react-markdown's component is a plain function of its props: calling it keeps the
-	// element tree it returns, which every later mount of the same source reuses.
-	const element = ReactMarkdown({
-		children: content,
-		remarkPlugins: singleDollarTextMath ? REMARK_PLUGINS : REMARK_PLUGINS_LITERAL_SINGLE_DOLLAR,
-		rehypePlugins: [...(rawHtml ? [rawHtml] : []), SANITIZE_STEP, ...(katex ? [katex] : [])],
-		components: COMPONENTS,
-		urlTransform: URL_TRANSFORM,
-	});
+	const element = buildMarkdown(content, singleDollarTextMath, rawHtml, katex);
 	rendered.set(key, element);
 	if (rendered.size > RENDERED_LIMIT) rendered.delete(rendered.keys().next().value ?? "");
 	return element;
@@ -660,16 +843,21 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
 	content,
 	codeLineNumbers,
 	singleDollarTextMath = true,
+	streaming = false,
 }: MarkdownRendererProps) {
 	const rawHtml = useLazyRehypeStep(RAW_HTML_STEP, content);
 	const katex = useLazyRehypeStep(KATEX_STEP, content);
+	// A streaming tail changes every frame: its renders would only evict the
+	// cached history replies, so it builds outside the cache.
 	const element = useMemo(
-		() => renderMarkdown(content, singleDollarTextMath, rawHtml, katex),
-		[content, singleDollarTextMath, rawHtml, katex],
+		() => (streaming ? buildMarkdown : renderMarkdown)(content, singleDollarTextMath, rawHtml, katex),
+		[content, singleDollarTextMath, rawHtml, katex, streaming],
 	);
 	return (
 		<div className="markdown-body text-[1em] leading-[1.5]">
-			<CodeLineNumbersOverride.Provider value={codeLineNumbers}>{element}</CodeLineNumbersOverride.Provider>
+			<MarkdownStreaming.Provider value={streaming}>
+				<CodeLineNumbersOverride.Provider value={codeLineNumbers}>{element}</CodeLineNumbersOverride.Provider>
+			</MarkdownStreaming.Provider>
 		</div>
 	);
 });

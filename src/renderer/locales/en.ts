@@ -1790,6 +1790,7 @@ export const en: Record<string, string> = {
 	"codeblock.lineNumbers": "Line numbers",
 	"codeblock.lineNumbersDesc": "Show a line-number gutter on code blocks in markdown messages.",
 	"codeblock.plainText": "Plain text",
+	"codeblock.wrap": "Wrap lines",
 	// Tool approval dialog
 	"approval.title": "Tool approval",
 	"approval.tier.read": "read",
@@ -2384,6 +2385,12 @@ export const en: Record<string, string> = {
 	"markdown.imageFailed": "Image couldn't load",
 	"markdown.remoteImage": "Remote image not loaded",
 	"markdown.remoteImageOpen": "Open",
+	"markdown.alert.note": "Note",
+	"markdown.alert.tip": "Tip",
+	"markdown.alert.important": "Important",
+	"markdown.alert.warning": "Warning",
+	"markdown.alert.caution": "Caution",
+	"markdown.localLinkFailed": "Couldn't open {url}",
 	"markdown.remoteMedia": "Remote media not loaded",
 	"chat.media.loading": "Loading media…",
 	"chat.media.unavailable": "File unavailable",
@@ -3296,6 +3303,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.worktreeLifecycle": "Per-session worktrees",
 	"bridgeHealth.feature.resetPasses": "Reset passes",
 	"bridgeHealth.feature.streamMetadata": "Read grouping and token rate",
+	"bridgeHealth.feature.visuals": "Diagram instructions (Mermaid, SVG)",
 
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
 	"compactionLimits.title": "Compaction limits",

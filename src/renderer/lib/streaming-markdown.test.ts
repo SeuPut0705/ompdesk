@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { segmentStreamingMarkdown } from "./streaming-markdown";
+import { renderableTail, segmentStreamingMarkdown } from "./streaming-markdown";
 
 describe("streaming Markdown segmentation", () => {
 	it("promotes complete paragraphs while leaving the unfinished tail mutable", () => {
@@ -75,5 +75,30 @@ describe("streaming Markdown segmentation", () => {
 		const result = segmentStreamingMarkdown(source);
 		expect(result.blocks).toEqual([]);
 		expect(result.tail).toBe(source);
+	});
+
+	it("reports an open display-math block, which the tail keeps as source", () => {
+		expect(segmentStreamingMarkdown("Text\n\n$$\na + b\n").mathOpen).toBe(true);
+		expect(segmentStreamingMarkdown("Text\n\n$$\na + b\n$$\n").mathOpen).toBe(false);
+		expect(segmentStreamingMarkdown("```\n$$\n").mathOpen).toBe(false);
+	});
+});
+
+describe("renderable streaming tail", () => {
+	it("holds back a last line that is only a marker still being typed", () => {
+		// A lone "-" under a paragraph would parse as a setext heading for a frame.
+		expect(renderableTail("Some text\n-")).toBe("Some text\n");
+		expect(renderableTail("Intro\n=")).toBe("Intro\n");
+		expect(renderableTail("Intro\n##")).toBe("Intro\n");
+		expect(renderableTail("Steps\n2.")).toBe("Steps\n");
+		expect(renderableTail("Quote\n>")).toBe("Quote\n");
+		expect(renderableTail("```")).toBe("");
+	});
+
+	it("keeps everything else, including a marker line that already has content", () => {
+		expect(renderableTail("Some text\n- item")).toBe("Some text\n- item");
+		expect(renderableTail("Plain words")).toBe("Plain words");
+		expect(renderableTail("Price 2")).toBe("Price 2");
+		expect(renderableTail("Done.\n")).toBe("Done.\n");
 	});
 });

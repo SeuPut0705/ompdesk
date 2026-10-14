@@ -1,8 +1,10 @@
+import type { HLJSApi } from "highlight.js";
+import { WrapText } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { cx, escapeHtml } from "../../lib/format";
 import { getLoadedHljs, HIGHLIGHT_CHAR_CAP, loadHljs } from "../../lib/highlight";
 import { useT } from "../../lib/i18n";
-import { CopyButton } from "../common";
+import { CopyButton, IconButton } from "../common";
 import { LineNumberGutter } from "./LineNumberGutter";
 
 export interface CodeBlockProps {
@@ -22,6 +24,15 @@ export interface CodeBlockProps {
 	lineNumbers?: readonly (number | null)[];
 	/** Cap the visible height; taller blocks scroll internally. */
 	maxHeightClass?: string;
+	/**
+	 * Guess the language with hljs when `language` is missing or unknown.
+	 * Markdown fences pass false: an unlabeled fence is plain text, as in stock's TUI.
+	 */
+	guessLanguage?: boolean;
+	/** Highlight at all; a fence still streaming stays plain until it closes. */
+	highlight?: boolean;
+	/** Offer the line-wrap toggle in the header. */
+	showWrap?: boolean;
 	className?: string;
 }
 
@@ -73,6 +84,12 @@ function languageLabel(lang: string): string {
 	return LANGUAGE_NAMES[lang] ?? `${lang.charAt(0).toUpperCase()}${lang.slice(1)}`;
 }
 
+/** hljs markup for `code`; null when it stays plain (unknown language and no guessing). */
+function highlightCode(hljs: HLJSApi, code: string, lang: string, guess: boolean): string | null {
+	if (lang !== "plaintext" && hljs.getLanguage(lang)) return hljs.highlight(code, { language: lang }).value;
+	return guess ? hljs.highlightAuto(code).value : null;
+}
+
 export function CodeBlock({
 	code,
 	language,
@@ -82,43 +99,41 @@ export function CodeBlock({
 	startLine,
 	lineNumbers,
 	maxHeightClass,
+	guessLanguage = true,
+	highlight = true,
+	showWrap = false,
 	className,
 }: CodeBlockProps) {
 	const t = useT();
 	const lang = normalizeLanguage(language);
+	const [wrap, setWrap] = useState(false);
+	const highlightable = highlight && !!code && code.length <= HIGHLIGHT_CHAR_CAP;
 	const [hlHtml, setHlHtml] = useState<string | null>(() => {
-		if (!code || code.length > HIGHLIGHT_CHAR_CAP) return null;
+		if (!highlightable || !code) return null;
 		const hljs = getLoadedHljs();
-		if (!hljs) return null;
-		return lang !== "plaintext" && hljs.getLanguage(lang)
-			? hljs.highlight(code, { language: lang }).value
-			: hljs.highlightAuto(code).value;
+		return hljs ? highlightCode(hljs, code, lang, guessLanguage) : null;
 	});
 
 	useEffect(() => {
-		if (!code || code.length > HIGHLIGHT_CHAR_CAP) return;
+		if (!highlightable || !code) return;
 
 		let cancelled = false;
 		void loadHljs().then(hljs => {
 			if (cancelled) return;
-			setHlHtml(
-				lang !== "plaintext" && hljs.getLanguage(lang)
-					? hljs.highlight(code, { language: lang }).value
-					: hljs.highlightAuto(code).value,
-			);
+			setHlHtml(highlightCode(hljs, code, lang, guessLanguage));
 		});
 		return () => {
 			cancelled = true;
 		};
-	}, [code, lang]);
+	}, [code, lang, guessLanguage, highlightable]);
 
-	// Lazy hljs output, or escaped plain code. Over-cap code must ignore any
-	// cached highlight from a previous shorter value — otherwise the old source
+	// Lazy hljs output, or escaped plain code. Over-cap or unhighlighted code must
+	// ignore any cached highlight from a previous value — otherwise the old source
 	// displays while Copy takes the new one.
 	const html = useMemo(() => {
 		if (code == null) return null;
-		return code.length > HIGHLIGHT_CHAR_CAP ? escapeHtml(code) : (hlHtml ?? escapeHtml(code));
-	}, [hlHtml, code]);
+		return highlightable ? (hlHtml ?? escapeHtml(code)) : escapeHtml(code);
+	}, [hlHtml, code, highlightable]);
 
 	const codeElement =
 		html != null ? (
@@ -134,6 +149,13 @@ export function CodeBlock({
 		for (let i = 0; i < code.length; i++) if (code[i] === "\n") n++;
 		return n;
 	}, [code]);
+	// Wrapped rows no longer line up with one gutter number per source line,
+	// so the gutter steps aside while wrapping is on.
+	const gutter = showLineNumbers && lineCount > 0 && !wrap;
+	const preClass = cx(
+		"px-3 py-3 font-mono text-sc-sm leading-(--sc-leading-normal)",
+		wrap ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "overflow-x-auto",
+	);
 
 	return (
 		<div
@@ -142,18 +164,35 @@ export function CodeBlock({
 				className,
 			)}
 		>
-			{(showLanguage || showCopy) && (
-				<div className="flex h-8 items-center gap-2 border-b border-(--sc-divider) ps-3 pe-1">
+			{(showLanguage || showCopy || showWrap) && (
+				<div className="flex h-8 items-center gap-1 border-b border-(--sc-divider) ps-3 pe-1">
 					{showLanguage && (
-						<span className="min-w-0 truncate text-sc-xs text-(--sc-text-muted)">
+						<span className="me-auto min-w-0 truncate text-sc-xs text-(--sc-text-muted)">
 							{lang === "plaintext" ? t("codeblock.plainText") : languageLabel(lang)}
 						</span>
 					)}
-					{showCopy && <CopyButton className="ms-auto" label={t("chat.copyCode")} text={code ?? ""} />}
+					{showWrap && (
+						<IconButton
+							className={showLanguage ? undefined : "ms-auto"}
+							data-code-wrap
+							icon={<WrapText />}
+							label={t("codeblock.wrap")}
+							onClick={() => setWrap(value => !value)}
+							pressed={wrap}
+							size="sm"
+						/>
+					)}
+					{showCopy && (
+						<CopyButton
+							className={showLanguage || showWrap ? undefined : "ms-auto"}
+							label={t("chat.copyCode")}
+							text={code ?? ""}
+						/>
+					)}
 				</div>
 			)}
 			<div className={cx("overflow-auto", maxHeightClass)}>
-				{showLineNumbers && lineCount > 0 ? (
+				{gutter ? (
 					<div className="flex">
 						<LineNumberGutter
 							lineCount={lineCount}
@@ -161,12 +200,10 @@ export function CodeBlock({
 							startLine={startLine}
 							className="px-2.5 py-3 text-sc-sm leading-(--sc-leading-normal)"
 						/>
-						<pre className="min-w-0 flex-1 overflow-x-auto px-3 py-3 font-mono text-sc-sm leading-(--sc-leading-normal)">
-							{codeElement}
-						</pre>
+						<pre className={cx("min-w-0 flex-1", preClass)}>{codeElement}</pre>
 					</div>
 				) : (
-					<pre className="overflow-x-auto px-3 py-3 font-mono text-sc-sm leading-(--sc-leading-normal)">
+					<pre className={preClass} data-code-wrapped={wrap || undefined}>
 						{codeElement}
 					</pre>
 				)}

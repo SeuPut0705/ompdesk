@@ -1778,6 +1778,7 @@ export const ko: Record<string, string> = {
 	"codeblock.lineNumbers": "줄 번호",
 	"codeblock.lineNumbersDesc": "마크다운 메시지의 코드 블록에 줄 번호를 표시해요.",
 	"codeblock.plainText": "일반 텍스트",
+	"codeblock.wrap": "줄 바꿈",
 	// Tool approval dialog
 	"approval.title": "도구 승인",
 	"approval.tier.read": "읽기",
@@ -2371,6 +2372,12 @@ export const ko: Record<string, string> = {
 	"markdown.imageFailed": "이미지를 불러올 수 없어요",
 	"markdown.remoteImage": "원격 이미지를 불러오지 않았어요",
 	"markdown.remoteImageOpen": "열기",
+	"markdown.alert.note": "참고",
+	"markdown.alert.tip": "팁",
+	"markdown.alert.important": "중요",
+	"markdown.alert.warning": "경고",
+	"markdown.alert.caution": "주의",
+	"markdown.localLinkFailed": "{url}을(를) 열 수 없어요",
 	"markdown.remoteMedia": "원격 미디어를 불러오지 않았어요",
 	"chat.media.loading": "미디어를 불러오는 중이에요…",
 	"chat.media.unavailable": "파일을 불러올 수 없어요",
@@ -3283,6 +3290,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.worktreeLifecycle": "세션별 워크트리",
 	"bridgeHealth.feature.resetPasses": "초기화권",
 	"bridgeHealth.feature.streamMetadata": "읽기 묶음과 토큰 속도",
+	"bridgeHealth.feature.visuals": "다이어그램 지침(Mermaid, SVG)",
 
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
 	"compactionLimits.title": "압축 한도",

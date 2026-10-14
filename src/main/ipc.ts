@@ -67,6 +67,7 @@ import { isUiLanguage } from "../shared/ui-language";
 import { requestQuit } from "./app-quit";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { openInExternalEditor } from "./editor";
+import { isOpenableExternalUrl } from "./external-url";
 import { mainT } from "./i18n";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "./launch-profile-store";
 import { renameStoredSession } from "./local/session-files";
@@ -752,10 +753,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		chrome: process.versions.chrome ?? "?",
 		node: process.versions.node ?? "?",
 	}));
-	ipcMain.handle(IPC_COMMANDS.SYSTEM_OPEN_EXTERNAL, async (_event, url: string) => {
-		if (typeof url === "string" && (url.startsWith("https://") || url.startsWith("http://"))) {
-			await shell.openExternal(url);
-		}
+	ipcMain.handle(IPC_COMMANDS.SYSTEM_OPEN_EXTERNAL, async (_event, url: unknown) => {
+		if (isOpenableExternalUrl(url)) await shell.openExternal(url);
 	});
 
 	// Tool-card path links — open a file in the system editor. "~" expands,

@@ -8,7 +8,8 @@
  * ------------------------------------------------------------------------- */
 /* A soft breathing dot at the end of the live text: present enough to say
  * "still writing", quiet enough not to read as a glyph or a cursor block. */
-.omp-caret {
+.omp-caret,
+.omp-streaming-tail--markdown > .markdown-body > :is(p, h1, h2, h3, h4, h5, h6):last-child::after {
 	position: relative;
 	top: -0.12em;
 	display: inline-block;
@@ -19,6 +20,15 @@
 	border-radius: var(--sc-radius-full);
 	background: var(--omp-streaming-cursor);
 	animation: omp-caret-breathe 1.2s var(--sc-ease-standard) infinite; /* motion-ok: caret loop */
+}
+
+/* The markdown tail carries its caret at the end of its last paragraph or
+ * heading; after any other block (list, code, table) it sits on its own line. */
+.omp-streaming-tail--markdown > .markdown-body > :is(p, h1, h2, h3, h4, h5, h6):last-child::after {
+	content: "";
+}
+.omp-streaming-tail--markdown:has(> .markdown-body > :is(p, h1, h2, h3, h4, h5, h6):last-child) > .omp-caret {
+	display: none;
 }
 
 @keyframes omp-caret-breathe {
@@ -36,7 +46,9 @@
  * into a markdown block at every paragraph boundary, and a size mismatch
  * reads as a visible jump mid-stream. Promotion must carry no entrance motion
  * either — those characters were already on screen, so fading them in from
- * transparent blinks the paragraph out and back. */
+ * transparent blinks the paragraph out and back. Plain tails (reasoning, an
+ * open display-math source) keep their line breaks; the markdown tail lays
+ * out as markdown. */
 .omp-streaming-tail {
 	min-height: 1.5em;
 	white-space: pre-wrap;
@@ -44,18 +56,9 @@
 	font-size: calc(var(--gui-font-size, 15px) * 14.5 / 15);
 	line-height: 1.7;
 }
-
-/* A commit appends one chunk and only flips the class on the previous one, so
- * revealed text never loses its node mid-motion. Transitions (not animations)
- * because the stream's commit cadence must be able to interrupt a fade without
- * restarting it, which is what made the old per-frame re-keyed reveal strobe. */
-.omp-streaming-chunk {
-	transition: opacity var(--sc-duration-med) var(--sc-ease-standard);
-}
-
-/* Only an opacity step: a blur made freshly revealed lines look out of focus. */
-.omp-streaming-reveal {
-	opacity: 0.72;
+.omp-streaming-tail--markdown {
+	white-space: normal;
+	overflow-wrap: normal;
 }
 
 
@@ -260,12 +263,111 @@
 	color: var(--omp-md-list-bullet);
 	font-weight: 600;
 }
+/* GFM task lists: the checkbox takes the bullet's place, as on GitHub. */
+.markdown-body .contains-task-list {
+	padding-inline-start: 0.2em;
+}
+.markdown-body .task-list-item .contains-task-list {
+	padding-inline-start: 1.6em;
+}
+.markdown-body li.task-list-item {
+	list-style: none;
+	margin-inline-start: 0;
+}
+/* Drawn, not native: a disabled native box greys out its own check, and these
+   are readonly by design (the state comes from the model), not unavailable. */
+.markdown-body .task-list-item input[type="checkbox"] {
+	appearance: none;
+	display: inline-grid;
+	place-content: center;
+	width: 0.95em;
+	height: 0.95em;
+	margin: 0 0.5em 0 0;
+	vertical-align: -0.12em;
+	border: 1px solid var(--sc-border-strong);
+	border-radius: var(--sc-radius-xs);
+}
+.markdown-body .task-list-item input[type="checkbox"]:checked {
+	border-color: var(--sc-accent);
+	background: var(--sc-accent);
+}
+.markdown-body .task-list-item input[type="checkbox"]:checked::before {
+	content: "";
+	width: 0.5em;
+	height: 0.26em;
+	border-left: 2px solid var(--sc-accent-fg);
+	border-bottom: 2px solid var(--sc-accent-fg);
+	transform: translateY(-0.06em) rotate(-45deg);
+}
 .markdown-body blockquote {
 	margin: 0.85em 0;
 	padding: 0.25em 0 0.25em 1.1em;
 	border-left: var(--sc-focus-width) solid var(--sc-border);
 	border-radius: 0;
 	color: var(--sc-text-secondary);
+}
+/* GitHub alerts (`> [!NOTE]`): the state color marks only the rule and the
+   label; the body stays prose. */
+.markdown-body blockquote.omp-md-alert {
+	border-left-color: var(--omp-md-alert-color);
+	color: var(--sc-text);
+}
+.omp-md-alert[data-alert="note"] {
+	--omp-md-alert-color: var(--sc-info);
+}
+.omp-md-alert[data-alert="tip"] {
+	--omp-md-alert-color: var(--sc-success);
+}
+.omp-md-alert[data-alert="important"] {
+	--omp-md-alert-color: var(--sc-accent);
+}
+.omp-md-alert[data-alert="warning"] {
+	--omp-md-alert-color: var(--sc-warning);
+}
+.omp-md-alert[data-alert="caution"] {
+	--omp-md-alert-color: var(--sc-danger);
+}
+.markdown-body .omp-md-alert-title {
+	display: flex;
+	align-items: center;
+	gap: 0.4em;
+	margin: 0 0 0.3em;
+	font-weight: 600;
+	color: var(--omp-md-alert-color);
+}
+/* In-page targets (headings, footnotes) stop clear of the pane's top edge. */
+.markdown-body [id] {
+	scroll-margin-top: var(--sc-space-4);
+}
+.markdown-body [id]:focus {
+	outline: none;
+}
+.markdown-body a[data-footnote-ref],
+.markdown-body a[data-footnote-backref] {
+	text-decoration: none;
+}
+.markdown-body sup:has(> a[data-footnote-ref]) {
+	font-size: 0.75em;
+	padding-inline-start: 0.1em;
+}
+.markdown-body section[data-footnotes] {
+	margin-top: 1.5em;
+	padding-top: 0.6em;
+	border-top: 1px solid var(--omp-md-hr);
+	font-size: 0.9em;
+	color: var(--sc-text-secondary);
+}
+/* The "Footnotes" label is for screen readers (GitHub's sr-only). */
+.markdown-body section[data-footnotes] > h2 {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	border: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
 }
 .markdown-body hr {
 	margin: 1.5em 0;
@@ -307,18 +409,21 @@
 	padding: 0.45em 0.75em;
 	text-align: start;
 }
+/* Headers keep the author's case and the table's size; `align` from the
+   delimiter row arrives as an inline text-align and wins over `start`. */
 .markdown-body th {
 	background: transparent;
 	font-weight: 600;
 	color: var(--omp-text-secondary);
-	font-size: calc(var(--gui-font-size, 15px) * 11 / 15);
-	text-transform: uppercase;
-	letter-spacing: 0.04em;
 }
 .markdown-body img {
 	max-width: 100%;
 	border-radius: var(--sc-radius-lg);
 	border: 1px solid var(--sc-border-subtle);
+}
+/* A diagram sits on its own chip; no second frame around the picture. */
+.markdown-body [data-mermaid-fence] img {
+	border: 0;
 }
 .markdown-body a {
 	color: var(--sc-accent);
@@ -362,13 +467,9 @@
 		background: none;
 		-webkit-text-fill-color: currentColor;
 	}
-	.omp-caret {
+	.omp-caret,
+	.omp-streaming-tail--markdown > .markdown-body > :is(p, h1, h2, h3, h4, h5, h6):last-child::after {
 		animation: none;
-	}
-	/* With transitions flattened, the reveal dim would itself strobe at the
-	 * commit cadence: dim for one frame, full for the next. */
-	.omp-streaming-reveal {
-		opacity: 1;
 	}
 }
 
@@ -2552,6 +2653,7 @@ button.omp-file-chip-name:hover {
    the markdown blocks inside hairline cards, whose padding owns their rhythm. */
 .omp-transcript-editorial .omp-transcript-content > .markdown-body:first-child > :first-child,
 .omp-transcript-editorial .omp-streaming > .omp-streaming-block:first-child > .markdown-body > :first-child,
+.omp-transcript-editorial .omp-streaming > .omp-streaming-tail:first-child > .markdown-body > :first-child,
 .omp-transcript-editorial
 	:is(.omp-user-bubble, .omp-tool-body, .omp-thinking-body, .omp-custom-turn, .omp-context-turn)
 	.markdown-body
@@ -2593,6 +2695,18 @@ button.omp-file-chip-name:hover {
 	border-radius: 0;
 	color: var(--sc-text-secondary);
 	font-style: normal;
+}
+
+.omp-transcript-editorial .markdown-body blockquote.omp-md-alert {
+	color: var(--sc-text);
+}
+
+.omp-transcript-editorial .markdown-body .contains-task-list {
+	padding-left: 0.2em;
+}
+
+.omp-transcript-editorial .markdown-body .task-list-item .contains-task-list {
+	padding-left: 1.6em;
 }
 
 .omp-transcript-editorial .markdown-body hr {

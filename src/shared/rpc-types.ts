@@ -244,6 +244,7 @@ export type RpcCommand =
 	/** A settled subagent's transcript from the session's artifacts dir, after stock's registry forgot it (relaunch). */
 	| { id?: string; type: "get_subagent_transcript"; subagentId: string; fromByte?: number }
 	| { id?: string; type: "write_local_paste"; content: string }
+	| { id?: string; type: "resolve_local_url"; url: string }
 	| { id?: string; type: "list_foreign_sessions"; source: "claude" | "codex" }
 	| { id?: string; type: "import_foreign_session"; source: "claude" | "codex"; foreignId: string }
 	| { id?: string; type: "fork_from"; entryId: string }

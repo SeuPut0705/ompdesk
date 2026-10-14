@@ -5,7 +5,7 @@
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { resolveLocalRoot } from "@oh-my-pi/pi-coding-agent/internal-urls/local-protocol";
+import { resolveLocalRoot, resolveLocalUrlToPath } from "@oh-my-pi/pi-coding-agent/internal-urls/local-protocol";
 import { MCPManager } from "@oh-my-pi/pi-coding-agent/mcp/manager";
 import {
 	createForeignSessionStore,
@@ -19,11 +19,20 @@ import { BUILTIN_SLASH_COMMANDS } from "@oh-my-pi/pi-coding-agent/slash-commands
 import type { TuiSlashCommandRuntime } from "@oh-my-pi/pi-coding-agent/slash-commands/types";
 import { directoryExists, getProjectDir, isEexist, withFileLock } from "@oh-my-pi/pi-utils";
 import { guard } from "./health";
-import type { BridgeMethods } from "./types";
+import type { BridgeEnv, BridgeMethods } from "./types";
 
 /** One field of the GUI's untyped params object. */
 function param(params: unknown, key: string): unknown {
 	return typeof params === "object" && params !== null && key in params ? params[key] : undefined;
+}
+
+/** The live session's `local://` root mapping, as stock's read tool sees it. */
+function localProtocolOptions(env: BridgeEnv) {
+	const manager = env.session().sessionManager;
+	return {
+		getArtifactsDir: () => manager.getArtifactsDir(),
+		getSessionId: () => manager.getSessionId(),
+	};
 }
 
 function foreignSource(params: unknown): ForeignSessionSource {
@@ -151,11 +160,7 @@ export const methods: BridgeMethods = {
 		"sessions.write_local_paste": async (params, env) => {
 			const content = param(params, "content");
 			if (typeof content !== "string") throw new Error("write_local_paste requires string content");
-			const manager = env.session().sessionManager;
-			const localRoot = resolveLocalRoot({
-				getArtifactsDir: () => manager.getArtifactsDir(),
-				getSessionId: () => manager.getSessionId(),
-			});
+			const localRoot = resolveLocalRoot(localProtocolOptions(env));
 			await fs.mkdir(localRoot, { recursive: true });
 			for (let counter = 1; ; counter++) {
 				const name = `paste-${counter}.md`;
@@ -166,6 +171,17 @@ export const methods: BridgeMethods = {
 					if (!isEexist(error)) throw error;
 				}
 			}
+		},
+
+		/**
+		 * `{url}` → the on-disk path of a `local://` link in the live session, through stock's own
+		 * resolution (Windows MAX_PATH shortening, root containment). Refuses anything else.
+		 */
+		"sessions.resolve_local_url": async (params, env) => {
+			const url = param(params, "url");
+			if (typeof url !== "string" || !/^local:/i.test(url))
+				throw new Error("resolve_local_url requires a local:// URL");
+			return { path: resolveLocalUrlToPath(url, localProtocolOptions(env)) };
 		},
 
 		/** `{cwd, command, prefix}` → a builtin slash command's argument candidates and inline hint. */

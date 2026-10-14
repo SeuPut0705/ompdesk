@@ -27,6 +27,7 @@ export const FEATURES = {
 	agentPause: "Agent pause",
 	modelPool: "Model pool",
 	replyLanguage: "Reply language",
+	visuals: "Diagram instructions (Mermaid, SVG)",
 	accountRotation: "Even account rotation",
 	thinkingDefault: "Auto thinking by default",
 	mcp: "MCP servers",
@@ -130,7 +131,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"extractLastLink()",
 			],
 			[`${AGENT}/utils/tool-choice`]: ["buildNamedToolChoice()"],
-			[`${AGENT}/internal-urls/local-protocol`]: ["resolveLocalRoot()"],
+			[`${AGENT}/internal-urls/local-protocol`]: ["resolveLocalRoot()", "resolveLocalUrlToPath()"],
 			[`${AGENT}/slash-commands/builtin-completions`]: ["buildMcpArgumentCompletions()"],
 			[`${AGENT}/slash-commands/builtin-registry`]: ["BUILTIN_SLASH_COMMANDS"],
 			[`${AGENT}/mcp/manager`]: ["MCPManager.instance()"],
@@ -320,6 +321,15 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** Only the public `before_agent_start` hook; no internals to probe. */
 	replyLanguage: {},
+	/** modes/visuals.ts: stock's Visuals prompt section, rendered with the tui.renderMermaid / tui.renderSvg settings. */
+	visuals: {
+		pkg: ["Settings.instance"],
+		modules: {
+			[`${AGENT}/modes/settings`]: ["cfgTuiRenderMermaid.get()", "cfgTuiRenderSvg.get()"],
+			[UTILS]: ["prompt.render()"],
+		},
+		prompts: ["system/system-prompt.md"],
+	},
 	/** account-rotation.ts: the even-rotation hook pins a session's account through public AuthStorage namespaces. */
 	accountRotation: {
 		pkg: ["AgentRegistry.global()", "AgentRegistry.prototype.get()"],

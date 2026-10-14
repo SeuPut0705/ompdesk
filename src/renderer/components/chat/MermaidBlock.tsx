@@ -11,6 +11,7 @@ import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import type { ResolvedTheme } from "../../lib/theme";
 import { Spinner } from "../common/Spinner";
+import { ZoomableImage } from "../common/ZoomableImage";
 import { CodeBlock } from "./CodeBlock";
 
 let mermaidPromise: Promise<Mermaid> | null = null;
@@ -73,6 +74,17 @@ function sanitizeSvg(svg: string): string {
 		scrub(node as Element);
 		node = walker.nextNode();
 	}
+	// Mermaid sizes the root `width="100%"` with a CSS max-width: as an <img>
+	// that leaves no intrinsic width, so a shrink-to-fit container (the zoom
+	// button) collapses it to nothing. The viewBox carries the natural size.
+	const [, , width, height] = (root.getAttribute("viewBox") ?? "")
+		.trim()
+		.split(/[\s,]+/)
+		.map(Number);
+	if (width && height && Number.isFinite(width) && Number.isFinite(height)) {
+		root.setAttribute("width", String(width));
+		root.setAttribute("height", String(height));
+	}
 	return new XMLSerializer().serializeToString(root);
 }
 
@@ -134,10 +146,15 @@ interface MermaidImageProps {
 	alt: string;
 }
 
+/** The diagram as an image that opens full size on click (fit, then actual size). */
 function MermaidImage({ svg, alt }: MermaidImageProps) {
 	const [url] = useState(() => URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })));
 	useEffect(() => () => URL.revokeObjectURL(url), [url]);
-	return <img src={url} alt={alt} className="mx-auto block h-auto max-w-full" />;
+	return (
+		<div className="flex justify-center">
+			<ZoomableImage src={url} alt={alt} className="block h-auto max-w-full" />
+		</div>
+	);
 }
 
 export interface MermaidBlockProps {

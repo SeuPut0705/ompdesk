@@ -1283,6 +1283,12 @@ if (process.argv[2] === "stats") {
 			return null;
 		},
 		"sessions.arg_completions": () => ({ items: [] }),
+		// Stock resolves `local://` under the session's artifacts; the fixture uses `<cwd>/local`.
+		"sessions.resolve_local_url": params => {
+			const url = String(params.url);
+			if (!/^local:/i.test(url)) throw new Error("resolve_local_url requires a local:// URL");
+			return { path: nodePath.join(process.cwd(), "local", url.replace(/^local:\/*/i, "")) };
+		},
 		"sessions.usage_history": () => ({
 			input: 0,
 			output: 0,
@@ -1415,6 +1421,62 @@ TPS_{\\text{decode}}
 \\[
 T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\text{输入预处理}} + T_{\\text{输入分词}} + T_{\\text{首令牌等待}} + \\frac{N_{\\text{输出令牌总数}}-1}{TPS_{\\text{decode}}} + T_{\\text{结果后处理}} + T_{\\text{客户端渲染}}
 \\]`;
+	// GitHub-flavored structure as a model writes it: anchors, local/mail links,
+	// task list, aligned table, the five alerts, a plain quote, unlabeled and
+	// labeled fences, a mermaid fence and footnotes.
+	const MARKDOWN_REPLY = [
+		"## Release checklist",
+		"",
+		"Jump to [the notes](#notes), open [the plan](local://PLAN.md), or write to [the team](mailto:team@example.com).",
+		"",
+		"- [x] Types pass",
+		"- [ ] Captures in both themes",
+		"",
+		"| Step | Count | Owner |",
+		"|:-----|:-----:|------:|",
+		"| Build | 3 | ci |",
+		"| Review | 12 | Kim |",
+		"",
+		"> [!NOTE]",
+		"> Notes stay readable.",
+		"",
+		"> [!TIP]",
+		"> Tips mark their rule only.",
+		"",
+		"> [!IMPORTANT]",
+		"> Important carries the accent.",
+		"",
+		"> [!WARNING]",
+		"> Back up first.",
+		"",
+		"> [!CAUTION]",
+		"> This cannot be undone.",
+		"",
+		"> A plain quote stays upright.",
+		"",
+		"```",
+		"function plain() { return 'no guessed colors'; }",
+		"```",
+		"",
+		"```ts",
+		"const answer: number = 42; // a long line that runs past the edge of the block so wrapping has something to do",
+		"```",
+		"",
+		"```mermaid",
+		"graph LR",
+		"  Plan --> Build --> Ship",
+		"```",
+		"",
+		"### Notes",
+		"",
+		"Footnotes link both ways.[^1]",
+		"",
+		"[^1]: Refs and backrefs point at each other.",
+	].join("\n");
+	// Streamed and then held mid-paragraph: the live tail must render, not show markers.
+	const MARKDOWN_STREAM =
+		"## Live answer\n\nThe first block is done.\n\nStreaming **bold**, `code` and a [link](https://example.com) render live while the";
+
 	// An svg fence as stock omp teaches models to write it (theme tokens), plus
 	// a script and an onload handler the preview must never run.
 	const SVG_REPLY = [
@@ -2807,6 +2869,27 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			endTurn([user, call, result, answer]);
 		} else if (message === "fixture stream" || message === "fixture meter") {
 			const answer: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
+		} else if (message === "fixture markdown stream") {
+			// Streams MARKDOWN_STREAM in small deltas, then holds the turn open
+			// (`fixture:finish` ends it) so the live tail can be inspected.
+			const answer: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
+			write({ type: "message_start", message: answer });
+			let sent = 0;
+			clearInterval(streamTimer);
+			streamTick = undefined;
+			streamTimer = setInterval(() => {
+				const delta = MARKDOWN_STREAM.slice(sent, sent + 12);
+				if (!delta) {
+					clearInterval(streamTimer);
+					return;
+				}
+				sent += delta.length;
+				write({
+					type: "message_update",
+					message: answer,
+					assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta, partial: answer },
+				});
+			}, 16);
 			write({ type: "message_start", message: answer });
 			streamChunks = 0;
 			streamTick = () => {
@@ -3034,7 +3117,9 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 									? "Here is the chart:\n\n![chart](pixel.png)"
 									: message === "fixture svg"
 										? SVG_REPLY
-										: "Local fixture reply",
+										: message === "fixture markdown"
+											? MARKDOWN_REPLY
+											: "Local fixture reply",
 					},
 				],
 				timestamp: Date.now(),

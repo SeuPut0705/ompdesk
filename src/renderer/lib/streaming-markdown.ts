@@ -8,6 +8,8 @@ export interface StreamingMarkdownSegments {
 	blocks: StableMarkdownBlock[];
 	tail: string;
 	tailStart: number;
+	/** The tail ends inside a display-math block (`$$` / `\[`), which only typesets once closed. */
+	mathOpen: boolean;
 }
 
 interface FenceState {
@@ -156,5 +158,20 @@ export function segmentStreamingMarkdown(text: string): StreamingMarkdownSegment
 		blocks,
 		tail: text.slice(blockStart),
 		tailStart: blockStart,
+		mathOpen: displayMath !== null,
 	};
+}
+
+/** A line that is nothing but a block marker still being typed: `-`, `##`, `2.`, `>`, a fence, a rule. */
+const PARTIAL_MARKER_LINE = /(?:^|\n)[ \t]*(?:[-*+=#>_~`|]+|\d{1,9}[.)]?)[ \t]*$/;
+
+/**
+ * The tail as it may render this frame: a last line holding only a marker is
+ * held back until it has content, so a lone `-` under a paragraph never flashes
+ * as a setext heading, nor `##` as an empty heading or `2.` as a new list.
+ */
+export function renderableTail(tail: string): string {
+	const match = PARTIAL_MARKER_LINE.exec(tail);
+	if (!match) return tail;
+	return tail.slice(0, match.index + (match[0].startsWith("\n") ? 1 : 0));
 }
