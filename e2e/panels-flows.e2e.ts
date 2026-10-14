@@ -269,6 +269,13 @@ test("remote pairing flow", async () => {
 			timeout: 60_000,
 		});
 		await b2.shoot("peer-back");
+		// At the smallest window the row truncates "Last seen …"; hover still names it in full.
+		await resize(host.app, 800, 640);
+		const peerRow = host.page.locator("[data-remote-peers] [data-remote-peer]");
+		await expect(peerRow.locator('[title^="Last seen"]')).toHaveCount(1);
+		await expect(peerRow.locator("[title]").first()).toHaveAttribute("title", /\S/);
+		await b2.shoot("peer-back-800");
+		await resize(host.app, 1440, 900);
 		await host.page.getByRole("button", { name: /^Remove / }).click();
 		const revoke = host.page.getByRole("dialog").or(host.page.getByRole("alertdialog"));
 		await expect(revoke).toBeVisible();
@@ -651,6 +658,14 @@ for (const [language, theme] of [
 				await rec.shoot(`stats-tab-${index}`);
 			}
 			rec.notes.push(`stats text: ${(await stats.innerText()).slice(0, 400).replace(/\s+/g, " ")}`);
+			// Usage: stock's provider name and the limit windows in the UI language, never ids.
+			await stats.getByRole("tab", { name: language === "ko" ? "사용량" : "Usage", exact: true }).click();
+			const card = stats.locator("section").filter({ hasText: "work@example.com" }).first();
+			await expect(card.locator("h3")).toHaveText("Anthropic");
+			await expect(card).toContainText(language === "ko" ? "5시간 한도" : "5-hour limit");
+			await expect(card).toContainText(language === "ko" ? "주간 한도" : "Weekly limit");
+			await expect(card).not.toContainText(/\banthropic\b|Claude 5 Hour|Week\b/);
+			await rec.shoot("stats-usage");
 
 			// Agents: every tab, then the pull requests at the smallest window.
 			await page.locator('[data-sidebar-destinations] button[data-destination="agents"]').click();

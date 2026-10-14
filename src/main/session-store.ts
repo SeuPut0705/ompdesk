@@ -17,6 +17,7 @@ const sessionRows = z.array(
 		size: z.number(),
 		status: z.enum(["complete", "interrupted", "aborted", "error", "pending", "unknown"]).default("unknown"),
 		firstMessage: z.string(),
+		parentSessionPath: z.string().optional(),
 	}),
 );
 

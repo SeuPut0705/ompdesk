@@ -35,6 +35,7 @@ import type {
 import { cx, formatTokens } from "../../lib/format";
 import { useLang, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { usageLimitLabel } from "../../lib/usage-labels";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
@@ -564,10 +565,10 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 											{row.quota && (
 												<span
 													className="block w-20"
-													title={`${t("modelCompare.col.quota")}: ${row.quota.limit.label}${row.quota.limit.windowLabel ? ` · ${row.quota.limit.windowLabel}` : ""}`}
+													title={`${t("modelCompare.col.quota")}: ${usageLimitLabel(row.quota.limit, t)}`}
 												>
 													<ProgressBar
-														ariaLabel={`${t("modelCompare.col.quota")}: ${row.quota.limit.label}`}
+														ariaLabel={`${t("modelCompare.col.quota")}: ${usageLimitLabel(row.quota.limit, t)}`}
 														height={3}
 														value={row.quota.fraction}
 														valueText=""

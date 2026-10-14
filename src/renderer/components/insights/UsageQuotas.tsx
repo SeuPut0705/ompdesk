@@ -15,6 +15,8 @@ import { formatDuration } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { usageLimitLabel } from "../../lib/usage-labels";
+import { useModelStore } from "../../stores/model";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useUiStore } from "../../stores/ui";
@@ -65,12 +67,11 @@ function Notes({ notes }: { notes: string[] | undefined }) {
 function LimitRow({ limit, t, now }: { limit: UsageLimit; t: Translate; now: number }) {
 	const fraction = limit.usedFraction ?? (limit.used !== undefined && limit.limit ? limit.used / limit.limit : 0);
 	const countdown = resetCountdown(limit.resetsAt, t, now);
+	const label = usageLimitLabel(limit, t);
 	return (
 		<li className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0">
 			<div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
-				<span className="min-w-0 flex-1 basis-32 text-sc-md font-medium break-words text-(--sc-text)">
-					{limit.label}
-				</span>
+				<span className="min-w-0 flex-1 basis-32 text-sc-md font-medium break-words text-(--sc-text)">{label}</span>
 				<div className="ml-auto flex flex-wrap items-center justify-end gap-2">
 					{limit.status && limit.status !== "ok" && (
 						<Badge variant={limit.status === "exhausted" ? "error" : "warning"}>
@@ -80,7 +81,7 @@ function LimitRow({ limit, t, now }: { limit: UsageLimit; t: Translate; now: num
 					<span className="text-sc-sm tabular-nums text-(--sc-text-secondary)">{limitValueText(limit, t)}</span>
 				</div>
 			</div>
-			<ProgressBar ariaLabel={limit.label} value={fraction} valueText="" />
+			<ProgressBar ariaLabel={label} value={fraction} valueText="" />
 			{countdown && <span className="text-sc-xs text-(--sc-text-muted)">{countdown}</span>}
 			<Notes notes={limit.notes} />
 		</li>
@@ -101,10 +102,14 @@ function ProviderReportCard({
 	onRedeemed: () => Promise<readonly UsageLimit[] | undefined>;
 }) {
 	const limits = Array.isArray(report.limits) ? report.limits : [];
+	// Stock's provider display name (the catalog's login names); the id when the catalog has none.
+	const providerName = useModelStore(
+		state => state.providers.find(provider => provider.id === report.provider)?.name ?? report.provider,
+	);
 	return (
 		<section className="flex flex-col gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-4">
 			<header className="flex flex-wrap items-center gap-x-3 gap-y-1">
-				<h3 className="min-w-0 text-sc-md font-semibold break-words text-(--sc-text)">{report.provider}</h3>
+				<h3 className="min-w-0 text-sc-md font-semibold break-words text-(--sc-text)">{providerName}</h3>
 				{report.account && (
 					<span className="min-w-0 text-sc-sm break-all text-(--sc-text-muted)">{report.account}</span>
 				)}
@@ -113,14 +118,14 @@ function ProviderReportCard({
 			{report.resetPasses &&
 				(report.credentialId !== undefined ? (
 					<ResetPassControl
-						account={report.account ?? report.provider}
+						account={report.account ?? providerName}
 						credentialId={report.credentialId}
 						disabled={!ready}
 						limits={limits}
 						onRedeemed={onRedeemed}
 						passes={report.resetPasses}
 						providerId={report.provider}
-						providerName={report.provider}
+						providerName={providerName}
 					/>
 				) : (
 					<Badge className="self-start" variant="info">
@@ -149,6 +154,10 @@ export function UsageQuotas() {
 	const [reports, setReports] = useState<UsageReport[] | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
+	const refreshProviders = useModelStore(s => s.refreshProviders);
+	// Read through a ref: the catalog arriving must not change `load` and re-read the quotas.
+	const providerCount = useRef(0);
+	providerCount.current = useModelStore(s => s.providers.length);
 	const now = useNowTick(true);
 
 	/** The tab/session a quota read was issued for. A late response from a tab
@@ -180,6 +189,8 @@ export function UsageQuotas() {
 					? data.reports
 					: [];
 			setReports(next);
+			// The cards name providers from the catalog; read it once when nothing has yet.
+			if (next.length > 0 && providerCount.current === 0) void refreshProviders(false).catch(() => undefined);
 			return next;
 		} catch (cause) {
 			if (ownerRef.current === owner) setError(String(cause));
@@ -187,7 +198,7 @@ export function UsageQuotas() {
 		} finally {
 			if (ownerRef.current === owner) setLoading(false);
 		}
-	}, [ready, t, tabId, sessionId, tabRpc.getUsage]);
+	}, [ready, t, tabId, sessionId, tabRpc.getUsage, refreshProviders]);
 
 	// Mounting and moving to another tab behind the page are the two moments
 	// that need a fresh read; `load` identity tracks the tab, its session and

@@ -36,15 +36,18 @@ async function seedSessions(agent: string, projects: string[], count: number): P
 		Array.from({ length: count }, async (_, index) => {
 			const cwd = projects[index % 5 === 4 ? 2 : index % 3 === 2 ? 1 : 0] ?? projects[0];
 			const word = WORDS[index % WORDS.length];
+			// s-001 is a branch of s-000: stock gives the fork the parent's title and a `parentSession`.
+			const forkOf = index === 1 ? path.join(dir, "s-000.jsonl") : undefined;
+			const titleIndex = forkOf ? 0 : index;
 			const title =
-				index % 17 === 5
-					? `Investigate why the ${word} workflow sometimes stalls on the Windows packaging step (${index})`
-					: `Session ${String(index).padStart(3, "0")} · ${word}`;
+				titleIndex % 17 === 5
+					? `Investigate why the ${word} workflow sometimes stalls on the Windows packaging step (${titleIndex})`
+					: `Session ${String(titleIndex).padStart(3, "0")} · ${WORDS[titleIndex % WORDS.length]}`;
 			const time = new Date(Date.now() - (index * 37 + 3) * 60_000).toISOString();
 			const id = `s-${String(index).padStart(3, "0")}`;
 			const lines = [
 				{ type: "title", v: 1, title, updatedAt: time },
-				{ type: "session", version: 3, id, timestamp: time, cwd },
+				{ type: "session", version: 3, id, timestamp: time, cwd, ...(forkOf ? { parentSession: forkOf } : {}) },
 				{
 					type: "message",
 					id: "entry-1",
@@ -227,6 +230,17 @@ for (const [language, theme] of VARIANTS) {
 			await expect.poll(() => rows.count(), { timeout: 30_000 }).toBeGreaterThan(40);
 			await page.waitForTimeout(400);
 			notes.push(`rows rendered at launch: ${await rows.count()}`);
+			// The branch and its source share a title; the fork is marked and names its source, as stock's list does.
+			const twins = rows.filter({ hasText: "Session 000 · auth" });
+			await expect(twins).toHaveCount(2);
+			const forkRow = twins.filter({ has: page.locator("[data-sidebar-fork]") });
+			await expect(forkRow).toHaveCount(1);
+			await expect(forkRow.locator("button").first()).toHaveAttribute(
+				"title",
+				language === "ko"
+					? "Session 000 · auth\n“Session 000 · auth”에서 포크한 세션"
+					: "Session 000 · auth\nForked from “Session 000 · auth”",
+			);
 			await shoot("loaded");
 			// Expand every project, then scroll to the end of the list. Each click
 			// re-renders the headers, so always take the first collapsed one afresh.

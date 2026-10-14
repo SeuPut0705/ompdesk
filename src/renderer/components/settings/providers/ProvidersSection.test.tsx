@@ -376,6 +376,25 @@ describe("ProvidersSection", () => {
 		expect(text()).toContain(translate("providerList.noModels"));
 	});
 
+	it("tells a keyless models.yml entry with models that it needs a key, not that it has no models", async () => {
+		// The real omp (stock auth: apiKey by default) lists no models for an entry without a key.
+		const model = { id: "local-model" };
+		listProviders.mockResolvedValueOnce({
+			providers: [
+				config("keyless", { hasApiKey: false, models: [model] }),
+				config("open-server", { hasApiKey: false, auth: "none", models: [model] }),
+			],
+			options: fixtureProviderOptions,
+		});
+		getProviders.mockResolvedValueOnce(providersResponse(snapshot([row("anthropic")], { generation: 5 })));
+		useSessionStore.setState({ status: "ready" });
+		await mount(<ProvidersSection />);
+		const rowText = (id: string) => document.querySelector(`[data-custom-provider="${id}"]`)?.textContent ?? "";
+		expect(rowText("keyless")).toContain(translate("providerList.needsKey"));
+		expect(rowText("keyless")).not.toContain(translate("providerList.noModels"));
+		expect(rowText("open-server")).toContain(translate("providerList.notLoaded"));
+	});
+
 	it("collapses the long tail behind one button and searches across all of it", async () => {
 		const tail = Array.from({ length: 30 }, (_, index) =>
 			row(`tail-${index}`, { authenticated: false, loginAvailable: true }),
@@ -710,8 +729,12 @@ describe("ProviderAccounts", () => {
 		expect(body).toContain("home@example.com");
 		expect(body).toContain(translate("providers.accounts.inUse"));
 		expect(body.split(translate("providers.accounts.inUse")).length).toBe(2);
-		expect(body).toContain(translate("providers.accounts.windowLeft", { window: "Claude 5 Hour", percent: 94 }));
-		expect(body).toContain(translate("providers.accounts.windowLeft", { window: "Claude 7 Day", percent: 39 }));
+		expect(body).toContain(
+			translate("providers.accounts.windowLeft", { window: translate("usage.limit.5h"), percent: 94 }),
+		);
+		expect(body).toContain(
+			translate("providers.accounts.windowLeft", { window: translate("usage.limit.weekly"), percent: 39 }),
+		);
 		// One bar per reported window, filled by the used share.
 		const bars = Array.from(document.querySelectorAll('[role="progressbar"]'));
 		expect(bars.map(bar => bar.getAttribute("aria-valuenow"))).toEqual(["0.06", "0.61"]);

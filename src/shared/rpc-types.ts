@@ -1710,6 +1710,8 @@ export interface UsageLimit {
 	limit?: number;
 	unit?: string;
 	remainingFraction?: number;
+	/** Stock's canonical window id (`5h`, `7d`, `monthly`, …): names the window in the UI language. */
+	windowId?: string;
 	windowLabel?: string;
 	resetsAt?: number;
 	status?: string;

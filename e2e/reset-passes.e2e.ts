@@ -80,7 +80,9 @@ test("shows each account's reset passes and spends one after confirming", async 
 	await home.getByRole("button", { name: "Use a reset pass for home@example.com" }).click();
 	const dialog = page.getByRole("dialog", { name: "Use a reset pass?" });
 	await expect(dialog).toContainText("This spends 1 of the 2 reset passes on home@example.com (Anthropic).");
-	await expect(dialog).toContainText("Requests a reset of: 5h. The provider decides whether it can be applied.");
+	await expect(dialog).toContainText(
+		"Requests a reset of: 5-hour limit. The provider decides whether it can be applied.",
+	);
 	await expect(dialog).toContainText("Pass: One free rate limit reset");
 	await expect(dialog).toContainText("claudeResets.autoRedeem");
 	await expect(dialog).toContainText("A used pass can't be returned.");
@@ -89,12 +91,12 @@ test("shows each account's reset passes and spends one after confirming", async 
 	await dialog.getByRole("button", { name: "Use reset", exact: true }).click();
 	await expect(dialog).toHaveCount(0);
 	await expect(page.getByText("Reset applied for home@example.com")).toBeVisible();
-	await expect(page.getByText("Now: 5h 100% left · Week 36% left")).toBeVisible();
+	await expect(page.getByText("Now: 5-hour limit 100% left · Weekly limit 36% left")).toBeVisible();
 
 	// The account's quota and passes come back refreshed: 5h free again, one pass left, nothing to spend it on.
 	await expect(home).toContainText("1 reset pass · expires");
 	await expect(home.getByRole("button", { name: "Use a reset pass for home@example.com" })).toBeDisabled();
-	await expect(settings.getByText("5h 100% left")).toBeVisible();
+	await expect(settings.getByText("5-hour limit 100% left")).toBeVisible();
 	const redeems = await recorded("reset_pass_redeem");
 	expect(redeems).toHaveLength(1);
 	expect(redeems[0]).toMatchObject({ providerId: "anthropic", credentialId: 2, creditId: "grant-home-1" });

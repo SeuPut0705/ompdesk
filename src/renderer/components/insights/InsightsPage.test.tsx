@@ -9,6 +9,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { SessionStats } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
+import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 
@@ -124,6 +125,7 @@ afterEach(async () => {
 	container.remove();
 	useUiStore.setState({ destination: "session", insightsTab: "stats", insightsStatsScope: "session" });
 	useSessionStore.getState().reset();
+	useModelStore.setState({ providers: [] });
 });
 
 describe("InsightsPage", () => {
@@ -210,5 +212,59 @@ describe("InsightsPage", () => {
 		expect(home).toBeDefined();
 		expect(work).not.toContain("In use");
 		expect(home).toContain("In use");
+	});
+
+	it("names the provider and its windows the way stock displays them, not by id", async () => {
+		const omp = installOmp();
+		useModelStore.setState({
+			providers: [
+				{
+					id: "anthropic",
+					name: "Anthropic (Claude Pro/Max)",
+					authenticated: true,
+					modelCount: 3,
+					loginAvailable: true,
+					disabled: false,
+				},
+			],
+		});
+		omp.getUsage.mockResolvedValue({
+			type: "response",
+			command: "get_usage",
+			success: true,
+			data: {
+				reports: [
+					{
+						provider: "anthropic",
+						fetchedAt: 1,
+						account: "work@example.com",
+						limits: [
+							{
+								id: "anthropic:5h",
+								label: "Claude 5 Hour",
+								windowId: "5h",
+								windowLabel: "5 Hour",
+								usedFraction: 0.2,
+							},
+							{
+								id: "anthropic:7d",
+								label: "Claude 7 Day",
+								windowId: "7d",
+								windowLabel: "7 Day",
+								usedFraction: 0.4,
+							},
+						],
+					},
+				],
+			},
+		});
+		useSessionStore.getState().setStatus("ready", "/repo");
+		useUiStore.getState().openInsights("usage");
+		await mount();
+		const card = document.querySelector("section");
+		expect(card?.querySelector("h3")?.textContent).toBe("Anthropic (Claude Pro/Max)");
+		expect(card?.textContent).toContain("5-hour limit");
+		expect(card?.textContent).toContain("Weekly limit");
+		expect(card?.textContent).not.toContain("Claude 5 Hour");
 	});
 });

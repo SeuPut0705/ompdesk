@@ -81,6 +81,8 @@ export async function listSessionsReadOnly(dir: string): Promise<unknown[]> {
 					size: stamp.size,
 					firstMessage,
 					status: messages.at(-1)?.message.role === "assistant" ? "complete" : "pending",
+					// Stock session-listing: `parentSessionPath: header.parentSession` (set on a fork).
+					...(typeof header.parentSession === "string" ? { parentSessionPath: header.parentSession } : {}),
 				};
 			}),
 	);

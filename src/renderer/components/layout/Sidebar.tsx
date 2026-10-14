@@ -16,6 +16,7 @@ import {
 	Folder,
 	FolderOpen,
 	FolderPlus,
+	GitBranch,
 	GitBranchPlus,
 	Info,
 	Keyboard,
@@ -404,6 +405,16 @@ export function Sidebar() {
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const { sessions, isLoading, error: listError, refresh, deleteSession, renameSession } = useSessionList("global");
+	// Stock lists a fork under its parent's title and marks it (`fork`, "Forked from …"); a fork's
+	// `parentSessionPath` holds the parent's file path or, after a move, its id.
+	const sessionsByPathOrId = useMemo(() => {
+		const index = new Map<string, SessionInfo>();
+		for (const session of sessions) {
+			index.set(session.path, session);
+			index.set(session.id, session);
+		}
+		return index;
+	}, [sessions]);
 	const sessionId = useSessionStore(s => s.sessionId);
 	const sessionName = useSessionStore(s => s.sessionName);
 	const sessionFile = useSessionStore(s => s.sessionFile);
@@ -865,6 +876,12 @@ export function Sidebar() {
 							? t("sidebar.row.open")
 							: null);
 		const title = sessionDisplayTitle(session, indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
+		const parent = session.parentSessionPath ? sessionsByPathOrId.get(session.parentSessionPath) : undefined;
+		const forkLabel = session.parentSessionPath
+			? parent
+				? t("sidebar.row.forkedFrom", { name: sessionDisplayTitle(parent, t("sidebar.untitled")) })
+				: t("sidebar.row.fork")
+			: null;
 		const pinned = pinnedSessions.includes(session.path);
 		// Renaming is safe mid-run (stock applies it live); deleting is not.
 		const deletable = indexed && !busy;
@@ -916,6 +933,8 @@ export function Sidebar() {
 			<MessageCircle aria-hidden data-sidebar-session-icon />
 		) : pinned && !done ? (
 			<Pin aria-label={t("sidebar.pinned")} />
+		) : forkLabel && !done ? (
+			<GitBranch aria-hidden data-sidebar-fork />
 		) : (
 			<span aria-hidden className="flex size-(--sc-icon-md) items-center justify-center" data-sidebar-session-icon>
 				{done ? (
@@ -1019,10 +1038,11 @@ export function Sidebar() {
 					title={
 						<>
 							{title}
+							{forkLabel && <span className="sr-only">, {forkLabel}</span>}
 							{statusLabel && <span className="sr-only">, {statusLabel}</span>}
 						</>
 					}
-					titleText={title}
+					titleText={forkLabel ? `${title}\n${forkLabel}` : title}
 					trailing={openTabId ? <SidebarSubagentsToggle sessionKey={session.path} tabId={openTabId} /> : undefined}
 				/>
 				{openTabId && <SidebarSubagents nested={nested} sessionKey={session.path} tabId={openTabId} />}

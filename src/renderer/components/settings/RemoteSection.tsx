@@ -290,38 +290,46 @@ export function RemoteSection() {
 						<SettingsRow label={t("remote.host.peers")}>
 							{host.peers.length > 0 ? (
 								<div className="flex flex-col gap-px" data-remote-peers>
-									{host.peers.map(peer => (
-										<ListRow
-											description={
-												peer.lastSeenAt === null
-													? t("remote.host.neverSeen")
-													: t("remote.host.lastSeen", {
-															time: formatTimeAgo(new Date(peer.lastSeenAt).toISOString()),
-														})
-											}
-											key={peer.deviceId}
-											leading={<Monitor aria-hidden />}
-											meta={
-												<Badge dot variant={peer.online ? "success" : "muted"}>
-													{t(peer.online ? "remote.state.online" : "remote.state.offline")}
-												</Badge>
-											}
-											rowProps={{ "data-remote-peer": peer.deviceId }}
-											title={peer.name}
-											trailing={
-												<Button
-													aria-label={t("remote.removeLabel", { name: peer.name })}
-													onClick={() =>
-														setPendingRemove({ kind: "peer", deviceId: peer.deviceId, name: peer.name })
-													}
-													size="sm"
-													variant="ghost"
-												>
-													{t("remote.remove")}
-												</Button>
-											}
-										/>
-									))}
+									{host.peers.map(peer => {
+										const seen =
+											peer.lastSeenAt === null
+												? t("remote.host.neverSeen")
+												: t("remote.host.lastSeen", {
+														time: formatTimeAgo(new Date(peer.lastSeenAt).toISOString()),
+													});
+										return (
+											<ListRow
+												// A narrow window truncates both lines; hover names them in full.
+												description={<span title={seen}>{seen}</span>}
+												key={peer.deviceId}
+												leading={<Monitor aria-hidden />}
+												meta={
+													<Badge dot variant={peer.online ? "success" : "muted"}>
+														{t(peer.online ? "remote.state.online" : "remote.state.offline")}
+													</Badge>
+												}
+												rowProps={{ "data-remote-peer": peer.deviceId }}
+												title={peer.name}
+												titleText={peer.name}
+												trailing={
+													<Button
+														aria-label={t("remote.removeLabel", { name: peer.name })}
+														onClick={() =>
+															setPendingRemove({
+																kind: "peer",
+																deviceId: peer.deviceId,
+																name: peer.name,
+															})
+														}
+														size="sm"
+														variant="ghost"
+													>
+														{t("remote.remove")}
+													</Button>
+												}
+											/>
+										);
+									})}
 								</div>
 							) : (
 								<p className="text-sc-sm text-(--sc-text-muted)">{t("remote.host.noPeers")}</p>
@@ -367,6 +375,7 @@ export function RemoteSection() {
 								}
 								rowProps={{ "data-remote-host": entry.deviceId }}
 								title={entry.name}
+								titleText={entry.name}
 								trailing={
 									<Button
 										aria-label={t("remote.removeLabel", { name: entry.name })}

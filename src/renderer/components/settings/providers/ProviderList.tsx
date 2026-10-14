@@ -23,6 +23,17 @@ import { groupProviders } from "./provider-catalog";
 
 type TFn = (key: string, params?: Record<string, string | number>) => string;
 
+/**
+ * Why a models.yml entry has no row in the catalog. Stock lists a provider's
+ * models only once it can authenticate them (`auth: apiKey` is its default),
+ * so an entry with models and no key is waiting for one, not empty.
+ */
+export function unlistedCustomReason(config: CustomProviderView, t: TFn): string {
+	if (config.models.length === 0) return t("providerList.noModels");
+	if (!config.hasApiKey && (config.auth ?? "apiKey") === "apiKey") return t("providerList.needsKey");
+	return t("providerList.notLoaded");
+}
+
 export interface ProviderCatalog {
 	providers: ProviderInfo[];
 	customConfigs: CustomProviderView[];
@@ -421,7 +432,7 @@ export function ProviderList({
 								{unlisted.map(config => (
 									<li key={`config:${config.id}`}>
 										<ListRow
-											description={t("providerList.noModels")}
+											description={unlistedCustomReason(config, t)}
 											leading={<CircleDashed aria-hidden className="text-(--sc-warning)" />}
 											title={config.id}
 										/>

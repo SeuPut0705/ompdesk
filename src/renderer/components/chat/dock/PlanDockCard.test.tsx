@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcResponse } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
+import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { useSessionStore } from "../../../stores/session";
 import { useTabsStore } from "../../../stores/tabs";
 import { useToastStore } from "../../../stores/toast";
@@ -70,6 +71,7 @@ afterEach(async () => {
 	useToastStore.setState({ toasts: [] });
 	useSessionStore.getState().reset();
 	useTabsStore.getState().reset();
+	usePlanApprovalStore.getState().clearProposal();
 });
 
 describe("PlanDockCard approval", () => {
@@ -103,6 +105,19 @@ describe("PlanDockCard approval", () => {
 		planText = `${PLAN}\n3. Measure it`;
 		await act(async () => useSessionStore.setState({ isStreaming: true }));
 		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		expect(approveButton()?.disabled).toBe(false);
+	});
+
+	it("leaves the decision to a pending proposal's own card", async () => {
+		// The plan stays readable; review buttons beside the proposal's would be a second, weaker approval.
+		await act(async () =>
+			usePlanApprovalStore
+				.getState()
+				.showProposal({ planFilePath: "/work/PLAN.md", planContent: PLAN, options: [] }),
+		);
+		expect(container.textContent).toContain("Ship it");
+		expect(approveButton()).toBeUndefined();
+		await act(async () => usePlanApprovalStore.getState().clearProposal());
 		expect(approveButton()?.disabled).toBe(false);
 	});
 });

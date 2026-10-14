@@ -425,6 +425,7 @@ function shapeLimit(limit: UsageLimit) {
 		limit: limit.amount.limit,
 		unit: limit.amount.unit,
 		remainingFraction: limit.amount.remainingFraction,
+		windowId: limit.window?.id ?? limit.scope.windowId,
 		windowLabel: limit.window?.label,
 		resetsAt: limit.window?.resetsAt,
 		status: limit.status,

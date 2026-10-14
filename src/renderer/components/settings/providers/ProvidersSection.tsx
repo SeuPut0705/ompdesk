@@ -29,7 +29,14 @@ import { SettingsSection } from "../SettingsLayout";
 import { AccountPoolsEditor } from "./AccountPoolsEditor";
 import { CustomProviderForm } from "./CustomProviderForm";
 import { ProviderAccounts, useProviderAccounts } from "./ProviderAccounts";
-import { type ProviderCatalog, ProviderItem, ProviderList, type RowHandlers, useProviderCatalog } from "./ProviderList";
+import {
+	type ProviderCatalog,
+	ProviderItem,
+	ProviderList,
+	type RowHandlers,
+	unlistedCustomReason,
+	useProviderCatalog,
+} from "./ProviderList";
 import { type ProviderLogin, useProviderLogin } from "./ProviderLogin";
 import { groupProviders, providerDiscoveryErrors } from "./provider-catalog";
 import { RotationModeControl } from "./RotationModeControl";
@@ -164,7 +171,7 @@ function CustomEndpoints({
 						const models = provider?.modelCount ?? 0;
 						const description = [
 							provider === undefined
-								? t("providerList.noModels")
+								? unlistedCustomReason(config, t)
 								: models === 1
 									? t("providers.modelOne")
 									: t("providers.models", { count: models }),

@@ -203,10 +203,12 @@ describe("reset passes on provider accounts", () => {
 			variant: "success",
 			title: translate("resetPasses.done", { account: "home@example.com" }),
 			message: translate("resetPasses.doneQuota", {
-				quota: translate("providers.accounts.windowLeft", { window: "5h", percent: 100 }),
+				quota: translate("providers.accounts.windowLeft", { window: translate("usage.limit.5h"), percent: 100 }),
 			}),
 		});
-		expect(text()).toContain(translate("providers.accounts.windowLeft", { window: "5h", percent: 100 }));
+		expect(text()).toContain(
+			translate("providers.accounts.windowLeft", { window: translate("usage.limit.5h"), percent: 100 }),
+		);
 	});
 
 	it("reports a refusal through an error toast without refreshing as if it had worked", async () => {

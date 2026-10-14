@@ -3,7 +3,9 @@
  * this tab's transcript has a live work tail (state, not a card mount), that
  * tail carries todo progress, the goal and every subagent lane, so the dock keeps only
  * the plan-mode card; otherwise it shows the todo list (collapsed to one line)
- * and the goal strip. Subagents never get a dock surface of their own: their
+ * and the goal strip. A plan proposal awaiting a decision carries the plan and
+ * its choices itself, so the plan card steps aside until it is answered.
+ * Subagents never get a dock surface of their own: their
  * lanes live in the work card and the roster in the sidebar. The dock still
  * owns the stream-time roster poll, since it is mounted in every tab.
  * Each card self-gates its visibility, so the region collapses to zero height
@@ -18,6 +20,7 @@ import { useSubagentRosterPoll } from "../../../hooks/use-subagent-roster-poll";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { liveWorkKey, useLiveWorkStore } from "../../../stores/live-work";
+import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { useSessionStore } from "../../../stores/session";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
@@ -34,13 +37,14 @@ function clampFocusHeight(height: number): number {
 function WorkspaceDockContent() {
 	const { focusedCard, clearFocus } = useWorkspaceDockFocus();
 	const t = useT();
-	const planModeEnabled = useSessionStore(state => state.planModeEnabled);
+	const proposalPending = usePlanApprovalStore(s => s.pending !== null);
+	const planCardVisible = useSessionStore(state => state.planModeEnabled) && !proposalPending;
 	const tabId = useRuntimeTabId();
 	// The running work card shows todos and the goal itself.
 	const carriedByWork = useLiveWorkStore(state => state.cards[liveWorkKey(tabId)] ?? false);
 	const goalVisible = useSessionStore(state => state.goal !== null) && !carriedByWork;
 	const todoVisible = useTodoStore(selectTodoCardVisible) && !carriedByWork;
-	const cardsVisible = planModeEnabled || todoVisible;
+	const cardsVisible = planCardVisible || todoVisible;
 	useLayoutEffect(() => {
 		if (carriedByWork && focusedCard === "todo") clearFocus();
 	}, [carriedByWork, focusedCard, clearFocus]);
@@ -136,9 +140,11 @@ function WorkspaceDockContent() {
 						ref={scrollerRef}
 						style={focusedCard ? { maxHeight: focusHeight ?? "min(50dvh, calc(100dvh - 300px))" } : undefined}
 					>
-						<PanelErrorBoundary>
-							<PlanDockCard />
-						</PanelErrorBoundary>
+						{planCardVisible && (
+							<PanelErrorBoundary>
+								<PlanDockCard />
+							</PanelErrorBoundary>
+						)}
 						{todoVisible && (
 							<PanelErrorBoundary>
 								<TodoDockCard />

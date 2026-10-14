@@ -20,6 +20,7 @@ import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
 import { copyText, formatClock } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
+import { usageLimitLabel } from "../../../lib/usage-labels";
 import { toast, toastError } from "../../../stores/toast";
 import { Badge, Button, ConfirmDialog, IconButton, ProgressBar, Spinner } from "../../common";
 import { InlineNotice } from "../InlineNotice";
@@ -44,7 +45,10 @@ function quotaWindows(account: ProviderAccount, t: TFn): QuotaWindow[] {
 			const used = limit.usedFraction ?? 0;
 			return {
 				key: limit.id,
-				label: t("providers.accounts.windowLeft", { window: limit.label, percent: percent(1 - used) }),
+				label: t("providers.accounts.windowLeft", {
+					window: usageLimitLabel(limit, t),
+					percent: percent(1 - used),
+				}),
 				used,
 			};
 		});

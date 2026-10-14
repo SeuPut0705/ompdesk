@@ -1048,6 +1048,8 @@ export interface SessionInfo {
 	/** Session kind read from the file header; absent = agent (legacy sessions). */
 	kind?: "chat";
 	firstMessage: string;
+	/** Stock's `parentSessionPath`: the session this one was forked from (its file path, or its id). */
+	parentSessionPath?: string;
 	/** Paired host deviceId the session file lives on; absent = this device. */
 	device?: string;
 }

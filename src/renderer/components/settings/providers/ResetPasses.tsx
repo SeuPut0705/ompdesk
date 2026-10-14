@@ -15,6 +15,7 @@ import { useState } from "react";
 import type { ResetPasses, ResetPassRedeemResult, UsageLimit } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
+import { usageLimitLabel } from "../../../lib/usage-labels";
 import { toast, toastError } from "../../../stores/toast";
 import { Badge, Button, ConfirmDialog } from "../../common";
 
@@ -55,11 +56,15 @@ export function resetPassSummary(passes: ResetPasses, t: TFn): string {
 	return parts.join(" · ");
 }
 
-/** What one pass resets, by name: the account's own limit labels where the provider's names are unknown. */
+/** What one pass resets, by name: the account's own limit titles where the provider's names are unknown. */
 function windowsText(passes: ResetPasses, limits: readonly UsageLimit[], t: TFn): string {
 	if (passes.clears.length === 0) return t("resetPasses.windowsAll");
 	return passes.clears
-		.map(id => (WINDOW_KEYS[id] ? t(WINDOW_KEYS[id]) : (limits.find(limit => limit.id === id)?.label ?? id)))
+		.map(id => {
+			if (WINDOW_KEYS[id]) return t(WINDOW_KEYS[id]);
+			const limit = limits.find(entry => entry.id === id);
+			return limit ? usageLimitLabel(limit, t) : id;
+		})
 		.join(", ");
 }
 
@@ -118,7 +123,7 @@ export function ResetPassControl({
 				.filter(limit => limit.usedFraction !== undefined)
 				.map(limit =>
 					t("providers.accounts.windowLeft", {
-						window: limit.label,
+						window: usageLimitLabel(limit, t),
 						percent: Math.round(Math.max(0, Math.min(1, 1 - (limit.usedFraction ?? 0))) * 100),
 					}),
 				)

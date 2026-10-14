@@ -26,6 +26,7 @@ import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
 import { type TabRpc, useTabRpc } from "../../../lib/tab-rpc";
+import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { toast, toastError } from "../../../stores/toast";
@@ -139,6 +140,8 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 	const { capture, isActive } = useTabGuard();
 	const planModeEnabled = useSessionStore(s => s.planModeEnabled);
 	const isStreaming = useSessionStore(s => s.isStreaming);
+	// A pending proposal is answered on its own card; a second set of review buttons would compete with it.
+	const proposalPending = usePlanApprovalStore(s => s.pending !== null);
 	const [planFilePath, setPlanFilePath] = useState<string | null>(null);
 	const [planFile, setPlanFile] = useState<string | null>(null);
 	const [localRoot, setLocalRoot] = useState<string | null>(null);
@@ -526,49 +529,51 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 					</div>
 
 					{/* Review footer: approve / request changes, all as chat messages. */}
-					<div className="shrink-0 border-t border-(--sc-border-subtle) p-2">
-						<TextArea
-							aria-label={t("planPanel.feedbackPlaceholder")}
-							disabled={!reviewable}
-							onChange={event => setPlanFeedback(event.target.value)}
-							placeholder={t("planPanel.feedbackPlaceholder")}
-							rows={2}
-							value={planFeedback}
-						/>
-						<div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-							{approved ? (
-								<span
-									role="status"
-									className="inline-flex min-h-(--sc-control-sm) items-center gap-1.5 px-1 text-sc-sm font-medium text-(--sc-text-secondary)"
-								>
-									<CheckCircle2 aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-success)" />
-									{t("planPanel.approved")}
-								</span>
-							) : (
+					{!proposalPending && (
+						<div className="shrink-0 border-t border-(--sc-border-subtle) p-2">
+							<TextArea
+								aria-label={t("planPanel.feedbackPlaceholder")}
+								disabled={!reviewable}
+								onChange={event => setPlanFeedback(event.target.value)}
+								placeholder={t("planPanel.feedbackPlaceholder")}
+								rows={2}
+								value={planFeedback}
+							/>
+							<div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+								{approved ? (
+									<span
+										role="status"
+										className="inline-flex min-h-(--sc-control-sm) items-center gap-1.5 px-1 text-sc-sm font-medium text-(--sc-text-secondary)"
+									>
+										<CheckCircle2 aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-success)" />
+										{t("planPanel.approved")}
+									</span>
+								) : (
+									<Button
+										disabled={!reviewable}
+										icon={<CheckCircle2 />}
+										loading={approving}
+										onClick={() => void approve()}
+										size="sm"
+										variant="primary"
+									>
+										{t("planPanel.approve")}
+									</Button>
+								)}
 								<Button
-									disabled={!reviewable}
-									icon={<CheckCircle2 />}
-									loading={approving}
-									onClick={() => void approve()}
+									disabled={!reviewable || !planFeedback.trim()}
+									loading={sendingPlan}
+									onClick={() => void requestChanges()}
 									size="sm"
-									variant="primary"
 								>
-									{t("planPanel.approve")}
+									{t("planPanel.requestChanges")}
 								</Button>
-							)}
-							<Button
-								disabled={!reviewable || !planFeedback.trim()}
-								loading={sendingPlan}
-								onClick={() => void requestChanges()}
-								size="sm"
-							>
-								{t("planPanel.requestChanges")}
-							</Button>
+							</div>
+							<div className="mt-1.5 text-sc-2xs leading-snug text-(--sc-text-muted)">
+								{t("planPanel.footerNote")}
+							</div>
 						</div>
-						<div className="mt-1.5 text-sc-2xs leading-snug text-(--sc-text-muted)">
-							{t("planPanel.footerNote")}
-						</div>
-					</div>
+					)}
 				</>
 			)}
 		</Frame>

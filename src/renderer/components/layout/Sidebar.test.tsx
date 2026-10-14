@@ -1139,6 +1139,47 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t-new"]);
 		expect(container.querySelector('[data-workspace-group="/work/alpha"]')).toBeNull();
 	});
+
+	it("marks a fork the way stock's resume list does, naming the session it came from", async () => {
+		const shared = { title: null, firstMessage: "Refactor the parser" };
+		installMockOmp([
+			session("/work/alpha/parent.jsonl", "/work/alpha", { ...shared, id: "parent-id" }),
+			session("/work/alpha/fork.jsonl", "/work/alpha", {
+				...shared,
+				id: "fork-id",
+				modified: "2026-01-02T00:00:00Z",
+				parentSessionPath: "/work/alpha/parent.jsonl",
+			}),
+			// A moved fork's header names its parent by id; an unknown parent still reads as a fork.
+			session("/work/alpha/moved.jsonl", "/work/alpha", {
+				title: "Moved",
+				id: "moved",
+				parentSessionPath: "parent-id",
+			}),
+			session("/work/alpha/orphan.jsonl", "/work/alpha", {
+				title: "Orphan",
+				id: "orphan",
+				parentSessionPath: "gone",
+			}),
+		]);
+		seedStores();
+		await mount(<Sidebar />);
+
+		const rows = [...document.querySelectorAll(".omp-sidebar-session-row")].filter(row =>
+			(row.querySelector("button")?.getAttribute("title") ?? "").startsWith("Refactor the parser"),
+		);
+		expect(rows).toHaveLength(2);
+		const [fork, parent] = rows;
+		expect(fork.getAttribute("data-session-path")).toBe("/work/alpha/fork.jsonl");
+		expect(fork.querySelector("[data-sidebar-fork]")).not.toBeNull();
+		expect(parent.querySelector("[data-sidebar-fork]")).toBeNull();
+		const forkedFrom = translate("sidebar.row.forkedFrom", { name: "Refactor the parser" });
+		expect(fork.querySelector("button")?.getAttribute("title")).toBe(`Refactor the parser\n${forkedFrom}`);
+		expect(fork.textContent).toContain(forkedFrom);
+		expect(parent.querySelector("button")?.getAttribute("title")).toBe("Refactor the parser");
+		expect(rowButton("Moved").getAttribute("title")).toBe(`Moved\n${forkedFrom}`);
+		expect(rowButton("Orphan").getAttribute("title")).toBe(`Orphan\n${translate("sidebar.row.fork")}`);
+	});
 });
 
 describe("Sidebar session-list failures", () => {

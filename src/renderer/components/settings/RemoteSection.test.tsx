@@ -125,7 +125,12 @@ describe("RemoteSection", () => {
 		expect(document.body.querySelector("[data-remote-code-expiry]")?.textContent).toBe(
 			translate("remote.host.expiresIn", { time: "9:30" }),
 		);
-		expect(document.body.querySelector('[data-remote-peer="peer-laptop"]')?.textContent).toContain("laptop");
+		const peer = document.body.querySelector('[data-remote-peer="peer-laptop"]');
+		expect(peer?.textContent).toContain("laptop");
+		// A narrow window truncates the name and "Last seen …"; each keeps its full text on hover.
+		expect(peer?.querySelector('[title="laptop"]')).not.toBeNull();
+		const seen = translate("remote.host.lastSeen", { time: "1m" });
+		expect([...(peer?.querySelectorAll("[title]") ?? [])].map(node => node.getAttribute("title"))).toContain(seen);
 		expect(remote.rotateCode).not.toHaveBeenCalled();
 	});
 

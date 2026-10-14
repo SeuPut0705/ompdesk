@@ -489,6 +489,12 @@ if (process.argv[2] === "stats") {
 	let subagentSubscription = "progress";
 	/** The emitted plan proposal awaiting `plan_approval`, as the bridge's get_plan_mode reports it. */
 	let planProposal: Record<string, unknown> | undefined;
+	/** Stock's agent writes the plan before proposing it; the fixture's proposal leaves the same file behind. */
+	const writeProposedPlan = (proposal: Record<string, unknown>) => {
+		if (typeof proposal.planFilePath !== "string" || typeof proposal.planContent !== "string") return;
+		fs.mkdirSync(nodePath.dirname(proposal.planFilePath), { recursive: true });
+		fs.writeFileSync(proposal.planFilePath, proposal.planContent);
+	};
 	let holdSettings = false;
 	let releaseSettings: (() => void) | undefined;
 	/**
@@ -708,7 +714,8 @@ if (process.argv[2] === "stats") {
 			state: string;
 			remainingFraction: number;
 			resetsAt?: number;
-			limits: Array<{ id: string; label: string; usedFraction: number; windowLabel: string }>;
+			/** Stock's shape (pi-ai `usage/claude.ts`): ids, English labels and canonical window ids. */
+			limits: Array<{ id: string; label: string; usedFraction: number; windowId: string; windowLabel: string }>;
 			resetPasses?: FixtureResetPasses;
 		}
 	> = {
@@ -717,8 +724,8 @@ if (process.argv[2] === "stats") {
 			state: "healthy",
 			remainingFraction: 0.62,
 			limits: [
-				{ id: "5h", label: "5h", usedFraction: 0.38, windowLabel: "5 hours" },
-				{ id: "7d", label: "Week", usedFraction: 0.21, windowLabel: "7 days" },
+				{ id: "anthropic:5h", label: "Claude 5 Hour", usedFraction: 0.38, windowId: "5h", windowLabel: "5 Hour" },
+				{ id: "anthropic:7d", label: "Claude 7 Day", usedFraction: 0.21, windowId: "7d", windowLabel: "7 Day" },
 			],
 		},
 		2: {
@@ -727,8 +734,8 @@ if (process.argv[2] === "stats") {
 			remainingFraction: 0,
 			resetsAt: Date.now() + 2 * 3_600_000,
 			limits: [
-				{ id: "5h", label: "5h", usedFraction: 1, windowLabel: "5 hours" },
-				{ id: "7d", label: "Week", usedFraction: 0.64, windowLabel: "7 days" },
+				{ id: "anthropic:5h", label: "Claude 5 Hour", usedFraction: 1, windowId: "5h", windowLabel: "5 Hour" },
+				{ id: "anthropic:7d", label: "Claude 7 Day", usedFraction: 0.64, windowId: "7d", windowLabel: "7 Day" },
 			],
 		},
 	};
@@ -744,7 +751,7 @@ if (process.argv[2] === "stats") {
 			count: 1,
 			usableCount: 0,
 			expiresAt,
-			clears: ["5h"],
+			clears: ["anthropic:5h"],
 			early: false,
 			redeemable: false,
 		};
@@ -753,7 +760,7 @@ if (process.argv[2] === "stats") {
 			usableCount: 2,
 			expiresAt,
 			title: "One free rate limit reset",
-			clears: ["5h"],
+			clears: ["anthropic:5h"],
 			early: false,
 			creditId: "grant-home-1",
 			redeemable: true,
@@ -1280,6 +1287,8 @@ if (process.argv[2] === "stats") {
 				planFilePath = nodePath.join(process.cwd(), "panel-fixture-plan.md");
 				fs.copyFileSync(process.env.OMP_GUI_TEST_PANEL_PLAN, planFilePath);
 			}
+			// The bridge points the plan state at the reviewed file once the agent proposes it.
+			planFilePath ??= typeof planProposal?.planFilePath === "string" ? planProposal.planFilePath : undefined;
 			return { enabled: planModeEnabled || Boolean(planFilePath), planFilePath, proposal: planProposal };
 		},
 		"modes.set_plan_mode": params => {
@@ -2163,6 +2172,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 							planContent: "## Steps\n\n1. Split the checks.\n2. Run them in parallel.",
 							options: ["execute", "compact", "keep_context", "save", "refine"],
 						};
+						writeProposedPlan(planProposal);
 						const frame = `${JSON.stringify({ event: { type: "plan_proposal", ...planProposal } })}\n`;
 						for (const socket of bridgeClients) socket.write(frame);
 						finish({
@@ -2990,8 +3000,20 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 									state: "healthy",
 									remainingFraction: 1,
 									limits: [
-										{ id: "5h", label: "5h", usedFraction: 0, windowLabel: "5 hours" },
-										{ id: "7d", label: "Week", usedFraction: 0, windowLabel: "7 days" },
+										{
+											id: "anthropic:5h",
+											label: "Claude 5 Hour",
+											usedFraction: 0,
+											windowId: "5h",
+											windowLabel: "5 Hour",
+										},
+										{
+											id: "anthropic:7d",
+											label: "Claude 7 Day",
+											usedFraction: 0,
+											windowId: "7d",
+											windowLabel: "7 Day",
+										},
 									],
 								};
 							}
@@ -3219,6 +3241,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						planContent: "## Steps\n\n1. Ship the background tab coverage.\n2. Watch the release run.",
 						options: ["execute", "compact", "keep_context", "save", "refine"],
 					};
+					writeProposedPlan(planProposal);
 					const frame = `${JSON.stringify({ event: { type: "plan_proposal", ...planProposal } })}\n`;
 					for (const socket of bridgeClients) socket.write(frame);
 					ok();
