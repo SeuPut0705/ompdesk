@@ -19,6 +19,7 @@ export {
 	MenuButton,
 	type MenuButtonProps,
 } from "./ContextMenu";
+export { CopyButton, type CopyButtonProps } from "./CopyButton";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
 export { ErrorDetail } from "./ErrorDetail";
 export { IconButton, type IconButtonProps, type IconButtonSize } from "./IconButton";

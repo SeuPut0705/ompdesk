@@ -3671,6 +3671,8 @@ export const ko: Record<string, string> = {
 	"command.compactedTitle": "압축 완료",
 	"command.compactedMessage": "컨텍스트를 압축했어요",
 	"common.apply": "적용",
+	"common.copied": "복사했어요",
+	"common.copyFailed": "클립보드에 복사하지 못했어요",
 	"common.defaultParenthesized": "(기본값)",
 	"common.hide": "숨기기",
 	"common.hideValue": "값 숨기기",

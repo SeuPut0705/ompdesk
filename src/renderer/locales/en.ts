@@ -3682,6 +3682,8 @@ export const en: Record<string, string> = {
 	"command.compactedTitle": "Compacted",
 	"command.compactedMessage": "Context compacted successfully",
 	"common.apply": "Apply",
+	"common.copied": "Copied",
+	"common.copyFailed": "Couldn't copy to the clipboard",
 	"common.defaultParenthesized": "(default)",
 	"common.hide": "Hide",
 	"common.hideValue": "Hide value",

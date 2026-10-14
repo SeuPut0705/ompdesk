@@ -1,9 +1,8 @@
-import { Check, Copy } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { copyText, cx, escapeHtml } from "../../lib/format";
+import { cx, escapeHtml } from "../../lib/format";
 import { getLoadedHljs, HIGHLIGHT_CHAR_CAP, loadHljs } from "../../lib/highlight";
 import { useT } from "../../lib/i18n";
-import { IconButton } from "../common";
+import { CopyButton } from "../common";
 import { LineNumberGutter } from "./LineNumberGutter";
 
 export interface CodeBlockProps {
@@ -87,7 +86,6 @@ export function CodeBlock({
 }: CodeBlockProps) {
 	const t = useT();
 	const lang = normalizeLanguage(language);
-	const [copied, setCopied] = useState(false);
 	const [hlHtml, setHlHtml] = useState<string | null>(() => {
 		if (!code || code.length > HIGHLIGHT_CHAR_CAP) return null;
 		const hljs = getLoadedHljs();
@@ -137,14 +135,6 @@ export function CodeBlock({
 		return n;
 	}, [code]);
 
-	const handleCopy = () => {
-		void copyText(code ?? "").then(ok => {
-			if (!ok) return;
-			setCopied(true);
-			window.setTimeout(() => setCopied(false), 1400);
-		});
-	};
-
 	return (
 		<div
 			className={cx(
@@ -159,15 +149,7 @@ export function CodeBlock({
 							{lang === "plaintext" ? t("codeblock.plainText") : languageLabel(lang)}
 						</span>
 					)}
-					{showCopy && (
-						<IconButton
-							className="ms-auto"
-							icon={copied ? <Check className="text-(--sc-success)" /> : <Copy />}
-							label={t("chat.copyCode")}
-							onClick={handleCopy}
-							size="sm"
-						/>
-					)}
+					{showCopy && <CopyButton className="ms-auto" label={t("chat.copyCode")} text={code ?? ""} />}
 				</div>
 			)}
 			<div className={cx("overflow-auto", maxHeightClass)}>
