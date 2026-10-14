@@ -42,7 +42,8 @@ import * as fs from "original-fs";
 import type { UpdateAuthTestResult, UpdateInstallMode, UpdateStatus } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import { confirmQuit, requestQuit } from "./app-quit";
-import { type MainTextKey, mainT } from "./i18n";
+import { mainT } from "./i18n";
+import type { MainTextKey } from "./i18n-text";
 import {
 	checkRepoAccess,
 	clearUpdateToken,

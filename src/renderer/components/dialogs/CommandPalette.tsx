@@ -30,7 +30,15 @@ import {
 	Wrench,
 	X,
 } from "lucide-react";
-import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type KeyboardEvent as ReactKeyboardEvent,
+	useCallback,
+	useEffect,
+	useId,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import type { AvailableCommand } from "../../../shared/rpc-types";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
 import {
@@ -195,6 +203,7 @@ export function CommandPalette() {
 	const [submenu, setSubmenu] = useState<CommandMenuItem | null>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
+	const listboxId = useId();
 	const fetchSeq = useRef(0);
 
 	const refreshCommands = useCallback(() => {
@@ -469,6 +478,7 @@ export function CommandPalette() {
 		return (
 			<button
 				aria-disabled={disabled}
+				aria-selected={isActive}
 				className={cx(
 					"flex min-h-10 w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-2 text-left",
 					isActive ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
@@ -480,6 +490,7 @@ export function CommandPalette() {
 				data-command-aliases={JSON.stringify(item.aliases ?? [])}
 				data-command-kind={item.affordance.kind}
 				disabled={disabled}
+				id={`${listboxId}-option-${index}`}
 				key={item.name}
 				onClick={() => execute(item)}
 				onMouseEnter={() => {
@@ -489,6 +500,7 @@ export function CommandPalette() {
 					setExplicitSelection(false);
 					setArmed(null);
 				}}
+				role="option"
 				type="button"
 			>
 				<Icon aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
@@ -554,6 +566,8 @@ export function CommandPalette() {
 					)}
 					<div className="min-w-0 flex-1">
 						<SearchField
+							aria-activedescendant={flatList.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
+							aria-controls={listboxId}
 							controlSize="lg"
 							label={t("palette.searchLabel")}
 							onValueChange={value => {
@@ -578,7 +592,13 @@ export function CommandPalette() {
 						</Button>
 					</div>
 				)}
-				<div className="omp-command-list min-h-0 flex-1 overflow-y-auto p-1.5" ref={listRef}>
+				<div
+					className="omp-command-list min-h-0 flex-1 overflow-y-auto p-1.5"
+					id={listboxId}
+					ref={listRef}
+					// A listbox only while option rows render; the empty states are plain blocks.
+					role={flatList.length > 0 ? "listbox" : undefined}
+				>
 					{flatList.length === 0 &&
 						!loading &&
 						(workingItems.length === 0 ? (

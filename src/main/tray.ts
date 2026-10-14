@@ -15,7 +15,15 @@ import macTemplate2x from "../../resources/brand/trayTemplate@2x.png?inline";
 import macTemplate from "../../resources/brand/trayTemplate.png?inline";
 import { IPC_EVENTS, type MenuAction, type MenuActionPayload, type TrayState } from "../shared/ipc-types";
 import { UI_LANGUAGE_NAMES } from "../shared/ui-language";
-import { approvalLabel, formatTokens, menuSignature, type TrayLang, t, trayTooltip } from "./tray-labels";
+import {
+	approvalLabel,
+	formatTokens,
+	menuSignature,
+	type TrayLang,
+	t,
+	thinkingLabel,
+	trayTooltip,
+} from "./tray-labels";
 import type { SpawnWindow, WindowManager } from "./window";
 
 let tray: Tray | null = null;
@@ -71,7 +79,10 @@ function buildContextMenu(windowManager: WindowManager, state: TrayState | null)
 	// Config info (read-only): model · thinking · fast · approval.
 	if (state) {
 		const model = state.modelId || t(lang, "noModel");
-		template.push({ label: `${model} · ${t(lang, "thinking")} ${state.thinkingLevel}`, enabled: false });
+		template.push({
+			label: `${model} · ${t(lang, "thinking")} ${thinkingLabel(lang, state.thinkingLevel)}`,
+			enabled: false,
+		});
 		const fastLabel = `${t(lang, "fastMode")}: ${state.fastMode ? "✓" : "—"}`;
 		template.push({
 			label: `${fastLabel} · ${t(lang, "approval")}: ${approvalLabel(lang, state.approvalMode)}`,
@@ -128,7 +139,7 @@ function buildContextMenu(windowManager: WindowManager, state: TrayState | null)
 				click: () => send(windowManager, "toggle-fast"),
 			},
 			{
-				label: `${t(lang, "thinking")}: ${state?.thinkingLevel ?? "off"}`,
+				label: `${t(lang, "thinking")}: ${thinkingLabel(lang, state?.thinkingLevel ?? "off")}`,
 				click: () => send(windowManager, "cycle-thinking"),
 			},
 			{

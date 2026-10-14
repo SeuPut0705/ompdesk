@@ -4,7 +4,8 @@
 import { app, Menu, type MenuItemConstructorOptions, shell } from "electron";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_EVENTS, type MenuAction } from "../shared/ipc-types";
-import { getMainLanguage, mainT } from "./i18n";
+import { editRoleItems } from "./editable-context-menu";
+import { editLabels, getMainLanguage, mainT } from "./i18n";
 import type { SpawnWindow, WindowManager } from "./window";
 
 function sendMenuAction(windowManager: WindowManager, spawnWindow: SpawnWindow, action: MenuAction): void {
@@ -113,15 +114,7 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 		},
 		{
 			label: mainT("menu.edit", language),
-			submenu: [
-				{ role: "undo" },
-				{ role: "redo" },
-				{ type: "separator" },
-				{ role: "cut" },
-				{ role: "copy" },
-				{ role: "paste" },
-				{ role: "selectAll" },
-			],
+			submenu: editRoleItems(editLabels(language)),
 		},
 		{
 			label: mainT("menu.view", language),
@@ -158,20 +151,20 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 					click: () => sendMenuAction(windowManager, spawnWindow, "toggle-panel"),
 				},
 				{ type: "separator" },
-				{ role: "reload" },
-				{ role: "forceReload" },
-				{ role: "toggleDevTools" },
+				{ role: "reload", label: mainT("menu.reload", language) },
+				{ role: "forceReload", label: mainT("menu.forceReload", language) },
+				{ role: "toggleDevTools", label: mainT("menu.toggleDevTools", language) },
 				{ type: "separator" },
-				{ role: "resetZoom" },
-				{ role: "zoomIn" },
-				{ role: "zoomOut" },
+				{ role: "resetZoom", label: mainT("menu.actualSize", language) },
+				{ role: "zoomIn", label: mainT("menu.zoomIn", language) },
+				{ role: "zoomOut", label: mainT("menu.zoomOut", language) },
 				{ type: "separator" },
-				{ role: "togglefullscreen" },
+				{ role: "togglefullscreen", label: mainT("menu.toggleFullScreen", language) },
 			],
 		},
 		{
 			// The macOS habit this serves: ⌘W closes a TAB, ⇧⌘W closes the window.
-			// `{ role: "close" }` in File was window-level, so the first ⌘W killed
+			// A window-level `close` role in File meant the first ⌘W killed
 			// the whole window — every tab and sidecar in it.
 			label: mainT("menu.window", language),
 			submenu: [
@@ -187,9 +180,13 @@ export function createMenu(windowManager: WindowManager, spawnWindow: SpawnWindo
 					click: () => windowManager.getTargetWindow()?.close(),
 				},
 				{ type: "separator" },
-				{ role: "minimize" },
+				{ role: "minimize", label: mainT("menu.minimize", language) },
 				...(process.platform === "darwin"
-					? [{ role: "zoom" as const }, { type: "separator" as const }, { role: "front" as const }]
+					? [
+							{ role: "zoom" as const, label: mainT("menu.zoom", language) },
+							{ type: "separator" as const },
+							{ role: "front" as const, label: mainT("menu.bringAllToFront", language) },
+						]
 					: []),
 			],
 		},

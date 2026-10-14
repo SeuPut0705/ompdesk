@@ -676,7 +676,7 @@ export const ko: Record<string, string> = {
 	"cmd.feedback.desc": "GitHub에서 버그 신고 또는 기능 제안",
 	"cmd.jobs": "백그라운드 실행",
 	"cmd.jobs.desc": "비동기 백그라운드 실행 보기",
-	"cmd.changelog": "새로운 기능",
+	"cmd.changelog": "변경 내역",
 	"cmd.changelog.desc": "최근 변경 로그 항목 보기",
 	"cmd.copy": "세션에서 복사",
 	"cmd.copy.desc": "복사할 텍스트나 코드 선택",

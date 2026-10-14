@@ -36,7 +36,7 @@ function state(overrides: Partial<TrayState> = {}): TrayState {
 describe("tray status surface", () => {
 	it("names the run state in the hover text, in the language the renderer reports", () => {
 		expect(trayTooltip(state({ status: "streaming" }))).toBe("OMPdesk — alpha · Working");
-		expect(trayTooltip(state({ status: "waiting", language: "ko" }))).toBe("OMPdesk — alpha · 입력 필요");
+		expect(trayTooltip(state({ status: "waiting", language: "ko" }))).toBe("OMPdesk — alpha · 승인 필요");
 		expect(trayTooltip(state({ status: "streaming", language: "ko" }))).toBe("OMPdesk — alpha · 작업 중");
 		expect(trayTooltip(state({ status: "error" }))).toContain("Error");
 		expect(trayTooltip(state({ status: "idle" }))).toContain("Ready");
@@ -52,7 +52,7 @@ describe("tray label mapping", () => {
 		expect(approvalLabel("en", "yolo")).toBe("Full access");
 		expect(approvalLabel("en", "write")).toBe("Auto-edit");
 		expect(approvalLabel("en", "always-ask")).toBe("Ask every time");
-		expect(approvalLabel("ko", "always-ask")).toBe("매번 확인");
+		expect(approvalLabel("ko", "always-ask")).toBe("항상 묻기");
 	});
 
 	it("renders token counts at the precision the menu prints", () => {

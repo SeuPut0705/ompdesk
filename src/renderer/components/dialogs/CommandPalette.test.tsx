@@ -247,6 +247,25 @@ describe("panel keyboard handling", () => {
 		await pressEscape();
 		expect(useUiStore.getState().commandPaletteOpen).toBe(false);
 	});
+
+	it("exposes its rows as a listbox the search field drives, like the other pickers", async () => {
+		sidecarCommands = [DEPLOY, HELLO];
+		seedTab("agent");
+		await mount();
+		const search = palette().querySelector("input");
+		const listboxId = search?.getAttribute("aria-controls");
+		expect(listboxId).toBeTruthy();
+		const listbox = palette().querySelector('[role="listbox"]');
+		expect(listbox?.getAttribute("id")).toBe(listboxId);
+		expect(rows().every(row => row.getAttribute("role") === "option")).toBe(true);
+		const announced = () =>
+			rows().find(row => row.getAttribute("id") === search?.getAttribute("aria-activedescendant"));
+		expect(announced()).toBe(rows()[selectedIndex()]);
+		expect(announced()?.getAttribute("aria-selected")).toBe("true");
+		await keyDown(rows()[selectedIndex()], "ArrowDown");
+		expect(announced()).toBe(rows()[selectedIndex()]);
+		expect(rows().filter(row => row.getAttribute("aria-selected") === "true")).toHaveLength(1);
+	});
 });
 
 describe("row execution", () => {

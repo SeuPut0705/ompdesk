@@ -10,7 +10,7 @@ import Store from "electron-store";
 import type { RunProgressState, SessionKind } from "../shared/ipc-types";
 import { quitRisk, requestQuit } from "./app-quit";
 import { editableContextMenuTemplate } from "./editable-context-menu";
-import { getMainLanguage, mainT } from "./i18n";
+import { editLabels, getMainLanguage, mainT } from "./i18n";
 import {
 	type ApplicationResourceIdentity,
 	applicationResourcesChanged,
@@ -139,7 +139,7 @@ export class WindowManager {
 		});
 
 		win.webContents.on("context-menu", (_event, params) => {
-			const template = editableContextMenuTemplate(params, mainT("menu.addToDictionary", getMainLanguage()), {
+			const template = editableContextMenuTemplate(params, editLabels(), {
 				replaceMisspelling: suggestion => win.webContents.replaceMisspelling(suggestion),
 				addToDictionary: word => win.webContents.session.addWordToSpellCheckerDictionary(word),
 			});

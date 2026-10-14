@@ -30,14 +30,23 @@ export const TRAY_LABELS = {
 	language: { en: "Language", ko: "언어" },
 	approvalYolo: { en: "Full access", ko: "전체 접근" },
 	approvalWrite: { en: "Auto-edit", ko: "자동 편집" },
-	approvalAsk: { en: "Ask every time", ko: "매번 확인" },
+	approvalAsk: { en: "Ask every time", ko: "항상 묻기" },
 	context: { en: "Context", ko: "컨텍스트" },
 	tokens: { en: "tokens", ko: "토큰" },
 	noModel: { en: "No model", ko: "모델 없음" },
 	statusIdle: { en: "Ready", ko: "준비됨" },
 	statusStreaming: { en: "Working", ko: "작업 중" },
-	statusWaiting: { en: "Needs input", ko: "입력 필요" },
+	statusWaiting: { en: "Needs approval", ko: "승인 필요" },
 	statusError: { en: "Error", ko: "오류" },
+	// Thinking levels by the names the composer's thinking control uses.
+	thinkingOff: { en: "Off", ko: "끔" },
+	thinkingAuto: { en: "Auto", ko: "자동" },
+	thinkingMinimal: { en: "Minimal", ko: "최소" },
+	thinkingLow: { en: "Low", ko: "낮음" },
+	thinkingMedium: { en: "Medium", ko: "보통" },
+	thinkingHigh: { en: "High", ko: "높음" },
+	thinkingXhigh: { en: "Ultra", ko: "매우 높음" },
+	thinkingMax: { en: "Max", ko: "최대" },
 } as const;
 
 export type TrayLabelKey = keyof typeof TRAY_LABELS;
@@ -72,6 +81,23 @@ export function approvalLabel(lang: TrayLang, mode: TrayApprovalMode): string {
 	if (mode === "yolo") return t(lang, "approvalYolo");
 	if (mode === "write") return t(lang, "approvalWrite");
 	return t(lang, "approvalAsk");
+}
+
+const THINKING_KEYS: Record<string, TrayLabelKey> = {
+	off: "thinkingOff",
+	auto: "thinkingAuto",
+	minimal: "thinkingMinimal",
+	low: "thinkingLow",
+	medium: "thinkingMedium",
+	high: "thinkingHigh",
+	xhigh: "thinkingXhigh",
+	max: "thinkingMax",
+};
+
+/** A thinking level by its composer name; a level this build does not know shows as omp spells it. */
+export function thinkingLabel(lang: TrayLang, level: string): string {
+	const key = THINKING_KEYS[level];
+	return key ? t(lang, key) : level;
 }
 
 export function formatTokens(n: number): string {
