@@ -3658,6 +3658,7 @@ export const ko: Record<string, string> = {
 	"ssh.validation.required": "별칭과 호스트를 입력하세요.",
 	"updates.gui.name": "OMPdesk",
 	"updates.gui.description": "Electron 셸, 렌더러, 번들 리소스예요.",
+	"updates.gui.downloading": "업데이트를 내려받고 있어요",
 	"updates.core.name": "omp",
 	"updates.core.description": "이 시스템에 설치된 omp CLI로, OMPdesk가 모든 세션에서 실행해요.",
 	"updates.core.checkFailed": "omp 버전을 확인하지 못했어요. 다시 시도하세요.",

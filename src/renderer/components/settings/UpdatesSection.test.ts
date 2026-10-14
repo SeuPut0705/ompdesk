@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { RpcOmpUpdateResult } from "../../../shared/rpc-types";
-import { UpdateFailureLines, updateOverviewState } from "./UpdatesSection";
+import { UpdateFailureLines, UpdateProgress, updateOverviewState } from "./UpdatesSection";
 
 const CURRENT_CORE: RpcOmpUpdateResult = {
 	currentVersion: "17.2.10",
@@ -68,5 +68,26 @@ describe("UpdateFailureLines", () => {
 		expect(details).toEqual(["net::ERR_TIMED_OUT", "omp update --check exited 1"]);
 		expect(root?.textContent).toContain("Couldn't finish the update check.");
 		expect(root?.textContent).toContain("omp: Couldn't check omp.");
+	});
+});
+
+describe("UpdateProgress", () => {
+	const bar = (props: { percent?: number; label: string }) =>
+		parseHTML(
+			`<div id="root">${renderToStaticMarkup(createElement(UpdateProgress, props))}</div>`,
+		).document.querySelector('[role="progressbar"]');
+
+	it("shows the app download as a determinate accent bar with its percent", () => {
+		const node = bar({ percent: 42, label: "Downloading" });
+		expect(node?.getAttribute("aria-valuenow")).toBe("0.42");
+		expect(node?.getAttribute("aria-label")).toBe("Downloading");
+		expect(node?.parentElement?.textContent).toContain("42%");
+		expect(node?.innerHTML).toContain("var(--sc-accent)");
+	});
+
+	it("shows the omp update as an indeterminate bar that claims no fraction", () => {
+		const node = bar({ label: "Updating omp" });
+		expect(node?.hasAttribute("aria-valuenow")).toBe(false);
+		expect(node?.querySelector(".omp-indeterminate-progress")).toBeTruthy();
 	});
 });

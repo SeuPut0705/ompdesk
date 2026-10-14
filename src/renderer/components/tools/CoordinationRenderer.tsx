@@ -192,7 +192,7 @@ function JobRowView({ job, t }: { job: JobRow; t: (key: string, params?: Record<
 				<ProgressBar
 					ariaLabel={t("tools.coordination.estimate")}
 					className="w-20 shrink-0"
-					color="var(--sc-accent)"
+					tone="progress"
 					height={4}
 					value={job.completionPercent / 100}
 				/>

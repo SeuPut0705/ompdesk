@@ -15,7 +15,7 @@ import { useFocusedHost } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUpdaterStore } from "../../stores/updater";
-import { Badge, Banner, type BannerVariant, Button, ErrorDetail, Input, Spinner } from "../common";
+import { Badge, Banner, type BannerVariant, Button, ErrorDetail, Input, ProgressBar, Spinner } from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
 import { HostScoped } from "../remote/HostScope";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
@@ -88,6 +88,21 @@ export function UpdateFailureLines({
 				</>
 			)}
 		</>
+	);
+}
+
+/**
+ * A row's running update: the app download with its percent, the omp update
+ * (which reports none) as an indeterminate bar.
+ */
+export function UpdateProgress({ percent, label }: { percent?: number; label: string }) {
+	return (
+		<ProgressBar
+			ariaLabel={label}
+			className="w-32"
+			tone="progress"
+			value={percent === undefined ? undefined : percent / 100}
+		/>
 	);
 }
 
@@ -195,7 +210,7 @@ export function UpdatesSection() {
 							{status.mode === "manual" ? t("updater.downloadInstaller") : t("updater.download")}
 						</Button>
 					) : status.state === "downloading" ? (
-						<Badge variant="info">{status.percent}%</Badge>
+						<UpdateProgress label={t("updates.gui.downloading")} percent={status.percent} />
 					) : status.state === "downloaded" ? (
 						<Button
 							icon={status.mode === "manual" ? <FolderOpen /> : <RotateCcw />}
@@ -251,15 +266,18 @@ export function UpdatesSection() {
 						) : !core || checking ? (
 							<Spinner label={t("updates.checking")} size="sm" />
 						) : core.updateAvailable ? (
-							<Button
-								disabled={coreUpdating || !sidecarReady}
-								icon={<Download />}
-								loading={coreUpdating}
-								onClick={() => void updateCore()}
-								size="sm"
-							>
-								{coreUpdating ? t("updates.core.updating") : t("updates.core.update")}
-							</Button>
+							coreUpdating ? (
+								<UpdateProgress label={t("updates.core.updating")} />
+							) : (
+								<Button
+									disabled={!sidecarReady}
+									icon={<Download />}
+									onClick={() => void updateCore()}
+									size="sm"
+								>
+									{t("updates.core.update")}
+								</Button>
+							)
 						) : (
 							<Badge variant="success">{t("updates.upToDate")}</Badge>
 						)

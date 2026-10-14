@@ -3671,6 +3671,7 @@ export const en: Record<string, string> = {
 	"ssh.validation.required": "Alias and host are required.",
 	"updates.gui.name": "OMPdesk",
 	"updates.gui.description": "Electron shell, renderer, and bundled resources.",
+	"updates.gui.downloading": "Downloading the update",
 	"updates.core.name": "omp",
 	"updates.core.description": "The omp CLI installed on this system, which OMPdesk runs for every session.",
 	"updates.core.checkFailed": "Couldn't check the omp version. Try again.",
