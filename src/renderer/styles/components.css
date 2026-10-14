@@ -185,6 +185,13 @@
 .markdown-body p {
 	margin: 0.65em 0;
 }
+/* Each paragraph takes its direction from its own first strong letter (what
+   dir="auto" does per block): an Arabic or Hebrew line reads right to left with
+   its punctuation at the right end, while mixed Korean/English lines stay LTR. */
+.markdown-body :is(p, li, h1, h2, h3, h4, h5, h6, th, td) {
+	unicode-bidi: plaintext;
+	text-align: start;
+}
 .markdown-body .katex-display {
 	max-width: 100%;
 	overflow: auto hidden;
@@ -298,7 +305,7 @@
 .markdown-body td {
 	border: 1px solid var(--omp-border-muted);
 	padding: 0.45em 0.75em;
-	text-align: left;
+	text-align: start;
 }
 .markdown-body th {
 	background: transparent;
@@ -2390,6 +2397,14 @@
 	border: 0;
 	border-bottom: 1px solid var(--sc-divider);
 	vertical-align: top;
+	/* Words stay whole: the column's break-anywhere wrapping shrank cells to
+	   one syllable ("Maintai / ner"); a table too wide scrolls instead. */
+	word-break: normal;
+	overflow-wrap: break-word;
+}
+
+:root:lang(ko) .omp-transcript-editorial .markdown-body :is(th, td) {
+	word-break: keep-all;
 }
 
 .omp-transcript-editorial .markdown-body th {

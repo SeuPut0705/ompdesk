@@ -2421,7 +2421,7 @@ export const en: Record<string, string> = {
 	"chat.context.compactionMethod.handoff": "Handed off",
 	"chat.context.compactionMethod.snapcompact": "Snap-compacted",
 	"chat.context.compactionMethod.shake": "Shaken",
-	"chat.compaction.showEarlier": "Show {count} earlier messages",
+	"chat.compaction.showEarlier": "Show {count} earlier message{plural}",
 	"chat.context.compactedFrom": "Context compacted from {tokens} tokens",
 	"chat.context.branchSummary": "Branch summary",
 	"chat.context.referencedFiles": "Referenced files",

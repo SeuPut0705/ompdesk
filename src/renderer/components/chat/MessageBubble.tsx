@@ -257,7 +257,8 @@ function MessageActions({
 }) {
 	const t = useT();
 	return (
-		<div className={cx("omp-message-actions flex items-center gap-0.5", className)}>
+		// select-none: a selection through the turn copies the message, never its clock.
+		<div className={cx("omp-message-actions flex select-none items-center gap-0.5", className)}>
 			{timestamp && <time className="px-1 text-sc-xs tabular-nums text-(--sc-text-subtle)">{timestamp}</time>}
 			<IconButton
 				icon={copied ? <Check className="text-(--sc-success)" /> : <Copy />}

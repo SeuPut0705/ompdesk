@@ -953,7 +953,10 @@ function SessionTranscript() {
 												size="sm"
 												variant="secondary"
 											>
-												{t("chat.compaction.showEarlier", { count: row.count })}
+												{t("chat.compaction.showEarlier", {
+													count: row.count,
+													plural: row.count === 1 ? "" : "s",
+												})}
 											</Button>
 										) : (
 											<TurnStatusRow attached={liveTail} />
