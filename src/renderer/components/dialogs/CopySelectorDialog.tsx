@@ -10,7 +10,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, ErrorDetail, Modal, Spinner } from "../common";
+import { Button, InlineNotice, Modal, Spinner } from "../common";
 
 export function CopySelectorDialog() {
 	const tabRpc = useTabRpc();
@@ -127,14 +127,9 @@ export function CopySelectorDialog() {
 					ref={listRef}
 				>
 					{error ? (
-						<div className="p-4 text-sc-sm text-(--sc-danger)" role="alert">
-							{error.message}
-							<ErrorDetail className="mt-0.5" error={error.cause} />
-						</div>
+						<InlineNotice className="p-4" detail={error.cause} live title={error.message} tone="danger" />
 					) : loading ? (
-						<div className="flex items-center justify-center gap-2 p-8 text-sc-sm text-(--sc-text-muted)">
-							<Spinner size="sm" /> {t("copySelector.loading")}
-						</div>
+						<Spinner className="w-full justify-center p-8" label={t("copySelector.loading")} size="sm" />
 					) : flat.length === 0 ? (
 						<div className="p-8 text-center text-sc-sm text-(--sc-text-muted)">{t("copySelector.empty")}</div>
 					) : (

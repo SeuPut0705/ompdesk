@@ -19,7 +19,7 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { mergeContentMatches, rankSessions, type SessionSortMode } from "../../lib/session-search";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, ErrorDetail, IconButton, Kbd, Modal, SearchField, Spinner } from "../common";
+import { Badge, Button, IconButton, InlineNotice, Kbd, Modal, SearchField, Spinner } from "../common";
 
 type SessionScope = "local" | "global";
 
@@ -250,25 +250,25 @@ export function SessionPickerDialog() {
 					role={showOptions ? "listbox" : undefined}
 				>
 					{error ? (
-						<div className="flex flex-col items-center gap-2 py-10 text-center">
-							<p role="alert" className="text-sc-sm text-(--sc-danger)">
-								{error.message}
-								<ErrorDetail className="mt-0.5" error={error.cause} />
-							</p>
-							<Button
-								icon={<RotateCw />}
-								onClick={() => setAttempt(count => count + 1)}
-								size="sm"
-								variant="secondary"
-							>
-								{t("common.retry")}
-							</Button>
-						</div>
+						<InlineNotice
+							action={
+								<Button
+									icon={<RotateCw />}
+									onClick={() => setAttempt(count => count + 1)}
+									size="sm"
+									variant="secondary"
+								>
+									{t("common.retry")}
+								</Button>
+							}
+							className="px-3 py-6"
+							detail={error.cause}
+							live
+							title={error.message}
+							tone="danger"
+						/>
 					) : loading ? (
-						<div className="flex items-center justify-center gap-2 py-10">
-							<Spinner size="sm" />
-							<span className="text-sc-sm text-(--sc-text-muted)">{t("sessionPicker.loading")}</span>
-						</div>
+						<Spinner className="w-full justify-center py-10" label={t("sessionPicker.loading")} size="sm" />
 					) : filtered.length === 0 ? (
 						<div className="py-10 text-center text-sc-sm text-(--sc-text-muted)">
 							{sessions.length === 0

@@ -1991,8 +1991,6 @@ export const en: Record<string, string> = {
 	"shareDialog.url": "Share URL",
 	"shareDialog.copy": "Copy link",
 	"shareDialog.open": "Open in browser",
-	"shareDialog.copied": "Share link copied to clipboard",
-	"shareDialog.copyFailed": "Couldn't copy the link",
 	"shareDialog.truncated": "Large content was trimmed to fit the share size limit.",
 	"shareDialog.previewFailed": "Couldn't prepare the share preview.",
 

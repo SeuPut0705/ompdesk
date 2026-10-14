@@ -17,7 +17,7 @@ import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, EmptyState, ErrorDetail, IconButton, Modal, SearchField, Spinner, Tabs } from "../common";
+import { Button, EmptyState, IconButton, InlineNotice, Modal, SearchField, Spinner, Tabs } from "../common";
 
 type Source = "claude" | "codex";
 
@@ -243,10 +243,7 @@ export function ImportForeignDialog() {
 			</div>
 
 			{importError && (
-				<p role="alert" className="mb-2 text-sc-sm text-(--sc-danger)">
-					{importError.message}
-					<ErrorDetail className="mt-0.5" error={importError.cause} />
-				</p>
+				<InlineNotice className="mb-2" detail={importError.cause} live title={importError.message} tone="danger" />
 			)}
 			<div className="max-h-[46vh] min-h-48 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
 				{state?.loading && (
@@ -255,10 +252,13 @@ export function ImportForeignDialog() {
 					</div>
 				)}
 				{state?.error && (
-					<div className="px-4 py-6 text-center text-sc-md text-(--sc-text-secondary)" role="alert">
-						{state.error.message}
-						<ErrorDetail className="mt-1" error={state.error.cause} />
-					</div>
+					<InlineNotice
+						className="px-4 py-6"
+						detail={state.error.cause}
+						live
+						title={state.error.message}
+						tone="danger"
+					/>
 				)}
 				{!state?.loading && !state?.error && filtered.length === 0 && (
 					<EmptyState

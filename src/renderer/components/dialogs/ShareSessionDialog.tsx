@@ -1,14 +1,12 @@
-import { AlertTriangle, Copy, ExternalLink } from "lucide-react";
+import { AlertTriangle, ExternalLink } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RpcShareSessionPreview, RpcShareSessionResult } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
-import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
-import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, ErrorDetail, Modal, Spinner } from "../common";
+import { Button, CopyButton, InlineNotice, Modal, Spinner } from "../common";
 
 export function ShareSessionDialog() {
 	const t = useT();
@@ -77,11 +75,6 @@ export function ShareSessionDialog() {
 		}
 	};
 
-	const copy = async (value: string) => {
-		if (await copyText(value)) toast({ variant: "success", message: t("shareDialog.copied") });
-		else toast({ variant: "error", message: t("shareDialog.copyFailed") });
-	};
-
 	return (
 		<Modal
 			onClose={uploading ? () => {} : close}
@@ -113,9 +106,7 @@ export function ShareSessionDialog() {
 			}
 		>
 			{loading ? (
-				<div className="flex items-center justify-center gap-2 py-8 text-sc-sm text-(--sc-text-muted)">
-					<Spinner size="sm" /> {t("shareDialog.preparing")}
-				</div>
+				<Spinner className="w-full justify-center py-8" label={t("shareDialog.preparing")} size="sm" />
 			) : result ? (
 				<div className="space-y-3">
 					<div>
@@ -124,15 +115,7 @@ export function ShareSessionDialog() {
 							<code className="min-w-0 flex-1 basis-48 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2 text-sc-sm break-all text-(--sc-text)">
 								{result.url}
 							</code>
-							<Button
-								aria-label={t("shareDialog.copy")}
-								onClick={() => void copy(result.url)}
-								size="sm"
-								title={t("shareDialog.copy")}
-								variant="secondary"
-							>
-								<Copy aria-hidden className="size-(--sc-icon-sm)" />
-							</Button>
+							<CopyButton label={t("shareDialog.copy")} text={result.url} variant="secondary" />
 							<Button
 								aria-label={t("shareDialog.open")}
 								onClick={() => void window.omp.system.openExternal(result.url)}
@@ -176,20 +159,24 @@ export function ShareSessionDialog() {
 				</div>
 			) : null}
 			{error && (
-				<div role="alert" className="space-y-2 py-3 text-sc-sm text-(--sc-danger)">
-					<p>
-						{error.message}
-						<ErrorDetail className="mt-0.5" error={error.cause} />
-					</p>
-					<Button
-						variant="secondary"
-						disabled={uploading || !sidecarReady}
-						onClick={() => void prepare()}
-						title={!sidecarReady ? t("sidecar.notResponding") : undefined}
-					>
-						{t("shareDialog.refreshPreview")}
-					</Button>
-				</div>
+				<InlineNotice
+					action={
+						<Button
+							variant="secondary"
+							disabled={uploading || !sidecarReady}
+							onClick={() => void prepare()}
+							size="sm"
+							title={!sidecarReady ? t("sidecar.notResponding") : undefined}
+						>
+							{t("shareDialog.refreshPreview")}
+						</Button>
+					}
+					className="py-3"
+					detail={error.cause}
+					live
+					title={error.message}
+					tone="danger"
+				/>
 			)}
 		</Modal>
 	);

@@ -360,9 +360,9 @@ describe("sidecar command fetch failure", () => {
 
 		// Localized headline first; the raw cause only as the quiet detail line.
 		const alert = palette().querySelector('[role="alert"]');
-		expect(alert?.querySelector("span")?.textContent).toBe(translate("palette.commandsFailed"));
+		expect(alert?.querySelector("p")?.textContent).toBe(translate("palette.commandsFailed"));
 		expect(alert?.querySelector("[data-error-detail]")?.textContent).toBe("sidecar not ready");
-		expect(alert?.getAttribute("title")).toBe("sidecar not ready");
+		expect(alert?.querySelector("[title]")?.getAttribute("title")).toBe("sidecar not ready");
 
 		const retry = palette()
 			.querySelectorAll("button")

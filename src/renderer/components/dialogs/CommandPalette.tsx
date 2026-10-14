@@ -53,7 +53,7 @@ import {
 	prefillComposer,
 } from "../../lib/command-registry";
 import { enterNeedsConfirm, matchCommand, normalizeQuery, rankCommands } from "../../lib/command-search";
-import { errorDetail, type InlineFailure, inlineFailure } from "../../lib/error-detail";
+import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -62,7 +62,7 @@ import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, EmptyState, ErrorDetail, Kbd, Modal, SearchField, Spinner } from "../common";
+import { Button, EmptyState, InlineNotice, Kbd, Modal, SearchField, Spinner } from "../common";
 
 const RECENT_KEY = "omp.palette.recent";
 const RECENT_LIMIT = 5;
@@ -586,15 +586,18 @@ export function CommandPalette() {
 					{loading && <Spinner size="sm" />}
 				</div>
 				{commandsError !== null && (
-					<div className="flex items-center gap-2 border-b border-(--sc-divider) px-3.5 py-1.5">
-						<div className="min-w-0 flex-1" role="alert" title={errorDetail(commandsError.cause) || undefined}>
-							<span className="block truncate text-sc-sm text-(--sc-danger)">{commandsError.message}</span>
-							<ErrorDetail className="truncate" error={commandsError.cause} />
-						</div>
-						<Button onClick={refreshCommands} size="sm" variant="secondary">
-							{t("common.retry")}
-						</Button>
-					</div>
+					<InlineNotice
+						action={
+							<Button onClick={refreshCommands} size="sm" variant="secondary">
+								{t("common.retry")}
+							</Button>
+						}
+						className="border-b border-(--sc-divider) px-3.5 py-1.5"
+						detail={commandsError.cause}
+						live
+						title={commandsError.message}
+						tone="danger"
+					/>
 				)}
 				<div
 					className="omp-command-list min-h-0 flex-1 overflow-y-auto p-1.5"

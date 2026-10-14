@@ -7,7 +7,7 @@ import { acceptsActiveTabEvents } from "../../lib/tab-routing";
 import { useTabCommand } from "../../stores/session-runtime-context";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, Modal, Spinner } from "../common";
+import { Button, InlineNotice, Modal, Spinner } from "../common";
 
 type LiveAction =
 	| { kind: "frame"; frame: RpcLiveFrame }
@@ -162,11 +162,7 @@ export function LiveVoiceDialog() {
 					)}
 					<div ref={transcriptEnd} />
 				</div>
-				{state.error ? (
-					<div className="text-sc-sm text-(--sc-danger)" role="alert">
-						{state.error}
-					</div>
-				) : null}
+				{state.error ? <InlineNotice live title={state.error} tone="danger" /> : null}
 			</div>
 		</Modal>
 	);

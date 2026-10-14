@@ -14,7 +14,7 @@ import { branchSessionFromEntry } from "../../lib/messages";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, ErrorDetail, Kbd, Modal, SearchField, Spinner } from "../common";
+import { Button, InlineNotice, Kbd, Modal, SearchField, Spinner } from "../common";
 
 interface BranchEntry {
 	entryId: string;
@@ -178,27 +178,27 @@ export function BranchPickerDialog() {
 					role={showOptions ? "listbox" : undefined}
 				>
 					{error ? (
-						<div className="flex flex-col items-center gap-2 py-10 text-center">
-							<p role="alert" className="text-sc-sm text-(--sc-danger)">
-								{error.message}
-								<ErrorDetail className="mt-0.5" error={error.cause} />
-							</p>
-							<Button
-								icon={<RotateCw />}
-								disabled={!sidecarReady}
-								onClick={() => setAttempt(count => count + 1)}
-								size="sm"
-								title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
-								variant="secondary"
-							>
-								{t("common.retry")}
-							</Button>
-						</div>
+						<InlineNotice
+							action={
+								<Button
+									icon={<RotateCw />}
+									disabled={!sidecarReady}
+									onClick={() => setAttempt(count => count + 1)}
+									size="sm"
+									title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
+									variant="secondary"
+								>
+									{t("common.retry")}
+								</Button>
+							}
+							className="px-3 py-6"
+							detail={error.cause}
+							live
+							title={error.message}
+							tone="danger"
+						/>
 					) : loading ? (
-						<div className="flex items-center justify-center gap-2 py-10">
-							<Spinner size="sm" />
-							<span className="text-sc-sm text-(--sc-text-muted)">{t("branchPicker.loading")}</span>
-						</div>
+						<Spinner className="w-full justify-center py-10" label={t("branchPicker.loading")} size="sm" />
 					) : filtered.length === 0 ? (
 						<div className="py-10 text-center text-sc-sm text-(--sc-text-muted)">
 							{entries.length === 0 ? t("branchPicker.empty") : t("branchPicker.noMatch", { query })}

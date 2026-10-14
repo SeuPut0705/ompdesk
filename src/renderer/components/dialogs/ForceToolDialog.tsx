@@ -15,7 +15,7 @@ import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, ErrorDetail, Input, Modal, SearchField, Spinner } from "../common";
+import { Badge, Button, InlineNotice, Input, Modal, SearchField, Spinner } from "../common";
 
 export function ForceToolDialog() {
 	const tabRpc = useTabRpc();
@@ -175,10 +175,7 @@ export function ForceToolDialog() {
 							<Spinner label={t("modelPicker.loading")} />
 						</div>
 					) : loadError ? (
-						<div className="p-3 text-sc-sm text-(--sc-danger)" role="alert">
-							{loadError.message}
-							<ErrorDetail className="mt-0.5" error={loadError.cause} />
-						</div>
+						<InlineNotice className="p-3" detail={loadError.cause} live title={loadError.message} tone="danger" />
 					) : filtered.length === 0 ? (
 						<div className="px-3 py-8 text-center text-sc-sm text-(--sc-text-muted)">{t("forceTool.empty")}</div>
 					) : (

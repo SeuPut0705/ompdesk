@@ -1979,8 +1979,6 @@ export const ko: Record<string, string> = {
 	"shareDialog.url": "공유 URL",
 	"shareDialog.copy": "링크 복사",
 	"shareDialog.open": "브라우저에서 열기",
-	"shareDialog.copied": "공유 링크를 클립보드에 복사했어요",
-	"shareDialog.copyFailed": "링크를 복사할 수 없어요",
 	"shareDialog.truncated": "공유 크기 제한에 맞게 큰 내용을 잘라냈어요.",
 	"shareDialog.previewFailed": "공유 미리보기를 준비하지 못했어요.",
 

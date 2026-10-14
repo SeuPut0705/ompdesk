@@ -8,7 +8,7 @@ import { acceptsActiveTabEvents } from "../../lib/tab-routing";
 import { useTabCommand } from "../../stores/session-runtime-context";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, Modal, Spinner, TextArea } from "../common";
+import { Button, InlineNotice, Modal, Spinner, TextArea } from "../common";
 
 /** Apply one frame to its record; `btw_record` replaces it (last one wins), `btw_delta` extends the latest answer. */
 function applyBtwFrame(record: BtwHistoryRecord | undefined, frame: RpcBtwFrame): BtwHistoryRecord | undefined {
@@ -151,12 +151,7 @@ export function BtwDialog() {
 				/>
 			</div>
 			{failure ? (
-				<div
-					className="rounded-(--sc-radius-md) border border-(--sc-danger) p-3 text-sc-sm text-(--sc-danger)"
-					role="alert"
-				>
-					{failure}
-				</div>
+				<InlineNotice live title={failure} tone="danger" />
 			) : turn?.answer ? (
 				<div className="max-h-[55vh] overflow-y-auto pr-1">
 					<MarkdownRenderer content={turn.answer} />

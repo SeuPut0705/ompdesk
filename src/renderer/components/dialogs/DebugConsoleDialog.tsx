@@ -40,7 +40,7 @@ import { useT } from "../../lib/i18n";
 import { asNumber, asRecord, asString } from "../../lib/wire-value";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Badge, type BadgeVariant, Button, ErrorDetail, Modal, Spinner, TextArea } from "../common";
+import { Badge, type BadgeVariant, Button, InlineNotice, Modal, Spinner, TextArea } from "../common";
 
 type TranslateFn = (key: string, params?: Record<string, string | number>) => string;
 
@@ -620,25 +620,25 @@ export function DebugConsoleDialog() {
 					</div>
 					{sessions === null ? (
 						sessionsError ? (
-							<div
-								className="flex flex-col items-center gap-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-4 py-6 text-center"
-								role="alert"
-							>
-								<span className="text-sc-sm text-(--sc-danger)">
-									{sessionsError.message}
-									<ErrorDetail className="mt-0.5" error={sessionsError.cause} />
-								</span>
-								<Button
-									disabled={!sidecarReady}
-									icon={<RefreshCw />}
-									onClick={() => void refreshSessions()}
-									size="sm"
-									variant="secondary"
-									title={!sidecarReady ? t("common.notConnected") : undefined}
-								>
-									{t("common.refresh")}
-								</Button>
-							</div>
+							<InlineNotice
+								action={
+									<Button
+										disabled={!sidecarReady}
+										icon={<RefreshCw />}
+										onClick={() => void refreshSessions()}
+										size="sm"
+										variant="secondary"
+										title={!sidecarReady ? t("common.notConnected") : undefined}
+									>
+										{t("common.refresh")}
+									</Button>
+								}
+								className="px-1"
+								detail={sessionsError.cause}
+								live
+								title={sessionsError.message}
+								tone="danger"
+							/>
 						) : (
 							<div className="flex items-center justify-center rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-4 py-6">
 								<Spinner size="sm" label={t("common.loading")} />
@@ -671,13 +671,7 @@ export function DebugConsoleDialog() {
 					) : (
 						<div className="flex max-h-40 flex-col gap-1.5 overflow-auto">
 							{sessionsError ? (
-								<div
-									className="rounded-(--sc-radius-md) border border-(--sc-danger) px-3 py-1.5 text-sc-sm text-(--sc-danger)"
-									role="alert"
-								>
-									{sessionsError.message}
-									<ErrorDetail className="mt-0.5" error={sessionsError.cause} />
-								</div>
+								<InlineNotice detail={sessionsError.cause} live title={sessionsError.message} tone="danger" />
 							) : null}
 							{sessions.map(session => (
 								<SessionRow
@@ -709,15 +703,7 @@ export function DebugConsoleDialog() {
 					))}
 				</div>
 
-				{error ? (
-					<div
-						className="rounded-(--sc-radius-md) border border-(--sc-danger) p-3 text-sc-sm text-(--sc-danger)"
-						role="alert"
-					>
-						{error.message}
-						<ErrorDetail className="mt-0.5" error={error.cause} />
-					</div>
-				) : null}
+				{error ? <InlineNotice detail={error.cause} live title={error.message} tone="danger" /> : null}
 
 				<section>
 					<div className="mb-1 flex items-center justify-between">

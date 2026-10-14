@@ -15,7 +15,7 @@ import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { Button, ErrorDetail, Input, Modal } from "../common";
+import { Button, InlineNotice, Input, Modal } from "../common";
 
 /** Renderer-side mirror of the agent's slugify (rpc-worktree.ts). */
 function slugify(name: string): string {
@@ -149,12 +149,7 @@ export function WorktreeDialog() {
 						{t("worktree.invalidName")}
 					</p>
 				)}
-				{error && (
-					<p role="alert" className="break-words text-sc-sm text-(--sc-danger)">
-						{error.message}
-						<ErrorDetail className="mt-0.5" error={error.cause} />
-					</p>
-				)}
+				{error && <InlineNotice detail={error.cause} live title={error.message} tone="danger" />}
 				<fieldset disabled={creating || created !== null} className="flex flex-col gap-1.5">
 					<legend className="text-sc-sm font-medium text-(--sc-text-secondary)">{t("worktree.baseLabel")}</legend>
 					{(["HEAD", "default"] as const).map(value => (
