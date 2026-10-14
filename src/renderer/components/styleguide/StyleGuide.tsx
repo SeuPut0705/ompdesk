@@ -34,8 +34,10 @@ import {
 	Banner,
 	BrandMark,
 	Button,
+	CopyButton,
 	EmptyState,
 	IconButton,
+	InlineNotice,
 	Input,
 	Kbd,
 	ListRow,
@@ -46,6 +48,8 @@ import {
 	SearchField,
 	Select,
 	Sheet,
+	Skeleton,
+	SkeletonRows,
 	Spinner,
 	Switch,
 	SwitchField,
@@ -781,9 +785,30 @@ export default function StyleGuide() {
 							<ProgressBar label="Context" value={0.42} />
 							<ProgressBar label="Quota" value={0.81} />
 							<ProgressBar label="Usage" value={0.94} />
+							<ProgressBar ariaLabel="Download" tone="progress" value={0.42} />
+							<ProgressBar ariaLabel="Updating omp" tone="progress" />
 						</Block>
 						<Block label="Tooltip (inline render)">
 							<TooltipBubble content="Search sessions" shortcut="⌘K" />
+						</Block>
+					</div>
+					<div className="grid grid-cols-3 gap-6" data-styleguide-wave4>
+						<Block className="space-y-3" label="InlineNotice">
+							<InlineNotice
+								action={<Button size="sm">Retry</Button>}
+								detail="ENOENT: no such file or directory, open '~/.omp/agent/sessions'"
+								title="Couldn't load sessions."
+								tone="danger"
+							/>
+							<InlineNotice title="Nothing matched this filter." tone="info" />
+						</Block>
+						<Block className="space-y-3" label="Skeleton">
+							<Skeleton className="h-4 w-2/3" />
+							<SkeletonRows label="Loading sessions…" widths={[72, 54, 64]} />
+						</Block>
+						<Block className="flex items-center gap-3" label="CopyButton">
+							<code className="font-mono text-sc-sm">omp update</code>
+							<CopyButton label="Copy command" text="omp update" />
 						</Block>
 					</div>
 					<div className="grid grid-cols-2 gap-6">

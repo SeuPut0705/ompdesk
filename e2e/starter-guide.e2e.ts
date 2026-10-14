@@ -148,6 +148,26 @@ for (const variant of VARIANTS)
 			await capture(page, `${variant.name}-04-risk-confirm`);
 			await page.keyboard.press("Escape");
 
+			// Wave-4 primitives (InlineNotice, Skeleton, CopyButton, progress-tone bars) on the style guide.
+			if (OUT) {
+				// The window refuses renderer navigation (will-navigate); main may load its own page.
+				await app.evaluate(async ({ BrowserWindow }) => {
+					const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+					if (!contents) return;
+					contents.on("will-prevent-unload", event => event.preventDefault());
+					await contents.loadURL(`${contents.getURL().split("#")[0]}#/styleguide`);
+					contents.reload();
+				});
+				// The internal style guide is English-only; its own switch picks the variant's theme.
+				await page
+					.getByText(variant.theme === "dark" ? "Dark" : "Light", { exact: true })
+					.first()
+					.click();
+				const wave4 = page.locator("[data-styleguide-wave4]");
+				await wave4.scrollIntoViewIfNeeded();
+				await capture(page.locator("section").filter({ has: wave4 }), `${variant.name}-05-feedback-primitives`);
+			}
+
 			expect(errors).toEqual([]);
 		} finally {
 			await exitApp(app);
