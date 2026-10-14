@@ -7,7 +7,7 @@ import { useSessionStore } from "../../stores/session";
 import { useSessionRuntime } from "../../stores/session-runtime-context";
 import { type SubagentNode, type SubagentsStore, useSubagentsStore } from "../../stores/subagents";
 import { selectToolEntry, type ToolsStore, useToolsStore } from "../../stores/tools";
-import { type AgentCompletion, mergeRunAgents, runTranscript } from "./work-run";
+import { type AgentCompletion, mergeRunAgents, runTranscript, type TaskCallResult } from "./work-run";
 import { type WorkEvidence, workOutcomes } from "./work-view";
 
 const NO_MESSAGES: readonly AgentMessage[] = [];
@@ -58,18 +58,36 @@ export function useRunAgents(
 			)
 			.join("|"),
 	);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: `ids`/`taskKey` are the content keys read here.
+	// This run's task calls the live registry holds agents for: their unanswered arguments name no lane.
+	const registeredKey = useFrameSelector(subagents, state =>
+		[
+			...new Set(
+				[...state.subagents.values()].flatMap(node => {
+					const key = node.parentToolCallId ? tools.getState().entryKeyForCallId(node.parentToolCallId) : "";
+					return key && toolCallIds.includes(key) ? [key] : [];
+				}),
+			),
+		]
+			.sort()
+			.join("\u0000"),
+	);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `ids`/`taskKey`/`registeredKey` are the content keys read here.
 	const transcript = useMemo(() => {
 		if (!spawns) return { agents: [], completions: NO_COMPLETIONS };
 		const owns = (id: string) => toolCallIds.includes(tools.getState().entryKeyForCallId(id));
-		const taskCalls = toolCallIds.flatMap(id => {
+		const taskCalls = toolCallIds.flatMap((id): TaskCallResult[] => {
 			const entry = selectToolEntry(tools.getState(), id);
-			return entry?.toolName === "task" && entry.result != null
-				? [{ toolCallId: id, result: entry.result, timestamp: entry.endTime ?? entry.startTime }]
+			if (entry?.toolName !== "task") return [];
+			if (entry.result != null)
+				return [{ toolCallId: id, result: entry.result, timestamp: entry.endTime ?? entry.startTime }];
+			// Ended without any result: only its arguments recorded the agents it started, unless
+			// the live registry still holds them under the ids stock allocated.
+			return entry.status === "aborted" && !registeredKey.split("\u0000").includes(id)
+				? [{ toolCallId: id, result: null, timestamp: entry.endTime ?? entry.startTime, args: entry.args }]
 				: [];
 		});
 		return runTranscript(live.length ? [...committed, ...live] : committed, owns, taskCalls);
-	}, [spawns, taskKey, committed, live, ids, tools]);
+	}, [spawns, taskKey, registeredKey, committed, live, ids, tools]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: liveKey/ids encode the store rows read here.
 	const agents = useMemo(() => {
 		const owned = [...subagents.getState().subagents.values()].filter(

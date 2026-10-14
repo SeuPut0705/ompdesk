@@ -7,6 +7,7 @@ import { I18nProvider } from "../../lib/i18n";
 import { en } from "../../locales/en";
 import { ko } from "../../locales/ko";
 import { useMessagesStore } from "../../stores/messages";
+import { useSubagentsStore } from "../../stores/subagents";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -53,6 +54,7 @@ afterEach(async () => {
 	(globalThis as Record<string, unknown>).localStorage = realLocalStorage;
 	useToolsStore.getState().reset();
 	useMessagesStore.getState().reset();
+	useSubagentsStore.getState().reset();
 });
 
 /** Exactly what stock's todo-tracker `checkCompletion` appends to the session journal. */
@@ -335,6 +337,72 @@ describe("todo row after a reload", () => {
 		expect(
 			[...container.querySelectorAll(".omp-work-todo-list li")].map(item => item.getAttribute("data-status")),
 		).toEqual(["completed", "in_progress", "pending"]);
+	});
+});
+
+describe("agents after a relaunch", () => {
+	const at = 1_791_900_000_000;
+	// Lanes settle by replaying each agent's transcript once; an empty one is enough here.
+	const rpc = () =>
+		Object.assign(window, { omp: { rpc: { command: async () => ({ success: true, data: { messages: [] } }) } } });
+	async function mountRun(messages: AgentMessage[]) {
+		useToolsStore.getState().hydrateMessages(messages);
+		const work = buildHistoryRows(messages, "compact").find(row => row.kind === "process");
+		await mount(
+			<ExecutionGroup
+				expanded={false}
+				onExpandedChange={() => {}}
+				stepCount={work?.kind === "process" ? work.toolCallIds.length : 0}
+				toolCallIds={work?.kind === "process" ? work.toolCallIds : []}
+			>
+				<div />
+			</ExecutionGroup>,
+		);
+	}
+
+	it("keeps the lane of a task its process left unanswered, named by its spec", async () => {
+		rpc();
+		setLanguage("en");
+		// The journal a relaunch reopens: the task and the command after it never got a result.
+		await mountRun([
+			user("Build, map and test", at),
+			call("b1", "bash", { command: "bun run build" }, at + 1_000),
+			result("b1", "bash", "built", at + 2_000, { exitCode: 0 }),
+			call("t1", "task", { context: "c", tasks: [{ name: "Scout", task: "Map the code" }] }, at + 3_000),
+			call("b2", "bash", { command: "bun test" }, at + 4_000),
+		]);
+		const group = container.querySelector(".omp-execution-group");
+		expect(group?.getAttribute("data-state")).toBe("interrupted");
+		const lanes = [...container.querySelectorAll(".omp-work-card-button")];
+		expect(lanes.map(lane => lane.querySelector(".omp-work-card-name")?.textContent)).toEqual(["Scout"]);
+		expect(lanes[0]?.querySelector(".omp-work-card-activity")?.textContent).toBe("Work interrupted");
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe(
+			"2 interrupted · 2 commands · 1 agent",
+		);
+	});
+
+	it("heads a finished run with one agent by how the run ended, never the agent's own task", async () => {
+		rpc();
+		setLanguage("en");
+		await mountRun([
+			user("Map the code", at),
+			call("t1", "task", { tasks: [{ name: "Scout", task: "Map the code" }] }, at + 1_000),
+			result("t1", "task", "Scout finished", at + 2_000, {
+				results: [
+					{
+						id: "Scout",
+						agent: "explore",
+						description: "Scout task",
+						exitCode: 0,
+						output: "Mapped.",
+						durationMs: 900,
+					},
+				],
+			}),
+			reply("Mapped it.", at + 3_000),
+		]);
+		expect(container.querySelector(".omp-work-head .omp-work-narrative")?.textContent).toBe("Work complete");
+		expect(container.querySelector(".omp-work-card-name")?.textContent).toBe("Scout");
 	});
 });
 

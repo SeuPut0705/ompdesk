@@ -113,11 +113,35 @@ function singleResultCompletion(row: Record<string, unknown>): AgentCompletion {
 	};
 }
 
-/** A finished task call of this run as the tools store holds it (live or hydrated). */
+/**
+ * A finished task call of this run as the tools store holds it (live or hydrated). A call
+ * that ended without any stock result (its process was gone before it answered) has a null
+ * `result` and keeps its arguments, the only record of the agents it started.
+ */
 export interface TaskCallResult {
 	toolCallId: string;
 	result: unknown;
 	timestamp: number;
+	args?: Record<string, unknown>;
+}
+
+/**
+ * The agents an unanswered task call started, from its arguments alone: a batch's `tasks[]`
+ * or the flat spec. Stock names each one by its spec name, else `#<position>` (task/index.ts
+ * "Task #2: cancelled before start."; pi-tui task.ts renderTaskCallLines); the id it
+ * allocated from that name was never recorded.
+ */
+function argumentAgents(args: Record<string, unknown>): Array<{ name: string; agent?: string; task?: string }> {
+	const specs = Array.isArray(args.tasks) ? args.tasks.map(asRecord) : [args];
+	return specs.map((spec, index) => {
+		const name = typeof spec?.name === "string" ? spec.name.trim() : "";
+		const agent = [spec?.agent, args.agent].find((value): value is string => typeof value === "string");
+		return {
+			name: name || `#${index + 1}`,
+			...(agent ? { agent } : {}),
+			...(typeof spec?.task === "string" ? { task: spec.task } : {}),
+		};
+	});
 }
 
 /** Where one message list spawned each task call, and which of its messages can settle an agent. */
@@ -238,6 +262,24 @@ export function runTranscript(
 		const details = resultDetails(call.result);
 		recordTask(call.toolCallId, details, call.timestamp);
 		settleFrom(details, call.result, call.result);
+	}
+	// Before the transcript scan, so a later stock record (a restored agent's delivery) still settles them.
+	for (const call of taskCalls) {
+		if (call.result != null || !call.args) continue;
+		if ([...agents.values()].some(node => node.parentToolCallId === call.toolCallId)) continue;
+		for (const spec of argumentAgents(call.args)) {
+			if (agents.has(spec.name)) continue;
+			agents.set(spec.name, {
+				id: spec.name,
+				index: agents.size,
+				agent: spec.agent ?? "task",
+				...(spec.task ? { assignment: spec.task, task: spec.task } : {}),
+				status: "aborted",
+				lastUpdate: call.timestamp,
+				parentToolCallId: call.toolCallId,
+				kind: "sub",
+			});
+		}
 	}
 	// Settlements follow the spawn; a transcript page without the spawning call still settles known agents.
 	const { spawns, records } = taskIndex(messages);
@@ -388,24 +430,15 @@ export function transcriptTodoSnapshot(entries: readonly (readonly [string, Tool
 }
 
 /**
- * A finished card's head: what the run was for (its goal, its todo list's title,
- * or a lone agent's task description), never a copy of the reply below it.
+ * A finished card's head: what the whole run was for (its goal, its todo list's title),
+ * never a copy of the reply below it. A lone agent's task is not the run's: its lane
+ * right below names it, and the run may have done more around it, so the head then
+ * states how the run ended.
  */
-export function finishedHeadline({
-	goal,
-	todo,
-	agents,
-}: {
-	goal?: string;
-	todo?: TodoSnapshot;
-	agents: readonly SubagentNode[];
-}): string | undefined {
+export function finishedHeadline({ goal, todo }: { goal?: string; todo?: TodoSnapshot }): string | undefined {
 	const objective = goal?.trim();
 	if (objective) return objective.split("\n")[0];
-	const phase = todo?.phases.find(item => item.tasks.length > 0)?.name.trim();
-	if (phase) return phase;
-	if (agents.length === 1) return agents[0]?.description?.trim() || undefined;
-	return undefined;
+	return todo?.phases.find(item => item.tasks.length > 0)?.name.trim() || undefined;
 }
 
 /** A path as the project sees it: relative inside the session's cwd, absolute elsewhere. */

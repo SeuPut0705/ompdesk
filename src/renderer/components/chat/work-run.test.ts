@@ -96,6 +96,45 @@ describe("run transcript", () => {
 		expect(runTranscript(transcript, () => false).agents).toEqual([]);
 	});
 
+	it("restores an unanswered call's agents from its arguments, named as stock names them", () => {
+		const calls = [
+			{
+				toolCallId: "task-1",
+				result: null,
+				timestamp: 3,
+				args: { context: "c", tasks: [{ name: " Scout ", task: "Map the code" }, { task: "Review" }] },
+			},
+			{ toolCallId: "task-2", result: null, timestamp: 4, args: { name: "Solo", agent: "explore", task: "Look" } },
+		];
+		const transcript = runTranscript([], () => true, calls);
+		expect(
+			transcript.agents.map(({ id, agent, status, parentToolCallId, assignment }) => ({
+				id,
+				agent,
+				status,
+				parentToolCallId,
+				assignment,
+			})),
+		).toEqual([
+			{ id: "Scout", agent: "task", status: "aborted", parentToolCallId: "task-1", assignment: "Map the code" },
+			{ id: "#2", agent: "task", status: "aborted", parentToolCallId: "task-1", assignment: "Review" },
+			{ id: "Solo", agent: "explore", status: "aborted", parentToolCallId: "task-2", assignment: "Look" },
+		]);
+		// Stock's later record of the same agent (a restored run's delivery) still settles its lane.
+		const delivered = {
+			...completion("<output>\nmapped\n</output>"),
+			content: `<task-result id="Scout" agent="task" status="completed" duration="2s">\n<output>\nmapped\n</output>\n</task-result>`,
+		};
+		const settled = runTranscript([delivered], () => true, calls);
+		expect(mergeRunAgents([], settled).find(node => node.id === "Scout")?.status).toBe("completed");
+		// A call stock answered keeps the rows stock recorded; its arguments add nothing.
+		expect(
+			runTranscript([spawn, taskResult], owns, [
+				{ ...calls[0], toolCallId: "task-1", result: taskResult },
+			]).agents.map(node => node.id),
+		).toEqual(["Reader"]);
+	});
+
 	it("measures the run from stock message timestamps, live and hydrated alike", () => {
 		expect(runSpan([[spawn, taskResult], []], ["task-1"])).toEqual({ startedAt: 1_000, spanMs: 100 });
 		// The live result lands in the second list; calls the run does not own never count.
@@ -105,17 +144,14 @@ describe("run transcript", () => {
 });
 
 describe("finished head and paths", () => {
-	it("names the run's goal, todo title or lone agent task, never the reply", () => {
-		const agent = { id: "Reader", description: "Count alpha lines" } as SubagentNode;
-		expect(finishedHeadline({ goal: "Ship v2", agents: [agent] })).toBe("Ship v2");
+	it("names the run's goal or todo title, never a lone agent's task or the reply", () => {
+		expect(finishedHeadline({ goal: "Ship v2" })).toBe("Ship v2");
 		expect(
 			finishedHeadline({
 				todo: { id: "t", ts: 0, phases: [{ name: "Audit", tasks: [{ content: "a", status: "completed" }] }] },
-				agents: [],
 			}),
 		).toBe("Audit");
-		expect(finishedHeadline({ agents: [agent] })).toBe("Count alpha lines");
-		expect(finishedHeadline({ agents: [] })).toBeUndefined();
+		expect(finishedHeadline({})).toBeUndefined();
 	});
 
 	it("shows outcome paths relative to the session cwd, across the macOS /private firmlink", () => {

@@ -208,7 +208,7 @@ export function ExecutionGroup({
 	});
 	// The run's todo as its own todo call recorded it, so a reload shows the same row as live.
 	const todo = transcriptTodoSnapshot(groupEntries) ?? todoSnapshots?.at(-1);
-	const headline = finishedHeadline({ goal, todo, agents });
+	const headline = finishedHeadline({ goal, todo });
 	const lanes = new Set(agents.map(agent => agent.id));
 	const shownNotes = notes?.filter(note => !settlesLanesOnly(note, lanes));
 	const header = (
