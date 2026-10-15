@@ -1218,10 +1218,10 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 					label: t("cmd.memory.panel"),
 					description: t("cmd.memory.panel.desc"),
 					category: "extensions",
-					affordance: { kind: "window", open: () => ctx.openSettings("agent:memory-report") },
+					affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab("memory") },
 				},
-				// Settings › Plugins & resources › Memory covers view/stats/diagnose natively.
-				subWindow("memory view", () => ctx.openSettings("agent:memory-report")),
+				// The side panel's Memory view shows `/memory view`; stats/diagnose stay in Settings › Agent.
+				subWindow("memory view", () => useUiStore.getState().setPanelTab("memory")),
 				subWindow("memory stats", () => ctx.openSettings("agent:memory-report")),
 				subWindow("memory diagnose", () => ctx.openSettings("agent:memory-report")),
 				{ ...sub("memory clear", "/memory clear"), guard: "destructive" },
@@ -1416,8 +1416,8 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 			affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab(view) },
 		});
 	}
-	// `plan`, `queue` and `tree` already name commands; their panel views take a suffix.
-	for (const view of ["plan", "queue", "tree"] as const) {
+	// `plan`, `queue`, `tree` and `memory` already name commands; their panel views take a suffix.
+	for (const view of ["plan", "queue", "tree", "memory"] as const) {
 		add({
 			name: `${view}-panel`,
 			label: t(`panel.tabs.${view}`),

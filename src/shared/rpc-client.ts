@@ -185,6 +185,11 @@ export interface SessionRpcClient {
 	getMarketplaces(): Promise<RpcResponse>;
 	getPromptTemplates(): Promise<RpcResponse>;
 	getMemoryReport(): Promise<RpcResponse>;
+	memorySearch(query: string, limit?: number): Promise<RpcResponse>;
+	memorySave(content: string, context?: string): Promise<RpcResponse>;
+	memoryQueue(): Promise<RpcResponse>;
+	memoryClear(): Promise<RpcResponse>;
+	memoryEnqueue(): Promise<RpcResponse>;
 	getSecurityDashboard(): Promise<RpcResponse>;
 	getSecurityScan(scanId: string): Promise<RpcResponse>;
 	securityStart(target: RpcSecurityTargetInput): Promise<RpcResponse>;
@@ -540,6 +545,12 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getMarketplaces: () => rpcCommand({ type: "get_marketplaces" }),
 		getPromptTemplates: () => rpcCommand({ type: "get_prompt_templates" }),
 		getMemoryReport: () => rpcCommand({ type: "get_memory_report" }),
+		memorySearch: (query, limit) => rpcCommand({ type: "memory_search", query, limit }, 60_000),
+		memorySave: (content, context) => rpcCommand({ type: "memory_save", content, context }, 60_000),
+		memoryQueue: () => rpcCommand({ type: "memory_queue" }),
+		memoryClear: () => rpcCommand({ type: "memory_clear" }, 60_000),
+		// Consolidation may run a model turn on the local backend.
+		memoryEnqueue: () => rpcCommand({ type: "memory_enqueue" }, 300_000),
 		getSecurityDashboard: () => rpcCommand({ type: "get_security_dashboard" }, 60_000),
 		getSecurityScan: scanId => rpcCommand({ type: "get_security_scan", scanId }, 30_000),
 		securityStart: target => rpcCommand({ type: "security_start", target }, 120_000),

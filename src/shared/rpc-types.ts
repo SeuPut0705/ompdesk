@@ -138,6 +138,11 @@ export type RpcCommand =
 	| { id?: string; type: "get_marketplaces" }
 	| { id?: string; type: "get_prompt_templates" }
 	| { id?: string; type: "get_memory_report" }
+	| { id?: string; type: "memory_search"; query: string; limit?: number }
+	| { id?: string; type: "memory_save"; content: string; context?: string }
+	| { id?: string; type: "memory_queue" }
+	| { id?: string; type: "memory_clear" }
+	| { id?: string; type: "memory_enqueue" }
 	| { id?: string; type: "get_security_dashboard" }
 	| { id?: string; type: "get_security_scan"; scanId: string }
 	| { id?: string; type: "get_ssh_hosts" }
@@ -1119,13 +1124,48 @@ export interface RpcMemoryStatus {
 	message?: string;
 	error?: string;
 }
-/** Read-only memory backend report. */
+/** Which optional stock `MemoryBackend` hooks the active backend implements. */
+export interface RpcMemoryCapabilities {
+	search: boolean;
+	save: boolean;
+	queue: boolean;
+}
+/** Memory backend report: status, `/memory view` payload, stats/diagnosis markdown, capabilities. */
 export interface RpcMemoryReport {
 	backend: string;
 	entryCount?: number;
 	status?: RpcMemoryStatus;
+	/** Stock `buildDeveloperInstructions`: what the system prompt injects (`/memory view`). */
+	payload?: string;
 	stats?: string;
 	diagnosis?: string;
+	capabilities?: RpcMemoryCapabilities;
+}
+/** One hit of stock `MemoryBackend.search`. */
+export interface RpcMemorySearchItem {
+	id?: string;
+	content: string;
+	source?: string;
+	timestamp?: string;
+	score?: number;
+}
+export interface RpcMemorySearchResult {
+	backend: string;
+	query: string;
+	count: number;
+	items: RpcMemorySearchItem[];
+	message?: string;
+}
+export interface RpcMemorySaveResult {
+	backend: string;
+	stored: number;
+	ids?: string[];
+	queued?: boolean;
+	message?: string;
+}
+/** Stock `queuePreview` markdown; null when nothing is pending. */
+export interface RpcMemoryQueueResult {
+	payload: string | null;
 }
 
 export type RpcSecurityDispositionStatus = "open" | "false_positive" | "accepted_risk" | "fixed" | "wont_fix";

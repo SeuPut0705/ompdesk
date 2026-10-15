@@ -6,7 +6,18 @@ import { readPrepaintThemeMode, type ThemeMode } from "../lib/theme";
 export type { ThemeMode };
 
 /** Primary and secondary session inspector views. */
-export const PANEL_TABS = ["terminal", "diff", "preview", "files", "jobs", "plan", "logs", "queue", "tree"] as const;
+export const PANEL_TABS = [
+	"terminal",
+	"diff",
+	"preview",
+	"files",
+	"jobs",
+	"plan",
+	"logs",
+	"queue",
+	"tree",
+	"memory",
+] as const;
 export type PanelTab = (typeof PANEL_TABS)[number];
 /**
  * What the side panel shows: a session view, or one subagent's transcript

@@ -65,7 +65,7 @@ export interface PluginsSectionProps {
 	query: string;
 }
 
-interface RpcResource<T> {
+export interface RpcResource<T> {
 	data: T | null;
 	error: string | null;
 	loading: boolean;
@@ -77,7 +77,7 @@ interface RpcResource<T> {
 }
 
 /** Fetch-on-demand wrapper around a read-only rpc command with stale-on-error caching. */
-function useRpcResource<T>(fetcher: () => Promise<RpcResponse>): RpcResource<T> {
+export function useRpcResource<T>(fetcher: () => Promise<RpcResponse>): RpcResource<T> {
 	const t = useT();
 	const sidecarReady = useSessionStore(s => s.status) === "ready";
 	const cwd = useSessionStore(s => s.cwd);
@@ -134,7 +134,7 @@ function useRpcResource<T>(fetcher: () => Promise<RpcResponse>): RpcResource<T> 
  * Load a tab's resource the first time it becomes visible. Failures leave
  * `loaded` false, so revisiting the tab retries once; successes stay cached.
  */
-function useAutoLoad(
+export function useAutoLoad(
 	resource: Pick<RpcResource<unknown>, "loaded" | "loading" | "ready" | "reload" | "routeKey">,
 	visible: boolean,
 ): void {
@@ -216,7 +216,13 @@ function TabPanel({
 }
 
 /** Loading / error+Retry / content gate. Keeps stale data visible behind a refresh error banner. */
-function ResourceGate<T>({ resource, children }: { resource: RpcResource<T>; children: (data: T) => ReactNode }) {
+export function ResourceGate<T>({
+	resource,
+	children,
+}: {
+	resource: RpcResource<T>;
+	children: (data: T) => ReactNode;
+}) {
 	const t = useT();
 	const retry = (
 		<Button
@@ -549,7 +555,8 @@ function TemplatesTab({
 // Memory tab
 // ============================================================================
 
-function MemoryStatus({ report }: { report: RpcMemoryReport }) {
+/** Status chips, counts and details of the active backend (also the side panel's Memory view). */
+export function MemoryStatus({ report }: { report: RpcMemoryReport }) {
 	const t = useT();
 	const status = report.status;
 	if (!status) return null;

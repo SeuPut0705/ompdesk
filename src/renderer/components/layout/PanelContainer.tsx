@@ -1,5 +1,6 @@
 import {
 	Bot,
+	Brain,
 	ClipboardList,
 	Files,
 	GitCompareArrows,
@@ -26,6 +27,7 @@ import { DiffPanel } from "../panels/DiffPanel";
 import { FilesPanel } from "../panels/FilesPanel";
 import { JobsPanel } from "../panels/JobsPanel";
 import { LogPanel } from "../panels/LogPanel";
+import { MemoryPanel } from "../panels/MemoryPanel";
 import { PanelActionsContext } from "../panels/PanelChrome";
 import { PlanPanel } from "../panels/PlanPanel";
 import { PreviewPanel } from "../panels/PreviewPanel";
@@ -57,6 +59,7 @@ const VIEWS = [
 	{ id: "logs", labelKey: "panel.tabs.logs", icon: ScrollText },
 	{ id: "queue", labelKey: "panel.tabs.queue", icon: ListOrdered },
 	{ id: "tree", labelKey: "panel.tabs.tree", icon: GitFork },
+	{ id: "memory", labelKey: "panel.tabs.memory", icon: Brain },
 ] satisfies { id: PanelTab; labelKey: string; icon: typeof Files }[];
 /** Not one of the switchable views: a dragged or menu-opened subagent row puts it in the panel. */
 const SUBAGENT_VIEW = { id: "subagent", labelKey: "panel.tabs.subagent", icon: Bot } as const;
@@ -138,6 +141,7 @@ function SidePanelViews({ actionRef }: { actionRef: (element: HTMLDivElement | n
 				{panelTab === "logs" && <LogPanel />}
 				{panelTab === "queue" && <QueuePanel />}
 				{panelTab === "tree" && <SessionTreePanel />}
+				{panelTab === "memory" && <MemoryPanel />}
 				{panelTab === "jobs" && <JobsPanel />}
 				{panelTab === "subagent" && <SubagentPanel subagent={panelSubagent} />}
 			</PanelErrorBoundary>

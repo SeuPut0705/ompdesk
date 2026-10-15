@@ -208,7 +208,6 @@ describe("nativized action wiring", () => {
 		["mcp panel", "tools:mcp"],
 		["marketplace panel", "tools:marketplaces"],
 		["plugins panel", "tools:plugins"],
-		["memory panel", "agent:memory-report"],
 		["templates", "tools:templates"],
 		["extensions", "tools:skills"],
 		["hotkeys", "keyboard"],
@@ -219,6 +218,17 @@ describe("nativized action wiring", () => {
 		if (affordance.kind !== "window") throw new Error("expected window");
 		affordance.open();
 		expect(openSettings).toHaveBeenCalledWith(route);
+	});
+
+	it("memory panel and memory view open the side panel's Memory view", () => {
+		for (const name of ["memory panel", "memory view"]) {
+			useUiStore.setState({ panelTab: "diff", panelVisible: false });
+			const affordance = wired(name);
+			if (affordance.kind !== "window") throw new Error("expected window");
+			affordance.open();
+			expect(useUiStore.getState()).toMatchObject({ panelTab: "memory", panelVisible: true });
+		}
+		expect(openSettings).not.toHaveBeenCalled();
 	});
 
 	afterEach(() => {

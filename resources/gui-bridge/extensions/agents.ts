@@ -21,7 +21,7 @@ import { getResolvedThemeColors } from "@oh-my-pi/pi-tui/theme";
 import { getBlobsDir, parseFrontmatter } from "@oh-my-pi/pi-utils";
 import { guard } from "../health";
 import type { BridgeMethods } from "../types";
-import { errorMessage, paramsOf, requireString } from "./shared";
+import { errorMessage, optString, paramsOf, requireString } from "./shared";
 
 /** Where omp's discovery reads `.omp` task agents for this session: the user dir and the nearest project dir (or where it would be). */
 function agentDirs(session: AgentSession): { user: string; project: string } {
@@ -35,6 +35,14 @@ function agentDirs(session: AgentSession): { user: string; project: string } {
 async function discover(session: AgentSession) {
 	const { agents } = await discoverAgents(session.sessionManager.getCwd(), undefined, session.effectiveExtensionRoots);
 	return agents;
+}
+
+/** The live session's memory backend and the operation context stock's `/memory` handler passes it. */
+async function memoryBackend(session: AgentSession) {
+	const backend = await resolveMemoryBackend(session.settings);
+	const agentDir = session.settings.getAgentDir();
+	const cwd = session.sessionManager.getCwd();
+	return { backend, agentDir, cwd, context: { agentDir, cwd, session } };
 }
 
 export const methods: BridgeMethods = {
@@ -193,13 +201,22 @@ export const methods: BridgeMethods = {
 			return { data: bytes ? bytes.toString("base64") : null };
 		},
 
-		/** Active backend, structured status, and the `/memory stats` / `/memory diagnose` markdown; each hook best-effort. */
+		/**
+		 * Active backend, structured status, the `/memory view` injection payload, the
+		 * `/memory stats` / `/memory diagnose` markdown, and which optional hooks
+		 * (search, save, queue) the backend implements; each hook best-effort.
+		 */
 		get_memory_report: async (_params, env) => {
 			const session = env.session();
-			const backend = await resolveMemoryBackend(session.settings);
-			const agentDir = session.settings.getAgentDir();
-			const cwd = session.sessionManager.getCwd();
-			const report: Record<string, unknown> = { backend: backend.id };
+			const { backend, agentDir, cwd } = await memoryBackend(session);
+			const report: Record<string, unknown> = {
+				backend: backend.id,
+				capabilities: {
+					search: typeof backend.search === "function",
+					save: typeof backend.save === "function",
+					queue: typeof backend.queuePreview === "function",
+				},
+			};
 			const warn = (hook: string, error: unknown) =>
 				env.pi.logger.warn(`gui-bridge get_memory_report: backend ${hook} failed`, { error: errorMessage(error) });
 			if (backend.status) {
@@ -242,7 +259,59 @@ export const methods: BridgeMethods = {
 					warn("diagnose", error);
 				}
 			}
+			try {
+				const payload = await backend.buildDeveloperInstructions(agentDir, session.settings, session);
+				if (payload) report.payload = payload;
+			} catch (error) {
+				warn("buildDeveloperInstructions", error);
+			}
 			return report;
+		},
+
+		/** Stock `MemoryBackend.search`; refused when the active backend has none. */
+		memory_search: async (params, env) => {
+			const p = paramsOf(params);
+			const query = requireString(p, "query");
+			const limit = p.limit;
+			if (limit !== undefined && (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1))
+				throw new Error("`limit` must be a positive integer");
+			const { backend, context } = await memoryBackend(env.session());
+			if (!backend.search) throw new Error(`Memory search is not available for the ${backend.id} backend.`);
+			return backend.search(context, query, { limit });
+		},
+
+		/** Stock `MemoryBackend.save`; refused when the active backend has none. */
+		memory_save: async (params, env) => {
+			const p = paramsOf(params);
+			const content = requireString(p, "content");
+			const context = optString(p, "context");
+			const { backend, context: operation } = await memoryBackend(env.session());
+			if (!backend.save) throw new Error(`Memory save is not available for the ${backend.id} backend.`);
+			return backend.save(operation, { content, context });
+		},
+
+		/** `/memory queue`: stock `queuePreview` markdown of pending deltas. */
+		memory_queue: async (_params, env) => {
+			const { backend, context } = await memoryBackend(env.session());
+			if (!backend.queuePreview) throw new Error(`Memory queue is not available for the ${backend.id} backend.`);
+			return { payload: (await backend.queuePreview(context)) ?? null };
+		},
+
+		/** `/memory clear`: stock `clear`, then the prompt rebuild stock's handler runs. */
+		memory_clear: async (_params, env) => {
+			const session = env.session();
+			const { backend, agentDir, cwd } = await memoryBackend(session);
+			await backend.clear(agentDir, cwd, session);
+			await session.refreshBaseSystemPrompt();
+			return { ok: true };
+		},
+
+		/** `/memory enqueue` (and `sync`): stock `enqueue` runs consolidation now. */
+		memory_enqueue: async (_params, env) => {
+			const session = env.session();
+			const { backend, agentDir, cwd } = await memoryBackend(session);
+			await backend.enqueue(agentDir, cwd, session);
+			return { ok: true };
 		},
 	}),
 

@@ -139,7 +139,7 @@ test("a chat tab runs omp with every tool in the default workspace", async () =>
 	const aside = page.locator("aside[data-docked]");
 	await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
 	await aside.getByRole("button", { name: "View options", exact: true }).click();
-	for (const name of ["Background tasks", "Plan", "Logs", "Queue", "Tree"]) {
+	for (const name of ["Background tasks", "Plan", "Logs", "Queue", "Tree", "Memory"]) {
 		await expect(page.getByRole("menuitemcheckbox", { name, exact: true })).toBeVisible();
 	}
 	await page.getByRole("menuitemcheckbox", { name: "Tree", exact: true }).click();

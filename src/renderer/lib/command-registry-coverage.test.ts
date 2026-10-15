@@ -154,6 +154,7 @@ const SHORTCUT_ROWS: Record<KeymapActionId, string | null> = {
 	"panel.logs": "logs",
 	"panel.queue": "queue-panel",
 	"panel.tree": "tree-panel",
+	"panel.memory": "memory-panel",
 	hotkeys: "hotkeys",
 };
 

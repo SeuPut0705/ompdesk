@@ -576,6 +576,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"modelRegistry",
 			"settings.getModelRole()",
 			"settings.getAgentDir()",
+			"refreshBaseSystemPrompt()",
 			"sessionManager.getCwd()",
 		],
 		modules: {

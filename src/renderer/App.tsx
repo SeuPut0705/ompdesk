@@ -559,6 +559,7 @@ export function App() {
 				case "panel.logs":
 				case "panel.queue":
 				case "panel.tree":
+				case "panel.memory":
 					ui.setPanelTab(migrateDefaultPanelTab(actionId.slice("panel.".length)));
 					return;
 				case "hotkeys":
