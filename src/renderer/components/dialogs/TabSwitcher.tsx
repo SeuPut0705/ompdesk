@@ -16,20 +16,26 @@ import { Modal } from "../common";
 /** Which way the opening press moved: ⌃⇥ (1) or ⌃⇧⇥ (-1). */
 export const useTabSwitcherStore = create<{ step: 1 | -1 }>()(() => ({ step: 1 }));
 
+/** The pick an opening starts on: the previous tab (⌃⇥) or the oldest (⌃⇧⇥). */
+function initialPick(count: number, step: 1 | -1): number {
+	return step > 0 ? Math.min(1, count - 1) : count - 1;
+}
+
 export function TabSwitcher() {
 	const t = useT();
 	const open = useUiStore(state => state.tabSwitcherOpen);
+	const step = useTabSwitcherStore(state => state.step);
 	const tabs = useTabsStore(state => state.tabs);
 	const mru = useTabHistoryStore(state => state.mru);
 	const ordered = mru.flatMap(id => tabs.find(tab => tab.id === id) ?? []);
-	const [index, setIndex] = useState(0);
+	// Null until ⇥ or an arrow moves the pick: the opening's own pick is derived,
+	// so the overlay's first frame already marks it.
+	const [moved, setMoved] = useState<number | null>(null);
+	const index = moved ?? initialPick(ordered.length, step);
 	const listId = useId();
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the pick starts once per opening.
 	useEffect(() => {
-		if (!open) return;
-		const step = useTabSwitcherStore.getState().step;
-		setIndex(step > 0 ? Math.min(1, ordered.length - 1) : ordered.length - 1);
+		if (!open) setMoved(null);
 	}, [open]);
 
 	useEffect(() => {
@@ -38,8 +44,12 @@ export function TabSwitcher() {
 			if (!useUiStore.getState().tabSwitcherOpen) return;
 			const target = document.querySelector<HTMLElement>(`#${CSS.escape(listId)} [aria-selected="true"]`);
 			close();
-			const tabId = target?.dataset.tabId;
-			if (tabId && tabId !== useTabsStore.getState().activeTabId) void useTabsStore.getState().switchTab(tabId);
+			// A quick tap releases ⌃ before the overlay renders (nothing moved yet):
+			// the opening's pick, from the same most-recent order.
+			const { tabs, activeTabId } = useTabsStore.getState();
+			const order = useTabHistoryStore.getState().mru.filter(id => tabs.some(tab => tab.id === id));
+			const tabId = target?.dataset.tabId ?? order[initialPick(order.length, useTabSwitcherStore.getState().step)];
+			if (tabId && tabId !== activeTabId) void useTabsStore.getState().switchTab(tabId);
 		};
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (!useUiStore.getState().tabSwitcherOpen) return;
@@ -48,7 +58,10 @@ export function TabSwitcher() {
 			const move = (delta: number) => {
 				event.preventDefault();
 				event.stopPropagation();
-				setIndex(current => (current + delta + count) % count);
+				setMoved(
+					current =>
+						((current ?? initialPick(count, useTabSwitcherStore.getState().step)) + delta + count) % count,
+				);
 			};
 			if (event.key === "Tab") move(event.shiftKey ? -1 : 1);
 			else if (event.key === "ArrowDown") move(1);
@@ -93,7 +106,7 @@ export function TabSwitcher() {
 							useUiStore.setState({ tabSwitcherOpen: false });
 							void useTabsStore.getState().switchTab(tab.id);
 						}}
-						onMouseEnter={() => setIndex(position)}
+						onMouseEnter={() => setMoved(position)}
 						role="option"
 						type="button"
 					>
