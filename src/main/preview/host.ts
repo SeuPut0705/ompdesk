@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import {
 	app,
@@ -369,17 +369,7 @@ export function registerPreviewHost(
 			partition.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 			partition.setPermissionCheckHandler(() => false);
 			// Visual pages (C135): only the files `visuals` resolves for that visual, never cached across versions.
-			partition.protocol.handle(VISUAL_SCHEME, async request => {
-				const found = await visuals.resolve(request.url);
-				if (!found) return new Response("Not found", { status: 404 });
-				return new Response(await readFile(found.file), {
-					headers: {
-						"Content-Type": found.type,
-						"Cache-Control": "no-store",
-						"X-Content-Type-Options": "nosniff",
-					},
-				});
-			});
+			partition.protocol.handle(VISUAL_SCHEME, request => visuals.serve(request.url));
 			const first = createPage(win, partition, () => created);
 			const created: PreviewHost = {
 				win,

@@ -140,6 +140,13 @@ for (const [language, theme] of [
 			expect(
 				await inPage("fetch('/.env').then(response => response.status, () => 0)").catch(() => "refused"),
 			).not.toBe(200);
+			// The page may not send anything off its own origin; it can still read what the project serves it.
+			expect(
+				await inPage(
+					"(() => { const seen = Promise.withResolvers(); document.addEventListener('securitypolicyviolation', event => seen.resolve(event.violatedDirective), { once: true }); fetch('http://127.0.0.1:9/').catch(() => {}); return seen.promise; })()",
+				),
+			).toBe("connect-src");
+			expect(await inPage("fetch('/style.css').then(response => response.status)")).toBe(200);
 
 			// C141: a changed file is a new version; the bar flips back to the first.
 			await fs.writeFile(path.join(project, "plans.html"), page("Plan options v2"));

@@ -73,6 +73,58 @@ describe("VisualStore", () => {
 		expect(await store.resolve("https://example.com/")).toBeNull();
 	});
 
+	it("serves assets only from the entry file's folder, or the whole folder when the entry sits at its root", async () => {
+		await fs.mkdir(path.join(project, "config"), { recursive: true });
+		await fs.writeFile(path.join(project, "config", "credentials.json"), "{}");
+		await fs.writeFile(path.join(project, "data.json"), "{}");
+		await fs.writeFile(path.join(project, "site", "data.json"), "{}");
+		await fs.writeFile(path.join(project, "home.html"), "<title>Home</title>");
+		const site = (await store.open("tab", project, { target: "site/index.html" })).record.id;
+		const at = (id: string, relative: string) => store.resolve(`omp-visual://v1-${id}/${relative}`);
+		expect(await at(site, "site/data.json")).toMatchObject({ type: "application/json" });
+		expect(await at(site, "site/assets/app.css")).toMatchObject({ type: "text/css" });
+		// Siblings of the entry's folder stay out of reach, wherever the page asks for them.
+		expect(await at(site, "data.json")).toBeNull();
+		expect(await at(site, "config/credentials.json")).toBeNull();
+		expect(await at(site, "site/../data.json")).toBeNull();
+		const home = (await store.open("tab", project, { target: "home.html" })).record.id;
+		expect(await at(home, "data.json")).toMatchObject({ type: "application/json" });
+		expect(await at(home, "config/credentials.json")).toMatchObject({ type: "application/json" });
+		expect(await at(home, ".env")).toBeNull();
+	});
+
+	it("limits what a visual's page can request to its own origin, on every response", async () => {
+		const { record } = await store.open("tab", project, { target: "site/index.html" });
+		const responses = [
+			await store.serve(`omp-visual://v1-${record.id}/site/index.html`),
+			await store.serve(`omp-visual://v1-${record.id}/site/assets/app.css`),
+			await store.serve(`omp-visual://v1-${record.id}/.env`),
+			await store.serve("omp-visual://v1-0000000000000000/site/index.html"),
+		];
+		expect(responses.map(response => response.status)).toEqual([200, 200, 404, 404]);
+		for (const response of responses) {
+			const policy = response.headers.get("Content-Security-Policy") ?? "";
+			const directives = new Map(
+				policy.split(";").map(part => {
+					const [name = "", ...values] = part.trim().split(/\s+/);
+					return [name, values] as const;
+				}),
+			);
+			expect(directives.get("default-src")).toEqual(["'none'"]);
+			expect(directives.get("connect-src")).toEqual(["'self'", "data:", "blob:"]);
+			expect(directives.get("form-action")).toEqual(["'none'"]);
+			expect(directives.get("frame-src")).toEqual(["'none'"]);
+			expect(directives.get("object-src")).toEqual(["'none'"]);
+			// No directive may allow a remote origin.
+			expect(policy).not.toMatch(/https?:|\*/);
+			expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+			expect(response.headers.get("Cache-Control")).toBe("no-store");
+		}
+		expect(responses[0]?.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+		expect(await responses[0]?.text()).toBe("<title>One</title>");
+		expect(responses[1]?.headers.get("Content-Type")).toBe("text/css; charset=utf-8");
+	});
+
 	it("refuses files outside the working directory and other types", async () => {
 		await expect(store.open("tab", project, { target: "../outside.css" })).rejects.toThrow(/outside|shows/);
 		await expect(store.open("tab", project, { target: "site/assets/app.css" })).rejects.toThrow(/shows/);

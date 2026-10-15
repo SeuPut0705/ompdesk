@@ -70,6 +70,27 @@ const ASSET_TYPES: Record<string, string> = {
 	".md": "text/plain",
 };
 
+/**
+ * The policy on every `omp-visual:` response. A visual's page loads only from its own origin (the entry and
+ * the assets `VisualStore.resolve` allows) and from `data:`/`blob:`, so it cannot send what it reads to
+ * another site by `fetch`, an image, a form or a frame. Inline script and style stay (agent-written
+ * pages are one file) and so does `unsafe-eval`, which adds nothing to what inline script can do.
+ */
+const VISUAL_CSP = [
+	"default-src 'none'",
+	"script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:",
+	"style-src 'self' 'unsafe-inline'",
+	"img-src 'self' data: blob:",
+	"media-src 'self' data: blob:",
+	"font-src 'self' data:",
+	"connect-src 'self' data: blob:",
+	"worker-src 'self' blob:",
+	"frame-src 'none'",
+	"object-src 'none'",
+	"base-uri 'self'",
+	"form-action 'none'",
+].join("; ");
+
 export const VISUALIZE_DEFINITION: HostToolDefinition = {
 	name: VISUALIZE_TOOL,
 	label: "Visualize",
@@ -286,12 +307,34 @@ export class VisualStore {
 		if (relative.split("/").some(segment => segment.startsWith("."))) return null;
 		const type = ASSET_TYPES[path.extname(relative).toLowerCase()];
 		if (!type) return null;
+		// Assets come from the entry's own folder (the tab folder when the entry sits at its root), not the
+		// whole tab folder: a page cannot read the project's other `.json`/`.js`/`.txt` files.
+		const folder = path.dirname(path.join(record.root, ...record.entry.split("/")));
 		const candidate = path.resolve(record.root, relative);
-		if (!inside(record.root, candidate)) return null;
+		if (!inside(folder, candidate)) return null;
 		const real = await fs.realpath(candidate).catch(() => null);
-		if (!real || !inside(record.root, real) || !(await fs.stat(real)).isFile()) return null;
+		if (!real || !inside(folder, real) || !(await fs.stat(real)).isFile()) return null;
 		if (ASSET_TYPES[path.extname(real).toLowerCase()] !== type) return null;
 		return { file: real, type };
+	}
+
+	/** The response for an `omp-visual:` request: the file `resolve` allows, or 404; both limited to the page's own origin. */
+	async serve(url: string): Promise<Response> {
+		const found = await this.resolve(url).catch(() => null);
+		const body = found ? await fs.readFile(found.file).catch(() => null) : null;
+		const headers = {
+			"Content-Security-Policy": VISUAL_CSP,
+			"Cache-Control": "no-store",
+			"X-Content-Type-Options": "nosniff",
+		};
+		if (!found || !body) {
+			return new Response("Not found", {
+				status: 404,
+				headers: { ...headers, "Content-Type": "text/plain; charset=utf-8" },
+			});
+		}
+		const type = found.type.startsWith("text/") ? `${found.type}; charset=utf-8` : found.type;
+		return new Response(body, { headers: { ...headers, "Content-Type": type } });
 	}
 
 	/** `open`: a new visual or a new version of the tab's matching one. */
