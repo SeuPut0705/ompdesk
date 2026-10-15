@@ -305,10 +305,10 @@ export const ko: Record<string, string> = {
 	"prCenter.review.state.PENDING": "대기 중",
 
 	// InputArea
-	"input.placeholder.connecting": "omp에 연결 중…",
-	"input.placeholder.streaming": "작업 중인 omp에게 추가 지시를 보내세요…",
-	"input.placeholder.followUp": "omp가 끝나면 보낼 메시지를 입력하세요…",
-	"input.placeholder.idle": "omp에게 무엇이든 요청하세요 · @ 파일, / 명령",
+	"input.placeholder.connecting": "연결 중…",
+	"input.placeholder.streaming": "추가 지시 입력…",
+	"input.placeholder.followUp": "턴이 끝나면 보낼 메시지…",
+	"input.placeholder.idle": "무엇이든 요청하세요 · @ 파일 · / 명령",
 	"input.suggestion.accept": "수락",
 	"input.placeholder.chat": "무엇이든 물어보세요",
 	"tabs.kind.chat": "채팅 세션 (프로젝트 없음)",
@@ -943,7 +943,7 @@ export const ko: Record<string, string> = {
 
 	// Steering a running subagent (Agents › Live, sidebar subagent sheet)
 	"subagent.steer.label": "{name}에게 보낼 메시지",
-	"subagent.steer.placeholder": "이 에이전트에게 추가 지시하기…",
+	"subagent.steer.placeholder": "추가 지시 입력…",
 	"subagent.steer.send": "보내기",
 	"subagent.steer.sent": "{name}에게 보냈어요.",
 	"subagent.steer.failed": "에이전트에게 지시하지 못했어요",

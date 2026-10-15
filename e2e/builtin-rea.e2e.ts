@@ -134,8 +134,8 @@ test("real stock omp mounts the curated relay and uses catalog discovery on the 
 			"Use rea_catalog (via its xd:// device) to search the full REA catalog for the JavaScript application analysis entry tool. Do not analyze any files. Report the exact tool name from the catalog result, and nothing else.",
 		);
 		await input.press("Enter");
-		await expect(page.getByPlaceholder(/Steer omp/)).toBeVisible({ timeout: 60_000 });
-		await expect(page.getByPlaceholder(/Ask omp anything/)).toBeVisible({ timeout: 180_000 });
+		await expect(page.getByPlaceholder(/Add an instruction/)).toBeVisible({ timeout: 60_000 });
+		await expect(page.getByPlaceholder(/Ask anything ·/)).toBeVisible({ timeout: 180_000 });
 		const finalState = await page.evaluate(() => window.omp.rpc.getState());
 		const sessionFile = SessionTools.parse(finalState.data).sessionFile;
 		if (!sessionFile?.startsWith(profile)) throw new Error("Expected an isolated REA session file");

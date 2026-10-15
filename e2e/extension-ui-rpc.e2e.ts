@@ -42,7 +42,7 @@ const TEXT: Record<
 		slow: "Slow mode",
 		cancelExec: "Cancel",
 		steerSent: "Sent to",
-		steerPlaceholder: "Steer this agent…",
+		steerPlaceholder: "Add an instruction…",
 	},
 	ko: {
 		waiting: count => `+${count}개 대기 중`,
@@ -52,7 +52,7 @@ const TEXT: Record<
 		slow: "느린 모드",
 		cancelExec: "취소",
 		steerSent: "보냈어요",
-		steerPlaceholder: "이 에이전트에게 추가 지시하기…",
+		steerPlaceholder: "추가 지시 입력…",
 	},
 };
 

@@ -302,7 +302,7 @@ test.describe("flow performance", () => {
 				const readyAt = await frameWhen(page, () =>
 					document
 						.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')
-						?.placeholder.startsWith("Ask omp anything")
+						?.placeholder.startsWith("Ask anything ·")
 						? performance.now()
 						: 0,
 				);

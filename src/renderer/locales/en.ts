@@ -311,10 +311,10 @@ export const en: Record<string, string> = {
 	"prCenter.review.state.PENDING": "Pending",
 
 	// InputArea
-	"input.placeholder.connecting": "Connecting to omp…",
-	"input.placeholder.streaming": "Steer omp while it works…",
-	"input.placeholder.followUp": "Queue a message for when omp finishes…",
-	"input.placeholder.idle": "Ask omp anything · @ for files, / for commands",
+	"input.placeholder.connecting": "Connecting…",
+	"input.placeholder.streaming": "Add an instruction…",
+	"input.placeholder.followUp": "Send after this turn…",
+	"input.placeholder.idle": "Ask anything · @ files · / commands",
 	"input.suggestion.accept": "to accept",
 	"input.placeholder.chat": "Ask anything",
 	"tabs.kind.chat": "Chat session (no project)",
@@ -952,7 +952,7 @@ export const en: Record<string, string> = {
 
 	// Steering a running subagent (Agents › Live, sidebar subagent sheet)
 	"subagent.steer.label": "Message to {name}",
-	"subagent.steer.placeholder": "Steer this agent…",
+	"subagent.steer.placeholder": "Add an instruction…",
 	"subagent.steer.send": "Send",
 	"subagent.steer.sent": "Sent to {name}.",
 	"subagent.steer.failed": "Couldn't steer the agent",

@@ -196,9 +196,9 @@ test("real omp work scenarios on the small model", async () => {
 				const input = page.locator("textarea").first();
 				await input.fill(scenario.prompt);
 				await input.press("Enter");
-				await expect(page.getByPlaceholder(/Steer omp/)).toBeVisible({ timeout: 60_000 });
+				await expect(page.getByPlaceholder(/Add an instruction/)).toBeVisible({ timeout: 60_000 });
 				await scenario.during?.(page, tab.tabId);
-				await expect(page.getByPlaceholder(/Ask omp anything/)).toBeVisible({ timeout: 300_000 });
+				await expect(page.getByPlaceholder(/Ask anything ·/)).toBeVisible({ timeout: 300_000 });
 				if (scenario.name === "agent-cancelled") {
 					// Whether stock stops a detached agent with the turn is stock's call: capture
 					// the group right after the stop, then once the agent has settled either way.
@@ -210,10 +210,10 @@ test("real omp work scenarios on the small model", async () => {
 				if (scenario.name === "agent-cancelled") {
 					// The agent's completion notice starts a follow-up turn; let it finish first.
 					await page
-						.getByPlaceholder(/Steer omp/)
+						.getByPlaceholder(/Add an instruction/)
 						.waitFor({ timeout: 20_000 })
 						.catch(() => undefined);
-					await expect(page.getByPlaceholder(/Ask omp anything/)).toBeVisible({ timeout: 300_000 });
+					await expect(page.getByPlaceholder(/Ask anything ·/)).toBeVisible({ timeout: 300_000 });
 				}
 				// Model-independent invariants: a stopped turn never claims success, a failing command fails.
 				// Assert on the group that answers this scenario's own prompt: stock's todo-reminder
