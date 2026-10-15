@@ -9,6 +9,7 @@ import { SessionRuntimeProvider } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { ensureTabRuntime } from "../../stores/tab-runtime";
 import { type SessionTab, type SplitAxis, type SplitPlacement, tabDisplayTitle, useTabsStore } from "../../stores/tabs";
+import { type PanelSubagent, useUiStore } from "../../stores/ui";
 import { ChatStream } from "../chat/ChatStream";
 import { WorkspaceDock } from "../chat/dock/WorkspaceDock";
 import { IconButton, Spinner } from "../common";
@@ -19,6 +20,9 @@ import { SidecarBanner } from "./SidecarBanner";
 
 const DIVIDER_SIZE = 5;
 const RATIO_STEP = 0.05;
+
+/** `omp:subagent-drag` detail (SidebarSubagents rows); null when the drag ends. */
+type SubagentDrag = PanelSubagent & { label: string };
 
 function placementFromPointer(event: DragEvent<HTMLDivElement>): SplitPlacement {
 	const bounds = event.currentTarget.getBoundingClientRect();
@@ -58,6 +62,28 @@ function SplitDropPreview({ placement, replace }: { placement: SplitPlacement; r
 				)}
 				style={{ inset: replace ? "var(--sc-space-2)" : GHOST_INSET[placement] }}
 			/>
+		</div>
+	);
+}
+
+/** A dragged subagent row over a pane: the ghost sits where the side panel will open. */
+function SubagentDropPreview({ name }: { name: string }) {
+	const t = useT();
+	const side = useUiStore(state => state.panelSide);
+	return (
+		<div aria-hidden className="omp-fade-in pointer-events-none absolute inset-0 z-(--sc-z-drawer)">
+			<div
+				data-subagent-ghost={side}
+				className="absolute flex items-center justify-center rounded-(--sc-radius-lg) border border-(--sc-accent-border) bg-(--sc-accent-soft) p-4 text-center text-sc-sm text-(--sc-text) shadow-(--sc-shadow-md)"
+				style={{
+					inset:
+						side === "left"
+							? "var(--sc-space-2) 60% var(--sc-space-2) var(--sc-space-2)"
+							: "var(--sc-space-2) var(--sc-space-2) var(--sc-space-2) 60%",
+				}}
+			>
+				{t("panel.subagent.drop", { name })}
+			</div>
 		</div>
 	);
 }
@@ -273,6 +299,8 @@ export function SplitWorkspace() {
 	const split = useTabsStore(state => state.split);
 	const splitTab = useTabsStore(state => state.splitTab);
 	const [dragTabId, setDragTabId] = useState<string | null>(null);
+	// A sidebar subagent row in flight: dropping it on any pane opens it in the side panel.
+	const [dragSubagent, setDragSubagent] = useState<SubagentDrag | null>(null);
 	// Null until the drag is over the workspace: the ghost shows only where a drop would land.
 	const [dropTarget, setDropTarget] = useState<{ tabId: string; placement: SplitPlacement } | null>(null);
 	const sessionsById = useMemo(() => new Map(sessions.map(session => [session.id, session])), [sessions]);
@@ -298,8 +326,16 @@ export function SplitWorkspace() {
 			setDragTabId((event as CustomEvent<{ tabId: string | null }>).detail.tabId);
 			setDropTarget(null);
 		};
+		const onSubagentDrag = (event: Event) => {
+			setDragSubagent((event as CustomEvent<SubagentDrag | null>).detail);
+			setDropTarget(null);
+		};
 		window.addEventListener("omp:tab-drag", onTabDrag);
-		return () => window.removeEventListener("omp:tab-drag", onTabDrag);
+		window.addEventListener("omp:subagent-drag", onSubagentDrag);
+		return () => {
+			window.removeEventListener("omp:tab-drag", onTabDrag);
+			window.removeEventListener("omp:subagent-drag", onSubagentDrag);
+		};
 	}, []);
 
 	if (!activeTabId) return null;
@@ -316,7 +352,7 @@ export function SplitWorkspace() {
 			data-split={split ? "pane" : undefined}
 			className="relative grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
 			onDragOver={event => {
-				if (!canDrop) return;
+				if (!canDrop && !dragSubagent) return;
 				event.preventDefault();
 				event.stopPropagation();
 				event.dataTransfer.dropEffect = "move";
@@ -333,6 +369,14 @@ export function SplitWorkspace() {
 					setDropTarget(current => (current?.tabId === tabId ? null : current));
 			}}
 			onDrop={event => {
+				if (dragSubagent) {
+					event.preventDefault();
+					event.stopPropagation();
+					useUiStore.getState().openSubagentPanel({ tabId: dragSubagent.tabId, agentId: dragSubagent.agentId });
+					setDragSubagent(null);
+					setDropTarget(null);
+					return;
+				}
 				if (!canDrop || !dragTabId) return;
 				event.preventDefault();
 				event.stopPropagation();
@@ -342,12 +386,13 @@ export function SplitWorkspace() {
 			}}
 		>
 			{pane(tabId, split !== null)}
+			{dragSubagent && dropTarget?.tabId === tabId && <SubagentDropPreview name={dragSubagent.label} />}
 			{canDrop && dropTarget?.tabId === tabId && (
 				<SplitDropPreview placement={dropTarget.placement} replace={visible.length === 4} />
 			)}
 		</div>
 	);
-	const dragLabel = dragTabId ? labelFor(dragTabId) : null;
+	const dragLabel = dragSubagent ? dragSubagent.label : dragTabId ? labelFor(dragTabId) : null;
 	return (
 		<div className="omp-split-workspace relative grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]">
 			<SplitBranch node={split ?? { tabId: activeTabId }} path={[]} renderPane={renderPane} />

@@ -8,6 +8,17 @@ export type { ThemeMode };
 /** Primary and secondary session inspector views. */
 export const PANEL_TABS = ["terminal", "diff", "preview", "files", "jobs", "plan", "logs", "queue", "tree"] as const;
 export type PanelTab = (typeof PANEL_TABS)[number];
+/**
+ * What the side panel shows: a session view, or one subagent's transcript
+ * (`panelSubagent`). The subagent view stays out of `PANEL_TABS`, which feeds
+ * the default-view setting and the `panel.*` shortcuts.
+ */
+export type PanelView = PanelTab | "subagent";
+/** The subagent the side panel shows: its owning tab (whose omp writes its session) and its id. */
+export interface PanelSubagent {
+	tabId: string;
+	agentId: string;
+}
 /** Edge the side panel docks to; the session sidebar stays at the left edge either way. */
 export type PanelSide = "right" | "left";
 
@@ -68,7 +79,8 @@ interface UiStore {
 	displayPreferences: GuiDisplayPreferences;
 	sidebarVisible: boolean;
 	panelVisible: boolean;
-	panelTab: PanelTab;
+	panelTab: PanelView;
+	panelSubagent: PanelSubagent | null;
 	previewUrl: string | null;
 	/** Local file currently shown in the Files drawer. */
 	filePreviewPath: string | null;
@@ -174,6 +186,8 @@ interface UiStore {
 	togglePanel: () => void;
 	toggleToolsExpandAll: () => void;
 	setPanelTab: (tab: PanelTab) => void;
+	/** Show one subagent's transcript in the side panel (a dragged or menu-opened sidebar row). */
+	openSubagentPanel: (subagent: PanelSubagent) => void;
 	openPreview: (url: string) => void;
 	openFilePreview: (path: string, options?: { line?: number }) => void;
 	/** Show a folder in the Files tree (a folder link in a reply). */
@@ -289,6 +303,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	sidebarVisible: true,
 	panelVisible: false,
 	panelTab: "diff",
+	panelSubagent: null,
 	filePreviewPath: null,
 	filePreviewLine: null,
 	filesRevealPath: null,
@@ -326,6 +341,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	toggleToolsExpandAll: () =>
 		set({ toolsExpandAll: { expanded: !get().toolsExpandAll.expanded, seq: get().toolsExpandAll.seq + 1 } }),
 	setPanelTab: tab => set({ panelTab: tab, panelVisible: true }),
+	openSubagentPanel: subagent => set({ panelSubagent: subagent, panelTab: "subagent", panelVisible: true }),
 	openPreview: url => set({ previewUrl: url, panelTab: "preview", panelVisible: true }),
 	openFilePreview: (path, options) => {
 		const next = { filePreviewPath: path, filePreviewLine: options?.line ?? null };

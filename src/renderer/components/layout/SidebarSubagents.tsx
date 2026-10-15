@@ -12,13 +12,16 @@
  * a tree connector under the session icon, share the session row's look
  * (ListRow), are part of the sidebar's roving list (arrow keys) and open the
  * subagent's live transcript against the owning tab — not a second sidecar,
- * since the parent's omp is still writing that session file. Right-click (or
+ * since the parent's omp is still writing that session file. A row dragged
+ * onto a session pane (`omp:subagent-drag`, SplitWorkspace) or "Open in side
+ * panel" shows that transcript in the side panel instead. Right-click (or
  * the menu key) offers Stop.
  */
 
 import { Bot, ChevronRight, CircleCheck, CircleX, Pause } from "lucide-react";
 import {
 	memo,
+	type DragEvent as ReactDragEvent,
 	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
 	useCallback,
@@ -28,6 +31,7 @@ import {
 	useState,
 } from "react";
 import type { SubagentSnapshot } from "../../../shared/rpc-types";
+import { hideNativeDragImage } from "../../lib/drag-image";
 import { cx, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
@@ -41,6 +45,7 @@ import {
 import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../stores/sidebar-subagents";
 import { useSubagentGraphStore } from "../../stores/subagent-graph";
 import { type SubagentsStore, useSubagentsStore } from "../../stores/subagents";
+import { useUiStore } from "../../stores/ui";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor, ListRow, Spinner } from "../common";
 import { SubagentTranscriptSheet } from "../panels/SubagentTranscriptSheet";
 import { runSubagentAction } from "../panels/subagent-actions";
@@ -187,6 +192,7 @@ function Connector({ nested, depth }: { nested: boolean; depth: 0 | 1 }) {
 
 const SubagentRow = memo(function SubagentRow({
 	agent,
+	tabId,
 	depth,
 	nested,
 	selected,
@@ -195,6 +201,7 @@ const SubagentRow = memo(function SubagentRow({
 	onMenu,
 }: {
 	agent: SubagentSnapshot;
+	tabId: string;
 	depth: 0 | 1;
 	nested: boolean;
 	selected: boolean;
@@ -249,6 +256,16 @@ const SubagentRow = memo(function SubagentRow({
 				meta={live ? (elapsed !== null ? formatCompactElapsed(elapsed) : undefined) : statusLabel}
 				onClick={() => onOpen(agent.id)}
 				rowProps={{
+					// Onto a session pane: opens in the side panel (SplitWorkspace takes the drop).
+					draggable: true,
+					onDragStart: (event: ReactDragEvent<HTMLDivElement>) => {
+						event.dataTransfer.effectAllowed = "move";
+						hideNativeDragImage(event.dataTransfer);
+						window.dispatchEvent(
+							new CustomEvent("omp:subagent-drag", { detail: { tabId, agentId: agent.id, label: primary } }),
+						);
+					},
+					onDragEnd: () => window.dispatchEvent(new CustomEvent("omp:subagent-drag", { detail: null })),
 					onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => {
 						event.preventDefault();
 						onMenu(agent.id, anchorFromEvent(event));
@@ -381,6 +398,10 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 	const expanded = useSidebarSubagentsStore(s => s.expanded.has(sessionKey));
 	const hidden = useSidebarSubagentsStore(s => s.hidden.has(sessionKey));
 	const [viewingId, setViewingId] = useState<string | null>(null);
+	// The side panel's Subagent view showing one of this tab's agents counts as viewing it.
+	const panelId = useUiStore(s =>
+		s.panelVisible && s.panelTab === "subagent" && s.panelSubagent?.tabId === tabId ? s.panelSubagent.agentId : null,
+	);
 	const [menu, setMenu] = useState<{ id: string; anchor: ContextMenuAnchor } | null>(null);
 	const groupRef = useRef<HTMLDivElement>(null);
 	/** Agents this group has seen working: one that then finishes stays as an unread row. */
@@ -405,11 +426,11 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 			}
 			// A stop the user asked for is no news; a result or a failure is, until read.
 			if (!seenLive.current.delete(agent.id) || !UNREAD_ON_FINISH[agent.status]) continue;
-			if (agent.id !== viewingId && agent.kind !== "advisor") finished.push(agent.id);
+			if (agent.id !== viewingId && agent.id !== panelId && agent.kind !== "advisor") finished.push(agent.id);
 		}
 		finishing.current = finished.length > 0;
 		if (finished.length > 0) useSidebarSubagentsStore.getState().markUnread(finished);
-	}, [subagents, viewingId]);
+	}, [subagents, viewingId, panelId]);
 
 	// No rows left: forget the expanded state so the next fan-out starts collapsed.
 	useEffect(() => {
@@ -439,6 +460,10 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 		setViewingId(id);
 	}, []);
 	const openMenu = useCallback((id: string, anchor: ContextMenuAnchor) => setMenu({ id, anchor }), []);
+	const openInPanel = (id: string) => {
+		useSidebarSubagentsStore.getState().markRead(id);
+		useUiStore.getState().openSubagentPanel({ tabId, agentId: id });
+	};
 
 	const stoppable = menuAgent !== null && isLiveSubagentStatus(menuAgent.status) && menuAgent.kind !== "advisor";
 
@@ -456,13 +481,14 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 					{rows.map(row => (
 						<SubagentRow
 							agent={row.agent}
+							tabId={tabId}
 							depth={row.depth}
 							key={row.agent.id}
 							nested={nested}
 							onMenu={openMenu}
 							onOpen={openAgent}
 							rovingKey={`subagent:${tabId}:${row.agent.id}`}
-							selected={row.agent.id === viewingId}
+							selected={row.agent.id === viewingId || row.agent.id === panelId}
 						/>
 					))}
 				</div>
@@ -473,6 +499,11 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 					ariaLabel={t("sidebar.subagents.menu")}
 					items={[
 						{ id: "subagent-open", label: t("sidebar.subagents.open"), onSelect: () => openAgent(menu.id) },
+						{
+							id: "subagent-open-panel",
+							label: t("sidebar.subagents.openInPanel"),
+							onSelect: () => openInPanel(menu.id),
+						},
 						...(unread.has(menu.id)
 							? [
 									{

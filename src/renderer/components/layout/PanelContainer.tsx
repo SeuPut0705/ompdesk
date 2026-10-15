@@ -1,4 +1,5 @@
 import {
+	Bot,
 	ClipboardList,
 	Files,
 	GitCompareArrows,
@@ -30,6 +31,7 @@ import { PlanPanel } from "../panels/PlanPanel";
 import { PreviewPanel } from "../panels/PreviewPanel";
 import { QueuePanel } from "../panels/QueuePanel";
 import { SessionTreePanel } from "../panels/SessionTreePanel";
+import { SubagentPanel } from "../panels/SubagentPanel";
 import { TerminalPanel } from "../panels/TerminalPanel";
 
 const MIN_WIDTH = 360;
@@ -56,13 +58,15 @@ const VIEWS = [
 	{ id: "queue", labelKey: "panel.tabs.queue", icon: ListOrdered },
 	{ id: "tree", labelKey: "panel.tabs.tree", icon: GitFork },
 ] satisfies { id: PanelTab; labelKey: string; icon: typeof Files }[];
+/** Not one of the switchable views: a dragged or menu-opened subagent row puts it in the panel. */
+const SUBAGENT_VIEW = { id: "subagent", labelKey: "panel.tabs.subagent", icon: Bot } as const;
 
 function PanelHeader() {
 	const t = useT();
 	const panelTab = useUiStore(s => s.panelTab);
 	const setPanelTab = useUiStore(s => s.setPanelTab);
 	const togglePanel = useUiStore(s => s.togglePanel);
-	const current = VIEWS.find(view => view.id === panelTab) ?? VIEWS[0];
+	const current = panelTab === "subagent" ? SUBAGENT_VIEW : (VIEWS.find(view => view.id === panelTab) ?? VIEWS[0]);
 	return (
 		<div className="omp-panel-topbar drag-region flex min-h-(--sc-space-12) shrink-0 items-center gap-1 px-3">
 			<span title={t(current.labelKey)} className="min-w-0 flex-1 truncate text-sc-sm font-medium text-(--sc-text)">
@@ -108,6 +112,7 @@ function PanelHeader() {
 
 function SidePanelViews({ actionRef }: { actionRef: (element: HTMLDivElement | null) => void }) {
 	const panelTab = useUiStore(s => s.panelTab);
+	const panelSubagent = useUiStore(s => s.panelSubagent);
 	const activeTabId = useTabsStore(s => s.activeTabId);
 	return (
 		<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -118,7 +123,13 @@ function SidePanelViews({ actionRef }: { actionRef: (element: HTMLDivElement | n
 					ref={actionRef}
 				/>
 			)}
-			<PanelErrorBoundary key={`${activeTabId ?? "no-tab"}:${panelTab}`}>
+			<PanelErrorBoundary
+				key={
+					panelTab === "subagent"
+						? `subagent:${panelSubagent?.tabId}:${panelSubagent?.agentId}`
+						: `${activeTabId ?? "no-tab"}:${panelTab}`
+				}
+			>
 				{panelTab === "terminal" && <TerminalPanel />}
 				{panelTab === "preview" && <PreviewPanel />}
 				{panelTab === "plan" && <PlanPanel />}
@@ -128,6 +139,7 @@ function SidePanelViews({ actionRef }: { actionRef: (element: HTMLDivElement | n
 				{panelTab === "queue" && <QueuePanel />}
 				{panelTab === "tree" && <SessionTreePanel />}
 				{panelTab === "jobs" && <JobsPanel />}
+				{panelTab === "subagent" && <SubagentPanel subagent={panelSubagent} />}
 			</PanelErrorBoundary>
 		</div>
 	);

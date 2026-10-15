@@ -15,7 +15,7 @@ import { saveGuiPreference } from "../../lib/display-preferences";
 import { useLang, useT } from "../../lib/i18n";
 import { PLATFORM } from "../../lib/keymap";
 import { playChime } from "../../lib/notification-sound";
-import { PANEL_TABS, type PanelSide, type PanelTab, useUiStore } from "../../stores/ui";
+import { migrateDefaultPanelTab, PANEL_TABS, type PanelSide, type PanelTab, useUiStore } from "../../stores/ui";
 import { Button, Select } from "../common";
 import { DisplayPreferenceRow } from "./AppearanceSection";
 import { GithubAccountSection } from "./GithubAccountSection";
@@ -158,7 +158,7 @@ export function GeneralSection() {
 								void saveGuiPreference("defaultPanelTab", next, () => useUiStore.getState().setPanelTab(next));
 							}}
 							options={PANEL_TABS.map(value => ({ value, label: t(`panel.tabs.${value}`) }))}
-							value={panelTab}
+							value={migrateDefaultPanelTab(panelTab)}
 						/>
 					}
 					description={t("settings.gui.panelDefaultDesc")}

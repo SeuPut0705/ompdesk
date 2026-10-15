@@ -1,6 +1,7 @@
 /**
  * The right-side sheet showing one subagent's transcript — Agents › Live and
- * the sidebar's subagent rows open the same surface. Render it inside the
+ * the sidebar's subagent rows open the same surface (the side panel's
+ * Subagent view reuses its transcript and steer form). Render it inside the
  * subagent's session runtime so the transcript reads from the owning tab.
  * While the subagent runs, the footer steers it like stock's Agent Hub chat
  * (RPC `steer_subagent`): the message lands in its turn as a steer.
@@ -17,7 +18,7 @@ import { Button, Sheet, TextArea } from "../common";
 import { SubagentTranscript } from "./SubagentTranscript";
 import { isLiveSubagentStatus, statusMeta, subagentPrimaryLabel } from "./subagent-graph";
 
-function SteerSubagentForm({ agent }: { agent: SubagentSnapshot }) {
+export function SteerSubagentForm({ agent }: { agent: SubagentSnapshot }) {
 	const t = useT();
 	const rpc = useTabRpc();
 	const [text, setText] = useState("");
@@ -79,10 +80,14 @@ function SteerSubagentForm({ agent }: { agent: SubagentSnapshot }) {
 	);
 }
 
+/** Stock steers only a running subagent this session owns; an advisor is read-only. */
+export function isSteerableSubagent(agent: SubagentSnapshot): boolean {
+	return isLiveSubagentStatus(agent.status) && agent.kind !== "advisor";
+}
+
 export function SubagentTranscriptSheet({ agent, onClose }: { agent: SubagentSnapshot | null; onClose: () => void }) {
 	const t = useT();
-	// Stock steers only a running subagent this session owns; an advisor is read-only.
-	const steerable = agent !== null && isLiveSubagentStatus(agent.status) && agent.kind !== "advisor";
+	const steerable = agent !== null && isSteerableSubagent(agent);
 	return (
 		<Sheet
 			description={agent ? `${agent.agent} · ${t(statusMeta(agent.status).labelKey)}` : undefined}

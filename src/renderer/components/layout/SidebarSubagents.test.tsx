@@ -21,11 +21,13 @@ import type { SubagentsStore } from "../../stores/subagents";
 import { ensureTabRuntime } from "../../stores/tab-runtime";
 import { useUiStore } from "../../stores/ui";
 
-const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
+const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
 globals.document = document;
 globals.window = window;
 globals.Event = Event;
+// Rows announce drags on `window` (linkedom's), which cannot dispatch Node's own CustomEvent.
+globals.CustomEvent = CustomEvent;
 globals.HTMLElement = HTMLElement;
 globals.Node = Node;
 globals.IS_REACT_ACT_ENVIRONMENT = true;
@@ -37,6 +39,7 @@ globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0
 // flags at evaluation time.
 const { createRoot } = await import("react-dom/client");
 const { SidebarSubagents, SidebarSubagentsToggle, formatCompactElapsed } = await import("./SidebarSubagents");
+const { SubagentPanel } = await import("../panels/SubagentPanel");
 
 const TAB = "t1";
 const SESSION = "/work/alpha/one.jsonl";
@@ -162,7 +165,7 @@ afterEach(async () => {
 		unread: new Set(),
 		reveal: null,
 	});
-	useUiStore.setState({ sidebarVisible: true });
+	useUiStore.setState({ sidebarVisible: true, panelVisible: false, panelTab: "diff", panelSubagent: null });
 });
 
 describe("SidebarSubagents", () => {
@@ -358,6 +361,64 @@ describe("SidebarSubagents", () => {
 		);
 		// The opened subagent's row reads as the selected one.
 		expect(row("r1").querySelector("button")?.getAttribute("aria-current")).toBe("true");
+	});
+
+	it("drags a row as an omp:subagent-drag and opens it in the side panel from its menu", async () => {
+		seed([snap({ id: "r1", description: "map the repo", sessionFile: "/tmp/r1.jsonl" })]);
+		expand();
+		await mount(<Session />);
+		const drags: unknown[] = [];
+		const listen = (event: globalThis.Event) => drags.push((event as CustomEvent).detail);
+		window.addEventListener("omp:subagent-drag", listen);
+		try {
+			const setDragImage = vi.fn();
+			for (const type of ["dragstart", "dragend"]) {
+				const event = new Event(type, { bubbles: true, cancelable: true });
+				Object.defineProperty(event, "eventPhase", { value: 0, writable: true, configurable: true });
+				Object.defineProperty(event, "dataTransfer", { value: { effectAllowed: "", setDragImage } });
+				await act(async () => {
+					row("r1").dispatchEvent(event);
+				});
+			}
+		} finally {
+			window.removeEventListener("omp:subagent-drag", listen);
+		}
+		expect(row("r1").getAttribute("draggable")).toBe("true");
+		expect(drags).toEqual([{ tabId: TAB, agentId: "r1", label: "map the repo" }, null]);
+
+		const contextMenu = new Event("contextmenu", { bubbles: true, cancelable: true });
+		Object.defineProperty(contextMenu, "eventPhase", { value: 0, writable: true, configurable: true });
+		await act(async () => {
+			row("r1").dispatchEvent(contextMenu);
+		});
+		await flush();
+		const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+			node => node.textContent === "Open in side panel",
+		) as unknown as TestElement | undefined;
+		await click(item ?? null);
+		const ui = useUiStore.getState();
+		expect([ui.panelVisible, ui.panelTab, ui.panelSubagent]).toEqual([true, "subagent", { tabId: TAB, agentId: "r1" }]);
+		// The panel's agent reads as the selected row, and no sheet opened.
+		expect(row("r1").querySelector("button")?.getAttribute("aria-current")).toBe("true");
+		expect(document.querySelectorAll('[role="dialog"]').length).toBe(0);
+	});
+
+	it("the side panel's Subagent view reads the transcript through the owning tab and says when the agent is gone", async () => {
+		seed([snap({ id: "r1", description: "map the repo", sessionFile: "/tmp/r1.jsonl" })]);
+		await mount(<SubagentPanel subagent={{ tabId: TAB, agentId: "r1" }} />);
+		expect(document.querySelector('[data-panel-subagent="r1"]')?.textContent).toContain("map the repo");
+		expect(commandForTab).toHaveBeenCalledWith(
+			TAB,
+			expect.objectContaining({ type: "get_subagent_messages", subagentId: "r1", sessionFile: "/tmp/r1.jsonl" }),
+			expect.any(Number),
+		);
+		// Running: the steer form sits under the transcript.
+		expect(document.querySelector("[data-subagent-steer]")).not.toBeNull();
+
+		seed([]);
+		await flush();
+		expect(document.querySelector("[data-panel-subagent]")).toBeNull();
+		expect(document.body.textContent).toContain(translate("panel.subagent.gone"));
 	});
 
 	it("reveal shows the sidebar, expands the collapsed rows and focuses the first one", async () => {
