@@ -334,12 +334,15 @@ function SubagentDisclosure({ sessionKey }: { sessionKey: string }) {
 						expanded && "rotate-90",
 					)}
 				/>
-				{/* A folded group still says its agents are at work. */}
-				<Bot
-					aria-hidden
-					className={cx("size-(--sc-icon-sm)", working && !expanded && "omp-pulse-dot")}
+				{/* A folded group still says its agents are at work. The pulse sits on an
+				    HTML wrapper: Chromium runs no SVG element's animation on the
+				    compositor, so on the icon it restyled and repainted every frame. */}
+				<span
+					className={cx("inline-flex", working && !expanded && "omp-pulse-dot")}
 					data-working={(working && !expanded) || undefined}
-				/>
+				>
+					<Bot aria-hidden className="size-(--sc-icon-sm)" />
+				</span>
 				{count}
 			</button>
 			{menuAt && (
