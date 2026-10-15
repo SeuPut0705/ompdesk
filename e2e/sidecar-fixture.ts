@@ -1102,6 +1102,72 @@ if (process.argv[2] === "stats") {
 				},
 			],
 		}),
+		// Context inspector (gui-bridge context-inspect.ts): stock's anchored totals split by
+		// source, one entry per tool, context file, prompt block and message, an xd:// tool
+		// deferred. `OMP_GUI_TEST_CONTEXT_OVER` makes the context outgrow the window.
+		"context.inspect": params => {
+			const over = Boolean(process.env.OMP_GUI_TEST_CONTEXT_OVER);
+			const entries = [
+				{ id: "prompt:0", category: "systemPrompt", label: "You are omp, a coding agent…", tokens: 4_100 },
+				{ id: "file:AGENTS.md", category: "memoryFiles", label: "AGENTS.md", tokens: 1_020 },
+				{ id: "prompt:1", category: "systemContext", label: "Project: fixture-project", tokens: 430 },
+				{ id: "tool:read", category: "builtinTools", label: "read", tokens: 1_850 },
+				{ id: "tool:bash", category: "builtinTools", label: "bash", tokens: 2_300 },
+				{ id: "tool:edit", category: "builtinTools", label: "edit", tokens: 1_650 },
+				{ id: "tool:mcp__docs__search", category: "mcpTools", label: "mcp__docs__search", tokens: 640 },
+				{
+					id: "deferred:mcp__rea__analyze_function",
+					category: "mcpTools",
+					label: "mcp__rea__analyze_function",
+					tokens: 0,
+					deferred: true,
+				},
+				{ id: "tool:gui_terminal_read", category: "extensionTools", label: "gui_terminal_read", tokens: 460 },
+				{ id: "skill:review", category: "skills", label: "review", tokens: 820 },
+				{ id: "msg:0:1", category: "messages", role: "user", label: "Map the settings code", tokens: 1_530 },
+				{
+					id: "msg:1:2",
+					category: "messages",
+					role: "assistant",
+					label: "The settings live in src/renderer/components/settings…",
+					tokens: 58_200,
+				},
+				{
+					id: "msg:2:3",
+					category: "messages",
+					role: "toolResult",
+					label: "[read] settings-catalog.ts",
+					tokens: 1_800,
+				},
+			];
+			return {
+				model: model.id,
+				contextWindow: 128_000,
+				usedTokens: over ? 141_300 : 74_800,
+				anchored: true,
+				categories: {
+					systemPrompt: 4_100,
+					systemContext: 430,
+					memoryFiles: 1_020,
+					builtinTools: 5_800,
+					mcpTools: 640,
+					extensionTools: 460,
+					skills: 820,
+					messages: over ? 128_030 : 61_530,
+				},
+				entries: params.entries === false ? [] : entries,
+			};
+		},
+		"context.entry": params => {
+			const id = String(params.id);
+			if (id === "file:AGENTS.md")
+				return { text: "# Fixture rules\n\nKeep every change small.", totalChars: 40, truncated: false };
+			if (id === "msg:1:2") {
+				const text = "The settings live in src/renderer/components/settings. ".repeat(800);
+				return { text: text.slice(0, 32_000), totalChars: text.length, truncated: true };
+			}
+			return { text: `Provider text of ${id}`, totalChars: id.length + 17, truncated: false };
+		},
 		"composer.context_report": () => ({
 			contextWindow: 128_000,
 			model: model.id,
@@ -1562,6 +1628,10 @@ TPS_{\\text{decode}}
 \\[
 T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\text{输入预处理}} + T_{\\text{输入分词}} + T_{\\text{首令牌等待}} + \\frac{N_{\\text{输出令牌总数}}-1}{TPS_{\\text{decode}}} + T_{\\text{结果后处理}} + T_{\\text{客户端渲染}}
 \\]`;
+	// File cards (MixA A26/A111): the Office and CSV files a reply names get a card
+	// under it; the e2e writes them into the project, and `docs/gone.docx` is missing.
+	const DOCUMENTS_REPLY =
+		"Wrote the numbers to `docs/q3.xlsx` and `docs/table.csv`, the slides to [the deck](docs/deck.pptx); `docs/gone.docx` was removed.";
 	// Bare path mentions (MixA A116/A117): a file with a line, a folder in inline
 	// code, a Korean line reference, and a path that does not exist.
 	const PATHS_REPLY = [
@@ -3304,7 +3374,9 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 												? PATHS_REPLY
 												: message === "fixture reply actions"
 													? ACTIONS_REPLY
-													: "Local fixture reply",
+													: message === "fixture documents"
+														? DOCUMENTS_REPLY
+														: "Local fixture reply",
 					},
 				],
 				timestamp: Date.now(),

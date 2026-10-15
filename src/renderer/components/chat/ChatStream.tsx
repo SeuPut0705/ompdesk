@@ -66,6 +66,7 @@ import { WorkCardPending } from "./LiveStepPeek";
 import { MessageBubble } from "./MessageBubble";
 import { installPaneKeys } from "./pane-keys";
 import { StreamingText } from "./StreamingText";
+import { installSelectionDrag, selectionRowSpan } from "./selection-drag";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { TurnEndAnnouncer } from "./TurnEndAnnouncer";
 import { messageTimestampMs } from "./work-turn";
@@ -358,6 +359,9 @@ function SessionTranscript() {
 	const mountedRowKeysRef = useRef<ReadonlySet<string>>(new Set());
 	const overscanDeferredRef = useRef(false);
 	const [overscanRound, setOverscanRound] = useState(0);
+	// Rows a text selection covers stay mounted while it lasts (A105, selection-drag.ts):
+	// unmounting one would take the selection's end, or the text it spans, out of the page.
+	const [selectionPin, setSelectionPin] = useState<readonly string[]>([]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new round re-runs the range against the rows mounted since.
 	const rangeExtractor = useCallback(
 		(range: Range) => {
@@ -371,9 +375,15 @@ function SessionTranscript() {
 				prepending ? 0 : OVERSCAN_MOUNTS_PER_FRAME,
 			);
 			overscanDeferredRef.current = deferred;
-			return indexes;
+			if (selectionPin.length === 0) return indexes;
+			const pinned = new Set(indexes);
+			for (const key of selectionPin) {
+				const index = rowKeys.indexOf(key);
+				if (index >= 0) pinned.add(index);
+			}
+			return [...pinned].sort((a, b) => a - b);
 		},
-		[rowKeys, overscanRound],
+		[rowKeys, overscanRound, selectionPin],
 	);
 	const virtualizer = useVirtualizer({
 		count: rows.length,
@@ -715,6 +725,37 @@ function SessionTranscript() {
 		gestureAnchorRef.current = null;
 		if (el && isTranscriptAtLiveEdge(el)) setPinned(true);
 	}, []);
+
+	// Text drag-selection: scroll at the edges, and hold the view still for the drag
+	// (streamed output would otherwise pull the page, and the selection, along).
+	useEffect(() => {
+		const el = parentRef.current;
+		if (!el) return;
+		return installSelectionDrag(el, {
+			onStart: () => {
+				beginGesture(null);
+				setPinned(false);
+			},
+			onEnd: endScrollGesture,
+		});
+	}, [beginGesture, endScrollGesture]);
+
+	// The rows the selection covers, kept mounted until it collapses or leaves the transcript.
+	useEffect(() => {
+		const el = parentRef.current;
+		if (!el) return;
+		const document = el.ownerDocument;
+		const update = () => {
+			const span = selectionRowSpan(document.getSelection(), el, rowKeys);
+			if (span === null) return;
+			setSelectionPin(current =>
+				current.length === span.length && current.every((key, index) => key === span[index]) ? current : span,
+			);
+		};
+		update();
+		document.addEventListener("selectionchange", update);
+		return () => document.removeEventListener("selectionchange", update);
+	}, [rowKeys]);
 
 	const releaseTailPin = useCallback(() => {
 		beginGesture(null);
