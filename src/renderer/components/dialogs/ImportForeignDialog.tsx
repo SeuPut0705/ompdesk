@@ -1,10 +1,11 @@
-import { useTabRpc } from "../../lib/tab-rpc";
 /**
  * Foreign-session import wizard (Claude/Codex → OMP copy): list sessions from
- * a source, multi-select, import each as a fresh OMP session (the source data
- * is never modified). A single import opens the new session via the normal
- * switch flow; multiple imports land in the sidebar list with a count toast.
- * Backs the `list_foreign_sessions` / `import_foreign_session` RPCs.
+ * a source, narrow them by project, time and text, select some or all, and
+ * import each as a fresh OMP session (the source data is never modified) with
+ * a progress bar. Closing the dialog mid-import lets the rest finish in the
+ * background and report with a toast. A single import opens the new session
+ * via the normal switch flow; multiple imports land in the sidebar list with a
+ * count toast. Backs the `list_foreign_sessions` / `import_foreign_session` RPCs.
  */
 
 import { Download, Inbox, RotateCw } from "lucide-react";
@@ -13,15 +14,35 @@ import type { RpcForeignSessionInfo, RpcResponse } from "../../../shared/rpc-typ
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, EmptyState, IconButton, InlineNotice, Modal, SearchField, Spinner, Tabs } from "../common";
+import {
+	Button,
+	EmptyState,
+	IconButton,
+	InlineNotice,
+	Modal,
+	ProgressBar,
+	SearchField,
+	Select,
+	Spinner,
+	Tabs,
+} from "../common";
 
 type Source = "claude" | "codex";
 
 const SOURCES: Source[] = ["claude", "codex"];
+
+/** Time range filter: days back from now, or every session. */
+type Range = "all" | "7" | "30" | "90";
+const RANGES: readonly Range[] = ["all", "7", "30", "90"];
+const DAY_MS = 86_400_000;
+
+/** The selection / completion key of one source's session. */
+const sessionKey = (source: Source, id: string) => `${source}:${id}`;
 
 interface SourceState {
 	loading: boolean;
@@ -37,10 +58,22 @@ export function ImportForeignDialog() {
 	const [source, setSource] = useState<Source>("claude");
 	const [states, setStates] = useState<Partial<Record<Source, SourceState>>>({});
 	const [query, setQuery] = useState("");
+	/** Project folder filter; "" = every project. */
+	const [project, setProject] = useState("");
+	const [range, setRange] = useState<Range>("all");
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [importing, setImporting] = useState(false);
+	const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 	const [importError, setImportError] = useState<InlineFailure | null>(null);
 	const [completed, setCompleted] = useState<Set<string>>(new Set());
+	/** False once the dialog closed: a running import finishes in the background and reports by toast. */
+	const open = useRef(true);
+	useEffect(
+		() => () => {
+			open.current = false;
+		},
+		[],
+	);
 	const generation = useRef(0);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a different session client invalidates pending imports.
 	useEffect(() => {
@@ -106,64 +139,101 @@ export function ImportForeignDialog() {
 	}, [source, sidecarReady, tabRpc]);
 
 	const state = states[source];
+	const projects = useMemo(() => {
+		const counts = new Map<string, number>();
+		for (const session of state?.sessions ?? []) counts.set(session.cwd, (counts.get(session.cwd) ?? 0) + 1);
+		return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+	}, [state]);
 	const filtered = useMemo(() => {
 		const sessions = state?.sessions ?? [];
 		const q = query.trim().toLowerCase();
-		if (!q) return sessions;
+		const since = range === "all" ? null : Date.now() - Number(range) * DAY_MS;
 		return sessions.filter(
 			session =>
-				(session.title ?? "").toLowerCase().includes(q) ||
-				(session.firstMessage ?? "").toLowerCase().includes(q) ||
-				session.cwd.toLowerCase().includes(q),
+				(!project || session.cwd === project) &&
+				(since === null || Date.parse(session.modified) >= since) &&
+				(!q ||
+					(session.title ?? "").toLowerCase().includes(q) ||
+					(session.firstMessage ?? "").toLowerCase().includes(q) ||
+					session.cwd.toLowerCase().includes(q)),
 		);
-	}, [state, query]);
+	}, [state, query, project, range]);
+	/** The shown sessions a select-all would pick: not imported yet. */
+	const selectable = filtered.filter(session => !completed.has(sessionKey(source, session.id)));
+	const allSelected =
+		selectable.length > 0 && selectable.every(session => selected.has(sessionKey(source, session.id)));
 
 	const toggle = (id: string) => {
-		id = `${source}:${id}`;
+		const key = sessionKey(source, id);
 		setSelected(current => {
 			const next = new Set(current);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
+			if (next.has(key)) next.delete(key);
+			else next.add(key);
+			return next;
+		});
+	};
+
+	const toggleAll = () => {
+		setSelected(current => {
+			const next = new Set(current);
+			for (const session of selectable) {
+				if (allSelected) next.delete(sessionKey(source, session.id));
+				else next.add(sessionKey(source, session.id));
+			}
 			return next;
 		});
 	};
 
 	const doImport = async () => {
 		if (!sidecarReady) return;
-		const sessions = (state?.sessions ?? []).filter(session => selected.has(`${source}:${session.id}`));
+		const sessions = (state?.sessions ?? []).filter(session => selected.has(sessionKey(source, session.id)));
 		if (sessions.length === 0 || importing) return;
 		setImporting(true);
 		setImportError(null);
+		setProgress({ done: 0, total: sessions.length });
 		const failed = new Set<string>();
-		const version = generation.current;
+		let lastFailure: InlineFailure | null = null;
 		try {
 			let firstImported: { sessionPath: string; sessionId: string; cwd: string } | null = null;
 			let importedCount = 0;
-			for (const session of sessions) {
-				let response: RpcResponse;
+			for (const [index, session] of sessions.entries()) {
+				let response: RpcResponse | null = null;
+				let thrown: unknown;
 				try {
 					response = await tabRpc.importForeignSession(source, session.id);
 				} catch (cause) {
-					failed.add(`${source}:${session.id}`);
-					setImportError(inlineFailure(cause, t("import.failed")));
+					thrown = cause;
+				}
+				setProgress({ done: index + 1, total: sessions.length });
+				const data = response?.success
+					? (response.data as { sessionPath?: string; sessionId?: string; cwd?: string } | undefined)
+					: undefined;
+				if (!data?.sessionPath || !data.sessionId) {
+					failed.add(sessionKey(source, session.id));
+					lastFailure = inlineFailure(thrown ?? response, t("import.failed"));
+					setImportError(lastFailure);
 					continue;
 				}
-				if (generation.current !== version) return;
-				if (!response.success) {
-					failed.add(`${source}:${session.id}`);
-					setImportError(inlineFailure(response, t("import.failed")));
-					continue;
+				importedCount += 1;
+				setCompleted(current => new Set([...current, sessionKey(source, session.id)]));
+				firstImported ??= {
+					sessionPath: data.sessionPath,
+					sessionId: data.sessionId,
+					cwd: data.cwd ?? session.cwd,
+				};
+			}
+			if (!open.current) {
+				// Closed mid-import: the toast is the only report left.
+				if (importedCount > 0)
+					toast({ variant: "success", message: t("import.imported", { count: importedCount }) });
+				if (failed.size > 0) {
+					toast({
+						variant: "error",
+						title: t("import.failedN", { count: failed.size }),
+						message: lastFailure?.message ?? t("import.failed"),
+					});
 				}
-				const data = response.data as { sessionPath?: string; sessionId?: string; cwd?: string } | undefined;
-				if (data?.sessionPath && data.sessionId) {
-					importedCount += 1;
-					setCompleted(current => new Set([...current, `${source}:${session.id}`]));
-					firstImported ??= {
-						sessionPath: data.sessionPath,
-						sessionId: data.sessionId,
-						cwd: data.cwd ?? session.cwd,
-					};
-				}
+				return;
 			}
 			if (importedCount === 0) return;
 			if (sessions.length === 1 && firstImported) {
@@ -180,7 +250,8 @@ export function ImportForeignDialog() {
 		} catch (cause) {
 			setImportError(inlineFailure(cause, t("import.failed")));
 		} finally {
-			if (generation.current === version) setImporting(false);
+			setImporting(false);
+			setProgress(null);
 		}
 	};
 
@@ -188,13 +259,29 @@ export function ImportForeignDialog() {
 		<Modal
 			open
 			onClose={() => {
-				if (!importing) close();
+				// Mid-import, closing hides the dialog; the rest imports in the background.
+				if (importing) toast({ variant: "info", message: t("import.background") });
+				close();
 			}}
 			title={t("import.title")}
 			size="lg"
 			footer={
 				<>
-					<span className="mr-auto text-sc-sm text-(--sc-text-muted)">{t("import.copyNote")}</span>
+					{progress ? (
+						<span className="mr-auto flex min-w-0 items-center gap-2" data-import-progress>
+							<ProgressBar
+								ariaLabel={t("import.progress", { done: progress.done, total: progress.total })}
+								className="w-32"
+								tone="progress"
+								value={progress.done / progress.total}
+							/>
+							<span className="text-sc-sm text-(--sc-text-muted)" role="status">
+								{t("import.progress", { done: progress.done, total: progress.total })}
+							</span>
+						</span>
+					) : (
+						<span className="mr-auto text-sc-sm text-(--sc-text-muted)">{t("import.copyNote")}</span>
+					)}
 					<Button
 						disabled={!sidecarReady || selected.size === 0 || importing}
 						icon={<Download />}
@@ -216,6 +303,7 @@ export function ImportForeignDialog() {
 					onChange={id => {
 						setSource(id as Source);
 						setSelected(new Set());
+						setProject("");
 					}}
 					tabs={SOURCES.map(candidate => ({
 						id: candidate,
@@ -238,6 +326,47 @@ export function ImportForeignDialog() {
 						icon={<RotateCw />}
 						label={sidecarReady ? t("common.refresh") : t("import.notConnected")}
 						onClick={() => void load(source, true)}
+					/>
+				</div>
+			</div>
+			<div className="mb-2 flex flex-wrap items-center gap-2">
+				<label className="mr-auto inline-flex items-center gap-2 text-sc-sm text-(--sc-text-secondary)">
+					<input
+						checked={allSelected}
+						className="accent-(--sc-accent)"
+						data-import-select-all
+						disabled={!sidecarReady || importing || selectable.length === 0}
+						onChange={toggleAll}
+						type="checkbox"
+					/>
+					{t("import.selectAll", { count: selectable.length })}
+				</label>
+				<div className="w-56">
+					<Select
+						aria-label={t("import.project")}
+						controlSize="sm"
+						data-import-project
+						disabled={importing}
+						onChange={event => setProject(event.target.value)}
+						options={[
+							{ value: "", label: t("import.allProjects") },
+							...projects.map(([cwd, count]) => ({ value: cwd, label: `${cwd} (${count})` })),
+						]}
+						value={project}
+					/>
+				</div>
+				<div className="w-36">
+					<Select
+						aria-label={t("import.range")}
+						controlSize="sm"
+						data-import-range
+						disabled={importing}
+						onChange={event => setRange(RANGES.find(value => value === event.target.value) ?? "all")}
+						options={RANGES.map(value => ({
+							value,
+							label: value === "all" ? t("import.range.all") : t("import.range.days", { count: value }),
+						}))}
+						value={range}
 					/>
 				</div>
 			</div>

@@ -93,11 +93,18 @@ async function argCompletions(
 	return { items: (await buildMcpArgumentCompletions(command.subcommands, runtime)(prefix)) ?? [], hint };
 }
 
+/** How long a source's listing serves a batch of imports before it is read again. */
+const FOREIGN_LISTING_TTL_MS = 5 * 60_000;
+/** The last stock listing per source (`sessions.foreign_list`, or an import that had to read it). */
+const foreignListings = new Map<ForeignSessionSource, { at: number; sessions: ForeignSessionInfo[] }>();
+
 export const methods: BridgeMethods = {
 	...guard("sessionImport", {
 		/** `{source}` → stock ForeignSessionStore listing, newest first, in the RpcForeignSessionInfo wire shape. */
 		"sessions.foreign_list": async params => {
-			const sessions = await createForeignSessionStore(foreignSource(params)).list();
+			const source = foreignSource(params);
+			const sessions = await createForeignSessionStore(source).list();
+			foreignListings.set(source, { at: Date.now(), sessions });
 			return { sessions: sessions.map(foreignToWire) };
 		},
 
@@ -105,15 +112,23 @@ export const methods: BridgeMethods = {
 		 * `{source, foreignId}` → convert one foreign transcript into a new omp session file
 		 * (source data untouched). The destination name is a digest of the source identity,
 		 * so a retry or a second import of the unchanged source reuses the earlier copy.
+		 * A batch (the GUI imports one session per call, to show its progress) reuses the
+		 * listing the dialog just read instead of re-reading every transcript per session.
 		 */
 		"sessions.foreign_import": async (params, env) => {
 			const source = foreignSource(params);
 			const foreignId = param(params, "foreignId");
 			if (typeof foreignId !== "string" || !foreignId) throw new Error("import requires a foreignId");
 			const store = createForeignSessionStore(source);
-			const info = (await store.list()).find(
-				candidate => candidate.id === foreignId || candidate.path === foreignId,
-			);
+			const matches = (candidate: ForeignSessionInfo) => candidate.id === foreignId || candidate.path === foreignId;
+			const cached = foreignListings.get(source);
+			let info =
+				cached && Date.now() - cached.at < FOREIGN_LISTING_TTL_MS ? cached.sessions.find(matches) : undefined;
+			if (!info) {
+				const sessions = await store.list();
+				foreignListings.set(source, { at: Date.now(), sessions });
+				info = sessions.find(matches);
+			}
 			if (!info) throw new Error(`Foreign session not found: ${foreignId}`);
 			const cwd = (await directoryExists(info.cwd)) ? info.cwd : env.session().sessionManager.getCwd();
 			const sessionDir = SessionManager.getDefaultSessionDir(cwd);
