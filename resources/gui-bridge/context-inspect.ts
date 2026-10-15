@@ -27,6 +27,7 @@ import {
 	type ToolSource,
 } from "./context-inspect-core";
 import { guard } from "./health";
+import { withTurnSections } from "./prompt-sections";
 import type { BridgeMethods } from "./types";
 
 interface Entry {
@@ -49,6 +50,18 @@ function messageTimestamp(message: object): number {
 	return "timestamp" in message && typeof message.timestamp === "number" ? message.timestamp : 0;
 }
 
+/**
+ * The system prompt of the next turn. Stock keeps only what it built in
+ * `session.systemPrompt` between turns; OMPdesk's own sections (reply language,
+ * profile, reply style, model pool, visuals) join through `before_agent_start`
+ * as a turn starts, so they are applied here the way the hook does.
+ */
+function turnPrompt(session: AgentSession): { parts: readonly string[]; added: readonly string[] } {
+	const stock = session.systemPrompt;
+	const parts = withTurnSections(stock, { sessionManager: session.sessionManager, agent: { kind: "main" } });
+	return { parts, added: parts.slice(stock.length) };
+}
+
 /** `withEntries` false: the category totals only (Insights' breakdown card), without walking the messages. */
 function inspect(session: AgentSession, withEntries: boolean) {
 	const tokenizer = session.agent.tokenizer;
@@ -66,7 +79,7 @@ function inspect(session: AgentSession, withEntries: boolean) {
 		messages: breakdown?.messagesTokens ?? 0,
 	};
 
-	const parts = session.systemPrompt;
+	const { parts, added } = turnPrompt(session);
 	if (parts[0])
 		entries.push({ id: "prompt:0", category: "systemPrompt", label: snippet(parts[0]), tokens: totals.systemPrompt });
 	let filesTokens = 0;
@@ -86,8 +99,9 @@ function inspect(session: AgentSession, withEntries: boolean) {
 			tokens: Math.max(0, rest),
 		});
 	}
-	// Stock's systemContext covers every block after the first; the files are part of it.
-	const systemContext = breakdown?.systemContextTokens ?? 0;
+	// Stock's systemContext covers every stock block after the first; the files are part of it. OMPdesk's own sections are not in stock's figure.
+	const systemContext =
+		(breakdown?.systemContextTokens ?? 0) + added.reduce((sum, part) => sum + tokenizer.countTokens(part), 0);
 	totals.memoryFiles = Math.min(filesTokens, systemContext);
 	totals.systemContext = systemContext - totals.memoryFiles;
 
@@ -147,7 +161,7 @@ function preview(session: AgentSession, id: string): Preview {
 	const colon = id.indexOf(":");
 	const kind = id.slice(0, colon);
 	const key = id.slice(colon + 1);
-	const parts = session.systemPrompt;
+	const parts = turnPrompt(session).parts;
 	switch (kind) {
 		case "prompt": {
 			const part = parts[Number(key)];

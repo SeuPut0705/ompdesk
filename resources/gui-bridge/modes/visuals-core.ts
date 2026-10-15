@@ -34,9 +34,3 @@ export function visualsInstruction(render: PromptRender, template: string, flags
 	const text = render(template, { ...flags, autoGraph: false }).trim();
 	return text || undefined;
 }
-
-/** `systemPrompt` with the instruction appended, or undefined when there is none or stock already carries it. */
-export function withVisuals(systemPrompt: readonly string[], instruction: string | undefined): string[] | undefined {
-	if (!instruction || systemPrompt.some(part => part.includes(instruction))) return undefined;
-	return [...systemPrompt, instruction];
-}

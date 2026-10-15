@@ -18,22 +18,21 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { cfgTuiRenderMermaid, cfgTuiRenderSvg } from "@oh-my-pi/pi-coding-agent/modes/settings";
 import { prompt } from "@oh-my-pi/pi-utils";
 import { guard } from "../health";
+import { registerPromptSection } from "../prompt-sections";
 import { errorMessage, ompPrompt } from "./shared";
-import { visualsInstruction, visualsTemplate, withVisuals } from "./visuals-core";
+import { visualsInstruction, visualsTemplate } from "./visuals-core";
 
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: ExtensionAPI): void {
 	let warned = false;
-	pi.on("before_agent_start", (event, ctx) => {
+	registerPromptSection(pi, "visuals", ctx => {
 		if (ctx.agent.kind === "sub") return undefined;
 		try {
 			const settings = pi.pi.Settings.instance;
-			const instruction = visualsInstruction(prompt.render, visualsTemplate(ompPrompt("system/system-prompt.md")), {
+			return visualsInstruction(prompt.render, visualsTemplate(ompPrompt("system/system-prompt.md")), {
 				renderMermaid: cfgTuiRenderMermaid.get(settings),
 				renderSvg: cfgTuiRenderSvg.get(settings),
 			});
-			const systemPrompt = withVisuals(event.systemPrompt, instruction);
-			return systemPrompt ? { systemPrompt } : undefined;
 		} catch (err) {
 			// The prompt goes out as stock built it; one warning per process is enough.
 			if (!warned) pi.logger.warn("gui-bridge: diagram instructions skipped", { error: errorMessage(err) });

@@ -22,13 +22,10 @@
  * (src/main/bridge-reply-language.test.ts).
  */
 
+import { type PromptSectionHost, registerPromptSection } from "../prompt-sections";
+
 /** The slice of omp's ExtensionAPI this module needs. */
-export interface ReplyLanguageHost {
-	on(
-		event: "before_agent_start",
-		handler: (event: { systemPrompt: string[] }) => { systemPrompt: string[] } | undefined,
-	): void;
-}
+export type ReplyLanguageHost = PromptSectionHost;
 
 /** Longer than any `Intl.DisplayNames` language name; anything bigger is not one. */
 const MAX_LANGUAGE_NAME = 64;
@@ -50,9 +47,7 @@ let instruction = replyLanguageInstruction(process.env.OMP_GUI_REPLY_LANGUAGE);
 
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: ReplyLanguageHost): void {
-	pi.on("before_agent_start", event =>
-		instruction ? { systemPrompt: [...event.systemPrompt, instruction] } : undefined,
-	);
+	registerPromptSection(pi, "reply-language", () => instruction);
 }
 
 /**

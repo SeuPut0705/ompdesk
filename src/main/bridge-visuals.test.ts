@@ -3,16 +3,19 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { visualsInstruction, visualsTemplate, withVisuals } from "../../resources/gui-bridge/modes/visuals-core";
+import { visualsInstruction, visualsTemplate } from "../../resources/gui-bridge/modes/visuals-core";
+import { appendIfMissing } from "../../resources/gui-bridge/prompt-sections";
 
 const stockModules = path.join(os.homedir(), ".bun/install/global/node_modules");
 const stockRoot = path.join(stockModules, "@oh-my-pi/pi-coding-agent");
 
 describe("gui-bridge diagram instructions", () => {
 	it("appends the section once, and nothing when it is empty or stock already carries it", () => {
-		expect(withVisuals(["base"], "- Visuals")).toEqual(["base", "- Visuals"]);
-		expect(withVisuals(["base"], undefined)).toBeUndefined();
-		expect(withVisuals(["base\n- Visuals\nmore"], "- Visuals")).toBeUndefined();
+		expect(appendIfMissing(["base"], "- Visuals")).toEqual(["base", "- Visuals"]);
+		const unchanged = ["base"];
+		expect(appendIfMissing(unchanged, undefined)).toBe(unchanged);
+		const carried = ["base\n- Visuals\nmore"];
+		expect(appendIfMissing(carried, "- Visuals")).toBe(carried);
 	});
 
 	it("refuses a template without stock's Visuals section", () => {

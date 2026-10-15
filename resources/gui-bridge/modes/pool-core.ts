@@ -21,7 +21,7 @@ import {
 /** `customType` of the journal entry recording the session's pool; the latest one on the branch wins. */
 export const POOL_ENTRY_TYPE = "ompdesk.model-pool";
 
-interface JournalEntry {
+export interface JournalEntry {
 	type?: unknown;
 	customType?: unknown;
 	data?: unknown;

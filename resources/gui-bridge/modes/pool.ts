@@ -22,6 +22,7 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { guard } from "../health";
 import { normalizePool, type PoolState } from "../pool-contracts";
+import { registerPromptSection } from "../prompt-sections";
 import type { BridgeEnv, BridgeMethods } from "../types";
 import { buildPoolInstruction, POOL_ENTRY_TYPE, poolFromEntries } from "./pool-core";
 
@@ -37,10 +38,9 @@ function publish(state: PoolState): void {
 
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: ExtensionAPI): void {
-	pi.on("before_agent_start", (event, ctx) => {
-		const instruction = buildPoolInstruction(poolFromEntries(ctx.sessionManager.getBranch()));
-		return instruction ? { systemPrompt: [...event.systemPrompt, instruction] } : undefined;
-	});
+	registerPromptSection(pi, "model-pool", ctx =>
+		buildPoolInstruction(poolFromEntries(ctx.sessionManager.getBranch())),
+	);
 	// Branch navigation can cross a pool entry; tell the GUI what the new leaf records.
 	const republish = () => {
 		if (!latestEnv) return;

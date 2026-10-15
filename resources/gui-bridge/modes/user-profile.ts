@@ -12,6 +12,7 @@
  * No omp imports (not even types): the GUI's vitest installs it on a fake `pi`
  * (src/main/bridge-user-profile.test.ts).
  */
+import { type PromptSectionHost, registerPromptSection } from "../prompt-sections";
 import {
 	isUserProfile,
 	normalizeUserProfile,
@@ -20,12 +21,7 @@ import {
 } from "../user-profile-contracts";
 
 /** The slice of omp's ExtensionAPI this module needs. */
-export interface UserProfileHost {
-	on(
-		event: "before_agent_start",
-		handler: (event: { systemPrompt: string[] }) => { systemPrompt: string[] } | undefined,
-	): void;
-}
+export type UserProfileHost = PromptSectionHost;
 
 function fromEnv(raw: string | undefined): UserProfile {
 	if (!raw) return normalizeUserProfile(undefined);
@@ -41,9 +37,7 @@ let instruction = userProfileInstruction(fromEnv(process.env.OMP_GUI_USER_PROFIL
 
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: UserProfileHost): void {
-	pi.on("before_agent_start", event =>
-		instruction ? { systemPrompt: [...event.systemPrompt, instruction] } : undefined,
-	);
+	registerPromptSection(pi, "user-profile", () => instruction);
 }
 
 /** `{name, experience}` as prefs stores it; anything else is refused and the current profile stays. */

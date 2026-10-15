@@ -15,11 +15,14 @@ import {
 
 type Handler = Parameters<UserProfileHost["on"]>[1];
 
-function installedHook(): Handler {
+/** The hook's own behaviour does not depend on the session; omp always passes one. */
+const context: Parameters<Handler>[1] = { sessionManager: { getBranch: () => [] }, agent: { kind: "main" } };
+
+function installedHook(): (event: Parameters<Handler>[0]) => ReturnType<Handler> {
 	const handlers: Handler[] = [];
 	install({ on: (_event, handler) => handlers.push(handler) });
 	expect(handlers).toHaveLength(1);
-	return handlers[0];
+	return event => handlers[0]?.(event, context);
 }
 
 afterEach(() => {

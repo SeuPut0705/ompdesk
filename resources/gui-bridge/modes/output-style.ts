@@ -15,23 +15,16 @@
  * lists the same styles.
  */
 import { OUTPUT_STYLE_IDS, type OutputStyleId, outputStyleInstruction } from "../output-style-contracts";
+import { type PromptSectionHost, registerPromptSection } from "../prompt-sections";
 
 /** The slice of omp's ExtensionAPI this module needs. */
-export interface OutputStyleHost {
-	on(
-		event: "before_agent_start",
-		handler: (event: { systemPrompt: string[] }) => { systemPrompt: string[] } | undefined,
-	): void;
-}
+export type OutputStyleHost = PromptSectionHost;
 
 let style: OutputStyleId = "default";
 
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: OutputStyleHost): void {
-	pi.on("before_agent_start", event => {
-		const instruction = outputStyleInstruction(style);
-		return instruction ? { systemPrompt: [...event.systemPrompt, instruction] } : undefined;
-	});
+	registerPromptSection(pi, "output-style", () => outputStyleInstruction(style));
 }
 
 /** `{style}`: one of {@link OUTPUT_STYLE_IDS}; anything else is refused. */
