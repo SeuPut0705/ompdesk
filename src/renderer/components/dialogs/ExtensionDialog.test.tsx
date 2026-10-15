@@ -361,6 +361,29 @@ describe("ExtensionDialog ask", () => {
 			});
 		},
 	);
+
+	it("keeps Submit off until a lone single-choice question is answered (stock aborts the turn on an empty answer)", async () => {
+		await mount({ withComposerDock: true });
+		await push({
+			type: "extension_ui_request",
+			id: "ask-empty",
+			method: "ask",
+			questions: [{ id: "env", question: "Where?", options: [{ label: "Staging" }, { label: "Production" }] }],
+		});
+		const card = dockedCard() as TestElement & Element;
+		const submit = buttonWithText("Submit") as unknown as HTMLButtonElement | undefined;
+		expect(submit?.disabled).toBe(true);
+		const form = card.querySelector("form") as unknown as TestElement;
+		await act(async () => {
+			form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+		});
+		await flush();
+		expect(respondExtensionUi).not.toHaveBeenCalled();
+		const staging = buttonWithText("Staging");
+		if (!staging) throw new Error("missing Staging");
+		await click(staging);
+		expect((buttonWithText("Submit") as unknown as HTMLButtonElement | undefined)?.disabled).toBe(false);
+	});
 });
 
 describe("ExtensionDialog docked prompts", () => {

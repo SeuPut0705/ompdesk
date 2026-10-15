@@ -396,6 +396,9 @@ function AskDialog({
 		return entry !== undefined && (entry.selected.size > 0 || entry.custom.trim() !== "");
 	};
 	const unansweredCount = questions.filter((_question, index) => !isAnswered(index)).length;
+	// Stock's ask tool reads an empty answer to a lone single-choice question as
+	// "cancelled by the user" and aborts the whole turn: Submit waits for an answer.
+	const submitBlocked = last && total === 1 && !multi && !isAnswered(0);
 
 	// Each step opens on its first option, so 1–9 and ↑/↓ work right away.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a step change moves focus.
@@ -472,7 +475,7 @@ function AskDialog({
 								{t("extDialog.ask.back")}
 							</Button>
 						)}
-						<Button form={formId} size="sm" type="submit" variant="primary">
+						<Button disabled={submitBlocked} form={formId} size="sm" type="submit" variant="primary">
 							{last ? t("extDialog.submit") : t("extDialog.ask.next")}
 						</Button>
 					</div>
@@ -497,8 +500,8 @@ function AskDialog({
 				id={formId}
 				onSubmit={event => {
 					event.preventDefault();
-					if (last) submit();
-					else setStep(step + 1);
+					if (!last) setStep(step + 1);
+					else if (!submitBlocked) submit();
 				}}
 			>
 				{total > 1 && (
