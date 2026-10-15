@@ -590,16 +590,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// request (tracked by request id), not the window's active tab; the user
 	// may have switched tabs while the dialog was open. Unknown ids (raised
 	// before tracking, or after a restart) fall back to the active sidecar.
-	ipcMain.handle(IPC_COMMANDS.EXTENSION_UI_RESPOND, (event, payload: IpcExtensionUiRespondPayload) => {
+	// Resolves once the omp took the answer; a paired host's tab that did not
+	// rejects, and the renderer keeps the card open.
+	ipcMain.handle(IPC_COMMANDS.EXTENSION_UI_RESPOND, async (event, payload: IpcExtensionUiRespondPayload) => {
 		const { response, tabId } = payload;
 		if (typeof tabId === "string") {
 			const win = BrowserWindow.fromWebContents(event.sender);
 			if (!win || !sidecarPool.sidecarForTab(win, tabId)) return;
-			if (typeof response?.id === "string") sidecarPool.routeSideChannel(response.id, response, tabId);
+			if (typeof response?.id === "string") await sidecarPool.routeSideChannel(response.id, response, tabId);
 			return;
 		}
-		if (typeof response?.id === "string" && sidecarPool.routeSideChannel(response.id, response)) return;
-		sidecarFor(deps, event)?.sendSideChannel(response);
+		if (typeof response?.id === "string" && (await sidecarPool.routeSideChannel(response.id, response))) return;
+		await sidecarFor(deps, event)?.sendSideChannel(response);
 	});
 
 	ipcMain.handle(IPC_COMMANDS.EXTENSION_UI_OPEN, event => {

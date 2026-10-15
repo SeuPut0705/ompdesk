@@ -12,8 +12,10 @@
  * starts a new one on the newest session file.
  *
  * Nothing sent to the host vanishes while the link is down: a user's answer
- * (`extension_ui_response`) is refused with `remote_offline` so its card stays
- * open to be answered again; the replies to the host's own tool and URI calls
+ * (`extension_ui_response`) the host did not take — the link was down, dropped
+ * while it was on its way, or the host refused it — is refused with
+ * `remote_offline` (or the host's error) so its card stays open to be answered
+ * again; the replies to the host's own tool and URI calls
  * wait and go out once the host tab is re-attached (and are dropped when the
  * host started a new omp, which never made those calls); a `tab.close` is
  * handed to `deferClose` and sent when the link is back (`PendingTabCloses`).
@@ -113,6 +115,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	#cwd: string;
 	#status: SidecarStatus = "asleep";
 	#detail: StatusDetail = {};
+	#statusFromLink = true;
 	#processAlive = false;
 	/** start()/restart() was called: the tab should run whenever the link is up. */
 	#wanted = false;
@@ -153,6 +156,11 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 
 	get status(): SidecarStatus {
 		return this.#status;
+	}
+
+	/** The current status was derived here (start, link down, reconnecting), not reported by the host's omp. */
+	get statusFromLink(): boolean {
+		return this.#statusFromLink;
 	}
 
 	get statusPayload(): SidecarStatusPayload {
@@ -203,13 +211,14 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		return true;
 	}
 
-	/** Throws `remote_offline` for a user's answer the host cannot receive now; the caller keeps its card open. */
-	sendSideChannel(frame: object): void {
+	/**
+	 * A user's answer (`extension_ui_response`) returns a promise that settles once the host took it, and
+	 * throws or rejects `remote_offline` (or the host's own refusal) when it cannot: the caller keeps its card
+	 * open. Replies to the host's own calls wait for the next link instead.
+	 */
+	sendSideChannel(frame: object): Promise<void> | undefined {
 		if (this.#disposed) return;
-		if (this.#link.state === "online" && this.#opened) {
-			this.#deliver(frame);
-			return;
-		}
+		if (this.#link.state === "online" && this.#opened) return this.#deliver(frame);
 		if (!isReplayable(frame)) throw codedError("remote_offline", OFFLINE_TEXT);
 		this.#queueReply(frame);
 	}
@@ -260,7 +269,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 				this.#offlineShown = false;
 				this.#processAlive = parsed.data.processAlive;
 				if (parsed.data.cwd) this.#cwd = parsed.data.cwd;
-				this.#setStatus(parsed.data.status, parsed.data.statusPayload);
+				this.#setStatus(parsed.data.status, parsed.data.statusPayload, false);
 				return;
 			}
 			case "session": {
@@ -299,11 +308,22 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		if (state === "offline" && this.#status !== "asleep") this.#markOffline();
 	}
 
-	/** One side-channel frame over a live link; a reply the link drops under is kept for the next one. */
-	#deliver(frame: object): void {
-		this.#link.request("tab.sideChannel", { rtab: this.#rtab, frame }).catch((error: unknown) => {
-			if (isOfflineError(error) && isReplayable(frame) && !this.#disposed) this.#queueReply(frame);
-		});
+	/**
+	 * One side-channel frame over a live link, after the host finished (re-)attaching the tab: a frame sent
+	 * before then would reach a host that does not know the tab yet. A reply the link drops under is kept for
+	 * the next link; anything else rejects, so its sender learns the host never took it.
+	 */
+	async #deliver(frame: object): Promise<void> {
+		try {
+			await this.#opened;
+			await this.#link.request("tab.sideChannel", { rtab: this.#rtab, frame });
+		} catch (error) {
+			if (!isReplayable(frame)) {
+				if (isOfflineError(error)) throw codedError("remote_offline", OFFLINE_TEXT);
+				throw error;
+			}
+			if (isOfflineError(error) && !this.#disposed) this.#queueReply(frame);
+		}
 	}
 
 	#queueReply(frame: object): void {
@@ -416,9 +436,11 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		this.#setStatus("error", { message: this.#offlineMessage() });
 	}
 
-	#setStatus(status: SidecarStatus, detail: StatusDetail): void {
+	/** `fromLink`: this side derived the status (start, link down, reconnecting) instead of the host's omp. */
+	#setStatus(status: SidecarStatus, detail: StatusDetail, fromLink = true): void {
 		this.#status = status;
 		this.#detail = detail;
+		this.#statusFromLink = fromLink;
 		this.emit("status", this.statusPayload);
 	}
 }

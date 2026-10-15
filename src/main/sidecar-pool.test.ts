@@ -20,6 +20,8 @@ class FakeSidecar extends EventEmitter {
 	sentFrames: object[] = [];
 	/** What the next sendSideChannel throws (a paired host's tab with its link down). */
 	sideChannelError: Error | undefined;
+	/** What the next sendSideChannel's promise rejects with (the link dropped while the answer was on its way). */
+	sideChannelRejection: Error | undefined;
 	rpcCommands: RpcCommand[] = [];
 	constructor(public cwd: string) {
 		super();
@@ -58,13 +60,21 @@ class FakeSidecar extends EventEmitter {
 		this.disposed = true;
 		this.removeAllListeners();
 	}
-	sendSideChannel(frame: object): void {
+	sendSideChannel(frame: object): Promise<void> | undefined {
 		if (this.sideChannelError) throw this.sideChannelError;
+		if (this.sideChannelRejection) return Promise.reject(this.sideChannelRejection);
 		this.sentFrames.push(frame);
 	}
 	emitStatus(status: SidecarStatus): void {
 		this.currentStatus = status;
 		this.emit("status", { status, cwd: this.cwd });
+	}
+	/** True while a paired host's tab reports its link (see RemoteSidecar), not its omp. */
+	statusFromLink = false;
+	emitLinkStatus(status: SidecarStatus): void {
+		this.statusFromLink = true;
+		this.emitStatus(status);
+		this.statusFromLink = false;
 	}
 	emitSessionInfo(frame: Omit<SessionInfoUpdateFrame, "type">): void {
 		this.emit("sessionInfoUpdate", { type: "session_info_update", ...frame });
@@ -1239,17 +1249,17 @@ describe("SidecarPool session cwd tracking", () => {
 });
 
 describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
-	it("does not retain fire-and-forget extension UI updates", () => {
+	it("does not retain fire-and-forget extension UI updates", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a");
 
 		sidecars[0]?.emitEditorText("update-1");
 		expect(fw.sentTo(IPC_EVENTS.EXTENSION_UI)).toHaveLength(1);
-		expect(pool.routeSideChannel("update-1", { type: "extension_ui_response", id: "update-1" })).toBe(false);
+		expect(await pool.routeSideChannel("update-1", { type: "extension_ui_response", id: "update-1" })).toBe(false);
 	});
 
-	it("routes an extension-ui response to the raising sidecar even after a tab switch", () => {
+	it("routes an extension-ui response to the raising sidecar even after a tab switch", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a");
@@ -1275,15 +1285,15 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 		// A's sidecar — B never saw the request and would drop/misroute it.
 		expect(pool.setActiveTab(fw.win, "tab-b")).toBe(true);
 		const response = { type: "extension_ui_response", id: "req-1", confirmed: true };
-		expect(pool.routeSideChannel("req-1", response)).toBe(true);
+		expect(await pool.routeSideChannel("req-1", response)).toBe(true);
 		expect(a?.sentFrames).toEqual([response]);
 		expect(b?.sentFrames).toEqual([]);
 
 		// Final responses consume the route — a repeat id falls back to the caller.
-		expect(pool.routeSideChannel("req-1", response)).toBe(false);
+		expect(await pool.routeSideChannel("req-1", response)).toBe(false);
 	});
 
-	it("routes identical request ids independently when panes provide their tab owner", () => {
+	it("routes identical request ids independently when panes provide their tab owner", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a");
@@ -1293,13 +1303,13 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 		b?.emitExtensionUi("same-id");
 		const yes = { type: "extension_ui_response", id: "same-id", confirmed: true };
 		const no = { type: "extension_ui_response", id: "same-id", confirmed: false };
-		expect(pool.routeSideChannel("same-id", yes, "tab-a")).toBe(true);
-		expect(pool.routeSideChannel("same-id", no, "tab-b")).toBe(true);
+		expect(await pool.routeSideChannel("same-id", yes, "tab-a")).toBe(true);
+		expect(await pool.routeSideChannel("same-id", no, "tab-b")).toBe(true);
 		expect(a?.sentFrames).toEqual([yes]);
 		expect(b?.sentFrames).toEqual([no]);
 	});
 
-	it("keeps the route when the sidecar cannot take the answer, so the card can be answered again", () => {
+	it("keeps the route when the sidecar cannot take the answer, so the card can be answered again", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a");
@@ -1308,17 +1318,27 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 		const response = { type: "extension_ui_response", id: "req-offline", confirmed: true };
 
 		if (a) a.sideChannelError = codedError("remote_offline", "The device running this tab is offline");
-		expect(() => pool.routeSideChannel("req-offline", response)).toThrow(/remote_offline/);
+		await expect(pool.routeSideChannel("req-offline", response)).rejects.toThrow(/offline/);
+		expect(a?.sentFrames).toEqual([]);
+		expect(pool.openRequests(fw.win).map(open => open.request.id)).toEqual(["req-offline"]);
+
+		// The link dropped while the answer was on its way: the host never took it, so the route stays too.
+		if (a) {
+			a.sideChannelError = undefined;
+			a.sideChannelRejection = codedError("remote_offline", "The device running this tab is offline");
+		}
+		await expect(pool.routeSideChannel("req-offline", response)).rejects.toThrow(/offline/);
+		expect(pool.openRequests(fw.win).map(open => open.request.id)).toEqual(["req-offline"]);
 		expect(a?.sentFrames).toEqual([]);
 
 		// The link is back: the same answer still finds its owner, and only now consumes the route.
-		if (a) a.sideChannelError = undefined;
-		expect(pool.routeSideChannel("req-offline", response)).toBe(true);
+		if (a) a.sideChannelRejection = undefined;
+		expect(await pool.routeSideChannel("req-offline", response)).toBe(true);
 		expect(a?.sentFrames).toEqual([response]);
-		expect(pool.routeSideChannel("req-offline", response)).toBe(false);
+		expect(await pool.routeSideChannel("req-offline", response)).toBe(false);
 	});
 
-	it("fails host-uri requests on the raising sidecar instead of forwarding them", () => {
+	it("fails host-uri requests on the raising sidecar instead of forwarding them", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a");
@@ -1335,10 +1355,10 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 			},
 		]);
 		expect(b?.sentFrames).toEqual([]);
-		expect(pool.routeSideChannel("uri-1", { type: "host_uri_result", id: "uri-1" })).toBe(false);
+		expect(await pool.routeSideChannel("uri-1", { type: "host_uri_result", id: "uri-1" })).toBe(false);
 	});
 
-	it("answers host tools through the executor without tracking a route", () => {
+	it("answers host tools through the executor without tracking a route", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a");
@@ -1349,7 +1369,7 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 
 		a?.emitHostToolCall("tool-inline");
 		expect(a?.sentFrames).toEqual([{ type: "host_tool_result", id: "tool-inline", result: "inline" }]);
-		expect(pool.routeSideChannel("tool-inline", { type: "host_tool_result", id: "tool-inline" })).toBe(false);
+		expect(await pool.routeSideChannel("tool-inline", { type: "host_tool_result", id: "tool-inline" })).toBe(false);
 	});
 
 	it("answers every tab's host tools, shown or hidden, naming the calling tab", () => {
@@ -1365,7 +1385,7 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 		expect(calls).toEqual(["tab-a:one", "tab-b:two"]);
 	});
 
-	it("drops pending routes when the owning tab is released", () => {
+	it("drops pending routes when the owning tab is released", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a");
@@ -1375,7 +1395,9 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 		a?.emitExtensionUi("req-doomed");
 		expect(pool.releaseTab("tab-a")).toBe(true);
 		// A late response falls back instead of writing to a disposed sidecar.
-		expect(pool.routeSideChannel("req-doomed", { type: "extension_ui_response", id: "req-doomed" })).toBe(false);
+		expect(await pool.routeSideChannel("req-doomed", { type: "extension_ui_response", id: "req-doomed" })).toBe(
+			false,
+		);
 		expect(a?.sentFrames).toEqual([]);
 		expect(b?.sentFrames).toEqual([]);
 	});
@@ -1416,7 +1438,7 @@ describe("SidecarPool quit inventory", () => {
 });
 
 describe("SidecarPool background tabs", () => {
-	it("forwards a background tab's extension UI to its tab and routes the answer back", () => {
+	it("forwards a background tab's extension UI to its tab and routes the answer back", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a");
@@ -1432,12 +1454,12 @@ describe("SidecarPool background tabs", () => {
 		]);
 
 		const response = { type: "extension_ui_response", id: "ask-b", cancelled: true };
-		expect(pool.routeSideChannel("ask-b", response)).toBe(true);
+		expect(await pool.routeSideChannel("ask-b", response)).toBe(true);
 		expect(b?.sentFrames).toEqual([response]);
 		expect(a?.sentFrames).toEqual([]);
 	});
 
-	it("forgets a request omp cancelled and forwards the cancel to the tab", () => {
+	it("forgets a request omp cancelled and forwards the cancel to the tab", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a");
@@ -1451,11 +1473,11 @@ describe("SidecarPool background tabs", () => {
 			request: { method: "cancel", targetId: "confirm-b" },
 		});
 		// A late answer no longer has a live request to reach.
-		expect(pool.routeSideChannel("confirm-b", { type: "extension_ui_response", id: "confirm-b" })).toBe(false);
+		expect(await pool.routeSideChannel("confirm-b", { type: "extension_ui_response", id: "confirm-b" })).toBe(false);
 		expect(b?.sentFrames).toEqual([]);
 	});
 
-	it("lists the asks and approvals still open for a window that reloaded, until they are answered or withdrawn", () => {
+	it("lists the asks and approvals still open for a window that reloaded, until they are answered or withdrawn", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		const other = fakeWindow(2);
@@ -1472,7 +1494,7 @@ describe("SidecarPool background tabs", () => {
 			["tab-a", "confirm-a"],
 		]);
 
-		pool.routeSideChannel("ask-a", { type: "extension_ui_response", id: "ask-a", cancelled: true });
+		await pool.routeSideChannel("ask-a", { type: "extension_ui_response", id: "ask-a", cancelled: true });
 		a?.emitUiRequest({ id: "cancel-1", method: "cancel", targetId: "confirm-a" });
 		expect(pool.openRequests(fw.win)).toEqual([]);
 		expect(pool.openRequests(other.win).map(open => open.request.id)).toEqual(["ask-b"]);
@@ -1553,7 +1575,7 @@ describe("SidecarPool background tabs", () => {
 	});
 
 	describe("resume facts (turn-resume.ts)", () => {
-		it("reports a running turn, an open ask, Stop, and the waiting-for-connection state per tab", () => {
+		it("reports a running turn, an open ask, Stop, and the waiting-for-connection state per tab", async () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);
 			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
@@ -1574,7 +1596,7 @@ describe("SidecarPool background tabs", () => {
 			expect(factA()?.awaitingUi).toBe(true);
 			expect(changes).toHaveBeenCalled();
 			changes.mockClear();
-			pool.routeSideChannel("ask-1", { type: "extension_ui_response", id: "ask-1" });
+			await pool.routeSideChannel("ask-1", { type: "extension_ui_response", id: "ask-1" });
 			expect(factA()?.awaitingUi).toBe(false);
 			expect(changes).toHaveBeenCalled();
 
@@ -1615,7 +1637,7 @@ describe("SidecarPool background tabs", () => {
 			expect(factA()?.retry).toBeUndefined();
 		});
 
-		it("forgets an open ask when its omp exits or restarts: no 'asking' outlives the process", () => {
+		it("forgets an open ask when its omp exits or restarts: no 'asking' outlives the process", async () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);
 			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
@@ -1635,7 +1657,28 @@ describe("SidecarPool background tabs", () => {
 			a?.emitStatus("ready");
 			expect(factA()?.awaitingUi).toBe(false);
 			// A late answer has no live request to reach.
-			expect(pool.routeSideChannel("ask-1", { type: "extension_ui_response", id: "ask-1" })).toBe(false);
+			expect(await pool.routeSideChannel("ask-1", { type: "extension_ui_response", id: "ask-1" })).toBe(false);
+		});
+
+		it("keeps a paired host's open ask through a link blip, and drops it once the host reports its omp gone", async () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			const a = sidecars[0];
+			a?.emitStatus("ready");
+			a?.emitUiRequest({ id: "ask-1", method: "ask", title: "Which?", questions: [] });
+
+			// The link dropped and came back: the host's omp still holds the ask.
+			a?.emitLinkStatus("error");
+			a?.emitLinkStatus("starting");
+			expect(pool.openRequests(fw.win).map(open => open.request.id)).toEqual(["ask-1"]);
+			a?.emitStatus("ready");
+			expect(pool.openRequests(fw.win).map(open => open.request.id)).toEqual(["ask-1"]);
+
+			// The host itself says its omp restarted: that request is gone with it.
+			a?.emitStatus("restarting");
+			expect(pool.openRequests(fw.win)).toEqual([]);
+			expect(await pool.routeSideChannel("ask-1", { type: "extension_ui_response", id: "ask-1" })).toBe(false);
 		});
 
 		it("starts a deferred tab's process on demand and finds the tab of a session", () => {

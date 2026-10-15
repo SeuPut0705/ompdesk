@@ -138,7 +138,8 @@ describe("RemoteSidecar", () => {
 		// The link waits for the host's own timeout plus the round trip.
 		expect(command?.timeoutMs).toBeGreaterThan(20_000);
 
-		sidecar.sendSideChannel({ type: "host_tool_result", id: "ht-1" });
+		// Sent once the open tab is confirmed, so it is awaited before the next calls.
+		await sidecar.sendSideChannel({ type: "host_tool_result", id: "ht-1" });
 		sidecar.syncImageGeneration();
 		// The host's own reply-language and account-rotation settings apply: nothing goes over the link.
 		sidecar.syncReplyLanguage();
@@ -152,6 +153,31 @@ describe("RemoteSidecar", () => {
 			["tab.syncImageGeneration", { rtab: "tab-1" }],
 			["tab.adoptCwd", { rtab: "tab-1", cwd: "/elsewhere" }],
 			["tab.restart", { rtab: "tab-1", sessionPath: "/s/next.jsonl" }],
+		]);
+	});
+
+	it("marks the statuses it derives from the link apart from the ones the host's omp reports", async () => {
+		const { link, sidecar } = setup();
+		const seen: Array<[string, boolean | undefined]> = [];
+		sidecar.on("status", (payload: SidecarStatusPayload) => seen.push([payload.status, sidecar.statusFromLink]));
+		sidecar.start();
+		await settle();
+		sidecar.handleEvent(hostStatus("ready"));
+		link.state = "offline";
+		sidecar.linkStateChanged("offline");
+		link.state = "online";
+		link.attached = true;
+		sidecar.linkStateChanged("online");
+		await settle();
+		sidecar.handleEvent(hostStatus("ready"));
+		sidecar.handleEvent(hostStatus("restarting"));
+		expect(seen).toEqual([
+			["starting", true],
+			["ready", false],
+			["error", true],
+			["starting", true],
+			["ready", false],
+			["restarting", false],
 		]);
 	});
 
@@ -273,6 +299,49 @@ describe("RemoteSidecar", () => {
 				.filter(request => request.method === "tab.sideChannel")
 				.map(request => request.params.frame),
 		).toEqual([{ type: "host_tool_result", id: "ht-1" }]);
+	});
+
+	it("rejects a user's answer the link drops mid-send, and one the host refuses, so its card stays", async () => {
+		const { link, sidecar } = setup();
+		sidecar.start();
+		await settle();
+		sidecar.handleEvent(hostStatus("ready"));
+		link.handlers["tab.sideChannel"] = () => {
+			throw Object.assign(new Error("host-b is offline"), { code: "remote_offline" });
+		};
+		const answer = { type: "extension_ui_response", id: "x", confirmed: true };
+		const dropped = Promise.resolve(sidecar.sendSideChannel(answer));
+		await expect(dropped).rejects.toSatisfy(error => ipcErrorCode(error) === "remote_offline");
+
+		link.handlers["tab.sideChannel"] = () => {
+			throw new Error("Unknown tab");
+		};
+		await expect(Promise.resolve(sidecar.sendSideChannel(answer))).rejects.toThrow("Unknown tab");
+
+		delete link.handlers["tab.sideChannel"];
+		await expect(Promise.resolve(sidecar.sendSideChannel(answer))).resolves.toBeUndefined();
+	});
+
+	it("sends an answer only after the host finished re-attaching the tab", async () => {
+		const { link, sidecar } = setup();
+		sidecar.start();
+		await settle();
+		sidecar.handleEvent(hostStatus("ready"));
+		link.state = "offline";
+		sidecar.linkStateChanged("offline");
+
+		// The re-attach is still on its way when the answer arrives.
+		const { promise: reopened, resolve: reopen } = Promise.withResolvers<unknown>();
+		link.handlers["tab.open"] = () => reopened;
+		link.state = "online";
+		sidecar.linkStateChanged("online");
+		await settle();
+		const sent = Promise.resolve(sidecar.sendSideChannel({ type: "extension_ui_response", id: "x", value: "a" }));
+		await settle();
+		expect(link.methods().at(-1)).toBe("tab.open");
+		reopen({ cwd: "/canonical/p", kind: "agent", attached: true });
+		await sent;
+		expect(link.methods().slice(-1)).toEqual(["tab.sideChannel"]);
 	});
 
 	it("closes its host tab on dispose, or hands the close to its owner when the host cannot be reached", async () => {

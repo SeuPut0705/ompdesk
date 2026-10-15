@@ -97,11 +97,15 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	readonly device?: string;
 	/** True while a remote sidecar's link to its host is down (commands fail with `remote_offline`). */
 	readonly offline?: boolean;
+	/** True while a paired host's tab emits a status it derived from its link (down, reconnecting) rather
+	 * than one the host's omp reported: that omp, and the asks it holds, may still be alive. */
+	readonly statusFromLink?: boolean;
 	start(): void;
 	restart(cwd?: string, resumeSessionPath?: string): void;
 	adoptCwd(cwd: string): boolean;
-	/** Throws `remote_offline` when a paired host's tab cannot take a user's answer now (see RemoteSidecar). */
-	sendSideChannel(frame: object): void;
+	/** A local omp takes the frame at once. A paired host's tab returns a promise for a user's answer, and
+	 * throws or rejects `remote_offline` (or the host's refusal) when the host did not take it (see RemoteSidecar). */
+	sendSideChannel(frame: object): Promise<void> | void;
 	syncImageGeneration(): void;
 	/** Push this machine's reply-language setting to the live session (the omp's own machine decides). */
 	syncReplyLanguage(): void;
@@ -380,11 +384,14 @@ export class SidecarPool {
 			entry.status = payload.status;
 			// A restart/exit kills any in-flight run along with the process, and the asks and approvals
 			// it had open: the next process never heard of them, so none may outlive it as "asking".
+			// A paired host's link blip is no such exit: its omp still holds the ask, so the route (and a
+			// reloaded window's card) stays until the host itself reports that omp gone.
 			if (payload.status !== "ready") {
 				entry.run = idleRun();
-				for (const [id, owner] of this.#requestOwners) {
-					if (owner === entry) this.#requestOwners.delete(id);
-				}
+				if (!sidecar.statusFromLink)
+					for (const [id, owner] of this.#requestOwners) {
+						if (owner === entry) this.#requestOwners.delete(id);
+					}
 			}
 			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			this.onRunningChange?.();
@@ -897,16 +904,17 @@ export class SidecarPool {
 	 * Route a renderer side-channel response to the sidecar that RAISED the
 	 * request (F-UI-ORIGIN), tracked by request id at forward time — not the
 	 * window's active tab, which may have changed while the dialog was open.
-	 * The response consumes the route, once the sidecar took it: a sidecar that
-	 * cannot deliver it (a paired host's tab while the link is down) throws
-	 * `remote_offline`, the route stays and the card can be answered again.
+	 * The response consumes the route once the sidecar took it: a paired host's
+	 * tab that could not deliver it (the link down, or dropped while the answer
+	 * was on its way, or the host refused it) rejects, the route and the open
+	 * request stay and the card can be answered again.
 	 * False when the id is unknown — the caller falls back to the active tab's
 	 * sidecar.
 	 */
-	routeSideChannel(id: string, frame: object, tabId?: string): boolean {
+	async routeSideChannel(id: string, frame: object, tabId?: string): Promise<boolean> {
 		const entry = tabId ? this.#byTabId.get(tabId) : this.#requestOwners.get(id);
 		if (!entry) return false;
-		entry.sidecar.sendSideChannel(frame);
+		await entry.sidecar.sendSideChannel(frame);
 		if (this.#requestOwners.get(id) === entry) {
 			this.#requestOwners.delete(id);
 			this.onRunningChange?.();
