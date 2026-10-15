@@ -70,6 +70,7 @@ import type {
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from "../shared/ipc-types";
 import type { ModelSetupRequest } from "../shared/model-setup";
+import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import type { RpcCommand, RpcSessionState } from "../shared/rpc-types";
 import { isUiLanguage } from "../shared/ui-language";
@@ -86,7 +87,6 @@ import type { MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
 import { modelsPath } from "./models-config";
 import { systemOmp } from "./omp-runtime";
-import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { registerPreviewHost } from "./preview/host";
 import { runVisualizeTool, VISUALIZE_TOOL, VisualStore } from "./preview/visuals";
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, ModelOverrideInputSchema } from "./remote/app-protocol";

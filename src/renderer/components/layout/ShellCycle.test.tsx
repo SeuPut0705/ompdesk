@@ -140,7 +140,7 @@ describe("picker search fields", () => {
 		expect(source.match(/<IconButton\b/g)).toHaveLength(3);
 		// No native title tooltips; the failure notice's `title` is its heading, not a tooltip.
 		expect(source.match(/\btitle=\{[^}]*\}/g)).toEqual(["title={error.message}"]);
-		expect(source).toMatch(/<InlineNotice[^]*?title=\{error\.message\}/);
+		expect(source).toMatch(/<InlineNotice[\s\S]*?title=\{error\.message\}/);
 		// A long project path keeps its tail, so the message count and age after it stay visible.
 		expect(source).toContain("shortenPath(session.cwd)");
 	});

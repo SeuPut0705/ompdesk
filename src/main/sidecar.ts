@@ -32,10 +32,10 @@ import { localHandlerFor, runLocalCommand } from "./local";
 import { projectQueueUpdate } from "./local/queue";
 import type { BridgeClient, LocalCommandContext, OmpRuntime } from "./local/types";
 import { type OmpResolution, ompNeedsShell, ompPathEnv, ompSpawnArgs, ompSpawnCommand } from "./omp-runtime";
+import { VISUALIZE_DEFINITION } from "./preview/visuals";
 import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
 import { RpcClient } from "./rpc-client";
 import { completeRunMessages } from "./run-messages";
-import { VISUALIZE_DEFINITION } from "./preview/visuals";
 import { TERMINAL_READ_DEFINITION } from "./terminal/agent-tool";
 
 const MAX_RESTART_ATTEMPTS = 3;

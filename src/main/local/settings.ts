@@ -87,9 +87,6 @@ export function mergeProviderAccounts(
 
 const providerIdParam = z.string().min(1);
 
-export const handlers: Record<string, LocalHandler> = {
-	get_settings_schema: (_command, ctx) => ctx.bridge.request("settings_schema"),
-	get_settings: (command, ctx) => ctx.bridge.request("settings_get", { paths: command.paths }),
 const LOOPBACK_HOSTS: Record<string, true> = { localhost: true, "127.0.0.1": true, "[::1]": true };
 
 /**
@@ -120,14 +117,17 @@ export async function cancelBrowserLogin(authorizationUrl: string): Promise<void
 	await fetch(callback, { signal: AbortSignal.timeout(5_000) }).catch(() => undefined);
 }
 
+export const handlers: Record<string, LocalHandler> = {
+	get_settings_schema: (_command, ctx) => ctx.bridge.request("settings_schema"),
+	get_settings: (command, ctx) => ctx.bridge.request("settings_get", { paths: command.paths }),
 	set_setting: (command, ctx) => ctx.bridge.request("settings_set", { path: command.path, value: command.value }),
 	get_available_models: (command, ctx) =>
 		ctx.bridge.request("models_catalog", { forceRefresh: command.forceRefresh === true }),
 	get_providers: (command, ctx) => ctx.bridge.request("providers", { forceRefresh: command.forceRefresh === true }),
+	login_cancel: async command => cancelBrowserLogin(z.string().url().parse(command.url)),
 	// One account goes through stock `logout`; the whole provider only when asked for explicitly.
 	logout: async (command, ctx) => {
 		const providerId = providerIdParam.parse(command.providerId);
-	login_cancel: async command => cancelBrowserLogin(z.string().url().parse(command.url)),
 		if (command.all === true) return ctx.bridge.request("provider_logout", { providerId });
 		const credentialId = z.number().int().parse(command.credentialId);
 		return ctx.send({ type: "logout", providerId, credentialId });

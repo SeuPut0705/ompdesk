@@ -397,7 +397,11 @@ describe("SidebarSubagents", () => {
 		) as unknown as TestElement | undefined;
 		await click(item ?? null);
 		const ui = useUiStore.getState();
-		expect([ui.panelVisible, ui.panelTab, ui.panelSubagent]).toEqual([true, "subagent", { tabId: TAB, agentId: "r1" }]);
+		expect([ui.panelVisible, ui.panelTab, ui.panelSubagent]).toEqual([
+			true,
+			"subagent",
+			{ tabId: TAB, agentId: "r1" },
+		]);
 		// The panel's agent reads as the selected row, and no sheet opened.
 		expect(row("r1").querySelector("button")?.getAttribute("aria-current")).toBe("true");
 		expect(document.querySelectorAll('[role="dialog"]').length).toBe(0);

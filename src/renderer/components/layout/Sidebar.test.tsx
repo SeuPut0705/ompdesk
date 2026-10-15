@@ -1290,7 +1290,7 @@ describe("Sidebar subagents", () => {
 		setSubagentStatus("running");
 	}
 
-	function setSubagentStatus(status: "running" | "completed"): void {
+	function setSubagentStatus(status: "running" | "aborted"): void {
 		act(() => {
 			sessionRuntimeStore<SubagentsStore>("t1", "subagents")!
 				.getState()
