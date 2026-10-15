@@ -165,7 +165,10 @@ test("stage, commit, push, history and a squash merge", async () => {
 		);
 
 		// The branch picker lists local and remote branches.
-		await aside.locator("[data-scm-bar]").getByRole("button", { name: /^On main/ }).click();
+		await aside
+			.locator("[data-scm-bar]")
+			.getByRole("button", { name: /^On main/ })
+			.click();
 		const picker = page.getByRole("dialog", { name: "Branches" });
 		await expect(picker.getByRole("button", { name: "feature/login", exact: true })).toBeVisible();
 		await expect(picker.getByRole("button", { name: "origin/main", exact: true })).toBeVisible();
@@ -179,6 +182,20 @@ test("stage, commit, push, history and a squash merge", async () => {
 		await history.getByRole("button", { name: /app\.ts/ }).click();
 		await expect(history).toContainText("export const answer = 42;");
 		await shoot("commit-diff");
+
+		// C77: two unpushed commits; the newest moves before the one under it.
+		git(seeded.project, "commit", "-q", "--allow-empty", "-m", "chore: first local");
+		git(seeded.project, "commit", "-q", "--allow-empty", "-m", "chore: second local");
+		const newest = git(seeded.project, "rev-parse", "--short", "HEAD");
+		await history.getByRole("button", { name: "Back to the commit", exact: true }).click();
+		await history.getByRole("button", { name: "Back to commits", exact: true }).click();
+		await history.getByRole("button", { name: "Refresh", exact: true }).click();
+		await expect(history).toContainText("chore: second local");
+		await history.getByRole("button", { name: `Actions for ${newest}`, exact: true }).click();
+		await page.getByRole("menuitem", { name: "Move before the previous commit", exact: true }).click();
+		await expect
+			.poll(() => git(seeded.project, "log", "-3", "--format=%s"))
+			.toBe("chore: first local\nchore: second local\nfix: the answer is 42");
 		await aside.getByRole("combobox", { name: "Changes" }).selectOption("repository");
 
 		// PR Center: squash merge through gh, deleting the head branch on GitHub.
@@ -196,7 +213,8 @@ test("stage, commit, push, history and a squash merge", async () => {
 			.toBe("pr merge 7 --repo o/r --squash --delete-branch\n");
 		expect(errors).toEqual([]);
 	} finally {
-		if (directory) await fs.writeFile(path.join(directory, "scm-flow-findings.json"), JSON.stringify(findings, null, 2));
+		if (directory)
+			await fs.writeFile(path.join(directory, "scm-flow-findings.json"), JSON.stringify(findings, null, 2));
 		await exitApp(app);
 		await fs.rm(seeded.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}

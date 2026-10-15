@@ -6,9 +6,10 @@
  *
  * Failures map to typed codes: not_a_repo / invalid_name / invalid_path /
  * git_failed / push_rejected / no_remote / detached_head / nothing_staged /
- * commit_message_failed / branch_checked_out.
+ * commit_message_failed / branch_checked_out / dirty_worktree / commit_pushed.
  */
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import { isConflictStatus } from "../../../shared/git-status";
 import type {
@@ -96,8 +97,12 @@ async function conflictCount(root: string): Promise<number> {
 }
 
 /** A command that may stop on conflicts: success or conflicts both answer; anything else throws. */
-async function runMayConflict(root: string, args: string[]): Promise<RpcGitMutationResult> {
-	const result = await gitRaw(root, args, { timeoutMs: COMMIT_TIMEOUT_MS, env: { GIT_EDITOR: "true" } });
+async function runMayConflict(
+	root: string,
+	args: string[],
+	env: Record<string, string> = {},
+): Promise<RpcGitMutationResult> {
+	const result = await gitRaw(root, args, { timeoutMs: COMMIT_TIMEOUT_MS, env: { GIT_EDITOR: "true", ...env } });
 	if (result.code === 0) return { conflicts: 0 };
 	const conflicts = await conflictCount(root);
 	if (conflicts > 0) return { conflicts };
@@ -374,7 +379,7 @@ export async function branch(
 
 const LOG_FORMAT = "%H%x00%h%x00%an%x00%at%x00%s%x00%D%x00%P%x1e";
 
-function parseLogRecord(record: string): (RpcGitCommit & { parents: string[] }) | null {
+function parseLogRecord(record: string): RpcGitCommit | null {
 	const [sha, shortSha, author, date, subject, decoration, parents] = record.replace(/^\n/, "").split("\0");
 	if (!sha || !shortSha) return null;
 	return {
@@ -417,8 +422,7 @@ export async function log(cwd: string, input: { limit?: number; skip?: number; q
 	const commits = output
 		.split("\x1e")
 		.map(parseLogRecord)
-		.filter(entry => entry !== null)
-		.map(({ parents: _parents, ...entry }) => entry);
+		.filter(entry => entry !== null);
 	return { commits: commits.slice(0, limit), more: commits.length > limit, commitUrl: url };
 }
 
@@ -493,10 +497,68 @@ export async function commitDiff(cwd: string, sha: string, filePath: string): Pr
 	};
 }
 
+/**
+ * C77: swap `sha` with its parent ("earlier") or with its child on HEAD's line ("later") through an interactive
+ * rebase whose todo main writes itself (GIT_SEQUENCE_EDITOR copies it in). Only a clean, merge-free, unpushed
+ * stretch of the current line is rewritten; a conflict stops the rebase for continue/abort like any other.
+ */
+async function reorderCommit(root: string, sha: string, direction: "earlier" | "later"): Promise<RpcGitMutationResult> {
+	const head = await getGitHead(root);
+	if (head.operation) throw new LocalCommandError(`Finish or abort the ${head.operation} first`, "git_failed");
+	if ((await git(root, ["status", "--porcelain=v1", "--untracked-files=no"])).trim())
+		throw new LocalCommandError("Commit or stash your changes before moving a commit", "dirty_worktree");
+	const full = (await git(root, ["rev-parse", "--verify", `${sha}^{commit}`])).trim();
+	let older = full;
+	if (direction === "earlier") {
+		const parents = (await git(root, ["rev-list", "--parents", "-n", "1", full])).trim().split(" ").slice(1);
+		if (parents.length !== 1)
+			throw new LocalCommandError("Only a commit with one parent can move earlier", "git_failed");
+		older = parents[0]!;
+	}
+	const olderParents = (await git(root, ["rev-list", "--parents", "-n", "1", older])).trim().split(" ").slice(1);
+	if (olderParents.length !== 1)
+		throw new LocalCommandError("The first commit and merge commits can't be moved", "git_failed");
+	const base = olderParents[0]!;
+	// A merge anywhere above `base` would be flattened (or its side lost) by a plain todo: refuse those lines.
+	if ((await git(root, ["rev-list", "--merges", "--count", `${base}..HEAD`])).trim() !== "0")
+		throw new LocalCommandError("Commits after this one include a merge; reorder them in a terminal", "git_failed");
+	// HEAD's line from `older` up, oldest first.
+	const order = (await git(root, ["rev-list", "--reverse", `${base}..HEAD`])).trim().split("\n").filter(Boolean);
+	if (order[0] !== older || order.length < 2 || (direction === "earlier" && order[1] !== full))
+		throw new LocalCommandError("Only commits on the current branch with a commit after them can move", "git_failed");
+	if (head.upstream && (await gitRaw(root, ["merge-base", "--is-ancestor", older, "@{upstream}"])).code === 0)
+		throw new LocalCommandError(
+			`${older.slice(0, 7)} is already on ${head.upstream}; moving it would rewrite pushed history`,
+			"commit_pushed",
+		);
+	[order[0], order[1]] = [order[1]!, order[0]!];
+	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-reorder-"));
+	try {
+		const todo = path.join(dir, "git-rebase-todo");
+		await fs.writeFile(todo, `${order.map(commit => `pick ${commit}`).join("\n")}\n`);
+		// git runs the sequence editor through its shell (sh, also on Git for Windows) with the todo path appended.
+		const quoted = `'${todo.replaceAll("\\", "/").replaceAll("'", "'\\''")}'`;
+		return await runMayConflict(root, ["rebase", "-i", "--no-autosquash", base], {
+			GIT_SEQUENCE_EDITOR: `cp ${quoted}`,
+		});
+	} finally {
+		await fs.rm(dir, { recursive: true, force: true });
+	}
+}
+
 export async function historyAction(
 	cwd: string,
 	input: {
-		action: "checkout" | "branch" | "cherry_pick" | "revert" | "reset" | "tag" | "delete_tag";
+		action:
+			| "checkout"
+			| "branch"
+			| "cherry_pick"
+			| "revert"
+			| "reset"
+			| "tag"
+			| "delete_tag"
+			| "move_earlier"
+			| "move_later";
 		sha: string;
 		mode?: "soft" | "mixed" | "hard";
 		name?: string;
@@ -528,6 +590,10 @@ export async function historyAction(
 			case "delete_tag":
 				await git(root, ["tag", "-d", checkRef(input.name ?? "")]);
 				return { conflicts: 0 };
+			case "move_earlier":
+				return reorderCommit(root, sha, "earlier");
+			case "move_later":
+				return reorderCommit(root, sha, "later");
 		}
 	});
 }

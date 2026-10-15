@@ -114,9 +114,19 @@ export const handlers: Record<string, LocalHandler> = {
 	git_commit_detail: (command, ctx) => scm.commitDetail(ctx.cwd, str(command.sha) ?? ""),
 	git_commit_diff: (command, ctx) => scm.commitDiff(ctx.cwd, str(command.sha) ?? "", str(command.path) ?? ""),
 	git_history_action: (command, ctx) => {
-		const action = (["checkout", "branch", "cherry_pick", "revert", "reset", "tag", "delete_tag"] as const).find(
-			a => a === command.action,
-		);
+		const action = (
+			[
+				"checkout",
+				"branch",
+				"cherry_pick",
+				"revert",
+				"reset",
+				"tag",
+				"delete_tag",
+				"move_earlier",
+				"move_later",
+			] as const
+		).find(a => a === command.action);
 		if (!action) throw new Error(`Unknown history action: ${String(command.action)}`);
 		return scm.historyAction(ctx.cwd, {
 			action,

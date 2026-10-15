@@ -6,7 +6,9 @@
  * the hosted remote.
  */
 import {
+	ArrowDown,
 	ArrowLeft,
+	ArrowUp,
 	Check,
 	Cherry,
 	Copy,
@@ -189,6 +191,10 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 	const commitMenu = (commit: RpcGitCommit): ContextMenuItem[] => {
 		const action = (key: string, command: Parameters<typeof runner.run>[1], failure: string, success?: string) =>
 			void runner.run(key, command, { failure, success });
+		// The commit right after this one on the shown line (only an unfiltered log shows it).
+		const index = log?.commits.findIndex(entry => entry.sha === commit.sha) ?? -1;
+		const after = !applied && index > 0 ? log?.commits[index - 1] : undefined;
+		const hasChild = after?.parents.length === 1 && after.parents[0] === commit.sha;
 		const items: ContextMenuItem[] = [
 			{
 				id: "copy",
@@ -275,6 +281,34 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 						"revert",
 						{ type: "git_history_action", action: "revert", sha: commit.sha },
 						t("scm.history.actionFailed"),
+					),
+			},
+			{
+				// C77: the log is newest first, so "later" moves a commit up the list and "earlier" down.
+				id: "move-later",
+				label: t("scm.history.moveLater"),
+				icon: ArrowUp,
+				separatorBefore: true,
+				disabled: !hasChild,
+				onSelect: () =>
+					action(
+						"move",
+						{ type: "git_history_action", action: "move_later", sha: commit.sha },
+						t("scm.history.actionFailed"),
+						t("scm.history.moved", { sha: commit.shortSha }),
+					),
+			},
+			{
+				id: "move-earlier",
+				label: t("scm.history.moveEarlier"),
+				icon: ArrowDown,
+				disabled: commit.parents.length !== 1,
+				onSelect: () =>
+					action(
+						"move",
+						{ type: "git_history_action", action: "move_earlier", sha: commit.sha },
+						t("scm.history.actionFailed"),
+						t("scm.history.moved", { sha: commit.shortSha }),
 					),
 			},
 			{

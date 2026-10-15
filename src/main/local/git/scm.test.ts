@@ -265,6 +265,53 @@ describe("history", () => {
 		await scm.historyAction(root, { action: "checkout", sha: added });
 		expect((await getGitChanges(root)).head?.branch).toBeNull();
 	});
+
+	it("moves a commit earlier or later on the current line, and refuses the tip, a dirty tree and pushed commits", async () => {
+		const commitFile = (name: string) => {
+			gitSync(root, "commit", "-qm", name, "--allow-empty");
+			return gitSync(root, "rev-parse", "HEAD");
+		};
+		const subjects = () => gitSync(root, "log", "--format=%s").split("\n");
+		const a = commitFile("a");
+		commitFile("b");
+		const c = commitFile("c");
+		expect(subjects()).toEqual(["c", "b", "a", "init"]);
+		expect(await scm.historyAction(root, { action: "move_earlier", sha: c })).toEqual({ conflicts: 0 });
+		expect(subjects()).toEqual(["b", "c", "a", "init"]);
+		expect(await scm.historyAction(root, { action: "move_later", sha: a })).toEqual({ conflicts: 0 });
+		expect(subjects()).toEqual(["b", "a", "c", "init"]);
+		const head = gitSync(root, "rev-parse", "HEAD");
+		await expect(scm.historyAction(root, { action: "move_later", sha: head })).rejects.toMatchObject({
+			code: "git_failed",
+		});
+
+		await fs.writeFile(path.join(root, "README.md"), "dirty\n");
+		await expect(scm.historyAction(root, { action: "move_earlier", sha: head })).rejects.toMatchObject({
+			code: "dirty_worktree",
+		});
+		gitSync(root, "checkout", "--", "README.md");
+
+		const remote = path.join(dir, "remote.git");
+		gitSync(dir, "init", "-q", "--bare", "remote.git");
+		gitSync(root, "remote", "add", "origin", remote);
+		gitSync(root, "push", "-q", "-u", "origin", "HEAD");
+		await expect(scm.historyAction(root, { action: "move_earlier", sha: head })).rejects.toMatchObject({
+			code: "commit_pushed",
+		});
+	});
+
+	it("stops a move that conflicts as a rebase the user continues or aborts", async () => {
+		await fs.writeFile(path.join(root, "a.txt"), "one\n");
+		gitSync(root, "add", ".");
+		gitSync(root, "commit", "-qm", "one");
+		await fs.writeFile(path.join(root, "a.txt"), "two\n");
+		gitSync(root, "commit", "-qam", "two");
+		const two = gitSync(root, "rev-parse", "HEAD");
+		expect(await scm.historyAction(root, { action: "move_earlier", sha: two })).toEqual({ conflicts: 1 });
+		expect((await getGitChanges(root)).head?.operation).toBe("rebase");
+		await scm.operation(root, "abort");
+		expect(gitSync(root, "rev-parse", "HEAD")).toBe(two);
+	});
 });
 
 describe("parsers", () => {

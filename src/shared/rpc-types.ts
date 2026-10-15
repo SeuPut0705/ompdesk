@@ -378,7 +378,17 @@ export type RpcCommand =
 	| {
 			id?: string;
 			type: "git_history_action";
-			action: "checkout" | "branch" | "cherry_pick" | "revert" | "reset" | "tag" | "delete_tag";
+			/** `move_earlier`/`move_later` swap the commit with its parent / its child on HEAD's line (C77). */
+			action:
+				| "checkout"
+				| "branch"
+				| "cherry_pick"
+				| "revert"
+				| "reset"
+				| "tag"
+				| "delete_tag"
+				| "move_earlier"
+				| "move_later";
 			sha: string;
 			mode?: "soft" | "mixed" | "hard";
 			name?: string;
@@ -961,6 +971,8 @@ export interface RpcGitCommit {
 	/** Branch and tag names pointing here (`git log %D`, `HEAD -> ` stripped). */
 	refs: string[];
 	tags: string[];
+	/** Parent commits (`%P`): one for a plain commit, two or more for a merge, none for a root. */
+	parents: string[];
 }
 
 export interface RpcGitLog {
@@ -973,7 +985,6 @@ export interface RpcGitLog {
 
 export interface RpcGitCommitDetail extends RpcGitCommit {
 	body: string;
-	parents: string[];
 	files: { path: string; oldPath?: string; status: string; added?: number; removed?: number }[];
 }
 
