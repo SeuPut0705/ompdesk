@@ -5,27 +5,16 @@
  * limit is the default. Usage counts per local calendar day and is stored on
  * the peer (`remote-peers.json`), so a restart does not reset it.
  *
- * LocalHostServices asks `refusal` before forwarding a model command and
- * records what the device's tabs used: one request per accepted command,
- * tokens from each assistant `message_end`'s usage. A turn already running
- * when the limit is crossed finishes; the next request is refused.
+ * LocalHostServices `reserve`s a request before it forwards a model command
+ * (which commands: quota-commands.ts) or starts a benchmark or a model setup
+ * run, and `refund`s it when that fails, so the check and the count never
+ * have an await between them: N parallel requests at limit - 1 let exactly one
+ * through. Tokens come from each assistant `message_end`'s usage. A turn
+ * already running when the limit is crossed finishes; the next request is
+ * refused.
  */
 import type { PeerLimits, PeerUsageView } from "../../shared/ipc-types";
 import type { PeerInfo, PeerStore } from "./peers-store";
-
-/** RPC commands that make the agent call a model. */
-export const MODEL_COMMANDS: Record<string, true> = {
-	prompt: true,
-	abort_and_prompt: true,
-	steer: true,
-	follow_up: true,
-	steer_subagent: true,
-	btw: true,
-	compact: true,
-	retry: true,
-	handoff: true,
-	security_validate: true,
-};
 
 /** `YYYY-MM-DD` of `date` in this computer's time zone. */
 export function localDay(date: Date): string {
@@ -35,6 +24,9 @@ export function localDay(date: Date): string {
 }
 
 export type QuotaRefusal = "requests" | "tokens";
+
+/** A request counted ahead of its work: give it back with `refund` when the work did not run. */
+export type QuotaReservation = { ok: true; refund(): void } | { ok: false; refusal: QuotaRefusal };
 
 export class PeerQuota {
 	readonly #peers: Pick<PeerStore, "get" | "update">;
@@ -63,6 +55,37 @@ export class PeerQuota {
 		if (peer.limits.requestsPerDay !== undefined && used.requests >= peer.limits.requestsPerDay) return "requests";
 		if (peer.limits.tokensPerDay !== undefined && used.tokens >= peer.limits.tokensPerDay) return "tokens";
 		return null;
+	}
+
+	/**
+	 * Refuse, or count `requests` now (synchronously, so concurrent callers see each other's
+	 * reservation). Like `refusal`, only a device already at its limit is refused: one weighted
+	 * reservation may cross it.
+	 */
+	reserve(deviceId: string, requests = 1): QuotaReservation {
+		const refusal = this.refusal(deviceId);
+		if (refusal) return { ok: false, refusal };
+		const day = localDay(this.#now());
+		this.record(deviceId, { requests });
+		let refunded = false;
+		return {
+			ok: true,
+			refund: () => {
+				if (refunded) return;
+				refunded = true;
+				this.#unrecord(deviceId, day, requests);
+			},
+		};
+	}
+
+	/** Undo `requests` of `day`'s count; a refund after the day turned over leaves the new day alone. */
+	#unrecord(deviceId: string, day: string, requests: number): void {
+		const peer = this.#peers.get(deviceId);
+		if (peer?.usage?.day !== day) return;
+		this.#peers.update(deviceId, {
+			usage: { day, requests: Math.max(0, peer.usage.requests - requests), tokens: peer.usage.tokens },
+		});
+		this.#changed(deviceId);
 	}
 
 	record(deviceId: string, spent: { requests?: number; tokens?: number }): void {

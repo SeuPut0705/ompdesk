@@ -28,7 +28,7 @@ import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
 import { decodeBinaryRead, type TabEventMessage } from "./app-protocol";
 import type { HostConnection } from "./host-server";
 import { type HostServicesDeps, LocalHostServices } from "./host-services";
-import { PeerQuota } from "./peer-quota";
+import { localDay, PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 
 /** A SidecarManager stand-in for the host side. */
@@ -363,6 +363,176 @@ describe("LocalHostServices", () => {
 			"follow_up",
 			"get_state",
 		]);
+	});
+
+	describe("daily limits beyond the first ten commands", () => {
+		const MODEL_SETUP_REQUEST: ModelSetupRequest = {
+			researchModel: "anthropic/claude-opus-4-1",
+			models: [{ selector: "anthropic/claude-opus-4-1", provider: "anthropic" }],
+			roles: [{ id: "default", name: "Default" }],
+		};
+		function limited(limits: { requestsPerDay?: number }, requests = 0) {
+			const fixture = setup();
+			const stored = new Map<string, PeerInfo>([
+				[
+					"device-x",
+					{
+						...peer("device-x"),
+						limits,
+						usage: { day: localDay(new Date()), requests, tokens: 0 },
+					},
+				],
+			]);
+			fixture.services.attachQuota(
+				new PeerQuota(
+					{
+						get: id => stored.get(id),
+						update: (id, patch) => {
+							const current = stored.get(id);
+							if (!current) return undefined;
+							const next = { ...current, ...patch };
+							stored.set(id, next);
+							return next;
+						},
+					},
+					() => {},
+				),
+			);
+			return { ...fixture, stored, x: new FakeConnection(peer("device-x")) };
+		}
+		const used = (stored: Map<string, PeerInfo>) => stored.get("device-x")?.usage?.requests;
+
+		it("refuses omfg, tan and a summarizing leaf switch once the limit is used up, and still serves reads", async () => {
+			const { services, sidecars, stored, x } = limited({ requestsPerDay: 1 }, 1);
+			await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+			const send = (command: Record<string, unknown>) =>
+				services.call(x.peer, "tab.command", { rtab: "t1", command }, x).catch((error: unknown) => error);
+
+			for (const command of [
+				{ type: "omfg", complaint: "no" },
+				{ type: "tan", work: "x" },
+				{ type: "switch_leaf", entryId: "e", summarize: true },
+				{ type: "restore_interrupted" },
+			]) {
+				expect(ipcErrorCode(await send(command)), String(command.type)).toBe("remote_limit_reached");
+			}
+			expect(await send({ type: "switch_leaf", entryId: "e" })).toMatchObject({ success: true });
+			expect(await send({ type: "get_state" })).toMatchObject({ success: true });
+			expect(sidecars[0]?.commands.map(command => command.type)).toEqual(["switch_leaf", "get_state"]);
+			expect(used(stored)).toBe(1);
+		});
+
+		it("counts omfg and a summarizing leaf switch as requests", async () => {
+			const { services, stored, x } = limited({ requestsPerDay: 10 });
+			await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+			for (const command of [
+				{ type: "omfg", complaint: "no" },
+				{ type: "switch_leaf", entryId: "e", summarize: true },
+			])
+				await services.call(x.peer, "tab.command", { rtab: "t1", command }, x);
+			expect(used(stored)).toBe(2);
+		});
+
+		it("lets exactly one of several parallel prompts through at the limit minus one", async () => {
+			const { services, sidecars, stored, x } = limited({ requestsPerDay: 3 }, 2);
+			await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+			const sidecar = sidecars[0];
+			if (!sidecar) throw new Error("expected a sidecar");
+			// A slow omp: every command is in flight before the first one settles.
+			let release = () => {};
+			const gate = new Promise<void>(resolve => {
+				release = resolve;
+			});
+			sidecar.rpcClient.command = async (command: RpcCommand): Promise<RpcResponse> => {
+				sidecar.commands.push(command);
+				await gate;
+				return { type: "response", command: command.type, success: true };
+			};
+
+			const settled = Array.from({ length: 5 }, () =>
+				services
+					.call(x.peer, "tab.command", { rtab: "t1", command: { type: "prompt", message: "hi" } }, x)
+					.then(() => "ran")
+					.catch((error: unknown) => ipcErrorCode(error)),
+			);
+			await Promise.resolve();
+			release();
+			const outcomes = await Promise.all(settled);
+			expect(outcomes.filter(outcome => outcome === "ran")).toHaveLength(1);
+			expect(outcomes.filter(outcome => outcome === "remote_limit_reached")).toHaveLength(4);
+			expect(sidecar.commands).toHaveLength(1);
+			expect(used(stored)).toBe(3);
+		});
+
+		it("gives the reserved request back when the command fails or throws", async () => {
+			const { services, sidecars, stored, x } = limited({ requestsPerDay: 1 });
+			await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+			const sidecar = sidecars[0];
+			if (!sidecar) throw new Error("expected a sidecar");
+			sidecar.rpcClient.command = async (command: RpcCommand): Promise<RpcResponse> => ({
+				type: "response",
+				command: command.type,
+				success: false,
+				error: "busy",
+			});
+			await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "prompt" } }, x);
+			expect(used(stored)).toBe(0);
+			sidecar.rpcClient.command = async () => {
+				throw new Error("sidecar exited");
+			};
+			await expect(
+				services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "prompt" } }, x),
+			).rejects.toThrow("sidecar exited");
+			expect(used(stored)).toBe(0);
+		});
+
+		it("refuses host.bench.run and host.modelSetup.run past the limit without starting them", async () => {
+			const { services, machine, stored, x } = limited({ requestsPerDay: 1 }, 1);
+			await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+			const bench = await services
+				.call(
+					x.peer,
+					"host.bench.run",
+					{ rtab: "t1", options: { models: ["a/b"], profile: "chat", runs: 1, parallel: 1 } },
+					x,
+				)
+				.catch((error: unknown) => error);
+			expect(ipcErrorCode(bench)).toBe("remote_limit_reached");
+			const setup = await services
+				.call(x.peer, "host.modelSetup.run", { request: MODEL_SETUP_REQUEST }, x)
+				.catch((error: unknown) => error);
+			expect(ipcErrorCode(setup)).toBe("remote_limit_reached");
+			expect(machine.runBenchmark).not.toHaveBeenCalled();
+			expect(machine.runModelSetup).not.toHaveBeenCalled();
+			expect(used(stored)).toBe(1);
+		});
+
+		it("counts a benchmark by its model runs and a model setup as one request, refunding a failed start", async () => {
+			const { services, machine, stored, x } = limited({ requestsPerDay: 100 });
+			await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+			machine.runBenchmark.mockResolvedValueOnce({
+				success: true,
+				summary: { runs: 3, models: [], failures: 0 },
+				exitCode: 0,
+			});
+			await services.call(
+				x.peer,
+				"host.bench.run",
+				{ rtab: "t1", options: { models: ["a/b", "c/d"], profile: "chat", runs: 3, parallel: 1 } },
+				x,
+			);
+			expect(used(stored)).toBe(6);
+			// The default fakes report `success: false`: nothing was spent, so nothing stays counted.
+			await services.call(x.peer, "host.modelSetup.run", { request: MODEL_SETUP_REQUEST }, x);
+			expect(used(stored)).toBe(6);
+			machine.runModelSetup.mockResolvedValueOnce({
+				success: true,
+				plan: { assignments: [], advisor: { enable: false, reason: "" }, sources: [] },
+				dropped: [],
+			});
+			await services.call(x.peer, "host.modelSetup.run", { request: MODEL_SETUP_REQUEST }, x);
+			expect(used(stored)).toBe(7);
+		});
 	});
 
 	it("pushes this machine's reply-language setting to every tab it hosts, leaving the local pool to ipc", async () => {

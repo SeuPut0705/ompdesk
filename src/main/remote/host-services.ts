@@ -79,8 +79,9 @@ import {
 	type TabStatusArg,
 } from "./app-protocol";
 import type { HostConnection, HostServices } from "./host-server";
-import { MODEL_COMMANDS, type PeerQuota } from "./peer-quota";
+import type { PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
+import { commandUsesModel } from "./quota-commands";
 
 /** How long a disconnected device's tabs keep running, waiting for it to come back. */
 export const HOST_TAB_GRACE_MS = 10 * 60_000;
@@ -404,15 +405,25 @@ export class LocalHostServices implements HostServices {
 			case "host.bench.run": {
 				const { rtab, cwd, options } = parse(BenchRunParams, method, params);
 				const root = this.#fsRoot(peer, rtab, cwd) ?? this.#deps.defaultWorkspace();
-				return this.#deps.machine.runBenchmark(benchCaller(peer.deviceId), options, root);
+				// Every model runs `runs` times: that many requests on this computer's credentials.
+				return this.#metered(
+					peer.deviceId,
+					Math.max(1, options.models.length * options.runs),
+					() => this.#deps.machine.runBenchmark(benchCaller(peer.deviceId), options, root),
+					result => result.success,
+				);
 			}
 			case "host.bench.abort":
 				return this.#deps.machine.abortBenchmark(benchCaller(peer.deviceId));
-			case "host.modelSetup.run":
-				return this.#deps.machine.runModelSetup(
-					benchCaller(peer.deviceId),
-					parse(ModelSetupRunParams, method, params).request,
+			case "host.modelSetup.run": {
+				const { request } = parse(ModelSetupRunParams, method, params);
+				return this.#metered(
+					peer.deviceId,
+					1,
+					() => this.#deps.machine.runModelSetup(benchCaller(peer.deviceId), request),
+					result => result.success,
 				);
+			}
 			case "host.modelSetup.status":
 				return this.#deps.machine.modelSetupStatus(benchCaller(peer.deviceId));
 			case "host.modelSetup.abort":
@@ -649,16 +660,14 @@ export class LocalHostServices implements HostServices {
 		// The client device forwards its renderer's RpcCommand verbatim; omp and
 		// the local handlers validate the command itself.
 		const command = params.command as unknown as RpcCommand;
-		const usesModel = Object.hasOwn(MODEL_COMMANDS, command.type);
-		const refusal = usesModel ? this.#quota?.refusal(peer.deviceId) : null;
-		if (refusal) {
-			throw codedError(
-				"remote_limit_reached",
-				`This device's ${refusal === "requests" ? "request" : "token"} limit for today on this computer's models is used up.`,
-			);
-		}
-		const response = await client.command(command, params.timeoutMs);
-		if (usesModel && response.success) this.#quota?.record(peer.deviceId, { requests: 1 });
+		const response = commandUsesModel(command)
+			? await this.#metered(
+					peer.deviceId,
+					1,
+					() => client.command(command, params.timeoutMs),
+					result => result.success,
+				)
+			: await client.command(command, params.timeoutMs);
 		// A login or logout rewrote this machine's credential store: every tab
 		// running here re-reads it — this machine's own and every device's.
 		if (response.success && (command.type === "login" || command.type === "logout")) {
@@ -666,6 +675,34 @@ export class LocalHostServices implements HostServices {
 			for (const local of this.#deps.localTabs.allSidecars()) if (!local.device) local.syncImageGeneration();
 		}
 		return response;
+	}
+
+	/**
+	 * Run work that spends `requests` of the device's daily model requests. The request is
+	 * reserved before the first await and given back when the work throws or reports failure,
+	 * so parallel callers at limit - 1 cannot all pass the check.
+	 */
+	async #metered<T>(
+		deviceId: string,
+		requests: number,
+		work: () => Promise<T>,
+		succeeded: (result: T) => boolean,
+	): Promise<T> {
+		const reservation = this.#quota?.reserve(deviceId, requests);
+		if (reservation && !reservation.ok) {
+			throw codedError(
+				"remote_limit_reached",
+				`This device's ${reservation.refusal === "requests" ? "request" : "token"} limit for today on this computer's models is used up.`,
+			);
+		}
+		try {
+			const result = await work();
+			if (!succeeded(result)) reservation?.refund();
+			return result;
+		} catch (error) {
+			reservation?.refund();
+			throw error;
+		}
 	}
 
 	/** The host tab holding `sessionPath` with a process that has it in memory. */

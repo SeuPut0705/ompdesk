@@ -68,6 +68,77 @@ describe("PeerQuota", () => {
 		expect(quota.setLimits("nobody", { requestsPerDay: 1 })).toBe(false);
 	});
 
+	it("reserves a request when it checks, so parallel requests at limit minus one let exactly one through", () => {
+		const peers = memoryPeers({
+			...LAPTOP,
+			limits: { requestsPerDay: 3 },
+			usage: { day: "2026-10-15", requests: 2, tokens: 0 },
+		});
+		const quota = new PeerQuota(
+			peers,
+			() => {},
+			() => new Date(2026, 9, 15, 12, 0),
+		);
+
+		const results = Array.from({ length: 5 }, () => quota.reserve("laptop"));
+		expect(results.filter(result => result.ok)).toHaveLength(1);
+		expect(results.filter(result => !result.ok).map(result => !result.ok && result.refusal)).toEqual([
+			"requests",
+			"requests",
+			"requests",
+			"requests",
+		]);
+		expect(peers.entries.get("laptop")?.usage?.requests).toBe(3);
+	});
+
+	it("gives a reserved request back on refund, once", () => {
+		const now = new Date(2026, 9, 15, 23, 59);
+		const peers = memoryPeers({ ...LAPTOP, limits: { requestsPerDay: 1 } });
+		const quota = new PeerQuota(
+			peers,
+			() => {},
+			() => now,
+		);
+
+		const first = quota.reserve("laptop");
+		if (!first.ok) throw new Error("expected a reservation");
+		expect(quota.reserve("laptop")).toEqual({ ok: false, refusal: "requests" });
+		first.refund();
+		first.refund();
+		expect(peers.entries.get("laptop")?.usage?.requests).toBe(0);
+		expect(quota.reserve("laptop").ok).toBe(true);
+	});
+
+	it("does not take a request off the new day when a refund lands after midnight", () => {
+		let now = new Date(2026, 9, 15, 23, 59);
+		const peers = memoryPeers({ ...LAPTOP, limits: { requestsPerDay: 5 } });
+		const quota = new PeerQuota(
+			peers,
+			() => {},
+			() => now,
+		);
+		const reservation = quota.reserve("laptop");
+		if (!reservation.ok) throw new Error("expected a reservation");
+		now = new Date(2026, 9, 16, 0, 1);
+		quota.record("laptop", { requests: 2 });
+		reservation.refund();
+		expect(peers.entries.get("laptop")?.usage).toEqual({ day: "2026-10-16", requests: 2, tokens: 0 });
+	});
+
+	it("reserves nothing for an unknown device", () => {
+		const quota = new PeerQuota(memoryPeers(), () => {});
+		expect(quota.reserve("nobody").ok).toBe(true);
+	});
+
+	it("counts a weighted reservation, such as a benchmark's model requests", () => {
+		const peers = memoryPeers({ ...LAPTOP, limits: { requestsPerDay: 10 } });
+		const quota = new PeerQuota(peers, () => {});
+		expect(quota.reserve("laptop", 6).ok).toBe(true);
+		expect(quota.reserve("laptop", 6).ok).toBe(true);
+		expect(quota.reserve("laptop").ok).toBe(false);
+		expect(peers.entries.get("laptop")?.usage?.requests).toBe(12);
+	});
+
 	it("names days in this computer's time zone", () => {
 		expect(localDay(new Date(2026, 0, 5, 0, 0))).toBe("2026-01-05");
 	});
