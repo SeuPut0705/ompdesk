@@ -6,12 +6,29 @@ import { sameMessageContent, sessionMessagePersistenceKey } from "@oh-my-pi/pi-c
 
 type DisplayMessage = AgentMessage & { entryId?: string };
 
+/**
+ * Stock persists a `custom` message (an advisor card, a background job result, a mount notice) as a
+ * `custom_message` entry stamped with the message's own timestamp, and has no persistence key for it;
+ * `buildTranscript` pairs the two the same way.
+ */
+function customEntryKey(customType: unknown, timestamp: number): string {
+	return `${String(customType)}:${timestamp}`;
+}
+
 export function attachEntryIds(
 	messages: readonly DisplayMessage[],
 	entries: readonly SessionEntry[],
 ): DisplayMessage[] {
 	const byKey = new Map<string, Array<{ id: string; message: AgentMessage }>>();
+	const customByKey = new Map<string, Array<{ id: string; content: unknown }>>();
 	for (const entry of entries) {
+		if (entry.type === "custom_message") {
+			const key = customEntryKey(entry.customType, Date.parse(entry.timestamp));
+			const keyed = customByKey.get(key);
+			if (keyed) keyed.push(entry);
+			else customByKey.set(key, [entry]);
+			continue;
+		}
 		if (entry.type !== "message") continue;
 		const key = sessionMessagePersistenceKey(entry.message);
 		if (!key) continue;
@@ -21,6 +38,16 @@ export function attachEntryIds(
 	}
 	return messages.map(message => {
 		if (message.entryId) return message;
+		if (message.role === "custom") {
+			const keyed =
+				typeof message.timestamp === "number"
+					? customByKey.get(customEntryKey(message.customType, message.timestamp))
+					: undefined;
+			const content = JSON.stringify(message.content);
+			const entry =
+				keyed?.length === 1 ? keyed[0] : keyed?.find(candidate => JSON.stringify(candidate.content) === content);
+			return entry ? { ...message, entryId: entry.id } : message;
+		}
 		const key = sessionMessagePersistenceKey(message);
 		const keyed = key ? byKey.get(key) : undefined;
 		const entry =

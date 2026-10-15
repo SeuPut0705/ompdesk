@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AgentMessage, AgentSessionEvent } from "../../shared/rpc-types";
 import { createMessagesStore, mergeFetchedTranscript, useMessagesStore } from "./messages";
@@ -393,5 +394,48 @@ describe("transcript hydration", () => {
 		const next = userMessage("other");
 		useMessagesStore.getState().reconcileFetched([next]);
 		expect(useMessagesStore.getState().messages).toEqual([next]);
+	});
+});
+
+interface RecordedEntry {
+	id: string;
+	timestamp: string;
+	customType?: string;
+	message?: AgentMessage;
+}
+
+describe("a run that carries custom messages", () => {
+	// Real omp 18.11 frames of three turns in which stock's advisor filed two cards and a
+	// background job delivered its result (e2e/real-advisor.e2e.ts records them). The bridge
+	// stamps each `agent_end` message with its journal entry id (sessions.attach_entry_ids; pinned
+	// against the same recording in src/main/bridge-attach-entry-ids.test.ts).
+	const recording: { events: AgentSessionEvent[]; entries: RecordedEntry[] } = JSON.parse(
+		readFileSync("e2e/fixtures/real-advisor-frames.json", "utf8"),
+	);
+	const stamped = (message: AgentMessage): AgentMessage => {
+		const entry = recording.entries.find(candidate =>
+			message.role === "custom"
+				? candidate.customType === message.customType && Date.parse(candidate.timestamp) === message.timestamp
+				: candidate.message?.role === message.role && candidate.message.timestamp === message.timestamp,
+		);
+		return entry ? { ...message, entryId: entry.id } : message;
+	};
+
+	it("keeps the advisor and background-job cards live once the run's agent_end commits them", () => {
+		const store = createMessagesStore();
+		for (const event of recording.events) {
+			store
+				.getState()
+				.applyEvents([event.type === "agent_end" ? { ...event, messages: event.messages?.map(stamped) } : event]);
+		}
+		const { messages, liveMessages } = store.getState();
+		expect(messages.filter(message => message.role === "custom").map(message => message.customType)).toEqual([
+			"xdev-mount-notice",
+			"advisor",
+			"advisor",
+			"async-result",
+		]);
+		expect(messages.every(message => message.entryId !== undefined)).toBe(true);
+		expect(liveMessages).toEqual([]);
 	});
 });
