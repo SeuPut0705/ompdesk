@@ -1,7 +1,9 @@
 /**
  * The files a reply names (chat-media.ts `referencedFiles`), under the reply:
  * players for audio and video, thumbnails for pictures and a PDF's first page,
- * a sandboxed preview for a page. A picture a tool already showed in this tab
+ * a sandboxed preview for a page, a card for an Office or CSV document
+ * (FileCard: first rows or slide, "type · rows/slides · size", "Deleted" once
+ * it is gone). A picture a tool already showed in this tab
  * (the main agent's or a subagent's read, screenshot or capture of that path)
  * is not drawn a second time.
  */
@@ -13,6 +15,7 @@ import { useSessionStore } from "../../stores/session";
 import type { ToolEntry } from "../../stores/tools";
 import type { ChatFileReference } from "../tools/chat-media";
 import { workFilePathKey } from "../tools/edit-args";
+import { FileCard } from "../tools/FileCard";
 import { getToolHeader } from "../tools/index";
 import { ChatMedia, HtmlPreview, ImageThumb, PdfThumb } from "../tools/ToolMedia";
 import { useRunStores } from "./use-work-run";
@@ -47,6 +50,8 @@ function ReplyFileList({ references }: { references: readonly ChatFileReference[
 					<ImageThumb key={path} path={path} />
 				) : kind === "pdf" ? (
 					<PdfThumb key={path} path={path} />
+				) : kind === "document" ? (
+					<FileCard key={path} path={path} />
 				) : (
 					<HtmlPreview key={path} path={path} />
 				),

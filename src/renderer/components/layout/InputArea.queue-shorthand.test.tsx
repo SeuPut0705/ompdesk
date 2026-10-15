@@ -160,7 +160,8 @@ async function mount(withRuntime = false): Promise<void> {
 	const history: Array<{ prompt: string; cwd?: string; created_at: number }> = [];
 	(window as unknown as Record<string, unknown>).omp = {
 		fs: { list: vi.fn(async () => ({ entries: [] })) },
-		events: { onTabCommandsUpdate: vi.fn(() => () => {}) },
+		// RunSettings' Context row (ContextSizeField) re-reads compaction limits on config changes.
+		events: { onTabCommandsUpdate: vi.fn(() => () => {}), onConfigUpdate: vi.fn(() => () => {}) },
 		prefs: { set: vi.fn(async () => ({})), get: vi.fn(async () => []) },
 		rpc: {
 			historyRecord: vi.fn(async (prompt: string, cwd?: string) => {

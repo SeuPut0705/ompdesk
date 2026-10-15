@@ -20,6 +20,10 @@ describe("chat media kinds", () => {
 		expect(chatReferenceKind("site/index.html")).toBe("html");
 		expect(chatReferenceKind("chart.svg")).toBe("image");
 		expect(chatReferenceKind("shot.png")).toBe("image");
+		expect(chatReferenceKind("out/Q3.xlsx")).toBe("document");
+		expect(chatReferenceKind("deck.PPTX")).toBe("document");
+		expect(chatReferenceKind("data/rows.csv")).toBe("document");
+		expect(chatReferenceKind("old.doc")).toBe("document");
 		expect(chatReferenceKind("src/app.ts")).toBeNull();
 	});
 

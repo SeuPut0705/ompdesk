@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import type { ClipboardEvent, DragEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { removeFileMention } from "../../../shared/file-mentions";
 import type { AvailableCommand, ImageContent } from "../../../shared/rpc-types";
 import { withGuiCommands } from "../../lib/command-registry";
 import { useDisplayPreference } from "../../lib/display-preferences";
@@ -76,6 +77,7 @@ import { ContextUsagePopover } from "./ContextUsagePopover";
 import { fileTextAttachment, intakeComposerFiles } from "./composer-files";
 import { DelegationControl } from "./DelegationControl";
 import { DictationOverlay, type DictationPhase } from "./DictationOverlay";
+import { DraftFileCards } from "./DraftFileCards";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-utils";
 import { PastedTextDialog } from "./PastedTextDialog";
@@ -1217,6 +1219,7 @@ export function InputArea() {
 								))}
 							</ul>
 						)}
+						<DraftFileCards onRemove={path => setText(current => removeFileMention(current, path))} text={text} />
 						<PastedTextDialog
 							onClose={() => setEditingPaste(null)}
 							onSave={(id, content) => {

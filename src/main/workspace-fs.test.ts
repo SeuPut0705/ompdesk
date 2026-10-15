@@ -297,7 +297,8 @@ describe("Files panel writes", () => {
 	});
 	it("stats a file and reports a missing one", async () => {
 		writeFileSync(join(root, "a.txt"), "abc");
-		expect(await statWorkspacePath(root, "a.txt")).toMatchObject({ ok: true, size: 3 });
+		expect(await statWorkspacePath(root, "a.txt")).toMatchObject({ ok: true, size: 3, directory: false });
+		expect(await statWorkspacePath(root, ".")).toMatchObject({ ok: true, directory: true });
 		expect(await statWorkspacePath(root, "gone.txt")).toMatchObject({ ok: false, code: "file_not_found" });
 	});
 });

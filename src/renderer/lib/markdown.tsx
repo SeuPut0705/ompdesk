@@ -30,6 +30,7 @@ import { MermaidBlock } from "../components/chat/MermaidBlock";
 import { type PreviewMode, PreviewModeTabs, SvgBlock } from "../components/chat/SvgBlock";
 import { ZoomableImage } from "../components/common/ZoomableImage";
 import { chatMediaKind, chatReferenceKind, fileUrlPath, localFilePath } from "../components/tools/chat-media";
+import { FileCard } from "../components/tools/FileCard";
 import { ChatMedia, HtmlPreview, PdfThumb } from "../components/tools/ToolMedia";
 import { useRuntimeTabId } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
@@ -794,6 +795,7 @@ function MarkdownImage({ src, alt, title, ...props }: ComponentPropsWithoutRef<"
 		const fileKind = chatReferenceKind(classified.path);
 		if (fileKind === "pdf") return <PdfThumb label={altText || undefined} path={classified.path} />;
 		if (fileKind === "html") return <HtmlPreview label={altText || undefined} path={classified.path} />;
+		if (fileKind === "document") return <FileCard path={classified.path} />;
 		return (
 			<LocalMarkdownImage
 				path={classified.path}

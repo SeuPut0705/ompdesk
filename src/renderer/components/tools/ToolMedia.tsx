@@ -16,6 +16,7 @@ import {
 	FileCode,
 	FileImage,
 	Files,
+	FileText,
 	FileVideo,
 	type LucideIcon,
 } from "lucide-react";
@@ -37,6 +38,7 @@ const KIND_ICONS: Record<ChatReferenceKind, LucideIcon> = {
 	pdf: FileBadge,
 	html: FileCode,
 	image: FileImage,
+	document: FileText,
 };
 
 /** Previews start loading this far before they scroll into view. */
@@ -49,7 +51,7 @@ const PDF_THUMB_WIDTH = 176;
 const HTML_PREVIEW_BYTES = 200_000;
 
 /** True once the element has come within NEAR_VIEWPORT of the screen (always, without IntersectionObserver). */
-function useNearViewport(ref: RefObject<HTMLElement | null>): boolean {
+export function useNearViewport(ref: RefObject<HTMLElement | null>): boolean {
 	const [near, setNear] = useState(() => typeof IntersectionObserver === "undefined");
 	useEffect(() => {
 		const element = ref.current;

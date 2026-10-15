@@ -12,8 +12,12 @@ import { asRecord } from "../../lib/wire-value";
 import { viewerKind } from "../panels/viewers/file-kind";
 
 export type ChatMediaKind = "video" | "audio";
-/** Files the chat previews without playing: a picture's thumbnail, a PDF's first page, a page in a sandbox. */
-export type ChatFileKind = "image" | "pdf" | "html";
+/**
+ * Files the chat previews without playing: a picture's thumbnail, a PDF's
+ * first page, a page in a sandbox, a document's card (Word, Excel,
+ * PowerPoint, CSV/TSV and other Office files; FileCard.tsx).
+ */
+export type ChatFileKind = "image" | "pdf" | "html" | "document";
 export type ChatReferenceKind = ChatMediaKind | ChatFileKind;
 
 export interface ChatFileReference {
@@ -27,9 +31,10 @@ export function chatMediaKind(path: string): ChatMediaKind | null {
 	return kind === "video" || kind === "audio" ? kind : null;
 }
 
-/** Media, pictures (SVG included), PDFs and pages by the Files viewer's extension table. */
+/** Media, pictures (SVG included), PDFs, pages and documents by the Files viewer's extension table. */
 export function chatReferenceKind(path: string): ChatReferenceKind | null {
 	const kind = viewerKind(path);
+	if (kind === "docx" || kind === "xlsx" || kind === "pptx" || kind === "csv" || kind === "office") return "document";
 	return kind === "video" || kind === "audio" || kind === "image" || kind === "pdf" || kind === "html" ? kind : null;
 }
 

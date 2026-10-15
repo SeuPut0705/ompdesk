@@ -728,7 +728,7 @@ export async function statWorkspacePath(cwd: string | null, target: unknown): Pr
 	if ("error" in resolved) return fail(resolved.error, resolved.code);
 	try {
 		const stat = await fsp.stat(resolved.abs);
-		return { ok: true, mtimeMs: stat.mtimeMs, size: stat.size };
+		return { ok: true, mtimeMs: stat.mtimeMs, size: stat.size, directory: stat.isDirectory() };
 	} catch (err) {
 		return fail(err instanceof Error ? err.message : String(err), fsErrorCode(err));
 	}
