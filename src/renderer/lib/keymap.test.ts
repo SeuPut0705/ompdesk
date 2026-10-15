@@ -360,6 +360,14 @@ describe("workbench navigation chords", () => {
 		expect(windows.get("⌥⇧⌃T")).toBe("tab.reopen");
 		expect(windows.get("⌥⌃T")).toBe("thinking.toggle");
 	});
+
+	it("keeps ⌘J (Windows Ctrl+J) on the side panel toggle beside the newer workbench chords", () => {
+		// e2e opens the panel with ControlOrMeta+J; on macOS ⌃J stays the composer's newline.
+		const mac = compileKeymap(KEYMAP_ACTIONS, {}, "mac");
+		expect(mac.get("⌘J")).toBe("panel.toggle");
+		expect(mac.get("⌃J")).toBeUndefined();
+		expect(compileKeymap(KEYMAP_ACTIONS, {}, "windows").get("⌃J")).toBe("panel.toggle");
+	});
 });
 
 describe("sanitizeOverrides", () => {
