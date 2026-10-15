@@ -571,6 +571,13 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							useSessionStore.setState(goalPatchFromEvent(event.goal, event.state));
 							break;
 						}
+						case "goal_time_limit_reached": {
+							useToastStore.getState().push({
+								variant: "info",
+								message: translate("events.goalTimeLimit", { minutes: event.minutes }),
+							});
+							break;
+						}
 						case "loop_mode_update": {
 							// Loop state is passive display too — the composer chip and
 							// footer badge read it from the session store. Reuse the Modes

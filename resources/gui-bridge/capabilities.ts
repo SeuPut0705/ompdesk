@@ -304,6 +304,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"isStreaming",
 			"goalRuntime.replaceGoal()",
 			"goalRuntime.onBudgetMutated()",
+			// Time limit (goal-time-core.ts): the journal entry and stock's runtime pause.
+			"goalRuntime.pauseGoal()",
+			"sessionManager.getBranch()",
+			"sessionManager.appendCustomEntry()",
 		],
 		modules: {
 			[`${AGENT}/goals/settings`]: ["cfgGoalEnabled.get()"],

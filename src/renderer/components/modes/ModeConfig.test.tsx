@@ -12,7 +12,7 @@ import type { AgentSessionEvent, RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { normalizeLoopUpdate, parseLoopLimit } from "../../lib/loop-mode";
 import { useSessionStore } from "../../stores/session";
-import { goalStatusVariant, LOOP_STATE_VARIANT, VibeModeConfig } from "./ModeConfig";
+import { GoalModeConfig, goalStatusVariant, LOOP_STATE_VARIANT, VibeModeConfig } from "./ModeConfig";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -27,9 +27,21 @@ globals.IS_REACT_ACT_ENVIRONMENT = true;
 function ok(command: string, data: unknown): RpcResponse {
 	return { type: "response", command, success: true, data };
 }
+const goalState = {
+	enabled: true,
+	status: "active",
+	objective: "Ship it",
+	tokensUsed: 0,
+	timeUsedSeconds: 600,
+	timeLimitSeconds: 1800,
+};
 const rpc = {
 	getVibeMode: vi.fn(async () => ok("get_vibe_mode", { enabled: false })),
 	setVibeMode: vi.fn(async (enabled: boolean) => ok("set_vibe_mode", { enabled })),
+	getGoal: vi.fn(async () => ok("get_goal", goalState)),
+	setGoal: vi.fn(async (args: { timeLimitMinutes?: number | null }) =>
+		ok("set_goal", { ...goalState, timeLimitSeconds: args.timeLimitMinutes ? args.timeLimitMinutes * 60 : null }),
+	),
 };
 Object.assign(window, { omp: { rpc, events: { onBatch: () => () => {} } } });
 
@@ -80,6 +92,45 @@ describe("VibeModeConfig", () => {
 		await mount(<VibeModeConfig />);
 		expect(rpc.getVibeMode).not.toHaveBeenCalled();
 		expect(container.querySelector('[role="alert"]')?.textContent).toContain(translate("common.notConnected"));
+	});
+});
+
+async function typeInto(element: unknown, value: string): Promise<void> {
+	const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value");
+	descriptor?.set?.call(element, value);
+	const record = element as Record<string, unknown>;
+	const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+	const props = propsKey ? (record[propsKey] as { onChange?: (event: object) => void } | undefined) : undefined;
+	await act(async () => props?.onChange?.({ target: element, currentTarget: element }));
+}
+
+describe("GoalModeConfig time limit", () => {
+	it("shows the used time against the limit and saves a changed limit", async () => {
+		useSessionStore.setState({ status: "ready" });
+		await mount(<GoalModeConfig />);
+		expect(container.textContent).toContain(translate("modesPanel.goal.timeLimit"));
+		expect(container.textContent).not.toContain(translate("modesPanel.goal.noTimeLimit"));
+		const input = container.querySelector('input[type="number"]');
+		expect(input?.getAttribute("value") ?? (input as unknown as { value: string }).value).toBe("30");
+		expect(container.textContent).not.toContain(translate("modesPanel.goal.saveTimeLimit"));
+		await typeInto(input, "45");
+		const save = [...(container as unknown as Element).querySelectorAll("button")].find(
+			button => button.textContent === translate("modesPanel.goal.saveTimeLimit"),
+		);
+		await act(async () => (save as unknown as { click: () => void }).click());
+		expect(rpc.setGoal).toHaveBeenCalledWith({ timeLimitMinutes: 45 });
+	});
+
+	it("clears the limit when the field is emptied", async () => {
+		useSessionStore.setState({ status: "ready" });
+		await mount(<GoalModeConfig />);
+		await typeInto(container.querySelector('input[type="number"]'), "");
+		const save = [...(container as unknown as Element).querySelectorAll("button")].find(
+			button => button.textContent === translate("modesPanel.goal.saveTimeLimit"),
+		);
+		await act(async () => (save as unknown as { click: () => void }).click());
+		expect(rpc.setGoal).toHaveBeenCalledWith({ timeLimitMinutes: null });
+		expect(container.textContent).toContain(translate("modesPanel.goal.noTimeLimit"));
 	});
 });
 

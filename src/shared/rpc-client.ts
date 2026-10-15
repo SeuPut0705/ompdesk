@@ -233,6 +233,7 @@ export interface SessionRpcClient {
 	setGoal(args: {
 		objective?: string;
 		tokenBudget?: number | null;
+		timeLimitMinutes?: number | null;
 		action?: "pause" | "resume" | "drop";
 	}): Promise<RpcResponse>;
 	tan(work: string): Promise<RpcResponse>;

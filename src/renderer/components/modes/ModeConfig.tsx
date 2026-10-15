@@ -327,9 +327,21 @@ export function VibeModeConfig() {
 // Goal
 // ---------------------------------------------------------------------------
 
+/** A minutes field → a positive whole number of minutes, or `null` for "no limit" (empty or 0). */
+function parseMinutes(text: string): number | null {
+	const value = Number(text);
+	return text.trim() !== "" && Number.isFinite(value) && value > 0 ? Math.max(1, Math.round(value)) : null;
+}
+
 function GoalEnabledView({ rpc, state }: { rpc: ModeRpc<RpcGoalState>; state: RpcGoalState }) {
 	const t = useT();
 	const [objectiveDraft, setObjectiveDraft] = useState(state.objective ?? "");
+	const loadedMinutes =
+		typeof state.timeLimitSeconds === "number" ? String(Math.round(state.timeLimitSeconds / 60)) : "";
+	const [minutesDraft, setMinutesDraft] = useState(loadedMinutes);
+	useEffect(() => {
+		setMinutesDraft(loadedMinutes);
+	}, [loadedMinutes]);
 
 	// A fresh objective from the sidecar (event re-fetch) replaces the draft.
 	const loadedObjective = state.objective ?? "";
@@ -342,6 +354,9 @@ function GoalEnabledView({ rpc, state }: { rpc: ModeRpc<RpcGoalState>; state: Rp
 	const tokensUsed = state.tokensUsed ?? 0;
 	const timeUsedSeconds = state.timeUsedSeconds ?? 0;
 	const tokenBudget = typeof state.tokenBudget === "number" && state.tokenBudget > 0 ? state.tokenBudget : null;
+	const timeLimitSeconds =
+		typeof state.timeLimitSeconds === "number" && state.timeLimitSeconds > 0 ? state.timeLimitSeconds : null;
+	const minutesDirty = (parseMinutes(minutesDraft)?.toString() ?? "") !== loadedMinutes;
 	const disabled = rpc.busy || !rpc.ready;
 	const notConnected = !rpc.ready ? t("modesPanel.notConnected") : undefined;
 	const runAction = (action: "pause" | "resume" | "drop") => {
@@ -388,6 +403,15 @@ function GoalEnabledView({ rpc, state }: { rpc: ModeRpc<RpcGoalState>; state: Rp
 				) : (
 					<span className="text-sc-sm text-(--sc-text-subtle)">{t("modesPanel.goal.noBudget")}</span>
 				)}
+				{timeLimitSeconds !== null ? (
+					<ProgressBar
+						label={t("modesPanel.goal.timeLimit")}
+						value={Math.min(1, timeUsedSeconds / timeLimitSeconds)}
+						valueText={`${formatDuration(timeUsedSeconds * 1000)} / ${formatDuration(timeLimitSeconds * 1000)}`}
+					/>
+				) : (
+					<span className="text-sc-sm text-(--sc-text-subtle)">{t("modesPanel.goal.noTimeLimit")}</span>
+				)}
 				<div className="flex flex-wrap gap-x-4 gap-y-1 text-sc-sm text-(--sc-text-muted)">
 					<span>
 						{t("modesPanel.goal.tokensUsed")}:{" "}
@@ -398,6 +422,33 @@ function GoalEnabledView({ rpc, state }: { rpc: ModeRpc<RpcGoalState>; state: Rp
 						<span className="tabular-nums text-(--sc-text)">{formatDuration(timeUsedSeconds * 1000)}</span>
 					</span>
 				</div>
+			</div>
+			<div className="flex flex-col gap-2">
+				<Input
+					hint={t("modesPanel.goal.timeLimitHint")}
+					label={t("modesPanel.goal.timeLimitLabel")}
+					min={0}
+					onChange={event => setMinutesDraft(event.target.value)}
+					placeholder={t("modesPanel.goal.timeLimitPlaceholder")}
+					step={5}
+					type="number"
+					value={minutesDraft}
+				/>
+				{minutesDirty && (
+					<div className="flex justify-end">
+						<Button
+							disabled={disabled || state.status === "complete"}
+							onClick={() =>
+								void rpc.mutate(client => client.setGoal({ timeLimitMinutes: parseMinutes(minutesDraft) }))
+							}
+							size="sm"
+							title={notConnected}
+							variant="secondary"
+						>
+							{t("modesPanel.goal.saveTimeLimit")}
+						</Button>
+					</div>
+				)}
 			</div>
 			<div className="flex items-center gap-2">
 				{state.status === "paused" ? (
@@ -439,10 +490,12 @@ function GoalStartForm({ rpc }: { rpc: ModeRpc<RpcGoalState> }) {
 	const t = useT();
 	const [objective, setObjective] = useState("");
 	const [budget, setBudget] = useState("");
+	const [minutes, setMinutes] = useState("");
 	const trimmed = objective.trim();
 	const parsedBudget = Number(budget);
 	const tokenBudget =
 		budget.trim() !== "" && Number.isFinite(parsedBudget) && parsedBudget > 0 ? Math.floor(parsedBudget) : null;
+	const timeLimitMinutes = parseMinutes(minutes);
 
 	return (
 		<>
@@ -464,15 +517,27 @@ function GoalStartForm({ rpc }: { rpc: ModeRpc<RpcGoalState> }) {
 				type="number"
 				value={budget}
 			/>
+			<Input
+				hint={t("modesPanel.goal.timeLimitHint")}
+				label={t("modesPanel.goal.timeLimitLabel")}
+				min={0}
+				onChange={event => setMinutes(event.target.value)}
+				placeholder={t("modesPanel.goal.timeLimitPlaceholder")}
+				step={5}
+				type="number"
+				value={minutes}
+			/>
 			<div className="flex justify-end">
 				<Button
 					disabled={!trimmed || rpc.busy || !rpc.ready}
 					loading={rpc.busy}
 					onClick={() =>
 						void rpc.mutate(client =>
-							client.setGoal(
-								tokenBudget === null ? { objective: trimmed } : { objective: trimmed, tokenBudget },
-							),
+							client.setGoal({
+								objective: trimmed,
+								...(tokenBudget === null ? {} : { tokenBudget }),
+								...(timeLimitMinutes === null ? {} : { timeLimitMinutes }),
+							}),
 						)
 					}
 					size="sm"

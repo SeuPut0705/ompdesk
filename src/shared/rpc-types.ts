@@ -201,6 +201,8 @@ export type RpcCommand =
 			type: "set_goal";
 			objective?: string;
 			tokenBudget?: number | null;
+			/** OMPdesk's goal time limit in minutes (stock goals only have a token budget); `null` clears it. */
+			timeLimitMinutes?: number | null;
 			action?: "pause" | "resume" | "drop";
 	  }
 	| { id?: string; type: "get_loop_mode" }
@@ -1216,6 +1218,8 @@ export interface RpcGoalState {
 	tokenBudget?: number | null;
 	tokensUsed?: number;
 	timeUsedSeconds?: number;
+	/** OMPdesk's time limit for this goal (bridge modes/goal.ts); the goal pauses once its used time reaches it. */
+	timeLimitSeconds?: number | null;
 	mode?: string;
 }
 export type RpcLoopLimit =
@@ -2430,6 +2434,8 @@ export type AgentSessionEvent =
 	  }
 	| { type: "loop_mode_update"; state: RpcLoopModeState }
 	| { type: "model_pool_update"; state: RpcModelPoolState }
+	// Bridge modes/goal.ts paused the goal at its OMPdesk time limit.
+	| { type: "goal_time_limit_reached"; minutes: number }
 	// Authoritative queue snapshot after every queue mutation (enqueue,
 	// drain/consume, remove, move, clear, dequeue restore). The queue store
 	// treats this as the update channel; get_queue is only a hydrate fallback.

@@ -52,18 +52,44 @@ async function startObjectiveTurn(ctx: LocalCommandContext, objective: string): 
 	if (!state.isStreaming) await ctx.send({ type: "prompt", message: objective, streamingBehavior: "followUp" });
 }
 
+/**
+ * Adds the bridge's OMPdesk time limit (modes/goal.ts) to a goal state. Best
+ * effort: an omp without the bridge feature still shows its stock goal. The
+ * read also attaches the bridge's limit watcher after an omp restart.
+ */
+async function withTimeLimit(ctx: LocalCommandContext, state: RpcGoalState): Promise<RpcGoalState> {
+	if (!state.status || state.status === "complete" || state.status === "dropped") return state;
+	try {
+		const { timeLimitSeconds } = await ctx.bridge.request<{ timeLimitSeconds: number | null }>(
+			"modes.goal_time_limit",
+		);
+		return { ...state, timeLimitSeconds };
+	} catch {
+		return state;
+	}
+}
+
+async function setTimeLimit(ctx: LocalCommandContext, minutes: number | null): Promise<void> {
+	await ctx.bridge.request("modes.goal_set_time_limit", { minutes });
+}
+
 async function setGoal(command: { [k: string]: unknown }, ctx: LocalCommandContext): Promise<RpcGoalState> {
 	if (command.action === "pause" || command.action === "resume" || command.action === "drop") {
-		return projectGoal(await ctx.send<StockGoalResult>({ type: "goal", op: command.action }));
+		return withTimeLimit(ctx, projectGoal(await ctx.send<StockGoalResult>({ type: "goal", op: command.action })));
 	}
 	const objective = typeof command.objective === "string" ? command.objective.trim() : "";
 	const tokenBudget = typeof command.tokenBudget === "number" ? command.tokenBudget : undefined;
+	const timeLimit =
+		typeof command.timeLimitMinutes === "number" || command.timeLimitMinutes === null
+			? command.timeLimitMinutes
+			: undefined;
 	if (objective) {
 		const current = await ctx.send<StockGoalResult>({ type: "goal", op: "get" });
 		if (current.state?.enabled) {
 			const replaced = await ctx.bridge.request<StockGoalResult>("modes.goal_replace", { objective, tokenBudget });
+			if (timeLimit !== undefined) await setTimeLimit(ctx, timeLimit);
 			await startObjectiveTurn(ctx, objective);
-			return projectGoal(replaced);
+			return withTimeLimit(ctx, projectGoal(replaced));
 		}
 		if (current.state?.goal.status === "paused") {
 			throw new Error("Resume the current goal first, or drop it before setting a new objective.");
@@ -74,15 +100,22 @@ async function setGoal(command: { [k: string]: unknown }, ctx: LocalCommandConte
 			objective,
 			...(tokenBudget === undefined ? {} : { token_budget: tokenBudget }),
 		});
+		// Before the first turn, so the whole run counts against the limit.
+		if (timeLimit !== undefined && timeLimit !== null) await setTimeLimit(ctx, timeLimit);
 		await startObjectiveTurn(ctx, objective);
-		return projectGoal(created);
+		return withTimeLimit(ctx, projectGoal(created));
 	}
-	if (command.tokenBudget !== undefined) {
-		return projectGoal(
-			await ctx.bridge.request<StockGoalResult>("modes.goal_set_budget", { tokenBudget: command.tokenBudget }),
-		);
+	if (command.tokenBudget !== undefined || timeLimit !== undefined) {
+		let state: RpcGoalState | undefined;
+		if (command.tokenBudget !== undefined) {
+			state = projectGoal(
+				await ctx.bridge.request<StockGoalResult>("modes.goal_set_budget", { tokenBudget: command.tokenBudget }),
+			);
+		}
+		if (timeLimit !== undefined) await setTimeLimit(ctx, timeLimit);
+		return withTimeLimit(ctx, state ?? projectGoal(await ctx.send<StockGoalResult>({ type: "goal", op: "get" })));
 	}
-	throw new Error("set_goal requires an objective, a tokenBudget, or an action.");
+	throw new Error("set_goal requires an objective, a tokenBudget, a timeLimitMinutes, or an action.");
 }
 
 export const handlers: Record<string, LocalHandler> = {
@@ -91,7 +124,8 @@ export const handlers: Record<string, LocalHandler> = {
 	plan_approval: viaBridge,
 	get_vibe_mode: viaBridge,
 	set_vibe_mode: viaBridge,
-	get_goal: async (_command, ctx) => projectGoal(await ctx.send<StockGoalResult>({ type: "goal", op: "get" })),
+	get_goal: async (_command, ctx) =>
+		withTimeLimit(ctx, projectGoal(await ctx.send<StockGoalResult>({ type: "goal", op: "get" }))),
 	set_goal: setGoal,
 	guided_goal: viaBridge,
 	get_loop_mode: viaBridge,
