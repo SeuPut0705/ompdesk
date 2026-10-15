@@ -155,7 +155,13 @@ afterEach(async () => {
 	container?.remove();
 	document.body.innerHTML = "";
 	deleteSessionRuntime(TAB);
-	useSidebarSubagentsStore.setState({ expanded: new Set(), reveal: null });
+	useSidebarSubagentsStore.setState({
+		expanded: new Set(),
+		hidden: new Set(),
+		present: new Set(),
+		unread: new Set(),
+		reveal: null,
+	});
 	useUiStore.setState({ sidebarVisible: true });
 });
 
@@ -240,7 +246,7 @@ describe("SidebarSubagents", () => {
 		expect(formatCompactElapsed(2 * 3_600_000 + 60_000)).toBe("2h");
 	});
 
-	it("drops a subagent's row once it finishes, and the expanded state with the last one", async () => {
+	it("keeps a finished row marked until it is read, drops a stopped one, and the expanded state with the last", async () => {
 		seed([
 			snap({ id: "r1", index: 1, status: "running" }),
 			snap({ id: "r2", index: 2, status: "running" }),
@@ -250,20 +256,29 @@ describe("SidebarSubagents", () => {
 		await mount(<Session />);
 		expect(rowIds()).toEqual(["r1", "r2"]);
 
+		// r1 fails while watched: its row stays, saying so; an agent that was never seen working does not appear.
 		seed([
 			snap({ id: "r1", index: 1, status: "failed" }),
 			snap({ id: "r2", index: 2, status: "running" }),
 			snap({ id: "old", index: 3, status: "completed" }),
 		]);
 		await flush();
-		expect(rowIds()).toEqual(["r2"]);
-		expect(toggle()?.textContent).toBe("1");
+		expect(rowIds()).toEqual(["r1", "r2"]);
+		expect(row("r1").getAttribute("data-status")).toBe("failed");
+		expect(row("r1").textContent).toContain("failed");
+		expect(toggle()?.textContent).toBe("2");
 
+		// A user stop leaves no mark.
 		seed([
 			snap({ id: "r1", index: 1, status: "failed" }),
 			snap({ id: "r2", index: 2, status: "aborted" }),
 			snap({ id: "old", index: 3, status: "completed" }),
 		]);
+		await flush();
+		expect(rowIds()).toEqual(["r1"]);
+
+		// Reading the last marked row empties the group.
+		act(() => useSidebarSubagentsStore.getState().markRead("r1"));
 		await flush();
 		expect(rowIds()).toEqual([]);
 		expect(document.querySelector("[data-sidebar-subagents]")).toBeNull();
@@ -275,6 +290,45 @@ describe("SidebarSubagents", () => {
 		await flush();
 		expect(rowIds()).toEqual([]);
 		expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+	});
+
+	it("opening a finished row reads it; the disclosure menu expands, collapses, hides and shows groups", async () => {
+		seed([snap({ id: "r1", index: 1, status: "running", progress: { tokens: 128_400, toolCount: 48 } as never })]);
+		await mount(<Session />);
+		expect(toggle()?.querySelector("[data-working]")).not.toBeNull();
+		const fire = async (target: TestElement | null, type: string) => {
+			if (!target) throw new Error(`${type}: element is null`);
+			const event = new Event(type, { bubbles: true, cancelable: true });
+			Object.defineProperty(event, "eventPhase", { value: 0, writable: true, configurable: true });
+			await act(async () => {
+				target.dispatchEvent(event);
+			});
+			await flush();
+		};
+		const pick = async (label: string) => {
+			await fire(toggle(), "contextmenu");
+			const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+				node => node.textContent === label,
+			) as unknown as TestElement | undefined;
+			await click(item ?? null);
+		};
+		await pick("Expand all");
+		expect(rowIds()).toEqual(["r1"]);
+		expect(row("r1").textContent).toContain("128.4k tokens · 48 tool calls");
+		await pick("Collapse all");
+		expect(rowIds()).toEqual([]);
+		await pick("Hide this session's subagents");
+		expect(toggle()).toBeNull();
+		act(() => useSidebarSubagentsStore.getState().showAll());
+		await flush();
+		expect(toggle()).not.toBeNull();
+
+		expand();
+		seed([snap({ id: "r1", index: 1, status: "completed" })]);
+		await flush();
+		expect(useSidebarSubagentsStore.getState().unread.has("r1")).toBe(true);
+		await click(row("r1").querySelector("button"));
+		expect(useSidebarSubagentsStore.getState().unread.has("r1")).toBe(false);
 	});
 
 	it("promotes a live child to the top level once its parent finishes", async () => {

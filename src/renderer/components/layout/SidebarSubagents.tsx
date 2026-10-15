@@ -16,7 +16,7 @@
  * the menu key) offers Stop.
  */
 
-import { Bot, ChevronRight, Pause } from "lucide-react";
+import { Bot, ChevronRight, CircleCheck, CircleX, Pause } from "lucide-react";
 import {
 	memo,
 	type KeyboardEvent as ReactKeyboardEvent,
@@ -28,7 +28,7 @@ import {
 	useState,
 } from "react";
 import type { SubagentSnapshot } from "../../../shared/rpc-types";
-import { cx } from "../../lib/format";
+import { cx, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
 import { useTabRpc } from "../../lib/tab-rpc";
@@ -59,17 +59,19 @@ interface SubagentRowModel {
 }
 
 /**
- * Live subagents as a pre-order spawn tree in spawn order. Parent: the
- * explicit wire link, else the subagent whose transcript owns the spawning
- * `task` call; a parent that is finished (hence not listed), unresolved or
- * cyclic makes the agent a top-level spawn of the session.
+ * Live subagents (plus finished ones still unread) as a pre-order spawn tree in
+ * spawn order. Parent: the explicit wire link, else the subagent whose
+ * transcript owns the spawning `task` call; a parent that is not listed,
+ * unresolved or cyclic makes the agent a top-level spawn of the session.
  */
 function buildSidebarSubagentRows(
 	subagents: ReadonlyMap<string, SubagentSnapshot>,
 	toolCallOwners: ReadonlyMap<string, string>,
+	unread: ReadonlySet<string>,
 ): SubagentRowModel[] {
 	const live = new Map<string, SubagentSnapshot>();
-	for (const agent of subagents.values()) if (isLiveSubagentStatus(agent.status)) live.set(agent.id, agent);
+	for (const agent of subagents.values())
+		if (isLiveSubagentStatus(agent.status) || unread.has(agent.id)) live.set(agent.id, agent);
 	const agents = [...live.values()].sort((a, b) => a.index - b.index);
 	const children = new Map<string, SubagentSnapshot[]>();
 	const roots: SubagentSnapshot[] = [];
@@ -107,9 +109,17 @@ function buildSidebarSubagentRows(
 
 /** Live but waiting rather than working: paused glyph instead of a spinner. */
 const WAITING_STATUSES: Record<string, true> = { parked: true, idle: true };
+/** Finished states that leave a marked row behind until the user opens or dismisses it. */
+const UNREAD_ON_FINISH: Record<string, true> = { completed: true, failed: true };
 
 function StatusGlyph({ status }: { status: string }) {
 	if (WAITING_STATUSES[status]) return <Pause aria-hidden className="text-(--sc-text-subtle)" />;
+	if (!isLiveSubagentStatus(status)) {
+		// A finished, unread agent: the state mark carries the colour, the row stays calm.
+		const failed = status === "failed";
+		const Icon = failed ? CircleX : CircleCheck;
+		return <Icon aria-hidden className={failed ? "text-(--sc-danger)" : "text-(--sc-success)"} />;
+	}
 	return (
 		<span aria-hidden className="inline-flex size-(--sc-icon-md) items-center justify-center">
 			<Spinner size="sm" />
@@ -117,7 +127,14 @@ function StatusGlyph({ status }: { status: string }) {
 	);
 }
 
-/** Live subagents in a roster (the disclosure's count). */
+/** Rows a roster shows: live subagents and finished ones still unread (the disclosure's count). */
+function countListedSubagents(subagents: ReadonlyMap<string, SubagentSnapshot>, unread: ReadonlySet<string>): number {
+	let count = 0;
+	for (const agent of subagents.values()) if (isLiveSubagentStatus(agent.status) || unread.has(agent.id)) count++;
+	return count;
+}
+
+/** Live subagents in a roster. */
 function countLiveSubagents(subagents: ReadonlyMap<string, SubagentSnapshot>): number {
 	let count = 0;
 	for (const agent of subagents.values()) if (isLiveSubagentStatus(agent.status)) count++;
@@ -186,15 +203,24 @@ const SubagentRow = memo(function SubagentRow({
 	onMenu: (id: string, anchor: ContextMenuAnchor) => void;
 }) {
 	const t = useT();
-	const now = useNowTick(true);
+	const live = isLiveSubagentStatus(agent.status);
+	const now = useNowTick(live);
 	const elapsed = subagentElapsedMs(agent, now);
 	const statusLabel = t(statusMeta(agent.status).labelKey);
 	const primary = subagentPrimaryLabel(agent);
 	const showRole = primary !== agent.agent;
-	const note = agent.progress?.lastIntent ?? agent.progress?.currentTool;
+	const progress = agent.progress;
+	const note = live ? (progress?.lastIntent ?? progress?.currentTool) : undefined;
+	// Stock's progress tally: "128.4k tokens · 48 tool calls".
+	const usage =
+		progress && (progress.tokens > 0 || progress.toolCount > 0)
+			? t("sidebar.subagents.usage", { tokens: formatTokens(progress.tokens), tools: progress.toolCount })
+			: null;
 	const tooltip = [
 		showRole ? `${agent.agent} · ${subagentPrimaryLabel(agent, Number.POSITIVE_INFINITY)}` : agent.agent,
 		elapsed !== null ? `${statusLabel} · ${formatElapsed(elapsed)}` : statusLabel,
+		progress?.resolvedModel,
+		usage,
 		note,
 	]
 		.filter(Boolean)
@@ -217,9 +243,10 @@ const SubagentRow = memo(function SubagentRow({
 					},
 				}}
 				className={cx("omp-sidebar-session-row", INDENT[nested ? "nested" : "top"][depth])}
-				description={note}
+				description={note ?? usage ?? undefined}
 				leading={<StatusGlyph status={agent.status} />}
-				meta={elapsed !== null ? formatCompactElapsed(elapsed) : undefined}
+				// Elapsed while it works; a finished, unread agent says how it ended.
+				meta={live ? (elapsed !== null ? formatCompactElapsed(elapsed) : undefined) : statusLabel}
 				onClick={() => onOpen(agent.id)}
 				rowProps={{
 					onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -245,34 +272,97 @@ const SubagentRow = memo(function SubagentRow({
 	);
 });
 
-/** Disclosure on the session row: chevron + live count; toggles the child rows without navigating. */
+/**
+ * Disclosure on the session row: chevron + count; toggles the child rows
+ * without navigating. Right-click offers expand/collapse every session's rows,
+ * hiding this session's rows, and bringing hidden ones back.
+ */
 function SubagentDisclosure({ sessionKey }: { sessionKey: string }) {
 	const t = useT();
-	const count = useSubagentsStore(s => countLiveSubagents(s.subagents));
+	const unread = useSidebarSubagentsStore(s => s.unread);
+	const count = useSubagentsStore(s => countListedSubagents(s.subagents, unread));
 	const expanded = useSidebarSubagentsStore(s => s.expanded.has(sessionKey));
-	if (count === 0) return null;
+	const hidden = useSidebarSubagentsStore(s => s.hidden.has(sessionKey));
+	const anyHidden = useSidebarSubagentsStore(s => s.hidden.size > 0);
+	const working = useSubagentsStore(s => countLiveSubagents(s.subagents) > 0);
+	const [menuAt, setMenuAt] = useState<ContextMenuAnchor | null>(null);
+	useEffect(() => {
+		useSidebarSubagentsStore.getState().setPresent(sessionKey, count > 0);
+		return () => useSidebarSubagentsStore.getState().setPresent(sessionKey, false);
+	}, [sessionKey, count]);
+	if (count === 0 || hidden) return null;
 	const label = t(expanded ? "sidebar.subagents.hide" : "sidebar.subagents.show", { count });
+	const store = useSidebarSubagentsStore.getState;
 	return (
-		<button
-			aria-expanded={expanded}
-			aria-label={label}
-			className="flex h-(--sc-hit-min) items-center gap-0.5 rounded-(--sc-radius-sm) px-1 text-sc-xs tabular-nums text-(--sc-text-muted) outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:outline-(--sc-focus-ring)"
-			data-sidebar-subagents-toggle={sessionKey}
-			onClick={() => toggleSidebarSubagents(sessionKey)}
-			tabIndex={-1}
-			title={label}
-			type="button"
-		>
-			<ChevronRight
-				aria-hidden
-				className={cx(
-					"size-(--sc-icon-sm) motion-safe:transition-transform duration-(--sc-duration-fast)",
-					expanded && "rotate-90",
-				)}
-			/>
-			<Bot aria-hidden className="size-(--sc-icon-sm)" />
-			{count}
-		</button>
+		<>
+			<button
+				aria-expanded={expanded}
+				aria-label={label}
+				className="flex h-(--sc-hit-min) items-center gap-0.5 rounded-(--sc-radius-sm) px-1 text-sc-xs tabular-nums text-(--sc-text-muted) outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:outline-(--sc-focus-ring)"
+				data-sidebar-subagents-toggle={sessionKey}
+				onClick={() => toggleSidebarSubagents(sessionKey)}
+				onContextMenu={event => {
+					event.preventDefault();
+					event.stopPropagation();
+					setMenuAt(anchorFromEvent(event));
+				}}
+				tabIndex={-1}
+				title={label}
+				type="button"
+			>
+				<ChevronRight
+					aria-hidden
+					className={cx(
+						"size-(--sc-icon-sm) motion-safe:transition-transform duration-(--sc-duration-fast)",
+						expanded && "rotate-90",
+					)}
+				/>
+				{/* A folded group still says its agents are at work. */}
+				<Bot
+					aria-hidden
+					className={cx("size-(--sc-icon-sm)", working && !expanded && "omp-pulse-dot")}
+					data-working={(working && !expanded) || undefined}
+				/>
+				{count}
+			</button>
+			{menuAt && (
+				<ContextMenu
+					ariaLabel={t("sidebar.subagents.groupMenu")}
+					items={[
+						{ id: "expand-all", label: t("sidebar.subagents.expandAll"), onSelect: () => store().expandAll() },
+						{
+							id: "collapse-all",
+							label: t("sidebar.subagents.collapseAll"),
+							onSelect: () => store().collapseAll(),
+						},
+						{
+							id: "hide-group",
+							label: t("sidebar.subagents.hideGroup"),
+							separatorBefore: true,
+							onSelect: () => store().setHidden(sessionKey, true),
+						},
+						...(anyHidden
+							? [
+									{
+										id: "show-hidden",
+										label: t("sidebar.subagents.showHidden"),
+										onSelect: () => store().showAll(),
+									},
+								]
+							: []),
+					].map(item => ({
+						...item,
+						onSelect: () => {
+							setMenuAt(null);
+							item.onSelect();
+						},
+					}))}
+					onClose={() => setMenuAt(null)}
+					x={menuAt.x}
+					y={menuAt.y}
+				/>
+			)}
+		</>
 	);
 }
 
@@ -282,14 +372,23 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 	const ready = useSessionStore(s => s.status) === "ready";
 	const subagents = useSubagentsStore(s => s.subagents);
 	const toolCallOwners = useSubagentGraphStore(s => s.toolCallOwners);
-	const rows = useMemo(() => buildSidebarSubagentRows(subagents, toolCallOwners), [subagents, toolCallOwners]);
+	const unread = useSidebarSubagentsStore(s => s.unread);
+	const rows = useMemo(
+		() => buildSidebarSubagentRows(subagents, toolCallOwners, unread),
+		[subagents, toolCallOwners, unread],
+	);
 	const reveal = useSidebarSubagentsStore(s => s.reveal);
 	const expanded = useSidebarSubagentsStore(s => s.expanded.has(sessionKey));
+	const hidden = useSidebarSubagentsStore(s => s.hidden.has(sessionKey));
 	const [viewingId, setViewingId] = useState<string | null>(null);
 	const [menu, setMenu] = useState<{ id: string; anchor: ContextMenuAnchor } | null>(null);
 	const groupRef = useRef<HTMLDivElement>(null);
+	/** Agents this group has seen working: one that then finishes stays as an unread row. */
+	const seenLive = useRef(new Set<string>());
+	/** This commit's last live agents just finished: their marked rows arrive with the next render. */
+	const finishing = useRef(false);
 
-	// The transcript stays open when its agent finishes (the row goes away);
+	// The transcript stays open when its agent finishes;
 	// sheet and menu close only when the agent leaves the roster.
 	const viewing = viewingId !== null ? (subagents.get(viewingId) ?? null) : null;
 	const menuAgent = menu ? (subagents.get(menu.id) ?? null) : null;
@@ -297,14 +396,34 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 		if (viewingId !== null && !subagents.has(viewingId)) setViewingId(null);
 	}, [viewingId, subagents]);
 
-	// No live subagents left: forget the expanded state so the next fan-out starts collapsed.
 	useEffect(() => {
-		if (rows.length === 0 && expanded) useSidebarSubagentsStore.getState().setExpanded(sessionKey, false);
+		const finished: string[] = [];
+		for (const agent of subagents.values()) {
+			if (isLiveSubagentStatus(agent.status)) {
+				seenLive.current.add(agent.id);
+				continue;
+			}
+			// A stop the user asked for is no news; a result or a failure is, until read.
+			if (!seenLive.current.delete(agent.id) || !UNREAD_ON_FINISH[agent.status]) continue;
+			if (agent.id !== viewingId && agent.kind !== "advisor") finished.push(agent.id);
+		}
+		finishing.current = finished.length > 0;
+		if (finished.length > 0) useSidebarSubagentsStore.getState().markUnread(finished);
+	}, [subagents, viewingId]);
+
+	// No rows left: forget the expanded state so the next fan-out starts collapsed.
+	useEffect(() => {
+		if (rows.length === 0 && expanded && !finishing.current)
+			useSidebarSubagentsStore.getState().setExpanded(sessionKey, false);
 	}, [rows.length, expanded, sessionKey]);
 
-	// Reveal (dock chip): expand first, then focus the first row once it renders.
+	// Reveal (dock chip): un-hide and expand first, then focus the first row once it renders.
 	useEffect(() => {
 		if (!reveal || reveal.tabId !== tabId) return;
+		if (hidden) {
+			useSidebarSubagentsStore.getState().setHidden(sessionKey, false);
+			return;
+		}
 		if (rows.length > 0 && !expanded) {
 			useSidebarSubagentsStore.getState().setExpanded(sessionKey, true);
 			return;
@@ -313,16 +432,19 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 		const first = groupRef.current?.querySelector<HTMLElement>("[data-roving-item]");
 		first?.scrollIntoView?.({ block: "nearest" });
 		first?.focus();
-	}, [reveal, tabId, rows.length, expanded, sessionKey]);
+	}, [reveal, tabId, rows.length, expanded, hidden, sessionKey]);
 
-	const openAgent = useCallback((id: string) => setViewingId(id), []);
+	const openAgent = useCallback((id: string) => {
+		useSidebarSubagentsStore.getState().markRead(id);
+		setViewingId(id);
+	}, []);
 	const openMenu = useCallback((id: string, anchor: ContextMenuAnchor) => setMenu({ id, anchor }), []);
 
 	const stoppable = menuAgent !== null && isLiveSubagentStatus(menuAgent.status) && menuAgent.kind !== "advisor";
 
 	return (
 		<>
-			{expanded && rows.length > 0 && (
+			{expanded && !hidden && rows.length > 0 && (
 				<div
 					aria-label={t("sidebar.subagents.group")}
 					className="relative space-y-px"
@@ -350,7 +472,16 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 				<ContextMenu
 					ariaLabel={t("sidebar.subagents.menu")}
 					items={[
-						{ id: "subagent-open", label: t("sidebar.subagents.open"), onSelect: () => setViewingId(menu.id) },
+						{ id: "subagent-open", label: t("sidebar.subagents.open"), onSelect: () => openAgent(menu.id) },
+						...(unread.has(menu.id)
+							? [
+									{
+										id: "subagent-dismiss",
+										label: t("sidebar.subagents.dismiss"),
+										onSelect: () => useSidebarSubagentsStore.getState().markRead(menu.id),
+									},
+								]
+							: []),
 						...(stoppable
 							? [
 									{

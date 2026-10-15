@@ -1386,7 +1386,7 @@ describe("Sidebar subagents", () => {
 		await fire(disclosure(), "onClick");
 		expect([...useSidebarSubagentsStore.getState().expanded]).toEqual([TWO]);
 
-		setSubagentStatus("completed");
+		setSubagentStatus("aborted");
 		await flush();
 		expect(subagentGroup()).toBeNull();
 		expect(disclosure()).toBeNull();
