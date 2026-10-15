@@ -2,22 +2,22 @@
  * Voice, debug console, security dashboard, SSH hosts, omp updates and the
  * plugin doctor.
  *
- * Session-bound commands go to the gui-bridge `misc` methods. Updates drive the
- * system omp CLI directly: `omp update --check` reports the installed and
- * latest versions (honoring the user's channel and npm registry), and
- * `omp_update` runs `omp update` itself; both with `ompUpdateEnv`, so stock
- * checks and updates this omp's install, not another `omp` earlier on PATH.
+ * Session-bound commands go to the gui-bridge `misc` methods. `get_omp_update` drives the
+ * system omp CLI directly: `omp update --check` reports the installed and latest versions
+ * (honoring the user's channel and npm registry) with `ompUpdateEnv`, so stock checks this
+ * omp's install, not another `omp` earlier on PATH. Installing is not here: a computer
+ * updates its own omp through `OmpUpdater` (omp-updater.ts), a paired host's included
+ * (`host.ompUpdate.now`).
  * `get_plugin_doctor` is stock `omp plugin doctor --json` (plugin directory,
  * manifest, node_modules, each plugin's version, tools, hooks and extensions).
  */
 import type { RpcDoctorCheck } from "../../shared/rpc-types";
 import { clearAgentWorktrees, listAgentWorktrees } from "../agent-worktrees";
-import { ompUpdateEnv, parseOmpVersion, parseUpdateCheck } from "../omp-runtime";
+import { ompUpdateEnv, parseUpdateCheck } from "../omp-runtime";
 import { spawnPath } from "../shell-env";
 import { type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
 
 const UPDATE_CHECK_TIMEOUT_MS = 60_000;
-const UPDATE_TIMEOUT_MS = 10 * 60_000;
 /** Plain text from omp's chalk output, so the update report parses the same everywhere. */
 const PLAIN_ENV = { NO_COLOR: "1", FORCE_COLOR: "0" };
 
@@ -87,22 +87,6 @@ async function checkOmpUpdate(ctx: LocalCommandContext) {
 	};
 }
 
-async function runOmpUpdate(ctx: LocalCommandContext) {
-	const result = await ctx.omp.run(["update"], {
-		cwd: ctx.cwd,
-		timeoutMs: UPDATE_TIMEOUT_MS,
-		env: { ...PLAIN_ENV, ...ompUpdateEnv(ctx.omp.bin, await spawnPath()) },
-	});
-	if (result.code !== 0) {
-		throw new LocalCommandError(
-			lastLines(result.stderr || result.stdout) || `omp update exited with code ${result.code}`,
-			"update_failed",
-		);
-	}
-	const version = await ctx.omp.run(["--version"], { cwd: ctx.cwd, env: PLAIN_ENV });
-	return { version: parseOmpVersion(version.stdout) ?? ctx.omp.version, output: lastLines(result.stdout, 12) };
-}
-
 /** Forward to a gui-bridge method with the command's own fields as params. */
 function viaBridge(method: string): LocalHandler {
 	return ({ type: _type, id: _id, ...params }, ctx) => ctx.bridge.request(method, params);
@@ -133,7 +117,6 @@ export const handlers: Record<string, LocalHandler> = {
 	ssh_manage: viaBridge("ssh_manage"),
 	ssh_test: viaBridge("ssh_test"),
 	get_omp_update: (_command, ctx) => checkOmpUpdate(ctx),
-	omp_update: (_command, ctx) => runOmpUpdate(ctx),
 	get_plugin_doctor: (_command, ctx) => pluginDoctor(ctx),
 	// Agent-managed worktrees under ~/.omp/wt (stock `omp worktree list|clear --json`, orphaned only).
 	get_agent_worktrees: async (_command, ctx) => ({ entries: await listAgentWorktrees(ctx.omp, ctx.cwd) }),

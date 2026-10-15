@@ -7,7 +7,7 @@
  * (the repository and its star).
  */
 import { Download, FolderOpen, RefreshCw, RotateCcw, Stethoscope, Wrench } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
 	HostDesktopState,
 	HostUpdateAction,
@@ -15,12 +15,8 @@ import type {
 	UpdateAuthInfo,
 	UpdateStatus,
 } from "../../../shared/ipc-types";
-import type {
-	RpcDoctorCheck,
-	RpcOmpUpdateResult,
-	RpcOmpUpdateRunResult,
-	RpcPluginDoctorResult,
-} from "../../../shared/rpc-types";
+import type { OmpUpdateState } from "../../../shared/omp-update";
+import type { RpcDoctorCheck, RpcOmpUpdateResult, RpcPluginDoctorResult } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
@@ -32,6 +28,7 @@ import { useUpdaterStore } from "../../stores/updater";
 import { Badge, Banner, type BannerVariant, Button, ErrorDetail, Input, ProgressBar, Spinner } from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
 import { HostScoped } from "../remote/HostScope";
+import { OmpUpdateFailureNotice } from "./OmpUpdateRows";
 import { ProductStar } from "./ProductStar";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
@@ -132,7 +129,6 @@ export function UpdatesSection() {
 	const [core, setCore] = useState<RpcOmpUpdateResult>();
 	const [checking, setChecking] = useState(false);
 	const [coreError, setCoreError] = useState<InlineFailure>();
-	const [coreUpdating, setCoreUpdating] = useState(false);
 
 	// The app check and the omp check settle independently: `omp update
 	// --check` can take up to a minute on a slow network, and the app's own
@@ -170,26 +166,6 @@ export function UpdatesSection() {
 		void window.omp.updater.version().then(setGuiVersion);
 		void check();
 	}, [check]);
-
-	// Updates the user's system omp in place; running sessions keep their
-	// already-loaded omp until they restart.
-	const updateCore = useCallback(async () => {
-		setCoreUpdating(true);
-		try {
-			const response = await tabRpc.ompUpdate();
-			if (!response.success) {
-				toastError({ title: t("updates.core.updateFailed"), error: response });
-				return;
-			}
-			const { version } = response.data as RpcOmpUpdateRunResult;
-			toast({ variant: "success", message: t("updates.core.updated", { version }) });
-			await check();
-		} catch (cause) {
-			toastError({ title: t("updates.core.updateFailed"), error: cause });
-		} finally {
-			setCoreUpdating(false);
-		}
-	}, [check, t, tabRpc.ompUpdate]);
 
 	const overview = updateOverviewState(status, core, coreError?.message, checking);
 	const appError = status.state === "error" ? status : null;
@@ -266,44 +242,15 @@ export function UpdatesSection() {
 
 			<UpdateAuthRow onChanged={check} />
 
-			{/* This computer's omp is updated below (auto switch, Update now); this row is a paired host's omp. */}
+			{/* This computer's omp is updated below (auto switch, Update now); this row is a paired host's omp, updated by that host's own OmpUpdater. */}
 			{host && (
 				<HostScoped>
-					<SettingsRow
-						badge={host ? <DeviceChip deviceId={host.deviceId} /> : undefined}
-						control={
-							coreError ? (
-								<Badge variant="error">{t("updates.checkFailed")}</Badge>
-							) : !core || checking ? (
-								<Spinner label={t("updates.checking")} size="sm" />
-							) : core.updateAvailable ? (
-								coreUpdating ? (
-									<UpdateProgress label={t("updates.core.updating")} />
-								) : (
-									<Button
-										disabled={!sidecarReady}
-										icon={<Download />}
-										onClick={() => void updateCore()}
-										size="sm"
-									>
-										{t("updates.core.update")}
-									</Button>
-								)
-							) : (
-								<Badge variant="success">{t("updates.upToDate")}</Badge>
-							)
-						}
-						description={t("updates.core.description")}
-						footer={
-							<p className="mt-1 text-sc-xs text-(--sc-text-muted)">
-								{t("updates.current")}{" "}
-								<span className="font-mono text-(--sc-text)">{core?.currentVersion ?? "—"}</span>
-								{" · "}
-								{t("updates.latest")}{" "}
-								<span className="font-mono text-(--sc-text)">{core?.latestVersion ?? "—"}</span>
-							</p>
-						}
-						label={t("updates.core.name")}
+					<HostOmpUpdateRow
+						checking={checking}
+						core={core}
+						coreError={coreError}
+						deviceId={host.deviceId}
+						onSettled={checkCore}
 					/>
 				</HostScoped>
 			)}
@@ -323,6 +270,109 @@ export function UpdatesSection() {
 				label={t("about.repo")}
 			/>
 		</SettingsSection>
+	);
+}
+
+/**
+ * omp on the paired host the focused tab runs on: what `omp update --check` says there, and an update
+ * run by that host's own OmpUpdater (helpers released and resumed, the setup supervisor, its tabs moved
+ * to the new omp, one run at a time with its scheduled one). Its state is the one the host's own row shows:
+ * read once, then followed through the host's pushes.
+ */
+export function HostOmpUpdateRow({
+	deviceId,
+	core,
+	coreError,
+	checking,
+	onSettled,
+}: {
+	deviceId: string;
+	core: RpcOmpUpdateResult | undefined;
+	coreError: InlineFailure | undefined;
+	checking: boolean;
+	/** The host's check or update ended: read what `omp update --check` says there again. */
+	onSettled: () => void;
+}) {
+	const t = useT();
+	const [state, setState] = useState<OmpUpdateState>();
+	const busy = state !== undefined && state.phase !== "idle";
+	const wasBusy = useRef(false);
+	const updatedToAtStart = useRef<string | null>(null);
+
+	useEffect(() => {
+		setState(undefined);
+		let live = true;
+		const unsubscribe = window.omp.hostOmpUpdate.onState(update => {
+			if (update.device === deviceId) setState(update.state);
+		});
+		// Unreadable: the row keeps what `omp update --check` says.
+		window.omp.hostOmpUpdate.get(deviceId).then(
+			next => live && setState(next),
+			() => undefined,
+		);
+		return () => {
+			live = false;
+			unsubscribe();
+		};
+	}, [deviceId]);
+
+	useEffect(() => {
+		if (!state) return;
+		if (busy) {
+			if (!wasBusy.current) updatedToAtStart.current = state.updatedTo;
+			wasBusy.current = true;
+			return;
+		}
+		if (!wasBusy.current) return;
+		wasBusy.current = false;
+		onSettled();
+		if (state.failure === null && state.updatedTo !== null && state.updatedTo !== updatedToAtStart.current) {
+			toast({ variant: "success", message: t("updates.core.updated", { version: state.updatedTo }) });
+		}
+	}, [busy, onSettled, state, t]);
+
+	const update = async () => {
+		try {
+			setState(await window.omp.hostOmpUpdate.now(deviceId));
+		} catch (cause) {
+			toastError({ title: t("updates.core.updateFailed"), error: cause });
+		}
+	};
+
+	return (
+		<SettingsRow
+			badge={<DeviceChip deviceId={deviceId} />}
+			control={
+				coreError ? (
+					<Badge variant="error">{t("updates.checkFailed")}</Badge>
+				) : busy ? (
+					<UpdateProgress
+						label={t(state.phase === "updating" ? "updates.core.updating" : "ompUpdate.status.checking")}
+					/>
+				) : !core || checking ? (
+					<Spinner label={t("updates.checking")} size="sm" />
+				) : core.updateAvailable ? (
+					<Button icon={<Download />} onClick={() => void update()} size="sm">
+						{t("updates.core.update")}
+					</Button>
+				) : (
+					<Badge variant="success">{t("updates.upToDate")}</Badge>
+				)
+			}
+			description={t("updates.core.description")}
+			footer={
+				<>
+					<p className="mt-1 text-sc-xs text-(--sc-text-muted)">
+						{t("updates.current")}{" "}
+						<span className="font-mono text-(--sc-text)">{core?.currentVersion ?? "—"}</span>
+						{" · "}
+						{t("updates.latest")} <span className="font-mono text-(--sc-text)">{core?.latestVersion ?? "—"}</span>
+					</p>
+					{state && <OmpUpdateFailureNotice state={state} />}
+				</>
+			}
+			label={t("updates.core.name")}
+		/>
 	);
 }
 

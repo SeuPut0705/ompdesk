@@ -536,6 +536,10 @@ app.whenReady().then(() => {
 			// Device tabs this computer hosts count too; their own quit prompt never reaches anyone.
 			busy: (): boolean => quitNeedsConfirmation(quitRisk()) || hostServices.runningPeers().length > 0,
 		},
+		ompUpdater: () => {
+			if (!ompUpdater) throw new Error("OMPdesk is still starting");
+			return ompUpdater;
+		},
 		accountRotation: accountRotationDeps({
 			prefs: { get: key => prefsStore().get(key), set: (key, value) => prefsStore().set(key, value) },
 			tabs: () => sidecarPool.allSidecars(),
@@ -691,6 +695,8 @@ app.whenReady().then(() => {
 			for (const win of BrowserWindow.getAllWindows()) {
 				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.OMP_UPDATE_STATE, state);
 			}
+			// Devices that use this computer as their host show the same state.
+			devices.hostOmpUpdateChanged(state);
 		},
 		// One quiet toast, in one window.
 		onUpdated: notice => {

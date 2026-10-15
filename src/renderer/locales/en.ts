@@ -1469,7 +1469,6 @@ export const en: Record<string, string> = {
 	"ipcError.stale_cursor": "The transcript changed while loading. Reload to continue.",
 	"ipcError.oauth_busy": "Another MCP sign-in is already in progress. Finish or cancel it first.",
 	"ipcError.update_check_failed": "Couldn't check for omp updates.",
-	"ipcError.update_failed": "Couldn't update omp.",
 	"ipcError.worktree_outside_root": "Only worktrees OMPdesk created can be removed here.",
 	"ipcError.worktree_dirty": "The worktree has uncommitted changes.",
 	"ipcError.worktree_remove_failed": "Couldn't remove the worktree.",

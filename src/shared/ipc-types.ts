@@ -42,6 +42,12 @@ import type { UiLanguage } from "./ui-language";
 // IPC Channels (main → renderer events)
 // ============================================================================
 
+/** A paired host's `OmpUpdateState`, as its own OmpUpdater last reported it. */
+export interface IpcHostOmpUpdate {
+	device: string;
+	state: OmpUpdateState;
+}
+
 export const IPC_EVENTS = {
 	/** Batched agent session events (16ms cadence) */
 	EVENTS_BATCH: "rpc:events",
@@ -105,6 +111,8 @@ export const IPC_EVENTS = {
 	OMP_UPDATE_STATE: "omp-update:state",
 	/** omp was just updated on its own; payload is an OmpUpdatedNotice, sent to one window (one quiet toast). */
 	OMP_UPDATED: "omp-update:updated",
+	/** A paired host's omp update changed (pushed by the host over the link); payload is an IpcHostOmpUpdate. */
+	HOST_OMP_UPDATE_STATE: "host-omp-update:state",
 	/** This machine's GitHub CLI sign-in changed (src/main/github-auth/); payload is the whole GithubAuthState. */
 	GITHUB_AUTH_STATE: "github-auth:state",
 } as const;
@@ -277,6 +285,10 @@ export const IPC_COMMANDS = {
 	OMP_UPDATE_GET_STATE: "omp-update:get-state",
 	/** Check npm and update omp now, whatever the pref says (runs in the background) */
 	OMP_UPDATE_NOW: "omp-update:now",
+	/** A paired host's omp update state (OmpUpdateState); `device` names the host */
+	HOST_OMP_UPDATE_GET: "host-omp-update:get",
+	/** Update the paired host's omp now, whatever its pref says (runs on the host in the background) */
+	HOST_OMP_UPDATE_NOW: "host-omp-update:now",
 	/** GitHub sign-in on this machine: whole GithubAuthState, re-checked when stale (`force` re-checks now) */
 	GITHUB_AUTH_REFRESH: "github-auth:refresh",
 	/** Start `gh auth login --web` (ends any live sign-in) */
@@ -1520,6 +1532,13 @@ export interface OmpApi {
 		onState(callback: (state: OmpUpdateState) => void): () => void;
 		/** omp updated itself (one window only): show "omp updated to X". */
 		onUpdated(callback: (notice: OmpUpdatedNotice) => void): () => void;
+	};
+	/** omp's automatic update on a paired host (`device`), driven by that host's own OmpUpdater: the same state the local row shows. */
+	hostOmpUpdate: {
+		get(device: string): Promise<OmpUpdateState>;
+		/** Check and update the host's omp now, whatever its pref says; progress arrives through `onState`. */
+		now(device: string): Promise<OmpUpdateState>;
+		onState(callback: (update: IpcHostOmpUpdate) => void): () => void;
 	};
 	/** This machine's GitHub CLI sign-in; remote tabs never use it (their host signs in on its own). */
 	githubAuth: {

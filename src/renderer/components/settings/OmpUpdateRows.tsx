@@ -30,6 +30,19 @@ function failureTitle(t: Translate, failure: OmpUpdateFailure, state: OmpUpdateS
 	return t(`ompUpdate.failure.${failure.reason}`, { latest: state.latest ?? "" });
 }
 
+/** Why the last omp update attempt failed, and that the next check retries; nothing while the last attempt did not fail. */
+export function OmpUpdateFailureNotice({ state }: { state: OmpUpdateState }) {
+	const t = useT();
+	if (!state.failure) return null;
+	return (
+		<InlineNotice
+			detail={state.failure.detail}
+			title={`${failureTitle(t, state.failure, state)} ${t("ompUpdate.retryNote")}`}
+			tone="warning"
+		/>
+	);
+}
+
 export function OmpUpdateRows() {
 	const t = useT();
 	const state = useOmpUpdateStore(store => store.state);
@@ -67,13 +80,7 @@ export function OmpUpdateRows() {
 				<p className="text-sc-sm break-words text-(--sc-text-secondary)" data-testid="omp-update-status">
 					{state ? statusText(t, state) : t("ompUpdate.status.notChecked")}
 				</p>
-				{state?.failure && (
-					<InlineNotice
-						detail={state.failure.detail}
-						title={`${failureTitle(t, state.failure, state)} ${t("ompUpdate.retryNote")}`}
-						tone="warning"
-					/>
-				)}
+				{state && <OmpUpdateFailureNotice state={state} />}
 			</SettingsRow>
 		</>
 	);

@@ -30,6 +30,7 @@ import type { PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origi
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { codedError } from "../../shared/ipc-error-codes";
 import { ModelSetupRequestSchema } from "../../shared/model-setup";
+import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS } from "../../shared/rpc-client";
 import type {
 	AgentSessionEvent,
@@ -69,6 +70,7 @@ import {
 	CustomProviderInputSchema,
 	encodeBinaryRead,
 	ModelOverrideInputSchema,
+	OMP_UPDATE_EVENT,
 	SESSIONS_CHANGED_EVENT,
 	TAB_EVENT,
 	TAB_EVENT_NAMES,
@@ -440,6 +442,10 @@ export class LocalHostServices implements HostServices {
 				return this.#deps.machine.desktop();
 			case "host.desktop.update":
 				return this.#deps.machine.desktopUpdate(parse(DesktopUpdateParams, method, params).action);
+			case "host.ompUpdate.get":
+				return this.#deps.machine.ompUpdate();
+			case "host.ompUpdate.now":
+				return this.#deps.machine.startOmpUpdate();
 			default:
 				throw codedError("unsupported", `Unknown method ${method}`);
 		}
@@ -466,6 +472,11 @@ export class LocalHostServices implements HostServices {
 			for (const conn of this.#conns) emitSafely(conn, SESSIONS_CHANGED_EVENT, null);
 		}, SESSIONS_CHANGED_DEBOUNCE_MS);
 		this.#sessionsTimer.unref?.();
+	}
+
+	/** This machine's own OmpUpdater changed state: every connected device shows it like the computer's own row. */
+	ompUpdateChanged(state: OmpUpdateState): void {
+		for (const conn of this.#conns) emitSafely(conn, OMP_UPDATE_EVENT, state);
 	}
 
 	/** This machine's reply-language setting changed: the tabs it runs for paired devices follow it. */

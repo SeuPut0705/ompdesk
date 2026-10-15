@@ -19,13 +19,14 @@ import type {
 	ModelOverrideInput,
 } from "../../shared/ipc-types";
 import type { ModelSetupRequest, ModelSetupStatus } from "../../shared/model-setup";
+import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-client";
 import type { RpcCommand, RpcResponse, SidecarStatus } from "../../shared/rpc-types";
 import { canonicalCwd } from "../canonical-cwd";
 import type { MachineServices } from "../machine-services";
 import type { SidecarLike } from "../sidecar-pool";
 import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
-import { decodeBinaryRead, type TabEventMessage } from "./app-protocol";
+import { decodeBinaryRead, OMP_UPDATE_EVENT, type TabEventMessage } from "./app-protocol";
 import type { HostConnection } from "./host-server";
 import { type HostServicesDeps, LocalHostServices } from "./host-services";
 import { localDay, PeerQuota } from "./peer-quota";
@@ -145,6 +146,17 @@ const DESKTOP: HostDesktopState = {
 	appearance: { themeName: "dark", language: "ko" },
 };
 
+const OMP_UPDATE_IDLE: OmpUpdateState = {
+	enabled: true,
+	scheduled: true,
+	phase: "idle",
+	installed: "18.8.7",
+	latest: "18.9.0",
+	checkedAt: 1,
+	updatedTo: null,
+	failure: null,
+};
+
 /** This machine's models.yml, stats and bench, recording what the host asked of it. */
 function fakeMachine() {
 	return {
@@ -182,6 +194,8 @@ function fakeMachine() {
 		setBuiltinRea: vi.fn(async (enabled: boolean) => ({ enabled, available: true })),
 		desktop: vi.fn(async (): Promise<HostDesktopState> => DESKTOP),
 		desktopUpdate: vi.fn(async (_action: HostUpdateAction): Promise<HostDesktopState> => DESKTOP),
+		ompUpdate: vi.fn(async (): Promise<OmpUpdateState> => OMP_UPDATE_IDLE),
+		startOmpUpdate: vi.fn(async (): Promise<OmpUpdateState> => ({ ...OMP_UPDATE_IDLE, phase: "checking" })),
 	} satisfies MachineServices;
 }
 
@@ -985,6 +999,30 @@ describe("LocalHostServices host.* calls", () => {
 		expect(machine.abortModelSetup).toHaveBeenLastCalledWith("peer:device-y");
 		services.dropPeer("device-x");
 		expect(machine.abortModelSetup).toHaveBeenLastCalledWith("peer:device-x");
+	});
+
+	it("updates the host's omp through the machine's updater and pushes its state to every connected device", async () => {
+		const { services, machine } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		await expect(services.call(x.peer, "host.ompUpdate.get", {}, x)).resolves.toMatchObject({ phase: "idle" });
+		await expect(services.call(y.peer, "host.ompUpdate.get", {}, y)).resolves.toMatchObject({ phase: "idle" });
+
+		// The device only starts it: the host's own OmpUpdater runs it (no `omp update` of the device's making).
+		await expect(services.call(x.peer, "host.ompUpdate.now", {}, x)).resolves.toMatchObject({ phase: "checking" });
+		expect(machine.startOmpUpdate).toHaveBeenCalledTimes(1);
+
+		services.ompUpdateChanged({ ...OMP_UPDATE_IDLE, phase: "updating" });
+		for (const conn of [x, y]) {
+			expect(conn.events.filter(entry => entry.event === OMP_UPDATE_EVENT).map(entry => entry.data)).toEqual([
+				{ ...OMP_UPDATE_IDLE, phase: "updating" },
+			]);
+		}
+		// A device that left gets nothing more.
+		services.disconnected(y.peer, y);
+		services.ompUpdateChanged(OMP_UPDATE_IDLE);
+		expect(y.events.filter(entry => entry.event === OMP_UPDATE_EVENT)).toHaveLength(1);
+		expect(x.events.filter(entry => entry.event === OMP_UPDATE_EVENT)).toHaveLength(2);
 	});
 
 	it("serves a tab's file bytes to its own device only, as base64 that decodes to the same bytes", async () => {

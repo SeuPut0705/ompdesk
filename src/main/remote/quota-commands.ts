@@ -193,7 +193,6 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"move_session",
 	"negotiate_protocol",
 	"new_session",
-	"omp_update",
 	"pr_checkout",
 	"pr_comment",
 	"pr_comments",

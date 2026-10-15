@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AccountRotationMode } from "../shared/account-rotation";
 import { codedError, ipcErrorCode } from "../shared/ipc-error-codes";
 import type { CustomProviderInput, IpcBenchmarkRunOptions } from "../shared/ipc-types";
+import type { OmpUpdateState } from "../shared/omp-update";
 import { BENCHMARK_TIMEOUT_MS } from "./benchmark-runner";
 import {
 	type AccountRotationDeps,
@@ -11,6 +12,7 @@ import {
 	machineFor,
 	RemoteMachine,
 } from "./machine-services";
+import type { OmpUpdater } from "./omp-updater";
 import { HOST_STATS_TIMEOUT_MS, LINK_SLACK_MS } from "./remote/app-protocol";
 import type { Revive } from "./stats-restart-policy";
 
@@ -33,11 +35,42 @@ function rotationPrefs(stored: unknown = undefined, evenSupported: boolean | nul
 	return { deps, writes };
 }
 
+const OMP_UPDATE_STATE: OmpUpdateState = {
+	enabled: true,
+	scheduled: true,
+	phase: "idle",
+	installed: "18.8.7",
+	latest: "18.9.0",
+	checkedAt: 1,
+	updatedTo: null,
+	failure: null,
+};
+
+/** An OmpUpdater whose `updateNow` flips to `checking` at once, like the real one, and stays there until `finish`. */
+function fakeUpdater() {
+	let state: OmpUpdateState = OMP_UPDATE_STATE;
+	let settle = () => {};
+	return {
+		state: () => state,
+		updateNow: vi.fn(() => {
+			state = { ...state, phase: "checking" };
+			return new Promise<void>(resolve => {
+				settle = resolve;
+			});
+		}),
+		finish: () => {
+			state = { ...state, phase: "idle" };
+			settle();
+		},
+	};
+}
+
 function localMachine(
 	port: number,
 	revive: Revive = "scheduled",
 	fetch: StatsFetch = async () => ({ ok: 1 }),
 	accountRotation: AccountRotationDeps = rotationPrefs().deps,
+	updater: Pick<OmpUpdater, "state" | "updateNow"> = fakeUpdater(),
 ) {
 	return new LocalMachine({
 		stats: { port, fetch },
@@ -59,6 +92,7 @@ function localMachine(
 			appearance: () => ({ themeName: "dark", language: 3 }),
 			busy: () => false,
 		},
+		ompUpdater: () => updater,
 	});
 }
 
@@ -180,6 +214,27 @@ describe("machineFor", () => {
 		});
 		await expect(garbled.builtinRea()).rejects.toThrow();
 	});
+
+	it("reads a paired host's omp update state, starts its update there and checks the replies", async () => {
+		const host = fakeHost(method =>
+			method === "host.ompUpdate.now"
+				? { ...OMP_UPDATE_STATE, phase: "updating" }
+				: { ...OMP_UPDATE_STATE, failure: { reason: "install", detail: "exit 1" } },
+		);
+		const remote = new RemoteMachine({ request: host.request, device: "host-b", statsText });
+		await expect(remote.ompUpdate()).resolves.toMatchObject({ failure: { reason: "install", detail: "exit 1" } });
+		await expect(remote.startOmpUpdate()).resolves.toMatchObject({ phase: "updating" });
+		expect(host.calls.map(({ method, params }) => ({ method, params }))).toEqual([
+			{ method: "host.ompUpdate.get", params: {} },
+			{ method: "host.ompUpdate.now", params: {} },
+		]);
+		const garbled = new RemoteMachine({
+			request: fakeHost(() => ({ ...OMP_UPDATE_STATE, phase: "installing" })).request,
+			device: "host-b",
+			statsText,
+		});
+		await expect(garbled.ompUpdate()).rejects.toThrow();
+	});
 });
 
 describe("LocalMachine", () => {
@@ -237,5 +292,25 @@ describe("LocalMachine", () => {
 		const bad = "round-robin" as AccountRotationMode;
 		await expect(machine.setAccountRotation(bad)).rejects.toThrow(/Invalid account rotation/);
 		expect(prefs.writes).toEqual(["even"]);
+	});
+
+	it("starts the host's own OmpUpdater in the background and answers with its state at that moment", async () => {
+		const updater = fakeUpdater();
+		const machine = localMachine(0, "scheduled", undefined, rotationPrefs().deps, updater);
+		await expect(machine.ompUpdate()).resolves.toMatchObject({ phase: "idle" });
+		expect(updater.updateNow).not.toHaveBeenCalled();
+
+		const started = await machine.startOmpUpdate();
+		expect(updater.updateNow).toHaveBeenCalledTimes(1);
+		expect(started.phase).toBe("checking");
+		// The run keeps going after the reply: nothing waits for it.
+		updater.finish();
+	});
+
+	it("does not reject the device's request when the host's update run fails", async () => {
+		const updater = fakeUpdater();
+		updater.updateNow.mockRejectedValueOnce(new Error("boom"));
+		const machine = localMachine(0, "scheduled", undefined, rotationPrefs().deps, updater);
+		await expect(machine.startOmpUpdate()).resolves.toMatchObject({ phase: "idle" });
 	});
 });

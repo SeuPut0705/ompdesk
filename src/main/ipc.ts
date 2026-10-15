@@ -1216,6 +1216,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		return machineFor(event, device).desktopUpdate(action);
 	});
+	// omp's own update on a paired host: that host's OmpUpdater runs it; its state changes come back as pushed events.
+	ipcMain.handle(IPC_COMMANDS.HOST_OMP_UPDATE_GET, (event, device?: unknown) => machineFor(event, device).ompUpdate());
+	ipcMain.handle(IPC_COMMANDS.HOST_OMP_UPDATE_NOW, (event, device?: unknown) =>
+		machineFor(event, device).startOmpUpdate(),
+	);
 
 	// "Edit config" — open the agent's models.yml in the system editor. The
 	// file is created with a minimal skeleton when missing so there is always

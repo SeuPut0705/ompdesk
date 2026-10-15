@@ -16,8 +16,9 @@
  * check.
  *
  * OMPdesk's own update is not part of this: it stays manual (updater.ts).
- * Each computer runs its own instance under its own pref; a client never
- * updates a host.
+ * Each computer runs its own instance under its own pref. A paired device
+ * that wants a host's omp updated asks that host's instance (`host.ompUpdate.now`,
+ * LocalMachine.startOmpUpdate) and follows its state, which the host pushes.
  */
 import { IPC_COMMANDS } from "../shared/ipc-types";
 import type { OmpUpdatedNotice, OmpUpdateFailure, OmpUpdateState } from "../shared/omp-update";

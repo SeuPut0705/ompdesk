@@ -86,7 +86,6 @@ export const IPC_ERROR_CODES = [
 	"stale_cursor",
 	"oauth_busy",
 	"update_check_failed",
-	"update_failed",
 	"worktree_outside_root",
 	"worktree_dirty",
 	"worktree_remove_failed",

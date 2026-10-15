@@ -149,7 +149,6 @@ export type RpcCommand =
 	| { id?: string; type: "get_security_scan"; scanId: string }
 	| { id?: string; type: "get_ssh_hosts" }
 	| { id?: string; type: "get_omp_update" }
-	| { id?: string; type: "omp_update" }
 	| { id?: string; type: "get_plugin_doctor" }
 	| { id?: string; type: "get_agent_worktrees" }
 	| { id?: string; type: "clear_agent_worktrees" }
@@ -1273,13 +1272,8 @@ export interface RpcOmpUpdateResult {
 	checkedAt: string;
 	/** The user's system-installed omp CLI. */
 	distribution: "system";
-	/** Installed by running `omp update` (the `omp_update` command). */
+	/** Read from `omp update --check`; installing goes through the machine's OmpUpdater, not an RPC. */
 	installStrategy: "omp-update";
-}
-/** Result of `omp_update`: the installed version afterwards and the tail of `omp update` output. */
-export interface RpcOmpUpdateRunResult {
-	version: string;
-	output: string;
 }
 /** One row of stock `omp plugin doctor --json` (`DoctorCheck`). */
 export interface RpcDoctorCheck {

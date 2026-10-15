@@ -216,7 +216,6 @@ export interface SessionRpcClient {
 	}): Promise<RpcResponse>;
 	sshTest(host: RpcSshHostInput & { name: string }): Promise<RpcResponse>;
 	getOmpUpdate(): Promise<RpcResponse>;
-	ompUpdate(): Promise<RpcResponse>;
 	getPluginDoctor(): Promise<RpcResponse>;
 	getAgentWorktrees(): Promise<RpcResponse>;
 	clearAgentWorktrees(): Promise<RpcResponse>;
@@ -568,8 +567,6 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		sshManage: payload => rpcCommand({ type: "ssh_manage", ...payload }, 30_000),
 		sshTest: host => rpcCommand({ type: "ssh_test", host }, 60_000),
 		getOmpUpdate: () => rpcCommand({ type: "get_omp_update" }, 60_000),
-		// Runs `omp update` against the system install — download + install can take minutes.
-		ompUpdate: () => rpcCommand({ type: "omp_update" }, 11 * 60_000),
 		getPluginDoctor: () => rpcCommand({ type: "get_plugin_doctor" }, 90_000),
 		getAgentWorktrees: () => rpcCommand({ type: "get_agent_worktrees" }, 60_000),
 		// Removing a task-isolation mount or a large checkout can take a while.

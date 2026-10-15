@@ -21,11 +21,19 @@ import { codedError, type IpcErrorCode, isIpcErrorCode } from "../../shared/ipc-
 import {
 	type HostView,
 	IPC_EVENTS,
+	type IpcHostOmpUpdate,
 	type RemoteDirListing,
 	type RemoteDiscoveredDevice,
 	type RemoteState,
 } from "../../shared/ipc-types";
-import { SESSIONS_CHANGED_EVENT, TAB_EVENT, TabEventMessage } from "./app-protocol";
+import type { OmpUpdateState } from "../../shared/omp-update";
+import {
+	OMP_UPDATE_EVENT,
+	OmpUpdateStateSchema,
+	SESSIONS_CHANGED_EVENT,
+	TAB_EVENT,
+	TabEventMessage,
+} from "./app-protocol";
 import { pairWithHost, RemoteClient, RemoteError } from "./client";
 import { BeaconListener, type DiscoveredHost } from "./discovery";
 import { type HostMachineInfo, RemoteHost } from "./host-server";
@@ -315,6 +323,11 @@ export class RemoteDevices {
 		return sidecar;
 	}
 
+	/** This machine's omp updater changed state: devices using it as a host show it. */
+	hostOmpUpdateChanged(state: OmpUpdateState): void {
+		this.#deps.services.ompUpdateChanged(state);
+	}
+
 	/** This machine's session index changed: devices using it as a host refetch. */
 	hostSessionsChanged(): void {
 		this.#deps.services.sessionsChanged();
@@ -408,6 +421,14 @@ export class RemoteDevices {
 		client.on("event", (event, data) => {
 			if (event === SESSIONS_CHANGED_EVENT) {
 				this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, undefined);
+				return;
+			}
+			if (event === OMP_UPDATE_EVENT) {
+				const state = OmpUpdateStateSchema.safeParse(data);
+				if (state.success) {
+					const update: IpcHostOmpUpdate = { device: deviceId, state: state.data };
+					this.#deps.broadcast(IPC_EVENTS.HOST_OMP_UPDATE_STATE, update);
+				}
 				return;
 			}
 			if (event !== TAB_EVENT) return;

@@ -24,6 +24,7 @@ import type {
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
+	IpcHostOmpUpdate,
 	IpcModelSetupRunResult,
 	IpcOpenExtensionRequest,
 	IpcOpenPathResult,
@@ -280,6 +281,13 @@ const api: OmpApi = {
 			subscribe<OmpUpdateState>(IPC_EVENTS.OMP_UPDATE_STATE, callback),
 		onUpdated: (callback: (notice: OmpUpdatedNotice) => void) =>
 			subscribe<OmpUpdatedNotice>(IPC_EVENTS.OMP_UPDATED, callback),
+	},
+
+	hostOmpUpdate: {
+		get: (device: string) => ipcRenderer.invoke(IPC_COMMANDS.HOST_OMP_UPDATE_GET, device) as Promise<OmpUpdateState>,
+		now: (device: string) => ipcRenderer.invoke(IPC_COMMANDS.HOST_OMP_UPDATE_NOW, device) as Promise<OmpUpdateState>,
+		onState: (callback: (update: IpcHostOmpUpdate) => void) =>
+			subscribe<IpcHostOmpUpdate>(IPC_EVENTS.HOST_OMP_UPDATE_STATE, callback),
 	},
 
 	githubAuth: {

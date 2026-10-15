@@ -3,8 +3,9 @@
  * looks up npm's latest `@oh-my-pi/pi-coding-agent` and, when that is newer
  * than the installed omp, runs stock `omp update` on its own. OMPdesk's own
  * updates stay manual (Settings › Updates & about). Each computer — a paired
- * host included — updates its own omp under its own pref; a client never
- * updates a host.
+ * host included — updates its own omp under its own pref, always through its
+ * own updater: a client only asks the host to run it (`host.ompUpdate.now`)
+ * and follows the state the host pushes; it never runs `omp update` there.
  */
 
 /** Settings › Updates & about › Update omp automatically (default on); a stored `false` turns it off. */
@@ -17,7 +18,8 @@ export const OMP_AUTO_UPDATE_PREF = "ompAutoUpdate";
  * - `unusable`: the new omp does not run (or is below the minimum); tabs stay on the omp they have.
  * - `cancelled`: the user cancelled the install from This computer.
  */
-export type OmpUpdateFailureReason = "check" | "install" | "not-updated" | "unusable" | "cancelled";
+export const OMP_UPDATE_FAILURE_REASONS = ["check", "install", "not-updated", "unusable", "cancelled"] as const;
+export type OmpUpdateFailureReason = (typeof OMP_UPDATE_FAILURE_REASONS)[number];
 
 export interface OmpUpdateFailure {
 	reason: OmpUpdateFailureReason;

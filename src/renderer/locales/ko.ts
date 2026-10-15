@@ -1457,7 +1457,6 @@ export const ko: Record<string, string> = {
 	"ipcError.stale_cursor": "불러오는 동안 대화 기록이 바뀌었어요. 다시 불러와 주세요.",
 	"ipcError.oauth_busy": "다른 MCP 로그인이 이미 진행 중이에요. 먼저 끝내거나 취소해 주세요.",
 	"ipcError.update_check_failed": "omp 업데이트를 확인하지 못했어요.",
-	"ipcError.update_failed": "omp를 업데이트하지 못했어요.",
 	"ipcError.worktree_outside_root": "OMPdesk가 만든 워크트리만 여기서 삭제할 수 있어요.",
 	"ipcError.worktree_dirty": "워크트리에 커밋하지 않은 변경 사항이 있어요.",
 	"ipcError.worktree_remove_failed": "워크트리를 삭제하지 못했어요.",

@@ -25,8 +25,11 @@
  * - OMPdesk on the host: `host.desktop.get {}` → HostDesktopState (version, updater state,
  *   theme and language), `host.desktop.update {action: "check"|"download"|"install"}` → HostDesktopState
  *   (install restarts the host; refused with `host_busy` while anything runs there)
+ * - omp on the host updates itself (omp-updater.ts): `host.ompUpdate.get {}` → OmpUpdateState,
+ *   `host.ompUpdate.now {}` → OmpUpdateState (starts the host's own check and update in the
+ *   background and answers at once); the host pushes every state change as the `host.ompUpdate.changed` event
  *
- * Events (B → A): `tab.event` (TabEventMessage) and `sessions.changed` (no data).
+ * Events (B → A): `tab.event` (TabEventMessage), `sessions.changed` (no data) and `host.ompUpdate.changed`.
  * Both sides parse what crosses the link with the schemas below.
  */
 import { z } from "zod";
@@ -46,6 +49,7 @@ import type {
 	UpdateStatus,
 } from "../../shared/ipc-types";
 import type { ModelSetupStatus } from "../../shared/model-setup";
+import { OMP_UPDATE_FAILURE_REASONS, type OmpUpdateState } from "../../shared/omp-update";
 
 /** SidecarManager events a host forwards for a remote tab; everything else stays on the host. */
 export const TAB_EVENT_NAMES = [
@@ -73,6 +77,8 @@ export type TabEventName = (typeof TAB_EVENT_NAMES)[number];
 
 export const TAB_EVENT = "tab.event";
 export const SESSIONS_CHANGED_EVENT = "sessions.changed";
+/** The host's omp update changed (data: OmpUpdateState); sent to every connected device. */
+export const OMP_UPDATE_EVENT = "host.ompUpdate.changed";
 
 const SessionKind = z.enum(["agent", "chat"]);
 
@@ -253,6 +259,18 @@ export const HostDesktopStateSchema: z.ZodType<HostDesktopState> = z.object({
 	version: z.string(),
 	update: UpdateStatusSchema,
 	appearance: z.object({ themeName: z.string().nullable(), language: z.string().nullable() }),
+});
+
+/** `host.ompUpdate.*` reply and `host.ompUpdate.changed` event: the host's own OmpUpdater state. */
+export const OmpUpdateStateSchema: z.ZodType<OmpUpdateState> = z.object({
+	enabled: z.boolean(),
+	scheduled: z.boolean(),
+	phase: z.enum(["idle", "checking", "updating"]),
+	installed: z.string().nullable(),
+	latest: z.string().nullable(),
+	checkedAt: z.number().nullable(),
+	updatedTo: z.string().nullable(),
+	failure: z.object({ reason: z.enum(OMP_UPDATE_FAILURE_REASONS), detail: z.string().optional() }).nullable(),
 });
 
 /** A host-level stats read waits for the host's own stats request (15 s) plus the link. */

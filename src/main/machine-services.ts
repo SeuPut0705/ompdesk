@@ -28,12 +28,14 @@ import type {
 	UpdateStatus,
 } from "../shared/ipc-types";
 import { MODEL_SETUP_TIMEOUT_MS, type ModelSetupRequest, type ModelSetupStatus } from "../shared/model-setup";
+import type { OmpUpdateState } from "../shared/omp-update";
 import { BENCHMARK_TIMEOUT_MS, BenchmarkRunner } from "./benchmark-runner";
 import { builtinReaState } from "./builtin-mcp";
 import { ModelSetupRunner } from "./model-setup-runner";
 import { deleteModelsProvider, listModelsProviders, setModelOverride, upsertModelsProvider } from "./models-config";
 import { modelsConfigMetadata } from "./models-config-stock";
 import type { OmpResolution } from "./omp-runtime";
+import type { OmpUpdater } from "./omp-updater";
 import {
 	AccountRotationStateSchema,
 	BuiltinReaStateSchema,
@@ -41,6 +43,7 @@ import {
 	HostDesktopStateSchema,
 	LINK_SLACK_MS,
 	ModelSetupStatusSchema,
+	OmpUpdateStateSchema,
 } from "./remote/app-protocol";
 import type { StatsClient } from "./stats-client";
 import type { Revive } from "./stats-restart-policy";
@@ -74,6 +77,10 @@ export interface MachineServices {
 	desktop(): Promise<HostDesktopState>;
 	/** Drive that machine's updater; `install` restarts it into the downloaded update. */
 	desktopUpdate(action: HostUpdateAction): Promise<HostDesktopState>;
+	/** omp's automatic update on that machine: what its own OmpUpdater last reported. */
+	ompUpdate(): Promise<OmpUpdateState>;
+	/** Check and update that machine's omp now, whatever its pref says; answers at once, the run goes on in the background. */
+	startOmpUpdate(): Promise<OmpUpdateState>;
 }
 
 /** The stats server's down-state texts, in this computer's UI language. */
@@ -121,6 +128,8 @@ export interface LocalMachineDeps {
 	accountRotation: AccountRotationDeps;
 	builtinRea: { read(): unknown; write(enabled: boolean): void };
 	desktop: DesktopDeps;
+	/** This computer's omp updater (`omp-updater.ts`); it exists once startup has built it. */
+	ompUpdater: () => Pick<OmpUpdater, "state" | "updateNow">;
 }
 
 export interface AccountRotationDeps {
@@ -298,6 +307,22 @@ export class LocalMachine implements MachineServices {
 		} else throw codedError("invalid_preference_key", "Invalid update action");
 		return this.desktop();
 	}
+
+	async ompUpdate(): Promise<OmpUpdateState> {
+		return this.#deps.ompUpdater().state();
+	}
+
+	/**
+	 * A paired device asks this computer to update its omp: the computer's own OmpUpdater does it
+	 * (helpers released and resumed, the setup supervisor, the tabs moved to the new omp, one run at a
+	 * time with its scheduled one), in the background. The reply carries the state at that moment;
+	 * every change after it reaches the device as a pushed event (`LocalHostServices.ompUpdateChanged`).
+	 */
+	async startOmpUpdate(): Promise<OmpUpdateState> {
+		const updater = this.#deps.ompUpdater();
+		void updater.updateNow().catch(() => undefined);
+		return updater.state();
+	}
 }
 
 /** One host-level call on a paired host (RemoteDevices.request). */
@@ -406,6 +431,14 @@ export class RemoteMachine implements MachineServices {
 		return HostDesktopStateSchema.parse(
 			await this.#request<unknown>("host.desktop.update", { action }, DESKTOP_UPDATE_TIMEOUT_MS + LINK_SLACK_MS),
 		);
+	}
+
+	async ompUpdate(): Promise<OmpUpdateState> {
+		return OmpUpdateStateSchema.parse(await this.#request<unknown>("host.ompUpdate.get", {}));
+	}
+
+	async startOmpUpdate(): Promise<OmpUpdateState> {
+		return OmpUpdateStateSchema.parse(await this.#request<unknown>("host.ompUpdate.now", {}));
 	}
 }
 
