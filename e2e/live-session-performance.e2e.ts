@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { measure, PROBE, type Probe, type Ready } from "./frame-probe";
+import { countIpc, measure, PROBE, type Probe, type Ready } from "./frame-probe";
 import { exitApp, fixtureOmp } from "./harness";
 
 // Opt-in audit of the user's real shape: a very long session open while a live
@@ -84,32 +84,7 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 						timeout: 120_000,
 					})
 					.toBe("ready");
-				// Test-only wrapping at the IPC seam: count messages per channel (and an RPC
-				// command's `type`), never their content.
-				await app.evaluate(({ BrowserWindow, ipcMain }) => {
-					const counts: Record<string, number> = {};
-					Reflect.set(globalThis, "ompdeskIpcCounts", counts);
-					const contents = BrowserWindow.getAllWindows()[0]?.webContents;
-					if (!contents) throw new Error("No window to measure");
-					const send = contents.send.bind(contents);
-					contents.send = (channel: string, ...args: unknown[]) => {
-						counts[channel] = (counts[channel] ?? 0) + 1;
-						send(channel, ...args);
-					};
-					type Handler = (...args: unknown[]) => unknown;
-					const handlers = Reflect.get(ipcMain, "_invokeHandlers") as Map<string, Handler> | undefined;
-					if (!(handlers instanceof Map)) throw new Error("Electron IPC measurement seam unavailable");
-					for (const [channel, original] of handlers)
-						handlers.set(channel, (...args: unknown[]) => {
-							// RPC commands travel as `{ command }` (per tab) or bare.
-							const payload = args[1];
-							const command = Reflect.get(Object(payload), "command") ?? payload;
-							const type = Reflect.get(Object(command), "type");
-							const key = typeof type === "string" ? `invoke:${channel}:${type}` : `invoke:${channel}`;
-							counts[key] = (counts[key] ?? 0) + 1;
-							return original(...args);
-						});
-				});
+				await countIpc(app);
 				await page.context().addInitScript(PROBE);
 				const opened = performance.now();
 				await page.reload();
@@ -257,7 +232,8 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 					: undefined;
 				// Tabs: ⌘T opens a second tab (the fake omp seeds every tab with this
 				// session, so it opens the same long transcript), then ⌃⇥ switches
-				// between the two.
+				// between the two (OMP_GUI_LIVE_SESSION_SWITCH_KEY picks another chord,
+				// e.g. Meta+Shift+BracketRight, v0.29's next-tab without the switcher).
 				const tabs = phases.has("tab")
 					? await (async () => {
 							const list = () => page.evaluate(() => window.omp.tabs.list());
@@ -282,7 +258,7 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 							await page.waitForTimeout(1000);
 							const switching = await measure(app, page, `${subject.name}-${run}-tab-switch`, 8, async () => {
 								for (const target of [first, second, first, second]) {
-									await page.keyboard.press("Control+Tab");
+									await page.keyboard.press(process.env.OMP_GUI_LIVE_SESSION_SWITCH_KEY ?? "Control+Tab");
 									switchMs.push(await latency("pane", target));
 									await page.waitForTimeout(1000);
 								}

@@ -1,19 +1,25 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
+import { createServer } from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
-import { measure, PROBE } from "./frame-probe";
-import { exitApp, fixtureOmp } from "./harness";
+import { writeFakeSsh } from "../src/main/ssh/test-fake-ssh";
+import { countIpc, measure, measureTree, PROBE } from "./frame-probe";
+import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+import { tinyPdf } from "./tiny-pdf";
 
 // Opt-in audit of multi-step flows, end to end: every frame interval (rAF) and
 // every Long Animation Frame (scripts, style, layout, paint) while a user
 // launches the app, opens a long session, lays four of them out 2×2 and streams
 // in all four, expands a huge finished card, opens a big change set's diff,
-// opens settings, works a sidebar of 500 sessions, and streams for half an hour
-// (memory). OMP_GUI_LIVE_SESSION_SOURCE names the stock session file the
-// sessions are cloned from (never written); the fake omp serves the clones.
+// opens settings, works a sidebar of 500 sessions, types beside @file cards,
+// leaves the app idle with its background work on (quota polling and usage
+// bars, file cards, a chatty Preview page, an SSH port watch) on screen and
+// hidden, and streams for half an hour (memory). OMP_GUI_LIVE_SESSION_SOURCE
+// names the stock session file the sessions are cloned from (never written);
+// the fake omp serves the clones.
 //
 // OMP_GUI_FLOWS picks flows (comma list; default every flow but memory),
 // OMP_GUI_FLOW_RUNS runs per subject (default 3), OMP_GUI_CANDIDATE_DIR and
@@ -22,7 +28,9 @@ import { exitApp, fixtureOmp } from "./harness";
 // OMP_GUI_FLOW_MEMORY_MINUTES the memory flow's length (default 30).
 
 const source = process.env.OMP_GUI_LIVE_SESSION_SOURCE;
-const flows = new Set((process.env.OMP_GUI_FLOWS ?? "launch,open,grid,expand,diff,settings,sidebar").split(","));
+const flows = new Set(
+	(process.env.OMP_GUI_FLOWS ?? "launch,open,grid,expand,diff,settings,sidebar,compose,background").split(","),
+);
 const runs = Number(process.env.OMP_GUI_FLOW_RUNS ?? 3);
 const subjects = [
 	{ name: "after", root: process.env.OMP_GUI_CANDIDATE_DIR ?? process.cwd() },
@@ -165,7 +173,7 @@ async function tailKey(file: string): Promise<string> {
 async function launch(
 	root: string,
 	where: Profile,
-	options: { seed?: string; prefs?: object } = {},
+	options: { seed?: string; prefs?: object; env?: Record<string, string> } = {},
 ): Promise<{ app: ElectronApplication; page: Page; launchedMs: number; windowMs: number }> {
 	await fs.writeFile(
 		path.join(where.desktop, "prefs.json"),
@@ -179,6 +187,7 @@ async function launch(
 		PI_PROFILE: "",
 		OMP_GUI_OMP: await fixtureOmp(where.profile),
 		...(options.seed ? { OMP_GUI_TEST_SEED_SESSION: options.seed } : {}),
+		...options.env,
 	};
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	const started = performance.now();
@@ -955,6 +964,205 @@ test.describe("flow performance", () => {
 				await exitApp(app);
 			}
 		});
+	});
+
+	test("compose: typing in the composer beside @file cards over the long session", async () => {
+		test.skip(!flows.has("compose"));
+		test.setTimeout(900_000);
+		await eachRun("compose", async (subject, run, where) => {
+			// One file of each kind a card reads: code, notes, a table and a PDF.
+			await fs.mkdir(path.join(where.project, "src"), { recursive: true });
+			await Promise.all([
+				fs.writeFile(
+					path.join(where.project, "src", "server.ts"),
+					Array.from({ length: 3000 }, (_, line) => `export const handler${line} = () => ${line};`).join("\n"),
+				),
+				fs.writeFile(
+					path.join(where.project, "notes.md"),
+					Array.from({ length: 400 }, (_, line) => `- note ${line}: the server keeps its handlers apart`).join(
+						"\n",
+					),
+				),
+				fs.writeFile(
+					path.join(where.project, "data.csv"),
+					["id,name,value", ...Array.from({ length: 3000 }, (_, row) => `${row},row ${row},${row * 7}`)].join(
+						"\n",
+					),
+				),
+				fs.writeFile(path.join(where.project, "spec.pdf"), tinyPdf()),
+			]);
+			const seed = cloneSource(where);
+			const key = await tailKey(seed);
+			const { app, page } = await launch(subject.root, where, { seed });
+			try {
+				await sidecarReady(page);
+				await countIpc(app);
+				await reloadToTail(page, key);
+				await page.waitForTimeout(1500);
+				const input = page.locator('textarea[aria-label="Message"]').first();
+				await input.click();
+				// The draft names four files (a paste or picker insert lands the same way).
+				const attach = await measure(app, page, `compose-${subject.name}-${run}-attach`, 4, () =>
+					input.fill("Compare @src/server.ts with @notes.md, @data.csv and @spec.pdf "),
+				);
+				const cards = await page.locator('[data-draft-file-cards] [data-file-card][data-state="ready"]').count();
+				const typing = await measure(app, page, `compose-${subject.name}-${run}-type`, 6, () =>
+					input.pressSequentially("and say which handler the notes describe, then why.", { delay: 50 }),
+				);
+				const idle = await measure(app, page, `compose-${subject.name}-${run}-idle`, 10, undefined, { idle: true });
+				await input.fill("");
+				return { cards, attach, typing, idle };
+			} finally {
+				await exitApp(app);
+			}
+		});
+	});
+
+	test("background: idle cost of polling and watching work, on screen and hidden", async () => {
+		test.skip(!flows.has("background"));
+		test.setTimeout(1_200_000);
+		// A page that logs an error and repaints a counter every second, as a dev
+		// server's page with a failing poll does.
+		const server = createServer((_request, response) => {
+			response.writeHead(200, { "Content-Type": "text/html" });
+			response.end(
+				"<!doctype html><title>Chatty page</title><h1 id=n>0</h1><script>let n = 0; setInterval(() => { n++; document.getElementById('n').textContent = n; console.error('poll failed ' + n); }, 1000);</script>",
+			);
+		});
+		const listening = Promise.withResolvers<void>();
+		server.listen(0, "127.0.0.1", () => listening.resolve());
+		await listening.promise;
+		const address = server.address();
+		if (!address || typeof address === "string") throw new Error("No page server address");
+		const url = `http://127.0.0.1:${address.port}/`;
+		try {
+			await eachRun("background", async (subject, run, where) => {
+				// A git project (the status footer polls it) with files the draft names.
+				await fs.mkdir(path.join(where.project, "src"), { recursive: true });
+				await fs.writeFile(
+					path.join(where.project, "src", "a.ts"),
+					Array.from({ length: 400 }, (_, line) => `export const a${line} = ${line};`).join("\n"),
+				);
+				await fs.writeFile(path.join(where.project, "README.md"), "# Project\n\nNotes.\n");
+				const git = (...args: string[]) =>
+					execFileSync("git", ["-c", "user.name=flow", "-c", "user.email=flow@example.com", ...args], {
+						cwd: where.project,
+					});
+				git("init", "--quiet");
+				git("add", "-A");
+				git("commit", "-qm", "init");
+				// A fake OpenSSH (it lists the "server's" ports every 300 ms where a real
+				// server's loop sleeps 5 s).
+				const sshBin = path.join(where.profile, "ssh-bin");
+				const ssh = await writeFakeSsh(sshBin);
+				await fs.writeFile(path.join(sshBin, "ports"), "22 3000");
+				const seed = cloneSource(where);
+				const key = await tailKey(seed);
+				const { app, page } = await launch(subject.root, where, {
+					seed,
+					// The usage pin on, with two signed-in accounts whose quota it shows.
+					prefs: { language: "en", firstRunComplete: true, sidebar: { railPins: ["usage"] } },
+					env: { OMP_GUI_TEST_LOGIN: "1", OMP_GUI_TEST_MODELS: "1", OMP_GUI_SSH: ssh },
+				});
+				try {
+					await sidecarReady(page);
+					await countIpc(app);
+					await reloadToTail(page, key);
+					await page.waitForTimeout(3000);
+					const pid = app.process().pid;
+					if (!pid) throw new Error("No main process id");
+					const span = (name: string, seconds: number) =>
+						measureTree(pid, () =>
+							measure(app, page, `background-${subject.name}-${run}-${name}`, seconds, undefined, {
+								idle: true,
+							}),
+						);
+					const quiet = await span("quiet", 30);
+					// The fake omp's own provider reports no quota, so the pin polls but draws no bars.
+					const usagePin = await page.locator('[data-rail-pin="usage"]').count();
+
+					const input = page.locator('textarea[aria-label="Message"]').first();
+					await input.fill("Read @src/a.ts and @README.md ");
+					await page.waitForTimeout(2000);
+					const fileCards = await page
+						.locator('[data-draft-file-cards] [data-file-card][data-state="ready"]')
+						.count();
+					const cards = await span("cards", 20);
+					await input.fill("");
+
+					const aside = page.locator("aside[data-docked]");
+					await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
+					await aside.getByRole("button", { name: "Preview", exact: true }).click();
+					const addressBar = aside.locator("form input[inputmode=url]");
+					await addressBar.fill(url);
+					await addressBar.press("Enter");
+					await expect(page.locator("[data-preview-status]")).toHaveText("Chatty page", { timeout: 30_000 });
+					await page.waitForTimeout(2000);
+					const preview = await span("preview", 20);
+					await page.keyboard.press("ControlOrMeta+j");
+					await expect(aside).toBeHidden();
+					await page.waitForTimeout(1000);
+					const previewClosed = await span("preview-closed", 10);
+
+					// The SSH port watch, with Settings closed (v0.29.0 on).
+					const sshTools = await page.evaluate(() => "sshTools" in window.omp);
+					let sshWatch: object | undefined;
+					if (sshTools) {
+						await page.evaluate(() =>
+							window.omp.sshTools.command({
+								action: "watch",
+								target: { name: "box", host: "box.example" },
+								on: true,
+							}),
+						);
+						let promptId = "";
+						await expect
+							.poll(
+								async () => {
+									promptId = (await page.evaluate(() => window.omp.sshTools.prompts()))[0]?.id ?? "";
+									return promptId;
+								},
+								{ timeout: 30_000 },
+							)
+							.not.toBe("");
+						await page.evaluate(
+							id => window.omp.sshTools.command({ action: "answer", id, value: "yes" }),
+							promptId,
+						);
+						await expect
+							.poll(
+								async () =>
+									(await page.evaluate(() => window.omp.sshTools.command({ action: "state" }))).watches[0]
+										?.loading,
+								{ timeout: 30_000 },
+							)
+							.toBe(false);
+						await page.waitForTimeout(1000);
+						sshWatch = await span("ssh-watch", 20);
+					}
+
+					// Nothing on screen: the window hidden, everything above still on.
+					// Playwright's focus emulation holds the page captured, so Chromium
+					// keeps it "visible" whatever the window does: the page is told it is
+					// hidden the way the app reads it (visibilityState / hidden and the
+					// visibilitychange event). Timers stay unthrottled, so the window is an
+					// upper bound of the real hidden cost.
+					await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.hide());
+					await page.evaluate(() => {
+						Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+						Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+						document.dispatchEvent(new Event("visibilitychange"));
+					});
+					const hidden = await span("hidden", 30);
+					await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.showInactive());
+					return { usagePin, fileCards, quiet, cards, preview, previewClosed, sshWatch, hidden };
+				} finally {
+					await exitApp(app);
+				}
+			});
+		} finally {
+			server.close();
+		}
 	});
 
 	test("memory: a long simulated stream", async () => {

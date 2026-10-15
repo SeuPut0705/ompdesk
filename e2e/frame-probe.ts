@@ -1,7 +1,11 @@
+import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { promisify } from "node:util";
 import type { Page } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
+
+const exec = promisify(execFile);
 
 // Shared renderer frame probes for the opt-in performance audits
 // (live-session-performance.e2e.ts, flow-performance.e2e.ts).
@@ -88,6 +92,133 @@ export interface Ready {
 	panel(state: string): boolean;
 }
 
+/**
+ * Test-only wrapping at the IPC seam: count main → renderer sends and renderer
+ * → main invokes per channel (and an RPC command's `type`), never their content.
+ * measure() reports the counts per second.
+ */
+export async function countIpc(app: ElectronApplication) {
+	await app.evaluate(({ BrowserWindow, ipcMain }) => {
+		const counts: Record<string, number> = {};
+		Reflect.set(globalThis, "ompdeskIpcCounts", counts);
+		const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+		if (!contents) throw new Error("No window to measure");
+		const send = contents.send.bind(contents);
+		contents.send = (channel: string, ...args: unknown[]) => {
+			counts[channel] = (counts[channel] ?? 0) + 1;
+			send(channel, ...args);
+		};
+		type Handler = (...args: unknown[]) => unknown;
+		const handlers = Reflect.get(ipcMain, "_invokeHandlers") as Map<string, Handler> | undefined;
+		if (!(handlers instanceof Map)) throw new Error("Electron IPC measurement seam unavailable");
+		for (const [channel, original] of handlers)
+			handlers.set(channel, (...args: unknown[]) => {
+				// RPC commands travel as `{ command }` (per tab) or bare.
+				const payload = args[1];
+				const command = Reflect.get(Object(payload), "command") ?? payload;
+				const type = Reflect.get(Object(command), "type");
+				const key = typeof type === "string" ? `invoke:${channel}:${type}` : `invoke:${channel}`;
+				counts[key] = (counts[key] ?? 0) + 1;
+				return original(...args);
+			});
+	});
+}
+
+/** CPU seconds per process of the app's whole tree (omp, helpers, ssh, git included), from `ps`. */
+async function treeCpu(root: number): Promise<Map<number, { cpu: number; command: string }>> {
+	const { stdout } = await exec("ps", ["-A", "-o", "pid=,ppid=,time=,command="]);
+	const rows = stdout
+		.split("\n")
+		.map(line => /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(line))
+		.filter(match => match !== null)
+		.map(([, pid, ppid, time, command]) => ({
+			pid: Number(pid),
+			ppid: Number(ppid),
+			// [[dd-]hh:]mm:ss.ss
+			cpu: (time ?? "")
+				.replace("-", ":")
+				.split(":")
+				.reduce((sum, part, index, parts) => {
+					const scale = [86_400, 3600, 60, 1].slice(-parts.length)[index] ?? 1;
+					return sum + Number(part) * scale;
+				}, 0),
+			command: command ?? "",
+		}));
+	const tree = new Map<number, { cpu: number; command: string }>();
+	const children = Map.groupBy(rows, row => row.ppid);
+	const visit = (pid: number) => {
+		for (const row of children.get(pid) ?? []) {
+			tree.set(row.pid, { cpu: row.cpu, command: row.command });
+			visit(row.pid);
+		}
+	};
+	const self = rows.find(row => row.pid === root);
+	if (self) tree.set(root, { cpu: self.cpu, command: self.command });
+	visit(root);
+	return tree;
+}
+
+/**
+ * Bytes in/out so far per pid over external interfaces (loopback, where
+ * Playwright's CDP traffic and the bridge socket run, left out).
+ */
+async function netBytes(): Promise<Map<number, { in: number; out: number }>> {
+	const { stdout } = await exec("nettop", ["-P", "-L", "1", "-n", "-x", "-t", "external", "-J", "bytes_in,bytes_out"]);
+	const bytes = new Map<number, { in: number; out: number }>();
+	for (const line of stdout.split("\n")) {
+		const match = /\.(\d+),(\d+),(\d+),/.exec(line);
+		if (match) bytes.set(Number(match[1]), { in: Number(match[2]), out: Number(match[3]) });
+	}
+	return bytes;
+}
+
+/**
+ * CPU of every process under `root` (the Electron main pid) and their network
+ * bytes, across `during`: what app.getAppMetrics() misses (omp, the stock
+ * helper, ssh, git). Short-lived children that exit inside the window are not
+ * counted; their rate shows in measure()'s IPC counts.
+ */
+export async function measureTree(root: number, during: () => Promise<object>) {
+	const [cpuBefore, netBefore] = await Promise.all([treeCpu(root), netBytes()]);
+	const started = performance.now();
+	const result = await during();
+	const elapsed = (performance.now() - started) / 1000;
+	const [cpuAfter, netAfter] = await Promise.all([treeCpu(root), netBytes()]);
+	const byKind = new Map<string, number>();
+	let netIn = 0;
+	let netOut = 0;
+	for (const [pid, after] of cpuAfter) {
+		const helper = /Electron Helper \((\w+)\)/.exec(after.command)?.[1];
+		const kind = helper
+			? `electron-${helper.toLowerCase()}`
+			: /MacOS\/Electron/.test(after.command)
+				? "electron-main"
+				: (after.command.split(" ")[0]?.split("/").at(-1) ?? "?");
+		byKind.set(kind, (byKind.get(kind) ?? 0) + after.cpu - (cpuBefore.get(pid)?.cpu ?? 0));
+		const net = netAfter.get(pid);
+		if (net) {
+			netIn += net.in - (netBefore.get(pid)?.in ?? 0);
+			netOut += net.out - (netBefore.get(pid)?.out ?? 0);
+		}
+	}
+	return {
+		...result,
+		tree: {
+			processes: cpuAfter.size,
+			// CPU % of one core per process kind over the window.
+			cpuPct: Object.fromEntries(
+				[...byKind]
+					.filter(([, cpu]) => cpu > 0)
+					.sort((a, b) => b[1] - a[1])
+					.map(([kind, cpu]) => [kind, Math.round((cpu / elapsed) * 1000) / 10]),
+			),
+			totalCpuPct: Math.round(([...byKind.values()].reduce((sum, cpu) => sum + cpu, 0) / elapsed) * 1000) / 10,
+			netBytesIn: netIn,
+			netBytesOut: netOut,
+		},
+	};
+}
+
 interface Metrics {
 	type: string;
 	cpu: { cumulativeCPUUsage?: number };
@@ -128,7 +259,9 @@ async function sample(app: ElectronApplication, page: Page) {
 /**
  * Measure one window of `seconds`, running `during` (if any) inside it. With
  * OMP_GUI_LIVE_SESSION_PROFILE (a directory) the window's renderer CPU profile
- * is written there as `<name>.cpuprofile`.
+ * is written there as `<name>.cpuprofile`. `idle` leaves out the frame-interval
+ * probe, whose callback every frame keeps the renderer and GPU drawing and so
+ * inflates an idle window's CPU (Long Animation Frames are still recorded).
  */
 export async function measure(
 	app: ElectronApplication,
@@ -136,6 +269,7 @@ export async function measure(
 	name: string,
 	seconds: number,
 	during?: () => Promise<void>,
+	options: { idle?: boolean } = {},
 ) {
 	// Row churn inside the transcript canvas: how many row slots mount, how many
 	// of them had already been mounted in this window or were mounted when it
@@ -177,16 +311,19 @@ export async function measure(
 	// Every frame's interval, end to end (scripts, style, layout, paint, raster
 	// waits): the gap between consecutive frame callbacks. A gap over 50 ms is a
 	// frame the reader saw stall, whatever the main thread did inside it.
-	await page.evaluate(() => {
-		const raf = { deltas: [] as [number, number][], last: 0, running: true };
+	await page.evaluate(idle => {
+		const raf = { deltas: [] as [number, number][], last: 0, running: !idle };
 		const tick = (now: number) => {
 			if (raf.last) raf.deltas.push([raf.last, now - raf.last]);
 			raf.last = now;
 			if (raf.running) requestAnimationFrame(tick);
 		};
-		requestAnimationFrame(tick);
+		if (!idle) requestAnimationFrame(tick);
+		// flow-performance's document-start frame probe would keep drawing too.
+		const boot = Reflect.get(window, "__ompBoot") as { running: boolean } | undefined;
+		if (idle && boot) boot.running = false;
 		Reflect.set(window, "__ompRaf", raf);
-	});
+	}, options.idle === true);
 	// OMP_GUI_LIVE_SESSION_STABILITY: after every painted frame, read the transcript as
 	// it was painted (row transforms and the scroll offset; layout is clean then) and
 	// record viewport pixels no row covered, and visible rows that moved up on screen
@@ -494,12 +631,13 @@ export async function measure(
 		mainMb: Math.round(after.mainKb / 1024),
 		topScripts: detail.topScripts,
 		animations: detail.animations,
-		// Main → renderer sends and renderer → main invokes, per channel per second.
+		// Main → renderer sends and renderer → main invokes, per channel per second
+		// (to 0.01, so a 30 s poll still shows).
 		ipcPerSecond: Object.fromEntries(
 			Object.entries(after.ipc)
 				.map(([channel, count]) => [
 					channel,
-					Math.round(((count - (before.ipc[channel] ?? 0)) / elapsed) * 10) / 10,
+					Math.round(((count - (before.ipc[channel] ?? 0)) / elapsed) * 100) / 100,
 				])
 				.filter(([, rate]) => Number(rate) > 0),
 		),
