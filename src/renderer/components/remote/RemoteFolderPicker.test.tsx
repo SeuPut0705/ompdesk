@@ -1,6 +1,7 @@
 /**
  * Remote folder picker: starts at the host's home, walks down and up through
- * `remote.listDirs`, and picks the folder it shows.
+ * `remote.listDirs`, asks the host again for a name filter, and picks the
+ * folder it shows.
  */
 
 import { parseHTML } from "linkedom";
@@ -38,12 +39,15 @@ const TREE: Record<string, RemoteDirListing> = {
 		entries: [{ name: "app", path: "/Users/kim/code/app" }],
 	},
 	"/Users/kim/code/app": { path: "/Users/kim/code/app", parent: "/Users/kim/code", entries: [] },
+	"/Users/kim/notes": { path: "/Users/kim/notes", parent: "/Users/kim", entries: [] },
 };
 
-const listDirs = vi.fn(async (_deviceId: string, path?: string): Promise<RemoteDirListing> => {
+const listDirs = vi.fn(async (_deviceId: string, path?: string, query?: string): Promise<RemoteDirListing> => {
 	const listing = TREE[path ?? "/Users/kim"];
 	if (!listing) throw new Error(`[remote_offline] no ${path}`);
-	return listing;
+	if (!query) return listing;
+	const needle = query.toLowerCase();
+	return { ...listing, entries: listing.entries.filter(entry => entry.name.toLowerCase().includes(needle)) };
 });
 Object.assign(window as unknown as Record<string, unknown>, { omp: { remote: { listDirs } } });
 
@@ -75,6 +79,29 @@ async function click(selector: string): Promise<void> {
 }
 
 const shownPath = () => document.body.querySelector("[data-remote-picker-path]")?.textContent;
+const shownDirs = () =>
+	[...document.body.querySelectorAll("[data-remote-dir]")].map(row => row.getAttribute("data-remote-dir"));
+
+/**
+ * Linkedom has no native value tracking, so call the field's own controlled
+ * handler (as ProvidersSection.test.tsx does), then wait out the filter's typing pause.
+ */
+async function filterBy(value: string): Promise<void> {
+	const field = document.body.querySelector("[data-remote-picker-filter]") as unknown as Record<
+		string,
+		unknown
+	> | null;
+	if (!field) throw new Error("no filter field");
+	field.value = value;
+	const propsKey = Object.getOwnPropertyNames(field).find(key => key.startsWith("__reactProps$"));
+	const props = propsKey ? (field[propsKey] as { onChange?: (event: object) => void } | undefined) : undefined;
+	await act(async () => props?.onChange?.({ target: field, currentTarget: field }));
+	await act(async () => {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		setTimeout(resolve, 200);
+		await promise;
+	});
+}
 
 afterEach(async () => {
 	for (const root of roots) {
@@ -119,5 +146,28 @@ describe("RemoteFolderPicker", () => {
 		expect(alert?.textContent).toContain(translate("ipcError.remote_offline"));
 		await click('[role="alert"] button');
 		expect(shownPath()).toBe("/Users/kim");
+	});
+
+	it("finds a folder past the host's bound through the filter, and leaves the filter behind on opening one", async () => {
+		listDirs.mockResolvedValueOnce({ ...TREE["/Users/kim"], truncated: true });
+		await mount();
+		expect(document.body.querySelector("[data-remote-picker-truncated]")?.textContent).toBe(
+			translate("remote.picker.truncated"),
+		);
+
+		await filterBy("NOT");
+		expect(listDirs).toHaveBeenLastCalledWith("dev-studio", "/Users/kim", "NOT");
+		expect(shownDirs()).toEqual(["/Users/kim/notes"]);
+		expect(document.body.querySelector("[data-remote-picker-truncated]")).toBeNull();
+
+		await filterBy("zzz");
+		expect(shownDirs()).toEqual([]);
+		expect(document.body.textContent).toContain(translate("remote.picker.noMatch", { query: "zzz" }));
+
+		await filterBy("no");
+		await click('[data-remote-dir="/Users/kim/notes"]');
+		expect(listDirs).toHaveBeenLastCalledWith("dev-studio", "/Users/kim/notes");
+		expect(shownPath()).toBe("/Users/kim/notes");
+		expect((document.body.querySelector("[data-remote-picker-filter]") as HTMLInputElement | null)?.value).toBe("");
 	});
 });

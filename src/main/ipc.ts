@@ -1461,7 +1461,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipcMain.handle(IPC_COMMANDS.REMOTE_PAIR, (_event, payload: unknown) => remoteDevices.pair(payload));
 	ipcMain.handle(IPC_COMMANDS.REMOTE_REMOVE_HOST, (_event, deviceId: unknown) => remoteDevices.removeHost(deviceId));
 	ipcMain.handle(IPC_COMMANDS.REMOTE_LIST_DIRS, (_event, payload: IpcRemoteListDirsPayload) =>
-		remoteDevices.listDirs(payload?.deviceId, payload?.path),
+		remoteDevices.listDirs(payload?.deviceId, payload?.path, payload?.query),
 	);
 
 	// External-editor round trip ($VISUAL/$EDITOR, temp file, exit-0 read-back)

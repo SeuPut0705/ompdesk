@@ -263,9 +263,12 @@ export class RemoteDevices {
 		return this.#broadcastState();
 	}
 
-	listDirs(deviceId: unknown, path: unknown): Promise<RemoteDirListing> {
+	listDirs(deviceId: unknown, path: unknown, query: unknown): Promise<RemoteDirListing> {
 		if (typeof deviceId !== "string") throw codedError("remote_unknown_device", "Unknown device");
-		return this.request<RemoteDirListing>(deviceId, "fs.listDirs", typeof path === "string" && path ? { path } : {});
+		return this.request<RemoteDirListing>(deviceId, "fs.listDirs", {
+			...(typeof path === "string" && path ? { path } : {}),
+			...(typeof query === "string" && query.trim() ? { query } : {}),
+		});
 	}
 
 	/**

@@ -182,7 +182,7 @@ const FsReadImageParams = z.object({ ...FsRoot, path: z.string() });
 const FsMutateParams = z.object({ ...FsRoot, mutation: z.unknown() });
 const FsSearchParams = z.object({ ...FsRoot, request: z.unknown() });
 const FsReadPlanParams = z.object({ ...FsRoot, fsPath: z.string(), localRoot: z.string().nullable() });
-const ListDirsParams = z.object({ path: z.string().optional() });
+const ListDirsParams = z.object({ path: z.string().optional(), query: z.string().max(255).optional() });
 const LaunchProfileGetParams = z.object({ cwd: AbsolutePath });
 const LaunchProfileUpdateParams = z.object({ cwd: AbsolutePath, patch: z.record(z.unknown()) });
 const ModelsUpsertParams = z.object({ input: CustomProviderInputSchema });
@@ -372,8 +372,10 @@ export class LocalHostServices implements HostServices {
 				const { rtab, cwd, ...payload } = parse(FsReadPlanParams, method, params);
 				return readPlanFile(this.#fsRoot(peer, rtab, cwd), this.#deps.sessionIndex.sessionsDir, payload);
 			}
-			case "fs.listDirs":
-				return listDirectories(parse(ListDirsParams, method, params).path);
+			case "fs.listDirs": {
+				const listing = parse(ListDirsParams, method, params);
+				return listDirectories(listing.path, listing.query);
+			}
 			case "workspace.default":
 				return this.#deps.defaultWorkspace();
 			case "launchProfile.get":

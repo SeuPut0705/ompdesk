@@ -216,6 +216,9 @@ test("remote pairing flow", async () => {
 		let current = path.parse(host.project).root;
 		for (const part of path.relative(current, host.project).split(path.sep)) {
 			current = path.join(current, part);
+			// By name: the host lists a bounded number of folders per level, and a crowded
+			// temp folder holds more than that.
+			await picker.locator("[data-remote-picker-filter]").fill(part);
 			await picker.locator(`[data-remote-dir="${current}"]`).click();
 			await expect(pickerPath).toHaveText(current);
 		}

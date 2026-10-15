@@ -368,8 +368,8 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_PAIR, payload) as Promise<HostView>,
 		removeHost: (deviceId: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_REMOVE_HOST, deviceId) as Promise<RemoteState>,
-		listDirs: (deviceId: string, path?: string) =>
-			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_LIST_DIRS, { deviceId, path }) as Promise<RemoteDirListing>,
+		listDirs: (deviceId: string, path?: string, query?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_LIST_DIRS, { deviceId, path, query }) as Promise<RemoteDirListing>,
 		onState: (callback: (state: RemoteState) => void) => subscribe<RemoteState>(IPC_EVENTS.REMOTE_STATE, callback),
 		onDiscovered: (callback: (devices: RemoteDiscoveredDevice[]) => void) =>
 			subscribe<RemoteDiscoveredDevice[]>(IPC_EVENTS.REMOTE_DISCOVERED, callback),

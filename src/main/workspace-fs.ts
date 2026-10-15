@@ -48,7 +48,10 @@ export const FS_BINARY_REMOTE_MAX_BYTES = 11 * 1024 * 1024;
 /** Bytes read for magic-number sniffing (SVG's text check needs a few hundred). */
 const SNIFF_HEADER_BYTES = 512;
 const OCTET_STREAM = "application/octet-stream";
-/** Remote folder picker: one level, bounded so a huge directory cannot flood the link. */
+/**
+ * Remote folder picker: one level, bounded so a huge directory cannot flood the link; the
+ * picker's name filter reaches the folders past the bound.
+ */
 const LIST_DIRS_MAX_ENTRIES = 2000;
 
 /** Always-skipped names, applied like root .gitignore patterns. */
@@ -688,10 +691,12 @@ export async function readPlanFile(
 
 /**
  * One directory level for a folder picker: the subdirectories of `target`
- * (this machine's home when omitted), hidden ones skipped. Throws a coded
+ * (this machine's home when omitted), hidden ones skipped, only those whose
+ * name contains `query` (case-insensitive) when one is given. At most
+ * LIST_DIRS_MAX_ENTRIES come back, `truncated` when more matched. Throws a coded
  * error (`not_absolute_path`, `not_a_directory`, `file_not_found`) for a bad target.
  */
-export async function listDirectories(target: string | undefined): Promise<RemoteDirListing> {
+export async function listDirectories(target: string | undefined, query?: string): Promise<RemoteDirListing> {
 	const dir = target === undefined || target === "" ? os.homedir() : target;
 	if (!path.isAbsolute(dir)) throw codedError("not_absolute_path", "Not an absolute path");
 	const abs = path.resolve(dir);
@@ -704,14 +709,19 @@ export async function listDirectories(target: string | undefined): Promise<Remot
 		if (code === "ENOENT") throw codedError("file_not_found", "Directory not found");
 		throw err;
 	}
-	const entries = dirents
-		.filter(dirent => dirent.isDirectory() && !dirent.name.startsWith("."))
+	const needle = query?.trim().toLocaleLowerCase() ?? "";
+	const names = dirents
+		.filter(
+			dirent =>
+				dirent.isDirectory() &&
+				!dirent.name.startsWith(".") &&
+				(needle === "" || dirent.name.toLocaleLowerCase().includes(needle)),
+		)
 		.map(dirent => dirent.name)
-		.sort(NAME_ORDER.compare)
-		.slice(0, LIST_DIRS_MAX_ENTRIES)
-		.map(name => ({ name, path: path.join(abs, name) }));
+		.sort(NAME_ORDER.compare);
+	const entries = names.slice(0, LIST_DIRS_MAX_ENTRIES).map(name => ({ name, path: path.join(abs, name) }));
 	const parent = path.dirname(abs);
-	return { path: abs, parent: parent === abs ? null : parent, entries };
+	return { path: abs, parent: parent === abs ? null : parent, entries, truncated: names.length > entries.length };
 }
 
 /** The file's mtime and size, for the viewer's disk watch; a missing path is `file_not_found`. */

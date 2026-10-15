@@ -183,6 +183,29 @@ describe("natural name order", () => {
 	});
 });
 
+describe("listDirectories", () => {
+	it("bounds a crowded level and finds the folders past the bound by name", async () => {
+		// A crowded temp folder: the picker's target sorts after the 2000 listed names.
+		for (let index = 0; index < 2001; index++) mkdirSync(join(root, `cache-${index}`));
+		mkdirSync(join(root, "omp-gui-remote-Ab12"));
+		writeFileSync(join(root, "omp-gui-remote-file"), "");
+		mkdirSync(join(root, ".omp-gui-remote-hidden"));
+
+		const all = await listDirectories(root);
+		expect(all.entries).toHaveLength(2000);
+		expect(all.truncated).toBe(true);
+		expect(all.entries.some(entry => entry.name === "omp-gui-remote-Ab12")).toBe(false);
+
+		const found = await listDirectories(root, "  OMP-GUI-remote ");
+		expect(found).toEqual({
+			path: root,
+			parent: join(root, ".."),
+			entries: [{ name: "omp-gui-remote-Ab12", path: join(root, "omp-gui-remote-Ab12") }],
+			truncated: false,
+		});
+	});
+});
+
 describe("Files panel writes", () => {
 	const trashed: string[] = [];
 	const trash = async (abs: string) => {

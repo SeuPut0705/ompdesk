@@ -1374,8 +1374,10 @@ export interface RemoteDirListing {
 	path: string;
 	/** Parent directory; null at a filesystem root. */
 	parent: string | null;
-	/** Subdirectories, sorted by name. */
+	/** Subdirectories, sorted by name (only those matching the asked name filter). */
 	entries: RemoteDirEntry[];
+	/** More subdirectories matched than `entries` holds (the host's per-level bound); a filter narrows them. */
+	truncated?: boolean;
 }
 
 export interface IpcRemotePairPayload {
@@ -1387,6 +1389,8 @@ export interface IpcRemotePairPayload {
 export interface IpcRemoteListDirsPayload {
 	deviceId: string;
 	path?: string;
+	/** Only subdirectories whose name contains this (case-insensitive). */
+	query?: string;
 }
 
 // ============================================================================
@@ -1581,8 +1585,8 @@ export interface OmpApi {
 		/** Throws IpcError `remote_wrong_code|remote_expired|remote_locked|remote_unreachable|remote_protocol`. */
 		pair(payload: IpcRemotePairPayload): Promise<HostView>;
 		removeHost(deviceId: string): Promise<RemoteState>;
-		/** One directory level on the host; `path` absent = the host's home. */
-		listDirs(deviceId: string, path?: string): Promise<RemoteDirListing>;
+		/** One directory level on the host; `path` absent = the host's home, `query` filters by name. */
+		listDirs(deviceId: string, path?: string, query?: string): Promise<RemoteDirListing>;
 		onState(callback: (state: RemoteState) => void): () => void;
 		onDiscovered(callback: (devices: RemoteDiscoveredDevice[]) => void): () => void;
 	};

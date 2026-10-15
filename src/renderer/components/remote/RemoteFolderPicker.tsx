@@ -2,7 +2,10 @@
  * Remote folder picker: browses a paired host's directories one level at a
  * time through `remote.listDirs` (the native dialog only sees this device's
  * disk). Starts at the host's home, walks down by clicking a folder and up
- * with the parent button, and picks the folder being shown.
+ * with the parent button, and picks the folder being shown. The host lists a
+ * bounded number of folders per level (`truncated` past it), so the name
+ * filter asks the host again with the query: a folder past the bound in a
+ * crowded directory (a temp folder with thousands of entries) stays reachable.
  *
  * `RemoteFolderPickerHost` (mounted once in App) serves the imperative
  * `pickRemoteDirectory(deviceId)` that every "choose a folder" flow uses for
@@ -14,7 +17,10 @@ import type { RemoteDirListing } from "../../../shared/ipc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { settleRemoteDirectory, useHostView, useRemotePickerStore } from "../../stores/remote";
-import { Button, IconButton, InlineNotice, ListRow, Modal, Spinner } from "../common";
+import { Button, IconButton, InlineNotice, ListRow, Modal, SearchField, Spinner } from "../common";
+
+/** Typing pause before the host is asked for the filtered level. */
+const FILTER_DELAY_MS = 150;
 
 export function RemoteFolderPickerHost() {
 	const t = useT();
@@ -47,18 +53,22 @@ export function RemoteFolderPicker({ open, deviceId, deviceName, onClose, onPick
 	const [listing, setListing] = useState<RemoteDirListing | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<InlineFailure | null>(null);
+	const [filter, setFilter] = useState("");
 	/** Only the latest navigation may land; a slow parent read must not replace its child. */
 	const request = useRef(0);
+	const filterTimer = useRef<number | undefined>(undefined);
 
 	const load = useCallback(
-		async (path?: string) => {
+		async (path?: string, query = "") => {
 			const version = ++request.current;
 			setLoading(true);
 			setError(null);
 			try {
-				const next = await (path === undefined
-					? window.omp.remote.listDirs(deviceId)
-					: window.omp.remote.listDirs(deviceId, path));
+				const next = await (query
+					? window.omp.remote.listDirs(deviceId, path, query)
+					: path === undefined
+						? window.omp.remote.listDirs(deviceId)
+						: window.omp.remote.listDirs(deviceId, path));
 				if (version === request.current) setListing(next);
 			} catch (cause) {
 				if (version === request.current) setError(inlineFailure(cause, t("remote.picker.loadFailed")));
@@ -72,13 +82,30 @@ export function RemoteFolderPicker({ open, deviceId, deviceName, onClose, onPick
 	useEffect(() => {
 		if (!open) return;
 		setListing(null);
+		setFilter("");
 		void load();
 		return () => {
+			clearTimeout(filterTimer.current);
 			request.current++;
 		};
 	}, [open, load]);
 
+	/** Another folder: the filter belonged to the one being left. */
+	const navigate = (path: string) => {
+		clearTimeout(filterTimer.current);
+		setFilter("");
+		void load(path);
+	};
+	const changeFilter = (value: string) => {
+		setFilter(value);
+		clearTimeout(filterTimer.current);
+		const at = listing?.path;
+		if (at === undefined) return;
+		filterTimer.current = window.setTimeout(() => void load(at, value.trim()), FILTER_DELAY_MS);
+	};
+
 	const parent = listing?.parent ?? null;
+	const query = filter.trim();
 	return (
 		<Modal
 			footer={
@@ -110,7 +137,7 @@ export function RemoteFolderPicker({ open, deviceId, deviceName, onClose, onPick
 						icon={<CornerLeftUp />}
 						label={t("remote.picker.up")}
 						onClick={() => {
-							if (parent !== null) void load(parent);
+							if (parent !== null) navigate(parent);
 						}}
 						size="sm"
 					/>
@@ -123,12 +150,22 @@ export function RemoteFolderPicker({ open, deviceId, deviceName, onClose, onPick
 					</span>
 					{loading && listing && <Spinner size="sm" />}
 				</div>
+				<SearchField
+					controlSize="sm"
+					data-remote-picker-filter
+					disabled={!listing}
+					label={t("remote.picker.filter")}
+					onValueChange={changeFilter}
+					placeholder={t("remote.picker.filter")}
+					spellCheck={false}
+					value={filter}
+				/>
 				{error && (
 					<InlineNotice
 						action={
 							<Button
 								icon={<RefreshCw />}
-								onClick={() => void load(listing?.path)}
+								onClick={() => void load(listing?.path, query)}
 								size="sm"
 								variant="secondary"
 							>
@@ -152,7 +189,9 @@ export function RemoteFolderPicker({ open, deviceId, deviceName, onClose, onPick
 							<Spinner />
 						</div>
 					) : listing && listing.entries.length === 0 ? (
-						<p className="px-2.5 py-2 text-sc-sm text-(--sc-text-muted)">{t("remote.picker.empty")}</p>
+						<p className="px-2.5 py-2 text-sc-sm text-(--sc-text-muted)">
+							{query ? t("remote.picker.noMatch", { query }) : t("remote.picker.empty")}
+						</p>
 					) : (
 						listing?.entries.map(entry => (
 							<ListRow
@@ -160,13 +199,18 @@ export function RemoteFolderPicker({ open, deviceId, deviceName, onClose, onPick
 								disabled={loading}
 								key={entry.path}
 								leading={<Folder aria-hidden />}
-								onClick={() => void load(entry.path)}
+								onClick={() => navigate(entry.path)}
 								title={entry.name}
 								titleText={entry.path}
 							/>
 						))
 					)}
 				</div>
+				{listing?.truncated && (
+					<p className="text-sc-sm text-(--sc-text-muted)" data-remote-picker-truncated>
+						{t("remote.picker.truncated")}
+					</p>
+				)}
 			</div>
 		</Modal>
 	);
