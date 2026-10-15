@@ -434,15 +434,15 @@ export class SidecarPool {
 			// UI updates never reply, so retaining them here leaks the owning tab.
 			if (BLOCKING_UI_METHODS[request.method]) {
 				this.#requestOwners.set(request.id, entry);
+				for (const id of this.#requestBodies.keys())
+					if (!this.#requestOwners.has(id)) this.#requestBodies.delete(id);
+				this.#requestBodies.set(request.id, request);
 				this.onRunningChange?.();
 			}
 			// omp withdrew the request (timeout, abort): no response will follow.
 			else if (request.method === "cancel" && this.#requestOwners.get(request.targetId) === entry) {
 				this.#requestOwners.delete(request.targetId);
 				this.onRunningChange?.();
-				for (const id of this.#requestBodies.keys())
-					if (!this.#requestOwners.has(id)) this.#requestBodies.delete(id);
-				this.#requestBodies.set(request.id, request);
 			}
 			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request });
 		});
@@ -914,12 +914,6 @@ export class SidecarPool {
 		return true;
 	}
 
-	/** Register sessionFile → owner, moving the entry off any previous file. */
-	#registerSessionFile(entry: PoolEntry, sessionFile: string): void {
-		const changed = entry.sessionFile !== sessionFile;
-		if (changed) this.#unregisterSessionFile(entry);
-		entry.sessionFile = sessionFile;
-		if (changed && entry.run.running) this.onRunningChange?.();
 	/** The asks and approvals this window's tabs still wait on, for a page that loaded after they were raised. */
 	openRequests(win: BrowserWindow): IpcOpenExtensionRequest[] {
 		const open: IpcOpenExtensionRequest[] = [];
@@ -931,6 +925,12 @@ export class SidecarPool {
 		return open;
 	}
 
+	/** Register sessionFile → owner, moving the entry off any previous file. */
+	#registerSessionFile(entry: PoolEntry, sessionFile: string): void {
+		const changed = entry.sessionFile !== sessionFile;
+		if (changed) this.#unregisterSessionFile(entry);
+		entry.sessionFile = sessionFile;
+		if (changed && entry.run.running) this.onRunningChange?.();
 		this.#sessionOwners.set(ownerKey(entry.device, sessionFile), { tabId: entry.tabId, winId: entry.winId });
 	}
 

@@ -163,9 +163,9 @@ jobs:
       - run: bunx biome check src e2e resources scripts
       - run: node scripts/lint-surfaces.mjs
 
-  # vitest on its own runner: the longest OS-independent check. Two shards,
-  # one in each Linux job, billed more (each pays setup and install; the
-  # halves took 48-78 s, so `build` crossed 2 minutes).
+  # vitest on its own runner: the longest OS-independent check, in one run
+  # (two shards, one in each Linux job, billed more: each paid setup and
+  # install, and the halves took 48-78 s, so `build` crossed 2 minutes).
   check:
     needs: prepare
     if: needs.prepare.outputs.release == 'true'
