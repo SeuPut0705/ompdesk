@@ -240,9 +240,11 @@ test("a background tab's next-prompt suggestion becomes the composer placeholder
 	expect(errors).toEqual([]);
 });
 
-test("sidebar subagent rows start collapsed, expand on click, and a finished one stays marked until read", async () => {
+test("sidebar subagent rows start collapsed, expand on click, and a finished one stays marked while the main turn runs", async () => {
 	const owner = await activeTab();
 	await nameTab(owner, "Fan-out tab");
+	// The main turn keeps running while its subagents work (5d1de7d: their marks last only that long).
+	await startRun("fixture running");
 	await openTab();
 	await fixtureCommand(owner, "fixture:subagents");
 	await switchTo(owner);
@@ -265,7 +267,8 @@ test("sidebar subagent rows start collapsed, expand on click, and a finished one
 		"1",
 	);
 
-	// A finished agent the sidebar saw working stays, marked with how it ended, until it is read.
+	// A finished agent the sidebar saw working stays, marked with how it ended, until it is read
+	// or the main turn ends.
 	const nested = page.locator('[data-sidebar-subagent="sa-nested"]');
 	await fixtureCommand(owner, "fixture:subagents:finish:sa-nested");
 	await expect(nested).toHaveAttribute("data-status", "completed");
@@ -279,8 +282,9 @@ test("sidebar subagent rows start collapsed, expand on click, and a finished one
 
 	await fixtureCommand(owner, "fixture:subagents:finish:sa-explore");
 	await expect(rows.first()).toHaveAttribute("data-status", "completed");
-	await rows.first().click({ button: "right" });
-	await page.getByRole("menuitem", { name: "Mark as read", exact: true }).click();
+	await expect(toggle).toHaveAccessibleName("Hide subagents (1)");
+	// The run ends: its finished agents are no longer news, so the marks and the count go with it.
+	await fixtureCommand(owner, "fixture:finish");
 	await expect(page.locator("[data-sidebar-subagent]")).toHaveCount(0);
 	await expect(toggle).toHaveCount(0);
 	expect(errors).toEqual([]);
