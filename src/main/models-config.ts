@@ -13,7 +13,17 @@
  * upserts merge over the existing entry instead of replacing it, so a rich
  * hand-written config never loses data to a GUI edit.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	realpathSync,
+	renameSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import * as path from "node:path";
 import { type Document, parseDocument } from "yaml";
 import { codedError } from "../shared/ipc-error-codes";
@@ -49,15 +59,43 @@ export function modelsPath(): string {
 	return existsSync(legacy) ? legacy : yml;
 }
 
+/** What a read saw of the file (through a symlink): changed since means someone else wrote it. `null`: missing. */
+interface FileStamp {
+	mtimeMs: number;
+	size: number;
+	ino: number;
+}
+
 interface ModelsFile {
 	/** The live document: an edit mutates this, and a save writes it back. */
 	doc: Document;
 	providers: Record<string, unknown>;
+	/** The file as it was before it was read; `writeModelsFile` refuses to overwrite a different one. */
+	stamp: FileStamp | null;
+}
+
+/** Permissions of a models file this app creates: it can hold API keys. */
+const NEW_MODELS_FILE_MODE = 0o600;
+
+function fileStamp(file: string): FileStamp | null {
+	try {
+		const { mtimeMs, size, ino } = statSync(file);
+		return { mtimeMs, size, ino };
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+		throw error;
+	}
+}
+
+function sameStamp(a: FileStamp | null, b: FileStamp | null): boolean {
+	if (!a || !b) return a === b;
+	return a.mtimeMs === b.mtimeMs && a.size === b.size && a.ino === b.ino;
 }
 
 async function readModelsFile(): Promise<ModelsFile> {
 	const file = modelsPath();
-	if (!existsSync(file)) return { doc: parseDocument(""), providers: {} };
+	const stamp = fileStamp(file);
+	if (!stamp) return { doc: parseDocument(""), providers: {}, stamp };
 	const doc = parseDocument(readFileSync(file, "utf8"));
 	const issue = doc.errors[0] ?? doc.warnings[0];
 	if (doc.errors.length > 0) throw new Error(`${file}: ${issue?.message ?? "invalid YAML"}`);
@@ -66,17 +104,13 @@ async function readModelsFile(): Promise<ModelsFile> {
 	const providers = normalized.config?.providers;
 	return {
 		doc,
+		stamp,
 		providers: typeof providers === "object" && providers !== null ? (providers as Record<string, unknown>) : {},
 	};
 }
 
 let tmpCounter = 0;
 
-/**
- * Swap the file in one step. The agent watches this path and live-reloads it,
- * so a truncate-then-write leaves a window where a concurrent read sees an empty
- * or half-written config — and a crash inside it destroys every provider.
- */
 /** Update existing nodes rather than replacing mappings, preserving comments on edited fields too. */
 function applyYamlDiff(doc: Document, before: unknown, after: unknown, keys: Array<string | number>): void {
 	if (before === after) return;
@@ -101,17 +135,38 @@ function applyYamlDiff(doc: Document, before: unknown, after: unknown, keys: Arr
 	}
 }
 
-async function writeModelsFile(doc: Document): Promise<void> {
+/**
+ * Swap the file in one step. The agent watches this path and live-reloads it,
+ * so a truncate-then-write leaves a window where a concurrent read sees an empty
+ * or half-written config — and a crash inside it destroys every provider.
+ *
+ * The file may hold `apiKey`s and be a symlink (a dotfiles repo): the temp file is
+ * written next to the link's TARGET, takes the original's mode (a new file is 0600),
+ * and replaces the target, so the link stays a link. A file that changed on disk since it
+ * was read (the external editor, stock) is not overwritten.
+ */
+async function writeModelsFile(doc: Document, readStamp: FileStamp | null): Promise<void> {
 	const raw = doc.toJS() ?? {};
 	const normalized = await normalizeModelsConfig(raw);
 	if (normalized.error) throw new Error(normalized.error);
 	applyYamlDiff(doc, raw, normalized.config, []);
 	const file = modelsPath();
 	mkdirSync(path.dirname(file), { recursive: true });
-	const tmp = `${file}.tmp-${process.pid}-${tmpCounter++}`;
+	if (!sameStamp(fileStamp(file), readStamp)) {
+		throw new Error(`${file} changed on disk while it was being saved. Nothing was written; try again.`);
+	}
+	let target = file;
+	let mode = NEW_MODELS_FILE_MODE;
+	if (readStamp) {
+		target = realpathSync(file);
+		mode = statSync(target).mode & 0o7777;
+	}
+	const tmp = `${target}.tmp-${process.pid}-${tmpCounter++}`;
 	try {
-		writeFileSync(tmp, String(doc), "utf8");
-		renameSync(tmp, file);
+		writeFileSync(tmp, String(doc), { encoding: "utf8", mode });
+		// The creation mode is masked by the umask; the original's mode is kept exactly.
+		chmodSync(tmp, mode);
+		renameSync(tmp, target);
 	} catch (error) {
 		rmSync(tmp, { force: true });
 		throw error;
@@ -416,7 +471,7 @@ export function upsertModelsProvider(input: CustomProviderInput): Promise<void> 
 		else delete entry.compat;
 		entry.models = input.models.map(m => mergeModel(entry.models, m));
 		applyYamlDiff(data.doc, data.doc.toJS()?.providers?.[input.id], entry, ["providers", input.id]);
-		await writeModelsFile(data.doc);
+		await writeModelsFile(data.doc, data.stamp);
 	});
 	mutation = operation.catch(() => undefined);
 	return operation;
@@ -435,7 +490,7 @@ export function deleteModelsProvider(id: string): Promise<void> {
 		const data = await readModelsFile();
 		if (!(id in data.providers)) return;
 		data.doc.deleteIn(["providers", id]);
-		await writeModelsFile(data.doc);
+		await writeModelsFile(data.doc, data.stamp);
 	});
 	mutation = operation.catch(() => undefined);
 	return operation;
@@ -510,7 +565,7 @@ export function setModelOverride(provider: string, modelId: string, input: Model
 		} else {
 			applyYamlDiff(data.doc, before, entry, ["providers", provider]);
 		}
-		await writeModelsFile(data.doc);
+		await writeModelsFile(data.doc, data.stamp);
 	});
 	mutation = operation.catch(() => undefined);
 	return operation;

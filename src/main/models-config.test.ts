@@ -1,4 +1,16 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -235,6 +247,54 @@ providers:
 		});
 		await setModelOverride("anthropic", "claude-x", null);
 		expect(parse(readFileSync(modelsPath(), "utf8")).providers ?? {}).not.toHaveProperty("anthropic");
+	});
+
+	const posixOnly = test.skipIf(process.platform === "win32");
+	const seeded =
+		"providers:\n  other:\n    api: openai-completions\n    baseUrl: https://other.test/v1\n    apiKey: sk-secret\n    models:\n      - id: m\n";
+
+	posixOnly("a GUI save keeps the file's 0600 mode", async () => {
+		writeFileSync(modelsPath(), seeded);
+		chmodSync(modelsPath(), 0o600);
+		await upsertModelsProvider(minimal);
+		expect(statSync(modelsPath()).mode & 0o777).toBe(0o600);
+		expect(parse(readFileSync(modelsPath(), "utf8")).providers).toHaveProperty("test-provider");
+	});
+
+	posixOnly("a models.yml the GUI creates is private to the user", async () => {
+		await upsertModelsProvider({ ...minimal, apiKey: "sk-new" });
+		expect(statSync(modelsPath()).mode & 0o777).toBe(0o600);
+	});
+
+	posixOnly("a symlinked models.yml stays a link and its target is updated", async () => {
+		const target = join(dir, "dotfiles", "models.yml");
+		mkdirSync(join(dir, "dotfiles"), { recursive: true });
+		writeFileSync(target, seeded);
+		chmodSync(target, 0o640);
+		symlinkSync(target, modelsPath());
+		await upsertModelsProvider(minimal);
+		expect(lstatSync(modelsPath()).isSymbolicLink()).toBe(true);
+		expect(parse(readFileSync(target, "utf8")).providers).toHaveProperty("test-provider");
+		expect(statSync(target).mode & 0o777).toBe(0o640);
+		expect(readdirSync(join(dir, "dotfiles"))).toEqual(["models.yml"]);
+	});
+
+	test("a file edited in another editor while a save is in flight is not overwritten", async () => {
+		writeFileSync(modelsPath(), seeded);
+		const edited = `${seeded}# edited externally\n`;
+		const real = stockHelper.stockHelperRequest;
+		let validations = 0;
+		const request = vi.spyOn(stockHelper, "stockHelperRequest").mockImplementation(async (method, params) => {
+			// The first validation belongs to the read; the second runs just before the write.
+			if (method === "models.validate" && ++validations === 2) writeFileSync(modelsPath(), edited);
+			return real(method, params);
+		});
+		try {
+			await expect(upsertModelsProvider(minimal)).rejects.toThrow("changed on disk");
+			expect(readFileSync(modelsPath(), "utf8")).toBe(edited);
+		} finally {
+			request.mockRestore();
+		}
 	});
 });
 
