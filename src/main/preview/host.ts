@@ -93,6 +93,9 @@ interface PreviewHost {
 	agent: AgentLink | null;
 	/** The panel's last surface box, kept to re-fit the page when the viewport frame or the tab changes. */
 	layout: { bounds: PreviewBounds; visible: boolean } | null;
+	/** The window's `closed` and the app renderer's `did-start-navigation` handlers, taken off at dispose. */
+	onClosed: () => void;
+	onNavigated: (details: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>) => void;
 }
 
 function windowState(host: PreviewHost): PreviewState {
@@ -120,6 +123,8 @@ export function registerPreviewHost(
 	visuals: VisualStore,
 ): VisualPages {
 	const hosts = new Map<number, PreviewHost>();
+	/** One partition per window; Electron keeps a session for a name until the app quits, so hosts reuse it. */
+	const partitions = new WeakMap<BrowserWindow, Session>();
 	const send = (host: PreviewHost) => {
 		if (!host.sender.isDestroyed()) host.sender.send(PREVIEW_STATE, windowState(host));
 	};
@@ -182,10 +187,15 @@ export function registerPreviewHost(
 		if (!page.contents.isDestroyed()) page.contents.close();
 	};
 	const disposeHost = (host: PreviewHost) => {
+		host.win.off("closed", host.onClosed);
+		host.sender.off("did-start-navigation", host.onNavigated);
 		stopAgent(host);
 		for (const page of host.pages) closePage(host, page);
 		// The window's later close or reload must not drop a preview created after this one was disposed.
 		if (hosts.get(host.sender.id) === host) hosts.delete(host.sender.id);
+		// The partition outlives the host (one per window); what this host browsed does not.
+		void host.partition.clearStorageData().catch(() => {});
+		void host.partition.clearCache().catch(() => {});
 	};
 	const loadInto = (host: PreviewHost, page: PreviewPage, url: string) => {
 		page.state = { ...page.state, url, title: "", loading: true, error: null, visual: visualView(page) };
@@ -356,6 +366,28 @@ export function registerPreviewHost(
 			contents.off("did-start-navigation", navigated);
 		});
 	}
+	/** The window's one in-memory partition (its tabs share it, every host of the window reuses it), set up once. */
+	const partitionOf = (win: BrowserWindow): Session => {
+		const known = partitions.get(win);
+		if (known) return known;
+		const partition = session.fromPartition(`preview-${win.id}`);
+		partitions.set(win, partition);
+		partition.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+		partition.setPermissionCheckHandler(() => false);
+		// Visual pages (C135): only the files `visuals` resolves for that visual, never cached across versions.
+		partition.protocol.handle(VISUAL_SCHEME, request => visuals.serve(request.url));
+		// The partition stays download-free; the user may hand the file to the system browser instead.
+		const senderId = win.webContents.id;
+		partition.on("will-download", (download, item, contents) => {
+			download.preventDefault();
+			const host = hosts.get(senderId);
+			if (!host) return;
+			const url = allowed(host, item.getURL());
+			const page = host.pages.find(candidate => candidate.contents === contents) ?? host.active;
+			if (url) publish(host, page, { notice: { kind: "download", url, filename: item.getFilename() } });
+		});
+		return partition;
+	};
 	ipcMain.handle(PREVIEW_COMMAND, async (event, request: PreviewRequest) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win || win.webContents !== event.sender) throw new Error("Invalid preview owner");
@@ -365,11 +397,7 @@ export function registerPreviewHost(
 			return EMPTY_PREVIEW;
 		}
 		if (!host) {
-			const partition = session.fromPartition(`preview-${randomUUID()}`);
-			partition.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-			partition.setPermissionCheckHandler(() => false);
-			// Visual pages (C135): only the files `visuals` resolves for that visual, never cached across versions.
-			partition.protocol.handle(VISUAL_SCHEME, request => visuals.serve(request.url));
+			const partition = partitionOf(win);
 			const first = createPage(win, partition, () => created);
 			const created: PreviewHost = {
 				win,
@@ -379,18 +407,16 @@ export function registerPreviewHost(
 				active: first,
 				agent: null,
 				layout: null,
+				onClosed: () => disposeHost(created),
+				// Only the app renderer's own page load ends the preview, not a frame in it or an in-page change.
+				onNavigated: details => {
+					if (details.isMainFrame && !details.isSameDocument) disposeHost(created);
+				},
 			};
 			host = created;
 			hosts.set(event.sender.id, created);
-			// The partition stays download-free; the user may hand the file to the system browser instead.
-			partition.on("will-download", (download, item, contents) => {
-				download.preventDefault();
-				const url = allowed(created, item.getURL());
-				const page = created.pages.find(candidate => candidate.contents === contents) ?? created.active;
-				if (url) publish(created, page, { notice: { kind: "download", url, filename: item.getFilename() } });
-			});
-			win.once("closed", () => disposeHost(created));
-			event.sender.once("did-start-navigation", () => disposeHost(created));
+			win.on("closed", created.onClosed);
+			event.sender.on("did-start-navigation", created.onNavigated);
 		}
 		const current = host;
 		const page = current.active;
