@@ -23,7 +23,7 @@
 
 import { useEffect, useRef } from "react";
 import { create } from "zustand";
-import type { UsageReport } from "../../shared/rpc-types";
+import type { UsageLimit, UsageReport } from "../../shared/rpc-types";
 
 export const USAGE_POLL_MS = 30_000;
 export const USAGE_BACKOFF_MAX_MS = 5 * 60_000;
@@ -53,6 +53,20 @@ export const useUsageSignal = create<UsageSignalState>()(set => ({
 export function inUseReport(reports: readonly UsageReport[], provider: string | null | undefined) {
 	const own = reports.filter(report => report.provider === provider && report.limits.length > 0);
 	return own.find(report => report.active) ?? own[0];
+}
+
+/**
+ * The most-consumed limit in a provider report — the one that gates usage
+ * first. The bridge normalizes `usedFraction` with stock `resolveUsedFraction`.
+ */
+export function tightestLimit(report: UsageReport): { limit: UsageLimit; fraction: number } | null {
+	let best: { limit: UsageLimit; fraction: number } | null = null;
+	for (const limit of report.limits) {
+		const fraction = limit.usedFraction;
+		if (fraction === undefined) continue;
+		if (!best || fraction > best.fraction) best = { limit, fraction };
+	}
+	return best;
 }
 
 /**

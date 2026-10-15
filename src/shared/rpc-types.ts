@@ -102,6 +102,8 @@ export type RpcCommand =
 	| { id?: string; type: "get_plan_mode" }
 	| { id?: string; type: "get_model_roles" }
 	| { id?: string; type: "set_model_role"; role: string; modelId: string | null }
+	| { id?: string; type: "define_model_role"; roleId: string; name?: string; description?: string }
+	| { id?: string; type: "forget_model_role"; roleId: string }
 	| { id?: string; type: "get_model_role_metadata" }
 	| { id?: string; type: "get_compaction_points" }
 	| { id?: string; type: "compaction_limits"; values?: unknown; key?: string; input?: string }
@@ -2287,8 +2289,25 @@ export interface ModelRoleEntry extends ModelRoleMetadata {
 	/** Configured selector, not necessarily a catalog model id. */
 	model?: string;
 	source: string;
+	/** What the role runs on through stock's resolution, empty-role fallbacks included. */
+	effective?: ModelRoleEffective;
 	/** Backend-filtered eligible models; never shared with the chat picker. */
 	candidates: ModelRoleCandidate[];
+}
+
+/** `resources/gui-bridge/role-effective.ts`: the model a role really runs on. */
+export interface ModelRoleEffective {
+	/** `provider/id`; absent when no model resolves. */
+	model?: string;
+	name?: string;
+	/** Only when the resolved selector names a level; otherwise the session's thinking level applies. */
+	thinkingLevel?: string;
+	/** configured: its own value; fallback: empty-role resolution; session: the model already running; none. */
+	source: "configured" | "fallback" | "session" | "none";
+	/** The role whose value answered, when it is not this one. */
+	via?: string;
+	/** The role holds a value no available model matches. */
+	unavailable?: boolean;
 }
 
 export interface ModelRolesResult {
@@ -2302,6 +2321,12 @@ export interface ModelRoleMetadata {
 	color?: string;
 	hidden?: boolean;
 	section: "chat" | "kind";
+	/** Stock's own built-in roles; every other id is a custom role (`modelRoles.<id>`). */
+	builtin?: boolean;
+	/** The display name stored in `modelTags.<id>`; absent while the role has none. */
+	label?: string;
+	/** OMPdesk's description of a custom role (`modelTags.<id>.description`). */
+	description?: string;
 }
 
 /** Where auto-compaction triggers for one model (stock `describeModelCompactionPoint`, omp 18.8.5+). */

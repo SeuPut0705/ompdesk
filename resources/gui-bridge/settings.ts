@@ -11,8 +11,18 @@ import { usageResetAtMs } from "@oh-my-pi/pi-ai/auth/usage-report";
 import { getOAuthCredentialProvider, getOAuthProviders } from "@oh-my-pi/pi-ai/oauth";
 import { modelKind } from "@oh-my-pi/pi-catalog/types";
 import { orderedSettings } from "@oh-my-pi/pi-coding-agent/config/all-settings";
-import { extractExplicitThinkingSelector } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
-import { getKnownRoleIds, getRoleInfo, roleCandidatePool } from "@oh-my-pi/pi-coding-agent/config/model-roles";
+import {
+	extractExplicitThinkingSelector,
+	resolveModelOverride,
+	resolveRoleSelection,
+} from "@oh-my-pi/pi-coding-agent/config/model-resolver";
+import {
+	CHAT_MODEL_ROLE_IDS,
+	getKnownRoleIds,
+	getRoleInfo,
+	MODEL_ROLE_IDS,
+	roleCandidatePool,
+} from "@oh-my-pi/pi-coding-agent/config/model-roles";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import {
@@ -25,9 +35,11 @@ import { getAgentDir, MAIN_CONFIG_FILENAMES } from "@oh-my-pi/pi-utils";
 import { matchReportAccount, type StoredAccount } from "./accounts-core";
 import { guard, probe } from "./health";
 import { idleSettingChanged } from "./idle-compaction";
+import { customRoleIdError, PRESET_ROLES, presetRole } from "./model-role-contracts";
 import { releaseDelegationForWrite } from "./modes/delegation";
 import { asRecord, requiredString } from "./params";
 import { type ResetPasses, shapeResetPasses } from "./reset-passes-core";
+import { effectiveRole, type RoleStock } from "./role-effective";
 import { shownRoleValue, storedRoleValue } from "./role-values";
 import { releaseThinkingDefaultFor, syncThinkingDefault } from "./thinking-default";
 import type { BridgeEnv, BridgeMethods } from "./types";
@@ -710,18 +722,67 @@ async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProv
 // Model roles
 // ============================================================================
 
+/** A `modelTags.<id>` entry: stock reads `name`, `color` and `hidden`; `description` is OMPdesk's own and stock ignores it. */
+interface RoleTag {
+	name?: string;
+	description?: string;
+	color?: string;
+	hidden?: boolean;
+}
+
+function roleTags(session: AgentSession): Record<string, RoleTag> {
+	const setting = lookup("modelTags") as unknown as SettingLike | undefined;
+	const raw = asRecord(setting?.get(session.settings));
+	return Object.fromEntries(Object.entries(raw).map(([id, tag]) => [id, asRecord(tag) as RoleTag]));
+}
+
+const isBuiltinRole = (id: string) => (MODEL_ROLE_IDS as readonly string[]).includes(id);
+
+/** Stock's known roles, then the preset custom roles the agent templates use that are not known yet (empty, so stock has no entry). */
+function roleIds(session: AgentSession): string[] {
+	const known = getKnownRoleIds(session.settings);
+	return [...known, ...PRESET_ROLES.map(role => role.id).filter(id => !known.includes(id))];
+}
+
 function roleMetadata(session: AgentSession) {
-	return getKnownRoleIds(session.settings).map(id => {
+	const tags = roleTags(session);
+	return roleIds(session).map(id => {
 		const { name, tag, color, hidden, section } = getRoleInfo(id, session.settings);
-		return { id, name, tag, color, hidden, section };
+		const stored = tags[id];
+		return {
+			id,
+			name,
+			tag,
+			color,
+			hidden,
+			section,
+			builtin: isBuiltinRole(id),
+			...(stored?.name ? { label: stored.name } : {}),
+			...(stored?.description ? { description: stored.description } : {}),
+		};
 	});
 }
 
+/** Stock's resolution bound to this session; each role resolves over its own candidate pool, as its stock caller does. */
+function roleStock(session: AgentSession): RoleStock {
+	const { settings, modelRegistry } = session;
+	const pool = (role: string) => roleCandidatePool(role, settings, modelRegistry);
+	return {
+		resolve: (role, selectors) => resolveModelOverride(selectors, { getAvailable: () => pool(role) }, settings),
+		selectRole: (role, roles) => resolveRoleSelection(roles, settings, pool(role)),
+		chatRoleIds: CHAT_MODEL_ROLE_IDS,
+		configured: role => settings.getModelRole(role)?.trim() || undefined,
+		sessionModel: () => session.model,
+	};
+}
+
 function modelRoles(session: AgentSession) {
+	const stock = roleStock(session);
 	return roleMetadata(session).map(role => ({
 		...role,
 		model: shownRoleValue(role.id, session.settings.getModelRole(role.id)),
 		source: session.settings.getModelRoleSource(role.id),
+		effective: effectiveRole(stock, role.id, role.builtin),
 		candidates: roleCandidatePool(role.id, session.settings, session.modelRegistry).map(model => ({
 			provider: model.provider,
 			id: model.id,
@@ -729,6 +790,13 @@ function modelRoles(session: AgentSession) {
 			kind: modelKind(model),
 		})),
 	}));
+}
+
+function customRoleId(params: unknown): string {
+	const id = requiredString(params, "id");
+	const error = customRoleIdError(id, []);
+	if (error) throw new Error(`"${id}" cannot be a custom role id (${error})`);
+	return id;
 }
 
 // ============================================================================
@@ -805,6 +873,47 @@ export const methods: BridgeMethods = {
 			await session.settings.flush();
 			env.emit({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
 			return { role, modelId: typeof modelId === "string" ? modelId : null };
+		},
+		/**
+		 * Names a custom role (selected as `@id`): stock's `modelTags.<id>` display name, which also
+		 * makes an empty role a known one, plus OMPdesk's own `description`. An empty name shows the id;
+		 * a preset role with neither returns to its default entry.
+		 */
+		model_role_define: async (params, env) => {
+			const session = env.session();
+			const id = customRoleId(params);
+			const fields = asRecord(params);
+			const name = typeof fields.name === "string" ? fields.name.trim().slice(0, 40) : "";
+			const description = typeof fields.description === "string" ? fields.description.trim().slice(0, 240) : "";
+			const tags = roleTags(session);
+			const { description: _previous, ...kept } = tags[id] ?? {};
+			if (presetRole(id) && !name && !description) {
+				delete tags[id];
+			} else {
+				tags[id] = { ...kept, name: name || id, ...(description ? { description } : {}) };
+			}
+			await setSetting(env, session, "modelTags", tags);
+			return { id };
+		},
+		/** Removes a custom role: its model, its `modelTags` entry and its place in the quick-switch cycle. */
+		model_role_forget: async (params, env) => {
+			const session = env.session();
+			const id = customRoleId(params);
+			session.settings.setModelRole(id, undefined);
+			const tags = roleTags(session);
+			delete tags[id];
+			await setSetting(env, session, "modelTags", tags);
+			const cycle = lookup("cycleOrder") as unknown as SettingLike | undefined;
+			const order = cycle?.get(session.settings);
+			if (Array.isArray(order) && order.includes(id)) {
+				await setSetting(
+					env,
+					session,
+					"cycleOrder",
+					order.filter(role => role !== id),
+				);
+			}
+			return { id };
 		},
 	}),
 };

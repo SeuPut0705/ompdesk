@@ -136,7 +136,7 @@ describe("ModelRolesSection", () => {
 		}
 	});
 
-	it("groups visible roles by backend section (chat vs kind) under the nested section's own title", async () => {
+	it("groups visible roles by purpose under the nested section's own title; Custom roles always offers adding one", async () => {
 		installRpc();
 		useSessionStore.getState().setStatus("ready", "/repo");
 
@@ -153,7 +153,7 @@ describe("ModelRolesSection", () => {
 			translate("settings.models.roles"),
 		]);
 		const headings = [...document.body.querySelectorAll("h5")].map(heading => heading.textContent);
-		expect(headings).toEqual(["Chat roles", "Specialized roles"]);
+		expect(headings).toEqual(["Conversation", "Input & output", "Custom roles"]);
 	});
 
 	it("names stock's built-in roles in Korean on a Korean UI, and keeps a custom role's own name", async () => {

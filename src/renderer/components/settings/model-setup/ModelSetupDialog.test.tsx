@@ -227,6 +227,19 @@ describe("ModelSetupDialog", () => {
 		expect(research?.value).toBe("anthropic/opus");
 	});
 
+	it("lists the proposal under the purpose groups, in the contract's order", async () => {
+		const harness = install();
+		await mount();
+		await researchToReview(harness);
+
+		const rows = [...document.querySelectorAll("tr[data-model-setup-group], tr[data-model-setup-role]")].map(
+			row => row.getAttribute("data-model-setup-group") ?? row.getAttribute("data-model-setup-role"),
+		);
+		expect(rows).toEqual(["conversation", "default", "slow", "smol", "agent", "advisor"]);
+		const heading = document.querySelector('tr[data-model-setup-group="agent"]');
+		expect(heading?.textContent).toBe(translate("modelRoles.group.agent"));
+	});
+
 	it("runs pick → research → review and applies only the changed roles plus the advisor switch", async () => {
 		const harness = install();
 		await mount();

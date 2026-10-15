@@ -1,4 +1,4 @@
-/** Accounts, then models (setup, roles, defaults, compare); reset passes, pools, endpoints and overrides fold under Advanced. */
+/** Providers & accounts and custom endpoints (connection), then models (setup, roles by purpose, defaults, compare); reset passes, account pools and model overrides fold under Advanced. */
 
 import { ChevronDown } from "lucide-react";
 import { useEffect, useId, useState } from "react";

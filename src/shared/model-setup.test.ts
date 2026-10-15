@@ -76,6 +76,30 @@ describe("buildModelSetupPrompt", () => {
 		expect(prompt).toContain("benchmarks and comparisons for exactly these models");
 		expect(prompt).toContain('Write every "reason" and "notes" in Korean.');
 	});
+
+	it("proposes per purpose group, built-ins in the contract's order, and says so", () => {
+		const lines = prompt.split("\n");
+		expect(lines.filter(line => line.startsWith("### "))).toEqual([
+			"### Conversation",
+			"### Agent work",
+			"### Other roles",
+		]);
+		const under = (heading: string) => {
+			const start = lines.indexOf(heading) + 1;
+			const end = lines.findIndex((line, index) => index >= start && line.startsWith("#"));
+			return lines.slice(start, end < 0 ? undefined : end).filter(line => line.startsWith("- "));
+		};
+		expect(under("### Conversation").map(line => line.slice(2, line.indexOf(" (")))).toEqual(["default", "smol"]);
+		expect(under("### Agent work").map(line => line.slice(2, line.indexOf(" (")))).toEqual(["advisor"]);
+		expect(prompt).toContain("Decide group by group");
+	});
+
+	it("lists a role in a group only for a stock built-in; the group of a custom role is never proposed", () => {
+		const custom = buildModelSetupPrompt({ ...REQUEST, roles: [{ id: "review", name: "Review" }] });
+		expect(custom).not.toContain("### Conversation");
+		expect(custom).toContain("### Other roles");
+		expect(isSetupRole("review")).toBe(false);
+	});
 });
 
 describe("ModelSetupRequestSchema", () => {

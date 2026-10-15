@@ -7,6 +7,7 @@
  * limited to the picked models and the known roles.
  */
 import { z } from "zod";
+import { ROLE_GROUPS, type RoleGroupId } from "../../resources/gui-bridge/model-role-contracts";
 import { codedError } from "./ipc-error-codes";
 
 /** The research run's whole budget, cancel and timeout included. */
@@ -162,6 +163,27 @@ function describeRole(role: ModelSetupRole): string {
 	return `- ${role.id} (${role.name}): ${ROLE_PURPOSES[role.id] ?? role.name}`;
 }
 
+const GROUP_HEADINGS: Record<RoleGroupId, string> = {
+	conversation: "Conversation",
+	agent: "Agent work",
+	io: "Input & output",
+};
+
+/** The roles under their purpose groups (Settings' own grouping), stock's built-ins in the contract's order, anything else last. */
+function describeRoleGroups(roles: readonly ModelSetupRole[]): string[] {
+	const lines: string[] = [];
+	const listed = new Set<string>();
+	for (const group of ROLE_GROUPS) {
+		const inGroup = group.roles.flatMap(id => roles.filter(role => role.id === id));
+		if (inGroup.length === 0) continue;
+		lines.push(`### ${GROUP_HEADINGS[group.id]}`, ...inGroup.map(describeRole), "");
+		for (const role of inGroup) listed.add(role.id);
+	}
+	const other = roles.filter(role => !listed.has(role.id));
+	if (other.length > 0) lines.push("### Other roles", ...other.map(describeRole), "");
+	return lines;
+}
+
 /** The research prompt: exactly the picked models and the known roles, and the reply contract. */
 export function buildModelSetupPrompt(request: ModelSetupRequest): string {
 	const language = request.language ?? "English";
@@ -177,11 +199,10 @@ export function buildModelSetupPrompt(request: ModelSetupRequest): string {
 			: "The user has no default model set.",
 		"",
 		"## Roles",
-		...request.roles.map(describeRole),
-		"",
+		...describeRoleGroups(request.roles),
 		"## Task",
 		"1. Research current public benchmarks and comparisons for exactly these models: use web_search, then read the most relevant pages. Prefer recent, reputable sources (vendor model cards, independent leaderboards such as coding and agentic benchmarks, price and speed comparisons). Do not research other models.",
-		"2. For each role, pick the candidate that best fits its purpose, weighing capability, speed and price. Leave a role out when no candidate fits it; an omitted role keeps its current model.",
+		"2. Decide group by group, so a group's roles fit together: within Conversation, Fast is the cheapest and quickest, Thinking the strongest, Default in between. For each role, pick the candidate that best fits its purpose, weighing capability, speed and price. Leave a role out when no candidate fits it; an omitted role keeps its current model.",
 		"3. Decide whether the advisor should be enabled: it is worth it when a strong candidate from a different vendor than the default model is available.",
 		"",
 		"## Reply",

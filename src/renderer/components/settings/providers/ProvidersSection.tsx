@@ -1,15 +1,17 @@
 /**
- * Settings › Models & providers — where the models come from, as two
- * sections: "Providers" lists the connected ones (a subscription expands to
- * its accounts, ProviderAccounts), the account-switching mode, and "Add a
- * provider", a collapsed picker with search, the recommended set and the long
- * tail; "Account pools" (AccountPoolsEditor, omp 18.8.1+ only) limits which of
- * those accounts each agent may use, from the same account reads; "Custom
- * endpoints" lists this machine's models.yml entries and opens
- * the inline form (`ui.providerForm`, opened by `openProviderConfig`) in place
- * of all of them. A failed read is a quiet InlineNotice in the part it concerns.
- * A tab on a paired host edits the host's models.yml in-app; "Edit config"
- * opens this device's file only, so it is not offered there.
+ * Settings › Models & accounts › Providers & accounts — connection only, in
+ * three parts: "Providers & accounts" lists the connected providers (a
+ * subscription expands to its accounts with their live quota,
+ * ProviderAccounts), the account-switching mode, and "Add a provider", a
+ * collapsed picker with search, the recommended set and the long tail;
+ * "Custom endpoints" lists this machine's models.yml entries and opens the
+ * inline form (`ui.providerForm`, opened by `openProviderConfig`) in place of
+ * all of them. The model roles come after, in `modelSettings`; "Account pools"
+ * (AccountPoolsEditor, omp 18.8.1+ only) limits which of those accounts each
+ * agent may use, from the same account reads, folded under Advanced. A failed
+ * read is a quiet InlineNotice in the part it concerns. A tab on a paired host
+ * edits the host's models.yml in-app; "Edit config" opens this device's file
+ * only, so it is not offered there.
  */
 
 import { CircleDashed, FileCode2, Pencil, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
@@ -497,19 +499,20 @@ export function ProvidersSection({
 					title={t("providerCfg.delete.title")}
 				/>
 			</SettingsSection>
+			{/* Connection ends here: accounts, live quota, rotation and the user's own endpoints. */}
+			<CustomEndpoints
+				busyProvider={busyProvider}
+				catalog={catalog}
+				onDelete={setPendingDelete}
+				onEdit={config => openProviderConfig(config)}
+			/>
 			{modelSettings}
-			{/* Reset passes, account pools, custom endpoints and model overrides: rarely changed, folded. */}
+			{/* Reset passes, account pools and model overrides: rarely changed, folded. */}
 			<SettingsAdvanced>
 				{advancedSettings}
 				<AccountPoolsEditor
 					providers={connected.map(provider => ({ provider, result: accountResults[provider.id] ?? null }))}
 					sidecarReady={catalog.sidecarReady}
-				/>
-				<CustomEndpoints
-					busyProvider={busyProvider}
-					catalog={catalog}
-					onDelete={setPendingDelete}
-					onEdit={config => openProviderConfig(config)}
 				/>
 				<ModelOverrides catalog={catalog} />
 			</SettingsAdvanced>

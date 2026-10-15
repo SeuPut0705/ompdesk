@@ -361,7 +361,8 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		sub: "roles",
 		rowId: "settings-models-roles",
 		labelKey: "settings.models.roles",
-		aliases: "modelRoles advisor slow fast default roles 모델 역할 어드바이저",
+		aliases:
+			"modelRoles advisor slow fast default plan task commit memory tiny vision image web speech dictation judge custom role @role explore review debug docs test design conversation agent work input output 모델 역할 어드바이저 사용자 지정 역할 탐색 리뷰 디버깅 문서 테스트 디자인 대화 에이전트 작업 입력 출력",
 	},
 	{
 		id: "pools",

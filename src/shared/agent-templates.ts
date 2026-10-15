@@ -7,9 +7,13 @@
  *
  * Model lists use role aliases only: an unset role expands to nothing, so the
  * next entry (and finally the parent's model) applies — no template names a
- * provider.
+ * provider. A template that names a preset custom role (`role`, from
+ * `resources/gui-bridge/model-role-contracts.ts`) lists `@role` first and the
+ * built-in roles it follows while that role is empty after it, so the agent
+ * type can run on its own model without anything being assigned.
  */
 
+import { roleSelectors } from "../../resources/gui-bridge/model-role-contracts";
 import { type AgentDraft, emptyAgentDraft, READ_ONLY_TOOLS } from "./agent-definition";
 
 export type TemplateLanguage = "en" | "ko";
@@ -23,6 +27,8 @@ export interface AgentTemplate {
 	description: string;
 	tools: readonly string[];
 	spawns?: readonly string[];
+	/** The preset custom role this agent type runs on (`model` starts with `@role`). */
+	role?: string;
 	model: readonly string[];
 	thinkingLevel: string;
 	readSummarize?: boolean;
@@ -55,6 +61,29 @@ const SHARED_RULES = `## Working rules
 - Finish with a short report: what changed (files), how it was verified, and anything left open.`;
 
 export const AGENT_TEMPLATES: readonly AgentTemplate[] = [
+	{
+		name: "code-explorer",
+		title: { en: "Code explorer", ko: "코드 탐색 담당" },
+		summary: {
+			en: "Maps unfamiliar code read-only: where things live, how they connect, what to touch.",
+			ko: "낯선 코드를 읽기 전용으로 훑어 어디에 무엇이 있고 어떻게 이어지는지 정리해요.",
+		},
+		description:
+			"Read-only codebase explorer: finds where behavior lives, traces call paths and data flow, and reports file:line evidence and the files a change would touch. Never edits.",
+		tools: READ_ONLY_TOOLS,
+		role: "explore",
+		model: roleSelectors("explore"),
+		thinkingLevel: "low",
+		instructions: `You explore codebases and report what you find. You never edit files or run commands that change anything.
+
+## Method
+- Start from the question: search for the names, strings and entry points it implies (grep, glob, ast_grep), then read the code around each hit.
+- Follow the real path: callers, callees, configuration and data flow, until you can say where the behavior is decided.
+- Prefer many small targeted reads to opening whole files; stop as soon as the question is answered.
+
+## Report
+Answer first, in a few sentences. Then list the evidence as file:line with one line each, the files a change would have to touch, and anything you could not confirm. Do not speculate about code you did not read.`,
+	},
 	{
 		name: "frontend",
 		title: { en: "Frontend engineer", ko: "프론트엔드 엔지니어" },
@@ -114,7 +143,8 @@ ${SHARED_RULES}`,
 		description:
 			"Test specialist: writes focused unit/integration tests for specified behavior and edge cases, and stabilizes flaky tests. Does not change production code unless told to.",
 		tools: BUILD_TOOLS,
-		model: ["@task"],
+		role: "test",
+		model: roleSelectors("test"),
 		thinkingLevel: "medium",
 		instructions: `You write and repair automated tests.
 
@@ -163,7 +193,8 @@ ${SHARED_RULES}`,
 			"Debugging specialist: reproduces a reported failure, isolates the root cause with evidence, fixes it minimally and adds a regression test.",
 		tools: [...BUILD_TOOLS, "debug"],
 		spawns: ["scout"],
-		model: ["@slow", "@task"],
+		role: "debug",
+		model: roleSelectors("debug"),
 		thinkingLevel: "high",
 		instructions: `You diagnose and fix bugs.
 
@@ -188,7 +219,8 @@ ${SHARED_RULES}`,
 		description:
 			"Documentation specialist: writes and updates READMEs, guides, API docs, changelog entries and doc comments that are accurate to the current code.",
 		tools: ["read", "grep", "glob", "find", "lsp", "edit", "write", "bash", "web_search"],
-		model: ["@smol", "@task"],
+		role: "docs",
+		model: roleSelectors("docs"),
 		thinkingLevel: "low",
 		instructions: `You write developer documentation.
 
@@ -212,7 +244,8 @@ ${SHARED_RULES}`,
 			"Deep code review: checks a diff or branch for correctness bugs, unhandled edge cases, security issues, API/contract breaks, missing tests and maintainability. Read-only; reports prioritized findings with file:line evidence.",
 		tools: INSPECT_TOOLS,
 		spawns: ["scout"],
-		model: ["@slow", "@task"],
+		role: "review",
+		model: roleSelectors("review"),
 		thinkingLevel: "high",
 		instructions: `You review code changes. You never edit files.
 
@@ -281,7 +314,8 @@ ${SHARED_RULES}`,
 		description:
 			"UI/UX polish specialist: aligns screens with the project's design system — spacing, typography, color tokens, empty/loading/error states, copy, keyboard and screen-reader accessibility — without redesigning flows.",
 		tools: BUILD_TOOLS,
-		model: ["@task"],
+		role: "design",
+		model: roleSelectors("design"),
 		thinkingLevel: "medium",
 		instructions: `You polish existing interfaces.
 

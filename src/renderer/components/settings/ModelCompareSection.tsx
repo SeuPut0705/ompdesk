@@ -36,7 +36,7 @@ import { cx, formatTokens } from "../../lib/format";
 import { useLang, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { usageLimitLabel } from "../../lib/usage-labels";
-import { inUseReport, useLiveUsage } from "../../lib/usage-reports";
+import { inUseReport, tightestLimit, useLiveUsage } from "../../lib/usage-reports";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
@@ -86,20 +86,6 @@ export interface Row {
 	costOut: number | null;
 	roles: ModelRoleEntry[];
 	quota: { limit: UsageLimit; fraction: number } | null;
-}
-
-/**
- * The most-consumed limit in a provider report — the one that gates usage
- * first. The bridge normalizes `usedFraction` with stock `resolveUsedFraction`.
- */
-function tightestLimit(report: UsageReport): { limit: UsageLimit; fraction: number } | null {
-	let best: { limit: UsageLimit; fraction: number } | null = null;
-	for (const limit of report.limits) {
-		const fraction = limit.usedFraction;
-		if (fraction === undefined) continue;
-		if (!best || fraction > best.fraction) best = { limit, fraction };
-	}
-	return best;
 }
 
 /** "$3" / "$0.15" / "$75" — trims insignificant zeros. */

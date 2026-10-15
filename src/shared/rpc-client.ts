@@ -153,6 +153,10 @@ export interface SessionRpcClient {
 	getPlanMode(): Promise<RpcResponse>;
 	getModelRoles(): Promise<RpcResponse>;
 	setModelRole(role: string, modelId: string | null): Promise<RpcResponse>;
+	/** Names a custom role (display name and description); an empty name shows the id. */
+	defineModelRole(roleId: string, fields: { name?: string; description?: string }): Promise<RpcResponse>;
+	/** Removes a custom role: its model, name and place in the quick-switch cycle. */
+	forgetModelRole(roleId: string): Promise<RpcResponse>;
 	getModelRoleMetadata(): Promise<RpcResponse>;
 	/** Per-model compaction points (omp 18.8.5+; older omp answers `unsupported_omp`). */
 	getCompactionPoints(): Promise<RpcResponse>;
@@ -520,6 +524,8 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getPlanMode: () => rpcCommand({ type: "get_plan_mode" }),
 		getModelRoles: () => rpcCommand({ type: "get_model_roles" }),
 		setModelRole: (role, modelId) => rpcCommand({ type: "set_model_role", role, modelId }),
+		defineModelRole: (roleId, fields) => rpcCommand({ type: "define_model_role", roleId, ...fields }),
+		forgetModelRole: roleId => rpcCommand({ type: "forget_model_role", roleId }),
 		getModelRoleMetadata: () => rpcCommand({ type: "get_model_role_metadata" }),
 		getCompactionPoints: () => rpcCommand({ type: "get_compaction_points" }),
 		getRecentModels: () => rpcCommand({ type: "get_recent_models" }),

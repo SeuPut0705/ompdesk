@@ -655,6 +655,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	modelRoles: {
 		session: [
+			"model",
 			"modelRegistry",
 			"modelRegistry.getAll()",
 			"settings.getModelRole()",
@@ -663,8 +664,18 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"settings.flush()",
 		],
 		modules: {
-			[`${AGENT}/config/model-roles`]: ["getKnownRoleIds()", "getRoleInfo()", "roleCandidatePool()"],
-			[`${AGENT}/config/model-resolver`]: ["extractExplicitThinkingSelector()"],
+			[`${AGENT}/config/model-roles`]: [
+				"getKnownRoleIds()",
+				"getRoleInfo()",
+				"roleCandidatePool()",
+				"MODEL_ROLE_IDS",
+				"CHAT_MODEL_ROLE_IDS",
+			],
+			[`${AGENT}/config/model-resolver`]: [
+				"extractExplicitThinkingSelector()",
+				"resolveModelOverride()",
+				"resolveRoleSelection()",
+			],
 			"@oh-my-pi/pi-catalog/types": ["modelKind()"],
 		},
 	},

@@ -8,7 +8,8 @@
  */
 
 import { ExternalLink, Info, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ROLE_GROUPS } from "../../../../../resources/gui-bridge/model-role-contracts";
 import {
 	ADVISOR_ROLE,
 	MODEL_SETUP_MAX_MODELS,
@@ -312,11 +313,11 @@ export function ModelSetupDialog() {
 		.filter(group => group.models.length > 0);
 	const atLimit = selected.length >= MODEL_SETUP_MAX_MODELS;
 	const canResearch = sidecarReady && selected.length > 0 && researchModel !== "" && !running;
-	const orderedAssignments = proposal
-		? [...proposal.plan.assignments].sort(
-				(a, b) => roles.findIndex(role => role.id === a.role) - roles.findIndex(role => role.id === b.role),
-			)
-		: [];
+	// The proposal by purpose group, the contract's order within each (the same grouping as Settings › Model roles).
+	const assignmentGroups = ROLE_GROUPS.map(group => ({
+		id: group.id,
+		entries: group.roles.flatMap(id => proposal?.plan.assignments.filter(entry => entry.role === id) ?? []),
+	})).filter(group => group.entries.length > 0);
 	const proposalModels = proposal ? options.filter(option => proposal.models.includes(option.selector)) : [];
 
 	const footer =
@@ -527,47 +528,65 @@ export function ModelSetupDialog() {
 									</tr>
 								</thead>
 								<tbody className="divide-y divide-(--sc-divider)">
-									{orderedAssignments.map(entry => {
-										const role = roles.find(candidate => candidate.id === entry.role);
-										const roleName = role ? modelRoleName(lang, role.name) : entry.role;
-										const current = baseSelector(role?.model);
-										const draft = drafts[entry.role] ?? entry.model;
-										return (
-											<tr data-model-setup-role={entry.role} key={entry.role}>
-												<td className="px-3 py-2 align-top">
-													<div className="font-medium text-(--sc-text)">{roleName}</div>
-													<div className="text-sc-xs text-(--sc-text-muted)">
-														{t("modelSetup.review.current", { model: labelOf(current) })}
-													</div>
-												</td>
-												<td className="min-w-52 px-3 py-2 align-top">
-													<Select
-														aria-label={t("modelSetup.review.select", { role: roleName })}
-														controlSize="sm"
-														onChange={event =>
-															setDrafts(previous => ({ ...previous, [entry.role]: event.target.value }))
-														}
-														value={draft}
-													>
-														{proposalModels.map(option => (
-															<option key={option.selector} value={option.selector}>
-																{option.label}
-															</option>
-														))}
-														{!proposalModels.some(option => option.selector === draft) && (
-															<option value={draft}>{draft}</option>
-														)}
-													</Select>
-													{draft === current && (
-														<Badge className="mt-1" variant="muted">
-															{t("modelSetup.review.unchanged")}
-														</Badge>
-													)}
-												</td>
-												<td className="px-3 py-2 align-top text-(--sc-text-secondary)">{entry.reason}</td>
+									{assignmentGroups.map(group => (
+										<Fragment key={group.id}>
+											<tr className="bg-(--sc-surface-2)" data-model-setup-group={group.id}>
+												<th
+													className="px-3 py-1.5 text-sc-xs font-medium text-(--sc-text-muted)"
+													colSpan={3}
+													scope="colgroup"
+												>
+													{t(`modelRoles.group.${group.id}`)}
+												</th>
 											</tr>
-										);
-									})}
+											{group.entries.map(entry => {
+												const role = roles.find(candidate => candidate.id === entry.role);
+												const roleName = role ? modelRoleName(lang, role.name) : entry.role;
+												const current = baseSelector(role?.model);
+												const draft = drafts[entry.role] ?? entry.model;
+												return (
+													<tr data-model-setup-role={entry.role} key={entry.role}>
+														<td className="px-3 py-2 align-top">
+															<div className="font-medium text-(--sc-text)">{roleName}</div>
+															<div className="text-sc-xs text-(--sc-text-muted)">
+																{t("modelSetup.review.current", { model: labelOf(current) })}
+															</div>
+														</td>
+														<td className="min-w-52 px-3 py-2 align-top">
+															<Select
+																aria-label={t("modelSetup.review.select", { role: roleName })}
+																controlSize="sm"
+																onChange={event =>
+																	setDrafts(previous => ({
+																		...previous,
+																		[entry.role]: event.target.value,
+																	}))
+																}
+																value={draft}
+															>
+																{proposalModels.map(option => (
+																	<option key={option.selector} value={option.selector}>
+																		{option.label}
+																	</option>
+																))}
+																{!proposalModels.some(option => option.selector === draft) && (
+																	<option value={draft}>{draft}</option>
+																)}
+															</Select>
+															{draft === current && (
+																<Badge className="mt-1" variant="muted">
+																	{t("modelSetup.review.unchanged")}
+																</Badge>
+															)}
+														</td>
+														<td className="px-3 py-2 align-top text-(--sc-text-secondary)">
+															{entry.reason}
+														</td>
+													</tr>
+												);
+											})}
+										</Fragment>
+									))}
 								</tbody>
 							</table>
 						</div>
