@@ -209,6 +209,8 @@ export interface SessionRpcClient {
 	getOmpUpdate(): Promise<RpcResponse>;
 	ompUpdate(): Promise<RpcResponse>;
 	getPluginDoctor(): Promise<RpcResponse>;
+	getAgentWorktrees(): Promise<RpcResponse>;
+	clearAgentWorktrees(): Promise<RpcResponse>;
 	getContextReport(): Promise<RpcResponse>;
 	previewShareSession(): Promise<RpcResponse>;
 	shareSession(snapshotId?: string): Promise<RpcResponse>;
@@ -548,6 +550,9 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		// Runs `omp update` against the system install — download + install can take minutes.
 		ompUpdate: () => rpcCommand({ type: "omp_update" }, 11 * 60_000),
 		getPluginDoctor: () => rpcCommand({ type: "get_plugin_doctor" }, 90_000),
+		getAgentWorktrees: () => rpcCommand({ type: "get_agent_worktrees" }, 60_000),
+		// Removing a task-isolation mount or a large checkout can take a while.
+		clearAgentWorktrees: () => rpcCommand({ type: "clear_agent_worktrees" }, 5 * 60_000),
 		getContextReport: () => rpcCommand({ type: "get_context_report" }),
 		// Uploads + seals the session snapshot to the share server — network-bound.
 		previewShareSession: () => rpcCommand({ type: "preview_share_session" }),

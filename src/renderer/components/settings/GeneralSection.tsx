@@ -29,8 +29,8 @@ import { TerminalShellRow } from "./TerminalShellRow";
 
 const PANEL_SIDES: readonly PanelSide[] = ["right", "left"];
 
-/** A boolean preference main reads (close to tray, keep awake); false until it loads. */
-function useMainPreference(key: string): [boolean, (next: boolean) => void] {
+/** A boolean preference main reads (close to tray, keep awake, worktree auto-clean); false until it loads. */
+export function useMainPreference(key: string): [boolean, (next: boolean) => void] {
 	const [value, setValue] = useState(false);
 	useEffect(() => {
 		let live = true;

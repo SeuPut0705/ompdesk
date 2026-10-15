@@ -323,6 +323,19 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "launchProfiles launch systemPrompt profile sessionDir 실행 시작 인수",
 	},
 	{
+		id: "worktreeAutoClean",
+		section: "workspace",
+		labelKey: "settings.agentWorktrees.auto",
+		aliases: "worktree auto clean orphaned cleanup remove 워크트리 자동 정리",
+	},
+	{
+		id: "agentWorktrees",
+		section: "workspace",
+		rowId: "setting-agent-worktrees",
+		labelKey: "settings.agentWorktrees",
+		aliases: "worktree list clear orphaned omp wt 워크트리 정리",
+	},
+	{
 		id: "roles",
 		section: "models",
 		sub: "roles",

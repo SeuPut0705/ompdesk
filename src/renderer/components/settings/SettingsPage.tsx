@@ -41,6 +41,7 @@ import { Banner, Button, EmptyState, ListRow, SearchField } from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
 import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
 import { AgentSection } from "./AgentSection";
+import { AgentWorktreesRows } from "./AgentWorktreesRow";
 import { AppearanceSection } from "./AppearanceSection";
 import { ExtensionsSection } from "./ExtensionsSection";
 import { GeneralSection } from "./GeneralSection";
@@ -309,6 +310,7 @@ export function SettingsPage() {
 						<LaunchProfileSection />
 						<SettingsSection id="settings-workspace-worktrees" scope="app" title={t("settings.worktrees")}>
 							<WorktreeBranchPrefixRow />
+							<AgentWorktreesRows />
 						</SettingsSection>
 						<OwnedSchemaSettings section="workspace" />
 					</>

@@ -10,6 +10,7 @@
  * plugin's version, tools, hooks and extensions).
  */
 import type { RpcDoctorCheck } from "../../shared/rpc-types";
+import { clearAgentWorktrees, listAgentWorktrees } from "../agent-worktrees";
 import { parseOmpVersion } from "../omp-runtime";
 import { type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
 
@@ -143,4 +144,7 @@ export const handlers: Record<string, LocalHandler> = {
 	get_omp_update: (_command, ctx) => checkOmpUpdate(ctx),
 	omp_update: (_command, ctx) => runOmpUpdate(ctx),
 	get_plugin_doctor: (_command, ctx) => pluginDoctor(ctx),
+	// Agent-managed worktrees under ~/.omp/wt (stock `omp worktree list|clear --json`, orphaned only).
+	get_agent_worktrees: async (_command, ctx) => ({ entries: await listAgentWorktrees(ctx.omp, ctx.cwd) }),
+	clear_agent_worktrees: (_command, ctx) => clearAgentWorktrees(ctx.omp, ctx.cwd),
 };

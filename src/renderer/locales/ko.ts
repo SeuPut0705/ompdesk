@@ -178,6 +178,20 @@ export const ko: Record<string, string> = {
 	"settings.worktreeBranchPrefix.example": "예: {branch}",
 	"settings.worktreeBranchPrefix.invalid":
 		"영문, 숫자, . _ - /만 쓰고 /, -, _ 중 하나로 끝내세요. 폴더 이름은 점으로 시작할 수 없어요.",
+	"settings.agentWorktrees.auto": "남은 워크트리 자동 정리",
+	"settings.agentWorktrees.autoDesc":
+		"이 컴퓨터에서 실행할 때와 6시간마다 omp가 만든 워크트리 중 남은 것을 지워요. 멈춘 작업 샌드박스와 저장소나 브랜치가 사라진 PR 체크아웃이 대상이고, 쓰고 있는 워크트리는 건드리지 않아요.",
+	"settings.agentWorktrees": "에이전트 워크트리",
+	"settings.agentWorktrees.desc":
+		"omp가 PR 체크아웃과 격리 작업을 위해 ~/.omp/wt에 만든 워크트리예요(omp worktree list). 정리하면 남은 것만 지워요.",
+	"settings.agentWorktrees.clear": "지금 정리",
+	"settings.agentWorktrees.refresh": "에이전트 워크트리 새로 고침",
+	"settings.agentWorktrees.none": "에이전트 워크트리가 없어요.",
+	"settings.agentWorktrees.summary": "워크트리 {total}개 · 남은 것 {orphaned}개",
+	"settings.agentWorktrees.cleared": "{count}개를 지웠어요.",
+	"settings.agentWorktrees.clearedSome": "{removed}개를 지웠고 {failed}개는 지우지 못했어요.",
+	"settings.agentWorktrees.listFailed": "에이전트 워크트리 목록을 불러오지 못했어요.",
+	"settings.agentWorktrees.clearFailed": "에이전트 워크트리를 정리하지 못했어요.",
 	"worktreeLifecycle.create": "워크트리 만들기",
 	"worktreeLifecycle.skip": "이 체크아웃 사용",
 	"worktreeLifecycle.exitTitle": "워크트리를 삭제할까요?",

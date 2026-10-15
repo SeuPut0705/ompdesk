@@ -22,13 +22,14 @@ import { DELEGATION_PREF } from "../../resources/gui-bridge/delegation-contracts
 import { USER_PROFILE_PREF } from "../../resources/gui-bridge/user-profile-contracts";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { REA_PREF } from "../shared/builtin-mcp";
-import { CLOSE_TO_TRAY_PREF, KEEP_AWAKE_WORKING_PREF } from "../shared/desktop-prefs";
+import { CLOSE_TO_TRAY_PREF, KEEP_AWAKE_WORKING_PREF, WORKTREE_AUTO_CLEAN_PREF } from "../shared/desktop-prefs";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import { SCHEDULES_STATE } from "../shared/schedules";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
+import { AgentWorktreeAutoClean } from "./agent-worktrees";
 import { installQuitGuard, quitApproved, requestQuit } from "./app-quit";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { setupDeepLinks } from "./deep-link";
@@ -275,6 +276,8 @@ let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
 /** Keep-awake while this computer's own tabs run a turn (Settings › General › Window). */
 let workAwakePolicy: KeepAwakePolicy | null = null;
+/** Orphaned agent worktree cleanup (Settings › Projects & launch › Worktrees). */
+let worktreeAutoClean: AgentWorktreeAutoClean | null = null;
 
 function errorMessage(value: unknown): { message: string; stack?: string } {
 	if (value instanceof Error) return { message: value.message, stack: value.stack };
@@ -655,6 +658,17 @@ app.whenReady().then(() => {
 			running: sidecarPool.tabInventory().some(tab => tab.inFlight),
 		});
 	sidecarPool.onRunningChange = syncWorkAwake;
+	// Settings › Projects & launch › Worktrees: stock `omp worktree clear` (orphaned only) on a timer.
+	const autoClean = new AgentWorktreeAutoClean({
+		enabled: () => prefs.get(WORKTREE_AUTO_CLEAN_PREF) === true,
+		omp: async () => {
+			const resolution = await systemOmp();
+			return resolution.ok ? resolution.runtime : null;
+		},
+		log: message => console.warn(`[worktrees] ${message}`),
+	});
+	worktreeAutoClean = autoClean;
+	autoClean.start();
 
 	// Register all handlers and sidecar listeners before loading the renderer.
 	registerIpcHandlers({
@@ -671,6 +685,7 @@ app.whenReady().then(() => {
 		mediaStreams,
 		onPrefChanged: key => {
 			if (key === KEEP_AWAKE_WORKING_PREF) syncWorkAwake();
+			if (key === WORKTREE_AUTO_CLEAN_PREF) autoClean.prefChanged();
 		},
 	});
 	protocol.handle(MEDIA_SCHEME, request => mediaStreams.handle(request));
@@ -746,6 +761,7 @@ installQuitGuard(
 		githubAuthService?.dispose();
 		scheduleService?.dispose();
 		workAwakePolicy?.dispose();
+		worktreeAutoClean?.stop();
 		sidecarPool?.disposeAll();
 		void remoteDevices?.dispose();
 		sessionIndex?.stop();

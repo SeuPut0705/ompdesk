@@ -143,6 +143,8 @@ export type RpcCommand =
 	| { id?: string; type: "get_omp_update" }
 	| { id?: string; type: "omp_update" }
 	| { id?: string; type: "get_plugin_doctor" }
+	| { id?: string; type: "get_agent_worktrees" }
+	| { id?: string; type: "clear_agent_worktrees" }
 
 	// Session reports (structured TUI /context /share /jobs parity; /tools rides get_active_tools)
 	| { id?: string; type: "get_context_report" }
@@ -1185,6 +1187,24 @@ export interface RpcDoctorCheck {
 export interface RpcPluginDoctorResult {
 	checks: RpcDoctorCheck[];
 	checkedAt: string;
+}
+/** One entry of stock `omp worktree list --json` (`WorktreeEntry`, cli/worktree-cli.ts). */
+export interface RpcAgentWorktree {
+	path: string;
+	kind: "pr-checkout" | "task-isolation" | "empty" | "stray";
+	parentRepo?: string;
+	branch?: string;
+	/** Set when stock's `omp worktree clear` would remove it. */
+	orphanReason?: string;
+}
+/** Stock `omp worktree clear --json` (orphaned entries only, never `--all`). */
+export interface RpcAgentWorktreeClear {
+	removed: number;
+	failed: number;
+	results: { path: string; ok: boolean; error?: string }[];
+}
+export interface RpcAgentWorktreeList {
+	entries: RpcAgentWorktree[];
 }
 
 /** A node in the session's branch tree (visual session navigation). */
