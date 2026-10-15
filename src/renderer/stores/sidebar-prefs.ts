@@ -13,6 +13,7 @@
 import { create } from "zustand";
 import { translate } from "../lib/i18n";
 import { optimisticWrite } from "../lib/optimistic";
+import { PREFS_BOOT_RETRY_MS, readPref } from "../lib/prefs-read";
 import { toastError } from "./toast";
 
 const PREFS_KEY = "sidebar";
@@ -137,136 +138,134 @@ async function writePrefs(get: () => SidebarPrefsStore): Promise<{ success: bool
 	}
 }
 
-export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
-	pinnedGroups: [],
-	pinnedSessions: [],
-	groupAliases: {},
-	workspaceLastUsed: {},
-	groupOrder: [],
-	archivedSessions: [],
-	grouping: "projects",
-	railPins: [],
-	hydrated: false,
+/** The store's fields as a saved blob holds them; malformed or missing parts fall back to defaults. */
+function stateFromBlob(value: unknown): Partial<SidebarPrefsStore> {
+	const blob = (value ?? undefined) as SidebarPrefsBlob | undefined;
+	return {
+		pinnedGroups: Array.isArray(blob?.pinnedGroups) ? blob.pinnedGroups : [],
+		pinnedSessions: Array.isArray(blob?.pinnedSessions) ? blob.pinnedSessions : [],
+		groupAliases: blob?.groupAliases && typeof blob.groupAliases === "object" ? blob.groupAliases : {},
+		workspaceLastUsed: validRecencyMap(blob?.workspaceLastUsed),
+		groupOrder: Array.isArray(blob?.groupOrder)
+			? blob.groupOrder.filter((cwd): cwd is string => typeof cwd === "string" && cwd.length > 0)
+			: [],
+		archivedSessions: Array.isArray(blob?.archivedSessions)
+			? blob.archivedSessions.filter((id): id is string => typeof id === "string" && id.length > 0)
+			: [],
+		grouping: blob?.grouping === "recent" ? "recent" : "projects",
+		railPins: validRailPins(blob?.railPins),
+	};
+}
 
-	hydrate: async () => {
+export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
+	/**
+	 * Reads the stored blob into the store. A failed read leaves the store
+	 * un-hydrated: the stored pins, aliases and archive are unknown, and every
+	 * write persists the whole blob, so none may happen until a read succeeds.
+	 */
+	const load = async (retryDelaysMs: readonly number[]): Promise<void> => {
 		if (get().hydrated) return;
-		try {
-			const blob = (await window.omp.prefs.get(PREFS_KEY)) as SidebarPrefsBlob | null | undefined;
-			set({
-				pinnedGroups: Array.isArray(blob?.pinnedGroups) ? blob.pinnedGroups : [],
-				pinnedSessions: Array.isArray(blob?.pinnedSessions) ? blob.pinnedSessions : [],
-				groupAliases: blob?.groupAliases && typeof blob.groupAliases === "object" ? blob.groupAliases : {},
-				workspaceLastUsed: validRecencyMap(blob?.workspaceLastUsed),
-				groupOrder: Array.isArray(blob?.groupOrder)
-					? blob.groupOrder.filter((cwd): cwd is string => typeof cwd === "string" && cwd.length > 0)
-					: [],
-				archivedSessions: Array.isArray(blob?.archivedSessions)
-					? blob.archivedSessions.filter((id): id is string => typeof id === "string" && id.length > 0)
-					: [],
-				grouping: blob?.grouping === "recent" ? "recent" : "projects",
-				railPins: validRailPins(blob?.railPins),
-				hydrated: true,
-			});
-		} catch {
-			set({ hydrated: true });
-		}
-	},
+		const read = await readPref(PREFS_KEY, retryDelaysMs);
+		// The write path's own read may have landed while a boot read slept.
+		if (!read.ok || get().hydrated) return;
+		set({ ...stateFromBlob(read.value), hydrated: true });
+	};
 
-	toggleGroupPin: cwd =>
-		optimisticWrite({
+	/**
+	 * A change the user can see: read the stored blob first (once, no backoff)
+	 * when boot has not, so the change merges into it, and refuse the change
+	 * with a toast while the blob stays unreadable.
+	 */
+	const write = async (
+		failureTitleKey: string,
+		mutate: (state: SidebarPrefsStore) => Partial<SidebarPrefsStore>,
+	): Promise<void> => {
+		if (!get().hydrated) await load([]);
+		if (!get().hydrated) {
+			toastError({ title: translate(failureTitleKey), error: translate("prefs.unreadable") });
+			return;
+		}
+		await optimisticWrite({
 			store: { getState: get, setState: set },
-			mutate: state => ({
+			mutate,
+			persist: () => writePrefs(get),
+			onFailure: failure => toastError({ title: translate(failureTitleKey), error: failure }),
+		});
+	};
+
+	return {
+		pinnedGroups: [],
+		pinnedSessions: [],
+		groupAliases: {},
+		workspaceLastUsed: {},
+		groupOrder: [],
+		archivedSessions: [],
+		grouping: "projects",
+		railPins: [],
+		hydrated: false,
+
+		hydrate: () => load(PREFS_BOOT_RETRY_MS),
+
+		toggleGroupPin: cwd =>
+			write("sidebar.pinFailed", state => ({
 				pinnedGroups: state.pinnedGroups.includes(cwd)
 					? state.pinnedGroups.filter(item => item !== cwd)
 					: [...state.pinnedGroups, cwd],
-			}),
-			persist: () => writePrefs(get),
-			onFailure: failure => toastError({ title: translate("sidebar.pinFailed"), error: failure }),
-		}),
+			})),
 
-	toggleSessionPin: path =>
-		optimisticWrite({
-			store: { getState: get, setState: set },
-			mutate: state => ({
+		toggleSessionPin: path =>
+			write("sidebar.pinFailed", state => ({
 				pinnedSessions: state.pinnedSessions.includes(path)
 					? state.pinnedSessions.filter(item => item !== path)
 					: [...state.pinnedSessions, path],
-			}),
-			persist: () => writePrefs(get),
-			onFailure: failure => toastError({ title: translate("sidebar.pinFailed"), error: failure }),
-		}),
+			})),
 
-	setGroupAlias: (cwd, alias) =>
-		optimisticWrite({
-			store: { getState: get, setState: set },
-			mutate: state => {
+		setGroupAlias: (cwd, alias) =>
+			write("sidebar.renameFailed", state => {
 				const groupAliases = { ...state.groupAliases };
 				if (alias?.trim()) groupAliases[cwd] = alias.trim();
 				else delete groupAliases[cwd];
 				return { groupAliases };
-			},
-			persist: () => writePrefs(get),
-			onFailure: failure => toastError({ title: translate("sidebar.renameFailed"), error: failure }),
-		}),
+			}),
 
-	setGroupOrder: order =>
-		optimisticWrite({
-			store: { getState: get, setState: set },
-			mutate: () => ({ groupOrder: [...new Set(order)] }),
-			persist: () => writePrefs(get),
-			onFailure: failure => toastError({ title: translate("sidebar.reorderFailed"), error: failure }),
-		}),
+		setGroupOrder: order => write("sidebar.reorderFailed", () => ({ groupOrder: [...new Set(order)] })),
 
-	setSessionsArchived: (ids, archived) =>
-		optimisticWrite({
-			store: { getState: get, setState: set },
-			mutate: state => ({
+		setSessionsArchived: (ids, archived) =>
+			write("sidebar.archiveFailed", state => ({
 				archivedSessions: archived
 					? [...new Set([...state.archivedSessions, ...ids])]
 					: state.archivedSessions.filter(id => !ids.includes(id)),
-			}),
-			persist: () => writePrefs(get),
-			onFailure: failure => toastError({ title: translate("sidebar.archiveFailed"), error: failure }),
-		}),
+			})),
 
-	setGrouping: grouping =>
-		optimisticWrite({
-			store: { getState: get, setState: set },
-			mutate: () => ({ grouping }),
-			persist: () => writePrefs(get),
-			onFailure: failure => toastError({ title: translate("sidebar.groupingFailed"), error: failure }),
-		}),
+		setGrouping: grouping => write("sidebar.groupingFailed", () => ({ grouping })),
 
-	toggleRailPin: pin =>
-		optimisticWrite({
-			store: { getState: get, setState: set },
-			mutate: state => ({
+		toggleRailPin: pin =>
+			write("sidebar.pinFailed", state => ({
 				railPins: state.railPins.includes(pin)
 					? state.railPins.filter(item => item !== pin)
 					: RAIL_PINS.filter(item => item === pin || state.railPins.includes(item)),
+			})),
+
+		touchWorkspace: cwd => {
+			// Before the stored blob is known the write would replace it with defaults.
+			if (!cwd || !get().hydrated) return;
+			const state = get();
+			const timestamp = nextTimestamp(state.workspaceLastUsed);
+			set({ workspaceLastUsed: touchedMap(state.workspaceLastUsed, cwd, timestamp, MAX_RECENT_WORKSPACES) });
+			persist(get);
+		},
+
+		reset: () =>
+			set({
+				pinnedGroups: [],
+				pinnedSessions: [],
+				groupAliases: {},
+				workspaceLastUsed: {},
+				groupOrder: [],
+				archivedSessions: [],
+				grouping: "projects",
+				railPins: [],
+				hydrated: false,
 			}),
-			persist: () => writePrefs(get),
-			onFailure: failure => toastError({ title: translate("sidebar.pinFailed"), error: failure }),
-		}),
-
-	touchWorkspace: cwd => {
-		if (!cwd) return;
-		const state = get();
-		const timestamp = nextTimestamp(state.workspaceLastUsed);
-		set({ workspaceLastUsed: touchedMap(state.workspaceLastUsed, cwd, timestamp, MAX_RECENT_WORKSPACES) });
-		persist(get);
-	},
-
-	reset: () =>
-		set({
-			pinnedGroups: [],
-			pinnedSessions: [],
-			groupAliases: {},
-			workspaceLastUsed: {},
-			groupOrder: [],
-			archivedSessions: [],
-			grouping: "projects",
-			railPins: [],
-			hydrated: false,
-		}),
-}));
+	};
+});

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { CustomProviderView, SessionInfo } from "../../shared/ipc-types";
 import { KEYMAP_ACTIONS, type KeymapOverrides, sanitizeOverrides } from "../lib/keymap";
+import { PREFS_BOOT_RETRY_MS, readPref } from "../lib/prefs-read";
 import { readPrepaintThemeMode, type ThemeMode } from "../lib/theme";
 
 export type { ThemeMode };
@@ -334,12 +335,50 @@ interface UiStore {
 	 * dispatch map. GUI-local only — never synced to the TUI's keybindings.yml.
 	 */
 	keymapOverrides: KeymapOverrides;
-	/** One-shot boot hydration guard for keymapOverrides (input-history pattern). */
+	/** Set once the stored table was read; until then edits are queued, never written. */
 	keymapHydrated: boolean;
 	hydrateKeymap: () => Promise<void>;
 	/** Replace one action's chords; an empty list removes the override (reset to default). */
 	setKeymapOverride: (actionId: string, chords: string[]) => void;
 	resetKeymapOverrides: () => void;
+}
+
+type KeymapEdit = (table: KeymapOverrides) => KeymapOverrides;
+
+/**
+ * Edits made while the stored table is unread. They show at once, but a write
+ * would replace stored overrides the app never saw, so they wait here and
+ * replay on top of the stored table when a read succeeds.
+ */
+let queuedKeymapEdits: KeymapEdit[] = [];
+
+function persistKeymap(table: KeymapOverrides): void {
+	void window.omp.prefs.set("keymapOverrides", table).catch(() => {});
+}
+
+/** Reads the stored table; a failed read leaves the store un-hydrated and its edits queued. */
+async function loadKeymap(retryDelaysMs: readonly number[]): Promise<void> {
+	if (useUiStore.getState().keymapHydrated) return;
+	const read = await readPref("keymapOverrides", retryDelaysMs);
+	// Another read (boot backoff or an edit's own) may have landed meanwhile.
+	if (!read.ok || useUiStore.getState().keymapHydrated) return;
+	const edits = queuedKeymapEdits;
+	queuedKeymapEdits = [];
+	const keymapOverrides = edits.reduce((table, edit) => edit(table), sanitizeOverrides(KEYMAP_ACTIONS, read.value));
+	useUiStore.setState({ keymapOverrides, keymapHydrated: true });
+	if (edits.length > 0) persistKeymap(keymapOverrides);
+}
+
+function editKeymap(edit: KeymapEdit): void {
+	const { keymapHydrated, keymapOverrides } = useUiStore.getState();
+	useUiStore.setState({ keymapOverrides: edit(keymapOverrides) });
+	if (keymapHydrated) {
+		persistKeymap(useUiStore.getState().keymapOverrides);
+		return;
+	}
+	queuedKeymapEdits.push(edit);
+	// A read before the write, without the boot backoff.
+	void loadKeymap([]);
 }
 
 export const useUiStore = create<UiStore>()((set, get) => ({
@@ -381,13 +420,30 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	thinkingExpanded: false,
 	transcriptDetail: "compact",
 	toggleSidebar: () => set({ sidebarVisible: !get().sidebarVisible }),
-	togglePanel: () => set({ panelVisible: !get().panelVisible }),
+	// The editor's own dialog (Files view) asks first, so a switch that would unmount it waits in `pendingFileSwitch`.
+	togglePanel: () => {
+		const next = { panelVisible: !get().panelVisible };
+		if (get().fileEditDirty && get().panelVisible) set({ pendingFileSwitch: next });
+		else set(next);
+	},
 	toolsExpandAll: { expanded: false, seq: 0 },
 	toggleToolsExpandAll: () =>
 		set({ toolsExpandAll: { expanded: !get().toolsExpandAll.expanded, seq: get().toolsExpandAll.seq + 1 } }),
-	setPanelTab: tab => set({ panelTab: tab, panelVisible: true }),
-	openSubagentPanel: subagent => set({ panelSubagent: subagent, panelTab: "subagent", panelVisible: true }),
-	openPreview: url => set({ previewUrl: url, panelTab: "preview", panelVisible: true }),
+	setPanelTab: tab => {
+		const next = { panelTab: tab, panelVisible: true };
+		if (get().fileEditDirty && tab !== get().panelTab) set({ pendingFileSwitch: next });
+		else set(next);
+	},
+	openSubagentPanel: subagent => {
+		const next = { panelSubagent: subagent, panelTab: "subagent" as const, panelVisible: true };
+		if (get().fileEditDirty) set({ pendingFileSwitch: next });
+		else set(next);
+	},
+	openPreview: url => {
+		const next = { previewUrl: url, panelTab: "preview" as const, panelVisible: true };
+		if (get().fileEditDirty) set({ pendingFileSwitch: next });
+		else set(next);
+	},
 	openFilePreview: (path, options) => {
 		const next = {
 			filePreviewPath: path,
@@ -612,27 +668,16 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	setTranscriptDetail: detail => set({ transcriptDetail: detail }),
 	keymapOverrides: {} as KeymapOverrides,
 	keymapHydrated: false,
-	hydrateKeymap: async () => {
-		if (get().keymapHydrated) return;
-		try {
-			const raw = await window.omp.prefs.get("keymapOverrides");
-			set({ keymapOverrides: sanitizeOverrides(KEYMAP_ACTIONS, raw), keymapHydrated: true });
-		} catch {
-			// prefs IPC unavailable (tests, storybook) — defaults stay in effect.
-			set({ keymapHydrated: true });
-		}
-	},
+	hydrateKeymap: () => loadKeymap(PREFS_BOOT_RETRY_MS),
 	setKeymapOverride: (actionId, chords) => {
 		// Fresh object per mutation so subscribers (and App's compiled-map memo)
 		// see a new reference; untouched overrides keep their identity.
-		const next = { ...get().keymapOverrides };
-		if (chords.length === 0) delete next[actionId];
-		else next[actionId] = chords;
-		set({ keymapOverrides: next });
-		void window.omp.prefs.set("keymapOverrides", next).catch(() => {});
+		editKeymap(table => {
+			const next = { ...table };
+			if (chords.length === 0) delete next[actionId];
+			else next[actionId] = chords;
+			return next;
+		});
 	},
-	resetKeymapOverrides: () => {
-		set({ keymapOverrides: {} });
-		void window.omp.prefs.set("keymapOverrides", {}).catch(() => {});
-	},
+	resetKeymapOverrides: () => editKeymap(() => ({})),
 }));

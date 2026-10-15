@@ -6,7 +6,8 @@
  * pattern. GUI-local only — the TUI's keybindings.yml is never involved.
  */
 
-import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { PREFS_BOOT_RETRY_MS } from "../lib/prefs-read";
 import { useUiStore } from "./ui";
 
 interface PrefsMock {
@@ -42,21 +43,17 @@ describe("ui store keymap overrides", () => {
 		expect(useUiStore.getState().keymapOverrides).toEqual({ retry: ["⌥⇧R"] });
 	});
 
-	it("hydrates once and tolerates prefs IPC failure", async () => {
+	it("hydrates once", async () => {
 		const prefs = installPrefs({ retry: ["⌥⇧R"] });
 		await useUiStore.getState().hydrateKeymap();
 		await useUiStore.getState().hydrateKeymap();
 		expect(prefs.get).toHaveBeenCalledTimes(1);
-		(globalThis as Record<string, unknown>).window = {
-			omp: { prefs: { get: vi.fn(async () => Promise.reject(new Error("no ipc"))) } },
-		};
-		useUiStore.setState({ keymapOverrides: {}, keymapHydrated: false });
-		await useUiStore.getState().hydrateKeymap();
-		expect(useUiStore.getState().keymapOverrides).toEqual({});
+		expect(useUiStore.getState().keymapOverrides).toEqual({ retry: ["⌥⇧R"] });
 	});
 
 	it("persists every mutation and survives a simulated reload", async () => {
 		const prefs = installPrefs();
+		useUiStore.setState({ keymapHydrated: true });
 		useUiStore.getState().setKeymapOverride("tools.expand", ["⇧⌃O"]);
 		expect(useUiStore.getState().keymapOverrides).toEqual({ "tools.expand": ["⇧⌃O"] });
 		expect(persistedOverrides(prefs)).toEqual({ "tools.expand": ["⇧⌃O"] });
@@ -71,6 +68,7 @@ describe("ui store keymap overrides", () => {
 
 	it("removes the override (and its prefs entry) on an empty chord list", () => {
 		const prefs = installPrefs();
+		useUiStore.setState({ keymapHydrated: true });
 		useUiStore.getState().setKeymapOverride("tools.expand", ["⇧⌃O"]);
 		useUiStore.getState().setKeymapOverride("tools.expand", []);
 		expect(useUiStore.getState().keymapOverrides).toEqual({});
@@ -79,10 +77,81 @@ describe("ui store keymap overrides", () => {
 
 	it("resetKeymapOverrides clears everything and persists the empty table", () => {
 		const prefs = installPrefs();
+		useUiStore.setState({ keymapHydrated: true });
 		useUiStore.getState().setKeymapOverride("retry", ["⌃⇧R"]);
 		useUiStore.getState().setKeymapOverride("dequeue", ["⌃↓"]);
 		useUiStore.getState().resetKeymapOverrides();
 		expect(useUiStore.getState().keymapOverrides).toEqual({});
+		expect(persistedOverrides(prefs)).toEqual({});
+	});
+});
+
+describe("ui store keymap overrides with unreadable prefs", () => {
+	afterEach(async () => {
+		vi.useRealTimers();
+		// A read that succeeds replays, and so drains, the edits a test left queued.
+		installPrefs();
+		await useUiStore.getState().hydrateKeymap();
+	});
+
+	/** The boot read against a failing prefs bridge, through every bounded retry. */
+	async function failBootRead(): Promise<PrefsMock> {
+		vi.useFakeTimers();
+		const prefs = installPrefs();
+		prefs.get.mockRejectedValue(new Error("no ipc"));
+		const hydrating = useUiStore.getState().hydrateKeymap();
+		await vi.advanceTimersByTimeAsync(60_000);
+		await hydrating;
+		return prefs;
+	}
+
+	it("stays un-hydrated after a failed read and retries a bounded number of times", async () => {
+		const prefs = await failBootRead();
+		expect(useUiStore.getState().keymapHydrated).toBe(false);
+		expect(prefs.get).toHaveBeenCalledTimes(1 + PREFS_BOOT_RETRY_MS.length);
+
+		prefs.get.mockResolvedValue({ retry: ["⌥⇧R"] });
+		await useUiStore.getState().hydrateKeymap();
+		expect(useUiStore.getState().keymapHydrated).toBe(true);
+		expect(useUiStore.getState().keymapOverrides).toEqual({ retry: ["⌥⇧R"] });
+	});
+
+	it("never persists a change over the stored table after a failed read", async () => {
+		const prefs = await failBootRead();
+		useUiStore.getState().setKeymapOverride("tools.expand", ["⇧⌃O"]);
+		useUiStore.getState().resetKeymapOverrides();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(prefs.set).not.toHaveBeenCalled();
+		expect(useUiStore.getState().keymapHydrated).toBe(false);
+	});
+
+	it("reads again after a failed read and writes the queued change merged into the stored table", async () => {
+		const prefs = await failBootRead();
+		prefs.get.mockResolvedValueOnce({ retry: ["⌥⇧R"] });
+		useUiStore.getState().setKeymapOverride("tools.expand", ["⇧⌃O"]);
+		// The change shows at once; the write waits for the stored table.
+		expect(useUiStore.getState().keymapOverrides).toEqual({ "tools.expand": ["⇧⌃O"] });
+		expect(prefs.set).not.toHaveBeenCalled();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(useUiStore.getState().keymapHydrated).toBe(true);
+		expect(useUiStore.getState().keymapOverrides).toEqual({ retry: ["⌥⇧R"], "tools.expand": ["⇧⌃O"] });
+		expect(prefs.set).toHaveBeenCalledTimes(1);
+		expect(persistedOverrides(prefs)).toEqual({ retry: ["⌥⇧R"], "tools.expand": ["⇧⌃O"] });
+	});
+
+	it("applies a queued reset-all and a queued removal on top of the stored table", async () => {
+		const prefs = await failBootRead();
+		prefs.get.mockResolvedValueOnce({ retry: ["⌥⇧R"], dequeue: ["⌃↓"] });
+		useUiStore.getState().setKeymapOverride("retry", []);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(persistedOverrides(prefs)).toEqual({ dequeue: ["⌃↓"] });
+
+		useUiStore.setState({ keymapOverrides: {}, keymapHydrated: false });
+		prefs.set.mockClear();
+		prefs.get.mockResolvedValueOnce({ retry: ["⌥⇧R"] });
+		useUiStore.getState().resetKeymapOverrides();
+		await vi.advanceTimersByTimeAsync(0);
 		expect(persistedOverrides(prefs)).toEqual({});
 	});
 });

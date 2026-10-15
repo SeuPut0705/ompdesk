@@ -4,8 +4,9 @@
  * prefs write must undo the optimistic toggle (the sidebar would otherwise
  * show a pin that disappears on the next launch).
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { translate } from "../lib/i18n";
+import { PREFS_BOOT_RETRY_MS } from "../lib/prefs-read";
 import { useSidebarPrefs } from "./sidebar-prefs";
 import { useToastStore } from "./toast";
 
@@ -14,13 +15,15 @@ const set = vi.fn(async (_key: string, _value: unknown) => {});
 (globalThis as Record<string, unknown>).window = { omp: { prefs: { get, set } } };
 
 afterEach(() => {
-	get.mockClear();
-	set.mockClear();
+	get.mockReset();
+	set.mockReset();
 	useSidebarPrefs.getState().reset();
 	useToastStore.setState({ toasts: [] });
 });
 
 describe("sidebar-prefs store", () => {
+	beforeEach(() => useSidebarPrefs.setState({ hydrated: true }));
+
 	it("toggles group and session pins, persisting each change", () => {
 		useSidebarPrefs.getState().toggleGroupPin("/work/a");
 		expect(useSidebarPrefs.getState().pinnedGroups).toEqual(["/work/a"]);
@@ -60,6 +63,7 @@ describe("sidebar-prefs store", () => {
 	});
 
 	it("hydrates from the persisted blob once, drops retired keys, and tolerates missing prefs", async () => {
+		useSidebarPrefs.getState().reset();
 		get.mockResolvedValueOnce({
 			pinnedGroups: ["/work/pinned"],
 			pinnedSessions: ["/s/p.jsonl"],
@@ -84,9 +88,9 @@ describe("sidebar-prefs store", () => {
 		expect(written).toEqual(expect.objectContaining({ pinnedSessions: ["/s/p.jsonl"] }));
 		expect(written).not.toHaveProperty("sessionLastUsed");
 
-		// Unreadable prefs degrade to empty defaults, never a throw.
+		// A pref that was never stored hydrates to empty defaults, never a throw.
 		useSidebarPrefs.getState().reset();
-		get.mockRejectedValueOnce(new Error("io"));
+		get.mockResolvedValueOnce(undefined);
 		await useSidebarPrefs.getState().hydrate();
 		expect(useSidebarPrefs.getState().hydrated).toBe(true);
 		expect(useSidebarPrefs.getState().pinnedGroups).toEqual([]);
@@ -150,6 +154,90 @@ describe("sidebar-prefs store", () => {
 				message: translate("toast.failedRetry"),
 				detail: "EPERM",
 			}),
+		);
+	});
+});
+
+describe("sidebar-prefs store with unreadable prefs", () => {
+	const stored = {
+		pinnedGroups: ["/work/pinned"],
+		pinnedSessions: ["/s/p.jsonl"],
+		groupAliases: { "/work/a": "Alias" },
+		archivedSessions: ["s9"],
+		groupOrder: ["/work/b", "/work/a"],
+	};
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	/** The boot read against a failing prefs bridge, through every bounded retry. */
+	async function failBootRead(): Promise<void> {
+		vi.useFakeTimers();
+		get.mockRejectedValue(new Error("io"));
+		const hydrating = useSidebarPrefs.getState().hydrate();
+		await vi.advanceTimersByTimeAsync(60_000);
+		await hydrating;
+	}
+
+	it("stays un-hydrated after a failed read and retries with a bounded backoff", async () => {
+		await failBootRead();
+		expect(useSidebarPrefs.getState().hydrated).toBe(false);
+		expect(get).toHaveBeenCalledTimes(1 + PREFS_BOOT_RETRY_MS.length);
+
+		get.mockResolvedValue(stored);
+		await useSidebarPrefs.getState().hydrate();
+		expect(useSidebarPrefs.getState().hydrated).toBe(true);
+		expect(useSidebarPrefs.getState().pinnedGroups).toEqual(["/work/pinned"]);
+	});
+
+	it("never writes defaults over stored data after a failed read", async () => {
+		await failBootRead();
+
+		await useSidebarPrefs.getState().toggleGroupPin("/work/new");
+		await useSidebarPrefs.getState().toggleSessionPin("/s/new.jsonl");
+		await useSidebarPrefs.getState().setGroupAlias("/work/a", "Renamed");
+		await useSidebarPrefs.getState().setGroupOrder(["/work/a"]);
+		await useSidebarPrefs.getState().setSessionsArchived(["s1"], true);
+		await useSidebarPrefs.getState().setGrouping("recent");
+		await useSidebarPrefs.getState().toggleRailPin("usage");
+		useSidebarPrefs.getState().touchWorkspace("/work/new");
+
+		expect(set).not.toHaveBeenCalled();
+		expect(useSidebarPrefs.getState().hydrated).toBe(false);
+		expect(useSidebarPrefs.getState().pinnedGroups).toEqual([]);
+		// One refusal per action the user took; the recency hint stays silent.
+		expect(useToastStore.getState().toasts.map(toast => toast.title)).toContain(translate("sidebar.pinFailed"));
+		expect(useToastStore.getState().toasts.at(-1)?.detail).toBe(translate("prefs.unreadable"));
+	});
+
+	it("reads again before a write and merges the change into what is stored", async () => {
+		await failBootRead();
+		expect(useSidebarPrefs.getState().hydrated).toBe(false);
+
+		get.mockResolvedValueOnce(stored);
+		await useSidebarPrefs.getState().toggleGroupPin("/work/new");
+
+		expect(useSidebarPrefs.getState().hydrated).toBe(true);
+		expect(set).toHaveBeenCalledTimes(1);
+		expect(set).toHaveBeenCalledWith(
+			"sidebar",
+			expect.objectContaining({
+				pinnedGroups: ["/work/pinned", "/work/new"],
+				pinnedSessions: ["/s/p.jsonl"],
+				groupAliases: { "/work/a": "Alias" },
+				archivedSessions: ["s9"],
+				groupOrder: ["/work/b", "/work/a"],
+			}),
+		);
+	});
+
+	it("reads before the first write when nothing has hydrated yet", async () => {
+		get.mockResolvedValueOnce(stored);
+		await useSidebarPrefs.getState().setSessionsArchived(["s1"], true);
+		expect(set).toHaveBeenCalledWith(
+			"sidebar",
+			expect.objectContaining({ archivedSessions: ["s9", "s1"], pinnedGroups: ["/work/pinned"] }),
 		);
 	});
 });

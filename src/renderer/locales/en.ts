@@ -1394,6 +1394,7 @@ export const en: Record<string, string> = {
 	"common.clear": "Clear",
 	"toast.repeated": "Repeated {count} times",
 	"toast.failedRetry": "Something went wrong. Try again.",
+	"prefs.unreadable": "Your saved settings couldn't be read, so this change was not saved.",
 	"ipcError.invalid_session_path": "That session file isn't valid.",
 	"ipcError.session_running": "The session is still running. Stop it first, then try again.",
 	"ipcError.session_delete_cancelled": "An extension cancelled the deletion.",

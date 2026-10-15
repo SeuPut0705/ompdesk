@@ -10,6 +10,7 @@ import { normalizePool } from "../../../resources/gui-bridge/pool-contracts";
 import type { RpcModelPoolMember } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
 import { optimisticWrite } from "../lib/optimistic";
+import { PREFS_BOOT_RETRY_MS, readPref } from "../lib/prefs-read";
 import { toastError } from "./toast";
 
 export const MODEL_POOL_PREFS_KEY = "modelPool";
@@ -62,26 +63,45 @@ async function writePresets(presets: ModelPoolPreset[]): Promise<{ success: bool
 	}
 }
 
-export const useModelPoolPresets = create<ModelPoolPresetsStore>()((set, get) => ({
-	presets: [],
-	hydrated: false,
-
-	hydrate: async () => {
+export const useModelPoolPresets = create<ModelPoolPresetsStore>()((set, get) => {
+	/**
+	 * Reads the stored presets. A failed read leaves the store un-hydrated:
+	 * every save writes the whole list, so none may happen until a read succeeds.
+	 */
+	const load = async (retryDelaysMs: readonly number[]): Promise<void> => {
 		if (get().hydrated) return;
-		try {
-			const blob = (await window.omp.prefs.get(MODEL_POOL_PREFS_KEY)) as ModelPoolPrefsBlob | null | undefined;
-			set({ presets: normalizePresets(blob?.presets), hydrated: true });
-		} catch {
-			set({ hydrated: true });
-		}
-	},
+		const read = await readPref(MODEL_POOL_PREFS_KEY, retryDelaysMs);
+		// Another read (the popover's backoff or a save's own) may have landed meanwhile.
+		if (!read.ok || get().hydrated) return;
+		const blob = (read.value ?? undefined) as ModelPoolPrefsBlob | undefined;
+		set({ presets: normalizePresets(blob?.presets), hydrated: true });
+	};
 
-	savePreset: (name, members) => {
-		const trimmed = name.trim().slice(0, MAX_PRESET_NAME);
-		if (!trimmed || members.length === 0) return Promise.resolve();
-		return optimisticWrite({
+	/** A save or delete: read the stored list first (once, no backoff) when nothing has, and refuse with a toast while it stays unreadable. */
+	const write = async (mutate: (state: ModelPoolPresetsStore) => Partial<ModelPoolPresetsStore>): Promise<void> => {
+		if (!get().hydrated) await load([]);
+		if (!get().hydrated) {
+			toastError({ title: translate("modelPool.presetSaveFailed"), error: translate("prefs.unreadable") });
+			return;
+		}
+		await optimisticWrite({
 			store: { getState: get, setState: set },
-			mutate: state => {
+			mutate,
+			persist: () => writePresets(get().presets),
+			onFailure: failure => toastError({ title: translate("modelPool.presetSaveFailed"), error: failure }),
+		});
+	};
+
+	return {
+		presets: [],
+		hydrated: false,
+
+		hydrate: () => load(PREFS_BOOT_RETRY_MS),
+
+		savePreset: (name, members) => {
+			const trimmed = name.trim().slice(0, MAX_PRESET_NAME);
+			if (!trimmed || members.length === 0) return Promise.resolve();
+			return write(state => {
 				const existing = state.presets.find(preset => preset.name === trimmed);
 				const preset: ModelPoolPreset = {
 					id: existing?.id ?? crypto.randomUUID(),
@@ -92,19 +112,11 @@ export const useModelPoolPresets = create<ModelPoolPresetsStore>()((set, get) =>
 					? state.presets.map(item => (item.id === existing.id ? preset : item))
 					: [...state.presets, preset].slice(-MAX_PRESETS);
 				return { presets };
-			},
-			persist: () => writePresets(get().presets),
-			onFailure: failure => toastError({ title: translate("modelPool.presetSaveFailed"), error: failure }),
-		});
-	},
+			});
+		},
 
-	deletePreset: id =>
-		optimisticWrite({
-			store: { getState: get, setState: set },
-			mutate: state => ({ presets: state.presets.filter(preset => preset.id !== id) }),
-			persist: () => writePresets(get().presets),
-			onFailure: failure => toastError({ title: translate("modelPool.presetSaveFailed"), error: failure }),
-		}),
+		deletePreset: id => write(state => ({ presets: state.presets.filter(preset => preset.id !== id) })),
 
-	reset: () => set({ presets: [], hydrated: false }),
-}));
+		reset: () => set({ presets: [], hydrated: false }),
+	};
+});

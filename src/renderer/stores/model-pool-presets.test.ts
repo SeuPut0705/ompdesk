@@ -92,3 +92,46 @@ describe("model-pool presets store", () => {
 		});
 	});
 });
+
+describe("model-pool presets store with unreadable prefs", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	/** The lazy read against a failing prefs bridge, through every bounded retry. */
+	async function failRead(): Promise<void> {
+		vi.useFakeTimers();
+		get.mockRejectedValue(new Error("io"));
+		const hydrating = useModelPoolPresets.getState().hydrate();
+		await vi.advanceTimersByTimeAsync(60_000);
+		await hydrating;
+	}
+
+	it("stays un-hydrated after a failed read and never saves over the stored presets", async () => {
+		await failRead();
+		expect(useModelPoolPresets.getState().hydrated).toBe(false);
+
+		await useModelPoolPresets.getState().savePreset("Duo", [haiku, gpt]);
+		await useModelPoolPresets.getState().deletePreset("anything");
+
+		expect(set).not.toHaveBeenCalled();
+		expect(useModelPoolPresets.getState().presets).toEqual([]);
+		expect(useToastStore.getState().toasts.at(-1)).toMatchObject({
+			title: translate("modelPool.presetSaveFailed"),
+			detail: translate("prefs.unreadable"),
+		});
+	});
+
+	it("reads again before a save and merges the new preset into the stored list", async () => {
+		await failRead();
+		get.mockResolvedValueOnce({ presets: [{ id: "a", name: "Duo", members: [haiku, gpt] }] });
+
+		await useModelPoolPresets.getState().savePreset("Solo", [gpt]);
+
+		expect(useModelPoolPresets.getState().hydrated).toBe(true);
+		expect(set).toHaveBeenCalledTimes(1);
+		expect(set).toHaveBeenCalledWith(MODEL_POOL_PREFS_KEY, {
+			presets: [expect.objectContaining({ id: "a", name: "Duo" }), expect.objectContaining({ name: "Solo" })],
+		});
+	});
+});

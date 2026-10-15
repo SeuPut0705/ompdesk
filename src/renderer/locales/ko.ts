@@ -1382,6 +1382,7 @@ export const ko: Record<string, string> = {
 	"common.clear": "지우기",
 	"toast.repeated": "{count}번 반복됨",
 	"toast.failedRetry": "문제가 생겨 마치지 못했어요. 다시 시도해 보세요.",
+	"prefs.unreadable": "저장된 설정을 읽지 못해서 이 변경은 저장하지 않았어요.",
 	"ipcError.invalid_session_path": "올바른 세션 파일이 아니에요.",
 	"ipcError.session_running": "세션이 아직 실행 중이에요. 먼저 멈춘 뒤 다시 시도해 보세요.",
 	"ipcError.session_delete_cancelled": "확장 프로그램이 삭제를 취소했어요.",

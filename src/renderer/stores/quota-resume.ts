@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { UsageReport } from "../../shared/rpc-types";
+import { PREFS_BOOT_RETRY_MS, readPref } from "../lib/prefs-read";
 
 /**
  * Turns stopped by a provider usage limit, booked to resume when the limit
@@ -15,6 +16,8 @@ export const QUOTA_RESUME_GRACE_MS = 24 * 60 * 60 * 1000;
 
 interface QuotaResumeState {
 	reservations: Record<string, number>;
+	/** Whether the stored bookings were read; until then changes are held here and not written. */
+	loaded: boolean;
 	load: () => Promise<void>;
 	reserve: (sessionId: string, resetAt: number) => void;
 	cancel: (sessionId: string) => void;
@@ -36,30 +39,63 @@ function persist(reservations: Record<string, number>): void {
 		.catch(() => {});
 }
 
-export const useQuotaResumeStore = create<QuotaResumeState>()((set, get) => ({
-	reservations: {},
-	load: async () => {
-		let saved: Record<string, number> = {};
-		try {
-			saved = parseReservations(await window.omp.prefs.get(QUOTA_RESUME_PREF));
-		} catch {
-			// Unreadable prefs: nothing booked.
-		}
-		set({ reservations: { ...saved, ...get().reservations } });
-	},
-	reserve: (sessionId, resetAt) => {
-		const reservations = { ...get().reservations, [sessionId]: resetAt };
-		set({ reservations });
-		persist(reservations);
-	},
-	cancel: sessionId => {
-		if (!(sessionId in get().reservations)) return;
-		const { [sessionId]: _, ...reservations } = get().reservations;
-		set({ reservations });
-		persist(reservations);
-	},
-	reset: () => set({ reservations: {} }),
-}));
+export const useQuotaResumeStore = create<QuotaResumeState>()((set, get) => {
+	/** Set when a booking changed before the stored ones were read: the merge must then be written back. */
+	let changedBeforeRead = false;
+	/** Sessions whose booking was cancelled before the read, so the stored copy does not bring them back. */
+	const cancelledBeforeRead = new Set<string>();
+
+	/**
+	 * Reads the stored bookings and merges them with this run's. A failed read
+	 * leaves the store unloaded: the stored bookings are unknown, so nothing
+	 * may be written over them yet.
+	 */
+	const load = async (retryDelaysMs: readonly number[]): Promise<void> => {
+		if (get().loaded) return;
+		const read = await readPref(QUOTA_RESUME_PREF, retryDelaysMs);
+		// Another read (boot backoff or a change's own) may have landed meanwhile.
+		if (!read.ok || get().loaded) return;
+		const reservations = { ...parseReservations(read.value), ...get().reservations };
+		for (const sessionId of cancelledBeforeRead) delete reservations[sessionId];
+		const write = changedBeforeRead;
+		cancelledBeforeRead.clear();
+		changedBeforeRead = false;
+		set({ reservations, loaded: true });
+		if (write) persist(reservations);
+	};
+
+	return {
+		reservations: {},
+		loaded: false,
+		load: () => load(PREFS_BOOT_RETRY_MS),
+		reserve: (sessionId, resetAt) => {
+			const reservations = { ...get().reservations, [sessionId]: resetAt };
+			set({ reservations });
+			cancelledBeforeRead.delete(sessionId);
+			if (get().loaded) persist(reservations);
+			else {
+				changedBeforeRead = true;
+				void load([]);
+			}
+		},
+		cancel: sessionId => {
+			if (!(sessionId in get().reservations)) return;
+			const { [sessionId]: _, ...reservations } = get().reservations;
+			set({ reservations });
+			if (get().loaded) persist(reservations);
+			else {
+				changedBeforeRead = true;
+				cancelledBeforeRead.add(sessionId);
+				void load([]);
+			}
+		},
+		reset: () => {
+			changedBeforeRead = false;
+			cancelledBeforeRead.clear();
+			set({ reservations: {}, loaded: false });
+		},
+	};
+});
 
 /**
  * When the provider's usage limit lets `provider` run again: stock may rotate

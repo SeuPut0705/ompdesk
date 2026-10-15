@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { PREFS_BOOT_RETRY_MS, readPref } from "../lib/prefs-read";
 
 /**
  * Getting-started checklist at the sidebar foot. Each step completes from
@@ -48,36 +49,46 @@ function persist(state: SavedStarterGuide): void {
 	void window.omp.prefs.set(STARTER_GUIDE_PREF, { done: state.done, dismissed: state.dismissed }).catch(() => {});
 }
 
-export const useStarterGuideStore = create<StarterGuideState>()((set, get) => ({
-	...INITIAL,
-	done: [],
-	load: async () => {
-		let saved: SavedStarterGuide;
-		try {
-			saved = parseStarterGuide(await window.omp.prefs.get(STARTER_GUIDE_PREF));
-		} catch {
-			saved = { done: [], dismissed: false };
-		}
+export const useStarterGuideStore = create<StarterGuideState>()((set, get) => {
+	/**
+	 * Reads the saved guide and merges it with what this run completed. A
+	 * failed read leaves the guide unloaded: saved steps and a saved dismissal
+	 * are unknown, so nothing may be written over them yet.
+	 */
+	const load = async (retryDelaysMs: readonly number[]): Promise<void> => {
+		if (get().loaded) return;
+		const read = await readPref(STARTER_GUIDE_PREF, retryDelaysMs);
+		// Another read (boot backoff or a change's own) may have landed meanwhile.
+		if (!read.ok || get().loaded) return;
+		const saved = parseStarterGuide(read.value);
 		const current = get();
 		const done = STARTER_STEPS.filter(step => saved.done.includes(step) || current.done.includes(step));
 		const dismissed = saved.dismissed || current.dismissed;
 		set({ loaded: true, done, dismissed });
 		if (done.length !== saved.done.length || dismissed !== saved.dismissed) persist({ done, dismissed });
-	},
-	complete: steps => {
-		const current = get();
-		const added = steps.filter(step => !current.done.includes(step));
-		if (added.length === 0) return;
-		const done = STARTER_STEPS.filter(step => current.done.includes(step) || added.includes(step));
-		set({ done, tour: current.tour && added.includes(current.tour) ? null : current.tour });
-		// Before load settles, load() merges and writes the union itself.
-		if (current.loaded) persist({ done, dismissed: current.dismissed });
-	},
-	dismiss: () => {
-		set({ dismissed: true, tour: null });
-		persist({ done: get().done, dismissed: true });
-	},
-	startTour: step => set({ tour: step }),
-	endTour: () => set({ tour: null }),
-	reset: () => set({ ...INITIAL, done: [] }),
-}));
+	};
+
+	return {
+		...INITIAL,
+		done: [],
+		load: () => load(PREFS_BOOT_RETRY_MS),
+		complete: steps => {
+			const current = get();
+			const added = steps.filter(step => !current.done.includes(step));
+			if (added.length === 0) return;
+			const done = STARTER_STEPS.filter(step => current.done.includes(step) || added.includes(step));
+			set({ done, tour: current.tour && added.includes(current.tour) ? null : current.tour });
+			if (current.loaded) persist({ done, dismissed: current.dismissed });
+			// Unloaded: a read before the write; load() merges and writes the union itself.
+			else void load([]);
+		},
+		dismiss: () => {
+			set({ dismissed: true, tour: null });
+			if (get().loaded) persist({ done: get().done, dismissed: true });
+			else void load([]);
+		},
+		startTour: step => set({ tour: step }),
+		endTour: () => set({ tour: null }),
+		reset: () => set({ ...INITIAL, done: [] }),
+	};
+});
