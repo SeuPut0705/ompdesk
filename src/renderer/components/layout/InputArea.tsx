@@ -26,6 +26,7 @@ import { useDisplayPreference } from "../../lib/display-preferences";
 import { tryEmojiInlineReplace } from "../../lib/emoji";
 import { FILE_DRAG_TYPE, readFileDrag } from "../../lib/file-drag";
 import { cx } from "../../lib/format";
+import { historyImages } from "../../lib/history-images";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { parseComposerMode } from "../../lib/input-modes";
@@ -54,7 +55,7 @@ import {
 	recordAndTranscribe,
 	stopVoiceRecording,
 } from "../../lib/voice";
-import { type ComposerStore, useComposerStore } from "../../stores/composer";
+import { type ComposerImage, type ComposerStore, useComposerStore } from "../../stores/composer";
 import { useExtensionUiStore } from "../../stores/extension-ui";
 import { useFirstRunStore } from "../../stores/first-run";
 import { useInputHistoryStore } from "../../stores/input-history";
@@ -164,6 +165,8 @@ export function InputArea() {
 	/** The folded paste open in "Edit pasted text". */
 	const [editingPaste, setEditingPaste] = useState<number | null>(null);
 	const draftPastes = useMemo(() => referencedPasteIds(text), [text]);
+	/** The draft's pictures while ↑/↓ shows history entries (restored on the way back). */
+	const navDraftImages = useRef<ComposerImage[]>([]);
 	/** ⌃G: the composer expands in place to fill the session pane (design-spec §2.2). */
 	const [expanded, setExpanded] = useState(false);
 	const [externalBusy, setExternalBusy] = useState(false);
@@ -818,6 +821,11 @@ export function InputArea() {
 				const history = useInputHistoryStore.getState();
 				const context = { cwd, owner: `${runtimeTabId}:${sessionId}`, device: historyDevice };
 				const older = e.key === "ArrowUp";
+				const wasBrowsing =
+					history.navIndex !== -1 &&
+					history.navContext?.owner === context.owner &&
+					history.navContext?.cwd === context.cwd &&
+					history.navContext?.device === context.device;
 				const recalled =
 					older && caretEnd === 0
 						? history.prev(text, context)
@@ -826,6 +834,10 @@ export function InputArea() {
 							: undefined;
 				if (recalled !== undefined) {
 					e.preventDefault();
+					// The draft's own pictures step aside while browsing and come back with it.
+					if (!wasBrowsing) navDraftImages.current = images;
+					const backToDraft = useInputHistoryStore.getState().navIndex === -1;
+					setImages(backToDraft ? navDraftImages.current : [...historyImages(recalled)]);
 					setText(recalled);
 					const caret = older ? 0 : recalled.length;
 					requestAnimationFrame(() => {

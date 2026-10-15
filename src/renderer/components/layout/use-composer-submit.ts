@@ -10,6 +10,7 @@ import { hydrateTabSession } from "../../hooks/use-rpc-events";
 import { isGuiOnlyBuiltinCommand, planComposerSubmit, settleComposerResponse } from "../../lib/composer-submit";
 import { expandEmoticons } from "../../lib/emoji";
 import { errorDetail } from "../../lib/error-detail";
+import { rememberHistoryImages } from "../../lib/history-images";
 import { useT } from "../../lib/i18n";
 import { parseComposerMode } from "../../lib/input-modes";
 import { clearSessionContext } from "../../lib/messages";
@@ -69,6 +70,8 @@ export function useComposerSubmit({
 		(overrideText?: string, forceMode?: SendMode) => {
 			const message = (overrideText ?? text).trim();
 			if ((!message && images.length === 0) || sending) return;
+			// ↑ history brings the pictures back with the text (stock keeps text only).
+			rememberHistoryImages(message, images);
 			if (!routeReady || !runtimeTabId) return;
 			if (status !== "ready") {
 				toast({ variant: "warning", message: t("input.agentConnecting") });

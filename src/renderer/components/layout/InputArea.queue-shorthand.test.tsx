@@ -9,6 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { AgentMessage, RpcCommand, RpcResponse } from "../../../shared/rpc-types";
 import { resetSessionSurface } from "../../hooks/use-session-switch";
+import { clearHistoryImages, rememberHistoryImages } from "../../lib/history-images";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { expandPasteMarkers, pasteMarkerText, storePaste } from "../../lib/paste-blobs";
 import { METER_BARS } from "../../lib/voice";
@@ -596,6 +597,24 @@ describe("InputArea prompt history", () => {
 		placeCaret(0);
 		expect((await pressKey({ key: "ArrowUp" })).defaultPrevented).toBe(true);
 		expect(composerValue()).toBe("older prompt");
+	});
+
+	it("brings back the pictures sent with a recalled prompt, and the draft's own on the way back", async () => {
+		await mount();
+		const sent = { content: { type: "image" as const, data: "AA==", mimeType: "image/png" }, preview: "data:sent" };
+		const draft = { content: { type: "image" as const, data: "AQ==", mimeType: "image/png" }, preview: "data:draft" };
+		rememberHistoryImages("with a picture", [sent]);
+		await seedHistory("with a picture");
+		await act(async () => useComposerStore.getState().setImages([draft]));
+		placeCaret(0);
+		await pressKey({ key: "ArrowUp" });
+		expect(composerValue()).toBe("with a picture");
+		expect(useComposerStore.getState().images).toEqual([sent]);
+		placeCaret(composerValue().length);
+		await pressKey({ key: "ArrowDown" });
+		expect(composerValue()).toBe("");
+		expect(useComposerStore.getState().images).toEqual([draft]);
+		clearHistoryImages();
 	});
 
 	function caret(): number | undefined {
