@@ -85,6 +85,8 @@ interface UiStore {
 	setFileEditDirty: (dirty: boolean) => void;
 	/** Apply (`true`) or drop the held-back file switch. */
 	resolveFileSwitch: (proceed: boolean) => void;
+	/** Terminal session the Terminal panel selects once it lists it ("Run in terminal", /cleanse); cleared then. */
+	terminalFocusId: string | null;
 	/** The Files drawer's viewer asked for a wider docked panel (not persisted; the drag width stays the pref). */
 	filePreviewExpanded: boolean;
 	/** The Terminal panel asked for a wider docked panel, like `filePreviewExpanded` (not persisted). */
@@ -293,6 +295,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	filesSearchSeq: 0,
 	fileEditDirty: false,
 	pendingFileSwitch: null,
+	terminalFocusId: null,
 	filePreviewExpanded: false,
 	terminalExpanded: false,
 	fileViewModes: new Map(),

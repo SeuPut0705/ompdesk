@@ -11,6 +11,7 @@
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { AvailableCommand, RpcResponse } from "../../shared/rpc-types";
 import { useSessionStore } from "../stores/session";
+import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { useUiStore } from "../stores/ui";
 import { routeCommands } from "../test-support/route-commands";
@@ -42,6 +43,7 @@ interface MockOmp {
 	app: { quit: Mock<() => void> };
 	sessions: { consumePendingOpen: Mock<() => Promise<unknown>> };
 	system: { openExternal: Mock<(url: string) => Promise<void>> };
+	terminal: { request: Mock<(tabId: string, operation: { action: string; data?: string }) => Promise<unknown>> };
 }
 
 function installMockOmp(): MockOmp {
@@ -80,6 +82,11 @@ function installMockOmp(): MockOmp {
 		sessions: { consumePendingOpen: vi.fn(async () => null) },
 		app: { quit: vi.fn() },
 		system: { openExternal: vi.fn(async () => {}) },
+		terminal: {
+			request: vi.fn(async (_tabId, operation) =>
+				operation.action === "write" ? [] : [{ id: "term-1", exited: false }],
+			),
+		},
 	};
 	(globalThis as Record<string, unknown>).window = { omp, confirm: vi.fn(() => true), close: vi.fn() };
 	return omp;
@@ -459,7 +466,6 @@ describe("planComposerSubmit GUI-only routing", () => {
 		["/join https://relay.example/s/abc", "terminal app"],
 		["/leave", "terminal app"],
 		["/record", "terminal"],
-		["/cleanse --all", "omp cleanse"],
 	])("keeps %s away from the model and says where it runs", (message, hint) => {
 		const omp = installMockOmp();
 		// Stock lists none of them: they only have a TUI handler.
@@ -474,6 +480,32 @@ describe("planComposerSubmit GUI-only routing", () => {
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();
 		const warning = useToastStore.getState().toasts.find(toast => toast.variant === "warning");
 		expect(warning?.message).toContain(hint);
+	});
+
+	it("runs /cleanse as stock's omp cleanse in the tab's terminal, request and flags as typed", async () => {
+		const omp = installMockOmp();
+		useTabsStore.setState({
+			activeTabId: "t1",
+			tabs: [{ id: "t1", cwd: "/repo", status: "ready", kind: "agent", unreadDone: false }],
+		});
+		const submit = planComposerSubmit({
+			message: '/cleanse "ts errors" -n 4',
+			images: [],
+			isStreaming: false,
+			mode: "prompt",
+			commands: withGuiCommands([]),
+		});
+		expect(submit.kind).toBe("handled");
+		await vi.waitFor(() =>
+			expect(omp.terminal.request).toHaveBeenCalledWith("t1", {
+				action: "write",
+				id: "term-1",
+				data: 'omp cleanse "ts errors" -n 4\r',
+			}),
+		);
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+		expect(useUiStore.getState().panelTab).toBe("terminal");
+		useTabsStore.getState().reset();
 	});
 
 	it("opens the conversation's newest link for typed /open, like stock's TUI command", async () => {

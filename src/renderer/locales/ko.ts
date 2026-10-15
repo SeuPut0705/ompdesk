@@ -898,7 +898,6 @@ export const ko: Record<string, string> = {
 	"unavailable.tuiOnly": "지금은 omp 터미널 앱에서만 사용할 수 있어요",
 	"unavailable.collab": "실시간 협업(/collab, /join, /leave)은 omp 터미널 앱에서만 쓸 수 있어요.",
 	"unavailable.record": "/record는 터미널 화면을 녹화해서 omp 터미널에서만 쓸 수 있어요.",
-	"unavailable.cleanse": "/cleanse는 터미널 보드에서 실행돼요. 터미널에서 `omp cleanse`를 실행해 주세요.",
 
 	// Steering a running subagent (Agents › Live, sidebar subagent sheet)
 	"subagent.steer.label": "{name}에게 보낼 메시지",

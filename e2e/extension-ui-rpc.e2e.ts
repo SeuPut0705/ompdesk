@@ -173,13 +173,7 @@ for (const language of ["en", "ko"] as const)
 				]);
 
 				// ── Terminal-only slash commands never reach the model ─────────
-				for (const command of [
-					"/collab start",
-					"/join https://relay.example/s/1",
-					"/leave",
-					"/record",
-					"/cleanse",
-				]) {
+				for (const command of ["/collab start", "/join https://relay.example/s/1", "/leave", "/record"]) {
 					await submit(page, command);
 				}
 				await expect(page.getByText(text.collab).first()).toBeVisible();

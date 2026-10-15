@@ -76,6 +76,12 @@ for (const [language, theme] of [
 				.getByRole("button", { name: ko ? "패널 너비 되돌리기" : "Restore panel width", exact: true })
 				.click();
 			await expect.poll(async () => Math.round((await aside.boundingBox())?.width ?? 0)).toBe(Math.round(before));
+
+			// C164: /cleanse types stock's `omp cleanse` with the request into the tab's terminal.
+			const composer = page.locator("textarea").first();
+			await composer.fill("/cleanse lint warnings");
+			await composer.press("Enter");
+			await expect(viewport).toContainText("omp cleanse lint warnings", { timeout: 20_000 });
 		} finally {
 			await exitApp(app);
 			await fs.rm(profile, { recursive: true, force: true });

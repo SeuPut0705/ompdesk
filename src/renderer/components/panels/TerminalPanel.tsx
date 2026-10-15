@@ -281,6 +281,13 @@ function LocalTerminalPanel({ tabId }: { tabId: string }) {
 			return previous.map(item => (item.id === snapshot.id ? { ...snapshot, output: "" } : item));
 		});
 	}, []);
+	// "Run in terminal" and /cleanse wrote to this session: show it once it is listed.
+	const focusId = useUiStore(s => s.terminalFocusId);
+	useEffect(() => {
+		if (!focusId || !sessions.some(session => session.id === focusId)) return;
+		setSelected(focusId);
+		useUiStore.setState({ terminalFocusId: null });
+	}, [focusId, sessions]);
 	const active = sessions.find(session => session.id === selected);
 	const add = async (shell?: string) => {
 		const preferred = shell ?? (await window.omp.prefs.get(TERMINAL_SHELL_PREF).catch(() => undefined));

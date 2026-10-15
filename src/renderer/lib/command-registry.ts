@@ -53,6 +53,7 @@ import {
 	handlePluginActivation,
 	isPluginActivationOriginActive,
 } from "./plugin-activation";
+import { runInTerminal } from "./run-in-terminal";
 import { closeActiveTab, closeOtherTabs } from "./tab-close";
 import { copyTodosToClipboard, dumpTranscriptToClipboard, exportTodos, importTodosFromFile } from "./transcript-copy";
 import {
@@ -1694,7 +1695,6 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		["join", "unavailable.collab"],
 		["leave", "unavailable.collab"],
 		["record", "unavailable.record"],
-		["cleanse", "unavailable.cleanse"],
 	] as const) {
 		add({
 			name,
@@ -1704,6 +1704,25 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 			affordance: { kind: "unavailable", reason: t(reason) },
 		});
 	}
+	// Stock's `/cleanse` board needs its TUI; `omp cleanse [request] [flags]` runs the same pipeline
+	// (stock `commands/cleanse.ts`) in the tab's own terminal, in the tab's folder (C164).
+	add({
+		name: "cleanse",
+		label: "/cleanse",
+		description: t("cmd.cleanse.desc"),
+		category: "other",
+		affordance: {
+			kind: "action",
+			run: async args => {
+				const tabs = useTabsStore.getState();
+				const tabId = focusedSessionRuntime()?.tabId ?? tabs.activeTabId;
+				const tab = tabs.tabs.find(entry => entry.id === tabId);
+				if (!tab) return;
+				const request = args?.trim();
+				await runInTerminal(tab.id, request ? `omp cleanse ${request}` : "omp cleanse");
+			},
+		},
+	});
 	add({
 		name: "pause",
 		label: t("cmd.pause"),

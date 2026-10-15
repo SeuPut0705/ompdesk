@@ -26,5 +26,6 @@ export async function runInTerminal(tabId: string, code: string): Promise<void> 
 		id: live.id,
 		data: `${code.replace(/\r?\n/g, "\r").replace(/\r+$/, "")}\r`,
 	});
+	useUiStore.setState({ terminalFocusId: live.id });
 	useUiStore.getState().setPanelTab("terminal");
 }

@@ -905,7 +905,6 @@ export const en: Record<string, string> = {
 	"unavailable.tuiOnly": "Only available in the omp terminal app for now",
 	"unavailable.collab": "Live collaboration (/collab, /join, /leave) works only in the omp terminal app.",
 	"unavailable.record": "/record records the terminal screen, so it works only in the omp terminal.",
-	"unavailable.cleanse": "/cleanse runs its board in a terminal. Run `omp cleanse` there.",
 
 	// Steering a running subagent (Agents › Live, sidebar subagent sheet)
 	"subagent.steer.label": "Message to {name}",
