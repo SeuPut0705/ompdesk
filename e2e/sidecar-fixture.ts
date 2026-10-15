@@ -522,6 +522,8 @@ if (process.argv[2] === "stats") {
 	let slowModeEnabled = false;
 	/** A user `!` bash held open by `fixture:hold-bash` until `abort_bash` settles it. */
 	let heldBash: ((data: unknown) => void) | undefined;
+	/** B15: the foreign import of `claude-slow`, held until `fixture:release-import`. */
+	let heldImport: (() => void) | undefined;
 	let streamTimer: Timer | undefined;
 	let streamChunks = 0;
 	let streamTick: (() => void) | undefined;
@@ -1346,7 +1348,49 @@ if (process.argv[2] === "stats") {
 		}),
 		security_dashboard: securityDashboard,
 		ssh_hosts: () => ({ hosts: [], warnings: [], openSshAvailable: true }),
-		"sessions.foreign_list": () => ({ sessions: [] }),
+		// `OMP_GUI_TEST_FOREIGN=1` (B15): Claude Code lists four sessions in two projects, one
+		// older than 30 days; importing `claude-broken` fails, `claude-slow` waits for
+		// `fixture:release-import`, and every other one imports at once.
+		"sessions.foreign_list": params => {
+			if (process.env.OMP_GUI_TEST_FOREIGN !== "1" || params.source !== "claude") return { sessions: [] };
+			const now = Date.now();
+			const session = (id: string, cwd: string, title: string, days: number, messageCount: number) => ({
+				id,
+				path: `/home/dev/.claude/projects/${id}.jsonl`,
+				cwd,
+				title,
+				created: new Date(now - days * 86_400_000 - 3_600_000).toISOString(),
+				modified: new Date(now - days * 86_400_000).toISOString(),
+				messageCount,
+				firstMessage: `${title}, please.`,
+			});
+			return {
+				sessions: [
+					session("claude-auth", "/work/api", "Fix the login redirect", 1, 24),
+					session("claude-slow", "/work/api", "Speed up the test suite", 3, 58),
+					session("claude-broken", "/work/web", "Polish the landing page", 5, 12),
+					session("claude-old", "/work/web", "Migrate to the new router", 40, 90),
+				],
+			};
+		},
+		"sessions.foreign_import": (params, reply) => {
+			const foreignId = String(params.foreignId);
+			if (foreignId === "claude-broken") throw new Error("The transcript ends mid-line");
+			const done = () => {
+				reply({
+					sessionId: `imported-${foreignId}`,
+					sessionPath: nodePath.join(
+						process.env.PI_CODING_AGENT_DIR ?? "",
+						"sessions",
+						"imported",
+						`${foreignId}.jsonl`,
+					),
+					cwd: "/work/api",
+				});
+			};
+			if (foreignId === "claude-slow") heldImport = done;
+			else done();
+		},
 		"sessions.transcript": (params, reply) => {
 			const messages = activeBranch()
 				.filter(entry => entry.type === "message")
@@ -3858,11 +3902,20 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					ok();
 					break;
 				}
-				// The running turn finishes normally (completion notification).
-				if (line === "fixture:finish") {
+				if (line === "fixture:release-import") {
+					heldImport?.();
+					heldImport = undefined;
+					ok();
+					break;
+				}
+				// The running turn finishes normally (completion notification); `:markdown`
+				// ends it on MARKDOWN_REPLY, whose banner reads the opening prose (627bf30).
+				if (line === "fixture:finish" || line === "fixture:finish:markdown") {
 					const answer: AgentMessage = {
 						role: "assistant",
-						content: [{ type: "text", text: "Background run finished" }],
+						content: [
+							{ type: "text", text: line === "fixture:finish" ? "Background run finished" : MARKDOWN_REPLY },
+						],
 						timestamp: Date.now(),
 						provider: model.provider,
 						model: model.id,
