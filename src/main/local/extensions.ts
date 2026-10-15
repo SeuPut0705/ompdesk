@@ -28,6 +28,8 @@ const BRIDGED = [
 	"manage_skill",
 	"get_hooks",
 	"set_hook_enabled",
+	"get_context_files",
+	"set_context_file_enabled",
 	"get_prompt_templates",
 	"get_mcp_servers",
 	"mcp_action",

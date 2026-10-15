@@ -123,6 +123,7 @@ export type RpcCommand =
 	| { id?: string; type: "delete_agent_file"; filePath: string }
 	| { id?: string; type: "install_agent_templates"; scope: AgentFileScope; names?: string[] }
 	| { id?: string; type: "get_hooks" }
+	| { id?: string; type: "get_context_files" }
 	| { id?: string; type: "get_mcp_servers" }
 	| { id?: string; type: "get_gui_themes" }
 	| { id?: string; type: "get_plugins" }
@@ -213,6 +214,7 @@ export type RpcCommand =
 			body?: string;
 	  }
 	| { id?: string; type: "set_hook_enabled"; hookId: string; enabled: boolean }
+	| { id?: string; type: "set_context_file_enabled"; contextFileId: string; enabled: boolean }
 	| { id?: string; type: "set_plugin_enabled"; pluginId: string; enabled: boolean; scope?: "user" | "project" }
 	| {
 			id?: string;
@@ -723,6 +725,21 @@ export interface RpcHookInfo {
 }
 export interface RpcHooksResult {
 	hooks: RpcHookInfo[];
+}
+/**
+ * Instruction files stock loads into the system prompt, one row per stock
+ * disable id `context-file:<level>:<basename>` (it covers every file of that
+ * name at that level, listed in `files`).
+ */
+export interface RpcContextFileInfo {
+	id: string;
+	name: string;
+	level: "user" | "project";
+	enabled: boolean;
+	files: { path: string; provider: string }[];
+}
+export interface RpcContextFilesResult {
+	files: RpcContextFileInfo[];
 }
 
 /** A configured or discovered MCP server with live connection state. */

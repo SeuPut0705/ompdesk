@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { RpcHooksResult, RpcSkillsResult } from "../../../shared/rpc-types";
+import type { RpcContextFilesResult, RpcHooksResult, RpcSkillsResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { toastError } from "../../stores/toast";
@@ -8,7 +8,7 @@ import { ArrayChipEditor } from "./editors/ArrayChipEditor";
 import { SettingsRow } from "./SettingsLayout";
 import { useSettingsData } from "./settings-data";
 
-/** Preserve ids with no discovered skill/hook editor, without duplicating their switches. */
+/** Preserve ids with no discovered skill/hook/instruction-file editor, without duplicating their switches. */
 export function OtherExtensionIds() {
 	const t = useT();
 	const rpc = useTabRpc();
@@ -20,17 +20,22 @@ export function OtherExtensionIds() {
 		if (!sidecarReady) return;
 		setError(null);
 		try {
-			const [skills, hooks] = await Promise.all([rpc.getSkills(), rpc.getHooks()]);
-			if (!skills.success || !hooks.success)
-				throw new Error(!skills.success ? skills.error : !hooks.success ? hooks.error : "");
+			const [skills, hooks, contextFiles] = await Promise.all([
+				rpc.getSkills(),
+				rpc.getHooks(),
+				rpc.getContextFiles(),
+			]);
+			const failed = [skills, hooks, contextFiles].find(response => !response.success);
+			if (failed && !failed.success) throw new Error(failed.error);
 			setCovered([
 				...(skills.data as RpcSkillsResult).skills.map(skill => `skill:${skill.name}`),
 				...(hooks.data as RpcHooksResult).hooks.map(hook => hook.id),
+				...(contextFiles.data as RpcContextFilesResult).files.map(file => file.id),
 			]);
 		} catch (cause) {
 			setError(String(cause));
 		}
-	}, [sidecarReady, rpc.getSkills, rpc.getHooks]);
+	}, [sidecarReady, rpc.getSkills, rpc.getHooks, rpc.getContextFiles]);
 	useEffect(() => {
 		void load();
 		return window.omp.events.onConfigUpdate(() => void load());

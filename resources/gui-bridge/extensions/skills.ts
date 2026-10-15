@@ -1,6 +1,6 @@
 /**
- * Skills, hooks and prompt templates for the GUI's extension pages. Ported
- * from the omp-gui fork's rpc-domains / rpc-skills / rpc-actions.
+ * Skills, hooks, context files and prompt templates for the GUI's extension
+ * pages. Ported from the omp-gui fork's rpc-domains / rpc-skills / rpc-actions.
  */
 
 import {
@@ -9,7 +9,8 @@ import {
 	sanitizeSkillName,
 	writeManagedSkill,
 } from "@oh-my-pi/pi-coding-agent/autolearn/managed-skills";
-import { loadCapability } from "@oh-my-pi/pi-coding-agent/capability";
+import { loadCapability, reset as resetCapabilities } from "@oh-my-pi/pi-coding-agent/capability";
+import { type ContextFile, contextFileCapability } from "@oh-my-pi/pi-coding-agent/capability/context-file";
 import { type Hook, hookCapability } from "@oh-my-pi/pi-coding-agent/capability/hook";
 import type { Skill } from "@oh-my-pi/pi-coding-agent/capability/skill";
 import { templateUsesInlineArgPlaceholders } from "@oh-my-pi/pi-coding-agent/config/prompt-templates";
@@ -162,6 +163,66 @@ export const methods: BridgeMethods = guard("skills", {
 		if (typeof p.enabled !== "boolean") throw new Error("`enabled` must be a boolean");
 		const enabled = p.enabled === true;
 		const state = await setExtensionDisabled(env.session(), id, enabled);
+		return { id, ...state };
+	},
+
+	/**
+	 * Instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, …) stock discovers for
+	 * the session's folder, grouped by stock's disable id
+	 * `context-file:<level>:<basename>`: one id covers every file of that name
+	 * at that level, so one row lists them all. Shadowed files stay listed.
+	 */
+	get_context_files: async (_params, env) => {
+		const session = env.session();
+		const disabled = new Set(readSetting<string[]>(session, "disabledExtensions") ?? []);
+		const result = await loadCapability<ContextFile>(contextFileCapability.id, {
+			cwd: session.sessionManager.getCwd(),
+			agentDir: session.settings.getAgentDir(),
+			extensionRoots: session.effectiveExtensionRoots,
+			includeDisabled: true,
+			disabledExtensions: [...disabled],
+		});
+		const rows = new Map<
+			string,
+			{ id: string; name: string; level: string; enabled: boolean; files: { path: string; provider: string }[] }
+		>();
+		for (const file of result.all) {
+			const id = contextFileCapability.toExtensionId?.(file);
+			if (!id) continue;
+			const row = rows.get(id) ?? {
+				id,
+				name: id.slice(id.lastIndexOf(":") + 1),
+				level: file.level,
+				enabled: !disabled.has(id),
+				files: [],
+			};
+			if (!row.files.some(entry => entry.path === file.path)) {
+				row.files.push({ path: file.path, provider: file._source.providerName });
+			}
+			rows.set(id, row);
+		}
+		const files = [...rows.values()].sort(
+			(a, b) => a.level.localeCompare(b.level) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+		);
+		return { files };
+	},
+
+	/**
+	 * `context-file:<level>:<basename>` in `disabledExtensions` (stock's extension
+	 * dashboard channel), then the base prompt is rebuilt from fresh discovery so
+	 * the change applies from the next turn.
+	 */
+	set_context_file_enabled: async (params, env) => {
+		const p = paramsOf(params);
+		const id = requireString(p, "contextFileId");
+		if (!/^context-file:(user|project):[^:/\\]+$/.test(id)) {
+			throw new Error(`Invalid context file id: ${id} (expected "context-file:<user|project>:<name>")`);
+		}
+		if (typeof p.enabled !== "boolean") throw new Error("`enabled` must be a boolean");
+		const session = env.session();
+		const state = await setExtensionDisabled(session, id, p.enabled);
+		resetCapabilities();
+		await session.refreshBaseSystemPrompt();
 		return { id, ...state };
 	},
 

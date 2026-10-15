@@ -537,12 +537,14 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"promptTemplates",
 			"effectiveExtensionRoots",
 			"refreshSkills()",
+			"refreshBaseSystemPrompt()",
 			"settings.flush()",
 			"settings.getAgentDir()",
 			"sessionManager.getCwd()",
 		],
 		modules: {
-			[`${AGENT}/capability`]: ["loadCapability()"],
+			[`${AGENT}/capability`]: ["loadCapability()", "reset()"],
+			[`${AGENT}/capability/context-file`]: ["contextFileCapability.id", "contextFileCapability.toExtensionId()"],
 			[`${AGENT}/capability/hook`]: ["hookCapability.id"],
 			[`${AGENT}/autolearn/managed-skills`]: [
 				"deleteManagedSkill()",

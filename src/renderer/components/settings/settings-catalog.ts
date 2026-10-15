@@ -55,7 +55,7 @@ export const SECTION_SCOPE: Record<SettingsSectionId, "app" | "host" | "mixed"> 
 	advanced: "host",
 };
 
-export const EXTENSIONS_TABS = ["skills", "mcp", "hooks", "commands"] as const;
+export const EXTENSIONS_TABS = ["skills", "mcp", "hooks", "contextFiles", "commands"] as const;
 export type ExtensionsTab = (typeof EXTENSIONS_TABS)[number];
 export const PLUGINS_TABS = ["plugins", "marketplaces", "templates"] as const;
 export type PluginsTab = (typeof PLUGINS_TABS)[number];

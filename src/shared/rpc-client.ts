@@ -171,6 +171,7 @@ export interface SessionRpcClient {
 	deleteAgentFile(filePath: string): Promise<RpcResponse>;
 	installAgentTemplates(scope: AgentFileScope, names?: string[]): Promise<RpcResponse>;
 	getHooks(): Promise<RpcResponse>;
+	getContextFiles(): Promise<RpcResponse>;
 	getMcpServers(): Promise<RpcResponse>;
 	getGuiThemes(): Promise<RpcResponse>;
 	getPlugins(): Promise<RpcResponse>;
@@ -241,6 +242,7 @@ export interface SessionRpcClient {
 		body?: string;
 	}): Promise<RpcResponse>;
 	setHookEnabled(hookId: string, enabled: boolean): Promise<RpcResponse>;
+	setContextFileEnabled(contextFileId: string, enabled: boolean): Promise<RpcResponse>;
 	setPluginEnabled(pluginId: string, enabled: boolean, scope?: "user" | "project"): Promise<RpcResponse>;
 	mcpAction(
 		name: string,
@@ -507,6 +509,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		deleteAgentFile: filePath => rpcCommand({ type: "delete_agent_file", filePath }),
 		installAgentTemplates: (scope, names) => rpcCommand({ type: "install_agent_templates", scope, names }),
 		getHooks: () => rpcCommand({ type: "get_hooks" }),
+		getContextFiles: () => rpcCommand({ type: "get_context_files" }),
 		getMcpServers: () => rpcCommand({ type: "get_mcp_servers" }),
 		getGuiThemes: () => rpcCommand({ type: "get_gui_themes" }),
 		getPlugins: () => rpcCommand({ type: "get_plugins" }),
@@ -556,6 +559,8 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		setSkillEnabled: (name, enabled) => rpcCommand({ type: "set_skill_enabled", name, enabled }),
 		manageSkill: args => rpcCommand({ type: "manage_skill", ...args }),
 		setHookEnabled: (hookId, enabled) => rpcCommand({ type: "set_hook_enabled", hookId, enabled }),
+		setContextFileEnabled: (contextFileId, enabled) =>
+			rpcCommand({ type: "set_context_file_enabled", contextFileId, enabled }),
 		setPluginEnabled: (pluginId, enabled, scope) =>
 			rpcCommand({ type: "set_plugin_enabled", pluginId, enabled, scope }),
 		mcpAction: (name, action, scope) => rpcCommand({ type: "mcp_action", name, action, scope }),

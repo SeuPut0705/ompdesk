@@ -1,6 +1,7 @@
 /**
  * Settings › Extensions: one section with underline tabs over the session's
- * skills, MCP servers, hooks, and custom slash commands. The page owns the
+ * skills, MCP servers, hooks, instruction (context) files and custom slash
+ * commands. The page owns the
  * active tab and the single search field (`query`, empty = no filter).
  *
  * Each list tab lazy-loads on first view, caches for the lifetime of the
@@ -14,13 +15,17 @@
  * sidecar exposes no slash-command management RPC. Toggles are optimistic —
  * the row reverts and an error toast fires on failure, and a successful
  * mutation re-fetches the tab. Hook toggles persist but only bind at startup,
- * so the footer flags them as next-session. Skills live in ./SkillsTab.
+ * so the footer flags them as next-session. Instruction files toggle stock's
+ * `context-file:<level>:<name>` disable id and apply from the next turn.
+ * Skills live in ./SkillsTab.
  */
 
-import { Braces, Network, Plus, RefreshCw, Search, Webhook } from "lucide-react";
+import { Braces, FileText, Network, Plus, RefreshCw, Search, Webhook } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
 	AvailableCommand,
+	RpcContextFileInfo,
+	RpcContextFilesResult,
 	RpcHookInfo,
 	RpcHooksResult,
 	RpcMcpServerInfo,
@@ -55,7 +60,7 @@ import { BuiltinReaRow } from "./BuiltinReaRow";
 import { SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
 import { SkillsTab } from "./SkillsTab";
 
-export type ExtensionsTab = "skills" | "mcp" | "hooks" | "commands";
+export type ExtensionsTab = "skills" | "mcp" | "hooks" | "contextFiles" | "commands";
 type ListTab = Exclude<ExtensionsTab, "skills">;
 
 export interface ExtensionsSectionProps {
@@ -80,6 +85,9 @@ interface LazyRpc<T> {
 
 const fetchHooks = (rpc: SessionRpc): Promise<RpcResponse> => rpc.getHooks();
 const pickHooks = (data: unknown): RpcHookInfo[] => (data as RpcHooksResult | undefined)?.hooks ?? [];
+const fetchContextFiles = (rpc: SessionRpc): Promise<RpcResponse> => rpc.getContextFiles();
+const pickContextFiles = (data: unknown): RpcContextFileInfo[] =>
+	(data as RpcContextFilesResult | undefined)?.files ?? [];
 const fetchMcpServers = (rpc: SessionRpc): Promise<RpcResponse> => rpc.getMcpServers();
 const pickMcpServers = (data: unknown): RpcMcpServerInfo[] => (data as RpcMcpServersResult | undefined)?.servers ?? [];
 const fetchCommands = (rpc: SessionRpc): Promise<RpcResponse> => rpc.getAvailableCommands();
@@ -278,6 +286,7 @@ function useRowMutation(refresh: () => Promise<void>, ready = true): RowMutation
 const TAB_ICON: Record<ListTab, ReactNode> = {
 	mcp: <Network />,
 	hooks: <Webhook />,
+	contextFiles: <FileText />,
 	commands: <Braces />,
 };
 
@@ -437,6 +446,80 @@ function HooksTab({ rpc, query }: { rpc: LazyRpc<RpcHookInfo[]>; query: string }
 						})}
 					</RowGroup>
 				))}
+			</div>
+		</ListFrame>
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Instruction (context) files tab
+// ---------------------------------------------------------------------------
+
+/**
+ * mixdog's "Load instruction files", per file name: stock has no master switch,
+ * but its extension dashboard disables a name at a level (`context-file:<level>:<name>`),
+ * which covers every such file (every folder's AGENTS.md at project level).
+ */
+function ContextFilesTab({ rpc, query }: { rpc: LazyRpc<RpcContextFileInfo[]>; query: string }) {
+	const tabRpc = useSessionRpc();
+	const t = useT();
+	const mutation = useRowMutation(rpc.refresh, rpc.ready);
+	const { groups, visibleCount } = useMemo(() => {
+		const visible = filterList(rpc.data, query, file => [file.name, ...file.files.map(entry => entry.path)]);
+		const byLevel = (level: RpcContextFileInfo["level"]) => visible.filter(file => file.level === level);
+		return {
+			groups: [
+				["project", byLevel("project")],
+				["user", byLevel("user")],
+			] as const,
+			visibleCount: visible.length,
+		};
+	}, [rpc.data, query]);
+	return (
+		<ListFrame query={query} rpc={rpc} tabId="contextFiles" visible={visibleCount}>
+			<div className="flex flex-col gap-5">
+				{groups.map(([level, files]) =>
+					files.length === 0 ? null : (
+						<RowGroup count={files.length} key={level} label={t(`extPanel.contextFiles.level.${level}`)}>
+							{files.map(file => (
+								<SettingsSwitchRow
+									badge={[...new Set(file.files.map(entry => entry.provider))].map(provider => (
+										<Badge key={provider} variant="muted">
+											{provider}
+										</Badge>
+									))}
+									checked={mutation.effective(file.id, file.enabled)}
+									data-context-file={file.id}
+									description={
+										<span className="flex flex-col">
+											{file.files.map(entry => (
+												<span
+													className="block truncate font-mono text-sc-xs"
+													key={entry.path}
+													title={entry.path}
+												>
+													{shortenPath(entry.path)}
+												</span>
+											))}
+										</span>
+									}
+									disabled={mutation.busyKey !== null || !rpc.ready}
+									extra={mutation.busyKey === file.id ? <Spinner size="sm" /> : undefined}
+									key={file.id}
+									label={<span className="font-mono">{file.name}</span>}
+									onCheckedChange={next =>
+										void mutation.run(
+											file.id,
+											next,
+											() => tabRpc.setContextFileEnabled(file.id, next),
+											t("extPanel.contextFileToggleFailed"),
+										)
+									}
+								/>
+							))}
+						</RowGroup>
+					),
+				)}
 			</div>
 		</ListFrame>
 	);
@@ -748,6 +831,7 @@ function CommandsTab({ rpc, query }: { rpc: LazyRpc<AvailableCommand[]>; query: 
 export function ExtensionsSection({ tab, onTabChange, query }: ExtensionsSectionProps) {
 	const t = useT();
 	const hooks = useLazyRpc(tab === "hooks", fetchHooks, pickHooks);
+	const contextFiles = useLazyRpc(tab === "contextFiles", fetchContextFiles, pickContextFiles);
 	const mcp = useLazyRpc(tab === "mcp", fetchMcpServers, pickMcpServers);
 	const commands = useLazyRpc(tab === "commands", fetchCommands, pickCommands);
 
@@ -756,9 +840,10 @@ export function ExtensionsSection({ tab, onTabChange, query }: ExtensionsSection
 			{ id: "skills", label: t("settings.skills.title") },
 			{ id: "mcp", label: t("settings.extensions.mcp.title"), badge: mcp.data?.length },
 			{ id: "hooks", label: t("extPanel.tabs.hooks"), badge: hooks.data?.length },
+			{ id: "contextFiles", label: t("extPanel.tabs.contextFiles"), badge: contextFiles.data?.length },
 			{ id: "commands", label: t("extPanel.tabs.commands"), badge: commands.data?.length },
 		],
-		[t, hooks.data, mcp.data, commands.data],
+		[t, hooks.data, contextFiles.data, mcp.data, commands.data],
 	);
 	const activeLabel = tabs.find(item => item.id === tab)?.label;
 
@@ -776,6 +861,7 @@ export function ExtensionsSection({ tab, onTabChange, query }: ExtensionsSection
 				{tab === "skills" && <SkillsTab query={query} />}
 				{tab === "mcp" && <McpTab query={query} rpc={mcp} />}
 				{tab === "hooks" && <HooksTab query={query} rpc={hooks} />}
+				{tab === "contextFiles" && <ContextFilesTab query={query} rpc={contextFiles} />}
 				{tab === "commands" && <CommandsTab query={query} rpc={commands} />}
 			</div>
 		</div>

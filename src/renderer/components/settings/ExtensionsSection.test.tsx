@@ -44,14 +44,15 @@ function command(partial: Partial<AvailableCommand> & { name: string }): Availab
 }
 
 describe("ExtensionsSection", () => {
-	it("renders inline with the four extension tabs and marks the active one", () => {
+	it("renders inline with the five extension tabs and marks the active one", () => {
 		const html = renderToStaticMarkup(
 			<I18nProvider>
 				<ExtensionsSection onTabChange={() => {}} query="" tab="commands" />
 			</I18nProvider>,
 		);
 		expect(html).toContain('role="tablist"');
-		for (const label of ["Skills", "MCP servers", "Hooks", "Commands"]) expect(html).toContain(`>${label}`);
+		for (const label of ["Skills", "MCP servers", "Hooks", "Instruction files", "Commands"])
+			expect(html).toContain(`>${label}`);
 		expect(html).toMatch(/aria-selected="true"[^>]*data-tab-id="commands"/);
 		expect(html).toContain('role="tabpanel"');
 	});
