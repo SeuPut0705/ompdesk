@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -142,6 +142,40 @@ describe("downloadVerified", () => {
 			await expect(run).rejects.not.toBeInstanceOf(DownloadError);
 			expect(controller.signal.aborted).toBe(true);
 			expect(await readdir(dir)).toEqual([]);
+		}
+	});
+
+	it("fails with a download error, not an uncaught stream error, when the destination cannot be written", async () => {
+		const file = join(dir, "git.zip");
+		// A directory where `.part` should go: the write stream's open fails (EISDIR) while the body is still pending.
+		await mkdir(`${file}.part`);
+		let cancelled = false;
+		const body = new ReadableStream<Uint8Array>({
+			pull() {
+				return new Promise<void>(() => {});
+			},
+			cancel() {
+				cancelled = true;
+			},
+		});
+		const unhandled: unknown[] = [];
+		const onUnhandled = (error: unknown) => unhandled.push(error);
+		process.on("uncaughtException", onUnhandled);
+		try {
+			const error = await downloadVerified({
+				url: "https://example.test/git.zip",
+				sha256: sha256(whole),
+				file,
+				signal: new AbortController().signal,
+				onProgress: () => {},
+				fetch: async () => new Response(body, { headers: { "content-length": "4000" } }),
+			}).catch((cause: unknown) => cause);
+			expect(error).toBeInstanceOf(DownloadError);
+			expect((error as DownloadError).reason).toBe("download");
+			expect(cancelled).toBe(true);
+			expect(unhandled).toEqual([]);
+		} finally {
+			process.off("uncaughtException", onUnhandled);
 		}
 	});
 });

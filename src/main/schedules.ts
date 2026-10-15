@@ -12,10 +12,12 @@
  * handler. A start that falls due while the previous run of the same schedule
  * still goes is recorded as skipped instead of piling up.
  */
+import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createWriteStream, existsSync, renameSync, writeFileSync } from "node:fs";
 import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { finished } from "node:stream/promises";
 import type { IpcMain } from "electron";
 import {
 	nextRunAt,
@@ -426,26 +428,45 @@ export function ompRunLauncher(options: {
 			...(schedule.autoApprove ? ["--yolo"] : []),
 		];
 		const log = createWriteStream(files.log, { flags: "a" });
+		// A log that cannot be written (disk full, folder removed) must neither crash main nor stop the run:
+		// without a listener the stream's 'error' is an uncaught exception. The run goes on unlogged.
+		let logFailed = false;
+		log.on("error", () => {
+			logFailed = true;
+		});
 		log.write(`$ omp ${args.join(" ")}\n# ${schedule.cwd}\n\n`);
-		const child = spawnSupervised(
-			{
-				file: ompSpawnCommand(bin),
-				args: ompSpawnArgs(bin, args),
-				shell: ompNeedsShell(bin),
-				inputFile: files.prompt,
-			},
-			{ ...env, PATH: ompPathEnv(bin, env.PATH ?? ""), PI_NOTIFICATIONS: "off", PI_NO_PTY: "1" },
-			schedule.cwd,
-		);
+		let child: ChildProcess;
+		try {
+			child = spawnSupervised(
+				{
+					file: ompSpawnCommand(bin),
+					args: ompSpawnArgs(bin, args),
+					shell: ompNeedsShell(bin),
+					inputFile: files.prompt,
+				},
+				{ ...env, PATH: ompPathEnv(bin, env.PATH ?? ""), PI_NOTIFICATIONS: "off", PI_NO_PTY: "1" },
+				schedule.cwd,
+			);
+		} catch (error) {
+			log.destroy();
+			throw error;
+		}
 		child.stdout?.pipe(log, { end: false });
 		child.stderr?.pipe(log, { end: false });
+		log.on("error", () => {
+			// pipe() detaches a failed destination, which would leave omp blocked on a full stdout pipe.
+			child.stdout?.unpipe(log);
+			child.stderr?.unpipe(log);
+			child.stdout?.resume();
+			child.stderr?.resume();
+		});
 		const { promise, resolve } = Promise.withResolvers<{ code: number | null; error?: string }>();
 		child.on("error", error => resolve({ code: null, error: error.message }));
 		child.on("close", code => resolve({ code }));
 		const done = promise.then(async result => {
-			const flushed = Promise.withResolvers<void>();
-			log.end(() => flushed.resolve());
-			await flushed.promise;
+			// A destroyed log never calls end()'s callback, so wait for 'close' instead.
+			if (!logFailed) log.end();
+			await finished(log).catch(() => undefined);
 			return result;
 		});
 		return { stop: () => child.stdin?.end(), done };

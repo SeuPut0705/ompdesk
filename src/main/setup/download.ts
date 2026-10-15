@@ -60,31 +60,39 @@ export async function downloadVerified(options: DownloadOptions): Promise<void> 
 	await mkdir(dirname(file), { recursive: true });
 	const part = `${file}.part`;
 	const out = createWriteStream(part);
+	// A stream with no 'error' listener turns ENOSPC/EACCES (or a failed open) into an uncaught exception
+	// in main, and a pending `reader.read()` would never notice it. This listener lives as long as the stream.
+	const writeFailed = new Promise<never>((_, reject) => {
+		out.on("error", error => reject(new DownloadError("download", `${part}: ${error.message}`)));
+	});
+	writeFailed.catch(() => undefined);
 	const hash = createHash("sha256");
 	const reader = response.body.getReader();
 	let received = 0;
 	onProgress({ received, total });
 	try {
 		for (;;) {
-			const { done, value } = await reader.read();
+			const { done, value } = await Promise.race([reader.read(), writeFailed]);
 			if (done) break;
 			hash.update(value);
 			received += value.byteLength;
-			if (!out.write(value)) await once(out, "drain");
+			if (!out.write(value)) await Promise.race([once(out, "drain"), writeFailed]);
 			onProgress({ received, total });
 		}
 		out.end();
-		await finished(out);
+		await Promise.race([finished(out), writeFailed]);
 		const actual = hash.digest("hex");
 		if (actual !== sha256) throw new DownloadError("checksum", `SHA-256 mismatch: expected ${sha256}, got ${actual}`);
 		await rename(part, file);
 	} catch (error) {
+		// Cancel before releasing the lock so the response body (a socket) is closed, not left open.
+		await reader.cancel(error).catch(() => undefined);
 		reader.releaseLock();
 		out.destroy();
 		// An early abort can land while `.part` is still opening; destroy() closes it only once
 		// that open finished, so remove the file after the close or the open recreates it.
 		await finished(out).catch(() => undefined);
-		await rm(part, { force: true });
+		await rm(part, { force: true, recursive: true });
 		throw error;
 	}
 }

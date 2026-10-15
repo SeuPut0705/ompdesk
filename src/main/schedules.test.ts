@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -226,13 +226,13 @@ if (prompt.includes("hang")) {
 }
 `;
 
-	async function launch(dir: string, prompt: string) {
+	async function launch(dir: string, prompt: string, log = join(dir, "run.log")) {
 		const bin = await writeFakeOmp(dir, FAKE);
 		const omp: OmpResolution = {
 			ok: true,
 			runtime: { bin, version: "99.0.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
 		};
-		const files = { log: join(dir, "run.log"), prompt: join(dir, "run.prompt") };
+		const files = { log, prompt: join(dir, "run.prompt") };
 		await writeFile(files.prompt, prompt);
 		const run = await ompRunLauncher({
 			omp: async () => omp,
@@ -257,6 +257,22 @@ if (prompt.includes("hang")) {
 		expect(log).toContain("prompt:line one\nline two");
 		expect(log).toContain("warning on stderr");
 		expect(log).toContain("cwd:");
+	});
+
+	it("an unwritable log neither crashes main nor stops the run", async () => {
+		const dir = await tempDir();
+		const unwritable = join(dir, "log-is-a-directory");
+		await mkdir(unwritable);
+		const uncaught: unknown[] = [];
+		const onUncaught = (error: unknown) => uncaught.push(error);
+		process.on("uncaughtException", onUncaught);
+		try {
+			const { run } = await launch(dir, "line one", unwritable);
+			expect(await run.done).toEqual({ code: 3 });
+			expect(uncaught).toEqual([]);
+		} finally {
+			process.off("uncaughtException", onUncaught);
+		}
 	});
 
 	/**
