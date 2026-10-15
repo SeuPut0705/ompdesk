@@ -978,18 +978,21 @@ describe("SidecarManager", () => {
 			].join("\n"),
 		);
 		const gate = Promise.withResolvers<string | null>();
+		// Resolved by the gate itself: the first spawn is a real child (cold exec of a
+		// just-written script, then the bridge connect), so no fixed window fits it.
+		const gateCalled = Promise.withResolvers<{ connected: boolean; cwd: string }>();
 		const gateCalls: string[] = [];
 		const statuses: SidecarStatus[] = [];
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, fresh: true, bridgeDir: tempDir });
 		sidecar.on("status", ({ status }: SidecarStatusPayload) => statuses.push(status));
 		sidecar.setStartGate(async (bridge, cwd) => {
-			expect(bridge.connected).toBe(true);
 			gateCalls.push(cwd);
+			gateCalled.resolve({ connected: bridge.connected, cwd });
 			return gate.promise;
 		});
 		try {
 			sidecar.start();
-			await vi.waitFor(() => expect(gateCalls).toEqual([tempDir]));
+			expect(await gateCalled.promise).toEqual({ connected: true, cwd: tempDir });
 			await delay(100);
 			expect(statuses).not.toContain("ready");
 
@@ -1015,5 +1018,5 @@ describe("SidecarManager", () => {
 			await fs.rm(tempDir, RM_TEMP);
 			await fs.rm(gatedCwd, RM_TEMP);
 		}
-	});
+	}, 15_000);
 });
