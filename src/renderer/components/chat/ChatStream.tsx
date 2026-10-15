@@ -362,6 +362,10 @@ function SessionTranscript() {
 	// Rows a text selection covers stay mounted while it lasts (A105, selection-drag.ts):
 	// unmounting one would take the selection's end, or the text it spans, out of the page.
 	const [selectionPin, setSelectionPin] = useState<readonly string[]>([]);
+	// The rows the running turn grows (its live work card, the streaming reply) stay mounted
+	// wherever the reader scrolled: unmounted, a row's growth is never measured, so the scroll
+	// extent below a reader who scrolled up stops following the output.
+	const streamingRowIndex = showStreamingRow && streamingMessage ? (hiddenCount > 0 ? 1 : 0) + historyRows.length : -1;
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new round re-runs the range against the rows mounted since.
 	const rangeExtractor = useCallback(
 		(range: Range) => {
@@ -375,15 +379,20 @@ function SessionTranscript() {
 				prepending ? 0 : OVERSCAN_MOUNTS_PER_FRAME,
 			);
 			overscanDeferredRef.current = deferred;
-			if (selectionPin.length === 0) return indexes;
+			const liveOutside =
+				(tailRowIndex >= 0 && !indexes.includes(tailRowIndex)) ||
+				(streamingRowIndex >= 0 && !indexes.includes(streamingRowIndex));
+			if (selectionPin.length === 0 && !liveOutside) return indexes;
 			const pinned = new Set(indexes);
+			if (tailRowIndex >= 0) pinned.add(tailRowIndex);
+			if (streamingRowIndex >= 0) pinned.add(streamingRowIndex);
 			for (const key of selectionPin) {
 				const index = rowKeys.indexOf(key);
 				if (index >= 0) pinned.add(index);
 			}
 			return [...pinned].sort((a, b) => a - b);
 		},
-		[rowKeys, overscanRound, selectionPin],
+		[rowKeys, overscanRound, selectionPin, tailRowIndex, streamingRowIndex],
 	);
 	const virtualizer = useVirtualizer({
 		count: rows.length,
