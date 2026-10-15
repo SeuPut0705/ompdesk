@@ -8,16 +8,19 @@
  */
 
 import { ChevronDown, Circle, CircleCheck } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+import type { CustomProviderView } from "../../../shared/ipc-types";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
+import { useFocusedTabDevice } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { STARTER_STEPS, type StarterStep, useStarterGuideStore } from "../../stores/starter-guide";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { Button } from "../common";
 import { ProductStar } from "../settings/ProductStar";
+import { canServe, servingProviderIds } from "../settings/providers/provider-catalog";
 import { useFirstRunActive } from "./FirstRunSetup";
 
 export function StarterGuide({ promptSent, projectOpened }: { promptSent: boolean; projectOpened: boolean }) {
@@ -26,7 +29,16 @@ export function StarterGuide({ promptSent, projectOpened }: { promptSent: boolea
 	const loaded = useStarterGuideStore(state => state.loaded);
 	const done = useStarterGuideStore(state => state.done);
 	const dismissed = useStarterGuideStore(state => state.dismissed);
-	const modelReady = useModelStore(state => state.availableModels.length > 0);
+	const providers = useModelStore(state => state.providers);
+	const models = useModelStore(state => state.availableModels);
+	const device = useFocusedTabDevice();
+	const [customConfigs, setCustomConfigs] = useState<readonly CustomProviderView[]>([]);
+	// A model that can answer is one a connected provider serves, as first-run setup decides: the keyless
+	// on-device model alone (8k context) is a catalog entry, not a connected model.
+	const modelReady = useMemo(() => {
+		const serving = servingProviderIds(providers, customConfigs);
+		return models.some(model => canServe(model, serving));
+	}, [providers, models, customConfigs]);
 	const prompted = useSessionStore(state => state.messageCount > 0) || promptSent;
 	const split = useTabsStore(state => state.split !== null);
 	const panel = useUiStore(state => state.panelVisible);
@@ -36,6 +48,19 @@ export function StarterGuide({ promptSent, projectOpened }: { promptSent: boolea
 	useEffect(() => {
 		void useStarterGuideStore.getState().load();
 	}, []);
+
+	// Keyless custom endpoints (models.yml, auth none) serve without a sign-in; only that file lists them.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the providers read is the cue to ask again.
+	useEffect(() => {
+		let cancelled = false;
+		void (async () => {
+			const result = await window.omp.models.listProviders(device);
+			if (!cancelled) setCustomConfigs(result.providers);
+		})().catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, [device, providers]);
 
 	useEffect(() => {
 		const reached: StarterStep[] = [];

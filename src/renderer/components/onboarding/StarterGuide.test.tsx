@@ -9,7 +9,8 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ModelInfo } from "../../../shared/rpc-types";
+import type { CustomProviderView } from "../../../shared/ipc-types";
+import type { ModelInfo, ProviderInfo } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useFirstRunStore } from "../../stores/first-run";
 import { useModelStore } from "../../stores/model";
@@ -29,13 +30,24 @@ Object.assign(globalThis as Record<string, unknown>, {
 });
 
 let stored: Record<string, unknown> = {};
+let customConfigs: CustomProviderView[] = [];
+const connected: ProviderInfo = {
+	id: "p",
+	name: "P",
+	authenticated: true,
+	loginAvailable: false,
+	disabled: false,
+	modelCount: 1,
+};
 const prefs = {
 	get: vi.fn(async (key: string): Promise<unknown> => stored[key]),
 	set: vi.fn(async (key: string, value: unknown): Promise<void> => {
 		stored[key] = value;
 	}),
 };
-Object.assign(window as unknown as Record<string, unknown>, { omp: { prefs } });
+Object.assign(window as unknown as Record<string, unknown>, {
+	omp: { prefs, models: { listProviders: vi.fn(async () => ({ providers: customConfigs, options: {} })) } },
+});
 
 let root: Root | undefined;
 
@@ -49,7 +61,7 @@ async function mount(props: { promptSent?: boolean; projectOpened?: boolean } = 
 		);
 	});
 	await act(async () => {
-		await Promise.resolve();
+		await new Promise<void>(resolve => setTimeout(resolve, 0));
 	});
 }
 
@@ -61,6 +73,7 @@ const toggle = () => document.querySelector("[data-starter-guide] button[aria-ex
 
 beforeEach(() => {
 	stored = {};
+	customConfigs = [];
 	prefs.set.mockClear();
 });
 
@@ -76,7 +89,10 @@ afterEach(async () => {
 
 describe("StarterGuide", () => {
 	it("completes steps from real state, keeps them done and saves them", async () => {
-		useModelStore.setState({ availableModels: [{ id: "m", provider: "p" } as ModelInfo] });
+		useModelStore.setState({
+			providers: [connected],
+			availableModels: [{ id: "m", provider: "p", contextWindow: 200_000 } as ModelInfo],
+		});
 		await mount({ projectOpened: true });
 		expect(toggle()?.textContent).toContain(translate("starter.progress", { done: 2, total: 5 }));
 		expect(stored[STARTER_GUIDE_PREF]).toEqual({ done: ["model", "project"], dismissed: false });
@@ -86,6 +102,28 @@ describe("StarterGuide", () => {
 		await act(async () => useUiStore.setState({ panelVisible: false }));
 		expect(toggle()?.textContent).toContain(translate("starter.progress", { done: 3, total: 5 }));
 		expect(stored[STARTER_GUIDE_PREF]).toEqual({ done: ["model", "project", "panel"], dismissed: false });
+	});
+
+	it("does not count the keyless on-device model as a connected model", async () => {
+		useModelStore.setState({
+			providers: [{ ...connected, id: "apple", authenticated: false }],
+			availableModels: [{ id: "on-device", provider: "apple", contextWindow: 8_192 } as ModelInfo],
+		});
+		await mount();
+		expect(toggle()?.textContent).toContain(translate("starter.progress", { done: 0, total: 5 }));
+		// Nothing reached, nothing saved: the step stays open for the person who has not connected one.
+		expect(stored[STARTER_GUIDE_PREF]).toBeUndefined();
+	});
+
+	it("counts a keyless custom endpoint from models.yml as a connected model", async () => {
+		customConfigs = [{ id: "local", auth: "none" } as CustomProviderView];
+		useModelStore.setState({
+			providers: [{ ...connected, id: "local", authenticated: false }],
+			availableModels: [{ id: "llama", provider: "local", contextWindow: 128_000 } as ModelInfo],
+		});
+		await mount();
+		expect(toggle()?.textContent).toContain(translate("starter.progress", { done: 1, total: 5 }));
+		expect(stored[STARTER_GUIDE_PREF]).toEqual({ done: ["model"], dismissed: false });
 	});
 
 	it("lists every step with its state and offers the next one's tour", async () => {
