@@ -1534,6 +1534,29 @@ describe("remembered splits", () => {
 		expect(useTabsStore.getState().rememberedSplits).toEqual([]);
 	});
 
+	it("still switches to a background-running session when a ratio step lands while its present loads", async () => {
+		await threePanes();
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t3", cwd: "/project", status: "running" });
+		vi.useFakeTimers();
+		try {
+			const gate = Promise.withResolvers<RpcResponse>();
+			omp.rpc.getTranscriptPage.mockReturnValueOnce(gate.promise);
+			const switching = useTabsStore.getState().switchTab("t3");
+			await vi.advanceTimersByTimeAsync(0);
+			// A divider drag (or ⌘-bracket step) re-sizes the split on screen while t3's present is on the way.
+			useTabsStore.getState().setSplitRatio(0.4);
+			gate.resolve(ok({ messages: [] }));
+			await vi.advanceTimersByTimeAsync(300);
+			await switching;
+			const state = useTabsStore.getState();
+			expect(state.activeTabId).toBe("t3");
+			expect(state.split).toBeNull();
+			expect(state.rememberedSplits.map(split => splitTabIds(split))).toEqual([["t0", "t1", "t2"]]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("swaps remembered splits when a member of another one is picked", async () => {
 		const first = await threePanes();
 		await useTabsStore.getState().switchTab("t3");

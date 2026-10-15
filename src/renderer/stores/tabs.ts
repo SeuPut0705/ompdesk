@@ -573,7 +573,11 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			await waited;
 			clearTimeout(cap);
 			const now = get();
-			if (request !== switchRequest || now.activeTabId !== before.activeTabId || now.split !== before.split) return;
+			// A geometry change (a divider drag, a ratio step) rebuilds `split` without changing what it shows:
+			// only a newer pick or a change of the panes on screen supersedes this one.
+			const panes = (state: TabsStore) => (state.split ? splitTabIds(state.split).join("\n") : "");
+			if (request !== switchRequest || now.activeTabId !== before.activeTabId || panes(now) !== panes(before))
+				return;
 			if (!landed) early = hydration;
 		}
 		const state = get();
