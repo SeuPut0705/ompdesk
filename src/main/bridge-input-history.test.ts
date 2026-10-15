@@ -73,6 +73,9 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 			await client.connect();
 			// Every area loads and every REQUIREMENTS entry resolves on the installed omp.
 			expect(await client.request("capabilities")).toMatchObject({ unavailable: [] });
+			// Idle compaction attaches to the live session; an empty fresh session never arms it.
+			expect(await client.request("idle_compaction_draft", { empty: true })).toEqual({ armed: false });
+			await expect(client.request("idle_compaction_draft", {})).rejects.toThrow("needs {empty: boolean}");
 			expect(await client.request("history_record", { prompt: "from OMPdesk", cwd: profile })).toEqual({
 				skipped: false,
 			});

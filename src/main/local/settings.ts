@@ -168,6 +168,10 @@ export async function cancelBrowserLogin(authorizationUrl: string): Promise<void
 	get_recent_models: (_command, ctx) => ctx.bridge.request("recent_models"),
 	set_output_style: async (command, ctx) =>
 		ctx.bridge.request("output_style_set", { style: z.object({ style: z.string() }).parse(command).style }),
+	set_idle_compaction_draft: async (command, ctx) =>
+		ctx.bridge.request("idle_compaction_draft", {
+			empty: z.object({ empty: z.boolean() }).parse(command).empty,
+		}),
 	history_recent: (command, ctx) => ctx.bridge.request("history_recent", command),
 	history_search: (command, ctx) => ctx.bridge.request("history_search", command),
 	history_record: (command, ctx) => ctx.bridge.request("history_record", command),

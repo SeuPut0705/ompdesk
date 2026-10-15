@@ -327,6 +327,37 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 	};
 
 	/** /mcp enable|disable|remove|reconnect <name>; a bare invocation opens the native MCP tab. */
+	/**
+	 * /autoclear on [delay] | off — stock's idle compaction (`compaction.idle*`),
+	 * which the bridge's idle-compaction timer runs for GUI tabs. A delay like
+	 * `10m`, `90s`, `1h` or bare seconds sets `compaction.idleTimeoutSeconds`
+	 * (stock clamps it to 60–3600 s when it arms).
+	 */
+	const setIdleCompaction = async (enabled: boolean, args?: string): Promise<void> => {
+		const delay = args?.trim();
+		if (enabled && delay) {
+			const match = /^(\d+)\s*(s|m|h)?$/i.exec(delay);
+			if (!match) {
+				toast({ variant: "warning", message: t("cmd.autoclear.badDelay", { value: delay }) });
+				return;
+			}
+			const unit = match[2]?.toLowerCase();
+			const seconds = Number(match[1]) * (unit === "h" ? 3600 : unit === "m" ? 60 : 1);
+			const clamped = Math.max(60, Math.min(3600, seconds));
+			const res = await boundRpc.setSetting("compaction.idleTimeoutSeconds", clamped);
+			if (!res.success) throw new Error(res.error);
+		}
+		const res = await boundRpc.setSetting("compaction.idleEnabled", enabled);
+		if (!res.success) throw new Error(res.error);
+		if (!enabled) {
+			toast({ variant: "success", message: t("cmd.autoclear.disabled") });
+			return;
+		}
+		const seconds = Number(await readSetting("compaction.idleTimeoutSeconds"));
+		const minutes = Math.round(Math.max(60, Math.min(3600, Number.isFinite(seconds) ? seconds : 300)) / 60);
+		toast({ variant: "success", message: t("cmd.autoclear.enabled", { minutes }) });
+	};
+
 	const runMcpAction = async (verb: "enable" | "disable" | "reconnect" | "remove", args?: string): Promise<void> => {
 		const name = args?.trim();
 		if (!name) {
@@ -1460,6 +1491,23 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		},
 	});
 	add({
+	add({
+		name: "autoclear",
+		label: t("cmd.autoclear"),
+		description: t("cmd.autoclear.desc"),
+		category: "settings",
+		affordance: {
+			kind: "submenu",
+			items: [
+				{ ...subAction("autoclear on", args => setIdleCompaction(true, args)), category: "settings" as const },
+				{ ...subAction("autoclear off", () => setIdleCompaction(false)), category: "settings" as const },
+				{
+					...subWindow("autoclear settings", () => ctx.openSettings("agent:setting-compaction.idleEnabled")),
+					category: "settings" as const,
+				},
+			],
+		},
+	});
 		name: "websearch",
 		label: t("cmd.websearch"),
 		description: t("cmd.websearch.desc"),

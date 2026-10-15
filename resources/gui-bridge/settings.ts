@@ -24,6 +24,7 @@ import { SETTING_TABS, TAB_GROUPS, TAB_METADATA } from "@oh-my-pi/pi-tui/overlay
 import { getAgentDir, MAIN_CONFIG_FILENAMES } from "@oh-my-pi/pi-utils";
 import { matchReportAccount, type StoredAccount } from "./accounts-core";
 import { guard, probe } from "./health";
+import { idleSettingChanged } from "./idle-compaction";
 import { releaseDelegationForWrite } from "./modes/delegation";
 import { asRecord, requiredString } from "./params";
 import { type ResetPasses, shapeResetPasses } from "./reset-passes-core";
@@ -276,6 +277,7 @@ async function setSetting(env: BridgeEnv, session: AgentSession, id: string, val
 	}
 	// A reset (`undefined`) leaves the thinking level unset again: OMPdesk's default returns.
 	syncThinkingDefault(session.settings);
+	idleSettingChanged(id);
 	env.emit({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
 	const provenance = provenanceReader(settings, globalConfigPath());
 	return {

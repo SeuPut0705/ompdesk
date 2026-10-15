@@ -34,6 +34,7 @@ import { StarterTour } from "./components/onboarding/StarterTour";
 import { RemoteFolderPickerHost } from "./components/remote/RemoteFolderPicker";
 import { useAwaitedInput } from "./hooks/use-awaited-input";
 import { useExtensionUi } from "./hooks/use-extension-ui";
+import { useIdleCompactionDraft } from "./hooks/use-idle-compaction-draft";
 import { useOutputStyle } from "./hooks/use-output-style";
 import { usePlanApproval } from "./hooks/use-plan-approval";
 import { useQuotaResume } from "./hooks/use-quota-resume";
@@ -144,6 +145,12 @@ function QuotaResumeEffects() {
 /** Output style delivery to every tab's bridge; its own component so tab updates never re-render App. */
 function OutputStyleEffects() {
 	useOutputStyle();
+	return null;
+}
+
+/** Draft empty ⇄ non-empty reports for the bridge's idle compaction; own component for the same reason. */
+function IdleCompactionDraftEffects() {
+	useIdleCompactionDraft();
 	return null;
 }
 
@@ -815,6 +822,7 @@ export function App() {
 			{activeTabId && <FocusedSessionEffects />}
 			<QuotaResumeEffects />
 			<OutputStyleEffects />
+			<IdleCompactionDraftEffects />
 			<AppShell />
 
 			<CommandPalette />
