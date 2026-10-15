@@ -90,6 +90,8 @@ export async function retryLastTurn(
 
 export type TurnErrorKind =
 	| "aborted"
+	| "certificate"
+	| "timeout"
 	| "connection"
 	| "contextOverflow"
 	| "auth"
@@ -114,6 +116,8 @@ export interface TurnErrorDescription {
 
 const TURN_ERROR_ACTIONS: Record<TurnErrorKind, readonly TurnErrorAction[]> = {
 	aborted: [],
+	certificate: ["retry", "openProviders"],
+	timeout: ["retry", "changeModel"],
 	connection: ["retry", "openProviders"],
 	contextOverflow: ["compact", "changeModel"],
 	auth: ["openProviders", "changeModel"],
@@ -157,10 +161,20 @@ const TURN_ERROR_PATTERNS: ReadonlyArray<readonly [Exclude<TurnErrorKind, "unkno
 		[statusPattern("502|503|529"), /overloaded|service unavailable|temporarily unavailable|over capacity/i],
 	],
 	[
+		"certificate",
+		[
+			/certificate|self[- ]signed|unable to verify the first|unable_to_(?:verify|get)_issuer|ssl|\btls\b|err_tls/i,
+			/cert_has_expired|depth_zero_self_signed|err_cert/i,
+		],
+	],
+	// A request that reached the provider and then ran out of time (a refused or
+	// unresolved host is `connection`, below).
+	["timeout", [/timed? ?out|timeout|etimedout|deadline exceeded/i]],
+	[
 		"connection",
 		[
-			/unable to connect|econnrefused|econnreset|enotfound|eai_again|etimedout|getaddrinfo|fetch failed/i,
-			/network ?error|socket hang up|timed? ?out|timeout|connection (?:refused|reset|closed|error|failed)/i,
+			/unable to connect|econnrefused|econnreset|enotfound|eai_again|getaddrinfo|fetch failed/i,
+			/network ?error|socket hang up|connection (?:refused|reset|closed|error|failed)/i,
 		],
 	],
 ];

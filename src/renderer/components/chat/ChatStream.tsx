@@ -67,6 +67,7 @@ import { MessageBubble } from "./MessageBubble";
 import { installPaneKeys } from "./pane-keys";
 import { StreamingText } from "./StreamingText";
 import { ThinkingBlock } from "./ThinkingBlock";
+import { TurnEndAnnouncer } from "./TurnEndAnnouncer";
 import { messageTimestampMs } from "./work-turn";
 
 // TanStack's end check needs one CSS pixel for fractional scrollTop rounding.
@@ -830,6 +831,7 @@ function SessionTranscript() {
 
 	return (
 		<div className="omp-transcript-editorial relative min-h-0 flex-1 bg-transparent">
+			<TurnEndAnnouncer />
 			<div
 				ref={parentRef}
 				aria-label={t("chat.transcript.label")}

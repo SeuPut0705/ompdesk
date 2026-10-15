@@ -6,6 +6,8 @@ import { describeTurnError, retryLastTurn, type TurnErrorKind, turnErrorToast } 
 
 const KINDS: TurnErrorKind[] = [
 	"aborted",
+	"certificate",
+	"timeout",
 	"connection",
 	"contextOverflow",
 	"auth",
@@ -23,7 +25,11 @@ describe("describeTurnError", () => {
 		["connect ECONNREFUSED 127.0.0.1:11434", "connection"],
 		["TypeError: fetch failed", "connection"],
 		["getaddrinfo ENOTFOUND api.example.com", "connection"],
-		["Request timed out after 300000ms", "connection"],
+		["Request timed out after 300000ms", "timeout"],
+		["connect ETIMEDOUT 104.18.1.1:443", "timeout"],
+		["unable to verify the first certificate", "certificate"],
+		["self-signed certificate in certificate chain", "certificate"],
+		["Error: CERT_HAS_EXPIRED", "certificate"],
 		["Prompt is too long: Provided 8,464 tokens, but the maximum allowed is 8,192.", "contextOverflow"],
 		["This model's maximum context length is 128000 tokens.", "contextOverflow"],
 		["input has too many tokens", "contextOverflow"],

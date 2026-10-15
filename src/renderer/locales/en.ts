@@ -2717,6 +2717,9 @@ export const en: Record<string, string> = {
 	"chat.thinking.show": "Show reasoning",
 	"chat.thinking.hide": "Hide reasoning",
 	"chat.awaitingModel.announcement": "Waiting for model response…",
+	"chat.turnEnd.complete": "Response complete",
+	"chat.turnEnd.stopped": "Response stopped",
+	"chat.turnEnd.failed": "Response failed: {reason}",
 	"chat.interruptHint": "to stop",
 	"chat.retry.pending": "Retrying ({attempt}/{maxAttempts}) in {seconds}s…",
 	"chat.retry.scheduled": "Waiting to retry ({attempt}/{maxAttempts}) at {time}…",
@@ -4343,6 +4346,12 @@ export const en: Record<string, string> = {
 	// Failed or stopped turns (lib/messages describeTurnError)
 	"turnError.aborted.title": "Stopped",
 	"turnError.aborted.guidance": "You stopped this response.",
+	"turnError.certificate.title": "Secure connection failed",
+	"turnError.certificate.guidance":
+		"The provider's certificate couldn't be verified. A proxy, VPN or security software may be in the way, or this computer's clock may be off. Fix that, then try again.",
+	"turnError.timeout.title": "Took too long",
+	"turnError.timeout.guidance":
+		"The provider didn't answer in time. Try again, or switch to another model if it keeps happening.",
 	"turnError.connection.title": "Can't connect",
 	"turnError.connection.guidance":
 		"The provider couldn't be reached. Check your network or the provider address, then try again.",

@@ -2665,6 +2665,9 @@ export const ko: Record<string, string> = {
 	"chat.thinking.show": "사고 과정 보기",
 	"chat.thinking.hide": "사고 과정 숨기기",
 	"chat.awaitingModel.announcement": "모델 응답을 기다리는 중…",
+	"chat.turnEnd.complete": "응답을 마쳤어요",
+	"chat.turnEnd.stopped": "응답을 중단했어요",
+	"chat.turnEnd.failed": "응답 실패: {reason}",
 	"chat.interruptHint": "키로 중단",
 	"chat.retry.pending": "{seconds}초 후 재시도 ({attempt}/{maxAttempts})…",
 	"chat.work.activity": "{tool} {target}",
@@ -4330,6 +4333,12 @@ export const ko: Record<string, string> = {
 	// 실패하거나 중단된 응답 (lib/messages describeTurnError)
 	"turnError.aborted.title": "중단됨",
 	"turnError.aborted.guidance": "응답을 중단했어요.",
+	"turnError.certificate.title": "보안 연결 실패",
+	"turnError.certificate.guidance":
+		"프로바이더의 인증서를 확인하지 못했어요. 프록시, VPN, 보안 프로그램이 가로막고 있거나 이 컴퓨터의 시계가 틀렸을 수 있어요. 고친 뒤 다시 시도해 주세요.",
+	"turnError.timeout.title": "응답 시간 초과",
+	"turnError.timeout.guidance":
+		"프로바이더가 제때 답하지 않았어요. 다시 시도하고, 계속 그러면 다른 모델로 바꿔 보세요.",
 	"turnError.connection.title": "연결할 수 없음",
 	"turnError.connection.guidance":
 		"프로바이더에 연결하지 못했어요. 네트워크나 프로바이더 주소를 확인한 뒤 다시 시도하세요.",
