@@ -395,6 +395,27 @@ for (const [language, theme] of RUNS) {
 				expect(fit.placeholder, JSON.stringify(fit)).toBeLessThanOrEqual(fit.room);
 				expect(fit.overflow, JSON.stringify(fit)).toBeLessThanOrEqual(0);
 			}
+			// A running turn adds the steer chip and Stop beside Send: the field's own hint and the
+			// toolbar still fit a 2x2 pane at this width, with a draft that has a queue prefix badge too.
+			const pane = page.locator(".omp-session-pane").first();
+			const field = pane.locator(".omp-composer-input");
+			await field.fill("fixture stream");
+			await field.press("Enter");
+			const stop = pane.getByRole("button", { name: new RegExp(`^${language === "ko" ? "중단" : "Stop"}`) });
+			await expect(stop).toBeVisible({ timeout: 30_000 });
+			await field.fill("-> then run the checks");
+			await capture("3-narrow-streaming");
+			for (const fit of await composerFit(page)) {
+				expect(fit.placeholder, JSON.stringify(fit)).toBeLessThanOrEqual(fit.room);
+				expect(fit.overflow, JSON.stringify(fit)).toBeLessThanOrEqual(0);
+			}
+			await field.fill("");
+			await expect(field).toHaveAttribute(
+				"placeholder",
+				language === "ko" ? "추가 지시 입력…" : "Add an instruction…",
+			);
+			await stop.click();
+			await expect(stop).toHaveCount(0);
 			expect(launched.errors).toEqual([]);
 		} finally {
 			await exitApp(app);

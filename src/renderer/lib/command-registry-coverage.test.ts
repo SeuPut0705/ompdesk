@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { MenuAction } from "../../shared/ipc-types";
 import { buildCommandMenu, type CommandMenuItem, type CommandRegistryContext } from "./command-registry";
-import { translate } from "./i18n";
+import { setLanguageOverride, translate } from "./i18n";
 import { actionKbd, KEYMAP_ACTIONS, type KeymapActionId } from "./keymap";
 
 const ok = () => ({ type: "response" as const, command: "x", success: true as const });
@@ -196,5 +196,45 @@ describe("command palette coverage", () => {
 		expect(row(items, "new-tab")?.shortcut).toBe("⌥⌘N");
 		expect(row(items, "terminal")?.shortcut).toBe("⌃`");
 		expect(row(items, "hotkeys")?.shortcut).toBe("⌥/");
+	});
+
+	it("shows the remapped chord on every row a shortcut backs", () => {
+		const remapped = Object.fromEntries(KEYMAP_ACTIONS.map(action => [action.id, ["⌥⌘F9"]]));
+		const items = buildCommandMenu({ ...ctx, keymapOverrides: remapped });
+		for (const action of KEYMAP_ACTIONS) {
+			const name = SHORTCUT_ROWS[action.id];
+			if (name === null) continue;
+			expect(row(items, name)?.shortcut, action.id).toBe("⌥⌘F9");
+		}
+	});
+
+	it.each(["en", "ko"] as const)("lists only rows that can run, with real copy (%s)", language => {
+		setLanguageOverride(language);
+		try {
+			const walk = (items: CommandMenuItem[], trail: string): void => {
+				const names = new Set<string>();
+				for (const item of items) {
+					const where = `${trail}${item.name}`;
+					expect(names.has(item.name), `${where} listed twice`).toBe(false);
+					names.add(item.name);
+					for (const copy of [item.label, item.description ?? ""]) {
+						expect(copy, `${where} shows a raw locale key`).not.toMatch(/^(cmd|palette|input)\.[\w.]+$/);
+					}
+					expect(item.label.trim(), `${where} has no label`).not.toBe("");
+					const { affordance } = item;
+					if (affordance.kind === "submenu") {
+						expect(affordance.items.length, `${where} opens an empty submenu`).toBeGreaterThan(0);
+						walk(affordance.items, `${where} › `);
+					} else if (affordance.kind === "prompt") {
+						expect(affordance.text.startsWith("/"), `${where} sends ${affordance.text}`).toBe(true);
+					} else if (affordance.kind === "unavailable") {
+						expect(affordance.reason.trim(), `${where} is dead without a reason`).not.toBe("");
+					}
+				}
+			};
+			walk(buildCommandMenu(ctx), "");
+		} finally {
+			setLanguageOverride(null);
+		}
 	});
 });

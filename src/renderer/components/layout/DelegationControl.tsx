@@ -84,14 +84,14 @@ export function DelegationControl() {
 		<>
 			<Tooltip content={t("input.delegation.title")} describe={false}>
 				<Button
+					aria-busy={pending || undefined}
 					aria-expanded={open}
 					aria-haspopup="dialog"
 					aria-label={`${t("input.delegation.title")}: ${name}`}
 					className="omp-composer-chip"
 					data-delegation-trigger
-					disabled={pending}
 					icon={<Network aria-hidden />}
-					onClick={() => setOpen(value => !value)}
+					onClick={() => !pending && setOpen(value => !value)}
 					ref={triggerRef}
 					size="sm"
 					trailingIcon={<ChevronDown aria-hidden className="omp-composer-chevron text-(--sc-text-subtle)" />}
@@ -133,6 +133,7 @@ export function DelegationControl() {
 							key={option}
 							onClick={() => void pick(option)}
 							role="radio"
+							tabIndex={option === mode ? 0 : -1}
 							type="button"
 						>
 							<span className="flex min-w-0 flex-1 flex-col">

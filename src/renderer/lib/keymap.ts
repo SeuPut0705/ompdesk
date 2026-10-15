@@ -661,8 +661,12 @@ export function actionShortcut(id: KeymapActionId, platform: KeymapPlatform = PL
  * and `IconButton shortcut` expect (they format it for the platform). A user
  * override wins over the default.
  */
-export function actionKbd(id: KeymapActionId, overrides?: KeymapOverrides): string {
-	return overrides?.[id]?.[0] ?? KEYMAP_ACTION_BY_ID[id].defaults[0] ?? "";
+export function actionKbd(
+	id: KeymapActionId,
+	overrides?: KeymapOverrides,
+	platform: KeymapPlatform = PLATFORM,
+): string {
+	return overrides?.[id]?.[0] ?? platformDefaults(KEYMAP_ACTION_BY_ID[id], platform)[0] ?? "";
 }
 
 /** Rows the reference dialog files under a group, in registry order. */

@@ -82,7 +82,7 @@ import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-utils";
 import { PastedTextDialog } from "./PastedTextDialog";
 import { RunSettings } from "./RunSettings";
-import { type CompletionItem, type CompletionMenu, useCompletionMenu } from "./use-completion-menu";
+import { type CompletionItem, type CompletionMenu, sameCompletionMenu, useCompletionMenu } from "./use-completion-menu";
 import { useComposerSubmit } from "./use-composer-submit";
 
 type SendMode = "prompt" | "steer" | "followUp";
@@ -151,6 +151,10 @@ export function InputArea() {
 	const setImages = useComposerStore(s => s.setImages);
 	const [mode, setMode] = useState<SendMode>("prompt");
 	const [menu, setMenu] = useState<CompletionMenu | null>(null);
+	/** The menu re-derives on every command refresh and caret event: an unchanged one keeps its highlight. */
+	const publishMenu = useCallback((next: CompletionMenu | null) => {
+		setMenu(current => (current && next && sameCompletionMenu(current, next) ? current : next));
+	}, []);
 	const [commands, setCommands] = useState<AvailableCommand[]>([]);
 	const sending = useComposerStore(state => state.sending);
 	const setSending = useComposerStore(state => state.setSending);
@@ -324,7 +328,7 @@ export function InputArea() {
 		commands,
 		emojiAutocomplete,
 		textareaRef,
-		setMenu,
+		setMenu: publishMenu,
 	});
 
 	// Reset the mention file list when the session cwd changes (cache is per-cwd).
@@ -774,7 +778,7 @@ export function InputArea() {
 			e.preventDefault();
 			const start = el.selectionStart ?? text.length;
 			const end = el.selectionEnd ?? start;
-			const from = e.key === "j" || start !== end ? start : text.lastIndexOf("\n", start - 1) + 1;
+			const from = e.key === "j" || start !== end ? start : start === 0 ? 0 : text.lastIndexOf("\n", start - 1) + 1;
 			const insert = e.key === "j" ? "\n" : "";
 			// Edit the DOM value in place so the caret lands before the next keystroke; React
 			// then sees the same value and leaves the caret alone.
@@ -1014,6 +1018,13 @@ export function InputArea() {
 	/** Tab-accept hint chip: only while the suggestion is the visible placeholder. */
 	const showSuggestionHint = nextPrompt !== undefined && text === "";
 	const suggestionHintId = useId();
+	const menuId = useId();
+	const menuIndex = menu?.index;
+	// Home/End/PageDown/↓ can land on a row below the listbox's fold.
+	useEffect(() => {
+		if (menuIndex === undefined) return;
+		document.getElementById(`${menuId}-${menuIndex}`)?.scrollIntoView?.({ block: "nearest" });
+	}, [menuId, menuIndex]);
 	/** Streaming with nothing to send: Stop takes the send slot instead of a dead Send. */
 	const showSend = !isStreaming || text.trim() !== "" || images.length > 0;
 
@@ -1073,11 +1084,13 @@ export function InputArea() {
 						<div
 							aria-label={t("input.completion.label")}
 							className="absolute bottom-full left-0 z-(--sc-z-popover) mb-2 max-h-[60vh] w-[min(440px,100%)] overflow-y-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) p-1 shadow-(--sc-shadow-md)"
+							id={menuId}
 							role="listbox"
 						>
 							{menu.items.map((item, index) => (
 								<button
 									aria-selected={index === menu.index}
+									id={`${menuId}-${index}`}
 									key={`${menu.source}:${item.label}`}
 									type="button"
 									role="option"
@@ -1244,6 +1257,9 @@ export function InputArea() {
 						<div className={cx("relative px-4 pt-3 pb-1", expanded && "flex min-h-0 flex-1 flex-col")}>
 							<textarea
 								ref={textareaRef}
+								aria-activedescendant={menu ? `${menuId}-${menu.index}` : undefined}
+								aria-autocomplete={menu ? "list" : undefined}
+								aria-controls={menu ? menuId : undefined}
 								aria-describedby={showSuggestionHint ? suggestionHintId : undefined}
 								aria-label={t("input.ariaLabel")}
 								autoCapitalize="sentences"
@@ -1456,7 +1472,6 @@ export function InputArea() {
 										icon={recording ? <Square className="omp-pulse-dot" fill="currentColor" /> : <Mic />}
 										label={recording ? t("voice.mic.stop") : t("voice.mic.start")}
 										onClick={handleMicClick}
-										pressed={recording}
 										size="sm"
 									/>
 								)}

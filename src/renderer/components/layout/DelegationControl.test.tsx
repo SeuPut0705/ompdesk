@@ -141,4 +141,26 @@ describe("DelegationControl", () => {
 		await mount();
 		expect(trigger()).toBeNull();
 	});
+
+	it("keeps the chip focusable while a switch is in flight, so focus is not lost", async () => {
+		useSessionStore.setState({ sessionId: "s1", status: "ready" });
+		await mount();
+		const gate = Promise.withResolvers<RpcResponse>();
+		setDelegation.mockReturnValueOnce(gate.promise);
+		await act(async () => trigger()?.click());
+		await act(async () => option("solo").click());
+		expect(trigger()?.disabled).toBe(false);
+		expect(trigger()?.getAttribute("aria-busy")).toBe("true");
+		await act(async () => gate.resolve(ok("set_delegation", { mode: "solo" })));
+		expect(trigger()?.getAttribute("aria-busy")).not.toBe("true");
+	});
+
+	it("is one tab stop in the radio group: the held strength, arrows move between the rest", async () => {
+		held = "assisted";
+		useSessionStore.setState({ sessionId: "s1", status: "ready" });
+		await mount();
+		await act(async () => trigger()?.click());
+		for (const mode of DELEGATION_MODES)
+			expect(option(mode).getAttribute("tabindex"), mode).toBe(mode === "assisted" ? "0" : "-1");
+	});
 });

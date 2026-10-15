@@ -16,6 +16,7 @@ import { parseComposerMode } from "../../lib/input-modes";
 import { clearSessionContext } from "../../lib/messages";
 import { dropReferencedPastes, expandPasteMarkers } from "../../lib/paste-blobs";
 import { parseQueueShorthand, splitQueuedMessages } from "../../lib/queue-input";
+import { parseSlashCommand } from "../../lib/slash-command";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { type ComposerImage, type ComposerStore, useComposerStore } from "../../stores/composer";
 import { useInputHistoryStore } from "../../stores/input-history";
@@ -242,8 +243,7 @@ export function useComposerSubmit({
 							if (!originStillActive()) throw new Error("Tab changed during queue dispatch");
 							const item = dispatchItems[index] ?? "";
 							const itemImages = index === 0 ? payload : undefined;
-							const isExtensionCommand =
-								item.startsWith("/") && extensionCommandNames.has(/^\/([a-z0-9-]+)/i.exec(item)?.[1] ?? "");
+							const isExtensionCommand = extensionCommandNames.has(parseSlashCommand(item)?.name ?? "");
 							deliveryPending = true;
 							const response =
 								startImmediately && index === 0

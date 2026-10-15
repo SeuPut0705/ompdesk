@@ -33,6 +33,17 @@ export interface CompletionMenu {
 	index: number;
 }
 
+/** Same provider, range and rows: a re-derivation that changes nothing the user sees. */
+export function sameCompletionMenu(a: CompletionMenu, b: CompletionMenu): boolean {
+	return (
+		a.source === b.source &&
+		a.rangeStart === b.rangeStart &&
+		a.rangeEnd === b.rangeEnd &&
+		a.items.length === b.items.length &&
+		a.items.every((item, index) => item.value === b.items[index]?.value && item.label === b.items[index]?.label)
+	);
+}
+
 /** Replace only the provider's prefix; never consume text after the live caret. */
 export function applyCompletion(text: string, cursor: number, menu: CompletionMenu, item: CompletionItem) {
 	if (cursor !== menu.rangeEnd) return null;
@@ -176,7 +187,7 @@ export function useCompletionMenu({
 		}
 
 		// 3. Slash command NAMES at a word boundary.
-		const cmdMatch = /(^|\s)\/([a-z-]*)$/i.exec(before);
+		const cmdMatch = /(^|\s)\/([\w:.-]*)$/i.exec(before);
 		if (cmdMatch) {
 			const query = (cmdMatch[2] ?? "").toLowerCase();
 			// Exact name/alias first, then prefix, then substring: typing `/plan` +

@@ -13,6 +13,7 @@
 import { describe, expect, it } from "vitest";
 import { NATIVE_CHORDS } from "../../shared/hotkeys";
 import {
+	actionKbd,
 	actionShortcut,
 	chordFromEvent,
 	compileKeymap,
@@ -310,6 +311,14 @@ describe("shortcut labels", () => {
 		expect(actionShortcut("tab.newChat", "windows")).toBe("Ctrl+Shift+T");
 		expect(actionShortcut("thinking.toggle", "windows")).toBe("Ctrl+Alt+T");
 		expect(actionShortcut("tab.newChat", "mac")).toBe("⇧⌘T");
+	});
+
+	it("hands Kbd the chord an action fires on this platform, then the user's override", () => {
+		// quickOpen is ⌘P on macOS but ⌥⌃P on Windows (⌃P belongs to model cycling there).
+		expect(formatShortcut(actionKbd("quickOpen", undefined, "mac"), "mac")).toBe("⌘P");
+		expect(formatShortcut(actionKbd("quickOpen", undefined, "windows"), "windows")).toBe("Ctrl+Alt+P");
+		expect(formatShortcut(actionKbd("palette", undefined, "windows"), "windows")).toBe("Ctrl+K");
+		expect(actionKbd("quickOpen", { quickOpen: ["⌥⌘F9"] }, "windows")).toBe("⌥⌘F9");
 	});
 });
 

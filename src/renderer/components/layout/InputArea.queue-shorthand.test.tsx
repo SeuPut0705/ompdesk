@@ -338,6 +338,20 @@ describe("InputArea queue shorthand submit", () => {
 		expect(prompt).not.toHaveBeenCalled();
 	});
 
+	it("queues an extension command whose name has an underscore through prompt, not followUp", async () => {
+		await mount();
+		const subscribe = window.omp.events.onTabCommandsUpdate as unknown as Mock;
+		const deliver = subscribe.mock.calls.at(-1)?.[0] as (commands: unknown[], tabId: string) => void;
+		await act(async () => deliver([{ name: "my_cmd", description: "Ext", source: "extension" }], "t0"));
+		await typeInto(findTextarea(), "-> /my_cmd now");
+		await pressEnter(findTextarea());
+		await flush();
+		await flush();
+
+		expect(prompt).toHaveBeenCalledWith("/my_cmd now", []);
+		expect(followUp).not.toHaveBeenCalled();
+	});
+
 	it("routes `=> text` the same way while streaming", async () => {
 		await mount();
 		await typeInto(findTextarea(), "=> ship it");
@@ -1099,6 +1113,39 @@ describe("InputArea composer keys", () => {
 		expect(useComposerStore.getState().draft).toBe("\n line");
 	});
 
+	it("⌃U at the very start of a draft that begins with a newline deletes nothing", async () => {
+		await mountIdle();
+		await typeInto(findTextarea(), "\nsecond");
+		setCaret(0);
+		await pressKey({ key: "u", ctrlKey: true });
+		expect(useComposerStore.getState().draft).toBe("\nsecond");
+	});
+
+	it("keeps the slash menu open for names with a colon, a digit or an underscore", async () => {
+		await mountIdle();
+		const subscribe = window.omp.events.onTabCommandsUpdate as unknown as Mock;
+		const deliver = subscribe.mock.calls.at(-1)?.[0] as (commands: unknown[], tabId: string) => void;
+		await act(async () =>
+			deliver(
+				[
+					{ name: "skill:release-notes", description: "Write notes", source: "skill" },
+					{ name: "gpt5_mode", description: "Switch", source: "extension" },
+				],
+				"t0",
+			),
+		);
+		const labels = () => Array.from(document.querySelectorAll('[role="option"]')).map(option => option.textContent);
+		setCaret(10);
+		await typeInto(findTextarea(), "/skill:rel");
+		await flush();
+		expect(labels()).toHaveLength(1);
+		expect(labels()[0]).toContain("/skill:release-notes");
+		setCaret(6);
+		await typeInto(findTextarea(), "/gpt5_");
+		await flush();
+		expect(labels()[0]).toContain("/gpt5_mode");
+	});
+
 	it("sends once while Enter is held down", async () => {
 		await mountIdle();
 		await typeInto(findTextarea(), "hello");
@@ -1179,6 +1226,46 @@ describe("InputArea composer keys", () => {
 		expect(selected()).toBe(5);
 		await pressKey({ key: "PageUp" });
 		expect(selected()).toBe(0);
+	});
+
+	it("keeps the highlighted completion row when the same commands are delivered again", async () => {
+		await mountIdle();
+		const subscribe = window.omp.events.onTabCommandsUpdate as unknown as Mock;
+		const deliver = subscribe.mock.calls.at(-1)?.[0] as (commands: unknown[], tabId: string) => void;
+		const commands = [{ name: "cmd0" }, { name: "cmd1" }, { name: "cmd2" }];
+		await act(async () => deliver(commands, "t0"));
+		setCaret(1);
+		await typeInto(findTextarea(), "/");
+		await flush();
+		await pressKey({ key: "ArrowDown" });
+		await pressKey({ key: "ArrowDown" });
+		const selected = () =>
+			Array.from(document.querySelectorAll('[role="option"]')).findIndex(
+				option => option.getAttribute("aria-selected") === "true",
+			);
+		expect(selected()).toBe(2);
+		await act(async () => deliver(commands, "t0"));
+		await flush();
+		expect(selected()).toBe(2);
+	});
+
+	it("points the field at the highlighted completion row for assistive tech", async () => {
+		await mountIdle();
+		const subscribe = window.omp.events.onTabCommandsUpdate as unknown as Mock;
+		const deliver = subscribe.mock.calls.at(-1)?.[0] as (commands: unknown[], tabId: string) => void;
+		await act(async () => deliver([{ name: "cmd0" }, { name: "cmd1" }], "t0"));
+		const field = findTextarea();
+		expect(field.getAttribute("aria-controls")).toBeNull();
+		setCaret(1);
+		await typeInto(field, "/");
+		await flush();
+		const listbox = document.querySelector('[role="listbox"]');
+		const rows = Array.from(document.querySelectorAll('[role="option"]'));
+		expect(field.getAttribute("aria-controls")).toBe(listbox?.getAttribute("id"));
+		expect(field.getAttribute("aria-activedescendant")).toBe(rows[0]?.getAttribute("id"));
+		await pressKey({ key: "ArrowDown" });
+		expect(field.getAttribute("aria-activedescendant")).toBe(rows[1]?.getAttribute("id"));
+		expect(rows[1]?.getAttribute("aria-selected")).toBe("true");
 	});
 
 	it("offers skills after $ anywhere and inserts stock's /skill: token; warns for a skill that is off", async () => {
@@ -1475,6 +1562,36 @@ describe("InputArea dictation", () => {
 		expect(phase()).toBeNull();
 		expect(transcribeAudio).not.toHaveBeenCalled();
 		expect(useComposerStore.getState().draft).toBe("keep me");
+	});
+
+	it("discards the take on Esc without closing or driving the open completion menu", async () => {
+		await mountWithMic();
+		const subscribe = window.omp.events.onTabCommandsUpdate as unknown as Mock;
+		const deliver = subscribe.mock.calls.at(-1)?.[0] as (commands: unknown[], tabId: string) => void;
+		await act(async () => deliver([{ name: "cmd0" }, { name: "cmd1" }], "t0"));
+		Object.assign(findTextarea(), { selectionStart: 1, selectionEnd: 1 });
+		await typeInto(findTextarea(), "/");
+		await flush();
+		const rows = document.querySelectorAll('[role="option"]').length;
+		expect(rows).toBeGreaterThan(1);
+		await startTake();
+		await windowKey("Escape");
+		expect(phase()).toBeNull();
+		expect(transcribeAudio).not.toHaveBeenCalled();
+		// The same Esc did not also dismiss the menu, and the draft is untouched.
+		expect(document.querySelectorAll('[role="option"]').length).toBe(rows);
+		expect(useComposerStore.getState().draft).toBe("/");
+		// The next Esc is the menu's own.
+		await pressKey({ key: "Escape" });
+		expect(document.querySelector('[role="option"]')).toBeNull();
+	});
+
+	it("names the mic by what a click does, without also claiming a pressed state", async () => {
+		await mountWithMic();
+		await startTake();
+		const stop = document.querySelector(`button[aria-label="${translate("voice.mic.stop")}"]`);
+		expect(stop).not.toBeNull();
+		expect(stop?.getAttribute("aria-pressed")).toBeNull();
 	});
 
 	it("sends the draft with the transcript from Stop and send", async () => {
