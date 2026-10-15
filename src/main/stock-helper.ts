@@ -8,10 +8,19 @@ import { spawnPath } from "./shell-env";
 /** How long a stopped worker may take to exit before an omp update goes ahead anyway. */
 const HELPER_STOP_MS = 5000;
 
+/** How long one request may wait (queued behind others included) before only that request fails. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+export interface StockHelperOptions {
+	requestTimeoutMs?: number;
+	/** Test seam: the worker process to talk to; production starts `stock-helper/host.ts` on the user's omp. */
+	spawnWorker?: () => Promise<ChildProcessWithoutNullStreams>;
+}
+
 /** One lazy worker for all main-side stock operations. Keeps stock caches warm
  * without agent boots or per-refresh process launches; stdin ties it to the app.
  */
-class StockHelper {
+export class StockHelper {
 	#child: ChildProcessWithoutNullStreams | null = null;
 	#starting: Promise<ChildProcessWithoutNullStreams> | null = null;
 	#stopped = false;
@@ -21,9 +30,31 @@ class StockHelper {
 		{ resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }
 	>();
 	readonly #bridgeDir: string;
+	readonly #requestTimeoutMs: number;
+	readonly #spawnWorker: () => Promise<ChildProcessWithoutNullStreams>;
 
-	constructor(bridgeDir: string) {
+	constructor(bridgeDir: string, options: StockHelperOptions = {}) {
 		this.#bridgeDir = bridgeDir;
+		this.#requestTimeoutMs = options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
+		this.#spawnWorker = options.spawnWorker ?? (() => this.#spawnStockWorker());
+	}
+
+	async #spawnStockWorker(): Promise<ChildProcessWithoutNullStreams> {
+		const [omp, basePath] = await Promise.all([systemOmp(), spawnPath()]);
+		if (!omp.ok) throw new Error(omp.error);
+		const root = ompPackageRoot(omp.runtime.bin);
+		if (!root) throw new Error("Cannot locate omp package");
+		if (this.#stopped) throw new Error("Stock helper stopped");
+		return spawn("bun", [join(this.#bridgeDir, "stock-helper", "host.ts")], {
+			stdio: ["pipe", "pipe", "pipe"],
+			windowsHide: true,
+			env: {
+				...process.env,
+				PATH: ompPathEnv(omp.runtime.bin, basePath),
+				OMP_PACKAGE_ROOT: root,
+				PI_NOTIFICATIONS: "off",
+			},
+		});
 	}
 
 	async #start(): Promise<ChildProcessWithoutNullStreams> {
@@ -31,21 +62,11 @@ class StockHelper {
 		if (this.#child) return this.#child;
 		if (this.#starting) return this.#starting;
 		this.#starting = (async () => {
-			const [omp, basePath] = await Promise.all([systemOmp(), spawnPath()]);
-			if (!omp.ok) throw new Error(omp.error);
-			const root = ompPackageRoot(omp.runtime.bin);
-			if (!root) throw new Error("Cannot locate omp package");
-			if (this.#stopped) throw new Error("Stock helper stopped");
-			const child = spawn("bun", [join(this.#bridgeDir, "stock-helper", "host.ts")], {
-				stdio: ["pipe", "pipe", "pipe"],
-				windowsHide: true,
-				env: {
-					...process.env,
-					PATH: ompPathEnv(omp.runtime.bin, basePath),
-					OMP_PACKAGE_ROOT: root,
-					PI_NOTIFICATIONS: "off",
-				},
-			});
+			const child = await this.#spawnWorker();
+			if (this.#stopped) {
+				child.stdin.end();
+				throw new Error("Stock helper stopped");
+			}
 			this.#child = child;
 			// Stock warnings stay off the JSON-lines response stream. Do not log session data.
 			child.stderr.resume();
@@ -89,12 +110,13 @@ class StockHelper {
 		const child = await this.#start();
 		const id = ++this.#sequence;
 		const { promise, resolve, reject } = Promise.withResolvers<unknown>();
+		// Only this request fails. The worker also holds every terminal and may be mid-mutation for another
+		// caller, so a slow request never ends it; the worker is told to skip this one if it has not started.
 		const timer = setTimeout(() => {
 			this.#pending.delete(id);
 			reject(new Error("omp stock helper request timed out"));
-			// Avoid queued mutations executing after their caller has timed out.
-			child.stdin.end();
-		}, 30_000);
+			if (child.stdin.writable) child.stdin.write(`${JSON.stringify({ cancel: id })}\n`, () => {});
+		}, this.#requestTimeoutMs);
 		this.#pending.set(id, { resolve, reject, timer });
 		child.stdin.write(`${JSON.stringify({ id, method, params })}\n`, error => {
 			if (!error) return;
