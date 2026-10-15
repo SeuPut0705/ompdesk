@@ -729,7 +729,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"getHostInfoForHost()",
 				"invalidateHostMetadata()",
 			],
-			[UTILS]: ["$which()", "getSSHConfigPath()"],
+			[`${AGENT}/ssh/utils`]: ["buildSshTarget()"],
+			[UTILS]: ["$which()", "getSSHConfigPath()", "ptree.exec()"],
 		},
 	},
 	voice: {

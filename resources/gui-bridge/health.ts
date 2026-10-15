@@ -144,6 +144,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 		import("@oh-my-pi/pi-coding-agent/slash-commands/helpers/reset-usage"),
 	"@oh-my-pi/pi-coding-agent/ssh/config-writer": () => import("@oh-my-pi/pi-coding-agent/ssh/config-writer"),
 	"@oh-my-pi/pi-coding-agent/ssh/connection-manager": () => import("@oh-my-pi/pi-coding-agent/ssh/connection-manager"),
+	"@oh-my-pi/pi-coding-agent/ssh/utils": () => import("@oh-my-pi/pi-coding-agent/ssh/utils"),
 	"@oh-my-pi/pi-coding-agent/stt/asr-client": () => import("@oh-my-pi/pi-coding-agent/stt/asr-client"),
 	"@oh-my-pi/pi-coding-agent/stt/downloader": () => import("@oh-my-pi/pi-coding-agent/stt/downloader"),
 	"@oh-my-pi/pi-coding-agent/stt/models": () => import("@oh-my-pi/pi-coding-agent/stt/models"),

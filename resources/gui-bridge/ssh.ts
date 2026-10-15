@@ -20,7 +20,8 @@ import {
 	invalidateHostMetadata,
 	type SSHConnectionTarget,
 } from "@oh-my-pi/pi-coding-agent/ssh/connection-manager";
-import { $which, getSSHConfigPath } from "@oh-my-pi/pi-utils";
+import { buildSshTarget } from "@oh-my-pi/pi-coding-agent/ssh/utils";
+import { $which, getSSHConfigPath, ptree } from "@oh-my-pi/pi-utils";
 import { guard } from "./health";
 import { asRecord, requiredString } from "./params";
 import type { BridgeMethods } from "./types";
@@ -176,7 +177,49 @@ async function manageSshHost(session: AgentSession, params: unknown) {
 }
 
 /** Below the GUI's 60s transport timeout; stock ssh helpers take no signal, so the deadline races them. */
-const SSH_TEST_TIMEOUT_MS = 50_000;
+const SSH_TEST_TIMEOUT_MS = 35_000;
+/** The verbose retry after a failure shares the 60s transport budget with the test itself. */
+const SSH_DIAGNOSE_TIMEOUT_MS = 20_000;
+const SSH_LOG_MAX_LINES = 200;
+
+/**
+ * The OpenSSH client's own `-v` trace of one fresh connection attempt, for the
+ * Settings log view after a failed test. Stock's connection manager keeps only
+ * the last stderr line; this reruns the same login (stock's batch-mode and
+ * host-key options, its `buildSshTarget`) without the shared ControlMaster so a
+ * stale master socket cannot hide the handshake, and runs `exit` remotely.
+ */
+async function sshVerboseLog(host: SshHostInput): Promise<string | undefined> {
+	if (!$which("ssh")) return undefined;
+	const args = [
+		"ssh",
+		"-v",
+		"-n",
+		"-o",
+		"BatchMode=yes",
+		"-o",
+		"StrictHostKeyChecking=accept-new",
+		"-o",
+		"ControlMaster=no",
+		"-o",
+		"ControlPath=none",
+		"-o",
+		`ConnectTimeout=${Math.floor(SSH_DIAGNOSE_TIMEOUT_MS / 2000)}`,
+		...(host.port ? ["-p", String(host.port)] : []),
+		...(host.keyPath ? ["-i", host.keyPath] : []),
+		buildSshTarget(host.username, host.host),
+		"exit",
+	];
+	const result = await ptree.exec(args, {
+		timeout: SSH_DIAGNOSE_TIMEOUT_MS,
+		allowNonZero: true,
+		allowAbort: true,
+		stderr: "full",
+	});
+	const lines = result.stderr.replace(/\r\n?/g, "\n").trimEnd().split("\n");
+	const tail = lines.slice(-SSH_LOG_MAX_LINES).join("\n");
+	return tail.length > 0 ? `$ ${args.join(" ")}\n${tail}\n(exit ${result.exitCode ?? "timeout"})` : undefined;
+}
 
 async function testSshHost(params: unknown) {
 	const raw = asRecord(asRecord(params).host);
@@ -202,7 +245,14 @@ async function testSshHost(params: unknown) {
 			...(info.transferShell ? { transferShell: info.transferShell } : {}),
 		};
 	} catch (error) {
-		return { name, ok: false, checkedAt, error: error instanceof Error ? error.message : String(error) };
+		const log = await sshVerboseLog(host).catch(() => undefined);
+		return {
+			name,
+			ok: false,
+			checkedAt,
+			error: error instanceof Error ? error.message : String(error),
+			...(log ? { log } : {}),
+		};
 	} finally {
 		clearTimeout(timer);
 	}

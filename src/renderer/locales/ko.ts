@@ -4138,6 +4138,8 @@ export const ko: Record<string, string> = {
 	"ssh.save": "변경 사항 저장",
 	"ssh.test.success": "연결에 성공했어요",
 	"ssh.test.failed": "연결에 실패했어요",
+	"ssh.test.log": "연결 로그",
+	"ssh.test.copyDiagnostics": "진단 정보 복사 (서버 이름은 가려요)",
 	"ssh.validation.required": "별칭과 호스트를 입력하세요.",
 	"updates.gui.name": "OMPdesk",
 	"updates.gui.description": "Electron 셸, 렌더러, 번들 리소스예요.",

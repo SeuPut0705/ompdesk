@@ -3,10 +3,11 @@
  * master-detail — host list on the left, edit form + connection test on the
  * right. Deleting a hand-typed host is confirmed first.
  */
-import { FileKey2, FolderOpen, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, FileKey2, FolderOpen, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcSshHostInfo, RpcSshHostInput, RpcSshHostsResult, RpcSshTestResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
+import { sshDiagnostics } from "../../lib/ssh-diagnostics";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useFocusedTabDevice } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
@@ -16,6 +17,7 @@ import {
 	Banner,
 	Button,
 	ConfirmDialog,
+	CopyButton,
 	EmptyState,
 	ErrorDetail,
 	IconButton,
@@ -93,6 +95,7 @@ export function SshSection() {
 	// first hides the empty state and offers a retry.
 	const [loadError, setLoadError] = useState<string>();
 	const [tests, setTests] = useState<Record<string, RpcSshTestResult>>({});
+	const [logOpen, setLogOpen] = useState(false);
 
 	const load = useCallback(
 		async (preferred?: { name: string; scope: RpcSshHostInfo["scope"] }) => {
@@ -219,6 +222,7 @@ export function SshSection() {
 			else {
 				const result = response.data as RpcSshTestResult;
 				setTests(current => ({ ...current, [result.name]: result }));
+				setLogOpen(false);
 			}
 		} catch (cause) {
 			setError(errorMessage(cause));
@@ -477,6 +481,33 @@ export function SshSection() {
 
 								{testResult && (
 									<Banner
+										actions={
+											!testResult.ok && (
+												<>
+													{testResult.log && (
+														<Button
+															aria-controls="ssh-test-log"
+															aria-expanded={logOpen}
+															icon={logOpen ? <ChevronDown /> : <ChevronRight />}
+															onClick={() => setLogOpen(open => !open)}
+															size="sm"
+														>
+															{t("ssh.test.log")}
+														</Button>
+													)}
+													<CopyButton
+														label={t("ssh.test.copyDiagnostics")}
+														text={() =>
+															sshDiagnostics(testResult, {
+																name: draft.name.trim(),
+																host: draft.host.trim(),
+																...(draft.username?.trim() ? { username: draft.username.trim() } : {}),
+															})
+														}
+													/>
+												</>
+											)
+										}
 										className="mt-3"
 										live
 										title={testResult.ok ? t("ssh.test.success") : t("ssh.test.failed")}
@@ -488,6 +519,16 @@ export function SshSection() {
 													.join(" · ")
 											: testResult.error}
 									</Banner>
+								)}
+								{testResult && !testResult.ok && testResult.log && logOpen && (
+									<pre
+										aria-label={t("ssh.test.log")}
+										className="mt-2 max-h-64 min-w-0 overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-code-bg) px-2 py-1.5 font-mono text-sc-xs break-all whitespace-pre-wrap text-(--sc-text-secondary) select-text"
+										id="ssh-test-log"
+										tabIndex={0}
+									>
+										{testResult.log}
+									</pre>
 								)}
 							</aside>
 						</div>

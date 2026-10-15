@@ -42,13 +42,14 @@ const getSshHosts = vi.fn(
 	async (): Promise<RpcResponse> => ok("get_ssh_hosts", hostsResult([host({ name: "builder" })])),
 );
 const sshManage = vi.fn(async (): Promise<RpcResponse> => ok("ssh_manage", { deleted: true }));
+const sshTest = vi.fn(async (): Promise<RpcResponse> => ok("ssh_test", { name: "builder", ok: true }));
 
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
 		rpc: {
 			getSshHosts,
 			sshManage,
-			sshTest: vi.fn(async (): Promise<RpcResponse> => ok("ssh_test", { name: "builder", ok: true })),
+			sshTest,
 		},
 		system: { showOpenDialog: vi.fn(async () => null) },
 	},
@@ -103,6 +104,7 @@ afterEach(async () => {
 	getSshHosts.mockReset();
 	getSshHosts.mockResolvedValue(ok("get_ssh_hosts", hostsResult([host({ name: "builder" })])));
 	sshManage.mockClear();
+	sshTest.mockClear();
 	useSessionStore.getState().reset();
 });
 
@@ -162,5 +164,35 @@ describe("SshSection", () => {
 		});
 		expect(detailHeaderText()).toContain(translate("ssh.newHost"));
 		expect(buttonWithLabel(translate("ssh.save"))).toBeDefined();
+	});
+
+	it("after a failed test offers OpenSSH's log behind a toggle and a redacted diagnostics copy", async () => {
+		sshTest.mockResolvedValueOnce(
+			ok("ssh_test", {
+				name: "builder",
+				ok: false,
+				checkedAt: "2026-10-15T00:00:00.000Z",
+				error: "Permission denied (publickey).",
+				log: "debug1: Connecting to build.example.com [203.0.113.7] port 22.",
+			}),
+		);
+		await mount();
+
+		await act(async () => {
+			buttonWithLabel(translate("ssh.test"))?.click();
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+
+		const toggle = buttonWithLabel(translate("ssh.test.log"));
+		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+		expect(iconButton(translate("ssh.test.copyDiagnostics"))).toBeDefined();
+		expect(document.querySelector("#ssh-test-log")).toBeNull();
+
+		await act(async () => {
+			toggle?.click();
+		});
+		expect(document.querySelector("#ssh-test-log")?.textContent).toContain("Connecting to build.example.com");
 	});
 });

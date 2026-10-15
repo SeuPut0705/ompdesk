@@ -1142,6 +1142,8 @@ export interface RpcSshTestResult {
 	compatShell?: RpcSshHostInfo["compatShell"];
 	transferShell?: RpcSshHostInfo["transferShell"];
 	error?: string;
+	/** After a failure: OpenSSH's `-v` trace of one fresh attempt (last 200 lines), unredacted. */
+	log?: string;
 }
 export interface RpcOmpUpdateResult {
 	currentVersion: string;

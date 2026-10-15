@@ -4152,6 +4152,8 @@ export const en: Record<string, string> = {
 	"ssh.save": "Save changes",
 	"ssh.test.success": "Connection succeeded",
 	"ssh.test.failed": "Connection failed",
+	"ssh.test.log": "Connection log",
+	"ssh.test.copyDiagnostics": "Copy diagnostics (server names hidden)",
 	"ssh.validation.required": "Alias and host are required.",
 	"updates.gui.name": "OMPdesk",
 	"updates.gui.description": "Electron shell, renderer, and bundled resources.",
