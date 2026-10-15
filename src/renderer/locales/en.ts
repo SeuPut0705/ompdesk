@@ -2317,6 +2317,7 @@ export const en: Record<string, string> = {
 	"sessionInfo.section.messages": "Messages",
 	"sessionInfo.toolCalls": "Tool calls",
 	"sessionInfo.toolResults": "Tool results",
+	"sessionInfo.compactions": "Compactions",
 	"sessionInfo.section.tokens": "Active context tokens",
 	"sessionInfo.input": "Input",
 	"sessionInfo.output": "Output",

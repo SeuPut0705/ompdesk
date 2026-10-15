@@ -246,6 +246,9 @@ export function SessionInsights() {
 								{ label: t("sessionInfo.premiumRequests"), value: String(stats.premiumRequests) },
 								{ label: t("sessionInfo.cost"), value: formatUsd(stats.cost) },
 								{ label: t("sessionInfo.toolResults"), value: String(stats.toolResults) },
+								...(history?.compactions !== undefined
+									? [{ label: t("sessionInfo.compactions"), value: String(history.compactions) }]
+									: []),
 								...(stats.credits
 									? [
 											{ label: t("sessionInfo.credits"), value: formatCredit(stats.credits.cost) },

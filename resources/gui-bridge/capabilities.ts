@@ -659,6 +659,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"sessionId",
 			"model",
 			"sessionManager.getUsageStatistics()",
+			"sessionManager.getEntries()",
 			"modelRegistry.authStorage.oauth.accounts()",
 			"modelRegistry.authStorage.credentials.reload()",
 			"modelRegistry.authStorage.credentials.list()",

@@ -2161,6 +2161,8 @@ export interface SessionStats {
 		orchestrationCacheRead: number;
 		premiumRequests: number;
 		cost: number;
+		/** Compactions recorded in the journal (absent from a paired host running an older OMPdesk). */
+		compactions?: number;
 		sampledAt: number;
 	};
 	sessionFile?: string;

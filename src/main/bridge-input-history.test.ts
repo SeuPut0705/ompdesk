@@ -140,6 +140,8 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 						.filter(Boolean)
 				: [];
 			expect(await client.request("recent_models")).toEqual({ selectors: mru });
+			// A fresh journal has compacted nothing yet.
+			expect(await client.request("sessions.usage_history")).toMatchObject({ compactions: 0 });
 		} finally {
 			client.close();
 			child.stdin.end();

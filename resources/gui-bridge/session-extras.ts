@@ -146,10 +146,15 @@ export const methods: BridgeMethods = {
 
 	/** Usage totals across the whole live journal (pre-compaction history and sibling branches included). */
 	...guard("usage", {
-		"sessions.usage_history": async (_params, env) => ({
-			...env.session().sessionManager.getUsageStatistics(),
-			sampledAt: Date.now(),
-		}),
+		"sessions.usage_history": async (_params, env) => {
+			const sessionManager = env.session().sessionManager;
+			return {
+				...sessionManager.getUsageStatistics(),
+				// Every compaction the journal records, on any branch (stock keeps no tally of its own).
+				compactions: sessionManager.getEntries().filter(entry => entry.type === "compaction").length,
+				sampledAt: Date.now(),
+			};
+		},
 	}),
 
 	...guard("composer", {

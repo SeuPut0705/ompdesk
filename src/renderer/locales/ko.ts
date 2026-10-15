@@ -2302,6 +2302,7 @@ export const ko: Record<string, string> = {
 	"sessionInfo.section.messages": "메시지",
 	"sessionInfo.toolCalls": "도구 호출",
 	"sessionInfo.toolResults": "도구 결과",
+	"sessionInfo.compactions": "압축 횟수",
 	"sessionInfo.section.tokens": "활성 컨텍스트 토큰",
 	"sessionInfo.input": "입력",
 	"sessionInfo.output": "출력",
