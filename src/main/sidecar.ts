@@ -134,6 +134,8 @@ const AGENT_EVENT_TYPES: Record<string, true> = {
 	notice: true,
 	thinking_level_changed: true,
 	goal_updated: true,
+	// The bridge's goal time limit (modes/goal.ts): the renderer toasts it, main pauses (sidecar-factory.ts).
+	goal_time_limit_reached: true,
 	loop_mode_update: true,
 	model_pool_update: true,
 	plan_proposal: true,

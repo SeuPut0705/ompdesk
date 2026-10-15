@@ -1592,6 +1592,29 @@ describe("SidecarPool background tabs", () => {
 			expect(factA()?.retry).toBeUndefined();
 		});
 
+		it("forgets an open ask when its omp exits or restarts: no 'asking' outlives the process", () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			const a = sidecars[0];
+			a?.emitStatus("ready");
+			a?.emitEvents([{ type: "agent_start" }]);
+			a?.emitUiRequest({ id: "ask-1", method: "ask", title: "Which?", questions: [] });
+			const factA = () => pool.resumeFacts().find(fact => fact.tabId === "tab-a");
+			expect(factA()?.awaitingUi).toBe(true);
+			const changes = vi.fn();
+			pool.onRunningChange = changes;
+
+			// omp crashed: the restarted process never heard of that request.
+			a?.emitStatus("restarting");
+			expect(factA()).toMatchObject({ running: false, awaitingUi: false });
+			expect(changes).toHaveBeenCalled();
+			a?.emitStatus("ready");
+			expect(factA()?.awaitingUi).toBe(false);
+			// A late answer has no live request to reach.
+			expect(pool.routeSideChannel("ask-1", { type: "extension_ui_response", id: "ask-1" })).toBe(false);
+		});
+
 		it("starts a deferred tab's process on demand and finds the tab of a session", () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);

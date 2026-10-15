@@ -58,7 +58,7 @@ import { MEDIA_SCHEME, MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
 import { ompPackageRoot, ompPathEnv, refreshSystemOmp, systemOmp } from "./omp-runtime";
 import { OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
-import { quitNeedsConfirmation } from "./quit-guard";
+import { lastWindowCloseAction, quitNeedsConfirmation } from "./quit-guard";
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
 import { KeepAwakePolicy } from "./remote/keep-awake";
@@ -729,10 +729,14 @@ app.whenReady().then(() => {
 	logWatcher = new LogWatcher();
 
 	// Settings › General › Window: closing the last window hides it to the tray
-	// (Windows; macOS keeps running with no window anyway), and this computer
-	// stays awake while any of its own tabs runs a turn.
-	windowManager.closeHidesLastWindow = () =>
-		process.platform !== "darwin" && hasTray() && !quitApproved() && prefs.get(CLOSE_TO_TRAY_PREF) === true;
+	// (Windows; macOS keeps running with no window anyway) or quits through the
+	// quit guard, and this computer stays awake while any of its own tabs runs a turn.
+	windowManager.lastWindowClose = () =>
+		lastWindowCloseAction({
+			platform: process.platform,
+			quitApproved: quitApproved(),
+			closeToTray: hasTray() && prefs.get(CLOSE_TO_TRAY_PREF) === true,
+		});
 	const workAwake = new KeepAwakePolicy({
 		blocker: {
 			start: () => powerSaveBlocker.start("prevent-app-suspension"),

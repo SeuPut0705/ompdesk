@@ -306,6 +306,42 @@ describe("SidecarManager", () => {
 		}
 	});
 
+	it("passes the bridge's goal time limit frame on with the agent events, so the window toasts it", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-goal-limit-"));
+		const script = [
+			'import { createInterface } from "node:readline";',
+			'import * as net from "node:net";',
+			"const out = (frame: unknown) => process.stdout.write(JSON.stringify(frame) + '\\n');",
+			// The bridge answers the transcript read, then pushes the frame modes/goal.ts emits at the limit.
+			'const answer = (request) => request.method === "sessions.transcript" ? { leafId: "e1", total: 0, messages: [] } : null;',
+			'net.createServer(socket => { socket.setEncoding("utf8"); let buffer = ""; socket.on("data", chunk => { buffer += chunk; for (let i = buffer.indexOf("\\n"); i !== -1; i = buffer.indexOf("\\n")) { const request = JSON.parse(buffer.slice(0, i)); buffer = buffer.slice(i + 1); socket.write(JSON.stringify({ id: request.id, ok: true, result: answer(request) }) + "\\n"); socket.write(JSON.stringify({ event: { type: "goal_time_limit_reached", minutes: 1 } }) + "\\n"); } }); }).listen(process.env.OMP_GUI_BRIDGE, () => out({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }));',
+			"createInterface({ input: process.stdin }).on('line', line => {",
+			"\tconst command = JSON.parse(line);",
+			'\tout({ type: "response", id: command.id, command: command.type, success: true, data: { sessionId: "s1" } });',
+			"});",
+			'process.stdin.on("end", () => process.exit(0));',
+		].join("\n");
+		const binaryPath = await writeFakeOmp(tempDir, script);
+
+		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, bridgeDir: tempDir });
+		const events: unknown[] = [];
+		sidecar.on("events", (batch: unknown[]) => events.push(...batch));
+		try {
+			const ready = waitForReady(sidecar);
+			sidecar.start();
+			await ready;
+			const client = sidecar.rpcClient;
+			if (!client) throw new Error("no rpc client");
+			await client.command({ type: "get_transcript" });
+			await expect
+				.poll(() => events, { timeout: 5_000, interval: 25 })
+				.toContainEqual({ type: "goal_time_limit_reached", minutes: 1 });
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
 	it("keeps every response behind an agent_end that waits for its entry ids", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-held-"));
 		const answered = path.join(tempDir, "transcript-answered");

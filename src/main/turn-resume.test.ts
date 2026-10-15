@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +11,7 @@ import {
 	InterruptedTurnStore,
 	isNetworkError,
 	launchAction,
+	RESUME_READY_TIMEOUT_MS,
 	type ResumeFact,
 	type ResumeMarker,
 	type ResumePool,
@@ -166,21 +168,29 @@ describe("InterruptedTurnStore", () => {
 	});
 });
 
-/** A tab's sidecar: records the commands main sends and answers them as scripted. */
-function fakeSidecar(answers: Partial<Record<string, RpcResponse>> = {}) {
+/** A tab's sidecar: records the commands main sends and answers them as scripted; `setStatus` moves it like a spawn. */
+function fakeSidecar(answers: Partial<Record<string, RpcResponse>> = {}, status = "ready") {
 	const commands: RpcCommand[] = [];
-	const sidecar = {
-		status: "ready",
-		on: vi.fn(),
-		off: vi.fn(),
+	const events = new EventEmitter();
+	const sidecar = Object.assign(events, {
+		status,
 		rpcClient: {
 			command: async (cmd: RpcCommand): Promise<RpcResponse> => {
 				commands.push(cmd);
 				return answers[cmd.type] ?? { type: "response", command: cmd.type, success: true, data: {} };
 			},
 		},
-	} as unknown as SidecarLike;
-	return { sidecar, commands };
+	});
+	const setStatus = (next: string) => {
+		sidecar.status = next;
+		sidecar.emit("status", { status: next });
+	};
+	return {
+		sidecar: sidecar as unknown as SidecarLike,
+		commands,
+		setStatus,
+		listeners: () => events.listenerCount("status"),
+	};
 }
 
 const RESTORED: RpcResponse = {
@@ -202,6 +212,10 @@ interface Harness {
 	state: { enabled: boolean; frozen: boolean; notices: number[]; opened: ResumeMarker[] };
 	resume: TurnResume;
 	pool: ResumePool;
+	/** Moves the tab's sidecar to another status (a spawn becoming ready, a crash). */
+	setStatus: (status: string) => void;
+	/** How many `status` listeners the resume left on the sidecar. */
+	statusListeners: () => number;
 }
 
 function setup(
@@ -210,6 +224,8 @@ function setup(
 		online?: boolean;
 		waitAfterWake?: boolean;
 		answers?: Partial<Record<string, RpcResponse>>;
+		/** The tab's sidecar status when the resume first looks (default ready). */
+		status?: string;
 	} = {},
 ): Harness {
 	const dir = mkdtempSync(join(tmpdir(), "ompdesk-resume-"));
@@ -217,7 +233,7 @@ function setup(
 	const store = new InterruptedTurnStore(file);
 	const facts: ResumeFact[] = [];
 	const awaiting: Array<[string, boolean]> = [];
-	const { sidecar, commands } = fakeSidecar(options.answers);
+	const { sidecar, commands, setStatus, listeners } = fakeSidecar(options.answers, options.status);
 	const net = { online: options.online ?? true, wake: options.waitAfterWake ?? false };
 	const state = {
 		enabled: options.enabled ?? true,
@@ -258,7 +274,20 @@ function setup(
 		},
 		notify: count => state.notices.push(count),
 	});
-	return { dir, file, store, facts, awaiting, commands, net, state, resume, pool };
+	return {
+		dir,
+		file,
+		store,
+		facts,
+		awaiting,
+		commands,
+		net,
+		state,
+		resume,
+		pool,
+		setStatus,
+		statusListeners: listeners,
+	};
 }
 
 /** Let the resume's async chain (ready → command → sync) finish. */
@@ -477,6 +506,70 @@ describe("TurnResume launch", () => {
 		h.resume.sync();
 		expect(h.store.read()).toEqual([]);
 	});
+
+	it("Stop on the toast while the resumed tab's omp still starts: nothing continues once it is ready", async () => {
+		h = setup({ status: "starting", answers: { restore_interrupted: RESTORED } });
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await settle();
+		expect(h.commands).toEqual([]);
+
+		await h.resume.stopResumed();
+		h.setStatus("ready");
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).not.toContain("restore_interrupted");
+		h.resume.sync();
+		expect(h.store.read()).toEqual([]);
+		expect(h.statusListeners()).toBe(0);
+	});
+
+	it("Cancel while the held tab's omp still starts: the continuation never runs", async () => {
+		h = setup({ online: false, status: "starting", answers: { restore_interrupted: RESTORED } });
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		h.net.online = true;
+		h.resume.connectivityChanged();
+		await settle();
+		expect(h.commands).toEqual([]);
+
+		h.resume.cancelWait("restored");
+		h.setStatus("ready");
+		await settle();
+		expect(h.commands).toEqual([]);
+		expect(h.store.read()).toEqual([]);
+	});
+
+	it("drops the marker of a tab whose omp already failed instead of waiting for a status that never comes", async () => {
+		h = setup({ status: "error", answers: { restore_interrupted: RESTORED } });
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await settle();
+		expect(h.commands).toEqual([]);
+		expect(h.store.read()).toEqual([]);
+		expect(h.statusListeners()).toBe(0);
+	});
+
+	it("gives up on a tab whose omp never becomes ready", async () => {
+		vi.useFakeTimers();
+		try {
+			h = setup({ status: "starting", answers: { restore_interrupted: RESTORED } });
+			new InterruptedTurnStore(h.file).write([marker()]);
+			h.facts.push(fact({ tabId: "restored", running: false }));
+			h.resume.launch();
+			await settle();
+			expect(h.store.read()).toHaveLength(1);
+
+			await vi.advanceTimersByTimeAsync(RESUME_READY_TIMEOUT_MS);
+			expect(h.commands).toEqual([]);
+			expect(h.store.read()).toEqual([]);
+			expect(h.statusListeners()).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });
 
 describe("TurnResume connection wait", () => {
@@ -547,6 +640,25 @@ describe("TurnResume connection wait", () => {
 		expect(h.store.read()).toEqual([]);
 	});
 
+	it("a prompt sent during the wait replaces it: the waiting row goes and nothing retries into the new run", async () => {
+		h = setup({ online: false, answers: { retry: RETRIED } });
+		h.resume.launch();
+		h.facts.push(fact({ running: false, lastRun: { ...networkFailure } }));
+		h.resume.sync();
+		expect(h.awaiting).toEqual([["t1", true]]);
+
+		// Still offline, the user sends a new prompt: a new run starts on the held tab.
+		h.facts[0] = fact({ running: true, awaitingConnection: true });
+		h.resume.sync();
+		expect(h.awaiting.at(-1)).toEqual(["t1", false]);
+		expect(h.store.read().map(entry => entry.reason)).toEqual(["running"]);
+
+		h.net.online = true;
+		h.resume.connectivityChanged();
+		await settle();
+		expect(h.commands).toEqual([]);
+	});
+
 	it("a user-stopped turn is not a network wait", () => {
 		h = setup({ online: false });
 		h.resume.launch();
@@ -566,6 +678,10 @@ describe("TurnResume connection wait", () => {
 		expect(h.commands.map(cmd => cmd.type)).toEqual(["abort_retry"]);
 		expect(h.store.read().map(entry => entry.reason)).toEqual(["network"]);
 
+		// The saga's auto_retry_end can come before its agent_end: still the held run, not a new one.
+		h.facts[0] = { ...fact({ running: true }), awaitingConnection: true };
+		h.resume.sync();
+		expect(h.awaiting).toEqual([["t1", true]]);
 		// The cancelled saga ends the turn failed while the wait holds it.
 		h.facts[0] = {
 			...fact({ running: false, lastRun: { stopReason: "error", errorMessage: "Retry cancelled" } }),

@@ -192,11 +192,13 @@ test("real omp: an ask open when OMPdesk is killed reopens on the next launch an
 			"Use the ask tool once to ask me the question 'Which color?' with exactly two options: red and blue. Do nothing else before I answer. After I answer, reply with exactly COLOR- followed by my answer in capitals.",
 		card: /Which color/i,
 		answer: async page => {
-			await page
-				.locator(".omp-ask-dock [data-prompt-card]")
+			const card = page.locator(".omp-ask-dock [data-prompt-card]");
+			// Picking an option only selects it (a note or a custom answer may follow); Submit answers.
+			await card
 				.getByText(/^blue$/i)
 				.first()
 				.click();
+			await card.getByRole("button", { name: "Submit", exact: true }).click();
 		},
 		reply: "COLOR-BLUE",
 	});

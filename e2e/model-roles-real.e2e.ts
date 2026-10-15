@@ -76,7 +76,7 @@ const agentsOf = async (page: Page, tabId: string) =>
 test("real omp: every role resolves through stock and each template agent picks its preset role's model", async () => {
 	test.skip(!REAL, "Opt-in: runs the system omp on a private copy of the user's config");
 	test.setTimeout(240_000);
-	const { app, page, tabId, agent } = await launchReal();
+	const { app, page, tabId, agent, profile } = await launchReal();
 	try {
 		await command(page, tabId, { type: "install_agent_templates", scope: "user" });
 		const baseline = await rolesOf(page, tabId);
@@ -146,6 +146,8 @@ test("real omp: every role resolves through stock and each template agent picks 
 		expect(await fs.readFile(path.join(agent, "config.yml"), "utf8")).not.toMatch(/^\s+release:/m);
 	} finally {
 		await exitApp(app);
+		// The profile holds a copy of the user's credentials database.
+		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 });
 
@@ -173,7 +175,7 @@ async function subagentFiles(session: string): Promise<string[]> {
 test("real omp: a task subagent runs on the task role's effective model, set and empty", async () => {
 	test.skip(!REAL || process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in: spends tokens on a real subagent");
 	test.setTimeout(900_000);
-	const { app, page, tabId } = await launchReal();
+	const { app, page, tabId, profile } = await launchReal();
 	try {
 		const state = await command<{ model?: { provider: string; id: string } }>(page, tabId, { type: "get_state" });
 		if (!state.model) throw new Error("No session model");
@@ -243,6 +245,7 @@ test("real omp: a task subagent runs on the task role's effective model, set and
 		}
 	} finally {
 		await exitApp(app);
+		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 });
 
@@ -251,7 +254,7 @@ for (const language of ["en", "ko"] as const)
 		test(`model roles captures (${language} ${theme})`, async () => {
 			test.skip(!CAPTURES, "OMP_GUI_ROLES_CAPTURES=<dir> captures Settings › Model roles");
 			test.setTimeout(180_000);
-			const { app, page, tabId } = await launchReal({ language, themeName: theme });
+			const { app, page, tabId, profile } = await launchReal({ language, themeName: theme });
 			try {
 				await fs.mkdir(CAPTURES, { recursive: true });
 				await command(page, tabId, { type: "install_agent_templates", scope: "user" });
@@ -313,5 +316,6 @@ for (const language of ["en", "ko"] as const)
 				}
 			} finally {
 				await exitApp(app);
+				await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 			}
 		});

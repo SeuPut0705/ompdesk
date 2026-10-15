@@ -6,7 +6,13 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { assessQuitRisk, QuitLatch, quitNeedsConfirmation, type WindowTabFact } from "./quit-guard";
+import {
+	assessQuitRisk,
+	lastWindowCloseAction,
+	QuitLatch,
+	quitNeedsConfirmation,
+	type WindowTabFact,
+} from "./quit-guard";
 
 function fact(windowId: number, tabId: string, inFlight: boolean): WindowTabFact {
 	return { windowId, tabId, inFlight };
@@ -61,5 +67,27 @@ describe("quit latch", () => {
 		expect(teardown).toHaveBeenCalledTimes(1);
 		expect(latch.proceed(teardown)).toBe(true);
 		expect(teardown).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("closing the last shown window", () => {
+	const close = (platform: NodeJS.Platform, closeToTray: boolean, quitApproved = false) =>
+		lastWindowCloseAction({ platform, closeToTray, quitApproved });
+
+	it("on Windows quits through the quit guard before the window goes, so running turns are asked about and resume", () => {
+		// Closed first, the window's tabs would end as if their turns had finished (markers cleared),
+		// and window-all-closed would quit afterwards with neither the confirmation nor a resume.
+		expect(close("win32", false)).toBe("quit");
+	});
+
+	it("hides to the tray when the user chose close-to-tray", () => {
+		expect(close("win32", true)).toBe("hide");
+	});
+
+	it("just closes once a quit is approved, and on macOS, which keeps running with no window", () => {
+		expect(close("win32", false, true)).toBe("close");
+		expect(close("win32", true, true)).toBe("close");
+		expect(close("darwin", false)).toBe("close");
+		expect(close("darwin", true)).toBe("close");
 	});
 });

@@ -206,18 +206,32 @@ export interface ResumeDeps {
 	notify(count: number): void;
 }
 
-/** Resolves once `sidecar` can take commands; false when it exits first. */
+/**
+ * How long a resume waits for its tab's omp to come up. A cold spawn takes seconds; a worktree's
+ * `onStart` hook can hold the start gate longer. Past this the marker is dropped: the tab is not
+ * coming up, and a listener waiting on it forever would leak.
+ */
+export const RESUME_READY_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * Resolves once `sidecar` can take commands; false when it fails, has already failed, or is not
+ * ready within {@link RESUME_READY_TIMEOUT_MS}.
+ */
 function whenReady(sidecar: SidecarLike): Promise<boolean> {
 	if (sidecar.status === "ready") return Promise.resolve(true);
+	// No further status comes on its own: `startTab` starts only an asleep tab.
+	if (sidecar.status === "error" || sidecar.status === "exited") return Promise.resolve(false);
 	const { promise, resolve } = Promise.withResolvers<boolean>();
+	const finish = (ready: boolean) => {
+		clearTimeout(timer);
+		sidecar.off("status", listener);
+		resolve(ready);
+	};
 	const listener = (payload: { status: string }) => {
 		if (payload.status === "ready") finish(true);
 		else if (payload.status === "error" || payload.status === "exited") finish(false);
 	};
-	const finish = (ready: boolean) => {
-		sidecar.off("status", listener);
-		resolve(ready);
-	};
+	const timer = setTimeout(() => finish(false), RESUME_READY_TIMEOUT_MS);
 	sidecar.on("status", listener);
 	return promise;
 }
@@ -234,6 +248,14 @@ export class TurnResume {
 	readonly #takenOver = new WeakSet<{ errorMessage: string }>();
 	/** Tabs this launch resumed, for the toast's Stop. */
 	readonly #resumed = new Set<string>();
+	/**
+	 * Per tab, bumped whenever its continuation is called off: Stop, Cancel, or a new run in its place.
+	 * A continuation captures it when it starts and sends nothing once it moved, so the call-off also
+	 * reaches a resume still waiting for its omp to come up.
+	 */
+	readonly #cancels = new Map<string, number>();
+	/** Held tabs whose taken-over run (stock's retry saga) has not ended yet: its end comes next, not a new run. */
+	readonly #takenOverRuns = new Set<string>();
 	#launched = false;
 	#previous: ResumeMarker[] = [];
 
@@ -259,6 +281,19 @@ export class TurnResume {
 	}
 
 	#judge(fact: ResumeFact): void {
+		if (fact.lastRun) this.#takenOverRuns.delete(fact.tabId);
+		// A run that is neither the held one (stock's retry saga, or the failed run with its outcome) nor
+		// still ending started during the wait: the user sent a new prompt. It replaces the held
+		// continuation, so the waiting row goes and nothing retries into the live run once online.
+		if (
+			this.#waiting.has(fact.tabId) &&
+			fact.running &&
+			!fact.retry &&
+			!fact.lastRun &&
+			!this.#takenOverRuns.has(fact.tabId)
+		) {
+			this.#dropWait(fact.tabId);
+		}
 		this.#takeOverRetry(fact);
 		// The outcome is the run's final one (main sets it at the last end event), even while
 		// background work keeps the session unsettled: judging it now puts the wait on screen
@@ -286,6 +321,7 @@ export class TurnResume {
 		if (!retry || this.#takenOver.has(retry) || this.#deps.network.online) return;
 		if (!isNetworkError(retry.errorMessage)) return;
 		this.#takenOver.add(retry);
+		this.#takenOverRuns.add(fact.tabId);
 		if (!fact.awaitingConnection) this.#hold(fact.tabId, "retry");
 		void this.#deps.pool
 			.startTab(fact.tabId)
@@ -306,6 +342,7 @@ export class TurnResume {
 		this.#waiting.clear();
 		await Promise.all(
 			held.map(async ([tabId, action]) => {
+				this.#takenOverRuns.delete(tabId);
 				this.#deps.pool.setAwaitingConnection(tabId, false);
 				await this.#run(tabId, action);
 			}),
@@ -313,13 +350,16 @@ export class TurnResume {
 	}
 
 	async #run(tabId: string, action: ResumeAction): Promise<boolean> {
+		const generation = this.#cancels.get(tabId) ?? 0;
+		const cancelled = () => (this.#cancels.get(tabId) ?? 0) !== generation;
 		const sidecar = this.#deps.pool.startTab(tabId);
-		if (!sidecar || !(await whenReady(sidecar))) {
+		if (!sidecar || !(await whenReady(sidecar)) || cancelled()) {
 			this.#pending.delete(tabId);
 			this.sync();
 			return false;
 		}
 		const send = async (type: "restore_interrupted" | "retry"): Promise<boolean> => {
+			if (cancelled()) return false;
 			let response: RpcResponse | undefined;
 			try {
 				response = await sidecar.rpcClient?.command({ type });
@@ -349,10 +389,16 @@ export class TurnResume {
 
 	/** The user's Cancel on the waiting row: the failure shows as it would have, nothing resumes. */
 	cancelWait(tabId: string): void {
+		this.#dropWait(tabId);
+		this.sync();
+	}
+
+	#dropWait(tabId: string): void {
+		this.#cancels.set(tabId, (this.#cancels.get(tabId) ?? 0) + 1);
 		this.#waiting.delete(tabId);
+		this.#takenOverRuns.delete(tabId);
 		this.#pending.delete(tabId);
 		this.#deps.pool.setAwaitingConnection(tabId, false);
-		this.sync();
 	}
 
 	/** The toast's Stop: abort what this launch resumed, drop what still waits. */

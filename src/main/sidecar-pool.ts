@@ -379,8 +379,14 @@ export class SidecarPool {
 		const { sidecar, win } = entry;
 		sidecar.on("status", (payload: SidecarStatusPayload) => {
 			entry.status = payload.status;
-			// A restart/exit kills any in-flight run along with the process.
-			if (payload.status !== "ready") entry.run = idleRun();
+			// A restart/exit kills any in-flight run along with the process, and the asks and approvals
+			// it had open: the next process never heard of them, so none may outlive it as "asking".
+			if (payload.status !== "ready") {
+				entry.run = idleRun();
+				for (const [id, owner] of this.#requestOwners) {
+					if (owner === entry) this.#requestOwners.delete(id);
+				}
+			}
 			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			this.onRunningChange?.();
 		});

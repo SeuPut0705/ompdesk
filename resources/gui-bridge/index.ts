@@ -89,17 +89,24 @@ function builtins(failures: readonly AreaFailure[]): BridgeMethods {
 interface LoadedMethods {
 	table: BridgeMethods;
 	failures: AreaFailure[];
+	/** Each loaded area's `install`, run again on a subagent's `pi` when stock binds the extension anew. */
+	installs: Array<(pi: ExtensionAPI) => void>;
 }
 
 async function loadMethods(pi: ExtensionAPI): Promise<LoadedMethods> {
 	const settled = await Promise.allSettled(AREAS.map(area => area.load()));
 	const failures: AreaFailure[] = [];
+	const installs: LoadedMethods["installs"] = [];
 	const tables: Record<string, BridgeMethods> = {};
 	settled.forEach((result, index) => {
 		const area = AREAS[index];
 		if (result.status === "fulfilled") {
 			tables[area.name] = result.value.methods;
-			result.value.install?.(pi);
+			const install = result.value.install;
+			if (install) {
+				installs.push(install);
+				install(pi);
+			}
 			return;
 		}
 		const error = result.reason instanceof Error ? result.reason.message : String(result.reason);
@@ -113,7 +120,7 @@ async function loadMethods(pi: ExtensionAPI): Promise<LoadedMethods> {
 			table[name] = method;
 		}
 	}
-	return { table, failures };
+	return { table, failures, installs };
 }
 
 interface BridgeRequest {
@@ -126,9 +133,28 @@ function isRequest(value: unknown): value is BridgeRequest {
 	return typeof value === "object" && value !== null && "id" in value && "method" in value;
 }
 
+/**
+ * The first bind's area installs (undefined when its method table failed). Stock binds every
+ * extension again for each in-process subagent (task executor `preloadedPreparedExtensions` →
+ * `bindPreparedExtensions` → this factory), in this same module instance and with `OMP_GUI_BRIDGE`
+ * still set. The socket server, its table and the spawn-time defaults belong to the process: a
+ * rebind that set them up again would unlink main's socket for a server holding the subagent's
+ * `pi`, and put the thinking default and the delegation strength back to their spawn-time values
+ * over what the user picked since. A rebind only installs each area's hooks on the subagent's `pi`,
+ * so its sessions get the prompt sections too.
+ */
+let bound: Promise<LoadedMethods | undefined> | undefined;
+
 export default async function guiBridge(pi: ExtensionAPI): Promise<void> {
 	const address = process.env.OMP_GUI_BRIDGE;
 	if (!address) return;
+	if (bound) {
+		const loaded = await bound;
+		for (const install of loaded?.installs ?? []) install(pi);
+		return;
+	}
+	const first = Promise.withResolvers<LoadedMethods | undefined>();
+	bound = first.promise;
 
 	// Stock picks the first session's thinking level right after the extensions
 	// load, so the default must be in place before this factory returns. Dynamic
@@ -142,8 +168,13 @@ export default async function guiBridge(pi: ExtensionAPI): Promise<void> {
 		.catch(err => pi.logger.error("gui-bridge: delegation strength failed", { error: String(err) }));
 
 	const loading = loadMethods(pi);
-	// Requests rethrow it; this only keeps a broken table from being an unhandled rejection.
-	loading.catch(err => pi.logger.error("gui-bridge: method table failed", { error: String(err) }));
+	// Requests rethrow a failed table; this logs it once, and a rebind then installs nothing.
+	first.resolve(
+		loading.catch(err => {
+			pi.logger.error("gui-bridge: method table failed", { error: String(err) });
+			return undefined;
+		}),
+	);
 	const clients = new Set<net.Socket>();
 	let latestContext: ExtensionContext | undefined;
 	const remember = (_event: unknown, ctx: ExtensionContext) => {

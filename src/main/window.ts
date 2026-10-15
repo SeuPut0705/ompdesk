@@ -12,6 +12,7 @@ import type { RunProgressState, SessionKind } from "../shared/ipc-types";
 import { quitRisk, requestQuit } from "./app-quit";
 import { editableContextMenuTemplate } from "./editable-context-menu";
 import { editLabels, getMainLanguage, mainT } from "./i18n";
+import type { LastWindowClose } from "./quit-guard";
 import {
 	type ApplicationResourceIdentity,
 	applicationResourcesChanged,
@@ -95,8 +96,8 @@ export class WindowManager {
 		return () => this.#windowClosedListeners.delete(listener);
 	}
 
-	/** Installed at startup: true when closing the last shown window should hide it (close to tray). */
-	closeHidesLastWindow: (() => boolean) | null = null;
+	/** Installed at startup: what closing the last shown window does (`lastWindowCloseAction`, quit-guard.ts). */
+	lastWindowClose: (() => LastWindowClose) | null = null;
 
 	constructor() {
 		this.#store = new Store<StoreSchema>({ name: "window-state" });
@@ -180,14 +181,17 @@ export class WindowManager {
 		// and dropped documents must not replace it with arbitrary page content.
 		win.webContents.on("will-navigate", event => event.preventDefault());
 
-		// Persist state on close. With "close to tray" on, closing the last shown
-		// window hides it instead, so its tabs keep working; the tray brings it back.
+		// Persist state on close. Closing the last shown window may hide it instead (close to tray: its tabs
+		// keep working, the tray brings it back) or quit the app first (lastWindowCloseAction).
 		win.on("close", event => {
 			this.#persistState(win);
-			if (!this.closeHidesLastWindow?.()) return;
 			if (this.getAllWindows().some(other => other !== win && other.isVisible())) return;
+			const action = this.lastWindowClose?.() ?? "close";
+			if (action === "close") return;
 			event.preventDefault();
-			win.hide();
+			if (action === "hide") win.hide();
+			// The quit guard asks first; an approved quit then closes every window, this one included.
+			else app.quit();
 		});
 
 		win.on("closed", () => {

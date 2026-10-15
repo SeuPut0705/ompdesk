@@ -69,6 +69,10 @@ test("real omp: an idle session compacts through stock once the idle timeout pas
 		await setSetting(page, "compaction.idleEnabled", true);
 		await setSetting(page, "compaction.idleThresholdTokens", 1);
 		await setSetting(page, "compaction.idleTimeoutSeconds", 60);
+		// Stock keeps the newest `keepRecentTokens` of history (scaled down by the prompt/message ratio) and
+		// skips a compaction with nothing older to summarize (`prepareCompaction` → auto_compaction_end
+		// skipped). Two one-word turns fit the default 20000, so the timer's run would be a no-op.
+		await setSetting(page, "compaction.keepRecentTokens", 1);
 		const input = page.locator(".omp-composer-input").first();
 		for (const word of ["FIRST-IDLE", "SECOND-IDLE"]) {
 			await input.fill(`Reply with exactly the word ${word} and nothing else.`);
@@ -102,6 +106,9 @@ test("real omp: a goal whose time limit runs out is paused like stock's own paus
 	const { app, page, tabId, profile } = await launchReal();
 	try {
 		await setSetting(page, "goal.enabled", true);
+		// Stock continues an active goal between turns only in the run modes `goal.continuationModes` names
+		// (default `["interactive"]`): over RPC a resumed goal waits for the next prompt unless "rpc" is listed.
+		await setSetting(page, "goal.continuationModes", ["interactive", "rpc"]);
 		const toolNames = async () =>
 			(await command<{ tools: Array<{ name: string }> }>(page, tabId, { type: "get_active_tools" })).tools.map(
 				tool => tool.name,
