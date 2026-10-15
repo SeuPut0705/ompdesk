@@ -275,6 +275,8 @@ function SessionTranscript() {
 	);
 	const viewRef = useRef({ pinned, preCompactionOpen, expandedProcessKeys });
 	viewRef.current = { pinned, preCompactionOpen, expandedProcessKeys };
+	const emptyRef = useRef(true);
+	emptyRef.current = rows.length === 0;
 
 	// Whether the tail belongs to the follower. An upward gesture is the only thing
 	// that revokes it: `pinned` carries the reader's intent, and the measured edge is
@@ -638,6 +640,8 @@ function SessionTranscript() {
 			const previousHeight = viewportHeight;
 			viewportHeight = el.clientHeight;
 			if (userScrollIntentRef.current) return;
+			// Nothing to follow: the first-run setup and the empty canvas open at the top.
+			if (emptyRef.current) return;
 			// Judge the edge against the taller of the two viewports: a shrink pushes the
 			// tail out of a view that was riding it by exactly the height the layout
 			// took, and that is not the reader leaving the live edge.
