@@ -1,16 +1,17 @@
 /**
- * omp updates itself, end to end, with a fake registry and a fake installer
- * (`OMP_GUI_TEST_NPM_REGISTRY`, `OMP_GUI_TEST_INSTALLER`; both are needed for a
- * test launch to check at all). The registry's latest (18.12.0) is newer than
- * the fixture omp (18.11.0), so main runs the omp-update plan on its own while
- * the tab keeps its process and its draft; once the installer reports the new
- * version, main re-detects omp, restarts the idle tab on it (the boot log shows
- * 18.11.0 then 18.12.0), shows one "omp updated to 18.12.0" toast, and the
- * restarted bridge's capabilities probe names a feature the new omp lacks.
- * With the pref off nothing checks on its own, and "Update now" still works.
+ * omp updates itself, end to end, with the fixture omp's `update --check` and a
+ * fake installer (`OMP_GUI_TEST_OMP_UPDATES=1`, `OMP_GUI_TEST_INSTALLER`; both are
+ * needed for a test launch to check at all). The check runs on the fixture omp
+ * with that omp's folder first on PATH and reports 18.12.0
+ * (`OMP_GUI_TEST_LATEST_OMP`), newer than the fixture (18.11.0), so main runs the
+ * omp-update plan on its own while the tab keeps its process and its draft; once
+ * the installer reports the new version, main re-detects omp, restarts the idle
+ * tab on it (the boot log shows 18.11.0 then 18.12.0), shows one "omp updated to
+ * 18.12.0" toast, and the restarted bridge's capabilities probe names a feature
+ * the new omp lacks. With the pref off nothing checks on its own, and "Update
+ * now" still works.
  */
 import * as fs from "node:fs/promises";
-import { createServer, type Server } from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
@@ -26,7 +27,6 @@ const [item, method] = process.argv.slice(2);
 const dir = process.env.OMPDESK_FAKE_INSTALLER_DIR;
 appendFileSync(join(dir, "installs.log"), item + " " + method + "\\n");
 if (item === "omp" && method === "omp-update") {
-	console.log("Current version: 18.11.0\\nNew version available: 18.12.0");
 	while (!existsSync(join(dir, "go"))) await Bun.sleep(25);
 	writeFileSync(process.env.OMPDESK_FAKE_VERSION_FILE, "18.12.0");
 	console.log("Updated to 18.12.0");
@@ -42,28 +42,14 @@ interface Launched {
 	page: Page;
 	root: string;
 	errors: string[];
-	registry: Server;
-	/** How many times main asked the registry for the latest omp. */
-	registryRequests: () => number;
+	/** The fixture omp OMPdesk runs. */
+	omp: string;
 }
 
-async function registryServer(): Promise<{ server: Server; url: string; requests: () => number }> {
-	let requests = 0;
-	const server = createServer((request, response) => {
-		if (request.url === "/-/package/@oh-my-pi/pi-coding-agent/dist-tags") {
-			requests += 1;
-			response.writeHead(200, { "content-type": "application/json" });
-			response.end(JSON.stringify({ latest: "18.12.0" }));
-			return;
-		}
-		response.writeHead(404).end();
-	});
-	const listening = Promise.withResolvers<void>();
-	server.listen(0, "127.0.0.1", () => listening.resolve());
-	await listening.promise;
-	const address = server.address();
-	const port = typeof address === "object" && address ? address.port : 0;
-	return { server, url: `http://127.0.0.1:${port}`, requests: () => requests };
+/** One line per `omp update --check` main ran: the first PATH entry it gave the check. */
+async function checks(launched: Launched): Promise<string[]> {
+	const log = await fs.readFile(path.join(launched.root, "update-checks.log"), "utf8").catch(() => "");
+	return log.split("\n").filter(Boolean);
 }
 
 async function launch(name: string, prefs: Record<string, unknown>): Promise<Launched> {
@@ -79,7 +65,6 @@ async function launch(name: string, prefs: Record<string, unknown>): Promise<Lau
 	);
 	const omp = await fixtureOmp(root);
 	const installer = await writeFakeOmp(installerDir, INSTALLER);
-	const registry = await registryServer();
 	const env = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agent,
@@ -88,7 +73,9 @@ async function launch(name: string, prefs: Record<string, unknown>): Promise<Lau
 		PI_PROFILE: "",
 		OMP_GUI_OMP: omp,
 		OMP_GUI_TEST_INSTALLER: installer,
-		OMP_GUI_TEST_NPM_REGISTRY: registry.url,
+		OMP_GUI_TEST_OMP_UPDATES: "1",
+		OMP_GUI_TEST_LATEST_OMP: "18.12.0",
+		OMP_GUI_TEST_UPDATE_CHECK_LOG: path.join(root, "update-checks.log"),
 		OMP_GUI_TEST_VERSION_FILE: path.join(root, "omp-version"),
 		OMP_GUI_TEST_BOOT_LOG: path.join(root, "boots.log"),
 		OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE: "planMode",
@@ -105,12 +92,11 @@ async function launch(name: string, prefs: Record<string, unknown>): Promise<Lau
 	page.on("pageerror", error => errors.push(error.message));
 	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860));
 	await page.waitForFunction(() => window.omp?.rpc != null);
-	return { app, page, root, errors, registry: registry.server, registryRequests: registry.requests };
+	return { app, page, root, errors, omp };
 }
 
 async function close(launched: Launched): Promise<void> {
 	await exitApp(launched.app);
-	launched.registry.close();
 	await fs.rm(launched.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 
@@ -141,6 +127,11 @@ async function expectUpdated(launched: Launched): Promise<void> {
 	// The restarted bridge answered the capabilities probe for 18.12.0; planMode is missing there.
 	await expect(page.getByText(/missing internals OMPdesk needs for: Plan mode/)).toBeVisible({ timeout: 30_000 });
 	expect(await installs(launched)).toEqual(["omp omp-update"]);
+	// Every check (main's, and Settings' on the tab) ran with this omp's folder first on PATH: stock's
+	// `omp update` resolves `$which("omp")`, so that is the install it checked and would update.
+	const ran = await checks(launched);
+	expect(ran.length).toBeGreaterThan(0);
+	expect(new Set(ran)).toEqual(new Set([path.dirname(launched.omp)]));
 	const state = await page.evaluate(() => window.omp.ompUpdate.getState());
 	expect(state).toMatchObject({
 		phase: "idle",
@@ -190,6 +181,7 @@ test("with the pref off nothing checks on its own; Update now still updates", as
 		const { page } = launched;
 		await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
 		await page.locator(".omp-composer-input").first().fill(DRAFT);
+		expect(await checks(launched)).toEqual([]);
 		const settings = page.locator("[data-settings-page]");
 		await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
 		await settings.locator('[data-settings-section="updates"]').click();
@@ -197,13 +189,12 @@ test("with the pref off nothing checks on its own; Update now still updates", as
 			"aria-checked",
 			"false",
 		);
-		expect(launched.registryRequests()).toBe(0);
 		expect(await installs(launched)).toEqual([]);
 		await settings.getByTestId("omp-update-now").click();
 		await expect.poll(() => installs(launched), { timeout: 30_000 }).toEqual(["omp omp-update"]);
 		await releaseInstaller(launched);
 		await expect(page.getByText("omp updated to 18.12.0")).toBeVisible({ timeout: 30_000 });
-		expect(launched.registryRequests()).toBe(1);
+		expect(new Set(await checks(launched))).toEqual(new Set([path.dirname(launched.omp)]));
 		await expect.poll(() => boots(launched), { timeout: 30_000 }).toEqual(["18.11.0", "18.12.0"]);
 		await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
 	} finally {

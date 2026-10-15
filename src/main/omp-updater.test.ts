@@ -6,40 +6,15 @@ import {
 	CHECK_INTERVAL_MS,
 	MAX_CHECK_INTERVAL_MS,
 	nextCheckDelay,
-	npmLatestOmp,
 	OmpUpdater,
 	type OmpUpdaterDeps,
-	parseLatestVersion,
 	registerOmpUpdateIpc,
 } from "./omp-updater";
 import type { OmpUpdateOutcome } from "./setup/service";
 
 const HOUR = 60 * 60 * 1000;
 
-describe("latest version lookup", () => {
-	it("reads the latest tag of npm's dist-tags answer and nothing else", () => {
-		expect(parseLatestVersion({ latest: "18.11.0", next: "19.0.0-rc.1" })).toBe("18.11.0");
-		expect(parseLatestVersion({ next: "19.0.0" })).toBeNull();
-		expect(parseLatestVersion({ latest: "18.11" })).toBeNull();
-		expect(parseLatestVersion({ latest: "latest" })).toBeNull();
-		expect(parseLatestVersion(null)).toBeNull();
-		expect(parseLatestVersion("18.11.0")).toBeNull();
-	});
-
-	it("asks <registry>/-/package/<pkg>/dist-tags and names a body without a latest", async () => {
-		const urls: string[] = [];
-		const answer = (body: string) => async (url: string) => {
-			urls.push(url);
-			return body;
-		};
-		await expect(npmLatestOmp("https://registry.example/", answer('{"latest":"18.12.0"}'))()).resolves.toBe(
-			"18.12.0",
-		);
-		expect(urls).toEqual(["https://registry.example/-/package/@oh-my-pi/pi-coding-agent/dist-tags"]);
-		await expect(npmLatestOmp("https://registry.example", answer("{}"))()).rejects.toThrow(/lists no latest version/);
-		await expect(npmLatestOmp("https://registry.example", answer("<html>"))()).rejects.toThrow();
-	});
-
+describe("version order", () => {
 	it("compares versions numerically, so 18.11 is newer than 18.9", () => {
 		expect(compareVersions("18.11.0", "18.9.0")).toBeGreaterThan(0);
 		expect(compareVersions("18.9.0", "18.11.0")).toBeLessThan(0);
@@ -154,11 +129,12 @@ describe("OmpUpdater", () => {
 		h.updater.dispose();
 	});
 
-	it("leaves a missing omp to machine setup", async () => {
+	it("leaves a missing omp to machine setup: no check (stock's needs an omp to run), no failure", async () => {
 		const h = harness({ installed: null });
 		h.updater.start();
 		await vi.advanceTimersByTimeAsync(0);
-		expect(h.calls).toEqual(["fetch"]);
+		expect(h.calls).toEqual([]);
+		expect(h.updater.state()).toMatchObject({ phase: "idle", failure: null, latest: null });
 		h.updater.dispose();
 	});
 

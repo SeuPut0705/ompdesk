@@ -3,11 +3,11 @@ import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SetupItemId, SetupPlatform, SetupPresence, SetupState } from "../../shared/setup";
-import { RM_TEMP } from "../test-fake-omp";
+import { RM_TEMP, writeFakeOmp } from "../test-fake-omp";
 import type { Detection } from "./detect";
 import type { DownloadFetch } from "./download";
 import type { SpawnSpec } from "./plans";
@@ -62,6 +62,8 @@ function harness(
 		spawnEnv?: NodeJS.ProcessEnv;
 		/** The version a successful install leaves behind (default 1.0.0). */
 		installedVersion?: string;
+		/** Where detection finds omp (default /home/u/.bun/bin/omp). */
+		ompBin?: string;
 	} = {},
 ) {
 	const spawned: { spec: SpawnSpec; env: NodeJS.ProcessEnv }[] = [];
@@ -92,7 +94,7 @@ function harness(
 		bun: machine.presence.bun.kind === "present" ? "/home/u/.bun/bin/bun" : null,
 		omp:
 			machine.presence.omp.kind === "outdated" || machine.presence.omp.kind === "present"
-				? "/home/u/.bun/bin/omp"
+				? (options.ompBin ?? "/home/u/.bun/bin/omp")
 				: null,
 		brew: machine.brew,
 		winget: machine.winget,
@@ -511,6 +513,68 @@ describe("SetupService", () => {
 			expect(h.service.cancel()).toBe(true);
 			expect(await run).toEqual({ kind: "failed", failure: { reason: "cancelled" } });
 			expect(h.phase("omp")).toBe("present");
+		});
+
+		it("runs `omp update` with the detected omp's folder first on PATH, so stock updates that omp", async () => {
+			const ownDir = join("/home/u", ".bun", "bin");
+			const h = harness(machine({ omp: present("18.8.7") }), {
+				installedVersion: "18.9.0",
+				ompBin: join(ownDir, "omp"),
+				spawnEnv: { PATH: ["/usr/local/bin", ownDir, "/usr/bin"].join(delimiter) },
+			});
+			await h.service.updateOmp("18.9.0");
+			const entries = h.spawned[0]?.env.PATH?.split(delimiter) ?? [];
+			expect(entries.slice(0, 3)).toEqual([ownDir, "/usr/local/bin", "/usr/bin"]);
+			expect(entries.filter(entry => entry === ownDir)).toHaveLength(1);
+		});
+	});
+
+	describe("latestOmp", () => {
+		async function checkingOmp(script: string) {
+			const log = join(dir, "check.log");
+			const omp = await writeFakeOmp(
+				dir,
+				`import { appendFileSync } from "node:fs";
+appendFileSync(process.env.CHECK_LOG, JSON.stringify({ args: process.argv.slice(2), first: (process.env.PATH ?? "").split(${JSON.stringify(delimiter)})[0], noColor: process.env.NO_COLOR }) + "\\n");
+${script}`,
+			);
+			const h = harness(machine({ omp: present("18.8.7") }), {
+				automatic: false,
+				ompBin: omp,
+				spawnEnv: { ...process.env, CHECK_LOG: log },
+			});
+			await h.service.start();
+			const calls = async () =>
+				(await readFile(log, "utf8"))
+					.split("\n")
+					.filter(Boolean)
+					.map(line => JSON.parse(line) as { args: string[]; first: string; noColor?: string });
+			return { h, omp, calls };
+		}
+
+		it("is stock `omp update --check` on the detected omp, with that omp's folder first on PATH", async () => {
+			const { h, omp, calls } = await checkingOmp(
+				`console.log("Current version: 18.8.7\\nNew version available: 18.9.0");`,
+			);
+			await expect(h.service.latestOmp()).resolves.toBe("18.9.0");
+			expect(await calls()).toEqual([{ args: ["update", "--check"], first: dirname(omp), noColor: "1" }]);
+		});
+
+		it("answers the installed version when stock says it is up to date", async () => {
+			const { h } = await checkingOmp(`console.log("Current version: 18.8.7\\n✔ Already up to date");`);
+			await expect(h.service.latestOmp()).resolves.toBe("18.8.7");
+		});
+
+		it("rejects with stock's own reason when the check fails, and while omp is missing", async () => {
+			const { h } = await checkingOmp(
+				`console.log("Current version: 18.8.7");
+console.error("Failed to check for updates: 401 Unauthorized; check the registry credentials in your .npmrc");
+process.exit(1);`,
+			);
+			await expect(h.service.latestOmp()).rejects.toThrow(/401 Unauthorized; check the registry credentials/);
+			const none = harness(machine({ omp: missing }), { automatic: false });
+			await none.service.start();
+			await expect(none.service.latestOmp()).rejects.toThrow("omp is not installed");
 		});
 	});
 });

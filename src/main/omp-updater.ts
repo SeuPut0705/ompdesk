@@ -1,17 +1,19 @@
 /**
- * Keeps this computer's omp current. While OMPdesk runs it asks npm for the
- * latest `@oh-my-pi/pi-coding-agent` (registry dist-tags) at launch and then
- * every few hours, backing off after errors. When that is newer than the
+ * Keeps this computer's omp current. While OMPdesk runs it asks stock
+ * `omp update --check` (SetupService.latestOmp: the omp OMPdesk runs, with the
+ * user's registry, channel and install method) for the newest omp at launch and
+ * then every few hours, backing off after errors. When that is newer than the
  * installed omp it runs stock `omp update` on its own (SetupService.updateOmp,
- * under the setup supervisor): no click, and without waiting for any turn to
- * end, because a running omp keeps the code it loaded — `bun install -g`
- * replaces package files with new ones (new inodes) instead of rewriting them,
- * and the bridge's `@oh-my-pi/*` imports resolve to omp's bundled singletons,
- * not to files on disk. The processes that do read omp's files from disk (the
- * stats server and the stock helper) are stopped before the installer starts
- * and brought back after it. Windows locks files a running omp holds, so
- * there stock's own update fails or repairs the launcher; that attempt is just
- * a failure here, shown in Settings and retried on the next check.
+ * under the setup supervisor, in the same environment as the check): no click,
+ * and without waiting for any turn to end, because a running omp keeps the code
+ * it loaded — `bun install -g` replaces package files with new ones (new inodes)
+ * instead of rewriting them, and the bridge's `@oh-my-pi/*` imports resolve to
+ * omp's bundled singletons, not to files on disk. The processes that do read
+ * omp's files from disk (the stats server and the stock helper) are stopped
+ * before the installer starts and brought back after it. Windows locks files a
+ * running omp holds, so there stock's own update fails or repairs the launcher;
+ * that attempt is just a failure here, shown in Settings and retried on the next
+ * check.
  *
  * OMPdesk's own update is not part of this: it stays manual (updater.ts).
  * Each computer runs its own instance under its own pref; a client never
@@ -20,36 +22,12 @@
 import { IPC_COMMANDS } from "../shared/ipc-types";
 import type { OmpUpdatedNotice, OmpUpdateFailure, OmpUpdateState } from "../shared/omp-update";
 import { compareVersions } from "./omp-runtime";
-import { fetchText } from "./setup/archives";
-import { OMP_PACKAGE } from "./setup/plans";
 import type { OmpUpdateOutcome } from "./setup/service";
 
 /** Between checks while all is well. */
 export const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 /** The longest wait after repeated failures. */
 export const MAX_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
-export const DEFAULT_NPM_REGISTRY = "https://registry.npmjs.org";
-
-const VERSION = /^\d+\.\d+\.\d+$/;
-
-/** The `latest` tag of npm's dist-tags answer (`{"latest":"18.11.0",…}`), or null. */
-export function parseLatestVersion(body: unknown): string | null {
-	if (typeof body !== "object" || body === null || !("latest" in body)) return null;
-	const latest = body.latest;
-	return typeof latest === "string" && VERSION.test(latest) ? latest : null;
-}
-
-export type FetchLatest = () => Promise<string>;
-
-/** npm's latest omp from `<registry>/-/package/<pkg>/dist-tags` — one small answer, no packument. */
-export function npmLatestOmp(registry: string, fetch: (url: string) => Promise<string> = fetchText): FetchLatest {
-	return async () => {
-		const url = `${registry.replace(/\/+$/, "")}/-/package/${OMP_PACKAGE}/dist-tags`;
-		const latest = parseLatestVersion(JSON.parse(await fetch(url)));
-		if (!latest) throw new Error(`${url} lists no latest version`);
-		return latest;
-	};
-}
 
 /** Delay before the next scheduled check after `failures` failed ones in a row. */
 export function nextCheckDelay(failures: number): number {
@@ -57,11 +35,12 @@ export function nextCheckDelay(failures: number): number {
 }
 
 export interface OmpUpdaterDeps {
-	/** This launch checks on a timer: a packaged app, or a test launch with a fake installer and registry. Dev and test launches never do. */
+	/** This launch checks on a timer: a packaged app, or a test launch that opts in. Dev and test launches never do. */
 	scheduled: boolean;
 	/** The pref `ompAutoUpdate` (default on). */
 	enabled: () => boolean;
-	fetchLatest: FetchLatest;
+	/** The newest omp for the installed one (stock `omp update --check`); rejects with the reason it could not tell. */
+	fetchLatest: () => Promise<string>;
 	/** The omp that runs now (from machine setup's detection); null while omp is missing. */
 	installed: () => string | null;
 	/** Stock `omp update` and the re-detection after it. `beforeInstall` runs just before the installer starts. */
@@ -167,6 +146,8 @@ export class OmpUpdater {
 	}
 
 	async #check(): Promise<void> {
+		// Missing, outdated or broken omp is machine setup's to install; there is nothing to check or update yet.
+		if (this.#deps.installed() === null) return;
 		this.#set({ phase: "checking" });
 		let latest: string;
 		try {
@@ -177,7 +158,6 @@ export class OmpUpdater {
 		}
 		this.#set({ latest, checkedAt: (this.#deps.now ?? Date.now)() });
 		const installed = this.#deps.installed();
-		// Missing, outdated or broken omp is machine setup's to install; there is nothing to update yet.
 		if (installed === null) return;
 		if (compareVersions(latest, installed) <= 0) {
 			this.#failures = 0;

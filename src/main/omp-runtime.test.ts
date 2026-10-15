@@ -11,7 +11,9 @@ import {
 	ompPathEnv,
 	ompSpawnArgs,
 	ompSpawnCommand,
+	ompUpdateEnv,
 	parseOmpVersion,
+	parseUpdateCheck,
 	resolveOmp,
 } from "./omp-runtime";
 import { RM_TEMP, writeFakeOmp } from "./test-fake-omp";
@@ -42,6 +44,28 @@ describe("omp version parsing", () => {
 	});
 });
 
+describe("parseUpdateCheck", () => {
+	it("reads the installed version when already up to date", () => {
+		expect(parseUpdateCheck("Current version: 18.6.1\n✔ Already up to date\n")).toEqual({
+			currentVersion: "18.6.1",
+			latestVersion: "18.6.1",
+		});
+	});
+
+	it("reads the newer release on a pending update", () => {
+		expect(
+			parseUpdateCheck(
+				"Current version: 18.6.1\r\nCurrent channel: canary\r\nNew version available: 18.7.0-canary.3\r\n",
+			),
+		).toEqual({ currentVersion: "18.6.1", latestVersion: "18.7.0-canary.3" });
+	});
+
+	it("rejects output it cannot account for", () => {
+		expect(parseUpdateCheck("Failed to check for updates: offline")).toBeNull();
+		expect(parseUpdateCheck("Current version: 18.6.1\n")).toBeNull();
+	});
+});
+
 describe("omp lookup", () => {
 	it("searches PATH before the well-known install locations", () => {
 		const candidates = ompCandidates(["/a", "/b"].join(path.delimiter), "/home/u", "darwin");
@@ -59,6 +83,28 @@ describe("omp lookup", () => {
 		expect(entries[0]).toBe("/usr/bin");
 		expect(entries).toContain("/opt/tools");
 		expect(entries).toContain(path.join(os.homedir(), ".bun", "bin"));
+	});
+
+	it("points stock `omp update` at this omp: its folder first on PATH, and its own Bun root as BUN_INSTALL", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-update-env-"));
+		try {
+			const bunRoot = path.join(root, "custom-bun");
+			const bin = path.join(bunRoot, "bin", "omp");
+			const other = path.join(root, "elsewhere", "bin");
+			const base = [other, "/usr/bin", path.dirname(bin)].join(path.delimiter);
+			// Not a `bun install -g` launcher (no package beside it): PATH only, BUN_INSTALL left to the caller.
+			expect(ompUpdateEnv(bin, base)).toEqual({
+				PATH: ompPathEnv(bin, [path.dirname(bin), other, "/usr/bin"].join(path.delimiter)),
+			});
+			const pkg = path.join(bunRoot, "install", "global", "node_modules", "@oh-my-pi", "pi-coding-agent");
+			await fs.mkdir(pkg, { recursive: true });
+			await fs.writeFile(path.join(pkg, "package.json"), '{"name":"@oh-my-pi/pi-coding-agent"}');
+			const env = ompUpdateEnv(bin, base);
+			expect(env.BUN_INSTALL).toBe(bunRoot);
+			expect(env.PATH.split(path.delimiter).slice(0, 3)).toEqual([path.dirname(bin), other, "/usr/bin"]);
+		} finally {
+			await fs.rm(root, RM_TEMP);
+		}
 	});
 
 	it("runs Windows .cmd shims through cmd.exe with the shim path and every argument quoted", () => {

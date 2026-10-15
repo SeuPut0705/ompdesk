@@ -57,7 +57,7 @@ import { LocalMachine } from "./machine-services";
 import { MEDIA_SCHEME, MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
 import { ompPackageRoot, ompPathEnv, refreshSystemOmp, systemOmp } from "./omp-runtime";
-import { DEFAULT_NPM_REGISTRY, npmLatestOmp, OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
+import { OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
 import { quitNeedsConfirmation } from "./quit-guard";
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
@@ -657,13 +657,14 @@ app.whenReady().then(() => {
 	setupService = setup;
 	registerSetupIpc(ipcMain, setup);
 	// omp keeps itself current (src/main/omp-updater.ts): a packaged app checks on its own; a test
-	// launch only with a fake installer and a fake registry (OMP_GUI_TEST_NPM_REGISTRY). OMPdesk's
-	// own update stays manual. It starts once machine setup's first pass has detected omp.
-	const testRegistry = testInstaller ? process.env.OMP_GUI_TEST_NPM_REGISTRY || null : null;
+	// launch only with a fake installer and OMP_GUI_TEST_OMP_UPDATES=1 (the fake omp's `update --check`
+	// answers). OMPdesk's own update stays manual. It starts once machine setup's first pass has detected omp.
 	const updater = new OmpUpdater({
-		scheduled: testInstaller ? testRegistry !== null : app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
+		scheduled: testInstaller
+			? process.env.OMP_GUI_TEST_OMP_UPDATES === "1"
+			: app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
 		enabled: () => prefs.get(OMP_AUTO_UPDATE_PREF) !== false,
-		fetchLatest: npmLatestOmp(testRegistry ?? DEFAULT_NPM_REGISTRY),
+		fetchLatest: () => setup.latestOmp(),
 		installed: () => {
 			const presence = setup.state().items.find(item => item.id === "omp")?.presence;
 			return presence?.kind === "present" ? presence.version : null;

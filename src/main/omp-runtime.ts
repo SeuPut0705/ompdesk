@@ -45,6 +45,26 @@ export function parseOmpVersion(output: string): string | null {
 	return /(\d+\.\d+\.\d+)/.exec(output)?.[1] ?? null;
 }
 
+export interface OmpUpdateCheck {
+	currentVersion: string;
+	latestVersion: string;
+}
+
+/**
+ * Stock `omp update --check`: `Current version: X`, then `New version available: Y` or `Already
+ * up to date`. Stock picks the registry (.npmrc, bunfig, `npm_config_registry`), the channel
+ * (`update.channel`) and, for a standalone binary, the build service: its answer is the one
+ * `omp update` acts on.
+ */
+export function parseUpdateCheck(output: string): OmpUpdateCheck | null {
+	const current = /Current version:\s*(\d+\.\d+\.\d+\S*)/.exec(output)?.[1];
+	if (!current) return null;
+	const latest =
+		/New version available:\s*(\d+\.\d+\.\d+\S*)/.exec(output)?.[1] ??
+		(/Already up to date/.test(output) ? current : undefined);
+	return latest ? { currentVersion: current, latestVersion: latest } : null;
+}
+
 /** Numeric semver compare on major.minor.patch; prerelease tags are ignored. */
 export function compareVersions(a: string, b: string): number {
 	const pa = a.split(".").map(part => Number.parseInt(part, 10) || 0);
@@ -85,6 +105,27 @@ export function ompPathEnv(bin: string, basePath: string): string {
 		if (!entries.includes(dir)) entries.push(dir);
 	}
 	return entries.join(delimiter);
+}
+
+/**
+ * What points stock `omp update` (and `--check`) at `bin`'s own install. Stock updates the first `omp` on PATH
+ * (`resolveOmpPath` = `$which("omp")`) and calls it a Bun install only when that launcher sits in `bun pm bin -g`
+ * (BUN_INSTALL's `bin`); otherwise it routes through npm, Homebrew or a standalone-binary replacement. So `bin`'s
+ * directory goes first on `basePath`, and a `bun install -g` launcher (`<root>/bin/omp` beside
+ * `<root>/install/global/node_modules/@oh-my-pi/pi-coding-agent`) gets `BUN_INSTALL=<root>`; without these an
+ * update could install into another omp than the one OMPdesk runs, or judge the wrong one up to date.
+ */
+export function ompUpdateEnv(bin: string, basePath: string): { PATH: string; BUN_INSTALL?: string } {
+	const own = dirname(bin);
+	const rest = basePath.split(delimiter).filter(entry => entry && entry !== own);
+	const root = dirname(own);
+	const bunGlobal = existsSync(
+		join(root, "install", "global", "node_modules", "@oh-my-pi", "pi-coding-agent", "package.json"),
+	);
+	return {
+		PATH: ompPathEnv(bin, [own, ...rest].join(delimiter)),
+		...(bunGlobal ? { BUN_INSTALL: root } : {}),
+	};
 }
 
 function isExecutable(file: string): boolean {

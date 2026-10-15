@@ -5,34 +5,21 @@
  * Session-bound commands go to the gui-bridge `misc` methods. Updates drive the
  * system omp CLI directly: `omp update --check` reports the installed and
  * latest versions (honoring the user's channel and npm registry), and
- * `omp_update` runs `omp update` itself. `get_plugin_doctor` is stock
- * `omp plugin doctor --json` (plugin directory, manifest, node_modules, each
- * plugin's version, tools, hooks and extensions).
+ * `omp_update` runs `omp update` itself; both with `ompUpdateEnv`, so stock
+ * checks and updates this omp's install, not another `omp` earlier on PATH.
+ * `get_plugin_doctor` is stock `omp plugin doctor --json` (plugin directory,
+ * manifest, node_modules, each plugin's version, tools, hooks and extensions).
  */
 import type { RpcDoctorCheck } from "../../shared/rpc-types";
 import { clearAgentWorktrees, listAgentWorktrees } from "../agent-worktrees";
-import { parseOmpVersion } from "../omp-runtime";
+import { ompUpdateEnv, parseOmpVersion, parseUpdateCheck } from "../omp-runtime";
+import { spawnPath } from "../shell-env";
 import { type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
 
 const UPDATE_CHECK_TIMEOUT_MS = 60_000;
 const UPDATE_TIMEOUT_MS = 10 * 60_000;
 /** Plain text from omp's chalk output, so the update report parses the same everywhere. */
 const PLAIN_ENV = { NO_COLOR: "1", FORCE_COLOR: "0" };
-
-export interface OmpUpdateCheck {
-	currentVersion: string;
-	latestVersion: string;
-}
-
-/** Parse `omp update --check`: `Current version: X`, then `New version available: Y` or `Already up to date`. */
-export function parseUpdateCheck(output: string): OmpUpdateCheck | null {
-	const current = /Current version:\s*(\d+\.\d+\.\d+\S*)/.exec(output)?.[1];
-	if (!current) return null;
-	const latest =
-		/New version available:\s*(\d+\.\d+\.\d+\S*)/.exec(output)?.[1] ??
-		(/Already up to date/.test(output) ? current : undefined);
-	return latest ? { currentVersion: current, latestVersion: latest } : null;
-}
 
 function lastLines(text: string, count = 6): string {
 	return text.trim().split(/\r?\n/).slice(-count).join("\n");
@@ -82,7 +69,7 @@ async function checkOmpUpdate(ctx: LocalCommandContext) {
 	const result = await ctx.omp.run(["update", "--check"], {
 		cwd: ctx.cwd,
 		timeoutMs: UPDATE_CHECK_TIMEOUT_MS,
-		env: PLAIN_ENV,
+		env: { ...PLAIN_ENV, ...ompUpdateEnv(ctx.omp.bin, await spawnPath()) },
 	});
 	const parsed = result.code === 0 ? parseUpdateCheck(result.stdout) : null;
 	if (!parsed) {
@@ -101,7 +88,11 @@ async function checkOmpUpdate(ctx: LocalCommandContext) {
 }
 
 async function runOmpUpdate(ctx: LocalCommandContext) {
-	const result = await ctx.omp.run(["update"], { cwd: ctx.cwd, timeoutMs: UPDATE_TIMEOUT_MS, env: PLAIN_ENV });
+	const result = await ctx.omp.run(["update"], {
+		cwd: ctx.cwd,
+		timeoutMs: UPDATE_TIMEOUT_MS,
+		env: { ...PLAIN_ENV, ...ompUpdateEnv(ctx.omp.bin, await spawnPath()) },
+	});
 	if (result.code !== 0) {
 		throw new LocalCommandError(
 			lastLines(result.stderr || result.stdout) || `omp update exited with code ${result.code}`,

@@ -198,7 +198,18 @@ if (process.argv[2] === "stats") {
 	// Stock RPC mode ends when its client closes stdin.
 	lines.on("close", () => process.exit(0));
 } else if (process.argv[2] === "update" && process.argv.includes("--check")) {
-	console.log("Current version: 18.11.0\nAlready up to date");
+	// Stock's check: `OMP_GUI_TEST_LATEST_OMP` is the registry's newest (default: this version).
+	// `OMP_GUI_TEST_UPDATE_CHECK_LOG=<file>` gets one line per check: the first PATH entry, the `omp`
+	// stock's `update` would resolve (`$which("omp")`).
+	const latest = process.env.OMP_GUI_TEST_LATEST_OMP || FIXTURE_OMP_VERSION;
+	if (process.env.OMP_GUI_TEST_UPDATE_CHECK_LOG) {
+		const first = (process.env.PATH ?? "").split(nodePath.delimiter)[0] ?? "";
+		fs.appendFileSync(process.env.OMP_GUI_TEST_UPDATE_CHECK_LOG, `${first}\n`);
+	}
+	const newer = latest.localeCompare(FIXTURE_OMP_VERSION, undefined, { numeric: true }) > 0;
+	console.log(
+		`Current version: ${FIXTURE_OMP_VERSION}\n${newer ? `New version available: ${latest}` : "Already up to date"}`,
+	);
 } else if (process.argv[2] === "worktree" && process.argv.includes("--json")) {
 	// Stock `omp worktree list|clear --json` over a JSON file of WorktreeEntry rows
 	// (`OMP_GUI_TEST_AGENT_WORKTREES`; none when unset). clear drops the orphaned ones.

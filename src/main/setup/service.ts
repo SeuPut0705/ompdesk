@@ -9,6 +9,7 @@
  * after three automatic attempts that left it missing, at most once a day
  * (`<userData>/setup-state.json`). A retry from the user always runs.
  */
+import { execFile } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -24,7 +25,14 @@ import {
 	type SetupState,
 	setupItemRequired,
 } from "../../shared/setup";
-import { compareVersions, ompNeedsShell, ompSpawnArgs, ompSpawnCommand } from "../omp-runtime";
+import {
+	compareVersions,
+	ompNeedsShell,
+	ompSpawnArgs,
+	ompSpawnCommand,
+	ompUpdateEnv,
+	parseUpdateCheck,
+} from "../omp-runtime";
 import { type FetchText, fetchText, resolveArchiveRelease } from "./archives";
 import { type Detection, detectMachine } from "./detect";
 import { DownloadError, type DownloadFetch, downloadVerified } from "./download";
@@ -83,6 +91,8 @@ const TEST_RELEASE = { version: "0.0.0", file: "test", url: "https://example.inv
 
 /** Lines of installer output kept as the reason an omp update failed. */
 const UPDATE_DETAIL_LINES = 6;
+/** `omp update --check` asks the registry (or the build service) once; stock's own metadata timeout is shorter. */
+const UPDATE_CHECK_TIMEOUT_MS = 60_000;
 
 const CSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, "g");
 
@@ -204,6 +214,34 @@ export class SetupService {
 		return promise;
 	}
 
+	/**
+	 * The newest omp for the omp OMPdesk runs: stock `omp update --check`, run on the detected omp in the
+	 * environment `updateOmp` gives `omp update` (`ompUpdateEnv`), so the check follows the same registry
+	 * (.npmrc, bunfig, `npm_config_registry`), channel (`update.channel`) and install method (Bun, npm,
+	 * Homebrew, mise, standalone binary) as the update it leads to, and judges that same install. Rejects
+	 * while omp is missing and with stock's own reason when the check fails.
+	 */
+	async latestOmp(): Promise<string> {
+		const omp = this.#detection?.omp;
+		if (!omp || this.#items.omp.presence?.kind !== "present") throw new Error("omp is not installed");
+		const platform = this.#deps.platform === "win32" ? "win32" : "darwin";
+		const env = { ...(await this.#updateEnv(omp)), NO_COLOR: "1", FORCE_COLOR: "0" };
+		const { promise, resolve } = Promise.withResolvers<{ code: number; output: string }>();
+		execFile(
+			ompSpawnCommand(omp, platform),
+			ompSpawnArgs(omp, ["update", "--check"], platform),
+			{ env, shell: ompNeedsShell(omp, platform), timeout: UPDATE_CHECK_TIMEOUT_MS, windowsHide: true },
+			(error, stdout, stderr) => {
+				const code = error ? (typeof error.code === "number" ? error.code : 1) : 0;
+				resolve({ code, output: code === 0 ? stdout : stderr || stdout || (error?.message ?? "") });
+			},
+		);
+		const { code, output } = await promise;
+		const parsed = code === 0 ? parseUpdateCheck(output) : null;
+		if (!parsed) throw new Error(updateDetail(output) ?? `omp update --check exited with code ${code}`);
+		return parsed.latestVersion;
+	}
+
 	/** Cancel the running install (its download or its process) and the rest of its pipeline. */
 	cancel(): boolean {
 		if (this.#download) {
@@ -293,7 +331,8 @@ export class SetupService {
 			return { kind: "skipped" };
 		}
 		const plan = buildPlan("omp", "omp-update", this.#planContext(detection));
-		if (!plan) return { kind: "skipped" };
+		if (!plan || !detection.omp) return { kind: "skipped" };
+		const env = await this.#updateEnv(detection.omp);
 		await beforeInstall?.().catch(() => undefined);
 		item.method = "omp-update";
 		item.command = plan.command;
@@ -306,14 +345,10 @@ export class SetupService {
 		this.#emit();
 		let outcome: RunOutcome;
 		try {
-			outcome = await this.#runner.run(
-				this.#spec(plan.spawn, "omp", "omp-update"),
-				await this.#installEnv(),
-				chunk => {
-					item.output = (item.output + chunk).slice(-SETUP_OUTPUT_TAIL);
-					this.#emitSoon();
-				},
-			);
+			outcome = await this.#runner.run(this.#spec(plan.spawn, "omp", "omp-update"), env, chunk => {
+				item.output = (item.output + chunk).slice(-SETUP_OUTPUT_TAIL);
+				this.#emitSoon();
+			});
 		} finally {
 			item.progress = null;
 			item.phase = "checking";
@@ -543,6 +578,12 @@ export class SetupService {
 			for (const key of Object.keys(env)) if (key.toUpperCase() === "PSMODULEPATH") Reflect.deleteProperty(env, key);
 		}
 		return env;
+	}
+
+	/** `omp update` and its `--check` for `omp` (the detected one): its own folder first on PATH, its own Bun root. */
+	async #updateEnv(omp: string): Promise<NodeJS.ProcessEnv> {
+		const env = await this.#installEnv();
+		return { ...env, ...ompUpdateEnv(omp, env.PATH ?? "") };
 	}
 
 	#planContext(detection: Detection): PlanContext {
