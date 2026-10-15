@@ -208,6 +208,7 @@ function ModelStep() {
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [test, setTest] = useState<TestState>({ kind: "idle" });
+	const list = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		void refreshAvailableModels(false).catch(() => {});
@@ -240,6 +241,12 @@ function ModelStep() {
 	useEffect(() => {
 		setTest({ kind: "idle" });
 	}, [chosenKey]);
+
+	// The pre-selected default can sit far down a long list: show it, or nothing looks selected.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the row exists once the list has entries; the effect reads the DOM.
+	useEffect(() => {
+		list.current?.querySelector('[aria-checked="true"]')?.scrollIntoView({ block: "nearest" });
+	}, [chosenKey, ordered.length]);
 
 	const runTest = async (model: ModelInfo) => {
 		setTest({ kind: "running" });
@@ -279,6 +286,9 @@ function ModelStep() {
 		try {
 			await applyDefaultModel(tabRpc, useTabsStore.getState().activeTabId, model);
 			// GitHub is optional: an account already signed in with a full Git identity skips the step.
+			// The check warmed above may still be in flight (about a second); wait for it rather than
+			// reading the empty state and showing the step to an account that is signed in.
+			await useGithubAuthStore.getState().refresh();
 			const github = useGithubAuthStore.getState().state;
 			const githubReady = github.status?.authenticated && github.identity?.name && github.identity.email;
 			setPhase(githubReady ? "idle" : "github", null);
@@ -326,6 +336,7 @@ function ModelStep() {
 				<div
 					aria-label={t("setup.model.title")}
 					className="flex max-h-96 flex-col overflow-y-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-1"
+					ref={list}
 					role="radiogroup"
 				>
 					{ordered.map(model => {

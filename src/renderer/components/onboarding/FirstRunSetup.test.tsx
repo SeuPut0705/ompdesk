@@ -29,6 +29,8 @@ Object.assign(globalThis as Record<string, unknown>, {
 });
 const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
 if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
+// linkedom has no layout and so no scrollIntoView; the model step scrolls its chosen row into view.
+if (typeof elementPrototype.scrollIntoView !== "function") elementPrototype.scrollIntoView = () => {};
 
 function ok(command: string, data: unknown): RpcResponse {
 	return { type: "response", command, success: true, data };
@@ -207,6 +209,58 @@ describe("FirstRunSetup model step", () => {
 		await mount(<FirstRunSetup />);
 		await act(async () => button(translate("setup.model.use"))?.click());
 		expect(useFirstRunStore.getState().phase).toBe("idle");
+	});
+
+	it("waits for the GitHub check still in flight before deciding to skip the step", async () => {
+		catalog = { ...catalog, providers: [acme], models: [opus] };
+		github.set(
+			githubState({
+				status: { installed: true, version: "2.62.0", authenticated: true, login: "octocat", otherAccounts: [] },
+				identity: { name: "The Octocat", email: "octocat@github.com" },
+			}),
+		);
+		// The check the model step warms on mount is still running when the button is pressed.
+		const slow = Promise.withResolvers<void>();
+		github.api.refresh.mockImplementationOnce(async () => {
+			await slow.promise;
+			return githubState();
+		});
+		useSessionStore.getState().setStatus("ready", "/tmp/project");
+		useFirstRunStore.getState().setPhase("model", "acme");
+		await mount(<FirstRunSetup />);
+		expect(useGithubAuthStore.getState().state.status).toBeNull();
+
+		await act(async () => button(translate("setup.model.use"))?.click());
+		expect(useFirstRunStore.getState().phase).toBe("idle");
+		slow.resolve();
+	});
+
+	it("scrolls the pre-selected model into view in a long list", async () => {
+		const many: ModelInfo[] = Array.from({ length: 30 }, (_, index) => ({
+			provider: "acme",
+			id: `acme-model-${index}`,
+			name: `Acme Model ${index}`,
+			contextWindow: 100_000,
+		}));
+		const wanted = many[21] as ModelInfo;
+		catalog = { ...catalog, providers: [acme], models: many };
+		defaultRole = "acme/acme-model-21";
+		useModelStore.setState({ model: wanted });
+		useSessionStore.getState().setStatus("ready", "/tmp/project");
+		useFirstRunStore.getState().setPhase("model", null);
+		const shown: string[] = [];
+		const proto = HTMLElement.prototype as unknown as { scrollIntoView: (this: HTMLElement) => void };
+		const original = proto.scrollIntoView;
+		proto.scrollIntoView = function (this: HTMLElement) {
+			shown.push(`${this.getAttribute("aria-checked")}:${this.textContent}`);
+		};
+		try {
+			await mount(<FirstRunSetup />);
+		} finally {
+			proto.scrollIntoView = original;
+		}
+		expect(shown.at(-1)).toContain("true:");
+		expect(shown.at(-1)).toContain("Acme Model 21");
 	});
 });
 
