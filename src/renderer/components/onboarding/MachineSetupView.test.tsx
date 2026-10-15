@@ -363,27 +363,6 @@ describe("useFirstRunActive with machine setup", () => {
 		expect(query('[data-testid="setup-takeover"]')).toBeNull();
 		expect(useMachineSetupStore.getState().takeover).toBe(false);
 		expect(query('[data-testid="machine-setup"]')).toBeNull();
-		expect(button(translate("machineSetup.showSetup"))).toBeUndefined();
 		expect(fake.api.getState).not.toHaveBeenCalled();
-	});
-});
-
-describe("SidecarBanner setup action", () => {
-	it("offers Show setup after Restart for a local tab and opens the install view", async () => {
-		await mountTab(<SidecarBanner />, ompMissing());
-		const labels = Array.from(document.body.querySelectorAll("button")).map(b => (b.textContent ?? "").trim());
-		expect(labels.indexOf(translate("sidecar.restart"))).toBeLessThan(
-			labels.indexOf(translate("machineSetup.showSetup")),
-		);
-		await act(async () => button(translate("machineSetup.showSetup"))?.click());
-		await flush();
-		expect(text()).toContain(translate("machineSetup.dialogTitle"));
-		expect(query('[data-testid="machine-setup"]')).not.toBeNull();
-	});
-
-	it("does not offer Show setup once omp is ready", async () => {
-		await mountTab(<SidecarBanner />, setupState("darwin"));
-		expect(text()).toContain(translate("sidecar.title"));
-		expect(button(translate("machineSetup.showSetup"))).toBeUndefined();
 	});
 });

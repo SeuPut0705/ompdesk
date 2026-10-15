@@ -5644,8 +5644,6 @@ export const en: Record<string, string> = {
 	"machineSetup.install.title": "Installing omp on this computer",
 	"machineSetup.install.description":
 		"OMPdesk installs what omp needs on its own. There's nothing for you to do; this page follows along.",
-	"machineSetup.dialogTitle": "Setting up this computer",
-	"machineSetup.showSetup": "Show setup",
 	"machineSetup.requiredList": "Required tools",
 	"machineSetup.checking": "Checking this computer…",
 	"machineSetup.loadFailed": "Couldn't read this computer's setup",
