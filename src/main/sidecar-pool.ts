@@ -1016,11 +1016,26 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	return payload;
 }
 
+/**
+ * Characters of a finished reply's text kept for the completion banner, which reads only
+ * its opening prose (renderer `notificationSummary`, 160 characters after Markdown and code
+ * are dropped); the cap keeps a long reply out of every later TAB_STATUS.
+ */
+const RUN_REPLY_PREVIEW_CHARS = 4000;
+
 /** A finished run's outcome, read from agent_end's own messages (the last assistant reply). */
 function runOutcome(messages: AgentMessage[] | undefined): IpcTabRunOutcome {
 	const last = messages?.findLast(message => message.role === "assistant");
 	const stopReason = typeof last?.stopReason === "string" ? last.stopReason : "stop";
-	return typeof last?.errorMessage === "string" && last.errorMessage
-		? { stopReason, errorMessage: last.errorMessage }
-		: { stopReason };
+	if (typeof last?.errorMessage === "string" && last.errorMessage)
+		return { stopReason, errorMessage: last.errorMessage };
+	const content = last?.content;
+	const text = (
+		typeof content === "string"
+			? content
+			: Array.isArray(content)
+				? content.flatMap(part => (part.type === "text" ? [part.text] : [])).join("\n")
+				: ""
+	).trim();
+	return text ? { stopReason, reply: text.slice(0, RUN_REPLY_PREVIEW_CHARS) } : { stopReason };
 }

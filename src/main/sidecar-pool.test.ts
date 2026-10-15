@@ -1347,6 +1347,28 @@ describe("SidecarPool background tabs", () => {
 		expect(lastFor().lastRun).toBeUndefined();
 		b?.emitEvents([{ type: "agent_end", messages: [{ role: "assistant", content: [], stopReason: "stop" }] }]);
 		expect(lastFor()).toMatchObject({ status: "ready", lastRun: { stopReason: "stop" } });
+
+		// A reply's text rides along for the completion banner, capped.
+		b?.emitEvents([{ type: "agent_start" }]);
+		b?.emitEvents([
+			{
+				type: "agent_end",
+				messages: [
+					{
+						role: "assistant",
+						content: [
+							{ type: "thinking", thinking: "plan" },
+							{ type: "text", text: "## Done\n\nFixed the parser." },
+							{ type: "text", text: "x".repeat(5000) },
+						],
+						stopReason: "stop",
+					},
+				],
+			},
+		]);
+		const reply = lastFor().lastRun?.reply ?? "";
+		expect(reply.startsWith("## Done\n\nFixed the parser.\nxxx")).toBe(true);
+		expect(reply).toHaveLength(4000);
 	});
 
 	it("keeps a retry saga running until its auto_retry_end decides the outcome", () => {

@@ -23,6 +23,8 @@ export function notificationSummary(markdown: string, limit = NOTIFICATION_SUMMA
 			line
 				.replace(/^#{1,6}\s+/, "")
 				.replace(/^(>\s*)+/, "")
+				// A GitHub alert's marker line ("> [!NOTE]") names a style, not prose.
+				.replace(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i, "")
 				.replace(/^([-*+]|\d+[.)])\s+(\[[ xX]\]\s+)?/, ""),
 		)
 		.join("\n")

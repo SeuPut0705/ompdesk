@@ -986,13 +986,19 @@ describe("tabs store background tab signals", () => {
 			await vi.waitFor(() => expect(notify).toHaveBeenCalledTimes(2));
 			expect(notify).toHaveBeenLastCalledWith("Beta job", translate("events.notificationComplete"), "t1");
 
+			// Main's outcome carries the reply's start: the banner reads its prose, Markdown removed.
+			status({ status: "running" });
+			status({ lastRun: { stopReason: "stop", reply: "## Done\n\nFixed **the parser**." } });
+			await vi.waitFor(() => expect(notify).toHaveBeenCalledTimes(3));
+			expect(notify).toHaveBeenLastCalledWith("Beta job", "Done. Fixed the parser.", "t1");
+
 			// A run the user aborted stays quiet.
 			status({ status: "running" });
 			status({ lastRun: { stopReason: "aborted" } });
 			const tick = Promise.withResolvers<void>();
 			setTimeout(tick.resolve, 0);
 			await tick.promise;
-			expect(notify).toHaveBeenCalledTimes(2);
+			expect(notify).toHaveBeenCalledTimes(3);
 		} finally {
 			doc.hasFocus = previousFocus;
 		}

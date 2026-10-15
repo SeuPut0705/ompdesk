@@ -18,6 +18,10 @@ describe("notificationSummary", () => {
 		).toBe("Done. Ran it");
 	});
 
+	it("drops GitHub alert markers and keeps the alert's text", () => {
+		expect(notificationSummary("Shipped.\n\n> [!WARNING]\n> Back up first.")).toBe("Shipped. Back up first.");
+	});
+
 	it("keeps snake_case and arithmetic asterisks intact", () => {
 		expect(notificationSummary("Renamed max_tokens; 2 * 3 = 6")).toBe("Renamed max_tokens; 2 * 3 = 6");
 	});

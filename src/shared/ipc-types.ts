@@ -1143,6 +1143,11 @@ export interface IpcTabRunOutcome {
 	/** The last assistant message's stop reason ("stop", "error", "aborted", …). */
 	stopReason: string;
 	errorMessage?: string;
+	/**
+	 * The start of the last assistant reply's text (at most 4000 characters, sidecar-pool.ts), so
+	 * a background tab's completion banner reads its opening prose like a visible tab's does.
+	 */
+	reply?: string;
 }
 
 /** TAB_STATUS push payload — a full tab snapshot from any tab, active or background. */

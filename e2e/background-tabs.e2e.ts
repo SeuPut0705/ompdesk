@@ -210,7 +210,8 @@ test("a background run finishing notifies under that tab's name", async () => {
 	expect(await notifications()).toEqual([]);
 
 	await fixtureCommand(background, "fixture:finish");
-	await expect.poll(notifications).toEqual([{ title: "Release notes run", body: "Complete" }]);
+	// The banner reads the background reply (main's run outcome carries its start).
+	await expect.poll(notifications).toEqual([{ title: "Release notes run", body: "Background run finished" }]);
 	// The row reports the unseen finish.
 	await expect(sidebarRow(background).locator("[data-sidebar-done]")).toHaveCount(1);
 	expect(errors).toEqual([]);
