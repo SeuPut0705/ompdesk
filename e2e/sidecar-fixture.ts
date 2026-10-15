@@ -7,6 +7,11 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
+import {
+	labelPromptOrigins,
+	PROMPT_ORIGIN_ENTRY,
+	parsePromptOriginEnv,
+} from "../resources/gui-bridge/prompt-origin-contracts";
 import { transcriptPageMessages, transcriptTurnStart } from "../resources/gui-bridge/transcript-page";
 import type { AgentMessage, RpcSecurityDashboardResult, SubagentSnapshot } from "../src/shared/rpc-types";
 import { tinyPdf } from "./tiny-pdf";
@@ -286,6 +291,8 @@ if (process.argv[2] === "stats") {
 		[key: string]: unknown;
 	}
 	const sessionId = `fixture-${process.pid}`;
+	/** `OMP_GUI_PROMPT_ORIGIN`: the paired device a host runs this omp for (A85). */
+	const promptOrigin = parsePromptOriginEnv(process.env.OMP_GUI_PROMPT_ORIGIN);
 	const entries: Entry[] = [];
 	let activeLeafId: string | null = null;
 	let holdHistory = false;
@@ -1249,7 +1256,8 @@ if (process.argv[2] === "stats") {
 		// Stock `restoreSession` (what `omp --restore` runs): a journal whose last entry is a user
 		// message with no reply was cut off mid-run; the turn goes on and answers.
 		"composer.restore_interrupted": () => {
-			const last = entries.at(-1);
+			// Like stock's hasRestorableTurn: custom entries after it (a prompt origin) are not the turn.
+			const last = [...entries].reverse().find(entry => entry.type === "message");
 			const cutOff =
 				last?.type === "message" && (last.message as AgentMessage | undefined)?.role === "user" && !isStreaming;
 			if (!cutOff) return { turn: false, subagents: [] };
@@ -1470,7 +1478,20 @@ if (process.argv[2] === "stats") {
 				leafId: activeLeafId,
 				total: messages.length,
 				startIndex: start,
-				messages: transcriptPageMessages(messages.slice(start, end)),
+				// The bridge's labels (gui-bridge/sessions.ts): prompts another device typed, for this omp's viewer.
+				messages: transcriptPageMessages(
+					labelPromptOrigins(
+						messages.map(message => ({
+							message,
+							role: message.role,
+							timestamp: typeof message.timestamp === "number" ? message.timestamp : undefined,
+						})),
+						entries,
+						promptOrigin,
+					)
+						.map(item => ("promptFrom" in item ? { ...item.message, promptFrom: item.promptFrom } : item.message))
+						.slice(start, end),
+				),
 			};
 			if (limit > 0 && holdHistory) {
 				holdHistory = false;
@@ -2856,8 +2877,14 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			lanes.followUp = [];
 			emitQueue();
 		}
-		const user: AgentMessage = { role: "user", content: [{ type: "text", text: message }], timestamp: Date.now() };
+		const sentAt = Date.now();
+		const user: AgentMessage = { role: "user", content: [{ type: "text", text: message }], timestamp: sentAt };
 		appendMessage(user);
+		// A85 (resources/gui-bridge/prompt-origin.ts): an omp a host runs for a paired device journals that device per prompt.
+		if (promptOrigin) {
+			const data = { deviceId: promptOrigin.deviceId, name: promptOrigin.name, timestamp: sentAt };
+			append({ type: "custom", customType: PROMPT_ORIGIN_ENTRY, data }, sentAt);
+		}
 		write({ type: "agent_start" });
 		write({ type: "token_rate", rate: 64 });
 		write({ type: "message_end", message: user });
