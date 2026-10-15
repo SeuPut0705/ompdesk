@@ -15,8 +15,14 @@ import { exitApp, fixtureOmp } from "./harness";
 // window.open, a form, an image, CSS, prefetch, speculation rules, fetch,
 // sendBeacon, <a ping>, EventSource, WebSocket, a worker, RTCPeerConnection (STUN
 // over UDP, TURN over UDP and TCP), a meta refresh and frames — and the sentinel
-// hears nothing, while the page still shows its own image and stylesheet. A link
-// the user clicks is offered in full and opens only when they choose to.
+// hears nothing, while the page still shows its own image and stylesheet. DNS
+// prefetch (static, dynamic, in srcdoc and about:blank frames, with
+// x-dns-prefetch-control on) must not ask the resolver for any of its names: the
+// visual session's net-log shows no host resolution for them. A link the user
+// clicks is offered in full and opens only when they choose to.
+
+/** Names the page spells for a DNS prefetch; none may reach a resolver (`.invalid` never leaves the machine). */
+const DNS_SUFFIX = "egress.invalid";
 
 interface Hit {
 	kind: "tcp" | "udp";
@@ -59,11 +65,14 @@ async function sentinel() {
 const visual = (origin: string) =>
 	[
 		"<!doctype html><title>Egress</title>",
+		'<meta http-equiv="x-dns-prefetch-control" content="on">',
 		`<meta http-equiv="refresh" content="1;url=${origin}/meta-refresh?d=secret">`,
 		'<link rel="stylesheet" href="style.css">',
 		`<link rel="prefetch" href="${origin}/link-prefetch">`,
 		`<link rel="preconnect" href="${origin}">`,
 		`<link rel="dns-prefetch" href="${origin}">`,
+		`<link rel="dns-prefetch" href="//secret-static.${DNS_SUFFIX}">`,
+		`<iframe srcdoc='<meta http-equiv="x-dns-prefetch-control" content="on"><link rel="dns-prefetch" href="//secret-srcdoc.${DNS_SUFFIX}">'></iframe>`,
 		`<script type="speculationrules">{"prefetch":[{"source":"list","urls":["${origin}/speculation"]}]}</script>`,
 		`<style>#bg { background: url(${origin}/css-url); } @font-face { font-family: x; src: url(${origin}/font); }</style>`,
 		'<h1 id="title" style="font-family: x">Egress</h1>',
@@ -86,6 +95,14 @@ const ATTEMPTS = (origin: string) => `(async () => {
 	swallow(() => document.getElementById("form").submit());
 	swallow(() => { const image = new Image(); image.src = S + "/image"; document.body.append(image); });
 	swallow(() => { const link = document.createElement("link"); link.rel = "prefetch"; link.href = S + "/dynamic-prefetch"; document.head.append(link); });
+	swallow(() => { const link = document.createElement("link"); link.rel = "dns-prefetch"; link.href = "//secret-dynamic.${DNS_SUFFIX}"; document.head.append(link); });
+	swallow(() => {
+		const frame = document.createElement("iframe");
+		document.body.append(frame);
+		const inner = frame.contentDocument;
+		const control = inner.createElement("meta"); control.httpEquiv = "x-dns-prefetch-control"; control.content = "on"; inner.head.append(control);
+		const link = inner.createElement("link"); link.rel = "dns-prefetch"; link.href = "//secret-blank.${DNS_SUFFIX}"; inner.head.append(link);
+	});
 	swallow(() => fetch(S + "/fetch?d=secret", { method: "POST", mode: "no-cors", body: "secret" }));
 	swallow(() => navigator.sendBeacon(S + "/beacon", "secret"));
 	swallow(() => new EventSource(S + "/event-source"));
@@ -161,6 +178,13 @@ test("a visual's page sends nothing off its own origin; a clicked link opens onl
 		await expect
 			.poll(async () => (await shell.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 			.toBe("ready");
+		// The visual session's network log, from before the page loads: every host name it is asked to resolve.
+		const netLog = path.join(profile, "visual-net-log.json");
+		await app.evaluate(async ({ BrowserWindow, session }, file) => {
+			const [win] = BrowserWindow.getAllWindows();
+			if (!win) throw new Error("No window");
+			await session.fromPartition(`preview-visual-${win.id}`).netLog.startLogging(file);
+		}, netLog);
 		const composer = shell.locator("textarea").first();
 		await composer.fill(
 			`!fixture:host-tool:gui_visualize ${JSON.stringify({ action: "open", target: "egress.html" })}`,
@@ -175,6 +199,15 @@ test("a visual's page sends nothing off its own origin; a clicked link opens onl
 		// Long enough for the meta refresh (1 s), ICE gathering and every retry.
 		await sleep(5000);
 		expect(listener.hits).toEqual([]);
+		// No DNS prefetch asked for a name; a resolution main itself asks for is in the log, so the log would show one.
+		await app.evaluate(async ({ BrowserWindow, session }, suffix) => {
+			const [win] = BrowserWindow.getAllWindows();
+			const visual = session.fromPartition(`preview-visual-${win?.id}`);
+			await visual.resolveHost(`control.${suffix}`).catch(() => {});
+			await visual.netLog.stopLogging();
+		}, DNS_SUFFIX);
+		const resolved = new Set((await fs.readFile(netLog, "utf8")).match(/[a-z-]+\.egress\.invalid/g));
+		expect([...resolved]).toEqual([`control.${DNS_SUFFIX}`]);
 
 		// The visual is still there, with its own assets.
 		const urls = await app.evaluate(({ webContents }) => webContents.getAllWebContents().map(item => item.getURL()));

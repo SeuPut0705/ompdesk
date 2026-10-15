@@ -132,12 +132,21 @@ if (userDataDirectory) {
 applyGpuFallbackIfNeeded();
 
 // Players stream audio/video through `omp-media://` (range requests); the agent's visuals load in the Preview
-// through `omp-visual://` (main/preview/visuals.ts; handled on the preview partition only). Privileges must
-// precede whenReady.
+// through `omp-visual://` (main/preview/visuals.ts; handled on the preview's visual session only). Privileges
+// must precede whenReady.
 protocol.registerSchemesAsPrivileged([
 	{ scheme: MEDIA_SCHEME, privileges: { standard: true, secure: true, stream: true } },
 	{ scheme: VISUAL_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
+// No page resolves host names it only hints at (`<link rel=dns-prefetch>`, in any frame, whatever
+// `x-dns-prefetch-control` says): a visual's page could spell what it read into a name for the system resolver,
+// which neither CSP nor the visual session's dead proxy stops (Security #3). Only a hint is lost; Blink applies
+// this after each page's preferences, in every renderer. Any `--blink-settings` given at launch is kept.
+const blinkSettings = app.commandLine.getSwitchValue("blink-settings");
+app.commandLine.appendSwitch(
+	"blink-settings",
+	[blinkSettings, "dnsPrefetchingEnabled=false"].filter(Boolean).join(","),
+);
 const mediaStreams = new MediaStreams();
 
 // Single instance lock
