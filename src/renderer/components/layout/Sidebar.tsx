@@ -731,9 +731,7 @@ export function Sidebar() {
 		// Already open in a tab: go there. An untouched empty tab is replaced
 		// instead of left behind; anything else keeps its tab and the session
 		// opens next to it.
-		const owner = localTabs.find(
-			tab => tab.id === session.liveTabId || tab.sessionId === session.id || tab.sessionPath === session.path,
-		);
+		const owner = tabForSession(session);
 		if (owner) {
 			void useTabsStore.getState().switchTab(owner.id);
 			return;
