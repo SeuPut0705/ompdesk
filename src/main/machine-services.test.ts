@@ -47,6 +47,18 @@ function localMachine(
 		benchmarkEnv: async () => ({}),
 		accountRotation,
 		builtinRea: { read: () => undefined, write: () => {} },
+		desktop: {
+			version: () => "1.2.3",
+			update: {
+				status: () => ({ state: "idle" }),
+				check: async () => ({ state: "checking" }),
+				download: async () => ({ state: "idle" }),
+				restartable: () => false,
+				restart: () => {},
+			},
+			appearance: () => ({ themeName: "dark", language: 3 }),
+			busy: () => false,
+		},
 	});
 }
 

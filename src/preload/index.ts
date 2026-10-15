@@ -11,6 +11,8 @@ import type {
 	CustomProviderInput,
 	CustomProvidersConfig,
 	DeepLinkPayload,
+	HostDesktopState,
+	HostUpdateAction,
 	HostView,
 	IpcActiveTabEnvelope,
 	IpcBenchmarkRunOptions,
@@ -408,6 +410,11 @@ const api: OmpApi = {
 		get: (device?: string) => ipcRenderer.invoke(IPC_COMMANDS.BUILTIN_REA_GET, device) as Promise<BuiltinReaState>,
 		set: (enabled: boolean, device?: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.BUILTIN_REA_SET, enabled, device) as Promise<BuiltinReaState>,
+	},
+	hostDesktop: {
+		get: (device?: string) => ipcRenderer.invoke(IPC_COMMANDS.HOST_DESKTOP_GET, device) as Promise<HostDesktopState>,
+		update: (action: HostUpdateAction, device?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.HOST_DESKTOP_UPDATE, action, device) as Promise<HostDesktopState>,
 	},
 
 	fs: {

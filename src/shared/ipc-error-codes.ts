@@ -103,6 +103,9 @@ export const IPC_ERROR_CODES = [
 	"remote_protocol",
 	// A paired device's daily model-use limit on this host is used up (remote/peer-quota.ts).
 	"remote_limit_reached",
+	// A device asked a host to install its update (machine-services.ts desktopUpdate).
+	"host_busy",
+	"update_not_ready",
 ] as const;
 
 export type IpcErrorCode = (typeof IPC_ERROR_CODES)[number];

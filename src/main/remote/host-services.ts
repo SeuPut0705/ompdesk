@@ -182,6 +182,7 @@ const ModelSetupRunParams = z.object({ request: ModelSetupRequestSchema });
 const AccountRotationSetParams = z.object({ mode: z.enum(ACCOUNT_ROTATION_MODES) });
 const BuiltinReaSetParams = z.object({ enabled: z.boolean() });
 const TerminalParams = z.object({ rtab: Rtab, operation: z.object({ action: z.string() }).passthrough() });
+const DesktopUpdateParams = z.object({ action: z.enum(["check", "download", "install"]) });
 
 function parse<T extends z.ZodTypeAny>(schema: T, method: string, params: unknown): z.infer<T> {
 	const parsed = schema.safeParse(params ?? {});
@@ -401,6 +402,10 @@ export class LocalHostServices implements HostServices {
 				return this.#deps.machine.builtinRea();
 			case "host.builtinRea.set":
 				return this.#deps.machine.setBuiltinRea(parse(BuiltinReaSetParams, method, params).enabled);
+			case "host.desktop.get":
+				return this.#deps.machine.desktop();
+			case "host.desktop.update":
+				return this.#deps.machine.desktopUpdate(parse(DesktopUpdateParams, method, params).action);
 			default:
 				throw codedError("unsupported", `Unknown method ${method}`);
 		}

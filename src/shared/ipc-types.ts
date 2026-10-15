@@ -186,6 +186,10 @@ export const IPC_COMMANDS = {
 	ACCOUNT_ROTATION_SET: "account-rotation:set",
 	BUILTIN_REA_GET: "builtin-rea:get",
 	BUILTIN_REA_SET: "builtin-rea:set",
+	/** OMPdesk on the focused tab's machine (HostDesktopState); `device` absent = this computer */
+	HOST_DESKTOP_GET: "host-desktop:get",
+	/** Drive that machine's updater (HostUpdateAction) */
+	HOST_DESKTOP_UPDATE: "host-desktop:update",
 	/** List workspace files as a tree (main-process readdir, no sidecar needed) */
 	FS_LIST: "fs:list",
 	/** Read a workspace file with a byte cap */
@@ -350,6 +354,21 @@ export type UpdateStatus =
 	| { state: "error"; message: string; detail?: string; showInBanner?: boolean }
 	/** No GitHub token, or the token cannot read the private release repo. Settings-only, never a banner. */
 	| { state: "auth-required"; reason: "missing" | "invalid" | "denied" };
+
+/**
+ * OMPdesk itself on the machine a tab runs on (Settings on a paired host's
+ * tab): its version and updater state (B26), and its theme and UI language
+ * for "Use the host's theme and language" (B16).
+ */
+export interface HostDesktopState {
+	version: string;
+	update: UpdateStatus;
+	/** The host's prefs `themeName` (unvalidated name) and `language`; null when unset. */
+	appearance: { themeName: string | null; language: string | null };
+}
+
+/** What a device asks a host's updater to do; `install` restarts the host into the update. */
+export type HostUpdateAction = "check" | "download" | "install";
 
 /** Where the updater's GitHub token came from, in precedence order. */
 export type UpdateTokenSource = "env" | "gh" | "stored";
@@ -1551,6 +1570,12 @@ export interface OmpApi {
 	builtinRea: {
 		get(device?: string): Promise<BuiltinReaState>;
 		set(enabled: boolean, device?: string): Promise<BuiltinReaState>;
+	};
+	/** OMPdesk on a paired host (`device`), or this computer when absent. */
+	hostDesktop: {
+		get(device?: string): Promise<HostDesktopState>;
+		/** Throws IpcError `host_busy|update_not_ready` for an install the host refuses. */
+		update(action: HostUpdateAction, device?: string): Promise<HostDesktopState>;
 	};
 	fs: {
 		list(path?: string, maxDepth?: number, maxEntries?: number, tabId?: string): Promise<IpcFsListResult>;

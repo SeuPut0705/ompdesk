@@ -10,6 +10,8 @@ import type {
 	CustomProviderInput,
 	CustomProvidersConfig,
 	CustomProviderView,
+	HostDesktopState,
+	HostUpdateAction,
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
 	IpcModelSetupRunResult,
@@ -135,6 +137,12 @@ function fakeLocalTabs() {
 	return { tab, owned, localTabs };
 }
 
+const DESKTOP: HostDesktopState = {
+	version: "1.2.3",
+	update: { state: "downloaded", version: "1.3.0", mode: "relaunch" },
+	appearance: { themeName: "dark", language: "ko" },
+};
+
 /** This machine's models.yml, stats and bench, recording what the host asked of it. */
 function fakeMachine() {
 	return {
@@ -169,6 +177,8 @@ function fakeMachine() {
 		),
 		builtinRea: vi.fn(async () => ({ enabled: true, available: true })),
 		setBuiltinRea: vi.fn(async (enabled: boolean) => ({ enabled, available: true })),
+		desktop: vi.fn(async (): Promise<HostDesktopState> => DESKTOP),
+		desktopUpdate: vi.fn(async (_action: HostUpdateAction): Promise<HostDesktopState> => DESKTOP),
 	} satisfies MachineServices;
 }
 
@@ -657,6 +667,19 @@ describe("LocalHostServices host.* calls", () => {
 			);
 		}
 		expect(machine.setAccountRotation).toHaveBeenCalledTimes(1);
+	});
+
+	it("serves the host's OMPdesk state and passes only known update actions to its updater", async () => {
+		const { services, machine } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await expect(services.call(x.peer, "host.desktop.get", {}, x)).resolves.toEqual(DESKTOP);
+		await services.call(x.peer, "host.desktop.update", { action: "install" }, x);
+		expect(machine.desktopUpdate).toHaveBeenCalledWith("install");
+		for (const bad of [{}, { action: "quit" }]) {
+			await expect(services.call(x.peer, "host.desktop.update", bad, x)).rejects.toThrow(
+				/Invalid host.desktop.update/,
+			);
+		}
 	});
 
 	it("reads the host's built-in REA preference and validates writes", async () => {

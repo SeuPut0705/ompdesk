@@ -499,6 +499,71 @@ async function testAuth(token: string | undefined): Promise<UpdateAuthTestResult
 	return { access: await checkRepoAccess(resolved.token), source: resolved.source };
 }
 
+/** The updater's current state (also what a paired device sees for this computer). */
+export function updateStatus(): UpdateStatus {
+	return current;
+}
+
+/** A user-started check; a macOS transfer in flight keeps its state. */
+export async function checkForUpdate(): Promise<UpdateStatus> {
+	if (macTransfer.running) return current;
+	broadcast({ state: "checking" });
+	await runCheck(true);
+	return current;
+}
+
+/** Start the download of the update a check found. */
+export async function downloadUpdate(): Promise<UpdateStatus> {
+	if (current.state !== "available" || macTransfer.running) return current;
+	try {
+		if (current.mode === "manual" || current.mode === "relaunch") {
+			if (!macAsset) throw new Error(mainT("updates.installerMissing"));
+			if (!updateToken) {
+				broadcast({ state: "auth-required", reason: "missing" });
+				return current;
+			}
+			await startMacDownload(activeUpdate?.version ?? current.version, macAsset, updateToken, current.mode);
+		} else {
+			await autoUpdater.downloadUpdate();
+		}
+	} catch (error) {
+		broadcast(failureStatus(error, "updates.downloadFailed", true));
+	}
+	return current;
+}
+
+/**
+ * Whether `restartIntoUpdate` can install what is downloaded: relaunch or
+ * automatic mode with its files in place. The manual DMG needs someone at the
+ * Mac to drag the app, so it never qualifies.
+ */
+export function restartableUpdate(): boolean {
+	if (current.state !== "downloaded") return false;
+	if (current.mode === "relaunch") return stagedApp !== undefined && ownBundle !== undefined;
+	return current.mode === "automatic";
+}
+
+/**
+ * Quit into the downloaded update and reopen (relaunch: the swap helper;
+ * automatic: electron-updater's installer). Callers have already confirmed
+ * the quit; it stops every tab this computer runs.
+ */
+export function restartIntoUpdate(): void {
+	if (current.state !== "downloaded") return;
+	if (current.mode === "relaunch") {
+		if (!stagedApp || !ownBundle) {
+			broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });
+			return;
+		}
+		relaunchAfterSwap = true;
+		requestQuit();
+		return;
+	}
+	// Once approved, quitAndInstall() emits before-quit-for-update and the
+	// quit guard runs ⌘Q's teardown.
+	if (current.mode === "automatic") autoUpdater.quitAndInstall();
+}
+
 export function setupUpdater(): void {
 	installMode = detectInstallMode();
 	// Installs interrupted by older builds keyed the partial by process id, which
@@ -577,30 +642,8 @@ export function setupUpdater(): void {
 		broadcast(failureStatus(error, "updates.failed", false));
 	});
 
-	ipcMain.handle(IPC_COMMANDS.UPDATER_CHECK, async () => {
-		if (macTransfer.running) return current;
-		broadcast({ state: "checking" });
-		await runCheck(true);
-		return current;
-	});
-	ipcMain.handle(IPC_COMMANDS.UPDATER_DOWNLOAD, async () => {
-		if (current.state !== "available" || macTransfer.running) return current;
-		try {
-			if (current.mode === "manual" || current.mode === "relaunch") {
-				if (!macAsset) throw new Error(mainT("updates.installerMissing"));
-				if (!updateToken) {
-					broadcast({ state: "auth-required", reason: "missing" });
-					return current;
-				}
-				await startMacDownload(activeUpdate?.version ?? current.version, macAsset, updateToken, current.mode);
-			} else {
-				await autoUpdater.downloadUpdate();
-			}
-		} catch (error) {
-			broadcast(failureStatus(error, "updates.downloadFailed", true));
-		}
-		return current;
-	});
+	ipcMain.handle(IPC_COMMANDS.UPDATER_CHECK, () => checkForUpdate());
+	ipcMain.handle(IPC_COMMANDS.UPDATER_DOWNLOAD, () => downloadUpdate());
 	ipcMain.handle(IPC_COMMANDS.UPDATER_APPLY, async () => {
 		if (current.state !== "downloaded") return;
 		if (current.mode === "manual") {
@@ -615,21 +658,13 @@ export function setupUpdater(): void {
 			}
 			return;
 		}
-		if (current.mode === "relaunch") {
-			if (!stagedApp || !ownBundle) {
-				broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });
-				return;
-			}
-			// Running work dies with the restart: same prompt as ⌘Q.
-			if (!(await confirmQuit())) return;
-			relaunchAfterSwap = true;
-			requestQuit();
+		if (!restartableUpdate()) {
+			broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });
 			return;
 		}
-		// Same prompt as ⌘Q; once approved, quitAndInstall() emits
-		// before-quit-for-update and the quit guard runs ⌘Q's teardown.
+		// Running work dies with the restart: same prompt as ⌘Q.
 		if (!(await confirmQuit())) return;
-		autoUpdater.quitAndInstall();
+		restartIntoUpdate();
 	});
 	ipcMain.handle(IPC_COMMANDS.UPDATER_GET_STATUS, () => current);
 	ipcMain.handle(IPC_COMMANDS.UPDATER_VERSION, () => appVersion());

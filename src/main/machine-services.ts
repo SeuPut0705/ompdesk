@@ -19,9 +19,12 @@ import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error
 import type {
 	CustomProviderInput,
 	CustomProvidersConfig,
+	HostDesktopState,
+	HostUpdateAction,
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
 	IpcModelSetupRunResult,
+	UpdateStatus,
 } from "../shared/ipc-types";
 import { MODEL_SETUP_TIMEOUT_MS, type ModelSetupRequest, type ModelSetupStatus } from "../shared/model-setup";
 import { BENCHMARK_TIMEOUT_MS, BenchmarkRunner } from "./benchmark-runner";
@@ -34,6 +37,7 @@ import {
 	AccountRotationStateSchema,
 	BuiltinReaStateSchema,
 	HOST_STATS_TIMEOUT_MS,
+	HostDesktopStateSchema,
 	LINK_SLACK_MS,
 	ModelSetupStatusSchema,
 } from "./remote/app-protocol";
@@ -63,6 +67,10 @@ export interface MachineServices {
 	setAccountRotation(mode: AccountRotationMode): Promise<AccountRotationState>;
 	builtinRea(): Promise<BuiltinReaState>;
 	setBuiltinRea(enabled: boolean): Promise<BuiltinReaState>;
+	/** OMPdesk on that machine: version, updater state, theme and UI language. */
+	desktop(): Promise<HostDesktopState>;
+	/** Drive that machine's updater; `install` restarts it into the downloaded update. */
+	desktopUpdate(action: HostUpdateAction): Promise<HostDesktopState>;
 }
 
 /** The stats server's down-state texts, in this computer's UI language. */
@@ -109,6 +117,7 @@ export interface LocalMachineDeps {
 	benchmarkEnv: () => Promise<NodeJS.ProcessEnv>;
 	accountRotation: AccountRotationDeps;
 	builtinRea: { read(): unknown; write(enabled: boolean): void };
+	desktop: DesktopDeps;
 }
 
 export interface AccountRotationDeps {
@@ -119,6 +128,27 @@ export interface AccountRotationDeps {
 	/** The gui-bridge `accountRotation` probe for this machine's omp; null before one has answered. */
 	evenSupported(): Promise<boolean | null>;
 }
+
+/** This computer's OMPdesk, for paired devices (updater.ts, prefs). */
+export interface DesktopDeps {
+	version(): string;
+	update: {
+		status(): UpdateStatus;
+		check(): Promise<UpdateStatus>;
+		download(): Promise<UpdateStatus>;
+		restartable(): boolean;
+		restart(): void;
+	};
+	/** prefs `themeName` and `language`, unparsed. */
+	appearance(): { themeName: unknown; language: unknown };
+	/** Something would stop if OMPdesk quit now: a turn on this computer's tabs or a device's. */
+	busy(): boolean;
+}
+
+/** A host's check or download (the updater's own release lookup or transfer start). */
+export const DESKTOP_UPDATE_TIMEOUT_MS = 90_000;
+/** The reply to an install leaves before the host starts quitting. */
+const INSTALL_DELAY_MS = 500;
 
 export class LocalMachine implements MachineServices {
 	readonly #deps: LocalMachineDeps;
@@ -228,6 +258,39 @@ export class LocalMachine implements MachineServices {
 		this.#deps.builtinRea.write(enabled);
 		return this.builtinRea();
 	}
+
+	async desktop(): Promise<HostDesktopState> {
+		const { version, update, appearance } = this.#deps.desktop;
+		const { themeName, language } = appearance();
+		return {
+			version: version(),
+			update: update.status(),
+			appearance: {
+				themeName: typeof themeName === "string" ? themeName : null,
+				language: typeof language === "string" ? language : null,
+			},
+		};
+	}
+
+	/**
+	 * A paired device drives this computer's updater. Install restarts OMPdesk
+	 * here without a dialog nobody at the device could answer, so it refuses
+	 * while anything runs (this computer's tabs or any device's) and when the
+	 * update needs someone at this computer (the macOS manual DMG).
+	 */
+	async desktopUpdate(action: HostUpdateAction): Promise<HostDesktopState> {
+		const { update, busy } = this.#deps.desktop;
+		if (action === "check") await update.check();
+		else if (action === "download") await update.download();
+		else if (action === "install") {
+			if (!update.restartable())
+				throw codedError("update_not_ready", "No update is ready to install on this computer");
+			if (busy()) throw codedError("host_busy", "Work is running on this computer");
+			// Answer first: the restart closes the device's link.
+			setTimeout(update.restart, INSTALL_DELAY_MS);
+		} else throw codedError("invalid_preference_key", "Invalid update action");
+		return this.desktop();
+	}
 }
 
 /** One host-level call on a paired host (RemoteDevices.request). */
@@ -321,6 +384,17 @@ export class RemoteMachine implements MachineServices {
 
 	async setBuiltinRea(enabled: boolean): Promise<BuiltinReaState> {
 		return BuiltinReaStateSchema.parse(await this.#request<unknown>("host.builtinRea.set", { enabled }));
+	}
+
+	async desktop(): Promise<HostDesktopState> {
+		return HostDesktopStateSchema.parse(await this.#request<unknown>("host.desktop.get", {}));
+	}
+
+	async desktopUpdate(action: HostUpdateAction): Promise<HostDesktopState> {
+		// A check or download answers once the host's updater has; give it the link's slack on top.
+		return HostDesktopStateSchema.parse(
+			await this.#request<unknown>("host.desktop.update", { action }, DESKTOP_UPDATE_TIMEOUT_MS + LINK_SLACK_MS),
+		);
 	}
 }
 

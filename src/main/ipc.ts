@@ -1151,6 +1151,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (typeof enabled !== "boolean") throw codedError("invalid_preference_key", "Invalid built-in REA preference");
 		return machineFor(event, device).setBuiltinRea(enabled);
 	});
+	ipcMain.handle(IPC_COMMANDS.HOST_DESKTOP_GET, (event, device?: unknown) => machineFor(event, device).desktop());
+	ipcMain.handle(IPC_COMMANDS.HOST_DESKTOP_UPDATE, (event, action: unknown, device?: unknown) => {
+		if (action !== "check" && action !== "download" && action !== "install") {
+			throw codedError("invalid_preference_key", "Invalid update action");
+		}
+		return machineFor(event, device).desktopUpdate(action);
+	});
 
 	// "Edit config" — open the agent's models.yml in the system editor. The
 	// file is created with a minimal skeleton when missing so there is always

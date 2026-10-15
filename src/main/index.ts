@@ -30,7 +30,7 @@ import { SCHEDULES_STATE } from "../shared/schedules";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
 import { AgentWorktreeAutoClean } from "./agent-worktrees";
-import { installQuitGuard, quitApproved, requestQuit } from "./app-quit";
+import { installQuitGuard, quitApproved, quitRisk, requestQuit } from "./app-quit";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
@@ -47,6 +47,7 @@ import { LocalMachine } from "./machine-services";
 import { MEDIA_SCHEME, MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
 import { ompPackageRoot, ompPathEnv, systemOmp } from "./omp-runtime";
+import { quitNeedsConfirmation } from "./quit-guard";
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
 import { KeepAwakePolicy } from "./remote/keep-awake";
@@ -64,7 +65,15 @@ import { StatsClient } from "./stats-client";
 import { StatsServerManager } from "./stats-server";
 import { type PersistedTabLayout, sanitizePersistedTabLayouts } from "./tab-layout";
 import { createTray, destroyTray, hasTray } from "./tray";
-import { setupUpdater } from "./updater";
+import {
+	appVersion,
+	checkForUpdate,
+	downloadUpdate,
+	restartableUpdate,
+	restartIntoUpdate,
+	setupUpdater,
+	updateStatus,
+} from "./updater";
 import { WindowManager } from "./window";
 import { resolveWindowSpawnTarget } from "./window-spawn-target";
 import {
@@ -496,6 +505,19 @@ app.whenReady().then(() => {
 		builtinRea: {
 			read: () => prefsStore().get(REA_PREF),
 			write: enabled => prefsStore().set(REA_PREF, enabled),
+		},
+		desktop: {
+			version: appVersion,
+			update: {
+				status: updateStatus,
+				check: checkForUpdate,
+				download: downloadUpdate,
+				restartable: restartableUpdate,
+				restart: restartIntoUpdate,
+			},
+			appearance: () => ({ themeName: prefsStore().get("themeName"), language: prefsStore().get("language") }),
+			// Device tabs this computer hosts count too; their own quit prompt never reaches anyone.
+			busy: (): boolean => quitNeedsConfirmation(quitRisk()) || hostServices.runningPeers().length > 0,
 		},
 		accountRotation: accountRotationDeps({
 			prefs: { get: key => prefsStore().get(key), set: (key, value) => prefsStore().set(key, value) },

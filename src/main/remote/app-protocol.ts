@@ -21,6 +21,9 @@
  *   `host.modelSetup.status {}` → ModelSetupStatus, `host.modelSetup.abort {}` → boolean,
  *   `host.accountRotation.get {}` / `host.accountRotation.set {mode}` → AccountRotationState
  *   (the host's own pref; its sessions follow it)
+ * - OMPdesk on the host: `host.desktop.get {}` → HostDesktopState (version, updater state,
+ *   theme and language), `host.desktop.update {action: "check"|"download"|"install"}` → HostDesktopState
+ *   (install restarts the host; refused with `host_busy` while anything runs there)
  *
  * Events (B → A): `tab.event` (TabEventMessage) and `sessions.changed` (no data).
  * Both sides parse what crosses the link with the schemas below.
@@ -35,8 +38,10 @@ import type {
 	CustomProviderApi,
 	CustomProviderDiscoveryType,
 	CustomProviderInput,
+	HostDesktopState,
 	IpcBenchmarkRunOptions,
 	IpcFsReadBinaryResult,
+	UpdateStatus,
 } from "../../shared/ipc-types";
 import type { ModelSetupStatus } from "../../shared/model-setup";
 
@@ -205,6 +210,30 @@ export const ModelSetupStatusSchema: z.ZodType<ModelSetupStatus> = z.object({
 	running: z.boolean(),
 	startedAt: z.number().optional(),
 	activity: z.object({ tool: z.string(), detail: z.string().optional() }).optional(),
+});
+
+const Mode = z.enum(["automatic", "relaunch", "manual"]);
+const UpdateStatusSchema: z.ZodType<UpdateStatus> = z.discriminatedUnion("state", [
+	z.object({ state: z.literal("idle") }),
+	z.object({ state: z.literal("checking") }),
+	z.object({ state: z.literal("available"), version: z.string(), notes: z.string().optional(), mode: Mode }),
+	z.object({ state: z.literal("downloading"), version: z.string(), mode: Mode, percent: z.number() }),
+	z.object({ state: z.literal("downloaded"), version: z.string(), mode: Mode }),
+	z.object({ state: z.literal("not-available"), version: z.string() }),
+	z.object({
+		state: z.literal("error"),
+		message: z.string(),
+		detail: z.string().optional(),
+		showInBanner: z.boolean().optional(),
+	}),
+	z.object({ state: z.literal("auth-required"), reason: z.enum(["missing", "invalid", "denied"]) }),
+]);
+
+/** `host.desktop.*` reply: the host's OMPdesk version, updater state and appearance prefs. */
+export const HostDesktopStateSchema: z.ZodType<HostDesktopState> = z.object({
+	version: z.string(),
+	update: UpdateStatusSchema,
+	appearance: z.object({ themeName: z.string().nullable(), language: z.string().nullable() }),
 });
 
 /** A host-level stats read waits for the host's own stats request (15 s) plus the link. */
