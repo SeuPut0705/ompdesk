@@ -15,7 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp, walkRemotePicker } from "./harness";
 
 interface Instance {
 	app: ElectronApplication;
@@ -97,22 +97,7 @@ test("a paired device shows the host's OMPdesk under Updates and, when asked, th
 		await expect(section).toHaveAttribute("data-device-state", "online");
 		await section.locator(`[data-sidebar-device-add="${deviceId}"]`).click();
 		const picker = a.getByRole("dialog", { name: /Choose a folder on/ });
-		const pickerPath = picker.locator("[data-remote-picker-path]");
-		await expect(pickerPath).not.toHaveText("");
-		while ((await pickerPath.textContent()) !== path.parse(host.project).root) {
-			const before = await pickerPath.textContent();
-			await picker.locator("[data-remote-picker-up]").click();
-			await expect(pickerPath).not.toHaveText(before ?? "");
-		}
-		let current = path.parse(host.project).root;
-		for (const part of path.relative(current, host.project).split(path.sep)) {
-			current = path.join(current, part);
-			// By name: the host lists a bounded number of folders per level, and a crowded
-			// temp folder holds more than that.
-			await picker.locator("[data-remote-picker-filter]").fill(part);
-			await picker.locator(`[data-remote-dir="${current}"]`).click();
-			await expect(pickerPath).toHaveText(current);
-		}
+		await walkRemotePicker(picker, host.project);
 		await picker.locator("[data-remote-picker-open]").click();
 		await expect(picker).toHaveCount(0);
 		await expect

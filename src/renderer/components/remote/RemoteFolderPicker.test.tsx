@@ -170,4 +170,19 @@ describe("RemoteFolderPicker", () => {
 		expect(shownPath()).toBe("/Users/kim/notes");
 		expect((document.body.querySelector("[data-remote-picker-filter]") as HTMLInputElement | null)?.value).toBe("");
 	});
+
+	it("opens a folder clicked while the filter's answer is still on its way, and the late answer stays out", async () => {
+		await mount();
+		const late = Promise.withResolvers<RemoteDirListing>();
+		listDirs.mockImplementationOnce(() => late.promise);
+		await filterBy("no");
+		expect(listDirs).toHaveBeenLastCalledWith("dev-studio", "/Users/kim", "no");
+
+		await click('[data-remote-dir="/Users/kim/notes"]');
+		expect(listDirs).toHaveBeenLastCalledWith("dev-studio", "/Users/kim/notes");
+		expect(shownPath()).toBe("/Users/kim/notes");
+
+		await act(async () => late.resolve({ ...TREE["/Users/kim"], entries: [] }));
+		expect(shownPath()).toBe("/Users/kim/notes");
+	});
 });

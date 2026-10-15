@@ -193,10 +193,11 @@ export function RemoteFolderPicker({ open, deviceId, deviceName, onClose, onPick
 							{query ? t("remote.picker.noMatch", { query }) : t("remote.picker.empty")}
 						</p>
 					) : (
+						// A row stays clickable while a level loads: a click starts the latest
+						// navigation, which outranks the read in flight (a filter typed a moment ago).
 						listing?.entries.map(entry => (
 							<ListRow
 								buttonProps={{ "data-remote-dir": entry.path }}
-								disabled={loading}
 								key={entry.path}
 								leading={<Folder aria-hidden />}
 								onClick={() => navigate(entry.path)}
