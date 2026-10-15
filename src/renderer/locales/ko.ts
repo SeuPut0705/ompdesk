@@ -4811,7 +4811,8 @@ export const ko: Record<string, string> = {
 	"events.sidecarHealthFailed": "omp 상태 확인에 실패했어요. 에이전트가 멈췄을 수 있으니 계속되면 다시 시작하세요.",
 	"events.sidecarNoResponse": "omp가 시작됐지만 응답하지 않아요. 계속하려면 다시 시작하세요.",
 	"events.sidecarProcessFailed": "omp 프로세스가 실패했어요",
-	"events.goalTimeLimit": "목표를 일시정지했어요: {minutes}분 시간 제한이 다 됐어요. 재개하면 {minutes}분 더 진행해요.",
+	"events.goalTimeLimit":
+		"목표를 일시정지했어요: {minutes}분 시간 제한이 다 됐어요. 재개하면 {minutes}분 더 진행해요.",
 	"events.ttsrRules": "작업 중 규칙을 적용했어요: {rules}",
 	"export.sessionExported": "세션을 내보냈어요",
 	"model.fastMode": "빠른 모드",
