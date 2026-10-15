@@ -7,7 +7,6 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
-import Store from "electron-store";
 import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
 import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
 import type { UserProfile } from "../../resources/gui-bridge/user-profile-contracts";
@@ -250,6 +249,12 @@ export interface SidecarOptions {
 	/** The even-rotation ledger every local omp shares (`OMP_GUI_ACCOUNT_ROTATION_STATE`). */
 	accountRotationLedger?: string;
 	/**
+	 * The stored per-workspace launch profiles (prefs `launchProfiles`), read at
+	 * every spawn and mapped to the tab cwd's agent flags. Absent: no profile
+	 * flags, and no prefs file is touched.
+	 */
+	launchProfiles?: () => unknown;
+	/**
 	 * Persists a crash report (reason + stderr tail) for post-mortem diagnosis.
 	 * Same point-of-use injection as `proxyEnv`/`shellEnv`: the real
 	 * implementation is `writeRuntimeLog`, which resolves its path through
@@ -278,24 +283,17 @@ export interface SidecarFailureReport {
 }
 
 /**
- * Load the workspace's launch profile from GUI prefs (`launchProfiles.<cwd>`)
- * and map it to agent CLI flags. Prefs access mirrors the 0.3.1 proxy-env
- * pattern (point-of-use electron-store read); any failure — prefs unreadable,
- * non-electron test env, malformed JSON — degrades to no flags, never a
- * spawn block. Profile changes require a sidecar restart: flags are
- * spawn-time argv, there is no live apply.
+ * Map the workspace's launch profile (`launchProfiles.<cwd>`) to agent CLI
+ * flags. Any failure — prefs unreadable, malformed JSON — degrades to no
+ * flags, never a spawn block. Profile changes require a sidecar restart:
+ * flags are spawn-time argv, there is no live apply.
  */
-function loadLaunchProfileFlags(cwd: string): string[] {
+function loadLaunchProfileFlags(read: (() => unknown) | undefined, cwd: string): string[] {
+	if (!read) return [];
 	try {
-		// projectName is only a fallback for electron-less environments (tests):
-		// with the app present, electron-store's own userData cwd wins and the
-		// store matches index.ts/ipc.ts exactly. A pre-typed variable sidesteps
-		// the excess-property check — electron-store's Options type hides
-		// projectName, but its constructor passes it through to conf.
-		const storeOptions = { name: "prefs", projectName: "omp-gui" };
-		const profiles = new Store<{ launchProfiles?: Record<string, unknown> }>(storeOptions).get("launchProfiles");
+		const profiles = read();
 		if (typeof profiles !== "object" || profiles === null) return [];
-		return profileToFlags(parseLaunchProfile(profiles[cwd]));
+		return profileToFlags(parseLaunchProfile((profiles as Record<string, unknown>)[cwd]));
 	} catch {
 		return [];
 	}
@@ -483,7 +481,7 @@ export class SidecarManager extends EventEmitter {
 		// Strip the code-controlled-flag denylist (pair-aware) over BOTH, then
 		// append: neither can override the code-controlled argv above, while a
 		// profile value that merely looks like a protected flag survives intact.
-		const userFlags = [...(extraFlags ?? []), ...loadLaunchProfileFlags(cwd)];
+		const userFlags = [...(extraFlags ?? []), ...loadLaunchProfileFlags(this.#options.launchProfiles, cwd)];
 		args.push(...stripDenylistedFlags(userFlags));
 
 		const bin = runtime.bin;

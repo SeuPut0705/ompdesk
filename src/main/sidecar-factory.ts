@@ -39,6 +39,8 @@ export interface LocalSidecarDeps {
 	accountRotationPref: () => unknown;
 	/** The even-rotation ledger file every omp on this machine shares. */
 	accountRotationLedger: string;
+	/** The stored per-workspace launch profiles (`launchProfiles`), read per spawn. */
+	launchProfilesPref: () => unknown;
 }
 
 /** The device language as a BCP 47 subtag (`ko`, `zh-Hant`): not the UI one, which ships only en/ko. */
@@ -84,6 +86,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			},
 			accountRotation: () => parseAccountRotationPref(deps.accountRotationPref()),
 			accountRotationLedger: deps.accountRotationLedger,
+			launchProfiles: deps.launchProfilesPref,
 			bootModel: runtime => bootModelSelector(runtime, bridgeDir),
 			// Finder-launched omp has no terminal, and a sidecar that dies before
 			// it can write its own log only speaks through stderr — land the tail

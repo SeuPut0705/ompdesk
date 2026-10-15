@@ -481,48 +481,34 @@ describe("SidecarManager", () => {
 
 	it("appends the workspace launch profile flags at spawn, denylist-proof", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-profile-"));
-		const fakeHome = path.join(tempDir, "home");
 		const workspaceCwd = path.join(tempDir, "workspace");
-		await fs.mkdir(fakeHome, { recursive: true });
 		await fs.mkdir(workspaceCwd, { recursive: true });
 		const logPath = path.join(tempDir, "argv.json");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
 			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
 		);
-
-		// electron-store/conf resolves its prefs path from os.homedir() per
-		// construction (%APPDATA% on Windows), so a redirected HOME lands the
-		// store inside tempDir. Discover the exact path through the same stack
-		// rather than hardcoding conf internals, then seed the workspace profile.
-		const originalHome = process.env.HOME;
-		const originalAppData = process.env.APPDATA;
-		process.env.HOME = fakeHome;
-		if (process.platform === "win32") process.env.APPDATA = fakeHome;
-		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: workspaceCwd });
+		// The app's prefs store, kept in tempDir: never the developer's own prefs.json.
+		const prefs = new Store<Record<string, unknown>>({ name: "prefs", cwd: path.join(tempDir, "prefs") });
+		const sidecar = new SidecarManager({
+			omp: ompAt(binaryPath),
+			cwd: workspaceCwd,
+			launchProfiles: () => prefs.get("launchProfiles"),
+		});
 		try {
-			// Same options as the loader; a variable sidesteps the excess-property
-			// check on electron-store's Options type (projectName reaches conf).
-			const storeOptions = { name: "prefs", projectName: "omp-gui" };
-			const probe = new Store(storeOptions);
-			await fs.mkdir(path.dirname(probe.path), { recursive: true });
-			await fs.writeFile(
-				probe.path,
-				JSON.stringify({
-					launchProfiles: {
-						[workspaceCwd]: {
-							appendSystemPrompt: "GUI injected",
-							noRules: true,
-							addDirs: ["/data/extra"],
-							tools: ["read", "bash"],
-							// Smuggled keys that could reach code-controlled flags —
-							// parseLaunchProfile drops them before the mapping.
-							"--session": "hijack",
-							session: "hijack",
-						},
-					},
-				}),
-			);
+			// Written after construction: the profile is read at spawn.
+			prefs.set("launchProfiles", {
+				[workspaceCwd]: {
+					appendSystemPrompt: "GUI injected",
+					noRules: true,
+					addDirs: ["/data/extra"],
+					tools: ["read", "bash"],
+					// Smuggled keys that could reach code-controlled flags —
+					// parseLaunchProfile drops them before the mapping.
+					"--session": "hijack",
+					session: "hijack",
+				},
+			});
 
 			const ready = waitForReady(sidecar);
 			sidecar.start();
@@ -541,8 +527,6 @@ describe("SidecarManager", () => {
 				"read,bash",
 			]);
 		} finally {
-			process.env.HOME = originalHome;
-			if (process.platform === "win32") process.env.APPDATA = originalAppData;
 			sidecar.dispose();
 			await fs.rm(tempDir, RM_TEMP);
 		}

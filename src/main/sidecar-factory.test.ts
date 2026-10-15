@@ -1,0 +1,55 @@
+import * as os from "node:os";
+import * as path from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import { BridgeHealth } from "./bridge-health";
+import { SessionKindStore } from "./session-kinds";
+import type { SidecarOptions } from "./sidecar";
+import { localSidecarFactory } from "./sidecar-factory";
+
+const created = vi.hoisted(() => [] as SidecarOptions[]);
+
+// The factory only builds options; what a SidecarManager does with them is sidecar.test.ts's.
+vi.mock("./sidecar", () => ({
+	SidecarManager: class {
+		constructor(options: SidecarOptions) {
+			created.push(options);
+		}
+		on(): this {
+			return this;
+		}
+	},
+}));
+// i18n opens the Electron prefs store on import.
+vi.mock("./i18n", () => ({ ompFailureText: (reason: string) => reason }));
+vi.mock("electron", () => ({ app: {} }));
+
+describe("localSidecarFactory", () => {
+	it("hands every tab it spawns, hosted ones included, the stored launch profiles", () => {
+		let stored: unknown = { "/w/alpha": { noRules: true } };
+		const create = localSidecarFactory({
+			bridgeDir: "/bridge",
+			builtinDir: "/builtin",
+			builtinReaPref: () => undefined,
+			proxyEnv: async () => ({}),
+			bridgeHealth: new BridgeHealth(() => {}),
+			sessionKinds: new SessionKindStore(path.join(os.tmpdir(), "omp-gui-factory-kinds.json")),
+			replyLanguagePref: () => undefined,
+			userProfilePref: () => undefined,
+			delegationPref: () => undefined,
+			accountRotationPref: () => undefined,
+			accountRotationLedger: "/ledger.json",
+			launchProfilesPref: () => stored,
+		});
+
+		create("/w/alpha", "agent", false);
+		create("/w/alpha", "agent", true, { deviceId: "peer-1", name: "Laptop", hostName: "Desk" });
+		expect(created).toHaveLength(2);
+		for (const options of created) {
+			// Read per spawn, not captured at creation.
+			stored = { "/w/alpha": { noRules: true } };
+			expect(options.launchProfiles?.()).toEqual({ "/w/alpha": { noRules: true } });
+			stored = {};
+			expect(options.launchProfiles?.()).toEqual({});
+		}
+	});
+});

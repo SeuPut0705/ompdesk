@@ -482,6 +482,7 @@ app.whenReady().then(() => {
 		delegationPref: () => prefsStore().get(DELEGATION_PREF),
 		accountRotationPref: () => prefsStore().get(ACCOUNT_ROTATION_PREF),
 		accountRotationLedger: join(app.getPath("userData"), ACCOUNT_ROTATION_LEDGER_FILE),
+		launchProfilesPref: () => prefsStore().get("launchProfiles"),
 	});
 	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId), bridgeDir);
 	sidecarPool = new SidecarPool((cwd, kind, fresh, device, tabId) => {
