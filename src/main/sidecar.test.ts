@@ -91,17 +91,20 @@ describe("SidecarManager", () => {
 					},
 					{ timeout: 5_000, interval: 25 },
 				)
-				.toHaveLength(3);
+				.toHaveLength(4);
 
 			const commands = JSON.parse(await fs.readFile(commandLog, "utf8")) as Array<{
 				type: string;
 				events?: string[] | null;
+				tools?: Array<{ name: string }>;
 			}>;
 			expect(commands.map(command => command.type)).toEqual([
 				"negotiate_protocol",
 				"set_event_filter",
 				"set_ask_dialog",
+				"set_host_tools",
 			]);
+			expect(commands[3]?.tools?.map(tool => tool.name)).toEqual(["gui_terminal_read"]);
 			expect(commands[1]?.events).toContain("message_update");
 		} finally {
 			sidecar.dispose();

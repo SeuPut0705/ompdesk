@@ -97,7 +97,8 @@ import { deviceLanguage } from "./sidecar-factory";
 import type { SidecarLike, SidecarPool } from "./sidecar-pool";
 import { stockHelperRequest } from "./stock-helper";
 import { spawnTabForWindow } from "./tab-spawn";
-import { closeTabTerminals, registerTerminalIpc } from "./terminal/ipc";
+import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
+import { closeTabTerminals, readTabTerminals, registerTerminalIpc } from "./terminal/ipc";
 import { setTrayState } from "./tray";
 import { aggregateTrayStatus } from "./tray-labels";
 import { appVersion } from "./updater";
@@ -299,14 +300,30 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// Sidecar → owning-window event forwarding is wired by SidecarPool at
 	// acquire time. GUI host tools need Electron, so the pool calls this
 	// executor (set once at startup); unknown tools fail with stock's wording.
-	sidecarPool.hostToolExecutor = (sidecar, request) => {
+	sidecarPool.hostToolExecutor = (sidecar, request, tab) => {
+		const reply = (text: string, isError: boolean) =>
+			sidecar.sendSideChannel({
+				type: "host_tool_result",
+				id: request.id,
+				result: textToolResult(text),
+				...(isError ? { isError: true } : {}),
+			});
+		if (request.toolName === TERMINAL_READ_TOOL) {
+			const target = {
+				tabId: tab.tabId,
+				webContentsId: tab.win.webContents.id,
+				cwd: sidecar.cwd,
+				device: sidecar.device,
+			};
+			void readTabTerminals(remoteDevices, target).then(
+				snapshots => reply(formatTerminalRead(snapshots, request.arguments), false),
+				error =>
+					reply(`Couldn't read the terminals: ${error instanceof Error ? error.message : String(error)}`, true),
+			);
+			return;
+		}
 		const result = executeGuiHostTool(request.toolName, request.arguments);
-		sidecar.sendSideChannel({
-			type: "host_tool_result",
-			id: request.id,
-			result: textToolResult(result ?? `Host tool "${request.toolName}" is not registered`),
-			...(result === undefined ? { isError: true } : {}),
-		});
+		reply(result ?? `Host tool "${request.toolName}" is not registered`, result === undefined);
 	};
 
 	// Session index changes: this window set, and every device using this

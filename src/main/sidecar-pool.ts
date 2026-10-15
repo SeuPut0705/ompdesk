@@ -217,9 +217,11 @@ export class SidecarPool {
 	/**
 	 * GUI host tools run against Electron in ipc.ts, which the pool cannot
 	 * import without a cycle. Set once at startup; it answers every
-	 * hostToolCall of a visible tab, unknown tools with an explicit error.
+	 * hostToolCall (shown or hidden tab), unknown tools with an explicit error.
 	 */
-	hostToolExecutor: ((sidecar: SidecarLike, request: HostToolCallRequest) => void) | null = null;
+	hostToolExecutor:
+		| ((sidecar: SidecarLike, request: HostToolCallRequest, tab: { tabId: string; win: BrowserWindow }) => void)
+		| null = null;
 	/** Main-process persistence hook. The primary window installs this at startup. */
 	onWindowTabsChanged: ((win: BrowserWindow, layout: PersistedTabLayout | null) => void) | null = null;
 	/** Some tab may have started or finished running a turn (keep-awake while working). */
@@ -410,6 +412,10 @@ export class SidecarPool {
 			if (entry.detachFull || frame.type !== "subagent_lifecycle") return;
 			forwardToWindow(win, IPC_EVENTS.SUBAGENT_FRAMES, { tabId: entry.tabId, payload: [frame] });
 		});
+		// A tool call blocks the turn until answered, so a hidden tab's calls are answered too.
+		sidecar.on("hostToolCall", (request: HostToolCallRequest) => {
+			this.hostToolExecutor?.(sidecar, request, { tabId: entry.tabId, win });
+		});
 		const settle = (settled: boolean): void => {
 			const wasBusy = runBusy(entry.run);
 			settleRun(entry.run, settled);
@@ -491,9 +497,6 @@ export class SidecarPool {
 		wire("beforeResponse", () => subagentFrames.flush());
 		wire("status", (payload: SidecarStatusPayload) => {
 			forwardActive(IPC_EVENTS.SIDECAR_STATUS, { ...payload, cwd: sidecar.cwd });
-		});
-		wire("hostToolCall", (request: HostToolCallRequest) => {
-			this.hostToolExecutor?.(sidecar, request);
 		});
 		// OMPdesk registers no host URI schemes: fail the read/write instead of leaving omp waiting.
 		wire("hostUriRequest", (request: HostUriRequest) => {

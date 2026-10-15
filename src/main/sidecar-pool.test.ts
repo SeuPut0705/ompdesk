@@ -1215,6 +1215,19 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 		expect(pool.routeSideChannel("tool-inline", { type: "host_tool_result", id: "tool-inline" })).toBe(false);
 	});
 
+	it("answers every tab's host tools, shown or hidden, naming the calling tab", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		const [a, b] = sidecars;
+		const calls: string[] = [];
+		pool.hostToolExecutor = (_sidecar, request, tab) => calls.push(`${tab.tabId}:${request.id}`);
+		a?.emitHostToolCall("one");
+		b?.emitHostToolCall("two");
+		expect(calls).toEqual(["tab-a:one", "tab-b:two"]);
+	});
+
 	it("drops pending routes when the owning tab is released", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);

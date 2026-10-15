@@ -10,6 +10,20 @@ export function closeTabTerminals(windowId: number, tabId: string): void {
 	const owner = `${windowId}:${tabId}`;
 	if (owners.delete(owner)) disposeTerminals(owner);
 }
+/**
+ * The full output of a tab's Terminal panel sessions, for the read-only agent tool (C115):
+ * a local tab's in this window, a paired host's tab's on that host.
+ */
+export async function readTabTerminals(
+	remoteDevices: Pick<RemoteDevices, "request">,
+	tab: { tabId: string; webContentsId: number; cwd: string; device: string | undefined },
+): Promise<TerminalSnapshot[]> {
+	const operation: TerminalOperation = { action: "list" };
+	if (tab.device)
+		return remoteDevices.request<TerminalSnapshot[]>(tab.device, "terminal.request", { rtab: tab.tabId, operation });
+	const owner = `${tab.webContentsId}:${tab.tabId}`;
+	return owners.has(owner) ? terminalRequest(owner, tab.cwd, operation) : [];
+}
 export function registerTerminalIpc(pool: SidecarPool, remoteDevices: Pick<RemoteDevices, "request">): void {
 	const released = pool.onTabReleased;
 	pool.onTabReleased = (tabId, exited) => {

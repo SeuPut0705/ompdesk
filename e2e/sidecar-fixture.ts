@@ -3324,6 +3324,16 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			case "set_ask_dialog":
 				ok();
 				break;
+			case "set_host_tools":
+				ok({
+					toolNames: Array.isArray(command.tools)
+						? command.tools.map(tool => (tool && typeof tool === "object" && "name" in tool ? tool.name : null))
+						: [],
+				});
+				break;
+			// Stock answers nothing to a host tool's result; the recorded frame is what tests read.
+			case "host_tool_result":
+				break;
 			case "set_subagent_subscription":
 				subagentSubscription = text("level");
 				ok();
@@ -3644,6 +3654,18 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						: "Fixture has no flow running";
 					if (error) fail(error);
 					else ok();
+					break;
+				}
+				// The agent calls a GUI host tool (`fixture:host-tool:<name>`); its host_tool_result is recorded.
+				if (line.startsWith("fixture:host-tool:")) {
+					write({
+						type: "host_tool_call",
+						id: `host-tool-${Date.now()}`,
+						toolCallId: "fixture-host-tool",
+						toolName: line.slice("fixture:host-tool:".length),
+						arguments: {},
+					});
+					ok();
 					break;
 				}
 				if (line === "fixture:replay-next") {

@@ -37,6 +37,8 @@ export type RpcCommand =
 	| { id?: string; type: "set_event_filter"; events: string[] | null }
 	/** Opts the host into upstream's `ask` extension-dialog protocol (`answers` responses). */
 	| { id?: string; type: "set_ask_dialog"; enabled: boolean }
+	/** Registers GUI-executed tools (stock `set_host_tools`); calls arrive as `host_tool_call`. */
+	| { id?: string; type: "set_host_tools"; tools: HostToolDefinition[] }
 	| { id?: string; type: "get_subagents" }
 	| { id?: string; type: "get_subagent_messages"; subagentId?: string; sessionFile?: string; fromByte?: number }
 	| { id?: string; type: "set_model"; provider: string; modelId: string }
@@ -1494,6 +1496,13 @@ export type ExtensionUIResponse =
 // Host Tools & URIs
 // ============================================================================
 
+/** Stock `RpcHostToolDefinition` (modes/rpc/rpc-types.ts); `parameters` is a JSON schema. */
+export interface HostToolDefinition {
+	name: string;
+	label?: string;
+	description: string;
+	parameters: Record<string, unknown>;
+}
 export interface HostToolCallRequest {
 	type: "host_tool_call";
 	/** Snowflake request id the host echoes back in host_tool_result. */

@@ -33,7 +33,14 @@ for (const [language, theme] of [
 			process.env.OMP_GUI_TEST_NATIVES ||
 			path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-natives");
 		await fs.symlink(natives, path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives"), "dir");
-		const env = { ...process.env, OMP_GUI_HEADLESS: "1", PI_CODING_AGENT_DIR: agent, OMP_GUI_OMP: bin };
+		const record = path.join(profile, "record.jsonl");
+		const env = {
+			...process.env,
+			OMP_GUI_HEADLESS: "1",
+			PI_CODING_AGENT_DIR: agent,
+			OMP_GUI_OMP: bin,
+			OMP_GUI_TEST_RECORD: record,
+		};
 		Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 		const app = await electron.launch({
 			args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
@@ -82,6 +89,24 @@ for (const [language, theme] of [
 			await composer.fill("/cleanse lint warnings");
 			await composer.press("Enter");
 			await expect(viewport).toContainText("omp cleanse lint warnings", { timeout: 20_000 });
+
+			// C115: the agent's read-only gui_terminal_read sees the tab's terminals (registered via set_host_tools).
+			const frames = async () =>
+				(await fs.readFile(record, "utf8").catch(() => ""))
+					.split("\n")
+					.filter(Boolean)
+					.map(line => JSON.parse(line) as { type?: string; tools?: { name: string }[]; result?: unknown });
+			expect((await frames()).find(frame => frame.type === "set_host_tools")?.tools?.map(tool => tool.name)).toEqual(
+				["gui_terminal_read"],
+			);
+			await composer.fill("!fixture:host-tool:gui_terminal_read");
+			await composer.press("Enter");
+			await expect
+				.poll(async () => JSON.stringify((await frames()).find(frame => frame.type === "host_tool_result")?.result))
+				.toContain("Terminal 1: running");
+			const result = JSON.stringify((await frames()).find(frame => frame.type === "host_tool_result")?.result);
+			expect(result).toContain("Terminal 2: running");
+			expect(result).toContain("shell=");
 		} finally {
 			await exitApp(app);
 			await fs.rm(profile, { recursive: true, force: true });
