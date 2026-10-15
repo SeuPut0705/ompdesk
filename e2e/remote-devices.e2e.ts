@@ -222,7 +222,8 @@ test("pairs two devices, runs a prompt on the host, and shows the link drop", as
 			.poll(() => client?.app.evaluate(() => Reflect.get(globalThis, "openedUrls")))
 			.toEqual([expect.stringMatching(/^https:\/\/claude\.ai\/oauth\/authorize\?/)]);
 		const redirect = "http://localhost:54545/callback?code=abc&state=xyz";
-		await anthropic.getByLabel("Paste the authorization code (or full redirect URL):").fill(redirect);
+		// B's callback is out of A's browser's reach, so the code paste starts open.
+		await anthropic.getByLabel("Authorization code or redirect address").fill(redirect);
 		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
 		await expect(a.getByText("Signed in to Anthropic")).toBeVisible();
 		await expect(anthropic.locator("[data-remote-login-hint]")).toHaveCount(0);

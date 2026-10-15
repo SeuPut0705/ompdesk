@@ -14,7 +14,7 @@ import type {
 	ResetPassRedeemResult,
 	UsageLimit,
 } from "../../shared/rpc-types";
-import type { LocalHandler } from "./types";
+import { LocalCommandError, type LocalHandler } from "./types";
 
 /** Stock `get_logout_accounts` row (`LogoutAccount`). */
 export interface StockLogoutAccount {
@@ -87,6 +87,36 @@ const providerIdParam = z.string().min(1);
 export const handlers: Record<string, LocalHandler> = {
 	get_settings_schema: (_command, ctx) => ctx.bridge.request("settings_schema"),
 	get_settings: (command, ctx) => ctx.bridge.request("settings_get", { paths: command.paths }),
+const LOOPBACK_HOSTS: Record<string, true> = { localhost: true, "127.0.0.1": true, "[::1]": true };
+
+/**
+ * Ends a browser sign-in stock's `login` RPC is waiting on. That RPC takes no
+ * cancel (rpc-mode `login` passes its flow no signal), an empty answer to the
+ * code paste it races against the callback only makes it ask again, and while
+ * it waits it holds omp's serial command queue, up to the flow's 5-minute
+ * callback timeout. The one stop stock has is the one a provider's Deny button
+ * takes: its loopback callback reached with `error` and the flow's `state`
+ * rejects the login at once (pi-ai callback-server.ts `#handleCallback`).
+ * Runs where omp runs (a paired host's main for its tabs), so the loopback
+ * address is omp's own.
+ */
+export async function cancelBrowserLogin(authorizationUrl: string): Promise<void> {
+	const authorize = new URL(authorizationUrl);
+	const redirect = authorize.searchParams.get("redirect_uri");
+	const callback = redirect && URL.canParse(redirect) ? new URL(redirect) : null;
+	if (callback?.protocol !== "http:" || !Object.hasOwn(LOOPBACK_HOSTS, callback.hostname)) {
+		throw new LocalCommandError("This sign-in has no loopback callback to end", "no_loopback_callback");
+	}
+	const state = authorize.searchParams.get("state");
+	callback.search = "";
+	callback.hash = "";
+	callback.searchParams.set("error", "access_denied");
+	callback.searchParams.set("error_description", "Sign-in cancelled in OMPdesk");
+	if (state) callback.searchParams.set("state", state);
+	// Stock answers a denial with its error page (500); a closed server means the login already ended.
+	await fetch(callback, { signal: AbortSignal.timeout(5_000) }).catch(() => undefined);
+}
+
 	set_setting: (command, ctx) => ctx.bridge.request("settings_set", { path: command.path, value: command.value }),
 	get_available_models: (command, ctx) =>
 		ctx.bridge.request("models_catalog", { forceRefresh: command.forceRefresh === true }),
@@ -94,6 +124,7 @@ export const handlers: Record<string, LocalHandler> = {
 	// One account goes through stock `logout`; the whole provider only when asked for explicitly.
 	logout: async (command, ctx) => {
 		const providerId = providerIdParam.parse(command.providerId);
+	login_cancel: async command => cancelBrowserLogin(z.string().url().parse(command.url)),
 		if (command.all === true) return ctx.bridge.request("provider_logout", { providerId });
 		const credentialId = z.number().int().parse(command.credentialId);
 		return ctx.send({ type: "logout", providerId, credentialId });

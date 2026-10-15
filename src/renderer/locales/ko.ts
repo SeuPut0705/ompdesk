@@ -2019,6 +2019,11 @@ export const ko: Record<string, string> = {
 	"sessionPicker.placeholder": "세션 검색…",
 	"sessionPicker.loading": "세션 불러오는 중…",
 	"sessionPicker.empty": "세션이 없어요.",
+	"extDialog.oauthPaste.title": "{host} 로그인: 코드 붙여 넣기",
+	"extDialog.oauthPaste.titleUnknown": "로그인: 코드 붙여 넣기",
+	"extDialog.oauthPaste.hint":
+		"로그인한 뒤 브라우저가 여기로 돌아오지 못할 때만 필요해요. 브라우저에 보이는 코드나 멈춘 페이지의 전체 주소를 붙여 넣어 주세요.",
+	"extDialog.oauthPaste.field": "인증 코드 또는 리디렉션 주소",
 	"sessionPicker.noMatch": '"{query}"와(과) 일치하는 세션이 없어요.',
 	"sessionPicker.untitled": "제목 없는 세션",
 	"sessionPicker.messageCount": "메시지 {count}개",
@@ -4908,6 +4913,11 @@ export const ko: Record<string, string> = {
 	"setup.custom.title": "직접 운영하는 엔드포인트가 있나요?",
 	"setup.custom.description":
 		"OpenAI·Anthropic 호환 서버(Ollama, LM Studio, 프록시 등)를 주소와 모델 ID로 추가하세요.",
+	"providerList.login.exchanging": "로그인을 마무리하는 중…",
+	"providerList.login.pasteToggle": "브라우저가 OMPdesk로 돌아오지 않나요? 코드 붙여 넣기",
+	"providerList.login.pasteLabel": "인증 코드 또는 리디렉션 주소",
+	"providerList.login.pasteHint":
+		"브라우저가 열리지 않는 페이지에서 멈췄을 때만 필요해요. 화면에 보이는 코드나 그 페이지의 전체 주소를 붙여 넣어 주세요.",
 	"setup.configReadFailed": "models.yml을 읽을 수 없어요. 설정 › 모델 및 프로바이더에서 열어 고쳐 주세요.",
 	"setup.laterHint": "설정 › 모델 및 프로바이더에서 나중에 연결할 수 있어요.",
 	"setup.later": "나중에 설정",

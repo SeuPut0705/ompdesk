@@ -1,24 +1,31 @@
 /**
  * Inline provider sign-in. omp's `login` RPC drives every flow (OAuth in the
- * browser, API key paste, device code) through `open_url` and `input`
- * extension requests; while a sign-in started here is in flight those
- * requests render inside the provider row instead of as a global dialog
- * (`inlineLogin` in the extension-ui store). The key/code field is masked.
+ * browser, API key paste, device code) through `open_url`, `input` and info
+ * `notify` extension requests; the ones that arrive while a sign-in started
+ * here is in flight belong to it (`loginRequestIds` in the extension-ui store)
+ * and render in the provider row, never as a chat card. The key/code field is
+ * masked.
+ *
+ * A browser sign-in (stock's callback-server flows, e.g. Claude and ChatGPT)
+ * finishes on its own once the browser reaches omp's loopback callback. Stock
+ * still races a code paste against that callback ("Paste the authorization
+ * code (or full redirect URL)", callback-server.ts `#waitForCallback`) and
+ * never closes it, so the panel keeps waiting for the browser first, offers
+ * the paste as a secondary fallback, and answers the leftover request once
+ * `login` returns. An empty answer before that would only make stock ask again.
  *
  * On a tab that runs on a paired host, omp and its OAuth callback server run
  * there while the browser opens here: the link is the provider's own URL
- * (never the host's `localhost/launch`), and the panel tells the user to
- * paste the address the browser ends on — stock omp asks for exactly that
- * ("Paste the authorization code (or full redirect URL)") alongside its
- * callback server, so the code reaches the host through the paste.
+ * (never the host's `localhost/launch`) and the paste is how the code reaches
+ * the host, so the fallback starts open.
  */
 
-import { ExternalLink, Eye, EyeOff } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown, ExternalLink, Eye, EyeOff } from "lucide-react";
+import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useExtensionUiResponder } from "../../../hooks/use-extension-ui";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { isInlineLoginRequest, openUrlTarget, useExtensionUiStore } from "../../../stores/extension-ui";
+import { openUrlTarget, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useFocusedHost, useFocusedTabDevice } from "../../../stores/remote";
 import { Banner, Button, IconButton, Input, Spinner } from "../../common";
 
@@ -32,8 +39,14 @@ export interface ProviderLoginState {
 	/** Provider whose sign-in is in flight, or whose last attempt failed. */
 	providerId: string | null;
 	running: boolean;
-	/** Sign-in or key page omp asked to open. `oauth`: a browser sign-in with a callback server (it sent a `launchUrl`). */
-	link: { url: string; instructions?: string; oauth: boolean } | null;
+	/** When this sign-in sent `login`: only requests that arrived since are its own. */
+	since: number;
+	/**
+	 * Sign-in or key page omp asked to open. `target` is what the button opens,
+	 * `url` stock's authorization URL. `oauth`: a browser sign-in with a
+	 * callback server (it sent a `launchUrl`).
+	 */
+	link: { target: string; url: string; instructions?: string; oauth: boolean } | null;
 	/** omp is waiting for a pasted key / code. */
 	prompt: LoginPrompt | null;
 	/** Stock's latest progress line for this sign-in (`onProgress`, an info `notify`). */
@@ -44,10 +57,18 @@ export interface ProviderLoginState {
 const IDLE: ProviderLoginState = {
 	providerId: null,
 	running: false,
+	since: 0,
 	link: null,
 	prompt: null,
 	progress: null,
 	error: null,
+};
+
+/** Stock's progress lines for a browser sign-in (callback-server.ts `login`, openai-codex.ts), in the UI language. */
+const STOCK_PROGRESS: Record<string, string> = {
+	"Waiting for browser authentication...": "providerList.login.waiting",
+	"Exchanging authorization code for tokens...": "providerList.login.exchanging",
+	"Exchanging authorization code for tokens…": "providerList.login.exchanging",
 };
 
 export interface ProviderLogin {
@@ -62,13 +83,16 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 	const tabRpc = useTabRpc();
 	const sendResponse = useExtensionUiResponder();
 	const pending = useExtensionUiStore(state => state.pendingRequests);
+	const arrivedAt = useExtensionUiStore(state => state.arrivedAt);
+	const owned = useExtensionUiStore(state => state.loginRequestIds);
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
-	const setInlineLogin = useExtensionUiStore(state => state.setInlineLogin);
+	const beginInlineLogin = useExtensionUiStore(state => state.beginInlineLogin);
+	const endInlineLogin = useExtensionUiStore(state => state.endInlineLogin);
 	const remote = useFocusedTabDevice() !== undefined;
 	const [state, setState] = useState<ProviderLoginState>(IDLE);
 	const attempt = useRef(0);
-	const promptRef = useRef<LoginPrompt | null>(null);
-	promptRef.current = state.prompt;
+	const stateRef = useRef(state);
+	stateRef.current = state;
 
 	const respond = useCallback(
 		(id: string, response: { value: string } | { cancelled: true }) => {
@@ -81,66 +105,66 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 	useEffect(() => {
 		if (!state.running) return;
 		for (const request of pending) {
+			if (!Object.hasOwn(owned, request.id) || (arrivedAt[request.id] ?? 0) < state.since) continue;
 			if (request.method === "open_url") {
-				// omp never waits on this answer; acknowledge it so the next
-				// request (the key prompt) is not queued behind it.
+				// omp never waits on this answer; acknowledge it all the same.
 				setState(prev => ({
 					...prev,
 					link: {
-						url: openUrlTarget(request, remote),
+						target: openUrlTarget(request, remote),
+						url: request.url,
 						instructions: request.instructions,
 						oauth: request.launchUrl !== undefined,
 					},
 				}));
 				respond(request.id, { value: "done" });
-			} else if (request.method === "input" && promptRef.current?.id !== request.id) {
+			} else if (request.method === "input" && stateRef.current.prompt?.id !== request.id) {
 				setState(prev => ({
 					...prev,
 					prompt: { id: request.id, title: request.title, placeholder: request.placeholder },
 				}));
-			} else if (request.method === "notify" && isInlineLoginRequest(request)) {
+			} else if (request.method === "notify") {
 				setState(prev => ({ ...prev, progress: request.message }));
 				removeRequest(request.id);
 			}
 		}
-	}, [pending, remote, removeRequest, respond, state.running]);
-
-	const finish = useCallback(() => {
-		setInlineLogin(false);
-	}, [setInlineLogin]);
-
-	useEffect(() => finish, [finish]);
+	}, [arrivedAt, owned, pending, remote, removeRequest, respond, state.running, state.since]);
 
 	const start = useCallback(
 		async (providerId: string): Promise<boolean> => {
 			const current = ++attempt.current;
-			setInlineLogin(true);
-			setState({ ...IDLE, providerId, running: true });
+			beginInlineLogin();
+			setState({ ...IDLE, providerId, running: true, since: Date.now() });
+			let outcome: { ok: true } | { ok: false; error: string | null };
 			try {
 				const response = await tabRpc.login(providerId);
-				if (current !== attempt.current) return false;
-				if (!response.success) {
-					setState({ ...IDLE, providerId, error: response.error ?? null });
-					return false;
-				}
-				setState(IDLE);
-				await onConnected(providerId);
-				return true;
+				outcome = response.success ? { ok: true } : { ok: false, error: response.error ?? null };
 			} catch (cause) {
-				if (current === attempt.current) {
-					setState({ ...IDLE, providerId, error: cause instanceof Error ? cause.message : String(cause) });
-				}
-				return false;
-			} finally {
-				if (current === attempt.current) finish();
+				outcome = { ok: false, error: cause instanceof Error ? cause.message : String(cause) };
 			}
+			// `login` is over, so whatever it left open is answered now: the code
+			// paste stock raced against the callback stays pending until then.
+			for (const request of endInlineLogin()) {
+				if (request.method === "input")
+					sendResponse({ type: "extension_ui_response", id: request.id, cancelled: true });
+			}
+			const live = current === attempt.current;
+			if (!outcome.ok) {
+				// A cancelled or superseded sign-in fails quietly.
+				if (live) setState({ ...IDLE, providerId, error: outcome.error });
+				return false;
+			}
+			// Connected even when the user cancelled a moment too late: the account is stored.
+			if (live) setState(IDLE);
+			await onConnected(providerId);
+			return live;
 		},
-		[finish, onConnected, setInlineLogin, tabRpc],
+		[beginInlineLogin, endInlineLogin, onConnected, sendResponse, tabRpc],
 	);
 
 	const submit = useCallback(
 		(value: string) => {
-			const prompt = promptRef.current;
+			const prompt = stateRef.current.prompt;
 			if (!prompt) return;
 			respond(prompt.id, { value });
 			setState(prev => ({ ...prev, prompt: null }));
@@ -150,13 +174,80 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 
 	const cancel = useCallback(() => {
 		attempt.current++;
-		const prompt = promptRef.current;
-		if (prompt) respond(prompt.id, { cancelled: true });
+		const { link, prompt } = stateRef.current;
+		if (link?.oauth) {
+			// Stock's RPC `login` takes no cancel and re-asks an empty paste, while it
+			// holds omp's command queue; its callback's denial ends it at once.
+			void tabRpc.cancelLogin(link.url);
+		} else if (prompt) {
+			respond(prompt.id, { cancelled: true });
+		}
 		setState(IDLE);
-		finish();
-	}, [finish, respond]);
+	}, [respond, tabRpc]);
 
 	return { state, start, submit, cancel };
+}
+
+/** A masked one-line answer to omp's prompt (`input`), with Show/Hide. */
+function PromptForm({
+	prompt,
+	label,
+	describedBy,
+	autoFocus,
+	primary,
+	onSubmit,
+	onCancel,
+}: {
+	prompt: LoginPrompt;
+	label: string;
+	/** Id of the text that explains the field, shown outside the form row. */
+	describedBy?: string;
+	autoFocus: boolean;
+	primary: boolean;
+	onSubmit: (value: string) => void;
+	onCancel?: () => void;
+}) {
+	const t = useT();
+	const [value, setValue] = useState("");
+	const [reveal, setReveal] = useState(false);
+	const submit = (event: FormEvent) => {
+		event.preventDefault();
+		if (value.trim()) onSubmit(value);
+	};
+	return (
+		<form className="flex items-end gap-2" onSubmit={submit}>
+			<div className="min-w-0 flex-1">
+				<Input
+					aria-describedby={describedBy}
+					autoComplete="off"
+					autoFocus={autoFocus}
+					label={label}
+					mono
+					onChange={event => setValue(event.target.value)}
+					placeholder={prompt.placeholder}
+					spellCheck={false}
+					trailing={
+						<IconButton
+							icon={reveal ? <EyeOff /> : <Eye />}
+							label={reveal ? t("providerList.login.hide") : t("providerList.login.show")}
+							onClick={() => setReveal(prev => !prev)}
+							size="sm"
+						/>
+					}
+					type={reveal ? "text" : "password"}
+					value={value}
+				/>
+			</div>
+			<Button disabled={!value.trim()} type="submit" variant={primary ? "primary" : "secondary"}>
+				{t("providerList.login.submit")}
+			</Button>
+			{onCancel && (
+				<Button onClick={onCancel} variant="ghost">
+					{t("common.cancel")}
+				</Button>
+			)}
+		</form>
+	);
 }
 
 /** Inline body under a provider row while its sign-in runs or after it failed. */
@@ -172,15 +263,8 @@ export function ProviderLoginPanel({
 	const t = useT();
 	const { state } = login;
 	const host = useFocusedHost();
-	const [value, setValue] = useState("");
-	const [reveal, setReveal] = useState(false);
-	const promptId = state.prompt?.id;
-
-	// biome-ignore lint/correctness/useExhaustiveDependencies: a new prompt starts empty and masked.
-	useEffect(() => {
-		setValue("");
-		setReveal(false);
-	}, [promptId]);
+	const [pasteOpen, setPasteOpen] = useState(false);
+	const pasteId = useId();
 
 	if (!state.running && state.error) {
 		return (
@@ -204,28 +288,32 @@ export function ProviderLoginPanel({
 		);
 	}
 
-	const submit = (event: FormEvent) => {
-		event.preventDefault();
-		if (value.trim()) login.submit(value);
-	};
-	// An OAuth sign-in also asks for the pasted code/redirect beside its callback
-	// server; only a link without one is a page to copy a key from.
-	const keyPage = state.prompt !== null && state.link?.oauth === false;
+	// A browser sign-in's code paste is stock's fallback beside its callback;
+	// any other prompt (an API key, a device flow's answer) is the step itself.
+	const fallback = state.link?.oauth === true ? state.prompt : null;
+	const primaryPrompt = fallback ? null : state.prompt;
+	const keyPage = primaryPrompt !== null && state.link?.oauth === false;
+	// A paired host's callback is out of this browser's reach: the paste is the way back.
+	const pasteShown = fallback !== null && (pasteOpen || host !== undefined);
+	const progressKey = state.progress === null ? undefined : STOCK_PROGRESS[state.progress];
 
 	return (
 		<div className="flex flex-col gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-surface-1) p-3">
 			{state.link && (
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
 					<p className="min-w-0 flex-1 text-sc-sm text-(--sc-text-secondary)">
-						{state.link.instructions ||
-							t(keyPage ? "providerList.login.keyPage" : "providerList.login.browser", {
-								provider: providerName,
-							})}
+						{/* Stock's OAuth instructions are English and point at the paste; the fallback below covers it. */}
+						{state.link.oauth
+							? t("providerList.login.browser", { provider: providerName })
+							: state.link.instructions ||
+								t(keyPage ? "providerList.login.keyPage" : "providerList.login.browser", {
+									provider: providerName,
+								})}
 					</p>
 					<Button
 						icon={<ExternalLink />}
 						onClick={() => {
-							if (state.link) void window.omp.system.openExternal(state.link.url);
+							if (state.link) void window.omp.system.openExternal(state.link.target);
 						}}
 						size="sm"
 						variant={keyPage ? "secondary" : "primary"}
@@ -239,43 +327,25 @@ export function ProviderLoginPanel({
 					{t("providerList.login.remoteHint", { name: host.name ?? t("remote.tab.unknownDevice") })}
 				</p>
 			)}
-			{state.prompt ? (
-				<form className="flex items-end gap-2" onSubmit={submit}>
-					<div className="min-w-0 flex-1">
-						<Input
-							autoComplete="off"
-							autoFocus
-							label={state.prompt.title}
-							mono
-							onChange={event => setValue(event.target.value)}
-							placeholder={state.prompt.placeholder}
-							spellCheck={false}
-							trailing={
-								<IconButton
-									icon={reveal ? <EyeOff /> : <Eye />}
-									label={reveal ? t("providerList.login.hide") : t("providerList.login.show")}
-									onClick={() => setReveal(prev => !prev)}
-									size="sm"
-								/>
-							}
-							type={reveal ? "text" : "password"}
-							value={value}
-						/>
-					</div>
-					<Button disabled={!value.trim()} type="submit" variant="primary">
-						{t("providerList.login.submit")}
-					</Button>
-					<Button onClick={login.cancel} variant="ghost">
-						{t("common.cancel")}
-					</Button>
-				</form>
+			{primaryPrompt ? (
+				<PromptForm
+					autoFocus
+					key={primaryPrompt.id}
+					label={primaryPrompt.title}
+					onCancel={login.cancel}
+					onSubmit={login.submit}
+					primary
+					prompt={primaryPrompt}
+				/>
 			) : (
 				<div className="flex items-center gap-2">
 					<span className="min-w-0 flex-1" data-login-progress="true">
 						<Spinner
 							label={
-								state.progress ??
-								(state.link ? t("providerList.login.waiting") : t("providerList.login.starting"))
+								progressKey
+									? t(progressKey)
+									: (state.progress ??
+										(state.link ? t("providerList.login.waiting") : t("providerList.login.starting")))
 							}
 							size="sm"
 						/>
@@ -283,6 +353,39 @@ export function ProviderLoginPanel({
 					<Button onClick={login.cancel} size="sm" variant="ghost">
 						{t("common.cancel")}
 					</Button>
+				</div>
+			)}
+			{fallback && (
+				<div className="flex flex-col gap-2 border-t border-(--sc-border-subtle) pt-3" data-login-paste="true">
+					{host === undefined && (
+						<Button
+							aria-controls={pasteId}
+							aria-expanded={pasteShown}
+							className="-ml-2.5 self-start"
+							onClick={() => setPasteOpen(open => !open)}
+							size="sm"
+							trailingIcon={<ChevronDown className={pasteShown ? "rotate-180" : undefined} />}
+							variant="ghost"
+						>
+							{t("providerList.login.pasteToggle")}
+						</Button>
+					)}
+					{pasteShown && (
+						<div className="flex flex-col gap-2" id={pasteId}>
+							<p className="text-sc-xs break-keep text-(--sc-text-muted)" id={`${pasteId}-hint`}>
+								{t("providerList.login.pasteHint")}
+							</p>
+							<PromptForm
+								autoFocus={host === undefined}
+								describedBy={`${pasteId}-hint`}
+								key={fallback.id}
+								label={t("providerList.login.pasteLabel")}
+								onSubmit={login.submit}
+								primary={false}
+								prompt={fallback}
+							/>
+						</div>
+					)}
 				</div>
 			)}
 		</div>

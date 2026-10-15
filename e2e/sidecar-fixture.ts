@@ -547,6 +547,8 @@ if (process.argv[2] === "stats") {
 	const cancelledJobs = new Set<string>();
 	/** The `login` in flight: its open_url and input request ids, and how it ends. */
 	let pendingLogin: { urlId: string; inputId: string; finish: (value: string | undefined) => void } | undefined;
+	/** Code-paste requests a finished browser sign-in left open; stock resolves their late answers silently. */
+	const leftoverLoginInputs = new Set<string>();
 	const values: Record<string, unknown> = {
 		"approval.mode": "ask",
 		"theme.dark": "dark",
@@ -3340,10 +3342,12 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				if (anthropicAccounts.length === 0) anthropicSignedIn = false;
 				ok({ providerId: text("providerId") });
 				break;
-			// Stock 18.8 (rpc-mode.ts `login`, Anthropic's oauth-code flow): open_url
-			// is fire-and-forget, then a blocking `input` for the pasted code or
-			// redirect URL (raced against the host's callback server, which never
-			// fires here). The command answers once that input does.
+			// Stock 18.10 (rpc-mode.ts `login` over Anthropic's callback-server flow,
+			// probed): open_url with the loopback launch page (fire-and-forget), the
+			// "waiting" progress notice, then a blocking `input` for the pasted code
+			// or redirect URL. Stock races that paste against its callback server and
+			// never closes it (no `cancel` frame): a callback ends the login while the
+			// paste stays pending, and an empty answer only makes it ask again.
 			case "login": {
 				// An API-key provider of the long tail (stock's DeepSeek-style flow): the
 				// key page as open_url without a callback server, then the pasted key.
@@ -3384,66 +3388,124 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					break;
 				}
 				const urlId = `fixture-login-url-${Date.now()}`;
-				const inputId = `fixture-login-input-${Date.now()}`;
+				const loginState = "xyz";
+				let inputId = "";
+				const askForCode = () => {
+					inputId = `fixture-login-input-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+					write({
+						type: "extension_ui_request",
+						id: inputId,
+						method: "input",
+						title: "Paste the authorization code (or full redirect URL):",
+						timeout: 600_000,
+					});
+				};
+				const signIn = () => {
+					// With the seeded accounts, each further sign-in stores one more account, as stock does.
+					if (modelsData) {
+						const credentialId = nextCredentialId++;
+						anthropicAccounts = [
+							...anthropicAccounts.map(account => ({ ...account, active: false })),
+							{
+								credentialId,
+								label: `added-${credentialId}@example.com`,
+								detail: "Claude Pro",
+								type: "oauth",
+								active: true,
+							},
+						];
+						accountQuota[credentialId] = {
+							credentialId,
+							state: "healthy",
+							remainingFraction: 1,
+							limits: [
+								{
+									id: "anthropic:5h",
+									label: "Claude 5 Hour",
+									usedFraction: 0,
+									windowId: "5h",
+									windowLabel: "5 Hour",
+								},
+								{
+									id: "anthropic:7d",
+									label: "Claude 7 Day",
+									usedFraction: 0,
+									windowId: "7d",
+									windowLabel: "7 Day",
+								},
+							],
+						};
+					}
+					anthropicSignedIn = true;
+				};
+				// Stock's callback server (callback-server.ts): `/launch` redirects to the
+				// authorization URL, `/callback` with the flow's state signs in, and one
+				// with `error` (the provider's Deny) fails the login at once.
+				const settle = (outcome: { ok: true } | { ok: false; error: string }) => {
+					if (pendingLogin?.urlId !== urlId) return;
+					// The paste stock raced against the callback stays open; its late answer is ignored.
+					leftoverLoginInputs.add(inputId);
+					pendingLogin = undefined;
+					callbackServer.stop();
+					if (outcome.ok) {
+						signIn();
+						ok({ providerId: "anthropic" });
+					} else fail(outcome.error);
+				};
+				const callbackServer = Bun.serve({
+					hostname: "127.0.0.1",
+					port: 0,
+					fetch: (request): Response => {
+						const url = new URL(request.url);
+						record({ type: "login_callback", path: url.pathname, query: Object.fromEntries(url.searchParams) });
+						if (url.pathname === "/launch") return Response.redirect(authUrl, 302);
+						if (url.pathname !== "/callback") return new Response("Not Found", { status: 404 });
+						if (url.searchParams.get("state") !== loginState) {
+							return new Response("State mismatch", { status: 500 });
+						}
+						const error = url.searchParams.get("error");
+						if (error) {
+							settle({
+								ok: false,
+								error: `Authorization failed: ${url.searchParams.get("error_description") || error}`,
+							});
+							return new Response("Authorization failed", { status: 500 });
+						}
+						if (!url.searchParams.get("code")) return new Response("Missing authorization code", { status: 500 });
+						settle({ ok: true });
+						return new Response("Signed in. You can close this tab.", { status: 200 });
+					},
+				});
+				const origin: string = `http://127.0.0.1:${callbackServer.port}`;
+				const authUrl: string = `https://claude.ai/oauth/authorize?code=true&client_id=fixture&redirect_uri=${encodeURIComponent(`${origin}/callback`)}&state=${loginState}`;
 				write({
 					type: "extension_ui_request",
 					id: urlId,
 					method: "open_url",
-					url: "https://claude.ai/oauth/authorize?code=true&client_id=fixture&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback&state=xyz",
-					launchUrl: "http://localhost:54545/launch",
+					url: authUrl,
+					launchUrl: `${origin}/launch`,
 					instructions: "Complete the sign-in in your browser.",
 				});
 				write({
 					type: "extension_ui_request",
-					id: inputId,
-					method: "input",
-					title: "Paste the authorization code (or full redirect URL):",
-					timeout: 600_000,
+					id: `fixture-login-wait-${Date.now()}`,
+					method: "notify",
+					message: "Waiting for browser authentication...",
+					notifyType: "info",
 				});
+				askForCode();
 				pendingLogin = {
 					urlId,
-					inputId,
+					get inputId() {
+						return inputId;
+					},
 					finish: value => {
-						pendingLogin = undefined;
-						if (value?.trim()) {
-							// With the seeded accounts, each further sign-in stores one more account, as stock does.
-							if (modelsData) {
-								const credentialId = nextCredentialId++;
-								anthropicAccounts = [
-									...anthropicAccounts.map(account => ({ ...account, active: false })),
-									{
-										credentialId,
-										label: `added-${credentialId}@example.com`,
-										detail: "Claude Pro",
-										type: "oauth",
-										active: true,
-									},
-								];
-								accountQuota[credentialId] = {
-									credentialId,
-									state: "healthy",
-									remainingFraction: 1,
-									limits: [
-										{
-											id: "anthropic:5h",
-											label: "Claude 5 Hour",
-											usedFraction: 0,
-											windowId: "5h",
-											windowLabel: "5 Hour",
-										},
-										{
-											id: "anthropic:7d",
-											label: "Claude 7 Day",
-											usedFraction: 0,
-											windowId: "7d",
-											windowLabel: "7 Day",
-										},
-									],
-								};
-							}
-							anthropicSignedIn = true;
-							ok({ providerId: "anthropic" });
-						} else fail("Login cancelled");
+						// Stock's manual-code loop: no code in the answer, ask again.
+						if (!value?.trim()) {
+							askForCode();
+							return;
+						}
+						settle({ ok: true });
 					},
 				};
 				break;
@@ -3526,6 +3588,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			case "extension_ui_response":
 				// The sign-in's requests are not a turn's: no response frame, no agent_end.
 				if (pendingLogin && command.id === pendingLogin.urlId) break;
+				if (typeof command.id === "string" && leftoverLoginInputs.delete(command.id)) break;
 				if (pendingLogin && command.id === pendingLogin.inputId) {
 					pendingLogin.finish(command.cancelled === true ? undefined : text("value"));
 					break;

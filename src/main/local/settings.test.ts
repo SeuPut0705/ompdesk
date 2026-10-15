@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { describe, expect, it, vi } from "vitest";
 import { type BridgeProviderAccounts, handlers, mergeProviderAccounts, type StockLogoutAccount } from "./settings";
 import type { LocalCommandContext } from "./types";
@@ -201,5 +203,53 @@ describe("reset passes", () => {
 			handlers.redeem_reset_pass({ type: "redeem_reset_pass", providerId: "anthropic" }, fakeCtx(vi.fn(), request)),
 		).rejects.toThrow();
 		expect(request).not.toHaveBeenCalled();
+	});
+});
+
+describe("login_cancel handler", () => {
+	it("reaches the sign-in's loopback callback with a denial and the flow's state, as a provider's Deny does", async () => {
+		const seen: string[] = [];
+		const server = createServer((request, response) => {
+			seen.push(request.url ?? "");
+			// Stock's callback server answers a denial with its error page.
+			response.writeHead(500).end();
+		});
+		await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+		try {
+			const { port } = server.address() as AddressInfo;
+			const redirect = encodeURIComponent(`http://127.0.0.1:${port}/callback`);
+			await handlers.login_cancel(
+				{
+					type: "login_cancel",
+					url: `https://claude.ai/oauth/authorize?redirect_uri=${redirect}&state=xyz&code=true`,
+				},
+				fakeCtx(vi.fn(), vi.fn()),
+			);
+			const [callback] = seen.map(url => new URL(url, "http://127.0.0.1"));
+			expect(callback?.pathname).toBe("/callback");
+			expect(Object.fromEntries(callback?.searchParams ?? [])).toEqual({
+				error: "access_denied",
+				error_description: "Sign-in cancelled in OMPdesk",
+				state: "xyz",
+			});
+		} finally {
+			server.close();
+		}
+	});
+
+	it("refuses a sign-in without a loopback callback and never fetches it", async () => {
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+		try {
+			const redirect = encodeURIComponent("vscode://gitlab.gitlab-workflow/authentication");
+			await expect(
+				handlers.login_cancel(
+					{ type: "login_cancel", url: `https://gitlab.com/oauth/authorize?redirect_uri=${redirect}` },
+					fakeCtx(vi.fn(), vi.fn()),
+				),
+			).rejects.toThrow("no loopback callback");
+			expect(fetchSpy).not.toHaveBeenCalled();
+		} finally {
+			fetchSpy.mockRestore();
+		}
 	});
 });

@@ -3,7 +3,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { ExtensionUIRequest, ExtensionUIResponse } from "../../../shared/rpc-types";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { useExtensionUiStore } from "../../stores/extension-ui";
 import { useToastStore } from "../../stores/toast";
 import { AskDockSlot, BelowEditorDockSlot } from "./ask-dock";
@@ -755,8 +755,8 @@ describe("ExtensionDialog non-dialog mutations", () => {
 		expect(Number.isFinite(toasts.find(toast => toast.message === "Indexed")?.expiresAt)).toBe(true);
 	});
 
-	it("leaves a sign-in's progress notices to the inline login panel; warnings still toast", async () => {
-		useExtensionUiStore.getState().setInlineLogin(true);
+	it("leaves a sign-in's own requests to the inline login panel; warnings still toast", async () => {
+		useExtensionUiStore.getState().beginInlineLogin();
 		try {
 			await mount();
 			await push(
@@ -774,14 +774,55 @@ describe("ExtensionDialog non-dialog mutations", () => {
 					message: "Slow network",
 					notifyType: "warning",
 				},
+				{
+					type: "extension_ui_request",
+					id: "p-3",
+					method: "input",
+					title: "Paste the authorization code (or full redirect URL):",
+					timeout: 600_000,
+				},
 			);
 			const messages = useToastStore.getState().toasts.map(toast => toast.message);
 			expect(messages).not.toContain("Waiting for browser…");
 			expect(messages).toContain("Slow network");
-			expect(useExtensionUiStore.getState().pendingRequests.map(request => request.id)).toEqual(["p-1"]);
+			expect(useExtensionUiStore.getState().pendingRequests.map(request => request.id)).toEqual(["p-1", "p-3"]);
+			expect(document.querySelector("[data-prompt-countdown]")).toBeNull();
+			expect(buttonWithText(translate("extDialog.submit"))).toBeUndefined();
 		} finally {
-			useExtensionUiStore.getState().setInlineLogin(false);
+			useExtensionUiStore.getState().endInlineLogin();
 		}
+	});
+
+	it("names a code paste outside the login panel as a sign-in step, in the UI language, with no countdown", async () => {
+		await mount();
+		// The bridge's MCP sign-in: its page first, then stock's paste prompt as the placeholder.
+		await push(
+			{
+				type: "extension_ui_request",
+				id: "mcp-url",
+				method: "open_url",
+				url: "https://auth.linear.app/authorize?state=s",
+				launchUrl: "http://localhost:3334/launch",
+			},
+			{
+				type: "extension_ui_request",
+				id: "mcp-paste",
+				method: "input",
+				title: "MCP OAuth authorization",
+				placeholder: "Paste the authorization code (or full redirect URL):",
+				timeout: 600_000,
+			},
+		);
+		const open = buttonWithText(translate("extDialog.openUrl.open"));
+		if (!open) throw new Error("open_url card missing");
+		await click(open);
+		const card = container.textContent ?? "";
+		expect(card).toContain(translate("extDialog.oauthPaste.title", { host: "auth.linear.app" }));
+		expect(card).toContain(translate("extDialog.oauthPaste.hint"));
+		expect(card).not.toContain("Paste the authorization code");
+		expect(card).not.toContain("MCP OAuth authorization");
+		expect(document.querySelector("[data-prompt-countdown]")).toBeNull();
+		expect(document.querySelector("input")?.getAttribute("aria-label")).toBe(translate("extDialog.oauthPaste.field"));
 	});
 
 	it("fills the composer for set_editor_text and keeps the extension title with its tab", async () => {

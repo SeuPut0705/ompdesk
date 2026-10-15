@@ -49,6 +49,7 @@ import type { Component } from "@oh-my-pi/pi-tui";
 import { inferMcpTransport } from "@oh-my-pi/pi-tui/overlays/extensions/mcp-runtime";
 import { getMCPConfigPath, Snowflake } from "@oh-my-pi/pi-utils";
 import { guard } from "../health";
+import { OAUTH_PASTE_PROMPT } from "../oauth-contracts";
 import type { BridgeEnv, BridgeMethods } from "../types";
 import { errorMessage, optScope, optString, paramsOf, requireString } from "./shared";
 
@@ -493,7 +494,7 @@ async function runOAuthFlow(session: AgentSession, env: BridgeEnv, opts: OAuthFl
 				onManualCodeInput: () => {
 					if (!manualInput) {
 						manualInput = ui
-							.input("MCP OAuth authorization", "Paste the authorization code (or full redirect URL):", {
+							.input("MCP OAuth authorization", OAUTH_PASTE_PROMPT, {
 								signal: oauthTimeout.signal,
 							})
 							.then(value => {

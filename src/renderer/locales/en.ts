@@ -2034,6 +2034,11 @@ export const en: Record<string, string> = {
 	"sessionPicker.loading": "Loading sessions…",
 	"sessionPicker.empty": "No sessions found.",
 	"sessionPicker.noMatch": 'No sessions match "{query}".',
+	"extDialog.oauthPaste.title": "Sign in to {host}: paste the code",
+	"extDialog.oauthPaste.titleUnknown": "Sign-in: paste the code",
+	"extDialog.oauthPaste.hint":
+		"Only needed if the browser can't get back here after you sign in. Paste the code it shows, or the full address of the page it ended on.",
+	"extDialog.oauthPaste.field": "Authorization code or redirect address",
 	"sessionPicker.untitled": "Untitled session",
 	"sessionPicker.messageCount": "{count} messages",
 	"sessionPicker.emptyLocal": "No sessions in this folder. Try all projects.",
@@ -4933,6 +4938,11 @@ export const en: Record<string, string> = {
 	"setup.custom.title": "Running your own endpoint?",
 	"setup.custom.description":
 		"Add an OpenAI- or Anthropic-compatible server (Ollama, LM Studio, a proxy) by URL and model ID.",
+	"providerList.login.exchanging": "Finishing sign-in…",
+	"providerList.login.pasteToggle": "Browser can't get back to OMPdesk? Paste the code",
+	"providerList.login.pasteLabel": "Authorization code or redirect address",
+	"providerList.login.pasteHint":
+		"Only needed when the browser ends on a page that won't load. Paste the code it shows, or that page's full address.",
 	"setup.configReadFailed": "models.yml couldn't be read. Open it from Settings › Models & providers to repair it.",
 	"setup.laterHint": "You can connect later in Settings › Models & providers.",
 	"setup.later": "Set up later",

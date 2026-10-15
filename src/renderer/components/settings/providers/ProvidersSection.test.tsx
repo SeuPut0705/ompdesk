@@ -23,6 +23,7 @@ import { useTabsStore } from "../../../stores/tabs";
 import { useToastStore } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { routeCommands } from "../../../test-support/route-commands";
+import { ExtensionDialog } from "../../dialogs/ExtensionDialog";
 import { SettingsDataProvider } from "../settings-data";
 import { SettingsNavigationProvider } from "../settings-navigation";
 import { ProviderRow } from "./ProviderList";
@@ -76,6 +77,9 @@ const disconnectProvider = vi.fn(
 	async (): Promise<RpcResponse> => ({ type: "response", command: "logout", success: true }),
 );
 const login = vi.fn(async (): Promise<RpcResponse> => ({ type: "response", command: "login", success: true }));
+const cancelLogin = vi.fn(
+	async (): Promise<RpcResponse> => ({ type: "response", command: "login_cancel", success: true }),
+);
 const getProviderAccounts = vi.fn(
 	async (): Promise<RpcResponse> => ({
 		type: "response",
@@ -94,7 +98,7 @@ const accountRotationGet = vi.fn(async () => ({ mode: "quota" as const, evenSupp
 
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
-		rpc: routeCommands({ getProviders, logout, disconnectProvider, login, getProviderAccounts }),
+		rpc: routeCommands({ getProviders, logout, disconnectProvider, login, cancelLogin, getProviderAccounts }),
 		models: { listProviders },
 		ui: { respondExtensionUi },
 		system: { openExternal },
@@ -205,7 +209,7 @@ afterEach(async () => {
 	useModelStore.getState().reset();
 	useSessionStore.getState().reset();
 	useExtensionUiStore.getState().clearAll();
-	useExtensionUiStore.getState().setInlineLogin(false);
+	useExtensionUiStore.setState({ inlineLogins: 0, loginRequestIds: {} });
 	useToastStore.setState({ toasts: [] });
 	useTabsStore.getState().reset();
 	useRemoteStore.getState().reset();
@@ -226,6 +230,7 @@ afterEach(async () => {
 	});
 	login.mockReset();
 	login.mockResolvedValue({ type: "response", command: "login", success: true });
+	cancelLogin.mockClear();
 	respondExtensionUi.mockClear();
 });
 
@@ -489,7 +494,7 @@ describe("ProvidersSection", () => {
 
 		await act(async () => button(translate("providerList.connect"))?.click());
 		expect(login).toHaveBeenCalledWith("deepseek");
-		expect(useExtensionUiStore.getState().inlineLogin).toBe(true);
+		expect(useExtensionUiStore.getState().inlineLogins).toBe(1);
 
 		await act(async () => {
 			useExtensionUiStore.getState().pushRequest({
@@ -527,7 +532,7 @@ describe("ProvidersSection", () => {
 		await act(async () => {
 			pending.resolve({ type: "response", command: "login", success: true });
 		});
-		expect(useExtensionUiStore.getState().inlineLogin).toBe(false);
+		expect(useExtensionUiStore.getState().inlineLogins).toBe(0);
 		expect(
 			useToastStore
 				.getState()
@@ -634,16 +639,32 @@ describe("ProvidersSection", () => {
 	});
 
 	describe("browser sign-in", () => {
+		// Stock's login sequence (rpc-mode `login` over a callback-server flow, as
+		// probed from omp 18.10.3): open_url with the loopback launch page, the
+		// "waiting" progress notice, then the code paste raced against the callback.
 		const openUrl = {
 			type: "extension_ui_request",
 			id: "url-1",
 			method: "open_url",
-			url: "https://claude.ai/oauth/authorize?state=xyz",
+			url: "https://claude.ai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback&state=xyz",
 			launchUrl: "http://localhost:54545/launch",
+			// rules/auth/anthropic.kdl
+			instructions:
+				"Complete login in your browser. If the browser cannot reach this machine, paste the final redirect URL or authorization code when prompted.",
 		} as const;
+		const pasteRequest = (id: string) =>
+			({
+				type: "extension_ui_request",
+				id,
+				method: "input",
+				title: "Paste the authorization code (or full redirect URL):",
+				timeout: 600_000,
+			}) as const;
+		let pendingLogin = Promise.withResolvers<RpcResponse>();
 
-		async function startSignIn(device: string | undefined): Promise<void> {
-			login.mockReturnValueOnce(Promise.withResolvers<RpcResponse>().promise);
+		async function startSignIn(device: string | undefined, extra: ReactElement | null = null): Promise<void> {
+			pendingLogin = Promise.withResolvers<RpcResponse>();
+			login.mockReturnValueOnce(pendingLogin.promise);
 			getProviders.mockResolvedValue(
 				providersResponse(
 					snapshot([row("anthropic", { name: "Anthropic", authenticated: false, loginAvailable: true })]),
@@ -651,19 +672,35 @@ describe("ProvidersSection", () => {
 			);
 			useSessionStore.setState({ status: "ready" });
 			focusTab(device);
-			await mount(<ProvidersSection />);
+			await mount(
+				<>
+					<ProvidersSection />
+					{extra}
+				</>,
+			);
 			await act(async () => button(translate("providerList.connect"))?.click());
 			await act(async () => {
 				useExtensionUiStore.getState().pushRequest(openUrl);
 				useExtensionUiStore.getState().pushRequest({
 					type: "extension_ui_request",
-					id: "code-1",
-					method: "input",
-					title: "Paste the authorization code (or full redirect URL):",
+					id: "wait-1",
+					method: "notify",
+					message: "Waiting for browser authentication...",
+					notifyType: "info",
 				});
+				useExtensionUiStore.getState().pushRequest(pasteRequest("code-1"));
 			});
 			await act(async () => button(translate("providerList.login.openBrowser"))?.click());
 		}
+
+		const pasteField = () => document.querySelector('input[type="password"]');
+		const progress = () => document.querySelector("[data-login-progress]")?.textContent ?? "";
+		const pendingIds = () => useExtensionUiStore.getState().pendingRequests.map(request => request.id);
+		const cancelledIds = () =>
+			respondExtensionUi.mock.calls
+				.map(([response]) => response as { id: string; cancelled?: boolean })
+				.filter(response => response.cancelled === true)
+				.map(response => response.id);
 
 		it("on a remote tab opens the provider's URL, not the host's launch page, and asks for the redirect", async () => {
 			await startSignIn(HOST_ID);
@@ -672,7 +709,9 @@ describe("ProvidersSection", () => {
 			expect(document.querySelector("[data-remote-login-hint]")?.textContent).toBe(
 				translate("providerList.login.remoteHint", { name: "Studio" }),
 			);
-			expect(document.querySelector('input[type="password"]')).toBeTruthy();
+			// The host's callback is unreachable from this browser, so the paste is open from the start.
+			expect(text()).toContain(translate("providerList.login.pasteLabel"));
+			expect(pasteField()).toBeTruthy();
 		});
 
 		it("on a local tab opens the launch page and shows no paste hint", async () => {
@@ -681,6 +720,106 @@ describe("ProvidersSection", () => {
 			expect(document.querySelector("[data-remote-login-hint]")).toBeNull();
 			// The code prompt beside an OAuth callback does not turn the browser sign-in into a key page.
 			expect(button(translate("providerList.login.openKeyPage"))).toBeUndefined();
+		});
+
+		it("keeps waiting for the browser first; the code paste is an optional, localized fallback below it", async () => {
+			await startSignIn(undefined);
+			// Stock's English progress line reads in the UI language.
+			expect(progress()).toBe(translate("providerList.login.waiting"));
+			expect(text()).not.toContain("Paste the authorization code");
+			// Stock's English instructions, which send the user to the paste, give way to the panel's own line.
+			expect(text()).not.toContain("when prompted");
+			expect(text()).toContain(translate("providerList.login.browser", { provider: "Anthropic" }));
+			expect(pasteField()).toBeNull();
+			const toggle = button(translate("providerList.login.pasteToggle"));
+			expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+
+			await act(async () => toggle?.click());
+			expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+			expect(text()).toContain(translate("providerList.login.pasteHint"));
+			expect(text()).toContain(translate("providerList.login.pasteLabel"));
+			// Still waiting for the browser beside the open fallback.
+			expect(progress()).toBe(translate("providerList.login.waiting"));
+			await typeInto(pasteField(), "http://localhost:54545/callback?code=abc&state=xyz");
+			await act(async () => {
+				pasteField()
+					?.closest("form")
+					?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+			});
+			expect(respondExtensionUi).toHaveBeenCalledWith(
+				{
+					type: "extension_ui_response",
+					id: "code-1",
+					value: "http://localhost:54545/callback?code=abc&state=xyz",
+				},
+				"t1",
+			);
+		});
+
+		it("dismisses stock's paste request once the callback signed in, so it never reaches the chat", async () => {
+			await startSignIn(undefined, <ExtensionDialog />);
+			expect(document.querySelector("[data-prompt-countdown]")).toBeNull();
+			await act(async () => {
+				pendingLogin.resolve({ type: "response", command: "login", success: true });
+			});
+			// Stock leaves its raced paste request open (no `cancel` frame); answering it now is a no-op for omp.
+			expect(cancelledIds()).toEqual(["code-1"]);
+			expect(pendingIds()).toEqual([]);
+			expect(text()).not.toContain("Paste the authorization code");
+			expect(button(translate("extDialog.submit"))).toBeUndefined();
+		});
+
+		it("closing the panel mid-sign-in keeps stock's paste request out of the chat until the login answers", async () => {
+			await startSignIn(undefined);
+			// Mounted after the section: a root's first commit clears its container (here the body).
+			const chat = document.createElement("div");
+			document.body.appendChild(chat);
+			const chatRoot = createRoot(chat as unknown as Element);
+			roots.push(chatRoot);
+			await act(async () =>
+				chatRoot.render(
+					<I18nProvider>
+						<ExtensionDialog />
+					</I18nProvider>,
+				),
+			);
+			// Settings closes while the browser sign-in is still open.
+			await act(async () => roots[0]?.unmount());
+			expect(pendingIds()).toContain("code-1");
+			expect(chat.textContent ?? "").not.toContain("Paste the authorization code");
+			expect(chat.querySelector("[data-prompt-countdown]")).toBeNull();
+
+			await act(async () => {
+				pendingLogin.resolve({ type: "response", command: "login", success: true });
+			});
+			expect(cancelledIds()).toEqual(["code-1"]);
+			expect(pendingIds()).toEqual([]);
+			expect(chat.textContent ?? "").toBe("");
+		});
+
+		it("cancel ends stock's login through its callback instead of answering the paste request", async () => {
+			await startSignIn(undefined, <ExtensionDialog />);
+			await act(async () => button(translate("common.cancel"))?.click());
+			expect(cancelLogin).toHaveBeenCalledWith(openUrl.url);
+			// An empty answer would only make stock ask again (its manual-code loop).
+			expect(cancelledIds()).toEqual([]);
+			expect(document.querySelector("[data-login-progress]")).toBeNull();
+			// A re-asked paste request while stock winds down stays out of the chat.
+			await act(async () => useExtensionUiStore.getState().pushRequest(pasteRequest("code-2")));
+			expect(text()).not.toContain("Paste the authorization code");
+
+			await act(async () => {
+				pendingLogin.resolve({
+					type: "response",
+					command: "login",
+					success: false,
+					error: "Authorization failed: Cancelled in OMPdesk",
+				});
+			});
+			expect(cancelledIds()).toEqual(["code-1", "code-2"]);
+			expect(pendingIds()).toEqual([]);
+			// The user cancelled: no failure banner.
+			expect(text()).not.toContain(translate("providerList.login.failed", { provider: "Anthropic" }));
 		});
 	});
 });

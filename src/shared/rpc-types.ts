@@ -80,6 +80,8 @@ export type RpcCommand =
 	| { id?: string; type: "handoff"; customInstructions?: string }
 	| { id?: string; type: "get_login_providers" }
 	| { id?: string; type: "login"; providerId: string }
+	/** Ends the browser sign-in whose authorization URL this is, through its callback's denial (local handler). */
+	| { id?: string; type: "login_cancel"; url: string }
 	/** One stored account (stock `logout`), or every account of the provider with `all`. */
 	| { id?: string; type: "logout"; providerId: string; credentialId: number }
 	| { id?: string; type: "logout"; providerId: string; all: true }

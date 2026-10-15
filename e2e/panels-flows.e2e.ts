@@ -344,8 +344,10 @@ test("provider and account flows", async () => {
 		await expect(anthropic.getByRole("button", { name: "Sign in with browser" })).toBeVisible();
 		await rec.shoot("add-account-sign-in");
 		await anthropic.getByRole("button", { name: "Sign in with browser" }).click();
+		// The browser sign-in waits for its callback; the code paste is the fallback behind a toggle.
+		await anthropic.getByRole("button", { name: "Browser can't get back to OMPdesk? Paste the code" }).click();
 		await anthropic
-			.getByLabel("Paste the authorization code (or full redirect URL):")
+			.getByLabel("Authorization code or redirect address")
 			.fill("http://localhost:54545/callback?code=abc&state=xyz");
 		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
 		await expect(page.getByText("Signed in to Anthropic")).toBeVisible();

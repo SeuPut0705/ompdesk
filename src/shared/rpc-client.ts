@@ -133,6 +133,8 @@ export interface SessionRpcClient {
 	/** Removes one stored account; the provider stays connected while another remains. */
 	logout(providerId: string, credentialId: number): Promise<RpcResponse>;
 	/** Removes every stored account of the provider. */
+	/** Ends a browser sign-in in flight; `url` is the authorization URL of its `open_url`. */
+	cancelLogin(url: string): Promise<RpcResponse>;
 	disconnectProvider(providerId: string): Promise<RpcResponse>;
 	getProviderAccounts(providerId: string): Promise<RpcResponse>;
 	/** Spends one saved rate-limit reset of one stored account (stock `/usage reset`). */
@@ -490,6 +492,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		setPlanMode: enabled => rpcCommand({ type: "set_plan_mode", enabled }),
 		getPlanMode: () => rpcCommand({ type: "get_plan_mode" }),
 		getModelRoles: () => rpcCommand({ type: "get_model_roles" }),
+		cancelLogin: url => rpcCommand({ type: "login_cancel", url }),
 		setModelRole: (role, modelId) => rpcCommand({ type: "set_model_role", role, modelId }),
 		getModelRoleMetadata: () => rpcCommand({ type: "get_model_role_metadata" }),
 		getCompactionPoints: () => rpcCommand({ type: "get_compaction_points" }),

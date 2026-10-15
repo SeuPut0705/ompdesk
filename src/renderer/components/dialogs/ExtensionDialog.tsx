@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { Fragment, type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { OAUTH_PASTE_PROMPT } from "../../../../resources/gui-bridge/oauth-contracts";
 import type {
 	ExtensionAskDialogResult,
 	ExtensionAskDialogResultItem,
@@ -37,7 +38,7 @@ import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
-import { isApprovalRequest, isInlineLoginRequest, openUrlTarget, useExtensionUiStore } from "../../stores/extension-ui";
+import { isApprovalRequest, openUrlTarget, useExtensionUiStore } from "../../stores/extension-ui";
 import { useFocusedTabDevice } from "../../stores/remote";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
@@ -294,8 +295,21 @@ function InputDialog({
 }) {
 	const t = useT();
 	const tabId = useRuntimeTabId();
+	const signInHost = useExtensionUiStore(state => state.lastOpenUrlHost);
 	const fieldRef = useRef<HTMLInputElement>(null);
-	const { label, body } = splitTitle(request.title);
+	// Stock's code paste beside an OAuth callback, outside the login panel (an
+	// MCP server's sign-in passes it as the placeholder): a sign-in step in the
+	// UI language, an optional fallback for when the browser cannot reach omp,
+	// so no countdown.
+	const oauthPaste = request.title === OAUTH_PASTE_PROMPT || request.placeholder === OAUTH_PASTE_PROMPT;
+	const { label, body } = oauthPaste
+		? {
+				label: signInHost
+					? t("extDialog.oauthPaste.title", { host: signInHost })
+					: t("extDialog.oauthPaste.titleUnknown"),
+				body: t("extDialog.oauthPaste.hint"),
+			}
+		: splitTitle(request.title);
 	useEffect(() => {
 		if (tabId && useTabsStore.getState().activeTabId !== tabId) return;
 		fieldRef.current?.focus();
@@ -310,7 +324,7 @@ function InputDialog({
 		<PromptCard
 			footer={
 				<>
-					<TimeoutFooter remaining={remaining} />
+					{!oauthPaste && <TimeoutFooter remaining={remaining} />}
 					<div className="ml-auto flex gap-2">
 						<Button onClick={onCancel} size="sm" variant="ghost">
 							{t("common.cancel")}
@@ -326,7 +340,12 @@ function InputDialog({
 			onCancel={onCancel}
 		>
 			{body && <p className="mb-2 text-sc-sm break-words whitespace-pre-wrap text-(--sc-text-muted)">{body}</p>}
-			<Input aria-label={label} onKeyDown={onKeyDown} placeholder={request.placeholder} ref={fieldRef} />
+			<Input
+				aria-label={oauthPaste ? t("extDialog.oauthPaste.field") : label}
+				onKeyDown={onKeyDown}
+				placeholder={oauthPaste ? undefined : request.placeholder}
+				ref={fieldRef}
+			/>
 		</PromptCard>
 	);
 }
@@ -830,11 +849,12 @@ export function ExtensionDialog() {
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const arrivals = useExtensionUiStore(state => state.arrivedAt);
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
-	const inlineLogin = useExtensionUiStore(state => state.inlineLogin);
+	const loginRequestIds = useExtensionUiStore(state => state.loginRequestIds);
 
+	// A sign-in's own requests render in its login panel, never as a card here.
 	const dialogs = useMemo(
-		() => pending.filter(req => !NON_DIALOG_METHODS.has(req.method) && !(inlineLogin && isInlineLoginRequest(req))),
-		[pending, inlineLogin],
+		() => pending.filter(req => !NON_DIALOG_METHODS.has(req.method) && !Object.hasOwn(loginRequestIds, req.id)),
+		[pending, loginRequestIds],
 	);
 	const request = dialogs[0] ?? null;
 	const arrivedAt = request ? arrivals[request.id] : undefined;
@@ -845,7 +865,7 @@ export function ExtensionDialog() {
 	useEffect(() => {
 		for (const req of pending) {
 			// The inline sign-in panel shows its own progress notices.
-			if (inlineLogin && isInlineLoginRequest(req)) continue;
+			if (Object.hasOwn(loginRequestIds, req.id)) continue;
 			if (req.method === "notify") {
 				// Suppress xdev mount notifications — they are startup-time
 				// informational messages that don't need user attention.
@@ -870,7 +890,7 @@ export function ExtensionDialog() {
 				removeRequest(req.id);
 			}
 		}
-	}, [pending, removeRequest, tabId, inlineLogin]);
+	}, [pending, removeRequest, tabId, loginRequestIds]);
 
 	// Timeout: auto-cancel with timedOut marker.
 	useEffect(() => {

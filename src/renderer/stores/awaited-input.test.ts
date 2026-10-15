@@ -14,18 +14,18 @@ const signIn: ExtensionUIRequest = { type: "extension_ui_request", id: "url", me
 
 describe("awaitedInput", () => {
 	it("names a tool approval an approval and every other answer input", () => {
-		expect(awaitedInput({ pendingRequests: [approval], inlineLogin: false })).toBe("approval");
-		expect(awaitedInput({ pendingRequests: [ask], inlineLogin: false })).toBe("input");
+		expect(awaitedInput({ pendingRequests: [approval], loginRequestIds: {} })).toBe("approval");
+		expect(awaitedInput({ pendingRequests: [ask], loginRequestIds: {} })).toBe("input");
 		// A select that only looks like approval (other options) is a question.
-		expect(awaitedInput({ pendingRequests: [{ ...approval, options: ["Yes", "No"] }], inlineLogin: false })).toBe(
+		expect(awaitedInput({ pendingRequests: [{ ...approval, options: ["Yes", "No"] }], loginRequestIds: {} })).toBe(
 			"input",
 		);
 	});
 
-	it("follows the first blocking request, skipping a sign-in answered inline", () => {
-		expect(awaitedInput({ pendingRequests: [ask, approval], inlineLogin: false })).toBe("input");
-		expect(awaitedInput({ pendingRequests: [signIn, approval], inlineLogin: true })).toBe("approval");
-		expect(awaitedInput({ pendingRequests: [signIn], inlineLogin: true })).toBeNull();
-		expect(awaitedInput({ pendingRequests: [], inlineLogin: false })).toBeNull();
+	it("follows the first blocking request, skipping a sign-in's own requests", () => {
+		expect(awaitedInput({ pendingRequests: [ask, approval], loginRequestIds: {} })).toBe("input");
+		expect(awaitedInput({ pendingRequests: [signIn, approval], loginRequestIds: { url: true } })).toBe("approval");
+		expect(awaitedInput({ pendingRequests: [signIn], loginRequestIds: { url: true } })).toBeNull();
+		expect(awaitedInput({ pendingRequests: [], loginRequestIds: {} })).toBeNull();
 	});
 });

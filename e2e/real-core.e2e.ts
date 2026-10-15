@@ -373,3 +373,99 @@ test("system omp persists settings and sessions and serves every stats route", a
 		await fs.rm(profile, { recursive: true, force: true });
 	}
 });
+
+// The browser sign-in on the installed omp (OMP_GUI_TEST_APP: the packaged app),
+// with no credentials and no real login: stock's loopback callback binds where
+// the app spawns omp, the panel hands the default browser (shell.openExternal,
+// never the in-app preview) the launch page, which redirects to the provider
+// with that callback as redirect_uri. Cancel ends stock's `login` through the
+// callback's denial; omp's serial command queue answers again at once and the
+// code paste stock raced against the callback never becomes a chat card.
+test("system omp's browser sign-in: loopback callback, default browser, cancel through the callback", async () => {
+	test.setTimeout(120_000);
+	const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-real-login-"));
+	const project = path.join(profile, "project");
+	const desktop = path.join(profile, "desktop");
+	const agent = path.join(profile, "agent");
+	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
+	await fs.writeFile(
+		path.join(desktop, "prefs.json"),
+		JSON.stringify({
+			language: "en",
+			launchProfiles: { [project]: { noExtensions: true, noSkills: true, noRules: true } },
+		}),
+	);
+	const env = {
+		...process.env,
+		PI_CODING_AGENT_DIR: agent,
+		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
+		OMP_PROFILE: "",
+		PI_PROFILE: "",
+	};
+	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
+	Reflect.deleteProperty(env, "OMP_GUI_OMP");
+	const executablePath = process.env.OMP_GUI_TEST_APP;
+	const app = await electron.launch({
+		...(executablePath ? { executablePath } : {}),
+		args: [...(executablePath ? [] : [path.resolve("out/main/index.js")]), project, `--user-data-dir=${desktop}`],
+		env,
+	});
+	try {
+		const page = await app.firstWindow();
+		const errors: string[] = [];
+		page.on("pageerror", error => errors.push(error.message));
+		await app.evaluate(({ shell }) => {
+			const opened: string[] = [];
+			Object.assign(globalThis, { openedUrls: opened });
+			shell.openExternal = async (url: string) => {
+				opened.push(url);
+			};
+		});
+		await expect
+			.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 60_000 })
+			.toMatchObject({ status: "ready" });
+		// First run is one of the two sign-in surfaces (Settings › Models the other).
+		const setup = page.getByRole("region", { name: "Set up OMPdesk", exact: true });
+		await setup.getByRole("searchbox", { name: "Search providers" }).fill("Anthropic");
+		const anthropic = setup.locator("li").filter({ hasText: "Anthropic" }).first();
+		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
+		await expect(anthropic.locator("[data-login-progress]")).toHaveText("Waiting for you to finish in the browser…");
+		await expect(
+			anthropic.getByRole("button", { name: "Browser can't get back to OMPdesk? Paste the code" }),
+		).toBeVisible();
+		await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
+
+		await anthropic.getByRole("button", { name: "Sign in with browser" }).click();
+		await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "openedUrls"))).toHaveLength(1);
+		const [launchUrl] = (await app.evaluate(() => Reflect.get(globalThis, "openedUrls"))) as string[];
+		expect(launchUrl).toMatch(/^http:\/\/localhost:\d+\/launch$/);
+		const launch = await fetch(launchUrl ?? "", { redirect: "manual" });
+		expect(launch.status).toBe(302);
+		const authorize = new URL(launch.headers.get("location") ?? "");
+		expect(authorize.origin).toBe("https://claude.ai");
+		const redirect = new URL(authorize.searchParams.get("redirect_uri") ?? "");
+		expect(redirect.origin).toBe(new URL(launchUrl ?? "").origin);
+		expect(redirect.pathname).toBe("/callback");
+
+		await anthropic.getByRole("button", { name: "Cancel", exact: true }).click();
+		await expect(anthropic.locator("[data-login-progress]")).toHaveCount(0);
+		// The callback server went with the login: stock's `login` answered.
+		await expect
+			.poll(() =>
+				fetch(launchUrl ?? "", { redirect: "manual" }).then(
+					() => "listening",
+					() => "closed",
+				),
+			)
+			.toBe("closed");
+		const started = Date.now();
+		await page.evaluate(() => window.omp.rpc.getState());
+		expect(Date.now() - started).toBeLessThan(5_000);
+		await expect(page.getByText("Couldn't connect Anthropic")).toHaveCount(0);
+		await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
+		expect(errors).toEqual([]);
+	} finally {
+		await exitApp(app);
+		await fs.rm(profile, { recursive: true, force: true });
+	}
+});
