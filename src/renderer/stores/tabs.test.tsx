@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { IpcSpawnTabPayload, IpcSpawnTabResult, IpcTabInfo, IpcTabStatusPayload } from "../../shared/ipc-types";
 import type {
 	AgentMessage,
+	ExtensionUIRequest,
 	ModelInfo,
 	RpcResponse,
 	RpcSessionState,
@@ -32,7 +33,7 @@ import { translate } from "../lib/i18n";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { routeCommands } from "../test-support/route-commands";
 import { useComposerStore } from "./composer";
-import { useExtensionUiStore } from "./extension-ui";
+import { type ExtensionUiStore, useExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
 import { type MessagesStore, useMessagesStore } from "./messages";
 import { useModelStore } from "./model";
@@ -46,6 +47,7 @@ import {
 	isTabClosed,
 	pushTabExtensionUiRequest,
 	restoreTabComposer,
+	restoreTabExtensionUiRequests,
 	type SessionTab,
 	settleTabPlanApproval,
 	tabChipLabel,
@@ -1028,6 +1030,27 @@ describe("tabs store background tab signals", () => {
 			targetId: "confirm-bg",
 		});
 		expect(tabOf("t1")?.awaitingInput).toBeUndefined();
+	});
+
+	it("shows again the asks a reloaded page missed, once each, and flags their tabs", () => {
+		seedTabs();
+		const ask: ExtensionUIRequest = { type: "extension_ui_request", id: "ask-t1", method: "ask", questions: [] };
+		const live: ExtensionUIRequest = {
+			type: "extension_ui_request",
+			id: "live-t1",
+			method: "confirm",
+			title: "Go?",
+			message: "?",
+		};
+		pushTabExtensionUiRequest("t1", live);
+		restoreTabExtensionUiRequests([
+			{ tabId: "t1", request: ask },
+			{ tabId: "t1", request: live },
+		]);
+		restoreTabExtensionUiRequests([{ tabId: "t1", request: ask }]);
+		const pending = sessionRuntimeStore<ExtensionUiStore>("t1", "extensionUi")?.getState().pendingRequests;
+		expect(pending?.map(request => request.id)).toEqual(["live-t1", "ask-t1"]);
+		expect(tabOf("t1")?.awaitingInput).toBe("input");
 	});
 
 	it("tells a background tool approval from a question", () => {

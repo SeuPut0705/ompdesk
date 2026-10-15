@@ -605,6 +605,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		sidecarFor(deps, event)?.sendSideChannel(response);
 	});
 
+	ipcMain.handle(IPC_COMMANDS.EXTENSION_UI_OPEN, event => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		return win ? sidecarPool.openRequests(win) : [];
+	});
+
 	// Sessions. `device` names the paired host whose session index answers;
 	// its sessions come back tagged with it.
 	ipcMain.handle(IPC_COMMANDS.SESSIONS_LIST, async (event, payload: IpcSessionsListPayload) => {

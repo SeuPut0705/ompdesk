@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from "react";
 import type { ExtensionUIResponse } from "../../shared/rpc-types";
 import { useRuntimeTabId } from "../stores/session-runtime-context";
-import { pushTabExtensionUiRequest } from "../stores/tabs";
+import { pushTabExtensionUiRequest, restoreTabExtensionUiRequests } from "../stores/tabs";
 
 /** Answers stay attached to the originating process, even when request ids collide. */
 export function useExtensionUiResponder(): (response: ExtensionUIResponse) => void {
@@ -15,7 +15,13 @@ export function useExtensionUiResponder(): (response: ExtensionUIResponse) => vo
 	);
 }
 
-/** Routes every extension UI request into the tab that raised it. */
+/** Routes every extension UI request into the tab that raised it, and takes back the ones this page loaded too late to see. */
 export function useExtensionUi(): void {
-	useEffect(() => window.omp.events.onExtensionUi((request, tabId) => pushTabExtensionUiRequest(tabId, request)), []);
+	useEffect(() => {
+		const unsubscribe = window.omp.events.onExtensionUi((request, tabId) =>
+			pushTabExtensionUiRequest(tabId, request),
+		);
+		void window.omp.ui.openRequests().then(restoreTabExtensionUiRequests);
+		return unsubscribe;
+	}, []);
 }

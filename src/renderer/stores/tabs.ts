@@ -35,6 +35,7 @@ export type { SplitAxis, SplitLayout, SplitPlacement } from "../../shared/split-
 import { useEffect } from "react";
 import { create, type StoreApi } from "zustand";
 import type {
+	IpcOpenExtensionRequest,
 	IpcSpawnTabResult,
 	IpcTabStatusPayload,
 	IpcTabWorktree,
@@ -861,6 +862,17 @@ export function pushTabExtensionUiRequest(tabId: string, request: ExtensionUIReq
 	ensureTabRuntime(tabId);
 	sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi")?.getState().pushRequest(request);
 	watchTabAwaitingInput(tabId);
+}
+
+/** Show again the asks and approvals a reloaded page missed: main still holds them, and answering reaches the omp that raised them. A live frame that got here first is not doubled. */
+export function restoreTabExtensionUiRequests(open: readonly IpcOpenExtensionRequest[]): void {
+	for (const { tabId, request } of open) {
+		if (isTabClosed(tabId)) continue;
+		ensureTabRuntime(tabId);
+		const store = sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi");
+		if (store?.getState().pendingRequests.some(pending => pending.id === request.id)) continue;
+		pushTabExtensionUiRequest(tabId, request);
+	}
 }
 
 /** Runtimes whose extension-UI and plan stores already feed their tab's `awaitingInput`. */

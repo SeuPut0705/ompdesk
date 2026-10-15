@@ -128,6 +128,8 @@ export const IPC_COMMANDS = {
 	RPC_COMMAND_FOR_TAB: "rpc:command-for-tab",
 	/** Respond to extension UI request */
 	EXTENSION_UI_RESPOND: "extension-ui:respond",
+	/** The asks and approvals this window's tabs still wait on (a page that reloaded missed their events) */
+	EXTENSION_UI_OPEN: "extension-ui:open",
 	/** Get session list */
 	SESSIONS_LIST: "sessions:list",
 	/** Delete a session file */
@@ -583,6 +585,12 @@ export type IpcSidecarStatusPayload = SidecarStatusPayload;
 export interface IpcExtensionUiRespondPayload {
 	response: ExtensionUIResponse;
 	tabId?: string;
+}
+
+/** A blocking extension request still open on a tab, as `EXTENSION_UI_OPEN` lists it. */
+export interface IpcOpenExtensionRequest {
+	tabId: string;
+	request: ExtensionUIRequest;
 }
 
 /** DTO types only. Installed stock ModelsConfigSchema supplies all runtime vocabularies. */
@@ -1527,6 +1535,8 @@ export interface OmpApi {
 	};
 	ui: {
 		respondExtensionUi(response: ExtensionUIResponse, tabId?: string): void;
+		/** The asks and approvals this window's tabs wait on: a page that reloaded missed the events that raised them. */
+		openRequests(): Promise<IpcOpenExtensionRequest[]>;
 	};
 	sessions: {
 		/** `device` = paired host deviceId; absent = this device. Remote results carry `device`. */

@@ -25,6 +25,7 @@ import type {
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
 	IpcModelSetupRunResult,
+	IpcOpenExtensionRequest,
 	IpcOpenPathResult,
 	IpcRemotePairPayload,
 	IpcResumeNotice,
@@ -301,6 +302,7 @@ const api: OmpApi = {
 		respondExtensionUi: (response: ExtensionUIResponse, tabId?: string) => {
 			ipcRenderer.invoke(IPC_COMMANDS.EXTENSION_UI_RESPOND, { response, tabId });
 		},
+		openRequests: () => ipcRenderer.invoke(IPC_COMMANDS.EXTENSION_UI_OPEN) as Promise<IpcOpenExtensionRequest[]>,
 	},
 
 	sessions: {

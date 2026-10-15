@@ -1432,6 +1432,29 @@ describe("SidecarPool background tabs", () => {
 		expect(b?.sentFrames).toEqual([]);
 	});
 
+	it("lists the asks and approvals still open for a window that reloaded, until they are answered or withdrawn", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		const other = fakeWindow(2);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", other.win, "tab-b");
+		const [a, b] = sidecars;
+
+		a?.emitUiRequest({ id: "ask-a", method: "ask", title: "Which one?", questions: [] });
+		a?.emitUiRequest({ id: "confirm-a", method: "confirm", title: "Go?", message: "?" });
+		a?.emitUiRequest({ id: "widget-a", method: "setWidget", widgetKey: "next-prompt", widgetLines: ["hi"] });
+		b?.emitUiRequest({ id: "ask-b", method: "ask", title: "Elsewhere?", questions: [] });
+		expect(pool.openRequests(fw.win).map(open => [open.tabId, open.request.id])).toEqual([
+			["tab-a", "ask-a"],
+			["tab-a", "confirm-a"],
+		]);
+
+		pool.routeSideChannel("ask-a", { type: "extension_ui_response", id: "ask-a", cancelled: true });
+		a?.emitUiRequest({ id: "cancel-1", method: "cancel", targetId: "confirm-a" });
+		expect(pool.openRequests(fw.win)).toEqual([]);
+		expect(pool.openRequests(other.win).map(open => open.request.id)).toEqual(["ask-b"]);
+	});
+
 	it("reports how a background run ended so the renderer can tell failure from success", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);

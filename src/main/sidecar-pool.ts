@@ -37,6 +37,7 @@ import type { EventEmitter } from "node:events";
 import type { BrowserWindow } from "electron";
 import {
 	IPC_EVENTS,
+	type IpcOpenExtensionRequest,
 	type IpcSessionOwner,
 	type IpcSetTabViewPayload,
 	type IpcTabInfo,
@@ -232,6 +233,12 @@ export class SidecarPool {
 	 * released.
 	 */
 	#requestOwners = new Map<string, PoolEntry>();
+	/**
+	 * The blocking requests behind `#requestOwners`, by id: the live event reaches the page that
+	 * was open then, so a window that reloads (View › Reload, a renderer crash) asks for them again
+	 * through `openRequests`. Pruned against the owners whenever one is added or read.
+	 */
+	#requestBodies = new Map<string, ExtensionUIRequest>();
 	readonly #factory: SidecarFactory;
 	/** Suppress partial snapshots while a saved layout is being reconstructed. */
 	#restoringWindows = new Set<number>();
@@ -428,6 +435,9 @@ export class SidecarPool {
 			else if (request.method === "cancel" && this.#requestOwners.get(request.targetId) === entry) {
 				this.#requestOwners.delete(request.targetId);
 				this.onRunningChange?.();
+				for (const id of this.#requestBodies.keys())
+					if (!this.#requestOwners.has(id)) this.#requestBodies.delete(id);
+				this.#requestBodies.set(request.id, request);
 			}
 			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request });
 		});
@@ -913,6 +923,17 @@ export class SidecarPool {
 		if (changed) this.#unregisterSessionFile(entry);
 		entry.sessionFile = sessionFile;
 		if (changed && entry.run.running) this.onRunningChange?.();
+	/** The asks and approvals this window's tabs still wait on, for a page that loaded after they were raised. */
+	openRequests(win: BrowserWindow): IpcOpenExtensionRequest[] {
+		const open: IpcOpenExtensionRequest[] = [];
+		for (const [id, request] of this.#requestBodies) {
+			const owner = this.#requestOwners.get(id);
+			if (!owner) this.#requestBodies.delete(id);
+			else if (owner.win === win) open.push({ tabId: owner.tabId, request });
+		}
+		return open;
+	}
+
 		this.#sessionOwners.set(ownerKey(entry.device, sessionFile), { tabId: entry.tabId, winId: entry.winId });
 	}
 
