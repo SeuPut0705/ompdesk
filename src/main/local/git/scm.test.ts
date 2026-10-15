@@ -1,12 +1,22 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OmpRuntime } from "../types";
 import { getGitChanges } from "./changes";
 import { isValidRefName, parseBranchHeaders, parseDecorations, remoteWebBase } from "./parse";
 import * as scm from "./scm";
 import { gitSync, initRepo, pathExists } from "./test-repos";
+
+// Host git config must not shape these repos: a runner's git names a bare remote's HEAD `master`, a Mac's `main`.
+// Every git here (gitSync and the code under test) inherits process.env.
+beforeAll(() => {
+	vi.stubEnv("GIT_CONFIG_GLOBAL", os.devNull);
+	vi.stubEnv("GIT_CONFIG_NOSYSTEM", "1");
+});
+afterAll(() => {
+	vi.unstubAllEnvs();
+});
 
 let dir: string;
 let root: string;
@@ -118,7 +128,7 @@ describe("commit", () => {
 describe("remote", () => {
 	it("publishes a branch without upstream, then pushes, fetches and pulls", async () => {
 		const remote = path.join(dir, "remote.git");
-		gitSync(dir, "init", "-q", "--bare", "remote.git");
+		gitSync(dir, "init", "-q", "--bare", "-b", "main", "remote.git");
 		await expect(scm.remote(root, "push")).rejects.toMatchObject({ code: "no_remote" });
 		gitSync(root, "remote", "add", "origin", remote);
 		expect(await scm.remote(root, "push")).toMatchObject({ published: "origin/main" });
@@ -145,7 +155,7 @@ describe("remote", () => {
 
 	it("reports a rejected push as push_rejected", async () => {
 		const remote = path.join(dir, "remote.git");
-		gitSync(dir, "init", "-q", "--bare", "remote.git");
+		gitSync(dir, "init", "-q", "--bare", "-b", "main", "remote.git");
 		gitSync(root, "remote", "add", "origin", remote);
 		await scm.remote(root, "push");
 		const other = path.join(dir, "other");
@@ -292,7 +302,7 @@ describe("history", () => {
 		gitSync(root, "checkout", "--", "README.md");
 
 		const remote = path.join(dir, "remote.git");
-		gitSync(dir, "init", "-q", "--bare", "remote.git");
+		gitSync(dir, "init", "-q", "--bare", "-b", "main", "remote.git");
 		gitSync(root, "remote", "add", "origin", remote);
 		gitSync(root, "push", "-q", "-u", "origin", "HEAD");
 		await expect(scm.historyAction(root, { action: "move_earlier", sha: head })).rejects.toMatchObject({
