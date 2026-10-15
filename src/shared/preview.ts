@@ -46,6 +46,16 @@ export function clampPreviewZoom(value: number): number {
 	if (!Number.isFinite(value)) return 1;
 	return Math.round(Math.min(PREVIEW_ZOOM_MAX, Math.max(PREVIEW_ZOOM_MIN, value)) * 10) / 10;
 }
+/** One page of the preview's tab strip (C119). */
+export interface PreviewTab {
+	id: string;
+	title: string;
+	url: string;
+	loading: boolean;
+}
+/** Tabs one window's preview may hold; a page's popups beyond it are dropped. */
+export const PREVIEW_TAB_LIMIT = 10;
+/** The shown tab's page, plus the strip (`tabs`, `activeTab`; empty before the first page exists). */
 export interface PreviewState {
 	url: string;
 	title: string;
@@ -62,9 +72,13 @@ export interface PreviewState {
 	/** Console errors and warnings since the last full navigation (at most `PREVIEW_PROBLEM_LIMIT`). */
 	problems: PreviewProblem[];
 	notice: PreviewNotice | null;
+	tabs: PreviewTab[];
+	activeTab: string;
 }
+/** What one tab's page reports; the strip fields come from the window. */
+export type PreviewPageState = Omit<PreviewState, "tabs" | "activeTab">;
 export const PREVIEW_PROBLEM_LIMIT = 50;
-export const EMPTY_PREVIEW: PreviewState = {
+export const EMPTY_PREVIEW_PAGE: PreviewPageState = {
 	url: "",
 	title: "",
 	loading: false,
@@ -78,6 +92,7 @@ export const EMPTY_PREVIEW: PreviewState = {
 	problems: [],
 	notice: null,
 };
+export const EMPTY_PREVIEW: PreviewState = { ...EMPTY_PREVIEW_PAGE, tabs: [], activeTab: "" };
 export type PreviewRequest =
 	| { action: "layout"; bounds: PreviewBounds; visible: boolean }
 	| { action: "load"; url: string }
@@ -87,6 +102,10 @@ export type PreviewRequest =
 	| { action: "agentStop" }
 	| { action: "zoom"; zoom: number }
 	| { action: "viewport"; viewport: PreviewViewport }
+	/** Open a tab (an empty one without `url`) and show it. */
+	| { action: "newTab"; url?: string }
+	/** Show or close one tab; closing the last one leaves a fresh empty tab. Either releases an agent on another page. */
+	| { action: "selectTab" | "closeTab"; id: string }
 	| { action: "clearProblems" | "dismissNotice" }
 	| { action: "back" | "forward" | "reload" | "stop" | "dispose" };
 export interface PreviewApi {

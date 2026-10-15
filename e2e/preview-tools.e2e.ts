@@ -7,7 +7,7 @@ import { _electron as electron } from "playwright";
 import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
 
 // Preview page tools: a bare host in the address bar, console problems, zoom,
-// responsive frames, a refused download, Save as PDF and crash recovery.
+// responsive frames, a refused download, Save as PDF, crash recovery and tabs.
 // OMP_GUI_PREVIEW_TOOLS_CAPTURES=<dir> keeps the captures.
 
 const LABELS = {
@@ -24,6 +24,9 @@ const LABELS = {
 		crashed: "This page stopped working",
 		restore: "Restore page",
 		close: "Close",
+		tabs: "Preview tabs",
+		newTab: "New tab",
+		closeSecond: "Close Second page",
 	},
 	ko: {
 		preview: "미리보기",
@@ -38,6 +41,9 @@ const LABELS = {
 		crashed: "이 페이지가 멈췄어요",
 		restore: "페이지 복구하기",
 		close: "닫기",
+		tabs: "미리보기 탭",
+		newTab: "새 탭",
+		closeSecond: "Second page 닫기",
 	},
 } as const;
 
@@ -45,7 +51,7 @@ for (const [language, theme] of [
 	["en", "light"],
 	["ko", "dark"],
 ] as const) {
-	test(`preview page tools: address, problems, zoom, frames, download, PDF, crash (${language}-${theme})`, async () => {
+	test(`preview page tools: address, problems, zoom, frames, download, PDF, crash, tabs (${language}-${theme})`, async () => {
 		test.setTimeout(120_000);
 		const label = LABELS[language];
 		const captures = process.env.OMP_GUI_PREVIEW_TOOLS_CAPTURES;
@@ -62,7 +68,11 @@ for (const [language, theme] of [
 			response.end(
 				request.url === "/width"
 					? "<!doctype html><meta name=viewport content='width=device-width'><title>w</title><script>const show = () => { document.title = 'w=' + innerWidth; }; show(); addEventListener('resize', show);</script>"
-					: "<!doctype html><title>Tools fixture</title><h1>Tools fixture</h1><script>console.error('boom from fixture'); console.warn('careful with this');</script>",
+					: request.url === "/popup"
+						? "<!doctype html><title>Popup source</title><a id=go href='/second' target=_blank>open</a>"
+						: request.url === "/second"
+							? "<!doctype html><title>Second page</title><h1>Second</h1>"
+							: "<!doctype html><title>Tools fixture</title><h1>Tools fixture</h1><script>console.error('boom from fixture'); console.warn('careful with this');</script>",
 			);
 		});
 		const listening = Promise.withResolvers<void>();
@@ -195,6 +205,40 @@ for (const [language, theme] of [
 			await aside.getByRole("button", { name: label.restore, exact: true }).click();
 			await expect(aside.getByRole("alert")).toHaveCount(0);
 			await expect(status).toContainText("w=");
+
+			// C119: a target=_blank link opens a preview tab; the strip switches and closes tabs.
+			await addressBar.fill(`${host}/popup`);
+			await addressBar.press("Enter");
+			await expect(status).toHaveText("Popup source");
+			await app.evaluate(async ({ webContents }, source) => {
+				const contents = webContents
+					.getAllWebContents()
+					.find(candidate => candidate.getURL() === `http://${source}/popup`);
+				if (!contents) throw new Error("No popup source page");
+				await contents.executeJavaScript("document.getElementById('go').click()", true);
+			}, host);
+			const strip = aside.getByRole("navigation", { name: label.tabs, exact: true });
+			await expect(strip.locator("[data-preview-tab]")).toHaveCount(2);
+			await expect(status).toHaveText("Second page");
+			await expect(addressBar).toHaveValue(`http://${host}/second`);
+			await capture("preview-tabs");
+			await strip.getByRole("button", { name: "Popup source", exact: true }).click();
+			await expect(status).toHaveText("Popup source");
+			await expect(addressBar).toHaveValue(`http://${host}/popup`);
+			await strip.getByRole("button", { name: label.closeSecond, exact: true }).click();
+			await expect(strip).toHaveCount(0);
+			await expect(status).toHaveText("Popup source");
+			// A new tab from the page options starts empty, then closing it shows the page again.
+			await options.click();
+			await page.getByRole("menuitem", { name: label.newTab, exact: true }).click();
+			await expect(strip.locator("[data-preview-tab]")).toHaveCount(2);
+			await expect(addressBar).toHaveValue("");
+			await addressBar.fill(`${host}/second`);
+			await addressBar.press("Enter");
+			await expect(status).toHaveText("Second page");
+			await strip.getByRole("button", { name: label.closeSecond, exact: true }).click();
+			await expect(strip).toHaveCount(0);
+			await expect(status).toHaveText("Popup source");
 		} finally {
 			await exitApp(app);
 			server.close();

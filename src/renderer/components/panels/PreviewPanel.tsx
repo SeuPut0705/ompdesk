@@ -9,10 +9,12 @@ import {
 	Laptop,
 	Maximize,
 	MoreHorizontal,
+	Plus,
 	RotateCw,
 	Smartphone,
 	Square,
 	Tablet,
+	X,
 	XCircle,
 	ZoomIn,
 	ZoomOut,
@@ -22,6 +24,7 @@ import {
 	clampPreviewZoom,
 	EMPTY_PREVIEW,
 	isLoopbackUrl,
+	PREVIEW_TAB_LIMIT,
 	PREVIEW_VIEWPORTS,
 	PREVIEW_ZOOM_MAX,
 	PREVIEW_ZOOM_MIN,
@@ -135,9 +138,23 @@ export function PreviewPanel() {
 		setInvalid(false);
 		if (!(remote && isLoopbackUrl(url))) command({ action: "load", url });
 	}, [requested, latest, remote, tabId, command]);
+	// Show the shown tab's address: on a tab switch even an empty one, otherwise as the page navigates.
+	const shownTab = useRef("");
 	useEffect(() => {
-		if (state.url) setInput(state.url);
-	}, [state.url]);
+		const switched = shownTab.current !== "" && shownTab.current !== state.activeTab;
+		shownTab.current = state.activeTab;
+		if (switched || state.url) {
+			setInput(state.url);
+			setInvalid(false);
+		}
+	}, [state.url, state.activeTab]);
+	// Main lets go of the agent when another preview tab is shown or its page closes; stop that tab's relay too.
+	const agentOwner = useRef<string | null>(null);
+	useEffect(() => {
+		const owner = state.agent?.tabId ?? null;
+		if (agentOwner.current && !owner) releaseAgentRelay(agentOwner.current);
+		agentOwner.current = owner;
+	}, [state.agent?.tabId]);
 	useEffect(() => {
 		const element = surface.current;
 		if (!element) return;
@@ -200,10 +217,18 @@ export function PreviewPanel() {
 	};
 	const pageItems: ContextMenuItem[] = [
 		{
+			id: "new-tab",
+			label: t("panel.preview.newTab"),
+			icon: Plus,
+			disabled: state.tabs.length >= PREVIEW_TAB_LIMIT,
+			onSelect: () => command({ action: "newTab" }),
+		},
+		{
 			id: "zoom-in",
 			label: t("panel.preview.zoomIn"),
 			icon: ZoomIn,
 			disabled: !pageReady || state.zoom >= PREVIEW_ZOOM_MAX,
+			separatorBefore: true,
 			onSelect: () => zoomTo(state.zoom + 0.1),
 		},
 		{
@@ -402,6 +427,53 @@ export function PreviewPanel() {
 					))}
 				</ol>
 			</Popover>
+			{state.tabs.length > 1 && (
+				<nav
+					aria-label={t("panel.preview.tabs")}
+					className="flex min-w-0 shrink-0 items-center gap-1 overflow-x-auto border-b border-(--sc-divider) px-2 py-1"
+					data-preview-tabs
+				>
+					{state.tabs.map(tab => {
+						const active = tab.id === state.activeTab;
+						const title = tab.title || tab.url || t("panel.preview.newTab");
+						return (
+							<div
+								key={tab.id}
+								className={`flex max-w-48 min-w-24 shrink-0 items-center rounded-(--sc-radius-sm) border ${active ? "border-(--sc-border) bg-(--sc-selected)" : "border-transparent hover:bg-(--sc-hover)"}`}
+								data-preview-tab={tab.id}
+							>
+								<button
+									type="button"
+									aria-current={active ? "page" : undefined}
+									className={`flex h-(--sc-control-sm) min-w-0 flex-1 items-center gap-1.5 truncate rounded-(--sc-radius-sm) px-2 text-left text-sc-xs focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) ${active ? "text-(--sc-text)" : "text-(--sc-text-muted) hover:text-(--sc-text)"}`}
+									title={tab.url || title}
+									onClick={() => command({ action: "selectTab", id: tab.id })}
+								>
+									{tab.loading ? (
+										<Spinner size="sm" />
+									) : (
+										<Globe aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+									)}
+									<span className="truncate">{title}</span>
+								</button>
+								<IconButton
+									label={t("panel.preview.closeTab", { title })}
+									icon={<X />}
+									size="sm"
+									onClick={() => command({ action: "closeTab", id: tab.id })}
+								/>
+							</div>
+						);
+					})}
+					<IconButton
+						label={t("panel.preview.newTab")}
+						icon={<Plus />}
+						size="sm"
+						disabled={state.tabs.length >= PREVIEW_TAB_LIMIT}
+						onClick={() => command({ action: "newTab" })}
+					/>
+				</nav>
+			)}
 			{state.agent && (
 				<div
 					className="flex min-w-0 shrink-0 items-center gap-2 border-b border-(--sc-divider) bg-(--sc-accent-soft) px-3 py-1.5 text-sc-xs text-(--sc-text)"
