@@ -447,7 +447,7 @@ export const MessageBubble = memo(function MessageBubble({
 						if (block.type === "text") {
 							return (
 								<div key={i} className="omp-user-text">
-									<MarkdownRenderer content={block.text} singleDollarTextMath={false} />
+									<MarkdownRenderer content={block.text} userText />
 								</div>
 							);
 						}

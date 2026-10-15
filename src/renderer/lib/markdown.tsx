@@ -51,17 +51,19 @@ import {
 } from "./markdown-rehype";
 import { PREVIEW_HEIGHT_LG, PREVIEW_SCROLL_CODE } from "./preview";
 import { remarkCjkAutolink, remarkCjkStrong } from "./remark-cjk";
+import { remarkHtmlAsText } from "./remark-html-text";
 import { remarkLatexMath } from "./remark-latex-math";
 import { useTabRpc } from "./tab-rpc";
 
 interface MarkdownRendererProps {
 	content: string;
 	/**
-	 * Parse single-dollar inline math. User-authored prompts disable this so SQL
-	 * JSONPath expressions such as `$.field ... $.other` remain literal text.
-	 * Display math (`$$...$$`) is still supported in that mode.
+	 * Text a person typed (a prompt) rather than model output: single-dollar
+	 * inline math stays literal, so SQL JSONPath expressions such as
+	 * `$.field ... $.other` remain text (display math `$$...$$` still works),
+	 * and HTML tags show as typed instead of being rendered.
 	 */
-	singleDollarTextMath?: boolean;
+	userText?: boolean;
 	/**
 	 * Force the codeLineNumbers pref on/off. When undefined, code blocks follow
 	 * the GUI pref (hydrated from prefs IPC, flips live on Settings changes).
@@ -88,12 +90,13 @@ const REMARK_PLUGINS: Options["remarkPlugins"] = [
 	remarkCjkStrong,
 	remarkCjkAutolink,
 ];
-const REMARK_PLUGINS_LITERAL_SINGLE_DOLLAR: Options["remarkPlugins"] = [
+const REMARK_PLUGINS_USER_TEXT: Options["remarkPlugins"] = [
 	remarkGfm,
 	[remarkMath, { singleDollarTextMath: false }],
 	remarkLatexMath,
 	remarkCjkStrong,
 	remarkCjkAutolink,
+	remarkHtmlAsText,
 ];
 
 type SanitizeSchema = NonNullable<Parameters<typeof rehypeSanitize>[0]>;
@@ -849,7 +852,7 @@ const RENDERED_LIMIT = 64;
 
 function buildMarkdown(
 	content: string,
-	singleDollarTextMath: boolean,
+	userText: boolean,
 	rawHtml: RehypePlugin | undefined,
 	katex: RehypePlugin | undefined,
 ): ReactElement {
@@ -857,7 +860,7 @@ function buildMarkdown(
 	// element tree it returns, which every later mount of the same source reuses.
 	return ReactMarkdown({
 		children: content,
-		remarkPlugins: singleDollarTextMath ? REMARK_PLUGINS : REMARK_PLUGINS_LITERAL_SINGLE_DOLLAR,
+		remarkPlugins: userText ? REMARK_PLUGINS_USER_TEXT : REMARK_PLUGINS,
 		remarkRehypeOptions: REMARK_REHYPE_OPTIONS,
 		rehypePlugins: [
 			...(rawHtml ? [rawHtml] : []),
@@ -874,26 +877,26 @@ function buildMarkdown(
 
 function renderMarkdown(
 	content: string,
-	singleDollarTextMath: boolean,
+	userText: boolean,
 	rawHtml: RehypePlugin | undefined,
 	katex: RehypePlugin | undefined,
 ): ReactElement {
-	const key = `${singleDollarTextMath ? "$" : "-"}${rawHtml ? "h" : "-"}${katex ? "k" : "-"}${content}`;
+	const key = `${userText ? "u" : "-"}${rawHtml ? "h" : "-"}${katex ? "k" : "-"}${content}`;
 	const cached = rendered.get(key);
 	if (cached) {
 		rendered.delete(key);
 		rendered.set(key, cached);
 		return cached;
 	}
-	const element = buildMarkdown(content, singleDollarTextMath, rawHtml, katex);
+	const element = buildMarkdown(content, userText, rawHtml, katex);
 	rendered.set(key, element);
 	if (rendered.size > RENDERED_LIMIT) rendered.delete(rendered.keys().next().value ?? "");
 	return element;
 }
 
 /** Render `content` now, with the pipeline steps loaded so far, for a `MarkdownRenderer` about to mount. */
-export function prewarmMarkdown(content: string, singleDollarTextMath = true): void {
-	renderMarkdown(content, singleDollarTextMath, RAW_HTML_STEP.plugin, KATEX_STEP.plugin);
+export function prewarmMarkdown(content: string): void {
+	renderMarkdown(content, false, RAW_HTML_STEP.plugin, KATEX_STEP.plugin);
 }
 
 /**
@@ -904,16 +907,17 @@ export function prewarmMarkdown(content: string, singleDollarTextMath = true): v
 export const MarkdownRenderer = memo(function MarkdownRenderer({
 	content,
 	codeLineNumbers,
-	singleDollarTextMath = true,
+	userText = false,
 	streaming = false,
 }: MarkdownRendererProps) {
-	const rawHtml = useLazyRehypeStep(RAW_HTML_STEP, content);
+	// A prompt's tags are shown as typed: the raw-HTML parser never loads for it.
+	const rawHtml = useLazyRehypeStep(RAW_HTML_STEP, userText ? "" : content);
 	const katex = useLazyRehypeStep(KATEX_STEP, content);
 	// A streaming tail changes every frame: its renders would only evict the
 	// cached history replies, so it builds outside the cache.
 	const element = useMemo(
-		() => (streaming ? buildMarkdown : renderMarkdown)(content, singleDollarTextMath, rawHtml, katex),
-		[content, singleDollarTextMath, rawHtml, katex, streaming],
+		() => (streaming ? buildMarkdown : renderMarkdown)(content, userText, userText ? undefined : rawHtml, katex),
+		[content, userText, rawHtml, katex, streaming],
 	);
 	return (
 		<div className="markdown-body text-[1em] leading-[1.5]">

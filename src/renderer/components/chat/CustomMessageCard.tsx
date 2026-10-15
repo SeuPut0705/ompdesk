@@ -631,7 +631,7 @@ function CollabCard({ message }: { message: AgentMessage }) {
 				>
 					«{from}» ›
 				</div>
-				{text && <MarkdownRenderer content={text} singleDollarTextMath={false} />}
+				{text && <MarkdownRenderer content={text} userText />}
 			</div>
 		</div>
 	);

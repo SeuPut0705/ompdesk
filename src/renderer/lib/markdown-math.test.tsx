@@ -7,11 +7,11 @@ import { MarkdownRenderer, preloadMarkdownPipeline } from "./markdown";
 // renderToStaticMarkup never runs effects, so the lazy KaTeX step must be loaded first.
 beforeAll(() => preloadMarkdownPipeline());
 
-function render(content: string, singleDollarTextMath = true) {
+function render(content: string, userText = false) {
 	return parseHTML(
 		renderToStaticMarkup(
 			<I18nProvider>
-				<MarkdownRenderer content={content} singleDollarTextMath={singleDollarTextMath} />
+				<MarkdownRenderer content={content} userText={userText} />
 			</I18nProvider>,
 		),
 	).document;
@@ -66,7 +66,7 @@ describe("Markdown math rendering", () => {
 		const document = render("$x^2$\n\n$$\nx = y\n$$");
 		expect(document.querySelectorAll(".katex")).toHaveLength(2);
 		expect(document.querySelectorAll(".katex-display")).toHaveLength(1);
-		const user = render(String.raw`$.first ... $.second and \(x^2\)`, false);
+		const user = render(String.raw`$.first ... $.second and \(x^2\)`, true);
 		expect(user.documentElement.textContent).toContain("$.first ... $.second");
 		expect(user.querySelectorAll(".katex")).toHaveLength(1);
 	});
@@ -128,5 +128,14 @@ Still readable`);
 		expect(document.querySelector('[href^="javascript:"], [onclick], .fixed')).toBeNull();
 		expect(document.querySelectorAll("annotation")).toHaveLength(3);
 		expect(document.querySelectorAll("annotation")[2].textContent).toBe("x^2");
+	});
+
+	it("shows HTML in a person's own text as typed, and still renders it for model output", () => {
+		const typed = render("<h1>Tally</h1>\n\nsay <b>hi</b> to <br> all", true);
+		expect(typed.querySelector("h1, b, br")).toBeNull();
+		expect(typed.documentElement.textContent).toContain("<h1>Tally</h1>");
+		expect(typed.documentElement.textContent).toContain("say <b>hi</b> to <br> all");
+		const model = render("<h1>Tally</h1>");
+		expect(model.querySelector("h1")?.textContent).toBe("Tally");
 	});
 });
