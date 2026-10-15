@@ -29,6 +29,7 @@ import {
 	TextArea,
 } from "../common";
 import { SettingsSection } from "./SettingsLayout";
+import { SshAgentRow, SshForwardsPanel } from "./SshTools";
 
 interface HostDraft extends RpcSshHostInput {
 	name: string;
@@ -304,6 +305,7 @@ export function SshSection() {
 							/>
 						</div>
 					)}
+					{!remote && <SshAgentRow />}
 
 					{loadError && (
 						<Banner
@@ -529,6 +531,17 @@ export function SshSection() {
 									>
 										{testResult.log}
 									</pre>
+								)}
+								{!creating && selected && !remote && (
+									<SshForwardsPanel
+										target={{
+											name: selected.name,
+											host: selected.host,
+											...(selected.username ? { username: selected.username } : {}),
+											...(selected.port ? { port: selected.port } : {}),
+											...(selected.keyPath ? { keyPath: selected.keyPath } : {}),
+										}}
+									/>
 								)}
 							</aside>
 						</div>

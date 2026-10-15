@@ -89,6 +89,15 @@ import type {
 } from "../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, SCHEDULES_STATE, type SchedulesState } from "../shared/schedules";
 import type { SetupItemId, SetupState } from "../shared/setup";
+import {
+	SSH_TOOLS_AGENT,
+	SSH_TOOLS_COMMAND,
+	SSH_TOOLS_PROMPT,
+	SSH_TOOLS_PROMPTS,
+	SSH_TOOLS_STATE,
+	type SshPrompt,
+	type SshToolsState,
+} from "../shared/ssh-tools";
 
 function rpcCommand(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse> {
 	return ipcRenderer.invoke(IPC_COMMANDS.RPC_COMMAND, {
@@ -149,6 +158,13 @@ const api: OmpApi = {
 		command: request => ipcRenderer.invoke(SCHEDULES_COMMAND, request),
 		readLog: runId => ipcRenderer.invoke(SCHEDULES_LOG, runId),
 		onState: callback => subscribe<SchedulesState>(SCHEDULES_STATE, callback),
+	},
+	sshTools: {
+		command: request => ipcRenderer.invoke(SSH_TOOLS_COMMAND, request),
+		agent: () => ipcRenderer.invoke(SSH_TOOLS_AGENT),
+		prompts: () => ipcRenderer.invoke(SSH_TOOLS_PROMPTS),
+		onState: callback => subscribe<SshToolsState>(SSH_TOOLS_STATE, callback),
+		onPrompt: callback => subscribe<SshPrompt[]>(SSH_TOOLS_PROMPT, callback),
 	},
 	runtime: {
 		report: (error: RuntimeErrorReport) => ipcRenderer.send(IPC_COMMANDS.RUNTIME_ERROR_REPORT, error),

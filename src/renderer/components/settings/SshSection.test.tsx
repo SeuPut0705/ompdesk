@@ -52,6 +52,11 @@ Object.assign(window as unknown as Record<string, unknown>, {
 			sshTest,
 		},
 		system: { showOpenDialog: vi.fn(async () => null) },
+		sshTools: {
+			agent: vi.fn(async () => ({ agent: "available", agentKeys: [], keyFiles: [], keygen: true })),
+			command: vi.fn(async () => ({ forwards: [], watches: [], graceMs: 3_600_000 })),
+			onState: () => () => {},
+		},
 	},
 });
 

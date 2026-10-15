@@ -97,6 +97,7 @@ import { deleteSession, moveSession, renameSession } from "./session-mutations";
 import { resolveEditorCommand } from "./shell-env";
 import { deviceLanguage } from "./sidecar-factory";
 import type { SidecarLike, SidecarPool } from "./sidecar-pool";
+import { registerSshToolsIpc } from "./ssh/ipc";
 import { stockHelperRequest } from "./stock-helper";
 import { spawnTabForWindow } from "./tab-spawn";
 import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
@@ -249,6 +250,7 @@ function aggregateProgress(states: RunProgressState[]): RunProgressState {
 
 export function registerIpcHandlers(deps: IpcDeps): void {
 	registerTerminalIpc(deps.sidecarPool, deps.remoteDevices);
+	registerSshToolsIpc();
 	const visuals = new VisualStore(path.join(app.getPath("userData"), "visuals"));
 	const visualPages = registerPreviewHost((senderId, tabId) => {
 		const win = BrowserWindow.getAllWindows().find(window => window.webContents.id === senderId);

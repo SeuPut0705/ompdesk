@@ -309,7 +309,7 @@ export function PreviewFeedbackBar({
 							return (
 								<li key={note.n} className="flex min-w-0 flex-col gap-1" data-preview-note={note.n}>
 									<div className="flex min-w-0 items-center gap-1.5 text-sc-xs">
-										<span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-(--sc-accent) text-[10px] font-semibold text-(--sc-accent-fg)">
+										<span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-(--sc-accent) text-sc-2xs font-semibold text-(--sc-accent-fg)">
 											{note.n}
 										</span>
 										<span

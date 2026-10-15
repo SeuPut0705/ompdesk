@@ -32,6 +32,7 @@ import { AppShell } from "./components/layout/AppShell";
 import { FirstRunGate } from "./components/onboarding/FirstRunGate";
 import { StarterTour } from "./components/onboarding/StarterTour";
 import { RemoteFolderPickerHost } from "./components/remote/RemoteFolderPicker";
+import { SshPromptDialog } from "./components/settings/SshTools";
 import { useAwaitedInput } from "./hooks/use-awaited-input";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { useHostAppearance } from "./hooks/use-host-appearance";
@@ -868,6 +869,7 @@ export function App() {
 			<ForceToolDialog />
 			<HandoffDialog />
 			<RemoteFolderPickerHost />
+			<SshPromptDialog />
 			<Suspense fallback={null}>
 				<BenchmarkDialog open={benchmarkOpen} onClose={closeBenchmark} />
 			</Suspense>

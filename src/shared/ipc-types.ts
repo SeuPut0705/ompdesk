@@ -33,6 +33,7 @@ import type {
 import type { SchedulesApi } from "./schedules";
 import type { SetupItemId, SetupState } from "./setup";
 import type { SplitLayout } from "./split-layout";
+import type { SshToolsApi } from "./ssh-tools";
 import type { TerminalApi } from "./terminal-types";
 import type { UiLanguage } from "./ui-language";
 
@@ -1376,6 +1377,8 @@ export interface OmpApi {
 	preview: PreviewApi;
 	/** Scheduled `omp -p` runs on this machine (Settings › Schedules). */
 	schedules: SchedulesApi;
+	/** OMPdesk's own ssh on this computer: port forwards, port watch, agent state, prompts (Settings › SSH). */
+	sshTools: SshToolsApi;
 	runtime: {
 		/** Best-effort fire-and-forget reporting so fatal render paths never wait on IPC. */
 		report(error: RuntimeErrorReport): void;
