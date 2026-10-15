@@ -390,6 +390,7 @@ export class VisualStore {
 		if (input.visual && !record) throw new VisualError(`No visual ${input.visual} in this tab`);
 		if (record && record.kind !== kind) throw new VisualError(`Visual ${record.id} shows a different kind of target`);
 		const now = Date.now();
+		let retargeted = false;
 		if (!record) {
 			if (own.length >= TAB_VISUALS)
 				throw new VisualError(`This tab already shows ${TAB_VISUALS} visuals; close one first`);
@@ -411,6 +412,10 @@ export class VisualStore {
 			this.#records.unshift(record);
 			this.#byTab.set(tabId, [...tabIds, id]);
 		} else {
+			// A reused visual shows what this call named: its address or file moved with it, so the next open of
+			// the new target finds this record instead of adding a second one.
+			retargeted = record.target !== target;
+			record.target = target;
 			if (input.label) record.label = input.label;
 			if (kind === "file") {
 				record.root = root;
@@ -421,7 +426,7 @@ export class VisualStore {
 		const hash = content ? createHash("sha256").update(content).digest("hex") : target;
 		const last = record.versions.at(-1);
 		let added = false;
-		if (!last || last.hash !== hash) {
+		if (!last || last.hash !== hash || retargeted) {
 			const version = (last?.version ?? 0) + 1;
 			let file = "";
 			if (content) {

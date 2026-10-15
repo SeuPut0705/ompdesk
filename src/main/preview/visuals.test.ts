@@ -125,6 +125,29 @@ describe("VisualStore", () => {
 		expect(responses[1]?.headers.get("Content-Type")).toBe("text/css; charset=utf-8");
 	});
 
+	it("points a reused visual at the target it was opened with now", async () => {
+		await fs.writeFile(path.join(project, "site", "two.html"), "<title>Two</title>");
+		const first = await store.open("tab", project, { target: "site/index.html", label: "Mock" });
+		const moved = await store.open("tab", project, { target: "site/two.html", visual: first.record.id });
+		expect(moved.record.id).toBe(first.record.id);
+		expect(moved).toMatchObject({ version: 2, added: true });
+		expect(moved.record.target).toBe(await fs.realpath(path.join(project, "site", "two.html")));
+		expect(store.url(first.record.id)).toBe(`omp-visual://v2-${first.record.id}/site/two.html`);
+		// Opening the new path again finds the same visual instead of adding a second one.
+		const again = await store.open("tab", project, { target: "site/two.html" });
+		expect(again.record.id).toBe(first.record.id);
+		expect(again.added).toBe(false);
+		expect((await store.list()).length).toBe(1);
+
+		const web = await store.open("tab", project, { target: "https://example.com/a" });
+		const next = await store.open("tab", project, { target: "https://example.com/b", visual: web.record.id });
+		expect(next.record.id).toBe(web.record.id);
+		expect(next.added).toBe(true);
+		expect(store.url(web.record.id)).toBe("https://example.com/b");
+		expect((await store.open("tab", project, { target: "https://example.com/b" })).record.id).toBe(web.record.id);
+		expect((await store.list()).length).toBe(2);
+	});
+
 	it("refuses files outside the working directory and other types", async () => {
 		await expect(store.open("tab", project, { target: "../outside.css" })).rejects.toThrow(/outside|shows/);
 		await expect(store.open("tab", project, { target: "site/assets/app.css" })).rejects.toThrow(/shows/);
