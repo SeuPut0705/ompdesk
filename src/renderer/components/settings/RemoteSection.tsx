@@ -6,8 +6,9 @@
  *   default; its description says whether sleep is blocked now and for whom),
  *   the device name (editable), the LAN addresses and a single-use pairing
  *   code with its countdown — both selectable and copyable — and the paired
- *   devices with an online dot and Remove (revoke). An expired code is
- *   replaced on its own.
+ *   devices with an online dot, today's model use against the daily limits
+ *   this computer sets for each (Limits), and Remove (revoke). An expired code
+ *   is replaced on its own.
  * - Other devices (A, client): the hosts this computer can run sessions on,
  *   with their link state and Remove, plus "Connect to a device".
  *
@@ -27,6 +28,7 @@ import { toastError } from "../../stores/toast";
 import { Badge, Banner, Button, ConfirmDialog, CopyButton, ErrorDetail, Input, ListRow, Spinner } from "../common";
 import { LINK_BADGE } from "../remote/DeviceChip";
 import { RemoteConnectDialog } from "../remote/RemoteConnectDialog";
+import { PeerLimitsDialog, peerUsageLine } from "./PeerLimitsDialog";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
 /** Apply a mutation's reply, or toast why it failed. */
@@ -200,6 +202,8 @@ export function RemoteSection() {
 		deviceId: string;
 		name: string;
 	} | null>(null);
+	/** The paired device whose Limits dialog is open. */
+	const [limitsFor, setLimitsFor] = useState<string | null>(null);
 
 	const confirmRemove = () => {
 		const target = pendingRemove;
@@ -284,10 +288,16 @@ export function RemoteSection() {
 												: t("remote.host.lastSeen", {
 														time: formatTimeAgo(new Date(peer.lastSeenAt).toISOString()),
 													});
+										const usage = peerUsageLine(peer, t);
+										const line = usage ? `${seen} · ${usage}` : seen;
 										return (
 											<ListRow
 												// A narrow window truncates both lines; hover names them in full.
-												description={<span title={seen}>{seen}</span>}
+												description={
+													<span data-peer-usage title={line}>
+														{line}
+													</span>
+												}
 												key={peer.deviceId}
 												leading={<Monitor aria-hidden />}
 												meta={
@@ -299,20 +309,30 @@ export function RemoteSection() {
 												title={peer.name}
 												titleText={peer.name}
 												trailing={
-													<Button
-														aria-label={t("remote.removeLabel", { name: peer.name })}
-														onClick={() =>
-															setPendingRemove({
-																kind: "peer",
-																deviceId: peer.deviceId,
-																name: peer.name,
-															})
-														}
-														size="sm"
-														variant="ghost"
-													>
-														{t("remote.remove")}
-													</Button>
+													<div className="flex items-center gap-1">
+														<Button
+															aria-label={t("remote.limits.label", { name: peer.name })}
+															onClick={() => setLimitsFor(peer.deviceId)}
+															size="sm"
+															variant="ghost"
+														>
+															{t("remote.limits.button")}
+														</Button>
+														<Button
+															aria-label={t("remote.removeLabel", { name: peer.name })}
+															onClick={() =>
+																setPendingRemove({
+																	kind: "peer",
+																	deviceId: peer.deviceId,
+																	name: peer.name,
+																})
+															}
+															size="sm"
+															variant="ghost"
+														>
+															{t("remote.remove")}
+														</Button>
+													</div>
 												}
 											/>
 										);
@@ -392,6 +412,14 @@ export function RemoteSection() {
 				onConfirm={confirmRemove}
 				open={pendingRemove !== null}
 				title={t("remote.removeTitle", { name: pendingRemove?.name ?? "" })}
+			/>
+			<PeerLimitsDialog
+				key={limitsFor ?? ""}
+				onClose={() => setLimitsFor(null)}
+				onSave={(deviceId, limits) =>
+					mutate(() => window.omp.remote.setPeerLimits(deviceId, limits), t("remote.limits.saveFailed"))
+				}
+				peer={host.peers.find(peer => peer.deviceId === limitsFor) ?? null}
 			/>
 		</div>
 	);

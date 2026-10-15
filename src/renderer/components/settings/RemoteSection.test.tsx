@@ -9,7 +9,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RemoteState } from "../../../shared/ipc-types";
+import type { PeerLimits, PeerView, RemoteState } from "../../../shared/ipc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useRemoteStore } from "../../stores/remote";
 import { useToastStore } from "../../stores/toast";
@@ -27,6 +27,15 @@ Object.assign(globalThis as Record<string, unknown>, {
 });
 (globalThis as Record<string, unknown>).requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
 
+const LAPTOP: PeerView = {
+	deviceId: "peer-laptop",
+	name: "laptop",
+	online: true,
+	lastSeenAt: Date.now() - 60_000,
+	limits: {},
+	usage: { requests: 0, tokens: 0 },
+};
+
 function hostOn(overrides: Partial<RemoteState["host"]> = {}): RemoteState {
 	return {
 		host: {
@@ -36,7 +45,7 @@ function hostOn(overrides: Partial<RemoteState["host"]> = {}): RemoteState {
 			addresses: ["192.168.0.12:47821", "100.64.0.7:47821"],
 			code: "K7QM-2XDP",
 			expiresAt: Date.now() + 9 * 60_000 + 30_000,
-			peers: [{ deviceId: "peer-laptop", name: "laptop", online: true, lastSeenAt: Date.now() - 60_000 }],
+			peers: [LAPTOP],
 			keepAwake: true,
 			keepingAwake: false,
 			usedBy: [],
@@ -57,6 +66,7 @@ const remote = {
 		async (): Promise<RemoteState> => hostOn({ code: "NEW0-CODE", expiresAt: Date.now() + 10 * 60_000 }),
 	),
 	revokePeer: vi.fn(async (_deviceId: string): Promise<RemoteState> => hostOn({ peers: [] })),
+	setPeerLimits: vi.fn(async (_deviceId: string, _limits: PeerLimits): Promise<RemoteState> => hostOn()),
 	removeHost: vi.fn(async (_deviceId: string): Promise<RemoteState> => hostOn()),
 	discover: vi.fn(async () => []),
 	onDiscovered: vi.fn(() => () => {}),
@@ -87,6 +97,16 @@ function buttonLabeled(label: string): HTMLButtonElement | undefined {
 	return (Array.from(document.body.querySelectorAll("button")) as HTMLButtonElement[]).find(
 		button => button.getAttribute("aria-label") === label || (button.textContent ?? "").trim() === label,
 	);
+}
+
+/** linkedom never fires React's change event: set the value, then call the field's own onChange. */
+function setInputValue(input: HTMLInputElement, value: string): void {
+	const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set;
+	setter?.call(input, value);
+	const record = input as unknown as Record<string, unknown>;
+	const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+	const props = propsKey ? (record[propsKey] as { onChange?: (event: object) => void } | undefined) : undefined;
+	props?.onChange?.({ target: input, currentTarget: input });
 }
 
 function keepAwakeRow(): Element | null {
@@ -250,5 +270,44 @@ describe("RemoteSection", () => {
 
 		const home = document.querySelector('[data-remote-host="host-b"] [title="/Users/someone-with-a-long-name"]');
 		expect(home?.textContent).toBe("/Users/someone-with-a-long-name");
+	});
+
+	it("shows a device's use today against its limits and saves new limits through setPeerLimits", async () => {
+		remote.getState.mockImplementation(async () =>
+			hostOn({
+				peers: [
+					{
+						...LAPTOP,
+						limits: { requestsPerDay: 50 },
+						usage: { requests: 12, tokens: 48_300 },
+					},
+				],
+			}),
+		);
+		await mount();
+
+		const usage = document.body.querySelector('[data-remote-peer="peer-laptop"] [data-peer-usage]');
+		expect(usage?.textContent).toContain(
+			translate("remote.limits.todayOf", { requests: 12, requestsLimit: 50, tokens: "48.3k", tokensLimit: "∞" }),
+		);
+		await act(async () => {
+			buttonLabeled(translate("remote.limits.label", { name: "laptop" }))?.click();
+		});
+		const fields = Array.from(document.body.querySelectorAll("[data-peer-limits] input")) as HTMLInputElement[];
+		expect(fields.map(field => field.value)).toEqual(["50", ""]);
+		await act(async () => {
+			setInputValue(fields[1], "abc");
+		});
+		expect(document.body.textContent).toContain(translate("remote.limits.invalid"));
+		expect(buttonLabeled(translate("common.save"))?.disabled).toBe(true);
+		await act(async () => {
+			setInputValue(fields[0], "");
+			setInputValue(fields[1], "200,000");
+		});
+		await act(async () => {
+			buttonLabeled(translate("common.save"))?.click();
+		});
+		expect(remote.setPeerLimits).toHaveBeenCalledWith("peer-laptop", { tokensPerDay: 200_000 });
+		expect(document.body.querySelector("[data-peer-limits]")).toBeNull();
 	});
 });

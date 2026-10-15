@@ -1355,6 +1355,8 @@ export const ko: Record<string, string> = {
 	"ipcError.remote_unreachable": "기기에 연결할 수 없어요. 기기가 켜져 있고 같은 네트워크에 있는지 확인해 주세요.",
 	"ipcError.remote_protocol":
 		"다른 기기의 OMPdesk 버전이 호환되지 않아요. 두 기기 모두 업데이트한 뒤 다시 시도해 주세요.",
+	"ipcError.remote_limit_reached":
+		"이 기기가 호스트 모델을 하루에 쓸 수 있는 한도를 다 썼어요. 호스트 기준 자정에 초기화되고, 호스트의 설정 › 기기 및 연결에서 한도를 늘릴 수 있어요.",
 	"common.cancel": "취소",
 	"common.save": "저장",
 	"common.yes": "예",
@@ -4733,6 +4735,20 @@ export const ko: Record<string, string> = {
 	"remote.copy": "{value} 복사",
 	"remote.remove": "제거",
 	"remote.removeLabel": "{name} 제거",
+	"remote.limits.button": "한도",
+	"remote.limits.label": "{name} 모델 사용 한도",
+	"remote.limits.title": "{name} 모델 사용 한도",
+	"remote.limits.desc":
+		"이 기기가 하루에 이 컴퓨터의 모델을 얼마나 쓸 수 있는지 정해요. 비워 두면 한도가 없어요. 이미 실행 중인 턴은 끝까지 진행되고, 다음 요청부터 거절돼요.",
+	"remote.limits.requests": "하루 요청 수",
+	"remote.limits.requestsHint": "프롬프트, 방향 전환, 후속 요청, 압축, 재시도를 각각 한 번으로 세요.",
+	"remote.limits.tokens": "하루 토큰 수",
+	"remote.limits.tokensHint": "제공자가 알려 주는 응답마다의 입력·출력 토큰을 더해요.",
+	"remote.limits.none": "한도 없음",
+	"remote.limits.invalid": "정수를 입력하거나 비워 두세요.",
+	"remote.limits.today": "오늘: 요청 {requests}회 · 토큰 {tokens}",
+	"remote.limits.todayOf": "오늘: 요청 {requests}/{requestsLimit}회 · 토큰 {tokens}/{tokensLimit}",
+	"remote.limits.saveFailed": "한도를 저장하지 못했어요",
 	"remote.removeFailed": "기기를 제거하지 못했어요",
 	"remote.removeTitle": "{name} 기기를 제거할까요?",
 	"remote.removePeerBody":

@@ -42,6 +42,7 @@ import type {
 	MenuActionPayload,
 	NotificationClickPayload,
 	OmpApi,
+	PeerLimits,
 	RemoteDirListing,
 	RemoteDiscoveredDevice,
 	RemoteState,
@@ -304,6 +305,8 @@ const api: OmpApi = {
 		rotateCode: () => ipcRenderer.invoke(IPC_COMMANDS.REMOTE_ROTATE_CODE) as Promise<RemoteState>,
 		revokePeer: (deviceId: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_REVOKE_PEER, deviceId) as Promise<RemoteState>,
+		setPeerLimits: (deviceId: string, limits: PeerLimits) =>
+			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_SET_PEER_LIMITS, { deviceId, limits }) as Promise<RemoteState>,
 		discover: (action: "start" | "stop") =>
 			ipcRenderer.invoke(IPC_COMMANDS.REMOTE_DISCOVER, action) as Promise<RemoteDiscoveredDevice[]>,
 		pair: (payload: IpcRemotePairPayload) =>

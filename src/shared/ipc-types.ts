@@ -277,6 +277,8 @@ export const IPC_COMMANDS = {
 	REMOTE_ROTATE_CODE: "remote:rotate-code",
 	/** Forget a paired client device and close its live connections */
 	REMOTE_REVOKE_PEER: "remote:revoke-peer",
+	/** Set a paired client device's daily model-use limits ({deviceId, limits}) */
+	REMOTE_SET_PEER_LIMITS: "remote:set-peer-limits",
 	/** Start or stop LAN discovery (pushes REMOTE_DISCOVERED) */
 	REMOTE_DISCOVER: "remote:discover",
 	/** Pair with a host by address and code */
@@ -807,6 +809,8 @@ export interface IpcFsStatResult {
 	ok: boolean;
 	mtimeMs: number;
 	size: number;
+	/** The path is a folder (composer and reply file cards). */
+	directory?: boolean;
 	error?: string;
 	/** `file_not_found` once the path is gone. */
 	code?: IpcErrorCode;
@@ -1222,6 +1226,22 @@ export interface PeerView {
 	online: boolean;
 	/** Epoch ms of the last live connection; null when it never connected after pairing. */
 	lastSeenAt: number | null;
+	/** Daily limits on this computer's models for the device; empty = unlimited. */
+	limits: PeerLimits;
+	/** What the device used today (local date). */
+	usage: PeerUsageView;
+}
+
+/** Per-device daily model-use limits on a host (D65). An absent field has no limit. */
+export interface PeerLimits {
+	/** Model requests: prompts, steers, follow-ups, compactions, retries… */
+	requestsPerDay?: number;
+	tokensPerDay?: number;
+}
+
+export interface PeerUsageView {
+	requests: number;
+	tokens: number;
 }
 
 /** Host role of this computer. `port`/`code`/`expiresAt` are null while disabled. */
@@ -1443,6 +1463,8 @@ export interface OmpApi {
 		setKeepAwake(enabled: boolean): Promise<RemoteState>;
 		rotateCode(): Promise<RemoteState>;
 		revokePeer(deviceId: string): Promise<RemoteState>;
+		/** Daily model-use limits for a paired device; `{}` removes them. */
+		setPeerLimits(deviceId: string, limits: PeerLimits): Promise<RemoteState>;
 		/** Start or stop LAN discovery; resolves with the devices seen so far (empty on stop). */
 		discover(action: "start" | "stop"): Promise<RemoteDiscoveredDevice[]>;
 		/** Throws IpcError `remote_wrong_code|remote_expired|remote_locked|remote_unreachable|remote_protocol`. */

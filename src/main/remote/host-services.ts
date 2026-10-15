@@ -76,6 +76,7 @@ import {
 	type TabStatusArg,
 } from "./app-protocol";
 import type { HostConnection, HostServices } from "./host-server";
+import { MODEL_COMMANDS, type PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 
 /** How long a disconnected device's tabs keep running, waiting for it to come back. */
@@ -197,6 +198,17 @@ async function directory(cwd: string): Promise<string> {
 	throw codedError("not_a_directory", `Not a directory: ${cwd}`);
 }
 
+/** Tokens one assistant reply used (its `message_end` usage), for the device's daily count. */
+function assistantTokens(event: AgentSessionEvent): number {
+	if (event.type !== "message_end") return 0;
+	const { message } = event;
+	if (message.role !== "assistant" || !("usage" in message)) return 0;
+	const usage: unknown = message.usage;
+	if (typeof usage !== "object" || usage === null || !("totalTokens" in usage)) return 0;
+	const total = usage.totalTokens;
+	return typeof total === "number" && Number.isFinite(total) && total > 0 ? total : 0;
+}
+
 export class LocalHostServices implements HostServices {
 	readonly #deps: HostServicesDeps;
 	readonly #graceMs: number;
@@ -205,6 +217,7 @@ export class LocalHostServices implements HostServices {
 	readonly #conns = new Set<HostConnection>();
 	#sessionsTimer: NodeJS.Timeout | undefined;
 	readonly #runningListeners = new Set<() => void>();
+	#quota: PeerQuota | null = null;
 
 	constructor(deps: HostServicesDeps) {
 		this.#deps = deps;
@@ -224,6 +237,11 @@ export class LocalHostServices implements HostServices {
 		return () => {
 			this.#runningListeners.delete(listener);
 		};
+	}
+
+	/** Per-device daily model limits (RemoteDevices owns the peer store they live in). */
+	attachQuota(quota: PeerQuota): void {
+		this.#quota = quota;
 	}
 
 	async call(peer: PeerInfo, method: string, params: unknown, conn: HostConnection): Promise<unknown> {
@@ -535,11 +553,14 @@ export class LocalHostServices implements HostServices {
 			if (typeof settled === "boolean") change(() => settleRun(tab.run, settled));
 		});
 		sidecar.on("sessionSettled", () => change(() => settleRun(tab.run, true)));
-		sidecar.on("events", (events: AgentSessionEvent[]) =>
+		sidecar.on("events", (events: AgentSessionEvent[]) => {
 			change(() => {
 				for (const event of events) applyRunEvent(tab.run, event);
-			}),
-		);
+			});
+			let tokens = 0;
+			for (const event of events) tokens += assistantTokens(event);
+			if (tokens > 0) this.#quota?.record(tab.peerId, { tokens });
+		});
 	}
 
 	#runningChanged(): void {
@@ -569,7 +590,16 @@ export class LocalHostServices implements HostServices {
 		// The client device forwards its renderer's RpcCommand verbatim; omp and
 		// the local handlers validate the command itself.
 		const command = params.command as unknown as RpcCommand;
+		const usesModel = Object.hasOwn(MODEL_COMMANDS, command.type);
+		const refusal = usesModel ? this.#quota?.refusal(peer.deviceId) : null;
+		if (refusal) {
+			throw codedError(
+				"remote_limit_reached",
+				`This device's ${refusal === "requests" ? "request" : "token"} limit for today on this computer's models is used up.`,
+			);
+		}
 		const response = await client.command(command, params.timeoutMs);
+		if (usesModel && response.success) this.#quota?.record(peer.deviceId, { requests: 1 });
 		// A login or logout rewrote this machine's credential store: every tab
 		// running here re-reads it — this machine's own and every device's.
 		if (response.success && (command.type === "login" || command.type === "logout")) {

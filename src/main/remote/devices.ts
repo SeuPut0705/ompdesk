@@ -16,6 +16,7 @@
  * The whole picture goes to every window as `remote:state` on each change.
  */
 import { hostname } from "node:os";
+import { z } from "zod";
 import { codedError, type IpcErrorCode, isIpcErrorCode } from "../../shared/ipc-error-codes";
 import {
 	type HostView,
@@ -32,6 +33,7 @@ import type { LocalHostServices } from "./host-services";
 import { HostStore, type PairedHost } from "./hosts-store";
 import { type Identity, loadIdentity } from "./identity";
 import { type KeepAwakeBlocker, KeepAwakePolicy } from "./keep-awake";
+import { PeerQuota } from "./peer-quota";
 import { PeerStore } from "./peers-store";
 import { RemoteSidecar } from "./remote-sidecar";
 
@@ -40,6 +42,13 @@ const STARTUP_DISCOVERY_MS = 10_000;
 /** A discovered host that stopped beaconing (2 s cadence) leaves the list after this. */
 const DISCOVERY_STALE_MS = 8_000;
 const MAX_DEVICE_NAME = 64;
+/** Usage counters reach the Settings view at most this often. */
+const QUOTA_BROADCAST_MS = 1_000;
+const Limit = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional();
+const PeerLimitsPayload = z.object({
+	deviceId: z.string().min(1),
+	limits: z.object({ requestsPerDay: Limit, tokensPerDay: Limit }),
+});
 
 const HOST_ENABLED_KEY = "remote.hostEnabled";
 const DEVICE_NAME_KEY = "remote.deviceName";
@@ -96,6 +105,8 @@ export class RemoteDevices {
 	#disposed = false;
 	readonly #keepAwake: KeepAwakePolicy;
 	readonly #unwatchRunning: () => void;
+	readonly #quota: PeerQuota;
+	#quotaTimer: NodeJS.Timeout | undefined;
 
 	constructor(deps: RemoteDevicesDeps) {
 		this.#deps = deps;
@@ -107,6 +118,9 @@ export class RemoteDevices {
 			onChange: () => this.#broadcastState(),
 		});
 		this.#unwatchRunning = deps.services.onRunningChange(() => this.#broadcastState());
+		// Usage is written per assistant message; the Settings view needs only a settled count.
+		this.#quota = new PeerQuota(this.#peers, () => this.#quotaChanged());
+		deps.services.attachQuota(this.#quota);
 	}
 
 	/** Launch: the host role per prefs, a link to every paired host, and a brief beacon listen for new addresses. */
@@ -135,6 +149,8 @@ export class RemoteDevices {
 					name: peer.name,
 					online: online.has(peer.deviceId),
 					lastSeenAt: peer.lastSeenAt ?? null,
+					limits: peer.limits ?? {},
+					usage: this.#quota.usage(peer),
 				})),
 				keepAwake: this.#deps.prefs.get(KEEP_AWAKE_KEY) !== false,
 				keepingAwake: this.#keepAwake.held,
@@ -181,6 +197,16 @@ export class RemoteDevices {
 		if (this.#host) await this.#host.revoke(deviceId);
 		else this.#peers.remove(deviceId);
 		this.#deps.services.dropPeer(deviceId);
+		return this.#broadcastState();
+	}
+
+	/** Daily model-use limits for a paired device (D65); `{}` removes them. */
+	setPeerLimits(payload: unknown): RemoteState {
+		const parsed = PeerLimitsPayload.safeParse(payload);
+		if (!parsed.success) throw codedError("remote_unknown_device", "Invalid device limits");
+		if (!this.#quota.setLimits(parsed.data.deviceId, parsed.data.limits)) {
+			throw codedError("remote_unknown_device", "Unknown device");
+		}
 		return this.#broadcastState();
 	}
 
@@ -301,9 +327,18 @@ export class RemoteDevices {
 		this.#deps.services.syncAccountRotation();
 	}
 
+	#quotaChanged(): void {
+		if (this.#quotaTimer || this.#disposed) return;
+		this.#quotaTimer = setTimeout(() => {
+			this.#quotaTimer = undefined;
+			this.#broadcastState();
+		}, QUOTA_BROADCAST_MS);
+	}
+
 	async dispose(): Promise<void> {
 		this.#disposed = true;
 		this.#unwatchRunning();
+		clearTimeout(this.#quotaTimer);
 		this.#keepAwake.dispose();
 		this.#stopListening();
 		for (const deviceId of [...this.#links.keys()]) this.#unlink(deviceId);

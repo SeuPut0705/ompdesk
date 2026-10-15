@@ -101,6 +101,8 @@ export const IPC_ERROR_CODES = [
 	"remote_locked",
 	"remote_unreachable",
 	"remote_protocol",
+	// A paired device's daily model-use limit on this host is used up (remote/peer-quota.ts).
+	"remote_limit_reached",
 ] as const;
 
 export type IpcErrorCode = (typeof IPC_ERROR_CODES)[number];

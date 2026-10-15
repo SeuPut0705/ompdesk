@@ -24,6 +24,7 @@ import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
 import { decodeBinaryRead, type TabEventMessage } from "./app-protocol";
 import type { HostConnection } from "./host-server";
 import { type HostServicesDeps, LocalHostServices } from "./host-services";
+import { PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 
 /** A SidecarManager stand-in for the host side. */
@@ -302,6 +303,48 @@ describe("LocalHostServices", () => {
 		// Both devices' tabs and this machine's own tab read the new credentials.
 		expect(sidecars.map(sidecar => sidecar.imageSyncs)).toEqual([1, 1]);
 		expect(local.tab.imageSyncs).toBe(1);
+	});
+
+	it("counts a device's model requests and reply tokens and refuses its next request past a daily limit", async () => {
+		const { services, sidecars } = setup();
+		const stored = new Map<string, PeerInfo>([["device-x", { ...peer("device-x"), limits: { requestsPerDay: 2 } }]]);
+		const quota = new PeerQuota(
+			{
+				get: id => stored.get(id),
+				update: (id, patch) => {
+					const current = stored.get(id);
+					if (!current) return undefined;
+					const next = { ...current, ...patch };
+					stored.set(id, next);
+					return next;
+				},
+			},
+			() => {},
+		);
+		services.attachQuota(quota);
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		const send = (type: string) => services.call(x.peer, "tab.command", { rtab: "t1", command: { type } }, x);
+
+		await send("prompt");
+		// Reading state never counts.
+		await send("get_state");
+		sidecars[0]?.emit("events", [
+			{ type: "message_end", message: { role: "assistant", usage: { totalTokens: 1_200 } } },
+			{ type: "message_end", message: { role: "user" } },
+		]);
+		await send("follow_up");
+		expect(stored.get("device-x")?.usage).toMatchObject({ requests: 2, tokens: 1_200 });
+
+		const refused = await send("steer").catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("remote_limit_reached");
+		await expect(send("get_state")).resolves.toMatchObject({ success: true });
+		expect(sidecars[0]?.commands.map(command => command.type)).toEqual([
+			"prompt",
+			"get_state",
+			"follow_up",
+			"get_state",
+		]);
 	});
 
 	it("pushes this machine's reply-language setting to every tab it hosts, leaving the local pool to ipc", async () => {

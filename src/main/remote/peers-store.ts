@@ -5,6 +5,7 @@
  */
 import { join } from "node:path";
 import { z } from "zod";
+import type { PeerLimits } from "../../shared/ipc-types";
 import { isRawKey } from "./crypto";
 import { TrustStore } from "./trust-store";
 
@@ -16,7 +17,13 @@ export interface PeerInfo {
 	pairedAt: number;
 	/** Last authenticated connect or disconnect. */
 	lastSeenAt?: number;
+	/** Daily model-use limits this computer sets for the device (peer-quota.ts); none = unlimited. */
+	limits?: PeerLimits;
+	/** What the device used on `day` (local date). */
+	usage?: { day: string; requests: number; tokens: number };
 }
+
+const Count = z.number().int().nonnegative();
 
 const StoredPeer = z.object({
 	deviceId: z.string().min(1),
@@ -24,6 +31,8 @@ const StoredPeer = z.object({
 	staticPub: z.string().refine(isRawKey),
 	pairedAt: z.number(),
 	lastSeenAt: z.number().optional(),
+	limits: z.object({ requestsPerDay: Count.optional(), tokensPerDay: Count.optional() }).optional(),
+	usage: z.object({ day: z.string(), requests: Count, tokens: Count }).optional(),
 });
 
 export class PeerStore extends TrustStore<PeerInfo> {
