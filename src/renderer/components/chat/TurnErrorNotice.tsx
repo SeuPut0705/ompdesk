@@ -13,6 +13,7 @@ import { useModelStore } from "../../stores/model";
 import { quotaResetAt, useQuotaResumeStore } from "../../stores/quota-resume";
 import { useSessionStore } from "../../stores/session";
 import { sessionRuntime, useRuntimeTabId } from "../../stores/session-runtime-context";
+import { useAwaitingConnection } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Banner, Button } from "../common";
@@ -46,6 +47,7 @@ export function TurnErrorNotice({
 	const t = useT();
 	const rpc = useTabRpc();
 	const tabId = useRuntimeTabId();
+	const awaitingConnection = useAwaitingConnection();
 	const [pending, setPending] = useState<TurnErrorAction | null>(null);
 	const description = describeTurnError(errorMessage, stopReason);
 	const latest = useMessagesStore(state => timestamp !== undefined && state.messages.at(-1)?.timestamp === timestamp);
@@ -82,6 +84,9 @@ export function TurnErrorNotice({
 			</p>
 		);
 	}
+
+	// Waiting for the connection is not a failure: the status row says so and main continues the turn.
+	if (awaitingConnection !== null && latest) return null;
 
 	const run = async (action: TurnErrorAction) => {
 		if (action === "changeModel") {

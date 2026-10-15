@@ -1,10 +1,11 @@
 import { parseHTML } from "linkedom";
 import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
+import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -109,5 +110,26 @@ describe("TurnStatusRow", () => {
 		expect(container.querySelector(".omp-work-head-clock")).toBeNull();
 		expect(container.textContent).not.toMatch(/\d+s/);
 		expect(container.querySelector("button")).toBeNull();
+	});
+
+	it("a turn waiting for the internet connection says so calmly and offers Cancel, not a failure", async () => {
+		const cancelWait = vi.fn(async () => {});
+		Object.assign(window, { omp: { resume: { cancelWait } } });
+		useTabsStore.setState({
+			activeTabId: "t1",
+			tabs: [
+				{ id: "t1", cwd: "/work", status: "ready", kind: "agent", unreadDone: false, awaitingConnection: true },
+			],
+		});
+		await mount(<TurnStatusRow />);
+
+		const row = container.querySelector("[data-connection-wait]");
+		expect(row?.querySelector('[role="status"]')?.textContent).toBe("Waiting for the internet connection…");
+		expect(container.querySelector(".omp-message-error")).toBeNull();
+		const cancel = container.querySelector("button");
+		expect(cancel?.textContent).toBe("Cancel");
+		await act(async () => cancel?.click());
+		expect(cancelWait).toHaveBeenCalledWith("t1");
+		useTabsStore.setState({ activeTabId: null, tabs: [] });
 	});
 });

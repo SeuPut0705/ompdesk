@@ -257,6 +257,14 @@ export const IPC_COMMANDS = {
 	UPDATER_AUTH_CLEAR: "updater:authClear",
 	/** Pending gui-bridge compatibility warnings, handed to exactly one caller */
 	BRIDGE_HEALTH_TAKE: "bridge-health:take",
+	/** The pending "Continuing N interrupted tasks" notice, handed to exactly one caller (null when none) */
+	RESUME_TAKE_NOTICE: "resume:take-notice",
+	/** Cancel a tab's wait for the internet connection (payload: tab id) */
+	RESUME_CANCEL_WAIT: "resume:cancel-wait",
+	/** Stop the turns this launch resumed (the toast's Stop) */
+	RESUME_STOP: "resume:stop",
+	/** Renderer → main fire-and-forget: the window's `online`/`offline` event (payload: boolean) */
+	CONNECTIVITY_REPORT: "connectivity:report",
 	/** This machine's automatic setup (src/main/setup/): whole SetupState snapshot */
 	SETUP_GET_STATE: "setup:get-state",
 	/** Retry one setup item by id (a SetupItemId; anything else is refused). Never takes a command. */
@@ -1142,6 +1150,16 @@ export interface IpcTabInfo {
 	lastRun?: IpcTabRunOutcome;
 	/** Paired host deviceId the tab's omp runs on; absent = this device. */
 	device?: string;
+	/** The tab's turn waits for the internet connection and continues once it is back (resume, src/main/turn-resume.ts). */
+	awaitingConnection?: boolean;
+}
+
+/** A launch continued interrupted turns: the toast's text (worded by main) and its count. Its Stop calls `resume.stop`. */
+export interface IpcResumeNotice {
+	count: number;
+	message: string;
+	/** The Stop action's label. */
+	stop: string;
 }
 
 /**
@@ -1461,6 +1479,17 @@ export interface OmpApi {
 	bridgeHealth: {
 		/** Pending warnings; each is handed to one window only. */
 		take(): Promise<BridgeHealthWarning[]>;
+	};
+	/** Turns that continue by themselves: after the connection returns, and after a relaunch. */
+	resume: {
+		/** Cancel one tab's wait for the connection; its failure shows as it would have. */
+		cancelWait(tabId: string): Promise<void>;
+		/** Stop every turn the last launch resumed. */
+		stop(): Promise<void>;
+		/** The window's `online`/`offline` event, for main's connectivity state. */
+		reportOnline(online: boolean): void;
+		/** The relaunch's "Continuing N interrupted tasks" notice, once; null when there is none. */
+		takeNotice(): Promise<IpcResumeNotice | null>;
 	};
 	/** This machine's automatic setup; remote tabs never use it (their host sets itself up). */
 	setup: {

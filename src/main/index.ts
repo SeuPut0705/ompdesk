@@ -12,6 +12,8 @@ import {
 	globalShortcut,
 	ipcMain,
 	nativeImage,
+	net,
+	powerMonitor,
 	powerSaveBlocker,
 	protocol,
 	session,
@@ -22,7 +24,12 @@ import { DELEGATION_PREF } from "../../resources/gui-bridge/delegation-contracts
 import { USER_PROFILE_PREF } from "../../resources/gui-bridge/user-profile-contracts";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { REA_PREF } from "../shared/builtin-mcp";
-import { CLOSE_TO_TRAY_PREF, KEEP_AWAKE_WORKING_PREF, WORKTREE_AUTO_CLEAN_PREF } from "../shared/desktop-prefs";
+import {
+	CLOSE_TO_TRAY_PREF,
+	KEEP_AWAKE_WORKING_PREF,
+	RESUME_INTERRUPTED_PREF,
+	WORKTREE_AUTO_CLEAN_PREF,
+} from "../shared/desktop-prefs";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
 import { OMP_AUTO_UPDATE_PREF } from "../shared/omp-update";
@@ -32,8 +39,9 @@ import { SCHEDULES_STATE } from "../shared/schedules";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
 import { AgentWorktreeAutoClean } from "./agent-worktrees";
-import { installQuitGuard, quitApproved, quitRisk, requestQuit } from "./app-quit";
+import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes } from "./app-quit";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
+import { ConnectivityMonitor } from "./connectivity";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { createGithubAuthService, registerGithubAuthIpc } from "./github-auth/ipc";
@@ -69,6 +77,7 @@ import { StatsServerManager } from "./stats-server";
 import { stopStockHelper } from "./stock-helper";
 import { type PersistedTabLayout, sanitizePersistedTabLayouts } from "./tab-layout";
 import { createTray, destroyTray, hasTray } from "./tray";
+import { InterruptedTurnStore, TurnResume } from "./turn-resume";
 import {
 	appVersion,
 	checkForUpdate,
@@ -736,7 +745,75 @@ app.whenReady().then(() => {
 			connected: false,
 			running: sidecarPool.tabInventory().some(tab => tab.inFlight),
 		});
-	sidecarPool.onRunningChange = syncWorkAwake;
+	// Interrupted turns continue on their own (turn-resume.ts): once the connection is back, and
+	// after a relaunch. The marker file is rewritten on every run-state change, so a crash or a
+	// SIGKILL, which run no quit hook, still leaves it behind.
+	const connectivity = new ConnectivityMonitor({
+		isOnline: () => net.isOnline(),
+		// Right after a wake the OS can report a link before it carries traffic.
+		probe: () =>
+			net.resolveHost("example.com").then(
+				() => true,
+				() => false,
+			),
+		now: Date.now,
+		schedule: (run, ms) => {
+			const timer = setTimeout(run, ms);
+			return () => clearTimeout(timer);
+		},
+		changed: () => turnResume.connectivityChanged(),
+	});
+	let resumeNotice: number | null = null;
+	const turnResume = new TurnResume({
+		store: new InterruptedTurnStore(join(app.getPath("userData"), "interrupted-turns.json")),
+		pool: sidecarPool,
+		network: {
+			get online() {
+				return connectivity.online;
+			},
+			shouldWait: () => connectivity.shouldWait(),
+		},
+		enabled: () => prefs.get(RESUME_INTERRUPTED_PREF) !== false,
+		// A quit tears every tab down: that must not read as the turns ending.
+		frozen: () => quitApproved(),
+		now: Date.now,
+		openTab: marker => {
+			const win = windowManager.getMainWindow();
+			if (!win) return null;
+			const sidecar = sidecarPool.acquire(marker.cwd, win, undefined, marker.sessionPath, marker.kind);
+			return sidecar ? sidecarPool.tabForSession(marker.sessionPath) : null;
+		},
+		notify: count => {
+			resumeNotice = count;
+		},
+	});
+	ipcMain.handle(IPC_COMMANDS.RESUME_TAKE_NOTICE, () => {
+		const count = resumeNotice;
+		resumeNotice = null;
+		if (count === null) return null;
+		// Worded here, in the language main reads from prefs: the window's own language settles after it mounts.
+		return {
+			count,
+			message: mainT("resume.continuing", undefined, { count, plural: count === 1 ? "" : "s" }),
+			stop: mainT("resume.stop"),
+		};
+	});
+	ipcMain.handle(IPC_COMMANDS.RESUME_CANCEL_WAIT, (_event, tabId: unknown) => {
+		if (typeof tabId === "string") turnResume.cancelWait(tabId);
+	});
+	ipcMain.handle(IPC_COMMANDS.RESUME_STOP, () => turnResume.stopResumed());
+	ipcMain.on(IPC_COMMANDS.CONNECTIVITY_REPORT, (_event, online: unknown) => {
+		if (typeof online === "boolean") connectivity.report(online);
+	});
+	setQuitResumes(() => prefs.get(RESUME_INTERRUPTED_PREF) !== false);
+	powerMonitor.on("suspend", () => connectivity.suspend());
+	powerMonitor.on("resume", () => connectivity.resume());
+	// Chromium's own link state, sampled for changes the windows' events missed (a window may not exist).
+	setInterval(() => connectivity.poll(), 3000).unref();
+	sidecarPool.onRunningChange = () => {
+		syncWorkAwake();
+		turnResume.sync();
+	};
 	// Settings › Projects & launch › Worktrees: stock `omp worktree clear` (orphaned only) on a timer.
 	const autoClean = new AgentWorktreeAutoClean({
 		enabled: () => prefs.get(WORKTREE_AUTO_CLEAN_PREF) === true,
@@ -764,6 +841,7 @@ app.whenReady().then(() => {
 		mediaStreams,
 		onPrefChanged: key => {
 			if (key === KEEP_AWAKE_WORKING_PREF) syncWorkAwake();
+			if (key === RESUME_INTERRUPTED_PREF) turnResume.sync();
 			if (key === WORKTREE_AUTO_CLEAN_PREF) autoClean.prefChanged();
 			if (key === OMP_AUTO_UPDATE_PREF) updater.prefChanged();
 		},
@@ -804,6 +882,8 @@ app.whenReady().then(() => {
 	if (!explicitStartupCwd) {
 		for (const layout of savedLayouts.slice(1)) spawnWindowWithLayout(layout);
 	}
+	// After the saved windows (and so their tabs) exist: go on with what the last process left running.
+	turnResume.launch();
 
 	// Tray, menu, deep links, updater. Test runs (OMP_GUI_HEADLESS) skip the tray:
 	// the menu bar is shared with the user's own OMPdesk, and a test's status item

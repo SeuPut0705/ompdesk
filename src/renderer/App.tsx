@@ -37,6 +37,7 @@ import { useAwaitedInput } from "./hooks/use-awaited-input";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { useHostAppearance } from "./hooks/use-host-appearance";
 import { useIdleCompactionDraft } from "./hooks/use-idle-compaction-draft";
+import { useInterruptedWork } from "./hooks/use-interrupted-work";
 import { useOutputStyle } from "./hooks/use-output-style";
 import { usePlanApproval } from "./hooks/use-plan-approval";
 import { useQuotaResume } from "./hooks/use-quota-resume";
@@ -143,6 +144,12 @@ function FocusedSessionEffects() {
 /** Usage-limit resume bookings; its own component so tab updates never re-render App. */
 function QuotaResumeEffects() {
 	useQuotaResume();
+	return null;
+}
+
+/** Connectivity reports and the relaunch's "Continuing N interrupted tasks" toast; its own component so tab updates never re-render App. */
+function InterruptedWorkEffects() {
+	useInterruptedWork();
 	return null;
 }
 
@@ -836,6 +843,7 @@ export function App() {
 		<div className="flex h-screen w-screen overflow-hidden text-(--sc-text)">
 			{activeTabId && <FocusedSessionEffects />}
 			<QuotaResumeEffects />
+			<InterruptedWorkEffects />
 			<OutputStyleEffects />
 			<IdleCompactionDraftEffects />
 			<HostAppearanceEffects />

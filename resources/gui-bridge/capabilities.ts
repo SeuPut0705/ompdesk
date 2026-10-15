@@ -155,6 +155,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"sessionManager.getCwd()",
 			"sessionManager.getArtifactsDir()",
 			"sessionManager.getSessionId()",
+			"restoreInterruptedTurn()",
 		],
 		modules: {
 			"@oh-my-pi/pi-agent-core": ["agentPauseGate.paused", "agentPauseGate.pausedAt"],
@@ -166,6 +167,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"extractLastLink()",
 			],
 			[`${AGENT}/utils/tool-choice`]: ["buildNamedToolChoice()"],
+			[`${AGENT}/task/restore`]: ["restoreSession()"],
 			[`${AGENT}/internal-urls/local-protocol`]: ["resolveLocalRoot()", "resolveLocalUrlToPath()"],
 			[`${AGENT}/slash-commands/builtin-completions`]: ["buildMcpArgumentCompletions()"],
 			[`${AGENT}/slash-commands/builtin-registry`]: ["BUILTIN_SLASH_COMMANDS"],

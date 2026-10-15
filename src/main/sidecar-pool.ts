@@ -79,6 +79,7 @@ import { applyRunEvent, idleRun, type RunState, runBusy, settleRun } from "./sid
 import { nextSnowflake } from "./snowflake";
 import { createSubagentFrameBatcher } from "./subagent-frames";
 import { type PersistedTabDescriptor, type PersistedTabLayout, TAB_LAYOUT_VERSION } from "./tab-layout";
+import type { ResumeFact } from "./turn-resume";
 import type { TabSpawnFacts } from "./worktree-lifecycle";
 
 /**
@@ -190,6 +191,10 @@ interface PoolEntry {
 	sessionFile?: string;
 	/** How the last finished run ended; cleared when the next run starts. */
 	lastRun?: IpcTabRunOutcome;
+	/** The user pressed Stop since the run began: a relaunch must not resume it (turn-resume.ts). Cleared by the next agent_start. */
+	stopped?: boolean;
+	/** The turn waits for the internet connection and continues once it is back (turn-resume.ts). */
+	awaitingConnection?: boolean;
 	/** The window "closed" listener registered at acquire, removed on release. */
 	onWindowClosed: () => void;
 	/** `omp update` landed while this tab ran a turn: it restarts on the new omp when the turn ends. */
@@ -413,10 +418,15 @@ export class SidecarPool {
 		sidecar.on("extensionUi", (request: ExtensionUIRequest) => {
 			// Only response-bearing requests need an origin route. Fire-and-forget
 			// UI updates never reply, so retaining them here leaks the owning tab.
-			if (BLOCKING_UI_METHODS[request.method]) this.#requestOwners.set(request.id, entry);
+			if (BLOCKING_UI_METHODS[request.method]) {
+				this.#requestOwners.set(request.id, entry);
+				this.onRunningChange?.();
+			}
 			// omp withdrew the request (timeout, abort): no response will follow.
-			else if (request.method === "cancel" && this.#requestOwners.get(request.targetId) === entry)
+			else if (request.method === "cancel" && this.#requestOwners.get(request.targetId) === entry) {
 				this.#requestOwners.delete(request.targetId);
+				this.onRunningChange?.();
+			}
 			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request });
 		});
 		// A hidden tab's subagents still start and finish: lifecycle frames keep
@@ -450,11 +460,15 @@ export class SidecarPool {
 			// A plan proposal blocks a hidden tab's session on the user: it goes to
 			// that tab's runtime here (the full channel carries it for a shown tab).
 			let hiddenProposals: AgentSessionEvent[] | undefined;
+			// A fast turn can start and end inside one batch: busy never changes, yet its outcome is news.
+			let runEnded = false;
 			for (const event of events) {
 				const ended = applyRunEvent(entry.run, event);
+				if (ended) runEnded = true;
 				if (event.type === "agent_start") {
 					entry.placeholder = false;
 					entry.lastRun = undefined;
+					entry.stopped = false;
 				} else if (ended && event.type === "agent_end") {
 					if (event.isTerminal !== false) entry.lastRun = runOutcome(event.messages);
 				} else if (ended && event.type === "auto_retry_end") {
@@ -471,6 +485,8 @@ export class SidecarPool {
 			if (busy !== wasBusy) {
 				this.onRunningChange?.();
 				this.#scheduleOmpRestart(entry);
+			} else if (runEnded) {
+				this.onRunningChange?.();
 			}
 			if (entry.placeholder !== wasPlaceholder) this.#notifyWindowTabsChanged(win);
 			if (hiddenProposals) {
@@ -875,15 +891,20 @@ export class SidecarPool {
 	routeSideChannel(id: string, frame: object, tabId?: string): boolean {
 		const entry = tabId ? this.#byTabId.get(tabId) : this.#requestOwners.get(id);
 		if (!entry) return false;
-		if (this.#requestOwners.get(id) === entry) this.#requestOwners.delete(id);
+		if (this.#requestOwners.get(id) === entry) {
+			this.#requestOwners.delete(id);
+			this.onRunningChange?.();
+		}
 		entry.sidecar.sendSideChannel(frame);
 		return true;
 	}
 
 	/** Register sessionFile → owner, moving the entry off any previous file. */
 	#registerSessionFile(entry: PoolEntry, sessionFile: string): void {
-		if (entry.sessionFile !== sessionFile) this.#unregisterSessionFile(entry);
+		const changed = entry.sessionFile !== sessionFile;
+		if (changed) this.#unregisterSessionFile(entry);
 		entry.sessionFile = sessionFile;
+		if (changed && entry.run.running) this.onRunningChange?.();
 		this.#sessionOwners.set(ownerKey(entry.device, sessionFile), { tabId: entry.tabId, winId: entry.winId });
 	}
 
@@ -940,6 +961,56 @@ export class SidecarPool {
 		for (const entry of all) this.#entries.add(entry.win === win ? (sorted[next++] ?? entry) : entry);
 		this.#notifyWindowTabsChanged(win);
 		return true;
+	}
+
+	/** The inputs of the resume rules (turn-resume.ts): what each tab is doing and why it may continue. */
+	resumeFacts(): ResumeFact[] {
+		const asking = new Set(this.#requestOwners.values());
+		return [...this.#entries].map(entry => {
+			const fact: ResumeFact = {
+				tabId: entry.tabId,
+				winId: entry.winId,
+				cwd: entry.sidecar.cwd,
+				kind: entry.kind,
+				running: entry.run.running,
+				stopped: entry.stopped === true,
+				awaitingUi: asking.has(entry),
+				awaitingConnection: entry.awaitingConnection === true,
+			};
+			if (entry.device) fact.device = entry.device;
+			if (entry.sessionFile) fact.sessionFile = entry.sessionFile;
+			if (entry.lastRun) fact.lastRun = entry.lastRun;
+			return fact;
+		});
+	}
+
+	/** The user pressed Stop on this tab's run. */
+	noteStopped(tabId: string): void {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return;
+		entry.stopped = true;
+		this.onRunningChange?.();
+	}
+
+	/** Show or clear the tab's "waiting for the internet connection" state. */
+	setAwaitingConnection(tabId: string, awaiting: boolean): void {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry || (entry.awaitingConnection === true) === awaiting) return;
+		entry.awaitingConnection = awaiting;
+		forwardToWindow(entry.win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+	}
+
+	/** Spawn a deferred tab's process now (a background tab a relaunch must resume); the sidecar, or null for an unknown tab. */
+	startTab(tabId: string): SidecarLike | null {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return null;
+		this.#ensureStarted(entry);
+		return entry.sidecar;
+	}
+
+	/** The tab on this computer attached to `sessionPath`, if any. */
+	tabForSession(sessionPath: string): string | null {
+		return this.sessionOwner(sessionPath)?.tabId ?? null;
 	}
 
 	/** What every live tab is doing right now — the ⌘Q guard's inventory. */
@@ -1101,6 +1172,7 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	if (entry.title !== undefined) payload.title = entry.title;
 	if (entry.worktree !== undefined) payload.worktree = entry.worktree;
 	if (entry.lastRun !== undefined) payload.lastRun = entry.lastRun;
+	if (entry.awaitingConnection) payload.awaitingConnection = true;
 	if (entry.device !== undefined) payload.device = entry.device;
 	return payload;
 }

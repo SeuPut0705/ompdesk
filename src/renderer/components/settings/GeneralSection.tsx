@@ -9,7 +9,7 @@
 
 import { Play } from "lucide-react";
 import { useEffect, useId, useState } from "react";
-import { CLOSE_TO_TRAY_PREF, KEEP_AWAKE_WORKING_PREF } from "../../../shared/desktop-prefs";
+import { CLOSE_TO_TRAY_PREF, KEEP_AWAKE_WORKING_PREF, RESUME_INTERRUPTED_PREF } from "../../../shared/desktop-prefs";
 import { isUiLanguage, UI_LANGUAGE_NAMES, UI_LANGUAGES } from "../../../shared/ui-language";
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { useLang, useT } from "../../lib/i18n";
@@ -29,18 +29,18 @@ import { TerminalShellRow } from "./TerminalShellRow";
 
 const PANEL_SIDES: readonly PanelSide[] = ["right", "left"];
 
-/** A boolean preference main reads (close to tray, keep awake, worktree auto-clean); false until it loads. */
-export function useMainPreference(key: string): [boolean, (next: boolean) => void] {
-	const [value, setValue] = useState(false);
+/** A boolean preference main reads (close to tray, keep awake, worktree auto-clean); `fallback` until it loads or while it was never set. */
+export function useMainPreference(key: string, fallback = false): [boolean, (next: boolean) => void] {
+	const [value, setValue] = useState(fallback);
 	useEffect(() => {
 		let live = true;
 		void window.omp.prefs.get(key).then(stored => {
-			if (live) setValue(stored === true);
+			if (live) setValue(typeof stored === "boolean" ? stored : fallback);
 		});
 		return () => {
 			live = false;
 		};
-	}, [key]);
+	}, [key, fallback]);
 	return [value, next => void saveGuiPreference(key, next, () => setValue(next))];
 }
 
@@ -55,6 +55,7 @@ export function GeneralSection() {
 	const panelSide = useUiStore(state => state.panelSide);
 	const [closeToTray, setCloseToTray] = useMainPreference(CLOSE_TO_TRAY_PREF);
 	const [keepAwake, setKeepAwake] = useMainPreference(KEEP_AWAKE_WORKING_PREF);
+	const [resumeInterrupted, setResumeInterrupted] = useMainPreference(RESUME_INTERRUPTED_PREF, true);
 	const languageId = useId();
 	const panelId = useId();
 	const panelSideId = useId();
@@ -201,6 +202,13 @@ export function GeneralSection() {
 					id="setting-gui-keepAwakeWorking"
 					label={t("settings.gui.keepAwakeWorking")}
 					onCheckedChange={setKeepAwake}
+				/>
+				<SettingsSwitchRow
+					checked={resumeInterrupted}
+					description={t("settings.gui.resumeInterruptedDesc")}
+					id="setting-gui-resumeInterrupted"
+					label={t("settings.gui.resumeInterrupted")}
+					onCheckedChange={setResumeInterrupted}
 				/>
 				<DisplayPreferenceRow field="titleState" />
 				<DisplayPreferenceRow field="showProgress" />

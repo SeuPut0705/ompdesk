@@ -101,6 +101,8 @@ export interface SessionTab {
 	pendingSessionPath?: string;
 	/** What the tab's session blocks on: a tool or plan approval, or any other answer (ask, confirm, …). */
 	awaitingInput?: AwaitedInput;
+	/** The tab's turn waits for the internet connection and continues by itself once it is back (main's turn-resume). */
+	awaitingConnection?: boolean;
 }
 
 // Focus routing is window-global. Serialize changes so rapid tab clicks cannot
@@ -188,6 +190,7 @@ function projectSessionTab(
 		unreadDone: sessionChanged ? false : completedInBackground || (previous?.unreadDone ?? false),
 		pendingSessionPath: previous?.pendingSessionPath,
 		awaitingInput: sessionChanged ? undefined : previous?.awaitingInput,
+		...(info.awaitingConnection === true ? { awaitingConnection: true } : {}),
 	};
 }
 
@@ -293,6 +296,15 @@ export function tabDisplayTitle(
 export function useActiveTabKind(): SessionKind {
 	const tabId = useRuntimeTabId();
 	return useTabsStore(state => state.tabs.find(tab => tab.id === (tabId ?? state.activeTabId))?.kind ?? "agent");
+}
+
+/** The calling pane's tab id while its turn waits for the internet connection (main continues it once it is back); null otherwise. */
+export function useAwaitingConnection(): string | null {
+	const tabId = useRuntimeTabId();
+	return useTabsStore(state => {
+		const tab = state.tabs.find(candidate => candidate.id === (tabId ?? state.activeTabId));
+		return tab?.awaitingConnection === true ? tab.id : null;
+	});
 }
 
 /** A closed tab whose saved session can be opened again (⌥⌘T). */

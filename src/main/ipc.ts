@@ -516,6 +516,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				};
 			}
 		}
+		// A Stop is the user's word that this turn is over: a relaunch must not resume it, even if the
+		// process dies before the run's end event arrives (turn-resume.ts).
+		if (issuerTabId && (cmd.type === "abort" || cmd.type === "abort_and_prompt" || cmd.type === "abort_and_restore_queue")) {
+			sidecarPool.noteStopped(issuerTabId);
+		}
 		try {
 			let response = await client.command({ ...cmd, id: _id } as RpcCommand, payload.timeoutMs);
 			// omp has no session kind: a chat tab is plain omp started in the

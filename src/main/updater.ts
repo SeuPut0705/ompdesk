@@ -662,8 +662,8 @@ export function setupUpdater(): void {
 			broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });
 			return;
 		}
-		// Running work dies with the restart: same prompt as ⌘Q.
-		if (!(await confirmQuit())) return;
+		// Same prompt as ⌘Q; its text says the running work continues after the restart (turn-resume.ts).
+		if (!(await confirmQuit(true))) return;
 		restartIntoUpdate();
 	});
 	ipcMain.handle(IPC_COMMANDS.UPDATER_GET_STATUS, () => current);

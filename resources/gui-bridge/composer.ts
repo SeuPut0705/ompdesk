@@ -302,6 +302,19 @@ export const methods: BridgeMethods = {
 			return (await session.cycleModel("backward")) ?? null;
 		},
 
+		/**
+		 * What `omp --restore` runs (stock's own continue path, TUI-only as a flag): the turn the
+		 * last process was cut off in plus the subagents it ran. `turn` is false with nothing left
+		 * unfinished, while a turn runs, or without a model.
+		 */
+		"composer.restore_interrupted": async (_params, env) => {
+			const session = env.session() as Session;
+			requireFn(session, "restoreInterruptedTurn", "composer");
+			const restore = await import("@oh-my-pi/pi-coding-agent/task/restore");
+			requireFn(restore, "restoreSession", "composer", "task/restore");
+			return restore.restoreSession(session);
+		},
+
 		"composer.skill_count": async (_params, env) => ({ skills: (env.session() as Session).skills?.length ?? 0 }),
 
 		/** Pop the newest user-queued message back to the composer (TUI dequeue). */

@@ -202,3 +202,20 @@ describe("composer actions", () => {
 		);
 	});
 });
+
+describe("restore_interrupted", () => {
+	it("runs stock restoreSession through the bridge and returns what it went on with", async () => {
+		const ctx = fakeContext({ bridge: { "composer.restore_interrupted": { turn: true, subagents: ["0-Explore"] } } });
+		await expect(handlers.restore_interrupted({ type: "restore_interrupted" }, ctx)).resolves.toEqual({
+			turn: true,
+			subagents: ["0-Explore"],
+		});
+	});
+
+	it("fails with the bridge's reason when this omp has no restoreSession", async () => {
+		const ctx = fakeContext();
+		await expect(handlers.restore_interrupted({ type: "restore_interrupted" }, ctx)).rejects.toThrow(
+			"no composer.restore_interrupted",
+		);
+	});
+});

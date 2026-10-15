@@ -2067,6 +2067,10 @@ export const ko: Record<string, string> = {
 	"settings.gui.keepAwakeWorking": "작업 중에는 잠자기 막기",
 	"settings.gui.keepAwakeWorkingDesc":
 		"이 컴퓨터의 탭이 턴을 실행하는 동안 시스템이 잠자기에 들어가지 않아요. 화면은 꺼질 수 있어요.",
+	"settings.gui.resumeInterrupted": "다시 열 때 중단된 작업 이어서 하기",
+	"settings.gui.resumeInterruptedDesc":
+		"OMPdesk를 종료했거나, 비정상 종료됐거나, 업데이트로 다시 시작했을 때 실행 중이던 턴이 다음에 열 때 멈춘 곳에서 이어져요. 직접 멈춘 턴은 그대로 멈춰 있어요.",
+	"chat.connectionWait": "인터넷 연결을 기다리는 중이에요…",
 	"settings.gui.thinkingExpanded": "사고 과정 기본으로 펼치기",
 	"settings.gui.thinkingExpandedDesc":
 		"블록을 하나씩 클릭하지 않아도 모델의 사고 과정을 보여줘요. 블록은 하나씩 접을 수 있어요.",

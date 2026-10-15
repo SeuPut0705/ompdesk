@@ -106,6 +106,14 @@ export const MAIN_TEXT = {
 		en: "{working} of {total} sessions are still working in {windows} window(s). Quitting stops them and their agents.",
 		ko: "{windows}개 창에서 세션 {total}개 중 {working}개가 아직 실행 중이에요. 종료하면 세션과 에이전트가 모두 중단돼요.",
 	},
+	"quit.workingBodyResume": {
+		en: "{working} of {total} sessions are still working in {windows} window(s). Quitting pauses them; they pick up where they left off the next time OMPdesk opens.",
+		ko: "{windows}개 창에서 세션 {total}개 중 {working}개가 아직 실행 중이에요. 종료하면 잠시 멈추고, 다음에 OMPdesk를 열 때 하던 작업을 이어서 해요.",
+	},
+	"quit.workingBodyRestart": {
+		en: "{working} of {total} sessions are still working in {windows} window(s). They continue by themselves after the restart.",
+		ko: "{windows}개 창에서 세션 {total}개 중 {working}개가 아직 실행 중이에요. 다시 시작한 뒤에 하던 작업을 이어서 해요.",
+	},
 	"quit.workingTitle": { en: "Sessions are still running", ko: "아직 실행 중인 세션이 있어요" },
 	"restart.body": {
 		en: "OMPdesk's installed files were replaced while it was running, so this window can no longer load them reliably. {working} of {total} sessions are still working.",
@@ -114,6 +122,11 @@ export const MAIN_TEXT = {
 	"restart.later": { en: "Later", ko: "나중에" },
 	"restart.now": { en: "Restart now", ko: "지금 재시작" },
 	"restart.title": { en: "Restart to finish updating", ko: "업데이트를 마치려면 재시작하세요" },
+	"resume.continuing": {
+		en: "Continuing {count} interrupted task{plural}",
+		ko: "중단된 작업 {count}개를 이어서 하고 있어요",
+	},
+	"resume.stop": { en: "Stop", ko: "중지" },
 	// Status of a tab whose omp runs on a paired device that is unreachable.
 	"remote.offline": {
 		en: "The device running this session is offline. Reconnecting…",

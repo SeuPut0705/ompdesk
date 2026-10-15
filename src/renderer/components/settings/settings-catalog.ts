@@ -249,6 +249,13 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "keep awake sleep power prevent 잠자기 절전 깨어 있기",
 	},
 	{
+		id: "resumeInterrupted",
+		section: "general",
+		labelKey: "settings.gui.resumeInterrupted",
+		aliases:
+			"continue resume interrupted relaunch restart crash update quit work 이어서 재개 중단 다시 열 때 업데이트 비정상 종료",
+	},
+	{
 		id: "railPins",
 		section: "general",
 		labelKey: "settings.gui.railPins",

@@ -274,6 +274,8 @@ export type RpcCommand =
 	| { id?: string; type: "transcribe_audio"; audioBase64: string; mimeType: string }
 	| { id?: string; type: "synthesize_speech"; text: string }
 	| { id?: string; type: "retry" }
+	/** Stock `restoreSession` (what `omp --restore` runs): go on with the turn the last process was cut off in. Main-only; the renderer never sends it. */
+	| { id?: string; type: "restore_interrupted" }
 	| { id?: string; type: "clear_context" }
 	| { id?: string; type: "abort_subagent"; agentId: string }
 	| { id?: string; type: "revive_subagent"; agentId: string }

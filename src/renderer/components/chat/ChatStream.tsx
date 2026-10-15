@@ -12,6 +12,7 @@ import {
 	PenLine,
 	SearchCode,
 	Sparkles,
+	WifiOff,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage, MessagesPage } from "../../../shared/rpc-types";
@@ -29,7 +30,7 @@ import { liveWorkKey, useLiveWorkStore } from "../../stores/live-work";
 import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
-import { useActiveTabKind } from "../../stores/tabs";
+import { useActiveTabKind, useAwaitingConnection } from "../../stores/tabs";
 import { type TodoSnapshot, useTodoStore } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
@@ -142,6 +143,7 @@ function SessionTranscript() {
 	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
 	const retryInfo = useSessionStore(s => s.retryInfo);
 	const compactionInfo = useSessionStore(s => s.compactionInfo);
+	const awaitingConnection = useAwaitingConnection();
 	const status = useSessionStore(s => s.status);
 	const sessionId = useSessionStore(s => s.sessionId);
 	// Shared agent compaction preference and GUI-local transcript detail.
@@ -209,7 +211,10 @@ function SessionTranscript() {
 	// Priority matches the TUI, whose transient loaders replace the working
 	// loader; tool-execution windows show running tool cards instead.
 	const showStatusRow =
-		retryInfo != null || compactionInfo != null || (isStreaming && awaitingModelSince != null && !hasStreamedContent);
+		awaitingConnection !== null ||
+		retryInfo != null ||
+		compactionInfo != null ||
+		(isStreaming && awaitingModelSince != null && !hasStreamedContent);
 	// While a turn runs, its work stays ONE disclosure: the latest finalized
 	// work row absorbs the streaming message's steps (and keeps the spinner
 	// between steps) instead of a second live group mounting per step, so the
@@ -1376,6 +1381,7 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 	const tabId = useRuntimeTabId();
 	const retryInfo = useSessionStore(s => s.retryInfo);
 	const compactionInfo = useSessionStore(s => s.compactionInfo);
+	const awaitingConnection = useAwaitingConnection();
 	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
 	const now = Date.now();
 	// Clock for the retry countdown only; it never runs for compaction or a
@@ -1392,6 +1398,35 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 	let detail: string | null = null;
 	let announcement: string;
 
+	// A turn that ended on a network error while offline (or just after a wake) is not a failure:
+	// main continues it once the connection is back, and this is the only thing to say meanwhile.
+	if (awaitingConnection !== null) {
+		return (
+			<div
+				className="omp-status-turn flex flex-col gap-1.5 ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-4 text-sc-md text-(--sc-text-muted)"
+				data-connection-wait
+			>
+				<span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
+					{t("chat.connectionWait")}
+				</span>
+				<div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+					<WifiOff aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+					<span className="text-(--sc-text-secondary)">{t("chat.connectionWait")}</span>
+				</div>
+				<div className="flex flex-wrap items-center gap-2 ps-6">
+					<Button
+						onClick={() => {
+							void window.omp.resume.cancelWait(awaitingConnection);
+						}}
+						size="sm"
+						variant="ghost"
+					>
+						{t("common.cancel")}
+					</Button>
+				</div>
+			</div>
+		);
+	}
 	if (retryInfo) {
 		const remainingSeconds = Math.max(0, Math.ceil((retryInfo.startedAt + retryInfo.delayMs - now) / 1000));
 		text =

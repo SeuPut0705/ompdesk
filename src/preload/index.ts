@@ -27,6 +27,7 @@ import type {
 	IpcModelSetupRunResult,
 	IpcOpenPathResult,
 	IpcRemotePairPayload,
+	IpcResumeNotice,
 	IpcSessionOpenNewWindowPayload,
 	IpcSessionOwner,
 	IpcSetTabViewPayload,
@@ -255,6 +256,13 @@ const api: OmpApi = {
 
 	bridgeHealth: {
 		take: () => ipcRenderer.invoke(IPC_COMMANDS.BRIDGE_HEALTH_TAKE),
+	},
+
+	resume: {
+		cancelWait: (tabId: string) => ipcRenderer.invoke(IPC_COMMANDS.RESUME_CANCEL_WAIT, tabId),
+		stop: () => ipcRenderer.invoke(IPC_COMMANDS.RESUME_STOP),
+		reportOnline: (online: boolean) => ipcRenderer.send(IPC_COMMANDS.CONNECTIVITY_REPORT, online),
+		takeNotice: () => ipcRenderer.invoke(IPC_COMMANDS.RESUME_TAKE_NOTICE) as Promise<IpcResumeNotice | null>,
 	},
 
 	setup: {

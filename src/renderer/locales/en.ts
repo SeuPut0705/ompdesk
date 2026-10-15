@@ -2083,6 +2083,10 @@ export const en: Record<string, string> = {
 	"settings.gui.keepAwakeWorking": "Keep this computer awake while working",
 	"settings.gui.keepAwakeWorkingDesc":
 		"While any tab on this computer is running a turn, the system does not go to sleep. The display can still turn off.",
+	"settings.gui.resumeInterrupted": "Continue interrupted work after relaunch",
+	"settings.gui.resumeInterruptedDesc":
+		"A turn that was running when OMPdesk quit, crashed or restarted for an update picks up where it stopped the next time OMPdesk opens. Turns you stopped stay stopped.",
+	"chat.connectionWait": "Waiting for the internet connection…",
 	"settings.gui.thinkingExpanded": "Expand reasoning by default",
 	"settings.gui.thinkingExpandedDesc":
 		"Show the model's reasoning trace without clicking each block; blocks can still be collapsed individually.",

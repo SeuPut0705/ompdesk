@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { BrowserWindow } from "electron";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { IPC_EVENTS, type IpcTabStatusPayload } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse, SessionInfoUpdateFrame, SidecarStatus } from "../shared/rpc-types";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
@@ -1503,6 +1503,63 @@ describe("SidecarPool background tabs", () => {
 		expect(lastFor()).toMatchObject({
 			status: "ready",
 			lastRun: { stopReason: "error", errorMessage: "overloaded" },
+		});
+	});
+
+	describe("resume facts (turn-resume.ts)", () => {
+		it("reports a running turn, an open ask, Stop, and the waiting-for-connection state per tab", () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			const a = sidecars[0];
+			a?.emitStatus("ready");
+			const changes = vi.fn();
+			pool.onRunningChange = changes;
+			const factA = () => pool.resumeFacts().find(fact => fact.tabId === "tab-a");
+
+			expect(factA()).toMatchObject({ sessionFile: "/sessions/a.jsonl", running: false, awaitingUi: false });
+
+			a?.emitEvents([{ type: "agent_start" }]);
+			expect(factA()).toMatchObject({ running: true, stopped: false });
+
+			// An ask raises a blocking request: the tab says so, and the resume rules hear of it.
+			changes.mockClear();
+			a?.emitUiRequest({ id: "ask-1", method: "ask", title: "Which?", questions: [] });
+			expect(factA()?.awaitingUi).toBe(true);
+			expect(changes).toHaveBeenCalled();
+			changes.mockClear();
+			pool.routeSideChannel("ask-1", { type: "extension_ui_response", id: "ask-1" });
+			expect(factA()?.awaitingUi).toBe(false);
+			expect(changes).toHaveBeenCalled();
+
+			// Stop is remembered until the next run starts.
+			pool.noteStopped("tab-a");
+			expect(factA()?.stopped).toBe(true);
+			a?.emitEvents([{ type: "agent_end", messages: [{ role: "assistant", content: [], stopReason: "aborted" }] }]);
+			a?.emitEvents([{ type: "agent_start" }]);
+			expect(factA()?.stopped).toBe(false);
+
+			pool.setAwaitingConnection("tab-a", true);
+			expect(factA()?.awaitingConnection).toBe(true);
+			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({
+				tabId: "tab-a",
+				awaitingConnection: true,
+			});
+			pool.setAwaitingConnection("tab-a", false);
+			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).not.toHaveProperty("awaitingConnection");
+		});
+
+		it("starts a deferred tab's process on demand and finds the tab of a session", () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl", "agent", undefined, false, false, true);
+			expect(sidecars[0]?.status).toBe("asleep");
+			expect(pool.tabForSession("/sessions/a.jsonl")).toBe("tab-a");
+			expect(pool.tabForSession("/sessions/none.jsonl")).toBeNull();
+
+			expect(pool.startTab("tab-a")).toBe(sidecars[0]);
+			expect(sidecars[0]?.status).not.toBe("asleep");
+			expect(pool.startTab("missing")).toBeNull();
 		});
 	});
 

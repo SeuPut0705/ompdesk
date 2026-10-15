@@ -163,6 +163,9 @@ export const handlers: Record<string, LocalHandler> = {
 		return { retried: agentInvoked };
 	},
 
+	// Stock `omp --restore` (restoreSession) on the live session, for a relaunch that finds a turn cut off.
+	restore_interrupted: async (_command, ctx) => ctx.bridge.request("composer.restore_interrupted"),
+
 	clear_context: async (_command, ctx) => {
 		const result = await ctx.bridge.request<{ droppedCount: number } | null>("composer.clear_context");
 		if (!result) throw new LocalCommandError(BUSY_MESSAGE, "busy");

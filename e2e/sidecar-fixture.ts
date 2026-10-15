@@ -490,6 +490,8 @@ if (process.argv[2] === "stats") {
 	let thinking = { level: "medium", configured: "medium" };
 	/** `fixture usage limit` stops a turn on the provider's quota; its account resets at this time. */
 	let usageLimitResetAt: number | undefined;
+	/** `fixture network error` ends a turn on a dropped connection; stock `/retry` runs it again. */
+	let networkFailed = false;
 	let planModeEnabled = Boolean(process.env.OMP_GUI_TEST_PANEL_PLAN);
 	// Stock `--session <file>`: the process boots on that stored session (a tab
 	// opened on a fork, a restored tab), so get_state already names it.
@@ -1233,6 +1235,29 @@ if (process.argv[2] === "stats") {
 		},
 		"composer.tool_extras": () => ({ sources: {}, mounted: [] }),
 		"composer.skill_count": () => ({ skills: 0 }),
+		// Stock `restoreSession` (what `omp --restore` runs): a journal whose last entry is a user
+		// message with no reply was cut off mid-run; the turn goes on and answers.
+		"composer.restore_interrupted": () => {
+			const last = entries.at(-1);
+			const cutOff = last?.type === "message" && (last.message as AgentMessage | undefined)?.role === "user" && !isStreaming;
+			if (!cutOff) return { turn: false, subagents: [] };
+			isStreaming = true;
+			write({ type: "agent_start" });
+			setTimeout(() => {
+				const answer: AgentMessage = {
+					role: "assistant",
+					content: [{ type: "text", text: "Continued after the interruption." }],
+					timestamp: Date.now(),
+					provider: model.provider,
+					model: model.id,
+					stopReason: "stop",
+				};
+				appendMessage(answer);
+				write({ type: "message_end", message: answer });
+				endTurn([answer]);
+			}, 600);
+			return { turn: true, subagents: [] };
+		},
 		"composer.share_preview": () => ({
 			snapshotId: "fixture",
 			preview: JSON.stringify({ entries }),
@@ -3398,6 +3423,21 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			appendMessage(answer);
 			write({ type: "message_end", message: answer });
 			endTurn([user, answer]);
+		} else if (message === "fixture network error") {
+			// The connection dropped mid-turn: stock auto-retry has given up.
+			networkFailed = true;
+			const answer: AgentMessage = {
+				role: "assistant",
+				content: [],
+				timestamp: Date.now(),
+				provider: model.provider,
+				model: model.id,
+				stopReason: "error",
+				errorMessage: "fetch failed: getaddrinfo ENOTFOUND api.fixture.invalid",
+			};
+			appendMessage(answer);
+			write({ type: "message_end", message: answer });
+			endTurn([user, answer]);
 		} else if (message === "fixture usage limit") {
 			// The provider's quota stops the turn; the limit resets a few seconds later.
 			usageLimitResetAt = Date.now() + Number(process.env.OMP_GUI_TEST_USAGE_RESET_MS ?? 90_000);
@@ -4231,15 +4271,22 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			case "prompt":
 				if (text("message") === "/retry") {
 					// Stock `/retry` (main's `retry` handler sends it): the failed turn runs again, here answering.
-					const failed = usageLimitResetAt !== undefined;
+					const failed = usageLimitResetAt !== undefined || networkFailed;
+					const afterNetwork = networkFailed;
 					usageLimitResetAt = undefined;
+					networkFailed = false;
 					ok({ agentInvoked: failed });
 					if (!failed) break;
 					isStreaming = true;
 					write({ type: "agent_start" });
 					const answer: AgentMessage = {
 						role: "assistant",
-						content: [{ type: "text", text: "Resumed after the usage limit reset." }],
+						content: [
+							{
+								type: "text",
+								text: afterNetwork ? "Back online: the turn went on." : "Resumed after the usage limit reset.",
+							},
+						],
 						timestamp: Date.now(),
 						provider: model.provider,
 						model: model.id,

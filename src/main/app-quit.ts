@@ -27,12 +27,19 @@ export function quitRisk(): QuitRisk {
 	return assessQuitRisk(inventory());
 }
 
+let resumesInterrupted: () => boolean = () => false;
+
+/** Whether a quit's running turns continue after the next launch (Settings › General); the confirmation says so. */
+export function setQuitResumes(resumes: () => boolean): void {
+	resumesInterrupted = resumes;
+}
+
 /**
  * Ask before a quit that would stop running work. True when nothing is
  * running or the user chose to quit anyway; false when they keep working or a
  * prompt is already open (⌘Q pressed again must not queue a second modal).
  */
-export async function confirmQuit(): Promise<boolean> {
+export async function confirmQuit(restart = false): Promise<boolean> {
 	const risk = quitRisk();
 	if (!quitNeedsConfirmation(risk)) return true;
 	if (asking) return false;
@@ -45,7 +52,7 @@ export async function confirmQuit(): Promise<boolean> {
 		defaultId: 1,
 		cancelId: 1,
 		message: mainT("quit.workingTitle", language),
-		detail: mainT("quit.workingBody", language, {
+		detail: mainT(resumesInterrupted() ? (restart ? "quit.workingBodyRestart" : "quit.workingBodyResume") : "quit.workingBody", language, {
 			working: risk.workingTabs,
 			total: risk.totalTabs,
 			windows: risk.workingWindows,
