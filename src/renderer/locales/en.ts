@@ -5024,6 +5024,7 @@ export const en: Record<string, string> = {
 	"turnError.action.compact": "Compact context",
 	"turnError.details": "Details",
 	"turnError.retryFailed": "Retry failed",
+	"turnError.retried": "{title} — tried again",
 	"tools.task.yieldLabel": "yield{suffix}",
 	"tools.websearch.error": "Error: {error}",
 	"tools.websearch.inputTokens": "in {count}",

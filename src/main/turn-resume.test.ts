@@ -531,4 +531,49 @@ describe("TurnResume connection wait", () => {
 		h.resume.sync();
 		expect(h.awaiting).toEqual([]);
 	});
+
+	it("offline, stock's auto-retry of a transport failure is taken over at its first attempt: cancelled, held, retried once online", async () => {
+		h = setup({ online: false, answers: { retry: RETRIED } });
+		h.resume.launch();
+		h.facts.push(fact({ running: true, retry: { errorMessage: "Connection error." } }));
+		h.resume.sync();
+		h.resume.sync();
+		await settle();
+		expect(h.awaiting).toEqual([["t1", true]]);
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["abort_retry"]);
+		expect(h.store.read().map(entry => entry.reason)).toEqual(["network"]);
+
+		// The cancelled saga ends the turn failed while the wait holds it.
+		h.facts[0] = {
+			...fact({ running: false, lastRun: { stopReason: "error", errorMessage: "Retry cancelled" } }),
+			awaitingConnection: true,
+		};
+		h.resume.sync();
+		h.net.online = true;
+		h.resume.connectivityChanged();
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["abort_retry", "retry"]);
+		expect(h.awaiting.at(-1)).toEqual(["t1", false]);
+	});
+
+	it("leaves stock's auto-retry alone while online (a wake's window included) and for a non-transport failure", async () => {
+		h = setup({ online: true, waitAfterWake: true });
+		h.resume.launch();
+		h.facts.push(fact({ running: true, retry: { errorMessage: "Connection error." } }));
+		h.resume.sync();
+		h.net.online = false;
+		h.facts[0] = fact({ running: true, retry: { errorMessage: "529 overloaded" } });
+		h.resume.sync();
+		await settle();
+		expect(h.awaiting).toEqual([]);
+		expect(h.commands).toEqual([]);
+	});
+
+	it("judges a network failure as soon as it is the run's outcome, before the session settles", () => {
+		h = setup({ online: false });
+		h.resume.launch();
+		h.facts.push(fact({ running: true, lastRun: { ...networkFailure } }));
+		h.resume.sync();
+		expect(h.awaiting).toEqual([["t1", true]]);
+	});
 });

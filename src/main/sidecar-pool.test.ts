@@ -1549,6 +1549,26 @@ describe("SidecarPool background tabs", () => {
 			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).not.toHaveProperty("awaitingConnection");
 		});
 
+		it("reports stock's pending auto-retry with its failure, and tells the resume rules when one starts", () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			const a = sidecars[0];
+			a?.emitStatus("ready");
+			a?.emitEvents([{ type: "agent_start" }]);
+			const changes = vi.fn();
+			pool.onRunningChange = changes;
+			const factA = () => pool.resumeFacts().find(fact => fact.tabId === "tab-a");
+
+			a?.emitEvents([
+				{ type: "auto_retry_start", attempt: 1, maxAttempts: 10, delayMs: 500, errorMessage: "Connection error." },
+			]);
+			expect(changes).toHaveBeenCalled();
+			expect(factA()?.retry).toEqual({ errorMessage: "Connection error." });
+			a?.emitEvents([{ type: "auto_retry_end", success: true, attempt: 1 }]);
+			expect(factA()?.retry).toBeUndefined();
+		});
+
 		it("starts a deferred tab's process on demand and finds the tab of a session", () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);

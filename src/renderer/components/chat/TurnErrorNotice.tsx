@@ -1,4 +1,4 @@
-import { Ban } from "lucide-react";
+import { Ban, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { UsageReport } from "../../../shared/rpc-types";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
@@ -51,6 +51,19 @@ export function TurnErrorNotice({
 	const [pending, setPending] = useState<TurnErrorAction | null>(null);
 	const description = describeTurnError(errorMessage, stopReason);
 	const latest = useMessagesStore(state => timestamp !== undefined && state.messages.at(-1)?.timestamp === timestamp);
+	// The turn went on after this failure without a new prompt (stock's auto-retry, Retry, the
+	// connection wait's retry, a restore): the failure is history, not the turn's outcome.
+	const retried = useMessagesStore(state => {
+		if (timestamp === undefined) return false;
+		let answeredSince = false;
+		for (let index = state.messages.length - 1; index >= 0; index--) {
+			const message = state.messages[index];
+			if (message?.timestamp === timestamp && message.role === "assistant") return answeredSince;
+			if (message?.role === "user") answeredSince = false;
+			else if (message?.role === "assistant") answeredSince = true;
+		}
+		return false;
+	});
 	const quota = description.kind === "rateLimit" && latest;
 	const provider = useModelStore(state => state.model?.provider);
 	const sessionId = useSessionStore(state => state.sessionId);
@@ -87,6 +100,18 @@ export function TurnErrorNotice({
 
 	// Waiting for the connection is not a failure: the status row says so and main continues the turn.
 	if (awaitingConnection !== null && latest) return null;
+
+	if (retried) {
+		return (
+			<p
+				className="omp-turn-retried mt-2 flex items-center gap-1.5 text-sc-sm text-(--sc-text-muted)"
+				data-turn-retried
+			>
+				<RotateCcw aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+				{t("turnError.retried", { title: t(description.titleKey) })}
+			</p>
+		);
+	}
 
 	const run = async (action: TurnErrorAction) => {
 		if (action === "changeModel") {

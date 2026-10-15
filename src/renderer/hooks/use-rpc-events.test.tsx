@@ -898,6 +898,33 @@ describe("useRpcEvents awaiting-model marker", () => {
 		expect(useSessionStore.getState().awaitingModelSince).toBeNull();
 	});
 
+	it("announces no failure for a turn main holds until the connection is back", async () => {
+		const { emitBatch, omp } = installMockOmp();
+		useTabsStore.setState({
+			tabs: [{ id: "t1", kind: "agent", cwd: "/w", status: "running", unreadDone: false, awaitingConnection: true }],
+			activeTabId: "t1",
+		});
+		await mount(<RpcEventsProbe />);
+		const failed: AgentMessage = {
+			role: "assistant",
+			content: [],
+			stopReason: "error",
+			errorMessage: "Connection error.",
+		};
+		await act(async () => {
+			emitBatch([{ type: "agent_start", sessionId: "s1" }]);
+			emitBatch([
+				{ type: "auto_retry_start", attempt: 1, maxAttempts: 10, delayMs: 500, errorMessage: "Connection error." },
+			]);
+			emitBatch([
+				{ type: "agent_end", messages: [failed] },
+				{ type: "auto_retry_end", success: false, attempt: 1, finalError: "Retry cancelled" },
+			]);
+		});
+		expect(useToastStore.getState().toasts).toEqual([]);
+		expect(omp.system.notify).not.toHaveBeenCalled();
+	});
+
 	it("keeps a long quota wait visible after its notification expires", async () => {
 		const now = Date.now();
 		const clock = vi.spyOn(Date, "now").mockReturnValue(now);

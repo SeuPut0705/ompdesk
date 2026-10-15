@@ -182,15 +182,23 @@ function notificationTitle(tabId: string): string {
 }
 
 /**
+ * Main holds the tab's failed turn until the connection is back (turn-resume.ts): not a
+ * failure, so nothing announces it as one. Main sets it before the run's end reaches here.
+ */
+function awaitingConnection(tabId: string): boolean {
+	return useTabsStore.getState().tabs.some(tab => tab.id === tabId && tab.awaitingConnection === true);
+}
+
+/**
  * Notify a finished run: completion or error, mutually exclusive for one
  * settled run. Aborted runs are user-initiated and stay quiet, as do the
- * intermediate settles of a live auto-retry saga.
+ * intermediate settles of a live auto-retry saga and a turn waiting for the connection.
  */
 export function notifyRunEnd(
 	tabId: string,
 	outcome: { stopReason?: string; errorMessage?: unknown; reply?: string },
 ): void {
-	if (retryPendingTabs.has(tabId)) return;
+	if (retryPendingTabs.has(tabId) || awaitingConnection(tabId)) return;
 	if (outcome.stopReason === "aborted") return;
 	// A settle arriving after the tab closed has no runtime to query settings
 	// with — skip rather than resurrect a ghost runtime and notify a dead tab.
@@ -241,7 +249,7 @@ function notifyOnAgentEnd(tabId: string, event: Extract<AgentSessionEvent, { typ
  */
 function toastOnAgentError(tabId: string, event: Extract<AgentSessionEvent, { type: "agent_end" }>): void {
 	if (event.isTerminal === false) return;
-	if (retryPendingTabs.has(tabId)) return;
+	if (retryPendingTabs.has(tabId) || awaitingConnection(tabId)) return;
 	const last = event.messages?.findLast(message => message.role === "assistant");
 	if (last?.stopReason !== "error") return;
 	const { kind, title, message } = turnErrorToast(
@@ -436,20 +444,22 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 								},
 								awaitingModelSince: null,
 							});
-							useToastStore.getState().push({
-								variant: "warning",
-								message: translate(
-									event.delayMs >= 60_000 ? "events.retryScheduledAt" : "events.retryScheduled",
-									{
-										attempt: event.attempt,
-										max: event.maxAttempts,
-										seconds: Math.round(event.delayMs / 1000),
-										time: formatClock(Date.now() + event.delayMs),
-										// The reason in the user's words; the raw text stays on the status row.
-										error: translate(describeTurnError(event.errorMessage).titleKey),
-									},
-								),
-							});
+							if (!awaitingConnection(tabId)) {
+								useToastStore.getState().push({
+									variant: "warning",
+									message: translate(
+										event.delayMs >= 60_000 ? "events.retryScheduledAt" : "events.retryScheduled",
+										{
+											attempt: event.attempt,
+											max: event.maxAttempts,
+											seconds: Math.round(event.delayMs / 1000),
+											time: formatClock(Date.now() + event.delayMs),
+											// The reason in the user's words; the raw text stays on the status row.
+											error: translate(describeTurnError(event.errorMessage).titleKey),
+										},
+									),
+								});
+							}
 							break;
 						}
 						case "auto_retry_end": {
@@ -467,7 +477,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 								useToastStore
 									.getState()
 									.push({ variant: "success", message: translate("events.retrySucceeded") });
-							} else {
+							} else if (!awaitingConnection(tabId)) {
 								const failure = turnErrorToast(event.finalError);
 								useToastStore.getState().push({
 									variant: "error",

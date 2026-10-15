@@ -55,6 +55,8 @@ export interface ResumeFact {
 	/** The tab waits for the connection to continue. */
 	awaitingConnection: boolean;
 	lastRun?: IpcTabRunOutcome;
+	/** Stock's auto-retry saga waiting for its next attempt (one object per `auto_retry_start`), with the failure it retries. */
+	retry?: { errorMessage: string };
 }
 
 /**
@@ -228,6 +230,8 @@ export class TurnResume {
 	#pending = new Map<string, ResumeMarker>();
 	/** Run outcomes already judged (a Cancel must not re-arm the wait). */
 	readonly #judged = new WeakSet<IpcTabRunOutcome>();
+	/** Stock auto-retries already taken over (one per `auto_retry_start`). */
+	readonly #takenOver = new WeakSet<{ errorMessage: string }>();
 	/** Tabs this launch resumed, for the toast's Stop. */
 	readonly #resumed = new Set<string>();
 	#launched = false;
@@ -255,12 +259,38 @@ export class TurnResume {
 	}
 
 	#judge(fact: ResumeFact): void {
+		this.#takeOverRetry(fact);
+		// The outcome is the run's final one (main sets it at the last end event), even while
+		// background work keeps the session unsettled: judging it now puts the wait on screen
+		// before the renderer sees the failure.
 		const outcome = fact.lastRun;
-		if (fact.running || fact.awaitingConnection || !outcome || this.#judged.has(outcome)) return;
+		if (!outcome || this.#judged.has(outcome)) return;
 		this.#judged.add(outcome);
+		// It ended while the wait already held it (stock's retry, taken over): nothing more to decide.
+		if (fact.awaitingConnection) return;
 		if (outcome.stopReason !== "error" || !isNetworkError(outcome.errorMessage)) return;
 		if (!this.#deps.network.shouldWait()) return;
 		this.#hold(fact.tabId, "retry");
+	}
+
+	/**
+	 * Stock retries a transport failure up to `retry.maxRetries` times with its own backoff
+	 * (minutes on a real omp: each refused attempt takes tens of seconds), toasting every
+	 * attempt. While this computer is offline none of them can succeed, so the wait takes over
+	 * at the first one: stock's pending retry is cancelled (`abort_retry`, the turn then ends
+	 * failed) and stock `retry` runs once the connection is back. Right after a wake the
+	 * network may already be up, so stock's own retry is left to run.
+	 */
+	#takeOverRetry(fact: ResumeFact): void {
+		const retry = fact.retry;
+		if (!retry || this.#takenOver.has(retry) || this.#deps.network.online) return;
+		if (!isNetworkError(retry.errorMessage)) return;
+		this.#takenOver.add(retry);
+		if (!fact.awaitingConnection) this.#hold(fact.tabId, "retry");
+		void this.#deps.pool
+			.startTab(fact.tabId)
+			?.rpcClient?.command({ type: "abort_retry" })
+			.catch(() => undefined);
 	}
 
 	#hold(tabId: string, action: ResumeAction): void {

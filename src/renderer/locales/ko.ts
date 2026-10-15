@@ -5012,6 +5012,7 @@ export const ko: Record<string, string> = {
 	"turnError.action.compact": "컨텍스트 압축",
 	"turnError.details": "자세한 내용",
 	"turnError.retryFailed": "재시도 실패",
+	"turnError.retried": "{title} — 다시 시도했어요",
 	"tools.task.yieldLabel": "반환{suffix}",
 	"tools.websearch.error": "오류: {error}",
 	"tools.websearch.inputTokens": "입력 {count}",

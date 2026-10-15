@@ -195,6 +195,8 @@ interface PoolEntry {
 	stopped?: boolean;
 	/** The turn waits for the internet connection and continues once it is back (turn-resume.ts). */
 	awaitingConnection?: boolean;
+	/** Stock's auto-retry waiting for its next attempt: set by `auto_retry_start`, cleared by its end or a new run. */
+	retry?: { errorMessage: string };
 	/** The window "closed" listener registered at acquire, removed on release. */
 	onWindowClosed: () => void;
 	/** `omp update` landed while this tab ran a turn: it restarts on the new omp when the turn ends. */
@@ -462,6 +464,7 @@ export class SidecarPool {
 			let hiddenProposals: AgentSessionEvent[] | undefined;
 			// A fast turn can start and end inside one batch: busy never changes, yet its outcome is news.
 			let runEnded = false;
+			let retryStarted = false;
 			for (const event of events) {
 				const ended = applyRunEvent(entry.run, event);
 				if (ended) runEnded = true;
@@ -469,25 +472,30 @@ export class SidecarPool {
 					entry.placeholder = false;
 					entry.lastRun = undefined;
 					entry.stopped = false;
+					entry.retry = undefined;
+				} else if (event.type === "auto_retry_start") {
+					// News for the resume rules: offline, the wait takes stock's retry over (turn-resume.ts).
+					entry.retry = { errorMessage: event.errorMessage };
+					retryStarted = true;
 				} else if (ended && event.type === "agent_end") {
 					if (event.isTerminal !== false) entry.lastRun = runOutcome(event.messages);
-				} else if (ended && event.type === "auto_retry_end") {
-					entry.lastRun = { stopReason: "error", errorMessage: event.finalError };
+				} else if (event.type === "auto_retry_end") {
+					entry.retry = undefined;
+					if (ended) entry.lastRun = { stopReason: "error", errorMessage: event.finalError };
 				} else if (event.type === "plan_proposal" && !entry.detachFull) {
 					hiddenProposals ??= [];
 					hiddenProposals.push(event);
 				}
 			}
 			const busy = runBusy(entry.run);
-			if (busy !== wasBusy || entry.placeholder !== wasPlaceholder) {
+			const busyChanged = busy !== wasBusy;
+			// The resume rules first: a failure they turn into a connection wait reaches the
+			// window already waiting, so it never shows (or notifies) as a failure first.
+			if (busyChanged || runEnded || retryStarted) this.onRunningChange?.();
+			if (busyChanged || entry.placeholder !== wasPlaceholder) {
 				forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			}
-			if (busy !== wasBusy) {
-				this.onRunningChange?.();
-				this.#scheduleOmpRestart(entry);
-			} else if (runEnded) {
-				this.onRunningChange?.();
-			}
+			if (busyChanged) this.#scheduleOmpRestart(entry);
 			if (entry.placeholder !== wasPlaceholder) this.#notifyWindowTabsChanged(win);
 			if (hiddenProposals) {
 				forwardToWindow(win, IPC_EVENTS.EVENTS_BATCH, { tabId: entry.tabId, payload: hiddenProposals });
@@ -980,6 +988,7 @@ export class SidecarPool {
 			if (entry.device) fact.device = entry.device;
 			if (entry.sessionFile) fact.sessionFile = entry.sessionFile;
 			if (entry.lastRun) fact.lastRun = entry.lastRun;
+			if (entry.retry) fact.retry = entry.retry;
 			return fact;
 		});
 	}

@@ -34,7 +34,7 @@ function report(provider: string, resetAt?: number): UsageReport {
 	return { provider, fetchedAt: 0, limits: [], ...(resetAt === undefined ? {} : { resetAt }) };
 }
 
-async function mount(timestamp: number): Promise<void> {
+async function mount(timestamp: number, errorMessage = LIMIT): Promise<void> {
 	container = document.createElement("div");
 	document.body.appendChild(container);
 	const mounted = createRoot(container);
@@ -42,7 +42,7 @@ async function mount(timestamp: number): Promise<void> {
 	await act(async () => {
 		mounted.render(
 			<I18nProvider>
-				<TurnErrorNotice errorMessage={LIMIT} stopReason="error" timestamp={timestamp} />
+				<TurnErrorNotice errorMessage={errorMessage} stopReason="error" timestamp={timestamp} />
 			</I18nProvider>,
 		);
 	});
@@ -113,5 +113,33 @@ describe("TurnErrorNotice usage limit", () => {
 		await mount(7);
 		expect(container.querySelector("[data-quota-reset]")).toBeNull();
 		expect(container.querySelector("[data-quota-resume]")).toBeNull();
+	});
+});
+
+describe("TurnErrorNotice after the turn went on", () => {
+	it("is a quiet note once a later reply answers the same prompt, and stays a card when a new prompt followed", async () => {
+		useMessagesStore.setState({
+			messages: [
+				{ role: "user", content: "go", timestamp: 1 },
+				{ role: "assistant", content: [], stopReason: "error", errorMessage: "Connection error.", timestamp: 2 },
+				{ role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop", timestamp: 3 },
+			] as never,
+		});
+		await mount(2, "Connection error.");
+		expect(container.querySelector("[data-turn-retried]")?.textContent).toBe("Can't connect — tried again");
+		expect(container.querySelector(".omp-message-error")).toBeNull();
+		await unmount();
+
+		useMessagesStore.setState({
+			messages: [
+				{ role: "user", content: "go", timestamp: 1 },
+				{ role: "assistant", content: [], stopReason: "error", errorMessage: "Connection error.", timestamp: 2 },
+				{ role: "user", content: "again", timestamp: 4 },
+				{ role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop", timestamp: 5 },
+			] as never,
+		});
+		await mount(2, "Connection error.");
+		expect(container.querySelector("[data-turn-retried]")).toBeNull();
+		expect(container.querySelector(".omp-message-error")).not.toBeNull();
 	});
 });
