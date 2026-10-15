@@ -10,6 +10,13 @@
  * When it comes back, the tab re-opens on the host — the host still holds
  * the running sidecar for a while and re-sends its status; after that it
  * starts a new one on the newest session file.
+ *
+ * Nothing sent to the host vanishes while the link is down: a user's answer
+ * (`extension_ui_response`) is refused with `remote_offline` so its card stays
+ * open to be answered again; the replies to the host's own tool and URI calls
+ * wait and go out once the host tab is re-attached (and are dropped when the
+ * host started a new omp, which never made those calls); a `tab.close` is
+ * handed to `deferClose` and sent when the link is back (`PendingTabCloses`).
  */
 import { EventEmitter } from "node:events";
 import { codedError } from "../../shared/ipc-error-codes";
@@ -46,11 +53,54 @@ export interface RemoteSidecarOptions {
 	offlineMessage: () => string;
 	/** Called once from dispose(), so the owner can drop its routing entry. */
 	onDispose?: () => void;
+	/** A `tab.close` the link could not carry: the owner sends it when the host is reachable again. */
+	deferClose: (rtab: string) => void;
 }
 
 type StatusDetail = Pick<SidecarStatusPayload, "message" | "restart" | "modelFallback">;
 
 const OFFLINE_TEXT = "The device running this tab is offline";
+
+/**
+ * Frames that answer a request the host's omp made (`host_tool_call`, `host_uri_request`):
+ * no card waits for them, so while the link is down they wait for it.
+ */
+const REPLAYABLE_FRAMES: readonly string[] = ["host_tool_result", "host_uri_result"];
+/** Replies kept for a link that stays down: the host's own tool calls time out long before this many pile up. */
+const MAX_QUEUED_FRAMES = 64;
+
+function isOfflineError(error: unknown): boolean {
+	return error instanceof Error && "code" in error && error.code === "remote_offline";
+}
+
+function isReplayable(frame: object): boolean {
+	const type = (frame as { type?: unknown }).type;
+	return typeof type === "string" && REPLAYABLE_FRAMES.includes(type);
+}
+
+/** Tabs closed here while their host was unreachable: the host keeps running them until it is told. */
+export class PendingTabCloses {
+	readonly #rtabs = new Set<string>();
+
+	defer(rtab: string): void {
+		this.#rtabs.add(rtab);
+	}
+
+	/** A tab opened again under this id supersedes its pending close. */
+	cancel(rtab: string): void {
+		this.#rtabs.delete(rtab);
+	}
+
+	/** Send every pending close; one the link refuses again stays pending. */
+	flush(send: (rtab: string) => Promise<unknown>): void {
+		for (const rtab of [...this.#rtabs]) {
+			this.#rtabs.delete(rtab);
+			send(rtab).catch((error: unknown) => {
+				if (isOfflineError(error)) this.#rtabs.add(rtab);
+			});
+		}
+	}
+}
 
 export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	readonly #link: RemoteLink;
@@ -59,6 +109,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	readonly #fresh: boolean;
 	readonly #offlineMessage: () => string;
 	readonly #onDispose: (() => void) | undefined;
+	readonly #deferClose: (rtab: string) => void;
 	#cwd: string;
 	#status: SidecarStatus = "asleep";
 	#detail: StatusDetail = {};
@@ -72,6 +123,10 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	/** The offline status was emitted and nothing from the host has replaced it yet. */
 	#offlineShown = false;
 	#disposed = false;
+	/** `tab.open` was sent at some point: the host may hold this tab, whatever the link says now. */
+	#openedOnce = false;
+	/** Replies to the host's tool and URI calls that found the link down. */
+	#queuedReplies: object[] = [];
 	readonly #client: Pick<RpcClient, "command"> = {
 		command: (command, timeoutMs) => this.#command(command, timeoutMs),
 	};
@@ -85,6 +140,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		this.#fresh = options.fresh;
 		this.#offlineMessage = options.offlineMessage;
 		this.#onDispose = options.onDispose;
+		this.#deferClose = options.deferClose;
 	}
 
 	get device(): string {
@@ -143,8 +199,15 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		return true;
 	}
 
+	/** Throws `remote_offline` for a user's answer the host cannot receive now; the caller keeps its card open. */
 	sendSideChannel(frame: object): void {
-		this.#notify("tab.sideChannel", { rtab: this.#rtab, frame });
+		if (this.#disposed) return;
+		if (this.#link.state === "online" && this.#opened) {
+			this.#deliver(frame);
+			return;
+		}
+		if (!isReplayable(frame)) throw codedError("remote_offline", OFFLINE_TEXT);
+		this.#queueReply(frame);
 	}
 
 	syncImageGeneration(): void {
@@ -162,8 +225,9 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 
 	dispose(): void {
 		if (this.#disposed) return;
-		this.#notify("tab.close", { rtab: this.#rtab });
+		if (this.#openedOnce) this.#closeOnHost();
 		this.#disposed = true;
+		this.#queuedReplies = [];
 		this.#wanted = false;
 		this.#opened = null;
 		this.removeAllListeners();
@@ -216,6 +280,33 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		if (state === "offline" && this.#status !== "asleep") this.#markOffline();
 	}
 
+	/** One side-channel frame over a live link; a reply the link drops under is kept for the next one. */
+	#deliver(frame: object): void {
+		this.#link.request("tab.sideChannel", { rtab: this.#rtab, frame }).catch((error: unknown) => {
+			if (isOfflineError(error) && isReplayable(frame) && !this.#disposed) this.#queueReply(frame);
+		});
+	}
+
+	#queueReply(frame: object): void {
+		this.#queuedReplies.push(frame);
+		if (this.#queuedReplies.length > MAX_QUEUED_FRAMES) this.#queuedReplies.shift();
+	}
+
+	/** The host tab is back: its omp is the one that made these calls, so it gets the replies. */
+	#replayReplies(): void {
+		for (const frame of this.#queuedReplies.splice(0)) this.#deliver(frame);
+	}
+
+	#closeOnHost(): void {
+		if (this.#link.state !== "online") {
+			this.#deferClose(this.#rtab);
+			return;
+		}
+		this.#link.request("tab.close", { rtab: this.#rtab }).catch((error: unknown) => {
+			if (isOfflineError(error)) this.#deferClose(this.#rtab);
+		});
+	}
+
 	/** Fire-and-forget request; dropped while the tab is not open on a live link. */
 	#notify(method: string, params: object): void {
 		if (this.#disposed || this.#link.state !== "online" || !this.#opened) return;
@@ -259,6 +350,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 
 	#open(): Promise<TabOpenResult> {
 		if (this.#opened) return this.#opened;
+		this.#openedOnce = true;
 		const opening = this.#link
 			.request<unknown>("tab.open", {
 				rtab: this.#rtab,
@@ -270,6 +362,9 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			.then(raw => {
 				const result = TabOpenResult.parse(raw);
 				if (result.cwd) this.#cwd = result.cwd;
+				// A new omp never made the calls the old one was waiting on.
+				if (result.attached) this.#replayReplies();
+				else this.#queuedReplies = [];
 				return result;
 			});
 		this.#opened = opening;
@@ -290,9 +385,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			);
 		} catch (error) {
 			// The link dropped mid-request: same refusal as a command sent while offline.
-			if (error instanceof Error && "code" in error && error.code === "remote_offline") {
-				throw codedError("remote_offline", OFFLINE_TEXT);
-			}
+			if (isOfflineError(error)) throw codedError("remote_offline", OFFLINE_TEXT);
 			throw error;
 		}
 	}

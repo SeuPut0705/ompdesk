@@ -164,6 +164,38 @@ describe("ExtensionDialog select", () => {
 			value: "Subscription",
 		});
 	});
+
+	it("keeps the card open and says why when main refuses the answer (a paired host's tab with its link down)", async () => {
+		await mount();
+		respondExtensionUi.mockRejectedValueOnce(new Error("[remote_offline] The device running this tab is offline"));
+		await act(async () => {
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "approval-offline",
+				method: "select",
+				title: "Choose a connection",
+				options: ["API key", "Subscription"],
+			});
+		});
+		const choice = buttonWithText("API key");
+		if (!choice) throw new Error("missing choice");
+		await click(choice);
+
+		expect(useExtensionUiStore.getState().pendingRequests.map(request => request.id)).toEqual(["approval-offline"]);
+		expect(document.body.textContent).toContain("Choose a connection");
+		expect(useToastStore.getState().toasts.at(-1)).toMatchObject({
+			variant: "error",
+			title: translate("extDialog.answerFailed"),
+			message: translate("ipcError.remote_offline"),
+		});
+
+		// The link is back: the same click answers it and the card goes.
+		const again = buttonWithText("API key");
+		if (!again) throw new Error("card gone");
+		await click(again);
+		expect(respondExtensionUi).toHaveBeenCalledTimes(2);
+		expect(useExtensionUiStore.getState().pendingRequests).toEqual([]);
+	});
 });
 
 describe("ExtensionDialog ask", () => {

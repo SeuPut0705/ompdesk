@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { BrowserWindow } from "electron";
 import { describe, expect, it, vi } from "vitest";
+import { codedError } from "../shared/ipc-error-codes";
 import { IPC_EVENTS, type IpcTabStatusPayload } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse, SessionInfoUpdateFrame, SidecarStatus } from "../shared/rpc-types";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
@@ -17,6 +18,8 @@ class FakeSidecar extends EventEmitter {
 	restartArgs: Array<{ cwd: string | undefined; sessionPath: string | undefined }> = [];
 	/** Side-channel frames written via sendSideChannel (F-UI-ORIGIN assertions). */
 	sentFrames: object[] = [];
+	/** What the next sendSideChannel throws (a paired host's tab with its link down). */
+	sideChannelError: Error | undefined;
 	rpcCommands: RpcCommand[] = [];
 	constructor(public cwd: string) {
 		super();
@@ -56,6 +59,7 @@ class FakeSidecar extends EventEmitter {
 		this.removeAllListeners();
 	}
 	sendSideChannel(frame: object): void {
+		if (this.sideChannelError) throw this.sideChannelError;
 		this.sentFrames.push(frame);
 	}
 	emitStatus(status: SidecarStatus): void {
@@ -1293,6 +1297,25 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 		expect(pool.routeSideChannel("same-id", no, "tab-b")).toBe(true);
 		expect(a?.sentFrames).toEqual([yes]);
 		expect(b?.sentFrames).toEqual([no]);
+	});
+
+	it("keeps the route when the sidecar cannot take the answer, so the card can be answered again", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		const [a] = sidecars;
+		a?.emitExtensionUi("req-offline");
+		const response = { type: "extension_ui_response", id: "req-offline", confirmed: true };
+
+		if (a) a.sideChannelError = codedError("remote_offline", "The device running this tab is offline");
+		expect(() => pool.routeSideChannel("req-offline", response)).toThrow(/remote_offline/);
+		expect(a?.sentFrames).toEqual([]);
+
+		// The link is back: the same answer still finds its owner, and only now consumes the route.
+		if (a) a.sideChannelError = undefined;
+		expect(pool.routeSideChannel("req-offline", response)).toBe(true);
+		expect(a?.sentFrames).toEqual([response]);
+		expect(pool.routeSideChannel("req-offline", response)).toBe(false);
 	});
 
 	it("fails host-uri requests on the raising sidecar instead of forwarding them", () => {

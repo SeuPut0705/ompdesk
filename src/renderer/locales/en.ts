@@ -2197,6 +2197,7 @@ export const en: Record<string, string> = {
 	"approval.unknownTool": "unknown tool",
 
 	// Extension UI dialogs
+	"extDialog.answerFailed": "Answer not sent",
 	"extDialog.autoDismiss": "auto-dismiss in {seconds}s",
 	"extDialog.submit": "Submit",
 	"extDialog.ask.title": "Questions",

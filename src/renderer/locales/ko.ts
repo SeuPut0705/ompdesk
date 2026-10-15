@@ -2181,6 +2181,7 @@ export const ko: Record<string, string> = {
 	"approval.unknownTool": "알 수 없는 도구",
 
 	// Extension UI dialogs
+	"extDialog.answerFailed": "답변을 보내지 못했습니다",
 	"extDialog.autoDismiss": "{seconds}초 후 자동으로 닫힘",
 	"extDialog.submit": "제출",
 	"extDialog.ask.title": "질문",

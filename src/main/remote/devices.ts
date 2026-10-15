@@ -35,7 +35,7 @@ import { type Identity, loadIdentity } from "./identity";
 import { type KeepAwakeBlocker, KeepAwakePolicy } from "./keep-awake";
 import { PeerQuota } from "./peer-quota";
 import { PeerStore } from "./peers-store";
-import { RemoteSidecar } from "./remote-sidecar";
+import { PendingTabCloses, RemoteSidecar } from "./remote-sidecar";
 
 /** Startup listen window that refreshes paired hosts' addresses from their beacons. */
 const STARTUP_DISCOVERY_MS = 10_000;
@@ -83,6 +83,8 @@ interface HostLink {
 	client: RemoteClient;
 	/** rtab → tab on this host. */
 	tabs: Map<string, RemoteSidecar>;
+	/** Tabs closed here while the host was unreachable; it is told when the link is back. */
+	closes: PendingTabCloses;
 }
 
 interface Discovery {
@@ -295,6 +297,8 @@ export class RemoteDevices {
 	createSidecar(deviceId: string, rtab: string, cwd: string, kind: "agent" | "chat", fresh: boolean): RemoteSidecar {
 		const link = this.#links.get(deviceId);
 		if (!link) throw codedError("remote_unknown_device", "The device is not paired");
+		// Opened again under an id the host was still to be told to close: that tab is live.
+		link.closes.cancel(rtab);
 		const sidecar = new RemoteSidecar({
 			link: link.client,
 			rtab,
@@ -305,6 +309,7 @@ export class RemoteDevices {
 			onDispose: () => {
 				if (link.tabs.get(rtab) === sidecar) link.tabs.delete(rtab);
 			},
+			deferClose: closing => link.closes.defer(closing),
 		});
 		link.tabs.set(rtab, sidecar);
 		return sidecar;
@@ -391,12 +396,14 @@ export class RemoteDevices {
 			name: () => this.deviceName(),
 			hosts: this.#hosts,
 		});
-		const link: HostLink = { client, tabs: new Map() };
+		const link: HostLink = { client, tabs: new Map(), closes: new PendingTabCloses() };
 		client.on("state", state => {
 			for (const tab of link.tabs.values()) tab.linkStateChanged(state);
 			this.#broadcastState();
+			if (state !== "online") return;
+			link.closes.flush(rtab => client.request("tab.close", { rtab }));
 			// Its session list went stale while it was away (or never loaded).
-			if (state === "online") this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, undefined);
+			this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, undefined);
 		});
 		client.on("event", (event, data) => {
 			if (event === SESSIONS_CHANGED_EVENT) {

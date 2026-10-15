@@ -299,9 +299,8 @@ const api: OmpApi = {
 	},
 
 	ui: {
-		respondExtensionUi: (response: ExtensionUIResponse, tabId?: string) => {
-			ipcRenderer.invoke(IPC_COMMANDS.EXTENSION_UI_RESPOND, { response, tabId });
-		},
+		respondExtensionUi: (response: ExtensionUIResponse, tabId?: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.EXTENSION_UI_RESPOND, { response, tabId }) as Promise<void>,
 		openRequests: () => ipcRenderer.invoke(IPC_COMMANDS.EXTENSION_UI_OPEN) as Promise<IpcOpenExtensionRequest[]>,
 	},
 

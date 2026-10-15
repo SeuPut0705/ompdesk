@@ -102,6 +102,7 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	start(): void;
 	restart(cwd?: string, resumeSessionPath?: string): void;
 	adoptCwd(cwd: string): boolean;
+	/** Throws `remote_offline` when a paired host's tab cannot take a user's answer now (see RemoteSidecar). */
 	sendSideChannel(frame: object): void;
 	syncImageGeneration(): void;
 	/** Push this machine's reply-language setting to the live session (the omp's own machine decides). */
@@ -909,17 +910,20 @@ export class SidecarPool {
 	 * Route a renderer side-channel response to the sidecar that RAISED the
 	 * request (F-UI-ORIGIN), tracked by request id at forward time — not the
 	 * window's active tab, which may have changed while the dialog was open.
-	 * The response consumes the route. False when the id is unknown — the
-	 * caller falls back to the active tab's sidecar.
+	 * The response consumes the route, once the sidecar took it: a sidecar that
+	 * cannot deliver it (a paired host's tab while the link is down) throws
+	 * `remote_offline`, the route stays and the card can be answered again.
+	 * False when the id is unknown — the caller falls back to the active tab's
+	 * sidecar.
 	 */
 	routeSideChannel(id: string, frame: object, tabId?: string): boolean {
 		const entry = tabId ? this.#byTabId.get(tabId) : this.#requestOwners.get(id);
 		if (!entry) return false;
+		entry.sidecar.sendSideChannel(frame);
 		if (this.#requestOwners.get(id) === entry) {
 			this.#requestOwners.delete(id);
 			this.onRunningChange?.();
 		}
-		entry.sidecar.sendSideChannel(frame);
 		return true;
 	}
 

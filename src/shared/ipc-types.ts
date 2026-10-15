@@ -1534,7 +1534,8 @@ export interface OmpApi {
 		onState(callback: (state: GithubAuthState) => void): () => void;
 	};
 	ui: {
-		respondExtensionUi(response: ExtensionUIResponse, tabId?: string): void;
+		/** Rejects with `remote_offline` when a paired host's tab cannot take the answer now: the card stays open. */
+		respondExtensionUi(response: ExtensionUIResponse, tabId?: string): Promise<void>;
 		/** The asks and approvals this window's tabs wait on: a page that reloaded missed the events that raised them. */
 		openRequests(): Promise<IpcOpenExtensionRequest[]>;
 	};

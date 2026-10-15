@@ -772,8 +772,10 @@ function ActiveDialog({
 			| { answers: Array<{ id: string; selectedOptions: string[]; customInput?: string }> }
 			| { cancelled: true },
 	) => {
-		sendResponse({ type: "extension_ui_response", id: request.id, ...response });
-		removeRequest(request.id);
+		// The card stays until main handed the answer on: a paired host's tab with its link down refuses it.
+		void sendResponse({ type: "extension_ui_response", id: request.id, ...response }).then(delivered => {
+			if (delivered) removeRequest(request.id);
+		});
 	};
 	const cancel = () => respond({ cancelled: true });
 

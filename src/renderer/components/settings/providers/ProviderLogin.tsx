@@ -94,10 +94,12 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 	const stateRef = useRef(state);
 	stateRef.current = state;
 
+	// A prompt's card stays until main handed the answer on (a paired host's tab with its link down refuses it).
 	const respond = useCallback(
-		(id: string, response: { value: string } | { cancelled: true }) => {
-			sendResponse({ type: "extension_ui_response", id, ...response });
-			removeRequest(id);
+		async (id: string, response: { value: string } | { cancelled: true }): Promise<boolean> => {
+			const delivered = await sendResponse({ type: "extension_ui_response", id, ...response });
+			if (delivered) removeRequest(id);
+			return delivered;
 		},
 		[removeRequest, sendResponse],
 	);
@@ -117,7 +119,8 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 						oauth: request.launchUrl !== undefined,
 					},
 				}));
-				respond(request.id, { value: "done" });
+				void sendResponse({ type: "extension_ui_response", id: request.id, value: "done" });
+				removeRequest(request.id);
 			} else if (request.method === "input" && stateRef.current.prompt?.id !== request.id) {
 				setState(prev => ({
 					...prev,
@@ -128,7 +131,7 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 				removeRequest(request.id);
 			}
 		}
-	}, [arrivedAt, owned, pending, remote, removeRequest, respond, state.running, state.since]);
+	}, [arrivedAt, owned, pending, remote, removeRequest, sendResponse, state.running, state.since]);
 
 	const start = useCallback(
 		async (providerId: string): Promise<boolean> => {
@@ -146,7 +149,7 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 			// paste stock raced against the callback stays pending until then.
 			for (const request of endInlineLogin()) {
 				if (request.method === "input")
-					sendResponse({ type: "extension_ui_response", id: request.id, cancelled: true });
+					void sendResponse({ type: "extension_ui_response", id: request.id, cancelled: true });
 			}
 			const live = current === attempt.current;
 			if (!outcome.ok) {
@@ -166,8 +169,10 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 		(value: string) => {
 			const prompt = stateRef.current.prompt;
 			if (!prompt) return;
-			respond(prompt.id, { value });
-			setState(prev => ({ ...prev, prompt: null }));
+			// The prompt stays open when the answer was refused, so it can be sent again.
+			void respond(prompt.id, { value }).then(delivered => {
+				if (delivered) setState(prev => ({ ...prev, prompt: null }));
+			});
 		},
 		[respond],
 	);
@@ -180,7 +185,7 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 			// holds omp's command queue; its callback's denial ends it at once.
 			void tabRpc.cancelLogin(link.url);
 		} else if (prompt) {
-			respond(prompt.id, { cancelled: true });
+			void respond(prompt.id, { cancelled: true });
 		}
 		setState(IDLE);
 	}, [respond, tabRpc]);

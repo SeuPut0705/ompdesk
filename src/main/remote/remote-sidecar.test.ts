@@ -4,7 +4,7 @@ import type { RemoteLinkState } from "../../shared/ipc-types";
 import type { RpcResponse, SidecarStatusPayload } from "../../shared/rpc-types";
 import type { BridgeConnectResult } from "../bridge-health";
 import type { TabEventMessage, TabStatusArg } from "./app-protocol";
-import { type RemoteLink, RemoteSidecar } from "./remote-sidecar";
+import { PendingTabCloses, type RemoteLink, RemoteSidecar } from "./remote-sidecar";
 
 interface SentRequest {
 	method: string;
@@ -50,9 +50,16 @@ function hostStatus(status: TabStatusArg["status"], extra: Partial<TabStatusArg>
 	};
 }
 
-function setup(): { link: FakeLink; sidecar: RemoteSidecar; statuses: SidecarStatusPayload[]; disposed: number[] } {
+function setup(): {
+	link: FakeLink;
+	sidecar: RemoteSidecar;
+	statuses: SidecarStatusPayload[];
+	disposed: number[];
+	deferredCloses: string[];
+} {
 	const link = new FakeLink();
 	const disposed: number[] = [];
+	const deferredCloses: string[] = [];
 	const sidecar = new RemoteSidecar({
 		link,
 		rtab: "tab-1",
@@ -61,10 +68,11 @@ function setup(): { link: FakeLink; sidecar: RemoteSidecar; statuses: SidecarSta
 		fresh: true,
 		offlineMessage: () => "Device offline",
 		onDispose: () => disposed.push(1),
+		deferClose: rtab => deferredCloses.push(rtab),
 	});
 	const statuses: SidecarStatusPayload[] = [];
 	sidecar.on("status", (payload: SidecarStatusPayload) => statuses.push(payload));
-	return { link, sidecar, statuses, disposed };
+	return { link, sidecar, statuses, disposed, deferredCloses };
 }
 
 async function settle(): Promise<void> {
@@ -167,9 +175,140 @@ describe("RemoteSidecar", () => {
 
 		const refused = await sidecar.rpcClient?.command({ type: "get_state" }).catch((error: unknown) => error);
 		expect(ipcErrorCode(refused)).toBe("remote_offline");
+	});
+
+	it("refuses a user's answer with remote_offline while the link is down, so its card stays answerable", async () => {
+		const { link, sidecar } = setup();
+		sidecar.start();
+		await settle();
+		sidecar.handleEvent(hostStatus("ready"));
+		link.state = "offline";
+		sidecar.linkStateChanged("offline");
+
 		const sentBefore = link.sent.length;
-		sidecar.sendSideChannel({ type: "extension_ui_response", id: "x" });
+		let thrown: unknown;
+		try {
+			sidecar.sendSideChannel({ type: "extension_ui_response", id: "x", confirmed: true });
+		} catch (error) {
+			thrown = error;
+		}
+		expect(ipcErrorCode(thrown)).toBe("remote_offline");
 		expect(link.sent).toHaveLength(sentBefore);
+
+		// Back online and re-attached, the same answer goes through.
+		link.state = "online";
+		link.attached = true;
+		sidecar.linkStateChanged("online");
+		await settle();
+		sidecar.sendSideChannel({ type: "extension_ui_response", id: "x", confirmed: true });
+		await settle();
+		expect(link.sent.at(-1)).toMatchObject({
+			method: "tab.sideChannel",
+			params: { rtab: "tab-1", frame: { type: "extension_ui_response", id: "x", confirmed: true } },
+		});
+	});
+
+	it("keeps replies to the host's tool calls through a link drop and sends them once the host tab is re-attached", async () => {
+		const { link, sidecar } = setup();
+		sidecar.start();
+		await settle();
+		sidecar.handleEvent(hostStatus("ready"));
+		link.state = "offline";
+		sidecar.linkStateChanged("offline");
+
+		sidecar.sendSideChannel({ type: "host_tool_result", id: "ht-1" });
+		sidecar.sendSideChannel({ type: "host_uri_result", id: "hu-1", isError: true });
+		expect(link.methods()).not.toContain("tab.sideChannel");
+
+		link.state = "online";
+		link.attached = true;
+		sidecar.linkStateChanged("online");
+		await settle();
+		expect(
+			link.sent.filter(request => request.method === "tab.sideChannel").map(request => request.params.frame),
+		).toEqual([
+			{ type: "host_tool_result", id: "ht-1" },
+			{ type: "host_uri_result", id: "hu-1", isError: true },
+		]);
+	});
+
+	it("drops those replies when the host started a new omp, which never made the calls", async () => {
+		const { link, sidecar } = setup();
+		sidecar.start();
+		await settle();
+		sidecar.handleEvent(hostStatus("ready"));
+		link.state = "offline";
+		sidecar.linkStateChanged("offline");
+		sidecar.sendSideChannel({ type: "host_tool_result", id: "ht-1" });
+
+		link.state = "online";
+		link.attached = false;
+		sidecar.linkStateChanged("online");
+		await settle();
+		expect(link.methods()).not.toContain("tab.sideChannel");
+	});
+
+	it("keeps a reply the link dropped under for the next link", async () => {
+		const { link, sidecar } = setup();
+		sidecar.start();
+		await settle();
+		sidecar.handleEvent(hostStatus("ready"));
+		link.handlers["tab.sideChannel"] = () => {
+			throw Object.assign(new Error("host-b is offline"), { code: "remote_offline" });
+		};
+		sidecar.sendSideChannel({ type: "host_tool_result", id: "ht-1" });
+		await settle();
+		delete link.handlers["tab.sideChannel"];
+
+		link.state = "offline";
+		sidecar.linkStateChanged("offline");
+		link.state = "online";
+		link.attached = true;
+		const before = link.sent.length;
+		sidecar.linkStateChanged("online");
+		await settle();
+		expect(
+			link.sent
+				.slice(before)
+				.filter(request => request.method === "tab.sideChannel")
+				.map(request => request.params.frame),
+		).toEqual([{ type: "host_tool_result", id: "ht-1" }]);
+	});
+
+	it("closes its host tab on dispose, or hands the close to its owner when the host cannot be reached", async () => {
+		const online = setup();
+		online.sidecar.start();
+		await settle();
+		online.sidecar.dispose();
+		await settle();
+		expect(online.link.methods().at(-1)).toBe("tab.close");
+		expect(online.deferredCloses).toEqual([]);
+
+		const offline = setup();
+		offline.sidecar.start();
+		await settle();
+		offline.sidecar.handleEvent(hostStatus("ready"));
+		offline.link.state = "offline";
+		offline.sidecar.linkStateChanged("offline");
+		offline.sidecar.dispose();
+		expect(offline.deferredCloses).toEqual(["tab-1"]);
+
+		// The link drops under the close itself.
+		const dropping = setup();
+		dropping.sidecar.start();
+		await settle();
+		dropping.link.handlers["tab.close"] = () => {
+			throw Object.assign(new Error("host-b is offline"), { code: "remote_offline" });
+		};
+		dropping.sidecar.dispose();
+		await settle();
+		expect(dropping.deferredCloses).toEqual(["tab-1"]);
+
+		// A tab never opened on the host has nothing to close there.
+		const unopened = setup();
+		unopened.link.state = "offline";
+		unopened.sidecar.dispose();
+		expect(unopened.deferredCloses).toEqual([]);
 	});
 
 	it("resumes when the link returns: re-attaches a running host tab, or restarts on the newest session", async () => {
@@ -222,5 +361,33 @@ describe("RemoteSidecar", () => {
 		expect(disposed).toEqual([1]);
 		sidecar.dispose();
 		expect(disposed).toEqual([1]);
+	});
+});
+
+describe("PendingTabCloses", () => {
+	it("sends each deferred close once the link is back, and keeps one the link refuses", async () => {
+		const closes = new PendingTabCloses();
+		closes.defer("a");
+		closes.defer("b");
+		closes.defer("c");
+		closes.cancel("c");
+		const sent: string[] = [];
+		closes.flush(async rtab => {
+			sent.push(rtab);
+			if (rtab === "b") throw Object.assign(new Error("offline"), { code: "remote_offline" });
+		});
+		await settle();
+		expect(sent).toEqual(["a", "b"]);
+
+		const again: string[] = [];
+		closes.flush(async rtab => {
+			again.push(rtab);
+		});
+		await settle();
+		expect(again).toEqual(["b"]);
+		closes.flush(async rtab => {
+			again.push(rtab);
+		});
+		expect(again).toEqual(["b"]);
 	});
 });
