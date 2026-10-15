@@ -7,9 +7,10 @@
  * problems, and waits for the user to click one of the page's `data-choice`
  * elements with a real click (main/preview/host.ts gates it).
  *
- * Files load through `omp-visual://v<N>-<id>/<path>` on the preview's own
- * partition: the visual's entry file comes from its snapshot, every other path
- * from the tab's folder, symlinks resolved and never outside it.
+ * Files load through `omp-visual://v<N>-<id>/<path>` on the window's visual
+ * session only (main/preview/host.ts): the visual's entry file comes from its
+ * snapshot, every other path from the entry file's folder, symlinks resolved
+ * and never outside it.
  */
 import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs/promises";
@@ -23,6 +24,7 @@ import {
 	VISUAL_SCHEME,
 } from "../../shared/preview";
 import type { HostToolDefinition } from "../../shared/rpc-types";
+import { parseVisualUrl } from "./visual-navigation";
 
 export const VISUALIZE_TOOL = "gui_visualize";
 /** Visuals one tab keeps open at once. */
@@ -73,8 +75,11 @@ const ASSET_TYPES: Record<string, string> = {
 /**
  * The policy on every `omp-visual:` response. A visual's page loads only from its own origin (the entry and
  * the assets `VisualStore.resolve` allows) and from `data:`/`blob:`, so it cannot send what it reads to
- * another site by `fetch`, an image, a form or a frame. Inline script and style stay (agent-written
- * pages are one file) and so does `unsafe-eval`, which adds nothing to what inline script can do.
+ * another site by `fetch`, `sendBeacon`, `<a ping>`, a WebSocket, an image, a stylesheet, a prefetch, a form
+ * or a frame. `default-src 'none'` is stricter than `'self'`: every allowed kind is named below. Inline script
+ * and style stay (agent-written pages are one file) and so does `unsafe-eval`, which adds nothing to what
+ * inline script can do. What CSP does not cover (navigation, popups, WebRTC) the visual session in
+ * main/preview/host.ts refuses.
  */
 const VISUAL_CSP = [
 	"default-src 'none'",
@@ -274,13 +279,7 @@ export class VisualStore {
 
 	/** Which visual and version an `omp-visual:` address names, or null. */
 	parse(url: string): { id: string; version: number } | null {
-		try {
-			const parsed = new URL(url);
-			const match = parsed.protocol === `${VISUAL_SCHEME}:` ? /^v(\d+)-([0-9a-f]{16})$/.exec(parsed.hostname) : null;
-			return match ? { id: match[2]!, version: Number(match[1]) } : null;
-		} catch {
-			return null;
-		}
+		return parseVisualUrl(url);
 	}
 
 	/** The file an `omp-visual:` request reads, or null (unknown visual, outside its folder, missing). */

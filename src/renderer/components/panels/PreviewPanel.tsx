@@ -400,11 +400,17 @@ export function PreviewPanel() {
 					)}
 					<IconButton
 						label={t(agentHere ? "panel.preview.agent.takeOver" : "panel.preview.agent.allow")}
-						title={remote ? t("panel.preview.agent.localOnly") : undefined}
+						title={
+							remote
+								? t("panel.preview.agent.localOnly")
+								: state.session === "visual" && !agentHere
+									? t("panel.preview.agent.webOnly")
+									: undefined
+						}
 						icon={<Bot />}
 						size="sm"
 						pressed={agentHere}
-						disabled={remote || !runtime || agentStarting}
+						disabled={remote || !runtime || agentStarting || (state.session === "visual" && !agentHere)}
 						onClick={() => (agentHere ? takeOver() : void letAgentIn())}
 					/>
 					<MenuButton
@@ -596,6 +602,31 @@ export function PreviewPanel() {
 							}
 						>
 							{t("panel.preview.download", { name: state.notice.filename })}
+						</Banner>
+					) : state.notice.kind === "link" ? (
+						<Banner
+							live
+							onDismiss={() => command({ action: "dismissNotice" })}
+							actions={
+								<Button
+									size="sm"
+									variant="secondary"
+									icon={<Plus />}
+									disabled={state.tabs.length >= PREVIEW_TAB_LIMIT}
+									onClick={() => {
+										if (state.notice?.kind !== "link") return;
+										const { url } = state.notice;
+										command({ action: "dismissNotice" });
+										command({ action: "newTab", url });
+									}}
+								>
+									{t("panel.preview.linkOpen")}
+								</Button>
+							}
+						>
+							<span className="break-all" data-preview-link={state.notice.url}>
+								{t("panel.preview.link", { url: state.notice.url })}
+							</span>
 						</Banner>
 					) : (
 						<Banner

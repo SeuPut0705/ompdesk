@@ -36,6 +36,7 @@ import {
 import { PreviewRelayExtension, relayExtensionUrl } from "./agent-relay";
 import { applyPreviewLayout, fitPreviewFrame, MIN_FRAME_SCALE } from "./layout";
 import { PAGE_WORLD, pageCall } from "./page-scripts";
+import { visualMayNavigate } from "./visual-navigation";
 import type { VisualPages, VisualStore } from "./visuals";
 
 /** Activity marks and console problems reach the panel at most this often. */
@@ -46,6 +47,17 @@ const PROBLEM_TEXT_MAX = 2000;
 const GESTURE_WINDOW_MS = 1000;
 /** Widest region screenshot sent to the agent, in pixels. */
 const REGION_MAX_WIDTH = 1600;
+/**
+ * The visual session's only route out: a proxy at loopback port 1 (tcpmux, which nothing serves on a desktop),
+ * loopback included (`<-loopback>` drops Chromium's implicit loopback bypass), with no DIRECT fallback. Its pages
+ * load from `omp-visual:` (no network) and CSP blocks their requests; this catches what CSP cannot, WebRTC over
+ * TCP (TURN), which goes through the session's proxy. DNS prefetch (`<link rel=dns-prefetch>`) still resolves.
+ */
+const VISUAL_NO_ROUTE: Electron.ProxyConfig = {
+	mode: "fixed_servers",
+	proxyRules: "http://127.0.0.1:1",
+	proxyBypassRules: "<-loopback>",
+};
 
 const selector = z.string().min(1).max(2000);
 const pageRequestSchema: z.ZodType<PreviewPageRequest> = z.discriminatedUnion("action", [
@@ -62,7 +74,7 @@ const pageRequestSchema: z.ZodType<PreviewPageRequest> = z.discriminatedUnion("a
 	}),
 ]);
 
-/** One tab of a window's preview: its own sandboxed page in the window's partition. */
+/** One tab of a window's preview: its own sandboxed page in the window's web or visual session. */
 interface PreviewPage {
 	id: string;
 	view: WebContentsView;
@@ -84,10 +96,20 @@ interface AgentLink {
 	page: PreviewPage;
 }
 
+/** A window's two in-memory sessions, shared by its tabs and by every host of the window. */
+interface PreviewSessions {
+	/** Web pages: what the user, the agent's browser or a web visual browses. */
+	web: Session;
+	/** Visual pages (`omp-visual:`): no network route, no WebRTC over UDP, never the agent's browser. */
+	visual: Session;
+	/** Resolves once the visual session's proxy is in place; no visual loads before. */
+	ready: Promise<void>;
+}
+
 interface PreviewHost {
 	win: BrowserWindow;
 	sender: Electron.WebContents;
-	partition: Session;
+	sessions: PreviewSessions;
 	pages: PreviewPage[];
 	active: PreviewPage;
 	agent: AgentLink | null;
@@ -113,9 +135,10 @@ function windowState(host: PreviewHost): PreviewState {
 }
 
 /**
- * No preload, no shell IPC, and a fresh in-memory partition for each window, shared by its tabs.
+ * No preload, no shell IPC, and two fresh in-memory sessions for each window, shared by its tabs: `web` for
+ * every page the user, a popup or the agent browses, `visual` for `omp-visual:` pages alone. A page stays in the
+ * session it was made in; a visual never turns into a web page or back, its tab is replaced instead.
  * `isRemote(senderId, tabId?)`: the window's active tab (or `tabId`) runs on a paired host.
- * Visual pages load from `omp-visual:` on that partition alone, serving only what `visuals` resolves.
  * Returns what the agent's `gui_visualize` reads and waits on.
  */
 export function registerPreviewHost(
@@ -123,8 +146,8 @@ export function registerPreviewHost(
 	visuals: VisualStore,
 ): VisualPages {
 	const hosts = new Map<number, PreviewHost>();
-	/** One partition per window; Electron keeps a session for a name until the app quits, so hosts reuse it. */
-	const partitions = new WeakMap<BrowserWindow, Session>();
+	/** One pair of sessions per window; Electron keeps a session for a name until the app quits, so hosts reuse it. */
+	const windowSessions = new WeakMap<BrowserWindow, PreviewSessions>();
 	const send = (host: PreviewHost) => {
 		if (!host.sender.isDestroyed()) host.sender.send(PREVIEW_STATE, windowState(host));
 	};
@@ -171,15 +194,19 @@ export function registerPreviewHost(
 		link.page.state = { ...link.page.state, agent: null };
 		send(host);
 	};
-	/**
-	 * The address a page may show, or null. An `omp-visual:` address loads only from main (`loadVisual`) or
-	 * inside `page` while it shows that visual; neither the user's address bar nor another site can reach one.
-	 */
-	const allowed = (host: PreviewHost, url: string, page?: PreviewPage) => {
-		const visual = visuals.parse(url);
-		if (visual) return page?.visual?.id === visual.id ? url : null;
+	/** The web address a web page may show, or null: http(s) only, and no loopback for a paired host's tab. */
+	const allowed = (host: PreviewHost, url: string) => {
 		const safe = previewUrl(url);
 		return safe && !(isRemote(host.sender.id) && isLoopbackUrl(safe)) ? safe : null;
+	};
+	/**
+	 * A web address a visual's page tried to reach. It never goes there; right after the user's own click or key
+	 * on the page (the C143 gesture window) the panel offers the whole address to open in a new web tab.
+	 */
+	const offerLink = (host: PreviewHost, page: PreviewPage, url: string) => {
+		const safe = allowed(host, url);
+		if (safe && Date.now() - page.lastInput <= GESTURE_WINDOW_MS)
+			publish(host, page, { notice: { kind: "link", url: safe } });
 	};
 	const closePage = (host: PreviewHost, page: PreviewPage) => {
 		if (host.agent?.page === page) stopAgent(host);
@@ -193,9 +220,11 @@ export function registerPreviewHost(
 		for (const page of host.pages) closePage(host, page);
 		// The window's later close or reload must not drop a preview created after this one was disposed.
 		if (hosts.get(host.sender.id) === host) hosts.delete(host.sender.id);
-		// The partition outlives the host (one per window); what this host browsed does not.
-		void host.partition.clearStorageData().catch(() => {});
-		void host.partition.clearCache().catch(() => {});
+		// The sessions outlive the host (one pair per window); what this host browsed does not.
+		for (const partition of [host.sessions.web, host.sessions.visual]) {
+			void partition.clearStorageData().catch(() => {});
+			void partition.clearCache().catch(() => {});
+		}
 	};
 	const loadInto = (host: PreviewHost, page: PreviewPage, url: string) => {
 		page.state = { ...page.state, url, title: "", loading: true, error: null, visual: visualView(page) };
@@ -203,19 +232,26 @@ export function registerPreviewHost(
 		// loadURL resolves after navigation; do not hold the toolbar behind that promise.
 		void page.contents.loadURL(url).catch(() => {});
 	};
-	/** Show version `version` (default latest) of `visualId` in `page`. */
+	/** Show version `version` (default latest) of `visualId` in `page`, which must be of the visual's session. */
 	const loadVisual = (host: PreviewHost, page: PreviewPage, visualId: string, version?: number) => {
 		const view = visuals.view(visualId, version);
 		const url = view && visuals.url(visualId, view.version);
 		if (!view || !url) throw new Error("Unknown visual");
+		if (page.state.session !== (visuals.parse(url) ? "visual" : "web"))
+			throw new Error("Visual in the wrong session");
 		page.visual = { id: visualId, version: view.version };
 		loadInto(host, page, url);
 	};
-	/** A sandboxed page in `win`'s preview partition; its handlers find their window through `owner`. */
-	const createPage = (win: BrowserWindow, partition: Session, owner: () => PreviewHost): PreviewPage => {
+	/** A sandboxed page in one of `win`'s preview sessions; its handlers find their window through `owner`. */
+	const createPage = (
+		win: BrowserWindow,
+		sessions: PreviewSessions,
+		kind: PreviewPageState["session"],
+		owner: () => PreviewHost,
+	): PreviewPage => {
 		const view = new WebContentsView({
 			webPreferences: {
-				session: partition,
+				session: sessions[kind],
 				nodeIntegration: false,
 				contextIsolation: true,
 				sandbox: true,
@@ -230,7 +266,7 @@ export function registerPreviewHost(
 			id: randomUUID(),
 			view,
 			contents,
-			state: { ...EMPTY_PREVIEW_PAGE },
+			state: { ...EMPTY_PREVIEW_PAGE, session: kind },
 			factor: 1,
 			visual: null,
 			lastInput: 0,
@@ -255,19 +291,33 @@ export function registerPreviewHost(
 		contents.on("responsive", () => {
 			if (page.state.notice?.kind === "unresponsive") update({ notice: null });
 		});
-		// A popup (window.open, target=_blank) becomes a tab of this preview under the same URL rules; it opens
-		// behind the agent's page while an agent drives, so the relay keeps its one page.
+		// WebRTC is no CSP directive: over UDP (STUN, TURN) it would leave a visual's page directly; over TCP it
+		// takes the visual session's dead proxy.
+		if (kind === "visual") contents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
+		// A web page's popup (window.open, target=_blank) becomes a web tab of this preview under the same URL
+		// rules; it opens behind the agent's page while an agent drives, so the relay keeps its one page. A
+		// visual's popup never opens.
 		contents.setWindowOpenHandler(({ url }) => {
 			const host = owner();
-			const safe = allowed(host, url);
-			if (safe && host.pages.length < PREVIEW_TAB_LIMIT) loadInto(host, openPage(host, !host.agent), safe);
+			if (kind === "visual") offerLink(host, page, url);
+			else {
+				const safe = allowed(host, url);
+				if (safe && host.pages.length < PREVIEW_TAB_LIMIT) loadInto(host, openPage(host, "web", !host.agent), safe);
+			}
 			return { action: "deny" };
 		});
-		const guard = (navigation: Electron.Event, url: string) => {
-			if (!allowed(owner(), url, page)) navigation.preventDefault();
-		};
-		contents.on("will-frame-navigate", details => guard(details, details.url));
-		contents.on("will-redirect", guard);
+		// What the page itself starts (a link, `location`, a form, a meta refresh, a frame's load, a redirect):
+		// a visual's page stays inside its visual, a web page keeps to web addresses.
+		const mayGo = (url: string) =>
+			kind === "visual" ? visualMayNavigate(page.visual?.id ?? null, url) : allowed(owner(), url) !== null;
+		contents.on("will-frame-navigate", details => {
+			if (mayGo(details.url)) return;
+			details.preventDefault();
+			if (kind === "visual" && details.isMainFrame) offerLink(owner(), page, details.url);
+		});
+		contents.on("will-redirect", details => {
+			if (!mayGo(details.url)) details.preventDefault();
+		});
 		contents.on("will-attach-webview", event => event.preventDefault());
 		// Real input reaching the page; a script's `dispatchEvent` never does. The agent's CDP input may, so
 		// `choose` also refuses while the agent or any debugger holds the page.
@@ -277,11 +327,12 @@ export function registerPreviewHost(
 		contents.on("did-start-loading", () => update({ error: null, crashed: false }));
 		contents.on("did-stop-loading", () => update());
 		contents.on("did-navigate", (_event, url) => {
-			// A file or inline visual's page that leaves its own address no longer shows it; a web visual browses on.
+			// A visual's page that leaves its own address (for an empty document) no longer shows it; a web visual
+			// browses on.
 			if (page.visual) {
 				const shown = visuals.parse(url);
 				if (shown?.id === page.visual.id) page.visual = { id: shown.id, version: shown.version };
-				else if (visuals.url(page.visual.id)?.startsWith(`${VISUAL_SCHEME}:`)) page.visual = null;
+				else if (kind === "visual") page.visual = null;
 			}
 			// Chromium keeps zoom per origin; the user's level follows the page across origins.
 			if (page === owner().active) place(owner());
@@ -305,8 +356,8 @@ export function registerPreviewHost(
 		});
 		return page;
 	};
-	function openPage(host: PreviewHost, show: boolean): PreviewPage {
-		const page = createPage(host.win, host.partition, () => host);
+	function openPage(host: PreviewHost, kind: PreviewPageState["session"], show: boolean): PreviewPage {
+		const page = createPage(host.win, host.sessions, kind, () => host);
 		host.pages.push(page);
 		if (show) select(host, page);
 		else send(host);
@@ -324,26 +375,39 @@ export function registerPreviewHost(
 		if (index < 0) return;
 		closePage(host, target);
 		host.pages.splice(index, 1);
-		if (host.pages.length === 0) openPage(host, true);
+		if (host.pages.length === 0) openPage(host, "web", true);
 		else if (target === host.active) select(host, host.pages[Math.min(index, host.pages.length - 1)]);
 		else send(host);
+	}
+	/** Put a new page of session `kind` in `old`'s place (shown if `old` was), and close `old`. */
+	function replacePage(host: PreviewHost, old: PreviewPage, kind: PreviewPageState["session"]): PreviewPage {
+		const page = createPage(host.win, host.sessions, kind, () => host);
+		host.pages.splice(host.pages.indexOf(old), 1, page);
+		closePage(host, old);
+		if (host.active === old) select(host, page);
+		else send(host);
+		return page;
 	}
 	/**
 	 * Show `visualId` (`version`, default latest) in the tab that shows it, else in an empty shown tab (only when
 	 * `show`), else in a new tab; at the tab limit it replaces the shown page when `show` and is skipped otherwise.
-	 * A tab already on that version keeps its page (and the user's tweaks).
+	 * A tab already on that version keeps its page (and the user's tweaks). A file or inline visual needs a page of
+	 * the visual session and a web visual one of the web session: a tab of the other kind is replaced, never
+	 * reused, so no page ever holds both.
 	 */
 	function showVisual(host: PreviewHost, visualId: string, version: number | undefined, show: boolean): void {
 		const wanted = visuals.view(visualId, version)?.version;
-		if (wanted === undefined) return;
-		let target = host.pages.find(candidate => candidate.visual?.id === visualId);
-		if (!target) {
-			const blank = !host.active.state.url && !host.active.visual;
-			if (show && blank) target = host.active;
-			else if (host.pages.length < PREVIEW_TAB_LIMIT) target = openPage(host, false);
-			else if (show) target = host.active;
-			else return;
-		}
+		const url = wanted === undefined ? null : visuals.url(visualId, wanted);
+		if (wanted === undefined || !url) return;
+		const kind = visuals.parse(url) ? "visual" : "web";
+		const inSession = (page: PreviewPage) => (page.state.session === kind ? page : replacePage(host, page, kind));
+		const shown = host.pages.find(candidate => candidate.visual?.id === visualId);
+		let target: PreviewPage;
+		if (shown) target = inSession(shown);
+		else if (show && !host.active.state.url && !host.active.visual) target = inSession(host.active);
+		else if (host.pages.length < PREVIEW_TAB_LIMIT) target = openPage(host, kind, false);
+		else if (show) target = inSession(host.active);
+		else return;
 		if (target.visual?.id !== visualId || target.visual.version !== wanted)
 			loadVisual(host, target, visualId, wanted);
 		if (show) select(host, target);
@@ -366,19 +430,23 @@ export function registerPreviewHost(
 			contents.off("did-start-navigation", navigated);
 		});
 	}
-	/** The window's one in-memory partition (its tabs share it, every host of the window reuses it), set up once. */
-	const partitionOf = (win: BrowserWindow): Session => {
-		const known = partitions.get(win);
+	/** The window's two in-memory sessions (its tabs share them, every host of the window reuses them), set up once. */
+	const sessionsOf = (win: BrowserWindow): PreviewSessions => {
+		const known = windowSessions.get(win);
 		if (known) return known;
-		const partition = session.fromPartition(`preview-${win.id}`);
-		partitions.set(win, partition);
-		partition.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-		partition.setPermissionCheckHandler(() => false);
-		// Visual pages (C135): only the files `visuals` resolves for that visual, never cached across versions.
-		partition.protocol.handle(VISUAL_SCHEME, request => visuals.serve(request.url));
-		// The partition stays download-free; the user may hand the file to the system browser instead.
+		const web = session.fromPartition(`preview-${win.id}`);
+		const visual = session.fromPartition(`preview-visual-${win.id}`);
 		const senderId = win.webContents.id;
-		partition.on("will-download", (download, item, contents) => {
+		for (const partition of [web, visual]) {
+			partition.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+			partition.setPermissionCheckHandler(() => false);
+		}
+		// Visual pages (C135): only the files `visuals` resolves for that visual, never cached across versions.
+		visual.protocol.handle(VISUAL_SCHEME, request => visuals.serve(request.url));
+		// Neither session saves files. A web page's download may go to the system browser instead; a visual's
+		// never does (its address could carry what the page read).
+		visual.on("will-download", download => download.preventDefault());
+		web.on("will-download", (download, item, contents) => {
 			download.preventDefault();
 			const host = hosts.get(senderId);
 			if (!host) return;
@@ -386,7 +454,11 @@ export function registerPreviewHost(
 			const page = host.pages.find(candidate => candidate.contents === contents) ?? host.active;
 			if (url) publish(host, page, { notice: { kind: "download", url, filename: item.getFilename() } });
 		});
-		return partition;
+		const sessions = { web, visual, ready: visual.setProxy(VISUAL_NO_ROUTE) };
+		// A failed setup surfaces where a visual waits on it (it then never loads); nothing else awaits it.
+		sessions.ready.catch(() => {});
+		windowSessions.set(win, sessions);
+		return sessions;
 	};
 	ipcMain.handle(PREVIEW_COMMAND, async (event, request: PreviewRequest) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
@@ -397,12 +469,12 @@ export function registerPreviewHost(
 			return EMPTY_PREVIEW;
 		}
 		if (!host) {
-			const partition = partitionOf(win);
-			const first = createPage(win, partition, () => created);
+			const sessions = sessionsOf(win);
+			const first = createPage(win, sessions, "web", () => created);
 			const created: PreviewHost = {
 				win,
 				sender: event.sender,
-				partition,
+				sessions,
 				pages: [first],
 				active: first,
 				agent: null,
@@ -422,6 +494,8 @@ export function registerPreviewHost(
 		const page = current.active;
 		if (request.action === "agentStart") {
 			if (isRemote(event.sender.id, request.tabId)) throw new Error("Agent browsing is for tabs on this computer");
+			// The agent's browser drives web pages only; a visual's page has no network and its own rules.
+			if (page.state.session === "visual") throw new Error("Agent browsing is for web pages, not visuals");
 			const target = relayExtensionUrl(request.url, request.token);
 			if (!target) throw new Error("Invalid browser relay endpoint");
 			stopAgent(current);
@@ -478,7 +552,7 @@ export function registerPreviewHost(
 			if (current.pages.length >= PREVIEW_TAB_LIMIT) throw new Error("Too many preview tabs");
 			const url = request.url === undefined ? null : allowed(current, request.url);
 			if (request.url !== undefined && !url) throw new Error("Preview URL unavailable");
-			const opened = openPage(current, true);
+			const opened = openPage(current, "web", true);
 			if (url) loadInto(current, opened, url);
 		} else if (request.action === "selectTab" || request.action === "closeTab") {
 			const target = current.pages.find(candidate => candidate.id === request.id);
@@ -493,6 +567,7 @@ export function registerPreviewHost(
 			if (isRemote(event.sender.id, request.tabId)) throw new Error("Visuals are for tabs on this computer");
 			if (request.action === "openVisual" && !(await visuals.addToTab(request.tabId, request.visualId)))
 				throw new Error("Unknown visual");
+			await current.sessions.ready;
 			const own = visuals.forTab(request.tabId);
 			if (request.action === "restoreVisuals") {
 				for (const [index, id] of own.entries()) showVisual(current, id, undefined, request.show && index === 0);
@@ -517,9 +592,15 @@ export function registerPreviewHost(
 		else if (request.action === "load") {
 			const url = allowed(current, request.url);
 			if (!url) throw new Error("Preview URL unavailable");
-			// An address the user types replaces whatever visual the page showed.
-			page.visual = null;
-			loadInto(current, page, url);
+			if (page.state.session === "web") {
+				// An address the user types replaces whatever web visual the page showed.
+				page.visual = null;
+				loadInto(current, page, url);
+			} else {
+				// A visual's tab stays a visual: the address opens in a new web tab.
+				if (current.pages.length >= PREVIEW_TAB_LIMIT) throw new Error("Too many preview tabs");
+				loadInto(current, openPage(current, "web", true), url);
+			}
 		} else if (request.action === "back" && page.contents.navigationHistory.canGoBack())
 			page.contents.navigationHistory.goBack();
 		else if (request.action === "forward" && page.contents.navigationHistory.canGoForward())

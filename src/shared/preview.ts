@@ -37,6 +37,11 @@ export interface PreviewProblem {
 export type PreviewNotice =
 	/** A download the isolated preview refused; the system browser can fetch it. */
 	| { kind: "download"; url: string; filename: string }
+	/**
+	 * A visual's page tried to leave for `url` (a link, `location`, a popup) right after the user's own click or
+	 * key on it. Visuals never leave by themselves; the user may open the full address in a new web tab.
+	 */
+	| { kind: "link"; url: string }
 	/** The page has stopped responding to input. */
 	| { kind: "unresponsive" };
 /** Responsive frame sizes (CSS px); `fill` uses the whole panel. */
@@ -84,6 +89,11 @@ export interface PreviewState {
 	notice: PreviewNotice | null;
 	/** The visual this page shows, with its versions (C135/C141). */
 	visual: PreviewVisualView | null;
+	/**
+	 * `visual`: the page lives in the window's visual session (only `omp-visual:` documents, no network, never the
+	 * agent's browser); `web`: every other page.
+	 */
+	session: "web" | "visual";
 	tabs: PreviewTab[];
 	activeTab: string;
 }
@@ -108,6 +118,7 @@ export const EMPTY_PREVIEW_PAGE: PreviewPageState = {
 	problems: [],
 	notice: null,
 	visual: null,
+	session: "web",
 };
 export const EMPTY_PREVIEW: PreviewState = { ...EMPTY_PREVIEW_PAGE, tabs: [], activeTab: "" };
 export type PreviewRequest =
