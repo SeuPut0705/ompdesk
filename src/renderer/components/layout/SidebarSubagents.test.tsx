@@ -250,6 +250,8 @@ describe("SidebarSubagents", () => {
 	});
 
 	it("keeps a finished row marked until it is read, drops a stopped one, and the expanded state with the last", async () => {
+		// The main turn is still running: finished agents stay marked until read or until the run ends.
+		act(() => sessionRuntimeStore<SessionStore>(TAB, "session")!.setState({ isStreaming: true }));
 		seed([
 			snap({ id: "r1", index: 1, status: "running" }),
 			snap({ id: "r2", index: 2, status: "running" }),
@@ -327,11 +329,26 @@ describe("SidebarSubagents", () => {
 		expect(toggle()).not.toBeNull();
 
 		expand();
+		act(() => sessionRuntimeStore<SessionStore>(TAB, "session")!.setState({ isStreaming: true }));
 		seed([snap({ id: "r1", index: 1, status: "completed" })]);
 		await flush();
 		expect(useSidebarSubagentsStore.getState().unread.has("r1")).toBe(true);
 		await click(row("r1").querySelector("button"));
 		expect(useSidebarSubagentsStore.getState().unread.has("r1")).toBe(false);
+	});
+
+	it("drops the finished-agent marks and the count once the session's run ends", async () => {
+		act(() => sessionRuntimeStore<SessionStore>(TAB, "session")!.setState({ isStreaming: true }));
+		seed([snap({ id: "r1", index: 1, status: "running" }), snap({ id: "r2", index: 2, status: "running" })]);
+		await mount(<Session />);
+		seed([snap({ id: "r1", index: 1, status: "completed" }), snap({ id: "r2", index: 2, status: "completed" })]);
+		await flush();
+		// Still the main turn's: finished agents stay marked while the run goes on.
+		expect(toggle()?.textContent).toContain("2");
+		act(() => sessionRuntimeStore<SessionStore>(TAB, "session")!.setState({ isStreaming: false }));
+		await flush();
+		expect(toggle()).toBeNull();
+		expect(useSidebarSubagentsStore.getState().unread.size).toBe(0);
 	});
 
 	it("promotes a live child to the top level once its parent finishes", async () => {

@@ -28,6 +28,8 @@ interface SidebarSubagentsStore {
 	showAll: () => void;
 	markUnread: (agentIds: readonly string[]) => void;
 	markRead: (agentId: string) => void;
+	/** Clear several finished agents' marks at once (a session's run ended). */
+	markAllRead: (agentIds: readonly string[]) => void;
 	/** Clear a handled reveal (no-op when a newer one already replaced it). */
 	consumeReveal: (seq: number) => void;
 }
@@ -69,6 +71,13 @@ export const useSidebarSubagentsStore = create<SidebarSubagentsStore>()((set, ge
 	markRead: agentId => {
 		const next = toggled(get().unread, agentId, false);
 		if (next) set({ unread: next });
+	},
+	markAllRead: agentIds => {
+		const { unread } = get();
+		if (!agentIds.some(id => unread.has(id))) return;
+		const next = new Set(unread);
+		for (const id of agentIds) next.delete(id);
+		set({ unread: next });
 	},
 	consumeReveal: seq => {
 		if (get().reveal?.seq === seq) set({ reveal: null });

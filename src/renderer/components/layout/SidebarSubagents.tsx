@@ -390,6 +390,7 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 	const t = useT();
 	const rpc = useTabRpc();
 	const ready = useSessionStore(s => s.status) === "ready";
+	const running = useSessionStore(s => s.isStreaming);
 	const subagents = useSubagentsStore(s => s.subagents);
 	const toolCallOwners = useSubagentGraphStore(s => s.toolCallOwners);
 	const unread = useSidebarSubagentsStore(s => s.unread);
@@ -434,6 +435,19 @@ function SubagentGroup({ tabId, sessionKey, nested }: { tabId: string; sessionKe
 		finishing.current = finished.length > 0;
 		if (finished.length > 0) useSidebarSubagentsStore.getState().markUnread(finished);
 	}, [subagents, viewingId, panelId]);
+
+	// The session's run is over and no agent works anymore: its finished agents are no longer news,
+	// so their marks (and the session row's count) go with the run.
+	useEffect(() => {
+		if (running) return;
+		const ids: string[] = [];
+		for (const agent of subagents.values()) {
+			if (isLiveSubagentStatus(agent.status)) return;
+			ids.push(agent.id);
+		}
+		finishing.current = false;
+		useSidebarSubagentsStore.getState().markAllRead(ids);
+	}, [running, subagents]);
 
 	// No rows left: forget the expanded state so the next fan-out starts collapsed.
 	useEffect(() => {
