@@ -7,7 +7,7 @@
  * in `<dir>/ports` for a remote command. Test knobs, all files in `<dir>`:
  * `password` (required password), `drop` (exists → a running forward exits as
  * a dropped connection), `changed` (exists → the host key changed), `calls`
- * (every argv, one JSON line each).
+ * (every argv, one JSON line each), `listings` (one line per port listing written).
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -92,6 +92,7 @@ if (local) {
 	const list = () => {
 		const ports = fs.existsSync(path.join(dir, "ports")) ? fs.readFileSync(path.join(dir, "ports"), "utf8").trim().split(/\s+/).filter(Boolean) : [];
 		process.stdout.write(ports.map(p => "LISTEN 0 4096 127.0.0.1:" + p + " 0.0.0.0:*").join("\n") + "\n__ompdesk_ports__\n");
+		fs.appendFileSync(path.join(dir, "listings"), "\n");
 	};
 	list();
 	setInterval(list, 300);

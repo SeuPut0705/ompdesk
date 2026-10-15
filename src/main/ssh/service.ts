@@ -444,17 +444,26 @@ export class SshTools {
 			while (end >= 0) {
 				const ports = parseListeningPorts(buffer.slice(0, end));
 				buffer = buffer.slice(end + WATCH_MARKER.length);
+				end = buffer.indexOf(WATCH_MARKER);
+				const shown = runtime.watch;
+				// Most listings repeat the last one: nothing to tell any window.
+				if (
+					!shown.loading &&
+					shown.error === null &&
+					shown.ports.length === ports.length &&
+					shown.ports.every((port, index) => port === ports[index])
+				)
+					continue;
 				runtime.initial ??= ports;
 				const initial = runtime.initial;
 				runtime.watch = {
-					...runtime.watch,
+					...shown,
 					ports,
 					opened: ports.filter(port => !initial.includes(port)),
 					loading: false,
 					error: null,
 				};
 				this.#changed();
-				end = buffer.indexOf(WATCH_MARKER);
 			}
 		});
 		child.stderr?.setEncoding("utf8");

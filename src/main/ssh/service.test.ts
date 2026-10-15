@@ -71,14 +71,17 @@ describe.skipIf(process.platform === "win32")("SshTools", () => {
 	let remotePort: number;
 	let tools: SshTools;
 	let state: SshToolsState;
+	let stateBroadcasts = 0;
 	let prompts: SshPrompt[];
 	const target = { name: "box", host: "box.example" };
 	const create = () =>
 		new SshTools({
 			userData: path.join(root, "user"),
 			broadcast: (kind, data) => {
-				if (kind === "state") state = data as SshToolsState;
-				else prompts = data as SshPrompt[];
+				if (kind === "state") {
+					state = data as SshToolsState;
+					stateBroadcasts++;
+				} else prompts = data as SshPrompt[];
 			},
 		});
 	const answerNext = async (kind: SshPrompt["kind"], value: string | null) => {
@@ -203,6 +206,12 @@ describe.skipIf(process.platform === "win32")("SshTools", () => {
 				timeout: 10_000,
 			},
 		);
+		// Repeated listings of the same ports tell no window anything.
+		const listings = async () => (await fs.readFile(path.join(fake, "listings"), "utf8")).length;
+		const broadcasts = stateBroadcasts;
+		const seen = await listings();
+		await vi.waitFor(async () => expect(await listings()).toBeGreaterThanOrEqual(seen + 3), { timeout: 10_000 });
+		expect(stateBroadcasts).toBe(broadcasts);
 		await fs.writeFile(path.join(fake, "ports"), "22 3000 5173");
 		await vi.waitFor(() => expect(state.watches[0]?.opened).toEqual([5173]), { timeout: 10_000 });
 		await tools.command({ action: "watch", target, on: false });
