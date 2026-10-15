@@ -52,6 +52,7 @@ export const FEATURES = {
 	workspace: "Workspace directories",
 	compactionLimits: "Per-model compaction limits",
 	idleCompaction: "Idle compaction (compaction.idleEnabled)",
+	contextInspector: "Context inspector (per-entry tokens)",
 	recentModels: "Recent models in the model picker",
 	inputHistory: "Shared prompt history",
 	accountPools: "Agent account pools",
@@ -854,6 +855,25 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		session: ["subscribe()", "settings", "isStreaming", "isCompacting", "getContextUsage()", "runIdleCompaction()"],
 		modules: {
 			[`${AGENT}/session/context-settings`]: ["cfgCompaction.get()"],
+		},
+	},
+	/** context-inspect.ts: every tool, skill, context file, prompt block and message with stock's own estimators. */
+	contextInspector: {
+		session: [
+			"getContextBreakdown()",
+			"systemPrompt",
+			"renderedSkills",
+			"hasBuiltInTool()",
+			"getXdevToolEntries()",
+			"settings",
+			"agent.state",
+			"agent.tokenizer.countTokens()",
+			"agent.tokenizer.countMessage()",
+		],
+		modules: {
+			[`${AGENT}/session/messages`]: ["convertToLlm()"],
+			"@oh-my-pi/pi-tui/status-line/context-usage": ["estimateToolSchemaTokens()", "estimateSkillsTokens()"],
+			"@oh-my-pi/pi-ai/utils/schema": ["toolWireSchema()"],
 		},
 	},
 	/** recent-models.ts: stock's most-recently-used model order, as the `/models` hub reads it. */

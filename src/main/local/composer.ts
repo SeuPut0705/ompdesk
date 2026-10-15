@@ -239,6 +239,13 @@ export const handlers: Record<string, LocalHandler> = {
 
 	get_context_report: async (_command, ctx) => ctx.bridge.request("composer.context_report"),
 
+	// Context inspector (bridge context-inspect.ts): every entry of the live context with its tokens.
+	get_context_inspect: async (command, ctx) =>
+		ctx.bridge.request("context.inspect", { entries: z.boolean().optional().parse(command.entries) !== false }),
+
+	get_context_entry: async (command, ctx) =>
+		ctx.bridge.request("context.entry", { id: z.string().min(1).parse(command.entryId) }),
+
 	get_jobs: async (_command, ctx) => {
 		const items = await ctx.bridge.request<StockJobItem[]>("composer.jobs");
 		const result: RpcJobsResult = {

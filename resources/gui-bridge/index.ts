@@ -67,6 +67,7 @@ const AREAS: readonly Area[] = [
 	{ name: "modes/actions", features: ["tan", "omfg", "agentPause"], load: () => import("./modes/actions") },
 	{ name: "compaction-limits", features: ["compactionLimits"], load: () => import("./compaction-limits") },
 	{ name: "idle-compaction", features: ["idleCompaction"], load: () => import("./idle-compaction") },
+	{ name: "context-inspect", features: ["contextInspector"], load: () => import("./context-inspect") },
 	{ name: "recent-models", features: ["recentModels"], load: () => import("./recent-models") },
 	{ name: "input-history", features: ["inputHistory"], load: () => import("./input-history") },
 	{ name: "worktree-lifecycle", features: ["worktreeLifecycle"], load: () => import("./worktree-lifecycle") },

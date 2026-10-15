@@ -148,6 +148,9 @@ export type RpcCommand =
 
 	// Session reports (structured TUI /context /share /jobs parity; /tools rides get_active_tools)
 	| { id?: string; type: "get_context_report" }
+	// `entries: false`: category totals only (the Insights card); the inspector sheet takes every entry.
+	| { id?: string; type: "get_context_inspect"; entries?: boolean }
+	| { id?: string; type: "get_context_entry"; entryId: string }
 	| { id?: string; type: "get_active_tools" }
 	| { id?: string; type: "preview_share_session" }
 	| { id?: string; type: "share_session"; snapshotId?: string }
@@ -426,6 +429,48 @@ export interface RpcContextReportResult {
 	breakdown?: RpcContextUsageBreakdown;
 	contextWindow: number;
 	model: string;
+}
+
+/** Context inspector categories: stock's five, tools split by source, context files out of system context. */
+export type RpcContextCategory =
+	| "systemPrompt"
+	| "systemContext"
+	| "memoryFiles"
+	| "builtinTools"
+	| "mcpTools"
+	| "extensionTools"
+	| "skills"
+	| "messages";
+
+/** One entry of get_context_inspect: a tool, skill, context file, system prompt block or message. */
+export interface RpcContextEntry {
+	/** Pass to get_context_entry for the text. */
+	id: string;
+	category: RpcContextCategory;
+	label: string;
+	/** Stock message role, for `messages` entries. */
+	role?: string;
+	/** Estimated with the session's tokenizer. */
+	tokens: number;
+	/** An xd:// mounted tool: only its name is in the prompt until it is used. */
+	deferred?: true;
+}
+
+/** get_context_inspect result (bridge context-inspect.ts). Category totals are stock's anchored figures. */
+export interface RpcContextInspectResult {
+	model: string;
+	contextWindow: number;
+	usedTokens: number;
+	anchored: boolean;
+	categories: Record<RpcContextCategory, number>;
+	entries: RpcContextEntry[];
+}
+
+/** get_context_entry result: the entry's text as the provider gets it, capped at 32k characters. */
+export interface RpcContextEntryPreview {
+	text: string;
+	totalChars: number;
+	truncated: boolean;
 }
 
 /** share_session result. `truncated` rides only when content was trimmed to fit the share budget. */

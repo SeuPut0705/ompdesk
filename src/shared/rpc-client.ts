@@ -212,6 +212,8 @@ export interface SessionRpcClient {
 	getAgentWorktrees(): Promise<RpcResponse>;
 	clearAgentWorktrees(): Promise<RpcResponse>;
 	getContextReport(): Promise<RpcResponse>;
+	getContextInspect(entries?: boolean): Promise<RpcResponse>;
+	getContextEntry(entryId: string): Promise<RpcResponse>;
 	previewShareSession(): Promise<RpcResponse>;
 	shareSession(snapshotId?: string): Promise<RpcResponse>;
 	getJobs(): Promise<RpcResponse>;
@@ -554,6 +556,8 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		// Removing a task-isolation mount or a large checkout can take a while.
 		clearAgentWorktrees: () => rpcCommand({ type: "clear_agent_worktrees" }, 5 * 60_000),
 		getContextReport: () => rpcCommand({ type: "get_context_report" }),
+		getContextInspect: entries => rpcCommand({ type: "get_context_inspect", entries }),
+		getContextEntry: entryId => rpcCommand({ type: "get_context_entry", entryId }),
 		// Uploads + seals the session snapshot to the share server — network-bound.
 		previewShareSession: () => rpcCommand({ type: "preview_share_session" }),
 		shareSession: snapshotId => rpcCommand({ type: "share_session", snapshotId }, 120_000),

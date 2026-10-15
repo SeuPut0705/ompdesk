@@ -79,6 +79,22 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 			// No goal yet: no OMPdesk time limit, and setting one is refused.
 			expect(await client.request("modes.goal_time_limit")).toEqual({ timeLimitSeconds: null });
 			await expect(client.request("modes.goal_set_time_limit", { minutes: 5 })).rejects.toThrow("No active goal");
+			// Context inspector: per-tool counts add up to stock's own tool-schema total, entries open.
+			const inspected = await client.request<{
+				categories: Record<string, number>;
+				entries: Array<{ id: string; category: string; tokens: number }>;
+			}>("context.inspect", {});
+			const report = await client.request<{ breakdown: { systemToolsTokens: number } }>("composer.context_report");
+			const { builtinTools, mcpTools, extensionTools } = inspected.categories;
+			expect(builtinTools + mcpTools + extensionTools).toBe(report.breakdown.systemToolsTokens);
+			expect(inspected.entries.find(entry => entry.id === "tool:read")).toMatchObject({ category: "builtinTools" });
+			expect(inspected.entries.find(entry => entry.id === "prompt:0")?.tokens).toBeGreaterThan(0);
+			const readTool = await client.request<{ text: string; truncated: boolean }>("context.entry", {
+				id: "tool:read",
+			});
+			expect(readTool.text).toContain('"type"');
+			await expect(client.request("context.entry", { id: "msg:99:0" })).rejects.toThrow("no longer in the context");
+			expect(await client.request("context.inspect", { entries: false })).toMatchObject({ entries: [] });
 			expect(await client.request("history_record", { prompt: "from OMPdesk", cwd: profile })).toEqual({
 				skipped: false,
 			});

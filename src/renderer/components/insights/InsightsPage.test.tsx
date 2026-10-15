@@ -47,7 +47,7 @@ const stats: SessionStats = {
 
 interface RpcMock {
 	getSessionStats: Mock;
-	getContextReport: Mock;
+	getContextInspect: Mock;
 	getUsage: Mock;
 }
 
@@ -59,11 +59,27 @@ function installOmp(): RpcMock {
 			success: true,
 			data: stats,
 		})),
-		getContextReport: vi.fn(async () => ({
+		getContextInspect: vi.fn(async () => ({
 			type: "response",
-			command: "get_context_report",
+			command: "get_context_inspect",
 			success: true,
-			data: { contextWindow: 200_000, model: "acme-opus-5" },
+			data: {
+				contextWindow: 200_000,
+				model: "acme-opus-5",
+				usedTokens: 0,
+				anchored: false,
+				categories: {
+					systemPrompt: 0,
+					systemContext: 0,
+					memoryFiles: 0,
+					builtinTools: 0,
+					mcpTools: 0,
+					extensionTools: 0,
+					skills: 0,
+					messages: 0,
+				},
+				entries: [],
+			},
 		})),
 		getUsage: vi.fn(async () => ({ type: "response", command: "get_usage", success: true, data: { reports: [] } })),
 	};
@@ -137,7 +153,7 @@ describe("InsightsPage", () => {
 
 		expect(tab("This session")?.getAttribute("aria-selected")).toBe("true");
 		expect(omp.getSessionStats).toHaveBeenCalled();
-		expect(omp.getContextReport).toHaveBeenCalled();
+		expect(omp.getContextInspect).toHaveBeenCalledWith(false);
 		const text = document.body.textContent ?? "";
 		expect(text).toContain("58.2k");
 		expect(text).toContain("$0.06");
