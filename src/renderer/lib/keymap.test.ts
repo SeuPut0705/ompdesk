@@ -324,13 +324,17 @@ describe("workbench navigation chords", () => {
 		expect(chordFromEvent({ key: "3", code: "Digit3", ...NO_MODS, metaKey: true })).toBe("⌘3");
 	});
 
-	it("cycles tabs with ⇧⌘[ / ⇧⌘] and ⌘PageUp / ⌘PageDown besides ⌃Tab", () => {
+	it("cycles tabs with ⇧⌘[ / ⇧⌘] and ⌘PageUp / ⌘PageDown; ⌃Tab is the most-recent switcher", () => {
 		const mac = compileKeymap(KEYMAP_ACTIONS, {}, "mac");
 		expect(mac.get("⇧⌘]")).toBe("tab.next");
 		expect(mac.get("⇧⌘[")).toBe("tab.prev");
 		expect(mac.get("⌘⇟")).toBe("tab.next");
 		expect(mac.get("⌘⇞")).toBe("tab.prev");
-		expect(mac.get("⌃⇥")).toBe("tab.next");
+		expect(mac.get("⌃⇥")).toBe("tab.switcher");
+		expect(mac.get("⇧⌃⇥")).toBe("tab.switcherBack");
+		expect(mac.get("⇧⌘A")).toBe("tab.overview");
+		expect(mac.get("⌘[")).toBe("nav.back");
+		expect(mac.get("⌥⌘↓")).toBe("pane.focusDown");
 		expect(chordFromEvent({ key: "PageDown", code: "PageDown", ...NO_MODS, metaKey: true })).toBe("⌘⇟");
 		expect(chordFromEvent({ key: "}", code: "BracketRight", ...NO_MODS, metaKey: true, shiftKey: true })).toBe("⇧⌘]");
 		expect(canonical("ctrl+pageup")).toBe("⌃⇞");

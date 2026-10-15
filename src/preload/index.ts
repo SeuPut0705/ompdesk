@@ -285,6 +285,7 @@ const api: OmpApi = {
 			if (switched) activeTabId = focusedTabId;
 			return switched;
 		},
+		reorder: (tabIds: string[]) => ipcRenderer.invoke(IPC_COMMANDS.REORDER_TABS, { tabIds }) as Promise<boolean>,
 		getSessionOwner: (sessionPath: string, device?: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.GET_SESSION_OWNER, { sessionPath, device }) as Promise<IpcSessionOwner | null>,
 	},

@@ -210,6 +210,8 @@ export const IPC_COMMANDS = {
 	SET_ACTIVE_TAB: "tab:set-active",
 	/** Atomically set the focused tab and the one or two tabs receiving full event streams. */
 	SET_TAB_VIEW: "tab:set-view",
+	/** Reorder the calling window's tabs (tab overview drag); the saved layout follows */
+	REORDER_TABS: "tab:reorder",
 	/** List the calling window's tabs (boot reconciliation) */
 	GET_TABS: "tab:get-all",
 	/** Look up the tab/window currently attached to a session file (F-OWN double-attach guard) */
@@ -1355,6 +1357,8 @@ export interface OmpApi {
 		setActive(tabId: string): Promise<boolean>;
 		/** Set the focused tab plus up to four tabs rendered by the window. */
 		setView(focusedTabId: string, visibleTabIds: string[], split?: IpcSetTabViewPayload["split"]): Promise<boolean>;
+		/** Put the window's tabs in this order (every tab id once). */
+		reorder(tabIds: string[]): Promise<boolean>;
 		/** The tab/window currently attached to a session file on `device` (absent = this device), if any (F-OWN). */
 		getSessionOwner(sessionPath: string, device?: string): Promise<IpcSessionOwner | null>;
 	};

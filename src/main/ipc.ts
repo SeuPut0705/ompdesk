@@ -727,6 +727,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return deps.sidecarPool.setTabView(win, payload.focusedTabId, payload.visibleTabIds, payload.split);
 	});
 
+	ipcMain.handle(IPC_COMMANDS.REORDER_TABS, (event, payload: { tabIds?: unknown }) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		const tabIds = payload?.tabIds;
+		if (!win || !Array.isArray(tabIds) || !tabIds.every(id => typeof id === "string")) return false;
+		return deps.sidecarPool.reorderWindowTabs(win, tabIds);
+	});
+
 	// Boot reconciliation: the window's tabs in acquisition order (the initial
 	// sidecar is tab 0 — main minted its tabId at acquire).
 	ipcMain.handle(IPC_COMMANDS.GET_TABS, event => {

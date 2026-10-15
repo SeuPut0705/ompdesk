@@ -847,6 +847,24 @@ export class SidecarPool {
 		return tabs;
 	}
 
+	/**
+	 * Put one window's tabs in `order` (tab overview drag, ⌘1…⌘9 positions);
+	 * other windows' tabs keep their slots. False unless `order` names exactly
+	 * the window's tabs once each. The saved layout follows.
+	 */
+	reorderWindowTabs(win: BrowserWindow, order: readonly string[]): boolean {
+		const mine = [...this.#entries].filter(entry => entry.win === win);
+		const byId = new Map(mine.map(entry => [entry.tabId, entry]));
+		const sorted = order.flatMap(id => byId.get(id) ?? []);
+		if (sorted.length !== mine.length || new Set(sorted).size !== mine.length) return false;
+		const all = [...this.#entries];
+		this.#entries.clear();
+		let next = 0;
+		for (const entry of all) this.#entries.add(entry.win === win ? (sorted[next++] ?? entry) : entry);
+		this.#notifyWindowTabsChanged(win);
+		return true;
+	}
+
 	/** What every live tab is doing right now — the ⌘Q guard's inventory. */
 	tabInventory(): WindowTabFact[] {
 		return [...this.#entries].map(entry => ({

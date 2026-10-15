@@ -118,6 +118,10 @@ interface UiStore {
 	worktreeClosePrompt: { tabId: string } | null;
 	/** ⌘P quick open over the focused tab's workspace files. */
 	quickOpenOpen: boolean;
+	/** ⌃⇥ held: the most-recent-first tab switcher overlay. */
+	tabSwitcherOpen: boolean;
+	/** ⇧⌘A: the open-tabs overview (search, reorder, close). */
+	tabOverviewOpen: boolean;
 	/** Live tab whose close is armed for confirmation: set by the chip's ×, ⌘W or
 	 * the menu, so all three share one inline confirm (the second commit closes). */
 	armedCloseTab: { tabId: string } | null;
@@ -433,6 +437,8 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	quickOpenOpen: false,
 	openQuickOpen: () => set({ quickOpenOpen: true }),
 	closeQuickOpen: () => set({ quickOpenOpen: false }),
+	tabSwitcherOpen: false,
+	tabOverviewOpen: false,
 	armedCloseTab: null,
 	armCloseTab: tabId => set({ armedCloseTab: { tabId } }),
 	cancelCloseTab: () => set({ armedCloseTab: null }),
@@ -453,6 +459,8 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 		set({
 			commandPaletteOpen: false,
 			quickOpenOpen: false,
+			tabSwitcherOpen: false,
+			tabOverviewOpen: false,
 			modelPickerOpen: false,
 			modesOpen: false,
 			importDialogOpen: false,

@@ -348,6 +348,8 @@ export interface TabsStore {
 	reopenClosedTab: () => Promise<string | null>;
 	/** Focus the tab at a 1-based strip position (⌘1…⌘8) or the last one (⌘9). */
 	switchTabAt: (position: number | "last") => Promise<void>;
+	/** Move a tab to a 0-based strip position (tab overview drag); main keeps the order for ⌘1…⌘9 and the saved layout. */
+	moveTab: (id: string, toIndex: number) => Promise<void>;
 	reset: () => void;
 }
 
@@ -686,6 +688,22 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		if (tabId !== null)
 			set(current => ({ closedTabs: current.closedTabs.filter(item => item.sessionPath !== entry.sessionPath) }));
 		return tabId;
+	},
+
+	moveTab: async (id, toIndex) => {
+		const previous = get().tabs;
+		const from = previous.findIndex(tab => tab.id === id);
+		const to = Math.max(0, Math.min(previous.length - 1, toIndex));
+		if (from < 0 || from === to) return;
+		const tabs = [...previous];
+		const [moved] = tabs.splice(from, 1);
+		if (!moved) return;
+		tabs.splice(to, 0, moved);
+		set({ tabs });
+		// Main refuses an order that no longer names exactly this window's tabs
+		// (one opened or closed meanwhile); the next list reconciles either way.
+		const saved = await window.omp.tabs.reorder(tabs.map(tab => tab.id)).catch(() => false);
+		if (!saved) toastError({ title: translate("tabs.reorderFailed"), error: new Error("tab order refused") });
 	},
 
 	switchTabAt: async position => {

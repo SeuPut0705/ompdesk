@@ -480,21 +480,77 @@ export const KEYMAP_ACTIONS = [
 		hotkeyGroup: "session",
 	},
 	{
-		// ⌃⇥ / ⌃⇧⇥ cycle the open session tabs; ⇧⌘] / ⇧⌘[ and ⌘PageDown / ⌘PageUp
-		// are the browser and editor spellings of the same step.
+		// ⌃⇥ / ⌃⇧⇥ hold-to-switch, most recent first (the switcher overlay commits
+		// on releasing ⌃). ⇧⌘] / ⇧⌘[ and ⌘PageDown / ⌘PageUp step the strip order.
+		id: "tab.switcher",
+		labelKey: "hotkeys.row.tabSwitcher",
+		defaults: ["⌃⇥"],
+		overlaySafe: false,
+		hotkeyGroup: "session",
+	},
+	{
+		id: "tab.switcherBack",
+		labelKey: "hotkeys.row.tabSwitcherBack",
+		defaults: ["⇧⌃⇥"],
+		overlaySafe: false,
+		hotkeyGroup: "session",
+	},
+	{
 		id: "tab.next",
 		labelKey: "hotkeys.row.tabNext",
-		defaults: ["⌃⇥", "⇧⌘]", "⌘⇟"],
+		defaults: ["⇧⌘]", "⌘⇟"],
 		overlaySafe: false,
 		hotkeyGroup: "session",
 	},
 	{
 		id: "tab.prev",
 		labelKey: "hotkeys.row.tabPrev",
-		defaults: ["⇧⌃⇥", "⇧⌘[", "⌘⇞"],
+		defaults: ["⇧⌘[", "⌘⇞"],
 		overlaySafe: false,
 		hotkeyGroup: "session",
 	},
+	{
+		// Chrome's "Search tabs": every open tab, most recent first; reorder, close.
+		id: "tab.overview",
+		labelKey: "hotkeys.row.tabOverview",
+		defaults: ["⇧⌘A"],
+		overlaySafe: false,
+		hotkeyGroup: "session",
+	},
+	{
+		// Back / forward through what had focus (a tab, or a page such as Settings).
+		id: "nav.back",
+		labelKey: "hotkeys.row.navBack",
+		defaults: ["⌘["],
+		windowsDefaults: ["⌥←"],
+		overlaySafe: false,
+		hotkeyGroup: "session",
+	},
+	{
+		id: "nav.forward",
+		labelKey: "hotkeys.row.navForward",
+		defaults: ["⌘]"],
+		windowsDefaults: ["⌥→"],
+		overlaySafe: false,
+		hotkeyGroup: "session",
+	},
+	// Split panes: move focus to the pane in that direction, or cycle them.
+	...(
+		[
+			["pane.focusUp", "hotkeys.row.paneUp", "⌥⌘↑"],
+			["pane.focusDown", "hotkeys.row.paneDown", "⌥⌘↓"],
+			["pane.focusLeft", "hotkeys.row.paneLeft", "⌥⌘←"],
+			["pane.focusRight", "hotkeys.row.paneRight", "⌥⌘→"],
+			["pane.next", "hotkeys.row.paneNext", "⌥⌘]"],
+			["pane.prev", "hotkeys.row.panePrev", "⌥⌘["],
+		] as const
+	).map(([id, labelKey, chord]) => ({
+		id,
+		labelKey,
+		defaults: [chord],
+		overlaySafe: false,
+		hotkeyGroup: "session" as const,
+	})),
 	// ⌘1…⌘8 focus the tab in that strip position, ⌘9 the last one (browser convention).
 	...([1, 2, 3, 4, 5, 6, 7, 8] as const).map(n => ({
 		id: `tab.goto${n}` as const,

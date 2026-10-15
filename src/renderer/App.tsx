@@ -22,6 +22,8 @@ import { RenameSessionDialog } from "./components/dialogs/RenameSessionDialog";
 import { SessionPickerDialog } from "./components/dialogs/SessionPickerDialog";
 import { SessionSwitchDialog } from "./components/dialogs/SessionSwitchDialog";
 import { ShareSessionDialog } from "./components/dialogs/ShareSessionDialog";
+import { TabOverviewDialog } from "./components/dialogs/TabOverviewDialog";
+import { TabSwitcher, useTabSwitcherStore } from "./components/dialogs/TabSwitcher";
 import { ThemePickerDialog } from "./components/dialogs/ThemePickerDialog";
 import { WorktreeCloseDialog } from "./components/dialogs/WorktreeCloseDialog";
 import { WorktreeDialog } from "./components/dialogs/WorktreeDialog";
@@ -51,8 +53,10 @@ import { useLang, useT } from "./lib/i18n";
 import { isImeKeyEvent } from "./lib/ime";
 import { chordFromEvent, compileKeymap, KEYMAP_ACTION_BY_ID, KEYMAP_ACTIONS, type KeymapActionId } from "./lib/keymap";
 import { abortActiveTurn, restoreQueuedMessages } from "./lib/messages";
+import { type PaneDirection, paneInDirection, renderedPaneBoxes } from "./lib/pane-focus";
 import { watchPluginActivation } from "./lib/plugin-activation";
 import { closeActiveTab } from "./lib/tab-close";
+import { installTabHistory, navigateHistory } from "./lib/tab-history";
 import { acceptsActiveTabEvents, onActiveTabRouteSettled, onActiveTabRouteState } from "./lib/tab-routing";
 import { focusedTabRpc } from "./lib/tab-rpc";
 import { TabRuntimeProvider } from "./lib/tab-runtime-provider";
@@ -136,6 +140,15 @@ function QuotaResumeEffects() {
 	return null;
 }
 
+/** ⌥⌘ arrow actions → the direction `paneInDirection` looks in. */
+const PANE_DIRECTION: Record<"pane.focusUp" | "pane.focusDown" | "pane.focusLeft" | "pane.focusRight", PaneDirection> =
+	{
+		"pane.focusUp": "up",
+		"pane.focusDown": "down",
+		"pane.focusLeft": "left",
+		"pane.focusRight": "right",
+	};
+
 /**
  * Shell: Sidebar | (TitleBar / ChatStream / InputArea) | PanelContainer,
  * with command palette, extension dialogs, and the model picker overlaid.
@@ -143,6 +156,8 @@ function QuotaResumeEffects() {
  */
 export function App() {
 	useRpcEvents();
+	// ⌃⇥ / tab overview order and ⌘[ ⌘] history.
+	useEffect(installTabHistory, []);
 	useExtensionUi();
 	usePlanApproval();
 	// Session tabs: GET_TABS boot reconciliation + TAB_STATUS subscription.
@@ -422,6 +437,42 @@ export function App() {
 					void state.switchTab(ids[(index + step + ids.length) % ids.length]);
 					return;
 				}
+				case "tab.switcher":
+				case "tab.switcherBack":
+					// Opens on the previous tab (⌃⇥) or the oldest (⌃⇧⇥); the overlay
+					// takes further presses itself and commits when ⌃ is released.
+					if (useTabsStore.getState().tabs.length < 2) return;
+					useTabSwitcherStore.setState({ step: actionId === "tab.switcher" ? 1 : -1 });
+					useUiStore.setState({ tabSwitcherOpen: true });
+					return;
+				case "tab.overview":
+					useUiStore.setState({ tabOverviewOpen: true });
+					return;
+				case "nav.back":
+				case "nav.forward":
+					void navigateHistory(actionId === "nav.back" ? -1 : 1);
+					return;
+				case "pane.next":
+				case "pane.prev": {
+					const state = useTabsStore.getState();
+					if (!state.split) return;
+					const ids = visibleTabIds(state);
+					const index = state.activeTabId ? ids.indexOf(state.activeTabId) : -1;
+					const step = actionId === "pane.next" ? 1 : -1;
+					void state.switchTab(ids[(index + step + ids.length) % ids.length]);
+					return;
+				}
+				case "pane.focusUp":
+				case "pane.focusDown":
+				case "pane.focusLeft":
+				case "pane.focusRight": {
+					const state = useTabsStore.getState();
+					if (!state.split || !state.activeTabId) return;
+					const direction = PANE_DIRECTION[actionId];
+					const target = paneInDirection(renderedPaneBoxes(), state.activeTabId, direction);
+					if (target) void state.switchTab(target);
+					return;
+				}
 				case "tab.goto1":
 				case "tab.goto2":
 				case "tab.goto3":
@@ -502,7 +553,9 @@ export function App() {
 				ui.modelSetupOpen ||
 				ui.sessionPickerOpen ||
 				ui.branchPickerOpen ||
-				ui.quickOpenOpen;
+				ui.quickOpenOpen ||
+				ui.tabSwitcherOpen ||
+				ui.tabOverviewOpen;
 			if (event.key === "Escape") {
 				// Don't abort when an overlay/dropdown already consumed this Escape to
 				// dismiss itself (its handler ran first + preventDefault).
@@ -768,6 +821,8 @@ export function App() {
 			<WorktreeLifecycleDialog />
 			<SessionPickerDialog />
 			<QuickOpenDialog />
+			<TabSwitcher />
+			<TabOverviewDialog />
 			<SessionSwitchDialog />
 			<ModelRestoreDialog />
 			<BranchPickerDialog />
