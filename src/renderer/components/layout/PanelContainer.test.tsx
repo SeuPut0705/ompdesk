@@ -318,4 +318,22 @@ describe("PanelContainer", () => {
 		expect(read).toHaveBeenCalledWith("/tmp/my query.sql", 200_000);
 		expect(document.querySelector("aside pre")?.textContent).toContain("SELECT 1;");
 	});
+
+	it("closes the tab a held close named once its unsaved Files edits were discarded", async () => {
+		const original = useTabsStore.getState().closeTab;
+		const closeTab = vi.fn(async () => {});
+		try {
+			seedActiveTab("agent");
+			useTabsStore.setState({ closeTab });
+			await mount(<PanelContainer />);
+			expect(closeTab).not.toHaveBeenCalled();
+			await act(async () => {
+				useUiStore.setState({ discardedForTabClose: "t0" });
+			});
+			expect(closeTab).toHaveBeenCalledExactlyOnceWith("t0");
+			expect(useUiStore.getState().discardedForTabClose).toBeNull();
+		} finally {
+			useTabsStore.setState({ closeTab: original });
+		}
+	});
 });

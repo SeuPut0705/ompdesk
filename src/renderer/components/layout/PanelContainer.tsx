@@ -134,6 +134,13 @@ function SidePanelViews({ actionRef }: { actionRef: (element: HTMLDivElement | n
 		ui.setFileEditTabId(null);
 		if (owner !== activeTabId) useUiStore.setState(CLOSED_FILE_VIEW);
 	}, [fileEditDirty, activeTabId]);
+	// "Discard" on the confirm a tab close raised (`holdTabClose`): the edits are gone, so the close goes ahead.
+	const discardedForTabClose = useUiStore(s => s.discardedForTabClose);
+	useEffect(() => {
+		if (discardedForTabClose === null) return;
+		useUiStore.setState({ discardedForTabClose: null });
+		void useTabsStore.getState().closeTab(discardedForTabClose);
+	}, [discardedForTabClose]);
 	const pinned = fileEditDirty && panelTab === "files" ? sessionRuntime(fileEditTabId) : null;
 	const views = (
 		<div className="flex min-h-0 flex-1 flex-col overflow-hidden">

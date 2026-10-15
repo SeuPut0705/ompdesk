@@ -155,6 +155,10 @@ interface UiStore {
 	setFileEditDirty: (dirty: boolean) => void;
 	/** Apply (`true`) or drop the held-back file switch. */
 	resolveFileSwitch: (proceed: boolean) => void;
+	/** A tab whose close waits for "Discard": it owns the Files editor's unsaved edits. Set by `holdTabClose`. */
+	holdTabClose: (tabId: string) => void;
+	/** The tab to close now that its edits were discarded; the side panel takes it and calls `closeTab`. */
+	discardedForTabClose: string | null;
 	/** Terminal session the Terminal panel selects once it lists it ("Run in terminal", /cleanse); cleared then. */
 	terminalFocusId: string | null;
 	/** The Files drawer's viewer asked for a wider docked panel (not persisted; the drag width stays the pref). */
@@ -416,6 +420,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	fileEditDirty: false,
 	fileEditTabId: null,
 	pendingFileSwitch: null,
+	discardedForTabClose: null,
 	terminalFocusId: null,
 	filePreviewExpanded: false,
 	terminalExpanded: false,
@@ -503,6 +508,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 		else set({ ...next, panelTab: "files", panelVisible: true });
 	},
 	setFileEditDirty: dirty => set({ fileEditDirty: dirty }),
+	holdTabClose: tabId => set({ pendingFileSwitch: { discardedForTabClose: tabId } }),
 	setFileEditTabId: fileEditTabId => set({ fileEditTabId }),
 	resolveFileSwitch: proceed => {
 		const pending = get().pendingFileSwitch;

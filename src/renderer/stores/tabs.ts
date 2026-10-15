@@ -712,6 +712,13 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		if (state.tabs.length <= 1) return;
 		const index = state.tabs.findIndex(tab => tab.id === id);
 		if (index === -1) return;
+		// Unsaved Files edits belong to this tab: closing it would drop them, so the editor's discard confirm asks first
+		// and the side panel closes the tab once the user agrees.
+		const ui = useUiStore.getState();
+		if (ui.fileEditDirty && ui.fileEditTabId === id) {
+			ui.holdTabClose(id);
+			return;
+		}
 		if (state.split && splitTabIds(state.split).includes(id)) {
 			await get().removePane(id);
 		} else if (id === state.activeTabId) {

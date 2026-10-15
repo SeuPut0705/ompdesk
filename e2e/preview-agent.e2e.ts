@@ -28,6 +28,8 @@ interface PuppeteerPage {
 	goto(url: string): Promise<unknown>;
 	click(selector: string): Promise<void>;
 	evaluate<T>(fn: () => T): Promise<T>;
+	goBack(): Promise<unknown>;
+	goForward(): Promise<unknown>;
 	waitForNavigation(): Promise<unknown>;
 	createCDPSession(): Promise<{ send(method: string, params?: object): Promise<unknown> }>;
 }
@@ -131,6 +133,13 @@ for (const [language, theme] of [
 			await expect(
 				page.getByRole("textbox", { name: language === "ko" ? "미리보기 URL" : "Preview URL" }),
 			).toHaveValue(`${site}next`);
+			// Stock's tab.back()/tab.forward() (puppeteer goBack/goForward) read Page.getNavigationHistory and jump to an
+			// entry; the relay checks that entry's URL and lets it through.
+			await driven.goBack();
+			await expect(page.locator("[data-preview-status]")).toHaveText("Agent fixture");
+			expect(driven.url()).toBe(site);
+			await driven.goForward();
+			await expect(page.locator("[data-preview-status]")).toHaveText("Second page");
 			// The preview stays on the web: a file URL is refused before the page sees it.
 			await expect(driven.goto("file:///etc/hosts")).rejects.toThrow(/http\(s\)/);
 			// Electron's per-page debugger would answer these for the whole app (the app window included);
@@ -141,6 +150,8 @@ for (const [language, theme] of [
 				["Target.attachToTarget", { targetId: "app-window", flatten: true }],
 				["Target.attachToBrowserTarget", {}],
 				["DOM.setFileInputFiles", { files: ["/etc/hosts"] }],
+				["Tracing.start", {}],
+				["Input.dispatchDragEvent", { type: "drop", x: 1, y: 1, data: { items: [], files: ["/etc/hosts"] } }],
 			] as const) {
 				await expect(session.send(method, params), method).rejects.toThrow(/does not allow/);
 			}
@@ -185,3 +196,56 @@ for (const [language, theme] of [
 		}
 	});
 }
+
+// Why the relay refuses Input.dispatchDragEvent with files. Finding (Electron 36, observed Oct 2026): the per-page
+// debugger honours `data.files`: a synthetic drop hands the page a real File read from the local path (name and size
+// of the file, `types` = ["Files"]). A bare window is probed here, not the relay (which refuses the command). If a
+// future Electron stops honouring it, this fails; the relay's refusal can stay regardless.
+test("Electron's per-page debugger turns Input.dispatchDragEvent files into a dropped local File", async () => {
+	test.setTimeout(60_000);
+	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-drag-probe-"));
+	const main = path.join(dir, "main.js");
+	const secret = path.join(dir, "secret.txt");
+	await fs.writeFile(
+		main,
+		'const { app } = require("electron");\napp.on("window-all-closed", () => {});\napp.whenReady();\n',
+	);
+	await fs.writeFile(secret, "local file contents");
+	const env = { ...process.env, OMP_GUI_HEADLESS: "1" };
+	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
+	const app = await electron.launch({ args: [main], env });
+	try {
+		const result = await app.evaluate(async ({ BrowserWindow }, file) => {
+			const win = new BrowserWindow({ show: true, width: 400, height: 400, webPreferences: { sandbox: true } });
+			const html =
+				"<body style='margin:0'><div style='width:400px;height:400px'></div><script>" +
+				"window.drops=[];window.types=[];" +
+				"addEventListener('dragenter',e=>e.preventDefault());" +
+				"addEventListener('dragover',e=>e.preventDefault());" +
+				"addEventListener('drop',e=>{e.preventDefault();window.types.push([...e.dataTransfer.types]);" +
+				"window.drops.push([...e.dataTransfer.files].map(f=>f.name+':'+f.size))});</script>";
+			await win.loadURL(`data:text/html,${encodeURIComponent(html)}`);
+			const dbg = win.webContents.debugger;
+			dbg.attach("1.3");
+			const errors: string[] = [];
+			for (const type of ["dragEnter", "dragOver", "drop"]) {
+				await dbg
+					.sendCommand("Input.dispatchDragEvent", {
+						type,
+						x: 50,
+						y: 50,
+						data: { items: [], files: [file], dragOperationsMask: 1 },
+					})
+					.catch((error: unknown) => errors.push(`${type}: ${String(error)}`));
+			}
+			await new Promise(resolve => setTimeout(resolve, 300));
+			const seen = await win.webContents.executeJavaScript("({ drops: window.drops, types: window.types })");
+			win.destroy();
+			return { errors, seen };
+		}, secret);
+		expect(result).toEqual({ errors: [], seen: { drops: [["secret.txt:19"]], types: [["Files"]] } });
+	} finally {
+		await exitApp(app);
+		await fs.rm(dir, { recursive: true, force: true });
+	}
+});

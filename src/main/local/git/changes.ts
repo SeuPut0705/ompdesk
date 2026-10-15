@@ -1,7 +1,8 @@
 /** `get_git_status`, `get_git_changes`, `get_git_diff` over the git CLI (port of fork rpc-git-diff.ts / buildRpcGitStatus). */
+import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { RpcGitChanges, RpcGitDiff, RpcGitHead, RpcGitStatus } from "../../../shared/rpc-types";
+import type { RpcGitChanges, RpcGitDiff, RpcGitFingerprint, RpcGitHead, RpcGitStatus } from "../../../shared/rpc-types";
 import { git, gitRaw } from "./exec";
 import {
 	isInside,
@@ -74,6 +75,45 @@ export async function getGitHead(root: string): Promise<RpcGitHead> {
 		stashes: stashes.code === 0 ? stashes.stdout.toString("utf8").split("\n").filter(Boolean).length : 0,
 		hasRemote: remotes.trim().length > 0,
 	};
+}
+
+/**
+ * A cheap stand-in for `getGitChanges` that the Changes panel polls: two git processes (`rev-parse
+ * --show-toplevel` and one `status --porcelain=v2 --branch -z --untracked-files=all`, whose `branch.oid`
+ * header is the HEAD oid) plus an in-process `lstat` of every listed path. The stats matter because a
+ * file edited again keeps its ` M` status while its line counts and diff move. The fingerprint changes
+ * whenever the full answer may have; it never reads a diff.
+ */
+export async function getGitFingerprint(cwd: string): Promise<RpcGitFingerprint> {
+	const [top, status] = await Promise.all([
+		gitRaw(cwd, ["rev-parse", "--show-toplevel"]),
+		gitRaw(cwd, ["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"]),
+	]);
+	const hash = createHash("sha1");
+	if (top.code !== 0 || status.code !== 0) return { fingerprint: hash.update("not-a-repository").digest("hex") };
+	const root = top.stdout.toString("utf8").trim();
+	const text = status.stdout.toString("utf8");
+	hash.update(text);
+	const records = text.split("\0");
+	const paths: string[] = [];
+	for (let index = 0; index < records.length && paths.length < MAX_FILES; index++) {
+		const record = records[index]!;
+		// Fields before the path: `1` has 8, `2` has 9 (and a second record holds the old path), `u` has 10.
+		const skip = record.startsWith("1 ") ? 8 : record.startsWith("2 ") ? 9 : record.startsWith("u ") ? 10 : -1;
+		if (record.startsWith("? ")) paths.push(record.slice(2));
+		else if (skip > 0) paths.push(record.split(" ").slice(skip).join(" "));
+		if (record.startsWith("2 ")) index++;
+	}
+	const stamps = await Promise.all(
+		paths.map(file =>
+			fs.lstat(path.join(root, file)).then(
+				stat => `${stat.mtimeMs}:${stat.size}`,
+				() => "gone",
+			),
+		),
+	);
+	for (const stamp of stamps) hash.update(`\0${stamp}`);
+	return { fingerprint: hash.digest("hex") };
 }
 
 export async function getGitChanges(cwd: string): Promise<RpcGitChanges> {

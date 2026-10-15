@@ -115,11 +115,39 @@ const REFUSED_METHODS: ReadonlySet<string> = new Set([
 	"Input.setInterceptDrags",
 	"Page.close",
 	"Page.crash",
-	"Page.navigateToHistoryEntry",
 	"Page.setDownloadBehavior",
 	"Page.setInterceptFileChooserDialog",
+	"Security.handleCertificateError",
 	"Security.setIgnoreCertificateErrors",
+	"Security.setOverrideCertificateErrors",
 ]);
+
+/** Domains refused with their own reason instead of the generic one, so the agent's tool error says why. */
+const DOMAIN_REASONS: Readonly<Record<string, string>> = {
+	Tracing:
+		"OMPdesk's preview does not allow Tracing (tab.traceStart): a trace is browser-wide and would record the app's other windows. Use Performance or Profiler on this page instead",
+};
+
+/** Whether the preview may show `url`: `about:blank` or an http(s) page (the rule every navigation shares). */
+function navigableUrl(url: unknown): boolean {
+	return typeof url === "string" && (url === "about:blank" || previewUrl(url) !== null);
+}
+
+/** `Input.DragData` that hands the page files: `files` paths, or an item naming a `file:` URL. */
+function dragCarriesFiles(data: unknown): boolean {
+	if (!data || typeof data !== "object") return false;
+	if ("files" in data && data.files !== undefined && !(Array.isArray(data.files) && data.files.length === 0)) {
+		return true;
+	}
+	const items = "items" in data ? data.items : undefined;
+	if (!Array.isArray(items)) return false;
+	return items.some(
+		item =>
+			item &&
+			typeof item === "object" &&
+			Object.values(item).some(value => typeof value === "string" && /^\s*file:/im.test(value)),
+	);
+}
 
 /** Announced targets that are not children of this page (a session onto them is never relayed). */
 const FOREIGN_TARGET_TYPES: ReadonlySet<string> = new Set(["page", "tab", "browser"]);
@@ -133,12 +161,21 @@ const FOREIGN_TARGET_TYPES: ReadonlySet<string> = new Set(["page", "tab", "brows
 export function refusedCommand(method: string, params: unknown): string | null {
 	const domain = method.slice(0, Math.max(method.indexOf("."), 0));
 	const allowed = domain === "Target" ? ALLOWED_TARGET_METHODS.has(method) : ALLOWED_DOMAINS.has(domain);
-	if (!allowed || REFUSED_METHODS.has(method)) return `OMPdesk's preview does not allow ${method}`;
-	if (method === "Page.navigate") {
-		const url = params && typeof params === "object" && "url" in params ? params.url : undefined;
-		if (typeof url !== "string" || (url !== "about:blank" && !previewUrl(url))) {
-			return "OMPdesk's preview only opens http(s) pages";
-		}
+	if (!allowed || REFUSED_METHODS.has(method)) {
+		return Object.hasOwn(DOMAIN_REASONS, domain)
+			? DOMAIN_REASONS[domain]!
+			: `OMPdesk's preview does not allow ${method}`;
+	}
+	const named = params && typeof params === "object" ? params : {};
+	if (method === "Page.navigate" && !navigableUrl("url" in named ? named.url : undefined)) {
+		return "OMPdesk's preview only opens http(s) pages";
+	}
+	// The target URL is read from the page's own history before the command goes out (see `#historyRefusal`).
+	if (method === "Page.navigateToHistoryEntry" && !("entryId" in named && Number.isInteger(named.entryId))) {
+		return "OMPdesk's preview needs a history entry id to navigate";
+	}
+	if (method === "Input.dispatchDragEvent" && "data" in named && dragCarriesFiles(named.data)) {
+		return "OMPdesk's preview does not allow dropping files onto the page";
 	}
 	return null;
 }
@@ -198,6 +235,22 @@ export class PreviewRelayExtension {
 				return "OMPdesk's preview only detaches this page's own frames and workers";
 			}
 		}
+		return null;
+	}
+
+	/**
+	 * Why `Page.navigateToHistoryEntry` may not go to its entry, or null. Stock's `tab.back()`/`tab.forward()`
+	 * (puppeteer `goBack`/`goForward`) read `Page.getNavigationHistory` and then jump to an entry id, so the
+	 * entry's URL is looked up here and held to the rule every other navigation follows.
+	 */
+	async #historyRefusal(params: unknown, sessionId: string | undefined): Promise<string | null> {
+		const entryId = params && typeof params === "object" && "entryId" in params ? params.entryId : undefined;
+		const history: unknown = await this.#page.debugger.sendCommand("Page.getNavigationHistory", undefined, sessionId);
+		const entries = history && typeof history === "object" && "entries" in history ? history.entries : undefined;
+		const entry = Array.isArray(entries)
+			? entries.find(candidate => candidate && typeof candidate === "object" && candidate.id === entryId)
+			: undefined;
+		if (!navigableUrl(entry?.url)) return "OMPdesk's preview only opens http(s) pages";
 		return null;
 	}
 
@@ -285,6 +338,10 @@ export class PreviewRelayExtension {
 				const refused =
 					refusedCommand(method, rpc.params) ?? this.#refusedSession(method, rpc.params, rpc.sessionId);
 				if (refused) throw new Error(refused);
+				if (method === "Page.navigateToHistoryEntry") {
+					const historyRefused = await this.#historyRefusal(rpc.params, rpc.sessionId);
+					if (historyRefused) throw new Error(historyRefused);
+				}
 				this.#onActivity(method);
 				const result: unknown = await debuggerApi.sendCommand(method, rpc.params, rpc.sessionId);
 				return result && typeof result === "object" ? result : {};

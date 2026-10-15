@@ -109,6 +109,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"get_force_tool",
 	"get_git_changes",
 	"get_git_diff",
+	"get_git_fingerprint",
 	"get_git_status",
 	"get_goal",
 	"get_gui_themes",

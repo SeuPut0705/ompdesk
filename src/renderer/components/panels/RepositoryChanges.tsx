@@ -1,7 +1,7 @@
 import { ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, FolderGit2, RefreshCw, Undo2 } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isConflictStatus, stagedState } from "../../../shared/git-status";
-import type { RpcGitChanges, RpcGitDiff } from "../../../shared/rpc-types";
+import type { RpcGitChanges, RpcGitDiff, RpcGitFingerprint } from "../../../shared/rpc-types";
 import { parseDiff } from "../../lib/diff";
 import { errorDetail } from "../../lib/error-detail";
 import { cx } from "../../lib/format";
@@ -67,6 +67,17 @@ export function parseRepositoryDiff(diff: string) {
 	);
 }
 
+/** The checkout's fingerprint, or null when git could not answer (a failed poll never forces a reload). */
+async function readFingerprint(rpc: TabRpc): Promise<string | null> {
+	try {
+		const response = await rpc.getGitFingerprint();
+		const data = response.success ? (response.data as RpcGitFingerprint | undefined) : undefined;
+		return typeof data?.fingerprint === "string" ? data.fingerprint : null;
+	} catch {
+		return null;
+	}
+}
+
 export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNode }) {
 	const t = useT();
 	const rpc = useTabRpc();
@@ -83,7 +94,9 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 	const [discarding, setDiscarding] = useState<string[] | null>(null);
 	const [menu, setMenu] = useState<{ anchor: ContextMenuAnchor; file: ChangedFile } | null>(null);
 	const loadedFor = useRef<TabRpc | null>(null);
-	const loadedSignature = useRef("");
+	// The fingerprint read just before the last full load; a poll that reads another one reloads.
+	const loadedFingerprint = useRef("");
+	const previewFor = useRef<{ rpc: TabRpc; path: string } | null>(null);
 	const reload = useCallback(() => setRefresh(value => value + 1), []);
 	const runner = useScmAction(rpc, reload);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: refresh explicitly reloads the checkout.
@@ -96,13 +109,17 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 		}
 		setError(null);
 		void Promise.resolve()
-			.then(() => rpc.getGitChanges())
+			.then(() => readFingerprint(rpc))
+			.then(fingerprint => {
+				// Read before the changes: an edit in between only makes the next poll reload once more.
+				if (active) loadedFingerprint.current = fingerprint ?? "";
+				return rpc.getGitChanges();
+			})
 			.then(response => {
 				if (!active) return;
 				if (!response.success) throw new Error(response.error ?? t("rpc.failed"));
 				loadedFor.current = rpc;
 				const data = response.data as RpcGitChanges;
-				loadedSignature.current = JSON.stringify(data);
 				setChanges(data);
 				setSelected(previous => (data.files.some(file => file.path === previous) ? previous : ""));
 			})
@@ -116,35 +133,47 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 			active = false;
 		};
 	}, [rpc, refresh, t]);
-	// The checkout changes under an open panel (the agent edits, the user saves in Files or an editor): read it
-	// again when the window comes back and while it shows, and reload only when the answer differs.
+	// The checkout changes under an open panel (the agent edits, the user saves in Files or an editor): ask git
+	// for a cheap fingerprint (two processes) while the window shows and when it comes back, and read the whole
+	// checkout again only when that moved. A hidden window polls nothing.
 	useEffect(() => {
 		let active = true;
 		let reading = false;
+		let timer: number | undefined;
 		const check = async () => {
 			if (document.hidden || reading) return;
 			reading = true;
 			try {
-				const response = await rpc.getGitChanges();
-				if (active && response.success && JSON.stringify(response.data) !== loadedSignature.current) reload();
-			} catch {
-				// A failed read keeps the list as it is; the next tick tries again.
+				const fingerprint = await readFingerprint(rpc);
+				if (active && fingerprint !== null && fingerprint !== loadedFingerprint.current) reload();
 			} finally {
 				reading = false;
 			}
 		};
-		const timer = window.setInterval(() => void check(), REPOSITORY_WATCH_MS);
-		document.addEventListener("visibilitychange", check);
+		const sync = () => {
+			if (document.hidden) {
+				window.clearInterval(timer);
+				timer = undefined;
+				return;
+			}
+			timer ??= window.setInterval(() => void check(), REPOSITORY_WATCH_MS);
+			void check();
+		};
+		if (!document.hidden) timer = window.setInterval(() => void check(), REPOSITORY_WATCH_MS);
+		document.addEventListener("visibilitychange", sync);
 		return () => {
 			active = false;
 			window.clearInterval(timer);
-			document.removeEventListener("visibilitychange", check);
+			document.removeEventListener("visibilitychange", sync);
 		};
 	}, [rpc, reload]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a refresh must also reload the selected diff.
 	useEffect(() => {
 		let active = true;
-		setPreview(null);
+		// A reload of the same file keeps its diff on screen (and its scroll) until the new one arrives.
+		const same = previewFor.current?.rpc === rpc && previewFor.current.path === selected;
+		if (!same) setPreview(null);
+		previewFor.current = selected ? { rpc, path: selected } : null;
 		if (!selected) return;
 		setError(null);
 		void Promise.resolve()

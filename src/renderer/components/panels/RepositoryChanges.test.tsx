@@ -43,12 +43,15 @@ function changes(...paths: string[]): RpcGitChanges {
 }
 
 let getGitChanges: Mock<() => Promise<unknown>>;
+let getGitFingerprint: Mock<() => Promise<unknown>>;
+/** What the next fingerprint poll answers; a test moves it to say "the checkout changed". */
+let fingerprint = "fp-1";
 
-function installMockOmp(next: () => Promise<unknown>): void {
+function installMockOmp(next: () => Promise<unknown>, extra: object = {}): void {
 	getGitChanges = vi.fn(next);
-	(window as unknown as { omp: { rpc: { getGitChanges: Mock } } }).omp = {
-		rpc: { getGitChanges },
-	};
+	fingerprint = "fp-1";
+	getGitFingerprint = vi.fn(async () => ({ success: true, data: { fingerprint } }));
+	Object.assign(window, { omp: { rpc: { getGitChanges, getGitFingerprint, ...extra } } });
 }
 
 let root: ReturnType<typeof createRoot>;
@@ -233,10 +236,11 @@ describe("RepositoryChanges", () => {
 		data: changes(...paths),
 	});
 
-	it("reads the checkout again when the window comes back, so an agent's edits show without a click", async () => {
+	it("reads the checkout again when the window comes back after the checkout changed, so an agent's edits show without a click", async () => {
 		installMockOmp(async () => answer("src/a.ts"));
 		await mount();
 		getGitChanges.mockImplementation(async () => answer("src/a.ts", "src/b.ts"));
+		fingerprint = "fp-2";
 		await act(async () => {
 			document.dispatchEvent(new Event("visibilitychange"));
 		});
@@ -244,34 +248,124 @@ describe("RepositoryChanges", () => {
 		expect(document.querySelector('button[title="src/b.ts"]')).not.toBeNull();
 	});
 
-	it("keeps watching while it shows: a file changed on disk appears on its own, an unchanged checkout does not reload", async () => {
+	async function mountWithTimers(): Promise<void> {
+		container = document.createElement("div") as unknown as TestElement;
+		document.body.appendChild(container as never);
+		root = createRoot(container as unknown as Element);
+		await act(async () => {
+			root.render(
+				<I18nProvider>
+					<RepositoryChanges />
+				</I18nProvider>,
+			);
+			await vi.advanceTimersByTimeAsync(0);
+		});
+	}
+	const advance = (ms: number) =>
+		act(async () => {
+			await vi.advanceTimersByTimeAsync(ms);
+		});
+
+	it("polls only the cheap fingerprint while the checkout is unchanged, and reads everything again once it moves", async () => {
 		vi.useFakeTimers();
 		try {
 			installMockOmp(async () => answer("src/a.ts"));
-			container = document.createElement("div") as unknown as TestElement;
-			document.body.appendChild(container as never);
-			root = createRoot(container as unknown as Element);
+			await mountWithTimers();
+			expect(getGitChanges).toHaveBeenCalledTimes(1);
+			const loads = getGitFingerprint.mock.calls.length;
+			await advance(10_000);
+			expect(getGitFingerprint.mock.calls.length).toBeGreaterThan(loads);
+			expect(getGitChanges).toHaveBeenCalledTimes(1);
+
+			getGitChanges.mockImplementation(async () => answer("src/a.ts", "src/b.ts"));
+			fingerprint = "fp-2";
+			await advance(4_000);
+			expect(document.querySelector('button[title="src/b.ts"]')).not.toBeNull();
+			expect(getGitChanges).toHaveBeenCalledTimes(2);
+			// The new fingerprint is the baseline now: the next ticks do not read everything again.
+			await advance(10_000);
+			expect(getGitChanges).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("stops polling while the window is hidden and checks at once when it shows again", async () => {
+		vi.useFakeTimers();
+		try {
+			installMockOmp(async () => answer("src/a.ts"));
+			await mountWithTimers();
+			Object.defineProperty(document, "hidden", { configurable: true, value: true });
 			await act(async () => {
-				root.render(
-					<I18nProvider>
-						<RepositoryChanges />
-					</I18nProvider>,
-				);
+				document.dispatchEvent(new Event("visibilitychange"));
+			});
+			const idle = getGitFingerprint.mock.calls.length;
+			expect(vi.getTimerCount()).toBe(0);
+			await advance(30_000);
+			expect(getGitFingerprint.mock.calls.length).toBe(idle);
+
+			Object.defineProperty(document, "hidden", { configurable: true, value: false });
+			await act(async () => {
+				document.dispatchEvent(new Event("visibilitychange"));
+			});
+			expect(getGitFingerprint.mock.calls.length).toBe(idle + 1);
+			expect(vi.getTimerCount()).toBe(1);
+		} finally {
+			Reflect.deleteProperty(document, "hidden");
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not reload in a loop after a failed read: it waits for the checkout to change again", async () => {
+		vi.useFakeTimers();
+		try {
+			installMockOmp(async () => answer("src/a.ts"));
+			await mountWithTimers();
+			getGitChanges.mockImplementation(async () => ({ success: false, error: "git status failed" }));
+			fingerprint = "fp-2";
+			await advance(4_000);
+			expect(bodyText()).toContain("git status failed");
+			const attempts = getGitChanges.mock.calls.length;
+			await advance(20_000);
+			expect(getGitChanges.mock.calls.length).toBe(attempts);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps the open diff on screen while a reload fetches the new one", async () => {
+		vi.useFakeTimers();
+		try {
+			const diff = (text: string) => ({
+				success: true,
+				data: {
+					path: "src/a.ts",
+					kind: "text",
+					truncated: false,
+					diff: `--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+${text}\n`,
+				},
+			});
+			const second = Promise.withResolvers<unknown>();
+			const getGitDiff = vi
+				.fn<(path: string) => Promise<unknown>>()
+				.mockResolvedValueOnce(diff("first"))
+				.mockReturnValueOnce(second.promise);
+			installMockOmp(async () => answer("src/a.ts"), { getGitDiff });
+			await mountWithTimers();
+			await click(queryAll("button").find(button => button.getAttribute("title") === "src/a.ts")!);
+			await advance(0);
+			expect(bodyText()).toContain("first");
+
+			fingerprint = "fp-2";
+			await advance(4_000);
+			expect(getGitDiff).toHaveBeenCalledTimes(2);
+			// The second diff has not arrived: the first stays, no blank panel in between.
+			expect(bodyText()).toContain("first");
+			await act(async () => {
+				second.resolve(diff("second"));
 				await vi.advanceTimersByTimeAsync(0);
 			});
-			const loads = getGitChanges.mock.calls.length;
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(10_000);
-			});
-			// Polled reads happened, but the same answer kept the list as it was (no reload on top of them).
-			expect(getGitChanges.mock.calls.length).toBeGreaterThan(loads);
-			const polled = getGitChanges.mock.calls.length - loads;
-			getGitChanges.mockImplementation(async () => answer("src/a.ts", "src/b.ts"));
-			await act(async () => {
-				await vi.advanceTimersByTimeAsync(10_000);
-			});
-			expect(document.querySelector('button[title="src/b.ts"]')).not.toBeNull();
-			expect(polled).toBeGreaterThan(0);
+			expect(bodyText()).toContain("second");
 		} finally {
 			vi.useRealTimers();
 		}

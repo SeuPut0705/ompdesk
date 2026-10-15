@@ -10,6 +10,7 @@ import { PreviewRelayExtension, type RelayDebugger, refusedCommand, relayExtensi
 class FakeDebugger extends EventEmitter {
 	attached = false;
 	rendered = false;
+	history: Array<{ id: number; url: string }> = [];
 	sent: Array<{ method: string; params?: object; sessionId?: string }> = [];
 	attach(): void {
 		if (this.attached) throw new Error("already attached");
@@ -24,6 +25,9 @@ class FakeDebugger extends EventEmitter {
 	}
 	async sendCommand(method: string, params?: object, sessionId?: string): Promise<unknown> {
 		this.sent.push({ method, params, sessionId });
+		if (method === "Page.getNavigationHistory") {
+			return { currentIndex: this.history.length - 1, entries: this.history };
+		}
 		return method === "Runtime.evaluate" ? { result: { type: "string", value: "Example" } } : undefined;
 	}
 }
@@ -157,6 +161,8 @@ describe("preview relay extension", () => {
 			"Page.navigateToHistoryEntry",
 			"Page.setDownloadBehavior",
 			"Security.setIgnoreCertificateErrors",
+			"Security.setOverrideCertificateErrors",
+			"Security.handleCertificateError",
 			"Browser.close",
 			"Browser.getVersion",
 			"SystemInfo.getInfo",
@@ -200,6 +206,76 @@ describe("preview relay extension", () => {
 			expect((await rpc(100 + index, { op: "send", tabId: 7, method, params: {} }))?.ok, method).toBe(true);
 		}
 		expect(fake.sent.map(entry => entry.method)).toEqual(allowed);
+	});
+
+	it("lets stock's back and forward through: the history entry's URL is read first and must be http(s) or about:blank", async () => {
+		const { fake, rpc } = setup();
+		await rpc(1, { op: "attach", tabId: 7 });
+		fake.history = [
+			{ id: 1, url: "about:blank" },
+			{ id: 2, url: "https://a.test/" },
+			{ id: 3, url: "file:///etc/passwd" },
+			{ id: 4, url: "chrome://gpu" },
+		];
+		const go = (id: number, entryId: unknown) =>
+			rpc(id, { op: "send", tabId: 7, method: "Page.navigateToHistoryEntry", params: { entryId } });
+		expect((await go(2, 1))?.ok).toBe(true);
+		expect((await go(3, 2))?.ok).toBe(true);
+		for (const [id, entryId] of [
+			[4, 3],
+			[5, 4],
+			[6, 99],
+			[7, "2"],
+			[8, undefined],
+		] as const) {
+			expect((await go(id, entryId))?.ok, String(entryId)).toBe(false);
+		}
+		expect(fake.sent.map(entry => entry.method)).toEqual([
+			"Page.getNavigationHistory",
+			"Page.navigateToHistoryEntry",
+			"Page.getNavigationHistory",
+			"Page.navigateToHistoryEntry",
+			"Page.getNavigationHistory",
+			"Page.getNavigationHistory",
+			"Page.getNavigationHistory",
+		]);
+		expect(
+			fake.sent.filter(entry => entry.method === "Page.navigateToHistoryEntry").map(entry => entry.params),
+		).toEqual([{ entryId: 1 }, { entryId: 2 }]);
+	});
+
+	it("answers Tracing with a reason the agent's tool error can show", async () => {
+		const { fake, rpc } = setup();
+		await rpc(1, { op: "attach", tabId: 7 });
+		const result = await rpc(2, { op: "send", tabId: 7, method: "Tracing.start", params: {} });
+		expect(result?.ok).toBe(false);
+		expect(String(result?.error)).toMatch(/Tracing.*traceStart.*browser-wide/);
+		expect(fake.sent).toEqual([]);
+	});
+
+	it("refuses a drag that carries files or file paths and forwards one that carries text", async () => {
+		const { fake, rpc } = setup();
+		await rpc(1, { op: "attach", tabId: 7 });
+		const drag = (id: number, data: object) =>
+			rpc(id, {
+				op: "send",
+				tabId: 7,
+				method: "Input.dispatchDragEvent",
+				params: { type: "drop", x: 1, y: 1, data },
+			});
+		for (const [id, data] of [
+			[2, { items: [], files: ["/etc/hosts"] }],
+			[3, { items: [], files: "/etc/hosts" }],
+			[4, { items: [{ mimeType: "text/uri-list", data: "file:///etc/hosts" }] }],
+		] as const) {
+			const result = await drag(id, data);
+			expect(result?.ok, JSON.stringify(data)).toBe(false);
+			expect(String(result?.error)).toMatch(/files/);
+		}
+		expect(fake.sent).toEqual([]);
+		expect((await drag(5, { items: [{ mimeType: "text/plain", data: "hello" }], files: [] }))?.ok).toBe(true);
+		expect((await drag(6, { items: [{ mimeType: "text/plain", data: "hello" }] }))?.ok).toBe(true);
+		expect(fake.sent.map(entry => entry.method)).toEqual(["Input.dispatchDragEvent", "Input.dispatchDragEvent"]);
 	});
 
 	it("only reaches sessions this page's own debugger announced", async () => {

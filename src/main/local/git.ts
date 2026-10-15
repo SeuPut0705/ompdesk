@@ -1,5 +1,5 @@
 /** Git / worktree / PR / source-control commands (rpc-map §5), answered in main over the git and gh CLIs. */
-import { getGitChanges, getGitDiff, getGitStatus } from "./git/changes";
+import { getGitChanges, getGitDiff, getGitFingerprint, getGitStatus } from "./git/changes";
 import { githubCommand } from "./git/github";
 import {
 	prCheckout,
@@ -25,6 +25,7 @@ const pathsOrAll = (value: unknown) => (value === "all" ? "all" : Array.isArray(
 export const handlers: Record<string, LocalHandler> = {
 	get_git_status: (_command, ctx) => getGitStatus(ctx.cwd),
 	get_git_changes: (_command, ctx) => getGitChanges(ctx.cwd),
+	get_git_fingerprint: (_command, ctx) => getGitFingerprint(ctx.cwd),
 	get_git_diff: (command, ctx) => getGitDiff(ctx.cwd, str(command.path) ?? ""),
 	worktree_create: (command, ctx) =>
 		createWorktree(

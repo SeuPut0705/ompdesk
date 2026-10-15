@@ -74,7 +74,8 @@ export async function execBin(bin: string, args: string[], opts: ExecOptions): P
 	const { promise, resolve, reject } = Promise.withResolvers<ExecResult>();
 	const child = spawn(bin, args, {
 		cwd: opts.cwd,
-		env: { ...process.env, PATH: pathEnv, ...opts.env },
+		// A read-only `git status` must not take `.git/index.lock` to refresh the index: the agent's own git would fail on it.
+		env: { ...process.env, PATH: pathEnv, GIT_OPTIONAL_LOCKS: "0", ...opts.env },
 		shell: false,
 		stdio: ["ignore", "pipe", "pipe"],
 		windowsHide: true,

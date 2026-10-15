@@ -323,6 +323,7 @@ export type RpcCommand =
 	// ~/.omp/wt/gui-<name>-<hash7> (prefix rules: shared/worktree-branch.ts); worktree_remove refuses dirty unless force.
 	| { id?: string; type: "get_git_status" }
 	| { id?: string; type: "get_git_changes" }
+	| { id?: string; type: "get_git_fingerprint" }
 	| { id?: string; type: "get_git_diff"; path: string }
 	| {
 			id?: string;
@@ -918,6 +919,11 @@ export interface RpcWorkspaceDirectoriesResult {
  * Result of get_git_status: footer git segment state for the session cwd.
  * `isRepo` false outside a repository (counts zeroed, branch null).
  */
+/** Result of get_git_fingerprint: changes whenever the checkout's `get_git_changes` answer may have. */
+export interface RpcGitFingerprint {
+	fingerprint: string;
+}
+
 /** Net changes from the current HEAD to this checkout, including untracked files. */
 export interface RpcGitChanges {
 	isRepo: boolean;

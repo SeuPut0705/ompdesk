@@ -771,6 +771,40 @@ describe("tabs store close", () => {
 		expect(omp.tabs.close).toHaveBeenCalledWith("t1");
 	});
 
+	it("asks before closing the tab that owns unsaved Files edits, and closes it once they are discarded", async () => {
+		seedTabs("t0");
+		useUiStore.setState({ fileEditDirty: true, fileEditTabId: "t1", pendingFileSwitch: null });
+		try {
+			await useTabsStore.getState().closeTab("t1");
+			expect(omp.tabs.close).not.toHaveBeenCalled();
+			expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t1", "t2"]);
+			expect(useUiStore.getState().pendingFileSwitch).toEqual({ discardedForTabClose: "t1" });
+
+			// Another tab closes as usual: the edits are not its own.
+			await useTabsStore.getState().closeTab("t2");
+			expect(omp.tabs.close).toHaveBeenCalledWith("t2");
+
+			// Cancel drops the request and keeps the edits and the tab.
+			useUiStore.getState().resolveFileSwitch(false);
+			expect(useUiStore.getState()).toMatchObject({
+				pendingFileSwitch: null,
+				discardedForTabClose: null,
+				fileEditDirty: true,
+			});
+
+			await useTabsStore.getState().closeTab("t1");
+			useUiStore.getState().resolveFileSwitch(true);
+			expect(useUiStore.getState()).toMatchObject({ discardedForTabClose: "t1", fileEditDirty: false });
+		} finally {
+			useUiStore.setState({
+				fileEditDirty: false,
+				fileEditTabId: null,
+				pendingFileSwitch: null,
+				discardedForTabClose: null,
+			});
+		}
+	});
+
 	it("remembers saved sessions it closes and reopens the most recent one where it ran", async () => {
 		seedTabs("t0");
 		useTabsStore.setState(state => ({
