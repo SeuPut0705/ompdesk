@@ -43,6 +43,8 @@ export const IDLE_SETTING_PATHS: readonly string[] = [
 
 export class IdleCompactionTimer<S extends IdleSession = IdleSession> {
 	#timer: NodeJS.Timeout | undefined;
+	/** Bumped by every cancel, so an arm still reading its settings knows it was superseded. */
+	#generation = 0;
 	#draftEmpty = true;
 	readonly #read: (session: S) => IdleSettings | Promise<IdleSettings>;
 	/** A turn ended and none started since: the window stock's timer covers. */
@@ -57,15 +59,20 @@ export class IdleCompactionTimer<S extends IdleSession = IdleSession> {
 	}
 
 	cancel(): void {
+		this.#generation += 1;
 		clearTimeout(this.#timer);
 		this.#timer = undefined;
 	}
 
 	async schedule(session: S): Promise<void> {
 		this.cancel();
+		// The settings read awaits: an arm or a cancel that comes meanwhile supersedes this one,
+		// or two arms would each set a timer and only the second could ever be cancelled.
+		const generation = this.#generation;
 		// Context maintenance may reset the session before the timer fires.
 		if (session.isCompacting) return;
 		const settings = await this.#read(session);
+		if (generation !== this.#generation) return;
 		if (!settings.idleEnabled || !this.#draftEmpty) return;
 		const threshold = settings.idleThresholdTokens;
 		if (threshold <= 0 || (session.getContextUsage()?.tokens ?? 0) < threshold) return;

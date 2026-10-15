@@ -143,4 +143,26 @@ describe("idle compaction timer", () => {
 		await timer.settingChanged("compaction.idleTimeoutSeconds", session);
 		expect(timer.armed).toBe(false);
 	});
+
+	it("keeps one timer when two arms overlap the settings read, so a cancel leaves nothing to fire", async () => {
+		const session = fakeSession();
+		const reads: Array<() => void> = [];
+		const timer = new IdleCompactionTimer(
+			() =>
+				new Promise<IdleSettings>(resolve => {
+					reads.push(() => resolve(settings));
+				}),
+		);
+		// agent_end arms, and a live write of an idle setting re-arms while that read is pending.
+		const first = timer.onEvent({ type: "agent_end" }, session);
+		const second = timer.settingChanged("compaction.idleTimeoutSeconds", session);
+		for (const resolve of reads) resolve();
+		await Promise.all([first, second]);
+		expect(timer.armed).toBe(true);
+		// A cancel (here: an auto-compaction) must leave no earlier timer running.
+		await timer.onEvent({ type: "auto_compaction_end" }, session);
+		expect(timer.armed).toBe(false);
+		vi.advanceTimersByTime(300_000);
+		expect(session.runs).toBe(0);
+	});
 });
