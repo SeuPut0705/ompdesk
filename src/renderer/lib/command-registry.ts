@@ -326,7 +326,6 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		toast({ variant: "success", message: t(enabled ? "advisor.enabled" : "advisor.disabled") });
 	};
 
-	/** /mcp enable|disable|remove|reconnect <name>; a bare invocation opens the native MCP tab. */
 	/**
 	 * /autoclear on [delay] | off — stock's idle compaction (`compaction.idle*`),
 	 * which the bridge's idle-compaction timer runs for GUI tabs. A delay like
@@ -358,6 +357,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		toast({ variant: "success", message: t("cmd.autoclear.enabled", { minutes }) });
 	};
 
+	/** /mcp enable|disable|remove|reconnect <name>; a bare invocation opens the native MCP tab. */
 	const runMcpAction = async (verb: "enable" | "disable" | "reconnect" | "remove", args?: string): Promise<void> => {
 		const name = args?.trim();
 		if (!name) {
@@ -1491,7 +1491,6 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		},
 	});
 	add({
-	add({
 		name: "autoclear",
 		label: t("cmd.autoclear"),
 		description: t("cmd.autoclear.desc"),
@@ -1508,6 +1507,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 			],
 		},
 	});
+	add({
 		name: "websearch",
 		label: t("cmd.websearch"),
 		description: t("cmd.websearch.desc"),
