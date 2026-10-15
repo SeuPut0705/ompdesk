@@ -323,7 +323,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		await fire(footer?.querySelector('[data-destination="agents"]') ?? null, "onClick");
 		expect(useUiStore.getState().destination).toBe("agents");
 
-		// Help: shortcuts, palette, features, feedback, what's new, about.
+		// Help: shortcuts, palette, features, feedback, what's new, about, then the sidebar pins.
 		await fire(footer?.querySelector('[aria-label="Help"]') ?? null, "onClick");
 		expect(menuItemLabels().map(label => label.replace(/⌘.*$/, ""))).toEqual([
 			"Keyboard shortcuts",
@@ -332,12 +332,59 @@ describe("Sidebar menus and pinned ordering", () => {
 			"What's new",
 			"Send feedback",
 			"About OMPdesk",
+			"Pin to sidebar: Usage limits",
+			"Pin to sidebar: Terminal",
+			"Pin to sidebar: Changes",
+			"Pin to sidebar: Preview",
+			"Pin to sidebar: Files",
+			"Pin to sidebar: Background tasks",
+			"Pin to sidebar: Schedules",
 		]);
 		const shortcuts = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
 			(button.textContent ?? "").includes("Keyboard shortcuts"),
 		);
 		await fire(shortcuts as Element, "onClick");
 		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "keyboard" });
+	});
+
+	it("pins shortcuts from the help menu above the destinations, in a fixed order, and they open their view", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true });
+		await mount(<Sidebar />);
+		const footer = container.querySelector("[data-sidebar-destinations]");
+		const pin = async (label: string) => {
+			await fire(footer?.querySelector('[aria-label="Help"]') ?? null, "onClick");
+			const item = [...document.body.querySelectorAll('[role="menu"] button')].find(
+				button => (button.textContent ?? "").trim() === label,
+			);
+			await fire(item as Element, "onClick");
+		};
+		await pin("Pin to sidebar: Schedules");
+		await pin("Pin to sidebar: Files");
+		expect(useSidebarPrefs.getState().railPins).toEqual(["files", "schedules"]);
+		expect(omp.prefs.set).toHaveBeenCalledWith(
+			"sidebar",
+			expect.objectContaining({ railPins: ["files", "schedules"] }),
+		);
+		const pinned = [...(footer?.querySelectorAll("[data-rail-pin]") ?? [])].map(row =>
+			row.getAttribute("data-rail-pin"),
+		);
+		expect(pinned).toEqual(["files", "schedules"]);
+		// The pin checks in the menu, and choosing it again unpins.
+		await fire(footer?.querySelector('[aria-label="Help"]') ?? null, "onClick");
+		const checked = document.body.querySelector('[role="menuitemcheckbox"][aria-checked="true"]');
+		expect(checked?.textContent).toContain("Files");
+		await fire(document.body.querySelector('[aria-label="Help"]') ?? null, "onClick");
+
+		useUiStore.setState({ destination: "insights", panelVisible: false });
+		await fire(footer?.querySelector('[data-rail-pin="files"]') ?? null, "onClick");
+		expect(useUiStore.getState()).toMatchObject({ destination: "session", panelVisible: true, panelTab: "files" });
+		await fire(footer?.querySelector('[data-rail-pin="schedules"]') ?? null, "onClick");
+		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "schedules" });
+
+		await pin("Pin to sidebar: Files");
+		expect(useSidebarPrefs.getState().railPins).toEqual(["schedules"]);
 	});
 
 	it("opens the command palette from the header and selecting a session returns from a page", async () => {

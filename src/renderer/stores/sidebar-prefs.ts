@@ -2,7 +2,8 @@
  * Sidebar presentation prefs: pinned workspaces/sessions, workspace display
  * aliases (rename), the dragged project order, archived sessions (by id; stock
  * has no archive flag, so archiving only hides a session from the lists), the
- * projects-or-recent grouping, and the workspace MRU clock the workspace
+ * projects-or-recent grouping, the shortcuts pinned to the sidebar footer, and
+ * the workspace MRU clock the workspace
  * picker sorts by. Persisted as one JSON blob under the "sidebar" prefs key
  * via window.omp.prefs (electron-store in main); hydrate once at App mount.
  * Recency bookkeeping writes fire-and-forget; the pins, aliases and archive
@@ -24,6 +25,19 @@ interface SidebarPrefsBlob {
 	groupOrder?: string[];
 	archivedSessions?: string[];
 	grouping?: SidebarGrouping;
+	railPins?: string[];
+}
+
+/**
+ * What the sidebar footer can hold above its destinations (mixdog's activity-rail
+ * pins): usage bars for the tab's provider, side panel views, and Schedules.
+ */
+export const RAIL_PINS = ["usage", "terminal", "diff", "preview", "files", "jobs", "schedules"] as const;
+export type RailPin = (typeof RAIL_PINS)[number];
+
+function validRailPins(value: unknown): RailPin[] {
+	if (!Array.isArray(value)) return [];
+	return RAIL_PINS.filter(pin => value.includes(pin));
 }
 
 /** Code sessions grouped under their project, or one list by recent activity. */
@@ -39,6 +53,8 @@ interface SidebarPrefsStore {
 	/** Ids of sessions hidden from the lists until restored. */
 	archivedSessions: string[];
 	grouping: SidebarGrouping;
+	/** Footer shortcuts in `RAIL_PINS` order. */
+	railPins: RailPin[];
 	hydrated: boolean;
 	hydrate: () => Promise<void>;
 	toggleGroupPin: (cwd: string) => Promise<void>;
@@ -47,6 +63,7 @@ interface SidebarPrefsStore {
 	setGroupOrder: (order: string[]) => Promise<void>;
 	setSessionsArchived: (ids: readonly string[], archived: boolean) => Promise<void>;
 	setGrouping: (grouping: SidebarGrouping) => Promise<void>;
+	toggleRailPin: (pin: RailPin) => Promise<void>;
 	touchWorkspace: (cwd: string) => void;
 	reset: () => void;
 }
@@ -89,6 +106,7 @@ function prefsBlob(state: SidebarPrefsStore): SidebarPrefsBlob {
 		groupOrder: state.groupOrder,
 		archivedSessions: state.archivedSessions,
 		grouping: state.grouping,
+		railPins: state.railPins,
 	};
 }
 
@@ -115,6 +133,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 	groupOrder: [],
 	archivedSessions: [],
 	grouping: "projects",
+	railPins: [],
 	hydrated: false,
 
 	hydrate: async () => {
@@ -133,6 +152,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 					? blob.archivedSessions.filter((id): id is string => typeof id === "string" && id.length > 0)
 					: [],
 				grouping: blob?.grouping === "recent" ? "recent" : "projects",
+				railPins: validRailPins(blob?.railPins),
 				hydrated: true,
 			});
 		} catch {
@@ -205,6 +225,18 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 			onFailure: failure => toastError({ title: translate("sidebar.groupingFailed"), error: failure }),
 		}),
 
+	toggleRailPin: pin =>
+		optimisticWrite({
+			store: { getState: get, setState: set },
+			mutate: state => ({
+				railPins: state.railPins.includes(pin)
+					? state.railPins.filter(item => item !== pin)
+					: RAIL_PINS.filter(item => item === pin || state.railPins.includes(item)),
+			}),
+			persist: () => writePrefs(get),
+			onFailure: failure => toastError({ title: translate("sidebar.pinFailed"), error: failure }),
+		}),
+
 	touchWorkspace: cwd => {
 		if (!cwd) return;
 		const state = get();
@@ -222,6 +254,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => ({
 			groupOrder: [],
 			archivedSessions: [],
 			grouping: "projects",
+			railPins: [],
 			hydrated: false,
 		}),
 }));

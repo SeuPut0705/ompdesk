@@ -9,6 +9,7 @@ import {
 	ArrowUp,
 	BarChart3,
 	Bot,
+	CalendarClock,
 	ChevronDown,
 	ChevronRight,
 	CircleHelp,
@@ -16,6 +17,7 @@ import {
 	Compass,
 	Copy,
 	ExternalLink,
+	Files,
 	Folder,
 	FolderInput,
 	FolderOpen,
@@ -23,7 +25,10 @@ import {
 	FolderSearch,
 	GitBranch,
 	GitBranchPlus,
+	GitCompareArrows,
+	Globe,
 	History,
+	Hourglass,
 	Info,
 	Keyboard,
 	MessageCircle,
@@ -44,6 +49,7 @@ import {
 	Sparkles,
 	SquarePen,
 	SquareTerminal,
+	Terminal,
 	Trash2,
 	X,
 	XCircle,
@@ -81,11 +87,11 @@ import { useQueueStore } from "../../stores/queue";
 import { usePairedHosts } from "../../stores/remote";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore } from "../../stores/session-runtime-context";
-import { useSidebarPrefs } from "../../stores/sidebar-prefs";
+import { RAIL_PINS, type RailPin, useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../stores/sidebar-subagents";
 import { useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
-import { type PageDestination, useUiStore } from "../../stores/ui";
+import { type PageDestination, type PanelTab, useUiStore } from "../../stores/ui";
 import {
 	Badge,
 	BrandMark,
@@ -110,6 +116,7 @@ import { StarterGuide } from "../onboarding/StarterGuide";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarSubagents, SidebarSubagentsToggle, sidebarSubagentCount } from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
+import { SidebarUsage } from "./SidebarUsage";
 import "../../styles/sidebar.css";
 
 /**
@@ -188,9 +195,43 @@ const DESTINATIONS: { id: PageDestination; labelKey: string; icon: typeof Bot }[
 	{ id: "settings", labelKey: "destination.settings", icon: Settings },
 ];
 
+/** A pinned side panel view: back to the session (a page hides the panel) with that view open. */
+function showPanelView(tab: PanelTab): void {
+	const ui = useUiStore.getState();
+	if (ui.destination !== "session") ui.closeDestination();
+	ui.setPanelTab(tab);
+}
+
+/** Footer shortcuts the user pins from the help menu (usage renders as bars, the rest as rows). */
+const RAIL_PIN_ROWS: Record<Exclude<RailPin, "usage">, { labelKey: string; icon: typeof Bot; open: () => void }> = {
+	terminal: { labelKey: "panel.tabs.terminal", icon: Terminal, open: () => showPanelView("terminal") },
+	diff: { labelKey: "panel.tabs.diff", icon: GitCompareArrows, open: () => showPanelView("diff") },
+	preview: { labelKey: "panel.tabs.preview", icon: Globe, open: () => showPanelView("preview") },
+	files: { labelKey: "panel.tabs.files", icon: Files, open: () => showPanelView("files") },
+	jobs: { labelKey: "panel.tabs.jobs", icon: Hourglass, open: () => showPanelView("jobs") },
+	schedules: {
+		labelKey: "settings.section.schedules",
+		icon: CalendarClock,
+		open: () => useUiStore.getState().openSettings("schedules"),
+	},
+};
+
 function useHelpItems(): ContextMenuItem[] {
 	const t = useT();
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
+	const railPins = useSidebarPrefs(s => s.railPins);
+	// Pin to sidebar: checkable shortcuts shown above the destinations (mixdog's rail pins).
+	const pinItems = RAIL_PINS.map(
+		(pin, index): ContextMenuItem => ({
+			id: `help-pin-${pin}`,
+			label: t("sidebar.pin.item", {
+				name: pin === "usage" ? t("sidebar.pin.usage") : t(RAIL_PIN_ROWS[pin].labelKey),
+			}),
+			checked: railPins.includes(pin),
+			separatorBefore: index === 0,
+			onSelect: () => void useSidebarPrefs.getState().toggleRailPin(pin),
+		}),
+	);
 	return [
 		{
 			id: "help-shortcuts",
@@ -232,6 +273,7 @@ function useHelpItems(): ContextMenuItem[] {
 			icon: Info,
 			onSelect: () => useUiStore.getState().openSettings("updates"),
 		},
+		...pinItems,
 	];
 }
 
@@ -268,6 +310,7 @@ function SidebarFooter() {
 	const destination = useUiStore(s => s.destination);
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
 	const helpItems = useHelpItems();
+	const railPins = useSidebarPrefs(s => s.railPins);
 	const shortcutFor = (id: PageDestination) =>
 		id === "agents"
 			? actionKbd("agents.hub", keymapOverrides)
@@ -286,6 +329,22 @@ function SidebarFooter() {
 			className="flex shrink-0 flex-col gap-px border-t border-(--sc-divider) p-2"
 			data-sidebar-destinations
 		>
+			{railPins.map(pin => {
+				if (pin === "usage") return <SidebarUsage key={pin} />;
+				const { labelKey, icon: Icon, open: openPin } = RAIL_PIN_ROWS[pin];
+				return (
+					<Button
+						className="omp-sidebar-destination w-full min-w-0 justify-start gap-2.5 px-2.5 text-(--sc-text-secondary)"
+						data-rail-pin={pin}
+						icon={<Icon />}
+						key={pin}
+						onClick={openPin}
+						variant="ghost"
+					>
+						<span className="min-w-0 flex-1 truncate text-left">{t(labelKey)}</span>
+					</Button>
+				);
+			})}
 			{DESTINATIONS.map(({ id, labelKey, icon: Icon }) => {
 				const current = destination === id;
 				const shortcut = shortcutFor(id);
