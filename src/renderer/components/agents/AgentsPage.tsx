@@ -1,7 +1,8 @@
 /**
  * Agents destination (design-spec §2.2): a full page in the main area with
- * three tabs — Live (the session's subagents), Definitions (enable, model and
- * prewalk overrides per agent) and Pull requests. The active tab lives in the
+ * four tabs — Live (the session's subagents), Definitions (enable, model and
+ * prewalk overrides per agent), Pull requests and GitHub (issues, Actions,
+ * releases, notifications, repositories). The active tab lives in the
  * ui store (`agentsTab`, `openAgents(tab)`) so ⌥A, ⌥P, the palette, menus and
  * links land on the right one.
  */
@@ -12,6 +13,7 @@ import { type AgentsTab, useUiStore } from "../../stores/ui";
 import { PageLayout, Tabs } from "../common";
 import { isLiveSubagentStatus } from "../panels/subagent-graph";
 import { AgentDefinitions } from "./AgentDefinitions";
+import { GithubCenter } from "./github/GithubCenter";
 import { LiveAgents } from "./LiveAgents";
 import { PullRequests } from "./PullRequests";
 
@@ -19,6 +21,7 @@ const TAB_LABEL_KEY: Record<AgentsTab, string> = {
 	live: "agents.tabs.live",
 	definitions: "agents.tabs.definitions",
 	prs: "agents.tabs.prs",
+	github: "agents.tabs.github",
 };
 
 export function AgentsPage() {
@@ -33,7 +36,7 @@ export function AgentsPage() {
 
 	return (
 		<PageLayout
-			body={tab === "prs" ? "fill" : "scroll"}
+			body={tab === "prs" || tab === "github" ? "fill" : "scroll"}
 			description={t("agents.description")}
 			panelLabel={t(TAB_LABEL_KEY[tab])}
 			tabs={
@@ -53,6 +56,7 @@ export function AgentsPage() {
 			{tab === "live" && <LiveAgents />}
 			{tab === "definitions" && <AgentDefinitions />}
 			{tab === "prs" && <PullRequests />}
+			{tab === "github" && <GithubCenter />}
 		</PageLayout>
 	);
 }

@@ -1611,6 +1611,13 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		shortcut: kbd("pr.center"),
 		affordance: { kind: "window", open: () => ctx.openAgents("prs") },
 	});
+	add({
+		name: "github",
+		label: t("cmd.github"),
+		description: t("cmd.github.desc"),
+		category: "agents",
+		affordance: { kind: "window", open: () => ctx.openAgents("github") },
+	});
 
 	// ═══════════════════════════════════════════════════════════════════
 	// NATIVE INTERACTIVE SURFACES

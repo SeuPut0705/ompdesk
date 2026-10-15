@@ -80,7 +80,7 @@ export const PR_COMMAND_BUDGETS_MS = {
 	pr_comment: 3 * DEFAULT_TIMEOUT_MS,
 } as const;
 
-interface GithubRepo {
+export interface GithubRepo {
 	ghBin: string;
 	root: string;
 	repo: string;
@@ -90,7 +90,7 @@ interface GithubRepo {
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** Resolve gh + the GitHub repo for `cwd`, or throw the typed reason. */
-async function requireGithubRepo(cwd: string): Promise<GithubRepo> {
+export async function requireGithubRepo(cwd: string): Promise<GithubRepo> {
 	const ghBin = await resolveBin("gh");
 	if (!ghBin)
 		throw new LocalCommandError("GitHub CLI (gh) is not installed — see https://cli.github.com", "gh_missing");
@@ -336,7 +336,7 @@ function checkPrNumber(number: number, code: string): number {
 }
 
 /** Run `fn` with `text` in a private temp file (gh `--body-file`), removed afterwards. */
-async function withBodyFile<T>(text: string, fn: (file: string) => Promise<T>): Promise<T> {
+export async function withBodyFile<T>(text: string, fn: (file: string) => Promise<T>): Promise<T> {
 	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-pr-body-"));
 	try {
 		const file = path.join(tempDir, "body.md");

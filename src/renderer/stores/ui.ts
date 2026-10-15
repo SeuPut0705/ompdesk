@@ -21,10 +21,10 @@ export function migrateDefaultPanelTab(value: unknown): PanelTab {
  */
 export type Destination = "session" | "agents" | "insights" | "settings";
 export type PageDestination = Exclude<Destination, "session">;
-export type AgentsTab = "live" | "definitions" | "prs";
+export type AgentsTab = "live" | "definitions" | "prs" | "github";
 export type InsightsTab = "stats" | "usage";
 export type InsightsStatsScope = "session" | "all";
-const AGENTS_TABS: readonly string[] = ["live", "definitions", "prs"] satisfies AgentsTab[];
+const AGENTS_TABS: readonly string[] = ["live", "definitions", "prs", "github"] satisfies AgentsTab[];
 const INSIGHTS_TABS: readonly string[] = ["stats", "usage"] satisfies InsightsTab[];
 /** Settings section a cold ⌘, lands on (SettingsPage maps legacy ids). */
 const DEFAULT_SETTINGS_TAB = "general";

@@ -1,5 +1,6 @@
 /** Git / worktree / PR / source-control commands (rpc-map §5), answered in main over the git and gh CLIs. */
 import { getGitChanges, getGitDiff, getGitStatus } from "./git/changes";
+import { githubCommand } from "./git/github";
 import {
 	prCheckout,
 	prComment,
@@ -41,6 +42,8 @@ export const handlers: Record<string, LocalHandler> = {
 	// worktree-lifecycle.ts reads `worktree.onExit` from the closing tab's live session.
 	worktree_lifecycle_settings: (_command, ctx) => ctx.bridge.request("worktree_lifecycle_settings"),
 	pr_repo: (_command, ctx) => prRepo(ctx.cwd),
+	// Agents › GitHub: issues, Actions, releases, notifications, repositories (request validated in github.ts).
+	github: (command, ctx) => githubCommand(ctx.cwd, command.request),
 	pr_list: (command, ctx) =>
 		prList(ctx.cwd, {
 			state: command.state as "open" | "closed" | "merged" | "all" | undefined,

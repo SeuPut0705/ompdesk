@@ -6,6 +6,7 @@
 
 import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
 import type { PoolMember, PoolState } from "../../resources/gui-bridge/pool-contracts";
+import type { GithubRequest } from "./github";
 
 // ============================================================================
 // RPC Commands (GUI → omp stdin)
@@ -346,6 +347,8 @@ export type RpcCommand =
 	| { id?: string; type: "pr_comment"; number: number; body: string }
 	| { id?: string; type: "pr_comments"; number: number }
 	| { id?: string; type: "pr_edit"; number: number; title?: string; body?: string; base?: string }
+	// Agents › GitHub over gh (src/main/local/git/github.ts; contract src/shared/github.ts).
+	| { id?: string; type: "github"; request: GithubRequest }
 	// Source control in the Changes panel (src/main/local/git/scm.ts): plain git
 	// mutations on the session checkout; git_commit_message runs stock
 	// `omp commit --dry-run` and never commits.
