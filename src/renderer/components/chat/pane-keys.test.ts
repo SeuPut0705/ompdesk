@@ -17,6 +17,7 @@ function setup(composerScroll = { top: 0, client: 40, height: 40 }) {
 		<div class="transcript" tabindex="0"><button id="tool">Expand</button><input id="field"></div>
 		<div class="omp-composer-anchor"><textarea class="omp-composer-input"></textarea></div>
 		<div role="dialog"><button id="dialog-button">OK</button></div>
+		<section data-prompt-card role="region"><button id="choice" data-choice="b">Lint</button></section>
 	</div>`;
 	const pane = document.querySelector(".omp-session-pane") as unknown as HTMLElement;
 	const composer = document.querySelector("textarea") as unknown as HTMLTextAreaElement & { focused?: boolean };
@@ -51,12 +52,14 @@ describe("installPaneKeys", () => {
 		expect(composer.focused).toBe(true);
 	});
 
-	it("leaves shortcuts, Space, fields and dialogs alone", () => {
+	it("leaves shortcuts, Space, fields, dialogs and prompt cards alone", () => {
 		const { composer } = setup();
 		press("#tool", { key: "c", metaKey: true });
 		press("#tool", { key: " " });
 		press("#field", { key: "a" });
 		press("#dialog-button", { key: "a" });
+		// A prompt card's digits pick its rows; a second digit must not land in the draft.
+		press("#choice", { key: "3" });
 		press("#tool", { key: "ArrowDown" });
 		expect(composer.focused).toBeUndefined();
 	});

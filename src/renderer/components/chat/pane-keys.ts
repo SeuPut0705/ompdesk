@@ -4,7 +4,7 @@
  * transcript or tool chrome moves focus to the composer first, so the
  * character lands there; PageUp/PageDown in the composer page the transcript
  * unless a completion list or the composer's own scrollback takes them.
- * Dialogs, menus and listboxes keep their keys.
+ * Dialogs, menus, listboxes and prompt cards (1–9 pick a row) keep their keys.
  */
 export function installPaneKeys(
 	pane: HTMLElement,
@@ -13,7 +13,7 @@ export function installPaneKeys(
 	const onKeyDown = (event: KeyboardEvent) => {
 		if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
 		const target = event.target instanceof HTMLElement ? event.target : null;
-		if (!target || target.closest('[role="dialog"], [role="menu"], [role="listbox"]')) return;
+		if (!target || target.closest('[role="dialog"], [role="menu"], [role="listbox"], [data-prompt-card]')) return;
 		const composer = pane.querySelector<HTMLTextAreaElement>(".omp-composer-input");
 		if (!composer) return;
 		if (target === composer) {
