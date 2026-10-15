@@ -48,8 +48,12 @@ function orchestrate(): number {
 	if (windows) {
 		env.LOCALAPPDATA = join(home, "AppData", "Local");
 		env.APPDATA = join(home, "AppData", "Roaming");
-		// Drop every Bun/omp the runner already has (setup-bun, npm globals).
-		env.PATH = (env.PATH ?? "")
+		// Drop every Bun/omp the runner already has (setup-bun, npm globals). A copied env is a plain object: the
+		// runner's `Path` is read and replaced case-insensitively, never left beside a second, filtered `PATH`.
+		const pathKeys = Object.keys(env).filter(key => key.toUpperCase() === "PATH");
+		const inherited = pathKeys.map(key => env[key] ?? "").find(Boolean) ?? "";
+		for (const key of pathKeys) Reflect.deleteProperty(env, key);
+		env.PATH = inherited
 			.split(";")
 			.filter(entry => !/[\\/]\.?bun([\\/]|$)|setup-bun|[\\/]npm$/i.test(entry))
 			.filter(entry => !hideSystemGit || !/[\\/]Git[\\/]/i.test(entry))
@@ -83,6 +87,9 @@ function fail(message: string): never {
 /** Child: HOME, USERPROFILE, BUN_INSTALL and PATH are already the isolated ones. */
 async function check(root: string): Promise<void> {
 	const home = process.env.HOME ?? fail("HOME is unset");
+	// Installers need the system's own tools (Bun's install.ps1 runs curl.exe).
+	if (windows && !/[\\/]system32[\\/]?(;|$)/i.test(process.env.PATH ?? ""))
+		fail(`System32 is not on PATH: ${process.env.PATH}`);
 	const toolsDir = managedToolsDir(platform, process.env, home, join(root, "userData"));
 	const realProgramFiles: Record<string, string> = JSON.parse(process.env[PROGRAM_FILES_ENV] ?? "{}");
 	const states: SetupState[] = [];

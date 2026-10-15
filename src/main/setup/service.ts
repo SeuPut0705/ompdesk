@@ -430,7 +430,14 @@ export class SetupService {
 	}
 
 	async #installEnv(): Promise<NodeJS.ProcessEnv> {
-		return { ...(await this.#deps.spawnEnv()), BUN_INSTALL: this.#deps.bunInstall };
+		const env: NodeJS.ProcessEnv = { ...(await this.#deps.spawnEnv()), BUN_INSTALL: this.#deps.bunInstall };
+		if (this.#deps.platform === "win32") {
+			// Installers run Windows PowerShell through the supervisor. A PSModulePath inherited from PowerShell 7 (OMPdesk
+			// started from pwsh) lists PS7's modules first; Windows PowerShell then resolves Microsoft.PowerShell.Utility to a
+			// version it cannot load, and Get-FileHash and friends are "not recognized". Without it, it builds its own default.
+			for (const key of Object.keys(env)) if (key.toUpperCase() === "PSMODULEPATH") Reflect.deleteProperty(env, key);
+		}
+		return env;
 	}
 
 	#planContext(detection: Detection): PlanContext {

@@ -59,6 +59,7 @@ function harness(
 		now?: () => number;
 		testDownload?: { url: string; sha256: string };
 		fetch?: DownloadFetch;
+		spawnEnv?: NodeJS.ProcessEnv;
 	} = {},
 ) {
 	const spawned: { spec: SpawnSpec; env: NodeJS.ProcessEnv }[] = [];
@@ -99,7 +100,7 @@ function harness(
 		statePath: join(dir, "setup-state.json"),
 		automatic: options.automatic ?? true,
 		testInstaller: options.testInstaller === undefined ? "/fake/installer" : options.testInstaller,
-		spawnEnv: async () => ({ PATH: "/usr/bin" }),
+		spawnEnv: async () => options.spawnEnv ?? { PATH: "/usr/bin" },
 		onState: state => states.push(state),
 		onOmpReady,
 		detect,
@@ -291,6 +292,20 @@ describe("SetupService", () => {
 		expect(state.items.filter(item => item.required).map(item => item.id)).toEqual(["bun", "git", "omp"]);
 		expect(h.phase("gh")).toBe("unavailable");
 		expect(h.phase("node")).toBe("unavailable");
+	});
+
+	it("starts Windows installers without an inherited PSModulePath, so Windows PowerShell builds its own", async () => {
+		const h = harness(machine({ bun: missing, git: present(), omp: present("18.9.0") }), {
+			platform: "win32",
+			spawnEnv: {
+				Path: "C:\\Windows\\System32",
+				PSModulePath:
+					"C:\\Program Files\\PowerShell\\7\\Modules;C:\\Windows\\system32\\WindowsPowerShell\\v1.0\\Modules",
+			},
+		});
+		await h.service.start();
+		expect(h.items()).toEqual(["bun"]);
+		expect(h.spawned[0]?.env).toEqual({ Path: "C:\\Windows\\System32", BUN_INSTALL: "/home/u/.bun" });
 	});
 
 	it("installs gh and Node from verified archives on a Mac without Homebrew", async () => {
