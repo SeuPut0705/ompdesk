@@ -1,6 +1,13 @@
 /**
  * Host ↔ client over real sockets on 127.0.0.1, with per-test temp userData
  * directories. The host's clock is injectable for code expiry.
+ *
+ * Every listener here binds 127.0.0.1 itself. A host on `::` with an ephemeral
+ * port shared it with IPv4 listeners of other processes on this Mac (a Logitech
+ * plug-in's 127.0.0.1:P, Tailscale's *:P), which took the 127.0.0.1 dials: the
+ * test hung until a 5 s connect or 10 s handshake deadline, past its own 5 s.
+ * An address nobody answers is a listener held open that drops every
+ * connection, never a closed port another process can pick up.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
@@ -65,6 +72,7 @@ async function startHost(b: Side = side(), port = 0, clock = { now: Date.now() }
 		services,
 		name: () => "Studio",
 		port,
+		bindHost: "127.0.0.1",
 		discoveryPort: TEST_DISCOVERY_PORT,
 		appVersion: APP_VERSION,
 		hello: () => MACHINE,
@@ -275,8 +283,7 @@ describe("pairing", () => {
 	});
 
 	it("reports an unreachable host", async () => {
-		const { server, port } = await listenFake(socket => socket.destroy());
-		server.close();
+		const { port } = await listenFake(socket => socket.destroy());
 		const error = await rejection(
 			pairWithHost({
 				identity: side().identity,
@@ -357,6 +364,9 @@ describe("authenticated link", () => {
 		await rig.host.revoke(a.identity.deviceId);
 		expect(rig.host.connections()).toEqual([]);
 		expect(rig.peers.get(a.identity.deviceId)).toBeUndefined();
+		// The drop leaves the client waiting out its 1 s backoff; retry now, as a beacon from the host does (devices.ts).
+		await untilState(remote, "offline");
+		remote.connect();
 		expect(await untilError(remote)).toBe("unpaired");
 	});
 
@@ -410,8 +420,7 @@ describe("authenticated link", () => {
 	it("tries each stored address and keeps the working one first", async () => {
 		const rig = await startHost();
 		const { a, hosts, paired } = await pairedClient(rig);
-		const { server, port: dead } = await listenFake(socket => socket.destroy());
-		server.close();
+		const { port: dead } = await listenFake(socket => socket.destroy());
 		const working = `127.0.0.1:${rig.port}`;
 		hosts.update(paired.deviceId, { addresses: [`127.0.0.1:${dead}`, working] });
 		const remote = client(a, paired, hosts);

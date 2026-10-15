@@ -72,6 +72,11 @@ export interface RemoteHostOptions {
 	name: () => string;
 	/** TCP port; defaults to `OMP_GUI_REMOTE_PORT` or 47821, falling back to an ephemeral port when busy. */
 	port?: number;
+	/**
+	 * Address to listen on; every interface when omitted. Tests that dial 127.0.0.1 bind it: macOS lets an
+	 * IPv4 socket of another process share the port of a `::` listener and take its 127.0.0.1 connections.
+	 */
+	bindHost?: string;
 	/** Beacon UDP port; defaults to `OMP_GUI_REMOTE_DISCOVERY_PORT` or 47822. */
 	discoveryPort?: number;
 	appVersion: string;
@@ -110,10 +115,10 @@ function errorPayload(error: unknown): { code: string; message: string } {
 	return { code: ipcErrorCode(error) ?? own ?? "remote_error", message };
 }
 
-function listen(server: Server, port: number): Promise<number> {
+function listen(server: Server, port: number, host: string | undefined): Promise<number> {
 	const { promise, resolve, reject } = Promise.withResolvers<number>();
 	server.once("error", reject);
-	server.listen(port, () => {
+	server.listen(port, host, () => {
 		server.off("error", reject);
 		resolve((server.address() as AddressInfo).port);
 	});
@@ -158,11 +163,11 @@ export class RemoteHost {
 		let server = this.#createServer();
 		let port: number;
 		try {
-			port = await listen(server, wanted);
+			port = await listen(server, wanted, this.#opts.bindHost);
 		} catch (error) {
 			if (wanted === 0 || !(error instanceof Error && "code" in error && error.code === "EADDRINUSE")) throw error;
 			server = this.#createServer();
-			port = await listen(server, 0);
+			port = await listen(server, 0, this.#opts.bindHost);
 		}
 		this.#server = server;
 		this.#port = port;
