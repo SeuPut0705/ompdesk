@@ -203,3 +203,11 @@ describe("ko stop wording in main", () => {
 		expect(MAIN_TEXT["resume.stop"].ko).toBe(ko["input.abort"]);
 	});
 });
+
+describe("en file counts", () => {
+	it("say '1 file', not '1 files'", () => {
+		for (const key of ["filesPanel.count", "diffPanel.repositorySummary"]) {
+			expect(en[key], key).toContain("{plural}");
+		}
+	});
+});

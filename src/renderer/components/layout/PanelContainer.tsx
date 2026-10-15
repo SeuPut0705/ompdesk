@@ -71,8 +71,8 @@ function PanelHeader() {
 	const togglePanel = useUiStore(s => s.togglePanel);
 	const current = panelTab === "subagent" ? SUBAGENT_VIEW : (VIEWS.find(view => view.id === panelTab) ?? VIEWS[0]);
 	return (
-		<div className="omp-panel-topbar drag-region flex min-h-(--sc-space-12) shrink-0 items-center gap-1 px-3">
-			<span title={t(current.labelKey)} className="min-w-0 flex-1 truncate text-sc-sm font-medium text-(--sc-text)">
+		<div className="omp-panel-topbar drag-region flex min-h-(--sc-space-12) shrink-0 flex-wrap items-center gap-x-1 px-3">
+			<span title={t(current.labelKey)} className="min-w-24 flex-1 truncate text-sc-sm font-medium text-(--sc-text)">
 				{t(current.labelKey)}
 			</span>
 			<div className="no-drag flex shrink-0 items-center" aria-label={t("panel.primaryViews")}>

@@ -3368,7 +3368,7 @@ export const en: Record<string, string> = {
 
 	// Files panel
 	"filesPanel.refresh": "Refresh file tree",
-	"filesPanel.count": "{count} files",
+	"filesPanel.count": "{count} file{plural}",
 	"filesPanel.countMore": "{count}+ files",
 	"filesPanel.scanning": "Scanning project…",
 	"filesPanel.unavailable": "Project files are unavailable.",
@@ -4036,7 +4036,7 @@ export const en: Record<string, string> = {
 	"panel.close": "Close side panel",
 	"panel.resize": "Resize side panel",
 	"panel.primaryViews": "Primary views",
-	"diffPanel.repositorySummary": "{count} files",
+	"diffPanel.repositorySummary": "{count} file{plural}",
 	"diffPanel.back": "Back to changed files",
 	"diffPanel.previous": "Previous file",
 	"diffPanel.next": "Next file",
