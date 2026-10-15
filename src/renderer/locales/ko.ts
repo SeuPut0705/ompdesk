@@ -5064,7 +5064,6 @@ export const ko: Record<string, string> = {
 	"panel.terminal.starting": "셸을 시작하고 있어요…",
 	"panel.terminal.exited": "셸이 종료됐어요 ({code})",
 	"panel.terminal.restart": "셸 다시 시작",
-	"panel.terminal.localOnly": "터미널은 로컬 탭에서만 사용할 수 있어요. 이 탭은 다른 기기에서 실행 중이에요.",
 	"panel.terminal.noTab": "프로젝트 탭을 열면 터미널을 시작할 수 있어요.",
 	"setup.step.install": "omp 설치",
 	"machineSetup.install.title": "이 컴퓨터에 omp를 설치하고 있어요",

@@ -539,6 +539,23 @@ describe("LocalHostServices", () => {
 			),
 		).rejects.toThrow(/Invalid tab.command/);
 	});
+
+	it("serves terminals only for the calling device's own tab and refuses a malformed operation", async () => {
+		const { services } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		const foreign = await services
+			.call(y.peer, "terminal.request", { rtab: "t1", operation: { action: "list" } }, y)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(foreign)).toBe("unknown_tab");
+		await expect(
+			services.call(x.peer, "terminal.request", { rtab: "t1", operation: { action: "write", id: 1 } }, x),
+		).rejects.toThrow(/Invalid terminal operation/);
+		await expect(services.call(x.peer, "terminal.request", { rtab: "t1" }, x)).rejects.toThrow(
+			/Invalid terminal.request/,
+		);
+	});
 });
 
 describe("LocalHostServices host.* calls", () => {

@@ -34,13 +34,19 @@ async function launch(profile: string, name: string, discoveryPort: number, cust
 		`providers:\n  ${customProvider}:\n    baseUrl: http://127.0.0.1:9/v1\n    api: openai-completions\n    models:\n      - id: ${customProvider}-model\n`,
 	);
 	const record = path.join(root, "record.jsonl");
+	const bin = await fixtureOmp(root);
+	// The Terminal panel runs stock's PtySession from the installed pi-natives (C114 runs B's for A's tab).
+	const natives =
+		process.env.OMP_GUI_TEST_NATIVES ||
+		path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-natives");
+	await fs.symlink(natives, path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives"), "dir");
 	const env = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agent,
 		PI_CONFIG_DIR: path.relative(os.homedir(), root),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
-		OMP_GUI_OMP: await fixtureOmp(root),
+		OMP_GUI_OMP: bin,
 		OMP_GUI_TEST_RECORD: record,
 		OMP_GUI_REMOTE_PORT: "0",
 		OMP_GUI_TEST_LOGIN: "1",
@@ -247,6 +253,18 @@ test("pairs two devices, runs a prompt on the host, and shows the link drop", as
 		await a.keyboard.press("Escape");
 		await expect(settings).toHaveCount(0);
 		await focusTab(remoteTab.tabId);
+
+		// C114: the remote tab's terminal is B's shell, started in B's project folder.
+		if (process.platform !== "win32") {
+			await a.getByRole("button", { name: "Side panel", exact: true }).click();
+			const aside = a.locator("aside[data-docked]");
+			await aside.getByRole("button", { name: "Terminal", exact: true }).click();
+			const viewport = aside.locator("[data-terminal-viewport]");
+			await viewport.click();
+			await a.keyboard.type("echo where=$PWD\n");
+			await expect(viewport).toContainText(`where=${host.project}`, { timeout: 20_000 });
+			await a.screenshot({ path: "test-results/remote-terminal.png", scale: "css", animations: "disabled" });
+		}
 
 		// ── B goes away: A's tab says it is reconnecting and refuses commands ──
 		await exitApp(host.app);

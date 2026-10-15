@@ -245,7 +245,7 @@ function aggregateProgress(states: RunProgressState[]): RunProgressState {
 }
 
 export function registerIpcHandlers(deps: IpcDeps): void {
-	registerTerminalIpc(deps.sidecarPool);
+	registerTerminalIpc(deps.sidecarPool, deps.remoteDevices);
 	registerPreviewHost((senderId, tabId) => {
 		const win = BrowserWindow.getAllWindows().find(window => window.webContents.id === senderId);
 		const target = win ? deps.sidecarPool.tabTarget(win, tabId) : null;

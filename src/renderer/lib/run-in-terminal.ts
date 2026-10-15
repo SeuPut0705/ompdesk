@@ -1,7 +1,7 @@
 /**
  * "Run in terminal" for a shell code block in a reply: the text goes to the
- * tab's own terminal (stock `PtySession` through `terminal:request`, local
- * tabs only), the first live session or a new one, and the Terminal panel
+ * tab's own terminal (stock `PtySession` through `terminal:request`; a paired
+ * host's tab uses the host's), the first live session or a new one, and the Terminal panel
  * opens on it. Lines are typed as the keyboard would (`\r`), ending with one.
  */
 import { useUiStore } from "../stores/ui";

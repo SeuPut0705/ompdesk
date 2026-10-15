@@ -37,6 +37,7 @@ import type {
 	RpcResponse,
 	SidecarStatusPayload,
 } from "../../shared/rpc-types";
+import type { TerminalOperation } from "../../shared/terminal-types";
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
@@ -47,6 +48,8 @@ import type { SidecarSessionIdentity } from "../sidecar";
 import type { SidecarLike, SidecarPool } from "../sidecar-pool";
 import { applyRunEvent, idleRun, type RunState, runBusy, settleRun } from "../sidecar-run-state";
 import { stockHelperRequest } from "../stock-helper";
+import { disposeTerminals, terminalRequest } from "../terminal/requests";
+import { detectShells } from "../terminal/shells";
 import {
 	FS_BINARY_REMOTE_MAX_BYTES,
 	listDirectories,
@@ -177,6 +180,7 @@ const BenchRunParams = z.object({ ...FsRoot, options: BenchmarkOptionsSchema });
 const ModelSetupRunParams = z.object({ request: ModelSetupRequestSchema });
 const AccountRotationSetParams = z.object({ mode: z.enum(ACCOUNT_ROTATION_MODES) });
 const BuiltinReaSetParams = z.object({ enabled: z.boolean() });
+const TerminalParams = z.object({ rtab: Rtab, operation: z.object({ action: z.string() }).passthrough() });
 
 function parse<T extends z.ZodTypeAny>(schema: T, method: string, params: unknown): z.infer<T> {
 	const parsed = schema.safeParse(params ?? {});
@@ -287,6 +291,14 @@ export class LocalHostServices implements HostServices {
 				return moveSession(this.#deps.localTabs, sessionPath, undefined, () =>
 					this.#deps.sessionIndex.moveSession(sessionPath, cwd),
 				);
+			}
+			// C114: the tab's terminals run here, in the tab's folder, with this machine's shells.
+			case "terminal.shells":
+				return detectShells();
+			case "terminal.request": {
+				const { rtab, operation } = parse(TerminalParams, method, params);
+				const tab = this.#tab(peer, rtab);
+				return terminalRequest(terminalOwner(peer.deviceId, rtab), tab.sidecar.cwd, operation as TerminalOperation);
 			}
 			case "fs.list": {
 				const { rtab, cwd, ...payload } = parse(FsListParams, method, params);
@@ -610,8 +622,14 @@ export class LocalHostServices implements HostServices {
 		tab.conn = null;
 		tab.sidecar.removeAllListeners();
 		tab.sidecar.dispose();
+		disposeTerminals(terminalOwner(tab.peerId, tab.rtab));
 		if (runBusy(tab.run)) this.#runningChanged();
 	}
+}
+
+/** Terminal owner of a paired device's tab here; local windows use `<webContentsId>:<tabId>`. */
+function terminalOwner(deviceId: string, rtab: string): string {
+	return `peer:${deviceId}:${rtab}`;
 }
 
 /** The benchmark and research slot of a paired device on this machine (windows here use `window:<id>`). */

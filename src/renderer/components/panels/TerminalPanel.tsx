@@ -199,7 +199,7 @@ export function TerminalViewport({
 	);
 }
 
-function LocalTerminalPanel({ tabId }: { tabId: string }) {
+function TabTerminalPanel({ tabId }: { tabId: string }) {
 	const t = useT();
 	const [sessions, setSessions] = useState<TerminalSnapshot[]>([]);
 	const [selected, setSelected] = useState<string | null>(null);
@@ -213,7 +213,7 @@ function LocalTerminalPanel({ tabId }: { tabId: string }) {
 	const compact = useMediaQuery(COMPACT_SHELL_QUERY);
 	useEffect(() => {
 		let live = true;
-		void window.omp.terminal.shells().then(
+		void window.omp.terminal.shells(tabId).then(
 			found => {
 				if (live) setShells(found);
 			},
@@ -222,7 +222,7 @@ function LocalTerminalPanel({ tabId }: { tabId: string }) {
 		return () => {
 			live = false;
 		};
-	}, []);
+	}, [tabId]);
 	useLayoutEffect(() => {
 		if (!selected) return;
 		tabsRef.current
@@ -479,14 +479,7 @@ function LocalTerminalPanel({ tabId }: { tabId: string }) {
 export function TerminalPanel() {
 	const t = useT();
 	const tabId = useTabsStore(state => state.activeTabId);
-	const remote = useTabsStore(state => state.tabs.find(tab => tab.id === state.activeTabId)?.device);
-	if (!tabId || remote)
-		return (
-			<EmptyState
-				icon={<TerminalIcon />}
-				size="sm"
-				title={t(remote ? "panel.terminal.localOnly" : "panel.terminal.noTab")}
-			/>
-		);
-	return <LocalTerminalPanel key={tabId} tabId={tabId} />;
+	// A paired host's tab gets the host's terminals, in the tab's folder there (C114).
+	if (!tabId) return <EmptyState icon={<TerminalIcon />} size="sm" title={t("panel.terminal.noTab")} />;
+	return <TabTerminalPanel key={tabId} tabId={tabId} />;
 }

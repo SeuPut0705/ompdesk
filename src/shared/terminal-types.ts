@@ -23,6 +23,6 @@ export type TerminalOperation =
 	| { action: "close" | "restart" | "clear"; id: string };
 export interface TerminalApi {
 	request(tabId: string, operation: TerminalOperation): Promise<TerminalSnapshot[]>;
-	/** Shells this computer can start, the default first. */
-	shells(): Promise<TerminalShell[]>;
+	/** Shells the tab's computer can start (a paired host's for its tabs), the default first. */
+	shells(tabId?: string): Promise<TerminalShell[]>;
 }

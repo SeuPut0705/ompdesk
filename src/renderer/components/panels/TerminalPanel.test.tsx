@@ -25,16 +25,21 @@ async function mount(element: React.ReactNode) {
 	await act(async () => root?.render(<I18nProvider>{element}</I18nProvider>));
 }
 describe("TerminalPanel", () => {
-	it("disables remote tabs without spawning a local shell", async () => {
-		const request = vi.fn();
-		Reflect.set(window, "omp", { terminal: { request } });
+	it("runs a paired host's tab on the host's terminals through the same request, its shells asked by tab", async () => {
+		const request = vi.fn().mockRejectedValue(new Error("Host offline"));
+		const shells = vi.fn().mockResolvedValue([]);
+		Reflect.set(window, "omp", {
+			terminal: { request, shells },
+			prefs: { get: vi.fn().mockResolvedValue(undefined) },
+		});
 		useTabsStore.setState({
 			activeTabId: "remote",
 			tabs: [{ id: "remote", cwd: "/host", status: "ready", kind: "agent", device: "host", unreadDone: false }],
 		});
 		await mount(<TerminalPanel />);
-		expect(container.textContent).toContain("only for local tabs");
-		expect(request).not.toHaveBeenCalled();
+		expect(request).toHaveBeenCalledWith("remote", { action: "list", offsets: {} });
+		expect(shells).toHaveBeenCalledWith("remote");
+		expect(container.textContent).toContain("Host offline");
 	});
 	it("streams into xterm, forwards input, and disposes rendering without killing the shell", async () => {
 		vi.useFakeTimers();

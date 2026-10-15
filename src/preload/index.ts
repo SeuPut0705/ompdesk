@@ -122,7 +122,7 @@ function subscribeTab<T>(channel: string, callback: (data: T, tabId: string) => 
 const api: OmpApi = {
 	terminal: {
 		request: (tabId, operation) => ipcRenderer.invoke("terminal:request", tabId, operation),
-		shells: () => ipcRenderer.invoke("terminal:shells"),
+		shells: tabId => ipcRenderer.invoke("terminal:shells", tabId),
 	},
 	preview: {
 		command: request => ipcRenderer.invoke(PREVIEW_COMMAND, request),

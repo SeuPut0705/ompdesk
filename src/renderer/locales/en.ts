@@ -5090,7 +5090,6 @@ export const en: Record<string, string> = {
 	"panel.terminal.starting": "Starting your shell…",
 	"panel.terminal.exited": "Shell exited ({code})",
 	"panel.terminal.restart": "Restart shell",
-	"panel.terminal.localOnly": "Terminals are available only for local tabs. This tab runs on another device.",
 	"panel.terminal.noTab": "Open a project tab to start a terminal.",
 	"setup.step.install": "Install omp",
 	"machineSetup.install.title": "Installing omp on this computer",

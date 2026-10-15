@@ -117,8 +117,8 @@ export function CodeBlock({
 	const runtimeTabId = useRuntimeTabId();
 	const tabId = useTabsStore(state => {
 		const id = runtimeTabId ?? state.activeTabId;
-		// The terminal is this machine's: a paired host's tab has none here.
-		return state.tabs.some(tab => tab.id === id && tab.device === undefined) ? id : null;
+		// A paired host's tab runs it in the host's terminal (C114).
+		return state.tabs.some(tab => tab.id === id) ? id : null;
 	});
 	const runnable = showRun && SHELL_LANGUAGES[lang] === true && !!code?.trim() && tabId !== null;
 	const highlightable = highlight && !!code && code.length <= HIGHLIGHT_CHAR_CAP;
