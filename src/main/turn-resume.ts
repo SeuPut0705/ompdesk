@@ -4,7 +4,7 @@
  * wake) and after a relaunch (quit, crash, update). The continuation is stock's:
  * `retry` (`/retry`) for a failed turn, `restore_interrupted` (the bridge's call
  * of stock `restoreSession`, what `omp --restore` runs) for a turn cut off
- * mid-run.
+ * mid-run, then `retry` when omp had closed that turn itself before it exited.
  *
  * Resume eligibility is written when a run starts or stops, never in a quit
  * hook, because a crash or SIGKILL runs no hooks: the marker file already says
@@ -319,19 +319,28 @@ export class TurnResume {
 			this.sync();
 			return false;
 		}
-		let response: RpcResponse | undefined;
-		try {
-			response = await sidecar.rpcClient?.command({ type: action === "restore" ? "restore_interrupted" : "retry" });
-		} catch {
-			response = undefined;
-		}
-		const data: unknown = response?.success ? response.data : undefined;
+		const send = async (type: "restore_interrupted" | "retry"): Promise<boolean> => {
+			let response: RpcResponse | undefined;
+			try {
+				response = await sidecar.rpcClient?.command({ type });
+			} catch {
+				response = undefined;
+			}
+			const data: unknown = response?.success ? response.data : undefined;
+			return (
+				typeof data === "object" &&
+				data !== null &&
+				(("turn" in data && data.turn === true) ||
+					("retried" in data && data.retried === true) ||
+					("subagents" in data && Array.isArray(data.subagents) && data.subagents.length > 0))
+			);
+		};
+		// omp outlives a killed OMPdesk long enough to close the turn itself: its RPC client is gone (stdin EOF),
+		// so a pending ask or approval fails ("RPC client disconnected…") and the run ends aborted, journaled.
+		// Stock `restoreSession` then finds nothing unfinished; stock `retry` (`/retry`) replays that failed tool
+		// batch (the card reopens) or the aborted reply, and does nothing for a turn that really ended.
 		const started =
-			typeof data === "object" &&
-			data !== null &&
-			(("turn" in data && data.turn === true) ||
-				("retried" in data && data.retried === true) ||
-				("subagents" in data && Array.isArray(data.subagents) && data.subagents.length > 0));
+			action === "restore" ? (await send("restore_interrupted")) || (await send("retry")) : await send("retry");
 		// Nothing left to continue (or the call failed): the marker has nothing more to say.
 		if (!started) this.#pending.delete(tabId);
 		this.sync();

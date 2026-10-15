@@ -404,6 +404,29 @@ describe("TurnResume launch", () => {
 		expect(h.state.notices).toEqual([]);
 	});
 
+	it("replays an ask omp closed itself when OMPdesk died: restore finds nothing, stock retry reopens it", async () => {
+		// A killed OMPdesk's omp sees stdin close, fails the pending ask ("RPC client disconnected…") and
+		// journals the run as aborted before it exits: nothing is unfinished for restoreSession.
+		h = setup({
+			answers: {
+				restore_interrupted: {
+					type: "response",
+					command: "restore_interrupted",
+					success: true,
+					data: { turn: false, subagents: [] },
+				},
+				retry: RETRIED,
+			},
+		});
+		new InterruptedTurnStore(h.file).write([marker({ reason: "asking" })]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted", "retry"]);
+		expect(h.store.read().map(entry => entry.reason)).toEqual(["asking"]);
+		expect(h.state.notices).toEqual([]);
+	});
+
 	it("drops a marker whose turn had nothing left to continue", async () => {
 		h = setup({
 			answers: {
