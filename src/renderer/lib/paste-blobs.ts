@@ -91,6 +91,24 @@ export function referencedPasteIds(draft: string): number[] {
 	return ids;
 }
 
+export function getPaste(id: number): PasteBlob | undefined {
+	return blobs.get(id);
+}
+
+/**
+ * Replace a paste's text in place (the "Edit pasted text" dialog) and return
+ * the draft with that paste's marker rewritten to describe the new size; the
+ * id stays, so every other marker and the caret context are untouched.
+ */
+export function editPaste(draft: string, id: number, content: string): string {
+	const blob = blobs.get(id);
+	if (!blob) return draft;
+	blobs.set(id, { id, content, lineCount: content.split("\n").length, charCount: content.length });
+	return draft.replace(MARKER_RE, (marker, idText: string) =>
+		Number(idText) === id ? pasteMarkerText(id, content) : marker,
+	);
+}
+
 /** Remove only blobs consumed by one composer draft. Other tabs can hold their
  * own paste markers at the same time, so successful submit must not clear the
  * process-wide store. */

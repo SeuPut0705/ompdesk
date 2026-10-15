@@ -1,6 +1,7 @@
 import {
 	ArrowUp,
 	ChevronDown,
+	ClipboardPaste,
 	CornerDownRight,
 	Cpu,
 	ExternalLink,
@@ -33,9 +34,12 @@ import { abortActiveTurn } from "../../lib/messages";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
 import {
 	dropReferencedPastes,
+	editPaste,
 	expandPasteMarkers,
+	getPaste,
 	isMarkerSized,
 	pasteMarkerText,
+	referencedPasteIds,
 	shouldOfferPasteMenu,
 	storePaste,
 	wrapPasteInAttachmentBlock,
@@ -73,6 +77,7 @@ import { DelegationControl } from "./DelegationControl";
 import { DictationOverlay, type DictationPhase } from "./DictationOverlay";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { fileToImage, listMentionFiles, mentionFileCache } from "./input-area-utils";
+import { PastedTextDialog } from "./PastedTextDialog";
 import { RunSettings } from "./RunSettings";
 import { type CompletionItem, type CompletionMenu, useCompletionMenu } from "./use-completion-menu";
 import { useComposerSubmit } from "./use-composer-submit";
@@ -156,6 +161,9 @@ export function InputArea() {
 	/** Pending large-paste choice: the paste already happened, this picks the form. */
 	const [pasteMenu, setPasteMenu] = useState<{ content: string; lineCount: number } | null>(null);
 	const pasteMenuRef = useRef<HTMLDivElement>(null);
+	/** The folded paste open in "Edit pasted text". */
+	const [editingPaste, setEditingPaste] = useState<number | null>(null);
+	const draftPastes = useMemo(() => referencedPasteIds(text), [text]);
 	/** ⌃G: the composer expands in place to fill the session pane (design-spec §2.2). */
 	const [expanded, setExpanded] = useState(false);
 	const [externalBusy, setExternalBusy] = useState(false);
@@ -1174,6 +1182,34 @@ export function InputArea() {
 								))}
 							</ul>
 						)}
+						{draftPastes.length > 0 && (
+							<ul aria-label={t("input.paste.listLabel")} className="flex flex-wrap gap-1.5 px-3 pt-3">
+								{draftPastes.map(id => (
+									<li key={id}>
+										<button
+											className="flex h-7 items-center gap-1.5 rounded-(--sc-radius-full) border border-(--sc-border-subtle) px-2.5 text-sc-xs text-(--sc-text-secondary) hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:outline-(--sc-accent)"
+											data-paste-chip={id}
+											onClick={() => setEditingPaste(id)}
+											title={t("input.paste.edit")}
+											type="button"
+										>
+											<ClipboardPaste aria-hidden className="size-(--sc-icon-sm) text-(--sc-text-muted)" />
+											<span className="tabular-nums">
+												{t("input.paste.chip", { id, lines: getPaste(id)?.lineCount ?? 0 })}
+											</span>
+										</button>
+									</li>
+								))}
+							</ul>
+						)}
+						<PastedTextDialog
+							onClose={() => setEditingPaste(null)}
+							onSave={(id, content) => {
+								setText(current => editPaste(current, id, content));
+								setEditingPaste(null);
+							}}
+							pasteId={editingPaste}
+						/>
 						<div className={cx("relative px-4 pt-3 pb-1", expanded && "flex min-h-0 flex-1 flex-col")}>
 							<textarea
 								ref={textareaRef}

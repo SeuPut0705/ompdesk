@@ -965,6 +965,24 @@ describe("InputArea expanded composer", () => {
 		expect(openExternal).toHaveBeenCalledWith("summary alpha\nbravo");
 		expect(useComposerStore.getState().draft).toBe("edited outside");
 	});
+
+	it("edits a folded paste from its chip and rewrites only that marker", async () => {
+		await mount();
+		const blob = storePaste("one\ntwo");
+		await typeInto(findTextarea(), `see ${pasteMarkerText(blob.id, blob.content)} please`);
+		const chip = document.querySelector(`[data-paste-chip="${blob.id}"]`) as unknown as TestElement | null;
+		expect(chip?.textContent).toBe(`Paste #${blob.id} · 2 lines`);
+		await click(chip as TestElement);
+		const editor = document.querySelector('[role="dialog"] textarea') as unknown as TestElement | null;
+		if (!editor) throw new Error("paste editor missing");
+		expect((editor as unknown as { value: string }).value).toBe("one\ntwo");
+		await typeInto(editor, "one\ntwo\nthree");
+		await click(document.querySelector("[data-paste-save]") as unknown as TestElement);
+		await flush();
+		const draft = useComposerStore.getState().draft;
+		expect(draft).toBe(`see ${pasteMarkerText(blob.id, "one\ntwo\nthree")} please`);
+		expect(expandPasteMarkers(draft)).toBe("see one\ntwo\nthree please");
+	});
 });
 
 describe("InputArea file intake", () => {
