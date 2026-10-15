@@ -1,7 +1,7 @@
 export const en: Record<string, string> = {
 	"mcp.rea.title": "REA — reverse engineering (built in)",
 	"mcp.rea.description":
-		"{count} curated reverse-engineering tools + 2 discovery tools; full catalog available on demand. Changes apply to new sessions; running sessions are not restarted.",
+		"{count} curated reverse-engineering tools + 2 discovery tools and the reverse-engineer-anything skill; full catalog available on demand. Changes apply to new sessions; running sessions are not restarted.",
 	"mcp.rea.requirement": "Requires Node.js {range} and npx on this machine's PATH.",
 	"mcp.rea.available": "Available for new sessions",
 	"mcp.rea.unavailable": "Unavailable",

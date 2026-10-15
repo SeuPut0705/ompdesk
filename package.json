@@ -16,6 +16,7 @@
     "package:mac": "bun run build && electron-builder --mac --arm64",
     "package:win": "bun run build && electron-builder --config electron-builder.win.yml --win --x64",
     "gen:icons": "bun scripts/gen-icons.ts",
+    "sync:rea-skill": "bun scripts/sync-rea-skill.ts",
     "check": "node scripts/lint-surfaces.mjs && biome check . && tsc --noEmit",
     "check:types": "tsc --noEmit",
     "lint": "biome lint .",

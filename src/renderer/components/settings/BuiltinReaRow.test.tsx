@@ -2,7 +2,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BuiltinReaState } from "../../../shared/builtin-mcp";
+import { type BuiltinReaState, REA_VERSION } from "../../../shared/builtin-mcp";
 import { I18nProvider } from "../../lib/i18n";
 import { useToastStore } from "../../stores/toast";
 import { BuiltinReaRow } from "./BuiltinReaRow";
@@ -54,7 +54,7 @@ describe("BuiltinReaRow", () => {
 	it("shows pinned version, defaults on and applies toggles to new sessions", async () => {
 		await mount();
 		expect(document.body.textContent).toContain("REA — reverse engineering (built in)");
-		expect(document.body.textContent).toContain("6.4.0");
+		expect(document.body.textContent).toContain(REA_VERSION);
 		expect(document.body.textContent).toContain("15 curated");
 		expect(document.body.textContent).toContain("full catalog available on demand");
 		expect(document.body.textContent).toContain("running sessions are not restarted");

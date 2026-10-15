@@ -11,6 +11,7 @@ import * as path from "node:path";
 import { type PlistObject, parsePlistFile, savePlistFile } from "app-builder-lib/out/util/plist";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { REA_VERSION } from "../shared/builtin-mcp";
 import { UPDATE_ASSETS } from "./update-release";
 
 interface BuilderConfig {
@@ -92,7 +93,13 @@ describe("mac bundle configs", () => {
 		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
 			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
 			expect(config.extraResources, file).toContainEqual({ from: "resources/omp-builtin", to: "omp-builtin" });
-			for (const name of [".mcp.json", "rea-relay.mjs", "rea-config.json"]) {
+			for (const name of [
+				".mcp.json",
+				"rea-relay.mjs",
+				"rea-config.json",
+				"skills/reverse-engineer-anything/SKILL.md",
+				"skills/reverse-engineer-anything/LICENSE",
+			]) {
 				expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/omp-builtin", name)), `${file} omits ${name}`).toBe(
 					true,
 				);
@@ -104,6 +111,17 @@ describe("mac bundle configs", () => {
 		expect(declaration).toEqual({
 			mcpServers: { rea: { type: "stdio", command: "node", args: ["$" + "{OMP_PLUGIN_ROOT}/rea-relay.mjs"] } },
 		});
+	});
+
+	it("vendors REA's skill from the pinned REA release (bun run sync:rea-skill after a bump)", () => {
+		const skill = fs.readFileSync(
+			path.join(PACKAGE_ROOT, "resources/omp-builtin/skills/reverse-engineer-anything/SKILL.md"),
+			"utf8",
+		);
+		expect(skill).toMatch(/^---\nname: reverse-engineer-anything\ndescription: \S/);
+		// Upstream's own commands name the release the skill was generated for.
+		const releases = new Set(Array.from(skill.matchAll(/rea-agents@(\d+\.\d+\.\d+)/g), match => match[1]));
+		expect([...releases]).toEqual([REA_VERSION]);
 	});
 
 	it("ships the third-party NOTICE and the license texts it names on both platforms", () => {

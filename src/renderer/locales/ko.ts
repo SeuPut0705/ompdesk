@@ -1,7 +1,7 @@
 export const ko: Record<string, string> = {
 	"mcp.rea.title": "REA — 리버스 엔지니어링 (기본 제공)",
 	"mcp.rea.description":
-		"리버스 엔지니어링 핵심 도구 {count}개와 탐색 도구 2개를 제공해요. 전체 카탈로그는 필요할 때 찾아서 호출해요. 변경은 새 세션에 적용되고, 실행 중인 세션은 재시작하지 않아요.",
+		"리버스 엔지니어링 핵심 도구 {count}개, 탐색 도구 2개와 reverse-engineer-anything 스킬을 제공해요. 전체 카탈로그는 필요할 때 찾아서 호출해요. 변경은 새 세션에 적용되고, 실행 중인 세션은 재시작하지 않아요.",
 	"mcp.rea.requirement": "이 컴퓨터의 PATH에 Node.js {range} 버전과 npx가 필요해요.",
 	"mcp.rea.available": "새 세션에서 사용할 수 있어요",
 	"mcp.rea.unavailable": "사용할 수 없어요",

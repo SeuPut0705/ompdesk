@@ -18,3 +18,10 @@ Ported files (OMPdesk file <- Mixdog file, both relative to their repo root):
 - src/renderer/lib/remark-cjk.ts
   <- apps/desktop/src/renderer/markdown-plugins.ts
      (repairAdjacentStrongPunctuation, trimAutolinkCjkSuffix)
+
+This product includes the reverse-engineer-anything skill from REA
+(https://github.com/morluto/rea, npm package rea-agents), Copyright (c) 2026
+morluto, licensed under the MIT License. It is copied unmodified from the
+pinned rea-agents release into resources/omp-builtin/skills/
+reverse-engineer-anything/ (license text in its LICENSE file), except for one
+added "OMPdesk built-in" section in SKILL.md.
