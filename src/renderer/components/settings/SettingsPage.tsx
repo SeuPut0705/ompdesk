@@ -193,17 +193,20 @@ export function SettingsPage() {
 	}, [section]);
 
 	// Deep links and search results scroll to their row once it has rendered (schema rows arrive after load).
+	// A `sub` that starts with `setting-` names a row id outright (`models:setting-providers.webSearch`).
 	// biome-ignore lint/correctness/useExhaustiveDependencies: loadState re-runs the lookup when schema rows mount.
 	useEffect(() => {
 		const id =
 			focusRowId ??
 			(sub
-				? (GUI_SEARCH_ITEMS.find(item => item.section === section && item.sub === sub)?.rowId ??
-					Object.values(CUSTOM_SCHEMA_EDITORS).find(editor => editor.section === section && editor.sub === sub)
-						?.rowId ??
-					(section === "tools"
-						? `settings-tools-${PLUGINS_TABS.includes(sub as PluginsTab) ? "plugins" : "extensions"}`
-						: `settings-${section}-${sub}`))
+				? sub.startsWith("setting-")
+					? sub
+					: (GUI_SEARCH_ITEMS.find(item => item.section === section && item.sub === sub)?.rowId ??
+						Object.values(CUSTOM_SCHEMA_EDITORS).find(editor => editor.section === section && editor.sub === sub)
+							?.rowId ??
+						(section === "tools"
+							? `settings-tools-${PLUGINS_TABS.includes(sub as PluginsTab) ? "plugins" : "extensions"}`
+							: `settings-${section}-${sub}`))
 				: null);
 		if (!id || query) return;
 		const frame = requestAnimationFrame(() => {

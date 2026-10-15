@@ -1436,6 +1436,27 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		affordance: { kind: "window", open: () => ctx.openSettings() },
 	});
 	add({
+		name: "websearch",
+		label: t("cmd.websearch"),
+		description: t("cmd.websearch.desc"),
+		category: "settings",
+		affordance: { kind: "window", open: () => ctx.openSettings("models:setting-providers.webSearch") },
+	});
+	add({
+		name: "connect",
+		label: t("cmd.connect"),
+		description: t("cmd.connect.desc"),
+		category: "settings",
+		affordance: { kind: "window", open: () => ctx.openSettings("connections:remote") },
+	});
+	add({
+		name: "doctor",
+		label: t("cmd.doctor"),
+		description: t("cmd.doctor.desc"),
+		category: "settings",
+		affordance: { kind: "window", open: () => ctx.openSettings("general:setting-machine-setup") },
+	});
+	add({
 		name: "stats",
 		label: t("cmd.stats"),
 		description: t("cmd.stats.desc"),

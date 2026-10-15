@@ -182,6 +182,17 @@ describe("nativized action wiring", () => {
 		expect(openSettings).toHaveBeenCalledWith("tools:skills");
 	});
 
+	it.each([
+		["websearch", "models:setting-providers.webSearch"],
+		["connect", "connections:remote"],
+		["doctor", "general:setting-machine-setup"],
+	])("%s opens Settings at %s", (name, target) => {
+		const affordance = wired(name);
+		if (affordance.kind !== "window") throw new Error("expected window");
+		affordance.open();
+		expect(openSettings).toHaveBeenCalledWith(target);
+	});
+
 	it("SSH actions open the native host manager, where selection and confirmation happen", () => {
 		for (const name of ["ssh list", "ssh add", "ssh remove"]) {
 			const affordance = wired(name);
