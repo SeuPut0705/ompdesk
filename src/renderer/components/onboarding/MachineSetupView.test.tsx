@@ -26,6 +26,7 @@ import { fakeSetupApi, setupState } from "../../test-support/machine-setup";
 import { SidecarBanner } from "../layout/SidecarBanner";
 import { FirstRunSetup, useFirstRunActive } from "./FirstRunSetup";
 import { MachineSetupView } from "./MachineSetupView";
+import { SetupTakeoverHost } from "./SetupTakeover";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -40,6 +41,8 @@ Object.assign(globalThis as Record<string, unknown>, {
 });
 const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
 if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
+// Reduced motion: the takeover unmounts at once instead of fading out.
+Object.assign(window as unknown as Record<string, unknown>, { matchMedia: () => ({ matches: true }) });
 
 const ompMissing = (platform: "darwin" | "win32" = "darwin"): SetupState =>
 	setupState(platform, { omp: { phase: "idle", presence: { kind: "missing" } } }, { ompReady: false });
@@ -303,17 +306,20 @@ async function mountTab(element: ReactElement, state: SetupState, device?: strin
 }
 
 describe("useFirstRunActive with machine setup", () => {
-	it("is true for a local tab whose omp failed to start while omp is missing", async () => {
+	it("is true for a local tab whose omp failed to start while omp is missing, and the takeover shows the install", async () => {
 		await mountTab(
 			<>
 				<ActiveProbe />
 				<FirstRunSetup />
+				<SetupTakeoverHost />
 			</>,
 			ompMissing(),
 		);
 		expect(query("[data-active]")?.getAttribute("data-active")).toBe("true");
-		expect(text()).toContain(translate("setup.step.install"));
-		expect(query('[data-testid="machine-setup"]')).not.toBeNull();
+		// The install lives in the full-window screen, never in the first-run step list.
+		expect(query("[data-first-run-step]")).toBeNull();
+		expect(query('[data-testid="setup-takeover"] [data-testid="machine-setup"]')).not.toBeNull();
+		expect(useMachineSetupStore.getState().takeover).toBe(true);
 	});
 
 	it("is false while the session is ready, and when omp is ready without an install this launch", async () => {
@@ -323,13 +329,23 @@ describe("useFirstRunActive with machine setup", () => {
 		expect(query("[data-active]")?.getAttribute("data-active")).toBe("false");
 	});
 
-	it("keeps the install step (as Starting omp…) after an install until the session is back", async () => {
-		const session = await mountTab(<FirstRunSetup />, ompMissing());
+	it("keeps the takeover (as Starting omp…) after an install until the session is back", async () => {
+		const session = await mountTab(<SetupTakeoverHost />, ompMissing());
 		await act(async () => fake.push(setupState("darwin")));
 		expect(text()).toContain(translate("machineSetup.starting"));
 		await act(async () => session.setStatus("ready", "/p"));
 		expect(query('[data-testid="machine-setup"]')).toBeNull();
 		expect(useMachineSetupStore.getState().installSeen).toBe(false);
+		expect(useMachineSetupStore.getState().takeover).toBe(false);
+	});
+
+	it("never takes over for an optional item that is installing in the background", async () => {
+		await mountTab(
+			<SetupTakeoverHost />,
+			setupState("darwin", { gh: { phase: "running", presence: { kind: "missing" } } }, { ompReady: true }),
+		);
+		expect(query('[data-testid="setup-takeover"]')).toBeNull();
+		expect(useMachineSetupStore.getState().takeover).toBe(false);
 	});
 
 	it("never shows this machine's setup for a remote tab", async () => {
@@ -338,11 +354,14 @@ describe("useFirstRunActive with machine setup", () => {
 				<ActiveProbe />
 				<FirstRunSetup />
 				<SidecarBanner />
+				<SetupTakeoverHost />
 			</>,
 			ompMissing(),
 			"host-b",
 		);
 		expect(query("[data-active]")?.getAttribute("data-active")).toBe("false");
+		expect(query('[data-testid="setup-takeover"]')).toBeNull();
+		expect(useMachineSetupStore.getState().takeover).toBe(false);
 		expect(query('[data-testid="machine-setup"]')).toBeNull();
 		expect(button(translate("machineSetup.showSetup"))).toBeUndefined();
 		expect(fake.api.getState).not.toHaveBeenCalled();

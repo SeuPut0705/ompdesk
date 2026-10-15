@@ -20,12 +20,19 @@ interface MachineSetupStore {
 	 * restart brings the session back, instead of flashing the empty hero.
 	 */
 	installSeen: boolean;
+	/**
+	 * The full-window setup screen is up (App publishes `useMachineSetupNeeded()`
+	 * here), so non-React entry points (menu actions, deep links, shortcuts) can
+	 * tell that the rest of the app is blocked.
+	 */
+	takeover: boolean;
 	load: () => Promise<void>;
 	/** `load()` unless a state is already here or a read is in flight. */
 	ensureLoaded: () => void;
 	retry: (item: SetupItemId) => Promise<void>;
 	cancel: () => Promise<void>;
 	clearInstallSeen: () => void;
+	setTakeover: (takeover: boolean) => void;
 	reset: () => void;
 }
 
@@ -43,6 +50,7 @@ export const useMachineSetupStore = create<MachineSetupStore>()((set, get) => {
 		loadError: null,
 		loading: false,
 		installSeen: false,
+		takeover: false,
 		load: async () => {
 			set({ loading: true });
 			try {
@@ -73,10 +81,11 @@ export const useMachineSetupStore = create<MachineSetupStore>()((set, get) => {
 			}
 		},
 		clearInstallSeen: () => set({ installSeen: false }),
+		setTakeover: takeover => set({ takeover }),
 		reset: () => {
 			unsubscribe?.();
 			unsubscribe = null;
-			set({ state: null, loadError: null, loading: false, installSeen: false });
+			set({ state: null, loadError: null, loading: false, installSeen: false, takeover: false });
 		},
 	};
 });

@@ -8,7 +8,9 @@
  * the step runs with its command and output, the first attempt fails with a
  * reason, manual steps and Retry, and the retry puts the fake omp in place;
  * main detects it, restarts the tab and the session comes up ready — nobody
- * pressed install.
+ * pressed install. While the setup screen shows it owns the whole window: the
+ * sidebar and Settings clicks, global shortcuts and the palette do nothing, and
+ * Tab never leaves the dialog.
  *
  * `OMP_GUI_SETUP_CAPTURES=<dir>` also captures the setup screens (download,
  * running, failed, Settings › Updates & about) in light/dark × en/ko plus a narrow window.
@@ -142,7 +144,54 @@ async function close(launched: Launched): Promise<void> {
 	await fs.rm(launched.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 
-/** Missing omp → automatic install fails → retry → detected → the session starts. */
+/**
+ * The setup screen owns the window: one modal dialog, the app behind it is
+ * inert (clicks and shortcuts do nothing), and Tab never leaves it.
+ */
+async function expectTakeover(page: Page): Promise<void> {
+	const takeover = page.getByTestId("setup-takeover");
+	await expect(takeover).toHaveAttribute("role", "dialog");
+	await expect(takeover).toHaveAttribute("aria-modal", "true");
+	await expect(takeover).toHaveAccessibleName(/.+/);
+	await expect(takeover.locator("h1")).toBeVisible();
+	const box = await takeover.boundingBox();
+	const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+	expect(box).toMatchObject({ x: 0, y: 0, width: viewport.width, height: viewport.height });
+	// The sidebar and the titlebar sit under the screen, inert.
+	const covered = page.locator("[data-sidebar-destinations]");
+	expect(await covered.evaluate(element => element.closest("[inert]") !== null)).toBe(true);
+
+	// Clicks reach the screen, not the sidebar: forced clicks land on whatever is on top.
+	const settingsRow = covered.locator('[data-destination="settings"]');
+	await settingsRow.click({ force: true });
+	await page.locator("[data-command-center-entry]").first().click({ force: true });
+	// Shortcuts: settings, command palette, new tab, quick open.
+	for (const chord of ["ControlOrMeta+Comma", "ControlOrMeta+K", "ControlOrMeta+T", "ControlOrMeta+P"]) {
+		await page.keyboard.press(chord);
+	}
+	// Two frames: any handler that would have opened something has run by now.
+	await page.evaluate(() => {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+		return promise;
+	});
+	await expect(settingsRow).not.toHaveAttribute("aria-current", "page");
+	await expect(page.locator("[data-settings-page]")).toHaveCount(0);
+	await expect(page.getByRole("dialog")).toHaveCount(1);
+	await expect(takeover).toBeVisible();
+
+	// Focus is trapped: forward and backward, it never leaves the screen.
+	const insideTakeover = () =>
+		page.evaluate(
+			() => document.querySelector('[data-testid="setup-takeover"]')?.contains(document.activeElement) === true,
+		);
+	expect(await insideTakeover()).toBe(true);
+	for (const key of [...Array(6).fill("Tab"), ...Array(6).fill("Shift+Tab")]) {
+		await page.keyboard.press(key);
+		expect(await insideTakeover()).toBe(true);
+	}
+}
+
 async function flow(launched: Launched, name: string, text: { retry: RegExp }): Promise<void> {
 	const { page } = launched;
 	const setup = page.getByTestId("machine-setup");
@@ -156,6 +205,7 @@ async function flow(launched: Launched, name: string, text: { retry: RegExp }): 
 	await expect(omp).toContainText(/Step 1 of \d|\d단계 중 1단계/);
 	await expect(omp).toContainText(/2\.0 MB/);
 	await expect(setup.getByTestId("setup-cancel")).toBeVisible();
+	await expectTakeover(page);
 	await capture(page, `${name}-0-download`);
 	launched.finishDownload();
 	// The installer's own work has no percent: the bar slides.

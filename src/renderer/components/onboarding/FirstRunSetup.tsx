@@ -1,11 +1,11 @@
 /**
  * First-run setup, inline in the empty main area (design-spec §2.2): omp is
- * installed on this machine (main does it on its own; `MachineSetupView` only
- * shows it) → connect a provider (search, recommended first, sign-in or API
+ * installed on this machine (main does it on its own; `SetupTakeover` shows it
+ * full-window before this ever renders) → connect a provider (search, recommended first, sign-in or API
  * key inline, or a custom endpoint) → choose the default model (optionally
  * verified with one short test request) → optionally sign in to GitHub → ready
  * to prompt. `FirstRunGate` decides when the provider steps show (and resumes a
- * step left before a relaunch); `useMachineSetupNeeded` the install step.
+ * step left before a relaunch).
  * ⌘/Ctrl+Enter runs the step's primary action; Esc asks before leaving setup.
  */
 
@@ -37,7 +37,7 @@ import {
 } from "../settings/providers/provider-catalog";
 import { applyDefaultModel } from "./default-model";
 import { GithubSignIn, useGithubAuth } from "./GithubSignIn";
-import { MachineSetupView, useMachineSetupNeeded } from "./MachineSetupView";
+import { useMachineSetupNeeded } from "./MachineSetupView";
 
 /**
  * True while the first-run setup replaces the empty-session hero: a provider
@@ -64,7 +64,7 @@ function usePrimaryAction(action: (() => void) | null): void {
 		};
 	});
 }
-type SetupStep = Exclude<FirstRunPhase, "idle"> | "install";
+type SetupStep = Exclude<FirstRunPhase, "idle">;
 
 function StepList({ phase }: { phase: SetupStep }) {
 	const t = useT();
@@ -454,21 +454,6 @@ function GithubStep() {
 	);
 }
 
-function InstallStep() {
-	const t = useT();
-	return (
-		<div className="mt-8 flex flex-col gap-4">
-			<div>
-				<h2 className="text-sc-xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">
-					{t("machineSetup.install.title")}
-				</h2>
-				<p className="mt-1 text-sc-md text-(--sc-text-secondary)">{t("machineSetup.install.description")}</p>
-			</div>
-			<MachineSetupView />
-		</div>
-	);
-}
-
 function LeaveConfirm({ open, onClose }: { open: boolean; onClose: () => void }) {
 	const t = useT();
 	const setPhase = useFirstRunStore(state => state.setPhase);
@@ -503,16 +488,15 @@ function LeaveConfirm({ open, onClose }: { open: boolean; onClose: () => void })
 export function FirstRunSetup() {
 	const t = useT();
 	const phase = useFirstRunStore(state => state.phase);
-	const installing = useMachineSetupNeeded();
 	const primary = useRef<(() => void) | null>(null);
 	const [leaving, setLeaving] = useState(false);
-	const active = phase !== "idle" || installing;
-	const step: SetupStep = installing ? "install" : phase === "idle" ? "connect" : phase;
+	const active = phase !== "idle";
+	const step: SetupStep = phase === "idle" ? "connect" : phase;
 
 	// Bubbling on document: a field, popover or the composer that handles a key
 	// first (and prevents it) keeps it; a dialog above setup owns its own keys.
 	useEffect(() => {
-		if (!active || step === "install") return;
+		if (!active) return;
 		const onKey = (event: KeyboardEvent) => {
 			if (event.repeat || event.defaultPrevented || isImeKeyEvent(event)) return;
 			if (event.altKey || event.shiftKey || document.querySelector('[role="dialog"]')) return;
@@ -528,7 +512,7 @@ export function FirstRunSetup() {
 		};
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
-	}, [active, step]);
+	}, [active]);
 
 	if (!active) return null;
 	return (
@@ -545,33 +529,21 @@ export function FirstRunSetup() {
 				>
 					{t("setup.title")}
 				</h1>
-				<p className="mt-2 text-sc-lg text-(--sc-text-muted)">
-					{step === "install" ? t("machineSetup.install.subtitle") : t("setup.subtitle")}
-				</p>
+				<p className="mt-2 text-sc-lg text-(--sc-text-muted)">{t("setup.subtitle")}</p>
 				<StepList phase={step} />
-				{step === "install" ? (
-					<InstallStep />
-				) : step === "connect" ? (
-					<ConnectStep />
-				) : step === "model" ? (
-					<ModelStep />
-				) : (
-					<GithubStep />
-				)}
-				{step !== "install" && (
-					<p className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-sc-xs text-(--sc-text-muted)">
-						{step !== "connect" && (
-							<span className="inline-flex items-center gap-1.5">
-								<Kbd shortcut="⌘↵" />
-								{t("setup.keys.advance")}
-							</span>
-						)}
+				{step === "connect" ? <ConnectStep /> : step === "model" ? <ModelStep /> : <GithubStep />}
+				<p className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-sc-xs text-(--sc-text-muted)">
+					{step !== "connect" && (
 						<span className="inline-flex items-center gap-1.5">
-							<Kbd shortcut="⎋" />
-							{t("setup.later")}
+							<Kbd shortcut="⌘↵" />
+							{t("setup.keys.advance")}
 						</span>
-					</p>
-				)}
+					)}
+					<span className="inline-flex items-center gap-1.5">
+						<Kbd shortcut="⎋" />
+						{t("setup.later")}
+					</span>
+				</p>
 				<LeaveConfirm onClose={() => setLeaving(false)} open={leaving} />
 			</section>
 		</PrimaryActionContext.Provider>

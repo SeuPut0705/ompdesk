@@ -5620,7 +5620,6 @@ export const ko: Record<string, string> = {
 	"machineSetup.install.title": "이 컴퓨터에 omp를 설치하고 있어요",
 	"machineSetup.install.description":
 		"OMPdesk가 omp에 필요한 것을 알아서 설치해요. 따로 하실 일은 없고, 이 화면에서 진행 상황을 볼 수 있어요.",
-	"machineSetup.install.subtitle": "먼저 이 컴퓨터에 omp를 설치하고, 그다음 모델 제공자 하나를 연결해요.",
 	"machineSetup.dialogTitle": "이 컴퓨터 준비하기",
 	"machineSetup.showSetup": "설치 화면 보기",
 	"machineSetup.requiredList": "필수 도구",

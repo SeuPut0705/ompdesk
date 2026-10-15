@@ -30,6 +30,7 @@ import { WorktreeDialog } from "./components/dialogs/WorktreeDialog";
 import { WorktreeLifecycleDialog } from "./components/dialogs/WorktreeLifecycleDialog";
 import { AppShell } from "./components/layout/AppShell";
 import { FirstRunGate } from "./components/onboarding/FirstRunGate";
+import { SetupTakeoverHost } from "./components/onboarding/SetupTakeover";
 import { StarterTour } from "./components/onboarding/StarterTour";
 import { RemoteFolderPickerHost } from "./components/remote/RemoteFolderPicker";
 import { SshPromptDialog } from "./components/settings/SshTools";
@@ -80,6 +81,7 @@ import { startVoiceAutoSpeak } from "./lib/voice";
 import { selectFocusedTabProject } from "./lib/workspace-dirs";
 import { useExtensionUiStore } from "./stores/extension-ui";
 import { openHandoffDialog } from "./stores/fork-handoff";
+import { useMachineSetupStore } from "./stores/machine-setup";
 import { useModelStore } from "./stores/model";
 import { usePreviewVisualEvents } from "./stores/preview-visuals";
 import { useRemoteStateSync } from "./stores/remote";
@@ -211,6 +213,11 @@ export function App() {
 	const themeSidecarReady = activeTabStatus === "ready" || activeTabStatus === "running";
 	const { lang, setLang } = useLang();
 	const t = useT();
+	// Required machine setup (Bun, Git Bash, omp) takes over the whole window:
+	// SetupTakeoverHost (inside the tab's runtime) publishes the flag; everything
+	// but the setup screen is inert, and the entry points below that need no
+	// focus (menu actions, deep links, chords) read it too.
+	const setupTakeover = useMachineSetupStore(s => s.takeover);
 
 	// Seed theme/fontSize from persisted prefs once at boot.
 	useEffect(() => {
@@ -356,6 +363,7 @@ export function App() {
 	// Handle omp:// deep links (omp://new → new session; omp://session/<id> → switch).
 	useEffect(() => {
 		const handle = async (link: { action: "new-session" } | { action: "switch-session"; sessionId: string }) => {
+			if (useMachineSetupStore.getState().takeover) return;
 			if (link.action === "new-session") {
 				if (useSessionStore.getState().isStreaming) {
 					toast({ variant: "warning", title: t("deepLink.streaming"), message: t("deepLink.streamingDesc") });
@@ -581,6 +589,8 @@ export function App() {
 		const onKey = (event: KeyboardEvent) => {
 			// One physical shortcut dispatches once; IME composition owns Escape.
 			if (event.repeat || isImeKeyEvent(event)) return;
+			// The setup screen takes every chord.
+			if (useMachineSetupStore.getState().takeover) return;
 			const ui = useUiStore.getState();
 			const overlayOpen =
 				ui.commandPaletteOpen ||
@@ -657,6 +667,9 @@ export function App() {
 	useEffect(() => {
 		const run = async (action: MenuAction, payload?: MenuActionPayload) => {
 			const ui = useUiStore.getState();
+			// The setup screen blocks every menu command (the tray's "new session"
+			// included) except the language switch.
+			if (useMachineSetupStore.getState().takeover && action !== "toggle-language") return;
 			if (action === "toggle-sidebar") {
 				ui.toggleSidebar();
 				return;
@@ -841,54 +854,57 @@ export function App() {
 
 	const surface = (
 		<div className="flex h-screen w-screen overflow-hidden text-(--sc-text)">
-			{activeTabId && <FocusedSessionEffects />}
-			<QuotaResumeEffects />
-			<InterruptedWorkEffects />
-			<OutputStyleEffects />
-			<IdleCompactionDraftEffects />
-			<HostAppearanceEffects />
-			<AppShell />
+			<div className="contents" inert={setupTakeover}>
+				{activeTabId && <FocusedSessionEffects />}
+				<QuotaResumeEffects />
+				<InterruptedWorkEffects />
+				<OutputStyleEffects />
+				<IdleCompactionDraftEffects />
+				<HostAppearanceEffects />
+				<AppShell />
 
-			<CommandPalette />
-			{visibleTabIds({ activeTabId, split }).map(tabId => (
-				<TabRuntimeProvider key={tabId} tabId={tabId}>
-					<ExtensionDialog />
-					<PlanApprovalDialog />
-				</TabRuntimeProvider>
-			))}
-			<FirstRunGate />
-			<ModelPicker />
-			<RenameSessionDialog />
-			<WorktreeDialog />
-			<WorktreeCloseDialog />
-			<WorktreeLifecycleDialog />
-			<SessionPickerDialog />
-			<QuickOpenDialog />
-			<TabSwitcher />
-			<TabOverviewDialog />
-			<SessionSwitchDialog />
-			<ModelRestoreDialog />
-			<BranchPickerDialog />
-			<BtwDialog />
-			<DebugConsoleDialog />
-			<LiveVoiceDialog />
-			<CopySelectorDialog />
-			<ActiveToolsDialog />
-			<ShareSessionDialog />
-			<ChangelogDialog />
-			<WhatsNewNotice />
-			<StarterTour />
-			<ForceToolDialog />
-			<HandoffDialog />
-			<RemoteFolderPickerHost />
-			<SshPromptDialog />
-			<Suspense fallback={null}>
-				<BenchmarkDialog open={benchmarkOpen} onClose={closeBenchmark} />
-			</Suspense>
-			<Suspense fallback={null}>{modelSetupOpen && <ModelSetupDialog />}</Suspense>
-			<ThemePickerDialog />
-			{importDialogOpen && <ImportForeignDialog />}
-			<Suspense fallback={null}>{feedbackOpen && <FeedbackDialog />}</Suspense>
+				<CommandPalette />
+				{visibleTabIds({ activeTabId, split }).map(tabId => (
+					<TabRuntimeProvider key={tabId} tabId={tabId}>
+						<ExtensionDialog />
+						<PlanApprovalDialog />
+					</TabRuntimeProvider>
+				))}
+				<FirstRunGate />
+				<ModelPicker />
+				<RenameSessionDialog />
+				<WorktreeDialog />
+				<WorktreeCloseDialog />
+				<WorktreeLifecycleDialog />
+				<SessionPickerDialog />
+				<QuickOpenDialog />
+				<TabSwitcher />
+				<TabOverviewDialog />
+				<SessionSwitchDialog />
+				<ModelRestoreDialog />
+				<BranchPickerDialog />
+				<BtwDialog />
+				<DebugConsoleDialog />
+				<LiveVoiceDialog />
+				<CopySelectorDialog />
+				<ActiveToolsDialog />
+				<ShareSessionDialog />
+				<ChangelogDialog />
+				<WhatsNewNotice />
+				<StarterTour />
+				<ForceToolDialog />
+				<HandoffDialog />
+				<RemoteFolderPickerHost />
+				<SshPromptDialog />
+				<Suspense fallback={null}>
+					<BenchmarkDialog open={benchmarkOpen} onClose={closeBenchmark} />
+				</Suspense>
+				<Suspense fallback={null}>{modelSetupOpen && <ModelSetupDialog />}</Suspense>
+				<ThemePickerDialog />
+				{importDialogOpen && <ImportForeignDialog />}
+				<Suspense fallback={null}>{feedbackOpen && <FeedbackDialog />}</Suspense>
+			</div>
+			<SetupTakeoverHost />
 			<ToastStack />
 		</div>
 	);
