@@ -2944,6 +2944,7 @@ export const en: Record<string, string> = {
 	"tools.eval.output": "Output",
 	"tools.eval.evaluating": "Evaluating…",
 	"tools.browser.screenshotAlt": "browser screenshot",
+	"tools.browser.openPreview": "Open this page in Preview",
 	"tools.browser.navigating": "Navigating…",
 	"tools.debug.variables": "Variables",
 	"tools.lsp.results": "{count} result{plural}",

@@ -1,6 +1,8 @@
-import { Globe } from "lucide-react";
+import { AppWindow, Globe } from "lucide-react";
 import { extractImageDataUrls, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useUiStore } from "../../stores/ui";
+import { IconButton } from "../common";
 import { CaptureResult } from "./CaptureResult";
 import type { ToolRendererProps } from "./ToolCard";
 
@@ -25,6 +27,17 @@ export function BrowserRenderer({ args, result, isError, isPartial, partialResul
 			pendingLabel={isPartial ? t("tools.browser.navigating") : null}
 		>
 			{url && <span className="min-w-0 flex-1 truncate text-[var(--omp-md-link)]">{url}</span>}
+			{/* The page the agent left, reopened in the Preview panel (http(s) only, like the panel). */}
+			{/^https?:\/\//i.test(url) && !isPartial && (
+				<IconButton
+					className="shrink-0"
+					data-browser-open-preview
+					icon={<AppWindow />}
+					label={t("tools.browser.openPreview")}
+					onClick={() => useUiStore.getState().openPreview(url)}
+					size="sm"
+				/>
+			)}
 		</CaptureResult>
 	);
 }

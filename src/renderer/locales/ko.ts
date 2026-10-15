@@ -2929,6 +2929,7 @@ export const ko: Record<string, string> = {
 	"tools.eval.output": "출력",
 	"tools.eval.evaluating": "평가 중…",
 	"tools.browser.screenshotAlt": "브라우저 스크린샷",
+	"tools.browser.openPreview": "이 페이지를 미리보기에서 열기",
 	"tools.browser.navigating": "이동 중…",
 	"tools.debug.variables": "변수",
 	"tools.lsp.results": "결과 {count}개",

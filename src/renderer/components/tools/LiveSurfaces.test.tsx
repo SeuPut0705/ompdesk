@@ -181,6 +181,16 @@ describe("live tool screens", () => {
 		);
 		expect(container.querySelector(".omp-tool-caption")?.textContent).toBe("https://example.com");
 	});
+	it("reopens the browser's http(s) page in the Preview panel, never a file or blank page", async () => {
+		const { useUiStore } = await import("../../stores/ui");
+		await mount(<BrowserRenderer args={{ action: "goto", url: "https://example.com/a" }} result={result("ok")} />);
+		const open = container.querySelector("[data-browser-open-preview]") as unknown as { click(): void } | null;
+		await act(async () => open?.click());
+		expect(useUiStore.getState()).toMatchObject({ previewUrl: "https://example.com/a", panelTab: "preview" });
+		await act(async () => root?.unmount());
+		await mount(<BrowserRenderer args={{ action: "goto", url: "file:///etc/hosts" }} result={result("ok")} />);
+		expect(container.querySelector("[data-browser-open-preview]")).toBeNull();
+	});
 	it("keeps computer action and coordinates in its caption", async () => {
 		await mount(
 			<ComputerRenderer livePreview args={{ action: "click", coordinate: [10, 20] }} result={result("Clicked")} />,
