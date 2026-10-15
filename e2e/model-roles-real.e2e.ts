@@ -149,6 +149,103 @@ test("real omp: every role resolves through stock and each template agent picks 
 	}
 });
 
+interface TranscriptLine {
+	message?: { role?: string; provider?: string; model?: string; stopReason?: string; content?: unknown };
+}
+
+async function transcript(file: string): Promise<TranscriptLine[]> {
+	const text = await fs.readFile(file, "utf8").catch(() => "");
+	return text
+		.split("\n")
+		.filter(Boolean)
+		.map(line => JSON.parse(line) as TranscriptLine);
+}
+
+/** The subagent transcripts stock writes next to a session file: `<session>/…/*.jsonl`. */
+async function subagentFiles(session: string): Promise<string[]> {
+	const dir = session.replace(/\.jsonl$/, "");
+	const names = await fs.readdir(dir, { recursive: true }).catch(() => [] as string[]);
+	return names.filter(name => name.endsWith(".jsonl")).map(name => path.join(dir, name));
+}
+
+// Spends tokens: a real `task` subagent runs once with the task role set and once with it empty,
+// and its transcript's model must be what Settings › Model roles shows as `task`'s effective model.
+test("real omp: a task subagent runs on the task role's effective model, set and empty", async () => {
+	test.skip(!REAL || process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in: spends tokens on a real subagent");
+	test.setTimeout(900_000);
+	const { app, page, tabId } = await launchReal();
+	try {
+		const state = await command<{ model?: { provider: string; id: string } }>(page, tabId, { type: "get_state" });
+		if (!state.model) throw new Error("No session model");
+		const session = `${state.model.provider}/${state.model.id}`;
+		const baseline = await rolesOf(page, tabId);
+		const chat = baseline.default?.candidates.filter(model => model.kind === "chat") ?? [];
+		// A current model the user's account serves: one they assign to another role, the light roles first.
+		const configured = [baseline.tiny, baseline.commit, ...Object.values(baseline)].flatMap(role =>
+			role?.model ? [role.model.replace(/:[a-z]+$/, "")] : [],
+		);
+		const chatIds = new Set(chat.map(model => `${model.provider}/${model.id}`));
+		const other = configured.find(model => model !== session && chatIds.has(model));
+		if (!other) throw new Error("The profile needs a second chat model assigned to some role");
+
+		for (const run of [
+			{ role: other, marker: "SUB-SET" },
+			{ role: null, marker: "SUB-EMPTY" },
+		]) {
+			await command(page, tabId, { type: "set_model_role", role: "task", modelId: run.role });
+			const effective = (await rolesOf(page, tabId)).task?.effective;
+			test.info().annotations.push({ type: `task effective ${run.marker}`, description: JSON.stringify(effective) });
+			expect(effective?.model, run.marker).toBeDefined();
+			const input = page.locator(".omp-composer-input").first();
+			const before = await command<{ sessionId?: string }>(page, tabId, { type: "get_state" });
+			// Send, not Enter: Enter while the command menu is open inserts its entry (InputArea) instead of running it.
+			await input.fill("/new");
+			await page.getByRole("button", { name: "Send", exact: true }).click();
+			await expect
+				.poll(async () => (await command<{ sessionId?: string }>(page, tabId, { type: "get_state" })).sessionId, {
+					timeout: 30_000,
+				})
+				.not.toBe(before.sessionId);
+			const { sessionFile } = await command<{ sessionFile?: string }>(page, tabId, { type: "get_state" });
+			if (!sessionFile) throw new Error("No session file");
+			await input.fill(
+				`Use the task tool exactly once to spawn one subagent of the bundled "task" agent type, without passing any model, with the assignment: "Reply with exactly ${run.marker}." When it has finished, reply with exactly ALL-DONE.`,
+			);
+			await input.press("Enter");
+			await expect
+				.poll(
+					async () =>
+						(await transcript(sessionFile)).some(
+							line =>
+								line.message?.role === "assistant" &&
+								line.message.stopReason === "stop" &&
+								JSON.stringify(line.message.content).includes("ALL-DONE"),
+						),
+					{ timeout: 400_000 },
+				)
+				.toBe(true);
+			const replies: Array<{ model: string; stopReason?: string; text: string }> = [];
+			for (const file of await subagentFiles(sessionFile)) {
+				for (const line of await transcript(file)) {
+					if (line.message?.role === "assistant" && line.message.provider && line.message.model) {
+						replies.push({
+							model: `${line.message.provider}/${line.message.model}`,
+							stopReason: line.message.stopReason,
+							text: JSON.stringify(line.message.content).slice(0, 200),
+						});
+					}
+				}
+			}
+			test.info().annotations.push({ type: `subagent ${run.marker}`, description: JSON.stringify(replies) });
+			// The subagent's own answer: stock may consult other models on the way (advisor), never instead.
+			const answer = replies.findLast(reply => reply.stopReason === "stop" && reply.text.includes(run.marker));
+			expect(answer?.model, run.marker).toBe(effective?.model);
+		}
+	} finally {
+		await exitApp(app);
+	}
+});
+
 for (const language of ["en", "ko"] as const)
 	for (const theme of ["light", "dark"] as const)
 		test(`model roles captures (${language} ${theme})`, async () => {

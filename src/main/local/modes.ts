@@ -75,6 +75,9 @@ async function setTimeLimit(ctx: LocalCommandContext, minutes: number | null): P
 
 async function setGoal(command: { [k: string]: unknown }, ctx: LocalCommandContext): Promise<RpcGoalState> {
 	if (command.action === "pause" || command.action === "resume" || command.action === "drop") {
+		// A goal paused at its OMPdesk time limit gets another span of it first; resumed as is, the bridge's
+		// limit check would pause it again on the resume itself. Best effort: an omp without it resumes as stock.
+		if (command.action === "resume") await ctx.bridge.request("modes.goal_resume_time_limit").catch(() => undefined);
 		return withTimeLimit(ctx, projectGoal(await ctx.send<StockGoalResult>({ type: "goal", op: command.action })));
 	}
 	const objective = typeof command.objective === "string" ? command.objective.trim() : "";

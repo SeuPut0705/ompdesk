@@ -3,17 +3,25 @@
  * Stock goals carry a token budget only; their `timeUsedSeconds` counts wall
  * time while the goal is active (stock `goals/runtime.ts` `#flushUsageLocked`;
  * paused time never counts). OMPdesk keeps a limit in minutes per goal as a
- * journal custom entry, so it survives an omp restart and a resumed session,
- * and modes/goal.ts pauses the goal through stock `pauseGoal()` once the used
- * time reaches it — the same runtime pause stock applies on a host abort.
+ * journal custom entry, so it survives an omp restart and a resumed session.
+ * Once the used time reaches it, modes/goal.ts reports it and main pauses the
+ * goal through stock RPC `goal pause` (stock's own pause, tool set included).
+ * A resume past the limit moves it one span (the length the user set) beyond
+ * the time used so far, so the goal gets that much more instead of pausing
+ * again on the resume itself.
  */
 
 export const GOAL_TIME_ENTRY_TYPE = "ompdesk.goal-time-limit";
 
-/** The limit entry's data. `seconds: null` clears an earlier limit for that goal. */
+/**
+ * The limit entry's data. `seconds` is the used time at which the goal pauses (`null` clears an earlier
+ * limit for that goal); `span` is the length the user set, which a resume past the limit adds again
+ * (absent on entries the user wrote: there it is `seconds`).
+ */
 export interface GoalTimeLimitEntry {
 	goalId: string;
 	seconds: number | null;
+	span?: number;
 }
 
 interface JournalEntryLike {
@@ -30,16 +38,44 @@ export interface GoalTimeFields {
 	updatedAt: number;
 }
 
-/** The latest limit recorded for `goalId` on the branch, in seconds. */
-export function timeLimitFromEntries(entries: readonly JournalEntryLike[], goalId: string): number | undefined {
+/** The latest limit recorded for `goalId` on the branch: when it pauses and the span it was set for, in seconds. */
+function latestLimit(
+	entries: readonly JournalEntryLike[],
+	goalId: string,
+): { seconds: number; span: number } | undefined {
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];
 		if (entry?.type !== "custom" || entry.customType !== GOAL_TIME_ENTRY_TYPE) continue;
 		const data = entry.data as Partial<GoalTimeLimitEntry> | undefined;
 		if (data?.goalId !== goalId) continue;
-		return typeof data.seconds === "number" && data.seconds > 0 ? data.seconds : undefined;
+		if (typeof data.seconds !== "number" || data.seconds <= 0) return undefined;
+		const span = typeof data.span === "number" && data.span > 0 ? data.span : data.seconds;
+		return { seconds: data.seconds, span };
 	}
 	return undefined;
+}
+
+/** The latest limit recorded for `goalId` on the branch, in seconds. */
+export function timeLimitFromEntries(entries: readonly JournalEntryLike[], goalId: string): number | undefined {
+	return latestLimit(entries, goalId)?.seconds;
+}
+
+/** The length of `goalId`'s limit as the user set it, in seconds (what the "ran out" notice names). */
+export function timeLimitSpanFromEntries(entries: readonly JournalEntryLike[], goalId: string): number | undefined {
+	return latestLimit(entries, goalId)?.span;
+}
+
+/**
+ * The entry a resume writes for a goal that has used its time: the limit moves one span past the time
+ * used. Undefined while the goal is within its limit or has none.
+ */
+export function resumedTimeLimit(
+	entries: readonly JournalEntryLike[],
+	goal: Pick<GoalTimeFields, "id" | "timeUsedSeconds">,
+): GoalTimeLimitEntry | undefined {
+	const limit = latestLimit(entries, goal.id);
+	if (!limit || goal.timeUsedSeconds < limit.seconds) return undefined;
+	return { goalId: goal.id, seconds: goal.timeUsedSeconds + limit.span, span: limit.span };
 }
 
 /** `{minutes}` from the GUI → whole seconds, or `null` to clear. Anything else is refused. */

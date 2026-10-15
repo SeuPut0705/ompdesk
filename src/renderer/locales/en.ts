@@ -4814,7 +4814,7 @@ export const en: Record<string, string> = {
 	"events.sidecarHealthFailed": "omp health check failed. The agent may be stuck; restart it if this continues.",
 	"events.sidecarNoResponse": "omp started but isn't responding. Restart it to continue.",
 	"events.sidecarProcessFailed": "omp process failed",
-	"events.goalTimeLimit": "Goal paused: its {minutes} min time limit ran out. Resume it to continue.",
+	"events.goalTimeLimit": "Goal paused: its {minutes} min time limit ran out. Resuming gives it another {minutes} min.",
 	"events.ttsrRules": "Rule applied mid-stream: {rules}",
 	"export.sessionExported": "Session exported",
 	"model.fastMode": "Fast mode",

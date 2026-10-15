@@ -10,7 +10,9 @@ import {
 	goalSecondsUsed,
 	goalTimeExceeded,
 	parseTimeLimitMinutes,
+	resumedTimeLimit,
 	timeLimitFromEntries,
+	timeLimitSpanFromEntries,
 } from "../../resources/gui-bridge/modes/goal-time-core";
 
 const entry = (goalId: string, seconds: number | null) => ({
@@ -49,5 +51,24 @@ describe("goal time limit", () => {
 		expect(goalTimeExceeded({ ...goal, status: "paused" }, 50, true, 1_050_000)).toBe(false);
 		expect(goalTimeExceeded({ ...goal, status: "budget-limited" }, 50, true, 1_050_000)).toBe(false);
 		expect(goalTimeExceeded(goal, undefined, true, 9_999_999)).toBe(false);
+	});
+
+	it("gives a goal resumed past its limit one more span of it, and leaves one within its limit alone", () => {
+		const set = [entry("g1", 600)];
+		// Paused at 10 min of a 10 min limit: the limit moves to 20 min, the span stays 10.
+		const grown = resumedTimeLimit(set, { id: "g1", timeUsedSeconds: 605 });
+		expect(grown).toEqual({ goalId: "g1", seconds: 1205, span: 600 });
+		const after = [...set, { type: "custom", customType: GOAL_TIME_ENTRY_TYPE, data: grown }];
+		expect(timeLimitFromEntries(after, "g1")).toBe(1205);
+		expect(timeLimitSpanFromEntries(after, "g1")).toBe(600);
+		// The next resume past it adds the user's span again, not the grown total.
+		expect(resumedTimeLimit(after, { id: "g1", timeUsedSeconds: 1210 })).toEqual({
+			goalId: "g1",
+			seconds: 1810,
+			span: 600,
+		});
+		expect(resumedTimeLimit(set, { id: "g1", timeUsedSeconds: 300 })).toBeUndefined();
+		expect(resumedTimeLimit([...set, entry("g1", null)], { id: "g1", timeUsedSeconds: 900 })).toBeUndefined();
+		expect(resumedTimeLimit(set, { id: "g2", timeUsedSeconds: 900 })).toBeUndefined();
 	});
 });

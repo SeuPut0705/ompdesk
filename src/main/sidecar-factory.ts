@@ -116,6 +116,24 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 				});
 		});
 		sc.on("bridge", (result: BridgeConnectResult) => void bridgeHealth.observe(result));
+		// The bridge's goal time limit ran out (resources/gui-bridge/modes/goal.ts): pause through stock RPC `goal`
+		// `pause`, the path that also gives back the pre-goal tool set and resets continuation (RpcGoalController
+		// `#exit`); the bridge has no handle on that controller. A failed pause leaves the goal running and the
+		// bridge reports the limit again.
+		sc.on("frame", (frame: { type?: unknown }) => {
+			if (frame.type !== "goal_time_limit_reached") return;
+			void sc.rpcClient
+				?.command({ type: "set_goal", action: "pause" })
+				.then(response => {
+					if (!response.success) throw new Error(response.error ?? "goal pause failed");
+				})
+				.catch((error: unknown) =>
+					writeRuntimeLog(
+						{ source: "goal-time-limit", message: error instanceof Error ? error.message : String(error) },
+						{ cwd },
+					),
+				);
+		});
 		// omp has no session kind; remember which sessions chat tabs created.
 		if (kind === "chat") sc.on("session", ({ sessionId }) => sessionId && sessionKinds.markChat(sessionId));
 		return sc;
