@@ -204,6 +204,66 @@ test("a bottom-pinned transcript rides the stream, and 'jump to latest' re-engag
 	});
 });
 
+// A new row rises into place (omp-row-arrive: 10px up, 220ms). Its transform must
+// never reach past the rows into the scroll height: a pinned view rides that extra
+// height, and when the rise ends it drops back and the whole transcript jumps.
+test("a row's entrance leaves a pinned transcript's scroll height to the rows", async () => {
+	await withFollowApp(async (_app, page) => {
+		const errors: string[] = [];
+		page.on("pageerror", error => errors.push(error.message));
+		const { input, gap } = followProbe(page);
+		await expect(input).toBeVisible({ timeout: 60_000 });
+		const entering = () =>
+			page.evaluate(() =>
+				[...document.querySelectorAll(".omp-row-arrive > .omp-transcript-row")].some(row =>
+					row.getAnimations().some(animation => animation.playState === "running"),
+				),
+			);
+		const sendTurn = async (text: string) => {
+			await input.fill(text);
+			await page.getByRole("button", { name: "Send", exact: true }).click();
+			await expect(page.locator(".omp-user-text").filter({ hasText: text })).toBeVisible({ timeout: 30_000 });
+		};
+		await sendTurn("fixture turn 0");
+		await expect.poll(entering).toBe(false);
+		await expect.poll(gap).toBeLessThan(SETTLED_EDGE_PX);
+		// Every frame from the send until the entrance is over.
+		await page.evaluate(() => {
+			const scroll = document.querySelector<HTMLElement>(".omp-transcript-scroll");
+			const canvas = document.querySelector<HTMLElement>(".omp-transcript-canvas");
+			if (!scroll || !canvas) throw new Error("expected the transcript");
+			const probe = { overflow: 0, enteringFrames: 0, done: false };
+			// Test-only global the second evaluate reads back.
+			const w = window as unknown as { __entrance: typeof probe };
+			w.__entrance = probe;
+			const sample = () => {
+				if (probe.done) return;
+				const overflow = scroll.scrollHeight - Math.max(canvas.offsetHeight, scroll.clientHeight);
+				probe.overflow = Math.max(probe.overflow, overflow);
+				const rising = [...canvas.querySelectorAll(".omp-row-arrive > .omp-transcript-row")].some(row =>
+					row.getAnimations().some(animation => animation.playState === "running"),
+				);
+				if (rising) probe.enteringFrames++;
+				requestAnimationFrame(sample);
+			};
+			requestAnimationFrame(sample);
+		});
+		await sendTurn("fixture turn 1");
+		await expect.poll(entering).toBe(false);
+		const seen = await page.evaluate(() => {
+			const w = window as unknown as { __entrance: { overflow: number; enteringFrames: number; done: boolean } };
+			w.__entrance.done = true;
+			return w.__entrance;
+		});
+		// The sampler saw the rise itself, not only the frames around it.
+		expect(seen.enteringFrames).toBeGreaterThan(2);
+		// Scroll height beyond the rows (a pixel of rounding between the two).
+		expect(seen.overflow).toBeLessThanOrEqual(1);
+		await expect.poll(gap).toBeLessThan(SETTLED_EDGE_PX);
+		expect(errors).toEqual([]);
+	});
+});
+
 test("viewport resizes from the dock and composer never stop a pinned transcript following", async () => {
 	test.setTimeout(150_000);
 	await withFollowApp(async (_app, page) => {

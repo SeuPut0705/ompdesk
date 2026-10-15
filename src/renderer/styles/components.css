@@ -2816,6 +2816,14 @@ button.omp-file-chip-name:hover {
 	animation: omp-fade-up var(--sc-duration-med) var(--sc-ease-enter) both;
 }
 
+/* The rise above starts 10px low, and while it runs the tail row's transform
+ * reaches past the canvas into the scroller's scrollable overflow; when it ends
+ * the scroll height drops back and a bottom-pinned view jumps by that much. The
+ * canvas already spans every row, so nothing below it is content. */
+.omp-transcript-editorial .omp-transcript-canvas {
+	overflow-y: clip;
+}
+
 
 
 .omp-empty-canvas,

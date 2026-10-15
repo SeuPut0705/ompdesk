@@ -215,11 +215,27 @@ for (const language of ["en", "ko"] as const)
 						element.scrollTop = element.scrollHeight;
 					});
 					const last = page.locator(".omp-user-text").filter({ hasText: "fixture turn 17" });
+					// The last turns' rows rise into place (omp-row-arrive); measured mid-rise, the
+					// press would land where the text no longer is.
+					await expect
+						.poll(() =>
+							scroller.evaluate(element =>
+								[...element.querySelectorAll(".omp-row-arrive > .omp-transcript-row")].some(row =>
+									row.getAnimations().some(animation => animation.playState === "running"),
+								),
+							),
+						)
+						.toBe(false);
 					const start = await last.boundingBox();
 					const box = await scroller.boundingBox();
 					if (!start || !box) throw new Error("expected the last prompt and the transcript");
 					const before = await scroller.evaluate(element => element.scrollTop);
-					await page.mouse.move(start.x + start.width - 4, start.y + start.height / 2);
+					// A whole-pixel press, as a mouse reports it. Chromium places the press caret
+					// from the point as sent, but on the first drag move it hit-tests the press
+					// point again floored to whole pixels (SelectionController::HandleMouseDraggedEvent).
+					// A fractional point just right of a glyph's middle gives two offsets, and the
+					// changed caret restarts the selection at the pointer on every move.
+					await page.mouse.move(Math.round(start.x + start.width - 4), Math.round(start.y + start.height / 2));
 					await page.mouse.down();
 					await page.mouse.move(start.x + 10, box.y + 60, { steps: 6 });
 					// Held just inside the top edge: the transcript keeps scrolling on its own.
