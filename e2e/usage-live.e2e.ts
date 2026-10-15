@@ -1,0 +1,106 @@
+/**
+ * Live quotas end to end on the fake omp (`OMP_GUI_TEST_USAGE_DRIFT=1`): every
+ * usage read after the first spends 5% more of work@'s 5-hour window, the way
+ * a live account moves between polls. Settings › Models & providers keeps the
+ * open account list current on its own (poll, window focus, a turn's end) and
+ * says how old the numbers are and when each window resets; the refresh button
+ * reaches the bridge as stock's invalidate. Playwright's clock stands in for
+ * the 30-second wait. Nothing here reaches a real provider.
+ */
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import { expect, test } from "@playwright/test";
+import { type ElectronApplication, _electron as electron, type Locator, type Page } from "playwright";
+import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
+
+let app: ElectronApplication;
+let page: Page;
+let profile: string;
+let record: string;
+const errors: string[] = [];
+
+async function recorded(type: string): Promise<Array<Record<string, unknown>>> {
+	const text = await fs.readFile(record, "utf8").catch(() => "");
+	return text
+		.split("\n")
+		.filter(Boolean)
+		.map(line => JSON.parse(line) as Record<string, unknown>)
+		.filter(entry => entry.type === type);
+}
+
+/** work@'s 5-hour "N% left" as the account list shows it. */
+async function workLeft(work: Locator): Promise<number> {
+	const text = (await work.textContent()) ?? "";
+	const match = /5-hour limit (\d+)% left/.exec(text);
+	if (!match) throw new Error(`no 5-hour quota in: ${text}`);
+	return Number(match[1]);
+}
+
+test.beforeAll(async () => {
+	profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-usage-live-"));
+	const project = path.join(profile, "project");
+	const userData = path.join(profile, "desktop");
+	const agent = path.join(profile, "agent");
+	await Promise.all([fs.mkdir(project), fs.mkdir(userData), fs.mkdir(agent)]);
+	record = path.join(profile, "rpc.jsonl");
+	await fs.writeFile(path.join(userData, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
+	const env = {
+		...process.env,
+		PI_CODING_AGENT_DIR: agent,
+		PI_CONFIG_DIR: path.relative(os.homedir(), profile),
+		OMP_PROFILE: "",
+		PI_PROFILE: "",
+		OMP_GUI_OMP: await fixtureOmp(profile),
+		OMP_GUI_TEST_RECORD: record,
+		OMP_GUI_TEST_LOGIN: "1",
+		OMP_GUI_TEST_MODELS: "1",
+		OMP_GUI_TEST_USAGE_DRIFT: "1",
+	};
+	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
+	app = await electron.launch({
+		args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${userData}`],
+		env,
+	});
+	page = await app.firstWindow();
+	page.on("pageerror", error => errors.push(error.message));
+	await page.waitForFunction(() => window.omp?.rpc != null);
+	await expect.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status).toBe("ready");
+});
+
+test.afterAll(async () => {
+	if (app) await exitApp(app);
+	if (profile) await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+});
+
+test("keeps the open account list live without reopening it", async () => {
+	await page.clock.install();
+	const settings = page.locator("[data-settings-page]");
+	await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
+	await page.locator('[data-settings-section="models"]').click();
+	await settings.locator("button[aria-expanded]", { hasText: "Anthropic" }).first().click();
+
+	const work = settings.locator('[data-provider-account="1"]');
+	await expect(work).toContainText(/5-hour limit \d+% left/);
+	await expect(work.locator("[data-quota-updated]")).toHaveText(/^Updated \d+s ago$/);
+	await expect(work).toContainText(/resets in [23]h \d+m/);
+	await expect(work).toContainText(/resets in [34]d \d+h/);
+
+	// The 30-second poll: the fixture's next read spent more, and the open list shows it.
+	const before = await workLeft(work);
+	await page.clock.fastForward(31_000);
+	await expect.poll(() => workLeft(work)).toBeLessThan(before);
+
+	// Coming back to the window reads at once.
+	const beforeFocus = await workLeft(work);
+	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+	await expect.poll(() => workLeft(work)).toBeLessThan(beforeFocus);
+
+	// The refresh button asks stock to probe the provider now (its `omp usage invalidate`).
+	expect((await recorded("provider_accounts")).some(entry => entry.refresh === true)).toBe(false);
+	await settings.getByRole("button", { name: "Refresh Anthropic quotas" }).click();
+	await expect
+		.poll(async () => (await recorded("provider_accounts")).some(entry => entry.refresh === true))
+		.toBe(true);
+	expect(errors).toEqual([]);
+});

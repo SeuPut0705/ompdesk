@@ -1,21 +1,21 @@
 /**
  * Sidebar footer usage pin (mixdog's "Rail bars"): the tab's provider quota as
  * two thin bars, the short window (5 h) and the weekly one, from stock's usage
- * reports (`get_usage`). Each read is a live call to the provider, so it runs
- * when the pin mounts, when the tab's provider changes, and every five
- * minutes; Insights › Usage has the full cards. Clicking opens that page.
+ * reports (`get_usage`). It reads when the pin mounts, when the tab's provider
+ * changes, and live while it shows (lib/usage-reports.ts); a failed read keeps
+ * the bars it had. Insights › Usage has the full cards. Clicking opens that page.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { UsageLimit, UsageReport } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { usageLimitLabel } from "../../lib/usage-labels";
+import { inUseReport, useLiveUsage } from "../../lib/usage-reports";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 import { ProgressBar } from "../common";
 
-const REFRESH_MS = 5 * 60_000;
 const SHORT_WINDOWS = ["5h"];
 const WEEK_WINDOWS = ["7d", "1w", "weekly"];
 
@@ -31,8 +31,7 @@ function usedFraction(limit: UsageLimit): number | null {
  * fullest limits instead.
  */
 export function railLimits(reports: readonly UsageReport[], provider: string | null): UsageLimit[] {
-	const own = reports.filter(report => report.provider === provider && report.limits.length > 0);
-	const report = own.find(entry => entry.active) ?? own[0];
+	const report = inUseReport(reports, provider);
 	if (!report) return [];
 	const measured = report.limits.filter(limit => usedFraction(limit) !== null);
 	// Whole-account windows only: `anthropic:7d:opus` is a per-model tier of the week.
@@ -54,28 +53,29 @@ export function SidebarUsage() {
 	const [limits, setLimits] = useState<UsageLimit[] | null>(null);
 	const latest = useRef(0);
 
-	const load = useCallback(async () => {
-		if (!ready) return;
+	/** Resolves to whether the read succeeded. */
+	const load = useCallback(async (): Promise<boolean> => {
+		if (!ready) return false;
 		const call = ++latest.current;
 		try {
 			const response = await tabRpc.getUsage();
-			if (call !== latest.current) return;
-			const data: unknown = response.success ? response.data : null;
+			if (call !== latest.current || !response.success) return false;
+			const data: unknown = response.data;
 			const reports: UsageReport[] =
 				typeof data === "object" && data !== null && "reports" in data && Array.isArray(data.reports)
 					? data.reports
 					: [];
 			setLimits(railLimits(reports, provider));
+			return true;
 		} catch {
-			if (call === latest.current) setLimits([]);
+			return false;
 		}
 	}, [ready, provider, tabRpc.getUsage]);
 
 	useEffect(() => {
 		void load();
-		const timer = setInterval(() => void load(), REFRESH_MS);
-		return () => clearInterval(timer);
 	}, [load]);
+	useLiveUsage(load, ready);
 
 	const label = t("sidebar.pin.usage");
 	return (

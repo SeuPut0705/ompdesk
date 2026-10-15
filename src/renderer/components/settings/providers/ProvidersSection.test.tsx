@@ -14,6 +14,7 @@ import type {
 } from "../../../../shared/rpc-types";
 import { formatClock } from "../../../lib/format";
 import { I18nProvider, translate } from "../../../lib/i18n";
+import { USAGE_POLL_MS } from "../../../lib/usage-reports";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useModelStore } from "../../../stores/model";
 import { useRemoteStore } from "../../../stores/remote";
@@ -890,7 +891,7 @@ describe("ProviderAccounts", () => {
 
 	it("lists every connected account with its quota, the one in use and the one skipped until reset", async () => {
 		await mountWithAccounts();
-		expect(getProviderAccounts).toHaveBeenCalledWith("anthropic");
+		expect(getProviderAccounts).toHaveBeenCalledWith("anthropic", false);
 		const body = text();
 		expect(body).toContain("work@example.com");
 		expect(body).toContain("home@example.com");
@@ -941,6 +942,62 @@ describe("ProviderAccounts", () => {
 		await mountWithAccounts();
 		await act(async () => button(translate("providers.accounts.add"))?.click());
 		expect(login).toHaveBeenCalledWith("anthropic");
+	});
+
+	it("says how old each account's quota is and when each window resets", async () => {
+		const now = Date.now();
+		await mountWithAccounts([
+			{
+				...accounts[0],
+				fetchedAt: now - 5_000,
+				limits: [
+					{
+						id: "anthropic:5h",
+						label: "Claude 5 Hour",
+						usedFraction: 0.06,
+						resetsAt: now + 3 * 3_600_000 + 30_000,
+					},
+				],
+			},
+		]);
+		const updated = document.querySelector("[data-quota-updated]")?.textContent ?? "";
+		expect(updated).toMatch(/^Updated [5-7]s ago$/);
+		expect(text()).toContain(translate("usage.resetsIn", { time: "3h 0m" }));
+	});
+
+	it("refreshes through the bridge's stock invalidate, while the live poll reads stock's cache", async () => {
+		await mountWithAccounts();
+		expect(getProviderAccounts).toHaveBeenLastCalledWith("anthropic", false);
+		await act(async () => button(translate("providers.accounts.refresh", { provider: "Anthropic" }))?.click());
+		expect(getProviderAccounts).toHaveBeenLastCalledWith("anthropic", true);
+	});
+
+	it("keeps the open list live: a later read replaces the quota without reopening", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		try {
+			await mountWithAccounts();
+			const calls = getProviderAccounts.mock.calls.length;
+			getProviderAccounts.mockResolvedValue({
+				type: "response",
+				command: "get_provider_accounts",
+				success: true,
+				data: {
+					providerId: "anthropic",
+					accounts: [
+						{ ...accounts[0], limits: [{ id: "anthropic:5h", label: "Claude 5 Hour", usedFraction: 0.5 }] },
+					],
+				},
+			});
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(USAGE_POLL_MS);
+			});
+			expect(getProviderAccounts.mock.calls.length).toBe(calls + 1);
+			expect(text()).toContain(
+				translate("providers.accounts.windowLeft", { window: translate("usage.limit.5h"), percent: 50 }),
+			);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("lists no accounts for a provider signed in with an API key", async () => {

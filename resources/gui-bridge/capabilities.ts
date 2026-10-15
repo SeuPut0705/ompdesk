@@ -658,7 +658,9 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		},
 	},
 	usage: {
-		// usage + provider_accounts (settings.ts): per-account quota, health and the session's pinned account.
+		// usage + provider_accounts (settings.ts): per-account quota, health and the session's pinned account;
+		// `refresh` is stock's `omp usage invalidate`, and every read keys stock's usage cache by the
+		// provider's base URL, as fetchUsageReports, header ingestion and credential selection do.
 		session: [
 			"fetchUsageReports()",
 			"sessionId",
@@ -670,6 +672,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"modelRegistry.authStorage.credentials.list()",
 			"modelRegistry.authStorage.health.model()",
 			"modelRegistry.authStorage.usage.report()",
+			"modelRegistry.authStorage.usage.invalidate()",
+			"modelRegistry.getProviderBaseUrl()",
 		],
 		modules: {
 			"@oh-my-pi/pi-ai": ["resolveUsedFraction()"],

@@ -1,9 +1,10 @@
 /**
  * Insights › Usage: provider quota reports — one card per stored account
  * (several sign-ins of one provider each get their own) with limit bars,
- * reset countdowns and provider notes. Quotas are live calls to each
- * provider's usage endpoint, so they are read when the tab mounts, when the
- * active session tab changes, and on the explicit refresh. The session's own
+ * reset countdowns, how old each report is and provider notes. Reports come
+ * from stock's usage cache, read when the tab mounts, when the active session
+ * tab changes, and live while the page is open (lib/usage-reports.ts); the
+ * explicit refresh has stock probe every provider now. The session's own
  * token/cost figures live in Insights › Stats › This session. An account with
  * saved rate-limit resets shows them and can spend one (ResetPassControl).
  */
@@ -11,11 +12,12 @@
 import { Gauge, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { UsageLimit, UsageReport } from "../../../shared/rpc-types";
-import { formatDuration } from "../../lib/format";
+import { formatClock, formatSpan } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { usageLimitLabel } from "../../lib/usage-labels";
+import { useLiveUsage } from "../../lib/usage-reports";
 import { useModelStore } from "../../stores/model";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
@@ -29,7 +31,7 @@ function resetCountdown(resetsAt: number | undefined, t: Translate, now: number)
 	if (!resetsAt) return null;
 	const ms = resetsAt - now;
 	if (ms <= 0) return t("usage.resetting");
-	return t("usage.resetsIn", { time: formatDuration(ms) });
+	return t("usage.resetsIn", { time: formatSpan(ms) });
 }
 
 export function limitValueText(limit: UsageLimit, t: Translate): string {
@@ -114,6 +116,15 @@ function ProviderReportCard({
 					<span className="min-w-0 text-sc-sm break-all text-(--sc-text-muted)">{report.account}</span>
 				)}
 				{report.active && <Badge variant="success">{t("usage.inUse")}</Badge>}
+				{report.fetchedAt > 0 && (
+					<span
+						className="ml-auto text-sc-xs tabular-nums text-(--sc-text-muted)"
+						data-usage-updated
+						title={formatClock(report.fetchedAt)}
+					>
+						{t("usage.updatedAgo", { time: formatSpan(now - report.fetchedAt) })}
+					</span>
+				)}
 			</header>
 			{report.resetPasses &&
 				(report.credentialId !== undefined ? (
@@ -164,41 +175,52 @@ export function UsageQuotas() {
 	 * that is no longer frontmost must not overwrite the new tab's numbers. */
 	const ownerRef = useRef<string | null>(null);
 
-	/** Reads the quotas; resolves to the reports, `null` when the read failed or a newer read took over. */
-	const load = useCallback(async (): Promise<UsageReport[] | null> => {
-		setLoading(true);
-		setError(null);
-		if (!ready) {
-			setError(t("usage.notConnected"));
-			setLoading(false);
-			return null;
-		}
-		const owner = `${tabId}/${sessionId}`;
-		ownerRef.current = owner;
-		const originSession = sessionRuntimeStore<SessionStore>(tabId, "session") ?? useSessionStore;
-		try {
-			const res = await tabRpc.getUsage();
-			if (ownerRef.current !== owner || originSession.getState().sessionId !== sessionId) return null;
-			if (!res.success) {
-				setError(res.error);
+	/**
+	 * Reads the quotas; resolves to the reports, `null` when the read failed or a
+	 * newer read took over. `refresh` has stock probe every provider first; a
+	 * `quiet` read (the live poll) leaves the button and the error as they are
+	 * until it has an answer.
+	 */
+	const load = useCallback(
+		async ({ refresh = false, quiet = false } = {}): Promise<UsageReport[] | null> => {
+			if (!quiet) {
+				setLoading(true);
+				setError(null);
+			}
+			if (!ready) {
+				setError(t("usage.notConnected"));
+				setLoading(false);
 				return null;
 			}
-			const data: unknown = res.data;
-			const next: UsageReport[] =
-				typeof data === "object" && data !== null && "reports" in data && Array.isArray(data.reports)
-					? data.reports
-					: [];
-			setReports(next);
-			// The cards name providers from the catalog; read it once when nothing has yet.
-			if (next.length > 0 && providerCount.current === 0) void refreshProviders(false).catch(() => undefined);
-			return next;
-		} catch (cause) {
-			if (ownerRef.current === owner) setError(String(cause));
-			return null;
-		} finally {
-			if (ownerRef.current === owner) setLoading(false);
-		}
-	}, [ready, t, tabId, sessionId, tabRpc.getUsage, refreshProviders]);
+			const owner = `${tabId}/${sessionId}`;
+			ownerRef.current = owner;
+			const originSession = sessionRuntimeStore<SessionStore>(tabId, "session") ?? useSessionStore;
+			try {
+				const res = await tabRpc.getUsage(refresh);
+				if (ownerRef.current !== owner || originSession.getState().sessionId !== sessionId) return null;
+				if (!res.success) {
+					setError(res.error);
+					return null;
+				}
+				const data: unknown = res.data;
+				const next: UsageReport[] =
+					typeof data === "object" && data !== null && "reports" in data && Array.isArray(data.reports)
+						? data.reports
+						: [];
+				setReports(next);
+				setError(null);
+				// The cards name providers from the catalog; read it once when nothing has yet.
+				if (next.length > 0 && providerCount.current === 0) void refreshProviders(false).catch(() => undefined);
+				return next;
+			} catch (cause) {
+				if (ownerRef.current === owner) setError(String(cause));
+				return null;
+			} finally {
+				if (ownerRef.current === owner && !quiet) setLoading(false);
+			}
+		},
+		[ready, t, tabId, sessionId, tabRpc.getUsage, refreshProviders],
+	);
 
 	// Mounting and moving to another tab behind the page are the two moments
 	// that need a fresh read; `load` identity tracks the tab, its session and
@@ -207,6 +229,7 @@ export function UsageQuotas() {
 		setReports(null);
 		void load();
 	}, [load]);
+	useLiveUsage(async () => (await load({ quiet: true })) !== null, ready);
 
 	return (
 		<div className="flex flex-col gap-4">
@@ -216,7 +239,7 @@ export function UsageQuotas() {
 					disabled={!ready}
 					icon={<RefreshCw />}
 					loading={loading}
-					onClick={() => void load()}
+					onClick={() => void load({ refresh: true })}
 					size="sm"
 					title={!ready ? t("usage.notConnected") : undefined}
 					variant="secondary"

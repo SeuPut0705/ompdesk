@@ -12,6 +12,7 @@ import {
 	extractImageDataUrls,
 	formatElapsed,
 	formatShortClock,
+	formatSpan,
 	formatTimeAgo,
 	resultDetails,
 	resultText,
@@ -23,6 +24,26 @@ describe("formatElapsed", () => {
 	it("shows nothing before the first second, then whole seconds and minutes", () => {
 		expect([0, 810, -50, Number.NaN].map(formatElapsed)).toEqual(["", "", "", ""]);
 		expect([1000, 1999, 59_999, 60_000, 125_400].map(formatElapsed)).toEqual(["1s", "1s", "59s", "1m 0s", "2m 5s"]);
+	});
+});
+
+describe("formatSpan", () => {
+	it("names a reset or an age in its two largest units, never as thousands of minutes", () => {
+		const minute = 60_000;
+		const hour = 60 * minute;
+		expect(
+			[
+				-5,
+				0,
+				42_900,
+				minute,
+				59 * minute + 59_000,
+				hour,
+				4 * hour + 31 * minute,
+				24 * hour,
+				6 * 24 * hour + 23 * hour + 59 * minute,
+			].map(formatSpan),
+		).toEqual(["0s", "0s", "42s", "1m", "59m", "1h 0m", "4h 31m", "1d 0h", "6d 23h"]);
 	});
 });
 

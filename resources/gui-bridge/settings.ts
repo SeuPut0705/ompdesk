@@ -458,46 +458,125 @@ async function resetProjector(
 	};
 }
 
-/** One report per stored account; each keeps the identity its own metadata names. */
-async function usage(env: BridgeEnv, session: AgentSession) {
-	const reports: Rec[] = [];
+/**
+ * A report younger than this already answers a refresh: its provider's cache
+ * is left alone. Claude's usage endpoint answers 429 for a minute after a
+ * burst (pi-ai usage/claude.ts `FAILURE_BACKOFF_MS`), so repeated clicks and
+ * the TUI's own polls would otherwise spend the account's probes for nothing.
+ */
+const REFRESH_FRESH_MS = 60_000;
+
+/**
+ * The last report read per stored account (`provider\0credentialId`). Stock's
+ * `usage.invalidate` drops its own last-good copy, so an account whose
+ * refreshed probe the provider rate-limits reads as no report until stock
+ * probes it again (pi-ai auth/usage-cache.ts `clearReports`; stock's last-good
+ * retention, `USAGE_LAST_GOOD_RETENTION_MS`, covers only uninvalidated
+ * failures). The GUI shows this one instead, with its own `fetchedAt`, so the
+ * age says how old it is; for at most {@link REPORT_RETAIN_MS}, and never for
+ * an account that is gone. Stock's ranking keeps its own view.
+ */
+const lastReports = new Map<string, UsageReport>();
+const REPORT_RETAIN_MS = 10 * 60_000;
+
+/** The report to show for one stored account: stock's, else the last one read while still recent. */
+function showReport(provider: string, credentialId: number, report: UsageReport | null): UsageReport | null {
+	const key = `${provider}\0${credentialId}`;
+	if (report) {
+		lastReports.set(key, report);
+		return report;
+	}
+	const last = lastReports.get(key);
+	return last && Date.now() - last.fetchedAt < REPORT_RETAIN_MS ? last : null;
+}
+
+/** `UsageReport` in src/shared/rpc-types.ts, minus the limits' shape this module owns (shapeLimit). */
+interface WireUsageReport {
+	provider: string;
+	fetchedAt: number;
+	limits: Rec[];
+	resetAt?: number;
+	notes?: string[];
+	account?: string;
+	credentialId?: number;
+	active?: boolean;
+	resetPasses?: ResetPasses;
+}
+
+function shapeReport(
+	report: UsageReport,
+	account: StoredAccount | undefined,
+	projectReset: ((report: UsageReport, account: StoredAccount | undefined) => ResetPasses | undefined) | undefined,
+): WireUsageReport {
+	const resetPasses = projectReset?.(report, account);
+	return {
+		provider: report.provider,
+		fetchedAt: report.fetchedAt,
+		limits: report.limits.map(shapeLimit),
+		// When every exhausted window has reset (stock's own rule); absent while not limited.
+		resetAt: usageResetAtMs(report.limits, Date.now()),
+		notes: report.notes,
+		account:
+			formatActiveAccountLabel(account) ??
+			(account ? `#${account.credentialId}` : formatActiveAccountLabel(report.metadata)),
+		...(account ? { credentialId: account.credentialId } : {}),
+		...(account?.active ? { active: true } : {}),
+		...(resetPasses ? { resetPasses } : {}),
+	};
+}
+
+/**
+ * One report per stored account; each keeps the identity its own metadata
+ * names. `refresh` is stock's user-requested refresh (`omp usage invalidate`)
+ * for each provider holding a report older than {@link REFRESH_FRESH_MS}: its
+ * cache goes and stock probes its accounts again, one after another. An
+ * account left without a report shows its last one (`lastReports`).
+ */
+async function usage(env: BridgeEnv, session: AgentSession, refresh: boolean) {
+	const reports: WireUsageReport[] = [];
 	try {
-		const [raw, projectReset] = await Promise.all([
-			session.fetchUsageReports().then(value => value ?? []),
-			resetProjector(env).catch(() => undefined),
-		]);
-		const oauth = session.modelRegistry.authStorage.oauth;
+		const authStorage = session.modelRegistry.authStorage;
+		const projectReset = await resetProjector(env).catch(() => undefined);
+		let raw = (await session.fetchUsageReports()) ?? [];
+		const now = Date.now();
+		const stale = new Set(
+			refresh ? raw.filter(report => now - report.fetchedAt >= REFRESH_FRESH_MS).map(report => report.provider) : [],
+		);
+		if (stale.size > 0) {
+			for (const provider of stale) await authStorage.usage.invalidate(provider);
+			raw = (await session.fetchUsageReports()) ?? [];
+		}
 		const reportCount = new Map<string, number>();
 		for (const report of raw) reportCount.set(report.provider, (reportCount.get(report.provider) ?? 0) + 1);
 		const accountsByProvider = new Map<string, StoredAccount[]>();
-		for (const report of raw) {
-			let accounts = accountsByProvider.get(report.provider);
+		const accountsOf = (provider: string) => {
+			let accounts = accountsByProvider.get(provider);
 			if (!accounts) {
-				accounts = oauth.accounts(report.provider, session.sessionId);
-				accountsByProvider.set(report.provider, accounts);
+				accounts = authStorage.oauth.accounts(provider, session.sessionId);
+				accountsByProvider.set(provider, accounts);
 			}
+			return accounts;
+		};
+		const shown = new Set<string>();
+		for (const report of raw) {
 			const account = matchReportAccount(
 				report,
-				accounts,
+				accountsOf(report.provider),
 				reportCount.get(report.provider) ?? 0,
 				reportMatchesActiveAccount,
 			);
-			const limits = report.limits.map(shapeLimit);
-			const resetPasses = projectReset?.(report, account);
-			reports.push({
-				provider: report.provider,
-				fetchedAt: report.fetchedAt,
-				limits,
-				// When every exhausted window has reset (stock's own rule); absent while not limited.
-				resetAt: usageResetAtMs(report.limits, Date.now()),
-				notes: report.notes,
-				account:
-					formatActiveAccountLabel(account) ??
-					(account ? `#${account.credentialId}` : formatActiveAccountLabel(report.metadata)),
-				...(account ? { credentialId: account.credentialId } : {}),
-				...(account?.active ? { active: true } : {}),
-				...(resetPasses ? { resetPasses } : {}),
-			});
+			if (account) {
+				showReport(report.provider, account.credentialId, report);
+				shown.add(`${report.provider}\0${account.credentialId}`);
+			}
+			reports.push(shapeReport(report, account, projectReset));
+		}
+		for (const key of lastReports.keys()) {
+			if (shown.has(key)) continue;
+			const [provider = "", id] = key.split("\0");
+			const account = accountsOf(provider).find(entry => entry.credentialId === Number(id));
+			const last = account && showReport(provider, account.credentialId, null);
+			if (last) reports.push(shapeReport(last, account, projectReset));
 		}
 	} catch {
 		// Provider usage fetch is best-effort; local session tallies always answer.
@@ -520,7 +599,7 @@ async function usage(env: BridgeEnv, session: AgentSession) {
 
 /** Stock `UsageService.report` (one stored credential); not on the `UsageApi` interface. */
 interface CredentialUsageReporter {
-	report(provider: string, credential: unknown): Promise<UsageReport | null>;
+	report(provider: string, credential: unknown, options?: { baseUrl?: string }): Promise<UsageReport | null>;
 }
 
 type IdentityKeyResolver = (provider: string, credential: { type: string }) => string | null;
@@ -554,7 +633,7 @@ async function identityKeyResolver(env: BridgeEnv): Promise<IdentityKeyResolver 
  * pools are keyed by. An account whose report lists saved rate-limit resets
  * carries them as `resetPasses` (reset-passes-core.ts).
  */
-async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProviderId: string) {
+async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProviderId: string, refresh: boolean) {
 	const provider = getOAuthCredentialProvider(loginProviderId);
 	const authStorage = session.modelRegistry.authStorage;
 	await authStorage.credentials.reload();
@@ -563,9 +642,29 @@ async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProv
 		resetProjector(env).catch(() => undefined),
 	]);
 	const sessionId = session.sessionId;
+	// Stock keys its per-credential usage cache by base URL. fetchUsageReports, the
+	// rate-limit headers every response feeds in, and credential selection all read
+	// the provider's base URL; without it these reads hit a separate `default` entry
+	// that no turn ever refreshes (stale quotas, and a second upstream probe).
+	const baseUrl = session.modelRegistry.getProviderBaseUrl(provider);
 	const pinned = authStorage.oauth.accounts(provider, sessionId).find(account => account.active)?.credentialId;
+	const rows = authStorage.credentials.list(provider);
+	const reporter = authStorage.usage as unknown as CredentialUsageReporter;
+	const read = async (row: (typeof rows)[number]) =>
+		showReport(provider, row.id, await reporter.report(provider, row.credential, { baseUrl }).catch(() => null));
+	// `refresh`, as usage() explains: only when a report is older than REFRESH_FRESH_MS.
+	const now = Date.now();
+	if (
+		refresh &&
+		(await Promise.all(rows.map(read))).some(report => report && now - report.fetchedAt >= REFRESH_FRESH_MS)
+	) {
+		await authStorage.usage.invalidate(provider);
+		// Stock's aggregate read probes an invalidated provider's accounts one after another.
+		await session.fetchUsageReports();
+	}
 	const health = await authStorage.health
 		.model(provider, {
+			baseUrl,
 			modelId: session.model?.provider === provider ? session.model.id : undefined,
 			sessionId,
 			// Not finite: stock applies the configured default reserve (`retry.usageReservePct`).
@@ -573,11 +672,10 @@ async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProv
 		})
 		.catch(() => ({ state: "unknown" as const, accounts: [] }));
 	const healthById = new Map(health.accounts.map(account => [account.credentialId, account]));
-	const reporter = authStorage.usage as unknown as CredentialUsageReporter;
 	// After `health.model`, these reads answer from stock's per-credential usage cache.
 	const accounts = await Promise.all(
-		authStorage.credentials.list(provider).map(async row => {
-			const report = await reporter.report(provider, row.credential).catch(() => null);
+		rows.map(async row => {
+			const report = await read(row);
 			const accountHealth = healthById.get(row.id);
 			const limits = report ? report.limits.map(shapeLimit) : [];
 			const stored = authStorage.oauth
@@ -590,6 +688,7 @@ async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProv
 				remainingFraction: accountHealth?.remainingFraction,
 				resetsAt: accountHealth?.resetsAt,
 				limits,
+				...(report ? { fetchedAt: report.fetchedAt } : {}),
 				...(identityKey
 					? { identityKey: row.credential.type === "oauth" ? identityKey(provider, row.credential) : null }
 					: {}),
@@ -678,10 +777,10 @@ export const methods: BridgeMethods = {
 	}),
 	...guard(["providers", "usage"], {
 		provider_accounts: async (params, env) =>
-			providerAccounts(env, env.session(), requiredString(params, "providerId")),
+			providerAccounts(env, env.session(), requiredString(params, "providerId"), asRecord(params).refresh === true),
 	}),
 	...guard("usage", {
-		usage: async (_params, env) => usage(env, env.session()),
+		usage: async (params, env) => usage(env, env.session(), asRecord(params).refresh === true),
 	}),
 	...guard("modelRoles", {
 		model_roles: async (_params, env) => ({ roles: modelRoles(env.session()) }),

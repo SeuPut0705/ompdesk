@@ -267,4 +267,44 @@ describe("InsightsPage", () => {
 		expect(card?.textContent).toContain("Weekly limit");
 		expect(card?.textContent).not.toContain("Claude 5 Hour");
 	});
+
+	it("shows each report's age and a readable weekly countdown, and refreshes through stock's invalidate", async () => {
+		const omp = installOmp();
+		const now = Date.now();
+		omp.getUsage.mockResolvedValue({
+			type: "response",
+			command: "get_usage",
+			success: true,
+			data: {
+				reports: [
+					{
+						provider: "anthropic",
+						fetchedAt: now - 10_000,
+						account: "work@example.com",
+						limits: [
+							{
+								id: "anthropic:7d",
+								label: "Claude 7 Day",
+								windowId: "7d",
+								windowLabel: "7 Day",
+								usedFraction: 0.8,
+								resetsAt: now + 4 * 86_400_000 + 3 * 3_600_000 + 30_000,
+							},
+						],
+					},
+				],
+			},
+		});
+		useSessionStore.getState().setStatus("ready", "/repo");
+		useUiStore.getState().openInsights("usage");
+		await mount();
+		expect(omp.getUsage).toHaveBeenLastCalledWith(false);
+		const card = document.querySelector("section");
+		expect(card?.querySelector("[data-usage-updated]")?.textContent).toMatch(/^Updated 1[0-2]s ago$/);
+		expect(card?.textContent).toContain("resets in 4d 3h");
+		const refresh = () =>
+			Array.from(document.querySelectorAll("button")).find(button => button.textContent === "Refresh");
+		await act(async () => refresh()?.click());
+		expect(omp.getUsage).toHaveBeenLastCalledWith(true);
+	});
 });

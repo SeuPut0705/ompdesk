@@ -67,7 +67,7 @@ function ConnectedProvider({
 	const [expanded, setExpanded] = useState(false);
 	// A subscription sign-in can hold several accounts (stock lists them for OAuth providers).
 	const accounts = provider.authenticated && provider.authKind === "oauth" && provider.loginAvailable;
-	const state = useProviderAccounts(provider.id, accounts && sidecarReady, revision);
+	const state = useProviderAccounts(provider.id, accounts && sidecarReady, revision, expanded);
 	useEffect(() => onAccounts(provider.id, state.result), [onAccounts, provider.id, state.result]);
 	const count = state.result?.accounts.length;
 	const summary = !accounts

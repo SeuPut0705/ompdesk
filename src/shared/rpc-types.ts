@@ -85,10 +85,12 @@ export type RpcCommand =
 	/** One stored account (stock `logout`), or every account of the provider with `all`. */
 	| { id?: string; type: "logout"; providerId: string; credentialId: number }
 	| { id?: string; type: "logout"; providerId: string; all: true }
-	| { id?: string; type: "get_provider_accounts"; providerId: string }
+	/** `refresh`: stock `usage.invalidate` (`omp usage invalidate`) when a report is a minute old or more, so it is probed now. */
+	| { id?: string; type: "get_provider_accounts"; providerId: string; refresh?: boolean }
 	/** Spend one of the account's saved rate-limit resets (stock `/usage reset`); `creditId` = the pass the user confirmed. */
 	| { id?: string; type: "redeem_reset_pass"; providerId: string; credentialId: number; creditId?: string }
-	| { id?: string; type: "get_usage" }
+	/** `refresh`: stock `usage.invalidate` (`omp usage invalidate`) for each provider with a report a minute old or more. */
+	| { id?: string; type: "get_usage"; refresh?: boolean }
 	| { id?: string; type: "get_settings_schema" }
 	| { id?: string; type: "get_settings"; paths?: string[] }
 	| { id?: string; type: "set_setting"; path: string; value: unknown }
@@ -2019,6 +2021,8 @@ export interface ProviderAccount {
 	/** Set while omp skips the account after it hit a limit: when it is tried again. */
 	limitedUntil?: number;
 	limits: UsageLimit[];
+	/** When stock last read this account's quota (its cached report's `fetchedAt`), epoch ms. */
+	fetchedAt?: number;
 	/**
 	 * Token-free identity key `task.agentAccountPools` matches (`omp usage
 	 * accounts`), on omp 18.8.1+ only; `null` when the account has none (an API

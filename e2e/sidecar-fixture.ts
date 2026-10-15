@@ -756,7 +756,14 @@ if (process.argv[2] === "stats") {
 			remainingFraction: number;
 			resetsAt?: number;
 			/** Stock's shape (pi-ai `usage/claude.ts`): ids, English labels and canonical window ids. */
-			limits: Array<{ id: string; label: string; usedFraction: number; windowId: string; windowLabel: string }>;
+			limits: Array<{
+				id: string;
+				label: string;
+				usedFraction: number;
+				windowId: string;
+				windowLabel: string;
+				resetsAt?: number;
+			}>;
 			resetPasses?: FixtureResetPasses;
 		}
 	> = {
@@ -807,6 +814,28 @@ if (process.argv[2] === "stats") {
 			redeemable: true,
 		};
 	}
+	/**
+	 * `OMP_GUI_TEST_USAGE_DRIFT=1` (with OMP_GUI_TEST_MODELS): the quota moves
+	 * between reads the way a live account does. Each window names its reset,
+	 * and every usage read after the first spends 5% more of work@'s 5h window,
+	 * so a surface that polls shows new numbers without being reopened.
+	 */
+	const usageDrift = modelsData && process.env.OMP_GUI_TEST_USAGE_DRIFT === "1";
+	let usageReads = 0;
+	if (usageDrift) {
+		for (const quota of Object.values(accountQuota)) {
+			quota.limits = quota.limits.map(limit => ({
+				...limit,
+				resetsAt: Date.now() + (limit.windowId === "5h" ? 3 * 3_600_000 : 4 * 86_400_000),
+			}));
+		}
+	}
+	const readUsage = () => {
+		if (!usageDrift || usageReads++ === 0) return;
+		accountQuota[1].limits = accountQuota[1].limits.map(limit =>
+			limit.windowId === "5h" ? { ...limit, usedFraction: Math.min(1, limit.usedFraction + 0.05) } : limit,
+		);
+	};
 	const resetPassMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
 		reset_pass_redeem: params => {
 			const quota = accountQuota[Number(params.credentialId)];
@@ -865,37 +894,43 @@ if (process.argv[2] === "stats") {
 			emitConfigUpdate();
 			return { role: params.role, modelId: params.modelId ?? null };
 		},
-		usage: () => ({
-			reports: anthropicAccounts.map(account => ({
-				provider: "anthropic",
-				fetchedAt: Date.now(),
-				account: account.label,
-				credentialId: account.credentialId,
-				active: account.credentialId === 1,
-				limits: accountQuota[account.credentialId].limits,
-				...(accountQuota[account.credentialId].resetPasses
-					? { resetPasses: accountQuota[account.credentialId].resetPasses }
-					: {}),
-			})),
-			session: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 0,
-				orchestrationTokens: 0,
-				premiumRequests: 0,
-				cost: 0,
-			},
-		}),
-		provider_accounts: params => ({
-			providerId: params.providerId,
-			...(anthropicAccounts.some(account => account.credentialId === 1) ? { pinnedCredentialId: 1 } : {}),
-			accounts:
-				params.providerId === "anthropic"
-					? anthropicAccounts.map(account => accountQuota[account.credentialId])
-					: [],
-		}),
+		usage: () => {
+			readUsage();
+			return {
+				reports: anthropicAccounts.map(account => ({
+					provider: "anthropic",
+					fetchedAt: Date.now(),
+					account: account.label,
+					credentialId: account.credentialId,
+					active: account.credentialId === 1,
+					limits: accountQuota[account.credentialId].limits,
+					...(accountQuota[account.credentialId].resetPasses
+						? { resetPasses: accountQuota[account.credentialId].resetPasses }
+						: {}),
+				})),
+				session: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					orchestrationTokens: 0,
+					premiumRequests: 0,
+					cost: 0,
+				},
+			};
+		},
+		provider_accounts: params => {
+			readUsage();
+			return {
+				providerId: params.providerId,
+				...(anthropicAccounts.some(account => account.credentialId === 1) ? { pinnedCredentialId: 1 } : {}),
+				accounts:
+					params.providerId === "anthropic"
+						? anthropicAccounts.map(account => ({ ...accountQuota[account.credentialId], fetchedAt: Date.now() }))
+						: [],
+			};
+		},
 		provider_logout: params => {
 			if (params.providerId === "anthropic") {
 				anthropicAccounts = [];

@@ -37,6 +37,8 @@ export interface BridgeProviderAccounts {
 		remainingFraction?: number;
 		resetsAt?: number;
 		limits: UsageLimit[];
+		/** The account's stock usage report `fetchedAt`; absent while stock has none. */
+		fetchedAt?: number;
 		/** Only on omp with account pools; `null` when the account has no identity. */
 		identityKey?: string | null;
 		/** The account's saved rate-limit resets (bridge feature `resetPasses`). */
@@ -70,6 +72,7 @@ export function mergeProviderAccounts(
 			...(quota?.remainingFraction !== undefined ? { remainingFraction: quota.remainingFraction } : {}),
 			...(quota?.state === "depleted" && quota.resetsAt !== undefined ? { limitedUntil: quota.resetsAt } : {}),
 			limits: quota?.limits ?? [],
+			...(quota?.fetchedAt !== undefined ? { fetchedAt: quota.fetchedAt } : {}),
 			...(pools ? { identityKey: quota?.identityKey ?? null } : {}),
 			...(quota?.resetPasses ? { resetPasses: quota.resetPasses } : {}),
 		};
@@ -133,7 +136,10 @@ export async function cancelBrowserLogin(authorizationUrl: string): Promise<void
 		const providerId = providerIdParam.parse(command.providerId);
 		const [stock, usage] = await Promise.allSettled([
 			ctx.send<{ accounts: StockLogoutAccount[] }>({ type: "get_logout_accounts", providerId }),
-			ctx.bridge.request<BridgeProviderAccounts>("provider_accounts", { providerId }),
+			ctx.bridge.request<BridgeProviderAccounts>("provider_accounts", {
+				providerId,
+				refresh: command.refresh === true,
+			}),
 		]);
 		if (stock.status === "rejected") throw stock.reason;
 		return usage.status === "fulfilled"
@@ -152,7 +158,7 @@ export async function cancelBrowserLogin(authorizationUrl: string): Promise<void
 			credentialId: z.number().int().parse(command.credentialId),
 			creditId: z.string().min(1).optional().parse(command.creditId),
 		}),
-	get_usage: (_command, ctx) => ctx.bridge.request("usage"),
+	get_usage: (command, ctx) => ctx.bridge.request("usage", { refresh: command.refresh === true }),
 	get_model_roles: (_command, ctx) => ctx.bridge.request("model_roles"),
 	set_model_role: (command, ctx) =>
 		ctx.bridge.request("model_role_set", { role: command.role, modelId: command.modelId ?? null }),

@@ -7,7 +7,10 @@
  * account" is the same sign-in flow (a different identity adds a row);
  * remove logs out that one credential, and the last one disconnects the
  * provider. The read lives in `useProviderAccounts`, owned by the provider
- * row, so the collapsed row can name the account count. On omp 18.8.1+ each
+ * row, so the collapsed row can name the account count; while the list is
+ * open it stays live (lib/usage-reports.ts), each account says how old its
+ * quota is and when each window resets, and the refresh button has stock
+ * probe the provider now. On omp 18.8.1+ each
  * account with an identity key offers to copy it (the name
  * `task.agentAccountPools` matches; see AccountPoolsEditor). An account with
  * saved rate-limit resets shows them and can spend one (ResetPasses.tsx).
@@ -17,10 +20,12 @@ import { RefreshCw, Trash2, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProviderAccount, ProviderAccountsResult, ProviderInfo, UsageLimit } from "../../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
-import { formatClock } from "../../../lib/format";
+import { formatClock, formatSpan } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { usageLimitLabel } from "../../../lib/usage-labels";
+import { useLiveUsage } from "../../../lib/usage-reports";
 import { toast, toastError } from "../../../stores/toast";
 import { Badge, Button, ConfirmDialog, CopyButton, IconButton, InlineNotice, ProgressBar, Spinner } from "../../common";
 import { ResetPassControl } from "./ResetPasses";
@@ -29,11 +34,12 @@ type TFn = (key: string, params?: Record<string, string | number>) => string;
 
 const percent = (fraction: number) => Math.round(Math.max(0, Math.min(1, fraction)) * 100);
 
-/** One quota bar: a window's used share, labelled by what is left. */
+/** One quota bar: a window's used share, labelled by what is left, and when it resets. */
 interface QuotaWindow {
 	key: string;
 	label: string;
 	used: number;
+	resetsAt?: number;
 }
 
 /** Per-window used share when the report has windows, else the tightest window's remainder. */
@@ -49,6 +55,7 @@ function quotaWindows(account: ProviderAccount, t: TFn): QuotaWindow[] {
 					percent: percent(1 - used),
 				}),
 				used,
+				resetsAt: limit.resetsAt,
 			};
 		});
 	}
@@ -66,16 +73,26 @@ export interface ProviderAccountsState {
 	result: ProviderAccountsResult | null;
 	error: InlineFailure | null;
 	loading: boolean;
-	/** Re-reads the accounts; resolves to the new result, `null` when the read failed or a newer one superseded it. */
-	load: () => Promise<ProviderAccountsResult | null>;
+	/**
+	 * Re-reads the accounts; resolves to the new result, `null` when the read failed
+	 * or a newer one superseded it. `refresh` has stock probe the provider first; a
+	 * `quiet` read (the live poll) leaves `loading` alone.
+	 */
+	load: (options?: { refresh?: boolean; quiet?: boolean }) => Promise<ProviderAccountsResult | null>;
 }
 
 /**
  * The stored accounts of one provider. Reads while `enabled` (connected, lists
  * accounts, omp ready) and again whenever `revision` changes: a sign-in or
- * sign-out elsewhere on the page.
+ * sign-out elsewhere on the page. While `live` too (the list is open) it keeps
+ * the quotas current (lib/usage-reports.ts).
  */
-export function useProviderAccounts(providerId: string, enabled: boolean, revision: number): ProviderAccountsState {
+export function useProviderAccounts(
+	providerId: string,
+	enabled: boolean,
+	revision: number,
+	live = false,
+): ProviderAccountsState {
 	const t = useT();
 	const tabRpc = useTabRpc();
 	const [result, setResult] = useState<ProviderAccountsResult | null>(null);
@@ -83,32 +100,40 @@ export function useProviderAccounts(providerId: string, enabled: boolean, revisi
 	const [loading, setLoading] = useState(false);
 	const requestVersion = useRef(0);
 
-	const load = useCallback(async (): Promise<ProviderAccountsResult | null> => {
-		const version = ++requestVersion.current;
-		setLoading(true);
-		try {
-			const response = await tabRpc.getProviderAccounts(providerId);
-			if (version !== requestVersion.current) return null;
-			if (!response.success) {
-				setError(inlineFailure(response, t("providers.accounts.loadFailed")));
+	const load = useCallback(
+		async ({ refresh = false, quiet = false } = {}): Promise<ProviderAccountsResult | null> => {
+			const version = ++requestVersion.current;
+			if (!quiet) setLoading(true);
+			try {
+				const response = await tabRpc.getProviderAccounts(providerId, refresh);
+				if (version !== requestVersion.current) return null;
+				if (!response.success) {
+					setError(inlineFailure(response, t("providers.accounts.loadFailed")));
+					return null;
+				}
+				const next = response.data as ProviderAccountsResult;
+				setError(null);
+				setResult(next);
+				return next;
+			} catch (cause) {
+				if (version === requestVersion.current) setError(inlineFailure(cause, t("providers.accounts.loadFailed")));
 				return null;
+			} finally {
+				if (version === requestVersion.current) setLoading(false);
 			}
-			const next = response.data as ProviderAccountsResult;
-			setError(null);
-			setResult(next);
-			return next;
-		} catch (cause) {
-			if (version === requestVersion.current) setError(inlineFailure(cause, t("providers.accounts.loadFailed")));
-			return null;
-		} finally {
-			if (version === requestVersion.current) setLoading(false);
-		}
-	}, [providerId, t, tabRpc]);
+		},
+		[providerId, t, tabRpc],
+	);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `revision` is the re-read signal.
 	useEffect(() => {
 		if (enabled) void load();
 	}, [enabled, load, revision]);
+	// A quota whose read failed counts against the poll, so it backs off.
+	useLiveUsage(async () => {
+		const next = await load({ quiet: true });
+		return next !== null && next.usageError === undefined;
+	}, enabled && live);
 
 	return { result, error, loading, load };
 }
@@ -119,6 +144,7 @@ function AccountRow({
 	busy,
 	disabled,
 	sidecarReady,
+	now,
 	onRemove,
 	onRedeemed,
 }: {
@@ -127,6 +153,8 @@ function AccountRow({
 	busy: boolean;
 	disabled: boolean;
 	sidecarReady: boolean;
+	/** The shared one-second clock the ages and countdowns read. */
+	now: number;
 	onRemove: () => void;
 	/** After a reset pass is spent: re-reads the accounts, resolving to this account's limits. */
 	onRedeemed: () => Promise<readonly UsageLimit[] | undefined>;
@@ -134,7 +162,7 @@ function AccountRow({
 	const t = useT();
 	const windows = quotaWindows(account, t);
 	return (
-		<li className="flex items-start gap-2 py-2">
+		<li className="flex items-start gap-2 py-2" data-provider-account={account.credentialId}>
 			<div className="flex min-w-0 flex-1 flex-col gap-1.5">
 				<div className="flex min-h-6 min-w-0 flex-wrap items-center gap-1.5">
 					<span className="min-w-0 truncate text-sc-sm text-(--sc-text)" title={account.detail}>
@@ -149,6 +177,15 @@ function AccountRow({
 						</Badge>
 					)}
 					{account.state === "reserve" && <Badge variant="warning">{t("providers.accounts.low")}</Badge>}
+					{account.fetchedAt !== undefined && (
+						<span
+							className="ml-auto text-sc-xs tabular-nums text-(--sc-text-muted)"
+							data-quota-updated
+							title={formatClock(account.fetchedAt)}
+						>
+							{t("usage.updatedAgo", { time: formatSpan(now - account.fetchedAt) })}
+						</span>
+					)}
 				</div>
 				{account.resetPasses && (
 					<ResetPassControl
@@ -168,6 +205,16 @@ function AccountRow({
 							<li className="flex min-w-0 flex-col gap-1" key={window.key}>
 								<span className="truncate text-sc-xs tabular-nums text-(--sc-text-muted)">{window.label}</span>
 								<ProgressBar ariaLabel={window.label} height={4} value={window.used} valueText="" />
+								{window.resetsAt !== undefined && (
+									<span
+										className="truncate text-sc-xs tabular-nums text-(--sc-text-muted)"
+										title={formatClock(window.resetsAt)}
+									>
+										{window.resetsAt > now
+											? t("usage.resetsIn", { time: formatSpan(window.resetsAt - now) })
+											: t("usage.resetting")}
+									</span>
+								)}
 							</li>
 						))}
 					</ul>
@@ -225,6 +272,7 @@ export function ProviderAccounts({
 	const [pendingRemove, setPendingRemove] = useState<ProviderAccount | null>(null);
 	const [removing, setRemoving] = useState<number | null>(null);
 	const accounts = result?.accounts ?? [];
+	const now = useNowTick(accounts.length > 0);
 
 	const remove = async (account: ProviderAccount) => {
 		setPendingRemove(null);
@@ -284,6 +332,7 @@ export function ProviderAccounts({
 								busy={removing === account.credentialId}
 								disabled={!sidecarReady || removing !== null}
 								key={account.credentialId}
+								now={now}
 								onRedeemed={async () =>
 									(await load())?.accounts.find(entry => entry.credentialId === account.credentialId)?.limits
 								}
@@ -296,17 +345,29 @@ export function ProviderAccounts({
 				)
 			)}
 			{result?.usageError && <InlineNotice title={t("providers.accounts.quotaUnavailable")} tone="info" />}
-			<Button
-				className="-ml-2"
-				disabled={!sidecarReady || adding}
-				icon={<UserPlus />}
-				onClick={onAdd}
-				size="sm"
-				title={sidecarReady ? undefined : t("providers.notConnected")}
-				variant="ghost"
-			>
-				{t("providers.accounts.add")}
-			</Button>
+			<div className="-ml-2 flex items-center gap-1">
+				<Button
+					disabled={!sidecarReady || adding}
+					icon={<UserPlus />}
+					onClick={onAdd}
+					size="sm"
+					title={sidecarReady ? undefined : t("providers.notConnected")}
+					variant="ghost"
+				>
+					{t("providers.accounts.add")}
+				</Button>
+				{accounts.length > 0 && (
+					<IconButton
+						data-quota-refresh
+						disabled={!sidecarReady}
+						icon={<RefreshCw />}
+						label={t("providers.accounts.refresh", { provider: provider.name })}
+						loading={loading}
+						onClick={() => void load({ refresh: true })}
+						size="sm"
+					/>
+				)}
+			</div>
 			<ConfirmDialog
 				busy={pendingRemove !== null && removing === pendingRemove.credentialId}
 				confirmLabel={t("providers.accounts.removeConfirm")}

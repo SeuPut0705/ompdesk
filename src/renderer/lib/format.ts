@@ -124,6 +124,21 @@ export function formatDuration(ms: number): string {
 }
 
 /**
+ * A span of whole seconds in its two largest units: "42s", "12m", "3h 12m",
+ * "4d 3h". For reset countdowns and data ages, where {@link formatDuration}'s
+ * minutes and seconds read a weekly reset as "8455m 12s".
+ */
+export function formatSpan(ms: number): string {
+	const seconds = Math.max(0, Math.floor(ms / 1000));
+	if (seconds < 60) return translate("time.secondsShort", { count: seconds });
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return translate("time.minutesShort", { count: minutes });
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return translate("time.hoursMinutesShort", { hours, minutes: minutes % 60 });
+	return translate("time.daysHoursShort", { days: Math.floor(hours / 24), hours: hours % 24 });
+}
+
+/**
  * A ticking clock for running work: whole seconds from the first second on, nothing before it.
  * The shared tick advances once a second, so sub-second values were stale ("0ms", "810ms")
  * and decimals jittered between ticks.

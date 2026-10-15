@@ -36,6 +36,7 @@ import { cx, formatTokens } from "../../lib/format";
 import { useLang, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { usageLimitLabel } from "../../lib/usage-labels";
+import { inUseReport, useLiveUsage } from "../../lib/usage-reports";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
@@ -130,11 +131,11 @@ export function buildModelRows(input: {
 	usage: UsageReport[] | null;
 }): Row[] {
 	const providerById = new Map(input.providers.map(provider => [provider.id, provider]));
-	const usageByProvider = new Map((input.usage ?? []).map(report => [report.provider, report]));
 	return input.models.map(model => {
 		const key = `${model.provider}/${model.id}`;
 		const provider = providerById.get(model.provider);
-		const report = usageByProvider.get(model.provider);
+		// The account this tab's session uses: with two sign-ins, the last report was not it.
+		const report = inUseReport(input.usage ?? [], model.provider);
 		return {
 			key,
 			provider: model.provider,
@@ -331,6 +332,20 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 			/* keep stale role list; the next full load retries */
 		}
 	}, [sidecarReady, tabRpc.getModelRoles]);
+
+	/** Live quota column (lib/usage-reports.ts); resolves to whether the read succeeded. */
+	const reloadUsage = useCallback(async (): Promise<boolean> => {
+		const res = await tabRpc.getUsage();
+		if (!res.success) return false;
+		const data: unknown = res.data;
+		setUsage(
+			typeof data === "object" && data !== null && "reports" in data && Array.isArray(data.reports)
+				? data.reports
+				: [],
+		);
+		return true;
+	}, [tabRpc.getUsage]);
+	useLiveUsage(reloadUsage, sidecarReady);
 
 	const metaById = useMemo(() => new Map((roleMeta ?? []).map(m => [m.id, m])), [roleMeta]);
 

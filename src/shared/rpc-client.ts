@@ -133,16 +133,18 @@ export interface SessionRpcClient {
 	handoff(customInstructions?: string): Promise<RpcResponse>;
 	getLoginProviders(): Promise<RpcResponse>;
 	login(providerId: string): Promise<RpcResponse>;
+	/** Ends a browser sign-in in flight; `url` is the authorization URL of its `open_url`. */
+	cancelLogin(url: string): Promise<RpcResponse>;
 	/** Removes one stored account; the provider stays connected while another remains. */
 	logout(providerId: string, credentialId: number): Promise<RpcResponse>;
 	/** Removes every stored account of the provider. */
-	/** Ends a browser sign-in in flight; `url` is the authorization URL of its `open_url`. */
-	cancelLogin(url: string): Promise<RpcResponse>;
 	disconnectProvider(providerId: string): Promise<RpcResponse>;
-	getProviderAccounts(providerId: string): Promise<RpcResponse>;
+	/** `refresh` has stock probe again any account whose report is a minute old or more (otherwise stock's cache answers). */
+	getProviderAccounts(providerId: string, refresh?: boolean): Promise<RpcResponse>;
 	/** Spends one saved rate-limit reset of one stored account (stock `/usage reset`). */
 	redeemResetPass(providerId: string, credentialId: number, creditId?: string): Promise<RpcResponse>;
-	getUsage(): Promise<RpcResponse>;
+	/** `refresh` has stock probe again any provider whose report is a minute old or more (otherwise stock's cache answers). */
+	getUsage(refresh?: boolean): Promise<RpcResponse>;
 	getSettingsSchema(): Promise<RpcResponse>;
 	getSettings(paths?: string[]): Promise<RpcResponse>;
 	setSetting(path: string, value: unknown): Promise<RpcResponse>;
@@ -283,8 +285,10 @@ const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
 	plan_approval: 660_000,
 	switch_leaf: 660_000,
 	login: 660_000,
-	// Reads every account's quota; each usage request has stock's 10s budget.
-	get_provider_accounts: 30_000,
+	// Reads every account's quota; each usage request has stock's 10s budget, and
+	// a refresh probes one provider's accounts one after another (stock invalidate).
+	get_provider_accounts: 60_000,
+	get_usage: 60_000,
 	// Re-reads the provider's live reset offer for every account of the provider
 	// (Claude probes them one by one), then spends one; the spend is never retried.
 	redeem_reset_pass: 120_000,
@@ -488,12 +492,14 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		handoff: customInstructions => rpcCommand({ type: "handoff", customInstructions }),
 		getLoginProviders: () => rpcCommand({ type: "get_login_providers" }),
 		login: providerId => rpcCommand({ type: "login", providerId }),
+		cancelLogin: url => rpcCommand({ type: "login_cancel", url }),
 		logout: (providerId, credentialId) => rpcCommand({ type: "logout", providerId, credentialId }),
 		disconnectProvider: providerId => rpcCommand({ type: "logout", providerId, all: true }),
-		getProviderAccounts: providerId => rpcCommand({ type: "get_provider_accounts", providerId }),
+		getProviderAccounts: (providerId, refresh) =>
+			rpcCommand({ type: "get_provider_accounts", providerId, ...(refresh ? { refresh: true } : {}) }),
 		redeemResetPass: (providerId, credentialId, creditId) =>
 			rpcCommand({ type: "redeem_reset_pass", providerId, credentialId, creditId }),
-		getUsage: () => rpcCommand({ type: "get_usage" }),
+		getUsage: refresh => rpcCommand({ type: "get_usage", ...(refresh ? { refresh: true } : {}) }),
 		getSettingsSchema: () => rpcCommand({ type: "get_settings_schema" }),
 		getSettings: paths => rpcCommand({ type: "get_settings", paths }),
 		setSetting: (path, value) => rpcCommand({ type: "set_setting", path, value }),
@@ -501,7 +507,6 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		setPlanMode: enabled => rpcCommand({ type: "set_plan_mode", enabled }),
 		getPlanMode: () => rpcCommand({ type: "get_plan_mode" }),
 		getModelRoles: () => rpcCommand({ type: "get_model_roles" }),
-		cancelLogin: url => rpcCommand({ type: "login_cancel", url }),
 		setModelRole: (role, modelId) => rpcCommand({ type: "set_model_role", role, modelId }),
 		getModelRoleMetadata: () => rpcCommand({ type: "get_model_role_metadata" }),
 		getCompactionPoints: () => rpcCommand({ type: "get_compaction_points" }),

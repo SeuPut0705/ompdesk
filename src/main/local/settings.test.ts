@@ -141,15 +141,29 @@ describe("get_provider_accounts handler", () => {
 		const request = vi.fn(async () => ({
 			providerId: "anthropic",
 			pinnedCredentialId: 7,
-			accounts: [{ credentialId: 7, state: "healthy", limits: [] }],
+			accounts: [{ credentialId: 7, state: "healthy", limits: [], fetchedAt: 1_234 }],
 		}));
 		const result = await handlers.get_provider_accounts(
 			{ type: "get_provider_accounts", providerId: "anthropic" },
 			fakeCtx(send, request),
 		);
 		expect(send).toHaveBeenCalledWith({ type: "get_logout_accounts", providerId: "anthropic" });
-		expect(request).toHaveBeenCalledWith("provider_accounts", { providerId: "anthropic" });
-		expect(result).toMatchObject({ accounts: [{ credentialId: 7, inUse: true }] });
+		expect(request).toHaveBeenCalledWith("provider_accounts", { providerId: "anthropic", refresh: false });
+		expect(result).toMatchObject({ accounts: [{ credentialId: 7, inUse: true, fetchedAt: 1_234 }] });
+	});
+
+	it("asks the bridge to refresh through stock's invalidate only when the renderer does", async () => {
+		const send = vi.fn(async () => ({ accounts: [work] }));
+		const request = vi.fn(async () => ({ providerId: "anthropic", accounts: [] }));
+		await handlers.get_provider_accounts(
+			{ type: "get_provider_accounts", providerId: "anthropic", refresh: true },
+			fakeCtx(send, request),
+		);
+		expect(request).toHaveBeenLastCalledWith("provider_accounts", { providerId: "anthropic", refresh: true });
+		await handlers.get_usage({ type: "get_usage", refresh: true }, fakeCtx(send, request));
+		expect(request).toHaveBeenLastCalledWith("usage", { refresh: true });
+		await handlers.get_usage({ type: "get_usage" }, fakeCtx(send, request));
+		expect(request).toHaveBeenLastCalledWith("usage", { refresh: false });
 	});
 
 	it("keeps the stock list when the bridge cannot read quotas", async () => {

@@ -41,6 +41,7 @@ import { normalizeLoopUpdate } from "../lib/loop-mode";
 import { describeTurnError, messageText, turnErrorToast } from "../lib/messages";
 import { playNotificationSound } from "../lib/notification-sound";
 import { notificationSummary } from "../lib/notification-summary";
+import { useUsageSignal } from "../lib/usage-reports";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
@@ -370,6 +371,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							useSessionStore.setState({ isStreaming: false, awaitingModelSince: null });
 							// Releases a todo list this turn finished — the dock card goes away.
 							useTodoStore.getState().setTurnActive(false);
+							// Its responses' rate-limit headers just moved the account's quota.
+							useUsageSignal.getState().turnEnded();
 							notifyOnAgentEnd(tabId, event);
 							toastOnAgentError(tabId, event);
 							// Re-fetch state so agent-side todo updates mid-turn reach the panel.

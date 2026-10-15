@@ -921,6 +921,7 @@ export const en: Record<string, string> = {
 	"usage.resetsIn": "resets in {time}",
 	"usage.resetting": "resetting…",
 	"usage.inUse": "In use",
+	"usage.updatedAgo": "Updated {time} ago",
 
 	// First-run onboarding
 
@@ -966,6 +967,7 @@ export const en: Record<string, string> = {
 	"providers.accounts.removed": "Removed {account} from {provider}",
 	"providers.accounts.removeFailed": "Couldn't remove the account",
 	"providers.accounts.copyKey": "Copy identity key of {account}",
+	"providers.accounts.refresh": "Refresh {provider} quotas",
 	// Saved rate-limit resets ("reset passes"; stock omp's saved resets, `/usage reset`)
 	"resetPasses.count": "{count} reset passes",
 	"resetPasses.countOne": "1 reset pass",
@@ -4327,8 +4329,10 @@ export const en: Record<string, string> = {
 	"shake.success": "Context cleanup complete.",
 	"time.daysAgo": "{count}d ago",
 	"time.daysShort": "{count}d",
+	"time.daysHoursShort": "{days}d {hours}h",
 	"time.hoursAgo": "{count}h ago",
 	"time.hoursShort": "{count}h",
+	"time.hoursMinutesShort": "{hours}h {minutes}m",
 	"time.justNow": "just now",
 	"time.millisecondsShort": "{count}ms",
 	"time.minutesAgo": "{count}m ago",

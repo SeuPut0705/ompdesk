@@ -148,6 +148,25 @@ describe("buildModelRows", () => {
 		expect(rows[1].quota?.fraction).toBe(0.5);
 	});
 
+	it("shows the quota of the account the session uses, not whichever sign-in stock listed last", () => {
+		const usage = [
+			report({
+				provider: "anthropic",
+				credentialId: 1,
+				active: true,
+				limits: [{ id: "5h", label: "5h", usedFraction: 0.2 }],
+			}),
+			report({ provider: "anthropic", credentialId: 2, limits: [{ id: "5h", label: "5h", usedFraction: 1 }] }),
+		];
+		const rows = buildModelRows({
+			models: [model({ provider: "anthropic", id: "a" })],
+			providers: [],
+			roles: null,
+			usage,
+		});
+		expect(rows[0].quota?.fraction).toBe(0.2);
+	});
+
 	it("reads optional wire metadata defensively: missing cost/context become null, name equal to id is dropped", () => {
 		const rows = buildModelRows({
 			models: [

@@ -1,5 +1,5 @@
 import { Ban } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { UsageReport } from "../../../shared/rpc-types";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
 import { formatClock, formatDuration } from "../../lib/format";
@@ -7,6 +7,7 @@ import { useT } from "../../lib/i18n";
 import { describeTurnError, retryLastTurn, runManualMaintenance, type TurnErrorAction } from "../../lib/messages";
 import { useNowTick } from "../../lib/now-tick";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { useLiveUsage } from "../../lib/usage-reports";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
 import { quotaResetAt, useQuotaResumeStore } from "../../stores/quota-resume";
@@ -55,25 +56,23 @@ export function TurnErrorNotice({
 	const [resetAt, setResetAt] = useState<number>();
 	const now = useNowTick(quota && (resetAt !== undefined || booked !== undefined));
 
+	/** Best effort: without a usage report the card keeps its plain guidance. */
+	const readReset = useCallback(async (): Promise<boolean> => {
+		const response = await rpc.getUsage();
+		if (!response.success) return false;
+		const data: unknown = response.data;
+		const reports: UsageReport[] =
+			typeof data === "object" && data !== null && "reports" in data && Array.isArray(data.reports)
+				? data.reports
+				: [];
+		setResetAt(quotaResetAt(reports, provider, Date.now()));
+		return true;
+	}, [rpc, provider]);
 	useEffect(() => {
-		if (!quota) return;
-		let live = true;
-		void rpc
-			.getUsage()
-			.then(response => {
-				const data: unknown = response.success ? response.data : undefined;
-				const reports: UsageReport[] =
-					typeof data === "object" && data !== null && "reports" in data && Array.isArray(data.reports)
-						? data.reports
-						: [];
-				if (live) setResetAt(quotaResetAt(reports, provider, Date.now()));
-			})
-			// Best effort: without a usage report the card keeps its plain guidance.
-			.catch(() => undefined);
-		return () => {
-			live = false;
-		};
-	}, [quota, rpc, provider]);
+		if (quota) void readReset().catch(() => undefined);
+	}, [quota, readReset]);
+	// The reset moves when another account frees up or a reset pass is spent.
+	useLiveUsage(readReset, quota);
 
 	if (description.kind === "aborted") {
 		return (

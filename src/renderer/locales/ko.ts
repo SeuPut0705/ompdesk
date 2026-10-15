@@ -914,6 +914,7 @@ export const ko: Record<string, string> = {
 	"usage.resetsIn": "{time} 후 초기화",
 	"usage.resetting": "초기화 중…",
 	"usage.inUse": "사용 중",
+	"usage.updatedAgo": "{time} 전 업데이트",
 
 	// First-run onboarding
 
@@ -959,6 +960,7 @@ export const ko: Record<string, string> = {
 	"providers.accounts.removed": "{provider}에서 {account} 계정을 제거했어요",
 	"providers.accounts.removeFailed": "계정을 제거하지 못했어요",
 	"providers.accounts.copyKey": "{account} 식별 키 복사",
+	"providers.accounts.refresh": "{provider} 한도 새로고침",
 	// Saved rate-limit resets ("reset passes"; stock omp's saved resets, `/usage reset`)
 	"resetPasses.count": "초기화권 {count}개",
 	"resetPasses.countOne": "초기화권 1개",
@@ -4315,8 +4317,10 @@ export const ko: Record<string, string> = {
 	"shake.success": "컨텍스트 정리를 완료했어요.",
 	"time.daysAgo": "{count}일 전",
 	"time.daysShort": "{count}일",
+	"time.daysHoursShort": "{days}일 {hours}시간",
 	"time.hoursAgo": "{count}시간 전",
 	"time.hoursShort": "{count}시간",
+	"time.hoursMinutesShort": "{hours}시간 {minutes}분",
 	"time.justNow": "방금",
 	"time.millisecondsShort": "{count}ms",
 	"time.minutesAgo": "{count}분 전",
