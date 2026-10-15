@@ -309,8 +309,9 @@ function FilePreview({
 		if (editing && dirty) setPendingLeave(() => action);
 		else action();
 	};
-	const onSaved = useCallback((mtimeMs: number) => {
+	const onSaved = useCallback((mtimeMs: number, size: number) => {
 		stampRef.current = mtimeMs;
+		setInfo(previous => ({ ...previous, size }));
 	}, []);
 	const onDirtyChange = useCallback((value: boolean) => setDirty(value), []);
 

@@ -44,8 +44,8 @@ export function FileEditor({
 	kind: ViewerKind;
 	/** Bumped by the panel's disk watch when the file changed outside this editor. */
 	diskRevision: number;
-	/** The new modification time after a save, so the disk watch does not take it for an outside change. */
-	onSaved: (mtimeMs: number) => void;
+	/** The new modification time and byte size after a save: the disk watch must not take the write for an outside change, and the header's size follows it. */
+	onSaved: (mtimeMs: number, size: number) => void;
 	onDirtyChange: (dirty: boolean) => void;
 }) {
 	const t = useT();
@@ -109,7 +109,7 @@ export function FileEditor({
 			if (result.ok && typeof result.mtimeMs === "number") {
 				setState({ status: "ready", saved: draft, mtimeMs: result.mtimeMs });
 				setConflict(false);
-				onSaved(result.mtimeMs);
+				onSaved(result.mtimeMs, new TextEncoder().encode(draft).byteLength);
 			} else if (result.code === "changed_on_disk") setConflict(true);
 			else toastError({ title: t("fileViewer.saveFailed"), error: result });
 		} catch (cause) {

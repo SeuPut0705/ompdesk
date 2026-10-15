@@ -219,6 +219,8 @@ for (const [language, theme] of [
 			expect(await fs.readFile(path.join(project, "notes.md"), "utf8")).toBe(
 				"# Changed on disk\nEdited in OMPdesk\n",
 			);
+			// The header's size follows the save (36 bytes now), not the 18 the file had when it was opened.
+			await expect(aside.locator("[data-file-meta]")).toContainText("36 B");
 			await capture("files-edit");
 			await page.keyboard.type("draft");
 			await fs.writeFile(path.join(project, "notes.md"), "# Someone else\n");
