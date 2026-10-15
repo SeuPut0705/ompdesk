@@ -24,6 +24,10 @@ export interface ModelStore {
 	availableThinkingLevels: ThinkingLevel[];
 	fastModeEnabled: boolean;
 	fastModeActive: boolean;
+	/** Stock `/fast ultra` applies to the active model (OpenAI's ultrafast tier). */
+	ultrafastSupported: boolean;
+	/** The active model runs on the ultrafast tier (fast mode is on too). */
+	ultrafastEnabled: boolean;
 	/** Stock `/slow` applies to the active model (flex tier on OpenAI/Google, low priority on Claude subscriptions). */
 	slowModeSupported: boolean;
 	slowModeEnabled: boolean;
@@ -54,6 +58,8 @@ export interface ModelStore {
 	toggleFastMode: () => Promise<void>;
 	/** Stock `set_slow_mode`; applies the returned `enabled`. */
 	toggleSlowMode: () => Promise<void>;
+	/** Stock `/fast ultra` (on) or back to off; applies the returned fast state. */
+	toggleUltrafastMode: () => Promise<void>;
 	reset: () => void;
 }
 
@@ -65,6 +71,8 @@ const SELECTION_KEYS = [
 	"availableThinkingLevels",
 	"fastModeEnabled",
 	"fastModeActive",
+	"ultrafastSupported",
+	"ultrafastEnabled",
 	"slowModeSupported",
 	"slowModeEnabled",
 	"slowModeScope",
@@ -81,6 +89,8 @@ export function snapshotModelSelection(state: RpcSessionState): ModelSelection {
 		availableThinkingLevels: state.availableThinkingLevels ?? [],
 		fastModeEnabled: state.fastModeEnabled,
 		fastModeActive: state.fastModeActive,
+		ultrafastSupported: state.ultrafastSupported ?? false,
+		ultrafastEnabled: state.ultrafastEnabled ?? false,
 		slowModeSupported: state.slowModeSupported ?? false,
 		slowModeEnabled: state.slowModeEnabled ?? false,
 		slowModeScope: state.slowModeScope,
@@ -110,6 +120,8 @@ const initialState = {
 	availableThinkingLevels: [] as ThinkingLevel[],
 	fastModeEnabled: false,
 	fastModeActive: false,
+	ultrafastSupported: false,
+	ultrafastEnabled: false,
 	slowModeSupported: false,
 	slowModeEnabled: false,
 	slowModeScope: undefined as "session" | "global" | undefined,
@@ -202,7 +214,12 @@ export const createModelStore = (command: TabCommand = activeTabCommand) =>
 				const res = await command({ type: "set_fast_mode", enabled: !get().fastModeEnabled });
 				if (res.success) {
 					const data = res.data as { enabled?: boolean; active?: boolean } | undefined;
-					set({ fastModeEnabled: data?.enabled ?? false, fastModeActive: data?.active ?? false });
+					// Stock's on is the priority tier and its off clears ultrafast too.
+					set({
+						fastModeEnabled: data?.enabled ?? false,
+						fastModeActive: data?.active ?? false,
+						ultrafastEnabled: false,
+					});
 				} else {
 					toastError({ title: translate("model.fastMode"), error: res });
 				}
@@ -214,6 +231,19 @@ export const createModelStore = (command: TabCommand = activeTabCommand) =>
 					set({ slowModeEnabled: data?.enabled ?? false });
 				} else {
 					toastError({ title: translate("input.runSettings.slow"), error: res });
+				}
+			},
+			toggleUltrafastMode: async () => {
+				const res = await command({ type: "set_ultrafast_mode", enabled: !get().ultrafastEnabled });
+				if (res.success) {
+					const data = res.data as { enabled?: boolean; active?: boolean; ultrafast?: boolean } | undefined;
+					set({
+						fastModeEnabled: data?.enabled ?? false,
+						fastModeActive: data?.active ?? false,
+						ultrafastEnabled: data?.ultrafast ?? false,
+					});
+				} else {
+					toastError({ title: translate("input.runSettings.ultrafast"), error: res });
 				}
 			},
 			reset: () => set(initialState),

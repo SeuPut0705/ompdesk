@@ -1325,6 +1325,28 @@ describe("InputArea run settings and modes", () => {
 		expect(document.body.textContent).toContain("Not on this model");
 	});
 
+	it("offers Ultrafast only on a model that has it, and runs stock /fast ultra", async () => {
+		await mount();
+		await openRunSettings();
+		expect(document.querySelector("[data-ultrafast-mode]")).toBeNull();
+		await act(async () => useModelStore.setState({ ultrafastSupported: true }));
+		const commandMock = window.omp.rpc.command as unknown as Mock;
+		commandMock.mockImplementation(async (command: RpcCommand) =>
+			command.type === "set_ultrafast_mode" ? ok({ enabled: true, active: true, ultrafast: true }) : ok(),
+		);
+		const ultra = document.querySelector(
+			'[data-ultrafast-mode] [role="switch"], [role="switch"][data-ultrafast-mode]',
+		) as unknown as TestElement | null;
+		if (!ultra) throw new Error("ultrafast switch missing");
+		await click(ultra);
+		await flush();
+		expect(commandMock.mock.calls.map(call => call[0])).toContainEqual({ type: "set_ultrafast_mode", enabled: true });
+		expect(useModelStore.getState()).toMatchObject({ fastModeEnabled: true, ultrafastEnabled: true });
+		expect(document.querySelector("[data-run-settings-trigger]")?.getAttribute("aria-label")).toContain(
+			"Ultrafast on",
+		);
+	});
+
 	it("toggles plan mode from the mode chip, separate from run settings", async () => {
 		await mount();
 		const modes = document.querySelector("button[data-composer-modes-trigger]") as unknown as TestElement | null;

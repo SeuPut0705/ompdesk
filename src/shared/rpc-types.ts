@@ -30,6 +30,7 @@ export type RpcCommand =
 	| { id?: string; type: "get_state" }
 	| { id?: string; type: "set_fast_mode"; enabled: boolean }
 	| { id?: string; type: "set_slow_mode"; enabled: boolean }
+	| { id?: string; type: "set_ultrafast_mode"; enabled: boolean }
 	| { id?: string; type: "get_available_commands" }
 	| { id?: string; type: "set_todos"; phases: TodoPhase[] }
 	| { id?: string; type: "set_subagent_subscription"; level: SubagentSubscriptionLevel }
@@ -1266,6 +1267,10 @@ export interface RpcSessionState {
 	sessionName?: string | null;
 	fastModeEnabled: boolean;
 	fastModeActive: boolean;
+	/** Stock `/fast ultra` applies to the active model (OpenAI's ultrafast tier). */
+	ultrafastSupported?: boolean;
+	/** The active model runs on the ultrafast tier (implies `fastModeEnabled`). */
+	ultrafastEnabled?: boolean;
 	/** `/slow` applies to the active model (flex tier on OpenAI/Google, low priority on Claude subscriptions). */
 	slowModeSupported?: boolean;
 	/** `/slow` is on for the active model; always false when unsupported. */

@@ -88,6 +88,7 @@ export function RunSettings() {
 	const autoResolved = useModelStore(s => s.thinkingAutoResolved);
 	const supportsThinking = useModelStore(s => s.availableThinkingLevels.length > 0);
 	const fastEnabled = useModelStore(s => s.fastModeEnabled);
+	const ultrafastEnabled = useModelStore(s => s.ultrafastEnabled);
 	const slowEnabled = useModelStore(s => s.slowModeEnabled);
 	const approvalMode = useSettingsStore(s => s.approvalMode);
 	const strictApproval = approvalMode !== "yolo";
@@ -100,7 +101,7 @@ export function RunSettings() {
 			: t(`input.thinking.name.${thinking}`);
 	const summary = [
 		t("input.runSettings.summaryThinking", { level: thinkingName }),
-		fastEnabled ? t("input.fast.on") : null,
+		ultrafastEnabled ? t("input.ultrafast.on") : fastEnabled ? t("input.fast.on") : null,
 		slowEnabled ? t("input.slow.on") : null,
 		t("input.approval.title", { mode: t(`input.approval.${approvalMode}`) }),
 	]
@@ -124,7 +125,14 @@ export function RunSettings() {
 					variant="ghost"
 				>
 					<span className="omp-composer-control-label">{thinkingName}</span>
-					{fastEnabled && <Zap aria-hidden className="text-(--sc-accent)" />}
+					{fastEnabled && (
+						<Zap
+							aria-hidden
+							className="text-(--sc-accent)"
+							data-speed={ultrafastEnabled ? "ultrafast" : "fast"}
+							fill={ultrafastEnabled ? "currentColor" : "none"}
+						/>
+					)}
 					{slowEnabled && <Snail aria-hidden className="text-(--sc-text-muted)" />}
 					{strictApproval && <ShieldCheck aria-hidden className="text-(--sc-text-muted)" />}
 				</Button>
@@ -156,6 +164,9 @@ function RunSettingsPanel({ onClose, onRequestFullAccess }: { onClose: () => voi
 	const fastEnabled = useModelStore(s => s.fastModeEnabled);
 	const fastActive = useModelStore(s => s.fastModeActive);
 	const toggleFastMode = useModelStore(s => s.toggleFastMode);
+	const ultrafastSupported = useModelStore(s => s.ultrafastSupported);
+	const ultrafastEnabled = useModelStore(s => s.ultrafastEnabled);
+	const toggleUltrafastMode = useModelStore(s => s.toggleUltrafastMode);
 	const slowSupported = useModelStore(s => s.slowModeSupported);
 	const slowEnabled = useModelStore(s => s.slowModeEnabled);
 	const slowScope = useModelStore(s => s.slowModeScope);
@@ -195,6 +206,17 @@ function RunSettingsPanel({ onClose, onRequestFullAccess }: { onClose: () => voi
 					onCheckedChange={() => void toggleFastMode()}
 					size="sm"
 				/>
+				{ultrafastSupported && (
+					<SwitchField
+						checked={ultrafastEnabled}
+						className="-mx-2"
+						data-ultrafast-mode
+						description={t("input.runSettings.ultrafastDesc")}
+						label={t("input.runSettings.ultrafast")}
+						onCheckedChange={() => void toggleUltrafastMode()}
+						size="sm"
+					/>
+				)}
 				{slowSupported && (
 					<SwitchField
 						checked={slowEnabled}

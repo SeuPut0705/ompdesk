@@ -136,6 +136,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"inspectAsyncJob()",
 			"cancelAsyncJob()",
 			"cycleModel()",
+			"isFastModeEnabled()",
+			"isFastModeActive()",
+			"isUltrafastModeEnabled()",
+			"setUltrafastMode()",
 			"popLastQueuedMessage()",
 			"getQueuedMessages()",
 			"agent.state",
@@ -150,6 +154,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		],
 		modules: {
 			"@oh-my-pi/pi-agent-core": ["agentPauseGate.paused", "agentPauseGate.pausedAt"],
+			"@oh-my-pi/pi-ai": ["serviceTierFamily()", "shouldSendServiceTier()"],
 			"@oh-my-pi/pi-tui/overlays/copy-targets": [
 				"extractBlocks()",
 				"commandFromToolCall()",

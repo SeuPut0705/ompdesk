@@ -43,6 +43,8 @@ describe("get_state", () => {
 					prewalkArmed: true,
 					agentsPaused: true,
 					agentsPausedAt: 42,
+					ultrafastSupported: true,
+					ultrafastEnabled: true,
 				},
 			},
 		});
@@ -56,7 +58,21 @@ describe("get_state", () => {
 			prewalkArmed: true,
 			agentsPaused: true,
 			agentsPausedAt: 42,
+			ultrafastSupported: true,
+			ultrafastEnabled: true,
 		});
+	});
+
+	it("runs stock /fast ultra through the bridge", async () => {
+		const ctx = fakeContext({
+			bridge: { "composer.set_ultrafast": { enabled: true, active: true, ultrafast: true } },
+		});
+		await expect(handlers.set_ultrafast_mode({ type: "set_ultrafast_mode", enabled: true }, ctx)).resolves.toEqual({
+			enabled: true,
+			active: true,
+			ultrafast: true,
+		});
+		await expect(handlers.set_ultrafast_mode({ type: "set_ultrafast_mode" } as never, ctx)).rejects.toThrow();
 	});
 
 	it("still answers with safe defaults when the bridge is down", async () => {

@@ -126,7 +126,11 @@ export const methods: BridgeMethods = {
 		/** The get_state fields stock omits. */
 		"composer.state": async (_params, env) => {
 			const session = env.session() as Session;
-			const { agentPauseGate } = await import("@oh-my-pi/pi-agent-core");
+			const [{ agentPauseGate }, { serviceTierFamily, shouldSendServiceTier }] = await Promise.all([
+				import("@oh-my-pi/pi-agent-core"),
+				import("@oh-my-pi/pi-ai"),
+			]);
+			const model = session.model;
 			return {
 				cwd: session.sessionManager.getCwd(),
 				autoRetryEnabled: session.autoRetryEnabled,
@@ -135,6 +139,25 @@ export const methods: BridgeMethods = {
 				prewalkArmed: session.getPrewalkState?.() !== undefined,
 				agentsPaused: agentPauseGate?.paused === true,
 				agentsPausedAt: agentPauseGate?.pausedAt,
+				// Stock `setUltrafastMode`'s own precondition (`/fast ultra`).
+				ultrafastSupported:
+					model !== undefined &&
+					serviceTierFamily(model) === "openai" &&
+					shouldSendServiceTier("ultrafast", model),
+				ultrafastEnabled: session.isUltrafastModeEnabled(),
+			};
+		},
+
+		/** Stock `/fast ultra` / `/fast off` for the active model; reports the fast state it left. */
+		"composer.set_ultrafast": async (params, env) => {
+			const session = env.session() as Session;
+			const { enabled } = record(params);
+			if (typeof enabled !== "boolean") throw new Error("set_ultrafast requires boolean enabled");
+			if (!session.setUltrafastMode(enabled)) throw new Error("Ultrafast is unavailable for the current model.");
+			return {
+				enabled: session.isFastModeEnabled(),
+				active: session.isFastModeActive(),
+				ultrafast: session.isUltrafastModeEnabled(),
 			};
 		},
 

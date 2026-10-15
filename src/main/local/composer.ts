@@ -38,6 +38,8 @@ interface StateExtras {
 	prewalkArmed: boolean;
 	agentsPaused: boolean;
 	agentsPausedAt?: number;
+	ultrafastSupported: boolean;
+	ultrafastEnabled: boolean;
 }
 
 /** One `AgentSession.getAsyncJobSnapshot` item as stock reports it. */
@@ -94,6 +96,7 @@ const evalCommand = z.object({
 });
 const bashCommand = z.object({ command: z.string(), excluded: z.boolean().optional() });
 const forceToolCommand = z.object({ tool: z.string().optional(), clear: z.boolean().optional() });
+const ultrafastCommand = z.object({ enabled: z.boolean() });
 
 export const handlers: Record<string, LocalHandler> = {
 	get_state: async (_command, ctx) => {
@@ -111,6 +114,8 @@ export const handlers: Record<string, LocalHandler> = {
 			planModeEnabled: extras?.planModeEnabled ?? false,
 			prewalkArmed: extras?.prewalkArmed ?? false,
 			agentsPaused: extras?.agentsPaused ?? false,
+			ultrafastSupported: extras?.ultrafastSupported ?? false,
+			ultrafastEnabled: extras?.ultrafastEnabled ?? false,
 		};
 		if (extras?.agentsPausedAt !== undefined) result.agentsPausedAt = extras.agentsPausedAt;
 		return result;
@@ -137,6 +142,10 @@ export const handlers: Record<string, LocalHandler> = {
 		await ctx.bridge.request("composer.abort_eval");
 		return undefined;
 	},
+
+	// Stock `/fast ultra` / off (no RPC command of its own).
+	set_ultrafast_mode: async (command, ctx) =>
+		ctx.bridge.request("composer.set_ultrafast", { enabled: ultrafastCommand.parse(command).enabled }),
 
 	// Esc during a manual /compact or handoff (stock's serial queue holds a plain `abort` behind it).
 	abort_maintenance: (_command, ctx) => ctx.bridge.request("composer.abort_maintenance"),
