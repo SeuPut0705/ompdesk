@@ -14,12 +14,13 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, Columns2, FileCode2, Rows3 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type DiffLine, DiffView, parseDiff } from "../../lib/diff";
-import { basename, dirname, formatClock, formatTimeAgo, resultDetails, resultText } from "../../lib/format";
+import { formatClock, formatTimeAgo, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PREVIEW_TEXT_CHARS } from "../../lib/preview";
 import { useSessionStore } from "../../stores/session";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { EmptyState, IconButton, Select } from "../common";
+import { workspaceRelativePath } from "./FilesPanel";
 import { PANEL_ROW, PanelToolbar } from "./PanelChrome";
 import { RepositoryChanges } from "./RepositoryChanges";
 import { CommitHistory } from "./scm/CommitHistory";
@@ -336,6 +337,22 @@ function EditActivityStrip({ edits }: { edits: DiffCandidate[] }) {
 	);
 }
 
+/**
+ * An edited file's path as the session sees it: relative to the session's folder,
+ * with the folder part giving way to an ellipsis first so the file name is always shown.
+ */
+export function FilePath({ file, cwd }: { file: string; cwd: string | null }) {
+	const shown = (cwd ? workspaceRelativePath(file, cwd) : null) || file;
+	const slash = shown.lastIndexOf("/");
+	const dirPrefix = shown.slice(0, slash + 1);
+	return (
+		<span className="flex min-w-0 font-mono" title={file}>
+			{dirPrefix && <span className="min-w-0 truncate text-(--sc-text-muted)">{dirPrefix}</span>}
+			<span className="max-w-full shrink-0 truncate">{shown.slice(slash + 1)}</span>
+		</span>
+	);
+}
+
 function FileGroupHeader({
 	group,
 	collapsed,
@@ -345,10 +362,7 @@ function FileGroupHeader({
 	collapsed: boolean;
 	onToggle: () => void;
 }) {
-	const base = basename(group.file);
-	const dir = dirname(group.file);
-	// dirname() returns "/" for directory-less relative paths — hide it there.
-	const dirPrefix = dir === "/" ? (group.file.startsWith("/") ? "/" : "") : `${dir}/`;
+	const cwd = useSessionStore(state => state.cwd);
 	return (
 		<button aria-expanded={!collapsed} className={PANEL_ROW} onClick={onToggle} title={group.file} type="button">
 			{collapsed ? (
@@ -357,9 +371,8 @@ function FileGroupHeader({
 				<ChevronDown className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 			)}
 			<FileCode2 className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-			<span className="min-w-0 truncate font-mono text-sc-sm text-(--sc-text)">
-				{dirPrefix && <span className="text-(--sc-text-muted)">{dirPrefix}</span>}
-				{base}
+			<span className="min-w-0 text-sc-sm text-(--sc-text)">
+				<FilePath cwd={cwd} file={group.file} />
 			</span>
 			<span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-sc-xs">
 				<span className="text-(--sc-success)">+{group.adds}</span>
@@ -532,6 +545,7 @@ export function DiffPanel() {
 	const [split, setSplit] = useState(false);
 	const [mode, setMode] = useState<"repository" | "commits" | "current" | "timeline" | "artifacts">("repository");
 	const sessionId = useSessionStore(state => state.sessionId);
+	const cwd = useSessionStore(state => state.cwd);
 	const candidates = useMemo(
 		() => allCandidates.filter(entry => (mode === "artifacts" ? entry.isVirtual : !entry.isVirtual)),
 		[allCandidates, mode],
@@ -599,7 +613,7 @@ export function DiffPanel() {
 								value={selected?.id ?? ""}
 								options={candidates.map(candidate => ({
 									value: candidate.id,
-									label: `${candidate.file} — ${candidate.toolName}`,
+									label: `${workspaceRelativePath(candidate.file, cwd ?? "") || candidate.file} — ${candidate.toolName}`,
 								}))}
 							/>
 						</div>
@@ -610,8 +624,8 @@ export function DiffPanel() {
 							<div className="space-y-1.5">
 								<div className="flex min-w-0 items-center gap-1.5 text-sc-sm text-(--sc-text-muted)">
 									<FileCode2 className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-									<span className="min-w-0 truncate font-mono" title={selected.file}>
-										{selected.file}
+									<span className="min-w-0">
+										<FilePath cwd={cwd} file={selected.file} />
 									</span>
 									<span className="ml-auto shrink-0 px-1.5 py-px text-sc-2xs text-(--sc-text-muted)">
 										{selected.toolName}
