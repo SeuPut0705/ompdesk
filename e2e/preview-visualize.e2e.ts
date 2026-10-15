@@ -76,11 +76,11 @@ for (const [language, theme] of [
 			args: [path.resolve("out/main/index.js"), project, `--user-data-dir=${desktop}`],
 			env,
 		});
-		const window = await app.firstWindow();
+		const shell = await app.firstWindow();
 		const capture = async (name: string) => {
 			if (!captures) return;
 			await fs.mkdir(captures, { recursive: true });
-			await window.locator("aside[data-docked]").screenshot({
+			await shell.locator("aside[data-docked]").screenshot({
 				animations: "disabled",
 				path: path.join(captures, `${name}-${language}-${theme}.png`),
 			});
@@ -92,7 +92,7 @@ for (const [language, theme] of [
 				.map(line => JSON.parse(line) as Frame)
 				.filter(frame => frame.type === "host_tool_result")
 				.map(frame => JSON.stringify(frame.result));
-		const composer = window.locator("textarea").first();
+		const composer = shell.locator("textarea").first();
 		const tool = async (args: object) => {
 			await composer.fill(`!fixture:host-tool:gui_visualize ${JSON.stringify(args)}`);
 			await composer.press("Enter");
@@ -120,12 +120,12 @@ for (const [language, theme] of [
 				contents.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
 			}, selector);
 		try {
-			await window.waitForFunction(() => window.omp?.rpc != null);
+			await shell.waitForFunction(() => window.omp?.rpc != null);
 			await expect
-				.poll(async () => (await window.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
+				.poll(async () => (await shell.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 				.toBe("ready");
-			const aside = window.locator("aside[data-docked]");
-			const status = window.locator("[data-preview-status]");
+			const aside = shell.locator("aside[data-docked]");
+			const status = shell.locator("[data-preview-status]");
 
 			// C135: the agent shows a project file; the Preview comes forward with it.
 			await tool({ action: "open", target: "plans.html" });
@@ -203,12 +203,12 @@ for (const [language, theme] of [
 
 			// C141: "All visuals" lists it across tabs and launches.
 			await aside.getByRole("button", { name: label.options, exact: true }).click();
-			await window.getByRole("menuitem", { name: label.all, exact: true }).click();
-			const dialog = window.getByRole("dialog");
+			await shell.getByRole("menuitem", { name: label.all, exact: true }).click();
+			const dialog = shell.getByRole("dialog");
 			await expect(dialog.locator("[data-preview-visual-list] li")).toHaveCount(1);
 			await expect(dialog).toContainText("plans.html");
 			if (captures) await dialog.screenshot({ path: path.join(captures, `visualize-all-${language}-${theme}.png`) });
-			await window.keyboard.press("Escape");
+			await shell.keyboard.press("Escape");
 			await expect(dialog).toHaveCount(0);
 
 			// close removes its tab.
