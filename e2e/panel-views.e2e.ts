@@ -60,7 +60,7 @@ for (const theme of ["light", "dark"] as const) {
 			await options.focus();
 			await page.keyboard.press("Enter");
 			const menu = page.getByRole("menu", { name: "View options" });
-			await expect(menu.getByRole("menuitemcheckbox")).toHaveCount(5);
+			await expect(menu.getByRole("menuitemcheckbox")).toHaveCount(6);
 			await page.screenshot({ animations: "disabled", path: test.info().outputPath(`menu-${theme}.png`) });
 			await page.keyboard.press("ArrowDown");
 			await page.keyboard.press("Enter");

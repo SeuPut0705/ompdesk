@@ -240,7 +240,7 @@ test("a background tab's next-prompt suggestion becomes the composer placeholder
 	expect(errors).toEqual([]);
 });
 
-test("sidebar subagent rows start collapsed, expand on click, and leave as each subagent finishes", async () => {
+test("sidebar subagent rows start collapsed, expand on click, and a finished one stays marked until read", async () => {
 	const owner = await activeTab();
 	await nameTab(owner, "Fan-out tab");
 	await openTab();
@@ -265,12 +265,22 @@ test("sidebar subagent rows start collapsed, expand on click, and leave as each 
 		"1",
 	);
 
+	// A finished agent the sidebar saw working stays, marked with how it ended, until it is read.
+	const nested = page.locator('[data-sidebar-subagent="sa-nested"]');
 	await fixtureCommand(owner, "fixture:subagents:finish:sa-nested");
+	await expect(nested).toHaveAttribute("data-status", "completed");
+	await expect(rows).toHaveCount(2);
+	await expect(toggle).toHaveAccessibleName("Hide subagents (2)");
+	await nested.click({ button: "right" });
+	await page.getByRole("menuitem", { name: "Mark as read", exact: true }).click();
 	await expect(rows).toHaveCount(1);
 	await expect(rows.first()).toHaveAttribute("data-sidebar-subagent", "sa-explore");
 	await expect(toggle).toHaveAccessibleName("Hide subagents (1)");
 
 	await fixtureCommand(owner, "fixture:subagents:finish:sa-explore");
+	await expect(rows.first()).toHaveAttribute("data-status", "completed");
+	await rows.first().click({ button: "right" });
+	await page.getByRole("menuitem", { name: "Mark as read", exact: true }).click();
 	await expect(page.locator("[data-sidebar-subagent]")).toHaveCount(0);
 	await expect(toggle).toHaveCount(0);
 	expect(errors).toEqual([]);
@@ -302,7 +312,14 @@ test("a background session's sidebar row follows its run, dialogs, title, plan a
 	await fixtureCommand(background, "fixture:subagents");
 	await expect(subagents).toHaveAccessibleName("Show subagents (2)");
 	await fixtureCommand(background, "fixture:subagents:finish:sa-nested");
-	await expect(subagents).toHaveAccessibleName("Show subagents (1)");
+	// Seen working, so the finished agent stays as a marked row; expanding the rows is no visit.
+	await subagents.click();
+	await expect(
+		page.locator(`[data-sidebar-subagents="${sessionPath}"] [data-sidebar-subagent="sa-nested"]`),
+	).toHaveAttribute("data-status", "completed");
+	await expect(subagents).toHaveAccessibleName("Hide subagents (2)");
+	await subagents.click();
+	await expect(subagents).toHaveAccessibleName("Show subagents (2)");
 
 	await fixtureCommand(background, "fixture:finish");
 	await expect(row).not.toContainText("Running");

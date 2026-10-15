@@ -115,7 +115,7 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		}
 		for (let index = 0; index < 20; index++) {
 			const started = performance.now();
-			await page.keyboard.press("Control+Tab");
+			await page.keyboard.press("ControlOrMeta+Shift+BracketRight");
 			await expect(input).toBeEditable();
 			switchMs.push(performance.now() - started);
 		}
@@ -124,8 +124,10 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 			await fs.writeFile("test-results/switch.cpuprofile", JSON.stringify(captured.profile));
 			await profiler.detach();
 		}
-		// 20 cycles over 5 tabs land back on the last one; one more reaches the first.
-		await page.keyboard.press("Control+Tab");
+		// ⇧⌘] steps the strip order (⌃⇥ is the most-recent-first switcher, which only
+		// flips between the last two tabs): 20 cycles over 5 tabs land back on the last
+		// one; one more reaches the first.
+		await page.keyboard.press("ControlOrMeta+Shift+BracketRight");
 		await expect(input).toHaveValue("retained stream draft");
 		await page.getByRole("button", { name: "Stop", exact: true }).click();
 		await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);

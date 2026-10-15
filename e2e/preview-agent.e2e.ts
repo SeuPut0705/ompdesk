@@ -113,6 +113,10 @@ for (const [language, theme] of [
 			}
 
 			const relay = JSON.parse(await fs.readFile(relayFile, "utf8")) as { url: string };
+			// The banner shows "waiting" as soon as main opens the relay socket; stock's relay answers
+			// /json/version with 503 until the preview's hello lands, and stock's browser tool waits for
+			// that (relay/probe.ts waitForRelayExtension) before it connects. So does this client.
+			await expect.poll(async () => (await fetch(new URL("/json/version", relay.url))).status).toBe(200);
 			browser = await connect({ browserURL: relay.url, defaultViewport: null });
 			const pages = await browser.pages();
 			expect(pages).toHaveLength(1);
