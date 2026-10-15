@@ -697,6 +697,30 @@ describe("InputArea prompt history", () => {
 		expect(composerValue()).toBe("draft");
 		expect(caret()).toBe("draft".length);
 	});
+
+	it("places the recall's caret with its text, so a selection made before the next frame stays", async () => {
+		await mount();
+		await seedHistory("recalled prompt");
+		// The next frame has not come yet when the following keys arrive (a busy renderer).
+		const frames: (() => void)[] = [];
+		const realFrame = globals.requestAnimationFrame;
+		globals.requestAnimationFrame = (callback: () => void) => frames.push(callback);
+		try {
+			placeCaret(0);
+			expect((await pressKey({ key: "ArrowUp" })).defaultPrevented).toBe(true);
+			expect(composerValue()).toBe("recalled prompt");
+			expect(caret()).toBe(0);
+			// A select-all right after the recall, as Playwright's fill does before its Delete.
+			Object.assign(findTextarea(), { selectionStart: 0, selectionEnd: "recalled prompt".length });
+			await act(async () => {
+				for (const frame of frames.splice(0)) frame();
+			});
+		} finally {
+			globals.requestAnimationFrame = realFrame;
+		}
+		const textarea: object = findTextarea();
+		expect("selectionEnd" in textarea ? textarea.selectionEnd : undefined).toBe("recalled prompt".length);
+	});
 });
 
 /** Drive the textarea's React onKeyDown with any key chord. */

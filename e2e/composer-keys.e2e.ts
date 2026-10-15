@@ -126,15 +126,22 @@ for (const language of ["en", "ko"] as const)
 				await expect(page.locator("[data-esc-hint]")).toHaveCount(0);
 
 				// Esc twice clears the draft; the first press says so; ↑ brings it back.
+				// The second press follows the hint at once, as a user's does: the hint
+				// is the 1.5 s window, so nothing slow (a capture) may sit between them.
 				await page.keyboard.press("Escape");
 				await expect(page.locator("[data-esc-hint]")).toHaveText(text.escHint);
-				await capture(page, `${language}-${theme}-esc-hint`);
 				await page.keyboard.press("Escape");
 				await expect(input).toHaveValue("");
 				await expect(page.locator("[data-esc-hint]")).toHaveCount(0);
 				await page.keyboard.press("ArrowUp");
 				await expect(input).toHaveValue("first\ndraft to clear");
+				await page.keyboard.press("Escape");
+				await expect(page.locator("[data-esc-hint]")).toHaveText(text.escHint);
+				await capture(page, `${language}-${theme}-esc-hint`);
+				// An edit disarms the pending Esc.
 				await input.fill("");
+				await expect(input).toHaveValue("");
+				await expect(page.locator("[data-esc-hint]")).toHaveCount(0);
 
 				// Double Esc on an empty composer: stock's default doubleEscapeAction (rewind picker).
 				await input.focus();

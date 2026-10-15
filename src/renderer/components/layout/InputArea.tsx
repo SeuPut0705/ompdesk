@@ -857,12 +857,12 @@ export function InputArea() {
 					if (!wasBrowsing) navDraftImages.current = images;
 					const backToDraft = useInputHistoryStore.getState().navIndex === -1;
 					setImages(backToDraft ? navDraftImages.current : [...historyImages(recalled)]);
-					setText(recalled);
+					// Text and caret land together, as ⌃U does: a caret placed on a later frame
+					// would move whatever the next keys did meanwhile (a select-all, typed text).
 					const caret = older ? 0 : recalled.length;
-					requestAnimationFrame(() => {
-						el.focus();
-						el.setSelectionRange(caret, caret);
-					});
+					el.value = recalled;
+					el.setSelectionRange(caret, caret);
+					setText(recalled);
 					return;
 				}
 			}
