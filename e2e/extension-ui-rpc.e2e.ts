@@ -52,7 +52,7 @@ const TEXT: Record<
 		slow: "느린 모드",
 		cancelExec: "취소",
 		steerSent: "보냈어요",
-		steerPlaceholder: "이 에이전트에게 방향 지시하기…",
+		steerPlaceholder: "이 에이전트에게 추가 지시하기…",
 	},
 };
 

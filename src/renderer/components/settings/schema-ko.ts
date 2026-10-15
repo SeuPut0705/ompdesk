@@ -451,9 +451,9 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "Git 연동 사용",
 		description: "TUI에 git 브랜치, 상태, PR 정보를 표시하고 저장소 메타데이터를 감시해요.",
 	},
-	steeringMode: { label: "방향 조정 모드", description: "에이전트 실행 중 대기열 메시지 처리 방식" },
+	steeringMode: { label: "추가 지시 모드", description: "에이전트 실행 중 대기열 메시지 처리 방식" },
 	followUpMode: { label: "후속 모드", description: "턴이 끝난 뒤 후속 메시지를 내보내는 방식" },
-	interruptMode: { label: "중단 모드", description: "방향 조정 메시지가 도구 실행을 중단하는 시점" },
+	interruptMode: { label: "중단 모드", description: "추가 지시 메시지가 도구 실행을 중단하는 시점" },
 	"loop.mode": { label: "루프 모드", description: "/loop 반복 사이, 프롬프트를 다시 제출하기 전에 수행할 동작" },
 	doubleEscapeAction: {
 		label: "Escape 두 번 동작",
@@ -1759,7 +1759,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 			"프로바이더별 검색 전송 하드 타임아웃이에요. 시간이 지나면 web_search가 다음 대체 항목을 시도해요. 단위는 초(최대 300)",
 	},
 	"providers.openaiLiveSteering": {
-		label: "OpenAI 실시간 방향 조정",
+		label: "OpenAI 실시간 추가 지시",
 		description:
 			"GPT-6 응답이 스트리밍되는 동안 입력한 메시지를 다음 도구 경계까지 기다리지 않고 Codex WebSocket으로 해당 응답에 바로 전달해요.",
 	},
