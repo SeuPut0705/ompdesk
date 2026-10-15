@@ -190,7 +190,7 @@ async function selectedRows(page: Page, titles: readonly string[]) {
 }
 
 for (const [language, theme] of RUNS) {
-	test(`a split's sessions are all selected; outside picks are solo; members restore it, across a relaunch (${language}-${theme})`, async () => {
+	test(`${language === "en" && theme === "light" ? "@smoke " : ""}a split's sessions are all selected; outside picks are solo; members restore it, across a relaunch (${language}-${theme})`, async () => {
 		test.setTimeout(240_000);
 		const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-split-select-")));
 		const captures = process.env.OMP_GUI_SPLIT_SELECT_CAPTURES;

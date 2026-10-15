@@ -347,6 +347,27 @@ describe("workflows", () => {
 		}
 		expect(fs.existsSync(path.join(PACKAGE_ROOT, "scripts/windows-installer-check.ps1"))).toBe(true);
 	});
+
+	it("runs the @smoke e2e on every Windows release, and offers it by hand with captures and the omp update lock check", () => {
+		const release = parse(workflows.find(entry => entry.name === "release.yml")?.text ?? "") as ReleaseWorkflow;
+		const runs = (job: string) => release.jobs[job]?.steps.map(step => step.run ?? "") ?? [];
+		// Every @smoke spec runs against the job's packaged out/.
+		expect(runs("win")).toContain('bunx playwright test --grep "@smoke"');
+		expect(fs.existsSync(path.join(PACKAGE_ROOT, "scripts/omp-update-lock-check.ts"))).toBe(true);
+
+		const ci = parse(workflows.find(entry => entry.name === "ci.yml")?.text ?? "") as {
+			on: { workflow_dispatch: { inputs: Record<string, unknown> } };
+			jobs: Record<string, { "runs-on": string; if?: string; steps: { run?: string; with?: { path?: string } }[] }>;
+		};
+		expect(ci.on.workflow_dispatch.inputs).toHaveProperty("win_e2e");
+		const job = ci.jobs["win-e2e"];
+		expect(job?.if).toBe("inputs.win_e2e");
+		expect(job?.["runs-on"]).toBe("windows-latest");
+		const manual = job?.steps.map(step => step.run ?? "") ?? [];
+		expect(manual).toContain("bun scripts/omp-update-lock-check.ts");
+		expect(manual.some(run => run.includes("bunx playwright test --grep"))).toBe(true);
+		expect(job?.steps.some(step => step.with?.path?.includes("captures/"))).toBe(true);
+	});
 });
 
 /**

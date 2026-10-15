@@ -82,6 +82,7 @@ async function launch(
 	seeded: Seeded,
 	language: "en" | "ko",
 	theme: "light" | "dark",
+	standInGh = true,
 ): Promise<{ app: ElectronApplication; page: Page; errors: string[] }> {
 	const desktop = path.join(seeded.root, "desktop");
 	const agent = path.join(seeded.root, "agent");
@@ -99,7 +100,7 @@ async function launch(
 		PI_PROFILE: "",
 		OMP_GUI_OMP: await fixtureOmp(seeded.root),
 		OMP_GUI_REMOTE_PORT: "0",
-		PATH: `${seeded.bin}${path.delimiter}${process.env.PATH}`,
+		...(standInGh ? { PATH: `${seeded.bin}${path.delimiter}${process.env.PATH}` } : {}),
 	};
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	const app = await electron.launch({
@@ -111,9 +112,18 @@ async function launch(
 	page.on("pageerror", error => errors.push(error.message));
 	await resize(app, 1440, 900);
 	await page.waitForFunction(() => window.omp?.rpc != null);
-	await expect
-		.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 90_000 })
-		.toBe("ready");
+	try {
+		await expect
+			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 90_000 })
+			.toBe("ready");
+	} catch (error) {
+		// A stuck start says nothing by itself: carry the sidecar's own status and the app's runtime log.
+		const status = await page.evaluate(() => window.omp.sidecar.getStatus()).catch(() => null);
+		const log = await fs.readFile(path.join(desktop, "logs", "gui-runtime.jsonl"), "utf8").catch(() => "");
+		throw new Error(`The sidecar never became ready: ${JSON.stringify(status)}\n${log.slice(-4000)}`, {
+			cause: error,
+		});
+	}
 	return { app, page, errors };
 }
 
@@ -217,6 +227,37 @@ test("stage, commit, push, history and a squash merge", async () => {
 			await fs.writeFile(path.join(directory, "scm-flow-findings.json"), JSON.stringify(findings, null, 2));
 		await exitApp(app);
 		await fs.rm(seeded.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+// What the Windows smoke run covers (the stand-in `gh` is a shell script): stage a file, commit it
+// through the panel and push it to the bare remote, all with the real git.
+test("@smoke stage, commit and push from the Changes panel", async () => {
+	test.setTimeout(120_000);
+	const seeded = await seed("smoke");
+	const { app, page, errors } = await launch(seeded, "en", "light", false);
+	try {
+		const aside = await openChanges(page, "en");
+		await expect(aside.getByText("0 of 2 staged")).toBeVisible();
+		await aside.getByRole("checkbox", { name: "Stage app.ts" }).click();
+		await expect(aside.getByText("1 of 2 staged")).toBeVisible();
+		expect(git(seeded.project, "diff", "--cached", "--name-only")).toBe("app.ts");
+		await aside.getByRole("textbox", { name: "Commit message" }).fill("fix: the answer is 42");
+		await aside.getByRole("button", { name: "Commit 1 to main" }).click();
+		await expect(aside.getByText("0 of 1 staged")).toBeVisible();
+		expect(git(seeded.project, "log", "-1", "--format=%s")).toBe("fix: the answer is 42");
+		const push = aside.locator("[data-scm-bar]").getByRole("button", { name: /^Push/ });
+		await expect(push).toHaveText("Push1");
+		await push.click();
+		await expect(push).toHaveText("Push");
+		expect(git(seeded.root, "--git-dir", seeded.remote, "log", "-1", "--format=%s", "main")).toBe(
+			"fix: the answer is 42",
+		);
+		if (directory) await page.screenshot({ path: path.join(directory, "scm-smoke-pushed.png"), scale: "css" });
+		expect(errors).toEqual([]);
+	} finally {
+		await exitApp(app);
+		await fs.rm(seeded.root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 	}
 });
 

@@ -3,7 +3,7 @@
  * Supports omp://session/<id> and omp://new.
  */
 import { isAbsolute, resolve } from "node:path";
-import { app } from "electron";
+import { app, type BrowserWindow } from "electron";
 import { type DeepLinkPayload, IPC_EVENTS } from "../shared/ipc-types";
 import { parseLaunchArgv } from "./launch-argv";
 import type { SpawnWindow, WindowManager } from "./window";
@@ -60,8 +60,20 @@ export function setupDeepLinks(windowManager: WindowManager, spawnWindow: SpawnW
 		const request = parseLaunchArgv(argv.slice(process.defaultApp ? 2 : 1), PROTOCOL);
 		if (request.kind === "url") handleDeepLink(request.url, windowManager, spawnWindow);
 		else if (request.kind === "path") handleOpenPath(request.path, windowManager, spawnWindow);
-		else windowManager.getTargetWindow()?.focus();
+		else showWindow(windowManager.getTargetWindow());
 	});
+}
+
+/**
+ * Bring a window forward the way a launch from the Start menu or Dock expects. A window hidden to
+ * the tray (Settings › General › Window) stays hidden under `focus()` alone: Electron's focus is a
+ * no-op on a hidden window on Windows, so the launch would hand over and show nothing.
+ */
+function showWindow(win: BrowserWindow | null | undefined): void {
+	if (!win) return;
+	if (win.isMinimized()) win.restore();
+	win.show();
+	win.focus();
 }
 
 /**

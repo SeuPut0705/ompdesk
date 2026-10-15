@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
 
-test("isolated Preview loads a local HTTP page without shell privileges", async () => {
+test("@smoke isolated Preview loads a local HTTP page without shell privileges", async () => {
 	test.setTimeout(120_000);
 	const screenshotDir = process.env.OMP_GUI_PREVIEW_SCREENSHOTS ?? path.join(os.tmpdir(), "ompdesk-preview-captures");
 	const server = createServer((request, response) => {

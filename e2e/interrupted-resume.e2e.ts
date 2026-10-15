@@ -10,6 +10,7 @@
  * with Cancel instead of the failure card, and stock `retry` runs once an
  * `online` event arrives. Captures: light/dark × en/ko.
  */
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -125,21 +126,54 @@ async function startLongTurn(profile: Profile, page: Page): Promise<void> {
 	await expect.poll(() => layoutHasSession(profile), { timeout: 30_000 }).toBe(true);
 }
 
-/** SIGKILL: no quit hook, no teardown, no graceful anything. */
+function isRunning(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * SIGKILL of the app's main process: no quit hook, no teardown, no graceful anything. The pid comes from
+ * the app itself: on Windows `app.process()` is a launcher one level above it, and killing that leaves the
+ * app running.
+ */
 async function crash(app: ElectronApplication): Promise<void> {
-	const child = app.process();
-	const exited = new Promise<void>(resolve => child.once("exit", () => resolve()));
-	child.kill("SIGKILL");
-	await exited;
+	const pid = await app.evaluate(() => process.pid);
+	process.kill(pid, "SIGKILL");
+	await expect.poll(() => isRunning(pid), { timeout: 20_000, message: "the killed app must be gone" }).toBe(false);
+}
+
+/**
+ * Processes whose command line names the profile: what the killed app left running. Children get an
+ * open stdin pipe and end when it closes (AGENTS.md), because a SIGKILL runs no quit handler.
+ */
+function survivors(root: string): string[] {
+	if (process.platform === "win32") {
+		const script = `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains('${root.replaceAll("'", "''")}') } | ForEach-Object { "$($_.ProcessId) ppid=$($_.ParentProcessId) threads=$($_.ThreadCount) $($_.Name) $($_.CommandLine)" }`;
+		return execFileSync("powershell.exe", ["-NoProfile", "-Command", script], { encoding: "utf8" })
+			.split(/\r?\n/)
+			.filter(Boolean);
+	}
+	return execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" })
+		.split("\n")
+		.filter(line => line.includes(root));
 }
 
 async function cleanup(profile: Profile): Promise<void> {
-	await fs.rm(profile.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	// Windows refuses to remove a folder some process still has as its cwd: let the app's children end first.
+	await expect
+		.poll(() => survivors(profile.root), { timeout: 20_000 })
+		.toEqual([])
+		.catch(() => undefined);
+	await fs.rm(profile.root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }
 
 for (const language of ["en", "ko"] as const)
 	for (const theme of ["light", "dark"] as const)
-		test(`a turn running when OMPdesk is killed continues on the next launch (${language} ${theme})`, async () => {
+		test(`${language === "en" && theme === "light" ? "@smoke " : ""}a turn running when OMPdesk is killed continues on the next launch (${language} ${theme})`, async () => {
 			test.setTimeout(150_000);
 			const profile = await makeProfile(language, theme);
 			const text = TEXT[language];
@@ -150,6 +184,9 @@ for (const language of ["en", "ko"] as const)
 				await startLongTurn(profile, first.page);
 				// The marker is already on disk and no quit hook will run.
 				await crash(first.app);
+				await expect
+					.poll(() => survivors(profile.root), { timeout: 20_000, message: "the killed app's children must end" })
+					.toEqual([]);
 
 				const second = await launch(profile, { ready: false });
 				current = second.app;
@@ -165,7 +202,7 @@ for (const language of ["en", "ko"] as const)
 			}
 		});
 
-test("a normal quit continues the running turn on the next launch, and the quit prompt says so", async () => {
+test("@smoke a normal quit continues the running turn on the next launch, and the quit prompt says so", async () => {
 	test.setTimeout(150_000);
 	const profile = await makeProfile("en", "light");
 	let current: ElectronApplication | undefined;

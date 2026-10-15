@@ -245,7 +245,7 @@ async function flow(launched: Launched, name: string, text: { retry: RegExp }): 
 	expect(state.items.find(item => item.id === "omp")?.phase).toBe("present");
 }
 
-test("missing omp installs on its own; a failed attempt shows why and retries into a ready session", async () => {
+test("@smoke missing omp installs on its own; a failed attempt shows why and retries into a ready session", async () => {
 	test.setTimeout(120_000);
 	const launched = await launch("flow", { language: "en" });
 	try {
