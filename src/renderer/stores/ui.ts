@@ -80,6 +80,8 @@ interface UiStore {
 	filesSearchSeq: number;
 	/** The Files drawer's viewer asked for a wider docked panel (not persisted; the drag width stays the pref). */
 	filePreviewExpanded: boolean;
+	/** The Terminal panel asked for a wider docked panel, like `filePreviewExpanded` (not persisted). */
+	terminalExpanded: boolean;
 	/** Rendered/source choice per previewed document path, least recent first (capped; not persisted). */
 	fileViewModes: ReadonlyMap<string, "rendered" | "source">;
 	commandPaletteOpen: boolean;
@@ -283,6 +285,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	filesRevealPath: null,
 	filesSearchSeq: 0,
 	filePreviewExpanded: false,
+	terminalExpanded: false,
 	fileViewModes: new Map(),
 	previewUrl: null,
 	commandPaletteOpen: false,
@@ -492,6 +495,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 			filePreviewLine: null,
 			filesRevealPath: null,
 			filePreviewExpanded: false,
+			terminalExpanded: false,
 			sessionPickerOpen: false,
 			branchPickerOpen: false,
 			sessionSwitchPrompt: null,

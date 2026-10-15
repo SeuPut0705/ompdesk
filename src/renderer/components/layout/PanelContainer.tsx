@@ -149,7 +149,9 @@ export function PanelContainer() {
 
 	const [width, setWidth] = useState(defaultPanelWidth);
 	const viewerExpanded = useUiStore(
-		s => s.filePreviewExpanded && s.filePreviewPath !== null && s.panelTab === "files",
+		s =>
+			(s.filePreviewExpanded && s.filePreviewPath !== null && s.panelTab === "files") ||
+			(s.terminalExpanded && s.panelTab === "terminal"),
 	);
 	const [widthHydrated, setWidthHydrated] = useState(false);
 	const dragging = useRef(false);

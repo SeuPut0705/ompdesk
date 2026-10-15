@@ -18,16 +18,22 @@ export function disposeTerminals(): void {
 }
 export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 	"terminal.request": async params => {
-		const { owner, cwd, operation } = params as { owner: string; cwd: string; operation: TerminalOperation };
+		const { owner, cwd, operation, shell } = params as {
+			owner: string;
+			cwd: string;
+			operation: TerminalOperation;
+			/** A shell main detected (main/terminal/shells.ts); absent = the login shell. */
+			shell?: { path: string; args: string[] };
+		};
 		const env: Record<string, string> = {};
 		for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value;
 		env.TERM = "xterm-256color";
 		env.TERM_PROGRAM = "OMPdesk";
 		const windows = process.platform === "win32";
-		const application = windows ? process.env.ComSpec || "cmd.exe" : process.env.SHELL || "/bin/zsh";
+		const application = shell?.path ?? (windows ? process.env.ComSpec || "cmd.exe" : process.env.SHELL || "/bin/zsh");
 		return (await terminals()).request(owner, operation, {
 			application,
-			args: windows ? [] : ["-l"],
+			args: shell?.args ?? (windows ? [] : ["-l"]),
 			cwd,
 			env,
 			cols: 80,

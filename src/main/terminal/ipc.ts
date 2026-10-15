@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain } from "electron";
 import type { TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
 import type { SidecarPool } from "../sidecar-pool";
 import { stockHelperRequest } from "../stock-helper";
+import { detectShells } from "./shells";
 
 const owners = new Set<string>();
 export function closeTabTerminals(windowId: number, tabId: string): void {
@@ -19,6 +20,7 @@ function validOperation(value: TerminalOperation): boolean {
 				Object.values(value.offsets).every(offset => Number.isSafeInteger(offset) && offset >= 0))
 		);
 	if (value.action !== "create" && typeof value.id !== "string") return false;
+	if (value.action === "create" && value.shell !== undefined && typeof value.shell !== "string") return false;
 	if (value.action === "create" || value.action === "resize")
 		return (
 			Number.isInteger(value.cols) &&
@@ -41,6 +43,7 @@ export function registerTerminalIpc(pool: SidecarPool): void {
 		}
 		released?.(tabId, exited);
 	};
+	ipcMain.handle("terminal:shells", () => detectShells());
 	ipcMain.handle("terminal:request", async (event, tabId: string, operation: TerminalOperation) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		const target = win && typeof tabId === "string" ? pool.tabTarget(win, tabId) : null;
@@ -56,6 +59,11 @@ export function registerTerminalIpc(pool: SidecarPool): void {
 			owner,
 			cwd: target.sidecar.cwd,
 			operation,
+			// Only a shell this computer lists starts; an unknown or missing one falls back to the default.
+			shell:
+				operation.action === "create" && operation.shell
+					? detectShells().find(shell => shell.path === operation.shell)
+					: undefined,
 		});
 		// A tab can close while the lazy Bun worker is starting.
 		if (!owners.has(owner)) {

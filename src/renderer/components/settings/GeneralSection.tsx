@@ -21,10 +21,11 @@ import { DisplayPreferenceRow } from "./AppearanceSection";
 import { GithubAccountSection } from "./GithubAccountSection";
 import { ProxyRow } from "./LaunchSettings";
 import { MachineSetupSection } from "./MachineSetupSection";
-import { ProfileSection } from "./ProfileSection";
 import { OutputStyleRow } from "./OutputStyleRow";
+import { ProfileSection } from "./ProfileSection";
 import { ReplyLanguageRow } from "./ReplyLanguageRow";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
+import { TerminalShellRow } from "./TerminalShellRow";
 
 const PANEL_SIDES: readonly PanelSide[] = ["right", "left"];
 
@@ -182,6 +183,7 @@ export function GeneralSection() {
 					id="setting-gui-panelSide"
 					label={t("settings.gui.panelSide")}
 				/>
+				<TerminalShellRow />
 				{PLATFORM === "windows" && (
 					<SettingsSwitchRow
 						checked={closeToTray}

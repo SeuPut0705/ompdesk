@@ -1,10 +1,28 @@
 import type { ITheme, Terminal } from "@xterm/xterm";
-import { ClipboardPaste, Copy, Plus, RotateCw, Terminal as TerminalIcon, Trash2, X } from "lucide-react";
+import {
+	ChevronDown,
+	ClipboardPaste,
+	Copy,
+	Maximize2,
+	Minimize2,
+	Plus,
+	RotateCw,
+	Terminal as TerminalIcon,
+	Trash2,
+	X,
+} from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { TerminalOperation, TerminalSnapshot } from "../../../shared/terminal-types";
+import {
+	TERMINAL_SHELL_PREF,
+	type TerminalOperation,
+	type TerminalShell,
+	type TerminalSnapshot,
+} from "../../../shared/terminal-types";
+import { useMediaQuery } from "../../hooks/use-media-query";
 import { useT } from "../../lib/i18n";
 import { useTabsStore } from "../../stores/tabs";
-import { Banner, Button, EmptyState, ErrorDetail, IconButton, Spinner } from "../common";
+import { COMPACT_SHELL_QUERY, useUiStore } from "../../stores/ui";
+import { Banner, Button, EmptyState, ErrorDetail, IconButton, MenuButton, Spinner } from "../common";
 import "@xterm/xterm/css/xterm.css";
 
 export function terminalTheme(element: HTMLElement): ITheme {
@@ -190,6 +208,21 @@ function LocalTerminalPanel({ tabId }: { tabId: string }) {
 	const [attempt, setAttempt] = useState(0);
 	const handle = useRef<TerminalMount | null>(null);
 	const tabsRef = useRef<HTMLDivElement>(null);
+	const [shells, setShells] = useState<TerminalShell[]>([]);
+	const expanded = useUiStore(s => s.terminalExpanded);
+	const compact = useMediaQuery(COMPACT_SHELL_QUERY);
+	useEffect(() => {
+		let live = true;
+		void window.omp.terminal.shells().then(
+			found => {
+				if (live) setShells(found);
+			},
+			() => {},
+		);
+		return () => {
+			live = false;
+		};
+	}, []);
 	useLayoutEffect(() => {
 		if (!selected) return;
 		tabsRef.current
@@ -217,7 +250,17 @@ function LocalTerminalPanel({ tabId }: { tabId: string }) {
 		void (async () => {
 			let result = await request({ action: "list", offsets: {} });
 			if (cancelled) return;
-			if (result?.length === 0) result = await request({ action: "create", cols: 80, rows: 24 });
+			if (result?.length === 0) {
+				// Settings › General › Terminal shell; main ignores a path it no longer finds.
+				const preferred = await window.omp.prefs.get(TERMINAL_SHELL_PREF).catch(() => undefined);
+				if (cancelled) return;
+				result = await request({
+					action: "create",
+					cols: 80,
+					rows: 24,
+					...(typeof preferred === "string" && preferred ? { shell: preferred } : {}),
+				});
+			}
 			if (cancelled) return;
 			setSelected(result?.[0]?.id ?? null);
 			setLoading(false);
@@ -239,8 +282,14 @@ function LocalTerminalPanel({ tabId }: { tabId: string }) {
 		});
 	}, []);
 	const active = sessions.find(session => session.id === selected);
-	const add = async () => {
-		const result = await request({ action: "create", cols: 80, rows: 24 });
+	const add = async (shell?: string) => {
+		const preferred = shell ?? (await window.omp.prefs.get(TERMINAL_SHELL_PREF).catch(() => undefined));
+		const result = await request({
+			action: "create",
+			cols: 80,
+			rows: 24,
+			...(typeof preferred === "string" && preferred ? { shell: preferred } : {}),
+		});
 		if (result) setSelected(result.at(-1)?.id ?? null);
 	};
 	const close = async (id: string) => {
@@ -298,6 +347,20 @@ function LocalTerminalPanel({ tabId }: { tabId: string }) {
 					onClick={() => void add()}
 					size="sm"
 				/>
+				{shells.length > 1 && (
+					<MenuButton
+						disabled={loading}
+						icon={<ChevronDown />}
+						items={shells.map(shell => ({
+							id: shell.path,
+							label: t("panel.terminal.newWith", { name: shell.name }),
+							description: shell.path,
+							onSelect: () => void add(shell.path),
+						}))}
+						label={t("panel.terminal.newWithMenu")}
+						size="sm"
+					/>
+				)}
 				<div className="ml-auto flex shrink-0 items-center gap-0.5">
 					<IconButton
 						icon={<Copy />}
@@ -329,6 +392,15 @@ function LocalTerminalPanel({ tabId }: { tabId: string }) {
 						}}
 						size="sm"
 					/>
+					{!compact && (
+						<IconButton
+							icon={expanded ? <Minimize2 /> : <Maximize2 />}
+							label={t(expanded ? "fileViewer.collapse" : "fileViewer.expand")}
+							onClick={() => useUiStore.setState({ terminalExpanded: !expanded })}
+							pressed={expanded}
+							size="sm"
+						/>
+					)}
 				</div>
 			</div>
 			{error && (

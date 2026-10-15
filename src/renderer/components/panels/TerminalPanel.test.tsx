@@ -103,7 +103,9 @@ describe("TerminalPanel", () => {
 					.mockRejectedValue(
 						new Error("Error invoking remote method 'terminal:request': Error: Stock PTY unavailable"),
 					),
+				shells: vi.fn().mockResolvedValue([]),
 			},
+			prefs: { get: vi.fn().mockResolvedValue(undefined) },
 		});
 		useTabsStore.setState({
 			activeTabId: "local",
