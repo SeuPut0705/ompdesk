@@ -533,6 +533,8 @@ app.whenReady().then(() => {
 	const prefs = prefsStore();
 	const hostServices = new LocalHostServices({
 		createSidecar: createLocalSidecar,
+		// `devices` is created below; a host tab only opens once it serves connections.
+		hostName: (): string => devices.deviceName(),
 		sessionIndex,
 		renameStoredSession: async (sessionPath, name) => {
 			const omp = await systemOmp();

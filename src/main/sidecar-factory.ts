@@ -5,6 +5,7 @@
  */
 import { app } from "electron";
 import { isDelegationMode } from "../../resources/gui-bridge/delegation-contracts";
+import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
 import { normalizeUserProfile } from "../../resources/gui-bridge/user-profile-contracts";
 import { parseAccountRotationPref } from "../shared/account-rotation";
 import { reaExtensionArgs } from "../shared/builtin-mcp";
@@ -45,11 +46,17 @@ export function deviceLanguage(): string | undefined {
 	return deviceLanguageTag(app.getPreferredSystemLanguages(), app.getLocale());
 }
 
-export type LocalSidecarFactory = (cwd: string, kind: "agent" | "chat", fresh: boolean) => SidecarManager;
+/** `origin`: the paired device a host tab serves (absent for this machine's own tabs). */
+export type LocalSidecarFactory = (
+	cwd: string,
+	kind: "agent" | "chat",
+	fresh: boolean,
+	origin?: PromptOriginEnv,
+) => SidecarManager;
 
 export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory {
 	const { bridgeDir, bridgeHealth, sessionKinds } = deps;
-	return (cwd, kind, fresh) => {
+	return (cwd, kind, fresh, origin) => {
 		const sc = new SidecarManager({
 			// The status banner shows this text; localize it in the UI language.
 			omp: async () => {
@@ -66,6 +73,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			cwd,
 			kind,
 			fresh,
+			promptOrigin: origin,
 			proxyEnv: deps.proxyEnv,
 			shellEnv: shellSpawnEnv,
 			replyLanguage: () => resolveReplyLanguage(deps.replyLanguagePref(), replyLanguageName(deviceLanguage())),

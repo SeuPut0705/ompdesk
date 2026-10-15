@@ -53,6 +53,7 @@ export const FEATURES = {
 	compactionLimits: "Per-model compaction limits",
 	idleCompaction: "Idle compaction (compaction.idleEnabled)",
 	contextInspector: "Context inspector (per-entry tokens)",
+	promptOrigin: "Prompt origins (from another device)",
 	recentModels: "Recent models in the model picker",
 	inputHistory: "Shared prompt history",
 	accountPools: "Agent account pools",
@@ -856,6 +857,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		modules: {
 			[`${AGENT}/session/context-settings`]: ["cfgCompaction.get()"],
 		},
+	},
+	/** prompt-origin.ts: a host tab journals its device per user message (public `message_end` hook). */
+	promptOrigin: {
+		session: ["sessionManager.appendCustomEntry()", "sessionManager.getEntries()"],
 	},
 	/** context-inspect.ts: every tool, skill, context file, prompt block and message with stock's own estimators. */
 	contextInspector: {

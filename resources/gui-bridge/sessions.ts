@@ -8,6 +8,8 @@ import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { FileSessionStorage } from "@oh-my-pi/pi-coding-agent/session/session-storage";
 import { guard } from "./health";
+import { promptOrigin } from "./prompt-origin";
+import { labelPromptOrigins } from "./prompt-origin-contracts";
 import { attachEntryIds, buildTranscript, flattenSessionTree } from "./session-display";
 import { setSessionPinned } from "./session-pins";
 import { transcriptPageMessages, transcriptTurnStart } from "./transcript-page";
@@ -45,7 +47,11 @@ function transcriptSnapshot(manager: SessionManager): ReturnType<typeof buildTra
 		entries.at(-1)?.id ?? "",
 		manager.getLeafId() ?? "",
 	].join("\0");
-	if (replay?.key !== key) replay = { key, snapshot: buildTranscript(manager) };
+	if (replay?.key !== key) {
+		const { leafId, messages } = buildTranscript(manager);
+		// A85: prompts a paired device (or this host) typed, labelled for the viewing device.
+		replay = { key, snapshot: { leafId, messages: labelPromptOrigins(messages, entries, promptOrigin) } };
+	}
 	return replay.snapshot;
 }
 

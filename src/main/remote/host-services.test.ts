@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fixtureProviderOptions } from "../../../e2e/models-config-fixture";
+import type { PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import type { AccountRotationMode, AccountRotationState } from "../../shared/account-rotation";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type {
@@ -195,16 +196,19 @@ const PROVIDER_VIEW: CustomProviderView = {
 
 function setup(graceMs = 60_000) {
 	const sidecars: FakeHostSidecar[] = [];
+	const origins: PromptOriginEnv[] = [];
 	const machine = fakeMachine();
 	const local = fakeLocalTabs();
 	const deleteSession = vi.fn(async (_path: string) => {});
 	const renameStoredSession = vi.fn(async (_path: string, _name: string) => {});
 	const services = new LocalHostServices({
-		createSidecar: (cwd, kind) => {
+		createSidecar: (cwd, kind, _fresh, origin) => {
 			const sidecar = new FakeHostSidecar(cwd, kind);
 			sidecars.push(sidecar);
+			origins.push(origin);
 			return sidecar as unknown as SidecarLike;
 		},
+		hostName: () => "Host B",
 		sessionIndex: {
 			list: async () => [],
 			searchContent: async () => [],
@@ -221,18 +225,20 @@ function setup(graceMs = 60_000) {
 		trashItem: async () => {},
 		graceMs,
 	});
-	return { services, sidecars, local, deleteSession, renameStoredSession, machine };
+	return { services, sidecars, origins, local, deleteSession, renameStoredSession, machine };
 }
 
 describe("LocalHostServices", () => {
 	it("scopes rtabs per peer: one device can never reach another device's tab", async () => {
-		const { services, sidecars } = setup();
+		const { services, sidecars, origins } = setup();
 		const x = new FakeConnection(peer("device-x"));
 		const y = new FakeConnection(peer("device-y"));
 
 		const opened = await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
 		expect(opened).toEqual({ cwd: workDir, kind: "agent", attached: false });
 		await services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		// The tab's omp journals its prompts as X's (A85).
+		expect(origins).toEqual([{ deviceId: "device-x", name: x.peer.name, hostName: "Host B" }]);
 
 		// Y knows X's rtab but every lookup is scoped to the caller.
 		for (const [method, params] of [

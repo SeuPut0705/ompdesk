@@ -425,9 +425,14 @@ export const MessageBubble = memo(function MessageBubble({
 							{reaction}
 						</span>
 					) : null}
-					{(isSteering || userMentions.chips.length > 0) && (
+					{(isSteering || message.promptFrom || userMentions.chips.length > 0) && (
 						<div className="mb-1.5 flex flex-wrap items-center gap-1.5">
 							{isSteering && <Badge variant="info">{t("chat.steering")}</Badge>}
+							{message.promptFrom && (
+								<span data-prompt-from className="text-sc-xs text-(--sc-text-muted)">
+									{t("chat.promptFrom", { device: message.promptFrom })}
+								</span>
+							)}
 							{userMentions.chips.map((chip, chipIndex) => {
 								const name = chip.name ?? chip.selector ?? (chip.agent ? `@${chip.agent}` : "");
 								return (

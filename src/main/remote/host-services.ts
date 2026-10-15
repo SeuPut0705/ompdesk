@@ -26,6 +26,7 @@
 import { promises as fsp } from "node:fs";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
+import type { PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { codedError } from "../../shared/ipc-error-codes";
 import { ModelSetupRequestSchema } from "../../shared/model-setup";
@@ -86,8 +87,14 @@ export const HOST_TAB_GRACE_MS = 10 * 60_000;
 const SESSIONS_CHANGED_DEBOUNCE_MS = 300;
 
 export interface HostServicesDeps {
-	/** This machine's sidecar factory — the one the local pool uses. */
-	createSidecar: (cwd: string, kind: "agent" | "chat", fresh: boolean) => SidecarLike;
+	/**
+	 * This machine's sidecar factory — the one the local pool uses. `origin`
+	 * names the device the tab runs for, so its prompts are journalled as that
+	 * device's (A85, resources/gui-bridge/prompt-origin.ts).
+	 */
+	createSidecar: (cwd: string, kind: "agent" | "chat", fresh: boolean, origin: PromptOriginEnv) => SidecarLike;
+	/** This computer's device name (Settings › Devices), for prompts typed on it. */
+	hostName: () => string;
 	sessionIndex: Pick<
 		SessionIndex,
 		"list" | "searchContent" | "kindFor" | "deleteSession" | "moveSession" | "sessionsDir"
@@ -506,7 +513,11 @@ export class LocalHostServices implements HostServices {
 		// A concurrent open for the same rtab may have finished while this one awaited.
 		const raced = this.#tabs.get(key);
 		if (raced) return this.#open(peer, params, conn);
-		const sidecar = this.#deps.createSidecar(cwd, kind, params.fresh === true);
+		const sidecar = this.#deps.createSidecar(cwd, kind, params.fresh === true, {
+			deviceId: peer.deviceId,
+			name: peer.name,
+			hostName: this.#deps.hostName(),
+		});
 		const tab: HostTab = {
 			peerId: peer.deviceId,
 			rtab: params.rtab,

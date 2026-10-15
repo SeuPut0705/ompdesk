@@ -1898,6 +1898,8 @@ export interface AgentMessage {
 		| "fileMention";
 	content?: MessageContent[] | string;
 	steering?: boolean;
+	/** A user prompt typed on another device than the viewing one (bridge prompt-origin, A85): that device's name. */
+	promptFrom?: string;
 	stopReason?: string;
 	errorMessage?: string;
 	errorId?: number;

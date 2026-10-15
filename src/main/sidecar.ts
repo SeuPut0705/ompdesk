@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import Store from "electron-store";
 import type { DelegationMode } from "../../resources/gui-bridge/delegation-contracts";
+import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
 import type { UserProfile } from "../../resources/gui-bridge/user-profile-contracts";
 import type { AccountRotationMode } from "../shared/account-rotation";
 import { parseLaunchProfile, profileToFlags, stripDenylistedFlags } from "../shared/launch-profile";
@@ -224,6 +225,12 @@ export interface SidecarOptions {
 	 * replyLanguage). Absent or empty: no profile section.
 	 */
 	userProfile?: () => UserProfile;
+	/**
+	 * The paired device a host tab runs for (and this host's name), passed as
+	 * JSON in `OMP_GUI_PROMPT_ORIGIN`: the bridge journals it per user message
+	 * (prompt-origin.ts). Absent for this machine's own tabs.
+	 */
+	promptOrigin?: PromptOriginEnv;
 	/**
 	 * The delegation strength this tab starts with (prefs `delegationMode`, the
 	 * composer chip's last choice), passed as `OMP_GUI_DELEGATION` on every
@@ -494,6 +501,9 @@ export class SidecarManager extends EventEmitter {
 					...(replyLanguage ? { OMP_GUI_REPLY_LANGUAGE: replyLanguage } : {}),
 					...(userProfile && (userProfile.name || userProfile.experience)
 						? { OMP_GUI_USER_PROFILE: JSON.stringify(userProfile) }
+						: {}),
+					...(this.#options.promptOrigin
+						? { OMP_GUI_PROMPT_ORIGIN: JSON.stringify(this.#options.promptOrigin) }
 						: {}),
 					...(delegation && delegation !== "default" ? { OMP_GUI_DELEGATION: delegation } : {}),
 					...(accountRotation ? { OMP_GUI_ACCOUNT_ROTATION: accountRotation } : {}),

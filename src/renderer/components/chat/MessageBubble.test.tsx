@@ -229,6 +229,23 @@ describe("MessageBubble user content", () => {
 		expect(html).toContain("👍");
 	});
 
+	it("names the device a prompt came from when the bridge labelled it (A85)", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{
+						role: "user",
+						content: [{ type: "text", text: "Ship it?" }],
+						timestamp: "2026-08-06T00:00:00.000Z",
+						promptFrom: "Laptop A",
+					}}
+				/>
+			</I18nProvider>,
+		);
+		expect(html).toContain("data-prompt-from");
+		expect(html).toContain("from Laptop A");
+	});
+
 	it("renders user text through the same Markdown pipeline as assistant text", () => {
 		const html = renderToStaticMarkup(
 			<I18nProvider>
