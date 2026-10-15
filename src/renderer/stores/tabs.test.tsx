@@ -32,7 +32,7 @@ import { readSplitNode, type SplitLayout, type SplitPlacement, splitTabIds } fro
 import { translate } from "../lib/i18n";
 import { acceptsActiveTabEvents } from "../lib/tab-routing";
 import { routeCommands } from "../test-support/route-commands";
-import { useComposerStore } from "./composer";
+import { type ComposerStore, useComposerStore } from "./composer";
 import { type ExtensionUiStore, useExtensionUiStore } from "./extension-ui";
 import { useForkHandoffStore } from "./fork-handoff";
 import { type MessagesStore, useMessagesStore } from "./messages";
@@ -863,7 +863,7 @@ describe("tabs store close", () => {
 describe("tabs store close races and failures", () => {
 	const mainTabs = () => [tabInfo("t0", "/alpha"), tabInfo("t1", "/beta"), tabInfo("t2", "/gamma")];
 
-	it("does not revive a closing tab, or its runtime, when a reconcile lands before main released it", async () => {
+	it("does not revive a closing tab when a reconcile lands before main released it, and drops its runtime once released", async () => {
 		seedTabs("t0");
 		const release = Promise.withResolvers<boolean>();
 		omp.tabs.close.mockReturnValue(release.promise);
@@ -875,7 +875,8 @@ describe("tabs store close races and failures", () => {
 		await useTabsStore.getState().reconcileTabs();
 
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t2"]);
-		expect(sessionRuntime("t1")).toBeNull();
+		// Kept, hidden, until main answers: a refused close brings the tab back as it was.
+		expect(sessionRuntime("t1")).not.toBeNull();
 
 		release.resolve(true);
 		await closing;
@@ -918,6 +919,9 @@ describe("tabs store close races and failures", () => {
 		useToastStore.setState({ toasts: [] });
 		fail();
 		omp.tabs.list.mockResolvedValue(mainTabs().map(info => ({ ...info, active: info.tabId === "t0" })));
+		// Main still holds the tab's ask, and its draft lives in its runtime.
+		pushTabExtensionUiRequest("t1", { type: "extension_ui_request", id: "ask-t1", method: "ask", questions: [] });
+		sessionRuntimeStore<ComposerStore>("t1", "composer")?.setState({ draft: "half a thought" });
 
 		await useTabsStore.getState().closeTab("t1");
 
@@ -925,6 +929,14 @@ describe("tabs store close races and failures", () => {
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t1", "t2"]);
 		expect(isTabClosed("t1")).toBe(false);
 		expect(sessionRuntime("t1")).not.toBeNull();
+		// The tab comes back as it was: its ask still answerable, its draft still there.
+		expect(
+			sessionRuntimeStore<ExtensionUiStore>("t1", "extensionUi")
+				?.getState()
+				.pendingRequests.map(request => request.id),
+		).toEqual(["ask-t1"]);
+		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.awaitingInput).toBe("input");
+		expect(sessionRuntimeStore<ComposerStore>("t1", "composer")?.getState().draft).toBe("half a thought");
 		// Nothing was closed, so there is nothing to reopen.
 		expect(useTabsStore.getState().closedTabs).toEqual([]);
 	});
@@ -1214,6 +1226,21 @@ describe("tabs store background tab signals", () => {
 		const pending = sessionRuntimeStore<ExtensionUiStore>("t1", "extensionUi")?.getState().pendingRequests;
 		expect(pending?.map(request => request.id)).toEqual(["live-t1", "ask-t1"]);
 		expect(tabOf("t1")?.awaitingInput).toBe("input");
+	});
+
+	it("gives a sign-in's restored requests back to the login panel: no chat card, no 'needs input'", () => {
+		seedTabs();
+		const paste: ExtensionUIRequest = {
+			type: "extension_ui_request",
+			id: "paste-t1",
+			method: "input",
+			title: "Paste the authorization code",
+		};
+		restoreTabExtensionUiRequests([{ tabId: "t1", request: paste, signIn: true }]);
+		const state = sessionRuntimeStore<ExtensionUiStore>("t1", "extensionUi")?.getState();
+		expect(state?.pendingRequests.map(request => request.id)).toEqual(["paste-t1"]);
+		expect(state?.loginRequestIds).toEqual({ "paste-t1": true });
+		expect(tabOf("t1")?.awaitingInput).toBeUndefined();
 	});
 
 	it("tells a background tool approval from a question", () => {

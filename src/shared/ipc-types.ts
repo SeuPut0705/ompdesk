@@ -603,6 +603,8 @@ export interface IpcExtensionUiRespondPayload {
 export interface IpcOpenExtensionRequest {
 	tabId: string;
 	request: ExtensionUIRequest;
+	/** Raised by a provider sign-in (`login`) still in flight then: its login panel's, never a chat card. */
+	signIn?: true;
 }
 
 /** DTO types only. Installed stock ModelsConfigSchema supplies all runtime vocabularies. */

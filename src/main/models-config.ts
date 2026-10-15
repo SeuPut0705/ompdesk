@@ -16,8 +16,10 @@
 import {
 	chmodSync,
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readFileSync,
+	readlinkSync,
 	realpathSync,
 	renameSync,
 	rmSync,
@@ -142,8 +144,9 @@ function applyYamlDiff(doc: Document, before: unknown, after: unknown, keys: Arr
  *
  * The file may hold `apiKey`s and be a symlink (a dotfiles repo): the temp file is
  * written next to the link's TARGET, takes the original's mode (a new file is 0600),
- * and replaces the target, so the link stays a link. A file that changed on disk since it
- * was read (the external editor, stock) is not overwritten.
+ * and replaces the target, so the link stays a link. A link whose target is gone is
+ * reported, never replaced by a file. A file that changed on disk since it was read
+ * (the external editor, stock) is not overwritten.
  */
 async function writeModelsFile(doc: Document, readStamp: FileStamp | null): Promise<void> {
 	const raw = doc.toJS() ?? {};
@@ -154,6 +157,12 @@ async function writeModelsFile(doc: Document, readStamp: FileStamp | null): Prom
 	mkdirSync(path.dirname(file), { recursive: true });
 	if (!sameStamp(fileStamp(file), readStamp)) {
 		throw new Error(`${file} changed on disk while it was being saved. Nothing was written; try again.`);
+	}
+	if (!readStamp && lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) {
+		const dangling = path.resolve(path.dirname(file), readlinkSync(file));
+		throw new Error(
+			`${file} links to ${dangling}, which does not exist. Nothing was written; fix or remove the link.`,
+		);
 	}
 	let target = file;
 	let mode = NEW_MODELS_FILE_MODE;

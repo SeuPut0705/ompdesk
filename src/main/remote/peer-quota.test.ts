@@ -130,13 +130,15 @@ describe("PeerQuota", () => {
 		expect(quota.reserve("nobody").ok).toBe(true);
 	});
 
-	it("counts a weighted reservation, such as a benchmark's model requests", () => {
+	it("counts a weighted reservation, such as a benchmark's model requests, and never lets one cross the limit", () => {
 		const peers = memoryPeers({ ...LAPTOP, limits: { requestsPerDay: 10 } });
 		const quota = new PeerQuota(peers, () => {});
+		expect(quota.reserve("laptop", 40)).toEqual({ ok: false, refusal: "requests" });
 		expect(quota.reserve("laptop", 6).ok).toBe(true);
-		expect(quota.reserve("laptop", 6).ok).toBe(true);
+		expect(quota.reserve("laptop", 6)).toEqual({ ok: false, refusal: "requests" });
+		expect(quota.reserve("laptop", 4).ok).toBe(true);
 		expect(quota.reserve("laptop").ok).toBe(false);
-		expect(peers.entries.get("laptop")?.usage?.requests).toBe(12);
+		expect(peers.entries.get("laptop")?.usage?.requests).toBe(10);
 	});
 
 	it("names days in this computer's time zone", () => {

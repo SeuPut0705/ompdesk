@@ -1500,6 +1500,27 @@ describe("SidecarPool background tabs", () => {
 		expect(pool.openRequests(other.win).map(open => open.request.id)).toEqual(["ask-b"]);
 	});
 
+	it("marks a provider sign-in's own requests, so a reloaded window gives them back to its login panel", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		const [a] = sidecars;
+		pool.noteSignIn("tab-a", true);
+		a?.emitUiRequest({ id: "url", method: "open_url", url: "https://claude.ai/oauth" });
+		a?.emitUiRequest({ id: "paste", method: "input", title: "Paste the authorization code" });
+		// Not a kind stock's login sends: an ordinary card even now.
+		a?.emitUiRequest({ id: "ask", method: "confirm", title: "Go?", message: "?" });
+		pool.noteSignIn("tab-a", false);
+		// After the sign-in, a paste is the chat's again (an MCP server's sign-in).
+		a?.emitUiRequest({ id: "mcp", method: "input", title: "Token" });
+		expect(pool.openRequests(fw.win).map(open => [open.request.id, open.signIn === true])).toEqual([
+			["url", true],
+			["paste", true],
+			["ask", false],
+			["mcp", false],
+		]);
+	});
+
 	it("reports how a background run ended so the renderer can tell failure from success", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);

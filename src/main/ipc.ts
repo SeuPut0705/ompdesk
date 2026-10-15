@@ -521,6 +521,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// A Stop is the user's word that this turn is over: a relaunch must not resume it, even if the
 		// process dies before the run's end event arrives (turn-resume.ts).
 		if (issuerTabId && STOP_COMMANDS[cmd.type]) sidecarPool.noteStopped(issuerTabId);
+		// A provider sign-in's own requests belong to its login panel, also for a page that reloads before
+		// `login` answers (EXTENSION_UI_OPEN tags them).
+		const signIn = cmd.type === "login" ? issuerTabId : null;
+		if (signIn) sidecarPool.noteSignIn(signIn, true);
 		try {
 			let response = await client.command({ ...cmd, id: _id } as RpcCommand, payload.timeoutMs);
 			// omp has no session kind: a chat tab is plain omp started in the
@@ -564,6 +568,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				code: ipcErrorCode(err) ?? "rpc_delivery_unknown",
 				error: err instanceof Error ? err.message : String(err),
 			};
+		} finally {
+			if (signIn) sidecarPool.noteSignIn(signIn, false);
 		}
 	};
 

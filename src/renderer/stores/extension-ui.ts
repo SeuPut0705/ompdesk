@@ -1,5 +1,5 @@
 import { createStore } from "zustand/vanilla";
-import { BLOCKING_UI_METHODS, type ExtensionUIRequest } from "../../shared/rpc-types";
+import { BLOCKING_UI_METHODS, type ExtensionUIRequest, isSignInRequest } from "../../shared/rpc-types";
 import { createScopedStoreHook } from "./session-runtime-context";
 
 export type WidgetPlacement = "aboveEditor" | "belowEditor";
@@ -33,7 +33,7 @@ export interface ExtensionUiStore extends ExtensionUiSnapshot {
 	 * until the login settles, whether or not the panel is still on screen.
 	 */
 	inlineLogins: number;
-	/** Requests that arrived while a sign-in was in flight and belong to it (`isInlineLoginRequest`). */
+	/** Requests that arrived while a sign-in was in flight and belong to it (`isSignInRequest`). */
 	loginRequestIds: Record<string, true>;
 	beginInlineLogin: () => void;
 	/**
@@ -44,18 +44,10 @@ export interface ExtensionUiStore extends ExtensionUiSnapshot {
 	 */
 	endInlineLogin: () => ExtensionUIRequest[];
 	pushRequest: (request: ExtensionUIRequest) => void;
+	/** A sign-in's own request a reloaded page got back from main: the login panel's, never a card. */
+	restoreLoginRequest: (request: ExtensionUIRequest) => void;
 	removeRequest: (id: string) => void;
 	clearAll: () => void;
-}
-
-/**
- * Requests stock's `login` sends: the sign-in or key page (`open_url`), the
- * pasted key or code (`input`) and its progress (`onProgress`, info-level
- * `notify`). Warnings and errors still toast.
- */
-function isInlineLoginRequest(request: ExtensionUIRequest): boolean {
-	if (request.method === "notify") return (request.notifyType ?? "info") === "info";
-	return request.method === "open_url" || request.method === "input";
 }
 
 /**
@@ -99,7 +91,7 @@ export function claimsLoginRequest(
 	state: Pick<ExtensionUiStore, "inlineLogins">,
 	request: ExtensionUIRequest,
 ): boolean {
-	return state.inlineLogins > 0 && isInlineLoginRequest(request);
+	return state.inlineLogins > 0 && isSignInRequest(request);
 }
 
 /**
@@ -211,6 +203,11 @@ export const createExtensionUiStore = () =>
 				if (!claimsLoginRequest(state, request)) return next;
 				return { ...next, loginRequestIds: { ...state.loginRequestIds, [request.id]: true } };
 			}),
+		restoreLoginRequest: request =>
+			set(state => ({
+				...applyExtensionUiRequest(state, request, Date.now()),
+				loginRequestIds: { ...state.loginRequestIds, [request.id]: true },
+			})),
 		removeRequest: id => set(withoutRequest(get(), id)),
 		// The sign-ins themselves run on until stock answers their `login`.
 		clearAll: () => set({ ...EMPTY_SNAPSHOT, loginRequestIds: {} }),

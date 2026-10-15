@@ -829,6 +829,58 @@ describe("LocalHostServices", () => {
 		expect(sidecars[1]?.disposed).toBe(true);
 	});
 
+	it("lets a revived turn with no device run to its end: the grace closes only an idle tab, and its fact stays meanwhile", async () => {
+		vi.useFakeTimers();
+		const { services, sidecars } = setup(1_000);
+		services.attachResume({ sync: vi.fn(), cancelWait: vi.fn() });
+		const x = peer("device-x");
+		const fact = (id: string) => services.resumeFacts().find(entry => entry.tabId === id);
+
+		// Continued after a relaunch; the device never comes back.
+		const busy = services.reviveTab(x, {
+			tab: "peer:device-x:t1",
+			cwd: workDir,
+			kind: "agent",
+			sessionPath: "/s/1.jsonl",
+		});
+		if (!busy) throw new Error("expected a revived tab");
+		services.startTab(busy);
+		sidecars[0]?.setStatus("ready");
+		sidecars[0]?.emit("events", [{ type: "agent_start" }]);
+		vi.advanceTimersByTime(5_000);
+		expect(sidecars[0]?.disposed).toBe(false);
+		expect(fact(busy)).toMatchObject({ running: true });
+		sidecars[0]?.emit("events", [{ type: "agent_end" }]);
+		expect(fact(busy)).toMatchObject({ running: false });
+		// Idle now: the next grace period closes it.
+		vi.advanceTimersByTime(1_000);
+		expect(sidecars[0]?.disposed).toBe(true);
+		expect(fact(busy)).toBeUndefined();
+
+		// Held for this computer's connection: the turn has not run yet, so the tab waits too.
+		const held = services.reviveTab(x, {
+			tab: "peer:device-x:t2",
+			cwd: workDir,
+			kind: "agent",
+			sessionPath: "/s/2.jsonl",
+		});
+		if (!held) throw new Error("expected a revived tab");
+		services.setAwaitingConnection(held, true);
+		vi.advanceTimersByTime(5_000);
+		expect(sidecars[1]?.disposed).toBe(false);
+		services.setAwaitingConnection(held, false);
+		services.startTab(held);
+		sidecars[1]?.setStatus("ready");
+		sidecars[1]?.emit("events", [{ type: "agent_start" }]);
+		expect(sidecars[1]?.disposed).toBe(false);
+		// The device came back after all: its tab stays when the turn ends.
+		const conn = new FakeConnection(x);
+		await services.call(x, "tab.open", { rtab: "t2", cwd: workDir }, conn);
+		sidecars[1]?.emit("events", [{ type: "agent_end" }]);
+		vi.advanceTimersByTime(5_000);
+		expect(sidecars[1]?.disposed).toBe(false);
+	});
+
 	it("pushes one sessions.changed per burst to every connected device, and drops a revoked peer's tabs", async () => {
 		vi.useFakeTimers();
 		const { services, sidecars } = setup();

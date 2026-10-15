@@ -322,3 +322,40 @@ describe("missing installed-stock roster", () => {
 		}
 	});
 });
+
+describe("models.yml as a symlink, with a stand-in stock roster", () => {
+	test.skipIf(process.platform === "win32")(
+		"reports a dangling models.yml link instead of replacing it with a file",
+		async () => {
+			const dir = mkdtempSync(join(tmpdir(), "omp-models-dangling-"));
+			const original = process.env.PI_CODING_AGENT_DIR;
+			process.env.PI_CODING_AGENT_DIR = dir;
+			const missing = join(dir, "dotfiles", "models.yml");
+			symlinkSync(missing, modelsPath());
+			const request = vi.spyOn(stockHelper, "stockHelperRequest").mockImplementation(async (method, params) => {
+				if (method === "catalog.roster")
+					return {
+						builtinProviders: ["anthropic"],
+						apis: ["openai-completions"],
+						auth: ["apiKey"],
+						discovery: ["none"],
+						thinkingModes: ["none"],
+						efforts: ["low"],
+					};
+				if (method === "models.validate" && typeof params === "object" && params !== null && "config" in params)
+					return { config: params.config };
+				throw new Error(`unexpected ${method}`);
+			});
+			try {
+				await expect(upsertModelsProvider(minimal)).rejects.toThrow(missing);
+				expect(lstatSync(modelsPath()).isSymbolicLink()).toBe(true);
+				expect(existsSync(missing)).toBe(false);
+			} finally {
+				request.mockRestore();
+				if (original === undefined) delete process.env.PI_CODING_AGENT_DIR;
+				else process.env.PI_CODING_AGENT_DIR = original;
+				rmSync(dir, { recursive: true, force: true });
+			}
+		},
+	);
+});

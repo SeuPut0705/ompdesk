@@ -50,6 +50,7 @@ import {
 	type ExtensionUIRequest,
 	type HostToolCallRequest,
 	type HostUriRequest,
+	isSignInRequest,
 	type PromptResultFrame,
 	type RpcCommand,
 	type RpcResponse,
@@ -205,6 +206,8 @@ interface PoolEntry extends RunTracking {
 	onWindowClosed: () => void;
 	/** `omp update` landed while this tab ran a turn: it restarts on the new omp when the turn ends. */
 	ompRestartPending?: boolean;
+	/** Provider sign-ins (`login` commands) dispatched to this tab that have not answered yet. */
+	signIns?: number;
 	/**
 	 * Detaches the full-channel forwarders. Null while the tab is background
 	 * (nothing wired); set exactly once per active stint so switches move
@@ -242,6 +245,8 @@ export class SidecarPool {
 	 * through `openRequests`. Pruned against the owners whenever one is added or read.
 	 */
 	#requestBodies = new Map<string, ExtensionUIRequest>();
+	/** The open requests a provider sign-in raised (`isSignInRequest` while its `login` ran): the login panel's. */
+	#signInRequests = new Set<string>();
 	readonly #factory: SidecarFactory;
 	/** Suppress partial snapshots while a saved layout is being reconstructed. */
 	#restoringWindows = new Set<number>();
@@ -442,8 +447,12 @@ export class SidecarPool {
 			if (BLOCKING_UI_METHODS[request.method]) {
 				this.#requestOwners.set(request.id, entry);
 				for (const id of this.#requestBodies.keys())
-					if (!this.#requestOwners.has(id)) this.#requestBodies.delete(id);
+					if (!this.#requestOwners.has(id)) {
+						this.#requestBodies.delete(id);
+						this.#signInRequests.delete(id);
+					}
 				this.#requestBodies.set(request.id, request);
+				if (entry.signIns && isSignInRequest(request)) this.#signInRequests.add(request.id);
 				this.onRunningChange?.();
 			}
 			// omp withdrew the request (timeout, abort): no response will follow.
@@ -927,8 +936,15 @@ export class SidecarPool {
 		const open: IpcOpenExtensionRequest[] = [];
 		for (const [id, request] of this.#requestBodies) {
 			const owner = this.#requestOwners.get(id);
-			if (!owner) this.#requestBodies.delete(id);
-			else if (owner.win === win) open.push({ tabId: owner.tabId, request });
+			if (!owner) {
+				this.#requestBodies.delete(id);
+				this.#signInRequests.delete(id);
+			} else if (owner.win === win)
+				open.push({
+					tabId: owner.tabId,
+					request,
+					...(this.#signInRequests.has(id) ? { signIn: true as const } : {}),
+				});
 		}
 		return open;
 	}
@@ -1025,6 +1041,12 @@ export class SidecarPool {
 		if (!entry) return;
 		entry.stopped = true;
 		this.onRunningChange?.();
+	}
+
+	/** A provider sign-in (`login`) started on, or answered from, this tab. */
+	noteSignIn(tabId: string, active: boolean): void {
+		const entry = this.#byTabId.get(tabId);
+		if (entry) entry.signIns = Math.max(0, (entry.signIns ?? 0) + (active ? 1 : -1));
 	}
 
 	/** Show or clear the tab's "waiting for the internet connection" state. */

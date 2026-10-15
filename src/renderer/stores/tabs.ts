@@ -749,7 +749,6 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			};
 		});
 		closedTabIds.add(id);
-		deleteSessionRuntime(id);
 		let failure: unknown = null;
 		let refused = false;
 		try {
@@ -760,11 +759,13 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		}
 		if (failure !== null) {
 			// Main may still hold the tab and its sidecar: let the next list show it again instead of leaving a
-			// live session nobody can see. A tab main answers `false` for and no longer lists was already gone.
+			// live session nobody can see. Its runtime stayed, so it comes back with its asks, draft and
+			// transcript. A tab main answers `false` for and no longer lists was already gone.
 			closedTabIds.delete(id);
 			await get().reconcileTabs();
 			if (refused && !get().tabs.some(tab => tab.id === id)) {
 				closedTabIds.add(id);
+				deleteSessionRuntime(id);
 				return;
 			}
 			if (closed?.sessionPath)
@@ -774,6 +775,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			toastError({ title: translate("tabs.closeFailed"), error: failure });
 			return;
 		}
+		deleteSessionRuntime(id);
 		// A failed removePane left main's split in view; its next list no longer names this tab.
 		const { split } = get();
 		if (split && splitTabIds(split).includes(id)) await get().reconcileTabs();
@@ -910,14 +912,19 @@ export function pushTabExtensionUiRequest(tabId: string, request: ExtensionUIReq
 	watchTabAwaitingInput(tabId);
 }
 
-/** Show again the asks and approvals a reloaded page missed: main still holds them, and answering reaches the omp that raised them. A live frame that got here first is not doubled. */
+/** Show again the asks and approvals a reloaded page missed: main still holds them, and answering reaches the omp that raised them. A live frame that got here first is not doubled. A sign-in's own requests go back to its login panel, never to a card. */
 export function restoreTabExtensionUiRequests(open: readonly IpcOpenExtensionRequest[]): void {
-	for (const { tabId, request } of open) {
+	for (const { tabId, request, signIn } of open) {
 		if (isTabClosed(tabId)) continue;
 		ensureTabRuntime(tabId);
 		const store = sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi");
 		if (store?.getState().pendingRequests.some(pending => pending.id === request.id)) continue;
-		pushTabExtensionUiRequest(tabId, request);
+		if (!signIn) {
+			pushTabExtensionUiRequest(tabId, request);
+			continue;
+		}
+		store?.getState().restoreLoginRequest(request);
+		watchTabAwaitingInput(tabId);
 	}
 }
 

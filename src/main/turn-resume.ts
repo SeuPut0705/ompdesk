@@ -289,9 +289,15 @@ export class TurnResume {
 		const facts = this.#deps.pool.resumeFacts().filter(fact => !fact.device);
 		for (const fact of facts) this.#judge(fact);
 		const current = this.#deps.pool.resumeFacts().filter(fact => !fact.device);
+		const present = new Set<string>();
 		for (const fact of current) {
+			present.add(fact.tabId);
 			if (fact.running) this.#pending.delete(fact.tabId);
 		}
+		// A closed tab has nothing left to continue: its launch marker (held offline, or still waiting for
+		// its omp) leaves the file now, not when the network returns, and its bookkeeping goes with it.
+		for (const tabs of [this.#pending, this.#waiting, this.#cancels, this.#takenOverRuns, this.#resumed])
+			for (const tabId of tabs.keys()) if (!present.has(tabId)) tabs.delete(tabId);
 		const live = deriveMarkers(current, this.#previous, this.#deps.now()).filter(
 			marker => !this.#pending.has(marker.tab),
 		);

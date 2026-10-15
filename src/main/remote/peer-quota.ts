@@ -47,23 +47,24 @@ export class PeerQuota {
 			: { requests: 0, tokens: 0 };
 	}
 
-	/** Which limit stops this device's next model request, or null. */
-	refusal(deviceId: string): QuotaRefusal | null {
+	/** Which limit stops this device's next `requests` model requests, or null. */
+	refusal(deviceId: string, requests = 1): QuotaRefusal | null {
 		const peer = this.#peers.get(deviceId);
 		if (!peer?.limits) return null;
 		const used = this.usage(peer);
-		if (peer.limits.requestsPerDay !== undefined && used.requests >= peer.limits.requestsPerDay) return "requests";
+		if (peer.limits.requestsPerDay !== undefined && used.requests + requests > peer.limits.requestsPerDay)
+			return "requests";
 		if (peer.limits.tokensPerDay !== undefined && used.tokens >= peer.limits.tokensPerDay) return "tokens";
 		return null;
 	}
 
 	/**
 	 * Refuse, or count `requests` now (synchronously, so concurrent callers see each other's
-	 * reservation). Like `refusal`, only a device already at its limit is refused: one weighted
-	 * reservation may cross it.
+	 * reservation). A weighted reservation (a benchmark's models × runs) is refused whole when it
+	 * would take the day's count past the limit, never let through to cross it.
 	 */
 	reserve(deviceId: string, requests = 1): QuotaReservation {
-		const refusal = this.refusal(deviceId);
+		const refusal = this.refusal(deviceId, requests);
 		if (refusal) return { ok: false, refusal };
 		const day = localDay(this.#now());
 		this.record(deviceId, { requests });

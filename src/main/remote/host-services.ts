@@ -621,11 +621,18 @@ export class LocalHostServices implements HostServices {
 		else tab.sidecar.start();
 	}
 
-	/** The device is away: its tab keeps running for the grace period, then closes. */
+	/**
+	 * The device is away: a grace period that runs out on an idle tab closes it. One that runs out during a
+	 * turn (a revived one, continued after this computer's crash or quit, included) or a hold for this
+	 * computer's connection starts another, so neither loses its work or its resume marker to the timer.
+	 */
 	#startGrace(tab: HostTab): void {
 		tab.conn = null;
 		clearTimeout(tab.graceTimer);
-		tab.graceTimer = setTimeout(() => this.#closeTab(this.#key(tab.peerId, tab.rtab)), this.#graceMs);
+		tab.graceTimer = setTimeout(() => {
+			if (runBusy(tab.run) || tab.awaitingConnection) this.#startGrace(tab);
+			else this.#closeTab(this.#key(tab.peerId, tab.rtab));
+		}, this.#graceMs);
 		tab.graceTimer.unref?.();
 	}
 
@@ -889,7 +896,9 @@ export class LocalHostServices implements HostServices {
 		if (reservation && !reservation.ok) {
 			throw codedError(
 				"remote_limit_reached",
-				`This device's ${reservation.refusal === "requests" ? "request" : "token"} limit for today on this computer's models is used up.`,
+				reservation.refusal === "requests" && requests > 1
+					? `This needs ${requests} of this device's daily requests on this computer's models, more than are left today.`
+					: `This device's ${reservation.refusal === "requests" ? "request" : "token"} limit for today on this computer's models is used up.`,
 			);
 		}
 		try {

@@ -500,6 +500,24 @@ describe("TurnResume launch", () => {
 		expect(h.awaiting.at(-1)).toEqual(["restored", false]);
 	});
 
+	it("drops a held launch marker, and its wait, once its tab is closed", async () => {
+		h = setup({ online: false, answers: { restore_interrupted: RESTORED } });
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await settle();
+		expect(h.store.read()).toHaveLength(1);
+
+		// The user closes the held tab while still offline: nothing is left to continue on a later launch.
+		h.facts.splice(0);
+		h.resume.sync();
+		expect(h.store.read()).toEqual([]);
+		h.net.online = true;
+		h.resume.connectivityChanged();
+		await settle();
+		expect(h.commands).toEqual([]);
+	});
+
 	it("Stop on the toast aborts what the launch resumed and marks it stopped", async () => {
 		h = setup({ answers: { restore_interrupted: RESTORED } });
 		new InterruptedTurnStore(h.file).write([marker()]);

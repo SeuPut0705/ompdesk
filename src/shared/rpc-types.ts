@@ -1881,6 +1881,18 @@ export const BLOCKING_UI_METHODS: Record<string, true> = {
 	open_url: true,
 };
 
+/**
+ * Requests stock's `login` sends: the sign-in or key page (`open_url`), the
+ * pasted key or code (`input`) and its progress (`onProgress`, info-level
+ * `notify`). Warnings and errors still toast. While a sign-in is in flight
+ * they belong to its login panel (renderer `loginRequestIds`; main tags them
+ * for a page that reloads mid-sign-in).
+ */
+export function isSignInRequest(request: ExtensionUIRequest): boolean {
+	if (request.method === "notify") return (request.notifyType ?? "info") === "info";
+	return request.method === "open_url" || request.method === "input";
+}
+
 /** All levels in ascending effort order (picker menus, cycle parity). */
 export const THINKING_LEVEL_VALUES: readonly ThinkingLevel[] = [
 	"off",
