@@ -24,8 +24,8 @@ import type { AvailableCommand, ImageContent } from "../../../shared/rpc-types";
 import { withGuiCommands } from "../../lib/command-registry";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { tryEmojiInlineReplace } from "../../lib/emoji";
-import { cx } from "../../lib/format";
 import { FILE_DRAG_TYPE, readFileDrag } from "../../lib/file-drag";
+import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { parseComposerMode } from "../../lib/input-modes";
@@ -956,6 +956,13 @@ export function InputArea() {
 			setDragActive(false);
 			if (!draggingFiles(event)) return;
 			event.preventDefault();
+			const row = readFileDrag(event.dataTransfer);
+			if (row) {
+				window.dispatchEvent(
+					new CustomEvent("omp:insert-mention", { detail: { path: row.path, tabId: runtimeTabId } }),
+				);
+				return;
+			}
 			attachFiles(Array.from(event.dataTransfer.files));
 		},
 	};
@@ -964,13 +971,6 @@ export function InputArea() {
 		!routeReady || status !== "ready" || sending || submissionUncertain || (!text.trim() && images.length === 0);
 	// While first-run setup runs, the live model is whatever omp fell back to
 	// (e.g. a tiny on-device model); show the neutral prompt instead.
-			const row = readFileDrag(event.dataTransfer);
-			if (row) {
-				window.dispatchEvent(
-					new CustomEvent("omp:insert-mention", { detail: { path: row.path, tabId: runtimeTabId } }),
-				);
-				return;
-			}
 	const modelLabel = model && !settingUp ? model.name || model.id : t("input.chooseModel");
 	const placeholder =
 		status !== "ready"
