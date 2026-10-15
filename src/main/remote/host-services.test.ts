@@ -273,7 +273,8 @@ describe("LocalHostServices", () => {
 		expect(sidecars).toHaveLength(2);
 		sidecars[0]?.setStatus("ready");
 		expect(x.tabEvents().map(event => event.arg)).toContainEqual(expect.objectContaining({ status: "ready" }));
-		expect(y.tabEvents()).toEqual([]);
+		// Y hears only of its own tab.
+		expect(y.tabEvents()).toEqual([{ rtab: "t1", name: "awaitingConnection", arg: false }]);
 	});
 
 	it("forwards allowlisted sidecar events as tab.event and leaves host tool calls to the device", async () => {
@@ -293,6 +294,8 @@ describe("LocalHostServices", () => {
 		await Promise.resolve();
 
 		expect(x.tabEvents()).toEqual([
+			// Every open tells the device whether this computer holds the tab's turn for its connection.
+			{ rtab: "t1", name: "awaitingConnection", arg: false },
 			{
 				rtab: "t1",
 				name: "status",
@@ -668,9 +671,10 @@ describe("LocalHostServices", () => {
 		const reopened = await services.call(second.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, second);
 		expect(reopened).toEqual({ cwd: workDir, kind: "agent", attached: true });
 		expect(sidecars).toHaveLength(1);
-		// The status is re-sent on attach.
+		// The status is re-sent on attach, and whether this computer holds the turn for its connection.
 		expect(second.tabEvents()).toEqual([
 			expect.objectContaining({ name: "status", arg: expect.objectContaining({ status: "ready" }) }),
+			{ rtab: "t1", name: "awaitingConnection", arg: false },
 		]);
 		vi.advanceTimersByTime(5_000);
 		expect(sidecars[0]?.disposed).toBe(false);
@@ -682,6 +686,147 @@ describe("LocalHostServices", () => {
 			.call(second.peer, "tab.command", { rtab: "t1", command: { type: "get_state" } }, second)
 			.catch((error: unknown) => error);
 		expect(ipcErrorCode(gone)).toBe("unknown_tab");
+	});
+
+	it("a relaunched device's reopen under a new rtab takes over the tab its last connection left on that session", async () => {
+		const { services, sidecars } = setup();
+		const before = new FakeConnection(peer("device-x"));
+		await services.call(before.peer, "tab.open", { rtab: "old", cwd: workDir, fresh: true }, before);
+		await services.call(before.peer, "tab.start", { rtab: "old" }, before);
+		sidecars[0]?.setStatus("ready");
+		sidecars[0]?.emit("session", { sessionId: "s1", sessionFile: "/s/one.jsonl" });
+		sidecars[0]?.emit("events", [{ type: "agent_start" }]);
+		services.disconnected(before.peer, before);
+
+		const after = new FakeConnection(peer("device-x"));
+		const reopened = await services.call(
+			after.peer,
+			"tab.open",
+			{ rtab: "new", cwd: workDir, sessionPath: "/s/one.jsonl" },
+			after,
+		);
+		// The running omp, not a second one on the same session file.
+		expect(reopened).toEqual({ cwd: workDir, kind: "agent", attached: true });
+		expect(sidecars).toHaveLength(1);
+		expect(services.runningPeers()).toEqual(["device-x"]);
+		sidecars[0]?.emit("events", [{ type: "agent_end" }]);
+		expect(after.tabEvents().map(event => [event.rtab, event.name])).toEqual([
+			["new", "status"],
+			["new", "awaitingConnection"],
+			["new", "events"],
+		]);
+		const old = await services
+			.call(after.peer, "tab.command", { rtab: "old", command: { type: "get_state" } }, after)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(old)).toBe("unknown_tab");
+
+		// Another device's tab on the same path, or this connection's own, is never taken.
+		const other = new FakeConnection(peer("device-y"));
+		await services.call(other.peer, "tab.open", { rtab: "y1", cwd: workDir, sessionPath: "/s/one.jsonl" }, other);
+		await services.call(after.peer, "tab.open", { rtab: "again", cwd: workDir, sessionPath: "/s/one.jsonl" }, after);
+		expect(sidecars).toHaveLength(3);
+	});
+
+	it("gives this computer's resume coordinator the hosted turns: facts, Stop, asks, the wait and its Cancel", async () => {
+		const { services, sidecars } = setup();
+		const resume = { sync: vi.fn(), cancelWait: vi.fn() };
+		services.attachResume(resume);
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/one.jsonl" }, x);
+		await services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.setStatus("ready");
+		const fact = () => services.resumeFacts()[0];
+		expect(fact()).toMatchObject({ tabId: "peer:device-x:t1", peer: "device-x", sessionFile: "/s/one.jsonl" });
+		expect(services.tabForSession("/s/one.jsonl", "device-x")).toBe("peer:device-x:t1");
+		expect(services.tabForSession("/s/one.jsonl", "device-y")).toBeNull();
+
+		resume.sync.mockClear();
+		sidecar.emit("events", [{ type: "agent_start" }]);
+		expect(fact()).toMatchObject({ running: true, stopped: false, awaitingUi: false });
+		expect(resume.sync).toHaveBeenCalled();
+
+		// An ask the device answers, and one omp withdraws.
+		sidecar.emit("extensionUi", { type: "extension_ui_request", id: "ask-1", method: "confirm", title: "?" });
+		expect(fact()?.awaitingUi).toBe(true);
+		await services.call(
+			x.peer,
+			"tab.sideChannel",
+			{ rtab: "t1", frame: { type: "extension_ui_response", id: "ask-1" } },
+			x,
+		);
+		expect(fact()?.awaitingUi).toBe(false);
+		sidecar.emit("extensionUi", {
+			type: "extension_ui_request",
+			id: "ask-2",
+			method: "select",
+			title: "?",
+			options: [],
+		});
+		sidecar.emit("extensionUi", { type: "extension_ui_request", id: "c", method: "cancel", targetId: "ask-2" });
+		expect(fact()?.awaitingUi).toBe(false);
+
+		// A network failure: the outcome reaches the rules before the device sees the events.
+		resume.sync.mockImplementation(() => {
+			if (fact()?.lastRun) services.setAwaitingConnection("peer:device-x:t1", true);
+		});
+		sidecar.emit("events", [
+			{
+				type: "agent_end",
+				messages: [{ role: "assistant", content: [], stopReason: "error", errorMessage: "fetch failed" }],
+			},
+		]);
+		expect(fact()).toMatchObject({ running: false, awaitingConnection: true, lastRun: { stopReason: "error" } });
+		expect(
+			x
+				.tabEvents()
+				.slice(-2)
+				.map(event => event.name),
+		).toEqual(["awaitingConnection", "events"]);
+		resume.sync.mockImplementation(() => {});
+
+		// The device lost this computer and came back: it is told the wait still holds.
+		services.disconnected(x.peer, x);
+		const back = new FakeConnection(peer("device-x"));
+		await services.call(back.peer, "tab.open", { rtab: "t1", cwd: workDir }, back);
+		expect(back.tabEvents()).toContainEqual({ rtab: "t1", name: "awaitingConnection", arg: true });
+		await services.call(back.peer, "tab.cancelWait", { rtab: "t1" }, back);
+		expect(resume.cancelWait).toHaveBeenCalledWith("peer:device-x:t1");
+		services.setAwaitingConnection("peer:device-x:t1", false);
+		expect(back.tabEvents().at(-1)).toEqual({ rtab: "t1", name: "awaitingConnection", arg: false });
+
+		// The device's Stop: nothing continues the turn after a crash.
+		sidecar.emit("events", [{ type: "agent_start" }]);
+		await services.call(back.peer, "tab.command", { rtab: "t1", command: { type: "abort" } }, back);
+		expect(fact()?.stopped).toBe(true);
+	});
+
+	it("revives a marked hosted tab after a relaunch: asleep until resumed, then the device's reopen attaches it", async () => {
+		vi.useFakeTimers();
+		const { services, sidecars } = setup(1_000);
+		const x = peer("device-x");
+		const marker = { tab: "peer:device-x:t1", cwd: workDir, kind: "agent" as const, sessionPath: "/s/one.jsonl" };
+		expect(services.reviveTab(x, { ...marker, tab: "peer:device-y:t1" })).toBeNull();
+		expect(services.reviveTab(x, marker)).toBe("peer:device-x:t1");
+		expect(services.reviveTab(x, marker)).toBe("peer:device-x:t1");
+		expect(sidecars).toHaveLength(1);
+		expect(sidecars[0]?.started).toEqual([]);
+
+		expect(services.startTab("peer:device-x:t1")).toBe(sidecars[0]);
+		expect(sidecars[0]?.started).toEqual([{ resume: "/s/one.jsonl" }]);
+		sidecars[0]?.setStatus("ready");
+
+		const conn = new FakeConnection(x);
+		const reopened = await services.call(x, "tab.open", { rtab: "t1", cwd: workDir }, conn);
+		expect(reopened).toEqual({ cwd: workDir, kind: "agent", attached: true });
+		vi.advanceTimersByTime(5_000);
+		expect(sidecars[0]?.disposed).toBe(false);
+
+		// A device that never comes back: the revived tab closes like a dropped connection's.
+		services.reviveTab(x, { ...marker, tab: "peer:device-x:t2", sessionPath: "/s/two.jsonl" });
+		vi.advanceTimersByTime(1_000);
+		expect(sidecars[1]?.disposed).toBe(true);
 	});
 
 	it("pushes one sessions.changed per burst to every connected device, and drops a revoked peer's tabs", async () => {

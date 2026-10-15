@@ -362,6 +362,39 @@ describe("RemoteSidecar", () => {
 		sidecar.dispose();
 		expect(disposed).toEqual([1]);
 	});
+
+	it("mirrors the host's connection wait and sends the user's Cancel to the host", async () => {
+		const { link, sidecar } = setup();
+		const waits: boolean[] = [];
+		sidecar.on("awaitingConnection", (awaiting: boolean) => waits.push(awaiting));
+		sidecar.start();
+		await settle();
+		sidecar.handleEvent({ rtab: "tab-1", name: "awaitingConnection", arg: true });
+		sidecar.handleEvent({ rtab: "tab-1", name: "awaitingConnection", arg: "yes" });
+		sidecar.handleEvent({ rtab: "tab-1", name: "awaitingConnection", arg: false });
+		expect(waits).toEqual([true, false]);
+
+		await sidecar.cancelHostWait();
+		expect(link.sent.at(-1)).toMatchObject({ method: "tab.cancelWait", params: { rtab: "tab-1" } });
+		link.state = "offline";
+		const refused = await sidecar.cancelHostWait().catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("remote_offline");
+	});
+
+	it("starts a restored tab on its session without restarting the omp a host still runs for it", async () => {
+		const { link, sidecar } = setup();
+		link.attached = true;
+		sidecar.restart(undefined, "/s/one.jsonl");
+		await settle();
+		expect(link.methods()).toEqual(["tab.open"]);
+		expect(link.sent[0]?.params).toMatchObject({ sessionPath: "/s/one.jsonl" });
+
+		// Once running, a restart is a restart.
+		sidecar.handleEvent(hostStatus("ready"));
+		sidecar.restart(undefined, "/s/one.jsonl");
+		await settle();
+		expect(link.methods()).toEqual(["tab.open", "tab.restart"]);
+	});
 });
 
 describe("PendingTabCloses", () => {

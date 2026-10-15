@@ -27,10 +27,10 @@ export type ResumeReason =
 export interface ResumeMarker {
 	/** The window (webContents id) that held the tab. Informational: windows are rebuilt from the saved layout. */
 	window: number;
-	/** The tab's runtime id in the launch that wrote the marker. */
+	/** The tab's runtime id in the launch that wrote the marker (`peer:<deviceId>:<rtab>` for a hosted tab). */
 	tab: string;
-	/** Paired host the tab ran on; absent = this computer. A host owns its own resume. */
-	device?: string;
+	/** The paired device this computer ran the tab for (host-services.ts); absent = this computer's own tab. */
+	peer?: string;
 	sessionPath: string;
 	cwd: string;
 	kind: "agent" | "chat";
@@ -42,7 +42,13 @@ export interface ResumeMarker {
 export interface ResumeFact {
 	tabId: string;
 	winId: number;
+	/**
+	 * Paired host the tab runs on. Such a tab is skipped: its host holds the marker, the
+	 * connection wait and the continuation, and this computer only mirrors the wait.
+	 */
 	device?: string;
+	/** The paired device a tab this computer hosts runs for. */
+	peer?: string;
 	sessionFile?: string;
 	cwd: string;
 	kind: "agent" | "chat";
@@ -89,7 +95,7 @@ export function deriveMarkers(
 			startedAt: before?.startedAt ?? now,
 			reason,
 		};
-		if (fact.device) marker.device = fact.device;
+		if (fact.peer) marker.peer = fact.peer;
 		markers.push(marker);
 	}
 	return markers;
@@ -97,12 +103,17 @@ export function deriveMarkers(
 
 export type ResumeAction = "restore" | "retry";
 
-/** What a launch does with a marker; null = skip it (the marker is dropped). */
-export function launchAction(marker: ResumeMarker): ResumeAction | null {
-	// A paired host resumes its own turn; a client re-attaching just shows it.
-	if (marker.device) return null;
+/** What a launch does with a marker. */
+export function launchAction(marker: ResumeMarker): ResumeAction {
 	return marker.reason === "network" ? "retry" : "restore";
 }
+
+/** The user's Stop (RPC command types): the turn it ends is never continued (`noteStopped`). */
+export const STOP_COMMANDS: Record<string, true> = {
+	abort: true,
+	abort_and_prompt: true,
+	abort_and_restore_queue: true,
+};
 
 /** Markers that count as "continuing" in the toast (a reopened card is not a continuing task). */
 export function continuingCount(markers: readonly ResumeMarker[]): number {
@@ -163,7 +174,7 @@ export class InterruptedTurnStore {
 function sanitizeMarker(value: unknown): ResumeMarker | null {
 	if (typeof value !== "object" || value === null) return null;
 	const record = value as Record<string, unknown>;
-	const { window, tab, device, sessionPath, cwd, kind, startedAt, reason } = record;
+	const { window, tab, device, peer, sessionPath, cwd, kind, startedAt, reason } = record;
 	if (
 		typeof window !== "number" ||
 		typeof tab !== "string" ||
@@ -171,11 +182,13 @@ function sanitizeMarker(value: unknown): ResumeMarker | null {
 		typeof cwd !== "string" ||
 		(kind !== "agent" && kind !== "chat") ||
 		typeof startedAt !== "number" ||
-		(reason !== "running" && reason !== "asking" && reason !== "network")
+		(reason !== "running" && reason !== "asking" && reason !== "network") ||
+		// Written by a client before its host owned the resume: the host has its own marker.
+		device !== undefined
 	)
 		return null;
 	const marker: ResumeMarker = { window, tab, sessionPath, cwd, kind, startedAt, reason };
-	if (typeof device === "string" && device) marker.device = device;
+	if (typeof peer === "string" && peer) marker.peer = peer;
 	return marker;
 }
 
@@ -185,8 +198,8 @@ export interface ResumePool {
 	setAwaitingConnection(tabId: string, awaiting: boolean): void;
 	/** Spawn a deferred tab's process; the sidecar, or null when the tab is gone. */
 	startTab(tabId: string): SidecarLike | null;
-	/** The tab attached to `sessionPath` on this computer, if any. */
-	tabForSession(sessionPath: string): string | null;
+	/** The tab attached to `sessionPath`: this computer's own, or with `peer` the one it hosts for that device. */
+	tabForSession(sessionPath: string, peer?: string): string | null;
 	noteStopped(tabId: string): void;
 }
 
@@ -200,7 +213,10 @@ export interface ResumeDeps {
 	/** A quit is underway: the pool is being torn down and must not rewrite the markers. */
 	frozen(): boolean;
 	now(): number;
-	/** Open a tab for a marked session that has none (the layout was not saved in time); its tab id. */
+	/**
+	 * Open a tab for a marked session that has none (the layout was not saved in time), or for a
+	 * `peer` marker the tab this computer ran for that device, waiting for it to reconnect; its tab id.
+	 */
 	openTab(marker: ResumeMarker): string | null;
 	/** "Continuing N interrupted tasks": a toast with Stop. */
 	notify(count: number): void;
@@ -263,12 +279,16 @@ export class TurnResume {
 		this.#deps = deps;
 	}
 
-	/** Every run-state change in the pool: wait on a network error, then rewrite the marker file. */
+	/**
+	 * Every run-state change in the pool: wait on a network error, then rewrite the marker file.
+	 * A paired host's tab (`device`) is not this computer's: the host writes its marker, judges
+	 * the wait by its own connection and continues it, and this tab only shows that wait.
+	 */
 	sync(): void {
 		if (!this.#launched || this.#deps.frozen()) return;
-		const facts = this.#deps.pool.resumeFacts();
+		const facts = this.#deps.pool.resumeFacts().filter(fact => !fact.device);
 		for (const fact of facts) this.#judge(fact);
-		const current = this.#deps.pool.resumeFacts();
+		const current = this.#deps.pool.resumeFacts().filter(fact => !fact.device);
 		for (const fact of current) {
 			if (fact.running) this.#pending.delete(fact.tabId);
 		}
@@ -436,8 +456,7 @@ export class TurnResume {
 		const resumable: Array<{ tabId: string; marker: ResumeMarker; action: ResumeAction }> = [];
 		for (const marker of markers) {
 			const action = launchAction(marker);
-			if (!action) continue;
-			const tabId = this.#deps.pool.tabForSession(marker.sessionPath) ?? this.#deps.openTab(marker);
+			const tabId = this.#deps.pool.tabForSession(marker.sessionPath, marker.peer) ?? this.#deps.openTab(marker);
 			if (!tabId) continue;
 			resumable.push({ tabId, marker, action });
 			this.#pending.set(tabId, { ...marker, tab: tabId });

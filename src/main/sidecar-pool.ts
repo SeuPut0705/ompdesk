@@ -41,12 +41,10 @@ import {
 	type IpcSessionOwner,
 	type IpcSetTabViewPayload,
 	type IpcTabInfo,
-	type IpcTabRunOutcome,
 	type IpcTabStatusPayload,
 	type IpcTabWorktree,
 } from "../shared/ipc-types";
 import {
-	type AgentMessage,
 	type AgentSessionEvent,
 	BLOCKING_UI_METHODS,
 	type ExtensionUIRequest,
@@ -76,7 +74,7 @@ import { ompRestartDecision } from "./omp-restart";
 import type { WindowTabFact } from "./quit-guard";
 import type { RpcClient } from "./rpc-client";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
-import { applyRunEvent, idleRun, type RunState, runBusy, settleRun } from "./sidecar-run-state";
+import { idleRun, type RunState, type RunTracking, runBusy, settleRun, trackRunEvent } from "./sidecar-run-state";
 import { nextSnowflake } from "./snowflake";
 import { createSubagentFrameBatcher } from "./subagent-frames";
 import { type PersistedTabDescriptor, type PersistedTabLayout, TAB_LAYOUT_VERSION } from "./tab-layout";
@@ -116,6 +114,11 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	setStartGate?(gate: SidecarStartGate): void;
 	/** Local sidecars: resolves once the omp process has exited. Call before dispose(). */
 	whenExited?(): Promise<void>;
+	/**
+	 * Remote sidecars: the user's Cancel on the waiting row. The host holds this tab's connection
+	 * wait (it emits `awaitingConnection`); rejects `remote_offline` while the host is unreachable.
+	 */
+	cancelHostWait?(): Promise<void>;
 }
 
 /** `device` = paired host deviceId (absent = this machine); `tabId` names the tab on that host. */
@@ -149,7 +152,8 @@ const FORWARDED_TAB_EVENTS: ReadonlyArray<readonly [event: string, channel: stri
 	["extensionError", IPC_EVENTS.EXTENSION_ERROR],
 ];
 
-interface PoolEntry {
+/** `run`, `lastRun`, `stopped` and `retry` follow the sidecar's events (`trackRunEvent`). */
+interface PoolEntry extends RunTracking {
 	sidecar: SidecarLike;
 	tabId: string;
 	win: BrowserWindow;
@@ -191,14 +195,8 @@ interface PoolEntry {
 	 * noteSessionFile; the reverse key of #sessionOwners.
 	 */
 	sessionFile?: string;
-	/** How the last finished run ended; cleared when the next run starts. */
-	lastRun?: IpcTabRunOutcome;
-	/** The user pressed Stop since the run began: a relaunch must not resume it (turn-resume.ts). Cleared by the next agent_start. */
-	stopped?: boolean;
 	/** The turn waits for the internet connection and continues once it is back (turn-resume.ts). */
 	awaitingConnection?: boolean;
-	/** Stock's auto-retry waiting for its next attempt: set by `auto_retry_start`, cleared by its end or a new run. */
-	retry?: { errorMessage: string };
 	/** The window "closed" listener registered at acquire, removed on release. */
 	onWindowClosed: () => void;
 	/** `omp update` landed while this tab ran a turn: it restarts on the new omp when the turn ends. */
@@ -471,6 +469,8 @@ export class SidecarPool {
 			if (typeof frame.sessionSettled === "boolean") settle(frame.sessionSettled);
 		});
 		sidecar.on("sessionSettled", () => settle(true));
+		// A paired host holds this tab's connection wait (its own connectivity decides, turn-resume.ts): mirror it.
+		sidecar.on("awaitingConnection", (awaiting: boolean) => this.setAwaitingConnection(entry.tabId, awaiting));
 		// Agent-end means one run yielded; upstream prompt/session-settled frames
 		// keep background async work represented as running until it is quiet.
 		sidecar.on("events", (events: AgentSessionEvent[]) => {
@@ -483,23 +483,10 @@ export class SidecarPool {
 			let runEnded = false;
 			let retryStarted = false;
 			for (const event of events) {
-				const ended = applyRunEvent(entry.run, event);
-				if (ended) runEnded = true;
-				if (event.type === "agent_start") {
-					entry.placeholder = false;
-					entry.lastRun = undefined;
-					entry.stopped = false;
-					entry.retry = undefined;
-				} else if (event.type === "auto_retry_start") {
-					// News for the resume rules: offline, the wait takes stock's retry over (turn-resume.ts).
-					entry.retry = { errorMessage: event.errorMessage };
-					retryStarted = true;
-				} else if (ended && event.type === "agent_end") {
-					if (event.isTerminal !== false) entry.lastRun = runOutcome(event.messages);
-				} else if (event.type === "auto_retry_end") {
-					entry.retry = undefined;
-					if (ended) entry.lastRun = { stopReason: "error", errorMessage: event.finalError };
-				} else if (event.type === "plan_proposal" && !entry.detachFull) {
+				if (trackRunEvent(entry, event)) runEnded = true;
+				if (event.type === "agent_start") entry.placeholder = false;
+				else if (event.type === "auto_retry_start") retryStarted = true;
+				else if (event.type === "plan_proposal" && !entry.detachFull) {
 					hiddenProposals ??= [];
 					hiddenProposals.push(event);
 				}
@@ -1215,28 +1202,4 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	if (entry.awaitingConnection) payload.awaitingConnection = true;
 	if (entry.device !== undefined) payload.device = entry.device;
 	return payload;
-}
-
-/**
- * Characters of a finished reply's text kept for the completion banner, which reads only
- * its opening prose (renderer `notificationSummary`, 160 characters after Markdown and code
- * are dropped); the cap keeps a long reply out of every later TAB_STATUS.
- */
-const RUN_REPLY_PREVIEW_CHARS = 4000;
-
-/** A finished run's outcome, read from agent_end's own messages (the last assistant reply). */
-function runOutcome(messages: AgentMessage[] | undefined): IpcTabRunOutcome {
-	const last = messages?.findLast(message => message.role === "assistant");
-	const stopReason = typeof last?.stopReason === "string" ? last.stopReason : "stop";
-	if (typeof last?.errorMessage === "string" && last.errorMessage)
-		return { stopReason, errorMessage: last.errorMessage };
-	const content = last?.content;
-	const text = (
-		typeof content === "string"
-			? content
-			: Array.isArray(content)
-				? content.flatMap(part => (part.type === "text" ? [part.text] : [])).join("\n")
-				: ""
-	).trim();
-	return text ? { stopReason, reply: text.slice(0, RUN_REPLY_PREVIEW_CHARS) } : { stopReason };
 }

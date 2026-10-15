@@ -105,6 +105,7 @@ import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
 import { closeTabTerminals, readTabTerminals, registerTerminalIpc } from "./terminal/ipc";
 import { setTrayState } from "./tray";
 import { aggregateTrayStatus } from "./tray-labels";
+import { STOP_COMMANDS } from "./turn-resume";
 import { appVersion } from "./updater";
 import type { SpawnWindow, WindowManager } from "./window";
 import { sanitizeChromeColors, TOP_BAR_HEIGHT } from "./window-chrome";
@@ -519,12 +520,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		// A Stop is the user's word that this turn is over: a relaunch must not resume it, even if the
 		// process dies before the run's end event arrives (turn-resume.ts).
-		if (
-			issuerTabId &&
-			(cmd.type === "abort" || cmd.type === "abort_and_prompt" || cmd.type === "abort_and_restore_queue")
-		) {
-			sidecarPool.noteStopped(issuerTabId);
-		}
+		if (issuerTabId && STOP_COMMANDS[cmd.type]) sidecarPool.noteStopped(issuerTabId);
 		try {
 			let response = await client.command({ ...cmd, id: _id } as RpcCommand, payload.timeoutMs);
 			// omp has no session kind: a chat tab is plain omp started in the

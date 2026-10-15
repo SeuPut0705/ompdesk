@@ -88,8 +88,8 @@ describe("deriveMarkers", () => {
 		expect(deriveMarkers([fact({ running: true, sessionFile: undefined })], [], 500)).toEqual([]);
 	});
 
-	it("records a paired host's tab with its device", () => {
-		expect(deriveMarkers([fact({ running: true, device: "host-1" })], [], 500)[0]?.device).toBe("host-1");
+	it("records the paired device a hosted tab runs for", () => {
+		expect(deriveMarkers([fact({ running: true, peer: "device-a" })], [], 500)[0]?.peer).toBe("device-a");
 	});
 });
 
@@ -98,10 +98,6 @@ describe("launch rules", () => {
 		expect(launchAction(marker({ reason: "running" }))).toBe("restore");
 		expect(launchAction(marker({ reason: "network" }))).toBe("retry");
 		expect(launchAction(marker({ reason: "asking" }))).toBe("restore");
-	});
-
-	it("skips a paired host's tab: the host owns its own resume", () => {
-		expect(launchAction(marker({ device: "host-1" }))).toBeNull();
 	});
 
 	it("does not count a reopened card as a continuing task", () => {
@@ -249,7 +245,8 @@ function setup(
 			if (entry) entry.awaitingConnection = value;
 		},
 		startTab: () => sidecar,
-		tabForSession: sessionPath => facts.find(entry => entry.sessionFile === sessionPath)?.tabId ?? null,
+		tabForSession: (sessionPath, peer) =>
+			facts.find(entry => entry.sessionFile === sessionPath && entry.peer === peer)?.tabId ?? null,
 		noteStopped: tabId => {
 			const entry = facts.find(candidate => candidate.tabId === tabId);
 			if (entry) entry.stopped = true;
@@ -396,14 +393,25 @@ describe("TurnResume launch", () => {
 		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
 	});
 
-	it("skips a paired host's turn and drops its marker", async () => {
+	it("drops a paired host's turn a client marked before hosts owned their resume", async () => {
 		h = setup();
-		new InterruptedTurnStore(h.file).write([marker({ device: "host-1" })]);
+		writeFileSync(h.file, JSON.stringify([{ ...marker(), device: "host-1" }]));
 		h.resume.launch();
 		await settle();
 		expect(h.commands).toEqual([]);
 		expect(h.state.notices).toEqual([]);
 		expect(h.store.read()).toEqual([]);
+	});
+
+	it("continues a turn this computer ran for a paired device in that device's tab, not a local one", async () => {
+		h = setup({ answers: { restore_interrupted: RESTORED } });
+		// This computer's own tab on the same session path is not the device's.
+		h.facts.push(fact({ tabId: "local" }));
+		new InterruptedTurnStore(h.file).write([marker({ tab: "peer:device-a:r1", peer: "device-a" })]);
+		h.resume.launch();
+		await settle();
+		expect(h.state.opened).toEqual([marker({ tab: "peer:device-a:r1", peer: "device-a" })]);
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
 	});
 
 	it("does not resume a turn the user stopped: Stop cleared its marker before the kill", async () => {
@@ -593,6 +601,21 @@ describe("TurnResume connection wait", () => {
 		await settle();
 		expect(h.commands.map(cmd => cmd.type)).toEqual(["retry"]);
 		expect(h.awaiting.at(-1)).toEqual(["t1", false]);
+	});
+
+	it("leaves a paired host's tab to its host: no marker, no wait, no takeover by this computer's connection", async () => {
+		h = setup({ online: false, answers: { retry: RETRIED } });
+		h.resume.launch();
+		h.facts.push(fact({ running: true, device: "host-1", retry: { errorMessage: "Connection error." } }));
+		h.resume.sync();
+		h.facts[0] = fact({ running: false, device: "host-1", lastRun: { ...networkFailure } });
+		h.resume.sync();
+		h.net.online = true;
+		h.resume.connectivityChanged();
+		await settle();
+		expect(h.awaiting).toEqual([]);
+		expect(h.commands).toEqual([]);
+		expect(h.store.read()).toEqual([]);
 	});
 
 	it("a network error just after a wake waits too, and continues as soon as the network answers", async () => {

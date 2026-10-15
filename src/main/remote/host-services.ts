@@ -11,7 +11,12 @@
  * here executes them. When a connection drops, its tabs keep running for a
  * grace period; a reconnect re-attaches by rtab and gets the status again.
  * Whether each tab is running a turn is tracked here too (the same rules as
- * the local pool's "running"), so the host can keep this computer awake.
+ * the local pool's "running"), so the host can keep this computer awake, and
+ * the tabs are this computer's resume coordinator's (turn-resume.ts): their
+ * markers, the continuation after a crash or quit, and the wait for this
+ * computer's connection are the host's; the device only shows that wait.
+ * A relaunched device reopens its tabs under new rtabs: the open takes over
+ * the tab its previous connection left on that session instead of a second omp.
  *
  * Host-level calls: session listing/search/kind/delete/rename against this
  * machine's session index, the workspace fs reads (same confinement and caps
@@ -32,12 +37,14 @@ import { codedError } from "../../shared/ipc-error-codes";
 import { ModelSetupRequestSchema } from "../../shared/model-setup";
 import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS } from "../../shared/rpc-client";
-import type {
-	AgentSessionEvent,
-	PromptResultFrame,
-	RpcCommand,
-	RpcResponse,
-	SidecarStatusPayload,
+import {
+	type AgentSessionEvent,
+	BLOCKING_UI_METHODS,
+	type ExtensionUIRequest,
+	type PromptResultFrame,
+	type RpcCommand,
+	type RpcResponse,
+	type SidecarStatusPayload,
 } from "../../shared/rpc-types";
 import type { TerminalOperation } from "../../shared/terminal-types";
 import type { BridgeConnectResult } from "../bridge-health";
@@ -49,10 +56,11 @@ import type { SessionIndex } from "../session-index";
 import { deleteSession, moveSession, renameSession } from "../session-mutations";
 import type { SidecarSessionIdentity } from "../sidecar";
 import type { SidecarLike, SidecarPool } from "../sidecar-pool";
-import { applyRunEvent, idleRun, type RunState, runBusy, settleRun } from "../sidecar-run-state";
+import { idleRun, type RunState, type RunTracking, runBusy, settleRun, trackRunEvent } from "../sidecar-run-state";
 import { stockHelperRequest } from "../stock-helper";
 import { disposeTerminals, terminalRequest } from "../terminal/requests";
 import { detectShells } from "../terminal/shells";
+import { type ResumeFact, type ResumeMarker, STOP_COMMANDS, type TurnResume } from "../turn-resume";
 import {
 	FS_BINARY_REMOTE_MAX_BYTES,
 	listDirectories,
@@ -128,9 +136,12 @@ export interface HostServicesDeps {
 	graceMs?: number;
 }
 
-interface HostTab {
+/** `run`, `lastRun`, `stopped` and `retry` follow the sidecar's events (`trackRunEvent`), like a local tab's. */
+interface HostTab extends RunTracking {
 	peerId: string;
 	rtab: string;
+	/** The tab's id for this computer's resume coordinator; kept when a relaunched device re-keys the tab. */
+	resumeId: string;
 	sidecar: SidecarLike;
 	/** The connection events go to; null while the device is away (grace period). */
 	conn: HostConnection | null;
@@ -140,6 +151,10 @@ interface HostTab {
 	sessionFile: string | undefined;
 	graceTimer: NodeJS.Timeout | undefined;
 	run: RunState;
+	/** Open asks and approvals (request ids) the device has not answered. */
+	asks: Set<string>;
+	/** The turn waits for this computer's internet connection (turn-resume.ts). */
+	awaitingConnection?: boolean;
 	/** `omp update` landed during a turn: the tab restarts on the new omp when it ends. */
 	ompRestartPending?: boolean;
 }
@@ -238,6 +253,7 @@ export class LocalHostServices implements HostServices {
 	#sessionsTimer: NodeJS.Timeout | undefined;
 	readonly #runningListeners = new Set<() => void>();
 	#quota: PeerQuota | null = null;
+	#resume: Pick<TurnResume, "sync" | "cancelWait"> | null = null;
 
 	constructor(deps: HostServicesDeps) {
 		this.#deps = deps;
@@ -264,20 +280,90 @@ export class LocalHostServices implements HostServices {
 		this.#quota = quota;
 	}
 
+	/**
+	 * This computer's resume coordinator (turn-resume.ts), which takes the tabs here as its own:
+	 * it keeps their markers, continues them after a crash or quit, and holds a network failure
+	 * until this computer's connection is back. Its hosted-tab ids are {@link resumeId}s.
+	 */
+	attachResume(resume: Pick<TurnResume, "sync" | "cancelWait">): void {
+		this.#resume = resume;
+	}
+
+	/** The resume rules' inputs for the tabs this computer runs for paired devices. */
+	resumeFacts(): ResumeFact[] {
+		return [...this.#tabs.values()].map(tab => {
+			const fact: ResumeFact = {
+				tabId: tab.resumeId,
+				winId: 0,
+				peer: tab.peerId,
+				cwd: tab.sidecar.cwd,
+				kind: tab.sidecar.kind,
+				running: tab.run.running,
+				stopped: tab.stopped === true,
+				awaitingUi: tab.asks.size > 0,
+				awaitingConnection: tab.awaitingConnection === true,
+			};
+			if (tab.sessionFile) fact.sessionFile = tab.sessionFile;
+			if (tab.lastRun) fact.lastRun = tab.lastRun;
+			if (tab.retry) fact.retry = tab.retry;
+			return fact;
+		});
+	}
+
+	/** Hold or release the tab's turn for this computer's connection; the device shows the wait. */
+	setAwaitingConnection(id: string, awaiting: boolean): void {
+		const tab = this.#byResumeId(id);
+		if (!tab || (tab.awaitingConnection === true) === awaiting) return;
+		tab.awaitingConnection = awaiting;
+		this.#emit(tab, "awaitingConnection", awaiting);
+	}
+
+	/** Spawn a hosted tab's omp if it has not run yet (a revived tab); its sidecar, or null when it is gone. */
+	startTab(id: string): SidecarLike | null {
+		const tab = this.#byResumeId(id);
+		if (!tab) return null;
+		this.#start(tab);
+		return tab.sidecar;
+	}
+
+	noteStopped(id: string): void {
+		const tab = this.#byResumeId(id);
+		if (!tab) return;
+		tab.stopped = true;
+		this.#resume?.sync();
+	}
+
+	/** The tab this computer runs for `peerId` on `sessionPath`, if any. */
+	tabForSession(sessionPath: string, peerId: string): string | null {
+		for (const tab of this.#tabs.values())
+			if (tab.peerId === peerId && tab.sessionFile === sessionPath) return tab.resumeId;
+		return null;
+	}
+
+	/**
+	 * After a crash or quit: the tab a marker names, again, not yet started and waiting for its
+	 * device like a dropped connection's (grace period). The device's `tab.open` re-attaches it.
+	 * Null when the marker's id is not a tab of `peer`'s.
+	 */
+	reviveTab(peer: PeerInfo, marker: Pick<ResumeMarker, "tab" | "cwd" | "kind" | "sessionPath">): string | null {
+		const prefix = resumeId(peer.deviceId, "");
+		const rtab = marker.tab.startsWith(prefix) ? marker.tab.slice(prefix.length) : "";
+		if (!Rtab.safeParse(rtab).success) return null;
+		const existing = this.#tabs.get(this.#key(peer.deviceId, rtab));
+		if (existing) return existing.resumeId;
+		const tab = this.#createTab(peer, rtab, marker.cwd, marker.kind, false, marker.sessionPath, null);
+		this.#startGrace(tab);
+		return tab.resumeId;
+	}
+
 	async call(peer: PeerInfo, method: string, params: unknown, conn: HostConnection): Promise<unknown> {
 		this.#conns.add(conn);
 		switch (method) {
 			case "tab.open":
 				return this.#open(peer, parse(OpenParams, method, params), conn);
-			case "tab.start": {
-				const tab = this.#tab(peer, parse(RtabParams, method, params).rtab);
-				if (tab.sidecar.status !== "asleep") return null;
-				const resume = tab.resumeSessionPath;
-				tab.resumeSessionPath = undefined;
-				if (resume) tab.sidecar.restart(undefined, resume);
-				else tab.sidecar.start();
+			case "tab.start":
+				this.#start(this.#tab(peer, parse(RtabParams, method, params).rtab));
 				return null;
-			}
 			case "tab.restart": {
 				const { rtab, cwd, sessionPath } = parse(RestartParams, method, params);
 				const tab = this.#tab(peer, rtab);
@@ -297,9 +383,16 @@ export class LocalHostServices implements HostServices {
 				return this.#command(peer, parse(CommandParams, method, params));
 			case "tab.sideChannel": {
 				const { rtab, frame } = parse(SideChannelParams, method, params);
-				this.#tab(peer, rtab).sidecar.sendSideChannel(frame);
+				const tab = this.#tab(peer, rtab);
+				tab.sidecar.sendSideChannel(frame);
+				// The device answered an ask or approval: the turn no longer waits on a person.
+				if (frame.type === "extension_ui_response" && typeof frame.id === "string" && tab.asks.delete(frame.id))
+					this.#resume?.sync();
 				return null;
 			}
+			case "tab.cancelWait":
+				this.#resume?.cancelWait(this.#tab(peer, parse(RtabParams, method, params).rtab).resumeId);
+				return null;
 			case "tab.syncImageGeneration":
 				this.#tab(peer, parse(RtabParams, method, params).rtab).sidecar.syncImageGeneration();
 				return null;
@@ -456,12 +549,8 @@ export class LocalHostServices implements HostServices {
 		// Nobody is left to read the result.
 		void this.#deps.machine.abortBenchmark(benchCaller(peer.deviceId));
 		void this.#deps.machine.abortModelSetup(benchCaller(peer.deviceId));
-		for (const [key, tab] of this.#tabs) {
-			if (tab.peerId !== peer.deviceId || tab.conn !== conn) continue;
-			tab.conn = null;
-			tab.graceTimer = setTimeout(() => this.#closeTab(key), this.#graceMs);
-			tab.graceTimer.unref?.();
-		}
+		for (const tab of this.#tabs.values())
+			if (tab.peerId === peer.deviceId && tab.conn === conn) this.#startGrace(tab);
 	}
 
 	/** This machine's session index changed: tell every connected device (debounced). */
@@ -518,9 +607,31 @@ export class LocalHostServices implements HostServices {
 		return tab;
 	}
 
+	#byResumeId(id: string): HostTab | undefined {
+		for (const tab of this.#tabs.values()) if (tab.resumeId === id) return tab;
+		return undefined;
+	}
+
+	/** Spawn the tab's omp unless it already runs: on the session it was opened or revived with, else a new one. */
+	#start(tab: HostTab): void {
+		if (tab.sidecar.status !== "asleep") return;
+		const resume = tab.resumeSessionPath;
+		tab.resumeSessionPath = undefined;
+		if (resume) tab.sidecar.restart(undefined, resume);
+		else tab.sidecar.start();
+	}
+
+	/** The device is away: its tab keeps running for the grace period, then closes. */
+	#startGrace(tab: HostTab): void {
+		tab.conn = null;
+		clearTimeout(tab.graceTimer);
+		tab.graceTimer = setTimeout(() => this.#closeTab(this.#key(tab.peerId, tab.rtab)), this.#graceMs);
+		tab.graceTimer.unref?.();
+	}
+
 	async #open(peer: PeerInfo, params: z.infer<typeof OpenParams>, conn: HostConnection): Promise<TabOpenResult> {
 		const key = this.#key(peer.deviceId, params.rtab);
-		const existing = this.#tabs.get(key);
+		const existing = this.#tabs.get(key) ?? this.#adopt(peer, params, conn);
 		if (existing) {
 			clearTimeout(existing.graceTimer);
 			existing.graceTimer = undefined;
@@ -531,6 +642,8 @@ export class LocalHostServices implements HostServices {
 			const attached = existing.sidecar.status !== "asleep";
 			if (attached)
 				this.#emit(existing, "status", this.#statusArg(existing.sidecar, existing.sidecar.statusPayload));
+			// The device's waiting row may date from before it lost this computer.
+			this.#emit(existing, "awaitingConnection", existing.awaitingConnection === true);
 			return { cwd: existing.sidecar.cwd, kind: existing.sidecar.kind, attached };
 		}
 		if (!params.cwd) throw codedError("no_workspace", "No workspace");
@@ -540,25 +653,63 @@ export class LocalHostServices implements HostServices {
 		// A concurrent open for the same rtab may have finished while this one awaited.
 		const raced = this.#tabs.get(key);
 		if (raced) return this.#open(peer, params, conn);
-		const sidecar = this.#deps.createSidecar(cwd, kind, params.fresh === true, {
+		const tab = this.#createTab(peer, params.rtab, cwd, kind, params.fresh === true, params.sessionPath, conn);
+		this.#emit(tab, "awaitingConnection", false);
+		return { cwd: tab.sidecar.cwd, kind, attached: false };
+	}
+
+	/**
+	 * A relaunched device reopens its tabs under new rtabs, each with the session it showed. The
+	 * tab an earlier connection of that device left on the session (running out its grace period,
+	 * or revived after this computer restarted) is that tab: it is taken over under the new rtab,
+	 * so no second omp starts on the same session file.
+	 */
+	#adopt(peer: PeerInfo, params: z.infer<typeof OpenParams>, conn: HostConnection): HostTab | undefined {
+		if (!params.sessionPath) return undefined;
+		for (const [key, tab] of this.#tabs) {
+			if (tab.peerId !== peer.deviceId || tab.conn === conn || tab.sessionFile !== params.sessionPath) continue;
+			this.#tabs.delete(key);
+			// Terminals are owned by rtab; the device lost the old one with its previous launch.
+			disposeTerminals(terminalOwner(tab.peerId, tab.rtab));
+			tab.rtab = params.rtab;
+			this.#tabs.set(this.#key(peer.deviceId, params.rtab), tab);
+			return tab;
+		}
+		return undefined;
+	}
+
+	#createTab(
+		peer: PeerInfo,
+		rtab: string,
+		cwd: string,
+		kind: "agent" | "chat",
+		fresh: boolean,
+		sessionPath: string | undefined,
+		conn: HostConnection | null,
+	): HostTab {
+		const sidecar = this.#deps.createSidecar(cwd, kind, fresh, {
 			deviceId: peer.deviceId,
 			name: peer.name,
 			hostName: this.#deps.hostName(),
 		});
 		const tab: HostTab = {
 			peerId: peer.deviceId,
-			rtab: params.rtab,
+			rtab,
+			resumeId: resumeId(peer.deviceId, rtab),
 			sidecar,
 			conn,
-			resumeSessionPath: params.sessionPath,
-			sessionFile: params.sessionPath,
+			resumeSessionPath: sessionPath,
+			sessionFile: sessionPath,
 			graceTimer: undefined,
 			run: idleRun(),
+			asks: new Set(),
 		};
-		this.#tabs.set(key, tab);
-		this.#wire(tab);
+		this.#tabs.set(this.#key(peer.deviceId, rtab), tab);
+		// The resume rules first: a failure they turn into a connection wait reaches the device
+		// already waiting, so it never shows there as a failure first.
 		this.#trackRun(tab);
-		return { cwd: sidecar.cwd, kind, attached: false };
+		this.#wire(tab);
+		return tab;
 	}
 
 	#wire(tab: HostTab): void {
@@ -572,7 +723,9 @@ export class LocalHostServices implements HostServices {
 					break;
 				case "session":
 					sidecar.on(name, (identity: SidecarSessionIdentity) => {
+						const changed = tab.sessionFile !== identity.sessionFile;
 						tab.sessionFile = identity.sessionFile;
+						if (changed && tab.run.running) this.#resume?.sync();
 						this.#emit(tab, name, identity);
 					});
 					break;
@@ -581,42 +734,73 @@ export class LocalHostServices implements HostServices {
 						void serializeBridge(result).then(arg => this.#emit(tab, name, arg));
 					});
 					break;
+				case "awaitingConnection":
+					// Not the sidecar's: this computer's resume coordinator sets it (setAwaitingConnection).
+					break;
 				default:
 					sidecar.on(name, (arg: unknown) => this.#emit(tab, name, arg));
 			}
 		}
 	}
 
-	/** Keep `tab.run` current from the sidecar's own events; a busy flip notifies the listeners. */
+	/**
+	 * Keep `tab.run` and the resume facts current from the sidecar's own events: a busy flip
+	 * notifies the listeners, and every change the resume rules read reaches the coordinator.
+	 */
 	#trackRun(tab: HostTab): void {
 		const { sidecar } = tab;
-		const change = (apply: () => void): void => {
+		/** `apply` says whether it changed a resume fact beyond busy (a run's end, a retry, an ask). */
+		const change = (apply: () => boolean): void => {
 			const was = runBusy(tab.run);
-			apply();
-			if (runBusy(tab.run) !== was) {
+			const news = apply();
+			const busyChanged = runBusy(tab.run) !== was;
+			if (busyChanged) {
 				this.#runningChanged();
 				this.#scheduleOmpRestart(tab);
 			}
+			if (busyChanged || news) this.#resume?.sync();
 		};
-		// "Running" only means something on a live connection: a restart or crash ends the run.
+		// "Running" only means something on a live connection: a restart or crash ends the run,
+		// and the asks it had open: the next process never heard of them.
 		sidecar.on("status", (payload: SidecarStatusPayload) => {
 			if (payload.status !== "ready")
 				change(() => {
 					tab.run = idleRun();
+					const asked = tab.asks.size > 0;
+					tab.asks.clear();
+					return asked;
 				});
 		});
 		sidecar.on("promptResult", (frame: PromptResultFrame) => {
 			const settled = frame.sessionSettled;
-			if (typeof settled === "boolean") change(() => settleRun(tab.run, settled));
+			if (typeof settled === "boolean")
+				change(() => {
+					settleRun(tab.run, settled);
+					return false;
+				});
 		});
-		sidecar.on("sessionSettled", () => change(() => settleRun(tab.run, true)));
+		sidecar.on("sessionSettled", () =>
+			change(() => {
+				settleRun(tab.run, true);
+				return false;
+			}),
+		);
 		sidecar.on("events", (events: AgentSessionEvent[]) => {
 			change(() => {
-				for (const event of events) applyRunEvent(tab.run, event);
+				// A fast turn can start and end inside one batch: busy never changes, yet its outcome is news.
+				let news = false;
+				for (const event of events) if (trackRunEvent(tab, event) || event.type === "auto_retry_start") news = true;
+				return news;
 			});
 			let tokens = 0;
 			for (const event of events) tokens += assistantTokens(event);
 			if (tokens > 0) this.#quota?.record(tab.peerId, { tokens });
+		});
+		sidecar.on("extensionUi", (request: ExtensionUIRequest) => {
+			const asks = BLOCKING_UI_METHODS[request.method] === true;
+			if (asks) tab.asks.add(request.id);
+			// omp withdrew the request (timeout, abort): no answer will follow.
+			if (asks || (request.method === "cancel" && tab.asks.delete(request.targetId))) this.#resume?.sync();
 		});
 	}
 
@@ -671,6 +855,8 @@ export class LocalHostServices implements HostServices {
 		// The client device forwards its renderer's RpcCommand verbatim; omp and
 		// the local handlers validate the command itself.
 		const command = params.command as unknown as RpcCommand;
+		// The user's Stop: nothing continues this turn after a crash (ipc.ts does the same for a local tab).
+		if (STOP_COMMANDS[command.type]) this.noteStopped(tab.resumeId);
 		const response = commandUsesModel(command)
 			? await this.#metered(
 					peer.deviceId,
@@ -761,11 +947,17 @@ export class LocalHostServices implements HostServices {
 		tab.sidecar.dispose();
 		disposeTerminals(terminalOwner(tab.peerId, tab.rtab));
 		if (runBusy(tab.run)) this.#runningChanged();
+		this.#resume?.sync();
 	}
 }
 
 /** Terminal owner of a paired device's tab here; local windows use `<webContentsId>:<tabId>`. */
 function terminalOwner(deviceId: string, rtab: string): string {
+	return `peer:${deviceId}:${rtab}`;
+}
+
+/** A hosted tab's id for this computer's resume coordinator, beside the local tabs' ids (its first rtab). */
+function resumeId(deviceId: string, rtab: string): string {
 	return `peer:${deviceId}:${rtab}`;
 }
 

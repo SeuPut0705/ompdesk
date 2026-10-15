@@ -51,7 +51,11 @@ import type {
 import type { ModelSetupStatus } from "../../shared/model-setup";
 import { OMP_UPDATE_FAILURE_REASONS, type OmpUpdateState } from "../../shared/omp-update";
 
-/** SidecarManager events a host forwards for a remote tab; everything else stays on the host. */
+/**
+ * Events a host sends for a remote tab: the SidecarManager events it forwards (everything else
+ * stays on the host), plus `awaitingConnection` (boolean): the host holds the tab's turn until
+ * its own internet connection is back (turn-resume.ts); re-sent on every `tab.open`.
+ */
 export const TAB_EVENT_NAMES = [
 	"status",
 	"events",
@@ -71,6 +75,7 @@ export const TAB_EVENT_NAMES = [
 	"extensionError",
 	"session",
 	"bridge",
+	"awaitingConnection",
 ] as const;
 
 export type TabEventName = (typeof TAB_EVENT_NAMES)[number];

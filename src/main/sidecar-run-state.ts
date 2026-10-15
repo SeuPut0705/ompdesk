@@ -1,9 +1,11 @@
 /**
  * A tab's turn state, read from its sidecar's events. The local pool and the
  * tabs this machine hosts for paired devices share it, so "running" means the
- * same thing on every machine.
+ * same thing on every machine, and both report the same facts to their
+ * computer's resume coordinator (turn-resume.ts).
  */
-import type { AgentSessionEvent } from "../shared/rpc-types";
+import type { IpcTabRunOutcome } from "../shared/ipc-types";
+import type { AgentMessage, AgentSessionEvent } from "../shared/rpc-types";
 
 export interface RunState {
 	/** agent_start seen, its run not yet over. */
@@ -71,4 +73,58 @@ export function applyRunEvent(run: RunState, event: AgentSessionEvent): boolean 
 		default:
 			return false;
 	}
+}
+
+/** A tab's run state plus what the resume rules read from it (turn-resume.ts `ResumeFact`). */
+export interface RunTracking {
+	run: RunState;
+	/** How the last finished run ended; cleared when the next run starts. */
+	lastRun?: IpcTabRunOutcome;
+	/** The user pressed Stop since the run began: a relaunch must not resume it. Cleared by the next agent_start. */
+	stopped?: boolean;
+	/** Stock's auto-retry waiting for its next attempt: set by `auto_retry_start`, cleared by its end or a new run. */
+	retry?: { errorMessage: string };
+}
+
+/** {@link applyRunEvent} plus the run's outcome, Stop and pending auto-retry; true when it ended the run's last attempt. */
+export function trackRunEvent(tab: RunTracking, event: AgentSessionEvent): boolean {
+	const ended = applyRunEvent(tab.run, event);
+	if (event.type === "agent_start") {
+		tab.lastRun = undefined;
+		tab.stopped = false;
+		tab.retry = undefined;
+	} else if (event.type === "auto_retry_start") {
+		// News for the resume rules: offline, the wait takes stock's retry over (turn-resume.ts).
+		tab.retry = { errorMessage: event.errorMessage };
+	} else if (ended && event.type === "agent_end") {
+		if (event.isTerminal !== false) tab.lastRun = runOutcome(event.messages);
+	} else if (event.type === "auto_retry_end") {
+		tab.retry = undefined;
+		if (ended) tab.lastRun = { stopReason: "error", errorMessage: event.finalError };
+	}
+	return ended;
+}
+
+/**
+ * Characters of a finished reply's text kept for the completion banner, which reads only
+ * its opening prose (renderer `notificationSummary`, 160 characters after Markdown and code
+ * are dropped); the cap keeps a long reply out of every later TAB_STATUS.
+ */
+const RUN_REPLY_PREVIEW_CHARS = 4000;
+
+/** A finished run's outcome, read from agent_end's own messages (the last assistant reply). */
+function runOutcome(messages: AgentMessage[] | undefined): IpcTabRunOutcome {
+	const last = messages?.findLast(message => message.role === "assistant");
+	const stopReason = typeof last?.stopReason === "string" ? last.stopReason : "stop";
+	if (typeof last?.errorMessage === "string" && last.errorMessage)
+		return { stopReason, errorMessage: last.errorMessage };
+	const content = last?.content;
+	const text = (
+		typeof content === "string"
+			? content
+			: Array.isArray(content)
+				? content.flatMap(part => (part.type === "text" ? [part.text] : [])).join("\n")
+				: ""
+	).trim();
+	return text ? { stopReason, reply: text.slice(0, RUN_REPLY_PREVIEW_CHARS) } : { stopReason };
 }

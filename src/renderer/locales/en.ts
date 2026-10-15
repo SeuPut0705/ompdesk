@@ -2088,6 +2088,8 @@ export const en: Record<string, string> = {
 	"settings.gui.resumeInterruptedDesc":
 		"A turn that was running when OMPdesk quit, crashed or restarted for an update picks up where it stopped the next time OMPdesk opens. Turns you stopped stay stopped.",
 	"chat.connectionWait": "Waiting for the internet connection…",
+	"chat.connectionWaitHost": "Waiting for {device}'s internet connection…",
+	"chat.connectionWaitCancelFailed": "Couldn't cancel the wait",
 	"settings.gui.thinkingExpanded": "Expand reasoning by default",
 	"settings.gui.thinkingExpandedDesc":
 		"Show the model's reasoning trace without clicking each block; blocks can still be collapsed individually.",
@@ -3409,6 +3411,7 @@ export const en: Record<string, string> = {
 	"fileViewer.openDefault": "Open with default app",
 	"fileViewer.tooLarge": "This file is too large to preview here ({size}).",
 	"fileViewer.tooLargeDetail": "Open it with its default app instead.",
+	"fileViewer.tooLargeRemoteDetail": "It's on {device}. Open it there.",
 	"fileViewer.truncated": "Showing the first {shown} of {size}.",
 	"fileViewer.loadMore": "Load more",
 	"fileViewer.wrap": "Wrap lines",
@@ -4724,6 +4727,8 @@ export const en: Record<string, string> = {
 	"about.openRepo": "Open on GitHub",
 	"about.starFailed": "Couldn't star the repository",
 	"updates.core.description": "The omp CLI installed on this system, which OMPdesk runs for every session.",
+	"updates.core.hostDescription":
+		"The omp CLI installed on {device}, which runs every session this device opens there.",
 	"updates.core.checkFailed": "Couldn't check the omp version. Try again.",
 	"updates.core.update": "Update omp",
 	"updates.core.updating": "Updating…",

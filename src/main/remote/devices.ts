@@ -27,6 +27,7 @@ import {
 	type RemoteState,
 } from "../../shared/ipc-types";
 import type { OmpUpdateState } from "../../shared/omp-update";
+import type { ResumeMarker } from "../turn-resume";
 import {
 	OMP_UPDATE_EVENT,
 	OmpUpdateStateSchema,
@@ -299,6 +300,17 @@ export class RemoteDevices {
 				throw codedError(error.code, error.message);
 			throw new Error(error.message);
 		}
+	}
+
+	/**
+	 * A turn this computer ran for a paired device when it last crashed or quit (turn-resume.ts):
+	 * its tab again, waiting for the device to reconnect. Null while hosting is off or the
+	 * device is no longer paired.
+	 */
+	reviveHostTab(deviceId: string, marker: ResumeMarker): string | null {
+		if (this.#deps.prefs.get(HOST_ENABLED_KEY) !== true) return null;
+		const peer = this.#peers.get(deviceId);
+		return peer ? this.#deps.services.reviveTab(peer, marker) : null;
 	}
 
 	/** A tab on a paired host; throws `remote_unknown_device` when the host is not paired. */

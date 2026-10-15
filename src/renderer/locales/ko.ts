@@ -2072,6 +2072,8 @@ export const ko: Record<string, string> = {
 	"settings.gui.resumeInterruptedDesc":
 		"OMPdesk를 종료했거나, 비정상 종료됐거나, 업데이트로 다시 시작했을 때 실행 중이던 턴이 다음에 열 때 멈춘 곳에서 이어져요. 직접 멈춘 턴은 그대로 멈춰 있어요.",
 	"chat.connectionWait": "인터넷 연결을 기다리는 중이에요…",
+	"chat.connectionWaitHost": "{device}의 인터넷 연결을 기다리는 중이에요…",
+	"chat.connectionWaitCancelFailed": "대기를 취소하지 못했어요",
 	"settings.gui.thinkingExpanded": "사고 과정 기본으로 펼치기",
 	"settings.gui.thinkingExpandedDesc":
 		"블록을 하나씩 클릭하지 않아도 모델의 사고 과정을 보여줘요. 블록은 하나씩 접을 수 있어요.",
@@ -3394,6 +3396,7 @@ export const ko: Record<string, string> = {
 	"fileViewer.openDefault": "기본 앱으로 열기",
 	"fileViewer.tooLarge": "파일이 너무 커서 여기서 미리 볼 수 없어요 ({size}).",
 	"fileViewer.tooLargeDetail": "기본 앱으로 열어 주세요.",
+	"fileViewer.tooLargeRemoteDetail": "{device}에 있는 파일이에요. 그 기기에서 열어 주세요.",
 	"fileViewer.truncated": "{size} 중 앞부분 {shown}만 보여 주고 있어요.",
 	"fileViewer.loadMore": "더 불러오기",
 	"fileViewer.wrap": "줄 바꿈",
@@ -4711,6 +4714,7 @@ export const ko: Record<string, string> = {
 	"about.openRepo": "GitHub에서 열기",
 	"about.starFailed": "저장소에 별을 누르지 못했어요",
 	"updates.core.description": "이 시스템에 설치된 omp CLI로, OMPdesk가 모든 세션에서 실행해요.",
+	"updates.core.hostDescription": "{device}에 설치된 omp CLI로, 이 기기가 그곳에서 여는 모든 세션을 실행해요.",
 	"updates.core.checkFailed": "omp 버전을 확인하지 못했어요. 다시 시도하세요.",
 	"updates.core.update": "omp 업데이트",
 	"updates.core.updating": "업데이트 중…",

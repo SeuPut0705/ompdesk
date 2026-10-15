@@ -2,10 +2,13 @@ import { parseHTML } from "linkedom";
 import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { RemoteState } from "../../../shared/ipc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
+import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
+import { useToastStore } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -131,5 +134,38 @@ describe("TurnStatusRow", () => {
 		await act(async () => cancel?.click());
 		expect(cancelWait).toHaveBeenCalledWith("t1");
 		useTabsStore.setState({ activeTabId: null, tabs: [] });
+	});
+
+	it("a paired host's tab names the host whose connection it waits for, and a refused Cancel says so", async () => {
+		const cancelWait = vi.fn(async () => {
+			throw new Error("[remote_offline] The device running this tab is offline");
+		});
+		Object.assign(window, { omp: { resume: { cancelWait } } });
+		useRemoteStore.setState({
+			state: { hosts: [{ deviceId: "host-b", name: "Studio", state: "online" }] } as unknown as RemoteState,
+		});
+		useTabsStore.setState({
+			activeTabId: "t1",
+			tabs: [
+				{
+					id: "t1",
+					cwd: "/work",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					awaitingConnection: true,
+					device: "host-b",
+				},
+			],
+		});
+		await mount(<TurnStatusRow />);
+
+		const row = container.querySelector("[data-connection-wait]");
+		expect(row?.querySelector('[role="status"]')?.textContent).toBe("Waiting for Studio's internet connection…");
+		await act(async () => container.querySelector("button")?.click());
+		expect(cancelWait).toHaveBeenCalledWith("t1");
+		expect(useToastStore.getState().toasts.at(-1)?.title).toBe("Couldn't cancel the wait");
+		useTabsStore.setState({ activeTabId: null, tabs: [] });
+		useRemoteStore.getState().reset();
 	});
 });

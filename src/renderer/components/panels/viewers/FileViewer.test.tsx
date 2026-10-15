@@ -9,9 +9,17 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { tinyPptx, tinyXlsx } from "../../../../../e2e/file-viewer-fixtures";
-import type { IpcFsMediaStreamResult, IpcFsReadBinaryResult, IpcFsReadResult } from "../../../../shared/ipc-types";
+import type {
+	IpcFsMediaStreamResult,
+	IpcFsReadBinaryResult,
+	IpcFsReadResult,
+	RemoteState,
+} from "../../../../shared/ipc-types";
 import { loadHljs } from "../../../lib/highlight";
 import { I18nProvider } from "../../../lib/i18n";
+import { useRemoteStore } from "../../../stores/remote";
+import { setFocusedSessionRuntime } from "../../../stores/session-runtime-context";
+import { useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
 import { FileViewer } from "./FileViewer";
 import { fileIconKind, viewerKind } from "./file-kind";
@@ -405,6 +413,40 @@ describe("binary fallback", () => {
 		await mount(view("movie.mp4"));
 		expect(container.querySelector("[data-viewer-fallback]")?.textContent).toContain("too large to preview");
 		expect(container.querySelector("video")).toBeNull();
+	});
+
+	it("offers no open on this computer for a paired host's file: it names the host instead", async () => {
+		installFs({
+			mediaStream: async () => ({ ok: false, error: "remote", code: "remote_path_native" }),
+			readBinary: async () => ({
+				ok: false,
+				data: new Uint8Array(),
+				mime: "video/mp4",
+				size: 300 * 1024 * 1024,
+				truncated: false,
+				code: "file_too_large",
+				error: "too large",
+			}),
+		});
+		useRemoteStore.setState({
+			state: { hosts: [{ deviceId: "host-b", name: "Studio", state: "online" }] } as unknown as RemoteState,
+		});
+		useTabsStore.setState({
+			activeTabId: "t1",
+			tabs: [{ id: "t1", cwd: "/work", status: "ready", kind: "agent", unreadDone: false, device: "host-b" }],
+		});
+		setFocusedSessionRuntime("t1");
+		try {
+			await mount(view("movie.mp4"));
+			const card = container.querySelector("[data-viewer-fallback]");
+			expect(card?.textContent).toContain("It's on Studio. Open it there.");
+			expect(card?.textContent).not.toContain("Open with default app");
+			expect(card?.querySelector("a, button")).toBeNull();
+		} finally {
+			setFocusedSessionRuntime(null);
+			useTabsStore.setState({ activeTabId: null, tabs: [] });
+			useRemoteStore.getState().reset();
+		}
 	});
 });
 

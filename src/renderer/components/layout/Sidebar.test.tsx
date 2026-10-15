@@ -1486,6 +1486,56 @@ describe("Sidebar device sections", () => {
 		expect(omp.sessions.list).not.toHaveBeenCalledWith("global", "dev-studio");
 		expect(section?.querySelector('[data-sidebar-device-add="dev-studio"]')?.getAttribute("disabled")).not.toBeNull();
 	});
+
+	it("marks a host's session that is a pane of the split on screen, and drags it into a split", async () => {
+		installWithRemote();
+		seedStores();
+		const remotePath = "/Users/kim/.omp/agent/sessions/app/one.jsonl";
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false },
+				{
+					id: "tr",
+					cwd: "/Users/kim/code/app",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					device: "dev-studio",
+					sessionPath: remotePath,
+				},
+			],
+			activeTabId: "t0",
+			split: { axis: "columns", ratio: 0.5, first: { tabId: "t0" }, second: { tabId: "tr" } },
+		});
+		pairHost("online");
+		await mount(<Sidebar />);
+
+		const row = () => container.querySelector(`[data-device-session="${remotePath}"]`);
+		expect(row()?.getAttribute("data-active")).toBe("true");
+		expect(row()?.getAttribute("data-pane-focus")).toBeNull();
+		expect(row()?.getAttribute("draggable")).toBe("true");
+
+		const dispatched: Event[] = [];
+		const target = window as unknown as { dispatchEvent: (event: Event) => boolean };
+		const original = target.dispatchEvent;
+		target.dispatchEvent = event => dispatched.push(event) > 0;
+		const record = row() as unknown as Record<string, unknown>;
+		const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+		const props = propsKey ? (record[propsKey] as Record<string, (event: unknown) => void>) : {};
+		props.onDragStart?.({ dataTransfer: { effectAllowed: "", setDragImage() {} } });
+		props.onDragEnd?.({});
+		const drags = dispatched.map(event => [event.type, (event as CustomEvent).detail]);
+		target.dispatchEvent = original;
+		expect(drags).toEqual([
+			["omp:tab-drag", { tabId: "tr" }],
+			["omp:tab-drag", { tabId: null }],
+		]);
+
+		// Focused, the pane gets the cue and is no longer draggable onto itself.
+		await act(async () => useTabsStore.setState({ activeTabId: "tr" }));
+		expect(row()?.getAttribute("data-pane-focus")).toBe("true");
+		expect(row()?.getAttribute("draggable")).toBe("false");
+	});
 });
 
 describe("Sidebar archive, grouping and move", () => {

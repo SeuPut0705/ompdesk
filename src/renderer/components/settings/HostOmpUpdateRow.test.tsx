@@ -8,10 +8,11 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { IpcHostOmpUpdate } from "../../../shared/ipc-types";
+import type { IpcHostOmpUpdate, RemoteState } from "../../../shared/ipc-types";
 import type { OmpUpdateState } from "../../../shared/omp-update";
 import type { RpcOmpUpdateResult } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
+import { useRemoteStore } from "../../stores/remote";
 import { useToastStore } from "../../stores/toast";
 import { HostOmpUpdateRow } from "./UpdatesSection";
 
@@ -165,5 +166,15 @@ describe("HostOmpUpdateRow", () => {
 		const toast = useToastStore.getState().toasts.at(-1);
 		expect(toast?.title).toBe(translate("updates.core.updateFailed"));
 		expect(JSON.stringify(toast)).toContain(translate("ipcError.remote_offline"));
+	});
+
+	it("says the omp it updates is the host's, by name, not this computer's", async () => {
+		useRemoteStore.setState({
+			state: { hosts: [{ deviceId: "dev-studio", name: "Studio", state: "online" }] } as unknown as RemoteState,
+		});
+		await mount();
+		expect(document.body.textContent).toContain(translate("updates.core.hostDescription", { device: "Studio" }));
+		expect(document.body.textContent).not.toContain(translate("updates.core.description"));
+		useRemoteStore.getState().reset();
 	});
 });

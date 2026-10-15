@@ -186,10 +186,14 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	restart(cwd?: string, resumeSessionPath?: string): void {
 		if (this.#disposed) return;
 		if (cwd) this.#cwd = cwd;
+		// Never brought up (the pool starts a restored tab this way): like a SidecarManager before its
+		// first spawn, this is a start on that session. `tab.open` carries it; a host still running the
+		// session for this device (a relaunched device's takeover) keeps its omp and turn going.
+		const firstStart = this.#status === "asleep";
 		this.#wanted = true;
 		this.#resume = resumeSessionPath ?? null;
 		this.#setStatus("starting", {});
-		void this.#bringUp({ cwd, sessionPath: resumeSessionPath });
+		void this.#bringUp(firstStart ? null : { cwd, sessionPath: resumeSessionPath });
 	}
 
 	adoptCwd(cwd: string): boolean {
@@ -208,6 +212,18 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		}
 		if (!isReplayable(frame)) throw codedError("remote_offline", OFFLINE_TEXT);
 		this.#queueReply(frame);
+	}
+
+	/** The host holds this tab's connection wait: the user's Cancel goes there. */
+	async cancelHostWait(): Promise<void> {
+		if (this.#link.state !== "online") throw codedError("remote_offline", OFFLINE_TEXT);
+		try {
+			await this.#open();
+			await this.#link.request("tab.cancelWait", { rtab: this.#rtab });
+		} catch (error) {
+			if (isOfflineError(error)) throw codedError("remote_offline", OFFLINE_TEXT);
+			throw error;
+		}
 	}
 
 	syncImageGeneration(): void {
@@ -259,6 +275,9 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 				if (parsed.success) this.emit("bridge", bridgeResult(parsed.data));
 				return;
 			}
+			case "awaitingConnection":
+				if (typeof message.arg === "boolean") this.emit("awaitingConnection", message.arg);
+				return;
 			default:
 				this.emit(message.name, message.arg);
 		}

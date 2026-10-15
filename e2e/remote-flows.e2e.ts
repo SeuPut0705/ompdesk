@@ -424,7 +424,10 @@ for (const language of ["en", "ko"] as const)
 					await capture(a, `${language}-${theme}-model-roles-host`);
 
 					await openSection("updates");
-					const ompRow = settings.locator("[data-setting-row]").filter({ hasText: t("updates.core.description") });
+					// D6: the host's omp row says whose omp it is.
+					const ompRow = settings
+						.locator("[data-setting-row]")
+						.filter({ hasText: t("updates.core.hostDescription", { device: "Host B" }) });
 					await expect(ompRow.locator(`[data-device-chip="${deviceId}"]`)).toBeVisible();
 					await expect(ompRow).toContainText("18.12.0", { timeout: 30_000 });
 					await expect(ompRow).toContainText("18.13.0");

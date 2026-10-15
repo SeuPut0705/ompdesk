@@ -239,6 +239,7 @@ function FilePreview({
 	keepArm: { current: string | null };
 }) {
 	const t = useT();
+	const remote = useTabsStore(s => Boolean(s.tabs.find(tab => tab.id === tabId)?.device));
 	const closeFilePreview = useUiStore(s => s.closeFilePreview);
 	const expanded = useUiStore(s => s.filePreviewExpanded);
 	const toggleExpanded = useUiStore(s => s.toggleFilePreviewExpanded);
@@ -403,7 +404,8 @@ function FilePreview({
 								size="sm"
 							/>
 						)}
-						{EXECUTABLE.test(path) ? (
+						{/* A paired host's file: this computer's apps can't open it there (viewer-chrome.tsx). */}
+						{remote ? null : EXECUTABLE.test(path) ? (
 							<IconButton
 								icon={<ExternalLinkIcon />}
 								label={t("filesPanel.openExternal")}

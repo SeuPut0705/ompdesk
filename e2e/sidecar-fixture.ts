@@ -517,6 +517,10 @@ if (process.argv[2] === "stats") {
 		const header = loadJournal(flags["--session"]);
 		resumed = { id: header.id ?? sessionId, file: flags["--session"] };
 		sessionTitle = header.title ?? "";
+		// Stock `/retry` reads the failed reply from the session, not from process memory: an omp
+		// started on a session whose last reply lost the connection still retries it.
+		const last = [...entries].reverse().find(entry => entry.type === "message")?.message as AgentMessage | undefined;
+		networkFailed = last?.role === "assistant" && /fetch failed/.test(last.errorMessage ?? "");
 	}
 	/** Stock `/btw` history, newest first. */
 	const btwRecords: object[] = [];

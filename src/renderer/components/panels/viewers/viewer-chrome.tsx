@@ -9,6 +9,7 @@ import { createContext, type ReactNode, useContext, useEffect } from "react";
 import type { InlineFailure } from "../../../lib/error-detail";
 import { formatBytes } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { useFocusedTabDevice, useHostView } from "../../../stores/remote";
 import { Button, IconButton, InlineNotice, Spinner } from "../../common";
 import { PathLink } from "../../tools/PathLink";
 
@@ -37,31 +38,45 @@ export function ViewerFailure({ failure }: { failure: InlineFailure }) {
 	return <InlineNotice className="p-4" detail={failure.cause} live title={failure.message} tone="danger" />;
 }
 
-/** A file this view can't show: too large, or a format with no in-app viewer. */
+/**
+ * A file this view can't show: too large, or a format with no in-app viewer. On a paired host's tab
+ * the file is on the host and this computer's default app can't reach it, so no open action is
+ * offered: "too large" there means over the link's one-frame read cap (FS_BINARY_REMOTE_MAX_BYTES),
+ * so it could not be fetched either, and a local copy of any other file would not save back.
+ */
 export function ViewerFallbackCard({ path, title, detail }: { path: string; title: string; detail?: ReactNode }) {
 	const t = useT();
+	const remote = useFocusedTabDevice() !== undefined;
 	return (
 		<div className="m-3 rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-4" data-viewer-fallback>
 			<p className="text-sc-sm break-words text-(--sc-text)">{title}</p>
 			{detail && <p className="mt-1 text-sc-xs break-words text-(--sc-text-muted)">{detail}</p>}
-			<PathLink
-				path={path}
-				className="mt-3 inline-flex min-h-(--sc-control-sm) items-center gap-1.5 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-2 py-1 text-sc-xs text-(--sc-text) hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
-			>
-				<ExternalLinkIcon className="size-(--sc-icon-sm)" />
-				<span>{t("fileViewer.openDefault")}</span>
-			</PathLink>
+			{!remote && (
+				<PathLink
+					path={path}
+					className="mt-3 inline-flex min-h-(--sc-control-sm) items-center gap-1.5 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-2 py-1 text-sc-xs text-(--sc-text) hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
+				>
+					<ExternalLinkIcon className="size-(--sc-icon-sm)" />
+					<span>{t("fileViewer.openDefault")}</span>
+				</PathLink>
+			)}
 		</div>
 	);
 }
 
 export function ViewerTooLarge({ path, size }: { path: string; size: number }) {
 	const t = useT();
+	const device = useFocusedTabDevice();
+	const host = useHostView(device);
 	return (
 		<ViewerFallbackCard
 			path={path}
 			title={t("fileViewer.tooLarge", { size: formatBytes(size) })}
-			detail={t("fileViewer.tooLargeDetail")}
+			detail={
+				device === undefined
+					? t("fileViewer.tooLargeDetail")
+					: t("fileViewer.tooLargeRemoteDetail", { device: host?.name ?? t("remote.tab.unknownDevice") })
+			}
 		/>
 	);
 }

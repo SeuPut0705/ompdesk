@@ -10,7 +10,9 @@
 import { ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, MessageCircle, Monitor, Plus } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import type { HostView, SessionInfo, SessionKind } from "../../../shared/ipc-types";
+import { splitTabIds } from "../../../shared/split-layout";
 import { useSessionList } from "../../hooks/use-session-list";
+import { hideNativeDragImage } from "../../lib/drag-image";
 import { basename, cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { sessionDisplayTitle, sessionHasContent } from "../../lib/session-title";
@@ -156,6 +158,8 @@ function DeviceSessions({
 	const allTabs = useTabsStore(state => state.tabs);
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const destination = useUiStore(state => state.destination);
+	const split = useTabsStore(state => state.split);
+	const splitIds = useMemo(() => (split ? new Set(splitTabIds(split)) : null), [split]);
 	const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 	const hostTabs = useMemo(() => allTabs.filter(tab => tab.device === host.deviceId), [allTabs, host.deviceId]);
 
@@ -229,6 +233,9 @@ function DeviceSessions({
 		const tab = tabFor(session);
 		const signal = tab ? tabSignalPresentation(tab) : null;
 		const current = tab !== undefined && tab.id === activeTabId;
+		// Every pane of the split on screen reads as selected, like the local list (Sidebar.tsx); the focused one adds data-pane-focus.
+		const inVisibleSplit = !current && tab !== undefined && splitIds?.has(tab.id) === true;
+		const active = (current || inVisibleSplit) && destination === "session";
 		const indexed = session.liveTabId === undefined;
 		const title = sessionDisplayTitle(session, indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
 		const leading: ReactNode = signal?.running ? (
@@ -239,7 +246,9 @@ function DeviceSessions({
 			<MessageCircle aria-hidden />
 		) : (
 			<span aria-hidden className="flex size-(--sc-icon-md) items-center justify-center">
-				{tab && !current && <span className="size-1.5 rounded-(--sc-radius-full) bg-(--sc-text-subtle)" />}
+				{tab && !current && !inVisibleSplit && (
+					<span className="size-1.5 rounded-(--sc-radius-full) bg-(--sc-text-subtle)" />
+				)}
 			</span>
 		);
 		return (
@@ -257,12 +266,22 @@ function DeviceSessions({
 				}
 				onClick={() => openSession(session)}
 				rowProps={{
+					// Dragged onto a session pane, the open tab joins the split there (SplitWorkspace takes `omp:tab-drag`).
+					draggable: tab !== undefined && !current,
+					onDragStart: event => {
+						if (!tab) return;
+						event.dataTransfer.effectAllowed = "move";
+						hideNativeDragImage(event.dataTransfer);
+						window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: tab.id } }));
+					},
+					onDragEnd: () => window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: null } })),
 					"data-device-session": session.path,
-					"data-active": current && destination === "session",
+					"data-active": active,
 					"data-current": current || undefined,
+					"data-pane-focus": (current && splitIds !== null) || undefined,
 					"data-live": indexed ? undefined : true,
 				}}
-				selected={current && destination === "session"}
+				selected={active}
 				title={
 					<>
 						{title}

@@ -778,7 +778,22 @@ app.whenReady().then(() => {
 	let resumeNotice: number | null = null;
 	const turnResume = new TurnResume({
 		store: new InterruptedTurnStore(join(app.getPath("userData"), "interrupted-turns.json")),
-		pool: sidecarPool,
+		// This computer's own tabs and the ones it runs for paired devices (host-services.ts): the host
+		// owns those turns, so their markers, waits and continuations are this computer's.
+		pool: {
+			resumeFacts: () => [...sidecarPool.resumeFacts(), ...hostServices.resumeFacts()],
+			setAwaitingConnection: (tabId, awaiting) => {
+				sidecarPool.setAwaitingConnection(tabId, awaiting);
+				hostServices.setAwaitingConnection(tabId, awaiting);
+			},
+			startTab: tabId => sidecarPool.startTab(tabId) ?? hostServices.startTab(tabId),
+			tabForSession: (sessionPath, peer) =>
+				peer ? hostServices.tabForSession(sessionPath, peer) : sidecarPool.tabForSession(sessionPath),
+			noteStopped: tabId => {
+				sidecarPool.noteStopped(tabId);
+				hostServices.noteStopped(tabId);
+			},
+		},
 		network: {
 			get online() {
 				return connectivity.online;
@@ -790,6 +805,7 @@ app.whenReady().then(() => {
 		frozen: () => quitApproved(),
 		now: Date.now,
 		openTab: marker => {
+			if (marker.peer) return devices.reviveHostTab(marker.peer, marker);
 			const win = windowManager.getMainWindow();
 			if (!win) return null;
 			const sidecar = sidecarPool.acquire(marker.cwd, win, undefined, marker.sessionPath, marker.kind);
@@ -810,8 +826,12 @@ app.whenReady().then(() => {
 			stop: mainT("resume.stop"),
 		};
 	});
-	ipcMain.handle(IPC_COMMANDS.RESUME_CANCEL_WAIT, (_event, tabId: unknown) => {
-		if (typeof tabId === "string") turnResume.cancelWait(tabId);
+	ipcMain.handle(IPC_COMMANDS.RESUME_CANCEL_WAIT, async (_event, tabId: unknown) => {
+		if (typeof tabId !== "string") return;
+		// A paired host's tab: the host holds the wait, judged by its own connection.
+		const sidecar = sidecarPool.sidecarOf(tabId);
+		if (sidecar?.cancelHostWait) await sidecar.cancelHostWait();
+		else turnResume.cancelWait(tabId);
 	});
 	ipcMain.handle(IPC_COMMANDS.RESUME_STOP, () => turnResume.stopResumed());
 	ipcMain.on(IPC_COMMANDS.CONNECTIVITY_REPORT, (_event, online: unknown) => {
@@ -826,6 +846,7 @@ app.whenReady().then(() => {
 		syncWorkAwake();
 		turnResume.sync();
 	};
+	hostServices.attachResume(turnResume);
 	// Settings › Projects & launch › Worktrees: stock `omp worktree clear` (orphaned only) on a timer.
 	const autoClean = new AgentWorktreeAutoClean({
 		enabled: () => prefs.get(WORKTREE_AUTO_CLEAN_PREF) === true,

@@ -1650,6 +1650,25 @@ describe("SidecarPool background tabs", () => {
 			expect(sidecars[0]?.status).not.toBe("asleep");
 			expect(pool.startTab("missing")).toBeNull();
 		});
+
+		it("shows the wait a paired host holds for its tab (the host's `awaitingConnection` event)", () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			const a = sidecars[0];
+			a?.emitStatus("ready");
+			a?.emit("awaitingConnection", true);
+			expect(pool.resumeFacts()[0]?.awaitingConnection).toBe(true);
+			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({
+				tabId: "tab-a",
+				awaitingConnection: true,
+			});
+			// The link dropping does not end the host's wait.
+			a?.emitStatus("error");
+			expect(pool.resumeFacts()[0]?.awaitingConnection).toBe(true);
+			a?.emit("awaitingConnection", false);
+			expect(pool.resumeFacts()[0]?.awaitingConnection).toBe(false);
+		});
 	});
 
 	it("tracks the session a get_state reports in one push, so a later session_info_update is no change", () => {

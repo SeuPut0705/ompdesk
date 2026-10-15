@@ -20,7 +20,7 @@ import type { RpcDoctorCheck, RpcOmpUpdateResult, RpcPluginDoctorResult } from "
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { useFocusedHost } from "../../stores/remote";
+import { useFocusedHost, useHostView } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
@@ -294,6 +294,7 @@ export function HostOmpUpdateRow({
 	onSettled: () => void;
 }) {
 	const t = useT();
+	const hostName = useHostView(deviceId)?.name ?? t("remote.tab.unknownDevice");
 	const [state, setState] = useState<OmpUpdateState>();
 	const busy = state !== undefined && state.phase !== "idle";
 	const wasBusy = useRef(false);
@@ -359,7 +360,7 @@ export function HostOmpUpdateRow({
 					<Badge variant="success">{t("updates.upToDate")}</Badge>
 				)
 			}
-			description={t("updates.core.description")}
+			description={t("updates.core.hostDescription", { device: hostName })}
 			footer={
 				<>
 					<p className="mt-1 text-sc-xs text-(--sc-text-muted)">
