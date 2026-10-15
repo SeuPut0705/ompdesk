@@ -3274,6 +3274,10 @@ export const en: Record<string, string> = {
 	"filesPanel.back": "Back to files",
 	"filesPanel.openExternal": "Open externally",
 	"filesPanel.insertMention": "Insert @mention",
+	"filesPanel.tabs": "Open files",
+	"filesPanel.previewTab": "Preview tab: the next file you open takes its place",
+	"filesPanel.keepOpen": "Keep open",
+	"filesPanel.closeTab": "Close {name}",
 	"filesPanel.reading": "Reading file…",
 
 	"filesPanel.newFile": "New file…",

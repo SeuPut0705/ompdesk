@@ -26,6 +26,27 @@ export type PanelSide = "right" | "left";
 export function migrateDefaultPanelTab(value: unknown): PanelTab {
 	return PANEL_TABS.find(tab => tab === value) ?? "diff";
 }
+
+/** One file in the Files viewer's strip (D29). */
+export interface FileTab {
+	path: string;
+	/** The preview tab: the next file opened in place of it replaces it. */
+	preview: boolean;
+}
+
+/**
+ * `tabs` with `path` shown: an open tab is reused (and kept when `keep`); a new kept file is added
+ * after the others, a new preview takes the preview tab's place.
+ */
+export function withFileTab(tabs: FileTab[], path: string, keep: boolean): FileTab[] {
+	const at = tabs.findIndex(tab => tab.path === path);
+	if (at >= 0) return keep ? tabs.map(tab => (tab.path === path ? { path, preview: false } : tab)) : tabs;
+	if (keep) return [...tabs, { path, preview: false }];
+	const previewAt = tabs.findIndex(candidate => candidate.preview);
+	const tab = { path, preview: true };
+	return previewAt >= 0 ? tabs.map((candidate, index) => (index === previewAt ? tab : candidate)) : [...tabs, tab];
+}
+
 /**
  * What fills the main area: the open session (transcript + composer) or one
  * of the three destination pages. The sidebar stays visible for all of them.
@@ -86,6 +107,12 @@ interface UiStore {
 	filePreviewPath: string | null;
 	/** 1-based line the Files viewer scrolls to and marks for `filePreviewPath` (a `path:line` link); null = top. */
 	filePreviewLine: number | null;
+	/**
+	 * The Files viewer's open files, in strip order; `filePreviewPath` is the shown one. At most one is
+	 * the preview tab, which the next file opened in place of it replaces (D29); "Keep open", a
+	 * double-click or editing makes it stay.
+	 */
+	fileTabs: FileTab[];
 	/** Folder (tab-relative or absolute) the Files tree expands, selects and scrolls to; the panel clears it once shown. */
 	filesRevealPath: string | null;
 	/** Bumped by "Search in files" (⌥⌘F): the Files panel opens its content search and focuses the query. */
@@ -189,11 +216,17 @@ interface UiStore {
 	/** Show one subagent's transcript in the side panel (a dragged or menu-opened sidebar row). */
 	openSubagentPanel: (subagent: PanelSubagent) => void;
 	openPreview: (url: string) => void;
-	openFilePreview: (path: string, options?: { line?: number }) => void;
+	/** `keep` opens the file as a tab that stays; otherwise it takes (or becomes) the preview tab. */
+	openFilePreview: (path: string, options?: { line?: number; keep?: boolean }) => void;
+	/** Turn the file's preview tab into one that stays. */
+	keepFileOpen: (path: string) => void;
+	/** Close one viewer tab; closing the shown one shows its neighbor (or the tree). */
+	closeFileTab: (path: string) => void;
 	/** Show a folder in the Files tree (a folder link in a reply). */
 	revealInFiles: (path: string) => void;
 	/** Open the Files panel's search in file contents. */
 	openFilesSearch: () => void;
+	/** Back to the tree; the files kept open stay in the strip, the preview tab goes. */
 	closeFilePreview: () => void;
 	toggleFilePreviewExpanded: () => void;
 	setFileViewMode: (path: string, mode: "rendered" | "source") => void;
@@ -306,6 +339,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	panelSubagent: null,
 	filePreviewPath: null,
 	filePreviewLine: null,
+	fileTabs: [],
 	filesRevealPath: null,
 	filesSearchSeq: 0,
 	fileEditDirty: false,
@@ -344,10 +378,30 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	openSubagentPanel: subagent => set({ panelSubagent: subagent, panelTab: "subagent", panelVisible: true }),
 	openPreview: url => set({ previewUrl: url, panelTab: "preview", panelVisible: true }),
 	openFilePreview: (path, options) => {
-		const next = { filePreviewPath: path, filePreviewLine: options?.line ?? null };
+		const next = {
+			filePreviewPath: path,
+			filePreviewLine: options?.line ?? null,
+			fileTabs: withFileTab(get().fileTabs, path, options?.keep === true),
+		};
 		if (get().fileEditDirty && path !== get().filePreviewPath)
 			set({ pendingFileSwitch: next, panelTab: "files", panelVisible: true });
 		else set({ ...next, panelTab: "files", panelVisible: true });
+	},
+	keepFileOpen: path =>
+		set({ fileTabs: get().fileTabs.map(tab => (tab.path === path ? { path, preview: false } : tab)) }),
+	closeFileTab: path => {
+		const tabs = get().fileTabs;
+		const at = tabs.findIndex(tab => tab.path === path);
+		if (at < 0) return;
+		const fileTabs = tabs.filter(tab => tab.path !== path);
+		if (path !== get().filePreviewPath) {
+			set({ fileTabs });
+			return;
+		}
+		const neighbor = fileTabs[Math.min(at, fileTabs.length - 1)]?.path ?? null;
+		const next = { fileTabs, filePreviewPath: neighbor, filePreviewLine: null };
+		if (get().fileEditDirty) set({ pendingFileSwitch: next });
+		else set(neighbor === null ? { ...next, filePreviewExpanded: false } : next);
 	},
 	revealInFiles: path => {
 		const next = { filesRevealPath: path, filePreviewPath: null, filePreviewLine: null };
@@ -365,7 +419,13 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 		if (proceed && pending) set({ ...pending, pendingFileSwitch: null, fileEditDirty: false });
 		else set({ pendingFileSwitch: null });
 	},
-	closeFilePreview: () => set({ filePreviewPath: null, filePreviewLine: null, filePreviewExpanded: false }),
+	closeFilePreview: () =>
+		set({
+			filePreviewPath: null,
+			filePreviewLine: null,
+			filePreviewExpanded: false,
+			fileTabs: get().fileTabs.filter(tab => !tab.preview),
+		}),
 	toggleFilePreviewExpanded: () => set({ filePreviewExpanded: !get().filePreviewExpanded }),
 	setFileViewMode: (path, mode) => {
 		const next = new Map(get().fileViewModes);
@@ -525,6 +585,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 			armedCloseTab: null,
 			filePreviewPath: null,
 			filePreviewLine: null,
+			fileTabs: [],
 			filesRevealPath: null,
 			filePreviewExpanded: false,
 			terminalExpanded: false,

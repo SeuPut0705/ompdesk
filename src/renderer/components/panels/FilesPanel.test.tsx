@@ -1,7 +1,8 @@
 /**
  * The files toolbar's count says what it counts ("2 files", "2000+ files"), and
  * an empty project shows only its empty state, not a bare "0". A folder link
- * (`filesRevealPath`) expands, selects and clears.
+ * (`filesRevealPath`) expands, selects and clears. D29: a tree click opens a
+ * preview tab, a double-click or Keep open keeps it, and kept tabs form a strip.
  */
 
 import { parseHTML } from "linkedom";
@@ -30,13 +31,27 @@ afterEach(async () => {
 	if (root) await act(async () => root?.unmount());
 	root = null;
 	while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
-	useUiStore.setState({ filesRevealPath: null });
+	useUiStore.setState({
+		filesRevealPath: null,
+		filePreviewPath: null,
+		filePreviewLine: null,
+		fileTabs: [],
+		fileEditDirty: false,
+		pendingFileSwitch: null,
+	});
 });
 
 async function mount(entries: FsTreeEntry[], truncated = false): Promise<HTMLElement> {
 	Object.assign(window, {
 		matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }),
-		omp: { fs: { list: async () => ({ ok: true, entries, truncated }) } },
+		omp: {
+			fs: {
+				list: async () => ({ ok: true, entries, truncated }),
+				stat: async () => ({ ok: true, mtimeMs: 1, size: 1, kind: "file" }),
+				// The viewer's read never settles: these tests look at the header and strip only.
+				read: () => Promise.withResolvers<never>().promise,
+			},
+		},
 	});
 	const container = document.createElement("div");
 	document.body.appendChild(container);
@@ -122,4 +137,60 @@ it("marks git changes relative to the tab's folder, with dots on the folders abo
 	expect([...marks.dirs]).toEqual(["src"]);
 	expect(gitDecorations(changes, "C:\\elsewhere").files.size).toBe(0);
 	expect(gitDecorations({ ...changes, root: "C:/repo" }, "C:\\repo\\app").files.get("src/a.ts")).toBe("M");
+});
+
+function button(container: HTMLElement, label: string): HTMLElement | null {
+	return container.querySelector(`button[aria-label="${label}"]`);
+}
+
+async function press(target: Element | null, type: string, detail = 1): Promise<void> {
+	await act(async () => {
+		const event = new Event(type, { bubbles: true });
+		Object.defineProperty(event, "detail", { value: detail });
+		target?.dispatchEvent(event);
+	});
+}
+
+it("opens a clicked file as the preview tab and keeps it on a double-click, Keep open or editing", async () => {
+	const container = await mount([file("a.ts"), file("b.ts"), file("c.ts")]);
+	await act(async () => {});
+	const row = (path: string) => container.querySelector(`[data-tree-id="file:${path}"]`);
+
+	await press(row("a.ts"), "click");
+	expect(useUiStore.getState().fileTabs).toEqual([{ path: "a.ts", preview: true }]);
+	expect(container.querySelector("[data-file-preview-title]")?.className).toContain("italic");
+	// The double-click's second press lands on the viewer that replaced the tree.
+	await press(container.querySelector("[data-file-preview-title]"), "mousedown", 2);
+	expect(useUiStore.getState().fileTabs).toEqual([{ path: "a.ts", preview: false }]);
+	expect(button(container, "Keep open")).toBeNull();
+
+	await press(button(container, "Back to files"), "click");
+	await press(row("b.ts"), "click");
+	// A later single press is no double-click: the tab stays a preview.
+	await press(container.querySelector("[data-file-preview-title]"), "mousedown", 1);
+	await press(container.querySelector("[data-file-preview-title]"), "mousedown", 2);
+	expect(useUiStore.getState().fileTabs).toEqual([
+		{ path: "a.ts", preview: false },
+		{ path: "b.ts", preview: true },
+	]);
+	const strip = container.querySelector("nav[data-file-tabs]");
+	expect(strip?.getAttribute("aria-label")).toBe("Open files");
+	expect(strip?.querySelector('[data-file-tab="b.ts"] button[aria-current="page"]')?.className).toContain("italic");
+
+	await press(button(container, "Keep open"), "click");
+	expect(useUiStore.getState().fileTabs.every(tab => !tab.preview)).toBe(true);
+
+	await press(container.querySelector('[data-file-tab="a.ts"] button'), "click");
+	expect(useUiStore.getState().filePreviewPath).toBe("a.ts");
+	await press(button(container, "Close b.ts"), "click");
+	expect(useUiStore.getState().fileTabs).toEqual([{ path: "a.ts", preview: false }]);
+	expect(container.querySelector("nav[data-file-tabs]")).toBeNull();
+
+	useUiStore.getState().openFilePreview("c.ts");
+	await act(async () => {});
+	await press(button(container, "Edit"), "click");
+	expect(useUiStore.getState().fileTabs).toEqual([
+		{ path: "a.ts", preview: false },
+		{ path: "c.ts", preview: false },
+	]);
 });

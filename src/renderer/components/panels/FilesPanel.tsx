@@ -17,9 +17,11 @@ import {
 	Maximize2,
 	Minimize2,
 	Pencil,
+	Pin,
 	RefreshCw,
 	TextSearch,
 	Trash2,
+	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ipcErrorCode } from "../../../shared/ipc-error-codes";
@@ -222,14 +224,31 @@ const EXECUTABLE =
 /** How often an open file is checked for changes on disk while the window is visible. */
 const DISK_WATCH_MS = 2000;
 
-/** Keyed by path in FilesPanel: a new file starts with fresh header info and views. */
-function FilePreview({ path, tabId }: { path: string; tabId: string | undefined }) {
+/**
+ * Keyed by path in FilesPanel: a new file starts with fresh header info and views. `keepArm` holds the
+ * path a tree click just opened; the second press of that double-click lands here (the viewer replaced
+ * the tree under the pointer) and keeps the tab (D29).
+ */
+function FilePreview({
+	path,
+	tabId,
+	keepArm,
+}: {
+	path: string;
+	tabId: string | undefined;
+	keepArm: { current: string | null };
+}) {
 	const t = useT();
 	const closeFilePreview = useUiStore(s => s.closeFilePreview);
 	const expanded = useUiStore(s => s.filePreviewExpanded);
 	const toggleExpanded = useUiStore(s => s.toggleFilePreviewExpanded);
 	const compact = useMediaQuery(COMPACT_SHELL_QUERY);
 	const line = useUiStore(s => s.filePreviewLine);
+	const fileTabs = useUiStore(s => s.fileTabs);
+	const openFilePreview = useUiStore(s => s.openFilePreview);
+	const keepFileOpen = useUiStore(s => s.keepFileOpen);
+	const closeFileTab = useUiStore(s => s.closeFileTab);
+	const isPreviewTab = fileTabs.some(tab => tab.path === path && tab.preview);
 	const [info, setInfo] = useState<FileInfo | null>(null);
 	/** Bumped when the file changes on disk; remounts the view so it reads again. */
 	const [revision, setRevision] = useState(0);
@@ -311,7 +330,53 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 
 	const kindLabel = t(`fileViewer.kind.${kind}`);
 	return (
-		<div className="omp-slide-in-right flex h-full min-h-0 min-w-0 flex-col">
+		<div
+			className="omp-slide-in-right flex h-full min-h-0 min-w-0 flex-col"
+			onMouseDownCapture={event => {
+				if (keepArm.current === path && event.detail >= 2) keepFileOpen(path);
+				keepArm.current = null;
+			}}
+		>
+			{fileTabs.length > 1 && (
+				<nav
+					aria-label={t("filesPanel.tabs")}
+					className="flex min-w-0 shrink-0 items-center gap-1 overflow-x-auto border-b border-(--sc-divider) px-2 py-1"
+					data-file-tabs
+				>
+					{fileTabs.map(tab => {
+						const active = tab.path === path;
+						const name = tab.path.split("/").pop() ?? tab.path;
+						return (
+							<div
+								key={tab.path}
+								className={`flex max-w-48 min-w-24 shrink-0 items-center rounded-(--sc-radius-sm) border ${active ? "border-(--sc-border) bg-(--sc-selected)" : "border-transparent hover:bg-(--sc-hover)"}`}
+								data-file-tab={tab.path}
+								data-preview-file-tab={tab.preview ? "" : undefined}
+							>
+								<button
+									type="button"
+									aria-current={active ? "page" : undefined}
+									className={`flex h-(--sc-control-sm) min-w-0 flex-1 items-center gap-1.5 truncate rounded-(--sc-radius-sm) px-2 text-left text-sc-xs focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) ${tab.preview ? "italic" : ""} ${active ? "text-(--sc-text)" : "text-(--sc-text-muted) hover:text-(--sc-text)"}`}
+									title={tab.preview ? `${tab.path} — ${t("filesPanel.previewTab")}` : tab.path}
+									onClick={() => {
+										if (!active) openFilePreview(tab.path);
+									}}
+									onDoubleClick={() => keepFileOpen(tab.path)}
+								>
+									<FileIcon className="size-(--sc-icon-sm) shrink-0" path={tab.path} />
+									<span className="truncate">{name}</span>
+								</button>
+								<IconButton
+									label={t("filesPanel.closeTab", { name })}
+									icon={<X />}
+									size="sm"
+									onClick={() => closeFileTab(tab.path)}
+								/>
+							</div>
+						);
+					})}
+				</nav>
+			)}
 			<div className="min-h-(--sc-space-10) shrink-0 border-b border-(--sc-divider) px-3 py-2">
 				<div className="flex min-w-0 items-center gap-2">
 					<IconButton
@@ -321,10 +386,22 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 						size="sm"
 					/>
 					<FileIcon className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)" path={path} />
-					<span className="min-w-0 flex-1 truncate text-sc-sm" title={path}>
+					<span
+						className={`min-w-0 flex-1 truncate text-sc-sm ${isPreviewTab ? "italic" : ""}`}
+						data-file-preview-title
+						title={isPreviewTab ? `${path} — ${t("filesPanel.previewTab")}` : path}
+					>
 						{path}
 					</span>
 					<div className="flex shrink-0 items-center gap-0.5">
+						{isPreviewTab && (
+							<IconButton
+								icon={<Pin />}
+								label={t("filesPanel.keepOpen")}
+								onClick={() => keepFileOpen(path)}
+								size="sm"
+							/>
+						)}
 						{EXECUTABLE.test(path) ? (
 							<IconButton
 								icon={<ExternalLinkIcon />}
@@ -345,7 +422,14 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 							<IconButton
 								icon={<Pencil />}
 								label={t("fileViewer.edit")}
-								onClick={() => (editing ? leaveEditor(() => setEditing(false)) : setEditing(true))}
+								onClick={() => {
+									if (editing) leaveEditor(() => setEditing(false));
+									else {
+										// Editing a file keeps its tab: the next file opened never replaces work in progress.
+										keepFileOpen(path);
+										setEditing(true);
+									}
+								}}
 								pressed={editing}
 								size="sm"
 							/>
@@ -649,11 +733,15 @@ export function FilesPanel() {
 		setSelectedId(ids[ids.length - 1]);
 	}, [revealPath, loading, cwd]);
 
+	/** Path a tree click just opened; FilePreview keeps it when that click turns out to be a double-click. */
+	const keepArm = useRef<string | null>(null);
 	// Wire file activation: clicking a file previews it, clicking a dir toggles.
 	const onNodeClick = useCallback(
 		(id: string) => {
-			if (id.startsWith("file:")) openFilePreview(id.slice(5));
-			else if (id.startsWith("dir:")) {
+			if (id.startsWith("file:")) {
+				keepArm.current = id.slice(5);
+				openFilePreview(id.slice(5));
+			} else if (id.startsWith("dir:")) {
 				setSelectedId(id);
 				setExpanded(prev => {
 					const next = new Set(prev);
@@ -750,7 +838,8 @@ export function FilesPanel() {
 
 	const fileCount = useMemo(() => countFiles(tree), [tree]);
 
-	if (filePreviewPath) return <FilePreview key={filePreviewPath} path={filePreviewPath} tabId={tabId ?? undefined} />;
+	if (filePreviewPath)
+		return <FilePreview key={filePreviewPath} keepArm={keepArm} path={filePreviewPath} tabId={tabId ?? undefined} />;
 
 	return (
 		<div className="flex h-full min-h-0 min-w-0 flex-col">

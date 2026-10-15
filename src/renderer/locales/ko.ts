@@ -3259,6 +3259,10 @@ export const ko: Record<string, string> = {
 	"filesPanel.back": "파일 목록으로",
 	"filesPanel.openExternal": "외부에서 열기",
 	"filesPanel.insertMention": "@멘션 삽입",
+	"filesPanel.tabs": "열린 파일",
+	"filesPanel.previewTab": "미리보기 탭: 다음에 여는 파일이 이 자리를 대신해요",
+	"filesPanel.keepOpen": "계속 열어 두기",
+	"filesPanel.closeTab": "{name} 닫기",
 	"filesPanel.reading": "파일 읽는 중…",
 
 	// Files drawer viewer
