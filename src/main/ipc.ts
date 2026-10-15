@@ -880,6 +880,30 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	);
 
 	ipcMain.handle(
+		IPC_COMMANDS.SYSTEM_SAVE_IMAGE,
+		async (event, defaultName: string, mimeType: string, data: string) => {
+			const win = BrowserWindow.fromWebContents(event.sender);
+			if (!win) return { saved: false };
+			const extension =
+				mimeType
+					.split("/")[1]
+					?.replace("jpeg", "jpg")
+					.replace(/[^a-z0-9]/gi, "") || "png";
+			const result = await dialog.showSaveDialog(win, {
+				defaultPath: path.basename(defaultName) || `image.${extension}`,
+				filters: [{ name: "Image", extensions: [extension] }],
+			});
+			if (result.canceled || !result.filePath) return { saved: false };
+			try {
+				await fsp.writeFile(result.filePath, Buffer.from(data, "base64"));
+				return { saved: true };
+			} catch (error) {
+				return { saved: false, error: error instanceof Error ? error.message : String(error) };
+			}
+		},
+	);
+
+	ipcMain.handle(
 		IPC_COMMANDS.SYSTEM_OPEN_DIALOG,
 		async (
 			event,

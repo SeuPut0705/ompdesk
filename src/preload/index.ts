@@ -342,6 +342,8 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_REVEAL_PATH, path, tabId) as Promise<IpcOpenPathResult>,
 		showSaveDialog: (defaultPath?: string, filters?: { name: string; extensions: string[] }[]) =>
 			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_SAVE_DIALOG, defaultPath, filters),
+		saveImage: (defaultName: string, mimeType: string, data: string) =>
+			ipcRenderer.invoke(IPC_COMMANDS.SYSTEM_SAVE_IMAGE, defaultName, mimeType, data),
 		showOpenDialog: (
 			filters?: { name: string; extensions: string[] }[],
 			options?: { directory?: boolean; title?: string; buttonLabel?: string },

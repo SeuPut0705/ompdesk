@@ -150,6 +150,8 @@ export const IPC_COMMANDS = {
 	SYSTEM_REVEAL_PATH: "system:reveal-path",
 	/** Show save dialog */
 	SYSTEM_SAVE_DIALOG: "system:save-dialog",
+	/** Ask where to save an image the renderer holds, then write it there */
+	SYSTEM_SAVE_IMAGE: "system:save-image",
 	/** Show open dialog */
 	SYSTEM_OPEN_DIALOG: "system:open-dialog",
 	/** Show notification */
@@ -1433,6 +1435,8 @@ export interface OmpApi {
 		/** Reveal a path in the file manager (relative paths resolve like `openPath`); fails when the file is missing, or `remote_path_native` for a paired host's tab. */
 		revealPath(path: string, tabId?: string): Promise<IpcOpenPathResult>;
 		showSaveDialog(defaultPath?: string, filters?: { name: string; extensions: string[] }[]): Promise<string | null>;
+		/** Save dialog, then write the image (`data` base64) there; `saved` is false when the user cancelled. */
+		saveImage(defaultName: string, mimeType: string, data: string): Promise<{ saved: boolean; error?: string }>;
 		showOpenDialog(
 			filters?: { name: string; extensions: string[] }[],
 			options?: { directory?: boolean; title?: string; buttonLabel?: string },

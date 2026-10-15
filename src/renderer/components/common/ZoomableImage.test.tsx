@@ -143,4 +143,56 @@ describe("ZoomableImage", () => {
 		await click(viewer()?.querySelector('[aria-label="Open in default app"]') ?? null);
 		expect(opened).toEqual(["/tmp/shot.png"]);
 	});
+
+	it("right-click offers open, copy, save and, for an attachment, remove", async () => {
+		const saved: unknown[][] = [];
+		Reflect.set(window, "omp", {
+			system: {
+				saveImage: async (...args: unknown[]) => {
+					saved.push(args);
+					return { saved: true };
+				},
+			},
+		});
+		const fetched = new Blob([new Uint8Array([1, 2])], { type: "image/png" });
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async () => ({ blob: async () => fetched })) as unknown as typeof fetch;
+		let removed = 0;
+		try {
+			await mount(
+				<ZoomableImage
+					alt="Pasted"
+					onRemove={() => {
+						removed++;
+					}}
+					src="data:image/png;base64,AQI="
+				/>,
+			);
+			const contextMenu = async () => {
+				await act(async () => {
+					const event = new Event("contextmenu", { bubbles: true, cancelable: true });
+					Object.assign(event, { clientX: 10, clientY: 10 });
+					container.querySelector("[data-zoomable-image]")?.dispatchEvent(event);
+				});
+			};
+			await contextMenu();
+			const labels = Array.from(document.body.querySelectorAll('[role="menuitem"]')).map(item => item.textContent);
+			expect(labels).toEqual(["Open", "Copy image", "Save image as…", "Remove"]);
+			await click(
+				Array.from(document.body.querySelectorAll('[role="menuitem"]')).find(
+					item => item.textContent === "Save image as…",
+				) ?? null,
+			);
+			expect(saved).toEqual([["Pasted", "image/png", "AQI="]]);
+			await contextMenu();
+			await click(
+				Array.from(document.body.querySelectorAll('[role="menuitem"]')).find(
+					item => item.textContent === "Remove",
+				) ?? null,
+			);
+			expect(removed).toBe(1);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
 });

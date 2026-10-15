@@ -7,14 +7,17 @@
  * a click toggles actual size (scrollable) for screenshots whose detail the
  * fit scale hides. With a `gallery` (every picture of one message or result),
  * the viewer steps through it with ←/→ and its buttons; a picture that is a
- * file (`path`) also opens in the system's default app.
+ * file (`path`) also opens in the system's default app. Right-click offers
+ * open, copy, save as (and default app / remove when they apply).
  */
-import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Maximize2, Trash2, X } from "lucide-react";
 import { type ImgHTMLAttributes, type KeyboardEvent, useRef, useState } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { copyImage, saveImage } from "../../lib/image-actions";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
-import { toastError } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { IconButton } from "./IconButton";
 import { Modal } from "./Modal";
 
@@ -32,9 +35,11 @@ export interface ZoomableImageProps extends Omit<ImgHTMLAttributes<HTMLImageElem
 	path?: string;
 	/** Every picture this one belongs with, in order (it is one of them, matched by `src`). */
 	gallery?: readonly GalleryImage[];
+	/** A picture the user can still take back (a composer attachment): the menu offers Remove. */
+	onRemove?: () => void;
 }
 
-export function ZoomableImage({ src, alt, path, gallery, className, ...imgProps }: ZoomableImageProps) {
+export function ZoomableImage({ src, alt, path, gallery, onRemove, className, ...imgProps }: ZoomableImageProps) {
 	const t = useT();
 	const tabId = useRuntimeTabId();
 	const [open, setOpen] = useState(false);
@@ -44,10 +49,69 @@ export function ZoomableImage({ src, alt, path, gallery, className, ...imgProps 
 	const [pane, setPane] = useState<HTMLElement | null>(null);
 	const items: readonly GalleryImage[] = gallery && gallery.length > 1 ? gallery : [{ src, alt, path }];
 	const shown = items[Math.min(index, items.length - 1)] ?? { src, alt, path };
+	const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
 	const close = () => {
 		setOpen(false);
 		setActualSize(false);
 	};
+	const openViewer = () => {
+		setPane(thumbRef.current?.closest<HTMLElement>(".omp-session-pane") ?? null);
+		setIndex(
+			Math.max(
+				0,
+				items.findIndex(item => item.src === src),
+			),
+		);
+		setOpen(true);
+	};
+	const menuItems = (): ContextMenuItem[] => [
+		{ id: "open", label: t("image.menu.open"), icon: Maximize2, onSelect: openViewer },
+		...(path
+			? [
+					{
+						id: "default-app",
+						label: t("image.openDefault"),
+						icon: ExternalLink,
+						onSelect: () => void openInDefaultApp(path),
+					},
+				]
+			: []),
+		{
+			id: "copy",
+			label: t("image.menu.copy"),
+			icon: Copy,
+			separatorBefore: true,
+			onSelect: () =>
+				void copyImage(src).then(
+					() => toast({ variant: "success", message: t("image.copied") }),
+					cause => toastError({ title: t("image.copyFailed"), error: cause }),
+				),
+		},
+		{
+			id: "save",
+			label: t("image.menu.save"),
+			icon: Download,
+			onSelect: () =>
+				void saveImage(src, path ?? alt).then(
+					result => {
+						if (result.error) toastError({ title: t("image.saveFailed"), error: result.error });
+					},
+					cause => toastError({ title: t("image.saveFailed"), error: cause }),
+				),
+		},
+		...(onRemove
+			? [
+					{
+						id: "remove",
+						label: t("image.menu.remove"),
+						icon: Trash2,
+						danger: true,
+						separatorBefore: true,
+						onSelect: onRemove,
+					},
+				]
+			: []),
+	];
 	const step = (by: number) => {
 		setIndex(current => (current + by + items.length) % items.length);
 		setActualSize(false);
@@ -71,21 +135,32 @@ export function ZoomableImage({ src, alt, path, gallery, className, ...imgProps 
 				aria-label={t("image.zoom", { name: alt })}
 				className="inline-block max-w-full cursor-zoom-in rounded-(--sc-radius-md) p-0 align-top focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--sc-accent)"
 				data-zoomable-image
-				onClick={() => {
-					setPane(thumbRef.current?.closest<HTMLElement>(".omp-session-pane") ?? null);
-					setIndex(
-						Math.max(
-							0,
-							items.findIndex(item => item.src === src),
-						),
-					);
-					setOpen(true);
+				onClick={openViewer}
+				onContextMenu={event => {
+					event.preventDefault();
+					setMenuAt({ x: event.clientX, y: event.clientY });
 				}}
 				ref={thumbRef}
 				type="button"
 			>
 				<img {...imgProps} alt={alt} className={className} src={src} />
 			</button>
+			{menuAt && (
+				<ContextMenu
+					ariaLabel={t("image.menu.label")}
+					// ContextMenu leaves closing to its owner: a choice closes the menu first.
+					items={menuItems().map(item => ({
+						...item,
+						onSelect: () => {
+							setMenuAt(null);
+							item.onSelect();
+						},
+					}))}
+					onClose={() => setMenuAt(null)}
+					x={menuAt.x}
+					y={menuAt.y}
+				/>
+			)}
 			<Modal
 				ariaLabel={shown.alt}
 				bodyClassName="relative flex items-center justify-center overflow-auto p-0"

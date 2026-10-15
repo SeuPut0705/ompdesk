@@ -1167,6 +1167,9 @@ export function InputArea() {
 												src: item.preview,
 												alt: t("input.attachmentAlt", { index: itemIndex + 1 }),
 											}))}
+											onRemove={() =>
+												setImages(previous => previous.filter((_, itemIndex) => itemIndex !== index))
+											}
 										/>
 										<IconButton
 											className="omp-composer-attachment-remove absolute -top-1.5 -right-1.5"
