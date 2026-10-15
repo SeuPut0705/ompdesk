@@ -52,11 +52,15 @@ export async function confirmQuit(restart = false): Promise<boolean> {
 		defaultId: 1,
 		cancelId: 1,
 		message: mainT("quit.workingTitle", language),
-		detail: mainT(resumesInterrupted() ? (restart ? "quit.workingBodyRestart" : "quit.workingBodyResume") : "quit.workingBody", language, {
-			working: risk.workingTabs,
-			total: risk.totalTabs,
-			windows: risk.workingWindows,
-		}),
+		detail: mainT(
+			resumesInterrupted() ? (restart ? "quit.workingBodyRestart" : "quit.workingBodyResume") : "quit.workingBody",
+			language,
+			{
+				working: risk.workingTabs,
+				total: risk.totalTabs,
+				windows: risk.workingWindows,
+			},
+		),
 	};
 	try {
 		const result = await (owner ? dialog.showMessageBox(owner, options) : dialog.showMessageBox(options));

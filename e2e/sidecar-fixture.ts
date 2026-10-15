@@ -1239,7 +1239,8 @@ if (process.argv[2] === "stats") {
 		// message with no reply was cut off mid-run; the turn goes on and answers.
 		"composer.restore_interrupted": () => {
 			const last = entries.at(-1);
-			const cutOff = last?.type === "message" && (last.message as AgentMessage | undefined)?.role === "user" && !isStreaming;
+			const cutOff =
+				last?.type === "message" && (last.message as AgentMessage | undefined)?.role === "user" && !isStreaming;
 			if (!cutOff) return { turn: false, subagents: [] };
 			isStreaming = true;
 			write({ type: "agent_start" });
