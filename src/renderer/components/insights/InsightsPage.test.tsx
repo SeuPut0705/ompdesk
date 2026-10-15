@@ -84,7 +84,30 @@ function installOmp(): RpcMock {
 		getUsage: vi.fn(async () => ({ type: "response", command: "get_usage", success: true, data: { reports: [] } })),
 	};
 	Object.assign(window, {
-		omp: { rpc: mock, stats: { fetch: vi.fn(async () => ({ error: "not running" })) } },
+		omp: {
+			rpc: mock,
+			stats: { fetch: vi.fn(async () => ({ error: "not running" })) },
+			// The page's title reads the sidebar's session list: this session is indexed with its first prompt only.
+			sessions: {
+				list: vi.fn(async () => [
+					{
+						path: "/repo/a.jsonl",
+						id: stats.sessionId,
+						title: null,
+						cwd: "/repo",
+						created: "2026-01-01T00:00:00Z",
+						modified: "2026-01-01T00:00:00Z",
+						messageCount: 3,
+						size: 10,
+						status: "complete",
+						firstMessage: "Build the Tally app",
+					},
+				]),
+				delete: vi.fn(async () => {}),
+				rename: vi.fn(async () => {}),
+			},
+			events: { onSessionsChanged: vi.fn(() => () => {}) },
+		},
 	});
 	return mock;
 }
@@ -148,6 +171,7 @@ describe("InsightsPage", () => {
 	it("shows this session's figures under the This session scope", async () => {
 		const omp = installOmp();
 		useSessionStore.getState().setStatus("ready", "/repo");
+		useSessionStore.setState({ sessionId: stats.sessionId });
 		useUiStore.getState().openInsights("stats", "session");
 		await mount();
 
@@ -159,6 +183,8 @@ describe("InsightsPage", () => {
 		expect(text).toContain("$0.06");
 		expect(text).toContain("acme/acme-opus-5");
 		expect(text).toContain("#0199aa00");
+		// Named like the sidebar row, not "Untitled session".
+		expect(document.querySelector("h2")?.textContent).toBe("Build the Tally app");
 	});
 
 	it("lets this session's columns shrink below their longest unbreakable value", async () => {

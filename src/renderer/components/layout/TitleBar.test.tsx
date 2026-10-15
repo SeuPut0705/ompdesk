@@ -107,6 +107,7 @@ afterEach(async () => {
 	useRemoteStore.getState().reset();
 	getSessionStats.mockRestore();
 	vi.clearAllMocks();
+	sessions.list.mockResolvedValue([]);
 });
 
 describe("TitleBar", () => {
@@ -229,6 +230,29 @@ describe("TitleBar", () => {
 		expect((trigger as unknown as Element | undefined)?.getAttribute("aria-label")).toBe(
 			"Session status, cost $0.00",
 		);
+	});
+
+	it("names an untitled session by its first prompt, as the sidebar row does", async () => {
+		sessions.list.mockResolvedValue([
+			{
+				path: "/tmp/project/s.jsonl",
+				id: "session-1",
+				title: null,
+				cwd: "/tmp/project",
+				created: "2026-01-01T00:00:00Z",
+				modified: "2026-01-01T00:00:00Z",
+				messageCount: 3,
+				size: 10,
+				status: "complete",
+				firstMessage: "Build the Tally app",
+			},
+		] as never);
+		useSessionStore.setState({ status: "ready", sessionId: "session-1", cwd: "/tmp/project", sessionName: null });
+		await mount();
+		await act(async () => new Promise<void>(resolve => setTimeout(resolve, 0)));
+		const name = document.querySelector("[data-titlebar-session-name]");
+		expect(name?.textContent).toContain("Build the Tally app");
+		expect(container.textContent).not.toContain(translate("sidebar.newSession"));
 	});
 
 	it("claims the Escape that cancels a rename, so the same keystroke cannot abort the turn", async () => {

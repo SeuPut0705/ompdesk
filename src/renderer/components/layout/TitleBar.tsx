@@ -18,6 +18,7 @@ import {
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionStats } from "../../../shared/rpc-types";
 import { useAwaitedInput } from "../../hooks/use-awaited-input";
+import { useCurrentSessionTitle } from "../../hooks/use-current-session-title";
 import { useSessionList } from "../../hooks/use-session-list";
 import { basename, cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -236,9 +237,7 @@ export function TitleBar() {
 	}, [sessionId, statsTrigger, status, tabRpc.getSessionStats, tabId, isCompacting]);
 
 	const current = sessions.find(s => s.id === sessionId);
-	// `||` everywhere: empty-string titles (never-generated auto-title slot)
-	// fall through like null, ending at the "New session" placeholder.
-	const displayName = sessionName || current?.title || t("sidebar.newSession");
+	const displayName = useCurrentSessionTitle();
 	const visibleStats = stats?.sessionId === sessionId ? stats : null;
 	const cost = visibleStats ? (visibleStats.history?.cost ?? visibleStats.cost) : null;
 	const tokens = visibleStats ? (visibleStats.history?.totalTokens ?? visibleStats.tokens.total) : null;

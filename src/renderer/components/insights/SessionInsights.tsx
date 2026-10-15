@@ -10,6 +10,7 @@
 import { MessageSquare, RefreshCw } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { SessionStats } from "../../../shared/rpc-types";
+import { useCurrentSessionTitle } from "../../hooks/use-current-session-title";
 import { formatUsd } from "../../lib/chart";
 import { basename, formatTokens, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -63,7 +64,7 @@ export function SessionInsights() {
 	const tabRpc = useTabRpc();
 	const t = useT();
 	const ready = useSessionStore(s => s.status) === "ready";
-	const sessionName = useSessionStore(s => s.sessionName);
+	const sessionTitle = useCurrentSessionTitle();
 	const sessionId = useSessionStore(s => s.sessionId);
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const isCompacting = useSessionStore(s => s.isCompacting);
@@ -164,9 +165,7 @@ export function SessionInsights() {
 	return (
 		<div className="flex flex-col">
 			<div className="flex items-center gap-3">
-				<h2 className="min-w-0 truncate text-sc-xl font-semibold text-(--sc-text)">
-					{sessionName || t("insights.session.untitled")}
-				</h2>
+				<h2 className="min-w-0 truncate text-sc-xl font-semibold text-(--sc-text)">{sessionTitle}</h2>
 				<span
 					className="shrink-0 rounded-(--sc-radius-xs) bg-(--sc-surface-3) px-1.5 py-0.5 font-mono text-sc-2xs text-(--sc-text-muted)"
 					title={stats.sessionId}
