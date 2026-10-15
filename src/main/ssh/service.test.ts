@@ -55,7 +55,8 @@ describe("ssh options", () => {
 			const { config, knownHosts } = await writeSshConfig(dir, "/home/me");
 			const text = await fs.readFile(config, "utf8");
 			expect(text.indexOf("StrictHostKeyChecking ask")).toBeLessThan(text.indexOf("Include"));
-			expect(text).toContain(`UserKnownHostsFile "${knownHosts}"`);
+			// ssh_config reads backslashes as escapes, so Windows paths are written with forward slashes.
+			expect(text).toContain(`UserKnownHostsFile "${knownHosts.replace(/\\/g, "/")}"`);
 			expect(text).toContain('Include "/home/me/.ssh/config"');
 		} finally {
 			await fs.rm(dir, { recursive: true, force: true });

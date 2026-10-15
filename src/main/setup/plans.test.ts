@@ -205,11 +205,12 @@ describe("buildPlan", () => {
 		};
 		expect(buildPlan("node", "archive", mac)).toBeNull();
 		const plan = buildPlan("node", "archive", mac, release);
-		const file = "/data/tools/.downloads/node-v24.11.0-darwin-arm64.tar.gz";
+		// Built with the host's path module: a darwin plan only ever runs on a Mac, but this suite also runs on Windows.
+		const file = join("/data/tools", ".downloads", "node-v24.11.0-darwin-arm64.tar.gz");
 		expect(plan?.download).toEqual({ url: release.url, sha256: release.sha256, file });
 		const script = plan?.spawn.args[1] ?? "";
 		expect(plan?.command).toBe(script);
-		expect(plan?.location).toBe("/data/tools/node");
+		expect(plan?.location).toBe(join("/data/tools", "node"));
 		expect(script.split("\n")[0]).toBe(`# OMPdesk downloaded ${release.url} (SHA-256 ${release.sha256}) to ${file}`);
 		expect(script).toContain("set -euo pipefail");
 		expect(script).not.toContain("curl");

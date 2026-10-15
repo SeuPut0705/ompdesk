@@ -2,12 +2,17 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { RM_TEMP } from "../../test-fake-omp";
 import type { OmpRuntime } from "../types";
 import { getGitChanges } from "./changes";
 import { isValidRefName, parseBranchHeaders, parseDecorations, remoteWebBase } from "./parse";
 import * as scm from "./scm";
 import { gitSync, initRepo, pathExists } from "./test-repos";
 
+// Each test runs a few dozen real git processes; a git start costs ~10 ms on a Mac but 100-300 ms on a Windows
+// runner, so the remote and history tests need far longer than vitest's 5 s there. A timed-out test also keeps
+// running git in `dir` while afterEach deletes it (EBUSY).
+vi.setConfig({ testTimeout: 60_000 });
 // Host git config must not shape these repos: a runner's git names a bare remote's HEAD `master`, a Mac's `main`.
 // Every git here (gitSync and the code under test) inherits process.env. An empty file, not os.devNull:
 // Windows git can't open `\\.\nul` as a config path.
@@ -21,7 +26,7 @@ beforeAll(async () => {
 });
 afterAll(async () => {
 	vi.unstubAllEnvs();
-	await fs.rm(emptyConfigDir, { recursive: true, force: true });
+	await fs.rm(emptyConfigDir, RM_TEMP);
 });
 
 let dir: string;
@@ -32,7 +37,7 @@ beforeEach(async () => {
 	await initRepo(root);
 });
 afterEach(async () => {
-	await fs.rm(dir, { recursive: true, force: true });
+	await fs.rm(dir, RM_TEMP);
 });
 
 const statusOf = async (file: string) => (await getGitChanges(root)).files.find(entry => entry.path === file)?.status;
