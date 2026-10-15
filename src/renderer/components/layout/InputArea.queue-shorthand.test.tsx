@@ -1630,3 +1630,125 @@ describe("InputArea dictation", () => {
 		expect(prompt.mock.calls[0]?.[0]).toBe("hello there");
 	});
 });
+
+describe("InputArea caret placement", () => {
+	// Every writer of the draft places its caret with the text. A caret placed on the
+	// next frame moved whatever the keys before that frame did: composer-keys' double
+	// Esc flaked when a late frame collapsed Playwright fill's select-all.
+	function field(): { value: unknown; start: unknown; end: unknown } {
+		const textarea: object = findTextarea();
+		return {
+			value: "value" in textarea ? textarea.value : undefined,
+			start: "selectionStart" in textarea ? textarea.selectionStart : undefined,
+			end: "selectionEnd" in textarea ? textarea.selectionEnd : undefined,
+		};
+	}
+
+	function setCaret(start: number, end = start): void {
+		Object.assign(findTextarea(), { selectionStart: start, selectionEnd: end });
+	}
+
+	/**
+	 * Runs `write` while no frame comes (a busy renderer) and checks the text and caret it
+	 * returns are in the field already; then selects all, as the next key may, and lets the
+	 * held frames run: the selection must stay.
+	 */
+	async function expectCaretWithText(write: () => Promise<{ text: string; caret: number }>): Promise<void> {
+		const frames: (() => void)[] = [];
+		const realFrame = globals.requestAnimationFrame;
+		globals.requestAnimationFrame = (callback: () => void) => frames.push(callback);
+		let text = "";
+		try {
+			const placed = await write();
+			text = placed.text;
+			expect(field()).toEqual({ value: text, start: placed.caret, end: placed.caret });
+			expect(useComposerStore.getState().draft).toBe(text);
+			setCaret(0, text.length);
+			await act(async () => {
+				for (const frame of frames.splice(0)) frame();
+			});
+		} finally {
+			globals.requestAnimationFrame = realFrame;
+		}
+		expect(field()).toEqual({ value: text, start: 0, end: text.length });
+	}
+
+	function reactProps<T>(element: unknown): T {
+		const record = element as Record<string, unknown>;
+		const key = Object.getOwnPropertyNames(record).find(name => name.startsWith("__reactProps$"));
+		if (!key) throw new Error("react props not found");
+		return record[key] as T;
+	}
+
+	it("inserts a completion with its caret", async () => {
+		await mount();
+		const subscribe = window.omp.events.onTabCommandsUpdate as unknown as Mock;
+		const deliver = subscribe.mock.calls.at(-1)?.[0] as (commands: unknown[], tabId: string) => void;
+		await act(async () =>
+			deliver([{ name: "skill:release-notes", description: "Write notes", source: "skill" }], "t0"),
+		);
+		setCaret(10);
+		await typeInto(findTextarea(), "/skill:rel");
+		await flush();
+		expect(document.querySelectorAll('[role="option"]')).toHaveLength(1);
+		await expectCaretWithText(async () => {
+			expect((await pressKey({ key: "Tab" })).defaultPrevented).toBe(true);
+			const text = useComposerStore.getState().draft;
+			expect(text.startsWith("/skill:release-notes")).toBe(true);
+			return { text, caret: text.length };
+		});
+	});
+
+	it("folds a large paste into a marker at the caret, the caret after it", async () => {
+		await mount();
+		await typeInto(findTextarea(), "ab");
+		setCaret(1);
+		const { onPaste } = reactProps<{ onPaste: (event: object) => void }>(findTextarea());
+		const content = "x".repeat(1200);
+		await expectCaretWithText(async () => {
+			await act(async () =>
+				onPaste({ clipboardData: { files: [], getData: () => content }, preventDefault: () => {} }),
+			);
+			const text = useComposerStore.getState().draft;
+			const marker = text.slice(1, -1);
+			expect(text).toBe(`a${marker}b`);
+			expect(expandPasteMarkers(marker)).toBe(content);
+			return { text, caret: 1 + marker.length };
+		});
+	});
+
+	it("puts a prompt picked in history search into the composer with its caret at the end", async () => {
+		await mount();
+		await act(async () =>
+			useInputHistoryStore.setState({
+				entries: [{ prompt: "picked prompt", ts: 100, cwd: "/tmp", transient: true }],
+			}),
+		);
+		await typeInto(findTextarea(), "draft");
+		expect((await pressKey({ key: "r", ctrlKey: true })).defaultPrevented).toBe(true);
+		await flush();
+		const option = document.querySelector('[role="option"]') as unknown as TestElement | null;
+		if (!option) throw new Error("history search row missing");
+		await expectCaretWithText(async () => {
+			await click(option);
+			return { text: "picked prompt", caret: "picked prompt".length };
+		});
+	});
+
+	it("fills the composer with its caret after the text, ahead of the draft when prepending", async () => {
+		await mount();
+		await expectCaretWithText(async () => {
+			await act(async () => {
+				window.dispatchEvent(new CustomEvent("omp:fill-composer", { detail: { text: "starter prompt" } }));
+			});
+			return { text: "starter prompt", caret: "starter prompt".length };
+		});
+		await typeInto(findTextarea(), "my draft");
+		await expectCaretWithText(async () => {
+			await act(async () => {
+				window.dispatchEvent(new CustomEvent("omp:fill-composer", { detail: { text: "queued", prepend: true } }));
+			});
+			return { text: "queued\n\nmy draft", caret: "queued".length };
+		});
+	});
+});

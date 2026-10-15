@@ -187,6 +187,22 @@ export function InputArea() {
 	const focusedPane = contextTabId === null || contextTabId === activeTabId;
 
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	/**
+	 * Write the draft and its caret in one task. A caret placed on a later frame moved
+	 * whatever the next keys did meanwhile (a select-all, typed text); written here,
+	 * React finds its value already in the field and leaves the caret alone.
+	 */
+	const placeDraft = useCallback(
+		(next: string, caret: number) => {
+			const el = textareaRef.current;
+			if (el) {
+				el.value = next;
+				el.setSelectionRange(caret, caret);
+			}
+			setText(next);
+		},
+		[setText],
+	);
 	// A pane of a 2x2 split has a field narrower than the idle hint ("Ask anything · @ files · / commands"):
 	// it shows the short prompt instead of a hint cut mid-glyph.
 	const [fieldNarrow, setFieldNarrow] = useState(false);
@@ -384,12 +400,15 @@ export function InputArea() {
 			// The editor dialog writes back fully-inline text — consume the blobs.
 			if (detail?.clearPastes)
 				dropReferencedPastes(sessionRuntimeStore<ComposerStore>(runtimeTabId, "composer")?.getState().draft ?? "");
-			// prepend (dequeue restore): queued text goes ahead of any draft, TUI-style;
-			// otherwise replace (starter cards, history recall).
-			setText(current => {
-				if (!next) return current;
-				return detail?.prepend && current.trim() ? `${next}\n\n${current}` : next;
-			});
+			if (next) {
+				// prepend (dequeue restore): queued text goes ahead of any draft, TUI-style;
+				// otherwise replace (starter cards, history recall).
+				const current =
+					textareaRef.current?.value ??
+					sessionRuntimeStore<ComposerStore>(runtimeTabId, "composer")?.getState().draft ??
+					"";
+				placeDraft(detail?.prepend && current.trim() ? `${next}\n\n${current}` : next, next.length);
+			}
 			if (restoredImages.length > 0) {
 				setImages(current => [
 					...current,
@@ -399,23 +418,18 @@ export function InputArea() {
 					})),
 				]);
 			}
+			// Focus waits a frame: the surface that sent the text (a dialog, a menu) may still
+			// hand focus back as it closes. Focus keeps the caret placed above.
 			requestAnimationFrame(() => {
 				const el = textareaRef.current;
 				if (!el) return;
 				if (useTabsStore.getState().activeTabId !== runtimeTabId) return;
 				el.focus();
-				if (next) el.setSelectionRange(next.length, next.length);
 			});
 		};
 		window.addEventListener("omp:fill-composer", fillComposer);
 		return () => window.removeEventListener("omp:fill-composer", fillComposer);
-	}, [
-		// prepend (dequeue restore): queued text goes ahead of any draft, TUI-style;
-		// otherwise replace (starter cards, history recall).
-		setText,
-		setImages,
-		runtimeTabId,
-	]);
+	}, [placeDraft, setImages, runtimeTabId]);
 
 	const insertCompletion = useCallback(
 		(item: CompletionItem) => {
@@ -427,15 +441,11 @@ export function InputArea() {
 				return;
 			}
 			const replaced = `${text.slice(0, menu.rangeStart)}${item.value}${text.slice(pos)}`;
-			setText(replaced);
+			el.focus();
+			placeDraft(replaced, menu.rangeStart + item.value.length);
 			setMenu(null);
-			requestAnimationFrame(() => {
-				el.focus();
-				const newPos = menu.rangeStart + item.value.length;
-				el.setSelectionRange(newPos, newPos);
-			});
 		},
-		[text, menu, setText],
+		[text, menu, placeDraft],
 	);
 
 	// Collapse a large paste into a `[Paste #N]` marker with the blob held in
@@ -446,18 +456,13 @@ export function InputArea() {
 			const blob = storePaste(content);
 			const marker = pasteMarkerText(blob.id, blob.content);
 			const el = textareaRef.current;
-			const start = el?.selectionStart ?? text.length;
+			const current = el?.value ?? text;
+			const start = el?.selectionStart ?? current.length;
 			const end = el?.selectionEnd ?? start;
-			setText(current => `${current.slice(0, start)}${marker}${current.slice(end)}`);
-			requestAnimationFrame(() => {
-				const target = textareaRef.current;
-				if (!target) return;
-				target.focus();
-				const caret = start + marker.length;
-				target.setSelectionRange(caret, caret);
-			});
+			el?.focus();
+			placeDraft(`${current.slice(0, start)}${marker}${current.slice(end)}`, start + marker.length);
 		},
-		[text, setText],
+		[text, placeDraft],
 	);
 
 	// Paste menu actions — the paste always inserts something; the menu only
@@ -502,17 +507,12 @@ export function InputArea() {
 				const data = response.data as { url?: string } | undefined;
 				if (!data?.url) throw new Error("write_local_paste returned no URL");
 				const el = textareaRef.current;
-				const start = el?.selectionStart ?? text.length;
+				const current = el?.value ?? text;
+				const start = el?.selectionStart ?? current.length;
 				const end = el?.selectionEnd ?? start;
 				const insert = `${data.url} `;
-				setText(currentText => `${currentText.slice(0, start)}${insert}${currentText.slice(end)}`);
-				requestAnimationFrame(() => {
-					const target = textareaRef.current;
-					if (!target) return;
-					target.focus();
-					const caret = start + insert.length;
-					target.setSelectionRange(caret, caret);
-				});
+				el?.focus();
+				placeDraft(`${current.slice(0, start)}${insert}${current.slice(end)}`, start + insert.length);
 			} catch (cause) {
 				// The RPC threw (transport/permission): without the origin gate the
 				// inline fallback would splice clipboard content into whichever
@@ -522,7 +522,7 @@ export function InputArea() {
 				insertPasteBlob(pendingPaste.content);
 			}
 		})();
-	}, [insertPasteBlob, pasteMenu, text, t, setText, runtimeTabId, rpc]);
+	}, [insertPasteBlob, pasteMenu, text, t, placeDraft, runtimeTabId, rpc]);
 
 	const dispatchSend = useComposerSubmit({
 		text,
@@ -611,17 +611,11 @@ export function InputArea() {
 			const suffix = after.length === 0 ? " " : "";
 			const insertedText = `${prefix}${insert}${suffix}`;
 			const next = `${before}${insertedText}${after}`;
-			setText(next);
-			requestAnimationFrame(() => {
-				const target = textareaRef.current;
-				if (!target) return;
-				target.focus();
-				const caret = start + insertedText.length;
-				target.setSelectionRange(caret, caret);
-			});
+			el?.focus();
+			placeDraft(next, start + insertedText.length);
 			if (evaluation.submit || sendAfter) send(next);
 		});
-	}, [recording, dictation, send, t, setText]);
+	}, [recording, dictation, send, t, placeDraft]);
 
 	// While the mic is open, Enter ends the take (transcribe and insert) and Esc
 	// discards it, before any other key handler (the composer's, App's abort).
@@ -780,11 +774,7 @@ export function InputArea() {
 			const end = el.selectionEnd ?? start;
 			const from = e.key === "j" || start !== end ? start : start === 0 ? 0 : text.lastIndexOf("\n", start - 1) + 1;
 			const insert = e.key === "j" ? "\n" : "";
-			// Edit the DOM value in place so the caret lands before the next keystroke; React
-			// then sees the same value and leaves the caret alone.
-			el.value = `${text.slice(0, from)}${insert}${text.slice(end)}`;
-			el.setSelectionRange(from + insert.length, from + insert.length);
-			setText(el.value);
+			placeDraft(`${text.slice(0, from)}${insert}${text.slice(end)}`, from + insert.length);
 			return;
 		}
 		// Esc: a selection collapses first. While no turn runs, a draft clears on a
@@ -857,12 +847,7 @@ export function InputArea() {
 					if (!wasBrowsing) navDraftImages.current = images;
 					const backToDraft = useInputHistoryStore.getState().navIndex === -1;
 					setImages(backToDraft ? navDraftImages.current : [...historyImages(recalled)]);
-					// Text and caret land together, as ⌃U does: a caret placed on a later frame
-					// would move whatever the next keys did meanwhile (a select-all, typed text).
-					const caret = older ? 0 : recalled.length;
-					el.value = recalled;
-					el.setSelectionRange(caret, caret);
-					setText(recalled);
+					placeDraft(recalled, older ? 0 : recalled.length);
 					return;
 				}
 			}
@@ -918,14 +903,8 @@ export function InputArea() {
 		const before = current.slice(0, start);
 		const after = current.slice(end);
 		const inserted = `${before && !/\s$/.test(before) ? " " : ""}${insert}${/^\s/.test(after) ? "" : " "}`;
-		setText(`${before}${inserted}${after}`);
-		requestAnimationFrame(() => {
-			const target = textareaRef.current;
-			if (!target) return;
-			target.focus();
-			const caret = start + inserted.length;
-			target.setSelectionRange(caret, caret);
-		});
+		el?.focus();
+		placeDraft(`${before}${inserted}${after}`, start + inserted.length);
 	};
 
 	/**
@@ -1126,13 +1105,8 @@ export function InputArea() {
 							cwd={cwd}
 							onSelect={prompt => {
 								setHistorySearchOpen(false);
-								setText(prompt);
-								requestAnimationFrame(() => {
-									const el = textareaRef.current;
-									if (!el) return;
-									el.focus();
-									el.setSelectionRange(prompt.length, prompt.length);
-								});
+								textareaRef.current?.focus();
+								placeDraft(prompt, prompt.length);
 							}}
 							onClose={() => {
 								setHistorySearchOpen(false);
@@ -1292,13 +1266,7 @@ export function InputArea() {
 												before.slice(0, before.length - hit.replaceLen) +
 												hit.insert +
 												el.value.slice(before.length);
-											setText(nextText);
-											requestAnimationFrame(() => {
-												const target = textareaRef.current;
-												if (!target) return;
-												const nextCaret = before.length - hit.replaceLen + hit.insert.length;
-												target.setSelectionRange(nextCaret, nextCaret);
-											});
+											placeDraft(nextText, before.length - hit.replaceLen + hit.insert.length);
 										});
 									}
 								}}
