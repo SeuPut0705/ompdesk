@@ -5,14 +5,18 @@ import {
 	Bot,
 	ExternalLink,
 	FileDown,
+	GalleryVerticalEnd,
 	Globe,
 	Laptop,
 	Maximize,
 	MoreHorizontal,
+	MousePointerClick,
 	Plus,
 	RotateCw,
+	SlidersHorizontal,
 	Smartphone,
 	Square,
+	SquareDashed,
 	Tablet,
 	X,
 	XCircle,
@@ -35,6 +39,7 @@ import {
 } from "../../../shared/preview";
 import { useT } from "../../lib/i18n";
 import { latestBashPreviewUrl } from "../../lib/preview-browser";
+import { usePreviewVisualsStore } from "../../stores/preview-visuals";
 import { sessionRuntime, useRuntimeTabId, useSessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
@@ -52,6 +57,7 @@ import {
 	Popover,
 	Spinner,
 } from "../common";
+import { AllVisualsDialog, PreviewFeedbackBar, usePreviewFeedback } from "./PreviewFeedback";
 
 const VIEWPORT_ICONS = { fill: Maximize, phone: Smartphone, tablet: Tablet, laptop: Laptop } as const;
 
@@ -138,6 +144,21 @@ export function PreviewPanel() {
 		setInvalid(false);
 		if (!(remote && isLoopbackUrl(url))) command({ action: "load", url });
 	}, [requested, latest, remote, tabId, command]);
+	// C135: the tab's visuals come back as preview tabs (the first one shown when no address was asked for),
+	// and the ones the agent shows while this panel is up open at once.
+	const startUrl = useRef(false);
+	startUrl.current = Boolean(requested ?? latest);
+	useEffect(() => {
+		if (tabId && !remote) command({ action: "restoreVisuals", tabId, show: !startUrl.current });
+	}, [tabId, remote, command]);
+	const pendingVisuals = usePreviewVisualsStore(s => (tabId ? s.pending[tabId] : undefined));
+	useEffect(() => {
+		if (!tabId || remote || !pendingVisuals?.length) return;
+		for (const visualId of usePreviewVisualsStore.getState().take(tabId))
+			command({ action: "showVisual", tabId, visualId });
+	}, [pendingVisuals, tabId, remote, command]);
+	const feedback = usePreviewFeedback(state, tabId);
+	const [allVisualsOpen, setAllVisualsOpen] = useState(false);
 	// Show the shown tab's address: on a tab switch even an empty one, otherwise as the page navigates.
 	const shownTab = useRef("");
 	useEffect(() => {
@@ -222,6 +243,35 @@ export function PreviewPanel() {
 			icon: Plus,
 			disabled: state.tabs.length >= PREVIEW_TAB_LIMIT,
 			onSelect: () => command({ action: "newTab" }),
+		},
+		{
+			id: "all-visuals",
+			label: t("panel.preview.visual.all"),
+			icon: GalleryVerticalEnd,
+			disabled: remote || !tabId,
+			onSelect: () => setAllVisualsOpen(true),
+		},
+		{
+			id: "comment-element",
+			label: t("panel.preview.feedback.element"),
+			icon: MousePointerClick,
+			disabled: !pageReady,
+			separatorBefore: true,
+			onSelect: () => feedback.pick("element"),
+		},
+		{
+			id: "comment-region",
+			label: t("panel.preview.feedback.region"),
+			icon: SquareDashed,
+			disabled: !pageReady,
+			onSelect: () => feedback.pick("region"),
+		},
+		{
+			id: "css-variables",
+			label: t("panel.preview.feedback.variables"),
+			icon: SlidersHorizontal,
+			disabled: !pageReady,
+			onSelect: feedback.openVariables,
 		},
 		{
 			id: "zoom-in",
@@ -497,6 +547,7 @@ export function PreviewPanel() {
 					</Button>
 				</div>
 			)}
+			<PreviewFeedbackBar state={state} feedback={feedback} command={command} tabId={tabId} pageReady={pageReady} />
 			<div
 				className="min-h-(--sc-space-6) truncate px-3 py-1 text-sc-xs text-(--sc-text-muted)"
 				role="status"
@@ -599,6 +650,13 @@ export function PreviewPanel() {
 					/>
 				) : null}
 			</div>
+			{tabId && (
+				<AllVisualsDialog
+					open={allVisualsOpen}
+					onClose={() => setAllVisualsOpen(false)}
+					onOpen={visualId => command({ action: "openVisual", tabId, visualId })}
+				/>
+			)}
 		</div>
 	);
 }

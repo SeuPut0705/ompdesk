@@ -25,6 +25,7 @@ import { REA_PREF } from "../shared/builtin-mcp";
 import { CLOSE_TO_TRAY_PREF, KEEP_AWAKE_WORKING_PREF, WORKTREE_AUTO_CLEAN_PREF } from "../shared/desktop-prefs";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
+import { VISUAL_SCHEME } from "../shared/preview";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import { SCHEDULES_STATE } from "../shared/schedules";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
@@ -118,9 +119,12 @@ if (userDataDirectory) {
 // process leaves every window black — the marker relaunches without it.
 applyGpuFallbackIfNeeded();
 
-// Players stream audio/video through `omp-media://` (range requests); privileges must precede whenReady.
+// Players stream audio/video through `omp-media://` (range requests); the agent's visuals load in the Preview
+// through `omp-visual://` (main/preview/visuals.ts; handled on the preview partition only). Privileges must
+// precede whenReady.
 protocol.registerSchemesAsPrivileged([
 	{ scheme: MEDIA_SCHEME, privileges: { standard: true, secure: true, stream: true } },
+	{ scheme: VISUAL_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
 const mediaStreams = new MediaStreams();
 

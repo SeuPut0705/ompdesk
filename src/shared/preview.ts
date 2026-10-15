@@ -1,6 +1,14 @@
 export const PREVIEW_COMMAND = "preview:command";
 export const PREVIEW_SAVE_PDF = "preview:save-pdf";
 export const PREVIEW_STATE = "preview:state";
+/** Renderer → main: one page interaction on the shown preview page (element picker, pins, tweaks). */
+export const PREVIEW_PAGE = "preview:page";
+/** Renderer → main: every visual the agent showed, newest first (C141 "All visuals"). */
+export const PREVIEW_VISUALS = "preview:visuals";
+/** Main → renderer: the agent showed (or updated) a visual for a tab (`PreviewVisualEvent`). */
+export const PREVIEW_VISUAL = "preview:visual";
+/** Pages the agent's `gui_visualize` tool shows load from this scheme (main/preview/visuals.ts). */
+export const VISUAL_SCHEME = "omp-visual";
 
 export interface PreviewBounds {
 	x: number;
@@ -52,6 +60,8 @@ export interface PreviewTab {
 	title: string;
 	url: string;
 	loading: boolean;
+	/** The agent's visual this tab shows (`gui_visualize`), if any. */
+	visual?: string;
 }
 /** Tabs one window's preview may hold; a page's popups beyond it are dropped. */
 export const PREVIEW_TAB_LIMIT = 10;
@@ -72,6 +82,8 @@ export interface PreviewState {
 	/** Console errors and warnings since the last full navigation (at most `PREVIEW_PROBLEM_LIMIT`). */
 	problems: PreviewProblem[];
 	notice: PreviewNotice | null;
+	/** The visual this page shows, with its versions (C135/C141). */
+	visual: PreviewVisualView | null;
 	tabs: PreviewTab[];
 	activeTab: string;
 }
@@ -91,6 +103,7 @@ export const EMPTY_PREVIEW_PAGE: PreviewPageState = {
 	viewport: "fill",
 	problems: [],
 	notice: null,
+	visual: null,
 };
 export const EMPTY_PREVIEW: PreviewState = { ...EMPTY_PREVIEW_PAGE, tabs: [], activeTab: "" };
 export type PreviewRequest =
@@ -107,12 +120,91 @@ export type PreviewRequest =
 	/** Show or close one tab; closing the last one leaves a fresh empty tab. Either releases an agent on another page. */
 	| { action: "selectTab" | "closeTab"; id: string }
 	| { action: "clearProblems" | "dismissNotice" }
+	/** Show `visualId` (one of `tabId`'s visuals) in its tab, opening one when none shows it; `version` default latest. */
+	| { action: "showVisual"; tabId: string; visualId: string; version?: number }
+	/** After a tab switch: open `tabId`'s visuals as tabs, showing the first when `show`. */
+	| { action: "restoreVisuals"; tabId: string; show: boolean }
+	/** Add a visual from "All visuals" to `tabId` and show it. */
+	| { action: "openVisual"; tabId: string; visualId: string }
 	| { action: "back" | "forward" | "reload" | "stop" | "dispose" };
 export interface PreviewApi {
 	command(request: PreviewRequest): Promise<PreviewState>;
 	/** Ask where to save, then print the page to that PDF: the saved path, or `null` when the user cancelled. */
 	savePdf(): Promise<string | null>;
 	onState(callback: (state: PreviewState) => void): () => void;
+	/** One interaction with the shown page (element picker, region, pins, CSS variables). */
+	page<R extends PreviewPageRequest>(request: R): Promise<PreviewPageResults[R["action"]]>;
+	/** "All visuals" (C141), newest first. */
+	visuals(): Promise<PreviewVisualRecord[]>;
+	/** The agent showed or updated a visual for a tab. */
+	onVisual(callback: (event: PreviewVisualEvent) => void): () => void;
+}
+
+export interface PreviewVisualVersion {
+	version: number;
+	/** Epoch ms. */
+	createdAt: number;
+}
+/** A visual as one page shows it. */
+export interface PreviewVisualView {
+	id: string;
+	label: string;
+	/** The version this page shows. */
+	version: number;
+	/** Oldest first; a web address visual has none (it always shows the live page). */
+	versions: PreviewVisualVersion[];
+}
+/** "All visuals" (C141): every visual the agent showed on this computer, kept across launches. */
+export interface PreviewVisualRecord {
+	id: string;
+	label: string;
+	kind: "file" | "inline" | "url";
+	/** The file path or web address it shows ("" for inline content). */
+	target: string;
+	cwd: string;
+	createdAt: number;
+	updatedAt: number;
+	versions: number;
+}
+export interface PreviewVisualEvent {
+	tabId: string;
+	visualId: string;
+}
+/** An element on the shown page, as the picker reports it. */
+export interface PreviewElement {
+	selector: string;
+	tag: string;
+	/** The element's text, collapsed and cut to 120 characters. */
+	text: string;
+}
+export interface PreviewCssVariable {
+	name: string;
+	value: string;
+}
+export type PreviewPageRequest =
+	/** Wait for the user to click an element (Escape cancels → null). */
+	| { action: "pick" }
+	/** Drag a rectangle; its screenshot (PNG base64) and the elements under it (Escape cancels → null). */
+	| { action: "region" }
+	| { action: "cancel" }
+	| { action: "parent"; selector: string }
+	/** Numbered markers over these elements (an empty list removes them). */
+	| { action: "pins"; pins: Array<{ n: number; selector: string }> }
+	| { action: "highlight"; selector: string }
+	/** The page's CSS custom properties on :root. */
+	| { action: "tweaks" }
+	| { action: "setVariable"; name: string; value: string }
+	| { action: "clearVariables" };
+export interface PreviewPageResults {
+	pick: PreviewElement | null;
+	region: { image: string; elements: PreviewElement[] } | null;
+	cancel: null;
+	parent: PreviewElement | null;
+	pins: null;
+	highlight: null;
+	tweaks: PreviewCssVariable[];
+	setVariable: null;
+	clearVariables: null;
 }
 export function previewUrl(value: string): string | null {
 	try {

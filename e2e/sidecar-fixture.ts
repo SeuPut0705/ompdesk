@@ -3743,14 +3743,17 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					else ok();
 					break;
 				}
-				// The agent calls a GUI host tool (`fixture:host-tool:<name>`); its host_tool_result is recorded.
+				// The agent calls a GUI host tool (`fixture:host-tool:<name> [<JSON arguments>]`); its
+				// host_tool_result is recorded.
 				if (line.startsWith("fixture:host-tool:")) {
+					const call = line.slice("fixture:host-tool:".length);
+					const space = call.indexOf(" ");
 					write({
 						type: "host_tool_call",
 						id: `host-tool-${Date.now()}`,
 						toolCallId: "fixture-host-tool",
-						toolName: line.slice("fixture:host-tool:".length),
-						arguments: {},
+						toolName: space < 0 ? call : call.slice(0, space),
+						arguments: space < 0 ? {} : (JSON.parse(call.slice(space + 1)) as Record<string, unknown>),
 					});
 					ok();
 					break;

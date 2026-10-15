@@ -35,6 +35,7 @@ import { type OmpResolution, ompNeedsShell, ompPathEnv, ompSpawnArgs, ompSpawnCo
 import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
 import { RpcClient } from "./rpc-client";
 import { completeRunMessages } from "./run-messages";
+import { VISUALIZE_DEFINITION } from "./preview/visuals";
 import { TERMINAL_READ_DEFINITION } from "./terminal/agent-tool";
 
 const MAX_RESTART_ATTEMPTS = 3;
@@ -824,8 +825,11 @@ export class SidecarManager extends EventEmitter {
 					.catch(() => {});
 				// Opt into upstream's `ask` protocol — the GUI renders ask dialogs.
 				void this.#rpcClient.command({ type: "set_ask_dialog", enabled: true }).catch(() => {});
-				// GUI-executed tools: the tab's terminals, read-only (C115; ipc.ts executes the calls).
-				void this.#rpcClient.command({ type: "set_host_tools", tools: [TERMINAL_READ_DEFINITION] }).catch(() => {});
+				// GUI-executed tools: the tab's terminals, read-only (C115), and visuals in the Preview (C135);
+				// ipc.ts executes the calls.
+				void this.#rpcClient
+					.command({ type: "set_host_tools", tools: [TERMINAL_READ_DEFINITION, VISUALIZE_DEFINITION] })
+					.catch(() => {});
 			}
 			announceReady();
 		};

@@ -97,7 +97,7 @@ for (const [language, theme] of [
 					.filter(Boolean)
 					.map(line => JSON.parse(line) as { type?: string; tools?: { name: string }[]; result?: unknown });
 			expect((await frames()).find(frame => frame.type === "set_host_tools")?.tools?.map(tool => tool.name)).toEqual(
-				["gui_terminal_read"],
+				["gui_terminal_read", "gui_visualize"],
 			);
 			await composer.fill("!fixture:host-tool:gui_terminal_read");
 			await composer.press("Enter");

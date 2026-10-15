@@ -11,7 +11,7 @@
 import { existsSync, promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from "electron";
 import Store from "electron-store";
 import { DELEGATION_PREF, isDelegationMode } from "../../resources/gui-bridge/delegation-contracts";
 import { isUserProfile, USER_PROFILE_PREF } from "../../resources/gui-bridge/user-profile-contracts";
@@ -86,7 +86,9 @@ import type { MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
 import { modelsPath } from "./models-config";
 import { systemOmp } from "./omp-runtime";
+import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { registerPreviewHost } from "./preview/host";
+import { runVisualizeTool, VISUALIZE_TOOL, VisualStore } from "./preview/visuals";
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, ModelOverrideInputSchema } from "./remote/app-protocol";
 import type { RemoteDevices } from "./remote/devices";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
@@ -247,12 +249,13 @@ function aggregateProgress(states: RunProgressState[]): RunProgressState {
 
 export function registerIpcHandlers(deps: IpcDeps): void {
 	registerTerminalIpc(deps.sidecarPool, deps.remoteDevices);
-	registerPreviewHost((senderId, tabId) => {
+	const visuals = new VisualStore(path.join(app.getPath("userData"), "visuals"));
+	const visualPages = registerPreviewHost((senderId, tabId) => {
 		const win = BrowserWindow.getAllWindows().find(window => window.webContents.id === senderId);
 		const target = win ? deps.sidecarPool.tabTarget(win, tabId) : null;
 		// A named tab this window does not own counts as remote: agent browsing refuses it.
 		return tabId ? !target || Boolean(target.device) : Boolean(target?.device);
-	});
+	}, visuals);
 	/** The paired host a window's running benchmark is on, so closing the window stops it there. */
 	const remoteBenchmarks = new Map<number, string>();
 	/** The same for a window's model setup research. */
@@ -320,6 +323,25 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				error =>
 					reply(`Couldn't read the terminals: ${error instanceof Error ? error.message : String(error)}`, true),
 			);
+			return;
+		}
+		if (request.toolName === VISUALIZE_TOOL) {
+			// The files a visual shows are on this computer; a paired host's tab has its own folder there.
+			if (sidecar.device) {
+				reply("gui_visualize shows visuals only for tabs on the user's own computer.", true);
+				return;
+			}
+			const context = {
+				tabId: tab.tabId,
+				cwd: sidecar.cwd,
+				store: visuals,
+				pages: visualPages,
+				reveal: (visualId: string) => {
+					if (!tab.win.isDestroyed())
+						tab.win.webContents.send(PREVIEW_VISUAL, { tabId: tab.tabId, visualId } satisfies PreviewVisualEvent);
+				},
+			};
+			void runVisualizeTool(context, request.arguments).then(result => reply(result.text, result.isError));
 			return;
 		}
 		const result = executeGuiHostTool(request.toolName, request.arguments);

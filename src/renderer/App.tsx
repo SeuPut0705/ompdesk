@@ -82,6 +82,7 @@ import { useRemoteStateSync } from "./stores/remote";
 import { useSessionStore } from "./stores/session";
 import { useSettingsStore } from "./stores/settings";
 import { useSessionTabs, useTabsStore, visibleTabIds } from "./stores/tabs";
+import { usePreviewVisualEvents } from "./stores/preview-visuals";
 import { toast, toastError } from "./stores/toast";
 import { migrateDefaultPanelTab, useUiStore } from "./stores/ui";
 import { checkForUpdatesInPlace, subscribeUpdaterStatus } from "./stores/updater";
@@ -185,6 +186,8 @@ export function App() {
 	useSessionTabs();
 	// Remote devices: the RemoteState snapshot + `remote:state` pushes.
 	useRemoteStateSync();
+	// The agent's visuals (gui_visualize) bring the Preview forward for their tab.
+	usePreviewVisualEvents();
 	const theme = useUiStore(s => s.theme);
 	const fontSize = useUiStore(s => s.fontSize);
 	const followAgentTheme = useUiStore(s => s.followAgentTheme);

@@ -104,7 +104,7 @@ describe("SidecarManager", () => {
 				"set_ask_dialog",
 				"set_host_tools",
 			]);
-			expect(commands[3]?.tools?.map(tool => tool.name)).toEqual(["gui_terminal_read"]);
+			expect(commands[3]?.tools?.map(tool => tool.name)).toEqual(["gui_terminal_read", "gui_visualize"]);
 			expect(commands[1]?.events).toContain("message_update");
 		} finally {
 			sidecar.dispose();

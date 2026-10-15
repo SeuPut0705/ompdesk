@@ -1,31 +1,57 @@
 import { randomUUID } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, type Session, session, WebContentsView } from "electron";
+import { z } from "zod";
 import {
 	clampPreviewZoom,
 	EMPTY_PREVIEW,
 	EMPTY_PREVIEW_PAGE,
 	isLoopbackUrl,
 	PREVIEW_COMMAND,
+	PREVIEW_PAGE,
 	PREVIEW_PROBLEM_LIMIT,
 	PREVIEW_SAVE_PDF,
 	PREVIEW_STATE,
 	PREVIEW_TAB_LIMIT,
 	PREVIEW_VIEWPORTS,
+	PREVIEW_VISUALS,
 	type PreviewBounds,
+	type PreviewPageRequest,
 	type PreviewPageState,
 	type PreviewRequest,
 	type PreviewState,
 	previewUrl,
+	VISUAL_SCHEME,
 } from "../../shared/preview";
 import { PreviewRelayExtension, relayExtensionUrl } from "./agent-relay";
 import { applyPreviewLayout, fitPreviewFrame, MIN_FRAME_SCALE } from "./layout";
+import { PAGE_WORLD, pageCall } from "./page-scripts";
+import type { VisualPages, VisualStore } from "./visuals";
 
 /** Activity marks and console problems reach the panel at most this often. */
 const AGENT_ACTIVITY_MS = 250;
 /** Longest console message kept per problem. */
 const PROBLEM_TEXT_MAX = 2000;
+/** A `data-choice` click counts for the agent only after a real mouse or key release on that page this recently (C143). */
+const GESTURE_WINDOW_MS = 1000;
+/** Widest region screenshot sent to the agent, in pixels. */
+const REGION_MAX_WIDTH = 1600;
+
+const selector = z.string().min(1).max(2000);
+const pageRequestSchema: z.ZodType<PreviewPageRequest> = z.discriminatedUnion("action", [
+	z.object({ action: z.enum(["pick", "region", "cancel", "tweaks", "clearVariables"]) }),
+	z.object({ action: z.enum(["parent", "highlight"]), selector }),
+	z.object({
+		action: z.literal("pins"),
+		pins: z.array(z.object({ n: z.number().int().min(1), selector })).max(100),
+	}),
+	z.object({
+		action: z.literal("setVariable"),
+		name: z.string().regex(/^--[\w-]+$/),
+		value: z.string().max(500),
+	}),
+]);
 
 /** One tab of a window's preview: its own sandboxed page in the window's partition. */
 interface PreviewPage {
@@ -34,6 +60,10 @@ interface PreviewPage {
 	state: PreviewPageState;
 	/** Zoom factor last given to the page (user zoom × frame fit). */
 	factor: number;
+	/** The agent's visual this page shows (`gui_visualize`) and its version. */
+	visual: { id: string; version: number } | null;
+	/** When the user last released a mouse button or key on this page (epoch ms; the C143 gesture). */
+	lastInput: number;
 }
 
 interface AgentLink {
@@ -59,9 +89,10 @@ function windowState(host: PreviewHost): PreviewState {
 		...host.active.state,
 		tabs: host.pages.map(page => ({
 			id: page.id,
-			title: page.state.title,
+			title: page.state.title || page.state.visual?.label || "",
 			url: page.state.url,
 			loading: page.state.loading,
+			...(page.visual ? { visual: page.visual.id } : {}),
 		})),
 		activeTab: host.active.id,
 	};
@@ -70,12 +101,18 @@ function windowState(host: PreviewHost): PreviewState {
 /**
  * No preload, no shell IPC, and a fresh in-memory partition for each window, shared by its tabs.
  * `isRemote(senderId, tabId?)`: the window's active tab (or `tabId`) runs on a paired host.
+ * Visual pages load from `omp-visual:` on that partition alone, serving only what `visuals` resolves.
+ * Returns what the agent's `gui_visualize` reads and waits on.
  */
-export function registerPreviewHost(isRemote: (senderId: number, tabId?: string) => boolean): void {
+export function registerPreviewHost(
+	isRemote: (senderId: number, tabId?: string) => boolean,
+	visuals: VisualStore,
+): VisualPages {
 	const hosts = new Map<number, PreviewHost>();
 	const send = (host: PreviewHost) => {
 		if (!host.sender.isDestroyed()) host.sender.send(PREVIEW_STATE, windowState(host));
 	};
+	const visualView = (page: PreviewPage) => (page.visual ? visuals.view(page.visual.id, page.visual.version) : null);
 	const publish = (host: PreviewHost, page: PreviewPage, patch: Partial<PreviewPageState> = {}) => {
 		const contents = page.view.webContents;
 		if (contents.isDestroyed()) return;
@@ -86,6 +123,7 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 			loading: contents.isLoading(),
 			canGoBack: contents.navigationHistory.canGoBack(),
 			canGoForward: contents.navigationHistory.canGoForward(),
+			visual: visualView(page),
 			...patch,
 		};
 		send(host);
@@ -117,7 +155,13 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 		link.page.state = { ...link.page.state, agent: null };
 		send(host);
 	};
-	const allowed = (host: PreviewHost, url: string) => {
+	/**
+	 * The address a page may show, or null. An `omp-visual:` address loads only from main (`loadVisual`) or
+	 * inside `page` while it shows that visual; neither the user's address bar nor another site can reach one.
+	 */
+	const allowed = (host: PreviewHost, url: string, page?: PreviewPage) => {
+		const visual = visuals.parse(url);
+		if (visual) return page?.visual?.id === visual.id ? url : null;
 		const safe = previewUrl(url);
 		return safe && !(isRemote(host.sender.id) && isLoopbackUrl(safe)) ? safe : null;
 	};
@@ -133,10 +177,18 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 		if (hosts.get(host.sender.id) === host) hosts.delete(host.sender.id);
 	};
 	const loadInto = (host: PreviewHost, page: PreviewPage, url: string) => {
-		page.state = { ...page.state, url, title: "", loading: true, error: null };
+		page.state = { ...page.state, url, title: "", loading: true, error: null, visual: visualView(page) };
 		send(host);
 		// loadURL resolves after navigation; do not hold the toolbar behind that promise.
 		void page.view.webContents.loadURL(url).catch(() => {});
+	};
+	/** Show version `version` (default latest) of `visualId` in `page`. */
+	const loadVisual = (host: PreviewHost, page: PreviewPage, visualId: string, version?: number) => {
+		const view = visuals.view(visualId, version);
+		const url = view && visuals.url(visualId, view.version);
+		if (!view || !url) throw new Error("Unknown visual");
+		page.visual = { id: visualId, version: view.version };
+		loadInto(host, page, url);
 	};
 	/** A sandboxed page in `win`'s preview partition; its handlers find their window through `owner`. */
 	const createPage = (win: BrowserWindow, partition: Session, owner: () => PreviewHost): PreviewPage => {
@@ -153,7 +205,14 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 		view.setVisible(false);
 		win.contentView.addChildView(view);
 		const contents = view.webContents;
-		const page: PreviewPage = { id: randomUUID(), view, state: { ...EMPTY_PREVIEW_PAGE }, factor: 1 };
+		const page: PreviewPage = {
+			id: randomUUID(),
+			view,
+			state: { ...EMPTY_PREVIEW_PAGE },
+			factor: 1,
+			visual: null,
+			lastInput: 0,
+		};
 		const update = (patch?: Partial<PreviewPageState>) => publish(owner(), page, patch);
 		const pageUpdated = () => {
 			const agent = owner().agent;
@@ -183,14 +242,25 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 			return { action: "deny" };
 		});
 		const guard = (navigation: Electron.Event, url: string) => {
-			if (!allowed(owner(), url)) navigation.preventDefault();
+			if (!allowed(owner(), url, page)) navigation.preventDefault();
 		};
 		contents.on("will-frame-navigate", details => guard(details, details.url));
 		contents.on("will-redirect", guard);
 		contents.on("will-attach-webview", event => event.preventDefault());
+		// Real input reaching the page; a script's `dispatchEvent` never does. The agent's CDP input may, so
+		// `choose` also refuses while the agent or any debugger holds the page.
+		contents.on("input-event", (_event, input) => {
+			if (input.type === "mouseUp" || input.type === "keyUp") page.lastInput = Date.now();
+		});
 		contents.on("did-start-loading", () => update({ error: null, crashed: false }));
 		contents.on("did-stop-loading", () => update());
-		contents.on("did-navigate", () => {
+		contents.on("did-navigate", (_event, url) => {
+			// A file or inline visual's page that leaves its own address no longer shows it; a web visual browses on.
+			if (page.visual) {
+				const shown = visuals.parse(url);
+				if (shown?.id === page.visual.id) page.visual = { id: shown.id, version: shown.version };
+				else if (visuals.url(page.visual.id)?.startsWith(`${VISUAL_SCHEME}:`)) page.visual = null;
+			}
 			// Chromium keeps zoom per origin; the user's level follows the page across origins.
 			if (page === owner().active) place(owner());
 			update({ problems: [] });
@@ -226,6 +296,54 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 		place(host);
 		send(host);
 	}
+	/** Close one tab; closing the last leaves a fresh empty one. */
+	function removePage(host: PreviewHost, target: PreviewPage): void {
+		const index = host.pages.indexOf(target);
+		if (index < 0) return;
+		closePage(host, target);
+		host.pages.splice(index, 1);
+		if (host.pages.length === 0) openPage(host, true);
+		else if (target === host.active) select(host, host.pages[Math.min(index, host.pages.length - 1)]);
+		else send(host);
+	}
+	/**
+	 * Show `visualId` (`version`, default latest) in the tab that shows it, else in an empty shown tab (only when
+	 * `show`), else in a new tab; at the tab limit it replaces the shown page when `show` and is skipped otherwise.
+	 * A tab already on that version keeps its page (and the user's tweaks).
+	 */
+	function showVisual(host: PreviewHost, visualId: string, version: number | undefined, show: boolean): void {
+		const wanted = visuals.view(visualId, version)?.version;
+		if (wanted === undefined) return;
+		let target = host.pages.find(candidate => candidate.visual?.id === visualId);
+		if (!target) {
+			const blank = !host.active.state.url && !host.active.visual;
+			if (show && blank) target = host.active;
+			else if (host.pages.length < PREVIEW_TAB_LIMIT) target = openPage(host, false);
+			else if (show) target = host.active;
+			else return;
+		}
+		if (target.visual?.id !== visualId || target.visual.version !== wanted)
+			loadVisual(host, target, visualId, wanted);
+		if (show) select(host, target);
+	}
+	/** Run one page tool in OMPdesk's isolated world: its result, or null once the page navigates away or closes. */
+	function runOnPage(page: PreviewPage, code: string): Promise<unknown> {
+		const contents = page.view.webContents;
+		if (contents.isDestroyed()) return Promise.resolve(null);
+		const { promise, resolve } = Promise.withResolvers<unknown>();
+		const gone = () => resolve(null);
+		const navigated = (details: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>) => {
+			if (details.isMainFrame && !details.isSameDocument) resolve(null);
+		};
+		contents.once("destroyed", gone);
+		contents.on("did-start-navigation", navigated);
+		contents.executeJavaScriptInIsolatedWorld(PAGE_WORLD, [{ code }]).then(resolve, gone);
+		return promise.finally(() => {
+			if (contents.isDestroyed()) return;
+			contents.off("destroyed", gone);
+			contents.off("did-start-navigation", navigated);
+		});
+	}
 	ipcMain.handle(PREVIEW_COMMAND, async (event, request: PreviewRequest) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win || win.webContents !== event.sender) throw new Error("Invalid preview owner");
@@ -238,6 +356,18 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 			const partition = session.fromPartition(`preview-${randomUUID()}`);
 			partition.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 			partition.setPermissionCheckHandler(() => false);
+			// Visual pages (C135): only the files `visuals` resolves for that visual, never cached across versions.
+			partition.protocol.handle(VISUAL_SCHEME, async request => {
+				const found = await visuals.resolve(request.url);
+				if (!found) return new Response("Not found", { status: 404 });
+				return new Response(await readFile(found.file), {
+					headers: {
+						"Content-Type": found.type,
+						"Cache-Control": "no-store",
+						"X-Content-Type-Options": "nosniff",
+					},
+				});
+			});
 			const first = createPage(win, partition, () => created);
 			const created: PreviewHost = {
 				win,
@@ -327,14 +457,21 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 			const target = current.pages.find(candidate => candidate.id === request.id);
 			if (!target) throw new Error("Unknown preview tab");
 			if (request.action === "selectTab") select(current, target);
-			else {
-				const index = current.pages.indexOf(target);
-				closePage(current, target);
-				current.pages.splice(index, 1);
-				if (current.pages.length === 0) openPage(current, true);
-				else if (target === current.active)
-					select(current, current.pages[Math.min(index, current.pages.length - 1)]);
-				else send(current);
+			else removePage(current, target);
+		} else if (
+			request.action === "showVisual" ||
+			request.action === "openVisual" ||
+			request.action === "restoreVisuals"
+		) {
+			if (isRemote(event.sender.id, request.tabId)) throw new Error("Visuals are for tabs on this computer");
+			if (request.action === "openVisual" && !(await visuals.addToTab(request.tabId, request.visualId)))
+				throw new Error("Unknown visual");
+			const own = visuals.forTab(request.tabId);
+			if (request.action === "restoreVisuals") {
+				for (const [index, id] of own.entries()) showVisual(current, id, undefined, request.show && index === 0);
+			} else {
+				if (!own.includes(request.visualId)) throw new Error("Unknown visual");
+				showVisual(current, request.visualId, request.action === "showVisual" ? request.version : undefined, true);
 			}
 		} else if (request.action === "layout") {
 			current.layout = { bounds: request.bounds, visible: request.visible };
@@ -353,6 +490,8 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 		else if (request.action === "load") {
 			const url = allowed(current, request.url);
 			if (!url) throw new Error("Preview URL unavailable");
+			// An address the user types replaces whatever visual the page showed.
+			page.visual = null;
 			loadInto(current, page, url);
 		} else if (request.action === "back" && view.webContents.navigationHistory.canGoBack())
 			view.webContents.navigationHistory.goBack();
@@ -384,4 +523,100 @@ export function registerPreviewHost(isRemote: (senderId: number, tabId?: string)
 		await writeFile(choice.filePath, await contents.printToPDF({ printBackground: true }));
 		return choice.filePath;
 	});
+	ipcMain.handle(PREVIEW_VISUALS, () => visuals.list());
+	ipcMain.handle(PREVIEW_PAGE, async (event, raw: unknown) => {
+		const request = pageRequestSchema.parse(raw);
+		const page = hosts.get(event.sender.id)?.active;
+		if (!page?.state.url || page.state.crashed) throw new Error("No page to work on");
+		const args =
+			request.action === "parent" || request.action === "highlight"
+				? [request.selector]
+				: request.action === "pins"
+					? [request.pins]
+					: request.action === "setVariable"
+						? [request.name, request.value]
+						: [];
+		const result = await runOnPage(page, pageCall(request.action, ...args));
+		if (request.action !== "region" || !result) return result ?? null;
+		const { rect, elements } = result as {
+			rect: { left: number; top: number; width: number; height: number };
+			elements: unknown[];
+		};
+		const contents = page.view.webContents;
+		// CSS pixels → the view's DIPs.
+		const factor = contents.getZoomFactor();
+		const shot = await contents.capturePage({
+			x: Math.round(rect.left * factor),
+			y: Math.round(rect.top * factor),
+			width: Math.max(1, Math.round(rect.width * factor)),
+			height: Math.max(1, Math.round(rect.height * factor)),
+		});
+		const image = shot.getSize().width > REGION_MAX_WIDTH ? shot.resize({ width: REGION_MAX_WIDTH }) : shot;
+		return { image: image.toPNG().toString("base64"), elements };
+	});
+
+	/** The first page showing `visualId` (a window's shown page first), or null. */
+	const findVisual = (visualId: string) => {
+		for (const host of hosts.values()) {
+			const page = [host.active, ...host.pages].find(candidate => candidate.visual?.id === visualId);
+			if (page) return { host, page };
+		}
+		return null;
+	};
+	return {
+		close(visualId) {
+			for (const host of [...hosts.values()])
+				for (const page of host.pages.filter(candidate => candidate.visual?.id === visualId))
+					removePage(host, page);
+		},
+		inspect(visualId) {
+			const page = findVisual(visualId)?.page;
+			return page
+				? {
+						title: page.state.title,
+						url: page.state.url,
+						loading: page.state.loading,
+						problems: page.state.problems,
+					}
+				: null;
+		},
+		async choose(visualId, timeoutMs) {
+			const found = findVisual(visualId);
+			if (!found) return "none";
+			const { host, page } = found;
+			const contents = page.view.webContents;
+			// C143: the agent's browser (or any debugger) on the page could click for the user.
+			const held = () => host.agent?.page === page || contents.debugger.isAttached();
+			if (held()) return "agent";
+			const deadline = Date.now() + timeoutMs;
+			for (;;) {
+				const remaining = deadline - Date.now();
+				if (remaining <= 0) return "timeout";
+				const { promise: expired, resolve: expire } = Promise.withResolvers<"timeout">();
+				const timer = setTimeout(() => expire("timeout"), remaining);
+				const picked = await Promise.race([runOnPage(page, pageCall("choose")), expired]);
+				clearTimeout(timer);
+				if (picked === "timeout") {
+					if (!contents.isDestroyed()) void runOnPage(page, pageCall("cancel"));
+					return "timeout";
+				}
+				if (contents.isDestroyed() || page.visual?.id !== visualId || !host.pages.includes(page)) return "closed";
+				if (picked === null) {
+					// A new version (or a reload) replaced the document: wait on the next one.
+					if (!contents.isLoading()) return "closed";
+					const { promise: loaded, resolve: settle } = Promise.withResolvers<void>();
+					contents.once("did-stop-loading", () => settle());
+					contents.once("destroyed", () => settle());
+					setTimeout(settle, remaining);
+					await loaded;
+					continue;
+				}
+				if (held()) return "agent";
+				// Only a click the user made counts: a script's click is not trusted (page-scripts), and a trusted one
+				// needs a real release on this page just now.
+				if (Date.now() - page.lastInput > GESTURE_WINDOW_MS) continue;
+				return picked as { value: string; text: string };
+			}
+		},
+	};
 }
