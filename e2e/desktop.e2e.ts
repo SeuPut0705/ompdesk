@@ -752,6 +752,8 @@ test("failed preference writes retain edits and never allow a premature restart"
 	await expect(proxy).toHaveValue("http://127.0.0.1:7899");
 	expect(await app.evaluate(() => Reflect.get(globalThis, "auditRestarts"))).toEqual([]);
 	await settings.locator('[data-settings-section="workspace"]').click();
+	// The launch profile (its system prompt) sits under Projects & launch's folded Advanced group.
+	await settings.locator("[data-settings-advanced] > summary").click();
 	const prompt = settings.getByPlaceholder("Leave empty to use the default system prompt");
 	await prompt.fill("Preserve this unsaved instruction.");
 	await prompt.press("Tab");
