@@ -73,7 +73,7 @@ describe("MachineSetupSection", () => {
 			}),
 		);
 
-		const section = document.body.querySelector('[data-testid="machine-setup-settings"]');
+		const section = document.body.querySelector("#setting-machine-setup");
 		expect(section?.textContent).toContain(translate("machineSetup.settings.title"));
 		expect(
 			Array.from(document.body.querySelectorAll("[data-setup-item]")).map(el => el.getAttribute("data-setup-item")),
@@ -127,6 +127,6 @@ describe("MachineSetupSection", () => {
 
 	it("is hidden where OMPdesk doesn't set the machine up", async () => {
 		await mount(setupState("other"));
-		expect(document.body.querySelector('[data-testid="machine-setup-settings"]')).toBeNull();
+		expect(document.body.querySelector("#setting-machine-setup")).toBeNull();
 	});
 });

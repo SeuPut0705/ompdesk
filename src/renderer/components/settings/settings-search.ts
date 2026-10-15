@@ -34,18 +34,18 @@ export interface SettingsSearchResult {
 
 /** Extra match terms per section (wire words and the things a section manages). */
 const SECTION_ALIASES: Record<SettingsSectionId, string> = {
-	general: "general language notifications steering follow-up interrupt compaction",
+	general: "general language notifications profile window side panel sidebar shortcuts github proxy network",
 	appearance: "appearance theme dark light font size density color transcript display",
 	keyboard: "keyboard shortcuts hotkeys keymap",
 	models: "models providers login logout api key model roles compare benchmark thinking retry",
 	permissions: "permissions security approval secrets scan",
 	agent: "agent behavior plan goal loop ttsr advisor memory compaction retry speech",
 	tools: "tools extensions skills mcp servers hooks commands plugins marketplace templates resources",
-	workspace: "workspace project folders directories dirs launch profile",
+	workspace: "workspace project folders directories dirs worktrees launch profile system prompt",
 	schedules: "schedules scheduled runs timer cron daily interval omp -p print 예약 실행",
 	connections: "ssh remote devices pair pairing code host connect other computer 원격 기기 연결 페어링",
-	updates: "updates version upgrade omp update",
-	advanced: "advanced proxy launch profile system prompt schema",
+	updates: "updates version upgrade omp update about this computer setup doctor",
+	advanced: "advanced other stock settings schema",
 };
 
 const DICTIONARIES = [en, ko] as const;

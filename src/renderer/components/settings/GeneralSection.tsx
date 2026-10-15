@@ -1,10 +1,10 @@
 /**
- * Settings › General: language, conversation language, notifications (and
- * their chime), how reply links open, the profile the agent addresses (name,
- * development experience), side panel default and edge, window close and
- * sleep behaviour (this device's app preferences), then messages sent
- * mid-turn and long-session compaction (the focused tab's agent — a paired
- * host's own), then the tools OMPdesk sets up on this computer.
+ * Settings › General: language, conversation language and reply style;
+ * notifications (and their chime); the profile the agent addresses (name,
+ * development experience); the window (side panel default and edge, terminal
+ * shell, how reply links open, window close, sleep, title and Dock status);
+ * the sidebar's pinned shortcuts; the GitHub account; and, folded under
+ * Advanced, this device's network proxy. All of it is this device's.
  */
 
 import { Play } from "lucide-react";
@@ -15,16 +15,16 @@ import { saveGuiPreference } from "../../lib/display-preferences";
 import { useLang, useT } from "../../lib/i18n";
 import { PLATFORM } from "../../lib/keymap";
 import { playChime } from "../../lib/notification-sound";
+import { RAIL_PIN_LABEL_KEYS, RAIL_PINS, useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { migrateDefaultPanelTab, PANEL_TABS, type PanelSide, type PanelTab, useUiStore } from "../../stores/ui";
 import { Button, Select } from "../common";
 import { DisplayPreferenceRow } from "./AppearanceSection";
 import { GithubAccountSection } from "./GithubAccountSection";
 import { ProxyRow } from "./LaunchSettings";
-import { MachineSetupSection } from "./MachineSetupSection";
 import { OutputStyleRow } from "./OutputStyleRow";
 import { ProfileSection } from "./ProfileSection";
 import { ReplyLanguageRow } from "./ReplyLanguageRow";
-import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
+import { SettingsAdvanced, SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 import { TerminalShellRow } from "./TerminalShellRow";
 
 const PANEL_SIDES: readonly PanelSide[] = ["right", "left"];
@@ -80,6 +80,8 @@ export function GeneralSection() {
 				/>
 				<ReplyLanguageRow />
 				<OutputStyleRow />
+			</SettingsSection>
+			<SettingsSection title={t("settings.general.notifications")}>
 				<SettingsSwitchRow
 					checked={notifications}
 					description={t("settings.gui.notificationsDesc")}
@@ -137,15 +139,6 @@ export function GeneralSection() {
 						label={t("settings.gui.notificationVolume")}
 					/>
 				)}
-				<SettingsSwitchRow
-					checked={linkPreview}
-					description={t("settings.gui.linkPreviewDesc")}
-					id="setting-gui-linkPreview"
-					label={t("settings.gui.linkPreview")}
-					onCheckedChange={next =>
-						void saveGuiPreference("linkPreview", next, () => useUiStore.setState({ linkPreview: next }))
-					}
-				/>
 			</SettingsSection>
 			<ProfileSection />
 			<SettingsSection title={t("settings.general.window")}>
@@ -184,6 +177,15 @@ export function GeneralSection() {
 					label={t("settings.gui.panelSide")}
 				/>
 				<TerminalShellRow />
+				<SettingsSwitchRow
+					checked={linkPreview}
+					description={t("settings.gui.linkPreviewDesc")}
+					id="setting-gui-linkPreview"
+					label={t("settings.gui.linkPreview")}
+					onCheckedChange={next =>
+						void saveGuiPreference("linkPreview", next, () => useUiStore.setState({ linkPreview: next }))
+					}
+				/>
 				{PLATFORM === "windows" && (
 					<SettingsSwitchRow
 						checked={closeToTray}
@@ -202,10 +204,37 @@ export function GeneralSection() {
 				/>
 				<DisplayPreferenceRow field="titleState" />
 				<DisplayPreferenceRow field="showProgress" />
-				<ProxyRow />
 			</SettingsSection>
-			<MachineSetupSection />
+			<SidebarShortcutsSection />
 			<GithubAccountSection />
+			<SettingsAdvanced>
+				<SettingsSection title={t("settings.general.network")}>
+					<ProxyRow />
+				</SettingsSection>
+			</SettingsAdvanced>
 		</>
+	);
+}
+
+/** Shortcuts pinned above Agents · Stats · Settings at the sidebar's foot; none until the user picks one. */
+function SidebarShortcutsSection() {
+	const t = useT();
+	const railPins = useSidebarPrefs(state => state.railPins);
+	return (
+		<SettingsSection
+			description={t("settings.gui.railPinsDesc")}
+			id="setting-gui-railPins"
+			title={t("settings.gui.railPins")}
+		>
+			{RAIL_PINS.map(pin => (
+				<SettingsSwitchRow
+					checked={railPins.includes(pin)}
+					id={`setting-gui-railPin-${pin}`}
+					key={pin}
+					label={t(RAIL_PIN_LABEL_KEYS[pin])}
+					onCheckedChange={() => void useSidebarPrefs.getState().toggleRailPin(pin)}
+				/>
+			))}
+		</SettingsSection>
 	);
 }

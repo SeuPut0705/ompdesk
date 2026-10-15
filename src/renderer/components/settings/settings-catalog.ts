@@ -249,11 +249,25 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "keep awake sleep power prevent 잠자기 절전 깨어 있기",
 	},
 	{
+		id: "railPins",
+		section: "general",
+		labelKey: "settings.gui.railPins",
+		aliases:
+			"sidebar shortcuts pin pinned usage limits terminal changes preview files background tasks schedules rail 사이드바 바로가기 고정 사용 한도",
+	},
+	{
 		id: "githubAccount",
 		section: "general",
 		rowId: "setting-github-account",
 		labelKey: "githubAuth.settings.title",
 		aliases: "github gh login sign in sign out account switch git identity user.name user.email 깃허브 로그인 계정",
+	},
+	{
+		id: "machineSetup",
+		section: "updates",
+		rowId: "setting-machine-setup",
+		labelKey: "machineSetup.settings.title",
+		aliases: "this computer setup install doctor bun git node gh omp tools 이 컴퓨터 설치 점검 도구",
 	},
 	{ id: "theme", section: "appearance", labelKey: "settings.gui.theme", aliases: "theme dark light 테마 다크 라이트" },
 	{

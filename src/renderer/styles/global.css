@@ -708,6 +708,24 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	margin-top: var(--sc-space-4);
 }
 
+/* "Advanced" folds a section's rarely changed groups behind a hairline at its end. */
+.settings-sections > * + .settings-advanced {
+	margin-top: var(--sc-space-10);
+}
+
+.settings-advanced {
+	border-top: var(--sc-hairline) solid var(--sc-divider);
+	padding-top: var(--sc-space-3);
+}
+
+.settings-advanced-body > :first-child {
+	margin-top: var(--sc-space-4);
+}
+
+.settings-advanced-body > * + :not(:empty) {
+	margin-top: var(--sc-space-10);
+}
+
 /* Rows inside a section are separated by hairlines, never boxes. */
 .settings-section-body > [data-setting-row] + [data-setting-row] {
 	border-top: var(--sc-hairline) solid var(--sc-divider);

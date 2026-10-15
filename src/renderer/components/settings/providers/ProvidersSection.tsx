@@ -24,7 +24,7 @@ import { useFocusedTabDevice } from "../../../stores/remote";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { Button, ConfirmDialog, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
-import { SettingsSection } from "../SettingsLayout";
+import { SettingsAdvanced, SettingsSection } from "../SettingsLayout";
 import { AccountPoolsEditor } from "./AccountPoolsEditor";
 import { CustomProviderForm } from "./CustomProviderForm";
 import { ModelOverrides } from "./ModelOverrides";
@@ -224,11 +224,12 @@ function CustomEndpoints({
 
 export function ProvidersSection({
 	pollMs = 2_500,
-	accountPolicies,
+	advancedSettings,
 	modelSettings,
 }: {
 	pollMs?: number;
-	accountPolicies?: ReactNode;
+	/** Leads the folded Advanced group, before account pools, custom endpoints and model overrides. */
+	advancedSettings?: ReactNode;
 	modelSettings?: ReactNode;
 }) {
 	const t = useT();
@@ -496,19 +497,22 @@ export function ProvidersSection({
 					title={t("providerCfg.delete.title")}
 				/>
 			</SettingsSection>
-			{accountPolicies}
-			<AccountPoolsEditor
-				providers={connected.map(provider => ({ provider, result: accountResults[provider.id] ?? null }))}
-				sidecarReady={catalog.sidecarReady}
-			/>
 			{modelSettings}
-			<CustomEndpoints
-				busyProvider={busyProvider}
-				catalog={catalog}
-				onDelete={setPendingDelete}
-				onEdit={config => openProviderConfig(config)}
-			/>
-			<ModelOverrides catalog={catalog} />
+			{/* Reset passes, account pools, custom endpoints and model overrides: rarely changed, folded. */}
+			<SettingsAdvanced>
+				{advancedSettings}
+				<AccountPoolsEditor
+					providers={connected.map(provider => ({ provider, result: accountResults[provider.id] ?? null }))}
+					sidecarReady={catalog.sidecarReady}
+				/>
+				<CustomEndpoints
+					busyProvider={busyProvider}
+					catalog={catalog}
+					onDelete={setPendingDelete}
+					onEdit={config => openProviderConfig(config)}
+				/>
+				<ModelOverrides catalog={catalog} />
+			</SettingsAdvanced>
 		</>
 	);
 }

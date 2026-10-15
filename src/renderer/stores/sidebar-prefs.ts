@@ -31,9 +31,21 @@ interface SidebarPrefsBlob {
 /**
  * What the sidebar footer can hold above its destinations (mixdog's activity-rail
  * pins): usage bars for the tab's provider, side panel views, and Schedules.
+ * None by default; Settings › General › Sidebar shortcuts picks them.
  */
 export const RAIL_PINS = ["usage", "terminal", "diff", "preview", "files", "jobs", "schedules"] as const;
 export type RailPin = (typeof RAIL_PINS)[number];
+
+/** Each pin's name, shared by its sidebar row and its Settings switch. */
+export const RAIL_PIN_LABEL_KEYS: Record<RailPin, string> = {
+	usage: "sidebar.pin.usage",
+	terminal: "panel.tabs.terminal",
+	diff: "panel.tabs.diff",
+	preview: "panel.tabs.preview",
+	files: "panel.tabs.files",
+	jobs: "panel.tabs.jobs",
+	schedules: "settings.section.schedules",
+};
 
 function validRailPins(value: unknown): RailPin[] {
 	if (!Array.isArray(value)) return [];

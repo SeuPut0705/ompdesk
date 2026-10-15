@@ -47,9 +47,10 @@ import { ExtensionsSection } from "./ExtensionsSection";
 import { GeneralSection } from "./GeneralSection";
 import { KeyboardSection } from "./KeyboardSection";
 import { LaunchProfileSection } from "./LaunchSettings";
+import { MachineSetupSection } from "./MachineSetupSection";
 import { ModelsSection } from "./ModelsSection";
 import { OtherExtensionIds } from "./OtherExtensionIds";
-import { OwnedSchemaSettings } from "./OwnedSchemaSettings";
+import { AdvancedSchemaSettings, OwnedSchemaSettings } from "./OwnedSchemaSettings";
 import { PermissionsSection } from "./PermissionsSection";
 import { PluginsSection } from "./PluginsSection";
 import { RemoteSection } from "./RemoteSection";
@@ -214,6 +215,9 @@ export function SettingsPage() {
 		const frame = requestAnimationFrame(() => {
 			const target = document.getElementById(id);
 			if (!target) return;
+			// A row folded under Advanced: open its disclosure first, or the scroll lands on nothing.
+			for (let node = target.parentElement; node; node = node.parentElement)
+				if (node.tagName === "DETAILS") node.setAttribute("open", "");
 			target.scrollIntoView({ block: focusRowId ? "center" : "start" });
 			if (focusRowId) {
 				// The focus lands a frame later; if the user already started typing
@@ -279,17 +283,15 @@ export function SettingsPage() {
 				return (
 					<>
 						<PermissionsSection />
-						<OwnedSchemaSettings section="permissions" />
+						<AdvancedSchemaSettings section="permissions" />
 					</>
 				);
 			case "agent":
 				return <AgentSection />;
 			case "tools":
+				// Skills, MCP and plugins first; the stock tool knobs fold under Advanced.
 				return (
 					<>
-						<SettingsSection id="settings-tools-tools" title={t("settings.features.tools")}>
-							<OwnedSchemaSettings section="tools" />
-						</SettingsSection>
 						<SettingsSection id="settings-tools-extensions" title={t("settings.section.extensions")}>
 							<ExtensionsSection
 								onTabChange={tab => navigate(`tools:${tab}`)}
@@ -301,18 +303,24 @@ export function SettingsPage() {
 						<SettingsSection id="settings-tools-plugins" title={t("settings.section.plugins")}>
 							<PluginsSection onTabChange={tab => navigate(`tools:${tab}`)} query={query} tab={pluginsTab} />
 						</SettingsSection>
+						<AdvancedSchemaSettings
+							id="settings-tools-tools"
+							section="tools"
+							title={t("settings.features.tools")}
+						/>
 					</>
 				);
 			case "workspace":
 				return (
 					<>
 						<WorkspaceSection />
-						<LaunchProfileSection />
 						<SettingsSection id="settings-workspace-worktrees" scope="app" title={t("settings.worktrees")}>
 							<WorktreeBranchPrefixRow />
 							<AgentWorktreesRows />
 						</SettingsSection>
-						<OwnedSchemaSettings section="workspace" />
+						<AdvancedSchemaSettings section="workspace">
+							<LaunchProfileSection />
+						</AdvancedSchemaSettings>
 					</>
 				);
 			case "schedules":
@@ -338,8 +346,9 @@ export function SettingsPage() {
 				return (
 					<>
 						<UpdatesSection />
+						<MachineSetupSection />
 						<HostScoped>
-							<OwnedSchemaSettings section="updates" scope="host" />
+							<AdvancedSchemaSettings scope="host" section="updates" />
 						</HostScoped>
 					</>
 				);
@@ -380,7 +389,7 @@ export function SettingsPage() {
 									className="px-2.5 pt-2 pb-1 text-sc-xs font-medium text-(--sc-text-muted)"
 									id={`settings-nav-${group.id}`}
 								>
-									{t(`settings.navGroup.${group.id}`)}
+									{t(`settings.navHeading.${group.id}`)}
 								</div>
 								{group.items.map(id => {
 									const Icon = SECTION_ICONS[id];
@@ -416,19 +425,18 @@ export function SettingsPage() {
 										? t("settings.search.count", { count: results.length })
 										: t(`settings.section.${section}.desc`)}
 								</p>
-								{!results && (
+								{/* Whose settings these are only matters while the focused tab runs on a paired host. */}
+								{!results && host && (
 									<p
 										className="mt-2 text-sc-xs text-(--sc-text-muted)"
 										data-settings-section-scope={SECTION_SCOPE[section]}
 									>
-										{SECTION_SCOPE[section] === "app" && host ? (
+										{SECTION_SCOPE[section] === "app" ? (
 											<ThisDeviceTag />
 										) : (
 											<>
-												{t(
-													`settings.navGroup.${SECTION_SCOPE[section] === "host" ? "agent" : SECTION_SCOPE[section] === "mixed" ? "system" : "app"}`,
-												)}
-												{SECTION_SCOPE[section] === "host" && host?.name ? `: ${host.name}` : ""}
+												{t(`settings.navGroup.${SECTION_SCOPE[section] === "host" ? "agent" : "system"}`)}
+												{SECTION_SCOPE[section] === "host" && host.name ? `: ${host.name}` : ""}
 											</>
 										)}
 									</p>

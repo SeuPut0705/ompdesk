@@ -1,4 +1,4 @@
-/** Accounts, model roles/defaults, then the single custom endpoint list. */
+/** Accounts, then models (setup, roles, defaults, compare); reset passes, pools, endpoints and overrides fold under Advanced. */
 
 import { ChevronDown } from "lucide-react";
 import { useEffect, useId, useState } from "react";
@@ -25,10 +25,13 @@ export function ModelsSection({ sub }: { sub?: string }) {
 	}, [sub]);
 	return (
 		<ProvidersSection
-			accountPolicies={
-				<div id="settings-models-reset-passes">
-					<OwnedSchemaSettings section="models" resetPolicies />
-				</div>
+			advancedSettings={
+				<>
+					<OwnedSchemaSettings section="models" />
+					<div id="settings-models-reset-passes">
+						<OwnedSchemaSettings section="models" resetPolicies />
+					</div>
+				</>
 			}
 			modelSettings={
 				<SettingsSection title={t("settings.tabs.model")} id="settings-models-models">
@@ -39,7 +42,6 @@ export function ModelsSection({ sub }: { sub?: string }) {
 						paths={DEFAULT_PATHS}
 						title={t("settings.models.defaults")}
 					/>
-					<OwnedSchemaSettings section="models" />
 					<SettingsSection
 						actions={
 							<Button

@@ -35,6 +35,7 @@ import {
 	MessageSquarePlus,
 	MessageSquareWarning,
 	MoreHorizontal,
+	PanelLeft,
 	PanelLeftClose,
 	PanelRightClose,
 	Pencil,
@@ -87,7 +88,7 @@ import { useQueueStore } from "../../stores/queue";
 import { usePairedHosts } from "../../stores/remote";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore } from "../../stores/session-runtime-context";
-import { RAIL_PINS, type RailPin, useSidebarPrefs } from "../../stores/sidebar-prefs";
+import { RAIL_PIN_LABEL_KEYS, type RailPin, useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../stores/sidebar-subagents";
 import { useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
@@ -202,36 +203,19 @@ function showPanelView(tab: PanelTab): void {
 	ui.setPanelTab(tab);
 }
 
-/** Footer shortcuts the user pins from the help menu (usage renders as bars, the rest as rows). */
-const RAIL_PIN_ROWS: Record<Exclude<RailPin, "usage">, { labelKey: string; icon: typeof Bot; open: () => void }> = {
-	terminal: { labelKey: "panel.tabs.terminal", icon: Terminal, open: () => showPanelView("terminal") },
-	diff: { labelKey: "panel.tabs.diff", icon: GitCompareArrows, open: () => showPanelView("diff") },
-	preview: { labelKey: "panel.tabs.preview", icon: Globe, open: () => showPanelView("preview") },
-	files: { labelKey: "panel.tabs.files", icon: Files, open: () => showPanelView("files") },
-	jobs: { labelKey: "panel.tabs.jobs", icon: Hourglass, open: () => showPanelView("jobs") },
-	schedules: {
-		labelKey: "settings.section.schedules",
-		icon: CalendarClock,
-		open: () => useUiStore.getState().openSettings("schedules"),
-	},
+/** Footer shortcuts the user pins in Settings › General (usage renders as bars, the rest as rows). */
+const RAIL_PIN_ROWS: Record<Exclude<RailPin, "usage">, { icon: typeof Bot; open: () => void }> = {
+	terminal: { icon: Terminal, open: () => showPanelView("terminal") },
+	diff: { icon: GitCompareArrows, open: () => showPanelView("diff") },
+	preview: { icon: Globe, open: () => showPanelView("preview") },
+	files: { icon: Files, open: () => showPanelView("files") },
+	jobs: { icon: Hourglass, open: () => showPanelView("jobs") },
+	schedules: { icon: CalendarClock, open: () => useUiStore.getState().openSettings("schedules") },
 };
 
 function useHelpItems(): ContextMenuItem[] {
 	const t = useT();
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
-	const railPins = useSidebarPrefs(s => s.railPins);
-	// Pin to sidebar: checkable shortcuts shown above the destinations (mixdog's rail pins).
-	const pinItems = RAIL_PINS.map(
-		(pin, index): ContextMenuItem => ({
-			id: `help-pin-${pin}`,
-			label: t("sidebar.pin.item", {
-				name: pin === "usage" ? t("sidebar.pin.usage") : t(RAIL_PIN_ROWS[pin].labelKey),
-			}),
-			checked: railPins.includes(pin),
-			separatorBefore: index === 0,
-			onSelect: () => void useSidebarPrefs.getState().toggleRailPin(pin),
-		}),
-	);
 	return [
 		{
 			id: "help-shortcuts",
@@ -273,7 +257,14 @@ function useHelpItems(): ContextMenuItem[] {
 			icon: Info,
 			onSelect: () => useUiStore.getState().openSettings("updates"),
 		},
-		...pinItems,
+		{
+			// The pins themselves are Settings switches, so search finds them too.
+			id: "help-customize-sidebar",
+			label: t("help.customizeSidebar"),
+			icon: PanelLeft,
+			separatorBefore: true,
+			onSelect: () => useUiStore.getState().openSettings("general:setting-gui-railPins"),
+		},
 	];
 }
 
@@ -331,7 +322,7 @@ function SidebarFooter() {
 		>
 			{railPins.map(pin => {
 				if (pin === "usage") return <SidebarUsage key={pin} />;
-				const { labelKey, icon: Icon, open: openPin } = RAIL_PIN_ROWS[pin];
+				const { icon: Icon, open: openPin } = RAIL_PIN_ROWS[pin];
 				return (
 					<Button
 						className="omp-sidebar-destination w-full min-w-0 justify-start gap-2.5 px-2.5 text-(--sc-text-secondary)"
@@ -341,7 +332,7 @@ function SidebarFooter() {
 						onClick={openPin}
 						variant="ghost"
 					>
-						<span className="min-w-0 flex-1 truncate text-left">{t(labelKey)}</span>
+						<span className="min-w-0 flex-1 truncate text-left">{t(RAIL_PIN_LABEL_KEYS[pin])}</span>
 					</Button>
 				);
 			})}

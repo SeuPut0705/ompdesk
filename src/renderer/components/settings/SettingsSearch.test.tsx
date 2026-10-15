@@ -75,7 +75,7 @@ describe("settings search", () => {
 		expect(search("mcp")).toContainEqual(rea);
 	});
 
-	it("selects no nav row and drops the section scope line while results replace the section", async () => {
+	it("selects no nav row while results replace the section", async () => {
 		useSessionStore.setState({ status: "starting" });
 		useUiStore.setState({ settingsTab: "advanced" });
 		root = createRoot(document.body as unknown as globalThis.Element);
@@ -88,7 +88,6 @@ describe("settings search", () => {
 		});
 		const current = () => document.querySelector('[data-settings-section][aria-current="true"]');
 		expect(current()?.getAttribute("data-settings-section")).toBe("advanced");
-		expect(document.querySelector("[data-settings-section-scope]")).not.toBeNull();
 
 		const field = document.querySelector('input[type="search"]');
 		if (!field) throw new Error("no settings search field");
@@ -101,7 +100,6 @@ describe("settings search", () => {
 
 		expect(document.querySelector('[data-search-key="gui:builtinRea"]')).not.toBeNull();
 		expect(current()).toBeNull();
-		expect(document.querySelector("[data-settings-section-scope]")).toBeNull();
 	});
 
 	it("names the keyboard section's own search briefly enough to fit the field", async () => {

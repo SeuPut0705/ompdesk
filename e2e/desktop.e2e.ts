@@ -739,6 +739,8 @@ test("failed preference writes retain edits and never allow a premature restart"
 	await page.keyboard.press("ControlOrMeta+Comma");
 	const settings = page.locator("[data-settings-page]");
 	await settings.locator('[data-settings-section="general"]').click();
+	// The proxy sits under General's folded Advanced group.
+	await settings.locator("[data-settings-advanced] > summary").click();
 	const proxy = page.locator("#setting-gui-proxy input");
 	await proxy.fill("http://127.0.0.1:7899");
 	await proxy.press("Enter");

@@ -1707,6 +1707,14 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "디렉터리별 최신 세션 유지 수",
 		description: "작업 디렉터리마다 오래되어도 항상 유지할 최신 비활성 세션 수(기본 10)",
 	},
+	"gc.compress": {
+		label: "GC 오래된 세션 압축",
+		description: "`omp gc` 실행 시 오래된 세션 파일을 파일 시스템의 투명 압축(APFS, NTFS)으로 다시 써요",
+	},
+	"gc.compressAfterDays": {
+		label: "압축 대기 일수",
+		description: "이 일수를 넘겨 활동이 없는 세션 파일만 압축해요(기본 7)",
+	},
 	// 사고 예산
 	"thinkingBudgets.minimal": {
 		label: "사고 예산(minimal)",

@@ -1,19 +1,13 @@
 import { useT } from "../../lib/i18n";
 import { AgentModes } from "./AgentModes";
 import { CompactionLimitsSection } from "./CompactionLimitsSection";
-import { OwnedSchemaSettings } from "./OwnedSchemaSettings";
+import { OwnedSchemaSettings, useOwnedSchemaGroups } from "./OwnedSchemaSettings";
 import { MemoryReportSection } from "./PluginsSection";
 import { SchemaField } from "./SchemaField";
-import { SettingsSection } from "./SettingsLayout";
-
-import {
-	agentSettingsGroup,
-	CURATED_SCHEMA_ROWS,
-	CUSTOM_SCHEMA_EDITORS,
-	schemaSettingsOwner,
-} from "./settings-catalog";
+import { SettingsAdvanced, SettingsSection } from "./SettingsLayout";
+import type { AgentSettingsGroup } from "./settings-catalog";
 import { useSettingsData } from "./settings-data";
-import { isSettingSupportedInGui, isSettingVisibleInGui } from "./settings-schema-utils";
+import { isSettingVisibleInGui } from "./settings-schema-utils";
 
 const MESSAGE_PATHS = [
 	"steeringMode",
@@ -23,20 +17,32 @@ const MESSAGE_PATHS = [
 	"retry.maxRetries",
 	"tui.renderMermaid",
 ];
+
+/** Agent's four groups, in order, with their heading; their stock (non-curated) rows fold under Advanced. */
+const AGENT_GROUPS: readonly { group: AgentSettingsGroup; titleKey: string }[] = [
+	{ group: "messages", titleKey: "settings.agent.messages" },
+	{ group: "modes", titleKey: "settings.agent.modes" },
+	{ group: "context", titleKey: "settings.agent.context" },
+	{ group: "io", titleKey: "settings.agent.io" },
+];
+
+/**
+ * Settings › Agent behavior: the curated rows of messages & execution, modes,
+ * and context & memory; every other stock agent setting folds under Advanced,
+ * still grouped the same way (search breadcrumbs keep those group names).
+ */
 export function AgentSection() {
 	const t = useT();
 	const { schema, values } = useSettingsData();
+	const stockGroups = {
+		messages: useOwnedSchemaGroups({ section: "agent", group: "messages" }).size > 0,
+		modes: useOwnedSchemaGroups({ section: "agent", group: "modes" }).size > 0,
+		context: useOwnedSchemaGroups({ section: "agent", group: "context" }).size > 0,
+		io: useOwnedSchemaGroups({ section: "agent", group: "io" }).size > 0,
+	} satisfies Record<AgentSettingsGroup, boolean>;
 	const hasMessages =
 		!schema ||
-		schema.entries.some(
-			entry =>
-				(MESSAGE_PATHS.includes(entry.path) && isSettingVisibleInGui(entry, values)) ||
-				(schemaSettingsOwner(entry) === "agent" &&
-					agentSettingsGroup(entry) === "messages" &&
-					!CURATED_SCHEMA_ROWS[entry.path] &&
-					!CUSTOM_SCHEMA_EDITORS[entry.path] &&
-					isSettingSupportedInGui(entry)),
-		);
+		schema.entries.some(entry => MESSAGE_PATHS.includes(entry.path) && isSettingVisibleInGui(entry, values));
 	return (
 		<>
 			{hasMessages && (
@@ -44,23 +50,26 @@ export function AgentSection() {
 					{MESSAGE_PATHS.map(path => (
 						<SchemaField key={path} path={path} />
 					))}
-					<OwnedSchemaSettings section="agent" group="messages" />
 				</SettingsSection>
 			)}
 			<SettingsSection id="settings-agent-modes" title={t("settings.agent.modes")}>
 				<AgentModes />
-				<OwnedSchemaSettings section="agent" group="modes" />
 			</SettingsSection>
 			<SettingsSection id="settings-agent-context" title={t("settings.agent.context")}>
 				<SchemaField path="compaction.enabled" />
 				<CompactionLimitsSection />
 				<SchemaField path="memory.backend" />
-				<OwnedSchemaSettings section="agent" group="context" />
 				<MemoryReportSection />
 			</SettingsSection>
-			<SettingsSection id="settings-agent-io" title={t("settings.agent.io")}>
-				<OwnedSchemaSettings section="agent" group="io" />
-			</SettingsSection>
+			{AGENT_GROUPS.some(({ group }) => stockGroups[group]) && (
+				<SettingsAdvanced>
+					{AGENT_GROUPS.filter(({ group }) => stockGroups[group]).map(({ group, titleKey }) => (
+						<SettingsSection id={`settings-agent-${group}-more`} key={group} title={t(titleKey)}>
+							<OwnedSchemaSettings group={group} section="agent" />
+						</SettingsSection>
+					))}
+				</SettingsAdvanced>
+			)}
 		</>
 	);
 }

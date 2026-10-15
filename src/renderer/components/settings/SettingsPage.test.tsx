@@ -306,6 +306,17 @@ describe("GeneralSection", () => {
 		expect(html).toContain('id="setting-gui-proxy"');
 		expect(html).toContain('id="setting-gui-titleState"');
 	});
+
+	it("offers every sidebar shortcut and folds the proxy under Advanced", () => {
+		const html = renderToStaticMarkup(withData([], {}, <GeneralSection />));
+		for (const pin of ["usage", "terminal", "diff", "preview", "files", "jobs", "schedules"])
+			expect(html).toContain(`id="setting-gui-railPin-${pin}"`);
+		const advanced = html.indexOf("data-settings-advanced");
+		expect(advanced).toBeGreaterThan(html.indexOf('id="setting-gui-railPins"'));
+		expect(html.indexOf('id="setting-gui-proxy"')).toBeGreaterThan(advanced);
+		// The machine setup list moved to Updates & about.
+		expect(html).not.toContain('id="setting-machine-setup"');
+	});
 });
 
 describe("SettingsConnectionBanner", () => {

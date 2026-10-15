@@ -11,7 +11,7 @@
  * pressed install.
  *
  * `OMP_GUI_SETUP_CAPTURES=<dir>` also captures the setup screens (download,
- * running, failed, Settings › General) in light/dark × en/ko plus a narrow window.
+ * running, failed, Settings › Updates & about) in light/dark × en/ko plus a narrow window.
  */
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
@@ -221,7 +221,8 @@ for (const [language, theme] of [
 			await flow(launched, `${language}-${theme}`, { retry: /.+/ });
 			const settings = launched.page.locator("[data-settings-page]");
 			await pressShortcutUntilVisible(launched.page, "ControlOrMeta+Comma", settings);
-			const section = launched.page.getByTestId("machine-setup-settings");
+			await settings.locator('[data-settings-section="updates"]').click();
+			const section = settings.locator("#setting-machine-setup");
 			await section.scrollIntoViewIfNeeded();
 			await expect(section).toBeVisible();
 			await capture(launched.page, `${language}-${theme}-3-settings`);

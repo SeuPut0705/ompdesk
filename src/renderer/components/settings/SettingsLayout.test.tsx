@@ -12,7 +12,7 @@ describe("settings group presentation", () => {
 		expect(schemaGroupTitle("ko", "Compaction")).toBe("압축");
 		expect(schemaGroupTitle("en", "custom_group-id")).toBe("Custom Group Id");
 	});
-	it("shows one heading per group and tags only a differing scope", async () => {
+	it("shows one heading per group and no scope tags for a local tab (SettingsDeviceScope covers a host's)", async () => {
 		const { document, window } = parseHTML("<html><body></body></html>");
 		Object.assign(globalThis, { document, window, IS_REACT_ACT_ENVIRONMENT: true });
 		const root = createRoot(document.body as unknown as globalThis.Element);
@@ -34,11 +34,7 @@ describe("settings group presentation", () => {
 				);
 			});
 			expect([...document.querySelectorAll("h3")].map(node => node.textContent)).toEqual(["Sharing", "SSH"]);
-			expect(
-				[...document.querySelectorAll("[data-settings-group-scope]")].map(node =>
-					node.getAttribute("data-settings-group-scope"),
-				),
-			).toEqual(["app", "host"]);
+			expect(document.querySelectorAll("[data-settings-group-scope]")).toHaveLength(0);
 		} finally {
 			await act(async () => root.unmount());
 		}

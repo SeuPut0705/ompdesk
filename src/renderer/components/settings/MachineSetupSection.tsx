@@ -1,5 +1,5 @@
 /**
- * Settings › General › This computer: every tool OMPdesk sets up on this
+ * Settings › Updates & about › This computer: every tool OMPdesk sets up on this
  * machine (SETUP_ITEMS order), what detection found, and what main is doing
  * about it. Main installs on its own; this only shows it, with Cancel while an
  * item runs and Retry after a failure, a cancel or a backoff.
@@ -129,29 +129,29 @@ export function MachineSetupSection() {
 	const loadError = useMachineSetupStore(store => store.loadError);
 	if (state?.platform === "other") return null;
 	return (
-		<div className="min-w-0" data-testid="machine-setup-settings">
-			<SettingsSection
-				description={t("machineSetup.settings.description")}
-				id="setting-machine-setup"
-				title={t("machineSetup.settings.title")}
-			>
-				{state ? (
-					state.items.map(item => <SetupItemRow item={item} key={item.id} windows={state.platform === "win32"} />)
-				) : loadError ? (
-					<InlineNotice
-						action={
-							<Button onClick={() => void useMachineSetupStore.getState().load()} size="sm" variant="ghost">
-								{t("common.retry")}
-							</Button>
-						}
-						detail={loadError}
-						title={t("machineSetup.loadFailed")}
-						tone="danger"
-					/>
-				) : (
-					<InlineNotice title={t("machineSetup.checking")} tone="pending" />
-				)}
-			</SettingsSection>
-		</div>
+		<SettingsSection
+			description={t("machineSetup.settings.description")}
+			id="setting-machine-setup"
+			// Settings › Updates & about holds this computer's tools beside the host's omp.
+			scope="app"
+			title={t("machineSetup.settings.title")}
+		>
+			{state ? (
+				state.items.map(item => <SetupItemRow item={item} key={item.id} windows={state.platform === "win32"} />)
+			) : loadError ? (
+				<InlineNotice
+					action={
+						<Button onClick={() => void useMachineSetupStore.getState().load()} size="sm" variant="ghost">
+							{t("common.retry")}
+						</Button>
+					}
+					detail={loadError}
+					title={t("machineSetup.loadFailed")}
+					tone="danger"
+				/>
+			) : (
+				<InlineNotice title={t("machineSetup.checking")} tone="pending" />
+			)}
+		</SettingsSection>
 	);
 }

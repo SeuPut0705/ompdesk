@@ -1,8 +1,9 @@
+import type { ReactNode } from "react";
 import type { SettingEntry } from "../../../shared/rpc-types";
 import { useLang, useT } from "../../lib/i18n";
 import { Button, EmptyState } from "../common";
 import { SchemaSettingRow } from "./SchemaSettingRow";
-import { SettingsRow, SettingsSection } from "./SettingsLayout";
+import { SettingsAdvanced, SettingsRow, SettingsSection } from "./SettingsLayout";
 import { schemaGroupTitle, schemaSettingText } from "./schema-i18n";
 import {
 	type AgentSettingsGroup,
@@ -16,22 +17,15 @@ import { useSettingsData } from "./settings-data";
 import { useSettingsNavigate } from "./settings-navigation";
 import { conditionParent, isSettingSupportedInGui, isSettingVisible } from "./settings-schema-utils";
 
-/** The sole schema editor for non-curated settings belonging to this section. */
-export function OwnedSchemaSettings({
-	section,
-	resetPolicies = false,
-	group,
-	scope,
-}: {
+interface OwnedSchemaFilter {
 	section: SettingsSectionId;
 	resetPolicies?: boolean;
 	group?: AgentSettingsGroup;
-	scope?: "app" | "host";
-}) {
-	const { lang } = useLang();
-	const t = useT();
-	const navigate = useSettingsNavigate();
-	const { schema, values, onCommitted } = useSettingsData();
+}
+
+/** A section's non-curated schema entries, by their stock group title. */
+export function useOwnedSchemaGroups({ section, resetPolicies = false, group }: OwnedSchemaFilter) {
+	const { schema } = useSettingsData();
 	const groups = new Map<string, SettingEntry[]>();
 	for (const entry of schema?.entries ?? []) {
 		if (
@@ -48,6 +42,56 @@ export function OwnedSchemaSettings({
 		entries.push(entry);
 		groups.set(title, entries);
 	}
+	return groups;
+}
+
+/**
+ * A section's non-curated stock settings folded under Advanced (with `children`
+ * first, when given); nothing at all when there is nothing to fold.
+ */
+export function AdvancedSchemaSettings({
+	section,
+	scope,
+	title,
+	id,
+	children,
+}: {
+	section: SettingsSectionId;
+	scope?: "app" | "host";
+	/** Groups the stock rows under one heading (their stock groups nest under it). */
+	title?: string;
+	id?: string;
+	children?: ReactNode;
+}) {
+	const groups = useOwnedSchemaGroups({ section });
+	if (groups.size === 0 && children === undefined) return null;
+	const rows = groups.size > 0 && <OwnedSchemaSettings scope={scope} section={section} />;
+	return (
+		<SettingsAdvanced>
+			{children}
+			{rows && title ? (
+				<SettingsSection id={id} title={title}>
+					{rows}
+				</SettingsSection>
+			) : (
+				rows
+			)}
+		</SettingsAdvanced>
+	);
+}
+
+/** The sole schema editor for non-curated settings belonging to this section. */
+export function OwnedSchemaSettings({
+	section,
+	resetPolicies = false,
+	group,
+	scope,
+}: OwnedSchemaFilter & { scope?: "app" | "host" }) {
+	const { lang } = useLang();
+	const t = useT();
+	const navigate = useSettingsNavigate();
+	const { schema, values, onCommitted } = useSettingsData();
+	const groups = useOwnedSchemaGroups({ section, resetPolicies, group });
 	if (section === "advanced" && groups.size === 0 && schema)
 		return <EmptyState size="sm" title={t("settings.sectionEmpty")} />;
 	return (

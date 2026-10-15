@@ -185,7 +185,7 @@ describe("nativized action wiring", () => {
 	it.each([
 		["websearch", "models:setting-providers.webSearch"],
 		["connect", "connections:remote"],
-		["doctor", "general:setting-machine-setup"],
+		["doctor", "updates:setting-machine-setup"],
 	])("%s opens Settings at %s", (name, target) => {
 		const affordance = wired(name);
 		if (affordance.kind !== "window") throw new Error("expected window");

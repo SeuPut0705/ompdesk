@@ -131,6 +131,8 @@ describe("Settings for a tab on a paired host", () => {
 			["models", "agent", "tools", "permissions", "workspace", "connections", "updates", "advanced"].some(navTag),
 		).toBe(false);
 		expect(query('[data-settings-nav="models"]')?.getAttribute("data-settings-scope")).toBe("host");
+		// The section header says whose settings these are only while a paired host's tab is focused.
+		expect(query("[data-settings-section-scope]")?.getAttribute("data-settings-section-scope")).toBe("app");
 		// An app section renders as usual, with no offline notice.
 		expect(query("[data-host-offline]")).toBeNull();
 	});
@@ -143,6 +145,16 @@ describe("Settings for a tab on a paired host", () => {
 		expect(notice?.textContent).toContain("These settings live on Studio. They show again once it reconnects.");
 		expect(query("[data-settings-connection-notice]")).toBeNull();
 		expect(query("#settings-models-accounts")).toBeNull();
+	});
+
+	it("names the scope of each group in a mixed section", async () => {
+		focusTab(HOST_ID);
+		await openSettings("connections");
+		expect(
+			[...document.querySelectorAll("[data-settings-group-scope]")].map(node =>
+				node.getAttribute("data-settings-group-scope"),
+			),
+		).toEqual(["app", "host"]);
 	});
 
 	it("keeps this device's settings available while the host is offline", async () => {
@@ -163,5 +175,8 @@ describe("Settings for a tab on a paired host", () => {
 		expect(query("[data-host-offline]")).toBeNull();
 		expect(query("[data-reply-language-host]")).toBeNull();
 		expect(query("#setting-steeringMode")).toBeNull();
+		// No "This device" / "Selected host" lines anywhere for a local tab.
+		expect(query("[data-settings-section-scope]")).toBeNull();
+		expect(query("[data-settings-group-scope]")).toBeNull();
 	});
 });

@@ -12,13 +12,18 @@
  * - `SettingsSwitchRow`: a boolean row — `SettingsRow` + `Switch`, the whole
  *   label clickable. With `risk`, flipping to the risky value only asks: an
  *   inline warning holds the switch until the user accepts the risk.
+ * - `SettingsAdvanced`: rarely changed settings folded under one "Advanced"
+ *   summary at the end of a section, closed by default. Search and deep links
+ *   still land on its rows: SettingsPage opens it before scrolling there.
  *
  * Rows use `id` (e.g. `setting-<path>`) as the search-navigation target.
  */
 
+import { ChevronRight } from "lucide-react";
 import { createContext, type ReactNode, useContext, useId, useState } from "react";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useFocusedHost } from "../../stores/remote";
 import { Banner, Button, Switch } from "../common";
 
 type SettingsScope = "app" | "host" | "mixed";
@@ -52,6 +57,8 @@ export function SettingsSection({
 	const nested = useContext(SettingsGroupContext);
 	const scope = ownScope ?? inheritedScope;
 	const t = useT();
+	// Whose settings a group holds only matters while the focused tab runs on a paired host.
+	const host = useFocusedHost();
 	// A nested group's title stays implicit over bare rows, but names the
 	// description and actions it carries: they never float unlabeled.
 	const showTitle = Boolean(title) && (!nested || Boolean(description || actions));
@@ -75,7 +82,7 @@ export function SettingsSection({
 									{title}
 								</h3>
 							))}
-						{ownScope && ownScope !== inheritedScope && !nested && (
+						{host && ownScope && ownScope !== inheritedScope && !nested && (
 							<p className="mt-0.5 text-sc-xs text-(--sc-text-muted)" data-settings-group-scope={scope}>
 								{t(`settings.navGroup.${scope === "host" ? "agent" : scope === "mixed" ? "system" : "app"}`)}
 							</p>
@@ -95,6 +102,23 @@ export function SettingsSection({
 				</SettingsScopeProvider>
 			</div>
 		</section>
+	);
+}
+
+/** Rarely changed settings, folded at the end of a section (see the file comment). */
+export function SettingsAdvanced({ children }: { children: ReactNode }) {
+	const t = useT();
+	return (
+		<details className="settings-advanced group/advanced" data-settings-advanced="true">
+			<summary className="flex min-h-(--sc-control-md) w-fit max-w-full cursor-pointer list-none items-center gap-1.5 rounded-(--sc-radius-sm) text-sc-md font-medium text-(--sc-text-secondary) select-none hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) [&::-webkit-details-marker]:hidden">
+				<ChevronRight
+					aria-hidden
+					className="size-(--sc-icon-sm) shrink-0 transition-transform duration-(--sc-duration-fast) group-open/advanced:rotate-90 motion-reduce:transition-none"
+				/>
+				{t("settings.advancedGroup")}
+			</summary>
+			<div className="settings-advanced-body">{children}</div>
+		</details>
 	);
 }
 

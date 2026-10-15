@@ -1527,7 +1527,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.doctor"),
 		description: t("cmd.doctor.desc"),
 		category: "settings",
-		affordance: { kind: "window", open: () => ctx.openSettings("general:setting-machine-setup") },
+		affordance: { kind: "window", open: () => ctx.openSettings("updates:setting-machine-setup") },
 	});
 	add({
 		name: "stats",

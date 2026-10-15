@@ -213,7 +213,7 @@ export function UpdatesSection() {
 			</Banner>
 
 			<SettingsRow
-				badge={<Badge variant="muted">{t("settings.navGroup.app")}</Badge>}
+				badge={host ? <Badge variant="muted">{t("settings.navGroup.app")}</Badge> : undefined}
 				control={
 					status.state === "available" ? (
 						<Button
@@ -268,13 +268,7 @@ export function UpdatesSection() {
 
 			<HostScoped>
 				<SettingsRow
-					badge={
-						host ? (
-							<DeviceChip deviceId={host.deviceId} />
-						) : (
-							<Badge variant="muted">{t("settings.navGroup.agent")}</Badge>
-						)
-					}
+					badge={host ? <DeviceChip deviceId={host.deviceId} /> : undefined}
 					control={
 						coreError ? (
 							<Badge variant="error">{t("updates.checkFailed")}</Badge>
@@ -498,7 +492,7 @@ function PluginDoctorRow() {
 					<div className="flex flex-wrap items-center justify-end gap-2">
 						<Button
 							icon={<Wrench />}
-							onClick={() => useUiStore.getState().openSettings("general:setting-machine-setup")}
+							onClick={() => useUiStore.getState().openSettings("updates:setting-machine-setup")}
 							size="sm"
 							variant="ghost"
 						>
