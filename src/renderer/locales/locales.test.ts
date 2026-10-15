@@ -138,3 +138,35 @@ describe.each(Object.entries(TRANSLATIONS))("locale parity: %s", (lang, locale) 
 		}
 	});
 });
+
+describe("ko steer wording", () => {
+	// Stock's "steer" is one concept in the composer, the transcript, the queue, subagents and Settings.
+	it("calls a steer 추가 지시 wherever en mentions one, and never 스티어링", () => {
+		const steerKeys = Object.keys(en).filter(
+			key => /steer/i.test(en[key]) || /^(input|subagent)\.(placeholder\.streaming|steer\.placeholder)$/.test(key),
+		);
+		expect(steerKeys.length).toBeGreaterThan(10);
+		for (const key of steerKeys) {
+			expect(ko[key], `ko["${key}"] (en: ${en[key]})`).toContain("추가 지시");
+		}
+		for (const [key, value] of Object.entries(ko)) expect(value, `ko["${key}"]`).not.toMatch(/스티어/);
+	});
+
+	it("labels the subagent steer box and its failure with the same term as its placeholder", () => {
+		for (const key of ["subagent.steer.label", "subagent.steer.placeholder", "subagent.steer.failed"]) {
+			expect(ko[key], key).toContain("추가 지시");
+		}
+	});
+});
+
+describe("ko machine setup copy", () => {
+	// The setup screen names a fixed tool (Bun, omp, Git, GitHub CLI, Node.js), so a hedged
+	// particle like 을(를) reads as unfinished on the first screen a new user sees. Word the
+	// sentence around 설치 instead.
+	it("has no hedged particles", () => {
+		for (const [key, value] of Object.entries(ko)) {
+			if (!key.startsWith("machineSetup.")) continue;
+			expect(value, `ko["${key}"]`).not.toMatch(/(을\(를\)|이\(가\)|은\(는\)|와\(과\)|\(으\)로)/);
+		}
+	});
+});

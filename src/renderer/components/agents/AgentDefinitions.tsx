@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { type AgentDraft, draftFromFields, emptyAgentDraft, splitFrontmatter } from "../../../shared/agent-definition";
+import { replaceModelLine, templateModelOffer } from "../../../shared/agent-template-migration";
 import { type AgentTemplate, templateDraft } from "../../../shared/agent-templates";
 import type {
 	AgentFileScope,
@@ -58,6 +59,7 @@ import {
 	Tabs,
 } from "../common";
 import { AgentEditorSheet, type AgentEditorTarget, revealAgentFile } from "./AgentEditorSheet";
+import { AgentModelUpdateDialog, type AgentModelUpdateTarget } from "./AgentModelUpdateDialog";
 import { AgentTemplateGallery } from "./AgentTemplateGallery";
 import { type AgentSettingsState, agentSourceLabel, useAgentSettings } from "./agent-settings";
 
@@ -214,6 +216,7 @@ const DefinitionRow = memo(function DefinitionRow({
 	onCancelModelEdit,
 	onSaveModel,
 	onSetPrewalk,
+	onOfferUpdate,
 	onAction,
 }: {
 	entry: DefinitionEntry;
@@ -225,6 +228,7 @@ const DefinitionRow = memo(function DefinitionRow({
 	onCancelModelEdit: () => void;
 	onSaveModel: (name: string, raw: string) => void;
 	onSetPrewalk: (name: string, next: PrewalkState) => void;
+	onOfferUpdate: (entry: DefinitionEntry) => void;
 	onAction: (action: DefinitionAction, entry: DefinitionEntry) => void;
 }) {
 	const t = useT();
@@ -232,6 +236,7 @@ const DefinitionRow = memo(function DefinitionRow({
 	const disabled = state.disabledAgents.includes(entry.name);
 	const override = state.modelOverrides[entry.name]?.trim() || undefined;
 	const prewalk = prewalkStateOf(state.prewalkOverrides, entry.name);
+	const offer = templateModelOffer(entry);
 
 	// Seed the draft when this row enters edit mode.
 	useEffect(() => {
@@ -329,6 +334,14 @@ const DefinitionRow = memo(function DefinitionRow({
 					/>
 				</div>
 			</div>
+			{offer && (
+				<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sc-sm text-(--sc-text-muted)">
+					<span>{t(offer.legacy ? "agentHub.defs.roleModel.hint" : "agentHub.defs.roleModel.hintEdited")}</span>
+					<Button disabled={busy} onClick={() => onOfferUpdate(entry)} size="sm" variant="secondary">
+						{t("agentHub.defs.roleModel.update")}
+					</Button>
+				</div>
+			)}
 			<DefinitionDetails entry={entry} override={override} prewalk={prewalk} />
 		</li>
 	);
@@ -509,6 +522,34 @@ export function AgentDefinitions() {
 		[readFile, rpc.state, tabRpc, failed, t],
 	);
 
+	const [modelUpdate, setModelUpdate] = useState<AgentModelUpdateTarget | null>(null);
+
+	// The offer is recomputed from the file as it is now, so the diff is what a click writes.
+	const offerModelUpdate = useCallback(
+		async (entry: DefinitionEntry) => {
+			if (!entry.filePath) return;
+			const file = await readFile(entry.filePath);
+			if (!file) return;
+			const offer = templateModelOffer({
+				name: entry.name,
+				scope: file.scope,
+				filePath: file.filePath,
+				model: file.parsed?.fields.model,
+			});
+			if (!offer) {
+				rpc.refresh();
+				return;
+			}
+			const edit = replaceModelLine(file.content, offer.to);
+			if (!edit) {
+				failed(t("agentHub.defs.roleModel.noLine", { name: entry.name }));
+				return;
+			}
+			setModelUpdate({ name: entry.name, scope: file.scope, filePath: file.filePath, offer, edit });
+		},
+		[readFile, failed, rpc, t],
+	);
+
 	const openNew = (draft: AgentDraft = emptyAgentDraft(), scope: AgentFileScope = "user") =>
 		setEditorTarget({ mode: "create", draft, scope });
 
@@ -649,6 +690,7 @@ export function AgentDefinitions() {
 							onCancelModelEdit={() => setEditingName(null)}
 							onSaveModel={saveModel}
 							onSetPrewalk={setPrewalk}
+							onOfferUpdate={offerModelUpdate}
 							onToggle={toggleAgent}
 							state={loadedState}
 						/>
@@ -662,6 +704,7 @@ export function AgentDefinitions() {
 				onSaved={onSaved}
 				target={editorTarget}
 			/>
+			<AgentModelUpdateDialog onClose={() => setModelUpdate(null)} onDone={rpc.refresh} target={modelUpdate} />
 			<AgentTemplateGallery
 				definitions={definitions}
 				onClose={() => setGalleryOpen(false)}

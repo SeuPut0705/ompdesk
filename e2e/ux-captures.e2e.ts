@@ -101,6 +101,13 @@ for (const language of ["en", "ko"] as const)
 					// No provider yet: the inline first-run setup takes the empty session.
 					const setup = page.getByRole("region", { name: label.setup, exact: true });
 					await expect(setup).toBeVisible({ timeout: 60_000 });
+					// The first thing a new user reads is the heading: it opens at the top, not scrolled under the title bar.
+					const heading = setup.getByRole("heading", { level: 1 });
+					const state = await page.evaluate(() => {
+						const scroller = document.querySelector(".omp-transcript-scroll");
+						return { top: scroller?.scrollTop, height: scroller?.scrollHeight, client: scroller?.clientHeight };
+					});
+					await expect(heading, JSON.stringify(state)).toBeInViewport({ ratio: 1 });
 					await resize(app, page, 1280, 860);
 					await shot("wide-00-first-run");
 					await setup.getByRole("button", { name: label.later, exact: true }).click();

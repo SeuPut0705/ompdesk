@@ -208,3 +208,46 @@ test("with the pref off nothing checks on its own; Update now still updates", as
 		await close(launched);
 	}
 });
+
+/** Opt-in captures (`OMP_GUI_OMP_UPDATE_CAPTURES=<dir>`): the updating row, the updated toast and Settings' omp rows. */
+const CAPTURES = process.env.OMP_GUI_OMP_UPDATE_CAPTURES ?? "";
+for (const [language, themeName] of [
+	["en", "light"],
+	["ko", "dark"],
+] as const)
+	test(`omp update captures (${language} ${themeName})`, async () => {
+		test.skip(!CAPTURES, "OMP_GUI_OMP_UPDATE_CAPTURES=<dir> captures the update surfaces");
+		test.setTimeout(120_000);
+		await fs.mkdir(CAPTURES, { recursive: true });
+		const launched = await launch(`capture-${language}`, { language, themeName });
+		try {
+			const { page } = launched;
+			const shot = async (name: string) => {
+				await page.mouse.move(1, 1);
+				await page.screenshot({
+					path: path.join(CAPTURES, `${language}-${themeName}-${name}.png`),
+					scale: "css",
+					animations: "disabled",
+				});
+			};
+			await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
+			await expect.poll(() => updatePhase(page), { timeout: 30_000 }).toBe("updating");
+			const settings = page.locator("[data-settings-page]");
+			await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
+			await settings.locator('[data-settings-section="updates"]').click();
+			await expect(settings.getByTestId("omp-update-status")).toBeVisible();
+			await shot("1-updating-settings");
+			await page.keyboard.press("Escape");
+			await releaseInstaller(launched);
+			await expect.poll(() => boots(launched), { timeout: 30_000 }).toEqual(["18.11.0", "18.12.0"]);
+			await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
+			await expect(page.locator("[role='status'], [role='alert']").first()).toBeVisible({ timeout: 30_000 });
+			await shot("2-updated-toast");
+			await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
+			await settings.locator('[data-settings-section="updates"]').click();
+			await expect(settings.getByTestId("omp-update-status")).toBeVisible();
+			await shot("3-updated-settings");
+		} finally {
+			await close(launched);
+		}
+	});

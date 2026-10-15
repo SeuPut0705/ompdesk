@@ -90,3 +90,19 @@ describe("ToastStack", () => {
 		expect(cards()).toHaveLength(1);
 	});
 });
+
+describe("ToastStack Korean wrapping", () => {
+	it("keeps words whole in the title as in the message, so a title never leaves one syllable on its own line", async () => {
+		await mount();
+		const title = "일부 OMPdesk 기능이 이 omp와 맞지 않아요";
+		const message = "omp 18.12.0에 내부 기능이 없어요.";
+		await act(async () => {
+			toast({ title, message, variant: "warning" });
+		});
+		const divs = [...(cards()[0]?.querySelectorAll("div") ?? [])];
+		for (const text of [title, message]) {
+			const part = divs.find(node => node.textContent === text);
+			expect(part?.getAttribute("class"), text).toContain("break-keep");
+		}
+	});
+});

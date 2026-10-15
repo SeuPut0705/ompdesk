@@ -63,7 +63,9 @@ export function ToastCard({
 		>
 			<Icon aria-hidden className={cx("mt-0.5 size-(--sc-icon-md) shrink-0", style.icon)} />
 			<div className="min-w-0 flex-1 py-px">
-				{title && <div className="mb-0.5 text-sc-sm font-semibold break-words text-(--sc-text)">{title}</div>}
+				{title && (
+					<div className="mb-0.5 text-sc-sm font-semibold break-words break-keep text-(--sc-text)">{title}</div>
+				)}
 				<div className="text-sc-sm break-words break-keep text-(--sc-text-secondary)">{message}</div>
 				{detail && (
 					<div

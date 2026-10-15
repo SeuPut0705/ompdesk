@@ -269,4 +269,89 @@ describe("AgentsPage", () => {
 		expect(deleteAgentFile).toHaveBeenCalledWith("/u/agents/mine.md");
 		expect(omp.getAgentDefinitions.mock.calls.length).toBeGreaterThan(loadsBefore);
 	});
+
+	it("offers a template agent the role-based model, shows the one-line diff, and writes only after Update", async () => {
+		const omp = installOmp();
+		const file = [
+			"---",
+			"# kept",
+			"name: debugger",
+			"description: mine",
+			'model: [ "@slow", "@task" ]',
+			"tools: [read]",
+			"---",
+			"",
+			"Body",
+			"",
+		].join("\n");
+		omp.getAgentDefinitions.mockImplementation(async () =>
+			ok("get_agent_definitions", {
+				agents: [
+					{
+						name: "debugger",
+						description: "Debugs",
+						source: "user",
+						scope: "user",
+						filePath: "/u/agents/debugger.md",
+						model: ["@slow", "@task"],
+					},
+					{
+						name: "docs-writer",
+						description: "Docs",
+						source: "user",
+						scope: "user",
+						filePath: "/u/agents/docs-writer.md",
+						model: ["@docs", "@smol", "@task"],
+					},
+					{
+						name: "mine",
+						description: "Mine",
+						source: "user",
+						scope: "user",
+						filePath: "/u/agents/mine.md",
+						model: ["@task"],
+					},
+				],
+			}),
+		);
+		const readAgentFile = vi.fn(async (filePath: string) =>
+			ok("read_agent_file", {
+				filePath,
+				scope: "user",
+				content: file,
+				parsed: { fields: { name: "debugger", description: "mine", model: ["@slow", "@task"] }, body: "Body" },
+			}),
+		);
+		const writeAgentFile = vi.fn(async (params: { name: string }) =>
+			ok("write_agent_file", { filePath: `/u/agents/${params.name}.md` }),
+		);
+		Object.assign(window.omp.rpc, { readAgentFile, writeAgentFile });
+		useSessionStore.getState().setStatus("ready", "/repo");
+		useUiStore.getState().openAgents("definitions");
+		await mount();
+
+		// Only the stale template agent is offered; a current one and an unrelated one are not.
+		const updates = queryAll("button").filter(button => button.textContent?.trim() === "Update to role-based model");
+		expect(updates).toHaveLength(1);
+		await fire(updates[0]!, "click");
+		expect(readAgentFile).toHaveBeenCalledWith("/u/agents/debugger.md");
+		expect(writeAgentFile).not.toHaveBeenCalled();
+
+		const dialog = queryAll('[role="dialog"]')[0]!;
+		expect(dialog.textContent).toContain("Update debugger's model line");
+		expect(dialog.textContent).toContain('model: [ "@slow", "@task" ]');
+		expect(dialog.textContent).toContain('model: [ "@debug", "@slow", "@task" ]');
+		expect(dialog.textContent).not.toContain("You changed this line yourself");
+
+		await fire(
+			queryAll('[role="dialog"] button').find(button => button.textContent?.trim() === "Update model line")!,
+			"click",
+		);
+		expect(writeAgentFile).toHaveBeenCalledWith({
+			scope: "user",
+			name: "debugger",
+			content: file.replace('model: [ "@slow", "@task" ]', 'model: [ "@debug", "@slow", "@task" ]'),
+			replacePath: "/u/agents/debugger.md",
+		});
+	});
 });
