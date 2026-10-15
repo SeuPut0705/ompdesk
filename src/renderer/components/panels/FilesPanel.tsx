@@ -18,6 +18,7 @@ import {
 	Minimize2,
 	Pencil,
 	RefreshCw,
+	TextSearch,
 	Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -29,7 +30,7 @@ import { errorMessage } from "../../lib/error-detail";
 import { FILE_DRAG_TYPE } from "../../lib/file-drag";
 import { copyText, formatBytes } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { PLATFORM } from "../../lib/keymap";
+import { actionKbd, PLATFORM } from "../../lib/keymap";
 import { useRuntimeTabId, useSessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
@@ -49,6 +50,7 @@ import {
 } from "../common";
 import { type TreeNode, TreeView } from "../common/TreeView";
 import { PathLink } from "../tools/PathLink";
+import { FileContentSearch } from "./FileContentSearch";
 import { PanelToolbar } from "./PanelChrome";
 import { FileIcon, FileViewer } from "./viewers/FileViewer";
 import { viewerKind } from "./viewers/file-kind";
@@ -357,6 +359,13 @@ export function FilesPanel() {
 	const filePreviewPath = useUiStore(s => s.filePreviewPath);
 	const openFilePreview = useUiStore(s => s.openFilePreview);
 	const revealPath = useUiStore(s => s.filesRevealPath);
+	const searchSeq = useUiStore(s => s.filesSearchSeq);
+	const keymapOverrides = useUiStore(s => s.keymapOverrides);
+	/** The body searches file contents instead of showing the tree. */
+	const [contentSearch, setContentSearch] = useState(searchSeq > 0);
+	useEffect(() => {
+		if (searchSeq > 0) setContentSearch(true);
+	}, [searchSeq]);
 	const cwd = useTabsStore(s => s.tabs.find(tab => tab.id === tabId)?.cwd ?? "");
 	const listVersion = useRef(0);
 	const [query, setQuery] = useState("");
@@ -698,58 +707,72 @@ export function FilesPanel() {
 					onClick={() => startCreate("createFolder", createParent)}
 					size="sm"
 				/>
-				<div className="min-w-0 flex-1">
-					<SearchField
-						controlSize="sm"
-						label={t("filesPanel.search")}
-						placeholder={t("filesPanel.search")}
-						value={query}
-						onValueChange={setQuery}
-					/>
-					{truncated && (
-						<p className="mt-1 text-sc-xs text-(--sc-text-muted)">
-							{t("filesPanel.searchLimit", { files: MAX_FILES, depth: MAX_DEPTH })}
-						</p>
+				<IconButton
+					icon={<TextSearch />}
+					label={t("filesPanel.contentSearch.toggle")}
+					onClick={() => setContentSearch(value => !value)}
+					pressed={contentSearch}
+					shortcut={actionKbd("files.search", keymapOverrides)}
+					size="sm"
+				/>
+				{!contentSearch && (
+					<div className="min-w-0 flex-1">
+						<SearchField
+							controlSize="sm"
+							label={t("filesPanel.search")}
+							placeholder={t("filesPanel.search")}
+							value={query}
+							onValueChange={setQuery}
+						/>
+						{truncated && (
+							<p className="mt-1 text-sc-xs text-(--sc-text-muted)">
+								{t("filesPanel.searchLimit", { files: MAX_FILES, depth: MAX_DEPTH })}
+							</p>
+						)}
+					</div>
+				)}
+			</PanelToolbar>
+			{contentSearch ? (
+				<FileContentSearch focusSeq={searchSeq} tabId={tabId ?? undefined} />
+			) : (
+				<div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+					{loading && tree.length === 0 ? (
+						<Spinner className="w-full justify-center py-8" label={t("filesPanel.scanning")} size="sm" />
+					) : error !== null ? (
+						<div className="px-4 py-8 text-center text-sc-sm leading-relaxed text-(--sc-text-muted)">
+							{ipcErrorCode(error) ? errorMessage(error) : t("filesPanel.unavailable")}
+							<ErrorDetail className="mt-1" error={error} />
+							<div className="mt-2">
+								<Button onClick={() => void load()} size="sm" variant="ghost">
+									{t("common.retry")}
+								</Button>
+							</div>
+						</div>
+					) : nodes.length === 0 ? (
+						<EmptyState
+							icon={<Folder />}
+							size="sm"
+							title={t(query.trim() ? "filesPanel.noMatch" : "filesPanel.empty")}
+							actions={
+								query.trim() ? (
+									<Button size="sm" variant="secondary" onClick={() => setQuery("")}>
+										{t("common.clear")}
+									</Button>
+								) : undefined
+							}
+						/>
+					) : (
+						<TreeView
+							emptyMessage={t("filesPanel.empty")}
+							className="omp-files-tree"
+							expanded={expanded}
+							nodes={nodes}
+							onExpandedChange={setExpanded}
+							selectedId={selectedId}
+						/>
 					)}
 				</div>
-			</PanelToolbar>
-			<div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
-				{loading && tree.length === 0 ? (
-					<Spinner className="w-full justify-center py-8" label={t("filesPanel.scanning")} size="sm" />
-				) : error !== null ? (
-					<div className="px-4 py-8 text-center text-sc-sm leading-relaxed text-(--sc-text-muted)">
-						{ipcErrorCode(error) ? errorMessage(error) : t("filesPanel.unavailable")}
-						<ErrorDetail className="mt-1" error={error} />
-						<div className="mt-2">
-							<Button onClick={() => void load()} size="sm" variant="ghost">
-								{t("common.retry")}
-							</Button>
-						</div>
-					</div>
-				) : nodes.length === 0 ? (
-					<EmptyState
-						icon={<Folder />}
-						size="sm"
-						title={t(query.trim() ? "filesPanel.noMatch" : "filesPanel.empty")}
-						actions={
-							query.trim() ? (
-								<Button size="sm" variant="secondary" onClick={() => setQuery("")}>
-									{t("common.clear")}
-								</Button>
-							) : undefined
-						}
-					/>
-				) : (
-					<TreeView
-						emptyMessage={t("filesPanel.empty")}
-						className="omp-files-tree"
-						expanded={expanded}
-						nodes={nodes}
-						onExpandedChange={setExpanded}
-						selectedId={selectedId}
-					/>
-				)}
-			</div>
+			)}
 			{menu && (
 				<ContextMenu
 					ariaLabel={menu.entry.path}

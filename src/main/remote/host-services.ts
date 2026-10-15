@@ -46,6 +46,7 @@ import { deleteSession, moveSession, renameSession } from "../session-mutations"
 import type { SidecarSessionIdentity } from "../sidecar";
 import type { SidecarLike, SidecarPool } from "../sidecar-pool";
 import { applyRunEvent, idleRun, type RunState, runBusy, settleRun } from "../sidecar-run-state";
+import { stockHelperRequest } from "../stock-helper";
 import {
 	FS_BINARY_REMOTE_MAX_BYTES,
 	listDirectories,
@@ -57,6 +58,7 @@ import {
 	readWorkspaceImage,
 	statWorkspacePath,
 } from "../workspace-fs";
+import { searchWorkspace } from "../workspace-search";
 import {
 	BenchmarkOptionsSchema,
 	CustomProviderInputSchema,
@@ -163,6 +165,7 @@ const FsListParams = z.object({
 const FsReadParams = z.object({ ...FsRoot, path: z.string(), maxBytes: z.number().optional() });
 const FsReadImageParams = z.object({ ...FsRoot, path: z.string() });
 const FsMutateParams = z.object({ ...FsRoot, mutation: z.unknown() });
+const FsSearchParams = z.object({ ...FsRoot, request: z.unknown() });
 const FsReadPlanParams = z.object({ ...FsRoot, fsPath: z.string(), localRoot: z.string().nullable() });
 const ListDirsParams = z.object({ path: z.string().optional() });
 const LaunchProfileGetParams = z.object({ cwd: AbsolutePath });
@@ -300,6 +303,10 @@ export class LocalHostServices implements HostServices {
 			case "fs.mutate": {
 				const { rtab, cwd, mutation } = parse(FsMutateParams, method, params);
 				return mutateWorkspace(this.#fsRoot(peer, rtab, cwd), mutation, this.#deps.trashItem);
+			}
+			case "fs.search": {
+				const { rtab, cwd, request } = parse(FsSearchParams, method, params);
+				return searchWorkspace(this.#fsRoot(peer, rtab, cwd), request, stockHelperRequest);
 			}
 			case "fs.readImage": {
 				const { rtab, cwd, ...payload } = parse(FsReadImageParams, method, params);

@@ -3,12 +3,14 @@
  */
 import { createInterface } from "node:readline";
 import { methods as models } from "./models";
+import { methods as search } from "./search";
 import { methods as sessions } from "./sessions";
 import { disposeTerminals, methods as terminals } from "./terminals";
 
 const methods: Record<string, (params: unknown) => unknown | Promise<unknown>> = {
 	...sessions,
 	...models,
+	...search,
 	...terminals,
 };
 const input = createInterface({ input: process.stdin });

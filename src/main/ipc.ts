@@ -38,6 +38,7 @@ import type {
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
+	IpcFsSearchResult,
 	IpcFsStatResult,
 	IpcGetLaunchProfilePayload,
 	IpcGetSessionOwnerPayload,
@@ -94,6 +95,7 @@ import { deleteSession, moveSession, renameSession } from "./session-mutations";
 import { resolveEditorCommand } from "./shell-env";
 import { deviceLanguage } from "./sidecar-factory";
 import type { SidecarLike, SidecarPool } from "./sidecar-pool";
+import { stockHelperRequest } from "./stock-helper";
 import { spawnTabForWindow } from "./tab-spawn";
 import { closeTabTerminals, registerTerminalIpc } from "./terminal/ipc";
 import { setTrayState } from "./tray";
@@ -112,6 +114,7 @@ import {
 	resolveWorkspaceMedia,
 	statWorkspacePath,
 } from "./workspace-fs";
+import { searchWorkspace } from "./workspace-search";
 import { readLiveLifecycleSettings, type WorktreeLifecycle, type WorktreePrompts } from "./worktree-lifecycle";
 
 export interface IpcDeps {
@@ -1235,6 +1238,29 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				);
 			}
 			return mutateWorkspace(cwdFor(deps, event, payload?.tabId), payload?.mutation, abs => shell.trashItem(abs));
+		},
+	);
+
+	ipcMain.handle(
+		IPC_COMMANDS.FS_SEARCH,
+		async (event, payload: { request: unknown; tabId?: string }): Promise<IpcFsSearchResult> => {
+			const target = targetFor(deps, event, payload?.tabId);
+			if (target?.device) {
+				return remoteFs(
+					{ ...target, device: target.device },
+					"fs.search",
+					{ request: payload?.request },
+					(error, code) => ({
+						ok: false,
+						matches: [],
+						files: 0,
+						limited: false,
+						error,
+						...(code ? { code } : {}),
+					}),
+				);
+			}
+			return searchWorkspace(cwdFor(deps, event, payload?.tabId), payload?.request, stockHelperRequest);
 		},
 	);
 

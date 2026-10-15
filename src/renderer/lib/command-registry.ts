@@ -500,6 +500,14 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		affordance: { kind: "picker", open: () => useUiStore.getState().openQuickOpen() },
 	});
 	add({
+		name: "search-files",
+		label: t("filesPanel.contentSearch.toggle"),
+		description: t("filesPanel.contentSearch.hint"),
+		category: "session",
+		shortcut: kbd("files.search"),
+		affordance: { kind: "action", run: () => useUiStore.getState().openFilesSearch() },
+	});
+	add({
 		name: "close-other-tabs",
 		label: t("tabs.menu.closeOthers"),
 		category: "session",

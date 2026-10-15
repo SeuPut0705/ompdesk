@@ -76,6 +76,8 @@ interface UiStore {
 	filePreviewLine: number | null;
 	/** Folder (tab-relative or absolute) the Files tree expands, selects and scrolls to; the panel clears it once shown. */
 	filesRevealPath: string | null;
+	/** Bumped by "Search in files" (⌥⌘F): the Files panel opens its content search and focuses the query. */
+	filesSearchSeq: number;
 	/** The Files drawer's viewer asked for a wider docked panel (not persisted; the drag width stays the pref). */
 	filePreviewExpanded: boolean;
 	/** Rendered/source choice per previewed document path, least recent first (capped; not persisted). */
@@ -165,6 +167,8 @@ interface UiStore {
 	openFilePreview: (path: string, options?: { line?: number }) => void;
 	/** Show a folder in the Files tree (a folder link in a reply). */
 	revealInFiles: (path: string) => void;
+	/** Open the Files panel's search in file contents. */
+	openFilesSearch: () => void;
 	closeFilePreview: () => void;
 	toggleFilePreviewExpanded: () => void;
 	setFileViewMode: (path: string, mode: "rendered" | "source") => void;
@@ -277,6 +281,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	filePreviewPath: null,
 	filePreviewLine: null,
 	filesRevealPath: null,
+	filesSearchSeq: 0,
 	filePreviewExpanded: false,
 	fileViewModes: new Map(),
 	previewUrl: null,
@@ -312,6 +317,14 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	revealInFiles: path =>
 		set({
 			filesRevealPath: path,
+			filePreviewPath: null,
+			filePreviewLine: null,
+			panelTab: "files",
+			panelVisible: true,
+		}),
+	openFilesSearch: () =>
+		set({
+			filesSearchSeq: get().filesSearchSeq + 1,
 			filePreviewPath: null,
 			filePreviewLine: null,
 			panelTab: "files",

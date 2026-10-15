@@ -411,6 +411,7 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.FS_READ, { path, maxBytes, tabId }) as Promise<IpcFsReadResult>,
 		stat: (path, tabId) => ipcRenderer.invoke(IPC_COMMANDS.FS_STAT, { path, tabId }),
 		mutate: (mutation, tabId) => ipcRenderer.invoke(IPC_COMMANDS.FS_MUTATE, { mutation, tabId }),
+		search: (request, tabId) => ipcRenderer.invoke(IPC_COMMANDS.FS_SEARCH, { request, tabId }),
 		readPlan: (payload: IpcFsReadPlanPayload) =>
 			ipcRenderer.invoke(IPC_COMMANDS.FS_READ_PLAN, payload) as Promise<IpcFsReadPlanResult>,
 		readImage: (path: string, tabId?: string) =>

@@ -519,6 +519,9 @@ export function App() {
 				case "sidebar.toggle":
 					ui.toggleSidebar();
 					return;
+				case "files.search":
+					ui.openFilesSearch();
+					return;
 				case "panel.toggle":
 					ui.togglePanel();
 					return;

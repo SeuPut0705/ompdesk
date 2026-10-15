@@ -24,6 +24,10 @@ const LABELS = {
 		untracked: "Untracked",
 		gone: "This file was deleted or renamed on disk.",
 		back: "Back to files",
+		contentSearch: "Search in files",
+		query: "Text to find in files",
+		matchCase: "Match case",
+		count: "1 matches in 1 files",
 		sidePanel: "Side panel",
 	},
 	ko: {
@@ -36,6 +40,10 @@ const LABELS = {
 		untracked: "추적 안 됨",
 		gone: "이 파일이 디스크에서 삭제되었거나 이름이 바뀌었어요.",
 		back: "파일 목록으로",
+		contentSearch: "파일 내용 검색",
+		query: "파일에서 찾을 텍스트",
+		matchCase: "대소문자 구분",
+		count: "파일 1개에서 1건",
 		sidePanel: "사이드 패널",
 	},
 } as const;
@@ -64,11 +72,17 @@ for (const [language, theme] of [
 			path.join(desktop, "prefs.json"),
 			JSON.stringify({ language, themeName: theme, firstRunComplete: true }),
 		);
+		// Content search runs stock pi-natives grep in the stock helper; the fake omp borrows the installed one.
+		const bin = await fixtureOmp(profile);
+		const natives =
+			process.env.OMP_GUI_TEST_NATIVES ||
+			path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-natives");
+		await fs.symlink(natives, path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives"), "dir");
 		const env = {
 			...process.env,
 			OMP_GUI_HEADLESS: "1",
 			PI_CODING_AGENT_DIR: agent,
-			OMP_GUI_OMP: await fixtureOmp(profile),
+			OMP_GUI_OMP: bin,
 		};
 		Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 		const app = await electron.launch({
@@ -152,6 +166,22 @@ for (const [language, theme] of [
 			const composer = page.locator("textarea").first();
 			await row("file:notes.md").dragTo(composer);
 			await expect(composer).toHaveValue("@notes.md ");
+
+			// C46/C47/C48: ⌥⌘F searches file contents through stock grep; Match case narrows it; a hit opens its line.
+			await page.keyboard.press("Alt+Meta+f");
+			const query = aside.getByRole("searchbox", { name: label.query });
+			await expect(query).toBeFocused();
+			await query.fill("ONE");
+			await expect(aside.locator("[data-content-search-count]")).toHaveText(label.count);
+			await expect(aside.locator('[data-content-search-file="src/app.ts"]')).toBeVisible();
+			await capture("files-search");
+			await aside.getByRole("button", { name: label.matchCase, exact: true }).click();
+			await expect(aside.locator("[data-content-search-count]")).toHaveCount(0);
+			await aside.getByRole("button", { name: label.matchCase, exact: true }).click();
+			await aside.getByRole("button", { name: /export const one/ }).click();
+			await expect(aside.locator("[data-viewer-kind]")).toBeVisible();
+			await aside.getByRole("button", { name: label.back, exact: true }).click();
+			await aside.getByRole("button", { name: label.contentSearch, exact: true }).click();
 
 			// C18: the open file follows the disk, then says when it is gone.
 			await row("file:notes.md").click();

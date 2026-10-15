@@ -194,6 +194,8 @@ export const IPC_COMMANDS = {
 	FS_STAT: "fs:stat",
 	/** Files panel writes: new file/folder, rename, move to the trash */
 	FS_MUTATE: "fs:mutate",
+	/** Text search across the project's files (stock pi-natives grep, .gitignore-aware) */
+	FS_SEARCH: "fs:search",
 	/** Read the plan-mode document off the RPC bus (with session-local fallback) */
 	FS_READ_PLAN: "fs:read-plan",
 	/** Read an image file as a data URL for markdown <img> rendering (sniffed mime, size cap) */
@@ -813,6 +815,36 @@ export type IpcFsMutation =
 	| { op: "createFile" | "createFolder"; parent: string; name: string }
 	| { op: "rename"; path: string; name: string }
 	| { op: "trash"; path: string };
+
+/** Files panel content search; `query` is plain text unless `regex`. */
+export interface IpcFsSearchRequest {
+	query: string;
+	matchCase: boolean;
+	wholeWord: boolean;
+	regex: boolean;
+	/** Filename glob such as `*.ts`; empty searches every file. */
+	glob: string;
+}
+
+export interface IpcFsSearchMatch {
+	/** Workspace-relative POSIX path. */
+	path: string;
+	/** 1-based line. */
+	line: number;
+	/** The line (cut around the match when long). */
+	text: string;
+}
+
+export interface IpcFsSearchResult {
+	ok: boolean;
+	matches: IpcFsSearchMatch[];
+	/** Files with a match. */
+	files: number;
+	/** The match cap stopped the search; there are more. */
+	limited: boolean;
+	error?: string;
+	code?: IpcErrorCode;
+}
 
 export interface IpcFsMutateResult {
 	ok: boolean;
@@ -1490,6 +1522,7 @@ export interface OmpApi {
 		read(path: string, maxBytes?: number, tabId?: string): Promise<IpcFsReadResult>;
 		stat(path: string, tabId?: string): Promise<IpcFsStatResult>;
 		mutate(mutation: IpcFsMutation, tabId?: string): Promise<IpcFsMutateResult>;
+		search(request: IpcFsSearchRequest, tabId?: string): Promise<IpcFsSearchResult>;
 		readPlan(payload: IpcFsReadPlanPayload): Promise<IpcFsReadPlanResult>;
 		readImage(path: string, tabId?: string): Promise<IpcFsReadImageResult>;
 		/** File bytes for the viewer: 100 MB cap on this device, 11 MB for a paired host's tab. */

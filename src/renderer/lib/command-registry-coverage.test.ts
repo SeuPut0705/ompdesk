@@ -141,6 +141,7 @@ const SHORTCUT_ROWS: Record<KeymapActionId, string | null> = {
 	"tab.gotoLast": null,
 	quickOpen: "quick-open",
 	"sessions.search": "resume",
+	"files.search": "search-files",
 	settings: "settings",
 	"sidebar.toggle": "toggle-sidebar",
 	"panel.toggle": "toggle-panel",

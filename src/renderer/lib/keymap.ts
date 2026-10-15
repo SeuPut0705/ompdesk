@@ -447,6 +447,14 @@ export const KEYMAP_ACTIONS = [
 		overlaySafe: false,
 		hotkeyGroup: "session",
 	},
+	{
+		// ⌥⌘F — search text in the project's files (Files panel; ⇧⌘F already searches sessions).
+		id: "files.search",
+		labelKey: "hotkeys.row.filesSearch",
+		defaults: ["⌥⌘F"],
+		overlaySafe: false,
+		hotkeyGroup: "view",
+	},
 	{ id: "tab.new", labelKey: "hotkeys.row.tabNew", defaults: ["⌘T"], overlaySafe: false, hotkeyGroup: "session" },
 	{
 		id: "tab.newChat",
