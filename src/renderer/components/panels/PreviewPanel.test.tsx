@@ -60,6 +60,14 @@ describe("browser preview", () => {
 		).toEqual(["http://localhost:5173/", "http://127.0.0.1:3000/app", "http://localhost:8080/"]);
 		expect(detectLocalPreviewUrls("http://localhost.evil.test:80 http://user:secret@localhost:80")).toEqual([]);
 	});
+	it("offers a server that printed a wildcard address on localhost", () => {
+		expect(
+			detectLocalPreviewUrls(
+				"Serving HTTP on :: port 4790 (http://[::]:4790/) ...\nListening on http://0.0.0.0:5173/app and again http://0.0.0.0:5173/app",
+			),
+		).toEqual(["http://localhost:4790/", "http://localhost:5173/app"]);
+		expect(detectLocalPreviewUrls("http://0.0.0.0.evil.test:80 http://[::2]:80")).toEqual([]);
+	});
 	it("selects the most recent bash result, including live stock updates", () => {
 		const finishedTools = new Map([
 			["old", entry("http://localhost:3000", 1)],

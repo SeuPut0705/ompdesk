@@ -2,11 +2,22 @@ import { isLoopbackUrl, previewUrl } from "../../shared/preview";
 import type { ToolsStore } from "../stores/tools";
 import { resultText } from "./format";
 
+/** What a dev server prints when it listens on every interface; the page answers on localhost. */
+const WILDCARD_HOSTS: ReadonlySet<string> = new Set(["0.0.0.0", "[::]"]);
+
+function reachableUrl(value: string): string | null {
+	const safe = previewUrl(value);
+	if (!safe) return null;
+	const url = new URL(safe);
+	if (!WILDCARD_HOSTS.has(url.hostname)) return safe;
+	url.hostname = "localhost";
+	return url.href;
+}
+
 export function detectLocalPreviewUrls(text: string): string[] {
 	const urls: string[] = [];
 	for (const match of text.matchAll(/https?:\/\/[^\s<>\x1b"'`]+/g)) {
-		const candidate = match[0].replace(/[),.;\]}]+$/, "");
-		const safe = previewUrl(candidate);
+		const safe = reachableUrl(match[0].replace(/[),.;\]}]+$/, ""));
 		if (safe && isLoopbackUrl(safe) && !urls.includes(safe)) urls.push(safe);
 	}
 	return urls;
