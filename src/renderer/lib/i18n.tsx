@@ -26,10 +26,29 @@ function storeLanguage(lang: Lang): void {
 	}
 }
 
+/**
+ * A language shown without being saved (B16: the paired host's language while
+ * one of its tabs is focused); null = the user's own. The provider re-renders
+ * on a change, and `translate()` / `uiLocale()` read it on every call.
+ */
+let languageOverride: Lang | null = null;
+const overrideListeners = new Set<(lang: Lang | null) => void>();
+
+export function setLanguageOverride(lang: Lang | null): void {
+	if (lang === languageOverride) return;
+	languageOverride = lang;
+	for (const listener of overrideListeners) listener(lang);
+}
+
+/** The user's own UI language: the saved one, else the system locale's. */
+function ownLanguage(): Lang {
+	return (
+		readStoredLanguage() ?? uiLanguageFromLocale(typeof navigator !== "undefined" ? navigator.language : undefined)
+	);
+}
+
 export function getCurrentLanguage(): Lang {
-	const stored = readStoredLanguage();
-	if (stored) return stored;
-	return uiLanguageFromLocale(typeof navigator !== "undefined" ? navigator.language : undefined);
+	return languageOverride ?? ownLanguage();
 }
 
 function translateForLang(lang: Lang, key: string, params?: Record<string, string | number>): string {
@@ -61,7 +80,17 @@ interface I18nContextValue {
 const I18nContext = createContext<I18nContextValue | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-	const [lang, setLangState] = useState<Lang>(getCurrentLanguage);
+	const [ownLang, setLangState] = useState<Lang>(ownLanguage);
+	const [override, setOverride] = useState<Lang | null>(languageOverride);
+	const lang = override ?? ownLang;
+
+	useEffect(() => {
+		overrideListeners.add(setOverride);
+		setOverride(languageOverride);
+		return () => {
+			overrideListeners.delete(setOverride);
+		};
+	}, []);
 	const userSelected = useRef(false);
 
 	useEffect(() => {

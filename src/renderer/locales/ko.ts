@@ -1378,6 +1378,10 @@ export const ko: Record<string, string> = {
 		"다른 기기의 OMPdesk 버전이 호환되지 않아요. 두 기기 모두 업데이트한 뒤 다시 시도해 주세요.",
 	"ipcError.remote_limit_reached":
 		"이 기기가 호스트 모델을 하루에 쓸 수 있는 한도를 다 썼어요. 호스트 기준 자정에 초기화되고, 호스트의 설정 › 기기 및 연결에서 한도를 늘릴 수 있어요.",
+	"ipcError.host_busy":
+		"호스트 컴퓨터에서 작업이 진행 중이라 지금은 다시 시작할 수 없어요. 세션과 기기가 모두 쉬고 있을 때 설치해 주세요.",
+	"ipcError.update_not_ready":
+		"호스트 컴퓨터에 설치할 준비가 된 업데이트가 없어요. 먼저 다운로드해 주세요. macOS 설치 파일은 호스트에서 직접 열어야 해요.",
 	"common.cancel": "취소",
 	"common.save": "저장",
 	"common.yes": "예",
@@ -4486,6 +4490,18 @@ export const ko: Record<string, string> = {
 	"updates.auth.failed": "GitHub 접근 설정을 바꾸지 못했어요",
 	"updates.auth.cannotStore":
 		"이 시스템에서는 비밀 정보를 암호화할 수 없어 토큰을 저장할 수 없어요. `gh auth login`이나 GH_TOKEN을 사용하세요.",
+	"updates.host.name": "호스트 컴퓨터의 OMPdesk",
+	"updates.host.description":
+		"이 탭이 실행되는 컴퓨터의 OMPdesk 앱이에요. 확인, 다운로드, 설치가 그 컴퓨터에서 실행되고, 설치하면 다시 시작되어 돌아올 때까지 이 탭의 연결이 끊겨요.",
+	"updates.host.check": "호스트에서 확인",
+	"updates.host.download": "호스트에서 다운로드",
+	"updates.host.install": "설치 후 호스트 다시 시작",
+	"updates.host.installing": "호스트 컴퓨터가 업데이트로 다시 시작하고 있어요. 돌아오면 탭이 다시 연결돼요.",
+	"updates.host.manual": "호스트에서 설치",
+	"updates.host.manualHint": "업데이트가 호스트에 다운로드됐어요. 설치 파일은 그 컴퓨터 앞에서 열어야 해요.",
+	"updates.host.authRequired": "호스트 컴퓨터에도 업데이트용 GitHub 접근이 필요해요(그 컴퓨터의 설정 › 업데이트).",
+	"updates.host.readFailed": "호스트 컴퓨터의 OMPdesk 정보를 읽지 못했어요.",
+	"updates.host.actionFailed": "호스트 컴퓨터에서 실행하지 못했어요",
 
 	// Cross-surface text completed by the GUI i18n audit
 	"app.actionFailed": "요청을 처리하지 못했어요",
@@ -4949,6 +4965,9 @@ export const ko: Record<string, string> = {
 	"remote.hosts.desc": "이 기기에서 세션을 실행할 수 있는 컴퓨터예요.",
 	"remote.hosts.connect": "기기 연결",
 	"remote.hosts.empty": "아직 연결된 기기가 없어요.",
+	"remote.hosts.useHostAppearance": "호스트 컴퓨터의 테마와 언어 사용",
+	"remote.hosts.useHostAppearanceDesc":
+		"다른 기기의 탭에 포커스가 있으면 그 컴퓨터의 테마와 언어로 보여 줘요. 이 컴퓨터의 탭에서는 내 설정으로 돌아오고, 내 설정은 바뀌지 않아요.",
 	"remote.connect.title": "기기 연결",
 	"remote.connect.discovered": "같은 네트워크",
 	"remote.connect.searching": "기기를 찾고 있어요…",

@@ -19,6 +19,7 @@
 import { Monitor, Plus, RefreshCw } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { RemoteHostState, RemoteState } from "../../../shared/ipc-types";
+import { useHostAppearanceStore } from "../../hooks/use-host-appearance";
 import { formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -186,6 +187,22 @@ function KeepAwakeRow({ host }: { host: RemoteHostState }) {
 					setSaving(false),
 				);
 			}}
+		/>
+	);
+}
+
+/** B16: show a paired host's theme and language while one of its tabs is focused (never saved here). */
+function HostAppearanceRow() {
+	const t = useT();
+	const enabled = useHostAppearanceStore(state => state.enabled);
+	const setEnabled = useHostAppearanceStore(state => state.setEnabled);
+	return (
+		<SettingsSwitchRow
+			checked={enabled}
+			description={t("remote.hosts.useHostAppearanceDesc")}
+			id="setting-remote-host-appearance"
+			label={t("remote.hosts.useHostAppearance")}
+			onCheckedChange={next => void setEnabled(next)}
 		/>
 	);
 }
@@ -401,6 +418,7 @@ export function RemoteSection() {
 				) : (
 					<p className="py-3 text-sc-sm text-(--sc-text-muted)">{t("remote.hosts.empty")}</p>
 				)}
+				<HostAppearanceRow />
 			</SettingsSection>
 			<RemoteConnectDialog onClose={() => setConnectOpen(false)} open={connectOpen} />
 			<ConfirmDialog

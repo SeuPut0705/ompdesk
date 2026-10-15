@@ -1387,6 +1387,10 @@ export const en: Record<string, string> = {
 	"ipcError.remote_protocol": "The other device runs an incompatible OMPdesk version. Update both, then try again.",
 	"ipcError.remote_limit_reached":
 		"This device's daily limit on the host's models is used up. It resets at midnight on the host, or the host can raise it in Settings › Devices & connections.",
+	"ipcError.host_busy":
+		"Work is running on the host computer, so it can't restart now. Install once its sessions and devices are idle.",
+	"ipcError.update_not_ready":
+		"No update is ready to install on the host computer. Download it there first; a macOS installer has to be opened at the host.",
 	"common.cancel": "Cancel",
 	"common.save": "Save",
 	"common.yes": "yes",
@@ -4499,6 +4503,19 @@ export const en: Record<string, string> = {
 	"updates.auth.failed": "Couldn't change GitHub access",
 	"updates.auth.cannotStore":
 		"This system can't encrypt secrets, so a token can't be saved here. Use `gh auth login` or GH_TOKEN instead.",
+	"updates.host.name": "OMPdesk on the host computer",
+	"updates.host.description":
+		"The OMPdesk app on the computer this tab runs on. Check, download and install run there; installing restarts it, which ends this tab's connection until it's back.",
+	"updates.host.check": "Check on host",
+	"updates.host.download": "Download on host",
+	"updates.host.install": "Install & restart host",
+	"updates.host.installing": "The host computer is restarting into the update. Its tabs reconnect when it's back.",
+	"updates.host.manual": "Install at the host",
+	"updates.host.manualHint":
+		"The update is downloaded on the host. Its installer has to be opened by someone at that computer.",
+	"updates.host.authRequired": "The host computer needs its own GitHub access for updates (Settings › Updates there).",
+	"updates.host.readFailed": "Couldn't read OMPdesk on the host computer.",
+	"updates.host.actionFailed": "The host computer couldn't do that",
 
 	// Cross-surface text completed by the GUI i18n audit
 	"app.actionFailed": "Action failed",
@@ -4965,6 +4982,9 @@ export const en: Record<string, string> = {
 	"remote.hosts.desc": "Computers this device can run sessions on.",
 	"remote.hosts.connect": "Connect to a device",
 	"remote.hosts.empty": "No devices connected yet.",
+	"remote.hosts.useHostAppearance": "Use the host computer's theme and language",
+	"remote.hosts.useHostAppearanceDesc":
+		"While a tab on another device is focused, show that computer's theme and language. Your own come back on this computer's tabs and are never changed.",
 	"remote.connect.title": "Connect to a device",
 	"remote.connect.discovered": "On this network",
 	"remote.connect.searching": "Looking for devices…",

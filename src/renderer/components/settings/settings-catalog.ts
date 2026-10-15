@@ -400,6 +400,14 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "remote pairing address sharing keep awake 원격 기기 페어링 주소 공유 잠자기",
 	},
 	{
+		id: "hostAppearance",
+		section: "connections",
+		sub: "remote",
+		rowId: "setting-remote-host-appearance",
+		labelKey: "remote.hosts.useHostAppearance",
+		aliases: "host theme language remote device appearance 호스트 테마 언어 원격",
+	},
+	{
 		id: "auth",
 		section: "updates",
 		sub: "auth",

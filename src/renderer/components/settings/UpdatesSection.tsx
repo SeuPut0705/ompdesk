@@ -8,7 +8,13 @@
  */
 import { Download, FolderOpen, RefreshCw, RotateCcw, Stethoscope, Wrench } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import type { UpdateAccess, UpdateAuthInfo, UpdateStatus } from "../../../shared/ipc-types";
+import type {
+	HostDesktopState,
+	HostUpdateAction,
+	UpdateAccess,
+	UpdateAuthInfo,
+	UpdateStatus,
+} from "../../../shared/ipc-types";
 import type {
 	RpcDoctorCheck,
 	RpcOmpUpdateResult,
@@ -305,6 +311,12 @@ export function UpdatesSection() {
 				/>
 			</HostScoped>
 
+			{host && (
+				<HostScoped>
+					<HostDesktopRow deviceId={host.deviceId} key={host.deviceId} />
+				</HostScoped>
+			)}
+
 			<PluginDoctorRow />
 
 			<SettingsRow
@@ -314,6 +326,136 @@ export function UpdatesSection() {
 				label={t("about.repo")}
 			/>
 		</SettingsSection>
+	);
+}
+
+/** How often the host row re-reads a host's check or download in progress. */
+const HOST_UPDATE_POLL_MS = 1500;
+
+/**
+ * B26: OMPdesk on the paired host the focused tab runs on — its version and
+ * updater state, with Check, Download and Install & restart run on the host.
+ * The host refuses an install while anything runs there (`host_busy`) and one
+ * that needs someone at it (`update_not_ready`, the macOS manual installer).
+ */
+export function HostDesktopRow({ deviceId }: { deviceId: string }) {
+	const t = useT();
+	const [state, setState] = useState<HostDesktopState>();
+	const [failure, setFailure] = useState<InlineFailure>();
+	const [pending, setPending] = useState<HostUpdateAction>();
+	const updateState = state?.update.state;
+
+	const read = useCallback(async () => {
+		try {
+			setState(await window.omp.hostDesktop.get(deviceId));
+			setFailure(undefined);
+		} catch (error) {
+			setFailure(inlineFailure(error, t("updates.host.readFailed")));
+		}
+	}, [deviceId, t]);
+
+	useEffect(() => {
+		void read();
+	}, [read]);
+
+	// The host's check and download run on after its reply; follow them to their end.
+	useEffect(() => {
+		if (updateState !== "checking" && updateState !== "downloading") return;
+		const timer = setInterval(() => void read(), HOST_UPDATE_POLL_MS);
+		return () => clearInterval(timer);
+	}, [read, updateState]);
+
+	const run = async (action: HostUpdateAction) => {
+		setPending(action);
+		try {
+			setState(await window.omp.hostDesktop.update(action, deviceId));
+			if (action === "install") toast({ variant: "success", message: t("updates.host.installing") });
+		} catch (error) {
+			toastError({ title: t("updates.host.actionFailed"), error });
+		} finally {
+			setPending(undefined);
+		}
+	};
+
+	const status = state?.update;
+	const control = failure ? (
+		<Button icon={<RefreshCw />} onClick={() => void read()} size="sm" variant="secondary">
+			{t("common.retry")}
+		</Button>
+	) : !status || status.state === "checking" || pending === "check" ? (
+		<Spinner label={t("updates.checking")} size="sm" />
+	) : status.state === "available" ? (
+		<Button
+			icon={<Download />}
+			loading={pending === "download"}
+			onClick={() => void run("download")}
+			size="sm"
+			variant="primary"
+		>
+			{t("updates.host.download")}
+		</Button>
+	) : status.state === "downloading" ? (
+		<UpdateProgress label={t("updates.gui.downloading")} percent={status.percent} />
+	) : status.state === "downloaded" ? (
+		status.mode === "manual" ? (
+			<Badge variant="warning">{t("updates.host.manual")}</Badge>
+		) : (
+			<Button
+				icon={<RotateCcw />}
+				loading={pending === "install"}
+				onClick={() => void run("install")}
+				size="sm"
+				variant="primary"
+			>
+				{t("updates.host.install")}
+			</Button>
+		)
+	) : (
+		<div className="flex items-center gap-2">
+			{status.state === "error" ? (
+				<Badge variant="error">{t("updates.checkFailed")}</Badge>
+			) : status.state === "auth-required" ? (
+				<Badge variant="warning">{t("updates.authRequired")}</Badge>
+			) : status.state === "not-available" ? (
+				<Badge variant="success">{t("updates.upToDate")}</Badge>
+			) : null}
+			<Button icon={<RefreshCw />} onClick={() => void run("check")} size="sm" variant="secondary">
+				{t("updates.host.check")}
+			</Button>
+		</div>
+	);
+
+	return (
+		<SettingsRow
+			badge={<DeviceChip deviceId={deviceId} />}
+			control={control}
+			description={t("updates.host.description")}
+			footer={
+				<>
+					<p className="mt-1 text-sc-xs text-(--sc-text-muted)" data-host-desktop-version>
+						{t("updates.current")} <span className="font-mono text-(--sc-text)">{state?.version ?? "—"}</span>
+						{" · "}
+						{t("updates.latest")}{" "}
+						<span className="font-mono text-(--sc-text)">
+							{status && "version" in status ? status.version : "—"}
+						</span>
+					</p>
+					{failure ? (
+						<p className="mt-1 text-sc-xs text-(--sc-danger)" role="alert">
+							{failure.message}
+						</p>
+					) : status?.state === "error" ? (
+						<p className="mt-1 text-sc-xs text-(--sc-text-muted)">{status.message}</p>
+					) : status?.state === "auth-required" ? (
+						<p className="mt-1 text-sc-xs text-(--sc-text-muted)">{t("updates.host.authRequired")}</p>
+					) : status?.state === "downloaded" && status.mode === "manual" ? (
+						<p className="mt-1 text-sc-xs text-(--sc-text-muted)">{t("updates.host.manualHint")}</p>
+					) : null}
+				</>
+			}
+			id="setting-updates-host"
+			label={t("updates.host.name")}
+		/>
 	);
 }
 

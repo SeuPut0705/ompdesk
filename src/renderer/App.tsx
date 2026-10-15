@@ -34,6 +34,7 @@ import { StarterTour } from "./components/onboarding/StarterTour";
 import { RemoteFolderPickerHost } from "./components/remote/RemoteFolderPicker";
 import { useAwaitedInput } from "./hooks/use-awaited-input";
 import { useExtensionUi } from "./hooks/use-extension-ui";
+import { useHostAppearance } from "./hooks/use-host-appearance";
 import { useIdleCompactionDraft } from "./hooks/use-idle-compaction-draft";
 import { useOutputStyle } from "./hooks/use-output-style";
 import { usePlanApproval } from "./hooks/use-plan-approval";
@@ -151,6 +152,12 @@ function OutputStyleEffects() {
 /** Draft empty ⇄ non-empty reports for the bridge's idle compaction; own component for the same reason. */
 function IdleCompactionDraftEffects() {
 	useIdleCompactionDraft();
+	return null;
+}
+
+/** B16: the focused paired host's theme and language while the switch is on; own component for the same reason. */
+function HostAppearanceEffects() {
+	useHostAppearance();
 	return null;
 }
 
@@ -823,6 +830,7 @@ export function App() {
 			<QuotaResumeEffects />
 			<OutputStyleEffects />
 			<IdleCompactionDraftEffects />
+			<HostAppearanceEffects />
 			<AppShell />
 
 			<CommandPalette />
