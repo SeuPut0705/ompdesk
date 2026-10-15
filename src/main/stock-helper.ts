@@ -11,13 +11,27 @@ const HELPER_STOP_MS = 5000;
 /** How long one request may wait (queued behind others included) before only that request fails. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
+/** How long past its timeout a stock request may stay unanswered before its worker counts as hung and is replaced. */
+const RECYCLE_GRACE_MS = 30_000;
+
+/** Terminals (`terminal.*`, `pty.*`) run in their own worker: it holds every live shell, so it never ends
+ * because a session scan or model validation hung; the stock worker can then be replaced without a notice
+ * to anyone. Everything else shares the stock worker's serial lane. */
+export type HelperWorker = "stock" | "terminals";
+export function helperWorker(method: string): HelperWorker {
+	return method.startsWith("terminal.") || method.startsWith("pty.") ? "terminals" : "stock";
+}
+
 export interface StockHelperOptions {
+	/** Which worker this helper runs (`host.ts <worker>`); only the stock worker is replaced when a request hangs. */
+	worker?: HelperWorker;
 	requestTimeoutMs?: number;
+	recycleGraceMs?: number;
 	/** Test seam: the worker process to talk to; production starts `stock-helper/host.ts` on the user's omp. */
 	spawnWorker?: () => Promise<ChildProcessWithoutNullStreams>;
 }
 
-/** One lazy worker for all main-side stock operations. Keeps stock caches warm
+/** One lazy worker for main-side stock operations. Keeps stock caches warm
  * without agent boots or per-refresh process launches; stdin ties it to the app.
  */
 export class StockHelper {
@@ -29,13 +43,20 @@ export class StockHelper {
 		number,
 		{ resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }
 	>();
+	/** Timed-out stock requests the worker has not answered yet: any answer (a late result, the
+	 * withdrawal) shows the lane still moves; none within the grace means it is stuck. */
+	#overdue = new Map<number, NodeJS.Timeout>();
 	readonly #bridgeDir: string;
+	readonly #worker: HelperWorker;
 	readonly #requestTimeoutMs: number;
+	readonly #recycleGraceMs: number;
 	readonly #spawnWorker: () => Promise<ChildProcessWithoutNullStreams>;
 
 	constructor(bridgeDir: string, options: StockHelperOptions = {}) {
 		this.#bridgeDir = bridgeDir;
+		this.#worker = options.worker ?? "stock";
 		this.#requestTimeoutMs = options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
+		this.#recycleGraceMs = options.recycleGraceMs ?? RECYCLE_GRACE_MS;
 		this.#spawnWorker = options.spawnWorker ?? (() => this.#spawnStockWorker());
 	}
 
@@ -45,7 +66,7 @@ export class StockHelper {
 		const root = ompPackageRoot(omp.runtime.bin);
 		if (!root) throw new Error("Cannot locate omp package");
 		if (this.#stopped) throw new Error("Stock helper stopped");
-		return spawn("bun", [join(this.#bridgeDir, "stock-helper", "host.ts")], {
+		return spawn("bun", [join(this.#bridgeDir, "stock-helper", "host.ts"), this.#worker], {
 			stdio: ["pipe", "pipe", "pipe"],
 			windowsHide: true,
 			env: {
@@ -78,8 +99,11 @@ export class StockHelper {
 				} catch {
 					return;
 				}
-				const pending = response.id === undefined ? undefined : this.#pending.get(response.id);
-				if (!pending || response.id === undefined) return;
+				if (response.id === undefined) return;
+				clearTimeout(this.#overdue.get(response.id));
+				this.#overdue.delete(response.id);
+				const pending = this.#pending.get(response.id);
+				if (!pending) return;
 				this.#pending.delete(response.id);
 				clearTimeout(pending.timer);
 				if (response.error) pending.reject(new Error(response.error));
@@ -88,6 +112,7 @@ export class StockHelper {
 			const failed = (error: Error) => {
 				if (this.#child !== child) return;
 				this.#child = null;
+				this.#clearOverdue();
 				for (const pending of this.#pending.values()) {
 					clearTimeout(pending.timer);
 					pending.reject(error);
@@ -106,24 +131,62 @@ export class StockHelper {
 		}
 	}
 
-	async request<T>(method: string, params: unknown): Promise<T> {
-		const child = await this.#start();
+	#clearOverdue(): void {
+		for (const timer of this.#overdue.values()) clearTimeout(timer);
+		this.#overdue.clear();
+	}
+
+	/** The stock lane has not moved for a timed-out request's whole grace: end that worker (its queue
+	 * would hold every later scan and validation forever) and let the next request start a fresh one. */
+	#recycle(child: ChildProcessWithoutNullStreams, method: string): void {
+		if (this.#child !== child) return;
+		console.warn(
+			`omp stock helper: "${method}" hung for ${this.#requestTimeoutMs + this.#recycleGraceMs} ms; restarting the worker`,
+		);
+		const error = new Error(`omp stock helper restarted: "${method}" hung`);
+		this.#child = null;
+		this.#clearOverdue();
+		for (const pending of this.#pending.values()) {
+			clearTimeout(pending.timer);
+			pending.reject(error);
+		}
+		this.#pending.clear();
+		child.stdin.end();
+		child.kill();
+	}
+
+	request<T>(method: string, params: unknown): Promise<T> {
 		const id = ++this.#sequence;
 		const { promise, resolve, reject } = Promise.withResolvers<unknown>();
-		// Only this request fails. The worker also holds every terminal and may be mid-mutation for another
-		// caller, so a slow request never ends it; the worker is told to skip this one if it has not started.
+		// Armed before the worker starts, so a start that never finishes fails the request too.
+		let child: ChildProcessWithoutNullStreams | null = null;
+		// Only this request fails at first, and the worker is told to skip it if it has not started. The stock
+		// worker is replaced only when its lane then stays silent past the grace; the terminals worker never is.
 		const timer = setTimeout(() => {
 			this.#pending.delete(id);
 			reject(new Error("omp stock helper request timed out"));
+			if (!child) return;
 			if (child.stdin.writable) child.stdin.write(`${JSON.stringify({ cancel: id })}\n`, () => {});
+			if (this.#worker !== "stock") return;
+			const worker = child;
+			this.#overdue.set(
+				id,
+				setTimeout(() => this.#recycle(worker, method), this.#recycleGraceMs),
+			);
 		}, this.#requestTimeoutMs);
 		this.#pending.set(id, { resolve, reject, timer });
-		child.stdin.write(`${JSON.stringify({ id, method, params })}\n`, error => {
-			if (!error) return;
+		const failed = (error: Error) => {
 			clearTimeout(timer);
 			this.#pending.delete(id);
 			reject(error);
-		});
+		};
+		this.#start().then(started => {
+			child = started;
+			if (!this.#pending.has(id)) return;
+			started.stdin.write(`${JSON.stringify({ id, method, params })}\n`, error => {
+				if (error) failed(error);
+			});
+		}, failed);
 		return promise as Promise<T>;
 	}
 
@@ -133,6 +196,7 @@ export class StockHelper {
 		const child = this.#child;
 		const exited = child ? once(child, "exit").then(() => undefined) : Promise.resolve();
 		child?.stdin.end();
+		this.#clearOverdue();
 		for (const pending of this.#pending.values()) {
 			clearTimeout(pending.timer);
 			pending.reject(new Error("Stock helper stopped"));
@@ -143,7 +207,7 @@ export class StockHelper {
 }
 
 let bridgeDirectory = resolve("resources/gui-bridge");
-let helper: StockHelper | null = null;
+const helpers: Partial<Record<HelperWorker, StockHelper>> = {};
 
 /** Configure the packaged resources path before the first main-side request. */
 export function configureStockHelper(bridgeDir: string): void {
@@ -153,12 +217,15 @@ export function configureStockHelper(bridgeDir: string): void {
 }
 
 export function stockHelperRequest<T>(method: string, params: unknown = {}): Promise<T> {
-	helper ??= new StockHelper(bridgeDirectory);
-	return helper.request<T>(method, params);
+	const worker = helperWorker(method);
+	helpers[worker] ??= new StockHelper(bridgeDirectory, { worker });
+	return helpers[worker].request<T>(method, params);
 }
 
+/** Ends both workers (an omp update, app quit); the next request starts them again. */
 export function stopStockHelper(): Promise<void> {
-	const stopping = helper?.stop() ?? Promise.resolve();
-	helper = null;
+	const stopping = Promise.all([helpers.stock?.stop(), helpers.terminals?.stop()]).then(() => undefined);
+	delete helpers.stock;
+	delete helpers.terminals;
 	return stopping;
 }
