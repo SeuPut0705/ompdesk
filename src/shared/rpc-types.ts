@@ -99,6 +99,7 @@ export type RpcCommand =
 	| { id?: string; type: "get_compaction_points" }
 	| { id?: string; type: "compaction_limits"; values?: unknown; key?: string; input?: string }
 	| { id?: string; type: "get_recent_models" }
+	| { id?: string; type: "set_output_style"; style: string }
 	| { id?: string; type: "history_recent"; limit?: number; cwd?: string }
 	| { id?: string; type: "history_search"; query: string; limit?: number; cwd?: string }
 	| { id?: string; type: "history_record"; prompt: string; cwd?: string }

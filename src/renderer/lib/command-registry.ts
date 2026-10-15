@@ -22,11 +22,13 @@ import { createTabRpc, type TabRpc } from "./tab-rpc";
  * - `unavailable` — non-text command lacking a native GUI affordance
  */
 
+import { OUTPUT_STYLE_IDS } from "../../../resources/gui-bridge/output-style-contracts";
 import type { AvailableCommand, CopyTarget, RpcResponse } from "../../shared/rpc-types";
 import { hydrateSession, hydrateTabSession } from "../hooks/use-rpc-events";
 import { newSessionNow } from "../hooks/use-session-switch";
 import { openHandoffDialog } from "../stores/fork-handoff";
 import { useModelStore } from "../stores/model";
+import { useOutputStyleStore } from "../stores/output-style";
 import { type SessionStore, useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
 import { useTabsStore } from "../stores/tabs";
@@ -1442,6 +1444,20 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		category: "settings",
 		shortcut: kbd("settings"),
 		affordance: { kind: "window", open: () => ctx.openSettings() },
+	});
+	add({
+		name: "output-style",
+		label: t("cmd.outputStyle"),
+		description: t("cmd.outputStyle.desc"),
+		category: "settings",
+		aliases: ["style"],
+		affordance: {
+			kind: "submenu",
+			items: OUTPUT_STYLE_IDS.map(style => ({
+				...subAction(`output-style ${style}`, () => useOutputStyleStore.getState().setStyle(style)),
+				category: "settings" as const,
+			})),
+		},
 	});
 	add({
 		name: "websearch",

@@ -34,6 +34,7 @@ import { StarterTour } from "./components/onboarding/StarterTour";
 import { RemoteFolderPickerHost } from "./components/remote/RemoteFolderPicker";
 import { useAwaitedInput } from "./hooks/use-awaited-input";
 import { useExtensionUi } from "./hooks/use-extension-ui";
+import { useOutputStyle } from "./hooks/use-output-style";
 import { usePlanApproval } from "./hooks/use-plan-approval";
 import { useQuotaResume } from "./hooks/use-quota-resume";
 import { useRpcEvents } from "./hooks/use-rpc-events";
@@ -137,6 +138,12 @@ function FocusedSessionEffects() {
 /** Usage-limit resume bookings; its own component so tab updates never re-render App. */
 function QuotaResumeEffects() {
 	useQuotaResume();
+	return null;
+}
+
+/** Output style delivery to every tab's bridge; its own component so tab updates never re-render App. */
+function OutputStyleEffects() {
+	useOutputStyle();
 	return null;
 }
 
@@ -807,6 +814,7 @@ export function App() {
 		<div className="flex h-screen w-screen overflow-hidden text-(--sc-text)">
 			{activeTabId && <FocusedSessionEffects />}
 			<QuotaResumeEffects />
+			<OutputStyleEffects />
 			<AppShell />
 
 			<CommandPalette />

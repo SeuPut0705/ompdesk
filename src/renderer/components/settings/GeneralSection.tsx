@@ -22,6 +22,7 @@ import { GithubAccountSection } from "./GithubAccountSection";
 import { ProxyRow } from "./LaunchSettings";
 import { MachineSetupSection } from "./MachineSetupSection";
 import { ProfileSection } from "./ProfileSection";
+import { OutputStyleRow } from "./OutputStyleRow";
 import { ReplyLanguageRow } from "./ReplyLanguageRow";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
@@ -77,6 +78,7 @@ export function GeneralSection() {
 					label={t("settings.gui.language")}
 				/>
 				<ReplyLanguageRow />
+				<OutputStyleRow />
 				<SettingsSwitchRow
 					checked={notifications}
 					description={t("settings.gui.notificationsDesc")}

@@ -129,6 +129,8 @@ export const handlers: Record<string, LocalHandler> = {
 	get_compaction_points: (_command, ctx) => ctx.bridge.request("compaction_points"),
 	compaction_limits: (command, ctx) => ctx.bridge.request("compaction_limits", command),
 	get_recent_models: (_command, ctx) => ctx.bridge.request("recent_models"),
+	set_output_style: async (command, ctx) =>
+		ctx.bridge.request("output_style_set", { style: z.object({ style: z.string() }).parse(command).style }),
 	history_recent: (command, ctx) => ctx.bridge.request("history_recent", command),
 	history_search: (command, ctx) => ctx.bridge.request("history_search", command),
 	history_record: (command, ctx) => ctx.bridge.request("history_record", command),
