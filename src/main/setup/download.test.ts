@@ -117,27 +117,31 @@ describe("downloadVerified", () => {
 	});
 
 	it("stops on abort and removes the partial file", async () => {
-		const controller = new AbortController();
-		const file = join(dir, "x");
-		let pull = 0;
-		const body = new ReadableStream<Uint8Array>({
-			pull(stream) {
-				pull += 1;
-				if (pull === 1) stream.enqueue(a);
-				else controller.abort();
-				if (controller.signal.aborted) stream.error(controller.signal.reason);
-			},
-		});
-		const run = downloadVerified({
-			url: "https://example.test/x",
-			sha256: sha256(whole),
-			file,
-			signal: controller.signal,
-			onProgress: () => {},
-			fetch: async () => new Response(body, { headers: { "content-length": "4000" } }),
-		});
-		await expect(run).rejects.not.toBeInstanceOf(DownloadError);
-		expect(controller.signal.aborted).toBe(true);
-		expect(await readdir(dir)).toEqual([]);
+		// The abort lands while the `.part` file may still be opening; a cleanup that
+		// does not wait for that open finds no file to remove, and the open creates it
+		// afterwards, where a later attempt's listing sees it.
+		for (let attempt = 0; attempt < 20; attempt += 1) {
+			const controller = new AbortController();
+			let pull = 0;
+			const body = new ReadableStream<Uint8Array>({
+				pull(stream) {
+					pull += 1;
+					if (pull === 1) stream.enqueue(a);
+					else controller.abort();
+					if (controller.signal.aborted) stream.error(controller.signal.reason);
+				},
+			});
+			const run = downloadVerified({
+				url: "https://example.test/x",
+				sha256: sha256(whole),
+				file: join(dir, `x${attempt}`),
+				signal: controller.signal,
+				onProgress: () => {},
+				fetch: async () => new Response(body, { headers: { "content-length": "4000" } }),
+			});
+			await expect(run).rejects.not.toBeInstanceOf(DownloadError);
+			expect(controller.signal.aborted).toBe(true);
+			expect(await readdir(dir)).toEqual([]);
+		}
 	});
 });

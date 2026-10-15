@@ -81,6 +81,9 @@ export async function downloadVerified(options: DownloadOptions): Promise<void> 
 	} catch (error) {
 		reader.releaseLock();
 		out.destroy();
+		// An early abort can land while `.part` is still opening; destroy() closes it only once
+		// that open finished, so remove the file after the close or the open recreates it.
+		await finished(out).catch(() => undefined);
 		await rm(part, { force: true });
 		throw error;
 	}
