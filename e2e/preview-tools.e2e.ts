@@ -96,6 +96,10 @@ for (const [language, theme] of [
 			OMP_GUI_HEADLESS: "1",
 			PI_CODING_AGENT_DIR: agent,
 			OMP_GUI_OMP: await fixtureOmp(profile),
+			// Run from the dev `Electron` binary, Electron logs its own security warning (no
+			// CSP) into every page once it loads, the preview's too, where it would count as
+			// a third problem a moment after the fixture's two. The packaged app logs none.
+			ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
 		};
 		Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 		const app = await electron.launch({
