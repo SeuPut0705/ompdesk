@@ -1,8 +1,11 @@
 import { Pause, Pencil, Play, Target, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { BLOCKING_UI_METHODS } from "../../../../shared/rpc-types";
 import { useTabGuard } from "../../../hooks/use-tab-guard";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
+import { useExtensionUiStore } from "../../../stores/extension-ui";
+import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { toastError } from "../../../stores/toast";
@@ -25,6 +28,12 @@ export function GoalDockBar({ inline = false }: { inline?: boolean }) {
 	const openModes = useUiStore(state => state.openModes);
 	const [busy, setBusy] = useState<GoalAction | null>(null);
 	const { capture, isActive } = useTabGuard();
+	// Stock goals have no "blocked" status; a question or plan waiting on the user is that state.
+	const questionPending = useExtensionUiStore(state =>
+		state.pendingRequests.some(request => BLOCKING_UI_METHODS[request.method]),
+	);
+	const planPending = usePlanApprovalStore(state => state.pending !== null);
+	const needsAnswer = questionPending || planPending;
 
 	if (!goal) return null;
 
@@ -73,6 +82,14 @@ export function GoalDockBar({ inline = false }: { inline?: boolean }) {
 			>
 				{paused ? t("dock.goal.paused") : t("dock.goal.active")}
 			</span>
+			{needsAnswer && !paused && (
+				<span
+					className="shrink-0 rounded-(--sc-radius-full) bg-(--sc-warning-soft) px-1.5 text-sc-xs text-(--sc-warning)"
+					data-goal-needs-answer
+				>
+					{t("dock.goal.needsAnswer")}
+				</span>
+			)}
 			<span
 				className={
 					inline

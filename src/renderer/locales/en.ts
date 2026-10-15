@@ -3833,6 +3833,7 @@ export const en: Record<string, string> = {
 	"dock.goal.active": "Active goal",
 	"dock.goal.paused": "Paused goal",
 	"dock.goal.edit": "Edit goal",
+	"dock.goal.needsAnswer": "Needs your answer",
 	"dock.goal.actionFailed": "Couldn't update goal",
 	"dock.island.label": "Background work",
 	"dock.island.agents": "Agents",

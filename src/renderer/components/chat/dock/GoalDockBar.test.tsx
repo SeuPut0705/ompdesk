@@ -87,4 +87,19 @@ describe("GoalDockBar", () => {
 		expect(useSessionStore.getState().goalState?.status).toBe("paused");
 		expect(container.textContent).toContain("Paused goal");
 	});
+
+	it("says the goal needs an answer while a question blocks on the user", async () => {
+		const { useExtensionUiStore } = await import("../../../stores/extension-ui");
+		useSessionStore.setState({ goal: { objective: "Ship it" }, goalState: { status: "active" } });
+		await mount();
+		expect(container.querySelector("[data-goal-needs-answer]")).toBeNull();
+		await act(async () =>
+			useExtensionUiStore
+				.getState()
+				.pushRequest({ type: "extension_ui_request", id: "q", method: "ask", title: "Which?" } as never),
+		);
+		expect(container.querySelector("[data-goal-needs-answer]")?.textContent).toBe("Needs your answer");
+		await act(async () => useExtensionUiStore.getState().clearAll());
+		expect(container.querySelector("[data-goal-needs-answer]")).toBeNull();
+	});
 });

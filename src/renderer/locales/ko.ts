@@ -3819,6 +3819,7 @@ export const ko: Record<string, string> = {
 	"dock.goal.active": "활성 목표",
 	"dock.goal.paused": "일시정지된 목표",
 	"dock.goal.edit": "목표 편집",
+	"dock.goal.needsAnswer": "답변 필요",
 	"dock.goal.actionFailed": "목표를 업데이트할 수 없어요",
 	"dock.island.label": "백그라운드 작업",
 	"dock.island.agents": "에이전트",
