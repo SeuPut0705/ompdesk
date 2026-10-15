@@ -744,20 +744,27 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		closedTabIds.add(id);
 		deleteSessionRuntime(id);
 		let failure: unknown = null;
+		let refused = false;
 		try {
-			if (!(await window.omp.tabs.close(id))) failure = new Error(`Tab ${id} was not released`);
+			refused = !(await window.omp.tabs.close(id));
+			if (refused) failure = new Error(`Tab ${id} was not released`);
 		} catch (error) {
 			failure = error;
 		}
 		if (failure !== null) {
-			// Main still holds the tab and its sidecar: show it again instead of leaving a live session nobody can see.
+			// Main may still hold the tab and its sidecar: let the next list show it again instead of leaving a
+			// live session nobody can see. A tab main answers `false` for and no longer lists was already gone.
 			closedTabIds.delete(id);
+			await get().reconcileTabs();
+			if (refused && !get().tabs.some(tab => tab.id === id)) {
+				closedTabIds.add(id);
+				return;
+			}
 			if (closed?.sessionPath)
 				set(current => ({
 					closedTabs: current.closedTabs.filter(entry => entry.sessionPath !== closed.sessionPath),
 				}));
 			toastError({ title: translate("tabs.closeFailed"), error: failure });
-			await get().reconcileTabs();
 			return;
 		}
 		// A failed removePane left main's split in view; its next list no longer names this tab.

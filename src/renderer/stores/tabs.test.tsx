@@ -895,6 +895,25 @@ describe("tabs store close races and failures", () => {
 		expect(useTabsStore.getState().closedTabs).toEqual([]);
 	});
 
+	it("closing a tab main no longer has stays closed without an error", async () => {
+		seedTabs("t0");
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, sessionPath: "/s/beta.jsonl" } : tab)),
+		}));
+		useToastStore.setState({ toasts: [] });
+		omp.tabs.close.mockResolvedValue(false);
+		omp.tabs.list.mockResolvedValue(
+			[tabInfo("t0", "/alpha"), tabInfo("t2", "/gamma")].map(info => ({ ...info, active: info.tabId === "t0" })),
+		);
+
+		await useTabsStore.getState().closeTab("t1");
+
+		expect(useToastStore.getState().toasts).toEqual([]);
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t2"]);
+		expect(isTabClosed("t1")).toBe(true);
+		expect(useTabsStore.getState().closedTabs.map(entry => entry.sessionPath)).toEqual(["/s/beta.jsonl"]);
+	});
+
 	it("settles when routing the split without the closing pane fails: no tab is left in no pane", async () => {
 		seedTabs("t0");
 		const split: SplitLayout = { axis: "columns", ratio: 0.5, first: { tabId: "t0" }, second: { tabId: "t1" } };
