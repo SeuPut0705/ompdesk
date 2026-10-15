@@ -73,6 +73,90 @@ function Save-Screen([string] $Name) {
 	}
 }
 
+# The one-click setup's window, read through Win32 rather than UI Automation: electron-builder's one-click
+# template (SpiderBanner /MODERN) hides the NSIS page, shrinks the setup window and draws its own child dialog
+# with a msctls_progress32 on a second thread. Every window the setup process owns is recorded, so a failure
+# prints what the setup did show.
+$setupWindowsSource = @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class SetupWindows {
+	delegate bool EnumProc(IntPtr hwnd, IntPtr data);
+	[StructLayout(LayoutKind.Sequential)] struct Rect { public int Left, Top, Right, Bottom; }
+	[DllImport("user32.dll")] static extern bool EnumWindows(EnumProc proc, IntPtr data);
+	[DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumProc proc, IntPtr data);
+	[DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+	[DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+	[DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
+	[DllImport("user32.dll")] static extern int GetDlgCtrlID(IntPtr hwnd);
+	[DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hwnd, StringBuilder text, int max);
+	// No WM_GETTEXT round trip into the busy setup.
+	[DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int InternalGetWindowText(IntPtr hwnd, StringBuilder text, int max);
+	[DllImport("user32.dll")] static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeoutMs, out IntPtr result);
+	const uint PBM_GETPOS = 0x0408;
+	const uint SMTO_ABORTIFHUNG = 0x0002;
+
+	public static bool SawProgress;
+	public static int MaxProgress = -1;
+	public static readonly HashSet<string> Buttons = new HashSet<string>();
+	public static readonly List<string> Seen = new List<string>();
+	static readonly HashSet<string> seenKeys = new HashSet<string>();
+
+	static string ClassOf(IntPtr hwnd) { var text = new StringBuilder(256); GetClassName(hwnd, text, text.Capacity); return text.ToString(); }
+	static string TextOf(IntPtr hwnd) { var text = new StringBuilder(512); InternalGetWindowText(hwnd, text, text.Capacity); return text.ToString(); }
+	static bool Overlaps(Rect a, Rect b) { return a.Left < b.Right && b.Left < a.Right && a.Top < b.Bottom && b.Top < a.Bottom; }
+
+	static void Note(string line) {
+		if (Seen.Count < 300 && seenKeys.Add(line)) Seen.Add(line);
+	}
+
+	static string Describe(IntPtr hwnd, Rect rect, bool visible) {
+		return string.Format("{0} id={1} '{2}' {3} {4}x{5} at {6},{7}", ClassOf(hwnd), GetDlgCtrlID(hwnd), TextOf(hwnd),
+			visible ? "visible" : "hidden", rect.Right - rect.Left, rect.Bottom - rect.Top, rect.Left, rect.Top);
+	}
+
+	// Returns how many top-level windows of the process are visible now. A progress bar or button counts only
+	// while it and its window are visible and it lies inside that window (the shrunken setup window leaves the
+	// NSIS buttons outside it).
+	public static int Poll(int pid) {
+		int visibleWindows = 0;
+		EnumWindows((top, unusedTop) => {
+			uint owner;
+			GetWindowThreadProcessId(top, out owner);
+			if (owner != (uint)pid) return true;
+			Rect topRect;
+			GetWindowRect(top, out topRect);
+			bool topVisible = IsWindowVisible(top) && topRect.Right > topRect.Left && topRect.Bottom > topRect.Top;
+			if (topVisible) visibleWindows++;
+			Note("window " + Describe(top, topRect, topVisible));
+			EnumChildWindows(top, (child, unusedChild) => {
+				Rect rect;
+				GetWindowRect(child, out rect);
+				bool visible = topVisible && IsWindowVisible(child) && rect.Right > rect.Left && rect.Bottom > rect.Top && Overlaps(rect, topRect);
+				string cls = ClassOf(child);
+				// Static/edit text changes with every file; the class, id and state are what matter.
+				Note("  " + (cls == "msctls_progress32" || cls == "Button" ? Describe(child, rect, visible) : string.Format("{0} id={1} {2}", cls, GetDlgCtrlID(child), visible ? "visible" : "hidden")));
+				if (!visible) return true;
+				if (cls == "msctls_progress32") {
+					SawProgress = true;
+					IntPtr pos;
+					if (SendMessageTimeout(child, PBM_GETPOS, IntPtr.Zero, IntPtr.Zero, SMTO_ABORTIFHUNG, 200, out pos) != IntPtr.Zero)
+						MaxProgress = Math.Max(MaxProgress, pos.ToInt32());
+				} else if (cls == "Button") {
+					Buttons.Add(TextOf(child).Replace("&", ""));
+				}
+				return true;
+			}, IntPtr.Zero);
+			return true;
+		}, IntPtr.Zero);
+		return visibleWindows;
+	}
+}
+'@
+
 function Assert-PerUserInstall {
 	if (-not (Test-Path -LiteralPath $exe)) { Fail "$exe is missing" }
 	Ok "installed in $installDir"
@@ -142,44 +226,42 @@ switch ($Mode) {
 		Uninstall-PerUser $entry
 	}
 	'ui' {
-		Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
-		$ae = [System.Windows.Automation.AutomationElement]
+		Add-Type -TypeDefinition $setupWindowsSource
 		$started = Get-Date
 		# Exactly what a double-click runs.
 		$setupProcess = Start-Process -FilePath $Setup -PassThru
-		$sawProgress = $false
-		$buttons = @{}
+		$shownAt = $null
+		$progressAt = $null
 		while (-not $setupProcess.HasExited) {
-			if (((Get-Date) - $started).TotalSeconds -gt 180) {
+			$elapsed = ((Get-Date) - $started).TotalSeconds
+			if ($elapsed -gt 180) {
 				Save-Screen 'installer-stuck'
 				Stop-Process -Id $setupProcess.Id -Force
 				Fail 'the setup did not finish on its own within 3 minutes (a page or question waiting for input?)'
 			}
-			try {
-				$byProcess = New-Object System.Windows.Automation.PropertyCondition($ae::ProcessIdProperty, $setupProcess.Id)
-				foreach ($window in $ae::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, $byProcess)) {
-					$progressBars = New-Object System.Windows.Automation.PropertyCondition($ae::ControlTypeProperty, [System.Windows.Automation.ControlType]::ProgressBar)
-					if (-not $sawProgress -and $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $progressBars).Count -gt 0) {
-						$sawProgress = $true
-						Ok "the setup window '$($window.Current.Name)' shows a progress bar"
-						Save-Screen 'installer-progress'
-					}
-					$buttonType = New-Object System.Windows.Automation.PropertyCondition($ae::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
-					foreach ($button in $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $buttonType)) {
-						if ($button.Current.IsOffscreen -eq $false) { $buttons[$button.Current.Name] = $true }
-					}
-				}
-			} catch {
-				# The window can close between the lookup and the read.
+			$visibleWindows = [SetupWindows]::Poll($setupProcess.Id)
+			if ($visibleWindows -gt 0 -and $null -eq $shownAt) {
+				$shownAt = $elapsed
+				Save-Screen 'installer-window'
 			}
-			Start-Sleep -Milliseconds 100
+			if ([SetupWindows]::SawProgress -and $null -eq $progressAt) {
+				$progressAt = $elapsed
+				Save-Screen 'installer-progress'
+			}
+			Start-Sleep -Milliseconds 50
 		}
+		$setupProcess.WaitForExit()
+		Write-Host 'windows the setup showed (class, control id, text, state, size):'
+		foreach ($line in [SetupWindows]::Seen) { Write-Host "     $line" }
 		if ($setupProcess.ExitCode -ne 0) { Fail "the setup exited with $($setupProcess.ExitCode)" }
 		Ok "the setup finished on its own in $([int]((Get-Date) - $started).TotalSeconds) s"
-		if (-not $sawProgress) { Fail 'never saw a progress bar in the setup window' }
-		$asked = @($buttons.Keys | Where-Object { $_ -match '^(Next|Install|I Agree|Browse|Back|Yes|No)\b' })
+		if ($null -eq $shownAt) { Fail 'the setup never showed a window' }
+		if (-not [SetupWindows]::SawProgress) { Fail "the setup window (shown at $([int]$shownAt) s) never showed a progress bar" }
+		Ok "the setup window showed a progress bar from $([math]::Round($progressAt, 1)) s (highest position read: $([SetupWindows]::MaxProgress))"
+		$buttons = @([SetupWindows]::Buttons)
+		$asked = @($buttons | Where-Object { $_ -match '^(Next|Install|I Agree|Browse|Back|Yes|No)\b' })
 		if ($asked.Count -ne 0) { Fail "the setup showed buttons that ask for input: $($asked -join ', ')" }
-		Ok "no Next/Install/Browse button (buttons seen: $(if ($buttons.Count) { $buttons.Keys -join ', ' } else { 'none' }))"
+		Ok "no Next/Install/Browse button (buttons seen: $(if ($buttons.Count) { $buttons -join ', ' } else { 'none' }))"
 		$entry = Assert-PerUserInstall
 		Wait-Until {
 			@(Get-Process OMPdesk -ErrorAction SilentlyContinue |
