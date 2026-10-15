@@ -1,9 +1,9 @@
 import { Bot, SquareTerminal } from "lucide-react";
 import { useEffect, useState } from "react";
-import { BLOCKING_UI_METHODS, type RpcJobsResult } from "../../../../shared/rpc-types";
+import type { RpcJobsResult } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { useExtensionUiStore } from "../../../stores/extension-ui";
+import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { revealSidebarSubagents } from "../../../stores/sidebar-subagents";
 import { useSubagentsStore } from "../../../stores/subagents";
@@ -74,7 +74,7 @@ export function WorkspaceIsland() {
 		return count;
 	});
 	const needsYou = useExtensionUiStore(
-		state => state.pendingRequests.filter(request => BLOCKING_UI_METHODS[request.method]).length,
+		state => state.pendingRequests.filter(request => isUserBlockingRequest(state, request)).length,
 	);
 	const openJobs = useUiStore(state => state.openJobs);
 	const shells = useRunningShells();

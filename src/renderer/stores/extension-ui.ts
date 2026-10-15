@@ -90,6 +90,32 @@ export function isApprovalRequest(request: ExtensionUIRequest): request is Appro
 export type AwaitedInput = "approval" | "input";
 
 /**
+ * Whether `pushRequest` records a request as a provider sign-in's own: it
+ * arrives while a sign-in is in flight and has the kind stock's `login` sends.
+ * The window's notification listener runs before the store records it, so it
+ * asks here too.
+ */
+export function claimsLoginRequest(
+	state: Pick<ExtensionUiStore, "inlineLogins">,
+	request: ExtensionUIRequest,
+): boolean {
+	return state.inlineLogins > 0 && isInlineLoginRequest(request);
+}
+
+/**
+ * Whether a request is the session waiting on the user: a response-bearing
+ * method that is not a provider sign-in's own traffic (`loginRequestIds`).
+ * That traffic is answered in the login panel, so it never counts as "needs
+ * you" (OS notification, goal strip, island count, sidebar badge).
+ */
+export function isUserBlockingRequest(
+	state: Pick<ExtensionUiStore, "loginRequestIds">,
+	request: ExtensionUIRequest,
+): boolean {
+	return BLOCKING_UI_METHODS[request.method] === true && !Object.hasOwn(state.loginRequestIds, request.id);
+}
+
+/**
  * The session blocks on the user when a response-bearing request is pending;
  * the first such request decides whether that is an approval. A provider
  * sign-in answered inline is the user's own action, not the session waiting
@@ -98,9 +124,7 @@ export type AwaitedInput = "approval" | "input";
 export function awaitedInput(
 	state: Pick<ExtensionUiStore, "pendingRequests" | "loginRequestIds">,
 ): AwaitedInput | null {
-	const blocking = state.pendingRequests.find(
-		request => BLOCKING_UI_METHODS[request.method] === true && !Object.hasOwn(state.loginRequestIds, request.id),
-	);
+	const blocking = state.pendingRequests.find(request => isUserBlockingRequest(state, request));
 	if (!blocking) return null;
 	return isApprovalRequest(blocking) ? "approval" : "input";
 }
@@ -184,7 +208,7 @@ export const createExtensionUiStore = () =>
 		pushRequest: request =>
 			set(state => {
 				const next = applyExtensionUiRequest(state, request, Date.now());
-				if (state.inlineLogins === 0 || !isInlineLoginRequest(request)) return next;
+				if (!claimsLoginRequest(state, request)) return next;
 				return { ...next, loginRequestIds: { ...state.loginRequestIds, [request.id]: true } };
 			}),
 		removeRequest: id => set(withoutRequest(get(), id)),

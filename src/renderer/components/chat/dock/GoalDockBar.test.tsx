@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcResponse } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
 import { resetTabRoute } from "../../../lib/tab-routing";
+import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useSessionStore } from "../../../stores/session";
 import { useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
@@ -89,7 +90,6 @@ describe("GoalDockBar", () => {
 	});
 
 	it("says the goal needs an answer while a question blocks on the user", async () => {
-		const { useExtensionUiStore } = await import("../../../stores/extension-ui");
 		useSessionStore.setState({ goal: { objective: "Ship it" }, goalState: { status: "active" } });
 		await mount();
 		expect(container.querySelector("[data-goal-needs-answer]")).toBeNull();
@@ -101,5 +101,33 @@ describe("GoalDockBar", () => {
 		expect(container.querySelector("[data-goal-needs-answer]")?.textContent).toBe("Needs your answer");
 		await act(async () => useExtensionUiStore.getState().clearAll());
 		expect(container.querySelector("[data-goal-needs-answer]")).toBeNull();
+	});
+
+	it("does not flip to needing an answer for a provider sign-in's own requests", async () => {
+		useSessionStore.setState({ goal: { objective: "Ship it" }, goalState: { status: "active" } });
+		await mount();
+		await act(async () => {
+			useExtensionUiStore.setState({ inlineLogins: 0, loginRequestIds: {} });
+			useExtensionUiStore.getState().beginInlineLogin();
+			useExtensionUiStore
+				.getState()
+				.pushRequest({ type: "extension_ui_request", id: "url", method: "open_url", url: "https://x" } as never);
+			useExtensionUiStore
+				.getState()
+				.pushRequest({ type: "extension_ui_request", id: "paste", method: "input", title: "Paste" } as never);
+		});
+		expect(useExtensionUiStore.getState().pendingRequests).toHaveLength(2);
+		expect(container.querySelector("[data-goal-needs-answer]")).toBeNull();
+		// A real question during the sign-in still counts.
+		await act(async () =>
+			useExtensionUiStore
+				.getState()
+				.pushRequest({ type: "extension_ui_request", id: "q", method: "ask", title: "Which?" } as never),
+		);
+		expect(container.querySelector("[data-goal-needs-answer]")).not.toBeNull();
+		await act(async () => {
+			useExtensionUiStore.getState().clearAll();
+			useExtensionUiStore.setState({ inlineLogins: 0, loginRequestIds: {} });
+		});
 	});
 });

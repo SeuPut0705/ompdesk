@@ -109,6 +109,26 @@ describe("WorkspaceIsland", () => {
 		expect(useSidebarSubagentsStore.getState().reveal?.tabId).toBe("t1");
 	});
 
+	it("leaves a provider sign-in's own requests out of the Needs you count", async () => {
+		useSubagentsStore.getState().setSnapshots([agent("a1", "running")]);
+		useExtensionUiStore.setState({ inlineLogins: 0, loginRequestIds: {} });
+		useExtensionUiStore.getState().beginInlineLogin();
+		useExtensionUiStore
+			.getState()
+			.pushRequest({ type: "extension_ui_request", id: "url", method: "open_url", url: "https://x" } as never);
+		useExtensionUiStore
+			.getState()
+			.pushRequest({ type: "extension_ui_request", id: "paste", method: "input", title: "Paste" } as never);
+		try {
+			await mount();
+			expect(useExtensionUiStore.getState().pendingRequests).toHaveLength(2);
+			expect(segment("agents")).not.toBeNull();
+			expect(container.querySelector("[data-island-needs-you]")).toBeNull();
+		} finally {
+			useExtensionUiStore.setState({ inlineLogins: 0, loginRequestIds: {} });
+		}
+	});
+
 	it("counts running background shells and opens Background tasks", async () => {
 		jobs = [job("j1", "bash", "running"), job("j2", "eval", "running"), job("j3", "task", "running")];
 		await mount();

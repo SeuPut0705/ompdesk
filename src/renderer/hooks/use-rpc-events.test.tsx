@@ -29,6 +29,7 @@ import type {
 import { TurnStatusRow } from "../components/chat/ChatStream";
 import { formatClock } from "../lib/format";
 import { I18nProvider, translate } from "../lib/i18n";
+import type { ExtensionUiStore } from "../stores/extension-ui";
 import { type MessagesStore, useMessagesStore } from "../stores/messages";
 import { type ModelStore, useModelStore } from "../stores/model";
 import type { PlanApprovalStore } from "../stores/plan-approval";
@@ -2107,6 +2108,48 @@ describe("useRpcEvents background tabs", () => {
 			await flush();
 			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationAsk"), "t-back");
 		} finally {
+			restoreFocus();
+		}
+	});
+
+	it("does not notify for a provider sign-in's own requests, but still for a question", async () => {
+		installTabRoutedMockOmp();
+		let onExtensionUi: (request: ExtensionUIRequest, tabId: string) => void = () => {};
+		(window.omp.events as unknown as Record<string, unknown>).onExtensionUi = vi.fn(
+			(callback: typeof onExtensionUi) => {
+				onExtensionUi = callback;
+				return () => {};
+			},
+		);
+		const { notify } = window.omp.system as unknown as { notify: Mock<(title: string, body: string) => void> };
+		seedTabs();
+		ensureTabRuntime("t-back");
+		const extensionUi = sessionRuntimeStore<ExtensionUiStore>("t-back", "extensionUi")!;
+		const restoreFocus = blurWindow();
+		try {
+			await mount(<RpcEventsProbe />);
+			extensionUi.getState().beginInlineLogin();
+			await act(async () => {
+				// This listener runs before the store has recorded the request.
+				onExtensionUi(
+					{ type: "extension_ui_request", id: "url", method: "open_url", url: "https://claude.ai/login" },
+					"t-back",
+				);
+				onExtensionUi(
+					{ type: "extension_ui_request", id: "paste", method: "input", title: "Paste the code" },
+					"t-back",
+				);
+			});
+			await flush();
+			expect(notify).not.toHaveBeenCalled();
+
+			await act(async () => {
+				onExtensionUi({ type: "extension_ui_request", id: "q", method: "ask", questions: [] }, "t-back");
+			});
+			await flush();
+			expect(notify).toHaveBeenCalledWith("Back task", translate("events.notificationAsk"), "t-back");
+		} finally {
+			extensionUi.setState({ inlineLogins: 0, loginRequestIds: {} });
 			restoreFocus();
 		}
 	});

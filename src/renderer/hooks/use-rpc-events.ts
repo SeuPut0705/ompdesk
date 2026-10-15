@@ -20,7 +20,6 @@ import { useEffect } from "react";
 import type { IpcSidecarStatusPayload } from "../../shared/ipc-types";
 import {
 	type AgentSessionEvent,
-	BLOCKING_UI_METHODS,
 	type CommandOutputFrame,
 	type ConfigUpdateFrame,
 	type ExtensionErrorFrame,
@@ -42,7 +41,12 @@ import { describeTurnError, messageText, turnErrorToast } from "../lib/messages"
 import { playNotificationSound } from "../lib/notification-sound";
 import { notificationSummary } from "../lib/notification-summary";
 import { useUsageSignal } from "../lib/usage-reports";
-import { useExtensionUiStore } from "../stores/extension-ui";
+import {
+	claimsLoginRequest,
+	type ExtensionUiStore,
+	isUserBlockingRequest,
+	useExtensionUiStore,
+} from "../stores/extension-ui";
 import { useMessagesStore } from "../stores/messages";
 import { useModelStore } from "../stores/model";
 import { usePlanApprovalStore } from "../stores/plan-approval";
@@ -87,6 +91,9 @@ const SNAPSHOT_NEUTRAL_EVENTS: Partial<Record<AgentSessionEvent["type"], true>> 
 
 /** Schema defaults for the agent's notify settings (settings-schema.ts). */
 const NOTIFY_DEFAULTS = { completion: "on", error: "off", ask: "on" } as const;
+
+/** A tab with no runtime has no sign-in in flight. */
+const NO_SIGN_IN = { loginRequestIds: {}, inlineLogins: 0 } as const;
 
 function isTodoStatus(value: unknown): value is TodoPhase["tasks"][number]["status"] {
 	return (
@@ -843,8 +850,11 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		// confirms, …) from any tab, background ones included — notify when the
 		// window is unfocused.
 		const unsubExtensionUi = window.omp.events.onExtensionUi((request, sourceTabId) => {
-			if (!BLOCKING_UI_METHODS[request.method]) return;
 			const tabId = sourceTabId ?? focusedTabId();
+			// A provider sign-in's own requests belong to its login panel. This
+			// listener runs before the store records them, so claim by kind too.
+			const signIn = sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi")?.getState() ?? NO_SIGN_IN;
+			if (claimsLoginRequest(signIn, request) || !isUserBlockingRequest(signIn, request)) return;
 			const body =
 				"title" in request && typeof request.title === "string" && request.title
 					? request.title
