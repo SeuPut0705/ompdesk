@@ -43,6 +43,7 @@ export function ToolImage({
 			{...imgProps}
 			alt={label || basename(path) || t("tools.image.alt")}
 			onError={() => setFailed(src)}
+			path={path || undefined}
 			src={src}
 		/>
 	);

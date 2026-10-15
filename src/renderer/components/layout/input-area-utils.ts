@@ -52,18 +52,53 @@ export function listMentionFiles(cwd: string, tabId?: string | null): Promise<st
 	return task;
 }
 
-export function fileToImage(file: File): Promise<ComposerImage> {
-	const { promise, resolve, reject } = Promise.withResolvers<ComposerImage>();
+/**
+ * Longest side an attached picture keeps. Providers downscale anything larger
+ * themselves (Anthropic's documented 1568 px), so sending more only grows the
+ * IPC message, the session file and the request.
+ */
+export const IMAGE_MAX_SIDE = 1568;
+/** Formats re-encoded when downscaled; GIF (maybe animated) and others go as they are. */
+const RESIZABLE_TYPES: Record<string, true> = { "image/png": true, "image/jpeg": true, "image/webp": true };
+
+function readDataUrl(blob: Blob): Promise<string> {
+	const { promise, resolve, reject } = Promise.withResolvers<string>();
 	const reader = new FileReader();
-	reader.onload = () => {
-		const dataUrl = String(reader.result);
-		const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
-		resolve({
-			content: { type: "image", data: base64, mimeType: file.type || "image/png" },
-			preview: dataUrl,
-		});
-	};
+	reader.onload = () => resolve(String(reader.result));
 	reader.onerror = () => reject(reader.error);
-	reader.readAsDataURL(file);
+	reader.readAsDataURL(blob);
 	return promise;
+}
+
+/** The picture scaled to fit {@link IMAGE_MAX_SIDE}, or null when it already fits or cannot be decoded here. */
+async function downscaled(file: File): Promise<Blob | null> {
+	if (!RESIZABLE_TYPES[file.type] || typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function")
+		return null;
+	let bitmap: ImageBitmap;
+	try {
+		bitmap = await createImageBitmap(file);
+	} catch {
+		return null;
+	}
+	try {
+		const scale = IMAGE_MAX_SIDE / Math.max(bitmap.width, bitmap.height);
+		if (scale >= 1) return null;
+		const canvas = new OffscreenCanvas(Math.round(bitmap.width * scale), Math.round(bitmap.height * scale));
+		const context = canvas.getContext("2d");
+		if (!context) return null;
+		context.imageSmoothingQuality = "high";
+		context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+		return await canvas.convertToBlob({ type: file.type, quality: 0.9 });
+	} finally {
+		bitmap.close();
+	}
+}
+
+export async function fileToImage(file: File): Promise<ComposerImage> {
+	const blob = (await downscaled(file)) ?? file;
+	const dataUrl = await readDataUrl(blob);
+	return {
+		content: { type: "image", data: dataUrl.slice(dataUrl.indexOf(",") + 1), mimeType: blob.type || "image/png" },
+		preview: dataUrl,
+	};
 }

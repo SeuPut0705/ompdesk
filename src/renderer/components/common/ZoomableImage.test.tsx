@@ -98,4 +98,49 @@ describe("ZoomableImage", () => {
 		expect(overlay?.className).not.toContain("fixed");
 		expect(sidebar.contains(viewer())).toBe(false);
 	});
+
+	it("steps through a gallery with its buttons and arrow keys, opening on the clicked picture", async () => {
+		const gallery = ["a", "b", "c"].map(name => ({ src: `data:image/png;base64,${name}`, alt: `Picture ${name}` }));
+		const openPath = async () => ({ ok: true });
+		Reflect.set(window, "omp", { system: { openPath } });
+		await mount(
+			<>
+				{gallery.map(image => (
+					<ZoomableImage alt={image.alt} gallery={gallery} key={image.src} src={image.src} />
+				))}
+			</>,
+		);
+		await click(container.querySelectorAll("[data-zoomable-image]")[1] ?? null);
+		const shown = () => viewer()?.querySelector("[data-image-viewer] img")?.getAttribute("alt");
+		expect(shown()).toBe("Picture b");
+		expect(viewer()?.textContent).toContain("2 of 3");
+		await click(viewer()?.querySelector('[aria-label="Next image"]') ?? null);
+		expect(shown()).toBe("Picture c");
+		await click(viewer()?.querySelector('[aria-label="Next image"]') ?? null);
+		expect(shown()).toBe("Picture a");
+		await act(async () => {
+			const key = new Event("keydown", { bubbles: true, cancelable: true });
+			Object.assign(key, { key: "ArrowLeft" });
+			viewer()?.querySelector("[data-image-viewer]")?.dispatchEvent(key);
+		});
+		expect(shown()).toBe("Picture c");
+		// No file behind these pictures: no default-app button.
+		expect(viewer()?.querySelector('[aria-label="Open in default app"]')).toBeNull();
+	});
+
+	it("opens a file-backed picture in the default app", async () => {
+		const opened: string[] = [];
+		Reflect.set(window, "omp", {
+			system: {
+				openPath: async (path: string) => {
+					opened.push(path);
+					return { ok: true };
+				},
+			},
+		});
+		await mount(<ZoomableImage alt="Shot" path="/tmp/shot.png" src="data:image/png;base64,a" />);
+		await click(container.querySelector("[data-zoomable-image]"));
+		await click(viewer()?.querySelector('[aria-label="Open in default app"]') ?? null);
+		expect(opened).toEqual(["/tmp/shot.png"]);
+	});
 });

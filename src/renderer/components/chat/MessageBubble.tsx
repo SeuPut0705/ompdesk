@@ -15,6 +15,7 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
 import { Badge, Button, CopyButton, IconButton } from "../common";
+import type { GalleryImage } from "../common/ZoomableImage";
 import { referencedFiles } from "../tools/chat-media";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { ToolImage } from "../tools/ToolImage";
@@ -50,16 +51,26 @@ const COMPACTION_METHOD_KEYS: Record<string, string> = {
  * the session; one that survives (its blob was collected), empty data, or bytes
  * that do not decode show as the unavailable-image chip, never a broken image.
  */
-function InlineImage({ image }: { image: ImageContent }) {
+function InlineImage({ image, gallery }: { image: ImageContent; gallery: readonly GalleryImage[] }) {
 	const t = useT();
 	return (
 		<ToolImage
 			src={extractResultImage(image)?.src ?? null}
 			path=""
 			label={t("chat.attachedImage")}
+			gallery={gallery}
 			className="my-1 max-h-48 max-w-64 rounded-(--sc-radius-md) border border-(--sc-border-subtle) object-contain"
 		/>
 	);
+}
+
+/** Every decodable picture of one message, in order, so its viewer steps through them. */
+function messageGallery(blocks: readonly MessageContent[], alt: string): GalleryImage[] {
+	return blocks.flatMap(block => {
+		if (block.type !== "image") return [];
+		const src = extractResultImage(block)?.src;
+		return src ? [{ src, alt }] : [];
+	});
 }
 
 /** ToolCard subscribes to the tools store itself, so the tool result lands inline. */
@@ -376,6 +387,7 @@ export const MessageBubble = memo(function MessageBubble({
 		});
 		return { chips, blocks };
 	})();
+	const userGallery = isUser ? messageGallery(content, t("chat.attachedImage")) : [];
 	const customLabel =
 		message.role === "custom" || message.role === "hookMessage"
 			? (message.customType ?? t("chat.extensionMessage"))
@@ -435,7 +447,7 @@ export const MessageBubble = memo(function MessageBubble({
 							);
 						}
 						if (block.type === "image") {
-							return <InlineImage key={i} image={block} />;
+							return <InlineImage key={i} gallery={userGallery} image={block} />;
 						}
 						return null;
 					})}
@@ -453,6 +465,7 @@ export const MessageBubble = memo(function MessageBubble({
 
 	// Assistant / system: render block by block.
 	const blocks: ReactNode[] = [];
+	const replyGallery = messageGallery(content, t("chat.attachedImage"));
 	let sawNonToolBlock = false;
 	for (const block of content) {
 		switch (block.type) {
@@ -477,7 +490,7 @@ export const MessageBubble = memo(function MessageBubble({
 				break;
 			}
 			case "image": {
-				blocks.push(<InlineImage key={blocks.length} image={block} />);
+				blocks.push(<InlineImage key={blocks.length} gallery={replyGallery} image={block} />);
 				sawNonToolBlock = true;
 				break;
 			}

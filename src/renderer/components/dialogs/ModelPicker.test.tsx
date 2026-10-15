@@ -51,7 +51,12 @@ async function mount(): Promise<void> {
 	useSessionStore.setState({ status: "ready" });
 	useModelStore.setState({
 		availableModels: MODELS,
-		refreshAvailableModels: async () => ({ models: MODELS, discoveryStates: [], refreshPending: false }),
+		refreshAvailableModels: async () => ({
+			models: MODELS,
+			discoveryStates: [],
+			refreshPending: false,
+			generation: 1,
+		}),
 	});
 	useUiStore.setState({ modelPickerOpen: true, modelPickerPurpose: "session" });
 	container = document.createElement("div") as unknown as HTMLElement;

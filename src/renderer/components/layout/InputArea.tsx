@@ -62,7 +62,7 @@ import { useSettingsStore } from "../../stores/settings";
 import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Tooltip } from "../common";
+import { Badge, Banner, Button, IconButton, Kbd, MenuButton, Tooltip, ZoomableImage } from "../common";
 import { AskDockSlot, BelowEditorDockSlot } from "../dialogs/ask-dock";
 import { ComposerModes } from "./ComposerModes";
 import { ComposerQueue } from "./ComposerQueue";
@@ -1139,10 +1139,14 @@ export function InputArea() {
 							<ul aria-label={t("input.attachments")} className="flex flex-wrap gap-2.5 px-3 pt-3">
 								{images.map((image, index) => (
 									<li key={index} className="relative">
-										<img
+										<ZoomableImage
 											src={image.preview}
 											alt={t("input.attachmentAlt", { index: index + 1 })}
 											className="size-14 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) object-cover"
+											gallery={images.map((item, itemIndex) => ({
+												src: item.preview,
+												alt: t("input.attachmentAlt", { index: itemIndex + 1 }),
+											}))}
 										/>
 										<IconButton
 											className="omp-composer-attachment-remove absolute -top-1.5 -right-1.5"
