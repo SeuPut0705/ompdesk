@@ -36,6 +36,7 @@ import {
 	TabOpenAsksArg,
 	TabOpenResult,
 	TabSessionArg,
+	TabSignInArg,
 	TabStatusArg,
 } from "./app-protocol";
 
@@ -292,6 +293,11 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			case "openAsks": {
 				const parsed = TabOpenAsksArg.safeParse(message.arg);
 				if (parsed.success) this.emit("openAsks", parsed.data);
+				return;
+			}
+			case "signIn": {
+				const parsed = TabSignInArg.safeParse(message.arg);
+				if (parsed.success) this.emit("signIn", parsed.data);
 				return;
 			}
 			default:

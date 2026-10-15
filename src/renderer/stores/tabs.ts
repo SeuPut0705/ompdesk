@@ -36,6 +36,7 @@ import { useEffect } from "react";
 import { create, type StoreApi } from "zustand";
 import type {
 	IpcOpenExtensionRequest,
+	IpcSignIn,
 	IpcSpawnTabResult,
 	IpcTabStatusPayload,
 	IpcTabWorktree,
@@ -905,31 +906,54 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
  * status text, and widgets disappear while that tab is parked and return with
  * it; a late IPC delivery can never leak into the newly selected tab. A request
  * sent again (a paired host's re-attach re-sends every open ask) while its card
- * is still up is not doubled. */
-export function pushTabExtensionUiRequest(tabId: string, request: ExtensionUIRequest): void {
+ * is still up is not doubled.
+ *
+ * One door for live frames and for what a reloaded page or a re-attach hands
+ * back: a request main marks as a provider sign-in's own (`signIn`) never becomes
+ * a chat card. While its `login` still runs it goes to the login store and the
+ * panel takes the sign-in over; once `login` has answered it is a leftover, answered
+ * `cancelled` (stock never closes its code paste) like the panel does. */
+export function pushTabExtensionUiRequest(tabId: string, request: ExtensionUIRequest, signIn?: IpcSignIn): void {
 	// A request arriving after the tab closed must not resurrect a ghost runtime.
 	if (isTabClosed(tabId)) return;
 	ensureTabRuntime(tabId);
 	const store = sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi");
-	if (store?.getState().pendingRequests.some(pending => pending.id === request.id)) return;
-	store?.getState().pushRequest(request);
+	const state = store?.getState();
+	if (!state || state.pendingRequests.some(pending => pending.id === request.id)) return;
+	if (!signIn) state.pushRequest(request);
+	else if (signIn.active) {
+		state.adoptLogin(signIn);
+		state.restoreLoginRequest(request);
+	} else {
+		answerLeftoverSignIn(tabId, request);
+		return;
+	}
 	watchTabAwaitingInput(tabId);
 }
 
-/** Show again the asks and approvals a reloaded page missed: main still holds them, and answering reaches the omp that raised them. A live frame that got here first is not doubled. A sign-in's own requests go back to its login panel, never to a card. */
+/** The panel's answers to what a finished sign-in left open: the code paste is cancelled, the page acknowledged. */
+function answerLeftoverSignIn(tabId: string, request: ExtensionUIRequest): void {
+	const answer =
+		request.method === "input"
+			? { cancelled: true as const }
+			: request.method === "open_url"
+				? { value: "done" }
+				: null;
+	if (!answer) return;
+	// A refused answer leaves the route in main, which asks again at the next restore.
+	const response = { type: "extension_ui_response" as const, id: request.id, ...answer };
+	void Promise.resolve(window.omp.ui.respondExtensionUi(response, tabId)).catch(() => {});
+}
+
+/** Main answered a tab's last `login` while this page showed it as adopted (`adoptLogin`): it is over, and its leftovers are answered. */
+export function endTabSignIn(tabId: string, error?: string | null): void {
+	const state = sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi")?.getState();
+	for (const request of state?.settleAdoptedLogin(error) ?? []) answerLeftoverSignIn(tabId, request);
+}
+
+/** Show again the asks and approvals a reloaded page missed: main still holds them, and answering reaches the omp that raised them. A live frame that got here first is not doubled. */
 export function restoreTabExtensionUiRequests(open: readonly IpcOpenExtensionRequest[]): void {
-	for (const { tabId, request, signIn } of open) {
-		if (isTabClosed(tabId)) continue;
-		ensureTabRuntime(tabId);
-		const store = sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi");
-		if (store?.getState().pendingRequests.some(pending => pending.id === request.id)) continue;
-		if (!signIn) {
-			pushTabExtensionUiRequest(tabId, request);
-			continue;
-		}
-		store?.getState().restoreLoginRequest(request);
-		watchTabAwaitingInput(tabId);
-	}
+	for (const { tabId, request, signIn } of open) pushTabExtensionUiRequest(tabId, request, signIn);
 }
 
 /** Runtimes whose extension-UI and plan stores already feed their tab's `awaitingInput`. */

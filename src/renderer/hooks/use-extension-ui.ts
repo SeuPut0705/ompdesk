@@ -2,7 +2,7 @@ import { useCallback, useEffect } from "react";
 import type { ExtensionUIResponse } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
 import { useRuntimeTabId } from "../stores/session-runtime-context";
-import { pushTabExtensionUiRequest, restoreTabExtensionUiRequests } from "../stores/tabs";
+import { endTabSignIn, pushTabExtensionUiRequest, restoreTabExtensionUiRequests } from "../stores/tabs";
 import { toastError } from "../stores/toast";
 
 /**
@@ -30,10 +30,14 @@ export function useExtensionUiResponder(): (response: ExtensionUIResponse) => Pr
 /** Routes every extension UI request into the tab that raised it, and takes back the ones this page loaded too late to see. */
 export function useExtensionUi(): void {
 	useEffect(() => {
-		const unsubscribe = window.omp.events.onExtensionUi((request, tabId) =>
-			pushTabExtensionUiRequest(tabId, request),
+		const offUi = window.omp.events.onExtensionUi((request, tabId, signIn) =>
+			pushTabExtensionUiRequest(tabId, request, signIn),
 		);
+		const offSignIn = window.omp.events.onSignInEnded(({ tabId, error }) => endTabSignIn(tabId, error));
 		void window.omp.ui.openRequests().then(restoreTabExtensionUiRequests);
-		return unsubscribe;
+		return () => {
+			offUi();
+			offSignIn();
+		};
 	}, []);
 }

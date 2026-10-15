@@ -5,7 +5,7 @@ import * as path from "node:path";
 import type { BrowserWindow } from "electron";
 import { describe, expect, it, vi } from "vitest";
 import { codedError } from "../shared/ipc-error-codes";
-import { IPC_EVENTS, type IpcTabStatusPayload } from "../shared/ipc-types";
+import { IPC_EVENTS, type IpcExtensionUiPayload, type IpcTabStatusPayload } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse, SessionInfoUpdateFrame, SidecarStatus } from "../shared/rpc-types";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import { type SidecarLike, SidecarPool } from "./sidecar-pool";
@@ -1513,12 +1513,118 @@ describe("SidecarPool background tabs", () => {
 		pool.noteSignIn("tab-a", false);
 		// After the sign-in, a paste is the chat's again (an MCP server's sign-in).
 		a?.emitUiRequest({ id: "mcp", method: "input", title: "Token" });
-		expect(pool.openRequests(fw.win).map(open => [open.request.id, open.signIn === true])).toEqual([
+		expect(pool.openRequests(fw.win).map(open => [open.request.id, open.signIn !== undefined])).toEqual([
 			["url", true],
 			["paste", true],
 			["ask", false],
 			["mcp", false],
 		]);
+	});
+
+	it("marks a sign-in's requests on the live frame and on a re-attach's re-send, and tells the page when the sign-in ends", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		const a = sidecars[0];
+		if (!a) throw new Error("expected a sidecar");
+		// The re-attach's list replaces the open set, so the gone ones' cards close with a `cancel`; those are not under test.
+		const sent = () =>
+			fw
+				.sentTo(IPC_EVENTS.EXTENSION_UI)
+				.map(item => item.data as IpcExtensionUiPayload)
+				.filter(frame => frame.request.method !== "cancel");
+		const paste = {
+			type: "extension_ui_request",
+			id: "paste",
+			method: "input",
+			title: "Paste the authorization code",
+		};
+		const mcp = { type: "extension_ui_request", id: "mcp", method: "input", title: "Token" };
+		const url = "https://claude.ai/oauth";
+
+		pool.noteSignIn("tab-a", true, { providerId: "anthropic" });
+		a.emitUiRequest({ id: "url", method: "open_url", url, launchUrl: "http://localhost:1455/launch" });
+		a.emitUiRequest({ id: "paste", method: "input", title: paste.title });
+		a.emitUiRequest({ id: "ask", method: "confirm", title: "Go?", message: "?" });
+		const link = pool.openRequests(fw.win)[0]?.request;
+		expect(sent()).toMatchObject([
+			{ request: { id: "url" }, signIn: { active: true, providerId: "anthropic", link } },
+			{ request: { id: "paste" }, signIn: { active: true, providerId: "anthropic", link } },
+			{ request: { id: "ask" } },
+		]);
+		expect(sent()[2]).not.toHaveProperty("signIn");
+
+		// A re-attach re-sends the paste while `login` still runs: the page gets it as the panel's.
+		fw.sent.length = 0;
+		a.emit("openAsks", [paste]);
+		expect(sent()).toMatchObject([{ request: { id: "paste" }, signIn: { active: true, providerId: "anthropic" } }]);
+
+		// `login` answers: a page that took it over is told, with the outcome.
+		pool.noteSignIn("tab-a", false, { providerId: "anthropic", error: "denied" });
+		expect(fw.sentTo(IPC_EVENTS.SIGN_IN_ENDED).map(item => item.data)).toEqual([
+			{ tabId: "tab-a", providerId: "anthropic", error: "denied" },
+		]);
+
+		// The leftover paste is still the panel's (answered `cancelled`); a later paste is the chat's.
+		fw.sent.length = 0;
+		a.emit("openAsks", [paste, mcp]);
+		expect(sent()).toMatchObject([
+			{ request: { id: "paste" }, signIn: { active: false, providerId: null } },
+			{ request: { id: "mcp" } },
+		]);
+		expect(sent()[0]).not.toHaveProperty("signIn.link");
+		expect(sent()[1]).not.toHaveProperty("signIn");
+	});
+
+	it("follows the sign-ins a paired host reports: its re-sent code paste stays the panel's while the host's login runs", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		const a = sidecars[0];
+		if (!a) throw new Error("expected a sidecar");
+		const paste = {
+			type: "extension_ui_request",
+			id: "paste",
+			method: "input",
+			title: "Paste the authorization code",
+		};
+		const frames = () =>
+			fw
+				.sentTo(IPC_EVENTS.EXTENSION_UI)
+				.map(item => item.data as IpcExtensionUiPayload)
+				.filter(frame => frame.request.method !== "cancel");
+		const ended = () => fw.sentTo(IPC_EVENTS.SIGN_IN_ENDED).map(item => item.data);
+
+		// This window's `login` call failed with the link, but the host's login runs on: it says so on re-attach.
+		pool.noteSignIn("tab-a", true, { providerId: "anthropic" });
+		pool.noteSignIn("tab-a", false, { providerId: "anthropic", error: "offline" });
+		expect(ended()).toHaveLength(1);
+		fw.sent.length = 0;
+		a.emit("signIn", { active: ["anthropic"] });
+		a.emit("openAsks", [paste]);
+		expect(frames()).toMatchObject([{ request: { id: "paste" }, signIn: { active: true, providerId: "anthropic" } }]);
+		expect(ended()).toEqual([]);
+		expect(pool.openRequests(fw.win)[0]?.signIn).toMatchObject({ active: true, providerId: "anthropic" });
+
+		// The host's login answers: the page that took it over learns the outcome.
+		a.emit("signIn", { active: [], ended: { providerId: "anthropic", error: null } });
+		expect(ended()).toEqual([{ tabId: "tab-a", providerId: "anthropic", error: null }]);
+		expect(pool.openRequests(fw.win)[0]?.signIn).toMatchObject({ active: false });
+
+		// An end that happened while the link was down shows only as the list shrinking: outcome unseen.
+		fw.sent.length = 0;
+		a.emit("signIn", { active: ["anthropic"] });
+		a.emit("signIn", { active: [] });
+		expect(ended()).toEqual([{ tabId: "tab-a", providerId: "anthropic" }]);
+
+		// A local `login` still in flight keeps the tab's sign-in running whatever the host says.
+		fw.sent.length = 0;
+		pool.noteSignIn("tab-a", true, { providerId: "anthropic" });
+		a.emit("signIn", { active: ["anthropic"] });
+		a.emit("signIn", { active: [], ended: { providerId: "anthropic", error: "denied" } });
+		expect(ended()).toEqual([]);
+		pool.noteSignIn("tab-a", false, { providerId: "anthropic", error: "denied" });
+		expect(ended()).toEqual([{ tabId: "tab-a", providerId: "anthropic", error: "denied" }]);
 	});
 
 	it("reports how a background run ended so the renderer can tell failure from success", () => {

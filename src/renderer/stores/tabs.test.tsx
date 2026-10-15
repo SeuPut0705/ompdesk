@@ -17,8 +17,14 @@
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { IpcSpawnTabPayload, IpcSpawnTabResult, IpcTabInfo, IpcTabStatusPayload } from "../../shared/ipc-types";
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import type {
+	IpcSignIn,
+	IpcSpawnTabPayload,
+	IpcSpawnTabResult,
+	IpcTabInfo,
+	IpcTabStatusPayload,
+} from "../../shared/ipc-types";
 import type {
 	AgentMessage,
 	ExtensionUIRequest,
@@ -44,6 +50,7 @@ import { sessionRuntime, sessionRuntimeStore, setFocusedSessionRuntime } from ".
 import { useSubagentsStore } from "./subagents";
 import { ensureTabRuntime } from "./tab-runtime";
 import {
+	endTabSignIn,
 	isTabClosed,
 	pushTabExtensionUiRequest,
 	restoreTabComposer,
@@ -1245,19 +1252,93 @@ describe("tabs store background tab signals", () => {
 		expect(tabOf("t1")?.awaitingInput).toBe("input");
 	});
 
-	it("gives a sign-in's restored requests back to the login panel: no chat card, no 'needs input'", () => {
-		seedTabs();
+	describe("a provider sign-in's requests, restored", () => {
 		const paste: ExtensionUIRequest = {
 			type: "extension_ui_request",
 			id: "paste-t1",
 			method: "input",
 			title: "Paste the authorization code",
 		};
-		restoreTabExtensionUiRequests([{ tabId: "t1", request: paste, signIn: true }]);
-		const state = sessionRuntimeStore<ExtensionUiStore>("t1", "extensionUi")?.getState();
-		expect(state?.pendingRequests.map(request => request.id)).toEqual(["paste-t1"]);
-		expect(state?.loginRequestIds).toEqual({ "paste-t1": true });
-		expect(tabOf("t1")?.awaitingInput).toBeUndefined();
+		const link: Extract<ExtensionUIRequest, { method: "open_url" }> = {
+			type: "extension_ui_request",
+			id: "url-t1",
+			method: "open_url",
+			url: "https://claude.ai/oauth",
+			launchUrl: "http://localhost:1455/launch",
+		};
+		const extensionUi = () => sessionRuntimeStore<ExtensionUiStore>("t1", "extensionUi")?.getState();
+		let respondExtensionUi: Mock<() => Promise<void>>;
+		beforeEach(() => {
+			respondExtensionUi = vi.fn(async () => {});
+			(window.omp as unknown as Record<string, unknown>).ui = { respondExtensionUi };
+		});
+
+		it.each([
+			[
+				"a reloaded page's restore",
+				(signIn: IpcSignIn) => restoreTabExtensionUiRequests([{ tabId: "t1", request: paste, signIn }]),
+			],
+			["a re-attach's re-sent frame", (signIn: IpcSignIn) => pushTabExtensionUiRequest("t1", paste, signIn)],
+		])("go to the login store while `login` runs, through %s: no chat card, no 'needs input'", (_path, deliver) => {
+			seedTabs();
+			deliver({ active: true, providerId: "anthropic", link });
+			expect(extensionUi()?.pendingRequests.map(request => request.id)).toEqual(["paste-t1"]);
+			expect(extensionUi()?.loginRequestIds).toEqual({ "paste-t1": true });
+			// The panel can show the sign-in again: provider and the page it opened, with the sign-in counted in flight.
+			expect(extensionUi()?.adoptedLogin).toEqual({ providerId: "anthropic", link, hidden: false, ended: null });
+			expect(extensionUi()?.inlineLogins).toBe(1);
+			expect(tabOf("t1")?.awaitingInput).toBeUndefined();
+			expect(respondExtensionUi).not.toHaveBeenCalled();
+		});
+
+		it.each([
+			[
+				"a reloaded page's restore",
+				(signIn: IpcSignIn) => restoreTabExtensionUiRequests([{ tabId: "t1", request: paste, signIn }]),
+			],
+			["a re-attach's re-sent frame", (signIn: IpcSignIn) => pushTabExtensionUiRequest("t1", paste, signIn)],
+		])("are answered `cancelled` once `login` has answered, through %s: never shown", (_path, deliver) => {
+			seedTabs();
+			deliver({ active: false, providerId: null });
+			expect(respondExtensionUi).toHaveBeenCalledWith(
+				{ type: "extension_ui_response", id: "paste-t1", cancelled: true },
+				"t1",
+			);
+			expect(extensionUi()?.pendingRequests).toEqual([]);
+			expect(extensionUi()?.loginRequestIds).toEqual({});
+			expect(extensionUi()?.adoptedLogin).toBeNull();
+			expect(tabOf("t1")?.awaitingInput).toBeUndefined();
+		});
+
+		it("is over when main says `login` answered: the paste is cancelled and the outcome kept for the panel", () => {
+			seedTabs();
+			restoreTabExtensionUiRequests([
+				{ tabId: "t1", request: paste, signIn: { active: true, providerId: "anthropic" } },
+			]);
+			endTabSignIn("t1", null);
+			expect(respondExtensionUi).toHaveBeenCalledWith(
+				{ type: "extension_ui_response", id: "paste-t1", cancelled: true },
+				"t1",
+			);
+			expect(extensionUi()?.pendingRequests).toEqual([]);
+			expect(extensionUi()?.inlineLogins).toBe(0);
+			expect(extensionUi()?.adoptedLogin).toMatchObject({ providerId: "anthropic", ended: { error: null } });
+			// A sign-in this page started itself has no adopted state: nothing to settle.
+			respondExtensionUi.mockClear();
+			extensionUi()?.dismissAdoptedLogin();
+			endTabSignIn("t1", "denied");
+			expect(extensionUi()?.adoptedLogin).toBeNull();
+			expect(respondExtensionUi).not.toHaveBeenCalled();
+		});
+
+		it("leave a sign-in a panel of this page started to that panel", () => {
+			seedTabs();
+			extensionUi()?.beginInlineLogin();
+			pushTabExtensionUiRequest("t1", paste, { active: true, providerId: "anthropic" });
+			expect(extensionUi()?.adoptedLogin).toBeNull();
+			expect(extensionUi()?.inlineLogins).toBe(1);
+			expect(extensionUi()?.loginRequestIds).toEqual({ "paste-t1": true });
+		});
 	});
 
 	it("tells a background tool approval from a question", () => {

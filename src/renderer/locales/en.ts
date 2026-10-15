@@ -5534,6 +5534,7 @@ export const en: Record<string, string> = {
 	"providerList.login.remoteHint":
 		"The browser opens on this device and the sign-in finishes on {name}. If the browser ends on a page that won't load, copy that page's full address and paste it below.",
 	"providerList.login.starting": "Starting sign-in…",
+	"providerList.login.inProgress": "Sign-in in progress…",
 	"providerList.login.exchanging": "Finishing sign-in…",
 	"providerList.login.pasteToggle": "Browser can't get back to OMPdesk? Paste the code",
 	"providerList.login.pasteLabel": "Authorization code or redirect address",

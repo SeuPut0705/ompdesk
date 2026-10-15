@@ -57,7 +57,8 @@ import { BLOCKING_UI_METHODS, type ExtensionUIRequest } from "../../shared/rpc-t
  * stays on the host), plus two the host derives, both re-sent on every `tab.open` of a tab it
  * still holds: `awaitingConnection` (boolean): the host holds the tab's turn until its own
  * internet connection is back (turn-resume.ts); `openAsks` (TabOpenAsksArg): every ask and
- * approval the tab's omp still waits on, the whole list, so the device replaces its own.
+ * approval the tab's omp still waits on, the whole list, so the device replaces its own;
+ * `signIn` (TabSignInArg): the provider sign-ins the tab is running.
  */
 export const TAB_EVENT_NAMES = [
 	"status",
@@ -80,6 +81,7 @@ export const TAB_EVENT_NAMES = [
 	"bridge",
 	"awaitingConnection",
 	"openAsks",
+	"signIn",
 ] as const;
 
 export type TabEventName = (typeof TAB_EVENT_NAMES)[number];
@@ -146,6 +148,19 @@ export const TabOpenAsksArg = z.array(
 		);
 	}),
 );
+
+/**
+ * `signIn` event argument: the provider sign-ins (`login` commands) the host's tab is running now, by
+ * provider id. Sent when one starts, when one answers (`ended`, with its error or null when it
+ * connected) and on every `tab.open` of a held tab: a device that lost the link mid-`login` learns from
+ * it whether that sign-in still runs, which decides if its re-sent code paste is the login panel's or a
+ * leftover.
+ */
+export const TabSignInArg = z.object({
+	active: z.array(z.string()),
+	ended: z.object({ providerId: z.string(), error: z.string().nullable() }).optional(),
+});
+export type TabSignInArg = z.infer<typeof TabSignInArg>;
 
 export const TabOpenResult = z.object({
 	/** Canonical cwd on the host. */

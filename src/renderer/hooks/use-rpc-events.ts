@@ -849,10 +849,11 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		// Ask/extension-UI requests that block for input (ask tool, approvals,
 		// confirms, …) from any tab, background ones included — notify when the
 		// window is unfocused.
-		const unsubExtensionUi = window.omp.events.onExtensionUi((request, sourceTabId) => {
+		const unsubExtensionUi = window.omp.events.onExtensionUi((request, sourceTabId, markedSignIn) => {
 			const tabId = sourceTabId ?? focusedTabId();
-			// A provider sign-in's own requests belong to its login panel. This
-			// listener runs before the store records them, so claim by kind too.
+			// A provider sign-in's own requests belong to its login panel: main marks them, and
+			// this listener runs before the store records them, so claim by kind too.
+			if (markedSignIn) return;
 			const signIn = sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi")?.getState() ?? NO_SIGN_IN;
 			if (claimsLoginRequest(signIn, request) || !isUserBlockingRequest(signIn, request)) return;
 			const body =

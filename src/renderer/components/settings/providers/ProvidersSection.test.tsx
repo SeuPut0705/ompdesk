@@ -210,7 +210,7 @@ afterEach(async () => {
 	useModelStore.getState().reset();
 	useSessionStore.getState().reset();
 	useExtensionUiStore.getState().clearAll();
-	useExtensionUiStore.setState({ inlineLogins: 0, loginRequestIds: {} });
+	useExtensionUiStore.setState({ inlineLogins: 0, loginRequestIds: {}, adoptedLogin: null });
 	useToastStore.setState({ toasts: [] });
 	useTabsStore.getState().reset();
 	useRemoteStore.getState().reset();
@@ -821,6 +821,63 @@ describe("ProvidersSection", () => {
 			expect(pendingIds()).toEqual([]);
 			// The user cancelled: no failure banner.
 			expect(text()).not.toContain(translate("providerList.login.failed", { provider: "Anthropic" }));
+		});
+
+		describe("after a reload mid-sign-in", () => {
+			// The page lost the `login` call; main still runs it and hands the sign-in back.
+			async function reloadMidSignIn(): Promise<void> {
+				getProviders.mockResolvedValue(
+					providersResponse(
+						snapshot([row("anthropic", { name: "Anthropic", authenticated: false, loginAvailable: true })]),
+					),
+				);
+				useSessionStore.setState({ status: "ready" });
+				focusTab(undefined);
+				const store = useExtensionUiStore.getState();
+				store.adoptLogin({ active: true, providerId: "anthropic", link: openUrl });
+				store.restoreLoginRequest(pasteRequest("code-1"));
+				await mount(<ProvidersSection />);
+			}
+
+			it("shows the sign-in again with its browser link, the paste fallback and Cancel", async () => {
+				await reloadMidSignIn();
+				expect(login).not.toHaveBeenCalled();
+				expect(progress()).toBe(translate("providerList.login.inProgress"));
+				expect(button(translate("providerList.login.openBrowser"))).toBeDefined();
+				expect(button(translate("providerList.login.pasteToggle"))).toBeDefined();
+				expect(button(translate("common.cancel"))).toBeDefined();
+				// The leftover request stays the panel's: nothing is answered while the sign-in runs.
+				expect(respondExtensionUi).not.toHaveBeenCalled();
+
+				await act(async () => button(translate("common.cancel"))?.click());
+				expect(cancelLogin).toHaveBeenCalledWith(openUrl.url);
+				expect(document.querySelector("[data-login-progress]")).toBeNull();
+				// Cancelling does not bring it back while main winds the login down.
+				expect(useExtensionUiStore.getState().adoptedLogin?.hidden).toBe(true);
+			});
+
+			it("reloads the providers when main reports the sign-in connected, and cancels the leftover paste", async () => {
+				await reloadMidSignIn();
+				listProviders.mockClear();
+				await act(async () => {
+					for (const request of useExtensionUiStore.getState().settleAdoptedLogin(null))
+						void respondExtensionUi({ type: "extension_ui_response", id: request.id, cancelled: true });
+				});
+				expect(document.querySelector("[data-login-progress]")).toBeNull();
+				expect(cancelledIds()).toEqual(["code-1"]);
+				expect(useExtensionUiStore.getState().adoptedLogin).toBeNull();
+				expect(listProviders).toHaveBeenCalled();
+			});
+
+			it("shows main's failure for the sign-in with a retry", async () => {
+				await reloadMidSignIn();
+				await act(async () => {
+					useExtensionUiStore.getState().settleAdoptedLogin("Authorization failed: denied");
+				});
+				expect(text()).toContain(translate("providerList.login.failed", { provider: "Anthropic" }));
+				expect(text()).toContain("Authorization failed: denied");
+				expect(button(translate("providerList.login.retry"))).toBeDefined();
+			});
 		});
 	});
 });

@@ -1,4 +1,5 @@
 import { createStore } from "zustand/vanilla";
+import type { IpcSignIn } from "../../shared/ipc-types";
 import { BLOCKING_UI_METHODS, type ExtensionUIRequest, isSignInRequest } from "../../shared/rpc-types";
 import { createScopedStoreHook } from "./session-runtime-context";
 
@@ -25,6 +26,16 @@ export interface ExtensionUiSnapshot {
 	lastOpenUrlHost: string | null;
 }
 
+/** A provider sign-in this page found running on main (`IpcSignIn.active`) rather than starting itself. */
+export interface AdoptedLogin {
+	providerId: string;
+	/** The browser page it opened: the panel acknowledged and dropped that request before the page reloaded. */
+	link: Extract<ExtensionUIRequest, { method: "open_url" }> | null;
+	hidden: boolean;
+	/** Set once main answered `login`: `error` null = connected, a message = failed, absent = unseen. */
+	ended: { error?: string | null } | null;
+}
+
 export interface ExtensionUiStore extends ExtensionUiSnapshot {
 	/**
 	 * Provider sign-ins an inline panel (providers list, first-run setup) started
@@ -46,6 +57,16 @@ export interface ExtensionUiStore extends ExtensionUiSnapshot {
 	pushRequest: (request: ExtensionUIRequest) => void;
 	/** A sign-in's own request a reloaded page got back from main: the login panel's, never a card. */
 	restoreLoginRequest: (request: ExtensionUIRequest) => void;
+	/** A sign-in main still runs for this tab that no panel of this page started (the page reloaded, or its link came back). */
+	adoptedLogin: AdoptedLogin | null;
+	/** Takes the sign-in over: counts as in flight until `settleAdoptedLogin`, so its requests keep going to the panel. */
+	adoptLogin: (signIn: IpcSignIn) => void;
+	/** Main answered the adopted `login` (`error` null = connected): ends it like `endInlineLogin` and keeps the outcome for the panel. */
+	settleAdoptedLogin: (error?: string | null) => ExtensionUIRequest[];
+	/** The user cancelled the adopted sign-in in the panel: it stays counted until main answers, but is not shown. */
+	hideAdoptedLogin: () => void;
+	/** The panel took in the adopted sign-in's outcome. */
+	dismissAdoptedLogin: () => void;
 	removeRequest: (id: string) => void;
 	clearAll: () => void;
 }
@@ -179,6 +200,7 @@ export const createExtensionUiStore = () =>
 		inlineLogins: 0,
 		loginRequestIds: {},
 		beginInlineLogin: () => set(state => ({ inlineLogins: state.inlineLogins + 1 })),
+		adoptedLogin: null,
 		endInlineLogin: () => {
 			const { inlineLogins, loginRequestIds, pendingRequests, arrivedAt } = get();
 			const left = Math.max(0, inlineLogins - 1);
@@ -208,6 +230,28 @@ export const createExtensionUiStore = () =>
 				...applyExtensionUiRequest(state, request, Date.now()),
 				loginRequestIds: { ...state.loginRequestIds, [request.id]: true },
 			})),
+		adoptLogin: signIn => {
+			const { adoptedLogin, inlineLogins } = get();
+			if (adoptedLogin && !adoptedLogin.ended) {
+				if (signIn.link) set({ adoptedLogin: { ...adoptedLogin, link: signIn.link } });
+				return;
+			}
+			// A panel on this page started the sign-in: it already owns it.
+			if (inlineLogins > 0 || signIn.providerId === null) return;
+			set({
+				inlineLogins: inlineLogins + 1,
+				adoptedLogin: { providerId: signIn.providerId, link: signIn.link ?? null, hidden: false, ended: null },
+			});
+		},
+		settleAdoptedLogin: error => {
+			const { adoptedLogin } = get();
+			if (!adoptedLogin || adoptedLogin.ended) return [];
+			set({ adoptedLogin: { ...adoptedLogin, ended: { error } } });
+			return get().endInlineLogin();
+		},
+		hideAdoptedLogin: () =>
+			set(state => (state.adoptedLogin ? { adoptedLogin: { ...state.adoptedLogin, hidden: true } } : state)),
+		dismissAdoptedLogin: () => set({ adoptedLogin: null }),
 		removeRequest: id => set(withoutRequest(get(), id)),
 		// The sign-ins themselves run on until stock answers their `login`.
 		clearAll: () => set({ ...EMPTY_SNAPSHOT, loginRequestIds: {} }),

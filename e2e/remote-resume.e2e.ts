@@ -11,6 +11,8 @@
  * - A loses B while a question is open on its tab (a cut relay, both apps keep running): the
  *   question is back once the link is; and when B's omp restarted meanwhile, without it, A
  *   shows no stale card, not even after a reload.
+ * - A loses B while a provider sign-in runs on its tab: B's login goes on, so the re-sent code paste
+ *   is the login panel's (no chat card), which shows the sign-in again until it connects.
  * Captures in the test output directory.
  */
 import { execFileSync } from "node:child_process";
@@ -362,3 +364,92 @@ for (const [language, theme] of [
 			await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 		}
 	});
+
+test("a sign-in open on a host's tab when the link drops and returns never becomes a chat card", async () => {
+	test.setTimeout(300_000);
+	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-login-")));
+	const discovery = 54_000 + Math.floor(Math.random() * 1_000) * 2;
+	const hostPort = await freePort();
+	const proxy = await linkProxy(hostPort);
+	let host: RemoteInstance | null = null;
+	let client: RemoteInstance | null = null;
+	try {
+		// The host's fake omp replays stock's `login` sequence (open_url, "waiting", the code paste).
+		const hostProfile = await makeRemoteProfile(parent, "b", {
+			language: "en",
+			theme: "light",
+			discoveryPort: discovery,
+			port: hostPort,
+			env: { OMP_GUI_TEST_LOGIN: "1" },
+		});
+		const clientProfile = await makeRemoteProfile(parent, "a", {
+			language: "en",
+			theme: "light",
+			discoveryPort: discovery + 1,
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		const a = client.page;
+		const deviceId = await pair(host.page, a, "Host B", proxy.address);
+		await openHostFolder(a, deviceId, hostProfile.project);
+		await expect.poll(() => remoteStatus(a, deviceId), { timeout: 30_000 }).toBe("ready");
+
+		// Settings follow the focused tab: B's models. The sign-in runs on B's omp, A only shows it.
+		const settings = a.locator("[data-settings-page]");
+		await a.keyboard.press("ControlOrMeta+Comma");
+		await settings.locator('[data-settings-section="models"]').click();
+		await settings.getByRole("button", { name: "Add a provider" }).click();
+		const anthropic = settings.locator("li").filter({ has: a.getByText("Anthropic", { exact: true }) });
+		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
+		await expect(anthropic.locator("[data-login-progress]")).toBeVisible({ timeout: 30_000 });
+		await expect
+			.poll(async () => (await recorded(hostProfile)).some(frame => frame.type === "login"), { timeout: 30_000 })
+			.toBe(true);
+		const paste = a.getByLabel("Authorization code or redirect address");
+		await expect(paste).toBeVisible();
+		await a.keyboard.press("Escape");
+		await expect(settings).toHaveCount(0);
+
+		// The link drops and returns: the host's omp still holds the code paste and re-sends it.
+		const reconnecting = a.locator(`[data-remote-reconnecting="${deviceId}"]`);
+		await proxy.drop();
+		await expect(reconnecting).toBeVisible({ timeout: 30_000 });
+		await proxy.restore();
+		await expect(reconnecting).toHaveCount(0, { timeout: 60_000 });
+		await expect.poll(() => remoteStatus(a, deviceId), { timeout: 30_000 }).toBe("ready");
+
+		// The host's login still runs, so its re-sent code paste is the login panel's: marked, never a card.
+		const prompt = a.locator("[data-prompt-card]");
+		for (let tick = 0; tick < 8; tick++) {
+			await expect(prompt).toHaveCount(0);
+			await expect(a.getByText("Paste the authorization code")).toHaveCount(0);
+			await a.waitForTimeout(250);
+		}
+		const open = await a.evaluate(() => window.omp.ui.openRequests());
+		expect(open.map(request => request.signIn?.active)).toEqual([true]);
+
+		// Settings open again: the panel shows the sign-in that survived the link, the paste open for B's callback.
+		await a.keyboard.press("ControlOrMeta+Comma");
+		await settings.locator('[data-settings-section="models"]').click();
+		await settings.getByRole("button", { name: "Add a provider" }).click();
+		await expect(anthropic.locator("[data-login-progress]")).toHaveText(en["providerList.login.inProgress"] ?? "", {
+			timeout: 30_000,
+		});
+		await anthropic
+			.getByLabel("Authorization code or redirect address")
+			.fill("http://localhost:54545/callback?code=abc&state=xyz");
+		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
+		await expect(a.getByText("Signed in to Anthropic")).toBeVisible({ timeout: 30_000 });
+		await expect(anthropic.locator("[data-login-progress]")).toHaveCount(0);
+		await expect(prompt).toHaveCount(0);
+		expect(await a.evaluate(() => window.omp.ui.openRequests().then(list => list.map(o => o.request.id)))).toEqual(
+			[],
+		);
+		expect(client.errors).toEqual([]);
+	} finally {
+		if (client) await exitApp(client.app);
+		if (host) await exitApp(host.app);
+		await proxy.close();
+		await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+	}
+});

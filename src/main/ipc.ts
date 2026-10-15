@@ -524,7 +524,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// A provider sign-in's own requests belong to its login panel, also for a page that reloads before
 		// `login` answers (EXTENSION_UI_OPEN tags them).
 		const signIn = cmd.type === "login" ? issuerTabId : null;
-		if (signIn) sidecarPool.noteSignIn(signIn, true);
+		const login = cmd.type === "login" ? cmd.providerId : null;
+		let signInError: string | null = null;
+		if (signIn && login) sidecarPool.noteSignIn(signIn, true, { providerId: login });
 		try {
 			let response = await client.command({ ...cmd, id: _id } as RpcCommand, payload.timeoutMs);
 			// omp has no session kind: a chat tab is plain omp started in the
@@ -559,8 +561,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			if (response.success && (cmd.type === "login" || cmd.type === "logout")) {
 				for (const other of sidecarPool.allSidecars()) other.syncImageGeneration();
 			}
+			if (cmd.type === "login" && !response.success) signInError = response.error ?? "";
 			return response;
 		} catch (err) {
+			signInError = err instanceof Error ? err.message : String(err);
 			return {
 				id: _id,
 				type: "response",
@@ -569,7 +573,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				error: err instanceof Error ? err.message : String(err),
 			};
 		} finally {
-			if (signIn) sidecarPool.noteSignIn(signIn, false);
+			if (signIn && login) sidecarPool.noteSignIn(signIn, false, { providerId: login, error: signInError });
 		}
 	};
 

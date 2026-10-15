@@ -57,6 +57,8 @@ export const IPC_EVENTS = {
 	TAB_STATUS: "tab:status",
 	/** Extension UI request from agent */
 	EXTENSION_UI: "extension-ui:request",
+	/** A tab's last in-flight provider sign-in answered */
+	SIGN_IN_ENDED: "sign-in:ended",
 	/** Subagent frames, in order, as one batch per presentation frame (main/subagent-frames.ts) */
 	SUBAGENT_FRAMES: "subagent:frames",
 	/** Available commands updated */
@@ -599,12 +601,40 @@ export interface IpcExtensionUiRespondPayload {
 	tabId?: string;
 }
 
+/**
+ * Marks a request as a provider sign-in's own (`isSignInRequest` while its `login` ran): the login
+ * panel's, never a chat card. `active`: that `login` is still in flight, so the panel shows it again;
+ * otherwise the request is a leftover (stock's code paste is never closed) and is answered `cancelled`.
+ * `link` is the browser page the sign-in opened, which the panel acknowledged and dropped.
+ */
+export interface IpcSignIn {
+	active: boolean;
+	providerId: string | null;
+	link?: Extract<ExtensionUIRequest, { method: "open_url" }>;
+}
+
+/** `EXTENSION_UI` event payload. */
+export interface IpcExtensionUiPayload {
+	tabId: string;
+	request: ExtensionUIRequest;
+	signIn?: IpcSignIn;
+}
+
+/**
+ * `SIGN_IN_ENDED` event payload: a tab's last in-flight `login` answered. `error`: null = connected,
+ * a message = failed, absent = the outcome went unseen (a paired host's login ended while the link was down).
+ */
+export interface IpcSignInEndedPayload {
+	tabId: string;
+	providerId: string | null;
+	error?: string | null;
+}
+
 /** A blocking extension request still open on a tab, as `EXTENSION_UI_OPEN` lists it. */
 export interface IpcOpenExtensionRequest {
 	tabId: string;
 	request: ExtensionUIRequest;
-	/** Raised by a provider sign-in (`login`) still in flight then: its login panel's, never a chat card. */
-	signIn?: true;
+	signIn?: IpcSignIn;
 }
 
 /** DTO types only. Installed stock ModelsConfigSchema supplies all runtime vocabularies. */
@@ -1466,7 +1496,9 @@ export interface OmpApi {
 	events: {
 		onBatch(callback: (events: AgentSessionEvent[]) => void): () => void;
 		onTabStatus(callback: (payload: IpcTabStatusPayload) => void): () => void;
-		onExtensionUi(callback: (request: ExtensionUIRequest, tabId: string) => void): () => void;
+		onExtensionUi(callback: (request: ExtensionUIRequest, tabId: string, signIn?: IpcSignIn) => void): () => void;
+		/** A tab's provider sign-in finished while a reloaded page was showing it (`IpcSignIn.active`). */
+		onSignInEnded(callback: (payload: IpcSignInEndedPayload) => void): () => void;
 		onLiveFrame(callback: (frame: RpcLiveFrame) => void): () => void;
 		onBtwFrame(callback: (frame: RpcBtwFrame) => void): () => void;
 		onConfigUpdate(callback: (payload: ConfigUpdateFrame) => void): () => void;

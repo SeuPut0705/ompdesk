@@ -5510,6 +5510,7 @@ export const ko: Record<string, string> = {
 	"providerList.login.remoteHint":
 		"브라우저는 이 기기에서 열리고 로그인은 {name}에서 마무리돼요. 브라우저가 열리지 않는 페이지에서 멈추면 그 페이지의 전체 주소를 복사해 아래에 붙여 넣어 주세요.",
 	"providerList.login.starting": "로그인 준비 중…",
+	"providerList.login.inProgress": "로그인을 진행하는 중…",
 	"providerList.login.exchanging": "로그인을 마무리하는 중…",
 	"providerList.login.pasteToggle": "브라우저가 OMPdesk로 돌아오지 않나요? 코드 붙여 넣기",
 	"providerList.login.pasteLabel": "인증 코드 또는 리디렉션 주소",

@@ -675,6 +675,7 @@ describe("LocalHostServices", () => {
 		// turn for its connection.
 		expect(second.tabEvents()).toEqual([
 			expect.objectContaining({ name: "status", arg: expect.objectContaining({ status: "ready" }) }),
+			{ rtab: "t1", name: "signIn", arg: { active: [] } },
 			{ rtab: "t1", name: "openAsks", arg: [] },
 			{ rtab: "t1", name: "awaitingConnection", arg: false },
 		]);
@@ -714,6 +715,7 @@ describe("LocalHostServices", () => {
 		sidecars[0]?.emit("events", [{ type: "agent_end" }]);
 		expect(after.tabEvents().map(event => [event.rtab, event.name])).toEqual([
 			["new", "status"],
+			["new", "signIn"],
 			["new", "openAsks"],
 			["new", "awaitingConnection"],
 			["new", "events"],
@@ -779,8 +781,71 @@ describe("LocalHostServices", () => {
 		const fourth = new FakeConnection(peer("device-x"));
 		const reopened = await services.call(fourth.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, fourth);
 		expect(reopened).toMatchObject({ attached: true });
-		expect(fourth.tabEvents().map(event => event.name)).toEqual(["status", "openAsks", "awaitingConnection"]);
+		expect(fourth.tabEvents().map(event => event.name)).toEqual([
+			"status",
+			"signIn",
+			"openAsks",
+			"awaitingConnection",
+		]);
 		expect(openAsks(fourth)).toEqual([]);
+	});
+
+	it("tells the device which sign-ins its tab runs: as they start and end, and on every re-attach, link or no link", async () => {
+		const { services, sidecars } = setup();
+		const first = new FakeConnection(peer("device-x"));
+		await services.call(first.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, first);
+		await services.call(first.peer, "tab.start", { rtab: "t1" }, first);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.setStatus("ready");
+		const signIns = (conn: FakeConnection) =>
+			conn
+				.tabEvents()
+				.filter(event => event.name === "signIn")
+				.map(event => event.arg);
+		const finish = Promise.withResolvers<RpcResponse>();
+		sidecar.rpcClient.command = async () => finish.promise;
+		const login = services.call(
+			first.peer,
+			"tab.command",
+			{ rtab: "t1", command: { type: "login", providerId: "anthropic" } },
+			first,
+		);
+		await vi.waitFor(() => expect(signIns(first)).toEqual([{ active: ["anthropic"] }]));
+
+		// The link drops mid-login; the sign-in runs on, and the device is told so when it is back.
+		services.disconnected(first.peer, first);
+		const second = new FakeConnection(peer("device-x"));
+		await services.call(second.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, second);
+		expect(signIns(second)).toEqual([{ active: ["anthropic"] }]);
+		// `signIn` precedes `openAsks`, which the device reads against it.
+		expect(second.tabEvents().map(event => event.name)).toEqual([
+			"status",
+			"signIn",
+			"openAsks",
+			"awaitingConnection",
+		]);
+
+		finish.resolve({ type: "response", command: "login", success: false, error: "denied" });
+		await login;
+		expect(signIns(second)).toEqual([
+			{ active: ["anthropic"] },
+			{ active: [], ended: { providerId: "anthropic", error: "denied" } },
+		]);
+
+		// A sign-in that connected ends with a null error; a later re-attach finds none running.
+		sidecar.rpcClient.command = async () => ({ type: "response", command: "login", success: true });
+		await services.call(
+			second.peer,
+			"tab.command",
+			{ rtab: "t1", command: { type: "login", providerId: "p" } },
+			second,
+		);
+		expect(signIns(second).at(-1)).toEqual({ active: [], ended: { providerId: "p", error: null } });
+		services.disconnected(second.peer, second);
+		const third = new FakeConnection(peer("device-x"));
+		await services.call(third.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, third);
+		expect(signIns(third)).toEqual([{ active: [] }]);
 	});
 
 	it("gives this computer's resume coordinator the hosted turns: facts, Stop, asks, the wait and its Cancel", async () => {

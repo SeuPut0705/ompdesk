@@ -22,6 +22,7 @@
 
 import { ChevronDown, ExternalLink, Eye, EyeOff } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
+import type { ExtensionUIRequest } from "../../../../shared/rpc-types";
 import { useExtensionUiResponder } from "../../../hooks/use-extension-ui";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -52,6 +53,8 @@ export interface ProviderLoginState {
 	/** Stock's latest progress line for this sign-in (`onProgress`, an info `notify`). */
 	progress: string | null;
 	error: string | null;
+	/** This page took the sign-in over from main after a reload (`adoptedLogin`), so it shows no step yet. */
+	resumed: boolean;
 }
 
 const IDLE: ProviderLoginState = {
@@ -62,6 +65,7 @@ const IDLE: ProviderLoginState = {
 	prompt: null,
 	progress: null,
 	error: null,
+	resumed: false,
 };
 
 /** Stock's progress lines for a browser sign-in (callback-server.ts `login`, openai-codex.ts), in the UI language. */
@@ -70,6 +74,19 @@ const STOCK_PROGRESS: Record<string, string> = {
 	"Exchanging authorization code for tokens...": "providerList.login.exchanging",
 	"Exchanging authorization code for tokens…": "providerList.login.exchanging",
 };
+
+/** The browser page an `open_url` request asks to open, as the panel keeps it. */
+function loginLink(
+	request: Extract<ExtensionUIRequest, { method: "open_url" }>,
+	remote: boolean,
+): NonNullable<ProviderLoginState["link"]> {
+	return {
+		target: openUrlTarget(request, remote),
+		url: request.url,
+		instructions: request.instructions,
+		oauth: request.launchUrl !== undefined,
+	};
+}
 
 export interface ProviderLogin {
 	state: ProviderLoginState;
@@ -88,9 +105,13 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 	const removeRequest = useExtensionUiStore(state => state.removeRequest);
 	const beginInlineLogin = useExtensionUiStore(state => state.beginInlineLogin);
 	const endInlineLogin = useExtensionUiStore(state => state.endInlineLogin);
+	const adopted = useExtensionUiStore(state => state.adoptedLogin);
+	const hideAdoptedLogin = useExtensionUiStore(state => state.hideAdoptedLogin);
+	const dismissAdoptedLogin = useExtensionUiStore(state => state.dismissAdoptedLogin);
 	const remote = useFocusedTabDevice() !== undefined;
 	const [state, setState] = useState<ProviderLoginState>(IDLE);
 	const attempt = useRef(0);
+	const adoptedShown = useRef(false);
 	const stateRef = useRef(state);
 	stateRef.current = state;
 
@@ -110,15 +131,7 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 			if (!Object.hasOwn(owned, request.id) || (arrivedAt[request.id] ?? 0) < state.since) continue;
 			if (request.method === "open_url") {
 				// omp never waits on this answer; acknowledge it all the same.
-				setState(prev => ({
-					...prev,
-					link: {
-						target: openUrlTarget(request, remote),
-						url: request.url,
-						instructions: request.instructions,
-						oauth: request.launchUrl !== undefined,
-					},
-				}));
+				setState(prev => ({ ...prev, link: loginLink(request, remote) }));
 				void sendResponse({ type: "extension_ui_response", id: request.id, value: "done" });
 				removeRequest(request.id);
 			} else if (request.method === "input" && stateRef.current.prompt?.id !== request.id) {
@@ -132,6 +145,30 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 			}
 		}
 	}, [arrivedAt, owned, pending, remote, removeRequest, sendResponse, state.running, state.since]);
+
+	// A sign-in main still runs for this tab that this page did not start (it reloaded, or the link to a
+	// paired host came back): show it again, with the paste fallback and Cancel, until main answers `login`.
+	useEffect(() => {
+		if (!adopted) return;
+		if (adopted.ended) {
+			dismissAdoptedLogin();
+			if (!adoptedShown.current) return;
+			adoptedShown.current = false;
+			if (adopted.ended.error) setState({ ...IDLE, providerId: adopted.providerId, error: adopted.ended.error });
+			else {
+				setState(IDLE);
+				if (adopted.ended.error === null) void onConnected(adopted.providerId);
+			}
+			return;
+		}
+		const link = adopted.link ? loginLink(adopted.link, remote) : null;
+		if (adoptedShown.current) {
+			if (link) setState(prev => (prev.link ? prev : { ...prev, link }));
+		} else if (!adopted.hidden && !stateRef.current.running) {
+			adoptedShown.current = true;
+			setState({ ...IDLE, providerId: adopted.providerId, running: true, resumed: true, since: 0, link });
+		}
+	}, [adopted, dismissAdoptedLogin, onConnected, remote]);
 
 	const start = useCallback(
 		async (providerId: string): Promise<boolean> => {
@@ -187,8 +224,13 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 		} else if (prompt) {
 			void respond(prompt.id, { cancelled: true });
 		}
+		// A sign-in taken over after a reload stays counted until main answers `login`, but is no longer shown.
+		if (adoptedShown.current) {
+			adoptedShown.current = false;
+			hideAdoptedLogin();
+		}
 		setState(IDLE);
-	}, [respond, tabRpc]);
+	}, [hideAdoptedLogin, respond, tabRpc]);
 
 	return { state, start, submit, cancel };
 }
@@ -350,7 +392,11 @@ export function ProviderLoginPanel({
 								progressKey
 									? t(progressKey)
 									: (state.progress ??
-										(state.link ? t("providerList.login.waiting") : t("providerList.login.starting")))
+										(state.resumed
+											? t("providerList.login.inProgress")
+											: state.link
+												? t("providerList.login.waiting")
+												: t("providerList.login.starting")))
 							}
 							size="sm"
 						/>

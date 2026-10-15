@@ -17,6 +17,7 @@ import type {
 	IpcActiveTabEnvelope,
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
+	IpcExtensionUiPayload,
 	IpcFsListResult,
 	IpcFsMediaStreamResult,
 	IpcFsReadBinaryResult,
@@ -35,6 +36,8 @@ import type {
 	IpcSetTabViewPayload,
 	IpcSidecarRestartPayload,
 	IpcSidecarStatusPayload,
+	IpcSignIn,
+	IpcSignInEndedPayload,
 	IpcSpawnTabPayload,
 	IpcSpawnTabResult,
 	IpcTabInfo,
@@ -197,10 +200,12 @@ const api: OmpApi = {
 			subscribeActiveTab<AgentSessionEvent[]>(IPC_EVENTS.EVENTS_BATCH, callback),
 		onTabStatus: (callback: (payload: IpcTabStatusPayload) => void) =>
 			subscribe<IpcTabStatusPayload>(IPC_EVENTS.TAB_STATUS, callback),
-		onExtensionUi: (callback: (request: ExtensionUIRequest, tabId: string) => void) =>
-			subscribe<{ request: ExtensionUIRequest; tabId: string }>(IPC_EVENTS.EXTENSION_UI, data =>
-				callback(data.request, data.tabId),
+		onExtensionUi: (callback: (request: ExtensionUIRequest, tabId: string, signIn?: IpcSignIn) => void) =>
+			subscribe<IpcExtensionUiPayload>(IPC_EVENTS.EXTENSION_UI, data =>
+				callback(data.request, data.tabId, data.signIn),
 			),
+		onSignInEnded: (callback: (payload: IpcSignInEndedPayload) => void) =>
+			subscribe<IpcSignInEndedPayload>(IPC_EVENTS.SIGN_IN_ENDED, callback),
 		onLiveFrame: (callback: (frame: RpcLiveFrame) => void) =>
 			subscribeActiveTab<RpcLiveFrame>(IPC_EVENTS.LIVE_FRAME, callback),
 		onBtwFrame: (callback: (frame: RpcBtwFrame) => void) =>

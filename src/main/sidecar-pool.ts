@@ -37,9 +37,12 @@ import type { EventEmitter } from "node:events";
 import type { BrowserWindow } from "electron";
 import {
 	IPC_EVENTS,
+	type IpcExtensionUiPayload,
 	type IpcOpenExtensionRequest,
 	type IpcSessionOwner,
 	type IpcSetTabViewPayload,
+	type IpcSignIn,
+	type IpcSignInEndedPayload,
 	type IpcTabInfo,
 	type IpcTabStatusPayload,
 	type IpcTabWorktree,
@@ -209,6 +212,12 @@ interface PoolEntry extends RunTracking {
 	ompRestartPending?: boolean;
 	/** Provider sign-ins (`login` commands) dispatched to this tab that have not answered yet. */
 	signIns?: number;
+	/** Providers of those sign-ins, oldest first. */
+	signInProviders?: string[];
+	/** The browser page the sign-in in flight opened (its `open_url` with a `launchUrl`): the panel acknowledges and drops the request itself. */
+	signInLink?: Extract<ExtensionUIRequest, { method: "open_url" }>;
+	/** Provider ids a paired host reports it is running a `login` for on this tab (`signIn` event). */
+	hostSignIns?: string[];
 	/**
 	 * Detaches the full-channel forwarders. Null while the tab is background
 	 * (nothing wired); set exactly once per active stint so switches move
@@ -456,7 +465,7 @@ export class SidecarPool {
 				this.#requestOwners.delete(request.targetId);
 				this.onRunningChange?.();
 			}
-			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request });
+			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, this.#uiFrame(entry, request));
 		});
 		// A paired host re-attached the tab (RemoteSidecar): the asks its omp holds now are the tab's whole
 		// open set. Its omp may have restarted or withdrawn one while the link was down (that card closes like
@@ -479,9 +488,17 @@ export class SidecarPool {
 				// Answered meanwhile: the list was taken before the answer reached the host.
 				if (this.#answering.has(request.id)) continue;
 				this.#holdRequest(entry, request);
-				forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request });
+				forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, this.#uiFrame(entry, request));
 			}
 			this.onRunningChange?.();
+		});
+		// A paired host's tab runs `login` whether or not this window kept the link: what it still runs decides
+		// whether a re-sent code paste is the login panel's (it comes before `openAsks` on a re-attach).
+		sidecar.on("signIn", (arg: { active: string[]; ended?: { providerId: string; error: string | null } }) => {
+			const before = entry.hostSignIns ?? [];
+			entry.hostSignIns = arg.active;
+			if (arg.ended) this.#signInEnded(entry, arg.ended.providerId, arg.ended.error);
+			else if (before.length > 0 && arg.active.length === 0) this.#signInEnded(entry, before.at(-1) ?? null);
 		});
 		// A hidden tab's subagents still start and finish: lifecycle frames keep
 		// its runtime roster (the sidebar row's count) current. Progress frames
@@ -965,12 +982,10 @@ export class SidecarPool {
 			if (!owner) {
 				this.#requestBodies.delete(id);
 				this.#signInRequests.delete(id);
-			} else if (owner.win === win)
-				open.push({
-					tabId: owner.tabId,
-					request,
-					...(this.#signInRequests.has(id) ? { signIn: true as const } : {}),
-				});
+			} else if (owner.win === win) {
+				const signIn = this.#signInMark(owner, request);
+				open.push({ tabId: owner.tabId, request, ...(signIn ? { signIn } : {}) });
+			}
 		}
 		return open;
 	}
@@ -984,7 +999,28 @@ export class SidecarPool {
 				this.#signInRequests.delete(id);
 			}
 		this.#requestBodies.set(request.id, request);
-		if (entry.signIns && isSignInRequest(request)) this.#signInRequests.add(request.id);
+		if (this.#signInActive(entry) && isSignInRequest(request)) this.#signInRequests.add(request.id);
+	}
+
+	/**
+	 * What a page needs to give a request back to the login panel (`IpcSignIn`), or nothing when it is
+	 * the chat's: a sign-in kind raised while a `login` ran on the tab, or one held from such a time.
+	 */
+	#signInMark(entry: PoolEntry, request: ExtensionUIRequest): IpcSignIn | undefined {
+		const active = this.#signInActive(entry);
+		if (!(active && isSignInRequest(request)) && !this.#signInRequests.has(request.id)) return undefined;
+		if (active && request.method === "open_url" && request.launchUrl !== undefined) entry.signInLink = request;
+		return {
+			active,
+			providerId: entry.signInProviders?.at(-1) ?? entry.hostSignIns?.at(-1) ?? null,
+			...(active && entry.signInLink ? { link: entry.signInLink } : {}),
+		};
+	}
+
+	/** The `EXTENSION_UI` event for a request: carries the sign-in mark (`#signInMark`). */
+	#uiFrame(entry: PoolEntry, request: ExtensionUIRequest): IpcExtensionUiPayload {
+		const signIn = this.#signInMark(entry, request);
+		return { tabId: entry.tabId, request, ...(signIn ? { signIn } : {}) };
 	}
 
 	/** Register sessionFile → owner, moving the entry off any previous file. */
@@ -1081,10 +1117,41 @@ export class SidecarPool {
 		this.onRunningChange?.();
 	}
 
-	/** A provider sign-in (`login`) started on, or answered from, this tab. */
-	noteSignIn(tabId: string, active: boolean): void {
+	/**
+	 * A provider sign-in (`login`) started on, or answered from, this tab. When the last one answers,
+	 * a page that took the sign-in over after a reload (`IpcSignIn.active`) is told it is over.
+	 */
+	noteSignIn(tabId: string, active: boolean, login?: { providerId: string; error?: string | null }): void {
 		const entry = this.#byTabId.get(tabId);
-		if (entry) entry.signIns = Math.max(0, (entry.signIns ?? 0) + (active ? 1 : -1));
+		if (!entry) return;
+		entry.signIns = Math.max(0, (entry.signIns ?? 0) + (active ? 1 : -1));
+		const providers = entry.signInProviders ?? [];
+		if (login && active) providers.push(login.providerId);
+		else if (login) {
+			const at = providers.indexOf(login.providerId);
+			if (at >= 0) providers.splice(at, 1);
+		}
+		entry.signInProviders = providers;
+		if (!active) this.#signInEnded(entry, login?.providerId ?? null, login ? (login.error ?? null) : null);
+	}
+
+	/** Whether a `login` runs for the tab: one this window sent, or one a paired host reports (`signIn`). */
+	#signInActive(entry: PoolEntry): boolean {
+		return (entry.signIns ?? 0) > 0 || (entry.hostSignIns?.length ?? 0) > 0;
+	}
+
+	/**
+	 * A `login` answered. Once none is left, a page that took the sign-in over is told (`error`: null =
+	 * connected, a message = failed, absent = the outcome went unseen).
+	 */
+	#signInEnded(entry: PoolEntry, providerId: string | null, error?: string | null): void {
+		if (this.#signInActive(entry)) return;
+		entry.signInLink = undefined;
+		forwardToWindow(entry.win, IPC_EVENTS.SIGN_IN_ENDED, {
+			tabId: entry.tabId,
+			providerId,
+			...(error === undefined ? {} : { error }),
+		} satisfies IpcSignInEndedPayload);
 	}
 
 	/** Show or clear the tab's "waiting for the internet connection" state. */

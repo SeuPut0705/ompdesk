@@ -86,6 +86,7 @@ import {
 	type TabEventMessage,
 	type TabEventName,
 	type TabOpenResult,
+	type TabSignInArg,
 	type TabStatusArg,
 } from "./app-protocol";
 import type { HostConnection, HostServices } from "./host-server";
@@ -158,6 +159,8 @@ interface HostTab extends RunTracking {
 	asks: Map<string, ExtensionUIRequest>;
 	/** The turn waits for this computer's internet connection (turn-resume.ts). */
 	awaitingConnection?: boolean;
+	/** Provider ids of the `login` commands running on this tab (a device's sign-in, even if its link dropped). */
+	signIns?: string[];
 	/** `omp update` landed during a turn: the tab restarts on the new omp when it ends. */
 	ompRestartPending?: boolean;
 }
@@ -652,6 +655,9 @@ export class LocalHostServices implements HostServices {
 			const attached = existing.sidecar.status !== "asleep";
 			if (attached)
 				this.#emit(existing, "status", this.#statusArg(existing.sidecar, existing.sidecar.statusPayload));
+			// Which sign-ins still run decides whether a re-sent code paste is the login panel's or a leftover,
+			// so it goes first.
+			this.#emit(existing, "signIn", { active: [...(existing.signIns ?? [])] } satisfies TabSignInArg);
 			// The asks the device still shows may be gone (the omp restarted or withdrew them meanwhile),
 			// and the omp may have raised others: the whole open list replaces the device's.
 			this.#emit(existing, "openAsks", [...existing.asks.values()]);
@@ -871,21 +877,49 @@ export class LocalHostServices implements HostServices {
 		const command = params.command as unknown as RpcCommand;
 		// The user's Stop: nothing continues this turn after a crash (ipc.ts does the same for a local tab).
 		if (STOP_COMMANDS[command.type]) this.noteStopped(tab.resumeId);
-		const response = commandUsesModel(command)
-			? await this.#metered(
-					peer.deviceId,
-					1,
-					() => client.command(command, params.timeoutMs),
-					result => result.success,
-				)
-			: await client.command(command, params.timeoutMs);
-		// A login or logout rewrote this machine's credential store: every tab
-		// running here re-reads it — this machine's own and every device's.
-		if (response.success && (command.type === "login" || command.type === "logout")) {
-			for (const other of this.#tabs.values()) other.sidecar.syncImageGeneration();
-			for (const local of this.#deps.localTabs.allSidecars()) if (!local.device) local.syncImageGeneration();
+		// A provider sign-in runs here whether or not the device keeps its link: the device is told what is
+		// in flight (`signIn`), so its re-sent code paste is the login panel's while it runs.
+		const login = command.type === "login" ? command.providerId : null;
+		if (login !== null) this.#noteSignIn(tab, login);
+		let signInError: string | null = null;
+		try {
+			const response = commandUsesModel(command)
+				? await this.#metered(
+						peer.deviceId,
+						1,
+						() => client.command(command, params.timeoutMs),
+						result => result.success,
+					)
+				: await client.command(command, params.timeoutMs);
+			if (!response.success) signInError = response.error ?? "";
+			// A login or logout rewrote this machine's credential store: every tab
+			// running here re-reads it — this machine's own and every device's.
+			if (response.success && (command.type === "login" || command.type === "logout")) {
+				for (const other of this.#tabs.values()) other.sidecar.syncImageGeneration();
+				for (const local of this.#deps.localTabs.allSidecars()) if (!local.device) local.syncImageGeneration();
+			}
+			return response;
+		} catch (error) {
+			signInError = error instanceof Error ? error.message : String(error);
+			throw error;
+		} finally {
+			if (login !== null) this.#noteSignIn(tab, login, signInError);
 		}
-		return response;
+	}
+
+	/** A `login` started (`ended` undefined) or answered on the tab: the device learns what still runs. */
+	#noteSignIn(tab: HostTab, providerId: string, ended?: string | null): void {
+		const signIns = tab.signIns ?? [];
+		if (ended === undefined) signIns.push(providerId);
+		else {
+			const at = signIns.indexOf(providerId);
+			if (at >= 0) signIns.splice(at, 1);
+		}
+		tab.signIns = signIns;
+		this.#emit(tab, "signIn", {
+			active: signIns,
+			...(ended === undefined ? {} : { ended: { providerId, error: ended } }),
+		} satisfies TabSignInArg);
 	}
 
 	/**

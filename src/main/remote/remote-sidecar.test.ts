@@ -233,6 +233,24 @@ describe("RemoteSidecar", () => {
 		expect(lists).toHaveLength(before);
 	});
 
+	it("hands on the sign-ins the host reports running, and ignores a malformed report", () => {
+		const { sidecar } = setup();
+		const reports: unknown[] = [];
+		sidecar.on("signIn", (arg: unknown) => reports.push(arg));
+		sidecar.handleEvent({ rtab: "tab-1", name: "signIn", arg: { active: ["anthropic"] } });
+		sidecar.handleEvent({
+			rtab: "tab-1",
+			name: "signIn",
+			arg: { active: [], ended: { providerId: "anthropic", error: null } },
+		});
+		sidecar.handleEvent({ rtab: "tab-1", name: "signIn", arg: { active: "anthropic" } });
+		sidecar.handleEvent({ rtab: "tab-1", name: "signIn", arg: { active: [], ended: { providerId: "anthropic" } } });
+		expect(reports).toEqual([
+			{ active: ["anthropic"] },
+			{ active: [], ended: { providerId: "anthropic", error: null } },
+		]);
+	});
+
 	it("goes to error with the offline message and refuses commands while the link is down", async () => {
 		const { link, sidecar, statuses } = setup();
 		sidecar.start();
