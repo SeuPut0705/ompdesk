@@ -132,11 +132,21 @@ export async function discard(cwd: string, paths: string[]): Promise<void> {
 			await git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ...literal(checked)]),
 		);
 		const fresh = status.filter(entry => entry.index === "?" || entry.index === "A").map(entry => entry.path);
-		const tracked = status
-			.filter(entry => entry.index !== "?" && entry.index !== "A")
-			.flatMap(entry => (entry.oldPath ? [entry.path, entry.oldPath] : [entry.path]));
-		if (tracked.length > 0)
-			await git(root, ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...literal(tracked)]);
+		const tracked = new Set(
+			status
+				.filter(entry => entry.index !== "?" && entry.index !== "A")
+				.flatMap(entry => (entry.oldPath ? [entry.path, entry.oldPath] : [entry.path])),
+		);
+		// A status limited to the new path cannot pair a staged rename with its old path (outside the pathspec),
+		// so it reports a plain add; discarding that alone would leave the old file staged as deleted.
+		if (status.some(entry => entry.index === "A")) {
+			const whole = parseGitStatus(await git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=no"]));
+			const added = new Set(status.filter(entry => entry.index === "A").map(entry => entry.path));
+			for (const entry of whole)
+				if (entry.index === "R" && entry.oldPath && added.has(entry.path)) tracked.add(entry.oldPath);
+		}
+		if (tracked.size > 0)
+			await git(root, ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...literal([...tracked])]);
 		if (fresh.length > 0) {
 			await gitRaw(root, ["rm", "-q", "--cached", "--ignore-unmatch", "--", ...literal(fresh)]);
 			const realRoot = await fs.realpath(root);

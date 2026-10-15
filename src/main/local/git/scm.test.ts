@@ -74,6 +74,32 @@ describe("stage, unstage, discard", () => {
 		expect((await getGitChanges(root)).files).toEqual([]);
 	});
 
+	it("discards a staged rename, whether the new path alone or both paths are selected", async () => {
+		gitSync(root, "mv", "README.md", "renamed.md");
+		expect(await statusOf("renamed.md")).toBe("R ");
+		await scm.discard(root, ["renamed.md"]);
+		expect(await fs.readFile(path.join(root, "README.md"), "utf8")).toBe("hello\n");
+		expect(await pathExists(path.join(root, "renamed.md"))).toBe(false);
+		expect((await getGitChanges(root)).files).toEqual([]);
+
+		gitSync(root, "mv", "README.md", "renamed.md");
+		await fs.writeFile(path.join(root, "renamed.md"), "edited after the move\n");
+		await scm.discard(root, ["renamed.md", "README.md"]);
+		expect(await fs.readFile(path.join(root, "README.md"), "utf8")).toBe("hello\n");
+		expect(await pathExists(path.join(root, "renamed.md"))).toBe(false);
+		expect((await getGitChanges(root)).files).toEqual([]);
+	});
+
+	it("discards an intent-to-add file together with a tracked edit", async () => {
+		await fs.writeFile(path.join(root, "added.txt"), "x\n");
+		gitSync(root, "add", "-N", "added.txt");
+		await fs.writeFile(path.join(root, "README.md"), "changed\n");
+		await scm.discard(root, ["added.txt", "README.md"]);
+		expect(await pathExists(path.join(root, "added.txt"))).toBe(false);
+		expect(await fs.readFile(path.join(root, "README.md"), "utf8")).toBe("hello\n");
+		expect((await getGitChanges(root)).files).toEqual([]);
+	});
+
 	it("refuses paths that leave the checkout", async () => {
 		await expect(scm.stage(root, ["../outside"])).rejects.toMatchObject({ code: "invalid_path" });
 		await expect(scm.discard(root, [])).rejects.toMatchObject({ code: "invalid_path" });
