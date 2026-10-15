@@ -391,12 +391,15 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	rememberedSplits: [],
 
 	reconcileTabs: async () => {
-		const list = await window.omp.tabs.list().catch(() => null);
-		if (!list) {
-			// Pre-tabs main (dev mismatch) or bridge down — the tab strip simply
-			// stays empty and TAB_STATUS pushes rebuild it.
+		const listed = await window.omp.tabs.list().catch(() => null);
+		if (!listed) {
+			// Bridge down — the tab strip simply stays as it is and TAB_STATUS
+			// pushes rebuild it.
 			return false;
 		}
+		// A tab this window is closing is gone for it even while main still lists
+		// it (its release is in flight): reviving it would recreate its runtime.
+		const list = listed.filter(info => !isTabClosed(info.tabId));
 		set(state => {
 			const leftovers = new Map(state.tabs.map(tab => [tab.id, tab]));
 			const merged: SessionTab[] = list.map(info => {
@@ -420,7 +423,10 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 						? mainActiveTabId
 						: (tabs[0]?.id ?? null);
 			const mainVisible = list.filter(info => info.visible).map(info => info.tabId);
-			const restoredSplit = list.find(info => info.split)?.split ?? null;
+			// Main's split can still name a tab it is closing; only one whose panes are all known holds.
+			const restoredSplit =
+				list.find(info => info.split && splitTabIds(info.split).every(id => tabs.some(tab => tab.id === id)))
+					?.split ?? null;
 			const split =
 				restoredSplit ??
 				(state.split && splitTabIds(state.split).every(id => mainVisible.includes(id)) ? state.split : null);
@@ -634,8 +640,19 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		const focused = state.activeTabId && ids.includes(state.activeTabId) ? state.activeTabId : ids[0];
 		const split = asSplitLayout(remaining);
 		set({ split });
-		if (focused !== state.activeTabId) await get().switchTab(focused);
-		else await routeTabView(focused, ids, split);
+		if (focused !== state.activeTabId) {
+			await get().switchTab(focused);
+			return;
+		}
+		try {
+			const routed = await routeTabView(focused, ids, split);
+			if (!routed) throw new Error(`Tab ${focused} is no longer available`);
+		} catch (error) {
+			// The window already shows the smaller split; take main's view back so
+			// the pane's tab is not left in no pane.
+			toastError({ title: translate("tabs.switchFailed"), error });
+			await get().reconcileTabs();
+		}
 	},
 
 	leaveSplit: async tabId => {
@@ -704,8 +721,8 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			const neighbor = state.tabs[index + 1] ?? state.tabs[index - 1];
 			if (neighbor) await get().switchTab(neighbor.id);
 		}
+		const closed = state.tabs[index];
 		set(current => {
-			const closed = state.tabs[index];
 			const closedTabs = closed?.sessionPath
 				? [
 						...current.closedTabs.filter(entry => entry.sessionPath !== closed.sessionPath),
@@ -726,11 +743,26 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		});
 		closedTabIds.add(id);
 		deleteSessionRuntime(id);
+		let failure: unknown = null;
 		try {
-			await window.omp.tabs.close(id);
-		} catch {
-			// Pre-tabs main (dev mismatch) tolerance; the entry is already gone.
+			if (!(await window.omp.tabs.close(id))) failure = new Error(`Tab ${id} was not released`);
+		} catch (error) {
+			failure = error;
 		}
+		if (failure !== null) {
+			// Main still holds the tab and its sidecar: show it again instead of leaving a live session nobody can see.
+			closedTabIds.delete(id);
+			if (closed?.sessionPath)
+				set(current => ({
+					closedTabs: current.closedTabs.filter(entry => entry.sessionPath !== closed.sessionPath),
+				}));
+			toastError({ title: translate("tabs.closeFailed"), error: failure });
+			await get().reconcileTabs();
+			return;
+		}
+		// A failed removePane left main's split in view; its next list no longer names this tab.
+		const { split } = get();
+		if (split && splitTabIds(split).includes(id)) await get().reconcileTabs();
 	},
 
 	closedTabs: [],

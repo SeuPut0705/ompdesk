@@ -99,6 +99,7 @@ export const en: Record<string, string> = {
 	"tabs.done": "Run completed",
 	"tabs.newFailed": "Couldn't open tab",
 	"tabs.switchFailed": "Couldn't switch tab",
+	"tabs.closeFailed": "Couldn't close tab",
 	"tabs.confirmClose": "This session is running. Press again to stop its turn and close it.",
 	"tabs.reopenNone": "No closed tab to reopen",
 	"sidebar.archiveFailed": "Couldn't save the archive",

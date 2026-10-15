@@ -826,6 +826,116 @@ describe("tabs store close", () => {
 	});
 });
 
+describe("tabs store close races and failures", () => {
+	const mainTabs = () => [tabInfo("t0", "/alpha"), tabInfo("t1", "/beta"), tabInfo("t2", "/gamma")];
+
+	it("does not revive a closing tab, or its runtime, when a reconcile lands before main released it", async () => {
+		seedTabs("t0");
+		const release = Promise.withResolvers<boolean>();
+		omp.tabs.close.mockReturnValue(release.promise);
+		// Main still lists t1 until its release completes.
+		omp.tabs.list.mockResolvedValue(mainTabs().map(info => ({ ...info, active: info.tabId === "t0" })));
+
+		const closing = useTabsStore.getState().closeTab("t1");
+		await vi.waitFor(() => expect(omp.tabs.close).toHaveBeenCalledWith("t1"));
+		await useTabsStore.getState().reconcileTabs();
+
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t2"]);
+		expect(sessionRuntime("t1")).toBeNull();
+
+		release.resolve(true);
+		await closing;
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t2"]);
+		expect(sessionRuntime("t1")).toBeNull();
+	});
+
+	it("does not let a reconcile bring a closing tab back through the split main still reports", async () => {
+		seedTabs("t0");
+		const release = Promise.withResolvers<boolean>();
+		omp.tabs.close.mockReturnValue(release.promise);
+		const split: SplitLayout = { axis: "columns", ratio: 0.5, first: { tabId: "t0" }, second: { tabId: "t1" } };
+		omp.tabs.list.mockResolvedValue(
+			mainTabs().map(info => ({
+				...info,
+				active: info.tabId === "t0",
+				visible: info.tabId !== "t2",
+				split,
+			})),
+		);
+
+		const closing = useTabsStore.getState().closeTab("t1");
+		await vi.waitFor(() => expect(omp.tabs.close).toHaveBeenCalledWith("t1"));
+		await useTabsStore.getState().reconcileTabs();
+
+		expect(useTabsStore.getState().split).toBeNull();
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		release.resolve(true);
+		await closing;
+	});
+
+	it.each([
+		["rejects", () => omp.tabs.close.mockRejectedValue(new Error("EBUSY"))],
+		["answers false", () => omp.tabs.close.mockResolvedValue(false)],
+	])("says so and shows the tab again when main's close %s", async (_label, fail) => {
+		seedTabs("t0");
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, sessionPath: "/s/beta.jsonl" } : tab)),
+		}));
+		useToastStore.setState({ toasts: [] });
+		fail();
+		omp.tabs.list.mockResolvedValue(mainTabs().map(info => ({ ...info, active: info.tabId === "t0" })));
+
+		await useTabsStore.getState().closeTab("t1");
+
+		expect(useToastStore.getState().toasts.map(toast => toast.title)).toContain(translate("tabs.closeFailed"));
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t1", "t2"]);
+		expect(isTabClosed("t1")).toBe(false);
+		expect(sessionRuntime("t1")).not.toBeNull();
+		// Nothing was closed, so there is nothing to reopen.
+		expect(useTabsStore.getState().closedTabs).toEqual([]);
+	});
+
+	it("settles when routing the split without the closing pane fails: no tab is left in no pane", async () => {
+		seedTabs("t0");
+		const split: SplitLayout = { axis: "columns", ratio: 0.5, first: { tabId: "t0" }, second: { tabId: "t1" } };
+		useTabsStore.setState({ split });
+		useToastStore.setState({ toasts: [] });
+		omp.tabs.setActive.mockRejectedValue(new Error("ipc down"));
+		omp.tabs.list
+			.mockResolvedValueOnce(
+				mainTabs().map(info => ({ ...info, active: info.tabId === "t0", visible: info.tabId !== "t2", split })),
+			)
+			.mockResolvedValue(
+				[tabInfo("t0", "/alpha"), tabInfo("t2", "/gamma")].map(info => ({ ...info, active: info.tabId === "t0" })),
+			);
+
+		await expect(useTabsStore.getState().closeTab("t1")).resolves.toBeUndefined();
+
+		const state = useTabsStore.getState();
+		expect(omp.tabs.close).toHaveBeenCalledWith("t1");
+		expect(state.tabs.map(tab => tab.id)).toEqual(["t0", "t2"]);
+		expect(state.split).toBeNull();
+		expect(state.activeTabId).toBe("t0");
+		expect(useToastStore.getState().toasts.map(toast => toast.title)).toContain(translate("tabs.switchFailed"));
+	});
+
+	it("settles when routing the split without a pane resolves false", async () => {
+		seedTabs("t0");
+		useTabsStore.setState({
+			split: { axis: "columns", ratio: 0.5, first: { tabId: "t0" }, second: { tabId: "t1" } },
+		});
+		useToastStore.setState({ toasts: [] });
+		omp.tabs.setActive.mockResolvedValue(false);
+		omp.tabs.list.mockResolvedValue(mainTabs().map(info => ({ ...info, active: info.tabId === "t0" })));
+
+		await expect(useTabsStore.getState().removePane("t1")).resolves.toBeUndefined();
+
+		expect(useTabsStore.getState().split).toBeNull();
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t1", "t2"]);
+		expect(useToastStore.getState().toasts.map(toast => toast.title)).toContain(translate("tabs.switchFailed"));
+	});
+});
+
 describe("tabs store position jumps", () => {
 	it("focuses the tab at a strip position and the last tab, ignoring positions past the end", async () => {
 		seedTabs("t0");

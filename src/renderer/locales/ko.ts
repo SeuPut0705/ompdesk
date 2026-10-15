@@ -96,6 +96,7 @@ export const ko: Record<string, string> = {
 	"tabs.done": "실행 완료",
 	"tabs.newFailed": "탭을 열 수 없어요",
 	"tabs.switchFailed": "탭을 전환할 수 없어요",
+	"tabs.closeFailed": "탭을 닫을 수 없어요",
 	"tabs.confirmClose": "실행 중인 세션이에요. 한 번 더 누르면 턴을 중단하고 닫아요.",
 	"tabs.reopenNone": "다시 열 닫은 탭이 없어요",
 	"sidebar.archiveFailed": "보관 상태를 저장하지 못했어요",
