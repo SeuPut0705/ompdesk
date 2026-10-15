@@ -16,11 +16,17 @@
  * job runs it on windows-latest.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compareVersions, MIN_OMP_VERSION, resolveOmp } from "../src/main/omp-runtime";
-import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } from "../src/main/setup/paths";
+import {
+	applyManagedToolEnv,
+	bunInstallDir,
+	managedToolsDir,
+	refreshPath,
+	setupPlatform,
+} from "../src/main/setup/paths";
 import { SetupService } from "../src/main/setup/service";
 import type { SetupState } from "../src/shared/setup";
 
@@ -34,7 +40,8 @@ const hideSystemGit = process.argv.includes("--hide-system-git");
 
 /** Parent: build the isolated environment, run the check in a child, delete everything. */
 function orchestrate(): number {
-	const root = mkdtempSync(join(tmpdir(), "ompdesk-install-check-"));
+	// The long form: Windows' %TEMP% can be an 8.3 name (C:\Users\RUNNER~1\…) while omp resolves to the long one.
+	const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ompdesk-install-check-")));
 	const home = join(root, "home");
 	mkdirSync(home, { recursive: true });
 	const env: NodeJS.ProcessEnv = {
@@ -101,11 +108,19 @@ async function check(root: string): Promise<void> {
 		toolsDir,
 		bunInstall: bunInstallDir(process.env, home),
 		statePath: join(root, "setup-state.json"),
-		// Required items only: optional ones (brew/winget) would install machine-wide.
-		automatic: false,
-		testInstaller: null,
 		// Installers themselves may need the real Program Files (PowerShell modules).
 		spawnEnv: async () => ({ ...process.env, ...realProgramFiles }),
+		// The registry's machine PATH (merged after each install) lists the runner's Git for Windows again.
+		refreshPath: async (target, tools) => {
+			await refreshPath(target, tools);
+			const systemGit = Object.values(realProgramFiles)
+				.filter(Boolean)
+				.map(dir => join(dir, "Git").toLowerCase());
+			process.env.PATH = (process.env.PATH ?? "")
+				.split(";")
+				.filter(entry => !systemGit.some(dir => entry.toLowerCase().startsWith(dir)))
+				.join(";");
+		},
 		onState: state => {
 			states.push(state);
 			for (const item of state.items) {
