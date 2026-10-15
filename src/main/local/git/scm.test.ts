@@ -9,13 +9,19 @@ import * as scm from "./scm";
 import { gitSync, initRepo, pathExists } from "./test-repos";
 
 // Host git config must not shape these repos: a runner's git names a bare remote's HEAD `master`, a Mac's `main`.
-// Every git here (gitSync and the code under test) inherits process.env.
-beforeAll(() => {
-	vi.stubEnv("GIT_CONFIG_GLOBAL", os.devNull);
+// Every git here (gitSync and the code under test) inherits process.env. An empty file, not os.devNull:
+// Windows git can't open `\\.\nul` as a config path.
+let emptyConfigDir: string;
+beforeAll(async () => {
+	emptyConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-scm-config-"));
+	const emptyConfig = path.join(emptyConfigDir, "gitconfig");
+	await fs.writeFile(emptyConfig, "");
+	vi.stubEnv("GIT_CONFIG_GLOBAL", emptyConfig);
 	vi.stubEnv("GIT_CONFIG_NOSYSTEM", "1");
 });
-afterAll(() => {
+afterAll(async () => {
 	vi.unstubAllEnvs();
+	await fs.rm(emptyConfigDir, { recursive: true, force: true });
 });
 
 let dir: string;
