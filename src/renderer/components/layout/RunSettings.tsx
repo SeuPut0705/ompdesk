@@ -36,6 +36,7 @@ import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, Popover, SwitchField, Tooltip } from "../common";
 import { ApprovalModeField, FullAccessConfirmDialog } from "./ApprovalControl";
+import { ContextSizeField } from "./ContextSizeField";
 import { ThinkingLevelField, useThinkingSelector } from "./ThinkingControl";
 
 type ToggleKind = "settings" | "prewalk";
@@ -260,6 +261,7 @@ function RunSettingsPanel({ onClose, onRequestFullAccess }: { onClose: () => voi
 							onCheckedChange={next => void run(() => rpc.setAutoCompaction(next))}
 							size="sm"
 						/>
+						<ContextSizeField />
 						<SwitchField
 							checked={autoRetry}
 							disabled={pending}
