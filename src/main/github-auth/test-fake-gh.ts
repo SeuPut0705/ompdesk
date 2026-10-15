@@ -99,6 +99,22 @@ if (group === "api" && verb === "user") {
 	console.log(JSON.stringify({ login: a.login, id: a.id, name: a.name, email: a.email }));
 	process.exit(0);
 }
+// GET / PUT user/starred/<owner>/<repo>: 204 (silent) when starred, gh's 404 message when not.
+const starPath = args.find(a => a.startsWith("user/starred/"));
+if (group === "api" && starPath) {
+	const a = state.accounts.find(x => x.login === state.active);
+	if (!a) { console.error("HTTP 401"); process.exit(1); }
+	const repo = starPath.slice("user/starred/".length);
+	a.starred = a.starred ?? [];
+	if (flag("--method") === "PUT") {
+		if (!a.starred.includes(repo)) a.starred.push(repo);
+		save(state);
+		process.exit(0);
+	}
+	if (a.starred.includes(repo)) process.exit(0);
+	console.error("gh: Not Found (HTTP 404)");
+	process.exit(1);
+}
 console.error("fake gh: unsupported " + args.join(" "));
 process.exit(2);
 `;

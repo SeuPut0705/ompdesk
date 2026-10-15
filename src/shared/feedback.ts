@@ -9,7 +9,9 @@
 
 import type { RuntimeErrorReport } from "./ipc-types";
 
-export const FEEDBACK_REPO = "https://github.com/SeuPut0705/ompdesk";
+/** OMPdesk's own repository (`owner/name`): issues, the About page's star. */
+export const PRODUCT_REPO = "SeuPut0705/ompdesk";
+export const FEEDBACK_REPO = `https://github.com/${PRODUCT_REPO}`;
 
 export type FeedbackKind = "bug" | "feature" | "question";
 

@@ -17,6 +17,7 @@ import { STARTER_STEPS, type StarterStep, useStarterGuideStore } from "../../sto
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { Button } from "../common";
+import { ProductStar } from "../settings/ProductStar";
 import { useFirstRunActive } from "./FirstRunSetup";
 
 export function StarterGuide({ promptSent, projectOpened }: { promptSent: boolean; projectOpened: boolean }) {
@@ -109,6 +110,13 @@ export function StarterGuide({ promptSent, projectOpened }: { promptSent: boolea
 							);
 						})}
 					</ol>
+					{!next && (
+						// Every step done: mixdog's last onboarding step, starring the repository.
+						<div className="mt-1 flex flex-col items-start gap-1.5 px-2.5" data-starter-star>
+							<p className="text-sc-xs break-keep text-(--sc-text-muted)">{t("starter.star")}</p>
+							<ProductStar />
+						</div>
+					)}
 					<div className="mt-1 px-1">
 						<Button onClick={() => useStarterGuideStore.getState().dismiss()} size="sm" variant="ghost">
 							{t("starter.hide")}

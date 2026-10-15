@@ -2,22 +2,31 @@
  * Settings › Updates: one honest overview (checking / up to date / update
  * available / could not verify) over the ompdesk desktop app, the GitHub
  * login its private release feed needs, and the system omp CLI — each with
- * its current state and its action.
+ * its current state and its action — then diagnostics (stock
+ * `omp plugin doctor`, plus a way to this computer's setup check) and About
+ * (the repository and its star).
  */
-import { Download, FolderOpen, RefreshCw, RotateCcw } from "lucide-react";
+import { Download, FolderOpen, RefreshCw, RotateCcw, Stethoscope, Wrench } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { UpdateAccess, UpdateAuthInfo, UpdateStatus } from "../../../shared/ipc-types";
-import type { RpcOmpUpdateResult, RpcOmpUpdateRunResult } from "../../../shared/rpc-types";
+import type {
+	RpcDoctorCheck,
+	RpcOmpUpdateResult,
+	RpcOmpUpdateRunResult,
+	RpcPluginDoctorResult,
+} from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useFocusedHost } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
+import { useUiStore } from "../../stores/ui";
 import { useUpdaterStore } from "../../stores/updater";
 import { Badge, Banner, type BannerVariant, Button, ErrorDetail, Input, ProgressBar, Spinner } from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
 import { HostScoped } from "../remote/HostScope";
+import { ProductStar } from "./ProductStar";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 export type UpdateOverviewState = "checking" | "healthy" | "attention" | "error";
@@ -295,7 +304,109 @@ export function UpdatesSection() {
 					label={t("updates.core.name")}
 				/>
 			</HostScoped>
+
+			<PluginDoctorRow />
+
+			<SettingsRow
+				control={<ProductStar />}
+				description={t("about.repoDesc")}
+				id="setting-about-star"
+				label={t("about.repo")}
+			/>
 		</SettingsSection>
+	);
+}
+
+const DOCTOR_BADGE: Record<RpcDoctorCheck["status"], "success" | "warning" | "error"> = {
+	ok: "success",
+	warning: "warning",
+	error: "error",
+};
+
+/**
+ * Diagnostics (mixdog's "Run doctor"): stock `omp plugin doctor --json` on the
+ * tab's machine, run on demand; this computer's Bun/omp/Git/gh/Node check lives
+ * in Settings › General › Machine setup, one click away.
+ */
+function PluginDoctorRow() {
+	const t = useT();
+	const tabRpc = useTabRpc();
+	const sidecarReady = useSessionStore(state => state.status) === "ready";
+	const [result, setResult] = useState<RpcPluginDoctorResult>();
+	const [error, setError] = useState<InlineFailure>();
+	const [running, setRunning] = useState(false);
+	const run = async () => {
+		setRunning(true);
+		setError(undefined);
+		try {
+			const response = await tabRpc.getPluginDoctor();
+			if (response.success) setResult(response.data as RpcPluginDoctorResult);
+			else setError(inlineFailure(response, t("diagnostics.failed")));
+		} catch (cause) {
+			setError(inlineFailure(cause, t("diagnostics.failed")));
+		} finally {
+			setRunning(false);
+		}
+	};
+	const problems = result?.checks.filter(check => check.status !== "ok").length ?? 0;
+	return (
+		<HostScoped>
+			<SettingsRow
+				control={
+					<div className="flex flex-wrap items-center justify-end gap-2">
+						<Button
+							icon={<Wrench />}
+							onClick={() => useUiStore.getState().openSettings("general:setting-machine-setup")}
+							size="sm"
+							variant="ghost"
+						>
+							{t("diagnostics.machine")}
+						</Button>
+						<Button
+							disabled={!sidecarReady || running}
+							icon={<Stethoscope />}
+							loading={running}
+							onClick={() => void run()}
+							size="sm"
+						>
+							{t("diagnostics.run")}
+						</Button>
+					</div>
+				}
+				description={t("diagnostics.description")}
+				footer={
+					error ? (
+						<div className="mt-2 text-sc-xs text-(--sc-danger)" role="alert">
+							<span className="block">{error.message}</span>
+							{error.cause !== undefined && <ErrorDetail error={error.cause} />}
+						</div>
+					) : result ? (
+						<div className="mt-2 flex flex-col gap-1" data-plugin-doctor>
+							<p className="text-sc-xs text-(--sc-text-muted)">
+								{problems === 0 ? t("diagnostics.allOk") : t("diagnostics.problems", { count: problems })}
+							</p>
+							<ul className="flex flex-col gap-1">
+								{result.checks.map(check => (
+									<li
+										className="flex min-w-0 items-start gap-2 text-sc-xs"
+										data-doctor-check={check.name}
+										key={check.name}
+									>
+										<Badge variant={DOCTOR_BADGE[check.status]}>
+											{t(`diagnostics.status.${check.status}`)}
+										</Badge>
+										<span className="min-w-0 font-mono break-all text-(--sc-text)">{check.name}</span>
+										<span className="min-w-0 flex-1 break-words text-(--sc-text-muted)">{check.message}</span>
+									</li>
+								))}
+							</ul>
+						</div>
+					) : null
+				}
+				id="setting-diagnostics"
+				label={t("diagnostics.name")}
+			/>
+		</HostScoped>
 	);
 }
 

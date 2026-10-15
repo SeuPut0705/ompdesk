@@ -65,4 +65,5 @@ export function registerGithubAuthIpc(ipc: GithubAuthIpcTarget, service: GithubA
 	ipc.handle(IPC_COMMANDS.GITHUB_AUTH_LOGOUT, () => service.logout());
 	ipc.handle(IPC_COMMANDS.GITHUB_AUTH_SWITCH, (_event, login) => service.switchAccount(login));
 	ipc.handle(IPC_COMMANDS.GITHUB_AUTH_FILL_IDENTITY, () => service.fillIdentity());
+	ipc.handle(IPC_COMMANDS.GITHUB_PRODUCT_STAR, (_event, star) => service.productStar(star === true));
 }

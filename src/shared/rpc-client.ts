@@ -200,6 +200,7 @@ export interface SessionRpcClient {
 	sshTest(host: RpcSshHostInput & { name: string }): Promise<RpcResponse>;
 	getOmpUpdate(): Promise<RpcResponse>;
 	ompUpdate(): Promise<RpcResponse>;
+	getPluginDoctor(): Promise<RpcResponse>;
 	getContextReport(): Promise<RpcResponse>;
 	previewShareSession(): Promise<RpcResponse>;
 	shareSession(snapshotId?: string): Promise<RpcResponse>;
@@ -525,6 +526,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getOmpUpdate: () => rpcCommand({ type: "get_omp_update" }, 60_000),
 		// Runs `omp update` against the system install — download + install can take minutes.
 		ompUpdate: () => rpcCommand({ type: "omp_update" }, 11 * 60_000),
+		getPluginDoctor: () => rpcCommand({ type: "get_plugin_doctor" }, 90_000),
 		getContextReport: () => rpcCommand({ type: "get_context_report" }),
 		// Uploads + seals the session snapshot to the share server — network-bound.
 		previewShareSession: () => rpcCommand({ type: "preview_share_session" }),

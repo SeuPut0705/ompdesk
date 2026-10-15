@@ -5,7 +5,7 @@
 
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
 import type { BuiltinReaState } from "./builtin-mcp";
-import type { GithubAuthState } from "./github-auth";
+import type { GithubAuthState, GithubStarState } from "./github-auth";
 import type { IpcErrorCode } from "./ipc-error-codes";
 import type { LaunchProfile } from "./launch-profile";
 import type { ModelSetupPlan, ModelSetupRequest, ModelSetupStatus } from "./model-setup";
@@ -264,6 +264,8 @@ export const IPC_COMMANDS = {
 	GITHUB_AUTH_SWITCH: "github-auth:switch",
 	/** Fill empty git user.name / user.email from the signed-in account */
 	GITHUB_AUTH_FILL_IDENTITY: "github-auth:fill-identity",
+	/** The signed-in account's star on OMPdesk's repository: read (`false`) or star it (`true`) */
+	GITHUB_PRODUCT_STAR: "github-auth:product-star",
 	/** Remote devices: whole RemoteState snapshot */
 	REMOTE_GET_STATE: "remote:get-state",
 	/** Turn the host role (other devices may use this computer) on or off; persisted in prefs */
@@ -1380,6 +1382,7 @@ export interface OmpApi {
 		logout(): Promise<GithubAuthState>;
 		switchAccount(login: string): Promise<GithubAuthState>;
 		fillIdentity(): Promise<GithubAuthState>;
+		productStar(star: boolean): Promise<GithubStarState>;
 		onState(callback: (state: GithubAuthState) => void): () => void;
 	};
 	ui: {

@@ -67,3 +67,14 @@ export const EMPTY_GITHUB_AUTH_STATE: GithubAuthState = {
 export function githubLoginLive(flow: GithubLoginFlow | null): boolean {
 	return flow?.state === "starting" || flow?.state === "code";
 }
+
+/**
+ * Whether the signed-in GitHub account starred OMPdesk's repository (About and
+ * the starter guide's last step): `starred` null = unknown (gh missing, signed
+ * out, or the call failed, then `error` says why).
+ */
+export interface GithubStarState {
+	starred: boolean | null;
+	error: "gh_missing" | "not_signed_in" | "failed" | null;
+	message?: string;
+}

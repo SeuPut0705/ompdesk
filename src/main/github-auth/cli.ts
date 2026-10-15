@@ -138,3 +138,21 @@ export async function ghSwitch(run: GhRunner, gh: string, login: string): Promis
 	const result = await run(gh, ["auth", "switch", ...HOST, "--user", login]);
 	if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || "gh auth switch failed");
 }
+
+/**
+ * Whether the signed-in account starred `repo` (`owner/name`): GitHub answers
+ * `GET /user/starred/{repo}` with 204 when it did and 404 when it did not, and
+ * gh exits non-zero on the 404.
+ */
+export async function ghRepoStarred(run: GhRunner, gh: string, repo: string): Promise<boolean> {
+	const result = await run(gh, ["api", `user/starred/${repo}`, "--silent"]);
+	if (result.code === 0) return true;
+	if (/HTTP 404|Not Found/i.test(`${result.stdout}\n${result.stderr}`)) return false;
+	throw new Error(result.stderr.trim() || result.stdout.trim() || "gh api user/starred failed");
+}
+
+/** Star `repo` for the signed-in account (`PUT /user/starred/{repo}`; GitHub answers 204). */
+export async function ghStarRepo(run: GhRunner, gh: string, repo: string): Promise<void> {
+	const result = await run(gh, ["api", "--method", "PUT", `user/starred/${repo}`, "--silent"]);
+	if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || "gh api star failed");
+}

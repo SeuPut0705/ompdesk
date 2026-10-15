@@ -133,6 +133,7 @@ export type RpcCommand =
 	| { id?: string; type: "get_ssh_hosts" }
 	| { id?: string; type: "get_omp_update" }
 	| { id?: string; type: "omp_update" }
+	| { id?: string; type: "get_plugin_doctor" }
 
 	// Session reports (structured TUI /context /share /jobs parity; /tools rides get_active_tools)
 	| { id?: string; type: "get_context_report" }
@@ -1138,6 +1139,16 @@ export interface RpcOmpUpdateResult {
 export interface RpcOmpUpdateRunResult {
 	version: string;
 	output: string;
+}
+/** One row of stock `omp plugin doctor --json` (`DoctorCheck`). */
+export interface RpcDoctorCheck {
+	name: string;
+	status: "ok" | "warning" | "error";
+	message: string;
+}
+export interface RpcPluginDoctorResult {
+	checks: RpcDoctorCheck[];
+	checkedAt: string;
 }
 
 /** A node in the session's branch tree (visual session navigation). */

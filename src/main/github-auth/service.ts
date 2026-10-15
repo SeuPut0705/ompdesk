@@ -6,11 +6,14 @@
  * has none. One sign-in at a time; a new start ends the old one. Re-derived
  * from mixdog's github-cli.ts (Apache-2.0) facts, not its code.
  */
+
+import { PRODUCT_REPO } from "../../shared/feedback";
 import {
 	EMPTY_GITHUB_AUTH_STATE,
 	type GithubAuthAction,
 	type GithubAuthState,
 	type GithubLoginFailure,
+	type GithubStarState,
 	githubLoginLive,
 } from "../../shared/github-auth";
 import {
@@ -19,6 +22,8 @@ import {
 	ghAccountIdentity,
 	ghAuthStatus,
 	ghLogout,
+	ghRepoStarred,
+	ghStarRepo,
 	ghSwitch,
 	ghVersion,
 	gitIdentity,
@@ -301,6 +306,20 @@ export class GithubAuthService {
 			this.#set({ flow: null, identityFilled: [] });
 			await this.refresh(true);
 		});
+	}
+
+	/** Read (`star` false) or set (`star` true) the account's star on OMPdesk's repository. */
+	async productStar(star: boolean): Promise<GithubStarState> {
+		const gh = await this.#deps.resolveGh();
+		if (!gh) return { starred: null, error: "gh_missing" };
+		if (!this.#state.status?.authenticated) await this.refresh(false);
+		if (!this.#state.status?.authenticated) return { starred: null, error: "not_signed_in" };
+		try {
+			if (star) await ghStarRepo(this.#deps.run, gh, PRODUCT_REPO);
+			return { starred: star || (await ghRepoStarred(this.#deps.run, gh, PRODUCT_REPO)), error: null };
+		} catch (cause) {
+			return { starred: null, error: "failed", message: message(cause) };
+		}
 	}
 
 	dispose(): void {

@@ -257,4 +257,27 @@ describe("GithubAuthService", () => {
 	it("runs exactly gh's web device flow", () => {
 		expect(LOGIN_ARGS).toEqual(["auth", "login", "--hostname", "github.com", "--git-protocol", "https", "--web"]);
 	});
+
+	it("reads and sets the account's star on OMPdesk's repository, and says why when it can't", async () => {
+		expect(await service().productStar(false)).toEqual({ starred: null, error: "not_signed_in" });
+		await seed([{ login: "octocat", id: 1, name: null, email: null }]);
+		const auth = service();
+		await auth.refresh(true);
+		expect(await auth.productStar(false)).toEqual({ starred: false, error: null });
+		expect(await auth.productStar(true)).toEqual({ starred: true, error: null });
+		const state = JSON.parse(await readFile(env.FAKE_GH_STATE, "utf8"));
+		expect(state.accounts[0].starred).toEqual(["SeuPut0705/ompdesk"]);
+		expect(await auth.productStar(false)).toEqual({ starred: true, error: null });
+		const noGh = new GithubAuthService({
+			resolveGh: async () => null,
+			resolveGit: async () => "git",
+			run,
+			pty: pipePty,
+			loginEnv: async () => env,
+			home: root,
+			onState: () => {},
+		});
+		services.push(noGh);
+		expect(await noGh.productStar(true)).toEqual({ starred: null, error: "gh_missing" });
+	});
 });

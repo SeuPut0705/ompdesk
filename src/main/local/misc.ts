@@ -1,11 +1,15 @@
 /**
- * Voice, debug console, security dashboard, SSH hosts and omp updates.
+ * Voice, debug console, security dashboard, SSH hosts, omp updates and the
+ * plugin doctor.
  *
  * Session-bound commands go to the gui-bridge `misc` methods. Updates drive the
  * system omp CLI directly: `omp update --check` reports the installed and
  * latest versions (honoring the user's channel and npm registry), and
- * `omp_update` runs `omp update` itself.
+ * `omp_update` runs `omp update` itself. `get_plugin_doctor` is stock
+ * `omp plugin doctor --json` (plugin directory, manifest, node_modules, each
+ * plugin's version, tools, hooks and extensions).
  */
+import type { RpcDoctorCheck } from "../../shared/rpc-types";
 import { parseOmpVersion } from "../omp-runtime";
 import { type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
 
@@ -31,6 +35,46 @@ export function parseUpdateCheck(output: string): OmpUpdateCheck | null {
 
 function lastLines(text: string, count = 6): string {
 	return text.trim().split(/\r?\n/).slice(-count).join("\n");
+}
+
+const DOCTOR_TIMEOUT_MS = 60_000;
+const DOCTOR_STATUS: Record<string, RpcDoctorCheck["status"]> = { ok: "ok", warning: "warning", error: "error" };
+
+/** Stock's `DoctorCheck[]` (`extensibility/plugins/types.ts`), rows of another shape dropped. */
+export function parseDoctorChecks(stdout: string): RpcDoctorCheck[] | null {
+	let data: unknown;
+	try {
+		data = JSON.parse(stdout);
+	} catch {
+		return null;
+	}
+	if (!Array.isArray(data)) return null;
+	const checks: RpcDoctorCheck[] = [];
+	for (const row of data) {
+		if (typeof row !== "object" || row === null) continue;
+		const { name, status, message } = row as Record<string, unknown>;
+		const known = typeof status === "string" ? DOCTOR_STATUS[status] : undefined;
+		if (typeof name !== "string" || !known) continue;
+		checks.push({ name, status: known, message: typeof message === "string" ? message : "" });
+	}
+	return checks;
+}
+
+async function pluginDoctor(ctx: LocalCommandContext) {
+	// `--json` exits 0 even with failing checks; a non-zero exit means the command itself failed.
+	const result = await ctx.omp.run(["plugin", "doctor", "--json"], {
+		cwd: ctx.cwd,
+		timeoutMs: DOCTOR_TIMEOUT_MS,
+		env: PLAIN_ENV,
+	});
+	const checks = result.code === 0 ? parseDoctorChecks(result.stdout) : null;
+	if (!checks) {
+		throw new LocalCommandError(
+			lastLines(result.stderr || result.stdout) || `omp plugin doctor exited with code ${result.code}`,
+			"doctor_failed",
+		);
+	}
+	return { checks, checkedAt: new Date().toISOString() };
 }
 
 async function checkOmpUpdate(ctx: LocalCommandContext) {
@@ -98,4 +142,5 @@ export const handlers: Record<string, LocalHandler> = {
 	ssh_test: viaBridge("ssh_test"),
 	get_omp_update: (_command, ctx) => checkOmpUpdate(ctx),
 	omp_update: (_command, ctx) => runOmpUpdate(ctx),
+	get_plugin_doctor: (_command, ctx) => pluginDoctor(ctx),
 };

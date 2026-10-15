@@ -6,7 +6,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { AccountRotationMode, AccountRotationState } from "../shared/account-rotation";
 import type { BuiltinReaState } from "../shared/builtin-mcp";
-import type { GithubAuthState } from "../shared/github-auth";
+import type { GithubAuthState, GithubStarState } from "../shared/github-auth";
 import type {
 	CustomProviderInput,
 	CustomProvidersConfig,
@@ -240,6 +240,8 @@ const api: OmpApi = {
 		switchAccount: (login: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.GITHUB_AUTH_SWITCH, login) as Promise<GithubAuthState>,
 		fillIdentity: () => ipcRenderer.invoke(IPC_COMMANDS.GITHUB_AUTH_FILL_IDENTITY) as Promise<GithubAuthState>,
+		productStar: (star: boolean) =>
+			ipcRenderer.invoke(IPC_COMMANDS.GITHUB_PRODUCT_STAR, star) as Promise<GithubStarState>,
 		onState: (callback: (state: GithubAuthState) => void) =>
 			subscribe<GithubAuthState>(IPC_EVENTS.GITHUB_AUTH_STATE, callback),
 	},
