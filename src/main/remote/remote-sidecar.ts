@@ -8,8 +8,9 @@
  * Link state is tab state: when the link drops, the tab reports status
  * `error` with the offline message and refuses commands (`remote_offline`).
  * When it comes back, the tab re-opens on the host — the host still holds
- * the running sidecar for a while and re-sends its status; after that it
- * starts a new one on the newest session file.
+ * the running sidecar for a while and re-sends its status and the asks its
+ * omp still has open (`openAsks`, the pool's open set for the tab is replaced
+ * by it); after that it starts a new one on the newest session file.
  *
  * Nothing sent to the host vanishes while the link is down: a user's answer
  * (`extension_ui_response`) the host did not take — the link was down, dropped
@@ -32,6 +33,7 @@ import {
 	LINK_SLACK_MS,
 	TabBridgeArg,
 	type TabEventMessage,
+	TabOpenAsksArg,
 	TabOpenResult,
 	TabSessionArg,
 	TabStatusArg,
@@ -287,6 +289,11 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			case "awaitingConnection":
 				if (typeof message.arg === "boolean") this.emit("awaitingConnection", message.arg);
 				return;
+			case "openAsks": {
+				const parsed = TabOpenAsksArg.safeParse(message.arg);
+				if (parsed.success) this.emit("openAsks", parsed.data);
+				return;
+			}
 			default:
 				this.emit(message.name, message.arg);
 		}

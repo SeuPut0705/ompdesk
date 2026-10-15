@@ -671,9 +671,11 @@ describe("LocalHostServices", () => {
 		const reopened = await services.call(second.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, second);
 		expect(reopened).toEqual({ cwd: workDir, kind: "agent", attached: true });
 		expect(sidecars).toHaveLength(1);
-		// The status is re-sent on attach, and whether this computer holds the turn for its connection.
+		// The status is re-sent on attach, the asks its omp holds (none), and whether this computer holds the
+		// turn for its connection.
 		expect(second.tabEvents()).toEqual([
 			expect.objectContaining({ name: "status", arg: expect.objectContaining({ status: "ready" }) }),
+			{ rtab: "t1", name: "openAsks", arg: [] },
 			{ rtab: "t1", name: "awaitingConnection", arg: false },
 		]);
 		vi.advanceTimersByTime(5_000);
@@ -712,6 +714,7 @@ describe("LocalHostServices", () => {
 		sidecars[0]?.emit("events", [{ type: "agent_end" }]);
 		expect(after.tabEvents().map(event => [event.rtab, event.name])).toEqual([
 			["new", "status"],
+			["new", "openAsks"],
 			["new", "awaitingConnection"],
 			["new", "events"],
 		]);
@@ -725,6 +728,59 @@ describe("LocalHostServices", () => {
 		await services.call(other.peer, "tab.open", { rtab: "y1", cwd: workDir, sessionPath: "/s/one.jsonl" }, other);
 		await services.call(after.peer, "tab.open", { rtab: "again", cwd: workDir, sessionPath: "/s/one.jsonl" }, after);
 		expect(sidecars).toHaveLength(3);
+	});
+
+	it("re-sends the asks its omp holds on every re-attach: none after that omp restarted, else the open ones", async () => {
+		const { services, sidecars } = setup();
+		const first = new FakeConnection(peer("device-x"));
+		await services.call(first.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, first);
+		await services.call(first.peer, "tab.start", { rtab: "t1" }, first);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.setStatus("ready");
+		const ask = { type: "extension_ui_request", id: "ask-1", method: "confirm", title: "Deploy?", message: "" };
+		sidecar.emit("extensionUi", ask);
+		const openAsks = (conn: FakeConnection) => conn.tabEvents().find(event => event.name === "openAsks")?.arg;
+
+		// The link drops and comes back: the ask is still open, whole.
+		services.disconnected(first.peer, first);
+		const second = new FakeConnection(peer("device-x"));
+		await services.call(second.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, second);
+		expect(openAsks(second)).toEqual([ask]);
+
+		// While away: one answered, one withdrawn, one raised; a select and fire-and-forget UI around them.
+		const approval = {
+			type: "extension_ui_request",
+			id: "ask-2",
+			method: "select",
+			title: "Allow tool: bash",
+			options: ["Approve", "Deny"],
+		};
+		sidecar.emit("extensionUi", approval);
+		await services.call(
+			second.peer,
+			"tab.sideChannel",
+			{ rtab: "t1", frame: { type: "extension_ui_response", id: "ask-1", confirmed: true } },
+			second,
+		);
+		services.disconnected(second.peer, second);
+		sidecar.emit("extensionUi", { type: "extension_ui_request", id: "c", method: "cancel", targetId: "ask-2" });
+		const later = { type: "extension_ui_request", id: "ask-3", method: "input", title: "Name?" };
+		sidecar.emit("extensionUi", later);
+		sidecar.emit("extensionUi", { type: "extension_ui_request", id: "s", method: "setStatus", statusKey: "k" });
+		const third = new FakeConnection(peer("device-x"));
+		await services.call(third.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, third);
+		expect(openAsks(third)).toEqual([later]);
+
+		// The omp restarts while the device is away: the asks went with it, and the device learns so.
+		services.disconnected(third.peer, third);
+		sidecar.setStatus("restarting");
+		sidecar.setStatus("ready");
+		const fourth = new FakeConnection(peer("device-x"));
+		const reopened = await services.call(fourth.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, fourth);
+		expect(reopened).toMatchObject({ attached: true });
+		expect(fourth.tabEvents().map(event => event.name)).toEqual(["status", "openAsks", "awaitingConnection"]);
+		expect(openAsks(fourth)).toEqual([]);
 	});
 
 	it("gives this computer's resume coordinator the hosted turns: facts, Stop, asks, the wait and its Cancel", async () => {

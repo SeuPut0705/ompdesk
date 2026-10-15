@@ -3,7 +3,8 @@
  * that shares itself and a client (A) that pairs with it and runs tabs there.
  * Each instance has its own profile, userData, discovery port and project; a
  * relaunch reuses all of them. A host that is relaunched needs a fixed port
- * (`fixedPort`), since A reconnects to the address it paired with.
+ * (`fixedPort`), since A reconnects to the address it paired with. A pairing
+ * through `linkProxy` lets a test cut the link while both apps keep running.
  */
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
@@ -44,6 +45,56 @@ export async function freePort(): Promise<number> {
 	await closed.promise;
 	if (!address || typeof address === "string") throw new Error("expected a TCP address");
 	return address.port;
+}
+
+/** A TCP relay A pairs through: `drop()` cuts the link (and refuses new ones) until `restore()`. */
+export interface LinkProxy {
+	/** The address A pairs with (and keeps dialing). */
+	readonly address: string;
+	drop(): Promise<void>;
+	restore(): Promise<void>;
+	close(): Promise<void>;
+}
+
+export async function linkProxy(targetPort: number): Promise<LinkProxy> {
+	const port = await freePort();
+	const sockets = new Set<net.Socket>();
+	let server: net.Server | null = null;
+	const listen = async (): Promise<void> => {
+		if (server) return;
+		const next = net.createServer(inbound => {
+			const outbound = net.connect(targetPort, "127.0.0.1");
+			for (const [socket, peer] of [
+				[inbound, outbound],
+				[outbound, inbound],
+			] as const) {
+				sockets.add(socket);
+				socket.on("error", () => {});
+				socket.on("close", () => {
+					sockets.delete(socket);
+					peer.destroy();
+				});
+				socket.pipe(peer);
+			}
+		});
+		const listening = Promise.withResolvers<void>();
+		next.once("error", listening.reject);
+		next.listen(port, "127.0.0.1", listening.resolve);
+		await listening.promise;
+		server = next;
+	};
+	// Closed, not just emptied: a dial while the link is down is refused like an unreachable host's.
+	const stop = async (): Promise<void> => {
+		const current = server;
+		server = null;
+		for (const socket of sockets) socket.destroy();
+		if (!current) return;
+		const closed = Promise.withResolvers<void>();
+		current.close(() => closed.resolve());
+		await closed.promise;
+	};
+	await listen();
+	return { address: `127.0.0.1:${port}`, drop: stop, restore: listen, close: stop };
 }
 
 export async function makeRemoteProfile(
@@ -124,14 +175,17 @@ export async function launchRemote(
 	return { app, page, profile, errors };
 }
 
-/** B shares itself under `name`; A pairs through the remote API (the pairing UI is remote-devices.e2e.ts's). */
-export async function pair(host: Page, client: Page, name: string): Promise<string> {
+/**
+ * B shares itself under `name`; A pairs through the remote API (the pairing UI is remote-devices.e2e.ts's),
+ * at B's own port unless `address` (a `linkProxy`'s) is given.
+ */
+export async function pair(host: Page, client: Page, name: string, address?: string): Promise<string> {
 	await host.evaluate(value => window.omp.remote.setDeviceName(value), name);
 	await host.evaluate(() => window.omp.remote.setHostEnabled(true));
 	await expect.poll(async () => (await host.evaluate(() => window.omp.remote.getState())).host.code).toBeTruthy();
 	const { host: state } = await host.evaluate(() => window.omp.remote.getState());
 	const paired = await client.evaluate(payload => window.omp.remote.pair(payload), {
-		address: `127.0.0.1:${state.port}`,
+		address: address ?? `127.0.0.1:${state.port}`,
 		code: state.code ?? "",
 	});
 	return paired.deviceId;

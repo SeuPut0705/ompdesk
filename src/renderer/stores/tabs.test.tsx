@@ -1228,6 +1228,23 @@ describe("tabs store background tab signals", () => {
 		expect(tabOf("t1")?.awaitingInput).toBe("input");
 	});
 
+	it("does not double an ask a paired host's re-attach sends again, and shows it again once its card closed", () => {
+		seedTabs();
+		const ask: ExtensionUIRequest = { type: "extension_ui_request", id: "ask-t1", method: "ask", questions: [] };
+		const pending = () =>
+			sessionRuntimeStore<ExtensionUiStore>("t1", "extensionUi")
+				?.getState()
+				.pendingRequests.map(request => request.id);
+		pushTabExtensionUiRequest("t1", ask);
+		pushTabExtensionUiRequest("t1", ask);
+		expect(pending()).toEqual(["ask-t1"]);
+		pushTabExtensionUiRequest("t1", { type: "extension_ui_request", id: "c", method: "cancel", targetId: "ask-t1" });
+		expect(pending()).toEqual([]);
+		pushTabExtensionUiRequest("t1", ask);
+		expect(pending()).toEqual(["ask-t1"]);
+		expect(tabOf("t1")?.awaitingInput).toBe("input");
+	});
+
 	it("gives a sign-in's restored requests back to the login panel: no chat card, no 'needs input'", () => {
 		seedTabs();
 		const paste: ExtensionUIRequest = {

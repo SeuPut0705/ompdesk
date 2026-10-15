@@ -85,7 +85,8 @@ import type { TabSpawnFacts } from "./worktree-lifecycle";
 /**
  * What the pool, ipc.ts and the host-tool executor need from a tab's sidecar:
  * the local SidecarManager, or a RemoteSidecar whose omp runs on a paired host.
- * Events are SidecarManager's (see FRAME_EVENTS in sidecar.ts), re-emitted verbatim by remote ones.
+ * Events are SidecarManager's (see FRAME_EVENTS in sidecar.ts), re-emitted verbatim by remote ones, which
+ * add `openAsks` (ExtensionUIRequest[]): every ask the host's omp holds, sent on each re-attach.
  */
 export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | "removeAllListeners"> {
 	readonly status: SidecarStatus;
@@ -247,6 +248,8 @@ export class SidecarPool {
 	#requestBodies = new Map<string, ExtensionUIRequest>();
 	/** The open requests a provider sign-in raised (`isSignInRequest` while its `login` ran): the login panel's. */
 	#signInRequests = new Set<string>();
+	/** Requests whose answer is on its way to the omp (`routeSideChannel`): a re-sent open list may predate it. */
+	#answering = new Set<string>();
 	readonly #factory: SidecarFactory;
 	/** Suppress partial snapshots while a saved layout is being reconstructed. */
 	#restoringWindows = new Set<number>();
@@ -445,14 +448,7 @@ export class SidecarPool {
 			// Only response-bearing requests need an origin route. Fire-and-forget
 			// UI updates never reply, so retaining them here leaks the owning tab.
 			if (BLOCKING_UI_METHODS[request.method]) {
-				this.#requestOwners.set(request.id, entry);
-				for (const id of this.#requestBodies.keys())
-					if (!this.#requestOwners.has(id)) {
-						this.#requestBodies.delete(id);
-						this.#signInRequests.delete(id);
-					}
-				this.#requestBodies.set(request.id, request);
-				if (entry.signIns && isSignInRequest(request)) this.#signInRequests.add(request.id);
+				this.#holdRequest(entry, request);
 				this.onRunningChange?.();
 			}
 			// omp withdrew the request (timeout, abort): no response will follow.
@@ -461,6 +457,31 @@ export class SidecarPool {
 				this.onRunningChange?.();
 			}
 			forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request });
+		});
+		// A paired host re-attached the tab (RemoteSidecar): the asks its omp holds now are the tab's whole
+		// open set. Its omp may have restarted or withdrawn one while the link was down (that card closes like
+		// a withdrawn ask) or raised one this window never saw; the reconnect's `starting` also cleared the
+		// page's cards, so each open one is sent again (the page does not double one it still shows).
+		sidecar.on("openAsks", (requests: ExtensionUIRequest[]) => {
+			const open = new Set(requests.map(request => request.id));
+			for (const [id, owner] of this.#requestOwners) {
+				if (owner !== entry || open.has(id) || this.#answering.has(id)) continue;
+				this.#requestOwners.delete(id);
+				const cancel: ExtensionUIRequest = {
+					type: "extension_ui_request",
+					id: `withdrawn:${id}`,
+					method: "cancel",
+					targetId: id,
+				};
+				forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request: cancel });
+			}
+			for (const request of requests) {
+				// Answered meanwhile: the list was taken before the answer reached the host.
+				if (this.#answering.has(request.id)) continue;
+				this.#holdRequest(entry, request);
+				forwardToWindow(win, IPC_EVENTS.EXTENSION_UI, { tabId: entry.tabId, request });
+			}
+			this.onRunningChange?.();
 		});
 		// A hidden tab's subagents still start and finish: lifecycle frames keep
 		// its runtime roster (the sidebar row's count) current. Progress frames
@@ -923,7 +944,12 @@ export class SidecarPool {
 	async routeSideChannel(id: string, frame: object, tabId?: string): Promise<boolean> {
 		const entry = tabId ? this.#byTabId.get(tabId) : this.#requestOwners.get(id);
 		if (!entry) return false;
-		await entry.sidecar.sendSideChannel(frame);
+		this.#answering.add(id);
+		try {
+			await entry.sidecar.sendSideChannel(frame);
+		} finally {
+			this.#answering.delete(id);
+		}
 		if (this.#requestOwners.get(id) === entry) {
 			this.#requestOwners.delete(id);
 			this.onRunningChange?.();
@@ -947,6 +973,18 @@ export class SidecarPool {
 				});
 		}
 		return open;
+	}
+
+	/** Route a blocking request back to the tab that raised it, keeping its body for a reloaded page. */
+	#holdRequest(entry: PoolEntry, request: ExtensionUIRequest): void {
+		this.#requestOwners.set(request.id, entry);
+		for (const id of this.#requestBodies.keys())
+			if (!this.#requestOwners.has(id)) {
+				this.#requestBodies.delete(id);
+				this.#signInRequests.delete(id);
+			}
+		this.#requestBodies.set(request.id, request);
+		if (entry.signIns && isSignInRequest(request)) this.#signInRequests.add(request.id);
 	}
 
 	/** Register sessionFile → owner, moving the entry off any previous file. */

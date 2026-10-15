@@ -151,8 +151,11 @@ interface HostTab extends RunTracking {
 	sessionFile: string | undefined;
 	graceTimer: NodeJS.Timeout | undefined;
 	run: RunState;
-	/** Open asks and approvals (request ids) the device has not answered. */
-	asks: Set<string>;
+	/**
+	 * Open asks and approvals the device has not answered, by request id, as the omp raised them:
+	 * every `tab.open` re-sends them (`openAsks`), since the device missed whatever changed while away.
+	 */
+	asks: Map<string, ExtensionUIRequest>;
 	/** The turn waits for this computer's internet connection (turn-resume.ts). */
 	awaitingConnection?: boolean;
 	/** `omp update` landed during a turn: the tab restarts on the new omp when it ends. */
@@ -649,6 +652,9 @@ export class LocalHostServices implements HostServices {
 			const attached = existing.sidecar.status !== "asleep";
 			if (attached)
 				this.#emit(existing, "status", this.#statusArg(existing.sidecar, existing.sidecar.statusPayload));
+			// The asks the device still shows may be gone (the omp restarted or withdrew them meanwhile),
+			// and the omp may have raised others: the whole open list replaces the device's.
+			this.#emit(existing, "openAsks", [...existing.asks.values()]);
 			// The device's waiting row may date from before it lost this computer.
 			this.#emit(existing, "awaitingConnection", existing.awaitingConnection === true);
 			return { cwd: existing.sidecar.cwd, kind: existing.sidecar.kind, attached };
@@ -709,7 +715,7 @@ export class LocalHostServices implements HostServices {
 			sessionFile: sessionPath,
 			graceTimer: undefined,
 			run: idleRun(),
-			asks: new Set(),
+			asks: new Map(),
 		};
 		this.#tabs.set(this.#key(peer.deviceId, rtab), tab);
 		// The resume rules first: a failure they turn into a connection wait reaches the device
@@ -742,7 +748,8 @@ export class LocalHostServices implements HostServices {
 					});
 					break;
 				case "awaitingConnection":
-					// Not the sidecar's: this computer's resume coordinator sets it (setAwaitingConnection).
+				case "openAsks":
+					// Not the sidecar's: this computer's resume coordinator sets the wait, and `tab.open` sends the asks.
 					break;
 				default:
 					sidecar.on(name, (arg: unknown) => this.#emit(tab, name, arg));
@@ -805,7 +812,7 @@ export class LocalHostServices implements HostServices {
 		});
 		sidecar.on("extensionUi", (request: ExtensionUIRequest) => {
 			const asks = BLOCKING_UI_METHODS[request.method] === true;
-			if (asks) tab.asks.add(request.id);
+			if (asks) tab.asks.set(request.id, request);
 			// omp withdrew the request (timeout, abort): no answer will follow.
 			if (asks || (request.method === "cancel" && tab.asks.delete(request.targetId))) this.#resume?.sync();
 		});

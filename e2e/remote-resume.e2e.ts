@@ -8,6 +8,9 @@
  * - B offline: a network failure of B's omp waits for B's connection, A shows the
  *   calm waiting row, and the wait outlives A losing B: once B is back and online,
  *   the turn goes on. Cancel on A's row calls B's wait off.
+ * - A loses B while a question is open on its tab (a cut relay, both apps keep running): the
+ *   question is back once the link is; and when B's omp restarted meanwhile, without it, A
+ *   shows no stale card, not even after a reload.
  * Captures in the test output directory.
  */
 import { execFileSync } from "node:child_process";
@@ -22,11 +25,13 @@ import {
 	freePort,
 	type Language,
 	launchRemote,
+	linkProxy,
 	makeRemoteProfile,
 	openHostFolder,
 	pair,
 	type RemoteInstance,
 	type RemoteProfile,
+	recorded,
 } from "./remote-harness";
 
 /** The relaunch toast (main's i18n-text.ts `resume.continuing`). */
@@ -64,11 +69,12 @@ async function crash(app: ElectronApplication): Promise<void> {
 }
 
 /** The fake omps running in RPC mode under a profile: one per live tab of that instance. */
-function omps(profile: RemoteProfile): number {
-	if (process.platform === "win32") return 0;
-	return execFileSync("ps", ["-axo", "command="], { encoding: "utf8" })
+function ompPids(profile: RemoteProfile): number[] {
+	if (process.platform === "win32") return [];
+	return execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" })
 		.split("\n")
-		.filter(line => line.includes(profile.root) && line.includes("rpc-ui")).length;
+		.filter(line => line.includes(profile.root) && line.includes("rpc-ui"))
+		.map(line => Number.parseInt(line, 10));
 }
 
 interface Marker {
@@ -153,7 +159,7 @@ for (const language of ["en", "ko"] as const)
 						.toMatchObject([{ reason: "running" }]);
 					// The tab runs the turn on B (main's synthesized "running" status).
 					await expect.poll(() => remoteStatus(client?.page as Page, deviceId)).toBe("running");
-					const before = omps(hostProfile);
+					const before = ompPids(hostProfile).length;
 					await crash(client.app);
 					client = await launchRemote(clientProfile, { project: false, ready: false });
 					const a = client.page;
@@ -165,7 +171,7 @@ for (const language of ["en", "ko"] as const)
 					await expect(a.getByRole("button", { name: t("input.abort"), exact: true })).toBeVisible({
 						timeout: 30_000,
 					});
-					expect(omps(hostProfile)).toBe(before);
+					expect(ompPids(hostProfile).length).toBe(before);
 					await capture(a, `${language}-${theme}-client-relaunched`);
 					await a.getByRole("button", { name: t("input.abort"), exact: true }).click();
 					await expect.poll(() => markers(hostProfile), { timeout: 15_000 }).toEqual([]);
@@ -244,3 +250,115 @@ for (const language of ["en", "ko"] as const)
 				await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 			}
 		});
+
+for (const [language, theme] of [
+	["en", "light"],
+	["ko", "dark"],
+] as const)
+	test(`a question open on a host's tab comes back with the link, and goes once the host's omp restarted (${language} ${theme})`, async () => {
+		test.skip(process.platform === "win32", "finds the host tab's omp with ps");
+		test.setTimeout(300_000);
+		const t = (key: string, vars?: Record<string, string | number>) => translate(language, key, vars);
+		const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-asks-")));
+		const discovery = 54_000 + Math.floor(Math.random() * 1_000) * 2;
+		const hostPort = await freePort();
+		const proxy = await linkProxy(hostPort);
+		let host: RemoteInstance | null = null;
+		let client: RemoteInstance | null = null;
+		try {
+			const hostProfile = await makeRemoteProfile(parent, "b", {
+				language: language === "en" ? "ko" : "en",
+				theme,
+				discoveryPort: discovery,
+				port: hostPort,
+			});
+			const clientProfile = await makeRemoteProfile(parent, "a", {
+				language,
+				theme,
+				discoveryPort: discovery + 1,
+			});
+			host = await launchRemote(hostProfile);
+			client = await launchRemote(clientProfile);
+			const a = client.page;
+			const deviceId = await pair(host.page, a, "Host B", proxy.address);
+			const hostOwn = ompPids(hostProfile);
+			await openHostFolder(a, deviceId, hostProfile.project);
+			const prompt = a.locator("[data-prompt-card]");
+			const card = prompt.filter({ hasText: "Where should this deploy?" });
+			const reconnecting = a.locator(`[data-remote-reconnecting="${deviceId}"]`);
+			const openAsks = () =>
+				a.evaluate(() => window.omp.ui.openRequests().then(open => open.map(o => o.request.id)));
+			/** Cut the link, run `meanwhile` while A is away, then let A back in. */
+			const away = async (name: string, meanwhile?: () => Promise<void>) => {
+				await proxy.drop();
+				await expect(reconnecting).toBeVisible({ timeout: 30_000 });
+				await capture(a, `${language}-${theme}-${name}-link-lost`);
+				await meanwhile?.();
+				await proxy.restore();
+				await expect(reconnecting).toHaveCount(0, { timeout: 60_000 });
+				await expect.poll(() => remoteStatus(a, deviceId), { timeout: 30_000 }).toBe("ready");
+			};
+
+			await test.step("the host's omp still asks: the card is back once the link is, and its answer lands", async () => {
+				await send(a, "fixture ask");
+				await expect(card).toBeVisible({ timeout: 30_000 });
+				await away("still-open");
+				await expect(card).toBeVisible({ timeout: 30_000 });
+				await expect(card).toHaveCount(1);
+				expect(await openAsks()).toEqual(["fixture-ask"]);
+				await capture(a, `${language}-${theme}-ask-back`);
+				await prompt.locator('[data-choice="Staging"]').click();
+				await prompt.locator('[data-choice="Unit tests"]').click();
+				await prompt.getByRole("button", { name: t("extDialog.ask.next"), exact: true }).click();
+				await prompt.locator('[data-choice="Yes"]').click();
+				await prompt.getByRole("button", { name: t("extDialog.submit"), exact: true }).click();
+				await expect(prompt).toHaveCount(0);
+				await expect
+					.poll(async () =>
+						(await recorded(hostProfile)).filter(
+							frame => frame.type === "extension_ui_response" && frame.id === "fixture-ask",
+						),
+					)
+					.toEqual([
+						expect.objectContaining({
+							answers: [
+								{ id: "env", selectedOptions: ["Staging"] },
+								{ id: "checks", selectedOptions: ["Unit tests"] },
+								{ id: "notify", selectedOptions: ["Yes"] },
+							],
+						}),
+					]);
+			});
+
+			await test.step("the host's omp restarts while the link is down: no stale card, even after a reload", async () => {
+				await send(a, "fixture ask");
+				await expect(card).toBeVisible({ timeout: 30_000 });
+				const [hostedOmp, ...others] = ompPids(hostProfile).filter(pid => !hostOwn.includes(pid));
+				expect(others).toEqual([]);
+				if (hostedOmp === undefined) throw new Error("expected the host tab's omp");
+				await away("restarted", async () => {
+					process.kill(hostedOmp, "SIGKILL");
+					// The host's SidecarManager starts the tab's omp again, without the question.
+					await expect
+						.poll(() => ompPids(hostProfile).filter(pid => !hostOwn.includes(pid) && pid !== hostedOmp), {
+							timeout: 30_000,
+						})
+						.toHaveLength(1);
+				});
+				await expect.poll(openAsks).toEqual([]);
+				await expect(prompt).toHaveCount(0);
+				await capture(a, `${language}-${theme}-ask-gone`);
+				await a.reload();
+				await expect.poll(() => remoteStatus(a, deviceId), { timeout: 30_000 }).toBe("ready");
+				await expect(a.locator("textarea").first()).toBeVisible();
+				expect(await openAsks()).toEqual([]);
+				await expect(prompt).toHaveCount(0);
+			});
+			expect(client.errors).toEqual([]);
+		} finally {
+			if (client) await exitApp(client.app);
+			if (host) await exitApp(host.app);
+			await proxy.close();
+			await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+		}
+	});

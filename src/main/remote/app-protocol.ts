@@ -50,11 +50,14 @@ import type {
 } from "../../shared/ipc-types";
 import type { ModelSetupStatus } from "../../shared/model-setup";
 import { OMP_UPDATE_FAILURE_REASONS, type OmpUpdateState } from "../../shared/omp-update";
+import { BLOCKING_UI_METHODS, type ExtensionUIRequest } from "../../shared/rpc-types";
 
 /**
  * Events a host sends for a remote tab: the SidecarManager events it forwards (everything else
- * stays on the host), plus `awaitingConnection` (boolean): the host holds the tab's turn until
- * its own internet connection is back (turn-resume.ts); re-sent on every `tab.open`.
+ * stays on the host), plus two the host derives, both re-sent on every `tab.open` of a tab it
+ * still holds: `awaitingConnection` (boolean): the host holds the tab's turn until its own
+ * internet connection is back (turn-resume.ts); `openAsks` (TabOpenAsksArg): every ask and
+ * approval the tab's omp still waits on, the whole list, so the device replaces its own.
  */
 export const TAB_EVENT_NAMES = [
 	"status",
@@ -76,6 +79,7 @@ export const TAB_EVENT_NAMES = [
 	"session",
 	"bridge",
 	"awaitingConnection",
+	"openAsks",
 ] as const;
 
 export type TabEventName = (typeof TAB_EVENT_NAMES)[number];
@@ -125,13 +129,31 @@ export const TabBridgeArg = z.discriminatedUnion("connected", [
 ]);
 export type TabBridgeArg = z.infer<typeof TabBridgeArg>;
 
+/**
+ * `openAsks` event argument: the blocking extension-UI requests (`BLOCKING_UI_METHODS`) the
+ * host tab's omp has open, whole, as it raised them. The body stays unchecked like a forwarded
+ * `extensionUi` frame's; only what the device keys its open set on is.
+ */
+export const TabOpenAsksArg = z.array(
+	z.custom<ExtensionUIRequest>(value => {
+		if (typeof value !== "object" || value === null) return false;
+		const { type, id, method } = value as Record<string, unknown>;
+		return (
+			type === "extension_ui_request" &&
+			typeof id === "string" &&
+			typeof method === "string" &&
+			BLOCKING_UI_METHODS[method] === true
+		);
+	}),
+);
+
 export const TabOpenResult = z.object({
 	/** Canonical cwd on the host. */
 	cwd: z.string(),
 	kind: SessionKind,
 	/**
 	 * The host still held this tab (a reconnect inside the grace period): it
-	 * re-sent `status`, and the sidecar keeps running — no `tab.start` needed.
+	 * re-sent `status` and `openAsks`, and the sidecar keeps running — no `tab.start` needed.
 	 */
 	attached: z.boolean(),
 });

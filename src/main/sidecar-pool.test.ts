@@ -1702,6 +1702,62 @@ describe("SidecarPool background tabs", () => {
 			expect(await pool.routeSideChannel("ask-1", { type: "extension_ui_response", id: "ask-1" })).toBe(false);
 		});
 
+		it("replaces a paired host's open asks with the list its re-attach sends, closing the gone ones' cards", async () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			const a = sidecars[0];
+			if (!a) throw new Error("expected a sidecar");
+			a.emitStatus("ready");
+			a.emitUiRequest({ id: "stale", method: "confirm", title: "Deploy?", message: "" });
+			a.emitUiRequest({ id: "kept", method: "ask", questions: [] });
+			const kept = pool.openRequests(fw.win)[1]?.request;
+			const raised = { type: "extension_ui_request", id: "raised", method: "input", title: "Name?" };
+			const uiSent = () => fw.sentTo(IPC_EVENTS.EXTENSION_UI).map(entry => entry.data);
+
+			// The link dropped and came back; the host's omp withdrew one ask meanwhile and raised another.
+			a.emitLinkStatus("error");
+			a.emitLinkStatus("starting");
+			a.emitStatus("ready");
+			fw.sent.length = 0;
+			a.emit("openAsks", [kept, raised]);
+			expect(pool.openRequests(fw.win).map(open => open.request.id)).toEqual(["kept", "raised"]);
+			expect(pool.resumeFacts()[0]?.awaitingUi).toBe(true);
+			// The gone one's card closes; the reconnect's `starting` cleared the page, so the open ones come back.
+			expect(uiSent()).toEqual([
+				{
+					tabId: "tab-a",
+					request: { type: "extension_ui_request", id: "withdrawn:stale", method: "cancel", targetId: "stale" },
+				},
+				{ tabId: "tab-a", request: kept },
+				{ tabId: "tab-a", request: raised },
+			]);
+			expect(await pool.routeSideChannel("stale", { type: "extension_ui_response", id: "stale" })).toBe(false);
+
+			// An answer on its way when the list was taken: neither dropped nor shown again.
+			const delivered = Promise.withResolvers<void>();
+			vi.spyOn(a, "sendSideChannel").mockReturnValueOnce(delivered.promise);
+			const answering = pool.routeSideChannel("kept", { type: "extension_ui_response", id: "kept", answers: [] });
+			fw.sent.length = 0;
+			a.emit("openAsks", [kept, raised]);
+			expect(uiSent()).toEqual([{ tabId: "tab-a", request: raised }]);
+			delivered.resolve();
+			expect(await answering).toBe(true);
+			expect(pool.openRequests(fw.win).map(open => open.request.id)).toEqual(["raised"]);
+
+			// The host's omp restarted while the link was down and holds nothing now.
+			fw.sent.length = 0;
+			a.emit("openAsks", []);
+			expect(pool.openRequests(fw.win)).toEqual([]);
+			expect(pool.resumeFacts()[0]?.awaitingUi).toBe(false);
+			expect(uiSent()).toEqual([
+				{
+					tabId: "tab-a",
+					request: { type: "extension_ui_request", id: "withdrawn:raised", method: "cancel", targetId: "raised" },
+				},
+			]);
+		});
+
 		it("starts a deferred tab's process on demand and finds the tab of a session", () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);

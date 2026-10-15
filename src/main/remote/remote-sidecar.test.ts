@@ -181,6 +181,58 @@ describe("RemoteSidecar", () => {
 		]);
 	});
 
+	it("hands on the open asks the host re-sends with each re-attach, and ignores a malformed list", async () => {
+		const { link, sidecar } = setup();
+		const ask = { type: "extension_ui_request", id: "ask-1", method: "ask", questions: [] };
+		const approval = {
+			type: "extension_ui_request",
+			id: "ok-1",
+			method: "select",
+			title: "Allow tool: x",
+			options: [],
+		};
+		let hostAsks: unknown = [ask];
+		// The host still holds the tab: it sends the live status and its omp's open asks ahead of the answer.
+		link.attached = true;
+		link.handlers["tab.open"] = params => {
+			sidecar.handleEvent(hostStatus("ready"));
+			sidecar.handleEvent({ rtab: "tab-1", name: "openAsks", arg: hostAsks });
+			return { cwd: `/canonical${String(params.cwd)}`, kind: "agent", attached: link.attached };
+		};
+		const lists: unknown[] = [];
+		sidecar.on("openAsks", (requests: unknown) => lists.push(requests));
+		const seen: string[] = [];
+		sidecar.on("status", (payload: SidecarStatusPayload) => seen.push(payload.status));
+		sidecar.on("openAsks", () => seen.push("openAsks"));
+		sidecar.start();
+		await settle();
+		expect(lists).toEqual([[ask]]);
+
+		// The link drops and comes back: the reconnect's `starting` comes first, then the host's list.
+		const reconnect = async (asks: unknown) => {
+			hostAsks = asks;
+			link.state = "offline";
+			sidecar.linkStateChanged("offline");
+			link.state = "online";
+			seen.length = 0;
+			sidecar.linkStateChanged("online");
+			await settle();
+		};
+		await reconnect([approval]);
+		expect(seen).toEqual(["starting", "ready", "openAsks"]);
+		expect(lists.at(-1)).toEqual([approval]);
+		// The host's omp restarted while the link was down: nothing is open any more.
+		await reconnect([]);
+		expect(lists.at(-1)).toEqual([]);
+
+		// A list that names a non-blocking request, or an entry without an id, replaces nothing.
+		const before = lists.length;
+		await reconnect([ask, { type: "extension_ui_request", id: "n", method: "notify", message: "hi" }]);
+		await reconnect([{ type: "extension_ui_request", method: "confirm" }]);
+		await reconnect({ id: "ask-1" });
+		expect(lists).toHaveLength(before);
+	});
+
 	it("goes to error with the offline message and refuses commands while the link is down", async () => {
 		const { link, sidecar, statuses } = setup();
 		sidecar.start();

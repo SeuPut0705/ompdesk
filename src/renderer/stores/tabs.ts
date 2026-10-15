@@ -903,12 +903,16 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 
 /** Route an extension UI frame into the tab that raised it. Blocking dialogs,
  * status text, and widgets disappear while that tab is parked and return with
- * it; a late IPC delivery can never leak into the newly selected tab. */
+ * it; a late IPC delivery can never leak into the newly selected tab. A request
+ * sent again (a paired host's re-attach re-sends every open ask) while its card
+ * is still up is not doubled. */
 export function pushTabExtensionUiRequest(tabId: string, request: ExtensionUIRequest): void {
 	// A request arriving after the tab closed must not resurrect a ghost runtime.
 	if (isTabClosed(tabId)) return;
 	ensureTabRuntime(tabId);
-	sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi")?.getState().pushRequest(request);
+	const store = sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi");
+	if (store?.getState().pendingRequests.some(pending => pending.id === request.id)) return;
+	store?.getState().pushRequest(request);
 	watchTabAwaitingInput(tabId);
 }
 
