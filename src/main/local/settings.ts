@@ -128,6 +128,7 @@ export const handlers: Record<string, LocalHandler> = {
 	get_model_role_metadata: (_command, ctx) => ctx.bridge.request("model_role_metadata"),
 	get_compaction_points: (_command, ctx) => ctx.bridge.request("compaction_points"),
 	compaction_limits: (command, ctx) => ctx.bridge.request("compaction_limits", command),
+	get_recent_models: (_command, ctx) => ctx.bridge.request("recent_models"),
 	history_recent: (command, ctx) => ctx.bridge.request("history_recent", command),
 	history_search: (command, ctx) => ctx.bridge.request("history_search", command),
 	history_record: (command, ctx) => ctx.bridge.request("history_record", command),

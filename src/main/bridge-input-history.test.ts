@@ -129,6 +129,17 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 				`import { parseSlashCommand as stock } from ${JSON.stringify(path.join(stockRoot, "src/slash-commands/helpers/parse.ts"))};\nimport { parseSlashCommand as gui } from ${JSON.stringify(path.resolve("src/renderer/lib/slash-command.ts"))};\nconst cases = ["/foo bar", "/foo:bar", "/Foo_Bar: baz:qux", "/한글", "/", " /foo", "/foo bar:baz", "/foo:bar baz"];\nconsole.log(JSON.stringify(cases.every(text => JSON.stringify(stock(text)) === JSON.stringify(gui(text)))));\n`,
 			);
 			expect(execFileSync("bun", [script], { env, encoding: "utf8" }).trim()).toBe("true");
+			// Recent models are stock's own MRU order from the profile's agent.db.
+			const mru = existsSync(path.join(agent, "agent.db"))
+				? execFileSync(
+						"sqlite3",
+						[path.join(agent, "agent.db"), "SELECT model_key FROM model_usage ORDER BY last_used_at DESC"],
+						{ encoding: "utf8" },
+					)
+						.split("\n")
+						.filter(Boolean)
+				: [];
+			expect(await client.request("recent_models")).toEqual({ selectors: mru });
 		} finally {
 			client.close();
 			child.stdin.end();

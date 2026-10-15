@@ -50,6 +50,7 @@ export const FEATURES = {
 	sessionImport: "Claude/Codex session import",
 	workspace: "Workspace directories",
 	compactionLimits: "Per-model compaction limits",
+	recentModels: "Recent models in the model picker",
 	inputHistory: "Shared prompt history",
 	accountPools: "Agent account pools",
 	worktreeLifecycle: "Per-session worktrees (worktree.onStart / onExit)",
@@ -825,6 +826,14 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/session/model-compaction-threshold`]: ["describeModelCompactionPoint()"],
 			[`${AGENT}/modes/model-browser-source`]: ["createModelBrowserSource()"],
 			"@oh-my-pi/pi-tui/overlays/model-browser": ["resolveRoleAssignments()"],
+		},
+	},
+	/** recent-models.ts: stock's most-recently-used model order, as the `/models` hub reads it. */
+	recentModels: {
+		session: ["settings", "settings.getStorage()"],
+		modules: {
+			[`${AGENT}/modes/model-browser-source`]: ["createModelBrowserSource()"],
+			[`${AGENT}/session/agent-storage`]: ["AgentStorage.prototype.getModelUsageOrder()"],
 		},
 	},
 	accountPools: {

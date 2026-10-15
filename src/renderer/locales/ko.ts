@@ -2307,6 +2307,7 @@ export const ko: Record<string, string> = {
 	// Model picker dialog
 	"modelPicker.failed": "모델을 전환하지 못했어요",
 	"modelPicker.searchLabel": "모델 검색",
+	"modelPicker.recent": "최근 사용",
 	"modelPicker.placeholder": "모델 검색…",
 	"modelPicker.notResponding": "omp가 응답하지 않아요",
 	"modelPicker.notConnected": "omp가 연결되지 않았어요",
@@ -3496,6 +3497,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.sessionImport": "세션 가져오기",
 	"bridgeHealth.feature.workspace": "프로젝트 폴더",
 	"bridgeHealth.feature.compactionLimits": "모델별 압축 한도",
+	"bridgeHealth.feature.recentModels": "모델 선택기의 최근 사용 모델",
 	"bridgeHealth.feature.inputHistory": "공유 프롬프트 기록",
 	"bridgeHealth.feature.accountPools": "에이전트 계정 풀",
 	"bridgeHealth.feature.worktreeLifecycle": "세션별 워크트리",

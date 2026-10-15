@@ -2322,6 +2322,7 @@ export const en: Record<string, string> = {
 	// Model picker dialog
 	"modelPicker.failed": "Couldn't switch model",
 	"modelPicker.searchLabel": "Search models",
+	"modelPicker.recent": "Recent",
 	"modelPicker.placeholder": "Search models…",
 	"modelPicker.notResponding": "omp isn't responding",
 	"modelPicker.notConnected": "omp isn't connected",
@@ -3511,6 +3512,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.sessionImport": "Session import",
 	"bridgeHealth.feature.workspace": "Project folders",
 	"bridgeHealth.feature.compactionLimits": "Per-model compaction limits",
+	"bridgeHealth.feature.recentModels": "Recent models in the model picker",
 	"bridgeHealth.feature.inputHistory": "Shared prompt history",
 	"bridgeHealth.feature.accountPools": "Agent account pools",
 	"bridgeHealth.feature.worktreeLifecycle": "Per-session worktrees",

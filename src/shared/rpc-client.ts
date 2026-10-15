@@ -150,6 +150,8 @@ export interface SessionRpcClient {
 	/** Per-model compaction points (omp 18.8.5+; older omp answers `unsupported_omp`). */
 	getCompactionPoints(): Promise<RpcResponse>;
 	compactionLimits(params: { values?: unknown; key?: string; input?: string }): Promise<RpcResponse>;
+	/** Stock's most-recently-used models, `provider/id` newest first: `{ selectors: string[] }`. */
+	getRecentModels(): Promise<RpcResponse>;
 	historyRecent(limit?: number, cwd?: string): Promise<RpcResponse>;
 	historySearch(query: string, limit?: number, cwd?: string): Promise<RpcResponse>;
 	historyRecord(prompt: string, cwd?: string): Promise<RpcResponse>;
@@ -488,6 +490,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		setModelRole: (role, modelId) => rpcCommand({ type: "set_model_role", role, modelId }),
 		getModelRoleMetadata: () => rpcCommand({ type: "get_model_role_metadata" }),
 		getCompactionPoints: () => rpcCommand({ type: "get_compaction_points" }),
+		getRecentModels: () => rpcCommand({ type: "get_recent_models" }),
 		compactionLimits: params => rpcCommand({ type: "compaction_limits", ...params }),
 		historyRecent: (limit, cwd) => rpcCommand({ type: "history_recent", limit, cwd }),
 		historySearch: (query, limit, cwd) => rpcCommand({ type: "history_search", query, limit, cwd }),

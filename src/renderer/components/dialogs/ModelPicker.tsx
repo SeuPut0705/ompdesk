@@ -42,6 +42,17 @@ import { persistDefaultModel } from "../onboarding/default-model";
 import { CompactsAt } from "../settings/CompactsAt";
 import { MIN_SERVING_CONTEXT, modelDisplayName } from "../settings/providers/provider-catalog";
 
+/** Rows in the Recent group (stock's `/models` hub keeps 15; a dialog wants a glance). */
+const RECENT_LIMIT = 5;
+const RECENT_GROUP = "recent";
+
+interface PickerGroup {
+	id: string;
+	/** The provider every row belongs to; null for the Recent group. */
+	provider: string | null;
+	models: ModelInfo[];
+}
+
 export function ModelPicker() {
 	const tabRpc = useTabRpc();
 	const tabId = useRuntimeTabId();
@@ -74,6 +85,7 @@ export function ModelPicker() {
 	const listRef = useRef<HTMLDivElement>(null);
 	const listboxId = useId();
 	const requestVersion = useRef(0);
+	const [recentSelectors, setRecentSelectors] = useState<readonly string[]>([]);
 
 	/** Login flows are the picker's own concern, but the model list is shared
 	 * catalog state: it commits through the store's generation guard, so a
@@ -121,6 +133,26 @@ export function ModelPicker() {
 		};
 	}, [open, load]);
 
+	// Stock's MRU order; an omp without it (or a failed read) just shows no Recent group.
+	useEffect(() => {
+		if (!open || !sidecarReady) return undefined;
+		let cancelled = false;
+		void tabRpc
+			.getRecentModels()
+			.then(response => {
+				const data = response.success ? response.data : undefined;
+				const selectors =
+					data && typeof data === "object" && "selectors" in data && Array.isArray(data.selectors)
+						? data.selectors.filter((selector): selector is string => typeof selector === "string")
+						: [];
+				if (!cancelled) setRecentSelectors(selectors);
+			})
+			.catch(() => undefined);
+		return () => {
+			cancelled = true;
+		};
+	}, [open, sidecarReady, tabRpc]);
+
 	const authByProvider = useMemo(
 		() => new Map(loginProviders.map(provider => [provider.id, provider])),
 		[loginProviders],
@@ -139,7 +171,7 @@ export function ModelPicker() {
 		[authByProvider, catalogProviders],
 	);
 
-	const groups = useMemo(() => {
+	const groups = useMemo((): PickerGroup[] => {
 		const q = query.trim().toLowerCase();
 		const filtered = availableModels.filter(
 			model =>
@@ -157,18 +189,31 @@ export function ModelPicker() {
 			map.set(model.provider, list);
 		}
 		// Connected providers first; within each half, by display name.
-		return [...map.entries()].sort(
-			([a], [b]) =>
-				Number(connected(b)) - Number(connected(a)) ||
-				(nameByProvider.get(a) ?? a).localeCompare(nameByProvider.get(b) ?? b),
-		);
-	}, [availableModels, connected, nameByProvider, query]);
+		const byProvider = [...map.entries()]
+			.sort(
+				([a], [b]) =>
+					Number(connected(b)) - Number(connected(a)) ||
+					(nameByProvider.get(a) ?? a).localeCompare(nameByProvider.get(b) ?? b),
+			)
+			.map(([provider, models]): PickerGroup => ({ id: provider, provider, models }));
+		// Stock's most-recently-used models on top while nothing is typed (the
+		// `/models` hub's Recent block); a pool pick has no "recent" meaning.
+		if (q.length > 0 || forPool) return byProvider;
+		const bySelector = new Map(filtered.map(model => [`${model.provider}/${model.id}`, model]));
+		const recent = recentSelectors.flatMap(selector => bySelector.get(selector) ?? []).slice(0, RECENT_LIMIT);
+		return recent.length > 0 ? [{ id: RECENT_GROUP, provider: null, models: recent }, ...byProvider] : byProvider;
+	}, [availableModels, connected, forPool, nameByProvider, query, recentSelectors]);
 
-	// Flat row order (group order → in-group order) for keyboard navigation.
+	// Flat row order (group order → in-group order) for keyboard navigation; a
+	// recent model also listed under its provider is a separate row.
 	const flatOptions = useMemo(
 		() =>
-			groups.flatMap(([provider, models]) =>
-				models.map(model => ({ provider, modelId: model.id, key: `${provider}/${model.id}` })),
+			groups.flatMap(group =>
+				group.models.map(model => ({
+					provider: model.provider,
+					modelId: model.id,
+					key: `${group.id}:${model.provider}/${model.id}`,
+				})),
 			),
 		[groups],
 	);
@@ -370,14 +415,21 @@ export function ModelPicker() {
 							{t("modelPicker.noMatch", { query })}
 						</div>
 					) : (
-						groups.map(([provider, models]) => {
-							const auth = authByProvider.get(provider);
-							const providerName = nameByProvider.get(provider) ?? provider;
+						groups.map(({ id: groupId, provider, models }) => {
+							const auth = provider === null ? undefined : authByProvider.get(provider);
+							const groupName =
+								provider === null ? t("modelPicker.recent") : (nameByProvider.get(provider) ?? provider);
 							return (
-								<section aria-label={providerName} className="mb-1" key={provider} role="group">
+								<section
+									aria-label={groupName}
+									className="mb-1"
+									data-model-group={groupId}
+									key={groupId}
+									role="group"
+								>
 									<div className="flex min-h-8 items-center gap-2 px-2.5 pt-2 pb-1">
 										<span className="truncate text-sc-xs font-medium text-(--sc-text-muted)">
-											{providerName}
+											{groupName}
 										</span>
 										{auth && !auth.authenticated && (
 											<Badge variant={auth.available ? "warning" : "muted"}>
@@ -393,11 +445,11 @@ export function ModelPicker() {
 										)}
 									</div>
 									{models.map(model => {
-										const key = `${provider}/${model.id}`;
+										const key = `${model.provider}/${model.id}`;
 										const isCurrent = forPool
 											? (pool?.members.some(member => member.selector === key) ?? false)
-											: current?.provider === provider && current.id === model.id;
-										const optionIndex = indexByKey.get(key) ?? 0;
+											: current?.provider === model.provider && current.id === model.id;
+										const optionIndex = indexByKey.get(`${groupId}:${key}`) ?? 0;
 										const isActive = optionIndex === activeIndex;
 										const over = !isCurrent && isOverContext(model);
 										const small = model.contextWindow != null && model.contextWindow < MIN_SERVING_CONTEXT;
@@ -419,7 +471,7 @@ export function ModelPicker() {
 												disabled={switching !== null || !sidecarReady}
 												id={`${listboxId}-option-${optionIndex}`}
 												key={key}
-												onClick={() => void select(provider, model.id)}
+												onClick={() => void select(model.provider, model.id)}
 												onMouseEnter={() => setActiveIndex(optionIndex)}
 												role="option"
 												title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
