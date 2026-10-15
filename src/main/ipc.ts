@@ -87,6 +87,7 @@ import type { MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
 import { modelsPath } from "./models-config";
 import { systemOmp } from "./omp-runtime";
+import { openLocalPath } from "./open-path";
 import { registerPreviewHost } from "./preview/host";
 import { runVisualizeTool, VISUALIZE_TOOL, VisualStore } from "./preview/visuals";
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, ModelOverrideInputSchema } from "./remote/app-protocol";
@@ -913,7 +914,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		async (event, target: string, tabId?: string): Promise<IpcOpenPathResult> => {
 			const local = await existingLocalPath(deps, event, target, tabId);
 			if (!("path" in local)) return local;
-			if (await shell.openPath(local.path)) shell.showItemInFolder(local.path);
+			await openLocalPath(local.path, shell);
 			return { ok: true };
 		},
 	);
