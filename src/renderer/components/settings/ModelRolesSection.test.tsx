@@ -336,7 +336,8 @@ describe("ModelRolesSection", () => {
 		await act(async () => {});
 
 		const facts = [...document.body.querySelectorAll("[data-compacts-at]")].map(node => node.textContent);
-		expect(facts).toEqual(["Compacts at 90.0k · anthropic/claude", "Compacts at 160.0k · 80% · global setting"]);
+		// Compact: "90k" (no ".0") and no source suffix — it stays in the tooltip.
+		expect(facts).toEqual(["Compacts at 90k", "Compacts at 160k · 80%"]);
 	});
 
 	it("shows no compaction point on an omp whose settings lack compaction.modelThresholds", async () => {

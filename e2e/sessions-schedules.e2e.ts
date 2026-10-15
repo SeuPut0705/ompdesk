@@ -15,7 +15,7 @@ import { resize } from "./shell-capture";
 
 const TEXT = {
 	en: { archived: "Archived (1)", done: "Done", stopped: "Stopped", newSchedule: "New schedule", create: "Create" },
-	ko: { archived: "보관함 (1)", done: "완료", stopped: "중지됨", newSchedule: "새 예약", create: "만들기" },
+	ko: { archived: "보관함 (1)", done: "완료", stopped: "중단됨", newSchedule: "새 예약", create: "만들기" },
 } as const;
 
 for (const [language, theme] of [
@@ -122,7 +122,7 @@ for (const [language, theme] of [
 			await createSchedule(page, "Hang run", "fixture hang", text);
 			const hang = settings.locator("[data-schedule]").filter({ hasText: "Hang run" });
 			await hang.locator("[data-schedule-run]").click();
-			const stop = hang.getByRole("button", { name: language === "en" ? "Stop" : "중지" });
+			const stop = hang.getByRole("button", { name: language === "en" ? "Stop" : "중단" });
 			await expect(stop).toBeVisible();
 			await stop.click();
 			await expect(settings.locator("[data-schedule-run-row]").filter({ hasText: "Hang run" })).toContainText(

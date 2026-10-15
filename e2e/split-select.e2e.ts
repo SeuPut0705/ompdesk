@@ -325,3 +325,80 @@ for (const [language, theme] of RUNS) {
 		}
 	});
 }
+
+/** What a pane's composer shows: its placeholder against the room the field has, and whether its toolbar overflows. */
+async function composerFit(page: Page) {
+	return page.locator(".omp-session-pane").evaluateAll(panes =>
+		panes.map(pane => {
+			const field = pane.querySelector<HTMLTextAreaElement>(".omp-composer-input");
+			if (!field) return { placeholder: 0, room: 0, overflow: -1 };
+			const style = getComputedStyle(field);
+			const context = document.createElement("canvas").getContext("2d");
+			if (context) context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+			const room = field.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight);
+			const surface = field.closest(".omp-composer-shell") ?? field.parentElement;
+			return {
+				placeholder: Math.ceil(context?.measureText(field.placeholder).width ?? 0),
+				room: Math.floor(room),
+				overflow: surface ? surface.scrollWidth - surface.clientWidth : -1,
+			};
+		}),
+	);
+}
+
+for (const [language, theme] of RUNS) {
+	test(`a true 2x2 split: all four sessions selected, composers fit, normal and narrow (${language}-${theme})`, async () => {
+		test.setTimeout(240_000);
+		const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-split-2x2-")));
+		const captures = process.env.OMP_GUI_SPLIT_SELECT_CAPTURES;
+		if (captures) await fs.mkdir(captures, { recursive: true });
+		const launched = await launch(root, language, theme);
+		const { app, page } = launched;
+		const capture = async (stage: string) => {
+			const file = `split-2x2-${stage}-${language}-${theme}.png`;
+			await page.screenshot({
+				path: captures ? path.join(captures, file) : test.info().outputPath(file),
+				animations: "disabled",
+				scale: "css",
+			});
+		};
+		try {
+			const first = (await activeTab(page)).tabId;
+			await makeSession(page, first, "Alpha");
+			await openSession(page, "Beta");
+			await openSession(page, "Gamma");
+			await openSession(page, "Delta");
+			// Alpha | Beta on top, Gamma under Alpha, Delta under Beta: the four panes form a grid.
+			// Delta is focused when the drags begin: Delta | Alpha on top, Beta under Delta, Gamma under Alpha.
+			await dragOnto(page, "Alpha", page.locator(".omp-split-workspace"), 0.92, 0.5, "right");
+			await expect(page.locator(".omp-session-pane")).toHaveCount(2);
+			await dragOnto(page, "Beta", page.locator("[data-split]").first(), 0.5, 0.92, "bottom");
+			await expect(page.locator(".omp-session-pane")).toHaveCount(3);
+			await dragOnto(page, "Gamma", page.locator("[data-split]").nth(2), 0.5, 0.92, "bottom");
+			await expect(page.locator(".omp-session-pane")).toHaveCount(4);
+			const boxes = await layout(page);
+			expect(new Set(boxes.map(pane => pane.x)).size).toBe(2);
+			expect(new Set(boxes.map(pane => pane.y)).size).toBe(2);
+			expect(await selectedRows(page, NAMES)).toEqual([...NAMES]);
+			await capture("1-wide");
+			// Wide: every placeholder fits its field.
+			for (const fit of await composerFit(page)) {
+				expect(fit.placeholder, JSON.stringify(fit)).toBeLessThanOrEqual(fit.room);
+				expect(fit.overflow, JSON.stringify(fit)).toBeLessThanOrEqual(0);
+			}
+			await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(820, 860));
+			await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(820);
+			await capture("2-narrow");
+			const narrow = await composerFit(page);
+			expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+			for (const fit of narrow) {
+				expect(fit.placeholder, JSON.stringify(fit)).toBeLessThanOrEqual(fit.room);
+				expect(fit.overflow, JSON.stringify(fit)).toBeLessThanOrEqual(0);
+			}
+			expect(launched.errors).toEqual([]);
+		} finally {
+			await exitApp(app);
+			await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+		}
+	});
+}

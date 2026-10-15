@@ -266,44 +266,47 @@ export function UpdatesSection() {
 
 			<UpdateAuthRow onChanged={check} />
 
-			<HostScoped>
-				<SettingsRow
-					badge={host ? <DeviceChip deviceId={host.deviceId} /> : undefined}
-					control={
-						coreError ? (
-							<Badge variant="error">{t("updates.checkFailed")}</Badge>
-						) : !core || checking ? (
-							<Spinner label={t("updates.checking")} size="sm" />
-						) : core.updateAvailable ? (
-							coreUpdating ? (
-								<UpdateProgress label={t("updates.core.updating")} />
+			{/* This computer's omp is updated below (auto switch, Update now); this row is a paired host's omp. */}
+			{host && (
+				<HostScoped>
+					<SettingsRow
+						badge={host ? <DeviceChip deviceId={host.deviceId} /> : undefined}
+						control={
+							coreError ? (
+								<Badge variant="error">{t("updates.checkFailed")}</Badge>
+							) : !core || checking ? (
+								<Spinner label={t("updates.checking")} size="sm" />
+							) : core.updateAvailable ? (
+								coreUpdating ? (
+									<UpdateProgress label={t("updates.core.updating")} />
+								) : (
+									<Button
+										disabled={!sidecarReady}
+										icon={<Download />}
+										onClick={() => void updateCore()}
+										size="sm"
+									>
+										{t("updates.core.update")}
+									</Button>
+								)
 							) : (
-								<Button
-									disabled={!sidecarReady}
-									icon={<Download />}
-									onClick={() => void updateCore()}
-									size="sm"
-								>
-									{t("updates.core.update")}
-								</Button>
+								<Badge variant="success">{t("updates.upToDate")}</Badge>
 							)
-						) : (
-							<Badge variant="success">{t("updates.upToDate")}</Badge>
-						)
-					}
-					description={t("updates.core.description")}
-					footer={
-						<p className="mt-1 text-sc-xs text-(--sc-text-muted)">
-							{t("updates.current")}{" "}
-							<span className="font-mono text-(--sc-text)">{core?.currentVersion ?? "—"}</span>
-							{" · "}
-							{t("updates.latest")}{" "}
-							<span className="font-mono text-(--sc-text)">{core?.latestVersion ?? "—"}</span>
-						</p>
-					}
-					label={t("updates.core.name")}
-				/>
-			</HostScoped>
+						}
+						description={t("updates.core.description")}
+						footer={
+							<p className="mt-1 text-sc-xs text-(--sc-text-muted)">
+								{t("updates.current")}{" "}
+								<span className="font-mono text-(--sc-text)">{core?.currentVersion ?? "—"}</span>
+								{" · "}
+								{t("updates.latest")}{" "}
+								<span className="font-mono text-(--sc-text)">{core?.latestVersion ?? "—"}</span>
+							</p>
+						}
+						label={t("updates.core.name")}
+					/>
+				</HostScoped>
+			)}
 
 			{host && (
 				<HostScoped>

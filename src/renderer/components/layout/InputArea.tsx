@@ -93,6 +93,9 @@ const MENU_PAGE = 5;
 /** Second Esc within this window clears the draft or runs the double-Esc action (stock uses 500 ms; a hint needs reading time). */
 const DOUBLE_ESC_MS = 1500;
 
+/** Below this field width the idle hint no longer fits on its line (ko, 14px: ~250px of text plus padding). */
+const NARROW_FIELD_PX = 290;
+
 /**
  * Composer: auto-growing textarea, Enter to send / Shift+Enter for newline,
  * image paste, @file mentions, /command completion, steering-mode selector,
@@ -180,6 +183,16 @@ export function InputArea() {
 	const focusedPane = contextTabId === null || contextTabId === activeTabId;
 
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	// A pane of a 2x2 split has a field narrower than the idle hint ("Ask anything · @ files · / commands"):
+	// it shows the short prompt instead of a hint cut mid-glyph.
+	const [fieldNarrow, setFieldNarrow] = useState(false);
+	useEffect(() => {
+		const el = textareaRef.current;
+		if (!el || typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver(() => setFieldNarrow(el.clientWidth > 0 && el.clientWidth < NARROW_FIELD_PX));
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, []);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const mountedRef = useRef(true);
 
@@ -995,7 +1008,7 @@ export function InputArea() {
 					? mode === "followUp"
 						? t("input.placeholder.followUp")
 						: t("input.placeholder.streaming")
-					: isChat
+					: isChat || fieldNarrow
 						? t("input.placeholder.chat")
 						: t("input.placeholder.idle");
 	/** Tab-accept hint chip: only while the suggestion is the visible placeholder. */

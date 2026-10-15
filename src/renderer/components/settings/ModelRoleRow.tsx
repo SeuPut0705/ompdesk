@@ -86,6 +86,7 @@ function EffectiveLine({
 	roleName,
 	providers,
 	usage,
+	compaction,
 	t,
 }: {
 	entry: ModelRoleEntry;
@@ -93,9 +94,16 @@ function EffectiveLine({
 	providers: readonly ProviderInfo[];
 	usage: readonly UsageReport[];
 	t: Translate;
+	compaction?: CompactionPoint;
 }) {
 	const effective = entry.effective;
-	if (!effective) return null;
+	if (!effective) {
+		return compaction ? (
+			<p className="text-sc-sm text-(--sc-text-muted)">
+				<CompactsAt compact point={compaction} />
+			</p>
+		) : null;
+	}
 	if (!effective.model) {
 		return (
 			<p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sc-sm text-(--sc-text-muted)">
@@ -136,6 +144,7 @@ function EffectiveLine({
 			<span className="text-(--sc-text-muted)">
 				{levelName ? t("modelRoles.thinking", { level: levelName }) : t("modelRoles.thinkingSession")}
 			</span>
+			{compaction && <CompactsAt className="text-(--sc-text-muted)" compact point={compaction} />}
 		</p>
 	);
 }
@@ -249,7 +258,14 @@ export function ModelRoleRow({
 			label={name}
 		>
 			<div className="space-y-1">
-				<EffectiveLine entry={entry} providers={providers} roleName={roleName} t={t} usage={usage} />
+				<EffectiveLine
+					compaction={compaction}
+					entry={entry}
+					providers={providers}
+					roleName={roleName}
+					t={t}
+					usage={usage}
+				/>
 				{fallback && <p className="text-sc-sm text-(--sc-text-muted)">{fallback}</p>}
 				{agents && (
 					<p className="text-sc-sm text-(--sc-text-muted)">
@@ -268,7 +284,6 @@ export function ModelRoleRow({
 				{candidates.length === 0 && (
 					<p className="text-sc-sm text-(--sc-text-muted)">{t("modelRoles.noCandidates")}</p>
 				)}
-				{compaction && <CompactsAt className="block" point={compaction} />}
 			</div>
 		</SettingsRow>
 	);

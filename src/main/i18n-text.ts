@@ -126,7 +126,7 @@ export const MAIN_TEXT = {
 		en: "Continuing {count} interrupted task{plural}",
 		ko: "중단된 작업 {count}개를 이어서 하고 있어요",
 	},
-	"resume.stop": { en: "Stop", ko: "중지" },
+	"resume.stop": { en: "Stop", ko: "중단" },
 	// Status of a tab whose omp runs on a paired device that is unreachable.
 	"remote.offline": {
 		en: "The device running this session is offline. Reconnecting…",

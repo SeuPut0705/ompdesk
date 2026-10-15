@@ -176,6 +176,8 @@ test("a newer omp installs on its own; the idle tab restarts on it with its draf
 			"true",
 		);
 		await expect(settings.getByTestId("omp-update-status")).toHaveText("omp 18.12.0 is the latest.");
+		// On a local tab "This computer" is the only place that updates omp: no second omp row above it.
+		await expect(settings.getByText("The omp CLI installed on this system", { exact: false })).toHaveCount(0);
 	} finally {
 		await close(launched);
 	}

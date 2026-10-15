@@ -10,9 +10,21 @@ import { compactionPointValue } from "../../lib/compaction-limits";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 
-export function CompactsAt({ point, className }: { point: CompactionPoint; className?: string }) {
+/**
+ * `compact`: for a dense row's model line — "850k" without a trailing ".0" and
+ * without the source suffix (it stays in the tooltip).
+ */
+export function CompactsAt({
+	point,
+	className,
+	compact = false,
+}: {
+	point: CompactionPoint;
+	className?: string;
+	compact?: boolean;
+}) {
 	const t = useT();
-	const value = compactionPointValue(point);
+	const value = compactionPointValue(point, { trimZero: compact });
 	const source =
 		point.source === "global"
 			? t("compactionLimits.source.global")
@@ -26,7 +38,7 @@ export function CompactsAt({ point, className }: { point: CompactionPoint; class
 			title={t("compactionLimits.sourceHint", { source })}
 		>
 			{value === null ? t("compactionLimits.compactsOff") : t("compactionLimits.compactsAt", { value })}
-			<span className="text-(--sc-text-subtle)"> · {source}</span>
+			{!compact && <span className="text-(--sc-text-subtle)"> · {source}</span>}
 		</span>
 	);
 }

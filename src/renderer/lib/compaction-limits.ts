@@ -33,11 +33,11 @@ export const compactionLimitCommitSchema = z.discriminatedUnion("ok", [
 ]);
 
 /** "Compacts at" text: `160.0k · 80%`, `90.0k`, or null when auto-compaction is off for the model. */
-export function compactionPointValue(point: CompactionPoint): string | null {
+export function compactionPointValue(point: CompactionPoint, options?: { trimZero?: boolean }): string | null {
 	if (point.tokens === undefined) return null;
 	return point.percent !== undefined
-		? `${formatTokens(point.tokens)} · ${point.percent}%`
-		: formatTokens(point.tokens);
+		? `${formatTokens(point.tokens, options)} · ${point.percent}%`
+		: formatTokens(point.tokens, options);
 }
 
 const pointSchema = z.object({

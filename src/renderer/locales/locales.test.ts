@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { MAIN_TEXT } from "../../main/i18n-text";
 import { en } from "./en";
 import { ko } from "./ko";
 
@@ -168,5 +169,37 @@ describe("ko machine setup copy", () => {
 			if (!key.startsWith("machineSetup.")) continue;
 			expect(value, `ko["${key}"]`).not.toMatch(/(을\(를\)|이\(가\)|은\(는\)|와\(과\)|\(으\)로)/);
 		}
+	});
+});
+
+describe("ko stop wording", () => {
+	// Stopping a run (turn, subagent, schedule run, side question) is 중단 everywhere; 중지 stays for
+	// pausing or halting things that are not runs (page load, recording, port forwards).
+	it("says 중단, never 중지, where a run is stopped", () => {
+		const keys = [
+			"input.abort",
+			"chat.status.stop",
+			"sidebar.subagents.stop",
+			"btw.cancel",
+			"btw.cancelled",
+			"modesPanel.vibe.killedWorkers",
+			"events.notificationError",
+			"events.notificationErrorDetail",
+			"tools.hub.state.stopping",
+			"schedules.stop",
+			"schedules.status.stopped",
+			"agentHub.hub.abortTurn",
+			"agentHub.hub.abortAgent",
+		];
+		for (const key of keys) {
+			expect(ko[key], key).toContain("중단");
+			expect(ko[key], key).not.toContain("중지");
+		}
+	});
+});
+
+describe("ko stop wording in main", () => {
+	it("words the resume toast's stop like the composer's", () => {
+		expect(MAIN_TEXT["resume.stop"].ko).toBe(ko["input.abort"]);
 	});
 });

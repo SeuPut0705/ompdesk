@@ -690,8 +690,51 @@ html[data-platform="darwin"] .omp-sidebar-search {
    (PageLayout pt-6), so the two headings start on one line.
    ============================================================================ */
 
+.settings-root {
+	container: settings-root / inline-size;
+}
+
 .settings-nav {
 	width: 15rem;
+}
+
+/* A narrow page (the sidebar plus the page under ~820px) gives the sections the full width:
+   the nav becomes a wrapping bar on top — title and search on one row, every section a chip —
+   instead of a 240px column beside a 300px body. */
+@container settings-root (max-width: 700px) {
+	.settings-page {
+		flex-direction: column;
+	}
+	.settings-nav {
+		width: auto;
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--sc-space-1) var(--sc-space-2);
+		overflow: visible;
+		border-right-width: 0;
+		border-bottom: 1px solid var(--sc-divider);
+		padding-top: var(--sc-space-4);
+		padding-bottom: var(--sc-space-3);
+	}
+	.settings-nav > h1 {
+		flex: none;
+	}
+	.settings-nav > div:has(input) {
+		flex: 1 1 12rem;
+	}
+	.settings-nav > [role="group"] {
+		display: contents;
+	}
+	.settings-nav > [role="group"] > div:first-child {
+		display: none;
+	}
+	.settings-nav [data-settings-nav] {
+		width: auto;
+	}
+	.settings-nav [data-settings-nav] > span:nth-child(3) {
+		display: none;
+	}
 }
 
 .settings-content {

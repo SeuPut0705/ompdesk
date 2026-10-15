@@ -213,11 +213,18 @@ export function languageFromPath(path: string | null | undefined): string {
 	return EXT_LANG[path.slice(dot + 1).toLowerCase()] ?? "plaintext";
 }
 
-/** 950 → "950", 12_300 → "12.3k", 1_500_000 → "1.5M" */
-export function formatTokens(n: number | null | undefined): string {
+/**
+ * 950 → "950", 12_300 → "12.3k", 1_500_000 → "1.5M". `trimZero` drops a
+ * trailing ".0" (850_000 → "850k") for dense rows.
+ */
+export function formatTokens(n: number | null | undefined, options?: { trimZero?: boolean }): string {
 	if (n == null) return "–";
-	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+	const scaled = (value: number, unit: string) => {
+		const text = value.toFixed(1);
+		return `${options?.trimZero && text.endsWith(".0") ? text.slice(0, -2) : text}${unit}`;
+	};
+	if (n >= 1_000_000) return scaled(n / 1_000_000, "M");
+	if (n >= 1_000) return scaled(n / 1_000, "k");
 	return String(Math.round(n));
 }
 

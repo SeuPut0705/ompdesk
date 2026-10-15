@@ -360,149 +360,158 @@ export function SettingsPage() {
 	return (
 		<SettingsDataProvider value={data}>
 			<SettingsNavigationProvider value={navigate}>
-				<div
-					className="settings-page flex h-full min-h-0 w-full bg-(--sc-bg) text-(--sc-text)"
-					data-settings-page="true"
-				>
-					<nav
-						aria-labelledby="settings-page-title"
-						className="settings-nav flex shrink-0 flex-col gap-3 overflow-y-auto border-r border-(--sc-divider) px-3 pt-6 pb-5"
+				<div className="settings-root h-full min-h-0 w-full">
+					<div
+						className="settings-page flex h-full min-h-0 w-full bg-(--sc-bg) text-(--sc-text)"
+						data-settings-page="true"
 					>
-						<h1
-							className="px-2 text-sc-xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
-							id="settings-page-title"
+						<nav
+							aria-labelledby="settings-page-title"
+							className="settings-nav flex shrink-0 flex-col gap-3 overflow-y-auto border-r border-(--sc-divider) px-3 pt-6 pb-5"
 						>
-							{t("settings.title")}
-						</h1>
-						<SearchField
-							label={t("settings.searchPlaceholder")}
-							onValueChange={setQuery}
-							placeholder={listPlaceholder ? t(listPlaceholder) : t("settings.searchPlaceholder")}
-							ref={searchRef}
-							shortcut="⌘F"
-							spellCheck={false}
-							value={query}
-						/>
-						{SETTINGS_NAV.map(group => (
-							<div key={group.id} role="group" aria-labelledby={`settings-nav-${group.id}`}>
-								<div
-									className="px-2.5 pt-2 pb-1 text-sc-xs font-medium text-(--sc-text-muted)"
-									id={`settings-nav-${group.id}`}
-								>
-									{t(`settings.navHeading.${group.id}`)}
-								</div>
-								{group.items.map(id => {
-									const Icon = SECTION_ICONS[id];
-									return (
-										<ListRow
-											buttonProps={{ "data-settings-section": id }}
-											key={id}
-											leading={<Icon aria-hidden />}
-											meta={SECTION_SCOPE[id] === "app" ? <ThisDeviceTag compact /> : undefined}
-											onClick={() => navigate(id)}
-											// Search results replace the section: no row claims the page meanwhile.
-											selected={results === null && id === section}
-											title={t(`settings.section.${id}`)}
-											rowProps={{ "data-settings-nav": id, "data-settings-scope": SECTION_SCOPE[id] }}
-										/>
-									);
-								})}
-							</div>
-						))}
-					</nav>
-					<div className="settings-content min-h-0 min-w-0 flex-1 overflow-y-auto" ref={contentRef}>
-						<main aria-labelledby="settings-section-title" className="settings-column">
-							{host && <SettingsDeviceBanner host={host} />}
-							<header className="mb-6">
-								<h2
-									className="text-sc-2xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
-									id="settings-section-title"
-								>
-									{results ? t("settings.search.title") : sectionTitle}
-								</h2>
-								<p className="mt-1 text-sc-sm break-keep text-(--sc-text-muted)">
-									{results
-										? t("settings.search.count", { count: results.length })
-										: t(`settings.section.${section}.desc`)}
-								</p>
-								{/* Whose settings these are only matters while the focused tab runs on a paired host. */}
-								{!results && host && (
-									<p
-										className="mt-2 text-sc-xs text-(--sc-text-muted)"
-										data-settings-section-scope={SECTION_SCOPE[section]}
+							<h1
+								className="px-2 text-sc-xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
+								id="settings-page-title"
+							>
+								{t("settings.title")}
+							</h1>
+							<SearchField
+								label={t("settings.searchPlaceholder")}
+								onValueChange={setQuery}
+								placeholder={listPlaceholder ? t(listPlaceholder) : t("settings.searchPlaceholder")}
+								ref={searchRef}
+								shortcut="⌘F"
+								spellCheck={false}
+								value={query}
+							/>
+							{SETTINGS_NAV.map(group => (
+								<div key={group.id} role="group" aria-labelledby={`settings-nav-${group.id}`}>
+									<div
+										className="px-2.5 pt-2 pb-1 text-sc-xs font-medium text-(--sc-text-muted)"
+										id={`settings-nav-${group.id}`}
 									>
-										{SECTION_SCOPE[section] === "app" ? (
-											<ThisDeviceTag />
-										) : (
-											<>
-												{t(`settings.navGroup.${SECTION_SCOPE[section] === "host" ? "agent" : "system"}`)}
-												{SECTION_SCOPE[section] === "host" && host.name ? `: ${host.name}` : ""}
-											</>
-										)}
-									</p>
-								)}
-							</header>
-							{agentSection && !data.sidecarReady && (
-								<SettingsConnectionBanner
-									busy={data.sidecarBusy}
-									error={sidecarError}
-									onRetry={data.retry}
-									status={sidecarStatus}
-								/>
-							)}
-							{agentSection && data.sidecarReady && data.loadState === "error" && (
-								<Banner
-									actions={
-										<Button icon={<RefreshCw />} onClick={data.retry} size="sm" variant="secondary">
-											{t("common.retry")}
-										</Button>
-									}
-									live
-									title={t("settings.schemaLoadFailed")}
-									variant="danger"
-								>
-									{data.loadError ?? t("settings.schemaUnavailable")}
-								</Banner>
-							)}
-							{results ? (
-								results.length === 0 ? (
-									<EmptyState description={t("settings.search.emptyDesc")} title={t("settings.noMatches")} />
-								) : (
-									<div className="flex flex-col gap-0.5" data-settings-search-results="true">
-										{results.map(result => (
-											<ListRow
-												description={result.path ? `${result.location} · ${result.path}` : result.location}
-												key={result.key}
-												onClick={() => navigate(result.target, result.rowId)}
-												rowProps={{ "data-search-key": result.key, "data-search-path": result.path }}
-												title={result.title}
-											/>
-										))}
+										{t(`settings.navHeading.${group.id}`)}
 									</div>
-								)
-							) : (
-								<div className="settings-sections">
-									{listSection && query.trim() !== "" && (
-										<div className="mb-4">
-											<Button
-												onClick={() => useUiStore.getState().setSettingsSection("general")}
-												size="sm"
-												variant="ghost"
-											>
-												{t("settings.search.everywhere", { query: query.trim() })}
-											</Button>
-										</div>
-									)}
-									<SettingsScopeProvider value={SECTION_SCOPE[section]}>
-										{SECTION_SCOPE[section] === "host" ? (
-											<HostScoped>{renderSection()}</HostScoped>
-										) : (
-											renderSection()
-										)}
-									</SettingsScopeProvider>
+									{group.items.map(id => {
+										const Icon = SECTION_ICONS[id];
+										return (
+											<ListRow
+												buttonProps={{ "data-settings-section": id }}
+												key={id}
+												leading={<Icon aria-hidden />}
+												meta={SECTION_SCOPE[id] === "app" ? <ThisDeviceTag compact /> : undefined}
+												onClick={() => navigate(id)}
+												// Search results replace the section: no row claims the page meanwhile.
+												selected={results === null && id === section}
+												title={t(`settings.section.${id}`)}
+												rowProps={{ "data-settings-nav": id, "data-settings-scope": SECTION_SCOPE[id] }}
+											/>
+										);
+									})}
 								</div>
-							)}
-						</main>
+							))}
+						</nav>
+						<div className="settings-content min-h-0 min-w-0 flex-1 overflow-y-auto" ref={contentRef}>
+							<main aria-labelledby="settings-section-title" className="settings-column">
+								{host && <SettingsDeviceBanner host={host} />}
+								<header className="mb-6">
+									<h2
+										className="text-sc-2xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
+										id="settings-section-title"
+									>
+										{results ? t("settings.search.title") : sectionTitle}
+									</h2>
+									<p className="mt-1 text-sc-sm break-keep text-(--sc-text-muted)">
+										{results
+											? t("settings.search.count", { count: results.length })
+											: t(`settings.section.${section}.desc`)}
+									</p>
+									{/* Whose settings these are only matters while the focused tab runs on a paired host. */}
+									{!results && host && (
+										<p
+											className="mt-2 text-sc-xs text-(--sc-text-muted)"
+											data-settings-section-scope={SECTION_SCOPE[section]}
+										>
+											{SECTION_SCOPE[section] === "app" ? (
+												<ThisDeviceTag />
+											) : (
+												<>
+													{t(
+														`settings.navGroup.${SECTION_SCOPE[section] === "host" ? "agent" : "system"}`,
+													)}
+													{SECTION_SCOPE[section] === "host" && host.name ? `: ${host.name}` : ""}
+												</>
+											)}
+										</p>
+									)}
+								</header>
+								{agentSection && !data.sidecarReady && (
+									<SettingsConnectionBanner
+										busy={data.sidecarBusy}
+										error={sidecarError}
+										onRetry={data.retry}
+										status={sidecarStatus}
+									/>
+								)}
+								{agentSection && data.sidecarReady && data.loadState === "error" && (
+									<Banner
+										actions={
+											<Button icon={<RefreshCw />} onClick={data.retry} size="sm" variant="secondary">
+												{t("common.retry")}
+											</Button>
+										}
+										live
+										title={t("settings.schemaLoadFailed")}
+										variant="danger"
+									>
+										{data.loadError ?? t("settings.schemaUnavailable")}
+									</Banner>
+								)}
+								{results ? (
+									results.length === 0 ? (
+										<EmptyState
+											description={t("settings.search.emptyDesc")}
+											title={t("settings.noMatches")}
+										/>
+									) : (
+										<div className="flex flex-col gap-0.5" data-settings-search-results="true">
+											{results.map(result => (
+												<ListRow
+													description={
+														result.path ? `${result.location} · ${result.path}` : result.location
+													}
+													key={result.key}
+													onClick={() => navigate(result.target, result.rowId)}
+													rowProps={{ "data-search-key": result.key, "data-search-path": result.path }}
+													title={result.title}
+												/>
+											))}
+										</div>
+									)
+								) : (
+									<div className="settings-sections">
+										{listSection && query.trim() !== "" && (
+											<div className="mb-4">
+												<Button
+													onClick={() => useUiStore.getState().setSettingsSection("general")}
+													size="sm"
+													variant="ghost"
+												>
+													{t("settings.search.everywhere", { query: query.trim() })}
+												</Button>
+											</div>
+										)}
+										<SettingsScopeProvider value={SECTION_SCOPE[section]}>
+											{SECTION_SCOPE[section] === "host" ? (
+												<HostScoped>{renderSection()}</HostScoped>
+											) : (
+												renderSection()
+											)}
+										</SettingsScopeProvider>
+									</div>
+								)}
+							</main>
+						</div>
 					</div>
 				</div>
 			</SettingsNavigationProvider>

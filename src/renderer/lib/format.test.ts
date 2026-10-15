@@ -14,6 +14,7 @@ import {
 	formatShortClock,
 	formatSpan,
 	formatTimeAgo,
+	formatTokens,
 	resultDetails,
 	resultText,
 	sanitizeToolText,
@@ -192,5 +193,15 @@ describe("sanitizeToolText", () => {
 
 	it("handles color and tabs together", () => {
 		expect(sanitizeToolText("\x1b[1m\x1b[32mgreen\ttab\x1b[0m")).toBe("green    tab");
+	});
+});
+
+describe("formatTokens trimZero", () => {
+	it("keeps existing output and only drops a trailing .0 on request", () => {
+		expect(formatTokens(850_000)).toBe("850.0k");
+		expect(formatTokens(850_000, { trimZero: true })).toBe("850k");
+		expect(formatTokens(12_300, { trimZero: true })).toBe("12.3k");
+		expect(formatTokens(2_000_000, { trimZero: true })).toBe("2M");
+		expect(formatTokens(950, { trimZero: true })).toBe("950");
 	});
 });

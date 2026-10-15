@@ -64,11 +64,11 @@ describe("useInterruptedWork", () => {
 	});
 
 	it("shows the notice main worded, with a Stop that stops what the launch resumed", async () => {
-		takeNotice.mockResolvedValueOnce({ count: 2, message: "중단된 작업 2개를 이어서 하고 있어요", stop: "중지" });
+		takeNotice.mockResolvedValueOnce({ count: 2, message: "중단된 작업 2개를 이어서 하고 있어요", stop: "중단" });
 		await mount();
 		const toast = useToastStore.getState().toasts[0];
 		expect(toast?.message).toBe("중단된 작업 2개를 이어서 하고 있어요");
-		expect(toast?.action?.label).toBe("중지");
+		expect(toast?.action?.label).toBe("중단");
 		toast?.action?.run();
 		expect(stop).toHaveBeenCalledTimes(1);
 	});
