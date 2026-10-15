@@ -112,6 +112,14 @@ const QueueRow = memo(function QueueRow({
 			<span className="min-w-0 flex-1 truncate text-sc-sm text-(--sc-text-secondary)" title={item.text}>
 				{item.text || "…"}
 			</span>
+			{(item.images?.length ?? 0) > 0 && (
+				<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-muted)" data-queue-images>
+					{t("composerQueue.images", {
+						count: item.images?.length ?? 0,
+						plural: item.images?.length === 1 ? "" : "s",
+					})}
+				</span>
+			)}
 			<span className="flex shrink-0 items-center opacity-0 transition-opacity duration-(--sc-duration-instant) group-hover/queue:opacity-100 group-focus-within/queue:opacity-100 [@media(hover:none)]:opacity-100">
 				{item.editable && (
 					<IconButton

@@ -3827,6 +3827,7 @@ export const ko: Record<string, string> = {
 	"dock.island.shellsOpen": "백그라운드 작업 열기",
 	"composerQueue.title": "대기 중",
 	"composerQueue.clearAll": "모두 지우기",
+	"composerQueue.images": "이미지 {count}개",
 	"composerQueue.sendNow": "지금 방향 조정으로 보내기",
 	"composerQueue.sendLater": "이번 턴이 끝난 뒤 보내기",
 	"composerQueue.editHint": "Enter 저장 · Esc 취소",

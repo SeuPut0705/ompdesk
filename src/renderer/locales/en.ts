@@ -3841,6 +3841,7 @@ export const en: Record<string, string> = {
 	"dock.island.shellsOpen": "Open background tasks",
 	"composerQueue.title": "Queued",
 	"composerQueue.clearAll": "Clear all",
+	"composerQueue.images": "{count} image{plural}",
 	"composerQueue.sendNow": "Send now as a steer",
 	"composerQueue.sendLater": "Send after this turn",
 	"composerQueue.editHint": "Enter to save · Esc to cancel",

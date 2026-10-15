@@ -153,6 +153,13 @@ describe("ComposerQueue", () => {
 		]);
 	});
 
+	it("says how many images a queued message carries", async () => {
+		const image = { type: "image" as const, data: "AA==", mimeType: "image/png" };
+		await mount([], [{ ...queued("f1", "look"), images: [image, image] }, queued("f2", "plain")]);
+		const counts = Array.from(document.querySelectorAll("[data-queue-images]")).map(node => node.textContent);
+		expect(counts).toEqual(["2 images"]);
+	});
+
 	it("sends a follow-up now by moving it to the end of the steering lane", async () => {
 		await mount([], [queued("f1", "follow later")]);
 		await click(buttonByLabel("Send now as a steer"));
