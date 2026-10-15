@@ -31,6 +31,9 @@ const prefs = {
 	}),
 };
 const updater = { version: vi.fn(async () => latest) };
+// The notes name repo paths (`src/main/…`): MarkdownRenderer probes each one with a
+// one-byte `fs:read` before linking it (lib/markdown-path-link.ts). None exists here.
+const fs = { read: vi.fn(async () => ({ ok: false, code: "not_found" })) };
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 
@@ -41,7 +44,7 @@ globals.Event = Event;
 globals.HTMLElement = HTMLElement;
 globals.Node = Node;
 globals.IS_REACT_ACT_ENVIRONMENT = true;
-Object.assign(window as unknown as Record<string, unknown>, { omp: { prefs, updater } });
+Object.assign(window as unknown as Record<string, unknown>, { omp: { prefs, updater, fs } });
 globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
 
 const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
