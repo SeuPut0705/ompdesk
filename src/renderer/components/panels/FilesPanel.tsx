@@ -239,6 +239,10 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 	const [dirty, setDirty] = useState(false);
 	/** What waits for "Discard" while the editor holds unsaved changes. */
 	const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
+	/** Another file (a link, Quick Open, search hit) waiting for "Discard"; the store held it back. */
+	const pendingSwitch = useUiStore(s => s.pendingFileSwitch !== null);
+	const setFileEditDirty = useUiStore(s => s.setFileEditDirty);
+	const resolveFileSwitch = useUiStore(s => s.resolveFileSwitch);
 	/** The file's last known modification time; a save sets it, so its own write is no outside change. */
 	const stampRef = useRef<number | null>(null);
 	const kind = viewerKind(path);
@@ -270,6 +274,16 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 			window.clearInterval(timer);
 		};
 	}, [path, tabId]);
+
+	// Unsaved edits hold back a switch to another file until the user answers (store `pendingFileSwitch`).
+	useEffect(() => setFileEditDirty(editing && dirty), [editing, dirty, setFileEditDirty]);
+	useEffect(
+		() => () => {
+			setFileEditDirty(false);
+			resolveFileSwitch(false);
+		},
+		[setFileEditDirty, resolveFileSwitch],
+	);
 
 	/** Runs `action` now, or after the user agrees to drop unsaved edits. */
 	const leaveEditor = (action: () => void) => {
@@ -393,7 +407,7 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 				onCancel={() => setConfirmRun(false)}
 			/>
 			<ConfirmDialog
-				open={pendingLeave !== null}
+				open={pendingLeave !== null || pendingSwitch}
 				title={t("fileViewer.discardTitle")}
 				message={t("fileViewer.discardMessage", { name: path.split("/").pop() ?? path })}
 				confirmLabel={t("fileViewer.discard")}
@@ -403,8 +417,12 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 					setDirty(false);
 					setEditing(false);
 					action?.();
+					resolveFileSwitch(true);
 				}}
-				onCancel={() => setPendingLeave(null)}
+				onCancel={() => {
+					setPendingLeave(null);
+					resolveFileSwitch(false);
+				}}
 			/>
 		</div>
 	);

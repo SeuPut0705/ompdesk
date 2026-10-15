@@ -78,6 +78,13 @@ interface UiStore {
 	filesRevealPath: string | null;
 	/** Bumped by "Search in files" (⌥⌘F): the Files panel opens its content search and focuses the query. */
 	filesSearchSeq: number;
+	/** The Files viewer's editor holds unsaved edits: switching to another file waits in `pendingFileSwitch`. */
+	fileEditDirty: boolean;
+	/** A file switch held back by unsaved edits; the viewer applies it after "Discard" or drops it on Cancel. */
+	pendingFileSwitch: Partial<UiStore> | null;
+	setFileEditDirty: (dirty: boolean) => void;
+	/** Apply (`true`) or drop the held-back file switch. */
+	resolveFileSwitch: (proceed: boolean) => void;
 	/** The Files drawer's viewer asked for a wider docked panel (not persisted; the drag width stays the pref). */
 	filePreviewExpanded: boolean;
 	/** The Terminal panel asked for a wider docked panel, like `filePreviewExpanded` (not persisted). */
@@ -284,6 +291,8 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	filePreviewLine: null,
 	filesRevealPath: null,
 	filesSearchSeq: 0,
+	fileEditDirty: false,
+	pendingFileSwitch: null,
 	filePreviewExpanded: false,
 	terminalExpanded: false,
 	fileViewModes: new Map(),
@@ -315,24 +324,28 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 		set({ toolsExpandAll: { expanded: !get().toolsExpandAll.expanded, seq: get().toolsExpandAll.seq + 1 } }),
 	setPanelTab: tab => set({ panelTab: tab, panelVisible: true }),
 	openPreview: url => set({ previewUrl: url, panelTab: "preview", panelVisible: true }),
-	openFilePreview: (path, options) =>
-		set({ filePreviewPath: path, filePreviewLine: options?.line ?? null, panelTab: "files", panelVisible: true }),
-	revealInFiles: path =>
-		set({
-			filesRevealPath: path,
-			filePreviewPath: null,
-			filePreviewLine: null,
-			panelTab: "files",
-			panelVisible: true,
-		}),
-	openFilesSearch: () =>
-		set({
-			filesSearchSeq: get().filesSearchSeq + 1,
-			filePreviewPath: null,
-			filePreviewLine: null,
-			panelTab: "files",
-			panelVisible: true,
-		}),
+	openFilePreview: (path, options) => {
+		const next = { filePreviewPath: path, filePreviewLine: options?.line ?? null };
+		if (get().fileEditDirty && path !== get().filePreviewPath)
+			set({ pendingFileSwitch: next, panelTab: "files", panelVisible: true });
+		else set({ ...next, panelTab: "files", panelVisible: true });
+	},
+	revealInFiles: path => {
+		const next = { filesRevealPath: path, filePreviewPath: null, filePreviewLine: null };
+		if (get().fileEditDirty) set({ pendingFileSwitch: next, panelTab: "files", panelVisible: true });
+		else set({ ...next, panelTab: "files", panelVisible: true });
+	},
+	openFilesSearch: () => {
+		const next = { filesSearchSeq: get().filesSearchSeq + 1, filePreviewPath: null, filePreviewLine: null };
+		if (get().fileEditDirty) set({ pendingFileSwitch: next, panelTab: "files", panelVisible: true });
+		else set({ ...next, panelTab: "files", panelVisible: true });
+	},
+	setFileEditDirty: dirty => set({ fileEditDirty: dirty }),
+	resolveFileSwitch: proceed => {
+		const pending = get().pendingFileSwitch;
+		if (proceed && pending) set({ ...pending, pendingFileSwitch: null, fileEditDirty: false });
+		else set({ pendingFileSwitch: null });
+	},
 	closeFilePreview: () => set({ filePreviewPath: null, filePreviewLine: null, filePreviewExpanded: false }),
 	toggleFilePreviewExpanded: () => set({ filePreviewExpanded: !get().filePreviewExpanded }),
 	setFileViewMode: (path, mode) => {

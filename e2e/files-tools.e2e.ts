@@ -36,6 +36,8 @@ const LABELS = {
 		unsaved: "Unsaved",
 		changedOnDisk: "This file changed on disk since you opened it. Your edits are still here.",
 		reloadDisk: "Load the disk version",
+		discard: "Discard",
+		cancel: "Cancel",
 	},
 	ko: {
 		files: "파일",
@@ -58,6 +60,8 @@ const LABELS = {
 		unsaved: "저장 안 됨",
 		changedOnDisk: "파일을 연 뒤에 디스크에서 내용이 바뀌었어요. 편집한 내용은 그대로 있어요.",
 		reloadDisk: "디스크 버전 불러오기",
+		discard: "버리기",
+		cancel: "취소",
 	},
 } as const;
 
@@ -223,7 +227,22 @@ for (const [language, theme] of [
 			await aside.getByRole("button", { name: label.reloadDisk, exact: true }).click();
 			await expect(editor).toContainText("# Someone else");
 			await expect(status).toHaveText(label.saved);
-			await aside.getByRole("button", { name: label.edit, exact: true }).click();
+			// C2: unsaved edits hold back a switch elsewhere (here ⌥⌘F) until the user answers.
+			await editor.click();
+			await page.keyboard.type("unsaved");
+			await expect(status).toHaveText(label.unsaved);
+			await page.keyboard.press("Alt+Meta+f");
+			const discard = page.getByRole("dialog");
+			await expect(discard).toContainText("notes.md");
+			await capture("files-edit-switch");
+			await discard.getByRole("button", { name: label.cancel, exact: true }).click();
+			await expect(editor).toContainText("unsaved");
+			await page.keyboard.press("Alt+Meta+f");
+			await page.getByRole("dialog").getByRole("button", { name: label.discard, exact: true }).click();
+			await expect(aside.getByRole("searchbox", { name: label.query })).toBeFocused();
+			expect(await fs.readFile(path.join(project, "notes.md"), "utf8")).toBe("# Someone else\n");
+			await aside.getByRole("button", { name: label.contentSearch, exact: true }).click();
+			await row("file:notes.md").click();
 			await expect(aside.locator("[data-file-editor]")).toHaveCount(0);
 			await fs.rm(path.join(project, "notes.md"));
 			await expect(aside.getByText(label.gone)).toBeVisible({ timeout: 10_000 });
