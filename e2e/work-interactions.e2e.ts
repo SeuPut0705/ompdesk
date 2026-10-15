@@ -367,3 +367,45 @@ for (const variant of VARIANTS.filter(entry => !entry.split))
 			await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 		}
 	});
+
+for (const variant of VARIANTS.filter(entry => entry.language === "en" && !entry.split))
+	test(`a plan proposal open, then a reload (${variant.name})`, async () => {
+		test.setTimeout(180_000);
+		const { app, page, root } = await launch(variant);
+		const errors: string[] = [];
+		page.on("pageerror", error => errors.push(error.message));
+		try {
+			const tab = (await page.evaluate(() => window.omp.tabs.list())).find(entry => entry.active)?.tabId;
+			if (!tab) throw new Error("No active tab");
+			const run = (spec: Record<string, unknown>) => bash(page, tab, `fixture:flow:${JSON.stringify(spec)}`);
+			const input = page.locator("textarea").first();
+			await input.fill("fixture flow");
+			await input.press("Enter");
+			await expect(page.locator(".omp-execution-group").first()).toBeVisible({ timeout: 15_000 });
+			await run({ op: "call", id: "w1", name: "write", args: { path: "local://PLAN.md", content: "## Steps" } });
+			await run({ op: "end", id: "w1", text: "Wrote local://PLAN.md" });
+			await run({ op: "propose" });
+			await expect(page.getByText("Flow rollout plan").first()).toBeVisible({ timeout: 15_000 });
+			await capture(page, `plan-${variant.name}-1-proposed`);
+			await page.reload();
+			await page.waitForFunction(() => window.omp?.rpc != null);
+			await expect(page.locator(".omp-execution-group").first()).toBeVisible({ timeout: 30_000 });
+			await page.waitForTimeout(1500);
+			const after = {
+				plan: await page.getByText("Flow rollout plan").count(),
+				keepContext: await page.getByText("Keep context", { exact: true }).count(),
+				overflow: await spills(page),
+			};
+			await capture(page, `plan-${variant.name}-2-reloaded`);
+			await fs.writeFile(
+				path.join(OUT, `plan-${variant.name}-findings.json`),
+				JSON.stringify({ after, errors }, null, 1),
+			);
+			expect(after.plan, "the open plan proposal after a reload").toBeGreaterThan(0);
+			expect(after.overflow).toEqual([]);
+			expect(errors).toEqual([]);
+		} finally {
+			await exitApp(app);
+			await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+		}
+	});
