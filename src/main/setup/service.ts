@@ -12,6 +12,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import type { OmpUpdateFailure } from "../../shared/omp-update";
 import {
 	isSetupItemId,
 	SETUP_ITEMS,
@@ -23,7 +24,7 @@ import {
 	type SetupState,
 	setupItemRequired,
 } from "../../shared/setup";
-import { ompNeedsShell, ompSpawnArgs, ompSpawnCommand } from "../omp-runtime";
+import { compareVersions, ompNeedsShell, ompSpawnArgs, ompSpawnCommand } from "../omp-runtime";
 import { type FetchText, fetchText, resolveArchiveRelease } from "./archives";
 import { type Detection, detectMachine } from "./detect";
 import { DownloadError, type DownloadFetch, downloadVerified } from "./download";
@@ -79,6 +80,30 @@ export interface SetupServiceDeps {
 
 /** Placeholder release for archive plans under OMP_GUI_TEST_INSTALLER, which never downloads it. */
 const TEST_RELEASE = { version: "0.0.0", file: "test", url: "https://example.invalid/test", sha256: "0".repeat(64) };
+
+/** Lines of installer output kept as the reason an omp update failed. */
+const UPDATE_DETAIL_LINES = 6;
+
+const CSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, "g");
+
+/** The last lines of an installer's output without color codes: why `omp update` did not update. */
+function updateDetail(output: string): string | undefined {
+	const lines = output
+		.replace(CSI, "")
+		.split(/\r?\n|\r/)
+		.map(line => line.trim())
+		.filter(Boolean);
+	return lines.slice(-UPDATE_DETAIL_LINES).join("\n") || undefined;
+}
+
+/**
+ * How `updateOmp` ended. `skipped`: omp is missing, outdated or broken (the
+ * install pipeline owns that), or the app is quitting.
+ */
+export type OmpUpdateOutcome =
+	| { kind: "updated"; version: string }
+	| { kind: "failed"; failure: OmpUpdateFailure }
+	| { kind: "skipped" };
 
 export class SetupService {
 	readonly #deps: SetupServiceDeps;
@@ -157,6 +182,28 @@ export class SetupService {
 		});
 	}
 
+	/**
+	 * Stock `omp update` (the omp item's `omp-update` plan) under the supervisor,
+	 * in the background, queued behind any install that runs now. It never asks
+	 * and never looks at what omp is doing: running omp processes keep the code
+	 * they loaded. `beforeInstall` runs once omp is known to be present, just
+	 * before the installer starts (main stops the helpers that read omp's files
+	 * from disk). After it, omp is detected again; `target` is the version the
+	 * registry announced, and an omp still older than it is a failure.
+	 */
+	updateOmp(target: string, beforeInstall?: () => Promise<void>): Promise<OmpUpdateOutcome> {
+		const { promise, resolve } = Promise.withResolvers<OmpUpdateOutcome>();
+		const settled = this.#enqueue(async () => {
+			resolve(await this.#updateOmp(target, beforeInstall));
+		});
+		// A disposed service runs no task: settle as skipped. After a normal finish this resolve is a no-op.
+		settled.then(
+			() => resolve({ kind: "skipped" }),
+			error => resolve({ kind: "failed", failure: { reason: "install", detail: String(error) } }),
+		);
+		return promise;
+	}
+
 	/** Cancel the running install (its download or its process) and the rest of its pipeline. */
 	cancel(): boolean {
 		if (this.#download) {
@@ -229,6 +276,64 @@ export class SetupService {
 			}
 		}
 		this.#emit();
+	}
+
+	async #updateOmp(target: string, beforeInstall?: () => Promise<void>): Promise<OmpUpdateOutcome> {
+		await this.#detect();
+		const item = this.#items.omp;
+		const detection = this.#detection;
+		const unsupported = this.#deps.platform === "other";
+		if (
+			!detection ||
+			unsupported ||
+			this.#disposed ||
+			item.presence?.kind !== "present" ||
+			item.phase === "running"
+		) {
+			return { kind: "skipped" };
+		}
+		const plan = buildPlan("omp", "omp-update", this.#planContext(detection));
+		if (!plan) return { kind: "skipped" };
+		await beforeInstall?.().catch(() => undefined);
+		item.method = "omp-update";
+		item.command = plan.command;
+		item.location = plan.location;
+		item.prompt = null;
+		item.output = "";
+		item.failure = null;
+		item.phase = "running";
+		item.progress = { step: 1, steps: 1, startedAt: (this.#deps.now ?? Date.now)(), download: null };
+		this.#emit();
+		let outcome: RunOutcome;
+		try {
+			outcome = await this.#runner.run(
+				this.#spec(plan.spawn, "omp", "omp-update"),
+				await this.#installEnv(),
+				chunk => {
+					item.output = (item.output + chunk).slice(-SETUP_OUTPUT_TAIL);
+					this.#emitSoon();
+				},
+			);
+		} finally {
+			item.progress = null;
+			item.phase = "checking";
+		}
+		await (this.#deps.refreshPath ?? refreshPath)(this.#deps.platform, this.#deps.toolsDir);
+		await this.#detect();
+		const reason = updateDetail(item.output);
+		const detail = (...parts: (string | undefined)[]) => parts.filter(Boolean).join(" — ") || undefined;
+		if (outcome.kind === "cancelled") return { kind: "failed", failure: { reason: "cancelled" } };
+		if (outcome.kind === "failed") {
+			const exit = outcome.exitCode === null ? undefined : `exit ${outcome.exitCode}`;
+			return { kind: "failed", failure: { reason: "install", detail: detail(exit, reason) } };
+		}
+		const presence = item.presence;
+		if (presence?.kind !== "present")
+			return { kind: "failed", failure: { reason: "unusable", detail: detail(reason) } };
+		if (presence.version && compareVersions(presence.version, target) >= 0) {
+			return { kind: "updated", version: presence.version };
+		}
+		return { kind: "failed", failure: { reason: "not-updated", detail: detail(reason) } };
 	}
 
 	async #runRequired(manual: boolean): Promise<void> {

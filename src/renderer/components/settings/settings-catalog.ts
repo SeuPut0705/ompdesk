@@ -269,6 +269,12 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		labelKey: "machineSetup.settings.title",
 		aliases: "this computer setup install doctor bun git node gh omp tools 이 컴퓨터 설치 점검 도구",
 	},
+	{
+		id: "ompAutoUpdate",
+		section: "updates",
+		labelKey: "ompUpdate.auto",
+		aliases: "omp update upgrade automatically auto version cli npm 자동 업데이트 업그레이드 버전",
+	},
 	{ id: "theme", section: "appearance", labelKey: "settings.gui.theme", aliases: "theme dark light 테마 다크 라이트" },
 	{
 		id: "followAgentTheme",

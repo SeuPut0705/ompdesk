@@ -5613,4 +5613,23 @@ export const en: Record<string, string> = {
 	"machineSetup.settings.title": "This computer",
 	"machineSetup.settings.description":
 		"OMPdesk installs what it needs on its own. Optional tools install in the background and never block you.",
+	"ompUpdate.auto": "Update omp automatically",
+	"ompUpdate.autoDesc":
+		"When npm publishes a newer omp, OMPdesk installs it in the background. Running sessions keep going: idle ones restart on the new omp right away, busy ones when their turn ends. OMPdesk itself only updates when you ask.",
+	"ompUpdate.nowLabel": "omp version",
+	"ompUpdate.now": "Update now",
+	"ompUpdate.nowFailed": "Couldn't start the omp update",
+	"ompUpdate.updated": "omp updated to {version}",
+	"ompUpdate.retryNote": "OMPdesk tries again at the next check.",
+	"ompUpdate.status.checking": "Checking npm for a newer omp…",
+	"ompUpdate.status.updating": "Updating omp…",
+	"ompUpdate.status.notChecked": "Not checked yet.",
+	"ompUpdate.status.manualOnly": "This build doesn't check on its own. Update now still works.",
+	"ompUpdate.status.current": "omp {version} is the latest.",
+	"ompUpdate.status.available": "omp {latest} is available. Installed: {version}.",
+	"ompUpdate.failure.check": "Couldn't check npm for a newer omp.",
+	"ompUpdate.failure.install": "The omp update failed.",
+	"ompUpdate.failure.not-updated": "The omp update finished, but omp is still older than {latest}.",
+	"ompUpdate.failure.unusable": "The updated omp doesn't run. Open tabs keep the omp they have.",
+	"ompUpdate.failure.cancelled": "You cancelled the omp update.",
 };

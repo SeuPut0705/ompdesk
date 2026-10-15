@@ -57,6 +57,7 @@ import { useLang, useT } from "./lib/i18n";
 import { isImeKeyEvent } from "./lib/ime";
 import { chordFromEvent, compileKeymap, KEYMAP_ACTION_BY_ID, KEYMAP_ACTIONS, type KeymapActionId } from "./lib/keymap";
 import { abortActiveTurn, restoreQueuedMessages } from "./lib/messages";
+import { subscribeOmpUpdated } from "./lib/omp-update";
 import { type PaneDirection, paneInDirection, renderedPaneBoxes } from "./lib/pane-focus";
 import { watchPluginActivation } from "./lib/plugin-activation";
 import { closeActiveTab } from "./lib/tab-close";
@@ -643,6 +644,8 @@ export function App() {
 	useEffect(() => subscribeUpdaterStatus(), []);
 	// gui-bridge compatibility warnings: main-process signal + boot drain.
 	useEffect(() => subscribeBridgeHealth(), []);
+	// "omp updated to X" after omp updated itself (main sends it to one window).
+	useEffect(() => subscribeOmpUpdated(), []);
 
 	useEffect(() => {
 		const run = async (action: MenuAction, payload?: MenuActionPayload) => {

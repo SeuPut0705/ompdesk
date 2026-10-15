@@ -62,6 +62,7 @@ import {
 import { asSplitLayout, mapSplitLeaves, readSplitNode, splitTabIds } from "../shared/split-layout";
 import { canonicalCwd } from "./canonical-cwd";
 import { createMessageUpdateSlimmer } from "./message-update-slim";
+import { ompRestartDecision } from "./omp-restart";
 import type { WindowTabFact } from "./quit-guard";
 import type { RpcClient } from "./rpc-client";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
@@ -182,6 +183,8 @@ interface PoolEntry {
 	lastRun?: IpcTabRunOutcome;
 	/** The window "closed" listener registered at acquire, removed on release. */
 	onWindowClosed: () => void;
+	/** `omp update` landed while this tab ran a turn: it restarts on the new omp when the turn ends. */
+	ompRestartPending?: boolean;
 	/**
 	 * Detaches the full-channel forwarders. Null while the tab is background
 	 * (nothing wired); set exactly once per active stint so switches move
@@ -422,6 +425,7 @@ export class SidecarPool {
 			if (runBusy(entry.run) === wasBusy) return;
 			forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			this.onRunningChange?.();
+			this.#scheduleOmpRestart(entry);
 		};
 		sidecar.on("promptResult", (frame: PromptResultFrame) => {
 			if (typeof frame.sessionSettled === "boolean") settle(frame.sessionSettled);
@@ -453,7 +457,10 @@ export class SidecarPool {
 			if (busy !== wasBusy || entry.placeholder !== wasPlaceholder) {
 				forwardToWindow(win, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			}
-			if (busy !== wasBusy) this.onRunningChange?.();
+			if (busy !== wasBusy) {
+				this.onRunningChange?.();
+				this.#scheduleOmpRestart(entry);
+			}
 			if (entry.placeholder !== wasPlaceholder) this.#notifyWindowTabsChanged(win);
 			if (hiddenProposals) {
 				forwardToWindow(win, IPC_EVENTS.EVENTS_BATCH, { tabId: entry.tabId, payload: hiddenProposals });
@@ -598,6 +605,42 @@ export class SidecarPool {
 	/** Every live sidecar, across windows (account changes reach all tabs). */
 	allSidecars(): SidecarLike[] {
 		return [...this.#entries].map(entry => entry.sidecar);
+	}
+
+	/**
+	 * omp on this computer was updated: every local tab moves to it (omp-restart.ts).
+	 * Idle tabs restart now on their session file; a tab in a turn restarts when it ends.
+	 * Returns how many tabs still wait. Tabs on paired hosts are the host's.
+	 */
+	restartOnNewOmp(): number {
+		let waiting = 0;
+		for (const entry of this.#entries) {
+			if (entry.device !== undefined) continue;
+			const decision = ompRestartDecision({ status: entry.sidecar.status, busy: runBusy(entry.run) });
+			if (decision === "skip") continue;
+			if (decision === "wait") {
+				entry.ompRestartPending = true;
+				waiting++;
+				continue;
+			}
+			entry.ompRestartPending = false;
+			entry.sidecar.restart(undefined, entry.sessionFile);
+		}
+		return waiting;
+	}
+
+	/**
+	 * A turn ended on a tab that waits for the new omp. One tick later, so every listener of the
+	 * turn's last events (the window's forwarder included) has seen them before the process goes.
+	 */
+	#scheduleOmpRestart(entry: PoolEntry): void {
+		if (!entry.ompRestartPending || runBusy(entry.run)) return;
+		setImmediate(() => {
+			if (!entry.ompRestartPending || !this.#entries.has(entry) || runBusy(entry.run)) return;
+			if (entry.status !== "ready") return;
+			entry.ompRestartPending = false;
+			entry.sidecar.restart(undefined, entry.sessionFile);
+		});
 	}
 
 	/** Resolves via the ACTIVE tab, so every existing ipc.ts handler keeps working unchanged. */

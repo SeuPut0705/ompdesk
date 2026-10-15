@@ -61,6 +61,31 @@ describe("BridgeHealth", () => {
 		expect(health.take()).toEqual([]);
 	});
 
+	it("probes again after an omp update and warns when the new omp dropped a feature the old one had", async () => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		const notify = vi.fn();
+		const health = new BridgeHealth(notify);
+		const before = fakeBridge(async () => ({ ompVersion: "18.8.7", unavailable: [] }));
+		await health.observe({ connected: true, ompVersion: "18.8.7", bridge: before.bridge });
+		expect(health.take()).toEqual([]);
+		expect(health.supports("18.8.7", "planMode")).toBe(true);
+
+		// omp updated itself; the tab that restarted on it reports its own version.
+		const after = fakeBridge(async () => ({
+			ompVersion: "18.9.0",
+			unavailable: [{ feature: "planMode", missing: ["AgentSession.setPlanModeState"] }],
+		}));
+		await health.observe({ connected: true, ompVersion: "18.9.0", bridge: after.bridge });
+		expect(after.request).toHaveBeenCalledWith("capabilities");
+		expect(notify).toHaveBeenCalledTimes(1);
+		expect(health.take()).toEqual([{ kind: "unsupported", ompVersion: "18.9.0", features: ["planMode"] }]);
+		expect(health.supports("18.9.0", "planMode")).toBe(false);
+		// The old version's answer stays; a second tab on 18.9.0 does not warn twice.
+		expect(health.supports("18.8.7", "planMode")).toBe(true);
+		await health.observe({ connected: true, ompVersion: "18.9.0", bridge: after.bridge });
+		expect(after.request).toHaveBeenCalledTimes(1);
+	});
+
 	it("answers whether a probed omp version serves a feature, and doesn't know before a probe", async () => {
 		vi.spyOn(console, "warn").mockImplementation(() => {});
 		const health = new BridgeHealth(() => {});

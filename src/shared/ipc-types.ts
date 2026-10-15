@@ -9,6 +9,7 @@ import type { GithubAuthState, GithubStarState } from "./github-auth";
 import type { IpcErrorCode } from "./ipc-error-codes";
 import type { LaunchProfile } from "./launch-profile";
 import type { ModelSetupPlan, ModelSetupRequest, ModelSetupStatus } from "./model-setup";
+import type { OmpUpdatedNotice, OmpUpdateState } from "./omp-update";
 import type { PreviewApi } from "./preview";
 import type { SessionRpcClient } from "./rpc-client";
 import type {
@@ -100,6 +101,10 @@ export const IPC_EVENTS = {
 	WORKTREE_NOTICE: "worktree-lifecycle:notice",
 	/** This machine's automatic setup changed (src/main/setup/); payload is the whole SetupState. */
 	SETUP_STATE: "setup:state",
+	/** omp's automatic update changed (src/main/omp-updater.ts); payload is the whole OmpUpdateState. */
+	OMP_UPDATE_STATE: "omp-update:state",
+	/** omp was just updated on its own; payload is an OmpUpdatedNotice, sent to one window (one quiet toast). */
+	OMP_UPDATED: "omp-update:updated",
 	/** This machine's GitHub CLI sign-in changed (src/main/github-auth/); payload is the whole GithubAuthState. */
 	GITHUB_AUTH_STATE: "github-auth:state",
 } as const;
@@ -258,6 +263,10 @@ export const IPC_COMMANDS = {
 	SETUP_RETRY: "setup:retry",
 	/** Cancel the running setup install (kills its process tree) */
 	SETUP_CANCEL: "setup:cancel",
+	/** omp's automatic update (src/main/omp-updater.ts): whole OmpUpdateState snapshot */
+	OMP_UPDATE_GET_STATE: "omp-update:get-state",
+	/** Check npm and update omp now, whatever the pref says (runs in the background) */
+	OMP_UPDATE_NOW: "omp-update:now",
 	/** GitHub sign-in on this machine: whole GithubAuthState, re-checked when stale (`force` re-checks now) */
 	GITHUB_AUTH_REFRESH: "github-auth:refresh",
 	/** Start `gh auth login --web` (ends any live sign-in) */
@@ -1454,6 +1463,15 @@ export interface OmpApi {
 		/** Cancel the running install; false when nothing runs. */
 		cancel(): Promise<boolean>;
 		onState(callback: (state: SetupState) => void): () => void;
+	};
+	/** omp's automatic update on this computer (a paired host updates its own omp under its own pref). */
+	ompUpdate: {
+		getState(): Promise<OmpUpdateState>;
+		/** Check npm and update omp now, whatever the pref says; progress arrives through `onState`. */
+		now(): Promise<void>;
+		onState(callback: (state: OmpUpdateState) => void): () => void;
+		/** omp updated itself (one window only): show "omp updated to X". */
+		onUpdated(callback: (notice: OmpUpdatedNotice) => void): () => void;
 	};
 	/** This machine's GitHub CLI sign-in; remote tabs never use it (their host signs in on its own). */
 	githubAuth: {

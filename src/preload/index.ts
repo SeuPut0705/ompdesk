@@ -59,6 +59,7 @@ import type {
 } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import type { ModelSetupRequest, ModelSetupStatus } from "../shared/model-setup";
+import type { OmpUpdatedNotice, OmpUpdateState } from "../shared/omp-update";
 import {
 	PREVIEW_COMMAND,
 	PREVIEW_PAGE,
@@ -261,6 +262,15 @@ const api: OmpApi = {
 		retry: (item: SetupItemId) => ipcRenderer.invoke(IPC_COMMANDS.SETUP_RETRY, item) as Promise<void>,
 		cancel: () => ipcRenderer.invoke(IPC_COMMANDS.SETUP_CANCEL) as Promise<boolean>,
 		onState: (callback: (state: SetupState) => void) => subscribe<SetupState>(IPC_EVENTS.SETUP_STATE, callback),
+	},
+
+	ompUpdate: {
+		getState: () => ipcRenderer.invoke(IPC_COMMANDS.OMP_UPDATE_GET_STATE) as Promise<OmpUpdateState>,
+		now: () => ipcRenderer.invoke(IPC_COMMANDS.OMP_UPDATE_NOW) as Promise<void>,
+		onState: (callback: (state: OmpUpdateState) => void) =>
+			subscribe<OmpUpdateState>(IPC_EVENTS.OMP_UPDATE_STATE, callback),
+		onUpdated: (callback: (notice: OmpUpdatedNotice) => void) =>
+			subscribe<OmpUpdatedNotice>(IPC_EVENTS.OMP_UPDATED, callback),
 	},
 
 	githubAuth: {

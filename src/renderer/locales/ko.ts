@@ -5588,4 +5588,23 @@ export const ko: Record<string, string> = {
 	"machineSetup.settings.title": "이 컴퓨터",
 	"machineSetup.settings.description":
 		"OMPdesk가 필요한 것을 알아서 설치해요. 선택 도구는 백그라운드에서 설치되고 작업을 막지 않아요.",
+	"ompUpdate.auto": "omp 자동 업데이트",
+	"ompUpdate.autoDesc":
+		"npm에 더 새로운 omp가 올라오면 백그라운드에서 설치해요. 진행 중인 세션은 그대로 이어지고, 쉬는 세션은 바로, 작업 중인 세션은 작업이 끝나면 새 omp로 다시 시작해요. OMPdesk 자체는 직접 요청할 때만 업데이트해요.",
+	"ompUpdate.nowLabel": "omp 버전",
+	"ompUpdate.now": "지금 업데이트",
+	"ompUpdate.nowFailed": "omp 업데이트를 시작하지 못했어요",
+	"ompUpdate.updated": "omp를 업데이트했어요 ({version})",
+	"ompUpdate.retryNote": "다음 확인 때 다시 시도해요.",
+	"ompUpdate.status.checking": "npm에서 새 omp를 확인하는 중이에요…",
+	"ompUpdate.status.updating": "omp를 업데이트하는 중이에요…",
+	"ompUpdate.status.notChecked": "아직 확인하지 않았어요.",
+	"ompUpdate.status.manualOnly": "이 빌드는 스스로 확인하지 않아요. 지금 업데이트는 쓸 수 있어요.",
+	"ompUpdate.status.current": "omp가 최신이에요 ({version}).",
+	"ompUpdate.status.available": "새 omp를 받을 수 있어요 ({latest}). 설치된 버전: {version}.",
+	"ompUpdate.failure.check": "npm에서 새 omp를 확인하지 못했어요.",
+	"ompUpdate.failure.install": "omp 업데이트에 실패했어요.",
+	"ompUpdate.failure.not-updated": "omp 업데이트가 끝났지만 아직 최신 버전({latest})이 아니에요.",
+	"ompUpdate.failure.unusable": "업데이트된 omp가 실행되지 않아요. 열린 탭은 지금 쓰는 omp를 그대로 써요.",
+	"ompUpdate.failure.cancelled": "omp 업데이트를 취소했어요.",
 };

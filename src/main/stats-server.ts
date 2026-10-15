@@ -13,6 +13,9 @@ import { EventEmitter } from "node:events";
 import { stripVTControlCharacters } from "node:util";
 import { MAX_RESTART_ATTEMPTS, RestartBudget, type Revive } from "./stats-restart-policy";
 
+/** How long `kill()` waits for the process to exit (an omp update replaces the files it reads). */
+const STOP_WAIT_MS = 5000;
+
 /** How to start the dashboard process; it must print `http://127.0.0.1:<port>` once listening. */
 export interface StatsLaunch {
 	command: string;
@@ -127,7 +130,8 @@ export class StatsServerManager extends EventEmitter {
 		}, delay);
 	}
 
-	kill(): void {
+	/** Stops the server for good; resolves once its process is gone (immediately when none runs). */
+	kill(): Promise<void> {
 		this.#disposed = true;
 		if (this.#restartTimer) {
 			clearTimeout(this.#restartTimer);
@@ -135,6 +139,9 @@ export class StatsServerManager extends EventEmitter {
 		}
 		const child = this.#child;
 		this.#child = null;
-		child?.kill("SIGTERM");
+		if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+		const exited = new Promise<void>(done => child.once("exit", () => done()));
+		child.kill("SIGTERM");
+		return Promise.race([exited, new Promise<void>(done => setTimeout(done, STOP_WAIT_MS).unref())]);
 	}
 }

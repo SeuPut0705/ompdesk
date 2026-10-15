@@ -60,6 +60,8 @@ function harness(
 		testDownload?: { url: string; sha256: string };
 		fetch?: DownloadFetch;
 		spawnEnv?: NodeJS.ProcessEnv;
+		/** The version a successful install leaves behind (default 1.0.0). */
+		installedVersion?: string;
 	} = {},
 ) {
 	const spawned: { spec: SpawnSpec; env: NodeJS.ProcessEnv }[] = [];
@@ -78,7 +80,8 @@ function harness(
 			setImmediate(() => {
 				child.stdout.write(`installing ${item}\n`);
 				const code = options.exits?.[item] ?? 0;
-				if (code === 0 && !options.stillMissing?.includes(item)) machine.presence[item] = present();
+				if (code === 0 && !options.stillMissing?.includes(item))
+					machine.presence[item] = present(options.installedVersion);
 				setImmediate(() => child.close(code));
 			});
 		}
@@ -87,7 +90,10 @@ function harness(
 	const detect = async (): Promise<Detection> => ({
 		presence: { ...machine.presence },
 		bun: machine.presence.bun.kind === "present" ? "/home/u/.bun/bin/bun" : null,
-		omp: machine.presence.omp.kind === "outdated" ? "/home/u/.bun/bin/omp" : null,
+		omp:
+			machine.presence.omp.kind === "outdated" || machine.presence.omp.kind === "present"
+				? "/home/u/.bun/bin/omp"
+				: null,
 		brew: machine.brew,
 		winget: machine.winget,
 	});
@@ -436,5 +442,75 @@ describe("SetupService", () => {
 		await expect(h.service.retry("rm -rf /")).rejects.toThrow(/Unknown setup item/);
 		await expect(h.service.retry(undefined)).rejects.toThrow(/Unknown setup item/);
 		expect(h.spawned).toEqual([]);
+	});
+
+	describe("updateOmp", () => {
+		it("runs the omp-update plan under the supervisor after the pre-install hook, without touching the ledger or announcing omp ready", async () => {
+			const h = harness(machine({ omp: present("18.8.7") }), { installedVersion: "18.9.0" });
+			const order: string[] = [];
+			const outcome = await h.service.updateOmp("18.9.0", async () => {
+				order.push(`hook (spawned ${h.spawned.length})`);
+			});
+			expect(outcome).toEqual({ kind: "updated", version: "18.9.0" });
+			expect(order).toEqual(["hook (spawned 0)"]);
+			expect(h.spawned.map(entry => entry.spec.args)).toEqual([["omp", "omp-update"]]);
+			const omp = h.service.state().items.find(item => item.id === "omp");
+			expect(omp).toMatchObject({ phase: "present", method: "omp-update", progress: null, failure: null });
+			expect(omp?.presence).toMatchObject({ kind: "present", version: "18.9.0" });
+			expect(h.states.some(state => state.items.find(item => item.id === "omp")?.phase === "running")).toBe(true);
+			expect(h.onOmpReady).not.toHaveBeenCalled();
+			expect(existsSync(join(dir, "setup-state.json"))).toBe(false);
+		});
+
+		it("runs stock `omp update` on the detected omp when no test installer is set", async () => {
+			const h = harness(machine({ omp: present("18.8.7") }), { testInstaller: null });
+			// The fake spawner records the spec, then cannot map the real one to an item and fails the spawn.
+			const outcome = await h.service.updateOmp("18.9.0");
+			expect(h.spawned.map(entry => entry.spec)).toEqual([
+				{ file: "/home/u/.bun/bin/omp", args: ["update"], shell: false },
+			]);
+			expect(outcome).toMatchObject({ kind: "failed", failure: { reason: "install" } });
+		});
+
+		it("reports a failing installer with its exit code and last output, and leaves omp as it was", async () => {
+			const h = harness(machine({ omp: present("18.8.7") }), { exits: { omp: 1 } });
+			const outcome = await h.service.updateOmp("18.9.0");
+			expect(outcome).toEqual({
+				kind: "failed",
+				failure: { reason: "install", detail: "exit 1 — installing omp" },
+			});
+			const omp = h.service.state().items.find(item => item.id === "omp");
+			expect(omp?.phase).toBe("present");
+			expect(omp?.presence).toMatchObject({ kind: "present", version: "18.8.7" });
+		});
+
+		it("calls a clean exit that leaves omp older than the announced version a failure", async () => {
+			const h = harness(machine({ omp: present("18.8.7") }), { stillMissing: ["omp"] });
+			const outcome = await h.service.updateOmp("18.9.0");
+			expect(outcome).toMatchObject({ kind: "failed", failure: { reason: "not-updated" } });
+		});
+
+		it("skips when omp is missing (the install pipeline owns that) without running the hook", async () => {
+			const h = harness(machine({ omp: missing }));
+			const hook = vi.fn(async () => {});
+			expect(await h.service.updateOmp("18.9.0", hook)).toEqual({ kind: "skipped" });
+			expect(hook).not.toHaveBeenCalled();
+			expect(h.spawned).toEqual([]);
+		});
+
+		it("skips on a platform without setup", async () => {
+			const h = harness(machine({ omp: present("18.8.7") }), { platform: "other" });
+			expect(await h.service.updateOmp("18.9.0")).toEqual({ kind: "skipped" });
+			expect(h.spawned).toEqual([]);
+		});
+
+		it("a cancel from This computer ends the update as cancelled", async () => {
+			const h = harness(machine({ omp: present("18.8.7") }), { hold: "omp" });
+			const run = h.service.updateOmp("18.9.0");
+			await vi.waitFor(() => expect(h.phase("omp")).toBe("running"));
+			expect(h.service.cancel()).toBe(true);
+			expect(await run).toEqual({ kind: "failed", failure: { reason: "cancelled" } });
+			expect(h.phase("omp")).toBe("present");
+		});
 	});
 });

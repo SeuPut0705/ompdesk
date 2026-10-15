@@ -43,6 +43,7 @@ import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
 import type { MachineServices } from "../machine-services";
+import { ompRestartDecision } from "../omp-restart";
 import type { SessionIndex } from "../session-index";
 import { deleteSession, moveSession, renameSession } from "../session-mutations";
 import type { SidecarSessionIdentity } from "../sidecar";
@@ -136,6 +137,8 @@ interface HostTab {
 	sessionFile: string | undefined;
 	graceTimer: NodeJS.Timeout | undefined;
 	run: RunState;
+	/** `omp update` landed during a turn: the tab restarts on the new omp when it ends. */
+	ompRestartPending?: boolean;
 }
 
 const Rtab = z.string().min(1).max(128);
@@ -566,7 +569,10 @@ export class LocalHostServices implements HostServices {
 		const change = (apply: () => void): void => {
 			const was = runBusy(tab.run);
 			apply();
-			if (runBusy(tab.run) !== was) this.#runningChanged();
+			if (runBusy(tab.run) !== was) {
+				this.#runningChanged();
+				this.#scheduleOmpRestart(tab);
+			}
 		};
 		// "Running" only means something on a live connection: a restart or crash ends the run.
 		sidecar.on("status", (payload: SidecarStatusPayload) => {
@@ -592,6 +598,30 @@ export class LocalHostServices implements HostServices {
 
 	#runningChanged(): void {
 		for (const listener of this.#runningListeners) listener();
+	}
+
+	/**
+	 * omp on this computer was updated: tabs it hosts for paired devices move to it like the
+	 * computer's own (omp-restart.ts). The device's composer draft lives on the device.
+	 */
+	restartOnNewOmp(): void {
+		for (const tab of this.#tabs.values()) {
+			const decision = ompRestartDecision({ status: tab.sidecar.status, busy: runBusy(tab.run) });
+			if (decision === "skip") continue;
+			if (decision === "wait") tab.ompRestartPending = true;
+			else tab.sidecar.restart(undefined, tab.sessionFile);
+		}
+	}
+
+	/** A hosted turn ended on a tab that waits for the new omp (a tick later: see SidecarPool). */
+	#scheduleOmpRestart(tab: HostTab): void {
+		if (!tab.ompRestartPending || runBusy(tab.run)) return;
+		setImmediate(() => {
+			if (!tab.ompRestartPending || runBusy(tab.run) || tab.sidecar.status !== "ready") return;
+			if (![...this.#tabs.values()].includes(tab)) return;
+			tab.ompRestartPending = false;
+			tab.sidecar.restart(undefined, tab.sessionFile);
+		});
 	}
 
 	#statusArg(sidecar: SidecarLike, payload: SidecarStatusPayload): TabStatusArg {

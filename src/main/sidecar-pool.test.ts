@@ -813,6 +813,84 @@ describe("SidecarPool tabs", () => {
 	});
 });
 
+describe("SidecarPool restartOnNewOmp (omp updated on this computer)", () => {
+	const tick = () => new Promise<void>(resolve => setImmediate(resolve));
+
+	function tabs() {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		pool.acquire("/c", fw.win, "tab-c", undefined, "agent", undefined, false, false, true);
+		pool.acquire("/d", fw.win, "tab-d", undefined, "agent", undefined, false, false, false, undefined, "host-1");
+		const [a, b, c, d] = sidecars;
+		for (const sidecar of [a, b, d]) sidecar?.emitStatus("ready");
+		pool.noteSessionFile("tab-a", "/sessions/a.jsonl");
+		pool.noteSessionFile("tab-b", "/sessions/b.jsonl");
+		return { pool, a: a!, b: b!, c: c!, d: d! };
+	}
+
+	it("restarts idle tabs now on their own session, leaves a never-started tab and a paired host's tab alone, and counts the busy ones", () => {
+		const { pool, a, b, c, d } = tabs();
+		b.emitAgentEvents(["agent_start"]);
+		const before = {
+			a: a.restartArgs.length,
+			b: b.restartArgs.length,
+			c: c.restartArgs.length,
+			d: d.restartArgs.length,
+		};
+		expect(pool.restartOnNewOmp()).toBe(1);
+		expect(a.restartArgs.slice(before.a)).toEqual([{ cwd: undefined, sessionPath: "/sessions/a.jsonl" }]);
+		expect(b.restartArgs).toHaveLength(before.b);
+		expect(c.restartArgs).toHaveLength(before.c);
+		expect(d.restartArgs).toHaveLength(before.d);
+	});
+
+	it("restarts a busy tab only once its turn ends, one tick after the last events, and then never again", async () => {
+		const { pool, b } = tabs();
+		b.emitAgentEvents(["agent_start"]);
+		const before = b.restartArgs.length;
+		pool.restartOnNewOmp();
+		await tick();
+		expect(b.restartArgs).toHaveLength(before);
+		// The turn ends: the restart is not inside the event dispatch (the window's forwarder runs first) but right after.
+		b.emitAgentEvents(["agent_end"]);
+		expect(b.restartArgs).toHaveLength(before);
+		await tick();
+		expect(b.restartArgs.slice(before)).toEqual([{ cwd: undefined, sessionPath: "/sessions/b.jsonl" }]);
+		// A later turn does not restart it again.
+		b.emitAgentEvents(["agent_start"]);
+		b.emitAgentEvents(["agent_end"]);
+		await tick();
+		expect(b.restartArgs).toHaveLength(before + 1);
+	});
+
+	it("waits through background work that keeps the session busy after agent_end", async () => {
+		const { pool, b } = tabs();
+		b.emitAgentEvents(["agent_start"]);
+		b.emit("promptResult", { type: "prompt_result", sessionSettled: false });
+		pool.restartOnNewOmp();
+		const before = b.restartArgs.length;
+		b.emitAgentEvents(["agent_end"]);
+		await tick();
+		expect(b.restartArgs).toHaveLength(before);
+		b.emit("sessionSettled", { type: "session_settled" });
+		await tick();
+		expect(b.restartArgs).toHaveLength(before + 1);
+	});
+
+	it("forgets a waiting tab that was closed", async () => {
+		const { pool, b } = tabs();
+		b.emitAgentEvents(["agent_start"]);
+		pool.restartOnNewOmp();
+		const before = b.restartArgs.length;
+		pool.releaseTab("tab-b");
+		b.emitAgentEvents(["agent_end"]);
+		await tick();
+		expect(b.restartArgs).toHaveLength(before);
+	});
+});
+
 describe("SidecarPool session ownership (F-OWN)", () => {
 	it("routes deletes only to an idle attached tab, renames even mid-run", async () => {
 		const { pool, sidecars } = fakePool();

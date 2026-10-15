@@ -557,6 +557,31 @@ describe("LocalHostServices", () => {
 		expect(changes).toHaveBeenCalledTimes(6);
 	});
 
+	it("moves hosted tabs to a newly updated omp: idle ones now on their session, a busy one when its turn ends", async () => {
+		const { services, sidecars } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await services.call(y.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, y);
+		const [xTab, yTab] = sidecars;
+		if (!xTab || !yTab) throw new Error("expected two sidecars");
+		xTab.setStatus("ready");
+		yTab.setStatus("ready");
+		xTab.emit("session", { sessionId: "sx", sessionFile: "/sessions/x.jsonl" });
+		yTab.emit("session", { sessionId: "sy", sessionFile: "/sessions/y.jsonl" });
+		yTab.emit("events", [{ type: "agent_start" }]);
+		xTab.started.length = 0;
+		yTab.started.length = 0;
+
+		services.restartOnNewOmp();
+		expect(xTab.started).toEqual([{ resume: "/sessions/x.jsonl" }]);
+		expect(yTab.started).toEqual([]);
+		yTab.emit("events", [{ type: "agent_end" }]);
+		expect(yTab.started).toEqual([]);
+		await new Promise<void>(resolve => setImmediate(resolve));
+		expect(yTab.started).toEqual([{ resume: "/sessions/y.jsonl" }]);
+	});
+
 	it("rejects malformed parameters and unknown methods", async () => {
 		const { services } = setup();
 		const x = new FakeConnection(peer("device-x"));

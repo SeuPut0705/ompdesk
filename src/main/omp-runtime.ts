@@ -245,3 +245,13 @@ export function systemOmp(): Promise<OmpResolution> {
 	});
 	return pending;
 }
+
+/**
+ * Resolve omp again, after `omp update` replaced it: the cached resolution
+ * carries the old version and the sidecars restart from it. A failed
+ * resolution is not cached, like `systemOmp`.
+ */
+export function refreshSystemOmp(): Promise<OmpResolution> {
+	cached = null;
+	return systemOmp();
+}

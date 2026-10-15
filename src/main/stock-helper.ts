@@ -1,8 +1,12 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { once } from "node:events";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { ompPackageRoot, ompPathEnv, systemOmp } from "./omp-runtime";
 import { spawnPath } from "./shell-env";
+
+/** How long a stopped worker may take to exit before an omp update goes ahead anyway. */
+const HELPER_STOP_MS = 5000;
 
 /** One lazy worker for all main-side stock operations. Keeps stock caches warm
  * without agent boots or per-refresh process launches; stdin ties it to the app.
@@ -101,14 +105,18 @@ class StockHelper {
 		return promise as Promise<T>;
 	}
 
-	stop(): void {
+	/** Ends the worker; resolves once its process is gone (an omp update must not replace files a live worker still reads). */
+	stop(): Promise<void> {
 		this.#stopped = true;
-		this.#child?.stdin.end();
+		const child = this.#child;
+		const exited = child ? once(child, "exit").then(() => undefined) : Promise.resolve();
+		child?.stdin.end();
 		for (const pending of this.#pending.values()) {
 			clearTimeout(pending.timer);
 			pending.reject(new Error("Stock helper stopped"));
 		}
 		this.#pending.clear();
+		return Promise.race([exited, new Promise<void>(done => setTimeout(done, HELPER_STOP_MS).unref())]);
 	}
 }
 
@@ -127,7 +135,8 @@ export function stockHelperRequest<T>(method: string, params: unknown = {}): Pro
 	return helper.request<T>(method, params);
 }
 
-export function stopStockHelper(): void {
-	helper?.stop();
+export function stopStockHelper(): Promise<void> {
+	const stopping = helper?.stop() ?? Promise.resolve();
 	helper = null;
+	return stopping;
 }

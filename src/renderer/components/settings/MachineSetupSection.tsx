@@ -25,6 +25,7 @@ import {
 	setupPresencePath,
 	useMachineSetupState,
 } from "../onboarding/MachineSetupView";
+import { OmpUpdateRows } from "./OmpUpdateRows";
 import { SettingsSection } from "./SettingsLayout";
 
 function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolean }) {
@@ -136,6 +137,7 @@ export function MachineSetupSection() {
 			scope="app"
 			title={t("machineSetup.settings.title")}
 		>
+			{state && <OmpUpdateRows />}
 			{state ? (
 				state.items.map(item => <SetupItemRow item={item} key={item.id} windows={state.platform === "win32"} />)
 			) : loadError ? (

@@ -25,6 +25,7 @@ import { REA_PREF } from "../shared/builtin-mcp";
 import { CLOSE_TO_TRAY_PREF, KEEP_AWAKE_WORKING_PREF, WORKTREE_AUTO_CLEAN_PREF } from "../shared/desktop-prefs";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
+import { OMP_AUTO_UPDATE_PREF } from "../shared/omp-update";
 import { VISUAL_SCHEME } from "../shared/preview";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import { SCHEDULES_STATE } from "../shared/schedules";
@@ -47,7 +48,8 @@ import { LogWatcher } from "./log-watcher";
 import { LocalMachine } from "./machine-services";
 import { MEDIA_SCHEME, MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
-import { ompPackageRoot, ompPathEnv, systemOmp } from "./omp-runtime";
+import { ompPackageRoot, ompPathEnv, refreshSystemOmp, systemOmp } from "./omp-runtime";
+import { DEFAULT_NPM_REGISTRY, npmLatestOmp, OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
 import { quitNeedsConfirmation } from "./quit-guard";
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
@@ -64,6 +66,7 @@ import { localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
 import { StatsClient } from "./stats-client";
 import { StatsServerManager } from "./stats-server";
+import { stopStockHelper } from "./stock-helper";
 import { type PersistedTabLayout, sanitizePersistedTabLayouts } from "./tab-layout";
 import { createTray, destroyTray, hasTray } from "./tray";
 import {
@@ -285,6 +288,7 @@ let remoteDevices: RemoteDevices | null = null;
 let worktreePrompts: WorktreePrompts | null = null;
 let worktreeLifecycle: WorktreeLifecycle | null = null;
 let setupService: SetupService | null = null;
+let ompUpdater: OmpUpdater | null = null;
 let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
 /** Keep-awake while this computer's own tabs run a turn (Settings › General › Window). */
@@ -643,7 +647,54 @@ app.whenReady().then(() => {
 	});
 	setupService = setup;
 	registerSetupIpc(ipcMain, setup);
-	void setup.start();
+	// omp keeps itself current (src/main/omp-updater.ts): a packaged app checks on its own; a test
+	// launch only with a fake installer and a fake registry (OMP_GUI_TEST_NPM_REGISTRY). OMPdesk's
+	// own update stays manual. It starts once machine setup's first pass has detected omp.
+	const testRegistry = testInstaller ? process.env.OMP_GUI_TEST_NPM_REGISTRY || null : null;
+	const updater = new OmpUpdater({
+		scheduled: testInstaller ? testRegistry !== null : app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
+		enabled: () => prefs.get(OMP_AUTO_UPDATE_PREF) !== false,
+		fetchLatest: npmLatestOmp(testRegistry ?? DEFAULT_NPM_REGISTRY),
+		installed: () => {
+			const presence = setup.state().items.find(item => item.id === "omp")?.presence;
+			return presence?.kind === "present" ? presence.version : null;
+		},
+		update: (target, beforeInstall) => setup.updateOmp(target, beforeInstall),
+		releaseHelpers: async () => {
+			const stats = statsServer;
+			statsServer = null;
+			statsClient.port = 0;
+			await Promise.all([stats?.kill(), stopStockHelper()]);
+		},
+		resume: async updated => {
+			if (updated) {
+				const resolution = await refreshSystemOmp();
+				if (resolution.ok) hostOmpVersion = resolution.runtime.version;
+			}
+			await launchStats();
+			if (updated) {
+				sidecarPool.restartOnNewOmp();
+				hostServices.restartOnNewOmp();
+			}
+		},
+		onState: state => {
+			for (const win of BrowserWindow.getAllWindows()) {
+				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.OMP_UPDATE_STATE, state);
+			}
+		},
+		// One quiet toast, in one window.
+		onUpdated: notice => {
+			const windows = BrowserWindow.getAllWindows().filter(win => !win.isDestroyed());
+			const target = BrowserWindow.getFocusedWindow() ?? windows[0];
+			target?.webContents.send(IPC_EVENTS.OMP_UPDATED, notice);
+		},
+	});
+	ompUpdater = updater;
+	registerOmpUpdateIpc(ipcMain, updater);
+	void setup
+		.start()
+		.catch(() => undefined)
+		.then(() => updater.start());
 	githubAuthService = createGithubAuthService(state => {
 		for (const win of BrowserWindow.getAllWindows()) {
 			if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.GITHUB_AUTH_STATE, state);
@@ -714,6 +765,7 @@ app.whenReady().then(() => {
 		onPrefChanged: key => {
 			if (key === KEEP_AWAKE_WORKING_PREF) syncWorkAwake();
 			if (key === WORKTREE_AUTO_CLEAN_PREF) autoClean.prefChanged();
+			if (key === OMP_AUTO_UPDATE_PREF) updater.prefChanged();
 		},
 	});
 	protocol.handle(MEDIA_SCHEME, request => mediaStreams.handle(request));
@@ -784,7 +836,8 @@ app.on("window-all-closed", () => {
 installQuitGuard(
 	() => (sidecarPool ? sidecarPool.tabInventory() : []),
 	() => {
-		statsServer?.kill();
+		void statsServer?.kill();
+		ompUpdater?.dispose();
 		setupService?.dispose();
 		githubAuthService?.dispose();
 		scheduleService?.dispose();

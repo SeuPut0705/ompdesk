@@ -16,8 +16,21 @@ import { createWorkReplay, type RecordedWorkFrame, rebaseWorkRecording } from ".
 // stdin/stdout, plus the gui-bridge extension's socket (loaded with `-e`,
 // address in `OMP_GUI_BRIDGE`) answering the bridge methods the e2e suites
 // reach. No provider credentials, external network, or user session files.
+/**
+ * The version this fake omp reports: `OMP_GUI_TEST_VERSION_FILE`'s text once that file exists (a fake
+ * installer writes it, i.e. "omp updated"), else 18.8.7. `OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE=<feature>`
+ * makes the bridge's capabilities probe report that feature missing on any version but 18.8.7.
+ * `OMP_GUI_TEST_BOOT_LOG=<file>` gets one line (the version) per `--mode rpc-ui` boot.
+ */
+const FIXTURE_OMP_VERSION = (() => {
+	const file = process.env.OMP_GUI_TEST_VERSION_FILE;
+	return (file && fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : "") || "18.8.7";
+})();
+if (process.env.OMP_GUI_TEST_BOOT_LOG && process.argv.includes("rpc-ui")) {
+	fs.appendFileSync(process.env.OMP_GUI_TEST_BOOT_LOG, `${FIXTURE_OMP_VERSION}\n`);
+}
 if (process.argv.includes("--version")) {
-	console.log("omp/18.8.7");
+	console.log(`omp/${FIXTURE_OMP_VERSION}`);
 	process.exit(0);
 }
 if (process.argv[2] === "stats") {
@@ -1010,7 +1023,13 @@ if (process.argv[2] === "stats") {
 	let relayServer: { server: { stop(): void }; url: string; token: string } | null = null;
 	/** A handler returning `undefined` replies itself (deferred, or ahead of the events it pushes). */
 	const bridgeMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
-		capabilities: () => ({ ompVersion: "18.8.7", unavailable: [] }),
+		capabilities: () => ({
+			ompVersion: FIXTURE_OMP_VERSION,
+			unavailable:
+				FIXTURE_OMP_VERSION !== "18.8.7" && process.env.OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE
+					? [{ feature: process.env.OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE, missing: ["fixture"] }]
+					: [],
+		}),
 		// gui-bridge browser-relay.ts: stock's own relay server, loaded from the installed omp
 		// only when a spec names it (OMP_E2E_STOCK_RELAY = stock's tools/browser/relay/server.ts).
 		// The endpoint lands in OMP_E2E_RELAY_FILE so the spec can connect puppeteer to it.
