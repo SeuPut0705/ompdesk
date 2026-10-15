@@ -97,11 +97,18 @@ interface ForwardRuntime {
 	/** When the forward last dropped while running; reconnecting stops `graceMs` after it. */
 	droppedAt: number | null;
 	timer: NodeJS.Timeout | null;
+	/** Bumped by every halt (stop, remove, reconnect, dispose): a connect that sees it changed is stale and ends. */
+	generation: number;
+	/** The generation whose connect is in flight (before its ssh exists), else null: one connect per generation. */
+	connecting: number | null;
+	/** Every ssh of this forward that has not closed yet, halted ones included: they still hold the local port. */
+	exits: Set<Promise<void>>;
 }
 interface WatchRuntime {
 	watch: SshPortWatch;
 	target: SshTarget;
-	child: ChildProcess;
+	/** Null while the ssh is being started; the entry is in the map from the toggle on, so a toggle off finds it. */
+	child: ChildProcess | null;
 	initial: number[] | null;
 	stopped: boolean;
 }
@@ -148,6 +155,20 @@ function accepts(port: number): Promise<boolean> {
 	return promise;
 }
 
+function forwardRuntime(forward: SshForward, active: boolean): ForwardRuntime {
+	return {
+		forward,
+		active,
+		child: null,
+		attempt: 0,
+		droppedAt: null,
+		timer: null,
+		generation: 0,
+		connecting: null,
+		exits: new Set(),
+	};
+}
+
 export interface SshToolsDeps {
 	userData: string;
 	broadcast: (channel: "state" | "prompt", data: SshToolsState | SshPrompt[]) => void;
@@ -163,6 +184,9 @@ export class SshTools {
 	#graceMs = SSH_GRACE_DEFAULT_MS;
 	#config: Promise<{ config: string; knownHosts: string }> | null = null;
 	#loaded: Promise<void> | null = null;
+	/** Saves run one after another, so an older snapshot never lands after a newer one. */
+	#saving: Promise<void> = Promise.resolve();
+	#disposed = false;
 
 	constructor(deps: SshToolsDeps) {
 		this.#deps = deps;
@@ -175,18 +199,20 @@ export class SshTools {
 	start(): Promise<void> {
 		this.#loaded ??= (async () => {
 			const text = await fs.readFile(this.#storeFile, "utf8").catch(() => null);
-			const parsed = text ? storeSchema.safeParse(JSON.parse(text)) : null;
-			if (!parsed?.success) return;
-			this.#graceMs = parsed.data.graceMs;
-			for (const saved of parsed.data.forwards) {
-				const runtime: ForwardRuntime = {
-					forward: { ...saved, status: { kind: "stopped", error: null } },
-					active: saved.active,
-					child: null,
-					attempt: 0,
-					droppedAt: null,
-					timer: null,
-				};
+			if (text === null) return;
+			let data: z.infer<typeof storeSchema> | null = null;
+			try {
+				const parsed = storeSchema.safeParse(JSON.parse(text));
+				if (parsed.success) data = parsed.data;
+			} catch {}
+			if (!data) {
+				// Keep an unreadable store aside: the next save would otherwise overwrite the user's forwards.
+				await fs.rename(this.#storeFile, `${this.#storeFile}.corrupt`).catch(() => {});
+				return;
+			}
+			this.#graceMs = data.graceMs;
+			for (const saved of data.forwards) {
+				const runtime = forwardRuntime({ ...saved, status: { kind: "stopped", error: null } }, saved.active);
 				this.#forwards.set(saved.id, runtime);
 				if (saved.active) void this.#connect(runtime);
 			}
@@ -210,10 +236,12 @@ export class SshTools {
 	async command(raw: unknown): Promise<SshToolsState> {
 		await this.start();
 		const request = requestSchema.parse(raw);
-		if (request.action === "watch")
-			await (request.on ? this.#watch(request.target) : this.#unwatch(request.target.name));
-		else if (request.action === "forward") await this.#forward(request.target, request.remotePort, request.localPort);
-		else if (request.action === "stop" || request.action === "remove" || request.action === "reconnect") {
+		if (request.action === "watch") {
+			if (request.on) await this.#watch(request.target);
+			else this.#unwatch(request.target.name);
+		} else if (request.action === "forward") {
+			await this.#forward(request.target, request.remotePort, request.localPort);
+		} else if (request.action === "stop" || request.action === "remove" || request.action === "reconnect") {
 			const runtime = this.#forwards.get(request.id);
 			if (!runtime) throw new Error("Unknown forward");
 			if (request.action === "reconnect") {
@@ -262,11 +290,9 @@ export class SshTools {
 	}
 
 	dispose(): void {
+		this.#disposed = true;
 		for (const runtime of this.#forwards.values()) this.#halt(runtime);
-		for (const watch of this.#watches.values()) {
-			watch.stopped = true;
-			watch.child.stdin?.end();
-		}
+		for (const server of [...this.#watches.keys()]) this.#unwatch(server);
 		this.#askpass.close();
 	}
 
@@ -275,25 +301,46 @@ export class SshTools {
 	}
 
 	#sshConfig() {
-		this.#config ??= writeSshConfig(this.#dir, os.homedir());
-		return this.#config;
+		if (this.#config) return this.#config;
+		const config = writeSshConfig(this.#dir, os.homedir());
+		this.#config = config;
+		// A failed write (folder in the way, disk full) must not be remembered for the whole session.
+		config.catch(() => {
+			if (this.#config === config) this.#config = null;
+		});
+		return config;
 	}
 
-	async #save(): Promise<void> {
-		const data = {
-			graceMs: this.#graceMs,
-			forwards: [...this.#forwards.values()].map(({ forward, active }) => ({
-				id: forward.id,
-				server: forward.server,
-				target: forward.target,
-				localPort: forward.localPort,
-				remotePort: forward.remotePort,
-				active,
-			})),
-		};
-		await fs.mkdir(path.dirname(this.#storeFile), { recursive: true });
-		await fs.writeFile(`${this.#storeFile}.tmp`, JSON.stringify(data, null, "\t"));
-		await fs.rename(`${this.#storeFile}.tmp`, this.#storeFile);
+	#save(): Promise<void> {
+		const write = this.#saving.then(async () => {
+			const data = {
+				graceMs: this.#graceMs,
+				forwards: [...this.#forwards.values()].map(({ forward, active }) => ({
+					id: forward.id,
+					server: forward.server,
+					target: forward.target,
+					localPort: forward.localPort,
+					remotePort: forward.remotePort,
+					active,
+				})),
+			};
+			await fs.mkdir(path.dirname(this.#storeFile), { recursive: true });
+			const temp = `${this.#storeFile}.${randomBytes(4).toString("hex")}.tmp`;
+			try {
+				await fs.writeFile(temp, JSON.stringify(data, null, "\t"));
+				await fs.rename(temp, this.#storeFile);
+			} catch (error) {
+				await fs.rm(temp, { force: true });
+				throw error;
+			}
+		});
+		this.#saving = write.catch(() => {});
+		return write;
+	}
+
+	/** For the places nobody awaits (a close handler, a background connect): a failed save is not an unhandled rejection. */
+	#saveQuietly(): Promise<void> {
+		return this.#save().catch(() => {});
 	}
 
 	/** Start an ssh under the supervisor, asking through askpass on behalf of `server`. */
@@ -320,8 +367,8 @@ export class SshTools {
 			await this.#save();
 			return;
 		}
-		const runtime: ForwardRuntime = {
-			forward: {
+		const runtime = forwardRuntime(
+			{
 				id: randomBytes(8).toString("hex"),
 				server: target.name,
 				target,
@@ -329,12 +376,8 @@ export class SshTools {
 				remotePort,
 				status: { kind: "connecting" },
 			},
-			active: true,
-			child: null,
-			attempt: 0,
-			droppedAt: null,
-			timer: null,
-		};
+			true,
+		);
 		this.#forwards.set(runtime.forward.id, runtime);
 		await this.#save();
 		void this.#connect(runtime);
@@ -345,7 +388,9 @@ export class SshTools {
 		this.#changed();
 	}
 
+	/** Ends the forward's ssh (it stops a moment after its stdin closes) and voids any connect in flight. */
 	#halt(runtime: ForwardRuntime): void {
+		runtime.generation += 1;
 		clearTimeout(runtime.timer ?? undefined);
 		runtime.timer = null;
 		const child = runtime.child;
@@ -353,88 +398,148 @@ export class SshTools {
 		child?.stdin?.end();
 	}
 
+	/** Never rejects: a failure becomes the forward's stopped status. */
 	async #connect(runtime: ForwardRuntime): Promise<void> {
-		const { forward } = runtime;
-		runtime.timer = null;
-		this.#status(runtime, { kind: "connecting" });
-		// The saved local port may have been taken while it was down.
-		if (!(await freePort(forward.localPort).then(port => port === forward.localPort))) {
-			runtime.active = false;
-			this.#status(runtime, { kind: "stopped", error: `Local port ${forward.localPort} is in use` });
-			await this.#save();
-			return;
-		}
-		const { child, release } = await this.#spawn(forward.server, [
-			"-N",
-			"-o",
-			"ExitOnForwardFailure=yes",
-			"-L",
-			`127.0.0.1:${forward.localPort}:127.0.0.1:${forward.remotePort}`,
-			...targetArgs(forward.target),
-		]);
-		runtime.child = child;
-		let stderr = "";
-		child.stderr?.setEncoding("utf8");
-		child.stderr?.on("data", chunk => {
-			stderr = (stderr + chunk).slice(-STDERR_KEEP);
-		});
-		child.stdout?.resume();
-		const probe = setInterval(() => {
-			if (runtime.child !== child) return clearInterval(probe);
-			void accepts(forward.localPort).then(open => {
-				if (!open || runtime.child !== child || runtime.forward.status.kind === "up") return;
-				clearInterval(probe);
-				runtime.attempt = 0;
-				runtime.droppedAt = null;
-				this.#status(runtime, { kind: "up" });
+		const generation = runtime.generation;
+		if (runtime.child || runtime.connecting === generation) return;
+		runtime.connecting = generation;
+		const stale = () => this.#disposed || !runtime.active || runtime.generation !== generation;
+		try {
+			clearTimeout(runtime.timer ?? undefined);
+			runtime.timer = null;
+			this.#status(runtime, { kind: "connecting" });
+			// A halted ssh still holds the local port until it has closed.
+			while (runtime.exits.size > 0) await Promise.all([...runtime.exits]);
+			if (stale()) return;
+			const { forward } = runtime;
+			// The saved local port may have been taken while it was down.
+			const free = await freePort(forward.localPort).then(port => port === forward.localPort);
+			if (stale()) return;
+			if (!free) {
+				runtime.active = false;
+				this.#status(runtime, { kind: "stopped", error: `Local port ${forward.localPort} is in use` });
+				await this.#saveQuietly();
+				return;
+			}
+			const { child, release } = await this.#spawn(forward.server, [
+				"-N",
+				"-o",
+				"ExitOnForwardFailure=yes",
+				"-L",
+				`127.0.0.1:${forward.localPort}:127.0.0.1:${forward.remotePort}`,
+				...targetArgs(forward.target),
+			]);
+			const exited = new Promise<void>(resolve => {
+				let done = false;
+				const finish = () => {
+					if (done) return;
+					done = true;
+					runtime.exits.delete(exited);
+					release();
+					resolve();
+				};
+				child.once("close", finish);
+				child.once("error", finish);
 			});
-		}, PROBE_MS);
-		child.on("close", () => {
-			clearInterval(probe);
-			release();
-			if (runtime.child !== child) return;
-			runtime.child = null;
-			if (!runtime.active) return;
-			const failure = classifyFailure(stderr);
-			if (failure.kind === "hostKeyChanged") {
-				runtime.active = false;
-				this.#status(runtime, { kind: "hostKeyChanged", detail: failure.message });
-				void this.#save();
+			runtime.exits.add(exited);
+			if (stale()) {
+				child.stdin?.end();
 				return;
 			}
-			if (failure.kind === "refused") {
-				runtime.active = false;
-				this.#status(runtime, { kind: "stopped", error: failure.message });
-				void this.#save();
-				return;
-			}
-			const now = Date.now();
-			runtime.droppedAt ??= now;
-			if (now - runtime.droppedAt >= this.#graceMs) {
-				runtime.active = false;
-				this.#status(runtime, { kind: "stopped", error: failure.message });
-				void this.#save();
-				return;
-			}
-			const delay = RETRY_DELAYS_MS[Math.min(runtime.attempt, RETRY_DELAYS_MS.length - 1)] ?? 60_000;
-			runtime.attempt += 1;
-			this.#status(runtime, { kind: "retrying", at: now + delay, attempt: runtime.attempt, error: failure.message });
-			runtime.timer = setTimeout(() => void this.#connect(runtime), delay);
-		});
+			runtime.child = child;
+			let stderr = "";
+			child.stderr?.setEncoding("utf8");
+			child.stderr?.on("data", chunk => {
+				stderr = (stderr + chunk).slice(-STDERR_KEEP);
+			});
+			child.stdout?.resume();
+			const probe = setInterval(() => {
+				if (runtime.child !== child) return clearInterval(probe);
+				void accepts(forward.localPort).then(open => {
+					if (!open || runtime.child !== child || runtime.forward.status.kind === "up") return;
+					clearInterval(probe);
+					runtime.attempt = 0;
+					runtime.droppedAt = null;
+					this.#status(runtime, { kind: "up" });
+				});
+			}, PROBE_MS);
+			child.on("close", () => {
+				clearInterval(probe);
+				if (runtime.child !== child) return;
+				runtime.child = null;
+				if (!runtime.active) return;
+				const failure = classifyFailure(stderr);
+				if (failure.kind === "hostKeyChanged") {
+					runtime.active = false;
+					this.#status(runtime, { kind: "hostKeyChanged", detail: failure.message });
+					void this.#saveQuietly();
+					return;
+				}
+				if (failure.kind === "refused") {
+					runtime.active = false;
+					this.#status(runtime, { kind: "stopped", error: failure.message });
+					void this.#saveQuietly();
+					return;
+				}
+				const now = Date.now();
+				runtime.droppedAt ??= now;
+				if (now - runtime.droppedAt >= this.#graceMs) {
+					runtime.active = false;
+					this.#status(runtime, { kind: "stopped", error: failure.message });
+					void this.#saveQuietly();
+					return;
+				}
+				const delay = RETRY_DELAYS_MS[Math.min(runtime.attempt, RETRY_DELAYS_MS.length - 1)] ?? 60_000;
+				runtime.attempt += 1;
+				this.#status(runtime, {
+					kind: "retrying",
+					at: now + delay,
+					attempt: runtime.attempt,
+					error: failure.message,
+				});
+				runtime.timer = setTimeout(() => void this.#connect(runtime), delay);
+			});
+		} catch (error) {
+			if (stale()) return;
+			runtime.active = false;
+			this.#status(runtime, { kind: "stopped", error: error instanceof Error ? error.message : String(error) });
+			await this.#saveQuietly();
+		} finally {
+			if (runtime.connecting === generation) runtime.connecting = null;
+		}
 	}
 
 	async #watch(target: SshTarget): Promise<void> {
-		await this.#unwatch(target.name);
+		this.#unwatch(target.name);
 		const loop = `while :; do (ss -ltnH 2>/dev/null || netstat -ltn 2>/dev/null || lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null); echo ${WATCH_MARKER}; sleep ${SSH_PORT_POLL_SECONDS}; done`;
-		const { child, release } = await this.#spawn(target.name, [...targetArgs(target), "sh", "-c", `'${loop}'`]);
+		// In the map before the first await: a toggle off (or another toggle on) during the start finds this entry.
 		const runtime: WatchRuntime = {
 			watch: { server: target.name, ports: [], opened: [], error: null, loading: true },
 			target,
-			child,
+			child: null,
 			initial: null,
 			stopped: false,
 		};
 		this.#watches.set(target.name, runtime);
+		let spawned: { child: ChildProcess; release: () => void };
+		try {
+			spawned = await this.#spawn(target.name, [...targetArgs(target), "sh", "-c", `'${loop}'`]);
+		} catch (error) {
+			if (runtime.stopped) return;
+			runtime.watch = {
+				...runtime.watch,
+				loading: false,
+				error: error instanceof Error ? error.message : String(error),
+			};
+			return;
+		}
+		const { child, release } = spawned;
+		child.once("close", release);
+		if (runtime.stopped) {
+			child.stdin?.end();
+			return;
+		}
+		runtime.child = child;
 		let buffer = "";
 		let stderr = "";
 		child.stdout?.setEncoding("utf8");
@@ -471,19 +576,18 @@ export class SshTools {
 			stderr = (stderr + chunk).slice(-STDERR_KEEP);
 		});
 		child.on("close", () => {
-			release();
 			if (runtime.stopped || this.#watches.get(target.name) !== runtime) return;
 			runtime.watch = { ...runtime.watch, loading: false, error: classifyFailure(stderr).message };
 			this.#changed();
 		});
 	}
 
-	async #unwatch(server: string): Promise<void> {
+	#unwatch(server: string): void {
 		const runtime = this.#watches.get(server);
 		if (!runtime) return;
 		runtime.stopped = true;
 		this.#watches.delete(server);
-		runtime.child.stdin?.end();
+		runtime.child?.stdin?.end();
 	}
 
 	/** C147: drop the target's and every hop's saved key from OMPdesk's known_hosts. */

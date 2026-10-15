@@ -34,6 +34,8 @@ socket.on("close", () => {
 
 interface Pending {
 	prompt: SshPrompt;
+	/** The ssh process that asked; `release` cancels only its own questions. */
+	token: string;
 	finish: (value: string | null) => void;
 }
 
@@ -51,7 +53,8 @@ export class AskpassServer {
 	}
 
 	#start(): Promise<{ socket: string; helper: string; script: string }> {
-		this.#ready ??= (async () => {
+		if (this.#ready) return this.#ready;
+		const ready = (async () => {
 			await fs.mkdir(this.#dir, { recursive: true, mode: 0o700 });
 			const script = path.join(this.#dir, "askpass.js");
 			await fs.writeFile(script, HELPER_SOURCE, { mode: 0o600 });
@@ -75,7 +78,12 @@ export class AskpassServer {
 			this.#server = server;
 			return { socket, helper, script };
 		})();
-		return this.#ready;
+		this.#ready = ready;
+		// A failed start (disk full, folder in the way) must not be remembered for the whole session.
+		ready.catch(() => {
+			if (this.#ready === ready) this.#ready = null;
+		});
+		return ready;
 	}
 
 	/** Environment for one ssh process asking on behalf of `server`; `release` forgets its token. */
@@ -95,7 +103,7 @@ export class AskpassServer {
 			},
 			release: () => {
 				this.#tokens.delete(token);
-				for (const [id, pending] of this.#pending) if (pending.prompt.server === server) this.answer(id, null);
+				for (const [id, pending] of this.#pending) if (pending.token === token) this.answer(id, null);
 			},
 		};
 	}
@@ -132,7 +140,8 @@ export class AskpassServer {
 				connection.destroy();
 				return;
 			}
-			const server = typeof request.token === "string" ? this.#tokens.get(request.token) : undefined;
+			const token = typeof request.token === "string" ? request.token : "";
+			const server = this.#tokens.get(token);
 			if (!server || typeof request.prompt !== "string") {
 				connection.end(JSON.stringify({ cancel: true }));
 				return;
@@ -154,7 +163,7 @@ export class AskpassServer {
 				this.#onChange(this.list());
 			};
 			connection.on("close", () => finish(null));
-			this.#pending.set(id, { prompt, finish });
+			this.#pending.set(id, { prompt, token, finish });
 			this.#onChange(this.list());
 		});
 	}

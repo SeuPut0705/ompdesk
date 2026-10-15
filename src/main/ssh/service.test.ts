@@ -222,6 +222,137 @@ describe.skipIf(process.platform === "win32")("SshTools", () => {
 			agentKeys: ["256 SHA256:agentKeyFingerprint fake@laptop (ED25519)"],
 		});
 	}, 30_000);
+
+	describe("re-entrancy", () => {
+		const portOpen = (port: number) => {
+			const { promise, resolve } = Promise.withResolvers<boolean>();
+			const probe = net.connect(port, "127.0.0.1");
+			probe.once("connect", () => {
+				probe.destroy();
+				resolve(true);
+			});
+			probe.once("error", () => resolve(false));
+			return promise;
+		};
+		// A negative claim ("no ssh ever starts", "no loop keeps running") has no event to await: it needs
+		// real wall-clock time for a stray process to show up, so fake timers cannot stand in for it.
+		const quiet = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+		const forwardCalls = async () =>
+			(await fs.readFile(path.join(fake, "calls"), "utf8").catch(() => ""))
+				.split("\n")
+				.filter(line => line.includes('"-L"')).length;
+		const listings = async () => (await fs.readFile(path.join(fake, "listings"), "utf8").catch(() => "")).length;
+		/** The host key is known, so no question blocks these tests. */
+		const trustHost = async () => {
+			await fs.mkdir(path.join(root, "user", "ssh"), { recursive: true });
+			await fs.writeFile(path.join(root, "user", "ssh", "known_hosts"), "box.example ssh-ed25519 AAAAfake\n");
+		};
+
+		it("spawns one ssh when the launch restore and a user command connect the same forward", async () => {
+			await trustHost();
+			const probe = net.createServer();
+			const bound = Promise.withResolvers<void>();
+			probe.listen(0, "127.0.0.1", () => bound.resolve());
+			await bound.promise;
+			const localPort = (probe.address() as net.AddressInfo).port;
+			await new Promise<void>(resolve => probe.close(() => resolve()));
+			const store = path.join(root, "user", "ssh-forwards.json");
+			await fs.writeFile(
+				store,
+				JSON.stringify({
+					graceMs: 3_600_000,
+					forwards: [{ id: "saved", server: "box", target, localPort, remotePort, active: true }],
+				}),
+			);
+			await tools.start();
+			await tools.command({ action: "forward", target, remotePort });
+			await vi.waitFor(() => expect(status()).toBe("up"), { timeout: 10_000 });
+			await quiet(500);
+			expect(await forwardCalls()).toBe(1);
+			expect(state.forwards).toHaveLength(1);
+			// A second connect must not mark the forward stopped ("port in use" by its own ssh).
+			const saved = JSON.parse(await fs.readFile(store, "utf8")) as { forwards: { active: boolean }[] };
+			expect(saved.forwards[0]?.active).toBe(true);
+		}, 20_000);
+
+		it("does not start ssh when the forward is removed while it connects", async () => {
+			await trustHost();
+			const started = await tools.command({ action: "forward", target, remotePort });
+			const forward = started.forwards[0];
+			await tools.command({ action: "remove", id: forward?.id ?? "" });
+			await quiet(2_000);
+			expect(state.forwards).toEqual([]);
+			expect(await portOpen(forward?.localPort ?? 0)).toBe(false);
+		}, 20_000);
+
+		it("does not start ssh when the forward is stopped while it connects", async () => {
+			await trustHost();
+			const started = await tools.command({ action: "forward", target, remotePort });
+			const forward = started.forwards[0];
+			await tools.command({ action: "stop", id: forward?.id ?? "" });
+			await quiet(2_000);
+			expect(state.forwards[0]?.status).toEqual({ kind: "stopped", error: null });
+			expect(await portOpen(forward?.localPort ?? 0)).toBe(false);
+		}, 20_000);
+
+		it("dispose stops a forward that is still connecting", async () => {
+			await trustHost();
+			const started = await tools.command({ action: "forward", target, remotePort });
+			tools.dispose();
+			await quiet(2_000);
+			expect(await portOpen(started.forwards[0]?.localPort ?? 0)).toBe(false);
+		}, 20_000);
+
+		it("reconnects a running forward without finding its own port busy", async () => {
+			await trustHost();
+			await tools.command({ action: "forward", target, remotePort });
+			await vi.waitFor(() => expect(status()).toBe("up"), { timeout: 10_000 });
+			await tools.command({ action: "reconnect", id: state.forwards[0]?.id ?? "" });
+			await vi.waitFor(() => expect(status()).toBe("up"), { timeout: 10_000 });
+			expect(await forwardCalls()).toBe(2);
+		}, 20_000);
+
+		it("leaves no remote loop behind when a watch is toggled on and off at once", async () => {
+			await trustHost();
+			await fs.writeFile(path.join(fake, "ports"), "22");
+			await Promise.all([
+				tools.command({ action: "watch", target, on: true }),
+				tools.command({ action: "watch", target, on: false }),
+			]);
+			expect(state.watches).toEqual([]);
+			await quiet(1_500);
+			const before = await listings();
+			await quiet(1_000);
+			expect(await listings()).toBe(before);
+			expect(state.watches).toEqual([]);
+		}, 20_000);
+
+		it("reports a failed start instead of an unhandled rejection, and starts again once it can", async () => {
+			await trustHost();
+			// A file where the ssh config folder belongs: writing the config fails.
+			await fs.rm(path.join(root, "user", "ssh"), { recursive: true });
+			await fs.writeFile(path.join(root, "user", "ssh"), "in the way");
+			await tools.command({ action: "forward", target, remotePort });
+			await vi.waitFor(() => expect(state.forwards[0]?.status.kind).toBe("stopped"), { timeout: 10_000 });
+			expect(state.forwards[0]?.status).toMatchObject({ error: expect.any(String) });
+			await fs.rm(path.join(root, "user", "ssh"));
+			await trustHost();
+			await tools.command({ action: "reconnect", id: state.forwards[0]?.id ?? "" });
+			await vi.waitFor(() => expect(status()).toBe("up"), { timeout: 10_000 });
+		}, 20_000);
+
+		it("saves concurrent changes without losing the file, and keeps a corrupt store aside", async () => {
+			const store = path.join(root, "user", "ssh-forwards.json");
+			await fs.mkdir(path.dirname(store), { recursive: true });
+			await fs.writeFile(store, "{ not json");
+			await Promise.all(
+				[60_000, 120_000, 180_000, 240_000, 300_000].map(ms => tools.command({ action: "setGrace", ms })),
+			);
+			expect(await fs.readFile(`${store}.corrupt`, "utf8")).toBe("{ not json");
+			expect(JSON.parse(await fs.readFile(store, "utf8"))).toMatchObject({ forwards: [] });
+			expect((await fs.readdir(path.dirname(store))).filter(name => name.includes(".tmp"))).toEqual([]);
+		}, 20_000);
+	});
 });
 
 describe.skipIf(process.platform === "win32")("askpass", () => {
@@ -241,6 +372,40 @@ describe.skipIf(process.platform === "win32")("askpass", () => {
 			await closed.promise;
 			expect(JSON.parse(reply)).toEqual({ cancel: true });
 			expect(server.list()).toEqual([]);
+		} finally {
+			server.close();
+			await fs.rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("release cancels only the prompts of its own token, not another process's on the same server", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-askpass-"));
+		const seen: SshPrompt[][] = [];
+		const server = new AskpassServer(dir, prompts => seen.push(prompts));
+		const ask = (env: NodeJS.ProcessEnv, prompt: string) => {
+			const socket = net.connect(env.OMPDESK_ASKPASS_SOCKET ?? "");
+			let reply = "";
+			socket.on("data", chunk => {
+				reply += chunk;
+			});
+			const closed = Promise.withResolvers<string>();
+			socket.on("close", () => closed.resolve(reply));
+			socket.write(`${JSON.stringify({ token: env.OMPDESK_ASKPASS_TOKEN, prompt })}\n`);
+			return { socket, closed: closed.promise };
+		};
+		try {
+			const forward = await server.env("box");
+			const watch = await server.env("box");
+			const watchAsk = ask(watch.env, "box's password: ");
+			const forwardAsk = ask(forward.env, "Enter passphrase for key: ");
+			await vi.waitFor(() => expect(server.list()).toHaveLength(2));
+			// The watch ends: its question goes, the forward's stays open on the same server.
+			watch.release();
+			expect(JSON.parse(await watchAsk.closed)).toEqual({ cancel: true });
+			expect(server.list().map(prompt => prompt.kind)).toEqual(["passphrase"]);
+			const [pending] = server.list();
+			server.answer(pending?.id ?? "", "secret");
+			expect(JSON.parse(await forwardAsk.closed)).toEqual({ value: "secret" });
 		} finally {
 			server.close();
 			await fs.rm(dir, { recursive: true, force: true });
