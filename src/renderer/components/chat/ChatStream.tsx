@@ -750,6 +750,10 @@ function SessionTranscript() {
 	}, [beginGesture, endScrollGesture]);
 
 	// The rows the selection covers, kept mounted until it collapses or leaves the transcript.
+	// New rows re-read a pinned selection's span; without a pin there is nothing to re-read
+	// (`selectionchange` sets one), and reading the selection forces a layout on every row
+	// change, a session open included.
+	const hasSelectionPin = selectionPin.length > 0;
 	useEffect(() => {
 		const el = parentRef.current;
 		if (!el) return;
@@ -761,10 +765,10 @@ function SessionTranscript() {
 				current.length === span.length && current.every((key, index) => key === span[index]) ? current : span,
 			);
 		};
-		update();
+		if (hasSelectionPin) update();
 		document.addEventListener("selectionchange", update);
 		return () => document.removeEventListener("selectionchange", update);
-	}, [rowKeys]);
+	}, [rowKeys, hasSelectionPin]);
 
 	const releaseTailPin = useCallback(() => {
 		beginGesture(null);

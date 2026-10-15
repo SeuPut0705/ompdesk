@@ -263,6 +263,44 @@ async function heap(page: Page, snapshot?: string) {
 	};
 }
 
+/**
+ * With OMP_GUI_FLOW_TRACE set, a Chromium trace (main-thread tasks, style, layout,
+ * sampled JS stacks) from now until the returned `stop(name)` writes
+ * `<name>.trace.json` there; without it, `stop` does nothing.
+ */
+async function startTrace(page: Page): Promise<(name: string) => Promise<void>> {
+	const traceDir = process.env.OMP_GUI_FLOW_TRACE;
+	if (!traceDir) return async () => {};
+	const tracer = await page.context().newCDPSession(page);
+	const traceEvents: unknown[] = [];
+	tracer.on("Tracing.dataCollected", ({ value }) => traceEvents.push(...value));
+	await tracer.send("Tracing.start", {
+		transferMode: "ReportEvents",
+		traceConfig: {
+			includedCategories: [
+				"toplevel",
+				"ipc",
+				"blink",
+				"devtools.timeline",
+				"disabled-by-default-devtools.timeline",
+				"disabled-by-default-devtools.timeline.stack",
+				"v8",
+				"v8.execute",
+				"disabled-by-default-v8.cpu_profiler",
+			],
+		},
+	});
+	return async name => {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		tracer.once("Tracing.tracingComplete", () => resolve());
+		await tracer.send("Tracing.end");
+		await promise;
+		await fs.mkdir(traceDir, { recursive: true });
+		await fs.writeFile(path.join(traceDir, `${name}.trace.json`), JSON.stringify({ traceEvents }));
+		await tracer.detach();
+	};
+}
+
 /** Each run launches every subject on a fresh profile, alternating which goes first. */
 async function eachRun(
 	flow: string,
@@ -382,44 +420,12 @@ test.describe("flow performance", () => {
 			const { app, page } = await launch(subject.root, where, { seed });
 			try {
 				await sidecarReady(page);
-				const traceDir = process.env.OMP_GUI_FLOW_TRACE;
-				const tracer = traceDir ? await page.context().newCDPSession(page) : undefined;
-				const traceEvents: unknown[] = [];
-				if (tracer) {
-					tracer.on("Tracing.dataCollected", ({ value }) => traceEvents.push(...value));
-					await tracer.send("Tracing.start", {
-						transferMode: "ReportEvents",
-						traceConfig: {
-							includedCategories: [
-								"toplevel",
-								"ipc",
-								"blink",
-								"devtools.timeline",
-								"disabled-by-default-devtools.timeline",
-								"disabled-by-default-devtools.timeline.stack",
-								"v8",
-								"v8.execute",
-								"disabled-by-default-v8.cpu_profiler",
-							],
-						},
-					});
-				}
+				const stopTrace = await startTrace(page);
 				// The first open after launch (the one the live-session audit times), then
 				// a second with the bundle in the code cache, as every later open is.
 				const cold = await reloadToTail(page, key);
 				const coldFrames = await bootFrames(page, cold.paintedAt);
-				if (tracer && traceDir) {
-					const { promise, resolve } = Promise.withResolvers<void>();
-					tracer.once("Tracing.tracingComplete", () => resolve());
-					await tracer.send("Tracing.end");
-					await promise;
-					await fs.mkdir(traceDir, { recursive: true });
-					await fs.writeFile(
-						path.join(traceDir, `open-${subject.name}-${run}.trace.json`),
-						JSON.stringify({ traceEvents }),
-					);
-					await tracer.detach();
-				}
+				await stopTrace(`open-${subject.name}-${run}`);
 				await page.waitForTimeout(1000);
 				const warm = await reloadToTail(page, key);
 				const nav = await page.evaluate(() => {
@@ -836,10 +842,12 @@ test.describe("flow performance", () => {
 			const { app, page } = await launch(subject.root, where, { seed });
 			try {
 				await sidecarReady(page);
+				const stopTrace = await startTrace(page);
 				const { openMs, paintedAt } = await reloadToTail(page, key);
 				const rowsAt = await frameWhen(page, () =>
 					document.querySelectorAll("[data-session-path]").length >= 500 ? performance.now() : 0,
 				);
+				await stopTrace(`sidebar-${subject.name}-${run}`);
 				const boot = await bootFrames(page, rowsAt);
 				const sidebar = page.getByRole("complementary").first();
 				const list = await sidebar.boundingBox();

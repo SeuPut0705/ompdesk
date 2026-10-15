@@ -134,6 +134,9 @@ function mentionLink(mention: PathMention, children: ElementContent[]): Element 
 
 /** Prose text split into text and path links; null when it names no path. */
 export function linkifyProse(value: string): ElementContent[] | null {
+	// Every branch of PROSE_PATH needs a `/` or `\`; most text nodes have neither, and the
+	// Unicode-aware lookbehind scan over them cost ~4 ms of a long session's open.
+	if (!value.includes("/") && !value.includes("\\")) return null;
 	const out: ElementContent[] = [];
 	let last = 0;
 	PROSE_PATH.lastIndex = 0;
