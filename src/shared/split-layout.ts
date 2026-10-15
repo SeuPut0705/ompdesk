@@ -63,3 +63,97 @@ export function updateSplitRatio(node: SplitLayout, path: readonly ("first" | "s
 	const child = node[side];
 	return "tabId" in child ? node : { ...node, [side]: updateSplitRatio(child, rest, ratio) };
 }
+
+/** Cap on remembered splits per window (a split holds at least two of the window's tabs). */
+const MAX_REMEMBERED_SPLITS = 16;
+
+/**
+ * Take `tabId` out of `split`; a split left with one session dissolves (null).
+ * Sizes of the surviving panes keep their ratios.
+ */
+export function withoutSplitTab(split: SplitLayout, tabId: string): SplitLayout | null {
+	return asSplitLayout(mapSplitLeaves(split, id => (id === tabId ? null : { tabId: id })));
+}
+
+/** The remembered split `tabId` belongs to (a session is in at most one). */
+export function rememberedSplitOf(splits: readonly SplitLayout[], tabId: string): SplitLayout | undefined {
+	return splits.find(split => splitTabIds(split).includes(tabId));
+}
+
+/** Drop `tabId` from its remembered split (closed tab, deleted session, a pane taken elsewhere). */
+export function forgetSplitTab(splits: readonly SplitLayout[], tabId: string): SplitLayout[] {
+	const owner = rememberedSplitOf(splits, tabId);
+	if (!owner) return [...splits];
+	const rest = withoutSplitTab(owner, tabId);
+	return splits.flatMap(split => (split !== owner ? [split] : rest ? [rest] : []));
+}
+
+/** Remember `split` as the home of its sessions: they leave any other remembered split first. */
+export function rememberSplit(splits: readonly SplitLayout[], split: SplitLayout): SplitLayout[] {
+	let next = [...splits];
+	for (const tabId of splitTabIds(split)) next = forgetSplitTab(next, tabId);
+	return [...next, split];
+}
+
+/** Take the remembered split `tabId` belongs to out of `splits` for display. */
+export function recallSplit(
+	splits: readonly SplitLayout[],
+	tabId: string,
+): { split: SplitLayout | null; rest: SplitLayout[] } {
+	const split = rememberedSplitOf(splits, tabId) ?? null;
+	return { split, rest: splits.filter(candidate => candidate !== split) };
+}
+
+/**
+ * Boundary validation of remembered splits. `resolve` maps a stored leaf to
+ * the tab id it stands for (null = the tab is gone); `claimed` holds the
+ * sessions already placed (the visible split) and grows with every kept
+ * split, so a session ends up in at most one.
+ */
+export function readRememberedSplits(
+	value: unknown,
+	resolve: (tabId: string) => string | null,
+	claimed: Set<string>,
+): SplitLayout[] {
+	if (!Array.isArray(value)) return [];
+	const kept: SplitLayout[] = [];
+	for (const candidate of value) {
+		if (kept.length >= MAX_REMEMBERED_SPLITS) break;
+		const parsed = readSplitNode(candidate);
+		if (!parsed) continue;
+		const split = asSplitLayout(
+			mapSplitLeaves(parsed, source => {
+				const id = resolve(source);
+				return id !== null && !claimed.has(id) ? { tabId: id } : null;
+			}),
+		);
+		if (!split) continue;
+		const ids = splitTabIds(split);
+		if (new Set(ids).size !== ids.length) continue;
+		for (const id of ids) claimed.add(id);
+		kept.push(split);
+	}
+	return kept;
+}
+
+export interface SplitView {
+	/** The split on screen (null = one session shown alone). */
+	split: SplitLayout | null;
+	/** Splits remembered but off screen. */
+	remembered: SplitLayout[];
+}
+
+/**
+ * What the window shows once `tabId` is picked from outside the panes (sidebar
+ * row, ⌘-number, tab overview, ⌃⇥ switcher, session picker):
+ * - a pane of the visible split: only the focus moves, the split stays;
+ * - a member of a remembered split: that split comes back as it was and the
+ *   split that was on screen is remembered in turn;
+ * - anything else: the visible split is remembered and `tabId` shows alone.
+ * A pick never replaces a pane's session.
+ */
+export function viewAfterPick(view: SplitView, tabId: string): SplitView {
+	if (view.split && splitTabIds(view.split).includes(tabId)) return view;
+	const { split, rest } = recallSplit(view.remembered, tabId);
+	return { split, remembered: view.split ? rememberSplit(rest, view.split) : rest };
+}

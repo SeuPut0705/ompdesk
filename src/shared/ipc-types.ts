@@ -1122,6 +1122,8 @@ export interface IpcTabInfo {
 	visible?: boolean;
 	/** Restored split geometry for this visible tab. */
 	split?: SplitLayout;
+	/** GET_TABS: the remembered (off-screen) split this tab belongs to; one tab per split carries the same geometry. */
+	rememberedSplit?: SplitLayout;
 	/** True while automatic transcript compaction is mutating this session. */
 	compacting?: boolean;
 	/** Immutable session kind, fixed when the tab's sidecar was spawned. */
@@ -1233,6 +1235,11 @@ export interface IpcSetTabViewPayload {
 	focusedTabId: string;
 	visibleTabIds: string[];
 	split?: SplitLayout;
+	/**
+	 * Splits remembered but not on screen. Absent = main keeps what it has
+	 * (a plain focus switch); present (even empty) replaces it.
+	 */
+	rememberedSplits?: SplitLayout[];
 }
 
 export interface IpcSidecarRestartPayload {
@@ -1520,7 +1527,12 @@ export interface OmpApi {
 		/** Move full event forwarding to this tab. False when unknown or foreign. */
 		setActive(tabId: string): Promise<boolean>;
 		/** Set the focused tab plus up to four tabs rendered by the window. */
-		setView(focusedTabId: string, visibleTabIds: string[], split?: IpcSetTabViewPayload["split"]): Promise<boolean>;
+		setView(
+			focusedTabId: string,
+			visibleTabIds: string[],
+			split?: IpcSetTabViewPayload["split"],
+			rememberedSplits?: IpcSetTabViewPayload["rememberedSplits"],
+		): Promise<boolean>;
 		/** Put the window's tabs in this order (every tab id once). */
 		reorder(tabIds: string[]): Promise<boolean>;
 		/** The tab/window currently attached to a session file on `device` (absent = this device), if any (F-OWN). */

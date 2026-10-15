@@ -119,6 +119,54 @@ describe("persisted tab layout", () => {
 		expect(restored?.activeIndex).toBe(1);
 	});
 
+	it("keeps remembered splits next to the visible one and remaps their tabs", () => {
+		const pair = (a: string, b: string, ratio = 0.5) => ({
+			axis: "columns",
+			ratio,
+			first: { tabId: a },
+			second: { tabId: b },
+		});
+		const value = {
+			version: 1,
+			activeIndex: 0,
+			tabs: ["/a", "/missing", "/c", "/d", "/e", "/f"].map(cwd => ({ cwd, kind: "agent" })),
+			split: pair("0", "2"),
+			splits: [pair("3", "4", 0.3), pair("1", "5")],
+		};
+		const restored = sanitizePersistedTabLayout(value, pathChecks(["/a", "/c", "/d", "/e", "/f"], []));
+		expect(restored?.split).toEqual(pair("0", "1"));
+		// The second remembered split lost its missing member and dissolves.
+		expect(restored?.splits).toEqual([pair("2", "3", 0.3)]);
+	});
+
+	it("never remembers a session twice or one that is on screen", () => {
+		const pair = (a: string, b: string) => ({
+			axis: "rows",
+			ratio: 0.5,
+			first: { tabId: a },
+			second: { tabId: b },
+		});
+		const tabs = ["/a", "/b", "/c", "/d", "/e"].map(cwd => ({ cwd, kind: "agent" }));
+		const dirs = ["/a", "/b", "/c", "/d", "/e"];
+		// Solo active tab 0 is on screen: its remembered split loses it and dissolves.
+		expect(
+			sanitizePersistedTabLayout(
+				{ version: 1, activeIndex: 0, tabs, splits: [pair("0", "1"), pair("2", "3"), pair("3", "4")] },
+				pathChecks(dirs, []),
+			)?.splits,
+		).toEqual([pair("2", "3")]);
+		// Garbage entries are ignored.
+		expect(
+			sanitizePersistedTabLayout(
+				{ version: 1, activeIndex: 0, tabs, splits: [{ axis: "rows" }, "x", null, pair("1", "2")] },
+				pathChecks(dirs, []),
+			)?.splits,
+		).toEqual([pair("1", "2")]);
+		expect(
+			sanitizePersistedTabLayout({ version: 1, activeIndex: 0, tabs, splits: "nope" }, pathChecks(dirs, []))?.splits,
+		).toBeUndefined();
+	});
+
 	it("drops missing workspaces and selects the nearest surviving tab", () => {
 		const value = {
 			version: 1,

@@ -1701,3 +1701,87 @@ describe("Sidebar archive, grouping and move", () => {
 		}
 	});
 });
+
+describe("Sidebar with a split on screen", () => {
+	const pane = (id: string, title: string) => ({
+		id,
+		cwd: "/work/alpha",
+		status: "ready" as const,
+		kind: "agent" as const,
+		title,
+		unreadDone: false,
+	});
+	function seedSplit() {
+		useSessionStore.setState({
+			sessionId: "pane-b-id",
+			sessionName: "Pane B",
+			cwd: "/work/alpha",
+			isStreaming: false,
+		});
+		useTabsStore.setState({
+			tabs: [pane("t0", "Pane A"), pane("t1", "Pane B"), pane("t2", "Pane C"), pane("t3", "Outside D")],
+			activeTabId: "t1",
+			split: {
+				axis: "columns",
+				ratio: 0.5,
+				first: { tabId: "t0" },
+				second: { axis: "rows", ratio: 0.5, first: { tabId: "t1" }, second: { tabId: "t2" } },
+			},
+			bundles: new Map(),
+		});
+	}
+
+	it("selects every session of the split, with a quiet cue on the focused pane only", async () => {
+		installMockOmp(LIST);
+		seedSplit();
+		await mount(<Sidebar />);
+
+		for (const title of ["Pane A", "Pane B", "Pane C"]) {
+			expect(rowFor(title).getAttribute("data-active")).toBe("true");
+		}
+		expect(rowFor("Outside D").getAttribute("data-active")).not.toBe("true");
+		expect(rowFor("Pane B").getAttribute("data-pane-focus")).toBe("true");
+		expect(rowFor("Pane A").getAttribute("data-pane-focus")).toBeNull();
+		expect(rowFor("Pane C").getAttribute("data-pane-focus")).toBeNull();
+		// A pane is not "open elsewhere": it is on screen.
+		expect(rowFor("Pane A").querySelector("[data-sidebar-open-tab]")).toBeNull();
+		expect(rowFor("Outside D").querySelector("[data-sidebar-open-tab]")).not.toBeNull();
+	});
+
+	it("shows no pane cue while a session is alone", async () => {
+		installMockOmp(LIST);
+		seedSplit();
+		useTabsStore.setState({ split: null });
+		await mount(<Sidebar />);
+
+		expect(rowFor("Pane B").getAttribute("data-active")).toBe("true");
+		expect(rowFor("Pane B").getAttribute("data-pane-focus")).toBeNull();
+		expect(rowFor("Pane A").getAttribute("data-active")).not.toBe("true");
+	});
+
+	it("goes through the tab pick for every row and never re-roots a pane for an unopened session", async () => {
+		installMockOmp(LIST);
+		seedSplit();
+		const original = useTabsStore.getState();
+		const openTab = vi.fn(async () => "t-new");
+		const switchTab = vi.fn(async () => {});
+		useTabsStore.setState({ openTab, switchTab });
+		try {
+			await mount(<Sidebar />);
+			await fire(rowButton("Outside D"), "onClick");
+			expect(switchTab).toHaveBeenLastCalledWith("t3");
+			await fire(rowButton("Pane A"), "onClick");
+			expect(switchTab).toHaveBeenLastCalledWith("t0");
+			expect(openTab).not.toHaveBeenCalled();
+			// A stored session no tab holds opens as its own tab: the focused pane keeps its session.
+			await fire(rowButton("Session /work/alpha/one"), "onClick");
+			expect(openTab).toHaveBeenCalledWith({
+				cwd: "/work/alpha",
+				sessionPath: "/work/alpha/one.jsonl",
+				kind: "agent",
+			});
+		} finally {
+			useTabsStore.setState({ openTab: original.openTab, switchTab: original.switchTab });
+		}
+	});
+});

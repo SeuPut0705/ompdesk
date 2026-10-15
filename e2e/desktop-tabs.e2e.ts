@@ -397,6 +397,21 @@ for (const [language, theme] of RUNS) {
 		await expect.poll(() => activeTab(page)).toBe(right);
 		await page.keyboard.press("Alt+ControlOrMeta+BracketLeft");
 		await expect.poll(() => activeTab(page)).toBe(left);
+
+		// Both panes read as selected in the sidebar; the focused one adds the cue.
+		const selectedRows = page.locator('.omp-sidebar-session-row[data-active="true"]');
+		await expect(selectedRows).toHaveCount(2);
+		await expect(page.locator(`[data-session-path="tab:${left}"]`)).toHaveAttribute("data-pane-focus", "true");
+		await expect(page.locator(`[data-session-path="tab:${right}"]`)).not.toHaveAttribute("data-pane-focus", "true");
+		// A tab opened from outside shows alone (it never lands in a pane); ⌘1 on a pane brings the split back.
+		const outside = await openTab(page, "Outside tab");
+		await expect(page.locator(".omp-session-pane")).toHaveCount(1);
+		await expect(selectedRows).toHaveCount(1);
+		await expect(page.locator(`[data-session-path="tab:${outside}"]`)).toHaveAttribute("data-active", "true");
+		await page.keyboard.press("ControlOrMeta+1");
+		await expect(page.locator(".omp-session-pane")).toHaveCount(2);
+		await expect.poll(() => activeTab(page)).toBe(left);
+		await expect(selectedRows).toHaveCount(2);
 		expect(errors).toEqual([]);
 	});
 }

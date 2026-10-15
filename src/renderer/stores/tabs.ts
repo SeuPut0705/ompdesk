@@ -17,12 +17,17 @@
  */
 import {
 	asSplitLayout,
+	forgetSplitTab,
 	mapSplitLeaves,
+	readRememberedSplits,
+	rememberedSplitOf,
 	type SplitLayout,
 	type SplitPlacement,
+	type SplitView,
 	splitForPlacement,
 	splitTabIds,
 	updateSplitRatio,
+	viewAfterPick,
 } from "../../shared/split-layout";
 
 export type { SplitAxis, SplitLayout, SplitPlacement } from "../../shared/split-layout";
@@ -121,12 +126,20 @@ export function isTabClosed(tabId: string): boolean {
 	return closedTabIds.has(tabId);
 }
 
+/** Whether main holds remembered splits (it only learns the list through `setView`). */
+let mainRemembersSplits = false;
+
 function routeTabView(focusedTabId: string, visibleTabIds: string[], split?: SplitLayout | null): Promise<boolean> {
-	const request = routingChain.then(() =>
-		visibleTabIds.length === 1 && !split
-			? window.omp.tabs.setActive(focusedTabId)
-			: window.omp.tabs.setView(focusedTabId, visibleTabIds, split ?? undefined),
-	);
+	const request = routingChain.then(async () => {
+		// Read when the call runs: a ratio flush or a queued switch carries the latest list.
+		const remembered = useTabsStore.getState().rememberedSplits;
+		if (visibleTabIds.length === 1 && !split && remembered.length === 0 && !mainRemembersSplits) {
+			return window.omp.tabs.setActive(focusedTabId);
+		}
+		const routed = await window.omp.tabs.setView(focusedTabId, visibleTabIds, split ?? undefined, remembered);
+		if (routed) mainRemembersSplits = remembered.length > 0;
+		return routed;
+	});
 	routingChain = request.then(
 		() => undefined,
 		() => undefined,
@@ -137,12 +150,6 @@ function routeTabView(focusedTabId: string, visibleTabIds: string[], split?: Spl
 export function visibleTabIds(state: Pick<TabsStore, "activeTabId" | "split">): string[] {
 	if (state.split) return splitTabIds(state.split);
 	return state.activeTabId ? [state.activeTabId] : [];
-}
-
-function replaceFocusedSplitTab(split: SplitLayout | null, focusedTabId: string | null, nextTabId: string) {
-	if (!split || !focusedTabId) return null;
-	if (splitTabIds(split).includes(nextTabId)) return split;
-	return asSplitLayout(mapSplitLeaves(split, tabId => ({ tabId: tabId === focusedTabId ? nextTabId : tabId })));
 }
 
 /** A session field only proves a session change once both sides know it. */
@@ -185,24 +192,21 @@ function projectSessionTab(
 }
 
 /**
- * Hand window focus to `id` with `split` (null = single view) and route main's
+ * Hand window focus to `id` with `view` (`view.split` null = single view,
+ * `view.remembered` = the splits kept off screen) and route main's
  * views to match. The previously focused pane leaves the foreground role, so
  * its overlays and live voice must not linger (voice control RPCs route to the
  * newly focused pane's sidecar).
  */
-async function focusTab(
-	previousTabId: string | null,
-	id: string,
-	split: SplitLayout | null,
-	tabs: SessionTab[],
-): Promise<void> {
+async function focusTab(previousTabId: string | null, id: string, view: SplitView, tabs: SessionTab[]): Promise<void> {
+	const { split } = view;
 	const version = ++switchVersion;
 	beginTabRoute(previousTabId, id);
 	const ui = useUiStore.getState();
 	const stopLive = ui.liveOpen ? window.omp.rpc.liveStop() : null;
 	ui.closeSessionOverlays();
 	useForkHandoffStore.getState().closeHandoffDialog();
-	useTabsStore.setState({ activeTabId: id, split, tabs });
+	useTabsStore.setState({ activeTabId: id, split, rememberedSplits: view.remembered, tabs });
 	setFocusedSessionRuntime(id);
 	try {
 		if (stopLive) {
@@ -309,6 +313,13 @@ export interface TabsStore {
 	/** Deprecated compatibility field for older test/setup call sites. Runtime state is no longer bundled. */
 	bundles: Map<unknown, unknown>;
 	split: SplitLayout | null;
+	/**
+	 * Splits remembered but off screen: their sessions are shown alone or in
+	 * another split right now. A session is in at most one. Picking one of
+	 * their sessions (sidebar, ⌘-number, overview, ⌃⇥, picker) brings the split
+	 * back as it was; closing a tab drops it from its split.
+	 */
+	rememberedSplits: SplitLayout[];
 	/** Boot reconciliation with the main-process pool: the window's initial
 	 * sidecar arrives as tab 0 and must never be duplicated — entries merge by
 	 * id, preserving local flags (unreadDone, pendingSessionPath). */
@@ -330,11 +341,17 @@ export interface TabsStore {
 		 * only a tab on the same device lends its folder. */
 		device?: string;
 	}) => Promise<string | null>;
-	/** Focus this tab. In split mode, a non-visible tab replaces the focused pane. */
+	/**
+	 * Focus this tab (the pick rules live in `viewAfterPick`): a pane of the
+	 * visible split just takes focus; a member of a remembered split restores
+	 * that split; any other session leaves the split and shows alone.
+	 */
 	switchTab: (id: string) => Promise<void>;
 	splitTab: (id: string, placement: SplitPlacement, targetTabId?: string) => Promise<void>;
 	unsplit: (keepTabId?: string) => Promise<void>;
 	removePane: (tabId: string) => Promise<void>;
+	/** Drop a session from its split, on screen or remembered (its session was deleted); a split left with one session dissolves. */
+	leaveSplit: (tabId: string) => Promise<void>;
 	setSplitRatio: (ratio: number, path?: readonly ("first" | "second")[]) => void;
 	/** Close a tab (keeps ≥1). Closing the active tab activates its neighbor first. */
 	closeTab: (id: string) => Promise<void>;
@@ -358,6 +375,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	activeTabId: null,
 	bundles: new Map(),
 	split: null,
+	rememberedSplits: [],
 
 	reconcileTabs: async () => {
 		const list = await window.omp.tabs.list().catch(() => null);
@@ -393,7 +411,17 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			const split =
 				restoredSplit ??
 				(state.split && splitTabIds(state.split).every(id => mainVisible.includes(id)) ? state.split : null);
-			return { tabs, activeTabId, split };
+			// Main's remembered splits win; without any, what this window already
+			// remembers stays (a failed route converges here), minus closed tabs.
+			const claimed = new Set(visibleTabIds({ activeTabId, split }));
+			const fromMain = list.flatMap(info => (info.rememberedSplit ? [info.rememberedSplit] : []));
+			const rememberedSplits = readRememberedSplits(
+				fromMain.length > 0 ? fromMain : state.rememberedSplits,
+				id => (tabs.some(tab => tab.id === id) ? id : null),
+				claimed,
+			);
+			mainRemembersSplits = fromMain.length > 0;
+			return { tabs, activeTabId, split, rememberedSplits };
 		});
 		for (const tab of get().tabs) watchTabAwaitingInput(tab.id);
 		const activeTabId = get().activeTabId;
@@ -541,7 +569,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		await focusTab(
 			state.activeTabId,
 			id,
-			replaceFocusedSplitTab(state.split, state.activeTabId, id),
+			viewAfterPick({ split: state.split, remembered: state.rememberedSplits }, id),
 			state.tabs.map(tab => {
 				if (tab.id === id) return { ...tab, unreadDone: false };
 				return tab.id === state.activeTabId && outgoingStreaming ? { ...tab, status: "running" } : tab;
@@ -571,10 +599,11 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					),
 				)!
 			: splitForPlacement(target, id, placement);
+		// The dropped session joins this split, so it leaves the one it was remembered in.
 		await focusTab(
 			activeTabId,
 			id,
-			split,
+			{ split, remembered: forgetSplitTab(state.rememberedSplits, id) },
 			state.tabs.map(tab => (tab.id === id ? { ...tab, unreadDone: false } : tab)),
 		);
 	},
@@ -590,6 +619,18 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		set({ split });
 		if (focused !== state.activeTabId) await get().switchTab(focused);
 		else await routeTabView(focused, ids, split);
+	},
+
+	leaveSplit: async tabId => {
+		const state = get();
+		if (state.split && splitTabIds(state.split).includes(tabId)) {
+			await get().removePane(tabId);
+			return;
+		}
+		if (!rememberedSplitOf(state.rememberedSplits, tabId)) return;
+		set({ rememberedSplits: forgetSplitTab(state.rememberedSplits, tabId) });
+		if (state.activeTabId)
+			await routeTabView(state.activeTabId, visibleTabIds(get()), get().split).catch(() => false);
 	},
 
 	unsplit: async keepTabId => {
@@ -660,7 +701,11 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 						},
 					].slice(-CLOSED_TAB_LIMIT)
 				: current.closedTabs;
-			return { tabs: current.tabs.filter(tab => tab.id !== id), closedTabs };
+			return {
+				tabs: current.tabs.filter(tab => tab.id !== id),
+				rememberedSplits: forgetSplitTab(current.rememberedSplits, id),
+				closedTabs,
+			};
 		});
 		closedTabIds.add(id);
 		deleteSessionRuntime(id);
@@ -779,7 +824,15 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		closedTabIds.clear();
 		setFocusedSessionRuntime(null);
 		resetTabRoute();
-		set({ tabs: [], activeTabId: null, bundles: new Map(), split: null, closedTabs: [] });
+		mainRemembersSplits = false;
+		set({
+			tabs: [],
+			activeTabId: null,
+			bundles: new Map(),
+			split: null,
+			rememberedSplits: [],
+			closedTabs: [],
+		});
 	},
 }));
 

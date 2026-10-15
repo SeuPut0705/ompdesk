@@ -84,6 +84,7 @@ test("dragging a session previews and splits on the hovered side", async () => {
 		await page.mouse.up();
 
 		await expect(page.locator(".omp-session-pane")).toHaveCount(2);
+		await expect(page.locator('.omp-sidebar-session-row[data-active="true"]')).toHaveCount(2);
 		await expect(ghost).toHaveCount(0);
 		await expect(chip).toHaveCount(0);
 		await expect(page.locator(".omp-session-pane").nth(1)).toHaveAttribute(
@@ -223,6 +224,8 @@ test("dragging a session previews and splits on the hovered side", async () => {
 		await dragToPane(await addSession("Third session"), 0);
 		await page.mouse.up();
 		await expect(page.locator("[data-split]")).toHaveCount(3);
+		// Every pane's session reads as selected in the sidebar.
+		await expect(page.locator('.omp-sidebar-session-row[data-active="true"]')).toHaveCount(3);
 		await capture("three-pane");
 		await dragToPane(await addSession("Fourth session"), 2);
 		await page.mouse.up();

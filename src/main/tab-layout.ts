@@ -1,6 +1,13 @@
 import * as fs from "node:fs";
 import type { IpcTabWorktree, SessionKind } from "../shared/ipc-types";
-import { asSplitLayout, mapSplitLeaves, readSplitNode, type SplitLayout, splitTabIds } from "../shared/split-layout";
+import {
+	asSplitLayout,
+	mapSplitLeaves,
+	readRememberedSplits,
+	readSplitNode,
+	type SplitLayout,
+	splitTabIds,
+} from "../shared/split-layout";
 
 export const TAB_LAYOUT_VERSION = 1;
 /** A persisted title is display data only — bound it so prefs cannot grow. */
@@ -33,6 +40,12 @@ export interface PersistedTabLayout {
 	activeIndex: number;
 	/** Leaves store tab indices as strings, remapped to runtime ids on restore. */
 	split?: SplitLayout;
+	/**
+	 * Splits remembered but not on screen (their sessions are shown alone or
+	 * in another split right now); same index leaves. A session sits in at
+	 * most one of `split` and `splits`.
+	 */
+	splits?: SplitLayout[];
 }
 
 export interface TabLayoutPathChecks {
@@ -186,12 +199,23 @@ export function sanitizePersistedTabLayout(
 			if (split && !splitTabIds(split).includes(String(activeIndex))) activeIndex = Number(splitTabIds(split)[0]);
 		}
 	}
+	// What is on screen (the visible split, else the active tab alone) is not also remembered.
+	const claimed = new Set(split ? splitTabIds(split) : [String(activeIndex)]);
+	const splits = readRememberedSplits(
+		value.splits,
+		source => {
+			const index = effective.findIndex(entry => entry.sourceIndex === Number(source));
+			return index >= 0 ? String(index) : null;
+		},
+		claimed,
+	);
 
 	return {
 		version: TAB_LAYOUT_VERSION,
 		tabs: effective.map(entry => entry.descriptor),
 		activeIndex,
 		...(split ? { split } : {}),
+		...(splits.length > 0 ? { splits } : {}),
 	};
 }
 

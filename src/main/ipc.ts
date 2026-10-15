@@ -773,7 +773,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipcMain.handle(IPC_COMMANDS.SET_TAB_VIEW, (event, payload: IpcSetTabViewPayload) => {
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win || typeof payload?.focusedTabId !== "string" || !Array.isArray(payload.visibleTabIds)) return false;
-		return deps.sidecarPool.setTabView(win, payload.focusedTabId, payload.visibleTabIds, payload.split);
+		return deps.sidecarPool.setTabView(
+			win,
+			payload.focusedTabId,
+			payload.visibleTabIds,
+			payload.split,
+			payload.rememberedSplits,
+		);
 	});
 
 	ipcMain.handle(IPC_COMMANDS.REORDER_TABS, (event, payload: { tabIds?: unknown }) => {

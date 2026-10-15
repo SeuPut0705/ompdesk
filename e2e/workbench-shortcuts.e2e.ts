@@ -100,6 +100,35 @@ for (const [language, theme] of [
 			await page.keyboard.press("ControlOrMeta+PageUp");
 			await expect.poll(() => activeTab(page).then(tab => tab.tabId)).toBe(ids[1]);
 
+			// Tab jumps pick like a sidebar click: with the last two sessions split, ⌘1 shows the
+			// saved session alone, ⌘2 brings the split back, ⌘9 only moves the focus to its other pane.
+			for (const [tabId, title] of [
+				[second, "Second tab"],
+				[third, "Third tab"],
+			] as const) {
+				await page.evaluate(([id, command]) => window.omp.rpc.commandForTab(id, { type: "bash", command }), [
+					tabId,
+					`fixture:title:${title}`,
+				] as const);
+			}
+			const thirdRow = page.locator(".omp-sidebar-session-row", { hasText: "Third tab" });
+			await thirdRow.click({ button: "right" });
+			await page
+				.getByRole("menuitem", { name: language === "en" ? "Split right" : "오른쪽으로 분할", exact: true })
+				.click();
+			const panes = page.locator(".omp-session-pane");
+			await expect(panes).toHaveCount(2);
+			await page.keyboard.press("ControlOrMeta+1");
+			await expect(panes).toHaveCount(1);
+			await expect.poll(() => activeTab(page).then(tab => tab.tabId)).toBe(ids[0]);
+			await page.keyboard.press("ControlOrMeta+2");
+			await expect(panes).toHaveCount(2);
+			await expect.poll(() => activeTab(page).then(tab => tab.tabId)).toBe(ids[1]);
+			await shot("split-restored-by-jump");
+			await page.keyboard.press("ControlOrMeta+9");
+			await expect(panes).toHaveCount(2);
+			await expect.poll(() => activeTab(page).then(tab => tab.tabId)).toBe(ids[2]);
+
 			// ⌘W on the saved session's tab, then ⌥⌘T brings that session back in a tab.
 			await page.keyboard.press("ControlOrMeta+1");
 			await expect.poll(() => activeTab(page).then(tab => tab.tabId)).toBe(ids[0]);

@@ -321,11 +321,17 @@ const api: OmpApi = {
 			if (switched) activeTabId = tabId;
 			return switched;
 		},
-		setView: async (focusedTabId: string, visibleTabIds: string[], split?: IpcSetTabViewPayload["split"]) => {
+		setView: async (
+			focusedTabId: string,
+			visibleTabIds: string[],
+			split?: IpcSetTabViewPayload["split"],
+			rememberedSplits?: IpcSetTabViewPayload["rememberedSplits"],
+		) => {
 			const switched = (await ipcRenderer.invoke(IPC_COMMANDS.SET_TAB_VIEW, {
 				focusedTabId,
 				visibleTabIds,
 				split,
+				rememberedSplits,
 			})) as boolean;
 			if (switched) activeTabId = focusedTabId;
 			return switched;

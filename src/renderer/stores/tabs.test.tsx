@@ -103,7 +103,9 @@ interface MockOmp {
 		spawn: Mock<(payload: IpcSpawnTabPayload) => Promise<IpcSpawnTabResult | null>>;
 		close: Mock<(tabId: string) => Promise<boolean>>;
 		setActive: Mock<(tabId: string) => Promise<boolean>>;
-		setView: Mock<(tabId: string, ids: string[], split?: SplitLayout) => Promise<boolean>>;
+		setView: Mock<
+			(tabId: string, ids: string[], split?: SplitLayout, remembered?: SplitLayout[]) => Promise<boolean>
+		>;
 	};
 	events: {
 		onTabStatus: Mock<(callback: (payload: IpcTabStatusPayload) => void) => () => void>;
@@ -1465,6 +1467,151 @@ describe("four-pane layouts", () => {
 			second: { tabId: "t1" },
 			ratio: 0.7,
 		});
+	});
+});
+
+describe("remembered splits", () => {
+	function seedFive() {
+		seedTabs();
+		useTabsStore.setState(state => ({
+			tabs: [
+				...state.tabs,
+				...["t3", "t4"].map(id => ({
+					id,
+					kind: "agent" as const,
+					cwd: "/project",
+					status: "ready" as const,
+					unreadDone: false,
+				})),
+			],
+		}));
+		for (const id of ["t3", "t4"]) ensureTabRuntime(id);
+	}
+	/** t0 | (t1 over t2) with the left pane resized, t2 focused. */
+	async function threePanes() {
+		seedFive();
+		await useTabsStore.getState().splitTab("t1", "right");
+		await useTabsStore.getState().splitTab("t2", "bottom", "t1");
+		useTabsStore.getState().setSplitRatio(0.3);
+		const split = useTabsStore.getState().split;
+		if (!split) throw new Error("expected a split");
+		return split;
+	}
+
+	it("shows a session outside the split alone and remembers the split", async () => {
+		const split = await threePanes();
+		await useTabsStore.getState().switchTab("t3");
+		const state = useTabsStore.getState();
+		expect(state.activeTabId).toBe("t3");
+		expect(state.split).toBeNull();
+		expect(state.rememberedSplits).toEqual([split]);
+		// No pane took the session: the remembered split still names its three sessions.
+		expect(splitTabIds(state.rememberedSplits[0]!)).toEqual(["t0", "t1", "t2"]);
+	});
+
+	it("tells main the remembered splits with every view change", async () => {
+		const split = await threePanes();
+		await useTabsStore.getState().switchTab("t3");
+		expect(omp.tabs.setView).toHaveBeenLastCalledWith("t3", ["t3"], undefined, [split]);
+	});
+
+	it("restores a remembered split as it was with the clicked session focused", async () => {
+		const split = await threePanes();
+		await useTabsStore.getState().switchTab("t3");
+		await useTabsStore.getState().switchTab("t1");
+		const state = useTabsStore.getState();
+		expect(state.split).toEqual(split);
+		expect(state.activeTabId).toBe("t1");
+		expect(state.rememberedSplits).toEqual([]);
+		expect(omp.tabs.setView).toHaveBeenLastCalledWith("t1", ["t0", "t1", "t2"], split, []);
+	});
+
+	it("moves only the focus when the picked session is a pane of the split on screen", async () => {
+		const split = await threePanes();
+		await useTabsStore.getState().switchTab("t0");
+		expect(useTabsStore.getState().split).toEqual(split);
+		expect(useTabsStore.getState().activeTabId).toBe("t0");
+		expect(useTabsStore.getState().rememberedSplits).toEqual([]);
+	});
+
+	it("swaps remembered splits when a member of another one is picked", async () => {
+		const first = await threePanes();
+		await useTabsStore.getState().switchTab("t3");
+		await useTabsStore.getState().splitTab("t4", "right");
+		const second = useTabsStore.getState().split!;
+		expect(splitTabIds(second)).toEqual(["t3", "t4"]);
+		await useTabsStore.getState().switchTab("t0");
+		expect(useTabsStore.getState().split).toEqual(first);
+		expect(useTabsStore.getState().rememberedSplits).toEqual([second]);
+		await useTabsStore.getState().switchTab("t4");
+		expect(useTabsStore.getState().split).toEqual(second);
+		expect(useTabsStore.getState().rememberedSplits).toEqual([first]);
+	});
+
+	it("drops a closed tab from its remembered split and dissolves a split left with one session", async () => {
+		await threePanes();
+		await useTabsStore.getState().switchTab("t3");
+		await useTabsStore.getState().closeTab("t1");
+		const left = useTabsStore.getState().rememberedSplits;
+		expect(left).toHaveLength(1);
+		expect(splitTabIds(left[0]!)).toEqual(["t0", "t2"]);
+		await useTabsStore.getState().closeTab("t0");
+		expect(useTabsStore.getState().rememberedSplits).toEqual([]);
+		// With nothing remembered, picking the remaining member is a plain solo pick.
+		await useTabsStore.getState().switchTab("t2");
+		expect(useTabsStore.getState().split).toBeNull();
+	});
+
+	it("takes a session dropped into a new split out of the one it was remembered in", async () => {
+		const first = await threePanes();
+		await useTabsStore.getState().switchTab("t3");
+		await useTabsStore.getState().splitTab("t0", "right");
+		expect(splitTabIds(useTabsStore.getState().split!)).toEqual(["t3", "t0"]);
+		const remembered = useTabsStore.getState().rememberedSplits;
+		expect(remembered).toHaveLength(1);
+		expect(splitTabIds(remembered[0]!)).toEqual(["t1", "t2"]);
+		expect(remembered[0]).toEqual(first.second);
+	});
+
+	it("leaves a session's split when its session is deleted", async () => {
+		await threePanes();
+		await useTabsStore.getState().switchTab("t3");
+		await useTabsStore.getState().leaveSplit("t2");
+		expect(splitTabIds(useTabsStore.getState().rememberedSplits[0]!)).toEqual(["t0", "t1"]);
+		expect(omp.tabs.setView).toHaveBeenLastCalledWith(
+			"t3",
+			["t3"],
+			undefined,
+			useTabsStore.getState().rememberedSplits,
+		);
+		await useTabsStore.getState().switchTab("t0");
+		await useTabsStore.getState().leaveSplit("t1");
+		expect(useTabsStore.getState().split).toBeNull();
+		expect(useTabsStore.getState().rememberedSplits).toEqual([]);
+	});
+
+	it("reads the remembered splits main restored at boot", async () => {
+		const remembered: SplitLayout = { axis: "columns", ratio: 0.4, first: { tabId: "t1" }, second: { tabId: "t2" } };
+		omp.tabs.list.mockResolvedValue([
+			{ ...tabInfo("t0", "/a"), active: true, visible: true },
+			{ ...tabInfo("t1", "/b"), rememberedSplit: remembered },
+			tabInfo("t2", "/c"),
+		]);
+		await useTabsStore.getState().reconcileTabs();
+		expect(useTabsStore.getState().rememberedSplits).toEqual([remembered]);
+		await useTabsStore.getState().switchTab("t2");
+		expect(useTabsStore.getState().split).toEqual(remembered);
+		expect(useTabsStore.getState().activeTabId).toBe("t2");
+	});
+
+	it("never keeps a split holding a session that is on screen", async () => {
+		const stale: SplitLayout = { axis: "columns", ratio: 0.5, first: { tabId: "t0" }, second: { tabId: "t1" } };
+		omp.tabs.list.mockResolvedValue([
+			{ ...tabInfo("t0", "/a"), active: true, visible: true },
+			{ ...tabInfo("t1", "/b"), rememberedSplit: stale },
+		]);
+		await useTabsStore.getState().reconcileTabs();
+		expect(useTabsStore.getState().rememberedSplits).toEqual([]);
 	});
 });
 

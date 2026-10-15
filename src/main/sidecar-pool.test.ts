@@ -540,6 +540,42 @@ describe("SidecarPool tabs", () => {
 		expect(restored.sidecars.filter(sidecar => sidecar.started)).toHaveLength(4);
 	});
 
+	it("remembers off-screen splits per window, persists them and drops released tabs", () => {
+		const { pool } = fakePool();
+		const fw = fakeWindow(1);
+		for (const id of ["a", "b", "c", "d", "e"]) pool.acquire(`/${id}`, fw.win, id);
+		const ab = { axis: "columns" as const, ratio: 0.3, first: { tabId: "a" }, second: { tabId: "b" } };
+		const cd = { axis: "rows" as const, ratio: 0.6, first: { tabId: "c" }, second: { tabId: "d" } };
+		expect(pool.setTabView(fw.win, "e", ["e"], undefined, [ab, cd])).toBe(true);
+		expect(pool.tabsForWindow(fw.win).flatMap(tab => (tab.rememberedSplit ? [tab.tabId] : []))).toEqual(["a", "c"]);
+		const layout = pool.tabLayoutForWindow(fw.win);
+		expect(layout?.splits).toEqual([
+			{ axis: "columns", ratio: 0.3, first: { tabId: "0" }, second: { tabId: "1" } },
+			{ axis: "rows", ratio: 0.6, first: { tabId: "2" }, second: { tabId: "3" } },
+		]);
+
+		// A relaunch restores them under the new tab ids.
+		const restored = fakePool();
+		const restoredWindow = fakeWindow(2);
+		if (!layout) throw new Error("expected layout");
+		restored.pool.restoreLayout(restoredWindow.win, layout);
+		expect(restored.pool.tabLayoutForWindow(restoredWindow.win)?.splits).toEqual(layout.splits);
+		expect(restored.pool.tabLayoutForWindow(restoredWindow.win)?.split).toBeUndefined();
+
+		// Another window knows nothing of them; a plain focus switch keeps them but never overlaps the screen.
+		expect(fakePool().pool.tabsForWindow(fakeWindow(3).win)).toEqual([]);
+		expect(pool.setActiveTab(fw.win, "c")).toBe(true);
+		expect(pool.tabLayoutForWindow(fw.win)?.splits).toEqual([layout?.splits?.[0]]);
+		// Releasing a member dissolves its split; a list sent with the view replaces the stored one.
+		expect(pool.setTabView(fw.win, "e", ["e"], undefined, [cd])).toBe(true);
+		expect(pool.releaseTab("d")).toBe(true);
+		expect(pool.tabLayoutForWindow(fw.win)?.splits).toBeUndefined();
+		expect(pool.setTabView(fw.win, "e", ["e"], undefined, [ab])).toBe(true);
+		expect(pool.tabLayoutForWindow(fw.win)?.splits).toHaveLength(1);
+		expect(pool.setTabView(fw.win, "e", ["e"], undefined, [])).toBe(true);
+		expect(pool.tabLayoutForWindow(fw.win)?.splits).toBeUndefined();
+	});
+
 	it("caches session meta per tab and includes it in TAB_STATUS and GET_TABS", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);

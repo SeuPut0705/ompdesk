@@ -168,6 +168,11 @@ export async function switchSessionNow(session: SessionInfo, model?: SessionMode
 	// main's spawn-tab guard is the backstop.
 	const fileKind = session.kind === "chat" ? "chat" : "agent";
 	const tabsState = useTabsStore.getState();
+	// A pane of a split keeps its session: the picked one opens alone, full width.
+	if (tabsState.split) {
+		const tabId = await tabsState.openTab({ sessionPath: session.path, kind: fileKind });
+		return tabId !== null;
+	}
 	const activeTab = tabsState.tabs.find(tab => tab.id === originTabId);
 	if (activeTab && activeTab.kind !== fileKind) {
 		const tabId = await tabsState.openTab({ sessionPath: session.path, kind: fileKind });

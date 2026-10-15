@@ -59,7 +59,16 @@ import {
 	type SidecarStatusPayload,
 	type SubagentFrame,
 } from "../shared/rpc-types";
-import { asSplitLayout, mapSplitLeaves, readSplitNode, splitTabIds } from "../shared/split-layout";
+import {
+	asSplitLayout,
+	forgetSplitTab,
+	mapSplitLeaves,
+	readRememberedSplits,
+	readSplitNode,
+	rememberedSplitOf,
+	type SplitLayout,
+	splitTabIds,
+} from "../shared/split-layout";
 import { canonicalCwd } from "./canonical-cwd";
 import { createMessageUpdateSlimmer } from "./message-update-slim";
 import { ompRestartDecision } from "./omp-restart";
@@ -204,6 +213,8 @@ export class SidecarPool {
 	#visibleByWindow = new Map<number, Set<string>>();
 	/** Window → recursive split geometry for its optional multi-pane view. */
 	#splitByWindow = new Map<number, WindowSplitView>();
+	/** Window → splits remembered but not on screen; a session is in at most one (and never also visible). */
+	#rememberedByWindow = new Map<number, SplitLayout[]>();
 	/** Session file → owning tab/window (F-OWN double-attach guard). */
 	#sessionOwners = new Map<string, IpcSessionOwner>();
 	/**
@@ -566,10 +577,17 @@ export class SidecarPool {
 			if (remaining) this.#splitByWindow.set(entry.winId, remaining);
 			else this.#splitByWindow.delete(entry.winId);
 		}
+		const remembered = this.#rememberedByWindow.get(entry.winId);
+		if (remembered) {
+			const kept = forgetSplitTab(remembered, entry.tabId);
+			if (kept.length > 0) this.#rememberedByWindow.set(entry.winId, kept);
+			else this.#rememberedByWindow.delete(entry.winId);
+		}
 		if (![...this.#entries].some(candidate => candidate.winId === entry.winId)) {
 			this.#activeByWindow.delete(entry.winId);
 			this.#visibleByWindow.delete(entry.winId);
 			this.#splitByWindow.delete(entry.winId);
+			this.#rememberedByWindow.delete(entry.winId);
 			return exited;
 		}
 		if (this.#activeByWindow.get(entry.winId) !== entry.tabId) {
@@ -699,6 +717,7 @@ export class SidecarPool {
 		focusedTabId: string,
 		visibleTabIds: readonly string[],
 		split?: IpcSetTabViewPayload["split"],
+		rememberedSplits?: IpcSetTabViewPayload["rememberedSplits"],
 	): boolean {
 		const ids = [...new Set(visibleTabIds)];
 		if (ids.length < 1 || ids.length > 4 || !ids.includes(focusedTabId)) return false;
@@ -717,6 +736,15 @@ export class SidecarPool {
 		this.#visibleByWindow.set(winId, new Set(ids));
 		if (parsed) this.#splitByWindow.set(winId, parsed);
 		else this.#splitByWindow.delete(winId);
+		// Remembered splits never share a session with what is on screen; a plain
+		// focus switch (no list sent) keeps the others as they were.
+		const remembered = readRememberedSplits(
+			rememberedSplits ?? this.#rememberedByWindow.get(winId),
+			tabId => (this.#byTabId.get(tabId)?.win === win ? tabId : null),
+			new Set(ids),
+		);
+		if (remembered.length > 0) this.#rememberedByWindow.set(winId, remembered);
+		else this.#rememberedByWindow.delete(winId);
 		this.#syncFullWiring(winId);
 		this.#notifyWindowTabsChanged(win);
 		return true;
@@ -882,12 +910,15 @@ export class SidecarPool {
 		const activeTabId = this.#activeByWindow.get(win.webContents.id);
 		const visibleTabIds = this.#visibleByWindow.get(win.webContents.id);
 		const split = this.#splitByWindow.get(win.webContents.id);
+		const remembered = this.#rememberedByWindow.get(win.webContents.id) ?? [];
 		for (const entry of this.#entries) {
 			if (entry.win !== win) continue;
 			const tab = tabStatusPayload(entry);
 			if (entry.tabId === activeTabId) tab.active = true;
 			if (visibleTabIds?.has(entry.tabId)) tab.visible = true;
 			if (split && visibleTabIds?.has(entry.tabId)) tab.split = split;
+			const home = rememberedSplitOf(remembered, entry.tabId);
+			if (home && splitTabIds(home)[0] === entry.tabId) tab.rememberedSplit = home;
 			tabs.push(tab);
 		}
 		return tabs;
@@ -930,6 +961,14 @@ export class SidecarPool {
 			entries.findIndex(entry => entry.tabId === activeTabId),
 		);
 		const split = this.#splitByWindow.get(win.webContents.id);
+		const splits = readRememberedSplits(
+			this.#rememberedByWindow.get(win.webContents.id),
+			tabId => {
+				const index = entries.findIndex(entry => entry.tabId === tabId);
+				return index >= 0 ? String(index) : null;
+			},
+			new Set(),
+		);
 		return {
 			version: TAB_LAYOUT_VERSION,
 			activeIndex,
@@ -959,6 +998,7 @@ export class SidecarPool {
 							) ?? undefined,
 					}
 				: {}),
+			...(splits.length > 0 ? { splits } : {}),
 		};
 	}
 
@@ -1008,7 +1048,12 @@ export class SidecarPool {
 				const split = asSplitLayout(restored);
 				const ids = restored ? splitTabIds(restored) : [activeTabId];
 				const focused = ids.includes(activeTabId) ? activeTabId : ids[0];
-				this.setTabView(win, focused, ids, split ?? undefined);
+				const remembered = readRememberedSplits(
+					layout.splits,
+					index => restoredTabIds[Number(index)] ?? null,
+					new Set(ids),
+				);
+				this.setTabView(win, focused, ids, split ?? undefined, remembered);
 			}
 		} finally {
 			this.#restoringWindows.delete(winId);
@@ -1032,6 +1077,7 @@ export class SidecarPool {
 		this.#activeByWindow.clear();
 		this.#visibleByWindow.clear();
 		this.#splitByWindow.clear();
+		this.#rememberedByWindow.clear();
 		this.#sessionOwners.clear();
 		this.#requestOwners.clear();
 		this.#restoringWindows.clear();

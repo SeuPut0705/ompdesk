@@ -165,6 +165,8 @@ function modifiedAt(session: SessionInfo): number {
  */
 function activeTabUntouched(): boolean {
 	const tabs = useTabsStore.getState();
+	// A pane of a split is never re-rooted by opening a session or project: that opens it alone.
+	if (tabs.split) return false;
 	const tab = tabs.tabs.find(entry => entry.id === tabs.activeTabId);
 	// A remote tab runs on its host: it can never be re-rooted to this device's sessions or folders.
 	if (!tab || tab.device !== undefined || tab.worktree || tab.status === "running" || tab.compacting) return false;
@@ -460,6 +462,8 @@ export function Sidebar() {
 	const openTab = useTabsStore(s => s.openTab);
 	const tabs = useTabsStore(s => s.tabs);
 	const activeTabId = useTabsStore(s => s.activeTabId);
+	const split = useTabsStore(s => s.split);
+	const splitIds = useMemo(() => (split ? new Set(splitTabIds(split)) : null), [split]);
 	const activeTab = tabs.find(tab => tab.id === activeTabId);
 	const activeTabKind = activeTab?.kind;
 	// Remote tabs (a paired host's sessions) live in their device sections; this list is this device's.
@@ -906,12 +910,15 @@ export function Sidebar() {
 		const leaving = `session:${session.path}`;
 		const index = items.findIndex(item => item.dataset.rovingItem === leaving);
 		const neighbor = index === -1 ? undefined : (items[index + 1] ?? items[index - 1])?.dataset.rovingItem;
+		const deletedTabId = tabForSession(session)?.id;
 		try {
 			if (session.id === sessionId) {
 				await dropSessionNow();
 			} else {
 				await deleteSession(session.path);
 			}
+			// The session is gone: it leaves its split (a split left with one session dissolves).
+			if (deletedTabId) await useTabsStore.getState().leaveSplit(deletedTabId);
 			if (neighbor) refocusRow.current = { key: neighbor, leaving };
 			setPendingDelete(null);
 		} catch (error) {
@@ -1043,9 +1050,11 @@ export function Sidebar() {
 	const renderSessionRow = (session: SidebarSession, nested = false, variant?: "archived" | "recent") => {
 		const key = `session:${session.path}`;
 		const isCurrent = isCurrentSession(session);
-		const active = isCurrent && destination === "session";
-		const indexed = session.liveTabId === undefined;
 		const tab = tabForSession(session);
+		// Every pane of the split on screen reads as selected; the focused one adds a cue (data-pane-focus).
+		const inVisibleSplit = !isCurrent && tab !== undefined && splitIds?.has(tab.id) === true;
+		const active = (isCurrent || inVisibleSplit) && destination === "session";
+		const indexed = session.liveTabId === undefined;
 		const tabSignal = sessionTabSignal(session);
 		// Background tabs park their dialogs in their own runtime; the tab entry carries the flag.
 		const waiting = (isCurrent ? awaitedInput : null) ?? tab?.awaitingInput;
@@ -1055,7 +1064,7 @@ export function Sidebar() {
 			!running &&
 			(tabSignal ? tabSignal.labelKey === "titlebar.status.error" : session.status === "error");
 		const done = !waiting && !running && !failed && tabSignal?.labelKey === "tabs.done";
-		const openElsewhere = tab !== undefined && !isCurrent;
+		const openElsewhere = tab !== undefined && !isCurrent && !inVisibleSplit;
 		const busy = waiting !== undefined || running || tabSignal?.active === true;
 		const waitingLabel = waiting
 			? t(waiting === "approval" ? "sidebar.row.needsApproval" : "sidebar.row.needsInput")
@@ -1254,6 +1263,7 @@ export function Sidebar() {
 						onContextMenu: event => setSessionMenu({ anchor: anchorFromEvent(event), session }),
 						"data-active": active,
 						"data-current": isCurrent || undefined,
+						"data-pane-focus": (isCurrent && splitIds !== null) || undefined,
 						"data-live": indexed ? undefined : true,
 						"data-switch-pending": switchPendingTo === session.id || undefined,
 						"data-session-kind": session.kind ?? "agent",
