@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -233,6 +233,67 @@ describe("Files panel writes", () => {
 			expect(await mutateWorkspace(root, request, trash)).toMatchObject({ ok: false, code });
 		}
 		expect(await mutateWorkspace(null, { op: "trash", path: "a" }, trash)).toMatchObject({ code: "no_workspace" });
+	});
+	it("writes an edited file in place only while it is unchanged on disk, unless forced", async () => {
+		const file = join(root, "notes.md");
+		writeFileSync(file, "old");
+		if (process.platform !== "win32") chmodSync(file, 0o640);
+		const loaded = statSync(file).mtimeMs;
+		const saved = await mutateWorkspace(
+			root,
+			{ op: "write", path: "notes.md", content: "new ✓", expectedMtimeMs: loaded },
+			trash,
+		);
+		expect(saved).toMatchObject({ ok: true, path: "notes.md", mtimeMs: statSync(file).mtimeMs });
+		expect(readFileSync(file, "utf8")).toBe("new ✓");
+		if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o640);
+
+		// The editor still holds the first time: someone else's write in between is not overwritten.
+		const stale = await mutateWorkspace(
+			root,
+			{ op: "write", path: "notes.md", content: "mine", expectedMtimeMs: loaded - 1000 },
+			trash,
+		);
+		expect(stale).toMatchObject({ ok: false, code: "changed_on_disk" });
+		expect(readFileSync(file, "utf8")).toBe("new ✓");
+		expect(
+			await mutateWorkspace(
+				root,
+				{ op: "write", path: "notes.md", content: "mine", expectedMtimeMs: 0, force: true },
+				trash,
+			),
+		).toMatchObject({ ok: true });
+		expect(readFileSync(file, "utf8")).toBe("mine");
+	});
+	it("refuses to write a folder, a missing file, an escape, a link out of the project or too much text", async () => {
+		mkdirSync(join(root, "dir"));
+		const outsideDir = mkdtempSync(join(tmpdir(), "workspace-fs-outside-"));
+		writeFileSync(join(outsideDir, "secret.txt"), "keep");
+		writeFileSync(join(root, "big.txt"), "x");
+		try {
+			const write = (path: string, content = "x") => ({
+				op: "write",
+				path,
+				content,
+				expectedMtimeMs: 0,
+				force: true,
+			});
+			expect(await mutateWorkspace(root, write("dir"), trash)).toMatchObject({ ok: false, code: "not_a_file" });
+			expect(await mutateWorkspace(root, write("gone.txt"), trash)).toMatchObject({ code: "file_not_found" });
+			expect(await mutateWorkspace(root, write("../x"), trash)).toMatchObject({ code: "path_escapes_workspace" });
+			if (process.platform !== "win32") {
+				symlinkSync(join(outsideDir, "secret.txt"), join(root, "link.txt"));
+				expect(await mutateWorkspace(root, write("link.txt"), trash)).toMatchObject({
+					code: "path_escapes_workspace",
+				});
+				expect(readFileSync(join(outsideDir, "secret.txt"), "utf8")).toBe("keep");
+			}
+			expect(await mutateWorkspace(root, write("big.txt", "x".repeat(2_000_001)), trash)).toMatchObject({
+				code: "file_too_large",
+			});
+		} finally {
+			rmSync(outsideDir, { recursive: true, force: true });
+		}
 	});
 	it("stats a file and reports a missing one", async () => {
 		writeFileSync(join(root, "a.txt"), "abc");

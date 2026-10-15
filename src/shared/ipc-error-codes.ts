@@ -36,6 +36,7 @@ export const IPC_ERROR_CODES = [
 	"no_window",
 	"invalid_path",
 	"invalid_regex",
+	"changed_on_disk",
 	"invalid_stats_path",
 	"invalid_preference_key",
 	"invalid_launch_profile",

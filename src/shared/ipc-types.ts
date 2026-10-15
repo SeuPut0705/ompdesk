@@ -816,7 +816,15 @@ export interface IpcFsStatResult {
 export type IpcFsMutation =
 	| { op: "createFile" | "createFolder"; parent: string; name: string }
 	| { op: "rename"; path: string; name: string }
-	| { op: "trash"; path: string };
+	| { op: "trash"; path: string }
+	/**
+	 * Replace an existing text file's contents (C2, the viewer's Edit). `expectedMtimeMs` is the
+	 * modification time the editor loaded; a different one on disk is `changed_on_disk` unless `force`.
+	 */
+	| { op: "write"; path: string; content: string; expectedMtimeMs: number; force?: boolean };
+
+/** The most a viewer edit may save (UTF-8 bytes); main's text read cap, so an edited file was read whole. */
+export const FS_WRITE_MAX_BYTES = 2_000_000;
 
 /** Files panel content search; `query` is plain text unless `regex`. */
 export interface IpcFsSearchRequest {
@@ -850,8 +858,10 @@ export interface IpcFsSearchResult {
 
 export interface IpcFsMutateResult {
 	ok: boolean;
-	/** The created, renamed or trashed entry's workspace-relative path. */
+	/** The created, renamed, trashed or written entry's workspace-relative path. */
 	path?: string;
+	/** After `write`: the file's new modification time, which the next save expects. */
+	mtimeMs?: number;
 	error?: string;
 	code?: IpcErrorCode;
 }

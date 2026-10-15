@@ -1,31 +1,54 @@
 /**
- * A CodeMirror markdown field for long-form prompts (the agent editor's
- * instructions). CodeMirror is imported when the first editor mounts, not at
- * app startup. Uncontrolled after mount: `value` seeds the document and
+ * A CodeMirror text field: long-form prompts (the agent editor's
+ * instructions, Markdown) and the Files viewer's Edit (any text file, with line
+ * numbers and ⌘S/Ctrl+S). CodeMirror is imported when the first editor mounts,
+ * not at app startup. Uncontrolled after mount: `value` seeds the document and
  * `onChange` reports edits; remount (change `key`) to load another document.
  */
 
 import type { EditorView } from "@codemirror/view";
 import { useEffect, useRef, useState } from "react";
 import { cx } from "../../lib/format";
-import { Spinner } from "../common";
+import { Spinner } from "./Spinner";
 
-export interface MarkdownEditorProps {
+export type TextEditorLanguage = "markdown" | "json" | "text";
+
+export interface TextEditorProps {
 	value: string;
 	onChange: (value: string) => void;
 	/** Accessible name of the editing surface. */
 	ariaLabel: string;
+	language: TextEditorLanguage;
 	/** Id of the element describing the field (hint or error). */
 	describedBy?: string;
 	invalid?: boolean;
+	/** A gutter with line numbers, and no soft wrap (source files). */
+	lineNumbers?: boolean;
+	/** ⌘S / Ctrl+S inside the editor. */
+	onSave?: () => void;
+	/** Focus the text once CodeMirror has loaded. */
+	autoFocus?: boolean;
 	className?: string;
 }
 
-export function MarkdownEditor({ value, onChange, ariaLabel, describedBy, invalid, className }: MarkdownEditorProps) {
+export function TextEditor({
+	value,
+	onChange,
+	ariaLabel,
+	language,
+	describedBy,
+	invalid,
+	lineNumbers,
+	onSave,
+	autoFocus,
+	className,
+}: TextEditorProps) {
 	const hostRef = useRef<HTMLDivElement>(null);
 	const initialRef = useRef(value);
 	const onChangeRef = useRef(onChange);
 	onChangeRef.current = onChange;
+	const onSaveRef = useRef(onSave);
+	onSaveRef.current = onSave;
 	const [ready, setReady] = useState(false);
 
 	useEffect(() => {
@@ -35,17 +58,33 @@ export function MarkdownEditor({ value, onChange, ariaLabel, describedBy, invali
 		let disposed = false;
 		void Promise.all([
 			import("@codemirror/view"),
-			import("@codemirror/lang-markdown"),
 			import("@codemirror/commands"),
-		]).then(([{ EditorView, keymap }, { markdown }, { defaultKeymap, history, historyKeymap, indentWithTab }]) => {
+			language === "markdown" ? import("@codemirror/lang-markdown").then(module => module.markdown()) : null,
+			language === "json" ? import("@codemirror/lang-json").then(module => module.json()) : null,
+		]).then(([views, commands, markdown, json]) => {
 			if (disposed) return;
+			const { EditorView, keymap } = views;
+			const { defaultKeymap, history, historyKeymap, indentWithTab } = commands;
 			view = new EditorView({
 				doc: initialRef.current,
 				extensions: [
 					history(),
-					keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-					markdown(),
-					EditorView.lineWrapping,
+					keymap.of([
+						{
+							key: "Mod-s",
+							preventDefault: true,
+							run: () => {
+								onSaveRef.current?.();
+								return onSaveRef.current !== undefined;
+							},
+						},
+						...defaultKeymap,
+						...historyKeymap,
+						indentWithTab,
+					]),
+					...(markdown ? [markdown] : []),
+					...(json ? [json] : []),
+					...(lineNumbers ? [views.lineNumbers(), views.highlightActiveLineGutter()] : [EditorView.lineWrapping]),
 					EditorView.contentAttributes.of({
 						"aria-label": ariaLabel,
 						"aria-multiline": "true",
@@ -63,6 +102,12 @@ export function MarkdownEditor({ value, onChange, ariaLabel, describedBy, invali
 						".cm-content": { padding: "8px 0", caretColor: "var(--sc-accent)" },
 						".cm-line": { padding: "0 12px" },
 						".cm-cursor": { borderLeftColor: "var(--sc-accent)" },
+						".cm-gutters": {
+							backgroundColor: "var(--sc-field)",
+							color: "var(--sc-text-subtle)",
+							borderRight: "1px solid var(--sc-divider)",
+						},
+						".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--sc-text)" },
 						".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
 							backgroundColor: "var(--sc-selection) !important",
 						},
@@ -73,13 +118,14 @@ export function MarkdownEditor({ value, onChange, ariaLabel, describedBy, invali
 				],
 				parent: host,
 			});
+			if (autoFocus) view.focus();
 			setReady(true);
 		});
 		return () => {
 			disposed = true;
 			view?.destroy();
 		};
-	}, [ariaLabel, describedBy]);
+	}, [ariaLabel, describedBy, language, lineNumbers, autoFocus]);
 
 	return (
 		<div

@@ -31,6 +31,7 @@ import type {
 	IpcFsStatResult,
 	RemoteDirListing,
 } from "../shared/ipc-types";
+import { FS_WRITE_MAX_BYTES } from "../shared/ipc-types";
 
 const FS_LIST_DEFAULT_DEPTH = 8;
 const FS_LIST_MAX_DEPTH = 16;
@@ -758,12 +759,20 @@ const FsMutationSchema: z.ZodType<IpcFsMutation> = z.discriminatedUnion("op", [
 	z.object({ op: z.enum(["createFile", "createFolder"]), parent: z.string(), name: z.string() }),
 	z.object({ op: z.literal("rename"), path: z.string(), name: z.string() }),
 	z.object({ op: z.literal("trash"), path: z.string() }),
+	z.object({
+		op: z.literal("write"),
+		path: z.string(),
+		content: z.string(),
+		expectedMtimeMs: z.number(),
+		force: z.boolean().optional(),
+	}),
 ]);
 
 /**
  * The Files panel's writes inside `root`: create an empty file or a folder in `parent`, rename an entry in place,
- * or hand it to `trash` (the OS trash, never a hard delete). An existing target is `exists`, never overwritten.
- * `path` in the result is the new workspace-relative POSIX path.
+ * hand it to `trash` (the OS trash, never a hard delete), or `write` an existing text file the viewer edited.
+ * An existing target is `exists`, never overwritten; a write whose file changed since the editor loaded it is
+ * `changed_on_disk` unless forced. `path` in the result is the new workspace-relative POSIX path.
  */
 export async function mutateWorkspace(
 	root: string | null,
@@ -805,6 +814,24 @@ export async function mutateWorkspace(
 		if (mutation.op === "trash") {
 			await trash(source);
 			return { ok: true, path: relative(source) };
+		}
+		if (mutation.op === "write") {
+			// Through a symlink only when its target is inside the project too.
+			const [realRoot, realSource] = await Promise.all([fsp.realpath(root), fsp.realpath(source)]);
+			if (realSource !== realRoot && !realSource.startsWith(realRoot + path.sep)) {
+				return fail("Path escapes the workspace", "path_escapes_workspace");
+			}
+			const before = await fsp.stat(realSource);
+			if (!before.isFile()) return fail("Not a file", "not_a_file");
+			if (Buffer.byteLength(mutation.content, "utf8") > FS_WRITE_MAX_BYTES) {
+				return fail("The file is too large to save here", "file_too_large");
+			}
+			if (!mutation.force && before.mtimeMs !== mutation.expectedMtimeMs) {
+				return fail("The file changed on disk since it was opened", "changed_on_disk");
+			}
+			// In place, so the file keeps its mode, owner, links and any open handles.
+			await fsp.writeFile(realSource, mutation.content, "utf8");
+			return { ok: true, path: relative(source), mtimeMs: (await fsp.stat(realSource)).mtimeMs };
 		}
 		if (!validEntryName(mutation.name)) return fail("Invalid name", "invalid_name");
 		const target = path.join(path.dirname(source), mutation.name);

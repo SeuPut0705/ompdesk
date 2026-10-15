@@ -52,6 +52,7 @@ import { type TreeNode, TreeView } from "../common/TreeView";
 import { PathLink } from "../tools/PathLink";
 import { FileContentSearch } from "./FileContentSearch";
 import { PanelToolbar } from "./PanelChrome";
+import { EDITABLE_KINDS, FileEditor } from "./viewers/FileEditor";
 import { FileIcon, FileViewer } from "./viewers/FileViewer";
 import { viewerKind } from "./viewers/file-kind";
 import type { FileInfo } from "./viewers/viewer-chrome";
@@ -234,11 +235,18 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 	const [revision, setRevision] = useState(0);
 	const [gone, setGone] = useState(false);
 	const [confirmRun, setConfirmRun] = useState(false);
+	const [editing, setEditing] = useState(false);
+	const [dirty, setDirty] = useState(false);
+	/** What waits for "Discard" while the editor holds unsaved changes. */
+	const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
+	/** The file's last known modification time; a save sets it, so its own write is no outside change. */
+	const stampRef = useRef<number | null>(null);
+	const kind = viewerKind(path);
 
-	// C18: a viewer never edits, so a change on disk just reloads it; a vanished file says so.
+	// C18: a change on disk reloads the view (the editor decides for itself); a vanished file says so.
 	useEffect(() => {
 		let active = true;
-		let stamp: number | null = null;
+		stampRef.current = null;
 		const check = async () => {
 			if (document.hidden) return;
 			try {
@@ -249,8 +257,8 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 					return;
 				}
 				setGone(false);
-				if (stamp !== null && result.mtimeMs !== stamp) setRevision(value => value + 1);
-				stamp = result.mtimeMs;
+				if (stampRef.current !== null && result.mtimeMs !== stampRef.current) setRevision(value => value + 1);
+				stampRef.current = result.mtimeMs;
 			} catch {
 				// A failed check keeps the view as it is; the next tick tries again.
 			}
@@ -263,9 +271,19 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 		};
 	}, [path, tabId]);
 
+	/** Runs `action` now, or after the user agrees to drop unsaved edits. */
+	const leaveEditor = (action: () => void) => {
+		if (editing && dirty) setPendingLeave(() => action);
+		else action();
+	};
+	const onSaved = useCallback((mtimeMs: number) => {
+		stampRef.current = mtimeMs;
+	}, []);
+	const onDirtyChange = useCallback((value: boolean) => setDirty(value), []);
+
 	const insertMention = () => {
 		window.dispatchEvent(new CustomEvent("omp:insert-mention", { detail: { path, tabId } }));
-		closeFilePreview();
+		leaveEditor(closeFilePreview);
 	};
 	const runExternal = async () => {
 		setConfirmRun(false);
@@ -277,12 +295,17 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 		}
 	};
 
-	const kindLabel = t(`fileViewer.kind.${viewerKind(path)}`);
+	const kindLabel = t(`fileViewer.kind.${kind}`);
 	return (
 		<div className="omp-slide-in-right flex h-full min-h-0 min-w-0 flex-col">
 			<div className="min-h-(--sc-space-10) shrink-0 border-b border-(--sc-divider) px-3 py-2">
 				<div className="flex min-w-0 items-center gap-2">
-					<IconButton icon={<ArrowLeft />} label={t("filesPanel.back")} onClick={closeFilePreview} size="sm" />
+					<IconButton
+						icon={<ArrowLeft />}
+						label={t("filesPanel.back")}
+						onClick={() => leaveEditor(closeFilePreview)}
+						size="sm"
+					/>
 					<FileIcon className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)" path={path} />
 					<span className="min-w-0 flex-1 truncate text-sc-sm" title={path}>
 						{path}
@@ -303,6 +326,15 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 								<ExternalLinkIcon className="size-(--sc-icon-sm)" />
 								<span className="sr-only">{t("filesPanel.openExternal")}</span>
 							</PathLink>
+						)}
+						{EDITABLE_KINDS[kind] && (
+							<IconButton
+								icon={<Pencil />}
+								label={t("fileViewer.edit")}
+								onClick={() => (editing ? leaveEditor(() => setEditing(false)) : setEditing(true))}
+								pressed={editing}
+								size="sm"
+							/>
 						)}
 						<IconButton
 							icon={<AtSign />}
@@ -339,7 +371,18 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 				</div>
 			)}
 			<div className="min-h-0 flex-1 bg-(--sc-surface-1)">
-				<FileViewer key={revision} line={line ?? undefined} onInfo={setInfo} path={path} tabId={tabId} />
+				{editing ? (
+					<FileEditor
+						diskRevision={revision}
+						kind={kind}
+						onDirtyChange={onDirtyChange}
+						onSaved={onSaved}
+						path={path}
+						tabId={tabId}
+					/>
+				) : (
+					<FileViewer key={revision} line={line ?? undefined} onInfo={setInfo} path={path} tabId={tabId} />
+				)}
 			</div>
 			<ConfirmDialog
 				open={confirmRun}
@@ -348,6 +391,20 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 				confirmLabel={t("filesPanel.runConfirm")}
 				onConfirm={() => void runExternal()}
 				onCancel={() => setConfirmRun(false)}
+			/>
+			<ConfirmDialog
+				open={pendingLeave !== null}
+				title={t("fileViewer.discardTitle")}
+				message={t("fileViewer.discardMessage", { name: path.split("/").pop() ?? path })}
+				confirmLabel={t("fileViewer.discard")}
+				onConfirm={() => {
+					const action = pendingLeave;
+					setPendingLeave(null);
+					setDirty(false);
+					setEditing(false);
+					action?.();
+				}}
+				onCancel={() => setPendingLeave(null)}
 			/>
 		</div>
 	);

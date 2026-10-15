@@ -40,10 +40,10 @@ import {
 	SwitchField,
 	Tabs,
 	TextArea,
+	TextEditor,
 } from "../common";
 import { ModelValueSelect } from "../settings/ModelValueSelect";
 import { type AgentAuthoringData, useAgentAuthoring } from "./agent-authoring";
-import { MarkdownEditor } from "./MarkdownEditor";
 
 export type AgentEditorTarget =
 	| {
@@ -473,7 +473,8 @@ function AgentEditorForm({
 
 			<Section title={t("agentStudio.section.instructions")}>
 				<div className="flex flex-col gap-1.5">
-					<MarkdownEditor
+					<TextEditor
+						language="markdown"
 						ariaLabel={t("agentStudio.instructions.label")}
 						className="h-80"
 						describedBy={instructionsHintId}

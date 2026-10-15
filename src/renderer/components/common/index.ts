@@ -47,6 +47,7 @@ export { Skeleton, SkeletonRows } from "./Skeleton";
 export { Spinner, type SpinnerProps, type SpinnerSize } from "./Spinner";
 export { Switch, SwitchField, type SwitchFieldProps, type SwitchProps, type SwitchSize } from "./Switch";
 export { type TabItem, Tabs, type TabsProps, type TabsVariant } from "./Tabs";
+export { TextEditor, type TextEditorLanguage, type TextEditorProps } from "./TextEditor";
 export { ToastStack } from "./Toast";
 export { Tooltip, type TooltipProps, type TooltipSide } from "./Tooltip";
 export { type TreeNode, TreeView, type TreeViewProps } from "./TreeView";

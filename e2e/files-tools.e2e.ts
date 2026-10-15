@@ -10,7 +10,8 @@ import { exitApp, fixtureOmp } from "./harness";
 // and folder (C34), rename (C35), Move to Trash with confirm (C36; main's
 // shell.trashItem is swapped for a plain remove so the test never touches the
 // user's Trash), drag into the composer as an @mention (C42), and an open file
-// that reloads when it changes on disk and says so when it disappears (C18).
+// that reloads when it changes on disk and says so when it disappears (C18),
+// and the viewer's Edit with ⌘S and an outside change while editing (C2).
 // OMP_GUI_FILES_TOOLS_CAPTURES=<dir> keeps the captures.
 
 const LABELS = {
@@ -29,6 +30,12 @@ const LABELS = {
 		matchCase: "Match case",
 		count: "1 matches in 1 files",
 		sidePanel: "Side panel",
+		edit: "Edit",
+		editor: "Contents of notes.md",
+		saved: "Saved",
+		unsaved: "Unsaved",
+		changedOnDisk: "This file changed on disk since you opened it. Your edits are still here.",
+		reloadDisk: "Load the disk version",
 	},
 	ko: {
 		files: "파일",
@@ -45,6 +52,12 @@ const LABELS = {
 		matchCase: "대소문자 구분",
 		count: "파일 1개에서 1건",
 		sidePanel: "사이드 패널",
+		edit: "편집",
+		editor: "notes.md 내용",
+		saved: "저장됨",
+		unsaved: "저장 안 됨",
+		changedOnDisk: "파일을 연 뒤에 디스크에서 내용이 바뀌었어요. 편집한 내용은 그대로 있어요.",
+		reloadDisk: "디스크 버전 불러오기",
 	},
 } as const;
 
@@ -188,6 +201,30 @@ for (const [language, theme] of [
 			await expect(aside.getByText("Notes", { exact: true }).first()).toBeVisible();
 			await fs.writeFile(path.join(project, "notes.md"), "# Changed on disk\n");
 			await expect(aside.getByText("Changed on disk")).toBeVisible({ timeout: 10_000 });
+
+			// C2: Edit holds the whole file; ⌘S saves it in place; an outside change while editing keeps the edits.
+			await aside.getByRole("button", { name: label.edit, exact: true }).click();
+			const editor = aside.getByRole("textbox", { name: label.editor, exact: true });
+			await expect(editor).toBeFocused();
+			await page.keyboard.press("ControlOrMeta+End");
+			await page.keyboard.type("Edited in OMPdesk\n");
+			const status = aside.locator("[data-editor-status]");
+			await expect(status).toHaveText(label.unsaved);
+			await page.keyboard.press("ControlOrMeta+s");
+			await expect(status).toHaveText(label.saved);
+			expect(await fs.readFile(path.join(project, "notes.md"), "utf8")).toBe(
+				"# Changed on disk\nEdited in OMPdesk\n",
+			);
+			await capture("files-edit");
+			await page.keyboard.type("draft");
+			await fs.writeFile(path.join(project, "notes.md"), "# Someone else\n");
+			await expect(aside.getByText(label.changedOnDisk)).toBeVisible({ timeout: 10_000 });
+			await capture("files-edit-conflict");
+			await aside.getByRole("button", { name: label.reloadDisk, exact: true }).click();
+			await expect(editor).toContainText("# Someone else");
+			await expect(status).toHaveText(label.saved);
+			await aside.getByRole("button", { name: label.edit, exact: true }).click();
+			await expect(aside.locator("[data-file-editor]")).toHaveCount(0);
 			await fs.rm(path.join(project, "notes.md"));
 			await expect(aside.getByText(label.gone)).toBeVisible({ timeout: 10_000 });
 			await capture("files-gone");
