@@ -90,6 +90,11 @@ describe("preview relay extension", () => {
 		expect(
 			await rpc(2, { op: "send", tabId: 7, method: "Runtime.evaluate", params: { expression: "document.title" } }),
 		).toEqual({ t: "rpcResult", id: 2, ok: true, result: { result: { type: "string", value: "Example" } } });
+		fake.emit("message", {}, "Target.attachedToTarget", {
+			sessionId: "child-1",
+			targetInfo: { type: "iframe", targetId: "frame-1" },
+			waitingForDebugger: false,
+		});
 		await rpc(3, { op: "send", tabId: 7, sessionId: "child-1", method: "Runtime.enable" });
 		expect(fake.sent.map(entry => [entry.method, entry.sessionId])).toEqual([
 			["Runtime.evaluate", undefined],
@@ -126,6 +131,149 @@ describe("preview relay extension", () => {
 		expect((await rpc(9, { op: "group", tabIds: [7], title: "omp", color: "cyan" }))?.result).toEqual({
 			grouped: {},
 		});
+	});
+
+	it("refuses every method outside the page's own domains, and the dangerous ones inside them", async () => {
+		const { fake, rpc } = setup();
+		await rpc(1, { op: "attach", tabId: 7 });
+		const refused = [
+			"Target.getTargets",
+			"Target.setDiscoverTargets",
+			"Target.attachToTarget",
+			"Target.attachToBrowserTarget",
+			"Target.sendMessageToTarget",
+			"Target.activateTarget",
+			"Target.getTargetInfo",
+			"Target.createTarget",
+			"Target.closeTarget",
+			"Target.createBrowserContext",
+			"Target.disposeBrowserContext",
+			"Target.exposeDevToolsProtocol",
+			"DOM.setFileInputFiles",
+			"Page.setInterceptFileChooserDialog",
+			"Input.setInterceptDrags",
+			"Page.close",
+			"Page.crash",
+			"Page.navigateToHistoryEntry",
+			"Page.setDownloadBehavior",
+			"Security.setIgnoreCertificateErrors",
+			"Browser.close",
+			"Browser.getVersion",
+			"SystemInfo.getInfo",
+			"Tethering.bind",
+			"Tracing.start",
+			"Memory.getDOMCounters",
+			"constructor",
+			"toString",
+			"__proto__.x",
+			"",
+		];
+		for (const [index, method] of refused.entries()) {
+			const result = await rpc(10 + index, { op: "send", tabId: 7, method, params: {} });
+			expect(result?.ok, method).toBe(false);
+			expect(refusedCommand(method, {}), method).not.toBeNull();
+		}
+		expect(fake.sent).toEqual([]);
+	});
+
+	it("forwards the commands stock's browser tool needs", async () => {
+		const { fake, rpc } = setup();
+		await rpc(1, { op: "attach", tabId: 7 });
+		const allowed = [
+			"Runtime.enable",
+			"Runtime.callFunctionOn",
+			"Page.enable",
+			"Page.captureScreenshot",
+			"Page.stopLoading",
+			"Page.setWebLifecycleState",
+			"Page.handleJavaScriptDialog",
+			"DOM.getDocument",
+			"Input.dispatchMouseEvent",
+			"Network.enable",
+			"Fetch.disable",
+			"Emulation.setUserAgentOverride",
+			"Inspector.enable",
+			"Profiler.start",
+			"Target.setAutoAttach",
+		];
+		for (const [index, method] of allowed.entries()) {
+			expect((await rpc(100 + index, { op: "send", tabId: 7, method, params: {} }))?.ok, method).toBe(true);
+		}
+		expect(fake.sent.map(entry => entry.method)).toEqual(allowed);
+	});
+
+	it("only reaches sessions this page's own debugger announced", async () => {
+		const { fake, rpc } = setup();
+		await rpc(1, { op: "attach", tabId: 7 });
+		// Never announced: for example a session the agent opened onto the app window.
+		expect((await rpc(2, { op: "send", tabId: 7, sessionId: "app-window", method: "Runtime.evaluate" }))?.ok).toBe(
+			false,
+		);
+		expect((await rpc(3, { op: "send", tabId: 7, sessionId: "", method: "Runtime.evaluate" }))?.ok).toBe(false);
+		expect(fake.sent).toEqual([]);
+		// A child of this page (an out-of-process frame) is announced and reachable until it detaches.
+		fake.emit("message", {}, "Target.attachedToTarget", {
+			sessionId: "frame-session",
+			targetInfo: { type: "iframe", targetId: "frame-1" },
+			waitingForDebugger: false,
+		});
+		expect((await rpc(4, { op: "send", tabId: 7, sessionId: "frame-session", method: "Runtime.enable" }))?.ok).toBe(
+			true,
+		);
+		expect(
+			(
+				await rpc(5, {
+					op: "send",
+					tabId: 7,
+					sessionId: "frame-session",
+					method: "Target.setAutoAttach",
+					params: { autoAttach: true, waitForDebuggerOnStart: false, flatten: true },
+				})
+			)?.ok,
+		).toBe(true);
+		// A session announced for another page-like target is not this page's child.
+		fake.emit("message", {}, "Target.attachedToTarget", {
+			sessionId: "other-page",
+			targetInfo: { type: "page", targetId: "page-2" },
+		});
+		expect((await rpc(6, { op: "send", tabId: 7, sessionId: "other-page", method: "Runtime.evaluate" }))?.ok).toBe(
+			false,
+		);
+		// Detaching a session needs a session that was announced.
+		expect(
+			(
+				await rpc(7, {
+					op: "send",
+					tabId: 7,
+					method: "Target.detachFromTarget",
+					params: { sessionId: "app-window" },
+				})
+			)?.ok,
+		).toBe(false);
+		expect(
+			(
+				await rpc(8, {
+					op: "send",
+					tabId: 7,
+					method: "Target.detachFromTarget",
+					params: { sessionId: "frame-session" },
+				})
+			)?.ok,
+		).toBe(true);
+		fake.emit("message", {}, "Target.detachedFromTarget", { sessionId: "frame-session" });
+		expect((await rpc(9, { op: "send", tabId: 7, sessionId: "frame-session", method: "Runtime.enable" }))?.ok).toBe(
+			false,
+		);
+		// Announced sessions end with the debugger attachment.
+		fake.emit("message", {}, "Target.attachedToTarget", {
+			sessionId: "worker-session",
+			targetInfo: { type: "worker", targetId: "worker-1" },
+		});
+		await rpc(10, { op: "detach", tabId: 7 });
+		await rpc(11, { op: "attach", tabId: 7 });
+		expect((await rpc(12, { op: "send", tabId: 7, sessionId: "worker-session", method: "Runtime.enable" }))?.ok).toBe(
+			false,
+		);
 	});
 
 	it("marks a relay-requested detach and releases the debugger on dispose", async () => {

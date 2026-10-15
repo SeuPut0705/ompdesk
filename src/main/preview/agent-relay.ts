@@ -12,8 +12,12 @@
  *
  * Safety (AGENTS.md Preview rules): the page keeps its non-persistent sandboxed
  * partition with no preload; the agent only ever reaches this one page, never
- * the app window. Commands that would leave http(s) or touch the browser,
- * downloads or other targets are refused here, before the page sees them.
+ * the app window. Electron's per-page debugger can reach other targets
+ * (`Target.attachToTarget` onto the app window answers `Runtime.evaluate`
+ * there), so only an allowlist of page domains is forwarded, and only to
+ * sessions this page's own debugger announced (its frames and workers).
+ * Navigation off http(s), downloads, file pickers and other targets are
+ * refused here, before the page sees them.
  */
 import type { Debugger } from "electron";
 import { z } from "zod";
@@ -60,26 +64,76 @@ interface TabSnapshot {
 	groupId: number;
 }
 
-/** Methods the agent may not send to the page: browser-wide, other targets, downloads. */
-const REFUSED_METHODS: Record<string, true> = {
-	"Page.setDownloadBehavior": true,
-	"Target.createTarget": true,
-	"Target.createBrowserContext": true,
-	"Target.disposeBrowserContext": true,
-	"Target.exposeDevToolsProtocol": true,
-	"Target.closeTarget": true,
-};
-const REFUSED_DOMAINS = ["Browser.", "SystemInfo.", "Tethering.", "Tracing."];
+/**
+ * CDP domains the agent may drive on the page: what stock's browser tool (puppeteer) uses
+ * against one page. Everything else is refused, so a new or browser-wide domain stays off
+ * until it is listed here. `Browser`, `SystemInfo`, `Tethering`, `Tracing` and `Memory`
+ * are deliberately absent; `Target` has its own two-method list below.
+ */
+const ALLOWED_DOMAINS: ReadonlySet<string> = new Set([
+	"Accessibility",
+	"Animation",
+	"Audits",
+	"CSS",
+	"Console",
+	"DOM",
+	"DOMDebugger",
+	"DOMSnapshot",
+	"DOMStorage",
+	"Debugger",
+	"Emulation",
+	"Fetch",
+	"HeapProfiler",
+	"IO",
+	"Input",
+	"Inspector",
+	"Log",
+	"Media",
+	"Network",
+	"Overlay",
+	"Page",
+	"Performance",
+	"PerformanceTimeline",
+	"Profiler",
+	"Runtime",
+	"Security",
+	"ServiceWorker",
+	"Storage",
+]);
+
+/**
+ * The only `Target.` methods forwarded: the page arms auto-attach over its own frames and
+ * workers, and drops one of those sessions again. Electron's per-page debugger does not
+ * confine `Target.getTargets` / `attachToTarget` to the page (an attach to the app window
+ * answers `Runtime.evaluate` there), so every other Target method stays refused.
+ */
+const ALLOWED_TARGET_METHODS: ReadonlySet<string> = new Set(["Target.setAutoAttach", "Target.detachFromTarget"]);
+
+/** Inside an allowed domain, methods that still reach beyond the page: its tab, files, downloads, TLS. */
+const REFUSED_METHODS: ReadonlySet<string> = new Set([
+	"DOM.setFileInputFiles",
+	"Input.setInterceptDrags",
+	"Page.close",
+	"Page.crash",
+	"Page.navigateToHistoryEntry",
+	"Page.setDownloadBehavior",
+	"Page.setInterceptFileChooserDialog",
+	"Security.setIgnoreCertificateErrors",
+]);
+
+/** Announced targets that are not children of this page (a session onto them is never relayed). */
+const FOREIGN_TARGET_TYPES: ReadonlySet<string> = new Set(["page", "tab", "browser"]);
 
 /**
  * Why the preview refuses `method` with `params`, or null to forward it.
  * Navigation is checked here because a CDP `Page.navigate` is browser-initiated
- * and skips the preview's `will-frame-navigate` guard.
+ * and skips the preview's `will-frame-navigate` guard. Which session a command
+ * addresses is checked by `PreviewRelayExtension`, which sees the page's events.
  */
 export function refusedCommand(method: string, params: unknown): string | null {
-	if (REFUSED_METHODS[method] || REFUSED_DOMAINS.some(domain => method.startsWith(domain))) {
-		return `OMPdesk's preview does not allow ${method}`;
-	}
+	const domain = method.slice(0, Math.max(method.indexOf("."), 0));
+	const allowed = domain === "Target" ? ALLOWED_TARGET_METHODS.has(method) : ALLOWED_DOMAINS.has(domain);
+	if (!allowed || REFUSED_METHODS.has(method)) return `OMPdesk's preview does not allow ${method}`;
 	if (method === "Page.navigate") {
 		const url = params && typeof params === "object" && "url" in params ? params.url : undefined;
 		if (typeof url !== "string" || (url !== "about:blank" && !previewUrl(url))) {
@@ -96,14 +150,18 @@ export class PreviewRelayExtension {
 	readonly #onActivity: (method: string) => void;
 	#relayDetaching = false;
 	#disposed = false;
+	/** Sessions this page's own debugger announced (its frames and workers); nothing else is addressable. */
+	readonly #sessions = new Set<string>();
 
 	readonly #onMessage = (_event: unknown, method: string, params: unknown, sessionId?: string) => {
+		this.#trackSessions(method, params);
 		this.#post({ t: "cdpEvent", tabId: this.#page.id, ...(sessionId ? { sessionId } : {}), method, params });
 	};
 
 	readonly #onDetach = (_event: unknown, reason: string) => {
 		const relayInitiated = this.#relayDetaching;
 		this.#relayDetaching = false;
+		this.#sessions.clear();
 		this.#post({ t: "detached", tabId: this.#page.id, reason, relayInitiated });
 		this.#onActivity("");
 	};
@@ -114,6 +172,33 @@ export class PreviewRelayExtension {
 		this.#onActivity = onActivity;
 		page.debugger.on("message", this.#onMessage);
 		page.debugger.on("detach", this.#onDetach);
+	}
+
+	#trackSessions(method: string, params: unknown): void {
+		if (method !== "Target.attachedToTarget" && method !== "Target.detachedFromTarget") return;
+		if (!params || typeof params !== "object" || !("sessionId" in params) || typeof params.sessionId !== "string")
+			return;
+		if (method === "Target.detachedFromTarget") {
+			this.#sessions.delete(params.sessionId);
+			return;
+		}
+		const info = "targetInfo" in params ? params.targetInfo : undefined;
+		const type = info && typeof info === "object" && "type" in info ? info.type : undefined;
+		if (typeof type === "string" && !FOREIGN_TARGET_TYPES.has(type)) this.#sessions.add(params.sessionId);
+	}
+
+	/** Why the preview refuses to address `sessionId` (and the session `params` name), or null. */
+	#refusedSession(method: string, params: unknown, sessionId: string | undefined): string | null {
+		if (sessionId !== undefined && !this.#sessions.has(sessionId)) {
+			return "OMPdesk's preview only reaches this page's own frames and workers";
+		}
+		if (method === "Target.detachFromTarget") {
+			const named = params && typeof params === "object" && "sessionId" in params ? params.sessionId : undefined;
+			if (typeof named !== "string" || !this.#sessions.has(named)) {
+				return "OMPdesk's preview only detaches this page's own frames and workers";
+			}
+		}
+		return null;
 	}
 
 	/** True while the agent holds the page's debugger. */
@@ -197,7 +282,8 @@ export class PreviewRelayExtension {
 				return {};
 			case "send": {
 				const method = rpc.method ?? "";
-				const refused = refusedCommand(method, rpc.params);
+				const refused =
+					refusedCommand(method, rpc.params) ?? this.#refusedSession(method, rpc.params, rpc.sessionId);
 				if (refused) throw new Error(refused);
 				this.#onActivity(method);
 				const result: unknown = await debuggerApi.sendCommand(method, rpc.params, rpc.sessionId);

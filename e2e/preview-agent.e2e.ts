@@ -29,6 +29,7 @@ interface PuppeteerPage {
 	click(selector: string): Promise<void>;
 	evaluate<T>(fn: () => T): Promise<T>;
 	waitForNavigation(): Promise<unknown>;
+	createCDPSession(): Promise<{ send(method: string, params?: object): Promise<unknown> }>;
 }
 interface PuppeteerBrowser {
 	connected: boolean;
@@ -132,6 +133,20 @@ for (const [language, theme] of [
 			).toHaveValue(`${site}next`);
 			// The preview stays on the web: a file URL is refused before the page sees it.
 			await expect(driven.goto("file:///etc/hosts")).rejects.toThrow(/http\(s\)/);
+			// Electron's per-page debugger would answer these for the whole app (the app window included);
+			// the preview refuses them before the page's debugger sees them.
+			const session = await driven.createCDPSession();
+			for (const [method, params] of [
+				["Target.getTargets", {}],
+				["Target.attachToTarget", { targetId: "app-window", flatten: true }],
+				["Target.attachToBrowserTarget", {}],
+				["DOM.setFileInputFiles", { files: ["/etc/hosts"] }],
+			] as const) {
+				await expect(session.send(method, params), method).rejects.toThrow(/does not allow/);
+			}
+			await expect(session.send("Runtime.evaluate", { expression: "1 + 1" })).resolves.toMatchObject({
+				result: { value: 2 },
+			});
 			const security = await app.evaluate(async ({ webContents }) => {
 				const child = webContents.getAllWebContents().find(contents => contents.getTitle() === "Second page");
 				if (!child) throw new Error("Missing native preview contents");
