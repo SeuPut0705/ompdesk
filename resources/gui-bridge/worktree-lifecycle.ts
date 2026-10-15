@@ -8,8 +8,8 @@
  * so the branch name, location, clone backend and clean-HEAD start match the TUI.
  *
  * Dynamic stock imports are deliberate: static imports would fail area loading
- * before the capability guard can explain a missing internal. The minimum is
- * omp 18.8.7; there is no older-version implementation fallback.
+ * before the capability guard can explain a missing internal. MIN_OMP_VERSION
+ * covers these internals; there is no older-version implementation fallback.
  * Literal specifiers, so omp maps them onto its loaded singletons (see health.ts).
  */
 import * as path from "node:path";

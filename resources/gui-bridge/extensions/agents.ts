@@ -260,7 +260,7 @@ export const methods: BridgeMethods = {
 				}
 			}
 			try {
-				const payload = await backend.buildDeveloperInstructions(agentDir, session.settings, session);
+				const payload = await backend.buildDeveloperInstructions(agentDir, cwd, session.settings, session);
 				if (payload) report.payload = payload;
 			} catch (error) {
 				warn("buildDeveloperInstructions", error);

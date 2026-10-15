@@ -18,13 +18,13 @@ import { createWorkReplay, type RecordedWorkFrame, rebaseWorkRecording } from ".
 // reach. No provider credentials, external network, or user session files.
 /**
  * The version this fake omp reports: `OMP_GUI_TEST_VERSION_FILE`'s text once that file exists (a fake
- * installer writes it, i.e. "omp updated"), else 18.8.7. `OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE=<feature>`
- * makes the bridge's capabilities probe report that feature missing on any version but 18.8.7.
+ * installer writes it, i.e. "omp updated"), else 18.11.0 (MIN_OMP_VERSION). `OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE=<feature>`
+ * makes the bridge's capabilities probe report that feature missing on any version but 18.11.0.
  * `OMP_GUI_TEST_BOOT_LOG=<file>` gets one line (the version) per `--mode rpc-ui` boot.
  */
 const FIXTURE_OMP_VERSION = (() => {
 	const file = process.env.OMP_GUI_TEST_VERSION_FILE;
-	return (file && fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : "") || "18.8.7";
+	return (file && fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : "") || "18.11.0";
 })();
 if (process.env.OMP_GUI_TEST_BOOT_LOG && process.argv.includes("rpc-ui")) {
 	fs.appendFileSync(process.env.OMP_GUI_TEST_BOOT_LOG, `${FIXTURE_OMP_VERSION}\n`);
@@ -198,7 +198,7 @@ if (process.argv[2] === "stats") {
 	// Stock RPC mode ends when its client closes stdin.
 	lines.on("close", () => process.exit(0));
 } else if (process.argv[2] === "update" && process.argv.includes("--check")) {
-	console.log("Current version: 18.8.7\nAlready up to date");
+	console.log("Current version: 18.11.0\nAlready up to date");
 } else if (process.argv[2] === "worktree" && process.argv.includes("--json")) {
 	// Stock `omp worktree list|clear --json` over a JSON file of WorktreeEntry rows
 	// (`OMP_GUI_TEST_AGENT_WORKTREES`; none when unset). clear drops the orphaned ones.
@@ -1026,7 +1026,7 @@ if (process.argv[2] === "stats") {
 		capabilities: () => ({
 			ompVersion: FIXTURE_OMP_VERSION,
 			unavailable:
-				FIXTURE_OMP_VERSION !== "18.8.7" && process.env.OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE
+				FIXTURE_OMP_VERSION !== "18.11.0" && process.env.OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE
 					? [{ feature: process.env.OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE, missing: ["fixture"] }]
 					: [],
 		}),

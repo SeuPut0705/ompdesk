@@ -178,19 +178,10 @@ test("agent editor and template gallery write definitions omp discovers", async 
 		expect(probe).toContain("thinking-level: low");
 		expect(probe).toContain("Read the files and answer briefly.");
 		await expect.poll(() => discovered("probe")).toMatchObject({ source: "project", scope: "project" });
-		// Discovery reports the frontmatter list as written. omp before 18.10.2
-		// appended `yield` to explicit lists; 18.10.2+ adds it only to
-		// `task.structured` spawns. Both are supported (MIN_OMP_VERSION 18.8.7).
+		// Discovery reports the frontmatter list as written; stock adds `yield`
+		// only to `task.structured` spawns (omp 18.10.2+, below MIN_OMP_VERSION).
 		const tools = (await discovered("probe"))?.tools ?? [];
-		expect(tools.filter(tool => tool !== "yield")).toEqual([
-			"read",
-			"grep",
-			"glob",
-			"find",
-			"lsp",
-			"ast_grep",
-			"web_search",
-		]);
+		expect(tools).toEqual(["read", "grep", "glob", "find", "lsp", "ast_grep", "web_search"]);
 		await shoot(page, "definitions-en");
 
 		// --- Edit keeps unknown keys, comments and the file's key spelling.

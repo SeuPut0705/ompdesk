@@ -1,11 +1,11 @@
 /**
  * omp updates itself, end to end, with a fake registry and a fake installer
  * (`OMP_GUI_TEST_NPM_REGISTRY`, `OMP_GUI_TEST_INSTALLER`; both are needed for a
- * test launch to check at all). The registry's latest (18.9.0) is newer than
- * the fixture omp (18.8.7), so main runs the omp-update plan on its own while
+ * test launch to check at all). The registry's latest (18.12.0) is newer than
+ * the fixture omp (18.11.0), so main runs the omp-update plan on its own while
  * the tab keeps its process and its draft; once the installer reports the new
  * version, main re-detects omp, restarts the idle tab on it (the boot log shows
- * 18.8.7 then 18.9.0), shows one "omp updated to 18.9.0" toast, and the
+ * 18.11.0 then 18.12.0), shows one "omp updated to 18.12.0" toast, and the
  * restarted bridge's capabilities probe names a feature the new omp lacks.
  * With the pref off nothing checks on its own, and "Update now" still works.
  */
@@ -18,7 +18,7 @@ import { type ElectronApplication, _electron as electron } from "playwright";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
 import { exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
 
-/** The fake installer: logs each call; the omp update waits for the test's `go` file, then "installs" 18.9.0. */
+/** The fake installer: logs each call; the omp update waits for the test's `go` file, then "installs" 18.12.0. */
 const INSTALLER = `
 import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,10 +26,10 @@ const [item, method] = process.argv.slice(2);
 const dir = process.env.OMPDESK_FAKE_INSTALLER_DIR;
 appendFileSync(join(dir, "installs.log"), item + " " + method + "\\n");
 if (item === "omp" && method === "omp-update") {
-	console.log("Current version: 18.8.7\\nNew version available: 18.9.0");
+	console.log("Current version: 18.11.0\\nNew version available: 18.12.0");
 	while (!existsSync(join(dir, "go"))) await Bun.sleep(25);
-	writeFileSync(process.env.OMPDESK_FAKE_VERSION_FILE, "18.9.0");
-	console.log("Updated to 18.9.0");
+	writeFileSync(process.env.OMPDESK_FAKE_VERSION_FILE, "18.12.0");
+	console.log("Updated to 18.12.0");
 } else {
 	console.log("fake " + item + " install");
 }
@@ -53,7 +53,7 @@ async function registryServer(): Promise<{ server: Server; url: string; requests
 		if (request.url === "/-/package/@oh-my-pi/pi-coding-agent/dist-tags") {
 			requests += 1;
 			response.writeHead(200, { "content-type": "application/json" });
-			response.end(JSON.stringify({ latest: "18.9.0" }));
+			response.end(JSON.stringify({ latest: "18.12.0" }));
 			return;
 		}
 		response.writeHead(404).end();
@@ -131,22 +131,22 @@ async function releaseInstaller(launched: Launched): Promise<void> {
 	await fs.writeFile(path.join(launched.root, "installer", "go"), "");
 }
 
-/** After "go": one toast, the idle tab restarted on 18.9.0, its draft kept, the probe's warning, the state in Settings. */
+/** After "go": one toast, the idle tab restarted on 18.12.0, its draft kept, the probe's warning, the state in Settings. */
 async function expectUpdated(launched: Launched): Promise<void> {
 	const { page } = launched;
-	await expect(page.getByText("omp updated to 18.9.0")).toBeVisible({ timeout: 30_000 });
-	await expect.poll(() => boots(launched), { timeout: 30_000 }).toEqual(["18.8.7", "18.9.0"]);
+	await expect(page.getByText("omp updated to 18.12.0")).toBeVisible({ timeout: 30_000 });
+	await expect.poll(() => boots(launched), { timeout: 30_000 }).toEqual(["18.11.0", "18.12.0"]);
 	await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
 	await expect(page.locator(".omp-composer-input").first()).toHaveValue(DRAFT);
-	// The restarted bridge answered the capabilities probe for 18.9.0; planMode is missing there.
+	// The restarted bridge answered the capabilities probe for 18.12.0; planMode is missing there.
 	await expect(page.getByText(/missing internals OMPdesk needs for: Plan mode/)).toBeVisible({ timeout: 30_000 });
 	expect(await installs(launched)).toEqual(["omp omp-update"]);
 	const state = await page.evaluate(() => window.omp.ompUpdate.getState());
 	expect(state).toMatchObject({
 		phase: "idle",
-		installed: "18.9.0",
-		latest: "18.9.0",
-		updatedTo: "18.9.0",
+		installed: "18.12.0",
+		latest: "18.12.0",
+		updatedTo: "18.12.0",
 		failure: null,
 	});
 	expect(launched.errors).toEqual([]);
@@ -159,11 +159,11 @@ test("a newer omp installs on its own; the idle tab restarts on it with its draf
 		const { page } = launched;
 		await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
 		await page.locator(".omp-composer-input").first().fill(DRAFT);
-		// Nobody clicked: main found 18.9.0 > 18.8.7 and runs the installer, which waits for `go`.
+		// Nobody clicked: main found 18.12.0 > 18.11.0 and runs the installer, which waits for `go`.
 		await expect.poll(() => updatePhase(page), { timeout: 30_000 }).toBe("updating");
 		await expect.poll(() => installs(launched), { timeout: 30_000 }).toEqual(["omp omp-update"]);
 		// The install never touches the running tab: same process, still ready.
-		expect(await boots(launched)).toEqual(["18.8.7"]);
+		expect(await boots(launched)).toEqual(["18.11.0"]);
 		expect(await sidecarStatus(page)).toBe("ready");
 		await releaseInstaller(launched);
 		await expectUpdated(launched);
@@ -175,7 +175,7 @@ test("a newer omp installs on its own; the idle tab restarts on it with its draf
 			"aria-checked",
 			"true",
 		);
-		await expect(settings.getByTestId("omp-update-status")).toHaveText("omp 18.9.0 is the latest.");
+		await expect(settings.getByTestId("omp-update-status")).toHaveText("omp 18.12.0 is the latest.");
 	} finally {
 		await close(launched);
 	}
@@ -200,9 +200,9 @@ test("with the pref off nothing checks on its own; Update now still updates", as
 		await settings.getByTestId("omp-update-now").click();
 		await expect.poll(() => installs(launched), { timeout: 30_000 }).toEqual(["omp omp-update"]);
 		await releaseInstaller(launched);
-		await expect(page.getByText("omp updated to 18.9.0")).toBeVisible({ timeout: 30_000 });
+		await expect(page.getByText("omp updated to 18.12.0")).toBeVisible({ timeout: 30_000 });
 		expect(launched.registryRequests()).toBe(1);
-		await expect.poll(() => boots(launched), { timeout: 30_000 }).toEqual(["18.8.7", "18.9.0"]);
+		await expect.poll(() => boots(launched), { timeout: 30_000 }).toEqual(["18.11.0", "18.12.0"]);
 		await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
 	} finally {
 		await close(launched);

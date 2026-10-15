@@ -14,7 +14,7 @@
 
 <br><br>
 
-<img src="https://img.shields.io/badge/omp-18.8.7%2B-5B5BD6?style=flat-square" alt="omp 18.8.7 이상">
+<img src="https://img.shields.io/badge/omp-18.11.0%2B-5B5BD6?style=flat-square" alt="omp 18.11.0 이상">
 <img src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows-5B5BD6?style=flat-square" alt="macOS · Windows">
 <img src="https://img.shields.io/badge/UI-한국어%20%C2%B7%20English-5B5BD6?style=flat-square" alt="한국어 · English UI">
 <img src="https://img.shields.io/badge/license-MIT-5B5BD6?style=flat-square" alt="MIT 라이선스">
@@ -54,7 +54,7 @@ OMPdesk는 [omp](https://github.com/can1357/oh-my-pi) 코딩 에이전트를 위
 | 항목 | 내용 |
 |---|---|
 | 컴퓨터 | macOS Apple Silicon(M1 이상) 또는 Windows 10/11 x64 |
-| omp | 18.8.7 이상. 없으면 OMPdesk가 첫 실행 때 [Bun](https://bun.sh)과 함께 알아서 설치해요. |
+| omp | 18.11.0 이상. 없으면 OMPdesk가 첫 실행 때 [Bun](https://bun.sh)과 함께 알아서 설치해요. |
 | 모델 | 사용할 프로바이더의 로그인 또는 API 키 |
 | 선택 | Git 작업에는 Git, GitHub PR 기능에는 [GitHub CLI](https://cli.github.com)(`gh`) 로그인, 내장 REA 도구에는 Node.js. 없으면 OMPdesk가 백그라운드에서 설치해요. |
 | 다운로드·업데이트 | 이 저장소에 접근할 수 있는 GitHub 계정 |
@@ -79,7 +79,7 @@ OMPdesk는 [omp](https://github.com/can1357/oh-my-pi) 코딩 에이전트를 위
 | 항목 | 설치 방법 |
 |---|---|
 | Bun (필수) | Bun 공식 설치 스크립트로 사용자 폴더(`~/.bun`)에 설치해요. 관리자 권한이 필요 없어요. |
-| omp (필수) | `bun install -g @oh-my-pi/pi-coding-agent`. 18.8.7보다 낮으면 `omp update`를 실행해요. |
+| omp (필수) | `bun install -g @oh-my-pi/pi-coding-agent`. 18.11.0보다 낮으면 `omp update`를 실행해요. |
 | Git for Windows (Windows 필수) | omp의 셸 도구가 Git Bash를 써요. 이미 설치돼 있으면 그대로 쓰고, 없으면 고정된 PortableGit 릴리스를 SHA-256으로 확인한 뒤 `%LOCALAPPDATA%\ompdesk\tools\git`에 풀어요. 관리자 권한이 필요 없어요. WSL은 쓰지 않아요. |
 | Git (macOS, 선택) | `xcode-select --install`. macOS의 설치 창이 떠요. |
 | GitHub CLI, Node.js (선택) | macOS는 Homebrew가 있으면 `brew install`, 없으면 공식 압축 파일을 체크섬으로 확인해 OMPdesk 도구 폴더에 풀어요. Windows는 `winget`을 쓰고, 이때 Windows가 권한을 물어볼 수 있어요. |
@@ -94,7 +94,7 @@ bun install -g @oh-my-pi/pi-coding-agent
 omp --version
 ```
 
-이미 설치했는데 18.8.7보다 낮다면 `omp update`를 실행하세요.
+이미 설치했는데 18.11.0보다 낮다면 `omp update`를 실행하세요.
 
 ### 3. 모델 연결하고 첫 작업 보내기
 
@@ -190,7 +190,7 @@ omp는 스스로 업데이트해요. OMPdesk를 켜 두는 동안 npm의 최신 
 | macOS에서 개발자 확인 경고가 나와요 | Apple 공증을 받지 않은 빌드예요. Finder에서 앱을 **우클릭 → 열기**로 한 번 실행하세요. 계속 막히면 **시스템 설정 › 개인정보 보호 및 보안**에서 허용하세요. |
 | Windows SmartScreen이 막아요 | **추가 정보 → 실행**을 누르세요. 회사 정책으로 막히면 관리자에게 문의하세요. |
 | omp를 찾을 수 없어요 | 설치 화면이나 **설정 › 일반 › 이 컴퓨터**에서 실패 이유를 확인하고 **다시 시도**를 누르세요. 직접 설치했다면 터미널에서 `omp --version`을 확인하세요. 다른 경로에 설치했다면 `OMP_GUI_OMP` 환경 변수에 실행 파일 경로를 지정하세요. |
-| omp 버전이 낮다고 나와요 | OMPdesk가 `omp update`를 알아서 실행해요. 실패했다면 터미널에서 `omp update` 후 **다시 시작**을 누르세요. 18.8.7 이상이 필요해요. |
+| omp 버전이 낮다고 나와요 | OMPdesk가 `omp update`를 알아서 실행해요. 실패했다면 터미널에서 `omp update` 후 **다시 시작**을 누르세요. 18.11.0 이상이 필요해요. |
 | 앱 업데이트에 로그인이 필요해요 | `gh auth status` 또는 설정의 **GitHub 접근 › 접근 확인**으로 확인하세요. |
 | PR 기능이 동작하지 않아요 | Git 저장소를 열었는지, `gh auth status`가 로그인 상태인지 확인하세요. |
 
@@ -203,7 +203,7 @@ omp는 스스로 업데이트해요. OMPdesk를 켜 두는 동안 npm의 최신 
 
 ## 소스에서 실행하기
 
-저장소 접근 권한, Bun, Git, omp 18.8.7 이상이 필요해요.
+저장소 접근 권한, Bun, Git, omp 18.11.0 이상이 필요해요.
 
 ```bash
 git clone https://github.com/SeuPut0705/ompdesk.git

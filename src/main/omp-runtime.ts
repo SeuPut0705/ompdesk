@@ -17,12 +17,15 @@ import { spawnPath } from "./shell-env";
 
 /**
  * Oldest omp whose RPC surface and bridge-extension internals this GUI is written
- * against. 18.8.7: the stock internals the bridge reuses instead of keeping
- * OMPdesk copies (session listing and transcript, worktree root, provider
- * catalog, account matching…), plus `worktree.onStart`/`onExit` (18.8.6),
- * per-model compaction limits and account identity keys.
+ * against. 18.11.0: `MemoryBackend.buildDeveloperInstructions(agentDir, cwd,
+ * settings, session?)` takes the project directory (project-scoped memory),
+ * which the Memory panel's `/memory view` payload passes. Earlier floors: the
+ * stock internals the bridge reuses instead of keeping OMPdesk copies (session
+ * listing and transcript, worktree root, provider catalog, account matching…),
+ * `worktree.onStart`/`onExit` (18.8.6), per-model compaction limits and account
+ * identity keys (18.8.7).
  */
-export const MIN_OMP_VERSION = "18.8.7";
+export const MIN_OMP_VERSION = "18.11.0";
 
 const VERSION_TIMEOUT_MS = 15_000;
 const DEFAULT_RUN_TIMEOUT_MS = 60_000;
