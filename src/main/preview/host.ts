@@ -1,7 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import * as path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, type Session, session, WebContentsView } from "electron";
+import {
+	app,
+	BrowserWindow,
+	dialog,
+	ipcMain,
+	type Session,
+	session,
+	type WebContents,
+	WebContentsView,
+} from "electron";
 import { z } from "zod";
 import {
 	clampPreviewZoom,
@@ -57,6 +66,8 @@ const pageRequestSchema: z.ZodType<PreviewPageRequest> = z.discriminatedUnion("a
 interface PreviewPage {
 	id: string;
 	view: WebContentsView;
+	/** The view's WebContents, kept: `view.webContents` reads undefined once the window destroyed the view. */
+	contents: WebContents;
 	state: PreviewPageState;
 	/** Zoom factor last given to the page (user zoom × frame fit). */
 	factor: number;
@@ -114,7 +125,7 @@ export function registerPreviewHost(
 	};
 	const visualView = (page: PreviewPage) => (page.visual ? visuals.view(page.visual.id, page.visual.version) : null);
 	const publish = (host: PreviewHost, page: PreviewPage, patch: Partial<PreviewPageState> = {}) => {
-		const contents = page.view.webContents;
+		const { contents } = page;
 		if (contents.isDestroyed()) return;
 		page.state = {
 			...page.state,
@@ -139,7 +150,7 @@ export function registerPreviewHost(
 		const page = host.active;
 		const fitted = fitPreviewFrame(host.layout.bounds, PREVIEW_VIEWPORTS[page.state.viewport]);
 		applyPreviewLayout(page.view, fitted.bounds, host.layout.visible, { width, height });
-		const contents = page.view.webContents;
+		const { contents } = page;
 		const factor = Math.max(MIN_FRAME_SCALE, page.state.zoom * fitted.scale);
 		if (factor !== page.factor || contents.getZoomFactor() !== factor) {
 			page.factor = factor;
@@ -168,7 +179,7 @@ export function registerPreviewHost(
 	const closePage = (host: PreviewHost, page: PreviewPage) => {
 		if (host.agent?.page === page) stopAgent(host);
 		if (!host.win.isDestroyed()) host.win.contentView.removeChildView(page.view);
-		if (!page.view.webContents.isDestroyed()) page.view.webContents.close();
+		if (!page.contents.isDestroyed()) page.contents.close();
 	};
 	const disposeHost = (host: PreviewHost) => {
 		stopAgent(host);
@@ -180,7 +191,7 @@ export function registerPreviewHost(
 		page.state = { ...page.state, url, title: "", loading: true, error: null, visual: visualView(page) };
 		send(host);
 		// loadURL resolves after navigation; do not hold the toolbar behind that promise.
-		void page.view.webContents.loadURL(url).catch(() => {});
+		void page.contents.loadURL(url).catch(() => {});
 	};
 	/** Show version `version` (default latest) of `visualId` in `page`. */
 	const loadVisual = (host: PreviewHost, page: PreviewPage, visualId: string, version?: number) => {
@@ -208,6 +219,7 @@ export function registerPreviewHost(
 		const page: PreviewPage = {
 			id: randomUUID(),
 			view,
+			contents,
 			state: { ...EMPTY_PREVIEW_PAGE },
 			factor: 1,
 			visual: null,
@@ -328,7 +340,7 @@ export function registerPreviewHost(
 	}
 	/** Run one page tool in OMPdesk's isolated world: its result, or null once the page navigates away or closes. */
 	function runOnPage(page: PreviewPage, code: string): Promise<unknown> {
-		const contents = page.view.webContents;
+		const { contents } = page;
 		if (contents.isDestroyed()) return Promise.resolve(null);
 		const { promise, resolve } = Promise.withResolvers<unknown>();
 		const gone = () => resolve(null);
@@ -384,7 +396,7 @@ export function registerPreviewHost(
 			partition.on("will-download", (download, item, contents) => {
 				download.preventDefault();
 				const url = allowed(created, item.getURL());
-				const page = created.pages.find(candidate => candidate.view.webContents === contents) ?? created.active;
+				const page = created.pages.find(candidate => candidate.contents === contents) ?? created.active;
 				if (url) publish(created, page, { notice: { kind: "download", url, filename: item.getFilename() } });
 			});
 			win.once("closed", () => disposeHost(created));
@@ -392,13 +404,12 @@ export function registerPreviewHost(
 		}
 		const current = host;
 		const page = current.active;
-		const { view } = page;
 		if (request.action === "agentStart") {
 			if (isRemote(event.sender.id, request.tabId)) throw new Error("Agent browsing is for tabs on this computer");
 			const target = relayExtensionUrl(request.url, request.token);
 			if (!target) throw new Error("Invalid browser relay endpoint");
 			stopAgent(current);
-			const contents = view.webContents;
+			const { contents } = page;
 			const socket = new WebSocket(target);
 			let lastPublished = 0;
 			let latest = "";
@@ -493,12 +504,12 @@ export function registerPreviewHost(
 			// An address the user types replaces whatever visual the page showed.
 			page.visual = null;
 			loadInto(current, page, url);
-		} else if (request.action === "back" && view.webContents.navigationHistory.canGoBack())
-			view.webContents.navigationHistory.goBack();
-		else if (request.action === "forward" && view.webContents.navigationHistory.canGoForward())
-			view.webContents.navigationHistory.goForward();
-		else if (request.action === "reload") view.webContents.reload();
-		else if (request.action === "stop") view.webContents.stop();
+		} else if (request.action === "back" && page.contents.navigationHistory.canGoBack())
+			page.contents.navigationHistory.goBack();
+		else if (request.action === "forward" && page.contents.navigationHistory.canGoForward())
+			page.contents.navigationHistory.goForward();
+		else if (request.action === "reload") page.contents.reload();
+		else if (request.action === "stop") page.contents.stop();
 		return windowState(current);
 	});
 	ipcMain.handle(PREVIEW_SAVE_PDF, async event => {
@@ -507,7 +518,7 @@ export function registerPreviewHost(
 		if (!win || win.webContents !== event.sender) throw new Error("Invalid preview owner");
 		const page = host?.active;
 		if (!page?.state.url || page.state.crashed) throw new Error("No page to save");
-		const contents = page.view.webContents;
+		const { contents } = page;
 		const name =
 			contents
 				.getTitle()
@@ -542,7 +553,7 @@ export function registerPreviewHost(
 			rect: { left: number; top: number; width: number; height: number };
 			elements: unknown[];
 		};
-		const contents = page.view.webContents;
+		const { contents } = page;
 		// CSS pixels → the view's DIPs.
 		const factor = contents.getZoomFactor();
 		const shot = await contents.capturePage({
@@ -584,7 +595,7 @@ export function registerPreviewHost(
 			const found = findVisual(visualId);
 			if (!found) return "none";
 			const { host, page } = found;
-			const contents = page.view.webContents;
+			const { contents } = page;
 			// C143: the agent's browser (or any debugger) on the page could click for the user.
 			const held = () => host.agent?.page === page || contents.debugger.isAttached();
 			if (held()) return "agent";
