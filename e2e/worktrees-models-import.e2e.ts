@@ -182,6 +182,8 @@ for (const [language, theme] of RUNS) {
 		const models = path.join(agent, "models.yml");
 		const settings = await openSettings(page, "models");
 		const section = settings.locator("#settings-models-overrides");
+		// Model overrides sit under Models & accounts' folded Advanced group (20b496a).
+		await section.locator("xpath=ancestor::details[1]/summary").click();
 		await section.scrollIntoViewIfNeeded();
 		const add = section.locator("[data-model-override-add]");
 		await expect(add).toBeEnabled();
