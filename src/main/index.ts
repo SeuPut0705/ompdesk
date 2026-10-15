@@ -15,6 +15,7 @@ import {
 	powerSaveBlocker,
 	protocol,
 	session,
+	shell,
 } from "electron";
 import Store from "electron-store";
 import { DELEGATION_PREF } from "../../resources/gui-bridge/delegation-contracts";
@@ -515,6 +516,7 @@ app.whenReady().then(() => {
 		launchProfiles: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) },
 		machine,
 		localTabs: sidecarPool,
+		trashItem: abs => shell.trashItem(abs),
 	});
 	let hostOmpVersion: string | null = null;
 	void systemOmp().then(resolution => {

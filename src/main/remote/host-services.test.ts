@@ -205,6 +205,7 @@ function setup(graceMs = 60_000) {
 		launchProfiles: { get: () => undefined, set: () => {} },
 		machine,
 		localTabs: local.localTabs,
+		trashItem: async () => {},
 		graceMs,
 	});
 	return { services, sidecars, local, deleteSession, renameStoredSession, machine };

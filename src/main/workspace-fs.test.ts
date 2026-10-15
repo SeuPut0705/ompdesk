@@ -2,7 +2,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { listDirectories, listWorkspace, readWorkspaceBinary, readWorkspaceImage, sniffMime } from "./workspace-fs";
+import {
+	listDirectories,
+	listWorkspace,
+	mutateWorkspace,
+	readWorkspaceBinary,
+	readWorkspaceImage,
+	sniffMime,
+	statWorkspacePath,
+} from "./workspace-fs";
 
 const ascii = (text: string) => [...text].map(char => char.charCodeAt(0));
 /** A file's leading bytes followed by filler, so nothing depends on the exact header length. */
@@ -172,5 +180,63 @@ describe("natural name order", () => {
 			"Notes.md",
 		]);
 		expect((await listDirectories(root)).entries.map(entry => entry.name)).toEqual(["step-9", "step-10"]);
+	});
+});
+
+describe("Files panel writes", () => {
+	const trashed: string[] = [];
+	const trash = async (abs: string) => {
+		trashed.push(abs);
+		rmSync(abs, { recursive: true, force: true });
+	};
+	it("creates, renames and trashes inside the workspace and never overwrites", async () => {
+		mkdirSync(join(root, "src"));
+		expect(await mutateWorkspace(root, { op: "createFile", parent: "src", name: "a.ts" }, trash)).toEqual({
+			ok: true,
+			path: "src/a.ts",
+		});
+		expect(await mutateWorkspace(root, { op: "createFolder", parent: "", name: "docs" }, trash)).toEqual({
+			ok: true,
+			path: "docs",
+		});
+		expect(await mutateWorkspace(root, { op: "createFile", parent: "src", name: "a.ts" }, trash)).toMatchObject({
+			ok: false,
+			code: "exists",
+		});
+		writeFileSync(join(root, "src", "b.ts"), "keep");
+		expect(await mutateWorkspace(root, { op: "rename", path: "src/a.ts", name: "b.ts" }, trash)).toMatchObject({
+			ok: false,
+			code: "exists",
+		});
+		expect(await mutateWorkspace(root, { op: "rename", path: "src/a.ts", name: "c.ts" }, trash)).toEqual({
+			ok: true,
+			path: "src/c.ts",
+		});
+		expect(await mutateWorkspace(root, { op: "trash", path: "src/c.ts" }, trash)).toEqual({
+			ok: true,
+			path: "src/c.ts",
+		});
+		expect(trashed).toEqual([join(root, "src", "c.ts")]);
+		expect((await listWorkspace(root, {})).entries.map(entry => entry.path)).toEqual(["docs", "src"]);
+	});
+	it("refuses escapes, the root itself, bad names and malformed requests", async () => {
+		for (const [request, code] of [
+			[{ op: "createFile", parent: "..", name: "x" }, "path_escapes_workspace"],
+			[{ op: "createFile", parent: "", name: "../x" }, "invalid_name"],
+			[{ op: "createFile", parent: "", name: ".." }, "invalid_name"],
+			[{ op: "createFile", parent: "", name: " x" }, "invalid_name"],
+			[{ op: "trash", path: "" }, "invalid_path"],
+			[{ op: "trash", path: "missing.txt" }, "file_not_found"],
+			[{ op: "rename", path: "../outside", name: "x" }, "path_escapes_workspace"],
+			[{ op: "delete", path: "a" }, "invalid_path"],
+		] as const) {
+			expect(await mutateWorkspace(root, request, trash)).toMatchObject({ ok: false, code });
+		}
+		expect(await mutateWorkspace(null, { op: "trash", path: "a" }, trash)).toMatchObject({ code: "no_workspace" });
+	});
+	it("stats a file and reports a missing one", async () => {
+		writeFileSync(join(root, "a.txt"), "abc");
+		expect(await statWorkspacePath(root, "a.txt")).toMatchObject({ ok: true, size: 3 });
+		expect(await statWorkspacePath(root, "gone.txt")).toMatchObject({ ok: false, code: "file_not_found" });
 	});
 });

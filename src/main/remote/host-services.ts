@@ -50,10 +50,12 @@ import {
 	FS_BINARY_REMOTE_MAX_BYTES,
 	listDirectories,
 	listWorkspace,
+	mutateWorkspace,
 	readPlanFile,
 	readWorkspaceBinary,
 	readWorkspaceFile,
 	readWorkspaceImage,
+	statWorkspacePath,
 } from "../workspace-fs";
 import {
 	BenchmarkOptionsSchema,
@@ -103,6 +105,8 @@ export interface HostServicesDeps {
 		| "noteSessionFile"
 		| "allSidecars"
 	>;
+	/** Moves a path to this machine's trash (Electron `shell.trashItem`). */
+	trashItem: (abs: string) => Promise<void>;
 	graceMs?: number;
 }
 
@@ -158,6 +162,7 @@ const FsListParams = z.object({
 });
 const FsReadParams = z.object({ ...FsRoot, path: z.string(), maxBytes: z.number().optional() });
 const FsReadImageParams = z.object({ ...FsRoot, path: z.string() });
+const FsMutateParams = z.object({ ...FsRoot, mutation: z.unknown() });
 const FsReadPlanParams = z.object({ ...FsRoot, fsPath: z.string(), localRoot: z.string().nullable() });
 const ListDirsParams = z.object({ path: z.string().optional() });
 const LaunchProfileGetParams = z.object({ cwd: AbsolutePath });
@@ -287,6 +292,14 @@ export class LocalHostServices implements HostServices {
 			case "fs.read": {
 				const { rtab, cwd, ...payload } = parse(FsReadParams, method, params);
 				return readWorkspaceFile(this.#fsRoot(peer, rtab, cwd), payload);
+			}
+			case "fs.stat": {
+				const { rtab, cwd, path } = parse(FsReadImageParams, method, params);
+				return statWorkspacePath(this.#fsRoot(peer, rtab, cwd), path);
+			}
+			case "fs.mutate": {
+				const { rtab, cwd, mutation } = parse(FsMutateParams, method, params);
+				return mutateWorkspace(this.#fsRoot(peer, rtab, cwd), mutation, this.#deps.trashItem);
 			}
 			case "fs.readImage": {
 				const { rtab, cwd, ...payload } = parse(FsReadImageParams, method, params);

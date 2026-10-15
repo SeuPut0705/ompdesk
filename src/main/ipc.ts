@@ -28,6 +28,8 @@ import type {
 	IpcFsListResult,
 	IpcFsMediaStreamPayload,
 	IpcFsMediaStreamResult,
+	IpcFsMutateResult,
+	IpcFsMutation,
 	IpcFsReadBinaryPayload,
 	IpcFsReadBinaryResult,
 	IpcFsReadImagePayload,
@@ -36,6 +38,7 @@ import type {
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
+	IpcFsStatResult,
 	IpcGetLaunchProfilePayload,
 	IpcGetSessionOwnerPayload,
 	IpcModelSetupRunResult,
@@ -100,12 +103,14 @@ import type { SpawnWindow, WindowManager } from "./window";
 import { sanitizeChromeColors, TOP_BAR_HEIGHT } from "./window-chrome";
 import {
 	listWorkspace,
+	mutateWorkspace,
 	readPlanFile,
 	readWorkspaceBinary,
 	readWorkspaceFile,
 	readWorkspaceImage,
 	resolveWithin,
 	resolveWorkspaceMedia,
+	statWorkspacePath,
 } from "./workspace-fs";
 import { readLiveLifecycleSettings, type WorktreeLifecycle, type WorktreePrompts } from "./worktree-lifecycle";
 
@@ -1175,6 +1180,39 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		return readWorkspaceFile(cwdFor(deps, event, payload?.tabId), request);
 	});
+
+	ipcMain.handle(
+		IPC_COMMANDS.FS_STAT,
+		async (event, payload: { path?: unknown; tabId?: string }): Promise<IpcFsStatResult> => {
+			const target = targetFor(deps, event, payload?.tabId);
+			if (target?.device) {
+				return remoteFs(
+					{ ...target, device: target.device },
+					"fs.stat",
+					{ path: payload?.path },
+					(error, code) => ({ ok: false, mtimeMs: 0, size: 0, error, ...(code ? { code } : {}) }),
+				);
+			}
+			return statWorkspacePath(cwdFor(deps, event, payload?.tabId), payload?.path);
+		},
+	);
+
+	// Files panel writes; a paired host's tab writes on that host (which trashes through its own shell).
+	ipcMain.handle(
+		IPC_COMMANDS.FS_MUTATE,
+		async (event, payload: { mutation: IpcFsMutation; tabId?: string }): Promise<IpcFsMutateResult> => {
+			const target = targetFor(deps, event, payload?.tabId);
+			if (target?.device) {
+				return remoteFs(
+					{ ...target, device: target.device },
+					"fs.mutate",
+					{ mutation: payload?.mutation },
+					(error, code) => ({ ok: false, error, ...(code ? { code } : {}) }),
+				);
+			}
+			return mutateWorkspace(cwdFor(deps, event, payload?.tabId), payload?.mutation, abs => shell.trashItem(abs));
+		},
+	);
 
 	ipcMain.handle(
 		IPC_COMMANDS.FS_READ_IMAGE,

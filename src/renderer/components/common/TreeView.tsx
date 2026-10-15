@@ -5,16 +5,31 @@
  */
 
 import { ChevronRight } from "lucide-react";
-import { type CSSProperties, type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef } from "react";
+import {
+	type CSSProperties,
+	type DragEvent,
+	type KeyboardEvent,
+	type ReactNode,
+	useEffect,
+	useMemo,
+	useRef,
+} from "react";
 import { useT } from "../../lib/i18n";
+import { anchorFromEvent, type ContextMenuAnchor } from "./ContextMenu";
 
 export interface TreeNode {
 	id: string;
 	label: ReactNode;
 	icon?: ReactNode;
+	/** Small mark after the label (a status letter). */
+	trailing?: ReactNode;
 	children?: TreeNode[];
 	/** Called when the row is activated (click / Enter). */
 	onClick?: () => void;
+	/** Row menu: right-click, the context-menu key or Shift+F10. */
+	onMenu?: (anchor: ContextMenuAnchor) => void;
+	/** Makes the row draggable; fill `event.dataTransfer` here. */
+	onDragStart?: (event: DragEvent<HTMLDivElement>) => void;
 	/** Extra classes for the row. */
 	className?: string;
 }
@@ -89,6 +104,14 @@ export function TreeView({ nodes, expanded, onExpandedChange, emptyMessage, clas
 	};
 
 	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>, row: FlatRow, index: number) => {
+		// Keys typed into a control inside the row (an inline rename field) stay with it.
+		if (event.target !== event.currentTarget) return;
+		if (row.node.onMenu && (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) {
+			event.preventDefault();
+			const rect = event.currentTarget.getBoundingClientRect();
+			row.node.onMenu({ x: rect.left + 24, y: rect.bottom });
+			return;
+		}
 		switch (event.key) {
 			case "ArrowDown": {
 				event.preventDefault();
@@ -147,6 +170,9 @@ export function TreeView({ nodes, expanded, onExpandedChange, emptyMessage, clas
 						data-tree-id={row.node.id}
 						key={row.node.id}
 						onClick={() => row.node.onClick?.()}
+						onContextMenu={row.node.onMenu ? event => row.node.onMenu?.(anchorFromEvent(event)) : undefined}
+						draggable={row.node.onDragStart ? true : undefined}
+						onDragStart={row.node.onDragStart}
 						onKeyDown={event => onKeyDown(event, row, index)}
 						role="treeitem"
 						style={
@@ -185,6 +211,7 @@ export function TreeView({ nodes, expanded, onExpandedChange, emptyMessage, clas
 						>
 							{row.node.label}
 						</span>
+						{row.node.trailing}
 					</div>
 				);
 			})}

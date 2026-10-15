@@ -8,24 +8,45 @@
 import {
 	ArrowLeft,
 	AtSign,
+	Copy,
 	ExternalLink as ExternalLinkIcon,
+	FilePlus,
 	Folder,
 	FolderOpen,
+	FolderPlus,
 	Maximize2,
 	Minimize2,
+	Pencil,
 	RefreshCw,
+	Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ipcErrorCode } from "../../../shared/ipc-error-codes";
-import type { FsTreeEntry } from "../../../shared/ipc-types";
+import type { FsTreeEntry, IpcFsMutation } from "../../../shared/ipc-types";
+import type { RpcGitChanges } from "../../../shared/rpc-types";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { errorMessage } from "../../lib/error-detail";
-import { formatBytes } from "../../lib/format";
+import { FILE_DRAG_TYPE } from "../../lib/file-drag";
+import { copyText, formatBytes } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { useRuntimeTabId } from "../../stores/session-runtime-context";
+import { PLATFORM } from "../../lib/keymap";
+import { useRuntimeTabId, useSessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
+import { toast, toastError } from "../../stores/toast";
 import { COMPACT_SHELL_QUERY, useUiStore } from "../../stores/ui";
-import { Button, EmptyState, ErrorDetail, IconButton, SearchField, Spinner } from "../common";
+import {
+	Banner,
+	Button,
+	ConfirmDialog,
+	ContextMenu,
+	type ContextMenuAnchor,
+	type ContextMenuItem,
+	EmptyState,
+	ErrorDetail,
+	IconButton,
+	SearchField,
+	Spinner,
+} from "../common";
 import { type TreeNode, TreeView } from "../common/TreeView";
 import { PathLink } from "../tools/PathLink";
 import { PanelToolbar } from "./PanelChrome";
@@ -35,6 +56,125 @@ import type { FileInfo } from "./viewers/viewer-chrome";
 
 const MAX_FILES = 2000;
 const MAX_DEPTH = 8;
+
+interface Entry {
+	kind: "file" | "dir";
+	/** Workspace-relative POSIX path. */
+	path: string;
+}
+type Editing = { op: "createFile" | "createFolder"; parent: string } | { op: "rename"; path: string };
+
+/** A git status letter on a tree row: Modified, Added, Deleted, Renamed, Untracked, Conflicted. */
+export type GitMark = "M" | "A" | "D" | "R" | "U" | "C";
+const GIT_MARK_STYLE: Record<GitMark, { color: string; label: string }> = {
+	M: { color: "text-(--sc-warning)", label: "filesPanel.git.modified" },
+	A: { color: "text-(--sc-success)", label: "filesPanel.git.added" },
+	D: { color: "text-(--sc-danger)", label: "filesPanel.git.deleted" },
+	R: { color: "text-(--sc-info)", label: "filesPanel.git.renamed" },
+	U: { color: "text-(--sc-success)", label: "filesPanel.git.untracked" },
+	C: { color: "text-(--sc-danger)", label: "filesPanel.git.conflicted" },
+};
+export interface GitDecorations {
+	/** Workspace-relative file path → its mark. */
+	files: Map<string, GitMark>;
+	/** Folders holding a changed file somewhere below. */
+	dirs: Set<string>;
+}
+const NO_GIT: GitDecorations = { files: new Map(), dirs: new Set() };
+
+/** The tree's view of `get_git_changes`: paths re-rooted from the checkout to the tab's folder (C39). */
+export function gitDecorations(changes: RpcGitChanges, cwd: string): GitDecorations {
+	const root = (changes.root ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
+	const base = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
+	if (!changes.isRepo || !root || (base !== root && !base.startsWith(`${root}/`))) return NO_GIT;
+	const prefix = base === root ? "" : `${base.slice(root.length + 1)}/`;
+	const result: GitDecorations = { files: new Map(), dirs: new Set() };
+	for (const file of changes.files) {
+		if (!file.path.startsWith(prefix)) continue;
+		const path = file.path.slice(prefix.length);
+		const [x, y] = file.status;
+		const code = y !== " " ? y : x;
+		const mark: GitMark =
+			file.status === "??"
+				? "U"
+				: x === "U" || y === "U" || file.status === "AA" || file.status === "DD"
+					? "C"
+					: code === "A" || code === "D" || code === "R"
+						? code
+						: code === "C"
+							? "A"
+							: "M";
+		result.files.set(path, mark);
+		const segments = path.split("/");
+		for (let index = 1; index < segments.length; index++) result.dirs.add(segments.slice(0, index).join("/"));
+	}
+	return result;
+}
+
+/** Inline name field for a new or renamed entry: Enter or leaving it commits a changed name, Escape cancels. */
+function EntryNameField({
+	initial,
+	label,
+	onSubmit,
+	onCancel,
+}: {
+	initial: string;
+	label: string;
+	onSubmit: (name: string) => void;
+	onCancel: () => void;
+}) {
+	const ref = useRef<HTMLInputElement>(null);
+	const done = useRef(false);
+	/** Blur commits only once the field held focus, so a menu handing focus back while closing never cancels it. */
+	const focused = useRef(false);
+	useEffect(() => {
+		// A closing menu restores focus to its trigger in the same commit; take it back on the next frame.
+		const frame = requestAnimationFrame(() => {
+			const input = ref.current;
+			if (!input) return;
+			input.focus();
+			// The base name is selected, so typing keeps the extension (mixdog's explorer does the same).
+			const dot = initial.lastIndexOf(".");
+			input.setSelectionRange(0, dot > 0 ? dot : initial.length);
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [initial]);
+	const finish = (submit: boolean) => {
+		if (done.current) return;
+		done.current = true;
+		const value = ref.current?.value.trim() ?? "";
+		if (submit && value && value !== initial) onSubmit(value);
+		else onCancel();
+	};
+	return (
+		<input
+			ref={ref}
+			aria-label={label}
+			defaultValue={initial}
+			spellCheck={false}
+			autoCapitalize="none"
+			className="h-(--sc-control-xs,1.5rem) w-full min-w-0 rounded-(--sc-radius-sm) border border-(--sc-border) bg-(--sc-field) px-1.5 text-sc-sm text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
+			data-files-name-field
+			onFocus={() => {
+				focused.current = true;
+			}}
+			onBlur={() => {
+				if (focused.current) finish(true);
+			}}
+			onClick={event => event.stopPropagation()}
+			onKeyDown={event => {
+				if (event.key === "Enter") {
+					event.preventDefault();
+					finish(true);
+				} else if (event.key === "Escape") {
+					event.preventDefault();
+					event.stopPropagation();
+					finish(false);
+				}
+			}}
+		/>
+	);
+}
 
 function countFiles(entries: FsTreeEntry[]): number {
 	let count = 0;
@@ -73,6 +213,12 @@ export function workspaceRelativePath(path: string, cwd: string): string | null 
 	return target.startsWith(`${root}/`) ? target.slice(root.length + 1) : null;
 }
 
+/** Files whose default app runs them as programs; opening one outside the viewer asks first (C44). */
+const EXECUTABLE =
+	/\.(app|bat|cmd|com|command|cpl|exe|jar|js|jse|lnk|msc|msi|pif|pkg|ps1|scpt|scr|sh|tool|url|vbe|vbs|workflow|wsf)$/i;
+/** How often an open file is checked for changes on disk while the window is visible. */
+const DISK_WATCH_MS = 2000;
+
 /** Keyed by path in FilesPanel: a new file starts with fresh header info and views. */
 function FilePreview({ path, tabId }: { path: string; tabId: string | undefined }) {
 	const t = useT();
@@ -82,10 +228,51 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 	const compact = useMediaQuery(COMPACT_SHELL_QUERY);
 	const line = useUiStore(s => s.filePreviewLine);
 	const [info, setInfo] = useState<FileInfo | null>(null);
+	/** Bumped when the file changes on disk; remounts the view so it reads again. */
+	const [revision, setRevision] = useState(0);
+	const [gone, setGone] = useState(false);
+	const [confirmRun, setConfirmRun] = useState(false);
+
+	// C18: a viewer never edits, so a change on disk just reloads it; a vanished file says so.
+	useEffect(() => {
+		let active = true;
+		let stamp: number | null = null;
+		const check = async () => {
+			if (document.hidden) return;
+			try {
+				const result = await window.omp.fs.stat(path, tabId);
+				if (!active) return;
+				if (!result.ok) {
+					if (result.code === "file_not_found") setGone(true);
+					return;
+				}
+				setGone(false);
+				if (stamp !== null && result.mtimeMs !== stamp) setRevision(value => value + 1);
+				stamp = result.mtimeMs;
+			} catch {
+				// A failed check keeps the view as it is; the next tick tries again.
+			}
+		};
+		void check();
+		const timer = window.setInterval(() => void check(), DISK_WATCH_MS);
+		return () => {
+			active = false;
+			window.clearInterval(timer);
+		};
+	}, [path, tabId]);
 
 	const insertMention = () => {
 		window.dispatchEvent(new CustomEvent("omp:insert-mention", { detail: { path, tabId } }));
 		closeFilePreview();
+	};
+	const runExternal = async () => {
+		setConfirmRun(false);
+		try {
+			const result = await window.omp.system.openPath(path, tabId);
+			if (!result.ok) toastError({ title: t("tools.path.openFailed"), error: result });
+		} catch (cause) {
+			toastError({ title: t("tools.path.openFailed"), error: cause });
+		}
 	};
 
 	const kindLabel = t(`fileViewer.kind.${viewerKind(path)}`);
@@ -99,13 +286,22 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 						{path}
 					</span>
 					<div className="flex shrink-0 items-center gap-0.5">
-						<PathLink
-							path={path}
-							className="flex size-(--sc-control-sm) shrink-0 items-center justify-center rounded-(--sc-radius-md) text-(--sc-text-muted) hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
-						>
-							<ExternalLinkIcon className="size-(--sc-icon-sm)" />
-							<span className="sr-only">{t("filesPanel.openExternal")}</span>
-						</PathLink>
+						{EXECUTABLE.test(path) ? (
+							<IconButton
+								icon={<ExternalLinkIcon />}
+								label={t("filesPanel.openExternal")}
+								onClick={() => setConfirmRun(true)}
+								size="sm"
+							/>
+						) : (
+							<PathLink
+								path={path}
+								className="flex size-(--sc-control-sm) shrink-0 items-center justify-center rounded-(--sc-radius-md) text-(--sc-text-muted) hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
+							>
+								<ExternalLinkIcon className="size-(--sc-icon-sm)" />
+								<span className="sr-only">{t("filesPanel.openExternal")}</span>
+							</PathLink>
+						)}
 						<IconButton
 							icon={<AtSign />}
 							label={t("filesPanel.insertMention")}
@@ -133,9 +329,24 @@ function FilePreview({ path, tabId }: { path: string; tabId: string | undefined 
 					</span>
 				</div>
 			</div>
+			{gone && (
+				<div className="shrink-0 px-3 pt-2">
+					<Banner live variant="warning">
+						{t("filesPanel.gone")}
+					</Banner>
+				</div>
+			)}
 			<div className="min-h-0 flex-1 bg-(--sc-surface-1)">
-				<FileViewer line={line ?? undefined} onInfo={setInfo} path={path} tabId={tabId} />
+				<FileViewer key={revision} line={line ?? undefined} onInfo={setInfo} path={path} tabId={tabId} />
 			</div>
+			<ConfirmDialog
+				open={confirmRun}
+				title={t("filesPanel.runTitle")}
+				message={t("filesPanel.runMessage", { name: path.split("/").pop() ?? path })}
+				confirmLabel={t("filesPanel.runConfirm")}
+				onConfirm={() => void runExternal()}
+				onCancel={() => setConfirmRun(false)}
+			/>
 		</div>
 	);
 }
@@ -157,7 +368,22 @@ export function FilesPanel() {
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 	/** Folder a reply's link revealed (or the last folder clicked); marked in the tree. */
 	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const runtime = useSessionRuntime();
+	const remote = useTabsStore(s => Boolean(s.tabs.find(tab => tab.id === tabId)?.device));
+	const [git, setGit] = useState<GitDecorations>(NO_GIT);
+	const [editing, setEditing] = useState<Editing | null>(null);
+	const [menu, setMenu] = useState<{ anchor: ContextMenuAnchor; entry: Entry } | null>(null);
+	const [trashing, setTrashing] = useState<Entry | null>(null);
 
+	const loadGit = useCallback(async () => {
+		if (!runtime) return;
+		try {
+			const response = await runtime.command({ type: "get_git_changes" });
+			setGit(response.success ? gitDecorations(response.data as RpcGitChanges, cwd) : NO_GIT);
+		} catch {
+			setGit(NO_GIT);
+		}
+	}, [runtime, cwd]);
 	const load = useCallback(async () => {
 		const version = ++listVersion.current;
 		setLoading(true);
@@ -189,11 +415,141 @@ export function FilesPanel() {
 		setTree([]);
 		setExpanded(new Set());
 		setSelectedId(null);
+		setEditing(null);
 		void load();
 		return () => {
 			listVersion.current++;
 		};
 	}, [load]);
+
+	useEffect(() => {
+		setGit(NO_GIT);
+		void loadGit();
+	}, [loadGit]);
+
+	const refresh = () => {
+		void load();
+		void loadGit();
+	};
+
+	/** Expand every folder above `path` (and `path` itself when `self`). */
+	const expandTo = (path: string, self: boolean) => {
+		const segments = path.split("/").filter(Boolean);
+		const count = self ? segments.length : segments.length - 1;
+		const ids = segments.slice(0, count).map((_, index) => `dir:${segments.slice(0, index + 1).join("/")}`);
+		setExpanded(prev => new Set([...prev, ...ids]));
+	};
+
+	const mutate = async (mutation: IpcFsMutation) => {
+		setEditing(null);
+		try {
+			const result = await window.omp.fs.mutate(mutation, tabId ?? undefined);
+			if (!result.ok || !result.path) {
+				toastError({ title: t("filesPanel.changeFailed"), error: result });
+				return;
+			}
+			await load();
+			void loadGit();
+			if (mutation.op === "trash") {
+				setSelectedId(null);
+				return;
+			}
+			const kind =
+				mutation.op === "createFolder" || (mutation.op === "rename" && editingKind.current === "dir")
+					? "dir"
+					: "file";
+			expandTo(result.path, false);
+			setSelectedId(`${kind}:${result.path}`);
+		} catch (cause) {
+			toastError({ title: t("filesPanel.changeFailed"), error: cause });
+		}
+	};
+	/** Kind of the entry being renamed, read once the rename lands. */
+	const editingKind = useRef<Entry["kind"]>("file");
+	const startCreate = (op: "createFile" | "createFolder", parent: string) => {
+		setQuery("");
+		if (parent) expandTo(parent, true);
+		setEditing({ op, parent });
+	};
+	const startRename = (entry: Entry) => {
+		setQuery("");
+		editingKind.current = entry.kind;
+		setEditing({ op: "rename", path: entry.path });
+	};
+	/** Folder new entries go into: the selected folder, else the project root. */
+	const createParent = selectedId?.startsWith("dir:") ? selectedId.slice(4) : "";
+
+	const menuItems = (entry: Entry): ContextMenuItem[] => {
+		const items: ContextMenuItem[] = [];
+		if (entry.kind === "dir")
+			items.push(
+				{
+					id: "new-file",
+					label: t("filesPanel.newFile"),
+					icon: FilePlus,
+					onSelect: () => startCreate("createFile", entry.path),
+				},
+				{
+					id: "new-folder",
+					label: t("filesPanel.newFolder"),
+					icon: FolderPlus,
+					onSelect: () => startCreate("createFolder", entry.path),
+				},
+			);
+		else
+			items.push({
+				id: "mention",
+				label: t("filesPanel.insertMention"),
+				icon: AtSign,
+				onSelect: () =>
+					window.dispatchEvent(new CustomEvent("omp:insert-mention", { detail: { path: entry.path, tabId } })),
+			});
+		items.push(
+			{
+				id: "rename",
+				label: t("filesPanel.rename"),
+				icon: Pencil,
+				separatorBefore: true,
+				onSelect: () => startRename(entry),
+			},
+			{
+				id: "trash",
+				label: t("filesPanel.trash"),
+				icon: Trash2,
+				danger: true,
+				onSelect: () => setTrashing(entry),
+			},
+		);
+		if (!remote)
+			items.push({
+				id: "reveal",
+				label: t(PLATFORM === "windows" ? "markdown.path.revealExplorer" : "markdown.path.revealFinder"),
+				icon: FolderOpen,
+				separatorBefore: true,
+				onSelect: () =>
+					void window.omp.system.revealPath(entry.path, tabId ?? undefined).then(
+						result => {
+							if (!result.ok) toastError({ title: t("markdown.link.nativeFailed"), error: result });
+						},
+						cause => toastError({ title: t("markdown.link.nativeFailed"), error: cause }),
+					),
+			});
+		items.push({
+			id: "copy",
+			label: t("markdown.path.copy"),
+			icon: Copy,
+			separatorBefore: remote,
+			onSelect: () =>
+				void copyText(entry.path).then(ok =>
+					toast(
+						ok
+							? { variant: "success", message: t("common.copied") }
+							: { variant: "error", message: t("common.copyFailed") },
+					),
+				),
+		});
+		return items;
+	};
 
 	// A folder link in a reply: once the tree is loaded, expand down to the
 	// folder, select it and scroll it into view, then clear the request.
@@ -226,13 +582,42 @@ export function FilesPanel() {
 		[openFilePreview],
 	);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: mutate is rebuilt each render and reads the latest tab; the listed state decides the rows.
 	const nodes = useMemo<TreeNode[]>(() => {
+		const field = (initial: string, label: string, submit: (name: string) => void) => (
+			<EntryNameField initial={initial} label={label} onCancel={() => setEditing(null)} onSubmit={submit} />
+		);
+		const createNode = (op: "createFile" | "createFolder", parent: string): TreeNode => ({
+			id: "edit:new",
+			label: field(
+				"",
+				t(op === "createFile" ? "filesPanel.newFile" : "filesPanel.newFolder"),
+				name => void mutate({ op, parent, name }),
+			),
+			icon:
+				op === "createFolder" ? (
+					<Folder className="size-(--sc-icon-sm)" />
+				) : (
+					<FileIcon path="" className="size-(--sc-icon-sm)" />
+				),
+		});
 		const toNode = (entry: FsTreeEntry): TreeNode => {
 			const id = `${entry.kind}:${entry.path}`;
 			const isDir = entry.kind === "dir";
+			const renaming = editing?.op === "rename" && editing.path === entry.path;
+			const children = entry.children?.map(toNode) ?? [];
+			if (isDir && editing && editing.op !== "rename" && editing.parent === entry.path)
+				children.unshift(createNode(editing.op, entry.path));
+			const mark = git.files.get(entry.path);
 			return {
 				id,
-				label: entry.name,
+				label: renaming
+					? field(
+							entry.name,
+							t("filesPanel.rename"),
+							name => void mutate({ op: "rename", path: entry.path, name }),
+						)
+					: entry.name,
 				icon: isDir ? (
 					expanded.has(id) ? (
 						<FolderOpen className="size-(--sc-icon-sm)" />
@@ -242,14 +627,42 @@ export function FilesPanel() {
 				) : (
 					<FileIcon path={entry.path} className="size-(--sc-icon-sm)" />
 				),
-				onClick: () => onNodeClick(id),
-				children: entry.children && entry.children.length > 0 ? entry.children.map(toNode) : undefined,
+				trailing: mark ? (
+					<span
+						className={`ms-1 shrink-0 font-mono text-sc-xs ${GIT_MARK_STYLE[mark].color}`}
+						data-git-mark={mark}
+						title={t(GIT_MARK_STYLE[mark].label)}
+					>
+						{mark}
+						<span className="sr-only">{t(GIT_MARK_STYLE[mark].label)}</span>
+					</span>
+				) : isDir && git.dirs.has(entry.path) ? (
+					<span
+						className="ms-1 size-1.5 shrink-0 rounded-full bg-(--sc-text-subtle)"
+						data-git-mark="dir"
+						title={t("filesPanel.git.inside")}
+					/>
+				) : undefined,
+				onClick: renaming ? undefined : () => onNodeClick(id),
+				onMenu: anchor =>
+					setMenu({ anchor, entry: { kind: entry.kind === "dir" ? "dir" : "file", path: entry.path } }),
+				onDragStart: renaming
+					? undefined
+					: event => {
+							event.dataTransfer.setData(FILE_DRAG_TYPE, JSON.stringify({ path: entry.path, tabId }));
+							event.dataTransfer.setData("text/plain", entry.path);
+							event.dataTransfer.effectAllowed = "copy";
+						},
+				children: children.length > 0 ? children : undefined,
 			};
 		};
-		return query.trim()
+		const roots = query.trim()
 			? searchFiles(tree, query).map(entry => ({ ...toNode(entry), label: entry.path }))
 			: tree.map(toNode);
-	}, [tree, query, expanded, onNodeClick]);
+		return editing && editing.op !== "rename" && editing.parent === ""
+			? [createNode(editing.op, ""), ...roots]
+			: roots;
+	}, [tree, query, expanded, onNodeClick, editing, git, t, tabId]);
 
 	const fileCount = useMemo(() => countFiles(tree), [tree]);
 
@@ -268,7 +681,21 @@ export function FilesPanel() {
 					disabled={loading}
 					icon={<RefreshCw />}
 					label={t("filesPanel.refresh")}
-					onClick={() => void load()}
+					onClick={refresh}
+					size="sm"
+				/>
+				<IconButton
+					disabled={error !== null}
+					icon={<FilePlus />}
+					label={t("filesPanel.newFile")}
+					onClick={() => startCreate("createFile", createParent)}
+					size="sm"
+				/>
+				<IconButton
+					disabled={error !== null}
+					icon={<FolderPlus />}
+					label={t("filesPanel.newFolder")}
+					onClick={() => startCreate("createFolder", createParent)}
 					size="sm"
 				/>
 				<div className="min-w-0 flex-1">
@@ -323,6 +750,33 @@ export function FilesPanel() {
 					/>
 				)}
 			</div>
+			{menu && (
+				<ContextMenu
+					ariaLabel={menu.entry.path}
+					items={menuItems(menu.entry).map(item => ({
+						...item,
+						onSelect: () => {
+							setMenu(null);
+							item.onSelect();
+						},
+					}))}
+					onClose={() => setMenu(null)}
+					x={menu.anchor.x}
+					y={menu.anchor.y}
+				/>
+			)}
+			<ConfirmDialog
+				open={trashing !== null}
+				title={t(trashing?.kind === "dir" ? "filesPanel.trashFolderTitle" : "filesPanel.trashFileTitle")}
+				message={t("filesPanel.trashMessage", { name: trashing?.path ?? "" })}
+				confirmLabel={t("filesPanel.trash")}
+				onConfirm={() => {
+					const entry = trashing;
+					setTrashing(null);
+					if (entry) void mutate({ op: "trash", path: entry.path });
+				}}
+				onCancel={() => setTrashing(null)}
+			/>
 		</div>
 	);
 }

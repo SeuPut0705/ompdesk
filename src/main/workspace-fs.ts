@@ -1,20 +1,25 @@
 /**
- * Workspace filesystem reads behind fs:list / fs:read / fs:read-image /
- * fs:read-binary / fs:read-plan — node:fs based, no sidecar session required,
- * cross-platform, rooted at a tab's cwd. Shared by the local IPC handlers and
- * by the remote host (src/main/remote/host-services.ts), which serves the same
- * reads for a paired device's tabs with the same confinement and caps. Never
- * throws: every failure is an `ok: false` result with a stable code.
+ * Workspace filesystem behind fs:list / fs:read / fs:read-image /
+ * fs:read-binary / fs:read-plan / fs:stat, plus the Files panel's few writes
+ * (fs:mutate: new file or folder, rename, move to the trash) — node:fs based,
+ * no sidecar session required, cross-platform, rooted at a tab's cwd. Shared by
+ * the local IPC handlers and by the remote host (src/main/remote/host-services.ts),
+ * which serves the same calls for a paired device's tabs with the same
+ * confinement and caps. Never throws: every failure is an `ok: false` result
+ * with a stable code.
  */
 import { type Dirent, promises as fsp } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { z } from "zod";
 import { codedError, type IpcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	FsTreeEntry,
 	IpcFsListPayload,
 	IpcFsListResult,
+	IpcFsMutateResult,
+	IpcFsMutation,
 	IpcFsReadBinaryPayload,
 	IpcFsReadBinaryResult,
 	IpcFsReadImagePayload,
@@ -23,6 +28,7 @@ import type {
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
+	IpcFsStatResult,
 	RemoteDirListing,
 } from "../shared/ipc-types";
 
@@ -705,4 +711,112 @@ export async function listDirectories(target: string | undefined): Promise<Remot
 		.map(name => ({ name, path: path.join(abs, name) }));
 	const parent = path.dirname(abs);
 	return { path: abs, parent: parent === abs ? null : parent, entries };
+}
+
+/** The file's mtime and size, for the viewer's disk watch; a missing path is `file_not_found`. */
+export async function statWorkspacePath(cwd: string | null, target: unknown): Promise<IpcFsStatResult> {
+	const fail = (error: string, code?: IpcErrorCode): IpcFsStatResult => ({
+		ok: false,
+		mtimeMs: 0,
+		size: 0,
+		error,
+		...(code ? { code } : {}),
+	});
+	if (typeof target !== "string" || target.length === 0) return fail("Invalid path", "invalid_path");
+	const resolved = resolveReadPath(cwd, target);
+	if ("error" in resolved) return fail(resolved.error, resolved.code);
+	try {
+		const stat = await fsp.stat(resolved.abs);
+		return { ok: true, mtimeMs: stat.mtimeMs, size: stat.size };
+	} catch (err) {
+		return fail(err instanceof Error ? err.message : String(err), fsErrorCode(err));
+	}
+}
+
+function fsErrorCode(err: unknown): IpcErrorCode | undefined {
+	const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
+	if (code === "ENOENT") return "file_not_found";
+	if (code === "EEXIST" || code === "ENOTEMPTY") return "exists";
+	return undefined;
+}
+
+/** One path segment a user typed: no separators, no `.`/`..`, no control characters. */
+function validEntryName(name: unknown): name is string {
+	return (
+		typeof name === "string" &&
+		name.trim() === name &&
+		name.length > 0 &&
+		name.length <= 255 &&
+		name !== "." &&
+		name !== ".." &&
+		!/[\\/]|\p{Cc}/u.test(name)
+	);
+}
+
+/** The wire shape of `IpcFsMutation`; anything else from a renderer or a peer is refused. */
+const FsMutationSchema: z.ZodType<IpcFsMutation> = z.discriminatedUnion("op", [
+	z.object({ op: z.enum(["createFile", "createFolder"]), parent: z.string(), name: z.string() }),
+	z.object({ op: z.literal("rename"), path: z.string(), name: z.string() }),
+	z.object({ op: z.literal("trash"), path: z.string() }),
+]);
+
+/**
+ * The Files panel's writes inside `root`: create an empty file or a folder in `parent`, rename an entry in place,
+ * or hand it to `trash` (the OS trash, never a hard delete). An existing target is `exists`, never overwritten.
+ * `path` in the result is the new workspace-relative POSIX path.
+ */
+export async function mutateWorkspace(
+	root: string | null,
+	request: unknown,
+	trash: (abs: string) => Promise<void>,
+): Promise<IpcFsMutateResult> {
+	const fail = (error: string, code?: IpcErrorCode): IpcFsMutateResult => ({
+		ok: false,
+		error,
+		...(code ? { code } : {}),
+	});
+	if (!root) return fail("No workspace", "no_workspace");
+	const parsed = FsMutationSchema.safeParse(request);
+	if (!parsed.success) return fail("Invalid file operation", "invalid_path");
+	const mutation = parsed.data;
+	const relative = (abs: string) => path.relative(root, abs).split(path.sep).join("/");
+	const inside = (rel: unknown) =>
+		typeof rel === "string" ? resolveWithin(root, rel.replace(/\\/g, "/").replace(/^\.\//, "")) : null;
+	const exists = (abs: string) =>
+		fsp.lstat(abs).then(
+			() => true,
+			() => false,
+		);
+	try {
+		if ("parent" in mutation) {
+			if (!validEntryName(mutation.name)) return fail("Invalid name", "invalid_name");
+			const dir = inside(mutation.parent);
+			if (!dir) return fail("Path escapes the workspace", "path_escapes_workspace");
+			if (!(await fsp.stat(dir)).isDirectory()) return fail("Not a directory", "not_a_directory");
+			const abs = path.join(dir, mutation.name);
+			if (mutation.op === "createFile") await fsp.writeFile(abs, "", { flag: "wx" });
+			else await fsp.mkdir(abs);
+			return { ok: true, path: relative(abs) };
+		}
+		const source = inside(mutation.path);
+		if (!source) return fail("Path escapes the workspace", "path_escapes_workspace");
+		if (source === root) return fail("The project folder itself can't change here", "invalid_path");
+		if (!(await exists(source))) return fail("File not found", "file_not_found");
+		if (mutation.op === "trash") {
+			await trash(source);
+			return { ok: true, path: relative(source) };
+		}
+		if (!validEntryName(mutation.name)) return fail("Invalid name", "invalid_name");
+		const target = path.join(path.dirname(source), mutation.name);
+		if (target === source) return { ok: true, path: relative(source) };
+		// A case-only rename finds the source itself on a case-insensitive disk; anything else there is taken.
+		if (await exists(target)) {
+			const [from, to] = await Promise.all([fsp.lstat(source), fsp.lstat(target)]);
+			if (from.ino !== to.ino || from.dev !== to.dev) return fail("A file with that name already exists", "exists");
+		}
+		await fsp.rename(source, target);
+		return { ok: true, path: relative(target) };
+	} catch (err) {
+		return fail(err instanceof Error ? err.message : String(err), fsErrorCode(err));
+	}
 }

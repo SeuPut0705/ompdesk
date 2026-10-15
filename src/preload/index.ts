@@ -125,8 +125,8 @@ const api: OmpApi = {
 	},
 	preview: {
 		command: request => ipcRenderer.invoke(PREVIEW_COMMAND, request),
-		onState: callback => subscribe<PreviewState>(PREVIEW_STATE, callback),
 		savePdf: () => ipcRenderer.invoke(PREVIEW_SAVE_PDF),
+		onState: callback => subscribe<PreviewState>(PREVIEW_STATE, callback),
 	},
 	schedules: {
 		command: request => ipcRenderer.invoke(SCHEDULES_COMMAND, request),
@@ -407,6 +407,8 @@ const api: OmpApi = {
 			ipcRenderer.invoke(IPC_COMMANDS.FS_LIST, { path, maxDepth, maxEntries, tabId }) as Promise<IpcFsListResult>,
 		read: (path: string, maxBytes?: number, tabId?: string) =>
 			ipcRenderer.invoke(IPC_COMMANDS.FS_READ, { path, maxBytes, tabId }) as Promise<IpcFsReadResult>,
+		stat: (path, tabId) => ipcRenderer.invoke(IPC_COMMANDS.FS_STAT, { path, tabId }),
+		mutate: (mutation, tabId) => ipcRenderer.invoke(IPC_COMMANDS.FS_MUTATE, { mutation, tabId }),
 		readPlan: (payload: IpcFsReadPlanPayload) =>
 			ipcRenderer.invoke(IPC_COMMANDS.FS_READ_PLAN, payload) as Promise<IpcFsReadPlanResult>,
 		readImage: (path: string, tabId?: string) =>

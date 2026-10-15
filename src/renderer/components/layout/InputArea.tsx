@@ -24,6 +24,7 @@ import { withGuiCommands } from "../../lib/command-registry";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { tryEmojiInlineReplace } from "../../lib/emoji";
 import { cx } from "../../lib/format";
+import { FILE_DRAG_TYPE, readFileDrag } from "../../lib/file-drag";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { parseComposerMode } from "../../lib/input-modes";
@@ -924,9 +925,13 @@ export function InputArea() {
 		});
 	};
 
-	// Files dropped on the composer go through attachFiles like a paste; anything
-	// else keeps the browser default (text drops insert into the field).
-	const draggingFiles = (event: DragEvent<HTMLElement>) => Array.from(event.dataTransfer.types).includes("Files");
+	// Files dropped on the composer go through attachFiles like a paste; a Files
+	// tree row becomes an @mention (C42); anything else keeps the browser
+	// default (text drops insert into the field).
+	const draggingFiles = (event: DragEvent<HTMLElement>) => {
+		const types = Array.from(event.dataTransfer.types);
+		return types.includes("Files") || types.includes(FILE_DRAG_TYPE);
+	};
 	const dropProps = {
 		onDragEnter: (event: DragEvent<HTMLDivElement>) => {
 			if (draggingFiles(event)) setDragActive(true);
@@ -951,6 +956,13 @@ export function InputArea() {
 		!routeReady || status !== "ready" || sending || submissionUncertain || (!text.trim() && images.length === 0);
 	// While first-run setup runs, the live model is whatever omp fell back to
 	// (e.g. a tiny on-device model); show the neutral prompt instead.
+			const row = readFileDrag(event.dataTransfer);
+			if (row) {
+				window.dispatchEvent(
+					new CustomEvent("omp:insert-mention", { detail: { path: row.path, tabId: runtimeTabId } }),
+				);
+				return;
+			}
 	const modelLabel = model && !settingUp ? model.name || model.id : t("input.chooseModel");
 	const placeholder =
 		status !== "ready"
