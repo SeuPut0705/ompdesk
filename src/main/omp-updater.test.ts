@@ -261,6 +261,84 @@ describe("OmpUpdater", () => {
 		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
 		expect(h.calls).toEqual([]);
 	});
+
+	it("starts nothing after a quit that lands during an install: no resume, no toast, helpers stay down", async () => {
+		const h = harness();
+		let release: () => void = () => {};
+		const gate = new Promise<void>(resolve => {
+			release = resolve;
+		});
+		h.update.mockImplementation(async (target, beforeInstall) => {
+			h.calls.push(`update ${target}`);
+			await beforeInstall();
+			await gate;
+			return { kind: "updated", version: "18.9.0" };
+		});
+		h.updater.start();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(h.calls).toEqual(["fetch", "update 18.9.0", "release"]);
+
+		// Quit: the setup service is cancelled and the install returns while the app tears down.
+		h.updater.dispose();
+		release();
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS * 2);
+		expect(h.calls).toEqual(["fetch", "update 18.9.0", "release"]);
+		expect(h.notices).toEqual([]);
+	});
+
+	it("does not resume the helpers after a failed install that lands once disposed", async () => {
+		const h = harness();
+		let release: () => void = () => {};
+		const gate = new Promise<void>(resolve => {
+			release = resolve;
+		});
+		h.update.mockImplementation(async (target, beforeInstall) => {
+			h.calls.push(`update ${target}`);
+			await beforeInstall();
+			await gate;
+			return { kind: "failed", failure: { reason: "cancelled" } };
+		});
+		h.updater.start();
+		await vi.advanceTimersByTimeAsync(0);
+		h.updater.dispose();
+		release();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(h.calls).not.toContain("resume false");
+	});
+
+	it("keeps checking after a throw in the update notice (a window that was destroyed meanwhile)", async () => {
+		const h = harness();
+		let throws = true;
+		const updater = new OmpUpdater({
+			scheduled: true,
+			enabled: () => true,
+			fetchLatest: async () => {
+				h.calls.push("fetch");
+				return h.set.latest;
+			},
+			installed: () => h.set.installed,
+			update: async target => {
+				h.calls.push(`update ${target}`);
+				h.set.installed = target;
+				return { kind: "updated", version: target };
+			},
+			releaseHelpers: async () => {},
+			resume: async () => {},
+			onState: () => {},
+			onUpdated: () => {
+				if (throws) throw new Error("Object has been destroyed");
+			},
+		});
+		updater.start();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(h.calls).toEqual(["fetch", "update 18.9.0"]);
+
+		throws = false;
+		h.set.latest = "19.0.0";
+		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		expect(h.calls).toEqual(["fetch", "update 18.9.0", "fetch", "update 19.0.0"]);
+		updater.dispose();
+	});
 });
 
 describe("omp update IPC", () => {

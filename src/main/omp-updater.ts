@@ -118,9 +118,13 @@ export class OmpUpdater {
 	async #cycle(): Promise<void> {
 		clearTimeout(this.#timer ?? undefined);
 		this.#timer = null;
-		if (this.#deps.enabled()) await this.#run();
-		if (this.#disposed) return;
-		this.#timer = setTimeout(() => void this.#cycle(), nextCheckDelay(this.#failures));
+		try {
+			if (this.#deps.enabled()) await this.#run();
+		} catch {
+			// A throw from a dependency (a destroyed window in `onUpdated`) must not end the schedule.
+		} finally {
+			if (!this.#disposed) this.#timer = setTimeout(() => void this.#cycle(), nextCheckDelay(this.#failures));
+		}
 	}
 
 	#run(): Promise<void> {
@@ -171,6 +175,8 @@ export class OmpUpdater {
 			released = true;
 			await this.#deps.releaseHelpers();
 		});
+		// Quit while the installer ran: teardown is under way, so nothing starts again (helpers, tabs, toast).
+		if (this.#disposed) return;
 		if (outcome.kind === "updated") {
 			this.#failures = 0;
 			this.#set({ failure: null, updatedTo: outcome.version });

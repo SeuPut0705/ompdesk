@@ -601,7 +601,8 @@ app.whenReady().then(() => {
 	const launchStats = () =>
 		Promise.all([systemOmp(), spawnPath()])
 			.then(([resolution, basePath]) => {
-				if (!resolution.ok || statsServer) return;
+				// A quit tears the stats server down: a launch that resolves after it must not start a new one.
+				if (!resolution.ok || statsServer || quitApproved()) return;
 				const packageRoot = ompPackageRoot(resolution.runtime.bin);
 				if (!packageRoot) {
 					console.warn(`[stats-server] cannot locate the omp package behind ${resolution.runtime.bin}`);
