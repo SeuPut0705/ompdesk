@@ -106,9 +106,6 @@ test("real omp: a goal whose time limit runs out is paused like stock's own paus
 	const { app, page, tabId, profile } = await launchReal();
 	try {
 		await setSetting(page, "goal.enabled", true);
-		// Stock continues an active goal between turns only in the run modes `goal.continuationModes` names
-		// (default `["interactive"]`): over RPC a resumed goal waits for the next prompt unless "rpc" is listed.
-		await setSetting(page, "goal.continuationModes", ["interactive", "rpc"]);
 		const toolNames = async () =>
 			(await command<{ tools: Array<{ name: string }> }>(page, tabId, { type: "get_active_tools" })).tools.map(
 				tool => tool.name,

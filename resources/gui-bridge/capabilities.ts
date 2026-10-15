@@ -411,9 +411,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		},
 	},
 	/**
-	 * thinking-default.ts: `auto` as the runtime-override default of `defaultThinkingLevel`
-	 * (index.ts applies it before the first session; settings.ts re-checks it). The
-	 * handle is reached through `lookup`; the `session/settings` entry only probes it.
+	 * thinking-default.ts: OMPdesk's runtime-override defaults (`auto` for `defaultThinkingLevel`,
+	 * "rpc" in `goal.continuationModes`; index.ts applies them before the first session,
+	 * settings.ts re-checks them). The handles are reached through `lookup`; the
+	 * `session/settings` and `goals/settings` entries only probe them.
 	 */
 	thinkingDefault: {
 		pkg: ["Settings.instance.getGlobalSettings()", "Settings.instance.getProjectSettings()"],
@@ -430,6 +431,13 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"cfgProvidersAutoThinkingMaxEffort.isConfigured()",
 				"cfgProvidersAutoThinkingMaxEffort.override()",
 				"cfgProvidersAutoThinkingMaxEffort.clearOverride()",
+			],
+			[`${AGENT}/goals/settings`]: [
+				"cfgGoalContinuationModes.id",
+				"cfgGoalContinuationModes.segments",
+				"cfgGoalContinuationModes.isConfigured()",
+				"cfgGoalContinuationModes.override()",
+				"cfgGoalContinuationModes.clearOverride()",
 			],
 		},
 	},

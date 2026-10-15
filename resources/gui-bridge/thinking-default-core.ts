@@ -21,9 +21,11 @@
  */
 
 /** The setting ids OMPdesk holds a default for, and that default. */
-export const GUI_THINKING_DEFAULTS: Readonly<Record<string, string>> = {
+export const GUI_THINKING_DEFAULTS: Readonly<Record<string, unknown>> = {
 	defaultThinkingLevel: "auto",
 	"providers.autoThinkingMaxEffort": "max",
+	// Stock continues a goal between turns over RPC only when this lists "rpc" (its default is ["interactive"]).
+	"goal.continuationModes": ["interactive", "rpc"],
 };
 
 /** The stock `Setting` handle members used here (`lookup("defaultThinkingLevel")`). */
@@ -32,7 +34,7 @@ export interface ThinkingDefaultSetting {
 	segments: readonly string[];
 	/** Whether the environment or any settings layer (runtime, overlay, project, global) sets the value. */
 	isConfigured(scope: object): boolean;
-	override(scope: object, value: string): void;
+	override(scope: object, value: unknown): void;
 	clearOverride(scope: object): void;
 }
 
