@@ -20,6 +20,7 @@ import {
 } from "../../../shared/terminal-types";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useT } from "../../lib/i18n";
+import { TerminalLocalEcho } from "../../lib/terminal-local-echo";
 import { useTabsStore } from "../../stores/tabs";
 import { COMPACT_SHELL_QUERY, useUiStore } from "../../stores/ui";
 import { Banner, Button, EmptyState, ErrorDetail, IconButton, MenuButton, Spinner } from "../common";
@@ -65,7 +66,9 @@ export interface TerminalMount {
 		| "getSelection"
 		| "dispose"
 		| "attachCustomKeyEventHandler"
-	>;
+	> &
+		/** xterm always has it; a test double without one never paints predictions. */
+		Partial<Pick<Terminal, "buffer">>;
 	fit(): void;
 }
 export async function mountTerminal(element: HTMLElement): Promise<TerminalMount> {
@@ -92,6 +95,7 @@ export function TerminalViewport({
 	onError,
 	mount = mountTerminal,
 	handle,
+	predict = false,
 }: {
 	tabId: string;
 	id: string;
@@ -99,6 +103,8 @@ export function TerminalViewport({
 	onError: (error: string) => void;
 	mount?: (element: HTMLElement) => TerminalMount | Promise<TerminalMount>;
 	handle: { current: TerminalMount | null };
+	/** Paint typed characters before the host echoes them (a paired host's tab, C109). */
+	predict?: boolean;
 }) {
 	const element = useRef<HTMLDivElement>(null);
 	const t = useT();
@@ -124,7 +130,20 @@ export function TerminalViewport({
 					return null;
 				}
 			};
+			const echo = predict
+				? new TerminalLocalEcho({
+						write: data => view.terminal.write(data),
+						anchor: () => {
+							const buffer = view.terminal.buffer?.active;
+							if (buffer?.type !== "normal") return null;
+							const line = buffer.getLine(buffer.baseY + buffer.cursorY)?.translateToString(true) ?? "";
+							return line.length <= buffer.cursorX ? buffer.cursorX : null;
+						},
+						cols: () => view.terminal.cols,
+					})
+				: null;
 			const input = view.terminal.onData(data => {
+				echo?.input(data);
 				void request({ action: "write", id, data });
 			});
 			view.terminal.attachCustomKeyEventHandler(event => {
@@ -166,7 +185,7 @@ export function TerminalViewport({
 				if (stopped) return;
 				const snapshot = snapshots?.find(item => item.id === id);
 				if (snapshot) {
-					if (snapshot.output) view.terminal.write(snapshot.output);
+					if (snapshot.output) view.terminal.write(echo ? echo.output(snapshot.output) : snapshot.output);
 					offset = snapshot.offset;
 					onStatus(snapshot);
 				}
@@ -178,6 +197,7 @@ export function TerminalViewport({
 				observer.disconnect();
 				theme.disconnect();
 				input.dispose();
+				echo?.dispose();
 				view.terminal.dispose();
 				if (handle.current === view) handle.current = null;
 			};
@@ -188,7 +208,7 @@ export function TerminalViewport({
 			stopped = true;
 			cleanup();
 		};
-	}, [tabId, id, mount, onStatus, onError, handle]);
+	}, [tabId, id, mount, onStatus, onError, handle, predict]);
 	return (
 		<div
 			aria-label={t("panel.terminal.title")}
@@ -211,6 +231,8 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 	const [shells, setShells] = useState<TerminalShell[]>([]);
 	const expanded = useUiStore(s => s.terminalExpanded);
 	const compact = useMediaQuery(COMPACT_SHELL_QUERY);
+	// A paired host's terminal answers over the network: typed characters are predicted (C109).
+	const remote = useTabsStore(state => state.tabs.some(tab => tab.id === tabId && tab.device !== undefined));
 	useEffect(() => {
 		let live = true;
 		void window.omp.terminal.shells(tabId).then(
@@ -439,6 +461,7 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 					key={`${selected}:${attempt}`}
 					onError={setError}
 					onStatus={onStatus}
+					predict={remote}
 					tabId={tabId}
 				/>
 			) : (
